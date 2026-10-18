@@ -92,6 +92,8 @@ export type MockOptions = {
   apiProposal?: Record<string, unknown>
   /** Card de login já presente no histórico (ex.: "Conectar API"): corpo do cartão persistido. */
   loginCard?: Record<string, unknown>
+  /** O run executa `run_code` (código + saída + gráfico gerado) antes de responder: o chat mostra o cartão "Executou código". */
+  runCodeInRun?: { code: string; summary: string; ok?: boolean; imageId?: string }
   /** Nome do bot principal (padrão "Atlas"). */
   botName?: string
 }
@@ -106,7 +108,7 @@ export class MockAtlas {
   readonly messages: StoredMessage[] = []
   private runs = new Map<string, RunRecord>()
   private seq = 0
-  private readonly options: Required<Omit<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName">> & Pick<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName">
+  private readonly options: Required<Omit<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "runCodeInRun">> & Pick<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "runCodeInRun">
   /** Requisições `POST /v1/runs/:id/inputs` aceitas (fala do usuário entregue a um run em andamento). */
   readonly inputs: Array<{ runId: string; content: string }> = []
   readonly memoryEntries: MemoryEntryRecord[] = []
@@ -484,10 +486,19 @@ export class MockAtlas {
           { type: "tool_result", id: `t-${id}`, name: "memory", ok: true, summary: "Memória atualizada (add em memory)." },
         ]
       : []
+    const rc = this.options.runCodeInRun
+    const codeEvents = rc
+      ? [
+          { type: "tool_call", id: `rc-${id}`, name: "run_code", args: JSON.stringify({ code: rc.code }) },
+          ...(rc.imageId ? [{ type: "images", origin: "assistant", items: [{ artifactId: rc.imageId, mime: "image/png", width: 960, height: 540, alt: "grafico.png" }] }] : []),
+          { type: "tool_result", id: `rc-${id}`, name: "run_code", ok: rc.ok ?? true, summary: rc.summary },
+        ]
+      : []
     const half = Math.ceil(record.reply.length / 2)
     const events = [
       { type: "run", runId: id, status: "running" },
       ...memoryEvents,
+      ...codeEvents,
       { type: "assistant_delta", id: `a-${id}`, delta: record.reply.slice(0, half) },
       { type: "assistant_delta", id: `a-${id}`, delta: record.reply.slice(half) },
       { type: "done", message: { role: "assistant", content: record.reply }, model: "mock/e2e" },
