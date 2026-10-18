@@ -1,0 +1,189 @@
+"use client";
+
+import { type KeyboardEvent, type ReactNode, useRef, useState } from "react";
+import {
+	BellIcon,
+	BotIcon,
+	ChartColumnIcon,
+	CreditCardIcon,
+	MonitorIcon,
+	PlugIcon,
+	SearchIcon,
+	KeyRoundIcon,
+	SparklesIcon,
+	SettingsIcon,
+	SlidersHorizontalIcon,
+	UserIcon,
+	type LucideIcon,
+} from "lucide-react";
+import { cn } from "@workspace/ui/lib/utils";
+import { Input } from "@workspace/ui/components/input";
+import { SettingsPicker } from "@/components/ui/templates/template-4/settings-picker";
+import {
+	type SettingsNavEntry,
+	type SettingsNavId,
+	type SettingsSearchResult,
+	type SettingsSectionId,
+	moveIndex,
+	searchSettings,
+} from "./settings-registry";
+
+/** Ícone por seção: toda entrada visível tem o seu (o texto alinha igual). */
+export const NAV_ICONS: Record<SettingsNavId, LucideIcon> = {
+	conta: UserIcon,
+	geral: SettingsIcon,
+	provedores: CreditCardIcon,
+	bots: BotIcon,
+	notificacoes: BellIcon,
+	computador: MonitorIcon,
+	conexoes: PlugIcon,
+	cofre: KeyRoundIcon,
+	habilidades: SparklesIcon,
+	uso: ChartColumnIcon,
+	avancado: SlidersHorizontalIcon,
+};
+
+/**
+ * Casca do modal (estilo Grok): busca + nav à esquerda (198px), painel que rola à direita.
+ * Não conhece Dialog nem URL (o `SettingsDialog` cuida disso), então renderiza em teste.
+ * Em tela estreita a nav vira um dropdown no topo.
+ */
+export function SettingsShell({
+	section,
+	onSectionChange,
+	header,
+	initialQuery = "",
+	hiddenItems,
+	children,
+}: {
+	section: SettingsSectionId;
+	onSectionChange: (section: SettingsSectionId) => void;
+	/** Linha de título + botão de fechar (precisa do contexto do Dialog). */
+	header: ReactNode;
+	initialQuery?: string;
+	/** Itens que o usuário não pode usar (ex.: o plano ChatGPT para quem não é dono). */
+	hiddenItems?: ReadonlySet<string>;
+	children: (context: { search: SettingsSearchResult }) => ReactNode;
+}) {
+	const [query, setQuery] = useState(initialQuery);
+	const navRef = useRef<HTMLElement>(null);
+	const search = searchSettings(query, hiddenItems);
+
+	function navButtons(): HTMLButtonElement[] {
+		return Array.from(
+			navRef.current?.querySelectorAll<HTMLButtonElement>("button[data-nav-item]") ?? [],
+		);
+	}
+
+	function onNavKeyDown(event: KeyboardEvent<HTMLElement>) {
+		const keys = { ArrowDown: "next", ArrowUp: "prev", Home: "first", End: "last" } as const;
+		const move = keys[event.key as keyof typeof keys];
+		if (!move) return;
+		const buttons = navButtons();
+		const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+		event.preventDefault();
+		buttons[moveIndex(current, buttons.length, move)]?.focus();
+	}
+
+	return (
+		<div className="flex min-h-0 flex-1 flex-col md:flex-row">
+			<aside className="flex shrink-0 flex-col gap-3 border-b border-border/60 bg-muted/40 p-3 md:w-[198px] md:border-r md:border-b-0 md:px-3 md:py-4">
+				<div className="relative">
+					<SearchIcon
+						aria-hidden
+						className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+					/>
+					<Input
+						aria-label="Buscar nas configurações"
+						className="h-8 pl-8 text-[13px]"
+						onChange={(event) => setQuery(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key !== "ArrowDown") return;
+							event.preventDefault();
+							navButtons()[0]?.focus();
+						}}
+						placeholder="Buscar"
+						type="search"
+						value={query}
+					/>
+				</div>
+
+				<div className="md:hidden">
+					{search.entries.length > 0 ? (
+						<SettingsPicker
+							aria-label="Seção das configurações"
+							className="w-full"
+							onChange={(id) => {
+								const entry = search.entries.find((item) => item.id === id);
+								if (entry) onSectionChange(entry.id);
+							}}
+							options={search.entries.map((entry) => ({ value: entry.id, label: entry.label }))}
+							value={search.entries.some((entry) => entry.id === section) ? section : ""}
+							placeholder="Escolha uma seção"
+						/>
+					) : (
+						<NothingFound />
+					)}
+				</div>
+
+				<nav
+					aria-label="Seções das configurações"
+					className="hidden min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto md:flex"
+					onKeyDown={onNavKeyDown}
+					ref={navRef}
+				>
+					{search.entries.length === 0 ? <NothingFound /> : null}
+					{search.entries.map((entry) => (
+						<NavButton
+							active={entry.id === section}
+							entry={entry}
+							key={entry.id}
+							onChoose={(chosen) => onSectionChange(chosen.id)}
+						/>
+					))}
+				</nav>
+			</aside>
+
+			<section className="flex min-h-0 min-w-0 flex-1 flex-col" data-slot="settings-panel">
+				{header}
+				<div className="min-h-0 flex-1 overflow-y-auto px-8 pt-[22px] pb-7">{children({ search })}</div>
+			</section>
+		</div>
+	);
+}
+
+function NothingFound() {
+	return (
+		<p className="px-3 py-2 text-sm text-muted-foreground" role="status">
+			Nada encontrado
+		</p>
+	);
+}
+
+function NavButton({
+	entry,
+	active,
+	onChoose,
+}: {
+	entry: SettingsNavEntry;
+	active: boolean;
+	onChoose: (entry: SettingsNavEntry) => void;
+}) {
+	const Icon = NAV_ICONS[entry.id];
+	return (
+		<button
+			aria-current={active ? "page" : undefined}
+			className={cn(
+				"flex w-full items-center gap-[9px] rounded-lg px-[9px] py-[7px] text-left text-[13px] text-foreground outline-none transition-colors duration-100",
+				"hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50",
+				active && "bg-accent font-medium",
+			)}
+			data-nav-item=""
+			onClick={() => onChoose(entry)}
+			type="button"
+		>
+			<Icon aria-hidden className="size-[15px] shrink-0" data-nav-icon="" />
+			<span className="truncate">{entry.label}</span>
+		</button>
+	);
+}

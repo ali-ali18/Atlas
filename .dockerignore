@@ -1,0 +1,39 @@
+# Contexto pequeno e estável: o hash do contexto não deve mudar por causa de
+# artefatos locais. (Os Dockerfiles só dependem de apps/, packages/ e dos
+# manifests da raiz.)
+.git
+# Só o mínimo para descobrir o commit no build (scripts/resolve-git-commit.mjs): HEAD, refs e packed-refs.
+!.git/HEAD
+!.git/packed-refs
+!.git/refs/heads/**
+.github
+.worktrees
+.claude
+.cursor
+.agents
+.vscode
+.idea
+**/.turbo
+**/node_modules
+**/.next
+**/dist
+**/out
+**/build
+**/coverage
+**/*.tsbuildinfo
+.env
+.env.*
+!.env.example
+**/*.md
+!docker/**/*.md
+# Skills de fábrica: o build gera generated.ts a partir destes .md.
+!packages/agent-runtime/src/skills/builtin/*.md
+**/*.log
+**/.DS_Store
+tmp
+# Não usados nos builds com contexto na raiz (sandbox tem contexto próprio).
+docker/agent-sandbox
+docker/searxng
+docs
+issues_projects
+PLANO*

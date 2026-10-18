@@ -1,0 +1,48 @@
+{
+  "name": "@workspace/agent-runtime",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/gen-builtin-skills.mjs && tsc",
+    "lint": "node -e \"process.exit(0)\"",
+    "typecheck": "node scripts/gen-builtin-skills.mjs && tsc --noEmit && tsc --noEmit -p evals/web/tsconfig.json",
+    "test": "vitest run",
+    "eval:web": "tsx evals/web/cli.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@workspace/db": "workspace:*",
+    "@workspace/llm": "workspace:*",
+    "@workspace/sandbox": "workspace:*",
+    "@workspace/search": "workspace:*",
+    "@workspace/shared": "workspace:*",
+    "docx": "^9.8.1",
+    "exceljs": "^4.4.0",
+    "js-yaml": "4.1.1",
+    "mammoth": "^1.13.0",
+    "marked": "^18.0.14",
+    "pdfjs-dist": "6.3.289",
+    "playwright-core": "^1.63.0",
+    "pptxgenjs": "^4.0.1",
+    "sanitize-html": "^2.18.0",
+    "sharp": "^0.35.5",
+    "undici": "^6.29.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "4.0.9",
+    "@types/sanitize-html": "^2.16.2",
+    "@workspace/typescript-config": "workspace:*",
+    "tsx": "^4.23.13",
+    "typescript": "^5",
+    "vitest": "^3.2.4"
+  }
+}

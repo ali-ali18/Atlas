@@ -1,0 +1,8 @@
+---
+description: Regras gerais do monorepo Atlas (vale para qualquer agente e tarefa)
+alwaysApply: true
+---
+
+Regra mantida em `.agents/rules/00-core.md` (fonte única, não edite aqui).
+
+@.agents/rules/00-core.md

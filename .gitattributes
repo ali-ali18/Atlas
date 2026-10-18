@@ -1,0 +1,4 @@
+*.sh text eol=lf
+Dockerfile text eol=lf
+packages/agent-runtime/src/skills/builtin/generated.ts text eol=lf
+packages/agent-runtime/src/skills/builtin/*.md text eol=lf

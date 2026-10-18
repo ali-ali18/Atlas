@@ -1,0 +1,8 @@
+---
+description: Commits semânticos (Conventional Commits em pt-BR) e atômicos
+alwaysApply: true
+---
+
+Regra mantida em `.agents/rules/20-commits.md` (fonte única, não edite aqui).
+
+@.agents/rules/20-commits.md

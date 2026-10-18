@@ -1,0 +1,9 @@
+{
+  "name": "atlas-agent-sandbox-control",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "^1.57.0"
+  }
+}

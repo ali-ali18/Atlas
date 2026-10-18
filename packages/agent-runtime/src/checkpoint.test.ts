@@ -1,0 +1,157 @@
+import { describe, expect, it } from "vitest";
+import type { LlmMessage } from "@workspace/llm";
+import { AGENT_RUNTIME_CHECKPOINT_VERSION } from "@workspace/shared";
+import {
+	artifactRefUrl,
+	buildRuntimeCheckpoint,
+	hydrateLlmMessages,
+	parseRuntimeCheckpoint,
+	resolveLlmMessagesForModel,
+	serializeLlmMessages,
+	toolIdempotencyKey,
+} from "./checkpoint.js";
+
+describe("checkpoint serialization", () => {
+	it("preserva limite de imagens mostradas e aceita checkpoints antigos", () => {
+		const checkpoint = buildRuntimeCheckpoint({ messages: [], conversation: [], nextStepIndex: 1, model: "m", shownImageCount: 6 });
+		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify(checkpoint)))?.shownImageCount).toBe(6);
+		for (const shownImageCount of [undefined, -1, 1.5, "6", Infinity]) {
+			expect(parseRuntimeCheckpoint({ messages: [], shownImageCount })?.shownImageCount).toBe(0);
+		}
+	});
+	it("pedidos para depois (triagem) sobrevivem ao resume; lixo é descartado", () => {
+		const checkpoint = buildRuntimeCheckpoint({ messages: [], conversation: [], nextStepIndex: 1, model: "m", pendingFollowUps: ["Send a summary."] });
+		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify(checkpoint)))?.pendingFollowUps).toEqual(["Send a summary."]);
+		expect(parseRuntimeCheckpoint({ messages: [], pendingFollowUps: ["ok", 3, "  ", null] })?.pendingFollowUps).toEqual(["ok"]);
+		expect(parseRuntimeCheckpoint({ messages: [] })?.pendingFollowUps).toBeUndefined();
+	});
+	it("degrada Data URL em vez de matar o run", () => {
+		const conversation: LlmMessage[] = [
+			{
+				role: "user",
+				content: [
+					{
+						type: "image_url",
+						image_url: { url: "data:image/png;base64,aaaa" },
+					},
+				],
+			},
+		];
+		expect(serializeLlmMessages(conversation)[0]?.content).toEqual([
+			{ type: "text", text: "[screenshot omitido do checkpoint]" },
+		]);
+	});
+
+	it("canônica guarda ref; transporte expande para o modelo", async () => {
+		const conversation: LlmMessage[] = [
+			{
+				role: "user",
+				content: [
+					{ type: "text", text: "Screenshot atual da tela:" },
+					{
+						type: "image_url",
+						image_url: { url: artifactRefUrl("art_1") },
+					},
+				],
+			},
+		];
+		const serialized = serializeLlmMessages(conversation);
+		expect(serialized[0]?.content).toEqual([
+			{ type: "text", text: "Screenshot atual da tela:" },
+			{ type: "screenshot_ref", artifactId: "art_1" },
+		]);
+
+		const hydrated = await hydrateLlmMessages(serialized);
+		// Hidratar NÃO expande: canônica mantém ref (nunca Data URL).
+		expect(hydrated[0]?.content).toEqual([
+			{ type: "text", text: "Screenshot atual da tela:" },
+			{ type: "screenshot_ref", artifactId: "art_1" },
+		]);
+		// Round-trip: serializar de novo não explode.
+		expect(() => serializeLlmMessages(hydrated)).not.toThrow();
+
+		const transport = await resolveLlmMessagesForModel(
+			hydrated,
+			async (id) => (id === "art_1" ? "data:image/png;base64,abc" : null),
+		);
+		expect(transport[0]?.content).toEqual([
+			{ type: "text", text: "Screenshot atual da tela:" },
+			{
+				type: "image_url",
+				image_url: { url: "data:image/png;base64,abc" },
+			},
+		]);
+		// Canônica intacta após resolver.
+		expect(hydrated[0]?.content).toEqual([
+			{ type: "text", text: "Screenshot atual da tela:" },
+			{ type: "screenshot_ref", artifactId: "art_1" },
+		]);
+	});
+
+	it("checkpoint antigo com skillPins ainda carrega e o campo some do novo", () => {
+		const old = {
+			version: 2,
+			messages: [{ role: "user", content: "oi" }],
+			llmMessages: [{ role: "assistant", content: "x" }],
+			nextStepIndex: 4,
+			model: "m",
+			skillPins: [{ skillId: "s", versionId: "v" }],
+		};
+		const parsed = parseRuntimeCheckpoint(JSON.parse(JSON.stringify(old)));
+		expect(parsed?.nextStepIndex).toBe(4);
+		expect(parsed?.messages).toHaveLength(1);
+		expect(parsed && "skillPins" in parsed).toBe(false);
+		const rebuilt = buildRuntimeCheckpoint({ messages: [], conversation: [], nextStepIndex: 1, model: "m" });
+		expect("skillPins" in rebuilt).toBe(false);
+	});
+	it("grava nextStepIndex e versão", () => {
+		const checkpoint = buildRuntimeCheckpoint({
+			messages: [{ role: "user", content: "oi" }],
+			conversation: [{ role: "system", content: "sys" }],
+			nextStepIndex: 3,
+			model: "test-model",
+		});
+		expect(checkpoint.version).toBe(AGENT_RUNTIME_CHECKPOINT_VERSION);
+		expect(checkpoint.nextStepIndex).toBe(3);
+		expect(checkpoint.model).toBe("test-model");
+	});
+
+	it("deriva chave estável de ferramenta", () => {
+		expect(
+			toolIdempotencyKey({
+				runId: "r1",
+				decisionIndex: 2,
+				toolCallId: "call_9",
+				toolName: "navigate",
+			}),
+		).toBe("r1:2:call_9:navigate");
+	});
+});
+
+describe("F12/B5 - checkpoint do pedido de login", () => {
+	it("loginAsked e pendingLogin sobrevivem ao build/parse; lixo é descartado", () => {
+		const checkpoint = buildRuntimeCheckpoint({
+			messages: [],
+			conversation: [],
+			nextStepIndex: 3,
+			model: "m",
+			loginAsked: ["https://a.com/login"],
+			pendingLogin: { loginId: "login-1", site: "a.com", url: "https://a.com/login" },
+		});
+		const parsed = parseRuntimeCheckpoint(JSON.parse(JSON.stringify(checkpoint)));
+		expect(parsed?.loginAsked).toEqual(["https://a.com/login"]);
+		expect(parsed?.pendingLogin).toEqual({ loginId: "login-1", site: "a.com", url: "https://a.com/login" });
+		const dirty = parseRuntimeCheckpoint({ messages: [], loginAsked: [1, "x"], pendingLogin: { loginId: 3 } });
+		expect(dirty?.loginAsked).toEqual(["x"]);
+		expect(dirty?.pendingLogin).toBeUndefined();
+	});
+});
+
+describe("checkpoint: triagedInputs", () => {
+	it("sobrevive ao ciclo build -> JSON -> parse e descarta lixo", () => {
+		const triagedInputs = [{ ids: ["i1"], text: "oi", verdict: { kind: "later" as const, cancel: false, reply: "Faço depois.", instruction: "Tabela" } }];
+		const checkpoint = buildRuntimeCheckpoint({ messages: [], conversation: [], nextStepIndex: 1, model: "m", triagedInputs });
+		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify(checkpoint)))?.triagedInputs).toEqual(triagedInputs);
+		expect(parseRuntimeCheckpoint({ messages: [], triagedInputs: [{ ids: [], text: "x" }, "lixo", { ids: ["a"], text: "b", verdict: { kind: "x" } }] })?.triagedInputs).toBeUndefined();
+	});
+});

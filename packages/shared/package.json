@@ -1,0 +1,33 @@
+{
+  "name": "@workspace/shared",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "lint": "node -e \"process.exit(0)\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./avatar/*": {
+      "types": "./src/avatar/*.ts",
+      "import": "./dist/avatar/*.js",
+      "default": "./dist/avatar/*.js"
+    }
+  },
+  "devDependencies": {
+    "@workspace/typescript-config": "workspace:*",
+    "typescript": "^5",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}

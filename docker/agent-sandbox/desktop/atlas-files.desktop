@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Thunar File Manager
+Comment=Thunar File Manager
+Exec=thunar
+Icon=org.xfce.thunar
+Terminal=false
+Type=Application
+Categories=System;FileManager;
+StartupNotify=true

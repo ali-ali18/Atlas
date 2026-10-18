@@ -1,0 +1,8 @@
+---
+description: Segurança — IDOR/escopo por usuário, auth, segredos, entrada externa, webhooks, arquivos
+alwaysApply: true
+---
+
+Regra mantida em `.agents/rules/40-seguranca.md` (fonte única, não edite aqui).
+
+@.agents/rules/40-seguranca.md

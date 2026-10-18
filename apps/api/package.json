@@ -1,0 +1,37 @@
+{
+  "name": "api",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "node -e \"process.exit(0)\"",
+    "test": "node ../../scripts/run-node-tests.mjs \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@better-auth/prisma-adapter": "^1.7.6",
+    "@hono/node-server": "^1.19.9",
+    "@workspace/agent-runtime": "workspace:*",
+    "@workspace/db": "workspace:*",
+    "@workspace/llm": "workspace:*",
+    "@workspace/mail": "workspace:*",
+    "@workspace/observability": "workspace:*",
+    "@workspace/queue": "workspace:*",
+    "@workspace/sandbox": "workspace:*",
+    "@workspace/shared": "workspace:*",
+    "better-auth": "^1.7.6",
+    "dotenv": "^17.2.3",
+    "hono": "^4.11.4",
+    "sharp": "0.35.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@workspace/typescript-config": "workspace:*",
+    "tsx": "^4.21.0",
+    "typescript": "^5"
+  }
+}

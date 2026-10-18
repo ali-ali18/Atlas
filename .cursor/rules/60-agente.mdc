@@ -1,0 +1,9 @@
+---
+description: Regras específicas do runtime do agente Atlas (prompt, tools, honestidade, UX de configuração)
+globs: packages/agent-runtime/**,packages/shared/src/**,apps/worker/src/processors/**,apps/api/src/chat/**
+alwaysApply: false
+---
+
+Regra mantida em `.agents/rules/60-agente.md` (fonte única, não edite aqui).
+
+@.agents/rules/60-agente.md

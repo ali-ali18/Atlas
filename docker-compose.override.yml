@@ -1,0 +1,30 @@
+# Dev local: o Compose junta este arquivo sozinho ao `docker compose up`.
+# Em produção (Dokploy) ele não é lido: o deploy roda `-f ./docker-compose.yml`.
+# - web: publica a 3000 no PC (na VPS a 3000 é do painel do Dokploy).
+# - postgres/redis: api/worker rodando fora do Docker (pnpm dev) precisam
+#   alcançá-los. Publica SÓ em 127.0.0.1 (não expõe na rede).
+services:
+  # PC (Docker Desktop): VM com portas publicadas e viewer direto no navegador.
+  api:
+    environment:
+      SANDBOX_NETWORK_MODE: bridge
+      SANDBOX_CONNECT_MODE: published
+      SANDBOX_VIEWER_MODE: direct
+      DEV_SANDBOX_NETWORK_MODE: bridge
+      DEV_SANDBOX_CONNECT_MODE: published
+  worker:
+    environment:
+      SANDBOX_NETWORK_MODE: bridge
+      SANDBOX_CONNECT_MODE: published
+      SANDBOX_VIEWER_MODE: direct
+      DEV_SANDBOX_NETWORK_MODE: bridge
+      DEV_SANDBOX_CONNECT_MODE: published
+  web:
+    ports:
+      - "3000:3000"
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"

@@ -1,0 +1,33 @@
+{
+  "name": "worker",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "node -e \"process.exit(0)\"",
+    "test": "node ../../scripts/run-node-tests.mjs \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@workspace/agent-runtime": "workspace:*",
+    "@workspace/db": "workspace:*",
+    "@workspace/llm": "workspace:*",
+    "@workspace/mail": "workspace:*",
+    "@workspace/observability": "workspace:*",
+    "@workspace/queue": "workspace:*",
+    "@workspace/sandbox": "workspace:*",
+    "@workspace/shared": "workspace:*",
+    "bullmq": "^5.66.4",
+    "dotenv": "^17.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@workspace/typescript-config": "workspace:*",
+    "tsx": "^4.21.0",
+    "typescript": "^5"
+  }
+}

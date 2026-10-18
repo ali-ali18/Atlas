@@ -1,0 +1,376 @@
+# Stack local completo: `docker compose up --build`
+# Configure OPENROUTER_API_KEY em `.env` (veja `.env.example`).
+
+x-api-environment: &api-environment
+  # Arquivos gerados: o worker grava, a API serve. Volume comum aos dois.
+  ATLAS_ARTIFACT_DIR: /data/artifacts
+  ATLAS_PDF_CHROME_PATH: /usr/bin/chromium
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+  OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+  DATABASE_URL: postgresql://atlas:${POSTGRES_PASSWORD:-atlas}@postgres:5432/atlas
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+  ATLAS_HOOK_PEPPER: ${ATLAS_HOOK_PEPPER:-}
+  ATLAS_URL: ${ATLAS_URL:-http://localhost:3000}
+  ATLAS_PUBLIC_URL: ${ATLAS_PUBLIC_URL:-}
+  ATLAS_OWNER_EMAIL: ${ATLAS_OWNER_EMAIL:-}
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+  MAIL_URL: ${MAIL_URL:-log://}
+  MAIL_FROM: ${MAIL_FROM:-Atlas <no-reply@localhost>}
+  GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+  GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+  # GitHub App: normalmente criado pela tela de Conexões (manifest) e guardado cifrado no banco.
+  # As variáveis abaixo são só override para ops (sobrepõem o que está no banco).
+  GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+  GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+  GITHUB_APP_WEBHOOK_SECRET: ${GITHUB_APP_WEBHOOK_SECRET:-}
+  GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
+  GITHUB_APP_CLIENT_ID: ${GITHUB_APP_CLIENT_ID:-}
+  GITHUB_APP_CLIENT_SECRET: ${GITHUB_APP_CLIENT_SECRET:-}
+  GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+  GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+  CONNECTOR_ENCRYPTION_KEY: ${CONNECTOR_ENCRYPTION_KEY:-}
+  # Catálogo de skills e agentes do marketplace (repo público). Vazio = o catálogo oficial.
+  SKILLS_CATALOG_URL: ${SKILLS_CATALOG_URL:-}
+  # Notificações push (Web Push): api e worker precisam das MESMAS chaves (`pnpm push:vapid`).
+  WEB_PUSH_PUBLIC_KEY: ${WEB_PUSH_PUBLIC_KEY:-}
+  WEB_PUSH_PRIVATE_KEY: ${WEB_PUSH_PRIVATE_KEY:-}
+  WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-}
+  SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080}
+  DOCKER_HOST: tcp://docker-socket-proxy:2375
+  PORT: "3001"
+  CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://127.0.0.1:3000}
+  SANDBOX_ENABLED: ${SANDBOX_ENABLED:-true}
+  SANDBOX_IMAGE: atlas-agent-sandbox:latest
+  # `run_code`: Python leve em container efêmero (imagem docker/code-runner). Sem a imagem, a ferramenta
+  # responde "o executor de código não está instalado". CODE_RUNNER_ENABLED=false desliga.
+  CODE_RUNNER_ENABLED: ${CODE_RUNNER_ENABLED:-true}
+  CODE_RUNNER_IMAGE: atlas-code-runner:latest
+  CODE_RUNNER_MEMORY_MB: ${CODE_RUNNER_MEMORY_MB:-512}
+  SANDBOX_VIEWER_HOST: ${SANDBOX_VIEWER_HOST:-http://localhost}
+  SANDBOX_VIEWER_MODE: ${SANDBOX_VIEWER_MODE:-proxy}
+  SANDBOX_CONTROL_HOST: ${SANDBOX_CONTROL_HOST:-host.docker.internal}
+  SANDBOX_TLS: ${SANDBOX_TLS:-false}
+  SANDBOX_MEMORY_MB: ${SANDBOX_MEMORY_MB:-2048}
+  SANDBOX_CPUS: ${SANDBOX_CPUS:-1}
+  # VM na rede `atlas-sandbox` (só api/worker), alcançada pelo IP interno:
+  # num Linux, a porta publicada em 127.0.0.1 do host não é alcançável de
+  # dentro do container da api ("Acordando…" pra sempre). Sem Postgres/Redis
+  # nessa rede. No PC o override volta para portas publicadas.
+  SANDBOX_NETWORK_MODE: ${SANDBOX_NETWORK_MODE:-atlas-sandbox}
+  SANDBOX_CONNECT_MODE: ${SANDBOX_CONNECT_MODE:-network}
+  DOCKER_SOCKET_PATH: /var/run/docker.sock
+  # Sessões de desenvolvimento (container leve por sessão; imagem docker/dev-sandbox).
+  # Desligado por padrão: ligue com DEV_SANDBOX_ENABLED=true depois de construir a imagem.
+  DEV_SANDBOX_ENABLED: ${DEV_SANDBOX_ENABLED:-false}
+  DEV_SANDBOX_IMAGE: atlas-dev-sandbox:latest
+  DEV_SANDBOX_MAX_CONCURRENT: ${DEV_SANDBOX_MAX_CONCURRENT:-2}
+  DEV_SANDBOX_MEMORY_BUDGET_MB: ${DEV_SANDBOX_MEMORY_BUDGET_MB:-4096}
+  DEV_SANDBOX_MIN_FREE_MB: ${DEV_SANDBOX_MIN_FREE_MB:-512}
+  DEV_SANDBOX_IDLE_MS: ${DEV_SANDBOX_IDLE_MS:-600000}
+  DEV_SANDBOX_DEFAULT_TIER: ${DEV_SANDBOX_DEFAULT_TIER:-small}
+  DEV_SANDBOX_SMALL_CPUS: ${DEV_SANDBOX_SMALL_CPUS:-2}
+  DEV_SANDBOX_NETWORK_MODE: ${DEV_SANDBOX_NETWORK_MODE:-atlas-sandbox}
+  DEV_SANDBOX_CONNECT_MODE: ${DEV_SANDBOX_CONNECT_MODE:-network}
+  # Aviso de fim de job (container -> API). Vazio = http://api:$PORT em network (a api está nas redes
+  # atlas-sandbox e dev-egress-internal) ou http://host.docker.internal:$PORT em published; `off` desliga.
+  DEV_SANDBOX_CALLBACK_URL: ${DEV_SANDBOX_CALLBACK_URL:-}
+  # Saída de internet aplicada na REDE (ambientes "Lista liberada"/"Sem internet"): containers
+  # só na rede interna `dev-egress-internal` + gateway de saída (container dev-egress-gateway,
+  # criado pelo gerenciador com a imagem do dev-sandbox). Exige api/worker nessa rede (abaixo)
+  # e DEV_SANDBOX_CONNECT_MODE=network. auto = liga quando connect=network; off = só proxy de melhor esforço.
+  DEV_SANDBOX_EGRESS_ENFORCE: ${DEV_SANDBOX_EGRESS_ENFORCE:-auto}
+  DEV_SANDBOX_INTERNAL_NETWORK: dev-egress-internal
+  DEV_SANDBOX_GATEWAY_NAME: dev-egress-gateway
+  # Ajustes opcionais (vazio = padrão do código).
+  DEV_SANDBOX_MAX_TIER: ${DEV_SANDBOX_MAX_TIER:-}
+  DEV_SANDBOX_EXPIRE_MS: ${DEV_SANDBOX_EXPIRE_MS:-}
+  # Cache de dependências por ambiente (volume por usuário+repo): on|off, teto total em GB, dias sem uso.
+  DEV_SANDBOX_CACHE: ${DEV_SANDBOX_CACHE:-on}
+  DEV_SANDBOX_CACHE_MAX_GB: ${DEV_SANDBOX_CACHE_MAX_GB:-20}
+  DEV_SANDBOX_CACHE_MAX_AGE_DAYS: ${DEV_SANDBOX_CACHE_MAX_AGE_DAYS:-7}
+  DEV_CONTEXT_WINDOW_FRACTION: ${DEV_CONTEXT_WINDOW_FRACTION:-}
+  DEV_CONTEXT_BUDGET_TOKENS: ${DEV_CONTEXT_BUDGET_TOKENS:-}
+  # --- Variáveis do .env.example que o código lê (sem isto, o valor posto no painel não chega ao container).
+  # Vazio = padrão do código; onde o código converte com Number()/parser estrito, o padrão vem explícito.
+  OPENROUTER_FALLBACK_MODELS: ${OPENROUTER_FALLBACK_MODELS:-}
+  ATLAS_MAINTENANCE_MODEL: ${ATLAS_MAINTENANCE_MODEL:-}
+  LLM_DECISION_TIMEOUT_MS: ${LLM_DECISION_TIMEOUT_MS:-90000}
+  LLM_FIRST_EVENT_TIMEOUT_MS: ${LLM_FIRST_EVENT_TIMEOUT_MS:-30000}
+  LLM_IDLE_TIMEOUT_MS: ${LLM_IDLE_TIMEOUT_MS:-20000}
+  LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-}
+  LLM_REASONING_MAX_TOKENS: ${LLM_REASONING_MAX_TOKENS:-}
+  ATLAS_MAX_RUN_COST_USD: ${ATLAS_MAX_RUN_COST_USD:-}
+  ATLAS_EXECUTION_DISCIPLINE: ${ATLAS_EXECUTION_DISCIPLINE:-on}
+  ATLAS_CONTEXT_ECONOMY: ${ATLAS_CONTEXT_ECONOMY:-on}
+  ATLAS_CONTEXT_REF_CHARS: ${ATLAS_CONTEXT_REF_CHARS:-}
+  ATLAS_CONTEXT_STUB_CHARS: ${ATLAS_CONTEXT_STUB_CHARS:-}
+  ATLAS_CONTEXT_BUDGET_TARGET_TOKENS: ${ATLAS_CONTEXT_BUDGET_TARGET_TOKENS:-}
+  ATLAS_CONTEXT_BUDGET_MAX_TOKENS: ${ATLAS_CONTEXT_BUDGET_MAX_TOKENS:-}
+  CONTEXT_STANDARD_MAX_TOKENS: ${CONTEXT_STANDARD_MAX_TOKENS:-}
+  CONTEXT_STANDARD_WINDOW_FRACTION: ${CONTEXT_STANDARD_WINDOW_FRACTION:-}
+  ATLAS_PROVIDER_CHATGPT_ENABLED: ${ATLAS_PROVIDER_CHATGPT_ENABLED:-false}
+  ATLAS_SIWC_CALLBACK_PORT: ${ATLAS_SIWC_CALLBACK_PORT:-53682}
+  ATLAS_SIWC_CALLBACK_BIND: ${ATLAS_SIWC_CALLBACK_BIND:-127.0.0.1}
+  ATLAS_CHATGPT_CONTEXT_TOKENS: ${ATLAS_CHATGPT_CONTEXT_TOKENS:-64000}
+  ATLAS_CHATGPT_LIMIT_COOLDOWN_MS: ${ATLAS_CHATGPT_LIMIT_COOLDOWN_MS:-900000}
+  SANDBOX_TTL_MS: ${SANDBOX_TTL_MS:-900000}
+  SLACK_OAUTH_CLIENT_ID: ${SLACK_OAUTH_CLIENT_ID:-}
+  SLACK_OAUTH_CLIENT_SECRET: ${SLACK_OAUTH_CLIENT_SECRET:-}
+  SEARCH_PROVIDER: ${SEARCH_PROVIDER:-}
+  SEARCH_API_KEY: ${SEARCH_API_KEY:-}
+  FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
+  GOOGLE_SHEETS_CLIENT_EMAIL: ${GOOGLE_SHEETS_CLIENT_EMAIL:-}
+  GOOGLE_SHEETS_PRIVATE_KEY: ${GOOGLE_SHEETS_PRIVATE_KEY:-}
+  # Observabilidade: sem SENTRY_DSN nada é enviado. O commit é descoberto no build (.git).
+  SENTRY_DSN: ${SENTRY_DSN:-}
+  SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+  SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
+
+services:
+  postgres:
+    # pgvector embutido (busca semântica da memória). PGDATA é compatível
+    # com a 16-alpine anterior: o volume postgres-data é reaproveitado.
+    # Fase 0: senha via POSTGRES_PASSWORD (padrão "atlas" mantém volumes
+    # existentes funcionando; troque em instalação nova).
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    # Deploy: dá tempo do Postgres fechar limpo (checkpoint) antes do SIGKILL.
+    stop_grace_period: 30s
+    environment:
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-atlas}
+      POSTGRES_DB: atlas
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atlas -d atlas"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    # Fase 0: rede interna, sem ports. Senha opcional: se REDIS_PASSWORD setada,
+    # o servidor exige auth e o REDIS_URL deve incluí-la
+    # (ex.: REDIS_URL=redis://:SUASENHA@redis:6379).
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "if [ -n \"$REDIS_PASSWORD\" ]; then exec redis-server --appendonly yes --requirepass \"$REDIS_PASSWORD\"; else exec redis-server --appendonly yes; fi"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Atlas Search S1 — meta-buscador auto-hospedado (AUTH_PLAN.md §5).
+  # SÓ rede interna (sem `ports:`): api/worker alcançam via SEARXNG_BASE_URL.
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      BASE_URL: http://searxng:8080/
+
+  # Fase 0 — proxy de privilégio mínimo para o socket Docker.
+  # A sandbox só precisa de containers/imagens/volumes/exec; o resto fica 0
+  # (bloqueado). api/worker falam via DOCKER_HOST, sem montar o socket cru.
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      VOLUMES: 1
+      EXEC: 1
+      INFO: 1
+      VERSION: 1
+      AUTH: 0
+      SECRETS: 0
+      SERVICES: 0
+      TASKS: 0
+      NODES: 0
+      PLUGINS: 0
+      SWARM: 0
+      SYSTEM: 0
+      BUILD: 0
+      COMMIT: 0
+      CONFIGS: 0
+      DISTRIBUTION: 0
+      POST: 1
+
+  # Constrói atlas-agent-sandbox:latest; o container sai imediatamente (só a imagem importa).
+  agent-sandbox:
+    build:
+      context: ./docker/agent-sandbox
+    image: atlas-agent-sandbox:latest
+    entrypoint: ["/bin/sh", "-c", "echo 'Image atlas-agent-sandbox:latest ready'"]
+    restart: "no"
+
+  # Constrói atlas-code-runner:latest (`run_code`); sem serviço permanente: cada execução cria um container efêmero.
+  code-runner:
+    build:
+      context: ./docker/code-runner
+    image: atlas-code-runner:latest
+    entrypoint: ["/bin/sh", "-c", "echo 'Image atlas-code-runner:latest ready'"]
+    restart: "no"
+
+  # Constrói atlas-dev-sandbox:latest (sessões de desenvolvimento); o container sai imediatamente.
+  dev-sandbox:
+    build:
+      context: ./docker/dev-sandbox
+    image: atlas-dev-sandbox:latest
+    entrypoint: ["/bin/sh", "-c", "echo 'Image atlas-dev-sandbox:latest ready'"]
+    restart: "no"
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/node-service.Dockerfile
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://atlas:${POSTGRES_PASSWORD:-atlas}@postgres:5432/atlas
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/node-service.Dockerfile
+      args:
+        SERVICE: api
+    restart: unless-stopped
+    # Deploy: a API para de aceitar conexões, fecha os SSE (o cliente reconecta com
+    # Last-Event-ID) e só então solta Prisma/filas; o código tem teto de 25s.
+    stop_grace_period: 30s
+    ports:
+      - "127.0.0.1:3001:3001"
+    # Produção + SANDBOX_VIEWER_MODE=proxy: o WebSocket do noVNC não passa pelo
+    # rewrite do Next. No Dokploy, adicione um domínio ao serviço `api`
+    # (host do app, path `/v1/sandbox`, porta 3001, HTTPS) — o Traefik manda
+    # esse prefixo direto à API (path mais longo ganha do domínio do web).
+    networks:
+      - default
+      - atlas-sandbox
+      - dev-egress-internal
+    volumes:
+      - atlas-artifacts:/data/artifacts
+    environment:
+      <<: *api-environment
+    # Fase 0: sem socket cru — acesso via docker-socket-proxy (DOCKER_HOST).
+    # A API alcança as portas publicadas da sandbox no host via host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      docker-socket-proxy:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+      agent-sandbox:
+        condition: service_completed_successfully
+      dev-sandbox:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/health/ready').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/node-service.Dockerfile
+      args:
+        SERVICE: worker
+    restart: unless-stopped
+    # Deploy: o worker para de pegar jobs e deixa o run ativo terminar o passo atual (até 90s);
+    # se não der, grava checkpoint e solta o lease para o novo worker retomar na hora.
+    # Precisa ser MAIOR que a janela de graça do código (WORKER_SHUTDOWN_GRACE_MS=90s + 20s de checkpoint).
+    # No Dokploy este valor vem do compose (não há campo no painel): confira que o deploy não sobrescreve o stop timeout.
+    stop_grace_period: 130s
+    networks:
+      - default
+      - atlas-sandbox
+      - dev-egress-internal
+    volumes:
+      - atlas-artifacts:/data/artifacts
+    environment:
+      <<: *api-environment
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      DATABASE_URL: postgresql://atlas:${POSTGRES_PASSWORD:-atlas}@postgres:5432/atlas
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+    # Fase 0: sem socket cru — acesso via docker-socket-proxy (DOCKER_HOST).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      docker-socket-proxy:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+      agent-sandbox:
+        condition: service_completed_successfully
+      dev-sandbox:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+      args:
+        ATLAS_API_INTERNAL_URL: http://api:3001
+        NEXT_PUBLIC_SENTRY_DSN: ${SENTRY_DSN:-}
+    restart: unless-stopped
+    # Sem `ports:` aqui: no Dokploy o Traefik alcança o web pela rede interna
+    # (e a 3000 do host é o painel do Dokploy). No PC, a porta 3000 vem do
+    # docker-compose.override.yml, que o Compose junta sozinho.
+    expose:
+      - "3000"
+    environment:
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+    depends_on:
+      api:
+        condition: service_healthy
+
+networks:
+  atlas-sandbox:
+    # Nome fixo: o docker-manager cria as VMs nesta rede pelo nome.
+    name: atlas-sandbox
+  dev-egress-internal:
+    # Sem rota para a internet: containers de sessão com lista liberada/sem internet só saem
+    # pelo gateway (dev-egress-gateway). Nome fixo: o docker-manager usa pelo nome.
+    name: dev-egress-internal
+    internal: true
+
+volumes:
+  atlas-artifacts:
+  redis-data:
+  postgres-data:

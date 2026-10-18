@@ -1,0 +1,24 @@
+# Atlas Search S1 — config mínima do SearXNG (só rede interna, sem ports:).
+# `use_default_settings: true` herda as engines padrão (DuckDuckGo, Bing,
+# Mojeek, Qwant, Wikipedia, GitHub, StackOverflow…); aqui só ligamos a JSON
+# API e desligamos o limiter (rede interna confiável).
+use_default_settings: true
+
+server:
+  # Troque em produção se expor o serviço; interno, só assina sessões/mortar.
+  secret_key: "atlas-dev-searxng-secret-change-me"
+  limiter: false
+  image_proxy: true
+  default_http_headers:
+    User-Agent: "AtlasSearch/1.0 (+http://localhost:3000; contact: atlas@localhost)"
+    Accept-Language: "pt-BR,pt;q=0.9,en;q=0.8"
+
+search:
+  formats:
+    - html
+    - json
+
+outgoing:
+  # Teto por engine (o cliente ainda passa `timeout_limit` por busca).
+  request_timeout: 5.0
+  max_request_timeout: 10.0

@@ -1,0 +1,44 @@
+{
+  "name": "@workspace/db",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "prisma generate && tsc",
+    "lint": "node -e \"process.exit(0)\"",
+    "typecheck": "tsc --noEmit",
+    "test": "node ../../scripts/run-node-tests.mjs \"src/**/*.test.ts\"",
+    "test:db": "node ./scripts/test-db.mjs",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "migrate:claim-default": "node ./scripts/claim-default.mjs",
+    "migrations:smoke": "node ./scripts/migrations-smoke.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./src/testing/fake-tables.ts",
+      "import": "./dist/testing/fake-tables.js",
+      "default": "./dist/testing/fake-tables.js"
+    }
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.0",
+    "@workspace/llm": "workspace:*",
+    "@workspace/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@workspace/typescript-config": "workspace:*",
+    "prisma": "^6.19.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5"
+  }
+}

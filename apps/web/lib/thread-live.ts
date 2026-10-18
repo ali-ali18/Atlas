@@ -1,0 +1,188 @@
+import {
+	applyComputerUseEventToTranscript,
+	applyComputerUseEventsToTranscript,
+	type ComputerUseEvent,
+	type TranscriptBubble,
+} from "@workspace/shared";
+import type { Message } from "@/components/ui/templates/template-4/data";
+import { dedupeCards } from "./thread-merge";
+
+/**
+ * Parte pura do que o hook de chat faz com eventos AO VIVO do run (deltas do stream) sobre a thread na tela.
+ * Fica fora do hook para ser testada sem React: a tela = persistido (thread-merge/thread-sync) + isto.
+ */
+
+export function asTranscript(messages: Message[]): TranscriptBubble[] {
+	return messages.filter(
+		(message): message is Message & TranscriptBubble =>
+			message.kind === "assistant" ||
+			message.kind === "user" ||
+			message.kind === "tool",
+	);
+}
+
+export function fromTranscript(messages: TranscriptBubble[]): Message[] {
+	return messages.map((message) =>
+		message.kind === "tool"
+			? { id: message.id, kind: "tool", label: message.label ?? "tool", text: message.text, createdAt: message.createdAt }
+			: { id: message.id, kind: message.kind, text: message.text, createdAt: message.createdAt },
+	);
+}
+
+/**
+ * Junta o transcript recalculado com os cards já exibidos.
+ * `asTranscript` filtra tudo que não é assistant/user/tool, então sem esse
+ * merge cada delta/discard/error apagaria os cards da timeline
+ * (skill/confirm/routine/questionnaire/bot-profile-confirm).
+ */
+export function mergePreservingSkills(
+	previous: Message[],
+	nextTranscript: Message[],
+): Message[] {
+	const nextById = new Map(nextTranscript.map((item) => [item.id, item]));
+	const consumed = new Set<string>();
+	const result: Message[] = [];
+	for (const item of previous) {
+		if (
+			item.kind === "skill" ||
+			item.kind === "confirm" ||
+			item.kind === "login" ||
+			item.kind === "file" ||
+			item.kind === "routine" ||
+			item.kind === "tool-budget" ||
+			item.kind === "jev-status" ||
+			item.kind === "provider-fallback" ||
+			item.kind === "memory-updated" ||
+			item.kind === "code-run" ||
+			item.kind === "subagents" ||
+			item.kind === "questionnaire" ||
+			item.kind === "skill-proposal" ||
+			item.kind === "routine-proposal" ||
+			item.kind === "bot-proposal" ||
+			item.kind === "bot-profile-confirm"
+			|| item.kind === "bot-link"
+			|| item.kind === "needs-user"
+			|| item.kind === "auto-decision"
+			|| item.kind === "images"
+			|| item.kind === "devsession"
+			|| item.kind === "context-summary"
+		) {
+			result.push(item);
+			continue;
+		}
+		const updated = nextById.get(item.id);
+		if (updated) {
+			// O transcript de streaming não conhece a origem entre bots: preserva a marca.
+			const bot = (item.kind === "user" || item.kind === "assistant") ? item.bot : undefined;
+			result.push(bot && (updated.kind === "user" || updated.kind === "assistant") && !updated.bot ? { ...updated, bot } : updated);
+			consumed.add(item.id);
+		}
+	}
+	for (const item of nextTranscript) {
+		if (!consumed.has(item.id) && !result.some((row) => row.id === item.id)) {
+			result.push(item);
+		}
+	}
+	return dedupeCards(result);
+}
+
+/**
+ * Balões ao vivo que o servidor já cobriu com linhas gravadas: os próximos deltas desses passos são ignorados
+ * (senão a reconexão, que reentrega os deltas, recriaria um balão com só um pedaço do texto).
+ */
+export type LiveBubbleState = { superseded: Set<string> };
+
+export function createLiveBubbleState(): LiveBubbleState {
+	return { superseded: new Set() };
+}
+
+/** Um evento de texto do stream (delta/descarte/erro) aplicado à thread, preservando os cards já exibidos. */
+export function applyLiveEvent(previous: Message[], event: ComputerUseEvent, state: LiveBubbleState = createLiveBubbleState()): Message[] {
+	if (event.type === "assistant_delta" && state.superseded.has(`cu-${event.id}`)) return previous;
+	return dropLiveBubblesCoveredByPersisted(
+		mergePreservingSkills(previous, fromTranscript(applyComputerUseEventToTranscript(asTranscript(previous), event))),
+		state,
+	);
+}
+
+/**
+ * Recarregou (F5, link de notificação, voltou do segundo plano) com o run ainda vivo: a thread veio do
+ * servidor e os eventos do run (deltas) são reaplicados por cima para recuperar o balão em andamento.
+ */
+export function hydrateRunEvents(thread: Message[], events: ComputerUseEvent[], state: LiveBubbleState = createLiveBubbleState()): Message[] {
+	return dropLiveBubblesCoveredByPersisted(
+		mergePreservingSkills(thread, fromTranscript(applyComputerUseEventsToTranscript(asTranscript(thread), events))),
+		state,
+	);
+}
+
+function normalizeText(text: string): string {
+	return text.trim().split(/\s+/).join(" ");
+}
+
+/**
+ * O texto (sem olhar espaços/quebras) já existe nas linhas persistidas do assistente: igual a uma linha ou à
+ * junção de linhas consecutivas (o servidor grava um parágrafo/linha por mensagem). Qualquer outra
+ * mensagem entre as linhas (ferramenta, cartão, usuário) encerra a sequência.
+ */
+export function persistedAssistantCovers(rows: readonly Message[], text: string): boolean {
+	const target = normalizeText(text);
+	if (!target) return false;
+	for (let start = 0; start < rows.length; start += 1) {
+		let joined = "";
+		for (let end = start; end < rows.length; end += 1) {
+			const item = rows[end];
+			if (!item || item.kind !== "assistant") break;
+			joined = joined ? `${joined} ${normalizeText(item.text)}` : normalizeText(item.text);
+			if (joined === target) return true;
+			if (!target.startsWith(joined)) break;
+		}
+	}
+	return false;
+}
+
+/** Falas curtas ("Ok.", "Pronto!") repetem entre turnos: só as longas são tratadas como a mesma fala. */
+const MIN_COVERED_LENGTH = 16;
+
+/**
+ * Remove os balões ao vivo (`cu-*`) cuja fala completa já está gravada no servidor e na tela. Acontece quando
+ * a linha persistida chega antes do último delta do stream (ou quando a tela é recarregada no meio do run e os
+ * eventos do run são reaplicados por cima da thread do servidor, ou a reconexão reentrega deltas de passos já
+ * gravados). Sem isso o balão ficava ao lado das linhas gravadas até o fim do run.
+ */
+export function dropLiveBubblesCoveredByPersisted(messages: Message[], state?: LiveBubbleState): Message[] {
+	const persisted = messages.filter((item) => !(item.kind === "assistant" && item.id.startsWith("cu-")));
+	const result = messages.filter((item) => {
+		if (item.kind !== "assistant" || !item.id.startsWith("cu-")) return true;
+		if (normalizeText(item.text).length < MIN_COVERED_LENGTH || !persistedAssistantCovers(persisted, item.text)) return true;
+		state?.superseded.add(item.id);
+		return false;
+	});
+	return result.length === messages.length ? messages : result;
+}
+
+/**
+ * Depois de qualquer reconciliação com o servidor: balão ao vivo com texto que sumiu da tela virou a linha
+ * gravada do servidor. Os deltas seguintes do mesmo passo (o stream ainda não terminou) não podem recriá-lo
+ * com só o pedaço que falta ("\n\nsegundo parágrafo"): o passo passa a valer só pelo que o servidor gravar.
+ */
+export function trackSupersededBubbles(before: Message[], after: Message[], state: LiveBubbleState): Message[] {
+	if (before === after) return after;
+	const kept = new Set(after.map((item) => item.id));
+	for (const item of before) {
+		if (item.kind === "assistant" && item.id.startsWith("cu-") && item.text.trim() && !kept.has(item.id)) state.superseded.add(item.id);
+	}
+	return after;
+}
+
+/**
+ * Foto da conversa carregada do servidor (com os eventos do run reaplicados) que vira a tela. Se o usuário já
+ * mandou algo enquanto ela carregava (bolha otimista `msg-*` que a foto ainda não tem), essa fala continua na
+ * tela, no fim, até o servidor devolvê-la; trocar a tela inteira a faria sumir.
+ */
+export function adoptLoadedThread(loaded: Message[], previous: Message[]): Message[] {
+	const loadedIds = new Set(loaded.map((message) => message.id));
+	const pendingSends = previous.some((message) => message.kind === "user" && message.id.startsWith("msg-") && !loadedIds.has(message.id));
+	// Tudo o que a tela já tinha e a foto não conhece é posterior à foto: vai depois dela, na ordem em que foi feito.
+	return pendingSends ? dedupeCards([...loaded, ...previous.filter((message) => !loadedIds.has(message.id))]) : loaded;
+}

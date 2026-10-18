@@ -1,0 +1,8 @@
+---
+description: Testes — o que testar, onde e como rodar
+alwaysApply: true
+---
+
+Regra mantida em `.agents/rules/50-testes.md` (fonte única, não edite aqui).
+
+@.agents/rules/50-testes.md

@@ -1,0 +1,172 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import type { EventEnvelope, NormalizedGithubEvent } from "@workspace/shared";
+import { buildUserTurn, formatEventBlock } from "./routine.js";
+
+function envelope(payload: unknown, overrides: Partial<EventEnvelope> = {}): EventEnvelope {
+	return {
+		provider: "github",
+		type: "pr_commented",
+		occurredAt: "2026-09-26T12:00:00.000Z",
+		refs: { repo: "acme/site" },
+		payload,
+		...overrides,
+	};
+}
+
+test("formatEventBlock: nunca deixa de rotular o bloco como dado externo/não confiável", () => {
+	const block = formatEventBlock(envelope({ type: "issue_opened", repo: "acme/site" }));
+	assert.match(block, /\[EVENT\].*dado externo.*não confiável/i);
+	assert.match(block, /\[\/EVENT\]/);
+});
+
+test("formatEventBlock: NormalizedGithubEvent de comentário vira linhas chave=valor, não JSON cru", () => {
+	const event: NormalizedGithubEvent = {
+		type: "pr_commented",
+		repo: "acme/site",
+		actor: "alisson",
+		pr: { number: 7, title: "fix bug", author: "alisson", head: "fix", base: "main" },
+		comment: { excerpt: "olha isso aqui", path: "src/x.ts", line: 42 },
+	};
+	const block = formatEventBlock(envelope(event));
+	assert.match(block, /type=pr_commented/);
+	assert.match(block, /pr\.number=7/);
+	assert.match(block, /pr\.title=fix bug/);
+	assert.match(block, /comment\.excerpt=olha isso aqui/);
+	assert.match(block, /comment\.path=src\/x\.ts:42/);
+	// Nunca deve virar JSON bruto (sem rótulo) quando reconhecemos o formato.
+	assert.doesNotMatch(block, /"excerpt"/);
+});
+
+test("formatEventBlock: evento de CI expõe conclusion/branch/sha/failedChecks", () => {
+	const event: NormalizedGithubEvent = {
+		type: "ci_failed",
+		repo: "acme/site",
+		ci: {
+			conclusion: "failure",
+			branch: "main",
+			sha: "abc123",
+			failedChecks: [{ name: "lint", url: "https://x/check/1" }],
+		},
+	};
+	const block = formatEventBlock(envelope(event));
+	assert.match(block, /ci\.conclusion=failure/);
+	assert.match(block, /ci\.branch=main/);
+	assert.match(block, /ci\.sha=abc123/);
+	assert.match(block, /ci\.failedChecks=lint \(https:\/\/x\/check\/1\)/);
+});
+
+test("formatEventBlock: evento de push expõe branch/commits/headSha/compareUrl", () => {
+	const event: NormalizedGithubEvent = {
+		type: "push",
+		repo: "acme/site",
+		actor: "alisson",
+		push: {
+			branch: "main",
+			commits: 3,
+			headSha: "deadbeef",
+			compareUrl: "https://github.com/acme/site/compare/abc...def",
+		},
+	};
+	const block = formatEventBlock(envelope(event, { type: "push" }));
+	assert.match(block, /push\.branch=main/);
+	assert.match(block, /push\.commits=3/);
+	assert.match(block, /push\.headSha=deadbeef/);
+	assert.match(block, /push\.compareUrl=https:\/\/github\.com\/acme\/site\/compare\/abc\.\.\.def/);
+});
+
+test("formatEventBlock: lote (array de eventos) formata cada item", () => {
+	const events: NormalizedGithubEvent[] = [
+		{ type: "pr_opened", repo: "acme/site", pr: { number: 1, title: "a" } },
+		{ type: "ci_failed", repo: "acme/site", ci: { conclusion: "failure", branch: "main", sha: "s1", failedChecks: [] } },
+	];
+	const block = formatEventBlock(envelope(events, { type: "event.batch" }));
+	assert.match(block, /pr\.number=1/);
+	assert.match(block, /ci\.conclusion=failure/);
+});
+
+test("formatEventBlock: payload genérico (webhook v1) sem `type` reconhecível cai pra JSON", () => {
+	const block = formatEventBlock(
+		envelope({ hello: "world" }, { provider: "generic", type: "webhook.received" }),
+	);
+	assert.match(block, /"hello": "world"/);
+});
+
+test("formatEventBlock: trunca payload gigante", () => {
+	const huge = { type: "pr_commented", repo: "acme/site", comment: { excerpt: "a".repeat(20_000) } };
+	const block = formatEventBlock(envelope(huge));
+	assert.match(block, /\[truncated\]/);
+});
+
+test("buildUserTurn: informa lastRunAt (fim do último run concluído) em disparo agendado", () => {
+	const turn = buildUserTurn("Revise o repo.", "Monitor", { routineId: "r1", triggeredBy: "schedule" }, "2026-09-28T12:00:00.000Z");
+	assert.match(turn, /lastRunAt=2026-09-28T12:00:00\.000Z/);
+	assert.match(turn, /use it as since/);
+	assert.match(turn, /Tarefa:\nRevise o repo\./);
+});
+
+test("buildUserTurn: primeira execução vira lastRunAt=none, manual também recebe", () => {
+	const scheduled = buildUserTurn("x", "n", { routineId: "r1", triggeredBy: "schedule" }, null);
+	const manual = buildUserTurn("x", "n", { routineId: "r1", triggeredBy: "manual" });
+	for (const turn of [scheduled, manual]) {
+		assert.match(turn, /lastRunAt=none \(first run/);
+	}
+});
+
+test("buildUserTurn: disparo por evento não recebe lastRunAt", () => {
+	const turn = buildUserTurn("x", "n", {
+		routineId: "r1",
+		triggeredBy: "event",
+		event: envelope({ type: "issue_opened", repo: "acme/site" }),
+	}, "2026-09-28T12:00:00.000Z");
+	assert.doesNotMatch(turn, /lastRunAt/);
+	assert.match(turn, /\[EVENT\]/);
+});
+
+test("formatEventBlock: push enriquecido traz TODOS os commits (150) antes dos arquivos, mesmo acima do teto padrão", () => {
+	const commitList = Array.from({ length: 150 }, (_, i) => ({
+		sha: `${String(i).padStart(7, "0")}${"a".repeat(33)}`,
+		subject: `mudança ${i + 1} ${"x".repeat(60)}`,
+		author: "ana",
+		files: 2,
+	}));
+	const event: NormalizedGithubEvent = {
+		type: "push",
+		repo: "acme/site",
+		push: {
+			branch: "main",
+			commits: 150,
+			headSha: "b".repeat(40),
+			commitList,
+			summary: { files: 300, additions: 10, deletions: 4 },
+			fileList: Array.from({ length: 100 }, (_, i) => ({ path: `src/arquivo-${i}.ts`, status: "modified", additions: 1, deletions: 1 })),
+		},
+	};
+	const block = formatEventBlock(envelope(event, { type: "push" }));
+	assert.match(block, /push\.commits=150/);
+	assert.match(block, /push\.commitList=150 of 150 commits \(complete/);
+	for (const n of [1, 75, 150]) assert.ok(block.includes(`push.commit[${n}]=`), `commit ${n} presente`);
+	assert.ok(block.indexOf("push.commit[150]") < block.indexOf("push.file="), "commits antes dos arquivos");
+	assert.match(block, /push\.summary=300 files changed, \+10 -4/);
+});
+
+test("formatEventBlock: PR enriquecido mostra corpo, contagem de commits e arquivos com +/-", () => {
+	const event: NormalizedGithubEvent = {
+		type: "pr_opened",
+		repo: "acme/site",
+		pr: {
+			number: 5,
+			title: "Nova coisa",
+			body: "descricao",
+			commitsCount: 7,
+			changedFiles: 1,
+			additions: 4,
+			deletions: 0,
+			fileList: [{ path: "a.ts", status: "added", additions: 4, deletions: 0 }],
+		},
+	};
+	const block = formatEventBlock(envelope(event, { type: "pr_opened" }));
+	assert.match(block, /pr\.commits=7/);
+	assert.match(block, /pr\.summary=1 files changed, \+4 -0/);
+	assert.match(block, /pr\.file=added a\.ts \+4 -0/);
+});

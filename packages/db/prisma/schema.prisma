@@ -1,0 +1,1218 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Fase 1 (auth): todo recurso tem dono (User) via userId/ownerId com FK.
+// MIGRAÇÃO: a FK de MemoryEntry/AgentRun/Skill/SkillLearningJob/
+// SkillPendingIntent/Routine/McpConnection é criada NOT VALID (migração
+// 20260928010000_auth_foreign_keys) — vale pra todo INSERT/UPDATE novo desde
+// já, mas não escaneia linhas legadas com userId="default", então pode ser
+// aplicada em qualquer deploy sem depender do backfill. Rodar
+// `pnpm --filter @workspace/db migrate:claim-default --user-id=<id-do-dono>`
+// depois do 1º login do dono reatribui essas linhas e VALIDATE CONSTRAINT as
+// 7 FKs (ver comentário no script e na migração).
+// onDelete: Restrict para dados (nunca apagar dados por cascade de User);
+// Cascade só onde já existe e faz sentido (Session/Account/UserSettings).
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  bots          Bot[]
+  sections      Section[]
+  conversations Conversation[]
+  settings      UserSettings?
+  memories      MemoryEntry[]
+  memoryChanges MemoryChange[]
+  runs          AgentRun[]
+  artifacts     Artifact[]
+  routines      Routine[]
+  providerConnections ProviderConnection[]
+  mcpConnections McpConnection[]
+  apiConnections ApiConnection[]
+  skills        Skill[]
+  skillLearningJobs SkillLearningJob[]
+  skillPendingIntents SkillPendingIntent[]
+  skillDocs SkillDoc[]
+  runDeliveries RunDelivery[]
+  conversationReads ConversationRead[]
+  pushSubscriptions PushSubscription[]
+  githubInstallations GithubInstallation[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Conversation {
+  id        String                @id @default(cuid())
+  userId    String?
+  user      User?                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+  messages  ConversationMessage[]
+  summaries ConversationSummary[]
+  bot       Bot?
+
+  @@index([userId])
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  /// Origem automatizada (routine/webhook) ou "bot" (conversa entre bots); null = conversa normal.
+  origin         String?
+  /// Mensagem entre bots: remetente (id/nome no momento do envio) e vínculo com `BotMessage`.
+  fromBotId      String?
+  fromBotName    String?
+  botMessageId   String?
+  /// Gatilho automatizado que produziu a mensagem: routine | reminder | github | webhook.
+  sourceKind     String?
+  /// Nome da rotina, nota do lembrete ou resumo do evento (ex.: "push em main").
+  sourceLabel    String?
+  /// Horário em que a rotina/lembrete/evento rodou.
+  sourceAt       DateTime?
+  createdAt      DateTime     @default(now())
+  reactions      MessageReaction[]
+
+  @@index([conversationId, createdAt])
+  @@map("conversation_messages")
+}
+
+/// Reação a uma fala: no máximo uma por ator (o usuário ou o bot) e mensagem.
+model MessageReaction {
+  id        String              @id @default(cuid())
+  messageId String
+  message   ConversationMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  /// "user" (actorId = id do usuário) ou "bot" (actorId = id do bot).
+  actorKind String
+  actorId   String
+  emoji     String
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@unique([messageId, actorKind, actorId])
+  @@index([messageId])
+  @@map("message_reactions")
+}
+
+/// Estado de leitura por usuário e conversa (sincroniza entre dispositivos).
+model ConversationRead {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId    String
+  lastReadAt        DateTime
+  lastReadMessageId String?
+  manualUnread      Boolean  @default(false)
+  updatedAt         DateTime @updatedAt
+
+  @@unique([userId, conversationId])
+  @@index([conversationId])
+  @@map("conversation_reads")
+}
+
+/// Dispositivo inscrito em notificações push (Web Push/PWA). Um endpoint por navegador/aparelho.
+/// 404/410 do serviço de push apagam a linha; outras falhas só contam (`failureCount`).
+model PushSubscription {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userAgent     String?
+  createdAt     DateTime  @default(now())
+  lastUsedAt    DateTime  @default(now())
+  failureCount  Int       @default(0)
+  lastFailureAt DateTime?
+  lastError     String?
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+model MemoryEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId     String?
+  target    String
+  content   String
+  // Curadoria (Entrega Memória): classificam, ranqueiam e expiram o fato.
+  category   String?
+  confidence Float?
+  importance Float    @default(0)
+  source     String?
+  validUntil DateTime?
+  // Escopo de leitura: user (perfil global), bot (privado do agente),
+  // team (compartilhado promovido explicitamente).
+  access     String   @default("private")
+  // Embedding pgvector (1536 dims, text-embedding-3-small). Via queryRaw;
+  // o Prisma não tipa vector nativamente.
+  embedding  Unsupported("vector(1536)")?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, botId, target])
+  @@index([target, importance])
+  @@map("memory_entries")
+}
+
+/// Histórico de mudanças da memória (add/replace/remove) com o texto antes e depois — alimenta
+/// "O que mudou" e o "Desfazer" na aba Memória. Gravado dentro das funções do db, na mesma
+/// transação da escrita, para nenhum caminho (chat, reflexão, API) ficar de fora.
+/// `entryId` sem FK de propósito: a entrada pode ter sido apagada (é o caso do remove).
+model MemoryChange {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  /// Bot que fez a mudança (ou dono da memória `memory`). Null = perfil do usuário sem bot.
+  botId     String?
+  entryId   String?
+  target    String
+  action    String
+  before    String?
+  after     String?
+  /// Metadados do estado anterior (categoria, importância, validade…) para restaurar fielmente.
+  beforeMeta Json?
+  /// chat | reflection | user
+  source    String
+  /// Se esta linha é um "desfazer", o id da mudança desfeita (não pode ser desfeita de novo).
+  undoOfId  String?
+  createdAt DateTime  @default(now())
+  undoneAt  DateTime?
+
+  @@index([userId, createdAt])
+  @@index([userId, botId, createdAt])
+  @@map("memory_changes")
+}
+
+/// Resumo versionado de um intervalo da conversa (Entrega Memória).
+/// O transcript original nunca é apagado; o resumo é continuidade operacional.
+model ConversationSummary {
+  id          String       @id @default(cuid())
+  conversationId String
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  // Intervalo coberto, por createdAt das mensagens de origem.
+  rangeStart  DateTime?
+  rangeEnd    DateTime?
+  version     Int          @default(1)
+  content     String
+  // Fatos/decisões/pendências estruturados + ponteiros p/ msgs de origem.
+  factsJson   Json?
+  // snapshotVersion da conversa lida (proteção contra resumo obsoleto).
+  snapshotVersion String?
+  createdAt   DateTime     @default(now())
+
+  @@index([conversationId, version])
+  @@map("conversation_summaries")
+}
+
+model Bot {
+  id              String        @id @default(cuid())
+  ownerId         String?
+  owner           User?         @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  name            String
+  snippet         String        @default("")
+  color           String        @default("#f44336")
+  shape           String        @default("rond")
+  description     String?
+  openRouterModel String?
+  language        String        @default("pt-BR")
+  pinned          Boolean       @default(false)
+  pinOrder        Int?
+  sectionId       String?
+  section         Section?      @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  memberIds       String[]      @default([])
+  conversationId  String?       @unique
+  conversation    Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  policyJson      Json?
+  /// Notificações push deste bot ("Notificações" nas configurações): terminou ou precisa do usuário.
+  notify          Boolean       @default(true)
+  /// Autonomia própria do bot (null = herda a da conta). Ver `AutonomyPolicy`.
+  autonomyJson    Json?
+  /// "Bot principal" da conta (no máximo um por dono; índice parcial na migration).
+  isPrimary       Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  routines        Routine[]
+
+  @@index([pinned, pinOrder])
+  @@index([ownerId])
+  @@index([memberIds], type: Gin)
+  @@map("bots")
+}
+
+model Section {
+  id        String   @id @default(cuid())
+  ownerId   String?
+  owner     User?    @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  name      String
+  order     Int      @default(0)
+  bots      Bot[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+  @@map("sections")
+}
+
+model UserSettings {
+  id               String   @id @default(cuid())
+  userId           String?  @unique
+  user             User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sandboxAutoStart Boolean  @default(true)
+  /// Autonomia padrão da conta (null = Equilibrado). Ver `AutonomyPolicy`.
+  autonomyJson     Json?
+  /// Configuração da conta versionada `{ v: 1, … }` (null = tudo herdado). Só escolhas, nunca segredo. Ver `AccountConfigV1`.
+  configJson       Json?
+  /// Modo de aprovação de comandos das sessões de código (ask | allowlist | auto); null = Lista liberada.
+  devApprovalMode  String?
+  /// Rodapé "enviado pelo bot" nas issues/comentários/PRs (padrão desligado).
+  githubSignature  Boolean  @default(false)
+  githubSignatureText String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("user_settings")
+}
+
+/// Execução agêntica durável (sobrevive a F5 / restart de API).
+model AgentRun {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId            String?
+  conversationId   String?
+  origin           String    @default("chat")
+  /// Run pai (só runs filhos de `delegate_task`, origin "subagent").
+  parentRunId      String?
+  parent           AgentRun? @relation("AgentRunChildren", fields: [parentRunId], references: [id], onDelete: Cascade)
+  children         AgentRun[] @relation("AgentRunChildren")
+  objective        String
+  status           String    @default("queued")
+  model            String
+  maxSteps         Int       @default(16)
+  budgetJson       Json?
+  usageJson        Json?
+  leaseOwner       String?
+  leaseUntil       DateTime?
+  leaseToken       String?
+  leaseGeneration  Int       @default(0)
+  sandboxSessionId String?
+  checkpointJson   Json?
+  error            String?
+  resultText       String?
+  cancelRequested  Boolean   @default(false)
+  jobEnqueuedAt    DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  startedAt        DateTime?
+  finishedAt       DateTime?
+
+  steps     AgentStep[]
+  events    RunEvent[]
+  artifacts Artifact[]
+  inputs    RunInput[]
+  skillEvidence SkillEvidence[]
+  skillUsages SkillUsage[]
+  skillLearningJobs SkillLearningJob[]
+  routineRuns RoutineRun[]
+  delivery  RunDelivery?
+
+  @@index([conversationId, status])
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@index([status, leaseUntil])
+  @@index([parentRunId])
+  @@map("agent_runs")
+}
+
+model AgentStep {
+  id             String   @id @default(cuid())
+  runId          String
+  run            AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  index          Int
+  decisionIndex  Int      @default(0)
+  subIndex       Int      @default(0)
+  type           String
+  status         String   @default("completed")
+  inputJson      Json?
+  outputJson     Json?
+  attempts       Int      @default(1)
+  tokens         Int?
+  costUsd        Float?
+  durationMs     Int?
+  idempotencyKey String?
+  createdAt      DateTime @default(now())
+
+  @@unique([runId, decisionIndex, subIndex])
+  @@unique([runId, idempotencyKey])
+  @@index([runId, type])
+  @@index([runId, index])
+  @@map("agent_steps")
+}
+
+/// Mensagem do usuário dirigida a um run em andamento (steer) ou à fila (queue).
+model RunInput {
+  id          String    @id @default(cuid())
+  runId       String
+  run         AgentRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  seq         Int
+  author      String    @default("user")
+  content     String
+  attachmentsJson Json?
+  mode        String    @default("steer")
+  status      String    @default("pending")
+  clientKey   String?
+  createdAt   DateTime  @default(now())
+  consumedAt  DateTime?
+
+  @@unique([runId, seq])
+  @@unique([runId, clientKey])
+  @@index([runId, status])
+  @@map("run_inputs")
+}
+
+model RunEvent {
+  id        String   @id @default(cuid())
+  runId     String
+  run       AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  seq       Int
+  type      String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@unique([runId, seq])
+  @@index([runId, seq])
+  @@index([runId, type])
+  @@map("run_events")
+}
+
+model Artifact {
+  id        String    @id @default(cuid())
+  /// Opcional: upload do usuário nasce antes de existir run (F14).
+  runId     String?
+  run       AgentRun? @relation(fields: [runId], references: [id], onDelete: Cascade)
+  /// Dono direto (F9/F14). Nulo = dono derivado do run (screenshots antigos).
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  conversationId String?
+  kind      String
+  uri       String?
+  metaJson  Json?
+  createdAt DateTime  @default(now())
+
+  @@index([runId, kind])
+  @@index([userId, kind])
+  @@map("artifacts")
+}
+
+model Skill {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId String
+  capabilityKey String
+  enabled Boolean @default(true)
+  shared Boolean @default(false)
+  activeVersionId String?
+  revision Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  versions SkillVersion[]
+  @@unique([userId, botId, capabilityKey])
+  @@map("skills")
+}
+
+model SkillVersion {
+  id String @id @default(cuid())
+  skillId String
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  number Int
+  content Json
+  hash String
+  status String @default("draft")
+  revokedAt DateTime?
+  // Embedding pgvector (1536 dims, text-embedding-3-small). Via queryRaw;
+  // o Prisma não tipa vector nativamente.
+  embedding Unsupported("vector(1536)")?
+  createdAt DateTime @default(now())
+  evidence SkillEvidence[]
+  evaluations SkillEvaluation[]
+  usages SkillUsage[]
+  @@unique([skillId, number])
+  @@unique([skillId, hash])
+  @@map("skill_versions")
+}
+
+model SkillEvidence {
+  id String @id @default(cuid())
+  versionId String
+  version SkillVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  runId String
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  learningJobId String?
+  createdAt DateTime @default(now())
+  @@unique([versionId, runId])
+  @@map("skill_evidence")
+}
+
+model SkillEvaluation {
+  id String @id @default(cuid())
+  versionId String
+  version SkillVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  passed Boolean
+  report Json
+  tokens Int @default(0)
+  costUsd Float @default(0)
+  createdAt DateTime @default(now())
+  @@index([versionId, createdAt])
+  @@map("skill_evaluations")
+}
+
+model SkillUsage {
+  id String @id @default(cuid())
+  runId String
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  versionId String
+  version SkillVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  outcome String @default("selected")
+  detail String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([runId, versionId])
+  @@map("skill_usages")
+}
+
+model SkillLearningJob {
+  id String @id @default(cuid())
+  runId String
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  extractorVersion String
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId String
+  status String @default("pending")
+  attempts Int @default(0)
+  maxAttempts Int @default(2)
+  tokens Int @default(0)
+  costUsd Float @default(0)
+  reservedTokens Int @default(0)
+  reservedCostUsd Float @default(0)
+  budgetDay String?
+  leaseOwner String?
+  leaseToken String?
+  leaseUntil DateTime?
+  error String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([runId, extractorVersion])
+  @@index([status, leaseUntil])
+  @@index([userId])
+  @@map("skill_learning_jobs")
+}
+
+model SkillLearningBudget {
+  id String @id
+  tokens Int @default(0)
+  costUsd Float @default(0)
+  candidates Int @default(0)
+  @@map("skill_learning_budgets")
+}
+
+/// Intenção pendente de comando de skill por conversa (desambiguação e
+/// respostas curtas de follow-up). Uma por conversa, com expiração curta.
+model SkillPendingIntent {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  conversationId String @unique
+  kind String
+  payload Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([expiresAt])
+  @@index([userId])
+  @@map("skill_pending_intents")
+}
+
+/// Skill como documento Markdown (PLANO-SKILLS K0). Escopo: conta (botId nulo)
+/// ou bot. `botId` é texto sem FK, como no legado `Skill`.
+/// Unicidade (userId, botId, name): o Postgres trata NULL como distinto, então a
+/// migration soma um índice único parcial para `botId IS NULL`
+/// (`skill_docs_userId_name_account_key`; o PG16 do compose aceitaria
+/// NULLS NOT DISTINCT, mas o Prisma não o representa no schema).
+model SkillDoc {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId String?
+  name String
+  description String
+  body String
+  /// Dica de conectores/tools úteis; nunca é permissão.
+  tools String[] @default([])
+  enabled Boolean @default(true)
+  /// "user" | "agent"
+  createdBy String @default("user")
+  /// "active" | "draft"
+  status String @default("active")
+  revision Int @default(1)
+  /// Origem quando instalada do catálogo: kind "catalog", slug, versão e hash do conteúdo instalado.
+  sourceKind String?
+  sourceSlug String?
+  sourceVersion String?
+  sourceHash String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  revisions SkillRevision[]
+  @@unique([userId, botId, name])
+  @@index([userId, botId])
+  @@map("skill_docs")
+}
+
+/// Últimas N revisões de uma skill (poda na escrita), para desfazer/auditar.
+model SkillRevision {
+  id String @id @default(cuid())
+  skillId String
+  skill SkillDoc @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  userId String
+  revision Int
+  name String
+  description String
+  body String
+  createdBy String
+  createdAt DateTime @default(now())
+  @@unique([skillId, revision])
+  @@index([userId])
+  @@map("skill_revisions")
+}
+
+/// Rotina persistida: prompt + cron no servidor. Execução = AgentRun origin=routine.
+model Routine {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId           String
+  bot             Bot       @relation(fields: [botId], references: [id], onDelete: Cascade)
+  conversationId  String?
+  name            String
+  prompt          String
+  /// Modelo OpenRouter dedicado a esta rotina (escolhido no painel).
+  model           String    @default("")
+  allowChatgptPlan Boolean   @default(false)
+  enabled         Boolean   @default(true)
+  triggerType     String    @default("cron")
+  schedule        String?
+  timezone        String    @default("America/Sao_Paulo")
+  triggerJson     Json?
+  /// user | bot (criada pelo bot no modo proativo)
+  createdBy       String    @default("user")
+  lastRunAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  runs            RoutineRun[]
+
+  @@index([botId, enabled])
+  @@index([userId])
+  @@map("routines")
+}
+
+model RoutineRun {
+  id            String    @id @default(cuid())
+  routineId     String
+  routine       Routine   @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  agentRunId    String?
+  agentRun      AgentRun? @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+  triggeredBy   String    @default("schedule")
+  scheduledFor  DateTime?
+  status        String    @default("queued")
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  error         String?
+  summary       String?
+  eventJson     Json?
+  createdAt     DateTime  @default(now())
+
+  @@index([routineId, createdAt])
+  @@index([agentRunId])
+  @@index([routineId, status])
+  @@map("routine_runs")
+}
+
+/// Conector MCP adicionado pelo marketplace (conta; todos os bots usam).
+/// Segredos (tokens OAuth, client info, api key/headers) só em `secretsEnc`
+/// (AES-256-GCM com CONNECTOR_ENCRYPTION_KEY) — nunca em claro.
+model McpConnection {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  /// Id do catálogo ("notion", "github"…); null = MCP personalizado.
+  catalogId      String?
+  /// Prefixo das tools expostas ao modelo: mcp__<slug>__<tool>.
+  slug           String
+  name           String
+  /// Endpoint Streamable HTTP do servidor MCP.
+  url            String
+  /// "oauth" | "api_key" | "none"
+  authType       String
+  /// "pending_auth" | "connected" | "error" | "disabled"
+  status         String   @default("pending_auth")
+  secretsEnc     String?
+  /// Hash do `state` OAuth pendente (callback confere).
+  oauthStateHash String?
+  /// Último listTools(): [{name, title?, description?, inputSchema, annotations?}].
+  toolsCacheJson Json?
+  disabledTools  String[] @default([])
+  /// OBSOLETO (F10): a autonomia decide. Lido só pela migração `autonomy`.
+  confirmWrites  Boolean  @default(true)
+  lastError      String?
+  /// Apelido da conta ("Notion pessoal", e-mail…): várias contas do mesmo conector.
+  accountLabel   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, slug])
+  @@index([userId, catalogId])
+  @@index([oauthStateHash])
+  @@map("mcp_connections")
+}
+
+/// Conexão de API genérica a partir de uma especificação OpenAPI (etapa 1: só leitura).
+/// Segredos (client id/secret, tokens OAuth, chave de API) só em `secretsEnc`
+/// (AES-256-GCM com CONNECTOR_ENCRYPTION_KEY) — nunca em claro. `baseUrl` é a base fixada:
+/// toda chamada do agente é montada contra ela, sem override de host.
+model ApiConnection {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  slug           String
+  name           String
+  /// Base fixada da API (https, sem barra final).
+  baseUrl        String
+  /// Onde a especificação foi encontrada.
+  specUrl        String
+  /// "oauth2" | "apiKey" | "bearer" | "none"
+  authKind       String
+  /// ApiAuth: endpoints OAuth2 ou onde a chave vai (sem segredos).
+  authJson       Json
+  /// "pending_auth" | "connected" | "error" | "disabled"
+  status         String   @default("pending_auth")
+  secretsEnc     String?
+  /// Hash do `state` OAuth pendente (callback confere).
+  oauthStateHash String?
+  /// Catálogo normalizado: [{id, method, path, summary, tag, params, body}].
+  catalogJson    Json
+  /// Resumo por grupo (tag): [{tag, total, read, write}].
+  groupsJson     Json
+  /// Grupos liberados ao agente (etapa 1: só as operações de leitura deles).
+  allowedTags    String[] @default([])
+  operationCount Int      @default(0)
+  rateLimitRps   Int      @default(3)
+  lastError      String?
+  /// Apelido da conta ("Bling loja", e-mail…): várias contas na mesma base.
+  accountLabel   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, slug])
+  @@index([userId, baseUrl])
+  @@index([oauthStateHash])
+  @@map("api_connections")
+}
+
+// Tokens e dados do login ficam exclusivamente no envelope cifrado.
+model ProviderConnection {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  provider String
+  status String @default("disconnected")
+  secretsEnc String?
+  oauthStateHash String? @unique
+  accountEmail String?
+  scopes String[] @default([])
+  accessExpiresAt DateTime?
+  lastError String?
+  lastLimitAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([userId, provider])
+}
+
+/// Backlog de entrega offline (F5): run concluído cujo usuário avisou que ia sair.
+/// Uma linha por run; `status`: waiting (run ativo) → ready → sending → sent | failed | cancelled.
+/// `seenAt` = o usuário abriu a conversa depois do resultado (some o badge e não vai notificação).
+model RunDelivery {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  runId          String    @unique
+  run            AgentRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  conversationId String
+  status         String    @default("waiting")
+  outcome        String?
+  summary        String?
+  /// Horário combinado ("amanhã 7h"); null = assim que o run terminar.
+  deliverAfter   DateTime?
+  dueAt          DateTime?
+  attempts       Int       @default(0)
+  seenAt         DateTime?
+  notifiedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId, seenAt])
+  @@index([status, dueAt])
+  @@index([conversationId])
+  @@map("run_deliveries")
+}
+
+/// Mensagem de um bot para outro (`send_to_bot`) e a resposta que volta ao remetente.
+/// Funciona como outbox: o worker entrega ao destino (adia se ocupado) e, quando o
+/// run do destino termina, devolve a resposta à conversa do remetente e o acorda.
+model BotMessage {
+  id                 String    @id @default(cuid())
+  userId             String
+  fromBotId          String
+  toBotId            String
+  fromConversationId String?
+  toConversationId   String?
+  /// Run do remetente que chamou a tool.
+  fromRunId          String?
+  /// Run criado no destino para tratar a mensagem.
+  toRunId            String?
+  /// Run criado no remetente para relatar a resposta ao usuário.
+  wakeRunId          String?
+  /// Primeira mensagem da cadeia (ela mesma quando é a raiz).
+  rootId             String
+  /// Mensagem que o destino estava tratando quando enviou esta (encaminhar/responder).
+  parentId           String?
+  depth              Int       @default(1)
+  title              String
+  content            String
+  replyContent       String?
+  /// pending | delivered | replied | reply_delivered | failed
+  status             String    @default("pending")
+  error              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deliveredAt        DateTime?
+  repliedAt          DateTime?
+
+  @@index([status, createdAt])
+  @@index([userId, rootId])
+  @@index([toRunId])
+  @@index([fromBotId])
+  @@index([toBotId, status])
+  @@map("bot_messages")
+}
+
+/// Turno de um grupo de bots: uma fala do usuário (ou do bot que ele mencionou) que
+/// precisa ser roteada. O worker decide quem responde e enfileira `GroupReply`.
+model GroupTurn {
+  id             String   @id @default(cuid())
+  userId         String
+  /// Bot-grupo (Bot com `memberIds`).
+  groupId        String
+  conversationId String
+  /// Mensagem do usuário na conversa do grupo que abriu o turno.
+  messageId      String
+  /// routing | active | done
+  status         String   @default("routing")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([groupId, createdAt])
+  @@map("group_turns")
+}
+
+/// Uma resposta de um membro do grupo (fila sequencial: uma por vez por grupo).
+model GroupReply {
+  id             String    @id @default(cuid())
+  turnId         String
+  userId         String
+  groupId        String
+  conversationId String
+  /// Membro que vai responder.
+  botId          String
+  /// Saltos desde a fala do usuário (1 = resposta direta; +1 por menção entre bots).
+  depth          Int       @default(1)
+  /// user_mention | named | router | primary | bot_mention
+  reason         String
+  /// Bot que mencionou este (reason = bot_mention).
+  triggerBotId   String?
+  /// Coordenação com Jev: coordinator | worker | summary (nulo = fluxo base).
+  role           String?
+  /// Subtarefa atribuída pelo coordenador (role = worker).
+  subtask        String?
+  /// Tentativa do membro na subtarefa (1 = primeira; 2 = retentativa após verificação).
+  attempt        Int       @default(1)
+  /// Probabilidade do Jev de a resposta cumprir a subtarefa (0–1).
+  jevScore       Float?
+  /// pending | running | done | failed | skipped
+  status         String    @default("pending")
+  runId          String?
+  error          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  startedAt      DateTime?
+  finishedAt     DateTime?
+
+  @@index([status, createdAt])
+  @@index([groupId, status])
+  @@index([turnId])
+  @@index([runId])
+  @@map("group_replies")
+}
+
+/// Lembrete/verificação agendada pelo bot principal (modo proativo). Sem cron: um horário só.
+/// O worker varre `pending` vencidos e cria o run na conversa do bot.
+model BotFollowup {
+  id             String    @id @default(cuid())
+  userId         String
+  botId          String
+  conversationId String?
+  /// Horário efetivo do disparo (já empurrado para fora do horário de silêncio).
+  dueAt          DateTime
+  /// Horário pedido originalmente.
+  requestedFor   DateTime
+  note           String
+  /// reminder | check
+  kind           String    @default("reminder")
+  /// pending | done | cancelled
+  status         String    @default("pending")
+  /// chat (usuário pediu na conversa) | reflection (o bot decidiu sozinho)
+  source         String    @default("chat")
+  sourceRunId    String?
+  /// Run criado quando venceu.
+  runId          String?
+  claimedUntil   DateTime?
+  attempts       Int       @default(0)
+  lastError      String?
+  doneAt         DateTime?
+  /// Avisos do lembrete: [{ at, firedAt }]. Nulo = um aviso só, em dueAt. dueAt = próximo aviso pendente.
+  stages         Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status, dueAt])
+  @@index([botId, status])
+  @@index([userId])
+  @@map("bot_followups")
+}
+
+/// Registro curto do que o modo proativo fez (sem conteúdo): reflexão do dia, mensagens enviadas (teto diário).
+model ProactiveEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  botId     String
+  /// reflection | message | followup | routine
+  kind      String
+  runId     String?
+  /// Rótulo curto da decisão (nunca texto do usuário).
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([botId, kind, createdAt])
+  @@map("proactive_events")
+}
+
+/// Sessão de desenvolvimento do agente: um container leve por sessão (clone, build, testes).
+/// O container `dev-<id>` é descartável; o volume de workspace guarda o repo entre pausas.
+model DevSession {
+  id             String    @id @default(cuid())
+  userId         String
+  conversationId String?
+  /// owner/name ou URL do repositório clonado.
+  repo           String?
+  branch         String?
+  baseBranch     String?
+  /// CREATING | QUEUED | RUNNING | IDLE | STOPPED | EXPIRED | ERROR
+  status         String    @default("CREATING")
+  /// small | medium | large
+  tier           String    @default("small")
+  containerId    String?
+  /// Lista de tarefas do agente (todo_write), para sobreviver entre runs.
+  todos          Json?
+  /// Pull request da sessão (aberto pelo agente ou obtido com dev_pr_checkout).
+  prNumber       Int?
+  prUrl          String?
+  /// open | draft | merged | closed
+  prState        String?
+  prBase         String?
+  prHead         String?
+  prHeadSha      String?
+  prTitle        String?
+  lastError      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  lastActiveAt   DateTime  @default(now())
+
+  @@index([userId, status])
+  @@index([conversationId])
+  @@index([status, lastActiveAt])
+  @@map("dev_sessions")
+}
+
+/// Ambiente de código por repositório (como o environment.json do Cursor): comandos de preparo,
+/// recursos, política de internet e segredos (selados com CONNECTOR_ENCRYPTION_KEY; nunca vão ao cliente).
+model DevEnvironment {
+  id             String   @id @default(cuid())
+  userId         String
+  /// owner/nome em minúsculas; único por usuário.
+  repo           String
+  installCommand String?
+  startCommand   String?
+  /// Comando de teste rápido (opcional); o agente o prefere a rodar a suíte inteira.
+  testCommand    String?
+  /// small | medium | large
+  tier           String   @default("small")
+  /// allowlist | full | off
+  network        String   @default("allowlist")
+  /// Domínios do usuário, somados à lista padrão (github, npm, pypi…).
+  allowlist      String[]
+  /// ask | allowlist | auto; null = padrão da conta (UserSettings.devApprovalMode).
+  approvalMode   String?
+  /// Prefixos de comando liberados no modo "Lista liberada" (editável).
+  commandAllowlist String[] @default(["pnpm test", "pnpm typecheck", "pnpm lint", "pnpm build", "pnpm install", "pnpm run test", "pnpm run build", "pnpm run lint", "pnpm run typecheck", "npm test", "npm run test", "npm run build", "npm run lint", "npm run typecheck", "npm install", "npm ci", "yarn test", "yarn build", "yarn lint", "yarn install", "git add", "git commit", "git switch", "git fetch"])
+  /// JSON selado { NOME: valor }; null = sem segredos.
+  secrets        String?
+  /// manual | auto (detectado/aprendido pelo agente, sem o usuário preencher nada).
+  source         String   @default("manual")
+  /// Campos que o usuário editou (o agente não sobrescreve): installCommand, startCommand, tier, commandAllowlist, ...
+  userEditedFields String[] @default([])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, repo])
+  @@index([userId])
+  @@map("dev_environments")
+}
+
+/// GitHub App da instância (criado uma vez pelo dono via manifest flow). Linha única
+/// (`id = "default"`). Segredos (client secret, webhook secret, chave privada) só em
+/// `secretsEnc` (AES-256-GCM com CONNECTOR_ENCRYPTION_KEY).
+model GithubAppConfig {
+  id        String   @id @default("default")
+  appId     String
+  slug      String
+  name      String
+  htmlUrl   String?
+  clientId  String
+  ownerLogin String?
+  secretsEnc String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("github_app_configs")
+}
+
+/// Instalação do GitHub App vinculada a um usuário (setup callback com state assinado).
+model GithubInstallation {
+  id                  String    @id @default(cuid())
+  userId              String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  installationId      String    @unique
+  accountLogin        String
+  accountType         String    @default("User")
+  repositorySelection String    @default("selected")
+  /// [{ fullName, private }] — null quando a seleção é "all" e a lista ainda não foi lida.
+  repositories        Json?
+  suspendedAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("github_installations")
+}
+
+/// Entregas já processadas do webhook do GitHub App (dedupe por X-GitHub-Delivery).
+model GithubAppDelivery {
+  deliveryId String   @id
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("github_app_deliveries")
+}
+
+/// Reflexão do orquestrador (bot principal): uma linha por tentativa. Guarda o resumo e o que foi
+/// alterado (com o conteúdo anterior) para inspecionar ou desfazer. Também é a fila do "Refletir agora".
+model OrchestratorReflection {
+  id          String    @id @default(cuid())
+  userId      String
+  botId       String?
+  /// scheduled | manual
+  trigger     String
+  /// queued | running | done | skipped | failed
+  status      String
+  /// Início da janela de atividade lida (fim da última reflexão concluída).
+  sinceAt     DateTime?
+  summary     String?
+  important   Boolean   @default(false)
+  /// Lista de `ReflectionChange` (merge/remove/save/pendências/cartões), com o texto de antes.
+  changesJson Json?
+  /// Contagens, modelo e tokens.
+  statsJson   Json?
+  /// Motivo do skipped/failed.
+  detail      String?
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("orchestrator_reflections")
+}
+
+/// Log ordenado de eventos por usuário (hub em tempo real, `GET /v1/events`). Escrito por gatilhos do banco
+/// (mensagens, runs, leituras, bots, sessões de código, reflexões; no commit) e por `publishUserEvent`.
+/// `seq` é sem buracos e cresce na ordem do commit (contador por usuário, ver `UserEventCounter`).
+model UserEvent {
+  id        String   @id
+  userId    String
+  seq       Int
+  type      String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@unique([userId, seq])
+  @@index([createdAt])
+  @@map("user_events")
+}
+
+/// Último `seq` de cada usuário. A linha serializa os publicadores (travada até o commit), o que garante a ordem.
+model UserEventCounter {
+  userId String @id
+  seq    Int
+
+  @@map("user_event_counters")
+}
+
+/// Cofre do usuário — chave de dados por usuário (envelope). `wrappedKey` é a chave
+/// AES-256 do usuário cifrada pela chave mestra do servidor (CONNECTOR_ENCRYPTION_KEY);
+/// apagar esta linha torna ilegíveis todos os segredos do usuário.
+model UserVaultKey {
+  userId     String   @id
+  wrappedKey String
+  /// Versão da chave mestra usada para embrulhar (rotação sem recifrar os itens).
+  masterVer  Int      @default(1)
+  createdAt  DateTime @default(now())
+  rotatedAt  DateTime?
+
+  @@map("user_vault_keys")
+}
+
+/// Segredo ou login de site do usuário. Conteúdo sensível só em `valueEnc`
+/// (AES-256-GCM com a chave do usuário, AAD = userId:id). Colunas em claro são
+/// só o que o agente pode ver (nome, descrição, domínio, usuário).
+model UserSecret {
+  id          String    @id
+  userId      String
+  /// "secret" | "login"
+  kind        String    @default("secret")
+  /// Chave de referência: {{secret:name}} / {{login:name.password}}.
+  name        String
+  label       String    @default("")
+  description String    @default("")
+  siteUrl     String?
+  domain      String?
+  username    String?
+  valueEnc    String
+  /// Dono é sempre userId; espaço para compartilhamento futuro (null = privado).
+  sharedWith  String[]  @default([])
+  /// Bots que podem usar o login sem perguntar ("sempre para este bot").
+  alwaysBots  String[]  @default([])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastUsedAt  DateTime?
+
+  audit UserSecretAudit[]
+
+  @@unique([userId, name])
+  @@index([userId, updatedAt])
+  @@map("user_secrets")
+}
+
+/// Auditoria por item: criado, revelado, copiado, editado, usado pelo bot X na conversa Y.
+model UserSecretAudit {
+  id             String     @id @default(cuid())
+  secretId       String
+  secret         UserSecret @relation(fields: [secretId], references: [id], onDelete: Cascade)
+  userId         String
+  /// created | updated | revealed | copied | used | rotated
+  action         String
+  /// user | bot
+  actor          String     @default("user")
+  botId          String?
+  botName        String?
+  conversationId String?
+  detail         String?
+  createdAt      DateTime   @default(now())
+
+  @@index([secretId, createdAt])
+  @@index([userId, createdAt])
+  @@map("user_secret_audit")
+}

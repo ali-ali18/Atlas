@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Abre/foca o Chrome da sandbox no MESMO perfil/CDP do entrypoint.
+set -euo pipefail
+
+export DISPLAY="${DISPLAY:-:99}"
+CHROME_BIN="${CHROME_BIN:-/usr/bin/google-chrome-stable}"
+USER_DATA_DIR="${CHROME_USER_DATA_DIR:-/tmp/chrome-data}"
+
+# Se já há Chrome com nosso perfil, só traz a janela pra frente.
+if pgrep -f "chrome.*--user-data-dir=${USER_DATA_DIR}" >/dev/null 2>&1; then
+	wmctrl -xa google-chrome.Google-chrome 2>/dev/null \
+		|| wmctrl -xa Chromium 2>/dev/null \
+		|| wmctrl -a Chrome 2>/dev/null \
+		|| true
+	exit 0
+fi
+
+# O perfil mora num volume por conversa e sobrevive ao container. Container novo
+# tem outro hostname e o SingletonLock herdado faz o Chrome recusar o perfil.
+# Sem Chrome nosso rodando (checado acima), esses arquivos são lixo.
+rm -f -- "${USER_DATA_DIR}/SingletonLock" "${USER_DATA_DIR}/SingletonSocket" "${USER_DATA_DIR}/SingletonCookie"
+
+exec "$CHROME_BIN" \
+	--no-first-run \
+	--no-default-browser-check \
+	--no-sandbox \
+	--disable-dev-shm-usage \
+	--disable-gpu \
+	--user-data-dir="${USER_DATA_DIR}" \
+	--remote-debugging-address=127.0.0.1 \
+	--remote-debugging-port=9222 \
+	--window-size="${XVFB_WIDTH:-1280},${XVFB_HEIGHT:-720}" \
+	${1:+"$@"}

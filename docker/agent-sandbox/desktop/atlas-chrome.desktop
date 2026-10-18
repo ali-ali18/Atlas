@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Chrome
+Comment=Navegador da sandbox Atlas
+Exec=/usr/local/bin/atlas-chrome
+Icon=google-chrome
+Terminal=false
+Type=Application
+Categories=Network;WebBrowser;
+StartupWMClass=Google-chrome

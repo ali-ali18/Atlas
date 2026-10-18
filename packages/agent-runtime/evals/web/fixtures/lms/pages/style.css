@@ -1,0 +1,17 @@
+body { font-family: system-ui, sans-serif; margin: 0; padding: 16px 24px; color: #111; }
+.a11y-banner { background: #fff7d6; border: 1px solid #e0c200; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.card { position: relative; border: 1px solid #ccd; border-radius: 8px; padding: 16px; background: #fafbff; }
+.card .title { font-weight: 600; font-size: 17px; display: block; }
+.card .star { float: right; color: #c90; }
+.card .stretched::after { content: ""; position: absolute; inset: 0; }
+#consent { position: fixed; inset: 0; z-index: 9999; background: rgba(0, 0, 0, 0.45); display: flex; align-items: flex-end; justify-content: center; }
+#consent .box { background: #fff; padding: 16px 20px; margin: 24px; border-radius: 8px; max-width: 520px; }
+.accordion .week { border: 1px solid #ccd; border-radius: 6px; margin: 6px 0; }
+.accordion .week > button { width: 100%; text-align: left; padding: 10px 12px; font-size: 15px; background: #f0f2fa; border: 0; cursor: pointer; }
+.panel { padding: 8px 14px; }
+.activity-card { border: 1px dashed #669; padding: 10px; margin: 8px 0; cursor: pointer; background: #f6f6ff; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); z-index: 500; display: flex; align-items: center; justify-content: center; }
+.modal { background: #fff; padding: 20px; border-radius: 8px; min-width: 360px; }
+.comment { margin-top: 8px; padding: 8px; background: #eef; font-size: 13px; }
+nav a { margin-right: 12px; }

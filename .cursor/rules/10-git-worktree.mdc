@@ -1,0 +1,8 @@
+---
+description: Git — um worktree por agente, branches, rebase, o que nunca fazer
+alwaysApply: true
+---
+
+Regra mantida em `.agents/rules/10-git-worktree.md` (fonte única, não edite aqui).
+
+@.agents/rules/10-git-worktree.md

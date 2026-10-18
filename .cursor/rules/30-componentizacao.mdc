@@ -1,0 +1,9 @@
+---
+description: Componentização e organização de código (camadas, reuso, funções puras, UI)
+globs: apps/**/*.ts,apps/**/*.tsx,packages/**/*.ts,packages/**/*.tsx
+alwaysApply: false
+---
+
+Regra mantida em `.agents/rules/30-componentizacao.md` (fonte única, não edite aqui).
+
+@.agents/rules/30-componentizacao.md

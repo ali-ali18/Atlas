@@ -1,0 +1,37 @@
+name: Release
+
+# Tag `v*` (ex.: v0.1.0-beta): roda o CI inteiro e, se passar, cria o GitHub Release com o changelog
+# dos commits desde a tag anterior. NÃO faz deploy (o Dokploy é manual/por push na main).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Criar GitHub Release
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Changelog desde a tag anterior
+        run: node scripts/changelog.mjs --to "$GITHUB_REF_NAME" > release-notes.md
+      - name: Criar o release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=""
+          case "$GITHUB_REF_NAME" in *-*) flags="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md $flags

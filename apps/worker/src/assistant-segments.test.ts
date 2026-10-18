@@ -1,0 +1,56 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import type { ComputerUseEvent } from "@workspace/shared";
+import { createAssistantSegmentRecorder } from "./assistant-segments.js";
+
+const delta = (id: string, text: string): ComputerUseEvent => ({ type: "assistant_delta", id, delta: text });
+const toolCall = (id = "t1"): ComputerUseEvent => ({ type: "tool_call", id, name: "browser", args: "{}" });
+
+function setup() {
+	const writes: Array<{ text: string; at: number }> = [];
+	let clock = 1_000;
+	const recorder = createAssistantSegmentRecorder({
+		write: async (text, at) => void writes.push({ text, at: at.getTime() }),
+		now: () => new Date((clock += 10)),
+	});
+	return { writes, recorder };
+}
+
+test("resposta da triagem é gravada na hora, na ordem da emissão", async () => {
+	const { writes, recorder } = setup();
+	await recorder.observe(delta("turn-reply1", "O cofre tem o login."));
+	await recorder.observe(delta("turn-reply2", "Consigo sim."));
+	assert.deepEqual(writes.map((w) => w.text), ["O cofre tem o login.", "Consigo sim."]);
+	assert.ok(writes[0]!.at < writes[1]!.at);
+});
+
+test("texto de passo com tools sai na chamada da tool, com a hora do primeiro delta", async () => {
+	const { writes, recorder } = setup();
+	await recorder.observe(delta("s1", "Vou abrir "));
+	await recorder.observe(delta("s1", "a página."));
+	assert.equal(writes.length, 0);
+	await recorder.observe(toolCall());
+	assert.deepEqual(writes.map((w) => w.text), ["Vou abrir a página."]);
+	assert.equal(writes[0]!.at, 1_010);
+});
+
+test("texto do passo final nunca é gravado aqui (o fim do run o grava)", async () => {
+	const { writes, recorder } = setup();
+	await recorder.observe(delta("s1", "passo com tool"));
+	await recorder.observe(toolCall());
+	await recorder.observe(delta("s2", "resposta final"));
+	assert.deepEqual(writes.map((w) => w.text), ["passo com tool"]);
+});
+
+test("assistant_discard retira o texto do passo", async () => {
+	const { writes, recorder } = setup();
+	await recorder.observe(delta("s1", "rascunho"));
+	await recorder.observe({ type: "assistant_discard" });
+	await recorder.observe(toolCall());
+	assert.equal(writes.length, 0);
+});
+
+test("falha ao gravar não derruba o run", async () => {
+	const recorder = createAssistantSegmentRecorder({ write: async () => Promise.reject(new Error("db")) });
+	await assert.doesNotReject(recorder.observe(delta("t-reply1", "oi")));
+});

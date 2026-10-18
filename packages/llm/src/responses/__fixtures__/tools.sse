@@ -1,0 +1,12 @@
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","id":"fc_fixture_a","call_id":"call_fixture_a","name":"lookup","arguments":"{\"id\":1}"}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":2,"item":{"type":"function_call","id":"fc_fixture_b","call_id":"call_fixture_b","name":"lookup","arguments":""}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"reason_fixture","summary":[],"encrypted_content":"opaque_fixture"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"status":"completed","model":"luna","usage":{"input_tokens":10,"output_tokens":20,"total_tokens":30}}}
+

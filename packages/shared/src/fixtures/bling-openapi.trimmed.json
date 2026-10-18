@@ -1,0 +1,1104 @@
+{
+ "openapi": "3.0.0",
+ "info": {
+  "title": "Bling API"
+ },
+ "servers": [
+  {
+   "url": "https://api.bling.com.br/Api/v3",
+   "description": "Ambiente de produção"
+  },
+  {
+   "url": "https://developer.bling.com.br/api/bling",
+   "description": "Ambiente de teste da documentação"
+  }
+ ],
+ "security": [
+  {
+   "OAuth2": [],
+   "OAuth2-Docs": []
+  }
+ ],
+ "components": {
+  "securitySchemes": {
+   "OAuth2": {
+    "type": "oauth2",
+    "flows": {
+     "authorizationCode": {
+      "authorizationUrl": "https://bling.com.br/Api/v3/oauth/authorize",
+      "tokenUrl": "https://bling.com.br/Api/v3/oauth/token",
+      "refreshUrl": "https://bling.com.br/Api/v3/oauth/token",
+      "scopes": {}
+     }
+    }
+   },
+   "OAuth2-Docs": {
+    "type": "oauth2",
+    "flows": {
+     "authorizationCode": {
+      "authorizationUrl": "https://bling.com.br/Api/v3/oauth/authorize",
+      "tokenUrl": "https://developer.bling.com.br/api/bling/oauth/token",
+      "refreshUrl": "https://developer.bling.com.br/api/bling/oauth/token",
+      "scopes": {}
+     }
+    }
+   }
+  }
+ },
+ "paths": {
+  "/contatos": {
+   "get": {
+    "tags": [
+     "Contatos"
+    ],
+    "summary": "Obtém contatos",
+    "description": "Obtém contatos paginados.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/pagina"
+     },
+     {
+      "$ref": "#/components/parameters/limite"
+     },
+     {
+      "name": "pesquisa",
+      "in": "query",
+      "description": "Nome, CPF/CNPJ, fantasia, e-mail ou código do contato",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "criterio",
+      "in": "query",
+      "description": "Criterio de listagem <br> `1` Todos <br> `2` Excluídos <br> `3` Últimos incluídos <br> `4` Sem movimento",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 3,
+       "enum": [
+        1,
+        2,
+        3,
+        4
+       ]
+      }
+     },
+     {
+      "name": "dataInclusaoInicial",
+      "in": "query",
+      "description": "Data de inclusão inicial",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "datetime",
+       "example": "2022-01-01 10:00:00"
+      }
+     },
+     {
+      "name": "dataInclusaoFinal",
+      "in": "query",
+      "description": "Data de inclusão final",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "datetime",
+       "example": "2022-01-01 15:00:00"
+      }
+     },
+     {
+      "name": "dataAlteracaoInicial",
+      "in": "query",
+      "description": "Data de alteração inicial",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "datetime",
+       "example": "2022-01-01 10:00:00"
+      }
+     },
+     {
+      "name": "dataAlteracaoFinal",
+      "in": "query",
+      "description": "Data de alteração final",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "datetime",
+       "example": "2022-01-01 15:00:00"
+      }
+     },
+     {
+      "name": "idTipoContato",
+      "in": "query",
+      "description": "ID do tipo do contato",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": 12345678
+      }
+     },
+     {
+      "name": "idVendedor",
+      "in": "query",
+      "description": "ID do vendedor relacionado ao contato",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": 12345678
+      }
+     },
+     {
+      "name": "uf",
+      "in": "query",
+      "description": "UF do contato",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "example": "RS"
+      }
+     },
+     {
+      "name": "telefone",
+      "in": "query",
+      "description": "Telefone do contato",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "example": "(51) 99999-9999"
+      }
+     },
+     {
+      "name": "idsContatos[]",
+      "in": "query",
+      "description": "IDs dos contatos",
+      "required": false,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       },
+       "example": [
+        12345678,
+        87654321
+       ]
+      }
+     },
+     {
+      "name": "numeroDocumento",
+      "in": "query",
+      "description": " CPF/CNPJ, desconsiderando a pontuação",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "example": "12345678910"
+      }
+     },
+     {
+      "name": "tipoPessoa",
+      "in": "query",
+      "description": "Tipo de pessoa <br> `1` Física <br> `2` Jurídica <br> `3` Estrangeiro",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "enum": [
+        1,
+        2,
+        3
+       ],
+       "example": 1
+      }
+     }
+    ],
+    "x-api-resource": "Contatos",
+    "x-api-action": "ObterMultiplos"
+   },
+   "post": {
+    "tags": [
+     "Contatos"
+    ],
+    "summary": "Cria um contato",
+    "description": "Cria um contato.",
+    "x-api-resource": "Contatos",
+    "x-api-action": "Criar"
+   },
+   "delete": {
+    "tags": [
+     "Contatos"
+    ],
+    "summary": "Remove múltiplos contatos",
+    "description": "Remove múltiplos contatos pelos IDs.",
+    "parameters": [
+     {
+      "name": "idsContatos[]",
+      "in": "query",
+      "description": "IDs dos contatos",
+      "required": true,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       },
+       "example": [
+        12345678,
+        87654321
+       ]
+      }
+     }
+    ],
+    "x-api-resource": "Contatos",
+    "x-api-action": "RemoverMultiplos"
+   }
+  },
+  "/contatos/{idContato}": {
+   "get": {
+    "tags": [
+     "Contatos"
+    ],
+    "summary": "Obtém um contato",
+    "description": "Obtém um contato pelo ID.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/idContato"
+     }
+    ],
+    "x-api-resource": "Contatos",
+    "x-api-action": "Obter"
+   },
+   "put": {
+    "tags": [
+     "Contatos"
+    ],
+    "summary": "Altera um contato",
+    "description": "Altera um contato pelo ID.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/idContato"
+     }
+    ],
+    "x-api-resource": "Contatos",
+    "x-api-action": "Alterar"
+   },
+   "delete": {
+    "tags": [
+     "Contatos"
+    ],
+    "summary": "Remove um contato",
+    "description": "Remove um contato pelo ID.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/idContato"
+     }
+    ],
+    "x-api-resource": "Contatos",
+    "x-api-action": "Remover"
+   }
+  },
+  "/pedidos/vendas": {
+   "get": {
+    "tags": [
+     "Pedidos - Vendas"
+    ],
+    "summary": "Obtém pedidos de vendas",
+    "description": "Obtém pedidos de vendas paginados.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/pagina"
+     },
+     {
+      "$ref": "#/components/parameters/limite"
+     },
+     {
+      "name": "idContato",
+      "in": "query",
+      "description": "ID do contato",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": 12345678
+      }
+     },
+     {
+      "name": "idsSituacoes[]",
+      "in": "query",
+      "description": "Conjunto de situações",
+      "required": false,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       },
+       "example": [
+        12345678,
+        87654321
+       ]
+      }
+     },
+     {
+      "name": "dataInicial",
+      "in": "query",
+      "description": "Data incial",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "date",
+       "example": "2022-01-01"
+      }
+     },
+     {
+      "name": "dataFinal",
+      "in": "query",
+      "description": "Data final",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "date",
+       "example": "2022-01-15"
+      }
+     },
+     {
+      "name": "dataAlteracaoInicial",
+      "in": "query",
+      "description": "Data inicial da alteração",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "datetime",
+       "example": "2022-01-01 10:00:00"
+      }
+     },
+     {
+      "name": "dataAlteracaoFinal",
+      "in": "query",
+      "description": "Data final da alteração",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "datetime",
+       "example": "2022-01-15 11:00:00"
+      }
+     },
+     {
+      "name": "dataPrevistaInicial",
+      "in": "query",
+      "description": "Data inicial prevista",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "date",
+       "example": "2022-01-01"
+      }
+     },
+     {
+      "name": "dataPrevistaFinal",
+      "in": "query",
+      "description": "Data final prevista",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "date",
+       "example": "2022-01-15"
+      }
+     },
+     {
+      "name": "numero",
+      "in": "query",
+      "description": "Número do pedido de venda",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": "12345"
+      }
+     },
+     {
+      "name": "idLoja",
+      "in": "query",
+      "description": "ID da loja",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": 12345678
+      }
+     },
+     {
+      "name": "idVendedor",
+      "in": "query",
+      "description": "ID do vendedor",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": 12345678
+      }
+     },
+     {
+      "name": "idControleCaixa",
+      "in": "query",
+      "description": "ID do controle de caixa",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": 12345678
+      }
+     },
+     {
+      "name": "numerosLojas[]",
+      "in": "query",
+      "description": "Conjunto de números de pedidos nas lojas",
+      "required": false,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "example": [
+        "12345",
+        "54321"
+       ]
+      }
+     },
+     {
+      "name": "idUnidadeNegocio",
+      "in": "query",
+      "description": "ID da unidade de negócio (filial)",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": 12345678
+      }
+     }
+    ],
+    "x-api-resource": "PedidosVenda",
+    "x-api-action": "ObterMultiplos"
+   },
+   "post": {
+    "tags": [
+     "Pedidos - Vendas"
+    ],
+    "summary": "Cria um pedido de venda",
+    "description": "Cria um pedido de venda.",
+    "x-api-resource": "PedidosVenda",
+    "x-api-action": "Criar"
+   },
+   "delete": {
+    "tags": [
+     "Pedidos - Vendas"
+    ],
+    "summary": "Remove pedidos de vendas",
+    "description": "Remove pedidos de vendas pelos IDs.",
+    "parameters": [
+     {
+      "name": "idsPedidosVendas[]",
+      "in": "query",
+      "description": "IDs dos pedidos de vendas",
+      "required": true,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       },
+       "example": [
+        12345678,
+        87654321
+       ]
+      }
+     }
+    ],
+    "x-api-resource": "PedidosVenda",
+    "x-api-action": "RemoverMultiplos"
+   }
+  },
+  "/pedidos/vendas/{idPedidoVenda}": {
+   "get": {
+    "tags": [
+     "Pedidos - Vendas"
+    ],
+    "summary": "Obtém um pedido de venda",
+    "description": "Obtém um pedido de venda pelo ID.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/idPedidoVenda"
+     }
+    ],
+    "x-api-resource": "PedidosVenda",
+    "x-api-action": "Obter"
+   },
+   "put": {
+    "tags": [
+     "Pedidos - Vendas"
+    ],
+    "summary": "Altera um pedido de venda",
+    "description": "Altera um pedido de venda pelo ID.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/idPedidoVenda"
+     }
+    ],
+    "x-api-resource": "PedidosVenda",
+    "x-api-action": "Alterar"
+   },
+   "delete": {
+    "tags": [
+     "Pedidos - Vendas"
+    ],
+    "summary": "Remove um pedido de venda",
+    "description": "Remove um pedido de venda pelo ID.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/idPedidoVenda"
+     }
+    ],
+    "x-api-resource": "PedidosVenda",
+    "x-api-action": "Remover"
+   }
+  },
+  "/produtos": {
+   "get": {
+    "tags": [
+     "Produtos"
+    ],
+    "summary": "Obtém produtos",
+    "description": "Obtém produtos paginados.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/pagina"
+     },
+     {
+      "$ref": "#/components/parameters/limite"
+     },
+     {
+      "name": "criterio",
+      "in": "query",
+      "description": "Critério de listagem <br> `1` Últimos incluídos <br> `2` Ativos <br> `3` Inativos <br> `4` Excluídos <br> `5` Todos",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 1,
+       "enum": [
+        1,
+        2,
+        3,
+        4,
+        5
+       ]
+      }
+     },
+     {
+      "name": "tipo",
+      "in": "query",
+      "description": "`T` Todos <br> `P` Produtos <br> `S` Serviços <br> `E` Composições <br> `PS` Produtos simples <br> `C` Com variações <br> `V` Variações",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "T",
+       "enum": [
+        "T",
+        "P",
+        "S",
+        "E",
+        "PS",
+        "C",
+        "V"
+       ]
+      }
+     },
+     {
+      "name": "idComponente",
+      "in": "query",
+      "description": "ID do componente. Utilizado quando o filtro **tipo** for `E`.",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": 12345678
+      }
+     },
+     {
+      "name": "dataInclusaoInicial",
+      "in": "query",
+      "description": "Data de inclusão inicial",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "datetime",
+       "example": "2020-01-01 12:00:00"
+      }
+     },
+     {
+      "name": "dataInclusaoFinal",
+      "in": "query",
+      "description": "Data de inclusão final",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "datetime",
+       "example": "2020-01-01 13:00:00"
+      }
+     },
+     {
+      "name": "dataAlteracaoInicial",
+      "in": "query",
+      "description": "Data de alteração inicial",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "datetime",
+       "example": "2020-01-01 10:00:00"
+      }
+     },
+     {
+      "name": "dataAlteracaoFinal",
+      "in": "query",
+      "description": "Data de alteração final",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "datetime",
+       "example": "2020-01-01 11:00:00"
+      }
+     },
+     {
+      "name": "idCategoria",
+      "in": "query",
+      "description": "ID da categoria do produto",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": 12345678
+      }
+     },
+     {
+      "name": "idLoja",
+      "in": "query",
+      "description": "ID da loja",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": 12345678
+      }
+     },
+     {
+      "name": "nome",
+      "in": "query",
+      "description": "Nome do produto",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "example": " "
+      }
+     },
+     {
+      "name": "idsProdutos[]",
+      "in": "query",
+      "description": "IDs dos produtos",
+      "required": false,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       },
+       "example": [
+        12345678,
+        87654321
+       ]
+      }
+     },
+     {
+      "name": "codigos[]",
+      "in": "query",
+      "description": "Códigos (SKU) dos produtos",
+      "required": false,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "example": [
+        "SKU1",
+        "SKU2"
+       ]
+      }
+     },
+     {
+      "name": "gtins[]",
+      "in": "query",
+      "description": "GTINs/EANs dos produtos",
+      "required": false,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "example": [
+        "7891234567890",
+        "7891234567891"
+       ]
+      }
+     },
+     {
+      "$ref": "#/components/parameters/filtroSaldoEstoque"
+     },
+     {
+      "$ref": "#/components/parameters/filtroSaldoEstoqueDeposito"
+     }
+    ],
+    "x-api-resource": "Produtos",
+    "x-api-action": "ObterMultiplos"
+   },
+   "post": {
+    "tags": [
+     "Produtos"
+    ],
+    "summary": "Cria um produto",
+    "description": "Cria um produto.",
+    "x-api-resource": "Produtos",
+    "x-api-action": "Criar"
+   },
+   "delete": {
+    "tags": [
+     "Produtos"
+    ],
+    "summary": "Remove múltiplos produtos",
+    "description": "Remove múltiplos produtos pelos IDs.",
+    "parameters": [
+     {
+      "name": "idsProdutos[]",
+      "in": "query",
+      "description": "IDs dos produtos",
+      "required": true,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       },
+       "example": [
+        12345678,
+        87654321
+       ]
+      }
+     }
+    ],
+    "x-api-resource": "Produtos",
+    "x-api-action": "RemoverMultiplos"
+   }
+  },
+  "/produtos/{idProduto}": {
+   "get": {
+    "tags": [
+     "Produtos"
+    ],
+    "summary": "Obtém um produto",
+    "description": "Obtém um produto pelo ID.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/idProduto"
+     }
+    ],
+    "x-api-resource": "Produtos",
+    "x-api-action": "Obter"
+   },
+   "put": {
+    "tags": [
+     "Produtos"
+    ],
+    "summary": "Altera um produto",
+    "description": "Altera um produto pelo ID.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/idProduto"
+     }
+    ],
+    "x-api-resource": "Produtos",
+    "x-api-action": "Alterar"
+   },
+   "delete": {
+    "tags": [
+     "Produtos"
+    ],
+    "summary": "Remove um produto",
+    "description": "Remove um produto pelo ID.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/idProduto"
+     }
+    ],
+    "x-api-resource": "Produtos",
+    "x-api-action": "Remover"
+   },
+   "patch": {
+    "tags": [
+     "Produtos"
+    ],
+    "summary": "Altera parcialmente um produto",
+    "description": "Altera parcialmente um produto pelo ID. Somente os campos informados terão o valor alterado.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/idProduto"
+     }
+    ],
+    "x-api-resource": "Produtos",
+    "x-api-action": "Alterar"
+   }
+  },
+  "/estoques/saldos/{idDeposito}": {
+   "get": {
+    "tags": [
+     "Estoques"
+    ],
+    "summary": "Obtém o saldo em estoque de produtos por depósito",
+    "description": "Obtém o saldo em estoque de produtos pelo ID do depósito.",
+    "parameters": [
+     {
+      "name": "idDeposito",
+      "in": "path",
+      "description": "ID do depósito",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "example": 12345678
+      }
+     },
+     {
+      "name": "idsProdutos[]",
+      "in": "query",
+      "description": "IDs dos produtos",
+      "required": true,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       },
+       "example": [
+        12345678,
+        87654321
+       ]
+      }
+     },
+     {
+      "name": "codigos[]",
+      "in": "query",
+      "description": "Códigos dos produtos",
+      "required": false,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "example": [
+        "SKU1",
+        "SKU2"
+       ]
+      }
+     },
+     {
+      "$ref": "#/components/parameters/filtroSaldoEstoque"
+     }
+    ],
+    "x-api-resource": "Estoques",
+    "x-api-action": "ObterSaldosEstoqueDeposito"
+   }
+  },
+  "/nfe": {
+   "get": {
+    "tags": [
+     "Notas Fiscais Eletrônicas"
+    ],
+    "summary": "Obtém notas fiscais",
+    "description": "Obtém notas fiscais paginadas.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/pagina"
+     },
+     {
+      "$ref": "#/components/parameters/limite"
+     },
+     {
+      "name": "numeroLoja",
+      "in": "query",
+      "description": "Número do pedido na loja",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "example": "123455678"
+      }
+     },
+     {
+      "name": "idTransportador",
+      "in": "query",
+      "description": "ID do contato do transportador",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": "12345678"
+      }
+     },
+     {
+      "name": "chaveAcesso",
+      "in": "query",
+      "description": "Chave de acesso",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": "35250145752681000182650010000266371238060760"
+      }
+     },
+     {
+      "name": "numero",
+      "in": "query",
+      "description": "Número da nota fiscal",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": "158"
+      }
+     },
+     {
+      "name": "serie",
+      "in": "query",
+      "description": "Série",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": "1"
+      }
+     },
+     {
+      "name": "situacao",
+      "in": "query",
+      "description": "`1` Pendente<br>`2` Cancelada<br>`3` Aguardando recibo<br>`4` Rejeitada<br>`5` Autorizada<br>`6` Emitida DANFE<br>`7` Registrada<br>`8` Aguardando protocolo<br>`9` Denegada<br>`10` Consulta situação<br>`11` Bloqueada<br><br>**Observação:** Caso este parâmetro não seja informado, as notas canceladas não serão incluídas na consulta.<br><br>",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "enum": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+       ],
+       "example": 1
+      }
+     },
+     {
+      "name": "tipo",
+      "in": "query",
+      "description": "`0` Entrada <br> `1` Saída",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "1",
+       "enum": [
+        "0",
+        "1"
+       ]
+      }
+     },
+     {
+      "name": "dataEmissaoInicial",
+      "in": "query",
+      "description": "Data e hora incial de emissão",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "date",
+       "example": "2021-12-01 00:00:00"
+      }
+     },
+     {
+      "name": "dataEmissaoFinal",
+      "in": "query",
+      "description": "Data e hora final de emissão",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "format": "date",
+       "example": "2021-12-31 23:59:59"
+      }
+     }
+    ],
+    "x-api-resource": "NotasFiscais",
+    "x-api-action": "ObterMultiplos"
+   },
+   "post": {
+    "tags": [
+     "Notas Fiscais Eletrônicas"
+    ],
+    "summary": "Cria uma nota fiscal",
+    "description": "Cria uma nota fiscal.",
+    "x-api-resource": "NotasFiscais",
+    "x-api-action": "Criar"
+   },
+   "delete": {
+    "tags": [
+     "Notas Fiscais Eletrônicas"
+    ],
+    "summary": "Remove múltiplas notas fiscais",
+    "description": "Remove múltiplas notas fiscais por IDs.",
+    "parameters": [
+     {
+      "name": "idsNotas[]",
+      "in": "query",
+      "description": "IDs das notas fiscais",
+      "required": true,
+      "schema": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       },
+       "example": [
+        12345678,
+        87654321
+       ]
+      }
+     }
+    ],
+    "x-api-resource": "NotasFiscais",
+    "x-api-action": "RemoverMultiplos"
+   }
+  },
+  "/anuncios/categorias": {
+   "get": {
+    "tags": [
+     "Anúncios - Categorias"
+    ],
+    "summary": "Obtém categorias de anúncios",
+    "description": "Obtém categorias de anúncios.",
+    "parameters": [
+     {
+      "$ref": "#/components/parameters/tipoIntegracao"
+     },
+     {
+      "$ref": "#/components/parameters/idLojaQuery"
+     },
+     {
+      "name": "idCategoria",
+      "in": "query",
+      "description": "ID da categoria",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "example": 10
+      }
+     },
+     {
+      "name": "tipoProduto",
+      "in": "query",
+      "description": "Tipo do produto",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "example": "eletronico"
+      }
+     }
+    ],
+    "x-api-resource": "AnunciosCategorias",
+    "x-api-action": "ObterMultiplos"
+   }
+  }
+ }
+}

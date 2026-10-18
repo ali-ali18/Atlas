@@ -1,0 +1,240 @@
+"use client";
+
+import {
+	CheckCheckIcon,
+	CornerDownRightIcon,
+	EyeIcon,
+	ListChecksIcon,
+	PowerOffIcon,
+	RefreshCcwIcon,
+	ShieldAlertIcon,
+	ShieldBanIcon,
+	ShieldCheckIcon,
+	TargetIcon,
+	UsersIcon,
+	WorkflowIcon,
+	ZapIcon,
+} from "lucide-react";
+import type {
+	AccountConfigPatch,
+	AccountConfigV1,
+	EffectiveAccountConfig,
+	JevFeature,
+} from "@workspace/shared";
+import {
+	SettingsPicker,
+	type SettingsIcon,
+	withOptionIcons,
+} from "@/components/ui/templates/template-4/settings-picker";
+import type { useAccountSettings } from "@/hooks/use-account-settings";
+import type { SaveStatus } from "../account-settings-state";
+import {
+	JEV_FEATURE_SPECS,
+	jevFeatureChoice,
+	jevFeatureOptions,
+	jevFeaturePatch,
+	jevGeneralChoice,
+	jevGeneralOptions,
+	jevGeneralPatch,
+	jevMcpChoice,
+	jevMcpOptions,
+	jevMcpPatch,
+	groupsJevPatch,
+} from "../jev-execution-state";
+import { SaveIndicator, SettingRow, SettingsGroup, SettingsStack } from "../setting-row";
+import { SwitchRow } from "./execution";
+
+const FEATURE_ICONS: Record<JevFeature, SettingsIcon> = {
+	intent: TargetIcon,
+	tools: ListChecksIcon,
+	verify: CheckCheckIcon,
+	blockpage: ShieldAlertIcon,
+	delegate: UsersIcon,
+	stuck: RefreshCcwIcon,
+};
+
+const MODE_ICONS = { inherit: CornerDownRightIcon, off: PowerOffIcon, shadow: EyeIcon, on: ZapIcon };
+const MCP_MODE_ICONS = { inherit: CornerDownRightIcon, off: PowerOffIcon, shadow: EyeIcon, gate: ShieldBanIcon };
+
+export const NO_OPENROUTER_KEY_NOTE = "Chave do OpenRouter não configurada no servidor";
+
+/**
+ * Revisão automática (JEV): revisão de escritas em conectores, um dropdown geral para as
+ * decisões auxiliares e, num segundo grupo, um dropdown por recurso.
+ * Cada dropdown salva na hora; "Herdar" volta ao padrão.
+ */
+export function JevSettingsView({
+	effective,
+	config,
+	openrouterKey = true,
+	status,
+	saveError,
+	loadError,
+	onChange,
+	isVisible = () => true,
+	title = "Revisão automática (JEV)",
+	featuresTitle = "Revisão por recurso",
+	showStatus = true,
+}: {
+	title?: string;
+	featuresTitle?: string;
+	showStatus?: boolean;
+	/** `null` enquanto carrega. */
+	effective: EffectiveAccountConfig | null;
+	/** O que a conta gravou (decide o que é escolha própria). */
+	config: AccountConfigV1 | null;
+	/** Sem a chave no servidor, o Jev não tem modelo para chamar: controles desabilitados. */
+	openrouterKey?: boolean;
+	status: SaveStatus;
+	saveError?: string | null;
+	loadError?: string | null;
+	onChange: (patch: AccountConfigPatch) => void;
+	isVisible?: (itemId: string) => boolean;
+}) {
+	const ready = effective !== null && config !== null;
+	const disabled = !ready || !openrouterKey;
+	const visibleFeatures = JEV_FEATURE_SPECS.filter((spec) => isVisible(spec.itemId));
+
+	return (
+		<SettingsStack>
+			{isVisible("jev.mcp") || isVisible("jev.geral") ? (
+				<SettingsGroup title={title}>
+					{ready && !openrouterKey ? (
+						<p className="px-3.5 py-1 text-xs text-muted-foreground" role="note">
+							{NO_OPENROUTER_KEY_NOTE}: a revisão fica indisponível.
+						</p>
+					) : null}
+
+					{isVisible("jev.mcp") ? (
+						<SettingRow
+							description="Antes de uma escrita num conector (criar, editar, apagar), a revisão confere se ela faz sentido."
+							htmlFor="settings-jev-mcp"
+							icon={ShieldCheckIcon}
+							label="Revisão de escritas em conectores"
+						>
+							<SettingsPicker
+								disabled={disabled}
+								id="settings-jev-mcp"
+								onChange={(choice) => onChange(jevMcpPatch(choice))}
+								options={effective ? withOptionIcons(jevMcpOptions(effective.jev.mcp), MCP_MODE_ICONS) : []}
+								placeholder="Carregando…"
+								value={effective ? jevMcpChoice(effective.jev.mcp) : ""}
+							/>
+						</SettingRow>
+					) : null}
+
+					{isVisible("jev.geral") ? (
+						<SettingRow
+							description="Decisões extras do Jev durante o run. Observar registra sem agir. Cada uma é uma chamada leve ao modelo, mas soma tempo de espera."
+							htmlFor="settings-jev-all"
+							icon={WorkflowIcon}
+							label="Decisões auxiliares"
+						>
+							<SettingsPicker
+								disabled={disabled}
+								id="settings-jev-all"
+								onChange={(choice) => onChange(jevGeneralPatch(choice))}
+								options={withOptionIcons(jevGeneralOptions(), MODE_ICONS)}
+								placeholder="Carregando…"
+								value={config ? jevGeneralChoice(config) : ""}
+							/>
+						</SettingRow>
+					) : null}
+
+					{showStatus ? (
+						<div className="px-3.5 empty:hidden">
+							{loadError ? (
+								<p className="text-xs text-destructive" role="alert">
+									{loadError}
+								</p>
+							) : (
+								<SaveIndicator error={saveError} status={status} />
+							)}
+						</div>
+					) : null}
+				</SettingsGroup>
+			) : null}
+
+			{visibleFeatures.length > 0 && effective && config ? (
+				<SettingsGroup title={featuresTitle}>
+					{visibleFeatures.map((spec) => (
+						<SettingRow
+							description={spec.description}
+							htmlFor={`settings-jev-${spec.feature}`}
+							icon={FEATURE_ICONS[spec.feature]}
+							key={spec.feature}
+							label={spec.label}
+						>
+							<SettingsPicker
+								disabled={disabled}
+								id={`settings-jev-${spec.feature}`}
+								onChange={(choice) => onChange(jevFeaturePatch(spec.feature, choice))}
+								options={withOptionIcons(
+									jevFeatureOptions(config, effective.jev.features[spec.feature]),
+									MODE_ICONS,
+								)}
+								value={jevFeatureChoice(config, spec.feature)}
+							/>
+						</SettingRow>
+					))}
+				</SettingsGroup>
+			) : null}
+
+			{!ready && !loadError ? <p className="px-2 text-[13px] text-muted-foreground">Carregando…</p> : null}
+		</SettingsStack>
+	);
+}
+
+export function JevSettings({
+	account,
+	isVisible,
+	title,
+	featuresTitle,
+	showStatus,
+}: {
+	account: ReturnType<typeof useAccountSettings>;
+	isVisible?: (itemId: string) => boolean;
+	title?: string;
+	featuresTitle?: string;
+	showStatus?: boolean;
+}) {
+	return (
+		<JevSettingsView
+			config={account.view?.config ?? null}
+			effective={account.view?.effective ?? null}
+			isVisible={isVisible}
+			loadError={account.loadError}
+			onChange={(patch) => void account.save(patch)}
+			openrouterKey={account.view?.capabilities.openrouterKey ?? true}
+			saveError={account.saveError}
+			showStatus={showStatus}
+			status={account.status}
+			title={title}
+			featuresTitle={featuresTitle}
+		/>
+	);
+}
+
+/** Linha "Grupos: coordenação inteligente" (mora em Geral): liga o Jev como coordenador em grupos de bots. */
+export function GroupsCoordinationRow({
+	account,
+	isVisible = () => true,
+}: {
+	account: ReturnType<typeof useAccountSettings>;
+	isVisible?: (itemId: string) => boolean;
+}) {
+	if (!isVisible("jev.grupos")) return null;
+	const effective = account.view?.effective ?? null;
+	const openrouterKey = account.view?.capabilities.openrouterKey ?? true;
+	return (
+		<SwitchRow
+			description="Em grupos de bots, o Jev escolhe quem responde e, quando o pedido envolve vários bots, um coordena: divide o trabalho, confere as entregas e resume no fim. Desligado, vale a escolha de sempre."
+			icon={UsersIcon}
+			id="settings-jev-groups"
+			label="Grupos: coordenação inteligente"
+			onChange={(checked) => void account.save(groupsJevPatch(checked))}
+			onInherit={() => void account.save({ groups: { jevCoordination: null } })}
+			resolved={openrouterKey ? (effective?.groups?.jevCoordination ?? null) : null}
+		/>
+	);
+}

@@ -1,0 +1,5 @@
+ALTER TABLE "group_replies"
+  ADD COLUMN "role" TEXT,
+  ADD COLUMN "subtask" TEXT,
+  ADD COLUMN "attempt" INTEGER NOT NULL DEFAULT 1,
+  ADD COLUMN "jevScore" DOUBLE PRECISION;

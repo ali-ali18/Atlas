@@ -1,0 +1,1 @@
+ALTER TABLE "bots" ADD COLUMN "language" TEXT NOT NULL DEFAULT 'pt-BR';
