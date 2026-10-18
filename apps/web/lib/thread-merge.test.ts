@@ -102,3 +102,18 @@ test("marcador de fallback do provedor ao vivo e persistido viram um só e sobre
 	assert.equal(dedupeCards([user("u1"), fallback("a"), assistant("as1"), fallback("b")]).filter((m) => m.kind === "provider-fallback").length, 1);
 	assert.equal(dedupeCards([user("u1"), fallback("a"), assistant("as1"), user("u2"), fallback("b")]).filter((m) => m.kind === "provider-fallback").length, 2);
 });
+
+test("cartão Executou código ao vivo e o gravado (mesmo callId) viram um só, com o gravado vencendo", () => {
+	const live: Message[] = [user("db-u1", "faz o gráfico"), { id: "code-run-call-1", kind: "code-run", callId: "call-1", code: "print(1)", status: "ok", output: "1" }];
+	const persisted: Message[] = [user("db-u1", "faz o gráfico"), { id: "db-cr", kind: "code-run", callId: "call-1", code: "print(1)", status: "ok", output: "1", durationMs: 800 }];
+	assert.deepEqual(reconcilePersistedThread(persisted, live).map((message) => message.id), ["db-u1", "db-cr"]);
+});
+
+test("gráfico ao vivo e o gravado (mesmo chartId) não duplicam; o cartão gravado reaparece após recarregar", () => {
+	const spec = { type: "bar", x: "a", series: [{ key: "v", label: "v" }], data: [{ a: "x", v: 1 }], xKind: "category" } as const;
+	const chart = (id: string): Message => ({ id, kind: "chart", chartId: "call-1:g.chart.json", spec: spec as never });
+	const live: Message[] = [user("db-u1", "gráfico"), chart("chart-call-1:g.chart.json")];
+	assert.deepEqual(reconcilePersistedThread([user("db-u1", "gráfico"), chart("db-ch")], live).map((message) => message.id), ["db-u1", "db-ch"]);
+	assert.deepEqual(reconcilePersistedThread([user("db-u1", "gráfico"), chart("db-ch")], [user("db-u1", "gráfico")]).map((message) => message.kind), ["user", "chart"]);
+	assert.equal(dedupeCards([chart("a"), chart("b")]).length, 1);
+});

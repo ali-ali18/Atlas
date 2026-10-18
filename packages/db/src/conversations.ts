@@ -245,6 +245,7 @@ export async function appendRunAssistantSegment(
 export async function appendConversationCard(
 	conversationId: string,
 	card: PersistedConversationCard | PersistedSkillProposalCard,
+	options: { createdAt?: Date } = {},
 ): Promise<SessionMessage> {
 	const existing = await prisma.conversation.findUnique({
 		where: { id: conversationId },
@@ -259,6 +260,7 @@ export async function appendConversationCard(
 			conversationId,
 			role: card.kind,
 			content: serializeConversationCard(card),
+			...(options.createdAt ? { createdAt: options.createdAt } : {}),
 		},
 	});
 
@@ -292,6 +294,11 @@ export async function persistJevStatusCard(
 	return appendConversationCard(conversationId, normalized);
 }
 
+function stripEventType(event: { type: string } & Record<string, unknown>): Record<string, unknown> {
+	const { type: _type, startedAt: _startedAt, ...rest } = event;
+	return rest;
+}
+
 export async function persistConversationCardFromEvent(
 	conversationId: string | null | undefined,
 	event: ComputerUseEvent | { type: string } & Record<string, unknown>,
@@ -301,6 +308,20 @@ export async function persistConversationCardFromEvent(
 	if (event.type === "images") {
 		const card = parseConversationCard(JSON.stringify({ v: 1, kind: "images", origin: "assistant", items: event.items, ...(typeof event.caption === "string" ? { caption: event.caption } : {}) }));
 		if (card?.kind === "images") await appendConversationCard(conversationId, card);
+		return;
+	}
+	// Execução do run_code: o cartão nasce no instante em que a chamada começou (ordem real na thread).
+	if (event.type === "code-run") {
+		const card = parseConversationCard(JSON.stringify({ v: 1, kind: "code-run", ...stripEventType(event) }));
+		if (card?.kind !== "code-run") return;
+		const startedAt = typeof event.startedAt === "string" ? new Date(event.startedAt) : undefined;
+		await appendConversationCard(conversationId, card, startedAt && !Number.isNaN(startedAt.getTime()) ? { createdAt: startedAt } : {});
+		return;
+	}
+	// Gráfico nativo do run_code (*.chart.json): o spec validado fica no próprio cartão.
+	if (event.type === "chart") {
+		const card = parseConversationCard(JSON.stringify({ v: 1, kind: "chart", ...stripEventType(event) }));
+		if (card?.kind === "chart") await appendConversationCard(conversationId, card);
 		return;
 	}
 	if (event.type === "skill") {

@@ -11,7 +11,7 @@ import {
 } from "@workspace/ui/components/bubble";
 import { cn } from "@workspace/ui/lib/utils";
 
-import { MarkdownCodeBlock } from "@/components/ai-elements/files/markdown-code-block";
+import { MarkdownCodeBlock, MarkdownStreamingContext } from "@/components/ai-elements/files/markdown-code-block";
 import { sanitizeAssistantText } from "@/lib/sanitize-message";
 import { useRevealedText } from "@/hooks/use-revealed-text";
 
@@ -142,9 +142,11 @@ export function AssistantMessage({
 					)}
 				>
 					{revealed.length > 0 ? (
-						<ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
-							{revealed}
-						</ReactMarkdown>
+						<MarkdownStreamingContext.Provider value={live}>
+							<ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
+								{revealed}
+							</ReactMarkdown>
+						</MarkdownStreamingContext.Provider>
 					) : null}
 					{live ? (
 						<span

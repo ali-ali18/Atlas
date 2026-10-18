@@ -1,5 +1,5 @@
 import { AVATAR_COLORS, eyeColorFor as engineEyeColorFor } from "@workspace/ui/lib/avatar/identity";
-import type { MessageSource, BotLanguage, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView } from "@workspace/shared";
+import type { MessageSource, BotLanguage, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec } from "@workspace/shared";
 import type { BotProfileProposal } from "@/components/ai-elements/confirm";
 
 export type BodyColor = {
@@ -428,8 +428,10 @@ type MessageVariant =
 	| { id: string; kind: "provider-fallback"; text: string; from: string; to: string }
 	/** O bot gravou na memória durante o run ("Memória atualizada · ver"); só do cliente, não é persistido. */
 	| { id: string; kind: "memory-updated" }
-	/** Execução do run_code (código + saída); só do cliente, não é persistido. */
-	| { id: string; kind: "code-run"; code: string; status: "running" | "ok" | "error"; durationMs?: number; output?: string }
+	/** Execução do run_code (código + saída truncada); `callId` liga o cartão ao vivo ao gravado. */
+	| { id: string; kind: "code-run"; callId?: string; code: string; status: "running" | "ok" | "error"; durationMs?: number; output?: string }
+	/** Gráfico nativo (spec validado) gerado pelo run_code em *.chart.json. */
+	| { id: string; kind: "chart"; chartId: string; spec: ChartSpec; filename?: string }
 	| {
 			id: string;
 			kind: "routine";

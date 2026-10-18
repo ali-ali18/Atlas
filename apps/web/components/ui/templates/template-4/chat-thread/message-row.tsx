@@ -38,6 +38,7 @@ import { DevSessionCard } from "@/components/ai-elements/dev-session/dev-session
 import { SubagentsBlock } from "@/components/ai-elements/subagents";
 import { ToolBudgetMarker } from "@/components/ai-elements/tool-budget";
 import { AssistantMessage } from "./assistant-message";
+import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 import { CodeRunCard } from "./code-run-card";
 import { MemoryUpdatedMarker } from "./memory-updated-marker";
 import { ImageGallery } from "@/components/ai-elements/images/image-gallery";
@@ -223,6 +224,8 @@ export function MessageRow({
 			);
 		case "code-run":
 			return <CodeRunCard code={message.code} durationMs={message.durationMs} output={message.output} status={message.status} />;
+		case "chart":
+			return <LazyChart spec={message.spec} />;
 		case "memory-updated":
 			return <MemoryUpdatedMarker onOpen={onOpenMemory} />;
 		case "routine":

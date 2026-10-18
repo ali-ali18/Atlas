@@ -1,3 +1,4 @@
+import type { ChartSpec } from "./chart-spec.js";
 import type { RunTelemetryMeta } from "./run-telemetry.js";
 import type { ComputerMetrics } from "./computer-state.js";
 import type { DevApprovalCardInfo } from "./dev-command-approval.js";
@@ -158,6 +159,14 @@ export type ComputerUseEvent =
 				schedule?: string | null;
 				hookKey?: string;
 			}>;
+	  }
+	| {
+		/** Gráfico nativo (spec validado) escrito pelo `run_code` em /work/out/*.chart.json. */
+		type: "chart";
+		chartId: string;
+		spec: ChartSpec;
+		filename?: string;
+		runId?: string;
 	  }
 	| {
 		/** F9: arquivo gerado (PDF, Word, Excel, texto…) guardado como artefato do dono. */

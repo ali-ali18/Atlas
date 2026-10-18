@@ -158,6 +158,18 @@ function conversationCardToMessage(
 		return { id, kind: "bot-proposal", proposal };
 	}
 	if (card.kind === "images") return { id, kind: "images", source: card.origin, items: card.items };
+	if (card.kind === "code-run") {
+		return {
+			id,
+			kind: "code-run",
+			callId: card.callId,
+			code: card.code,
+			status: card.status,
+			...(card.durationMs !== undefined ? { durationMs: card.durationMs } : {}),
+			...(card.output ? { output: card.output } : {}),
+		};
+	}
+	if (card.kind === "chart") return { id, kind: "chart", chartId: card.chartId, spec: card.spec, ...(card.filename ? { filename: card.filename } : {}) };
 	if (card.kind === "file") {
 		return {
 			id,
@@ -391,6 +403,8 @@ function buildSessionMessage(message: SessionMessage): Message | null {
 		|| (message.role as string) === "routine-proposal"
 		|| (message.role as string) === "bot-proposal"
 		|| (message.role as string) === "images"
+		|| (message.role as string) === "code-run"
+		|| (message.role as string) === "chart"
 	) {
 		// Fallback: card questionnaire persistido sob outro role.
 		if (message.content.includes('"questionnaire"')) {
@@ -607,7 +621,7 @@ function createComputerHandlers(params: {
 			if (call.name === "run_code") {
 				const code = parseRunCodeCallArgs(call.args);
 				if (code) {
-					const card: Message = { id: `code-run-${call.id}`, kind: "code-run", code, status: "running" };
+					const card: Message = { id: `code-run-${call.id}`, kind: "code-run", callId: call.id, code, status: "running" };
 					params.setMessages((previous) => previous.some((item) => item.id === card.id)
 						? previous
 						: dedupeCards(insertCardAfterCurrentTurn(previous, card)));
@@ -880,6 +894,20 @@ function createComputerHandlers(params: {
 					return previous;
 				}
 				return dedupeCards(insertCardAfterCurrentTurn(previous, confirmMessage));
+			});
+		},
+		onChart: (event) => {
+			params.onActivity?.();
+			params.setMessages((previous) => {
+				if (previous.some((m) => m.kind === "chart" && m.chartId === event.chartId)) return previous;
+				const chartMessage: Message = {
+					id: `chart-${event.chartId}`,
+					kind: "chart",
+					chartId: event.chartId,
+					spec: event.spec,
+					...(event.filename ? { filename: event.filename } : {}),
+				};
+				return dedupeCards(insertCardAfterCurrentTurn(previous, chartMessage));
 			});
 		},
 		onFile: (event) => {

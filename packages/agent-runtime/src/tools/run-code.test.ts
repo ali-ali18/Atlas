@@ -155,3 +155,57 @@ describe("run_code: executor indisponível", () => {
 		await expect(executeRunCode({ code: "x" }, ctx, deps)).rejects.toThrow(/o executor de código não está instalado/i);
 	});
 });
+
+describe("run_code: gráficos nativos (*.chart.json)", () => {
+	const spec = (extra: Record<string, unknown> = {}) =>
+		bytes(JSON.stringify({ type: "bar", title: "Vendas", x: "loja", series: [{ key: "total" }], data: [{ loja: "Centro", total: 10 }, { loja: "Norte", total: 7 }], ...extra }));
+
+	it("vira evento de gráfico (não arquivo) e o resumo descreve o spec sem repetir os pontos", async () => {
+		const charts: unknown[] = [];
+		const { deps, ctx, persisted, files } = setup({ outputs: [{ name: "vendas.chart.json", bytes: spec() }] }, { callId: "call-9", emitChart: async (event) => { charts.push(event); } });
+		const { summary, chartEvents } = await executeRunCode({ code: "x" }, ctx, deps);
+		expect(persisted).toHaveLength(0);
+		expect(files).toHaveLength(0);
+		expect(charts).toEqual(chartEvents);
+		expect(chartEvents[0]).toMatchObject({ type: "chart", chartId: "call-9:vendas.chart.json", filename: "vendas.chart.json", runId: "r1", spec: { type: "bar", xKind: "category" } });
+		expect(summary).toContain('Interactive chart shown to the user');
+		expect(summary).toContain('vendas.chart.json: bar chart "Vendas", 2 points');
+		expect(summary).not.toMatch(/No file was saved/);
+	});
+
+	it("spec inválido não vira gráfico nem arquivo: o motivo volta ao modelo", async () => {
+		const { deps, ctx, files } = setup({ outputs: [{ name: "ruim.chart.json", bytes: bytes('{"type":"radar"}') }, { name: "quebrado.chart.json", bytes: bytes("{") }] });
+		const { summary, chartEvents } = await executeRunCode({ code: "x" }, ctx, deps);
+		expect(chartEvents).toHaveLength(0);
+		expect(files).toHaveLength(0);
+		expect(summary).toMatch(/Not delivered:.*ruim\.chart\.json \(invalid chart spec: type must be one of.*quebrado\.chart\.json \(invalid chart spec: chart spec is not valid JSON\)/);
+	});
+
+	it("limita os gráficos por chamada e continua entregando arquivos comuns", async () => {
+		const outputs = [1, 2, 3, 4, 5].map((n) => ({ name: `g${n}.chart.json`, bytes: spec() }));
+		const { deps, ctx, files } = setup({ outputs: [...outputs, { name: "dados.csv", bytes: bytes("a,b") }] });
+		const { chartEvents, summary } = await executeRunCode({ code: "x" }, ctx, deps);
+		expect(chartEvents).toHaveLength(4);
+		expect(files.map((file) => file.filename)).toEqual(["dados.csv"]);
+		expect(summary).toMatch(/g5\.chart\.json \(limit of 4 charts per call\)/);
+	});
+
+	it("a descrição da ferramenta prefere o spec ao PNG do matplotlib", () => {
+		const description = RUN_CODE_TOOL.function.description ?? "";
+		expect(description).toMatch(/PREFER a native chart spec/);
+		expect(description).toMatch(/\.chart\.json/);
+		expect(description).toMatch(/only for charts the spec cannot express/);
+	});
+});
+
+describe("run_code: resumo do cartão gravado", () => {
+	it("junta stdout e stderr, marca falha e traz tempo", async () => {
+		const bad = setup({ exitCode: 1, stdout: "parcial\n", stderr: "NameError: x", durationMs: 2300 });
+		const { codeRun } = await executeRunCode({ code: "x" }, bad.ctx, bad.deps);
+		expect(codeRun).toEqual({ ok: false, durationMs: 2300, output: "parcial\n— stderr —\nNameError: x" });
+		const ok = setup({ stdout: "42\n" });
+		expect((await executeRunCode({ code: "x" }, ok.ctx, ok.deps)).codeRun).toEqual({ ok: true, durationMs: 1500, output: "42" });
+		const timeout = setup({ exitCode: null, timedOut: true, stdout: "" });
+		expect((await executeRunCode({ code: "x" }, timeout.ctx, timeout.deps)).codeRun).toMatchObject({ ok: false, output: "Tempo esgotado." });
+	});
+});

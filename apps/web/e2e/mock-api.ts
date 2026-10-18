@@ -93,7 +93,18 @@ export type MockOptions = {
   /** Card de login já presente no histórico (ex.: "Conectar API"): corpo do cartão persistido. */
   loginCard?: Record<string, unknown>
   /** O run executa `run_code` (código + saída + gráfico gerado) antes de responder: o chat mostra o cartão "Executou código". */
-  runCodeInRun?: { code: string; summary: string; ok?: boolean; imageId?: string }
+  runCodeInRun?: {
+    code: string
+    summary: string
+    ok?: boolean
+    imageId?: string
+    /** Gráfico nativo (spec já normalizado) emitido pelo run_code. */
+    chart?: Record<string, unknown>
+    /** Grava os cartões code-run/chart no histórico (o que o servidor faz), para a pré-visualização "após recarregar". */
+    persistCards?: boolean
+    output?: string
+    durationMs?: number
+  }
   /** Nome do bot principal (padrão "Atlas"). */
   botName?: string
 }
@@ -453,6 +464,11 @@ export class MockAtlas {
     }
     // A resposta fica gravada no histórico quando o run "termina" no servidor (mesmo que ninguém esteja ouvindo o stream).
     setTimeout(() => {
+      const rc = this.options.runCodeInRun
+      if (rc?.persistCards) {
+        this.pushMessage("code-run", JSON.stringify({ v: 1, kind: "code-run", callId: `rc-${id}`, code: rc.code, status: rc.ok === false ? "error" : "ok", durationMs: rc.durationMs ?? 1200, output: rc.output ?? "" }), true)
+        if (rc.chart) this.pushMessage("chart", JSON.stringify({ v: 1, kind: "chart", chartId: `rc-${id}:grafico.chart.json`, spec: rc.chart, filename: "grafico.chart.json" }), true)
+      }
       for (const paragraph of record.reply.split(/\n{2,}/).filter((part) => part.trim())) this.pushMessage("assistant", paragraph, true)
     }, this.options.replyDelayMs)
     return this.json(route, { runId: id, status: "queued", enqueued: true })
@@ -490,6 +506,7 @@ export class MockAtlas {
     const codeEvents = rc
       ? [
           { type: "tool_call", id: `rc-${id}`, name: "run_code", args: JSON.stringify({ code: rc.code }) },
+          ...(rc.chart ? [{ type: "chart", chartId: `rc-${id}:grafico.chart.json`, spec: rc.chart, filename: "grafico.chart.json" }] : []),
           ...(rc.imageId ? [{ type: "images", origin: "assistant", items: [{ artifactId: rc.imageId, mime: "image/png", width: 960, height: 540, alt: "grafico.png" }] }] : []),
           { type: "tool_result", id: `rc-${id}`, name: "run_code", ok: rc.ok ?? true, summary: rc.summary },
         ]

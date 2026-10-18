@@ -1,3 +1,4 @@
+import { parseChartSpec, type ChartSpec } from "./chart-spec.js";
 import { parseDevApprovalInfo, type DevApprovalCardInfo } from "./dev-command-approval.js";
 import { parseSecretsRequestInfo, type SecretsRequestInfo } from "./dev-env-auto.js";
 import { parseGithubIdentityInfo, type GithubIdentityCardInfo } from "./github-identity.js";
@@ -29,7 +30,9 @@ export type ConversationCardRole =
 	| "subagents"
 	| "routine-proposal"
 	| "bot-proposal"
-	| "images";
+	| "images"
+	| "code-run"
+	| "chart";
 
 export type PersistedImagesCard = {
 	v: 1;
@@ -250,7 +253,37 @@ export type PersistedFileCard = {
 	origin?: "user";
 };
 
+/** Limites do que fica gravado do cartão "Executou código". */
+export const CODE_RUN_CARD_CODE_MAX = 20_000;
+export const CODE_RUN_CARD_OUTPUT_MAX = 4_000;
+
+/** Execução do `run_code` (código + saída truncada); os arquivos e gráficos gerados são cartões próprios. */
+export type PersistedCodeRunCard = {
+	v: 1;
+	kind: "code-run";
+	/** Id da chamada de tool (liga o cartão ao vivo ao gravado). */
+	callId: string;
+	code: string;
+	status: "ok" | "error";
+	durationMs?: number;
+	output?: string;
+	runId?: string;
+};
+
+/** Gráfico nativo (spec validado) gerado por `run_code` (`*.chart.json`). */
+export type PersistedChartCard = {
+	v: 1;
+	kind: "chart";
+	/** Estável (chamada + arquivo): evita duplicar ao vivo × gravado. */
+	chartId: string;
+	spec: ChartSpec;
+	filename?: string;
+	runId?: string;
+};
+
 export type PersistedConversationCard =
+	| PersistedCodeRunCard
+	| PersistedChartCard
 	| PersistedSkillCard
 	| PersistedConfirmCard
 	| PersistedLoginCard
@@ -584,6 +617,36 @@ export function parseConversationCard(content: string): PersistedConversationCar
 			...(row.origin === "user" ? { origin: "user" as const } : {}),
 		};
 	}
+	if (row.kind === "code-run") {
+		const callId = asOptionalString(row.callId);
+		const code = typeof row.code === "string" ? row.code : "";
+		if (!callId || !code.trim()) return null;
+		const durationMs = asOptionalNumber(row.durationMs);
+		const output = typeof row.output === "string" ? row.output.slice(0, CODE_RUN_CARD_OUTPUT_MAX) : "";
+		return {
+			v: 1,
+			kind: "code-run",
+			callId: callId.slice(0, 120),
+			code: code.slice(0, CODE_RUN_CARD_CODE_MAX),
+			status: row.status === "error" ? "error" : "ok",
+			...(durationMs !== undefined && durationMs >= 0 ? { durationMs: Math.round(durationMs) } : {}),
+			...(output ? { output } : {}),
+			...(asOptionalString(row.runId) ? { runId: asOptionalString(row.runId) } : {}),
+		};
+	}
+	if (row.kind === "chart") {
+		const chartId = asOptionalString(row.chartId);
+		const parsed = parseChartSpec(row.spec);
+		if (!chartId || !parsed.ok) return null;
+		return {
+			v: 1,
+			kind: "chart",
+			chartId: chartId.slice(0, 160),
+			spec: parsed.spec,
+			...(asOptionalString(row.filename) ? { filename: asOptionalString(row.filename)!.slice(0, 120) } : {}),
+			...(asOptionalString(row.runId) ? { runId: asOptionalString(row.runId) } : {}),
+		};
+	}
 	if (row.kind === "questionnaire") {
 		if (typeof row.questionnaireId !== "string" || row.questionnaireId.trim().length === 0) return null;
 		if (typeof row.title !== "string" || row.title.trim().length === 0) return null;
@@ -729,6 +792,8 @@ export function insertCardAfterCurrentTurn<T extends { kind: string }>(
 			messages[insertAt]?.kind === "confirm" ||
 			messages[insertAt]?.kind === "login" ||
 			messages[insertAt]?.kind === "file" ||
+			messages[insertAt]?.kind === "code-run" ||
+			messages[insertAt]?.kind === "chart" ||
 			messages[insertAt]?.kind === "routine" ||
 			messages[insertAt]?.kind === "questionnaire" ||
 			messages[insertAt]?.kind === "bot-profile" ||

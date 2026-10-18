@@ -10,6 +10,13 @@ import {
 	CodeBlockTitle,
 } from "@workspace/ui/components/code-block";
 import { useHighlightedCode } from "@workspace/ui/hooks/use-highlighted-code";
+import { createContext, useContext } from "react";
+
+import { resolveChartFence } from "../chart/chart-fence";
+import { ChartPlaceholder, LazyChart } from "../chart/lazy-chart";
+
+/** O texto que contém o bloco ainda está chegando (streaming): um bloco ```chart incompleto é "Gerando gráfico…". */
+export const MarkdownStreamingContext = createContext(false);
 
 /**
  * Bloco de código dentro de markdown (shadcn Code Block + Shiki): título com a linguagem à
@@ -17,6 +24,26 @@ import { useHighlightedCode } from "@workspace/ui/hooks/use-highlighted-code";
  * de um bloco ainda aberto não pisca; sem linguagem (ou desconhecida) fica texto plano.
  */
 export function MarkdownCodeBlock({ code, language }: { code: string; language?: string }) {
+	const streaming = useContext(MarkdownStreamingContext);
+	if (language?.trim().toLowerCase() === "chart") return <ChartFenceBlock code={code} streaming={streaming} />;
+	return <PlainCodeBlock code={code} language={language} />;
+}
+
+function ChartFenceBlock({ code, streaming }: { code: string; streaming: boolean }) {
+	const fence = resolveChartFence(code, streaming);
+	if (fence.kind === "chart") return <LazyChart spec={fence.spec} />;
+	if (fence.kind === "pending") return <ChartPlaceholder />;
+	return (
+		<>
+			<PlainCodeBlock code={code} language="chart" />
+			<p className="-mt-1 mb-2 text-muted-foreground text-xs" data-testid="chart-invalid">
+				Não foi possível desenhar o gráfico: o JSON está incompleto ou inválido.
+			</p>
+		</>
+	);
+}
+
+function PlainCodeBlock({ code, language }: { code: string; language?: string }) {
 	const text = code.replace(/\n$/, "");
 	const lang = language?.trim() ?? "";
 	const lines = useHighlightedCode(text, lang);

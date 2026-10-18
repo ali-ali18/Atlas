@@ -81,6 +81,8 @@ describe("isSummaryFreshSnapshot", () => {
 		assert.deepEqual([...FRESH_SUMMARY_IGNORE_ROLES].sort(), [
 			"bot-link",
 			"bot-profile",
+			"chart",
+			"code-run",
 			"confirm",
 			"file",
 			"login",

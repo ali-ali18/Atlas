@@ -4,6 +4,11 @@ import { insertDevSessionCards } from "@/lib/dev-session/cards";
 import { collapseSkillProposalCards } from "@/lib/skill-proposal-message";
 import { collapseBotProposalCards } from "@/lib/bot-proposal-message";
 
+/** Cartão ao vivo que, quando o servidor já gravou o equivalente, vale o gravado. */
+function isDedupedLiveCard(message: Message): boolean {
+	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart";
+}
+
 function cardDedupeKey(message: Message): string | null {
 	if (message.kind === "images") return `images|${message.source}|${message.items.map((item) => item.artifactId).join("|")}`;
 	if (message.kind === "skill") {
@@ -32,6 +37,9 @@ function cardDedupeKey(message: Message): string | null {
 		return `login|${message.loginId}|${message.status ?? "pending"}`;
 	}
 	if (message.kind === "file") return `file|${message.artifactId}`;
+	// Cartão ao vivo (id da chamada) e o gravado (id do banco) colapsam.
+	if (message.kind === "code-run" && message.callId) return `code-run|${message.callId}`;
+	if (message.kind === "chart") return `chart|${message.chartId}`;
 	if (message.kind === "questionnaire") {
 		return `questionnaire|${message.questionnaireId}|${message.title}`;
 	}
@@ -158,7 +166,7 @@ export function dedupeCards(input: Message[]): Message[] {
 /** Usa a thread persistida como fonte principal e mantém apenas bolhas live ainda sem equivalente. */
 export function reconcilePersistedThread(persisted: Message[], live: Message[], resultText?: string | null): Message[] {
 	const persistedIds = new Set(persisted.map((message) => message.id));
-	const persistedImageKeys = new Set(persisted.filter((message) => message.kind === "images" || message.kind === "provider-fallback").map((message) => cardDedupeKey(message)));
+	const persistedImageKeys = new Set(persisted.filter((message) => isDedupedLiveCard(message)).map((message) => cardDedupeKey(message)));
 	const firstOverlap = live.findIndex((message) => persistedIds.has(message.id));
 	// Sem sobreposição (conversa nova, ou o fim buscado não alcança o que está na tela) o histórico antigo é só o
 	// que vem ANTES do primeiro item local (otimista/stream): o resto tem a posição decidida pelas âncoras abaixo.
@@ -167,7 +175,7 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 	const older = live.slice(0, olderEnd)
 		.filter((message) => !message.id.startsWith("msg-") &&
 			message.kind !== "devsession" &&
-			!((message.kind === "images" || message.kind === "provider-fallback") && persistedImageKeys.has(cardDedupeKey(message))) &&
+			!(isDedupedLiveCard(message) && persistedImageKeys.has(cardDedupeKey(message))) &&
 			!(message.kind === "assistant" && message.id.startsWith("cu-") && !message.text.trim()));
 	const olderIds = new Set(older.map((message) => message.id));
 	const liveIds = new Set(live.map((message) => message.id));
@@ -258,7 +266,7 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 			liveDevCards.push({ id: message.sessionId, startedAt: message.anchorAt ?? "" });
 			continue;
 		}
-		if ((message.kind === "images" || message.kind === "provider-fallback") && persistedImageKeys.has(cardDedupeKey(message))) continue;
+		if (isDedupedLiveCard(message) && persistedImageKeys.has(cardDedupeKey(message))) continue;
 		if (message.kind === "user") {
 			if (message.id.startsWith("msg-")) {
 				const matched = takeMatch("user", message.text);
@@ -283,6 +291,7 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 		message.kind !== "provider-fallback" &&
 		message.kind !== "memory-updated" &&
 		message.kind !== "code-run" &&
+		message.kind !== "chart" &&
 		message.kind !== "subagents" &&
 		message.kind !== "context-summary" &&
 		message.kind !== "confirm" && message.kind !== "questionnaire" &&

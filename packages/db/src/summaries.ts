@@ -82,6 +82,8 @@ export const FRESH_SUMMARY_IGNORE_ROLES: readonly string[] = [
 	"tool-budget",
 	"provider-fallback",
 	"subagents",
+	"code-run",
+	"chart",
 ];
 
 export type FreshSummaryOptions = {

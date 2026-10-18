@@ -1748,6 +1748,10 @@ type ToolContext = {
 	showImages?: { remaining: () => number; add: (count: number) => void; emit: (event: ShowImageEvent) => Promise<void> };
 	/** Entrega cartões de arquivo extras (run_code pode gerar vários); persiste na conversa e emite o evento. */
 	emitFile?: (event: FileEvent) => Promise<void>;
+	/** Entrega gráficos nativos do run_code (*.chart.json): persiste o cartão e emite o evento. */
+	emitChart?: (event: Extract<ComputerUseEvent, { type: "chart" }>) => Promise<void>;
+	/** Id da chamada de tool em execução (liga o cartão gravado do run_code ao cartão ao vivo). */
+	toolCallId?: string;
 	/** Dependências do `run_code` (teste; produção usa o executor Docker). */
 	runCodeDeps?: Partial<RunCodeDeps>;
 	/** O modelo do run enxerga imagens (gráficos do run_code voltam como visão). */
@@ -3551,16 +3555,40 @@ async function executeToolInner(
 		}
 		case "run_code": {
 			const attachments = ctx.attachments?.runtime;
-			const outcome = await executeRunCode(args, {
+			const startedAt = new Date();
+			// Cartão "Executou código": grava código, saída truncada e status; vale também quando a execução falha.
+			const persistRunCodeCard = async (card: { ok: boolean; durationMs?: number; output: string }) => {
+				if (!ctx.toolCallId || typeof args.code !== "string" || !args.code.trim()) return;
+				await persistConversationCardFromEvent(ctx.conversationId, {
+					type: "code-run",
+					callId: ctx.toolCallId,
+					code: args.code,
+					status: card.ok ? "ok" : "error",
+					...(card.durationMs !== undefined ? { durationMs: card.durationMs } : {}),
+					output: card.output,
+					startedAt: startedAt.toISOString(),
+					...(ctx.runId ? { runId: ctx.runId } : {}),
+				}).catch(() => undefined);
+			};
+			let outcome: Awaited<ReturnType<typeof executeRunCode>>;
+			try {
+				outcome = await executeRunCode(args, {
 				signal: ctx.abortSignal,
 				userId: ctx.userId,
 				runId: ctx.runId,
 				conversationId: ctx.conversationId,
 				showImages: ctx.showImages,
 				emitFile: ctx.emitFile,
+				emitChart: ctx.emitChart,
+				...(ctx.toolCallId ? { callId: ctx.toolCallId } : {}),
 				canSeeImages: ctx.canSeeImages,
 				...(attachments ? { attachments: { list: () => attachments.list(), bytes: (id: string) => attachments.cache.bytes(id) } } : {}),
-			}, ctx.runCodeDeps);
+				}, ctx.runCodeDeps);
+			} catch (error) {
+				await persistRunCodeCard({ ok: false, output: error instanceof Error ? error.message : "erro" });
+				throw error;
+			}
+			await persistRunCodeCard({ ok: outcome.codeRun.ok, durationMs: outcome.codeRun.durationMs, output: outcome.codeRun.output });
 			return { summary: outcome.summary, visionArtifactIds: outcome.visionArtifactIds };
 		}
 		case "delegate_task": {
@@ -6256,6 +6284,7 @@ export async function runComputerUse(params: {
 				nativeDeferral: nativeDeferral ?? undefined,
 				abortSignal: signal,
 				getSessionId: () => getSessionId({ ...executionContext, signal }),
+				toolCallId: call.id,
 				...(devDeps?.config.enabled && (isDevSessionTool(name) || (name === "attachment_to_computer" && codingRun)) ? { devSession: ((codingRun = !isSubagent || codingRun), getDevRuntime()), callId: call.id } : {}),
 				botId,
 				userId,
@@ -6313,6 +6342,10 @@ export async function runComputerUse(params: {
 					createFileDeps: params.createFileDeps,
 					runCodeDeps: params.runCodeDeps,
 					emitFile: async (event) => {
+						await persistConversationCardFromEvent(conversationId, event).catch(() => undefined);
+						await onEvent(event);
+					},
+					emitChart: async (event) => {
 						await persistConversationCardFromEvent(conversationId, event).catch(() => undefined);
 						await onEvent(event);
 					},

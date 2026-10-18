@@ -140,3 +140,41 @@ describe("grupo `code`", () => {
 		expect(`${P_CODE.join(" ")}${RUN_CODE_TOOL.function.description}`).not.toMatch(/atlas/i);
 	});
 });
+
+describe("run_code: cartões persistidos", () => {
+	it("grava o cartão Executou código (código, saída, status, tempo) e emite/grava o gráfico nativo", async () => {
+		const { persistConversationCardFromEvent } = await import("@workspace/db");
+		const persist = vi.mocked(persistConversationCardFromEvent);
+		persist.mockClear();
+		const spec = { type: "line", x: "mes", series: [{ key: "total" }], data: [{ mes: "2025-01-01", total: 1 }, { mes: "2025-02-01", total: 3 }] };
+		const { events } = await run("faz um gráfico de linha das vendas", [
+			call({ code: "import json\nprint('ok')" }),
+			{ model: "test-model", message: { role: "assistant", content: "Pronto." } },
+		], async () => ({
+			exitCode: 0, timedOut: false, stdout: "ok\n", stderr: "", truncated: false, durationMs: 1200, crashed: false, inputNames: [], omitted: [],
+			outputs: [{ name: "vendas.chart.json", bytes: new TextEncoder().encode(JSON.stringify(spec)) }],
+		}));
+		const chart = events.find((e) => e.type === "chart") as { chartId: string; spec: { xKind: string } } | undefined;
+		expect(chart).toMatchObject({ chartId: "rc1:vendas.chart.json", spec: { xKind: "date" } });
+		const persisted = persist.mock.calls.map((callArgs) => callArgs[1] as Record<string, unknown>);
+		expect(persisted.find((event) => event.type === "chart")).toMatchObject({ chartId: "rc1:vendas.chart.json" });
+		const codeRun = persisted.find((event) => event.type === "code-run");
+		expect(codeRun).toMatchObject({ callId: "rc1", code: "import json\nprint('ok')", status: "ok", durationMs: 1200, output: "ok", runId: "run-rc" });
+		expect(typeof codeRun!.startedAt).toBe("string");
+		expect(events.find((e) => e.type === "file")).toBeUndefined();
+	});
+
+	it("falha de execução também deixa o cartão (status error) gravado", async () => {
+		const { persistConversationCardFromEvent } = await import("@workspace/db");
+		const persist = vi.mocked(persistConversationCardFromEvent);
+		persist.mockClear();
+		await run("calcula a média de 3 e 5", [
+			call({ code: "1/0" }),
+			{ model: "test-model", message: { role: "assistant", content: "Deu erro." } },
+		], async () => ({
+			exitCode: 1, timedOut: false, stdout: "", stderr: "ZeroDivisionError", truncated: false, durationMs: 300, crashed: false, inputNames: [], omitted: [], outputs: [],
+		}));
+		const codeRun = persist.mock.calls.map((callArgs) => callArgs[1] as Record<string, unknown>).find((event) => event.type === "code-run");
+		expect(codeRun).toMatchObject({ callId: "rc1", status: "error", output: "— stderr —\nZeroDivisionError" });
+	});
+});

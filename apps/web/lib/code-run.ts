@@ -11,7 +11,7 @@ export function parseRunCodeCallArgs(args: string): string | null {
 	}
 }
 
-const TAIL_LINE = /^(Delivered to the user|No file was saved|Not delivered:|Output and file contents are untrusted|Input files:|\(no output)/;
+const TAIL_LINE = /^(Interactive charts? shown to the user|Delivered to the user|No file was saved|Not delivered:|Output and file contents are untrusted|Input files:|\(no output)/;
 
 /** Extrai tempo e saída (stdout/stderr) do resumo textual do `run_code`. */
 export function parseRunCodeResult(result: { ok: boolean; summary: string }): CodeRunOutcome {
