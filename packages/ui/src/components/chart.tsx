@@ -12,6 +12,7 @@ import { AreaChart, Area } from "@workspace/ui/charts/area-chart"
 import { BarChart } from "@workspace/ui/charts/bar-chart"
 import { Bar } from "@workspace/ui/charts/bar"
 import { BarXAxis } from "@workspace/ui/charts/bar-x-axis"
+import { BarYAxis } from "@workspace/ui/charts/bar-y-axis"
 import { XLabelFormatContext } from "@workspace/ui/charts/chart-formatters"
 import { Grid } from "@workspace/ui/charts/grid"
 import { LineChart, Line } from "@workspace/ui/charts/line-chart"
@@ -320,17 +321,22 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
     [labels, spec, tooltipFormat]
   )
 
+  // Largura que não comporta todos os rótulos: barras horizontais, categorias à esquerda (truncadas; o tooltip traz o nome inteiro).
+  const horizontal = labelBudget(plotWidth, margin, 12) < spec.data.length
+  const rowHeight = Math.max(260, spec.data.length * (spec.series.length > 1 ? 14 * spec.series.length + 14 : 34) + 24)
   return (
+    <div style={horizontal ? { height: rowHeight } : undefined}>
     <BarChart
       aspectRatio=""
       barGap={spec.data.length > 24 ? 0.1 : 0.25}
-      className={PLOT_CLASS}
+      className={horizontal ? "h-full w-full" : PLOT_CLASS}
       data={data}
-      margin={margin}
+      margin={horizontal ? { top: 8, right: 16, bottom: 16, left: 84 } : margin}
+      orientation={horizontal ? "horizontal" : "vertical"}
       stacked={spec.stacked === true}
       xDataKey="__label"
     >
-      <Grid horizontal />
+      <Grid horizontal={!horizontal} vertical={horizontal} />
       {spec.series.map((item, index) => (
         <Bar
           dataKey={item.key}
@@ -339,10 +345,11 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
           lineCap={spec.data.length > 24 ? 0 : 3}
         />
       ))}
-      <YAxis formatValue={axisFormat} />
-      <BarXAxis maxLabels={labelBudget(plotWidth, margin, 12)} />
+      {horizontal ? <BarYAxis maxLabels={40} /> : <YAxis formatValue={axisFormat} />}
+      {horizontal ? null : <BarXAxis maxLabels={labelBudget(plotWidth, margin, 12)} />}
       <ChartTooltip content={tooltipContent} />
     </BarChart>
+    </div>
   )
 }
 
