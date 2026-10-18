@@ -1,60 +1,41 @@
 "use client";
 
-import { CheckIcon, CopyIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-
-import { Button } from "@workspace/ui/components/button";
-
-import { highlightCode, TOKEN_COLORS } from "./code-highlight";
+import {
+	CodeBlock,
+	CodeBlockActions,
+	CodeBlockContent,
+	CodeBlockCopyButton,
+	CodeBlockHeader,
+	CodeBlockLine,
+	CodeBlockTitle,
+} from "@workspace/ui/components/code-block";
+import { useHighlightedCode } from "@workspace/ui/hooks/use-highlighted-code";
 
 /**
- * Bloco de código dentro de markdown: cabeçalho fino (linguagem + Copiar) e corpo com realce.
- * Tolerante a bloco incompleto (streaming): só re-renderiza o texto recebido até o momento.
+ * Bloco de código dentro de markdown (shadcn Code Block + Shiki): título com a linguagem à
+ * esquerda, Copiar à direita. O realce é incremental (só as linhas novas), então o streaming
+ * de um bloco ainda aberto não pisca; sem linguagem (ou desconhecida) fica texto plano.
  */
 export function MarkdownCodeBlock({ code, language }: { code: string; language?: string }) {
-	const [copied, setCopied] = useState(false);
-	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const text = code.replace(/\n$/, "");
-	const html = useMemo(() => highlightCode(text, language), [text, language]);
-	useEffect(() => () => {
-		if (timer.current) clearTimeout(timer.current);
-	}, []);
+	const lang = language?.trim() ?? "";
+	const lines = useHighlightedCode(text, lang);
 
 	return (
-		<div
-			className="my-2 w-full min-w-0 max-w-full overflow-hidden rounded-lg border border-border/60 bg-muted/60 text-foreground"
-			data-slot="code-block"
-		>
-			<div className="flex h-8 items-center justify-between gap-2 border-border/60 border-b bg-muted/80 pr-1 pl-3">
-				<span className="truncate font-mono text-[11px] text-muted-foreground lowercase">
-					{language?.trim() || "texto"}
-				</span>
-				<Button
-					aria-label="Copiar código"
-					className="size-6 text-muted-foreground"
-					onClick={() => {
-						void navigator.clipboard.writeText(text).then(() => {
-							setCopied(true);
-							if (timer.current) clearTimeout(timer.current);
-							timer.current = setTimeout(() => setCopied(false), 1500);
-						});
-					}}
-					size="icon-xs"
-					type="button"
-					variant="ghost"
-				>
-					{copied ? <CheckIcon /> : <CopyIcon />}
-				</Button>
-			</div>
-			<pre
-				className={`m-0 overflow-x-auto p-3 font-mono text-xs leading-relaxed [overflow-wrap:normal] ${TOKEN_COLORS}`}
-			>
-				{html ? (
-					<code className="font-mono" dangerouslySetInnerHTML={{ __html: html }} />
-				) : (
-					<code className="font-mono">{text}</code>
-				)}
-			</pre>
-		</div>
+		<CodeBlock className="my-2 max-w-full bg-muted/60" size="sm">
+			<CodeBlockHeader className="items-center justify-between pt-1.5 pr-1.5">
+				<CodeBlockTitle className="font-mono text-[11px] font-normal text-muted-foreground lowercase">
+					{lang || "texto"}
+				</CodeBlockTitle>
+				<CodeBlockActions className="m-0">
+					<CodeBlockCopyButton value={text} />
+				</CodeBlockActions>
+			</CodeBlockHeader>
+			<CodeBlockContent className="text-xs">
+				{lines.map((line, index) => (
+					<CodeBlockLine key={index}>{line}</CodeBlockLine>
+				))}
+			</CodeBlockContent>
+		</CodeBlock>
 	);
 }

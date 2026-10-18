@@ -7,7 +7,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { markdownComponents } from "@/components/ui/templates/template-4/chat-thread/assistant-message";
-import { highlightCode, normalizeLanguage } from "./code-highlight";
+import { highlightCode } from "@workspace/ui/lib/highlighter";
 import { MarkdownCodeBlock } from "./markdown-code-block";
 
 Object.assign(globalThis, { React });
@@ -19,26 +19,29 @@ const render = (md: string) =>
 		</ReactMarkdown>,
 	);
 
-test("bloco com linguagem: cabeçalho com nome, botão copiar e realce", () => {
+test("bloco com linguagem: título com o nome, botão copiar e rolagem horizontal", () => {
 	const html = render("```ts\nconst x: number = 1;\n```\n");
 	assert.match(html, /data-slot="code-block"/);
-	assert.match(html, />ts</);
+	assert.match(html, /data-slot="code-block-title"[^>]*>ts</);
 	assert.match(html, /aria-label="Copiar código"/);
-	assert.match(html, /<span class="hljs-keyword">const<\/span>/);
-	assert.match(html, /overflow-x-auto/);
+	assert.match(html, /overflow-auto/);
+	assert.match(html, /const x: number = 1;/);
 });
 
-test("python e bash são realçados; aliases funcionam", () => {
-	assert.match(render("```python\ndef f():\n    return 1\n```\n"), /hljs-keyword/);
-	assert.match(render("```bash\nif true; then echo oi; fi\n```\n"), /hljs-keyword/);
-	assert.equal(normalizeLanguage("TSX"), "typescript");
-	assert.equal(normalizeLanguage("py"), "python");
+test("realce Shiki: ts, python e bash têm tokens com as duas cores de tema; aliases funcionam", async () => {
+	for (const lang of ["ts", "python", "py", "bash", "sh"]) {
+		const lines = await highlightCode("x = 1", lang);
+		assert.ok(lines && lines.length === 1, lang);
+	}
+	const html = renderToStaticMarkup(<>{(await highlightCode("const a = 1", "ts"))![0]}</>);
+	assert.match(html, /--shiki-light:#/);
+	assert.match(html, /--shiki-dark:#/);
+	assert.equal(await highlightCode("x", "linguagem-inexistente"), null);
 });
 
-test("sem linguagem: texto plano com rótulo genérico, sem span de realce", () => {
+test("sem linguagem: texto plano com rótulo genérico", () => {
 	const html = render("```\nls -la <dir>\n```\n");
 	assert.match(html, />texto</);
-	assert.doesNotMatch(html, /class="hljs-/);
 	assert.match(html, /ls -la &lt;dir&gt;/);
 });
 
@@ -51,8 +54,7 @@ test("linguagem desconhecida não quebra e mostra o texto", () => {
 test("bloco incompleto (streaming) renderiza sem erro", () => {
 	const html = render("Veja:\n\n```python\nfor i in range(3):\n    print(");
 	assert.match(html, /data-slot="code-block"/);
-	assert.match(html, /print<\/span>\(<\/code>/);
-	assert.equal(highlightCode("x = (", "python") !== undefined, true);
+	assert.match(html, /print\(/);
 });
 
 test("HTML no código é escapado", () => {
@@ -66,9 +68,10 @@ test("código inline continua inline", () => {
 	assert.match(html, /<code class="[^"]*bg-muted[^"]*">npm i/);
 });
 
-test("copiar usa clipboard com o texto sem a quebra final e alterna para check", () => {
+test("copiar: o botão leva o texto sem a quebra final (CodeBlockCopyButton grava no clipboard e alterna para check)", () => {
 	const src = readFileSync(new URL("./markdown-code-block.tsx", import.meta.url), "utf8");
-	assert.match(src, /navigator\.clipboard\.writeText\(text\)/);
-	assert.match(src, /setCopied\(true\)/);
-	assert.match(src, /copied \? <CheckIcon \/> : <CopyIcon \/>/);
+	assert.match(src, /<CodeBlockCopyButton value=\{text\} \/>/);
+	const ui = readFileSync(new URL("../../../../../packages/ui/src/components/code-block.tsx", import.meta.url), "utf8");
+	assert.match(ui, /navigator\.clipboard\s*\.writeText\(value\)/);
+	assert.match(ui, /copied \? \(\s*<CheckIcon/);
 });

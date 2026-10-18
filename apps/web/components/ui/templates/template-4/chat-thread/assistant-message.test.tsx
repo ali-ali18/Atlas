@@ -19,7 +19,7 @@ test("links, código inline e itens quebram em qualquer ponto; bloco de código 
 	assert.match(html, /<li class="[^"]*min-w-0[^"]*overflow-wrap:anywhere/);
 	assert.match(html, /<a class="[^"]*overflow-wrap:anywhere/);
 	assert.match(html, /<code class="[^"]*overflow-wrap:anywhere[^"]*">fd59716/);
-	assert.match(html, /<pre class="[^"]*overflow-x-auto/);
+	assert.match(html, /<pre[^>]*overflow-auto/);
 });
 
 test("a bolha nunca passa da largura máxima (68ch limitado a 100%)", async () => {
