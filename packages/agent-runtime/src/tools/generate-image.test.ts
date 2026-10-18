@@ -5,6 +5,6 @@ it("anuncia somente criação e recusa referência antes de gastar", () => {
  expect(GENERATE_IMAGE_TOOL.function.description).toContain("unavailable");
  expect(parseGenerateImageArgs({ prompt: "blue flower" })).toEqual({ prompt: "blue flower", n: 1 });
  expect(() => parseGenerateImageArgs({ prompt: "blue flower", reference_artifact_id: "image-a" })).toThrow();
- expect(GENERATE_IMAGE_TOOL.function.description).toMatch(/Use only when/);
+ expect(GENERATE_IMAGE_TOOL.function.description).toMatch(/Call it directly whenever/);
  expect(GENERATE_IMAGE_TOOL.function.description).toMatch(/Do not use/);
 });

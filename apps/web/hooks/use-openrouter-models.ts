@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import type { OpenRouterModel } from "@workspace/shared";
-import { listOpenRouterModels } from "@/lib/atlas-api";
+import { listOpenRouterImageModels, listOpenRouterModels } from "@/lib/atlas-api";
 
 let cache: OpenRouterModel[] | null = null;
 
@@ -39,4 +39,31 @@ export function useOpenRouterModels() {
 	}, []);
 
 	return { models, loading, error };
+}
+
+let imageCache: OpenRouterModel[] | null = null;
+
+/** Modelos de geração de imagem; vazio se o catálogo falhar (a tela cai para a lista de chat filtrada). */
+export function useOpenRouterImageModels() {
+	const [models, setModels] = useState<OpenRouterModel[]>(() => imageCache ?? []);
+	const [loading, setLoading] = useState(!imageCache);
+
+	useEffect(() => {
+		if (imageCache) return;
+		let cancelled = false;
+		listOpenRouterImageModels()
+			.then((next) => {
+				imageCache = next;
+				if (!cancelled) setModels(next);
+			})
+			.catch(() => undefined)
+			.finally(() => {
+				if (!cancelled) setLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	return { models, loading };
 }

@@ -43,8 +43,12 @@ export const P_IMAGES: string[] = [
 	"Inspection screenshots are sent only to the model, not shown in chat.",
 	"Claim delivery only after show_image succeeds. On failure, report its actual",
 	"error; the display limit is per run, not per conversation.",
-	"Do not paste image URLs or base64 in chat. Use generate_image only when the",
-	"user explicitly asks to create or edit a picture.",
+	"Do not paste image URLs or base64 in chat. When the user asks you to create,",
+	"generate, draw or design a new picture, logo or art, call generate_image right",
+	"away (aspect_ratio when the format is clear; it shows the result in chat) and",
+	"never say you cannot generate images. If it reports no image model configured,",
+	"tell the user to set one in Configurações › Modelos. Editing an existing",
+	"picture is not supported yet.",
 ];
 
 /** Escada de pesquisa web (API, web_search, web_extract, navegador). */

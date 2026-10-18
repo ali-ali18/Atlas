@@ -109,7 +109,7 @@ describe("F14 - visão do usuário", () => {
 
 	it("tool paga aparece com o modelo de imagem configurado, em qualquer idioma ou pedido", async () => {
 		const plain = await replay({ request: "O que tem nessa foto?", canSeeUserImages: false });
-		expect(plain.transport?.tools.some((tool) => tool.function.name === "generate_image")).toBe(false);
+		expect(plain.transport?.tools.some((tool) => tool.function.name === "generate_image")).toBe(true);
 		process.env.ATLAS_IMAGE_MODEL = "image/model";
 		const asked = await replay({ request: "Gera uma logo azul", canSeeUserImages: false });
 		expect(asked.transport?.tools.some((tool) => tool.function.name === "generate_image")).toBe(true);

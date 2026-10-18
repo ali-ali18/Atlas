@@ -105,6 +105,8 @@ export type MockOptions = {
     output?: string
     durationMs?: number
   }
+  /** O run chama `generate_image`: `hold` deixa o stream parado após o tool_call (skeleton), `error` falha, `imageIds` entrega as imagens. */
+  imageGenInRun?: { count?: 1 | 2; aspectRatio?: string; imageIds?: string[]; hold?: boolean; error?: string }
   /** Nome do bot principal (padrão "Atlas"). */
   botName?: string
 }
@@ -119,7 +121,7 @@ export class MockAtlas {
   readonly messages: StoredMessage[] = []
   private runs = new Map<string, RunRecord>()
   private seq = 0
-  private readonly options: Required<Omit<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "runCodeInRun">> & Pick<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "runCodeInRun">
+  private readonly options: Required<Omit<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "runCodeInRun" | "imageGenInRun">> & Pick<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "runCodeInRun" | "imageGenInRun">
   /** Requisições `POST /v1/runs/:id/inputs` aceitas (fala do usuário entregue a um run em andamento). */
   readonly inputs: Array<{ runId: string; content: string }> = []
   readonly memoryEntries: MemoryEntryRecord[] = []
@@ -493,7 +495,8 @@ export class MockAtlas {
     // Conexão congelada (PWA em segundo plano): aberta, sem nenhum byte, até o teste terminar.
     if (this.options.freezeStream) await new Promise(() => undefined)
     // Espera o "servidor" terminar o run e então entrega os eventos de uma vez (SSE completo).
-    const waitMs = Math.max(0, record.createdAt + this.options.replyDelayMs - Date.now())
+    const ig = this.options.imageGenInRun
+    const waitMs = ig?.hold ? 0 : Math.max(0, record.createdAt + this.options.replyDelayMs - Date.now())
     await new Promise((resolve) => setTimeout(resolve, waitMs))
     record.streamed = true
     const memoryEvents = this.options.memoryToolInRun
@@ -511,11 +514,23 @@ export class MockAtlas {
           { type: "tool_result", id: `rc-${id}`, name: "run_code", ok: rc.ok ?? true, summary: rc.summary },
         ]
       : []
+    const imageEvents = ig
+      ? [
+          { type: "tool_call", id: `ig-${id}`, name: "generate_image", args: JSON.stringify({ prompt: "gato astronauta", n: ig.count ?? 1, aspect_ratio: ig.aspectRatio ?? "1:1" }) },
+          ...(ig.hold ? [] : ig.error
+            ? [{ type: "tool_result", id: `ig-${id}`, name: "generate_image", ok: false, summary: ig.error }]
+            : [
+                { type: "images", origin: "assistant", items: (ig.imageIds ?? ["img-1"]).map((artifactId) => ({ artifactId, mime: "image/png", width: 1024, height: 1024, alt: "Imagem gerada" })) },
+                { type: "tool_result", id: `ig-${id}`, name: "generate_image", ok: true, summary: "Imagem gerada." },
+              ]),
+        ]
+      : []
     const half = Math.ceil(record.reply.length / 2)
-    const events = [
+    const events = ig?.hold ? [{ type: "run", runId: id, status: "running" }, ...imageEvents] : [
       { type: "run", runId: id, status: "running" },
       ...memoryEvents,
       ...codeEvents,
+      ...imageEvents,
       { type: "assistant_delta", id: `a-${id}`, delta: record.reply.slice(0, half) },
       { type: "assistant_delta", id: `a-${id}`, delta: record.reply.slice(half) },
       { type: "done", message: { role: "assistant", content: record.reply }, model: "mock/e2e" },

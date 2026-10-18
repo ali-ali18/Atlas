@@ -42,7 +42,7 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 	],
 	[
 		"images",
-		/\b(imagem|imagens|fotos?|figuras?|desenh\w+|ilustra\w*|logos?|logotipos?|images?|pictures?|photos?|draw\w*|illustrat\w*|screenshots?|prints?|captur\w+)\b/,
+		/\b(imagem|imagens|fotos?|figuras?|desenh\w+|ilustra\w*|logos?|logotipos?|images?|pictures?|photos?|draw\w*|illustrat\w*|screenshots?|prints?|captur\w+|(fa[zc]\w*|cri\w+|ger\w+|mont\w+|produz\w*|make|create|generate) (uma? |as |os |me |pra mim |para mim )*(arte|artes|capa|banner|cartaz|avatar|mascote|wallpaper|papel de parede|icone|poster|meme|art|cover|icon))\b/,
 	],
 	[
 		"browser",

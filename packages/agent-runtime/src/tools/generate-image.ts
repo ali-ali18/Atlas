@@ -3,14 +3,17 @@ import { generateImages, type ChatTool } from "@workspace/llm";
 import { processImageForStorage } from "../images/process.js";
 import type { ShowImageEvent } from "./show-image.js";
 
+export const IMAGE_MODEL_MISSING_MESSAGE =
+	"Nenhum modelo de imagem configurado. Peça ao usuário para configurar um em Configurações › Modelos › Modelo para gerar imagens (precisa ser um modelo do OpenRouter que gera imagem).";
+
 export const GENERATE_IMAGE_TOOL: ChatTool = {
 	type: "function",
 	function: {
 		name: "generate_image",
-		description: "Generate a new picture (paid). Use only when the user's latest message asks you to create, draw or design a new image. Do not use to find, search or show existing images, to take screenshots, to edit or transform an existing image (reference images are unavailable), or when text or a chart would do.",
+		description: "Generate a new picture (paid). Call it directly whenever the user's latest message asks you to generate, create, draw, illustrate or design a new picture, logo, art or illustration (e.g. 'gera uma imagem de...', 'cria um logo', 'desenha...') — do not answer that you cannot make images. Do not use to find, search or show existing images, to take screenshots, to edit or transform an existing image (reference images are unavailable), or when text or a chart would do.",
 		parameters: { type: "object", properties: {
 			prompt: { type: "string", description: "The picture to create" },
-			aspect_ratio: { type: "string" }, n: { type: "integer", minimum: 1, maximum: 2 },
+			aspect_ratio: { type: "string", description: "Width:height such as 1:1 (default), 16:9, 9:16, 4:3, 3:4" }, n: { type: "integer", minimum: 1, maximum: 2 },
 		}, required: ["prompt"] },
 	},
 };

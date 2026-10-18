@@ -64,7 +64,8 @@ describe("configuração da conta chega à lib por parâmetro", () => {
 	it("o modelo de imagem da conta expõe a tool sem depender do env", async () => {
 		vi.stubEnv("ATLAS_IMAGE_MODEL", "");
 		const without = await replay({}, "Gera uma logo azul");
-		expect(without[0]?.tools.some((tool) => tool.function.name === "generate_image")).toBe(false);
+		// Sem modelo a tool continua visível: a chamada devolve o aviso de configuração.
+		expect(without[0]?.tools.some((tool) => tool.function.name === "generate_image")).toBe(true);
 		const withModel = await replay({ imageModel: "image/model" }, "Gera uma logo azul");
 		expect(withModel[0]?.tools.some((tool) => tool.function.name === "generate_image")).toBe(true);
 	});

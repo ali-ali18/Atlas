@@ -28,3 +28,21 @@ test("A3: sem catálogo válido, GET conserva 502", async () => {
     const { createModelRoutes } = await import("./models.js");
     assert.equal((await createModelRoutes(async () => null).request("/v1/models")).status, 502);
 });
+
+test("Imagem: GET /v1/models/image consulta o catálogo filtrado por saída de imagem", async (t) => {
+    const previous = globalThis.fetch;
+    const urls: string[] = [];
+    globalThis.fetch = async (input) => {
+        urls.push(String(input));
+        return Response.json({ data: [{ id: "bytedance-seed/seedream-4.5", name: "Seedream", architecture: { output_modalities: ["image"] } }] });
+    };
+    t.after(() => { globalThis.fetch = previous; });
+    const { createModelRoutes } = await import("./models.js");
+    const response = await createModelRoutes(async () => null).request("/v1/models/image");
+    assert.equal(response.status, 200);
+    assert.deepEqual(urls, ["https://openrouter.ai/api/v1/models?output_modalities=image"]);
+    const payload = await response.json() as { models: Array<{ id: string; outputModalities?: string[] }> };
+    assert.equal(payload.models[0]?.id, "bytedance-seed/seedream-4.5");
+    assert.deepEqual(payload.models[0]?.outputModalities, ["image"]);
+    assert.equal((await createModelRoutes(undefined, async () => null).request("/v1/models/image")).status, 502);
+});

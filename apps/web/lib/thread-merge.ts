@@ -291,6 +291,7 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 		message.kind !== "provider-fallback" &&
 		message.kind !== "memory-updated" &&
 		message.kind !== "code-run" &&
+		message.kind !== "image-gen" &&
 		message.kind !== "chart" &&
 		message.kind !== "subagents" &&
 		message.kind !== "context-summary" &&

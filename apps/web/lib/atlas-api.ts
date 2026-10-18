@@ -893,6 +893,12 @@ export async function listConversationMessagePage(
 	);
 }
 
+/** Modelos que geram imagem (inclui os só-imagem, ausentes do catálogo de chat). */
+export async function listOpenRouterImageModels(): Promise<OpenRouterModel[]> {
+	const body = await atlasFetch<ListModelsResponse>("/v1/models/image");
+	return body.models;
+}
+
 export async function listOpenRouterModels(): Promise<OpenRouterModel[]> {
 	const body = await atlasFetch<ListModelsResponse>("/v1/models");
 	return body.models;

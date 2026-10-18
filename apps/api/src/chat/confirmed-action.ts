@@ -180,7 +180,7 @@ async function resolvePendingIntent(input: {
 		if (!generation || !apiKey || !imageModel) {
 			await clear();
 			await updateConfirmCardStatus(input.conversationId, "rejected", payload.confirmId).catch(() => undefined);
-			return done("A geração de imagem não está configurada. Defina ATLAS_IMAGE_MODEL e OPENROUTER_API_KEY na API.");
+			return done("Configure um modelo de imagem em Configurações › Modelos › Modelo para gerar imagens.");
 		}
 		const claimed = await claimSkillPendingIntent(pending.id, input.userId, input.conversationId);
 		if (!claimed) return done("Este pedido de imagem já foi processado ou expirou.");

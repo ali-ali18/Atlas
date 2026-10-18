@@ -54,6 +54,7 @@ export function mergePreservingSkills(
 			item.kind === "provider-fallback" ||
 			item.kind === "memory-updated" ||
 			item.kind === "code-run" ||
+			item.kind === "image-gen" ||
 			item.kind === "chart" ||
 			item.kind === "subagents" ||
 			item.kind === "questionnaire" ||

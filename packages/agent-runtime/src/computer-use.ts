@@ -163,7 +163,7 @@ import {
 import { executeShowImage, SHOW_IMAGE_TOOL, type ShowImageEvent } from "./tools/show-image.js";
 import { ATTACHMENT_LIST_TOOL, ATTACHMENT_READ_TOOL, ATTACHMENT_TO_COMPUTER_TOOL, attachmentCopyTarget, executeAttachmentTool } from "./tools/attachment-tools.js";
 import type { AttachmentRuntime } from "./attachments/runtime.js";
-import { executeGenerateImage, GENERATE_IMAGE_TOOL, parseGenerateImageArgs } from "./tools/generate-image.js";
+import { executeGenerateImage, GENERATE_IMAGE_TOOL, IMAGE_MODEL_MISSING_MESSAGE, parseGenerateImageArgs } from "./tools/generate-image.js";
 import { processImageForStorage } from "./images/process.js";
 import {
 	WebSearchError,
@@ -3082,7 +3082,10 @@ async function executeToolInner(
 		case "propose_custom_mcp":
 			return proposeCustomMcp(args, { userId: ctx.userId, runId: ctx.runId, origin: ctx.origin, loginAsked: ctx.loginAsked ?? new Set<string>() });
 		case "generate_image": {
-			if (!ctx.imageGeneration || !ctx.showImages || !ctx.userId || !ctx.conversationId || ctx.origin !== "chat") {
+			if (!ctx.imageGeneration) {
+				throw new Error(IMAGE_MODEL_MISSING_MESSAGE);
+			}
+			if (!ctx.showImages || !ctx.userId || !ctx.conversationId || ctx.origin !== "chat") {
 				throw new Error("Geração de imagem indisponível neste run.");
 			}
 			const parsed = parseGenerateImageArgs(args);
@@ -4729,7 +4732,9 @@ export async function runComputerUse(params: {
 		}
 	}
 	const imageModel = params.imageModel ?? process.env.ATLAS_IMAGE_MODEL?.trim();
-	if (imageModel && params.origin === "chat" && !isSubagent &&
+	// Sem modelo configurado a tool continua visível: a chamada devolve o aviso "Configure um modelo de imagem…"
+	// em vez de o bot dizer que não consegue gerar imagens.
+	if (params.origin === "chat" && !isSubagent &&
 		decideAction(autonomyPolicy, { actionClass: "write", tool: "generate_image", host: false }) !== "block") {
 		baseTools.push(GENERATE_IMAGE_TOOL);
 	}

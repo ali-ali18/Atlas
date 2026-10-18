@@ -40,6 +40,7 @@ import { ToolBudgetMarker } from "@/components/ai-elements/tool-budget";
 import { AssistantMessage } from "./assistant-message";
 import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 import { CodeRunCard } from "./code-run-card";
+import { ImagePendingCard } from "@/components/ai-elements/images/image-pending-card";
 import { MemoryUpdatedMarker } from "./memory-updated-marker";
 import { ImageGallery } from "@/components/ai-elements/images/image-gallery";
 import {
@@ -222,6 +223,8 @@ export function MessageRow({
 					<MarkerContent>{message.text}</MarkerContent>
 				</Marker>
 			);
+		case "image-gen":
+			return <ImagePendingCard aspectRatio={message.aspectRatio} count={message.count} error={message.error} startedAt={message.startedAt} status={message.status} />;
 		case "code-run":
 			return <CodeRunCard code={message.code} durationMs={message.durationMs} output={message.output} status={message.status} />;
 		case "chart":

@@ -76,6 +76,7 @@ import {
 import { useDevSessionFixture } from "@/lib/dev-session/fixture";
 import { stopConversationDevSessions } from "@/lib/dev-session/actions";
 import { toolActivityDetail } from "@/lib/dev-session/live-line";
+import { clearRunningImageGen, imageGenCardId, parseGenerateImageCall, replacePendingWithImages, settleImageGen } from "@/lib/image-gen";
 import { parseRunCodeCallArgs, parseRunCodeResult } from "@/lib/code-run";
 import { addLiveDevSessionCard, contextSummaryCard, insertContextDividers, insertDevSessionCards } from "@/lib/dev-session/cards";
 import {
@@ -534,7 +535,7 @@ async function loadRunEventPayloads(runId: string): Promise<{
 	return { events, lastSeq: after };
 }
 
-function createComputerHandlers(params: {
+export function createComputerHandlers(params: {
 	onAgentPointer?: (event: AgentPointerEvent) => void;
 	onSandboxSession?: (session: {
 		sessionId: string;
@@ -627,6 +628,13 @@ function createComputerHandlers(params: {
 						: dedupeCards(insertCardAfterCurrentTurn(previous, card)));
 				}
 			}
+			if (call.name === "generate_image") {
+				const { count, aspectRatio } = parseGenerateImageCall(call.args);
+				const card: Message = { id: imageGenCardId(call.id), kind: "image-gen", callId: call.id, count, aspectRatio, startedAt: Date.now(), status: "running" };
+				params.setMessages((previous) => previous.some((item) => item.id === card.id)
+					? previous
+					: dedupeCards(insertCardAfterCurrentTurn(previous, card)));
+			}
 			params.onActivity?.();
 			params.onStreamingMessage?.(null);
 			params.onAgentActivity?.({
@@ -641,6 +649,9 @@ function createComputerHandlers(params: {
 			params.onActivity?.();
 			params.onStreamingMessage?.(null);
 			params.onAgentActivity?.({ phase: "thinking" });
+			if (result.name === "generate_image") {
+				params.setMessages((previous) => settleImageGen(previous, result.id, result));
+			}
 			if (result.name === "run_code") {
 				const outcome = parseRunCodeResult(result);
 				const cardId = `code-run-${result.id}`;
@@ -678,11 +689,13 @@ function createComputerHandlers(params: {
 			params.onPaused?.();
 		},
 		onCancelled: (reason) => {
+			params.setMessages((previous) => clearRunningImageGen(previous));
 			params.onStreamingMessage?.(null);
 			params.onCancelled?.(reason);
 		},
 		onStatus: params.onStatus,
 		onError: (error) => {
+			params.setMessages((previous) => clearRunningImageGen(previous));
 			params.onStreamingMessage?.(null);
 			params.onAgentActivity?.({ phase: "idle" });
 			params.setMessages((previous) =>
@@ -801,9 +814,11 @@ function createComputerHandlers(params: {
 				source: event.origin,
 				items: event.items,
 			};
-			params.setMessages((previous) => previous.some((item) => item.id === imageMessage.id)
-				? previous
-				: dedupeCards(insertCardAfterCurrentTurn(previous, imageMessage)));
+			params.setMessages((previous) => {
+				if (previous.some((item) => item.id === imageMessage.id)) return previous;
+				const replaced = event.origin === "assistant" ? replacePendingWithImages(previous, imageMessage) : previous;
+				return replaced !== previous ? replaced : dedupeCards(insertCardAfterCurrentTurn(previous, imageMessage));
+			});
 		},
 		onDevSession: (event, meta) => {
 			params.onActivity?.();
@@ -955,6 +970,7 @@ function createComputerHandlers(params: {
 			});
 		},
 		onDone: (result) => {
+			params.setMessages((previous) => clearRunningImageGen(previous));
 			if (result?.model) params.onServedModel?.(result.model);
 			if (result?.usage) params.onUsage?.(result.usage);
 			params.onStreamingMessage?.(null);

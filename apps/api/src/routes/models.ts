@@ -3,8 +3,13 @@ import { createModelCatalogCache } from "@workspace/llm";
 import { parseOpenRouterModelInfo, type ListModelsResponse, type ProviderModel } from "@workspace/shared";
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
-const catalog = createModelCatalogCache(fetchModels, {
+const OPENROUTER_IMAGE_MODELS_URL = `${OPENROUTER_MODELS_URL}?output_modalities=image`;
+const catalog = createModelCatalogCache(() => fetchModels(OPENROUTER_MODELS_URL), {
 	onError: () => console.error("OpenRouter model catalog unavailable"),
+});
+/** Modelos que geram imagem (inclui os só-imagem, que o catálogo padrão esconde). */
+const imageCatalog = createModelCatalogCache(() => fetchModels(OPENROUTER_IMAGE_MODELS_URL), {
+	onError: () => console.error("OpenRouter image model catalog unavailable"),
 });
 
 function toModel(raw: unknown): ProviderModel | null {
@@ -39,8 +44,8 @@ function toModel(raw: unknown): ProviderModel | null {
 	};
 }
 
-async function fetchModels(): Promise<ProviderModel[]> {
-	const response = await fetch(OPENROUTER_MODELS_URL, {
+async function fetchModels(url: string): Promise<ProviderModel[]> {
+	const response = await fetch(url, {
 		headers: { Accept: "application/json" },
 		signal: AbortSignal.timeout(15_000),
 	});
@@ -77,10 +82,16 @@ export function refreshModelsCache(): void {
 	catalog.peek();
 }
 
-export function createModelRoutes(getModels = catalog.get) {
+export function createModelRoutes(getModels = catalog.get, getImageModels = imageCatalog.get) {
 	const app = new Hono();
 	app.get("/v1/models", async (c) => {
 		const models = await getModels();
+		return models === null
+			? c.json({ error: "Failed to list models" }, 502)
+			: c.json({ models } satisfies ListModelsResponse);
+	});
+	app.get("/v1/models/image", async (c) => {
+		const models = await getImageModels();
 		return models === null
 			? c.json({ error: "Failed to list models" }, 502)
 			: c.json({ models } satisfies ListModelsResponse);

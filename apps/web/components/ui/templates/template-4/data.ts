@@ -430,6 +430,8 @@ type MessageVariant =
 	| { id: string; kind: "memory-updated" }
 	/** Execução do run_code (código + saída truncada); `callId` liga o cartão ao vivo ao gravado. */
 	| { id: string; kind: "code-run"; callId?: string; code: string; status: "running" | "ok" | "error"; durationMs?: number; output?: string }
+	/** Placeholder ao vivo enquanto `generate_image` roda (só do cliente, nunca persistido). */
+	| { id: string; kind: "image-gen"; callId: string; count: 1 | 2; aspectRatio: string; startedAt: number; status: "running" | "error"; error?: string }
 	/** Gráfico nativo (spec validado) gerado pelo run_code em *.chart.json. */
 	| { id: string; kind: "chart"; chartId: string; spec: ChartSpec; filename?: string }
 	| {

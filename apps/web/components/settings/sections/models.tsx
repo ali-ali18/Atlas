@@ -12,7 +12,7 @@ import {
 import { Button } from "@workspace/ui/components/button";
 import { ModelCapabilityWarning } from "@workspace/ui/components/model-capability-badges";
 import { ModelPicker } from "@/components/model-picker";
-import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
+import { useOpenRouterImageModels, useOpenRouterModels } from "@/hooks/use-openrouter-models";
 import { useTranscriptionModels } from "@/hooks/use-transcription-models";
 import type { useAccountSettings } from "@/hooks/use-account-settings";
 import type { SettingsIcon } from "@/components/ui/templates/template-4/settings-picker";
@@ -91,6 +91,7 @@ const MODEL_ROWS: readonly ModelRowSpec[] = [
 export function ModelsSettingsView({
 	effective,
 	models,
+	imageModels = [],
 	modelsLoading = false,
 	openrouterKey = true,
 	dictation = null,
@@ -112,6 +113,8 @@ export function ModelsSettingsView({
 	/** `null` enquanto carrega. */
 	effective: EffectiveAccountConfig | null;
 	models: readonly OpenRouterModel[];
+	/** Catálogo de modelos que geram imagem; vazio = filtra a lista de chat. */
+	imageModels?: readonly OpenRouterModel[];
 	modelsLoading?: boolean;
 	openrouterKey?: boolean;
 	/** Modelos de ditado do servidor; `null` = sem STT no servidor (a configuração some). */
@@ -157,7 +160,7 @@ export function ModelsSettingsView({
 								}
 								id={`settings-model-${row.setting}`}
 								loading={modelsLoading}
-								models={modelsForSetting(row.setting, models)}
+								models={row.setting === "image" && imageModels.length > 0 ? [...imageModels] : modelsForSetting(row.setting, models)}
 								onChange={(id) => onChange(modelPatch(row.setting, id))}
 								openrouterOnly={MODEL_SETTING_OPENROUTER_ONLY[row.setting]}
 								value={modelPickerValue(effective.models[row.setting])}
@@ -307,6 +310,7 @@ export function ModelsSettings({
 	showKeyNote?: boolean;
 }) {
 	const { models, loading } = useOpenRouterModels();
+	const imageModels = useOpenRouterImageModels();
 	const dictation = useTranscriptionModels();
 	return (
 		<ModelsSettingsView
@@ -314,6 +318,7 @@ export function ModelsSettings({
 			isVisible={isVisible}
 			loadError={account.loadError}
 			models={models}
+			imageModels={imageModels.models}
 			dictation={dictation.data}
 			dictationLoading={dictation.loading}
 			modelsLoading={loading}
