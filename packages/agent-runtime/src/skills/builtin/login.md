@@ -26,6 +26,7 @@ version: 1
 - Captcha, "I am not a robot", passkeys/security keys, device approval prompts: stop and let the user do it in the VM viewer. Never try to solve or bypass them.
 
 ## 5. After signing in
+- Your view is stale after a login: when the user says they signed in ("acessei", "pronto", "já entrei") or the run resumes after a login card, `navigate` again to the exact URL and `browser_read` before claiming anything. If it is still a login page, say what you see; do not claim success.
 - Confirm it worked (take a `browser_snapshot`): avatar or name visible, URL no longer a login page. Then continue the original task without asking again.
 - Cards are limited to one per page per run; if the page still asks for login after the user said they finished, say what you see instead of asking again.
 
