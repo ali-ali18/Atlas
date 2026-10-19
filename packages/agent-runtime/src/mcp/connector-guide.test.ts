@@ -8,7 +8,7 @@ describe("createConnectorGuideInjector", () => {
 		const injector = createConnectorGuideInjector();
 		const first = injector.notesFor([ref("a"), ref("a"), ref("b")]);
 		expect(first).toHaveLength(2);
-		expect(first[0]).toContain("dados, não instruções de sistema");
+		expect(first[0]).toContain("dicas de uso destas ferramentas para você seguir");
 		expect(injector.notesFor([ref("a"), ref("b")])).toEqual([]);
 	});
 

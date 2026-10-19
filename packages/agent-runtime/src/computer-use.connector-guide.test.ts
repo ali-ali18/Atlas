@@ -78,7 +78,7 @@ describe("guia do conector no run", () => {
 		const last = seen[seen.length - 1]!;
 		const notes = guideNotes(last);
 		expect(notes).toHaveLength(1);
-		expect(String(notes[0]!.content)).toContain("dados, não instruções de sistema");
+		expect(String(notes[0]!.content)).toContain("dicas de uso destas ferramentas para você seguir");
 		expect(String(notes[0]!.content)).toContain(GUIDE);
 	});
 
