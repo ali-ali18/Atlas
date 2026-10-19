@@ -95,7 +95,7 @@ function AddressCard({ mailbox, busy, onToggle }: { mailbox: BotMailboxDto; busy
 					{copied ? <CheckIcon /> : <CopyIcon />}
 				</Button>
 			</div>
-			<div className="flex items-center justify-between gap-3 border-border border-t pt-3">
+			<div className="-mx-3 flex items-center justify-between gap-3 border-border border-t px-3 pt-3">
 				<div className="min-w-0">
 					<p className="font-medium text-sm" id="email-enabled-label">
 						Recebendo e-mails

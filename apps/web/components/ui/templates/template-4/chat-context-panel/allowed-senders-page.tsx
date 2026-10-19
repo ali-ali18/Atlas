@@ -4,7 +4,7 @@ import { useMemo, useState } from "react"
 import { ArrowLeftIcon, SearchIcon, XIcon } from "lucide-react"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@workspace/ui/components/input-group"
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@workspace/ui/components/input-group"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { useBotEmail } from "@/hooks/use-bot-email"
 import { closeSendersPage } from "@/lib/email-senders-url"
@@ -100,9 +100,16 @@ export function AllowedSendersManager({
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Buscar remetente"
               spellCheck={false}
-              type="search"
+              type="text"
               value={query}
             />
+            {query ? (
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton aria-label="Limpar busca" onClick={() => setQuery("")} size="icon-xs">
+                  <XIcon aria-hidden />
+                </InputGroupButton>
+              </InputGroupAddon>
+            ) : null}
           </InputGroup>
           {visible.length === 0 ? (
             <p className="rounded-2xl border border-border border-dashed px-3 py-6 text-center text-muted-foreground text-xs" data-testid="senders-no-match">
