@@ -58,6 +58,10 @@ for (const size of SIZES) {
           }
           await page.waitForTimeout(1500)
           await shot(page, id)
+          if (id === "revisao") {
+            await page.getByRole("button", { name: /Ajustar por recurso/ }).click()
+            await shot(page, "revisao-expandido")
+          }
         }
       })
     })

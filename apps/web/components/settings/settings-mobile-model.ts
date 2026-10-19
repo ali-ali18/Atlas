@@ -53,7 +53,7 @@ export function reviewHint(mode: MobileSettingsSummary["reviewMode"]): string {
 	if (mode === "on") return "Revisão JEV ligada";
 	if (mode === "shadow") return "Revisão JEV em teste";
 	if (mode === "off") return "Revisão desligada";
-	return "Revisão automática e diagnóstico";
+	return "Revisão das ações dos bots";
 }
 
 /** Título de cada página no mobile (pode diferir do rótulo curto da nav do desktop). */
@@ -70,10 +70,11 @@ export const MOBILE_TITLES: Record<SettingsNavId, string> = {
 	habilidades: "Habilidades",
 	uso: "Uso e custos",
 	execucao: "Execução e limites",
-	avancado: "Técnico",
+	revisao: "Revisão automática",
+	diagnostico: "Diagnóstico",
 };
 
-/** As mesmas seções do desktop (Conta fica no cartão de perfil do topo); Avançado fica sempre por último, separado. */
+/** As mesmas seções do desktop (Conta fica no cartão de perfil do topo); Revisão e Diagnóstico ficam por último. */
 export function mobileSettingsGroups(
 	summary: MobileSettingsSummary,
 	hidden: ReadonlySet<SettingsNavId> = new Set(),
@@ -117,7 +118,8 @@ export function mobileSettingsGroups(
 			rows: [
 				row("uso", usageHint(summary.usageCostUsd)),
 				row("execucao", "Passos, tempo e custo por execução"),
-				row("avancado", reviewHint(summary.reviewMode)),
+				row("revisao", reviewHint(summary.reviewMode)),
+				row("diagnostico", "Versões, serviços e falhas"),
 			],
 		},
 	];

@@ -16,18 +16,18 @@ import {
 
 const ids = (query: string) => searchSettings(query).entries.map((entry) => entry.id);
 
-const ALL_SECTIONS = ["conta", "geral", "notificacoes", "bots", "modelos", "provedores", "computador", "conexoes", "cofre", "habilidades", "uso", "execucao", "avancado"];
+const ALL_SECTIONS = ["conta", "geral", "notificacoes", "bots", "modelos", "provedores", "computador", "conexoes", "cofre", "habilidades", "uso", "execucao", "revisao", "diagnostico"];
 
-test("nav: uma responsabilidade por seção, Avançado sempre por último", () => {
+test("nav: uma responsabilidade por seção, Diagnóstico por último", () => {
 	assert.deepEqual(ids(""), ALL_SECTIONS);
 	assert.deepEqual(
 		SETTINGS_NAV.map((entry) => entry.label),
-		["Conta", "Geral", "Notificações", "Bots", "Modelos e contexto", "Provedores e chaves", "Computador", "Conexões", "Cofre", "Habilidades", "Uso e custos", "Execução e limites", "Técnico"],
+		["Conta", "Geral", "Notificações", "Bots", "Modelos e contexto", "Provedores e chaves", "Computador", "Conexões", "Cofre", "Habilidades", "Uso e custos", "Execução e limites", "Revisão automática", "Diagnóstico"],
 	);
-	assert.equal(SETTINGS_NAV[SETTINGS_NAV.length - 1]?.id, "avancado");
+	assert.equal(SETTINGS_NAV[SETTINGS_NAV.length - 1]?.id, "diagnostico");
 	assert.deepEqual(
 		SETTINGS_NAV.map((entry) => entry.group),
-		["basico", "basico", "basico", "inteligencia", "inteligencia", "inteligencia", "ambiente", "ambiente", "ambiente", "ambiente", "controle", "controle", "controle"],
+		["basico", "basico", "basico", "inteligencia", "inteligencia", "inteligencia", "ambiente", "ambiente", "ambiente", "ambiente", "controle", "controle", "controle", "controle"],
 		"os blocos da nav são contíguos",
 	);
 	assert.equal(SETTINGS_NAV.some((entry) => entry.label === "Rotinas"), false, "Rotinas moram no painel do bot");
@@ -79,9 +79,9 @@ test("o que mudou de lugar continua achável: cada configuração antiga cai na 
 	assert.equal(ids("segredos").includes("conexoes"), false);
 	assert.ok(ids("gastos").includes("uso"), "uso e custos");
 	const jev = searchSettings("captcha");
-	assert.deepEqual(jev.entries.map((entry) => entry.id), ["avancado"]);
-	assert.equal(isItemVisible(jev, "avancado", "jev.bloqueio"), true);
-	assert.equal(isItemVisible(jev, "avancado", "jev.intencao"), false);
+	assert.deepEqual(jev.entries.map((entry) => entry.id), ["revisao"]);
+	assert.equal(isItemVisible(jev, "revisao", "jev.bloqueio"), true);
+	assert.equal(isItemVisible(jev, "revisao", "jev.intencao"), false);
 });
 
 test("a busca também casa pelas descrições antigas (palavras-chave), não só pelo rótulo", () => {
@@ -115,7 +115,7 @@ test("cada item pesquisável mora numa única seção (sem repetir entre seçõe
 		"execucao.reacao": "bots", "execucao.disciplina": "execucao", "execucao.custo": "execucao", "execucao.tempo": "execucao",
 		"geral.reflexao": "bots", "execucao.autonomia": "bots", "jev.grupos": "bots",
 		"notificacoes.celular": "notificacoes", "notificacoes.aparelhos": "notificacoes",
-		"execucao.navegador": "computador", "jev.mcp": "avancado", "execucao.passos": "execucao", "avancado.diagnostico": "avancado",
+		"execucao.navegador": "computador", "jev.mcp": "revisao", "jev.travamento": "revisao", "execucao.passos": "execucao", "avancado.diagnostico": "diagnostico",
 	};
 	for (const [id, section] of Object.entries(expected)) assert.equal(seen.get(id), section, id);
 });
@@ -125,7 +125,7 @@ test("os panes só renderizam itens da própria seção (varredura do código de
 	const source = readFileSync(new URL("./sections/panes.tsx", import.meta.url), "utf8");
 	const paneSection: Record<string, string> = {
 		ContaPane: "conta", GeralPane: "geral", ProvedoresPane: "provedores", ModelosPane: "modelos", ExecucaoPane: "execucao", BotsPane: "bots",
-		NotificacoesPane: "notificacoes", ComputadorPane: "computador", ConexoesPane: "conexoes", CofrePane: "cofre", HabilidadesPane: "habilidades", AvancadoPane: "avancado",
+		NotificacoesPane: "notificacoes", ComputadorPane: "computador", ConexoesPane: "conexoes", CofrePane: "cofre", HabilidadesPane: "habilidades", RevisaoPane: "revisao", DiagnosticoPane: "diagnostico",
 	};
 	const byId = new Map(SETTINGS_ITEMS.map((item) => [item.id, item.section]));
 	for (const [pane, section] of Object.entries(paneSection)) {
@@ -162,10 +162,13 @@ test("sem resultado devolve lista vazia", () => {
 
 test("parseSettingsParam aceita as seções e traduz os ids antigos", () => {
 	for (const id of ALL_SECTIONS) assert.equal(parseSettingsParam(id), id);
-	assert.equal(parseSettingsParam(" AVANCADO "), "avancado");
+	assert.equal(parseSettingsParam(" REVISAO "), "revisao");
+	assert.equal(parseSettingsParam("avancado"), "revisao");
+	assert.equal(parseSettingsParam("diagnostico"), "diagnostico");
+	assert.equal(parseSettingsParam("estado"), "diagnostico");
 	// Links antigos (?settings=...) continuam abrindo no lugar certo.
 	assert.equal(parseSettingsParam("modelos"), "modelos");
-	assert.equal(parseSettingsParam("jev"), "avancado");
+	assert.equal(parseSettingsParam("jev"), "revisao");
 	assert.equal(parseSettingsParam("execucao"), "execucao");
 	assert.equal(parseSettingsParam("habilidades"), "habilidades");
 	assert.equal(parseSettingsParam("skills"), "habilidades");
@@ -181,7 +184,7 @@ test("parseSettingsParam aceita as seções e traduz os ids antigos", () => {
 
 test("buildSettingsSearch define, troca e remove só o parâmetro settings", () => {
 	assert.equal(buildSettingsSearch("", "geral"), "?settings=geral");
-	assert.equal(buildSettingsSearch("?settings=geral", "avancado"), "?settings=avancado");
+	assert.equal(buildSettingsSearch("?settings=geral", "revisao"), "?settings=revisao");
 	assert.equal(
 		buildSettingsSearch("?provider=chatgpt&status=ok", "geral"),
 		"?provider=chatgpt&status=ok&settings=geral",

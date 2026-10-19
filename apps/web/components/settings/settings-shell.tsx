@@ -2,6 +2,8 @@
 
 import { Fragment, type KeyboardEvent, type ReactNode, useRef, useState } from "react";
 import {
+	ActivityIcon,
+	ShieldCheckIcon,
 	BellIcon,
 	BotIcon,
 	ChartColumnIcon,
@@ -14,7 +16,6 @@ import {
 	KeyRoundIcon,
 	SparklesIcon,
 	SettingsIcon,
-	SlidersHorizontalIcon,
 	UserIcon,
 	type LucideIcon,
 } from "lucide-react";
@@ -45,7 +46,8 @@ export const NAV_ICONS: Record<SettingsNavId, LucideIcon> = {
 	cofre: KeyRoundIcon,
 	habilidades: SparklesIcon,
 	uso: ChartColumnIcon,
-	avancado: SlidersHorizontalIcon,
+	revisao: ShieldCheckIcon,
+	diagnostico: ActivityIcon,
 };
 
 /**

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+	ActivityIcon,
+	ShieldCheckIcon,
 	BellIcon,
 	BotIcon,
 	ChartColumnIcon,
@@ -13,7 +15,6 @@ import {
 	SettingsIcon,
 	KeyRoundIcon,
 	SparklesIcon,
-	SlidersHorizontalIcon,
 	UserIcon,
 	type LucideIcon,
 } from "lucide-react";
@@ -68,7 +69,8 @@ const ROW_ICONS: Record<SettingsNavId, LucideIcon> = {
 	cofre: KeyRoundIcon,
 	habilidades: SparklesIcon,
 	uso: ChartColumnIcon,
-	avancado: SlidersHorizontalIcon,
+	revisao: ShieldCheckIcon,
+	diagnostico: ActivityIcon,
 };
 
 const THEME_LABEL: Record<string, string> = { light: "Claro", dark: "Escuro", system: "Sistema" };

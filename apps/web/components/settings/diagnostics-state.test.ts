@@ -20,6 +20,10 @@ test("rótulos de commit e uptime", () => {
 test("estado dos serviços", () => {
   assert.equal(checkLabel({ ok: true, ms: 4 }), "ok · 4 ms")
   assert.equal(checkLabel({ ok: false, ms: null, error: "ECONNREFUSED" }), "fora · ECONNREFUSED")
+  assert.equal(checkLabel({ ok: true, ms: null }), "ok")
+  // Resposta sem o campo `ms`: nunca "undefined ms".
+  assert.equal(checkLabel({ ok: true } as never), "ok")
+  assert.equal(checkLabel({ ok: true, ms: Number.NaN }), "ok")
   assert.equal(queuesLabel(null), "indisponível")
   assert.equal(queuesLabel([{ name: "a", waiting: 2, active: 1, delayed: 0, failed: 0 }, { name: "b", waiting: 1, active: 0, delayed: 0, failed: 3 }]), "1 rodando · 3 na fila · 3 com falha")
 })

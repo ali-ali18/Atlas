@@ -31,7 +31,7 @@ import {
 
 const statusClass = (ok: boolean) => (ok ? "text-foreground" : "text-destructive");
 
-/** Avançado: versões, saúde dos serviços, push, chaves (sim/não) e últimas falhas. Só leitura. */
+/** Diagnóstico: versões, saúde dos serviços, push, chaves (sim/não) e últimas falhas. Só leitura. */
 export function DiagnosticsSettingsView({
 	data,
 	loading,
@@ -53,7 +53,7 @@ export function DiagnosticsSettingsView({
 	const mismatch = data ? versionMismatch(data, webCommit) : false;
 	return (
 		<>
-			<SettingsGroup title="Diagnóstico">
+			<SettingsGroup title="Servidor">
 				<SettingRow
 					caption={error ? <p className="text-destructive" role="alert">{error}</p> : data ? <p>{`Atualizado às ${new Date(data.generatedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}</p> : null}
 					control="inline"
@@ -66,10 +66,8 @@ export function DiagnosticsSettingsView({
 						Atualizar
 					</Button>
 				</SettingRow>
-			</SettingsGroup>
-			{data ? (
-				<>
-					<SettingsGroup title="Versões">
+				{data ? (
+					<>
 						<SettingRow
 							caption={mismatch ? <p className="text-destructive">Versões diferentes: o deploy pode ter ficado pela metade.</p> : null}
 							control="inline"
@@ -86,7 +84,11 @@ export function DiagnosticsSettingsView({
 						<SettingRow control="inline" icon={ServerIcon} label="Web">
 							<span data-slot="diag-web">{[webVersionText, commitLabel(webCommit)].filter(Boolean).join(" · ") || "ativo"}</span>
 						</SettingRow>
-					</SettingsGroup>
+					</>
+				) : null}
+			</SettingsGroup>
+			{data ? (
+				<>
 					<SettingsGroup title="Serviços">
 						<SettingRow control="inline" icon={DatabaseIcon} label="Postgres">
 							<span className={statusClass(data.services.postgres.ok)}>{checkLabel(data.services.postgres)}</span>
@@ -106,7 +108,7 @@ export function DiagnosticsSettingsView({
 							<span>{data.sentry.enabled ? "ligado" : "desligado"}</span>
 						</SettingRow>
 					</SettingsGroup>
-					<SettingsGroup title="Chaves e provedores">
+					<SettingsGroup title="Chaves e recursos">
 						{data.providers.map((provider) => (
 							<SettingRow control="inline" icon={KeyRoundIcon} key={provider.id} label={provider.label}>
 								<span className={provider.present ? "text-foreground" : "text-muted-foreground"}>

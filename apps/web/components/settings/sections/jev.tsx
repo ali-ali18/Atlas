@@ -2,6 +2,7 @@
 
 import {
 	CheckCheckIcon,
+	ChevronDownIcon,
 	CornerDownRightIcon,
 	EyeIcon,
 	ListChecksIcon,
@@ -10,6 +11,7 @@ import {
 	ShieldAlertIcon,
 	ShieldBanIcon,
 	ShieldCheckIcon,
+	SlidersHorizontalIcon,
 	TargetIcon,
 	UsersIcon,
 	WorkflowIcon,
@@ -41,6 +43,7 @@ import {
 	jevMcpPatch,
 	groupsJevPatch,
 } from "../jev-execution-state";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
 import { SaveIndicator, SettingRow, SettingsGroup, SettingsStack } from "../setting-row";
 import { SwitchRow } from "./execution";
 
@@ -72,8 +75,8 @@ export function JevSettingsView({
 	loadError,
 	onChange,
 	isVisible = () => true,
-	title = "Revisão automática (JEV)",
-	featuresTitle = "Revisão por recurso",
+	title = "Revisões gerais",
+	featuresTitle = "Ajustar por recurso",
 	showStatus = true,
 }: {
 	title?: string;
@@ -107,6 +110,7 @@ export function JevSettingsView({
 
 					{isVisible("jev.mcp") ? (
 						<SettingRow
+							caption={<p>Confere antes de criar, editar ou apagar algo num conector.</p>}
 							description="Antes de uma escrita num conector (criar, editar, apagar), a revisão confere se ela faz sentido."
 							htmlFor="settings-jev-mcp"
 							icon={ShieldCheckIcon}
@@ -125,6 +129,7 @@ export function JevSettingsView({
 
 					{isVisible("jev.geral") ? (
 						<SettingRow
+							caption={<p>Checagens extras enquanto o bot trabalha. Mais cuidado, um pouco mais de espera.</p>}
 							description="Decisões extras do Jev durante o run. Observar registra sem agir. Cada uma é uma chamada leve ao modelo, mas soma tempo de espera."
 							htmlFor="settings-jev-all"
 							icon={WorkflowIcon}
@@ -156,27 +161,51 @@ export function JevSettingsView({
 			) : null}
 
 			{visibleFeatures.length > 0 && effective && config ? (
-				<SettingsGroup title={featuresTitle}>
-					{visibleFeatures.map((spec) => (
-						<SettingRow
-							description={spec.description}
-							htmlFor={`settings-jev-${spec.feature}`}
-							icon={FEATURE_ICONS[spec.feature]}
-							key={spec.feature}
-							label={spec.label}
+				<SettingsGroup>
+					<Collapsible
+						data-slot="jev-features"
+						// Numa busca que só casou com recursos, já abre para mostrar o resultado.
+						defaultOpen={!isVisible("jev.mcp") && !isVisible("jev.geral")}
+					>
+						<CollapsibleTrigger
+							className="group/trigger flex min-h-10 w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left outline-none focus-visible:bg-accent/50"
+							data-slot="jev-features-trigger"
 						>
-							<SettingsPicker
-								disabled={disabled}
-								id={`settings-jev-${spec.feature}`}
-								onChange={(choice) => onChange(jevFeaturePatch(spec.feature, choice))}
-								options={withOptionIcons(
-									jevFeatureOptions(config, effective.jev.features[spec.feature]),
-									MODE_ICONS,
-								)}
-								value={jevFeatureChoice(config, spec.feature)}
+							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+								<span className="flex items-center gap-2">
+									<SlidersHorizontalIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" data-slot="setting-row-icon" />
+									<span className="text-[13px] leading-[18px]">{featuresTitle}</span>
+								</span>
+								<span className="text-xs text-muted-foreground">{visibleFeatures.length} ajustes finos, um por recurso</span>
+							</span>
+							<ChevronDownIcon
+								aria-hidden
+								className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/trigger:rotate-180"
 							/>
-						</SettingRow>
-					))}
+						</CollapsibleTrigger>
+						<CollapsibleContent>
+							{visibleFeatures.map((spec) => (
+								<SettingRow
+									description={spec.description}
+									htmlFor={`settings-jev-${spec.feature}`}
+									icon={FEATURE_ICONS[spec.feature]}
+									key={spec.feature}
+									label={spec.label}
+								>
+									<SettingsPicker
+										disabled={disabled}
+										id={`settings-jev-${spec.feature}`}
+										onChange={(choice) => onChange(jevFeaturePatch(spec.feature, choice))}
+										options={withOptionIcons(
+											jevFeatureOptions(config, effective.jev.features[spec.feature]),
+											MODE_ICONS,
+										)}
+										value={jevFeatureChoice(config, spec.feature)}
+									/>
+								</SettingRow>
+							))}
+						</CollapsibleContent>
+					</Collapsible>
 				</SettingsGroup>
 			) : null}
 

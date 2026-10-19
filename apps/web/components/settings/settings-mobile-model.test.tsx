@@ -7,12 +7,12 @@ import { MOBILE_TITLES, connectionsHint, mobileSettingsGroups, reviewHint, skill
 
 Object.assign(globalThis, { React });
 
-test("a lista mobile tem as seções do desktop (Conta fica no cartão de perfil), em blocos com título, Técnico no fim", () => {
+test("a lista mobile tem as seções do desktop (Conta fica no cartão de perfil), em blocos com título, Diagnóstico no fim", () => {
 	const groups = mobileSettingsGroups({ theme: "Escuro", defaultModel: "openai/gpt-4o-mini", chatgptEnabled: true });
 	const ids = groups.flatMap((group) => group.rows.map((row) => row.id));
-	assert.deepEqual(ids, ["geral", "notificacoes", "bots", "modelos", "provedores", "computador", "conexoes", "cofre", "habilidades", "uso", "execucao", "avancado"]);
+	assert.deepEqual(ids, ["geral", "notificacoes", "bots", "modelos", "provedores", "computador", "conexoes", "cofre", "habilidades", "uso", "execucao", "revisao", "diagnostico"]);
 	assert.deepEqual(groups.map((group) => group.label), ["Básico", "Bots e modelos", "Ferramentas", "Controle"]);
-	assert.equal(groups[groups.length - 1]?.rows.at(-1)?.id, "avancado");
+	assert.equal(groups[groups.length - 1]?.rows.at(-1)?.id, "diagnostico");
 	const rows = groups.flatMap((group) => group.rows);
 	assert.equal(rows.find((row) => row.id === "geral")?.secondary, "Tema escuro");
 	assert.ok(rows.every((row) => row.title === MOBILE_TITLES[row.id]));
@@ -20,7 +20,7 @@ test("a lista mobile tem as seções do desktop (Conta fica no cartão de perfil
 	assert.equal(rows.find((row) => row.id === "modelos")?.secondary, "openai/gpt-4o-mini");
 	assert.equal(rows.find((row) => row.id === "provedores")?.secondary, "Plano ChatGPT ligado");
 	assert.equal(MOBILE_TITLES.provedores, "Provedores e chaves");
-	assert.equal(MOBILE_TITLES.avancado, "Técnico");
+	assert.equal(MOBILE_TITLES.revisao, "Revisão automática");
 });
 
 test("subtítulos mostram o estado atual", () => {
@@ -40,7 +40,7 @@ test("subtítulos mostram o estado atual", () => {
 	assert.equal(text("conexoes"), "4 conectados");
 	assert.equal(text("habilidades"), "3 habilidades");
 	assert.equal(text("uso"), "US$ 3,20 nos últimos 7 dias");
-	assert.equal(text("avancado"), "Revisão JEV ligada");
+	assert.equal(text("revisao"), "Revisão JEV ligada");
 	assert.ok(rows.every((r) => r.secondary.length <= 34));
 });
 
@@ -50,7 +50,7 @@ test("enquanto carrega, usa o texto estático curto", () => {
 	assert.equal(connectionsHint(undefined), "Conectores e MCP");
 	assert.equal(skillsHint(undefined), "Procedimentos do agente");
 	assert.equal(usageHint(undefined), "Consumo e gastos");
-	assert.equal(reviewHint(undefined), "Revisão automática e diagnóstico");
+	assert.equal(reviewHint(undefined), "Revisão das ações dos bots");
 });
 
 test("contagem, custo e revisão nos casos de borda", () => {
@@ -69,9 +69,9 @@ test("contagem, custo e revisão nos casos de borda", () => {
 });
 
 test("seções escondidas somem da lista", () => {
-	const ids = mobileSettingsGroups({}, new Set(["avancado"])).flatMap((g) => g.rows.map((r) => r.id));
-	assert.ok(!ids.includes("avancado"));
-	assert.equal(ids.length, 11);
+	const ids = mobileSettingsGroups({}, new Set(["revisao"])).flatMap((g) => g.rows.map((r) => r.id));
+	assert.ok(!ids.includes("revisao"));
+	assert.equal(ids.length, 12);
 });
 
 test("grupo e linha: blocos de 20px, 2px entre linhas, linha toca e mostra a seta", () => {

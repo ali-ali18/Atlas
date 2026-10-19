@@ -56,8 +56,8 @@ test("o nome do evento antigo segue o mesmo (quem já dispara continua funcionan
 
 test("openSettingsModal escreve só o parâmetro da seção", () => {
 	const { location } = fakeWindow("?x=1");
-	openSettingsModal("avancado");
-	assert.equal(new URLSearchParams(location.search).get("settings"), "avancado");
+	openSettingsModal("diagnostico");
+	assert.equal(new URLSearchParams(location.search).get("settings"), "diagnostico");
 	assert.equal(new URLSearchParams(location.search).get("x"), "1");
 });
 
@@ -70,7 +70,9 @@ test("openSettingsModal traduz ids antigos (composio, habilidades, provedores) p
 	openSettingsModal("ambientes");
 	assert.equal(new URLSearchParams(location.search).get("settings"), "computador");
 	openSettingsModal("jev");
-	assert.equal(new URLSearchParams(location.search).get("settings"), "avancado");
+	assert.equal(new URLSearchParams(location.search).get("settings"), "revisao");
+	openSettingsModal("avancado");
+	assert.equal(new URLSearchParams(location.search).get("settings"), "revisao");
 	openSettingsModal("nada-disso");
 	assert.equal(new URLSearchParams(location.search).get("settings"), "geral");
 });

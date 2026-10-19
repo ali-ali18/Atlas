@@ -6,7 +6,7 @@
  * Uma responsabilidade por seção: Conta, Geral (aparência, idioma, fuso),
  * Modelos e contexto, Provedores e chaves, Bots (autonomia, grupos,
  * reflexão, reação), Execução e limites, Notificações, Computador (navegador e ambientes de código),
- * Conexões, Habilidades, Uso e Avançado (sempre a última). As descrições de cada item só alimentam a busca.
+ * Conexões, Habilidades, Uso, Revisão automática e Diagnóstico (as últimas). As descrições de cada item só alimentam a busca.
  */
 
 export const SETTINGS_URL_PARAM = "settings";
@@ -24,7 +24,8 @@ export type SettingsSectionId =
 	| "habilidades"
 	| "uso"
 	| "execucao"
-	| "avancado";
+	| "revisao"
+	| "diagnostico";
 
 export type SettingsNavId = SettingsSectionId;
 
@@ -59,7 +60,8 @@ export const SETTINGS_NAV: readonly SettingsNavEntry[] = [
 	{ id: "habilidades", group: "ambiente", label: "Habilidades", keywords: ["skills", "procedimentos", "receitas", "instruções"] },
 	{ id: "uso", group: "controle", label: "Uso e custos", keywords: ["custo", "consumo", "tokens", "gastos", "cobrança"] },
 	{ id: "execucao", group: "controle", label: "Execução e limites", keywords: ["limites", "passos", "tempo", "custo máximo", "paciência", "disciplina", "execução"] },
-	{ id: "avancado", group: "controle", label: "Técnico", keywords: ["avançado", "técnico", "revisão", "jev", "diagnóstico", "versão", "saúde"] },
+	{ id: "revisao", group: "controle", label: "Revisão automática", keywords: ["revisão", "jev", "conectores", "escritas", "decisões auxiliares", "por recurso", "avançado", "técnico"] },
+	{ id: "diagnostico", group: "controle", label: "Diagnóstico", keywords: ["estado do servidor", "versão", "commit", "saúde", "redis", "postgres", "fila", "falhas", "erros", "sentry", "técnico", "avançado"] },
 ];
 
 /** Entradas de Conexões que fecham o modal e abrem outra tela. */
@@ -123,14 +125,14 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
 	{ id: "modelos.imagem", section: "modelos", label: "Modelo para gerar imagens", keywords: ["gerar", "criar imagem", "desenho", "modelos auxiliares"] },
 	{ id: "modelos.ditado", section: "modelos", label: "Modelo de ditado", keywords: ["voz", "ditar", "microfone", "transcrição", "áudio", "stt", "whisper", "modelos auxiliares"] },
 	{ id: "modelos.reserva", section: "modelos", label: "Modelos de reserva", keywords: ["fallback", "falha", "alternativo", "modelos auxiliares"] },
-	{ id: "jev.mcp", section: "avancado", label: "Revisão de escritas em conectores", keywords: ["jev", "revisão", "mcp", "escrita", "observar", "bloquear", "conectores"] },
-	{ id: "jev.geral", section: "avancado", label: "Decisões auxiliares", keywords: ["jev", "revisão", "geral", "todos", "observar", "ativo", "latência"] },
-	{ id: "jev.intencao", section: "avancado", label: "Entender o pedido", keywords: ["jev", "revisão", "intenção", "por recurso"] },
-	{ id: "jev.tools", section: "avancado", label: "Escolher ferramentas", keywords: ["jev", "revisão", "seleção de tools", "ferramentas", "por recurso"] },
-	{ id: "jev.verificacao", section: "avancado", label: "Conferir a resposta", keywords: ["jev", "revisão", "verificação", "resposta final", "por recurso"] },
-	{ id: "jev.bloqueio", section: "avancado", label: "Página de bloqueio", keywords: ["jev", "revisão", "captcha", "login", "bloqueada", "por recurso"] },
-	{ id: "jev.delegacao", section: "avancado", label: "Delegação", keywords: ["jev", "revisão", "subagente", "delegar", "por recurso"] },
-	{ id: "jev.travamento", section: "avancado", label: "Travamento", keywords: ["jev", "revisão", "travado", "círculos", "loop", "por recurso"] },
+	{ id: "jev.mcp", section: "revisao", label: "Revisão de escritas em conectores", keywords: ["jev", "revisão", "mcp", "escrita", "observar", "bloquear", "conectores"] },
+	{ id: "jev.geral", section: "revisao", label: "Decisões auxiliares", keywords: ["jev", "revisão", "geral", "todos", "observar", "ativo", "latência"] },
+	{ id: "jev.intencao", section: "revisao", label: "Entender o pedido", keywords: ["jev", "revisão", "intenção", "por recurso"] },
+	{ id: "jev.tools", section: "revisao", label: "Escolher ferramentas", keywords: ["jev", "revisão", "seleção de tools", "ferramentas", "por recurso"] },
+	{ id: "jev.verificacao", section: "revisao", label: "Conferir a resposta", keywords: ["jev", "revisão", "verificação", "resposta final", "por recurso"] },
+	{ id: "jev.bloqueio", section: "revisao", label: "Página de bloqueio", keywords: ["jev", "revisão", "captcha", "login", "bloqueada", "por recurso"] },
+	{ id: "jev.delegacao", section: "revisao", label: "Delegação", keywords: ["jev", "revisão", "subagente", "delegar", "por recurso"] },
+	{ id: "jev.travamento", section: "revisao", label: "Travamento", keywords: ["jev", "revisão", "travado", "círculos", "loop", "por recurso"] },
 	{ id: "execucao.disciplina", section: "execucao", label: "Disciplina de execução", keywords: ["execução", "progresso", "empacar", "estagnação", "lote", "agrupar"] },
 	{ id: "execucao.economia", section: "modelos", label: "Economia de contexto", keywords: ["execução", "contexto", "tokens", "ferramentas", "prompt", "cache", "adiar"] },
 	{ id: "execucao.memoria", section: "modelos", label: "Memória da conversa", keywords: ["execução", "contexto", "resumo", "resumir", "histórico", "conversa longa", "esquecer", "tokens", "custo", "padrão", "econômico", "janela", "cache"] },
@@ -139,7 +141,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
 	{ id: "execucao.resposta", section: "modelos", label: "Tamanho máximo da resposta", keywords: ["execução", "tokens", "saída", "limite", "cortar"] },
 	{ id: "execucao.passos", section: "execucao", label: "Limite de passos", keywords: ["execução", "passos", "ferramentas", "teto"] },
 	{ id: "execucao.tempo", section: "execucao", label: "Limite de tempo", keywords: ["execução", "duração", "minutos", "tempo máximo", "timeout", "run"] },
-	{ id: "avancado.diagnostico", section: "avancado", label: "Diagnóstico", keywords: ["diagnóstico", "versão", "commit", "saúde", "redis", "postgres", "fila", "worker", "falhas", "erros", "sentry", "chaves", "push"] },
+	{ id: "avancado.diagnostico", section: "diagnostico", label: "Diagnóstico", keywords: ["diagnóstico", "versão", "commit", "saúde", "redis", "postgres", "fila", "worker", "falhas", "erros", "sentry", "chaves", "push"] },
 	{ id: "execucao.custo", section: "execucao", label: "Custo máximo por execução", keywords: ["execução", "dólar", "orçamento", "gasto", "limite"] },
 ];
 
@@ -150,7 +152,10 @@ export const DEFAULT_SETTINGS_SECTION: SettingsSectionId = "geral";
  * `rotinas` não existe mais aqui: as rotinas moram no painel do bot.
  */
 const LEGACY_SECTION: Readonly<Record<string, SettingsSectionId>> = {
-	jev: "avancado",
+	jev: "revisao",
+	avancado: "revisao",
+	estado: "diagnostico",
+	saude: "diagnostico",
 	ambientes: "computador",
 	ambiente: "computador",
 	"ambientes-de-codigo": "computador",

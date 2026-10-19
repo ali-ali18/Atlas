@@ -378,16 +378,22 @@ export function ExecucaoPane({ account, isVisible }: { account: Account; isVisib
 	);
 }
 
-/** Técnico: revisão automática (JEV) e diagnóstico do servidor. Só para quem precisa mexer a fundo. */
-export function AvancadoPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
+/** Revisão automática (JEV): as duas revisões principais e, recolhido, o ajuste por recurso. */
+export function RevisaoPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
 	const quiet = quietAccount(account);
 	const jev = ["jev.mcp", "jev.geral", "jev.intencao", "jev.tools", "jev.verificacao", "jev.bloqueio", "jev.delegacao", "jev.travamento"];
 	return (
 		<SettingsStack>
 			<PaneStatus account={account} />
-			{anyVisible(isVisible, jev) ? (
-				<JevSettings account={quiet} isVisible={isVisible} showStatus={false} />
-			) : null}
+			{anyVisible(isVisible, jev) ? <JevSettings account={quiet} isVisible={isVisible} showStatus={false} /> : null}
+		</SettingsStack>
+	);
+}
+
+/** Diagnóstico: estado do servidor, só leitura. */
+export function DiagnosticoPane({ isVisible }: { isVisible: (itemId: string) => boolean }) {
+	return (
+		<SettingsStack>
 			<DiagnosticsSettings isVisible={isVisible} />
 		</SettingsStack>
 	);
@@ -430,7 +436,9 @@ export function SectionContent({
 			return <HabilidadesPane isVisible={isVisible} />;
 		case "uso":
 			return <UsoPane />;
-		case "avancado":
-			return <AvancadoPane account={account} isVisible={isVisible} />;
+		case "revisao":
+			return <RevisaoPane account={account} isVisible={isVisible} />;
+		case "diagnostico":
+			return <DiagnosticoPane isVisible={isVisible} />;
 	}
 }

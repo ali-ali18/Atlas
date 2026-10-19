@@ -13,7 +13,8 @@ export function webCommitShort(commit: string | undefined = process.env.NEXT_PUB
 }
 
 export function checkLabel(check: DiagnosticsCheck): string {
-  if (check.ok) return check.ms === null ? "ok" : `ok · ${check.ms} ms`
+  // Sem latência (null, undefined ou inválida) mostra só "ok": nunca "undefined ms".
+  if (check.ok) return typeof check.ms === "number" && Number.isFinite(check.ms) ? `ok · ${check.ms} ms` : "ok"
   return check.error ? `fora · ${check.error}` : "fora"
 }
 
