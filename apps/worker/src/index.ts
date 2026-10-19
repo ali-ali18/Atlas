@@ -15,6 +15,10 @@ import {
 	type ExecuteRoutineJobPayload,
 	type ExecuteRoutineJobResult,
 	type AttachmentExtractJobPayload,
+	type ConnectorGuideJobPayload,
+	type ConnectorGuideJobResult,
+	type ConnectorLessonJobPayload,
+	type ConnectorLessonJobResult,
 	type AttachmentExtractJobResult,
 	type MemoryReviewJobPayload,
 	type MemoryReviewJobResult,
@@ -72,6 +76,7 @@ import { warmAttachmentExtract } from "./attachments.js";
 import { processChatCompletionJob } from "./processors/chat-completion.js";
 import { processMemoryReview } from "./processors/memory-review.js";
 import { processSummaryJob } from "./processors/summary.js";
+import { processConnectorGuideJob, processConnectorLessonJob } from "./processors/connector-guide.js";
 import { chainRunFollowUp, finalizeExhaustedAgentRun, processAgentRunJob } from "./processors/agent-run.js";
 import { processExecuteRoutineJob } from "./processors/routine.js";
 import { reportRoutineFailure, type RoutineFailureDeps } from "./processors/routine-failure.js";
@@ -117,12 +122,16 @@ type AtlasJobPayload =
 	| ChatCompletionJobPayload
 	| MemoryReviewJobPayload
 	| SummaryJobPayload
-	| AttachmentExtractJobPayload;
+	| AttachmentExtractJobPayload
+	| ConnectorGuideJobPayload
+	| ConnectorLessonJobPayload;
 type AtlasJobResult =
 	| ChatCompletionJobResult
 	| MemoryReviewJobResult
 	| SummaryJobResult
-	| AttachmentExtractJobResult;
+	| AttachmentExtractJobResult
+	| ConnectorGuideJobResult
+	| ConnectorLessonJobResult;
 
 const chatWorker = new Worker<AtlasJobPayload, AtlasJobResult>(
 	CHAT_QUEUE_NAME,
@@ -143,6 +152,10 @@ const chatWorker = new Worker<AtlasJobPayload, AtlasJobResult>(
 					job as Job<SummaryJobPayload, SummaryJobResult>,
 					config,
 				);
+			case ATLAS_JOB_NAMES.connectorGuide:
+				return processConnectorGuideJob(job as Job<ConnectorGuideJobPayload, ConnectorGuideJobResult>, config);
+			case ATLAS_JOB_NAMES.connectorLesson:
+				return processConnectorLessonJob(job as Job<ConnectorLessonJobPayload, ConnectorLessonJobResult>, config);
 			case ATLAS_JOB_NAMES.attachmentExtract: {
 				const payload = (job as Job<AttachmentExtractJobPayload, AttachmentExtractJobResult>).data;
 				return { status: await warmAttachmentExtract(payload) };
@@ -239,6 +252,12 @@ const agentWorker = new Worker<AgentRunJobPayload, AgentRunJobResult>(
 			enqueueMemoryReview: async (payload) => {
 				await chatQueue.add(ATLAS_JOB_NAMES.memoryReview, payload, {
 					jobId: `memory-review-${job.data.runId}-${Date.now()}`,
+				});
+			},
+			enqueueConnectorLesson: async (payload) => {
+				await chatQueue.add(ATLAS_JOB_NAMES.connectorLesson, payload, {
+					jobId: `connector-lesson-${payload.kind}-${payload.connectionId}-${job.data.runId}`,
+					attempts: 1,
 				});
 			},
 			enqueueNextRun: enqueueChainedRun,

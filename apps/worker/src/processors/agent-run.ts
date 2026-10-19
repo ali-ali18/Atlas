@@ -1,5 +1,6 @@
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
+import type { ConnectorLessonJobPayload } from "@workspace/shared";
 import { parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef } from "@workspace/shared";
 import {
 	ATLAS_JOB_NAMES,
@@ -164,6 +165,8 @@ export type AgentRunProcessorDeps = {
 	/** Notificação push (ausente = sem chaves VAPID). Ver `createNotifier` em @workspace/db. */
 	notify?: Notify;
 	enqueueMemoryReview?: (payload: MemoryReviewJobPayload) => Promise<void>;
+	/** Lição de conector (falha → sucesso no run): vira job que guarda uma sugestão pendente. */
+	enqueueConnectorLesson?: (payload: ConnectorLessonJobPayload) => Promise<void>;
 	enqueueNextRun?: (runId: string) => Promise<boolean>;
 	extendLock?: () => Promise<void>;
 	/** Shutdown do worker: aborta o run em andamento com checkpoint (ver `WorkerShuttingDownError`). */
@@ -795,6 +798,9 @@ async function executeLeasedRun(ctx: {
 			manager,
 			mcp,
 			apiConnector,
+			...(deps.enqueueConnectorLesson
+				? { onConnectorLesson: (lesson: { kind: "mcp" | "api"; connectionId: string; failed: ConnectorLessonJobPayload["failed"]; succeeded: ConnectorLessonJobPayload["succeeded"] }) => deps.enqueueConnectorLesson!({ ...lesson, userId: runUserId }) }
+				: {}),
 			email: emailContext,
 			// `@App` do usuário neste turno: as tools desses conectores já entram no 1º passo.
 			forcedConnectors: forcedConnectors.length > 0 ? forcedConnectors : undefined,

@@ -128,7 +128,7 @@ export function visionFallbackFromSnapshot(snapshot: RunConfigSnapshot): string 
 	return snapshot.visionModel ? resolveMaintenanceModel(snapshot.visionModel, "openai/gpt-4o-mini") : undefined;
 }
 
-type MaintenanceKind = "summary" | "memory-review" | "reflection";
+type MaintenanceKind = "summary" | "memory-review" | "reflection" | "connector-guide";
 
 /**
  * Modelo de manutenção por job: o do usuário dono (se escolheu) > o que o worker

@@ -7,6 +7,10 @@ import {
 	type AttachmentExtractJobPayload,
 	type AttachmentExtractJobResult,
 	type ChatCompletionJobPayload,
+	type ConnectorGuideJobPayload,
+	type ConnectorGuideJobResult,
+	type ConnectorLessonJobPayload,
+	type ConnectorLessonJobResult,
 	type ChatCompletionJobResult,
 	type MemoryReviewJobPayload,
 	type MemoryReviewJobResult,
@@ -17,24 +21,28 @@ import {
 export const CHAT_QUEUE_NAME = ATLAS_QUEUE_NAMES.chat;
 
 export type ChatCompletionQueue = Queue<
-	ChatCompletionJobPayload | MemoryReviewJobPayload | SummaryJobPayload | AttachmentExtractJobPayload,
-	ChatCompletionJobResult | MemoryReviewJobResult | SummaryJobResult | AttachmentExtractJobResult,
+	ChatCompletionJobPayload | MemoryReviewJobPayload | SummaryJobPayload | AttachmentExtractJobPayload | ConnectorGuideJobPayload | ConnectorLessonJobPayload,
+	ChatCompletionJobResult | MemoryReviewJobResult | SummaryJobResult | AttachmentExtractJobResult | ConnectorGuideJobResult | ConnectorLessonJobResult,
 	| typeof ATLAS_JOB_NAMES.chatCompletion
 	| typeof ATLAS_JOB_NAMES.memoryReview
 	| typeof ATLAS_JOB_NAMES.summaryWrite
 	| typeof ATLAS_JOB_NAMES.attachmentExtract
+	| typeof ATLAS_JOB_NAMES.connectorGuide
+	| typeof ATLAS_JOB_NAMES.connectorLesson
 >;
 
 export function createChatCompletionQueue(
 	connection: Redis,
 ): ChatCompletionQueue {
 	return propagateRequestId(new Queue<
-		ChatCompletionJobPayload | MemoryReviewJobPayload | SummaryJobPayload | AttachmentExtractJobPayload,
-		ChatCompletionJobResult | MemoryReviewJobResult | SummaryJobResult | AttachmentExtractJobResult,
+		ChatCompletionJobPayload | MemoryReviewJobPayload | SummaryJobPayload | AttachmentExtractJobPayload | ConnectorGuideJobPayload | ConnectorLessonJobPayload,
+		ChatCompletionJobResult | MemoryReviewJobResult | SummaryJobResult | AttachmentExtractJobResult | ConnectorGuideJobResult | ConnectorLessonJobResult,
 		| typeof ATLAS_JOB_NAMES.chatCompletion
 		| typeof ATLAS_JOB_NAMES.memoryReview
 		| typeof ATLAS_JOB_NAMES.summaryWrite
 	| typeof ATLAS_JOB_NAMES.attachmentExtract
+	| typeof ATLAS_JOB_NAMES.connectorGuide
+	| typeof ATLAS_JOB_NAMES.connectorLesson
 	>(CHAT_QUEUE_NAME, {
 		connection,
 		defaultJobOptions: {

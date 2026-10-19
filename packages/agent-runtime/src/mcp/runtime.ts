@@ -1,6 +1,6 @@
 import { createConnectorReadCache } from "./read-cache.js";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
-import { COMPOSIO_CATALOG_ID, isReadOnlyMcpTool, decideAction, getMcpCatalogEntry, isBuiltinMcpUrl, isComposioMetaTool, mcpAutonomyMeta, mcpToolName, type EffectiveAutonomy } from "@workspace/shared";
+import { connectorAccountName, COMPOSIO_CATALOG_ID, isReadOnlyMcpTool, decideAction, getMcpCatalogEntry, isBuiltinMcpUrl, isComposioMetaTool, mcpAutonomyMeta, mcpToolName, type EffectiveAutonomy } from "@workspace/shared";
 import {
 	getMcpConnection,
 	getStrictMcpConnection,
@@ -39,6 +39,8 @@ import {
 
 export type McpRuntime = {
 	toolset: McpToolset;
+	/** Guia de uso por conexão (id → nome e texto; DADO não confiável, injetado sob demanda no run). */
+	guides?: ReadonlyMap<string, { name: string; text: string | null }>;
 	call: (
 		exposedName: string,
 		args: Record<string, unknown>,
@@ -216,8 +218,10 @@ export async function loadMcpRuntime(
 	const vault = options.userId
 		? createSecretSession({ userId: options.userId, by: () => ({ actor: "bot", botId: options.botId, botName: options.botName, conversationId: options.conversationId }) })
 		: null;
+	const guides = new Map(records.map((record) => [record.id, { name: connectorAccountName(record.name, record.accountLabel), text: record.guide?.text ?? null }] as const));
 	return {
 		toolset,
+		guides,
 		call: async (exposedName, args, signal, callOptions) => {
 			const entry = toolset.entries.get(exposedName);
 			const record = entry ? byId.get(entry.connectionId) : undefined;

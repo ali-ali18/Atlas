@@ -226,7 +226,7 @@ export function ConexoesPane({
 	return (
 		<SettingsStack>
 			{isVisible("github.app") ? <GithubAppSettings /> : null}
-			{anyVisible(isVisible, ["conectores.marketplace", "conectores.mcp"]) ? (
+			{anyVisible(isVisible, ["conectores.marketplace", "conectores.mcp", "conectores.guia"]) ? (
 				<SettingsGroup title="Conectores">
 					{isVisible("conectores.marketplace") ? (
 						<OpenRow
@@ -244,6 +244,15 @@ export function ConexoesPane({
 							description="Conecte um servidor MCP seu, por URL."
 							label="MCP personalizado"
 							onOpen={() => onShortcut("mcp")}
+						/>
+					) : null}
+					{isVisible("conectores.guia") ? (
+						<OpenRow
+							action="Abrir"
+							icon={StoreIcon}
+							description="Abra um conector conectado para ver, editar ou gerar de novo o guia de uso do bot."
+							label="Guia de uso do conector"
+							onOpen={() => onShortcut("conectores")}
 						/>
 					) : null}
 				</SettingsGroup>

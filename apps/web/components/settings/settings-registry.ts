@@ -102,6 +102,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
 	{ id: "github.app", section: "conexoes", label: "GitHub", keywords: ["github app", "app do github", "instalar", "repositórios", "webhook", "criar app", "código", "pull request", "push"] },
 	{ id: "conectores.marketplace", section: "conexoes", label: "Conectores", keywords: ["marketplace", "integrações", "apps", "plugins", "github", "slack"] },
 	{ id: "conectores.mcp", section: "conexoes", label: "MCP personalizado", keywords: ["mcp", "servidor", "conector", "personalizado", "custom"] },
+	{ id: "conectores.guia", section: "conexoes", label: "Guia de uso do conector", keywords: ["guia", "instruções", "como usar", "conector", "mcp", "api", "sugestão do bot", "gerar de novo", "editar guia"] },
 	{ id: "composio.chave", section: "conexoes", label: "Chave do Composio", keywords: ["api key", "token", "remover", "salvar", "composio", "byo"] },
 	{ id: "composio.apps", section: "conexoes", label: "Apps do Composio", keywords: ["conectar", "desconectar", "buscar", "toolkit", "trello", "linear", "hubspot", "composio"] },
 

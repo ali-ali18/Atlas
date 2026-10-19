@@ -52,6 +52,7 @@ import {
 	secretValues,
 } from "@workspace/agent-runtime";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
+import { scheduleConnectorGuide } from "../connector-guide-queue.js";
 import { completeApiOAuthCallback, defaultApiConnectionRouteDeps, type ApiConnectionRouteDeps, type ApiOAuthCallbackOutcome } from "./api-connections.js";
 
 const SECRET_BOX_ERROR = "Defina CONNECTOR_ENCRYPTION_KEY no .env da API e do worker";
@@ -358,6 +359,7 @@ async function beginOAuth(record: McpConnectionRecord, client: McpOAuthClient, u
 		const connection = await updateMcpConnection(pending.id, {
 			status: "connected", oauthStateHash: null, tools, lastError: null,
 		}, userId);
+		if (connection) scheduleConnectorGuide("mcp", connection, userId);
 		return connection ? { ok: true, connection } : { ok: false, status: 404, error: "Conexão não encontrada" };
 	} catch (error) {
 		const message = sanitizeErrorMessage(error, secretValues(secrets));
@@ -520,6 +522,7 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 					})();
 				if (!connection) return c.json({ error: "Conexão não encontrada" }, 404);
 				notifyConnected(userId, connection.catalogId);
+				scheduleConnectorGuide("mcp", connection, userId);
 				return c.json({ connection: toMcpConnectionView(connection) }, 201);
 			} catch {
 				return c.json({ error: "Não foi possível salvar o conector" }, 503);
@@ -561,6 +564,7 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 			});
 			const connection = await updateMcpConnection(created.id, { tools, lastError: null }, userId);
 			if (!connection) return c.json({ error: "Conexão não encontrada" }, 404);
+			scheduleConnectorGuide("mcp", connection, userId);
 			return c.json({ connection: toMcpConnectionView(connection) }, 201);
 		} catch {
 			return c.json({ error: "Não foi possível salvar o conector" }, 503);
@@ -665,6 +669,7 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 			const connection = await updateMcpConnection(connectionId, { status: "connected", tools, lastError: null, ...(identity ? { accountLabel: identity } : {}) }, userId);
 			if (!connection) return page({ ok: false, connectorName, error: "Conexão não encontrada" });
 			notifyConnected(userId, connection.catalogId);
+			scheduleConnectorGuide("mcp", connection, userId);
 			return page({ ok: true, connectionId, connectorName, toolCount: tools.length });
 		} catch (error) {
 			return fail(sanitizeErrorMessage(error, secretList()));
@@ -700,7 +705,7 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 				);
 				const connection = await updateMcpConnection(existing.id, { status: "connected", tools, lastError: null }, userId);
 				if (!connection) return c.json({ error: "Conexão não encontrada" }, 404);
-				if (connection.status === "connected") notifyConnected(userId, connection.catalogId);
+				if (connection.status === "connected") { notifyConnected(userId, connection.catalogId); scheduleConnectorGuide("mcp", connection, userId); }
 				return c.json({ connection: toMcpConnectionView(connection) });
 			} catch (error) {
 				const message = sanitizeErrorMessage(error, secretList);

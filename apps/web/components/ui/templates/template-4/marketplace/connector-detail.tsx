@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
 import { ConfirmAlert } from "@workspace/ui/components/confirm-alert";
 import { Switch } from "@workspace/ui/components/switch";
+import { ConnectorGuide } from "./connector-guide";
 import { mcpToolGuide, ToolGuide } from "./tool-guide";
 import {
 	deleteMcpConnection,
@@ -105,6 +106,7 @@ export function ConnectorDetail({
 					Gerenciar em Autonomia
 				</Button>
 			</div>
+			{connection.status === "connected" ? <ConnectorGuide connectionId={connection.id} guide={connection.guide} kind="mcp" /> : null}
 			<section className="space-y-2">
 				<h3 className="text-sm font-medium">Tools</h3>
 				{connection.tools.length === 0 ? (

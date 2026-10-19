@@ -713,6 +713,7 @@ export * from "./composio.js";
 export * from "./login-connector.js";
 export * from "./api-connector.js";
 export * from "./api-proposal.js";
+export * from "./connector-guide.js";
 export { isCreditsExhaustedText, isProviderExhaustedStatus, isProviderExhaustedText } from "./provider-exhausted.js";
 export {
 	DELIVERY_COALESCE_WINDOW_MS,

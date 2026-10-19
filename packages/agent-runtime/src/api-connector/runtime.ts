@@ -57,7 +57,9 @@ export type ApiConnectorDeps = SafeHttpDeps &
 
 export type ApiConnectorRuntime = {
 	/** Conexões ativas do dono (nome, slug, domínio). */
-	connections: ReadonlyArray<{ id: string; name: string; slug: string; domain: string; accountLabel?: string | null }>;
+	connections: ReadonlyArray<{ id: string; name: string; slug: string; domain: string; accountLabel?: string | null; guide?: string | null }>;
+	/** Conexão e guia (dado não confiável) da chamada, sem erro se a escolha for ambígua. */
+	guideFor?(args: Record<string, unknown>): { id: string; name: string; text: string | null } | null;
 	search(args: Record<string, unknown>): Promise<string>;
 	call(args: Record<string, unknown>, options?: { signal?: AbortSignal }): Promise<string>;
 };
@@ -108,7 +110,15 @@ export function createApiConnectorRuntime(userId: string, records: readonly ApiC
 	const clock = deps.clock ?? realClock;
 	const cache = deps.cache ?? sharedApiReadCache;
 	const now = deps.now ?? clock.now;
-	const connections = records.map((record) => ({ id: record.id, name: record.name, slug: record.slug, domain: record.domain, accountLabel: record.accountLabel }));
+	const connections = records.map((record) => ({ id: record.id, name: record.name, slug: record.slug, domain: record.domain, accountLabel: record.accountLabel, guide: record.guide?.text ?? null }));
+	const guideFor = (args: Record<string, unknown>) => {
+		try {
+			const picked = pickConnection(connections, args.connection);
+			return { id: picked.id, name: connectorAccountName(picked.name, picked.accountLabel), text: picked.guide ?? null };
+		} catch {
+			return null;
+		}
+	};
 
 	async function loadAllowed(wanted: unknown): Promise<{ connection: ApiConnectionWithCatalog; operations: ApiOperation[] }> {
 		const picked = pickConnection(connections, wanted);
@@ -259,7 +269,7 @@ export function createApiConnectorRuntime(userId: string, records: readonly ApiC
 		await store.update(connection.id, userId, { status: "pending_auth", lastError: message }).catch(() => undefined);
 	}
 
-	return { connections, search, call };
+	return { connections, guideFor, search, call };
 }
 
 /** Carrega as conexões ativas do dono; `null` quando não há nenhuma (as tools nem aparecem). */

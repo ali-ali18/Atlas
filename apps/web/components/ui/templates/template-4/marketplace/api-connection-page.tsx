@@ -1,5 +1,6 @@
 "use client"
 
+import { ConnectorGuide } from "./connector-guide"
 import { useEffect, useMemo, useState } from "react"
 import { ChevronRightIcon, SearchIcon } from "lucide-react"
 import { API_AUTH_LABEL, type ApiConnectionView, type ApiOperation } from "@workspace/shared"
@@ -205,6 +206,8 @@ export function ApiConnectionPage({
           </div>
         </dl>
       </section>
+
+      {connected ? <ConnectorGuide connectionId={item.id} guide={item.guide} kind="api" /> : null}
 
       <section className="space-y-3">
         <div className="flex min-h-7 flex-wrap items-center justify-between gap-x-3 gap-y-2">

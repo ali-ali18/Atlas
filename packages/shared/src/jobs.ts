@@ -9,6 +9,8 @@ export const ATLAS_JOB_NAMES = {
 	executeRoutine: "execute-routine",
 	embedMemory: "embed-memory",
 	learnSkill: "skill.learn",
+	connectorGuide: "connector.guide",
+	connectorLesson: "connector.lesson",
 	attachmentExtract: "attachment.extract",
 } as const;
 
