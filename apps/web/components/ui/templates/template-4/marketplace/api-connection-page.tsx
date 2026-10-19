@@ -207,8 +207,6 @@ export function ApiConnectionPage({
         </dl>
       </section>
 
-      {connected ? <ConnectorGuide connectionId={item.id} guide={item.guide} kind="api" /> : null}
-
       <section className="space-y-3">
         <div className="flex min-h-7 flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <h3 className="text-sm font-semibold">
@@ -332,6 +330,7 @@ export function ApiConnectionPage({
         )}
         <p className="m-0 text-xs text-muted-foreground">Ações de escrita chegam em breve.</p>
       </section>
+      {connected ? <ConnectorGuide connectionId={item.id} guide={item.guide} kind="api" /> : null}
       <ToolGuide guide={guide ? apiOperationGuide(guide) : null} onClose={() => setGuide(null)} />
     </div>
   )

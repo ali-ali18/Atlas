@@ -81,12 +81,12 @@ for (const theme of ["light", "dark"] as const) {
       await page.getByRole("tablist", { name: "Seções do marketplace" }).waitFor()
       await page.getByRole("button", { name: /Ver detalhes de Notion/ }).first().click()
       await page.getByRole("region", { name: "Guia de uso" }).waitFor()
-      await shot(page, "01-recolhido-com-sugestao")
+      await shot(page, "01-fechado")
       const overflow = () => page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)
-      if (await overflow()) throw new Error("rolagem horizontal (guia recolhido)")
-
-      await page.getByRole("button", { name: "Ver tudo" }).click()
-      await shot(page, "02-expandido")
+      if (await overflow()) throw new Error("rolagem horizontal (guia fechado)")
+      await page.getByRole("button", { name: /Guia de uso/ }).click()
+      await page.getByRole("button", { name: "Editar" }).waitFor()
+      await shot(page, "02-aberto-com-sugestao")
 
       await page.getByRole("button", { name: "Editar" }).click()
       await page.getByLabel("Texto do guia").fill(`${GUIDE_TEXT}\n- Nunca invente ids.`)

@@ -106,7 +106,6 @@ export function ConnectorDetail({
 					Gerenciar em Autonomia
 				</Button>
 			</div>
-			{connection.status === "connected" ? <ConnectorGuide connectionId={connection.id} guide={connection.guide} kind="mcp" /> : null}
 			<section className="space-y-2">
 				<h3 className="text-sm font-medium">Tools</h3>
 				{connection.tools.length === 0 ? (
@@ -148,6 +147,7 @@ export function ConnectorDetail({
 					</div>
 				)}
 			</section>
+			{connection.status === "connected" ? <ConnectorGuide connectionId={connection.id} guide={connection.guide} kind="mcp" /> : null}
 			<ToolGuide guide={guideTool ? mcpToolGuide(guideTool) : null} onClose={() => setGuideTool(null)} />
 			{confirmDelete ? (
 				<ConfirmAlert
