@@ -4,8 +4,8 @@
  * não o id interno. Sem a dica o modelo conclui que a função não existe.
  */
 
-const NOT_FOUND = /\b404\b|not found|does not exist/i;
-const ID_NAME = /^id$|_id$|[a-z]Id$/;
+const NOT_FOUND = /\b404\b|not[ _]found|does not exist|n[aã]o (foi )?encontrad|no encontrad|inexistente/i;
+const ID_NAME = /^id$|_id$|[a-z]Id$|^id[A-Z_]/;
 const ID_DESCRIPTION = /\bids?\b|not the same as/i;
 const SMALL_INT_LIMIT = 1_000_000;
 

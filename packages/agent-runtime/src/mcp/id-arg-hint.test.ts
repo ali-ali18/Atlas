@@ -22,6 +22,16 @@ describe("idArgNotFoundHint", () => {
 		expect(hint).toContain('"ref"');
 	});
 
+	it("erro em português e parâmetro idRecurso também geram dica", () => {
+		const hint = idArgNotFoundHint("Pedido não encontrado(a)", { idPedidoVenda: 3397 }, { properties: { idPedidoVenda: { type: "integer" } } });
+		expect(hint).toContain('"idPedidoVenda"');
+		expect(idArgNotFoundHint("RESOURCE_NOT_FOUND", { idContato: 12 }, {})).toContain('"idContato"');
+	});
+
+	it("nome que só começa com \"id\" sem ser id não gera dica", () => {
+		expect(idArgNotFoundHint("não encontrado", { idade: 30 }, {})).toBeNull();
+	});
+
 	it("404 genérico sem id suspeito não gera dica", () => {
 		expect(idArgNotFoundHint("404 Not Found", { issue_number: 12, query: "x" }, schema)).toBeNull();
 	});
@@ -34,6 +44,6 @@ describe("idArgNotFoundHint", () => {
 
 describe("regra de ids no prompt de conectores", () => {
 	it("pede o id do resultado anterior, não o número exibido", () => {
-		expect(CONNECTOR_ARGS_GUIDANCE).toContain("Ids vs numbers: for a parameter named *_id, use the resource's id from a previous result, not its display number or name.");
+		expect(CONNECTOR_ARGS_GUIDANCE).toContain("Ids vs numbers: for an id parameter (id, *_id, idSomething), use the resource's id field from a previous list or search result, never its display number (order or invoice number) or name.");
 	});
 });
