@@ -219,7 +219,7 @@ export async function executeConfirmedMailboxCreate(
 	const name = await deps.getBotName(input.botId, input.userId);
 	if (!name) return { ok: false, detail: "bot não encontrado", text: "Bot não encontrado.", followUp: "O bot não foi encontrado; nada foi criado." };
 	try {
-		const mailbox = await deps.service.enableForBot({ userId: input.userId, botId: input.botId, botName: name, mailboxName: create.mailboxName });
+		const mailbox = await deps.service.enableForBot({ userId: input.userId, botId: input.botId, botName: name, mailboxName: create.mailboxName, ...(create.domain ? { domain: create.domain } : {}) });
 		return {
 			ok: true,
 			detail: `Criado: ${mailbox.address}`,

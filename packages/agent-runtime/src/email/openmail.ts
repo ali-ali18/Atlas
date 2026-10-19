@@ -5,6 +5,7 @@ import {
 	type EmailCredentials,
 	type EmailProvider,
 	type ParsedInboundEmail,
+	type ProviderDomain,
 	type ProviderInbox,
 	type ProviderMessage,
 	type ProviderSendResult,
@@ -18,6 +19,10 @@ import {
  *  - Auth: `Authorization: Bearer <chave>`. Chaves `om_…` de conta alcançam tudo.
  *  - `POST /v1/inboxes` { mailboxName (3-30), displayName, webhookUrl } → { id, address, webhookSecret }.
  *    O `webhookSecret` só vem na criação, ao definir o webhook pela primeira vez e na rotação.
+ *  - Domínios próprios (plano Pro): `POST /v1/domains` {domain}, `GET /v1/domains` {data,total}, `GET /v1/domains/{id}`,
+ *    `POST /v1/domains/{id}/verify`, `DELETE /v1/domains/{id}`. Domain = { id, domain, status (pending|verifying|verified|failed|under_review),
+ *    records[{ type TXT|CNAME|MX, name, value, priority, purpose, status missing|invalid|valid }] }. `POST /v1/inboxes` aceita `domain` (verificado).
+ *    Erros: 403 plan_limit, 409 domain_exists/domain_taken, 422 invalid_domain/domain_has_inboxes/domain_blocked.
  *  - `POST /v1/inboxes/{id}/send` { to, subject, body, bodyHtml?, threadId? } + `Idempotency-Key`.
  *  - `GET /v1/inboxes/{id}/messages?direction=&limit=`; `GET /v1/threads/{id}/messages`.
  *  - Webhook `message.received`: POST JSON { event, event_id, occurred_at, inbox_id, thread_id,
@@ -80,6 +85,43 @@ export function suggestMailboxName(hint: string): string {
 	return name.length >= 3 ? name.slice(0, 30) : `bot-${suffix}`;
 }
 
+function mapDomainError(status: number, text: string): void {
+	let code = "";
+	try {
+		code = str(rec(JSON.parse(text)).error);
+	} catch {
+		// Corpo sem JSON: cai nos mapeamentos por status.
+	}
+	if (code === "plan_limit") throw new EmailProviderError("plan_required", "Domínio próprio exige um plano pago do OpenMail.", status);
+	if (code === "spend_cap_paused") throw new EmailProviderError("invalid_request", "O limite de gasto mensal do OpenMail foi atingido.", status);
+	if (code === "domain_exists" || code === "domain_taken" || code === "identity_exists") throw new EmailProviderError("domain_exists", "Esse domínio já está cadastrado.", status);
+	if (code === "domain_has_inboxes") throw new EmailProviderError("domain_in_use", "Esse domínio ainda tem caixas. Apague as caixas antes.", status);
+	if (code === "invalid_domain" || code === "domain_blocked") throw new EmailProviderError("invalid_domain", "Domínio inválido ou não permitido.", status);
+}
+
+const DOMAIN_STATUSES: readonly string[] = ["pending", "verifying", "verified", "failed", "under_review"];
+
+function toProviderDomain(raw: unknown): ProviderDomain {
+	const d = rec(raw);
+	const status = str(d.status);
+	return {
+		id: str(d.id),
+		domain: str(d.domain).toLowerCase(),
+		status: (DOMAIN_STATUSES.includes(status) ? status : "pending") as ProviderDomain["status"],
+		records: (Array.isArray(d.records) ? d.records : []).map((item) => {
+			const r = rec(item);
+			const type = str(r.type).toUpperCase();
+			return {
+				type: (type === "MX" || type === "CNAME" ? type : "TXT") as "TXT" | "CNAME" | "MX",
+				name: str(r.name),
+				value: str(r.value),
+				priority: typeof r.priority === "number" ? r.priority : null,
+				valid: r.status === "valid",
+			};
+		}),
+	};
+}
+
 function toProviderMessage(raw: unknown): ProviderMessage {
 	const m = rec(raw);
 	return {
@@ -107,7 +149,7 @@ export function createOpenMailProvider(deps: OpenMailDeps = {}): EmailProvider {
 	const baseUrl = (deps.baseUrl ?? OPENMAIL_BASE_URL).replace(/\/$/, "");
 	const fetchFn: FetchFn = deps.fetchFn ?? ((input, init) => fetch(input, init));
 
-	async function call(credentials: EmailCredentials, method: string, path: string, options: { body?: unknown; headers?: Record<string, string> } = {}): Promise<unknown> {
+	async function call(credentials: EmailCredentials, method: string, path: string, options: { body?: unknown; headers?: Record<string, string>; domainErrors?: boolean } = {}): Promise<unknown> {
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), deps.timeoutMs ?? REQUEST_TIMEOUT_MS);
 		try {
@@ -125,6 +167,7 @@ export function createOpenMailProvider(deps: OpenMailDeps = {}): EmailProvider {
 			const text = await response.text();
 			if (!response.ok) {
 				// Mensagens fixas: nada do upstream (nem a chave) sobe para o chat ou a UI.
+				if (options.domainErrors) mapDomainError(response.status, text);
 				if (response.status === 401 || response.status === 403) throw new EmailProviderError("auth_failed", "OpenMail recusou a chave. Confira a chave em Configurações.", response.status);
 				if (response.status === 404) throw new EmailProviderError("not_found", "Recurso não encontrado no OpenMail.", 404);
 				if (response.status === 429) throw new EmailProviderError("rate_limited", "OpenMail limitou o uso agora. Tente de novo em instantes.", 429);
@@ -148,10 +191,34 @@ export function createOpenMailProvider(deps: OpenMailDeps = {}): EmailProvider {
 	return {
 		id: "openmail",
 
+		domains: {
+			async list(credentials) {
+				const result = rec(await call(credentials, "GET", "/v1/domains?limit=100", { domainErrors: true }));
+				return (Array.isArray(result.data) ? result.data : []).map(toProviderDomain).filter((d) => d.id && d.domain);
+			},
+			async add(credentials, domain) {
+				const result = toProviderDomain(await call(credentials, "POST", "/v1/domains", { body: { domain }, domainErrors: true }));
+				if (!result.id) throw new EmailProviderError("upstream_error", "OpenMail não devolveu o domínio.");
+				return result;
+			},
+			async verify(credentials, domainId) {
+				const id = encodeURIComponent(domainId);
+				await call(credentials, "POST", `/v1/domains/${id}/verify`, { domainErrors: true });
+				// O GET traz o estado e os registros completos depois do re-check.
+				const result = toProviderDomain(await call(credentials, "GET", `/v1/domains/${id}`, { domainErrors: true }));
+				if (!result.id) throw new EmailProviderError("upstream_error", "OpenMail não devolveu o domínio.");
+				return result;
+			},
+			async remove(credentials, domainId) {
+				await call(credentials, "DELETE", `/v1/domains/${encodeURIComponent(domainId)}`, { domainErrors: true });
+			},
+		},
+
 		async createInbox(credentials, input): Promise<ProviderInbox> {
 			const result = rec(
 				await call(credentials, "POST", "/v1/inboxes", {
-					body: { mailboxName: input.mailboxName ?? suggestMailboxName(input.nameHint), displayName: oneLineHeader(input.displayName, 200), webhookUrl: input.webhookUrl },
+					body: { mailboxName: input.mailboxName ?? suggestMailboxName(input.nameHint), displayName: oneLineHeader(input.displayName, 200), webhookUrl: input.webhookUrl, ...(input.domain ? { domain: input.domain } : {}) },
+					domainErrors: Boolean(input.domain),
 				}),
 			);
 			const inboxId = str(result.id);

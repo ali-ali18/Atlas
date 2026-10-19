@@ -22,7 +22,7 @@ import {
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 
 export type EmailRouteDeps = {
-	service: Pick<EmailService, "accountStatus" | "saveAccountKey" | "removeAccountKey" | "enableForBot" | "disableForBot" | "vaultReady">;
+	service: Pick<EmailService, "accountStatus" | "saveAccountKey" | "removeAccountKey" | "enableForBot" | "disableForBot" | "vaultReady" | "listDomains" | "addDomain" | "verifyDomain" | "removeDomain">;
 	getBotName: (botId: string, userId: string) => Promise<string | null>;
 	getMailbox: (botId: string, userId: string) => Promise<BotMailboxRecord | null>;
 	updateMailbox: typeof updateMailboxSettings;
@@ -39,7 +39,9 @@ const defaultDeps: EmailRouteDeps = {
 	listMessages: listEmailMessages,
 };
 
-const STATUS_BY_CODE: Record<EmailServiceError["code"], 400 | 404 | 409 | 422 | 502 | 503> = {
+type FailureStatus = 400 | 402 | 404 | 409 | 422 | 502 | 503;
+
+const STATUS_BY_CODE: Record<EmailServiceError["code"], FailureStatus> = {
 	not_configured: 409,
 	vault_unavailable: 503,
 	invalid_key: 400,
@@ -52,9 +54,14 @@ const STATUS_BY_CODE: Record<EmailServiceError["code"], 400 | 404 | 409 | 422 | 
 	bad_content: 400,
 	no_thread: 404,
 	provider: 502,
+	domains_unsupported: 409,
+	plan_required: 402,
+	domain_exists: 409,
+	invalid_domain: 422,
+	domain_in_use: 409,
 };
 
-function failure(error: unknown): { body: { error: string; code: string }; status: 400 | 404 | 409 | 422 | 502 | 503 } {
+function failure(error: unknown): { body: { error: string; code: string }; status: FailureStatus } {
 	if (error instanceof EmailServiceError) return { body: { error: error.message, code: error.code }, status: STATUS_BY_CODE[error.code] };
 	return { body: { error: "Não foi possível concluir a operação. Tente novamente.", code: "upstream_error" }, status: 502 };
 }
@@ -110,6 +117,50 @@ export function createEmailRoutes(deps: EmailRouteDeps = defaultDeps) {
 		}
 	});
 
+	// Domínios próprios da conta (OpenMail, plano pago). Erros do provedor viram mensagens fixas.
+	app.get("/v1/email/domains", async (c) => {
+		try {
+			return c.json({ domains: await deps.service.listDomains(userOf(c)) });
+		} catch (error) {
+			const f = failure(error);
+			return c.json(f.body, f.status);
+		}
+	});
+
+	app.post("/v1/email/domains", async (c) => {
+		let body: unknown;
+		try {
+			body = await c.req.json();
+		} catch {
+			return c.json({ error: "Corpo inválido" }, 400);
+		}
+		try {
+			return c.json({ domain: await deps.service.addDomain(userOf(c), (body as { domain?: unknown } | null)?.domain) }, 201);
+		} catch (error) {
+			const f = failure(error);
+			return c.json(f.body, f.status);
+		}
+	});
+
+	app.post("/v1/email/domains/:domainId/verify", async (c) => {
+		try {
+			return c.json({ domain: await deps.service.verifyDomain(userOf(c), c.req.param("domainId")) });
+		} catch (error) {
+			const f = failure(error);
+			return c.json(f.body, f.status);
+		}
+	});
+
+	app.delete("/v1/email/domains/:domainId", async (c) => {
+		try {
+			await deps.service.removeDomain(userOf(c), c.req.param("domainId"));
+			return c.json({ ok: true });
+		} catch (error) {
+			const f = failure(error);
+			return c.json(f.body, f.status);
+		}
+	});
+
 	app.get("/v1/bots/:botId/email", async (c) => {
 		try {
 			const userId = userOf(c);
@@ -127,7 +178,10 @@ export function createEmailRoutes(deps: EmailRouteDeps = defaultDeps) {
 			const botId = c.req.param("botId");
 			const name = await deps.getBotName(botId, userId);
 			if (!name) return c.json({ error: "Bot não encontrado" }, 404);
-			await deps.service.enableForBot({ userId, botId, botName: name });
+			// Corpo opcional: { domain } escolhe um domínio próprio verificado (sem corpo = domínio padrão).
+			const raw = (await c.req.json().catch(() => null)) as { domain?: unknown } | null;
+			const domain = typeof raw?.domain === "string" && raw.domain.trim() ? raw.domain.trim() : undefined;
+			await deps.service.enableForBot({ userId, botId, botName: name, ...(domain ? { domain } : {}) });
 			return c.json(await tabPayload(botId, userId), 201);
 		} catch (error) {
 			const f = failure(error);

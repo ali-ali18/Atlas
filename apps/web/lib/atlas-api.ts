@@ -27,6 +27,7 @@ import type {
 	ApiKeyProviderStatus,
 	BotMailboxDto,
 	EmailAccountStatus,
+	EmailDomainDto,
 	EmailMessageDto,
 	OpenRouterModel,
 	RunEventRecord,
@@ -2668,8 +2669,21 @@ export function removeEmailAccountKey(): Promise<EmailAccountStatus> {
 export function getBotEmail(botId: string, signal?: AbortSignal): Promise<BotEmailPayload> {
 	return atlasFetch(`/v1/bots/${encodeURIComponent(botId)}/email`, { signal });
 }
-export function enableBotEmail(botId: string): Promise<BotEmailPayload> {
-	return atlasFetch(`/v1/bots/${encodeURIComponent(botId)}/email`, { method: "POST", body: "{}" });
+export function enableBotEmail(botId: string, domain?: string): Promise<BotEmailPayload> {
+	return atlasFetch(`/v1/bots/${encodeURIComponent(botId)}/email`, { method: "POST", body: JSON.stringify(domain ? { domain } : {}) });
+}
+// Domínios próprios da conta (OpenMail, plano pago).
+export async function listEmailDomains(signal?: AbortSignal): Promise<EmailDomainDto[]> {
+	return (await atlasFetch<{ domains: EmailDomainDto[] }>("/v1/email/domains", { signal })).domains;
+}
+export async function addEmailDomain(domain: string): Promise<EmailDomainDto> {
+	return (await atlasFetch<{ domain: EmailDomainDto }>("/v1/email/domains", { method: "POST", body: JSON.stringify({ domain }) })).domain;
+}
+export async function verifyEmailDomain(id: string): Promise<EmailDomainDto> {
+	return (await atlasFetch<{ domain: EmailDomainDto }>(`/v1/email/domains/${encodeURIComponent(id)}/verify`, { method: "POST" })).domain;
+}
+export async function removeEmailDomain(id: string): Promise<void> {
+	await atlasFetch(`/v1/email/domains/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 export function updateBotEmail(botId: string, patch: { allowedSenders?: string[]; dailySendLimit?: number; enabled?: boolean }): Promise<BotEmailPayload> {
 	return atlasFetch(`/v1/bots/${encodeURIComponent(botId)}/email`, { method: "PATCH", body: JSON.stringify(patch) });

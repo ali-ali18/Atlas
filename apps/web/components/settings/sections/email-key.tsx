@@ -7,6 +7,7 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { AtlasApiError, getEmailAccount, removeEmailAccountKey, saveEmailAccountKey } from "@/lib/atlas-api";
 import { SettingRow } from "../setting-row";
+import { EmailDomainsConnected } from "./email-domains";
 
 export const EMAIL_KEY_HINT = "Chave da sua conta no OpenMail (openmail.sh). Com ela cada bot pode ter um endereço de e-mail próprio.";
 
@@ -123,13 +124,16 @@ export function EmailKeyRowConnected() {
 	}, []);
 
 	return (
-		<EmailKeyRow
-			busy={busy}
-			error={error}
-			onRemove={() => void run(removeEmailAccountKey, "Não foi possível remover a chave.")}
-			onSave={(apiKey) => void run(() => saveEmailAccountKey(apiKey), "Não foi possível guardar a chave. Tente novamente.")}
-			status={status}
-			vaultReady={status?.vaultReady ?? true}
-		/>
+		<>
+			<EmailKeyRow
+				busy={busy}
+				error={error}
+				onRemove={() => void run(removeEmailAccountKey, "Não foi possível remover a chave.")}
+				onSave={(apiKey) => void run(() => saveEmailAccountKey(apiKey), "Não foi possível guardar a chave. Tente novamente.")}
+				status={status}
+				vaultReady={status?.vaultReady ?? true}
+			/>
+			<EmailDomainsConnected enabled={status?.configured === true} />
+		</>
 	);
 }

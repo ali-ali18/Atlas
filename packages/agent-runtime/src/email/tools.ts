@@ -93,7 +93,13 @@ export const EMAIL_CREATE_MAILBOX_TOOL: ChatTool = {
 		name: "email_create_mailbox",
 		description:
 			"Create THIS bot's own e-mail address (only when it has none; if it already has one this just returns it). It ALWAYS shows a confirmation card to the owner (it uses one of the limited free inboxes), whatever the autonomy: say nothing was created yet and END your turn. If the OpenMail key is missing the result is {status:\"missing_key\"} and a card asks the owner for the key: never ask for the key in chat. Removing an address is not possible from here (the owner does it in the E-mail tab).",
-		parameters: { type: "object", properties: { name: { type: "string", description: "Optional wish for the address name (letters, numbers, hyphen). Default: derived from the bot name." } } },
+		parameters: {
+			type: "object",
+			properties: {
+				name: { type: "string", description: "Optional wish for the address name (letters, numbers, hyphen). Default: derived from the bot name." },
+				domain: { type: "string", description: "Optional verified custom domain of the owner's account (e.g. suaempresa.com.br), or \"default\" for the OpenMail domain. When the owner has verified domains and this is omitted, the result is {status:\"choose_domain\"}: ask the owner which one in chat, then call again." },
+			},
+		},
 	},
 };
 
@@ -114,7 +120,7 @@ export type EmailRunContext = {
 	mailbox: BotMailboxRecord | null;
 	/** Nome do bot (base do nome sugerido para o endereço). */
 	botName?: string;
-	service: Pick<EmailService, "prepareSend" | "deliver" | "remainingToday" | "readThread" | "accountStatus">;
+	service: Pick<EmailService, "prepareSend" | "deliver" | "remainingToday" | "readThread" | "accountStatus"> & Partial<Pick<EmailService, "listDomains">>;
 	/**
 	 * Política usada para ENVIAR. Em run disparado por e-mail o resto das tools roda com a autonomia
 	 * limitada a "Equilibrado" (um e-mail hostil nunca ganha escrita livre), mas o envio de e-mail
@@ -202,14 +208,30 @@ async function createMailboxRequest(_name: string, args: Record<string, unknown>
 	if (isUnattendedOrigin(ctx.origin) || !ctx.conversationId) throw new Error("Criar o e-mail precisa da confirmação do dono no chat.");
 	const wished = typeof args.name === "string" ? oneLineHeader(args.name, 60).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") : "";
 	const mailboxName = wished && validMailboxName(wished) ? wished : suggestMailboxName(wished || ctx.email.botName || "bot");
-	const address = `${mailboxName}@${OPENMAIL_DEFAULT_DOMAIN}`;
+	const wantedDomain = typeof args.domain === "string" ? args.domain.trim().toLowerCase() : "";
+	let domain: string | undefined;
+	if (wantedDomain !== "default") {
+		let verified: string[] = [];
+		try {
+			verified = ((await ctx.email.service.listDomains?.(ctx.userId)) ?? []).filter((item) => item.verified).map((item) => item.domain);
+		} catch {
+			// Sem plano ou sem permissão de domínios: segue só com o domínio padrão.
+		}
+		if (wantedDomain) {
+			if (!verified.includes(wantedDomain)) throw new Error("Esse domínio não é um domínio verificado da conta. Use um da lista de domínios verificados ou \"default\".");
+			domain = wantedDomain;
+		} else if (verified.length > 0) {
+			return { summary: JSON.stringify({ status: "choose_domain", domains: verified, default: OPENMAIL_DEFAULT_DOMAIN, note: "Ask the owner which domain the address should use, then call email_create_mailbox again with domain set to one of these or \"default\". Nothing was created." }) };
+		}
+	}
+	const address = `${mailboxName}@${domain ?? OPENMAIL_DEFAULT_DOMAIN}`;
 	const confirmId = `confirm-emailbox-${ctx.runId ?? "local"}`;
-	await deps.saveIntent({ userId: ctx.userId, conversationId: ctx.conversationId, ttlMs: EMAIL_APPROVAL_TTL_MS, payload: { kind: "confirm", action: "email-create-mailbox", confirmId, botId: ctx.botId, emailCreate: { mailboxName } } });
+	await deps.saveIntent({ userId: ctx.userId, conversationId: ctx.conversationId, ttlMs: EMAIL_APPROVAL_TTL_MS, payload: { kind: "confirm", action: "email-create-mailbox", confirmId, botId: ctx.botId, emailCreate: { mailboxName, ...(domain ? { domain } : {}) } } });
 	const card: ConfirmEvent = {
 		type: "confirm",
 		confirmId,
 		title: `Criar o e-mail ${address} para este bot?`,
-		description: "Cria uma caixa no OpenMail e gasta uma das caixas gratuitas da sua conta. Depois você escolhe quem pode escrever para o bot na aba E-mail.",
+		description: "Cria uma caixa no OpenMail e usa uma das caixas da sua conta. Depois você escolhe quem pode escrever para o bot na aba E-mail.",
 		confirmLabel: "Criar e-mail",
 		cancelLabel: "Cancelar",
 	};

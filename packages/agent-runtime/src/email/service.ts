@@ -22,15 +22,17 @@ import {
 	EMAIL_BODY_MAX_CHARS,
 	EMAIL_SUBJECT_MAX_CHARS,
 	isAddressAllowed,
+	normalizeEmailDomain,
 	normalizeEmailAddress,
 	oneLineHeader,
 	replySubject,
 	type EmailAccountStatus,
+	type EmailDomainDto,
 } from "@workspace/shared";
 import { SecretBoxError, isSecretBoxConfigured, openSecrets, sealSecrets } from "../mcp/secret-box.js";
 import { normalizeApiKey } from "../providers/api-key-service.js";
 import { createOpenMailProvider } from "./openmail.js";
-import { EmailProviderError, type EmailCredentials, type EmailProvider } from "./provider.js";
+import { EmailProviderError, type EmailCredentials, type EmailProvider, type ProviderDomain } from "./provider.js";
 
 /** Linha de `ProviderConnection` que guarda a chave do provedor de e-mail da conta. */
 export const EMAIL_KEY_CONNECTION = "openmail";
@@ -49,6 +51,11 @@ export class EmailServiceError extends Error {
 			| "bad_recipient"
 			| "bad_content"
 			| "no_thread"
+			| "domains_unsupported"
+			| "plan_required"
+			| "domain_exists"
+			| "invalid_domain"
+			| "domain_in_use"
 			| "provider",
 		message: string,
 	) {
@@ -141,6 +148,15 @@ export function createEmailService(deps: EmailServiceDeps = {}) {
 		}
 	}
 
+	function domainSupport() {
+		if (!provider.domains) throw new EmailServiceError("domains_unsupported", "Este provedor de e-mail não oferece domínio próprio.");
+		return provider.domains;
+	}
+
+	function toDomainDto(domain: ProviderDomain): EmailDomainDto {
+		return { id: domain.id, domain: domain.domain, status: domain.status, records: domain.records, verified: domain.status === "verified" };
+	}
+
 	async function credentialsFor(userId: string): Promise<{ credentials: EmailCredentials; source: "account" | "server" } | null> {
 		const accountKey = openKey(await store.getKeyRow(userId));
 		if (accountKey) return { credentials: { apiKey: accountKey }, source: "account" };
@@ -155,7 +171,10 @@ export function createEmailService(deps: EmailServiceDeps = {}) {
 	}
 
 	function wrapProvider(error: unknown): never {
-		if (error instanceof EmailProviderError) throw new EmailServiceError("provider", error.message);
+		if (error instanceof EmailProviderError) {
+			const code = error.code === "plan_required" || error.code === "domain_exists" || error.code === "invalid_domain" || error.code === "domain_in_use" ? error.code : "provider";
+			throw new EmailServiceError(code, error.message);
+		}
 		throw error;
 	}
 
@@ -166,6 +185,54 @@ export function createEmailService(deps: EmailServiceDeps = {}) {
 		async accountStatus(userId: string): Promise<EmailAccountStatus> {
 			const resolved = await credentialsFor(userId);
 			return { provider: "openmail", configured: resolved !== null, source: resolved?.source ?? null, vaultReady: vaultReady() };
+		},
+
+		/** Domínios próprios da conta (OpenMail, plano pago). Os erros do provedor viram mensagens fixas. */
+		async listDomains(userId: string): Promise<EmailDomainDto[]> {
+			const domains = domainSupport();
+			const credentials = await requireCredentials(userId);
+			try {
+				return (await domains.list(credentials)).map(toDomainDto);
+			} catch (error) {
+				wrapProvider(error);
+			}
+		},
+
+		async addDomain(userId: string, rawDomain: unknown): Promise<EmailDomainDto> {
+			const domains = domainSupport();
+			const domain = normalizeEmailDomain(rawDomain);
+			if (!domain) throw new EmailServiceError("invalid_domain", "Digite um domínio válido, como suaempresa.com.br.");
+			const credentials = await requireCredentials(userId);
+			try {
+				return toDomainDto(await domains.add(credentials, domain));
+			} catch (error) {
+				wrapProvider(error);
+			}
+		},
+
+		/** Só age em domínios da própria conta (confere pela lista do provedor antes de verificar/remover). */
+		async verifyDomain(userId: string, domainId: string): Promise<EmailDomainDto> {
+			const domains = domainSupport();
+			const credentials = await requireCredentials(userId);
+			try {
+				if (!(await domains.list(credentials)).some((item) => item.id === domainId)) throw new EmailServiceError("invalid_domain", "Domínio não encontrado nesta conta.");
+				return toDomainDto(await domains.verify(credentials, domainId));
+			} catch (error) {
+				if (error instanceof EmailServiceError) throw error;
+				wrapProvider(error);
+			}
+		},
+
+		async removeDomain(userId: string, domainId: string): Promise<void> {
+			const domains = domainSupport();
+			const credentials = await requireCredentials(userId);
+			try {
+				if (!(await domains.list(credentials)).some((item) => item.id === domainId)) throw new EmailServiceError("invalid_domain", "Domínio não encontrado nesta conta.");
+				await domains.remove(credentials, domainId);
+			} catch (error) {
+				if (error instanceof EmailServiceError) throw error;
+				wrapProvider(error);
+			}
 		},
 
 		async saveAccountKey(userId: string, rawKey: unknown): Promise<void> {
@@ -180,10 +247,23 @@ export function createEmailService(deps: EmailServiceDeps = {}) {
 		},
 
 		/** Cria a caixa do bot no provedor, registra o webhook (URL com token + assinatura) e grava o registro. */
-		async enableForBot(input: { userId: string; botId: string; botName: string; mailboxName?: string }): Promise<BotMailboxRecord> {
+		async enableForBot(input: { userId: string; botId: string; botName: string; mailboxName?: string; /** Domínio próprio verificado da conta; sem ele vale o domínio padrão do provedor. */ domain?: string }): Promise<BotMailboxRecord> {
 			if (await store.getMailbox(input.botId, input.userId)) throw new EmailServiceError("already_enabled", "Este bot já tem um endereço de e-mail.");
 			const credentials = await requireCredentials(input.userId);
 			if (!vaultReady()) throw new EmailServiceError("vault_unavailable", "Defina CONNECTOR_ENCRYPTION_KEY no .env da API e do worker.");
+			let domain: string | undefined;
+			if (input.domain) {
+				const wanted = normalizeEmailDomain(input.domain);
+				let verified: ProviderDomain | undefined;
+				try {
+					verified = wanted ? (await domainSupport().list(credentials)).find((item) => item.status === "verified" && item.domain === wanted) : undefined;
+				} catch (error) {
+					if (error instanceof EmailServiceError) throw error;
+					wrapProvider(error);
+				}
+				if (!verified) throw new EmailServiceError("invalid_domain", "Escolha um domínio verificado da sua conta. Ele ainda não existe ou não terminou de verificar.");
+				domain = verified.domain;
+			}
 			const base = publicBaseUrl();
 			if (!base) throw new EmailServiceError("no_public_url", "Defina ATLAS_PUBLIC_URL com o endereço público do servidor para receber e-mails.");
 			const id = randomUUID();
@@ -191,7 +271,7 @@ export function createEmailService(deps: EmailServiceDeps = {}) {
 			const webhookUrl = `${base}/v1/email/inbound/${id}?t=${token}`;
 			let inbox;
 			try {
-				inbox = await provider.createInbox(credentials, { displayName: input.botName, nameHint: input.botName, webhookUrl, ...(input.mailboxName ? { mailboxName: input.mailboxName } : {}) });
+				inbox = await provider.createInbox(credentials, { displayName: input.botName, nameHint: input.botName, webhookUrl, ...(input.mailboxName ? { mailboxName: input.mailboxName } : {}), ...(domain ? { domain } : {}) });
 			} catch (error) {
 				wrapProvider(error);
 			}

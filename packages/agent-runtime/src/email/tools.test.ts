@@ -20,7 +20,7 @@ function mailbox(over: Partial<BotMailboxRecord> = {}): BotMailboxRecord {
 	};
 }
 
-function setup(policy: EffectiveAutonomy, opts: { remaining?: number; box?: BotMailboxRecord | null; configured?: boolean } = {}) {
+function setup(policy: EffectiveAutonomy, opts: { remaining?: number; box?: BotMailboxRecord | null; configured?: boolean; domains?: { domain: string; verified: boolean }[] } = {}) {
 	const box = opts.box === undefined ? mailbox() : opts.box;
 	const delivered: unknown[] = [];
 	const service = {
@@ -36,6 +36,7 @@ function setup(policy: EffectiveAutonomy, opts: { remaining?: number; box?: BotM
 		}),
 		remainingToday: vi.fn(async () => opts.remaining ?? 5),
 		accountStatus: vi.fn(async () => ({ provider: "openmail" as const, configured: opts.configured ?? true, source: "account" as const, vaultReady: true })),
+		...(opts.domains ? { listDomains: vi.fn(async () => opts.domains!.map((d) => ({ id: d.domain, domain: d.domain, status: d.verified ? "verified" : "pending", records: [], verified: d.verified }))) } : {}),
 		readThread: vi.fn(async () => ({
 			threadId: "thr_1",
 			subject: "Cotação",
@@ -165,6 +166,33 @@ describe("criar o e-mail do bot e pedir a chave", () => {
 			expect(out.summary).toContain("Nada foi criado");
 			expect(service.deliver).not.toHaveBeenCalled();
 		}
+	});
+
+	it("com domínios verificados e sem escolha: pergunta ao dono (nada criado, sem cartão); 'default' e domínio escolhido seguem para o cartão", async () => {
+		const domains = [{ domain: "suaempresa.com.br", verified: true }, { domain: "pendente.com", verified: false }];
+		const ask = setup(AUTONOMOUS, { box: null, domains });
+		const out = await executeEmailTool("email_create_mailbox", { name: "atendimento" }, ask.ctx, ask.deps);
+		expect(JSON.parse(out.summary)).toMatchObject({ status: "choose_domain", domains: ["suaempresa.com.br"], default: "openmail.sh" });
+		expect(out.confirmEvent).toBeUndefined();
+		expect(ask.intents).toHaveLength(0);
+		expect(ask.cards).toHaveLength(0);
+		const chosen = setup(AUTONOMOUS, { box: null, domains });
+		const card = await executeEmailTool("email_create_mailbox", { name: "atendimento", domain: "SuaEmpresa.com.br" }, chosen.ctx, chosen.deps);
+		expect(card.confirmEvent!.title).toBe("Criar o e-mail atendimento@suaempresa.com.br para este bot?");
+		expect(chosen.intents[0]).toMatchObject({ payload: { emailCreate: { mailboxName: "atendimento", domain: "suaempresa.com.br" } } });
+		const plain = setup(AUTONOMOUS, { box: null, domains });
+		const def = await executeEmailTool("email_create_mailbox", { name: "atendimento", domain: "default" }, plain.ctx, plain.deps);
+		expect(def.confirmEvent!.title).toBe("Criar o e-mail atendimento@openmail.sh para este bot?");
+		expect((plain.intents[0] as { payload: { emailCreate: Record<string, unknown> } }).payload.emailCreate).not.toHaveProperty("domain");
+	});
+
+	it("domínio não verificado ou de outra conta: erro claro, sem cartão; sem domínios o fluxo antigo continua", async () => {
+		const bad = setup(AUTONOMOUS, { box: null, domains: [{ domain: "pendente.com", verified: false }] });
+		await expect(executeEmailTool("email_create_mailbox", { domain: "pendente.com" }, bad.ctx, bad.deps)).rejects.toThrow(/domínio verificado/);
+		expect(bad.cards).toHaveLength(0);
+		const none = setup(AUTONOMOUS, { box: null, domains: [] });
+		const out = await executeEmailTool("email_create_mailbox", { name: "atendimento" }, none.ctx, none.deps);
+		expect(out.confirmEvent!.title).toBe("Criar o e-mail atendimento@openmail.sh para este bot?");
 	});
 
 	it("sem nome desejado deriva do nome do bot; nome inválido cai no sugerido", async () => {

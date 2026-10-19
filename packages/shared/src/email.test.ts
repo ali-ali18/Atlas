@@ -3,6 +3,7 @@ import {
 	frameInboundEmail,
 	isAddressAllowed,
 	normalizeAllowedSenders,
+	normalizeEmailDomain,
 	normalizeEmailAddress,
 	parseFramedInboundEmail,
 	replySubject,
@@ -64,5 +65,20 @@ describe("e-mail recebido como dado externo", () => {
 	it("assunto de resposta", () => {
 		expect(replySubject("Cotação")).toBe("Re: Cotação");
 		expect(replySubject("Re: Cotação")).toBe("Re: Cotação");
+	});
+});
+
+describe("domínio próprio", () => {
+	it("normaliza e recusa o que não é domínio", () => {
+		expect(normalizeEmailDomain(" @SuaEmpresa.com.br. ")).toBe("suaempresa.com.br");
+		expect(normalizeEmailDomain("mail.acme.com")).toBe("mail.acme.com");
+		for (const bad of ["lixo", "a@b.com", "-x.com", "x..com", "http://x.com", "", 5, null]) expect(normalizeEmailDomain(bad)).toBeNull();
+	});
+});
+
+describe("limite de remetentes", () => {
+	it("aceita até 1000 e descarta o excedente", () => {
+		const raw = Array.from({ length: 1200 }, (_, i) => `p${i}@x.co`);
+		expect(normalizeAllowedSenders(raw)).toHaveLength(1000);
 	});
 });

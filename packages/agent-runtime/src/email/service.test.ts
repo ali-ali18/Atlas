@@ -204,3 +204,59 @@ describe("preparar e enviar", () => {
 		await expect(service.readThread(mailbox(), "thr_x")).rejects.toMatchObject({ code: "no_thread" });
 	});
 });
+
+describe("domínio próprio", () => {
+	const dom = (over: Record<string, unknown> = {}) => ({ id: "dom_1", domain: "suaempresa.com.br", status: "verified" as const, records: [], ...over });
+	function withDomains(list: ReturnType<typeof dom>[]) {
+		const provider = fakeProvider();
+		const calls = { add: [] as string[], verify: [] as string[], remove: [] as string[] };
+		(provider as { domains?: unknown }).domains = {
+			list: async () => list,
+			add: async (_c: unknown, d: string) => (calls.add.push(d), dom({ id: "dom_new", domain: d, status: "pending" })),
+			verify: async (_c: unknown, id: string) => (calls.verify.push(id), dom({ id })),
+			remove: async (_c: unknown, id: string) => void calls.remove.push(id),
+		};
+		return { provider, calls };
+	}
+
+	it("adiciona (normaliza o domínio), lista com 'verified' e só verifica/remove domínios da conta", async () => {
+		const { provider, calls } = withDomains([dom(), dom({ id: "dom_2", domain: "pendente.com", status: "pending" })]);
+		const service = createEmailService({ ...base, store: fakeStore().store, provider, env: serverEnv });
+		const added = await service.addDomain("user_a", " @SuaEmpresa.com.br. ");
+		expect(calls.add).toEqual(["suaempresa.com.br"]);
+		expect(added).toMatchObject({ id: "dom_new", verified: false });
+		expect((await service.listDomains("user_a")).map((d) => d.verified)).toEqual([true, false]);
+		await service.verifyDomain("user_a", "dom_2");
+		await service.removeDomain("user_a", "dom_2");
+		expect(calls.verify).toEqual(["dom_2"]);
+		expect(calls.remove).toEqual(["dom_2"]);
+		await expect(service.verifyDomain("user_a", "dom_de_outro")).rejects.toMatchObject({ code: "invalid_domain" });
+		await expect(service.removeDomain("user_a", "dom_de_outro")).rejects.toMatchObject({ code: "invalid_domain" });
+		await expect(service.addDomain("user_a", "lixo")).rejects.toMatchObject({ code: "invalid_domain" });
+	});
+
+	it("erros do provedor viram códigos do serviço; sem chave pede configuração; provedor sem suporte avisa", async () => {
+		const provider = fakeProvider();
+		(provider as { domains?: unknown }).domains = { list: async () => [], add: async () => { throw new EmailProviderError("plan_required", "Domínio próprio exige um plano pago do OpenMail."); }, verify: async () => dom(), remove: async () => undefined };
+		const service = createEmailService({ ...base, store: fakeStore().store, provider, env: serverEnv });
+		await expect(service.addDomain("user_a", "suaempresa.com.br")).rejects.toMatchObject({ code: "plan_required" });
+		const noKey = createEmailService({ ...base, store: fakeStore().store, provider, env: {} });
+		await expect(noKey.listDomains("user_a")).rejects.toMatchObject({ code: "not_configured" });
+		const plain = createEmailService({ ...base, store: fakeStore().store, provider: fakeProvider(), env: serverEnv });
+		await expect(plain.listDomains("user_a")).rejects.toMatchObject({ code: "domains_unsupported" });
+	});
+
+	it("criar a caixa num domínio exige domínio verificado da conta e o repassa ao provedor", async () => {
+		const { provider } = withDomains([dom(), dom({ id: "dom_2", domain: "pendente.com", status: "pending" })]);
+		const createInbox = vi.spyOn(provider, "createInbox");
+		const { store, boxes } = fakeStore();
+		const service = createEmailService({ ...base, store, provider, env: serverEnv });
+		await expect(service.enableForBot({ userId: "user_a", botId: "bot_1", botName: "B", domain: "pendente.com" })).rejects.toMatchObject({ code: "invalid_domain" });
+		await expect(service.enableForBot({ userId: "user_a", botId: "bot_1", botName: "B", domain: "outra.com" })).rejects.toMatchObject({ code: "invalid_domain" });
+		expect(createInbox).not.toHaveBeenCalled();
+		expect(boxes).toHaveLength(0);
+		await service.enableForBot({ userId: "user_a", botId: "bot_1", botName: "B", mailboxName: "atendimento", domain: "SuaEmpresa.com.br" });
+		expect(createInbox.mock.calls[0]![1]).toMatchObject({ mailboxName: "atendimento", domain: "suaempresa.com.br" });
+		expect(boxes).toHaveLength(1);
+	});
+});

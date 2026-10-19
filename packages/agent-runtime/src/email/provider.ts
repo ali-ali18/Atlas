@@ -1,4 +1,4 @@
-import type { EmailProviderId, InboundEmailAttachment } from "@workspace/shared";
+import type { EmailDomainStatus, EmailProviderId, InboundEmailAttachment } from "@workspace/shared";
 
 /**
  * Camada trocável de provedor de e-mail. O adaptador `openmail` é o primeiro; um adaptador
@@ -13,7 +13,7 @@ export type EmailCredentials = {
 
 export class EmailProviderError extends Error {
 	constructor(
-		readonly code: "auth_failed" | "rate_limited" | "not_found" | "invalid_request" | "upstream_error" | "bad_webhook",
+		readonly code: "auth_failed" | "rate_limited" | "not_found" | "invalid_request" | "upstream_error" | "bad_webhook" | "plan_required" | "domain_exists" | "invalid_domain" | "domain_in_use",
 		message: string,
 		readonly status?: number,
 	) {
@@ -28,6 +28,20 @@ export type ProviderInbox = {
 	/** Segredo de assinatura do webhook, quando o provedor o devolve (só na criação/rotação). */
 	webhookSecret: string | null;
 };
+
+export type ProviderDomainRecord = { type: "TXT" | "CNAME" | "MX"; name: string; value: string; priority: number | null; valid: boolean };
+
+export type ProviderDomain = { id: string; domain: string; status: EmailDomainStatus; records: ProviderDomainRecord[] };
+
+/** Domínios próprios da conta (opcional: nem todo provedor tem). */
+export interface EmailDomainSupport {
+	list(credentials: EmailCredentials): Promise<ProviderDomain[]>;
+	/** Registra o domínio e devolve os registros DNS a publicar. */
+	add(credentials: EmailCredentials, domain: string): Promise<ProviderDomain>;
+	/** Força uma nova checagem do DNS e devolve o estado atual. */
+	verify(credentials: EmailCredentials, domainId: string): Promise<ProviderDomain>;
+	remove(credentials: EmailCredentials, domainId: string): Promise<void>;
+}
 
 export type ProviderMessage = {
 	id: string;
@@ -70,7 +84,9 @@ export type WebhookVerification =
 
 export interface EmailProvider {
 	readonly id: EmailProviderId;
-	createInbox(credentials: EmailCredentials, input: { displayName: string; nameHint: string; webhookUrl: string; /** Nome exato da caixa (parte local do endereço); sem ele o adaptador deriva de `nameHint`. */ mailboxName?: string }): Promise<ProviderInbox>;
+	/** Presente só se o provedor sabe gerir domínios próprios. */
+	readonly domains?: EmailDomainSupport;
+	createInbox(credentials: EmailCredentials, input: { displayName: string; nameHint: string; webhookUrl: string; /** Nome exato da caixa (parte local do endereço); sem ele o adaptador deriva de `nameHint`. */ mailboxName?: string; /** Domínio próprio já verificado; sem ele vale o domínio padrão do provedor. */ domain?: string }): Promise<ProviderInbox>;
 	deleteInbox(credentials: EmailCredentials, inboxId: string): Promise<void>;
 	/** Gera outro segredo de assinatura (invalida o anterior). */
 	rotateWebhookSecret(credentials: EmailCredentials, inboxId: string): Promise<string>;

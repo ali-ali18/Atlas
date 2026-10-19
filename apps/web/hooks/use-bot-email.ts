@@ -74,7 +74,7 @@ export function useBotEmail(botId: string, active: boolean) {
 		actionError,
 		busy,
 		refresh,
-		enable: () => act(() => enableBotEmail(botId), "Não foi possível ativar o endereço. Tente novamente."),
+		enable: (domain?: string) => act(() => enableBotEmail(botId, domain), "Não foi possível ativar o endereço. Tente novamente."),
 		patch: (patch: { allowedSenders?: string[]; dailySendLimit?: number; enabled?: boolean }) =>
 			act(() => updateBotEmail(botId, patch), "Não foi possível salvar. Tente novamente."),
 		remove: () => act(() => disableBotEmail(botId), "Não foi possível remover o endereço. Tente novamente."),

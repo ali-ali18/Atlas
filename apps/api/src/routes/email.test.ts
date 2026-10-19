@@ -14,7 +14,9 @@ const FAKE_KEY = "om_FAKE_KEY_NOT_REAL_12345";
 
 type Box = { id: string; botId: string; userId: string; provider: string; address: string; allowedSenders: string[]; dailySendLimit: number; enabled: boolean; createdAt: Date; secretsEnc: string | null; providerInboxId: string; webhookSecretHash: string };
 
-function appFor(userId: string, state: { keys: Map<string, string>; boxes: Box[]; bots: Map<string, string> }) {
+type FakeDomain = { id: string; domain: string; status: "pending" | "verified"; records: { type: "TXT" | "MX"; name: string; value: string; priority: number | null; valid: boolean }[]; verified: boolean };
+
+function appFor(userId: string, state: { keys: Map<string, string>; boxes: Box[]; bots: Map<string, string>; domains?: FakeDomain[]; plan?: "free" | "pro" }) {
 	const app = new Hono();
 	app.use("*", async (c, next) => {
 		(c as unknown as { set: (k: string, v: unknown) => void }).set("session", {
@@ -35,10 +37,35 @@ function appFor(userId: string, state: { keys: Map<string, string>; boxes: Box[]
 					state.keys.set(user, key);
 				},
 				removeAccountKey: async (user: string) => void state.keys.delete(user),
-				enableForBot: async ({ userId: u, botId }: { userId: string; botId: string }) => {
+				listDomains: async (u: string) => {
+					if (!state.keys.has(u)) throw new EmailServiceError("not_configured", "Cadastre a chave do OpenMail em Configurações para ativar o e-mail do bot.");
+					return (state.domains ?? []) as never;
+				},
+				addDomain: async (u: string, raw: unknown) => {
+					if (!state.keys.has(u)) throw new EmailServiceError("not_configured", "Cadastre a chave do OpenMail em Configurações para ativar o e-mail do bot.");
+					if (typeof raw !== "string" || !raw.includes(".")) throw new EmailServiceError("invalid_domain", "Digite um domínio válido, como suaempresa.com.br.");
+					if (state.plan === "free") throw new EmailServiceError("plan_required", "Domínio próprio exige um plano pago do OpenMail.");
+					const row: FakeDomain = { id: `dom_${(state.domains ??= []).length + 1}`, domain: raw.toLowerCase(), status: "pending", verified: false, records: [{ type: "MX", name: raw, value: "inbound.example", priority: 10, valid: false }] };
+					state.domains.push(row);
+					return row as never;
+				},
+				verifyDomain: async (_u: string, id: string) => {
+					const row = state.domains?.find((d) => d.id === id);
+					if (!row) throw new EmailServiceError("invalid_domain", "Domínio não encontrado nesta conta.");
+					row.status = "verified";
+					row.verified = true;
+					return row as never;
+				},
+				removeDomain: async (_u: string, id: string) => {
+					const i = state.domains?.findIndex((d) => d.id === id) ?? -1;
+					if (i < 0) throw new EmailServiceError("invalid_domain", "Domínio não encontrado nesta conta.");
+					state.domains!.splice(i, 1);
+				},
+				enableForBot: async ({ userId: u, botId, domain }: { userId: string; botId: string; domain?: string }) => {
+					if (domain && !state.domains?.some((d) => d.verified && d.domain === domain)) throw new EmailServiceError("invalid_domain", "Escolha um domínio verificado da sua conta.");
 					if (!state.keys.has(u)) throw new EmailServiceError("not_configured", "Cadastre a chave do OpenMail em Configurações para ativar o e-mail do bot.");
 					if (state.boxes.some((b) => b.botId === botId)) throw new EmailServiceError("already_enabled", "Este bot já tem um endereço de e-mail.");
-					const box: Box = { id: `m_${botId}`, botId, userId: u, provider: "openmail", address: `${botId}@openmail.sh`, allowedSenders: [], dailySendLimit: 20, enabled: true, createdAt: new Date(), secretsEnc: "v1:segredo", providerInboxId: "inb", webhookSecretHash: "hash" };
+					const box: Box = { id: `m_${botId}`, botId, userId: u, provider: "openmail", address: `${botId}@${domain ?? "openmail.sh"}`, allowedSenders: [], dailySendLimit: 20, enabled: true, createdAt: new Date(), secretsEnc: "v1:segredo", providerInboxId: "inb", webhookSecretHash: "hash" };
 					state.boxes.push(box);
 					return box as never;
 				},
@@ -138,4 +165,53 @@ test("a entrada de e-mail é pública (sem sessão) e o resto de /v1/email conti
 	assert.equal(open.status, 200);
 	const closed = await app.request("/v1/email/account");
 	assert.equal(closed.status, 401);
+});
+
+test("domínios próprios: listar, adicionar (com DNS), verificar e remover; erros com mensagem fixa e sem a chave", async () => {
+	const state = { keys: new Map([["user_a", FAKE_KEY]]), boxes: [] as Box[], bots: new Map([["bot_1", "user_a"]]), domains: [] as FakeDomain[] };
+	const app = appFor("user_a", state);
+	assert.deepEqual(await (await app.request("/v1/email/domains")).json(), { domains: [] });
+	const added = await app.request("/v1/email/domains", json({ domain: "suaempresa.com.br" }));
+	assert.equal(added.status, 201);
+	const body = (await added.json()) as { domain: FakeDomain };
+	assert.equal(body.domain.status, "pending");
+	assert.equal(body.domain.records[0]!.type, "MX");
+	assert.equal((await app.request("/v1/email/domains", json({ domain: "lixo" }))).status, 422);
+	const verified = await app.request(`/v1/email/domains/${body.domain.id}/verify`, { method: "POST" });
+	assert.equal(((await verified.json()) as { domain: FakeDomain }).domain.verified, true);
+	assert.equal((await app.request("/v1/email/domains/dom_x/verify", { method: "POST" })).status, 422);
+	assert.equal((await app.request(`/v1/email/domains/${body.domain.id}`, { method: "DELETE" })).status, 200);
+	assert.equal(state.domains.length, 0);
+	const text = JSON.stringify(await (await app.request("/v1/email/domains")).json());
+	assert.ok(!text.includes(FAKE_KEY));
+});
+
+test("domínios: sem a chave 409, plano gratuito 402 com mensagem fixa", async () => {
+	const none = appFor("user_a", { keys: new Map(), boxes: [], bots: new Map(), domains: [] });
+	assert.equal((await none.request("/v1/email/domains")).status, 409);
+	const free = appFor("user_a", { keys: new Map([["user_a", FAKE_KEY]]), boxes: [], bots: new Map(), domains: [], plan: "free" });
+	const res = await free.request("/v1/email/domains", json({ domain: "suaempresa.com.br" }));
+	assert.equal(res.status, 402);
+	assert.deepEqual(await res.json(), { error: "Domínio próprio exige um plano pago do OpenMail.", code: "plan_required" });
+});
+
+test("criar o endereço num domínio: só vale se estiver verificado na conta", async () => {
+	const state = { keys: new Map([["user_a", FAKE_KEY]]), boxes: [] as Box[], bots: new Map([["bot_1", "user_a"]]), domains: [{ id: "dom_1", domain: "suaempresa.com.br", status: "verified", verified: true, records: [] }, { id: "dom_2", domain: "pendente.com", status: "pending", verified: false, records: [] }] as FakeDomain[] };
+	const app = appFor("user_a", state);
+	assert.equal((await app.request("/v1/bots/bot_1/email", json({ domain: "pendente.com" }))).status, 422);
+	assert.equal((await app.request("/v1/bots/bot_1/email", json({ domain: "naoexiste.com" }))).status, 422);
+	assert.equal(state.boxes.length, 0);
+	const ok = await app.request("/v1/bots/bot_1/email", json({ domain: "suaempresa.com.br" }));
+	assert.equal(ok.status, 201);
+	assert.equal(state.boxes[0]!.address, "bot_1@suaempresa.com.br");
+});
+
+test("remetentes permitidos aceitam até 1000 entradas e recusam acima", async () => {
+	const state = { keys: new Map([["user_a", FAKE_KEY]]), boxes: [] as Box[], bots: new Map([["bot_1", "user_a"]]) };
+	const app = appFor("user_a", state);
+	await app.request("/v1/bots/bot_1/email", json({}));
+	const many = (n: number) => Array.from({ length: n }, (_, i) => `pessoa${i}@empresa.com`);
+	assert.equal((await app.request("/v1/bots/bot_1/email", send("PATCH", { allowedSenders: many(1000) }))).status, 200);
+	assert.equal(state.boxes[0]!.allowedSenders.length, 1000);
+	assert.equal((await app.request("/v1/bots/bot_1/email", send("PATCH", { allowedSenders: many(1001) }))).status, 400);
 });

@@ -34,7 +34,7 @@ export type SkillPendingPayload = {
 	primaryBot?: { botId: string; name: string };
 	/** E-mail do bot aguardando o "confirmado" (corpo completo: só o dono vê no cartão). */
 	/** Criar a caixa de e-mail do bot (sempre confirmada): o nome já foi escolhido, o cartão mostra o endereço. */
-	emailCreate?: { mailboxName: string };
+	emailCreate?: { mailboxName: string; /** Domínio próprio verificado escolhido; ausente = domínio padrão do provedor. */ domain?: string };
 	emailSend?: { mailboxId: string; to: string; subject: string; body: string; bodyHtml?: string; threadId?: string };
 	imageGeneration?: { prompt: string; aspectRatio?: string; n: number; runId: string };
 	/** Criação de PR de sessão de código aguardando o "confirmado" (o agente repete a chamada depois). */

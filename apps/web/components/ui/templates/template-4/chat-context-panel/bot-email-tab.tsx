@@ -6,11 +6,13 @@ import type { BotMailboxDto, EmailMessageDto } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
 import { Input } from "@workspace/ui/components/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { Switch } from "@workspace/ui/components/switch";
 import { cn } from "@workspace/ui/lib/utils";
 import { openSettingsModal } from "@/components/settings/settings-url";
 import { useBotEmail } from "@/hooks/use-bot-email";
+import { useEmailDomains } from "@/hooks/use-email-domains";
 import { openSendersPage } from "@/lib/email-senders-url";
 import {
 	EMAIL_EMPTY_ALLOWED,
@@ -36,6 +38,32 @@ function Section({ id, title, children }: { id: string; title: string; children:
 			</h3>
 			{children}
 		</section>
+	);
+}
+
+export const DEFAULT_DOMAIN_VALUE = "__default";
+
+/** Domínio da caixa nova: o do provedor (padrão) ou um domínio próprio já verificado. */
+export function DomainChoice({ domains, value, onChange, disabled }: { domains: string[]; value: string; onChange: (value: string) => void; disabled?: boolean }) {
+	return (
+		<div className="flex w-full min-w-0 flex-col gap-1.5 text-left" data-testid="email-domain-choice">
+			<label className="font-medium text-xs" htmlFor="email-domain-select">
+				Domínio do endereço
+			</label>
+			<Select disabled={disabled} onValueChange={(next) => onChange(next as string)} value={value}>
+				<SelectTrigger className="w-full" id="email-domain-select">
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value={DEFAULT_DOMAIN_VALUE}>openmail.sh (padrão)</SelectItem>
+					{domains.map((domain) => (
+						<SelectItem key={domain} value={domain}>
+							{domain}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</div>
 	);
 }
 
@@ -328,6 +356,11 @@ function RemoveAddress({ busy, onRemove }: { busy: boolean; onRemove: () => Prom
  */
 export function BotEmailTab({ botId, active, onOpenConversation }: { botId: string; active: boolean; onOpenConversation?: () => void }) {
 	const email = useBotEmail(botId, active);
+	// Domínios próprios verificados: só carregam quando falta o endereço e a chave existe (falha = só o padrão).
+	const offState = email.data !== null && !email.data.mailbox && email.data.account.configured;
+	const customDomains = useEmailDomains(offState);
+	const [domainChoice, setDomainChoice] = useState(DEFAULT_DOMAIN_VALUE);
+	const verifiedDomains = (customDomains.domains ?? []).filter((item) => item.verified).map((item) => item.domain);
 
 	if (email.loading && !email.data) {
 		return (
@@ -363,9 +396,12 @@ export function BotEmailTab({ botId, active, onOpenConversation }: { botId: stri
 						<p className="text-muted-foreground text-xs leading-relaxed">Ele recebe e-mails de quem você permitir, responde e envia por conta própria, sempre dentro da autonomia que você definiu.</p>
 					</div>
 					{data.account.configured ? (
-						<Button disabled={email.busy} onClick={() => void email.enable()} size="sm">
-							{email.busy ? "Ativando..." : "Ativar endereço"}
-						</Button>
+						<div className="flex w-full min-w-0 flex-col items-center gap-3">
+							{verifiedDomains.length > 0 ? <DomainChoice disabled={email.busy} domains={verifiedDomains} onChange={setDomainChoice} value={verifiedDomains.includes(domainChoice) ? domainChoice : DEFAULT_DOMAIN_VALUE} /> : null}
+							<Button disabled={email.busy} onClick={() => void email.enable(verifiedDomains.includes(domainChoice) ? domainChoice : undefined)} size="sm">
+								{email.busy ? "Ativando..." : "Ativar endereço"}
+							</Button>
+						</div>
 					) : (
 						<div className="flex flex-col items-center gap-2">
 							<p className="text-muted-foreground text-xs leading-relaxed" data-testid="email-no-key">

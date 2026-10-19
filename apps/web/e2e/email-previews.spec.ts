@@ -184,6 +184,59 @@ for (const theme of ["light", "dark"] as const) {
         await page.getByTestId("allowed-more").waitFor()
       })
 
+      const DNS_RECORDS = [
+        { type: "MX", name: "suaempresa.com.br", value: "inbound-smtp.eu-north-1.amazonaws.com", priority: 10, valid: false },
+        { type: "TXT", name: "omail._domainkey.suaempresa.com.br", value: "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu3x1e2Qm0Zk8vJ7yq1b9", priority: null, valid: false },
+        { type: "MX", name: "bounce.suaempresa.com.br", value: "feedback-smtp.eu-north-1.amazonses.com", priority: 10, valid: true },
+        { type: "TXT", name: "bounce.suaempresa.com.br", value: "v=spf1 include:amazonses.com ~all", priority: null, valid: true },
+        { type: "TXT", name: "_dmarc.suaempresa.com.br", value: "v=DMARC1; p=none;", priority: null, valid: false },
+      ]
+      const DOMAIN_PENDING = { id: "dom-1", domain: "suaempresa.com.br", status: "pending", verified: false, records: DNS_RECORDS }
+      const DOMAIN_VERIFIED = { id: "dom-1", domain: "suaempresa.com.br", status: "verified", verified: true, records: DNS_RECORDS.map((r) => ({ ...r, valid: true })) }
+
+      test("Configurações: domínio próprio pendente e verificado", async ({ context, page }) => {
+        const state = { domains: [{ ...DOMAIN_PENDING }] as Array<typeof DOMAIN_PENDING | typeof DOMAIN_VERIFIED> }
+        const api = new MockAtlas({ botName: "Assistente" })
+        api.handler = ({ method, path }) => {
+          if (path === "/v1/email/account") return { body: ACCOUNT_OK }
+          if (path === "/v1/transcriptions/models") return { body: { provider: "openai", defaultModel: "whisper-1", models: [] } }
+          if (path === "/v1/email/domains" && method === "GET") return { body: { domains: state.domains } }
+          if (path === "/v1/email/domains/dom-1/verify") {
+            state.domains = [{ ...DOMAIN_VERIFIED }]
+            return { body: { domain: DOMAIN_VERIFIED } }
+          }
+          return undefined
+        }
+        await api.install(context)
+        await page.goto("/?settings=provedores")
+        const section = page.getByTestId("email-domains")
+        await section.waitFor({ timeout: 30_000 })
+        await page.locator('[data-email-domain="suaempresa.com.br"]').waitFor()
+        await section.scrollIntoViewIfNeeded()
+        await shot(page, "14-configuracoes-dominio-pendente")
+        await page.getByRole("button", { name: "Verificar" }).click()
+        await page.getByTestId("domain-status").filter({ hasText: "Verificado" }).waitFor()
+        await shot(page, "15-configuracoes-dominio-verificado")
+      })
+
+      test("aba E-mail: criar o endereço com seletor de domínio", async ({ context, page }) => {
+        const api = new MockAtlas({ botName: "Assistente" })
+        api.handler = ({ path }) => {
+          if (path === "/v1/bots/bot-e2e/email") return { body: { account: ACCOUNT_OK, mailbox: null, messages: [] } }
+          if (path === "/v1/email/account") return { body: ACCOUNT_OK }
+          if (path === "/v1/email/domains") return { body: { domains: [DOMAIN_VERIFIED, { ...DOMAIN_PENDING, id: "dom-2", domain: "pendente.com.br" }] } }
+          return undefined
+        }
+        await api.install(context)
+        await openApp(page)
+        await openEmailTab(page)
+        await page.getByTestId("email-domain-choice").waitFor()
+        await shot(page, "16-aba-email-criar-seletor-dominio")
+        await page.locator("#email-domain-select").click()
+        await page.getByRole("option", { name: "suaempresa.com.br" }).waitFor()
+        await shot(page, "17-aba-email-criar-seletor-aberto")
+      })
+
       test("aba E-mail sem chave e sem endereço", async ({ context, page }) => {
         const api = new MockAtlas({ botName: "Assistente" })
         api.handler = ({ path }) => {

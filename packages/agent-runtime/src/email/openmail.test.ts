@@ -116,3 +116,57 @@ describe("openmail: webhook", () => {
 		expect(provider.verifyAndParseWebhook({ rawBody: raw, headers: headers({ "x-timestamp": ts, "x-signature": sign(raw) }), secret, now })).toEqual({ ok: false, reason: "bad_payload" });
 	});
 });
+
+describe("openmail: domínios próprios", () => {
+	const DOMAIN = { id: "dom_1", domain: "SuaEmpresa.com.br", status: "pending", records: [{ type: "MX", name: "suaempresa.com.br", value: "inbound-smtp.example", priority: 10, purpose: "mx", status: "missing" }, { type: "TXT", name: "omail._domainkey.suaempresa.com.br", value: "v=DKIM1; k=rsa; p=abc", priority: null, purpose: "dkim", status: "valid" }] };
+
+	it("adiciona o domínio e devolve os registros DNS normalizados", async () => {
+		const { fetchFn, calls } = fakeFetch([{ status: 201, body: DOMAIN }]);
+		const result = await createOpenMailProvider({ fetchFn }).domains!.add(KEY, "suaempresa.com.br");
+		expect(calls[0]!.method).toBe("POST");
+		expect(calls[0]!.url).toBe("https://api.openmail.sh/v1/domains");
+		expect(JSON.parse(calls[0]!.body!)).toEqual({ domain: "suaempresa.com.br" });
+		expect(result).toMatchObject({ id: "dom_1", domain: "suaempresa.com.br", status: "pending" });
+		expect(result.records[0]).toEqual({ type: "MX", name: "suaempresa.com.br", value: "inbound-smtp.example", priority: 10, valid: false });
+		expect(result.records[1]).toMatchObject({ type: "TXT", priority: null, valid: true });
+	});
+
+	it("lista (data[]) e verifica: re-check seguido de GET com o estado atual", async () => {
+		const list = fakeFetch([{ body: { data: [DOMAIN], total: 1 } }]);
+		expect(await createOpenMailProvider({ fetchFn: list.fetchFn }).domains!.list(KEY)).toHaveLength(1);
+		expect(list.calls[0]!.url).toContain("/v1/domains?");
+		const verify = fakeFetch([{ status: 202, body: {} }, { body: { ...DOMAIN, status: "verified" } }]);
+		const result = await createOpenMailProvider({ fetchFn: verify.fetchFn }).domains!.verify(KEY, "dom_1");
+		expect(verify.calls.map((c) => `${c.method} ${c.url.replace("https://api.openmail.sh", "")}`)).toEqual(["POST /v1/domains/dom_1/verify", "GET /v1/domains/dom_1"]);
+		expect(result.status).toBe("verified");
+	});
+
+	it("remove com DELETE", async () => {
+		const { fetchFn, calls } = fakeFetch([{ status: 200, body: {} }]);
+		await createOpenMailProvider({ fetchFn }).domains!.remove(KEY, "dom_1");
+		expect(calls[0]).toMatchObject({ method: "DELETE", url: "https://api.openmail.sh/v1/domains/dom_1" });
+	});
+
+	it("erros do plano e de domínio viram códigos e mensagens fixas (sem o corpo do upstream)", async () => {
+		const plan = createOpenMailProvider({ fetchFn: fakeFetch([{ status: 403, body: { error: "plan_limit", message: "Custom domains require Pro om_FAKE" } }]).fetchFn });
+		const error = await plan.domains!.add(KEY, "a.com").catch((e: unknown) => e as EmailProviderError);
+		expect(error).toMatchObject({ code: "plan_required", message: "Domínio próprio exige um plano pago do OpenMail." });
+		expect(String((error as Error).message)).not.toContain("om_FAKE");
+		const dup = createOpenMailProvider({ fetchFn: fakeFetch([{ status: 409, body: { error: "domain_exists" } }]).fetchFn });
+		await expect(dup.domains!.add(KEY, "a.com")).rejects.toMatchObject({ code: "domain_exists" });
+		const inUse = createOpenMailProvider({ fetchFn: fakeFetch([{ status: 422, body: { error: "domain_has_inboxes" } }]).fetchFn });
+		await expect(inUse.domains!.remove(KEY, "d")).rejects.toMatchObject({ code: "domain_in_use" });
+		const forbidden = createOpenMailProvider({ fetchFn: fakeFetch([{ status: 403, body: { error: "forbidden" } }]).fetchFn });
+		await expect(forbidden.domains!.list(KEY)).rejects.toMatchObject({ code: "auth_failed" });
+	});
+
+	it("cria a caixa num domínio verificado (campo domain no POST /v1/inboxes)", async () => {
+		const { fetchFn, calls } = fakeFetch([{ status: 201, body: { id: "inb_2", address: "atendimento@suaempresa.com.br", webhookSecret: "w" } }]);
+		const inbox = await createOpenMailProvider({ fetchFn }).createInbox(KEY, { displayName: "Bot", nameHint: "Bot", webhookUrl: "https://x/y", mailboxName: "atendimento", domain: "suaempresa.com.br" });
+		expect(JSON.parse(calls[0]!.body!)).toMatchObject({ mailboxName: "atendimento", domain: "suaempresa.com.br" });
+		expect(inbox.address).toBe("atendimento@suaempresa.com.br");
+		const plain = fakeFetch([{ status: 201, body: { id: "i", address: "a-bcd@openmail.sh" } }]);
+		await createOpenMailProvider({ fetchFn: plain.fetchFn }).createInbox(KEY, { displayName: "Bot", nameHint: "Bot", webhookUrl: "https://x/y" });
+		expect(JSON.parse(plain.calls[0]!.body!)).not.toHaveProperty("domain");
+	});
+});

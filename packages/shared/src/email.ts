@@ -194,3 +194,33 @@ export function replySubject(subject: string): string {
 	const clean = oneLineHeader(subject);
 	return /^re:\s/i.test(clean) ? clean : `Re: ${clean || "(sem assunto)"}`;
 }
+
+/** Domínio próprio da conta (OpenMail, plano pago): DNS a publicar e estado da verificação. */
+export const EMAIL_DOMAIN_STATUSES = ["pending", "verifying", "verified", "failed", "under_review"] as const;
+export type EmailDomainStatus = (typeof EMAIL_DOMAIN_STATUSES)[number];
+
+export type EmailDomainRecordDto = {
+	type: "TXT" | "CNAME" | "MX";
+	name: string;
+	value: string;
+	priority: number | null;
+	/** Registro já publicado e correto. */
+	valid: boolean;
+};
+
+export type EmailDomainDto = {
+	id: string;
+	domain: string;
+	status: EmailDomainStatus;
+	records: EmailDomainRecordDto[];
+	/** Só domínios verificados podem receber caixas de bots. */
+	verified: boolean;
+};
+
+/** Domínio em minúsculas e sem @ nem ponto final; `null` se não for um nome de domínio válido. */
+export function normalizeEmailDomain(raw: unknown): string | null {
+	if (typeof raw !== "string") return null;
+	const text = raw.trim().toLowerCase().replace(/^@/, "").replace(/\.$/, "");
+	if (text.length < 4 || text.length > 253) return null;
+	return /^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/.test(text) ? text : null;
+}
