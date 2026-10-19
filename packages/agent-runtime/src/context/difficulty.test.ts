@@ -18,7 +18,6 @@ describe("classificação de dificuldade por regras", () => {
 			"abre o site da receita e me diz o prazo",
 			"pesquisa a previsão do tempo de amanhã",
 			"lê o pdf que mandei",
-			"me manda um e-mail pro João",
 		]) {
 			expect(tier(text), text).toBe("medium");
 		}
@@ -41,7 +40,7 @@ describe("classificação de dificuldade por regras", () => {
 	});
 
 	it("várias ferramentas independentes sobem para Difícil; o navegador sozinho não", () => {
-		expect(tier("preciso do relatório de vendas por cliente, do pdf, do e-mail e da api do banco")).toBe("hard");
+		expect(tier("abre o site, pesquisa os preços, calcula a média da planilha em csv e baixa o relatório")).toBe("hard");
 		expect(tier("abre o site e baixa o relatório")).toBe("medium");
 	});
 
@@ -73,5 +72,13 @@ describe("countRequestSteps", () => {
 		expect(countRequestSteps("faça isto")).toBe(0);
 		expect(countRequestSteps("primeiro isso, depois aquilo")).toBe(2);
 		expect(countRequestSteps("- a\n- b")).toBe(2);
+	});
+});
+
+describe("palavra solta de assunto não sobe o nível", () => {
+	it("citar api, e-mail, cofre, bots, rotinas ou imagens sem ação fica Fácil", () => {
+		for (const text of ["o que é uma API?", "o que é um e-mail?", "para que serve um cofre de senhas?", "o que é uma rotina?", "o que é uma imagem vetorial?"]) {
+			expect(tier(text), text).toBe("easy");
+		}
 	});
 });

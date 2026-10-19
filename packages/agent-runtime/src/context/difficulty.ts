@@ -11,20 +11,13 @@ import type { ContextGroup } from "./prompt-blocks.js";
 
 /** Código, shell/VM, desktop: trabalho que costuma pedir o modelo mais forte. */
 const HARD_GROUPS: readonly ContextGroup[] = ["dev", "shell", "desktop"];
-/** Consultas a dados, arquivos, conectores, navegador e pesquisa: precisam de ferramentas. */
-const MEDIUM_GROUPS: readonly ContextGroup[] = [
-	"data",
-	"files",
-	"browser",
-	"web",
-	"api",
-	"email",
-	"code",
-	"images",
-	"routines",
-	"bots",
-	"vault",
-];
+/**
+ * Ações que pedem ferramentas: consulta de dados, arquivos, navegador, pesquisa e análise.
+ * Grupos que só aparecem por uma palavra solta (api, e-mail, cofre, bots, rotinas, imagens)
+ * ficam de fora: citar o assunto não torna o pedido mais difícil. Anexos e conectores citados
+ * com @ são sinais próprios; na dúvida o nível fica baixo e a subida de nível corrige.
+ */
+const MEDIUM_GROUPS: readonly ContextGroup[] = ["data", "files", "browser", "web", "code"];
 
 /** Pedido longo ou com várias etapas encadeadas. */
 const LONG_REQUEST_CHARS = 700;
