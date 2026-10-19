@@ -23,7 +23,6 @@ import {
 	parseBotAutoDecisionCard,
 	parseBotNeedsUserCard,
 	parseBotMessageContent,
-	parseFramedInboundEmail,
 	BOT_LINK_ROLE,
 	SEND_TO_BOT_TOOL_NAME,
 	type GroupStateResponse,
@@ -63,6 +62,7 @@ import {
 import { subscribeAppResume } from "@/lib/resume-sync";
 import { createThreadSync, type ThreadSync } from "@/lib/thread-sync";
 import { createSendQueue } from "@/lib/send-queue";
+import { inboundEmailBodyOf, inboundEmailThreadMessage } from "@/lib/email-message";
 import { adoptLoadedThread, applyLiveEvent, createLiveBubbleState, hydrateRunEvents, mergePreservingSkills, trackSupersededBubbles, type LiveBubbleState } from "@/lib/thread-live";
 import { eventRunStatus, isActiveRunStatus, isParkedRunStatus, isTerminalRunStatus, type HubEvent } from "@/lib/event-hub";
 import { currentPollMode, getSharedEventHub, shouldPollTick } from "@/lib/event-hub-client";
@@ -362,8 +362,8 @@ function buildSessionMessage(message: SessionMessage): Message | null {
 		};
 	}
 	if (message.role === "user" && message.source?.kind === "email") {
-		const email = parseFramedInboundEmail(message.content);
-		if (email) return { id: message.id, kind: "user", text: email.body, email: { from: email.from, subject: email.subject, threadId: email.threadId } };
+		const card = inboundEmailThreadMessage(message.id, message.content);
+		if (card) return card;
 	}
 	if (message.role === "user") {
 		return { id: message.id, kind: "user", text: message.content };
@@ -1330,7 +1330,9 @@ export function useAtlasChat({
 					const text = run?.resultText?.trim();
 					const pendingObjective =
 						last?.kind === "user" ? last.text.trim() : "";
-					const runObjective = run?.objective?.trim() ?? "";
+					// Run de e-mail: o objetivo é o texto emoldurado; a thread mostra só o corpo da resposta.
+					const objectiveRaw = run?.objective?.trim() ?? "";
+					const runObjective = last?.kind === "user" && last.email ? (inboundEmailBodyOf(objectiveRaw) ?? objectiveRaw) : objectiveRaw;
 					if (
 						text &&
 						pendingObjective &&

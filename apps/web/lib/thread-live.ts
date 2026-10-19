@@ -76,7 +76,11 @@ export function mergePreservingSkills(
 		if (updated) {
 			// O transcript de streaming não conhece a origem entre bots: preserva a marca.
 			const bot = (item.kind === "user" || item.kind === "assistant") ? item.bot : undefined;
-			result.push(bot && (updated.kind === "user" || updated.kind === "assistant") && !updated.bot ? { ...updated, bot } : updated);
+			// O e-mail recebido (cartão) também some no transcript (só id/tipo/texto): sem ele o corpo viraria balão do dono.
+			const email = item.kind === "user" ? item.email : undefined;
+			let merged: Message = bot && (updated.kind === "user" || updated.kind === "assistant") && !updated.bot ? { ...updated, bot } : updated;
+			if (email && item.kind === "user" && merged.kind === "user") merged = { ...merged, text: item.text, email };
+			result.push(merged);
 			consumed.add(item.id);
 		}
 	}

@@ -6,6 +6,7 @@ import {
 	normalizeEmailDomain,
 	normalizeEmailAddress,
 	parseFramedInboundEmail,
+	stripQuotedReply,
 	replySubject,
 } from "./email.js";
 
@@ -80,5 +81,58 @@ describe("limite de remetentes", () => {
 	it("aceita até 1000 e descarta o excedente", () => {
 		const raw = Array.from({ length: 1200 }, (_, i) => `p${i}@x.co`);
 		expect(normalizeAllowedSenders(raw)).toHaveLength(1000);
+	});
+});
+
+describe("stripQuotedReply", () => {
+	it("Gmail pt-BR: corta no cabeçalho 'Em ... escreveu:' e mantém as quebras de linha", () => {
+		const body = "Beleza, obg pelo aviso\n\nAbraço,\nAli\n\nEm seg., 19 de out. de 2026, 11:27, Cookie <cookie-kict4o@omail.sh> escreveu:\n\n> Oi, Ali! Deu tudo certo.\n>\n";
+		expect(stripQuotedReply(body)).toBe("Beleza, obg pelo aviso\n\nAbraço,\nAli");
+	});
+
+	it("Gmail pt-BR com o cabeçalho quebrado em duas linhas", () => {
+		const body = "Pode ser amanhã.\n\nEm seg., 19 de out. de 2026 às 11:27, Cookie <cookie-kict4o@omail.sh>\nescreveu:\n\n> Oi!";
+		expect(stripQuotedReply(body)).toBe("Pode ser amanhã.");
+	});
+
+	it("Gmail inglês: 'On ... wrote:'", () => {
+		const body = "Sounds good, thanks!\n\nOn Mon, Oct 19, 2026 at 11:27 AM Cookie <cookie@omail.sh> wrote:\n\n> Hi Ali,\n> All done.\n";
+		expect(stripQuotedReply(body)).toBe("Sounds good, thanks!");
+	});
+
+	it("Outlook inglês: 'From: ... Sent: ...' com separador", () => {
+		const body = "Confirmed.\n\n________________________________\nFrom: Cookie <cookie@omail.sh>\nSent: Monday, October 19, 2026 11:27 AM\nTo: Ali\nSubject: Update\n\nAll done.";
+		expect(stripQuotedReply(body)).toBe("Confirmed.");
+	});
+
+	it("Outlook pt-BR: 'De: ... Enviado: ...'", () => {
+		const body = "Recebido, obrigado.\n\nDe: Cookie <cookie@omail.sh>\nEnviado: segunda-feira, 19 de outubro de 2026 11:27\nPara: Ali\nAssunto: Aviso\n\nTudo certo.";
+		expect(stripQuotedReply(body)).toBe("Recebido, obrigado.");
+	});
+
+	it("'-----Original Message-----' e 'Mensagem original'", () => {
+		expect(stripQuotedReply("Ok\n\n-----Original Message-----\nFrom: a@b.com\nSent: x\nhi")).toBe("Ok");
+		expect(stripQuotedReply("Ok\r\n-----Mensagem original-----\r\nDe: a@b.com\r\nhi")).toBe("Ok");
+	});
+
+	it("bloco final de linhas '>' sem cabeçalho", () => {
+		expect(stripQuotedReply("Sim, pode.\n\n> pergunta antiga\n>\n> mais uma")).toBe("Sim, pode.");
+	});
+
+	it("não corta '>' no meio do texto nem frases que só começam com 'Em'", () => {
+		const body = "Em breve te aviso:\n> citei isto\ne continuo escrevendo.";
+		expect(stripQuotedReply(body)).toBe(body);
+	});
+
+	it("sem nada além do histórico, devolve o original", () => {
+		const body = "> só citação\n> outra";
+		expect(stripQuotedReply(body)).toBe(body);
+		expect(stripQuotedReply("Em seg., 19 de out. de 2026, Cookie <c@omail.sh> escreveu:\n> oi")).toBe("Em seg., 19 de out. de 2026, Cookie <c@omail.sh> escreveu:\n> oi");
+	});
+
+	it("frameInboundEmail usa só a resposta e o corpo completo fica a cargo de quem grava", () => {
+		const framed = frameInboundEmail({ from: "ali@x.com", subject: "Aviso", threadId: "t", body: "Beleza, obg\n\nEm seg., 19 de out. de 2026, 11:27, Cookie <c@omail.sh> escreveu:\n> Oi" });
+		expect(parseFramedInboundEmail(framed)?.body).toBe("Beleza, obg");
+		expect(framed).not.toContain("escreveu");
 	});
 });

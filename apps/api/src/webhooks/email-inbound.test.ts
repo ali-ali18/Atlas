@@ -46,17 +46,18 @@ function payload(over: { from?: string; messageId?: string; threadId?: string; s
 function harness(opts: { box?: ReturnType<typeof mailbox> | null; runDeps?: boolean; startFails?: boolean } = {}) {
 	const box = opts.box === undefined ? mailbox() : opts.box;
 	const seen = new Map<string, { id: string }>();
-	const state = { runs: [] as Array<{ framedText: string; subject: string; mailbox: unknown }>, blocked: [] as string[], links: [] as unknown[], forgotten: [] as string[], recorded: [] as Array<{ status: string; from: string }> };
+	const state = { runs: [] as Array<{ framedText: string; subject: string; mailbox: unknown }>, blocked: [] as string[], links: [] as unknown[], forgotten: [] as string[], recorded: [] as Array<{ status: string; from: string }>, bodies: [] as string[] };
 	const provider = createOpenMailProvider();
 	const routes = createEmailInboundRoutes(() => (opts.runDeps === false ? null : ({ enqueueRun: async () => true, envDefaultModel: "m" })), {
 		getMailbox: async (id) => (box && id === (box as { id: string }).id ? (box as never) : null),
 		service: { webhookSecretOf: createEmailService({ vaultReady: () => true }).webhookSecretOf, provider },
-		record: (async (input: { providerMessageId: string; status: string; from: string }) => {
+		record: (async (input: { providerMessageId: string; status: string; from: string; body: string }) => {
 			const existing = seen.get(input.providerMessageId);
 			if (existing) return { created: false, row: existing };
 			const row = { id: `em_${seen.size + 1}` };
 			seen.set(input.providerMessageId, row);
 			state.recorded.push({ status: input.status, from: input.from });
+			state.bodies.push(input.body);
 			return { created: true, row };
 		}) as never,
 		link: (async (id: string, link: unknown) => void state.links.push({ id, link })) as never,
@@ -118,6 +119,16 @@ test("remetente permitido vira run com o e-mail emoldurado como dado externo", a
 	assert.match(run.framedText, /tabela de preços/);
 	assert.equal(run.subject, "Cotação");
 	assert.deepEqual(h.state.links, [{ id: "em_1", link: { conversationId: "conv_1", runId: "run_1" } }]);
+});
+
+test("resposta do Gmail: o run recebe só a resposta (com quebras) e o registro guarda o corpo completo", async () => {
+	const h = harness();
+	const full = "Beleza, obg pelo aviso\n\nAbraço\n\nEm seg., 19 de out. de 2026, 11:27, Cookie <cookie-kict4o@omail.sh> escreveu:\n\n> Oi, Ali! Deu tudo certo.\n>";
+	assert.equal((await h.post(payload({ body: full }))).status, 200);
+	const run = h.state.runs[0]!;
+	assert.match(run.framedText, /<<<EMAIL_EXTERNO\nBeleza, obg pelo aviso\n\nAbraço\nEMAIL_EXTERNO>>>/);
+	assert.doesNotMatch(run.framedText, /escreveu/);
+	assert.deepEqual(h.state.bodies, [full]);
 });
 
 test("idempotente: a mesma mensagem entregue duas vezes roda uma vez só", async () => {
