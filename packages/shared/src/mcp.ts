@@ -1,3 +1,4 @@
+import type { ConnectorGuideView } from "./connector-guide.js";
 /**
  * Conectores MCP (marketplace): tipos públicos e nomes de tools.
  *
@@ -46,6 +47,8 @@ export type McpConnectionView = {
 	lastError: string | null;
 	/** Apelido da conta (várias contas do mesmo conector); null = sem apelido. */
 	accountLabel: string | null;
+	/** Guia de uso do conector (dado não confiável); null = ainda não gerado. */
+	guide?: ConnectorGuideView | null;
 	createdAt: string;
 	updatedAt: string;
 };

@@ -378,6 +378,8 @@ import {
 	searchMcpTools,
 	summarizeMcpTools,
 } from "./mcp/activation.js";
+import { connectorAccountName } from "@workspace/shared";
+import { createConnectorGuideInjector, createLessonTracker, type GuideRef, type LessonCandidate } from "./mcp/connector-guide.js";
 import {
 	checkRepeat,
 	hasSuccessfulToolEvidence,
@@ -4148,6 +4150,8 @@ export async function runComputerUse(params: {
 	mcp?: McpRuntime | null;
 	/** APIs conectadas por OpenAPI carregadas pelo caller (`loadApiConnectorRuntime`). */
 	apiConnector?: ApiConnectorRuntime | null;
+	/** Falha seguida de sucesso no mesmo conector: o caller enfileira a lição (sugestão ao dono, nunca aplicada sozinha). */
+	onConnectorLesson?: (lesson: LessonCandidate) => void | Promise<void>;
 	/** E-mail próprio do bot carregado pelo caller (`loadEmailRunContext`). */
 	email?: EmailRunContext | null;
 	/** Política de autonomia efetiva (F10). Sem ela: Equilibrado. */
@@ -4936,6 +4940,15 @@ export async function runComputerUse(params: {
 	const promptedGroups = new Set(economyPlan?.groups ?? []);
 	// Grupo `data`: entra (uma vez, como nota) quando o run usa conector, API ou código de dados e o roteador ainda não o carregou.
 	let dataToolRan = false;
+	// Guia do conector (dado): entra uma vez por conexão, ao usar ou carregar uma tool dela.
+	const guideInjector = createConnectorGuideInjector([
+		...(mcp?.guides ? [...mcp.guides].map(([id, item]) => ({ id, name: item.name })) : []),
+		...(params.apiConnector?.connections ?? []).map((item) => ({ id: item.id, name: connectorAccountName(item.name, item.accountLabel) })),
+	]);
+	const lessonTracker = createLessonTracker();
+	let guideSeeded = false;
+	const guideRefsPending: GuideRef[] = [];
+	const guideLoadedSeen = new Set<string>();
 	const nativeDeferral: NativeDeferral | null =
 		economyPlan && economyPlan.plan.deferred.size > 0
 			? createNativeDeferral({ deferred: economyPlan.plan.deferred, tools, promptedGroups })
@@ -4989,6 +5002,7 @@ export async function runComputerUse(params: {
 	// a partir do próximo passo. `mcpActiveOrder` guarda as tools MCP ativas
 	// neste run, mais antiga primeiro (para a eviction por LRU).
 	let mcpActiveOrder: string[] = mcpTools.map((tool) => tool.function.name);
+	for (const loadedName of mcpActiveOrder) guideLoadedSeen.add(loadedName);
 	// F4 — tools MCP chamadas no run ficam fixas (nunca saem no LRU).
 	const mcpUsedTools = new Set<string>();
 	const applyMcpActivation = (
@@ -6725,6 +6739,24 @@ ${blockHint}`;
 			}
 			if (extractResultRef(summary)) nativeDeferral?.load(["artifact_read"]);
 			if (ok && (entry || name === "api_call" || name === "run_code")) dataToolRan = true;
+			// Guia do conector: marca a conexão usada (a nota entra após o passo) e observa falha → sucesso para propor uma lição.
+			{
+				let guideRef: GuideRef | null = null;
+				if (entry) {
+					const g = mcp?.guides?.get(entry.connectionId);
+					guideRef = { kind: "mcp", id: entry.connectionId, name: g?.name ?? entry.connectionName, text: g?.text ?? null };
+				} else if (name === "api_call" || name === "api_search") {
+					const g = params.apiConnector?.guideFor?.(args);
+					if (g) guideRef = { kind: "api", id: g.id, name: g.name, text: g.text };
+				}
+				if (guideRef) {
+					guideRefsPending.push(guideRef);
+					if (params.onConnectorLesson && name !== "api_search") {
+						const lesson = lessonTracker.record({ kind: guideRef.kind, connectionId: guideRef.id, tool: name, args, ok, text: summary });
+						if (lesson) void Promise.resolve(params.onConnectorLesson(lesson)).catch(() => undefined);
+					}
+				}
+			}
 			if (resultStore && modelSummary === summary) {
 				const referenced = await resultStore.reference({ tool: name, text: summary, ok, step: decisionIndex });
 				if (referenced !== summary) {
@@ -7440,6 +7472,26 @@ ${blockHint}`;
 		if (dataToolRan && !isSubagent && !promptedGroups.has("data")) {
 			promptedGroups.add("data");
 			conversation.push({ role: "system", content: groupProcedureText(new Set(["data"])) });
+		}
+		// Guia do conector: nota de dados (uma vez por conexão e run), depois das regras; também ao carregar tools por busca.
+		if (mcp?.guides || params.apiConnector?.connections.some((item) => item.guide)) {
+			for (const toolDef of tools) {
+				const toolName = toolDef.function.name;
+				if (!isMcpToolName(toolName) || guideLoadedSeen.has(toolName)) continue;
+				guideLoadedSeen.add(toolName);
+				const loadedEntry = mcp?.toolset.entries.get(toolName);
+				const g = loadedEntry ? mcp?.guides?.get(loadedEntry.connectionId) : undefined;
+				if (loadedEntry && g) guideRefsPending.push({ kind: "mcp", id: loadedEntry.connectionId, name: g.name, text: g.text });
+			}
+			if (guideRefsPending.length > 0) {
+				if (!guideSeeded) {
+					guideInjector.seed(conversation);
+					guideSeeded = true;
+				}
+				for (const note of guideInjector.notesFor(guideRefsPending.splice(0))) {
+					conversation.push({ role: "system", content: note });
+				}
+			}
 		}
 		nextStepIndex = step + 1;
 		await persistCheckpoint(nextStepIndex);

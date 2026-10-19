@@ -11,6 +11,7 @@ import {
 import { prisma } from "./client.js";
 import { ResourceOwnershipError } from "./conversations.js";
 import { ownerIds } from "./mcp-connections.js";
+import { guideFromRow } from "./connector-guides.js";
 
 type ApiConnectionRow = Prisma.ApiConnectionGetPayload<Record<string, never>>;
 type ApiConnectionLiteRow = Omit<ApiConnectionRow, "catalogJson">;
@@ -76,6 +77,10 @@ const LITE_SELECT = {
 	rateLimitRps: true,
 	lastError: true,
 	accountLabel: true,
+	guideMd: true,
+	guideSource: true,
+	guideUpdatedAt: true,
+	guideSuggestionsJson: true,
 	createdAt: true,
 	updatedAt: true,
 } satisfies Prisma.ApiConnectionSelect;
@@ -114,6 +119,7 @@ function toRecord(row: ApiConnectionLiteRow): ApiConnectionRecord {
 		operationCount: row.operationCount,
 		rateLimitRps: clampRateLimit(row.rateLimitRps),
 		accountLabel: row.accountLabel,
+		guide: guideFromRow(row),
 		createdAt: row.createdAt.toISOString(),
 		updatedAt: row.updatedAt.toISOString(),
 		specUrl: row.specUrl,

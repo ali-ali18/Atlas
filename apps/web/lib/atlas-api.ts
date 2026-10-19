@@ -52,6 +52,8 @@ import type {
 	ComposioToolkitsPageView,
 	ComposioToolkitView,
 	McpCatalogEntry,
+	ConnectorGuideView,
+	ConnectorKind,
 	ApiConnectionView,
 	ApiOperation,
 	ApiProposal,
@@ -2692,4 +2694,43 @@ export function updateBotEmail(botId: string, patch: { allowedSenders?: string[]
 }
 export function disableBotEmail(botId: string): Promise<BotEmailPayload> {
 	return atlasFetch(`/v1/bots/${encodeURIComponent(botId)}/email`, { method: "DELETE" });
+}
+
+/** Guia de uso de uma conexão (MCP ou API): leitura, edição, nova geração e sugestões do bot. */
+function guidePath(kind: ConnectorKind, id: string): string {
+	return `/v1/connectors/${kind}/${encodeURIComponent(id)}/guide`;
+}
+
+export async function getConnectorGuide(kind: ConnectorKind, id: string): Promise<ConnectorGuideView | null> {
+	const body = await atlasFetch<{ guide: ConnectorGuideView | null }>(guidePath(kind, id));
+	return body.guide;
+}
+
+export async function saveConnectorGuide(kind: ConnectorKind, id: string, text: string): Promise<ConnectorGuideView> {
+	const body = await atlasFetch<{ guide: ConnectorGuideView }>(guidePath(kind, id), {
+		method: "PUT",
+		body: JSON.stringify({ text }),
+	});
+	return body.guide;
+}
+
+/** Pede a geração em segundo plano; `confirm` é obrigatório quando o guia foi editado pelo usuário. */
+export async function regenerateConnectorGuide(kind: ConnectorKind, id: string, confirm = false): Promise<void> {
+	await atlasFetch<{ queued: boolean }>(`${guidePath(kind, id)}/regenerate`, {
+		method: "POST",
+		body: JSON.stringify({ confirm }),
+	});
+}
+
+export async function resolveConnectorGuideSuggestion(
+	kind: ConnectorKind,
+	id: string,
+	suggestionId: string,
+	action: "accept" | "dismiss",
+): Promise<ConnectorGuideView | null> {
+	const body = await atlasFetch<{ guide: ConnectorGuideView | null }>(
+		`${guidePath(kind, id)}/suggestions/${encodeURIComponent(suggestionId)}/${action}`,
+		{ method: "POST" },
+	);
+	return body.guide;
 }

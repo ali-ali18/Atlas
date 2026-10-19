@@ -7,6 +7,7 @@ import type {
 } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { ResourceOwnershipError } from "./conversations.js";
+import { guideFromRow } from "./connector-guides.js";
 
 type McpConnectionRow = Prisma.McpConnectionGetPayload<Record<string, never>>;
 
@@ -94,6 +95,7 @@ function toRecord(row: McpConnectionRow): McpConnectionRecord {
 		confirmWrites: row.confirmWrites,
 		lastError: row.lastError,
 		accountLabel: row.accountLabel,
+		guide: guideFromRow(row),
 		createdAt: row.createdAt.toISOString(),
 		updatedAt: row.updatedAt.toISOString(),
 		secretsEnc: row.secretsEnc,

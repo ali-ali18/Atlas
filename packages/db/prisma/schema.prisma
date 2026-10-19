@@ -733,6 +733,12 @@ model McpConnection {
   lastError      String?
   /// Apelido da conta ("Notion pessoal", e-mail…): várias contas do mesmo conector.
   accountLabel   String?
+  /// Guia de uso (markdown, até 2000 chars; DADO não confiável) e origem ("generated" | "user").
+  guideMd        String?
+  guideSource    String?
+  guideUpdatedAt DateTime?
+  /// Sugestões do bot pendentes: [{id, text, createdAt}] (aceitar/descartar na UI).
+  guideSuggestionsJson Json?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -776,6 +782,12 @@ model ApiConnection {
   lastError      String?
   /// Apelido da conta ("Bling loja", e-mail…): várias contas na mesma base.
   accountLabel   String?
+  /// Guia de uso (markdown, até 2000 chars; DADO não confiável) e origem ("generated" | "user").
+  guideMd        String?
+  guideSource    String?
+  guideUpdatedAt DateTime?
+  /// Sugestões do bot pendentes: [{id, text, createdAt}] (aceitar/descartar na UI).
+  guideSuggestionsJson Json?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

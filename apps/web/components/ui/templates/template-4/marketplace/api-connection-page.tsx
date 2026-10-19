@@ -1,5 +1,6 @@
 "use client"
 
+import { ConnectorGuide } from "./connector-guide"
 import { useEffect, useMemo, useState } from "react"
 import { ChevronRightIcon, SearchIcon } from "lucide-react"
 import { API_AUTH_LABEL, type ApiConnectionView, type ApiOperation } from "@workspace/shared"
@@ -329,6 +330,7 @@ export function ApiConnectionPage({
         )}
         <p className="m-0 text-xs text-muted-foreground">Ações de escrita chegam em breve.</p>
       </section>
+      {connected ? <ConnectorGuide connectionId={item.id} guide={item.guide} kind="api" /> : null}
       <ToolGuide guide={guide ? apiOperationGuide(guide) : null} onClose={() => setGuide(null)} />
     </div>
   )

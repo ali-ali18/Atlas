@@ -46,6 +46,8 @@ import { createMemoryRoutes } from "./routes/memory.js";
 import { createComposioRoutes } from "./routes/composio.js";
 import { createMcpRoutes } from "./routes/mcp.js";
 import { createApiConnectionRoutes } from "./routes/api-connections.js";
+import { createConnectorGuideRoutes } from "./routes/connector-guides.js";
+import { setConnectorGuideEnqueuer } from "./connector-guide-queue.js";
 import { createProviderRoutes } from "./routes/providers.js";
 import { createProviderKeyRoutes } from "./routes/provider-keys.js";
 import { createModelRoutes } from "./routes/models.js";
@@ -135,6 +137,10 @@ try {
 }
 
 const config = { ...baseConfig, chatQueue, agentRunQueue, routineQueue };
+if (chatQueue) {
+	const guideQueue = chatQueue;
+	setConnectorGuideEnqueuer((payload, jobId) => guideQueue.add(ATLAS_JOB_NAMES.connectorGuide, payload, { jobId, attempts: 2 }));
+}
 
 const app = new Hono();
 
@@ -230,6 +236,7 @@ app.route("/", createMcpRoutes({
 	onApiConnected: (userId, slug) => resumeRunsAwaitingConnector(agentRunQueue, userId, slug, "api"),
 }));
 app.route("/", createApiConnectionRoutes({ onConnected: (userId, slug) => resumeRunsAwaitingConnector(agentRunQueue, userId, slug, "api") }));
+app.route("/", createConnectorGuideRoutes());
 app.route("/", createComposioRoutes());
 app.route("/", createModelRoutes());
 app.route("/", createProviderRoutes(undefined, undefined, undefined, undefined, accountChatgptGate()));

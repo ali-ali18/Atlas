@@ -1,3 +1,4 @@
+import type { ConnectorGuideView } from "./connector-guide.js";
 /**
  * Conector de API genérico a partir de uma especificação OpenAPI 3 / Swagger 2
  * (etapa 1: somente leitura). Tudo aqui é puro e sem I/O: interpreta o
@@ -514,6 +515,8 @@ export type ApiConnectionView = {
 	rateLimitRps: number;
 	/** Apelido da conta (várias contas na mesma API); null = sem apelido. */
 	accountLabel: string | null;
+	/** Guia de uso da API (dado não confiável); null = ainda não gerado. */
+	guide?: ConnectorGuideView | null;
 	createdAt: string;
 	updatedAt: string;
 };

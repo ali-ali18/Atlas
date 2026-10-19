@@ -364,6 +364,14 @@ export {
 	type UpdateMcpConnectionInput,
 } from "./mcp-connections.js";
 export {
+	addGuideSuggestion,
+	getConnectorGuide,
+	guideFromRow,
+	resolveGuideSuggestion,
+	setConnectorGuide,
+	type ResolveSuggestionResult,
+} from "./connector-guides.js";
+export {
 	claimDefaultAndValidate,
 	claimDefaultData,
 	maybeClaimDefaultOnBoot,

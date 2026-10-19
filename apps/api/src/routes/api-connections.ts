@@ -41,6 +41,7 @@ import {
 	buildApiProposal,
 	type DiscoveredApi,
 } from "@workspace/agent-runtime";
+import { scheduleConnectorGuide } from "../connector-guide-queue.js";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 
 const SECRET_BOX_ERROR = "Defina CONNECTOR_ENCRYPTION_KEY no .env da API e do worker";
@@ -231,6 +232,7 @@ export async function completeApiOAuthCallback(
 		const connection = await deps.store.update(record.id, { status: "connected", secretsEnc: sealed, lastError: null }, input.userId);
 		if (!connection) return { ok: false, error: "Conexão não encontrada" };
 		void deps.onConnected?.(input.userId, slugifyApiName(connection.name))?.catch?.((error: unknown) => console.error("resume runs after api connect failed", error));
+		scheduleConnectorGuide("api", connection, input.userId);
 		return { ok: true, connectionId: connection.id, connectorName: connection.name };
 	} catch (error) {
 		return fail(sanitizeErrorMessage(error, [...apiSecretValues(secrets), input.code]));
@@ -348,6 +350,7 @@ export function createApiConnectionRoutes(overrides: Partial<ApiConnectionRouteD
 			}
 			if (!record) return c.json({ error: "Conexão não encontrada" }, 404);
 			if (auth.kind !== "oauth2") {
+				if (record.status === "connected") scheduleConnectorGuide("api", record, userId);
 				void deps.onConnected?.(userId, slugifyApiName(record.name))?.catch?.((error: unknown) => console.error("resume runs after api connect failed", error));
 				return c.json({ connection: view(record), authorizeUrl: null }, 201);
 			}
@@ -438,6 +441,7 @@ export function createApiConnectionRoutes(overrides: Partial<ApiConnectionRouteD
 			}
 			if (existing.auth.kind === "none") {
 				const connection = await deps.store.update(existing.id, { status: "connected", lastError: null }, userId);
+				if (connection) scheduleConnectorGuide("api", connection, userId);
 				return connection ? c.json({ connection: view(connection), authorizeUrl: null }) : c.json({ error: "Conexão não encontrada" }, 404);
 			}
 			const apiKey = secretField(isObject(body) ? body : {}, "apiKey");
@@ -445,6 +449,7 @@ export function createApiConnectionRoutes(overrides: Partial<ApiConnectionRouteD
 			const connection = await deps.store.update(existing.id, { status: "connected", secretsEnc: sealApiSecrets({ apiKey: apiKey.value }), lastError: null }, userId);
 			if (!connection) return c.json({ error: "Conexão não encontrada" }, 404);
 			void deps.onConnected?.(userId, slugifyApiName(connection.name))?.catch?.((error: unknown) => console.error("resume runs after api connect failed", error));
+			scheduleConnectorGuide("api", connection, userId);
 			return c.json({ connection: view(connection), authorizeUrl: null });
 		} catch {
 			return c.json({ error: "Não foi possível iniciar o login" }, 503);
