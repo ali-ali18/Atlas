@@ -9,7 +9,7 @@ export type EmailProviderId = (typeof EMAIL_PROVIDERS)[number];
 
 export const EMAIL_DAILY_LIMIT_DEFAULT = 20;
 export const EMAIL_DAILY_LIMIT_MAX = 200;
-export const EMAIL_ALLOWED_SENDERS_MAX = 50;
+export const EMAIL_ALLOWED_SENDERS_MAX = 1000;
 export const EMAIL_SUBJECT_MAX_CHARS = 300;
 export const EMAIL_BODY_MAX_CHARS = 20_000;
 export const EMAIL_SNIPPET_CHARS = 200;

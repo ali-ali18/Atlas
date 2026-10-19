@@ -1,15 +1,17 @@
 "use client";
 
-import { ArrowDownLeftIcon, ArrowUpRightIcon, CheckIcon, CopyIcon, MailIcon, XIcon } from "lucide-react";
+import { ArrowDownLeftIcon, ArrowUpRightIcon, ArrowRightIcon, CheckIcon, ChevronDownIcon, CopyIcon, MailIcon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { BotMailboxDto, EmailMessageDto } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
 import { Input } from "@workspace/ui/components/input";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { Switch } from "@workspace/ui/components/switch";
 import { cn } from "@workspace/ui/lib/utils";
 import { openSettingsModal } from "@/components/settings/settings-url";
 import { useBotEmail } from "@/hooks/use-bot-email";
+import { openSendersPage } from "@/lib/email-senders-url";
 import {
 	EMAIL_EMPTY_ALLOWED,
 	EMAIL_NO_KEY_TEXT,
@@ -18,7 +20,9 @@ import {
 	emailPeer,
 	emailStatusBadge,
 	emailSubject,
+	moreSendersLabel,
 	parseDailyLimit,
+	previewAllowedSenders,
 } from "./bot-email-helpers";
 import { memoryRelativeDate } from "./memory-tab-helpers";
 
@@ -76,7 +80,64 @@ function AddressCard({ mailbox, busy, onToggle }: { mailbox: BotMailboxDto; busy
 	);
 }
 
-function AllowedSenders({ mailbox, busy, onChange }: { mailbox: BotMailboxDto; busy: boolean; onChange: (next: string[]) => Promise<boolean> }) {
+const SENDER_ROW = "flex h-10 min-w-0 items-center gap-2 rounded-2xl border border-border bg-card pr-1 pl-3";
+
+function SenderRow({ rule, busy, onRemove }: { rule: string; busy: boolean; onRemove: () => void }) {
+	return (
+		<li className={SENDER_ROW} data-allowed-sender={rule}>
+			<span className="min-w-0 flex-1 truncate text-sm">{rule}</span>
+			<Button aria-label={`Remover ${rule}`} className="shrink-0 text-muted-foreground" disabled={busy} onClick={onRemove} size="icon-sm" variant="ghost">
+				<XIcon />
+			</Button>
+		</li>
+	);
+}
+
+/** Lista curta da aba: o primeiro remetente e, recolhidos, os mais recentes (a lista completa fica numa página). */
+export function SenderPreviewList({ senders, busy, onChange, onOpenAll, defaultOpen = false }: { senders: string[]; busy: boolean; onChange: (next: string[]) => Promise<boolean>; onOpenAll: () => void; defaultOpen?: boolean }) {
+	const [open, setOpen] = useState(defaultOpen);
+	const { first, recent, more } = previewAllowedSenders(senders);
+	if (first === null) return null;
+	const remove = (rule: string) => void onChange(senders.filter((item) => item !== rule));
+	return (
+		<div className="flex min-w-0 flex-col gap-1.5" data-testid="allowed-preview">
+			<ul aria-label="Remetentes permitidos" className="m-0 flex list-none flex-col gap-1.5 p-0">
+				<SenderRow busy={busy} onRemove={() => remove(first)} rule={first} />
+			</ul>
+			{more > 0 ? (
+				<Collapsible onOpenChange={setOpen} open={open}>
+					<CollapsibleTrigger
+						className={cn(SENDER_ROW, "w-full cursor-pointer pr-3 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50")}
+						data-testid="allowed-more"
+					>
+						<span className="min-w-0 flex-1 truncate text-muted-foreground text-sm">{moreSendersLabel(more)}</span>
+						<ChevronDownIcon aria-hidden className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+					</CollapsibleTrigger>
+					<CollapsibleContent>
+						<div className="flex min-w-0 flex-col gap-1.5 pt-1.5">
+							<ul aria-label="Adicionados recentemente" className="m-0 flex list-none flex-col gap-1.5 p-0">
+								{recent.map((rule) => (
+									<SenderRow busy={busy} key={rule} onRemove={() => remove(rule)} rule={rule} />
+								))}
+							</ul>
+							<button
+								className={cn(SENDER_ROW, "w-full cursor-pointer border-dashed bg-transparent pr-3 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50")}
+								data-testid="allowed-view-all"
+								onClick={onOpenAll}
+								type="button"
+							>
+								<span className="min-w-0 flex-1 truncate font-medium text-sm">Ver todos</span>
+								<ArrowRightIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+							</button>
+						</div>
+					</CollapsibleContent>
+				</Collapsible>
+			) : null}
+		</div>
+	);
+}
+
+function AllowedSenders({ mailbox, busy, onChange, onOpenAll }: { mailbox: BotMailboxDto; busy: boolean; onChange: (next: string[]) => Promise<boolean>; onOpenAll: () => void }) {
 	const [value, setValue] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	async function add() {
@@ -94,23 +155,7 @@ function AllowedSenders({ mailbox, busy, onChange }: { mailbox: BotMailboxDto; b
 			{mailbox.allowedSenders.length === 0 ? (
 				<p className="rounded-2xl border border-border border-dashed px-3 py-3 text-muted-foreground text-xs leading-relaxed">{EMAIL_EMPTY_ALLOWED}</p>
 			) : (
-				<ul aria-label="Remetentes permitidos" className="m-0 flex list-none flex-col gap-1.5 p-0">
-					{mailbox.allowedSenders.map((rule) => (
-						<li className="flex min-w-0 items-center gap-2 rounded-2xl border border-border bg-card py-1 pr-1 pl-3" data-allowed-sender={rule} key={rule}>
-							<span className="min-w-0 flex-1 truncate text-sm">{rule}</span>
-							<Button
-								aria-label={`Remover ${rule}`}
-								className="shrink-0 text-muted-foreground"
-								disabled={busy}
-								onClick={() => void onChange(mailbox.allowedSenders.filter((item) => item !== rule))}
-								size="icon-sm"
-								variant="ghost"
-							>
-								<XIcon />
-							</Button>
-						</li>
-					))}
-				</ul>
+				<SenderPreviewList busy={busy} onChange={onChange} onOpenAll={onOpenAll} senders={mailbox.allowedSenders} />
 			)}
 			<form
 				className="flex min-w-0 items-center gap-2"
@@ -345,7 +390,7 @@ export function BotEmailTab({ botId, active, onOpenConversation }: { botId: stri
 	return (
 		<div className="flex min-w-0 flex-col gap-5" data-email-state="on">
 			<AddressCard busy={email.busy} mailbox={mailbox} onToggle={(enabled) => void email.patch({ enabled })} />
-			<AllowedSenders busy={email.busy} mailbox={mailbox} onChange={(allowedSenders) => email.patch({ allowedSenders })} />
+			<AllowedSenders busy={email.busy} mailbox={mailbox} onChange={(allowedSenders) => email.patch({ allowedSenders })} onOpenAll={() => openSendersPage(botId)} />
 			<DailyLimit busy={email.busy} mailbox={mailbox} onChange={(dailySendLimit) => email.patch({ dailySendLimit })} />
 			<Messages messages={data.messages} onOpenConversation={onOpenConversation} />
 			<RemoveAddress busy={email.busy} onRemove={() => email.remove()} />

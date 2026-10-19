@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addAllowedSender, emailOpensConversation, emailPeer, emailStatusBadge, emailSubject, parseDailyLimit } from "./bot-email-helpers";
+import { EMAIL_ALLOWED_SENDERS_MAX } from "@workspace/shared";
+import { addAllowedSender, emailOpensConversation, emailPeer, emailStatusBadge, emailSubject, filterAllowedSenders, moreSendersLabel, parseDailyLimit, previewAllowedSenders } from "./bot-email-helpers";
 
 test("adicionar remetente: normaliza, aceita domínio e recusa lixo e duplicados", () => {
 	assert.deepEqual(addAllowedSender(["a@b.co"], " Ana@Empresa.com "), { ok: true, next: ["a@b.co", "ana@empresa.com"] });
@@ -26,4 +27,29 @@ test("linhas de mensagem: direção, assunto, selo e se abre a conversa", () => 
 	assert.equal(emailOpensConversation({ conversationId: "c", status: "received" }), true);
 	assert.equal(emailOpensConversation({ conversationId: null, status: "blocked" }), false);
 	assert.equal(emailOpensConversation({ conversationId: "c", status: "blocked" }), false);
+});
+
+test("prévia dos remetentes: primeiro fixo, 4 mais recentes (fim da lista) sem repetir o primeiro", () => {
+	assert.deepEqual(previewAllowedSenders([]), { first: null, recent: [], more: 0 });
+	assert.deepEqual(previewAllowedSenders(["a@x.co"]), { first: "a@x.co", recent: [], more: 0 });
+	assert.deepEqual(previewAllowedSenders(["a@x.co", "b@x.co", "c@x.co"]), { first: "a@x.co", recent: ["c@x.co", "b@x.co"], more: 2 });
+	const many = Array.from({ length: 12 }, (_, i) => `u${i}@x.co`);
+	assert.deepEqual(previewAllowedSenders(many), { first: "u0@x.co", recent: ["u11@x.co", "u10@x.co", "u9@x.co", "u8@x.co"], more: 11 });
+	assert.equal(moreSendersLabel(1), "+1 remetente");
+	assert.equal(moreSendersLabel(11), "+11 remetentes");
+});
+
+test("busca de remetentes: sem caixa nem acento; vazio devolve tudo", () => {
+	const list = ["ana@empresa.com", "@parceiro.com.br", "JOSÉ@x.co"];
+	assert.deepEqual(filterAllowedSenders(list, ""), list);
+	assert.deepEqual(filterAllowedSenders(list, " PARCEIRO "), ["@parceiro.com.br"]);
+	assert.deepEqual(filterAllowedSenders(list, "jose"), ["JOSÉ@x.co"]);
+	assert.deepEqual(filterAllowedSenders(list, "zzz"), []);
+});
+
+test("limite de remetentes: 1000, com erro claro ao passar", () => {
+	assert.equal(EMAIL_ALLOWED_SENDERS_MAX, 1000);
+	const full = Array.from({ length: EMAIL_ALLOWED_SENDERS_MAX }, (_, i) => `u${i}@x.co`);
+	assert.equal(addAllowedSender(full, "novo@x.co").ok, false);
+	assert.equal(addAllowedSender(full.slice(1), "novo@x.co").ok, true);
 });

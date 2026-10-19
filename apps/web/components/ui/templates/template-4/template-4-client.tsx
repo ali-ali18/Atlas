@@ -68,6 +68,8 @@ import { resolveGroupMembers } from "./group-avatar";
 import { MobileChatList } from "./mobile-chat-list";
 import { AutonomyDialog } from "./autonomy/autonomy-dialog";
 import { MarketplacePage } from "./marketplace/marketplace-page";
+import { AllowedSendersPage } from "./chat-context-panel/allowed-senders-page";
+import { useSendersLocation } from "@/lib/email-senders-url";
 import { closeMarketplacePage, openMarketplacePage, useMarketplaceLocation } from "@/lib/marketplace-url";
 import { SettingsDialog } from "@/components/settings/settings-dialog";
 import { listenForProviderSettings, openSettingsModal } from "@/components/settings/settings-url";
@@ -315,6 +317,9 @@ export function Template4Client({
 	const [sandboxViewerFinish, setSandboxViewerFinish] = useState<(() => void) | null>(null);
 	// O Marketplace é uma página do shell, endereçada por `?marketplace=<seção>` (voltar retorna a onde o usuário estava).
 	const marketplaceOpen = useMarketplaceLocation() !== null;
+	// Página "Remetentes permitidos" do e-mail do bot (`?remetentes=<bot>`); a aba E-mail continua montada por baixo.
+	const sendersBotId = useSendersLocation();
+	const sendersOpen = sendersBotId !== null;
 	const [customMcpDraft, setCustomMcpDraft] = useState<CustomMcpDraft | null>(null);
 	// Autonomia da conta; `connector` chega do Marketplace (exceções já filtradas).
 	const [autonomyDialog, setAutonomyDialog] = useState<{
@@ -2086,7 +2091,7 @@ export function Template4Client({
 					} as CSSProperties
 				}
 			>
-				{!mobileConversationOpen && !marketplaceOpen ? (
+				{!mobileConversationOpen && !marketplaceOpen && !sendersOpen ? (
 					<MobileChatList
 						agents={visibleAgents}
 						sections={sections}
@@ -2184,7 +2189,7 @@ export function Template4Client({
 				/>
 				<SidebarInset
 					className={
-						marketplaceOpen
+						marketplaceOpen || sendersOpen
 							? "hidden"
 							: mobileConversationOpen
 								? "relative flex min-h-0 min-w-0 flex-row"
@@ -2438,6 +2443,7 @@ export function Template4Client({
 						/>
 					) : null}
 				</SidebarInset>
+				{sendersBotId && !marketplaceOpen ? <AllowedSendersPage botId={sendersBotId} /> : null}
 				{marketplaceOpen ? (
 					<MarketplacePage
 						customDraft={customMcpDraft}

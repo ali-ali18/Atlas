@@ -132,11 +132,56 @@ for (const theme of ["light", "dark"] as const) {
         await shot(page, "02-aba-email-erro-remetente")
         await page.getByLabel("Adicionar remetente permitido").fill("financeiro@empresa.com")
         await page.locator('[data-email-section="email-allowed"]').getByRole("button", { name: "Adicionar" }).click()
+        await page.getByTestId("allowed-more").click()
         await page.locator('[data-allowed-sender="financeiro@empresa.com"]').waitFor()
         await page.getByRole("button", { name: "Remover endereço" }).scrollIntoViewIfNeeded()
         await page.getByRole("button", { name: "Remover endereço" }).click()
         await page.getByRole("alertdialog").waitFor()
         await shot(page, "03-aba-email-remover-confirmacao")
+      })
+
+      const MANY = ["ana.lima@empresa.com", "@parceiro.com.br", "financeiro@empresa.com", "carlos@parceiro.com.br", "marina.souza@clientealfa.com.br", "@clientebeta.com", "compras@fornecedor.com.br", "joao.pereira@transportadora.com", "suporte@logisticaexpressa.com.br", "@grupoalvorada.com.br", "renata.dias@escritorio.adv.br", "pedidos@lojaonline.com.br"]
+      function sendersApi() {
+        const state = { mailbox: { ...MAILBOX, allowedSenders: [...MANY] } }
+        const api = new MockAtlas({ botName: "Assistente" })
+        api.handler = ({ method, path, body }) => {
+          if (path === "/v1/bots/bot-e2e/email") {
+            if (method === "PATCH") Object.assign(state.mailbox, body as object)
+            return { body: { account: ACCOUNT_OK, mailbox: state.mailbox, messages: MESSAGES } }
+          }
+          if (path === "/v1/email/account") return { body: ACCOUNT_OK }
+          return undefined
+        }
+        return api
+      }
+
+      test("aba E-mail com muitos remetentes (recolhida e expandida)", async ({ context, page }) => {
+        await sendersApi().install(context)
+        await openApp(page)
+        await openEmailTab(page)
+        await page.getByTestId("allowed-more").waitFor()
+        await page.getByTestId("allowed-more").scrollIntoViewIfNeeded()
+        await shot(page, "10-aba-email-remetentes-recolhido")
+        await page.getByTestId("allowed-more").click()
+        await page.getByTestId("allowed-view-all").waitFor()
+        await page.waitForTimeout(300)
+        await shot(page, "11-aba-email-remetentes-expandido")
+      })
+
+      test("página Remetentes permitidos", async ({ context, page }) => {
+        await sendersApi().install(context)
+        await openApp(page)
+        await openEmailTab(page)
+        await page.getByTestId("allowed-more").click()
+        await page.getByTestId("allowed-view-all").click()
+        await page.getByTestId("allowed-senders-page").waitFor()
+        await page.getByTestId("allowed-senders-page").locator('[data-allowed-sender="pedidos@lojaonline.com.br"]').waitFor()
+        await shot(page, "12-pagina-remetentes")
+        await page.getByLabel("Buscar remetente").fill("parceiro")
+        await page.waitForTimeout(200)
+        await shot(page, "13-pagina-remetentes-busca")
+        await page.getByRole("button", { name: "Voltar" }).click()
+        await page.getByTestId("allowed-more").waitFor()
       })
 
       test("aba E-mail sem chave e sem endereço", async ({ context, page }) => {
