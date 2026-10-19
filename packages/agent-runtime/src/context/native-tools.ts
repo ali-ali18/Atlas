@@ -13,7 +13,7 @@ import type { ContextGroup } from "./prompt-blocks.js";
  * carregada onde o filtro de origem a deixa); o grupo de contexto só carrega o
  * procedimento detalhado (onboarding).
  */
-export type NativeToolGroup = Exclude<ContextGroup, "web" | "questionnaire">;
+export type NativeToolGroup = Exclude<ContextGroup, "web" | "questionnaire" | "data">;
 
 type GroupSpec = {
 	/** Ordem fixa: o array de tools tem sempre os mesmos bytes para a mesma combinação. */
