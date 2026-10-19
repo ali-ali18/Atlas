@@ -109,6 +109,7 @@ export {
 	getBotName,
 	getBotProfile,
 	getBotModelForUser,
+	getBotModelChoiceForUser,
 	getBotPolicy,
 	listBots,
 	updateBot,
@@ -193,6 +194,7 @@ export {
 	LEASE_MS,
 	DEFAULT_CONTEXT_LENGTH,
 	readRunContextLength,
+	readRunModelAuto,
 	type RunLease,
 } from "./runs.js";
 export {

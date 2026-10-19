@@ -1424,6 +1424,8 @@ export type CreateAgentRunBody = {
 	messages: ChatMessage[];
 	attachments?: { artifactId: string }[];
 	model?: string;
+	/** Modo Automático: o servidor escolhe o modelo pela dificuldade do pedido. */
+	modelAuto?: boolean;
 	conversationId?: string;
 	botId?: string;
 	sandboxSessionId?: string;

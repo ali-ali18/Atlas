@@ -462,3 +462,5 @@ export type { EmailService, EmailServiceDeps, EmailStore, PreparedSend } from ".
 export { EMAIL_TOOLS, EMAIL_TOOL_NAMES, emailToolsFor, decideEmailSend, executeEmailTool } from "./email/tools.js";
 export type { EmailRunContext, EmailToolDeps } from "./email/tools.js";
 export { loadEmailRunContext } from "./email/run-context.js";
+export type { ModelTiersRuntime } from "./model-tiers.js";
+export { classifyDifficulty } from "./context/difficulty.js";

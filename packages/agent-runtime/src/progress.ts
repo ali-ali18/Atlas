@@ -41,6 +41,8 @@ export type ToolOutcome = {
 	step?: number;
 	/** Só em falhas: erro de argumento não conta para a trava global. */
 	kind?: "argument" | "other";
+	/** Leitura que deu certo mas voltou vazia (coleção vazia). */
+	empty?: boolean;
 };
 
 function stableStringify(value: unknown): string {

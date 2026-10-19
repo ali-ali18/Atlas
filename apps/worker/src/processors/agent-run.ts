@@ -72,6 +72,7 @@ import {
 	persistRunProgress,
 	persistScreenshotArtifact,
 	readRunContextLength,
+	readRunModelAuto,
 	releaseRunLease,
 	releasePausedRunLease,
 	renewRunLease,
@@ -125,6 +126,7 @@ import {
 	runtimeParamsFromSnapshot,
 	resolveMaintenanceModelForJob,
 	resolveRunCodingModel,
+	resolveRunModelTiers,
 	visionFallbackFromSnapshot,
 	withConfigSnapshot,
 } from "../run-config.js";
@@ -845,6 +847,14 @@ async function executeLeasedRun(ctx: {
 				botPolicy: rawBotPolicy,
 				snapshot: configSnapshot,
 				runModel: run.model,
+				openRouterKey: Boolean(config.openRouterApiKey),
+				isKnown: providers.isKnown,
+			}),
+			// Modo Automático: modelos por dificuldade (conta + bot), só os que o usuário consegue usar.
+			modelTiers: await resolveRunModelTiers({
+				auto: readRunModelAuto(run),
+				botPolicy: rawBotPolicy,
+				snapshot: configSnapshot,
 				openRouterKey: Boolean(config.openRouterApiKey),
 				isKnown: providers.isKnown,
 			}),

@@ -28,6 +28,10 @@ export const MAX_OUTPUT_TOKEN_PRESETS = [2048, 4096, 8192, 16384, 32768] as cons
 /** Tamanho máximo (caracteres) do resultado de uma ferramenta que vai inline ao contexto; o resto fica guardado e é lido sob demanda. */
 export const TOOL_RESULT_MAX_CHARS_PRESETS = [20_000, 50_000, 100_000, 200_000] as const;
 export const MAX_FALLBACK_MODELS = 3;
+/** Níveis de dificuldade do pedido; cada um guarda até `MAX_TIER_MODELS` modelos (o 1º é o principal). */
+export const MODEL_TIERS = ["easy", "medium", "hard"] as const;
+export type ModelTier = (typeof MODEL_TIERS)[number];
+export const MAX_TIER_MODELS = 3;
 export const MAX_STEPS_LIMIT = 500;
 export const MAX_WALL_MINUTES_LIMIT = 240;
 
@@ -44,6 +48,10 @@ export type AccountConfigV1 = {
 		coding?: string;
 		/** Modelo do ditado por voz (STT): id OpenRouter (`vendor/modelo`) ou do endpoint OpenAI-compatível. */
 		stt?: string;
+		/** Modelos por dificuldade (vazio = herda o padrão e as reservas). */
+		tiers?: Partial<Record<ModelTier, string[]>>;
+		/** Classificar a dificuldade com o revisor (Jev) em vez das regras locais. */
+		classifyWithReviewer?: boolean;
 	};
 	jev?: {
 		mcp?: JevMcpMode;
@@ -137,6 +145,15 @@ const fallbackList: Leaf = {
 	},
 };
 
+const tierList: Leaf = {
+	message: `Informe até ${MAX_TIER_MODELS} ids de modelo, sem repetição.`,
+	parse: (v) => {
+		if (!Array.isArray(v) || v.length > MAX_TIER_MODELS) return null;
+		if (!v.every((item) => isValidConfigModelId(item, false))) return null;
+		return new Set(v).size === v.length ? { value: [...v] } : null;
+	},
+};
+
 const TIME_HHMM = new RegExp("^([01][0-9]|2[0-3]):[0-5][0-9]$");
 
 const SPEC: Spec = {
@@ -149,6 +166,8 @@ const SPEC: Spec = {
 		image: modelId(true, OPENROUTER_ONLY),
 		coding: modelId(false, "Informe um id de modelo válido (letras, números e . _ : / -, até 200)."),
 		stt: modelId(true, OPENROUTER_ONLY),
+		tiers: { easy: tierList, medium: tierList, hard: tierList },
+		classifyWithReviewer: bool("Use verdadeiro ou falso."),
 	},
 	jev: {
 		mcp: oneOf(JEV_MCP_MODES, "Use off, shadow ou gate."),

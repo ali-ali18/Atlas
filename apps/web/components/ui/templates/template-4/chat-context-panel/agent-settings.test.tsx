@@ -117,3 +117,19 @@ test("'Decidir pelos outros bots' lê a política do bot e liga ao salvar sem pe
 	assert.equal(decideSwitchState(render(bot({ policyJson: { decideForOtherBots: "sim" } }))), "false");
 	assert.deepEqual(withDecideForOtherBots({ subagentModel: "a/b" }, true), { subagentModel: "a/b", decideForOtherBots: true });
 });
+
+test("Modelos por dificuldade: linha no bot mostra 'Da conta' ou 'Personalizado' e abre a subvista", () => {
+	assert.match(render(bot()), /aria-label="Abrir Modelos por dificuldade"/);
+	assert.ok(render(bot()).includes(">Da conta<"));
+	assert.ok(render(bot({ policyJson: { modelTiers: { hard: ["a/forte"] } } })).includes(">Personalizado<"));
+	assert.equal(AGENT_SETTINGS_TITLES.tiers, "Modelos por dificuldade");
+});
+
+test("subvista de níveis do bot: Fácil, Média e Difícil, com os modelos do bot e 'Usa o da conta' nos vazios", () => {
+	const html = render(bot({ policyJson: { modelTiers: { hard: ["a/forte"] } } }), { page: "tiers" });
+	assert.match(html, /data-agent-settings-page="tiers"/);
+	for (const label of ["Fácil", "Média", "Difícil"]) assert.ok(html.includes(`>${label}<`), label);
+	assert.ok(html.includes("a/forte"));
+	assert.equal((html.match(/Usa o da conta\./g) ?? []).length, 2);
+	assert.doesNotMatch(html, /for="agent-name"/);
+});

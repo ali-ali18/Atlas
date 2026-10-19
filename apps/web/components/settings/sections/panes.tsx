@@ -17,6 +17,7 @@ import { AccountAutonomyGroup, ExecutionSettings } from "./execution";
 import { GeneralSettings } from "./general";
 import { GroupsCoordinationRow, JevSettings } from "./jev";
 import { ModelsSettings } from "./models";
+import { ModelTiersSettings, TIER_ITEM_IDS } from "./model-tiers";
 import { NotificationsSettings } from "./notifications";
 import { DisconnectChatgptDialog, ProvidersSettings } from "./providers";
 import { ProviderKeysRows } from "./provider-keys";
@@ -83,6 +84,7 @@ export function GeralPane({ account, isVisible }: { account: Account; isVisible:
 export function ModelosPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
 	const quiet = quietAccount(account);
 	const main = ["modelos.padrao", "modelos.codigo"];
+	const tiers = TIER_ITEM_IDS;
 	const auxModels = ["modelos.manutencao", "modelos.visao", "modelos.imagem", "modelos.ditado", "modelos.reserva"];
 	const context = ["execucao.memoria", "execucao.economia", "execucao.resposta", "execucao.resultado"];
 	return (
@@ -95,6 +97,14 @@ export function ModelosPane({ account, isVisible }: { account: Account; isVisibl
 					showKeyNote={false}
 					showStatus={false}
 					title="Modelos principais"
+				/>
+			) : null}
+			{anyVisible(isVisible, tiers) ? (
+				<ModelTiersSettings
+					account={quiet}
+					isVisible={(id) => tiers.includes(id) && isVisible(id)}
+					showStatus={false}
+					title="Modelos por dificuldade"
 				/>
 			) : null}
 			{anyVisible(isVisible, auxModels) ? (

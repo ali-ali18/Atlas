@@ -45,3 +45,72 @@ test("bot de outro usuário não empresta o modelo (helper devolve null) e cai n
 	});
 	assert.equal(model, envDefault);
 });
+
+const { resolveRunModelChoice } = await import("./effective-model.js");
+const noBot = async () => ({ model: null, policyJson: null });
+const tiersAccount = async () => ({ v: 1 as const, models: { default: "acc/default" } });
+
+test("Automático: sem escolha no composer nem modelo no bot, o modelo base é o padrão da conta e o worker escolhe o nível", async () => {
+	const choice = await resolveRunModelChoice({ userId: "u", envDefault, getBotChoice: noBot, getAccountConfig: tiersAccount });
+	assert.deepEqual(choice, { model: "acc/default", auto: true });
+});
+
+test("Automático: modelo explícito do composer fixa o modelo (sem consultar o bot)", async () => {
+	const choice = await resolveRunModelChoice({
+		requested: "x/y",
+		botId: "bot-1",
+		userId: "u",
+		envDefault,
+		getBotChoice: async () => {
+			throw new Error("não deveria consultar");
+		},
+	});
+	assert.deepEqual(choice, { model: "x/y", auto: false });
+});
+
+test("Automático: modelo do bot sem níveis próprios fixa o modelo, como sempre", async () => {
+	const choice = await resolveRunModelChoice({
+		botId: "bot-1",
+		userId: "u",
+		envDefault,
+		getBotChoice: async () => ({ model: "bot/m", policyJson: {} }),
+		getAccountConfig: tiersAccount,
+	});
+	assert.deepEqual(choice, { model: "bot/m", auto: false });
+});
+
+test("Automático: pedido do composer ('Automático') ignora o modelo do bot e usa o padrão da conta", async () => {
+	const choice = await resolveRunModelChoice({
+		requested: "stale/model",
+		modelAuto: true,
+		botId: "bot-1",
+		userId: "u",
+		envDefault,
+		getBotChoice: async () => ({ model: "bot/m", policyJson: {} }),
+		getAccountConfig: tiersAccount,
+	});
+	assert.deepEqual(choice, { model: "acc/default", auto: true });
+});
+
+test("Automático: bot com níveis próprios usa o modelo dele como base e roda no Automático", async () => {
+	const choice = await resolveRunModelChoice({
+		botId: "bot-1",
+		userId: "u",
+		envDefault,
+		getBotChoice: async () => ({ model: "bot/m", policyJson: { modelTiers: { hard: ["h/m"] } } }),
+		getAccountConfig: tiersAccount,
+	});
+	assert.deepEqual(choice, { model: "bot/m", auto: true });
+});
+
+test("Automático: falha ao ler a conta cai no .env", async () => {
+	const choice = await resolveRunModelChoice({
+		userId: "u",
+		envDefault,
+		getBotChoice: noBot,
+		getAccountConfig: async () => {
+			throw new Error("db fora");
+		},
+	});
+	assert.deepEqual(choice, { model: envDefault, auto: true });
+});

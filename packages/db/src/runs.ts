@@ -142,13 +142,20 @@ function normalizeContextLength(value: unknown): number | null {
 function buildStoredBudget(
 	budget: CreateAgentRunRequest["budget"],
 	contextLength: number | null | undefined,
+	modelAuto?: boolean,
 ): Prisma.InputJsonValue | undefined {
 	const window = normalizeContextLength(contextLength);
-	if (budget === undefined && window === null) return undefined;
+	if (budget === undefined && window === null && !modelAuto) return undefined;
 	return {
 		...(budget as Record<string, unknown> | undefined),
 		...(window !== null ? { contextLength: window } : {}),
+		...(modelAuto ? { modelAuto: true } : {}),
 	} as Prisma.InputJsonValue;
+}
+
+/** O run foi criado no modo Automático (modelos por dificuldade)? */
+export function readRunModelAuto(run: { budgetJson?: unknown }): boolean {
+	return (run.budgetJson as { modelAuto?: unknown } | null | undefined)?.modelAuto === true;
 }
 
 /** Lê a janela gravada na criação; fallback 128k (nunca explode). */
@@ -200,6 +207,8 @@ export function buildQueuedRunData(input: {
 	userId: string;
 	conversationId: string | null;
 	contextLength?: number | null;
+	/** Modo Automático do composer: o worker escolhe o modelo pela dificuldade do pedido. */
+	modelAuto?: boolean;
 	/** Arquivos anexados (não imagens): o worker põe o conteúdo no contexto do primeiro passo. */
 	fileArtifactIds?: string[];
 }) {
@@ -229,7 +238,7 @@ export function buildQueuedRunData(input: {
 		maxSteps,
 		sandboxSessionId: request.sandboxSessionId ?? null,
 		checkpointJson: checkpoint as unknown as Prisma.InputJsonValue,
-		budgetJson: buildStoredBudget(request.budget, input.contextLength),
+		budgetJson: buildStoredBudget(request.budget, input.contextLength, input.modelAuto),
 	};
 }
 
@@ -239,6 +248,8 @@ export async function createAgentRun(input: {
 	userId?: string;
 	/** Janela de contexto do modelo (Fase 0). Vai para budgetJson.contextLength; worker consome, fallback 128k. */
 	contextLength?: number | null;
+	/** Modo Automático do composer (gravado no budgetJson; o worker lê). */
+	modelAuto?: boolean;
 	/**
 	 * A conversa já tinha run ativo e a mensagem virou entrada `join` nele (em vez de run novo).
 	 * O chamador acorda o worker (sinal de run); o db não conhece Redis.
@@ -270,7 +281,7 @@ export async function createAgentRun(input: {
 		const row = await prisma.agentRun.create({
 			data: buildQueuedRunData({
 				request: fileCards.length ? { ...request, attachments: await imageAttachmentsOf(request.attachments ?? [], userId) } : request,
-				model, userId, conversationId, contextLength: input.contextLength,
+				model, userId, conversationId, contextLength: input.contextLength, modelAuto: input.modelAuto,
 				fileArtifactIds: fileCards.map((card) => card.artifactId),
 			}),
 		});

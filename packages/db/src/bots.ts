@@ -336,6 +336,19 @@ export async function deleteBot(id: string, ownerId: string | undefined): Promis
  * Usado para runs iniciados pelo servidor (questionário, confirms) herdarem
  * o modelo do bot em vez do padrão do ambiente.
  */
+/** Modelo fixo do bot e seus níveis de dificuldade (policyJson), numa leitura só. */
+export async function getBotModelChoiceForUser(
+	botId: string | null | undefined,
+	userId: string,
+): Promise<{ model: string | null; policyJson: unknown }> {
+	if (!botId) return { model: null, policyJson: null };
+	const row = await prisma.bot.findFirst({
+		where: botOwnedBy(botId, userId),
+		select: { openRouterModel: true, policyJson: true },
+	});
+	return { model: row?.openRouterModel?.trim() || null, policyJson: row?.policyJson ?? null };
+}
+
 export async function getBotModelForUser(
 	botId: string | null | undefined,
 	userId: string,

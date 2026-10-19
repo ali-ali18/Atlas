@@ -12,6 +12,7 @@ import {
 	resolveDefaultModelForJob,
 	resolveMaintenanceModelForJob,
 	resolveRunCodingModel,
+	resolveRunModelTiers,
 	resolveRunConfigSnapshot,
 	runtimeParamsFromSnapshot,
 	visionFallbackFromSnapshot,
@@ -307,4 +308,40 @@ test("tamanho máximo do resultado de ferramentas: sem escolha fica indefinido, 
 		{ env: {}, loadConfig: async () => ({ v: 1, execution: { toolResultMaxChars: 100_000 } }) },
 	);
 	assert.equal(runtimeParamsFromSnapshot(big.snapshot).toolResultMaxChars, 100_000);
+});
+
+test("níveis por dificuldade: sem modo Automático ou sem nível configurado = nada (o run segue o modelo dele)", async () => {
+	const base = { botPolicy: null, openRouterKey: true, isKnown: async () => true };
+	assert.equal(await resolveRunModelTiers({ ...base, auto: false, snapshot: { modelTiers: { easy: ["a/x"] }, chatgptEnabled: false } }), undefined);
+	assert.equal(await resolveRunModelTiers({ ...base, auto: true, snapshot: { chatgptEnabled: false } }), undefined);
+});
+
+test("níveis por dificuldade: conta + bot, o nível do bot vence e o resto herda a conta", async () => {
+	const runtime = await resolveRunModelTiers({
+		auto: true,
+		botPolicy: { modelTiers: { hard: ["bot/hard"] } },
+		openRouterKey: true,
+		isKnown: async () => true,
+		snapshot: { modelTiers: { easy: ["a/easy"], hard: ["a/hard"] }, classifyWithReviewer: true, chatgptEnabled: false },
+	});
+	assert.deepEqual(runtime, { tiers: { easy: ["a/easy"], hard: ["bot/hard"] }, classifyWithReviewer: true });
+});
+
+test("níveis por dificuldade: tira modelo de provedor indisponível ou fora do catálogo; nível que esvazia herda", async () => {
+	const runtime = await resolveRunModelTiers({
+		auto: true,
+		botPolicy: null,
+		openRouterKey: true,
+		isKnown: async (id) => (id === "a/gone" ? false : id === "a/offline" ? null : true),
+		snapshot: { modelTiers: { easy: ["chatgpt/luna", "a/gone", "a/ok"], medium: ["chatgpt/luna"], hard: ["a/offline"] }, chatgptEnabled: false },
+	});
+	assert.deepEqual(runtime, { tiers: { easy: ["a/ok"], hard: ["a/offline"] } });
+	const noKey = await resolveRunModelTiers({
+		auto: true,
+		botPolicy: null,
+		openRouterKey: false,
+		isKnown: async () => true,
+		snapshot: { modelTiers: { easy: ["a/x"] }, chatgptEnabled: false },
+	});
+	assert.equal(noKey, undefined);
 });

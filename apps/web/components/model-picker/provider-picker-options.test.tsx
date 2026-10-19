@@ -29,3 +29,16 @@ test("linha do seletor mostra só o nome do modelo, sem fornecedor nem contexto"
  const html = renderToStaticMarkup(<Command shouldFilter={false}><CommandList><ProviderPickerOptions models={rows} value="" query="deepseek" available status={null} catalogAvailable={false} onSelect={() => {}} onConnect={() => {}} /></CommandList></Command>);
  assert.match(html, />DeepSeek V4\.1 Flash</); assert.doesNotMatch(html, /DeepSeek: /); assert.doesNotMatch(html, /dk ctx|US$/);
 });
+test("modelos dos níveis aparecem num grupo no topo, sem repetir na lista; a busca os filtra", () => {
+ const html = renderToStaticMarkup(<Command shouldFilter={false}><CommandList><ProviderPickerOptions models={models} value="" query="" available status={null} catalogAvailable={false} emptyLabel="Automático" suggestedIds={["openai/gpt-4o-mini", "desconhecido/x"]} suggestedHeading="Dos seus níveis" onSelect={() => {}} onConnect={() => {}} /></CommandList></Command>);
+ assert.match(html, /Automático/); assert.match(html, /Dos seus níveis/);
+ assert.ok(html.indexOf("Automático") < html.indexOf("Dos seus níveis"));
+ assert.equal((html.match(/Mini/g) ?? []).length, 1, "o modelo do nível não se repete na lista");
+ assert.doesNotMatch(html, /desconhecido\/x/, "id fora do catálogo não vira linha");
+ const searched = renderToStaticMarkup(<Command shouldFilter={false}><CommandList><ProviderPickerOptions models={models} value="" query="luna" available status={null} catalogAvailable={false} suggestedIds={["openai/gpt-4o-mini"]} onSelect={() => {}} onConnect={() => {}} /></CommandList></Command>);
+ assert.doesNotMatch(searched, /Seus modelos/);
+});
+test("sem modelos nos níveis não há grupo extra", () => {
+ const html = renderToStaticMarkup(<Command shouldFilter={false}><CommandList><ProviderPickerOptions models={models} value="" query="" available status={null} catalogAvailable={false} suggestedIds={[]} onSelect={() => {}} onConnect={() => {}} /></CommandList></Command>);
+ assert.doesNotMatch(html, /Seus modelos/);
+});

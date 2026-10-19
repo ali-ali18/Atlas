@@ -1,17 +1,22 @@
 "use client";
 
-import { BellIcon, BotIcon, ChevronRightIcon, CodeIcon, LanguagesIcon, LayersIcon, SparklesIcon, UserCheckIcon, WorkflowIcon } from "lucide-react";
+import { BellIcon, BotIcon, ChevronRightIcon, CodeIcon, LanguagesIcon, LayersIcon, SignalHighIcon, SparklesIcon, UserCheckIcon, WorkflowIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Switch } from "@workspace/ui/components/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
 import { SettingRow, SettingsGroup, SettingsStack } from "@/components/settings/setting-row";
+import { TIER_ROWS, TierModelsControl, TierRow } from "@/components/settings/sections/model-tiers";
 import { ModelPicker } from "@/components/model-picker";
 import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
 import { BOT_LANGUAGE_OPTIONS, DEFAULT_BOT_LANGUAGE } from "@/lib/bot-language";
 import { readProactiveSettings } from "@/lib/proactive-settings";
 import {
+	MODEL_TIER_LABELS,
+	hasModelTiers,
+	readBotModelTiers,
+	withBotModelTiers,
 	DECIDE_FOR_OTHER_BOTS_HINT,
 	DECIDE_FOR_OTHER_BOTS_LABEL,
 	modelDisplayName,
@@ -32,12 +37,13 @@ import { MemoryTab } from "./memory-tab";
 import { ProactiveSettingsSection } from "./proactive-settings";
 
 /** Páginas da vista de configurações do bot: a principal e a subvista do modo proativo. */
-export type AgentSettingsPage = "main" | "proactive";
+export type AgentSettingsPage = "main" | "proactive" | "tiers";
 
 /** Título da barra do topo para cada página (a principal é "Configurações"). */
 export const AGENT_SETTINGS_TITLES: Record<AgentSettingsPage, string> = {
 	main: "Configurações",
 	proactive: "Modo proativo",
+	tiers: "Modelos por dificuldade",
 };
 
 /** "Herdar (…)" do modelo para código: o da conta, ou o modelo normal do bot quando a conta não define. */
@@ -139,6 +145,33 @@ export function AgentSettings({
 		if (memorySection === "changes") setChangesFocus(memoryNonce);
 	}, [memoryNonce, memorySection]);
 
+	const botTiers = readBotModelTiers(policyJson);
+	if (page === "tiers") {
+		return (
+			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-2 pb-[calc(2rem+env(safe-area-inset-bottom))]" data-agent-settings-page="tiers">
+				<SettingsGroup>
+					<p className="px-3.5 py-1 text-xs text-muted-foreground" role="note">
+						Valem neste bot no modo Automático. Nível vazio usa o da conta.
+					</p>
+					{TIER_ROWS.map((row) => (
+						<TierRow
+							caption={(botTiers[row.tier]?.length ?? 0) === 0 ? "Usa o da conta." : null}
+							row={row}
+							key={row.tier}
+						>
+							<TierModelsControl
+								label={MODEL_TIER_LABELS[row.tier]}
+								list={botTiers[row.tier] ?? []}
+								models={models}
+								onChange={(list) => onChange({ policyJson: withBotModelTiers(policyJson, { ...botTiers, [row.tier]: list }) })}
+							/>
+						</TierRow>
+					))}
+				</SettingsGroup>
+			</div>
+		);
+	}
+
 	if (page === "proactive" && agent.isPrimary) {
 		return (
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-2 pb-[calc(2rem+env(safe-area-inset-bottom))]" data-agent-settings-page="proactive">
@@ -238,6 +271,25 @@ export function AgentSettings({
 							/>
 						</SettingRow>
 					) : null}
+
+					<SettingRow
+						caption={<p>Substitui os níveis da conta neste bot.</p>}
+						control="inline"
+						description="Modelos por dificuldade deste bot, usados no modo Automático do chat."
+						icon={SignalHighIcon}
+						label="Modelos por dificuldade"
+					>
+						<Button
+							aria-label="Abrir Modelos por dificuldade"
+							className="gap-1"
+							onClick={() => onOpenPage?.("tiers")}
+							size="sm"
+							variant="ghost"
+						>
+							{hasModelTiers(botTiers) ? "Personalizado" : "Da conta"}
+							<ChevronRightIcon aria-hidden className="size-3.5" />
+						</Button>
+					</SettingRow>
 
 					<SettingRow
 						description="Modelo usado pelos subagentes que este bot cria."

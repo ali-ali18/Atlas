@@ -1,5 +1,5 @@
-import { getAccountConfig, getBotModelForUser } from "@workspace/db";
-import { pickEffectiveModel } from "@workspace/shared";
+import { getAccountConfig, getBotModelChoiceForUser, getBotModelForUser } from "@workspace/db";
+import { hasModelTiers, pickEffectiveModel, readBotModelTiers } from "@workspace/shared";
 
 /**
  * Modelo do run: composer (explícito) > modelo do bot > padrão da conta
@@ -29,4 +29,35 @@ export async function resolveRunModel(input: {
 		botModel,
 		envDefault: accountDefault ?? input.envDefault,
 	});
+}
+
+/**
+ * Modelo do run com o modo Automático. `auto` = o worker escolhe o modelo pela
+ * dificuldade do pedido (níveis da conta, ou do bot): vale quando o composer pede
+ * Automático, ou quando nada fixa o modelo (sem escolha do composer nem modelo no
+ * bot) ou o bot tem níveis próprios. Modelo explícito no pedido, ou modelo do bot
+ * sem níveis, fixa o modelo como sempre. `model` é a base (o que um nível vazio herda).
+ */
+export async function resolveRunModelChoice(input: {
+	requested?: string | null;
+	modelAuto?: boolean;
+	botId?: string | null;
+	userId: string;
+	envDefault: string;
+	getBotChoice?: typeof getBotModelChoiceForUser;
+	getAccountConfig?: typeof getAccountConfig;
+}): Promise<{ model: string; auto: boolean }> {
+	const requested = input.modelAuto ? undefined : input.requested?.trim();
+	if (requested) return { model: requested, auto: false };
+	const bot = await (input.getBotChoice ?? getBotModelChoiceForUser)(input.botId, input.userId);
+	const botTiers = hasModelTiers(readBotModelTiers(bot.policyJson));
+	// Escolher "Automático" no composer vale mesmo com modelo no bot; sem pedido, o modelo do bot fixa (salvo níveis do bot).
+	const pinned = input.modelAuto || botTiers ? null : bot.model;
+	if (pinned) return { model: pinned, auto: false };
+	// Nível vazio herda: o modelo do bot (quando ele tem níveis próprios) ou o padrão da conta.
+	const accountDefault = (await (input.getAccountConfig ?? getAccountConfig)(input.userId).catch(() => null))?.models?.default;
+	return {
+		model: pickEffectiveModel({ botModel: botTiers ? bot.model : null, envDefault: accountDefault ?? input.envDefault }),
+		auto: true,
+	};
 }

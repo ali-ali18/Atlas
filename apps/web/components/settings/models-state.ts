@@ -1,10 +1,13 @@
 import {
 	MAX_FALLBACK_MODELS,
+	MAX_TIER_MODELS,
 	modelDisplayName,
 	getModelCapabilities,
 	modelSupportsImageInput,
 	roleCapabilityWarning,
 	type ModelRole,
+	type ModelTier,
+	type ModelTiers,
 	type AccountConfigPatch,
 	type OpenRouterModel,
 	type Resolved,
@@ -146,4 +149,39 @@ export function removeFallbackAt(list: readonly string[], index: number): string
 /** Lista vazia volta a herdar (`null`); a API recusa lista vazia como "valor do usuário". */
 export function fallbacksPatch(list: readonly string[]): AccountConfigPatch {
 	return { models: { fallbacks: list.length > 0 ? [...list] : null } };
+}
+
+/** Níveis de dificuldade: lista do usuário (herdada não conta: some a lista editável até ele adicionar). */
+export function userTierModels(resolved: Resolved<ModelTiers>, tier: ModelTier): string[] {
+	return resolved.source === "user" ? [...(resolved.value[tier] ?? [])] : [];
+}
+
+/** Troca, acrescenta ou tira um modelo do nível: sem repetição, até `MAX_TIER_MODELS`. */
+export function setTierModelAt(list: readonly string[], index: number, id: string): string[] {
+	if (!id || list.some((item, at) => item === id && at !== index)) return [...list];
+	const next = [...list];
+	if (index >= next.length) {
+		if (next.length >= MAX_TIER_MODELS) return next;
+		next.push(id);
+	} else {
+		next[index] = id;
+	}
+	return next;
+}
+
+/** Sobe o modelo uma posição (o 1º do nível é o principal). */
+export function moveTierModelUp(list: readonly string[], index: number): string[] {
+	if (index <= 0 || index >= list.length) return [...list];
+	const next = [...list];
+	[next[index - 1], next[index]] = [next[index]!, next[index - 1]!];
+	return next;
+}
+
+/** Lista vazia volta a herdar (`null` remove o nível). */
+export function tierPatch(tier: ModelTier, list: readonly string[]): AccountConfigPatch {
+	return { models: { tiers: { [tier]: list.length > 0 ? [...list] : null } } };
+}
+
+export function classifyWithReviewerPatch(enabled: boolean): AccountConfigPatch {
+	return { models: { classifyWithReviewer: enabled } };
 }

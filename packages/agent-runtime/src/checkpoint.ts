@@ -1,10 +1,12 @@
 import type {
 	AgentRunCheckpoint,
+	ModelTier,
 	SerializedLlmContentPart,
 	SerializedLlmMessage,
 } from "@workspace/shared";
 import {
 	AGENT_RUNTIME_CHECKPOINT_VERSION,
+	MODEL_TIERS,
 	parseCapabilitySnapshot,
 	parseLoginConnector,
 	parseLoginVaultOffer,
@@ -366,6 +368,8 @@ export function buildRuntimeCheckpoint(input: {
 	researchNotes?: AgentRunCheckpoint["researchNotes"];
 	pendingFollowUps?: string[];
 	capabilities?: AgentRunCheckpoint["capabilities"];
+	modelTier?: AgentRunCheckpoint["modelTier"];
+	modelEscalations?: AgentRunCheckpoint["modelEscalations"];
 	activeElapsedMs?: number;
 }): AgentRunCheckpoint {
 	return {
@@ -399,6 +403,8 @@ export function buildRuntimeCheckpoint(input: {
 		...(input.pendingFollowUps?.length ? { pendingFollowUps: input.pendingFollowUps } : {}),
 		...(input.researchNotes?.length ? { researchNotes: input.researchNotes } : {}),
 		...(input.capabilities ? { capabilities: input.capabilities } : {}),
+		...(input.modelTier ? { modelTier: input.modelTier } : {}),
+		...(input.modelEscalations?.length ? { modelEscalations: input.modelEscalations } : {}),
 	};
 }
 
@@ -495,7 +501,25 @@ export function parseRuntimeCheckpoint(
 		pendingFollowUps: parsePendingFollowUps(value.pendingFollowUps),
 		researchNotes: parseResearchNotes(value.researchNotes).length ? parseResearchNotes(value.researchNotes) : undefined,
 		capabilities: parseCapabilitySnapshot(value.capabilities),
+		...(isModelTier(value.modelTier) ? { modelTier: value.modelTier } : {}),
+		...(parseModelEscalations(value.modelEscalations).length ? { modelEscalations: parseModelEscalations(value.modelEscalations) } : {}),
 	};
+}
+
+function isModelTier(value: unknown): value is ModelTier {
+	return (MODEL_TIERS as readonly unknown[]).includes(value);
+}
+
+function parseModelEscalations(raw: unknown): NonNullable<AgentRunCheckpoint["modelEscalations"]> {
+	if (!Array.isArray(raw)) return [];
+	return raw
+		.flatMap((item) => {
+			if (!item || typeof item !== "object") return [];
+			const { from, to, reason, step } = item as Record<string, unknown>;
+			if (!isModelTier(from) || !isModelTier(to) || typeof reason !== "string" || typeof step !== "number") return [];
+			return [{ from, to, reason: reason.slice(0, 60), step: Math.max(0, Math.floor(step)) }];
+		})
+		.slice(0, 3);
 }
 
 export function toolIdempotencyKey(input: {

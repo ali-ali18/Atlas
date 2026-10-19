@@ -32,6 +32,7 @@ import { TestPrDialog } from "@/components/ai-elements/dev-session/test-pr-dialo
 import { useDevSessionsEnabled } from "@/hooks/use-dev-sessions-enabled";
 import { useImageAttachments } from "@/hooks/use-image-attachments";
 import { isImageFile, useFileAttachments, type OutgoingAttachment } from "@/hooks/use-file-attachments";
+import { useAccountModelTiers } from "@/hooks/use-account-model-tiers";
 import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
 import { getStoredDraft, setStoredDraft } from "@/lib/active-run";
 import { DEFAULT_OPENROUTER_MODEL } from "@/lib/openrouter-models";
@@ -144,6 +145,7 @@ export function ChatComposer({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a consulta nova volta o destaque ao primeiro item.
 	useEffect(() => setMentionIndex(0), [mentionQuery]);
 	const { models, loading } = useOpenRouterModels();
+	const tierModelIds = useAccountModelTiers();
 	const localTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const imageInputRef = useRef<HTMLInputElement | null>(null);
 	const cameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -164,7 +166,8 @@ export function ChatComposer({
 	const permission = useDevPermission(devSessionsEnabled);
 	const hasMessage = value.trim().length > 0 || images.ready.length > 0 || files.ready.length > 0;
 	const selectedModel = models.find((item) => item.id === model);
-	const servedNote = servedModelNote(model, servedModel);
+	// Automático (modelo vazio): mostra qual modelo respondeu, mesmo sem um modelo escolhido para comparar.
+	const servedNote = model ? servedModelNote(model, servedModel) : servedModel?.trim() || null;
 	const servedLabel = servedNote
 		? modelDisplayName(models.find((item) => item.id === servedNote)?.name, servedNote)
 		: null;
@@ -392,9 +395,12 @@ export function ChatComposer({
 								)}
 								{groupMode ? null : (
 								<ModelPicker
+									emptyLabel="Automático"
 									loading={loading}
 									models={models}
 									onChange={(next) => onModelChange?.(next)}
+									suggestedHeading="Dos seus níveis"
+									suggestedIds={tierModelIds}
 									trigger={
 										<InputGroupButton
 											aria-label="Modelo de linguagem"
@@ -410,7 +416,7 @@ export function ChatComposer({
 								{servedLabel ? (
 									<span
 										className="max-w-[10rem] truncate text-muted-foreground text-xs"
-										title={`Respondido por ${servedLabel} (o modelo escolhido não atendeu)`}
+										title={model ? `Respondido por ${servedLabel} (o modelo escolhido não atendeu)` : `Respondido por ${servedLabel} (escolhido pela dificuldade)`}
 									>
 										via {servedLabel}
 									</span>

@@ -1,10 +1,15 @@
 import {
 	BUDGET_HARD_CAP,
 	type AgentBudgetPolicy,
+	type ModelTiersRuntime,
 } from "@workspace/agent-runtime";
 import { getAccountConfig, getAccountConfigByConversation } from "@workspace/db";
 import {
+	MODEL_TIERS,
+	hasModelTiers,
+	mergeModelTiers,
 	parseModelRef,
+	readBotModelTiers,
 	readCodingModel,
 	resolveCodingModel,
 	parseRunConfigSnapshot,
@@ -15,6 +20,7 @@ import {
 	type AgentRunCheckpoint,
 	type ConfigEnv,
 	type ContextMemory,
+	type ModelTiers,
 	type RunConfigSnapshot,
 } from "@workspace/shared";
 
@@ -201,4 +207,37 @@ export async function resolveRunCodingModel(input: {
 		);
 	}
 	return resolution.model === input.runModel ? null : resolution.model;
+}
+
+/**
+ * Modelos por dificuldade do run (modo Automático): níveis da conta com os do bot por cima, só
+ * com modelos que o usuário consegue usar agora (ChatGPT ligado; OpenRouter com chave; modelo
+ * conhecido no catálogo). Nível que ficou vazio herda o modelo do run e as reservas. Sem modo
+ * Automático ou sem nenhum nível configurado = `undefined`: o run segue o modelo dele, como sempre.
+ */
+export async function resolveRunModelTiers(input: {
+	auto: boolean;
+	botPolicy: unknown;
+	snapshot: Pick<RunConfigSnapshot, "modelTiers" | "classifyWithReviewer" | "chatgptEnabled">;
+	openRouterKey: boolean;
+	isKnown: (modelId: string) => Promise<boolean | null>;
+}): Promise<ModelTiersRuntime | undefined> {
+	if (!input.auto) return undefined;
+	const merged = mergeModelTiers(input.snapshot.modelTiers, readBotModelTiers(input.botPolicy));
+	if (!hasModelTiers(merged)) return undefined;
+	const usable = async (model: string): Promise<boolean> => {
+		const provider = parseModelRef(model).provider;
+		if (provider === "chatgpt" && !input.snapshot.chatgptEnabled) return false;
+		if (provider === "openrouter" && !input.openRouterKey) return false;
+		return (await input.isKnown(model).catch(() => null)) !== false;
+	};
+	const tiers: ModelTiers = {};
+	for (const tier of MODEL_TIERS) {
+		const ids = merged[tier] ?? [];
+		const keep = (await Promise.all(ids.map(usable))).map((ok, index) => (ok ? ids[index]! : null));
+		const list = keep.filter((id): id is string => id !== null);
+		if (list.length > 0) tiers[tier] = list;
+	}
+	if (!hasModelTiers(tiers)) return undefined;
+	return { tiers, ...(input.snapshot.classifyWithReviewer ? { classifyWithReviewer: true } : {}) };
 }

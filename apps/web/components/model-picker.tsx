@@ -30,6 +30,8 @@ export function ModelPicker({
   onConnectChatgpt,
   openrouterOnly = false,
   id,
+  suggestedIds,
+  suggestedHeading,
 }: {
   emptyLabel?: string
   value: string
@@ -43,6 +45,9 @@ export function ModelPicker({
   /** Só modelos do OpenRouter (manutenção, visão, imagem, reserva): sem grupo ChatGPT. */
   openrouterOnly?: boolean
   id?: string
+  /** Modelos em destaque no topo da lista (ex.: os cadastrados nos níveis de dificuldade). */
+  suggestedIds?: string[]
+  suggestedHeading?: string
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -141,6 +146,8 @@ export function ModelPicker({
             status={provider.status}
             catalogAvailable={provider.catalogAvailable}
             emptyLabel={emptyLabel}
+            suggestedIds={suggestedIds}
+            suggestedHeading={suggestedHeading}
             onSelect={select}
             onConnect={connect}
           />

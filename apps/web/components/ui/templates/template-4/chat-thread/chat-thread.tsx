@@ -64,7 +64,7 @@ import {
 	resolveBotProposal,
 	resolveSkillProposal,
 } from "@/lib/atlas-api";
-import { readProactiveSettings } from "@workspace/shared";
+import { hasModelTiers, readBotModelTiers, readProactiveSettings } from "@workspace/shared";
 import { openSkillProposalInEditor, proposalErrorMessage } from "@/components/ai-elements/skills";
 import { useDevFixtureWorking } from "@/lib/dev-session/fixture";
 import { onChatMessageRequest } from "@/lib/dev-session/chat-send-request";
@@ -245,7 +245,8 @@ export function ChatThread({
 		agentId: agent?.id ?? "",
 		groupId: isGroup ? agent?.id : undefined,
 		conversationId: agent?.conversationId,
-		agentModel: agent?.openRouterModel,
+		// Bot com níveis próprios abre no Automático; sem eles, o modelo fixo do bot vale como sempre.
+		agentModel: hasModelTiers(readBotModelTiers((agent as { policyJson?: unknown } | undefined)?.policyJson)) ? undefined : agent?.openRouterModel,
 		sandboxSessionId,
 		onSandboxSession,
 		onAgentPointer,

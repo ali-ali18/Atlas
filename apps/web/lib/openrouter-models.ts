@@ -26,19 +26,24 @@ export function getStoredAgentModel(agentId: string): string | null {
 	return value && value.trim().length > 0 ? value.trim() : null;
 }
 
+/** Escolha "Automático" guardada na sessão (o modelo vazio não distingue "nunca escolheu" de "escolheu Automático"). */
+const AUTO_STORAGE_VALUE = "__auto__";
+
 export function setStoredAgentModel(agentId: string, model: string): void {
-	sessionStorage.setItem(`${MODEL_STORAGE_PREFIX}${agentId}`, model.trim());
+	sessionStorage.setItem(`${MODEL_STORAGE_PREFIX}${agentId}`, model.trim() || AUTO_STORAGE_VALUE);
 }
 
+/**
+ * Modelo do composer. Vazio = "Automático": o servidor escolhe pelo nível de dificuldade do pedido
+ * (conta ou bot). Um modelo fixo no bot ou escolhido na sessão vale como antes.
+ */
 export function resolveAgentModel(
 	agentId: string,
 	agentModel?: string,
 ): string {
-	return (
-		agentModel?.trim() ||
-		getStoredAgentModel(agentId) ||
-		DEFAULT_OPENROUTER_MODEL
-	);
+	const stored = getStoredAgentModel(agentId);
+	if (stored === AUTO_STORAGE_VALUE) return "";
+	return agentModel?.trim() || stored || "";
 }
 
 /** Nome legível de um provider a partir do slug (ex.: "openai" → "OpenAI"). */

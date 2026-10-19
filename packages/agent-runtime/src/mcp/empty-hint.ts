@@ -37,7 +37,16 @@ export function optionalFilterKeys(args: Record<string, unknown>, inputSchema: u
 	return Object.keys(args).filter((key) => !required.has(key) && key !== "explanation");
 }
 
+const EMPTY_HINT_PREFIX = "Empty result with filters";
+
+/** O resultado de leitura voltou vazio (coleção vazia ou com a dica de filtros anexada). */
+export function looksEmptyResult(text: string): boolean {
+	if (text.includes(EMPTY_HINT_PREFIX)) return true;
+	// O resultado chega com rodapés entre colchetes (origem do dado, aviso de dado externo): só o corpo conta.
+	return isEmptyMcpResult(text.replace(/(\n\[[^\n]*\])+\s*$/, ""));
+}
+
 export function emptyResultHint(text: string, filterKeys: readonly string[]): string | null {
 	if (filterKeys.length === 0 || !isEmptyMcpResult(text)) return null;
-	return `Empty result with filters {${filterKeys.join(", ")}}. Optional filters you were not asked to use can hide everything. Retry with only the essential filter, then with no filters, then with a partial keyword.`;
+	return `${EMPTY_HINT_PREFIX} {${filterKeys.join(", ")}}. Optional filters you were not asked to use can hide everything. Retry with only the essential filter, then with no filters, then with a partial keyword.`;
 }

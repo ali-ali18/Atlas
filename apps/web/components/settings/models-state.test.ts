@@ -151,3 +151,28 @@ test("avisos de capacidade por função", async () => {
 	assert.equal(modelSettingWarning("maintenance", "", models), null);
 	assert.equal(modelSettingWarning("image", "acme/chat-only", models), null);
 });
+
+test("níveis: só a lista do usuário aparece; a herdada some", async () => {
+	const { userTierModels } = await import("./models-state");
+	assert.deepEqual(userTierModels({ value: { easy: ["a/x"] }, source: "user" }, "easy"), ["a/x"]);
+	assert.deepEqual(userTierModels({ value: { easy: ["a/x"] }, source: "user" }, "hard"), []);
+	assert.deepEqual(userTierModels({ value: {}, source: "default" }, "easy"), []);
+});
+
+test("níveis: acrescenta até 3, sem repetir, e sobe uma posição", async () => {
+	const { setTierModelAt, moveTierModelUp } = await import("./models-state");
+	assert.deepEqual(setTierModelAt([], 0, "a/x"), ["a/x"]);
+	assert.deepEqual(setTierModelAt(["a/x", "b/y"], 2, "c/z"), ["a/x", "b/y", "c/z"]);
+	assert.deepEqual(setTierModelAt(["a/x", "b/y", "c/z"], 3, "d/w"), ["a/x", "b/y", "c/z"]);
+	assert.deepEqual(setTierModelAt(["a/x", "b/y"], 2, "a/x"), ["a/x", "b/y"]);
+	assert.deepEqual(setTierModelAt(["a/x", "b/y"], 1, "c/z"), ["a/x", "c/z"]);
+	assert.deepEqual(moveTierModelUp(["a/x", "b/y", "c/z"], 2), ["a/x", "c/z", "b/y"]);
+	assert.deepEqual(moveTierModelUp(["a/x", "b/y"], 0), ["a/x", "b/y"]);
+});
+
+test("níveis: patch grava o nível; lista vazia volta a herdar (null); revisor liga e desliga", async () => {
+	const { tierPatch, classifyWithReviewerPatch } = await import("./models-state");
+	assert.deepEqual(tierPatch("medium", ["a/x", "b/y"]), { models: { tiers: { medium: ["a/x", "b/y"] } } });
+	assert.deepEqual(tierPatch("medium", []), { models: { tiers: { medium: null } } });
+	assert.deepEqual(classifyWithReviewerPatch(true), { models: { classifyWithReviewer: true } });
+});

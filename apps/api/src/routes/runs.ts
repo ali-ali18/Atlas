@@ -54,7 +54,7 @@ import { applyConfirmedFollowUp, maybeHandleConfirmedAction } from "../chat/conf
 import { buildJevIntentFor } from "../chat/jev-intent.js";
 import { resolveGroupRunTarget } from "../chat/group-run.js";
 import { peekModelContextLength } from "./models.js";
-import { resolveRunModel } from "../chat/effective-model.js";
+import { resolveRunModel, resolveRunModelChoice } from "../chat/effective-model.js";
 import { createReactionOnlyDeps, maybeReactOnly, type ReactionOnlyDeps } from "../chat/reaction-only.js";
 import { validateProviderModel } from "../providers/model-catalog.js";
 
@@ -107,6 +107,7 @@ function parseCreateBody(
 		messages,
 		...(attachments.length ? { attachments } : {}),
 		model: typeof body.model === "string" ? body.model : undefined,
+		...(body.modelAuto === true ? { modelAuto: true } : {}),
 		conversationId:
 			typeof body.conversationId === "string" ? body.conversationId : undefined,
 		botId: typeof body.botId === "string" ? body.botId : undefined,
@@ -361,8 +362,9 @@ export function createRunRoutes(
 			deps: dependencies.reactionOnly ?? createReactionOnlyDeps({ apiKey: config.openRouterApiKey, loadAccount: dependencies.getAccountConfig }),
 		});
 		if (reacted.handled) return c.json(reacted.response, 200);
-		const model = await resolveRunModel({
+		const { model, auto: modelAuto } = await resolveRunModelChoice({
 			requested: request.model,
+			modelAuto: request.modelAuto,
 			botId: request.botId,
 			userId: scopeFor(c.get("session")).userId,
 			envDefault: config.openRouterModel,
@@ -423,6 +425,7 @@ export function createRunRoutes(
 				request,
 				model,
 				userId,
+				modelAuto,
 				contextLength: peekModelContextLength(model),
 				onMergedIntoActiveRun: (runId) => notifyRunSignal(publish, runId, "input"),
 			});

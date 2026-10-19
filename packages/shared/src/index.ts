@@ -629,6 +629,8 @@ export {
 	JEV_MODES,
 	LLM_TIMEOUT_PRESETS,
 	MAX_FALLBACK_MODELS,
+	MAX_TIER_MODELS,
+	MODEL_TIERS,
 	MAX_OUTPUT_TOKEN_PRESETS,
 	TOOL_RESULT_MAX_CHARS_PRESETS,
 	accountConfigByteSize,
@@ -645,6 +647,7 @@ export {
 	type JevMcpMode,
 	type JevMode,
 	type LlmTimeoutPreset,
+	type ModelTier,
 } from "./account-config.js";
 export {
 	DEFAULT_LLM_TIMEOUTS,
@@ -802,3 +805,4 @@ export {
 	type ChartSpecParse,
 	type ChartType,
 } from "./chart-spec.js";
+export * from "./model-tiers.js";

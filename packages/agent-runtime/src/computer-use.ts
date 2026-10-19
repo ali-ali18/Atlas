@@ -201,6 +201,11 @@ import { detectJevIntents, NO_INTENTS, type JevIntents } from "./jev/intent.js";
 import type { JevRuntime } from "./jev/decide.js";
 import { verifierNote, verifyDraftAnswer } from "./jev/answer-verifier.js";
 import { detectStuckRun, shouldCheckStuck } from "./jev/stuck.js";
+import { classifyDifficulty } from "./context/difficulty.js";
+import { classifyDifficultyWithReviewer } from "./jev/difficulty.js";
+import { buildTierPlan, modelsForTier, nextEscalationTier, repeatedWeakResults, type ModelTiersRuntime } from "./model-tiers.js";
+import { looksEmptyResult } from "./mcp/empty-hint.js";
+import type { ModelTier } from "@workspace/shared";
 import { createNarrationMemory, mentionsFileDeliverable, STALL_NUDGE_NOTE, STALL_QUIET_AT, STALL_RESTRICT_NOTE, STALL_ABORT_MESSAGE, stallStage } from "./execution/stall-guard.js";
 import { budgetUsage, canExtendBudget, costCapMessage, costCapReached, decideReserve, EXTENSION_NOVELTY_WINDOW, FILE_RESERVE_TOOLS, isReadOnlyToolName, jevCheckpointKey, onlyReadsRecently, shouldWrapUp, STUCK_ANSWER_NOW_NOTE } from "./execution/run-governor.js";
 import { createRereadGuard, isRereadNotice, type RereadGuard } from "./execution/reread-guard.js";
@@ -385,6 +390,9 @@ import {
 } from "./progress.js";
 
 const MAX_STEPS_DEFAULT = 100;
+/** Aviso ao modelo mais forte que assume o run no modo Automático. */
+const MODEL_ESCALATION_NOTE =
+	"A stronger model took over this run because progress stalled. Re-read the conversation, do not repeat the calls that did not help, and try a different approach.";
 /** A7: prazo próprio da chamada final de resumo (o prazo/abort do run já expirou). */
 const CLOSING_CALL_TIMEOUT_MS = 60_000;
 /** A8: teto total da decisão com stream vivo quando o run pode criar arquivo (o idle vigia travas). */
@@ -4067,6 +4075,11 @@ export async function runComputerUse(params: {
 	 * ou logo depois de `dev_session_start`. Ausente = segue o modelo do run.
 	 */
 	codingModel?: string | null;
+	/**
+	 * Modo Automático (composer): modelos por dificuldade. O runtime classifica o pedido, usa o
+	 * modelo do nível e sobe de nível quando o run trava. Ausente = o modelo do run, como sempre.
+	 */
+	modelTiers?: ModelTiersRuntime;
 	/** Confere se um id de modelo existe (autoriza o `model` do delegate_task). */
 	isKnownModel?: (modelId: string) => boolean | Promise<boolean>;
 	/** Janela de contexto de um modelo no catálogo (dimensiona o orçamento do subagente). */
@@ -4269,6 +4282,8 @@ export async function runComputerUse(params: {
 		params;
 	// `let`: o modelo para código troca o modelo do run entre passos (ver `applyCodingModel`).
 	let model = params.model;
+	// `let`: o nível de dificuldade troca modelo e reservas (ver `applyTier`).
+	let fallbackModels = params.fallbackModels;
 	let contextLength = params.contextLength;
 	const userId = params.userId ?? "default";
 	const maxSteps = params.maxSteps ?? MAX_STEPS_DEFAULT;
@@ -4580,6 +4595,48 @@ export async function runComputerUse(params: {
 	// F12/C4: função `computer` (vocabulário de computer use) no lugar das tools
 	// de coordenada, só com o modo `on` e modelo suportado. `shadow` só registra.
 	const nativeMode = params.nativeComputerMode ?? parseNativeComputerMode(process.env.COMPUTER_NATIVE_MODE);
+	// Modo Automático: nível de dificuldade do run (classificado uma vez; sobe de nível se o run travar).
+	const tierPlan = !isSubagent && params.modelTiers ? buildTierPlan(params.modelTiers.tiers, [model, ...(params.fallbackModels ?? [])]) : null;
+	let activeTier: ModelTier | undefined = tierPlan ? parsedCheckpoint?.modelTier : undefined;
+	let tierSource: "rules" | "reviewer" | undefined;
+	let tierEscalationNote: { from: ModelTier; to: ModelTier; reason: string } | undefined;
+	let tierLocked = false;
+	const tierEscalations = [...(parsedCheckpoint?.modelEscalations ?? [])];
+	let tierEscalateSince = 0;
+	let pendingEscalationReason: string | undefined;
+	const applyTier = async (tier: ModelTier) => {
+		if (!tierPlan) return;
+		const next = modelsForTier(tierPlan, tier);
+		if (!next.model) return;
+		const previous = model;
+		model = next.model;
+		fallbackModels = next.fallbacks;
+		if (model !== previous) {
+			const window = await Promise.resolve(params.getModelContextLength?.(model)).catch(() => null);
+			if (window && window > 0) contextLength = window;
+		}
+		console.info(`[model-tier] ${tier}: ${previous} -> ${model}`);
+	};
+	if (tierPlan && params.modelTiers) {
+		if (!activeTier) {
+			const asked = params.modelTiers.classifyWithReviewer
+				? await classifyDifficultyWithReviewer({ rt: params.jev, request: lastUserMessageContent, signal: params.abortSignal })
+				: null;
+			const chosen =
+				asked ??
+				classifyDifficulty({
+					routerText: economyRouterText({ origin: params.origin, objective: params.objective, messages: params.messages, lastUserMessage: lastUserMessageContent }),
+					lastUserText: lastUserMessageContent,
+					hasImageAttachments: (params.userImageArtifactIds ?? parsedCheckpoint?.userImageArtifactIds ?? []).length > 0,
+					hasFileAttachments: (parsedCheckpoint?.userFileArtifactIds ?? []).length > 0,
+					connectorCount: params.forcedConnectors?.length ?? 0,
+					unattended: isUnattendedOrigin(params.origin),
+				});
+			activeTier = chosen.tier;
+			tierSource = asked ? "reviewer" : "rules";
+		}
+		await applyTier(activeTier);
+	}
 	const nativeEligible = sandboxEnabled && !isSubagent && supportsNativeComputerTool(model);
 	const nativeComputerOn = nativeEligible && nativeMode === "on";
 	if (nativeEligible && nativeMode === "shadow") {
@@ -4723,6 +4780,8 @@ export async function runComputerUse(params: {
 		const target = params.codingModel?.trim();
 		if (isSubagent || codingModelApplied || !target) return;
 		codingModelApplied = true;
+		// O modelo para código é uma escolha explícita: o Automático não o troca depois.
+		tierLocked = true;
 		if (target === model) return;
 		const previous = model;
 		model = target;
@@ -5357,6 +5416,8 @@ export async function runComputerUse(params: {
 				pendingFollowUps,
 				researchNotes: researchNotes.snapshot(),
 				capabilities: capabilitySnapshot(),
+				modelTier: activeTier,
+				modelEscalations: tierEscalations,
 				activeElapsedMs: activeElapsedMs(),
 			}),
 		);
@@ -5554,7 +5615,7 @@ export async function runComputerUse(params: {
 				...(!closing && canCreateFile() ? { progressTimeoutMs: FILE_GENERATION_PROGRESS_TIMEOUT_MS } : {}),
 				firstEventTimeoutMs: params.firstEventTimeoutMs,
 				idleTimeoutMs: params.idleTimeoutMs,
-				fallbackModels: params.fallbackModels,
+				fallbackModels,
 				...(closing ? {} : { deadlineAtMs }),
 				maxOutputTokens: agentOutputBudget({ configured: params.maxOutputTokens ?? (process.env.LLM_MAX_OUTPUT_TOKENS ? Number(process.env.LLM_MAX_OUTPUT_TOKENS) : undefined), remaining: budget.maxTokens === undefined ? undefined : budget.maxTokens - usageTotals.totalTokens, canCreateFiles: canCreateFile() }),
 				reasoningMaxTokens: params.reasoningMaxTokens,
@@ -5587,6 +5648,11 @@ export async function runComputerUse(params: {
 			fallbackModelMs: performance.now() - callStartedAt,
 			fallbackTtftMs: firstDeltaMs,
 		});
+		if (activeTier) {
+			telemetry.tier = activeTier;
+			if (tierSource) { telemetry.tierSource = tierSource; tierSource = undefined; }
+			if (tierEscalationNote) { telemetry.escalation = tierEscalationNote; tierEscalationNote = undefined; }
+		}
 		devTiming?.model({ ms: telemetry.modelMs ?? performance.now() - callStartedAt, firstTokenMs: telemetry.ttftMs, model: result.model });
 		await noteDevTiming();
 		const stepUsage = modelUsage(result);
@@ -5916,7 +5982,7 @@ export async function runComputerUse(params: {
 				// O filho usa a mesma configuração do pai (snapshot do run).
 				firstEventTimeoutMs: params.firstEventTimeoutMs,
 				idleTimeoutMs: params.idleTimeoutMs,
-				fallbackModels: params.fallbackModels,
+				fallbackModels,
 				maxOutputTokens: params.maxOutputTokens,
 				executionDiscipline: params.executionDiscipline,
 				// Janela do modelo do FILHO (higiene de contexto); desconhecida = 128k.
@@ -6727,8 +6793,11 @@ ${blockHint}`;
 				ok,
 				step: decisionIndex,
 				kind: ok ? undefined : failureKind,
+				...(tierPlan && ok && looksEmptyResult(summary) ? { empty: true } : {}),
 			});
 			trackExhaustion();
+			// Modo Automático: a mesma ferramenta falhando ou voltando vazia várias vezes pede um modelo mais forte.
+			if (tierPlan && !pendingEscalationReason && repeatedWeakResults(toolOutcomes, name, tierEscalateSince)) pendingEscalationReason = "tool_failures";
 			const loopCheck = isNoProgressLoop(toolOutcomes, loopWarned);
 			if (loopCheck.result === "abort") {
 				throw new AgentRunLoopDetectedError(loopCheck.reason || "loop detectado");
@@ -6934,6 +7003,21 @@ ${blockHint}`;
 	let exhaustionNudged = false;
 	let fileCorrectionChecked = false;
 	const firstStep = nextStepIndex;
+	/** Modo Automático: sobe um nível (no máximo uma vez por nível) e segue o run com o novo modelo; `false` = não há nível mais forte. */
+	const tryEscalate = async (reason: string, step: number): Promise<boolean> => {
+		if (!tierPlan || !activeTier || tierLocked) return false;
+		const to = nextEscalationTier(tierPlan, activeTier, model);
+		if (!to) return false;
+		const from = activeTier;
+		activeTier = to;
+		await applyTier(to);
+		tierEscalations.push({ from, to, reason, step });
+		tierEscalationNote = { from, to, reason };
+		tierEscalateSince = toolOutcomes.length;
+		conversation.push({ role: "system", content: MODEL_ESCALATION_NOTE });
+		await persistCheckpoint(step);
+		return true;
+	};
 	for (let step = nextStepIndex; ; step += 1) {
 		const decisionStartedAt = performance.now();
 		decisionToolMs = 0;
@@ -6946,8 +7030,15 @@ ${blockHint}`;
 		// novo (grava o snapshot de config e a conversa inicial) ou mensagem do usuário.
 		if (steered || (step === firstStep && !parsedCheckpoint)) await persistCheckpoint(step);
 
+		if (pendingEscalationReason) {
+			const reason = pendingEscalationReason;
+			pendingEscalationReason = undefined;
+			await tryEscalate(reason, step);
+		}
+
 		// F11: sem progresso percebido pelo Jev = mesmo caminho da trava de repetição (F4):
-		// o catch final faz a chamada SEM tools que resume o que foi feito.
+		// o catch final faz a chamada SEM tools que resume o que foi feito. No modo Automático,
+		// o run antes sobe para o modelo do nível acima e só para se não houver mais forte.
 		if (
 			!isSubagent &&
 			(await detectStuckRun({
@@ -6956,7 +7047,8 @@ ${blockHint}`;
 				userRequest: lastUserMessageContent,
 				conversation,
 				signal: params.abortSignal,
-			}))
+			})) &&
+			!(await tryEscalate("stuck", step))
 		) {
 			throw new AgentRunLoopDetectedError(
 				"Parei porque o run não estava avançando (detectado automaticamente).",
@@ -7024,6 +7116,7 @@ ${blockHint}`;
 					signal: params.abortSignal,
 					force: true,
 				}).catch(() => false);
+				if (forcedWrapUp && (await tryEscalate("stuck", step))) forcedWrapUp = false;
 			}
 			// V3b: depois de M replans sem progresso, o ledger manda fechar com a entrega parcial.
 			const wrapUp = forcedWrapUp || taskOrchestrator.stopRequested() || (!taskOrchestrator.hasOpenItems() && shouldWrapUp({ ...stagnation, deliverablePending: pending }));

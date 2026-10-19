@@ -10,6 +10,7 @@ import {
 	type JevMode,
 	type LlmTimeoutPreset,
 } from "./account-config.js";
+import { hasModelTiers, normalizeModelTiers, type ModelTiers } from "./model-tiers.js";
 import type { BotLanguage } from "./bot-language.js";
 import { resolveMaintenanceModel } from "./provider-policy.js";
 
@@ -48,6 +49,10 @@ export type EffectiveAccountConfig = {
 		coding: Resolved<string | undefined>;
 		/** Ditado: usuário > ATLAS_STT_MODEL > padrão do provedor (decidido no servidor; aqui `undefined`). */
 		stt: Resolved<string | undefined>;
+		/** Modelos por dificuldade: usuário > nenhum (cada nível vazio herda o padrão e as reservas). */
+		tiers: Resolved<ModelTiers>;
+		/** Classificar a dificuldade com o revisor: usuário > desligado (regras locais). */
+		classifyWithReviewer: Resolved<boolean>;
 	};
 	jev: { mcp: Resolved<JevMcpMode>; features: Record<JevFeature, Resolved<JevMode>> };
 	/** Grupos de bots: usuário > GROUPS_JEV_COORDINATION > desligada. */
@@ -224,6 +229,12 @@ export function resolveEffectiveConfig(input: {
 			image: cfg.models?.image ? user(cfg.models.image) : envImage ? env(envImage) : dflt(undefined),
 			coding: cfg.models?.coding ? user(cfg.models.coding) : dflt(undefined),
 			stt: cfg.models?.stt ? user(cfg.models.stt) : envStt ? env(envStt) : dflt(undefined),
+			tiers: ((): Resolved<ModelTiers> => {
+				const tiers = normalizeModelTiers(cfg.models?.tiers);
+				return hasModelTiers(tiers) ? user(tiers) : dflt({});
+			})(),
+			classifyWithReviewer:
+				cfg.models?.classifyWithReviewer !== undefined ? user(cfg.models.classifyWithReviewer) : dflt(false),
 		},
 		jev: {
 			mcp: cfg.jev?.mcp ? user(cfg.jev.mcp) : mcpEnv ? env(mcpEnv) : dflt("off"),
@@ -281,6 +292,10 @@ export type RunConfigSnapshot = {
 	imageModel?: string;
 	/** Modelo para código da conta (o do bot, quando existe, vence no worker). */
 	codingModel?: string;
+	/** Modelos por dificuldade da conta; ausente = nenhum nível configurado. */
+	modelTiers?: ModelTiers;
+	/** Dificuldade classificada pelo revisor (Jev); ausente = regras locais. */
+	classifyWithReviewer?: boolean;
 	jevMcpMode: JevMcpMode;
 	jevModes: Record<JevFeature, JevMode>;
 	executionDiscipline: boolean;
@@ -317,6 +332,8 @@ export function toRunConfigSnapshot(effective: EffectiveAccountConfig): RunConfi
 	if (effective.models.vision.value) snapshot.visionModel = effective.models.vision.value;
 	if (effective.models.image.value) snapshot.imageModel = effective.models.image.value;
 	if (effective.models.coding.value) snapshot.codingModel = effective.models.coding.value;
+	if (hasModelTiers(effective.models.tiers.value)) snapshot.modelTiers = effective.models.tiers.value;
+	if (effective.models.classifyWithReviewer.value) snapshot.classifyWithReviewer = true;
 	if (effective.execution.maxOutputTokens.value !== undefined)
 		snapshot.maxOutputTokens = effective.execution.maxOutputTokens.value;
 	if (effective.execution.toolResultMaxChars.value !== undefined)
@@ -362,6 +379,8 @@ export function parseRunConfigSnapshot(raw: unknown): RunConfigSnapshot | null {
 		!optional(raw.visionModel, nonEmptyString) ||
 		!optional(raw.imageModel, nonEmptyString) ||
 		!optional(raw.codingModel, nonEmptyString) ||
+		!optional(raw.modelTiers, isRecord) ||
+		!optional(raw.classifyWithReviewer, (v) => typeof v === "boolean") ||
 		!optional(raw.maxOutputTokens, positiveInt) ||
 		!optional(raw.toolResultMaxChars, positiveInt) ||
 		!optional(raw.maxSteps, positiveInt) ||

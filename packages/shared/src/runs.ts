@@ -1,3 +1,4 @@
+import type { ModelTier } from "./account-config.js";
 import type { ChatMessage } from "./chat.js";
 import type { ComputerUseEvent, RunUsage } from "./computer.js";
 import type { RunConfigSnapshot } from "./effective-config.js";
@@ -81,6 +82,8 @@ export type CreateAgentRunRequest = {
 	messages: ChatMessage[];
 	attachments?: Array<{ artifactId: string }>;
 	model?: string;
+	/** Modelo "Automático" do composer: o servidor ignora o modelo do bot e usa os níveis de dificuldade. */
+	modelAuto?: boolean;
 	conversationId?: string;
 	botId?: string;
 	sandboxSessionId?: string;
@@ -369,4 +372,8 @@ export type AgentRunCheckpoint = {
 	 * no meio do run vale só para o próximo.
 	 */
 	configSnapshot?: RunConfigSnapshot;
+	/** Nível de dificuldade do run no modo Automático (sobrevive a resume). */
+	modelTier?: ModelTier;
+	/** Subidas de nível já feitas neste run (cada nível sobe no máximo uma vez). */
+	modelEscalations?: Array<{ from: ModelTier; to: ModelTier; reason: string; step: number }>;
 };

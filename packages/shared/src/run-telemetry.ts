@@ -38,6 +38,12 @@ export type StepTelemetry = {
 	toolMsTotal?: number;
 	requestedModel?: string;
 	servedModel?: string;
+	/** Modo Automático: nível de dificuldade em uso neste passo. */
+	tier?: "easy" | "medium" | "hard";
+	/** Como o nível foi escolhido no início do run (só no 1º passo). */
+	tierSource?: "rules" | "reviewer";
+	/** Passo que subiu de nível: de onde veio e por quê (`stuck` ou `tool_failures`). */
+	escalation?: { from: "easy" | "medium" | "hard"; to: "easy" | "medium" | "hard"; reason: string };
 	/** Tentativas da chamada ao LLM (1 = sem retry). */
 	llmAttempts?: number;
 	/** Categorias do motivo de cada retry (rate_limit, server_error, ...). */

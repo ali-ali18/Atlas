@@ -1965,8 +1965,8 @@ export function useAtlasChat({
 
 	const setModel = useCallback(
 		(next: string) => {
+			// Vazio = Automático (modelos por dificuldade).
 			const trimmed = next.trim();
-			if (!trimmed) return;
 			setModelState(trimmed);
 			setServedModel(null);
 			setRunUsage(null);
@@ -2320,7 +2320,7 @@ export function useAtlasChat({
 									...(options.confirmId ? { decisionConfirmId: options.confirmId } : {}),
 									conversationId,
 									botId: agentId,
-									model,
+									...(model ? { model } : { modelAuto: true }),
 									...(sandboxSessionId ? { sandboxSessionId } : {}),
 								}),
 							abort.signal,
