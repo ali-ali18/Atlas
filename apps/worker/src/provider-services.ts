@@ -38,6 +38,38 @@ export function resetGoModelCooldowns(): void {
 const keyCatalog = createApiKeyModelCatalog({ getKey: (userId, provider) => apiKeyService.getKey(userId, provider) });
 /** Janela de contexto quando o catálogo não informa. */
 const KEY_PROVIDER_CONTEXT: Record<ApiKeyProvider, number> = { anthropic: 200_000, "opencode-go": 128_000 };
+/**
+ * Streams de chave própria (Anthropic, OpenCode Go) do usuário: os MESMOS adaptadores dos runs,
+ * também usados pela manutenção (resumo, memória, guia).
+ */
+export function createKeyProviderStreams(input: {
+	userId: string;
+	conversationId?: string | null;
+	keys?: Pick<ApiKeyService, "getKey">;
+	keyModels?: Pick<typeof keyCatalog, "protocolOf">;
+}): { anthropic: ProviderStreamChat; opencodeGo: ProviderStreamChat } {
+	const keys = input.keys ?? apiKeyService,
+		keyModels = input.keyModels ?? keyCatalog;
+	const requireKey = (provider: ApiKeyProvider) => async () => {
+		const key = await keys.getKey(input.userId, provider);
+		if (!key) throw new ProviderApiError(provider, 401, "auth_failed");
+		return key;
+	};
+	return {
+		anthropic: createAnthropicStreamChat({
+			provider: "anthropic",
+			getApiKey: requireKey("anthropic"),
+			url: `${ANTHROPIC_API_BASE_URL}/v1/messages`,
+			auth: "x-api-key",
+		}),
+		opencodeGo: createOpencodeGoStreamChat({
+			getApiKey: requireKey("opencode-go"),
+			conversationId: input.conversationId ?? undefined,
+			protocolOf: (slug) => keyModels.protocolOf(input.userId, slug),
+		}),
+	};
+}
+
 export function createRunProviderServices(input: {
 	userId: string;
 	policy: unknown;
@@ -84,11 +116,7 @@ export function createRunProviderServices(input: {
 	};
 	const keys = input.keys ?? apiKeyService,
 		keyModels = input.keyModels ?? keyCatalog;
-	const requireKey = (provider: ApiKeyProvider) => async () => {
-		const key = await keys.getKey(input.userId, provider);
-		if (!key) throw new ProviderApiError(provider, 401, "auth_failed");
-		return key;
-	};
+	const keyStreams = createKeyProviderStreams({ userId: input.userId, conversationId: input.conversationId, keys, keyModels });
 	const connection = input.getConnection ?? getProviderConnection,
 		update = input.updateConnection ?? updateProviderConnection;
 	const configuredContext = Number(env.ATLAS_CHATGPT_CONTEXT_TOKENS ?? 64000);
@@ -125,21 +153,8 @@ export function createRunProviderServices(input: {
 				markNeedsLogin: () => auth.markNeedsLogin(input.userId),
 				getAccountId: auth.getAccountId ? () => auth.getAccountId!(input.userId) : undefined,
 			}),
-		anthropic:
-			input.anthropic ??
-			createAnthropicStreamChat({
-				provider: "anthropic",
-				getApiKey: requireKey("anthropic"),
-				url: `${ANTHROPIC_API_BASE_URL}/v1/messages`,
-				auth: "x-api-key",
-			}),
-		opencodeGo:
-			input.opencodeGo ??
-			createOpencodeGoStreamChat({
-				getApiKey: requireKey("opencode-go"),
-				conversationId: input.conversationId ?? undefined,
-				protocolOf: (slug) => keyModels.protocolOf(input.userId, slug),
-			}),
+		anthropic: input.anthropic ?? keyStreams.anthropic,
+		opencodeGo: input.opencodeGo ?? keyStreams.opencodeGo,
 		fallbackModel: resolveChatgptFallbackModel(input.policy),
 		cooldownMs,
 		modelCooldown: {

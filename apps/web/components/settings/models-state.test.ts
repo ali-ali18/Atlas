@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { OpenRouterModel } from "@workspace/shared";
 import {
+	MODEL_SETTING_NO_CHATGPT,
 	MODEL_SETTING_OPENROUTER_ONLY,
+	maintenanceInheritLabel,
 	dictationDefaultLabel,
 	fallbacksInheritLabel,
 	fallbacksPatch,
@@ -175,4 +177,18 @@ test("níveis: patch grava o nível; lista vazia volta a herdar (null); revisor 
 	assert.deepEqual(tierPatch("medium", ["a/x", "b/y"]), { models: { tiers: { medium: ["a/x", "b/y"] } } });
 	assert.deepEqual(tierPatch("medium", []), { models: { tiers: { medium: null } } });
 	assert.deepEqual(classifyWithReviewerPatch(true), { models: { classifyWithReviewer: true } });
+});
+
+test("manutenção: aceita todos os provedores com chave (só o ChatGPT fica de fora) e herda o que será usado", () => {
+	assert.equal(MODEL_SETTING_OPENROUTER_ONLY.maintenance, false);
+	assert.equal(MODEL_SETTING_NO_CHATGPT.maintenance, true);
+	const inherited = (value: string | undefined) => ({ value, source: "default" as const });
+	// Com OpenRouter no servidor, vale o padrão da manutenção.
+	assert.equal(maintenanceInheritLabel(inherited("openai/gpt-6-luna"), inherited("anthropic-direct/claude-x"), [], true), "Herdar (openai/gpt-6-luna)");
+	// Sem OpenRouter, vale o modelo padrão da conta.
+	assert.equal(maintenanceInheritLabel(inherited("openai/gpt-6-luna"), inherited("anthropic-direct/claude-x"), [], false), "Herdar (anthropic-direct/claude-x)");
+	// Padrão da conta no plano ChatGPT não serve à manutenção.
+	assert.match(maintenanceInheritLabel(inherited("openai/gpt-6-luna"), inherited("chatgpt/gpt-5"), [], false) ?? "", /conecte uma chave/);
+	// Escolha do usuário não herda nada.
+	assert.equal(maintenanceInheritLabel({ value: "opencode-go/glm", source: "user" }, inherited(undefined), [], false), null);
 });

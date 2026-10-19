@@ -21,12 +21,15 @@ export type ModelSetting = "default" | "maintenance" | "vision" | "image" | "cod
 /** O padrão aceita qualquer provedor; os demais são só OpenRouter (o contrato recusa `chatgpt/*`). */
 export const MODEL_SETTING_OPENROUTER_ONLY: Record<ModelSetting, boolean> = {
 	default: false,
-	maintenance: true,
+	maintenance: false,
 	vision: true,
 	image: true,
 	coding: false,
 	stt: true,
 };
+
+/** Manutenção usa a chave de qualquer provedor conectado; só o plano ChatGPT fica de fora. */
+export const MODEL_SETTING_NO_CHATGPT: Partial<Record<ModelSetting, boolean>> = { maintenance: true };
 
 /** Função de cada configuração para checar capacidade (ditado e imagem gerada não exigem visão nem ferramentas). */
 const SETTING_ROLE: Partial<Record<ModelSetting, ModelRole>> = {
@@ -103,6 +106,23 @@ export function modelInheritLabel(
 }
 
 /** Valor do seletor: o id escolhido pelo usuário, ou "" (= "Herdar") enquanto herda. */
+/**
+ * "Herdar (…)" do modelo de manutenção: o que de fato seria usado. Com OpenRouter no servidor vale o
+ * padrão dele; sem ele a manutenção cai no modelo padrão da conta (se não for o plano ChatGPT).
+ */
+export function maintenanceInheritLabel(
+	maintenance: Resolved<string | undefined>,
+	accountDefault: Resolved<string | undefined>,
+	models: readonly OpenRouterModel[],
+	openrouterKey: boolean,
+): string | null {
+	if (maintenance.source === "user") return null;
+	if (openrouterKey) return modelInheritLabel(maintenance, models, "nenhum");
+	const fallback = accountDefault.value;
+	if (!fallback || fallback.startsWith("chatgpt/")) return inheritLabel(maintenance.source, "conecte uma chave de provedor");
+	return inheritLabel(maintenance.source, modelLabel(fallback, models));
+}
+
 export function modelPickerValue(resolved: Resolved<string | undefined>): string {
 	return resolved.source === "user" ? (resolved.value ?? "") : "";
 }

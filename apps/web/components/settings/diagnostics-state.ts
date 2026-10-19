@@ -66,3 +66,13 @@ export function versionFooter(version: string | null | undefined, commitShort: s
   if (version) return commit ? `Versão ${version} · ${commit}` : `Versão ${version}`
   return commit ? `Versão ${commit}` : ""
 }
+
+/** Data curta (dia/mês hora:minuto) das tarefas em segundo plano. */
+export function maintenanceTime(iso: string): string {
+	return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+/** Texto do último sucesso de uma tarefa: horário, ou "nunca rodou com sucesso". */
+export function maintenanceSuccessLabel(lastSuccessAt: string | null): string {
+	return lastSuccessAt ? `Último sucesso ${maintenanceTime(lastSuccessAt)}` : "Ainda sem sucesso";
+}

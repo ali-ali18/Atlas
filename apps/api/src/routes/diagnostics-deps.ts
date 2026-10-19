@@ -1,7 +1,7 @@
 import { apiKeyService } from "@workspace/agent-runtime";
-import { countPushSubscriptions, getProviderConnection, hasComposioKey, listRecentFailures, pingDatabase } from "@workspace/db";
+import { countPushSubscriptions, getMaintenanceStatus, getProviderConnection, hasComposioKey, listRecentFailures, pingDatabase } from "@workspace/db";
 import { readRootVersion, readWorkerHeartbeat, sentryEnabled, type HeartbeatRedis } from "@workspace/observability";
-import { API_KEY_PROVIDERS, API_KEY_PROVIDER_LABEL, buildInfo, shortReason, scrubString, type DiagnosticsCheck, type DiagnosticsQueue } from "@workspace/shared";
+import { API_KEY_PROVIDERS, API_KEY_PROVIDER_LABEL, buildInfo, maintenanceStatusView, shortReason, scrubString, type DiagnosticsCheck, type DiagnosticsQueue } from "@workspace/shared";
 import type { DiagnosticsDeps } from "./diagnostics.js";
 
 type CountingQueue = { name: string; getJobCounts: (...types: never[]) => Promise<Record<string, number>> };
@@ -55,6 +55,7 @@ export function createDefaultDiagnosticsDeps(input: { redis: (HeartbeatRedis & {
 			];
 		},
 		failures: listRecentFailures,
+		maintenance: async (userId) => maintenanceStatusView(await getMaintenanceStatus(userId)),
 		sentryEnabled,
 	};
 }

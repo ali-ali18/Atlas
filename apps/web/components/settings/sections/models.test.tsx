@@ -150,3 +150,17 @@ test("Modelos: aviso quando o modelo escolhido não tem a capacidade da função
 	assert.match(html, /Este modelo não lê imagens/);
 	assert.doesNotMatch(render(), /role="note"/);
 });
+
+test("Modelos: manutenção não diz mais que exige OpenRouter e herda o modelo padrão da conta sem chave do servidor", () => {
+	const html = render({
+		openrouterKey: false,
+		effective: effective({
+			default: { value: "anthropic-direct/claude-x", source: "user" },
+			maintenance: { value: "openai/gpt-4o-mini", source: "default" },
+		}),
+	});
+	assert.match(html, /Usa a chave de qualquer provedor conectado/);
+	assert.doesNotMatch(html, /Resume conversas e revisa a memória\. Só modelos do OpenRouter/);
+	assert.match(html, /Herdar \(anthropic-direct\/claude-x\)/);
+	assert.doesNotMatch(html, /Atlas/);
+});

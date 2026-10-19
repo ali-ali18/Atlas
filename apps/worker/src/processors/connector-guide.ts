@@ -11,6 +11,7 @@ import {
 	type ConnectorGuideJobResult,
 	type ConnectorLessonJobPayload,
 	type ConnectorLessonJobResult,
+	MAINTENANCE_NO_KEY_MESSAGE,
 	type GuideToolInput,
 } from "@workspace/shared";
 import {
@@ -22,15 +23,17 @@ import {
 	markGuideFailed,
 	setConnectorGuide,
 } from "@workspace/db";
-import { OpenRouterError, completeChat } from "@workspace/llm";
+import { OpenRouterError, ProviderApiError } from "@workspace/llm";
 import type { WorkerConfig } from "../config.js";
-import { resolveMaintenanceModelForJob } from "../run-config.js";
+import { createMaintenanceLlm, type MaintenanceLlm } from "../maintenance-llm.js";
 
 /** Injetável nos testes: modelo de manutenção e chamada ao LLM. */
 export type ConnectorGuideDeps = {
-	resolveModel?: (userId: string) => Promise<string>;
-	complete?: typeof completeChat;
+	llm?: (userId: string, config: WorkerConfig) => Promise<MaintenanceLlm>;
 };
+
+const llmFor = (kind: "connector-guide", config: WorkerConfig, userId: string, deps: ConnectorGuideDeps): Promise<MaintenanceLlm> =>
+	(deps.llm ?? ((id, cfg) => createMaintenanceLlm({ kind, config: cfg, userId: id })))(userId, config);
 
 type LoadedConnector = { name: string; tools: GuideToolInput[] };
 
@@ -74,7 +77,7 @@ export class GuideFailure extends Error {
 /** Erro qualquer → mensagem segura + se vale tentar de novo. */
 export function describeGuideError(error: unknown): { message: string; retryable: boolean } {
 	if (error instanceof GuideFailure) return { message: error.userMessage, retryable: error.retryable };
-	if (error instanceof OpenRouterError) {
+	if (error instanceof OpenRouterError || error instanceof ProviderApiError) {
 		const status = error.status;
 		if (/data policy|guardrail|ZDR/i.test(error.message)) return { message: "O modelo de manutenção não atende a política de privacidade da sua conta no provedor; escolha outro em Modelos e contexto", retryable: false };
 		if (status === 401 || status === 403) return { message: "O servidor não conseguiu usar a chave do provedor", retryable: false };
@@ -101,27 +104,33 @@ async function generateGuide(
 		await clearGuideStatus(kind, connectionId, userId);
 		return { status: "skipped", reason: "guia já existe" };
 	}
-	if (!config.openRouterApiKey) throw new GuideFailure("Sem chave do provedor no servidor");
+	const llm = await llmFor("connector-guide", config, userId, deps).catch(() => {
+		throw new GuideFailure("Modelo de manutenção indisponível");
+	});
+	if (llm.candidates.length === 0) {
+		await llm.report({ ok: false, error: new Error(MAINTENANCE_NO_KEY_MESSAGE) });
+		throw new GuideFailure(MAINTENANCE_NO_KEY_MESSAGE);
+	}
 	const connector = await loadConnector({ kind, connectionId, userId });
 	if (!connector) throw new GuideFailure("A conexão não está ativa");
 	if (connector.tools.length === 0) throw new GuideFailure("O conector não tem operações");
-	let model: string;
-	try {
-		model = await (deps.resolveModel ?? ((id) => resolveMaintenanceModelForJob({ kind: "connector-guide", config, userId: id })))(userId);
-	} catch {
-		throw new GuideFailure("Modelo de manutenção indisponível");
-	}
-	const result = await (deps.complete ?? completeChat)({
-		messages: [
-			{ role: "system", content: GUIDE_GENERATOR_SYSTEM },
-			{ role: "user", content: buildConnectorGuidePrompt({ name: connector.name, kind, tools: connector.tools }) },
-		],
-		model,
-		apiKey: config.openRouterApiKey,
-	});
+	const result = await llm
+		.complete({
+			messages: [
+				{ role: "system", content: GUIDE_GENERATOR_SYSTEM },
+				{ role: "user", content: buildConnectorGuidePrompt({ name: connector.name, kind, tools: connector.tools }) },
+			],
+			model: llm.model,
+			apiKey: "",
+		})
+		.catch(async (error: unknown) => {
+			await llm.report({ ok: false, error: new Error(describeGuideError(error).message) });
+			throw error;
+		});
 	const text = sanitizeGuideText(result.message.content ?? "");
 	if (!text) throw new GuideFailure("O modelo devolveu resposta vazia", true);
 	await setConnectorGuide(kind, connectionId, userId, { text, source: "generated", force });
+	await llm.report({ ok: true });
 	console.log(`[connector.guide] done job=${job.id} kind=${kind} connection=${connectionId} chars=${text.length}`);
 	return { status: "generated" };
 }
@@ -154,20 +163,20 @@ export async function processConnectorLessonJob(
 	deps: ConnectorGuideDeps = {},
 ): Promise<ConnectorLessonJobResult> {
 	if (job.name !== ATLAS_JOB_NAMES.connectorLesson) throw new Error(`Unexpected job name: ${job.name}`);
-	if (!config.openRouterApiKey) throw new Error("OPENROUTER_API_KEY is not configured on the worker");
 	const { kind, connectionId, userId, failed, succeeded } = job.data;
 	const current = await getConnectorGuide(kind, connectionId, userId);
 	if (!current.found) return { status: "skipped", reason: "conexão não encontrada" };
 	const connector = await loadConnector({ kind, connectionId, userId });
 	if (!connector) return { status: "skipped", reason: "conexão indisponível" };
-	const model = await (deps.resolveModel ?? ((id) => resolveMaintenanceModelForJob({ kind: "connector-guide", config, userId: id })))(userId);
-	const result = await (deps.complete ?? completeChat)({
+	const llm = await llmFor("connector-guide", config, userId, deps);
+	if (llm.candidates.length === 0) throw new Error(MAINTENANCE_NO_KEY_MESSAGE);
+	const result = await llm.complete({
 		messages: [
 			{ role: "system", content: LESSON_SYSTEM },
 			{ role: "user", content: buildConnectorLessonPrompt({ name: connector.name, failed, succeeded }) },
 		],
-		model,
-		apiKey: config.openRouterApiKey,
+		model: llm.model,
+		apiKey: "",
 	});
 	const bullet = parseLessonBullet(result.message.content ?? "");
 	if (!bullet) return { status: "skipped", reason: "sem lição geral" };

@@ -3,7 +3,22 @@ import { test } from "node:test";
 import { prisma } from "@workspace/db";
 import { ATLAS_JOB_NAMES } from "@workspace/shared";
 import type { WorkerConfig } from "../config.js";
-import { processConnectorGuideJob, processConnectorLessonJob } from "./connector-guide.js";
+import { processConnectorGuideJob as runGuide, processConnectorLessonJob as runLesson } from "./connector-guide.js";
+import { createMaintenanceLlm } from "../maintenance-llm.js";
+
+type LegacyDeps = { resolveModel?: (userId: string) => Promise<string>; complete?: (input: { model: string; messages: Array<{ role: string; content: string }> }) => Promise<unknown> };
+/** Os testes injetam só o transporte; chaves/conta são fixas (sem banco) e o diagnóstico não grava. */
+const adapt = (deps: LegacyDeps = {}) => ({
+	llm: async (userId: string, cfg: WorkerConfig) => {
+		const chosen = await deps.resolveModel?.(userId);
+		return createMaintenanceLlm(
+			{ kind: "connector-guide", config: cfg, userId },
+			{ loadConfig: async () => ({ v: 1, models: { maintenance: chosen } }) as never, hasKey: async () => false, completeChat: (async (input: never) => deps.complete?.(input)) as never, record: async () => undefined },
+		);
+	},
+});
+const processConnectorGuideJob = (job: never, cfg: WorkerConfig, deps?: LegacyDeps) => runGuide(job, cfg, adapt(deps));
+const processConnectorLessonJob = (job: never, cfg: WorkerConfig, deps?: LegacyDeps) => runLesson(job, cfg, adapt(deps));
 
 type Row = Record<string, any>;
 const config: WorkerConfig = { redisUrl: "unused", openRouterApiKey: "test", openRouterModel: "expensive", summarizerModel: "cheap", agentRunConcurrency: 1 };
@@ -108,7 +123,7 @@ const failing = (error: Error) => ({ resolveModel: async () => "m", complete: as
 test("falhas ficam gravadas na conexão com mensagem amigável", async () => {
 	const { OpenRouterError } = await import("@workspace/llm");
 	const cases: Array<[string, Row, WorkerConfig, ReturnType<typeof failing> | { resolveModel: () => Promise<string>; complete: () => Promise<never> }, string]> = [
-		["sem chave", mcpRow(), { ...config, openRouterApiKey: undefined }, failing(new Error("x")), "Sem chave do provedor no servidor"],
+		["sem chave", mcpRow(), { ...config, openRouterApiKey: undefined }, failing(new Error("x")), "Nenhuma chave disponível para a manutenção. Conecte Anthropic ou OpenCode Go em Configurações > Provedores e chaves, ou configure o OpenRouter no servidor."],
 		["sem operações", mcpRow({ toolsCacheJson: [] }), config, failing(new Error("x")), "O conector não tem operações"],
 		["não conectada", mcpRow({ status: "pending_auth" }), config, failing(new Error("x")), "A conexão não está ativa"],
 		["modelo inexistente", mcpRow(), config, failing(new OpenRouterError("No endpoints found for secret-model", 404)), "Modelo de manutenção indisponível"],

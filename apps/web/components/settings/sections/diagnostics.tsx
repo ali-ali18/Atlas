@@ -8,11 +8,12 @@ import {
 	DatabaseIcon,
 	KeyRoundIcon,
 	LayersIcon,
+	ListChecksIcon,
 	RefreshCwIcon,
 	ServerIcon,
 	TagIcon,
 } from "lucide-react";
-import type { DiagnosticsView } from "@workspace/shared";
+import { MAINTENANCE_JOB_LABEL, type DiagnosticsView } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
 import { useDiagnostics } from "@/hooks/use-diagnostics";
 import { SettingRow, SettingsGroup } from "../setting-row";
@@ -20,6 +21,8 @@ import {
 	FAILURE_KIND_LABEL,
 	checkLabel,
 	commitLabel,
+	maintenanceSuccessLabel,
+	maintenanceTime,
 	missingFeaturesLabel,
 	queuesLabel,
 	uptimeLabel,
@@ -120,6 +123,27 @@ export function DiagnosticsSettingsView({
 							<span className="text-right text-muted-foreground">{missingFeaturesLabel(data.env)}</span>
 						</SettingRow>
 					</SettingsGroup>
+					{(data.maintenance?.length ?? 0) > 0 ? (
+					<SettingsGroup title="Tarefas em segundo plano">
+						{(data.maintenance ?? []).map((job) => (
+							<SettingRow
+								caption={
+									job.lastError ? (
+										<p className="text-destructive" data-slot="diag-maintenance-error">{`Último erro ${maintenanceTime(job.lastError.at)}: ${job.lastError.message}`}</p>
+									) : null
+								}
+								control="inline"
+								icon={ListChecksIcon}
+								key={job.kind}
+								label={MAINTENANCE_JOB_LABEL[job.kind]}
+							>
+								<span className={job.lastSuccessAt ? "text-foreground" : "text-muted-foreground"} data-slot="diag-maintenance-success">
+									{maintenanceSuccessLabel(job.lastSuccessAt)}
+								</span>
+							</SettingRow>
+						))}
+					</SettingsGroup>
+					) : null}
 					<SettingsGroup title="Últimas falhas">
 						{data.failures.length === 0 ? (
 							<SettingRow control="inline" icon={AlertTriangleIcon} label="Nenhuma falha recente" />

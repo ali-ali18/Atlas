@@ -1,4 +1,5 @@
 import type { ChatMessage } from "@workspace/shared";
+import type { CompleteChatWithToolsParams, CompleteChatWithToolsResult, LlmMessage, StreamChatWithToolsHandlers } from "./chat-tools.js";
 import { modelCallSignal } from "./signal.js";
 import { OpenRouterError, readOpenRouterSse } from "./sse-stream.js";
 
@@ -13,6 +14,12 @@ export type CompleteChatParams = {
 	apiKey: string;
 	signal?: AbortSignal;
 	timeoutMs?: number;
+	/**
+	 * Provedor por chave própria (Anthropic, OpenCode Go): o mesmo adaptador de stream dos runs, sem ferramentas.
+	 * `model` é então a referência completa (`anthropic-direct/…`) e `apiKey` é ignorada pelo adaptador.
+	 * Omitido = OpenRouter.
+	 */
+	via?: (params: CompleteChatWithToolsParams, handlers?: StreamChatWithToolsHandlers) => Promise<CompleteChatWithToolsResult>;
 };
 
 export type CompleteChatResult = {
@@ -120,9 +127,32 @@ export async function streamChat(
 	};
 }
 
+/** Chamada de texto puro por um adaptador de provedor dos runs (sem duplicar HTTP). */
+async function completeChatVia(params: CompleteChatParams & { via: NonNullable<CompleteChatParams["via"]> }): Promise<CompleteChatResult> {
+	const result = await params.via({
+		messages: params.messages as LlmMessage[],
+		model: params.model,
+		apiKey: params.apiKey,
+		tools: [],
+		signal: params.signal,
+		timeoutMs: params.timeoutMs,
+	});
+	const content = result.message.content;
+	if (typeof content !== "string" || content.length === 0) {
+		throw new OpenRouterError("O provedor devolveu uma resposta vazia", 502);
+	}
+	const usage = result.usage;
+	return {
+		message: { role: "assistant", content },
+		model: result.model || params.model,
+		usage: usage ? { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens } : undefined,
+	};
+}
+
 export async function completeChat(
 	params: CompleteChatParams,
 ): Promise<CompleteChatResult> {
+	if (params.via) return completeChatVia({ ...params, via: params.via });
 	const response = await fetch(OPENROUTER_CHAT_URL, {
 		method: "POST",
 		headers: {

@@ -10,6 +10,7 @@ import {
 	type DiagnosticsFailure,
 	type DiagnosticsQueue,
 	type DiagnosticsView,
+	type MaintenanceJobStatus,
 	type EnvLike,
 } from "@workspace/shared";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
@@ -32,6 +33,8 @@ export type DiagnosticsDeps = {
 	accountProviders: (userId: string) => Promise<Array<{ id: string; label: string; present: boolean }>>;
 	failures: (userId: string, limit: number) => Promise<DiagnosticsFailure[]>;
 	sentryEnabled: () => boolean;
+	/** Último sucesso/erro das tarefas em segundo plano (resumo, memória, reflexão, guia). */
+	maintenance?: (userId: string) => Promise<MaintenanceJobStatus[]>;
 };
 
 async function settle<T>(promise: Promise<T>, fallback: T): Promise<T> {
@@ -44,7 +47,7 @@ async function settle<T>(promise: Promise<T>, fallback: T): Promise<T> {
 
 export async function buildDiagnostics(userId: string, deps: DiagnosticsDeps): Promise<DiagnosticsView> {
 	const now = deps.now();
-	const [db, redis, queues, worker, subs, account, failures] = await Promise.all([
+	const [db, redis, queues, worker, subs, account, failures, maintenance] = await Promise.all([
 		settle(deps.pingDb(), { ok: false, ms: null, error: "sem resposta" }),
 		settle(deps.pingRedis(), { ok: false, ms: null, error: "sem resposta" }),
 		settle(deps.queues(), null),
@@ -52,6 +55,7 @@ export async function buildDiagnostics(userId: string, deps: DiagnosticsDeps): P
 		settle(deps.pushSubscriptions(userId), 0),
 		settle(deps.accountProviders(userId), []),
 		settle(deps.failures(userId, 10), []),
+		settle(deps.maintenance?.(userId) ?? Promise.resolve([]), []),
 	]);
 	const vapid = readVapidConfig(deps.env);
 	const serverKey = Boolean(deps.env.OPENROUTER_API_KEY?.trim());
@@ -73,6 +77,11 @@ export async function buildDiagnostics(userId: string, deps: DiagnosticsDeps): P
 		sentry: { enabled: deps.sentryEnabled() },
 		providers,
 		env: envGroupStatus(deps.env),
+		maintenance: maintenance.map((job) => ({
+			kind: job.kind,
+			lastSuccessAt: job.lastSuccessAt,
+			lastError: job.lastError ? { at: job.lastError.at, message: shortReason(scrubString(job.lastError.message)) } : null,
+		})),
 		failures: failures.map((item) => ({ ...item, label: shortReason(scrubString(item.label)), reason: shortReason(scrubString(item.reason)) })),
 	};
 }

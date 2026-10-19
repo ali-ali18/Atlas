@@ -584,6 +584,7 @@ export * from "./user-needed.js";
 export * from "./reflection.js";
 export { updateUserProfile, type UserProfile } from "./profile.js";
 export * from "./diagnostics.js";
+export * from "./maintenance-status.js";
 export * from "./user-secrets.js";
 export {
 	countSentLast24h,

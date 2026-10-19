@@ -80,3 +80,25 @@ test("serviço fora do ar aparece como fora, não derruba o diagnóstico", async
 	assert.equal(body.worker.up, false);
 	assert.deepEqual(body.failures, []);
 });
+
+test("tarefas em segundo plano: último sucesso e erro, com o erro limpo de segredos", async () => {
+	const res = await appFor(
+		"owner@example.com",
+		deps({
+			maintenance: async () => [
+				{ kind: "summary", lastSuccessAt: "2026-10-15T10:00:00.000Z", lastError: null },
+				{ kind: "memory-review", lastSuccessAt: null, lastError: { message: `chave ${SECRET} recusada`, at: "2026-10-15T11:00:00.000Z" } },
+			],
+		}),
+	).request("/v1/diagnostics");
+	const body = await res.json();
+	assert.equal(body.maintenance.length, 2);
+	assert.equal(body.maintenance[0].lastSuccessAt, "2026-10-15T10:00:00.000Z");
+	assert.equal(body.maintenance[1].lastError.at, "2026-10-15T11:00:00.000Z");
+	assert.ok(!JSON.stringify(body).includes(SECRET));
+});
+
+test("sem a dependência, a lista de tarefas vem vazia e o resto continua", async () => {
+	const res = await appFor("owner@example.com", deps()).request("/v1/diagnostics");
+	assert.deepEqual((await res.json()).maintenance, []);
+});

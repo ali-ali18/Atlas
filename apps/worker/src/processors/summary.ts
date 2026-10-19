@@ -19,9 +19,8 @@ import {
 	prisma,
 	writeConversationSummary,
 } from "@workspace/db";
-import { completeChat } from "@workspace/llm";
 import type { WorkerConfig } from "../config.js";
-import { resolveMaintenanceModelForJob } from "../run-config.js";
+import { createMaintenanceLlm, type MaintenanceLlm } from "../maintenance-llm.js";
 
 const TRANSCRIPT_MESSAGE_LIMIT = 200;
 const TRANSCRIPT_CHAR_BUDGET = 30_000;
@@ -41,14 +40,11 @@ async function conversationOwner(conversationId: string): Promise<string | undef
 export async function processSummaryJob(
 	job: Job<SummaryJobPayload, SummaryJobResult>,
 	config: WorkerConfig,
+	deps: { llm?: (userId: string | undefined) => Promise<MaintenanceLlm> } = {},
 ): Promise<SummaryJobResult> {
 	if (job.name !== ATLAS_JOB_NAMES.summaryWrite) {
 		throw new Error(`Unexpected job name: ${job.name}`);
 	}
-	if (!config.openRouterApiKey) {
-		throw new Error("OPENROUTER_API_KEY is not configured on the worker");
-	}
-
 	const { conversationId, botId } = job.data;
 	if (!conversationId?.trim()) {
 		throw new Error("conversationId vazio no job de resumo");
@@ -118,22 +114,28 @@ export async function processSummaryJob(
 		{ activeTask },
 	);
 	// Dono da conversa: o modelo de manutenção dele vale sobre o do servidor.
-	const summaryModel = await resolveMaintenanceModelForJob({ kind: "summary", config, conversationId });
+	const llm = await (deps.llm ?? ((userId) => createMaintenanceLlm({ kind: "summary", config, userId })))(ownerId);
 	console.log(
-		`[summary.write] start job=${job.id} conversation=${conversationId} lines=${lines.length} model=${summaryModel}`,
+		`[summary.write] start job=${job.id} conversation=${conversationId} lines=${lines.length} model=${llm.model}`,
 	);
 
-	const result = await completeChat({
-		messages: [
-			{ role: "system", content: languageInstruction(language) },
-			{ role: "user", content: prompt },
-		],
-		model: summaryModel,
-		apiKey: config.openRouterApiKey,
-	});
-	const text = result.message.content ?? "";
-	if (!text.trim()) {
-		throw new Error("resumidor retornou vazio");
+	let text: string;
+	try {
+		const result = await llm.complete({
+			messages: [
+				{ role: "system", content: languageInstruction(language) },
+				{ role: "user", content: prompt },
+			],
+			model: llm.model,
+			apiKey: "",
+		});
+		text = result.message.content ?? "";
+		if (!text.trim()) {
+			throw new Error("resumidor retornou vazio");
+		}
+	} catch (error) {
+		await llm.report({ ok: false, error });
+		throw error;
 	}
 	const { content, facts } = parseSummaryResponse(text);
 	const first = covered[0];
@@ -146,6 +148,7 @@ export async function processSummaryJob(
 		rangeEnd: last ? new Date(last.createdAt) : null,
 		snapshotVersion: last?.id ?? null,
 	});
+	await llm.report({ ok: true });
 	console.log(
 		`[summary.write] done job=${job.id} conversation=${conversationId} version=${saved.version}`,
 	);

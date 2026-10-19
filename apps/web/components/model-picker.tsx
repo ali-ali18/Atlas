@@ -29,6 +29,7 @@ export function ModelPicker({
   emptyLabel,
   onConnectChatgpt,
   openrouterOnly = false,
+  noChatgpt = false,
   id,
   suggestedIds,
   suggestedHeading,
@@ -44,6 +45,8 @@ export function ModelPicker({
   onConnectChatgpt?: () => void
   /** Só modelos do OpenRouter (manutenção, visão, imagem, reserva): sem grupo ChatGPT. */
   openrouterOnly?: boolean
+  /** Todos os provedores com chave (OpenRouter, Anthropic, OpenCode Go), menos o plano ChatGPT (manutenção). */
+  noChatgpt?: boolean
   id?: string
   /** Modelos em destaque no topo da lista (ex.: os cadastrados nos níveis de dificuldade). */
   suggestedIds?: string[]
@@ -54,12 +57,14 @@ export function ModelPicker({
   const provider = useChatgptProvider(
     value.startsWith("chatgpt/") ? value : undefined,
     true,
-    !openrouterOnly
+    !openrouterOnly && !noChatgpt
   )
   const keyGroups = useKeyProviderModels(!openrouterOnly)
   const keyModels = Object.values(keyGroups).flat()
   const available = normalizePickerModels(
-    openrouterOnly ? models : [...models, ...provider.models, ...keyModels]
+    openrouterOnly
+      ? models
+      : [...models, ...(noChatgpt ? [] : provider.models), ...keyModels]
   )
   const current = available.find((model) => model.id === value)
   const isEmpty = emptyLabel !== undefined && !value
@@ -142,7 +147,7 @@ export function ModelPicker({
             value={value}
             models={available}
             query={query}
-            available={!openrouterOnly && provider.available}
+            available={!openrouterOnly && !noChatgpt && provider.available}
             status={provider.status}
             catalogAvailable={provider.catalogAvailable}
             emptyLabel={emptyLabel}

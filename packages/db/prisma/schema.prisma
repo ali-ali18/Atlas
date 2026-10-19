@@ -329,6 +329,8 @@ model UserSettings {
   autonomyJson     Json?
   /// Configuração da conta versionada `{ v: 1, … }` (null = tudo herdado). Só escolhas, nunca segredo. Ver `AccountConfigV1`.
   configJson       Json?
+  /// Último sucesso/erro por tarefa de manutenção (resumo, memória, reflexão, guia) para o Diagnóstico. Só horários e texto curto, nunca segredo.
+  maintenanceStatusJson Json?
   /// Modo de aprovação de comandos das sessões de código (ask | allowlist | auto); null = Lista liberada.
   devApprovalMode  String?
   /// Rodapé "enviado pelo bot" nas issues/comentários/PRs (padrão desligado).

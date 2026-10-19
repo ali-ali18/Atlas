@@ -1,3 +1,4 @@
+import type { MaintenanceJobStatus } from "./maintenance-status.js";
 import type { BuildInfo } from "./build-info.js";
 
 /** Resposta de `GET /v1/diagnostics` (só o dono). Nunca carrega valores de chaves, só presença. */
@@ -25,6 +26,8 @@ export type DiagnosticsView = {
 	providers: Array<{ id: string; label: string; present: boolean; source: "server" | "account" | "none" }>;
 	env: Array<{ id: string; label: string; configured: boolean; missing: string[] }>;
 	failures: DiagnosticsFailure[];
+	/** Tarefas em segundo plano (resumo, memória, reflexão, guia): último sucesso e último erro. */
+	maintenance?: MaintenanceJobStatus[];
 };
 
 const REASON_MAX = 160;

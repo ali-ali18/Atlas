@@ -20,6 +20,7 @@ import {
 	requestRunCancel,
 	updateOwnedMemory,
 	getAccountConfig,
+	recordMaintenanceResult,
 	type Notify,
 	type ReflectionRow,
 } from "@workspace/db";
@@ -31,12 +32,14 @@ import {
 	reflectionSlotAt,
 	reflectionTimeZone,
 	toReflectionFailure,
+	MAINTENANCE_NO_KEY_MESSAGE,
 	REFLECTION_RECHECK_MAX_STEPS,
 	type BotLanguage,
 	type ReflectionFailureStage,
 } from "@workspace/shared";
 import type { WorkerConfig } from "./config.js";
-import { resolveDefaultModelForJob, resolveMaintenanceModelForJob } from "./run-config.js";
+import { resolveDefaultModelForJob } from "./run-config.js";
+import { createMaintenanceLlm, type MaintenanceLlm } from "./maintenance-llm.js";
 import { runReflection, type ReflectionPorts } from "./processors/reflection.js";
 
 const SWEEP_INTERVAL_MS = 60_000;
@@ -50,6 +53,8 @@ export type ReflectionSweeperDeps = {
 	notify?: Notify;
 	now?: () => Date;
 	log?: (line: string) => void;
+	/** Injetável nos testes: cliente LLM da manutenção. */
+	maintenanceLlm?: (userId: string) => Promise<MaintenanceLlm>;
 };
 
 function buildPorts(deps: ReflectionSweeperDeps, model: () => Promise<string>): ReflectionPorts {
@@ -82,8 +87,10 @@ export async function processReflectionRow(row: ReflectionRow, deps: ReflectionS
 	const log = deps.log ?? ((line: string) => console.log(line));
 	const now = deps.now?.() ?? new Date();
 	let stage: ReflectionFailureStage = "setup";
+	let llm: MaintenanceLlm | null = null;
 	try {
-		if (!deps.config.openRouterApiKey) throw new ReflectionFailure("no_api_key", "setup", "OPENROUTER_API_KEY não configurada no worker");
+		llm = await (deps.maintenanceLlm ?? ((userId) => createMaintenanceLlm({ kind: "reflection", config: deps.config, userId })))(row.userId);
+		if (llm.candidates.length === 0) throw new ReflectionFailure("no_api_key", "setup", MAINTENANCE_NO_KEY_MESSAGE);
 		const primary = await getPrimaryBot(row.userId);
 		if (!primary) {
 			await finishReflection(row.id, { status: "skipped", detail: "sem bot principal" });
@@ -93,11 +100,11 @@ export async function processReflectionRow(row: ReflectionRow, deps: ReflectionS
 		const timeZone = reflectionTimeZone(account?.general?.timezone);
 		stage = "context";
 		const conversationId = await ensureBotConversation(row.userId, primary.id);
-		const [input, hasActivity, model] = await Promise.all([
+		const [input, hasActivity] = await Promise.all([
 			loadReflectionInput({ userId: row.userId, since: row.sinceAt, now, timeZone }),
 			hasActivitySince(row.userId, row.sinceAt, now),
-			resolveMaintenanceModelForJob({ kind: "reflection", config: deps.config, userId: row.userId }),
 		]);
+		const model = llm.model;
 		const agentModel = async () =>
 			(await getBotModelForUser(primary.id, row.userId)) ?? (await resolveDefaultModelForJob({ userId: row.userId, serverDefault: deps.config.openRouterModel }));
 		const language: BotLanguage = isBotLanguage(primary.language) ? primary.language : "pt-BR";
@@ -107,7 +114,8 @@ export async function processReflectionRow(row: ReflectionRow, deps: ReflectionS
 			{
 				ports: buildPorts(deps, agentModel),
 				model,
-				apiKey: deps.config.openRouterApiKey,
+				apiKey: "",
+				complete: llm.completeWithTools,
 				language,
 				hasActivity,
 				force: row.trigger === "manual",
@@ -117,8 +125,10 @@ export async function processReflectionRow(row: ReflectionRow, deps: ReflectionS
 				log,
 			},
 		);
+		await llm.report({ ok: true });
 	} catch (error) {
 		const failure = toReflectionFailure(error, stage);
+		await (llm ? llm.report({ ok: false, error: new Error(failure.message) }) : recordMaintenanceResult(row.userId, "reflection", { ok: false, error: new Error(failure.message) })).catch(() => undefined);
 		log(reflectionFailureLogLine(row.userId, failure));
 		await finishReflection(row.id, { status: "failed", detail: failure.label, stats: { code: failure.code, stage: failure.stage, error: failure.message } }).catch((saveError) =>
 			log(`[reflection] user=${row.userId} falhou ao gravar a falha: ${toReflectionFailure(saveError, "save").message}`),

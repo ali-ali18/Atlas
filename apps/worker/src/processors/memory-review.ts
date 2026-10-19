@@ -24,7 +24,7 @@ import {
 	completeChatWithTools,
 } from "@workspace/llm";
 import type { WorkerConfig } from "../config.js";
-import { resolveMaintenanceModelForJob } from "../run-config.js";
+import { createMaintenanceLlm, type MaintenanceLlm } from "../maintenance-llm.js";
 
 const MAX_STEPS = 4;
 const TRANSCRIPT_LIMIT = 20;
@@ -251,6 +251,7 @@ export async function processMemoryReview(
 	config: WorkerConfig,
 	deps: {
 		complete?: typeof completeChatWithTools;
+		llm?: MaintenanceLlm;
 		profile?: typeof getBotProfile;
 		snapshot?: (userId?: string, botId?: string) => Promise<MemoryLayers>;
 		bots?: (userId: string | undefined) => Promise<{ name: string }[]>;
@@ -260,20 +261,11 @@ export async function processMemoryReview(
 		throw new Error(`Unexpected job name: ${job.name}`);
 	}
 
-	if (!config.openRouterApiKey) {
-		throw new Error("OPENROUTER_API_KEY is not configured on the worker");
-	}
-
 	const payload = job.data;
-	const apiKey = config.openRouterApiKey;
 	const transcript: ChatMessage[] = payload.messages.slice(-TRANSCRIPT_LIMIT);
 	const botProfile = await (deps.profile ?? getBotProfile)(payload.botId, payload.userId);
-	const model = await resolveMaintenanceModelForJob({
-		kind: "memory-review",
-		config,
-		userId: payload.userId,
-		conversationId: payload.conversationId,
-	});
+	const llm = deps.llm ?? (await createMaintenanceLlm({ kind: "memory-review", config, userId: payload.userId }, { completeChatWithTools: deps.complete }));
+	const model = llm.model;
 	const language = (botProfile?.language ?? "pt-BR") as BotLanguage;
 	// Contexto da trava: nomes de todos os bots do usuário + perfil deste bot; falha aqui não derruba a revisão.
 	const botNames = await (deps.bots ?? listBots)(payload.userId).then((bots) => bots.map((bot) => bot.name)).catch(() => [] as string[]);
@@ -296,11 +288,14 @@ export async function processMemoryReview(
 	const maintenance: NonNullable<MemoryReviewJobResult["maintenance"]> = { model, calls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 
 	for (let step = 0; step < MAX_STEPS; step += 1) {
-		const result = await (deps.complete ?? completeChatWithTools)({
+		const result = await llm.completeWithTools({
 			messages: conversation,
 			model,
-			apiKey,
+			apiKey: "",
 			tools: [MEMORY_TOOL],
+		}).catch(async (error: unknown) => {
+			await llm.report({ ok: false, error });
+			throw error;
 		});
 
 		maintenance.calls += 1;
@@ -339,6 +334,7 @@ export async function processMemoryReview(
 		}
 	}
 
+	await llm.report({ ok: true });
 	console.log(`[memory.review] done job=${job.id} saved=${saved}`);
 	return { saved, maintenance };
 }

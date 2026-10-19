@@ -46,3 +46,28 @@ test("sem dados mostra só o cabeçalho; erro aparece como alerta; some quando a
   assert.doesNotMatch(empty, /Postgres/)
   assert.equal(renderToStaticMarkup(<DiagnosticsSettingsView {...base} data={view} isVisible={() => false} />), "")
 })
+
+test("tarefas em segundo plano: último sucesso e último erro por tipo", () => {
+  const html = renderToStaticMarkup(
+    <DiagnosticsSettingsView
+      {...base}
+      data={{
+        ...view,
+        maintenance: [
+          { kind: "summary", lastSuccessAt: "2026-10-15T10:00:00.000Z", lastError: null },
+          { kind: "memory-review", lastSuccessAt: null, lastError: { message: "Chave de API do Anthropic inválida", at: "2026-10-15T11:00:00.000Z" } },
+          { kind: "reflection", lastSuccessAt: null, lastError: null },
+          { kind: "connector-guide", lastSuccessAt: null, lastError: null },
+        ],
+      }}
+    />
+  )
+  assert.match(html, /Tarefas em segundo plano/)
+  assert.match(html, /Resumo de conversa/)
+  assert.match(html, /Revisão de memória/)
+  assert.match(html, /Guia do conector/)
+  assert.match(html, /Último sucesso/)
+  assert.match(html, /Ainda sem sucesso/)
+  assert.match(html, /Último erro .*Chave de API do Anthropic inválida/)
+  assert.doesNotMatch(renderToStaticMarkup(<DiagnosticsSettingsView {...base} data={view} />), /Tarefas em segundo plano/)
+})

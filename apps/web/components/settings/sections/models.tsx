@@ -19,7 +19,9 @@ import type { SettingsIcon } from "@/components/ui/templates/template-4/settings
 import type { SaveStatus } from "../account-settings-state";
 import {
 	type ModelSetting,
+	MODEL_SETTING_NO_CHATGPT,
 	MODEL_SETTING_OPENROUTER_ONLY,
+	maintenanceInheritLabel,
 	dictationDefaultLabel,
 	fallbacksInheritLabel,
 	fallbacksPatch,
@@ -67,7 +69,7 @@ const MODEL_ROWS: readonly ModelRowSpec[] = [
 		itemId: "modelos.manutencao",
 		label: "Modelo de manutenção",
 		icon: WrenchIcon,
-		description: "Resume conversas e revisa a memória. Só modelos do OpenRouter.",
+		description: "Resume conversas, revisa a memória e gera guias de conectores. Usa a chave de qualquer provedor conectado (OpenRouter, Anthropic, OpenCode Go); o plano ChatGPT não vale.",
 		emptyText: "nenhum",
 	},
 	{
@@ -133,7 +135,7 @@ export function ModelsSettingsView({
 		<SettingsGroup title={title}>
 			{!openrouterKey && effective && showKeyNote ? (
 				<p className="px-3.5 py-1 text-xs text-muted-foreground" role="note">
-					Chave do OpenRouter não configurada no servidor: só o plano ChatGPT (dono) funciona.
+					Chave do OpenRouter não configurada no servidor: use o plano ChatGPT (dono) ou uma chave própria (Anthropic, OpenCode Go) em Provedores e chaves.
 				</p>
 			) : null}
 
@@ -156,12 +158,15 @@ export function ModelsSettingsView({
 						{effective ? (
 							<ModelPicker
 								emptyLabel={
-									modelInheritLabel(effective.models[row.setting], models, row.emptyText) ?? "Herdar"
+									(row.setting === "maintenance"
+										? maintenanceInheritLabel(effective.models.maintenance, effective.models.default, models, openrouterKey)
+										: modelInheritLabel(effective.models[row.setting], models, row.emptyText)) ?? "Herdar"
 								}
 								id={`settings-model-${row.setting}`}
 								loading={modelsLoading}
 								models={row.setting === "image" && imageModels.length > 0 ? [...imageModels] : modelsForSetting(row.setting, models)}
 								onChange={(id) => onChange(modelPatch(row.setting, id))}
+								noChatgpt={MODEL_SETTING_NO_CHATGPT[row.setting] === true}
 								openrouterOnly={MODEL_SETTING_OPENROUTER_ONLY[row.setting]}
 								value={modelPickerValue(effective.models[row.setting])}
 							/>

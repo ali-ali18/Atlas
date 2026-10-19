@@ -635,6 +635,7 @@ export {
 	TOOL_RESULT_MAX_CHARS_PRESETS,
 	accountConfigByteSize,
 	isValidConfigModelId,
+	isValidMaintenanceModelId,
 	mergeAccountConfig,
 	parseAccountConfig,
 	validateAccountConfigPatch,
@@ -807,3 +808,5 @@ export {
 	type ChartType,
 } from "./chart-spec.js";
 export * from "./model-tiers.js";
+
+export * from "./maintenance-status.js";

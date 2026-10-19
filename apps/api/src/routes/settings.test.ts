@@ -328,3 +328,20 @@ test("não-dono nunca fecha nem altera o listener (404 antes de qualquer efeito)
 		restore();
 	}
 });
+
+test("modelo de manutenção aceita Anthropic/OpenCode Go (validados pela chave) e recusa o plano ChatGPT", async () => {
+	const restore = installFakePrisma(new Map());
+	try {
+		const seen: string[] = [];
+		const app = appFor(USER_A, OWNER_EMAIL, { validateModel: async (_user, id) => (seen.push(id), {}) });
+		const ok = await patch(app, { config: { models: { maintenance: "anthropic-direct/claude-sonnet-5-5" } } });
+		assert.equal(ok.status, 200);
+		assert.deepEqual(seen, ["anthropic-direct/claude-sonnet-5-5"]);
+		assert.equal((await patch(app, { config: { models: { maintenance: "opencode-go/glm-5" } } })).status, 200);
+		assert.equal((await patch(app, { config: { models: { maintenance: "chatgpt/gpt-5" } } })).status, 400);
+		const refused = appFor(USER_A, OWNER_EMAIL, { validateModel: async () => ({ status: 400, error: "Conecte a Anthropic em Provedores e chaves" }) });
+		assert.equal((await patch(refused, { config: { models: { maintenance: "anthropic-direct/x" } } })).status, 400);
+	} finally {
+		restore();
+	}
+});

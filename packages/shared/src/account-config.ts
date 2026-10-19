@@ -130,6 +130,16 @@ export function isValidConfigModelId(value: unknown, openRouterOnly: boolean): v
 	}
 }
 
+/** Manutenção: qualquer provedor com chave própria; só o plano ChatGPT é recusado. */
+export function isValidMaintenanceModelId(value: unknown): value is string {
+	if (typeof value !== "string" || !MODEL_ID.test(value)) return false;
+	try {
+		return parseModelRef(value).provider !== "chatgpt";
+	} catch {
+		return false;
+	}
+}
+
 const modelId = (openRouterOnly: boolean, message: string): Leaf => ({
 	message,
 	parse: (v) => (isValidConfigModelId(v, openRouterOnly) ? { value: v } : null),
@@ -161,7 +171,10 @@ const SPEC: Spec = {
 	models: {
 		default: modelId(false, "Informe um id de modelo válido (letras, números e . _ : / -, até 200)."),
 		fallbacks: fallbackList,
-		maintenance: modelId(true, OPENROUTER_ONLY),
+		maintenance: {
+			message: "Informe um id de modelo válido (letras, números e . _ : / -, até 200); o plano ChatGPT não vale para manutenção.",
+			parse: (v) => (isValidMaintenanceModelId(v) ? { value: v } : null),
+		},
 		vision: modelId(true, OPENROUTER_ONLY),
 		image: modelId(true, OPENROUTER_ONLY),
 		coding: modelId(false, "Informe um id de modelo válido (letras, números e . _ : / -, até 200)."),

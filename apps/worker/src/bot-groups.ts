@@ -1,8 +1,8 @@
 import { getAccountConfig, onGroupTurnCreated, processGroupTurns, type GroupDispatchDeps } from "@workspace/db";
 import { buildGroupRouterPrompt, parseGroupRouterReply, resolveEffectiveConfig } from "@workspace/shared";
-import { askJev, completeChatWithTools } from "@workspace/llm";
+import { askJev } from "@workspace/llm";
 import type { WorkerConfig } from "./config.js";
-import { resolveMaintenanceModelForJob } from "./run-config.js";
+import { createMaintenanceLlm } from "./maintenance-llm.js";
 
 const SWEEP_INTERVAL_MS = 1_500;
 const ROUTER_TIMEOUT_MS = 12_000;
@@ -14,16 +14,17 @@ const ROUTER_TIMEOUT_MS = 12_000;
  */
 export function createGroupRouter(config: WorkerConfig): NonNullable<GroupDispatchDeps["route"]> {
 	return async ({ userId, groupName, text, members }) => {
-		if (!config.openRouterApiKey) return [];
-		const model = await resolveMaintenanceModelForJob({ kind: "memory-review", config, userId });
+		// Mesma cadeia da manutenção (chave própria ou OpenRouter); sem nenhuma chave = vazio.
+		const llm = await createMaintenanceLlm({ kind: "memory-review", config, userId });
+		if (llm.candidates.length === 0) return [];
 		const prompt = buildGroupRouterPrompt({ groupName, text, members });
-		const result = await completeChatWithTools({
+		const result = await llm.completeWithTools({
 			messages: [
 				{ role: "system", content: prompt.system },
 				{ role: "user", content: prompt.user },
 			],
-			model,
-			apiKey: config.openRouterApiKey,
+			model: llm.model,
+			apiKey: "",
 			tools: [],
 			toolChoice: "none",
 			timeoutMs: ROUTER_TIMEOUT_MS,
