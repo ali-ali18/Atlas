@@ -96,6 +96,7 @@ import {
 	createJevTelemetryCollector,
 	errorFromAbortSignal,
 	loadApiConnectorRuntime,
+	loadEmailRunContext,
 	loadMcpRuntime,
 	parseBudgetPolicy,
 	resolveBudget,
@@ -443,6 +444,17 @@ async function executeLeasedRun(ctx: {
 		onMcpError: (error) => console.error(`load mcp connectors failed run=${runId}`, error),
 	});
 	const { settings, checkpoint, rawBotPolicy, language, autonomy, mcp } = base;
+	// E-mail próprio do bot (tools adiadas). No run de e-mail o envio segue a política real do dono, o resto é limitado.
+	const emailContext = await loadEmailRunContext({
+		userId: runUserId,
+		botId: run.botId,
+		sendPolicy: run.origin === "email"
+			? await resolveRunAutonomy({ userId: runUserId, botId: run.botId, conversationId: run.conversationId, origin: run.origin, now: new Date(), uncapped: true })
+			: autonomy,
+	}).catch((error) => {
+		console.error(`load email context failed run=${runId}`, error);
+		return null;
+	});
 	// L10: config/provedores e mensagens/skills não dependem um do outro: em paralelo.
 	const configStage = async () => {
 		// Configuração da conta congelada ao assumir o run: retomada reusa o snapshot do
@@ -783,6 +795,7 @@ async function executeLeasedRun(ctx: {
 			manager,
 			mcp,
 			apiConnector,
+			email: emailContext,
 			// `@App` do usuário neste turno: as tools desses conectores já entram no 1º passo.
 			forcedConnectors: forcedConnectors.length > 0 ? forcedConnectors : undefined,
 			// Verificação de pendências da reflexão: só leitura (nativa ou conector que se declara somente leitura).

@@ -8,6 +8,7 @@ import { cors } from "hono/cors";
 import { accountChatgptGate, ensureGithubRepoHook } from "@workspace/agent-runtime";
 import {
 	closeRunSignals,
+	publishRunSignal,
 	publishRunEventsSignal,
 	createAgentRunQueue,
 	createChatCompletionQueue,
@@ -51,7 +52,10 @@ import { createModelRoutes } from "./routes/models.js";
 import { createEventRoutes } from "./routes/events.js";
 import { createHealthRoutes } from "./health.js";
 import { endAllObserverStreams } from "./routes/run-observer.js";
-import { createRunRoutes, reconcileQueuedAgentRuns, resumeRunsAwaitingConnector } from "./routes/runs.js";
+import { createRunRoutes, enqueueAgentRunJob, reconcileQueuedAgentRuns, resumeRunsAwaitingConnector } from "./routes/runs.js";
+import { createEmailRoutes } from "./routes/email.js";
+import { createEmailInboundRoutes } from "./webhooks/email-inbound.js";
+import { notifyRunSignal } from "./run-signal.js";
 import { createBotPendingRoutes } from "./routes/bot-pending.js";
 import { applyQueuedBotDecisions } from "./chat/bot-pending-answer.js";
 import { createRoutineRoutes } from "./routes/routines.js";
@@ -165,6 +169,7 @@ app.use(
 );
 
 app.use("/v1/hooks/*", rateLimitByIp(60, 60_000));
+app.use("/v1/email/inbound/*", rateLimitByIp(120, 60_000));
 app.use("/v1/runs/:id/stream", rateLimitByIp(30, 60_000));
 app.use("/v1/chat/stream", rateLimitByIp(30, 60_000));
 app.use("/v1/events", rateLimitByIp(60, 60_000));
@@ -257,6 +262,20 @@ app.route("/", createGithubAppWebhookRoutes(routineQueue));
 // e, registrado primeiro, respondia "Hook not found" a toda entrega do GitHub.
 app.route("/", createGithubHookRoutes(routineQueue));
 app.route("/", createGenericHookRoutes(routineQueue));
+// E-mail do bot: configuração (sessão) e entrada pública (token + assinatura).
+app.route("/", createEmailRoutes());
+app.route(
+	"/",
+	createEmailInboundRoutes(() =>
+		agentRunQueue
+			? {
+					enqueueRun: (runId) => enqueueAgentRunJob(agentRunQueue, runId),
+					onMerged: (runId) => notifyRunSignal(publishRunSignal, runId, "input"),
+					envDefaultModel: config.openRouterModel,
+				}
+			: null,
+	),
+);
 
 const server = serve(
 	{

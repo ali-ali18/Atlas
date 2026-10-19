@@ -25,6 +25,9 @@ import type {
 	ProviderModelsResponse,
 	ApiKeyProvider,
 	ApiKeyProviderStatus,
+	BotMailboxDto,
+	EmailAccountStatus,
+	EmailMessageDto,
 	OpenRouterModel,
 	RunEventRecord,
 	SandboxSessionResponse,
@@ -1203,6 +1206,7 @@ export type ComputerUseHandlers = {
 		alwaysLabel?: string;
 		devApproval?: DevApprovalCardInfo;
 		secretsRequest?: import("@workspace/shared").SecretsRequestInfo;
+		emailKeyRequest?: import("@workspace/shared").EmailKeyRequestInfo;
 		githubIdentity?: import("@workspace/shared").GithubIdentityCardInfo;
 		status?: "pending" | "approved" | "rejected";
 	}) => void;
@@ -2648,4 +2652,28 @@ export async function publishSkill(id: string, form: PublishSkillForm): Promise<
 
 export async function packageSkill(id: string, form: PublishSkillForm): Promise<{ slug: string; files: PublishedFile[]; newPrUrl: string }> {
 	return atlasFetch(`/v1/skills/${encodeURIComponent(id)}/package`, { method: "POST", body: JSON.stringify(form) });
+}
+
+// E-mail do bot (provedor hospedado). A chave do provedor só vai no PUT e nunca volta.
+export type BotEmailPayload = { account: EmailAccountStatus; mailbox: BotMailboxDto | null; messages: EmailMessageDto[] };
+export function getEmailAccount(signal?: AbortSignal): Promise<EmailAccountStatus> {
+	return atlasFetch("/v1/email/account", { signal });
+}
+export function saveEmailAccountKey(apiKey: string): Promise<EmailAccountStatus> {
+	return atlasFetch("/v1/email/account", { method: "PUT", body: JSON.stringify({ apiKey }) });
+}
+export function removeEmailAccountKey(): Promise<EmailAccountStatus> {
+	return atlasFetch("/v1/email/account", { method: "DELETE" });
+}
+export function getBotEmail(botId: string, signal?: AbortSignal): Promise<BotEmailPayload> {
+	return atlasFetch(`/v1/bots/${encodeURIComponent(botId)}/email`, { signal });
+}
+export function enableBotEmail(botId: string): Promise<BotEmailPayload> {
+	return atlasFetch(`/v1/bots/${encodeURIComponent(botId)}/email`, { method: "POST", body: "{}" });
+}
+export function updateBotEmail(botId: string, patch: { allowedSenders?: string[]; dailySendLimit?: number; enabled?: boolean }): Promise<BotEmailPayload> {
+	return atlasFetch(`/v1/bots/${encodeURIComponent(botId)}/email`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+export function disableBotEmail(botId: string): Promise<BotEmailPayload> {
+	return atlasFetch(`/v1/bots/${encodeURIComponent(botId)}/email`, { method: "DELETE" });
 }

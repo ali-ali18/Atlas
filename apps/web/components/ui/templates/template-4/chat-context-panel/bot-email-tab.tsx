@@ -1,0 +1,359 @@
+"use client";
+
+import { ArrowDownLeftIcon, ArrowUpRightIcon, CheckIcon, CopyIcon, MailIcon, XIcon } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { BotMailboxDto, EmailMessageDto } from "@workspace/shared";
+import { Button } from "@workspace/ui/components/button";
+import { Input } from "@workspace/ui/components/input";
+import { Skeleton } from "@workspace/ui/components/skeleton";
+import { Switch } from "@workspace/ui/components/switch";
+import { cn } from "@workspace/ui/lib/utils";
+import { openSettingsModal } from "@/components/settings/settings-url";
+import { useBotEmail } from "@/hooks/use-bot-email";
+import {
+	EMAIL_EMPTY_ALLOWED,
+	EMAIL_NO_KEY_TEXT,
+	addAllowedSender,
+	emailOpensConversation,
+	emailPeer,
+	emailStatusBadge,
+	emailSubject,
+	parseDailyLimit,
+} from "./bot-email-helpers";
+import { memoryRelativeDate } from "./memory-tab-helpers";
+
+const SECTION_TITLE = "font-medium text-muted-foreground text-xs";
+
+function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+	return (
+		<section aria-labelledby={id} className="flex min-w-0 flex-col gap-2" data-email-section={id}>
+			<h3 className={SECTION_TITLE} id={id}>
+				{title}
+			</h3>
+			{children}
+		</section>
+	);
+}
+
+function AddressCard({ mailbox, busy, onToggle }: { mailbox: BotMailboxDto; busy: boolean; onToggle: (enabled: boolean) => void }) {
+	const [copied, setCopied] = useState(false);
+	useEffect(() => {
+		if (!copied) return;
+		const timer = window.setTimeout(() => setCopied(false), 1600);
+		return () => window.clearTimeout(timer);
+	}, [copied]);
+	return (
+		<div className="flex min-w-0 flex-col gap-3 rounded-2xl border border-border bg-card p-3" data-testid="email-address-card">
+			<div className="flex min-w-0 items-center gap-2">
+				<span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground">
+					<MailIcon className="size-4" />
+				</span>
+				<p className="min-w-0 flex-1 break-all font-medium text-sm leading-snug" data-testid="email-address">
+					{mailbox.address}
+				</p>
+				<Button
+					aria-label={copied ? "Endereço copiado" : "Copiar endereço"}
+					className="shrink-0 text-muted-foreground"
+					onClick={() => {
+						void navigator.clipboard?.writeText(mailbox.address).then(() => setCopied(true), () => undefined);
+					}}
+					size="icon-sm"
+					variant="ghost"
+				>
+					{copied ? <CheckIcon /> : <CopyIcon />}
+				</Button>
+			</div>
+			<div className="flex items-center justify-between gap-3 border-border border-t pt-3">
+				<div className="min-w-0">
+					<p className="font-medium text-sm" id="email-enabled-label">
+						Recebendo e-mails
+					</p>
+					<p className="text-muted-foreground text-xs">{mailbox.enabled ? "O bot atende os remetentes permitidos." : "Pausado: nada chega ao bot."}</p>
+				</div>
+				<Switch aria-labelledby="email-enabled-label" checked={mailbox.enabled} disabled={busy} onCheckedChange={onToggle} />
+			</div>
+		</div>
+	);
+}
+
+function AllowedSenders({ mailbox, busy, onChange }: { mailbox: BotMailboxDto; busy: boolean; onChange: (next: string[]) => Promise<boolean> }) {
+	const [value, setValue] = useState("");
+	const [error, setError] = useState<string | null>(null);
+	async function add() {
+		const result = addAllowedSender(mailbox.allowedSenders, value);
+		if (!result.ok) {
+			setError(result.error);
+			return;
+		}
+		setError(null);
+		if (await onChange(result.next)) setValue("");
+	}
+	return (
+		<Section id="email-allowed" title="Remetentes permitidos">
+			<p className="text-muted-foreground text-xs leading-relaxed">Só e-mails destes remetentes acionam o bot. Os outros ficam registrados como bloqueados e você é avisado.</p>
+			{mailbox.allowedSenders.length === 0 ? (
+				<p className="rounded-2xl border border-border border-dashed px-3 py-3 text-muted-foreground text-xs leading-relaxed">{EMAIL_EMPTY_ALLOWED}</p>
+			) : (
+				<ul aria-label="Remetentes permitidos" className="m-0 flex list-none flex-col gap-1.5 p-0">
+					{mailbox.allowedSenders.map((rule) => (
+						<li className="flex min-w-0 items-center gap-2 rounded-2xl border border-border bg-card py-1 pr-1 pl-3" data-allowed-sender={rule} key={rule}>
+							<span className="min-w-0 flex-1 truncate text-sm">{rule}</span>
+							<Button
+								aria-label={`Remover ${rule}`}
+								className="shrink-0 text-muted-foreground"
+								disabled={busy}
+								onClick={() => void onChange(mailbox.allowedSenders.filter((item) => item !== rule))}
+								size="icon-sm"
+								variant="ghost"
+							>
+								<XIcon />
+							</Button>
+						</li>
+					))}
+				</ul>
+			)}
+			<form
+				className="flex min-w-0 items-center gap-2"
+				onSubmit={(event) => {
+					event.preventDefault();
+					void add();
+				}}
+			>
+				<Input
+					aria-invalid={error ? true : undefined}
+					aria-label="Adicionar remetente permitido"
+					autoComplete="off"
+					className="min-w-0 flex-1"
+					disabled={busy}
+					inputMode="email"
+					onChange={(event) => {
+						setValue(event.target.value);
+						setError(null);
+					}}
+					placeholder="e-mail ou @domínio"
+					spellCheck={false}
+					value={value}
+				/>
+				<Button disabled={busy || !value.trim()} size="sm" type="submit" variant="outline">
+					Adicionar
+				</Button>
+			</form>
+			{error ? (
+				<p className="text-destructive text-xs" role="alert">
+					{error}
+				</p>
+			) : null}
+		</Section>
+	);
+}
+
+function DailyLimit({ mailbox, busy, onChange }: { mailbox: BotMailboxDto; busy: boolean; onChange: (limit: number) => Promise<boolean> }) {
+	const [value, setValue] = useState(String(mailbox.dailySendLimit));
+	const [error, setError] = useState<string | null>(null);
+	useEffect(() => setValue(String(mailbox.dailySendLimit)), [mailbox.dailySendLimit]);
+	async function commit() {
+		const limit = parseDailyLimit(value);
+		if (limit === null) {
+			setError("Use um número de 0 a 200.");
+			return;
+		}
+		setError(null);
+		if (limit !== mailbox.dailySendLimit) await onChange(limit);
+	}
+	return (
+		<Section id="email-limit" title="Limite diário de envios">
+			<div className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border border-border bg-card p-3">
+				<div className="min-w-0">
+					<label className="font-medium text-sm" htmlFor="email-daily-limit">
+						Envios por dia
+					</label>
+					<p className="text-muted-foreground text-xs" data-testid="email-sent-today">
+						{mailbox.sentToday} de {mailbox.dailySendLimit} nas últimas 24 h
+					</p>
+				</div>
+				<Input
+					aria-invalid={error ? true : undefined}
+					className="w-20 shrink-0 text-center"
+					disabled={busy}
+					id="email-daily-limit"
+					inputMode="numeric"
+					onBlur={() => void commit()}
+					onChange={(event) => {
+						setValue(event.target.value);
+						setError(null);
+					}}
+					onKeyDown={(event) => {
+						if (event.key === "Enter") event.currentTarget.blur();
+					}}
+					value={value}
+				/>
+			</div>
+			{error ? (
+				<p className="text-destructive text-xs" role="alert">
+					{error}
+				</p>
+			) : null}
+		</Section>
+	);
+}
+
+function MessageRowItem({ message, now, onOpen }: { message: EmailMessageDto; now: Date; onOpen?: () => void }) {
+	const badge = emailStatusBadge(message);
+	const inbound = message.direction === "in";
+	const Icon = inbound ? ArrowDownLeftIcon : ArrowUpRightIcon;
+	const body = (
+		<>
+			<span
+				aria-hidden="true"
+				className={cn("mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground", badge?.tone === "danger" && "bg-destructive/10 text-destructive")}
+			>
+				<Icon className="size-3.5" />
+			</span>
+			<span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+				<span className="flex min-w-0 items-baseline gap-2">
+					<span className="min-w-0 flex-1 truncate font-medium text-sm">{emailSubject(message)}</span>
+					<span className="shrink-0 text-muted-foreground text-xs">{memoryRelativeDate(message.createdAt, now)}</span>
+				</span>
+				<span className="truncate text-muted-foreground text-xs">{emailPeer(message)}</span>
+				{badge ? (
+					<span className="mt-0.5 w-fit rounded-full bg-destructive/10 px-2 py-0.5 text-destructive text-xs">{badge.label}</span>
+				) : null}
+			</span>
+		</>
+	);
+	const itemClass = "flex w-full min-w-0 items-start gap-2.5 rounded-2xl border border-border bg-card px-3 py-2.5";
+	return (
+		<li className="min-w-0" data-email-message={message.id} data-direction={message.direction}>
+			{onOpen ? (
+				<button aria-label={`Abrir a conversa: ${emailSubject(message)}`} className={cn(itemClass, "cursor-pointer outline-none transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50")} onClick={onOpen} type="button">
+					{body}
+				</button>
+			) : (
+				<div className={itemClass}>{body}</div>
+			)}
+		</li>
+	);
+}
+
+function Messages({ messages, onOpenConversation }: { messages: EmailMessageDto[]; onOpenConversation?: () => void }) {
+	const now = new Date();
+	return (
+		<Section id="email-messages" title="Últimas mensagens">
+			{messages.length === 0 ? (
+				<p className="text-muted-foreground text-xs leading-relaxed">Nenhum e-mail ainda. Quando alguém permitido escrever para o endereço acima, aparece aqui.</p>
+			) : (
+				<ul aria-label="Últimas mensagens" className="m-0 flex list-none flex-col gap-1.5 p-0">
+					{messages.map((message) => (
+						<MessageRowItem key={message.id} message={message} now={now} onOpen={emailOpensConversation(message) ? onOpenConversation : undefined} />
+					))}
+				</ul>
+			)}
+		</Section>
+	);
+}
+
+function RemoveAddress({ busy, onRemove }: { busy: boolean; onRemove: () => Promise<boolean> }) {
+	const [confirming, setConfirming] = useState(false);
+	return (
+		<Section id="email-remove" title="Endereço">
+			{confirming ? (
+				<div className="flex flex-col gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-3" role="alertdialog">
+					<p className="text-sm leading-relaxed">Remover o endereço apaga a caixa no provedor. Os e-mails deixam de chegar e o histórico daqui some.</p>
+					<div className="flex justify-end gap-2">
+						<Button disabled={busy} onClick={() => setConfirming(false)} size="sm" variant="ghost">
+							Cancelar
+						</Button>
+						<Button disabled={busy} onClick={() => void onRemove().then((ok) => ok && setConfirming(false))} size="sm" variant="destructive">
+							{busy ? "Removendo..." : "Remover endereço"}
+						</Button>
+					</div>
+				</div>
+			) : (
+				<Button className="w-fit" onClick={() => setConfirming(true)} size="sm" variant="outline">
+					Remover endereço
+				</Button>
+			)}
+		</Section>
+	);
+}
+
+/**
+ * Aba E-mail do bot: ativar o endereço (provedor hospedado), remetentes permitidos, limite diário e as
+ * últimas mensagens. Tocar numa mensagem recebida abre a conversa do bot (o e-mail entra nela).
+ */
+export function BotEmailTab({ botId, active, onOpenConversation }: { botId: string; active: boolean; onOpenConversation?: () => void }) {
+	const email = useBotEmail(botId, active);
+
+	if (email.loading && !email.data) {
+		return (
+			<div aria-busy="true" aria-label="Carregando o e-mail" className="flex flex-col gap-3" role="status">
+				<Skeleton className="h-20 w-full" />
+				<Skeleton className="h-5 w-32" />
+				<Skeleton className="h-16 w-full" />
+			</div>
+		);
+	}
+	if (email.loadError && !email.data) {
+		return (
+			<div className="flex flex-col items-center gap-3 py-8 text-center" role="alert">
+				<p className="text-muted-foreground text-xs leading-relaxed">{email.loadError}</p>
+				<Button onClick={() => void email.refresh()} size="sm" variant="outline">
+					Tentar de novo
+				</Button>
+			</div>
+		);
+	}
+	const data = email.data;
+	if (!data) return null;
+
+	if (!data.mailbox) {
+		return (
+			<div className="flex flex-col gap-4" data-email-state="off">
+				<div className="flex flex-col items-center gap-3 rounded-2xl border border-border border-dashed px-4 py-8 text-center">
+					<span className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
+						<MailIcon className="size-5" />
+					</span>
+					<div className="flex flex-col gap-1">
+						<p className="font-medium text-sm">Um e-mail só do bot</p>
+						<p className="text-muted-foreground text-xs leading-relaxed">Ele recebe e-mails de quem você permitir, responde e envia por conta própria, sempre dentro da autonomia que você definiu.</p>
+					</div>
+					{data.account.configured ? (
+						<Button disabled={email.busy} onClick={() => void email.enable()} size="sm">
+							{email.busy ? "Ativando..." : "Ativar endereço"}
+						</Button>
+					) : (
+						<div className="flex flex-col items-center gap-2">
+							<p className="text-muted-foreground text-xs leading-relaxed" data-testid="email-no-key">
+								{EMAIL_NO_KEY_TEXT}
+							</p>
+							<Button onClick={() => openSettingsModal("provedores")} size="sm" variant="outline">
+								Abrir configurações
+							</Button>
+						</div>
+					)}
+				</div>
+				{email.actionError ? (
+					<p className="text-destructive text-xs leading-relaxed" role="alert">
+						{email.actionError}
+					</p>
+				) : null}
+			</div>
+		);
+	}
+
+	const mailbox = data.mailbox;
+	return (
+		<div className="flex min-w-0 flex-col gap-5" data-email-state="on">
+			<AddressCard busy={email.busy} mailbox={mailbox} onToggle={(enabled) => void email.patch({ enabled })} />
+			<AllowedSenders busy={email.busy} mailbox={mailbox} onChange={(allowedSenders) => email.patch({ allowedSenders })} />
+			<DailyLimit busy={email.busy} mailbox={mailbox} onChange={(dailySendLimit) => email.patch({ dailySendLimit })} />
+			<Messages messages={data.messages} onOpenConversation={onOpenConversation} />
+			<RemoveAddress busy={email.busy} onRemove={() => email.remove()} />
+			{email.actionError ? (
+				<p className="text-destructive text-xs leading-relaxed" role="alert">
+					{email.actionError}
+				</p>
+			) : null}
+		</div>
+	);
+}

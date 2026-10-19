@@ -10,6 +10,8 @@ import {
 	createAgentRun,
 	getDevEnvironment,
 	getLatestConfirmCardStatus,
+	getMailboxForBot,
+	prisma,
 	getSkillPendingIntent,
 	getStrictOwnedConversation,
 	isGroupMember,
@@ -18,7 +20,7 @@ import {
 	updateConfirmCardStatus,
 	type SkillPendingPayload,
 } from "@workspace/db";
-import { executeConfirmedMcpCall, getVaultService, executeGenerateImage, openSecrets, isSecretBoxConfigured, parseGenerateImageArgs, sanitizeErrorMessage } from "@workspace/agent-runtime";
+import { EmailServiceError, emailService, executeConfirmedMcpCall, getVaultService, executeGenerateImage, openSecrets, isSecretBoxConfigured, parseGenerateImageArgs, sanitizeErrorMessage } from "@workspace/agent-runtime";
 import { peekModelContextLength } from "../routes/models.js";
 import { loadEffectiveConfig } from "./account-config.js";
 
@@ -154,6 +156,82 @@ function isConfirmAccept(text: string): boolean {
 	return /^(confirmado|confirmar|confirma|confirmo|sim|pode|ok|pode apagar|pode limpar|apaga mesmo|limpa mesmo|confirmo sim)\b/i.test(text.trim());
 }
 
+export type EmailSendOutcome = { ok: boolean; text: string; detail: string };
+
+/**
+ * Envia o e-mail que o dono aprovou no cartão. O dono vem da sessão e a caixa tem de ser deste bot e deste
+ * dono (o id do payload sozinho nunca basta); destinatário, assunto e corpo saem exatamente como mostrados.
+ */
+export async function executeConfirmedEmailSend(
+	input: { userId: string; botId: string; payload: SkillPendingPayload },
+	deps: {
+		getMailbox: typeof getMailboxForBot;
+		service: Pick<typeof emailService, "prepareSend" | "deliver">;
+	} = { getMailbox: getMailboxForBot, service: emailService },
+): Promise<EmailSendOutcome> {
+	const send = input.payload.emailSend;
+	if (!send || !input.payload.botId || input.payload.botId !== input.botId) {
+		return { ok: false, text: "A confirmação não corresponde a este bot; peça o envio de novo.", detail: "confirmação de outro bot" };
+	}
+	const mailbox = await deps.getMailbox(input.botId, input.userId);
+	if (!mailbox || mailbox.id !== send.mailboxId) {
+		return { ok: false, text: "Este bot não tem mais esse endereço de e-mail.", detail: "caixa não encontrada" };
+	}
+	try {
+		const prepared = await deps.service.prepareSend({ mailbox, to: send.to, subject: send.subject, body: send.body, bodyHtml: send.bodyHtml, ...(send.threadId ? { threadId: send.threadId } : {}) });
+		const sent = await deps.service.deliver({
+			mailbox,
+			prepared: { ...prepared, to: send.to, subject: send.subject, ...(send.threadId ? { threadId: send.threadId } : {}) },
+			idempotencyKey: input.payload.confirmId,
+		});
+		return { ok: true, text: `E-mail enviado para ${sent.to}: "${sent.subject}".`, detail: `Enviado para ${sent.to}` };
+	} catch (error) {
+		const message = error instanceof EmailServiceError ? error.message : "Falha ao falar com o provedor de e-mail.";
+		return { ok: false, text: `Não consegui enviar o e-mail: ${message}`, detail: message };
+	}
+}
+
+export type EmailSetupOutcome = { ok: boolean; /** Texto para o chat quando não há agente para continuar. */ text: string; /** Mensagem que retoma o agente. */ followUp: string; detail: string };
+
+/** Depois do cartão de chave: só confere se ficou guardada (o valor nunca passa por aqui). */
+export async function executeConfirmedEmailKey(
+	input: { userId: string },
+	deps: { accountStatus: (userId: string) => Promise<{ configured: boolean }> } = emailService,
+): Promise<EmailSetupOutcome> {
+	const configured = (await deps.accountStatus(input.userId).catch(() => ({ configured: false }))).configured;
+	return configured
+		? { ok: true, detail: "Chave salva", text: "Chave do OpenMail salva.", followUp: "O dono salvou a chave do OpenMail no cartão. Tente de novo o que você ia fazer com o e-mail." }
+		: { ok: false, detail: "Chave não encontrada", text: "Não encontrei a chave salva. Cole de novo no cartão ou em Configurações.", followUp: "O dono usou o cartão mas a chave do OpenMail não ficou salva. Avise que precisa colar de novo no cartão ou em Configurações; não peça a chave no chat." };
+}
+
+/** Cria a caixa do bot depois do "Criar e-mail" (mesmo serviço da rota; o dono vem da sessão e o bot do cartão). */
+export async function executeConfirmedMailboxCreate(
+	input: { userId: string; botId: string; payload: SkillPendingPayload },
+	deps: {
+		getBotName: (botId: string, userId: string) => Promise<string | null>;
+		service: Pick<typeof emailService, "enableForBot">;
+	} = { getBotName: async (botId, userId) => (await prisma.bot.findFirst({ where: { id: botId, ownerId: userId }, select: { name: true } }))?.name ?? null, service: emailService },
+): Promise<EmailSetupOutcome> {
+	const create = input.payload.emailCreate;
+	if (!create || !input.payload.botId || input.payload.botId !== input.botId) {
+		return { ok: false, detail: "confirmação de outro bot", text: "A confirmação não corresponde a este bot; peça de novo.", followUp: "A confirmação do cartão não correspondia a este bot; nada foi criado." };
+	}
+	const name = await deps.getBotName(input.botId, input.userId);
+	if (!name) return { ok: false, detail: "bot não encontrado", text: "Bot não encontrado.", followUp: "O bot não foi encontrado; nada foi criado." };
+	try {
+		const mailbox = await deps.service.enableForBot({ userId: input.userId, botId: input.botId, botName: name, mailboxName: create.mailboxName });
+		return {
+			ok: true,
+			detail: `Criado: ${mailbox.address}`,
+			text: `E-mail criado: ${mailbox.address}. Adicione quem pode escrever para o bot na aba E-mail.`,
+			followUp: `O dono confirmou e o e-mail do bot foi criado: ${mailbox.address}. Ainda não há remetentes permitidos: avise o dono para adicioná-los na aba E-mail do bot (sem isso todo e-mail recebido fica bloqueado).`,
+		};
+	} catch (error) {
+		const message = error instanceof EmailServiceError ? error.message : "Falha ao falar com o provedor de e-mail.";
+		return { ok: false, detail: message, text: `Não consegui criar o e-mail: ${message}`, followUp: `O dono confirmou mas não foi possível criar o e-mail: ${message}` };
+	}
+}
+
 /** Resolve o clique de confirmação contra a intenção pendente. Retorna o run ou null (sem match). */
 async function resolvePendingIntent(input: {
 	userId: string;
@@ -202,6 +280,19 @@ async function resolvePendingIntent(input: {
 			await updateConfirmCardStatus(input.conversationId, "rejected", payload.confirmId).catch(() => undefined);
 			return done(`Não consegui gerar a imagem: ${sanitizeErrorMessage(error, [apiKey])}`, costUsd);
 		}
+	}
+	if (payload.action === "email-send") {
+		const claimed = payload.emailSend ? await claimSkillPendingIntent(pending.id, input.userId, input.conversationId) : false;
+		if (!claimed) return done("Este envio já foi processado ou expirou. Peça de novo.");
+		const outcome = await executeConfirmedEmailSend({ userId: input.userId, botId: input.botId, payload });
+		await updateConfirmCardStatus(input.conversationId, outcome.ok ? "approved" : "rejected", payload.confirmId, undefined, { ok: outcome.ok, detail: outcome.detail }).catch(() => undefined);
+		return done(outcome.text);
+	}
+	if (payload.action === "email-key" || payload.action === "email-create-mailbox") {
+		if (!(await claimSkillPendingIntent(pending.id, input.userId, input.conversationId))) return done("Este pedido já foi processado ou expirou.");
+		const outcome = payload.action === "email-key" ? await executeConfirmedEmailKey({ userId: input.userId }) : await executeConfirmedMailboxCreate({ userId: input.userId, botId: input.botId, payload });
+		await updateConfirmCardStatus(input.conversationId, outcome.ok ? "approved" : "rejected", payload.confirmId, undefined, { ok: outcome.ok, detail: outcome.detail }).catch(() => undefined);
+		return done(outcome.text);
 	}
 	if (payload.action === "set-primary-bot") {
 		const target = payload.primaryBot;
@@ -538,6 +629,12 @@ export async function maybeHandleConfirmedAction(input: {
 			await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 			const userText = input.text.trim();
 			return { handled: false, followUp: { objective: userText, content: devPrFollowUpContent(userText, prCreate) } };
+		}
+		if (input.continueInAgent && (pending.payload.action === "email-key" || pending.payload.action === "email-create-mailbox")) {
+			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
+			const outcome = pending.payload.action === "email-key" ? await executeConfirmedEmailKey({ userId }) : await executeConfirmedMailboxCreate({ userId, botId: input.botId, payload: pending.payload });
+			await updateConfirmCardStatus(input.conversationId, outcome.ok ? "approved" : "rejected", pending.payload.confirmId, undefined, { ok: outcome.ok, detail: outcome.detail }).catch(() => undefined);
+			return { handled: false, followUp: { objective: input.text.trim(), content: outcome.followUp } };
 		}
 		const call = pending.payload.action === "mcp-call" ? pending.payload.mcpCall : undefined;
 		if (input.continueInAgent && call) {

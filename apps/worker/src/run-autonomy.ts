@@ -10,6 +10,15 @@ import {
 } from "@workspace/db";
 
 /**
+ * Run disparado por e-mail de fora: o conteúdo pode tentar manipular o agente, então as tools do run
+ * (conectores, perfil, skills…) nunca ficam em "Autônomo": no máximo "Equilibrado". O envio de e-mail usa a
+ * política real do dono (`uncapped`), com a regra própria de destinatário novo.
+ */
+export function capForExternalContent(policy: EffectiveAutonomy): EffectiveAutonomy {
+	return policy.level === "autonomous" ? { ...policy, level: "balanced" } : policy;
+}
+
+/**
  * Autonomia efetiva do run (F10). Quando a validade venceu, grava o fallback
  * (compare-and-set: só quem gravou avisa) e deixa UMA mensagem no chat. Run
  * sem humano (rotina/webhook) só resolve, sem gravar nem avisar; o próximo run
@@ -38,6 +47,8 @@ export async function resolveRunAutonomy(
 		conversationId?: string | null;
 		origin: string;
 		now: Date;
+		/** Run de e-mail: devolve a política real do dono (sem o teto de conteúdo externo). */
+		uncapped?: boolean;
 	},
 	deps: RunAutonomyDeps = defaultDeps,
 ): Promise<EffectiveAutonomy> {
@@ -61,7 +72,7 @@ export async function resolveRunAutonomy(
 				});
 			}
 		}
-		return loaded.policy;
+		return input.origin === "email" && !input.uncapped ? capForExternalContent(loaded.policy) : loaded.policy;
 	} catch (error) {
 		console.error("load autonomy failed; using default", error);
 		return { level: DEFAULT_AUTONOMY_LEVEL, exceptions: [] };

@@ -17,6 +17,7 @@ import {
 	parseConversationCard,
 	parseDevApprovalInfo,
 	parseSecretsRequestInfo,
+	parseEmailKeyRequestInfo,
 	parseGithubIdentityInfo,
 	parseSkillProposalCard,
 	serializeConversationCard,
@@ -420,6 +421,7 @@ export async function persistConversationCardFromEvent(
 			...(typeof event.callKey === "string" ? { callKey: event.callKey } : {}),
 			...(parseDevApprovalInfo(event.devApproval) ? { devApproval: parseDevApprovalInfo(event.devApproval) } : {}),
 			...(parseSecretsRequestInfo(event.secretsRequest) ? { secretsRequest: parseSecretsRequestInfo(event.secretsRequest) } : {}),
+			...(parseEmailKeyRequestInfo(event.emailKeyRequest) ? { emailKeyRequest: parseEmailKeyRequestInfo(event.emailKeyRequest) } : {}),
 			...(parseGithubIdentityInfo(event.githubIdentity) ? { githubIdentity: parseGithubIdentityInfo(event.githubIdentity) } : {}),
 		});
 		if (event.status !== "approved" && event.status !== "rejected") {

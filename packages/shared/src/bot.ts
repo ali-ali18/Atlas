@@ -26,7 +26,7 @@ export type Bot = {
 		content: string;
 		createdAt: string;
 		/** Origem automatizada da última mensagem (prévia "Rotina: …"). */
-		source?: { kind: "routine" | "reminder" | "github" | "webhook" | "reflection"; label: string } | null;
+		source?: { kind: "routine" | "reminder" | "github" | "webhook" | "reflection" | "email"; label: string } | null;
 	} | null;
 	/** Resultados de runs em background ainda não vistos pelo dono (badge de "resultados novos"). */
 	unreadResults?: number;

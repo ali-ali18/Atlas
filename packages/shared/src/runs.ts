@@ -12,7 +12,7 @@ import type {
 
 /** Origem de um AgentRun. */
 /** `subagent`: run filho aberto por `delegate_task` (nunca criado pela API). */
-export type AgentRunOrigin = "chat" | "routine" | "webhook" | "subagent" | "bot" | "proactive";
+export type AgentRunOrigin = "chat" | "routine" | "webhook" | "subagent" | "bot" | "proactive" | "email";
 
 /** Estados terminais e intermediários do plano. */
 export type AgentRunStatus =

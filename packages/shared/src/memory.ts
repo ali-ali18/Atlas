@@ -95,7 +95,7 @@ export type SessionMessage = {
 	fromBotName?: string | null;
 	botMessageId?: string | null;
 	/** Rotina, lembrete ou evento que produziu a mensagem (marcador acima do balão). */
-	source?: { kind: "routine" | "reminder" | "github" | "webhook" | "reflection"; label: string; at: string } | null;
+	source?: { kind: "routine" | "reminder" | "github" | "webhook" | "reflection" | "email"; label: string; at: string } | null;
 	/** Reações (no máximo uma por ator: o usuário e o bot). */
 	reactions?: Array<{ actor: "user" | "bot"; emoji: string }>;
 	createdAt: string;

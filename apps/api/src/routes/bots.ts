@@ -15,6 +15,7 @@ import {
 	PROACTIVE_MAX_PER_DAY_MAX,
 	PROACTIVE_MAX_PER_DAY_MIN,
 } from "@workspace/shared";
+import { emailService } from "@workspace/agent-runtime";
 import { GroupError, createBot, deleteBot, listBotExchange, listBots, updateBot, validateGroupMemberIds, prisma } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 import { validateProviderModel, type ModelValidation } from "../providers/model-catalog.js";
@@ -360,6 +361,8 @@ export function createBotRoutes(
 
 		try {
 			const { userId } = scopeFor(c.get("session"));
+			// Apaga a caixa de e-mail no provedor antes (a linha some junto com o bot).
+			await emailService.disableForBot({ userId, botId: id }).catch(() => undefined);
 			await deleteBot(id, userId);
 			return c.json({ ok: true });
 		} catch (error) {

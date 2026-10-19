@@ -28,6 +28,7 @@ import {
 } from "@/components/ai-elements/routines";
 import { BotProfileConfirmCard, ConfirmCard, GithubIdentityCard } from "@/components/ai-elements/confirm";
 import { SecretsRequestCard } from "@/components/ai-elements/dev-session/secrets-request-card";
+import { EmailKeyRequestCard } from "@/components/ai-elements/email/email-key-request-card";
 import { VaultRequestCard } from "@/components/ai-elements/dev-session/vault-request-card";
 import { DevApprovalCard } from "@/components/ai-elements/dev-session/dev-approval-card";
 import { FileAttachment } from "@/components/ai-elements/files";
@@ -38,6 +39,7 @@ import { DevSessionCard } from "@/components/ai-elements/dev-session/dev-session
 import { SubagentsBlock } from "@/components/ai-elements/subagents";
 import { ToolBudgetMarker } from "@/components/ai-elements/tool-budget";
 import { AssistantMessage } from "./assistant-message";
+import { EmailReceivedCard } from "./email-received-card";
 import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 import { CodeRunCard } from "./code-run-card";
 import { ImagePendingCard } from "@/components/ai-elements/images/image-pending-card";
@@ -141,6 +143,7 @@ export function MessageRow({
 				/>
 			);
 		case "user":
+			if (message.email) return <EmailReceivedCard from={message.email.from} subject={message.email.subject} text={message.text} />;
 			if (!message.text.trim()) return null;
 			return (
 				<UserMessageBubble groupPosition={groupPosition} knownSkills={knownSkills} mentionMembers={mentionMembers} messageId={message.id} text={message.text} />
@@ -253,6 +256,17 @@ export function MessageRow({
 				/>
 			);
 		case "confirm":
+			if (message.emailKeyRequest) {
+				return (
+					<EmailKeyRequestCard
+						description={message.description}
+						onSaved={() => onConfirm?.(message)}
+						onSkip={() => onCancel?.(message)}
+						status={message.status ?? "pending"}
+						title={message.title}
+					/>
+				);
+			}
 			if (message.secretsRequest?.environmentId === "vault") {
 				return (
 					<VaultRequestCard

@@ -73,6 +73,8 @@ export function planContextEconomy(input: {
 	preloadVault?: boolean;
 	/** O pedido cita uma API conectada: o grupo api (api_search, api_call) já vai no 1º passo. */
 	preloadApi?: boolean;
+	/** Run disparado por e-mail recebido: o grupo email já vai no 1º passo (procedimento anti-manipulação incluso). */
+	preloadEmail?: boolean;
 }): ContextEconomyPlan {
 	const groups = routeContextGroups({
 		text: input.routerText,
@@ -86,6 +88,9 @@ export function planContextEconomy(input: {
 	if (input.preloadBrowser) groups.add("browser");
 	if (input.preloadVault) groups.add("vault");
 	if (input.preloadApi) groups.add("api");
+	// Sem as tools (bot sem e-mail) o procedimento de e-mail é só ruído.
+	if (!input.eligible.some((tool) => tool.function.name.startsWith("email_"))) groups.delete("email");
+	else if (input.preloadEmail) groups.add("email");
 	for (const name of input.resumedToolNames ?? []) {
 		const group = nativeToolGroupOf(name);
 		if (group && isNativeToolGroup(group)) groups.add(group);

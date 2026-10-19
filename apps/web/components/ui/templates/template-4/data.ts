@@ -334,7 +334,7 @@ type MessageVariant =
 	| { id: string; kind: "images"; source: "user" | "assistant"; items: Array<{ artifactId: string; mime: string; width: number; height: number; alt?: string; name?: string }> }
 	| { id: string; kind: "attachment"; meta: string; name: string }
 	| { id: string; kind: "tool"; label: string; text: string }
-	| { id: string; kind: "user"; text: string; bot?: BotTag }
+	| { id: string; kind: "user"; text: string; bot?: BotTag; /** E-mail recebido pelo bot: o texto é o corpo; a UI mostra um cartão. */ email?: { from: string; subject: string; threadId: string } }
 	| {
 			id: string;
 			kind: "confirm";
@@ -348,6 +348,7 @@ type MessageVariant =
 			/** Aprovação de comando/escrita de sessão de código (card próprio). */
 			devApproval?: DevApprovalCardInfo;
 			secretsRequest?: import("@workspace/shared").SecretsRequestInfo;
+			emailKeyRequest?: import("@workspace/shared").EmailKeyRequestInfo;
 			/** Escrita no GitHub bloqueada: cartão com "Instalar o app" / "Usar minha conta desta vez". */
 			githubIdentity?: import("@workspace/shared").GithubIdentityCardInfo;
 			confirmId?: string;

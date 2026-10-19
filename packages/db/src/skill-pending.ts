@@ -1,7 +1,7 @@
 import { prisma } from "./client.js";
 
 export type SkillPendingKind = "need-name" | "pick-skill" | "confirm";
-export type SkillPendingAction = "dev-pr-create" | "request-secrets" | "dev-command" | "rename" | "edit" | "show" | "delete" | "delete-all" | "clean-drafts" | "mcp-call" | "generate-image" | "set-primary-bot" | "vault-use";
+export type SkillPendingAction = "dev-pr-create" | "request-secrets" | "dev-command" | "rename" | "edit" | "show" | "delete" | "delete-all" | "clean-drafts" | "mcp-call" | "generate-image" | "set-primary-bot" | "vault-use" | "email-send" | "email-key" | "email-create-mailbox";
 export type SkillPendingCandidate = { skillId: string; capabilityKey: string; title: string };
 /** Chamada de conector MCP que escreve dados, aguardando o "confirmado". */
 export type SkillPendingMcpCall = {
@@ -32,6 +32,10 @@ export type SkillPendingPayload = {
 	botId?: string;
 	mcpCall?: SkillPendingMcpCall;
 	primaryBot?: { botId: string; name: string };
+	/** E-mail do bot aguardando o "confirmado" (corpo completo: só o dono vê no cartão). */
+	/** Criar a caixa de e-mail do bot (sempre confirmada): o nome já foi escolhido, o cartão mostra o endereço. */
+	emailCreate?: { mailboxName: string };
+	emailSend?: { mailboxId: string; to: string; subject: string; body: string; bodyHtml?: string; threadId?: string };
 	imageGeneration?: { prompt: string; aspectRatio?: string; n: number; runId: string };
 	/** Criação de PR de sessão de código aguardando o "confirmado" (o agente repete a chamada depois). */
 	/** Comando (ou escrita) de sessão de código aguardando aprovação; o agente repete a chamada depois. */

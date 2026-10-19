@@ -22,6 +22,7 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 		/\b(cofre|segredos?|senhas?|chaves? (de )?(api|acesso)|api ?keys?|tokens?|passwords?|secrets?|credenciais|credentials|2fa|totp|n8n|login (de|do|no|na) )/,
 	],
 	["api", /\b(apis?|openapi|swagger|endpoints?)\b/],
+	["email", /\b(e-?mails?|mails?|correio|caixa de entrada|inbox|mailbox)\b/],
 	["skills", /\b(skills?|habilidades?|receitas?|procedimentos?|procedures?|playbooks?)\b/],
 	[
 		"bots",

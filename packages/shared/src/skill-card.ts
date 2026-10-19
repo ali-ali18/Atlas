@@ -1,5 +1,6 @@
 import { parseChartSpec, type ChartSpec } from "./chart-spec.js";
 import { parseDevApprovalInfo, type DevApprovalCardInfo } from "./dev-command-approval.js";
+import { parseEmailKeyRequestInfo, type EmailKeyRequestInfo } from "./email.js";
 import { parseSecretsRequestInfo, type SecretsRequestInfo } from "./dev-env-auto.js";
 import { parseGithubIdentityInfo, type GithubIdentityCardInfo } from "./github-identity.js";
 import { parseComposioToolkitSlug } from "./composio.js";
@@ -70,6 +71,7 @@ export type PersistedConfirmCard = {
 	callKey?: string;
 	devApproval?: DevApprovalCardInfo;
 	secretsRequest?: SecretsRequestInfo;
+	emailKeyRequest?: EmailKeyRequestInfo;
 	/** Escrita no GitHub bloqueada: instalar o app no repositório ou usar a conta só desta vez. */
 	githubIdentity?: GithubIdentityCardInfo;
 	/** Resultado da chamada depois do "Executar" (a API roda a chamada e devolve ao agente). */
@@ -566,6 +568,7 @@ export function parseConversationCard(content: string): PersistedConversationCar
 			...(asOptionalString(row.callKey) ? { callKey: asOptionalString(row.callKey) } : {}),
 			...(parseDevApprovalInfo(row.devApproval) ? { devApproval: parseDevApprovalInfo(row.devApproval) } : {}),
 			...(parseSecretsRequestInfo(row.secretsRequest) ? { secretsRequest: parseSecretsRequestInfo(row.secretsRequest) } : {}),
+			...(parseEmailKeyRequestInfo(row.emailKeyRequest) ? { emailKeyRequest: parseEmailKeyRequestInfo(row.emailKeyRequest) } : {}),
 			...(parseGithubIdentityInfo(row.githubIdentity) ? { githubIdentity: parseGithubIdentityInfo(row.githubIdentity) } : {}),
 			...(isRecordLike(row.outcome) && typeof row.outcome.ok === "boolean" && typeof row.outcome.detail === "string"
 				? { outcome: { ok: row.outcome.ok, detail: row.outcome.detail.slice(0, 2000) } }

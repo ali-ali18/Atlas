@@ -23,6 +23,7 @@ import {
 	parseBotAutoDecisionCard,
 	parseBotNeedsUserCard,
 	parseBotMessageContent,
+	parseFramedInboundEmail,
 	BOT_LINK_ROLE,
 	SEND_TO_BOT_TOOL_NAME,
 	type GroupStateResponse,
@@ -149,6 +150,7 @@ function conversationCardToMessage(
 			...(card.alwaysLabel ? { alwaysLabel: card.alwaysLabel } : {}),
 			...(card.devApproval ? { devApproval: card.devApproval } : {}),
 			...(card.secretsRequest ? { secretsRequest: card.secretsRequest } : {}),
+			...(card.emailKeyRequest ? { emailKeyRequest: card.emailKeyRequest } : {}),
 			...(card.githubIdentity ? { githubIdentity: card.githubIdentity } : {}),
 			...(card.outcome?.detail === SUPERSEDED_CARD_DETAIL ? { superseded: true } : {}),
 		};
@@ -358,6 +360,10 @@ function buildSessionMessage(message: SessionMessage): Message | null {
 			text: message.content,
 			bot: { kind: "answer", ...(message.botMessageId ? { botMessageId: message.botMessageId } : {}) },
 		};
+	}
+	if (message.role === "user" && message.source?.kind === "email") {
+		const email = parseFramedInboundEmail(message.content);
+		if (email) return { id: message.id, kind: "user", text: email.body, email: { from: email.from, subject: email.subject, threadId: email.threadId } };
 	}
 	if (message.role === "user") {
 		return { id: message.id, kind: "user", text: message.content };
@@ -581,6 +587,7 @@ export function createComputerHandlers(params: {
 		alwaysLabel?: string;
 		devApproval?: DevApprovalCardInfo;
 		secretsRequest?: import("@workspace/shared").SecretsRequestInfo;
+		emailKeyRequest?: import("@workspace/shared").EmailKeyRequestInfo;
 		githubIdentity?: import("@workspace/shared").GithubIdentityCardInfo;
 		status?: "pending" | "approved" | "rejected";
 	}) => void;
@@ -897,6 +904,7 @@ export function createComputerHandlers(params: {
 				...(event.alwaysLabel !== undefined ? { alwaysLabel: event.alwaysLabel } : {}),
 				...(event.devApproval ? { devApproval: event.devApproval } : {}),
 				...(event.secretsRequest ? { secretsRequest: event.secretsRequest } : {}),
+				...(event.emailKeyRequest ? { emailKeyRequest: event.emailKeyRequest } : {}),
 				...(event.githubIdentity ? { githubIdentity: event.githubIdentity } : {}),
 				confirmId: event.confirmId,
 			};

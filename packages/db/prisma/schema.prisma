@@ -47,6 +47,8 @@ model User {
   runDeliveries RunDelivery[]
   conversationReads ConversationRead[]
   pushSubscriptions PushSubscription[]
+  botMailboxes BotMailbox[]
+  emailMessages EmailMessage[]
   githubInstallations GithubInstallation[]
 
   @@map("user")
@@ -296,6 +298,7 @@ model Bot {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   routines        Routine[]
+  mailbox         BotMailbox?
 
   @@index([pinned, pinOrder])
   @@index([ownerId])
@@ -1215,4 +1218,60 @@ model UserSecretAudit {
   @@index([secretId, createdAt])
   @@index([userId, createdAt])
   @@map("user_secret_audit")
+}
+
+/// Endereço de e-mail próprio de um bot (provedor hospedado, ex.: OpenMail). Um por bot.
+/// Segredos (segredo de assinatura do webhook) só em `secretsEnc` (AES-256-GCM com
+/// CONNECTOR_ENCRYPTION_KEY). `webhookSecretHash` = SHA-256 do token que vai na URL do webhook
+/// (2º fator além da assinatura HMAC do provedor).
+model BotMailbox {
+  id                String   @id @default(cuid())
+  botId             String   @unique
+  bot               Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  provider          String   @default("openmail")
+  address           String
+  providerInboxId   String
+  secretsEnc        String?
+  webhookSecretHash String
+  /// Remetentes que podem acionar o bot (e destinatários que dispensam confirmação). Minúsculas.
+  allowedSenders    String[] @default([])
+  dailySendLimit    Int      @default(20)
+  enabled           Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  messages          EmailMessage[]
+
+  @@unique([provider, providerInboxId])
+  @@index([userId])
+  @@map("bot_mailboxes")
+}
+
+/// Metadados + trecho de cada e-mail (o corpo completo fica no provedor).
+model EmailMessage {
+  id                String     @id @default(cuid())
+  mailboxId         String
+  mailbox           BotMailbox @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  /// "in" | "out"
+  direction         String
+  providerMessageId String
+  threadId          String
+  fromAddr          String
+  toAddrs           String[]   @default([])
+  subject           String     @default("")
+  snippet           String     @default("")
+  /// in: received | blocked; out: sent | failed
+  status            String     @default("received")
+  conversationId    String?
+  runId             String?
+  createdAt         DateTime   @default(now())
+
+  @@unique([mailboxId, providerMessageId])
+  @@index([mailboxId, createdAt])
+  @@index([mailboxId, direction, createdAt])
+  @@index([mailboxId, threadId])
+  @@map("email_messages")
 }

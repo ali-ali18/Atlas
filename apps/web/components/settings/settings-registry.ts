@@ -100,6 +100,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
 	{ id: "provedores.openrouter", section: "provedores", label: "Chave do OpenRouter", keywords: ["openrouter", "chave", "api key", "provedores", "servidor", "modelos"] },
 	{ id: "provedores.anthropic", section: "provedores", label: "Anthropic (API)", keywords: ["anthropic", "claude", "api key", "chave", "provedores", "conectar", "modelos"] },
 	{ id: "provedores.opencode-go", section: "provedores", label: "OpenCode Go", keywords: ["opencode", "go", "assinatura", "chave", "api key", "provedores", "kimi", "glm", "deepseek", "modelos"] },
+	{ id: "provedores.openmail", section: "provedores", label: "E-mail dos bots (OpenMail)", keywords: ["openmail", "e-mail", "email", "endereço", "caixa", "chave", "api key", "bot", "provedores", "enviar", "receber"] },
 	{ id: "provedores.desconectar", section: "provedores", label: "Desconectar o ChatGPT da conta", keywords: ["tokens", "remover", "desconectar", "chatgpt", "provedores", "chaves"] },
 	{ id: "modelos.manutencao", section: "provedores", label: "Modelo de manutenção", keywords: ["resumo", "memória", "revisão", "modelos auxiliares"] },
 	{ id: "modelos.visao", section: "provedores", label: "Modelo para ler imagens", keywords: ["visão", "imagem", "foto", "anexo", "modelos auxiliares"] },

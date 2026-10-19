@@ -40,6 +40,7 @@ import { AboutSection } from "./about-section";
 import { botAccentStyle } from "./bot-accent";
 import { GroupPanelContent, type GroupPanelProps } from "./group-panel";
 import { BotLibrary } from "./bot-library";
+import { BotEmailTab } from "./bot-email-tab";
 import { RoutineEditor } from "./routine-editor";
 import {
 	RoutineCreateChooser,
@@ -721,10 +722,11 @@ export function ChatContextPanel({
 						<div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto px-4 pb-[calc(2rem+env(safe-area-inset-bottom))]">
 							<BotHeader agent={agent} onUpdate={onUpdate} />
 							<Tabs onValueChange={setTab} value={tab}>
-								<TabsList aria-label="Seções do painel">
-									<TabsTrigger value="details">Detalhes</TabsTrigger>
-									<TabsTrigger value="library">Biblioteca</TabsTrigger>
-									<TabsTrigger value="computer">Computador</TabsTrigger>
+								<TabsList aria-label="Seções do painel" className="w-full">
+									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="details">Detalhes</TabsTrigger>
+									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="library">Biblioteca</TabsTrigger>
+									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="computer">Computador</TabsTrigger>
+									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="email">E-mail</TabsTrigger>
 								</TabsList>
 
 								<TabsContent className="flex flex-col gap-5" value="details">
@@ -826,6 +828,10 @@ export function ChatContextPanel({
 
 								<TabsContent value="library">
 									<BotLibrary active={tab === "library"} botId={agent.id} />
+								</TabsContent>
+
+								<TabsContent value="email">
+									<BotEmailTab active={tab === "email"} botId={agent.id} onOpenConversation={onClosePanel} />
 								</TabsContent>
 
 								<TabsContent className="space-y-2" value="computer">

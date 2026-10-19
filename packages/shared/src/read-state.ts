@@ -50,11 +50,11 @@ export function advanceLastReadAt(current: Date, requested: Date): Date {
 	return requested.getTime() > current.getTime() ? requested : current;
 }
 
-export type MessageSourceKind = "routine" | "reminder" | "github" | "webhook" | "reflection";
+export type MessageSourceKind = "routine" | "reminder" | "github" | "webhook" | "reflection" | "email";
 export type MessageSource = { kind: MessageSourceKind; label: string; at: string };
 
 export function isMessageSourceKind(value: unknown): value is MessageSourceKind {
-	return value === "routine" || value === "reminder" || value === "github" || value === "webhook" || value === "reflection";
+	return value === "routine" || value === "reminder" || value === "github" || value === "webhook" || value === "reflection" || value === "email";
 }
 
 const SOURCE_LABEL_MAX = 80;
@@ -116,6 +116,7 @@ const SOURCE_TITLE: Record<MessageSourceKind, string> = {
 	github: "GitHub",
 	webhook: "Webhook",
 	reflection: "Reflexão",
+	email: "E-mail",
 };
 
 export function sourceKindTitle(kind: MessageSourceKind): string {

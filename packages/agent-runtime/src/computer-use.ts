@@ -238,6 +238,7 @@ import {
 } from "./tools/skills.js";
 import { API_CALL_TOOL, API_SEARCH_TOOL, PROPOSE_API_CONNECTION_TOOL, proposeApiConnection } from "./api-connector/tools.js";
 import type { ApiConnectorRuntime } from "./api-connector/runtime.js";
+import { emailToolsFor, executeEmailTool, type EmailRunContext } from "./email/tools.js";
 import { PROPOSE_CONNECTOR_TOOL, PROPOSE_CUSTOM_MCP_TOOL, noConnectorHint, connectorAuthFailureHint, connectorAuthFailureOutcome, connectorResumeMessage, proposeConnector, proposeCustomMcp } from "./tools/propose-connector.js";
 import { createSandboxErrorTracker } from "./tools/sandbox-errors.js";
 import { createComputerGuard } from "./tools/computer-guard.js";
@@ -1763,6 +1764,8 @@ type ToolContext = {
 	mcp?: McpRuntime | null;
 	/** APIs conectadas por especificação OpenAPI (null/undefined = nenhuma). */
 	apiConnector?: ApiConnectorRuntime | null;
+	/** E-mail próprio do bot (null/undefined = bot sem endereço: sem tools de e-mail). */
+	email?: EmailRunContext | null;
 	/**
 	 * Ativa tools MCP sob demanda (índice + carregar sob demanda): recebe
 	 * nomes (expostos) a ativar e devolve o que foi ativado/evictado pelo
@@ -3529,6 +3532,13 @@ async function executeToolInner(
 			if (!ctx.proactive) throw new Error("Modo proativo desligado neste bot.");
 			return executeProactiveTool(name, args, ctx.proactive);
 		}
+		case "email_list":
+		case "email_read":
+		case "email_reply":
+		case "email_send":
+		case "email_create_mailbox": {
+			return executeEmailTool(name, args, { email: ctx.email ?? undefined, userId: ctx.userId, botId: ctx.botId, conversationId: ctx.conversationId, runId: ctx.runId, origin: ctx.origin });
+		}
 		case "send_to_bot": {
 			return executeSendToBot(args, { userId: ctx.userId, botId: ctx.botId, runId: ctx.runId, origin: ctx.origin });
 		}
@@ -4103,6 +4113,8 @@ export async function runComputerUse(params: {
 	mcp?: McpRuntime | null;
 	/** APIs conectadas por OpenAPI carregadas pelo caller (`loadApiConnectorRuntime`). */
 	apiConnector?: ApiConnectorRuntime | null;
+	/** E-mail próprio do bot carregado pelo caller (`loadEmailRunContext`). */
+	email?: EmailRunContext | null;
 	/** Política de autonomia efetiva (F10). Sem ela: Equilibrado. */
 	autonomy?: EffectiveAutonomy;
 	/**
@@ -4755,6 +4767,12 @@ export async function runComputerUse(params: {
 			if (params.toolFilter?.(tool.function.name) ?? true) baseTools.push(tool);
 		}
 	}
+	// E-mail próprio do bot: só o agente principal e só com o endereço ativo (o grupo `email` é adiado por intenção).
+	if (!isSubagent) {
+		for (const tool of emailToolsFor(params.email)) {
+			if (params.toolFilter?.(tool.function.name) ?? true) baseTools.push(tool);
+		}
+	}
 	// `research_note` (F3/F4): memória de trabalho da pesquisa; o filho também usa (as notas voltam no relatório).
 	if ((params.toolFilter?.(RESEARCH_NOTE_TOOL.function.name) ?? true)) {
 		baseTools.push(RESEARCH_NOTE_TOOL);
@@ -4815,6 +4833,7 @@ export async function runComputerUse(params: {
 				resumedToolNames: parsedCheckpoint?.capabilities?.tools ?? [],
 				preloadBrowser: sandboxEnabled,
 				preloadVault: vaultLoginDomains.length > 0,
+				preloadEmail: params.origin === "email",
 				preloadApi: apiMentioned(params.apiConnector?.connections ?? [], economyRouterText({ origin: params.origin, objective: params.objective, messages: params.messages, lastUserMessage: lastUserMessageContent })),
 			})
 		: null;
@@ -6283,6 +6302,7 @@ export async function runComputerUse(params: {
 				} } : {}),
 				mcp,
 				apiConnector: params.apiConnector ?? null,
+				email: params.email ?? undefined,
 				readRefresh: refreshRead,
 				activateMcpTools: mcp ? applyMcpActivation : undefined,
 				loadedMcpToolNames: mcp && discipline ? () => tools.map((tool) => tool.function.name).filter(isMcpToolName) : undefined,

@@ -454,3 +454,11 @@ export {
 	type GithubIdentityBlock,
 } from "./github/write/gate.js";
 export { planGithubWrite, withGithubSignature } from "./github/write/ops.js";
+export { createOpenMailProvider, OPENMAIL_BASE_URL } from "./email/openmail.js";
+export { EmailProviderError } from "./email/provider.js";
+export type { EmailProvider, EmailCredentials, ParsedInboundEmail, ProviderInbox, ProviderMessage, WebhookVerification } from "./email/provider.js";
+export { EmailServiceError, createEmailService, emailService, EMAIL_KEY_CONNECTION } from "./email/service.js";
+export type { EmailService, EmailServiceDeps, EmailStore, PreparedSend } from "./email/service.js";
+export { EMAIL_TOOLS, EMAIL_TOOL_NAMES, emailToolsFor, decideEmailSend, executeEmailTool } from "./email/tools.js";
+export type { EmailRunContext, EmailToolDeps } from "./email/tools.js";
+export { loadEmailRunContext } from "./email/run-context.js";

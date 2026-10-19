@@ -20,6 +20,7 @@ import { ModelsSettings } from "./models";
 import { NotificationsSettings } from "./notifications";
 import { DisconnectChatgptDialog, ProvidersSettings } from "./providers";
 import { ProviderKeysRows } from "./provider-keys";
+import { EmailKeyRowConnected } from "./email-key";
 import { SkillsSettings } from "./skills";
 import { VaultSettings } from "./vault";
 import { ReflectionSettings } from "./reflection";
@@ -97,10 +98,11 @@ export function ProvedoresPane({ account, isVisible }: { account: Account; isVis
 					<ProvidersSettings account={quiet} isVisible={(id) => id !== "provedores.desconectar" && isVisible(id)} />
 				</SettingsGroup>
 			) : null}
-			{anyVisible(isVisible, ["provedores.desconectar", "provedores.openrouter", "provedores.anthropic", "provedores.opencode-go"]) ? (
+			{anyVisible(isVisible, ["provedores.desconectar", "provedores.openrouter", "provedores.anthropic", "provedores.opencode-go", "provedores.openmail"]) ? (
 				<SettingsGroup title="Provedores e chaves">
 					{isVisible("provedores.openrouter") ? <OpenRouterKeyRow account={account} /> : null}
 					<ProviderKeysRows isVisible={isVisible} />
+					{isVisible("provedores.openmail") ? <EmailKeyRowConnected /> : null}
 					<DisconnectChatgptRow account={account} isVisible={isVisible} />
 				</SettingsGroup>
 			) : null}

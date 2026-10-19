@@ -572,3 +572,27 @@ export * from "./reflection.js";
 export { updateUserProfile, type UserProfile } from "./profile.js";
 export * from "./diagnostics.js";
 export * from "./user-secrets.js";
+export {
+	countSentLast24h,
+	createMailbox,
+	deleteMailbox,
+	forgetEmailMessage,
+	getMailboxById,
+	getMailboxForBot,
+	hashWebhookToken,
+	linkEmailMessage,
+	listEmailMessages,
+	listThreadEmailMessages,
+	newWebhookToken,
+	notifyBlockedSender,
+	recordEmailMessage,
+	startEmailRun,
+	threadReplyTarget,
+	toEmailMessageDto,
+	toMailboxDto,
+	updateMailboxSettings,
+	webhookTokenMatches,
+	type BotMailboxRecord,
+	type EmailMessageRecord,
+	type StartEmailRunDeps,
+} from "./bot-mailbox.js";
