@@ -27,6 +27,8 @@ export type McpCallResult = {
 	ok: boolean;
 	text: string;
 	truncated: boolean;
+	/** Texto inteiro (já compacto) quando o corte descartou parte dele; quem chama guarda para reler. */
+	fullText?: string;
 	images?: Array<{ data: string; mimeType: string }>;
 	/** Token expirado/revogado sem refresh: a conexão precisa ser refeita. */
 	authFailed?: boolean;
@@ -76,6 +78,38 @@ export function normalizeCallToolResult(result: unknown): { ok: boolean; text: s
 	return { ok: !isError, text: text || (isError ? "erro sem mensagem" : "(sem conteúdo)"), ...(images.length ? { images: images.map(({ data, mimeType }) => ({ data, mimeType })) } : {}) };
 }
 
+/** Remove null, "", [] e {} (ruído de APIs verbosas como o Bling), recursivamente. */
+function dropEmpty(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(dropEmpty);
+	if (value && typeof value === "object") {
+		const out: Record<string, unknown> = {};
+		for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+			const cleaned = dropEmpty(item);
+			if (cleaned === null || cleaned === "" || (Array.isArray(cleaned) && cleaned.length === 0)) continue;
+			if (typeof cleaned === "object" && !Array.isArray(cleaned) && Object.keys(cleaned as object).length === 0) continue;
+			out[key] = cleaned;
+		}
+		return out;
+	}
+	return value;
+}
+
+/**
+ * JSON minificado e sem campos vazios, antes de medir o tamanho: mais itens cabem
+ * no teto sem cortar. Genérico (qualquer conector). Texto que não é JSON, ou que
+ * não encolhe, volta intacto.
+ */
+export function compactJsonText(text: string): string {
+	const trimmed = text.trim();
+	if (!(trimmed.startsWith("{") || trimmed.startsWith("["))) return text;
+	try {
+		const compact = JSON.stringify(dropEmpty(JSON.parse(trimmed)));
+		return compact.length < text.length ? compact : text;
+	} catch {
+		return text;
+	}
+}
+
 export function capResultText(text: string, maxChars = MCP_RESULT_MAX_CHARS, hint?: ClipHintFn): {
 	text: string;
 	truncated: boolean;
@@ -123,9 +157,10 @@ export async function callMcpTool(input: {
 			);
 			const normalized = normalizeCallToolResult(raw);
 			const redacted = redactSecrets(normalized.text, secrets);
-			const capped = capResultText(redacted, input.maxChars, input.clipHint?.(redacted));
+			const compact = normalized.ok ? compactJsonText(redacted) : redacted;
+			const capped = capResultText(compact, input.maxChars, input.clipHint?.(compact));
 			return {
-				result: { ok: normalized.ok, ...capped, ...(normalized.images ? { images: normalized.images } : {}) },
+				result: { ok: normalized.ok, ...capped, ...(capped.truncated ? { fullText: compact } : {}), ...(normalized.images ? { images: normalized.images } : {}) },
 				retryable: !normalized.ok && shouldRetryMcpFailure({ text: normalized.text }),
 			};
 		} catch (error) {

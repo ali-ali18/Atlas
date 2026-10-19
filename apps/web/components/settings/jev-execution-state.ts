@@ -3,6 +3,7 @@ import {
 	LLM_TIMEOUT_PRESETS,
 	LLM_TIMEOUT_PRESET_VALUES,
 	MAX_OUTPUT_TOKEN_PRESETS,
+	TOOL_RESULT_MAX_CHARS_PRESETS,
 	type AccountConfigPatch,
 	type AccountConfigV1,
 	type ContextMemory,
@@ -203,6 +204,12 @@ export const MAX_OUTPUT_SPEC: NumberSettingSpec = {
 	presets: MAX_OUTPUT_TOKEN_PRESETS,
 	format: formatOutputTokens,
 };
+export const formatToolResultChars = (chars: number): string => `${chars / 1000} mil caracteres`;
+export const TOOL_RESULT_SPEC: NumberSettingSpec = {
+	presets: TOOL_RESULT_MAX_CHARS_PRESETS,
+	format: formatToolResultChars,
+	codeDefault: 20_000,
+};
 export const MAX_STEPS_SPEC: NumberSettingSpec = {
 	presets: STEPS_PRESETS,
 	format: formatSteps,
@@ -240,7 +247,7 @@ export function numberOptions(
 export const numberChoice = (resolved: Resolved<number | undefined>): string =>
 	resolved.source === "user" && resolved.value !== undefined ? String(resolved.value) : INHERIT;
 
-export type ExecutionNumberKey = "maxOutputTokens" | "maxSteps" | "maxWallMinutes" | "maxRunCostUsd";
+export type ExecutionNumberKey = "maxOutputTokens" | "toolResultMaxChars" | "maxSteps" | "maxWallMinutes" | "maxRunCostUsd";
 
 export function numberPatch(key: ExecutionNumberKey, choice: string): AccountConfigPatch {
 	return { execution: { [key]: choice === INHERIT ? null : Number(choice) } };

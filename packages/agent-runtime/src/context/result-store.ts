@@ -15,7 +15,7 @@
  */
 export type ResultStoreLimits = { refChars: number; stubChars: number };
 
-export const RESULT_REF_CHARS_DEFAULT = 6_000;
+export const RESULT_REF_CHARS_DEFAULT = 3_000;
 export const RESULT_STUB_CHARS_DEFAULT = 20_000;
 export const RESULT_HEAD_CHARS = 3_000;
 /** Teto de caracteres guardados por resultado (o artefato aceita 2 MB). */
@@ -71,6 +71,14 @@ export function referenceMode(input: { tool: string; text: string; ok: boolean; 
 	if (input.text.length > input.limits.stubChars) return "stub";
 	if (input.text.length > input.limits.refChars) return "ref";
 	return "none";
+}
+
+/**
+ * Linha de referência de um resultado de conector cortado no teto: o texto inteiro
+ * está no artefato e o modelo lê o resto com `artifact_read` em vez de desistir.
+ */
+export function clippedResultRefLine(artifactId: string, storedChars: number, shownChars: number): string {
+	return `[Full result stored as artifact:${artifactId} (${storedChars} chars). The result above is clipped. Read the rest with artifact_read (id "${artifactId}", offset ${shownChars}) or search inside it with find; keep reading until you have all of it before giving totals or conclusions.]`;
 }
 
 export function buildReferenceText(input: {

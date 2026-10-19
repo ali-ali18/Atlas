@@ -378,6 +378,8 @@ export type HygieneOptions = {
 	objectiveText?: string;
 	/** Run de código: tarefas, arquivos e falhas recentes entram na nota de compactação. */
 	codingContext?: () => CodingNoteContext | undefined;
+	/** Teto de caracteres de um resultado de ferramenta ainda inteiro (padrão 24 mil); sobe junto com o limite da conta. */
+	lastGroupMaxChars?: number;
 };
 
 /**
@@ -412,14 +414,14 @@ export function applyPromptHygiene(
 		? (() => {
 				const stubbed = stubLargeToolOutputs(
 					messages,
-					STUB_LAST_GROUP_MAX_CHARS,
-					STUB_LAST_GROUP_MAX_CHARS,
+					options.lastGroupMaxChars ?? STUB_LAST_GROUP_MAX_CHARS,
+					options.lastGroupMaxChars ?? STUB_LAST_GROUP_MAX_CHARS,
 				);
 				return shouldCollapseNow(stubbed, batch)
 					? collapseOldToolGroups(stubbed, 1, options.statusOf)
 					: { messages: stubbed, collapsedGroups: 0 };
 			})()
-		: collapseOldToolGroups(stubLargeToolOutputs(messages), 1, options.statusOf);
+		: collapseOldToolGroups(stubLargeToolOutputs(messages, undefined, options.lastGroupMaxChars), 1, options.statusOf);
 	let guard: HygieneReport["guard"] = "none";
 
 	const estimate = () => estimateMessagesTokens(working.messages, toolsJsonChars);

@@ -62,6 +62,8 @@ export type EffectiveAccountConfig = {
 		contextMemory: Resolved<ContextMemory>;
 		llmTimeouts: Resolved<LlmTimeouts>;
 		maxOutputTokens: Resolved<number | undefined>;
+		/** Teto inline do resultado de ferramenta: usuário > ATLAS_TOOL_RESULT_MAX_CHARS > nenhum (o runtime usa 20 mil). */
+		toolResultMaxChars: Resolved<number | undefined>;
 		maxSteps: Resolved<number | undefined>;
 		maxWallMinutes: Resolved<number | undefined>;
 		maxRunCostUsd: Resolved<number | undefined>;
@@ -243,6 +245,7 @@ export function resolveEffectiveConfig(input: {
 			contextMemory,
 			llmTimeouts: resolveTimeouts(cfg.execution?.llmTimeoutPreset, e),
 			maxOutputTokens: optionalInt(cfg.execution?.maxOutputTokens, envInt(e.LLM_MAX_OUTPUT_TOKENS, 1, 1_000_000)),
+			toolResultMaxChars: optionalInt(cfg.execution?.toolResultMaxChars, envInt(e.ATLAS_TOOL_RESULT_MAX_CHARS, 1_000, 1_000_000)),
 			maxSteps: optionalInt(cfg.execution?.maxSteps, undefined),
 			maxWallMinutes: optionalInt(cfg.execution?.maxWallMinutes, undefined),
 			maxRunCostUsd: ((): Resolved<number | undefined> => {
@@ -287,6 +290,8 @@ export type RunConfigSnapshot = {
 	contextMemory?: ContextMemory;
 	llmTimeouts: LlmTimeouts;
 	maxOutputTokens?: number;
+	/** Ausente: o runtime usa o padrão de 20 mil caracteres. */
+	toolResultMaxChars?: number;
 	maxSteps?: number;
 	maxWallMinutes?: number;
 	/** Ausente em snapshot antigo: o runtime usa default 0.25. */
@@ -314,6 +319,8 @@ export function toRunConfigSnapshot(effective: EffectiveAccountConfig): RunConfi
 	if (effective.models.coding.value) snapshot.codingModel = effective.models.coding.value;
 	if (effective.execution.maxOutputTokens.value !== undefined)
 		snapshot.maxOutputTokens = effective.execution.maxOutputTokens.value;
+	if (effective.execution.toolResultMaxChars.value !== undefined)
+		snapshot.toolResultMaxChars = effective.execution.toolResultMaxChars.value;
 	if (effective.execution.maxSteps.value !== undefined) snapshot.maxSteps = effective.execution.maxSteps.value;
 	if (effective.execution.maxWallMinutes.value !== undefined)
 		snapshot.maxWallMinutes = effective.execution.maxWallMinutes.value;
@@ -356,6 +363,7 @@ export function parseRunConfigSnapshot(raw: unknown): RunConfigSnapshot | null {
 		!optional(raw.imageModel, nonEmptyString) ||
 		!optional(raw.codingModel, nonEmptyString) ||
 		!optional(raw.maxOutputTokens, positiveInt) ||
+		!optional(raw.toolResultMaxChars, positiveInt) ||
 		!optional(raw.maxSteps, positiveInt) ||
 		!optional(raw.maxWallMinutes, positiveInt) ||
 		!optional(raw.maxRunCostUsd, positiveNumber)

@@ -24,6 +24,16 @@ function nodeText(node: ReactNode): string {
 	return "";
 }
 
+/** Valor curto (número, moeda, data, %): nunca quebra no meio. */
+const COMPACT_VALUE = /^[\sR$US€£\d.,:%/+()\-–]+$/;
+
+/** Número e data ficam em uma linha; texto livre tem largura mínima e máxima para não virar uma coluna de uma palavra por linha. */
+export function cellWidthClass(children: ReactNode): string {
+	const text = nodeText(children).trim();
+	if (text.length > 0 && text.length <= 24 && COMPACT_VALUE.test(text)) return "whitespace-nowrap";
+	return "min-w-[8rem] max-w-[22rem]";
+}
+
 /** Reutilizado fora do chat (ex: instrução da rotina) — mesmo estilo de markdown. */
 export const markdownComponents: Components = {
 	h1: ({ node: _node, ...props }) => (
@@ -83,18 +93,25 @@ export const markdownComponents: Components = {
 		return <MarkdownCodeBlock code={nodeText(children)} />;
 	},
 	table: ({ node: _node, ...props }) => (
-		<div className="my-2 w-full max-w-full overflow-x-auto [overflow-wrap:normal]">
-			<table className="w-full border-collapse text-sm" {...props} />
+		<div
+			className="my-2 w-full max-w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] [overflow-wrap:normal]"
+			data-slot="markdown-table"
+		>
+			<table className="w-max min-w-full border-collapse text-sm" {...props} />
 		</div>
 	),
-	th: ({ node: _node, ...props }) => (
+	th: ({ node: _node, children, ...props }) => (
 		<th
-			className="border-border border-b px-2 py-1 text-left font-medium"
+			className={cn("border-border border-b px-2 py-1 text-left font-medium", cellWidthClass(children))}
 			{...props}
-		/>
+		>
+			{children}
+		</th>
 	),
-	td: ({ node: _node, ...props }) => (
-		<td className="border-border/50 border-b px-2 py-1 align-top" {...props} />
+	td: ({ node: _node, children, ...props }) => (
+		<td className={cn("border-border/50 border-b px-2 py-1 align-top", cellWidthClass(children))} {...props}>
+			{children}
+		</td>
 	),
 	blockquote: ({ node: _node, ...props }) => (
 		<blockquote

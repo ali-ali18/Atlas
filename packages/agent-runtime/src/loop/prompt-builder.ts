@@ -52,10 +52,11 @@ export function buildStableSystemPrompt(parts: StableSystemPromptParts): string 
 	return `${head}${deploymentLine(parts.atlasUrl)}${parts.research ?? ""}${parts.connectors ?? ""}${parts.skills ?? ""}${parts.tail ?? ""}`;
 }
 
-/** Prompt completo do turno: estável + linha do computador nativo + idioma por último. */
-export function buildSystemPrompt(input: { stable: string; nativeLine?: string; languageInstruction: string }): string {
+/** Prompt completo do turno: estável + linha do computador nativo + data de hoje + idioma por último. */
+export function buildSystemPrompt(input: { stable: string; nativeLine?: string; todayLine?: string; languageInstruction: string }): string {
 	const native = input.nativeLine ? `\n${input.nativeLine}` : "";
-	return `${input.stable}${native}\n${input.languageInstruction}`;
+	const today = input.todayLine ? `\n${input.todayLine}` : "";
+	return `${input.stable}${native}${today}\n${input.languageInstruction}`;
 }
 
 /**

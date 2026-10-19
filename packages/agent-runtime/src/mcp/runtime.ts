@@ -43,7 +43,7 @@ export type McpRuntime = {
 		exposedName: string,
 		args: Record<string, unknown>,
 		signal?: AbortSignal,
-		options?: { refresh?: boolean },
+		options?: { refresh?: boolean; maxChars?: number },
 	) => Promise<McpCallResult>;
 };
 
@@ -153,6 +153,7 @@ async function callRecord(input: {
 	/** Tool só de leitura (retry permitido); omitido = escrita, sem retry. */
 	readOnly?: boolean;
 	refresh?: boolean;
+	maxChars?: number;
 	readCache?: ReturnType<typeof createConnectorReadCache>;
 }): Promise<McpCallResult> {
 	let secrets: McpConnectorSecrets;
@@ -176,6 +177,7 @@ async function callRecord(input: {
 		secrets: secretValues(secrets),
 		signal: input.signal,
 		readOnly: input.readOnly,
+		maxChars: input.maxChars,
 		...(discipline
 			? { clipHint: (text: string) => ({ shownItems }: { shownItems: number | null }) => buildClipHint({ schema, args, shownItems, text }) }
 			: {}),
@@ -248,6 +250,7 @@ export async function loadMcpRuntime(
 				readOnly: entry.readOnly,
 				readCache,
 				refresh: callOptions?.refresh,
+				maxChars: callOptions?.maxChars,
 			});
 			return vault ? { ...result, text: await vault.redact(result.text) } : result;
 		},

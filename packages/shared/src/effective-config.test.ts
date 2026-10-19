@@ -233,6 +233,20 @@ describe("memória da conversa", () => {
 	});
 });
 
+describe("tamanho máximo do resultado de ferramentas", () => {
+	it("usuário > env > nenhum, e vai para o snapshot e de volta", () => {
+		expect(resolve({ v: 1 }).execution.toolResultMaxChars).toEqual({ value: undefined, source: "default" });
+		expect(resolve({ v: 1 }, { ATLAS_TOOL_RESULT_MAX_CHARS: "50000" }).execution.toolResultMaxChars).toEqual({ value: 50_000, source: "env" });
+		const e = resolve({ v: 1, execution: { toolResultMaxChars: 100_000 } }, { ATLAS_TOOL_RESULT_MAX_CHARS: "50000" });
+		expect(e.execution.toolResultMaxChars).toEqual({ value: 100_000, source: "user" });
+		const snap = toRunConfigSnapshot(e);
+		expect(snap.toolResultMaxChars).toBe(100_000);
+		expect(parseRunConfigSnapshot(snap)).toEqual(snap);
+		expect(parseRunConfigSnapshot({ ...snap, toolResultMaxChars: -1 })).toBeNull();
+		expect(toRunConfigSnapshot(resolve({ v: 1 }))).not.toHaveProperty("toolResultMaxChars");
+	});
+});
+
 describe("snapshot do run", () => {
 	const resolveSnapshot = (contextEconomy: boolean) =>
 		toRunConfigSnapshot(resolve({ v: 1, execution: { contextEconomy } }));

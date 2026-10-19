@@ -25,6 +25,8 @@ export type LlmTimeoutPreset = (typeof LLM_TIMEOUT_PRESETS)[number];
 export const CONTEXT_MEMORIES = ["standard", "economy"] as const;
 export type ContextMemory = (typeof CONTEXT_MEMORIES)[number];
 export const MAX_OUTPUT_TOKEN_PRESETS = [2048, 4096, 8192, 16384, 32768] as const;
+/** Tamanho máximo (caracteres) do resultado de uma ferramenta que vai inline ao contexto; o resto fica guardado e é lido sob demanda. */
+export const TOOL_RESULT_MAX_CHARS_PRESETS = [20_000, 50_000, 100_000, 200_000] as const;
 export const MAX_FALLBACK_MODELS = 3;
 export const MAX_STEPS_LIMIT = 500;
 export const MAX_WALL_MINUTES_LIMIT = 240;
@@ -56,6 +58,7 @@ export type AccountConfigV1 = {
 		contextMemory?: ContextMemory;
 		llmTimeoutPreset?: LlmTimeoutPreset;
 		maxOutputTokens?: number;
+		toolResultMaxChars?: number;
 		maxSteps?: number;
 		maxWallMinutes?: number;
 		maxRunCostUsd?: number | null;
@@ -160,6 +163,7 @@ const SPEC: Spec = {
 		contextMemory: oneOf(CONTEXT_MEMORIES, "Use standard ou economy."),
 		llmTimeoutPreset: oneOf(LLM_TIMEOUT_PRESETS, "Use short, default ou extended."),
 		maxOutputTokens: oneOfNumbers(MAX_OUTPUT_TOKEN_PRESETS, `Use um de: ${MAX_OUTPUT_TOKEN_PRESETS.join(", ")}.`),
+		toolResultMaxChars: oneOfNumbers(TOOL_RESULT_MAX_CHARS_PRESETS, `Use um de: ${TOOL_RESULT_MAX_CHARS_PRESETS.join(", ")}.`),
 		maxSteps: oneOfNumbers([100, 200, 300, 500], "Use um de: 100, 200, 300, 500."),
 		maxWallMinutes: intRange(1, MAX_WALL_MINUTES_LIMIT, `Use um inteiro de 1 a ${MAX_WALL_MINUTES_LIMIT}.`),
 		maxRunCostUsd: nullableOneOfNumbers([0.05, 0.10, 0.25, 0.50, 1.00], "Use um de: 0.05, 0.10, 0.25, 0.50, 1.00, ou null para sem limite."),

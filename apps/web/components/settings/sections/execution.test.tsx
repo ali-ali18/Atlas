@@ -19,6 +19,7 @@ function effective(execution: Record<string, unknown> = {}, sandboxAutoStart: un
 			maxOutputTokens: { value: undefined, source: "default" },
 			maxSteps: { value: undefined, source: "default" },
 			maxWallMinutes: { value: undefined, source: "default" },
+			toolResultMaxChars: { value: undefined, source: "default" },
 			maxRunCostUsd: { value: undefined, source: "default" },
 			...execution,
 		},
@@ -47,6 +48,7 @@ test("Execução: um controle por configuração, cada um com rótulo acessível
 		["settings-exec-reaction-only", "Responder só com reação quando não precisa de resposta"],
 		["settings-exec-timeout", "Paciência com o modelo"],
 		["settings-exec-maxOutputTokens", "Tamanho máximo da resposta"],
+		["settings-exec-toolResultMaxChars", "Tamanho máximo do resultado de ferramentas"],
 		["settings-exec-maxSteps", "Limite de passos"],
 		["settings-exec-maxWallMinutes", "Limite de tempo"],
 		["settings-exec-sandbox", "Iniciar o navegador automaticamente"],
@@ -54,8 +56,8 @@ test("Execução: um controle por configuração, cada um com rótulo acessível
 		assert.match(html, new RegExp(`for="${id}"[^>]*>${label}<`));
 		assert.match(html, new RegExp(`id="${id}"`));
 	}
-	// 6 dropdowns (memória, paciência, resposta, passos, tempo, custo); a autonomia ainda carrega.
-	assert.equal((html.match(/aria-haspopup="menu"/g) ?? []).length, 6);
+	// 7 dropdowns (memória, paciência, resposta, resultado, passos, tempo, custo); a autonomia ainda carrega.
+	assert.equal((html.match(/aria-haspopup="menu"/g) ?? []).length, 7);
 	assert.equal((html.match(/role="switch"/g) ?? []).length, 4);
 });
 

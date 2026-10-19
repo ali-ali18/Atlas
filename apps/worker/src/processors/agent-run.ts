@@ -810,6 +810,7 @@ async function executeLeasedRun(ctx: {
 			contextEconomy: runtimeConfig.contextEconomy,
 			contextMemory: runtimeConfig.contextMemory,
 			maxOutputTokens: runtimeConfig.maxOutputTokens,
+			toolResultMaxChars: runtimeConfig.toolResultMaxChars,
 			modelCallTimeoutMs: runtimeConfig.modelCallTimeoutMs,
 			firstEventTimeoutMs: runtimeConfig.firstEventTimeoutMs,
 			idleTimeoutMs: runtimeConfig.idleTimeoutMs,

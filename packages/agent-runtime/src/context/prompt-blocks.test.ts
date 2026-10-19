@@ -18,11 +18,28 @@ const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 describe("prompt em blocos (L5)", () => {
 	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(18_318);
+		expect(legacy.length).toBe(20_612);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"adb0b90ce050eb52e59a656e447fc44018c31a717ee0d0d99294f95879a48464",
+			"66948b28187ea417ab9cad61ced783a6873822acea0df5f9767baef96fa0a32e",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
+	});
+
+	it("regras de consulta de dados: filtros acumulados, linha de filtros, paginar, sem disclaimer fixo", () => {
+		const core = assembleSystemPrompt(none);
+		expect(core).toContain("keep ALL filters already stated in the conversation (period, company, status, threshold)");
+		expect(core).toContain("it never replaces the period or the company");
+		expect(core).toContain("Start every data answer with one short line of the filters applied");
+		expect(core).toContain("Turn every relative period");
+		expect(core).toContain("page (page/limit) until a page comes back with fewer items than the limit");
+		expect(core).toContain("`artifact_read` (id, find, offset)");
+		expect(core).toContain("one bar per category");
+		expect(core).toContain("never a single stacked bar");
+		expect(core).toContain("do not split one answer into several messages");
+		expect(core).toContain("save ONE `memory` entry with the full definition");
+		expect(core).toContain("Never end answers with a standing disclaimer");
+		expect(core).not.toMatch(/conferidos? no painel/i);
+		expect(legacySystemPrompt()).toContain("Data queries (Bling");
 	});
 
 	it("pedido em aberto com ferramentas e orçamento: continua em vez de oferecer retomar depois", () => {

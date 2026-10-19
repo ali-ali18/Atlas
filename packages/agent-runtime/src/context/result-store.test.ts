@@ -15,10 +15,10 @@ const text = (chars: number) => "linha de resultado\n".repeat(Math.ceil(chars / 
 
 describe("L3: faixas do resultado por referência", () => {
 	it("limites vêm do env, com padrão e piso (stub nunca abaixo de ref)", () => {
-		expect(resultStoreLimits({})).toEqual({ refChars: 6_000, stubChars: 20_000 });
+		expect(resultStoreLimits({})).toEqual({ refChars: 3_000, stubChars: 20_000 });
 		expect(resultStoreLimits({ ATLAS_CONTEXT_REF_CHARS: "2000", ATLAS_CONTEXT_STUB_CHARS: "9000" })).toEqual({ refChars: 2_000, stubChars: 9_000 });
 		expect(resultStoreLimits({ ATLAS_CONTEXT_REF_CHARS: "8000", ATLAS_CONTEXT_STUB_CHARS: "100" }).stubChars).toBe(8_000);
-		expect(resultStoreLimits({ ATLAS_CONTEXT_REF_CHARS: "abc" }).refChars).toBe(6_000);
+		expect(resultStoreLimits({ ATLAS_CONTEXT_REF_CHARS: "abc" }).refChars).toBe(3_000);
 	});
 
 	it("pequeno fica como está; médio ganha referência; grande vira stub", () => {

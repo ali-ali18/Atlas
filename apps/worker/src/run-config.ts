@@ -112,6 +112,7 @@ export function runtimeParamsFromSnapshot(snapshot: RunConfigSnapshot) {
 		contextEconomy: snapshot.contextEconomy,
 		contextMemory: snapshot.contextMemory,
 		maxOutputTokens: snapshot.maxOutputTokens,
+		toolResultMaxChars: snapshot.toolResultMaxChars,
 		modelCallTimeoutMs: snapshot.llmTimeouts.totalMs,
 		firstEventTimeoutMs: snapshot.llmTimeouts.firstEventMs,
 		idleTimeoutMs: snapshot.llmTimeouts.idleMs,

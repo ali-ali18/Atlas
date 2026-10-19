@@ -84,7 +84,6 @@ export function ModelosPane({ account, isVisible }: { account: Account; isVisibl
 	const quiet = quietAccount(account);
 	const main = ["modelos.padrao", "modelos.codigo"];
 	const auxModels = ["modelos.manutencao", "modelos.visao", "modelos.imagem", "modelos.ditado", "modelos.reserva"];
-	// Slot reservado: "Tamanho máximo do resultado de ferramentas" (`execucao.resultado`) entra neste grupo, junto de `execucao.resposta`.
 	const context = ["execucao.memoria", "execucao.economia", "execucao.resposta", "execucao.resultado"];
 	return (
 		<SettingsStack>

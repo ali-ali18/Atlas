@@ -298,3 +298,13 @@ test("modelo para código indisponível cai no modelo normal e registra no log",
 	// ChatGPT ligado e conhecido.
 	assert.equal(await resolveRunCodingModel({ ...base, openRouterKey: false, isKnown: async () => true, snapshot: { codingModel: "chatgpt/luna", chatgptEnabled: true } }), "chatgpt/luna");
 });
+
+test("tamanho máximo do resultado de ferramentas: sem escolha fica indefinido, a escolha da conta chega à lib", async () => {
+	const none = await resolveRunConfigSnapshot({ userId: USER_B, sandboxAutoStart: true }, { env: {}, loadConfig: load });
+	assert.equal(runtimeParamsFromSnapshot(none.snapshot).toolResultMaxChars, undefined);
+	const big = await resolveRunConfigSnapshot(
+		{ userId: USER_B, sandboxAutoStart: true },
+		{ env: {}, loadConfig: async () => ({ v: 1, execution: { toolResultMaxChars: 100_000 } }) },
+	);
+	assert.equal(runtimeParamsFromSnapshot(big.snapshot).toolResultMaxChars, 100_000);
+});

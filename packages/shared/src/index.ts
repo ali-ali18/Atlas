@@ -630,6 +630,7 @@ export {
 	LLM_TIMEOUT_PRESETS,
 	MAX_FALLBACK_MODELS,
 	MAX_OUTPUT_TOKEN_PRESETS,
+	TOOL_RESULT_MAX_CHARS_PRESETS,
 	accountConfigByteSize,
 	isValidConfigModelId,
 	mergeAccountConfig,

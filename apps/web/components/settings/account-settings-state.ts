@@ -107,7 +107,7 @@ function applyJevAndExecution(
 	if (typeof execution.llmTimeoutPreset === "string") {
 		set("execution", "llmTimeouts", { ...LLM_TIMEOUT_PRESET_VALUES[execution.llmTimeoutPreset] });
 	}
-	for (const key of ["maxOutputTokens", "maxSteps", "maxWallMinutes"] as const) {
+	for (const key of ["maxOutputTokens", "toolResultMaxChars", "maxSteps", "maxWallMinutes"] as const) {
 		const value = execution[key];
 		if (typeof value === "number") set("execution", key, value);
 	}

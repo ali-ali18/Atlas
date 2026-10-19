@@ -72,6 +72,9 @@ describe("validateAccountConfigPatch (escrita estrita)", () => {
 		expect(errorsOf({ jev: { mcp: "on" } })).toEqual(["jev.mcp"]);
 		expect(errorsOf({ providers: { chatgptEnabled: "true" } })).toEqual(["providers.chatgptEnabled"]);
 		expect(errorsOf({ execution: { maxOutputTokens: 1000 } })).toEqual(["execution.maxOutputTokens"]);
+		expect(errorsOf({ execution: { toolResultMaxChars: 999 } })).toEqual(["execution.toolResultMaxChars"]);
+		expect(errorsOf({ execution: { toolResultMaxChars: 20_000.5 } })).toEqual(["execution.toolResultMaxChars"]);
+		expect(errorsOf({ execution: { toolResultMaxChars: 50_000 } })).toEqual([]);
 		expect(errorsOf({ execution: { maxSteps: 501 } })).toEqual(["execution.maxSteps"]);
 		expect(errorsOf({ execution: { maxSteps: 150 } })).toEqual(["execution.maxSteps"]);
 		expect(errorsOf({ execution: { maxWallMinutes: 0 } })).toEqual(["execution.maxWallMinutes"]);

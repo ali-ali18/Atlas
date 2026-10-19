@@ -50,3 +50,10 @@ describe("swapLanguageInstruction", () => {
 		expect(swapLanguageInstruction("S", ["X"], "LANG")).toBe("S\nLANG");
 	});
 });
+
+describe("buildSystemPrompt: data de hoje", () => {
+	it("a linha da data fica entre o computador nativo e o idioma (que continua por último)", () => {
+		expect(buildSystemPrompt({ stable: "S", nativeLine: "N", todayLine: "T", languageInstruction: "L" })).toBe("S\nN\nT\nL");
+		expect(buildSystemPrompt({ stable: "S", languageInstruction: "L" })).toBe("S\nL");
+	});
+});

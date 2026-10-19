@@ -28,3 +28,19 @@ test("a bolha nunca passa da largura máxima (68ch limitado a 100%)", async () =
 	assert.match(source, /max-w-\[min\(68ch,100%\)\]/);
 	assert.doesNotMatch(source, /"max-w-\[68ch\]/);
 });
+
+test("tabela larga rola na horizontal dentro do container; valores não quebram e nomes têm largura mínima", async () => {
+	const { cellWidthClass } = await import("./assistant-message");
+	const table = "| Cliente | Vencimento | Valor |\n| --- | --- | ---: |\n| Distribuidora Santa Helena de Alimentos Ltda | 14/09/2026 | R$ 12.480,90 |\n";
+	const html = renderToStaticMarkup(
+		<ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+			{table}
+		</ReactMarkdown>,
+	);
+	assert.match(html, /<div class="[^"]*overflow-x-auto[^"]*" data-slot="markdown-table"><table class="[^"]*w-max[^"]*min-w-full/);
+	assert.match(html, /<td class="[^"]*min-w-\[8rem\][^"]*">Distribuidora/);
+	assert.match(html, /<td class="[^"]*whitespace-nowrap[^"]*">14\/09\/2026/);
+	assert.match(html, /<td class="[^"]*whitespace-nowrap[^"]*"[^>]*>R\$ 12\.480,90/);
+	assert.equal(cellWidthClass("Mercado Bom Preço"), "min-w-[8rem] max-w-[22rem]");
+	assert.equal(cellWidthClass("45%"), "whitespace-nowrap");
+});

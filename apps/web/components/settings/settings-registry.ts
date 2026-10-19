@@ -139,6 +139,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
 	{ id: "execucao.reacao", section: "bots", label: "Responder só com reação", keywords: ["execução", "reação", "reagir", "emoji", "obrigado", "valeu", "ok", "sem resposta", "tokens", "custo", "economia", "conversa", "curtir"] },
 	{ id: "execucao.paciencia", section: "execucao", label: "Paciência com o modelo", keywords: ["execução", "prazo", "timeout", "espera", "curto", "estendido", "lento"] },
 	{ id: "execucao.resposta", section: "modelos", label: "Tamanho máximo da resposta", keywords: ["execução", "tokens", "saída", "limite", "cortar"] },
+	{ id: "execucao.resultado", section: "modelos", label: "Tamanho máximo do resultado de ferramentas", keywords: ["execução", "contexto", "resultado", "ferramenta", "consulta", "cortado", "incompleto", "caracteres", "limite"] },
 	{ id: "execucao.passos", section: "execucao", label: "Limite de passos", keywords: ["execução", "passos", "ferramentas", "teto"] },
 	{ id: "execucao.tempo", section: "execucao", label: "Limite de tempo", keywords: ["execução", "duração", "minutos", "tempo máximo", "timeout", "run"] },
 	{ id: "avancado.diagnostico", section: "diagnostico", label: "Diagnóstico", keywords: ["diagnóstico", "versão", "commit", "saúde", "redis", "postgres", "fila", "worker", "falhas", "erros", "sentry", "chaves", "push"] },
