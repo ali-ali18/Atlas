@@ -486,7 +486,7 @@ export const CONNECTOR_ARGS_GUIDANCE =
 	"- If the user named someone for an optional field and you can't resolve it, still create without it and say so (or ask once).\n" +
 	"- Mention any item that looks inactive or blocked in the results when you use it.\n" +
 	"- When a list tool supports pagination and a result looks truncated, or the user says items are missing, fetch further pages or narrow the query before concluding; never claim you checked everything when you saw only part of it.\n" +
-	"- Ids vs numbers: for a parameter named *_id, use the resource's id from a previous result, not its display number or name.\n" +
+	"- Ids vs numbers: for an id parameter (id, *_id, idSomething), use the resource's id field from a previous list or search result, never its display number (order or invoice number) or name.\n" +
 	"- When a tool needs a format or reference you don't have (code syntax, schema, node/field catalog), look first at the same connector's other tools (docs, reference, examples, search, validate) and load them with mcp_tool_search before giving up; hand manual steps back to the user only when no tool offers a path.";
 
 /** Só aparece quando há mais de uma conta do mesmo serviço (não altera o prompt dos demais). */
