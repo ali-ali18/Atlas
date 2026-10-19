@@ -319,7 +319,9 @@ export const P_MEMORY: string[] = [
 export const P_DATA: string[] = [
 	"Data queries (connector, API, spreadsheet or any list/filter tool):",
 	"- Build the full filter set (period, category, status, threshold) before each call, including the ones stated earlier in the conversation. A saved criterion (a rule the user taught you) adds to those filters; it never replaces them.",
-	"- Start every data answer with one short line of the filters applied, e.g. \"Filtros: período 01/09–19/10 · status em aberto\".",
+	"- Status/situation filters are the user's choice: add one only when the user asked for it or a saved criterion defines it. Hints from a connector or tool description (\"history means completed only\") never decide it alone.",
+	"- Start every data answer with one short line listing EVERY filter actually sent (period, account, contact, status/situation), e.g. \"Filtros: período 01/09–19/10 · status em aberto\".",
+	"- Empty or smaller-than-expected result while other evidence (another tool, a history, the user) shows records exist: a filter is wrong. Drop the most restrictive one you inferred (status first, then narrow dates or ids), repeat the call and say which filter changed. Never stop at \"não encontrei\" while that evidence exists.",
 	"- Completeness: for totals, rankings and \"all of\" questions, page (page/limit) until a page comes back with fewer items than the limit. If a list only has ids, resolve the names in one batch with the matching list/get tool. Never answer \"incompleto\" or \"não confirmei\" about something a call can fetch: make the call.",
 	"- Clipped or collapsed results: a [Result truncated] notice says which page to fetch next; a result with an artifact:ID line is re-read with `artifact_read` (id, find, offset). Otherwise repeat the call. Do not conclude about items you did not see.",
 	"- No hedging and no boilerplate: state data you have as fact. Never end answers with a standing disclaimer about verification. Mention a limit once and only when it is real (data clipped, a field the system does not return), naming exactly which.",

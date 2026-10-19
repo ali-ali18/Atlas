@@ -32,7 +32,7 @@ describe("prompt em blocos (L5)", () => {
 		expect(core).toContain("converta períodos relativos");
 		expect(core).toContain("mantenha os filtros já ditos");
 		const data = groupProcedureText(new Set<ContextGroup>(["data"]));
-		expect(data).toContain("Start every data answer with one short line of the filters applied");
+		expect(data).toContain("Start every data answer with one short line listing EVERY filter");
 		expect(data).toContain("page (page/limit) until a page comes back with fewer items than the limit");
 		expect(data).toContain("`artifact_read` (id, find, offset)");
 		expect(data).toContain("one bar per category");
@@ -40,6 +40,9 @@ describe("prompt em blocos (L5)", () => {
 		expect(data).toContain("do not split one answer into several messages");
 		expect(data).toContain("save ONE `memory` entry with the full definition");
 		expect(data).toContain("Never end answers with a standing disclaimer");
+		expect(data).toContain("Status/situation filters are the user's choice");
+		expect(data).toContain("listing EVERY filter actually sent");
+		expect(data).toContain("Drop the most restrictive one you inferred (status first");
 		expect(data).not.toMatch(/bling|conferidos? no painel|contas a receber/i);
 		expect(assembleSystemPrompt(new Set<ContextGroup>(["data"])).startsWith(`${core}
 
