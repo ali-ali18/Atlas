@@ -110,3 +110,15 @@ describe("callMcpTool: teto configurável", () => {
 		expect(JSON.parse(large.text).data).toHaveLength(120);
 	});
 });
+
+describe("aviso de corte autossuficiente", () => {
+	it("sem o grupo data carregado, o aviso já manda ler tudo antes de agregar e a linha de referência nomeia artifact_read", async () => {
+		const result = await callMcpTool({ pool: poolReplying(lista(300)), config, toolName: "x", args: {}, readOnly: true });
+		expect(result.text).toContain("Do not conclude about items not shown");
+		expect(result.text).toContain("Never give totals, rankings or conclusions until you have read all of it");
+		const line = clippedResultRefLine("id1", 50_000, MCP_RESULT_MAX_CHARS);
+		expect(line).toContain("artifact_read");
+		expect(line).toContain("offset 20000");
+		expect(line).toContain("keep reading until you have all of it before giving totals");
+	});
+});

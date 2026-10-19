@@ -38,6 +38,10 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 		/\b(pdf|docx?|word|xlsx?|excel|planilhas?|csv|pptx|slides?|powerpoint|apresentac\w+|arquivos?|documentos?|relatorios?|files?|spreadsheets?|reports?|presentations?|markdown|txt|exporta\w*)\b/,
 	],
 	[
+		"data",
+		/\b(relatorios?|listar|lista de|filtr\w+|totais|total (de|do|da|dos|das)|quanto (foi|deu|tenho|temos|vendi|vendemos|recebi|gastei|falta)|quantos?|quantas?|vendas?|faturamento|receitas?|despesas?|atrasad\w+|vencid\w+|em aberto|ranking|top \d+|por (mes|dia|semana|cliente|empresa|categoria)|reports?|list (all|the)|breakdown|how (much|many)|overdue|outstanding)\b/,
+	],
+	[
 		"code",
 		/\b(calcul\w+|estatistic\w+|statistic\w*|graficos?|charts?|plot\w*|pandas|numpy|matplotlib|regressao|correlacao|mediana|desvio padrao|media de|soma d[aeo]s?|somar|porcentagem|percentual|(analis\w+|resum\w+|cruz\w+|filtr\w+|ordena\w*|agrup\w+) (a |os |as |o |essa |esse |esta |este )?(planilha|tabela|csv|dados|xlsx)|python)\b/,
 	],

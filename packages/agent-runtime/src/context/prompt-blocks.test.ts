@@ -18,28 +18,33 @@ const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 describe("prompt em blocos (L5)", () => {
 	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(20_612);
+		expect(legacy.length).toBe(18_543);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"66948b28187ea417ab9cad61ced783a6873822acea0df5f9767baef96fa0a32e",
+			"1c495207eefd45c163da01f22c52b258a2ab6a8c482450b3ef00b8040ecc34b3",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
 	});
 
-	it("regras de consulta de dados: filtros acumulados, linha de filtros, paginar, sem disclaimer fixo", () => {
+	it("regras de consulta de dados ficam no grupo data, não no núcleo; o núcleo só tem 2 linhas genéricas", () => {
 		const core = assembleSystemPrompt(none);
-		expect(core).toContain("keep ALL filters already stated in the conversation (period, company, status, threshold)");
-		expect(core).toContain("it never replaces the period or the company");
-		expect(core).toContain("Start every data answer with one short line of the filters applied");
-		expect(core).toContain("Turn every relative period");
-		expect(core).toContain("page (page/limit) until a page comes back with fewer items than the limit");
-		expect(core).toContain("`artifact_read` (id, find, offset)");
-		expect(core).toContain("one bar per category");
-		expect(core).toContain("never a single stacked bar");
-		expect(core).toContain("do not split one answer into several messages");
-		expect(core).toContain("save ONE `memory` entry with the full definition");
-		expect(core).toContain("Never end answers with a standing disclaimer");
-		expect(core).not.toMatch(/conferidos? no painel/i);
-		expect(legacySystemPrompt()).toContain("Data queries (Bling");
+		expect(core).not.toContain("Data queries");
+		expect(core).not.toContain("artifact_read");
+		expect(core).toContain("converta períodos relativos");
+		expect(core).toContain("mantenha os filtros já ditos");
+		const data = groupProcedureText(new Set<ContextGroup>(["data"]));
+		expect(data).toContain("Start every data answer with one short line of the filters applied");
+		expect(data).toContain("page (page/limit) until a page comes back with fewer items than the limit");
+		expect(data).toContain("`artifact_read` (id, find, offset)");
+		expect(data).toContain("one bar per category");
+		expect(data).toContain("never a single stacked bar");
+		expect(data).toContain("do not split one answer into several messages");
+		expect(data).toContain("save ONE `memory` entry with the full definition");
+		expect(data).toContain("Never end answers with a standing disclaimer");
+		expect(data).not.toMatch(/bling|conferidos? no painel|contas a receber/i);
+		expect(assembleSystemPrompt(new Set<ContextGroup>(["data"])).startsWith(`${core}
+
+`)).toBe(true);
+		expect(legacySystemPrompt()).not.toContain("Data queries");
 	});
 
 	it("pedido em aberto com ferramentas e orçamento: continua em vez de oferecer retomar depois", () => {

@@ -63,7 +63,7 @@ export function buildClipNotice(text: string, shownChars: number, hint?: ClipHin
 	const items = describeClippedItems(text, shownChars);
 	const itemsPart = items ? ` (${items.shown} of ${items.total} items)` : "";
 	const extra = hint?.({ shownItems: items?.shown ?? null });
-	return `[Result truncated: showing ~${shownChars} of ${text.length} characters${itemsPart}. Do not conclude about items not shown — narrow the query (filters, search term) or fetch further pages before answering.${extra ? ` ${extra}` : ""}]`;
+	return `[Result truncated: showing ~${shownChars} of ${text.length} characters${itemsPart}. Do not conclude about items not shown — narrow the query (filters, search term) or fetch further pages before answering. Never give totals, rankings or conclusions until you have read all of it.${extra ? ` ${extra}` : ""}]`;
 }
 
 /** Corta em `maxChars` e anexa o aviso; abaixo do limite devolve o texto intacto. */

@@ -462,7 +462,7 @@ describe("normalizeCallToolResult / capResultText", () => {
 	it("trunca com aviso acionável ao modelo", () => {
 		const capped = capResultText("z".repeat(50), 10);
 		expect(capped.truncated).toBe(true);
-		expect(capped.text).toBe(`${"z".repeat(10)}\n[Result truncated: showing ~10 of 50 characters. Do not conclude about items not shown — narrow the query (filters, search term) or fetch further pages before answering.]`);
+		expect(capped.text).toBe(`${"z".repeat(10)}\n[Result truncated: showing ~10 of 50 characters. Do not conclude about items not shown — narrow the query (filters, search term) or fetch further pages before answering. Never give totals, rankings or conclusions until you have read all of it.]`);
 	});
 });
 

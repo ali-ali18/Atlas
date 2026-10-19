@@ -251,7 +251,7 @@ import {
 	translateNativeComputerAction,
 } from "./tools/computer-native.js";
 import { shouldAnnounceCompaction } from "./context/compaction-notice.js";
-import { assembleSystemPromptParts, legacySystemPrompt, skillIndexPrompt } from "./context/prompt-blocks.js";
+import { assembleSystemPromptParts, groupProcedureText, legacySystemPrompt, skillIndexPrompt } from "./context/prompt-blocks.js";
 import { contextEconomyEnabled } from "./context/flag.js";
 import { clippedResultRefLine, createResultStore, resultStoreLimits, extractResultRef, RESULT_MAX_STORED_CHARS } from "./context/result-store.js";
 import { createContextUsageReporter } from "./context/usage.js";
@@ -4875,6 +4875,8 @@ export async function runComputerUse(params: {
 	const baseContextBudget = (): ContextBudget | undefined =>
 		economy ? (params.contextBudget ?? contextBudgetFor(isSubagent ? "economy" : params.contextMemory, contextLength)) : undefined;
 	const promptedGroups = new Set(economyPlan?.groups ?? []);
+	// Grupo `data`: entra (uma vez, como nota) quando o run usa conector, API ou código de dados e o roteador ainda não o carregou.
+	let dataToolRan = false;
 	const nativeDeferral: NativeDeferral | null =
 		economyPlan && economyPlan.plan.deferred.size > 0
 			? createNativeDeferral({ deferred: economyPlan.plan.deferred, tools, promptedGroups })
@@ -6656,6 +6658,7 @@ ${blockHint}`;
 				}
 			}
 			if (extractResultRef(summary)) nativeDeferral?.load(["artifact_read"]);
+			if (ok && (entry || name === "api_call" || name === "run_code")) dataToolRan = true;
 			if (resultStore && modelSummary === summary) {
 				const referenced = await resultStore.reference({ tool: name, text: summary, ok, step: decisionIndex });
 				if (referenced !== summary) {
@@ -7341,6 +7344,10 @@ ${blockHint}`;
 			await persistCheckpoint(step);
 		}
 		await runTools(step, toolCalls);
+		if (dataToolRan && !isSubagent && !promptedGroups.has("data")) {
+			promptedGroups.add("data");
+			conversation.push({ role: "system", content: groupProcedureText(new Set(["data"])) });
+		}
 		nextStepIndex = step + 1;
 		await persistCheckpoint(nextStepIndex);
 		await pauseForLoginIfNeeded();

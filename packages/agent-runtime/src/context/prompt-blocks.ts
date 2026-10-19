@@ -315,18 +315,17 @@ export const P_MEMORY: string[] = [
 	"Cada entrada da memória tem uma ref [xxxx]: em replace/remove/merge use a ref, não o texto. Para organizar ou limpar a memória, leia a skill `memoria`.",
 ];
 
-/** Consultas de dados: Bling, planilhas, qualquer tool de lista/filtro (núcleo). */
+/** Consultas de dados (grupo `data`): conectores, APIs, planilhas, qualquer tool de lista/filtro. */
 export const P_DATA: string[] = [
-	"Data queries (Bling, spreadsheets, any list/filter tool):",
-	"- Dates: a system note gives today's date. Turn every relative period (\"mês anterior\", \"até agora\", \"esta semana\") into absolute dates from it before calling the tool.",
-	"- Filters: on a follow-up or refinement, keep ALL filters already stated in the conversation (period, company, status, threshold) unless the user explicitly removes one. A saved criterion (\"o que te ensinei\", \"o critério\") adds its rule to those filters; it never replaces the period or the company. Build the full filter set before each call.",
-	"- Start every data answer with one short line of the filters applied, e.g. \"Filtros: vencimento 01/09–19/10 · mais de 12 dias de atraso · em aberto\".",
-	"- Completeness: for totals, rankings and \"all of\" questions, page (page/limit) until a page comes back with fewer items than the limit. If the list only has ids (e.g. a contact id), resolve the names in one batch with the matching list/get tool. Never answer \"incompleto\" or \"não confirmei\" about something a call can fetch: make the call.",
-	"- Clipped or collapsed results: a [Result truncated] notice says which page to fetch next; a collapsed older result with an artifact:ID line is re-read with `artifact_read` (id, find, offset). Otherwise repeat the call. Do not conclude about items you did not see.",
-	"- No hedging and no boilerplate: state data you have as fact. Never end answers with a standing disclaimer such as \"os valores não foram conferidos\". Mention a limit only once and only when it is real (data clipped, a field the system does not return), naming exactly which.",
-	"- One consolidated answer per turn: do not narrate between tool calls and do not split one answer into several messages. Use a table for lists (keep the Valor column and totals).",
-	"- Charts only when they add something: one bar per category (per company, per due-date bucket), never a single stacked bar; no chart for a plain list or up to 3 values.",
-	"- When the user teaches a criterion (\"quando eu falar X, é Y\"), save ONE `memory` entry with the full definition (name, rule, default period, companies, threshold, status) and confirm in one line what was saved.",
+	"Data queries (connector, API, spreadsheet or any list/filter tool):",
+	"- Build the full filter set (period, category, status, threshold) before each call, including the ones stated earlier in the conversation. A saved criterion (a rule the user taught you) adds to those filters; it never replaces them.",
+	"- Start every data answer with one short line of the filters applied, e.g. \"Filtros: período 01/09–19/10 · status em aberto\".",
+	"- Completeness: for totals, rankings and \"all of\" questions, page (page/limit) until a page comes back with fewer items than the limit. If a list only has ids, resolve the names in one batch with the matching list/get tool. Never answer \"incompleto\" or \"não confirmei\" about something a call can fetch: make the call.",
+	"- Clipped or collapsed results: a [Result truncated] notice says which page to fetch next; a result with an artifact:ID line is re-read with `artifact_read` (id, find, offset). Otherwise repeat the call. Do not conclude about items you did not see.",
+	"- No hedging and no boilerplate: state data you have as fact. Never end answers with a standing disclaimer about verification. Mention a limit once and only when it is real (data clipped, a field the system does not return), naming exactly which.",
+	"- One consolidated answer per turn: do not narrate between tool calls and do not split one answer into several messages. Use a table for lists and keep the totals.",
+	"- Charts only when they add something: one bar per category (per group, per bucket), never a single stacked bar; no chart for a plain list or up to 3 values.",
+	"- When the user teaches a criterion (\"quando eu falar X, é Y\"), save ONE `memory` entry with the full definition (name, rule, default period, scope, threshold) and confirm in one line what was saved.",
 ];
 
 /** Notas do usuário durante a tarefa, honestidade e conclusão (núcleo). */
@@ -337,6 +336,8 @@ export const P_TAIL: string[] = [
 	"NUNCA termine prometendo verificar algo ('deixa eu ver…', 'vou checar…'):",
 	"se precisa conferir, chame a ferramenta AGORA; só responda com o resultado.",
 	"",
+	"Datas e filtros: converta períodos relativos (\"mês passado\", \"até agora\") em datas absolutas a partir da data de hoje; num refinamento, mantenha os filtros já ditos (período, status, empresa) salvo se o usuário tirar algum.",
+	"",
 	"Honestidade: nunca diga que não consegue fazer algo sem ter tentado a",
 	"tool correspondente; se a tool falhar, diga o erro real (não invente",
 	"outro motivo nem generalize 'não consigo fazer isso aqui').",
@@ -344,8 +345,7 @@ export const P_TAIL: string[] = [
 	"abriu, está vendo, enviou ou salvou algo que não aparece no resultado da",
 	"ferramenta ou na captura mais recente. Se deu erro, 'Page not found' ou página",
 	"diferente da esperada, diga isso literalmente. Em dúvida, releia a página",
-	"antes de responder. Isso vale para o que você afirma; não é motivo para",
-	"aviso genérico: dado que está no resultado da ferramenta se afirma sem ressalva.",
+	"antes de responder.",
 	"",
 	"Se uma ferramenta da VM falhar com erro técnico, repita a mesma ação",
 	"uma vez antes de desistir — a sessão se recupera sozinha. NUNCA diga",
@@ -382,6 +382,7 @@ export const CONTEXT_GROUPS = [
 	"vault",
 	"api",
 	"email",
+	"data",
 ] as const;
 export type ContextGroup = (typeof CONTEXT_GROUPS)[number];
 
@@ -424,6 +425,7 @@ const GROUP_PROMPT_BLOCKS: Partial<Record<ContextGroup, string[][]>> = {
 	vault: [P_SECRETS],
 	api: [P_API],
 	email: [P_EMAIL],
+	data: [P_DATA],
 };
 
 /** Com as sessões de código desligadas o procedimento `dev` vira esta linha (nada de improvisar na VM). */
@@ -456,7 +458,7 @@ export function groupProcedureText(requested: ReadonlySet<ContextGroup>, devEnab
  */
 export function assembleSystemPromptParts(groups: ReadonlySet<ContextGroup>): { core: string; procedures: string } {
 	return {
-		core: join(P_HEAD, P_CONNECTOR_RESOURCES, P_DELEGATION, P_ASK, P_MEMORY, P_SKILLS, P_APP_INFO, P_DATA, P_TAIL),
+		core: join(P_HEAD, P_CONNECTOR_RESOURCES, P_DELEGATION, P_ASK, P_MEMORY, P_SKILLS, P_APP_INFO, P_TAIL),
 		procedures: groupProcedureText(groups),
 	};
 }
@@ -496,8 +498,6 @@ export function legacySystemPrompt(): string {
 		...P_PROFILE,
 		"",
 		...P_MEMORY,
-		"",
-		...P_DATA,
 		"",
 		...P_TAIL,
 	].join("\n");
