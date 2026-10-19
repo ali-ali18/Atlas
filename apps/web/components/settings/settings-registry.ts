@@ -4,8 +4,8 @@
  * Sem React nem `window`: tudo testável em unidade.
  *
  * Uma responsabilidade por seção: Conta, Geral (aparência, idioma, fuso),
- * Provedores e planos (assinaturas, chaves, modelos), Bots (autonomia, grupos,
- * reflexão), Notificações, Computador (navegador e ambientes de código),
+ * Modelos e contexto, Provedores e chaves, Bots (autonomia, grupos,
+ * reflexão, reação), Execução e limites, Notificações, Computador (navegador e ambientes de código),
  * Conexões, Habilidades, Uso e Avançado (sempre a última). As descrições de cada item só alimentam a busca.
  */
 
@@ -15,6 +15,7 @@ export type SettingsSectionId =
 	| "conta"
 	| "geral"
 	| "provedores"
+	| "modelos"
 	| "bots"
 	| "notificacoes"
 	| "computador"
@@ -22,28 +23,43 @@ export type SettingsSectionId =
 	| "cofre"
 	| "habilidades"
 	| "uso"
+	| "execucao"
 	| "avancado";
 
 export type SettingsNavId = SettingsSectionId;
 
+/** Blocos da navegação: separam o dia a dia do que é raro/técnico. */
+export type SettingsNavGroupId = "basico" | "inteligencia" | "ambiente" | "controle";
+
+export const SETTINGS_NAV_GROUPS: Readonly<Record<SettingsNavGroupId, string>> = {
+	basico: "Básico",
+	inteligencia: "Bots e modelos",
+	ambiente: "Ferramentas",
+	controle: "Controle",
+};
+
 export type SettingsNavEntry = {
 	id: SettingsSectionId;
+	/** Bloco da nav onde a seção aparece. */
+	group: SettingsNavGroupId;
 	label: string;
 	keywords: readonly string[];
 };
 
 export const SETTINGS_NAV: readonly SettingsNavEntry[] = [
-	{ id: "conta", label: "Conta", keywords: ["perfil", "usuário", "nome", "e-mail", "sessão", "sair"] },
-	{ id: "geral", label: "Geral", keywords: ["preferências", "aparência"] },
-	{ id: "provedores", label: "Provedores e planos", keywords: ["assinaturas", "provedores"] },
-	{ id: "bots", label: "Bots", keywords: ["bot principal", "memória", "reflexão", "autonomia", "grupos", "comportamento"] },
-	{ id: "notificacoes", label: "Notificações", keywords: ["push", "celular", "avisos", "alertas", "aparelhos"] },
-	{ id: "computador", label: "Computador", keywords: ["navegador", "sandbox", "máquina", "ambientes"] },
-	{ id: "conexoes", label: "Conexões", keywords: ["integrações", "conectores", "apps", "plugins"] },
-	{ id: "cofre", label: "Cofre", keywords: ["segredos", "senhas", "chaves", "logins", "2fa", "autenticador", "api key", "token", "credenciais", "gerenciador de senhas"] },
-	{ id: "habilidades", label: "Habilidades", keywords: ["skills", "procedimentos", "receitas", "instruções"] },
-	{ id: "uso", label: "Uso", keywords: ["custo", "consumo", "tokens", "gastos", "cobrança"] },
-	{ id: "avancado", label: "Avançado", keywords: ["técnico", "provedores", "revisão", "execução"] },
+	{ id: "conta", group: "basico", label: "Conta", keywords: ["perfil", "usuário", "nome", "e-mail", "sessão", "sair"] },
+	{ id: "geral", group: "basico", label: "Geral", keywords: ["preferências", "aparência"] },
+	{ id: "notificacoes", group: "basico", label: "Notificações", keywords: ["push", "celular", "avisos", "alertas", "aparelhos"] },
+	{ id: "bots", group: "inteligencia", label: "Bots", keywords: ["bot principal", "memória", "reflexão", "autonomia", "grupos", "comportamento", "reação"] },
+	{ id: "modelos", group: "inteligencia", label: "Modelos e contexto", keywords: ["modelo", "contexto", "memória da conversa", "tokens", "resposta", "imagens", "ditado", "reserva"] },
+	{ id: "provedores", group: "inteligencia", label: "Provedores e chaves", keywords: ["assinaturas", "provedores", "chaves", "plano", "e-mail dos bots"] },
+	{ id: "computador", group: "ambiente", label: "Computador", keywords: ["navegador", "sandbox", "máquina", "ambientes"] },
+	{ id: "conexoes", group: "ambiente", label: "Conexões", keywords: ["integrações", "conectores", "apps", "plugins"] },
+	{ id: "cofre", group: "ambiente", label: "Cofre", keywords: ["segredos", "senhas", "chaves", "logins", "2fa", "autenticador", "api key", "token", "credenciais", "gerenciador de senhas"] },
+	{ id: "habilidades", group: "ambiente", label: "Habilidades", keywords: ["skills", "procedimentos", "receitas", "instruções"] },
+	{ id: "uso", group: "controle", label: "Uso e custos", keywords: ["custo", "consumo", "tokens", "gastos", "cobrança"] },
+	{ id: "execucao", group: "controle", label: "Execução e limites", keywords: ["limites", "passos", "tempo", "custo máximo", "paciência", "disciplina", "execução"] },
+	{ id: "avancado", group: "controle", label: "Técnico", keywords: ["avançado", "técnico", "revisão", "jev", "diagnóstico", "versão", "saúde"] },
 ];
 
 /** Entradas de Conexões que fecham o modal e abrem outra tela. */
@@ -69,8 +85,8 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
 	{ id: "notificacoes.aparelhos", section: "notificacoes", label: "Aparelhos com notificações", keywords: ["push", "celular", "dispositivos", "remover", "notificações"] },
 	{ id: "geral.fuso", section: "geral", label: "Fuso horário", keywords: ["horário", "timezone", "agendamento", "lembretes", "rotinas", "modo proativo", "silêncio"] },
 	{ id: "geral.reflexao", section: "bots", label: "Reflexão diária", keywords: ["reflexão", "refletir", "memória", "orquestrador", "bot principal", "pendências", "limpeza", "horário", "diária", "agora"] },
-	{ id: "modelos.padrao", section: "provedores", label: "Modelo padrão", keywords: ["modelo", "bots novos", "openrouter", "chatgpt"] },
-	{ id: "modelos.codigo", section: "provedores", label: "Modelo para código", keywords: ["modelo", "código", "programar", "sessão de código", "desenvolvimento", "bots"] },
+	{ id: "modelos.padrao", section: "modelos", label: "Modelo padrão", keywords: ["modelo", "bots novos", "openrouter", "chatgpt"] },
+	{ id: "modelos.codigo", section: "modelos", label: "Modelo para código", keywords: ["modelo", "código", "programar", "sessão de código", "desenvolvimento", "bots"] },
 	{ id: "provedores.chatgpt", section: "provedores", label: "Usar plano ChatGPT", keywords: ["chatgpt", "openai", "plano", "assinatura", "ligar", "desligar", "provedor"] },
 	{ id: "provedores.conexao", section: "provedores", label: "Conexão com o ChatGPT", keywords: ["chatgpt", "conectar", "conectado", "login", "e-mail", "reconectar"] },
 	{ id: "execucao.autonomia", section: "bots", label: "Autonomia padrão", keywords: ["aprovação", "permissão", "exceções", "confirmar", "sozinho", "autonomia"] },
@@ -102,11 +118,11 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
 	{ id: "provedores.opencode-go", section: "provedores", label: "OpenCode Go", keywords: ["opencode", "go", "assinatura", "chave", "api key", "provedores", "kimi", "glm", "deepseek", "modelos"] },
 	{ id: "provedores.openmail", section: "provedores", label: "E-mail dos bots (OpenMail)", keywords: ["openmail", "e-mail", "email", "endereço", "caixa", "chave", "api key", "bot", "provedores", "enviar", "receber", "domínio", "dominio", "dns", "domínio próprio"] },
 	{ id: "provedores.desconectar", section: "provedores", label: "Desconectar o ChatGPT da conta", keywords: ["tokens", "remover", "desconectar", "chatgpt", "provedores", "chaves"] },
-	{ id: "modelos.manutencao", section: "provedores", label: "Modelo de manutenção", keywords: ["resumo", "memória", "revisão", "modelos auxiliares"] },
-	{ id: "modelos.visao", section: "provedores", label: "Modelo para ler imagens", keywords: ["visão", "imagem", "foto", "anexo", "modelos auxiliares"] },
-	{ id: "modelos.imagem", section: "provedores", label: "Modelo para gerar imagens", keywords: ["gerar", "criar imagem", "desenho", "modelos auxiliares"] },
-	{ id: "modelos.ditado", section: "provedores", label: "Modelo de ditado", keywords: ["voz", "ditar", "microfone", "transcrição", "áudio", "stt", "whisper", "modelos auxiliares"] },
-	{ id: "modelos.reserva", section: "provedores", label: "Modelos de reserva", keywords: ["fallback", "falha", "alternativo", "modelos auxiliares"] },
+	{ id: "modelos.manutencao", section: "modelos", label: "Modelo de manutenção", keywords: ["resumo", "memória", "revisão", "modelos auxiliares"] },
+	{ id: "modelos.visao", section: "modelos", label: "Modelo para ler imagens", keywords: ["visão", "imagem", "foto", "anexo", "modelos auxiliares"] },
+	{ id: "modelos.imagem", section: "modelos", label: "Modelo para gerar imagens", keywords: ["gerar", "criar imagem", "desenho", "modelos auxiliares"] },
+	{ id: "modelos.ditado", section: "modelos", label: "Modelo de ditado", keywords: ["voz", "ditar", "microfone", "transcrição", "áudio", "stt", "whisper", "modelos auxiliares"] },
+	{ id: "modelos.reserva", section: "modelos", label: "Modelos de reserva", keywords: ["fallback", "falha", "alternativo", "modelos auxiliares"] },
 	{ id: "jev.mcp", section: "avancado", label: "Revisão de escritas em conectores", keywords: ["jev", "revisão", "mcp", "escrita", "observar", "bloquear", "conectores"] },
 	{ id: "jev.geral", section: "avancado", label: "Decisões auxiliares", keywords: ["jev", "revisão", "geral", "todos", "observar", "ativo", "latência"] },
 	{ id: "jev.intencao", section: "avancado", label: "Entender o pedido", keywords: ["jev", "revisão", "intenção", "por recurso"] },
@@ -115,16 +131,16 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
 	{ id: "jev.bloqueio", section: "avancado", label: "Página de bloqueio", keywords: ["jev", "revisão", "captcha", "login", "bloqueada", "por recurso"] },
 	{ id: "jev.delegacao", section: "avancado", label: "Delegação", keywords: ["jev", "revisão", "subagente", "delegar", "por recurso"] },
 	{ id: "jev.travamento", section: "avancado", label: "Travamento", keywords: ["jev", "revisão", "travado", "círculos", "loop", "por recurso"] },
-	{ id: "execucao.disciplina", section: "avancado", label: "Disciplina de execução", keywords: ["execução", "progresso", "empacar", "estagnação", "lote", "agrupar"] },
-	{ id: "execucao.economia", section: "avancado", label: "Economia de contexto", keywords: ["execução", "contexto", "tokens", "ferramentas", "prompt", "cache", "adiar"] },
-	{ id: "execucao.memoria", section: "avancado", label: "Memória da conversa", keywords: ["execução", "contexto", "resumo", "resumir", "histórico", "conversa longa", "esquecer", "tokens", "custo", "padrão", "econômico", "janela", "cache"] },
-	{ id: "execucao.reacao", section: "avancado", label: "Responder só com reação", keywords: ["execução", "reação", "reagir", "emoji", "obrigado", "valeu", "ok", "sem resposta", "tokens", "custo", "economia", "conversa", "curtir"] },
-	{ id: "execucao.paciencia", section: "avancado", label: "Paciência com o modelo", keywords: ["execução", "prazo", "timeout", "espera", "curto", "estendido", "lento"] },
-	{ id: "execucao.resposta", section: "avancado", label: "Tamanho máximo da resposta", keywords: ["execução", "tokens", "saída", "limite", "cortar"] },
-	{ id: "execucao.passos", section: "avancado", label: "Limite de passos", keywords: ["execução", "passos", "ferramentas", "teto"] },
-	{ id: "execucao.tempo", section: "avancado", label: "Limite de tempo", keywords: ["execução", "duração", "minutos", "tempo máximo", "timeout", "run"] },
+	{ id: "execucao.disciplina", section: "execucao", label: "Disciplina de execução", keywords: ["execução", "progresso", "empacar", "estagnação", "lote", "agrupar"] },
+	{ id: "execucao.economia", section: "modelos", label: "Economia de contexto", keywords: ["execução", "contexto", "tokens", "ferramentas", "prompt", "cache", "adiar"] },
+	{ id: "execucao.memoria", section: "modelos", label: "Memória da conversa", keywords: ["execução", "contexto", "resumo", "resumir", "histórico", "conversa longa", "esquecer", "tokens", "custo", "padrão", "econômico", "janela", "cache"] },
+	{ id: "execucao.reacao", section: "bots", label: "Responder só com reação", keywords: ["execução", "reação", "reagir", "emoji", "obrigado", "valeu", "ok", "sem resposta", "tokens", "custo", "economia", "conversa", "curtir"] },
+	{ id: "execucao.paciencia", section: "execucao", label: "Paciência com o modelo", keywords: ["execução", "prazo", "timeout", "espera", "curto", "estendido", "lento"] },
+	{ id: "execucao.resposta", section: "modelos", label: "Tamanho máximo da resposta", keywords: ["execução", "tokens", "saída", "limite", "cortar"] },
+	{ id: "execucao.passos", section: "execucao", label: "Limite de passos", keywords: ["execução", "passos", "ferramentas", "teto"] },
+	{ id: "execucao.tempo", section: "execucao", label: "Limite de tempo", keywords: ["execução", "duração", "minutos", "tempo máximo", "timeout", "run"] },
 	{ id: "avancado.diagnostico", section: "avancado", label: "Diagnóstico", keywords: ["diagnóstico", "versão", "commit", "saúde", "redis", "postgres", "fila", "worker", "falhas", "erros", "sentry", "chaves", "push"] },
-	{ id: "execucao.custo", section: "avancado", label: "Custo máximo por execução", keywords: ["execução", "dólar", "orçamento", "gasto", "limite"] },
+	{ id: "execucao.custo", section: "execucao", label: "Custo máximo por execução", keywords: ["execução", "dólar", "orçamento", "gasto", "limite"] },
 ];
 
 export const DEFAULT_SETTINGS_SECTION: SettingsSectionId = "geral";
@@ -134,9 +150,7 @@ export const DEFAULT_SETTINGS_SECTION: SettingsSectionId = "geral";
  * `rotinas` não existe mais aqui: as rotinas moram no painel do bot.
  */
 const LEGACY_SECTION: Readonly<Record<string, SettingsSectionId>> = {
-	modelos: "provedores",
 	jev: "avancado",
-	execucao: "avancado",
 	ambientes: "computador",
 	ambiente: "computador",
 	"ambientes-de-codigo": "computador",

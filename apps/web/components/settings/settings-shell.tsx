@@ -1,11 +1,13 @@
 "use client";
 
-import { type KeyboardEvent, type ReactNode, useRef, useState } from "react";
+import { Fragment, type KeyboardEvent, type ReactNode, useRef, useState } from "react";
 import {
 	BellIcon,
 	BotIcon,
 	ChartColumnIcon,
+	BrainIcon,
 	CreditCardIcon,
+	GaugeIcon,
 	MonitorIcon,
 	PlugIcon,
 	SearchIcon,
@@ -20,6 +22,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import { Input } from "@workspace/ui/components/input";
 import { SettingsPicker } from "@/components/ui/templates/template-4/settings-picker";
 import {
+	SETTINGS_NAV_GROUPS,
 	type SettingsNavEntry,
 	type SettingsNavId,
 	type SettingsSearchResult,
@@ -33,6 +36,8 @@ export const NAV_ICONS: Record<SettingsNavId, LucideIcon> = {
 	conta: UserIcon,
 	geral: SettingsIcon,
 	provedores: CreditCardIcon,
+	modelos: BrainIcon,
+	execucao: GaugeIcon,
 	bots: BotIcon,
 	notificacoes: BellIcon,
 	computador: MonitorIcon,
@@ -133,13 +138,22 @@ export function SettingsShell({
 					ref={navRef}
 				>
 					{search.entries.length === 0 ? <NothingFound /> : null}
-					{search.entries.map((entry) => (
-						<NavButton
-							active={entry.id === section}
-							entry={entry}
-							key={entry.id}
-							onChoose={(chosen) => onSectionChange(chosen.id)}
-						/>
+					{search.entries.map((entry, index) => (
+						<Fragment key={entry.id}>
+							{index === 0 || search.entries[index - 1]?.group !== entry.group ? (
+								<p
+									className={cn("px-[9px] pb-1 text-[11px] font-medium text-muted-foreground", index === 0 ? "pt-0.5" : "pt-3.5")}
+									data-nav-group=""
+								>
+									{SETTINGS_NAV_GROUPS[entry.group]}
+								</p>
+							) : null}
+							<NavButton
+								active={entry.id === section}
+								entry={entry}
+								onChoose={(chosen) => onSectionChange(chosen.id)}
+							/>
+						</Fragment>
 					))}
 				</nav>
 			</aside>

@@ -5,7 +5,9 @@ import {
 	BellIcon,
 	BotIcon,
 	ChartColumnIcon,
+	BrainIcon,
 	CreditCardIcon,
+	GaugeIcon,
 	MonitorIcon,
 	PlugIcon,
 	SettingsIcon,
@@ -57,6 +59,8 @@ const ROW_ICONS: Record<SettingsNavId, LucideIcon> = {
 	conta: UserIcon,
 	geral: SettingsIcon,
 	provedores: CreditCardIcon,
+	modelos: BrainIcon,
+	execucao: GaugeIcon,
 	bots: BotIcon,
 	notificacoes: BellIcon,
 	computador: MonitorIcon,
@@ -163,7 +167,7 @@ export function SettingsMobile({
 					/>
 				</SettingsGroup>
 				{groups.map((group) => (
-					<SettingsGroup key={group.id}>
+					<SettingsGroup key={group.id} label={group.label}>
 						{group.rows.map((item) => (
 							<SettingsRow
 								icon={ROW_ICONS[item.id]}

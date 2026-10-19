@@ -79,41 +79,65 @@ export function GeralPane({ account, isVisible }: { account: Account; isVisible:
 	);
 }
 
-/** Provedores e planos: assinatura ChatGPT, chaves, modelo padrão/código e modelos auxiliares. */
-export function ProvedoresPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
+/** Modelos e contexto: modelo padrão/código, modelos auxiliares e como o agente lida com contexto e tamanho de resposta. */
+export function ModelosPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
 	const quiet = quietAccount(account);
-	const modelPlan = ["modelos.padrao", "modelos.codigo", "provedores.chatgpt", "provedores.conexao"];
+	const main = ["modelos.padrao", "modelos.codigo"];
 	const auxModels = ["modelos.manutencao", "modelos.visao", "modelos.imagem", "modelos.ditado", "modelos.reserva"];
+	// Slot reservado: "Tamanho máximo do resultado de ferramentas" (`execucao.resultado`) entra neste grupo, junto de `execucao.resposta`.
+	const context = ["execucao.memoria", "execucao.economia", "execucao.resposta", "execucao.resultado"];
 	return (
 		<SettingsStack>
 			<PaneStatus account={account} />
-			{anyVisible(isVisible, modelPlan) ? (
-				<SettingsGroup title="Modelo e plano">
-					<ModelsSettings
-						account={quiet}
-						isVisible={(id) => (id === "modelos.padrao" || id === "modelos.codigo") && isVisible(id)}
-						showKeyNote={false}
-						showStatus={false}
-					/>
+			{anyVisible(isVisible, main) ? (
+				<ModelsSettings
+					account={quiet}
+					isVisible={(id) => main.includes(id) && isVisible(id)}
+					showKeyNote={false}
+					showStatus={false}
+					title="Modelos principais"
+				/>
+			) : null}
+			{anyVisible(isVisible, auxModels) ? (
+				<ModelsSettings
+					account={quiet}
+					isVisible={(id) => auxModels.includes(id) && isVisible(id)}
+					showKeyNote={false}
+					showStatus={false}
+					title="Modelos auxiliares"
+				/>
+			) : null}
+			{anyVisible(isVisible, context) ? (
+				<ExecutionSettings
+					account={quiet}
+					isVisible={(id) => context.includes(id) && isVisible(id)}
+					showStatus={false}
+					title="Contexto e respostas"
+				/>
+			) : null}
+		</SettingsStack>
+	);
+}
+
+/** Provedores e chaves: plano ChatGPT, chaves de API e e-mail dos bots. */
+export function ProvedoresPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
+	const quiet = quietAccount(account);
+	const plan = ["provedores.chatgpt", "provedores.conexao"];
+	return (
+		<SettingsStack>
+			<PaneStatus account={account} />
+			{anyVisible(isVisible, plan) ? (
+				<SettingsGroup title="Plano ChatGPT">
 					<ProvidersSettings account={quiet} isVisible={(id) => id !== "provedores.desconectar" && isVisible(id)} />
 				</SettingsGroup>
 			) : null}
-			{anyVisible(isVisible, ["provedores.desconectar", "provedores.openrouter", "provedores.anthropic", "provedores.opencode-go", "provedores.openmail"]) ? (
-				<SettingsGroup title="Provedores e chaves">
+			{anyVisible(isVisible, ["provedores.openrouter", "provedores.anthropic", "provedores.opencode-go", "provedores.openmail", "provedores.desconectar"]) ? (
+				<SettingsGroup title="Chaves e contas">
 					{isVisible("provedores.openrouter") ? <OpenRouterKeyRow account={account} /> : null}
 					<ProviderKeysRows isVisible={isVisible} />
 					{isVisible("provedores.openmail") ? <EmailKeyRowConnected /> : null}
 					<DisconnectChatgptRow account={account} isVisible={isVisible} />
 				</SettingsGroup>
-			) : null}
-			{anyVisible(isVisible, auxModels) ? (
-				<ModelsSettings
-					account={quiet}
-					isVisible={(id) => id !== "modelos.padrao" && id !== "modelos.codigo" && isVisible(id)}
-					showKeyNote={false}
-					showStatus={false}
-					title="Modelos auxiliares"
-				/>
 			) : null}
 		</SettingsStack>
 	);
@@ -128,7 +152,7 @@ export function NotificacoesPane({ isVisible }: { isVisible: (itemId: string) =>
 	);
 }
 
-/** Bots: como os bots se comportam (autonomia, grupos) e a reflexão diária do bot principal. */
+/** Bots: como os bots se comportam (autonomia, grupos, reação) e a reflexão diária do bot principal. */
 export function BotsPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
 	const quiet = quietAccount(account);
 	return (
@@ -139,6 +163,14 @@ export function BotsPane({ account, isVisible }: { account: Account; isVisible: 
 				<SettingsGroup title="Grupos de bots">
 					<GroupsCoordinationRow account={quiet} isVisible={isVisible} />
 				</SettingsGroup>
+			) : null}
+			{isVisible("execucao.reacao") ? (
+				<ExecutionSettings
+					account={quiet}
+					isVisible={(id) => id === "execucao.reacao" && isVisible(id)}
+					showStatus={false}
+					title="Conversa"
+				/>
 			) : null}
 			<ReflectionSettings account={quiet} isVisible={isVisible} />
 		</SettingsStack>
@@ -292,7 +324,7 @@ function DisconnectChatgptRow({ account, isVisible }: { account: Account; isVisi
 			<SettingRow
 				caption={error ? <p className="text-destructive">{error}</p> : null}
 				control="inline"
-				description="Remove a conexão e apaga os tokens salvos. Para só pausar o uso, desligue o plano acima, em Modelo e plano."
+				description="Remove a conexão e apaga os tokens salvos. Para só pausar o uso, desligue o plano acima, em Plano ChatGPT."
 				icon={UnplugIcon}
 				label="Conta ChatGPT conectada"
 			>
@@ -318,24 +350,43 @@ function DisconnectChatgptRow({ account, isVisible }: { account: Account; isVisi
 	);
 }
 
-/** Avançado: revisão (JEV) e limites de execução. */
+/** Execução e limites: ritmo do agente e tetos por execução. */
+export function ExecucaoPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
+	const quiet = quietAccount(account);
+	const pace = ["execucao.disciplina", "execucao.paciencia"];
+	const limits = ["execucao.passos", "execucao.tempo", "execucao.custo"];
+	return (
+		<SettingsStack>
+			<PaneStatus account={account} />
+			{anyVisible(isVisible, pace) ? (
+				<ExecutionSettings
+					account={quiet}
+					isVisible={(id) => pace.includes(id) && isVisible(id)}
+					showStatus={false}
+					title="Ritmo do agente"
+				/>
+			) : null}
+			{anyVisible(isVisible, limits) ? (
+				<ExecutionSettings
+					account={quiet}
+					isVisible={(id) => limits.includes(id) && isVisible(id)}
+					showStatus={false}
+					title="Limites por execução"
+				/>
+			) : null}
+		</SettingsStack>
+	);
+}
+
+/** Técnico: revisão automática (JEV) e diagnóstico do servidor. Só para quem precisa mexer a fundo. */
 export function AvancadoPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
 	const quiet = quietAccount(account);
 	const jev = ["jev.mcp", "jev.geral", "jev.intencao", "jev.tools", "jev.verificacao", "jev.bloqueio", "jev.delegacao", "jev.travamento"];
-	const execution = ["execucao.disciplina", "execucao.economia", "execucao.memoria", "execucao.reacao", "execucao.paciencia", "execucao.resposta", "execucao.passos", "execucao.tempo", "execucao.custo"];
 	return (
 		<SettingsStack>
 			<PaneStatus account={account} />
 			{anyVisible(isVisible, jev) ? (
 				<JevSettings account={quiet} isVisible={isVisible} showStatus={false} />
-			) : null}
-			{anyVisible(isVisible, execution) ? (
-				<ExecutionSettings
-					account={quiet}
-					isVisible={(id) => id !== "execucao.navegador" && id !== "execucao.autonomia" && isVisible(id)}
-					showStatus={false}
-					title="Execução"
-				/>
 			) : null}
 			<DiagnosticsSettings isVisible={isVisible} />
 		</SettingsStack>
@@ -357,6 +408,10 @@ export function SectionContent({
 	switch (section) {
 		case "conta":
 			return <ContaPane isVisible={isVisible} />;
+		case "modelos":
+			return <ModelosPane account={account} isVisible={isVisible} />;
+		case "execucao":
+			return <ExecucaoPane account={account} isVisible={isVisible} />;
 		case "provedores":
 			return <ProvedoresPane account={account} isVisible={isVisible} />;
 		case "bots":

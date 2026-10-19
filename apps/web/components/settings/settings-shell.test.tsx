@@ -21,29 +21,29 @@ function render(options: { section?: SettingsSectionId; initialQuery?: string; h
 	);
 }
 
-test("nav tem as onze seções, busca e conteúdo à direita; Avançado por último", () => {
+test("nav tem as treze seções, busca e conteúdo à direita; Avançado por último", () => {
 	const html = render();
 	assert.match(html, /aria-label="Buscar nas configurações"/);
-	const labels = ["Conta", "Geral", "Provedores e planos", "Bots", "Notificações", "Computador", "Conexões", "Cofre", "Uso", "Avançado"];
+	const labels = ["Conta", "Geral", "Notificações", "Bots", "Modelos e contexto", "Provedores e chaves", "Computador", "Conexões", "Cofre", "Uso e custos", "Execução e limites", "Técnico"];
 	for (const label of labels) assert.match(html, new RegExp(`<span class="truncate">${label}</span>`));
 	const positions = labels.map((label) => html.indexOf(`<span class="truncate">${label}</span>`));
 	assert.deepEqual([...positions].sort((a, b) => a - b), positions, "ordem Geral → Avançado");
 	assert.match(html, /<h2>Titulo<\/h2>/);
-	assert.match(html, /conteudo:11/);
-	assert.doesNotMatch(html, />Personalização</, "sem grupos na nav");
+	assert.match(html, /conteudo:13/);
+	for (const group of ["Básico", "Bots e modelos", "Ferramentas", "Controle"]) assert.match(html, new RegExp(`data-nav-group="">${group}</p>`), `bloco ${group}`);
 	assert.match(html, /md:w-\[198px\]/, "nav de 198px");
 });
 
 test("não há mais Rotinas, Conectores nem Provedores na nav (viraram itens dentro das seções)", () => {
 	const html = render();
-	for (const label of ["Rotinas", "Conectores", "Provedores", "Modelos", "JEV", "Execução"]) {
+	for (const label of ["Rotinas", "Conectores", "Provedores", "Modelos", "JEV", "Execução", "Avançado"]) {
 		assert.doesNotMatch(html, new RegExp(`<span class="truncate">${label}</span>`));
 	}
 });
 
-test("quem não é dono continua vendo as onze seções (só os itens do ChatGPT somem)", () => {
+test("quem não é dono continua vendo as treze seções (só os itens do ChatGPT somem)", () => {
 	const html = render({ hidden: hiddenSettingsItems({ isOwner: false }) });
-	assert.match(html, /conteudo:11/);
+	assert.match(html, /conteudo:13/);
 });
 
 /** HTML do botão da nav com esse rótulo. */
@@ -55,7 +55,7 @@ function navButton(html: string, label: string): string {
 
 test("seção ativa leva aria-current e as outras não", () => {
 	const html = render({ section: "avancado" });
-	assert.match(navButton(html, "Avançado"), /aria-current="page"/);
+	assert.match(navButton(html, "Técnico"), /aria-current="page"/);
 	assert.doesNotMatch(navButton(html, "Geral"), /aria-current/);
 	assert.equal((html.match(/aria-current="page"/g) ?? []).length, 1);
 });
@@ -63,13 +63,13 @@ test("seção ativa leva aria-current e as outras não", () => {
 test("busca por configuração filtra a nav e o conteúdo recebe o filtro", () => {
 	const html = render({ initialQuery: "tema" });
 	assert.match(html, /<span class="truncate">Geral<\/span>/);
-	assert.doesNotMatch(html, /<span class="truncate">Avançado<\/span>/);
+	assert.doesNotMatch(html, /<span class="truncate">Técnico<\/span>/);
 	assert.match(html, /conteudo:1/);
 });
 
-test("busca por algo de Avançado leva à seção Avançado", () => {
+test("busca por limite de passos leva à seção Execução e limites", () => {
 	const html = render({ initialQuery: "limite de passos" });
-	assert.match(html, /<span class="truncate">Avançado<\/span>/);
+	assert.match(html, /<span class="truncate">Execução e limites<\/span>/);
 	assert.doesNotMatch(html, /<span class="truncate">Geral<\/span>/);
 });
 
@@ -87,7 +87,7 @@ test("mobile troca a nav por um dropdown com rótulo acessível", () => {
 test("toda entrada da nav tem ícone, para o texto alinhar", () => {
 	const html = render();
 	const buttons = html.split("<button").filter((chunk) => chunk.includes("data-nav-item"));
-	assert.equal(buttons.length, 11);
+	assert.equal(buttons.length, 13);
 	for (const button of buttons) assert.match(button, /data-nav-icon/, "botão da nav sem ícone");
-	assert.match(navButton(html, "Uso"), /data-nav-icon/);
+	assert.match(navButton(html, "Uso e custos"), /data-nav-icon/);
 });

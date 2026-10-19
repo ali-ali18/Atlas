@@ -16,15 +16,20 @@ import {
 
 const ids = (query: string) => searchSettings(query).entries.map((entry) => entry.id);
 
-const ALL_SECTIONS = ["conta", "geral", "provedores", "bots", "notificacoes", "computador", "conexoes", "cofre", "habilidades", "uso", "avancado"];
+const ALL_SECTIONS = ["conta", "geral", "notificacoes", "bots", "modelos", "provedores", "computador", "conexoes", "cofre", "habilidades", "uso", "execucao", "avancado"];
 
 test("nav: uma responsabilidade por seção, Avançado sempre por último", () => {
 	assert.deepEqual(ids(""), ALL_SECTIONS);
 	assert.deepEqual(
 		SETTINGS_NAV.map((entry) => entry.label),
-		["Conta", "Geral", "Provedores e planos", "Bots", "Notificações", "Computador", "Conexões", "Cofre", "Habilidades", "Uso", "Avançado"],
+		["Conta", "Geral", "Notificações", "Bots", "Modelos e contexto", "Provedores e chaves", "Computador", "Conexões", "Cofre", "Habilidades", "Uso e custos", "Execução e limites", "Técnico"],
 	);
 	assert.equal(SETTINGS_NAV[SETTINGS_NAV.length - 1]?.id, "avancado");
+	assert.deepEqual(
+		SETTINGS_NAV.map((entry) => entry.group),
+		["basico", "basico", "basico", "inteligencia", "inteligencia", "inteligencia", "ambiente", "ambiente", "ambiente", "ambiente", "controle", "controle", "controle"],
+		"os blocos da nav são contíguos",
+	);
 	assert.equal(SETTINGS_NAV.some((entry) => entry.label === "Rotinas"), false, "Rotinas moram no painel do bot");
 });
 
@@ -59,11 +64,11 @@ test("fuso horário: a busca acha por fuso, horário, lembretes e modo proativo"
 test("o que mudou de lugar continua achável: cada configuração antiga cai na seção nova", () => {
 	assert.ok(ids("chatgpt").includes("provedores"), "plano ChatGPT em Provedores");
 	assert.ok(ids("desconectar").includes("provedores"), "desconectar em Provedores");
-	assert.ok(ids("reserva").includes("provedores"), "modelos de reserva em Provedores");
+	assert.ok(ids("reserva").includes("modelos"), "modelos de reserva em Modelos e contexto");
 	assert.ok(ids("reflexao").includes("bots"), "reflexão em Bots");
 	assert.ok(ids("push").includes("notificacoes"), "notificações em Notificações");
 	assert.ok(ids("logout").includes("conta"), "sair em Conta");
-	assert.ok(ids("passos").includes("avancado"), "limite de passos em Avançado");
+	assert.ok(ids("passos").includes("execucao"), "limite de passos em Execução e limites");
 	assert.ok(ids("autonomia").includes("bots"), "autonomia em Bots");
 	assert.ok(ids("navegador").includes("computador"), "navegador em Computador");
 	assert.ok(ids("marketplace").includes("conexoes"), "marketplace em Conexões");
@@ -83,8 +88,8 @@ test("a busca também casa pelas descrições antigas (palavras-chave), não só
 	const result = searchSettings("coordenacao");
 	assert.equal(isItemVisible(result, "bots", "jev.grupos"), true);
 	const aux = searchSettings("modelos auxiliares");
-	assert.equal(isItemVisible(aux, "provedores", "modelos.ditado"), true);
-	assert.equal(isItemVisible(aux, "provedores", "modelos.manutencao"), true);
+	assert.equal(isItemVisible(aux, "modelos", "modelos.ditado"), true);
+	assert.equal(isItemVisible(aux, "modelos", "modelos.manutencao"), true);
 });
 
 test("todo item pesquisável aponta para uma seção existente e tem id único", () => {
@@ -105,10 +110,12 @@ test("cada item pesquisável mora numa única seção (sem repetir entre seçõe
 		"conta.foto": "conta", "conta.nome": "conta", "conta.sair": "conta",
 		"ambientes.lista": "computador", "habilidades.lista": "habilidades", "cofre.lista": "cofre", "github.app": "conexoes", "composio.apps": "conexoes",
 		"geral.tema": "geral", "geral.idioma": "geral", "geral.fuso": "geral",
-		"modelos.padrao": "provedores", "provedores.chatgpt": "provedores", "provedores.openrouter": "provedores", "modelos.visao": "provedores",
+		"modelos.padrao": "modelos", "modelos.visao": "modelos", "execucao.memoria": "modelos", "execucao.economia": "modelos", "execucao.resposta": "modelos",
+		"provedores.chatgpt": "provedores", "provedores.openrouter": "provedores", "provedores.openmail": "provedores",
+		"execucao.reacao": "bots", "execucao.disciplina": "execucao", "execucao.custo": "execucao", "execucao.tempo": "execucao",
 		"geral.reflexao": "bots", "execucao.autonomia": "bots", "jev.grupos": "bots",
 		"notificacoes.celular": "notificacoes", "notificacoes.aparelhos": "notificacoes",
-		"execucao.navegador": "computador", "jev.mcp": "avancado", "execucao.passos": "avancado",
+		"execucao.navegador": "computador", "jev.mcp": "avancado", "execucao.passos": "execucao", "avancado.diagnostico": "avancado",
 	};
 	for (const [id, section] of Object.entries(expected)) assert.equal(seen.get(id), section, id);
 });
@@ -117,7 +124,7 @@ test("os panes só renderizam itens da própria seção (varredura do código de
 	const { readFileSync } = await import("node:fs");
 	const source = readFileSync(new URL("./sections/panes.tsx", import.meta.url), "utf8");
 	const paneSection: Record<string, string> = {
-		ContaPane: "conta", GeralPane: "geral", ProvedoresPane: "provedores", BotsPane: "bots",
+		ContaPane: "conta", GeralPane: "geral", ProvedoresPane: "provedores", ModelosPane: "modelos", ExecucaoPane: "execucao", BotsPane: "bots",
 		NotificacoesPane: "notificacoes", ComputadorPane: "computador", ConexoesPane: "conexoes", CofrePane: "cofre", HabilidadesPane: "habilidades", AvancadoPane: "avancado",
 	};
 	const byId = new Map(SETTINGS_ITEMS.map((item) => [item.id, item.section]));
@@ -140,8 +147,8 @@ test("itens do ChatGPT somem da busca para quem não é dono; capacidades ainda 
 	assert.equal(hiddenSettingsItems(null).size, 0);
 	assert.deepEqual(searchSettings("", hidden).entries.map((entry) => entry.id), ALL_SECTIONS);
 	const result = searchSettings("chatgpt", hidden);
-	assert.equal(isItemVisible(result, "provedores", "provedores.chatgpt"), false);
-	assert.equal(isItemVisible(result, "provedores", "modelos.padrao"), true, "o modelo padrão cita ChatGPT e segue visível");
+	assert.equal(result.entries.some((entry) => entry.id === "provedores"), false, "sem itens do ChatGPT, Provedores some da busca");
+	assert.equal(isItemVisible(result, "modelos", "modelos.padrao"), true, "o modelo padrão cita ChatGPT e segue visível");
 });
 
 test("Uso aparece na busca por custo e gastos", () => {
@@ -157,9 +164,9 @@ test("parseSettingsParam aceita as seções e traduz os ids antigos", () => {
 	for (const id of ALL_SECTIONS) assert.equal(parseSettingsParam(id), id);
 	assert.equal(parseSettingsParam(" AVANCADO "), "avancado");
 	// Links antigos (?settings=...) continuam abrindo no lugar certo.
-	assert.equal(parseSettingsParam("modelos"), "provedores");
+	assert.equal(parseSettingsParam("modelos"), "modelos");
 	assert.equal(parseSettingsParam("jev"), "avancado");
-	assert.equal(parseSettingsParam("execucao"), "avancado");
+	assert.equal(parseSettingsParam("execucao"), "execucao");
 	assert.equal(parseSettingsParam("habilidades"), "habilidades");
 	assert.equal(parseSettingsParam("skills"), "habilidades");
 	assert.equal(parseSettingsParam("ambientes"), "computador");

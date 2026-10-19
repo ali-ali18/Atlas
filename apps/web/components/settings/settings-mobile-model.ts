@@ -2,7 +2,7 @@ import type { SettingsNavId } from "./settings-registry";
 
 /** Modelo puro da lista mobile: grupos de linhas, cada uma levando a uma seção. */
 export type MobileSettingsRow = { id: SettingsNavId; title: string; secondary: string };
-export type MobileSettingsGroup = { id: string; rows: MobileSettingsRow[] };
+export type MobileSettingsGroup = { id: string; label: string; rows: MobileSettingsRow[] };
 
 export type MobileSettingsSummary = {
 	theme?: string;
@@ -53,14 +53,15 @@ export function reviewHint(mode: MobileSettingsSummary["reviewMode"]): string {
 	if (mode === "on") return "Revisão JEV ligada";
 	if (mode === "shadow") return "Revisão JEV em teste";
 	if (mode === "off") return "Revisão desligada";
-	return "Revisão e limites de execução";
+	return "Revisão automática e diagnóstico";
 }
 
 /** Título de cada página no mobile (pode diferir do rótulo curto da nav do desktop). */
 export const MOBILE_TITLES: Record<SettingsNavId, string> = {
 	conta: "Conta",
 	geral: "Geral",
-	provedores: "Provedores e assinaturas",
+	provedores: "Provedores e chaves",
+	modelos: "Modelos e contexto",
 	bots: "Bots",
 	notificacoes: "Notificações",
 	computador: "Computador",
@@ -68,7 +69,8 @@ export const MOBILE_TITLES: Record<SettingsNavId, string> = {
 	cofre: "Cofre",
 	habilidades: "Habilidades",
 	uso: "Uso e custos",
-	avancado: "Avançado",
+	execucao: "Execução e limites",
+	avancado: "Técnico",
 };
 
 /** As mesmas seções do desktop (Conta fica no cartão de perfil do topo); Avançado fica sempre por último, separado. */
@@ -82,30 +84,41 @@ export function mobileSettingsGroups(
 		secondary,
 	});
 	const geralHint = summary.theme ? `Tema ${summary.theme.toLocaleLowerCase("pt-BR")}` : "Tema, idioma e fuso";
-	const provedoresHint = [summary.chatgptEnabled ? "ChatGPT" : null, summary.defaultModel ?? null].filter(Boolean).join(" · ");
+	const modelosHint = summary.defaultModel ?? "Modelo padrão e contexto";
+	const provedoresHint = summary.chatgptEnabled ? "Plano ChatGPT ligado" : "Plano ChatGPT e chaves de API";
 	const groups: MobileSettingsGroup[] = [
 		{
-			id: "principal",
+			id: "basico",
+			label: "Básico",
+			rows: [row("geral", geralHint), row("notificacoes", "Avisos no celular")],
+		},
+		{
+			id: "inteligencia",
+			label: "Bots e modelos",
 			rows: [
-				row("geral", geralHint),
-				row("provedores", provedoresHint || "Planos, chaves e modelos"),
 				row("bots", "Autonomia, grupos e reflexão"),
-				row("notificacoes", "Avisos no celular"),
+				row("modelos", modelosHint),
+				row("provedores", provedoresHint),
 			],
 		},
 		{
 			id: "ambiente",
+			label: "Ferramentas",
 			rows: [
 				row("computador", computerHint(summary.browserAuto, summary.environmentsCount)),
 				row("conexoes", connectionsHint(summary.connectionsCount)),
 				row("cofre", "Senhas, chaves e logins"),
 				row("habilidades", skillsHint(summary.skillsCount)),
-				row("uso", usageHint(summary.usageCostUsd)),
 			],
 		},
 		{
-			id: "avancado",
-			rows: [row("avancado", reviewHint(summary.reviewMode))],
+			id: "controle",
+			label: "Controle",
+			rows: [
+				row("uso", usageHint(summary.usageCostUsd)),
+				row("execucao", "Passos, tempo e custo por execução"),
+				row("avancado", reviewHint(summary.reviewMode)),
+			],
 		},
 	];
 	return groups
