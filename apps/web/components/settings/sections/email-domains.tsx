@@ -39,54 +39,41 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 	);
 }
 
-const CELL = "min-w-0 align-top py-2 pr-2 text-[11px] leading-4";
+function RecordField({ label, text }: { label: "Nome" | "Valor"; text: string }) {
+	return (
+		<div className="flex h-8 min-w-0 items-center gap-2 border-border/60 border-t px-3">
+			<span className="w-10 shrink-0 text-[11px] text-muted-foreground">{label}</span>
+			<span className="min-w-0 flex-1 truncate font-mono text-[11px]" title={text}>
+				{text}
+			</span>
+			<CopyButton label={label.toLowerCase()} text={text} />
+		</div>
+	);
+}
 
 function RecordsTable({ records }: { records: EmailDomainRecordDto[] }) {
 	return (
-		<div className="min-w-0" data-testid="dns-records">
-			<table className="w-full table-fixed border-collapse text-left">
-				<thead>
-					<tr className="text-[11px] text-muted-foreground">
-						<th className="w-10 pb-1 pr-2 font-medium" scope="col">
-							Tipo
-						</th>
-						<th className="pb-1 pr-2 font-medium" scope="col">
-							Nome
-						</th>
-						<th className="pb-1 pr-2 font-medium" scope="col">
-							Valor
-						</th>
-					</tr>
-				</thead>
-				<tbody>
-					{records.map((record, index) => (
-						<tr className="border-border/60 border-t" data-dns-record={record.type} key={`${record.type}-${record.name}-${index}`}>
-							<td className={cn(CELL, "font-medium")}>
-								<span className="flex items-center gap-1">
-									{record.type}
-									{record.valid ? <CheckIcon aria-label="Registro correto" className="size-3 text-muted-foreground" /> : null}
-								</span>
-							</td>
-							<td className={CELL}>
-								<span className="flex min-w-0 items-start gap-0.5">
-									<span className="min-w-0 flex-1 break-all font-mono">{record.name}</span>
-									<CopyButton label="nome" text={record.name} />
-								</span>
-							</td>
-							<td className={CELL}>
-								<span className="flex min-w-0 items-start gap-0.5">
-									<span className="min-w-0 flex-1 break-all font-mono">
-										{record.priority !== null ? `${record.priority} ` : ""}
-										{record.value}
-									</span>
-									<CopyButton label="valor" text={record.value} />
-								</span>
-							</td>
-						</tr>
-					))}
-				</tbody>
-			</table>
-		</div>
+		<ul className="m-0 flex min-w-0 list-none flex-col gap-2 p-0" data-testid="dns-records">
+			{records.map((record, index) => (
+				<li
+					className="min-w-0 overflow-hidden rounded-xl border border-border bg-card"
+					data-dns-record={record.type}
+					key={`${record.type}-${record.name}-${index}`}
+				>
+					<div className="flex h-8 min-w-0 items-center gap-2 px-3 text-[11px]">
+						<span className="text-muted-foreground">Tipo</span>
+						<span className="font-medium">{record.type}</span>
+						{record.priority !== null ? <span className="text-muted-foreground">· prioridade {record.priority}</span> : null}
+						<span className={cn("ml-auto flex items-center gap-1", record.valid ? "text-foreground" : "text-muted-foreground")}>
+							{record.valid ? <CheckIcon aria-hidden className="size-3" /> : null}
+							{record.valid ? "Correto" : "Falta publicar"}
+						</span>
+					</div>
+					<RecordField label="Nome" text={record.name} />
+					<RecordField label="Valor" text={record.value} />
+				</li>
+			))}
+		</ul>
 	);
 }
 
