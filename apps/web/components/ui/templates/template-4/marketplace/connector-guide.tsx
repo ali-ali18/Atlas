@@ -1,11 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ChevronDownIcon, SparklesIcon } from "lucide-react"
+import { ChevronDownIcon, PencilIcon, RefreshCwIcon, SparklesIcon } from "lucide-react"
 import { CONNECTOR_GUIDE_MAX_CHARS, type ConnectorGuideView, type ConnectorKind } from "@workspace/shared"
 import { Button } from "@workspace/ui/components/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible"
 import { ConfirmAlert } from "@workspace/ui/components/confirm-alert"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { SkillMarkdownPreview } from "@/components/settings/sections/skills/skill-markdown-preview"
 import {
@@ -20,6 +21,21 @@ const POLL_MAX = 14
 
 function sourceLabel(guide: ConnectorGuideView): string {
   return guide.source === "user" ? "Editado por você" : "Gerado automaticamente"
+}
+
+function IconAction({ icon: Icon, label, onClick, disabled, spinning = false }: { icon: typeof PencilIcon; label: string; onClick?: () => void; disabled?: boolean; spinning?: boolean }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button aria-label={label} disabled={disabled} onClick={onClick} size="icon-sm" type="button" variant="ghost">
+            <Icon aria-hidden className={spinning ? "size-4 animate-spin" : "size-4"} />
+          </Button>
+        }
+      />
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 export type ConnectorGuideViewProps = {
@@ -84,15 +100,15 @@ export function ConnectorGuideBlock({
       </CollapsibleTrigger>
       <CollapsibleContent className="space-y-2">
       {!editing ? (
-        <div className="-mr-3 flex items-center justify-end gap-1">
-          {hasText ? (
-            <Button className="h-7 rounded-full px-3 text-xs" disabled={busy || generating} onClick={onEdit} size="sm" type="button" variant="ghost">
-              Editar
-            </Button>
-          ) : null}
-          <Button className="h-7 rounded-full px-3 text-xs" disabled={busy || generating} onClick={onRegenerate} size="sm" type="button" variant="ghost">
-            {generating ? "Gerando…" : hasText ? "Gerar de novo" : "Gerar guia"}
-          </Button>
+        <div className="flex items-center justify-end gap-1">
+          {hasText ? <IconAction disabled={busy || generating} icon={PencilIcon} label="Editar guia" onClick={onEdit} /> : null}
+          <IconAction
+            disabled={busy || generating}
+            icon={RefreshCwIcon}
+            label={hasText ? "Gerar de novo" : "Gerar guia"}
+            onClick={onRegenerate}
+            spinning={generating}
+          />
         </div>
       ) : null}
       {error ? (

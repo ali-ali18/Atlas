@@ -85,10 +85,10 @@ for (const theme of ["light", "dark"] as const) {
       const overflow = () => page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)
       if (await overflow()) throw new Error("rolagem horizontal (guia fechado)")
       await page.getByRole("button", { name: /Guia de uso/ }).click()
-      await page.getByRole("button", { name: "Editar" }).waitFor()
+      await page.getByRole("button", { name: "Editar guia" }).waitFor()
       await shot(page, "02-aberto-com-sugestao")
 
-      await page.getByRole("button", { name: "Editar" }).click()
+      await page.getByRole("button", { name: "Editar guia" }).click()
       await page.getByLabel("Texto do guia").fill(`${GUIDE_TEXT}\n- Nunca invente ids.`)
       await shot(page, "03-editando")
       if (await overflow()) throw new Error("rolagem horizontal (edição)")
