@@ -76,6 +76,7 @@ export function describeGuideError(error: unknown): { message: string; retryable
 	if (error instanceof GuideFailure) return { message: error.userMessage, retryable: error.retryable };
 	if (error instanceof OpenRouterError) {
 		const status = error.status;
+		if (/data policy|guardrail|ZDR/i.test(error.message)) return { message: "O modelo de manutenção não atende a política de privacidade da sua conta no provedor; escolha outro em Modelos e contexto", retryable: false };
 		if (status === 401 || status === 403) return { message: "O servidor não conseguiu usar a chave do provedor", retryable: false };
 		if (status === 402) return { message: "Sem créditos no provedor do modelo", retryable: false };
 		if (status === 400 || status === 404) return { message: "Modelo de manutenção indisponível", retryable: false };

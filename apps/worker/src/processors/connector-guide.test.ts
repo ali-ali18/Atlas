@@ -113,6 +113,7 @@ test("falhas ficam gravadas na conexão com mensagem amigável", async () => {
 		["não conectada", mcpRow({ status: "pending_auth" }), config, failing(new Error("x")), "A conexão não está ativa"],
 		["modelo inexistente", mcpRow(), config, failing(new OpenRouterError("No endpoints found for secret-model", 404)), "Modelo de manutenção indisponível"],
 		["resolução do modelo", mcpRow(), config, { resolveModel: async () => { throw new Error("boom"); }, complete: async () => { throw new Error("x"); } }, "Modelo de manutenção indisponível"],
+		["política de privacidade (ZDR)", mcpRow(), config, failing(new OpenRouterError("0 endpoints out of 2 requested are available matching your guardrail restrictions and data policy. ZDR violation (account settings)", 404)), "O modelo de manutenção não atende a política de privacidade da sua conta no provedor; escolha outro em Modelos e contexto"],
 		["chave recusada", mcpRow(), config, failing(new OpenRouterError("bad key sk-or-123", 401)), "O servidor não conseguiu usar a chave do provedor"],
 	];
 	for (const [label, row, cfg, deps, message] of cases) {
