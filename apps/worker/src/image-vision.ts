@@ -1,7 +1,7 @@
-import { resolveMaintenanceModel } from "@workspace/shared";
+import { isMaintenanceModel, parseModelRef } from "@workspace/shared";
 import { loadArtifactForUser, setArtifactDescriptionForUser } from "@workspace/db";
-import { makeModelCopy } from "@workspace/agent-runtime";
-import { completeChatWithTools } from "@workspace/llm";
+import { createKeyProviderStreams, makeModelCopy } from "@workspace/agent-runtime";
+import { completeChatWithTools, type ProviderStreamChat } from "@workspace/llm";
 
 type VisionCompletion = typeof completeChatWithTools;
 type ImageLoader = typeof loadArtifactForUser;
@@ -16,8 +16,17 @@ export function imageVisionForRun(input: {
 	loadArtifact?: ImageLoader;
 	saveDescription?: DescriptionSaver;
 	makeModelCopy?: typeof makeModelCopy;
+	/** Streams de chave própria (Anthropic, OpenCode Go) do dono; omitido = os mesmos adaptadores dos runs. */
+	streams?: () => { anthropic: ProviderStreamChat; opencodeGo: ProviderStreamChat };
 }) {
-	const complete = input.complete ?? completeChatWithTools;
+	const openRouterComplete = input.complete ?? completeChatWithTools;
+	/** Modelo de reserva: OpenRouter pela chave do servidor; Anthropic/OpenCode Go pelos adaptadores dos runs. */
+	const complete: VisionCompletion = (params) => {
+		const provider = parseModelRef(params.model).provider;
+		if (provider === "openrouter") return openRouterComplete(params);
+		const streams = (input.streams ?? (() => createKeyProviderStreams({ userId: input.userId })))();
+		return (provider === "anthropic" ? streams.anthropic : streams.opencodeGo)({ ...params, apiKey: "" }, {});
+	};
 	const loadArtifact = input.loadArtifact ?? loadArtifactForUser;
 	const saveDescription = input.saveDescription ?? setArtifactDescriptionForUser;
 	const modelCopy = input.makeModelCopy ?? makeModelCopy;
@@ -40,7 +49,7 @@ export function imageVisionForRun(input: {
 				const dataUrl = await modelCopy(artifact.bytes);
 				const result = await complete({
 					apiKey: input.apiKey,
-					model: resolveMaintenanceModel(input.fallbackModel, "openai/gpt-4o-mini"),
+					model: isMaintenanceModel(input.fallbackModel) ? input.fallbackModel : "openai/gpt-4o-mini",
 					tools: [],
 					toolChoice: "none",
 					messages: [

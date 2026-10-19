@@ -1,7 +1,7 @@
 "use client"
 import { ChevronDownIcon, Loader2Icon } from "lucide-react"
 import { type ReactElement, useState } from "react"
-import { modelDisplayName, type OpenRouterModel } from "@workspace/shared"
+import { getModelCapabilities, modelDisplayName, type OpenRouterModel } from "@workspace/shared"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
 import {
@@ -30,6 +30,7 @@ export function ModelPicker({
   onConnectChatgpt,
   openrouterOnly = false,
   noChatgpt = false,
+  requireImage = false,
   id,
   suggestedIds,
   suggestedHeading,
@@ -47,6 +48,8 @@ export function ModelPicker({
   openrouterOnly?: boolean
   /** Todos os provedores com chave (OpenRouter, Anthropic, OpenCode Go), menos o plano ChatGPT (manutenção). */
   noChatgpt?: boolean
+  /** Dos provedores por chave, só os que leem imagem (modelo para ler imagens). */
+  requireImage?: boolean
   id?: string
   /** Modelos em destaque no topo da lista (ex.: os cadastrados nos níveis de dificuldade). */
   suggestedIds?: string[]
@@ -60,7 +63,9 @@ export function ModelPicker({
     !openrouterOnly && !noChatgpt
   )
   const keyGroups = useKeyProviderModels(!openrouterOnly)
-  const keyModels = Object.values(keyGroups).flat()
+  const keyModels = Object.values(keyGroups)
+    .flat()
+    .filter((model) => !requireImage || getModelCapabilities(model.id, model as never).vision)
   const available = normalizePickerModels(
     openrouterOnly
       ? models

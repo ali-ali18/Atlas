@@ -8,6 +8,7 @@ import {
 	MODEL_TIERS,
 	hasModelTiers,
 	mergeModelTiers,
+	isMaintenanceModel,
 	parseModelRef,
 	readBotModelTiers,
 	readCodingModel,
@@ -129,9 +130,9 @@ export function runtimeParamsFromSnapshot(snapshot: RunConfigSnapshot) {
 	};
 }
 
-/** Modelo de leitura de imagem: só OpenRouter, nunca `chatgpt/*`. `undefined` = sem reserva (como hoje). */
+/** Modelo de leitura de imagem: qualquer provedor com chave, nunca `chatgpt/*`. `undefined` = sem reserva (como hoje). */
 export function visionFallbackFromSnapshot(snapshot: RunConfigSnapshot): string | undefined {
-	return snapshot.visionModel ? resolveMaintenanceModel(snapshot.visionModel, "openai/gpt-4o-mini") : undefined;
+	return snapshot.visionModel ? (isMaintenanceModel(snapshot.visionModel) ? snapshot.visionModel : "openai/gpt-4o-mini") : undefined;
 }
 
 type MaintenanceKind = "summary" | "memory-review" | "reflection" | "connector-guide";

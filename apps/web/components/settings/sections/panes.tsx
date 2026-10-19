@@ -399,7 +399,7 @@ export function ExecucaoPane({ account, isVisible }: { account: Account; isVisib
 /** Revisão automática (JEV): as duas revisões principais e, recolhido, o ajuste por recurso. */
 export function RevisaoPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
 	const quiet = quietAccount(account);
-	const jev = ["jev.mcp", "jev.geral", "jev.intencao", "jev.tools", "jev.verificacao", "jev.bloqueio", "jev.delegacao", "jev.travamento"];
+	const jev = ["jev.modelo", "jev.mcp", "jev.geral", "jev.intencao", "jev.tools", "jev.verificacao", "jev.bloqueio", "jev.delegacao", "jev.travamento"];
 	return (
 		<SettingsStack>
 			<PaneStatus account={account} />

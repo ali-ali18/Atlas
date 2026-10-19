@@ -130,6 +130,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
 	{ id: "modelos.imagem", section: "modelos", label: "Modelo para gerar imagens", keywords: ["gerar", "criar imagem", "desenho", "modelos auxiliares"] },
 	{ id: "modelos.ditado", section: "modelos", label: "Modelo de ditado", keywords: ["voz", "ditar", "microfone", "transcrição", "áudio", "stt", "whisper", "modelos auxiliares"] },
 	{ id: "modelos.reserva", section: "modelos", label: "Modelos de reserva", keywords: ["fallback", "falha", "alternativo", "modelos auxiliares"] },
+	{ id: "jev.modelo", section: "revisao", label: "Modelo do revisor", keywords: ["revisor", "jev", "modelo", "rápido", "travamento", "classificar", "pedidos", "anthropic", "opencode", "openrouter", "provedor", "chave"] },
 	{ id: "jev.mcp", section: "revisao", label: "Revisão de escritas em conectores", keywords: ["jev", "revisão", "mcp", "escrita", "observar", "bloquear", "conectores"] },
 	{ id: "jev.geral", section: "revisao", label: "Decisões auxiliares", keywords: ["jev", "revisão", "geral", "todos", "observar", "ativo", "latência"] },
 	{ id: "jev.intencao", section: "revisao", label: "Entender o pedido", keywords: ["jev", "revisão", "intenção", "por recurso"] },

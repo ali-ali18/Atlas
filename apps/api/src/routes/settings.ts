@@ -49,7 +49,7 @@ function modelsInPatch(patch: AccountConfigPatch): Array<{ path: string; id: str
 	const models = patch.models;
 	if (!models) return [];
 	const found: Array<{ path: string; id: string }> = [];
-	for (const key of ["default", "maintenance", "vision", "image", "coding"] as const) {
+	for (const key of ["default", "maintenance", "reviewer", "vision", "image", "coding"] as const) {
 		const id = models[key];
 		if (typeof id === "string") found.push({ path: `models.${key}`, id });
 	}

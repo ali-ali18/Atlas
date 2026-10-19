@@ -1,5 +1,6 @@
 import {
 	apiKeyService,
+	createKeyProviderStreams,
 	chatgptAuthService,
 	SiwcAuthError,
 	type ApiKeyService,
@@ -15,6 +16,7 @@ import {
 	createChatgptStreamChat,
 	createOpencodeGoStreamChat,
 	createProviderFallbackStream,
+	createReserveModelStream,
 	streamChatWithTools,
 	type ProviderStreamChat,
 	type ProviderFallbackNotice,
@@ -38,38 +40,6 @@ export function resetGoModelCooldowns(): void {
 const keyCatalog = createApiKeyModelCatalog({ getKey: (userId, provider) => apiKeyService.getKey(userId, provider) });
 /** Janela de contexto quando o catálogo não informa. */
 const KEY_PROVIDER_CONTEXT: Record<ApiKeyProvider, number> = { anthropic: 200_000, "opencode-go": 128_000 };
-/**
- * Streams de chave própria (Anthropic, OpenCode Go) do usuário: os MESMOS adaptadores dos runs,
- * também usados pela manutenção (resumo, memória, guia).
- */
-export function createKeyProviderStreams(input: {
-	userId: string;
-	conversationId?: string | null;
-	keys?: Pick<ApiKeyService, "getKey">;
-	keyModels?: Pick<typeof keyCatalog, "protocolOf">;
-}): { anthropic: ProviderStreamChat; opencodeGo: ProviderStreamChat } {
-	const keys = input.keys ?? apiKeyService,
-		keyModels = input.keyModels ?? keyCatalog;
-	const requireKey = (provider: ApiKeyProvider) => async () => {
-		const key = await keys.getKey(input.userId, provider);
-		if (!key) throw new ProviderApiError(provider, 401, "auth_failed");
-		return key;
-	};
-	return {
-		anthropic: createAnthropicStreamChat({
-			provider: "anthropic",
-			getApiKey: requireKey("anthropic"),
-			url: `${ANTHROPIC_API_BASE_URL}/v1/messages`,
-			auth: "x-api-key",
-		}),
-		opencodeGo: createOpencodeGoStreamChat({
-			getApiKey: requireKey("opencode-go"),
-			conversationId: input.conversationId ?? undefined,
-			protocolOf: (slug) => keyModels.protocolOf(input.userId, slug),
-		}),
-	};
-}
-
 export function createRunProviderServices(input: {
 	userId: string;
 	policy: unknown;
@@ -144,7 +114,13 @@ export function createRunProviderServices(input: {
 				);
 			return streamChatWithTools(params, handlers);
 		});
-	const streamChat = createProviderFallbackStream({
+	const modelAvailable = async (model: string): Promise<boolean> => {
+		const { provider } = parseModelRef(model);
+		if (provider === "openrouter") return input.openRouterKey ?? (input.openrouter ? true : Boolean(env.OPENROUTER_API_KEY));
+		if (provider === "chatgpt") return input.chatgptEnabled !== false && (await connection(input.userId, "chatgpt"))?.status === "connected";
+		return (await keys.status(input.userId, provider)).status === "connected";
+	};
+	const baseStream = createProviderFallbackStream({
 		openrouter,
 		chatgpt:
 			input.chatgpt ??
@@ -165,12 +141,7 @@ export function createRunProviderServices(input: {
 				await keys.markLimitAt(input.userId, "opencode-go", new Date()).catch(() => undefined);
 			},
 		},
-		isModelAvailable: async (model) => {
-			const { provider } = parseModelRef(model);
-			if (provider === "openrouter") return input.openRouterKey ?? (input.openrouter ? true : Boolean(env.OPENROUTER_API_KEY));
-			if (provider === "chatgpt") return input.chatgptEnabled !== false && (await connection(input.userId, "chatgpt"))?.status === "connected";
-			return (await keys.status(input.userId, provider)).status === "connected";
-		},
+		isModelAvailable: modelAvailable,
 		accountDefaultModel: input.accountDefaultModel,
 		onClassified: (info) => console.warn(`opencode-go failure classified model=${info.model} kind=${info.kind} status=${info.status}`),
 		onFallback: input.onFallback,
@@ -183,6 +154,8 @@ export function createRunProviderServices(input: {
 			else await update(input.userId, "chatgpt", { lastLimitAt: new Date(at) });
 		},
 	});
+	// Reservas de qualquer provedor com chave: o OpenRouter segue nativo; as demais trocam de modelo/provedor a cada tentativa.
+	const streamChat = createReserveModelStream(baseStream, { isAvailable: modelAvailable, log: (line) => console.warn(line) });
 	// Fonte única: override curado > catálogo do provedor > heurística (packages/shared/model-capabilities).
 	// OpenCode Go só vê imagem quando o catálogo declara (modelo de texto responde 400); Anthropic lê por padrão;
 	// ChatGPT tenta sem flag (o erro oficial informa a capacidade); OpenRouter ausente do catálogo = sem visão.

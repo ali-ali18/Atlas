@@ -43,6 +43,8 @@ export type EffectiveAccountConfig = {
 		maintenance: Resolved<string>;
 		/** Resumo da conversa: igual a `maintenance`, mas sem ler ATLAS_MAINTENANCE_MODEL (compatível com o worker de hoje). */
 		summary: Resolved<string>;
+		/** Revisor (Jev): usuário > nenhum (Jev fixo no OpenRouter, ou a manutenção sem chave dele). */
+		reviewer: Resolved<string | undefined>;
 		vision: Resolved<string | undefined>;
 		image: Resolved<string | undefined>;
 		/** Modelo para código: usuário > nenhum (o modelo normal do bot segue valendo). */
@@ -220,6 +222,7 @@ export function resolveEffectiveConfig(input: {
 					: dflt([]),
 			maintenance: resolveMaintenance(cfg.models?.maintenance, envMaintenance ?? envSummarizer),
 			summary: resolveMaintenance(cfg.models?.maintenance, envSummarizer),
+			reviewer: cfg.models?.reviewer ? user(cfg.models.reviewer) : dflt(undefined),
 			// Sem visão configurada não há modelo de reserva (comportamento de hoje).
 			vision: cfg.models?.vision
 				? user(cfg.models.vision)

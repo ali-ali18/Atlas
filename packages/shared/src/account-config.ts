@@ -42,6 +42,8 @@ export type AccountConfigV1 = {
 		default?: string;
 		fallbacks?: string[];
 		maintenance?: string;
+		/** Modelo do revisor (Jev): qualquer provedor com chave, nunca `chatgpt/*`. Vazio = Jev fixo no OpenRouter, senão a manutenção. */
+		reviewer?: string;
 		vision?: string;
 		image?: string;
 		/** Modelo usado automaticamente quando o bot trabalha em uma sessão de código. */
@@ -147,10 +149,10 @@ const modelId = (openRouterOnly: boolean, message: string): Leaf => ({
 
 const OPENROUTER_ONLY = "Informe um id de modelo do OpenRouter (letras, números e . _ : / -, até 200).";
 const fallbackList: Leaf = {
-	message: `Informe até ${MAX_FALLBACK_MODELS} ids de modelo do OpenRouter, sem repetição.`,
+	message: `Informe até ${MAX_FALLBACK_MODELS} ids de modelo (qualquer provedor com chave, exceto o plano ChatGPT), sem repetição.`,
 	parse: (v) => {
 		if (!Array.isArray(v) || v.length > MAX_FALLBACK_MODELS) return null;
-		if (!v.every((item) => isValidConfigModelId(item, true))) return null;
+		if (!v.every((item) => isValidMaintenanceModelId(item))) return null;
 		return new Set(v).size === v.length ? { value: [...v] } : null;
 	},
 };
@@ -171,11 +173,18 @@ const SPEC: Spec = {
 	models: {
 		default: modelId(false, "Informe um id de modelo válido (letras, números e . _ : / -, até 200)."),
 		fallbacks: fallbackList,
+		reviewer: {
+			message: "Informe um id de modelo válido (letras, números e . _ : / -, até 200); o plano ChatGPT não vale para o revisor.",
+			parse: (v) => (isValidMaintenanceModelId(v) ? { value: v } : null),
+		},
 		maintenance: {
 			message: "Informe um id de modelo válido (letras, números e . _ : / -, até 200); o plano ChatGPT não vale para manutenção.",
 			parse: (v) => (isValidMaintenanceModelId(v) ? { value: v } : null),
 		},
-		vision: modelId(true, OPENROUTER_ONLY),
+		vision: {
+			message: "Informe um id de modelo válido (letras, números e . _ : / -, até 200); o plano ChatGPT não vale para ler imagens.",
+			parse: (v) => (isValidMaintenanceModelId(v) ? { value: v } : null),
+		},
 		image: modelId(true, OPENROUTER_ONLY),
 		coding: modelId(false, "Informe um id de modelo válido (letras, números e . _ : / -, até 200)."),
 		stt: modelId(true, OPENROUTER_ONLY),

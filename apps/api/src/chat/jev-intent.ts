@@ -1,6 +1,6 @@
 import { askJev } from "@workspace/llm";
-import { detectJevIntents, NO_INTENTS, parseJevFeatureMode, type JevRuntime } from "@workspace/agent-runtime";
-import type { JevMode } from "@workspace/shared";
+import { createReviewerClient, detectJevIntents, NO_INTENTS, parseJevFeatureMode, type JevRuntime, type ReviewerLlmDeps } from "@workspace/agent-runtime";
+import { DEFAULT_MAINTENANCE_MODEL, type JevMode } from "@workspace/shared";
 import { loadEffectiveConfig } from "./account-config.js";
 
 /** `null` = Jev indisponível (off, falha ou timeout): o chamador cai no fallback. */
@@ -16,10 +16,33 @@ export function buildJevIntentRuntime(apiKey: string | undefined, env: NodeJS.Pr
 	};
 }
 
+/**
+ * Runtime do Jev (intenção) com o revisor da conta: modelo escolhido > Jev fixo no OpenRouter (chave do servidor) >
+ * cadeia da manutenção (chaves próprias). `undefined` quando off ou sem nenhum caminho.
+ */
+export async function buildJevIntentRuntimeFor(
+	userId: string,
+	apiKey: string | undefined,
+	env: NodeJS.ProcessEnv,
+	mode: JevMode,
+	deps: ReviewerLlmDeps = {},
+): Promise<JevRuntime | undefined> {
+	if (mode === "off") return undefined;
+	const client = await createReviewerClient(
+		{ userId, config: { openRouterApiKey: apiKey, summarizerModel: env.SUMMARIZER_MODEL?.trim() || DEFAULT_MAINTENANCE_MODEL, maintenanceModel: env.ATLAS_MAINTENANCE_MODEL?.trim() || undefined } },
+		deps,
+	).catch(() => null);
+	if (!client?.available) return undefined;
+	return { modes: { intent: mode }, ask: client.ask };
+}
+
 /** Cancelar/confirmar em qualquer idioma para `maybeHandleConfirmedAction`. */
 export function buildJevIntent(apiKey: string | undefined, env: NodeJS.ProcessEnv = process.env, resolvedMode?: JevMode): JevIntentFn | undefined {
 	const rt = buildJevIntentRuntime(apiKey, env, resolvedMode);
-	if (!rt) return undefined;
+	return rt ? intentDetector(rt) : undefined;
+}
+
+function intentDetector(rt: JevRuntime): JevIntentFn {
 	return async (text) => {
 		const intents = await detectJevIntents({ rt, latestUserMessage: text });
 		// `detectJevIntents` devolve o singleton NO_INTENTS quando off/falha/sem resposta.
@@ -34,8 +57,9 @@ export async function buildJevIntentFor(
 	apiKey: string | undefined,
 	env: NodeJS.ProcessEnv = process.env,
 	load?: Parameters<typeof loadEffectiveConfig>[2],
+	reviewerDeps?: ReviewerLlmDeps,
 ): Promise<JevIntentFn | undefined> {
-	if (!apiKey) return undefined;
 	const effective = await loadEffectiveConfig(userId, env, load);
-	return buildJevIntent(apiKey, env, effective.jev.features.intent.value);
+	const rt = await buildJevIntentRuntimeFor(userId, apiKey, env, effective.jev.features.intent.value, reviewerDeps);
+	return rt ? intentDetector(rt) : undefined;
 }

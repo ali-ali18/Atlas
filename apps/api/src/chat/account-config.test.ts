@@ -14,6 +14,7 @@ const configs: Record<string, unknown> = {
 };
 // Lê só pelo userId pedido: B nunca enxerga o config de A.
 const load = async (userId: string) => (configs[userId] ?? { v: 1 }) as never;
+const noKeys = { loadConfig: load, hasKey: async () => false, record: async () => undefined };
 
 test("loadEffectiveConfig: usuário > env > padrão, escopado pelo userId", async () => {
 	const env = { OPENROUTER_MODEL: "env/modelo", ATLAS_IMAGE_MODEL: "env/imagem" };
@@ -40,8 +41,8 @@ test("loadEffectiveConfig: falha ao ler cai no env/padrão sem lançar", async (
 
 test("sem config do usuário nada muda: Jev de intenção segue o env", async () => {
 	assert.equal(await buildJevIntentFor("user-b", "key", {}, load), undefined);
-	assert.equal(await buildJevIntentFor("user-b", undefined, { JEV_INTENT_MODE: "on" }, load), undefined);
-	assert.ok(await buildJevIntentFor("user-b", "key", { JEV_INTENT_MODE: "on" }, load));
+	assert.equal(await buildJevIntentFor("user-b", undefined, { JEV_INTENT_MODE: "on" }, load, noKeys), undefined);
+	assert.ok(await buildJevIntentFor("user-b", "key", { JEV_INTENT_MODE: "on" }, load, noKeys));
 });
 
 test("Jev de intenção liga pelo config do usuário mesmo com env off, só para ele", async () => {
@@ -61,4 +62,11 @@ test("resolveRunModel: composer > bot > padrão da conta > .env", async () => {
 		await resolveRunModel({ ...base, userId: "user-a", getBotModel: async () => null, getAccountConfig: async () => { throw new Error("x"); } }),
 		"env/modelo",
 	);
+});
+
+test("Jev de intenção sem chave do servidor usa a chave Anthropic da conta (revisor pela manutenção)", async () => {
+	const withAnthropic = { ...noKeys, loadConfig: (async () => ({ v: 1, models: { reviewer: "anthropic-direct/claude-haiku" } })) as never, hasKey: async (_user: string, provider: string) => provider === "anthropic" };
+	assert.ok(await buildJevIntentFor("user-b", undefined, { JEV_INTENT_MODE: "on" }, load, withAnthropic));
+	// Sem modelo escolhido e sem chave do servidor não há o que chamar: Jev indisponível.
+	assert.equal(await buildJevIntentFor("user-b", undefined, { JEV_INTENT_MODE: "on" }, load, { ...noKeys, hasKey: async (_u: string, p: string) => p === "anthropic" }), undefined);
 });

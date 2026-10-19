@@ -345,3 +345,18 @@ test("modelo de manutenção aceita Anthropic/OpenCode Go (validados pela chave)
 		restore();
 	}
 });
+
+test("revisor, visão e reservas: provedores com chave são validados pela conexão; ChatGPT recusado", async () => {
+	const restore = installFakePrisma(new Map());
+	try {
+		const seen: string[] = [];
+		const app = appFor(USER_A, OWNER_EMAIL, { validateModel: async (_user, id) => (seen.push(id), {}) });
+		assert.equal((await patch(app, { config: { models: { reviewer: "anthropic-direct/haiku" } } })).status, 200);
+		assert.equal((await patch(app, { config: { models: { vision: "opencode-go/kimi" } } })).status, 200);
+		assert.equal((await patch(app, { config: { models: { fallbacks: ["anthropic-direct/x"] } } })).status, 200);
+		assert.deepEqual(seen, ["anthropic-direct/haiku", "opencode-go/kimi", "anthropic-direct/x"]);
+		assert.equal((await patch(app, { config: { models: { reviewer: "chatgpt/gpt-5" } } })).status, 400);
+	} finally {
+		restore();
+	}
+});

@@ -12,6 +12,8 @@ import { parseChatCompletionRequest } from "../chat/parse.js";
 import { maybeHandleConfirmedAction } from "../chat/confirmed-action.js";
 import { buildJevIntentFor } from "../chat/jev-intent.js";
 import { getAgentRun } from "@workspace/db";
+import { keyProviderStreamFor } from "@workspace/agent-runtime";
+import { parseModelRef } from "@workspace/shared";
 import { resolveRunModel } from "../chat/effective-model.js";
 import {
 	persistCompletionSegmented,
@@ -48,16 +50,6 @@ export function createChatRoutes(config: ApiConfig) {
 	const app = new Hono<AuthEnv>();
 
 	app.post("/v1/chat", async (c) => {
-		if (!config.openRouterApiKey) {
-			return c.json(
-				{
-					error:
-						"OPENROUTER_API_KEY is not configured on the API server",
-				},
-				503,
-			);
-		}
-
 		let json: unknown;
 		try {
 			json = await c.req.json();
@@ -83,6 +75,12 @@ export function createChatRoutes(config: ApiConfig) {
 			userId,
 			envDefault: config.openRouterModel,
 		});
+
+		// Chave do provedor do modelo: OpenRouter pelo servidor; Anthropic/OpenCode Go pela chave da conta.
+		const via = keyProviderStreamFor(userId, effectiveModel);
+		if (!via && !config.openRouterApiKey && parseModelRef(effectiveModel).provider === "openrouter") {
+			return c.json({ error: "OPENROUTER_API_KEY is not configured on the API server" }, 503);
+		}
 
 		// Só o clique do card de confirmação é resolvido aqui; o resto vai ao modelo.
 		try {
@@ -113,7 +111,8 @@ export function createChatRoutes(config: ApiConfig) {
 			const result = await completeChat({
 				messages,
 				model: effectiveModel,
-				apiKey: config.openRouterApiKey,
+				apiKey: config.openRouterApiKey ?? "",
+				...(via ? { via } : {}),
 			});
 
 			await persistCompletionSegmented(
@@ -149,16 +148,6 @@ export function createChatRoutes(config: ApiConfig) {
 	});
 
 	app.post("/v1/chat/stream", async (c) => {
-		if (!config.openRouterApiKey) {
-			return c.json(
-				{
-					error:
-						"OPENROUTER_API_KEY is not configured on the API server",
-				},
-				503,
-			);
-		}
-
 		let json: unknown;
 		try {
 			json = await c.req.json();
@@ -185,7 +174,11 @@ export function createChatRoutes(config: ApiConfig) {
 			userId,
 			envDefault: config.openRouterModel,
 		});
-		const apiKey = config.openRouterApiKey;
+		const apiKey = config.openRouterApiKey ?? "";
+		const via = keyProviderStreamFor(userId, model);
+		if (!via && !apiKey && parseModelRef(model).provider === "openrouter") {
+			return c.json({ error: "OPENROUTER_API_KEY is not configured on the API server" }, 503);
+		}
 
 		// Só o clique do card de confirmação é resolvido aqui; o resto vai ao modelo.
 		try {
@@ -238,18 +231,14 @@ export function createChatRoutes(config: ApiConfig) {
 				};
 
 				try {
-					const result = await streamChat(
-						{
-							messages,
-							model,
-							apiKey,
+					const handlers = {
+						onDelta: (delta: string) => {
+							send({ type: "delta", delta });
 						},
-						{
-							onDelta: (delta) => {
-								send({ type: "delta", delta });
-							},
-						},
-					);
+					};
+					const result = via
+						? await via({ messages, model, apiKey: "", tools: [] }, handlers).then((r) => ({ ...r, message: { role: "assistant" as const, content: r.message.content ?? "" } }))
+						: await streamChat({ messages, model, apiKey }, handlers);
 
 					await persistCompletionSegmented(
 						request,

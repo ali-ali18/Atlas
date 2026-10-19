@@ -66,3 +66,28 @@ test("descritor de manutenção não usa assinatura mesmo com modelo configurado
  await vision.describeUserImage("image-a");
  assert.equal(model,"openai/gpt-4o-mini");
 });
+
+test("visão: modelo de reserva Anthropic/OpenCode Go usa o adaptador da chave (não o OpenRouter)", async () => {
+	const viaCalls: string[] = [];
+	const vision = imageVisionForRun({
+		userId: "u1",
+		apiKey: "",
+		fallbackModel: "anthropic-direct/claude-x",
+		loadArtifact: (async () => ({ kind: "image", bytes: new Uint8Array([1, 2, 3]), meta: {} })) as never,
+		saveDescription: (async () => undefined) as never,
+		makeModelCopy: (async () => "data:image/png;base64,AAAA") as never,
+		complete: (async () => {
+			throw new Error("OpenRouter não deveria ser chamado");
+		}) as never,
+		streams: () => ({
+			anthropic: (async (params: { model: string }) => {
+				viaCalls.push(params.model);
+				return { message: { role: "assistant", content: "um gato" }, model: params.model, usage: { costUsd: 0.001 } };
+			}) as never,
+			opencodeGo: (async () => ({})) as never,
+		}),
+	});
+	const result = await vision.describeUserImage("a1");
+	assert.equal(result.description, "um gato");
+	assert.deepEqual(viaCalls, ["anthropic-direct/claude-x"]);
+});

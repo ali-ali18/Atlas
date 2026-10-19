@@ -27,7 +27,8 @@ export {
 	type EmbedTextParams,
 	type EmbedTextResult,
 } from "./embeddings.js";
-export { askJev, evaluateMcpWithJev, type JevAnswers, type JevQuestion, JEV_MCP_MODEL, JEV_MCP_TIMEOUT_MS, type JevMcpDecision, type JevMcpState } from "./jev-decisions.js";
+export { askJevViaChat } from "./jev-chat.js";
+export { JEV_MCP_QUESTIONS, mcpDecisionFromAnswers, askJev, evaluateMcpWithJev, type JevAnswers, type JevQuestion, JEV_MCP_MODEL, JEV_MCP_TIMEOUT_MS, type JevMcpDecision, type JevMcpState } from "./jev-decisions.js";
 export {
 	DEFAULT_MODEL_CALL_TIMEOUT_MS,
 	modelCallSignal,
@@ -62,6 +63,7 @@ export {
 export { createModelCatalogCache } from "./model-catalog-cache.js";
 
 export { createProviderStreamChat, type ProviderStreamChat } from "./provider-router.js";
+export { createReserveModelStream } from "./reserve-models.js";
 export { createChatgptStreamChat, type ChatgptStreamOptions, type ChatgptTokenOptions } from "./responses/stream.js";
 export { ChatgptProviderError, isRetryableChatgptError } from "./responses/errors.js";
 export { providerModelCapabilities, type ProviderModelCapabilities } from "./responses/capabilities.js";

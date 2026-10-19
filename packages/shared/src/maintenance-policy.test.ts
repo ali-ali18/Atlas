@@ -75,3 +75,19 @@ describe("estado das tarefas de manutenção", () => {
 		expect(text.length).toBeLessThanOrEqual(200);
 	});
 });
+
+describe("contrato: revisor, visão e reservas aceitam qualquer provedor com chave (não o ChatGPT)", () => {
+	it("models.reviewer", () => {
+		expect(validateAccountConfigPatch({ models: { reviewer: "anthropic-direct/haiku" } }).ok).toBe(true);
+		expect(validateAccountConfigPatch({ models: { reviewer: "chatgpt/gpt-5" } }).ok).toBe(false);
+	});
+	it("models.vision", () => {
+		expect(validateAccountConfigPatch({ models: { vision: "opencode-go/kimi" } }).ok).toBe(true);
+		expect(validateAccountConfigPatch({ models: { vision: "chatgpt/gpt-5" } }).ok).toBe(false);
+	});
+	it("models.fallbacks mistura provedores, sem repetição e sem ChatGPT", () => {
+		expect(validateAccountConfigPatch({ models: { fallbacks: ["a/b", "anthropic-direct/x"] } }).ok).toBe(true);
+		expect(validateAccountConfigPatch({ models: { fallbacks: ["a/b", "chatgpt/x"] } }).ok).toBe(false);
+		expect(validateAccountConfigPatch({ models: { fallbacks: ["a/b", "a/b"] } }).ok).toBe(false);
+	});
+});

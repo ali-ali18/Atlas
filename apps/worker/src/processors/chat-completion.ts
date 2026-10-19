@@ -9,6 +9,7 @@ import {
 	persistChatTurn,
 } from "@workspace/db";
 import { OpenRouterError, completeChat } from "@workspace/llm";
+import { keyProviderStreamFor } from "@workspace/agent-runtime";
 import type { WorkerConfig } from "../config.js";
 import { resolveDefaultModelForJob } from "../run-config.js";
 
@@ -27,21 +28,21 @@ function lastUserContent(
 export async function processChatCompletionJob(
 	job: Job<ChatCompletionJobPayload, ChatCompletionJobResult>,
 	config: WorkerConfig,
+	deps: { via?: NonNullable<Parameters<typeof completeChat>[0]["via"]> } = {},
 ): Promise<ChatCompletionJobResult> {
 	if (job.name !== ATLAS_JOB_NAMES.chatCompletion) {
 		throw new Error(`Unexpected job name: ${job.name}`);
-	}
-
-	if (!config.openRouterApiKey) {
-		throw new Error(
-			"OPENROUTER_API_KEY is not configured on the worker",
-		);
 	}
 
 	const payload = job.data;
 	const model =
 		payload.model ??
 		(await resolveDefaultModelForJob({ userId: payload.userId, serverDefault: config.openRouterModel }));
+	// Anthropic/OpenCode Go pela chave da conta; OpenRouter pela chave do servidor.
+	const via = deps.via ?? (payload.userId ? keyProviderStreamFor(payload.userId, model) : undefined);
+	if (!via && !config.openRouterApiKey) {
+		throw new Error("OPENROUTER_API_KEY is not configured on the worker");
+	}
 
 	console.log(
 		`[chat.completion] start job=${job.id} model=${model} messages=${payload.messages.length}`,
@@ -65,7 +66,8 @@ export async function processChatCompletionJob(
 		const result = await completeChat({
 			messages,
 			model,
-			apiKey: config.openRouterApiKey,
+			apiKey: config.openRouterApiKey ?? "",
+			...(via ? { via } : {}),
 		});
 
 		if (payload.conversationId) {

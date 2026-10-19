@@ -464,3 +464,6 @@ export type { EmailRunContext, EmailToolDeps } from "./email/tools.js";
 export { loadEmailRunContext } from "./email/run-context.js";
 export type { ModelTiersRuntime } from "./model-tiers.js";
 export { classifyDifficulty } from "./context/difficulty.js";
+
+export { createMaintenanceLlm, resolveMaintenanceCandidates, createKeyProviderStreams, keyProviderStreamFor, type MaintenanceLlm, type MaintenanceLlmDeps, type MaintenanceBootConfig } from "./maintenance-llm.js";
+export { createReviewerClient, REVIEWER_JUDGE_MODEL_DEFAULT, type ReviewerClient, type ReviewerLlmDeps } from "./reviewer-llm.js";

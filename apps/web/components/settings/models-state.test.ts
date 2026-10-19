@@ -5,6 +5,7 @@ import {
 	MODEL_SETTING_NO_CHATGPT,
 	MODEL_SETTING_OPENROUTER_ONLY,
 	maintenanceInheritLabel,
+	reviewerInheritLabel,
 	dictationDefaultLabel,
 	fallbacksInheritLabel,
 	fallbacksPatch,
@@ -191,4 +192,22 @@ test("manutenção: aceita todos os provedores com chave (só o ChatGPT fica de 
 	assert.match(maintenanceInheritLabel(inherited("openai/gpt-6-luna"), inherited("chatgpt/gpt-5"), [], false) ?? "", /conecte uma chave/);
 	// Escolha do usuário não herda nada.
 	assert.equal(maintenanceInheritLabel({ value: "opencode-go/glm", source: "user" }, inherited(undefined), [], false), null);
+});
+
+test("revisor: herda o Jev no OpenRouter; sem a chave do servidor herda a manutenção; escolha própria não herda", () => {
+	const resolved = (value: string | undefined, source: "user" | "env" | "default") => ({ value, source });
+	const effective = (reviewer: ReturnType<typeof resolved>) => ({
+		models: { reviewer, maintenance: resolved("openai/gpt-6-luna", "default"), default: resolved("anthropic-direct/claude-x", "user") },
+	});
+	assert.equal(reviewerInheritLabel(effective(resolved(undefined, "default")), [], true), "Herdar (Jev no OpenRouter)");
+	assert.equal(reviewerInheritLabel(effective(resolved(undefined, "default")), [], false), "Herdar (anthropic-direct/claude-x)");
+	assert.equal(reviewerInheritLabel(effective(resolved("opencode-go/glm", "user")), [], false), null);
+});
+
+test("visão e reserva aceitam provedores com chave (só o ChatGPT fica de fora); ditado e imagem seguem no OpenRouter", () => {
+	assert.equal(MODEL_SETTING_OPENROUTER_ONLY.vision, false);
+	assert.equal(MODEL_SETTING_NO_CHATGPT.vision, true);
+	assert.equal(MODEL_SETTING_NO_CHATGPT.reviewer, true);
+	assert.equal(MODEL_SETTING_OPENROUTER_ONLY.image, true);
+	assert.equal(MODEL_SETTING_OPENROUTER_ONLY.stt, true);
 });

@@ -16,20 +16,21 @@ import {
 import { inheritLabel } from "./account-settings-state";
 
 /** Cada modelo configurável da conta (as chaves de `config.models`). */
-export type ModelSetting = "default" | "maintenance" | "vision" | "image" | "coding" | "stt";
+export type ModelSetting = "default" | "maintenance" | "reviewer" | "vision" | "image" | "coding" | "stt";
 
 /** O padrão aceita qualquer provedor; os demais são só OpenRouter (o contrato recusa `chatgpt/*`). */
 export const MODEL_SETTING_OPENROUTER_ONLY: Record<ModelSetting, boolean> = {
 	default: false,
 	maintenance: false,
-	vision: true,
+	reviewer: false,
+	vision: false,
 	image: true,
 	coding: false,
 	stt: true,
 };
 
 /** Manutenção usa a chave de qualquer provedor conectado; só o plano ChatGPT fica de fora. */
-export const MODEL_SETTING_NO_CHATGPT: Partial<Record<ModelSetting, boolean>> = { maintenance: true };
+export const MODEL_SETTING_NO_CHATGPT: Partial<Record<ModelSetting, boolean>> = { maintenance: true, reviewer: true, vision: true };
 
 /** Função de cada configuração para checar capacidade (ditado e imagem gerada não exigem visão nem ferramentas). */
 const SETTING_ROLE: Partial<Record<ModelSetting, ModelRole>> = {
@@ -121,6 +122,17 @@ export function maintenanceInheritLabel(
 	const fallback = accountDefault.value;
 	if (!fallback || fallback.startsWith("chatgpt/")) return inheritLabel(maintenance.source, "conecte uma chave de provedor");
 	return inheritLabel(maintenance.source, modelLabel(fallback, models));
+}
+
+/** "Herdar (…)" do revisor: o Jev fixo no OpenRouter, ou (sem a chave dele) o modelo da manutenção. */
+export function reviewerInheritLabel(
+	effective: { models: { reviewer: Resolved<string | undefined>; maintenance: Resolved<string | undefined>; default: Resolved<string | undefined> } },
+	models: readonly OpenRouterModel[],
+	openrouterKey: boolean,
+): string | null {
+	if (effective.models.reviewer.source === "user") return null;
+	if (openrouterKey) return inheritLabel(effective.models.reviewer.source, "Jev no OpenRouter");
+	return maintenanceInheritLabel(effective.models.maintenance, effective.models.default, models, false);
 }
 
 export function modelPickerValue(resolved: Resolved<string | undefined>): string {

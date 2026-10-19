@@ -28,7 +28,11 @@ import {
 	type SettingsIcon,
 	withOptionIcons,
 } from "@/components/ui/templates/template-4/settings-picker";
+import type { OpenRouterModel } from "@workspace/shared";
+import { ModelPicker } from "@/components/model-picker";
+import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
 import type { useAccountSettings } from "@/hooks/use-account-settings";
+import { modelPatch, modelPickerValue, reviewerInheritLabel } from "../models-state";
 import type { SaveStatus } from "../account-settings-state";
 import {
 	JEV_FEATURE_SPECS,
@@ -60,6 +64,7 @@ const MODE_ICONS = { inherit: CornerDownRightIcon, off: PowerOffIcon, shadow: Ey
 const MCP_MODE_ICONS = { inherit: CornerDownRightIcon, off: PowerOffIcon, shadow: EyeIcon, gate: ShieldBanIcon };
 
 export const NO_OPENROUTER_KEY_NOTE = "Chave do OpenRouter não configurada no servidor";
+export const REVIEWER_CAPTION = "Modelo que revisa os runs, detecta travamentos e classifica pedidos. Use um modelo rápido.";
 
 /**
  * Revisão automática (JEV): revisão de escritas em conectores, um dropdown geral para as
@@ -70,6 +75,8 @@ export function JevSettingsView({
 	effective,
 	config,
 	openrouterKey = true,
+	models = [],
+	modelsLoading = false,
 	status,
 	saveError,
 	loadError,
@@ -88,6 +95,9 @@ export function JevSettingsView({
 	config: AccountConfigV1 | null;
 	/** Sem a chave no servidor, o Jev não tem modelo para chamar: controles desabilitados. */
 	openrouterKey?: boolean;
+	/** Catálogo do OpenRouter para o seletor do revisor (os de chave própria o seletor busca sozinho). */
+	models?: readonly OpenRouterModel[];
+	modelsLoading?: boolean;
 	status: SaveStatus;
 	saveError?: string | null;
 	loadError?: string | null;
@@ -95,17 +105,42 @@ export function JevSettingsView({
 	isVisible?: (itemId: string) => boolean;
 }) {
 	const ready = effective !== null && config !== null;
-	const disabled = !ready || !openrouterKey;
+	// Sem o OpenRouter no servidor o revisor ainda funciona com o modelo escolhido ou o da manutenção (chave própria).
+	const disabled = !ready;
 	const visibleFeatures = JEV_FEATURE_SPECS.filter((spec) => isVisible(spec.itemId));
 
 	return (
 		<SettingsStack>
-			{isVisible("jev.mcp") || isVisible("jev.geral") ? (
+			{isVisible("jev.modelo") || isVisible("jev.mcp") || isVisible("jev.geral") ? (
 				<SettingsGroup title={title}>
 					{ready && !openrouterKey ? (
 						<p className="px-3.5 py-1 text-xs text-muted-foreground" role="note">
-							{NO_OPENROUTER_KEY_NOTE}: a revisão fica indisponível.
+							{NO_OPENROUTER_KEY_NOTE}: o revisor usa o modelo escolhido abaixo ou o de manutenção, com a chave de um provedor conectado.
 						</p>
+					) : null}
+
+					{isVisible("jev.modelo") ? (
+						<SettingRow
+							caption={<p>{REVIEWER_CAPTION}</p>}
+							description="Qualquer provedor com chave (OpenRouter, Anthropic, OpenCode Go); o plano ChatGPT não vale. Vazio usa o Jev no OpenRouter."
+							htmlFor="settings-model-reviewer"
+							icon={ShieldCheckIcon}
+							label="Modelo do revisor"
+						>
+							{effective ? (
+								<ModelPicker
+									emptyLabel={reviewerInheritLabel(effective, models, openrouterKey) ?? "Herdar"}
+									id="settings-model-reviewer"
+									loading={modelsLoading}
+									models={models.slice()}
+									noChatgpt
+									onChange={(id) => onChange(modelPatch("reviewer", id))}
+									value={modelPickerValue(effective.models.reviewer)}
+								/>
+							) : (
+								<p className="text-[13px] text-muted-foreground">Carregando…</p>
+							)}
+						</SettingRow>
 					) : null}
 
 					{isVisible("jev.mcp") ? (
@@ -227,8 +262,11 @@ export function JevSettings({
 	featuresTitle?: string;
 	showStatus?: boolean;
 }) {
+	const { models, loading } = useOpenRouterModels();
 	return (
 		<JevSettingsView
+			models={models}
+			modelsLoading={loading}
 			config={account.view?.config ?? null}
 			effective={account.view?.effective ?? null}
 			isVisible={isVisible}
@@ -254,7 +292,6 @@ export function GroupsCoordinationRow({
 }) {
 	if (!isVisible("jev.grupos")) return null;
 	const effective = account.view?.effective ?? null;
-	const openrouterKey = account.view?.capabilities.openrouterKey ?? true;
 	return (
 		<SwitchRow
 			description="Em grupos de bots, o Jev escolhe quem responde e, quando o pedido envolve vários bots, um coordena: divide o trabalho, confere as entregas e resume no fim. Desligado, vale a escolha de sempre."
@@ -263,7 +300,7 @@ export function GroupsCoordinationRow({
 			label="Grupos: coordenação inteligente"
 			onChange={(checked) => void account.save(groupsJevPatch(checked))}
 			onInherit={() => void account.save({ groups: { jevCoordination: null } })}
-			resolved={openrouterKey ? (effective?.groups?.jevCoordination ?? null) : null}
+			resolved={effective?.groups?.jevCoordination ?? null}
 		/>
 	);
 }

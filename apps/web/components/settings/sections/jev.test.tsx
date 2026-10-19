@@ -12,6 +12,7 @@ function effective(
 ): EffectiveAccountConfig {
 	const feature = overrides.feature ?? { value: "off", source: "default" };
 	return {
+		models: { reviewer: { value: undefined, source: "default" }, maintenance: { value: "openai/gpt-6-luna", source: "default" }, default: { value: "openai/gpt-4o-mini", source: "env" } },
 		groups: { jevCoordination: overrides.groups ?? { value: false, source: "default" } },
 		jev: {
 			mcp: overrides.mcp ?? { value: "off", source: "default" },
@@ -80,11 +81,19 @@ test("Jev: busca por um recurso abre o grupo só com ele, com 'Herdar' do geral"
 	assert.doesNotMatch(html.replace(/(class|style)="[^"]*"/g, ""), /Revisão de escritas|Decisões auxiliares/);
 });
 
-test("Jev: sem chave do OpenRouter no servidor, controles desabilitados e aviso", () => {
+test("Jev: sem chave do OpenRouter no servidor, aviso explica que o revisor usa o modelo escolhido ou a manutenção", () => {
 	const html = render({ openrouterKey: false });
-	assert.match(html, /Chave do OpenRouter não configurada no servidor/);
-	assert.equal((html.match(/disabled=""/g) ?? []).length >= 2, true);
+	assert.match(html, /Chave do OpenRouter não configurada no servidor: o revisor usa o modelo escolhido abaixo ou o de manutenção/);
 	assert.doesNotMatch(render({ openrouterKey: true }), /Chave do OpenRouter não configurada/);
+});
+
+test("Jev: seletor do modelo do revisor no topo, com a legenda pedida e sem a palavra do app", () => {
+	const html = render({});
+	assert.match(html, /Modelo do revisor/);
+	assert.match(html, /Modelo que revisa os runs, detecta travamentos e classifica pedidos. Use um modelo rápido./);
+	assert.ok(html.indexOf("Modelo do revisor") < html.indexOf("Revisão de escritas em conectores"));
+	assert.ok(html.includes("Herdar (Jev no OpenRouter)"));
+	assert.doesNotMatch(html, /Atlas/);
 });
 
 test("Jev: carregando, erro de carga e erro ao salvar", () => {

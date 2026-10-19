@@ -71,3 +71,14 @@ test("tarefas em segundo plano: último sucesso e último erro por tipo", () => 
   assert.match(html, /Último erro .*Chave de API do Anthropic inválida/)
   assert.doesNotMatch(renderToStaticMarkup(<DiagnosticsSettingsView {...base} data={view} />), /Tarefas em segundo plano/)
 })
+
+test("tarefas em segundo plano: o Revisor aparece com último sucesso e erro", () => {
+  const html = renderToStaticMarkup(
+    <DiagnosticsSettingsView
+      {...base}
+      data={{ ...view, maintenance: [{ kind: "reviewer", lastSuccessAt: "2026-10-15T10:00:00.000Z", lastError: { message: "Modelo indisponível", at: "2026-10-15T11:00:00.000Z" } }] }}
+    />
+  )
+  assert.match(html, /Revisor/)
+  assert.match(html, /Último erro .*Modelo indisponível/)
+})

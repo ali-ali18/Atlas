@@ -1,6 +1,7 @@
 import { getAccountConfig, onGroupTurnCreated, processGroupTurns, type GroupDispatchDeps } from "@workspace/db";
 import { buildGroupRouterPrompt, parseGroupRouterReply, resolveEffectiveConfig } from "@workspace/shared";
-import { askJev } from "@workspace/llm";
+import { createReviewerClient, type ReviewerLlmDeps } from "@workspace/agent-runtime";
+import type { askJev } from "@workspace/llm";
 import type { WorkerConfig } from "./config.js";
 import { createMaintenanceLlm } from "./maintenance-llm.js";
 
@@ -44,20 +45,23 @@ const GROUP_JEV_TIMEOUT_MS = 4_000;
  */
 export function createGroupJev(
 	config: WorkerConfig,
-	deps: { loadConfig?: typeof getAccountConfig; ask?: typeof askJev; env?: NodeJS.ProcessEnv } = {},
+	deps: { loadConfig?: typeof getAccountConfig; ask?: typeof askJev; env?: NodeJS.ProcessEnv; reviewer?: ReviewerLlmDeps } = {},
 ): NonNullable<GroupDispatchDeps["jev"]> {
 	return {
 		enabled: async (userId) => {
-			if (!config.openRouterApiKey) return false;
 			try {
 				const account = await (deps.loadConfig ?? getAccountConfig)(userId);
-				return resolveEffectiveConfig({ user: { config: account }, env: deps.env ?? process.env }).groups.jevCoordination.value;
+				if (!resolveEffectiveConfig({ user: { config: account }, env: deps.env ?? process.env }).groups.jevCoordination.value) return false;
+				// O revisor pode ser o Jev no OpenRouter, o modelo escolhido ou a cadeia da manutenção.
+				return (await createReviewerClient({ userId, config }, { askJev: deps.ask, ...deps.reviewer })).available;
 			} catch {
 				return false;
 			}
 		},
-		ask: async ({ state, questions }) => {
-			const result = await (deps.ask ?? askJev)({ apiKey: config.openRouterApiKey!, state, questions, timeoutMs: GROUP_JEV_TIMEOUT_MS });
+		ask: async ({ userId, state, questions }) => {
+			const reviewer = await createReviewerClient({ userId, config }, { askJev: deps.ask, ...deps.reviewer });
+			if (!reviewer.available) throw new Error("Revisor indisponível");
+			const result = await reviewer.ask({ state, questions, timeoutMs: GROUP_JEV_TIMEOUT_MS });
 			return result.answers;
 		},
 	};

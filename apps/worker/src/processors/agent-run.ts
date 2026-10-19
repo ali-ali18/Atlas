@@ -105,6 +105,7 @@ import {
 	runComputerUse,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
+import { createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import {
 	createRunTelemetryTracker,
 	stepTelemetryFields,
@@ -116,7 +117,6 @@ import {
 	type SandboxManager,
 } from "@workspace/sandbox";
 import { UnrecoverableError } from "bullmq";
-import { askJev, completeChat, evaluateMcpWithJev } from "@workspace/llm";
 import type { WorkerConfig } from "../config.js";
 import {
 	HISTORY_LIMIT_ECONOMY,
@@ -125,7 +125,7 @@ import {
 	historyWindowFor,
 	resolveRunConfigSnapshot,
 	runtimeParamsFromSnapshot,
-	resolveMaintenanceModelForJob,
+
 	resolveRunCodingModel,
 	resolveRunModelTiers,
 	visionFallbackFromSnapshot,
@@ -138,7 +138,7 @@ import { resolveRunAutonomy } from "../run-autonomy.js";
 import { actionsJevMode, actionsJudgeModel, pendingJevMode, proactiveFailureDisplay, proactiveJevMode, resolveProactiveForRun } from "../proactive-run.js";
 import { loadRunSkillIndex } from "../run-skills.js";
 import { buildMentionNotes } from "../run-mentions.js";
-import { getOpenRouterContextLength, isKnownOpenRouterModel, supportsImageInput } from "../openrouter-models.js";
+import { getOpenRouterContextLength, isKnownOpenRouterModel } from "../openrouter-models.js";
 import { imageVisionForRun } from "../image-vision.js";
 import { attachmentRuntimeForRun } from "../attachments.js";
 import { chainFollowUp, followUpRequest, laterFollowUpInput } from "../follow-up.js";
@@ -478,7 +478,7 @@ async function executeLeasedRun(ctx: {
 
 		const canSeeUserImages = await providers.supportsImageInput(run.model);
 		const openrouterVisionFallback = visionFallbackFromSnapshot(configSnapshot);
-		const fallbackModel = openrouterVisionFallback && await supportsImageInput(openrouterVisionFallback)
+		const fallbackModel = openrouterVisionFallback && await providers.supportsImageInput(openrouterVisionFallback)
 			? openrouterVisionFallback
 			: undefined;
 		const imageVision = imageVisionForRun({ userId: runUserId, apiKey, fallbackModel });
@@ -767,12 +767,12 @@ async function executeLeasedRun(ctx: {
 
 	let completionPersisted: "completed" | "budget_exhausted" | null = null;
 	// Triagem de mensagens do usuário durante o run: modelo barato de manutenção; falha = modelo do run.
-	const messageTriageModel = await resolveMaintenanceModelForJob({
-		kind: "summary",
-		config,
-		userId: runUserId,
-		conversationId: run.conversationId ?? undefined,
-	}).catch(() => undefined);
+	// Primeiro modelo da cadeia da manutenção (chave própria ou OpenRouter); sem chave ou falha = modelo do run.
+	const messageTriageModel = await resolveMaintenanceCandidates({ kind: "summary", config, userId: runUserId })
+		.then((resolved) => resolved.candidates[0]?.model)
+		.catch(() => undefined);
+	// Revisor (Jev): modelo escolhido > Jev fixo no OpenRouter > cadeia da manutenção. Sem caminho nenhum = Jev desligado.
+	const reviewer = await createReviewerClient({ userId: runUserId, config, judgeModel: actionsJudgeModel() }).catch(() => null);
 	// Entrega offline: com nota de ausência, o fim do run coloca o resultado no backlog.
 	const settleDelivery = (end: RunEnd, resultText?: string | null) =>
 		settleRunDelivery(
@@ -824,22 +824,15 @@ async function executeLeasedRun(ctx: {
 			idleTimeoutMs: runtimeConfig.idleTimeoutMs,
 			fallbackModels: runtimeConfig.fallbackModels,
 			imageModel: runtimeConfig.imageModel,
-			evaluateMcpWithJev: (state, signal) => evaluateMcpWithJev({ apiKey: config.openRouterApiKey!, state, signal }),
-			jev: config.openRouterApiKey
+			evaluateMcpWithJev: reviewer?.available ? (state, signal) => reviewer.evaluateMcp(state, signal) : undefined,
+			jev: reviewer?.available
 				? {
 						modes: { ...runtimeConfig.jevModes, proactive: proactiveJevMode(runtimeConfig.jevModes?.intent), pending: pendingJevMode(runtimeConfig.jevModes?.intent), actions: actionsJevMode() },
 						// F0: duração/modelo/tokens por decisão, fora do uso principal.
 						onDecision: (record) => jevTelemetry.record(record),
 						// Verificador de ações: o modelo rápido devolve JSON (veredito + motivo) em texto.
-						complete: async (request) =>
-							(await completeChat({
-								apiKey: config.openRouterApiKey!,
-								model: actionsJudgeModel(),
-								messages: [{ role: "system", content: request.system }, { role: "user", content: request.user }],
-								timeoutMs: request.timeoutMs,
-								signal: request.signal,
-							})).message.content,
-						ask: (request) => askJev({ apiKey: config.openRouterApiKey!, state: request.state, questions: request.questions, timeoutMs: request.timeoutMs, signal: request.signal }),
+						complete: reviewer.complete,
+						ask: reviewer.ask,
 					}
 				: undefined,
 			getSessionId,

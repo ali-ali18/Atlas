@@ -77,7 +77,7 @@ const MODEL_ROWS: readonly ModelRowSpec[] = [
 		itemId: "modelos.visao",
 		label: "Modelo para ler imagens",
 		icon: EyeIcon,
-		description: "Entra quando o modelo do bot não enxerga imagens. Só modelos do OpenRouter.",
+		description: "Entra quando o modelo do bot não enxerga imagens. Aceita modelos com visão do OpenRouter, da Anthropic e do OpenCode Go.",
 		emptyText: "sem reserva",
 	},
 	{
@@ -167,6 +167,7 @@ export function ModelsSettingsView({
 								models={row.setting === "image" && imageModels.length > 0 ? [...imageModels] : modelsForSetting(row.setting, models)}
 								onChange={(id) => onChange(modelPatch(row.setting, id))}
 								noChatgpt={MODEL_SETTING_NO_CHATGPT[row.setting] === true}
+								requireImage={row.setting === "vision"}
 								openrouterOnly={MODEL_SETTING_OPENROUTER_ONLY[row.setting]}
 								value={modelPickerValue(effective.models[row.setting])}
 							/>
@@ -204,7 +205,7 @@ export function ModelsSettingsView({
 					caption={
 						fallbackList.length === 0 && fallbackInherit ? <p>{fallbackInherit}</p> : null
 					}
-					description={`Tentados quando o modelo principal falha (até ${MAX_FALLBACK_MODELS}). Só modelos do OpenRouter.`}
+					description={`Tentados na ordem quando o modelo principal falha (até ${MAX_FALLBACK_MODELS}). Aceita modelos de qualquer provedor com chave; o plano ChatGPT não vale.`}
 					icon={LayersIcon}
 					label="Modelos de reserva"
 				>
@@ -250,7 +251,7 @@ function FallbacksControl({
 					<ModelPicker
 						models={models.slice()}
 						onChange={(next) => onChange(setFallbackAt(list, index, next))}
-						openrouterOnly
+						noChatgpt
 						value={id}
 					/>
 					<Button
@@ -271,7 +272,7 @@ function FallbacksControl({
 							setAdding(false);
 							onChange(setFallbackAt(list, list.length, next));
 						}}
-						openrouterOnly
+						noChatgpt
 						value=""
 					/>
 					<Button
