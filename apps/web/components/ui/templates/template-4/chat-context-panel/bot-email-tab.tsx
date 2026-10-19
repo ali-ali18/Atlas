@@ -48,7 +48,7 @@ function AddressCard({ mailbox, busy, onToggle }: { mailbox: BotMailboxDto; busy
 				<span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground">
 					<MailIcon className="size-4" />
 				</span>
-				<p className="min-w-0 flex-1 break-all font-medium text-sm leading-snug" data-testid="email-address">
+				<p className="min-w-0 flex-1 truncate font-medium text-sm leading-snug" data-testid="email-address" title={mailbox.address}>
 					{mailbox.address}
 				</p>
 				<Button

@@ -59,7 +59,7 @@ function seedSetup(api: MockAtlas, kind: "key" | "create") {
     push({ id: "a-1", role: "assistant", content: "Para criar o e-mail eu preciso da chave da sua conta no OpenMail. Cole no cartão abaixo: ela não passa por mim.", createdAt: new Date(base + 20_000).toISOString() })
     push({
       id: "c-1", role: "confirm", createdAt: new Date(base + 25_000).toISOString(),
-      content: JSON.stringify({ v: 1, kind: "confirm", confirmId: "confirm-emailkey-run1", title: "Falta a chave do OpenMail", description: "Cole a chave da sua conta no OpenMail para o bot ter um e-mail. Ela vai direto do campo para o servidor, criptografada: o bot não a vê.", status: "pending", confirmLabel: "Salvar chave", cancelLabel: "Agora não", emailKeyRequest: { provider: "openmail" } }),
+      content: JSON.stringify({ v: 1, kind: "confirm", confirmId: "confirm-emailkey-run1", title: "Falta a chave do OpenMail", description: "Cole a chave da sua conta no OpenMail para o bot ter um e-mail.", status: "pending", confirmLabel: "Salvar chave", cancelLabel: "Agora não", emailKeyRequest: { provider: "openmail" } }),
     })
   } else {
     push({ id: "a-1", role: "assistant", content: "Posso criar o endereço agora. Confirme no cartão abaixo: ele usa uma das suas caixas gratuitas.", createdAt: new Date(base + 20_000).toISOString() })

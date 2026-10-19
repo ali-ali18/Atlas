@@ -183,7 +183,7 @@ async function missingKeyResult(ctx: Omit<ResolvedCtx, "email">, deps: EmailTool
 		type: "confirm",
 		confirmId,
 		title: "Falta a chave do OpenMail",
-		description: "Cole a chave da sua conta no OpenMail para o bot ter um e-mail. Ela vai direto do campo para o servidor, criptografada: o bot não a vê.",
+		description: "Cole a chave da sua conta no OpenMail para o bot ter um e-mail.",
 		confirmLabel: "Salvar chave",
 		cancelLabel: "Agora não",
 		emailKeyRequest: { provider: "openmail" },
