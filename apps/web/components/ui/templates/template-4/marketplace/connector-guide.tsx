@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ChevronDownIcon, PencilIcon, RefreshCwIcon, SparklesIcon } from "lucide-react"
-import { CONNECTOR_GUIDE_MAX_CHARS, type ConnectorGuideView, type ConnectorKind } from "@workspace/shared"
+import { CONNECTOR_GUIDE_MAX_CHARS, GUIDE_GENERATING_STALE_MS, GUIDE_STALE_MESSAGE, type ConnectorGuideView, type ConnectorKind } from "@workspace/shared"
 import { Button } from "@workspace/ui/components/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible"
 import { ConfirmAlert } from "@workspace/ui/components/confirm-alert"
@@ -17,7 +17,9 @@ import {
 } from "@/lib/atlas-api"
 
 const POLL_MS = 3000
-const POLL_MAX = 14
+/** Primeiros ~3 min a cada 3 s; depois a cada 15 s enquanto o painel estiver aberto. */
+const FAST_POLL_WINDOW_MS = 3 * 60_000
+const SLOW_POLL_MS = 15_000
 
 function sourceLabel(guide: ConnectorGuideView): string {
   return guide.source === "user" ? "Editado por você" : "Gerado automaticamente"
@@ -79,6 +81,9 @@ export function ConnectorGuideBlock({
   onResolve,
 }: ConnectorGuideViewProps) {
   const text = guide?.text ?? ""
+  const isGenerating = generating || guide?.status === "generating"
+  const failure = !isGenerating && guide?.status === "failed" ? guide.error || "Não foi possível gerar o guia" : null
+  const shownError = error ?? failure
   const hasText = text.trim().length > 0
   const suggestions = guide?.suggestions ?? []
   return (
@@ -90,6 +95,7 @@ export function ConnectorGuideBlock({
           {guide && hasText ? <span className="block text-xs text-muted-foreground">{sourceLabel(guide)}</span> : null}
         </span>
         <span className="flex shrink-0 items-center gap-2">
+          {isGenerating ? <span className="text-xs text-muted-foreground">Gerando o guia…</span> : null}
           {suggestions.length > 0 ? (
             <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
               {suggestions.length} {suggestions.length === 1 ? "sugestão" : "sugestões"}
@@ -101,19 +107,19 @@ export function ConnectorGuideBlock({
       <CollapsibleContent className="space-y-2">
       {!editing ? (
         <div className="flex items-center justify-end gap-1">
-          {hasText ? <IconAction disabled={busy || generating} icon={PencilIcon} label="Editar guia" onClick={onEdit} /> : null}
+          {hasText ? <IconAction disabled={busy || isGenerating} icon={PencilIcon} label="Editar guia" onClick={onEdit} /> : null}
           <IconAction
-            disabled={busy || generating}
+            disabled={busy || isGenerating}
             icon={RefreshCwIcon}
             label={hasText ? "Gerar de novo" : "Gerar guia"}
             onClick={onRegenerate}
-            spinning={generating}
+            spinning={isGenerating}
           />
         </div>
       ) : null}
-      {error ? (
+      {shownError ? (
         <p className="m-0 text-xs text-destructive" role="alert">
-          {error}
+          {shownError}
         </p>
       ) : null}
       {confirmRegenerate ? (
@@ -152,11 +158,12 @@ export function ConnectorGuideBlock({
         </div>
       ) : hasText ? (
         <div className="rounded-xl border bg-muted/20 px-4 py-3">
+          {isGenerating ? <p className="m-0 mb-2 text-xs text-muted-foreground">Gerando o guia…</p> : null}
           <SkillMarkdownPreview markdown={text} />
         </div>
       ) : (
         <p className="m-0 rounded-xl border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-          {generating ? "Gerando o guia a partir das ferramentas do conector…" : "O guia ainda não foi gerado. Ele diz ao bot como usar as ferramentas deste conector (qual id passar, formatos, filtros)."}
+          {isGenerating ? "Gerando o guia…" : "O guia ainda não foi gerado. Ele diz ao bot como usar as ferramentas deste conector (qual id passar, formatos, filtros)."}
         </p>
       )}
       {suggestions.map((suggestion) => (
@@ -198,7 +205,7 @@ export function ConnectorGuide({
   const [draft, setDraft] = useState("")
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [generating, setGenerating] = useState(false)
+  const [generating, setGenerating] = useState(initial?.status === "generating")
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const lastUpdated = useRef(initial?.updatedAt ?? null)
@@ -206,42 +213,51 @@ export function ConnectorGuide({
   useEffect(() => {
     setGuide(initial ?? null)
     setEditing(false)
-    setGenerating(false)
+    setGenerating(initial?.status === "generating")
     setConfirming(false)
     lastUpdated.current = initial?.updatedAt ?? null
     // Só ao trocar de conexão: edições locais não são sobrescritas por re-render do pai.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionId])
 
-  // Depois de "Gerar de novo" o worker grava em segundo plano: consulta até o guia mudar.
+  // O worker grava em segundo plano (e registra falhas na conexão): consulta até sair de "gerando".
   useEffect(() => {
     if (!generating) return
+    // Depois da janela rápida só consulta com o painel aberto; reabrir reinicia o ciclo lento.
+    const startedAt = Date.now()
     let alive = true
-    let attempts = 0
-    const timer = setInterval(async () => {
-      attempts += 1
-      try {
-        const next = await getConnectorGuide(kind, connectionId)
-        if (!alive) return
-        if (next && next.updatedAt !== lastUpdated.current) {
-          lastUpdated.current = next.updatedAt
-          setGuide(next)
-          setGenerating(false)
-          return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const tick = async () => {
+      const elapsed = Date.now() - startedAt
+      const fast = elapsed < FAST_POLL_WINDOW_MS
+      if (fast || open) {
+        try {
+          const next = await getConnectorGuide(kind, connectionId)
+          if (!alive) return
+          const finished = next ? next.status !== "generating" && (next.status === "failed" || next.updatedAt !== lastUpdated.current) : false
+          if (next && finished) {
+            lastUpdated.current = next.updatedAt
+            setGuide(next)
+            setGenerating(false)
+            return
+          }
+          if (elapsed > GUIDE_GENERATING_STALE_MS + POLL_MS) {
+            setGenerating(false)
+            setError(GUIDE_STALE_MESSAGE)
+            return
+          }
+        } catch {
+          /* tenta de novo no próximo ciclo */
         }
-      } catch {
-        /* tenta de novo no próximo ciclo */
       }
-      if (alive && attempts >= POLL_MAX) {
-        setGenerating(false)
-        setError("A geração está demorando. Atualize a página em instantes.")
-      }
-    }, POLL_MS)
+      if (alive) timer = setTimeout(() => void tick(), fast ? POLL_MS : SLOW_POLL_MS)
+    }
+    timer = setTimeout(() => void tick(), POLL_MS)
     return () => {
       alive = false
-      clearInterval(timer)
+      if (timer) clearTimeout(timer)
     }
-  }, [generating, kind, connectionId])
+  }, [generating, open, kind, connectionId])
 
   const run = useCallback(async (task: () => Promise<void>, fallback: string) => {
     setBusy(true)

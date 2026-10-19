@@ -365,8 +365,11 @@ export {
 } from "./mcp-connections.js";
 export {
 	addGuideSuggestion,
+	clearGuideStatus,
 	getConnectorGuide,
 	guideFromRow,
+	markGuideFailed,
+	markGuideGenerating,
 	resolveGuideSuggestion,
 	setConnectorGuide,
 	type ResolveSuggestionResult,

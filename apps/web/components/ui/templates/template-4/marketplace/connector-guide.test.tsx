@@ -61,3 +61,16 @@ test("sugestão do bot com Aceitar e Descartar; confirmação ao sobrescrever gu
   assert.match(html, />Descartar</)
   assert.match(html, /Substituir o guia editado\?/)
 })
+
+test("status do servidor: gerando mostra estado neutro e bloqueia; falhou mostra o motivo e mantém o ícone de gerar", () => {
+  const generating = renderToStaticMarkup(<ConnectorGuideBlock open guide={{ ...short, text: "", status: "generating", error: null }} />)
+  assert.match(generating, /Gerando o guia…/)
+  assert.doesNotMatch(generating, /role="alert"/)
+  assert.match(generating, /disabled=""/)
+  const failed = renderToStaticMarkup(<ConnectorGuideBlock open guide={{ ...short, text: "", status: "failed", error: "Sem chave do provedor no servidor" }} />)
+  assert.match(failed, /role="alert"/)
+  assert.match(failed, /Sem chave do provedor no servidor/)
+  assert.match(failed, /aria-label="Gerar guia"/)
+  assert.doesNotMatch(failed, /Gerando o guia…/)
+  assert.doesNotMatch(failed, /Atlas/)
+})

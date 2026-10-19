@@ -143,3 +143,25 @@ test("sugestões: aceitar acrescenta ao guia (vira user); descartar só remove; 
 	assert.equal(full.status, 409);
 	assert.equal(rows.api[0]!.guideSuggestionsJson.length, 1, "sugestão fica pendente");
 }));
+
+test("regenerate marca 'gerando'; GET expõe status/erro e trata gerando velho como falha", { skip: SKIP }, withDb(async (rows) => {
+	rows.api.push(row({ id: "a1" }));
+	setConnectorGuideEnqueuer(async () => {});
+	assert.equal((await send(appFor(A), "/v1/connectors/api/a1/guide/regenerate", "POST")).status, 202);
+	assert.equal(rows.api[0]!.guideStatus, "generating");
+	const gen = ((await (await send(appFor(A), "/v1/connectors/api/a1/guide")).json()) as { guide: { status: string; error: string | null } }).guide;
+	assert.equal(gen.status, "generating");
+	rows.api[0]!.guideRequestedAt = new Date(Date.now() - 6 * 60_000);
+	const stale = ((await (await send(appFor(A), "/v1/connectors/api/a1/guide")).json()) as { guide: { status: string; error: string } }).guide;
+	assert.deepEqual([stale.status, stale.error], ["failed", "A geração não terminou; tente de novo"]);
+	Object.assign(rows.api[0]!, { guideStatus: "failed", guideError: "Sem chave do provedor no servidor" });
+	const failed = ((await (await send(appFor(A), "/v1/connectors/api/a1/guide")).json()) as { guide: { status: string; error: string } }).guide;
+	assert.deepEqual([failed.status, failed.error], ["failed", "Sem chave do provedor no servidor"]);
+}));
+
+test("regenerate: falha ao enfileirar não deixa 'gerando' preso", { skip: SKIP }, withDb(async (rows) => {
+	rows.api.push(row({ id: "a1" }));
+	setConnectorGuideEnqueuer(async () => { throw new Error("redis fora"); });
+	assert.equal((await send(appFor(A), "/v1/connectors/api/a1/guide/regenerate", "POST")).status, 503);
+	assert.equal(rows.api[0]!.guideStatus, null);
+}));

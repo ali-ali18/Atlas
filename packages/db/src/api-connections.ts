@@ -81,6 +81,9 @@ const LITE_SELECT = {
 	guideSource: true,
 	guideUpdatedAt: true,
 	guideSuggestionsJson: true,
+	guideStatus: true,
+	guideError: true,
+	guideRequestedAt: true,
 	createdAt: true,
 	updatedAt: true,
 } satisfies Prisma.ApiConnectionSelect;

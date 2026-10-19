@@ -1,3 +1,4 @@
+import { clearGuideStatus, markGuideGenerating } from "@workspace/db";
 import type { ConnectorGuideJobPayload, ConnectorKind } from "@workspace/shared";
 
 /**
@@ -20,11 +21,14 @@ export function connectorGuideQueueReady(): boolean {
 /** Pedido assíncrono de geração. `force` sobrescreve guia editado (só após confirmação do usuário). */
 export async function enqueueConnectorGuide(payload: ConnectorGuideJobPayload): Promise<boolean> {
 	if (!enqueuer) return false;
+	// O estado "gerando" é gravado antes: se o worker nunca pegar o job, a UI vê isso (e a regra de 5 min).
+	await markGuideGenerating(payload.kind, payload.connectionId, payload.userId).catch(() => false);
 	try {
 		await enqueuer(payload, `connector-guide-${payload.kind}-${payload.connectionId}-${Date.now()}`);
 		return true;
 	} catch (error) {
 		console.error("enqueue connector guide failed", error instanceof Error ? error.name : "unknown");
+		await clearGuideStatus(payload.kind, payload.connectionId, payload.userId).catch(() => false);
 		return false;
 	}
 }

@@ -739,6 +739,10 @@ model McpConnection {
   guideUpdatedAt DateTime?
   /// Sugestões do bot pendentes: [{id, text, createdAt}] (aceitar/descartar na UI).
   guideSuggestionsJson Json?
+  /// Estado da última geração do guia: "generating" | "failed" | null; erro curto e seguro (PT-BR).
+  guideStatus    String?
+  guideError     String?
+  guideRequestedAt DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -788,6 +792,10 @@ model ApiConnection {
   guideUpdatedAt DateTime?
   /// Sugestões do bot pendentes: [{id, text, createdAt}] (aceitar/descartar na UI).
   guideSuggestionsJson Json?
+  /// Estado da última geração do guia: "generating" | "failed" | null; erro curto e seguro (PT-BR).
+  guideStatus    String?
+  guideError     String?
+  guideRequestedAt DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

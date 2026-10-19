@@ -100,3 +100,47 @@ test("lição vira sugestão pendente (sem aplicar); NENHUMA e duplicada são ig
 	assert.equal(none.status, "skipped");
 	assert.equal(row.guideSuggestionsJson.length, 1);
 });
+
+const guideJob = (data: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) =>
+	({ name: ATLAS_JOB_NAMES.connectorGuide, id: "job-1", data: { kind: "mcp", connectionId: "c1", userId: USER, ...data }, ...extra }) as never;
+const failing = (error: Error) => ({ resolveModel: async () => "m", complete: async () => { throw error; } });
+
+test("falhas ficam gravadas na conexão com mensagem amigável", async () => {
+	const { OpenRouterError } = await import("@workspace/llm");
+	const cases: Array<[string, Row, WorkerConfig, ReturnType<typeof failing> | { resolveModel: () => Promise<string>; complete: () => Promise<never> }, string]> = [
+		["sem chave", mcpRow(), { ...config, openRouterApiKey: undefined }, failing(new Error("x")), "Sem chave do provedor no servidor"],
+		["sem operações", mcpRow({ toolsCacheJson: [] }), config, failing(new Error("x")), "O conector não tem operações"],
+		["não conectada", mcpRow({ status: "pending_auth" }), config, failing(new Error("x")), "A conexão não está ativa"],
+		["modelo inexistente", mcpRow(), config, failing(new OpenRouterError("No endpoints found for secret-model", 404)), "Modelo de manutenção indisponível"],
+		["resolução do modelo", mcpRow(), config, { resolveModel: async () => { throw new Error("boom"); }, complete: async () => { throw new Error("x"); } }, "Modelo de manutenção indisponível"],
+		["chave recusada", mcpRow(), config, failing(new OpenRouterError("bad key sk-or-123", 401)), "O servidor não conseguiu usar a chave do provedor"],
+	];
+	for (const [label, row, cfg, deps, message] of cases) {
+		const result = await withRow(row, () => processConnectorGuideJob(guideJob(), cfg, deps as never));
+		assert.deepEqual(result, { status: "failed", reason: message }, label);
+		assert.equal(row.guideStatus, "failed", label);
+		assert.equal(row.guideError, message, label);
+		assert.doesNotMatch(String(row.guideError), /sk-or|secret-model/, label);
+	}
+});
+
+test("resposta vazia: marca falha na última tentativa e relança; antes disso só relança (segue gerando)", async () => {
+	const empty = { resolveModel: async () => "m", complete: async () => ({ model: "m", message: { role: "assistant", content: "```\n```" } }) as never };
+	const row = mcpRow({ guideStatus: "generating", guideRequestedAt: new Date() });
+	await assert.rejects(() => withRow(row, () => processConnectorGuideJob(guideJob({}, { attemptsMade: 0, opts: { attempts: 2 } }), config, empty)));
+	assert.equal(row.guideStatus, "generating");
+	await assert.rejects(() => withRow(row, () => processConnectorGuideJob(guideJob({}, { attemptsMade: 1, opts: { attempts: 2 } }), config, empty)));
+	assert.equal(row.guideStatus, "failed");
+	assert.equal(row.guideError, "O modelo devolveu resposta vazia");
+});
+
+test("sucesso limpa o estado; guia existente sem force também limpa", async () => {
+	const ok = { resolveModel: async () => "m", complete: async () => ({ model: "m", message: { role: "assistant", content: "- Use o id interno." } }) as never };
+	const row = mcpRow({ guideStatus: "failed", guideError: "antigo", guideRequestedAt: new Date() });
+	assert.equal((await withRow(row, () => processConnectorGuideJob(guideJob(), config, ok))).status, "generated");
+	assert.equal(row.guideStatus, null);
+	assert.equal(row.guideError, null);
+	const dup = mcpRow({ guideMd: "- x", guideSource: "generated", guideStatus: "generating", guideRequestedAt: new Date() });
+	assert.equal((await withRow(dup, () => processConnectorGuideJob(guideJob(), config, ok))).status, "skipped");
+	assert.equal(dup.guideStatus, null);
+});

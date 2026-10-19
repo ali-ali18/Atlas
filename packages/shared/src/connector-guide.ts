@@ -14,13 +14,38 @@ export type ConnectorGuideSource = "generated" | "user";
 
 export type ConnectorGuideSuggestion = { id: string; text: string; createdAt: string };
 
+export type ConnectorGuideStatus = "generating" | "failed";
+
+/** Geração parada em "generating" por mais que isso conta como falha (job perdido/worker fora). */
+export const GUIDE_GENERATING_STALE_MS = 5 * 60_000;
+export const GUIDE_STALE_MESSAGE = "A geração não terminou; tente de novo";
+
 /** Como a API/UI enxergam o guia de uma conexão. */
 export type ConnectorGuideView = {
 	text: string;
 	source: ConnectorGuideSource;
 	updatedAt: string;
 	suggestions: ConnectorGuideSuggestion[];
+	/** Estado da última geração: em andamento, falhou (com `error`) ou nenhum. */
+	status?: ConnectorGuideStatus | null;
+	/** Motivo curto em português, seguro para o usuário (sem segredos). */
+	error?: string | null;
+	requestedAt?: string | null;
 };
+
+/** Estado efetivo: "generating" velho demais vira "failed" com mensagem fixa. */
+export function resolveGuideStatus(
+	raw: { status?: string | null; error?: string | null; requestedAt?: Date | null },
+	now: Date = new Date(),
+): { status: ConnectorGuideStatus | null; error: string | null } {
+	if (raw.status === "failed") return { status: "failed", error: raw.error?.trim() || "Não foi possível gerar o guia" };
+	if (raw.status === "generating") {
+		const started = raw.requestedAt?.getTime();
+		if (started === undefined || now.getTime() - started > GUIDE_GENERATING_STALE_MS) return { status: "failed", error: GUIDE_STALE_MESSAGE };
+		return { status: "generating", error: null };
+	}
+	return { status: null, error: null };
+}
 
 /** Payload do job `connector.guide` (gerar o guia de uma conexão). */
 export type ConnectorGuideJobPayload = {

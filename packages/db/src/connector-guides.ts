@@ -5,6 +5,7 @@ import {
 	CONNECTOR_GUIDE_MAX_SUGGESTIONS,
 	CONNECTOR_GUIDE_SUGGESTION_MAX_CHARS,
 	appendGuideBullet,
+	resolveGuideStatus,
 	sanitizeGuideText,
 	type ConnectorGuideSource,
 	type ConnectorGuideSuggestion,
@@ -20,6 +21,9 @@ export type GuideColumns = {
 	guideSource: string | null;
 	guideUpdatedAt: Date | null;
 	guideSuggestionsJson: Prisma.JsonValue | null;
+	guideStatus?: string | null;
+	guideError?: string | null;
+	guideRequestedAt?: Date | null;
 };
 
 function parseSuggestions(raw: Prisma.JsonValue | null): ConnectorGuideSuggestion[] {
@@ -42,12 +46,16 @@ function parseSuggestions(raw: Prisma.JsonValue | null): ConnectorGuideSuggestio
 export function guideFromRow(row: GuideColumns): ConnectorGuideView | null {
 	const suggestions = parseSuggestions(row.guideSuggestionsJson);
 	const text = (row.guideMd ?? "").slice(0, CONNECTOR_GUIDE_MAX_CHARS);
-	if (!text.trim() && suggestions.length === 0) return null;
+	const state = resolveGuideStatus({ status: row.guideStatus, error: row.guideError, requestedAt: row.guideRequestedAt });
+	if (!text.trim() && suggestions.length === 0 && !state.status) return null;
 	return {
 		text,
 		source: row.guideSource === "user" ? "user" : "generated",
 		updatedAt: (row.guideUpdatedAt ?? new Date(0)).toISOString(),
 		suggestions,
+		status: state.status,
+		error: state.error,
+		requestedAt: row.guideRequestedAt ? row.guideRequestedAt.toISOString() : null,
 	};
 }
 
@@ -92,10 +100,37 @@ export async function setConnectorGuide(
 	const now = new Date();
 	const result = await delegate(kind).updateMany({
 		where: { id, userId },
-		data: { guideMd: text, guideSource: input.source, guideUpdatedAt: now },
+		data: { guideMd: text, guideSource: input.source, guideUpdatedAt: now, guideStatus: null, guideError: null, guideRequestedAt: null },
 	});
 	if (result.count !== 1) return null;
-	return { text, source: input.source, updatedAt: now.toISOString(), suggestions: parseSuggestions(row.guideSuggestionsJson) };
+	return { text, source: input.source, updatedAt: now.toISOString(), suggestions: parseSuggestions(row.guideSuggestionsJson), status: null, error: null, requestedAt: null };
+}
+
+/** Geração pedida: a UI mostra "Gerando…" até o worker gravar o texto ou o motivo da falha. */
+export async function markGuideGenerating(kind: ConnectorKind, id: string, userId: string): Promise<boolean> {
+	const result = await delegate(kind).updateMany({
+		where: { id, userId },
+		data: { guideStatus: "generating", guideError: null, guideRequestedAt: new Date() },
+	});
+	return result.count === 1;
+}
+
+/** Falha visível ao usuário. `error` é texto curto em português, nunca detalhe bruto do provedor. */
+export async function markGuideFailed(kind: ConnectorKind, id: string, userId: string, error: string): Promise<boolean> {
+	const result = await delegate(kind).updateMany({
+		where: { id, userId },
+		data: { guideStatus: "failed", guideError: error.slice(0, 200) },
+	});
+	return result.count === 1;
+}
+
+/** Sem pendência (ex.: guia já existia e o job foi dispensado). */
+export async function clearGuideStatus(kind: ConnectorKind, id: string, userId: string): Promise<boolean> {
+	const result = await delegate(kind).updateMany({
+		where: { id, userId },
+		data: { guideStatus: null, guideError: null, guideRequestedAt: null },
+	});
+	return result.count === 1;
 }
 
 async function writeSuggestions(kind: ConnectorKind, id: string, userId: string, list: ConnectorGuideSuggestion[], extra: Record<string, unknown> = {}): Promise<void> {
