@@ -62,7 +62,8 @@ export type PersistedConfirmCard = {
 	confirmId: string;
 	title: string;
 	description?: string;
-	status: "pending" | "approved" | "rejected";
+	/** `failed`: o usuário aprovou, mas a ação falhou ao executar (o motivo está em `outcome.detail`). `rejected` é só recusa/pulo/substituição. */
+	status: "pending" | "approved" | "rejected" | "failed";
 	confirmLabel?: string;
 	cancelLabel?: string;
 	/** Terceira ação do card: "Não perguntar mais para isto". */
@@ -552,7 +553,7 @@ export function parseConversationCard(content: string): PersistedConversationCar
 		if (typeof row.confirmId !== "string" || row.confirmId.trim().length === 0) return null;
 		if (typeof row.title !== "string" || row.title.trim().length === 0) return null;
 		const status =
-			row.status === "approved" || row.status === "rejected" || row.status === "pending"
+			row.status === "approved" || row.status === "rejected" || row.status === "failed" || row.status === "pending"
 				? row.status
 				: "pending";
 		return {

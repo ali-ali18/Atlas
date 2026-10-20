@@ -6,11 +6,11 @@ import type { Message } from "@/components/ui/templates/template-4/data";
 import { ApprovalBar } from "@/components/ui/templates/template-4/chat-thread/approval-bar";
 import { ApprovalMarker } from "@/components/ui/templates/template-4/chat-thread/approval-marker";
 import { hasActionableDevApproval } from "./card-decision";
-import { approvalBarLabel, approvalMarkerFor, isHiddenProtocolBubble, selectDockEntries } from "./approval-dock";
+import { approvalBarLabel, failedApprovalDetail, approvalMarkerFor, isHiddenProtocolBubble, selectDockEntries } from "./approval-dock";
 
 Object.assign(globalThis, { React });
 
-const cmd = (id: string, status: "pending" | "approved" | "rejected", command = "pnpm test"): Message => ({
+const cmd = (id: string, status: "pending" | "approved" | "rejected" | "failed", command = "pnpm test"): Message => ({
 	id,
 	kind: "confirm",
 	title: "Executar este comando?",
@@ -172,4 +172,16 @@ test("barra: com prefixos e onAlways a linha ganha o menu ⋮ (Permitir uma vez,
 	const plain = selectDockEntries([cmd("q", "pending", "pnpm test")]);
 	assert.deepEqual(dockEntryPrefixes(plain[0]!), []);
 	assert.doesNotMatch(renderToStaticMarkup(<ApprovalBar entries={plain} onAlways={noop} onApprove={noop} onLocate={noop} onSkip={noop} />), /data-approval-bar-more/);
+});
+
+test("aprovado que falhou ao executar aparece como Falhou (não Recusado), com o erro no detalhe", () => {
+	const failed = { ...cmd("f", "failed", "make deploy"), failureDetail: "campo obrigatório ausente: cliente" } as Message;
+	const marker = approvalMarkerFor(failed, new Set(), [user("u", "cancela isso")])!;
+	assert.equal(marker.status, "failed");
+	assert.equal(marker.label, "Falhou · make deploy");
+	const html = renderToStaticMarkup(<ApprovalMarker detail={failedApprovalDetail("Criar proposta", "campo obrigatório ausente: cliente")} marker={marker} />);
+	assert.match(html, /data-approval-marker="failed"/);
+	assert.equal(failedApprovalDetail("Criar proposta", "campo obrigatório ausente: cliente"), "Criar proposta\n\nFalhou: campo obrigatório ausente: cliente");
+	assert.equal(failedApprovalDetail(undefined, undefined), "Falhou ao executar.");
+	assert.equal(approvalMarkerFor(cmd("r", "rejected", "make x"), new Set(), [])?.label, "Recusado · make x");
 });

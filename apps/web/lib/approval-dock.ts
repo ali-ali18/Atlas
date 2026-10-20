@@ -7,7 +7,7 @@ type NeedsUserMessage = Extract<Message, { kind: "needs-user" }>;
 /** Um pedido de aprovação que pode viver no dock: local (comando/escrita/MCP) ou repassado de outro bot. */
 export type DockEntry = { id: string; type: "confirm"; message: ConfirmMessage } | { id: string; type: "relayed"; message: NeedsUserMessage };
 
-export type ApprovalMarkerStatus = "pending" | "approved" | "rejected" | "skipped" | "expired" | "resolved";
+export type ApprovalMarkerStatus = "pending" | "approved" | "rejected" | "failed" | "skipped" | "expired" | "resolved";
 
 const SHORT_MAX = 60;
 
@@ -73,6 +73,7 @@ const STATUS_WORD: Record<ApprovalMarkerStatus, string> = {
 	pending: "Aguardando aprovação",
 	approved: "Aprovado",
 	rejected: "Recusado",
+	failed: "Falhou",
 	skipped: "Pulado",
 	expired: "Expirado",
 	resolved: "Respondido",
@@ -80,6 +81,12 @@ const STATUS_WORD: Record<ApprovalMarkerStatus, string> = {
 
 export function approvalMarkerText(status: ApprovalMarkerStatus, short: string): string {
 	return `${STATUS_WORD[status]} · ${short}`;
+}
+
+/** Detalhe do marcador de uma aprovação que falhou ao executar: o pedido e, abaixo, o erro que voltou. */
+export function failedApprovalDetail(description: string | undefined, failure: string | undefined): string {
+	const reason = failure?.trim();
+	return [description?.trim(), reason ? `Falhou: ${reason}` : "Falhou ao executar."].filter(Boolean).join("\n\n");
 }
 
 /** Recusa sem comentário ("cancela isso") = pulou; "recusado: …" = recusou. Olha a primeira decisão que vem depois do cartão. */

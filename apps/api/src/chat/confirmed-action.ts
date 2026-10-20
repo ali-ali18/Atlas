@@ -286,13 +286,13 @@ async function resolvePendingIntent(input: {
 		const claimed = payload.emailSend ? await claimSkillPendingIntent(pending.id, input.userId, input.conversationId) : false;
 		if (!claimed) return done("Este envio já foi processado ou expirou. Peça de novo.");
 		const outcome = await executeConfirmedEmailSend({ userId: input.userId, botId: input.botId, payload });
-		await updateConfirmCardStatus(input.conversationId, outcome.ok ? "approved" : "rejected", payload.confirmId, undefined, { ok: outcome.ok, detail: outcome.detail }).catch(() => undefined);
+		await updateConfirmCardStatus(input.conversationId, outcome.ok ? "approved" : "failed", payload.confirmId, undefined, { ok: outcome.ok, detail: outcome.detail }).catch(() => undefined);
 		return done(outcome.text);
 	}
 	if (payload.action === "email-key" || payload.action === "email-create-mailbox") {
 		if (!(await claimSkillPendingIntent(pending.id, input.userId, input.conversationId))) return done("Este pedido já foi processado ou expirou.");
 		const outcome = payload.action === "email-key" ? await executeConfirmedEmailKey({ userId: input.userId }) : await executeConfirmedMailboxCreate({ userId: input.userId, botId: input.botId, payload });
-		await updateConfirmCardStatus(input.conversationId, outcome.ok ? "approved" : "rejected", payload.confirmId, undefined, { ok: outcome.ok, detail: outcome.detail }).catch(() => undefined);
+		await updateConfirmCardStatus(input.conversationId, outcome.ok ? "approved" : "failed", payload.confirmId, undefined, { ok: outcome.ok, detail: outcome.detail }).catch(() => undefined);
 		return done(outcome.text);
 	}
 	if (payload.action === "set-primary-bot") {
@@ -300,7 +300,7 @@ async function resolvePendingIntent(input: {
 		await clear();
 		// O dono vem da sessão (nunca do payload): setPrimaryBot confere a posse do bot.
 		const ok = target ? await setPrimaryBot(input.userId, target.botId, true).catch(() => false) : false;
-		await updateConfirmCardStatus(input.conversationId, ok ? "approved" : "rejected", payload.confirmId).catch(() => undefined);
+		await updateConfirmCardStatus(input.conversationId, ok ? "approved" : "failed", payload.confirmId, undefined, ok ? undefined : { ok: false, detail: "não foi possível definir o bot principal" }).catch(() => undefined);
 		return done(ok && target ? `Pronto: ${target.name} agora é o bot principal.` : "Não consegui definir o bot principal. Tente de novo nas configurações do bot.");
 	}
 	if (payload.action === "mcp-call") {
@@ -651,7 +651,7 @@ export async function maybeHandleConfirmedAction(input: {
 			const always = isConfirmAlways(commandText);
 			// A aprovação fica no histórico do item (conversa) e, se pedido, vira "sempre para este bot".
 			const approved = await getVaultService().approveLogin(userId, vaultUse.secretId, { botId: input.botId, conversationId: input.conversationId, always }).then(() => true, () => false);
-			await updateConfirmCardStatus(input.conversationId, approved ? "approved" : "rejected", pending.payload.confirmId, undefined, { ok: approved, detail: approved ? (always ? "aprovado: sempre para este bot" : "aprovado nesta conversa") : "login não encontrado" }).catch(() => undefined);
+			await updateConfirmCardStatus(input.conversationId, approved ? "approved" : "failed", pending.payload.confirmId, undefined, { ok: approved, detail: approved ? (always ? "aprovado: sempre para este bot" : "aprovado nesta conversa") : "login não encontrado" }).catch(() => undefined);
 			await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 			const userText = input.text.trim();
 			return { handled: false, followUp: { objective: userText, content: vaultUseFollowUpContent(userText, vaultUse, approved ? "approved" : "declined") } };
@@ -667,14 +667,14 @@ export async function maybeHandleConfirmedAction(input: {
 		if (input.continueInAgent && (pending.payload.action === "email-key" || pending.payload.action === "email-create-mailbox")) {
 			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
 			const outcome = pending.payload.action === "email-key" ? await executeConfirmedEmailKey({ userId }) : await executeConfirmedMailboxCreate({ userId, botId: input.botId, payload: pending.payload });
-			await updateConfirmCardStatus(input.conversationId, outcome.ok ? "approved" : "rejected", pending.payload.confirmId, undefined, { ok: outcome.ok, detail: outcome.detail }).catch(() => undefined);
+			await updateConfirmCardStatus(input.conversationId, outcome.ok ? "approved" : "failed", pending.payload.confirmId, undefined, { ok: outcome.ok, detail: outcome.detail }).catch(() => undefined);
 			return { handled: false, followUp: { objective: input.text.trim(), content: outcome.followUp } };
 		}
 		const call = pending.payload.action === "mcp-call" ? pending.payload.mcpCall : undefined;
 		if (input.continueInAgent && call) {
 			const result = await executePendingMcp({ userId, botId: input.botId, conversationId: input.conversationId, payload: pending.payload, always: isConfirmAlways(commandText) });
 			// O resultado fica no card: se o modelo pedir a MESMA chamada de novo, recebe isto em vez de outro card.
-			await updateConfirmCardStatus(input.conversationId, result.ok ? "approved" : "rejected", pending.payload.confirmId, undefined, { ok: result.ok, detail: result.text }).catch(() => undefined);
+			await updateConfirmCardStatus(input.conversationId, result.ok ? "approved" : "failed", pending.payload.confirmId, undefined, { ok: result.ok, detail: result.text }).catch(() => undefined);
 			await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 			const userText = input.text.trim();
 			return {

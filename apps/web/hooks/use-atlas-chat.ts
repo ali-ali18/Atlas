@@ -153,6 +153,7 @@ function conversationCardToMessage(
 			...(card.emailKeyRequest ? { emailKeyRequest: card.emailKeyRequest } : {}),
 			...(card.githubIdentity ? { githubIdentity: card.githubIdentity } : {}),
 			...(card.outcome?.detail === SUPERSEDED_CARD_DETAIL ? { superseded: true } : {}),
+			...(card.status === "failed" && card.outcome?.detail ? { failureDetail: card.outcome.detail } : {}),
 		};
 	}
 	if (card.kind === "routine-proposal") return routineProposalMessageFromCard(id, card);

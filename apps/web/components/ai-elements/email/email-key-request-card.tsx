@@ -8,12 +8,13 @@ import { REQUEST_PRIMARY_CLASS, RequestCard } from "@workspace/ui/components/req
 import { openSettingsModal } from "@/components/settings/settings-url";
 import { saveEmailAccountKey } from "@/lib/atlas-api";
 
-type Status = "pending" | "approved" | "rejected";
+type Status = "pending" | "approved" | "rejected" | "failed";
 
 const BADGE = {
 	pending: { tone: "pending", label: "Precisa de você" },
 	approved: { tone: "success", label: "Chave salva" },
 	rejected: { tone: "muted", label: "Pulado" },
+	failed: { tone: "danger", label: "Falhou" },
 } as const;
 
 export type EmailKeyRequestCardProps = {

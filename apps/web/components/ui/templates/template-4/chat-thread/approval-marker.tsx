@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckIcon, ChevronRightIcon, ClockIcon, ShieldAlertIcon, XIcon } from "lucide-react";
+import { CheckIcon, ChevronRightIcon, ClockIcon, ShieldAlertIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
 import { cn } from "@workspace/ui/lib/utils";
 import { type ApprovalMarker as ApprovalMarkerData, type ApprovalMarkerStatus } from "@/lib/approval-dock";
@@ -9,6 +9,7 @@ const ICON: Record<ApprovalMarkerStatus, typeof CheckIcon> = {
 	pending: ShieldAlertIcon,
 	approved: CheckIcon,
 	rejected: XIcon,
+	failed: TriangleAlertIcon,
 	skipped: XIcon,
 	expired: ClockIcon,
 	resolved: CheckIcon,

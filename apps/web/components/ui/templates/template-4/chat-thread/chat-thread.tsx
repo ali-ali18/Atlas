@@ -24,7 +24,7 @@ import { BotAutoDecisionNote, BotLinkMarker, BotNeedsUserCard, BotThreadGroup, t
 import { pendingNeedsUser } from "@/lib/bot-needs-thread";
 import { botNeedsUserStatusLine, devApprovalRejectText } from "@workspace/shared";
 import { beginCardDecision, cardDecisionKey, endCardDecision } from "@/lib/card-decision";
-import { approvalMarkerFor, approvalShortLabel, isHiddenProtocolBubble, selectDockEntries } from "@/lib/approval-dock";
+import { approvalMarkerFor, failedApprovalDetail, approvalShortLabel, isHiddenProtocolBubble, selectDockEntries } from "@/lib/approval-dock";
 import { answerBotPending } from "@/lib/atlas-api";
 import { ApprovalBar } from "./approval-bar";
 import { shouldKeepBottomOnResize } from "@/lib/keep-bottom-on-resize";
@@ -1139,7 +1139,9 @@ export function ChatThread({
 											? message.devApproval.kind === "command"
 												? message.devApproval.command
 												: `${message.devApproval.path}\n${message.devApproval.preview}`
-											: message.description
+											: message.status === "failed"
+												? failedApprovalDetail(message.description, message.failureDetail)
+												: message.description
 										: message.kind === "needs-user"
 											? (message.need.item?.devApproval?.kind === "command" ? message.need.item.devApproval.command : message.need.item?.preview)
 											: undefined;

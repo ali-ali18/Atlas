@@ -340,7 +340,9 @@ type MessageVariant =
 			kind: "confirm";
 			title: string;
 			description?: string;
-			status?: "pending" | "approved" | "rejected";
+			status?: "pending" | "approved" | "rejected" | "failed";
+			/** Motivo da falha (status "failed"): o erro que a ação devolveu ao executar. */
+			failureDetail?: string;
 			confirmLabel?: string;
 			cancelLabel?: string;
 			/** "Não perguntar mais para isto" (só escrita reversível de conector). */

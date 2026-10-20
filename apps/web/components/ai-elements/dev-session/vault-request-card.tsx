@@ -8,12 +8,13 @@ import { Input } from "@workspace/ui/components/input";
 import { REQUEST_PRIMARY_CLASS, RequestCard } from "@workspace/ui/components/request-card";
 import { saveVaultSecrets } from "@/lib/atlas-api";
 
-type Status = "pending" | "approved" | "rejected";
+type Status = "pending" | "approved" | "rejected" | "failed";
 
 const BADGE = {
 	pending: { tone: "pending", label: "Precisa de você" },
 	approved: { tone: "success", label: "Salvo no cofre" },
 	rejected: { tone: "muted", label: "Pulado" },
+	failed: { tone: "danger", label: "Falhou" },
 } as const;
 
 export type VaultRequestCardProps = {

@@ -88,6 +88,11 @@ describe("conversation skill cards", () => {
 		expect(next.map((item) => item.id)).toEqual(["u1", "a1", "u2", "list", "a2"]);
 	});
 
+	it("mantém failed (aprovado que falhou ao executar) distinto de rejected, com o motivo", () => {
+		const raw = serializeConversationCard({ v: 1, kind: "confirm", confirmId: "c9", title: "Criar proposta?", status: "failed", outcome: { ok: false, detail: "campo obrigatório ausente" } });
+		expect(parseConversationCard(raw)).toMatchObject({ kind: "confirm", status: "failed", outcome: { ok: false, detail: "campo obrigatório ausente" } });
+	});
+
 	it("stacks confirm then deleted in the same turn", () => {
 		const once = insertCardAfterCurrentTurn(
 			[{ id: "u", kind: "user" }],

@@ -6,7 +6,7 @@ import { CheckIcon, ShieldAlertIcon, XIcon } from "lucide-react";
 import { Button } from "./button";
 import { RequestCard, REQUEST_PRIMARY_CLASS, type RequestCardProps } from "./request-card";
 
-export type ConfirmStatus = "pending" | "approved" | "rejected";
+export type ConfirmStatus = "pending" | "approved" | "rejected" | "failed";
 
 export type ConfirmAlertProps = Omit<
   RequestCardProps,
@@ -33,6 +33,7 @@ export type ConfirmAlertProps = Omit<
 function StatusIcon({ status }: { status: ConfirmStatus }) {
   if (status === "approved") return <CheckIcon aria-label="Aprovado" />;
   if (status === "rejected") return <XIcon aria-label="Não aprovado" />;
+  if (status === "failed") return <XIcon aria-label="Falhou" />;
   return <ShieldAlertIcon aria-label="Atenção" />;
 }
 
@@ -40,6 +41,7 @@ const BADGE = {
   pending: { tone: "pending", label: "Precisa de aprovação" },
   approved: { tone: "success", label: "Aprovado" },
   rejected: { tone: "danger", label: "Recusado" },
+  failed: { tone: "danger", label: "Falhou" },
 } as const;
 
 /**

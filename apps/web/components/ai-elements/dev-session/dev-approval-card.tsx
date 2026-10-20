@@ -10,12 +10,13 @@ import { Textarea } from "@workspace/ui/components/textarea";
 import { cn } from "@workspace/ui/lib/utils";
 import { devApprovalOptions } from "@/lib/dev-approval-options";
 
-type Status = "pending" | "approved" | "rejected";
+type Status = "pending" | "approved" | "rejected" | "failed";
 
 const BADGE = {
 	pending: { tone: "pending", label: "Precisa de aprovação" },
 	approved: { tone: "success", label: "Aprovado" },
 	rejected: { tone: "danger", label: "Recusado" },
+	failed: { tone: "danger", label: "Falhou" },
 } as const;
 
 export type DevApprovalCardProps = {

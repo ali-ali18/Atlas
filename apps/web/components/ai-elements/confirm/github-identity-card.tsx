@@ -7,7 +7,7 @@ import { ConfirmCard } from "./confirm-card";
 
 export type GithubIdentityCardProps = {
   info: GithubIdentityCardInfo;
-  status?: "pending" | "approved" | "rejected";
+  status?: "pending" | "approved" | "rejected" | "failed";
   disabled?: boolean;
   onDone?: () => void;
   onCancel?: () => void;

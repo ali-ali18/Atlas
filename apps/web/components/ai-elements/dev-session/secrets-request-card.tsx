@@ -9,12 +9,13 @@ import { Textarea } from "@workspace/ui/components/textarea";
 import { analyzeSecretsText } from "@/components/settings/dev-environments-state";
 import { setDevEnvironmentSecrets } from "@/lib/atlas-api";
 
-type Status = "pending" | "approved" | "rejected";
+type Status = "pending" | "approved" | "rejected" | "failed";
 
 const BADGE = {
 	pending: { tone: "pending", label: "Precisa de você" },
 	approved: { tone: "success", label: "Salvo" },
 	rejected: { tone: "muted", label: "Pulado" },
+	failed: { tone: "danger", label: "Falhou" },
 } as const;
 
 export type SecretsRequestCardProps = {

@@ -413,7 +413,7 @@ export async function persistConversationCardFromEvent(
 			kind: "confirm",
 			confirmId: event.confirmId,
 			title: event.title,
-			status: event.status === "approved" || event.status === "rejected" ? event.status : "pending",
+			status: event.status === "approved" || event.status === "rejected" || event.status === "failed" ? event.status : "pending",
 			...(typeof event.description === "string" ? { description: event.description } : {}),
 			...(typeof event.confirmLabel === "string" ? { confirmLabel: event.confirmLabel } : {}),
 			...(typeof event.cancelLabel === "string" ? { cancelLabel: event.cancelLabel } : {}),
@@ -424,7 +424,7 @@ export async function persistConversationCardFromEvent(
 			...(parseEmailKeyRequestInfo(event.emailKeyRequest) ? { emailKeyRequest: parseEmailKeyRequestInfo(event.emailKeyRequest) } : {}),
 			...(parseGithubIdentityInfo(event.githubIdentity) ? { githubIdentity: parseGithubIdentityInfo(event.githubIdentity) } : {}),
 		});
-		if (event.status !== "approved" && event.status !== "rejected") {
+		if (event.status !== "approved" && event.status !== "rejected" && event.status !== "failed") {
 			const dev = parseDevApprovalInfo(event.devApproval);
 			emitUserNeeded({
 				conversationId,
@@ -883,7 +883,7 @@ export async function supersedePendingDevApprovals(conversationId: string, excep
 
 export async function updateConfirmCardStatus(
 	conversationId: string,
-	status: "pending" | "approved" | "rejected",
+	status: "pending" | "approved" | "rejected" | "failed",
 	confirmId?: string,
 	/** Quando informado, só mexe em conversa do dono (e de bot do dono). */
 	ownerId?: string,
@@ -949,7 +949,7 @@ export async function findExecutedConfirmCall(
  */
 export async function getLatestConfirmCardStatus(
 	conversationId: string,
-): Promise<{ confirmId: string; status: "pending" | "approved" | "rejected"; dev: boolean } | null> {
+): Promise<{ confirmId: string; status: "pending" | "approved" | "rejected" | "failed"; dev: boolean } | null> {
 	const rows = await prisma.conversationMessage.findMany({
 		where: { conversationId, role: "confirm" },
 		orderBy: { createdAt: "desc" },
