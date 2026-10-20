@@ -87,13 +87,16 @@ export type TranscriptWatermark = { messageId: string; createdAt: string; count:
 /** Aprovação executada pelo servidor que o run seguinte encaixa na conversa do run que perguntou. */
 export type TranscriptSeed = {
 	fromRunId: string;
-	/** Nome exposto da tool cuja chamada ficou pendente. */
-	toolName: string;
+	/** Nome exposto da tool cuja chamada ficou pendente; ausente = a última chamada que parou no cartão. */
+	toolName?: string;
 	/** Conteúdo do resultado, já enquadrado como dado externo não confiável. */
 	resultContent: string;
 	/** Mensagem curta do turno quando o resultado entrou na conversa (sem repetir o resultado). */
 	shortContent: string;
 };
+
+/** Nota de sistema de um turno que define uma tarefa em andamento (procedimento de skill, menção) e segue nos turnos seguintes. */
+export type CarriedNote = { key: string; content: string; idleTurns: number };
 
 export type CreateAgentRunRequest = {
 	messages: ChatMessage[];
@@ -356,6 +359,8 @@ export type AgentRunCheckpoint = {
 	loadedTools?: string[];
 	/** Marca d'água da conversa no começo do run: o turno seguinte lê só as mensagens depois dela. */
 	transcriptWatermark?: TranscriptWatermark;
+	/** Notas de turno que seguem valendo (ver `CarriedNote`). */
+	carriedNotes?: CarriedNote[];
 	/** Run de continuação de aprovação (ver `TranscriptSeed`). */
 	transcriptSeed?: TranscriptSeed;
 	nextStepIndex?: number;

@@ -4264,6 +4264,8 @@ export async function runComputerUse(params: {
 	priorLoadedTools?: string[];
 	/** Marca d'água da conversa (última mensagem vista ao montar o histórico); vai em todo checkpoint do run. */
 	transcriptWatermark?: import("@workspace/shared").TranscriptWatermark;
+	/** Notas de turno que seguem valendo; vão em todo checkpoint do run para o turno seguinte. */
+	carriedNotes?: import("@workspace/shared").CarriedNote[];
 	canSeeUserImages?: boolean;
 	loadUserImage?: (artifactId: string) => Promise<string | null>;
 	describeUserImage?: (artifactId: string) => Promise<{ description: string | null; costUsd?: number; costUnknown?: boolean }>;
@@ -5522,6 +5524,7 @@ export async function runComputerUse(params: {
 				activeElapsedMs: activeElapsedMs(),
 				...(isSubagent ? {} : { loadedTools: loadedToolNames() }),
 				transcriptWatermark: parsedCheckpoint?.transcriptWatermark ?? params.transcriptWatermark,
+				carriedNotes: parsedCheckpoint?.carriedNotes ?? params.carriedNotes,
 			}),
 		);
 	};

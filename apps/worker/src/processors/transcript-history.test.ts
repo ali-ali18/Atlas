@@ -108,3 +108,27 @@ test("aprovação com kill switch desligado cai fora; sem a chamada na conversa 
 	assert.equal(out?.seedApplied, false);
 	assert.deepEqual(warnings, ["transcript_fallback reason=seed_unavailable run=r2"]);
 });
+
+test("ids de chamada do run anterior vêm com prefixo igual na chamada e no resultado", async () => {
+	const out = await resolveTranscriptHistory(base);
+	const callId = out!.priorTranscript[1]!.tool_calls![0]!.id;
+	assert.match(callId, /^r[0-9a-z]{6}_c1$/);
+	assert.equal(out!.priorTranscript[2]!.tool_call_id, callId);
+});
+
+test("aprovação de ação sem nome de tool (comando de código, segredos): o desfecho entra na última chamada que parou no cartão", async () => {
+	const out = await resolveTranscriptHistory({
+		...base,
+		seed: { fromRunId: "ask", resultContent: "[O usuário aprovou o comando]", shortContent: "continue" },
+		loadById: async () => ({ ...askRun, llmMessages: [...askMessages.slice(0, 2), { role: "assistant", content: null, tool_calls: [call("d1", "shell"), call("d2", "outra")] }, { role: "tool", tool_call_id: "d1", content: "Card enviado" }] }),
+	});
+	assert.ok(out?.seedApplied);
+	assert.equal(out.priorTranscript.at(-2)!.content, "[O usuário aprovou o comando]");
+	assert.match(String(out.priorTranscript.at(-1)!.content), /not executed/);
+});
+
+test("notas de turno do run anterior chegam junto com a conversa", async () => {
+	const notes = [{ key: "k", content: "Procedimento da skill X", idleTurns: 1 }];
+	const out = await resolveTranscriptHistory({ ...base, loadLatest: async () => ({ ...latest, carriedNotes: notes }) });
+	assert.deepEqual(out!.carriedNotes, notes);
+});

@@ -1,12 +1,14 @@
-import { attachPendingResult, buildTranscriptHistory, cleanTranscript } from "@workspace/agent-runtime";
+import { attachPendingResult, buildTranscriptHistory, cleanTranscript, namespaceToolCallIds } from "@workspace/agent-runtime";
 import type { RunTranscript } from "@workspace/db";
-import type { SerializedLlmMessage, TranscriptSeed } from "@workspace/shared";
+import type { CarriedNote, SerializedLlmMessage, TranscriptSeed } from "@workspace/shared";
 
 export type TranscriptHistory = {
 	/** Conversa completa dos turnos anteriores, pronta para o runtime (sem as camadas que o prepareMessages refaz). */
 	priorTranscript: SerializedLlmMessage[];
 	/** Tools que o turno anterior deixou carregadas. */
 	loadedTools: string[];
+	/** Notas de turno que seguem valendo (procedimento de skill, menções) do run anterior. */
+	carriedNotes?: CarriedNote[];
 	/** O resultado da aprovação foi encaixado na chamada pendente: o turno atual já não precisa repeti-lo. */
 	seedApplied: boolean;
 };
@@ -49,7 +51,7 @@ export async function resolveTranscriptHistory(input: {
 		const source = await input.loadById(input.seed.fromRunId);
 		const cleaned = source ? cleanTranscript(source.llmMessages, { model: input.model }) : null;
 		const attached = cleaned ? attachPendingResult(cleaned, input.seed.toolName, input.seed.resultContent) : null;
-		if (source && attached) return { priorTranscript: attached, loadedTools: source.loadedTools ?? [], seedApplied: true };
+		if (source && attached) return { priorTranscript: namespaceToolCallIds(attached, source.runId), loadedTools: source.loadedTools ?? [], carriedNotes: source.carriedNotes, seedApplied: true };
 		warn(`transcript_fallback reason=seed_unavailable run=${input.runId}`);
 	}
 	const latest = await input.loadLatest();
@@ -62,12 +64,13 @@ export async function resolveTranscriptHistory(input: {
 	if (!after.ok) return fallback(after.reason);
 	return {
 		priorTranscript: buildTranscriptHistory({
-			transcript: cleaned,
+			transcript: namespaceToolCallIds(cleaned, latest.runId),
 			after: after.messages,
 			objective: input.objective,
 			priorRunEndedAt: latest.finishedAt?.toISOString(),
 		}),
 		loadedTools: latest.loadedTools ?? [],
+		carriedNotes: latest.carriedNotes,
 		seedApplied: false,
 	};
 }

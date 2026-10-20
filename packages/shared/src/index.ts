@@ -191,6 +191,7 @@ export type {
 	AgentRunCheckpoint,
 	TranscriptSeed,
 	TranscriptWatermark,
+	CarriedNote,
 	ExecutionLedgerCall,
 	ExecutionLedgerDecision,
 	ExecutionLedgerState,

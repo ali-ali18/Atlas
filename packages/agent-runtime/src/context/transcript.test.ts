@@ -10,7 +10,9 @@ import {
 	attachPendingResult,
 	calledToolNames,
 	cleanTranscript,
+	namespaceToolCallIds,
 } from "./transcript.js";
+import { CARRIED_NOTE_MAX_IDLE_TURNS, mergeCarriedNotes } from "./carried-notes.js";
 import { SUMMARY_NOTE_PREFIX } from "./summary-compaction.js";
 
 const call = (id: string, name: string) => ({ id, type: "function" as const, function: { name, arguments: "{}" } });
@@ -211,5 +213,72 @@ describe("guardas por janela da conversa contínua", () => {
 		const { messages, report } = applyPromptHygiene(big(6), { contextLength: 20_000, softRatio: 0.75, hardRatio: 0.95, keepRecentGroups: 6, collapseOverTokens: 1_000_000 });
 		expect(report.guard).toBe("none");
 		expect(messages).toHaveLength(big(6).length);
+	});
+});
+
+describe("ids de chamada entre runs", () => {
+	const run = (id: string): SerializedLlmMessage[] => [
+		{ role: "user", content: "pede" },
+		{ role: "assistant", content: null, tool_calls: [call(id, "buscar")] },
+		{ role: "tool", tool_call_id: id, content: `resultado ${id}` },
+	];
+
+	it("o mesmo prefixo vai na chamada e no resultado, e dois runs com call_0 não colidem", () => {
+		const a = namespaceToolCallIds(run("call_0"), "run-aaaa11");
+		const b = namespaceToolCallIds(run("call_0"), "run-bbbb22");
+		const idA = a[1]!.tool_calls![0]!.id;
+		expect(a[2]!.tool_call_id).toBe(idA);
+		expect(idA).not.toBe(b[1]!.tool_calls![0]!.id);
+		expect(new Set([...a, ...b].filter((m) => m.role === "tool").map((m) => m.tool_call_id)).size).toBe(2);
+	});
+
+	it("idempotente, limitado a 40 e só com caracteres aceitos pelos provedores", () => {
+		const once = namespaceToolCallIds(run("toolu_" + "x".repeat(60)), "r1");
+		const id = once[1]!.tool_calls![0]!.id;
+		expect(id.length).toBeLessThanOrEqual(40);
+		expect(id).toMatch(/^[A-Za-z0-9_-]+$/);
+		expect(namespaceToolCallIds(once, "outro")).toEqual(once);
+	});
+
+	it("a chamada pendente continua achável depois do prefixo (por nome e pela cauda)", () => {
+		const asked: SerializedLlmMessage[] = [
+			{ role: "user", content: "crie" },
+			{ role: "assistant", content: null, tool_calls: [call("call_0", "mcp__erp__create"), call("call_1", "outra")] },
+			{ role: "tool", tool_call_id: "call_0", content: "Card de confirmação enviado." },
+			{ role: "tool", tool_call_id: "call_1", content: UNEXECUTED_CALL_RESULT },
+		];
+		const byName = namespaceToolCallIds(attachPendingResult(asked, "mcp__erp__create", "criada")!, "run1");
+		expect(byName.find((m) => m.content === "criada")!.tool_call_id).toBe(byName[1]!.tool_calls![0]!.id);
+		const prefixedFirst = namespaceToolCallIds(asked, "run1");
+		expect(attachPendingResult(prefixedFirst, "mcp__erp__create", "criada")!.find((m) => m.content === "criada")!.tool_call_id).toBe(prefixedFirst[1]!.tool_calls![0]!.id);
+		const byTail = attachPendingResult(asked, undefined, "aprovado")!;
+		expect(byTail.map((m) => m.content)).toEqual(["crie", null, "aprovado", UNEXECUTED_CALL_RESULT]);
+	});
+
+	it("sem nome, só vale se a conversa termina nos resultados da rodada", () => {
+		expect(attachPendingResult([{ role: "user", content: "x" }, { role: "assistant", content: "texto" }], undefined, "r")).toBeNull();
+	});
+});
+
+describe("notas de turno que seguem a tarefa", () => {
+	it("renova com a mesma nota, expira depois de N turnos sem uso e respeita os limites", () => {
+		let state = mergeCarriedNotes(undefined, ["Procedimento da skill X: passo 1, passo 2"]);
+		expect(state.carried).toHaveLength(1);
+		expect(state.reinject).toHaveLength(0);
+		for (let turn = 1; turn <= CARRIED_NOTE_MAX_IDLE_TURNS; turn += 1) {
+			state = mergeCarriedNotes(state.carried, []);
+			expect(state.reinject).toHaveLength(1);
+		}
+		expect(mergeCarriedNotes(state.carried, []).carried).toHaveLength(0);
+		const renewed = mergeCarriedNotes(state.carried, ["Procedimento da skill X: passo 1, passo 2"]);
+		expect(renewed.carried).toEqual([expect.objectContaining({ idleTurns: 0 })]);
+		expect(renewed.reinject).toHaveLength(0);
+	});
+
+	it("poucas e curtas: as mais antigas saem primeiro", () => {
+		const many = mergeCarriedNotes(undefined, ["a".repeat(9_000), "b".repeat(9_000), "c", "d", "e"]);
+		expect(many.carried.length).toBeLessThanOrEqual(4);
+		expect(many.carried.every((note) => note.content.length <= 4_000)).toBe(true);
+		expect(many.carried.reduce((sum, note) => sum + note.content.length, 0)).toBeLessThanOrEqual(10_000);
 	});
 });

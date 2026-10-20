@@ -22,6 +22,7 @@ import {
 	readSubagentModel,
 	TRANSCRIPT_SLOT,
 	type TranscriptWatermark,
+	type CarriedNote,
 } from "@workspace/shared";
 import {
 	type Notify,
@@ -101,6 +102,7 @@ import {
 	buildConversationArtifactsNote,
 	classifyRunError,
 	contextTranscriptEnabled,
+	mergeCarriedNotes,
 	describeRunError,
 	insertBeforeLastUser,
 	createJevTelemetryCollector,
@@ -628,9 +630,14 @@ async function executeLeasedRun(ctx: {
 		// `/skill` e `@Bot` digitados pelo usuário neste turno (só chat 1:1, run novo): a skill já vem
 		// carregada e os bots citados chegam com id. Falha não derruba o run.
 		let forcedConnectors: string[] = [];
+		let carriedNotes: CarriedNote[] = [];
 		if (!checkpoint?.llmMessages?.length && run.origin === "chat" && !groupRun && run.botId) {
 			try {
 				const turn = await buildMentionNotes({ userId: runUserId, botId: run.botId, text: run.objective, toolset: mcp?.toolset });
+				// Notas de turnos anteriores que definem a tarefa em andamento voltam (antes das deste turno).
+				const merged = contextTranscriptEnabled() ? mergeCarriedNotes(transcript?.carriedNotes, turn.notes) : { carried: [], reinject: [] };
+				carriedNotes = merged.carried;
+				for (const note of merged.reinject) messages = insertBeforeLastUser(messages, { role: "system", content: note.content });
 				for (const note of turn.notes) messages = insertBeforeLastUser(messages, { role: "system", content: note });
 				forcedConnectors = turn.connectors;
 			} catch (error) {
@@ -683,9 +690,9 @@ async function executeLeasedRun(ctx: {
 			})
 			: null;
 
-		return { messages, inputMessages, priorTranscript: transcript?.priorTranscript, transcriptWatermark, priorLoadedTools: transcript?.loadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments: attachmentsForRun?.runtime };
+		return { messages, inputMessages, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments: attachmentsForRun?.runtime };
 	};
-	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, priorTranscript, transcriptWatermark, priorLoadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments }] =
+	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments }] =
 		await Promise.all([configStage(), messagesStage()]);
 
 	let cachedSessionId: string | null =
@@ -950,6 +957,7 @@ async function executeLeasedRun(ctx: {
 			historyImages,
 			priorTranscript,
 			transcriptWatermark,
+			carriedNotes,
 			priorLoadedTools,
 			priorResearchNotes,
 			priorTaskLedger,

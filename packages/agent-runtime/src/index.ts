@@ -44,8 +44,10 @@ export {
 	attachPendingResult,
 	calledToolNames,
 	cleanTranscript,
+	namespaceToolCallIds,
 	transcriptTextOf,
 } from "./context/transcript.js";
+export { mergeCarriedNotes, CARRIED_NOTE_MAX_IDLE_TURNS } from "./context/carried-notes.js";
 export { contextTranscriptEnabled } from "./context/flag.js";
 export type { CompletedToolReplay, RuntimeStepRecord } from "./computer-use.js";
 export {

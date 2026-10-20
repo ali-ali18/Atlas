@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { SerializedLlmMessage } from "@workspace/shared";
 import { COMPACTION_NOTE_PREFIX } from "./budget.js";
 import { SUMMARY_NOTE_PREFIX } from "./summary-compaction.js";
@@ -116,10 +117,20 @@ export function buildTranscriptHistory(input: {
 }
 
 /**
- * Coloca o resultado de uma aprovação já executada como resultado da última chamada a `toolName`
- * (a que ficou pendente no cartão). `null` = a chamada não está na conversa.
+ * Coloca o resultado de uma aprovação já executada como resultado da última chamada a `toolName` (a que ficou
+ * pendente no cartão). Sem `toolName`, vale a última chamada que de fato rodou e parou no cartão: só se a conversa
+ * termina nos resultados dessa rodada. `null` = a chamada não está na conversa.
  */
-export function attachPendingResult(transcript: SerializedLlmMessage[], toolName: string, content: string): SerializedLlmMessage[] | null {
+export function attachPendingResult(transcript: SerializedLlmMessage[], toolName: string | undefined, content: string): SerializedLlmMessage[] | null {
+	if (!toolName) {
+		let at = -1;
+		for (let i = transcript.length - 1; i >= 0; i -= 1) {
+			const message = transcript[i]!;
+			if (message.role !== "tool") break;
+			if (at < 0 && message.content !== UNEXECUTED_CALL_RESULT) at = i;
+		}
+		return at < 0 ? null : transcript.map((item, index) => (index === at ? { ...item, content } : item));
+	}
 	for (let i = transcript.length - 1; i >= 0; i -= 1) {
 		const message = transcript[i]!;
 		const call = message.role === "assistant" ? [...(message.tool_calls ?? [])].reverse().find((item) => item.function?.name === toolName) : undefined;
@@ -129,6 +140,27 @@ export function attachPendingResult(transcript: SerializedLlmMessage[], toolName
 		return transcript.map((item, index) => (index === resultAt ? { ...item, content } : item));
 	}
 	return null;
+}
+
+const NAMESPACED_ID = /^r[0-9a-z]{6}_/;
+
+/**
+ * Ids de chamada de ferramenta de runs anteriores ganham o prefixo do run de origem, igual na chamada do
+ * assistente e no resultado: um provedor que reaproveita `call_0` a cada run não embaralha os pares. Ids já
+ * prefixados ficam como estão; o tamanho é limitado (40) por hash estável.
+ */
+export function namespaceToolCallIds(messages: SerializedLlmMessage[], runId: string): SerializedLlmMessage[] {
+	const prefix = `r${runId.replace(/[^0-9a-z]/gi, "").toLowerCase().slice(-6).padStart(6, "0")}_`;
+	const rename = (id: string): string => {
+		if (NAMESPACED_ID.test(id)) return id;
+		const next = `${prefix}${id.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+		return next.length <= 40 ? next : `${prefix}${createHash("sha1").update(id).digest("hex").slice(0, 32)}`;
+	};
+	return messages.map((message) => {
+		if (message.role === "tool" && message.tool_call_id) return { ...message, tool_call_id: rename(message.tool_call_id) };
+		if (message.tool_calls?.length) return { ...message, tool_calls: message.tool_calls.map((call) => ({ ...call, id: rename(call.id) })) };
+		return message;
+	});
 }
 
 /** Nomes de tool chamados na conversa (as já usadas continuam carregadas no turno seguinte). */

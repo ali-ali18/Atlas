@@ -484,6 +484,33 @@ export function devCommandFollowUpContent(userText: string, call: { tool: string
 	].join("\n");
 }
 
+/**
+ * Run que pediu a aprovação, pelo id do cartão (`confirm-<runId>`, `confirm-github-<runId>`). O worker confere que
+ * o run é desta conversa e deste dono; id que não confere = segue só com o texto.
+ */
+export function askingRunId(confirmId: string | undefined): string | undefined {
+	if (!confirmId?.startsWith("confirm-")) return undefined;
+	const id = confirmId.split("-").pop();
+	return id && id !== "local" && id !== "confirm" ? id : undefined;
+}
+
+/**
+ * Semente de conversa para ações em que a decisão vira o resultado da chamada que ficou pendente (comando de
+ * código, PR, login do cofre, segredos, e-mail). `toolName` ausente = a última chamada que parou no cartão.
+ * O turno leva só a fala do usuário; o desfecho entra como resultado da chamada.
+ */
+export function seedField(
+	payload: { confirmId?: string },
+	toolName: string | undefined,
+	result: string,
+	userText: string,
+): { transcript?: TranscriptSeed } {
+	const fromRunId = askingRunId(payload.confirmId);
+	const resultContent = result.trim();
+	if (!fromRunId || !resultContent) return {};
+	return { transcript: { fromRunId, ...(toolName ? { toolName } : {}), resultContent, shortContent: labelCardProtocolMessage(userText) } };
+}
+
 /** Troca a última mensagem do usuário pelo `followUp` (resultado da ação). */
 export function applyConfirmedFollowUp<T extends { role: string; content: string }>(
 	messages: T[],
@@ -586,21 +613,21 @@ export async function maybeHandleConfirmedAction(input: {
 			await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 			const userText = input.text.trim();
 			const outcome: DevCommandOutcome = devReject ? { kind: "rejected", feedback } : { kind: "skipped" };
-			return { handled: false, followUp: { objective: userText, content: devCommandFollowUpContent(userText, devCmd, outcome) } };
+			return { handled: false, followUp: { objective: userText, content: devCommandFollowUpContent(userText, devCmd, outcome), ...seedField(pending.payload, undefined, devCommandFollowUpContent("", devCmd, outcome), userText) } };
 		}
 		const vaultUseDeclined = pending.payload.action === "vault-use" ? pending.payload.vaultUse : undefined;
 		if (input.continueInAgent && vaultUseDeclined) {
 			await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: "não autorizado pelo usuário" }).catch(() => undefined);
 			await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 			const userText = input.text.trim();
-			return { handled: false, followUp: { objective: userText, content: vaultUseFollowUpContent(userText, vaultUseDeclined, "declined") } };
+			return { handled: false, followUp: { objective: userText, content: vaultUseFollowUpContent(userText, vaultUseDeclined, "declined"), ...seedField(pending.payload, "login_fill", vaultUseFollowUpContent("", vaultUseDeclined, "declined"), userText) } };
 		}
 		const secretsAsk = pending.payload.action === "request-secrets" ? pending.payload.secretsRequest : undefined;
 		if (input.continueInAgent && secretsAsk) {
 			await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: "pulado pelo usuário" }).catch(() => undefined);
 			await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 			const userText = input.text.trim();
-			return { handled: false, followUp: { objective: userText, content: secretsDeclinedFollowUpContent(userText, secretsAsk) } };
+			return { handled: false, followUp: { objective: userText, content: secretsDeclinedFollowUpContent(userText, secretsAsk), ...seedField(pending.payload, undefined, secretsDeclinedFollowUpContent("", secretsAsk), userText) } };
 		}
 		await updateConfirmCardStatus(
 			input.conversationId,
@@ -635,7 +662,7 @@ export async function maybeHandleConfirmedAction(input: {
 			await updateConfirmCardStatus(input.conversationId, "approved", pending.payload.confirmId, undefined, { ok: true, detail: added.length ? `aprovado; liberado: ${added.join(", ")}` : "aprovado pelo usuário" }).catch(() => undefined);
 			await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 			const userText = input.text.trim();
-			return { handled: false, followUp: { objective: userText, content: devCommandFollowUpContent(userText, devCmd, { kind: "approved", prefixes: added }) } };
+			return { handled: false, followUp: { objective: userText, content: devCommandFollowUpContent(userText, devCmd, { kind: "approved", prefixes: added }), ...seedField(pending.payload, undefined, devCommandFollowUpContent("", devCmd, { kind: "approved", prefixes: added }), userText) } };
 		}
 		const secretsAsk = pending.payload.action === "request-secrets" ? pending.payload.secretsRequest : undefined;
 		if (input.continueInAgent && secretsAsk) {
@@ -643,7 +670,7 @@ export async function maybeHandleConfirmedAction(input: {
 			await updateConfirmCardStatus(input.conversationId, saved.length ? "approved" : "rejected", pending.payload.confirmId, undefined, { ok: saved.length > 0, detail: saved.length ? `salvos: ${saved.join(", ")}` : "nenhum segredo salvo" }).catch(() => undefined);
 			await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 			const userText = input.text.trim();
-			return { handled: false, followUp: { objective: userText, content: secretsFollowUpContent(userText, secretsAsk, saved) } };
+			return { handled: false, followUp: { objective: userText, content: secretsFollowUpContent(userText, secretsAsk, saved), ...seedField(pending.payload, undefined, secretsFollowUpContent("", secretsAsk, saved), userText) } };
 		}
 		const vaultUse = pending.payload.action === "vault-use" ? pending.payload.vaultUse : undefined;
 		if (input.continueInAgent && vaultUse) {
@@ -654,7 +681,7 @@ export async function maybeHandleConfirmedAction(input: {
 			await updateConfirmCardStatus(input.conversationId, approved ? "approved" : "failed", pending.payload.confirmId, undefined, { ok: approved, detail: approved ? (always ? "aprovado: sempre para este bot" : "aprovado nesta conversa") : "login não encontrado" }).catch(() => undefined);
 			await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 			const userText = input.text.trim();
-			return { handled: false, followUp: { objective: userText, content: vaultUseFollowUpContent(userText, vaultUse, approved ? "approved" : "declined") } };
+			return { handled: false, followUp: { objective: userText, content: vaultUseFollowUpContent(userText, vaultUse, approved ? "approved" : "declined"), ...seedField(pending.payload, "login_fill", vaultUseFollowUpContent("", vaultUse, approved ? "approved" : "declined"), userText) } };
 		}
 		const prCreate = pending.payload.action === "dev-pr-create" ? pending.payload.devPrCreate : undefined;
 		if (input.continueInAgent && prCreate) {
@@ -662,13 +689,13 @@ export async function maybeHandleConfirmedAction(input: {
 			await updateConfirmCardStatus(input.conversationId, "approved", pending.payload.confirmId, undefined, { ok: true, detail: "aprovado pelo usuário" }).catch(() => undefined);
 			await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 			const userText = input.text.trim();
-			return { handled: false, followUp: { objective: userText, content: devPrFollowUpContent(userText, prCreate) } };
+			return { handled: false, followUp: { objective: userText, content: devPrFollowUpContent(userText, prCreate), ...seedField(pending.payload, "dev_pr_create", devPrFollowUpContent("", prCreate), userText) } };
 		}
 		if (input.continueInAgent && (pending.payload.action === "email-key" || pending.payload.action === "email-create-mailbox")) {
 			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
 			const outcome = pending.payload.action === "email-key" ? await executeConfirmedEmailKey({ userId }) : await executeConfirmedMailboxCreate({ userId, botId: input.botId, payload: pending.payload });
 			await updateConfirmCardStatus(input.conversationId, outcome.ok ? "approved" : "failed", pending.payload.confirmId, undefined, { ok: outcome.ok, detail: outcome.detail }).catch(() => undefined);
-			return { handled: false, followUp: { objective: input.text.trim(), content: outcome.followUp } };
+			return { handled: false, followUp: { objective: input.text.trim(), content: outcome.followUp, ...seedField(pending.payload, pending.payload.action === "email-create-mailbox" ? "email_create_mailbox" : undefined, outcome.followUp, input.text.trim()) } };
 		}
 		const call = pending.payload.action === "mcp-call" ? pending.payload.mcpCall : undefined;
 		if (input.continueInAgent && call) {

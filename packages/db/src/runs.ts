@@ -2213,6 +2213,7 @@ export type RunTranscript = {
 	runId: string;
 	/** Marca d'água da conversa no começo do run (ausente em checkpoint anterior a ela). */
 	watermark?: { messageId: string; createdAt: string; count: number };
+	carriedNotes?: Array<{ key: string; content: string; idleTurns: number }>;
 	/** Janela do run: falas do usuário gravadas durante ela já entraram na conversa do run. */
 	createdAt: Date;
 	finishedAt: Date | null;
@@ -2224,12 +2225,13 @@ export type RunTranscript = {
 function transcriptOf(row: { id: string; createdAt: Date; finishedAt: Date | null; checkpointJson: unknown }): RunTranscript | null {
 	const raw = row.checkpointJson;
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-	const { llmMessages, loadedTools, transcriptWatermark } = raw as { llmMessages?: unknown; loadedTools?: unknown; transcriptWatermark?: unknown };
+	const { llmMessages, loadedTools, transcriptWatermark, carriedNotes } = raw as { llmMessages?: unknown; loadedTools?: unknown; transcriptWatermark?: unknown; carriedNotes?: Array<{ key?: unknown; content?: unknown; idleTurns?: unknown }> };
 	const mark = transcriptWatermark as { messageId?: unknown; createdAt?: unknown; count?: unknown } | undefined;
 	if (!Array.isArray(llmMessages) || llmMessages.length === 0) return null;
 	return {
 		runId: row.id,
 		...(mark && typeof mark.messageId === "string" && typeof mark.createdAt === "string" && typeof mark.count === "number" ? { watermark: { messageId: mark.messageId, createdAt: mark.createdAt, count: mark.count } } : {}),
+		...(Array.isArray(carriedNotes) ? { carriedNotes: carriedNotes.filter((note): note is { key: string; content: string; idleTurns: number } => !!note && typeof note.key === "string" && typeof note.content === "string" && typeof note.idleTurns === "number").slice(0, 8) } : {}),
 		createdAt: row.createdAt,
 		finishedAt: row.finishedAt,
 		llmMessages,

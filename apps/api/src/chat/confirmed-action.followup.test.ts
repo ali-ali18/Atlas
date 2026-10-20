@@ -47,3 +47,32 @@ test("aprovação com a conversa do run que perguntou: resultado vira o da chama
 	assert.match(short, /Não chame "mcp__tracker__link_child" de novo com os mesmos argumentos/);
 	assert.match(mcpFollowUpShortContent("vincule", call, { ok: false }), /check whether an argument \(for example an id\) was wrong/);
 });
+
+test("semente da aprovação por família de ação: o desfecho vira o resultado da chamada pendente, o turno leva só a fala", async () => {
+	const { askingRunId, seedField, devCommandFollowUpContent, vaultUseFollowUpContent, secretsFollowUpContent, devPrFollowUpContent } = await import("./confirmed-action.js");
+	assert.equal(askingRunId("confirm-run42"), "run42");
+	assert.equal(askingRunId("confirm-github-run42"), "run42");
+	assert.equal(askingRunId("confirm-local"), undefined);
+	assert.equal(askingRunId("outro"), undefined);
+	const payload = { confirmId: "confirm-runX" };
+	const cases: Array<[string, string | undefined, string]> = [
+		["comando de código aprovado", undefined, devCommandFollowUpContent("", { tool: "shell", label: "pnpm test" }, { kind: "approved", prefixes: [] })],
+		["comando de código recusado", undefined, devCommandFollowUpContent("", { tool: "shell", label: "rm x" }, { kind: "rejected", feedback: "não" })],
+		["PR", "dev_pr_create", devPrFollowUpContent("", { title: "t", base: "main", head: "f" })],
+		["login do cofre", "login_fill", vaultUseFollowUpContent("", { label: "Site", domain: "a.com" }, "approved")],
+		["segredos", undefined, secretsFollowUpContent("", { names: ["API_KEY"] }, ["API_KEY"])],
+		["caixa de e-mail", "email_create_mailbox", "O dono confirmou e o e-mail do bot foi criado: bot@x.com."],
+		["chave do e-mail", undefined, "O dono salvou a chave."],
+	];
+	for (const [family, tool, body] of cases) {
+		const seed = seedField(payload, tool, body, "confirmado: X").transcript;
+		assert.ok(seed, family);
+		assert.equal(seed.fromRunId, "runX", family);
+		assert.equal(seed.toolName, tool, family);
+		assert.equal(seed.resultContent, body.trim(), family);
+		assert.doesNotMatch(seed.shortContent, /\[O usuário/, family);
+		assert.match(seed.shortContent, /confirmado: X/, family);
+	}
+	assert.deepEqual(seedField({ confirmId: "confirm-local" }, undefined, "x", "y"), {});
+	assert.deepEqual(seedField(payload, undefined, "  ", "y"), {});
+});

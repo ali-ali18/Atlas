@@ -104,6 +104,7 @@ export function createComputerUseRoutes(
 		let skillRun: AgentRun | null = null;
 		let messages = request.messages;
 		let objective: string | undefined;
+		let transcriptSeed: import("@workspace/shared").TranscriptSeed | undefined;
 		try {
 			const confirmedAction = await maybeHandleConfirmedAction({
 				jevIntent: await buildJevIntentFor(userId, config.openRouterApiKey, process.env, dependencies.getAccountConfig),
@@ -119,6 +120,7 @@ export function createComputerUseRoutes(
 				// Ação MCP confirmada já rodou: o agente continua com o resultado.
 				messages = applyConfirmedFollowUp(messages, confirmedAction.followUp);
 				objective = confirmedAction.followUp.objective;
+				transcriptSeed = confirmedAction.followUp.transcript;
 			}
 		} catch (error) {
 			console.error("confirmed action failed; falling back to agent run", error);
@@ -131,6 +133,7 @@ export function createComputerUseRoutes(
 			request: {
 				messages,
 				objective,
+				...(transcriptSeed ? { transcriptSeed } : {}),
 				model,
 				conversationId: request.conversationId,
 				botId: request.botId,
