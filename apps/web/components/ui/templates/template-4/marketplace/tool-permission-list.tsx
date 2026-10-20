@@ -37,7 +37,7 @@ export function ToolPermissionList({
 					value={connectionPermission(connection, policy)}
 				/>
 			</div>
-			<div className="max-h-64 divide-y overflow-y-auto border-t">
+			<div className="divide-y border-t">
 				{connection.tools.map((tool) => (
 					<div className={TOOL_ROW_CLASS} data-tool-row={tool.name} key={tool.name}>
 						<button
@@ -47,7 +47,7 @@ export function ToolPermissionList({
 							type="button"
 						>
 							<div className="flex flex-wrap items-center gap-2">
-								<span className="break-all text-sm font-medium">{tool.title || tool.name}</span>
+								<span className="break-words text-sm font-medium">{tool.title || tool.name}</span>
 								<span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
 									{isReadOnlyMcpTool(tool) ? "leitura" : "escreve"}
 								</span>

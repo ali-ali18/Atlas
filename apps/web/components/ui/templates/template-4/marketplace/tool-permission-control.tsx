@@ -26,7 +26,7 @@ export const TOOL_PERMISSION_ICONS: Record<ToolPermission, ComponentType<{ class
 };
 
 /** Largura fixa do controle: linhas alinhadas em qualquer estado. */
-export const PERMISSION_TRIGGER_CLASS = "w-36 justify-between md:hidden";
+export const PERMISSION_TRIGGER_CLASS = "w-44 justify-between md:hidden";
 
 export function permissionValueLabel(value: ToolPermissionValue): string {
 	return value === "mixed" ? MIXED_PERMISSION_LABEL : TOOL_PERMISSION_LABELS[value];
