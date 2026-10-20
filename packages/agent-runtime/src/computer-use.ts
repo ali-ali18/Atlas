@@ -1,3 +1,4 @@
+import { mcpArgsErrorMessage, validateMcpArgs } from "./mcp/args-validation.js";
 import { modelUsage } from "./telemetry/model-usage.js";
 import { todayNote } from "./context/today-note.js";
 import { agentOutputBudget } from "./generation-budget.js";
@@ -3758,6 +3759,11 @@ async function executeMcpTool(
 	if (decision === "block") {
 		logMcpDecision({ runId: ctx.runId, tool: name, actionClass: entry.actionClass, autonomy: autonomyDecision, jevMode: ctx.jevMcpMode ?? "off", final: decision });
 		throw new Error(`"${entry.toolName}" está bloqueada pela autonomia do usuário.`);
+	}
+	// Escrita com argumentos incompletos: devolve o erro ao modelo antes de card/execução.
+	if (!entry.readOnly) {
+		const argsError = mcpArgsErrorMessage(entry.toolName, validateMcpArgs(ctx.mcp.toolset.available.get(name)?.function.parameters, args));
+		if (argsError) throw new Error(argsError);
 	}
 	let jevAudit: JevMcpAudit | undefined;
 	let jevAsked = false;
