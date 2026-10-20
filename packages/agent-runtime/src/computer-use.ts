@@ -1,3 +1,4 @@
+import { mcpArgsErrorMessage, validateMcpArgs } from "./mcp/args-validation.js";
 import { modelUsage } from "./telemetry/model-usage.js";
 import { todayNote } from "./context/today-note.js";
 import { agentOutputBudget } from "./generation-budget.js";
@@ -14,7 +15,7 @@ import { triageUserMessage, type TriageHistoryEntry } from "./loop/message-triag
 import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } from "./loop/interrupt.js";
 import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
-import { attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
+import { parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
 import { alreadyLoadedSummary, findAlreadyLoadedTools } from "./execution/tool-search-guard.js";
 import { runSandboxOperation, type SandboxExecutionContext } from "@workspace/sandbox";
 import {
@@ -113,6 +114,7 @@ import {
 	searchConversationMessages,
 	searchMemoryEntries,
 	persistConversationCardFromEvent,
+	upsertTaskListCard,
 	findExecutedConfirmCall,
 	persistJevStatusCard,
 	updateBot,
@@ -341,6 +343,7 @@ import {
 } from "./tools/provider-health.js";
 import { createResearchNotes, executeResearchNote, RESEARCH_NOTE_TOOL, type ResearchNotes } from "./tools/research-note.js";
 import { executeTrackItems, TRACK_ITEMS_TOOL, TRACK_ITEMS_TOOL_NAME, type LedgerStore } from "./tools/track-items.js";
+import { executeUpdateTaskList, UPDATE_TASK_LIST_TOOL, UPDATE_TASK_LIST_TOOL_NAME, type TaskListStore } from "./tools/task-list.js";
 import { createTaskOrchestrator, isBookkeepingOnly, MULTI_ITEM_START_NOTE } from "./execution/task-orchestrator.js";
 import { collectEvidence, createDeliverableVerifier } from "./tools/draft-check.js";
 import { REGENERATE_FILE_NOTE, askFileCorrection, askFilePromise, shouldCheckFileCorrection } from "./execution/delivery-correction.js";
@@ -1903,6 +1906,10 @@ type ToolContext = {
 	deliverableVerifier?: { verify: (args: Record<string, unknown>) => void };
 	/** V3: lista de itens da tarefa (`track_items`). */
 	ledgerStore?: LedgerStore;
+	/** Lista de passos visível (`update_task_list`). */
+	taskListStore?: TaskListStore;
+	/** Cartão da lista de passos na thread: grava (um por run) e emite o evento. */
+	emitTaskList?: (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>) => Promise<void>;
 	/** V3: portão de entrega; lança com a nota ao modelo enquanto há itens abertos. */
 	deliveryGate?: { check: (event: "create_file") => void };
 	currentStep?: () => number;
@@ -3616,6 +3623,11 @@ async function executeToolInner(
 		case "research_note": {
 			return executeResearchNote(args, ctx);
 		}
+		case "update_task_list": {
+			const outcome = executeUpdateTaskList(args, ctx);
+			await ctx.emitTaskList?.(outcome.items);
+			return { summary: outcome.summary };
+		}
 		case "track_items": {
 			return executeTrackItems(args, ctx);
 		}
@@ -3759,6 +3771,11 @@ async function executeMcpTool(
 	if (decision === "block") {
 		logMcpDecision({ runId: ctx.runId, tool: name, actionClass: entry.actionClass, autonomy: autonomyDecision, jevMode: ctx.jevMcpMode ?? "off", final: decision });
 		throw new Error(`"${entry.toolName}" está bloqueada pela autonomia do usuário.`);
+	}
+	// Escrita com argumentos incompletos: devolve o erro ao modelo antes de card/execução.
+	if (!entry.readOnly) {
+		const argsError = mcpArgsErrorMessage(entry.toolName, validateMcpArgs(ctx.mcp.toolset.available.get(name)?.function.parameters, args));
+		if (argsError) throw new Error(argsError);
 	}
 	let jevAudit: JevMcpAudit | undefined;
 	let jevAsked = false;
@@ -4255,6 +4272,8 @@ export async function runComputerUse(params: {
 	priorResearchNotes?: unknown;
 	/** V3: ledger de itens de um run anterior da conversa (já escopado por dono); oferecido, nunca imposto. */
 	priorTaskLedger?: unknown;
+	/** Lista de passos (`update_task_list`) de um run anterior da conversa. */
+	priorTaskList?: unknown;
 	/** Subagente: notas do filho ficam num armazém do delegate_task, que as anexa ao relatório. */
 	researchNotesStore?: ResearchNotes;
 	/** Imagens de turnos anteriores da conversa, já filtradas pelo dono (ver `loadUserImageHistory`). */
@@ -4935,6 +4954,10 @@ export async function runComputerUse(params: {
 	if (!isSubagent && (params.toolFilter?.(TRACK_ITEMS_TOOL_NAME) ?? true)) {
 		baseTools.push(TRACK_ITEMS_TOOL);
 	}
+	// `update_task_list`: checklist visível de tarefas de vários passos; só o agente principal, em chat com humano.
+	if (!isSubagent && params.origin === "chat" && (params.toolFilter?.(UPDATE_TASK_LIST_TOOL_NAME) ?? true)) {
+		baseTools.push(UPDATE_TASK_LIST_TOOL);
+	}
 	// `delegate_task`: só em chat com humano; filho e rotina não delegam.
 	const browserSubagents = sandboxEnabled && (params.browserSubagents ?? browserSubagentsEnabled());
 	if (shouldExposeDelegateTask(params.origin)) baseTools.push(browserSubagents ? DELEGATE_TASK_BROWSER_TOOL : DELEGATE_TASK_TOOL);
@@ -5421,6 +5444,9 @@ export async function runComputerUse(params: {
 	}
 	// F2b: estado da tarefa (L13) e capacidades (K1).
 	const taskTracker = createTaskTracker(parsedCheckpoint?.taskState, params.objective ?? lastUserMessageContent);
+	// Lista de passos da conversa: o primeiro checkpoint do run herda a do run anterior (retomada não ressuscita lista encerrada).
+	if (!isSubagent && !parsedCheckpoint?.taskState) taskTracker.setTaskList(parseTaskList(params.priorTaskList));
+	const taskListStore: TaskListStore = { get: () => taskTracker.taskList(), set: (next) => taskTracker.setTaskList(next) };
 	// F1: revisões do objetivo só por redirect/interrupt, sempre versionadas no checkpoint.
 	const objectiveRevisions = [...(parsedCheckpoint?.objectiveRevisions ?? [])];
 	// Triagem de mensagens: pedidos "para depois" ficam no checkpoint (e na fila do run).
@@ -5698,7 +5724,8 @@ export async function runComputerUse(params: {
 		const notesLayer = researchNotes.layer({ deliver: notesDeliver });
 		// V3: itens da tarefa e o item pai atual, reinjetados compactos a cada passo (volátil, fora do prefixo cacheado).
 		const itemsLayer = isSubagent ? null : taskOrchestrator.layer();
-		const layers = [notesLayer, itemsLayer].filter((layer): layer is string => Boolean(layer));
+		const taskListLayer = isSubagent ? null : renderTaskListNote(taskTracker.taskList());
+		const layers = [notesLayer, itemsLayer, taskListLayer].filter((layer): layer is string => Boolean(layer));
 		const withNotes: LlmMessage[] = layers.length ? [...history, ...layers.map((content) => ({ role: "system" as const, content }))] : history;
 		const transport = await resolveLlmMessagesForModel(
 			(discipline ? omitOldScreenshotsInBatches : omitOldScreenshots)((discipline ? omitOldUserImagesInBatches : omitOldUserImages)(withNotes)),
@@ -6583,6 +6610,11 @@ export async function runComputerUse(params: {
 					researchNotes,
 					deliverableVerifier,
 					ledgerStore: isSubagent ? undefined : taskOrchestrator.store,
+					taskListStore: isSubagent ? undefined : taskListStore,
+					emitTaskList: isSubagent ? undefined : async (items) => {
+						await upsertTaskListCard(conversationId, runId, items).catch(() => undefined);
+						await onEvent({ type: "task_list", items, ...(runId ? { runId } : {}) });
+					},
 					deliveryGate,
 					createFileDeps: params.createFileDeps,
 					runCodeDeps: params.runCodeDeps,

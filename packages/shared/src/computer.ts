@@ -162,6 +162,12 @@ export type ComputerUseEvent =
 			}>;
 	  }
 	| {
+		/** Checklist de passos do run (`update_task_list`): a lista inteira substitui a anterior; vazia = removida. */
+		type: "task_list";
+		items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>;
+		runId?: string;
+	  }
+	| {
 		/** Gráfico nativo (spec validado) escrito pelo `run_code` em /work/out/*.chart.json. */
 		type: "chart";
 		chartId: string;

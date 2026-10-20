@@ -16,7 +16,7 @@ export const MULTI_ITEM_START_NOTE =
 	"This request covers several similar items. Start by declaring them with track_items (action set: one item per section, row or page, with its parent in scope), then go through them one by one.";
 
 /** Decisões que só mexem em anotações: não contam como progresso nem como estagnação. */
-const BOOKKEEPING_TOOLS = new Set(["track_items", "research_note"]);
+const BOOKKEEPING_TOOLS = new Set(["track_items", "research_note", "update_task_list"]);
 export const isBookkeepingOnly = (toolNames: readonly string[]) =>
 	toolNames.length > 0 && toolNames.every((name) => BOOKKEEPING_TOOLS.has(name));
 

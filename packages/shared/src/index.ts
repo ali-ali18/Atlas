@@ -215,6 +215,7 @@ export {
 	parseRunInputMode,
 } from "./runs.js";
 export * from "./task-contracts.js";
+export * from "./task-list.js";
 export * from "./task-ledger.js";
 export * from "./browser-subagents.js";
 export { COMPACT_TAIL_KEEP, selectCompactTail } from "./compact.js";

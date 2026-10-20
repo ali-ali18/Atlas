@@ -19,9 +19,9 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { AGENT_RUNTIME_CHECKPOINT_VERSION, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, normalizeRunInputMode, openItems, parseTaskLedger, parseToolResultStatus, redactSecrets } from "@workspace/shared";
+import { AGENT_RUNTIME_CHECKPOINT_VERSION, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolResultStatus, redactSecrets } from "@workspace/shared";
 import type { ToolResultStatus } from "@workspace/shared";
-import type { ComputerUseEvent, ConversationTaskContext, ResearchNote, TaskLedger } from "@workspace/shared";
+import type { ComputerUseEvent, ConversationTaskContext, ResearchNote, TaskLedger, TaskListItem } from "@workspace/shared";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { ownerIds } from "./mcp-connections.js";
@@ -2308,6 +2308,39 @@ export async function getConversationTaskLedger(
 		const ledger = parseTaskLedger((raw as { taskState?: { ledger?: unknown } }).taskState?.ledger);
 		if (!ledger || ledger.items.length === 0) continue;
 		return openItems(ledger).length > 0 ? ledger : null;
+	}
+	return null;
+}
+
+/**
+ * Lista de passos (`update_task_list`) do run mais recente da conversa que a deixou aberta.
+ * O run seguinte herda a lista no próprio checkpoint, então o mais recente com lista basta;
+ * lista concluída ou encerrada nunca é gravada (o tool a limpa), e `null` aqui = nada a retomar.
+ */
+export async function getConversationTaskList(
+	userId: string,
+	conversationId: string,
+	options?: { excludeRunId?: string; limitRuns?: number; origin?: string },
+): Promise<TaskListItem[] | null> {
+	if (!userId || !conversationId) return null;
+	const rows = await prisma.agentRun.findMany({
+		where: {
+			conversationId,
+			userId: { in: ownerIds(userId) },
+			...(options?.origin ? { origin: options.origin } : {}),
+			...(options?.excludeRunId ? { id: { not: options.excludeRunId } } : {}),
+		},
+		select: { checkpointJson: true },
+		orderBy: { createdAt: "desc" },
+		take: options?.limitRuns ?? 3,
+	});
+	for (const row of rows) {
+		const raw = row.checkpointJson;
+		if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+		const list = parseTaskList((raw as { taskState?: { taskList?: unknown } }).taskState?.taskList);
+		if (list && !isTaskListDone(list)) return list;
+		// O run mais recente que tinha estado de tarefa decide: sem lista nele, a lista foi encerrada.
+		if ((raw as { taskState?: unknown }).taskState) return null;
 	}
 	return null;
 }

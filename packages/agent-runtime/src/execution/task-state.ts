@@ -8,6 +8,7 @@ import {
 	unmetCriteria,
 	type TaskArtifact,
 	type TaskLedger,
+	type TaskListItem,
 	type TaskCriterion,
 	type TaskPhase,
 	type TaskState,
@@ -73,6 +74,13 @@ export function createTaskTracker(initial: unknown, objective: string) {
 		/** Ledger de itens (V3): opcional; `undefined` remove. */
 		ledger(): TaskLedger | undefined {
 			return state.ledger ? structuredClone(state.ledger) : undefined;
+		},
+		taskList(): TaskListItem[] | undefined {
+			return state.taskList ? structuredClone(state.taskList) : undefined;
+		},
+		setTaskList(next: TaskListItem[] | undefined) {
+			if (next && next.length > 0) state.taskList = next;
+			else delete state.taskList;
 		},
 		setLedger(next: TaskLedger | undefined) {
 			if (next) state.ledger = next;
