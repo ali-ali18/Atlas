@@ -327,6 +327,15 @@ export {
 	type UserRoutineWebhook,
 } from "./routines.js";
 export {
+	normalizeRoutineGroupName,
+	listRoutineGroups,
+	createRoutineGroup,
+	findOrCreateRoutineGroup,
+	updateRoutineGroup,
+	setRoutineGroupEnabled,
+	deleteRoutineGroup,
+} from "./routine-groups.js";
+export {
 	claimApiConnectionByStateHash,
 	createApiConnection,
 	deleteApiConnection,

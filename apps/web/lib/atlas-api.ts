@@ -42,6 +42,7 @@ import type {
 	CreateSectionInput,
 	ListSectionsResponse,
 	RoutineRecord,
+	RoutineGroupRecord,
 	RoutineGithubTriggerView,
 	RoutineRunListItem,
 	RoutineRunRecord,
@@ -1922,6 +1923,58 @@ export async function listRoutines(botId: string): Promise<RoutineRecord[]> {
 		`/v1/bots/${encodeURIComponent(botId)}/routines`,
 	);
 	return body.routines;
+}
+
+export async function listRoutineGroups(botId: string): Promise<RoutineGroupRecord[]> {
+	const body = await atlasFetch<{ groups: RoutineGroupRecord[] }>(
+		`/v1/bots/${encodeURIComponent(botId)}/routine-groups`,
+	);
+	return body.groups;
+}
+
+export async function createRoutineGroup(
+	botId: string,
+	input: { name: string; description?: string },
+): Promise<RoutineGroupRecord> {
+	const body = await atlasFetch<{ group: RoutineGroupRecord }>(
+		`/v1/bots/${encodeURIComponent(botId)}/routine-groups`,
+		{ method: "POST", body: JSON.stringify(input) },
+	);
+	return body.group;
+}
+
+export async function updateRoutineGroup(
+	botId: string,
+	groupId: string,
+	patch: { name?: string; description?: string },
+): Promise<RoutineGroupRecord> {
+	const body = await atlasFetch<{ group: RoutineGroupRecord }>(
+		`/v1/bots/${encodeURIComponent(botId)}/routine-groups/${encodeURIComponent(groupId)}`,
+		{ method: "PATCH", body: JSON.stringify(patch) },
+	);
+	return body.group;
+}
+
+export async function setRoutineGroupEnabled(
+	botId: string,
+	groupId: string,
+	enabled: boolean,
+): Promise<void> {
+	await atlasFetch<{ routines: RoutineRecord[] }>(
+		`/v1/bots/${encodeURIComponent(botId)}/routine-groups/${encodeURIComponent(groupId)}/enabled`,
+		{ method: "POST", body: JSON.stringify({ enabled }) },
+	);
+}
+
+export async function deleteRoutineGroup(
+	botId: string,
+	groupId: string,
+	deleteRoutines: boolean,
+): Promise<void> {
+	await atlasFetch<{ ok: boolean }>(
+		`/v1/bots/${encodeURIComponent(botId)}/routine-groups/${encodeURIComponent(groupId)}${deleteRoutines ? "?deleteRoutines=true" : ""}`,
+		{ method: "DELETE" },
+	);
 }
 
 export async function listBotRoutineRuns(

@@ -82,7 +82,7 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 		keywords: ["agent", "agente", "agentes", "bot", "bots", "assistente", "assistant", "novo agente", "new agent"],
 	},
 	routines: {
-		tools: ["list_routines", "propose_routine", "github_list_repos"],
+		tools: ["list_routines", "propose_routine", "routine_group", "github_list_repos"],
 		hint: "create, edit or list scheduled routines and reminders (time, interval, event or webhook triggers)",
 		keywords: ["routine", "routines", "rotina", "rotinas", "reminder", "lembrete", "schedule", "agendar", "cron", "webhook", "trigger", "gatilho", "recurring"],
 	},

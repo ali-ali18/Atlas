@@ -208,6 +208,8 @@ export type Routine = {
 	active: boolean;
 	/** "bot" = criada pelo bot no modo proativo (selo "Criada pelo bot"). */
 	createdBy?: "user" | "bot";
+	/** Grupo da rotina (`null` = tirar do grupo; ausente = sem grupo). */
+	groupId?: string | null;
 	id: string;
 	instruction: string;
 	name: string;

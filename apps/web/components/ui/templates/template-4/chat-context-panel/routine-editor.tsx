@@ -235,6 +235,9 @@ function EventChip({
 	);
 }
 
+const GROUP_NONE_VALUE = "none";
+const GROUP_NEW_VALUE = "__new__";
+
 const TIME_OPTIONS = Array.from({ length: 96 }, (_, index) => {
 	const hours = Math.floor(index / 4);
 	const minutes = (index % 4) * 15;
@@ -301,6 +304,8 @@ export function RoutineEditor({
 	runs = [],
 	defaultModel,
 	oneTimeSecret,
+	groups = [],
+	onCreateGroup,
 }: {
 	onClose?: () => void;
 	/** Rotina já criada: autosave (debounced / blur / fechar). */
@@ -324,6 +329,10 @@ export function RoutineEditor({
 	running?: boolean;
 	defaultModel?: string;
 	oneTimeSecret?: string | null;
+	/** Grupos existentes do bot (campo "Grupo"). */
+	groups?: Array<{ id: string; name: string }>;
+	/** Cria um grupo novo; devolve o grupo ou a mensagem de erro. */
+	onCreateGroup?: (name: string) => Promise<{ id: string; name: string } | { error: string }>;
 }) {
 	const { models, loading } = useOpenRouterModels();
 	const initialModel =
@@ -350,6 +359,10 @@ export function RoutineEditor({
 		dirtyRef,
 	);
 	const [model, setModel, setModelRaw] = useDirtyState(initialModel, dirtyRef);
+	const [groupId, setGroupId, setGroupIdRaw] = useDirtyState<string | null>(routine?.groupId ?? null, dirtyRef);
+	const [newGroupName, setNewGroupName] = useState<string | null>(null);
+	const [newGroupError, setNewGroupError] = useState<string | null>(null);
+	const [newGroupSaving, setNewGroupSaving] = useState(false);
 	const [allowChatgptPlan, setAllowChatgptPlan, setAllowChatgptPlanRaw] = useDirtyState(routine?.allowChatgptPlan ?? false, dirtyRef);
 	const [triggerKind, setTriggerKind, setTriggerKindRaw] = useDirtyState<
 		"cron" | "event" | "once" | "interval"
@@ -467,6 +480,7 @@ export function RoutineEditor({
 			active,
 			model,
 			allowChatgptPlan,
+			...(groupId !== null || routine?.groupId ? { groupId } : {}),
 			triggerKind,
 			triggers: triggers.map((trigger) => ({
 				id: trigger.id,
@@ -542,6 +556,7 @@ export function RoutineEditor({
 		instruction,
 		model,
 		allowChatgptPlan,
+		groupId,
 		name,
 		triggerKind,
 		triggers,
@@ -586,6 +601,7 @@ export function RoutineEditor({
 		if (!routine) return;
 		setActiveRaw(routine.active);
 		setAllowChatgptPlanRaw(routine.allowChatgptPlan ?? false);
+		setGroupIdRaw(routine.groupId ?? null);
 		setNameRaw(routine.name);
 		setInstructionRaw(routine.instruction);
 		setModelRaw(
@@ -608,6 +624,7 @@ export function RoutineEditor({
 		setNameRaw,
 		setInstructionRaw,
 		setModelRaw,
+		setGroupIdRaw,
 		setTriggerKindRaw,
 		setTriggersRaw,
 		setGithubConfigRaw,
@@ -732,6 +749,73 @@ export function RoutineEditor({
 					value={model}
 				/>
 			</Field>
+
+			{groups.length > 0 || onCreateGroup ? (
+				<Field>
+					<FieldLabel className="text-xs text-muted-foreground">Grupo</FieldLabel>
+					<SettingsPicker
+						aria-label="Grupo da rotina"
+						onChange={(value) => {
+							if (value === GROUP_NEW_VALUE) {
+								setNewGroupName("");
+								setNewGroupError(null);
+								return;
+							}
+							setNewGroupName(null);
+							setGroupId(value === GROUP_NONE_VALUE ? null : value);
+						}}
+						options={[
+							{ value: GROUP_NONE_VALUE, label: "Sem grupo" },
+							...groups.map((group) => ({ value: group.id, label: group.name })),
+							...(onCreateGroup ? [{ value: GROUP_NEW_VALUE, label: "Novo grupo…" }] : []),
+						]}
+						value={groupId && groups.some((group) => group.id === groupId) ? groupId : GROUP_NONE_VALUE}
+					/>
+					{newGroupName !== null ? (
+						<form
+							className="flex flex-col gap-2"
+							onSubmit={async (event) => {
+								event.preventDefault();
+								const nextName = newGroupName.trim();
+								if (!nextName || !onCreateGroup || newGroupSaving) return;
+								setNewGroupSaving(true);
+								setNewGroupError(null);
+								const created = await onCreateGroup(nextName);
+								if (!mountedRef.current) return;
+								setNewGroupSaving(false);
+								if ("error" in created) {
+									setNewGroupError(created.error);
+									return;
+								}
+								setGroupId(created.id);
+								setNewGroupName(null);
+							}}
+						>
+							<Input
+								aria-label="Nome do novo grupo"
+								autoFocus
+								maxLength={80}
+								onChange={(event) => setNewGroupName(event.target.value)}
+								placeholder="Nome do novo grupo"
+								value={newGroupName}
+							/>
+							{newGroupError ? (
+								<p className="text-destructive text-xs" role="alert">
+									{newGroupError}
+								</p>
+							) : null}
+							<div className="flex justify-end gap-2">
+								<Button onClick={() => setNewGroupName(null)} size="sm" type="button" variant="outline">
+									Cancelar
+								</Button>
+								<Button disabled={!newGroupName.trim() || newGroupSaving} size="sm" type="submit">
+									Criar grupo
+								</Button>
+							</div>
+						</form>
+					) : null}
+				</Field>
+			) : null}
 
 			{model.startsWith("chatgpt/") ? <Field><FieldLabel className="text-xs text-muted-foreground">Rotinas usam o plano</FieldLabel><SettingsPicker aria-label="Rotinas usam o plano" value={allowChatgptPlan ? "on" : "off"} onChange={(value) => setAllowChatgptPlan(value === "on")} options={[{ value: "off", label: "Não, usar OpenRouter" }, { value: "on", label: "Sim, usar plano ChatGPT" }]} /><p className="text-xs text-muted-foreground">Desligado por padrão. Ao ativar, execuções automáticas consomem sua cota pessoal.</p></Field> : null}
 {!isGithubTrigger ? (

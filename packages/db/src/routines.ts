@@ -22,6 +22,7 @@ import {
 } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { ownerIds } from "./mcp-connections.js";
+import { assertGroupUsable } from "./routine-groups.js";
 
 const DEFAULT_TIMEZONE = "America/Sao_Paulo";
 const ACTIVE_RUN_STATUSES: RoutineRunStatus[] = ["queued", "running"];
@@ -257,7 +258,7 @@ function toRoutineRun(
 }
 
 function toRoutine(
-	row: Prisma.RoutineGetPayload<Record<string, never>>,
+	row: Prisma.RoutineGetPayload<Record<string, never>> & { group?: { id: string; name: string } | null },
 	lastRun?: RoutineRunRecord | null,
 ): RoutineRecord {
 	const triggerType = asTriggerType(row.triggerType);
@@ -266,6 +267,8 @@ function toRoutine(
 		userId: row.userId,
 		botId: row.botId,
 		conversationId: row.conversationId,
+		groupId: row.groupId ?? null,
+		group: row.group ? { id: row.group.id, name: row.group.name } : null,
 		name: row.name,
 		prompt: row.prompt,
 		model: row.model,
@@ -304,7 +307,7 @@ export async function listRoutines(
 ): Promise<RoutineRecord[]> {
 	const rows = await prisma.routine.findMany({
 		where: { ...(botId ? { botId } : {}), userId: { in: ownerIds(userId) } },
-		include: { runs: { orderBy: { createdAt: "desc" }, take: 1 } },
+		include: { runs: { orderBy: { createdAt: "desc" }, take: 1 }, group: { select: { id: true, name: true } } },
 		orderBy: { createdAt: "desc" },
 	});
 	return rows.map((row) =>
@@ -319,6 +322,7 @@ export async function getRoutine(
 ): Promise<RoutineRecord | null> {
 	const row = await prisma.routine.findFirst({
 		where: { id: routineId, botId, userId: { in: ownerIds(userId) } },
+		include: { group: { select: { id: true, name: true } } },
 	});
 	if (!row) return null;
 	if (!isOwnerAllowed(row.userId, userId)) return null;
@@ -660,6 +664,7 @@ export async function createRoutine(
 	}
 	const model =
 		input.model?.trim() || bot.openRouterModel?.trim() || "";
+	const groupId = input.groupId ? await assertGroupUsable(userId, input.botId, input.groupId) : null;
 
 	const wantsGithub = input.trigger?.kind === "github";
 	const wantsOnce = !wantsGithub && input.trigger?.kind === "once";
@@ -731,6 +736,7 @@ export async function createRoutine(
 			userId: userId?.trim() ? userId.trim() : LEGACY_OWNER_ID,
 			botId: input.botId,
 			conversationId: bot.conversationId,
+			groupId,
 			name: input.name.trim(),
 			prompt: input.prompt,
 			model,
@@ -742,6 +748,7 @@ export async function createRoutine(
 			createdBy: input.createdBy === "bot" ? "bot" : "user",
 			triggerJson: jsonValue(triggerJson) ?? undefined,
 		},
+		include: { group: { select: { id: true, name: true } } },
 	});
 	return { routine: toRoutine(row), hookSecret };
 }
@@ -767,6 +774,8 @@ export async function updateRoutine(
 
 	const data: Prisma.RoutineUpdateInput = {
 		...(input.name !== undefined ? { name: input.name.trim() } : {}),
+		...(input.groupId === null ? { group: { disconnect: true } } : {}),
+		...(input.groupId ? { group: { connect: { id: await assertGroupUsable(userId, botId, input.groupId) } } } : {}),
 		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
 		...(input.model !== undefined ? { model: input.model.trim() } : {}),
 		...(input.allowChatgptPlan !== undefined ? { allowChatgptPlan: input.allowChatgptPlan } : {}),
@@ -891,6 +900,7 @@ export async function updateRoutine(
 	const row = await prisma.routine.update({
 		where: { id: routineId, userId, botId },
 		data,
+		include: { group: { select: { id: true, name: true } } },
 	});
 	return toRoutine(row, await lastRunFor(row.id));
 }

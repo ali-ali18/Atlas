@@ -87,7 +87,8 @@ export function parseUsersInput(value: string): string[] | undefined {
 
 /** Registro do servidor -> rotina da UI; marca as que o bot criou sozinho (modo proativo). */
 export function recordToUiRoutine(record: RoutineRecord): Routine {
-	const routine = recordToUiRoutineBase(record);
+	const base = recordToUiRoutineBase(record);
+	const routine = record.groupId ? { ...base, groupId: record.groupId } : base;
 	return record.createdBy === "bot" ? { ...routine, createdBy: "bot" } : routine;
 }
 
@@ -179,6 +180,13 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 }
 
 export function uiRoutineToPayload(
+	routine: Routine,
+): Omit<CreateRoutineInput, "botId"> & UpdateRoutineInput {
+	const payload = uiRoutineToPayloadBase(routine);
+	return routine.groupId !== undefined ? { ...payload, groupId: routine.groupId } : payload;
+}
+
+function uiRoutineToPayloadBase(
 	routine: Routine,
 ): Omit<CreateRoutineInput, "botId"> & UpdateRoutineInput {
 	if (routine.triggerKind === "once") {
@@ -295,6 +303,7 @@ export function diffRoutineUpdatePayload(
 			triggerType: next.triggerType,
 			schedule: next.schedule,
 			...("triggerJson" in next ? { triggerJson: next.triggerJson } : {}),
+			...(next.groupId !== undefined ? { groupId: next.groupId } : {}),
 		};
 	}
 	const patch: UpdateRoutineInput = {};
@@ -303,6 +312,7 @@ export function diffRoutineUpdatePayload(
 	if (next.model !== previous.model) patch.model = next.model;
 	if ((next.allowChatgptPlan ?? false) !== (previous.allowChatgptPlan ?? false)) patch.allowChatgptPlan = next.allowChatgptPlan ?? false;
 	if (next.enabled !== previous.enabled) patch.enabled = next.enabled;
+	if ((next.groupId ?? null) !== (previous.groupId ?? null)) patch.groupId = next.groupId ?? null;
 	if (next.triggerType !== previous.triggerType) {
 		patch.triggerType = next.triggerType;
 	}

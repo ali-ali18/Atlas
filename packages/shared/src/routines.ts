@@ -20,6 +20,9 @@ export type RoutineRecord = {
 	userId: string;
 	botId: string;
 	conversationId: string | null;
+	/** Grupo da rotina (null = sem grupo). */
+	groupId?: string | null;
+	group?: { id: string; name: string } | null;
 	name: string;
 	prompt: string;
 	/** Id OpenRouter escolhido no painel para esta rotina. */
@@ -51,6 +54,19 @@ export type RoutineRecord = {
 	interval?: { everyMinutes: number };
 };
 
+export type RoutineGroupRecord = {
+	id: string;
+	botId: string;
+	name: string;
+	description: string;
+	createdAt: string;
+	updatedAt: string;
+	/** Total de rotinas no grupo. */
+	routineCount: number;
+	/** Quantas dessas estão ativas. */
+	enabledCount: number;
+};
+
 export type RoutineRunRecord = {
 	id: string;
 	routineId: string;
@@ -69,6 +85,8 @@ export type RoutineRunRecord = {
 
 export type CreateRoutineInput = {
 	botId: string;
+	/** Grupo existente do mesmo bot/usuário. */
+	groupId?: string | null;
 	name: string;
 	prompt: string;
 	model?: string;
@@ -118,6 +136,8 @@ export type CreateRoutineInput = {
 };
 
 export type UpdateRoutineInput = {
+	/** Move para o grupo (id) ou `null` para tirar do grupo. */
+	groupId?: string | null;
 	name?: string;
 	prompt?: string;
 	model?: string;

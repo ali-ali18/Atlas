@@ -303,7 +303,8 @@ model Bot {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   routines        Routine[]
-  mailbox         BotMailbox?
+  routineGroups   RoutineGroup[]
+  mailbox        BotMailbox?
 
   @@index([pinned, pinOrder])
   @@index([ownerId])
@@ -667,6 +668,8 @@ model Routine {
   botId           String
   bot             Bot       @relation(fields: [botId], references: [id], onDelete: Cascade)
   conversationId  String?
+  groupId         String?
+  group           RoutineGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
   name            String
   prompt          String
   /// Modelo OpenRouter dedicado a esta rotina (escolhido no painel).
@@ -686,7 +689,24 @@ model Routine {
 
   @@index([botId, enabled])
   @@index([userId])
+  @@index([groupId])
   @@map("routines")
+}
+
+/// Agrupa rotinas que servem a uma mesma tarefa (por bot).
+model RoutineGroup {
+  id          String    @id @default(cuid())
+  userId      String
+  botId       String
+  bot         Bot       @relation(fields: [botId], references: [id], onDelete: Cascade)
+  name        String
+  description String    @default("")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  routines    Routine[]
+
+  @@index([botId])
+  @@map("routine_groups")
 }
 
 model RoutineRun {
