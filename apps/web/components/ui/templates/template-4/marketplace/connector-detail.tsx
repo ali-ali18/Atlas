@@ -1,16 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import type { McpConnectionView, McpToolInfo } from "@workspace/shared";
+import { useEffect, useState } from "react";
+import type { AutonomyView, McpConnectionView, McpToolInfo } from "@workspace/shared";
 import { autonomyConnectorKey, isReadOnlyMcpTool } from "@workspace/shared";
 import { Alert, AlertDescription } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
 import { ConfirmAlert } from "@workspace/ui/components/confirm-alert";
-import { Switch } from "@workspace/ui/components/switch";
 import { ConnectorGuide } from "./connector-guide";
+import { ToolPermissionList } from "./tool-permission-list";
+import { DEFAULT_POLICY, hasRiskyAllow, toolPermission, withAllToolsPermission, withToolPermission, type ToolPermission } from "./tool-permissions";
 import { mcpToolGuide, ToolGuide } from "./tool-guide";
 import {
 	deleteMcpConnection,
+	getAccountAutonomy,
+	updateAccountAutonomy,
 	refreshMcpConnection,
 	updateMcpConnection,
 } from "@/lib/atlas-api";
@@ -34,15 +37,40 @@ export function ConnectorDetail({
 	const [error, setError] = useState<string | null>(null);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const [guideTool, setGuideTool] = useState<McpToolInfo | null>(null);
-	const activeCount = connection.tools.length - connection.disabledTools.length;
+	const [autonomy, setAutonomy] = useState<AutonomyView | null>(null);
+	const policy = autonomy?.effective ?? DEFAULT_POLICY;
+	const activeCount = connection.tools.filter((tool) => toolPermission(connection, tool, policy) !== "blocked").length;
 
-	async function change(patch: { disabledTools?: string[] }) {
+	useEffect(() => {
+		let cancelled = false;
+		getAccountAutonomy()
+			.then((view) => { if (!cancelled) setAutonomy(view); })
+			.catch(() => { if (!cancelled) setError("Não foi possível carregar as permissões das ferramentas."); });
+		return () => { cancelled = true; };
+	}, []);
+
+	/** Uma tool ou todas: atualiza na hora e volta ao estado anterior se a API falhar. */
+	async function setPermissions({ mode, tool }: { mode: ToolPermission; tool?: McpToolInfo }) {
+		if (!autonomy) return;
+		const previous = autonomy;
+		const previousConnection = connection;
+		const stored = previous.stored?.exceptions ?? [];
+		const exceptions = tool ? withToolPermission(stored, connection, tool, mode) : withAllToolsPermission(stored, connection, mode);
+		// disabledTools ainda vale no runtime: sair de "Bloquear" por aqui tem de reabrir a tool.
+		const disabledTools = tool ? connection.disabledTools.filter((name) => name !== tool.name) : [];
+		const reopen = disabledTools.length !== connection.disabledTools.length;
 		setBusy(true);
 		setError(null);
+		setAutonomy({ ...previous, stored: { ...(previous.stored ?? { exceptions: [] }), exceptions }, effective: { ...previous.effective, exceptions } });
+		if (reopen) onChanged({ ...connection, disabledTools });
 		try {
-			onChanged(await updateMcpConnection(connection.id, patch));
+			setAutonomy(await updateAccountAutonomy({ exceptions }));
+			if (reopen) onChanged(await updateMcpConnection(connection.id, { disabledTools }));
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : "Não foi possível salvar.");
+			setAutonomy(previous);
+			if (reopen) onChanged(previousConnection);
+			getAccountAutonomy().then(setAutonomy).catch(() => undefined);
 		} finally {
 			setBusy(false);
 		}
@@ -111,40 +139,19 @@ export function ConnectorDetail({
 				{connection.tools.length === 0 ? (
 					<p className="text-sm text-muted-foreground">Nenhuma tool encontrada neste servidor.</p>
 				) : (
-					<div className="max-h-64 divide-y overflow-y-auto rounded-xl border">
-						{connection.tools.map((tool) => {
-							const enabled = !connection.disabledTools.includes(tool.name);
-							return (
-								<div className="flex items-start justify-between gap-3 p-3" key={tool.name}>
-									<button
-										aria-label={`Guia da ferramenta ${tool.title || tool.name}`}
-										className="min-w-0 flex-1 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-										onClick={() => setGuideTool(tool)}
-										type="button"
-									>
-										<div className="flex flex-wrap items-center gap-2">
-											<span className="break-all text-sm font-medium">{tool.title || tool.name}</span>
-											<span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
-												{isReadOnlyMcpTool(tool) ? "leitura" : "escreve"}
-											</span>
-										</div>
-										{tool.description ? <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{tool.description}</p> : null}
-									</button>
-									<Switch
-										aria-label={`${enabled ? "Desligar" : "Ligar"} ${tool.name}`}
-										checked={enabled}
-										disabled={busy}
-										onCheckedChange={(checked) => {
-											const disabledTools = checked
-												? connection.disabledTools.filter((name) => name !== tool.name)
-												: [...connection.disabledTools, tool.name];
-											void change({ disabledTools });
-										}}
-									/>
-								</div>
-							);
-						})}
-					</div>
+					<>
+						<ToolPermissionList
+							connection={connection}
+							disabled={busy || !autonomy}
+							onAllChange={(mode) => void setPermissions({ mode })}
+							onOpenGuide={setGuideTool}
+							onToolChange={(tool, mode) => void setPermissions({ mode, tool })}
+							policy={policy}
+						/>
+						{hasRiskyAllow(connection, policy) ? (
+							<p className="text-xs text-muted-foreground">Há ações que não dá para desfazer (apagar, enviar) em Permitir sempre. O agente vai executá-las sem pedir sua aprovação.</p>
+						) : null}
+					</>
 				)}
 			</section>
 			{connection.status === "connected" ? <ConnectorGuide connectionId={connection.id} guide={connection.guide} kind="mcp" /> : null}
