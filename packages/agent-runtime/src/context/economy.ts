@@ -57,6 +57,8 @@ export function planContextEconomy(input: {
 	eligible: readonly ChatTool[];
 	/** Texto que o roteador lê (ver `economyRouterText`). */
 	routerText: string;
+	/** Só a fala atual do usuário: grupos que alteram dados do dono (skills) não herdam o turno anterior. */
+	currentText?: string;
 	/** Onboarding do bot ainda não terminou: a tool de perfil precisa estar à mão. */
 	onboardingIncomplete?: boolean;
 	/** Evento de config do bot, onboarding ou resposta de questionário de onboarding. */
@@ -91,6 +93,8 @@ export function planContextEconomy(input: {
 	// Sem as tools (bot sem e-mail) o procedimento de e-mail é só ruído.
 	if (!input.eligible.some((tool) => tool.function.name.startsWith("email_"))) groups.delete("email");
 	else if (input.preloadEmail) groups.add("email");
+	// Criar/editar skill só vale se a fala ATUAL pede; o turno anterior ("crie uma skill") não pode manter a tool carregada num "valeu".
+	if (input.currentText !== undefined && !routeContextGroups({ text: input.currentText }).has("skills")) groups.delete("skills");
 	for (const name of input.resumedToolNames ?? []) {
 		const group = nativeToolGroupOf(name);
 		if (group && isNativeToolGroup(group)) groups.add(group);

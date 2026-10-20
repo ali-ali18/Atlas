@@ -4912,6 +4912,7 @@ export async function runComputerUse(params: {
 		? planContextEconomy({
 				eligible: baseTools,
 				routerText: economyRouterText({ origin: params.origin, objective: params.objective, messages: params.messages, lastUserMessage: lastUserMessageContent }),
+				currentText: params.origin === "routine" ? undefined : lastUserMessageContent,
 				onboardingIncomplete,
 				onboarding: isConfigEventRun || isOnboardingQuestionnaireAnswer,
 				hasImageAttachments: (params.userImageArtifactIds ?? parsedCheckpoint?.userImageArtifactIds ?? []).length > 0,

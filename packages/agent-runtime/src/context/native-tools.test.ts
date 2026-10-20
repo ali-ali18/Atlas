@@ -156,6 +156,13 @@ describe("plano de economia", () => {
 		expect(planContextEconomy({ ...base, onboardingIncomplete: true, profileAllowed: false }).groups.has("profile")).toBe(false);
 	});
 
+	it("skills só carrega se a fala ATUAL pede (o turno anterior não mantém propose_skill)", () => {
+		const routerText = "crie uma skill de proposta\nvlw, querido";
+		expect(planContextEconomy({ ...base, routerText }).groups.has("skills")).toBe(true);
+		expect(planContextEconomy({ ...base, routerText, currentText: "vlw, querido" }).groups.has("skills")).toBe(false);
+		expect(planContextEconomy({ ...base, routerText, currentText: "edite a skill de proposta" }).groups.has("skills")).toBe(true);
+	});
+
 	it("retomada repõe os grupos das tools que já estavam carregadas", () => {
 		const resumed = planContextEconomy({ ...base, resumedToolNames: ["propose_routine", "web_search"] });
 		expect(resumed.groups.has("routines")).toBe(true);
