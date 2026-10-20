@@ -15,6 +15,7 @@ import {
 	getBotProfile,
 	getMemorySnapshot,
 	listBots,
+	memoryRef,
 	removeMemoryEntry,
 	replaceMemoryEntry,
 } from "@workspace/db";
@@ -23,7 +24,9 @@ import {
 	type LlmMessage,
 	completeChatWithTools,
 } from "@workspace/llm";
+import type { MemoryGateCandidate, MemoryGateVerdict, MemoryJudge } from "@workspace/agent-runtime";
 import type { WorkerConfig } from "../config.js";
+import { buildMemoryJudge } from "../memory-gate.js";
 import { createMaintenanceLlm, type MaintenanceLlm } from "../maintenance-llm.js";
 
 const MAX_STEPS = 4;
@@ -130,6 +133,8 @@ export async function executeMemoryTool(
 	context: { userId?: string; botId?: string },
 	ops: MemoryOps = { addMemoryEntry, replaceMemoryEntry, removeMemoryEntry },
 	scope: MemoryScopeContext = {},
+	/** Veredito do porteiro para este add/replace (julgado em lote antes). Ausente = grava direto. */
+	verdict?: MemoryGateVerdict,
 ): Promise<{ ok: boolean; result: unknown }> {
 	const args = parseArgs(rawArgs);
 	const action = asAction(args.action);
@@ -165,6 +170,19 @@ export async function executeMemoryTool(
 		if (decision.action === "skip") return { ok: true, result: { ok: true, skipped: true, reason: decision.reason } };
 		target = decision.target;
 		if (target !== requestedTarget) demotedReason = decision.reason;
+	}
+
+	if (verdict && action !== "remove" && content !== undefined) {
+		if (verdict.action === "discard") return { ok: true, result: { ok: true, skipped: true, reason: `porteiro: ${verdict.reason}` } };
+		// Fusão com uma entrada existente: o `add` vira um `replace` pela ref dela.
+		if (verdict.action === "merge" && action === "add") {
+			try {
+				const merged = await ops.replaceMemoryEntry({ ...context, target, ref: memoryRef(verdict.entryId), content: verdict.content, category, importance, source: "memory-review" });
+				if (merged.ok) return { ok: true, result: { ...merged, mergedWith: verdict.entryId } };
+			} catch {
+				// Segue para o `add` normal: perder a fusão não pode perder o fato.
+			}
+		}
 	}
 
 	try {
@@ -236,7 +254,24 @@ export async function executeMemoryTool(
 const MEMORIES_PER_LAYER = 30;
 const MEMORY_SNIPPET_CHARS = 200;
 
-type MemoryLayers = { user: { entries: { content: string }[] }; memory: { entries: { content: string }[] } };
+type MemoryLayers = { user: { entries: { id?: string; content: string }[] }; memory: { entries: { id?: string; content: string }[] } };
+
+/** Candidatos do passo (add/replace que passaram pela trava de escopo), por id da chamada, com o alvo já rebaixado. */
+export function gateCandidates(calls: { id: string; function: { arguments: string } }[], hasBot: boolean, scope: MemoryScopeContext): Map<string, MemoryGateCandidate> {
+	const out = new Map<string, MemoryGateCandidate>();
+	for (const call of calls) {
+		const args = parseArgs(call.function.arguments);
+		const action = asAction(args.action);
+		const target = asTarget(args.target);
+		if ((action !== "add" && action !== "replace") || !target || typeof args.content !== "string") continue;
+		const category = typeof args.category === "string" && args.category.trim() ? args.category.trim().slice(0, 64) : undefined;
+		const decision = decideMemoryScope({ content: args.content, category, target, hasBot }, scope);
+		if (decision.action !== "save") continue;
+		const importance = typeof args.importance === "number" && Number.isFinite(args.importance) ? Math.max(0, Math.min(1, args.importance)) : undefined;
+		out.set(call.id, { content: args.content, target: decision.target, category, importance, replaces: action === "replace" });
+	}
+	return out;
+}
 
 /** Bloco compacto com o que já está salvo (user + este bot), para o revisor atualizar em vez de duplicar. */
 export function renderCurrentMemories(snapshot: MemoryLayers | null): string {
@@ -255,6 +290,10 @@ export async function processMemoryReview(
 		profile?: typeof getBotProfile;
 		snapshot?: (userId?: string, botId?: string) => Promise<MemoryLayers>;
 		bots?: (userId: string | undefined) => Promise<{ name: string }[]>;
+		/** Porteiro da memória (injetável nos testes); padrão: Jev + modelo de manutenção da conta. */
+		judge?: MemoryJudge;
+		/** Escrita da memória (injetável nos testes); padrão: banco. */
+		ops?: MemoryOps;
 	} = {},
 ): Promise<MemoryReviewJobResult> {
 	if (job.name !== ATLAS_JOB_NAMES.memoryReview) {
@@ -270,7 +309,14 @@ export async function processMemoryReview(
 	// Contexto da trava: nomes de todos os bots do usuário + perfil deste bot; falha aqui não derruba a revisão.
 	const botNames = await (deps.bots ?? listBots)(payload.userId).then((bots) => bots.map((bot) => bot.name)).catch(() => [] as string[]);
 	const scope: MemoryScopeContext = { botNames, botProfile };
-	const current = renderCurrentMemories(await (deps.snapshot ?? getMemorySnapshot)(payload.userId, payload.botId).catch(() => null));
+	const snapshot = await (deps.snapshot ?? getMemorySnapshot)(payload.userId, payload.botId).catch(() => null);
+	const current = renderCurrentMemories(snapshot);
+	const gateLayers = {
+		user: (snapshot?.user.entries ?? []).flatMap((entry) => (entry.id ? [{ id: entry.id, content: entry.content }] : [])),
+		memory: (snapshot?.memory.entries ?? []).flatMap((entry) => (entry.id ? [{ id: entry.id, content: entry.content }] : [])),
+	};
+	const gateContext = transcript.slice(-4).map((message) => `${message.role}: ${message.content.replace(/\s+/g, " ").slice(0, 200)}`).join("\n");
+	let judge: MemoryJudge | undefined = deps.judge;
 
 	const conversation: LlmMessage[] = [
 		{ role: "system", content: [SYSTEM_PROMPT, current, languageInstruction(language)].filter(Boolean).join("\n\n") },
@@ -316,11 +362,25 @@ export async function processMemoryReview(
 			tool_calls: toolCalls,
 		});
 
+		// Porteiro: todos os fatos do passo vão numa só chamada; falha dele = grava como antes (fail-open).
+		const candidates = gateCandidates(toolCalls, Boolean(payload.botId), scope);
+		const verdicts = new Map<string, MemoryGateVerdict>();
+		if (candidates.size > 0) {
+			try {
+				judge ??= await buildMemoryJudge({ userId: payload.userId, config });
+				const ids = [...candidates.keys()];
+				const judged = await judge({ candidates: ids.map((id) => candidates.get(id)!), existing: gateLayers, context: gateContext });
+				ids.forEach((id, n) => judged[n] && verdicts.set(id, judged[n]!));
+			} catch (error) {
+				console.warn(`[memory.gate] warn review gate failed (${error instanceof Error ? error.name : "erro"}); saving as is`);
+			}
+		}
+
 		for (const call of toolCalls) {
 			const outcome = await executeMemoryTool(call.function.arguments, {
 				userId: payload.userId,
 				botId: payload.botId,
-			}, undefined, scope);
+			}, deps.ops, scope, verdicts.get(call.id));
 
 			if (outcome.ok && !(outcome.result as { skipped?: boolean } | null)?.skipped) {
 				saved += 1;

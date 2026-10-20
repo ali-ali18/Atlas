@@ -175,13 +175,29 @@ export {
 } from "./mcp/activation.js";
 export { redactSecrets, sanitizeErrorMessage } from "./mcp/sanitize.js";
 export {
+	clipForJev,
 	decideWithJev,
+	jevModeFor,
 	parseJevFeatureMode,
 	type JevAsk,
 	type JevFeature,
 	type JevFeatureMode,
 	type JevRuntime,
 } from "./jev/decide.js";
+export {
+	createMemoryJudge,
+	memoryJudgeFor,
+	reviewMemoryEntries,
+	MEMORY_GATE_JEV_TIMEOUT_MS,
+	type MemoryCleanupDraft,
+	type MemoryCleanupEntry,
+	type MemoryGateCandidate,
+	type MemoryGateDeps,
+	type MemoryGateEntry,
+	type MemoryGateLayers,
+	type MemoryGateVerdict,
+	type MemoryJudge,
+} from "./memory-gate.js";
 export { detectJevIntents, NO_INTENTS, type JevIntents } from "./jev/intent.js";
 export { detectReactionOnly, REACTION_QUESTIONS } from "./jev/reaction.js";
 export { discoverOpenApiSpec, findSpecLinks, type DiscoveredApi } from "./api-connector/discover.js";

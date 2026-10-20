@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import type {
 	MemoryActionResult,
+	MemoryCleanupJobPayload,
+	MemoryCleanupSuggestion,
+	MemoryCleanupView,
 	MemoryChangesPage,
 	MemorySnapshot,
 	MemoryAddInput,
@@ -10,17 +13,22 @@ import type {
 } from "@workspace/shared";
 import {
 	addMemoryEntry,
+	getMemoryCleanup,
 	getMemorySnapshot,
 	isBotOwnedBy,
 	listMemoryChanges,
+	memoryRef,
+	mergeMemoryEntries,
 	removeMemoryEntry,
 	removeMemoryEntryById,
 	replaceMemoryEntry,
 	replaceMemoryEntryById,
+	setMemoryCleanupSuggestions,
 	undoMemoryChange,
 	type MemoryUndoResult,
 } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
+import { enqueueMemoryCleanup } from "../memory-cleanup-queue.js";
 
 const TARGETS: readonly MemoryTarget[] = ["user", "memory"];
 
@@ -150,7 +158,40 @@ export type MemoryRouteDeps = {
 	removeById: typeof removeMemoryEntryById;
 	listChanges(input: { userId: string; botId?: string; cursor?: string; limit?: number }): Promise<MemoryChangesPage>;
 	undo(input: { userId: string; changeId: string }): Promise<MemoryUndoResult>;
+	/** Limpeza com aprovação (opcional nos testes que não a exercitam). */
+	cleanup?: MemoryCleanupPorts;
 };
+
+/** Portas da limpeza: leitura/gravação das sugestões, o job e as duas operações que a aprovação executa. */
+export type MemoryCleanupPorts = {
+	get(userId: string, botId: string): Promise<MemoryCleanupView | null>;
+	save(userId: string, botId: string, list: MemoryCleanupSuggestion[]): Promise<MemoryCleanupView | null>;
+	enqueue(payload: MemoryCleanupJobPayload): Promise<boolean>;
+	removeById: typeof removeMemoryEntryById;
+	merge: typeof mergeMemoryEntries;
+};
+
+const defaultCleanup: MemoryCleanupPorts = {
+	get: getMemoryCleanup,
+	save: setMemoryCleanupSuggestions,
+	enqueue: enqueueMemoryCleanup,
+	removeById: removeMemoryEntryById,
+	merge: mergeMemoryEntries,
+};
+
+/** Executa UMA sugestão aprovada pelo usuário. `false` = não vale mais (entradas mudaram ou sumiram). */
+async function applySuggestion(ports: MemoryCleanupPorts, userId: string, botId: string, suggestion: MemoryCleanupSuggestion): Promise<boolean> {
+	if (suggestion.kind === "delete") {
+		let removed = 0;
+		for (const entryId of suggestion.entryIds) {
+			const result = await ports.removeById({ userId, entryId, origin: "user" });
+			if (result?.ok) removed += 1;
+		}
+		return removed > 0;
+	}
+	const result = await ports.merge({ userId, botId, target: suggestion.target, refs: suggestion.entryIds.map(memoryRef), content: suggestion.content ?? "", origin: "user" });
+	return result.ok;
+}
 
 const defaultDeps: MemoryRouteDeps = {
 	botOwned: isBotOwnedBy,
@@ -347,6 +388,106 @@ export function createMemoryRoutes(deps: MemoryRouteDeps = defaultDeps) {
 		} catch (error) {
 			console.error("undo memory change failed", error);
 			return c.json({ error: "Failed to undo memory change" }, 503);
+		}
+	});
+
+	// --- Limpeza com aprovação: o worker só sugere; nada muda até o usuário aplicar ---
+
+	const cleanup = deps.cleanup ?? defaultCleanup;
+
+	/** Bot do corpo/consulta, já conferido como do usuário; senão a resposta de erro pronta. */
+	async function cleanupBot(c: import("hono").Context<AuthEnv>, botId: string | undefined): Promise<{ userId: string; botId: string } | Response> {
+		if (!botId) return c.json({ error: "botId obrigatório" }, 400);
+		const { userId } = scopeFor(c.get("session"));
+		if (await botMissing(userId, botId)) return c.json({ error: "Bot não encontrado" }, 404);
+		return { userId, botId };
+	}
+	const bodyBotId = async (c: import("hono").Context<AuthEnv>): Promise<string | undefined> => {
+		try {
+			return parseBotId(((await c.req.json()) as { botId?: unknown } | null)?.botId);
+		} catch {
+			return undefined;
+		}
+	};
+	const without = (list: MemoryCleanupSuggestion[], id: string) => list.filter((item) => item.id !== id);
+
+	app.get("/v1/memory/cleanup", async (c) => {
+		try {
+			const scoped = await cleanupBot(c, parseBotId(c.req.query("botId")));
+			if (scoped instanceof Response) return scoped;
+			const view = await cleanup.get(scoped.userId, scoped.botId);
+			if (!view) return c.json({ error: "Bot não encontrado" }, 404);
+			return c.json({ cleanup: view });
+		} catch (error) {
+			console.error("load memory cleanup failed", error);
+			return c.json({ error: "Não foi possível ler as sugestões" }, 503);
+		}
+	});
+
+	/** Pede a revisão em segundo plano. Já revisando (e não velho) = não enfileira de novo. */
+	app.post("/v1/memory/cleanup", async (c) => {
+		try {
+			const scoped = await cleanupBot(c, await bodyBotId(c));
+			if (scoped instanceof Response) return scoped;
+			const current = await cleanup.get(scoped.userId, scoped.botId);
+			if (!current) return c.json({ error: "Bot não encontrado" }, 404);
+			if (current.status === "generating") return c.json({ queued: false, cleanup: current }, 202);
+			if (!(await cleanup.enqueue({ userId: scoped.userId, botId: scoped.botId }))) return c.json({ error: "Não foi possível iniciar a revisão agora" }, 503);
+			return c.json({ queued: true }, 202);
+		} catch (error) {
+			console.error("start memory cleanup failed", error);
+			return c.json({ error: "Não foi possível iniciar a revisão" }, 503);
+		}
+	});
+
+	app.post("/v1/memory/cleanup/apply-all", async (c) => {
+		try {
+			const scoped = await cleanupBot(c, await bodyBotId(c));
+			if (scoped instanceof Response) return scoped;
+			const current = await cleanup.get(scoped.userId, scoped.botId);
+			if (!current) return c.json({ error: "Bot não encontrado" }, 404);
+			let applied = 0;
+			let skipped = 0;
+			for (const suggestion of current.suggestions) {
+				if (await applySuggestion(cleanup, scoped.userId, scoped.botId, suggestion)) applied += 1;
+				else skipped += 1;
+			}
+			const view = await cleanup.save(scoped.userId, scoped.botId, []);
+			return c.json({ cleanup: view, applied, skipped });
+		} catch (error) {
+			console.error("apply all memory cleanup failed", error);
+			return c.json({ error: "Não foi possível aplicar as sugestões" }, 503);
+		}
+	});
+
+	app.post("/v1/memory/cleanup/:sid/apply", async (c) => {
+		try {
+			const scoped = await cleanupBot(c, await bodyBotId(c));
+			if (scoped instanceof Response) return scoped;
+			const current = await cleanup.get(scoped.userId, scoped.botId);
+			const picked = current?.suggestions.find((item) => item.id === c.req.param("sid"));
+			if (!current || !picked) return c.json({ error: "Sugestão não encontrada" }, 404);
+			const done = await applySuggestion(cleanup, scoped.userId, scoped.botId, picked);
+			const view = await cleanup.save(scoped.userId, scoped.botId, without(current.suggestions, picked.id));
+			if (!done) return c.json({ error: "Essa sugestão não vale mais: as memórias mudaram.", code: "stale", cleanup: view }, 409);
+			return c.json({ cleanup: view });
+		} catch (error) {
+			console.error("apply memory cleanup failed", error);
+			return c.json({ error: "Não foi possível aplicar a sugestão" }, 503);
+		}
+	});
+
+	app.post("/v1/memory/cleanup/:sid/dismiss", async (c) => {
+		try {
+			const scoped = await cleanupBot(c, await bodyBotId(c));
+			if (scoped instanceof Response) return scoped;
+			const current = await cleanup.get(scoped.userId, scoped.botId);
+			if (!current?.suggestions.some((item) => item.id === c.req.param("sid"))) return c.json({ error: "Sugestão não encontrada" }, 404);
+			const view = await cleanup.save(scoped.userId, scoped.botId, without(current.suggestions, c.req.param("sid")));
+			return c.json({ cleanup: view });
+		} catch (error) {
+			console.error("dismiss memory cleanup failed", error);
+			return c.json({ error: "Não foi possível ignorar a sugestão" }, 503);
 		}
 	});
 

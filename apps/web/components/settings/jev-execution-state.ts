@@ -67,6 +67,7 @@ export const JEV_FEATURE_SPECS: readonly JevFeatureSpec[] = [
 	{ feature: "blockpage", itemId: "jev.bloqueio", label: "Página de bloqueio", description: "Reconhece páginas bloqueadas, como captcha e login." },
 	{ feature: "delegate", itemId: "jev.delegacao", label: "Delegação", description: "Decide quando passar uma tarefa para um subagente." },
 	{ feature: "stuck", itemId: "jev.travamento", label: "Travamento", description: "Percebe quando o agente está em círculos." },
+	{ feature: "memory", itemId: "jev.memoria", label: "Porteiro da memória", description: "Decide se um fato novo vale ser guardado na memória." },
 ];
 
 const JEV_MODE_ORDER: readonly JevMode[] = ["off", "shadow", "on"];

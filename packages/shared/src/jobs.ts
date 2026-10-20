@@ -4,6 +4,7 @@ import type { AtlasQueueName } from "./queues.js";
 export const ATLAS_JOB_NAMES = {
 	chatCompletion: "chat.completion",
 	memoryReview: "memory.review",
+	memoryCleanup: "memory.cleanup",
 	summaryWrite: "summary.write",
 	runAgent: "run-agent",
 	executeRoutine: "execute-routine",

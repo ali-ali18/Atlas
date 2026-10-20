@@ -48,6 +48,7 @@ import { createMcpRoutes } from "./routes/mcp.js";
 import { createApiConnectionRoutes } from "./routes/api-connections.js";
 import { createConnectorGuideRoutes } from "./routes/connector-guides.js";
 import { setConnectorGuideEnqueuer } from "./connector-guide-queue.js";
+import { setMemoryCleanupEnqueuer } from "./memory-cleanup-queue.js";
 import { createProviderRoutes } from "./routes/providers.js";
 import { createProviderKeyRoutes } from "./routes/provider-keys.js";
 import { createModelRoutes } from "./routes/models.js";
@@ -140,6 +141,8 @@ const config = { ...baseConfig, chatQueue, agentRunQueue, routineQueue };
 if (chatQueue) {
 	const guideQueue = chatQueue;
 	setConnectorGuideEnqueuer((payload, jobId) => guideQueue.add(ATLAS_JOB_NAMES.connectorGuide, payload, { jobId, attempts: 2 }));
+	// Sem nova tentativa: falha vira estado visível na aba Memória.
+	setMemoryCleanupEnqueuer((payload, jobId) => guideQueue.add(ATLAS_JOB_NAMES.memoryCleanup, payload, { jobId, attempts: 1 }));
 }
 
 const app = new Hono();

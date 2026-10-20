@@ -39,12 +39,12 @@ test("Jev: revisão de conectores e decisões auxiliares, um dropdown cada, com 
 	assert.match(html, /id="settings-jev-mcp"/);
 	assert.match(html, /for="settings-jev-all"[^>]*>Decisões auxiliares</);
 	assert.match(html, /id="settings-jev-all"/);
-	// Só os 2 gerais ficam à mostra; os 6 por recurso moram no recolhível (fechado).
+	// Só os 2 gerais ficam à mostra; os 7 por recurso moram no recolhível (fechado).
 	assert.equal((html.match(/aria-haspopup="menu"/g) ?? []).length, 2);
 	assert.match(html, /<h3[^>]*>Revisões gerais<\/h3>/);
 	assert.match(html, /Confere antes de criar, editar ou apagar algo num conector\./);
 	assert.match(html, /Checagens extras enquanto o bot trabalha/);
-	assert.match(html, /data-slot="jev-features-trigger"[^>]*>.*?Ajustar por recurso.*?6 ajustes finos/s);
+	assert.match(html, /data-slot="jev-features-trigger"[^>]*>.*?Ajustar por recurso.*?7 ajustes finos/s);
 });
 
 test("Jev: o geral herdando mostra 'Herdar do servidor'; escolhido mostra o modo", () => {
@@ -60,7 +60,7 @@ test("Jev: revisão de conectores herdada mostra a origem; do usuário mostra o 
 	assert.doesNotMatch(html.replace(/(class|style)="[^"]*"/g, ""), /Herdar: padrão/);
 });
 
-test("Jev: os 6 recursos ficam recolhidos em 'Ajustar por recurso' (fechado por padrão)", () => {
+test("Jev: os 7 recursos ficam recolhidos em 'Ajustar por recurso' (fechado por padrão)", () => {
 	const html = render();
 	for (const id of ["intent", "tools", "verify", "blockpage", "delegate", "stuck"]) {
 		assert.doesNotMatch(html, new RegExp(`id="settings-jev-${id}"`), `${id} não deve aparecer fechado`);

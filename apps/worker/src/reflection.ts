@@ -1,6 +1,8 @@
 import {
 	addMemoryEntry,
 	appendProfileSuggestionCard,
+	memoryRef,
+	replaceMemoryEntry,
 	appendReflectionMessage,
 	claimQueuedReflection,
 	claimScheduledReflection,
@@ -33,11 +35,14 @@ import {
 	reflectionTimeZone,
 	toReflectionFailure,
 	MAINTENANCE_NO_KEY_MESSAGE,
+	PENDING_CATEGORY,
 	REFLECTION_RECHECK_MAX_STEPS,
 	type BotLanguage,
 	type ReflectionFailureStage,
 } from "@workspace/shared";
+import type { MemoryJudge } from "@workspace/agent-runtime";
 import type { WorkerConfig } from "./config.js";
+import { buildMemoryJudge, loadGateLayers } from "./memory-gate.js";
 import { resolveDefaultModelForJob } from "./run-config.js";
 import { createMaintenanceLlm, type MaintenanceLlm } from "./maintenance-llm.js";
 import { runReflection, type ReflectionPorts } from "./processors/reflection.js";
@@ -55,6 +60,8 @@ export type ReflectionSweeperDeps = {
 	log?: (line: string) => void;
 	/** Injetável nos testes: cliente LLM da manutenção. */
 	maintenanceLlm?: (userId: string) => Promise<MaintenanceLlm>;
+	/** Porteiro da memória (injetável nos testes); padrão: Jev + modelo de manutenção da conta. */
+	memoryJudge?: (userId: string) => Promise<MemoryJudge>;
 };
 
 function buildPorts(deps: ReflectionSweeperDeps, model: () => Promise<string>): ReflectionPorts {
@@ -63,6 +70,23 @@ function buildPorts(deps: ReflectionSweeperDeps, model: () => Promise<string>): 
 		updateOwnedMemory,
 		deleteOwnedMemory,
 		addMemory: async (input) => {
+			// Pendência acompanhada é compromisso, não fato: não passa pelo porteiro.
+			if (input.category !== PENDING_CATEGORY) {
+				try {
+					const judge = await (deps.memoryJudge ?? ((userId) => buildMemoryJudge({ userId, config: deps.config })))(input.userId);
+					const [verdict] = await judge({
+						candidates: [{ content: input.content, target: "memory", category: input.category, importance: input.importance }],
+						existing: await loadGateLayers(input.userId, input.botId),
+					});
+					if (verdict?.action === "discard") return { ok: true, skipped: `porteiro: ${verdict.reason}` };
+					if (verdict?.action === "merge") {
+						const merged = await replaceMemoryEntry({ userId: input.userId, botId: input.botId, target: "memory", ref: memoryRef(verdict.entryId), content: verdict.content, category: input.category, importance: input.importance, source: input.source });
+						if (merged.ok) return { ok: true, entry: merged.entry ? { id: merged.entry.id } : undefined };
+					}
+				} catch (error) {
+					console.warn(`[memory.gate] warn reflection gate failed (${error instanceof Error ? error.name : "erro"}); saving as is`);
+				}
+			}
 			const result = await addMemoryEntry({ userId: input.userId, botId: input.botId, target: "memory", content: input.content, category: input.category, importance: input.importance, source: input.source });
 			return result.ok ? { ok: true, entry: result.entry ? { id: result.entry.id } : undefined } : { ok: false, error: result.error };
 		},

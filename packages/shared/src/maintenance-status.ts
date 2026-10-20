@@ -2,7 +2,7 @@ import { shortReason } from "./diagnostics.js";
 import { scrubString } from "./scrub.js";
 
 /** Tarefas em segundo plano que usam o modelo de manutenção e aparecem no Diagnóstico. */
-export const MAINTENANCE_JOB_KINDS = ["summary", "memory-review", "reflection", "connector-guide", "reviewer"] as const;
+export const MAINTENANCE_JOB_KINDS = ["summary", "memory-review", "reflection", "connector-guide", "reviewer", "memory-gate"] as const;
 export type MaintenanceJobKind = (typeof MAINTENANCE_JOB_KINDS)[number];
 
 export const MAINTENANCE_JOB_LABEL: Record<MaintenanceJobKind, string> = {
@@ -11,6 +11,7 @@ export const MAINTENANCE_JOB_LABEL: Record<MaintenanceJobKind, string> = {
 	reflection: "Reflexão",
 	"connector-guide": "Guia do conector",
 	reviewer: "Revisor",
+	"memory-gate": "Porteiro da memória",
 };
 
 export type MaintenanceJobStatus = {

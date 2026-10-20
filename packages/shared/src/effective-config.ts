@@ -148,6 +148,7 @@ const JEV_FEATURE_ENV: Record<JevFeature, string> = {
 	blockpage: "JEV_BLOCKPAGE_MODE",
 	delegate: "JEV_DELEGATE_MODE",
 	stuck: "JEV_STUCK_MODE",
+	memory: "JEV_MEMORY_MODE",
 };
 
 export function resolveEffectiveConfig(input: {

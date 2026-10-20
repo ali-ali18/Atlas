@@ -12,7 +12,7 @@ export type WorkerConfig = {
 	 */
 	jevMcpMode?: "off" | "shadow" | "gate";
 	/** F11 — decisões com Jev, uma chave por item (off | shadow | on). Padrão: off. */
-	jevModes?: Partial<Record<"intent" | "tools" | "verify" | "blockpage" | "delegate" | "stuck", "off" | "shadow" | "on">>;
+	jevModes?: Partial<Record<"intent" | "tools" | "verify" | "blockpage" | "delegate" | "stuck" | "memory", "off" | "shadow" | "on">>;
 	/** Modelo do resumidor (Fase 1). Barato por padrão; nunca precisa ser o do run. */
 	summarizerModel: string;
 	maintenanceModel?: string;
@@ -50,6 +50,7 @@ export function parseJevModes(env: NodeJS.ProcessEnv): NonNullable<WorkerConfig[
 		blockpage: read(env.JEV_BLOCKPAGE_MODE),
 		delegate: read(env.JEV_DELEGATE_MODE),
 		stuck: read(env.JEV_STUCK_MODE),
+		memory: read(env.JEV_MEMORY_MODE),
 	};
 }
 

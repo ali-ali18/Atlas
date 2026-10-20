@@ -5,6 +5,7 @@ import {
 	ChevronDownIcon,
 	CornerDownRightIcon,
 	EyeIcon,
+	BrainIcon,
 	ListChecksIcon,
 	PowerOffIcon,
 	RefreshCcwIcon,
@@ -58,6 +59,7 @@ const FEATURE_ICONS: Record<JevFeature, SettingsIcon> = {
 	blockpage: ShieldAlertIcon,
 	delegate: UsersIcon,
 	stuck: RefreshCcwIcon,
+	memory: BrainIcon,
 };
 
 const MODE_ICONS = { inherit: CornerDownRightIcon, off: PowerOffIcon, shadow: EyeIcon, on: ZapIcon };

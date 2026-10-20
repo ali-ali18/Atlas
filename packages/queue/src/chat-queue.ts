@@ -12,6 +12,8 @@ import {
 	type ConnectorLessonJobPayload,
 	type ConnectorLessonJobResult,
 	type ChatCompletionJobResult,
+	type MemoryCleanupJobPayload,
+	type MemoryCleanupJobResult,
 	type MemoryReviewJobPayload,
 	type MemoryReviewJobResult,
 	type SummaryJobPayload,
@@ -21,10 +23,11 @@ import {
 export const CHAT_QUEUE_NAME = ATLAS_QUEUE_NAMES.chat;
 
 export type ChatCompletionQueue = Queue<
-	ChatCompletionJobPayload | MemoryReviewJobPayload | SummaryJobPayload | AttachmentExtractJobPayload | ConnectorGuideJobPayload | ConnectorLessonJobPayload,
-	ChatCompletionJobResult | MemoryReviewJobResult | SummaryJobResult | AttachmentExtractJobResult | ConnectorGuideJobResult | ConnectorLessonJobResult,
+	ChatCompletionJobPayload | MemoryReviewJobPayload | MemoryCleanupJobPayload | SummaryJobPayload | AttachmentExtractJobPayload | ConnectorGuideJobPayload | ConnectorLessonJobPayload,
+	ChatCompletionJobResult | MemoryReviewJobResult | MemoryCleanupJobResult | SummaryJobResult | AttachmentExtractJobResult | ConnectorGuideJobResult | ConnectorLessonJobResult,
 	| typeof ATLAS_JOB_NAMES.chatCompletion
 	| typeof ATLAS_JOB_NAMES.memoryReview
+	| typeof ATLAS_JOB_NAMES.memoryCleanup
 	| typeof ATLAS_JOB_NAMES.summaryWrite
 	| typeof ATLAS_JOB_NAMES.attachmentExtract
 	| typeof ATLAS_JOB_NAMES.connectorGuide
@@ -35,10 +38,11 @@ export function createChatCompletionQueue(
 	connection: Redis,
 ): ChatCompletionQueue {
 	return propagateRequestId(new Queue<
-		ChatCompletionJobPayload | MemoryReviewJobPayload | SummaryJobPayload | AttachmentExtractJobPayload | ConnectorGuideJobPayload | ConnectorLessonJobPayload,
-		ChatCompletionJobResult | MemoryReviewJobResult | SummaryJobResult | AttachmentExtractJobResult | ConnectorGuideJobResult | ConnectorLessonJobResult,
+		ChatCompletionJobPayload | MemoryReviewJobPayload | MemoryCleanupJobPayload | SummaryJobPayload | AttachmentExtractJobPayload | ConnectorGuideJobPayload | ConnectorLessonJobPayload,
+		ChatCompletionJobResult | MemoryReviewJobResult | MemoryCleanupJobResult | SummaryJobResult | AttachmentExtractJobResult | ConnectorGuideJobResult | ConnectorLessonJobResult,
 		| typeof ATLAS_JOB_NAMES.chatCompletion
 		| typeof ATLAS_JOB_NAMES.memoryReview
+	| typeof ATLAS_JOB_NAMES.memoryCleanup
 		| typeof ATLAS_JOB_NAMES.summaryWrite
 	| typeof ATLAS_JOB_NAMES.attachmentExtract
 	| typeof ATLAS_JOB_NAMES.connectorGuide

@@ -199,6 +199,7 @@ import { isUnattendedOrigin } from "./autonomy-gate.js";
 import { jevMcpState, reviewMcpWithJev, type JevMcpAudit, type JevMcpEvaluator, type JevMcpMode } from "./mcp/jev-gate.js";
 import { detectJevIntents, NO_INTENTS, type JevIntents } from "./jev/intent.js";
 import type { JevRuntime } from "./jev/decide.js";
+import { memoryJudgeFor, type MemoryGateCandidate, type MemoryGateVerdict, type MemoryJudge } from "./memory-gate.js";
 import { verifierNote, verifyDraftAnswer } from "./jev/answer-verifier.js";
 import { detectStuckRun, shouldCheckStuck } from "./jev/stuck.js";
 import { classifyDifficulty } from "./context/difficulty.js";
@@ -956,6 +957,11 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 						description:
 							"Importância de 0 a 1. Use >= 0.7 só para fatos que mudam decisões futuras.",
 					},
+					user_asked: {
+						type: "boolean",
+						description:
+							"true somente quando o usuário pediu explicitamente para lembrar/salvar isto. Sem isso, um porteiro avalia se o fato muda algo numa conversa futura e pode descartá-lo.",
+					},
 				},
 				required: ["action", "target"],
 			},
@@ -1488,6 +1494,8 @@ export type AgentMemoryDeps = {
 	loadSnapshot?: (userId: string | undefined, botId: string | undefined) => Promise<MemorySnapshot>;
 	/** Contexto da trava de escopo (nomes dos bots do usuário + perfil deste bot). */
 	loadScope?: (userId: string | undefined, botId: string | undefined, needNames: boolean) => Promise<MemoryScopeContext>;
+	/** Porteiro da memória (add/replace sem `user_asked`). Ausente = grava direto (como antes). */
+	judge?: MemoryJudge;
 };
 
 /** Perfil do bot e (só se a escrita for no perfil do usuário) nomes dos bots; falha não impede o salvamento. */
@@ -1498,6 +1506,25 @@ async function loadMemoryScope(userId: string | undefined, botId: string | undef
 	]);
 	// A categoria é opcional nesta tool: sem ela, só as demais regras decidem.
 	return { botProfile, botNames: bots.map((bot) => bot.name), requireCategory: false };
+}
+
+/** Veredito do porteiro para um fato; qualquer falha devolve `save`. */
+async function judgeAgentMemory(
+	judge: MemoryJudge,
+	candidate: MemoryGateCandidate,
+	userId: string | undefined,
+	botId: string | undefined,
+	deps: AgentMemoryDeps,
+): Promise<MemoryGateVerdict> {
+	try {
+		const snapshot = await (deps.loadSnapshot ?? ((u, b) => getMemorySnapshot(u, b)))(userId, botId);
+		const layer = (view: MemorySnapshot["user"]) => view.entries.map((entry) => ({ id: entry.id, content: entry.content }));
+		const [verdict] = await judge({ candidates: [candidate], existing: { user: layer(snapshot.user), memory: layer(snapshot.memory) } });
+		return verdict ?? { action: "save" };
+	} catch (error) {
+		console.warn(`[memory.gate] warn in-run judge failed (${error instanceof Error ? error.name : "erro"}); saving as is`);
+		return { action: "save" };
+	}
 }
 
 /** Tool `memory` do agente, com a mesma trava determinística do revisor (ver `decideMemoryScope`). */
@@ -1561,6 +1588,26 @@ export async function executeAgentMemoryTool(
 		// Por ref a entrada existe só na camada pedida: mover para outra camada não acharia a ref.
 		if (target !== requestedTarget && (ref || action === "merge")) return `Não salvo: ${decision.reason}. Esse conteúdo não é perfil pessoal estável; use a camada memory (refs de memory).`;
 		if (target !== requestedTarget) movedNote = `; movido de user para memory (${decision.reason}: o perfil user é compartilhado por todos os bots)`;
+	}
+
+	// Porteiro: o que o usuário pediu explicitamente (`user_asked`) grava direto; o resto passa pelo veredito.
+	// Falha ao carregar a camada ou ao julgar = grava (fail-open). Só add/replace; remove/list/merge não passam.
+	if (deps.judge && (action === "add" || action === "replace") && content !== undefined && args.user_asked !== true) {
+		const verdict = await judgeAgentMemory(deps.judge, { content, target, category, importance, replaces: action === "replace" }, effectiveUserId, botId, deps);
+		if (verdict.action === "discard") return `Não salvo pelo porteiro da memória: ${verdict.reason}. Se o usuário pediu explicitamente para lembrar isto, repita com user_asked=true.`;
+		if (verdict.action === "merge") {
+			const merged = await replaceMemoryEntry({
+				...(effectiveUserId ? { userId: effectiveUserId } : {}),
+				botId,
+				target,
+				ref: memoryRef(verdict.entryId),
+				content: verdict.content,
+				category,
+				importance,
+				source: "agent-tool",
+			});
+			if (merged.ok) return `Memória atualizada (replace em ${target}${movedNote}; fundida com uma entrada existente).`;
+		}
 	}
 
 	let result: MemoryActionResult;
@@ -3430,7 +3477,7 @@ async function executeToolInner(
 		}
 		case "memory": {
 			// Fase 4: passa ctx.userId (do run) — escrita grava o dono do run.
-			const summary = await executeAgentMemoryTool(args, ctx.userId, ctx.botId);
+			const summary = await executeAgentMemoryTool(args, ctx.userId, ctx.botId, { judge: memoryJudgeFor(ctx.jev) });
 			return { summary };
 		}
 		case "session_search": {

@@ -65,7 +65,7 @@ import type {
 	BotProposalEvent,
 	RunInputMode,
 } from "@workspace/shared";
-import type { MemoryChange, MemoryChangesPage, MemoryEntry, MemorySnapshot, MemoryTarget } from "@workspace/shared";
+import type { MemoryChange, MemoryChangesPage, MemoryCleanupView, MemoryEntry, MemorySnapshot, MemoryTarget } from "@workspace/shared";
 import type {
 	CatalogBotEntry,
 	CatalogBotTemplate,
@@ -665,6 +665,32 @@ export async function listMemoryHistory(botId: string, options: { cursor?: strin
 export async function undoMemoryHistoryItem(changeId: string): Promise<MemoryChange> {
 	const { change } = await atlasFetch<{ change: MemoryChange }>(`/v1/memory/changes/${encodeURIComponent(changeId)}/undo`, { method: "POST" });
 	return change;
+}
+
+// --- Limpeza da memória com aprovação: o worker sugere, o usuário aplica ou ignora ---
+
+export async function getMemoryCleanup(botId: string): Promise<MemoryCleanupView> {
+	const { cleanup } = await atlasFetch<{ cleanup: MemoryCleanupView }>(`/v1/memory/cleanup?botId=${encodeURIComponent(botId)}`);
+	return cleanup;
+}
+
+/** Pede a revisão em segundo plano; as sugestões chegam por `getMemoryCleanup` (status "generating" até lá). */
+export async function startMemoryCleanup(botId: string): Promise<void> {
+	await atlasFetch("/v1/memory/cleanup", { method: "POST", body: JSON.stringify({ botId }) });
+}
+
+export async function applyMemoryCleanupSuggestion(botId: string, suggestionId: string): Promise<MemoryCleanupView> {
+	const { cleanup } = await atlasFetch<{ cleanup: MemoryCleanupView }>(`/v1/memory/cleanup/${encodeURIComponent(suggestionId)}/apply`, { method: "POST", body: JSON.stringify({ botId }) });
+	return cleanup;
+}
+
+export async function dismissMemoryCleanupSuggestion(botId: string, suggestionId: string): Promise<MemoryCleanupView> {
+	const { cleanup } = await atlasFetch<{ cleanup: MemoryCleanupView }>(`/v1/memory/cleanup/${encodeURIComponent(suggestionId)}/dismiss`, { method: "POST", body: JSON.stringify({ botId }) });
+	return cleanup;
+}
+
+export async function applyAllMemoryCleanup(botId: string): Promise<{ cleanup: MemoryCleanupView; applied: number; skipped: number }> {
+	return atlasFetch("/v1/memory/cleanup/apply-all", { method: "POST", body: JSON.stringify({ botId }) });
 }
 
 export async function createBot(input: CreateBotInput): Promise<Bot> {

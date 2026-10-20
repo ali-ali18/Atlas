@@ -375,6 +375,14 @@ export {
 	type ResolveSuggestionResult,
 } from "./connector-guides.js";
 export {
+	cleanupViewFromRow,
+	clearMemoryCleanupStatus,
+	getMemoryCleanup,
+	markMemoryCleanupFailed,
+	markMemoryCleanupGenerating,
+	setMemoryCleanupSuggestions,
+} from "./memory-cleanup.js";
+export {
 	claimDefaultAndValidate,
 	claimDefaultData,
 	maybeClaimDefaultOnBoot,

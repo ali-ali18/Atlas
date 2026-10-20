@@ -20,6 +20,8 @@ import {
 	type ConnectorLessonJobPayload,
 	type ConnectorLessonJobResult,
 	type AttachmentExtractJobResult,
+	type MemoryCleanupJobPayload,
+	type MemoryCleanupJobResult,
 	type MemoryReviewJobPayload,
 	type MemoryReviewJobResult,
 	type SummaryJobPayload,
@@ -74,6 +76,7 @@ import { captureError, initSentry, installRequestIdLogging, requestIdForJob, run
 import { buildRunLeaseOwner } from "./lease-owner.js";
 import { warmAttachmentExtract } from "./attachments.js";
 import { processChatCompletionJob } from "./processors/chat-completion.js";
+import { processMemoryCleanup } from "./processors/memory-cleanup.js";
 import { processMemoryReview } from "./processors/memory-review.js";
 import { processSummaryJob } from "./processors/summary.js";
 import { processConnectorGuideJob, processConnectorLessonJob } from "./processors/connector-guide.js";
@@ -121,6 +124,7 @@ connection.on("error", (err) => {
 type AtlasJobPayload =
 	| ChatCompletionJobPayload
 	| MemoryReviewJobPayload
+	| MemoryCleanupJobPayload
 	| SummaryJobPayload
 	| AttachmentExtractJobPayload
 	| ConnectorGuideJobPayload
@@ -128,6 +132,7 @@ type AtlasJobPayload =
 type AtlasJobResult =
 	| ChatCompletionJobResult
 	| MemoryReviewJobResult
+	| MemoryCleanupJobResult
 	| SummaryJobResult
 	| AttachmentExtractJobResult
 	| ConnectorGuideJobResult
@@ -147,6 +152,8 @@ const chatWorker = new Worker<AtlasJobPayload, AtlasJobResult>(
 					job as Job<MemoryReviewJobPayload, MemoryReviewJobResult>,
 					config,
 				);
+			case ATLAS_JOB_NAMES.memoryCleanup:
+				return processMemoryCleanup(job as Job<MemoryCleanupJobPayload, MemoryCleanupJobResult>, config);
 			case ATLAS_JOB_NAMES.summaryWrite:
 				return processSummaryJob(
 					job as Job<SummaryJobPayload, SummaryJobResult>,

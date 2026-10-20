@@ -293,6 +293,11 @@ model Bot {
   notify          Boolean       @default(true)
   /// Autonomia própria do bot (null = herda a da conta). Ver `AutonomyPolicy`.
   autonomyJson    Json?
+  /// Limpeza da memória (aba Memória): sugestões pendentes de apagar/fundir e o estado da revisão. Nada é aplicado sozinho.
+  memoryCleanupJson        Json?
+  memoryCleanupStatus      String?
+  memoryCleanupError       String?
+  memoryCleanupRequestedAt DateTime?
   /// "Bot principal" da conta (no máximo um por dono; índice parcial na migration).
   isPrimary       Boolean       @default(false)
   createdAt       DateTime      @default(now())

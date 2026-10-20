@@ -44,7 +44,7 @@ export type ReflectionPorts = {
 	getOwnedMemory(userId: string, id: string): Promise<MemoryRow | null>;
 	updateOwnedMemory(userId: string, id: string, patch: { content: string; category?: string; importance?: number; validUntil?: Date | null; source?: string }): Promise<boolean>;
 	deleteOwnedMemory(userId: string, id: string): Promise<boolean>;
-	addMemory(input: { userId: string; botId: string; content: string; category?: string; importance?: number; source?: string }): Promise<{ ok: boolean; error?: string; entry?: { id: string } }>;
+	addMemory(input: { userId: string; botId: string; content: string; category?: string; importance?: number; source?: string }): Promise<{ ok: boolean; error?: string; entry?: { id: string }; skipped?: string }>;
 	appendCard(input: { userId: string; conversationId: string; proposalId: string; botId: string; after: { name?: string; snippet?: string; description?: string | null } }): Promise<{ ok: true; fields: string[] } | { ok: false; reason: string }>;
 	/** Cria e executa o run de verificação (só leitura); devolve o texto final ou null. */
 	runRecheck(input: { userId: string; botId: string; objective: string }): Promise<{ status: string; text: string | null } | null>;
@@ -165,6 +165,7 @@ export async function executeReflectionTool(name: string, rawArgs: string, ctx: 
 				const content = text.toLowerCase().includes(origin.toLowerCase()) ? text : `${text} (origem: ${origin})`;
 				// Destino fixo: a memória do orquestrador. Nenhum argumento escolhe outro bot.
 				const added = await ports.addMemory({ userId, botId: ctx.primaryBotId, content, category: category ?? "contexto", importance: num01(args.importance) ?? 0.5, source: `reflexao: ${origin}` });
+				if (added.skipped) return good({ skipped: added.skipped });
 				if (!added.ok) return added.error === "duplicado" ? good({ skipped: "duplicado" }) : { ok: false, result: added };
 				ctx.changes.push({ op: "save", botId: ctx.primaryBotId, id: added.entry?.id ?? "", content, origin });
 				return good();

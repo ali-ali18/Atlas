@@ -4,7 +4,9 @@ import { useEffect, useRef } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { useBotMemory } from "@/hooks/use-bot-memory";
+import { useMemoryCleanup } from "@/hooks/use-memory-cleanup";
 import { MemoryChanges } from "./memory-changes";
+import { MemoryCleanupBlock } from "./memory-cleanup";
 import { MemorySection } from "./memory-section";
 
 export const MEMORY_USER_EMPTY = "Nada guardado sobre você ainda. O que o bot aprender sobre você aparece aqui.";
@@ -27,6 +29,7 @@ export function MemoryTab({
 	onFixInChat?: (draft: string) => void;
 }) {
 	const memory = useBotMemory(botId, active);
+	const cleanup = useMemoryCleanup(botId, active, memory.refresh);
 	const changesRef = useRef<HTMLElement>(null);
 	const now = new Date();
 
@@ -66,6 +69,7 @@ export function MemoryTab({
 					{memory.error}
 				</p>
 			) : null}
+			<MemoryCleanupBlock {...cleanup.props} />
 			<MemorySection
 				emptyText={MEMORY_USER_EMPTY}
 				entries={memory.snapshot?.user.entries ?? []}

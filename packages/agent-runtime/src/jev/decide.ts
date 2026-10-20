@@ -7,7 +7,7 @@ import { redactSecrets } from "../mcp/sanitize.js";
  * Regra de ouro: erro, timeout ou resposta malformada = `null` = comportamento de hoje.
  */
 
-export type JevFeature = "intent" | "tools" | "verify" | "blockpage" | "delegate" | "stuck" | "proactive" | "pending" | "actions";
+export type JevFeature = "intent" | "tools" | "verify" | "blockpage" | "delegate" | "stuck" | "proactive" | "pending" | "actions" | "memory";
 export type JevFeatureMode = "off" | "shadow" | "on";
 
 export type JevAsk = (request: {
@@ -50,6 +50,7 @@ export const JEV_FEATURE_TIMEOUT_MS: Record<JevFeature, number> = {
 	proactive: 3_000,
 	pending: 4_000,
 	actions: 8_000,
+	memory: 3_000,
 };
 
 export function parseJevFeatureMode(raw: string | undefined): JevFeatureMode {

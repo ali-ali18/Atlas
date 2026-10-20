@@ -36,9 +36,9 @@ import {
 const labelOf = (options: { value: string; label: string }[], value: string) =>
 	options.find((option) => option.value === value)?.label;
 
-test("Jev: 6 recursos, um por chave do contrato, sem repetir", () => {
+test("Jev: 7 recursos, um por chave do contrato, sem repetir", () => {
 	assert.deepEqual(JEV_FEATURE_SPECS.map((spec) => spec.feature).sort(), [...JEV_FEATURES].sort());
-	assert.equal(new Set(JEV_FEATURE_SPECS.map((spec) => spec.itemId)).size, 6);
+	assert.equal(new Set(JEV_FEATURE_SPECS.map((spec) => spec.itemId)).size, 7);
 	for (const spec of JEV_FEATURE_SPECS) assert.ok(spec.description.length < 80, "uma linha");
 });
 
