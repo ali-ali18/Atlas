@@ -175,3 +175,28 @@ describe("higiene da conversa contínua", () => {
 		for (const m of messages.filter((x) => x.role === "tool")) expect(ids.has(m.tool_call_id!)).toBe(true);
 	});
 });
+
+describe("guardas por janela da conversa contínua", () => {
+	const big = (n: number): LlmMessage[] => {
+		const out: LlmMessage[] = [{ role: "system", content: "s" }, { role: "user", content: "pedido" }];
+		for (let i = 0; i < n; i += 1) {
+			out.push({ role: "assistant", content: null, tool_calls: [call(`k${i}`, "buscar")] });
+			out.push({ role: "tool", tool_call_id: `k${i}`, content: `r${i} ${"y".repeat(3_000)}` });
+		}
+		return out;
+	};
+
+	it("perto do limite limpa primeiro os resultados antigos e preserva as mensagens", () => {
+		// ~6 grupos x 3k chars ~ 4.6k tokens; janela 6k com soft 0.75 = 4.5k
+		const { messages, report } = applyPromptHygiene(big(6), { contextLength: 6_000, softRatio: 0.75, hardRatio: 0.95, keepRecentGroups: 6, collapseOverTokens: 1_000_000 });
+		expect(report.guard).toBe("soft");
+		expect(messages.filter((m) => m.role === "assistant")).toHaveLength(6);
+		expect(messages.filter((m) => m.role === "tool").slice(0, -1).every((m) => String(m.content).startsWith(COLLAPSE_MARKER))).toBe(true);
+	});
+
+	it("abaixo do soft nada é cortado", () => {
+		const { messages, report } = applyPromptHygiene(big(6), { contextLength: 20_000, softRatio: 0.75, hardRatio: 0.95, keepRecentGroups: 6, collapseOverTokens: 1_000_000 });
+		expect(report.guard).toBe("none");
+		expect(messages).toHaveLength(big(6).length);
+	});
+});

@@ -155,7 +155,7 @@ import {
 	type AgentBudgetPolicy,
 	type TokenUsage,
 } from "./budget.js";
-import { applyPromptHygiene, RECENT_TOOL_GROUPS_KEPT, COLLAPSE_PRESSURE_RATIO, type HygieneOptions, STUB_LAST_GROUP_MAX_CHARS, estimateMessagesTokens, trimHistory, COLLAPSE_BATCH_MAX_CHARS, COLLAPSE_BATCH_SIZE, lastCollapsedIndex, omitOldScreenshots, omitOldScreenshotsInBatches, omitOldUserImages, omitOldUserImagesInBatches } from "./hygiene.js";
+import { applyPromptHygiene, RECENT_TOOL_GROUPS_KEPT, COLLAPSE_PRESSURE_RATIO, TRANSCRIPT_SOFT_RATIO, type HygieneOptions, STUB_LAST_GROUP_MAX_CHARS, estimateMessagesTokens, trimHistory, COLLAPSE_BATCH_MAX_CHARS, COLLAPSE_BATCH_SIZE, lastCollapsedIndex, omitOldScreenshots, omitOldScreenshotsInBatches, omitOldUserImages, omitOldUserImagesInBatches } from "./hygiene.js";
 import {
 	captureModelScreenshot,
 	parseScreenshotArgs,
@@ -5248,11 +5248,12 @@ export async function runComputerUse(params: {
 	// Memória Padrão: antes da poda, a parte antiga vira um resumo do modelo de manutenção. Uma vez por
 	// gatilho (o contexto cai para o alvo); falhou ou estourou o prazo, segue a poda de sempre.
 	// Conversa contínua: os resultados de ferramenta mais recentes ficam inteiros e os antigos só são limpos sob pressão real de janela.
-	const hygieneRetention = (): Pick<HygieneOptions, "keepRecentGroups" | "collapseOverTokens"> => {
+	const hygieneRetention = (): Pick<HygieneOptions, "keepRecentGroups" | "collapseOverTokens" | "softRatio"> => {
 		if (isSubagent || codingRun || !contextTranscriptEnabled()) return {};
 		const budget = hygieneBudget(baseContextBudget());
 		return {
 			keepRecentGroups: RECENT_TOOL_GROUPS_KEPT,
+			softRatio: TRANSCRIPT_SOFT_RATIO,
 			...(budget ? { collapseOverTokens: Math.floor(budget.ceilingTokens * COLLAPSE_PRESSURE_RATIO) } : {}),
 		};
 	};

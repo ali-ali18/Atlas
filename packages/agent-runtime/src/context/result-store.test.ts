@@ -119,3 +119,19 @@ describe("L3: armazenamento", () => {
 		expect(extractResultRef(out)?.chars).toBe(400_000);
 	});
 });
+
+describe("limites padrão: resultado fica no contexto até ~20 mil caracteres", () => {
+	const defaults = resultStoreLimits({});
+	const body = (chars: number) => "x".repeat(chars);
+
+	it("até 20 mil o texto segue inteiro (com a referência para reler depois da limpeza); acima, só prévia", () => {
+		const input = (chars: number) => ({ tool: "mcp__erp__list", text: body(chars), ok: true, limits: defaults });
+		expect(referenceMode(input(2_900))).toBe("none");
+		expect(referenceMode(input(15_000))).toBe("ref");
+		expect(referenceMode(input(20_000))).toBe("ref");
+		expect(referenceMode(input(20_001))).toBe("stub");
+		const whole = buildReferenceText({ mode: "ref", tool: "mcp__erp__list", text: body(15_000), artifactId: "a1" });
+		expect(whole.startsWith(body(15_000))).toBe(true);
+		expect(buildReferenceText({ mode: "stub", tool: "mcp__erp__list", text: body(25_000), artifactId: "a2" })).toContain("Head:");
+	});
+});

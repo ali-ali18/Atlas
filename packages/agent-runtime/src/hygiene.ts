@@ -27,7 +27,9 @@ export const COLLAPSE_MARKER =
 /** Conversa contínua: grupos de resultados de ferramenta mais recentes que a limpeza nunca toca. */
 export const RECENT_TOOL_GROUPS_KEPT = 6;
 /** Conversa contínua: fração do teto do orçamento de contexto a partir da qual resultados antigos começam a ser limpos. */
-export const COLLAPSE_PRESSURE_RATIO = 0.6;
+export const COLLAPSE_PRESSURE_RATIO = 0.9;
+/** Conversa contínua: a guarda por janela só corta mensagens perto do limite (a padrão, 0.5, esvaziava a conversa cedo demais). */
+export const TRANSCRIPT_SOFT_RATIO = 0.75;
 
 export const STUB_TOOL_OUTPUT_MAX_CHARS = 8000;
 /** Teto do grupo de tools mais recente: o modelo ainda não leu esse resultado. */
@@ -436,7 +438,8 @@ export function applyPromptHygiene(
 					: { messages: stubbed, collapsedGroups: 0 };
 			})()
 		: (() => {
-				const stubbed = stubLargeToolOutputs(messages, undefined, options.lastGroupMaxChars);
+				// Conversa contínua: resultado antigo que ainda não foi limpo não é cortado antes da hora (mesmo teto do mais recente).
+				const stubbed = stubLargeToolOutputs(messages, keepGroups > 1 ? options.lastGroupMaxChars : undefined, options.lastGroupMaxChars);
 				return underPressure(stubbed)
 					? collapseOldToolGroups(stubbed, keepGroups, options.statusOf)
 					: { messages: stubbed, collapsedGroups: 0 };
@@ -472,10 +475,13 @@ export function applyPromptHygiene(
 
 	if (estimate() >= contextLength * softRatio) {
 		guard = "soft";
-		working = {
-			messages: trimHistory(working.messages, softKeep),
-			collapsedGroups: working.collapsedGroups,
-		};
+		// Primeiro limpa os resultados de ferramenta mais antigos (a conversa fica, o par chamada/resultado também);
+		// só se isso não bastar é que se cortam mensagens.
+		const cleared = collapseOldToolGroups(working.messages, 1, options.statusOf);
+		working = { messages: cleared.messages, collapsedGroups: working.collapsedGroups + cleared.collapsedGroups };
+		if (estimate() >= contextLength * softRatio) {
+			working = { messages: trimHistory(working.messages, softKeep), collapsedGroups: working.collapsedGroups };
+		}
 	}
 	if (estimate() >= contextLength * hardRatio) {
 		guard = "hard";
