@@ -5,7 +5,8 @@ import { applyPromptHygiene, COLLAPSE_MARKER } from "../hygiene.js";
 import { contextTranscriptEnabled } from "./flag.js";
 import {
 	UNEXECUTED_CALL_RESULT,
-	alignTranscript,
+	buildTranscriptHistory,
+	watermarkDivergence,
 	attachPendingResult,
 	calledToolNames,
 	cleanTranscript,
@@ -62,51 +63,63 @@ describe("cleanTranscript", () => {
 	});
 });
 
-describe("alignTranscript", () => {
+describe("buildTranscriptHistory (por id, sem comparar texto)", () => {
 	const cleaned = cleanTranscript(run1)!;
-	const recent = [
-		{ role: "user", content: "monte uma proposta para o cliente Alfa" },
-		{ role: "assistant", content: "Achei o cliente Alfa (id 42). Qual a condição de pagamento?" },
-		{ role: "user", content: "30 dias" },
-	];
 
-	it("o turno 2 enxerga o resultado de ferramenta do turno 1, seguido do texto que veio depois", () => {
-		const aligned = alignTranscript({ transcript: cleaned, recent, objective: "30 dias" })!;
-		expect(aligned.map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant"]);
-		expect(aligned[2]!.content).toContain('"id":42');
-		expect(aligned[3]!.content).toContain("Qual a condição");
-	});
-
-	it("usa o pedido gravado do run quando o texto enviado ao modelo foi outro", () => {
-		const swapped = cleanTranscript([...run1.slice(0, 1), { role: "user", content: "[card] confirmado" }, ...run1.slice(2)])!;
-		const aligned = alignTranscript({
-			transcript: swapped,
-			recent: [{ role: "user", content: "Executar" }, { role: "assistant", content: "feito" }, { role: "user", content: "e agora?" }],
-			objective: "e agora?",
-			priorObjective: "Executar",
+	it("o turno 2 enxerga o resultado de ferramenta do turno 1 e as falas depois da marca, em ordem", () => {
+		const out = buildTranscriptHistory({
+			transcript: cleaned,
+			after: [
+				{ role: "assistant", content: "fala de outro autor" },
+				{ role: "user", content: "[card] confirmado: Criar?" },
+				{ role: "user", content: "30 dias" },
+			],
+			objective: "30 dias",
 		});
-		expect(aligned).not.toBeNull();
+		expect(out.map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant", "user"]);
+		expect(out[2]!.content).toContain('"id":42');
+		expect(out[4]!.content).toContain("confirmado");
 	});
 
-	it("mensagem editada ou apagada: cai fora (null)", () => {
-		const edited = recent.map((m, i) => (i === 0 ? { ...m, content: "outra coisa" } : m));
-		expect(alignTranscript({ transcript: cleaned, recent: edited, objective: "30 dias" })).toBeNull();
-		expect(alignTranscript({ transcript: cleaned, recent: recent.slice(1), objective: "30 dias" })).toBeNull();
+	it("falas em vários balões e cartão reescrito não impedem a conversa: nada é comparado por texto", () => {
+		const out = buildTranscriptHistory({
+			transcript: cleaned,
+			after: [{ role: "user", content: "novo pedido" }],
+			objective: "novo pedido",
+		});
+		expect(out).toHaveLength(cleaned.length);
+		expect(out.some((m) => m.role === "tool")).toBe(true);
 	});
 
-	it("falas de texto anteriores divergentes: null", () => {
-		const t = cleanTranscript([
-			{ role: "user", content: "primeira" },
-			{ role: "assistant", content: "resposta antiga" },
-			...run1.slice(1),
-		])!;
-		const rec = [
-			{ role: "user", content: "primeira" },
-			{ role: "assistant", content: "resposta EDITADA" },
-			{ role: "user", content: "monte uma proposta para o cliente Alfa" },
-			{ role: "user", content: "novo" },
-		];
-		expect(alignTranscript({ transcript: t, recent: rec, objective: "novo" })).toBeNull();
+	it("fala do usuário enviada durante o run (já absorvida por ele) não entra de novo; depois do fim do run, entra", () => {
+		const joined = cleanTranscript([...run1, { role: "user", content: "e inclua o frete" }])!;
+		const out = buildTranscriptHistory({
+			transcript: joined,
+			after: [
+				{ role: "user", content: "e inclua o frete", createdAt: "2026-01-01T10:00:00.000Z" },
+				{ role: "user", content: "e inclua o frete", createdAt: "2026-01-01T12:00:00.000Z" },
+				{ role: "user", content: "fim" },
+			],
+			objective: "fim",
+			priorRunEndedAt: "2026-01-01T11:00:00.000Z",
+		});
+		expect(out.filter((m) => m.role === "user" && m.content === "e inclua o frete")).toHaveLength(2);
+	});
+});
+
+describe("watermarkDivergence", () => {
+	it("mensagem da marca apagada: diverge", () => {
+		expect(watermarkDivergence({ count: 10 }, { exists: false, countUpTo: 0 })).toBe("watermark_missing");
+	});
+	it("menos mensagens até a marca do que havia (apagada antes dela): diverge", () => {
+		expect(watermarkDivergence({ count: 10 }, { exists: true, countUpTo: 9 })).toBe("history_shrunk");
+	});
+	it("checkpoint sem marca (legado): diverge", () => {
+		expect(watermarkDivergence(undefined, { exists: true, countUpTo: 10 })).toBe("no_watermark");
+	});
+	it("mesma contagem ou mais: a conversa gravada vale", () => {
+		expect(watermarkDivergence({ count: 10 }, { exists: true, countUpTo: 10 })).toBeNull();
+		expect(watermarkDivergence({ count: 10 }, { exists: true, countUpTo: 11 })).toBeNull();
 	});
 });
 

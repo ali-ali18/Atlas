@@ -71,3 +71,13 @@ describe("tools carregadas seguem para o turno seguinte", () => {
 		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify({ ...cp, loadedTools: [1, "ok"] })))?.loadedTools).toEqual(["ok"]);
 	});
 });
+
+describe("marca d'água da conversa no checkpoint", () => {
+	it("sobrevive ao checkpoint e descarta formato inválido", async () => {
+		const { buildRuntimeCheckpoint, parseRuntimeCheckpoint } = await import("./checkpoint.js");
+		const mark = { messageId: "m9", createdAt: "2026-01-01T00:00:00.000Z", count: 12 };
+		const cp = buildRuntimeCheckpoint({ messages: [], conversation: [], nextStepIndex: 1, model: "m", transcriptWatermark: mark });
+		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify(cp)))?.transcriptWatermark).toEqual(mark);
+		expect(parseRuntimeCheckpoint({ ...cp, transcriptWatermark: { messageId: 1 } })?.transcriptWatermark).toBeUndefined();
+	});
+});

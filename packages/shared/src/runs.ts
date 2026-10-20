@@ -81,6 +81,9 @@ export type RunEventRecord = {
 /** Marcação (mensagem system) do lugar do histórico quando a conversa do run anterior é carregada pelo runtime. */
 export const TRANSCRIPT_SLOT = "[[conversation-transcript-slot]]";
 
+/** Última mensagem da conversa que o run viu ao montar o histórico, e quantas existiam até ela (divergência por id). */
+export type TranscriptWatermark = { messageId: string; createdAt: string; count: number };
+
 /** Aprovação executada pelo servidor que o run seguinte encaixa na conversa do run que perguntou. */
 export type TranscriptSeed = {
 	fromRunId: string;
@@ -351,6 +354,8 @@ export type AgentRunCheckpoint = {
 	llmMessages?: SerializedLlmMessage[];
 	/** Tools de conector/adiadas expostas ao fim do run: o próximo turno da conversa já as tem carregadas. */
 	loadedTools?: string[];
+	/** Marca d'água da conversa no começo do run: o turno seguinte lê só as mensagens depois dela. */
+	transcriptWatermark?: TranscriptWatermark;
 	/** Run de continuação de aprovação (ver `TranscriptSeed`). */
 	transcriptSeed?: TranscriptSeed;
 	nextStepIndex?: number;

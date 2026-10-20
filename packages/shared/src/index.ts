@@ -190,6 +190,7 @@ export type {
 	AgentRunJobResult,
 	AgentRunCheckpoint,
 	TranscriptSeed,
+	TranscriptWatermark,
 	ExecutionLedgerCall,
 	ExecutionLedgerDecision,
 	ExecutionLedgerState,

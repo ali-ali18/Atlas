@@ -1,5 +1,6 @@
 import { prisma } from "./client.js";
 import { appendConversationCard, appendConversationMessage, getOwnedConversation, ResourceOwnershipError } from "./conversations.js";
+import { withMessageRunId } from "./message-run-context.js";
 import { resolveUserFileCards } from "./file-attachments.js";
 import { imageAttachmentsOf, resolveUserImagesCard } from "./image-attachments.js";
 import { settleRoutineRunForAgentRun } from "./routines.js";
@@ -1036,6 +1037,21 @@ export async function finishAgentRun(
 	return mapRun(row);
 }
 
+/**
+ * A resposta final do run não entra na conversa do LLM durante o laço. Ao fechar o run ela é anexada ao
+ * checkpoint, para o turno seguinte partir da conversa completa (a mensagem gravada tem o `runId` do run e
+ * não é lida de novo). Devolve `null` quando não há o que anexar.
+ */
+export function withFinalReply(checkpoint: unknown, text: string): Record<string, unknown> | null {
+	const reply = text.trim();
+	if (!reply || !checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint)) return null;
+	const llmMessages = (checkpoint as { llmMessages?: unknown }).llmMessages;
+	if (!Array.isArray(llmMessages) || llmMessages.length === 0) return null;
+	const last = llmMessages[llmMessages.length - 1] as { role?: unknown; content?: unknown; tool_calls?: unknown } | undefined;
+	if (last?.role === "assistant" && !last.tool_calls && last.content === reply) return null;
+	return { ...(checkpoint as Record<string, unknown>), llmMessages: [...llmMessages, { role: "assistant", content: reply }] };
+}
+
 async function persistFinishTranscript(
 	conversationId: string | null,
 	origin: string,
@@ -1046,7 +1062,10 @@ async function persistFinishTranscript(
 	if (!conversationId || !text) return;
 	if (input.status !== "failed" && input.status !== "budget_exhausted") return;
 	const tag = await botMessageTag(runId, origin, conversationId);
-	await appendConversationMessage(conversationId, "assistant", text, tag.origin, tag.bot);
+	await withMessageRunId(runId, () => appendConversationMessage(conversationId, "assistant", text, tag.origin, tag.bot));
+	const row = await prisma.agentRun.findUnique({ where: { id: runId }, select: { checkpointJson: true } });
+	const next = withFinalReply(row?.checkpointJson, text);
+	if (next) await prisma.agentRun.update({ where: { id: runId }, data: { checkpointJson: next as unknown as Prisma.InputJsonValue } });
 }
 
 /**
@@ -2132,6 +2151,7 @@ export async function completeAgentRunAtomically(input: {
 						conversationId: input.conversationId,
 						role: "assistant",
 						content: segment,
+						runId: input.runId,
 						...(tag.origin ? { origin: tag.origin } : {}),
 						...(tag.bot?.botMessageId ? { botMessageId: tag.bot.botMessageId } : {}),
 						...(source ? { sourceKind: source.kind, sourceLabel: source.label, sourceAt: source.at } : {}),
@@ -2139,6 +2159,12 @@ export async function completeAgentRunAtomically(input: {
 					},
 				});
 			}
+		}
+
+		if (input.conversationId && conversationOk) {
+			const current = await tx.agentRun.findUnique({ where: { id: input.runId }, select: { checkpointJson: true } });
+			const next = withFinalReply(current?.checkpointJson, input.assistantText);
+			if (next) await tx.agentRun.update({ where: { id: input.runId }, data: { checkpointJson: next as unknown as Prisma.InputJsonValue } });
 		}
 
 		await insertRunEventRow(tx, input.runId, "done", input.donePayload);
@@ -2185,21 +2211,27 @@ export async function listConversationResearchNotes(
 
 export type RunTranscript = {
 	runId: string;
-	/** Pedido do run (igual à fala do usuário gravada na conversa). */
-	objective: string;
+	/** Marca d'água da conversa no começo do run (ausente em checkpoint anterior a ela). */
+	watermark?: { messageId: string; createdAt: string; count: number };
+	/** Janela do run: falas do usuário gravadas durante ela já entraram na conversa do run. */
+	createdAt: Date;
+	finishedAt: Date | null;
 	/** Mensagens do LLM como gravadas no checkpoint (forma serializada; o runtime valida e higieniza). */
 	llmMessages: unknown[];
 	loadedTools?: string[];
 };
 
-function transcriptOf(row: { id: string; objective: string; checkpointJson: unknown }): RunTranscript | null {
+function transcriptOf(row: { id: string; createdAt: Date; finishedAt: Date | null; checkpointJson: unknown }): RunTranscript | null {
 	const raw = row.checkpointJson;
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-	const { llmMessages, loadedTools } = raw as { llmMessages?: unknown; loadedTools?: unknown };
+	const { llmMessages, loadedTools, transcriptWatermark } = raw as { llmMessages?: unknown; loadedTools?: unknown; transcriptWatermark?: unknown };
+	const mark = transcriptWatermark as { messageId?: unknown; createdAt?: unknown; count?: unknown } | undefined;
 	if (!Array.isArray(llmMessages) || llmMessages.length === 0) return null;
 	return {
 		runId: row.id,
-		objective: row.objective,
+		...(mark && typeof mark.messageId === "string" && typeof mark.createdAt === "string" && typeof mark.count === "number" ? { watermark: { messageId: mark.messageId, createdAt: mark.createdAt, count: mark.count } } : {}),
+		createdAt: row.createdAt,
+		finishedAt: row.finishedAt,
 		llmMessages,
 		...(Array.isArray(loadedTools) ? { loadedTools: loadedTools.filter((name): name is string => typeof name === "string").slice(0, 200) } : {}),
 	};
@@ -2224,7 +2256,7 @@ export async function getConversationTranscript(
 			parentRunId: null,
 			...(options?.excludeRunId ? { id: { not: options.excludeRunId } } : {}),
 		},
-		select: { id: true, objective: true, checkpointJson: true },
+		select: { id: true, createdAt: true, finishedAt: true, checkpointJson: true },
 		orderBy: { createdAt: "desc" },
 		take: 3,
 	});
@@ -2240,7 +2272,7 @@ export async function getRunTranscript(userId: string, conversationId: string, r
 	if (!userId || !conversationId || !runId) return null;
 	const row = await prisma.agentRun.findFirst({
 		where: { id: runId, conversationId, userId: { in: ownerIds(userId) } },
-		select: { id: true, objective: true, checkpointJson: true },
+		select: { id: true, createdAt: true, finishedAt: true, checkpointJson: true },
 	});
 	return row ? transcriptOf(row) : null;
 }

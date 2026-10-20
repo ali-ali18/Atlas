@@ -1,5 +1,6 @@
 export { prisma } from "./client.js";
 export * from "./message-reactions.js";
+export * from "./message-run-context.js";
 export * from "./reaction-only.js";
 export {
 	createConversation,
@@ -8,6 +9,10 @@ export {
 	getStrictOwnedConversation,
 	listConversationMessages,
 	appendConversationMessage,
+	getConversationWatermark,
+	loadMessagesAfterWatermark,
+	type ConversationWatermark,
+	type MessagesAfterWatermark,
 	appendConversationCard,
 	appendRunAssistantSegment,
 	persistJevStatusCard,

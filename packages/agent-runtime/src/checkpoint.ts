@@ -372,6 +372,7 @@ export function buildRuntimeCheckpoint(input: {
 	modelEscalations?: AgentRunCheckpoint["modelEscalations"];
 	activeElapsedMs?: number;
 	loadedTools?: string[];
+	transcriptWatermark?: AgentRunCheckpoint["transcriptWatermark"];
 }): AgentRunCheckpoint {
 	return {
 		version: AGENT_RUNTIME_CHECKPOINT_VERSION,
@@ -407,6 +408,7 @@ export function buildRuntimeCheckpoint(input: {
 		...(input.modelTier ? { modelTier: input.modelTier } : {}),
 		...(input.modelEscalations?.length ? { modelEscalations: input.modelEscalations } : {}),
 		...(input.loadedTools?.length ? { loadedTools: input.loadedTools.slice(0, 200) } : {}),
+		...(input.transcriptWatermark ? { transcriptWatermark: input.transcriptWatermark } : {}),
 	};
 }
 
@@ -506,8 +508,16 @@ export function parseRuntimeCheckpoint(
 		...(isModelTier(value.modelTier) ? { modelTier: value.modelTier } : {}),
 		...(parseModelEscalations(value.modelEscalations).length ? { modelEscalations: parseModelEscalations(value.modelEscalations) } : {}),
 		...(Array.isArray(value.loadedTools) ? { loadedTools: value.loadedTools.filter((name): name is string => typeof name === "string").slice(0, 200) } : {}),
+		...(parseTranscriptWatermark(value.transcriptWatermark) ? { transcriptWatermark: parseTranscriptWatermark(value.transcriptWatermark)! } : {}),
 		...(parseTranscriptSeed(value.transcriptSeed) ? { transcriptSeed: parseTranscriptSeed(value.transcriptSeed)! } : {}),
 	};
+}
+
+function parseTranscriptWatermark(raw: unknown): AgentRunCheckpoint["transcriptWatermark"] {
+	if (!raw || typeof raw !== "object") return undefined;
+	const mark = raw as Record<string, unknown>;
+	if (typeof mark.messageId !== "string" || typeof mark.createdAt !== "string" || typeof mark.count !== "number" || !Number.isFinite(mark.count)) return undefined;
+	return { messageId: mark.messageId, createdAt: mark.createdAt, count: Math.max(0, Math.floor(mark.count)) };
 }
 
 function parseTranscriptSeed(raw: unknown): AgentRunCheckpoint["transcriptSeed"] {

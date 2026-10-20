@@ -1,4 +1,4 @@
-import { alignTranscript, attachPendingResult, cleanTranscript } from "@workspace/agent-runtime";
+import { attachPendingResult, buildTranscriptHistory, cleanTranscript } from "@workspace/agent-runtime";
 import type { RunTranscript } from "@workspace/db";
 import type { SerializedLlmMessage, TranscriptSeed } from "@workspace/shared";
 
@@ -11,14 +11,21 @@ export type TranscriptHistory = {
 	seedApplied: boolean;
 };
 
+export type AfterWatermark =
+	| { ok: true; messages: Array<{ role: string; content: string; createdAt?: string }> }
+	| { ok: false; reason: string };
+
 /**
  * Decide se o run novo de uma conversa parte da conversa completa do run anterior (chamadas e resultados de
  * ferramenta) em vez do histórico só de texto. `null` = usar o histórico de texto de sempre: desligado, origem
- * que não é chat, grupo, ciclo limpo, sem conversa gravada, gravação corrompida ou histórico que divergiu do banco.
+ * que não é chat, grupo, sem conversa gravada, gravação corrompida, checkpoint sem marca d'água ou histórico
+ * que divergiu do banco por id. Todo `null` de um chat que já tinha conversa gravada é registrado com o motivo
+ * (`transcript_fallback reason=<motivo> run=<id>`).
  */
 export async function resolveTranscriptHistory(input: {
 	enabled: boolean;
 	origin: string;
+	runId: string;
 	conversationId: string | null | undefined;
 	groupRun: boolean;
 	/** Ciclo limpo (resumo + cauda mínima): o histórico enxuto é a escolha explícita da conta. */
@@ -28,24 +35,39 @@ export async function resolveTranscriptHistory(input: {
 	seed?: TranscriptSeed;
 	loadLatest: () => Promise<RunTranscript | null>;
 	loadById: (runId: string) => Promise<RunTranscript | null>;
-	loadRecent: () => Promise<Array<{ role: string; content: string }>>;
+	/** Mensagens depois da marca d'água (sem as gravadas pelo run informado), conferindo a marca por id e contagem. */
+	loadAfter: (watermark: { messageId: string; count: number }, excludeRunId: string) => Promise<AfterWatermark>;
+	warn?: (message: string) => void;
 }): Promise<TranscriptHistory | null> {
 	if (!input.enabled || input.origin !== "chat" || input.groupRun || !input.conversationId) return null;
+	const warn = input.warn ?? ((message: string) => console.warn(message));
+	const fallback = (reason: string): null => {
+		warn(`transcript_fallback reason=${reason} run=${input.runId}`);
+		return null;
+	};
 	if (input.seed) {
 		const source = await input.loadById(input.seed.fromRunId);
 		const cleaned = source ? cleanTranscript(source.llmMessages, { model: input.model }) : null;
 		const attached = cleaned ? attachPendingResult(cleaned, input.seed.toolName, input.seed.resultContent) : null;
 		if (source && attached) return { priorTranscript: attached, loadedTools: source.loadedTools ?? [], seedApplied: true };
+		warn(`transcript_fallback reason=seed_unavailable run=${input.runId}`);
 	}
-	if (input.compact) return null;
 	const latest = await input.loadLatest();
-	const cleaned = latest ? cleanTranscript(latest.llmMessages, { model: input.model }) : null;
-	if (!latest || !cleaned) return null;
-	const aligned = alignTranscript({
-		transcript: cleaned,
-		recent: await input.loadRecent(),
-		objective: input.objective,
-		priorObjective: latest.objective,
-	});
-	return aligned ? { priorTranscript: aligned, loadedTools: latest.loadedTools ?? [], seedApplied: false } : null;
+	if (!latest) return null; // primeiro turno da conversa (ou legado sem checkpoint): nada a registrar
+	if (input.compact) return fallback("compact_mode");
+	const cleaned = cleanTranscript(latest.llmMessages, { model: input.model });
+	if (!cleaned) return fallback("corrupt");
+	if (!latest.watermark) return fallback("no_watermark");
+	const after = await input.loadAfter(latest.watermark, latest.runId);
+	if (!after.ok) return fallback(after.reason);
+	return {
+		priorTranscript: buildTranscriptHistory({
+			transcript: cleaned,
+			after: after.messages,
+			objective: input.objective,
+			priorRunEndedAt: latest.finishedAt?.toISOString(),
+		}),
+		loadedTools: latest.loadedTools ?? [],
+		seedApplied: false,
+	};
 }

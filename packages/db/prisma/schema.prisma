@@ -133,6 +133,8 @@ model ConversationMessage {
   sourceLabel    String?
   /// Horário em que a rotina/lembrete/evento rodou.
   sourceAt       DateTime?
+  /// Run que gravou a mensagem (fala do assistente, cartões); null = usuário, sistema ou mensagem anterior a esta coluna.
+  runId          String?
   createdAt      DateTime     @default(now())
   reactions      MessageReaction[]
 

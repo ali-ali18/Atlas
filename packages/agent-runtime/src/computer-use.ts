@@ -4262,6 +4262,8 @@ export async function runComputerUse(params: {
 	priorTranscript?: SerializedLlmMessage[];
 	/** Tools de conector/adiadas que os turnos anteriores deixaram carregadas (ficam carregadas neste run). */
 	priorLoadedTools?: string[];
+	/** Marca d'água da conversa (última mensagem vista ao montar o histórico); vai em todo checkpoint do run. */
+	transcriptWatermark?: import("@workspace/shared").TranscriptWatermark;
 	canSeeUserImages?: boolean;
 	loadUserImage?: (artifactId: string) => Promise<string | null>;
 	describeUserImage?: (artifactId: string) => Promise<{ description: string | null; costUsd?: number; costUnknown?: boolean }>;
@@ -5519,6 +5521,7 @@ export async function runComputerUse(params: {
 				modelEscalations: tierEscalations,
 				activeElapsedMs: activeElapsedMs(),
 				...(isSubagent ? {} : { loadedTools: loadedToolNames() }),
+				transcriptWatermark: parsedCheckpoint?.transcriptWatermark ?? params.transcriptWatermark,
 			}),
 		);
 	};

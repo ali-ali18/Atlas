@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveTranscriptHistory } from "./transcript-history.js";
+import { resolveTranscriptHistory, type AfterWatermark } from "./transcript-history.js";
 
 const call = (id: string, name: string) => ({ id, type: "function" as const, function: { name, arguments: "{}" } });
 const run1Messages = [
@@ -8,22 +8,31 @@ const run1Messages = [
 	{ role: "user", content: "monte uma proposta para o Alfa" },
 	{ role: "assistant", content: "Buscando.", tool_calls: [call("c1", "mcp__erp__find_client")] },
 	{ role: "tool", tool_call_id: "c1", content: '{"id":42}' },
+	{ role: "assistant", content: "Achei o Alfa. Condição?" },
 ];
+const latest = {
+	runId: "r1",
+	createdAt: new Date("2026-01-01T10:00:00Z"),
+	finishedAt: new Date("2026-01-01T10:05:00Z"),
+	watermark: { messageId: "m3", createdAt: "2026-01-01T10:00:00.000Z", count: 3 },
+	llmMessages: run1Messages,
+	loadedTools: ["mcp__erp__find_client"],
+};
+const afterOk = (messages: Array<{ role: string; content: string; createdAt?: string }>): (() => Promise<AfterWatermark>) => async () => ({ ok: true, messages });
+const warnings: string[] = [];
 const base = {
 	enabled: true,
 	origin: "chat",
+	runId: "r2",
 	conversationId: "conv",
 	groupRun: false,
 	compact: false,
 	model: "m",
 	objective: "30 dias",
-	loadLatest: async () => ({ runId: "r1", objective: "monte uma proposta para o Alfa", llmMessages: run1Messages, loadedTools: ["mcp__erp__find_client"] }),
+	loadLatest: async () => latest,
 	loadById: async () => null,
-	loadRecent: async () => [
-		{ role: "user", content: "monte uma proposta para o Alfa" },
-		{ role: "assistant", content: "Achei o Alfa. Condição?" },
-		{ role: "user", content: "30 dias" },
-	],
+	loadAfter: afterOk([{ role: "user", content: "30 dias" }]),
+	warn: (message: string) => void warnings.push(message),
 };
 
 test("turno 2 parte da conversa do turno 1 com o resultado da ferramenta", async () => {
@@ -34,21 +43,46 @@ test("turno 2 parte da conversa do turno 1 com o resultado da ferramenta", async
 	assert.deepEqual(out.loadedTools, ["mcp__erp__find_client"]);
 });
 
-test("mensagens que divergem do banco: histórico de texto de sempre", async () => {
-	const out = await resolveTranscriptHistory({ ...base, loadRecent: async () => [{ role: "user", content: "editada" }, { role: "user", content: "30 dias" }] });
-	assert.equal(out, null);
+test("várias falas e decisão de cartão depois da marca entram em ordem; o pedido atual não se repete", async () => {
+	const out = await resolveTranscriptHistory({
+		...base,
+		loadAfter: afterOk([
+			{ role: "assistant", content: "aviso de rotina" },
+			{ role: "user", content: "[card] confirmado: Criar?" },
+			{ role: "user", content: "30 dias" },
+		]),
+	});
+	assert.deepEqual(out!.priorTranscript.slice(-2).map((m) => m.content), ["aviso de rotina", "[card] confirmado: Criar?"]);
 });
 
-test("kill switch, origem que não é chat, grupo e ciclo limpo não carregam", async () => {
+test("a marca é pedida ao banco com o id do run anterior (o que o run gravou não volta)", async () => {
+	let seen: { watermark: unknown; exclude: string } | undefined;
+	await resolveTranscriptHistory({ ...base, loadAfter: async (watermark, exclude) => { seen = { watermark, exclude }; return { ok: true, messages: [] }; } });
+	assert.deepEqual(seen, { watermark: latest.watermark, exclude: "r1" });
+});
+
+test("mensagem apagada antes da marca ou marca ausente: histórico de texto, com motivo registrado", async () => {
+	warnings.length = 0;
+	assert.equal(await resolveTranscriptHistory({ ...base, loadAfter: async () => ({ ok: false, reason: "history_shrunk" }) }), null);
+	assert.equal(await resolveTranscriptHistory({ ...base, loadAfter: async () => ({ ok: false, reason: "watermark_missing" }) }), null);
+	assert.deepEqual(warnings, ["transcript_fallback reason=history_shrunk run=r2", "transcript_fallback reason=watermark_missing run=r2"]);
+});
+
+test("checkpoint legado sem marca, gravação corrompida e ciclo limpo: fallback registrado", async () => {
+	warnings.length = 0;
+	assert.equal(await resolveTranscriptHistory({ ...base, loadLatest: async () => ({ ...latest, watermark: undefined }) }), null);
+	assert.equal(await resolveTranscriptHistory({ ...base, loadLatest: async () => ({ ...latest, llmMessages: [{ role: "?", content: 1 }] }) }), null);
+	assert.equal(await resolveTranscriptHistory({ ...base, compact: true }), null);
+	assert.deepEqual(warnings, ["transcript_fallback reason=no_watermark run=r2", "transcript_fallback reason=corrupt run=r2", "transcript_fallback reason=compact_mode run=r2"]);
+});
+
+test("kill switch, origem que não é chat, grupo e primeiro turno não carregam nem registram", async () => {
+	warnings.length = 0;
 	assert.equal(await resolveTranscriptHistory({ ...base, enabled: false }), null);
 	assert.equal(await resolveTranscriptHistory({ ...base, origin: "routine" }), null);
 	assert.equal(await resolveTranscriptHistory({ ...base, groupRun: true }), null);
-	assert.equal(await resolveTranscriptHistory({ ...base, compact: true }), null);
-});
-
-test("sem conversa gravada ou corrompida: null", async () => {
 	assert.equal(await resolveTranscriptHistory({ ...base, loadLatest: async () => null }), null);
-	assert.equal(await resolveTranscriptHistory({ ...base, loadLatest: async () => ({ runId: "r", objective: "x", llmMessages: [{ role: "?", content: 1 }] }) }), null);
+	assert.deepEqual(warnings, []);
 });
 
 const askMessages = [
@@ -58,20 +92,19 @@ const askMessages = [
 	{ role: "tool", tool_call_id: "p1", content: "Card de confirmação enviado. Nada foi executado ainda." },
 ];
 const seed = { fromRunId: "ask", toolName: "mcp__erp__create_proposal", resultContent: "proposta 777 criada", shortContent: "continue" };
+const askRun = { ...latest, runId: "ask", llmMessages: askMessages };
 
 test("aprovação: o resultado executado vira o resultado da chamada pendente do run que perguntou", async () => {
-	const out = await resolveTranscriptHistory({
-		...base,
-		seed,
-		loadById: async (id) => (id === "ask" ? { runId: "ask", objective: "crie a proposta", llmMessages: askMessages } : null),
-	});
+	const out = await resolveTranscriptHistory({ ...base, seed, loadById: async (id) => (id === "ask" ? askRun : null) });
 	assert.ok(out?.seedApplied);
 	assert.deepEqual(out.priorTranscript.map((m) => m.role), ["user", "assistant", "tool"]);
 	assert.equal(out.priorTranscript[2]!.content, "proposta 777 criada");
 });
 
-test("aprovação com kill switch desligado cai fora; sem a chamada na conversa segue o caminho normal", async () => {
-	assert.equal(await resolveTranscriptHistory({ ...base, enabled: false, seed, loadById: async () => ({ runId: "ask", objective: "x", llmMessages: askMessages }) }), null);
-	const out = await resolveTranscriptHistory({ ...base, seed: { ...seed, toolName: "mcp__erp__outra" }, loadById: async () => ({ runId: "ask", objective: "x", llmMessages: askMessages }) });
+test("aprovação com kill switch desligado cai fora; sem a chamada na conversa segue o caminho normal, registrado", async () => {
+	warnings.length = 0;
+	assert.equal(await resolveTranscriptHistory({ ...base, enabled: false, seed, loadById: async () => askRun }), null);
+	const out = await resolveTranscriptHistory({ ...base, seed: { ...seed, toolName: "mcp__erp__outra" }, loadById: async () => askRun });
 	assert.equal(out?.seedApplied, false);
+	assert.deepEqual(warnings, ["transcript_fallback reason=seed_unavailable run=r2"]);
 });

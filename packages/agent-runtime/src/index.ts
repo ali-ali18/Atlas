@@ -39,7 +39,8 @@ export {
 } from "./hygiene.js";
 export {
 	UNEXECUTED_CALL_RESULT,
-	alignTranscript,
+	buildTranscriptHistory,
+	watermarkDivergence,
 	attachPendingResult,
 	calledToolNames,
 	cleanTranscript,

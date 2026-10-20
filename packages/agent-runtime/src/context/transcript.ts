@@ -5,7 +5,7 @@ import { SUMMARY_NOTE_PREFIX } from "./summary-compaction.js";
 /**
  * Conversa contínua entre turnos: o run novo parte das mensagens do LLM do run anterior da conversa
  * (chamadas e resultados de ferramenta), não só do texto. Aqui só há funções puras: limpar a conversa
- * gravada, conferir se ela ainda corresponde ao histórico do banco e encaixar o resultado de uma
+ * gravada, conferir por id se ela ainda corresponde à conversa do banco e encaixar o resultado de uma
  * aprovação na chamada que ficou pendente. Qualquer dúvida devolve `null` e o chamador usa o
  * histórico de texto de sempre.
  */
@@ -14,8 +14,6 @@ import { SUMMARY_NOTE_PREFIX } from "./summary-compaction.js";
 export const UNEXECUTED_CALL_RESULT = "[not executed: the turn ended before this call ran]";
 
 const ROLES = new Set(["system", "user", "assistant", "tool"]);
-
-type PlainMessage = { role: string; content: string };
 
 /** Texto de uma mensagem (string ou primeira parte de texto). */
 export function transcriptTextOf(message: { content: SerializedLlmMessage["content"] }): string {
@@ -76,61 +74,45 @@ export function cleanTranscript(raw: unknown, options: { model?: string } = {}):
 	return out.some((message) => message.role !== "system") ? out : null;
 }
 
-const plainText = (message: SerializedLlmMessage) =>
-	(message.role === "user" || message.role === "assistant") && !(message.tool_calls?.length) && typeof message.content !== "undefined";
+/**
+ * Diverge por id, nunca por texto: a mensagem da marca d'água sumiu, ou há menos mensagens até ela do que
+ * havia quando o run começou. Devolve o motivo (para o log) ou `null` se a conversa gravada ainda vale.
+ */
+export function watermarkDivergence(
+	stored: { count: number } | undefined,
+	now: { exists: boolean; countUpTo: number },
+): "no_watermark" | "watermark_missing" | "history_shrunk" | null {
+	if (!stored) return "no_watermark";
+	if (!now.exists) return "watermark_missing";
+	if (now.countUpTo < stored.count) return "history_shrunk";
+	return null;
+}
 
 /**
- * Junta a conversa limpa do run anterior com o que o banco tem depois dela. Confere o alinhamento: a última fala
- * do usuário da conversa tem de existir no banco com o mesmo texto e as falas de texto anteriores a ela também
- * (mensagem editada, apagada ou conversa que seguiu por outro caminho = `null`).
+ * Junta a conversa limpa do run anterior com o que a conversa ganhou depois da marca d'água (falas do usuário
+ * e de outros autores; o que o próprio run gravou já está na conversa dele). `after` vem do banco, em ordem.
+ * O pedido do turno atual sai do fim (entra à parte). Fala do usuário gravada durante o run que já foi
+ * absorvida por ele (mensagem enviada com o run em andamento) não entra de novo.
  */
-export function alignTranscript(input: {
+export function buildTranscriptHistory(input: {
 	transcript: SerializedLlmMessage[];
-	/** Mensagens de texto do banco (usuário/assistente), em ordem; podem incluir o pedido atual no fim. */
-	recent: readonly PlainMessage[];
-	/** Pedido do turno atual: tirado do fim de `recent` para não aparecer duas vezes. */
+	after: ReadonlyArray<{ role: string; content: string; createdAt?: string }>;
+	/** Pedido do turno atual. */
 	objective: string;
-	/** Pedido do run que gerou a conversa: como a fala do usuário ficou no banco (pode diferir do texto enviado ao modelo). */
-	priorObjective?: string;
-}): SerializedLlmMessage[] | null {
-	const { transcript } = input;
-	let anchor = -1;
-	for (let i = transcript.length - 1; i >= 0; i -= 1) {
-		if (transcript[i]!.role === "user") {
-			anchor = i;
-			break;
-		}
-	}
-	if (anchor < 0) return null;
-	const anchorText = transcriptTextOf(transcript[anchor]!).trim();
-	let recent = input.recent.filter((message) => message.role === "user" || message.role === "assistant");
+	/** Fim da janela do run anterior (ISO): falas do usuário até aí foram lidas por ele. */
+	priorRunEndedAt?: string;
+}): SerializedLlmMessage[] {
+	let after = input.after.filter((message) => message.role === "user" || message.role === "assistant");
 	const objective = input.objective.trim();
-	const last = recent[recent.length - 1];
-	if (objective && last?.role === "user" && last.content.trim() === objective) recent = recent.slice(0, -1);
-	const anchors = new Set([anchorText, input.priorObjective?.trim() ?? ""].filter(Boolean));
-	let at = -1;
-	for (let i = recent.length - 1; i >= 0; i -= 1) {
-		if (recent[i]!.role === "user" && anchors.has(recent[i]!.content.trim())) {
-			at = i;
-			break;
-		}
-	}
-	if (at < 0) return null;
-	// As falas de texto anteriores precisam bater (as mais antigas podem ter saído por resumo ou poda).
-	const before = transcript.slice(0, anchor).filter(plainText);
-	const compare = Math.min(4, before.length, at);
-	for (let k = 1; k <= compare; k += 1) {
-		const mine = before[before.length - k]!;
-		const theirs = recent[at - k]!;
-		if (mine.role !== theirs.role || transcriptTextOf(mine).trim() !== theirs.content.trim()) return null;
-	}
-	const after: SerializedLlmMessage[] = recent.slice(at + 1).map((message) => ({ role: message.role as "user" | "assistant", content: message.content }));
-	// Resposta final já presente no fim da conversa gravada (nota de continuação): não duplica.
-	const tail = transcript[transcript.length - 1]!;
-	if (after[0]?.role === "assistant" && tail.role === "assistant" && !(tail.tool_calls?.length) && transcriptTextOf(tail).trim() === transcriptTextOf(after[0]).trim()) {
-		after.shift();
-	}
-	return [...transcript, ...after];
+	const last = after[after.length - 1];
+	if (objective && last?.role === "user" && last.content.trim() === objective) after = after.slice(0, -1);
+	const absorbed = new Set(input.transcript.filter((message) => message.role === "user").map((message) => transcriptTextOf(message).trim()));
+	const ended = input.priorRunEndedAt ? Date.parse(input.priorRunEndedAt) : Number.NaN;
+	after = after.filter((message) => {
+		if (message.role !== "user" || Number.isNaN(ended) || !message.createdAt) return true;
+		return !(Date.parse(message.createdAt) <= ended && absorbed.has(message.content.trim()));
+	});
+	return [...input.transcript, ...after.map((message): SerializedLlmMessage => ({ role: message.role as "user" | "assistant", content: message.content }))];
 }
 
 /**

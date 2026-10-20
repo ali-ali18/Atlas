@@ -31,6 +31,7 @@ import {
 	type QuestionnaireCardItem,
 } from "@workspace/shared";
 import { prisma } from "./client.js";
+import { currentMessageRunId } from "./message-run-context.js";
 import { approvalDetail, emitUserNeeded } from "./user-needed.js";
 import { loadReactionsByMessage } from "./message-reactions.js";
 
@@ -210,6 +211,7 @@ export async function appendConversationMessage(
 			...(bot?.fromBotId ? { fromBotId: bot.fromBotId } : {}),
 			...(bot?.fromBotName ? { fromBotName: bot.fromBotName } : {}),
 			...(bot?.botMessageId ? { botMessageId: bot.botMessageId } : {}),
+			...(role === "assistant" && currentMessageRunId() ? { runId: currentMessageRunId() } : {}),
 		},
 	});
 
@@ -237,7 +239,7 @@ export async function appendRunAssistantSegment(
 	});
 	if (last?.role === "assistant" && last.content === text) return null;
 	const row = await prisma.conversationMessage.create({
-		data: { conversationId, role: "assistant", content: text, ...(options.createdAt ? { createdAt: options.createdAt } : {}) },
+		data: { conversationId, role: "assistant", content: text, ...(options.createdAt ? { createdAt: options.createdAt } : {}), ...(currentMessageRunId() ? { runId: currentMessageRunId() } : {}) },
 	});
 	return toSessionMessage(row);
 }
@@ -262,6 +264,7 @@ export async function appendConversationCard(
 			role: card.kind,
 			content: serializeConversationCard(card),
 			...(options.createdAt ? { createdAt: options.createdAt } : {}),
+			...(currentMessageRunId() ? { runId: currentMessageRunId() } : {}),
 		},
 	});
 
@@ -960,6 +963,61 @@ export async function getLatestConfirmCardStatus(
 		if (card?.kind === "confirm") return { confirmId: card.confirmId, status: card.status, dev: Boolean(card.devApproval) };
 	}
 	return null;
+}
+
+/** Marca d'água da conversa: a última mensagem (qualquer papel) e quantas existem até ela. */
+export type ConversationWatermark = { messageId: string; createdAt: string; count: number };
+
+const upToAnchor = (anchor: { createdAt: Date; id: string }) => ({
+	OR: [{ createdAt: { lt: anchor.createdAt } }, { createdAt: anchor.createdAt, id: { lte: anchor.id } }],
+});
+
+/** Marca d'água no instante em que o run começa a montar o histórico; `null` se a conversa está vazia. */
+export async function getConversationWatermark(conversationId: string): Promise<ConversationWatermark | null> {
+	const last = await prisma.conversationMessage.findFirst({
+		where: { conversationId },
+		orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+		select: { id: true, createdAt: true },
+	});
+	if (!last) return null;
+	const count = await prisma.conversationMessage.count({ where: { conversationId, ...upToAnchor(last) } });
+	return { messageId: last.id, createdAt: last.createdAt.toISOString(), count };
+}
+
+export type MessagesAfterWatermark =
+	| { ok: true; messages: SessionMessage[] }
+	| { ok: false; reason: "watermark_missing" | "history_shrunk" };
+
+/**
+ * Falas (usuário/assistente) gravadas DEPOIS da marca d'água e que não vieram do run informado (o que o run
+ * gravou já está na conversa dele). Divergência por id: a mensagem da marca sumiu ou há menos mensagens até
+ * ela do que havia = o histórico mudou e a conversa gravada não vale.
+ */
+export async function loadMessagesAfterWatermark(
+	conversationId: string,
+	watermark: { messageId: string; count: number },
+	options: { excludeRunId: string; limit?: number },
+): Promise<MessagesAfterWatermark> {
+	const anchor = await prisma.conversationMessage.findFirst({
+		where: { id: watermark.messageId, conversationId },
+		select: { id: true, createdAt: true },
+	});
+	if (!anchor) return { ok: false, reason: "watermark_missing" };
+	const countNow = await prisma.conversationMessage.count({ where: { conversationId, ...upToAnchor(anchor) } });
+	if (countNow < watermark.count) return { ok: false, reason: "history_shrunk" };
+	const rows = await prisma.conversationMessage.findMany({
+		where: {
+			conversationId,
+			role: { in: [...LLM_CHAT_ROLES] },
+			AND: [
+				{ OR: [{ createdAt: { gt: anchor.createdAt } }, { createdAt: anchor.createdAt, id: { gt: anchor.id } }] },
+				{ OR: [{ runId: null }, { runId: { not: options.excludeRunId } }] },
+			],
+		},
+		orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+		take: options.limit ?? 200,
+	});
+	return { ok: true, messages: foldAutomatedMessages(rows.map(toSessionMessage).filter((row) => isLlmChatRole(row.role))) };
 }
 
 /**

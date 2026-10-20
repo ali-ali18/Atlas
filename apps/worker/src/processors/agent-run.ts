@@ -21,6 +21,7 @@ import {
 	readDecideForOtherBots,
 	readSubagentModel,
 	TRANSCRIPT_SLOT,
+	type TranscriptWatermark,
 } from "@workspace/shared";
 import {
 	type Notify,
@@ -69,7 +70,10 @@ import {
 	listUserBotRoster,
 	loadRecentConversationMessages,
 	getConversationTranscript,
+	getConversationWatermark,
 	getRunTranscript,
+	loadMessagesAfterWatermark,
+	withMessageRunId,
 	loadScreenshotArtifact,
 	loadUserImageHistory,
 	markAgentRunRetrying,
@@ -399,7 +403,8 @@ export async function processAgentRunJob(
 				? (onSignal) => deps.subscribeRunSignals!(runId, onSignal)
 				: undefined,
 		});
-		return await executeLeasedRun({ run, runUserId, config, deps, lease, guards, apiKey: config.openRouterApiKey ?? "" });
+		// As falas e cartões que o run grava na conversa ganham o id dele (ver message-run-context).
+		return await withMessageRunId(runId, () => executeLeasedRun({ run, runUserId, config, deps, lease, guards: guards!, apiKey: config.openRouterApiKey ?? "" }));
 	} finally {
 		guards?.stop();
 		await releaseRunLease(runId, lease.owner, lease.token).catch(() => undefined);
@@ -545,11 +550,20 @@ async function executeLeasedRun(ctx: {
 		// Conversa contínua: o run novo parte das chamadas e resultados de ferramenta do anterior, não só do texto.
 		// Qualquer falha ou divergência cai no histórico de texto de sempre.
 		let transcript: TranscriptHistory | null = null;
+		let transcriptWatermark: TranscriptWatermark | undefined;
+		if (!checkpoint?.llmMessages?.length && run.conversationId && run.origin === "chat" && !groupRun && contextTranscriptEnabled()) {
+			// Marca d'água ANTES de ler o histórico: o próximo turno lê só o que vier depois dela.
+			transcriptWatermark = (await getConversationWatermark(run.conversationId).catch((error) => {
+				console.error(`load conversation watermark failed run=${runId}`, error);
+				return null;
+			})) ?? undefined;
+		}
 		if (!checkpoint?.llmMessages?.length && run.conversationId && run.origin === "chat") {
 			const conversationId = run.conversationId;
 			transcript = await resolveTranscriptHistory({
 				enabled: contextTranscriptEnabled(),
 				origin: run.origin,
+				runId,
 				conversationId,
 				groupRun: Boolean(groupRun),
 				compact,
@@ -558,7 +572,7 @@ async function executeLeasedRun(ctx: {
 				seed: checkpoint?.transcriptSeed,
 				loadLatest: () => getConversationTranscript(runUserId, conversationId, { excludeRunId: runId }),
 				loadById: (fromRunId) => getRunTranscript(runUserId, conversationId, fromRunId),
-				loadRecent: async () => (await loadRecentConversationMessages(conversationId, historyLimit)).filter((m) => isLlmChatRole(m.role)).map((m) => ({ role: m.role, content: m.content })),
+				loadAfter: (watermark, excludeRunId) => loadMessagesAfterWatermark(conversationId, watermark, { excludeRunId }),
 			}).catch((error) => {
 				console.error(`load conversation transcript failed run=${runId}`, error);
 				return null;
@@ -669,9 +683,9 @@ async function executeLeasedRun(ctx: {
 			})
 			: null;
 
-		return { messages, inputMessages, priorTranscript: transcript?.priorTranscript, priorLoadedTools: transcript?.loadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments: attachmentsForRun?.runtime };
+		return { messages, inputMessages, priorTranscript: transcript?.priorTranscript, transcriptWatermark, priorLoadedTools: transcript?.loadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments: attachmentsForRun?.runtime };
 	};
-	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, priorTranscript, priorLoadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments }] =
+	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, priorTranscript, transcriptWatermark, priorLoadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments }] =
 		await Promise.all([configStage(), messagesStage()]);
 
 	let cachedSessionId: string | null =
@@ -935,6 +949,7 @@ async function executeLeasedRun(ctx: {
 			userImageArtifactIds: checkpoint?.userImageArtifactIds,
 			historyImages,
 			priorTranscript,
+			transcriptWatermark,
 			priorLoadedTools,
 			priorResearchNotes,
 			priorTaskLedger,
