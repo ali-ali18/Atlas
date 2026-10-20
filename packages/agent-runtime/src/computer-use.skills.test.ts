@@ -5,6 +5,7 @@ import { FakeTable, installFakes } from "@workspace/db/testing";
 import { persistConversationCardFromEvent } from "@workspace/db";
 import { buildSkillIndex, type ComputerUseEvent } from "@workspace/shared";
 import { runComputerUse } from "./computer-use.js";
+import { resetSkillRunGuardForTests } from "./tools/skills.js";
 
 /**
  * K1 (PLANO-SKILLS): índice de skills no prompt, `skill_read`, `propose_skill`,
@@ -28,6 +29,7 @@ let revisions: FakeTable;
 let installed: { restore: () => void };
 
 beforeEach(() => {
+	resetSkillRunGuardForTests();
 	vi.mocked(persistConversationCardFromEvent).mockClear();
 	docs = new FakeTable([], () => ({
 		createdAt: new Date(),
@@ -326,6 +328,7 @@ describe("propose_skill", () => {
 
 	it("Equilibrado e Sempre perguntar também pedem aprovação", async () => {
 		for (const value of ["balanced", "always_ask"] as const) {
+			resetSkillRunGuardForTests();
 			const { events } = await run({ autonomy: level(value), script: [turn(call("c1", "propose_skill", create)), done] });
 			expect(proposalEvent(events)).toBeDefined();
 		}
