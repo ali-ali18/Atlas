@@ -7,9 +7,10 @@
   "scripts": {
     "build": "node scripts/gen-builtin-skills.mjs && tsc",
     "lint": "node -e \"process.exit(0)\"",
-    "typecheck": "node scripts/gen-builtin-skills.mjs && tsc --noEmit && tsc --noEmit -p evals/web/tsconfig.json",
+    "typecheck": "node scripts/gen-builtin-skills.mjs && tsc --noEmit && tsc --noEmit -p evals/web/tsconfig.json && tsc --noEmit -p evals/harness/tsconfig.json",
     "test": "vitest run",
-    "eval:web": "tsx evals/web/cli.ts"
+    "eval:web": "tsx evals/web/cli.ts",
+    "eval:harness": "tsx evals/harness/live-eval.ts"
   },
   "exports": {
     ".": {
