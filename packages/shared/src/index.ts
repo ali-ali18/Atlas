@@ -354,6 +354,7 @@ export type {
 	RoutineTriggeredBy,
 	RoutineRunStatus,
 	RoutineRecord,
+	RoutineGroupRecord,
 	RoutineRunRecord,
 	RoutineRunListItem,
 	CreateRoutineInput,

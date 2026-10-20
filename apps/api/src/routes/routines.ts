@@ -14,15 +14,20 @@ import {
 } from "@workspace/shared";
 import {
 	createRoutine,
+	createRoutineGroup,
 	deleteRoutine,
+	deleteRoutineGroup,
 	getRoutine,
 	getRoutineGithubTrigger,
 	hookPublicUrl,
 	listRecentRoutineRunsForBot,
+	listRoutineGroups,
 	listRoutineRuns,
 	listRoutines,
 	rotateRoutineHookSecret,
+	setRoutineGroupEnabled,
 	updateRoutine,
+	updateRoutineGroup,
 } from "@workspace/db";
 import {
 	enqueueRoutineNow,
@@ -52,6 +57,18 @@ function parseEnabled(value: unknown): boolean | undefined {
 }
 
 export function parseCreateBody(
+	botId: string,
+	json: unknown,
+): CreateRoutineInput | { error: string } {
+	const parsed = parseCreateBodyBase(botId, json);
+	if ("error" in parsed) return parsed;
+	const groupRaw = (json as Record<string, unknown>).groupId;
+	if (groupRaw === undefined || groupRaw === null) return parsed;
+	if (typeof groupRaw !== "string" || groupRaw.trim().length === 0) return { error: "groupId inválido" };
+	return { ...parsed, groupId: groupRaw.trim() };
+}
+
+function parseCreateBodyBase(
 	botId: string,
 	json: unknown,
 ): CreateRoutineInput | { error: string } {
@@ -214,6 +231,11 @@ export function parseUpdateBody(json: unknown): UpdateRoutineInput | { error: st
 		patch.name = body.name.trim();
 	}
 	if (typeof body.prompt === "string") patch.prompt = body.prompt;
+	if ("groupId" in body) {
+		if (body.groupId === null) patch.groupId = null;
+		else if (typeof body.groupId === "string" && body.groupId.trim().length > 0) patch.groupId = body.groupId.trim();
+		else return { error: "groupId inválido" };
+	}
 	if (typeof body.model === "string") {
 		if (body.model.trim().length === 0) return { error: "Modelo inválido" };
 		patch.model = body.model.trim();
@@ -332,6 +354,146 @@ export function createRoutineRoutes(routineQueue: RoutineQueue | null) {
 		}
 	});
 
+	app.get("/v1/bots/:botId/routine-groups", async (c) => {
+		const { userId } = scopeFor(c.get("session"));
+		const botId = parseId(c.req.param("botId"));
+		if (!botId) return c.json({ error: "Missing bot id" }, 400);
+		try {
+			const groups = await listRoutineGroups(userId, botId);
+			return c.json({ groups });
+		} catch (error) {
+			console.error("list routine groups failed", error);
+			return c.json({ error: "Failed to list routine groups" }, 503);
+		}
+	});
+
+	app.post("/v1/bots/:botId/routine-groups", async (c) => {
+		const { userId } = scopeFor(c.get("session"));
+		const botId = parseId(c.req.param("botId"));
+		if (!botId) return c.json({ error: "Missing bot id" }, 400);
+		let json: unknown;
+		try {
+			json = await c.req.json();
+		} catch {
+			return c.json({ error: "Invalid JSON body" }, 400);
+		}
+		const body = (json && typeof json === "object" ? json : {}) as Record<string, unknown>;
+		if (typeof body.name !== "string" || body.name.trim().length === 0) {
+			return c.json({ error: "Nome obrigatório" }, 400);
+		}
+		if (body.description !== undefined && typeof body.description !== "string") {
+			return c.json({ error: "description deve ser texto" }, 400);
+		}
+		try {
+			const group = await createRoutineGroup(userId, botId, {
+				name: body.name,
+				description: typeof body.description === "string" ? body.description : undefined,
+			});
+			return c.json({ group }, 201);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "Failed to create group";
+			if (message === "Bot não encontrado") return c.json({ error: "Not found" }, 404);
+			if (message === "Já existe um grupo com esse nome") return c.json({ error: message }, 409);
+			console.error("create routine group failed", error);
+			return c.json({ error: message }, 400);
+		}
+	});
+
+	app.patch("/v1/bots/:botId/routine-groups/:groupId", async (c) => {
+		const { userId } = scopeFor(c.get("session"));
+		const botId = parseId(c.req.param("botId"));
+		const groupId = parseId(c.req.param("groupId"));
+		if (!botId || !groupId) return c.json({ error: "Missing bot id or group id" }, 400);
+		let json: unknown;
+		try {
+			json = await c.req.json();
+		} catch {
+			return c.json({ error: "Invalid JSON body" }, 400);
+		}
+		const body = (json && typeof json === "object" ? json : {}) as Record<string, unknown>;
+		const patch: { name?: string; description?: string } = {};
+		if (body.name !== undefined) {
+			if (typeof body.name !== "string" || body.name.trim().length === 0) {
+				return c.json({ error: "Nome inválido" }, 400);
+			}
+			patch.name = body.name;
+		}
+		if (body.description !== undefined) {
+			if (typeof body.description !== "string") return c.json({ error: "description deve ser texto" }, 400);
+			patch.description = body.description;
+		}
+		try {
+			const group = await updateRoutineGroup(userId, botId, groupId, patch);
+			if (!group) return c.json({ error: "Group not found" }, 404);
+			return c.json({ group });
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "Failed to update group";
+			if (message === "Já existe um grupo com esse nome") return c.json({ error: message }, 409);
+			console.error("update routine group failed", error);
+			return c.json({ error: message }, 400);
+		}
+	});
+
+	// Ativa/pausa todas as rotinas do grupo.
+	app.post("/v1/bots/:botId/routine-groups/:groupId/enabled", async (c) => {
+		const { userId } = scopeFor(c.get("session"));
+		const botId = parseId(c.req.param("botId"));
+		const groupId = parseId(c.req.param("groupId"));
+		if (!botId || !groupId) return c.json({ error: "Missing bot id or group id" }, 400);
+		let json: unknown;
+		try {
+			json = await c.req.json();
+		} catch {
+			return c.json({ error: "Invalid JSON body" }, 400);
+		}
+		const enabled = parseEnabled((json as Record<string, unknown> | null)?.enabled);
+		if (enabled === undefined) return c.json({ error: "enabled deve ser boolean" }, 400);
+		try {
+			const routines = await setRoutineGroupEnabled(userId, botId, groupId, enabled);
+			if (!routines) return c.json({ error: "Group not found" }, 404);
+			if (routineQueue) {
+				for (const routine of routines) {
+					await syncRoutineScheduler(routineQueue, routine).catch(() => undefined);
+				}
+			}
+			const repos = new Set(routines.flatMap((routine) => (routine.github ? [routine.github.repo] : [])));
+			for (const repo of repos) await syncGithubRepoHook(userId, repo).catch(() => undefined);
+			return c.json({ routines });
+		} catch (error) {
+			console.error("set routine group enabled failed", error);
+			return c.json({ error: "Failed to update group routines" }, 400);
+		}
+	});
+
+	app.delete("/v1/bots/:botId/routine-groups/:groupId", async (c) => {
+		const { userId } = scopeFor(c.get("session"));
+		const botId = parseId(c.req.param("botId"));
+		const groupId = parseId(c.req.param("groupId"));
+		if (!botId || !groupId) return c.json({ error: "Missing bot id or group id" }, 400);
+		let deleteRoutines = c.req.query("deleteRoutines") === "true";
+		if (!deleteRoutines) {
+			const body = await c.req.json().catch(() => null);
+			deleteRoutines = (body as Record<string, unknown> | null)?.deleteRoutines === true;
+		}
+		try {
+			const result = await deleteRoutineGroup(userId, botId, groupId, { deleteRoutines });
+			if (!result) return c.json({ error: "Group not found" }, 404);
+			if (result.deletedRoutines) {
+				if (routineQueue) {
+					for (const routine of result.routines) {
+						await removeRoutineScheduler(routineQueue, routine.id).catch(() => undefined);
+					}
+				}
+				const repos = new Set(result.routines.flatMap((routine) => (routine.github ? [routine.github.repo] : [])));
+				for (const repo of repos) await syncGithubRepoHook(userId, repo).catch(() => undefined);
+			}
+			return c.json({ ok: true, deletedRoutines: result.deletedRoutines ? result.routines.length : 0 });
+		} catch (error) {
+			console.error("delete routine group failed", error);
+			return c.json({ error: "Failed to delete group" }, 400);
+		}
+	});
+
 	app.get("/v1/bots/:botId/routine-runs", async (c) => {
 		const { userId } = scopeFor(c.get("session"));
 		const botId = parseId(c.req.param("botId"));
@@ -385,6 +547,7 @@ export function createRoutineRoutes(routineQueue: RoutineQueue | null) {
 			const message =
 				error instanceof Error ? error.message : "Failed to create routine";
 			if (message === "Bot não encontrado") return c.json({ error: "Not found" }, 404);
+			if (message === "Grupo não encontrado") return c.json({ error: "Group not found" }, 404);
 			console.error("create routine failed", error);
 			return c.json({ error: message }, 400);
 		}
@@ -487,6 +650,7 @@ export function createRoutineRoutes(routineQueue: RoutineQueue | null) {
 		} catch (error) {
 			const message =
 				error instanceof Error ? error.message : "Failed to update routine";
+			if (message === "Grupo não encontrado") return c.json({ error: "Group not found" }, 404);
 			console.error("update routine failed", error);
 			return c.json({ error: message }, 400);
 		}

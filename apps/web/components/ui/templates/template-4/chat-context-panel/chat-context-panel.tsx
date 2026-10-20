@@ -47,6 +47,11 @@ import {
 	type TemplateCreateFields,
 } from "./routine-create-chooser";
 import { RoutineCard } from "./routine-card";
+import {
+	groupRoutinesForPanel,
+	RoutineGroupBlock,
+	type RoutineGroupHandlers,
+} from "./routine-group-block";
 import { GithubDialog, HistoryDialog, WebhookDialog } from "./routine-dialogs";
 import { routinePrimaryTriggerKind } from "./routine-map";
 import type { GithubRoutineTemplate } from "@workspace/shared";
@@ -254,6 +259,11 @@ export function ChatContextPanel({
 	isRoutinePersisted,
 	onSaveGithubTrigger,
 	onDeleteRoutine,
+	routineGroups = [],
+	onCreateRoutineGroup,
+	onRenameRoutineGroup,
+	onSetRoutineGroupEnabled,
+	onDeleteRoutineGroup,
 	onRunRoutine,
 	onRotateRoutineSecret,
 	onOpenSettings,
@@ -309,6 +319,13 @@ export function ChatContextPanel({
 		github: RoutineGithubUiConfig,
 	) => Promise<RoutineGithubUiConfig | { error: string }>;
 	onDeleteRoutine?: (routine: Routine) => void;
+	/** Grupos de rotinas do bot (o bloco agrupa as rotinas com o mesmo `groupId`). */
+	routineGroups?: Array<{ id: string; name: string }>;
+	/** Cria um grupo pelo editor; devolve o grupo ou a mensagem de erro. */
+	onCreateRoutineGroup?: (name: string) => Promise<{ id: string; name: string } | { error: string }>;
+	onRenameRoutineGroup?: RoutineGroupHandlers["onRename"];
+	onSetRoutineGroupEnabled?: RoutineGroupHandlers["onSetEnabled"];
+	onDeleteRoutineGroup?: RoutineGroupHandlers["onDelete"];
 	/** Dispara a execução de teste; `false`/rejeição = falha. */
 	onRunRoutine?: (routine: Routine) => unknown;
 	/** Gera uma chave nova (o secret só existe em hash; aparece uma vez). */
@@ -712,6 +729,8 @@ export function ChatContextPanel({
 								onOpenMarketplace={onOpenMarketplace}
 								onCreate={onCreateRoutine}
 								onSave={onSaveRoutine}
+								groups={routineGroups}
+								onCreateGroup={onCreateRoutineGroup}
 								onSaveGithubTrigger={onSaveGithubTrigger}
 								oneTimeSecret={routineOneTimeSecret}
 								persisted={routinePersisted}
@@ -769,20 +788,36 @@ export function ChatContextPanel({
 											</div>
 										) : (
 											<ul className="flex flex-col gap-2">
-												{routines.map((routine) => (
-													<RoutineCard
-														key={routine.id}
-														onDelete={onDeleteRoutine}
-														onEdit={onEditRoutineWithAgent}
-														onOpenGithub={setGithubFor}
-														onOpenHistory={setHistoryFor}
-														onOpenWebhook={setWebhookFor}
-														onRun={onRunRoutine}
-														onToggle={onToggleRoutine}
-														persisted={isRoutinePersisted?.(routine) ?? false}
-														routine={routine}
-													/>
-												))}
+												{groupRoutinesForPanel(routines, routineGroups).map((item) => {
+													const renderCard = (routine: Routine) => (
+														<RoutineCard
+															key={routine.id}
+															onDelete={onDeleteRoutine}
+															onEdit={onEditRoutineWithAgent}
+															onOpenGithub={setGithubFor}
+															onOpenHistory={setHistoryFor}
+															onOpenWebhook={setWebhookFor}
+															onRun={onRunRoutine}
+															onToggle={onToggleRoutine}
+															persisted={isRoutinePersisted?.(routine) ?? false}
+															routine={routine}
+														/>
+													);
+													if (item.kind === "routine") return renderCard(item.routine);
+													return (
+														<RoutineGroupBlock
+															id={item.group.id}
+															key={`group-${item.group.id}`}
+															name={item.group.name}
+															onDelete={onDeleteRoutineGroup}
+															onRename={onRenameRoutineGroup}
+															onSetEnabled={onSetRoutineGroupEnabled}
+															routines={item.routines}
+														>
+															{item.routines.map(renderCard)}
+														</RoutineGroupBlock>
+													);
+												})}
 											</ul>
 										)}
 									</section>

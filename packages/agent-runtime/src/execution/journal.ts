@@ -22,6 +22,7 @@ export const EFFECTFUL_NATIVE_TOOLS: ReadonlySet<string> = new Set([
 	"create_file",
 	"generate_image",
 	"propose_routine",
+	"routine_group",
 ]);
 
 export function isJournaledWrite(name: string, mcpEntry?: { readOnly: boolean }): boolean {

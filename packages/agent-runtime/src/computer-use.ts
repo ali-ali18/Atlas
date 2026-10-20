@@ -97,10 +97,14 @@ import {
 	createRoutine,
 	convertRoutineToGenericWebhook,
 	deleteRoutine,
+	deleteRoutineGroup,
+	findOrCreateRoutineGroup,
 	getBotProfile,
 	hookPublicUrl,
 	listBots,
+	listRoutineGroups,
 	listRoutines,
+	normalizeRoutineGroupName,
 	removeMemoryEntry as removeMemoryEntryDb,
 	mergeMemoryEntries as mergeMemoryEntriesDb,
 	getMemorySnapshot,
@@ -113,6 +117,7 @@ import {
 	saveSkillPendingIntent,
 	searchConversationMessages,
 	searchMemoryEntries,
+	setRoutineGroupEnabled,
 	persistConversationCardFromEvent,
 	upsertTaskListCard,
 	findExecutedConfirmCall,
@@ -1049,6 +1054,29 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	{
 		type: "function",
 		function: {
+			name: "routine_group",
+			description:
+				"Pausa, retoma ou desfaz um grupo de rotinas de uma vez. delete só remove o grupo: as rotinas continuam, sem grupo. group = nome ou id do grupo (aparece em list_routines).",
+			parameters: {
+				type: "object",
+				properties: {
+					action: {
+						type: "string",
+						enum: ["pause", "resume", "delete"],
+						description: "pause = pausa todas; resume = ativa todas; delete = desfaz o grupo mantendo as rotinas.",
+					},
+					group: {
+						type: "string",
+						description: "Nome ou id do grupo.",
+					},
+				},
+				required: ["action", "group"],
+			},
+		},
+	},
+	{
+		type: "function",
+		function: {
 			name: "github_list_repos",
 			description:
 				"Lista os repositórios GitHub do usuário conectado no Marketplace (mais recentes primeiro). Use pra resolver um nome informado de forma vaga (ex.: 'agent-bot') em 'owner/name' ANTES de chamar propose_routine com trigger_type=github, quando o usuário não deu o owner/repo completo. Se a conexão falhar, explique que precisa conectar o GitHub no Marketplace.",
@@ -1149,6 +1177,11 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 					model: {
 						type: "string",
 						description: "Modelo OpenRouter opcional para esta rotina.",
+					},
+					group: {
+						type: "string",
+						description:
+							"Nome do grupo da rotina. Rotinas da mesma tarefa usam o mesmo nome (curto e descritivo); um grupo com esse nome é reaproveitado, senão é criado. Em edit, string vazia tira a rotina do grupo; omita para manter.",
 					},
 					github: {
 						type: "object",
@@ -2098,10 +2131,65 @@ async function executeListRoutines(
 						? formatIntervalSummary(row.interval?.everyMinutes ?? 0)
 						: `cron · ${row.schedule ?? "—"}`;
 		const state = row.enabled ? "ativa" : "pausada";
-		return `${index + 1}. ${row.name} (${kind}, ${state})`;
+		const groupNote = row.group ? ` [grupo: ${row.group.name}]` : "";
+		return `${index + 1}. ${row.name} (${kind}, ${state})${groupNote}`;
 	});
 	return {
 		summary: `Rotinas (${items.length}):\n${lines.join("\n")}`,
+	};
+}
+
+async function executeRoutineGroup(
+	args: Record<string, unknown>,
+	ctx: ToolContext,
+): Promise<{ summary: string; routineEvent?: RoutineEvent }> {
+	const scope = skillScope(ctx);
+	if (!scope) {
+		return { summary: "Rotinas indisponíveis: este run não tem bot vinculado." };
+	}
+	if (ctx.origin === "routine") {
+		return {
+			summary:
+				"Este run é execução de rotina. Não gerencie grupos — execute a instrução.",
+		};
+	}
+	const action = String(args.action ?? "").trim();
+	if (action !== "pause" && action !== "resume" && action !== "delete") {
+		throw new Error("action deve ser pause, resume ou delete");
+	}
+	const query = String(args.group ?? "").trim();
+	if (!query) throw new Error("informe group (nome ou id do grupo)");
+	const groups = await listRoutineGroups(scope.userId, scope.botId);
+	const key = normalizeRoutineGroupName(query);
+	const group =
+		groups.find((row) => row.id === query) ??
+		groups.find((row) => normalizeRoutineGroupName(row.name) === key);
+	if (!group) {
+		return { summary: `Não achei grupo "${query.slice(0, 80)}". Use list_routines.` };
+	}
+	if (action === "delete") {
+		const result = await deleteRoutineGroup(scope.userId, scope.botId, group.id);
+		if (!result) return { summary: "Não consegui apagar o grupo agora." };
+		const first = result.routines[0];
+		return {
+			summary: `Grupo "${group.name}" desfeito. As ${result.routines.length} rotinas continuam, sem grupo.`,
+			...(first ? { routineEvent: routineUpdatedEvent({ ...first, groupId: null, group: null }) } : {}),
+		};
+	}
+	const enabled = action === "resume";
+	const routines = await setRoutineGroupEnabled(scope.userId, scope.botId, group.id, enabled);
+	if (!routines) return { summary: "Não consegui atualizar o grupo agora." };
+	for (const routine of routines) {
+		await ctx.onRoutineMutated?.(routine).catch(() => undefined);
+	}
+	const repos = new Set(routines.flatMap((routine) => (routine.github ? [routine.github.repo] : [])));
+	for (const repo of repos) {
+		await ensureGithubRepoHook({ userId: scope.userId, repo }).catch(() => undefined);
+	}
+	const first = routines[0];
+	return {
+		summary: `Grupo "${group.name}": ${routines.length} rotinas ${enabled ? "ativadas" : "pausadas"}.`,
+		...(first ? { routineEvent: routineUpdatedEvent(first) } : {}),
 	};
 }
 
@@ -2290,6 +2378,13 @@ async function executeProposeRoutine(
 	const scheduleRaw =
 		typeof args.schedule === "string" ? args.schedule.trim() : "";
 	let existingOnCreate: RoutineRecord | undefined;
+	// `group` (nome): reaproveita o grupo de mesmo nome ou cria; só resolve depois da validação do gatilho.
+	const groupName = typeof args.group === "string" ? args.group.trim() : "";
+	const groupFields = async (): Promise<{ groupId?: string }> => {
+		if (!groupName) return {};
+		const { group } = await findOrCreateRoutineGroup(scope.userId, scope.botId, groupName);
+		return { groupId: group.id };
+	};
 
 	if (action === "create") {
 		const title =
@@ -2317,6 +2412,7 @@ async function executeProposeRoutine(
 			}
 			const { routine } = await createRoutine(scope.userId, {
 				botId: scope.botId,
+				...(await groupFields()),
 				name: title,
 				prompt: detail,
 				triggerType: "cron",
@@ -2344,6 +2440,7 @@ async function executeProposeRoutine(
 			if (!parsedEvery.ok) throw new Error(parsedEvery.error);
 			const { routine } = await createRoutine(scope.userId, {
 				botId: scope.botId,
+				...(await groupFields()),
 				name: title,
 				prompt: detail,
 				triggerType: "interval",
@@ -2373,6 +2470,7 @@ async function executeProposeRoutine(
 			}
 			const { routine } = await createRoutine(scope.userId, {
 				botId: scope.botId,
+				...(await groupFields()),
 				name: title,
 				prompt: detail,
 				triggerType: "once",
@@ -2403,6 +2501,7 @@ async function executeProposeRoutine(
 			const githubTrigger = parsed.value;
 			const { routine } = await createRoutine(scope.userId, {
 				botId: scope.botId,
+				...(await groupFields()),
 				name: title,
 				prompt: detail,
 				triggerType: "event",
@@ -2439,6 +2538,7 @@ async function executeProposeRoutine(
 		if (action === "create") {
 			const { routine, hookSecret } = await createRoutine(scope.userId, {
 				botId: scope.botId,
+				...(await groupFields()),
 				name: title,
 				prompt: detail,
 				triggerType: "event",
@@ -2489,6 +2589,11 @@ async function executeProposeRoutine(
 	// gatilho, etc).
 	const nextEnabled = enabledArg ?? previous.enabled;
 	const nextName = String(args.title ?? "").trim().slice(0, 120) || undefined;
+	if (args.group !== undefined) {
+		// String vazia tira do grupo; nome reaproveita/cria.
+		const groupId = groupName ? (await findOrCreateRoutineGroup(scope.userId, scope.botId, groupName)).group.id : null;
+		await updateRoutine(scope.userId, scope.botId, previous.id, { groupId });
+	}
 
 	if (triggerType === "once") {
 		let runAtIso: string;
@@ -3557,6 +3662,9 @@ async function executeToolInner(
 		case "list_routines": {
 			return executeListRoutines(args, ctx);
 		}
+		case "routine_group": {
+			return executeRoutineGroup(args, ctx);
+		}
 		case "github_list_repos": {
 			return executeGithubListRepos(args, ctx);
 		}
@@ -4554,6 +4662,7 @@ export async function runComputerUse(params: {
 	const ROUTINE_MANAGE_TOOLS = new Set([
 		"list_routines",
 		"propose_routine",
+		"routine_group",
 		"github_list_repos",
 	]);
 	// Fase 1: pesquisa web NÃO entra em rotina (execução só executa a instrução).

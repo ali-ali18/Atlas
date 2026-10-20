@@ -55,7 +55,7 @@ export function RoutinesList({
 						: item.triggerType === "once"
 							? ClockIcon
 							: CalendarClockIcon;
-				const status = [item.enabled ? "" : "pausada", item.createdBy === "bot" ? "criada pelo bot" : ""].filter(Boolean);
+				const status = [item.enabled ? "" : "pausada", item.createdBy === "bot" ? "criada pelo bot" : "", item.groupName ? `grupo ${item.groupName}` : ""].filter(Boolean);
 				const label = status.length > 0 ? `${item.name} (${status.join(", ")})` : item.name;
 				return (
 					<Attachment

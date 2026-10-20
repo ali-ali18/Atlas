@@ -10,6 +10,8 @@ export type RoutineListItemData = {
 	hookKey?: string;
 	/** "bot" = criada pelo bot no modo proativo. */
 	createdBy?: "user" | "bot";
+	/** Nome do grupo, quando a rotina está agrupada. */
+	groupName?: string;
 };
 
 export type PersistedRoutineCard = {

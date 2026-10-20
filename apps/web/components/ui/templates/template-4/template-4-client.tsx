@@ -18,6 +18,7 @@ import { SandboxViewerDialog } from "./sandbox-viewer-dialog";
 import type {
 	Bot,
 	GithubRoutineTemplate,
+	RoutineGroupRecord,
 	RoutineRecord,
 	RoutineRunRecord,
 	Section,
@@ -91,6 +92,11 @@ import {
 	listBotRoutineRuns,
 	listRoutineRuns,
 	listRoutines as listRoutinesRequest,
+	listRoutineGroups as listRoutineGroupsRequest,
+	createRoutineGroup as createRoutineGroupRequest,
+	updateRoutineGroup as updateRoutineGroupRequest,
+	setRoutineGroupEnabled as setRoutineGroupEnabledRequest,
+	deleteRoutineGroup as deleteRoutineGroupRequest,
 	createRoutine as createRoutineRequest,
 	updateRoutine as updateRoutineRequest,
 	deleteRoutine as deleteRoutineRequest,
@@ -275,6 +281,7 @@ export function Template4Client({
 		if (isMobile) setPanelOpen(false);
 	}, [isMobile]);
 	const [routines, setRoutines] = useState<Routine[]>([]);
+	const [routineGroups, setRoutineGroups] = useState<RoutineGroupRecord[]>([]);
 	const [editingRoutine, setEditingRoutine] = useState<Routine>();
 	const [editingRuns, setEditingRuns] = useState<RoutineRunRecord[]>([]);
 	const [botRoutineRuns, setBotRoutineRuns] = useState<
@@ -712,14 +719,20 @@ export function Template4Client({
 	useEffect(() => {
 		if (!activeId) {
 			setRoutines([]);
+			setRoutineGroups([]);
 			setBotRoutineRuns([]);
 			persistedRoutineIds.current = new Set();
 			return;
 		}
 		let cancelled = false;
-		Promise.all([listRoutinesRequest(activeId), listBotRoutineRuns(activeId)])
-			.then(([records, runs]) => {
+		Promise.all([
+			listRoutinesRequest(activeId),
+			listBotRoutineRuns(activeId),
+			listRoutineGroupsRequest(activeId).catch(() => [] as RoutineGroupRecord[]),
+		])
+			.then(([records, runs, groups]) => {
 				if (cancelled) return;
+				setRoutineGroups(groups);
 				persistedRoutineIds.current = new Set(records.map((row) => row.id));
 				snapshotRoutineRecords(records);
 				setRoutines(records.map(recordToUiRoutine));
@@ -1324,10 +1337,12 @@ export function Template4Client({
 	}
 
 	async function reloadBotRoutines(botId: string) {
-		const [records, runs] = await Promise.all([
+		const [records, runs, groups] = await Promise.all([
 			listRoutinesRequest(botId),
 			listBotRoutineRuns(botId),
+			listRoutineGroupsRequest(botId).catch(() => null),
 		]);
+		if (groups) setRoutineGroups(groups);
 		persistedRoutineIds.current = new Set(records.map((row) => row.id));
 		snapshotRoutineRecords(records);
 		setRoutines(records.map(recordToUiRoutine));
@@ -1339,6 +1354,69 @@ export function Template4Client({
 			})),
 		);
 		return records;
+	}
+
+	function routineGroupError(error: unknown, fallback: string): string {
+		return error instanceof AtlasApiError ? error.message : fallback;
+	}
+
+	/** Cria um grupo pelo editor de rotina. */
+	async function createRoutineGroupFor(
+		name: string,
+	): Promise<{ id: string; name: string } | { error: string }> {
+		if (!activeId) return { error: "Selecione um bot." };
+		try {
+			const group = await createRoutineGroupRequest(activeId, { name });
+			setRoutineGroups((previous) => [...previous, group]);
+			return { id: group.id, name: group.name };
+		} catch (error) {
+			console.error("create routine group failed", error);
+			return { error: routineGroupError(error, "Não foi possível criar o grupo.") };
+		}
+	}
+
+	async function renameRoutineGroupFor(groupId: string, name: string): Promise<string | null> {
+		if (!activeId) return "Selecione um bot.";
+		try {
+			const group = await updateRoutineGroupRequest(activeId, groupId, { name });
+			setRoutineGroups((previous) => previous.map((item) => (item.id === group.id ? group : item)));
+			return null;
+		} catch (error) {
+			console.error("rename routine group failed", error);
+			return routineGroupError(error, "Não foi possível renomear o grupo.");
+		}
+	}
+
+	async function setRoutineGroupEnabledFor(groupId: string, enabled: boolean): Promise<string | null> {
+		if (!activeId) return "Selecione um bot.";
+		try {
+			await setRoutineGroupEnabledRequest(activeId, groupId, enabled);
+			await reloadBotRoutines(activeId);
+			return null;
+		} catch (error) {
+			console.error("toggle routine group failed", error);
+			return routineGroupError(error, "Não foi possível alterar o grupo.");
+		}
+	}
+
+	async function deleteRoutineGroupFor(groupId: string, deleteRoutines: boolean): Promise<string | null> {
+		if (!activeId) return "Selecione um bot.";
+		try {
+			const editingWasSaved = Boolean(editingRoutine && persistedRoutineIds.current.has(editingRoutine.id));
+			await deleteRoutineGroupRequest(activeId, groupId, deleteRoutines);
+			setRoutineGroups((previous) => previous.filter((item) => item.id !== groupId));
+			await reloadBotRoutines(activeId);
+			if (deleteRoutines && editingRoutine && editingWasSaved && !persistedRoutineIds.current.has(editingRoutine.id)) {
+				// Rotina aberta no editor foi apagada junto com o grupo: fecha o editor.
+				setEditingRoutine(undefined);
+				setEditingRuns([]);
+				setPanelView("default");
+			}
+			return null;
+		} catch (error) {
+			console.error("delete routine group failed", error);
+			return routineGroupError(error, "Não foi possível apagar o grupo.");
+		}
 	}
 
 	/** PATCH de rotina já criada (só o diff). A criação é `createRoutine`. */
@@ -2379,6 +2457,11 @@ export function Template4Client({
 							onDeleteRoutine={(routine) => {
 								void deleteRoutineFor(routine);
 							}}
+							routineGroups={routineGroups}
+							onCreateRoutineGroup={createRoutineGroupFor}
+							onRenameRoutineGroup={renameRoutineGroupFor}
+							onSetRoutineGroupEnabled={setRoutineGroupEnabledFor}
+							onDeleteRoutineGroup={deleteRoutineGroupFor}
 							onRunRoutine={(routine) => runRoutineFor(routine)}
 							onRotateRoutineSecret={(routine) => rotateRoutineSecretFor(routine)}
 							onOpenSettings={openSettings}
