@@ -1241,6 +1241,7 @@ export type ComputerUseHandlers = {
 	}) => void;
 	onFile?: (event: Extract<ComputerUseEvent, { type: "file" }>) => void;
 	onChart?: (event: Extract<ComputerUseEvent, { type: "chart" }>) => void;
+	onTaskList?: (event: Extract<ComputerUseEvent, { type: "task_list" }>) => void;
 	/** Cursor do agente no navegador do sandbox (efêmero, só para a UI). */
 	onAgentPointer?: (event: AgentPointerEvent) => void;
 	onLogin?: (event: {
@@ -1359,6 +1360,9 @@ function dispatchComputerUseEvent(
 			break;
 		case "chart":
 			handlers.onChart?.(event);
+			break;
+		case "task_list":
+			handlers.onTaskList?.(event);
 			break;
 		case "agent_pointer":
 			handlers.onAgentPointer?.(event);

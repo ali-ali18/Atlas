@@ -6,7 +6,7 @@ import { collapseBotProposalCards } from "@/lib/bot-proposal-message";
 
 /** Cartão ao vivo que, quando o servidor já gravou o equivalente, vale o gravado. */
 function isDedupedLiveCard(message: Message): boolean {
-	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart";
+	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart" || message.kind === "task-list";
 }
 
 function cardDedupeKey(message: Message): string | null {
@@ -40,6 +40,8 @@ function cardDedupeKey(message: Message): string | null {
 	// Cartão ao vivo (id da chamada) e o gravado (id do banco) colapsam.
 	if (message.kind === "code-run" && message.callId) return `code-run|${message.callId}`;
 	if (message.kind === "chart") return `chart|${message.chartId}`;
+	// Um cartão por run: o ao vivo (id do run) e o gravado (id do banco) colapsam.
+	if (message.kind === "task-list") return `task-list|${message.runId}`;
 	if (message.kind === "questionnaire") {
 		return `questionnaire|${message.questionnaireId}|${message.title}`;
 	}
@@ -293,6 +295,7 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 		message.kind !== "code-run" &&
 		message.kind !== "image-gen" &&
 		message.kind !== "chart" &&
+		message.kind !== "task-list" &&
 		message.kind !== "subagents" &&
 		message.kind !== "context-summary" &&
 		message.kind !== "confirm" && message.kind !== "questionnaire" &&

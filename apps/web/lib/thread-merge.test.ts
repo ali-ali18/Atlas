@@ -117,3 +117,12 @@ test("gráfico ao vivo e o gravado (mesmo chartId) não duplicam; o cartão grav
 	assert.deepEqual(reconcilePersistedThread([user("db-u1", "gráfico"), chart("db-ch")], [user("db-u1", "gráfico")]).map((message) => message.kind), ["user", "chart"]);
 	assert.equal(dedupeCards([chart("a"), chart("b")]).length, 1);
 });
+
+test("lista de tarefas: um cartão por run; o ao vivo e o gravado colapsam e o gravado reaparece após recarregar", () => {
+	const list = (id: string, runId = "run-1"): Message => ({ id, kind: "task-list", runId, items: [{ content: "a", status: "in_progress" }] });
+	const live: Message[] = [user("db-u1", "faça"), list("task-list-run-1")];
+	assert.deepEqual(reconcilePersistedThread([user("db-u1", "faça"), list("db-tl")], live).map((message) => message.id), ["db-u1", "db-tl"]);
+	assert.deepEqual(reconcilePersistedThread([user("db-u1", "faça"), list("db-tl")], [user("db-u1", "faça")]).map((message) => message.kind), ["user", "task-list"]);
+	assert.equal(dedupeCards([list("a"), list("b")]).length, 1);
+	assert.equal(dedupeCards([list("a"), list("b", "run-2")]).length, 2);
+});

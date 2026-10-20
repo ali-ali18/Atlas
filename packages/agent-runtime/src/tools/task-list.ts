@@ -45,19 +45,20 @@ export type TaskListStore = {
 	set(next: TaskListItem[] | undefined): void;
 };
 
-export function executeUpdateTaskList(args: Record<string, unknown>, ctx: { taskListStore?: TaskListStore }): { summary: string } {
+/** `items` é a lista final para o cartão da thread (vazia = remover o cartão). */
+export function executeUpdateTaskList(args: Record<string, unknown>, ctx: { taskListStore?: TaskListStore }): { summary: string; items: TaskListItem[] } {
 	const store = ctx.taskListStore;
 	if (!store) throw new Error("update_task_list is not available in this run.");
 	const items = normalizeTaskListInput(args.items);
 	if (items.length === 0) {
 		store.set(undefined);
-		return { summary: "Task list cleared." };
+		return { summary: "Task list cleared.", items: [] };
 	}
 	if (isTaskListDone(items)) {
 		store.set(undefined);
-		return { summary: `All ${items.length} steps completed; list closed. Give the user the final result.` };
+		return { summary: `All ${items.length} steps completed; list closed. Give the user the final result.`, items };
 	}
 	store.set(items);
 	const done = items.filter((item) => item.status === "completed").length;
-	return { summary: `Task list saved: ${done}/${items.length} completed. Continue with the step in progress.` };
+	return { summary: `Task list saved: ${done}/${items.length} completed. Continue with the step in progress.`, items };
 }

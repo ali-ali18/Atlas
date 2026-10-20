@@ -13,6 +13,7 @@ import {
 	type PersistedRoutineCard,
 } from "./routine-card.js";
 import { parseRoutineProposalCard, type PersistedRoutineProposalCard } from "./routine-proposal.js";
+import { parseTaskList, type TaskListItem } from "./task-list.js";
 import { parseBotProposalCard, type PersistedBotProposalCard } from "./bot-proposal.js";
 
 /** Papéis de card na timeline da conversa (não vão para o LLM). */
@@ -33,7 +34,8 @@ export type ConversationCardRole =
 	| "bot-proposal"
 	| "images"
 	| "code-run"
-	| "chart";
+	| "chart"
+	| "task-list";
 
 export type PersistedImagesCard = {
 	v: 1;
@@ -273,6 +275,14 @@ export type PersistedCodeRunCard = {
 	runId?: string;
 };
 
+/** Checklist de passos (`update_task_list`): um cartão por run, atualizado no lugar. */
+export type PersistedTaskListCard = {
+	v: 1;
+	kind: "task-list";
+	runId: string;
+	items: TaskListItem[];
+};
+
 /** Gráfico nativo (spec validado) gerado por `run_code` (`*.chart.json`). */
 export type PersistedChartCard = {
 	v: 1;
@@ -287,6 +297,7 @@ export type PersistedChartCard = {
 export type PersistedConversationCard =
 	| PersistedCodeRunCard
 	| PersistedChartCard
+	| PersistedTaskListCard
 	| PersistedSkillCard
 	| PersistedConfirmCard
 	| PersistedLoginCard
@@ -327,7 +338,8 @@ export function isConversationCardRole(role: string): role is ConversationCardRo
 		role === "subagents" ||
 		role === "routine-proposal" ||
 		role === "bot-proposal" ||
-		role === "images"
+		role === "images" ||
+		role === "task-list"
 	);
 }
 
@@ -638,6 +650,12 @@ export function parseConversationCard(content: string): PersistedConversationCar
 			...(asOptionalString(row.runId) ? { runId: asOptionalString(row.runId) } : {}),
 		};
 	}
+	if (row.kind === "task-list") {
+		const runId = asOptionalString(row.runId);
+		const items = parseTaskList(row.items);
+		if (!runId || !items) return null;
+		return { v: 1, kind: "task-list", runId: runId.slice(0, 120), items };
+	}
 	if (row.kind === "chart") {
 		const chartId = asOptionalString(row.chartId);
 		const parsed = parseChartSpec(row.spec);
@@ -798,6 +816,7 @@ export function insertCardAfterCurrentTurn<T extends { kind: string }>(
 			messages[insertAt]?.kind === "file" ||
 			messages[insertAt]?.kind === "code-run" ||
 			messages[insertAt]?.kind === "chart" ||
+			messages[insertAt]?.kind === "task-list" ||
 			messages[insertAt]?.kind === "routine" ||
 			messages[insertAt]?.kind === "questionnaire" ||
 			messages[insertAt]?.kind === "bot-profile" ||

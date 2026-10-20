@@ -114,6 +114,7 @@ import {
 	searchConversationMessages,
 	searchMemoryEntries,
 	persistConversationCardFromEvent,
+	upsertTaskListCard,
 	findExecutedConfirmCall,
 	persistJevStatusCard,
 	updateBot,
@@ -1906,6 +1907,8 @@ type ToolContext = {
 	ledgerStore?: LedgerStore;
 	/** Lista de passos visível (`update_task_list`). */
 	taskListStore?: TaskListStore;
+	/** Cartão da lista de passos na thread: grava (um por run) e emite o evento. */
+	emitTaskList?: (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>) => Promise<void>;
 	/** V3: portão de entrega; lança com a nota ao modelo enquanto há itens abertos. */
 	deliveryGate?: { check: (event: "create_file") => void };
 	currentStep?: () => number;
@@ -3620,7 +3623,9 @@ async function executeToolInner(
 			return executeResearchNote(args, ctx);
 		}
 		case "update_task_list": {
-			return executeUpdateTaskList(args, ctx);
+			const outcome = executeUpdateTaskList(args, ctx);
+			await ctx.emitTaskList?.(outcome.items);
+			return { summary: outcome.summary };
 		}
 		case "track_items": {
 			return executeTrackItems(args, ctx);
@@ -6584,6 +6589,10 @@ export async function runComputerUse(params: {
 					deliverableVerifier,
 					ledgerStore: isSubagent ? undefined : taskOrchestrator.store,
 					taskListStore: isSubagent ? undefined : taskListStore,
+					emitTaskList: isSubagent ? undefined : async (items) => {
+						await upsertTaskListCard(conversationId, runId, items).catch(() => undefined);
+						await onEvent({ type: "task_list", items, ...(runId ? { runId } : {}) });
+					},
 					deliveryGate,
 					createFileDeps: params.createFileDeps,
 					runCodeDeps: params.runCodeDeps,

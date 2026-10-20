@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SandboxManager } from "@workspace/sandbox";
 import type { CompleteChatWithToolsResult, LlmMessage } from "@workspace/llm";
 import { renderTaskListNote } from "@workspace/shared";
+import { upsertTaskListCard } from "@workspace/db";
 import { runComputerUse } from "./computer-use.js";
 import { executeUpdateTaskList } from "./tools/task-list.js";
 
@@ -13,11 +14,13 @@ vi.mock("@workspace/db", async (original) => ({
 	searchSkillVersions: vi.fn(async () => []),
 	listRoutines: vi.fn(async () => []),
 	persistConversationCardFromEvent: vi.fn(async () => undefined),
+	upsertTaskListCard: vi.fn(async () => undefined),
 }));
 
+let callSeq = 0;
 const toolCall = (name: string, args: unknown): CompleteChatWithToolsResult => ({
 	model: "m",
-	message: { role: "assistant", content: null, tool_calls: [{ id: "t1", type: "function", function: { name, arguments: JSON.stringify(args) } }] },
+	message: { role: "assistant", content: null, tool_calls: [{ id: `t${++callSeq}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] },
 	finishReason: "tool_calls",
 });
 const say = (text: string): CompleteChatWithToolsResult => ({ model: "m", message: { role: "assistant", content: text }, finishReason: "stop" });
@@ -129,11 +132,22 @@ describe("update_task_list no loop", () => {
 		expect(checkpoints.at(-1)?.taskState?.taskList).toBeUndefined();
 	});
 
+	it("emite o evento task_list e grava o cartao do run a cada atualizacao", async () => {
+		const done = LIST.map((item) => ({ ...item, status: "completed" }));
+		const { events } = await run({ calls: [toolCall("update_task_list", { items: LIST }), toolCall("update_task_list", { items: done }), say("pronto")] });
+		const emitted = events.filter((e) => e.type === "task_list") as Array<{ items: unknown; runId?: string }>;
+		expect(emitted).toHaveLength(2);
+		expect(emitted[0]).toMatchObject({ items: LIST, runId: "run-tl" });
+		expect(emitted[1]!.items).toEqual(done);
+		expect(upsertTaskListCard).toHaveBeenLastCalledWith("conv-tl", "run-tl", done);
+	});
+
 	it("entrada invalida volta como erro da tool sem alterar a lista", async () => {
 		const bad = [{ content: "a", status: "in_progress" }, { content: "b", status: "in_progress" }];
 		const { events, checkpoints } = await run({ calls: [toolCall("update_task_list", { items: bad }), say("ok")], priorTaskList: LIST });
 		const result = events.find((e) => e.type === "tool_result" && e.name === "update_task_list") as { ok?: boolean } | undefined;
 		expect(result?.ok).toBe(false);
+		expect(events.some((e) => e.type === "task_list")).toBe(false);
 		expect(checkpoints.at(-1)?.taskState?.taskList).toEqual(LIST);
 	});
 });

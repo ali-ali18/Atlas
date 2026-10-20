@@ -173,6 +173,7 @@ function conversationCardToMessage(
 			...(card.output ? { output: card.output } : {}),
 		};
 	}
+	if (card.kind === "task-list") return { id, kind: "task-list", runId: card.runId, items: card.items };
 	if (card.kind === "chart") return { id, kind: "chart", chartId: card.chartId, spec: card.spec, ...(card.filename ? { filename: card.filename } : {}) };
 	if (card.kind === "file") {
 		return {
@@ -413,6 +414,7 @@ function buildSessionMessage(message: SessionMessage): Message | null {
 		|| (message.role as string) === "images"
 		|| (message.role as string) === "code-run"
 		|| (message.role as string) === "chart"
+		|| (message.role as string) === "task-list"
 	) {
 		// Fallback: card questionnaire persistido sob outro role.
 		if (message.content.includes('"questionnaire"')) {
@@ -918,6 +920,20 @@ export function createComputerHandlers(params: {
 					return previous;
 				}
 				return dedupeCards(insertCardAfterCurrentTurn(previous, confirmMessage));
+			});
+		},
+		onTaskList: (event) => {
+			params.onActivity?.();
+			const cardId = `task-list-${event.runId ?? "local"}`;
+			params.setMessages((previous) => {
+				// A lista mais recente do run substitui o cartão no lugar (nunca empilha); lista vazia remove.
+				const index = previous.findIndex((m) => m.kind === "task-list" && (m.id === cardId || (event.runId !== undefined && m.runId === event.runId)));
+				if (event.items.length === 0) return index < 0 ? previous : previous.filter((_, i) => i !== index);
+				if (index >= 0) {
+					const current = previous[index]!;
+					return previous.map((m, i) => (i === index ? { id: current.id, kind: "task-list" as const, runId: event.runId ?? "local", items: event.items } : m));
+				}
+				return dedupeCards(insertCardAfterCurrentTurn(previous, { id: cardId, kind: "task-list", runId: event.runId ?? "local", items: event.items }));
 			});
 		},
 		onChart: (event) => {

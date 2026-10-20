@@ -435,6 +435,8 @@ type MessageVariant =
 	| { id: string; kind: "code-run"; callId?: string; code: string; status: "running" | "ok" | "error"; durationMs?: number; output?: string }
 	/** Placeholder ao vivo enquanto `generate_image` roda (só do cliente, nunca persistido). */
 	| { id: string; kind: "image-gen"; callId: string; count: 1 | 2; aspectRatio: string; startedAt: number; status: "running" | "error"; error?: string }
+	/** Checklist de passos do run (`update_task_list`); um cartão por run, atualizado no lugar. */
+	| { id: string; kind: "task-list"; runId: string; items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }> }
 	/** Gráfico nativo (spec validado) gerado pelo run_code em *.chart.json. */
 	| { id: string; kind: "chart"; chartId: string; spec: ChartSpec; filename?: string }
 	| {
