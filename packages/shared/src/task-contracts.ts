@@ -9,6 +9,7 @@
  */
 
 import { parseTaskLedger, type TaskLedger } from "./task-ledger.js";
+import { parseTaskList, type TaskListItem } from "./task-list.js";
 
 export const TASK_CONTRACT_VERSION = 1;
 
@@ -172,6 +173,8 @@ export type TaskState = {
 	artifacts: TaskArtifact[];
 	/** Itens da tarefa (V3): lista explícita, progresso e planejamento. Opcional: checkpoint antigo não tem. */
 	ledger?: TaskLedger;
+	/** Lista de passos visível (`update_task_list`). Opcional: checkpoint antigo não tem. */
+	taskList?: TaskListItem[];
 };
 
 export const MAX_TASK_OBJECTIVE_CHARS = 600;
@@ -222,6 +225,7 @@ export function parseTaskState(raw: unknown): TaskState | undefined {
 		artifacts.push({ kind, ref, step: nonNegativeInt(item.step), ...(name ? { name } : {}) });
 	}
 	const ledger = parseTaskLedger(raw.ledger);
+	const taskList = parseTaskList(raw.taskList);
 	return {
 		v: 1,
 		objective: {
@@ -236,6 +240,7 @@ export function parseTaskState(raw: unknown): TaskState | undefined {
 			.slice(-MAX_TASK_BLOCKERS),
 		artifacts: artifacts.slice(-MAX_TASK_ARTIFACTS),
 		...(ledger ? { ledger } : {}),
+		...(taskList ? { taskList } : {}),
 	};
 }
 

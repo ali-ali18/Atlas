@@ -142,6 +142,7 @@ export {
 	listConversationResearchNotes,
 	getConversationTaskContext,
 	getConversationTaskLedger,
+	getConversationTaskList,
 	getConversationTranscript,
 	getRunTranscript,
 	type RunTranscript,

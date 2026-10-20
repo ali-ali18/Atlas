@@ -61,6 +61,7 @@ import {
 	listConversationResearchNotes,
 	getConversationTaskContext,
 	getConversationTaskLedger,
+	getConversationTaskList,
 	listPendingQueueInputs,
 	listStepsMissingCost,
 	listPendingSteerInputs,
@@ -669,9 +670,17 @@ async function executeLeasedRun(ctx: {
 			})
 			: null;
 
-		return { messages, inputMessages, priorTranscript: transcript?.priorTranscript, priorLoadedTools: transcript?.loadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments: attachmentsForRun?.runtime };
+		// Lista de passos (update_task_list) da conversa: mesmo escopo de dono; falha não derruba o run.
+		const priorTaskList = !groupRun && run.conversationId && run.origin === "chat"
+			? await getConversationTaskList(runUserId, run.conversationId, { excludeRunId: runId, origin: run.origin }).catch((error) => {
+				console.error(`load task list failed run=${runId}`, error);
+				return null;
+			})
+			: null;
+
+		return { messages, inputMessages, priorTranscript: transcript?.priorTranscript, priorLoadedTools: transcript?.loadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments: attachmentsForRun?.runtime };
 	};
-	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, priorTranscript, priorLoadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments }] =
+	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, priorTranscript, priorLoadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments }] =
 		await Promise.all([configStage(), messagesStage()]);
 
 	let cachedSessionId: string | null =
@@ -938,6 +947,7 @@ async function executeLeasedRun(ctx: {
 			priorLoadedTools,
 			priorResearchNotes,
 			priorTaskLedger,
+			priorTaskList,
 			canSeeUserImages,
 			loadUserImage: imageVision.loadUserImage,
 			describeUserImage: imageVision.describeUserImage,
