@@ -47,6 +47,41 @@ describe("validateMcpArgs", () => {
 		expect(validateMcpArgs(schema, { cliente: { id: 1 }, itens: [{ produto: "A" }], situacao: "" })).toEqual([]);
 	});
 
+	describe("coercoes que o servidor costuma aceitar", () => {
+		const one = (type: string, value: unknown) => validateMcpArgs({ type: "object", properties: { v: { type } } }, { v: value });
+		it("numero e inteiro aceitam string numerica finita", () => {
+			expect(one("number", "10")).toEqual([]);
+			expect(one("number", "10.5")).toEqual([]);
+			expect(one("number", "1e3")).toEqual([]);
+			expect(one("integer", "10")).toEqual([]);
+			expect(one("integer", "10.5")).toHaveLength(1);
+			expect(one("integer", 10.5)).toHaveLength(1);
+			expect(one("number", "1e999")).toHaveLength(1);
+			expect(one("number", "abc")).toHaveLength(1);
+		});
+		it("booleano aceita 'true'/'false' e string aceita numero", () => {
+			expect(one("boolean", "true")).toEqual([]);
+			expect(one("boolean", "false")).toEqual([]);
+			expect(one("boolean", "sim")).toHaveLength(1);
+			expect(one("string", 42)).toEqual([]);
+		});
+		it("estrutura continua bloqueada", () => {
+			expect(one("object", "x")).toHaveLength(1);
+			expect(one("array", "x")).toHaveLength(1);
+			expect(one("string", { a: 1 })).toHaveLength(1);
+			expect(one("number", [1])).toHaveLength(1);
+			expect(one("number", true)).toHaveLength(1);
+		});
+		it("string vazia em obrigatorio so passa se o schema permite explicitamente", () => {
+			const req = (prop: object) => validateMcpArgs({ type: "object", required: ["v"], properties: { v: prop } }, { v: "" });
+			expect(req({ type: "string" })).toHaveLength(1);
+			expect(req({ type: "string", minLength: 0 })).toEqual([]);
+			expect(req({ type: "string", enum: ["", "a"] })).toEqual([]);
+			expect(req({ type: "string", enum: ["a"] })).toHaveLength(1);
+			expect(validateMcpArgs({ type: "object", required: ["v"], properties: { v: { type: "string", minLength: 0 } } }, { v: null })).toHaveLength(1);
+		});
+	});
+
 	it("mensagem lista campos e orientação", () => {
 		const text = mcpArgsErrorMessage("criar_proposta", validateMcpArgs(schema, {}))!;
 		expect(text).toContain("- cliente:");

@@ -29,17 +29,34 @@ function declaredTypes(schema: Schema): string[] {
 	return [];
 }
 
+/** Aceita o que o servidor costuma converter sozinho: "10" para número, "true" para booleano, número para string. */
 function matchesType(value: unknown, type: string): boolean {
 	switch (type) {
-		case "string": return typeof value === "string";
-		case "number": return typeof value === "number" && Number.isFinite(value);
-		case "integer": return typeof value === "number" && Number.isInteger(value);
-		case "boolean": return typeof value === "boolean";
+		case "string": return typeof value === "string" || (typeof value === "number" && Number.isFinite(value));
+		case "number": return (typeof value === "number" && Number.isFinite(value)) || numericString(value) !== undefined;
+		case "integer": {
+			const n = typeof value === "number" ? value : numericString(value);
+			return typeof n === "number" && Number.isInteger(n);
+		}
+		case "boolean": return typeof value === "boolean" || value === "true" || value === "false";
 		case "object": return isRecord(value);
 		case "array": return Array.isArray(value);
 		case "null": return value === null;
 		default: return true;
 	}
+}
+
+function numericString(value: unknown): number | undefined {
+	if (typeof value !== "string" || value.trim() === "") return undefined;
+	const n = Number(value.trim());
+	return Number.isFinite(n) ? n : undefined;
+}
+
+/** String vazia vale em campo obrigatório só quando o schema diz isso de forma explícita. */
+function allowsEmptyString(schema: unknown): boolean {
+	if (!isRecord(schema)) return false;
+	if (schema.minLength === 0) return true;
+	return Array.isArray(schema.enum) && schema.enum.includes("");
 }
 
 function describeExpected(schema: Schema): string {
@@ -73,8 +90,8 @@ function walk(schema: unknown, value: unknown, path: string, depth: number, issu
 		const properties = isRecord(schema.properties) ? schema.properties : {};
 		const required = Array.isArray(schema.required) ? schema.required.filter((key): key is string => typeof key === "string") : [];
 		for (const key of required) {
-			if (isBlank(value[key])) {
-				const sub = properties[key];
+			const sub = properties[key];
+			if (isBlank(value[key]) && !(value[key] === "" && allowsEmptyString(sub))) {
 				issues.push({ path: joinPath(path, key), problem: "missing", expected: isRecord(sub) ? describeExpected(sub) : "valor" });
 				if (issues.length >= MAX_ISSUES) return;
 			}
