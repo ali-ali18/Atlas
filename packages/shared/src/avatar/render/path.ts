@@ -1,8 +1,10 @@
 // Construtores de path (strings) do corpo e dos olhos, sem orientação 3D.
-import { TAU, round2 } from "../geometry/math.js";
+import { round2 } from "../geometry/math.js";
 import type { EyeFrame } from "../model/character.js";
 
-const EYE_POINTS = 32;
+/** Pontos por ponta arredondada (meia-volta) e por lado reto do olho. */
+const CAP_POINTS = 12;
+const SIDE_POINTS = 10;
 
 /** Corpo: `M x y L x y … Z`, 2 casas decimais. */
 export function bodyPath(body: readonly number[]): string {
@@ -26,13 +28,31 @@ export function eyePoints(eye: EyeFrame): number[] {
 	const angle = (eye.rot * Math.PI) / 180;
 	const cos = Math.cos(angle);
 	const sin = Math.sin(angle);
+	// Contorno local (sem dobra): ponta direita, lado de cima, ponta esquerda,
+	// lado de baixo. Os lados retos também recebem pontos; sem eles a dobra
+	// só aparece nas pontas e o "^" vira uma barra reta de pontas caídas.
+	const local: number[] = [];
+	const cap = (center: number, from: number) => {
+		for (let i = 0; i < CAP_POINTS; i++) {
+			const t = from + (i / CAP_POINTS) * Math.PI;
+			local.push(center + radiusAlong * Math.cos(t), radiusAcross * Math.sin(t));
+		}
+	};
+	const straight = (fromX: number, y: number) => {
+		if (spine <= 0) return;
+		for (let i = 0; i < SIDE_POINTS; i++) {
+			local.push(fromX - Math.sign(fromX) * (i / SIDE_POINTS) * 2 * spine, y);
+		}
+	};
+	cap(spine, -Math.PI / 2);
+	straight(spine, radiusAcross);
+	cap(-spine, Math.PI / 2);
+	straight(-spine, -radiusAcross);
 	const out: number[] = [];
-	for (let i = 0; i < EYE_POINTS; i++) {
-		const t = (i / EYE_POINTS) * TAU;
-		const side = Math.cos(t) >= 0 ? 1 : -1;
-		const lx = side * spine + radiusAlong * Math.cos(t);
+	for (let i = 0; i < local.length; i += 2) {
+		const lx = local[i] as number;
 		const ly =
-			radiusAcross * Math.sin(t) +
+			(local[i + 1] as number) +
 			eye.bend * (1 - (lx / half) * (lx / half));
 		const rx = lx * cos - ly * sin;
 		const ry = lx * sin + ly * cos;

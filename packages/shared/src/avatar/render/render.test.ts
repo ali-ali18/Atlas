@@ -14,6 +14,7 @@ import { stillFrame, toDataUrl, toSvg, toSvgFile } from "./still.js";
 import {
 	bodyPath,
 	eyePath,
+	eyePoints,
 	groupTransform,
 	maskId,
 	renderFrame,
@@ -90,6 +91,22 @@ describe("renderer", () => {
 		const happy = stillFrame("blob", "happy");
 		expect(bodyPath(happy.body)).toBe(bodyPath(neutral.body));
 		expect(eyePath(happy.eyes[0])).not.toBe(eyePath(neutral.eyes[0]));
+	});
+
+	it("olho feliz é um arco \"^\": o ponto mais alto fica no meio, não nas pontas", () => {
+		const eye = stillFrame("blob", "happy").eyes[0];
+		const pts = eyePoints(eye);
+		let topX = 0;
+		let topY = Number.POSITIVE_INFINITY;
+		for (let i = 0; i < pts.length; i += 2) {
+			if ((pts[i + 1] as number) < topY) {
+				topY = pts[i + 1] as number;
+				topX = pts[i] as number;
+			}
+		}
+		expect(Math.abs(topX - eye.cx)).toBeLessThan(eye.length * 0.1);
+		// O meio sobe bem acima das pontas (a dobra aparece no traço inteiro).
+		expect(eye.cy - topY).toBeGreaterThan(eye.bend * 0.8);
 	});
 
 	it("o olho direito é o espelho do esquerdo nas expressões simétricas", () => {
