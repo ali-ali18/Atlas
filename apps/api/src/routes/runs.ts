@@ -394,6 +394,7 @@ export function createRunRoutes(
 					...request,
 					messages: applyConfirmedFollowUp(request.messages, confirmedAction.followUp),
 					objective: confirmedAction.followUp.objective,
+					...(confirmedAction.followUp.transcript ? { transcriptSeed: confirmedAction.followUp.transcript } : {}),
 				};
 			}
 			if (!confirmedAction.handled && confirmedAction.duplicate && request.conversationId) {

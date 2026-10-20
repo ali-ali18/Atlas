@@ -131,7 +131,7 @@ async function apply(
 	const handled = await maybeHandleConfirmedAction({ text, userId, botId: bot.id, conversationId, model, continueInAgent: true });
 	if (handled.handled) return { status: "applied", runId: handled.run.id };
 	if (handled.followUp) {
-		request = { ...request, messages: applyConfirmedFollowUp(request.messages, handled.followUp), objective: handled.followUp.objective };
+		request = { ...request, messages: applyConfirmedFollowUp(request.messages, handled.followUp), objective: handled.followUp.objective, ...(handled.followUp.transcript ? { transcriptSeed: handled.followUp.transcript } : {}) };
 	}
 	return startRun(request, model, userId, queue, deps);
 }

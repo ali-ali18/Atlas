@@ -24,6 +24,11 @@ export const MAX_BINARY_CHARS = 20_000;
 export const COLLAPSE_MARKER =
 	"[higiene: resultados de ferramentas anteriores colapsados";
 
+/** Conversa contínua: grupos de resultados de ferramenta mais recentes que a limpeza nunca toca. */
+export const RECENT_TOOL_GROUPS_KEPT = 6;
+/** Conversa contínua: fração do teto do orçamento de contexto a partir da qual resultados antigos começam a ser limpos. */
+export const COLLAPSE_PRESSURE_RATIO = 0.6;
+
 export const STUB_TOOL_OUTPUT_MAX_CHARS = 8000;
 /** Teto do grupo de tools mais recente: o modelo ainda não leu esse resultado. */
 export const STUB_LAST_GROUP_MAX_CHARS = 24_000;
@@ -166,11 +171,12 @@ export type CollapseBatch = { size: number; maxPendingChars: number };
 export function shouldCollapseNow(
 	messages: readonly LlmMessage[],
 	batch: CollapseBatch,
+	keepRecentGroups = 1,
 ): boolean {
 	const groups = listToolGroups(messages);
 	let pending = 0;
 	let chars = 0;
-	for (const group of groups.slice(0, -1)) {
+	for (const group of groups.slice(0, Math.max(0, groups.length - Math.max(1, keepRecentGroups)))) {
 		let fresh = false;
 		for (let i = group.start; i <= group.end; i += 1) {
 			const message = messages[i]!;
@@ -380,6 +386,10 @@ export type HygieneOptions = {
 	codingContext?: () => CodingNoteContext | undefined;
 	/** Teto de caracteres de um resultado de ferramenta ainda inteiro (padrão 24 mil); sobe junto com o limite da conta. */
 	lastGroupMaxChars?: number;
+	/** Grupos de resultados de ferramenta mais recentes que o colapso nunca toca (padrão 1). */
+	keepRecentGroups?: number;
+	/** Só colapsa resultados antigos quando o contexto estimado passa disto (tokens); omitido = colapsa sempre que o lote encher. */
+	collapseOverTokens?: number;
 };
 
 /**
@@ -410,6 +420,10 @@ export function applyPromptHygiene(
 	// grupo): senão o grupo recente encolheria de 24k para 8k ao envelhecer e
 	// reescreveria o prefixo a todo passo.
 	const batch = options.collapseBatch;
+	const keepGroups = Math.max(1, Math.floor(options.keepRecentGroups ?? 1));
+	// Sem pressão real de janela, resultados antigos ficam inteiros (o modelo ainda os usa); só o teto por resultado vale.
+	const underPressure = (list: readonly LlmMessage[]) =>
+		options.collapseOverTokens === undefined || estimateMessagesTokens(list, toolsJsonChars) >= options.collapseOverTokens;
 	let working = batch
 		? (() => {
 				const stubbed = stubLargeToolOutputs(
@@ -417,11 +431,16 @@ export function applyPromptHygiene(
 					options.lastGroupMaxChars ?? STUB_LAST_GROUP_MAX_CHARS,
 					options.lastGroupMaxChars ?? STUB_LAST_GROUP_MAX_CHARS,
 				);
-				return shouldCollapseNow(stubbed, batch)
-					? collapseOldToolGroups(stubbed, 1, options.statusOf)
+				return shouldCollapseNow(stubbed, batch, keepGroups) && underPressure(stubbed)
+					? collapseOldToolGroups(stubbed, keepGroups, options.statusOf)
 					: { messages: stubbed, collapsedGroups: 0 };
 			})()
-		: collapseOldToolGroups(stubLargeToolOutputs(messages, undefined, options.lastGroupMaxChars), 1, options.statusOf);
+		: (() => {
+				const stubbed = stubLargeToolOutputs(messages, undefined, options.lastGroupMaxChars);
+				return underPressure(stubbed)
+					? collapseOldToolGroups(stubbed, keepGroups, options.statusOf)
+					: { messages: stubbed, collapsedGroups: 0 };
+			})();
 	let guard: HygieneReport["guard"] = "none";
 
 	const estimate = () => estimateMessagesTokens(working.messages, toolsJsonChars);
@@ -436,7 +455,13 @@ export function applyPromptHygiene(
 			taskState: options.taskState?.(),
 			objectiveText: options.objectiveText,
 			coding: options.codingContext?.(),
-			collapse: (list) => collapseOldToolGroups(list, 1, options.statusOf).messages,
+			// Em pressão real: primeiro os antigos (mantendo os grupos recentes); só se não bastar, tudo menos o último.
+			collapse: (list) => {
+				const gentle = collapseOldToolGroups(list, keepGroups, options.statusOf).messages;
+				return keepGroups > 1 && estimateMessagesTokens(gentle, toolsJsonChars) > options.contextBudget!.targetTokens
+					? collapseOldToolGroups(gentle, 1, options.statusOf).messages
+					: gentle;
+			},
 			trim: trimHistory,
 		});
 		if (compacted.compacted) {

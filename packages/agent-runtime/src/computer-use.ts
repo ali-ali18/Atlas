@@ -14,7 +14,7 @@ import { triageUserMessage, type TriageHistoryEntry } from "./loop/message-triag
 import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } from "./loop/interrupt.js";
 import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
-import { attachHistoryImages, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
+import { attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
 import { alreadyLoadedSummary, findAlreadyLoadedTools } from "./execution/tool-search-guard.js";
 import { runSandboxOperation, type SandboxExecutionContext } from "@workspace/sandbox";
 import {
@@ -155,7 +155,7 @@ import {
 	type AgentBudgetPolicy,
 	type TokenUsage,
 } from "./budget.js";
-import { applyPromptHygiene, STUB_LAST_GROUP_MAX_CHARS, estimateMessagesTokens, trimHistory, COLLAPSE_BATCH_MAX_CHARS, COLLAPSE_BATCH_SIZE, lastCollapsedIndex, omitOldScreenshots, omitOldScreenshotsInBatches, omitOldUserImages, omitOldUserImagesInBatches } from "./hygiene.js";
+import { applyPromptHygiene, RECENT_TOOL_GROUPS_KEPT, COLLAPSE_PRESSURE_RATIO, type HygieneOptions, STUB_LAST_GROUP_MAX_CHARS, estimateMessagesTokens, trimHistory, COLLAPSE_BATCH_MAX_CHARS, COLLAPSE_BATCH_SIZE, lastCollapsedIndex, omitOldScreenshots, omitOldScreenshotsInBatches, omitOldUserImages, omitOldUserImagesInBatches } from "./hygiene.js";
 import {
 	captureModelScreenshot,
 	parseScreenshotArgs,
@@ -258,7 +258,7 @@ import {
 } from "./tools/computer-native.js";
 import { shouldAnnounceCompaction } from "./context/compaction-notice.js";
 import { assembleSystemPromptParts, groupProcedureText, legacySystemPrompt, skillIndexPrompt } from "./context/prompt-blocks.js";
-import { contextEconomyEnabled } from "./context/flag.js";
+import { contextEconomyEnabled, contextTranscriptEnabled } from "./context/flag.js";
 import { clippedResultRefLine, createResultStore, resultStoreLimits, extractResultRef, RESULT_MAX_STORED_CHARS } from "./context/result-store.js";
 import { createContextUsageReporter } from "./context/usage.js";
 import { createDevTimingTracker } from "./dev-timing.js";
@@ -3897,6 +3897,7 @@ Não repita a chamada igual: corrija os argumentos ou explique a falha ao usuár
 				actionClass: entry.actionClass === "irreversible" ? "irreversible" : "write",
 				args,
 				...(jevAsked ? { jevReview: true } : {}),
+				...(ctx.runId ? { runId: ctx.runId } : {}),
 			},
 		},
 	});
@@ -3960,6 +3961,7 @@ async function githubIdentityOutcome(input: {
 				exposedName: name,
 				actionClass: "write",
 				args,
+				...(ctx.runId ? { runId: ctx.runId } : {}),
 			},
 		},
 	});
@@ -4256,6 +4258,10 @@ export async function runComputerUse(params: {
 	researchNotesStore?: ResearchNotes;
 	/** Imagens de turnos anteriores da conversa, já filtradas pelo dono (ver `loadUserImageHistory`). */
 	historyImages?: HistoryImageGroup[];
+	/** Conversa completa dos turnos anteriores (chamadas e resultados de ferramenta); entra no lugar da marcação TRANSCRIPT_SLOT de `messages`. */
+	priorTranscript?: SerializedLlmMessage[];
+	/** Tools de conector/adiadas que os turnos anteriores deixaram carregadas (ficam carregadas neste run). */
+	priorLoadedTools?: string[];
 	canSeeUserImages?: boolean;
 	loadUserImage?: (artifactId: string) => Promise<string | null>;
 	describeUserImage?: (artifactId: string) => Promise<{ description: string | null; costUsd?: number; costUnknown?: boolean }>;
@@ -5000,6 +5006,7 @@ export async function runComputerUse(params: {
 		economyPlan && economyPlan.plan.deferred.size > 0
 			? createNativeDeferral({ deferred: economyPlan.plan.deferred, tools, promptedGroups })
 			: null;
+	const nativeDeferredAtStart = nativeDeferral?.pending() ?? [];
 	// O teto inline da conta sobe junto o corte da higiene e a faixa de stub: senão o resultado inteiro seria espremido de novo.
 	const hygieneLastGroupChars = Math.max(STUB_LAST_GROUP_MAX_CHARS, (params.toolResultMaxChars ?? 0) + 4_000);
 	// L3: resultado grande de tool vai para um artefato do dono e o contexto guarda o stub com o id.
@@ -5103,6 +5110,14 @@ export async function runComputerUse(params: {
 		mcp && mcp.toolset.entries.size > 0 ? `\n\n${connectorsPrompt(mcp.toolset)}` : "";
 
 	let conversation: LlmMessage[];
+	// Conversa dos turnos anteriores: troca a marcação deixada pelo worker; sem conversa a marcação só some.
+	const priorLoadedTools = params.priorLoadedTools ?? parsedCheckpoint?.loadedTools ?? [];
+	const priorHistory = params.priorTranscript?.length ? await hydrateLlmMessages(params.priorTranscript) : [];
+	const placeTranscript = <T extends { role: string; content: unknown }>(list: T[]): LlmMessage[] => {
+		const slot = list.findIndex((message) => message.role === "system" && message.content === TRANSCRIPT_SLOT);
+		if (slot < 0) return list as unknown as LlmMessage[];
+		return [...(list.slice(0, slot) as unknown as LlmMessage[]), ...priorHistory, ...(list.slice(slot + 1) as unknown as LlmMessage[])];
+	};
 	const language = params.language ?? "pt-BR";
 	const currentLanguageInstruction = languageInstruction(language);
 	if (parsedCheckpoint?.llmMessages?.length) {
@@ -5156,10 +5171,10 @@ export async function runComputerUse(params: {
 			...(botConfigExtra
 				? [{ role: "system" as const, content: botConfigExtra }]
 				: []),
-			...messages.map((message) => ({
+			...placeTranscript(messages.map((message) => ({
 				role: message.role,
 				content: message.content,
-			})),
+			}))),
 		];
 		const imageIds = params.userImageArtifactIds ?? parsedCheckpoint?.userImageArtifactIds ?? [];
 		if (params.historyImages?.length) {
@@ -5201,10 +5216,16 @@ export async function runComputerUse(params: {
 				}
 			}
 		}
+		for (const name of priorLoadedTools) {
+			if (isMcpToolName(name) && mcp.toolset.available.has(name)) resumeNames.add(name);
+		}
 		if (resumeNames.size > 0) applyMcpActivation([...resumeNames]);
 	}
 	// Resume: tool nativa adiada já chamada antes da pausa volta ao conjunto.
 	if (nativeDeferral) {
+		for (const name of priorLoadedTools) {
+			if (nativeDeferral.isDeferred(name)) nativeDeferral.loadGroupOf(name);
+		}
 		for (const message of conversation) {
 			for (const call of message.tool_calls ?? []) {
 				const callName = call.function?.name;
@@ -5226,6 +5247,15 @@ export async function runComputerUse(params: {
 
 	// Memória Padrão: antes da poda, a parte antiga vira um resumo do modelo de manutenção. Uma vez por
 	// gatilho (o contexto cai para o alvo); falhou ou estourou o prazo, segue a poda de sempre.
+	// Conversa contínua: os resultados de ferramenta mais recentes ficam inteiros e os antigos só são limpos sob pressão real de janela.
+	const hygieneRetention = (): Pick<HygieneOptions, "keepRecentGroups" | "collapseOverTokens"> => {
+		if (isSubagent || codingRun || !contextTranscriptEnabled()) return {};
+		const budget = hygieneBudget(baseContextBudget());
+		return {
+			keepRecentGroups: RECENT_TOOL_GROUPS_KEPT,
+			...(budget ? { collapseOverTokens: Math.floor(budget.ceilingTokens * COLLAPSE_PRESSURE_RATIO) } : {}),
+		};
+	};
 	const summaryEnabled = () => !codingRun && !isSubagent && Boolean(hygieneBudget(baseContextBudget())?.summarize);
 	const summaryBudgetOn = summaryEnabled;
 	const summarizeContext = createStreamSummarizer({
@@ -5250,6 +5280,7 @@ export async function runComputerUse(params: {
 			model,
 			collapseBatch,
 			statusOf: (id) => journal.resultOf(id)?.status,
+			keepRecentGroups: hygieneRetention().keepRecentGroups,
 			...DEV_HYGIENE_RATIOS,
 		}).messages;
 		const startedAt = performance.now();
@@ -5299,6 +5330,7 @@ export async function runComputerUse(params: {
 		collapseBatch,
 		statusOf: (id) => journal.resultOf(id)?.status,
 		contextBudget: hygieneBudget(baseContextBudget()),
+		...hygieneRetention(),
 		...(codingRun || summaryBudgetOn() ? DEV_HYGIENE_RATIOS : {}),
 		codingContext,
 		objectiveText: params.objective ?? lastUserMessageContent,
@@ -5446,6 +5478,11 @@ export async function runComputerUse(params: {
 		if (isMcpToolName(outcome.name)) mcpUsedTools.add(outcome.name);
 	}
 
+	// Tools de conector e nativas adiadas expostas agora: o turno seguinte da conversa as recebe já carregadas.
+	const loadedToolNames = (): string[] => {
+		const stillDeferred = new Set(nativeDeferral?.pending() ?? []);
+		return [...mcpActiveOrder, ...nativeDeferredAtStart.filter((name) => !stillDeferred.has(name))];
+	};
 	let checkpointTail: Promise<void> = Promise.resolve();
 	const writeCheckpoint = async (stepIndex: number) => {
 		if (!onCheckpoint) return;
@@ -5480,6 +5517,7 @@ export async function runComputerUse(params: {
 				modelTier: activeTier,
 				modelEscalations: tierEscalations,
 				activeElapsedMs: activeElapsedMs(),
+				...(isSubagent ? {} : { loadedTools: loadedToolNames() }),
 			}),
 		);
 	};
@@ -7278,6 +7316,7 @@ ${blockHint}`;
 			collapseBatch,
 			statusOf: (id) => journal.resultOf(id)?.status,
 			contextBudget: hygieneBudget(baseContextBudget()),
+			...hygieneRetention(),
 			...(codingRun || summaryBudgetOn() ? DEV_HYGIENE_RATIOS : {}),
 			codingContext,
 			objectiveText: params.objective ?? lastUserMessageContent,

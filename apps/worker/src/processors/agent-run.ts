@@ -20,6 +20,7 @@ import {
 	isLlmChatRole,
 	readDecideForOtherBots,
 	readSubagentModel,
+	TRANSCRIPT_SLOT,
 } from "@workspace/shared";
 import {
 	type Notify,
@@ -67,6 +68,8 @@ import {
 	getGroupRunContext,
 	listUserBotRoster,
 	loadRecentConversationMessages,
+	getConversationTranscript,
+	getRunTranscript,
 	loadScreenshotArtifact,
 	loadUserImageHistory,
 	markAgentRunRetrying,
@@ -93,6 +96,7 @@ import {
 	LeaseLostError,
 	buildConversationArtifactsNote,
 	classifyRunError,
+	contextTranscriptEnabled,
 	describeRunError,
 	insertBeforeLastUser,
 	createJevTelemetryCollector,
@@ -106,6 +110,7 @@ import {
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
 import { createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { resolveTranscriptHistory, type TranscriptHistory } from "./transcript-history.js";
 import {
 	createRunTelemetryTracker,
 	stepTelemetryFields,
@@ -190,6 +195,7 @@ async function prepareMessages(
 	userId?: string,
 	compact?: boolean,
 	group?: MemoryContextOptions["group"],
+	historySlot?: string,
 ): Promise<ChatMessage[]> {
 	// Fase 4: userId é obrigatório (vem da linha do run). Sem ele, falha
 	// explícita em vez de seguir como "default".
@@ -206,6 +212,7 @@ async function prepareMessages(
 			conversationId: conversationId ?? undefined,
 			compact,
 			...(group ? { group } : {}),
+			...(historySlot ? { historySlot } : {}),
 		});
 		return base;
 	} catch (error) {
@@ -535,6 +542,35 @@ async function executeLeasedRun(ctx: {
 			}
 		}
 
+		// Conversa contínua: o run novo parte das chamadas e resultados de ferramenta do anterior, não só do texto.
+		// Qualquer falha ou divergência cai no histórico de texto de sempre.
+		let transcript: TranscriptHistory | null = null;
+		if (!checkpoint?.llmMessages?.length && run.conversationId && run.origin === "chat") {
+			const conversationId = run.conversationId;
+			transcript = await resolveTranscriptHistory({
+				enabled: contextTranscriptEnabled(),
+				origin: run.origin,
+				conversationId,
+				groupRun: Boolean(groupRun),
+				compact,
+				model: run.model,
+				objective: run.objective,
+				seed: checkpoint?.transcriptSeed,
+				loadLatest: () => getConversationTranscript(runUserId, conversationId, { excludeRunId: runId }),
+				loadById: (fromRunId) => getRunTranscript(runUserId, conversationId, fromRunId),
+				loadRecent: async () => (await loadRecentConversationMessages(conversationId, historyLimit)).filter((m) => isLlmChatRole(m.role)).map((m) => ({ role: m.role, content: m.content })),
+			}).catch((error) => {
+				console.error(`load conversation transcript failed run=${runId}`, error);
+				return null;
+			});
+			// O resultado da aprovação já está na chamada pendente: o turno só leva a orientação, sem repeti-lo.
+			const seed = checkpoint?.transcriptSeed;
+			if (transcript?.seedApplied && seed) {
+				const lastUser = inputMessages.map((m) => m.role).lastIndexOf("user");
+				if (lastUser >= 0) inputMessages = inputMessages.map((m, i) => (i === lastUser ? { ...m, content: seed.shortContent } : m));
+			}
+		}
+
 		let messages = checkpoint?.llmMessages?.length
 			? inputMessages
 			: await prepareMessages(
@@ -544,6 +580,7 @@ async function executeLeasedRun(ctx: {
 					runUserId,
 					compact,
 					groupPrompt,
+					transcript ? TRANSCRIPT_SLOT : undefined,
 				);
 
 		// Injetar nota sobre artefatos de runs anteriores (A2 step 3): apenas para run novo
@@ -632,9 +669,9 @@ async function executeLeasedRun(ctx: {
 			})
 			: null;
 
-		return { messages, inputMessages, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments: attachmentsForRun?.runtime };
+		return { messages, inputMessages, priorTranscript: transcript?.priorTranscript, priorLoadedTools: transcript?.loadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments: attachmentsForRun?.runtime };
 	};
-	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments }] =
+	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, priorTranscript, priorLoadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments }] =
 		await Promise.all([configStage(), messagesStage()]);
 
 	let cachedSessionId: string | null =
@@ -897,6 +934,8 @@ async function executeLeasedRun(ctx: {
 			loadScreenshot: loadScreenshotArtifact,
 			userImageArtifactIds: checkpoint?.userImageArtifactIds,
 			historyImages,
+			priorTranscript,
+			priorLoadedTools,
 			priorResearchNotes,
 			priorTaskLedger,
 			canSeeUserImages,

@@ -16,6 +16,8 @@ export type SkillPendingMcpCall = {
 	args: Record<string, unknown>;
 	/** Confirmação exigida pelo avaliador Jev, sem opção de exceção permanente. */
 	jevReview?: boolean;
+	/** Run que pediu a aprovação: o run seguinte continua a conversa dele. */
+	runId?: string;
 };
 export type SkillPendingPayload = {
 	kind: SkillPendingKind;

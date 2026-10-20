@@ -37,6 +37,15 @@ export {
 	type HygieneOptions,
 	type HygieneReport,
 } from "./hygiene.js";
+export {
+	UNEXECUTED_CALL_RESULT,
+	alignTranscript,
+	attachPendingResult,
+	calledToolNames,
+	cleanTranscript,
+	transcriptTextOf,
+} from "./context/transcript.js";
+export { contextTranscriptEnabled } from "./context/flag.js";
 export type { CompletedToolReplay, RuntimeStepRecord } from "./computer-use.js";
 export {
 	AgentRunCancelledError,

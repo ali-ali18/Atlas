@@ -33,6 +33,11 @@ export type MemoryContextOptions = {
 	 */
 	compact?: boolean;
 	/**
+	 * O histórico da conversa chega por outro caminho (conversa completa do run anterior): em vez da janela de
+	 * mensagens, deixa esta mensagem de marcação (system) no lugar do histórico, e o runtime a troca pela conversa.
+	 */
+	historySlot?: string;
+	/**
 	 * Run de um membro na conversa de um grupo: o histórico vira a transcrição do grupo
 	 * (falas dos outros com autor) e o prompt traz o bloco do grupo no lugar do roster.
 	 */
@@ -146,6 +151,8 @@ export async function buildMemoryAugmentedMessages(
 			sessionMessages = [...sessionMessages.slice(0, -1), { role: "user", content: `${last.content}\n\n${incoming[0].content}` }];
 			turnMessages = [];
 		}
+	} else if (options.historySlot) {
+		sessionMessages = [{ role: "system", content: options.historySlot }];
 	} else if (options.conversationId && !compact) {
 		const recent = await loadRecentConversationMessages(
 			options.conversationId,

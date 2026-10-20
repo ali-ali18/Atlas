@@ -189,6 +189,7 @@ export type {
 	AgentRunJobPayload,
 	AgentRunJobResult,
 	AgentRunCheckpoint,
+	TranscriptSeed,
 	ExecutionLedgerCall,
 	ExecutionLedgerDecision,
 	ExecutionLedgerState,
@@ -204,6 +205,7 @@ export type {
 } from "./runs.js";
 export {
 	AGENT_RUNTIME_CHECKPOINT_VERSION,
+	TRANSCRIPT_SLOT,
 	DEFAULT_RUN_INPUT_MODE,
 	LIVE_RUN_INPUT_MODES,
 	RUN_INPUT_MODES,

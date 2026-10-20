@@ -221,6 +221,7 @@ export function buildQueuedRunData(input: {
 	const checkpoint: AgentRunCheckpoint = {
 		version: AGENT_RUNTIME_CHECKPOINT_VERSION,
 		messages: request.messages,
+		...(request.transcriptSeed ? { transcriptSeed: request.transcriptSeed } : {}),
 		...(request.attachments?.length ? { userImageArtifactIds: request.attachments.map((item) => item.artifactId) } : {}),
 		...(input.fileArtifactIds?.length ? { userFileArtifactIds: input.fileArtifactIds } : {}),
 		nextStepIndex: 0,
@@ -2180,6 +2181,68 @@ export async function listConversationResearchNotes(
 		if (Array.isArray(list)) notes.push(...(list as ResearchNote[]));
 	}
 	return notes;
+}
+
+export type RunTranscript = {
+	runId: string;
+	/** Pedido do run (igual à fala do usuário gravada na conversa). */
+	objective: string;
+	/** Mensagens do LLM como gravadas no checkpoint (forma serializada; o runtime valida e higieniza). */
+	llmMessages: unknown[];
+	loadedTools?: string[];
+};
+
+function transcriptOf(row: { id: string; objective: string; checkpointJson: unknown }): RunTranscript | null {
+	const raw = row.checkpointJson;
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const { llmMessages, loadedTools } = raw as { llmMessages?: unknown; loadedTools?: unknown };
+	if (!Array.isArray(llmMessages) || llmMessages.length === 0) return null;
+	return {
+		runId: row.id,
+		objective: row.objective,
+		llmMessages,
+		...(Array.isArray(loadedTools) ? { loadedTools: loadedTools.filter((name): name is string => typeof name === "string").slice(0, 200) } : {}),
+	};
+}
+
+/**
+ * Conversa completa (mensagens do LLM com chamadas e resultados de ferramenta) do run de chat mais recente
+ * da MESMA conversa e do mesmo dono. Serve de ponto de partida do run seguinte; o dono vem da sessão do run.
+ * Run sem checkpoint (comando tratado no servidor) é pulado.
+ */
+export async function getConversationTranscript(
+	userId: string,
+	conversationId: string,
+	options?: { excludeRunId?: string },
+): Promise<RunTranscript | null> {
+	if (!userId || !conversationId) return null;
+	const rows = await prisma.agentRun.findMany({
+		where: {
+			conversationId,
+			userId: { in: ownerIds(userId) },
+			origin: "chat",
+			parentRunId: null,
+			...(options?.excludeRunId ? { id: { not: options.excludeRunId } } : {}),
+		},
+		select: { id: true, objective: true, checkpointJson: true },
+		orderBy: { createdAt: "desc" },
+		take: 3,
+	});
+	for (const row of rows) {
+		const transcript = transcriptOf(row);
+		if (transcript) return transcript;
+	}
+	return null;
+}
+
+/** Conversa de um run específico (continuação de aprovação); só vale se for da mesma conversa e do mesmo dono. */
+export async function getRunTranscript(userId: string, conversationId: string, runId: string): Promise<RunTranscript | null> {
+	if (!userId || !conversationId || !runId) return null;
+	const row = await prisma.agentRun.findFirst({
+		where: { id: runId, conversationId, userId: { in: ownerIds(userId) } },
+		select: { id: true, objective: true, checkpointJson: true },
+	});
+	return row ? transcriptOf(row) : null;
 }
 
 /**

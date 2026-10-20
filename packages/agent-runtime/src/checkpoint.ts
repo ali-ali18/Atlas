@@ -371,6 +371,7 @@ export function buildRuntimeCheckpoint(input: {
 	modelTier?: AgentRunCheckpoint["modelTier"];
 	modelEscalations?: AgentRunCheckpoint["modelEscalations"];
 	activeElapsedMs?: number;
+	loadedTools?: string[];
 }): AgentRunCheckpoint {
 	return {
 		version: AGENT_RUNTIME_CHECKPOINT_VERSION,
@@ -405,6 +406,7 @@ export function buildRuntimeCheckpoint(input: {
 		...(input.capabilities ? { capabilities: input.capabilities } : {}),
 		...(input.modelTier ? { modelTier: input.modelTier } : {}),
 		...(input.modelEscalations?.length ? { modelEscalations: input.modelEscalations } : {}),
+		...(input.loadedTools?.length ? { loadedTools: input.loadedTools.slice(0, 200) } : {}),
 	};
 }
 
@@ -503,7 +505,16 @@ export function parseRuntimeCheckpoint(
 		capabilities: parseCapabilitySnapshot(value.capabilities),
 		...(isModelTier(value.modelTier) ? { modelTier: value.modelTier } : {}),
 		...(parseModelEscalations(value.modelEscalations).length ? { modelEscalations: parseModelEscalations(value.modelEscalations) } : {}),
+		...(Array.isArray(value.loadedTools) ? { loadedTools: value.loadedTools.filter((name): name is string => typeof name === "string").slice(0, 200) } : {}),
+		...(parseTranscriptSeed(value.transcriptSeed) ? { transcriptSeed: parseTranscriptSeed(value.transcriptSeed)! } : {}),
 	};
+}
+
+function parseTranscriptSeed(raw: unknown): AgentRunCheckpoint["transcriptSeed"] {
+	if (!raw || typeof raw !== "object") return undefined;
+	const seed = raw as Record<string, unknown>;
+	if (typeof seed.fromRunId !== "string" || typeof seed.toolName !== "string" || typeof seed.resultContent !== "string" || typeof seed.shortContent !== "string") return undefined;
+	return { fromRunId: seed.fromRunId, toolName: seed.toolName, resultContent: seed.resultContent, shortContent: seed.shortContent };
 }
 
 function isModelTier(value: unknown): value is ModelTier {

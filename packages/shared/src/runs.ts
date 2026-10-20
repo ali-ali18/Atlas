@@ -78,6 +78,20 @@ export type RunEventRecord = {
 };
 
 /** Body de `POST /v1/runs`. */
+/** Marcação (mensagem system) do lugar do histórico quando a conversa do run anterior é carregada pelo runtime. */
+export const TRANSCRIPT_SLOT = "[[conversation-transcript-slot]]";
+
+/** Aprovação executada pelo servidor que o run seguinte encaixa na conversa do run que perguntou. */
+export type TranscriptSeed = {
+	fromRunId: string;
+	/** Nome exposto da tool cuja chamada ficou pendente. */
+	toolName: string;
+	/** Conteúdo do resultado, já enquadrado como dado externo não confiável. */
+	resultContent: string;
+	/** Mensagem curta do turno quando o resultado entrou na conversa (sem repetir o resultado). */
+	shortContent: string;
+};
+
 export type CreateAgentRunRequest = {
 	messages: ChatMessage[];
 	attachments?: Array<{ artifactId: string }>;
@@ -95,6 +109,11 @@ export type CreateAgentRunRequest = {
 	 * intenção pendente; um cartão antigo nunca aprova o comando mais novo. Ausente = comportamento de antes.
 	 */
 	decisionConfirmId?: string;
+	/**
+	 * Continuação de uma aprovação: o run novo parte da conversa completa do run que pediu a aprovação,
+	 * com o resultado já executado anexado à chamada pendente (o worker confere dono e conversa).
+	 */
+	transcriptSeed?: TranscriptSeed;
 	/**
 	 * Ciclo limpo (Fase 2): prompt enxuto (resumo + cauda mínima) em vez das
 	 * 40 msgs. Futuro botão "Novo ciclo"; worker também liga sozinho com
@@ -330,6 +349,10 @@ export type AgentRunCheckpoint = {
 	generatedImageCount?: number;
 	shownImageCount?: number;
 	llmMessages?: SerializedLlmMessage[];
+	/** Tools de conector/adiadas expostas ao fim do run: o próximo turno da conversa já as tem carregadas. */
+	loadedTools?: string[];
+	/** Run de continuação de aprovação (ver `TranscriptSeed`). */
+	transcriptSeed?: TranscriptSeed;
 	nextStepIndex?: number;
 	/** Modo ciclo limpo congelado (vale por run, sobrevive a resume). */
 	compact?: boolean;
