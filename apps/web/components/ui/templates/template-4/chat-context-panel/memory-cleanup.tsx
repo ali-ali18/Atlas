@@ -6,6 +6,7 @@ import { Button } from "@workspace/ui/components/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
 import { ConfirmAlert } from "@workspace/ui/components/confirm-alert";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip";
+import { SectionAction } from "./memory-section";
 
 export type MemoryCleanupBlockProps = {
 	cleanup: MemoryCleanupView | null;
@@ -28,13 +29,13 @@ export type MemoryCleanupBlockProps = {
 
 const LAYER_LABEL = { user: "Sobre você", memory: "Deste bot" } as const;
 
-function IconAction({ icon: Icon, label, onClick, disabled, spinning = false }: { icon: typeof CheckIcon; label: string; onClick?: () => void; disabled?: boolean; spinning?: boolean }) {
+function IconAction({ icon: Icon, label, onClick, disabled }: { icon: typeof CheckIcon; label: string; onClick?: () => void; disabled?: boolean }) {
 	return (
 		<Tooltip>
 			<TooltipTrigger
 				render={
 					<Button aria-label={label} className="shrink-0" disabled={disabled} onClick={onClick} size="icon-sm" type="button" variant="ghost">
-						<Icon aria-hidden className={spinning ? "animate-spin" : undefined} />
+						<Icon aria-hidden />
 					</Button>
 				}
 			/>
@@ -73,8 +74,9 @@ function SuggestionCard({ suggestion, busy, onApply, onDismiss }: { suggestion: 
 }
 
 /**
- * Limpeza da memória com aprovação: botão "Revisar memórias" e, havendo sugestões, o bloco recolhível
- * "Sugestões de limpeza". Apresentação pura; o estado mora em `useMemoryCleanup`.
+ * Limpeza da memória com aprovação: estado da revisão e, havendo sugestões, o bloco recolhível
+ * "Sugestões de limpeza". O botão "Revisar memórias" fica no grupo de "Adicionar" (`MemoryReviewAction`).
+ * Apresentação pura; o estado mora em `useMemoryCleanup`.
  */
 export function MemoryCleanupBlock({
 	cleanup,
@@ -85,7 +87,6 @@ export function MemoryCleanupBlock({
 	notice = null,
 	nothing = false,
 	confirmAll = false,
-	onReview,
 	onApply,
 	onDismiss,
 	onAskApplyAll,
@@ -97,12 +98,14 @@ export function MemoryCleanupBlock({
 	const failure = !generating && cleanup?.status === "failed" ? cleanup.error : null;
 	const shownError = error ?? failure;
 	const status = generating ? "Revisando as memórias…" : nothing ? "Nada para limpar." : notice;
+	if (suggestions.length === 0 && !status && !shownError) return null;
 
 	return (
 		<Collapsible className="min-w-0" onOpenChange={onOpenChange} open={open}>
 			<section aria-label="Limpeza da memória" className="flex min-w-0 flex-col gap-2" data-memory-cleanup>
-				<div className="flex items-center justify-between gap-2">
-					{suggestions.length > 0 ? (
+				{suggestions.length > 0 || status ? (
+					<div className="flex min-h-8 items-center justify-between gap-2">
+						{suggestions.length > 0 ? (
 						<CollapsibleTrigger className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
 							<span className="truncate font-medium text-sm">Sugestões de limpeza</span>
 							<span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-muted-foreground text-xs">{suggestions.length}</span>
@@ -111,9 +114,9 @@ export function MemoryCleanupBlock({
 					) : (
 						<p className="min-w-0 flex-1 text-muted-foreground text-xs">{status}</p>
 					)}
-					{suggestions.length > 0 && status ? <span className="shrink-0 text-muted-foreground text-xs">{status}</span> : null}
-					<IconAction disabled={busy || generating} icon={SparklesIcon} label="Revisar memórias" onClick={onReview} spinning={generating} />
-				</div>
+						{suggestions.length > 0 && status ? <span className="shrink-0 text-muted-foreground text-xs">{status}</span> : null}
+					</div>
+				) : null}
 				{shownError ? (
 					<p className="m-0 text-destructive text-xs leading-relaxed" role="alert">
 						{shownError}
@@ -146,4 +149,10 @@ export function MemoryCleanupBlock({
 			</section>
 		</Collapsible>
 	);
+}
+
+/** "Revisar memórias" no grupo de botões da seção: fica parado (sem girar) e desabilitado enquanto revisa. */
+export function MemoryReviewAction({ cleanup, busy = false, onReview }: Pick<MemoryCleanupBlockProps, "cleanup" | "busy" | "onReview">) {
+	const generating = cleanup?.status === "generating";
+	return <SectionAction disabled={busy || generating} icon={SparklesIcon} label="Revisar memórias" onClick={onReview} />;
 }

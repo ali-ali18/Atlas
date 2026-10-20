@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { MemoryCleanupView } from "@workspace/shared"
-import { MemoryCleanupBlock } from "./memory-cleanup"
+import { MemoryCleanupBlock, MemoryReviewAction } from "./memory-cleanup"
 
 const view: MemoryCleanupView = {
   suggestions: [
@@ -16,11 +16,12 @@ const view: MemoryCleanupView = {
   requestedAt: null,
 }
 
-test("sem sugestões: só o botão Revisar memórias com tooltip/rótulo; sem lista", () => {
-  const html = renderToStaticMarkup(<MemoryCleanupBlock cleanup={{ suggestions: [], status: null, error: null, requestedAt: null }} />)
-  assert.match(html, /aria-label="Revisar memórias"/)
-  assert.doesNotMatch(html, /Sugestões de limpeza/)
-  assert.doesNotMatch(html, /Atlas/)
+test("sem sugestões nem estado: o bloco some; o botão Revisar memórias fica no grupo da seção", () => {
+  assert.equal(renderToStaticMarkup(<MemoryCleanupBlock cleanup={{ suggestions: [], status: null, error: null, requestedAt: null }} />), "")
+  const action = renderToStaticMarkup(<MemoryReviewAction cleanup={null} />)
+  assert.match(action, /aria-label="Revisar memórias"/)
+  assert.doesNotMatch(action, /animate-spin/)
+  assert.doesNotMatch(action, /Atlas/)
 })
 
 test("fechado mostra o título e a contagem; aberto lista motivo, texto atual e o texto fundido", () => {
@@ -48,7 +49,9 @@ test("uma só sugestão não oferece Aplicar todas; confirmação mostra o alert
 test("revisando desabilita o botão e avisa; falha e erro aparecem como alerta", () => {
   const generating = renderToStaticMarkup(<MemoryCleanupBlock cleanup={{ suggestions: [], status: "generating", error: null, requestedAt: "2026-10-20T12:00:00.000Z" }} />)
   assert.match(generating, /Revisando as memórias…/)
-  assert.match(generating, /<button[^>]*disabled[^>]*aria-label="Revisar memórias"|<button[^>]*aria-label="Revisar memórias"[^>]*disabled/)
+  const action = renderToStaticMarkup(<MemoryReviewAction cleanup={{ suggestions: [], status: "generating", error: null, requestedAt: "2026-10-20T12:00:00.000Z" }} />)
+  assert.match(action, /<button[^>]*disabled[^>]*aria-label="Revisar memórias"|<button[^>]*aria-label="Revisar memórias"[^>]*disabled/)
+  assert.doesNotMatch(action, /animate-spin/)
   const failed = renderToStaticMarkup(<MemoryCleanupBlock cleanup={{ suggestions: [], status: "failed", error: "Sem chave de modelo", requestedAt: null }} />)
   assert.match(failed, /role="alert"[^>]*>Sem chave de modelo/)
   assert.match(renderToStaticMarkup(<MemoryCleanupBlock cleanup={null} nothing />), /Nada para limpar\./)

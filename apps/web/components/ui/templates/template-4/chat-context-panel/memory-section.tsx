@@ -1,9 +1,10 @@
 "use client";
 
 import { MessageSquareQuoteIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { MemoryEntry } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
+import { ButtonGroup } from "@workspace/ui/components/button-group";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -12,6 +13,7 @@ import {
 	DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 import { Textarea } from "@workspace/ui/components/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip";
 import { memoryFixDraft, memoryOriginLabel, memoryRelativeDate } from "./memory-tab-helpers";
 
 /** Campo de texto com Salvar/Cancelar (edição inline e "Adicionar"); mostra a recusa do servidor logo abaixo. */
@@ -139,6 +141,23 @@ function MemoryItem({
 	);
 }
 
+/** Botão do cabeçalho da seção: no celular só o ícone (nome no tooltip); no desktop ícone e texto. */
+export function SectionAction({ icon: Icon, label, onClick, disabled }: { icon: typeof PlusIcon; label: string; onClick?: () => void; disabled?: boolean }) {
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<Button aria-label={label} className="max-md:w-8 max-md:px-0" disabled={disabled} onClick={onClick} size="sm" type="button" variant="outline">
+						<Icon aria-hidden />
+						<span className="max-md:hidden">{label}</span>
+					</Button>
+				}
+			/>
+			<TooltipContent className="md:hidden">{label}</TooltipContent>
+		</Tooltip>
+	);
+}
+
 /** Uma seção da aba (perfil do usuário ou memória do bot): título, nota, itens e "Adicionar". */
 export function MemorySection({
 	id,
@@ -151,9 +170,12 @@ export function MemorySection({
 	onEdit,
 	onRemove,
 	onFixInChat,
+	leadingAction,
 }: {
 	id: string;
 	title: string;
+	/** Botão que vai no mesmo grupo, antes de "Adicionar" (ex.: revisar memórias). */
+	leadingAction?: ReactNode;
 	note?: string;
 	emptyText: string;
 	entries: MemoryEntry[];
@@ -175,10 +197,10 @@ export function MemorySection({
 					{note ? <p className="text-muted-foreground text-xs">{note}</p> : null}
 				</div>
 				{adding ? null : (
-					<Button className="shrink-0" onClick={() => setAdding(true)} size="sm" variant="outline">
-						<PlusIcon />
-						Adicionar
-					</Button>
+					<ButtonGroup>
+						{leadingAction}
+						<SectionAction icon={PlusIcon} label="Adicionar" onClick={() => setAdding(true)} />
+					</ButtonGroup>
 				)}
 			</div>
 			{adding ? (

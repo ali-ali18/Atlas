@@ -6,7 +6,7 @@ import { Skeleton } from "@workspace/ui/components/skeleton";
 import { useBotMemory } from "@/hooks/use-bot-memory";
 import { useMemoryCleanup } from "@/hooks/use-memory-cleanup";
 import { MemoryChanges } from "./memory-changes";
-import { MemoryCleanupBlock } from "./memory-cleanup";
+import { MemoryCleanupBlock, MemoryReviewAction } from "./memory-cleanup";
 import { MemorySection } from "./memory-section";
 
 export const MEMORY_USER_EMPTY = "Nada guardado sobre você ainda. O que o bot aprender sobre você aparece aqui.";
@@ -74,6 +74,7 @@ export function MemoryTab({
 				emptyText={MEMORY_USER_EMPTY}
 				entries={memory.snapshot?.user.entries ?? []}
 				id="memory-user"
+				leadingAction={<MemoryReviewAction busy={cleanup.props.busy} cleanup={cleanup.props.cleanup} onReview={cleanup.props.onReview} />}
 				note="Todos os seus bots veem isto"
 				now={now}
 				onAdd={(content) => memory.add("user", content)}
