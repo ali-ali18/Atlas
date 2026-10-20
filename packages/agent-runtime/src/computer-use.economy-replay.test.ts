@@ -143,7 +143,6 @@ describe("economia ligada: chat simples", () => {
 		const { first, steps } = await replay({ messages: [{ role: "user", content: "Bom dia" }] });
 		for (const rare of [
 			"propose_routine",
-			"propose_skill",
 			"memory",
 			"create_file",
 			"click",
@@ -153,7 +152,8 @@ describe("economia ligada: chat simples", () => {
 		}
 		expect(first).toEqual(expect.arrayContaining(["web_search", "web_extract", "mcp_tool_search", "propose_questionnaire"]));
 		// V6: núcleo + grupo browser (7); o desktop e as raras ficam de fora.
-		expect(first.length).toBeLessThanOrEqual(20);
+		// +2: propose_skill e delete_skill viraram núcleo (o modelo decide quando criar skill).
+		expect(first.length).toBeLessThanOrEqual(22);
 		expect(steps).toBe(1);
 	});
 });

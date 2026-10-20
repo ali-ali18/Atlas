@@ -11,9 +11,11 @@ import type { ContextGroup } from "./prompt-blocks.js";
 /**
  * `questionnaire` não é grupo de tool: `propose_questionnaire` é núcleo (sempre
  * carregada onde o filtro de origem a deixa); o grupo de contexto só carrega o
- * procedimento detalhado (onboarding).
+ * procedimento detalhado (onboarding). `propose_skill`/`delete_skill` também são
+ * núcleo: o modelo decide quando usar (só com pedido do usuário; ver P_SKILLS),
+ * sem palavra-chave carregando ou escondendo a tool.
  */
-export type NativeToolGroup = Exclude<ContextGroup, "web" | "questionnaire" | "data">;
+export type NativeToolGroup = Exclude<ContextGroup, "web" | "questionnaire" | "data" | "skills">;
 
 type GroupSpec = {
 	/** Ordem fixa: o array de tools tem sempre os mesmos bytes para a mesma combinação. */
@@ -73,11 +75,6 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 		tools: ["create_file"],
 		hint: "create a downloadable file (PDF, Word, Excel, CSV, code, text)",
 		keywords: ["file", "files", "arquivo", "arquivos", "pdf", "docx", "excel", "xlsx", "csv", "spreadsheet", "planilha", "document", "documento", "report", "relatorio"],
-	},
-	skills: {
-		tools: ["propose_skill", "delete_skill"],
-		hint: "create, edit or delete reusable procedures (skills); reading one is skill_read, always available",
-		keywords: ["skill", "skills", "habilidade", "habilidades", "procedure", "procedimento", "playbook"],
 	},
 	bots: {
 		tools: ["propose_bot"],

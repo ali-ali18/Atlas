@@ -23,7 +23,6 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 	],
 	["api", /\b(apis?|openapi|swagger|endpoints?)\b/],
 	["email", /\b(e-?mails?|mails?|correio|caixa de entrada|inbox|mailbox)\b/],
-	["skills", /\b(skills?|habilidades?|receitas?|procedimentos?|procedures?|playbooks?)\b/],
 	[
 		"bots",
 		/\b(cri\w+|faz\w*|mont\w+|nov[oa]s?|quero|preciso|queria|gostaria|create|make|new)\b[^.!?\n]{0,40}\b(agentes?|bots?|assistentes?|agents?|assistants?)\b/,

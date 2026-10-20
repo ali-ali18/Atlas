@@ -97,8 +97,6 @@ describe("roteador de intenção", () => {
 		expect(groups("me lembra dia 03/10 às 10h e 20h")).toContain("routines");
 		expect(groups("todo dia às 9h me manda um resumo")).toContain("routines");
 		expect(groups("remind me every day")).toContain("routines");
-		expect(groups("crie uma skill para isso")).toContain("skills");
-		expect(groups("save this procedure for later")).toContain("skills");
 		expect(groups("gera um PDF com o relatório")).toContain("files");
 		expect(groups("faz uma planilha de gastos")).toContain("files");
 		expect(groups("me mostra a imagem")).toContain("images");
@@ -156,11 +154,10 @@ describe("plano de economia", () => {
 		expect(planContextEconomy({ ...base, onboardingIncomplete: true, profileAllowed: false }).groups.has("profile")).toBe(false);
 	});
 
-	it("skills só carrega se a fala ATUAL pede (o turno anterior não mantém propose_skill)", () => {
-		const routerText = "crie uma skill de proposta\nvlw, querido";
-		expect(planContextEconomy({ ...base, routerText }).groups.has("skills")).toBe(true);
-		expect(planContextEconomy({ ...base, routerText, currentText: "vlw, querido" }).groups.has("skills")).toBe(false);
-		expect(planContextEconomy({ ...base, routerText, currentText: "edite a skill de proposta" }).groups.has("skills")).toBe(true);
+	it("criar/editar skill é núcleo: nenhuma palavra carrega ou esconde propose_skill", () => {
+		expect(nativeToolGroupOf("propose_skill")).toBeUndefined();
+		expect(nativeToolGroupOf("delete_skill")).toBeUndefined();
+		expect(planContextEconomy({ ...base, routerText: "crie uma skill de proposta" }).groups.has("skills")).toBe(false);
 	});
 
 	it("retomada repõe os grupos das tools que já estavam carregadas", () => {

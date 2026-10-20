@@ -22,7 +22,7 @@ import { findBuiltinSkill, visibleBuiltinSkills } from "../skills/builtin.js";
 
 /**
  * Skills em Markdown no runtime (PLANO-SKILLS K1). `skill_read` é núcleo;
- * `propose_skill` e `delete_skill` ficam no grupo adiado "skills". Criar/editar
+ * `propose_skill` e `delete_skill` também são núcleo (o modelo decide quando usar). Criar/editar
  * segue a autonomia (card de aprovação por padrão, direto quando permitido) e
  * apagar sempre pergunta. Todo acesso é pelo `userId` do run (nunca um id vindo
  * do modelo) e falha vira erro real (`ok:false`) com dica.

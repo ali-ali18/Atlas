@@ -174,26 +174,11 @@ describe("índice de skills no prompt", () => {
 });
 
 describe("tools de skill no conjunto do run", () => {
-	it("skill_read é núcleo; propose_skill e delete_skill só com o grupo carregado", async () => {
+	it("skill_read, propose_skill e delete_skill são núcleo: vão sem depender de palavra no pedido", async () => {
 		const plain = await run({ message: "Bom dia" });
-		expect(names(plain.requests[0]!)).toContain("skill_read");
-		expect(names(plain.requests[0]!)).not.toContain("propose_skill");
-		expect(names(plain.requests[0]!)).not.toContain("delete_skill");
-		const keyword = await run({ message: "quero criar uma skill nova" });
-		expect(names(keyword.requests[0]!)).toEqual(expect.arrayContaining(["skill_read", "propose_skill", "delete_skill"]));
-		expect(names(keyword.requests[0]!)).not.toContain("list_skills");
-		expect(names(keyword.requests[0]!)).not.toContain("propose_skill_change");
-	});
-
-	it("chamada direta a propose_skill sem o grupo carrega o grupo e não executa", async () => {
-		const { results } = await run({
-			message: "Bom dia",
-			autonomy: level("autonomous"),
-			script: [turn(call("c1", "propose_skill", { action: "create", name: "x", description: "d", body: "b" })), done],
-		});
-		expect(results[0]?.ok).toBe(false);
-		expect(results[0]?.summary).toMatch(/not loaded/);
-		expect(docs.rows).toHaveLength(0);
+		expect(names(plain.requests[0]!)).toEqual(expect.arrayContaining(["skill_read", "propose_skill", "delete_skill"]));
+		expect(names(plain.requests[0]!)).not.toContain("list_skills");
+		expect(names(plain.requests[0]!)).not.toContain("propose_skill_change");
 	});
 
 	it("rotina (sem humano) lê skill, mas não recebe as de escrita", async () => {

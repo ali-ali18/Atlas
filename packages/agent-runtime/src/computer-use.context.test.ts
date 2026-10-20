@@ -116,7 +116,7 @@ describe("L5: prefixo fixo da 1ª decisão", () => {
 		// `propose_questionnaire` é núcleo: vai sempre.
 		expect(names(after)).toContain("propose_questionnaire");
 		// As raras ficaram de fora e estão no índice do prompt.
-		for (const rare of ["propose_routine", "propose_skill", "memory", "create_file", "click"]) {
+		for (const rare of ["propose_routine", "memory", "create_file", "click"]) {
 			expect(names(after)).not.toContain(rare);
 			expect(systemOf(after)).toContain(rare);
 		}
