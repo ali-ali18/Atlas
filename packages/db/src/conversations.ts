@@ -58,6 +58,7 @@ function toSessionMessage(row: {
 	sourceKind?: string | null;
 	sourceLabel?: string | null;
 	sourceAt?: Date | null;
+	runId?: string | null;
 	createdAt: Date;
 }): SessionMessage {
 	return {
@@ -69,6 +70,7 @@ function toSessionMessage(row: {
 		...(row.fromBotId ? { fromBotId: row.fromBotId } : {}),
 		...(row.fromBotName ? { fromBotName: row.fromBotName } : {}),
 		...(row.botMessageId ? { botMessageId: row.botMessageId } : {}),
+		...(row.role === "assistant" && row.runId ? { runId: row.runId } : {}),
 		...(isMessageSourceKind(row.sourceKind) && row.sourceLabel && row.sourceAt
 			? { source: { kind: row.sourceKind, label: row.sourceLabel, at: row.sourceAt.toISOString() } }
 			: {}),

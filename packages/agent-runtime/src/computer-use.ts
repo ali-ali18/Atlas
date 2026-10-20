@@ -261,6 +261,7 @@ import { assembleSystemPromptParts, groupProcedureText, legacySystemPrompt, skil
 import { contextEconomyEnabled, contextTranscriptEnabled } from "./context/flag.js";
 import { clippedResultRefLine, createResultStore, resultStoreLimits, extractResultRef, RESULT_MAX_STORED_CHARS } from "./context/result-store.js";
 import { createContextUsageReporter } from "./context/usage.js";
+import { createStepInspector } from "./inspect.js";
 import { createDevTimingTracker } from "./dev-timing.js";
 import { contextBudgetFor, DEV_HYGIENE_RATIOS, devContextBudget, type ContextBudget } from "./context/budget.js";
 import { compactWithSummary, createStreamSummarizer } from "./context/summary-compaction.js";
@@ -4865,6 +4866,9 @@ export async function runComputerUse(params: {
 			sessionId,
 		}).catch(() => undefined);
 	};
+	// Inspetor do run: resumo do que cada chamada ao modelo recebeu (vai em outputJson.inspect do passo).
+	const stepInspector = createStepInspector();
+	let lastStepInspect: ReturnType<typeof stepInspector.step> | undefined;
 	const reportCompaction = async (report: { compaction?: { before: number; after: number }; contextLength?: number; estimatedTokensAfter?: number }) => {
 		if (report.contextLength && report.estimatedTokensAfter !== undefined) await reportUsage({ contextLength: report.contextLength, estimatedTokensAfter: report.estimatedTokensAfter });
 		if (!report.compaction || !shouldAnnounceCompaction(codingRun, report.compaction)) return;
@@ -5318,12 +5322,14 @@ export async function runComputerUse(params: {
 			conversation = result.messages;
 			// Mesmo com sucesso, não resume de novo nos próximos passos: o prefixo em cache precisa se firmar.
 			summaryRetryAtStep = step + 3;
+			stepInspector.noteAction({ kind: "summary", before: result.before, after: result.after });
 			if (shouldAnnounceCompaction(false, { before: result.before, after: result.after }, true)) {
 				await onEvent({ type: "context_compacted", before: result.before, after: result.after });
 			}
 		} else if (result.status === "failed") {
 			// Sem insistir a cada passo: a poda cobre e a próxima tentativa fica para daqui a alguns passos.
 			summaryRetryAtStep = step + 5;
+			stepInspector.noteAction({ kind: "summary_failed" });
 		}
 	};
 	await summarizeIfNeeded(0);
@@ -5703,6 +5709,8 @@ export async function runComputerUse(params: {
 				} : undefined,
 			},
 		);
+		const effectiveTools = reserveRestrict ? tools.filter((tool) => FILE_RESERVE_TOOLS.includes(tool.function.name)) : tools;
+		lastStepInspect = stepInspector.step({ messages: withNotes, tools: effectiveTools, contextLength: contextLength ?? undefined });
 		const callStartedAt = performance.now();
 		let firstDeltaMs: number | undefined;
 		// A7: o resumo de encerramento roda com sinal e prazo próprios (o do run já expirou/abortou).
@@ -5713,7 +5721,7 @@ export async function runComputerUse(params: {
 				messages: transport,
 				model,
 				apiKey,
-				tools: reserveRestrict ? tools.filter((tool) => FILE_RESERVE_TOOLS.includes(tool.function.name)) : tools,
+				tools: effectiveTools,
 				toolChoice: forceFinalAnswer && toolChoice === "auto" ? "none" : toolChoice,
 				signal,
 				timeoutMs: closing ? CLOSING_CALL_TIMEOUT_MS : params.modelCallTimeoutMs,
@@ -7330,6 +7338,7 @@ ${blockHint}`;
 			taskState: () => taskTracker.snapshot(),
 		});
 		conversation = stepHygiene.messages;
+		stepInspector.noteHygiene(stepHygiene.report);
 		await reportCompaction(stepHygiene.report);
 
 		const stepOutcome = await streamStep(
@@ -7373,6 +7382,7 @@ ${blockHint}`;
 				content: text,
 				toolCallIds: toolCalls.map((call) => call.id),
 				...(finishReason ? { finishReason } : {}),
+				...(lastStepInspect ? { inspect: lastStepInspect } : {}),
 			},
 		});
 		// O plano ignora teto de saída: verificar usage real após registrar o passo.

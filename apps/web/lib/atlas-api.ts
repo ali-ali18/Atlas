@@ -65,7 +65,7 @@ import type {
 	BotProposalEvent,
 	RunInputMode,
 } from "@workspace/shared";
-import type { MemoryChange, MemoryChangesPage, MemoryCleanupView, MemoryEntry, MemorySnapshot, MemoryTarget } from "@workspace/shared";
+import type { RunInspection, MemoryChange, MemoryChangesPage, MemoryCleanupView, MemoryEntry, MemorySnapshot, MemoryTarget } from "@workspace/shared";
 import type {
 	CatalogBotEntry,
 	CatalogBotTemplate,
@@ -2759,4 +2759,9 @@ export async function resolveConnectorGuideSuggestion(
 		{ method: "POST" },
 	);
 	return body.guide;
+}
+
+/** Inspetor do run (só o dono): o que o modelo recebeu por passo, chamadas de tool e aprovações. */
+export async function getRunInspection(runId: string): Promise<{ inspection: RunInspection }> {
+	return atlasFetch(`/v1/runs/${encodeURIComponent(runId)}/inspect`);
 }

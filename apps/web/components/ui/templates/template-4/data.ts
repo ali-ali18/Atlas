@@ -327,7 +327,7 @@ export type BotTag = {
 };
 
 type MessageVariant =
-	| { id: string; kind: "assistant"; text: string; bot?: BotTag; author?: MessageAuthor; runSource?: MessageSource }
+	| { id: string; kind: "assistant"; text: string; bot?: BotTag; author?: MessageAuthor; runSource?: MessageSource; /** Run que gravou a fala (inspetor). */ runId?: string }
 	| { id: string; kind: "bot-link"; botId: string; botName: string; title: string; botMessageId?: string }
 	| { id: string; kind: "needs-user"; botId: string; botName: string; title: string; botMessageId: string; need: BotNeed; status: "pending" | "resolved" }
 	| { id: string; kind: "auto-decision"; botId: string; botName: string; decision: "approved" | "rejected" | "answered"; note: string; subject: string; reason: string; status: "queued" | "applied" | "failed" }

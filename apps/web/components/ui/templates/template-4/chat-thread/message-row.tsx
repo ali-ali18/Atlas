@@ -139,6 +139,7 @@ export function MessageRow({
 					groupPosition={groupPosition}
 					live={live}
 					messageId={message.id}
+					runId={message.runId}
 					text={message.text}
 				/>
 			);

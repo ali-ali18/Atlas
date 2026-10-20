@@ -319,7 +319,8 @@ function sessionMessageToThread(message: SessionMessage): Message | null {
 	// Reações vêm junto da lista; o balão as lê do estado compartilhado (otimista + hub).
 	if (message.role === "user" || message.role === "assistant") messageReactions.seed(message.id, message.reactions);
 	// Rotina, lembrete ou evento que produziu a fala: marcador acima do balão.
-	if (built.kind === "assistant" && message.source) return { ...built, runSource: message.source, createdAt: message.createdAt };
+	if (built.kind === "assistant" && message.source) return { ...built, runSource: message.source, ...(message.runId ? { runId: message.runId } : {}), createdAt: message.createdAt };
+	if (built.kind === "assistant" && message.runId) return { ...built, runId: message.runId, createdAt: message.createdAt };
 	return { ...built, createdAt: message.createdAt };
 }
 

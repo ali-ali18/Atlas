@@ -1,6 +1,6 @@
 import { attachPendingResult, buildTranscriptHistory, cleanTranscript, namespaceToolCallIds } from "@workspace/agent-runtime";
 import type { RunTranscript } from "@workspace/db";
-import type { CarriedNote, SerializedLlmMessage, TranscriptSeed } from "@workspace/shared";
+import type { CarriedNote, InspectContextPayload, SerializedLlmMessage, TranscriptSeed } from "@workspace/shared";
 
 export type TranscriptHistory = {
 	/** Conversa completa dos turnos anteriores, pronta para o runtime (sem as camadas que o prepareMessages refaz). */
@@ -40,37 +40,48 @@ export async function resolveTranscriptHistory(input: {
 	/** Mensagens depois da marca d'água (sem as gravadas pelo run informado), conferindo a marca por id e contagem. */
 	loadAfter: (watermark: { messageId: string; count: number }, excludeRunId: string) => Promise<AfterWatermark>;
 	warn?: (message: string) => void;
+	/** Inspetor: como o histórico foi montado (continuado, fallback com motivo, primeiro turno). */
+	report?: (outcome: InspectContextPayload["transcript"]) => void;
 }): Promise<TranscriptHistory | null> {
-	if (!input.enabled || input.origin !== "chat" || input.groupRun || !input.conversationId) return null;
+	const report = input.report ?? (() => undefined);
+	if (!input.enabled || input.origin !== "chat" || input.groupRun || !input.conversationId) {
+		report({ mode: "off", reason: !input.enabled ? "disabled" : input.groupRun ? "group" : input.origin !== "chat" ? "origin" : "no_conversation" });
+		return null;
+	}
 	const warn = input.warn ?? ((message: string) => console.warn(message));
 	const fallback = (reason: string): null => {
 		warn(`transcript_fallback reason=${reason} run=${input.runId}`);
+		report({ mode: "fallback", reason });
 		return null;
 	};
 	if (input.seed) {
 		const source = await input.loadById(input.seed.fromRunId);
 		const cleaned = source ? cleanTranscript(source.llmMessages, { model: input.model }) : null;
 		const attached = cleaned ? attachPendingResult(cleaned, input.seed.toolName, input.seed.resultContent) : null;
-		if (source && attached) return { priorTranscript: namespaceToolCallIds(attached, source.runId), loadedTools: source.loadedTools ?? [], carriedNotes: source.carriedNotes, seedApplied: true };
+		if (source && attached) {
+			const priorTranscript = namespaceToolCallIds(attached, source.runId);
+			report({ mode: "seed", priorMessages: priorTranscript.length, loadedTools: (source.loadedTools ?? []).length });
+			return { priorTranscript, loadedTools: source.loadedTools ?? [], carriedNotes: source.carriedNotes, seedApplied: true };
+		}
 		warn(`transcript_fallback reason=seed_unavailable run=${input.runId}`);
 	}
 	const latest = await input.loadLatest();
-	if (!latest) return null; // primeiro turno da conversa (ou legado sem checkpoint): nada a registrar
+	if (!latest) {
+		report({ mode: "first_turn" });
+		return null; // primeiro turno da conversa (ou legado sem checkpoint): nada a registrar
+	}
 	if (input.compact) return fallback("compact_mode");
 	const cleaned = cleanTranscript(latest.llmMessages, { model: input.model });
 	if (!cleaned) return fallback("corrupt");
 	if (!latest.watermark) return fallback("no_watermark");
 	const after = await input.loadAfter(latest.watermark, latest.runId);
 	if (!after.ok) return fallback(after.reason);
-	return {
-		priorTranscript: buildTranscriptHistory({
-			transcript: namespaceToolCallIds(cleaned, latest.runId),
-			after: after.messages,
-			objective: input.objective,
-			priorRunEndedAt: latest.finishedAt?.toISOString(),
-		}),
-		loadedTools: latest.loadedTools ?? [],
-		carriedNotes: latest.carriedNotes,
-		seedApplied: false,
-	};
+	const priorTranscript = buildTranscriptHistory({
+		transcript: namespaceToolCallIds(cleaned, latest.runId),
+		after: after.messages,
+		objective: input.objective,
+		priorRunEndedAt: latest.finishedAt?.toISOString(),
+	});
+	report({ mode: "carried", priorMessages: priorTranscript.length, loadedTools: (latest.loadedTools ?? []).length });
+	return { priorTranscript, loadedTools: latest.loadedTools ?? [], carriedNotes: latest.carriedNotes, seedApplied: false };
 }

@@ -16,6 +16,7 @@ import { sanitizeAssistantText } from "@/lib/sanitize-message";
 import { useRevealedText } from "@/hooks/use-revealed-text";
 
 import { bubbleRadius, type GroupPosition } from "./bubble-radius";
+import { RunInspectButton } from "@/components/ai-elements/run-inspector/run-inspector-sheet";
 import { CopyButton, ReactionBadges, ReactionTrigger, useMessageReactionControls } from "./message-reactions";
 
 function nodeText(node: ReactNode): string {
@@ -130,12 +131,15 @@ export function AssistantMessage({
 	groupPosition = "single",
 	reactions,
 	messageId,
+	runId,
 	markdownComponents: components = markdownComponents,
 }: {
 	live?: boolean;
 	text: string;
 	/** Id da fala no servidor: habilita reagir (e mostra as reações gravadas). */
 	messageId?: string;
+	/** Run que gravou a fala: habilita "Inspecionar execução". */
+	runId?: string;
 	groupPosition?: GroupPosition;
 	reactions?: React.ReactNode | string | null;
 	/** Grupo: markdown com chips de menção. Padrão: o mesmo de todo o chat. */
@@ -188,6 +192,7 @@ export function AssistantMessage({
 				<div className="flex shrink-0 items-center">
 					{controls.canReact ? <ReactionTrigger onSelect={controls.onSelect} /> : null}
 					<CopyButton text={clean} />
+					{runId ? <RunInspectButton runId={runId} /> : null}
 				</div>
 			) : null}
 		</div>

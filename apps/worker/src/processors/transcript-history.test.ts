@@ -132,3 +132,18 @@ test("notas de turno do run anterior chegam junto com a conversa", async () => {
 	const out = await resolveTranscriptHistory({ ...base, loadLatest: async () => ({ ...latest, carriedNotes: notes }) });
 	assert.deepEqual(out!.carriedNotes, notes);
 });
+
+test("o inspetor recebe o desfecho: carregada, fallback com motivo e primeiro turno", async () => {
+	const seen: unknown[] = [];
+	const report = (outcome: unknown) => void seen.push(outcome);
+	await resolveTranscriptHistory({ ...base, report });
+	await resolveTranscriptHistory({ ...base, report, loadLatest: async () => ({ ...latest, watermark: undefined as never }) });
+	await resolveTranscriptHistory({ ...base, report, loadLatest: async () => null });
+	await resolveTranscriptHistory({ ...base, report, groupRun: true });
+	assert.deepEqual(seen, [
+		{ mode: "carried", priorMessages: 4, loadedTools: 1 },
+		{ mode: "fallback", reason: "no_watermark" },
+		{ mode: "first_turn" },
+		{ mode: "off", reason: "group" },
+	]);
+});

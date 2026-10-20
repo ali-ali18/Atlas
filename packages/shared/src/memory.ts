@@ -94,6 +94,8 @@ export type SessionMessage = {
 	fromBotId?: string | null;
 	fromBotName?: string | null;
 	botMessageId?: string | null;
+	/** Run que gravou a fala do assistente (abre o inspetor do run). */
+	runId?: string;
 	/** Rotina, lembrete ou evento que produziu a mensagem (marcador acima do balão). */
 	source?: { kind: "routine" | "reminder" | "github" | "webhook" | "reflection" | "email"; label: string; at: string } | null;
 	/** Reações (no máximo uma por ator: o usuário e o bot). */

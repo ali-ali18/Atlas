@@ -12,6 +12,8 @@ import {
 	buildQuestionnaireAnsweredObjective,
 	parseQuestionnaireAnswerBody,
 	questionnaireAnswerClientKey,
+	buildRunInspection,
+	scrubString,
 	type ComputerUseEvent,
 	type CreateAgentRunRequest,
 	type CreateAgentRunResponse,
@@ -26,6 +28,7 @@ import {
 	getAgentRun,
 	getAgentRunForUser,
 	getAgentRunStreamState,
+	getRunInspectionData,
 	getLatestCompletedRunForConversation,
 	listQueuedRunsMissingJob,
 	listQueuedRunsWithStaleJob,
@@ -588,6 +591,14 @@ export function createRunRoutes(
 		const run = await getAgentRunForUser(c.req.param("id"), userId);
 		if (!run) return c.json({ error: "Run not found" }, 404);
 		return c.json({ run });
+	});
+
+	// Inspetor ("o que o modelo viu"): só o dono; outro usuário recebe 404 como nas demais rotas do run.
+	app.get("/v1/runs/:id/inspect", async (c) => {
+		const { userId } = scopeFor(c.get("session"));
+		const data = await getRunInspectionData(c.req.param("id"), userId);
+		if (!data) return c.json({ error: "Run not found" }, 404);
+		return c.json({ inspection: buildRunInspection({ ...data, scrub: scrubString }) });
 	});
 
 	app.get("/v1/runs/:id/events", async (c) => {

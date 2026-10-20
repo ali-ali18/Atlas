@@ -1,6 +1,6 @@
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
-import type { ConnectorLessonJobPayload } from "@workspace/shared";
+import type { ConnectorLessonJobPayload, InspectContextPayload } from "@workspace/shared";
 import { parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef } from "@workspace/shared";
 import {
 	ATLAS_JOB_NAMES,
@@ -552,6 +552,7 @@ async function executeLeasedRun(ctx: {
 		// Conversa contínua: o run novo parte das chamadas e resultados de ferramenta do anterior, não só do texto.
 		// Qualquer falha ou divergência cai no histórico de texto de sempre.
 		let transcript: TranscriptHistory | null = null;
+		let transcriptOutcome: InspectContextPayload["transcript"] | undefined;
 		let transcriptWatermark: TranscriptWatermark | undefined;
 		if (!checkpoint?.llmMessages?.length && run.conversationId && run.origin === "chat" && !groupRun && contextTranscriptEnabled()) {
 			// Marca d'água ANTES de ler o histórico: o próximo turno lê só o que vier depois dela.
@@ -572,6 +573,9 @@ async function executeLeasedRun(ctx: {
 				model: run.model,
 				objective: run.objective,
 				seed: checkpoint?.transcriptSeed,
+				report: (outcome) => {
+					transcriptOutcome = outcome;
+				},
 				loadLatest: () => getConversationTranscript(runUserId, conversationId, { excludeRunId: runId }),
 				loadById: (fromRunId) => getRunTranscript(runUserId, conversationId, fromRunId),
 				loadAfter: (watermark, excludeRunId) => loadMessagesAfterWatermark(conversationId, watermark, { excludeRunId }),
@@ -690,10 +694,15 @@ async function executeLeasedRun(ctx: {
 			})
 			: null;
 
-		return { messages, inputMessages, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments: attachmentsForRun?.runtime };
+		return { messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments: attachmentsForRun?.runtime };
 	};
-	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments }] =
+	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, attachments }] =
 		await Promise.all([configStage(), messagesStage()]);
+	// Inspetor: como o histórico deste turno foi montado (só metadados; nunca o texto).
+	if (transcriptOutcome) {
+		const payload: InspectContextPayload = { type: "inspect_context", transcript: transcriptOutcome };
+		await appendRunEvent(runId, "inspect_context", payload).catch(() => undefined);
+	}
 
 	let cachedSessionId: string | null =
 		checkpoint?.sandboxSessionId ?? run.sandboxSessionId;
