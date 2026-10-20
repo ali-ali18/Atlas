@@ -22,7 +22,7 @@ export type {
 	ProposeQuestionnaireProposal,
 	ProposeProfilePatch,
 } from "./computer-use.js";
-export { sanitizeAssistantText } from "./computer-use.js";
+export { budgetStopFallbackText, sanitizeAssistantText } from "./computer-use.js";
 export {
 	COLLAPSE_MARKER,
 	DEFAULT_CONTEXT_LENGTH,
@@ -62,7 +62,7 @@ export {
 	errorFromAbortSignal,
 	isControlFlowError,
 } from "./errors.js";
-export type { ClassifiedRunError } from "./errors.js";
+export type { BudgetStopKind, ClassifiedRunError } from "./errors.js";
 export { describeRunError } from "./user-error.js";
 export type { DescribedRunError, UserErrorKind } from "./user-error.js";
 export {

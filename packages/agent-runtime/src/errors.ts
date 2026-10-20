@@ -30,14 +30,24 @@ export class LeaseLostError extends Error {
 	}
 }
 
+/**
+ * Por que o run parou por orçamento. Só `steps` (teto de passos com progresso) é recuperável sozinho;
+ * relógio, custo, tokens e janela de contexto são limites do usuário/modelo e nunca retomam automaticamente.
+ */
+export type BudgetStopKind = "steps" | "stalled" | "wall" | "cost" | "tokens" | "context" | "other";
+
 export class BudgetExhaustedError extends Error {
 	readonly code = "budget_exhausted" as const;
 	/** Resumo final ao usuário (chamada sem tools), quando gerado. */
 	finalText?: string;
 	/** Uso até a parada (inclui `computer`), para o worker gravar em `usageJson`. */
 	usage?: RunUsage;
+	/** Ferramentas que terminaram com sucesso neste run (progresso real); preenchido ao fechar o run. */
+	okToolCalls?: number;
+	/** O fechamento foi adiado porque o worker vai retomar sozinho (sem resumo nem "responda continuar"). */
+	deferredClosing?: boolean;
 
-	constructor(message = "Orçamento do run esgotado") {
+	constructor(message = "Orçamento do run esgotado", readonly kind: BudgetStopKind = "other") {
 		super(message);
 		this.name = "BudgetExhaustedError";
 	}

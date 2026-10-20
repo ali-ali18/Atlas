@@ -4299,6 +4299,11 @@ export async function runComputerUse(params: {
 	peekInterruptInputs?: () => Promise<string[]>;
 	/** Modelo barato da triagem de mensagens `join` (sumarizador/manutenção). Ausente = modelo do run. */
 	messageTriageModel?: string;
+	/**
+	 * O worker pode retomar sozinho depois de um teto de passos com progresso: o fechamento (resumo ou
+	 * "responda continuar") fica por conta dele, que decide se retoma ou usa o fechamento padrão.
+	 */
+	autoContinue?: { canSchedule: boolean };
 	/** Entrega offline: a triagem viu que o usuário vai sair (e quando quer o aviso). Falha não derruba o run. */
 	onAwayNote?: (note: { deliverAt: string }) => Promise<void> | void;
 	/** `later`: grava o pedido como entrada `queue` do run; o worker o encadeia ao concluir. Idempotente por `key`. */
@@ -4389,7 +4394,7 @@ export async function runComputerUse(params: {
 	const callerAbortSignal = params.abortSignal;
 	if (deadlineAtMs !== undefined) {
 		const wallController = new AbortController();
-		const fireWall = () => wallController.abort(new BudgetExhaustedError(wallLimitMessage(budget.maxWallMs)));
+		const fireWall = () => wallController.abort(new BudgetExhaustedError(wallLimitMessage(budget.maxWallMs), "wall"));
 		const remainingMs = deadlineAtMs - Date.now();
 		if (remainingMs <= 0) fireWall();
 		else {
@@ -4443,7 +4448,7 @@ export async function runComputerUse(params: {
 		// Teto de custo da conta (só o run pai; o custo dos filhos já soma em usageTotals).
 		// A chamada final de resumo passa: ela é o fechamento honesto do que não deu tempo.
 		if (!isSubagent && !summaryCallActive && costCapReached(usageTotals.costUsd, budget.maxCostUsd)) {
-			throw new BudgetExhaustedError(costCapMessage(budget.maxCostUsd!));
+			throw new BudgetExhaustedError(costCapMessage(budget.maxCostUsd!), "cost");
 		}
 		// A7: o resumo final também passa pelo teto de relógio (tem prazo próprio, ver streamStep).
 		// O run pai para de iniciar passos `wrapUpMs` antes do prazo, reservando a janela do resumo.
@@ -4451,13 +4456,14 @@ export async function runComputerUse(params: {
 			? budget.maxWallMs * CHILD_HARD_WALL_RATIO
 			: budget.maxWallMs - wrapUpWindowMs(budget.maxWallMs);
 		if (budget.maxWallMs > 0 && !summaryCallActive && activeElapsedMs() > wallCap) {
-			throw new BudgetExhaustedError(wallLimitMessage(isSubagent ? wallCap : budget.maxWallMs));
+			throw new BudgetExhaustedError(wallLimitMessage(isSubagent ? wallCap : budget.maxWallMs), "wall");
 		}
 		if (budget.maxTokens !== undefined) {
 			const tokenCap = isSubagent ? childTokenCap(budget.maxTokens)! : budget.maxTokens;
 			if (usageTotals.totalTokens > tokenCap) {
 				throw new BudgetExhaustedError(
 					`limite de ${budget.maxTokens} tokens do run esgotado`,
+					"tokens",
 				);
 			}
 		}
@@ -5432,6 +5438,8 @@ export async function runComputerUse(params: {
 		],
 	});
 	const toolOutcomes = seedToolOutcomes(conversation, journal.resultOf);
+	/** Resultados vindos do histórico: só o que passar disto é progresso desta execução (retomada automática). */
+	const seededOutcomeCount = toolOutcomes.length;
 	const ledger = discipline ? createExecutionLedger(parsedCheckpoint?.executionLedger) : null;
 	// A3: o arquivo pedido vira critério do run (além da promessa na resposta) e a
 	// releitura de artefato já lido por inteiro deixa de custar passos.
@@ -7212,6 +7220,7 @@ ${blockHint}`;
 					} else {
 						throw new BudgetExhaustedError(
 							`limite de ${hardCap} passos esgotado`,
+							"steps",
 						);
 					}
 				} else {
@@ -7223,12 +7232,14 @@ ${blockHint}`;
 					if (step >= workingLimit) {
 						throw new BudgetExhaustedError(
 							`limite de ${hardCap} passos esgotado sem evidência para continuar`,
+							"stalled",
 						);
 					}
 				}
 			} else {
 				throw new BudgetExhaustedError(
 					`limite de ${hardCap} passos esgotado`,
+					"steps",
 				);
 			}
 		}
@@ -7309,6 +7320,7 @@ ${blockHint}`;
 					budget.maxTokens !== undefined
 						? `limite de ${budget.maxTokens} tokens do run esgotado`
 						: `limite de ${hardCap} passos esgotado`,
+					"other",
 				);
 			}
 			const noted = conversation.some(
@@ -7631,6 +7643,12 @@ ${blockHint}`;
 			error instanceof BudgetExhaustedError
 		) {
 			error.usage = usageTotals;
+			if (error instanceof BudgetExhaustedError) error.okToolCalls = toolOutcomes.slice(seededOutcomeCount).filter((outcome) => outcome.ok).length;
+			// Teto de passos com progresso e o worker pode retomar: sem resumo agora (o fechamento sai no fim da retomada).
+			if (!isSubagent && error instanceof BudgetExhaustedError && error.kind === "steps" && params.autoContinue?.canSchedule === true && (error.okToolCalls ?? 0) > 0) {
+				error.deferredClosing = true;
+				throw error;
+			}
 			error.finalText =
 				(budget.maxTokens !== undefined && usageTotals.totalTokens > budget.maxTokens
 					? undefined : await summarizeTerminalStop(error.message)) ??

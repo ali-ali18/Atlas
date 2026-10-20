@@ -97,7 +97,7 @@ export async function chainFollowUp(deps: FollowUpDeps): Promise<FollowUpOutcome
 }
 
 export function followUpRequest(
-	base: Pick<CreateAgentRunRequest, "model" | "conversationId" | "botId" | "origin">,
+	base: Pick<CreateAgentRunRequest, "model" | "conversationId" | "botId" | "origin"> & Pick<CreateAgentRunRequest, "budget">,
 	plan: FollowUpPlan,
 ): CreateAgentRunRequest {
 	return {
@@ -108,6 +108,7 @@ export function followUpRequest(
 		origin: base.origin,
 		objective: plan.objective,
 		...(plan.attachments.length ? { attachments: plan.attachments } : {}),
+		...(base.budget ? { budget: base.budget } : {}),
 		silent: true,
 	};
 }

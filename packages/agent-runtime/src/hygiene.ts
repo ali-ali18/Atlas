@@ -494,6 +494,7 @@ export function applyPromptHygiene(
 			`Contexto estimado em ~${estimatedTokensAfter.toLocaleString("pt-BR")} tokens ` +
 				`(>${Math.round(hardRatio * 100)}% da janela de ${contextLength.toLocaleString("pt-BR")}${model}). ` +
 				`Resuma a conversa ("Resumir agora") ou use um modelo com janela maior e tente de novo.`,
+			"context",
 		);
 	}
 

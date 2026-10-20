@@ -48,3 +48,8 @@ export async function getRunInspectionData(runId: string, userId: string): Promi
 		approvals,
 	};
 }
+
+/** Chamadas de ferramenta que terminaram bem no run: sinal de progresso para a retomada automática. */
+export async function countCompletedToolResults(runId: string): Promise<number> {
+	return prisma.agentStep.count({ where: { runId, type: "tool_result", status: "completed" } });
+}

@@ -115,7 +115,21 @@ import {
 	runComputerUse,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { appendConversationMessage } from "@workspace/db";
+import {
+	AUTO_CONTINUE_MAX,
+	AUTO_CONTINUE_STATUS_TEXT,
+	autoContinueCauseOfBudgetStop,
+	autoContinueScheduled,
+	autoContinueCauseOfFailure,
+	planAutoContinue,
+	readAutoContinueAttempt,
+	scheduleAutoContinue,
+	type AutoContinueDecision,
+	type AutoContinueIo,
+} from "../auto-continue.js";
+import { createAutoContinueIo } from "../auto-continue-io.js";
 import { resolveTranscriptHistory, type TranscriptHistory } from "./transcript-history.js";
 import {
 	createRunTelemetryTracker,
@@ -180,7 +194,9 @@ export type AgentRunProcessorDeps = {
 	enqueueMemoryReview?: (payload: MemoryReviewJobPayload) => Promise<void>;
 	/** Lição de conector (falha → sucesso no run): vira job que guarda uma sugestão pendente. */
 	enqueueConnectorLesson?: (payload: ConnectorLessonJobPayload) => Promise<void>;
-	enqueueNextRun?: (runId: string) => Promise<boolean>;
+	enqueueNextRun?: (runId: string, options?: { delayMs?: number }) => Promise<boolean>;
+	/** Teste: troca a ligação da retomada automática com banco e fila. */
+	autoContinueIo?: AutoContinueIo;
 	extendLock?: () => Promise<void>;
 	/** Shutdown do worker: aborta o run em andamento com checkpoint (ver `WorkerShuttingDownError`). */
 	shutdownSignal?: AbortSignal;
@@ -728,6 +744,7 @@ async function executeLeasedRun(ctx: {
 		policyJson: rawBotPolicy,
 	});
 	const requestBudget = parseBudgetPolicy(run.budgetJson ?? null);
+	const autoContinueAttempt = readAutoContinueAttempt(run.budgetJson);
 	const budget = resolveBudget({
 		maxSteps: run.maxSteps,
 		policy: { ...accountBudgetPolicy(configSnapshot, run.maxSteps), ...botPolicy, ...requestBudget },
@@ -938,6 +955,8 @@ async function executeLeasedRun(ctx: {
 			maxSteps: run.maxSteps,
 			// Janela gravada na criação (API); desconhecida = fallback 128k.
 			contextLength: parseModelRef(run.model).provider !== "openrouter" ? (await providers.contextLength(run.model)) ?? 64000 : readRunContextLength(run),
+			// Retomada automática só no 1o fechamento por teto de passos de um run do usuário ou das retomadas anteriores.
+			autoContinue: { canSchedule: Boolean(deps.enqueueNextRun) && run.origin === "chat" && autoContinueAttempt < AUTO_CONTINUE_MAX },
 			budget: {
 				softMaxSteps: budget.softMaxSteps,
 				hardMaxSteps: budget.hardMaxSteps,
@@ -945,6 +964,8 @@ async function executeLeasedRun(ctx: {
 				maxTokens: budget.maxTokens,
 				maxCallsPerTool: budget.maxCallsPerTool,
 				extensionSteps: budget.extensionSteps,
+				// O limite de custo só chega ao runtime nas retomadas: elas levam apenas o que sobrou dele.
+				...(autoContinueAttempt > 0 && budget.maxCostUsd !== undefined ? { maxCostUsd: budget.maxCostUsd } : {}),
 			},
 			runStartedAt,
 			onEvent: emitWithSegments,
@@ -1223,19 +1244,39 @@ async function executeLeasedRun(ctx: {
 		}
 
 		if (error instanceof BudgetExhaustedError) {
-			await emit({ type: "error", error: error.message });
+			// Teto de passos com progresso: retoma sozinho (limitado) em vez de pedir "responda continuar".
+			const costCapUsd = [budget.maxCostUsd, configSnapshot.maxRunCostUsd].filter((cap): cap is number => typeof cap === "number" && cap > 0).sort((a, b) => a - b)[0];
+			const autoIo = deps.autoContinueIo ?? createAutoContinueIo(deps.enqueueNextRun);
+			const autoPlan = deps.enqueueNextRun || deps.autoContinueIo
+				? await planAutoContinue(run, { cause: autoContinueCauseOfBudgetStop(error), progress: error.okToolCalls ?? 0, costCapUsd, costUsedUsd: error.usage?.costUsd }, autoIo).catch((planError): AutoContinueDecision => {
+						console.error(`auto-continue plan failed run=${runId}`, planError);
+						return { schedule: false, reason: "not_recoverable" };
+					})
+				: ({ schedule: false, reason: "not_recoverable" } as AutoContinueDecision);
+			// Fechamento adiado pelo runtime e a retomada não vai acontecer: volta ao fechamento padrão.
+			const closingText = error.finalText ?? (error.deferredClosing ? budgetStopFallbackText(error.message) : error.message);
+			const resultText = autoPlan.schedule ? AUTO_CONTINUE_STATUS_TEXT : closingText;
+			if (!autoPlan.schedule) await emit({ type: "error", error: error.message });
 			await coalescer.flush();
 			await emitState.tail;
 			await finishAgentRun(runId, {
 				status: "budget_exhausted",
 				error: error.message,
 				// Resumo final do modelo (chamada sem tools), se houve; senão o erro.
-				resultText: error.finalText ?? error.message,
+				resultText,
 				usage: error.usage,
 				sandboxSessionId: cachedSessionId,
 				lease,
 			}).catch((finishError) => asLeaseError(finishError));
-			await settleDelivery("budget_exhausted", error.finalText ?? error.message);
+			if (autoPlan.schedule) {
+				// A entrega ao usuário fica para o fim da retomada; aqui não há nada a avisar.
+				await settleDelivery("cancelled");
+				const outcome = await scheduleAutoContinue(run, runUserId, autoPlan, autoIo);
+				if (autoContinueScheduled(outcome)) return { runId, status: "budget_exhausted" };
+				// A retomada não saiu do papel: o usuário recebe o fechamento comum em vez de ficar esperando.
+				if (run.conversationId) await appendConversationMessage(run.conversationId, "assistant", budgetStopFallbackText(error.message)).catch(() => undefined);
+			}
+			if (!autoPlan.schedule) await settleDelivery("budget_exhausted", resultText);
 			await chainRunFollowUp(run, runUserId, deps);
 			return { runId, status: "budget_exhausted" };
 		}
@@ -1323,6 +1364,10 @@ export type ExhaustedRunIo = {
 	failRun: (runId: string, error: string, display: { resultText: string }) => Promise<boolean>;
 	settle: (input: { userId: string; runId: string; end: RunEnd; resultText: string }) => Promise<void>;
 	chain: (run: AgentRun, userId: string, deps: AgentRunProcessorDeps) => Promise<void>;
+	/** Retomada automática de falha transitória (padrão: banco e fila reais quando há `enqueueNextRun`). */
+	autoContinue?: AutoContinueIo;
+	/** Fala do assistente na conversa (aviso quando a retomada não saiu do papel). */
+	appendAssistant: (conversationId: string, text: string) => Promise<unknown>;
 };
 
 const EXHAUSTED_IO: ExhaustedRunIo = {
@@ -1330,6 +1375,7 @@ const EXHAUSTED_IO: ExhaustedRunIo = {
 	failRun: failAgentRunAfterRetries,
 	settle: (input) => settleRunDelivery(input, { markReady: markDeliveryReady, cancel: cancelRunDelivery }),
 	chain: chainRunFollowUp,
+	appendAssistant: (conversationId, text) => appendConversationMessage(conversationId, "assistant", text),
 };
 
 export async function finalizeExhaustedAgentRun(
@@ -1343,12 +1389,27 @@ export async function finalizeExhaustedAgentRun(
 	try {
 		const run = await d.getRun(runId);
 		const friendly = describeRunError(err).message;
-		const display = proactiveFailureDisplay(run?.origin ?? "", friendly);
+		const failureDisplay = proactiveFailureDisplay(run?.origin ?? "", friendly);
 		const technical = `Falha após ${attempts} tentativa${attempts === 1 ? "" : "s"}: ${err.message}`;
+		// Falha transitória do provedor/rede com progresso: uma retomada automática (limitada) antes de desistir.
+		const autoIo = d.autoContinue ?? (deps.enqueueNextRun ? createAutoContinueIo(deps.enqueueNextRun) : undefined);
+		const autoPlan: AutoContinueDecision = autoIo && run?.userId
+			? await planAutoContinue(run, { cause: autoContinueCauseOfFailure(err) }, autoIo).catch((): AutoContinueDecision => ({ schedule: false, reason: "not_recoverable" }))
+			: { schedule: false, reason: "not_recoverable" };
+		const display = autoPlan.schedule ? AUTO_CONTINUE_STATUS_TEXT : failureDisplay;
 		const finalized = await d.failRun(runId, technical, { resultText: display });
 		if (!finalized || !run) return finalized;
+		if (autoPlan.schedule && autoIo && run.userId) {
+			const outcome = await scheduleAutoContinue(run, run.userId, autoPlan, autoIo);
+			if (autoContinueScheduled(outcome)) {
+				await d.settle({ userId: run.userId, runId, end: "cancelled", resultText: display }).catch((error) => console.error(`settleDelivery failed run=${runId}`, error));
+				return true;
+			}
+			// A retomada não saiu do papel: o usuário recebe o erro de sempre em vez de ficar esperando.
+			if (run.conversationId) await d.appendAssistant(run.conversationId, failureDisplay).catch(() => undefined);
+		}
 		if (run.userId) {
-			await d.settle({ userId: run.userId, runId, end: "failed", resultText: display }).catch((error) => console.error(`settleDelivery failed run=${runId}`, error));
+			await d.settle({ userId: run.userId, runId, end: "failed", resultText: failureDisplay }).catch((error) => console.error(`settleDelivery failed run=${runId}`, error));
 			await d.chain(run, run.userId, deps);
 		}
 		return true;

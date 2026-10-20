@@ -626,4 +626,4 @@ export {
 	type EmailMessageRecord,
 	type StartEmailRunDeps,
 } from "./bot-mailbox.js";
-export { getRunInspectionData, type RunInspectionData } from "./run-inspect.js";
+export { countCompletedToolResults, getRunInspectionData, type RunInspectionData } from "./run-inspect.js";

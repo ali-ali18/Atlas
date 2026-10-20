@@ -212,12 +212,12 @@ const routineFailureDeps: RoutineFailureDeps = {
 const activeAgentRuns = createActiveTracker();
 const shutdownController = new AbortController();
 
-async function enqueueChainedRun(nextRunId: string): Promise<boolean> {
+async function enqueueChainedRun(nextRunId: string, options: { delayMs?: number } = {}): Promise<boolean> {
 	try {
 		await agentRunQueue.add(
 			ATLAS_JOB_NAMES.runAgent,
 			{ runId: nextRunId },
-			{ jobId: `agent-run-${nextRunId}` },
+			{ jobId: `agent-run-${nextRunId}`, ...(options.delayMs && options.delayMs > 0 ? { delay: options.delayMs } : {}) },
 		);
 		await markRunJobEnqueued(nextRunId);
 		return true;

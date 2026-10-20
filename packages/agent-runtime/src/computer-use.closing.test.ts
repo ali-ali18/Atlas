@@ -190,3 +190,65 @@ describe("A8: arquivo grande", () => {
 		expect(truncatedToolCallMessage("web_search", 10)).toMatch(/shorter/);
 	});
 });
+
+describe("retomada automática: o runtime só adia o fechamento no teto de passos com progresso", () => {
+	it("tipo da parada: relógio é wall, mesmo quando o worker poderia retomar", async () => {
+		const error = await runComputerUse({
+			...base,
+			autoContinue: { canSchedule: true },
+			restoredCheckpoint: { version: 1, messages: [], nextStepIndex: 0, activeElapsedMs: 31 * MIN },
+			streamChat: (async () => text("Resumo: parei no tempo.")) as never,
+		}).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(BudgetExhaustedError);
+		expect((error as BudgetExhaustedError).kind).toBe("wall");
+		expect((error as BudgetExhaustedError).deferredClosing).toBeUndefined();
+		expect((error as BudgetExhaustedError).finalText).toContain("Resumo");
+	});
+
+	it("teto de passos sem nenhuma ferramenta bem-sucedida: fecha normalmente (nada a retomar)", async () => {
+		let calls = 0;
+		const error = await runComputerUse({
+			...base,
+			autoContinue: { canSchedule: true },
+			budget: { hardMaxSteps: 1, softMaxSteps: 1 },
+			streamChat: (async () => {
+				calls += 1;
+				return calls === 1 ? toolReply("tool_que_nao_existe", "{}") : text("Resumo: nada concluído.");
+			}) as never,
+		}).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(BudgetExhaustedError);
+		expect((error as BudgetExhaustedError).okToolCalls).toBe(0);
+		expect((error as BudgetExhaustedError).deferredClosing).toBeUndefined();
+		expect((error as BudgetExhaustedError).finalText).toBeTruthy();
+	});
+});
+
+describe("retomada automática: teto de passos com progresso", () => {
+	const fileDeps = () => ({
+		persist: vi.fn(async (input: { bytes: Uint8Array; meta?: Record<string, unknown>; kind: string; mime: string }) => ({ id: "art-1", kind: input.kind, meta: { ...(input.meta ?? {}), mime: input.mime, size: input.bytes.byteLength }, runId: "run-closing", conversationId: null, createdAt: new Date() })),
+		nextVersion: vi.fn(async () => 1),
+		countRunFiles: vi.fn(async () => 0),
+	});
+	const stepper = () => {
+		let index = 0;
+		return (async () => toolReply("create_file", JSON.stringify({ filename: `f${index}.md`, content: "x" }), "tool_calls", `c${index++}`)) as never;
+	};
+
+	it("com o worker pronto para retomar: sem resumo e sem 'responda continuar', fechamento adiado", async () => {
+		const error = await runComputerUse({ ...base, createFileDeps: fileDeps() as never, autoContinue: { canSchedule: true }, budget: { hardMaxSteps: 2, softMaxSteps: 2, extensionSteps: 1 }, streamChat: stepper() }).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(BudgetExhaustedError);
+		const stop = error as BudgetExhaustedError;
+		expect(stop.kind).toBe("steps");
+		expect(stop.okToolCalls).toBeGreaterThan(0);
+		expect(stop.deferredClosing).toBe(true);
+		expect(stop.finalText).toBeUndefined();
+	});
+
+	it("sem permissão do worker para retomar: o fechamento de sempre", async () => {
+		const error = await runComputerUse({ ...base, createFileDeps: fileDeps() as never, autoContinue: { canSchedule: false }, budget: { hardMaxSteps: 2, softMaxSteps: 2, extensionSteps: 1 }, streamChat: stepper() }).catch((e: unknown) => e);
+		const stop = error as BudgetExhaustedError;
+		expect(stop).toBeInstanceOf(BudgetExhaustedError);
+		expect(stop.deferredClosing).toBeUndefined();
+		expect(stop.finalText).toBeTruthy();
+	});
+});

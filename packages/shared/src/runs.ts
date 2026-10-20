@@ -148,6 +148,10 @@ export type CreateAgentRunRequest = {
 		maxTokens?: number;
 		maxCallsPerTool?: Record<string, number>;
 		extensionSteps?: number;
+		/** Custo máximo por execução em USD (retomada automática leva só o que sobrou do limite). */
+		maxCostUsd?: number;
+		/** Retomada automática: quantas já aconteceram neste turno do usuário (0 = run do usuário). */
+		autoContinue?: { attempt: number };
 	};
 };
 
