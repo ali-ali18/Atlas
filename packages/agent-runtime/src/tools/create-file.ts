@@ -228,7 +228,7 @@ export async function executeCreateFile(
 		}
 	}
 
-	const rendered = await runSandboxOperation(ctx, 60_000, (signal) => renderFile(input, { printPdf: (html) => d.printPdf(html, signal) }));
+	const rendered = await runSandboxOperation(ctx, 60_000, (signal) => renderFile(input, { printPdf: (html, _signal, options) => d.printPdf(html, signal, options) }));
 	assertSandboxExecution(ctx);
 	const version = await d.nextVersion({
 		userId: ctx.userId,

@@ -161,10 +161,10 @@ Use `create_file` with `layout: "abnt"` for `.docx` (preferred, since students e
 
 - **Capa**: `<!-- capa -->` … `<!-- /capa -->`. Inside, separate three zones with a line of `---`: top (institution, course, author), middle (`# Title` and subtitle or type of work) and bottom (city, then year). Put each line in its own paragraph (blank line between them). Everything is centered.
 - **Folha de rosto**: `<!-- folha-de-rosto -->` … `<!-- /folha-de-rosto -->`, same three zones: top (author), middle (`# Title`, then the nature of the work as a `>` quote, which this block indents 8 cm, then "Orientador: …"), bottom (city, year).
-- **Pre-textual elements**: write them after the folha de rosto as `#` sections, in order (RESUMO, ABSTRACT, SUMÁRIO, lists…). Each `#` opens its own page. For an element without a title (dedicatória, epígrafe) put `<!-- pagebreak -->` before it.
+- **Pre-textual elements**: write them after the folha de rosto as `#` sections, in order (RESUMO, ABSTRACT, lists…). Each `#` opens its own page. For an element without a title (dedicatória, epígrafe) put `<!-- pagebreak -->` before it.
 - **Textual part**: starts at the first `#` heading whose title begins with a number ("1 INTRODUÇÃO") or is "Introdução". To start it elsewhere, put `<!-- textual -->` right before it. Page numbers show from there.
 - **Page break**: `<!-- pagebreak -->` (or `\pagebreak`). You rarely need it; `#` sections already start pages.
-- Write the sumário as plain lines, one entry per paragraph (no page numbers: you can't know them). Tell the student to update it (or insert an automatic table of contents) in Word.
+- **Sumário**: write only `<!-- sumario -->` where it goes (after the abstract, before the introdução). Do not write its entries: the server builds it from the `#`, `##`, `###` and `####` titles of the textual and post-textual parts (including REFERÊNCIAS, APÊNDICE and ANEXO), with the same emphasis as the titles, dotted leaders and the page numbers. A `# SUMÁRIO` heading alone does the same, and anything written under it is replaced. So the titles you write are exactly what appears in it.
 
 **Skeleton.**
 
@@ -211,8 +211,8 @@ Year
 …
 # ABSTRACT
 …
-# SUMÁRIO
-…
+<!-- sumario -->
+
 # 1 INTRODUÇÃO
 …
 ## 1.1 Problema de pesquisa
@@ -221,10 +221,11 @@ Year
 …
 ```
 
-**Limits to tell the student.**
-- In `.docx` the first textual page number is "pre-textual pages + 1", counted from the folha de rosto, each `#` and each page break. If a pre-textual page runs over (a long sumário), the number is off; the student fixes it in Word (Insert → Page Number → Format).
-- The `.pdf` numbers pages exactly (needs a recent Chromium); the `.docx` is the editable one, and Word may paginate a little differently from the PDF.
-- The font is Times New Roman. If the institution manual asks for something different (Arial, a logo on the cover, a numbered list of figures), say what you could not apply automatically so the student can adjust it in Word.
+**What to promise the student.**
+- Page numbers and the sumário need no manual work in the `.pdf`: the numbers are measured on the real layout.
+- In the `.docx` the page numbers are computed by Word itself, and the sumário is a real Word table of contents, pre-filled with the page numbers measured on the PDF layout of the same text. Word may ask to update fields when opening it: answering yes refreshes it with Word's own pagination, which can differ slightly from the PDF. Do not tell the student to fix numbering by hand.
+- Not generated: lista de ilustrações, de tabelas, de abreviaturas, glossário and índice. If the work needs them, write them as plain `#` sections and say that their page numbers are not filled in.
+- The font is Times New Roman. If the institution manual asks for something different (Arial, a logo on the cover), say what you could not apply automatically so the student can adjust it in Word.
 
 **Before delivering, check:**
 - every citation is in the references and vice versa;

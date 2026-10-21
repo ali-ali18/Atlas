@@ -1,7 +1,8 @@
 import { Lexer, Marked, type Token, type Tokens } from "marked";
 import sanitizeHtml from "sanitize-html";
-import { ABNT_PAGE_BREAK, isCaptionText, isReferencesTitle, isUnnumberedTitle, parseAbntMarkdown, splitFrontZones } from "./abnt.js";
-import { SANITIZE, escapeHtml, safeCss } from "./pdf.js";
+import { ABNT_PAGE_BREAK, ABNT_TOC, isCaptionText, isReferencesTitle, isUnnumberedTitle, parseAbntMarkdown, splitFrontZones, tocHeadings, type TocHeading } from "./abnt.js";
+import { measureHeadingPages } from "./abnt-toc.js";
+import { SANITIZE, escapeHtml, safeCss, type PrintPdfOptions } from "./pdf.js";
 
 const DEFAULT_FONT = "Times New Roman";
 
@@ -47,6 +48,10 @@ img { max-width: 100%; }
 .front.cover { page: cover; }
 .front.rosto { page: pre; }
 .front.rosto blockquote { margin-left: 8cm; }
+.toc p { display: flex; align-items: baseline; text-indent: 0; text-align: left; line-height: 1.3; margin: 0 0 8pt; }
+.toc .t { padding-right: 3pt; } .toc .n { padding-left: 3pt; }
+.toc .d { flex: 1; border-bottom: 1.5px dotted #000; position: relative; top: -2pt; min-width: 12pt; }
+.toc .l1 { font-weight: bold; text-transform: uppercase; } .toc .l2 { font-weight: bold; } .toc .l3 { font-weight: bold; font-style: italic; } .toc .l4 { font-style: italic; }
 .zones { height: 245mm; display: grid; grid-template-rows: 1fr auto 1fr; }
 .zones > .z3 { align-self: end; }
 section.pre { page: pre; }
@@ -93,13 +98,57 @@ function frontHtml(kind: "cover" | "rosto", markdown: string): string {
 	return `<div class="front ${kind}"><div class="zones">${zone("z1", top)}${zone("z2", middle)}${zone("z3", bottom)}</div></div>`;
 }
 
+/** Sumário (NBR 6027): títulos com o mesmo destaque do texto, linha pontilhada e número da página à direita. */
+function tocHtml(headings: TocHeading[], pages: ReadonlyArray<number | string> | undefined): string {
+	const rows = headings.map((heading, index) => {
+		const page = pages?.[index];
+		const number = page === undefined ? "" : `<span class="n">${escapeHtml(String(page))}</span>`;
+		return `<p class="l${Math.min(heading.depth, 4)}"><span class="t">${escapeHtml(heading.text)}</span><span class="d"></span>${number}</p>`;
+	});
+	return `<div class="toc">${rows.join("")}</div>`;
+}
+
+const TOC_SLOT = '<div class="toc-slot"></div>';
+
+export type AbntPdfOptions = { title?: string; css?: string; font?: string; tocPages?: ReadonlyArray<number | string> };
+
 /** HTML completo (a página inteira) do PDF em ABNT; o Chromium só imprime. */
-export function buildAbntPdfHtml(content: string, opts: { title?: string; css?: string; font?: string } = {}): string {
+export function buildAbntPdfHtml(content: string, opts: AbntPdfOptions = {}): string {
 	const parts = parseAbntMarkdown(content);
+	const toc = parts.hasToc ? tocHtml(tocHeadings(parts), opts.tocPages) : "";
+	const section = (markdown: string) => clean(renderPart(markdown).replaceAll(ABNT_TOC, TOC_SLOT)).replace(TOC_SLOT, toc);
 	const body: string[] = [];
 	if (parts.cover) body.push(frontHtml("cover", parts.cover));
 	if (parts.titlePage) body.push(frontHtml("rosto", parts.titlePage));
-	if (parts.pretextual) body.push(`<section class="pre">${clean(renderPart(parts.pretextual))}</section>`);
-	if (parts.textual || body.length === 0) body.push(`<section class="tex">${clean(renderPart(parts.textual))}</section>`);
+	if (parts.pretextual) body.push(`<section class="pre">${section(parts.pretextual)}</section>`);
+	if (parts.textual || body.length === 0) body.push(`<section class="tex">${section(parts.textual)}</section>`);
 	return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(opts.title ?? "")}</title><style>${abntCss({ font: opts.font, cover: Boolean(parts.cover) })}${safeCss(opts.css)}</style></head><body>${body.join("")}</body></html>`;
+}
+
+type Print = (html: string, options?: PrintPdfOptions) => Promise<Uint8Array>;
+type Measure = typeof measureHeadingPages;
+
+/**
+ * Primeira passada com o sumário em branco (números provisórios de dois dígitos, que ocupam o mesmo espaço) para
+ * achar a página de cada título no contorno do PDF. `undefined` quando não há sumário ou não foi possível medir.
+ */
+export async function measureAbntPages(
+	content: string,
+	print: Print,
+	opts: AbntPdfOptions = {},
+	measure: Measure = measureHeadingPages,
+): Promise<{ pdf: Uint8Array; pages: number[] | undefined } | undefined> {
+	const parts = parseAbntMarkdown(content);
+	if (!parts.hasToc) return undefined;
+	const headings = tocHeadings(parts);
+	const pdf = await print(buildAbntPdfHtml(content, { ...opts, tocPages: headings.map(() => "00") }), { outline: true });
+	return { pdf, pages: headings.length > 0 ? await measure(pdf, headings, Boolean(parts.cover)) : [] };
+}
+
+/** PDF ABNT final; com sumário, imprime duas vezes: a segunda já com as páginas medidas na primeira. */
+export async function renderAbntPdf(content: string, print: Print, opts: AbntPdfOptions = {}, measure: Measure = measureHeadingPages): Promise<Uint8Array> {
+	const measured = await measureAbntPages(content, print, opts, measure);
+	if (!measured) return print(buildAbntPdfHtml(content, opts));
+	// Sem medida (Chromium sem contorno, título não achado) o sumário sai sem números em vez de números errados.
+	return print(buildAbntPdfHtml(content, { ...opts, tocPages: measured.pages ?? [] }));
 }

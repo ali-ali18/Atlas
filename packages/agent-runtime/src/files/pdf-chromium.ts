@@ -6,7 +6,7 @@ import type { PrintPdf } from "./pdf.js";
 const CONTAINER_ARGS = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"];
 
 /** Chromium offline: cancellation closes the browser, including a late launch. */
-export const printPdfWithChromium: PrintPdf = (html, signal) =>
+export const printPdfWithChromium: PrintPdf = (html, signal, options) =>
 	runSandboxOperation({ signal }, 60_000, async (operationSignal) => {
 		const executablePath =
 			process.env.ATLAS_PDF_CHROME_PATH?.trim() || undefined;
@@ -46,7 +46,7 @@ export const printPdfWithChromium: PrintPdf = (html, signal) =>
 			const page = await context.newPage();
 			await page.setContent(html, { waitUntil: "load" });
 			operationSignal.throwIfAborted();
-			const pdf = await page.pdf({ format: "A4", printBackground: true });
+			const pdf = await page.pdf({ format: "A4", printBackground: true, ...(options?.outline ? { outline: true, tagged: true } : {}) });
 			return new Uint8Array(pdf);
 		} finally {
 			operationSignal.removeEventListener("abort", close);

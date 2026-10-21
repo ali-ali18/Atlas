@@ -5,6 +5,8 @@ import {
 	Header,
 	HeadingLevel,
 	HeightRule,
+	ImportedXmlComponent,
+	LeaderType,
 	LevelFormat,
 	LineRuleType,
 	NumberFormat,
@@ -15,13 +17,14 @@ import {
 	TableCell,
 	TableLayoutType,
 	TableRow,
+	TabStopType,
 	TextRun,
 	VerticalAlign,
 	WidthType,
 	type ISectionOptions,
 } from "docx";
 import { Lexer, type Token, type Tokens } from "marked";
-import { ABNT_PAGE_BREAK, countPretextualPages, isCaptionText, isReferencesTitle, isUnnumberedTitle, parseAbntMarkdown, splitFrontZones } from "./abnt.js";
+import { ABNT_PAGE_BREAK, ABNT_TOC, isCaptionText, isReferencesTitle, isUnnumberedTitle, parseAbntMarkdown, splitFrontZones, tocHeadings, type TocHeading } from "./abnt.js";
 import { inlineRuns } from "./markdown-to-docx.js";
 
 /** Medidas em twips (1 cm = 567): margens 3/3/2/2 cm, A4, recuos e tamanhos da NBR 14724. */
@@ -42,7 +45,7 @@ const TEXT_WIDTH = ABNT_DOCX.page.width - ABNT_DOCX.margin.left - ABNT_DOCX.marg
 
 type Mode = "front" | "pre" | "textual";
 type Block = Paragraph | Table;
-type Ctx = { mode: Mode; atStart: boolean; breakNext: boolean; refs: boolean; quoteIndent: number };
+type Ctx = { mode: Mode; atStart: boolean; breakNext: boolean; refs: boolean; quoteIndent: number; toc?: { headings: TocHeading[]; pages?: ReadonlyArray<number> } };
 
 const SPACING_15 = { line: ABNT_DOCX.lineOneAndHalf, lineRule: LineRuleType.AUTO, before: 0, after: 0 };
 const SPACING_1 = { line: ABNT_DOCX.lineSingle, lineRule: LineRuleType.AUTO, before: 0, after: 0 };
@@ -83,6 +86,21 @@ function heading(token: Tokens.Heading, ctx: Ctx): Block[] {
 				}),
 			];
 		}
+		// Títulos pré-textuais não usam estilo de título (não entram no sumário) e abrem página.
+		if (ctx.mode === "pre") {
+			return [
+				para(
+					ctx,
+					{
+						alignment: AlignmentType.CENTER,
+						keepNext: true,
+						spacing: { ...SPACING_15, after: ABNT_DOCX.lineOneAndHalf },
+						children: inlineRuns(token.tokens, { bold: true, caps: true }),
+					},
+					!ctx.atStart,
+				),
+			];
+		}
 		// Seção primária abre página (menos a primeira da parte, que já começa numa).
 		return [
 			para(
@@ -100,6 +118,9 @@ function heading(token: Tokens.Heading, ctx: Ctx): Block[] {
 	}
 	if (ctx.mode === "front") {
 		return [para(ctx, { alignment: AlignmentType.CENTER, spacing: SPACING_1, children: inlineRuns(token.tokens, { bold: true }) })];
+	}
+	if (ctx.mode === "pre") {
+		return [para(ctx, { alignment: AlignmentType.LEFT, keepNext: true, spacing: { ...SPACING_15, before: ABNT_DOCX.lineOneAndHalf, after: ABNT_DOCX.lineOneAndHalf }, children: inlineRuns(token.tokens, { bold: true }) })];
 	}
 	return [
 		para(ctx, {
@@ -251,6 +272,7 @@ function blockToAbnt(token: Token, ctx: Ctx, level = 0): Block[] {
 		case "blockquote":
 			return quote(token as Tokens.Blockquote, ctx);
 		case "html":
+			if ((token as Tokens.HTML).raw.trim() === ABNT_TOC) return tocBlocks(ctx);
 			// Marcador de quebra de página; no início de uma página ele não faz nada (evita página em branco).
 			if ((token as Tokens.HTML).raw.trim() === ABNT_PAGE_BREAK && !ctx.atStart) ctx.breakNext = true;
 			return [];
@@ -259,8 +281,34 @@ function blockToAbnt(token: Token, ctx: Ctx, level = 0): Block[] {
 	}
 }
 
-function newCtx(mode: Mode, quoteIndent: number = ABNT_DOCX.quoteIndent): Ctx {
-	return { mode, atStart: true, breakNext: false, refs: false, quoteIndent };
+function escapeXml(text: string): string {
+	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Sumário como campo TOC do Word sobre os estilos de título (1 a 4), já preenchido com as páginas medidas;
+ * o Word o atualiza ao abrir (`updateFields`). Sem páginas medidas só o campo vazio de números.
+ */
+function tocBlocks(ctx: Ctx): Block[] {
+	ctx.atStart = false;
+	ctx.breakNext = false;
+	const headings = ctx.toc?.headings ?? [];
+	if (headings.length === 0) return [];
+	const field = (type: string) => `<w:r><w:fldChar w:fldCharType="${type}"/></w:r>`;
+	const begin = `${field("begin")}<w:r><w:instrText xml:space="preserve"> TOC \\o "1-4" \\h \\z</w:instrText></w:r>${field("separate")}`;
+	const xml = headings.map((heading, index) => {
+		const page = ctx.toc?.pages?.[index];
+		const entry = `<w:r><w:t xml:space="preserve">${escapeXml(heading.text)}</w:t></w:r>${page === undefined ? "" : `<w:r><w:tab/></w:r><w:r><w:t>${page}</w:t></w:r>`}`;
+		return `<w:p><w:pPr><w:pStyle w:val="TOC${Math.min(heading.depth, 4)}"/></w:pPr>${index === 0 ? begin : ""}${entry}</w:p>`;
+	});
+	// O campo fecha num parágrafo mínimo, como o Word faz.
+	xml.push(`<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/><w:rPr><w:sz w:val="2"/></w:rPr></w:pPr>${field("end")}</w:p>`);
+	// fromXmlString devolve um invólucro sem nome em volta do elemento `w:p`.
+	return xml.map((item) => (ImportedXmlComponent.fromXmlString(item) as unknown as { root: unknown[] }).root[0] as Paragraph);
+}
+
+function newCtx(mode: Mode, quoteIndent: number = ABNT_DOCX.quoteIndent, toc?: Ctx["toc"]): Ctx {
+	return { mode, atStart: true, breakNext: false, refs: false, quoteIndent, ...(toc ? { toc } : {}) };
 }
 
 function blocksOf(markdown: string, ctx: Ctx): Block[] {
@@ -305,31 +353,37 @@ function frontPage(markdown: string, quoteIndent: number): Block[] {
 
 /**
  * Markdown para .docx em ABNT (NBR 14724): capa sem número, folha de rosto e pré-textual contadas mas sem número,
- * parte textual com número no canto superior direito começando em (páginas pré-textuais + 1).
+ * parte textual com número no canto superior direito. A numeração é do Word: a seção pré-textual recomeça em 1 e a
+ * textual continua dela, qualquer que seja o tamanho do pré-textual. Sumário: campo TOC do Word (`tocPages` o preenche).
  */
-export async function abntMarkdownToDocx(markdown: string, title?: string, opts: { font?: string } = {}): Promise<Uint8Array> {
+export async function abntMarkdownToDocx(markdown: string, title?: string, opts: { font?: string; tocPages?: ReadonlyArray<number> } = {}): Promise<Uint8Array> {
 	const font = opts.font ?? ABNT_DOCX.defaultFont;
 	const parts = parseAbntMarkdown(markdown);
 	const pageProps = { size: ABNT_DOCX.page, margin: ABNT_DOCX.margin };
 	const sections: ISectionOptions[] = [];
+	const toc = parts.hasToc ? { headings: tocHeadings(parts), ...(opts.tocPages ? { pages: opts.tocPages } : {}) } : undefined;
 
 	if (parts.cover) sections.push({ properties: { page: pageProps }, children: frontPage(parts.cover, ABNT_DOCX.quoteIndent) });
 
 	const preChildren: Block[] = [];
 	if (parts.titlePage) preChildren.push(...frontPage(parts.titlePage, ABNT_DOCX.titlePageNoteIndent));
 	if (parts.pretextual) {
-		const ctx = newCtx("pre");
+		const ctx = newCtx("pre", ABNT_DOCX.quoteIndent, toc);
 		// Depois da folha de rosto o conteúdo seguinte abre outra página.
 		ctx.atStart = !parts.titlePage;
 		ctx.breakNext = Boolean(parts.titlePage);
 		preChildren.push(...blocksOf(parts.pretextual, ctx));
 	}
-	if (preChildren.length > 0) sections.push({ properties: { page: pageProps }, children: preChildren });
+	// A numeração recomeça em 1 na folha de rosto (a capa não é contada).
+	if (preChildren.length > 0) {
+		sections.push({ properties: { page: { ...pageProps, pageNumbers: { start: 1, formatType: NumberFormat.DECIMAL } } }, children: preChildren });
+	}
 
-	const textualChildren = parts.textual ? blocksOf(parts.textual, newCtx("textual")) : [];
+	const textualChildren = parts.textual ? blocksOf(parts.textual, newCtx("textual", ABNT_DOCX.quoteIndent, toc)) : [];
 	if (textualChildren.length > 0 || sections.length === 0) {
 		sections.push({
-			properties: { page: { ...pageProps, pageNumbers: { start: countPretextualPages(parts) + 1, formatType: NumberFormat.DECIMAL } } },
+			// Continua da seção anterior; sem pré-textual, a capa não deve ser contada.
+			properties: { page: { ...pageProps, ...(preChildren.length === 0 ? { pageNumbers: { start: 1, formatType: NumberFormat.DECIMAL } } : {}) } },
 			headers: {
 				default: new Header({
 					children: [
@@ -352,9 +406,21 @@ export async function abntMarkdownToDocx(markdown: string, title?: string, opts:
 		quickFormat: true,
 		run: { font, size: ABNT_DOCX.bodySize, color: "000000", bold: false, italics: false, ...extra },
 	});
+	const tocStyle = (level: number, extra: { bold?: boolean; italics?: boolean; allCaps?: boolean }) => ({
+		id: `TOC${level}`,
+		name: `toc ${level}`,
+		basedOn: "Normal",
+		next: "Normal",
+		run: { font, size: ABNT_DOCX.bodySize, color: "000000", bold: false, italics: false, ...extra },
+		paragraph: {
+			tabStops: [{ type: TabStopType.RIGHT, position: TEXT_WIDTH, leader: LeaderType.DOT }],
+			spacing: { line: ABNT_DOCX.lineSingle, lineRule: LineRuleType.AUTO, before: 0, after: 160 },
+		},
+	});
 	const doc = new Document({
 		title: title ?? undefined,
 		creator: "Atlas",
+		...(toc ? { features: { updateFields: true } } : {}),
 		styles: {
 			default: {
 				document: {
@@ -369,6 +435,10 @@ export async function abntMarkdownToDocx(markdown: string, title?: string, opts:
 				headingStyle("Heading4", "heading 4", { italics: true }),
 				headingStyle("Heading5", "heading 5", { italics: true }),
 				headingStyle("Heading6", "heading 6", { italics: true }),
+				tocStyle(1, { bold: true, allCaps: true }),
+				tocStyle(2, { bold: true }),
+				tocStyle(3, { bold: true, italics: true }),
+				tocStyle(4, { italics: true }),
 			],
 		},
 		numbering: {

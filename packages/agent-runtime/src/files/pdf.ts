@@ -2,7 +2,8 @@ import { Marked } from "marked";
 import sanitizeHtml from "sanitize-html";
 
 /** Recebe o HTML final e devolve os bytes do PDF (Chromium; injetado para testar). */
-export type PrintPdf = (html: string, signal?: AbortSignal) => Promise<Uint8Array>;
+export type PrintPdfOptions = { /** Embute o contorno (bookmarks) dos títulos no PDF. */ outline?: boolean };
+export type PrintPdf = (html: string, signal?: AbortSignal, options?: PrintPdfOptions) => Promise<Uint8Array>;
 
 const DOCUMENT_CSS = `
 @page { size: A4; margin: 22mm 18mm; }
