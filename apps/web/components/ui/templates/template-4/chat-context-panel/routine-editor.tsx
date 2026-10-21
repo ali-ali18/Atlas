@@ -821,6 +821,20 @@ export function RoutineEditor({
 				</Field>
 			) : null}
 
+			<Field>
+				<FieldLabel className="text-xs text-muted-foreground">Avisar</FieldLabel>
+				<SettingsPicker
+					aria-label="Quando avisar"
+					onChange={(value) => setNotify(value === "important" ? "important" : "always")}
+					options={[
+						{ value: "always", label: "Sempre" },
+						{ value: "important", label: "Só quando importante" },
+					]}
+					value={notify}
+				/>
+				<p className="text-xs text-muted-foreground">O resultado sempre fica no chat. Em “Só quando importante”, a notificação só sai se o bot achar que vale você saber agora.</p>
+			</Field>
+
 			{model.startsWith("chatgpt/") ? <Field><FieldLabel className="text-xs text-muted-foreground">Rotinas usam o plano</FieldLabel><SettingsPicker aria-label="Rotinas usam o plano" value={allowChatgptPlan ? "on" : "off"} onChange={(value) => setAllowChatgptPlan(value === "on")} options={[{ value: "off", label: "Não, usar OpenRouter" }, { value: "on", label: "Sim, usar plano ChatGPT" }]} /><p className="text-xs text-muted-foreground">Desligado por padrão. Ao ativar, execuções automáticas consomem sua cota pessoal.</p></Field> : null}
 {!isGithubTrigger ? (
 				<div className="space-y-2">
