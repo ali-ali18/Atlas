@@ -837,3 +837,4 @@ export * from "./model-tiers.js";
 export * from "./maintenance-status.js";
 export * from "./run-inspect.js";
 export * from "./lessons.js";
+export * from "./skill-review.js";
