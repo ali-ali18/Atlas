@@ -482,7 +482,7 @@ function UserMessageBubble({
 			</div>
 			<Bubble align="end" variant="muted">
 				<BubbleContent
-					className={cn("text-foreground", bubbleRadius("right", groupPosition))}
+					className={cn("whitespace-pre-wrap text-foreground", bubbleRadius("right", groupPosition))}
 				>
 					{mentionMembers?.length || knownSkills?.size ? renderMentions(text, mentionMembers ?? [], knownSkills) : text}
 				</BubbleContent>
