@@ -639,3 +639,19 @@ export {
 	type StartEmailRunDeps,
 } from "./bot-mailbox.js";
 export { countCompletedToolResults, getRunInspectionData, type RunInspectionData } from "./run-inspect.js";
+export {
+	applyLessonDeltas,
+	enforceLessonCap,
+	getBotLesson,
+	listBotLessons,
+	listLessonsForPrompt,
+	recordLessonFeedback,
+	restoreBotLessonVersion,
+	retireBotLesson,
+	toLessonView,
+	updateBotLessonContent,
+	type ApplyLessonResult,
+	type LessonDeps,
+	type LessonFeedbackResult,
+} from "./bot-lessons.js";
+export { chooseDuplicateLosers, pickEvictions, planLessonDeltas, resolveLesson, type DuplicatePair, type LessonOp, type LessonPlan, type PlanLesson } from "./lesson-deltas.js";

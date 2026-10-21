@@ -83,7 +83,7 @@ function embeddingApiKey(): string | null {
 }
 
 /** Gera embedding ou null (sem key/falha = salva sem vetor, sem quebrar). */
-async function tryEmbed(content: string): Promise<number[] | null> {
+export async function tryEmbed(content: string): Promise<number[] | null> {
 	const apiKey = embeddingApiKey();
 	if (!apiKey) return null;
 	try {
@@ -99,7 +99,7 @@ async function tryEmbed(content: string): Promise<number[] | null> {
 	}
 }
 
-function vectorLiteral(vector: number[]): string {
+export function vectorLiteral(vector: number[]): string {
 	return `[${vector.join(",")}]`;
 }
 
