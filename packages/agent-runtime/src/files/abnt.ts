@@ -101,10 +101,65 @@ export function parseAbntMarkdown(markdown: string): AbntParts {
 	return {
 		...(blocks.cover ? { cover: blocks.cover.join("\n").trim() } : {}),
 		...(blocks.titlePage ? { titlePage: blocks.titlePage.join("\n").trim() } : {}),
-		pretextual: main.slice(0, split).join("\n").trim(),
-		textual: main.slice(split).join("\n").trim(),
+		pretextual: normalizeBlocks(main.slice(0, split)).join("\n").trim(),
+		textual: normalizeBlocks(main.slice(split)).join("\n").trim(),
 		hasToc,
 	};
+}
+
+const BLOCK_START = /^\s*(?:#{1,6}\s|>|\||[-*+]\s|\d+[.)]\s|<|(?:-{3,}|\*{3,}|_{3,})\s*$)/;
+const SENTENCE_END = /[.!?…:]["”')\]]*\s*$/;
+
+/**
+ * Tolerância com o Markdown do modelo: tabela sempre separada do parágrafo (legenda colada na tabela) e, no corpo,
+ * linha que termina uma frase seguida de outra linha de texto vira novo parágrafo. Linha que não termina frase é
+ * quebra de linha do editor e continua o parágrafo. Listas, citações, títulos, código e tabelas ficam como estão.
+ */
+function normalizeBlocks(lines: string[]): string[] {
+	const out: string[] = [];
+	let kind: "blank" | "plain" | "table" | "other" = "blank";
+	let fence: string | undefined;
+	for (const line of lines) {
+		const fenceMatch = FENCE.exec(line);
+		if (fenceMatch) {
+			const marker = fenceMatch[1]![0]!;
+			if (!fence) {
+				if (kind === "table") out.push("");
+				fence = marker;
+			} else if (fence === marker) fence = undefined;
+			out.push(line);
+			kind = "other";
+			continue;
+		}
+		if (fence) {
+			out.push(line);
+			continue;
+		}
+		if (!line.trim()) {
+			out.push(line);
+			kind = "blank";
+			continue;
+		}
+		const isTable = /^\s*\|/.test(line);
+		const isPlain = !isTable && !BLOCK_START.test(line) && !/^(?: {4}|\t)/.test(line);
+		if (isTable) {
+			if (kind === "plain" || kind === "other") out.push("");
+			kind = "table";
+		} else if (kind === "table") {
+			out.push("");
+			kind = isPlain ? "plain" : "other";
+		} else if (isPlain) {
+			if (kind === "plain" && SENTENCE_END.test(out[out.length - 1]!)) out.push("");
+			kind = "plain";
+		} else kind = "other";
+		out.push(line);
+	}
+	return out;
+}
+
+/** Título de tabela/figura/quadro (vai acima do objeto), diferente de "Fonte:" e "Nota:" (abaixo). */
+export function isCaptionTitle(text: string): boolean {
+	return /^\s*(?:figura|quadro|tabela|gr[aá]fico|fotografia|mapa|fluxograma|organograma|imagem|ilustra[cç][aã]o)\s+\d+\s*[–—:.-]/i.test(text);
 }
 
 function plainText(tokens: Token[] | undefined): string {
