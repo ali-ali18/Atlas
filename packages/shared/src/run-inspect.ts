@@ -4,7 +4,8 @@
  * flag `ATLAS_RUN_INSPECTOR_FULL=1` está ligada (já redigido). Funções puras (sem I/O).
  */
 
-import { lessonRef, parseLessonFeedback, type InspectLessonsPayload, type LessonFeedbackOutcome } from "./lessons.js";
+import { lessonRef, parseLessonFeedback, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackOutcome } from "./lessons.js";
+import { PLAN_OUTCOME_ADJUSTED, PLAN_OUTCOME_APPROVED } from "./plan.js";
 
 export const INSPECT_CATEGORIES = ["system", "tools", "history", "toolResults", "notes", "turn"] as const;
 export type InspectCategory = (typeof INSPECT_CATEGORIES)[number];
@@ -91,6 +92,15 @@ export type InspectApproval = {
 	status: "pending" | "approved" | "rejected" | "failed";
 	detail?: string;
 	ok?: boolean;
+	/** Cartão de plano (`propose_plan`): proposto, aprovado, ajustado (o usuário pediu mudança) ou cancelado. */
+	plan?: { steps: number; state: "proposed" | "approved" | "adjusted" | "cancelled" };
+};
+
+/** Hooks do run: acertos do portão do plano e das regras das lições (só metadados). */
+export type InspectHooks = {
+	hits: Array<{ source: "plan" | "rule"; action: "blocked" | "confirm" | "skipped"; tool: string; ref?: string; ruleKind?: string; detail?: string }>;
+	/** Refs (L1a2b) das lições cuja regra barrou uma chamada que depois deu certo. */
+	helped: string[];
 };
 
 /** Lições (playbook do bot) neste run: o que foi injetado, o que o modelo marcou como usado e a última revisão em segundo plano. */
@@ -116,6 +126,7 @@ export type RunInspection = {
 	fullRequestEnabled: boolean;
 	context?: InspectContextPayload["transcript"];
 	lessons?: InspectLessons;
+	hooks?: InspectHooks;
 	steps: InspectStepView[];
 	toolCalls: InspectToolCall[];
 	approvals: InspectApproval[];
@@ -143,6 +154,7 @@ export type InspectRawApproval = { id: string; content: string };
 export const INSPECT_ARGS_MAX = 400;
 export const INSPECT_SUMMARY_MAX = 300;
 export const INSPECT_ERRORS_MAX = 10;
+export const INSPECT_HOOK_HITS_MAX = 30;
 
 function record(value: unknown): Record<string, unknown> | undefined {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
@@ -215,7 +227,20 @@ function parseApproval(row: InspectRawApproval): InspectApproval | null {
 		const status = card.status;
 		if (status !== "pending" && status !== "approved" && status !== "rejected" && status !== "failed") return null;
 		const outcome = record(card.outcome);
+		const planCard = record(card.plan);
+		const planSteps = Array.isArray(planCard?.steps) ? planCard.steps.length : 0;
+		const detailText = str(outcome?.detail);
+		const planState: NonNullable<InspectApproval["plan"]>["state"] | undefined = !planCard
+			? undefined
+			: status === "approved" || detailText === PLAN_OUTCOME_APPROVED
+				? "approved"
+				: detailText === PLAN_OUTCOME_ADJUSTED
+					? "adjusted"
+					: status === "pending"
+						? "proposed"
+						: "cancelled";
 		return {
+			...(planState ? { plan: { steps: planSteps, state: planState } } : {}),
 			id: str(card.confirmId) ?? row.id,
 			title: clip(str(card.title) ?? "", 200),
 			status,
@@ -334,6 +359,8 @@ export function buildRunInspection(input: {
 	let lessonsAtStart = 0;
 	const lessonsLoaded: InspectLessons["loaded"] = [];
 	let lessonReview: InspectLessons["review"];
+	const hookHits: InspectHooks["hits"] = [];
+	const hookHelped: string[] = [];
 	const errors: Array<{ message: string; at?: string }> = [];
 	for (const event of input.events) {
 		const payload = record(event.payload);
@@ -370,6 +397,26 @@ export function buildRunInspection(input: {
 					...(strings(review.signals) ? { signals: strings(review.signals)!.slice(0, 6) } : {}),
 				};
 			}
+		} else if (event.type === "inspect_hooks") {
+			const hooks = payload as Partial<InspectHooksPayload> | undefined;
+			for (const hit of Array.isArray(hooks?.hits) ? hooks.hits : []) {
+				const row = record(hit);
+				const source = row?.source === "plan" || row?.source === "rule" ? row.source : undefined;
+				const action = row?.action === "blocked" || row?.action === "confirm" || row?.action === "skipped" ? row.action : undefined;
+				if (!row || !source || !action || !str(row.tool) || hookHits.length >= INSPECT_HOOK_HITS_MAX) continue;
+				hookHits.push({
+					source,
+					action,
+					tool: clip(str(row.tool)!, 120),
+					...(str(row.lessonId) ? { ref: lessonRef(str(row.lessonId)!) } : {}),
+					...(str(row.ruleKind) ? { ruleKind: clip(str(row.ruleKind)!, 40) } : {}),
+					...(str(row.detail) ? { detail: clip(scrub(str(row.detail)!), 160) } : {}),
+				});
+			}
+			for (const id of strings(hooks?.helped) ?? []) {
+				const ref = lessonRef(id);
+				if (!hookHelped.includes(ref)) hookHelped.push(ref);
+			}
 		} else if (event.type === "error") {
 			const message = str(payload?.error);
 			if (message && errors.length < INSPECT_ERRORS_MAX) errors.push({ message: clip(scrub(message), INSPECT_SUMMARY_MAX), ...(event.createdAt ? { at: event.createdAt } : {}) });
@@ -388,6 +435,7 @@ export function buildRunInspection(input: {
 		...(lessonIds.length > 0 || used.length > 0 || lessonReview
 			? { lessons: { injected: lessonIds, atStart: lessonsAtStart, loaded: lessonsLoaded, used, ...(lessonReview ? { review: lessonReview } : {}) } }
 			: {}),
+		...(hookHits.length > 0 || hookHelped.length > 0 ? { hooks: { hits: hookHits, helped: hookHelped } } : {}),
 		steps,
 		toolCalls,
 		approvals: input.approvals.map(parseApproval).filter((item): item is InspectApproval => item !== null),

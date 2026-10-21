@@ -5,6 +5,7 @@
  * Tudo aqui é puro (sem I/O): tipos, limites, renderização, seleção e a checagem de proveniência.
  */
 import { redactSecrets } from "./redact-secrets.js";
+import { parseLessonRule, toolPatternMatches, type LessonRule } from "./lesson-rules.js";
 
 export const LESSON_MAX_CHARS = 280;
 export const LESSON_EVIDENCE_QUOTE_MAX = 300;
@@ -22,11 +23,7 @@ export const LESSON_ORIGINS = ["correction", "failure_recovery", "failed_action"
 export type LessonOrigin = (typeof LESSON_ORIGINS)[number];
 export type LessonStatus = "active" | "retired";
 
-/**
- * Regra checável por máquina (fase 2: compilar a lição em verificação). Reservado: nada o aplica hoje.
- * Ex.: `{ kind: "required_args", tool: "mcp__x__send", fields: ["to"] }`.
- */
-export type LessonRule = { kind: string; [key: string]: unknown };
+// `LessonRule` (regra que só aperta o comportamento, aplicada antes de cada tool) mora em `lesson-rules.ts`.
 
 /** De onde veio o fato: fala do usuário ou desfecho de execução (erro/status). Nunca conteúdo de ferramenta. */
 export type LessonEvidenceSource = "user" | "outcome";
@@ -41,6 +38,8 @@ export type LessonView = {
 	content: string;
 	origin: LessonOrigin;
 	evidence: LessonEvidence | null;
+	/** Regra que o runtime aplica antes das tools (só aperta o comportamento); null = só lembrete. */
+	rule: LessonRule | null;
 	helpful: number;
 	harmful: number;
 	uses: number;
@@ -199,6 +198,8 @@ export type LessonSlice = {
 	failureTexts: readonly string[];
 	/** Todo texto vindo de ferramenta no trecho (resultados que deram certo também): a lição não pode copiá-lo. */
 	toolTexts?: readonly string[];
+	/** Nomes das tools chamadas no trecho: uma regra só vale para tool que apareceu nele. */
+	toolNames?: readonly string[];
 };
 
 /** Janela mínima de texto idêntico que uma lição não pode copiar de uma ferramenta. */
@@ -224,7 +225,7 @@ function copiesFrom(content: string, texts: readonly string[]): boolean {
  * 3. a lição não copia trecho de texto de ferramenta (a citação fica na evidência, nunca vira instrução).
  * Origem `user` (pedido explícito) também exige a citação na fala do usuário.
  */
-export function lessonProvenanceProblem(lesson: { content: string; evidence?: LessonEvidence | null }, slice: LessonSlice): string | null {
+export function lessonProvenanceProblem(lesson: { content: string; evidence?: LessonEvidence | null; rule?: LessonRule | null }, slice: LessonSlice): string | null {
 	const quote = lesson.evidence?.quote ? normalizeForMatch(lesson.evidence.quote) : "";
 	if (quote.length < 6) return "sem citação da evidência";
 	const source = lesson.evidence?.source;
@@ -235,6 +236,24 @@ export function lessonProvenanceProblem(lesson: { content: string; evidence?: Le
 	const allowed = slice.userTexts.map(normalizeForMatch).join(" \n ");
 	for (const token of lessonDataTokens(lesson.content)) {
 		if (!allowed.includes(token)) return "dado concreto (e-mail, URL ou telefone) que o usuário não escreveu";
+	}
+	return lesson.rule ? lessonRuleProvenanceProblem(lesson.rule, lesson.evidence, slice) : null;
+}
+
+/**
+ * Regra vinda do refletor: só nasce de correção do usuário ou de desfecho de execução (a citação já foi conferida
+ * acima), só para uma tool que apareceu no trecho, e sem dado concreto (e-mail, URL, telefone) que o usuário não
+ * escreveu. A regra nunca vem de conteúdo de ferramenta.
+ */
+export function lessonRuleProvenanceProblem(rule: LessonRule, evidence: LessonEvidence | null | undefined, slice: LessonSlice): string | null {
+	const checked = parseLessonRule(rule);
+	if (!checked.ok) return `regra recusada: ${checked.reason}`;
+	if (evidence?.source !== "user" && evidence?.source !== "outcome") return "regra sem origem (fala do usuário ou desfecho de execução)";
+	if (slice.toolNames && !slice.toolNames.some((name) => toolPatternMatches(checked.rule.tool, name))) return "regra para uma tool que não apareceu no trecho";
+	const allowed = slice.userTexts.map(normalizeForMatch).join(" \n ");
+	const ruleText = checked.rule.kind === "required_args" ? checked.rule.fields.join(" ") + " " + (checked.rule.note ?? "") : "";
+	for (const token of lessonDataTokens(ruleText)) {
+		if (!allowed.includes(token)) return "regra com dado concreto que o usuário não escreveu";
 	}
 	return null;
 }
@@ -284,7 +303,14 @@ function parseOneDelta(item: unknown): LessonDelta | null {
 			if (!content || !isLessonScope(row.scope) || !isLessonOrigin(row.origin)) return null;
 			const scopeKey = typeof row.scopeKey === "string" && row.scopeKey.trim() ? row.scopeKey.trim().slice(0, 200) : null;
 			if (row.scope !== "bot" && !scopeKey) return null;
-			return { op: "add", scope: row.scope, scopeKey: row.scope === "bot" ? null : scopeKey, content, origin: row.origin, evidence };
+			// Regra checável (opcional): formato estrito; regra inválida descarta a lição inteira (nunca é "consertada").
+			let rule: LessonRule | null = null;
+			if (row.rule !== undefined && row.rule !== null) {
+				const parsed = parseLessonRule(row.rule);
+				if (!parsed.ok) return null;
+				rule = parsed.rule;
+			}
+			return { op: "add", scope: row.scope, scopeKey: row.scope === "bot" ? null : scopeKey, content, origin: row.origin, evidence, ...(rule ? { rule } : {}) };
 		}
 		case "update": {
 			const content = typeof row.content === "string" ? sanitizeLessonContent(row.content) : "";
@@ -344,6 +370,16 @@ export type LessonReviewJobResult = {
 	rejected?: number;
 	skillProposal?: boolean;
 	maintenance?: { model: string; calls: number; promptTokens: number; completionTokens: number; totalTokens: number; costUsd?: number };
+};
+
+/** Evento do inspetor: acertos do portão do plano e das regras das lições num run (só metadados). */
+export type InspectHooksPayload = {
+	type: "inspect_hooks";
+	hits?: Array<{ source: "plan" | "rule"; action: "blocked" | "confirm" | "skipped"; tool: string; lessonId?: string; ref?: string; ruleKind?: string; detail?: string }>;
+	/** Plano proposto neste run (a decisão fica no cartão de aprovação). */
+	plan?: { status: "proposed"; title?: string };
+	/** Lições cuja regra barrou uma chamada que depois deu certo (viram "ajudou"). */
+	helped?: string[];
 };
 
 /** Evento do inspetor: lições injetadas em um run (ids curtos) e as marcadas como usadas. */

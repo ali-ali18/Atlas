@@ -764,6 +764,8 @@ export * from "./github-identity.js";
 export * from "./dev-command-approval.js";
 export * from "./test-pr.js";
 export * from "./coding-model.js";
+export * from "./plan.js";
+export * from "./lesson-rules.js";
 export * from "./push.js";
 export * from "./avatar/push-avatar.js";
 export * from "./profile.js";

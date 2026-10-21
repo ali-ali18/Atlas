@@ -647,6 +647,7 @@ export {
 	listLessonsForPrompt,
 	recordLessonFeedback,
 	restoreBotLessonVersion,
+	setBotLessonRule,
 	retireBotLesson,
 	toLessonView,
 	updateBotLessonContent,

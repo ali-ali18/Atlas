@@ -1,5 +1,5 @@
 import type { TranscriptSeed } from "@workspace/shared";
-import { DEFAULT_COMMAND_ALLOWLIST, SUPERSEDED_CARD_DETAIL, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
+import { DEFAULT_COMMAND_ALLOWLIST, PLAN_OUTCOME_ADJUSTED, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
 import type { AgentRun } from "@workspace/shared";
 import {
 	addBotAutonomyException,
@@ -282,6 +282,11 @@ async function resolvePendingIntent(input: {
 			return done(`Não consegui gerar a imagem: ${sanitizeErrorMessage(error, [apiKey])}`, costUsd);
 		}
 	}
+	if (payload.action === "plan") {
+		await clear();
+		await updateConfirmCardStatus(input.conversationId, "rejected", payload.confirmId, undefined, { ok: false, detail: PLAN_OUTCOME_CANCELLED }).catch(() => undefined);
+		return done("Este plano precisa ser aprovado no chat do agente. Peça a tarefa de novo por lá.");
+	}
 	if (payload.action === "email-send") {
 		const claimed = payload.emailSend ? await claimSkillPendingIntent(pending.id, input.userId, input.conversationId) : false;
 		if (!claimed) return done("Este envio já foi processado ou expirou. Peça de novo.");
@@ -504,11 +509,17 @@ export function seedField(
 	toolName: string | undefined,
 	result: string,
 	userText: string,
+	taskList?: TranscriptSeed["taskList"],
 ): { transcript?: TranscriptSeed } {
 	const fromRunId = askingRunId(payload.confirmId);
 	const resultContent = result.trim();
 	if (!fromRunId || !resultContent) return {};
-	return { transcript: { fromRunId, ...(toolName ? { toolName } : {}), resultContent, shortContent: labelCardProtocolMessage(userText) } };
+	return { transcript: { fromRunId, ...(toolName ? { toolName } : {}), resultContent, shortContent: labelCardProtocolMessage(userText), ...(taskList && taskList.length > 0 ? { taskList } : {}) } };
+}
+
+/** Turno do run que continua depois da decisão do plano: a fala do usuário e o desfecho (que também é o resultado da chamada). */
+export function planFollowUpContent(userText: string, result: string): string {
+	return [userText, "", "[Decisão do usuário sobre o plano proposto]", result].join("\n");
 }
 
 /** Troca a última mensagem do usuário pelo `followUp` (resultado da ação). */
@@ -634,6 +645,7 @@ export async function maybeHandleConfirmedAction(input: {
 			"rejected",
 			pending.payload.confirmId,
 			userId,
+			pending.payload.action === "plan" ? { ok: false, detail: PLAN_OUTCOME_CANCELLED } : undefined,
 		).catch(() => undefined);
 		await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 		const run = await beginActivityRun({
@@ -649,7 +661,27 @@ export async function maybeHandleConfirmedAction(input: {
 		};
 	}
 
+	// Plano pendente: o texto que não é aprovar nem cancelar é pedido de ajuste (ou outro assunto); o modelo decide com o desfecho como resultado da chamada.
+	const pendingPlan = pending.payload.action === "plan" ? pending.payload.plan : undefined;
+	if (!cancelRequested && !acceptRequested && input.continueInAgent && pendingPlan && commandText) {
+		if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
+		await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: PLAN_OUTCOME_ADJUSTED }).catch(() => undefined);
+		const userText = input.text.trim();
+		const result = planAdjustResult(userText);
+		return { handled: false, followUp: { objective: userText, content: planFollowUpContent(userText, result), ...seedField(pending.payload, "propose_plan", result, userText) } };
+	}
+
 	if (acceptRequested) {
+		const planApproved = pending.payload.action === "plan" ? pending.payload.plan : undefined;
+		if (input.continueInAgent && planApproved) {
+			// Dois cliques ao mesmo tempo: só quem reserva a intenção decide; o outro é duplicata.
+			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
+			// Aprovar o plano NÃO aprova escritas: cada escrita segue a autonomia e as confirmações de sempre.
+			await updateConfirmCardStatus(input.conversationId, "approved", pending.payload.confirmId, undefined, { ok: true, detail: PLAN_OUTCOME_APPROVED }).catch(() => undefined);
+			const userText = input.text.trim();
+			const result = planApprovedResult(planApproved);
+			return { handled: false, followUp: { objective: userText, content: planFollowUpContent(userText, result), ...seedField(pending.payload, "propose_plan", result, userText, planToTaskList(planApproved)) } };
+		}
 		const devCmd = pending.payload.action === "dev-command" ? pending.payload.devCommand : undefined;
 		if (input.continueInAgent && devCmd) {
 			// Dois cliques ao mesmo tempo: só quem reserva a intenção decide; o outro é duplicata.

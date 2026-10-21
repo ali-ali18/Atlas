@@ -185,3 +185,17 @@ test("aprovado que falhou ao executar aparece como Falhou (não Recusado), com o
 	assert.equal(failedApprovalDetail(undefined, undefined), "Falhou ao executar.");
 	assert.equal(approvalMarkerFor(cmd("r", "rejected", "make x"), new Set(), [])?.label, "Recusado · make x");
 });
+
+test("dock: o cartão do plano fica na conversa (não entra no dock nem vira marcador)", () => {
+	const plan: Message = {
+		id: "plan-1",
+		kind: "confirm",
+		title: "Criar propostas",
+		status: "pending",
+		confirmId: "confirm-plan-r1",
+		plan: { title: "Criar propostas", steps: [{ text: "Listar pedidos", kind: "read" }] },
+	};
+	assert.deepEqual(selectDockEntries([plan]), []);
+	assert.equal(approvalMarkerFor(plan, new Set(["plan-1"])), null);
+	assert.deepEqual(selectDockEntries([cmd("a", "pending"), plan]).map((entry) => entry.id), ["a"]);
+});

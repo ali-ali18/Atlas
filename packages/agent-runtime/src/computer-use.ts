@@ -46,6 +46,8 @@ import type {
 } from "@workspace/shared";
 import {
 	connectorScopeKey,
+	lessonRef,
+	toolPatternMatches,
 	decideMemoryScope,
 	buildRepetitiveRecipe,
 	withExplicitTriggers,
@@ -351,6 +353,8 @@ import {
 import { createResearchNotes, executeResearchNote, RESEARCH_NOTE_TOOL, type ResearchNotes } from "./tools/research-note.js";
 import { executeTrackItems, TRACK_ITEMS_TOOL, TRACK_ITEMS_TOOL_NAME, type LedgerStore } from "./tools/track-items.js";
 import { executeUpdateTaskList, UPDATE_TASK_LIST_TOOL, UPDATE_TASK_LIST_TOOL_NAME, type TaskListStore } from "./tools/task-list.js";
+import { executeProposePlan, PROPOSE_PLAN_TOOL, PROPOSE_PLAN_TOOL_NAME } from "./tools/propose-plan.js";
+import { isNativeWriteTool, runPreToolHooks, type HookLesson, type PreToolHit } from "./hooks/pre-tool.js";
 import { createTaskOrchestrator, isBookkeepingOnly, MULTI_ITEM_START_NOTE } from "./execution/task-orchestrator.js";
 import { collectEvidence, createDeliverableVerifier } from "./tools/draft-check.js";
 import { REGENERATE_FILE_NOTE, askFileCorrection, askFilePromise, shouldCheckFileCorrection } from "./execution/delivery-correction.js";
@@ -1951,6 +1955,10 @@ type ToolContext = {
 	ledgerStore?: LedgerStore;
 	/** Lista de passos visível (`update_task_list`). */
 	taskListStore?: TaskListStore;
+	/** Plano proposto (`propose_plan`): liga o portão que barra escritas até a decisão. */
+	markPlanPending?: (plan: { title: string }) => void;
+	/** Regra de lição `confirm_always` (hooks): força o cartão de confirmação mesmo que a autonomia deixasse. */
+	forceConfirm?: boolean;
 	/** Cartão da lista de passos na thread: grava (um por run) e emite o evento. */
 	emitTaskList?: (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>) => Promise<void>;
 	/** V3: portão de entrega; lança com a nota ao modelo enquanto há itens abertos. */
@@ -3743,6 +3751,18 @@ async function executeToolInner(
 		case "research_note": {
 			return executeResearchNote(args, ctx);
 		}
+		case "propose_plan": {
+			const outcome = await executeProposePlan(args, {
+				userId: ctx.userId,
+				botId: ctx.botId,
+				conversationId: ctx.conversationId,
+				runId: ctx.runId,
+				origin: ctx.origin,
+				markPending: ctx.markPlanPending,
+				persistCard: (conversationId, card) => persistConversationCardFromEvent(conversationId, card),
+			});
+			return { summary: outcome.summary, confirmEvent: outcome.confirmEvent };
+		}
 		case "update_task_list": {
 			const outcome = executeUpdateTaskList(args, ctx);
 			await ctx.emitTaskList?.(outcome.items);
@@ -3888,6 +3908,8 @@ async function executeMcpTool(
 			? "ask"
 			: "allow";
 	const autonomyDecision = decision;
+	// Regra de lição `confirm_always`: só aperta (um "allow" vira cartão; nunca o contrário).
+	if (ctx.forceConfirm && decision === "allow") decision = "ask";
 	if (decision === "block") {
 		logMcpDecision({ runId: ctx.runId, tool: name, actionClass: entry.actionClass, autonomy: autonomyDecision, jevMode: ctx.jevMcpMode ?? "off", final: decision });
 		throw new Error(`"${entry.toolName}" está bloqueada pela autonomia do usuário.`);
@@ -4341,6 +4363,14 @@ export async function runComputerUse(params: {
 	onConnectorLesson?: (lesson: LessonCandidate) => void | Promise<void>;
 	/** Lições ativas do bot (memória procedural): conector/tool entram ao carregar o conector; `lesson_feedback` conta o uso. */
 	lessons?: RunLessonsParam;
+	/** Regras das lições aplicadas antes de cada ferramenta (hooks). Padrão: as regras de `lessons.items`. */
+	preToolRules?: readonly HookLesson[];
+	/** "Planejar antes de tarefas grandes" do bot (padrão ligado): `false` esconde `propose_plan`. */
+	planMode?: boolean;
+	/** Há um plano esperando aprovação nesta conversa: escritas voltam com erro até a decisão. */
+	planPending?: boolean;
+	/** Inspetor: acertos do portão do plano e das regras (só metadados). */
+	onInspect?: (payload: import("@workspace/shared").InspectHooksPayload) => void;
 	/** E-mail próprio do bot carregado pelo caller (`loadEmailRunContext`). */
 	email?: EmailRunContext | null;
 	/** Política de autonomia efetiva (F10). Sem ela: Equilibrado. */
@@ -5084,6 +5114,10 @@ export async function runComputerUse(params: {
 	if (!isSubagent && (params.toolFilter?.(TRACK_ITEMS_TOOL_NAME) ?? true)) {
 		baseTools.push(TRACK_ITEMS_TOOL);
 	}
+	// `propose_plan`: plano para aprovar antes de tarefas grandes; só o agente principal, em chat com humano, e só com o ajuste do bot ligado.
+	if (!isSubagent && params.origin === "chat" && params.planMode !== false && (params.toolFilter?.(PROPOSE_PLAN_TOOL_NAME) ?? true)) {
+		baseTools.push(PROPOSE_PLAN_TOOL);
+	}
 	// `update_task_list`: checklist visível de tarefas de vários passos; só o agente principal, em chat com humano.
 	if (!isSubagent && params.origin === "chat" && (params.toolFilter?.(UPDATE_TASK_LIST_TOOL_NAME) ?? true)) {
 		baseTools.push(UPDATE_TASK_LIST_TOOL);
@@ -5166,6 +5200,31 @@ export async function runComputerUse(params: {
 		...(params.apiConnector?.connections ?? []).map((item) => ({ id: item.id, name: connectorAccountName(item.name, item.accountLabel) })),
 	]);
 	const lessonTracker = createLessonTracker();
+	// Hooks antes de cada ferramenta: regras das lições (só apertam) e o portão do plano pendente.
+	const hookLessons: HookLesson[] = (params.preToolRules ?? (params.lessons?.items ?? []).map((item) => ({ id: item.id, scope: item.scope, scopeKey: item.scopeKey, rule: item.rule ?? null }))).filter((item) => item.rule);
+	const planState = { pending: Boolean(params.planPending) };
+	const succeededTools = new Set<string>();
+	const ruleBlocked = new Map<string, Set<string>>();
+	const isToolAvailable = (pattern: string): boolean =>
+		tools.some((tool) => toolPatternMatches(pattern, tool.function.name)) ||
+		[...(mcp?.toolset.available.keys() ?? [])].some((exposed) => toolPatternMatches(pattern, exposed, mcp?.toolset.entries.get(exposed)?.toolName));
+	const runPreTool = (name: string, args: Record<string, unknown>, entry: { toolName: string; connectionId: string; readOnly: boolean } | undefined) => {
+		const result = runPreToolHooks(
+			{
+				name,
+				originalName: entry?.toolName,
+				connectorKey: entry ? connectorScopeKey("mcp", entry.connectionId) : undefined,
+				args,
+				isMcp: Boolean(entry),
+				isWrite: entry ? !entry.readOnly : isNativeWriteTool(name),
+				parameters: mcp?.toolset.available.get(name)?.function.parameters as { properties?: Record<string, unknown> } | undefined,
+			},
+			{ lessons: hookLessons, succeeded: succeededTools, planPending: planState.pending, isToolAvailable },
+		);
+		if (result.hits.length > 0) params.onInspect?.({ type: "inspect_hooks", hits: result.hits.slice(0, 10) as PreToolHit[] });
+		if (result.blockedLessonIds.length > 0) ruleBlocked.set(name, new Set([...(ruleBlocked.get(name) ?? []), ...result.blockedLessonIds]));
+		return result;
+	};
 	// Lições de conector/tool: nota de sistema ao carregar o conector (uma vez por escopo e run).
 	const lessonInjector = createLessonInjector(isSubagent ? [] : (params.lessons?.items ?? []));
 	let lessonsSeeded = false;
@@ -6260,6 +6319,7 @@ export async function runComputerUse(params: {
 				},
 				runStartedAt: Date.now(),
 				toolFilter: child.toolFilter,
+				preToolRules: hookLessons,
 				preactivateMcpTools: child.preactivateMcpTools,
 				researchNotesStore: child.researchNotes,
 				onEvent: child.onEvent,
@@ -6287,6 +6347,8 @@ export async function runComputerUse(params: {
 	const runToolBatch = async (decisionIndex: number, toolCalls: LlmToolCall[]) => {
 		const doneIds = completedToolCallIds(conversation);
 		const batchStart = conversation.length;
+		// Plano no lote: o portao liga antes de qualquer chamada, para a escrita que veio antes dele no mesmo lote tambem esperar.
+		if (!isSubagent && toolCalls.some((item) => item.function.name === PROPOSE_PLAN_TOOL_NAME)) planState.pending = true;
 		const batchLoopWarnings: string[] = [];
 		const batchFailure = createBatchFailureGate();
 		ensureWithinBudget();
@@ -6665,6 +6727,9 @@ export async function runComputerUse(params: {
 			const toolStartedAt = Date.now();
 			try {
 				await ensureContinue();
+				// Hooks (deterministicos, antes do portao de autonomia e da validacao de argumentos): plano pendente e regras das licoes.
+				const preTool = isSubagent && hookLessons.length === 0 ? { error: undefined, forceConfirm: false } : runPreTool(name, args, entry);
+				if (preTool.error) throw new Error(preTool.error);
 			const outcome = cached ? { summary: `Already read this result. Continue with it; use read_cached_result only if details are needed. result_ref: ${cached.ref}` } : name === "read_cached_result" ? { summary: await runSandboxOperation(executionContext, undefined, () => readCache.resolve(String(args.result_ref ?? ""), params.findCompletedTool)) } : await runSandboxOperation(executionContext, isSandboxTool(name) ? 180_000 : undefined, (signal) => executeTool(name, args, {
 				loginAsked,
 				secrets: secretSession,
@@ -6719,6 +6784,8 @@ export async function runComputerUse(params: {
 				jevIntents,
 				jev: params.jev,
 				lessonFeedback: params.lessons?.recordFeedback,
+				markPlanPending: (plan) => { planState.pending = true; params.onInspect?.({ type: "inspect_hooks", plan: { status: "proposed", title: plan.title.slice(0, 120) } }); },
+				forceConfirm: preTool.forceConfirm,
 				objective: params.objective,
 				lastUserText: lastUserPlainText(conversation),
 				recentUserTexts: recentUserPlainTexts(conversation),
@@ -6918,6 +6985,19 @@ ${blockHint}`;
 				imageArtifactId = await params.persistScreenshot(base64);
 			}
 
+			// Plano que nao virou cartao (argumento invalido): o portao desliga, a menos que ja houvesse outro pendente na conversa.
+			if (name === PROPOSE_PLAN_TOOL_NAME && !ok && !params.planPending) planState.pending = false;
+			// Hooks: chamada que de fato rodou (nao so o cartao) conta para "chamada previa"; regra que barrou e depois deu certo ajudou.
+			if (ok && !(confirmEvent && (confirmEvent.status ?? "pending") === "pending")) {
+				succeededTools.add(name);
+				if (entry) succeededTools.add(entry.toolName);
+				const helped = ruleBlocked.get(name);
+				if (helped && helped.size > 0) {
+					ruleBlocked.delete(name);
+					params.onInspect?.({ type: "inspect_hooks", helped: [...helped] });
+					void Promise.resolve(params.lessons?.recordFeedback?.([...helped].map((id) => ({ ref: lessonRef(id), outcome: "helped" as const })))).catch(() => undefined);
+				}
+			}
 			if (isMcpToolName(name)) {
 				toolCallHistory.set(
 					name,

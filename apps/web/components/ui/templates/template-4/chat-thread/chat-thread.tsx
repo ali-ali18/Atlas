@@ -22,7 +22,7 @@ import { exchangeFocusKey } from "@/lib/bot-exchange";
 import { groupBotMessages, type BotPartner, type ThreadItem } from "@/lib/bot-thread";
 import { BotAutoDecisionNote, BotLinkMarker, BotNeedsUserCard, BotThreadGroup, type BotRef } from "@/components/ai-elements/bot-messages";
 import { pendingNeedsUser } from "@/lib/bot-needs-thread";
-import { botNeedsUserStatusLine, devApprovalRejectText } from "@workspace/shared";
+import { PLAN_ADJUST_DRAFT, botNeedsUserStatusLine, devApprovalRejectText } from "@workspace/shared";
 import { beginCardDecision, cardDecisionKey, endCardDecision } from "@/lib/card-decision";
 import { approvalMarkerFor, failedApprovalDetail, approvalShortLabel, isHiddenProtocolBubble, selectDockEntries } from "@/lib/approval-dock";
 import { answerBotPending } from "@/lib/atlas-api";
@@ -192,6 +192,9 @@ export function ChatThread({
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const [barHeight, setBarHeight] = useState(0);
+	// "Ajustar" no cartão do plano: rascunho no composer. Um prefill novo vindo de fora passa na frente.
+	const [adjustPrefill, setAdjustPrefill] = useState<{ text: string; nonce: number } | null>(null);
+	useEffect(() => setAdjustPrefill(null), [prefill?.nonce]);
 	// A barra só pode reagir ao observer depois da abertura na posição final (fim ou primeira não lida).
 	const [opened, setOpened] = useState(false);
 	// Cartões pendentes que a conversa já deixou para trás (fora da tela): só eles vão para a barra do composer.
@@ -1250,6 +1253,7 @@ export function ChatThread({
 											void resumeRun();
 										}}
 										onCancel={confirmHandlers.onCancel}
+										onAdjustPlan={() => setAdjustPrefill({ text: PLAN_ADJUST_DRAFT, nonce: Date.now() })}
 										onBotProfileConfirm={(profile) => {
 											// Gate humano: otimista approved + resolve no
 											// servidor (aplica o PATCH no bot). Erro volta
@@ -1389,7 +1393,7 @@ export function ChatThread({
 				disabled={false}
 				model={model}
 				servedModel={servedModel}
-				prefill={prefill}
+				prefill={adjustPrefill ?? prefill}
 				onModelChange={(next) => {
 					setModel(next);
 					onAgentModelChange?.(next);

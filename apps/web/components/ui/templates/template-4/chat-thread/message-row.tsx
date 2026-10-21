@@ -43,6 +43,7 @@ import { EmailReceivedCard } from "./email-received-card";
 import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 import { CodeRunCard } from "./code-run-card";
 import { TaskListCard } from "./task-list-card";
+import { PlanCard, type PlanCardStatus } from "@workspace/ui/components/plan-card";
 import { CompactionCard } from "./compaction-card";
 import { ImagePendingCard } from "@/components/ai-elements/images/image-pending-card";
 import { MemoryUpdatedMarker } from "./memory-updated-marker";
@@ -63,6 +64,7 @@ export function MessageRow({
 	onConfirmAlways,
 	onConfirmReject,
 	onCancel,
+	onAdjustPlan,
 	onLoginOpenViewer,
 	onLoginDone,
 	onLoginUseVault,
@@ -96,6 +98,8 @@ export function MessageRow({
 	/** "Não perguntar mais para isto": confirma e cria a exceção de autonomia. */
 	onConfirmAlways?: (message: Extract<Message, { kind: "confirm" }>) => void;
 	onCancel?: (message: Extract<Message, { kind: "confirm" }>) => void;
+	/** "Ajustar" no cartão do plano: abre o composer com o rascunho do ajuste. */
+	onAdjustPlan?: (message: Extract<Message, { kind: "confirm" }>) => void;
 	/** "Recusar com comentário" (aprovação de comando): o agente recebe o comentário. */
 	onConfirmReject?: (message: Extract<Message, { kind: "confirm" }>, feedback: string) => void;
 	/** Card de login (F12/B5): abre o viewer da VM; "Terminei" retoma o run. */
@@ -263,6 +267,24 @@ export function MessageRow({
 				/>
 			);
 		case "confirm":
+			if (message.plan) {
+				const status: PlanCardStatus = message.status === "approved" ? "approved" : message.status === "failed" ? "failed" : message.status === "rejected" ? (message.planOutcome === "ajuste pedido" ? "adjusted" : "cancelled") : "pending";
+				return (
+					<PlanCard
+						adjustLabel="Ajustar"
+						approveLabel={message.confirmLabel}
+						cancelLabel={message.cancelLabel}
+						needs={message.plan.needs}
+						onAdjust={onAdjustPlan ? () => onAdjustPlan(message) : undefined}
+						onApprove={() => onConfirm?.(message)}
+						onCancel={() => onCancel?.(message)}
+						risks={message.plan.risks}
+						status={status}
+						steps={message.plan.steps}
+						title={message.plan.title}
+					/>
+				);
+			}
 			if (message.emailKeyRequest) {
 				return (
 					<EmailKeyRequestCard

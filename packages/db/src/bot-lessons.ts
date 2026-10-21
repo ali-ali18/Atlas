@@ -8,6 +8,7 @@ import {
 	LESSON_AUTO_RETIRE_GAP,
 	LESSON_MAX_ACTIVE,
 	lessonRef,
+	readLessonRule,
 	sanitizeLessonEvidence,
 	selectLessonsForInjection,
 	type InjectableLesson,
@@ -15,6 +16,7 @@ import {
 	type LessonEvidence,
 	type LessonFeedbackEntry,
 	type LessonOrigin,
+	type LessonRule,
 	type LessonScope,
 	type LessonView,
 } from "@workspace/shared";
@@ -31,6 +33,7 @@ type LessonRow = {
 	content: string;
 	origin: string;
 	evidence: Prisma.JsonValue | null;
+	rule?: Prisma.JsonValue | null;
 	helpful: number;
 	harmful: number;
 	uses: number;
@@ -50,6 +53,7 @@ function toPlanLesson(row: LessonRow): PlanLesson {
 		content: row.content,
 		origin: row.origin as LessonOrigin,
 		evidence: sanitizeLessonEvidence(row.evidence),
+		rule: readLessonRule(row.rule),
 		helpful: row.helpful,
 		harmful: row.harmful,
 		uses: row.uses,
@@ -69,6 +73,7 @@ export function toLessonView(row: LessonRow, canRestore = false): LessonView {
 		content: row.content,
 		origin: row.origin as LessonOrigin,
 		evidence: sanitizeLessonEvidence(row.evidence),
+		rule: readLessonRule(row.rule),
 		helpful: row.helpful,
 		harmful: row.harmful,
 		uses: row.uses,
@@ -240,6 +245,14 @@ export async function updateBotLessonContent(userId: string, lessonId: string, c
 	if (!newId) return toLessonView(row);
 	const fresh = (await prisma.botLesson.findFirst({ where: { id: newId, userId } })) as LessonRow | null;
 	return fresh ? toLessonView(fresh, true) : null;
+}
+
+/** Liga, troca ou tira a regra (hooks) de uma lição ativa do usuário, no lugar (a regra não muda o texto nem a versão). Null = não é do usuário/aposentada. */
+export async function setBotLessonRule(userId: string, lessonId: string, rule: LessonRule | null): Promise<LessonView | null> {
+	const row = (await prisma.botLesson.findFirst({ where: { id: lessonId, userId, status: "active" } })) as LessonRow | null;
+	if (!row) return null;
+	await prisma.botLesson.updateMany({ where: { id: row.id, userId }, data: { rule: rule ? (rule as unknown as Prisma.InputJsonValue) : Prisma.DbNull } });
+	return toLessonView({ ...row, rule: rule as unknown as Prisma.JsonValue | null });
 }
 
 /** "Apagar" na UI: aposenta (o histórico fica). Null = não é do usuário. */

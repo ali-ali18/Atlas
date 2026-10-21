@@ -84,3 +84,36 @@ test("lições do run: injetadas, usadas e a revisão do run anterior aparecem c
 	assert.match(html, /Revisão de lições do run anterior: 1 nova, 2 aposentadas, 1 sugestão de skill \(1 descartada\)\./);
 	assert.doesNotMatch(renderToStaticMarkup(<RunInspectorView inspection={inspection} />), /data-run-lessons/);
 });
+
+test("plano e regras: proposto, aprovado ou ajustado aparece; acertos das regras e o 'ajudou' também", () => {
+	const html = renderToStaticMarkup(
+		<RunInspectorView
+			inspection={{
+				...inspection,
+				approvals: [
+					{ id: "confirm-plan-run-1", title: "Criar propostas", status: "approved", plan: { steps: 3, state: "approved" } },
+					{ id: "c1", title: "Enviar e-mail", status: "failed", detail: "sem permissão" },
+				],
+				hooks: {
+					hits: [
+						{ source: "plan", action: "blocked", tool: "mcp__erp__criar_proposta" },
+						{ source: "rule", action: "blocked", tool: "mcp__erp__criar_proposta", ref: "L1abc", ruleKind: "required_args", detail: "faltam: pagamento" },
+						{ source: "rule", action: "confirm", tool: "mcp__erp__criar_proposta", ref: "L2def", ruleKind: "confirm_always" },
+					],
+					helped: ["L1abc"],
+				},
+			}}
+		/>,
+	);
+	assert.match(html, /data-run-plan/);
+	assert.match(html, /Plano &quot;Criar propostas&quot; com 3 passos: aprovado\./);
+	assert.match(html, /data-run-hooks/);
+	assert.match(html, /Plano pendente barrou a escrita mcp__erp__criar_proposta\./);
+	assert.match(html, /Regra \[L1abc\] \(required_args\) barrou mcp__erp__criar_proposta: faltam: pagamento\./);
+	assert.match(html, /Regra \[L2def\] \(confirm_always\) forçou confirmação em mcp__erp__criar_proposta\./);
+	assert.match(html, /Regras que ajudaram \(a chamada seguinte deu certo\): \[L1abc\]/);
+	const adjusted = renderToStaticMarkup(<RunInspectorView inspection={{ ...inspection, approvals: [{ id: "p", title: "", status: "rejected", plan: { steps: 1, state: "adjusted" } }] }} />);
+	assert.match(adjusted, /Plano com 1 passo: o usuário pediu ajuste\./);
+	const clean = renderToStaticMarkup(<RunInspectorView inspection={inspection} />);
+	assert.doesNotMatch(clean, /data-run-plan|data-run-hooks/);
+});

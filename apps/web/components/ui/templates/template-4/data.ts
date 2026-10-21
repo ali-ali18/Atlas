@@ -355,6 +355,10 @@ type MessageVariant =
 			emailKeyRequest?: import("@workspace/shared").EmailKeyRequestInfo;
 			/** Escrita no GitHub bloqueada: cartão com "Instalar o app" / "Usar minha conta desta vez". */
 			githubIdentity?: import("@workspace/shared").GithubIdentityCardInfo;
+			/** Plano proposto (`propose_plan`): cartão próprio com passos numerados e "Aprovar plano". */
+			plan?: import("@workspace/shared").PlanInfo;
+			/** Desfecho gravado no cartão (`outcome.detail`): diferencia "ajuste pedido" de "cancelado" no plano. */
+			planOutcome?: string;
 			confirmId?: string;
 			/** Um pedido mais novo da mesma conversa substituiu este (o servidor o recusou): aparece como "Expirado". */
 			superseded?: boolean;

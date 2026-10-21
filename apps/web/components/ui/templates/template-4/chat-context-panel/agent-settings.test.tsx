@@ -133,3 +133,11 @@ test("subvista de níveis do bot: Fácil, Média e Difícil, com os modelos do b
 	assert.equal((html.match(/Usa o da conta\./g) ?? []).length, 2);
 	assert.doesNotMatch(html, /for="agent-name"/);
 });
+
+test("Planejar antes de tarefas grandes: ligado por padrão, so planMode:false desliga, e o texto diz que escritas seguem pedindo confirmação", () => {
+	const state = (html: string) => /aria-checked="(true|false)"/.exec(html.slice(html.indexOf('for="agent-plan-mode"')))?.[1];
+	assert.match(render(bot()), /Planejar antes de tarefas grandes/);
+	assert.match(render(bot()), /não aprova as ações/);
+	assert.equal(state(render(bot())), "true");
+	assert.equal(state(render(bot({ policyJson: { planMode: false } }))), "false");
+});

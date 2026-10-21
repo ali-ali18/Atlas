@@ -67,7 +67,7 @@ import type {
 	RunInputMode,
 } from "@workspace/shared";
 import type { CompactConversationResponse } from "@workspace/shared";
-import type { LessonView, RunInspection, MemoryChange, MemoryChangesPage, MemoryCleanupView, MemoryEntry, MemorySnapshot, MemoryTarget } from "@workspace/shared";
+import type { LessonRule, LessonView, RunInspection, MemoryChange, MemoryChangesPage, MemoryCleanupView, MemoryEntry, MemorySnapshot, MemoryTarget } from "@workspace/shared";
 import type {
 	CatalogBotEntry,
 	CatalogBotTemplate,
@@ -681,6 +681,16 @@ export async function deleteBotLesson(lessonId: string): Promise<void> {
 	await atlasFetch(`/v1/lessons/${encodeURIComponent(lessonId)}`, { method: "DELETE" });
 }
 
+export async function setBotLessonRule(lessonId: string, rule: LessonRule): Promise<LessonView> {
+	const { lesson } = await atlasFetch<{ lesson: LessonView }>(`/v1/lessons/${encodeURIComponent(lessonId)}/rule`, { method: "PUT", body: JSON.stringify({ rule }) });
+	return lesson;
+}
+
+export async function clearBotLessonRule(lessonId: string): Promise<LessonView> {
+	const { lesson } = await atlasFetch<{ lesson: LessonView }>(`/v1/lessons/${encodeURIComponent(lessonId)}/rule`, { method: "DELETE" });
+	return lesson;
+}
+
 export async function restoreBotLesson(lessonId: string): Promise<LessonView> {
 	const { lesson } = await atlasFetch<{ lesson: LessonView }>(`/v1/lessons/${encodeURIComponent(lessonId)}/restore`, { method: "POST" });
 	return lesson;
@@ -1270,6 +1280,7 @@ export type ComputerUseHandlers = {
 		secretsRequest?: import("@workspace/shared").SecretsRequestInfo;
 		emailKeyRequest?: import("@workspace/shared").EmailKeyRequestInfo;
 		githubIdentity?: import("@workspace/shared").GithubIdentityCardInfo;
+		plan?: import("@workspace/shared").PlanInfo;
 		status?: "pending" | "approved" | "rejected";
 	}) => void;
 	onFile?: (event: Extract<ComputerUseEvent, { type: "file" }>) => void;

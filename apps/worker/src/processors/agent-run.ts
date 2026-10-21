@@ -1,7 +1,7 @@
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
-import type { ConnectorLessonJobPayload, InspectContextPayload, InspectLessonsPayload, LessonFeedbackEntry, LessonReviewJobPayload } from "@workspace/shared";
-import { parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef } from "@workspace/shared";
+import type { ConnectorLessonJobPayload, InspectContextPayload, InspectHooksPayload, InspectLessonsPayload, LessonFeedbackEntry, LessonReviewJobPayload } from "@workspace/shared";
+import { parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode } from "@workspace/shared";
 import {
 	ATLAS_JOB_NAMES,
 	COMPACT_TAIL_KEEP,
@@ -33,6 +33,8 @@ import {
 	appendRunEvent,
 	countFailedToolResults,
 	getLatestLessonReviewEvent,
+	getSkillPendingIntent,
+	upsertTaskListCard,
 	listBotLessons,
 	recordLessonFeedback,
 	createPublishThrottle,
@@ -746,16 +748,27 @@ async function executeLeasedRun(ctx: {
 			: null;
 
 		// Lista de passos (update_task_list) da conversa: mesmo escopo de dono; falha não derruba o run.
-		const priorTaskList = !groupRun && run.conversationId && run.origin === "chat"
+		// Plano aprovado: os passos do plano semeiam a lista (o cartao aparece ja, antes do 1o passo).
+		const seededTaskList = !checkpoint?.llmMessages?.length ? checkpoint?.transcriptSeed?.taskList : undefined;
+		const priorTaskList = seededTaskList?.length ? seededTaskList : !groupRun && run.conversationId && run.origin === "chat"
 			? await getConversationTaskList(runUserId, run.conversationId, { excludeRunId: runId, origin: run.origin }).catch((error) => {
 				console.error(`load task list failed run=${runId}`, error);
 				return null;
 			})
 			: null;
 
-		return { messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments: attachmentsForRun?.runtime };
+		if (seededTaskList?.length && run.conversationId) {
+			await upsertTaskListCard(run.conversationId, runId, seededTaskList).catch(() => undefined);
+			await appendRunEvent(runId, "task_list", { type: "task_list", items: seededTaskList, runId }).catch(() => undefined);
+		}
+		// Plano esperando aprovacao nesta conversa: escritas voltam com erro ate o usuario decidir.
+		const planPending = !groupRun && run.conversationId && run.origin === "chat"
+			? await getSkillPendingIntent(runUserId, run.conversationId).then((pending) => pending?.payload.action === "plan", () => false)
+			: false;
+
+		return { planPending, messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments: attachmentsForRun?.runtime };
 	};
-	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, priorCompaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments }] =
+	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { planPending, messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, priorCompaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments }] =
 		await Promise.all([configStage(), messagesStage()]);
 	// Inspetor: como o histórico deste turno foi montado (só metadados; nunca o texto).
 	if (transcriptOutcome) {
@@ -1060,6 +1073,9 @@ async function executeLeasedRun(ctx: {
 			priorResearchNotes,
 			priorTaskLedger,
 			priorTaskList,
+			planMode: readPlanMode(rawBotPolicy),
+			planPending,
+			onInspect: (payload: InspectHooksPayload) => { void appendRunEvent(runId, "inspect_hooks", payload).catch(() => undefined); },
 			canSeeUserImages,
 			loadUserImage: imageVision.loadUserImage,
 			describeUserImage: imageVision.describeUserImage,

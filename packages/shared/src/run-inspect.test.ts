@@ -92,4 +92,29 @@ describe("buildRunInspection: lições", () => {
 	it("sem lições nem revisão, a inspeção não ganha o campo", () => {
 		expect(buildRunInspection({ run, steps: [], events: [], approvals: [] }).lessons).toBeUndefined();
 	});
+
+	it("hooks: acertos do plano pendente e das regras, o 'ajudou' e o estado do cartão do plano", () => {
+		const out = buildRunInspection({
+			run: { id: "r1", status: "completed", model: "m", origin: "chat" },
+			steps: [],
+			events: [
+				{ seq: 1, type: "inspect_hooks", payload: { type: "inspect_hooks", plan: { status: "proposed", title: "Criar propostas" } } },
+				{ seq: 2, type: "inspect_hooks", payload: { type: "inspect_hooks", hits: [{ source: "plan", action: "blocked", tool: "mcp__erp__criar" }, { source: "rule", action: "blocked", tool: "mcp__erp__criar", lessonId: "cmx00ab12", ruleKind: "required_args", detail: "faltam: pagamento" }, { source: "nope", action: "blocked", tool: "x" }] } },
+				{ seq: 3, type: "inspect_hooks", payload: { type: "inspect_hooks", helped: ["cmx00ab12", "cmx00ab12"] } },
+			],
+			approvals: [
+				{ id: "a1", content: JSON.stringify({ v: 1, kind: "confirm", confirmId: "confirm-plan-r1", title: "Criar propostas", status: "rejected", outcome: { ok: false, detail: "ajuste pedido" }, plan: { title: "Criar propostas", steps: [{ text: "a", kind: "read" }, { text: "b", kind: "write" }] } }) },
+				{ id: "a2", content: JSON.stringify({ v: 1, kind: "confirm", confirmId: "c2", title: "Plano", status: "approved", plan: { title: "Plano", steps: [{ text: "a", kind: "read" }] } }) },
+				{ id: "a3", content: JSON.stringify({ v: 1, kind: "confirm", confirmId: "c3", title: "Plano", status: "rejected", outcome: { ok: false, detail: "plano cancelado" }, plan: { title: "Plano", steps: [{ text: "a", kind: "read" }] } }) },
+			],
+		});
+		expect(out.hooks).toEqual({
+			hits: [
+				{ source: "plan", action: "blocked", tool: "mcp__erp__criar" },
+				{ source: "rule", action: "blocked", tool: "mcp__erp__criar", ref: "Lab12", ruleKind: "required_args", detail: "faltam: pagamento" },
+			],
+			helped: ["Lab12"],
+		});
+		expect(out.approvals.map((approval) => approval.plan)).toEqual([{ steps: 2, state: "adjusted" }, { steps: 1, state: "approved" }, { steps: 1, state: "cancelled" }]);
+	});
 });

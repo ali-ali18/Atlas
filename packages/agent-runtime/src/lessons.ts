@@ -5,6 +5,7 @@ import {
 	selectLessonsForInjection,
 	type InjectableLesson,
 	type LessonFeedbackEntry,
+	type LessonRule,
 } from "@workspace/shared";
 
 /**
@@ -14,7 +15,7 @@ import {
  * `seed` as reconhece e não repete.
  */
 
-export type RunLesson = InjectableLesson & { ref?: string };
+export type RunLesson = InjectableLesson & { ref?: string; /** Regra que só aperta o comportamento (hooks); ver `hooks/pre-tool.ts`. */ rule?: LessonRule | null };
 
 export type RunLessonsParam = {
 	/** Lições ativas do bot (todas as escopos; as de escopo bot só contam para a existência da tool de feedback). */

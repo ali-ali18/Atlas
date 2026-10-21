@@ -153,6 +153,7 @@ function conversationCardToMessage(
 			...(card.secretsRequest ? { secretsRequest: card.secretsRequest } : {}),
 			...(card.emailKeyRequest ? { emailKeyRequest: card.emailKeyRequest } : {}),
 			...(card.githubIdentity ? { githubIdentity: card.githubIdentity } : {}),
+			...(card.plan ? { plan: card.plan, ...(card.outcome?.detail ? { planOutcome: card.outcome.detail } : {}) } : {}),
 			...(card.outcome?.detail === SUPERSEDED_CARD_DETAIL ? { superseded: true } : {}),
 			...(card.status === "failed" && card.outcome?.detail ? { failureDetail: card.outcome.detail } : {}),
 		};
@@ -596,6 +597,7 @@ export function createComputerHandlers(params: {
 		secretsRequest?: import("@workspace/shared").SecretsRequestInfo;
 		emailKeyRequest?: import("@workspace/shared").EmailKeyRequestInfo;
 		githubIdentity?: import("@workspace/shared").GithubIdentityCardInfo;
+		plan?: import("@workspace/shared").PlanInfo;
 		status?: "pending" | "approved" | "rejected";
 	}) => void;
 	agentName?: string;
@@ -913,6 +915,7 @@ export function createComputerHandlers(params: {
 				...(event.secretsRequest ? { secretsRequest: event.secretsRequest } : {}),
 				...(event.emailKeyRequest ? { emailKeyRequest: event.emailKeyRequest } : {}),
 				...(event.githubIdentity ? { githubIdentity: event.githubIdentity } : {}),
+				...(event.plan ? { plan: event.plan } : {}),
 				confirmId: event.confirmId,
 			};
 			params.setMessages((previous) => {

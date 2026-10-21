@@ -49,6 +49,43 @@ const APPROVAL_STATUS: Record<InspectApproval["status"], { label: string; varian
 	failed: { label: "Falhou", variant: "destructive" },
 };
 
+const PLAN_STATE_LABEL: Record<NonNullable<InspectApproval["plan"]>["state"], string> = {
+	proposed: "proposto, aguardando o usuário",
+	approved: "aprovado",
+	adjusted: "o usuário pediu ajuste",
+	cancelled: "cancelado",
+};
+
+/** Plano (`propose_plan`) deste run: quantos passos e o que o usuário decidiu. */
+export function describePlan(approval: InspectApproval): string | null {
+	if (!approval.plan) return null;
+	const { steps, state } = approval.plan;
+	return `Plano ${approval.title ? `"${approval.title}" ` : ""}com ${steps} ${steps === 1 ? "passo" : "passos"}: ${PLAN_STATE_LABEL[state]}.`;
+}
+
+const HOOK_ACTION_LABEL = { blocked: "barrou", confirm: "forçou confirmação em", skipped: "ignorada em" } as const;
+
+/** Uma linha por acerto do portão do plano ou de regra de lição. */
+export function describeHookHit(hit: NonNullable<RunInspection["hooks"]>["hits"][number]): string {
+	if (hit.source === "plan") return `Plano pendente barrou a escrita ${hit.tool}.`;
+	const rule = hit.ruleKind ? ` (${hit.ruleKind})` : "";
+	return `Regra${hit.ref ? ` [${hit.ref}]` : ""}${rule} ${HOOK_ACTION_LABEL[hit.action]} ${hit.tool}${hit.detail ? `: ${hit.detail}` : ""}.`;
+}
+
+/** Hooks antes das ferramentas: o que o plano pendente e as regras das lições barraram neste run. */
+export function HooksBlock({ hooks }: { hooks: NonNullable<RunInspection["hooks"]> }) {
+	return (
+		<div className="space-y-1 rounded-lg bg-muted px-3 py-2 text-xs" data-run-hooks>
+			{hooks.hits.map((hit, index) => (
+				<p className="break-words" key={index}>
+					{describeHookHit(hit)}
+				</p>
+			))}
+			{hooks.helped.length > 0 ? <p>Regras que ajudaram (a chamada seguinte deu certo): {hooks.helped.map((ref) => `[${ref}]`).join(" ")}</p> : null}
+		</div>
+	);
+}
+
 export function formatTokens(value: number): string {
 	if (value >= 10_000) return `${Math.round(value / 1000)}k`;
 	if (value >= 1000) return `${(value / 1000).toFixed(1).replace(".", ",")}k`;
@@ -265,7 +302,13 @@ export function RunInspectorView({ inspection, onCopy, copied = false }: { inspe
 				</div>
 			</dl>
 			{inspection.context ? <p className="rounded-lg bg-muted px-3 py-2 text-xs">{describeContext(inspection.context)}</p> : null}
+			{inspection.approvals.filter((approval) => approval.plan).map((approval) => (
+				<p className="rounded-lg bg-muted px-3 py-2 text-xs" data-run-plan key={approval.id}>
+					{describePlan(approval)}
+				</p>
+			))}
 			{inspection.lessons ? <LessonsBlock lessons={inspection.lessons} /> : null}
+			{inspection.hooks ? <HooksBlock hooks={inspection.hooks} /> : null}
 			{inspection.errors.length > 0 || inspection.error ? (
 				<ul className="space-y-1 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive text-xs">
 					{(inspection.errors.length > 0 ? inspection.errors.map((item) => item.message) : [inspection.error!]).map((message, index) => (

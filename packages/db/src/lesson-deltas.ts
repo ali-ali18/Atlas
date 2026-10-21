@@ -24,6 +24,8 @@ export type PlanLesson = {
 	content: string;
 	origin: LessonOrigin;
 	evidence: LessonEvidence | null;
+	/** Regra (hooks) da lição; a edição de texto mantém a regra na versão nova. */
+	rule?: LessonRule | null;
 	helpful: number;
 	harmful: number;
 	uses: number;
@@ -138,7 +140,7 @@ export function planLessonDeltas(active: readonly PlanLesson[], deltas: readonly
 				content: next.content,
 				origin: old.origin,
 				evidence: next.evidence,
-				rule: null,
+				rule: old.rule ?? null,
 				helpful: old.helpful + bump.helpful,
 				harmful: old.harmful + bump.harmful,
 				uses: old.uses,
