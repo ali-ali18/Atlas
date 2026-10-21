@@ -7,6 +7,7 @@ import {
 	FOLLOWUP_STAGES_MAX,
 	formatFollowupDue,
 	isCronFive,
+	isInQuietHours,
 	nextAllowedTime,
 	normalizeNewStages,
 	parseRoutineProposalSpec,
@@ -38,7 +39,8 @@ import { clipForJev, decideWithJev, jevYes, type JevRuntime } from "../jev/decid
 
 /**
  * Modo proativo (bot principal): lembretes sem cron, ideias de rotina e a única forma de
- * o bot falar sozinho (`notify_user`, só na reflexão diária). Silêncio, teto diário e Jev
+ * o bot falar sozinho (`notify_user`, só na reflexão diária; em rotina "só importante" e no chat
+ * longo o mesmo nome vira push avulso, ver `executeUserPush`). Silêncio, teto diário e Jev
  * valem aqui, no servidor, não no que o modelo resolver fazer.
  */
 
@@ -147,6 +149,61 @@ export const NOTIFY_USER_TOOL: ChatTool = {
 		},
 	},
 };
+
+/** Contexto do push avulso (rotina "só importante" ou chat longo): fala só com o dono do run. */
+export type UserPushMode = "routine" | "chat";
+
+const USER_PUSH_MAX_CHARS = 240;
+
+export function notifyUserPushTool(mode: UserPushMode): ChatTool {
+	const description =
+		mode === "routine"
+			? "Send the user a push notification about this routine run. The result of the run is already saved silently in the chat; call this only if what you found is something the user would want to know right now (a change, a problem, a deadline). Nothing new or routine: do not call it. At most once per run, 1 or 2 short sentences in the user's language, ready to show as the notification text. The server may refuse it (quiet hours, one per run): then stop, do not retry."
+			: "Send the user a push notification while you keep working, for when they may have left the screen: a long task reached a meaningful stage, or something blocks you and needs their input. Do not use it to announce the final answer or that you finished: that is notified automatically. At most once per run, 1 or 2 short sentences in the user's language. The server may refuse it: then continue without retrying.";
+	return {
+		type: "function",
+		function: {
+			name: NOTIFY_USER_TOOL_NAME,
+			description,
+			parameters: {
+				type: "object",
+				properties: { message: { type: "string", description: "The notification text, ready to show the user." } },
+				required: ["message"],
+			},
+		},
+	};
+}
+
+export type UserPushContext = {
+	mode: UserPushMode;
+	/** Envia o push ao dono do run (o worker liga ao notifier; nunca outro destinatário). */
+	send: (text: string) => Promise<void>;
+	/** Silêncio do usuário, quando ele configurou o modo proativo. */
+	quiet?: ProactiveSettings;
+	/** Pushes já enviados neste run (teto 1). */
+	sent: { used: number };
+	now?: () => Date;
+	log?: (line: string) => void;
+};
+
+/** `notify_user` fora da reflexão: só push (a resposta do run já está no chat), 1 por run, respeita o silêncio. */
+export async function executeUserPush(args: Record<string, unknown>, ctx: UserPushContext): Promise<{ summary: string }> {
+	const message = text(args.message);
+	if (!message) throw new Error('Informe "message" com o texto da notificação.');
+	if (message.length > USER_PUSH_MAX_CHARS) throw new Error(`Mensagem longa demais (máx. ${USER_PUSH_MAX_CHARS} caracteres): encurte.`);
+	if (ctx.sent.used >= 1) {
+		return { summary: JSON.stringify({ sent: false, reason: "one_per_run", note: "A notification was already sent in this run. Do not send another." }) };
+	}
+	const now = (ctx.now ?? (() => new Date()))();
+	if (ctx.quiet && isInQuietHours(now, ctx.quiet)) {
+		ctx.log?.(`notify_user mode=${ctx.mode} sent=false reason=quiet_hours`);
+		return { summary: JSON.stringify({ sent: false, reason: "quiet_hours", note: "It is the user's quiet hours. Nothing was sent; the result stays in the chat. Do not retry." }) };
+	}
+	ctx.sent.used += 1;
+	await ctx.send(message);
+	ctx.log?.(`notify_user mode=${ctx.mode} sent=true chars=${message.length}`);
+	return { summary: JSON.stringify({ sent: true, note: "The user was notified. Do not call this again in this run." }) };
+}
 
 export type ProactiveToolSet = "chat" | "reflection" | "followup";
 

@@ -361,7 +361,9 @@ export type {
 	PersistedRoutineCard,
 } from "./routine-card.js";
 export { isPersistedRoutineCard } from "./routine-card.js";
+export { parseRoutineNotifyMode } from "./routines.js";
 export type {
+	RoutineNotifyMode,
 	RoutineTriggerType,
 	RoutineCreatedBy,
 	RoutineTriggeredBy,

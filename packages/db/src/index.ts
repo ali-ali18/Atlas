@@ -317,6 +317,7 @@ export {
 	hasOverlappingRoutineRun,
 	STALE_QUEUED_ROUTINE_RUN_MS,
 	findRoutineRunByAgentRunId,
+	getRoutineNotifyModeForAgentRun,
 	findRecentRoutineRunByIdempotency,
 	createRoutineRun,
 	markRoutineRunSkipped,

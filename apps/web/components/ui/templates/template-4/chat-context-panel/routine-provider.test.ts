@@ -12,6 +12,13 @@ test("autosave de opt-in não sobrescreve outros campos", () => {
  assert.deepEqual(diffRoutineUpdatePayload({ ...before, allowChatgptPlan: true }, before), { allowChatgptPlan: true });
  assert.deepEqual(diffRoutineUpdatePayload(before, { ...before, allowChatgptPlan: undefined }), {});
 });
+test("aviso: padrão sempre, e só entra no PATCH quando muda", () => {
+ assert.equal(uiRoutineToPayload(routine).notify, "always");
+ assert.equal(uiRoutineToPayload({ ...routine, notify: "important" }).notify, "important");
+ const before = uiRoutineToPayload(routine);
+ assert.deepEqual(diffRoutineUpdatePayload({ ...before, notify: "important" }, before), { notify: "important" });
+ assert.deepEqual(diffRoutineUpdatePayload(before, { ...before, notify: undefined }), {});
+});
 test("hookUrlWithSecret embute o secret na query (codificado)", () => {
  assert.equal(hookUrlWithSecret("https://x.test/v1/hooks/k", "a b&c"), "https://x.test/v1/hooks/k?secret=a%20b%26c");
  assert.equal(hookUrlWithSecret("https://x.test/v1/hooks/k?a=1", "s"), "https://x.test/v1/hooks/k?a=1&secret=s");

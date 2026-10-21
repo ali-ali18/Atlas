@@ -364,6 +364,7 @@ export function RoutineEditor({
 	const [newGroupError, setNewGroupError] = useState<string | null>(null);
 	const [newGroupSaving, setNewGroupSaving] = useState(false);
 	const [allowChatgptPlan, setAllowChatgptPlan, setAllowChatgptPlanRaw] = useDirtyState(routine?.allowChatgptPlan ?? false, dirtyRef);
+	const [notify, setNotify, setNotifyRaw] = useDirtyState<"always" | "important">(routine?.notify ?? "always", dirtyRef);
 	const [triggerKind, setTriggerKind, setTriggerKindRaw] = useDirtyState<
 		"cron" | "event" | "once" | "interval"
 	>(routine?.triggerKind ?? "cron", dirtyRef);
@@ -480,6 +481,7 @@ export function RoutineEditor({
 			active,
 			model,
 			allowChatgptPlan,
+			notify,
 			...(groupId !== null || routine?.groupId ? { groupId } : {}),
 			triggerKind,
 			triggers: triggers.map((trigger) => ({
@@ -556,6 +558,7 @@ export function RoutineEditor({
 		instruction,
 		model,
 		allowChatgptPlan,
+		notify,
 		groupId,
 		name,
 		triggerKind,
@@ -601,6 +604,7 @@ export function RoutineEditor({
 		if (!routine) return;
 		setActiveRaw(routine.active);
 		setAllowChatgptPlanRaw(routine.allowChatgptPlan ?? false);
+		setNotifyRaw(routine.notify ?? "always");
 		setGroupIdRaw(routine.groupId ?? null);
 		setNameRaw(routine.name);
 		setInstructionRaw(routine.instruction);

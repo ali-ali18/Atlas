@@ -37,9 +37,9 @@ vi.mock("@workspace/db", async (importOriginal) => {
 	};
 });
 
-const toolCall = (name: string, args: Record<string, unknown>): CompleteChatWithToolsResult => ({
+const toolCall = (name: string, args: Record<string, unknown>, id = "c1"): CompleteChatWithToolsResult => ({
 	model: "test-model",
-	message: { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name, arguments: JSON.stringify(args) } }] },
+	message: { role: "assistant", content: null, tool_calls: [{ id, type: "function", function: { name, arguments: JSON.stringify(args) } }] },
 });
 const done: CompleteChatWithToolsResult = { model: "test-model", message: { role: "assistant", content: "Agendei." } };
 const settings: ProactiveSettings = { ...DEFAULT_PROACTIVE_SETTINGS, enabled: true };
@@ -50,6 +50,7 @@ async function run(input: {
 	origin?: string;
 	conversationId?: string | null;
 	proactive?: boolean;
+	userPush?: { mode: "routine" | "chat"; send: (text: string) => Promise<void> };
 	calls: CompleteChatWithToolsResult[];
 	message?: string;
 }) {
@@ -73,6 +74,7 @@ async function run(input: {
 		origin: (input.origin ?? "chat") as "chat",
 		maxSteps: 4,
 		...(input.onRoutineMutated ? { onRoutineMutated: input.onRoutineMutated as never } : {}),
+		...(input.userPush ? { userPush: input.userPush } : {}),
 		...(input.proactive === false ? {} : { proactive: { settings: { ...settings, routineMode: input.routineMode ?? "suggest" } } }),
 		onEvent: (event) => {
 			if (event.type === "tool_result") results.push(event as never);
@@ -89,6 +91,41 @@ async function run(input: {
 	});
 	return { seenTools, systems, results };
 }
+
+describe("notify_user como push avulso no loop do agente", () => {
+	it("rotina com push liberado: tool só-push, nota no prompt, uma vez por run", async () => {
+		const send = vi.fn(async () => undefined);
+		const { seenTools, systems, results } = await run({
+			origin: "routine",
+			proactive: false,
+			userPush: { mode: "routine", send },
+			calls: [toolCall("notify_user", { message: "Fatura vence hoje." }), toolCall("notify_user", { message: "De novo." }, "c2"), done],
+		});
+		expect(seenTools[0]).toContain("notify_user");
+		expect(systems.some((text) => text.includes("notify only when something matters"))).toBe(true);
+		expect(send).toHaveBeenCalledTimes(1);
+		expect(send).toHaveBeenCalledWith("Fatura vence hoje.");
+		expect(JSON.parse(results[1]!.summary)).toMatchObject({ sent: false, reason: "one_per_run" });
+		expect(vi.mocked(appendConversationMessage)).not.toHaveBeenCalled();
+	});
+
+	it("rotina em modo always (sem userPush): a tool não existe", async () => {
+		const { seenTools } = await run({ origin: "routine", proactive: false, calls: [done] });
+		expect(seenTools[0]).not.toContain("notify_user");
+	});
+
+	it("chat com push liberado: tool presente, sem nota de rotina e sem duplicar mensagem", async () => {
+		const send = vi.fn(async () => undefined);
+		const { seenTools, systems } = await run({
+			proactive: false,
+			userPush: { mode: "chat", send },
+			calls: [toolCall("notify_user", { message: "Preciso da sua aprovação para seguir." }), done],
+		});
+		expect(seenTools[0]).toContain("notify_user");
+		expect(systems.some((text) => text.includes("notify only when something matters"))).toBe(false);
+		expect(send).toHaveBeenCalledTimes(1);
+	});
+});
 
 describe("modo proativo no loop do agente", () => {
 	it("chat do bot principal com o modo ligado: tools e seção do prompt", async () => {

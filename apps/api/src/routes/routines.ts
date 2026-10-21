@@ -60,8 +60,11 @@ export function parseCreateBody(
 	botId: string,
 	json: unknown,
 ): CreateRoutineInput | { error: string } {
-	const parsed = parseCreateBodyBase(botId, json);
-	if ("error" in parsed) return parsed;
+	const base = parseCreateBodyBase(botId, json);
+	if ("error" in base) return base;
+	const notifyRaw = (json as Record<string, unknown>).notify;
+	if (notifyRaw !== undefined && notifyRaw !== "always" && notifyRaw !== "important") return { error: "notify deve ser always ou important" };
+	const parsed: CreateRoutineInput = notifyRaw === "important" ? { ...base, notify: "important" } : base;
 	const groupRaw = (json as Record<string, unknown>).groupId;
 	if (groupRaw === undefined || groupRaw === null) return parsed;
 	if (typeof groupRaw !== "string" || groupRaw.trim().length === 0) return { error: "groupId inválido" };
@@ -225,6 +228,10 @@ export function parseUpdateBody(json: unknown): UpdateRoutineInput | { error: st
 	if (body.allowChatgptPlan !== undefined) {
 		if (typeof body.allowChatgptPlan !== "boolean") return { error: "allowChatgptPlan deve ser boolean" };
 		patch.allowChatgptPlan = body.allowChatgptPlan;
+	}
+	if (body.notify !== undefined) {
+		if (body.notify !== "always" && body.notify !== "important") return { error: "notify deve ser always ou important" };
+		patch.notify = body.notify;
 	}
 	if (typeof body.name === "string") {
 		if (body.name.trim().length === 0) return { error: "Nome inválido" };

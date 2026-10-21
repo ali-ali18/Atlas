@@ -216,6 +216,8 @@ export type Routine = {
 	/** Id do modelo desta rotina. */
 	model: string;
 	allowChatgptPlan?: boolean;
+	/** Aviso ao fim da execução: sempre, ou só quando o bot julgar importante. Ausente = sempre. */
+	notify?: "always" | "important";
 	/** cron = agendamento; event = webhook/github; once = lembrete de uma vez só; interval = a cada N min. */
 	triggerKind: "cron" | "event" | "once" | "interval";
 	triggers: RoutineTrigger[];

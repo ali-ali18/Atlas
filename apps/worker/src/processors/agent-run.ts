@@ -1,6 +1,6 @@
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
-import type { ConnectorLessonJobPayload, InspectContextPayload, InspectHooksPayload, InspectLessonsPayload, LessonFeedbackEntry, LessonReviewJobPayload } from "@workspace/shared";
+import type { ConnectorLessonJobPayload, InspectContextPayload, InspectHooksPayload, InspectLessonsPayload, LessonFeedbackEntry, LessonReviewJobPayload, RoutineNotifyMode } from "@workspace/shared";
 import { parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode } from "@workspace/shared";
 import {
 	ATLAS_JOB_NAMES,
@@ -98,6 +98,7 @@ import {
 	tryAcquireRunLease,
 	type RunLease,
 	getAccountConfig,
+	getRoutineNotifyModeForAgentRun,
 	persistConversationCardFromEvent,
 } from "@workspace/db";
 import {
@@ -169,7 +170,7 @@ import { createRunEventCoalescer } from "../coalesce-run-events.js";
 import { createRunControlReader } from "../run-control.js";
 import { loadRunBase } from "../run-setup.js";
 import { resolveRunAutonomy } from "../run-autonomy.js";
-import { actionsJevMode, actionsJudgeModel, pendingJevMode, proactiveFailureDisplay, proactiveJevMode, resolveProactiveForRun } from "../proactive-run.js";
+import { actionsJevMode, actionsJudgeModel, pendingJevMode, proactiveFailureDisplay, proactiveJevMode, resolveProactiveForRun, resolveUserPushForRun } from "../proactive-run.js";
 import { loadRunSkillIndex } from "../run-skills.js";
 import { buildMentionNotes } from "../run-mentions.js";
 import { getOpenRouterContextLength, isKnownOpenRouterModel } from "../openrouter-models.js";
@@ -189,7 +190,9 @@ export { tickLeaseHeartbeat };
 const runActivityThrottle = createPublishThrottle(3_000);
 
 /** Vale avisar o usuário do fim deste run? Sem conversa, sem texto ou de subagente, não. */
-export function shouldPushRunEnd(run: { conversationId?: string | null; origin?: string | null }, text: string, hasNotify = true): boolean {
+export function shouldPushRunEnd(run: { conversationId?: string | null; origin?: string | null }, text: string, hasNotify = true, routineNotify: RoutineNotifyMode = "always"): boolean {
+	// Rotina "só importante": o resultado fica no chat sem push; quem avisa é o `notify_user` do próprio run.
+	if (run.origin === "routine" && routineNotify === "important") return false;
 	return hasNotify && Boolean(run.conversationId) && text.trim().length > 0 && run.origin !== "subagent";
 }
 
@@ -818,6 +821,20 @@ async function executeLeasedRun(ctx: {
 		isPrimary: proactiveBot?.isPrimary === true,
 		policyJson: rawBotPolicy,
 	});
+	// Aviso da rotina ("always" = push ao fim, como sempre) e push avulso do bot (rotina "só importante" / chat).
+	const routineNotify: RoutineNotifyMode = run.origin === "routine" ? await getRoutineNotifyModeForAgentRun(runId).catch(() => "always" as const) : "always";
+	const userPushZone = (run.origin === "routine" && routineNotify === "important") || run.origin === "chat"
+		? (proactiveBot?.isPrimary === true ? accountTimezone : (await getAccountConfig(runUserId).catch(() => null))?.general?.timezone)
+		: undefined;
+	const userPushForRun = resolveUserPushForRun({
+		origin: run.origin,
+		isGroupRun: Boolean(groupRun),
+		hasConversation: Boolean(run.conversationId),
+		routineNotify,
+		policyJson: rawBotPolicy,
+		accountTimezone: userPushZone,
+		send: deps.notify ? async (text) => { await deps.notify!(runUserId, run.conversationId!, "reminder", text); } : undefined,
+	});
 	const requestBudget = parseBudgetPolicy(run.budgetJson ?? null);
 	const autoContinueAttempt = readAutoContinueAttempt(run.budgetJson);
 	const budget = resolveBudget({
@@ -985,6 +1002,7 @@ async function executeLeasedRun(ctx: {
 					}
 				: {}),
 			proactive: proactiveForRun,
+			userPush: userPushForRun,
 			jevMcpMode: runtimeConfig.jevMcpMode,
 			executionDiscipline: runtimeConfig.executionDiscipline,
 			contextEconomy: runtimeConfig.contextEconomy,
@@ -1309,7 +1327,7 @@ async function executeLeasedRun(ctx: {
 			{
 				// Push: terminou (ou lembrete/rotina). O notify cuida de switch do bot, "está olhando", protocolo e coalescência.
 				name: "push",
-				run: shouldPushRunEnd(run, result.text, Boolean(deps.notify)) ? () => deps.notify!(runUserId, run.conversationId!, pushKindForOrigin(run.origin), result.text) : undefined,
+				run: shouldPushRunEnd(run, result.text, Boolean(deps.notify), routineNotify) ? () => deps.notify!(runUserId, run.conversationId!, pushKindForOrigin(run.origin), result.text) : undefined,
 			},
 		]);
 

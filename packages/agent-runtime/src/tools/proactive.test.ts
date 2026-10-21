@@ -8,6 +8,9 @@ import {
 	executeNotifyUser,
 	executeRescheduleFollowup,
 	executeScheduleFollowup,
+	executeUserPush,
+	notifyUserPushTool,
+	type UserPushContext,
 	SCHEDULE_FOLLOWUP_TOOL,
 	executeSuggestRoutine,
 	proactiveToolsFor,
@@ -445,5 +448,57 @@ describe("notify_user", () => {
 		const out = await executeNotifyUser({ message: "x" }, c, deps);
 		expect(JSON.parse(out.summary)).toMatchObject({ reason: "action_limit" });
 		expect(messages).toHaveLength(0);
+	});
+});
+
+describe("notify_user como push avulso (rotina importante / chat)", () => {
+	function pushCtx(patch: Partial<UserPushContext> = {}) {
+		const sent: string[] = [];
+		const c: UserPushContext = { mode: "routine", send: async (t) => void sent.push(t), sent: { used: 0 }, now: () => NOON, log: () => undefined, ...patch };
+		return { c, sent };
+	}
+
+	it("manda o push uma vez e recusa a segunda chamada", async () => {
+		const { c, sent } = pushCtx();
+		const first = await executeUserPush({ message: "Fatura vence hoje." }, c);
+		expect(JSON.parse(first.summary)).toMatchObject({ sent: true });
+		const second = await executeUserPush({ message: "Outra coisa." }, c);
+		expect(JSON.parse(second.summary)).toMatchObject({ sent: false, reason: "one_per_run" });
+		expect(sent).toEqual(["Fatura vence hoje."]);
+	});
+
+	it("respeita o silêncio quando configurado e não conta como enviado", async () => {
+		const { c, sent } = pushCtx({ quiet: settings(), now: () => QUIET_NIGHT });
+		const out = await executeUserPush({ message: "x" }, c);
+		expect(JSON.parse(out.summary)).toMatchObject({ sent: false, reason: "quiet_hours" });
+		expect(sent).toHaveLength(0);
+		expect(c.sent.used).toBe(0);
+	});
+
+	it("sem configuração de silêncio, envia a qualquer hora", async () => {
+		const { c, sent } = pushCtx({ now: () => QUIET_NIGHT });
+		await executeUserPush({ message: "x" }, c);
+		expect(sent).toHaveLength(1);
+	});
+
+	it("valida mensagem vazia e longa demais", async () => {
+		const { c } = pushCtx({ mode: "chat" });
+		await expect(executeUserPush({ message: " " }, c)).rejects.toThrow(/message/);
+		await expect(executeUserPush({ message: "x".repeat(300) }, c)).rejects.toThrow(/longa/);
+	});
+
+	it("o nome é o mesmo da reflexão, com descrição por contexto", () => {
+		const routine = notifyUserPushTool("routine").function;
+		const chat = notifyUserPushTool("chat").function;
+		expect(routine.name).toBe("notify_user");
+		expect(chat.name).toBe("notify_user");
+		expect(routine.description).not.toBe(chat.description);
+		expect(chat.description).toMatch(/final answer/);
+	});
+
+	it("a reflexão continua igual: ainda grava a mensagem no chat do bot", async () => {
+		const { deps, messages } = makeDeps();
+		await executeNotifyUser({ message: "A prova é amanhã." }, ctx({ reflection: true, conversationId: undefined }), deps);
+		expect(messages).toEqual(["A prova é amanhã."]);
 	});
 });
