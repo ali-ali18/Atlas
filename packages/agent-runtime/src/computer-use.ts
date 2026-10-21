@@ -11,6 +11,7 @@ import { createEffectJournal, hashEffectArgs, INTERRUPTED_WRITE_NOTE, isJournale
 import { buildObjectiveRevision, ingestRunInputs, MAX_TRIAGE_REVISIONS, TRIAGE_REVISION_REASON } from "./loop/inputs.js";
 import { startLiveInputTriage } from "./loop/live-triage.js";
 import { buildStableSystemPrompt, buildSystemPrompt, swapLanguageInstruction } from "./loop/prompt-builder.js";
+import { namespaceToolCallId, renameProviderItemCallIds } from "./context/transcript.js";
 import { triageUserMessage, type TriageHistoryEntry } from "./loop/message-triage.js";
 import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } from "./loop/interrupt.js";
 import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE } from "./execution/task-state.js";
@@ -4620,6 +4621,7 @@ export async function runComputerUse(params: {
 		: undefined;
 	let emptySearches = 0;
 	const conversationId = params.conversationId;
+	const cacheSessionId = isSubagent || !conversationId ? params.runId : `c${createHash("sha256").update(`${params.botId ?? ""}:${conversationId}`).digest("hex").slice(0, 31)}`;
 	// Autonomia em vigor: `set_autonomy` a troca no meio do run.
 	let autonomyPolicy: EffectiveAutonomy = params.autonomy ?? {
 		level: DEFAULT_AUTONOMY_LEVEL,
@@ -5877,8 +5879,13 @@ export async function runComputerUse(params: {
 				...(closing ? {} : { deadlineAtMs }),
 				maxOutputTokens: agentOutputBudget({ configured: params.maxOutputTokens ?? (process.env.LLM_MAX_OUTPUT_TOKENS ? Number(process.env.LLM_MAX_OUTPUT_TOKENS) : undefined), remaining: budget.maxTokens === undefined ? undefined : budget.maxTokens - usageTotals.totalTokens, canCreateFiles: canCreateFile() }),
 				reasoningMaxTokens: params.reasoningMaxTokens,
-				sessionId: params.runId,
-				...(discipline ? { cacheStableIndex: lastCollapsedIndex(history) } : {}),
+				// Id estável da conversa (hash, sem dado pessoal): o OpenRouter mantém o mesmo endpoint e a Responses usa como chave de cache entre os turnos.
+				sessionId: cacheSessionId,
+				// Fim do histórico estável: com camadas efêmeras coladas no fim, o breakpoint da última mensagem cairia nelas.
+				...(() => {
+					const stable = Math.max(discipline ? (lastCollapsedIndex(history) ?? -1) : -1, layers.length > 0 ? history.length - 1 : -1);
+					return stable >= 0 ? { cacheStableIndex: stable } : {};
+				})(),
 			},
 			{
 				onDelta: (delta) => {
@@ -5918,8 +5925,9 @@ export async function runComputerUse(params: {
 		lastStepTokens = stepUsage.totalTokens;
 		return {
 			content: result.message.content ?? collected,
-			toolCalls: result.message.tool_calls ?? [],
-			providerItems: result.message.providerItems,
+			// Ids prefixados com o run ao nascer: o que vai ao modelo nos passos e turnos seguintes é byte a byte o que fica gravado (prefixo de cache estável).
+			toolCalls: (result.message.tool_calls ?? []).map((call) => ({ ...call, id: namespaceToolCallId(call.id, runId) })),
+			providerItems: renameProviderItemCallIds(result.message.providerItems, (id) => namespaceToolCallId(id, runId)),
 			usage: stepUsage,
 			telemetry,
 			...(result.finishReason ? { finishReason: result.finishReason } : {}),

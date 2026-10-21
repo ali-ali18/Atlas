@@ -47,3 +47,12 @@ export function insertBeforeLastUser(messages: ChatMessage[], note: ChatMessage)
 	}
 	return [...messages, note];
 }
+
+/**
+ * Nota do turno DEPOIS da fala do usuário (e das notas que já vieram): o que vale só neste pedido não entra no
+ * meio do prefixo já enviado. O runtime grava a conversa como foi enviada, então os turnos seguintes repetem
+ * byte a byte o que o provedor já viu e o cache de prompt continua valendo.
+ */
+export function appendTurnNote(messages: ChatMessage[], note: ChatMessage): ChatMessage[] {
+	return [...messages, note];
+}

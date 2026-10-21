@@ -165,7 +165,7 @@ describe("Jev na execução MCP", () => {
 		expect(result.confirms[0]?.alwaysLabel).toBeUndefined();
 		expect(result.confirms[0]?.description).toContain("JEV pediu sua confirmação");
 		expect(result.events.find((event) => event.type === "tool_result")?.jev).toEqual({ result: "ask", mode: "gate" });
-		expect(persistJevStatusCard).toHaveBeenCalledWith("conv-aut", "user-1", expect.objectContaining({ kind: "jev-status", runId: "run-aut", toolCallId: "c1", mode: "gate", result: "ask", ok: true }));
+		expect(persistJevStatusCard).toHaveBeenCalledWith("conv-aut", "user-1", expect.objectContaining({ kind: "jev-status", runId: "run-aut", toolCallId: expect.stringMatching(/_c1$/), mode: "gate", result: "ask", ok: true }));
 		expect(saveSkillPendingIntent).toHaveBeenCalledWith(expect.objectContaining({ payload: expect.objectContaining({ botId: "bot-1", mcpCall: expect.objectContaining({ jevReview: true }) }) }));
 	});
 

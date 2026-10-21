@@ -79,3 +79,13 @@ test("histórico já presente em incoming não é repetido pela janela de sessã
 	});
 	assert.deepEqual(out.map((m) => m.content), ["ok", "a1", "ok", "a2", "novo"]);
 });
+
+test("volatileAfterTurn: a memória por relevância vai depois da fala do usuário, e o prefixo até o pedido não depende dela", () => {
+	const a = assembleMemoryContext({ ...base, volatileAfterTurn: true, relevantMemory: "mem A", incoming: [{ role: "user", content: "pedido" }] });
+	const b = assembleMemoryContext({ ...base, volatileAfterTurn: true, relevantMemory: "mem B, muito diferente", incoming: [{ role: "user", content: "pedido" }] });
+	assert.deepEqual(a.map((m) => m.content), ["IDENTIDADE", "PERFIL", "RESUMO", "pergunta antiga", "resposta antiga", "pedido", "mem A"]);
+	assert.equal(a[a.length - 1]?.role, "system");
+	assert.equal(prefixOf(a, "pedido"), prefixOf(b, "pedido"));
+	const none = assembleMemoryContext({ ...base, volatileAfterTurn: true, relevantMemory: null, incoming: [{ role: "user", content: "pedido" }] });
+	assert.equal(none[none.length - 1]?.content, "pedido");
+});

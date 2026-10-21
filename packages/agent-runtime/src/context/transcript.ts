@@ -43,14 +43,18 @@ function validShape(message: unknown): message is SerializedLlmMessage {
 }
 
 /**
- * Deixa só o que vale levar para o turno seguinte: tira os system (identidade, memória, notas do turno são
- * montados de novo a cada run), mantém as notas de resumo/compactação, dá resposta a chamadas sem resultado e
+ * Deixa só o que vale levar para o turno seguinte: tira os system do começo (prompt, identidade e memória são
+ * montados de novo a cada run), mantém as notas de sistema que vieram depois da primeira fala (foram enviadas ao
+ * modelo nessa posição, e o prefixo do próximo pedido precisa repeti-las) e as de resumo/compactação, dá resposta a chamadas sem resultado e
  * descarta resultados órfãos. `providerItems` só ficam se o modelo for o mesmo. `null` = gravação corrompida.
  */
 export function cleanTranscript(raw: unknown, options: { model?: string } = {}): SerializedLlmMessage[] | null {
 	if (!Array.isArray(raw) || raw.length === 0) return null;
 	if (!raw.every(validShape)) return null;
-	const messages = (raw as SerializedLlmMessage[]).filter((message) => message.role !== "system" || isLayerNote(message));
+	// Só o começo (prompt, identidade, memória) é refeito a cada run. As notas de sistema depois da primeira fala
+	// foram enviadas ao modelo nessa posição e ficam como foram: o prefixo do próximo pedido repete o anterior.
+	const firstTurn = (raw as SerializedLlmMessage[]).findIndex((message) => message.role !== "system");
+	const messages = (raw as SerializedLlmMessage[]).filter((message, index) => message.role !== "system" || (firstTurn >= 0 && index > firstTurn) || isLayerNote(message));
 	const out: SerializedLlmMessage[] = [];
 	for (let i = 0; i < messages.length; i += 1) {
 		const message = messages[i]!;
@@ -62,14 +66,18 @@ export function cleanTranscript(raw: unknown, options: { model?: string } = {}):
 		if (calls.length === 0) continue;
 		const answers = new Map<string, SerializedLlmMessage>();
 		let next = i + 1;
-		while (next < messages.length && messages[next]!.role === "tool") {
+		// Nota de sistema no meio da rodada espera o fim dela (os resultados ficam colados à chamada).
+		const interleaved: SerializedLlmMessage[] = [];
+		while (next < messages.length && (messages[next]!.role === "tool" || messages[next]!.role === "system")) {
 			const result = messages[next]!;
-			if (result.tool_call_id && !answers.has(result.tool_call_id)) answers.set(result.tool_call_id, result);
+			if (result.role === "system") interleaved.push(result);
+			else if (result.tool_call_id && !answers.has(result.tool_call_id)) answers.set(result.tool_call_id, result);
 			next += 1;
 		}
 		for (const call of calls) {
 			out.push(answers.get(call.id) ?? { role: "tool", tool_call_id: call.id, content: UNEXECUTED_CALL_RESULT });
 		}
+		out.push(...interleaved);
 		i = next - 1;
 	}
 	return out.some((message) => message.role !== "system") ? out : null;
@@ -144,21 +152,57 @@ export function attachPendingResult(transcript: SerializedLlmMessage[], toolName
 
 const NAMESPACED_ID = /^r[0-9a-z]{6}_/;
 
+/** Prefixo de um run nos ids de chamada de ferramenta (`r` + 6 últimos caracteres alfanuméricos do run). */
+export function toolCallIdPrefix(runId: string): string {
+	return `r${runId.replace(/[^0-9a-z]/gi, "").toLowerCase().slice(-6).padStart(6, "0")}_`;
+}
+
 /**
- * Ids de chamada de ferramenta de runs anteriores ganham o prefixo do run de origem, igual na chamada do
- * assistente e no resultado: um provedor que reaproveita `call_0` a cada run não embaralha os pares. Ids já
- * prefixados ficam como estão; o tamanho é limitado (40) por hash estável.
+ * Id de chamada com o prefixo do run de origem. Idempotente: id já prefixado fica como está; o tamanho é
+ * limitado (40) por hash estável. Pura: o mesmo (id, run) sempre dá o mesmo resultado.
+ */
+export function namespaceToolCallId(id: string, runId: string): string {
+	if (NAMESPACED_ID.test(id)) return id;
+	const prefix = toolCallIdPrefix(runId);
+	const next = `${prefix}${id.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+	return next.length <= 40 ? next : `${prefix}${createHash("sha1").update(id).digest("hex").slice(0, 32)}`;
+}
+
+/**
+ * Os itens opacos do provedor (Responses) trazem o `call_id` de cada chamada: acompanham a renomeação para
+ * continuar casando com as chamadas da mensagem.
+ */
+export function renameProviderItemCallIds(
+	providerItems: SerializedLlmMessage["providerItems"],
+	rename: (id: string) => string,
+): SerializedLlmMessage["providerItems"] {
+	if (!providerItems) return providerItems;
+	return {
+		...providerItems,
+		items: providerItems.items.map((item) =>
+			item.type === "function_call" && typeof item.call_id === "string" ? { ...item, call_id: rename(item.call_id) } : item,
+		),
+	};
+}
+
+/**
+ * Ids de chamada de ferramenta ganham o prefixo do run de origem, igual na chamada do assistente e no
+ * resultado: um provedor que reaproveita `call_0` a cada run não embaralha os pares. Desde que o runtime
+ * prefixa os ids ao criá-los (o que foi enviado ao modelo é o que fica gravado), isto só age em checkpoints
+ * antigos; ids já prefixados ficam como estão.
  */
 export function namespaceToolCallIds(messages: SerializedLlmMessage[], runId: string): SerializedLlmMessage[] {
-	const prefix = `r${runId.replace(/[^0-9a-z]/gi, "").toLowerCase().slice(-6).padStart(6, "0")}_`;
-	const rename = (id: string): string => {
-		if (NAMESPACED_ID.test(id)) return id;
-		const next = `${prefix}${id.replace(/[^A-Za-z0-9_-]/g, "_")}`;
-		return next.length <= 40 ? next : `${prefix}${createHash("sha1").update(id).digest("hex").slice(0, 32)}`;
-	};
+	const rename = (id: string): string => namespaceToolCallId(id, runId);
 	return messages.map((message) => {
-		if (message.role === "tool" && message.tool_call_id) return { ...message, tool_call_id: rename(message.tool_call_id) };
-		if (message.tool_calls?.length) return { ...message, tool_calls: message.tool_calls.map((call) => ({ ...call, id: rename(call.id) })) };
+		if (message.role === "tool" && message.tool_call_id) {
+			const id = rename(message.tool_call_id);
+			return id === message.tool_call_id ? message : { ...message, tool_call_id: id };
+		}
+		if (message.tool_calls?.length) {
+			const calls = message.tool_calls.map((call) => ({ ...call, id: rename(call.id) }));
+			if (calls.every((call, index) => call.id === message.tool_calls![index]!.id)) return message;
+			return { ...message, tool_calls: calls, ...(message.providerItems ? { providerItems: renameProviderItemCallIds(message.providerItems, rename) } : {}) };
+		}
 		return message;
 	});
 }

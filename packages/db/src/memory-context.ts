@@ -38,6 +38,11 @@ export type MemoryContextOptions = {
 	 */
 	historySlot?: string;
 	/**
+	 * A memória por relevância vai DEPOIS da fala do usuário (mensagem de sistema logo após o turno), não antes dela:
+	 * o runtime guarda a conversa como foi enviada, e o prefixo dos turnos seguintes continua idêntico (cache de prompt).
+	 */
+	volatileAfterTurn?: boolean;
+	/**
 	 * Run de um membro na conversa de um grupo: o histórico vira a transcrição do grupo
 	 * (falas dos outros com autor) e o prompt traz o bloco do grupo no lugar do roster.
 	 */
@@ -56,6 +61,7 @@ export function assembleMemoryContext(input: {
 	relevantMemory: string | null;
 	sessionMessages: ChatMessage[];
 	incoming: ChatMessage[];
+	volatileAfterTurn?: boolean;
 }): ChatMessage[] {
 	const lastIncoming = input.incoming[input.incoming.length - 1];
 	// O histórico pode já vir em `incoming` (o worker o carrega antes): a janela de sessão só traz o que
@@ -86,8 +92,8 @@ export function assembleMemoryContext(input: {
 
 	return composeTieredMessages({
 		context: [input.identity, input.profile, input.summary],
-		history: placeVolatileBeforeTurn(all, [input.relevantMemory]),
-		volatile: [],
+		history: input.volatileAfterTurn ? all : placeVolatileBeforeTurn(all, [input.relevantMemory]),
+		volatile: input.volatileAfterTurn ? [input.relevantMemory] : [],
 	});
 }
 
@@ -173,6 +179,7 @@ export async function buildMemoryAugmentedMessages(
 		relevantMemory: memory.volatile,
 		sessionMessages,
 		incoming: turnMessages,
+		...(options.volatileAfterTurn ? { volatileAfterTurn: true } : {}),
 	});
 	return augmented.length > 0 ? augmented : incoming;
 }

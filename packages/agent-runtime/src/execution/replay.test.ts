@@ -151,8 +151,8 @@ async function replay(discipline: boolean) {
 		streamChat: async (params) => {
 			requests.push(JSON.parse(JSON.stringify(params.messages)) as LlmMessage[]);
 			for (const message of params.messages) {
-				if (message.role === "tool" && message.tool_call_id && typeof message.content === "string" && !firstSeen.has(message.tool_call_id)) {
-					firstSeen.set(message.tool_call_id, message.content);
+				if (message.role === "tool" && message.tool_call_id && typeof message.content === "string" && !firstSeen.has(message.tool_call_id.replace(/^r[0-9a-z]{6}_/, ""))) {
+					firstSeen.set(message.tool_call_id.replace(/^r[0-9a-z]{6}_/, ""), message.content);
 				}
 			}
 			const next = SCRIPT[decision++];
@@ -202,7 +202,7 @@ it("replay: disciplina ligada corta payload e prompt, nomeia a paginação e dis
 	expect(off.firstSeen.get("d2")).toContain('"total":900');
 	for (const id of ["d4", "d5", "d6"]) {
 		expect(on.firstSeen.get(id)).toMatch(
-			/^Identical to the result of mcp__shop__list_items at step 2 \(result_ref: run-on:\d+:d1:[\w]+\); reuse it\./,
+			/^Identical to the result of mcp__shop__list_items at step 2 \(result_ref: run-on:\d+:r[0-9a-z]{6}_d1:[\w]+\); reuse it\./,
 		);
 		expect(off.firstSeen.get(id)).toContain("[Result truncated");
 	}

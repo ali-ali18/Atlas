@@ -105,7 +105,7 @@ import {
 	contextTranscriptEnabled,
 	mergeCarriedNotes,
 	describeRunError,
-	insertBeforeLastUser,
+	appendTurnNote,
 	createJevTelemetryCollector,
 	errorFromAbortSignal,
 	loadApiConnectorRuntime,
@@ -219,6 +219,7 @@ async function prepareMessages(
 	compact?: boolean,
 	group?: MemoryContextOptions["group"],
 	historySlot?: string,
+	volatileAfterTurn?: boolean,
 ): Promise<ChatMessage[]> {
 	// Fase 4: userId é obrigatório (vem da linha do run). Sem ele, falha
 	// explícita em vez de seguir como "default".
@@ -236,6 +237,7 @@ async function prepareMessages(
 			compact,
 			...(group ? { group } : {}),
 			...(historySlot ? { historySlot } : {}),
+			...(volatileAfterTurn ? { volatileAfterTurn: true } : {}),
 		});
 		return base;
 	} catch (error) {
@@ -618,6 +620,7 @@ async function executeLeasedRun(ctx: {
 					compact,
 					groupPrompt,
 					transcript ? TRANSCRIPT_SLOT : undefined,
+					true,
 				);
 
 		// Injetar nota sobre artefatos de runs anteriores (A2 step 3): apenas para run novo
@@ -627,7 +630,7 @@ async function executeLeasedRun(ctx: {
 				const artifacts = await listConversationArtifacts(runUserId, run.conversationId, { limit: 5, excludeRunId: runId });
 				const artifactsNote = buildConversationArtifactsNote(artifacts);
 				if (artifactsNote) {
-					messages = insertBeforeLastUser(messages, artifactsNote);
+					messages = appendTurnNote(messages, artifactsNote);
 				}
 			} catch (error) {
 				console.error(`load conversation artifacts failed run=${runId}`, error);
@@ -642,7 +645,7 @@ async function executeLeasedRun(ctx: {
 				const taskNote = buildConversationTaskNote(
 					await getConversationTaskContext(runUserId, run.conversationId, { excludeRunId: runId }),
 				);
-				if (taskNote) messages = insertBeforeLastUser(messages, { role: "system", content: taskNote });
+				if (taskNote) messages = appendTurnNote(messages, { role: "system", content: taskNote });
 			} catch (error) {
 				console.error(`load conversation task context failed run=${runId}`, error);
 			}
@@ -658,8 +661,10 @@ async function executeLeasedRun(ctx: {
 				// Notas de turnos anteriores que definem a tarefa em andamento voltam (antes das deste turno).
 				const merged = contextTranscriptEnabled() ? mergeCarriedNotes(transcript?.carriedNotes, turn.notes) : { carried: [], reinject: [] };
 				carriedNotes = merged.carried;
-				for (const note of merged.reinject) messages = insertBeforeLastUser(messages, { role: "system", content: note.content });
-				for (const note of turn.notes) messages = insertBeforeLastUser(messages, { role: "system", content: note });
+				// A nota já está na conversa levada (gravada como foi enviada): só volta se um resumo a tirou de lá.
+				const alreadyThere = new Set((transcript?.priorTranscript ?? []).filter((message) => message.role === "system" && typeof message.content === "string").map((message) => message.content as string));
+				for (const note of merged.reinject) if (!alreadyThere.has(note.content)) messages = appendTurnNote(messages, { role: "system", content: note.content });
+				for (const note of turn.notes) messages = appendTurnNote(messages, { role: "system", content: note });
 				forcedConnectors = turn.connectors;
 			} catch (error) {
 				console.error(`load composer mentions failed run=${runId}`, error);
@@ -688,7 +693,7 @@ async function executeLeasedRun(ctx: {
 				return null;
 			})
 			: null;
-		if (attachmentsForRun?.historyNote) messages = insertBeforeLastUser(messages, { role: "system", content: attachmentsForRun.historyNote });
+		if (attachmentsForRun?.historyNote) messages = appendTurnNote(messages, { role: "system", content: attachmentsForRun.historyNote });
 
 		// Índice das skills do dono (K1): só em run novo; na retomada o prompt vem do checkpoint.
 		const skillIndex = checkpoint?.llmMessages?.length

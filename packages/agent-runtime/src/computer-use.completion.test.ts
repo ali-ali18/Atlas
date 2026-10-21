@@ -8,6 +8,7 @@ import { FILE_PROMISE_SYSTEM } from "./execution/delivery-correction.js";
 import { MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE } from "./execution/task-state.js";
 import { jevSaying, WANTS_FILE_JEV } from "./jev/test-support.js";
 import { buildMcpToolset } from "./mcp/registry.js";
+import { namespaceToolCallId } from "./context/transcript.js";
 
 vi.mock("@workspace/db", async (original) => ({
 	...(await original<typeof import("@workspace/db")>()),
@@ -201,7 +202,7 @@ describe("replay: mocked LLM and connector, write then truncated final answer", 
 		);
 		expect(connector).toHaveBeenCalledTimes(1);
 		expect(result?.text).toContain("reflects the change");
-		expect(checkpoint?.executionLedger?.results?.w1).toEqual({ status: "ok", effect: "applied" });
+		expect(checkpoint?.executionLedger?.results?.[namespaceToolCallId("w1", "run-l18")]).toEqual({ status: "ok", effect: "applied" });
 		expect(checkpoint?.executionLedger?.effects?.[0]).toMatchObject({ tool: "mcp__data__update", state: "ok" });
 		expect(checkpoint?.capabilities?.tools).toContain("mcp__data__update");
 		expect(checkpoint?.taskState?.phase).toBe("done");

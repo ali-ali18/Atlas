@@ -159,7 +159,7 @@ describe("triagem ao vivo durante tool longa", () => {
 		// 2ª chamada do pai: assistant(tool_calls) -> tool -> nota -> ack -> continuação.
 		const second = t.parentRequests[1]!;
 		const callIndex = second.findIndex((m) => m.role === "assistant" && m.tool_calls?.length);
-		expect(second[callIndex + 1]).toMatchObject({ role: "tool", tool_call_id: "d1" });
+		expect(second[callIndex + 1]).toMatchObject({ role: "tool", tool_call_id: expect.stringMatching(/_d1$/) });
 		expect(second[callIndex + 2]).toMatchObject({ role: "user" });
 		expect(String(second[callIndex + 2]!.content)).toContain(JOIN_NOTE_HEADER);
 		expect(String(second[callIndex + 2]!.content)).toContain("como está indo?");

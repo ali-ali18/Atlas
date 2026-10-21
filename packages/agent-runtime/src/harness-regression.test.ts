@@ -240,8 +240,10 @@ describe("harness: tarefa de varios passos sobre conector (regressao)", () => {
 		const lastRequest = two.requests.at(-1)!;
 		const ids = callsOf(lastRequest).map((c) => c.id);
 		expect(new Set(ids).size).toBe(ids.length);
-		expect(ids).toContain("call_1");
-		expect(ids.filter((id) => NAMESPACED.test(id)).length).toBe(priorCalls.length);
+		// Os ids nascem prefixados com o run (o que o modelo recebe e o que fica gravado sao o mesmo): o "call_1" novo do turno 2 ganha o prefixo dele.
+		expect(ids).toContain("rbbb222_call_1");
+		expect(ids.every((id) => NAMESPACED.test(id))).toBe(true);
+		expect(ids.filter((id) => id.startsWith("raaa111_")).length).toBe(priorCalls.length);
 		// O ERP recebeu a leitura nova uma vez; nada do turno 1 foi refeito.
 		expect(two.erp.calls.map((c) => c.name)).toEqual([EXPOSED.listPaymentMethods]);
 	});

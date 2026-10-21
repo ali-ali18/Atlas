@@ -211,7 +211,7 @@ describe("delegate_task mode browser_item (V8)", () => {
 		expect(childCall.text).toContain("Your tab is already open on: https://lms.test/");
 
 		// Ledger do pai: A e B done com evidência; C failed com motivo (aba quebrou) e a ordem para reler.
-		const get = events.find((e) => e.type === "tool_result" && e.name === "track_items" && e.id === "ti2");
+		const get = events.find((e) => e.type === "tool_result" && e.name === "track_items" && String(e.id).endsWith("_ti2"));
 		ledgerText = String(get?.summary ?? "");
 		expect(ledgerText).toContain("Items: 2/3 done, 1 failed");
 		const delegateResult = events.find((e) => e.type === "tool_result" && e.name === "delegate_task");
@@ -309,7 +309,7 @@ describe("delegate_task mode browser_item (V8)", () => {
 		// Todos falharam: o pai recebe erro (honesto), com o motivo.
 		expect(delegateResult).toMatchObject({ ok: false });
 		expect(String(delegateResult?.summary)).toContain("Could not open a browser tab");
-		const get = events.find((e) => e.type === "tool_result" && e.name === "track_items" && e.id === "ti2");
+		const get = events.find((e) => e.type === "tool_result" && e.name === "track_items" && String(e.id).endsWith("_ti2"));
 		expect(String(get?.summary)).toContain("0/3 done, 3 failed");
 	});
 });

@@ -28,10 +28,16 @@ export function chatgptCodexHeaders(token: string, accountId: string): Record<st
 	return { Authorization: `Bearer ${token}`, "ChatGPT-Account-ID": accountId, originator: "codex_cli_rs", "OpenAI-Beta": "responses=experimental" };
 }
 
+/** Destinos da Responses que devolveram 400 por `prompt_cache_key`: depois disso o pedido vai sem a chave. */
+const keyRejected = new Set<string>();
+
 /** Só recebe o token SIWC pelo cofre injetado; nenhum token entra no contrato do loop. */
 export function createChatgptStreamChat(options: ChatgptStreamOptions) {
 	return async (params: CompleteChatWithToolsParams, handlers: StreamChatWithToolsHandlers = {}): Promise<CompleteChatWithToolsResult> => {
-		const body = responsesRequestBody(params, options.endpoint?.slug(params.model));
+		const slug = options.endpoint?.slug(params.model);
+		const rejectKey = options.endpoint ? options.endpoint.url : "chatgpt";
+		// Destino que recusou `prompt_cache_key` antes: segue sem a chave (a economia de cache vale menos que o pedido).
+		let body = responsesRequestBody(params, slug, { promptCacheKey: !keyRejected.has(rejectKey) });
 		const timer = createCallTimer(params.model, params.clock);
 		const budget = createDecisionBudget(params);
 		let delivered = false;
@@ -52,6 +58,14 @@ export function createChatgptStreamChat(options: ChatgptStreamOptions) {
 						body: JSON.stringify(accountId && !body.instructions ? { ...body, instructions: "Você é o Atlas, um assistente prestativo." } : body), redirect: "error", signal: attempt.signal,
 					}), attempt.signal);
 					let response = await send();
+					if (response.status === 400 && "prompt_cache_key" in body) {
+						const detail = await abortable(response.clone().text(), attempt.signal).catch(() => "");
+						if (/prompt_cache_key/i.test(detail)) {
+							keyRejected.add(rejectKey);
+							body = responsesRequestBody(params, slug, { promptCacheKey: false });
+							response = await send();
+						}
+					}
 					if (!response.ok) {
 						const error = await readError(response, attempt.signal);
 						if (error.code === "subscription_sharing_invalid_user") throw error;

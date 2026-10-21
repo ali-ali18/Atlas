@@ -1,8 +1,11 @@
 import type { LlmMessage } from "../chat-tools.js";
+import { demoteSystemNotes } from "../system-notes.js";
 export type ResponseItem = Record<string, unknown>;
 
 /** Tradução pura; referências a artefatos precisam ser resolvidas pelo caller. */
-export function toResponses(messages: readonly LlmMessage[], model: string) {
+export function toResponses(source: readonly LlmMessage[], model: string) {
+	// `instructions` vem antes de tudo no prefixo: só o `system` do começo entra ali; as notas seguintes ficam na posição.
+	const messages = demoteSystemNotes(source).messages;
 	const instructions: string[] = [];
 	const input: ResponseItem[] = [];
 	const pending = new Set<string>();

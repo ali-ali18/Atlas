@@ -10,6 +10,7 @@ import {
 	attachPendingResult,
 	calledToolNames,
 	cleanTranscript,
+	namespaceToolCallId,
 	namespaceToolCallIds,
 } from "./transcript.js";
 import { CARRIED_NOTE_MAX_IDLE_TURNS, mergeCarriedNotes } from "./carried-notes.js";
@@ -26,16 +27,29 @@ const run1: SerializedLlmMessage[] = [
 ];
 
 describe("cleanTranscript", () => {
-	it("tira system das camadas, mantém notas de resumo e os resultados de ferramenta", () => {
+	it("tira só o system do começo, mantém notas de resumo, notas depois da primeira fala (na posição enviada) e os resultados", () => {
 		const cleaned = cleanTranscript([
 			{ role: "system", content: "camada" },
 			{ role: "system", content: `${SUMMARY_NOTE_PREFIX} resumo` },
 			...run1.slice(1),
-			{ role: "system", content: "nota transitória" },
+			{ role: "system", content: "nota do turno" },
 		])!;
-		expect(cleaned.map((m) => m.role)).toEqual(["system", "user", "assistant", "tool"]);
+		expect(cleaned.map((m) => m.role)).toEqual(["system", "user", "assistant", "tool", "system"]);
+		expect(cleaned[4]!.content).toBe("nota do turno");
 		expect(cleaned[0]!.content).toContain(SUMMARY_NOTE_PREFIX);
 		expect(cleaned[3]!.content).toContain("Alfa");
+	});
+
+	it("nota de sistema no meio da rodada espera o fim dela e os resultados continuam colados à chamada", () => {
+		const cleaned = cleanTranscript([
+			{ role: "user", content: "x" },
+			{ role: "system", content: "nota do turno" },
+			{ role: "assistant", content: null, tool_calls: [call("a", "t1"), call("b", "t2")] },
+			{ role: "tool", tool_call_id: "a", content: "ra" },
+			{ role: "system", content: "aviso" },
+			{ role: "tool", tool_call_id: "b", content: "rb" },
+		])!;
+		expect(cleaned.map((m) => m.content)).toEqual(["x", "nota do turno", null, "ra", "rb", "aviso"]);
 	});
 
 	it("dá resposta a chamada sem resultado e descarta resultado órfão", () => {
@@ -230,6 +244,22 @@ describe("ids de chamada entre runs", () => {
 		expect(a[2]!.tool_call_id).toBe(idA);
 		expect(idA).not.toBe(b[1]!.tool_calls![0]!.id);
 		expect(new Set([...a, ...b].filter((m) => m.role === "tool").map((m) => m.tool_call_id)).size).toBe(2);
+	});
+
+	it("id já prefixado na criação é identidade, e os itens do provedor acompanham a renomeação", () => {
+		const born = namespaceToolCallId("call_0", "run-aaaa11");
+		expect(namespaceToolCallId(born, "outro-run")).toBe(born);
+		const legacy: SerializedLlmMessage[] = [
+			{ role: "assistant", content: null, tool_calls: [call("call_9", "t")], providerItems: { provider: "chatgpt", model: "m", items: [{ type: "reasoning" }, { type: "function_call", call_id: "call_9" }] } },
+			{ role: "tool", tool_call_id: "call_9", content: "r" },
+		];
+		const out = namespaceToolCallIds(legacy, "run-aaaa11");
+		const id = out[0]!.tool_calls![0]!.id;
+		expect(id).toBe(namespaceToolCallId("call_9", "run-aaaa11"));
+		expect(out[0]!.providerItems!.items[1]).toEqual({ type: "function_call", call_id: id });
+		// já nascido com o prefixo: a mesma referência volta, sem copiar nada
+		expect(namespaceToolCallIds(out, "run-aaaa11")).toEqual(out);
+		expect(namespaceToolCallIds(out, "run-aaaa11")[0]).toBe(out[0]);
 	});
 
 	it("idempotente, limitado a 40 e só com caracteres aceitos pelos provedores", () => {

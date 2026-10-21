@@ -2,7 +2,9 @@ import { abortable, createDecisionBudget } from "./decision-budget.js";
 import { OpenRouterError, readOpenRouterSse } from "./sse-stream.js";
 import {
 	applyCacheBreakpoints,
+	configuredCacheTtl,
 	supportsExplicitPromptCache,
+	type PromptCacheTtl,
 } from "./prompt-cache.js";
 import {
 	readOpenRouterFallbackModels,
@@ -10,6 +12,7 @@ import {
 	isRetryableLlmError,
 } from "./config.js";
 import { createCallTimer, type LlmCallTiming } from "./timing.js";
+import { canonicalMessage, demoteSystemNotes, remapStableIndex } from "./system-notes.js";
 import { normalizeFinishReason, type FinishReason } from "@workspace/shared";
 import {
 	classifyProviderHttpError,
@@ -21,10 +24,24 @@ import {
  * F4 — corpo com fallback nativo do OpenRouter: tenta o `model` e depois
  * cada `OPENROUTER_FALLBACK_MODELS`, sem trocar de código no 429.
  */
+/**
+ * Claude via OpenRouter: notas de sistema fora do começo viram texto delimitado na própria posição (o provedor
+ * junta todo `system` no cabeçalho, e uma nota nova ali invalida o prefixo) e os breakpoints de cache entram
+ * sobre essa lista. Outros modelos seguem sem mudança.
+ */
+function claudeCacheMessages(params: CompleteChatWithToolsParams, options: { cache?: boolean; ttl?: PromptCacheTtl | false }): LlmMessage[] {
+	if (options.cache === false || !supportsExplicitPromptCache(params.model)) return params.messages;
+	const demoted = demoteSystemNotes(params.messages);
+	return applyCacheBreakpoints(demoted.messages.map(canonicalMessage), undefined, {
+		stableIndex: remapStableIndex(params.cacheStableIndex, demoted.positions),
+		ttl: (options.ttl === undefined ? configuredCacheTtl() : options.ttl) || undefined,
+	});
+}
+
 export function chatRequestBody(
 	params: CompleteChatWithToolsParams,
 	stream: boolean,
-	options: { cache?: boolean } = {},
+	options: { cache?: boolean; ttl?: PromptCacheTtl | false } = {},
 ) {
 	// O catálogo de fallbacks de texto não garante visão. Uma imagem só segue
 	// para o modelo escolhido e verificado pelo caller.
@@ -68,12 +85,7 @@ export function chatRequestBody(
 		parallel_tool_calls: true,
 		model: params.model,
 		...(fallbacks.length > 0 ? { models: [params.model, ...fallbacks] } : {}),
-		messages:
-			options.cache !== false && supportsExplicitPromptCache(params.model)
-				? applyCacheBreakpoints(params.messages, undefined, {
-						stableIndex: params.cacheStableIndex,
-					})
-				: params.messages,
+		messages: claudeCacheMessages(params, options),
 		tools: params.tools,
 		tool_choice: params.toolChoice ?? "auto",
 		stream,
@@ -125,7 +137,7 @@ async function postChat(
 	stream: boolean,
 	requests: { count: number },
 ): Promise<Response> {
-	const send = (cache: boolean) => {
+	const send = (cache: boolean, ttl?: false) => {
 		if (requests.count >= 2)
 			throw new Error("LLM request attempt limit exceeded");
 		requests.count += 1;
@@ -135,7 +147,7 @@ async function postChat(
 				headers: params.endpoint
 					? { Authorization: `Bearer ${params.apiKey}`, "Content-Type": "application/json", ...params.endpoint.headers }
 					: OPENROUTER_TOOL_HEADERS(params.apiKey),
-				body: JSON.stringify(params.endpoint ? endpointChatBody(params, stream) : chatRequestBody(params, stream, { cache })),
+				body: JSON.stringify(params.endpoint ? endpointChatBody(params, stream) : chatRequestBody(params, stream, { cache, ...(ttl === false ? { ttl } : {}) })),
 				signal: params.signal,
 			}),
 			params.signal,
@@ -150,15 +162,15 @@ async function postChat(
 		return httpAttempt;
 	}
 	const detail = await abortable(httpAttempt.clone().text(), params.signal);
-	return /cache_control|cache control/i.test(detail)
-		? send(false)
-		: httpAttempt;
+	if (!/cache_control|cache control|ttl/i.test(detail)) return httpAttempt;
+	// Validade de 1 hora recusada: repete com a de 5 minutos, que o provedor sempre aceita; senão, sem breakpoints.
+	return configuredCacheTtl() && /ttl/i.test(detail) ? send(true, false) : send(false);
 }
 
 const OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 export type LlmContentPart =
-	| { type: "text"; text: string; cache_control?: { type: "ephemeral" } }
+	| { type: "text"; text: string; cache_control?: { type: "ephemeral"; ttl?: "5m" | "1h" } }
 	| { type: "image_url"; image_url: { url: string } }
 	/** Documento (PDF) para o modelo ler nativamente; `file_data` é um Data URL base64. Só vai a quem lê PDF. */
 	| { type: "file"; file: { filename: string; file_data: string } }

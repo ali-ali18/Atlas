@@ -14,15 +14,27 @@ export function supportsExplicitPromptCache(model: string): boolean {
 
 type CacheablePart = Extract<LlmContentPart, { type: "text" }>;
 
+export type PromptCacheTtl = "1h";
+
+/**
+ * Validade do cache de prompt da Claude: 5 minutos (padrão do provedor) ou 1 hora, ligada por
+ * `ATLAS_PROMPT_CACHE_TTL=1h`. A escrita de 1 hora custa mais; vale em conversa com pausas longas entre os turnos.
+ */
+export function configuredCacheTtl(env: Record<string, string | undefined> = process.env): PromptCacheTtl | undefined {
+	return env.ATLAS_PROMPT_CACHE_TTL?.trim().toLowerCase() === "1h" ? "1h" : undefined;
+}
+
+const ephemeral = (ttl?: PromptCacheTtl) => ({ type: "ephemeral" as const, ...(ttl ? { ttl } : {}) });
+
 /** Marca o último texto da mensagem; devolve null se não há onde marcar. */
-function withBreakpoint(message: LlmMessage): LlmMessage | null {
+function withBreakpoint(message: LlmMessage, ttl?: PromptCacheTtl): LlmMessage | null {
 	const { content } = message;
 	if (typeof content === "string") {
 		if (content.length === 0) return null;
 		const part: CacheablePart = {
 			type: "text",
 			text: content,
-			cache_control: { type: "ephemeral" },
+			cache_control: ephemeral(ttl),
 		};
 		return { ...message, content: [part] };
 	}
@@ -31,7 +43,7 @@ function withBreakpoint(message: LlmMessage): LlmMessage | null {
 		const part = content[i];
 		if (part?.type !== "text" || part.text.length === 0) continue;
 		const parts = content.slice();
-		parts[i] = { ...part, cache_control: { type: "ephemeral" } };
+		parts[i] = { ...part, cache_control: ephemeral(ttl) };
 		return { ...message, content: parts };
 	}
 	return null;
@@ -51,7 +63,7 @@ function withBreakpoint(message: LlmMessage): LlmMessage | null {
 export function applyCacheBreakpoints(
 	messages: readonly LlmMessage[],
 	max: number = MAX_CACHE_BREAKPOINTS,
-	options: { stableIndex?: number } = {},
+	options: { stableIndex?: number; ttl?: PromptCacheTtl } = {},
 ): LlmMessage[] {
 	const out = messages.slice();
 	const budget = Math.max(0, Math.min(max, MAX_CACHE_BREAKPOINTS));
@@ -62,27 +74,29 @@ export function applyCacheBreakpoints(
 	if (systemIndex >= 0) targets.push(systemIndex);
 	const last = out.length - 1;
 	if (!targets.includes(last)) targets.push(last);
-	for (let i = last; i >= 0; i -= 1) {
-		if (out[i]?.role !== "assistant") continue;
-		const before = i - 1;
-		if (before >= 0 && !targets.includes(before)) targets.push(before);
-		break;
-	}
 	const { stableIndex } = options;
-	if (
+	const stableValid =
 		stableIndex !== undefined &&
 		Number.isInteger(stableIndex) &&
 		stableIndex >= 0 &&
 		stableIndex < last &&
-		!targets.includes(stableIndex)
-	) {
-		targets.push(stableIndex);
+		!targets.includes(stableIndex);
+	let beforeAssistant = -1;
+	for (let i = last; i >= 0; i -= 1) {
+		if (out[i]?.role !== "assistant") continue;
+		beforeAssistant = i - 1;
+		break;
 	}
+	// Um `stableIndex` DEPOIS do fim do pedido anterior (ex.: o histórico inteiro, quando camadas efêmeras vão
+	// coladas no fim) vale mais que ele: é o prefixo que o próximo passo vai reler.
+	if (stableValid && stableIndex! > beforeAssistant) targets.push(stableIndex!);
+	if (beforeAssistant >= 0 && !targets.includes(beforeAssistant)) targets.push(beforeAssistant);
+	if (stableValid && !targets.includes(stableIndex!)) targets.push(stableIndex!);
 
 	let used = 0;
 	for (const index of targets) {
 		if (used >= budget) break;
-		const marked = withBreakpoint(out[index] as LlmMessage);
+		const marked = withBreakpoint(out[index] as LlmMessage, options.ttl);
 		if (!marked) continue;
 		out[index] = marked;
 		used += 1;

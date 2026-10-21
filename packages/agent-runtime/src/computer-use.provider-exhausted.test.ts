@@ -132,7 +132,7 @@ async function run(input: {
 
 const toolResults = (messages: Message[], id: string): string =>
 	messages
-		.filter((m) => m.role === "tool" && (m as { tool_call_id?: string }).tool_call_id === id)
+		.filter((m) => m.role === "tool" && (m as { tool_call_id?: string }).tool_call_id?.endsWith(`_${id}`))
 		.map((m) => String(m.content))
 		.join("\n");
 

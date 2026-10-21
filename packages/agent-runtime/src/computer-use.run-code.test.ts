@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CompleteChatWithToolsResult } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import type { CodeRunInput, CodeRunResult } from "@workspace/sandbox";
+import { namespaceToolCallId } from "./context/transcript.js";
 import { runComputerUse } from "./computer-use.js";
 import { routeContextGroups } from "./context/intent-router.js";
 import { NATIVE_TOOL_GROUPS, nativeToolGroupOf } from "./context/native-tools.js";
@@ -155,11 +156,11 @@ describe("run_code: cartões persistidos", () => {
 			outputs: [{ name: "vendas.chart.json", bytes: new TextEncoder().encode(JSON.stringify(spec)) }],
 		}));
 		const chart = events.find((e) => e.type === "chart") as { chartId: string; spec: { xKind: string } } | undefined;
-		expect(chart).toMatchObject({ chartId: "rc1:vendas.chart.json", spec: { xKind: "date" } });
+		expect(chart).toMatchObject({ chartId: namespaceToolCallId("rc1", "run-rc") + ":vendas.chart.json", spec: { xKind: "date" } });
 		const persisted = persist.mock.calls.map((callArgs) => callArgs[1] as Record<string, unknown>);
-		expect(persisted.find((event) => event.type === "chart")).toMatchObject({ chartId: "rc1:vendas.chart.json" });
+		expect(persisted.find((event) => event.type === "chart")).toMatchObject({ chartId: namespaceToolCallId("rc1", "run-rc") + ":vendas.chart.json" });
 		const codeRun = persisted.find((event) => event.type === "code-run");
-		expect(codeRun).toMatchObject({ callId: "rc1", code: "import json\nprint('ok')", status: "ok", durationMs: 1200, output: "ok", runId: "run-rc" });
+		expect(codeRun).toMatchObject({ callId: namespaceToolCallId("rc1", "run-rc"), code: "import json\nprint('ok')", status: "ok", durationMs: 1200, output: "ok", runId: "run-rc" });
 		expect(typeof codeRun!.startedAt).toBe("string");
 		expect(events.find((e) => e.type === "file")).toBeUndefined();
 	});
@@ -175,6 +176,6 @@ describe("run_code: cartões persistidos", () => {
 			exitCode: 1, timedOut: false, stdout: "", stderr: "ZeroDivisionError", truncated: false, durationMs: 300, crashed: false, inputNames: [], omitted: [], outputs: [],
 		}));
 		const codeRun = persist.mock.calls.map((callArgs) => callArgs[1] as Record<string, unknown>).find((event) => event.type === "code-run");
-		expect(codeRun).toMatchObject({ callId: "rc1", status: "error", output: "— stderr —\nZeroDivisionError" });
+		expect(codeRun).toMatchObject({ callId: namespaceToolCallId("rc1", "run-rc"), status: "error", output: "— stderr —\nZeroDivisionError" });
 	});
 });

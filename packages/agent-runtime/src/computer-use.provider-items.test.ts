@@ -33,8 +33,8 @@ it("loop agnóstico reinjeta reasoning e resultados de duas tools com os ids ori
 	expect(connector).toHaveBeenCalledTimes(2);
 	const input = requestBodies[1]!.input as Array<Record<string, unknown>>;
 	expect(input.filter((item) => item.type === "reasoning")).toHaveLength(1);
-	expect(input.filter((item) => item.type === "function_call").map((item) => item.call_id)).toEqual(["call_fixture_a", "call_fixture_b"]);
-	expect(input.filter((item) => item.type === "function_call_output").map((item) => item.call_id)).toEqual(["call_fixture_a", "call_fixture_b"]);
+	expect(input.filter((item) => item.type === "function_call").map((item) => item.call_id)).toEqual(["rixture_call_fixture_a", "rixture_call_fixture_b"]);
+	expect(input.filter((item) => item.type === "function_call_output").map((item) => item.call_id)).toEqual(["rixture_call_fixture_a", "rixture_call_fixture_b"]);
 });
 
 it("plano sem teto de saída para antes das tools após usage ultrapassar saldo",async()=>{

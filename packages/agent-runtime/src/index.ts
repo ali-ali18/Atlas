@@ -44,7 +44,9 @@ export {
 	attachPendingResult,
 	calledToolNames,
 	cleanTranscript,
+	namespaceToolCallId,
 	namespaceToolCallIds,
+	toolCallIdPrefix,
 	transcriptTextOf,
 } from "./context/transcript.js";
 export { mergeCarriedNotes, CARRIED_NOTE_MAX_IDLE_TURNS } from "./context/carried-notes.js";
@@ -420,7 +422,7 @@ export { accountChatgptGate, envChatgptGate, type ChatgptGate, type ChatgptGateR
 export { SiwcAuthError } from "./providers/siwc-protocol.js";
 export type { SiwcStatus, SiwcStore, SiwcSecrets } from "./providers/siwc-store.js";
 export type { SiwcAccessOptions } from "./providers/siwc-refresh.js";
-export { buildConversationArtifactsNote, insertBeforeLastUser, type ConversationArtifactsSummary } from "./conversation-artifacts-note.js";
+export { appendTurnNote, buildConversationArtifactsNote, insertBeforeLastUser, type ConversationArtifactsSummary } from "./conversation-artifacts-note.js";
 export {
 	COMPOSIO_API_BASE,
 	ComposioApiError,

@@ -1,7 +1,8 @@
-import { applyCacheBreakpoints } from "../prompt-cache.js";
+import { applyCacheBreakpoints, configuredCacheTtl, type PromptCacheTtl } from "../prompt-cache.js";
+import { demoteSystemNotes, remapStableIndex } from "../system-notes.js";
 import type { ChatTool, CompleteChatWithToolsParams, LlmContentPart, LlmMessage } from "../chat-tools.js";
 
-type Cache = { type: "ephemeral" };
+type Cache = { type: "ephemeral"; ttl?: "5m" | "1h" };
 export type AnthropicBlock =
 	| { type: "text"; text: string; cache_control?: Cache }
 	| { type: "image"; source: { type: "base64"; media_type: string; data: string } | { type: "url"; url: string } }
@@ -21,7 +22,7 @@ export type AnthropicRequest = {
 };
 
 export const DEFAULT_ANTHROPIC_MAX_TOKENS = 16_000;
-const EPHEMERAL: Cache = { type: "ephemeral" };
+const ephemeral = (ttl?: PromptCacheTtl): Cache => ({ type: "ephemeral", ...(ttl ? { ttl } : {}) });
 const DATA_URL = /^data:([^;,]+);base64,(.+)$/s;
 
 function imageBlock(url: string): AnthropicBlock | null {
@@ -34,7 +35,7 @@ function imageBlock(url: string): AnthropicBlock | null {
 function partToBlock(part: LlmContentPart): AnthropicBlock | null {
 	if (part.type === "text") {
 		if (!part.text) return null;
-		return { type: "text", text: part.text, ...(part.cache_control ? { cache_control: EPHEMERAL } : {}) };
+		return { type: "text", text: part.text, ...(part.cache_control ? { cache_control: part.cache_control } : {}) };
 	}
 	if (part.type === "image_url") return imageBlock(part.image_url.url);
 	if (part.type === "file") {
@@ -70,14 +71,14 @@ function pushUser(out: AnthropicMessage[], blocks: AnthropicBlock[]) {
 	} else out.push({ role: "user", content: blocks });
 }
 
-export function toAnthropicTools(tools: ChatTool[], cache: boolean): AnthropicTool[] {
+export function toAnthropicTools(tools: ChatTool[], cache: boolean, ttl?: PromptCacheTtl): AnthropicTool[] {
 	const out: AnthropicTool[] = tools.map((tool) => ({
 		name: tool.function.name,
 		description: tool.function.description,
 		input_schema: tool.function.parameters,
 	}));
 	// Breakpoint no último tool: o bloco de ferramentas (estável) entra no cache.
-	if (cache && out.length) out[out.length - 1] = { ...out[out.length - 1]!, cache_control: EPHEMERAL };
+	if (cache && out.length) out[out.length - 1] = { ...out[out.length - 1]!, cache_control: ephemeral(ttl) };
 	return out;
 }
 
@@ -118,10 +119,13 @@ export function toAnthropicMessages(messages: readonly LlmMessage[]): { system: 
  * 1 no último tool e 3 reutilizando a política do OpenRouter (sistema, último
  * turno, fim do passo anterior); `cacheStableIndex` entra quando houver folga.
  */
-export function anthropicRequestBody(params: CompleteChatWithToolsParams, slug: string, options: { cache?: boolean } = {}): AnthropicRequest {
+export function anthropicRequestBody(params: CompleteChatWithToolsParams, slug: string, options: { cache?: boolean; ttl?: PromptCacheTtl | false } = {}): AnthropicRequest {
 	const cache = options.cache !== false;
+	const ttl = (options.ttl === undefined ? configuredCacheTtl() : options.ttl) || undefined;
 	const hasTools = params.tools.length > 0;
-	const marked = cache ? applyCacheBreakpoints(params.messages, hasTools ? 3 : 4, { stableIndex: params.cacheStableIndex }) : [...params.messages];
+	// Notas de sistema fora do começo viram texto na própria posição: um `system` novo mudaria o prefixo inteiro.
+	const demoted = demoteSystemNotes(params.messages);
+	const marked = cache ? applyCacheBreakpoints(demoted.messages, hasTools ? 3 : 4, { stableIndex: remapStableIndex(params.cacheStableIndex, demoted.positions), ttl }) : demoted.messages;
 	const { system, messages } = toAnthropicMessages(marked);
 	if (!messages.length) messages.push({ role: "user", content: [{ type: "text", text: "." }] });
 	const choice = params.toolChoice ?? "auto";
@@ -130,7 +134,7 @@ export function anthropicRequestBody(params: CompleteChatWithToolsParams, slug: 
 		max_tokens: params.maxOutputTokens ?? DEFAULT_ANTHROPIC_MAX_TOKENS,
 		...(system ? { system } : {}),
 		messages,
-		...(hasTools ? { tools: toAnthropicTools(params.tools, cache), tool_choice: { type: choice === "required" ? "any" : choice } } : {}),
+		...(hasTools ? { tools: toAnthropicTools(params.tools, cache, ttl), tool_choice: { type: choice === "required" ? "any" : choice } } : {}),
 		stream: true,
 	};
 }

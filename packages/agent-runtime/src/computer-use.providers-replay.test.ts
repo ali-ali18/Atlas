@@ -122,7 +122,7 @@ it("replay com imagem, duas tools e reasoning agrega chamadas do plano sem custo
     replay
       .filter((item) => item.type === "function_call_output")
       .map((item) => item.call_id)
-  ).toEqual(["call_fixture_a", "call_fixture_b"])
+  ).toEqual(["rixture_call_fixture_a", "rixture_call_fixture_b"])
   expect(result.usage.planCalls).toBe(2)
   expect(result.usage.costUnknownCalls ?? 0).toBe(0)
   expect(result.usage.costUsd).toBeUndefined()

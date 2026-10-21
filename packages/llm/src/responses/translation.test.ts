@@ -33,9 +33,9 @@ describe("tradução Responses", () => {
 		for (const messages of [[history[4]!], [history[3]!], [history[3]!, history[4]!, history[4]!], [history[3]!, history[2]!], [{ role: "user" as const, content: [{ type: "image_ref" as const, artifactId: "artifact" }] }]])
 			expect(() => toResponses(messages, params.model)).toThrow();
 	});
-	it("omite parâmetros proibidos, credenciais e cache não validado", () => {
+	it("omite parâmetros proibidos e credenciais; a chave de cache só sai com id de sessão", () => {
 		const body = responsesRequestBody(params);
-		expect(Object.keys(body)).toEqual(["model", "instructions", "input", "tools", "tool_choice", "stream", "store"]);
+		expect(Object.keys(body)).toEqual(["model", "instructions", "input", "tools", "tool_choice", "stream", "store", "prompt_cache_key"]);
 		expect(body.tools).toEqual([{ type: "function", name: "lookup", description: "Read data", parameters: { type: "object", properties: {} } }]);
 		expect(body.model).toBe("luna");
 		expect(body.store).toBe(false);

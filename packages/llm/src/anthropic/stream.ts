@@ -10,6 +10,7 @@ import { withLlmStepRetry } from "../config.js";
 import { abortable, createDecisionBudget } from "../decision-budget.js";
 import { ProviderApiError, classifyProviderHttpError, isRetryableProviderError, type KeyProviderName } from "../provider-errors.js";
 import { createCallTimer } from "../timing.js";
+import { configuredCacheTtl } from "../prompt-cache.js";
 import { anthropicRequestBody } from "./convert.js";
 
 export const ANTHROPIC_API_BASE_URL = "https://api.anthropic.com";
@@ -111,6 +112,14 @@ export type AnthropicStreamOptions = {
 	costKind?: "plan";
 };
 
+/** Cabeçalho beta do cache de 1 hora (aceito e ignorado quando a validade já é geral); junta ao beta que o chamador já mandou. */
+export const ANTHROPIC_EXTENDED_CACHE_BETA = "extended-cache-ttl-2025-04-11";
+function cacheTtlBeta(extra: Record<string, string> | undefined, active: boolean): Record<string, string> {
+	if (!active || !configuredCacheTtl()) return {};
+	const existing = Object.entries(extra ?? {}).find(([name]) => name.toLowerCase() === "anthropic-beta")?.[1];
+	return { "anthropic-beta": existing && !existing.includes(ANTHROPIC_EXTENDED_CACHE_BETA) ? `${existing},${ANTHROPIC_EXTENDED_CACHE_BETA}` : existing ?? ANTHROPIC_EXTENDED_CACHE_BETA };
+}
+
 export function anthropicAuthHeaders(auth: AnthropicStreamOptions["auth"], key: string): Record<string, string> {
 	return {
 		...(auth === "x-api-key" || auth === "both" ? { "x-api-key": key } : {}),
@@ -132,7 +141,9 @@ export function createAnthropicStreamChat(options: AnthropicStreamOptions) {
 					const attempt = budget.attempt();
 					try {
 						const key = await abortable(options.getApiKey(), attempt.signal);
-						const send = (cache: boolean) =>
+						// A validade de 1 hora é só da Anthropic direta; proxies de terceiros ficam nos 5 minutos de sempre.
+						const oneHour = options.provider === "anthropic";
+						const send = (cache: boolean, ttl?: false) =>
 							abortable(
 								fetchFn(options.url, {
 									method: "POST",
@@ -142,8 +153,9 @@ export function createAnthropicStreamChat(options: AnthropicStreamOptions) {
 										"content-type": "application/json",
 										accept: "text/event-stream",
 										...(options.headers?.(params) ?? {}),
+										...cacheTtlBeta(options.headers?.(params), cache && ttl !== false && oneHour),
 									},
-									body: JSON.stringify(anthropicRequestBody(params, slug, { cache })),
+									body: JSON.stringify(anthropicRequestBody(params, slug, { cache, ...(ttl === false || !oneHour ? { ttl: false as const } : {}) })),
 									redirect: "error",
 									signal: attempt.signal,
 								}),
@@ -154,7 +166,8 @@ export function createAnthropicStreamChat(options: AnthropicStreamOptions) {
 							response = await send(true);
 							if (response.status === 400) {
 								const detail = await abortable(response.clone().text(), attempt.signal).catch(() => "");
-								if (/cache_control/i.test(detail)) response = await send(false);
+								// Validade de 1 hora recusada: repete com a de 5 minutos; qualquer outro erro de cache_control, sem breakpoints.
+								if (/cache_control|ttl/i.test(detail)) response = oneHour && configuredCacheTtl() && /ttl/i.test(detail) ? await send(true, false) : await send(false);
 							}
 						} catch (error) {
 							attempt.signal.throwIfAborted();

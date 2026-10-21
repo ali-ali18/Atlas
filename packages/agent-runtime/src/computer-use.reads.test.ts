@@ -4,6 +4,7 @@ import type { SandboxManager } from "@workspace/sandbox";
 import type { CompleteChatWithToolsResult, LlmToolCall } from "@workspace/llm";
 import type { AgentRunCheckpoint } from "@workspace/shared";
 import { runComputerUse } from "./computer-use.js";
+import { namespaceToolCallId } from "./context/transcript.js";
 import { buildMcpToolset } from "./mcp/registry.js";
 
 vi.mock("@workspace/db", async (original) => ({
@@ -137,7 +138,7 @@ it("L1/L2: cache/ref, refresh e escrita em barreira; resultados duráveis por it
 				return response(calls);
 			}
 			if (iteration === 2) {
-				const ref = [...persisted.keys()].find((key) => key.includes(":a:"))!;
+				const ref = [...persisted.keys()].find((key) => key.includes("_a:"))!;
 				return response([
 					{
 						id: "details",
@@ -163,7 +164,7 @@ it("L1/L2: cache/ref, refresh e escrita em barreira; resultados duráveis por it
 	const toolIds = checkpoint?.llmMessages
 		?.filter((message) => message.role === "tool")
 		.map((message) => message.tool_call_id);
-	expect(toolIds?.slice(0, 7)).toEqual(calls.map((call) => call.id));
+	expect(toolIds?.slice(0, 7)).toEqual(calls.map((call) => namespaceToolCallId(call.id, "run-a")));
 });
 
 it("L2: resume executa somente itens sem resultado persistido", async () => {
