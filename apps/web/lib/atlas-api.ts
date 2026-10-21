@@ -67,7 +67,7 @@ import type {
 	RunInputMode,
 } from "@workspace/shared";
 import type { CompactConversationResponse } from "@workspace/shared";
-import type { RunInspection, MemoryChange, MemoryChangesPage, MemoryCleanupView, MemoryEntry, MemorySnapshot, MemoryTarget } from "@workspace/shared";
+import type { LessonView, RunInspection, MemoryChange, MemoryChangesPage, MemoryCleanupView, MemoryEntry, MemorySnapshot, MemoryTarget } from "@workspace/shared";
 import type {
 	CatalogBotEntry,
 	CatalogBotTemplate,
@@ -664,6 +664,26 @@ export async function editMemoryItem(entryId: string, content: string): Promise<
 
 export async function deleteMemoryItem(entryId: string): Promise<void> {
 	await atlasFetch(`/v1/memory/entries/${encodeURIComponent(entryId)}`, { method: "DELETE" });
+}
+
+/** Lições do bot (aba "Lições"): playbook procedural aprendido com o uso. */
+export async function listBotLessons(botId: string): Promise<LessonView[]> {
+	const { lessons } = await atlasFetch<{ lessons: LessonView[] }>(`/v1/lessons?botId=${encodeURIComponent(botId)}`);
+	return lessons;
+}
+
+export async function editBotLesson(lessonId: string, content: string): Promise<LessonView> {
+	const { lesson } = await atlasFetch<{ lesson: LessonView }>(`/v1/lessons/${encodeURIComponent(lessonId)}`, { method: "PATCH", body: JSON.stringify({ content }) });
+	return lesson;
+}
+
+export async function deleteBotLesson(lessonId: string): Promise<void> {
+	await atlasFetch(`/v1/lessons/${encodeURIComponent(lessonId)}`, { method: "DELETE" });
+}
+
+export async function restoreBotLesson(lessonId: string): Promise<LessonView> {
+	const { lesson } = await atlasFetch<{ lesson: LessonView }>(`/v1/lessons/${encodeURIComponent(lessonId)}/restore`, { method: "POST" });
+	return lesson;
 }
 
 /** "O que mudou": últimos 30 dias, mais novas primeiro. */

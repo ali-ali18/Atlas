@@ -33,6 +33,7 @@ import { type Agent, defaultBodyColor, defaultBotShape } from "../data";
 import { AutonomySettings } from "../autonomy/autonomy-settings";
 import { SettingsPicker } from "../settings-picker";
 import { AvatarEditor } from "./avatar-editor";
+import { LessonsTab } from "./lessons-tab";
 import { MemoryTab } from "./memory-tab";
 import { ProactiveSettingsSection } from "./proactive-settings";
 
@@ -201,6 +202,7 @@ export function AgentSettings({
 				<TabsList aria-label="Seções das configurações">
 					<TabsTrigger value="general">Geral</TabsTrigger>
 					<TabsTrigger value="memory">Memória</TabsTrigger>
+					<TabsTrigger value="lessons">Lições</TabsTrigger>
 				</TabsList>
 				<TabsContent className="pt-3" value="general">
 			<SettingsStack>
@@ -394,6 +396,9 @@ export function AgentSettings({
 				</TabsContent>
 				<TabsContent className="pt-3" value="memory">
 					<MemoryTab active={tab === "memory"} botId={agent.id} focusChanges={changesFocus} onFixInChat={onFixMemoryInChat} />
+				</TabsContent>
+				<TabsContent className="pt-3" value="lessons">
+					<LessonsTab active={tab === "lessons"} botId={agent.id} />
 				</TabsContent>
 			</Tabs>
 		</div>
