@@ -710,6 +710,7 @@ export {
 	type UsageTotals,
 } from "./usage.js";
 export { redactSecrets } from "./redact-secrets.js";
+export { buildToolResultNotes, renderToolNotesBlock, TOOL_NOTE_MAX_CHARS, TOOL_NOTES_MAX_COUNT, TOOL_NOTES_MAX_TOTAL_CHARS, type ToolResultNote } from "./memory-review-notes.js";
 export {
 	SKILL_NAME_MAX_CHARS,
 	SKILL_DESCRIPTION_MAX_CHARS,

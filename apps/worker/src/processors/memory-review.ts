@@ -2,6 +2,7 @@ import type { Job } from "bullmq";
 import {
 	ATLAS_JOB_NAMES,
 	decideMemoryScope,
+	renderToolNotesBlock,
 	languageInstruction,
 	type MemoryScopeContext,
 	type BotLanguage,
@@ -319,7 +320,7 @@ export async function processMemoryReview(
 	let judge: MemoryJudge | undefined = deps.judge;
 
 	const conversation: LlmMessage[] = [
-		{ role: "system", content: [SYSTEM_PROMPT, current, languageInstruction(language)].filter(Boolean).join("\n\n") },
+		{ role: "system", content: [SYSTEM_PROMPT, current, renderToolNotesBlock(payload.toolNotes), languageInstruction(language)].filter(Boolean).join("\n\n") },
 		...transcript.map((message) => ({
 			role: message.role,
 			content: message.content,

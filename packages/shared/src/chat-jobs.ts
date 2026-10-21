@@ -3,6 +3,7 @@ import type {
 	ChatCompletionResponse,
 	ChatMessage,
 } from "./chat.js";
+import type { ToolResultNote } from "./memory-review-notes.js";
 
 /** Payload enfileirado para `chat.completion` (modelo pode ser omitido e resolvido no worker). */
 export type ChatCompletionJobPayload = ChatCompletionRequest & {
@@ -21,6 +22,8 @@ export type MemoryReviewJobPayload = {
 	botId?: string;
 	conversationId?: string;
 	messages: ChatMessage[];
+	/** Resumos compactos (já redigidos) de resultados de ferramentas do run: fatos que só apareceram por tool. */
+	toolNotes?: ToolResultNote[];
 };
 
 /** Resultado do job de revisão de memória. */

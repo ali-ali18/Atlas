@@ -13,6 +13,7 @@ import {
 	type ChatMessage,
 	type ComputerUseEvent,
 	type MemoryReviewJobPayload,
+	buildToolResultNotes,
 	type RoutineRecord,
 	type SessionMessage,
 	type UserSettings,
@@ -934,7 +935,10 @@ async function executeLeasedRun(ctx: {
 				},
 			})
 		: null;
+	// Resultados de ferramentas do run: a revisão de memória salva fatos que só apareceram por tool (ex.: CNPJ do ERP).
+	const toolResultsForReview: Array<{ name: string; ok: boolean; summary: string }> = [];
 	const emitWithSegments = async (event: ComputerUseEvent) => {
+		if (event.type === "tool_result") toolResultsForReview.push({ name: event.name, ok: event.ok, summary: event.summary });
 		await segmentRecorder?.observe(event);
 		return emit(event);
 	};
@@ -1273,6 +1277,7 @@ async function executeLeasedRun(ctx: {
 		// Manutenção pós-conclusão (W6): o run já está concluído e é irrevogável.
 		// Falha de Redis/db aqui só é logada: nunca emite erro nem marca o run como
 		// falho (o catch abaixo também respeita `completionPersisted`).
+		const toolNotes = buildToolResultNotes(toolResultsForReview);
 		await runPostCompletionSteps(runId, [
 			{
 				name: "memory-review",
@@ -1288,6 +1293,7 @@ async function executeLeasedRun(ctx: {
 										...inputMessages,
 										{ role: "assistant", content: result.text },
 									],
+									...(toolNotes.length > 0 ? { toolNotes } : {}),
 								})
 						: undefined,
 			},
