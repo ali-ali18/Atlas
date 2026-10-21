@@ -1009,7 +1009,7 @@ export function ChatThread({
 			</header>
 
 			<div
-				className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+				className="min-h-0 flex-1 overflow-x-clip overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 				ref={scrollRef}
 			>
 				{loading && messages.length === 0 ? (

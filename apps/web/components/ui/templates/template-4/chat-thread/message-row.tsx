@@ -172,12 +172,12 @@ export function MessageRow({
 			);
 		case "tool":
 			return (
-				<div className="flex items-center gap-2 self-start rounded-2xl border bg-card px-3 py-2 text-xs">
+				<div className="flex max-w-full min-w-0 items-center gap-2 self-start rounded-2xl border bg-card px-3 py-2 text-xs">
 					<span className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
 						<SparklesIcon className="size-3" />
 					</span>
-					<span className="text-muted-foreground">{message.label}</span>
-					<span className="font-medium text-foreground">{message.text}</span>
+					<span className="shrink-0 text-muted-foreground">{message.label}</span>
+					<span className="min-w-0 font-medium text-foreground [overflow-wrap:anywhere]">{message.text}</span>
 				</div>
 			);
 		case "skill":
