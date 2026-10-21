@@ -67,3 +67,20 @@ test("textos de ações e do contexto em português", () => {
 	assert.equal(describeContext({ mode: "carried", priorMessages: 12 }), "Transcrição carregada (12 mensagens)");
 	assert.equal(describeContext({ mode: "first_turn" }), "Primeira mensagem da conversa");
 });
+
+test("lições do run: injetadas, usadas e a revisão do run anterior aparecem como ação", () => {
+	const html = renderToStaticMarkup(
+		<RunInspectorView
+			inspection={{
+				...inspection,
+				lessons: { injected: ["Lab12", "Lcd34"], atStart: 1, loaded: [{ key: "mcp:c1", refs: ["Lcd34"] }], used: [{ ref: "Lab12", outcome: "helped" }], review: { runId: "r0", at: "2026-10-20T10:00:00.000Z", status: "reviewed", added: 1, retired: 2, rejected: 1, skillProposal: true } },
+			}}
+		/>,
+	);
+	assert.match(html, /data-run-lessons/);
+	assert.match(html, /Lições injetadas: 2 \(\[Lab12\] \[Lcd34\]\)/);
+	assert.match(html, /1 entrou ao carregar um conector/);
+	assert.match(html, /\[Lab12\] ajudou/);
+	assert.match(html, /Revisão de lições do run anterior: 1 nova, 2 aposentadas, 1 sugestão de skill \(1 descartada\)\./);
+	assert.doesNotMatch(renderToStaticMarkup(<RunInspectorView inspection={inspection} />), /data-run-lessons/);
+});

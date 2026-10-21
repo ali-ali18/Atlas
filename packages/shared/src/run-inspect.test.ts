@@ -65,3 +65,31 @@ describe("buildRunInspection", () => {
 		expect(out.steps[0]!.tokens).toBeUndefined();
 	});
 });
+
+describe("buildRunInspection: lições", () => {
+	it("mostra as lições injetadas (início e ao carregar o conector), as marcadas como usadas e a revisão do run anterior", () => {
+		const out = buildRunInspection({
+			run,
+			steps: [
+				step({ decisionIndex: 2, subIndex: 1, type: "tool_result", idempotencyKey: "k1", inputJson: { name: "lesson_feedback", args: { lessons: [{ id: "[Lab12]", outcome: "helped" }, { id: "Lcd34" }] } }, outputJson: { ok: true, summary: "Recorded" } }),
+				step({ decisionIndex: 3, subIndex: 1, type: "tool_result", status: "failed", idempotencyKey: "k2", inputJson: { name: "lesson_feedback", args: { lessons: [{ id: "Lzz99" }] } }, outputJson: { ok: false, summary: "erro" } }),
+			],
+			events: [
+				{ seq: 1, type: "inspect_lessons", payload: { type: "inspect_lessons", injected: ["cmx00ab12", "cmx00cd34"], review: { runId: "r0", at: "2026-10-20T10:00:00.000Z", status: "reviewed", added: 1, retired: 1, rejected: 2, skillProposal: true, signals: ["user_feedback"] } } },
+				{ seq: 2, type: "inspect_lessons", payload: { type: "inspect_lessons", injected: ["cmx00ef56"], key: "mcp:c1" } },
+			],
+			approvals: [],
+		});
+		expect(out.lessons).toEqual({
+			injected: ["Lab12", "Lcd34", "Lef56"],
+			atStart: 2,
+			loaded: [{ key: "mcp:c1", refs: ["Lef56"] }],
+			used: [{ ref: "Lab12", outcome: "helped" }, { ref: "Lcd34", outcome: "applied" }],
+			review: { runId: "r0", at: "2026-10-20T10:00:00.000Z", status: "reviewed", added: 1, retired: 1, rejected: 2, skillProposal: true, signals: ["user_feedback"] },
+		});
+	});
+
+	it("sem lições nem revisão, a inspeção não ganha o campo", () => {
+		expect(buildRunInspection({ run, steps: [], events: [], approvals: [] }).lessons).toBeUndefined();
+	});
+});

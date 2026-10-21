@@ -189,6 +189,42 @@ function ToolRow({ call }: { call: InspectToolCall }) {
 	);
 }
 
+const loadedLater = (lessons: NonNullable<RunInspection["lessons"]>) => {
+	const count = lessons.loaded.reduce((sum, item) => sum + item.refs.length, 0);
+	return `${count} ${count === 1 ? "entrou" : "entraram"}`;
+};
+
+const USED_LABEL = { helped: "ajudou", hurt: "atrapalhou", applied: "aplicada" } as const;
+
+/** Resumo da revisão de lições do run anterior (job em segundo plano), como uma ação deste run. */
+export function describeLessonReview(review: NonNullable<NonNullable<RunInspection["lessons"]>["review"]>): string {
+	if (review.status === "skipped") return "Revisão de lições do run anterior: sem nada a aprender.";
+	const parts: string[] = [];
+	if (review.added) parts.push(`${review.added} ${review.added === 1 ? "nova" : "novas"}`);
+	if (review.updated) parts.push(`${review.updated} ${review.updated === 1 ? "atualizada" : "atualizadas"}`);
+	if (review.retired) parts.push(`${review.retired} ${review.retired === 1 ? "aposentada" : "aposentadas"}`);
+	if (review.counters) parts.push(`${review.counters} ${review.counters === 1 ? "avaliação" : "avaliações"}`);
+	if (review.skillProposal) parts.push("1 sugestão de skill");
+	const rejected = review.rejected ? ` (${review.rejected} descartada${review.rejected === 1 ? "" : "s"})` : "";
+	return `Revisão de lições do run anterior: ${parts.length > 0 ? parts.join(", ") : "nenhuma mudança"}${rejected}.`;
+}
+
+/** Lições neste run: quantas entraram (e quais), as que o modelo marcou como usadas e a revisão anterior. */
+export function LessonsBlock({ lessons }: { lessons: NonNullable<RunInspection["lessons"]> }) {
+	return (
+		<div className="space-y-1 rounded-lg bg-muted px-3 py-2 text-xs" data-run-lessons>
+			{lessons.injected.length > 0 ? (
+				<p>
+					Lições injetadas: {lessons.injected.length} ({lessons.injected.map((ref) => `[${ref}]`).join(" ")})
+					{lessons.loaded.length > 0 ? ` · ${loadedLater(lessons)} ao carregar um conector` : ""}
+				</p>
+			) : null}
+			{lessons.used.length > 0 ? <p>Marcadas como usadas: {lessons.used.map((item) => `[${item.ref}] ${USED_LABEL[item.outcome]}`).join(", ")}</p> : null}
+			{lessons.review ? <p data-run-lessons-review>{describeLessonReview(lessons.review)}</p> : null}
+		</div>
+	);
+}
+
 /** Corpo do inspetor (sem rede): quem busca os dados passa a inspeção pronta. */
 export function RunInspectorView({ inspection, onCopy, copied = false }: { inspection: RunInspection; onCopy?: () => void; copied?: boolean }) {
 	const scale = Math.max(1, ...inspection.steps.map((step) => step.estimatedTotal ?? 0));
@@ -229,6 +265,7 @@ export function RunInspectorView({ inspection, onCopy, copied = false }: { inspe
 				</div>
 			</dl>
 			{inspection.context ? <p className="rounded-lg bg-muted px-3 py-2 text-xs">{describeContext(inspection.context)}</p> : null}
+			{inspection.lessons ? <LessonsBlock lessons={inspection.lessons} /> : null}
 			{inspection.errors.length > 0 || inspection.error ? (
 				<ul className="space-y-1 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive text-xs">
 					{(inspection.errors.length > 0 ? inspection.errors.map((item) => item.message) : [inspection.error!]).map((message, index) => (
