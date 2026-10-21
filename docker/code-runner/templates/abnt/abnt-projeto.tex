@@ -1,0 +1,82 @@
+% Projeto de pesquisa ABNT (abnTeX2, NBR 15287). Marcadores <<CHAVE>> sao trocados por doclib.fill_template().
+% Sem resumo; secoes padrao de projeto. Compile com doclib.latex_abnt("projeto.tex").
+\documentclass[12pt, oneside, a4paper, chapter=TITLE, section=TITLE, sumario=abnt-6027-2012, english, brazil]{abntex2}
+
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{indentfirst}
+\usepackage{color}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage[alf]{abntex2cite}
+
+\titulo{<<TITULO>>}
+\autor{<<AUTOR>>}
+\local{<<LOCAL>>}
+\data{<<ANO>>}
+\orientador{<<ORIENTADOR>>}
+\instituicao{<<INSTITUICAO>>}
+\tipotrabalho{Projeto de pesquisa}
+\preambulo{<<PREAMBULO>>}
+
+\setlength{\parindent}{1.25cm}
+\setlength{\parskip}{0pt}
+\SingleSpacing
+\OnehalfSpacing
+\makeindex
+
+\begin{document}
+\selectlanguage{brazil}
+\frenchspacing
+
+\imprimircapa
+\imprimirfolhaderosto*
+
+\pdfbookmark[0]{\contentsname}{toc}
+\tableofcontents*
+\cleardoublepage
+
+\textual
+
+\chapter{Introdução}
+<<INTRODUCAO>>
+
+\section{Problema de pesquisa}
+<<PROBLEMA>>
+
+\section{Objetivos}
+\subsection{Objetivo geral}
+<<OBJETIVO_GERAL>>
+\subsection{Objetivos específicos}
+<<OBJETIVOS_ESPECIFICOS>>
+
+\section{Justificativa}
+<<JUSTIFICATIVA>>
+
+\chapter{Referencial teórico}
+<<REFERENCIAL>>
+
+\chapter{Metodologia}
+<<METODOLOGIA>>
+
+\chapter{Cronograma}
+\begin{table}[htb]
+\ABNTEXfontereduzida
+\caption{Cronograma de atividades}
+\centering
+\begin{tabular}{lcccc}
+\toprule
+Atividade & Mês 1 & Mês 2 & Mês 3 & Mês 4 \\
+\midrule
+<<CRONOGRAMA_LINHAS>>
+\bottomrule
+\end{tabular}
+\fonte{Elaborado pelo autor (<<ANO>>).}
+\end{table}
+
+\postextual
+\bibliography{referencias}
+
+\end{document}
