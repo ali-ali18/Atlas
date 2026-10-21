@@ -62,10 +62,12 @@ export type ConnectorLessonJobPayload = {
 	kind: ConnectorKind;
 	connectionId: string;
 	userId: string;
+	/** Bot do run: com ele a lição também entra no playbook do bot (escopo conector). */
+	botId?: string;
 	failed: { tool: string; args: string; error: string };
 	succeeded: { tool: string; args: string };
 };
-export type ConnectorLessonJobResult = { status: "suggested" | "skipped"; reason?: string };
+export type ConnectorLessonJobResult = { status: "suggested" | "skipped"; reason?: string; lesson?: "added" | "rejected" };
 
 export type GuideToolInput = { name: string; description?: string; inputSchema?: unknown };
 

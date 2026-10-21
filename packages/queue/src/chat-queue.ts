@@ -11,6 +11,8 @@ import {
 	type ConnectorGuideJobResult,
 	type ConnectorLessonJobPayload,
 	type ConnectorLessonJobResult,
+	type LessonReviewJobPayload,
+	type LessonReviewJobResult,
 	type ChatCompletionJobResult,
 	type MemoryCleanupJobPayload,
 	type MemoryCleanupJobResult,
@@ -23,8 +25,8 @@ import {
 export const CHAT_QUEUE_NAME = ATLAS_QUEUE_NAMES.chat;
 
 export type ChatCompletionQueue = Queue<
-	ChatCompletionJobPayload | MemoryReviewJobPayload | MemoryCleanupJobPayload | SummaryJobPayload | AttachmentExtractJobPayload | ConnectorGuideJobPayload | ConnectorLessonJobPayload,
-	ChatCompletionJobResult | MemoryReviewJobResult | MemoryCleanupJobResult | SummaryJobResult | AttachmentExtractJobResult | ConnectorGuideJobResult | ConnectorLessonJobResult,
+	ChatCompletionJobPayload | MemoryReviewJobPayload | MemoryCleanupJobPayload | SummaryJobPayload | AttachmentExtractJobPayload | ConnectorGuideJobPayload | ConnectorLessonJobPayload | LessonReviewJobPayload,
+	ChatCompletionJobResult | MemoryReviewJobResult | MemoryCleanupJobResult | SummaryJobResult | AttachmentExtractJobResult | ConnectorGuideJobResult | ConnectorLessonJobResult | LessonReviewJobResult,
 	| typeof ATLAS_JOB_NAMES.chatCompletion
 	| typeof ATLAS_JOB_NAMES.memoryReview
 	| typeof ATLAS_JOB_NAMES.memoryCleanup
@@ -32,14 +34,15 @@ export type ChatCompletionQueue = Queue<
 	| typeof ATLAS_JOB_NAMES.attachmentExtract
 	| typeof ATLAS_JOB_NAMES.connectorGuide
 	| typeof ATLAS_JOB_NAMES.connectorLesson
+	| typeof ATLAS_JOB_NAMES.lessonReview
 >;
 
 export function createChatCompletionQueue(
 	connection: Redis,
 ): ChatCompletionQueue {
 	return propagateRequestId(new Queue<
-		ChatCompletionJobPayload | MemoryReviewJobPayload | MemoryCleanupJobPayload | SummaryJobPayload | AttachmentExtractJobPayload | ConnectorGuideJobPayload | ConnectorLessonJobPayload,
-		ChatCompletionJobResult | MemoryReviewJobResult | MemoryCleanupJobResult | SummaryJobResult | AttachmentExtractJobResult | ConnectorGuideJobResult | ConnectorLessonJobResult,
+		ChatCompletionJobPayload | MemoryReviewJobPayload | MemoryCleanupJobPayload | SummaryJobPayload | AttachmentExtractJobPayload | ConnectorGuideJobPayload | ConnectorLessonJobPayload | LessonReviewJobPayload,
+		ChatCompletionJobResult | MemoryReviewJobResult | MemoryCleanupJobResult | SummaryJobResult | AttachmentExtractJobResult | ConnectorGuideJobResult | ConnectorLessonJobResult | LessonReviewJobResult,
 		| typeof ATLAS_JOB_NAMES.chatCompletion
 		| typeof ATLAS_JOB_NAMES.memoryReview
 	| typeof ATLAS_JOB_NAMES.memoryCleanup
@@ -47,6 +50,7 @@ export function createChatCompletionQueue(
 	| typeof ATLAS_JOB_NAMES.attachmentExtract
 	| typeof ATLAS_JOB_NAMES.connectorGuide
 	| typeof ATLAS_JOB_NAMES.connectorLesson
+	| typeof ATLAS_JOB_NAMES.lessonReview
 	>(CHAT_QUEUE_NAME, {
 		connection,
 		defaultJobOptions: {

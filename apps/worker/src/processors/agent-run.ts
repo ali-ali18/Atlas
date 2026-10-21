@@ -1,6 +1,6 @@
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
-import type { ConnectorLessonJobPayload, InspectContextPayload } from "@workspace/shared";
+import type { ConnectorLessonJobPayload, InspectContextPayload, LessonReviewJobPayload } from "@workspace/shared";
 import { parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef } from "@workspace/shared";
 import {
 	ATLAS_JOB_NAMES,
@@ -31,6 +31,7 @@ import {
 	appendConversationCard,
 	appendRunAssistantSegment,
 	appendRunEvent,
+	countFailedToolResults,
 	createPublishThrottle,
 	publishUserEvent,
 	buildMemoryAugmentedMessages,
@@ -171,6 +172,7 @@ import { imageVisionForRun } from "../image-vision.js";
 import { attachmentRuntimeForRun } from "../attachments.js";
 import { chainFollowUp, followUpRequest, laterFollowUpInput } from "../follow-up.js";
 import { runPostCompletionSteps } from "../post-completion.js";
+import { shouldReviewLessons } from "../lesson-trigger.js";
 import { reconcileRunCosts } from "../cost-reconcile.js";
 import { createAwayNoteHandler, settleRunDelivery, type RunEnd } from "../delivery/run-hooks.js";
 import { acquireRunLeaseOrYield } from "../lease-owner.js";
@@ -197,6 +199,8 @@ export type AgentRunProcessorDeps = {
 	enqueueMemoryReview?: (payload: MemoryReviewJobPayload) => Promise<void>;
 	/** Lição de conector (falha → sucesso no run): vira job que guarda uma sugestão pendente. */
 	enqueueConnectorLesson?: (payload: ConnectorLessonJobPayload) => Promise<void>;
+	/** Revisão de lições em segundo plano (debounce por conversa feito por quem enfileira). */
+	enqueueLessonReview?: (payload: LessonReviewJobPayload) => Promise<void>;
 	enqueueNextRun?: (runId: string, options?: { delayMs?: number }) => Promise<boolean>;
 	/** Teste: troca a ligação da retomada automática com banco e fila. */
 	autoContinueIo?: AutoContinueIo;
@@ -902,7 +906,7 @@ async function executeLeasedRun(ctx: {
 			mcp,
 			apiConnector,
 			...(deps.enqueueConnectorLesson
-				? { onConnectorLesson: (lesson: { kind: "mcp" | "api"; connectionId: string; failed: ConnectorLessonJobPayload["failed"]; succeeded: ConnectorLessonJobPayload["succeeded"] }) => deps.enqueueConnectorLesson!({ ...lesson, userId: runUserId }) }
+				? { onConnectorLesson: (lesson: { kind: "mcp" | "api"; connectionId: string; failed: ConnectorLessonJobPayload["failed"]; succeeded: ConnectorLessonJobPayload["succeeded"] }) => deps.enqueueConnectorLesson!({ ...lesson, userId: runUserId, ...(run.botId ? { botId: run.botId } : {}) }) }
 				: {}),
 			email: emailContext,
 			// `@App` do usuário neste turno: as tools desses conectores já entram no 1º passo.
@@ -1198,6 +1202,26 @@ async function executeLeasedRun(ctx: {
 									],
 								})
 						: undefined,
+			},
+			{
+				// Aprendizado (sleep-time): fora do caminho da resposta; o job só age se houver sinal e tem debounce por conversa.
+				name: "lesson-review",
+				run: deps.enqueueLessonReview
+					? async () => {
+							const failedToolCalls = await countFailedToolResults(runId).catch(() => 0);
+							const proceed = shouldReviewLessons({
+								origin: run.origin,
+								hasBot: Boolean(run.botId),
+								hasConversation: Boolean(run.conversationId),
+								groupRun: Boolean(groupRun),
+								onboardingRun,
+								priorAssistantTurn: inputMessages.slice(0, -1).some((message) => message.role === "assistant"),
+								failedToolCalls,
+							});
+							if (!proceed) return;
+							await deps.enqueueLessonReview!({ userId: runUserId, botId: run.botId!, conversationId: run.conversationId!, runId, since: new Date(run.createdAt).toISOString() });
+						}
+					: undefined,
 			},
 			{
 				// Custo que o OpenRouter não informou: consulta depois pelo id da geração.

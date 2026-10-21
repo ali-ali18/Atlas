@@ -53,3 +53,8 @@ export async function getRunInspectionData(runId: string, userId: string): Promi
 export async function countCompletedToolResults(runId: string): Promise<number> {
 	return prisma.agentStep.count({ where: { runId, type: "tool_result", status: "completed" } });
 }
+
+/** Chamadas de ferramenta que falharam no run (sinal de aprendizado para a revisão de lições). */
+export async function countFailedToolResults(runId: string): Promise<number> {
+	return prisma.agentStep.count({ where: { runId, type: "tool_result", status: "failed" } });
+}

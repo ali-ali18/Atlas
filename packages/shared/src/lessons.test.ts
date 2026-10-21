@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+	addBulletToSkillSection,
+	parseSkillNote,
 	LESSON_INJECT_MAX_CHARS,
 	LESSON_INJECT_MAX_ITEMS,
 	LESSON_MAX_CHARS,
@@ -136,5 +138,23 @@ describe("parseLessonFeedback", () => {
 			{ ref: "Lcd34", outcome: "applied" },
 		]);
 		expect(parseLessonFeedback({})).toEqual([]);
+	});
+});
+
+
+describe("skill_note e seção de skill", () => {
+	it("lê o skill_note válido e ignora o resto", () => {
+		expect(parseSkillNote('{"deltas":[],"skill_note":{"skill":"relatorio","section":"Pitfalls","text":"Confira o mês antes de enviar"}}')).toEqual({ skill: "relatorio", section: "Pitfalls", text: "Confira o mês antes de enviar" });
+		expect(parseSkillNote('{"skill_note":{"skill":"x","section":"Steps","text":"a"}}')).toBeNull();
+		expect(parseSkillNote('{"skill_note":null}')).toBeNull();
+	});
+	it("acrescenta na seção existente, cria a que falta e não duplica", () => {
+		const body = ["## When to Use", "Sempre.", "", "## Procedure", "1. Faça.", "", "## Pitfalls", "- Antiga.", "", "## Verification", "- Confira."].join("\n");
+		const withPit = addBulletToSkillSection(body, "Pitfalls", "Nova armadilha")!;
+		expect(withPit).toContain(["## Pitfalls", "- Antiga.", "- Nova armadilha", "", "## Verification"].join("\n"));
+		expect(addBulletToSkillSection(withPit, "Pitfalls", "nova armadilha")).toBeNull();
+		const created = addBulletToSkillSection("## Procedure\n1. Faça.", "Verification", "Revise o total")!;
+		expect(created.endsWith("## Verification\n- Revise o total\n")).toBe(true);
+		expect(addBulletToSkillSection("x", "Pitfalls", "y".repeat(100), 10)).toBeNull();
 	});
 });

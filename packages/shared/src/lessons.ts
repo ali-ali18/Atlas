@@ -340,3 +340,53 @@ export type LessonReviewJobResult = {
 
 /** Evento do inspetor: lições injetadas em um run (ids curtos) e as marcadas como usadas. */
 export type InspectLessonsPayload = { type: "inspect_lessons"; injected: string[]; scopes?: Record<string, number> };
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Refinamento de skill (conservador): a lição vira uma linha em Pitfalls/Verification, sempre via cartão de aprovação
+// ---------------------------------------------------------------------------------------------------------------------
+
+export type SkillNoteSection = "Pitfalls" | "Verification";
+export type SkillNote = { skill: string; section: SkillNoteSection; text: string };
+
+/** `skill_note` opcional do refletor; qualquer coisa fora do formato = nenhuma nota. */
+export function parseSkillNote(text: string): SkillNote | null {
+	const raw = jsonObjectOf(text)?.skill_note;
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+	const row = raw as Record<string, unknown>;
+	const skill = typeof row.skill === "string" ? row.skill.trim().slice(0, 80) : "";
+	const note = typeof row.text === "string" ? sanitizeLessonContent(row.text) : "";
+	const section = row.section === "Pitfalls" || row.section === "Verification" ? row.section : null;
+	return skill && note && section ? { skill, section, text: note } : null;
+}
+
+const SKILL_BODY_LIMIT_BYTES = 16 * 1024;
+
+/**
+ * Acrescenta `- texto` na seção (Pitfalls/Verification) do corpo da skill, criando a seção no fim se não existir.
+ * Null se a linha já está lá ou se estouraria o limite do corpo. Nunca remove nem reescreve o que já existe.
+ */
+export function addBulletToSkillSection(body: string, section: SkillNoteSection, text: string, maxBytes = SKILL_BODY_LIMIT_BYTES): string | null {
+	const bullet = `- ${text.replace(/\s+/g, " ").trim()}`;
+	if (bullet.length < 4 || normalizeForMatch(body).includes(normalizeForMatch(text))) return null;
+	const lines = body.split("\n");
+	const headingAt = lines.findIndex((line) => new RegExp(String.raw`^#{1,6}\s*${section}\b`, "i").test(line.trim()));
+	let next: string;
+	if (headingAt < 0) {
+		next = `${body.replace(/\s+$/, "")}${body.trim() ? "\n\n" : ""}## ${section}\n${bullet}\n`;
+	} else {
+		const level = (lines[headingAt]!.match(/^#+/) ?? ["#"])[0]!.length;
+		let end = lines.length;
+		for (let i = headingAt + 1; i < lines.length; i += 1) {
+			const heading = lines[i]!.match(/^(#{1,6})\s/);
+			if (heading && heading[1]!.length <= level) {
+				end = i;
+				break;
+			}
+		}
+		let insertAt = end;
+		while (insertAt > headingAt + 1 && lines[insertAt - 1]!.trim() === "") insertAt -= 1;
+		lines.splice(insertAt, 0, bullet);
+		next = lines.join("\n");
+	}
+	return new TextEncoder().encode(next).length <= maxBytes ? next : null;
+}

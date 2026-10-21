@@ -5,6 +5,8 @@ import {
 	LESSON_SYSTEM,
 	buildConnectorGuidePrompt,
 	buildConnectorLessonPrompt,
+	connectorScopeKey,
+	lessonProvenanceProblem,
 	parseLessonBullet,
 	sanitizeGuideText,
 	type ConnectorGuideJobPayload,
@@ -15,6 +17,7 @@ import {
 	type GuideToolInput,
 } from "@workspace/shared";
 import {
+	applyLessonDeltas,
 	addGuideSuggestion,
 	clearGuideStatus,
 	getApiConnectionWithCatalog,
@@ -30,6 +33,8 @@ import { createMaintenanceLlm, type MaintenanceLlm } from "../maintenance-llm.js
 /** Injetável nos testes: modelo de manutenção e chamada ao LLM. */
 export type ConnectorGuideDeps = {
 	llm?: (userId: string, config: WorkerConfig) => Promise<MaintenanceLlm>;
+	/** Escrita das lições do bot (injetável nos testes); padrão: banco. */
+	applyLessons?: typeof applyLessonDeltas;
 };
 
 const llmFor = (kind: "connector-guide", config: WorkerConfig, userId: string, deps: ConnectorGuideDeps): Promise<MaintenanceLlm> =>
@@ -181,5 +186,27 @@ export async function processConnectorLessonJob(
 	const bullet = parseLessonBullet(result.message.content ?? "");
 	if (!bullet) return { status: "skipped", reason: "sem lição geral" };
 	const saved = await addGuideSuggestion(kind, connectionId, userId, bullet);
-	return saved ? { status: "suggested" } : { status: "skipped", reason: "duplicada ou limite de sugestões" };
+	// A mesma lição também entra, já ativa, no playbook do bot (escopo conector). O guia continua com a sugestão pendente.
+	const lesson = await writeConnectorLesson(job.data, bullet, deps);
+	if (saved) return { status: "suggested", ...(lesson ? { lesson } : {}) };
+	return { status: "skipped", reason: "duplicada ou limite de sugestões", ...(lesson ? { lesson } : {}) };
+}
+
+/** Lição de conector → `BotLesson` ativa. Proveniência: o erro da chamada que falhou; sem copiar texto de ferramenta. */
+async function writeConnectorLesson(payload: ConnectorLessonJobPayload, bullet: string, deps: ConnectorGuideDeps): Promise<"added" | "rejected" | null> {
+	const { botId, userId, kind, connectionId, failed } = payload;
+	if (!botId) return null;
+	const evidence = { source: "outcome" as const, quote: failed.error.replace(/\s+/g, " ").trim().slice(0, 200) };
+	const problem = lessonProvenanceProblem({ content: bullet, evidence }, { userTexts: [], failureTexts: [failed.error], toolTexts: [failed.error, failed.args] });
+	if (problem) {
+		console.warn(`[connector.lesson] lesson rejected reason=${problem}`);
+		return "rejected";
+	}
+	try {
+		const result = await (deps.applyLessons ?? applyLessonDeltas)(botId, [{ op: "add", scope: "connector", scopeKey: connectorScopeKey(kind, connectionId), content: bullet, origin: "failure_recovery", evidence }], { userId });
+		return result.ok && result.added > 0 ? "added" : "rejected";
+	} catch (error) {
+		console.warn(`[connector.lesson] lesson write failed (${error instanceof Error ? error.name : "erro"})`);
+		return null;
+	}
 }
