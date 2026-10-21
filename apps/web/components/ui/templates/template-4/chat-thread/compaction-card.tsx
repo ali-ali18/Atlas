@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDownIcon, Loader2Icon, ShrinkIcon } from "lucide-react";
+import { ChevronRightIcon, Loader2Icon, ShrinkIcon } from "lucide-react";
 
 import { formatCompactionLine } from "@workspace/shared";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
@@ -18,26 +18,25 @@ export type CompactionCardProps = {
 };
 
 /**
- * "Conversa compactada · 48,2 mil → 6,1 mil tokens (−87%)", com o texto do resumo numa área que abre e fecha.
- * Neutro como o cartão de tarefas: borda e fundo suaves, tipografia pequena, sem cor de destaque.
+ * Linha neutra na conversa, no mesmo estilo dos marcadores de aprovação: "Conversa compactada · 48,2 mil → 6,1 mil
+ * tokens (−87%)". Tocar abre o texto do resumo.
  */
 export function CompactionCard({ before, after, summary, focus, defaultOpen = false }: CompactionCardProps) {
 	return (
-		<Collapsible
-			className="my-1 w-full min-w-0 max-w-[min(68ch,100%)] rounded-lg border border-border/60 bg-muted/40 text-xs"
-			data-testid="compaction-card"
-			defaultOpen={defaultOpen}
-		>
-			<CollapsibleTrigger className="group/trigger flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
+		<Collapsible className="w-full min-w-0" data-testid="compaction-card" defaultOpen={defaultOpen}>
+			<CollapsibleTrigger className="group/trigger flex min-h-8 w-full min-w-0 items-center gap-2 rounded-full px-2 text-left text-xs text-muted-foreground outline-none hover:bg-foreground/[0.06] focus-visible:ring-3 focus-visible:ring-ring/30">
 				<ShrinkIcon aria-hidden="true" className="size-3.5 shrink-0" />
-				<span className="shrink-0 font-medium text-foreground/90"><span className="max-sm:hidden">Conversa compactada</span><span className="sm:hidden">Compactada</span></span>
-				<span className="min-w-0 truncate tabular-nums" data-testid="compaction-numbers">{formatCompactionLine(before, after)}</span>
-				<ChevronDownIcon aria-hidden="true" className="ml-auto size-3.5 shrink-0 transition-transform group-aria-expanded/trigger:rotate-180" />
+				<span className="min-w-0 flex-1 truncate">
+					<span className="max-sm:hidden">Conversa compactada · </span>
+					<span className="sm:hidden">Compactada · </span>
+					<span className="tabular-nums" data-testid="compaction-numbers">{formatCompactionLine(before, after)}</span>
+				</span>
+				<ChevronRightIcon aria-hidden="true" className="size-3.5 shrink-0 transition-transform group-aria-expanded/trigger:rotate-90" />
 			</CollapsibleTrigger>
 			<CollapsibleContent>
-				<div className="flex flex-col gap-2 px-3 pb-2.5" data-testid="compaction-summary">
+				<div className="mt-1 flex max-h-72 min-w-0 flex-col gap-2 overflow-auto rounded-xl bg-muted/60 px-3 py-2 text-xs leading-5" data-testid="compaction-summary">
 					{focus ? <p className="m-0 text-muted-foreground">Foco: {focus}</p> : null}
-					<p className="m-0 max-h-72 min-w-0 overflow-auto leading-relaxed whitespace-pre-wrap text-foreground/90 [overflow-wrap:anywhere]">{summary}</p>
+					<p className="m-0 min-w-0 whitespace-pre-wrap text-foreground/90 [overflow-wrap:anywhere]">{summary}</p>
 				</div>
 			</CollapsibleContent>
 		</Collapsible>
