@@ -135,6 +135,23 @@ describe("run_code: resultado e saídas", () => {
 		expect(without.summary).not.toMatch(/attached to the next message/);
 	});
 
+	it("previews de /work/preview voltam ao modelo (até 12), sem virar arquivo nem imagem do chat", async () => {
+		const previews = Array.from({ length: 14 }, (_, i) => ({ name: `p-${i + 1}.png`, bytes: PNG }));
+		const seeing = setup({ previews }, { canSeeImages: true });
+		const out = await executeRunCode({ code: "x" }, seeing.ctx, seeing.deps);
+		expect(out.visionArtifactIds).toHaveLength(12);
+		expect(seeing.persisted.every((item) => item.kind === "image" && item.meta?.source === "run_code_preview")).toBe(true);
+		expect(seeing.images).toEqual([]);
+		expect(out.fileEvents).toEqual([]);
+		expect(out.summary).toMatch(/12 preview page images/);
+		expect(out.summary).toMatch(/beyond the limit of 12/);
+		const blind = setup({ previews }, { canSeeImages: false });
+		const none = await executeRunCode({ code: "x" }, blind.ctx, blind.deps);
+		expect(none.visionArtifactIds).toEqual([]);
+		expect(blind.persisted).toEqual([]);
+		expect(none.summary).toMatch(/cannot view images/);
+	});
+
 	it("tipos bloqueados e excesso de arquivos por run entram em 'Not delivered'", async () => {
 		const { deps, ctx, files } = setup({ omitted: ["extra.bin (limite de 10 arquivos)"], outputs: [{ name: "malware.exe", bytes: bytes("MZ") }, { name: "ok.csv", bytes: bytes("a") }] });
 		deps.countRunFiles = vi.fn(async () => 5);

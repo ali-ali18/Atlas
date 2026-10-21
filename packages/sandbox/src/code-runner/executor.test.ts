@@ -22,6 +22,7 @@ type FakeOptions = {
 	imageMissing?: boolean;
 	result?: Record<string, unknown> | null;
 	outFiles?: Array<{ name: string; bytes: Uint8Array }>;
+	previewFiles?: Array<{ name: string; bytes: Uint8Array }>;
 	/** O log nunca traz o marcador (execução travada). */
 	hang?: boolean;
 	/** O log acaba sem marcador (container morreu). */
@@ -50,6 +51,10 @@ function fakeDocker(options: FakeOptions = {}) {
 				if (options.result === null) throw Object.assign(new Error("no such file"), { statusCode: 404 });
 				const json = options.result ?? { exit_code: 0, timed_out: false, duration_ms: 12, stdout: "ok\n", stderr: "" };
 				return Readable.from([packTar([{ name: ".result.json", bytes: bytes(JSON.stringify(json)) }], owner)]);
+			}
+			if (path === "/work/preview") {
+				if (!options.previewFiles) throw Object.assign(new Error("no such file"), { statusCode: 404 });
+				return Readable.from([packTar([{ dir: "preview" }, ...options.previewFiles.map((file) => ({ name: `preview/${file.name}`, bytes: file.bytes }))], owner)]);
 			}
 			const files = (options.outFiles ?? []).map((file) => ({ name: `out/${file.name}`, bytes: file.bytes }));
 			return Readable.from([packTar([{ dir: "out" }, ...files], owner)]);
@@ -148,6 +153,15 @@ describe("runCode: entrada e saída", () => {
 		expect(result).toMatchObject({ exitCode: 0, timedOut: false, stdout: "total 42\n", stderr: "aviso", durationMs: 321, crashed: false });
 		expect(result.outputs.map((file) => file.name)).toEqual(["dados.csv", "grafico.png"]);
 		expect(text(result.outputs[1]!.bytes)).toBe("PNG");
+	});
+
+	it("lê /work/preview em ordem numérica, só imagens, no máximo 12", async () => {
+		const previewFiles = [...Array.from({ length: 14 }, (_, i) => ({ name: `p-${i + 1}.png`, bytes: bytes("PNG") })), { name: "notes.txt", bytes: bytes("x") }];
+		const result = await runCode({ code: "x" }, config, { docker: fakeDocker({ previewFiles }).docker });
+		expect(result.previews!.map((file) => file.name)).toEqual(Array.from({ length: 12 }, (_, i) => `p-${i + 1}.png`));
+		expect(result.outputs).toEqual([]);
+		const none = await runCode({ code: "x" }, config, { docker: fakeDocker().docker });
+		expect(none.previews).toEqual([]);
 	});
 
 	it("respeita o limite de 10 arquivos e de bytes de saída", async () => {

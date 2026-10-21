@@ -8,6 +8,10 @@ const CODE_MAX_CHARS = 200_000;
 /** Folga além do timeout do código para subir o container, copiar arquivos e ler a saída. */
 const HOST_GRACE_MS = 20_000;
 const FILE_NAME_MAX = 90;
+/** /work/preview: páginas rasterizadas para o modelo conferir. */
+export const PREVIEW_MAX_FILES = 12;
+const PREVIEW_MAX_BYTES = 8 * 1024 * 1024;
+const PREVIEW_IMAGE = /[.](png|jpe?g)$/i;
 
 /** Mensagem pensada para o modelo repassar ao usuário em português. */
 export class CodeRunnerUnavailableError extends Error {
@@ -45,6 +49,8 @@ export type CodeRunResult = {
 	truncated: boolean;
 	durationMs: number;
 	outputs: CodeRunnerOutputFile[];
+	/** Imagens de /work/preview: só o modelo vê (conferência visual de páginas); não viram arquivo para o usuário. */
+	previews?: CodeRunnerOutputFile[];
 	/** Arquivos de /work/out que não couberam nos limites (nome + motivo). */
 	omitted: string[];
 	/** Nomes finais dos arquivos de entrada em /work/in. */
@@ -181,6 +187,28 @@ async function readOutputs(container: Docker.Container, config: CodeRunnerConfig
 	return { outputs, omitted };
 }
 
+/** Imagens de /work/preview (as primeiras PREVIEW_MAX_FILES por nome, até ~8 MB); o resto é ignorado. */
+async function readPreviews(container: Docker.Container): Promise<CodeRunnerOutputFile[]> {
+	let archive: Buffer;
+	try {
+		archive = await collect((await container.getArchive({ path: "/work/preview" })) as unknown as NodeJS.ReadableStream, PREVIEW_MAX_BYTES * 2 + 1024 * 1024);
+	} catch {
+		return [];
+	}
+	const previews: CodeRunnerOutputFile[] = [];
+	let total = 0;
+	const files = unpackTar(archive)
+		.map((file) => ({ ...file, name: file.name.replace(/^\.?\/?preview\//, "") }))
+		.filter((file) => file.name && !file.name.includes("/") && PREVIEW_IMAGE.test(file.name) && file.bytes.byteLength > 0)
+		.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+	for (const file of files) {
+		if (previews.length >= PREVIEW_MAX_FILES || total + file.bytes.byteLength > PREVIEW_MAX_BYTES) break;
+		total += file.bytes.byteLength;
+		previews.push({ name: file.name, bytes: file.bytes });
+	}
+	return previews;
+}
+
 type RunnerJson = { exit_code?: number | null; timed_out?: boolean; duration_ms?: number; stdout?: string; stderr?: string };
 
 async function readResultJson(container: Docker.Container): Promise<RunnerJson | null> {
@@ -284,6 +312,7 @@ export async function runCode(input: CodeRunInput, config: CodeRunnerConfig, dep
 		}
 		const result = await readResultJson(container);
 		const { outputs, omitted } = await readOutputs(container, config);
+		const previews = await readPreviews(container);
 		const out = truncateStream(result?.stdout ?? "", config.maxOutputChars);
 		const err = truncateStream(result?.stderr ?? "", config.maxOutputChars);
 		return {
@@ -293,7 +322,7 @@ export async function runCode(input: CodeRunInput, config: CodeRunnerConfig, dep
 			stderr: err.text,
 			truncated: out.truncated || err.truncated,
 			durationMs: typeof result?.duration_ms === "number" ? result.duration_ms : Date.now() - started,
-			outputs, omitted, inputNames,
+			outputs, previews, omitted, inputNames,
 			crashed: result === null,
 		};
 	} finally {
