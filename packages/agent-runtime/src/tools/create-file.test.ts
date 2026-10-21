@@ -140,4 +140,19 @@ describe("create_file em partes (A8)", () => {
 		expect(html).toContain("Um");
 		expect(html).toContain("Dois");
 	});
+
+	it("layout abnt: o schema aceita e a primeira parte o define para o arquivo todo", async () => {
+		resetStagedFilesForTest();
+		const props = CREATE_FILE_TOOL.function.parameters as { properties: Record<string, { enum?: string[] }> };
+		expect(props.properties.layout?.enum).toEqual(["default", "abnt"]);
+		const d = deps();
+		await executeCreateFile({ filename: "t.pdf", part: 1, more: true, content: "# 1 INTRODUÇÃO\n\n", layout: "abnt" }, ctx, d.value);
+		const args = { filename: "t.pdf", part: 2, content: "Texto." };
+		expect(previewCreateFileArgs(args, ctx).layout).toBe("abnt");
+		await executeCreateFile(args, ctx, d.value);
+		const html = String((d.value.printPdf as ReturnType<typeof vi.fn>).mock.calls[0]![0]);
+		expect(html).toContain("@page tex");
+		expect(html).toContain("1 INTRODUÇÃO");
+		expect(html).toContain("Texto.");
+	});
 });

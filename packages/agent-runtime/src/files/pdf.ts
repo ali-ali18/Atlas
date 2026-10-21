@@ -15,7 +15,7 @@ img { max-width: 100%; }
 `;
 
 /** HTML vindo do modelo: sem script, handlers, iframes nem rede; o Chromium só imprime. */
-const SANITIZE: sanitizeHtml.IOptions = {
+export const SANITIZE: sanitizeHtml.IOptions = {
 	allowedTags: [
 		...sanitizeHtml.defaults.allowedTags,
 		"h1", "h2", "h3", "h4", "h5", "h6", "img", "span", "div", "u", "caption", "thead", "tbody", "tfoot", "th", "td", "tr", "hr",
@@ -29,12 +29,12 @@ const SANITIZE: sanitizeHtml.IOptions = {
 	allowedSchemesByTag: { img: ["data"] },
 };
 
-function escapeHtml(text: string): string {
+export function escapeHtml(text: string): string {
 	return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /** Tira do CSS opcional do modelo o que carrega rede ou quebra o `<style>`. */
-function safeCss(css: string | undefined): string {
+export function safeCss(css: string | undefined): string {
 	if (!css) return "";
 	return css
 		.replace(/@import[^;]*;?/gi, "")

@@ -24,9 +24,9 @@ const HEADINGS = [
 	HeadingLevel.HEADING_6,
 ] as const;
 
-type Style = { bold?: boolean; italics?: boolean; code?: boolean; strike?: boolean };
+export type Style = { bold?: boolean; italics?: boolean; code?: boolean; strike?: boolean; size?: number; caps?: boolean };
 
-function decodeEntities(text: string): string {
+export function decodeEntities(text: string): string {
 	return text
 		.replace(/&lt;/g, "<")
 		.replace(/&gt;/g, ">")
@@ -41,11 +41,13 @@ function textRun(text: string, style: Style): TextRun {
 		bold: style.bold,
 		italics: style.italics,
 		strike: style.strike,
+		...(style.size ? { size: style.size } : {}),
+		...(style.caps ? { allCaps: true } : {}),
 		...(style.code ? { font: "Consolas" } : {}),
 	});
 }
 
-function inlineRuns(tokens: Token[] | undefined, style: Style = {}): ParagraphChild[] {
+export function inlineRuns(tokens: Token[] | undefined, style: Style = {}): ParagraphChild[] {
 	const runs: ParagraphChild[] = [];
 	for (const token of tokens ?? []) {
 		switch (token.type) {

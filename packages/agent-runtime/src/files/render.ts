@@ -1,4 +1,6 @@
 import { FILE_MAX_BYTES, mimeForExtension, type CreateFileInput } from "@workspace/shared";
+import { abntMarkdownToDocx } from "./abnt-docx.js";
+import { buildAbntPdfHtml } from "./abnt-pdf.js";
 import { markdownToDocx } from "./markdown-to-docx.js";
 import { renderPdf, type PrintPdf } from "./pdf.js";
 import { renderPptx } from "./pptx.js";
@@ -13,7 +15,10 @@ export async function renderFile(input: CreateFileInput, deps: RenderDeps = {}):
 	let bytes: Uint8Array;
 	switch (input.format) {
 		case "docx":
-			bytes = await markdownToDocx(input.content ?? "", input.title);
+			bytes =
+				input.layout === "abnt"
+					? await abntMarkdownToDocx(input.content ?? "", input.title)
+					: await markdownToDocx(input.content ?? "", input.title);
 			break;
 		case "xlsx":
 			bytes = await renderXlsx(input.sheets ?? []);
@@ -23,7 +28,10 @@ export async function renderFile(input: CreateFileInput, deps: RenderDeps = {}):
 			break;
 		case "pdf": {
 			if (!deps.printPdf) throw new Error("PDF generation is not available on this server (no PDF printer configured).");
-			bytes = await renderPdf(input.content ?? "", deps.printPdf, { title: input.title, css: input.css });
+			bytes =
+				input.layout === "abnt"
+					? await deps.printPdf(buildAbntPdfHtml(input.content ?? "", { title: input.title, css: input.css }))
+					: await renderPdf(input.content ?? "", deps.printPdf, { title: input.title, css: input.css });
 			break;
 		}
 		default:

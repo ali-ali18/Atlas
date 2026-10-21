@@ -47,6 +47,11 @@ export const CREATE_FILE_TOOL: ChatTool = {
 				more: { type: "boolean", description: "true = more parts follow (nothing is created yet); false/omitted = last part, creates the file." },
 				title: { type: "string", description: "Optional document title (docx/pdf/pptx)" },
 				css: { type: "string", description: "Optional extra CSS for pdf" },
+				layout: {
+					type: "string",
+					enum: ["default", "abnt"],
+					description: "docx/pdf only. \"abnt\" formats the Markdown as an ABNT academic document (NBR 14724); conventions are in the built-in skill \"Trabalhos acadêmicos\". Omit for the normal layout.",
+				},
 				unconfirmed: {
 					type: "array",
 					items: { type: "string" },
@@ -111,6 +116,7 @@ type StagedFile = {
 	slides: unknown[];
 	title?: unknown;
 	css?: unknown;
+	layout?: unknown;
 	format?: unknown;
 	touchedAt: number;
 };
@@ -154,6 +160,7 @@ function mergeInto(base: StagedFile, args: Record<string, unknown>): StagedFile 
 		slides: [...base.slides, ...(Array.isArray(args.slides) ? args.slides : [])],
 		title: base.title ?? args.title,
 		css: base.css ?? args.css,
+		layout: base.layout ?? args.layout,
 		format: base.format ?? args.format,
 		touchedAt: Date.now(),
 	};
@@ -178,7 +185,7 @@ export function previewCreateFileArgs(args: Record<string, unknown>, ctx: Create
 	const staged = stagedFiles.get(stageKey(args, ctx));
 	if (!staged || staged.nextPart !== part) return args;
 	const merged = mergeInto(staged, args);
-	return { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, format: merged.format };
+	return { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, format: merged.format };
 }
 
 export async function executeCreateFile(
@@ -207,7 +214,7 @@ export async function executeCreateFile(
 				summary: `Part ${part} stored (${merged.content.length} chars so far). Nothing is created yet. Send part ${part + 1} next, with more=true if more follows or more=false for the last part. Do not repeat earlier parts.`,
 			};
 		}
-		args = { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, format: merged.format };
+		args = { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, format: merged.format };
 		stagedKeyToClear = key;
 	}
 	// Valida antes de gastar render: erro acionável volta ao modelo.
