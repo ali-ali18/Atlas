@@ -195,6 +195,9 @@ export type SheetCell = string | number | boolean | null;
 export type SheetInput = { name: string; columns?: string[]; rows: SheetCell[][] };
 export type SlideInput = { title: string; bullets: string[] };
 
+export const FILE_LAYOUTS = ["default", "abnt"] as const;
+export type FileLayout = (typeof FILE_LAYOUTS)[number];
+
 export type CreateFileInput = {
 	/** Nome já sanitizado, com a extensão coerente. */
 	filename: string;
@@ -205,6 +208,8 @@ export type CreateFileInput = {
 	slides?: SlideInput[];
 	title?: string;
 	css?: string;
+	/** Só docx/pdf: "abnt" aplica o layout da NBR 14724. Ausente = layout de sempre. */
+	layout?: FileLayout;
 };
 
 function fail(message: string): never {
@@ -306,6 +311,13 @@ export function parseSlides(value: unknown): SlideInput[] {
 	});
 }
 
+function parseLayout(value: unknown): FileLayout | undefined {
+	if (value === undefined || value === null || value === "") return undefined;
+	const layout = typeof value === "string" ? value.trim().toLowerCase() : "";
+	if ((FILE_LAYOUTS as readonly string[]).includes(layout)) return layout as FileLayout;
+	return fail(`layout must be one of: ${FILE_LAYOUTS.join(", ")}.`);
+}
+
 /** Valida os argumentos de `create_file` (entrada do modelo) e normaliza. Lança erro acionável. */
 export function parseCreateFileArgs(args: Record<string, unknown>): CreateFileInput {
 	const rawName = typeof args.filename === "string" ? args.filename : "";
@@ -316,6 +328,7 @@ export function parseCreateFileArgs(args: Record<string, unknown>): CreateFileIn
 	const filename = sanitizeFilename(rawName, ext);
 	const title = asTrimmedString(args.title, FILE_TITLE_MAX_CHARS, "title");
 	const css = asTrimmedString(args.css, FILE_CSS_MAX_CHARS, "css");
+	const layout = parseLayout(args.layout);
 
 	if (kind === "xlsx") {
 		return { filename, format: kind, ext, sheets: parseSheets(args.sheets), ...(title ? { title } : {}) };
@@ -337,6 +350,7 @@ export function parseCreateFileArgs(args: Record<string, unknown>): CreateFileIn
 		content: args.content,
 		...(title ? { title } : {}),
 		...(css && kind === "pdf" ? { css } : {}),
+		...(layout === "abnt" && (kind === "pdf" || kind === "docx") ? { layout } : {}),
 	};
 }
 

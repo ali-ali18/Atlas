@@ -92,6 +92,19 @@ describe("parseCreateFileArgs", () => {
 	});
 });
 
+describe("layout", () => {
+	it("abnt só vale para docx e pdf; padrão e ausente não mudam o objeto", () => {
+		expect(parseCreateFileArgs({ filename: "a.docx", content: "# x", layout: "abnt" }).layout).toBe("abnt");
+		expect(parseCreateFileArgs({ filename: "a.pdf", content: "# x", layout: " ABNT " }).layout).toBe("abnt");
+		expect(parseCreateFileArgs({ filename: "a.md", content: "# x", layout: "abnt" }).layout).toBeUndefined();
+		expect(parseCreateFileArgs({ filename: "a.pdf", content: "# x", layout: "default" })).toEqual(parseCreateFileArgs({ filename: "a.pdf", content: "# x" }));
+		expect("layout" in parseCreateFileArgs({ filename: "a.docx", content: "# x" })).toBe(false);
+	});
+	it("valor desconhecido volta erro acionável", () => {
+		expect(() => parseCreateFileArgs({ filename: "a.docx", content: "# x", layout: "apa" })).toThrow(/layout must be one of: default, abnt/);
+	});
+});
+
 describe("apresentação", () => {
 	it("categoria, MIME e tamanho", () => {
 		expect(fileCategory("a.pdf")).toBe("pdf");
