@@ -1,6 +1,6 @@
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
-import type { ConnectorLessonJobPayload, InspectContextPayload, LessonReviewJobPayload } from "@workspace/shared";
+import type { ConnectorLessonJobPayload, InspectContextPayload, InspectLessonsPayload, LessonFeedbackEntry, LessonReviewJobPayload } from "@workspace/shared";
 import { parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef } from "@workspace/shared";
 import {
 	ATLAS_JOB_NAMES,
@@ -32,6 +32,9 @@ import {
 	appendRunAssistantSegment,
 	appendRunEvent,
 	countFailedToolResults,
+	getLatestLessonReviewEvent,
+	listBotLessons,
+	recordLessonFeedback,
 	createPublishThrottle,
 	publishUserEvent,
 	buildMemoryAugmentedMessages,
@@ -217,6 +220,19 @@ export type AgentRunProcessorDeps = {
 	) => Promise<void>;
 };
 
+/** Contagens da revisão de lições que o inspetor mostra (só números e flags). */
+function pickReviewCounts(payload: Record<string, unknown>): Partial<NonNullable<InspectLessonsPayload["review"]>> {
+	const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+	const out: Partial<NonNullable<InspectLessonsPayload["review"]>> = {};
+	for (const key of ["added", "updated", "retired", "counters", "rejected"] as const) {
+		const value = num(payload[key]);
+		if (value !== undefined) out[key] = value;
+	}
+	if (payload.skillProposal === true) out.skillProposal = true;
+	if (Array.isArray(payload.signals)) out.signals = payload.signals.filter((item): item is string => typeof item === "string").slice(0, 6);
+	return out;
+}
+
 async function prepareMessages(
 	messages: ChatMessage[],
 	botId?: string | null,
@@ -226,6 +242,7 @@ async function prepareMessages(
 	group?: MemoryContextOptions["group"],
 	historySlot?: string,
 	volatileAfterTurn?: boolean,
+	onLessons?: (ids: string[]) => void,
 ): Promise<ChatMessage[]> {
 	// Fase 4: userId é obrigatório (vem da linha do run). Sem ele, falha
 	// explícita em vez de seguir como "default".
@@ -244,6 +261,7 @@ async function prepareMessages(
 			...(group ? { group } : {}),
 			...(historySlot ? { historySlot } : {}),
 			...(volatileAfterTurn ? { volatileAfterTurn: true } : {}),
+			...(onLessons ? { onLessons } : {}),
 		});
 		return base;
 	} catch (error) {
@@ -523,6 +541,8 @@ async function executeLeasedRun(ctx: {
 		const imageVision = imageVisionForRun({ userId: runUserId, apiKey, fallbackModel });
 		return { configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision };
 	};
+	// Lições do bot injetadas no prompt estável deste run (para o inspetor); vazio na retomada (vêm do checkpoint).
+	let startLessonIds: string[] = [];
 	const messagesStage = async () => {
 		// Fase 2 — ciclo limpo: modo congelado no checkpoint; em run fresco,
 		// liga sozinho com resumo fresco (sem resumo não há ciclo). Rotina fora.
@@ -627,6 +647,9 @@ async function executeLeasedRun(ctx: {
 					groupPrompt,
 					transcript ? TRANSCRIPT_SLOT : undefined,
 					true,
+					(ids) => {
+						startLessonIds = ids;
+					},
 				);
 
 		// Injetar nota sobre artefatos de runs anteriores (A2 step 3): apenas para run novo
@@ -738,6 +761,25 @@ async function executeLeasedRun(ctx: {
 	if (transcriptOutcome) {
 		const payload: InspectContextPayload = { type: "inspect_context", transcript: transcriptOutcome };
 		await appendRunEvent(runId, "inspect_context", payload).catch(() => undefined);
+	}
+
+	// Lições (playbook do bot): todas as ativas vão ao runtime (conector/tool entram ao carregar; `lesson_feedback` conta o uso).
+	const runLessons = run.botId && !groupRun ? await listBotLessons(runUserId, run.botId).catch(() => []) : [];
+	if (!checkpoint?.llmMessages?.length && (startLessonIds.length > 0 || run.conversationId)) {
+		// Inspetor: o que foi injetado no início e o resultado da última revisão de lições (ação "no run seguinte").
+		const last = run.conversationId && run.botId ? await getLatestLessonReviewEvent(runUserId, run.conversationId, runId).catch(() => null) : null;
+		const review = last && last.payload && typeof last.payload === "object" ? (last.payload as Record<string, unknown>) : null;
+		const reviewed = review && review.status && review.status !== "covered";
+		if (startLessonIds.length > 0 || reviewed) {
+			const payload: InspectLessonsPayload = {
+				type: "inspect_lessons",
+				injected: startLessonIds,
+				...(reviewed && last
+					? { review: { runId: last.runId, at: last.createdAt, status: String(review!.status), ...pickReviewCounts(review!) } }
+					: {}),
+			};
+			await appendRunEvent(runId, "inspect_lessons", payload).catch(() => undefined);
+		}
 	}
 
 	let cachedSessionId: string | null =
@@ -917,6 +959,18 @@ async function executeLeasedRun(ctx: {
 				: undefined,
 			autonomy,
 			skillIndex,
+			...(runLessons.length > 0 && run.botId
+				? {
+						lessons: {
+							items: runLessons,
+							onInjected: ({ ids, key }: { ids: string[]; key: string }) => {
+								const payload: InspectLessonsPayload = { type: "inspect_lessons", injected: ids, key };
+								void appendRunEvent(runId, "inspect_lessons", payload).catch(() => undefined);
+							},
+							recordFeedback: (entries: LessonFeedbackEntry[]) => recordLessonFeedback(runUserId, run.botId!, entries),
+						},
+					}
+				: {}),
 			proactive: proactiveForRun,
 			jevMcpMode: runtimeConfig.jevMcpMode,
 			executionDiscipline: runtimeConfig.executionDiscipline,

@@ -45,6 +45,7 @@ import type {
 	StepTelemetry,
 } from "@workspace/shared";
 import {
+	connectorScopeKey,
 	decideMemoryScope,
 	buildRepetitiveRecipe,
 	withExplicitTriggers,
@@ -391,6 +392,8 @@ import {
 } from "./mcp/activation.js";
 import { connectorAccountName } from "@workspace/shared";
 import { createConnectorGuideInjector, createLessonTracker, type GuideRef, type LessonCandidate } from "./mcp/connector-guide.js";
+import { createLessonInjector, lessonScopesForTools, type RunLessonsParam } from "./lessons.js";
+import { LESSON_FEEDBACK_TOOL, LESSON_FEEDBACK_TOOL_NAME, executeLessonFeedback } from "./tools/lesson-feedback.js";
 import {
 	checkRepeat,
 	hasSuccessfulToolEvidence,
@@ -1030,6 +1033,8 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	// Skills em Markdown (K1): `skill_read` é núcleo; propose/delete ficam no grupo adiado.
 	...SKILL_CORE_TOOLS,
 	...SKILL_GROUP_TOOLS,
+	// Lições do bot: só entra no pedido quando o run tem lições (ver `lessonFeedbackEnabled`).
+	LESSON_FEEDBACK_TOOL,
 	APP_INFO_TOOL,
 	SECRET_LIST_TOOL,
 	ROUTINE_WEBHOOK_INFO_TOOL,
@@ -1842,6 +1847,8 @@ type ToolContext = {
 	devSession?: DevSessionRuntime;
 	/** Id da chamada de tool (liga os eventos de shell e edição ao card). */
 	callId?: string;
+	/** Feedback do modelo sobre as lições aplicadas (padrão: banco). */
+	lessonFeedback?: RunLessonsParam["recordFeedback"];
 	showImages?: { remaining: () => number; add: (count: number) => void; emit: (event: ShowImageEvent) => Promise<void> };
 	/** Entrega cartões de arquivo extras (run_code pode gerar vários); persiste na conversa e emite o evento. */
 	emitFile?: (event: FileEvent) => Promise<void>;
@@ -3652,6 +3659,8 @@ async function executeToolInner(
 			return (await executeSecretRequest(args, vaultToolContext(ctx))) as Awaited<ReturnType<typeof executeToolInner>>;
 		case "login_fill":
 			return (await executeLoginFill(args, vaultToolContext(ctx))) as Awaited<ReturnType<typeof executeToolInner>>;
+		case "lesson_feedback":
+			return { summary: await executeLessonFeedback(args, { userId: ctx.userId, botId: ctx.botId, record: ctx.lessonFeedback }) };
 		case "skill_read":
 		case "propose_skill":
 		case "delete_skill":
@@ -4328,6 +4337,8 @@ export async function runComputerUse(params: {
 	apiConnector?: ApiConnectorRuntime | null;
 	/** Falha seguida de sucesso no mesmo conector: o caller enfileira a lição (sugestão ao dono, nunca aplicada sozinha). */
 	onConnectorLesson?: (lesson: LessonCandidate) => void | Promise<void>;
+	/** Lições ativas do bot (memória procedural): conector/tool entram ao carregar o conector; `lesson_feedback` conta o uso. */
+	lessons?: RunLessonsParam;
 	/** E-mail próprio do bot carregado pelo caller (`loadEmailRunContext`). */
 	email?: EmailRunContext | null;
 	/** Política de autonomia efetiva (F10). Sem ela: Equilibrado. */
@@ -4755,6 +4766,8 @@ export async function runComputerUse(params: {
 		(toolName === "delete_skill" && skillDeleteBlocked(autonomyPolicy));
 	// `web_search`/`web_extract` sempre aparecem (sem chave usam o provedor
 	// nativo). Contagem/idempotência seguem no checkpoint.
+	// `lesson_feedback` só existe quando o run tem lições (senão o pedido ao modelo fica idêntico ao de antes).
+	const lessonFeedbackEnabled = !isSubagent && (params.lessons?.items.length ?? 0) > 0;
 	const baseTools: ChatTool[] = (
 		sandboxEnabled
 			? COMPUTER_USE_TOOLS
@@ -4773,6 +4786,7 @@ export async function runComputerUse(params: {
 				allowProfileUpdateTool,
 		)
 		.filter((tool) => !hostToolBlocked(tool.function.name))
+		.filter((tool) => tool.function.name !== LESSON_FEEDBACK_TOOL_NAME || lessonFeedbackEnabled)
 		.filter((tool) => tool.function.name !== "login_fill" || sandboxEnabled)
 		// Shell/arquivos da VM: exceção "bloqueado" do usuário tira a tool; webhook/subagente só leem.
 		.filter((tool) => {
@@ -5150,6 +5164,10 @@ export async function runComputerUse(params: {
 		...(params.apiConnector?.connections ?? []).map((item) => ({ id: item.id, name: connectorAccountName(item.name, item.accountLabel) })),
 	]);
 	const lessonTracker = createLessonTracker();
+	// Lições de conector/tool: nota de sistema ao carregar o conector (uma vez por escopo e run).
+	const lessonInjector = createLessonInjector(isSubagent ? [] : (params.lessons?.items ?? []));
+	let lessonsSeeded = false;
+	const lessonScopesPending: Array<{ key: string; label: string }> = [];
 	let guideSeeded = false;
 	const guideRefsPending: GuideRef[] = [];
 	const guideLoadedSeen = new Set<string>();
@@ -6698,6 +6716,7 @@ export async function runComputerUse(params: {
 				userRequestText: lastUserMessageContent,
 				jevIntents,
 				jev: params.jev,
+				lessonFeedback: params.lessons?.recordFeedback,
 				objective: params.objective,
 				lastUserText: lastUserPlainText(conversation),
 				recentUserTexts: recentUserPlainTexts(conversation),
@@ -7011,6 +7030,7 @@ ${blockHint}`;
 				}
 				if (guideRef) {
 					guideRefsPending.push(guideRef);
+					lessonScopesPending.push({ key: connectorScopeKey(guideRef.kind, guideRef.id), label: guideRef.name });
 					if (params.onConnectorLesson && name !== "api_search") {
 						const lesson = lessonTracker.record({ kind: guideRef.kind, connectionId: guideRef.id, tool: name, args, ok, text: summary });
 						if (lesson) void Promise.resolve(params.onConnectorLesson(lesson)).catch(() => undefined);
@@ -7316,6 +7336,27 @@ ${blockHint}`;
 		await ensureContinue();
 		await ensureNotPaused();
 		ensureWithinBudget();
+		if (lessonInjector.active) {
+			if (!lessonsSeeded) {
+				lessonInjector.seed(conversation);
+				lessonsSeeded = true;
+			}
+			const scopes = [
+				...lessonScopesForTools(tools.map((tool) => tool.function.name), (toolName) => {
+					const entry = mcp?.toolset.entries.get(toolName);
+					return entry ? { id: entry.connectionId, name: entry.connectionName } : undefined;
+				}, lessonInjector),
+				...lessonScopesPending.splice(0),
+			];
+			for (const injected of lessonInjector.notesFor(scopes)) {
+				conversation.push({ role: "system", content: injected.note });
+				try {
+					params.lessons?.onInjected?.({ ids: injected.ids, key: injected.key });
+				} catch {
+					// o inspetor nunca derruba o run
+				}
+			}
+		}
 		const steered = await ingestSteerInputs();
 		// L9: no máximo UM checkpoint por decisão (o do fim do passo). O do início só
 		// sai quando há estado novo que o do passo anterior não tem: 1º passo de run

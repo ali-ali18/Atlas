@@ -127,6 +127,14 @@ export function compareLessons(a: Rankable & { id: string }, b: Rankable & { id:
 	);
 }
 
+/**
+ * Ordem do prompt: saldo (útil − nociva) e depois a mais recente por edição/criação. NÃO usa `lastUsedAt`: ele muda a
+ * cada uso e reordenaria o bloco a cada run, quebrando o cache de prompt (o bloco só muda quando a lição muda).
+ */
+function compareForInjection(a: Rankable & { id: string }, b: Rankable & { id: string }): number {
+	return lessonScore(b) - lessonScore(a) || Math.max(timeOf(b.updatedAt), timeOf(b.createdAt)) - Math.max(timeOf(a.updatedAt), timeOf(a.createdAt)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
 export type InjectableLesson = Rankable & { id: string; scope: LessonScope; scopeKey: string | null; content: string };
 
 /** As lições do bot mais as dos conectores/tools carregados; ordenadas e cortadas em itens e caracteres. */
@@ -140,7 +148,7 @@ export function selectLessonsForInjection<T extends InjectableLesson>(
 	const eligible = lessons
 		.filter((lesson) => (opts.onlyScopes ? opts.onlyScopes.includes(lesson.scope) : true))
 		.filter((lesson) => lesson.scope === "bot" || (lesson.scopeKey !== null && keys.has(lesson.scopeKey)))
-		.sort(compareLessons);
+		.sort(compareForInjection);
 	const out: T[] = [];
 	let used = 0;
 	for (const lesson of eligible) {
@@ -339,7 +347,14 @@ export type LessonReviewJobResult = {
 };
 
 /** Evento do inspetor: lições injetadas em um run (ids curtos) e as marcadas como usadas. */
-export type InspectLessonsPayload = { type: "inspect_lessons"; injected: string[]; scopes?: Record<string, number> };
+export type InspectLessonsPayload = {
+	type: "inspect_lessons";
+	/** Ids completos das lições injetadas (início do run, ou ao carregar um conector: `key`). */
+	injected: string[];
+	key?: string;
+	/** Resultado da última revisão de lições (job em segundo plano) da conversa, mostrado como ação no run seguinte. */
+	review?: { runId: string; at: string; status: string; added?: number; updated?: number; retired?: number; counters?: number; rejected?: number; skillProposal?: boolean; signals?: string[] };
+};
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Refinamento de skill (conservador): a lição vira uma linha em Pitfalls/Verification, sempre via cartão de aprovação

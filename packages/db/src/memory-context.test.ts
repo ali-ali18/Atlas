@@ -89,3 +89,14 @@ test("volatileAfterTurn: a memória por relevância vai depois da fala do usuár
 	const none = assembleMemoryContext({ ...base, volatileAfterTurn: true, relevantMemory: null, incoming: [{ role: "user", content: "pedido" }] });
 	assert.equal(none[none.length - 1]?.content, "pedido");
 });
+
+test("lições do bot ficam na camada estável (depois do perfil, antes do resumo e do histórico) e o prefixo não muda entre pedidos", () => {
+	const withLessons = { ...base, lessons: "LICOES" };
+	const a = assembleMemoryContext({ ...withLessons, relevantMemory: "mem A", incoming: [{ role: "user", content: "pedido 1" }] });
+	const b = assembleMemoryContext({ ...withLessons, relevantMemory: "mem B", incoming: [{ role: "user", content: "pedido 2" }] });
+	assert.deepEqual(a.map((m) => m.content).slice(0, 5), ["IDENTIDADE", "PERFIL", "LICOES", "RESUMO", "pergunta antiga"]);
+	assert.equal(prefixOf(a, "resposta antiga"), prefixOf(b, "resposta antiga"));
+	// sem lições o resultado é idêntico ao de antes
+	const none = assembleMemoryContext({ ...base, relevantMemory: null, incoming: [{ role: "user", content: "x" }] });
+	assert.deepEqual(none.map((m) => m.content).slice(0, 3), ["IDENTIDADE", "PERFIL", "RESUMO"]);
+});
