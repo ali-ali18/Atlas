@@ -63,6 +63,10 @@ export {
 	type MemoryContextOptions,
 } from "./memory-context.js";
 export {
+	searchConversationHistory,
+	type ConversationHistoryHit,
+} from "./conversation-history-search.js";
+export {
 	searchConversationMessages,
 	type ConversationSearchHit,
 } from "./search.js";
