@@ -24,8 +24,8 @@ import {
 	type ISectionOptions,
 } from "docx";
 import { Lexer, type Token, type Tokens } from "marked";
-import { ABNT_PAGE_BREAK, ABNT_TOC, isCaptionText, isReferencesTitle, isUnnumberedTitle, parseAbntMarkdown, splitFrontZones, tocHeadings, type TocHeading } from "./abnt.js";
-import { inlineRuns } from "./markdown-to-docx.js";
+import { ABNT_PAGE_BREAK, ABNT_TOC, isCaptionText, isCaptionTitle, isReferencesTitle, isUnnumberedTitle, parseAbntMarkdown, splitFrontZones, tocHeadings, type TocHeading } from "./abnt.js";
+import { inlineRuns, type Style } from "./markdown-to-docx.js";
 
 /** Medidas em twips (1 cm = 567): margens 3/3/2/2 cm, A4, recuos e tamanhos da NBR 14724. */
 export const ABNT_DOCX = {
@@ -41,11 +41,14 @@ export const ABNT_DOCX = {
 	defaultFont: "Times New Roman",
 } as const;
 
+/** Endereço que é o próprio texto do link não é repetido entre parênteses. */
+const runs = (tokens: Token[] | undefined, style: Style = {}) => inlineRuns(tokens, { ...style, plainLinks: true });
+
 const TEXT_WIDTH = ABNT_DOCX.page.width - ABNT_DOCX.margin.left - ABNT_DOCX.margin.right;
 
 type Mode = "front" | "pre" | "textual";
 type Block = Paragraph | Table;
-type Ctx = { mode: Mode; atStart: boolean; breakNext: boolean; refs: boolean; quoteIndent: number; toc?: { headings: TocHeading[]; pages?: ReadonlyArray<number> } };
+type Ctx = { mode: Mode; atStart: boolean; breakNext: boolean; refs: boolean; quoteIndent: number; afterQuote?: boolean; toc?: { headings: TocHeading[]; pages?: ReadonlyArray<number> } };
 
 const SPACING_15 = { line: ABNT_DOCX.lineOneAndHalf, lineRule: LineRuleType.AUTO, before: 0, after: 0 };
 const SPACING_1 = { line: ABNT_DOCX.lineSingle, lineRule: LineRuleType.AUTO, before: 0, after: 0 };
@@ -82,7 +85,7 @@ function heading(token: Tokens.Heading, ctx: Ctx): Block[] {
 				para(ctx, {
 					alignment: AlignmentType.CENTER,
 					spacing: { ...SPACING_1, after: ABNT_DOCX.lineSingle },
-					children: inlineRuns(token.tokens, { bold: true, caps: true }),
+					children: runs(token.tokens, { bold: true, caps: true }),
 				}),
 			];
 		}
@@ -95,7 +98,7 @@ function heading(token: Tokens.Heading, ctx: Ctx): Block[] {
 						alignment: AlignmentType.CENTER,
 						keepNext: true,
 						spacing: { ...SPACING_15, after: ABNT_DOCX.lineOneAndHalf },
-						children: inlineRuns(token.tokens, { bold: true, caps: true }),
+						children: runs(token.tokens, { bold: true, caps: true }),
 					},
 					!ctx.atStart,
 				),
@@ -110,17 +113,17 @@ function heading(token: Tokens.Heading, ctx: Ctx): Block[] {
 					alignment: isUnnumberedTitle(token.text) ? AlignmentType.CENTER : AlignmentType.LEFT,
 					keepNext: true,
 					spacing: { ...SPACING_15, after: ABNT_DOCX.lineOneAndHalf },
-					children: inlineRuns(token.tokens),
+					children: runs(token.tokens),
 				},
 				!ctx.atStart,
 			),
 		];
 	}
 	if (ctx.mode === "front") {
-		return [para(ctx, { alignment: AlignmentType.CENTER, spacing: SPACING_1, children: inlineRuns(token.tokens, { bold: true }) })];
+		return [para(ctx, { alignment: AlignmentType.CENTER, spacing: SPACING_1, children: runs(token.tokens, { bold: true }) })];
 	}
 	if (ctx.mode === "pre") {
-		return [para(ctx, { alignment: AlignmentType.LEFT, keepNext: true, spacing: { ...SPACING_15, before: ABNT_DOCX.lineOneAndHalf, after: ABNT_DOCX.lineOneAndHalf }, children: inlineRuns(token.tokens, { bold: true }) })];
+		return [para(ctx, { alignment: AlignmentType.LEFT, keepNext: true, spacing: { ...SPACING_15, before: ABNT_DOCX.lineOneAndHalf, after: ABNT_DOCX.lineOneAndHalf }, children: runs(token.tokens, { bold: true }) })];
 	}
 	return [
 		para(ctx, {
@@ -128,37 +131,44 @@ function heading(token: Tokens.Heading, ctx: Ctx): Block[] {
 			alignment: AlignmentType.LEFT,
 			keepNext: true,
 			spacing: { ...SPACING_15, before: ABNT_DOCX.lineOneAndHalf, after: ABNT_DOCX.lineOneAndHalf },
-			children: inlineRuns(token.tokens),
+			children: runs(token.tokens),
 		}),
 	];
 }
 
 function bodyParagraph(tokens: Token[] | undefined, text: string, ctx: Ctx): Paragraph {
 	if (ctx.mode === "front") {
-		return para(ctx, { alignment: AlignmentType.CENTER, spacing: { ...SPACING_1, after: 120 }, children: inlineRuns(tokens) });
+		// Depois da natureza do trabalho (orientador, coorientador) o texto acompanha o recuo da natureza.
+		if (ctx.afterQuote) {
+			return para(ctx, { alignment: AlignmentType.LEFT, indent: { left: ctx.quoteIndent }, spacing: { ...SPACING_1, after: 120 }, children: runs(tokens) });
+		}
+		return para(ctx, { alignment: AlignmentType.CENTER, spacing: { ...SPACING_1, after: 120 }, children: runs(tokens) });
 	}
 	if (ctx.refs) {
 		return para(ctx, {
 			alignment: AlignmentType.LEFT,
 			spacing: { ...SPACING_1, after: ABNT_DOCX.lineSingle },
-			children: inlineRuns(tokens),
+			children: runs(tokens),
 		});
 	}
 	if (isCaptionText(plain(text))) {
+		// Título de tabela/figura fica colado ao objeto abaixo; "Fonte:" fica colada ao objeto acima.
+		const title = isCaptionTitle(plain(text));
 		return para(ctx, {
 			alignment: AlignmentType.LEFT,
-			spacing: { ...SPACING_1, before: 120, after: ABNT_DOCX.lineSingle },
-			children: inlineRuns(tokens, { size: ABNT_DOCX.smallSize }),
+			keepNext: title,
+			spacing: title ? { ...SPACING_1, before: ABNT_DOCX.lineSingle, after: 80 } : { ...SPACING_1, before: 80, after: ABNT_DOCX.lineSingle },
+			children: runs(tokens, { size: ABNT_DOCX.smallSize }),
 		});
 	}
 	if (ctx.mode === "pre") {
-		return para(ctx, { alignment: AlignmentType.JUSTIFIED, spacing: { ...SPACING_1, after: 120 }, children: inlineRuns(tokens) });
+		return para(ctx, { alignment: AlignmentType.JUSTIFIED, spacing: { ...SPACING_1, after: 120 }, children: runs(tokens) });
 	}
 	return para(ctx, {
 		alignment: AlignmentType.JUSTIFIED,
 		indent: { firstLine: ABNT_DOCX.firstLine },
 		spacing: SPACING_15,
-		children: inlineRuns(tokens),
+		children: runs(tokens),
 	});
 }
 
@@ -178,7 +188,7 @@ function listBlocks(list: Tokens.List, level: number, ctx: Ctx): Block[] {
 				para(ctx, {
 					alignment: AlignmentType.LEFT,
 					spacing: { ...SPACING_1, after: ABNT_DOCX.lineSingle },
-					children: inlineRuns(inline),
+					children: runs(inline),
 				}),
 			);
 		} else {
@@ -186,7 +196,7 @@ function listBlocks(list: Tokens.List, level: number, ctx: Ctx): Block[] {
 				para(ctx, {
 					alignment: ctx.mode === "front" ? AlignmentType.LEFT : AlignmentType.JUSTIFIED,
 					spacing: ctx.mode === "textual" ? SPACING_15 : SPACING_1,
-					children: inlineRuns(inline),
+					children: runs(inline),
 					...(list.ordered
 						? { numbering: { reference: "ordered", level: Math.min(level, 4) } }
 						: { bullet: { level: Math.min(level, 4) } }),
@@ -198,24 +208,32 @@ function listBlocks(list: Tokens.List, level: number, ctx: Ctx): Block[] {
 	return out;
 }
 
-const CELL_BORDER = { style: BorderStyle.SINGLE, size: 4, color: "000000" };
-const BORDERS = { top: CELL_BORDER, bottom: CELL_BORDER, left: CELL_BORDER, right: CELL_BORDER };
+const RULE = { style: BorderStyle.SINGLE, size: 8, color: "000000" };
+const THIN = { style: BorderStyle.SINGLE, size: 4, color: "000000" };
+const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
 
+/** Tabela no estilo IBGE/ABNT: traço no topo, sob o cabeçalho e no fim; sem bordas verticais; 10 pt. */
 function dataTable(token: Tokens.Table, ctx: Ctx): Block[] {
-	const row = (cells: Tokens.TableCell[], header: boolean) =>
+	const lastRow = token.rows.length - 1;
+	const row = (cells: Tokens.TableCell[], header: boolean, index: number) =>
 		new TableRow({
 			tableHeader: header,
 			cantSplit: true,
 			children: cells.map(
-				(cell) =>
+				(cell, column) =>
 					new TableCell({
-						borders: BORDERS,
-						margins: { top: 40, bottom: 40, left: 80, right: 80 },
+						borders: {
+							top: header ? RULE : NO_BORDER,
+							bottom: header ? (token.rows.length === 0 ? RULE : THIN) : index === lastRow ? RULE : NO_BORDER,
+							left: NO_BORDER,
+							right: NO_BORDER,
+						},
+						margins: { top: 50, bottom: 50, left: 80, right: 80 },
 						children: [
 							new Paragraph({
-								alignment: AlignmentType.LEFT,
+								alignment: token.align[column] === "center" ? AlignmentType.CENTER : token.align[column] === "right" ? AlignmentType.RIGHT : AlignmentType.LEFT,
 								spacing: SPACING_1,
-								children: inlineRuns(cell.tokens, { size: ABNT_DOCX.smallSize, ...(header ? { bold: true } : {}) }),
+								children: runs(cell.tokens, { size: ABNT_DOCX.smallSize, ...(header ? { bold: true } : {}) }),
 							}),
 						],
 					}),
@@ -226,13 +244,18 @@ function dataTable(token: Tokens.Table, ctx: Ctx): Block[] {
 	if (ctx.breakNext) blocks.push(para(ctx, { spacing: { ...SPACING_1, line: 20, lineRule: LineRuleType.EXACT } }));
 	ctx.atStart = false;
 	blocks.push(
-		new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [row(token.header, true), ...token.rows.map((r) => row(r, false))] }),
-		new Paragraph({ spacing: SPACING_1, children: [] }),
+		new Table({
+			width: { size: 100, type: WidthType.PERCENTAGE },
+			alignment: AlignmentType.CENTER,
+			borders: { top: NO_BORDER, bottom: NO_BORDER, left: NO_BORDER, right: NO_BORDER, insideHorizontal: NO_BORDER, insideVertical: NO_BORDER },
+			rows: [row(token.header, true, -1), ...token.rows.map((r, i) => row(r, false, i))],
+		}),
 	);
 	return blocks;
 }
 
 function quote(token: Tokens.Blockquote, ctx: Ctx): Block[] {
+	ctx.afterQuote = true;
 	const children = token.tokens.filter((child) => child.type !== "space");
 	return children.flatMap((child, index) => {
 		if (child.type !== "paragraph" && child.type !== "text") return blockToAbnt(child, ctx);
@@ -243,7 +266,7 @@ function quote(token: Tokens.Blockquote, ctx: Ctx): Block[] {
 				alignment: AlignmentType.JUSTIFIED,
 				indent: { left: ctx.quoteIndent },
 				spacing: { ...SPACING_1, before: first ? ABNT_DOCX.lineSingle : 0, after: last ? ABNT_DOCX.lineSingle : 120 },
-				children: inlineRuns((child as Tokens.Paragraph).tokens, { size: ABNT_DOCX.smallSize }),
+				children: runs((child as Tokens.Paragraph).tokens, { size: ctx.mode === "front" ? ABNT_DOCX.bodySize : ABNT_DOCX.smallSize }),
 			}),
 		];
 	});
@@ -312,8 +335,11 @@ function newCtx(mode: Mode, quoteIndent: number = ABNT_DOCX.quoteIndent, toc?: C
 }
 
 function blocksOf(markdown: string, ctx: Ctx): Block[] {
-	const tokens = new Lexer({ breaks: ctx.mode === "front" }).lex(markdown);
-	return tokens.flatMap((token) => blockToAbnt(token, ctx));
+	const tokens = new Lexer({ gfm: true, breaks: ctx.mode === "front" }).lex(markdown);
+	const blocks = tokens.flatMap((token) => blockToAbnt(token, ctx));
+	// Uma seção não pode terminar numa tabela.
+	if (blocks[blocks.length - 1] instanceof Table) blocks.push(new Paragraph({ spacing: SPACING_1, children: [] }));
+	return blocks;
 }
 
 /** Capa / folha de rosto: três zonas (topo, meio, rodapé) separadas por `---`, numa tabela de linhas altas sem bordas. */

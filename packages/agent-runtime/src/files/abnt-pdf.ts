@@ -1,6 +1,6 @@
 import { Lexer, Marked, type Token, type Tokens } from "marked";
 import sanitizeHtml from "sanitize-html";
-import { ABNT_PAGE_BREAK, ABNT_TOC, isCaptionText, isReferencesTitle, isUnnumberedTitle, parseAbntMarkdown, splitFrontZones, tocHeadings, type TocHeading } from "./abnt.js";
+import { ABNT_PAGE_BREAK, ABNT_TOC, isCaptionText, isCaptionTitle, isReferencesTitle, isUnnumberedTitle, parseAbntMarkdown, splitFrontZones, tocHeadings, type TocHeading } from "./abnt.js";
 import { measureHeadingPages } from "./abnt-toc.js";
 import { SANITIZE, escapeHtml, safeCss, type PrintPdfOptions } from "./pdf.js";
 
@@ -28,29 +28,32 @@ section > h1:first-child { break-before: auto; }
 h3 { font-style: italic; } h4, h5, h6 { font-weight: normal; font-style: italic; }
 .pb { height: 0; } .pb + * { break-before: page; }
 ul, ol { margin: 0; padding-left: 1.25cm; } li { text-align: justify; } li p { text-indent: 0; }
-table { border-collapse: collapse; width: 100%; margin: 6pt 0; font-size: 10pt; line-height: 1.15; break-inside: avoid; }
-th, td { border: 1px solid #000; padding: 2pt 4pt; text-align: left; vertical-align: top; } th { font-weight: bold; }
+table { border-collapse: collapse; width: 100%; margin: 0; font-size: 10pt; line-height: 1.15; break-inside: avoid; border-top: 1pt solid #000; border-bottom: 1pt solid #000; }
+th, td { border: 0; padding: 3pt 4pt; text-align: left; vertical-align: top; } th { font-weight: bold; border-bottom: 0.5pt solid #000; }
 td p, th p { text-indent: 0; text-align: left; }
 p.cap { font-size: 10pt; line-height: 1.15; text-indent: 0; text-align: left; margin: 4pt 0 12pt; }
+p.cap.title { margin: 12pt 0 4pt; break-after: avoid; }
 blockquote { margin: 12pt 0 12pt 4cm; font-size: 10pt; line-height: 1.15; text-align: justify; }
 blockquote p { text-indent: 0; margin: 0 0 6pt; }
 pre, code { font-family: Consolas, "Courier New", monospace; font-size: 10pt; } pre { white-space: pre-wrap; margin: 6pt 0; line-height: 1.15; }
 img { max-width: 100%; }
+a { color: inherit; text-decoration: none; }
 .pre p { text-indent: 0; line-height: 1.15; margin: 0 0 6pt; }
 .pre p.cap { margin: 4pt 0 12pt; }
 .refs p, .refs li { text-align: left; text-indent: 0; line-height: 1.15; margin: 0 0 12pt; }
 .refs ul, .refs ol { list-style: none; padding: 0; }
 .front { text-align: center; break-after: page; }
-.front p { text-indent: 0; text-align: center; line-height: 1.3; margin: 0 0 6pt; }
+.front p { text-indent: 0; text-align: center; line-height: 1.3; margin: 0 0 9pt; }
 .front h1, .front h2, .front h3, .front h4 { text-align: center; font-style: normal; text-transform: uppercase; margin: 0 0 12pt; break-before: auto; }
 .front blockquote { text-align: justify; }
 .front blockquote p { text-align: justify; line-height: 1.15; }
 .front.cover { page: cover; }
 .front.rosto { page: pre; }
-.front.rosto blockquote { margin-left: 8cm; }
-.toc p { display: flex; align-items: baseline; text-indent: 0; text-align: left; line-height: 1.3; margin: 0 0 8pt; }
+.front.rosto blockquote { margin-left: 8cm; font-size: 12pt; }
+.front.rosto blockquote ~ p { margin-left: 8cm; text-align: left; }
+.toc p { display: flex; align-items: baseline; text-indent: 0; text-align: left; line-height: 1.3; margin: 0 0 5pt; }
 .toc .t { padding-right: 3pt; } .toc .n { padding-left: 3pt; }
-.toc .d { flex: 1; border-bottom: 1.5px dotted #000; position: relative; top: -2pt; min-width: 12pt; }
+.toc .d { flex: 1; border-bottom: 1.5pt dotted #000; position: relative; top: -2pt; min-width: 12pt; }
 .toc .l1 { font-weight: bold; text-transform: uppercase; } .toc .l2 { font-weight: bold; } .toc .l3 { font-weight: bold; font-style: italic; } .toc .l4 { font-style: italic; }
 .zones { height: 245mm; display: grid; grid-template-rows: 1fr auto 1fr; }
 .zones > .z3 { align-self: end; }
@@ -65,7 +68,7 @@ function stripTags(html: string): string {
 
 /** Markdown de uma parte para HTML; as seções "REFERÊNCIAS" saem num `div.refs` (espaçamento simples, à esquerda). */
 function renderPart(markdown: string, breaks = false): string {
-	const lexer = new Lexer({ breaks });
+	const lexer = new Lexer({ gfm: true, breaks });
 	const tokens = lexer.lex(markdown);
 	const marked = new Marked({ breaks });
 	const groups: Array<{ refs: boolean; tokens: Token[] }> = [{ refs: false, tokens: [] }];
@@ -85,7 +88,7 @@ function renderPart(markdown: string, breaks = false): string {
 	return html
 		.replaceAll(ABNT_PAGE_BREAK, '<div class="pb"></div>')
 		.replace(/<h1>([\s\S]*?)<\/h1>/g, (all, inner: string) => (isUnnumberedTitle(stripTags(inner)) ? `<h1 class="sem-numero">${inner}</h1>` : all))
-		.replace(/<p>([\s\S]*?)<\/p>/g, (all, inner: string) => (isCaptionText(stripTags(inner)) ? `<p class="cap">${inner}</p>` : all));
+		.replace(/<p>([\s\S]*?)<\/p>/g, (all, inner: string) => (isCaptionText(stripTags(inner)) ? `<p class="cap${isCaptionTitle(stripTags(inner)) ? " title" : ""}">${inner}</p>` : all));
 }
 
 function clean(html: string): string {

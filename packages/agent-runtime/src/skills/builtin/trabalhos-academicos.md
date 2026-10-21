@@ -152,15 +152,15 @@ Use `create_file` with `layout: "abnt"` for `.docx` (preferred, since students e
 - `#` primary section: bold uppercase, 12 pt, starts a new page. Numbered titles ("1 INTRODUÇÃO") are left-aligned; unnumbered ones (RESUMO, ABSTRACT, SUMÁRIO, AGRADECIMENTOS, REFERÊNCIAS, GLOSSÁRIO, APÊNDICE A, ANEXO A…) are centered.
 - `##` secondary: bold. `###` tertiary: bold italic. `####` and deeper: italic.
 - Block quote (`>`): indented 4 cm, 10 pt, single-spaced, justified.
-- Lines starting with "Fonte:", "Nota:" and captions such as "Tabela 1 – …" or "Figura 2 – …": 10 pt, single-spaced, left-aligned, no indent. Tables are 10 pt with thin borders.
+- Lines starting with "Fonte:", "Nota:" and captions such as "Tabela 1 – …" or "Figura 2 – …": 10 pt, single-spaced, left-aligned, no indent. Tables follow the IBGE style: a rule at the top, under the header and at the bottom, no vertical lines, 10 pt, full width (use `:---` / `---:` in the separator row to align columns). Put the title line ("Tabela 1 – …") right above the table and the "Fonte:" line right below it.
 - Everything before the textual part (resumo, abstract, sumário…) is single-spaced with no indent, as NBR 6028 asks.
 - Under a `# REFERÊNCIAS` heading, each paragraph or list item is one entry: single-spaced, left-aligned, no indent, one blank line between entries.
 - Page numbers: top right, 10 pt, counted from the folha de rosto (the capa is not counted) and shown only from the first page of the textual part.
 
-**Markdown conventions.** Every marker goes alone on its line. All are optional: without them you still get a correct ABNT body, just without capa and folha de rosto.
+**Markdown conventions.** Separate paragraphs with a blank line. As a safety net, a line that ends a sentence followed by another line of text is treated as a new paragraph. Every marker goes alone on its line. All are optional: without them you still get a correct ABNT body, just without capa and folha de rosto.
 
 - **Capa**: `<!-- capa -->` … `<!-- /capa -->`. Inside, separate three zones with a line of `---`: top (institution, course, author), middle (`# Title` and subtitle or type of work) and bottom (city, then year). Put each line in its own paragraph (blank line between them). Everything is centered.
-- **Folha de rosto**: `<!-- folha-de-rosto -->` … `<!-- /folha-de-rosto -->`, same three zones: top (author), middle (`# Title`, then the nature of the work as a `>` quote, which this block indents 8 cm, then "Orientador: …"), bottom (city, year).
+- **Folha de rosto**: `<!-- folha-de-rosto -->` … `<!-- /folha-de-rosto -->`, same three zones: top (author), middle (`# Title`, then the nature of the work as a `>` quote, which this block indents 8 cm, then "Orientador: …" as a plain line, which this block aligns with the note), bottom (city, year).
 - **Pre-textual elements**: write them after the folha de rosto as `#` sections, in order (RESUMO, ABSTRACT, lists…). Each `#` opens its own page. For an element without a title (dedicatória, epígrafe) put `<!-- pagebreak -->` before it.
 - **Textual part**: starts at the first `#` heading whose title begins with a number ("1 INTRODUÇÃO") or is "Introdução". To start it elsewhere, put `<!-- textual -->` right before it. Page numbers show from there.
 - **Page break**: `<!-- pagebreak -->` (or `\pagebreak`). You rarely need it; `#` sections already start pages.
@@ -229,5 +229,6 @@ Year
 
 **Before delivering, check:**
 - every citation is in the references and vice versa;
+- the citation style is uniform across the whole text: the same form everywhere ("Autor (2020, p. 15)" and "(Autor, 2020, p. 15)", or the uppercase form "(AUTOR, 2020)" if the institution asks for it), never a mix;
 - the numbering is consistent with the sumário;
 - no reference was left "não confirmado" without telling the user.

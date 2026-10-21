@@ -280,6 +280,59 @@ describe("buildAbntPdfHtml", () => {
 	});
 });
 
+describe("tolerância com o Markdown do modelo", () => {
+	it("legenda colada na tabela e Fonte colada embaixo viram blocos separados", () => {
+		const parts = parseAbntMarkdown("# 1 A\n\nTabela 1 – x\n| a | b |\n|---|---|\n| 1 | 2 |\nFonte: y");
+		expect(parts.textual).toBe("# 1 A\n\nTabela 1 – x\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nFonte: y");
+	});
+
+	it("linha que fecha frase vira parágrafo; quebra de editor no meio da frase continua o parágrafo", () => {
+		const parts = parseAbntMarkdown("# 1 A\n\nPrimeira frase.\nSegunda frase que\ncontinua aqui.\nTerceira.");
+		expect(parts.textual).toBe("# 1 A\n\nPrimeira frase.\n\nSegunda frase que\ncontinua aqui.\n\nTerceira.");
+	});
+
+	it("listas, citações, código e títulos não são mexidos", () => {
+		const source = "# 1 A\n\n- um.\n- dois.\n\n> citação.\n> segue.\n\n```\nlinha.\noutra.\n```\n## 1.1 B\nTexto.";
+		expect(parseAbntMarkdown(source).textual).toBe(source);
+	});
+
+	it("tabela vira tabela real no docx (traços no topo, sob o cabeçalho e no fim; sem bordas verticais) e no pdf", async () => {
+		const md = "# 1 A\n\nTabela 1 – x\n| a | b |\n|:--|--:|\n| 1 | 2 |\nFonte: y";
+		const { document, paragraphs } = await docxParts(await abntMarkdownToDocx(md));
+		expect(document).toContain("<w:tbl>");
+		expect(document).not.toContain("|---");
+		expect(document).not.toContain("| a |");
+		expect(document).toMatch(/<w:tcBorders><w:top w:val="single" w:color="000000" w:sz="8"/);
+		expect(document).toMatch(/<w:left w:val="none"/);
+		expect(document).toContain('<w:jc w:val="right"/>');
+		expect(paragraphs.find((p) => p.includes("Tabela 1"))).toContain("<w:keepNext/>");
+		const html = buildAbntPdfHtml(md);
+		expect(html).toContain("<table>");
+		expect(html).not.toContain("|---");
+		expect(html).toContain('<p class="cap title">Tabela 1 – x</p>');
+		expect(html).toContain('<p class="cap">Fonte: y</p>');
+		expect(html).toContain("border-top: 1pt solid #000; border-bottom: 1pt solid #000;");
+	});
+
+	it("folha de rosto: o que vem depois da natureza do trabalho (orientador) acompanha o recuo dela", async () => {
+		const source = SAMPLE.replace("> Trabalho apresentado como requisito parcial.", "> Trabalho apresentado como requisito parcial.\n\nOrientador: Prof. Exemplo");
+		const { paragraphs } = await docxParts(await abntMarkdownToDocx(source));
+		const advisor = paragraphs.find((p) => p.includes("Orientador"))!;
+		expect(advisor).toContain('<w:ind w:left="4536"/>');
+		expect(advisor).toContain('<w:jc w:val="left"/>');
+		expect(buildAbntPdfHtml(SAMPLE)).toContain(".front.rosto blockquote ~ p { margin-left: 8cm; text-align: left; }");
+	});
+
+	it("endereço que é o próprio texto do link não é repetido entre parênteses (docx); pdf sem sublinhado azul", async () => {
+		const md = "# REFERÊNCIAS\n\nAUTOR. Título. Disponível em: https://exemplo.org/a. Acesso em: 1 jan. 2026.\n\nVeja [o site](https://exemplo.org/b).";
+		const { document } = await docxParts(await abntMarkdownToDocx(md));
+		expect(document).not.toContain("(https://exemplo.org/a)");
+		expect(document).toContain("o site");
+		expect(document).toContain("(https://exemplo.org/b)");
+		expect(buildAbntPdfHtml(md)).toContain("a { color: inherit; text-decoration: none; }");
+	});
+});
+
 describe("sumário automático", () => {
 	it("docx: campo TOC do Word nos estilos de título 1-4, preenchido com as páginas e com updateFields", async () => {
 		const bytes = await abntMarkdownToDocx(SAMPLE, "T", { tocPages: [1, 1, 2, 3] });
@@ -316,7 +369,7 @@ describe("sumário automático", () => {
 		expect(html).toContain('<p class="l1"><span class="t">1 INTRODUÇÃO</span><span class="d"></span><span class="n">1</span></p>');
 		expect(html).toContain('<p class="l3"><span class="t">1.1.1 Detalhe</span><span class="d"></span><span class="n">2</span></p>');
 		expect(html).toContain('<p class="l1"><span class="t">REFERÊNCIAS</span><span class="d"></span><span class="n">3</span></p>');
-		expect(html).toContain(".toc .d { flex: 1; border-bottom: 1.5px dotted #000;");
+		expect(html).toContain(".toc .d { flex: 1; border-bottom: 1.5pt dotted #000;");
 		expect(html).not.toContain("toc-slot");
 		expect(html).not.toContain("<!--");
 	});
