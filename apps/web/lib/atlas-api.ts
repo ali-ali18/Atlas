@@ -1226,6 +1226,7 @@ export type ComputerUseHandlers = {
 		detail?: string;
 		items?: SkillListItemData[];
 		draftCount?: number;
+		learned?: boolean;
 	}) => void;
 	onRoutine?: (event: {
 		action: string;
@@ -2263,6 +2264,20 @@ export async function deleteSkillDrafts(scope: { botId?: string; account?: boole
 	const query = scope.botId ? `?botId=${encodeURIComponent(scope.botId)}` : scope.account ? "?scope=account" : "";
 	const body = await atlasFetch<{ ok: boolean; deleted: number }>(`/v1/skills/delete-drafts${query}`, { method: "POST" });
 	return body.deleted;
+}
+
+/**
+ * Desfaz o que o agente aprendeu sozinho ("Aprendi: ..."): apaga a skill criada ou volta à versão anterior.
+ * `revision` é a versão anunciada no card; 409 = a skill mudou depois, 404 = não existe mais.
+ */
+export async function undoLearnedSkill(request: {
+	skillId: string;
+	action: "created" | "updated";
+	revision: number;
+	conversationId?: string;
+}): Promise<{ ok: boolean; result: "deleted" | "restored"; name: string }> {
+	const { skillId, ...body } = request;
+	return atlasFetch(`/v1/skills/${encodeURIComponent(skillId)}/undo-learned`, { method: "POST", body: JSON.stringify(body) });
 }
 
 /**

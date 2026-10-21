@@ -1,6 +1,6 @@
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
-import type { ConnectorLessonJobPayload, InspectContextPayload, InspectHooksPayload, InspectLessonsPayload, LessonFeedbackEntry, LessonReviewJobPayload, RoutineNotifyMode } from "@workspace/shared";
+import { shouldReviewForSkill, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
 import { parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode } from "@workspace/shared";
 import {
 	ATLAS_JOB_NAMES,
@@ -13,6 +13,7 @@ import {
 	type ChatMessage,
 	type ComputerUseEvent,
 	type MemoryReviewJobPayload,
+	buildToolResultNotes,
 	type RoutineRecord,
 	type SessionMessage,
 	type UserSettings,
@@ -31,6 +32,7 @@ import {
 	appendConversationCard,
 	appendRunAssistantSegment,
 	appendRunEvent,
+	countCompletedToolResults,
 	countFailedToolResults,
 	getLatestLessonReviewEvent,
 	getSkillPendingIntent,
@@ -209,6 +211,8 @@ export type AgentRunProcessorDeps = {
 	enqueueConnectorLesson?: (payload: ConnectorLessonJobPayload) => Promise<void>;
 	/** Revisão de lições em segundo plano (debounce por conversa feito por quem enfileira). */
 	enqueueLessonReview?: (payload: LessonReviewJobPayload) => Promise<void>;
+	/** Revisão de skill após tarefa complexa e bem-sucedida (um job por run). */
+	enqueueSkillReview?: (payload: SkillReviewJobPayload) => Promise<void>;
 	enqueueNextRun?: (runId: string, options?: { delayMs?: number }) => Promise<boolean>;
 	/** Teste: troca a ligação da retomada automática com banco e fila. */
 	autoContinueIo?: AutoContinueIo;
@@ -934,7 +938,10 @@ async function executeLeasedRun(ctx: {
 				},
 			})
 		: null;
+	// Resultados de ferramentas do run: a revisão de memória salva fatos que só apareceram por tool (ex.: CNPJ do ERP).
+	const toolResultsForReview: Array<{ name: string; ok: boolean; summary: string }> = [];
 	const emitWithSegments = async (event: ComputerUseEvent) => {
+		if (event.type === "tool_result") toolResultsForReview.push({ name: event.name, ok: event.ok, summary: event.summary });
 		await segmentRecorder?.observe(event);
 		return emit(event);
 	};
@@ -1273,6 +1280,7 @@ async function executeLeasedRun(ctx: {
 		// Manutenção pós-conclusão (W6): o run já está concluído e é irrevogável.
 		// Falha de Redis/db aqui só é logada: nunca emite erro nem marca o run como
 		// falho (o catch abaixo também respeita `completionPersisted`).
+		const toolNotes = buildToolResultNotes(toolResultsForReview);
 		await runPostCompletionSteps(runId, [
 			{
 				name: "memory-review",
@@ -1288,6 +1296,7 @@ async function executeLeasedRun(ctx: {
 										...inputMessages,
 										{ role: "assistant", content: result.text },
 									],
+									...(toolNotes.length > 0 ? { toolNotes } : {}),
 								})
 						: undefined,
 			},
@@ -1308,6 +1317,31 @@ async function executeLeasedRun(ctx: {
 							});
 							if (!proceed) return;
 							await deps.enqueueLessonReview!({ userId: runUserId, botId: run.botId!, conversationId: run.conversationId!, runId, since: new Date(run.createdAt).toISOString() });
+						}
+					: undefined,
+			},
+			{
+				// Aprendizado procedural: tarefa de vários passos que deu certo pode virar (ou refinar) uma skill.
+				// A decisão barata (contagens) fica aqui; o job confere com os dados completos e só então chama o modelo.
+				name: "skill-review",
+				run: deps.enqueueSkillReview
+					? async () => {
+							const [completedToolCalls, failedToolCalls] = await Promise.all([
+								countCompletedToolResults(runId).catch(() => 0),
+								countFailedToolResults(runId).catch(() => 0),
+							]);
+							const proceed = shouldReviewForSkill({
+								origin: run.origin,
+								hasBot: Boolean(run.botId),
+								hasConversation: Boolean(run.conversationId),
+								groupRun: Boolean(groupRun),
+								onboardingRun,
+								hitWall: Boolean(result.hitWall),
+								completedToolCalls,
+								failedToolCalls,
+							});
+							if (!proceed) return;
+							await deps.enqueueSkillReview!({ userId: runUserId, botId: run.botId!, conversationId: run.conversationId!, runId });
 						}
 					: undefined,
 			},

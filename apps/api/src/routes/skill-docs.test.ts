@@ -20,6 +20,8 @@ const USER_B = "user-b-ficticio";
 
 let installed: { restore: () => void };
 let docs: InstanceType<typeof FakeTable>;
+let revisions: InstanceType<typeof FakeTable>;
+let messages: InstanceType<typeof FakeTable>;
 
 beforeEach(() => {
 	docs = new FakeTable([], () => ({
@@ -32,9 +34,20 @@ beforeEach(() => {
 		tools: [],
 		botId: null,
 	}));
+	// O fake não entende o filtro de bot (`is`) de getOwnedConversation: só dono + id importam aqui.
+	const conversations = new FakeTable([
+		{ id: "conv-a", userId: USER_A },
+		{ id: "conv-b", userId: USER_B },
+	]);
+	conversations.findFirst = async ({ where }: { where?: Record<string, unknown> } = {}) =>
+		conversations.rows.find((row) => row.id === where?.id && row.userId === where?.userId) ?? null;
+	revisions = new FakeTable();
+	messages = new FakeTable([], () => ({ createdAt: new Date() }));
 	installed = installFakes({
 		skillDoc: docs,
-		skillRevision: new FakeTable(),
+		skillRevision: revisions,
+		conversationMessage: messages,
+		conversation: conversations,
 		bot: new FakeTable([
 			{ id: "bot-a", ownerId: USER_A },
 			{ id: "bot-b", ownerId: USER_B },
@@ -200,4 +213,62 @@ test("apagar rascunhos em lote: só os do dono da sessão; B não apaga os de A"
 	const rest = await a.request("/v1/skills/delete-drafts", { method: "POST" });
 	assert.deepEqual(await rest.json(), { ok: true, deleted: 1 });
 	assert.deepEqual(docs.rows.map((row) => row.name), ["ativa"]);
+});
+
+// --- Desfazer o que o agente aprendeu sozinho ("Aprendi: ...") ---------------------------------------------------
+
+const undo = (userId: string, id: string, body: unknown) => appFor(userId).request(`/v1/skills/${id}/undo-learned`, json("POST", body));
+const learnedRow = (over: Record<string, unknown>) => ({ id: "s-learned", userId: USER_A, botId: null, name: "pesquisa", description: "d novo", body: "passos novos", tools: [], createdBy: "agent", status: "active", enabled: true, revision: 1, ...over });
+const learnedCard = (over: Record<string, unknown> = {}) => ({ id: "m1", conversationId: "conv-a", role: "skill", content: JSON.stringify({ v: 1, kind: "skill", action: "created", title: "pesquisa", learned: true, skillId: "s-learned", versionNumber: 1, ...over }) });
+
+test("desfazer skill criada sozinha apaga a skill e marca o card como desfeito", async () => {
+	docs.rows.push(learnedRow({}));
+	messages.rows.push(learnedCard());
+	const res = await undo(USER_A, "s-learned", { action: "created", revision: 1, conversationId: "conv-a" });
+	assert.equal(res.status, 200);
+	assert.equal(((await res.json()) as { result: string }).result, "deleted");
+	assert.equal(docs.rows.length, 0);
+	assert.equal(JSON.parse(String(messages.rows[0]!.content)).undone, true);
+});
+
+test("desfazer skill atualizada sozinha volta ao texto anterior", async () => {
+	docs.rows.push(learnedRow({ revision: 2, createdBy: "user" }));
+	revisions.rows.push({ id: "r1", skillId: "s-learned", userId: USER_A, revision: 1, name: "pesquisa", description: "d antigo", body: "passos antigos", createdBy: "user", createdAt: new Date() });
+	const res = await undo(USER_A, "s-learned", { action: "updated", revision: 2 });
+	assert.equal(res.status, 200);
+	assert.equal(((await res.json()) as { result: string }).result, "restored");
+	assert.equal(docs.rows[0]!.body, "passos antigos");
+	assert.equal(docs.rows[0]!.description, "d antigo");
+});
+
+test("usuário B não desfaz (nem marca o card de) skill aprendida do usuário A: 404 e nada muda", async () => {
+	docs.rows.push(learnedRow({}));
+	messages.rows.push(learnedCard());
+	const res = await undo(USER_B, "s-learned", { action: "created", revision: 1, conversationId: "conv-a" });
+	assert.equal(res.status, 404);
+	assert.equal(docs.rows.length, 1);
+	assert.equal(JSON.parse(String(messages.rows[0]!.content)).undone, undefined);
+
+	docs.rows.push(learnedRow({ id: "s-up", name: "outra", revision: 2 }));
+	revisions.rows.push({ id: "r2", skillId: "s-up", userId: USER_A, revision: 1, name: "outra", description: "velho", body: "velho", createdBy: "user", createdAt: new Date() });
+	assert.equal((await undo(USER_B, "s-up", { action: "updated", revision: 2 })).status, 404);
+	assert.equal(docs.rows.find((row) => row.id === "s-up")!.body, "passos novos");
+});
+
+test("desfazer com a conversa de outro dono não marca o card dele", async () => {
+	docs.rows.push(learnedRow({}));
+	messages.rows.push({ ...learnedCard(), id: "m-b", conversationId: "conv-b" });
+	const res = await undo(USER_A, "s-learned", { action: "created", revision: 1, conversationId: "conv-b" });
+	assert.equal(res.status, 200);
+	assert.equal(JSON.parse(String(messages.rows[0]!.content)).undone, undefined);
+});
+
+test("desfazer recusa revisão que mudou depois do aviso, skill do usuário e corpo inválido", async () => {
+	docs.rows.push(learnedRow({ revision: 3 }));
+	assert.equal((await undo(USER_A, "s-learned", { action: "created", revision: 1 })).status, 409);
+	docs.rows.push(learnedRow({ id: "s-user", name: "minha", createdBy: "user" }));
+	assert.equal((await undo(USER_A, "s-user", { action: "created", revision: 1 })).status, 409);
+	assert.equal(docs.rows.length, 2);
+	assert.equal((await undo(USER_A, "s-learned", { action: "deleted", revision: 1 })).status, 400);
+	assert.equal((await undo(USER_A, "s-learned", { action: "created", revision: "1" })).status, 400);
 });

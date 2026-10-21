@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SandboxManager } from "@workspace/sandbox";
 import type { ChatTool, CompleteChatWithToolsResult, LlmToolCall } from "@workspace/llm";
-import { getBotProfile } from "@workspace/db";
+import { addMemoryEntry, getBotProfile } from "@workspace/db";
 import { runComputerUse } from "./computer-use.js";
 
 vi.mock("@workspace/db", async (original) => ({
 	...(await original<typeof import("@workspace/db")>()),
 	searchMemoryEntries: vi.fn(async () => []),
+	addMemoryEntry: vi.fn(async () => ({ ok: true, entry: { id: "mem-1" } })),
 	getBotProfile: vi.fn(async () => ({ description: "A bot that is already configured." })),
 	listBotSkills: vi.fn(async () => []),
 	searchSkillVersions: vi.fn(async () => []),
@@ -143,7 +144,6 @@ describe("economia ligada: chat simples", () => {
 		const { first, steps } = await replay({ messages: [{ role: "user", content: "Bom dia" }] });
 		for (const rare of [
 			"propose_routine",
-			"memory",
 			"create_file",
 			"click",
 			"propose_profile_update",
@@ -155,7 +155,26 @@ describe("economia ligada: chat simples", () => {
 		// +2: propose_skill e delete_skill viraram núcleo (o modelo decide quando criar skill).
 		// +1: propose_plan virou núcleo (o plano aparece antes das escritas).
 		expect(first).toContain("propose_plan");
-		expect(first.length).toBeLessThanOrEqual(23);
+		// +1: `memory` virou núcleo: sem ela no 1º passo o modelo não consegue salvar fato durável (P_MEMORY manda salvar).
+		expect(first).toContain("memory");
+		expect(first).not.toContain("memory_search");
+		expect(first.length).toBeLessThanOrEqual(24);
 		expect(steps).toBe(1);
+	});
+
+	it("conversa simples já pode salvar fato durável: `memory` add roda de primeira, sem carregar nada", async () => {
+		const { first, results } = await replay({
+			messages: [{ role: "user", content: "O CNPJ da minha empresa é 12.345.678/0001-90" }],
+			script: [turn("memory", { action: "add", target: "memory", content: "CNPJ da empresa do usuário: 12.345.678/0001-90", category: "empresa" }), done],
+		});
+		expect(first).toContain("memory");
+		expect(results[0]).toMatchObject({ name: "memory", ok: true });
+		expect(results[0]!.summary).not.toMatch(/not loaded/i);
+		expect(addMemoryEntry).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-a", botId: "bot-a", target: "memory" }));
+	});
+
+	it("rotina não recebe `memory` (não escreve memória)", async () => {
+		const { first } = await replay({ origin: "routine", objective: "todo dia, lembre o que o usuário prefere", messages: [{ role: "user", content: "Execute a rotina." }] });
+		expect(first).not.toContain("memory");
 	});
 });

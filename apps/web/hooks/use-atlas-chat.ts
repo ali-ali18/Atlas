@@ -290,6 +290,7 @@ function conversationCardToMessage(
 		...(card.detail ? { detail: card.detail } : {}),
 		...(card.items ? { items: card.items } : {}),
 		...(card.draftCount !== undefined ? { draftCount: card.draftCount } : {}),
+		...(card.learned && card.skillId ? { learned: true, skillId: card.skillId, ...(card.undone ? { undone: true } : {}) } : {}),
 		...(agentName || card.agentName ? { agentName: agentName ?? card.agentName } : {}),
 	};
 }
@@ -575,6 +576,7 @@ export function createComputerHandlers(params: {
 		detail?: string;
 		items?: SkillListItemData[];
 		draftCount?: number;
+		learned?: boolean;
 	}) => void;
 	onRoutine?: (event: {
 		action: string;
@@ -746,6 +748,7 @@ export function createComputerHandlers(params: {
 				...(event.detail !== undefined ? { detail: event.detail } : {}),
 				...(items !== undefined ? { items } : {}),
 				...(typeof event.draftCount === "number" ? { draftCount: event.draftCount } : {}),
+				...(event.learned && event.skillId ? { learned: true, skillId: event.skillId } : {}),
 				...(params.agentName ? { agentName: params.agentName } : {}),
 			};
 			params.setMessages((previous) => {

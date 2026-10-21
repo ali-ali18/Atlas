@@ -13,7 +13,7 @@ export async function applySkillProposal(
 		SkillProposalData,
 		"action" | "name" | "description" | "tools" | "body" | "botId" | "skillId" | "expectedRevision"
 	>,
-): Promise<{ skillId: string | null }> {
+): Promise<{ skillId: string | null; revision: number | null }> {
 	if (proposal.action === "create") {
 		const created = await createSkillDoc(userId, {
 			botId: proposal.botId,
@@ -23,14 +23,14 @@ export async function applySkillProposal(
 			tools: proposal.tools,
 			createdBy: "agent",
 		});
-		return { skillId: created.id };
+		return { skillId: created.id, revision: created.revision };
 	}
 	const skillId = proposal.skillId ?? "";
 	if (proposal.action === "delete") {
 		if (!(await getSkillDoc(userId, skillId)) || !(await deleteSkillDoc(userId, skillId))) {
 			throw new SkillDocError("not_found", "Skill não encontrada.");
 		}
-		return { skillId: null };
+		return { skillId: null, revision: null };
 	}
 	const updated = await updateSkillDoc(userId, skillId, {
 		description: proposal.description,
@@ -39,5 +39,5 @@ export async function applySkillProposal(
 		expectedRevision: proposal.expectedRevision,
 		updatedBy: "agent",
 	});
-	return { skillId: updated.id };
+	return { skillId: updated.id, revision: updated.revision };
 }

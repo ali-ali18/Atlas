@@ -59,6 +59,10 @@ export type PersistedSkillCard = {
 	detail?: string;
 	items?: SkillListItemData[];
 	draftCount?: number;
+	/** Skill gravada sozinha pelo agente ("Aprendi: ..."): o card oferece desfazer. `skillId` + `versionNumber` dizem o que desfazer. */
+	skillId?: string;
+	learned?: boolean;
+	undone?: boolean;
 };
 
 export type PersistedConfirmCard = {
@@ -566,6 +570,9 @@ export function parseConversationCard(content: string): PersistedConversationCar
 			...(asOptionalString(row.detail) ? { detail: asOptionalString(row.detail) } : {}),
 			...(items ? { items } : {}),
 			...(asOptionalNumber(row.draftCount) ? { draftCount: asOptionalNumber(row.draftCount) } : {}),
+			...(asOptionalString(row.skillId) ? { skillId: asOptionalString(row.skillId) } : {}),
+			...(row.learned === true ? { learned: true } : {}),
+			...(row.learned === true && row.undone === true ? { undone: true } : {}),
 		};
 	}
 	if (row.kind === "confirm") {

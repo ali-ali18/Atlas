@@ -418,6 +418,10 @@ type MessageVariant =
 			detail?: string;
 			items?: SkillListItemData[];
 			draftCount?: number;
+			/** Gravada sozinha pelo agente ("Aprendi"): `skillId` + `versionNumber` identificam o que desfazer. */
+			skillId?: string;
+			learned?: boolean;
+			undone?: boolean;
 	  }
 	| {
 			id: string;

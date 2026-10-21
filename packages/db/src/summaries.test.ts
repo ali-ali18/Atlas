@@ -83,6 +83,7 @@ describe("isSummaryFreshSnapshot", () => {
 			"bot-profile",
 			"chart",
 			"code-run",
+			"compaction",
 			"confirm",
 			"file",
 			"login",
@@ -92,6 +93,7 @@ describe("isSummaryFreshSnapshot", () => {
 			"skill",
 			"subagents",
 			"system",
+			"task-list",
 			"tool-budget",
 		]);
 	});

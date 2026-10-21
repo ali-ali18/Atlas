@@ -454,6 +454,7 @@ export {
 	type ComposioToolkitSort,
 } from "./mcp/composio/client.js";
 export { withoutNativeDuplicates } from "./mcp/composio/records.js";
+export { findSimilarSkill } from "./tools/skills.js";
 export {
 	builtinGroupPointers,
 	builtinSkillIndexText,
