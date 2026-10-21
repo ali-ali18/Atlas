@@ -447,6 +447,7 @@ export {
 export { applySkillProposal } from "./skill-proposal-apply.js";
 export { getPendingBotProposal, resolveBotProposal, type BotProposalDeps, type BotProposalResolution } from "./bot-proposals.js";
 export { upsertTaskListCard } from "./task-list-cards.js";
+export { findCompactionBlocker, writeCompactedTranscript, type CompactionBlocker, type CompactionWrite } from "./conversation-compaction.js";
 
 export { getUnreadStates, getUnreadState, markConversationRead, markConversationUnread } from "./read-state.js";
 

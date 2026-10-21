@@ -15,6 +15,7 @@ import {
 } from "react";
 
 import { activeTriggerQuery, modelDisplayName, servedModelNote, type ComposerTrigger } from "@workspace/shared";
+import { composerCommandCandidates, resolveComposerCommand } from "@/lib/composer-commands";
 import { useDictation, type DictationState } from "@/hooks/use-dictation";
 import { mergeDictation, previewLabel } from "@/lib/dictation";
 import { cn } from "@workspace/ui/lib/utils";
@@ -79,8 +80,11 @@ export function ChatComposer({
 	textareaRef,
 	mentionMembers,
 	mentionBots,
+	onCompact,
 	dock,
 }: {
+	/** Chat 1:1: `/compact [foco]` resume a conversa em vez de virar mensagem; ausente = o comando não é oferecido. */
+	onCompact?: (focus?: string) => void;
 	/** Chat 1:1: os outros bots do usuário que o `@` oferece (as skills do `/` vêm da conta). */
 	mentionBots?: readonly MentionCandidate[];
 	/** Aprovação pendente fixada logo acima do campo (ver ApprovalDock). */
@@ -120,14 +124,15 @@ export function ChatComposer({
 	const { skills: menuSkills, loading: skillsLoading } = useAddMenuSkills(slashTyped);
 	const skillCandidates = useMemo<MentionCandidate[]>(() => {
 		const seen = new Set<string>();
-		const out: MentionCandidate[] = [];
+		// `/` também oferece os comandos do composer (hoje só /compact), antes das skills.
+		const out: MentionCandidate[] = composerCommandCandidates({ compactAvailable: Boolean(onCompact), groupMode });
 		for (const skill of menuSkills) {
 			if (seen.has(skill.slug)) continue;
 			seen.add(skill.slug);
 			out.push({ id: skill.slug, name: skill.slug, description: skill.description });
 		}
 		return out;
-	}, [menuSkills]);
+	}, [menuSkills, onCompact, groupMode]);
 	// `@` também oferece os apps (conectores) do usuário; carregam uma vez, na 1ª vez que `@` é digitado.
 	const atTyped = !groupMode && activeTriggerQuery(value, caret, "@") !== null;
 	const mentionApps = useMentionApps(atTyped);
@@ -257,6 +262,13 @@ export function ChatComposer({
 		if (secretGuard.intercept()) return;
 		const trimmed = value.trim();
 		if ((!trimmed && images.ready.length === 0 && files.ready.length === 0) || disabled || images.uploading || files.uploading) return;
+		// `/compact [foco]` é comando do composer: não vai como mensagem nem entra no histórico.
+		const command = resolveComposerCommand(trimmed, { compactAvailable: Boolean(onCompact), groupMode, hasAttachments: images.ready.length > 0 || files.ready.length > 0 });
+		if (command) {
+			onCompact?.(command.focus);
+			updateValue("");
+			return;
+		}
 		onSend(trimmed, [...images.ready, ...files.ready]);
 		updateValue("");
 		images.clear();

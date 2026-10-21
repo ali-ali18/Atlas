@@ -57,6 +57,7 @@ export function mergePreservingSkills(
 			item.kind === "image-gen" ||
 			item.kind === "chart" ||
 			item.kind === "task-list" ||
+			item.kind === "compaction" ||
 			item.kind === "subagents" ||
 			item.kind === "questionnaire" ||
 			item.kind === "skill-proposal" ||

@@ -94,6 +94,7 @@ import {
 import { SESSION_SYNC_MS, syncConversationDevSessions } from "@/lib/dev-session/session-sync";
 import {
 	AtlasApiError,
+	compactConversation,
 	type CreateAgentRunResult,
 	cancelAgentRun,
 	getDevSessionDetail,
@@ -174,6 +175,7 @@ function conversationCardToMessage(
 		};
 	}
 	if (card.kind === "task-list") return { id, kind: "task-list", runId: card.runId, items: card.items };
+	if (card.kind === "compaction") return { id, kind: "compaction", before: card.before, after: card.after, summary: card.summary, ...(card.focus ? { focus: card.focus } : {}) };
 	if (card.kind === "chart") return { id, kind: "chart", chartId: card.chartId, spec: card.spec, ...(card.filename ? { filename: card.filename } : {}) };
 	if (card.kind === "file") {
 		return {
@@ -416,6 +418,7 @@ function buildSessionMessage(message: SessionMessage): Message | null {
 		|| (message.role as string) === "code-run"
 		|| (message.role as string) === "chart"
 		|| (message.role as string) === "task-list"
+		|| (message.role as string) === "compaction"
 	) {
 		// Fallback: card questionnaire persistido sob outro role.
 		if (message.content.includes('"questionnaire"')) {
@@ -1189,6 +1192,9 @@ export function useAtlasChat({
 	const oldestCursorRef = useRef<{ createdAt: string; id: string } | null>(null);
 	const loadingOlderRef = useRef(false);
 	const [error, setError] = useState<string | null>(null);
+	/** `/compact` em andamento ou o aviso curto de que nada foi feito (passageiro; o cartão final vai para a thread). */
+	const [compactState, setCompactState] = useState<{ status: "working" } | { status: "notice"; text: string } | null>(null);
+	const compactingRef = useRef(false);
 	const [activeRunId, setActiveRunId] = useState<string | null>(null);
 	/** Grupo: membro dono do run em andamento (autor do balão ao vivo). */
 	const [liveBotId, setLiveBotId] = useState<string | null>(null);
@@ -2159,6 +2165,45 @@ export function useAtlasChat({
 		}
 	}, [streamLiveRun]);
 
+	/** `/compact [foco]`: resume a conversa levada; um clique duplo não dispara duas compactações. */
+	const compact = useCallback(async (focus?: string) => {
+		const convId = conversationIdRef.current;
+		if (compactingRef.current) return;
+		if (!convId || groupId) {
+			setCompactState({ status: "notice", text: groupId ? "Conversas de grupo não podem ser compactadas." : "Ainda não há conversa para compactar." });
+			return;
+		}
+		compactingRef.current = true;
+		setCompactState({ status: "working" });
+		try {
+			const result = await compactConversation(convId, focus);
+			if (conversationIdRef.current !== convId) {
+				setCompactState(null);
+				return;
+			}
+			if (result.status === "compacted") {
+				setCompactState(null);
+				setMessages((previous) =>
+					previous.some((item) => item.id === result.messageId)
+						? previous
+						: [...previous, { id: result.messageId, kind: "compaction", before: result.before, after: result.after, summary: result.card.summary, ...(result.card.focus ? { focus: result.card.focus } : {}) }],
+				);
+			} else {
+				setCompactState({ status: "notice", text: result.message });
+			}
+		} catch (err) {
+			setCompactState({ status: "notice", text: err instanceof Error && err.message ? err.message : "Não foi possível compactar a conversa." });
+		} finally {
+			compactingRef.current = false;
+		}
+	}, [groupId]);
+	// O aviso curto some sozinho.
+	useEffect(() => {
+		if (compactState?.status !== "notice") return;
+		const timer = setTimeout(() => setCompactState(null), 8_000);
+		return () => clearTimeout(timer);
+	}, [compactState]);
+
 	const sendMessage = useCallback(
 		async (text: string, outgoing: OutgoingAttachment[] = [], options: { confirmId?: string } = {}) => {
 			// Imagens e arquivos seguem juntos em `attachments` (o servidor separa pelo tipo); o cartão otimista difere.
@@ -2603,6 +2648,8 @@ export function useAtlasChat({
 		loading,
 		error,
 		sendMessage,
+		compact,
+		compactState,
 		dismissMessage,
 		setConfirmStatus,
 		setLoginStatus,

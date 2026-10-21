@@ -43,6 +43,7 @@ import { EmailReceivedCard } from "./email-received-card";
 import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 import { CodeRunCard } from "./code-run-card";
 import { TaskListCard } from "./task-list-card";
+import { CompactionCard } from "./compaction-card";
 import { ImagePendingCard } from "@/components/ai-elements/images/image-pending-card";
 import { MemoryUpdatedMarker } from "./memory-updated-marker";
 import { ImageGallery } from "@/components/ai-elements/images/image-gallery";
@@ -236,6 +237,8 @@ export function MessageRow({
 			return <LazyChart spec={message.spec} />;
 		case "task-list":
 			return <TaskListCard items={message.items} />;
+		case "compaction":
+			return <CompactionCard after={message.after} before={message.before} focus={message.focus} summary={message.summary} />;
 		case "memory-updated":
 			return <MemoryUpdatedMarker onOpen={onOpenMemory} />;
 		case "routine":

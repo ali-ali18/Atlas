@@ -329,6 +329,19 @@ export {
 	type QuestionnaireCardInput,
 	type QuestionnaireCardItem,
 } from "./skill-card.js";
+export {
+	COMPACT_CARD_SUMMARY_MAX_CHARS,
+	COMPACT_COMMAND,
+	COMPACT_COMMAND_DESCRIPTION,
+	COMPACT_FOCUS_MAX_CHARS,
+	compactionPercent,
+	formatCompactionLine,
+	formatTokensPt,
+	parseCompactCommand,
+	type CompactConversationRequest,
+	type CompactConversationResponse,
+	type PersistedCompactionCard,
+} from "./compaction.js";
 export { IMAGE_LIMITS, ALLOWED_IMAGE_MIMES, sniffImageType, scaledImageSize, artifactImageRef, imageMarker, type ImageMime } from "./images.js";
 export { groupUserImageRows, attachHistoryImages, type HistoryImageGroup, type HistoryImageItem } from "./history-images.js";
 export {

@@ -1,6 +1,6 @@
 "use client";
 
-import { SparklesIcon } from "lucide-react";
+import { ShrinkIcon, SparklesIcon } from "lucide-react";
 import { Fragment, useEffect, useRef } from "react";
 
 import type { ComposerTrigger } from "@workspace/shared";
@@ -18,7 +18,7 @@ export type MentionCandidate = {
 	description?: string | null;
 	isPrimary?: boolean;
 	/** `app` = conector do usuário (o `@` 1:1 mostra bots e apps em seções). */
-	kind?: "bot" | "app";
+	kind?: "bot" | "app" | "command";
 	logo?: string | null;
 	connected?: boolean;
 };
@@ -103,8 +103,8 @@ export function MentionPopup({
 					{candidate.kind === "app" ? (
 						<AppLogo className="size-[26px]" name={candidate.name} src={candidate.logo} />
 					) : trigger === "/" ? (
-						<span aria-hidden className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-							<SparklesIcon className="size-3.5" />
+						<span aria-hidden className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground" data-kind={candidate.kind === "command" ? "command" : "skill"}>
+							{candidate.kind === "command" ? <ShrinkIcon className="size-3.5" /> : <SparklesIcon className="size-3.5" />}
 						</span>
 					) : (
 						<AgentAvatar animated={false} bodyColor={candidate.color} id={candidate.id} shape={candidate.shape} size={26} />

@@ -30,15 +30,18 @@ type Message = CompleteChatWithToolsParams["messages"][number];
 async function runTurn(input: {
 	runId: string;
 	user: string;
+	/** Catálogo adiado: as tools do conector só entram depois de `mcp_tool_search` (ou carregadas do turno anterior). */
+	deferred?: boolean;
 	/** Notas de turno como o worker as monta: mensagens de sistema DEPOIS da fala do usuário. */
 	notes: string[];
 	script: Array<ReturnType<typeof assistantSays>>;
 	priorTranscript?: SerializedLlmMessage[];
+	priorLoadedTools?: string[];
 }) {
 	const erp = fakeErp();
-	const mcp: McpRuntime = { toolset: buildMcpToolset([ERP_CONNECTION], { autonomy: { level: "balanced", exceptions: [] } }), call: erp.call };
+	const mcp: McpRuntime = { toolset: buildMcpToolset([ERP_CONNECTION], { autonomy: { level: "balanced", exceptions: [] }, ...(input.deferred ? { maxTools: 2 } : {}) }), call: erp.call };
 	const requests: CompleteChatWithToolsParams[] = [];
-	const checkpoints: Array<{ llmMessages?: SerializedLlmMessage[] }> = [];
+	const checkpoints: Array<{ llmMessages?: SerializedLlmMessage[]; loadedTools?: string[] }> = [];
 	const queue = [...input.script];
 	await runComputerUse({
 		manager: {} as SandboxManager,
@@ -55,6 +58,7 @@ async function runTurn(input: {
 		mcp,
 		autonomy: { level: "balanced", exceptions: [] },
 		priorTranscript: input.priorTranscript,
+		priorLoadedTools: input.priorLoadedTools,
 		messages: [
 			{ role: "system", content: "identidade do bot" },
 			...(input.priorTranscript ? [{ role: "system" as const, content: TRANSCRIPT_SLOT }] : []),
@@ -70,7 +74,7 @@ async function runTurn(input: {
 			return next;
 		},
 	});
-	return { requests, last: checkpoints.at(-1) };
+	return { requests, last: checkpoints.at(-1) as ({ llmMessages?: SerializedLlmMessage[]; loadedTools?: string[] }) | undefined };
 }
 
 /** O que o worker faz entre os turnos: limpa, prefixa (no-op para ids que já nasceram prefixados) e junta o que o banco ganhou. */
@@ -185,6 +189,30 @@ describe("prefixo de cache estável entre turnos", () => {
 		expect(next.instructions).toBe(prev.instructions);
 		expect(next.input.slice(0, prev.input.length)).toEqual(prev.input);
 		expect(JSON.stringify(next.input).startsWith(JSON.stringify(prev.input).slice(0, -1))).toBe(true);
+	});
+
+	it("a lista de tools do pedido do turno 2 começa com a do último pedido do turno 1 (tool carregada no meio do turno 1 continua no mesmo lugar)", async () => {
+		const one = await runTurn({
+			runId: "run-aaa111",
+			user: "Ache o cliente Exemplo",
+			deferred: true,
+			notes: [NOTE_ARTIFACTS],
+			script: [
+				assistantCalls(toolCall("call_0", "mcp_tool_search", { query: EXPOSED.findCustomer })),
+				assistantCalls(toolCall("call_1", EXPOSED.findCustomer, { name: "Exemplo" })),
+				assistantSays("Achei o cliente Exemplo."),
+			],
+		});
+		const names = (params: CompleteChatWithToolsParams) => params.tools.map((tool) => tool.function.name);
+		expect(names(one.requests[0]!)).not.toContain(EXPOSED.findCustomer);
+		expect(names(one.requests.at(-1)!)).toContain(EXPOSED.findCustomer);
+		const priorTranscript = carry({ runId: "run-aaa111", llmMessages: one.last?.llmMessages }, [{ role: "assistant", content: "Achei o cliente Exemplo." }, { role: "user", content: "e agora" }], "e agora");
+		const two = await runTurn({ runId: "run-bbb222", user: "e agora", deferred: true, notes: [], script: [assistantSays("ok")], priorTranscript, priorLoadedTools: one.last?.loadedTools });
+		const prevTools = names(one.requests.at(-1)!);
+		expect(names(two.requests[0]!).slice(0, prevTools.length)).toEqual(prevTools);
+		// e o corpo da Anthropic: mesmas tools, na mesma ordem, e o mesmo bloco de sistema
+		const slug = "claude-sonnet-5.5";
+		expect(plain(anthropicRequestBody(two.requests[0]!, slug).tools)).toEqual(plain(anthropicRequestBody(one.requests.at(-1)!, slug).tools));
 	});
 
 	it("o prompt de sistema do turno 2 é o do turno 1 (nada por turno nele)", async () => {

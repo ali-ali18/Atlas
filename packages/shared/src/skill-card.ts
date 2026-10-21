@@ -14,6 +14,7 @@ import {
 } from "./routine-card.js";
 import { parseRoutineProposalCard, type PersistedRoutineProposalCard } from "./routine-proposal.js";
 import { parseTaskList, type TaskListItem } from "./task-list.js";
+import { COMPACT_CARD_SUMMARY_MAX_CHARS, COMPACT_FOCUS_MAX_CHARS, type PersistedCompactionCard } from "./compaction.js";
 import { parseBotProposalCard, type PersistedBotProposalCard } from "./bot-proposal.js";
 
 /** Papéis de card na timeline da conversa (não vão para o LLM). */
@@ -35,7 +36,8 @@ export type ConversationCardRole =
 	| "images"
 	| "code-run"
 	| "chart"
-	| "task-list";
+	| "task-list"
+	| "compaction";
 
 export type PersistedImagesCard = {
 	v: 1;
@@ -295,6 +297,7 @@ export type PersistedChartCard = {
 };
 
 export type PersistedConversationCard =
+	| PersistedCompactionCard
 	| PersistedCodeRunCard
 	| PersistedChartCard
 	| PersistedTaskListCard
@@ -339,7 +342,8 @@ export function isConversationCardRole(role: string): role is ConversationCardRo
 		role === "routine-proposal" ||
 		role === "bot-proposal" ||
 		role === "images" ||
-		role === "task-list"
+		role === "task-list" ||
+		role === "compaction"
 	);
 }
 
@@ -650,6 +654,21 @@ export function parseConversationCard(content: string): PersistedConversationCar
 			...(asOptionalString(row.runId) ? { runId: asOptionalString(row.runId) } : {}),
 		};
 	}
+	if (row.kind === "compaction") {
+		const before = asOptionalNumber(row.before);
+		const after = asOptionalNumber(row.after);
+		const summary = asOptionalString(row.summary);
+		if (before === undefined || after === undefined || before < 0 || after < 0 || !summary) return null;
+		const focus = asOptionalString(row.focus);
+		return {
+			v: 1,
+			kind: "compaction",
+			before: Math.round(before),
+			after: Math.round(after),
+			summary: summary.slice(0, COMPACT_CARD_SUMMARY_MAX_CHARS),
+			...(focus ? { focus: focus.slice(0, COMPACT_FOCUS_MAX_CHARS) } : {}),
+		};
+	}
 	if (row.kind === "task-list") {
 		const runId = asOptionalString(row.runId);
 		const items = parseTaskList(row.items);
@@ -817,6 +836,7 @@ export function insertCardAfterCurrentTurn<T extends { kind: string }>(
 			messages[insertAt]?.kind === "code-run" ||
 			messages[insertAt]?.kind === "chart" ||
 			messages[insertAt]?.kind === "task-list" ||
+			messages[insertAt]?.kind === "compaction" ||
 			messages[insertAt]?.kind === "routine" ||
 			messages[insertAt]?.kind === "questionnaire" ||
 			messages[insertAt]?.kind === "bot-profile" ||

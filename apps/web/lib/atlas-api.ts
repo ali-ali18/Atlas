@@ -66,6 +66,7 @@ import type {
 	BotProposalEvent,
 	RunInputMode,
 } from "@workspace/shared";
+import type { CompactConversationResponse } from "@workspace/shared";
 import type { RunInspection, MemoryChange, MemoryChangesPage, MemoryCleanupView, MemoryEntry, MemorySnapshot, MemoryTarget } from "@workspace/shared";
 import type {
 	CatalogBotEntry,
@@ -529,6 +530,17 @@ export async function createConversation(): Promise<string> {
 export async function listBots(): Promise<Bot[]> {
 	const body = await atlasFetch<ListBotsResponse>("/v1/bots");
 	return body.bots;
+}
+
+/**
+ * `/compact`: resume a conversa levada para os próximos turnos. A resposta traz o cartão (conversa compactada) ou
+ * o aviso (conversa curta); aprovação pendente ou execução em andamento voltam como AtlasApiError 409 com a mensagem.
+ */
+export async function compactConversation(conversationId: string, focus?: string): Promise<CompactConversationResponse> {
+	return atlasFetch<CompactConversationResponse>(`/v1/conversations/${encodeURIComponent(conversationId)}/compact`, {
+		method: "POST",
+		body: JSON.stringify(focus ? { focus } : {}),
+	});
 }
 
 /** Abriu a conversa: resultados de runs em background contam como vistos (some o badge). */

@@ -147,3 +147,32 @@ test("o inspetor recebe o desfecho: carregada, fallback com motivo e primeiro tu
 		{ mode: "off", reason: "group" },
 	]);
 });
+
+test("conversa compactada (/compact): o turno seguinte parte do resumo + cauda, com tools, notas levadas e a ação do inspetor", async () => {
+	const out = await resolveTranscriptHistory({
+		...base,
+		loadLatest: async () => ({
+			...latest,
+			llmMessages: [
+				{ role: "system", content: "identidade" },
+				{ role: "system", content: "[Conversation summary] A conversa anterior foi resumida abaixo.\n\nObjetivo: proposta do Alfa." },
+				{ role: "user", content: "pedido recente" },
+				{ role: "assistant", content: "Buscando.", tool_calls: [call("c9", "mcp__erp__find_client")] },
+				{ role: "tool", tool_call_id: "c9", content: '{"id":42}' },
+				{ role: "assistant", content: "Achei o Alfa." },
+			],
+			carriedNotes: [{ key: "k1", content: "Procedimento da skill X", idleTurns: 1 }],
+			compaction: { before: 48_200, after: 6_100 },
+		}),
+		loadAfter: afterOk([{ role: "user", content: "30 dias" }]),
+	});
+	assert.ok(out);
+	assert.deepEqual(out.priorTranscript.map((m) => m.role), ["system", "user", "assistant", "tool", "assistant"]);
+	assert.match(String(out.priorTranscript[0]!.content), /^\[Conversation summary\]/);
+	assert.ok(!JSON.stringify(out.priorTranscript).includes("identidade"));
+	assert.deepEqual(out.loadedTools, ["mcp__erp__find_client"]);
+	assert.deepEqual(out.carriedNotes, [{ key: "k1", content: "Procedimento da skill X", idleTurns: 1 }]);
+	assert.deepEqual(out.compaction, { before: 48_200, after: 6_100 });
+	// ids da cauda ganham o prefixo do run de origem como sempre
+	assert.match(String(out.priorTranscript[2]!.tool_calls?.[0]?.id), /^r[0-9a-z]{6}_c9$/);
+});

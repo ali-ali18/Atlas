@@ -7,7 +7,7 @@
 export const INSPECT_CATEGORIES = ["system", "tools", "history", "toolResults", "notes", "turn"] as const;
 export type InspectCategory = (typeof INSPECT_CATEGORIES)[number];
 
-export type InspectActionKind = "collapsed" | "trimmed" | "summary" | "summary_failed" | "compaction" | "guard";
+export type InspectActionKind = "collapsed" | "trimmed" | "summary" | "summary_failed" | "compaction" | "guard" | "compact";
 
 export type InspectAction = {
 	kind: InspectActionKind;

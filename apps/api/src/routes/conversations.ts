@@ -20,6 +20,7 @@ import {
 	resolveUserImagesCard,
 } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
+import { compactConversation, COMPACT_MESSAGES } from "../chat/compact-conversation.js";
 
 function parseAppendMessage(body: unknown): (AppendMessageInput & { attachments: Array<{ artifactId: string }> }) | null {
 	if (typeof body !== "object" || body === null) {
@@ -45,7 +46,7 @@ function parseAppendMessage(body: unknown): (AppendMessageInput & { attachments:
 	return { role: role as AppendMessageInput["role"], content, attachments };
 }
 
-export function createConversationRoutes() {
+export function createConversationRoutes(options: { compact?: typeof compactConversation } = {}) {
 	const app = new Hono<AuthEnv>();
 
 	app.post("/v1/conversations", async (c) => {
@@ -112,6 +113,33 @@ export function createConversationRoutes() {
 		} catch (error) {
 			console.error("mark results seen failed", error);
 			return c.json({ error: "Failed to mark results as seen" }, 503);
+		}
+	});
+
+	/**
+	 * `/compact`: resume a conversa levada para os próximos turnos e deixa o cartão na thread. Só o dono; recusa com
+	 * 409 enquanto houver aprovação pendente ou execução em andamento. Body: { focus?: string }.
+	 */
+	app.post("/v1/conversations/:id/compact", async (c) => {
+		const id = c.req.param("id");
+		const { userId } = scopeFor(c.get("session"));
+		if (!id.trim() || !(await getOwnedConversation(id, userId))) {
+			return c.json({ error: "Conversation not found" }, 404);
+		}
+		const body: unknown = await c.req.json().catch(() => ({}));
+		const focus = typeof body === "object" && body !== null && typeof (body as { focus?: unknown }).focus === "string" ? (body as { focus: string }).focus : undefined;
+		try {
+			const outcome = await (options.compact ?? compactConversation)({ userId, conversationId: id, ...(focus ? { focus } : {}) });
+			if (outcome.kind === "compacted") {
+				const { kind: _kind, ...rest } = outcome;
+				return c.json({ status: "compacted" as const, ...rest });
+			}
+			if (outcome.kind === "noop") return c.json({ status: "noop" as const, reason: outcome.reason, message: outcome.message });
+			if (outcome.kind === "blocked") return c.json({ error: outcome.message, reason: outcome.reason }, 409);
+			return c.json({ error: outcome.message }, 502);
+		} catch (error) {
+			console.error("compact conversation failed", error);
+			return c.json({ error: COMPACT_MESSAGES.failed }, 503);
 		}
 	});
 

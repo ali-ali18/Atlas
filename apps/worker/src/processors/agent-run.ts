@@ -726,9 +726,9 @@ async function executeLeasedRun(ctx: {
 			})
 			: null;
 
-		return { messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments: attachmentsForRun?.runtime };
+		return { messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments: attachmentsForRun?.runtime };
 	};
-	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments }] =
+	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, priorCompaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments }] =
 		await Promise.all([configStage(), messagesStage()]);
 	// Inspetor: como o histórico deste turno foi montado (só metadados; nunca o texto).
 	if (transcriptOutcome) {
@@ -998,6 +998,7 @@ async function executeLeasedRun(ctx: {
 			transcriptWatermark,
 			carriedNotes,
 			priorLoadedTools,
+			priorCompaction,
 			priorResearchNotes,
 			priorTaskLedger,
 			priorTaskList,

@@ -45,6 +45,7 @@ import { type Agent, type Message, type MessageAuthor, type NewBotInput } from "
 import { AvatarStatus } from "../avatar-status";
 import type { GroupPosition } from "./bubble-radius";
 import { ChatComposer } from "./chat-composer";
+import { CompactionNotice } from "./compaction-card";
 import { CreateBotHeader } from "./create-bot-header";
 import { MessageRow } from "./message-row";
 import { ScrollToBottom } from "./scroll-to-bottom";
@@ -223,6 +224,8 @@ export function ChatThread({
 		loading,
 		error,
 		sendMessage,
+		compact,
+		compactState,
 		setConfirmStatus,
 		setLoginStatus,
 		setQuestionnaireStatus,
@@ -1338,6 +1341,7 @@ export function ChatThread({
 								{botNeedsUserStatusLine(waitingOnBot.botName)}
 							</p>
 						) : null}
+						{compactState ? <CompactionNotice state={compactState} /> : null}
 						{working ? (
 							<WorkingIndicator
 								activity={activity}
@@ -1391,6 +1395,7 @@ export function ChatThread({
 					onAgentModelChange?.(next);
 				}}
 				onSend={sendMessage}
+				onCompact={isGroup ? undefined : (focus) => void compact(focus)}
 				onStop={() => void cancelRun()}
 				runActive={runActive}
 			/>

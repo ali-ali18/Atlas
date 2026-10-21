@@ -4391,6 +4391,8 @@ export async function runComputerUse(params: {
 	priorTranscript?: SerializedLlmMessage[];
 	/** Tools de conector/adiadas que os turnos anteriores deixaram carregadas (ficam carregadas neste run). */
 	priorLoadedTools?: string[];
+	/** `/compact` aplicado à conversa antes deste turno: vira a ação "Conversa compactada" no inspetor do 1º passo. */
+	priorCompaction?: { before: number; after: number };
 	/** Marca d'água da conversa (última mensagem vista ao montar o histórico); vai em todo checkpoint do run. */
 	transcriptWatermark?: import("@workspace/shared").TranscriptWatermark;
 	/** Notas de turno que seguem valendo; vão em todo checkpoint do run para o turno seguinte. */
@@ -5004,6 +5006,7 @@ export async function runComputerUse(params: {
 	};
 	// Inspetor do run: resumo do que cada chamada ao modelo recebeu (vai em outputJson.inspect do passo).
 	const stepInspector = createStepInspector();
+	if (params.priorCompaction && params.origin !== SUBAGENT_ORIGIN) stepInspector.noteAction({ kind: "compact", before: params.priorCompaction.before, after: params.priorCompaction.after });
 	let lastStepInspect: ReturnType<typeof stepInspector.step> | undefined;
 	const reportCompaction = async (report: { compaction?: { before: number; after: number }; contextLength?: number; estimatedTokensAfter?: number }) => {
 		if (report.contextLength && report.estimatedTokensAfter !== undefined) await reportUsage({ contextLength: report.contextLength, estimatedTokensAfter: report.estimatedTokensAfter });

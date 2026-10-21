@@ -71,6 +71,8 @@ export function describeAction(action: InspectAction): string {
 			return "Resumo falhou";
 		case "compaction":
 			return action.before !== undefined && action.after !== undefined ? `Compactação (${formatTokens(action.before)} para ${formatTokens(action.after)})` : "Compactação";
+		case "compact":
+			return action.before !== undefined && action.after !== undefined ? `Conversa compactada (${formatTokens(action.before)} para ${formatTokens(action.after)})` : "Conversa compactada";
 		case "guard":
 			return action.detail === "hard" ? "Proteção da janela: forte" : "Proteção da janela: leve";
 	}

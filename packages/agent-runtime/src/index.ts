@@ -50,6 +50,8 @@ export {
 	transcriptTextOf,
 } from "./context/transcript.js";
 export { mergeCarriedNotes, CARRIED_NOTE_MAX_IDLE_TURNS } from "./context/carried-notes.js";
+export { compactTranscript, replaceCompactedHistory, summaryBodyOf, COMPACT_MIN_TOKENS, COMPACT_CONTINUE_NOTE, type ManualCompaction } from "./context/manual-compaction.js";
+export { createStreamSummarizer, buildSummaryRequest, SUMMARY_NOTE_PREFIX, SUMMARY_MAX_OUTPUT_TOKENS, SUMMARY_TIMEOUT_MS, type SummarizeFn, type SummaryRequest, type SummaryResult } from "./context/summary-compaction.js";
 export { contextTranscriptEnabled } from "./context/flag.js";
 export type { CompletedToolReplay, RuntimeStepRecord } from "./computer-use.js";
 export {

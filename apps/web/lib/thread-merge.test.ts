@@ -126,3 +126,12 @@ test("lista de tarefas: um cartão por run; o ao vivo e o gravado colapsam e o g
 	assert.equal(dedupeCards([list("a"), list("b")]).length, 1);
 	assert.equal(dedupeCards([list("a"), list("b", "run-2")]).length, 2);
 });
+
+test("conversa compactada: o cartão ao vivo (id do servidor) e o gravado viram um só e reaparecem após recarregar", () => {
+	const card = (id: string): Message => ({ id, kind: "compaction", before: 48_200, after: 6_100, summary: "Resumo." });
+	const live: Message[] = [user("db-u1", "faça"), card("db-compact")];
+	assert.deepEqual(reconcilePersistedThread([user("db-u1", "faça"), card("db-compact")], live).map((message) => message.id), ["db-u1", "db-compact"]);
+	assert.deepEqual(reconcilePersistedThread([user("db-u1", "faça"), card("db-compact")], [user("db-u1", "faça")]).map((message) => message.kind), ["user", "compaction"]);
+	assert.equal(dedupeCards([card("db-compact"), card("db-compact")]).length, 1);
+	assert.equal(dedupeCards([card("a"), card("b")]).length, 2);
+});

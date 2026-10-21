@@ -11,6 +11,8 @@ export type TranscriptHistory = {
 	carriedNotes?: CarriedNote[];
 	/** O resultado da aprovação foi encaixado na chamada pendente: o turno atual já não precisa repeti-lo. */
 	seedApplied: boolean;
+	/** `/compact` aplicado a esta conversa antes deste turno (o inspetor mostra a ação no 1º passo). */
+	compaction?: { before: number; after: number };
 };
 
 export type AfterWatermark =
@@ -61,7 +63,7 @@ export async function resolveTranscriptHistory(input: {
 		if (source && attached) {
 			const priorTranscript = namespaceToolCallIds(attached, source.runId);
 			report({ mode: "seed", priorMessages: priorTranscript.length, loadedTools: (source.loadedTools ?? []).length });
-			return { priorTranscript, loadedTools: source.loadedTools ?? [], carriedNotes: source.carriedNotes, seedApplied: true };
+			return { priorTranscript, loadedTools: source.loadedTools ?? [], carriedNotes: source.carriedNotes, seedApplied: true, ...(source.compaction ? { compaction: { before: source.compaction.before, after: source.compaction.after } } : {}) };
 		}
 		warn(`transcript_fallback reason=seed_unavailable run=${input.runId}`);
 	}
@@ -83,5 +85,5 @@ export async function resolveTranscriptHistory(input: {
 		priorRunEndedAt: latest.finishedAt?.toISOString(),
 	});
 	report({ mode: "carried", priorMessages: priorTranscript.length, loadedTools: (latest.loadedTools ?? []).length });
-	return { priorTranscript, loadedTools: latest.loadedTools ?? [], carriedNotes: latest.carriedNotes, seedApplied: false };
+	return { priorTranscript, loadedTools: latest.loadedTools ?? [], carriedNotes: latest.carriedNotes, seedApplied: false, ...(latest.compaction ? { compaction: { before: latest.compaction.before, after: latest.compaction.after } } : {}) };
 }

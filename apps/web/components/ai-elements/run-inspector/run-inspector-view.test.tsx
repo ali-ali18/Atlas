@@ -62,6 +62,8 @@ test("sem copiar quando não há handler; com handler mostra o botão", () => {
 test("textos de ações e do contexto em português", () => {
 	assert.equal(describeAction({ kind: "trimmed", count: 1 }), "Cortou 1 mensagem");
 	assert.equal(describeAction({ kind: "summary_failed" }), "Resumo falhou");
+	assert.equal(describeAction({ kind: "compact", before: 48_200, after: 6_100 }), "Conversa compactada (48k para 6,1k)");
+	assert.equal(describeAction({ kind: "compact" }), "Conversa compactada");
 	assert.equal(describeContext({ mode: "carried", priorMessages: 12 }), "Transcrição carregada (12 mensagens)");
 	assert.equal(describeContext({ mode: "first_turn" }), "Primeira mensagem da conversa");
 });

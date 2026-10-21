@@ -2220,12 +2220,16 @@ export type RunTranscript = {
 	/** Mensagens do LLM como gravadas no checkpoint (forma serializada; o runtime valida e higieniza). */
 	llmMessages: unknown[];
 	loadedTools?: string[];
+	/** Última escrita da linha do run: a compactação manual só grava se ela não mudou desde a leitura. */
+	updatedAt?: Date;
+	/** `/compact` aplicado a esta conversa levada (o inspetor mostra no primeiro run depois dele). */
+	compaction?: { before: number; after: number; at: string };
 };
 
-function transcriptOf(row: { id: string; createdAt: Date; finishedAt: Date | null; checkpointJson: unknown }): RunTranscript | null {
+function transcriptOf(row: { id: string; createdAt: Date; updatedAt?: Date; finishedAt: Date | null; checkpointJson: unknown }): RunTranscript | null {
 	const raw = row.checkpointJson;
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-	const { llmMessages, loadedTools, transcriptWatermark, carriedNotes } = raw as { llmMessages?: unknown; loadedTools?: unknown; transcriptWatermark?: unknown; carriedNotes?: Array<{ key?: unknown; content?: unknown; idleTurns?: unknown }> };
+	const { llmMessages, loadedTools, transcriptWatermark, carriedNotes, compaction } = raw as { llmMessages?: unknown; loadedTools?: unknown; transcriptWatermark?: unknown; carriedNotes?: Array<{ key?: unknown; content?: unknown; idleTurns?: unknown }>; compaction?: { before?: unknown; after?: unknown; at?: unknown } };
 	const mark = transcriptWatermark as { messageId?: unknown; createdAt?: unknown; count?: unknown } | undefined;
 	if (!Array.isArray(llmMessages) || llmMessages.length === 0) return null;
 	return {
@@ -2233,7 +2237,9 @@ function transcriptOf(row: { id: string; createdAt: Date; finishedAt: Date | nul
 		...(mark && typeof mark.messageId === "string" && typeof mark.createdAt === "string" && typeof mark.count === "number" ? { watermark: { messageId: mark.messageId, createdAt: mark.createdAt, count: mark.count } } : {}),
 		...(Array.isArray(carriedNotes) ? { carriedNotes: carriedNotes.filter((note): note is { key: string; content: string; idleTurns: number } => !!note && typeof note.key === "string" && typeof note.content === "string" && typeof note.idleTurns === "number").slice(0, 8) } : {}),
 		createdAt: row.createdAt,
+		...(row.updatedAt ? { updatedAt: row.updatedAt } : {}),
 		finishedAt: row.finishedAt,
+		...(compaction && typeof compaction.before === "number" && typeof compaction.after === "number" && typeof compaction.at === "string" ? { compaction: { before: compaction.before, after: compaction.after, at: compaction.at } } : {}),
 		llmMessages,
 		...(Array.isArray(loadedTools) ? { loadedTools: loadedTools.filter((name): name is string => typeof name === "string").slice(0, 200) } : {}),
 	};
@@ -2258,7 +2264,7 @@ export async function getConversationTranscript(
 			parentRunId: null,
 			...(options?.excludeRunId ? { id: { not: options.excludeRunId } } : {}),
 		},
-		select: { id: true, createdAt: true, finishedAt: true, checkpointJson: true },
+		select: { id: true, createdAt: true, updatedAt: true, finishedAt: true, checkpointJson: true },
 		orderBy: { createdAt: "desc" },
 		take: 3,
 	});
@@ -2274,7 +2280,7 @@ export async function getRunTranscript(userId: string, conversationId: string, r
 	if (!userId || !conversationId || !runId) return null;
 	const row = await prisma.agentRun.findFirst({
 		where: { id: runId, conversationId, userId: { in: ownerIds(userId) } },
-		select: { id: true, createdAt: true, finishedAt: true, checkpointJson: true },
+		select: { id: true, createdAt: true, updatedAt: true, finishedAt: true, checkpointJson: true },
 	});
 	return row ? transcriptOf(row) : null;
 }
