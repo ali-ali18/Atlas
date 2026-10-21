@@ -162,7 +162,7 @@ test("conversa compactada (/compact): o turno seguinte parte do resumo + cauda, 
 				{ role: "assistant", content: "Achei o Alfa." },
 			],
 			carriedNotes: [{ key: "k1", content: "Procedimento da skill X", idleTurns: 1 }],
-			compaction: { before: 48_200, after: 6_100 },
+			compaction: { before: 48_200, after: 6_100, at: "2026-10-20T12:00:00.000Z" },
 		}),
 		loadAfter: afterOk([{ role: "user", content: "30 dias" }]),
 	});
