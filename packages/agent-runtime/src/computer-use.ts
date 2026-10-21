@@ -6944,8 +6944,10 @@ export async function runComputerUse(params: {
 				if (profileEvent && (profileEvent.status ?? "pending") === "pending") {
 					stopForProfile = true;
 				}
+				// Skill gravada sozinha ("Aprendi"): o run segue, porque o modelo ainda precisa responder ao pedido (o card só avisa).
 				if (
 					skillEvent &&
+					skillEvent.learned !== true &&
 					(skillEvent.action === "listed" ||
 						skillEvent.action === "created" ||
 						skillEvent.action === "updated" ||

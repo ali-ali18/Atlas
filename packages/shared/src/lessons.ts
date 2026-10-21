@@ -205,7 +205,7 @@ export type LessonSlice = {
 /** Janela mínima de texto idêntico que uma lição não pode copiar de uma ferramenta. */
 const COPY_WINDOW = 28;
 
-function copiesFrom(content: string, texts: readonly string[]): boolean {
+export function copiesFrom(content: string, texts: readonly string[]): boolean {
 	const text = normalizeForMatch(content);
 	if (text.length < COPY_WINDOW) return false;
 	const haystack = texts.map(normalizeForMatch);
