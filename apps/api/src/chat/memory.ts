@@ -3,7 +3,7 @@ import type {
 	ChatMessage,
 	MemoryReviewJobPayload,
 } from "@workspace/shared";
-import { ATLAS_JOB_NAMES, placeVolatileBeforeTurn } from "@workspace/shared";
+import { ATLAS_JOB_NAMES, placeVolatileBeforeTurn, splitReplySegments } from "@workspace/shared";
 import type { ChatCompletionQueue } from "@workspace/queue";
 import {
 	appendConversationMessage,
@@ -128,14 +128,7 @@ export async function persistCompletionSegmented(
 			);
 		}
 
-		const trimmed = assistantContent.trim();
-		const segments =
-			trimmed.length === 0
-				? []
-				: trimmed
-						.split(/\n{2,}/)
-						.map((segment) => segment.trim())
-						.filter((segment) => segment.length > 0);
+		const segments = splitReplySegments(assistantContent);
 
 		for (const segment of segments) {
 			await appendConversationMessage(conversationId, "assistant", segment);
