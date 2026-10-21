@@ -13,6 +13,7 @@ export const ATLAS_JOB_NAMES = {
 	connectorGuide: "connector.guide",
 	connectorLesson: "connector.lesson",
 	attachmentExtract: "attachment.extract",
+	lessonReview: "lesson.review",
 } as const;
 
 export type AtlasJobName =
