@@ -3,7 +3,7 @@ name: Trabalhos acadêmicos (ABNT)
 description: How to plan, research and write academic work in the Brazilian ABNT standards — research projects, papers, reports, TCCs — with reliable sources, correct citations and references, and a document formatted to the norms.
 when: Read before helping with a research project, TCC, monograph, article, academic report, literature review, abstract, citations or references, or anything the user says must follow ABNT or their university's manual.
 groups: [files, web]
-version: 1
+version: 2
 ---
 
 # Academic work (ABNT)
@@ -144,7 +144,9 @@ Follow the built-in skill "Pesquisar". For academic work, add these rules:
 
 ## 7. The file
 
-Use `create_file` with `layout: "abnt"` for `.docx` (preferred, since students edit and their advisor comments) and `.pdf`. Send the whole work as one Markdown `content` (in parts if it is long: `layout` goes on the first part). The layout is applied by the server; write plain Markdown plus the few markers below.
+For short or simple documents, use the quick path below. For a full academic deliverable (TCC, monograph, project with cover, abstract, table of contents, figures and tables), use the production path in section 8.
+
+Quick path: use `create_file` with `layout: "abnt"` for `.docx` (preferred, since students edit and their advisor comments) and `.pdf`. Send the whole work as one Markdown `content` (in parts if it is long: `layout` goes on the first part). The layout is applied by the server; write plain Markdown plus the few markers below.
 
 **What the ABNT layout applies (NBR 14724):**
 - A4 paper, margins 3 cm top/left and 2 cm bottom/right.
@@ -231,3 +233,28 @@ Year
 - every citation is in the references and vice versa;
 - the numbering is consistent with the sumário;
 - no reference was left "não confirmado" without telling the user.
+
+## 8. Production path (full deliverables)
+
+Prefer `run_code`, which has pandoc, LibreOffice, poppler, python-docx and LaTeX with abnTeX2 installed, plus templates and a helper module. Work in this order:
+
+1. **Write the content** in Markdown (for Word) or LaTeX (for PDF), with real references. Save the user's attachments with `files` (read from `in/<name>`).
+2. **Build the file with the shipped templates.** In the script: `import sys; sys.path.insert(0, "/app"); import doclib`.
+   - Word (`.docx`, the format the student and advisor edit): `doclib.md_to_docx_abnt("in/work.md", "/work/out/work.docx", toc=True)`. It uses `/app/templates/abnt/abnt-reference.docx` (A4, margins 3/2 cm, Times New Roman 12, 1.5 spacing, 1.25 cm indent, justified, ABNT heading styles, long quote, caption, source and reference styles, page number at top right). Use pandoc blocks for special styles: `::: {custom-style="Fonte"}` for "Fonte:" lines and `::: {custom-style="Referencias"}` for the reference list. `doclib.docx_add_toc(path)` adds a table of contents field to an existing `.docx`.
+   - PDF with exact ABNT typography (abnTeX2, offline): `doclib.fill_template("abnt-trabalho", "/work/work.tex", TITULO=..., AUTOR=..., TEXTO=...)` (or `abnt-projeto` for a research project), a `referencias.bib` next to it, then `doclib.latex_abnt("/work/work.tex")`. Citations use `\cite{key}` and `\citeonline{key}` (author-date).
+3. **Convert to PDF and look at every page.** `pdf = doclib.docx_to_pdf(path, outdir="/work")` (it also refreshes the table of contents), then `doclib.pdf_to_pngs(pdf, dpi=60)` writes the pages to `/work/preview/`, and they come back to you as images (12 per call; use `first=` to continue, `dpi=90` to read small text). They are not delivered to the user. Keep conversion output out of `/work/out/`.
+4. **Check against this list** and fix the source and rebuild until everything passes:
+   - capa: centered zones, nothing cut off, no page number;
+   - folha de rosto: author, title, nature of the work indented 8 cm, advisor, city and year;
+   - resumo and abstract: single-spaced, one paragraph, keywords line;
+   - sumário: titles match the document, dotted leaders, page numbers filled and correct;
+   - headings: primary in bold uppercase, secondary bold, tertiary bold italic, numbered consistently, no heading alone at the bottom of a page;
+   - body: justified, 1.5 spacing, 1.25 cm first-line indent, no stray blank paragraphs;
+   - long quotes: 4 cm indent, 10 pt, single-spaced, no quotation marks;
+   - tables: IBGE style (horizontal rules only, no side borders), not cut off the page; title above and "Fonte:" below, 10 pt;
+   - figures: title above, "Fonte:" below, readable at print size;
+   - page numbers: top right, with the right values (cover not counted, shown from the first textual page);
+   - references: alphabetical, single-spaced, left-aligned, blank line between entries, each cited in the text and vice versa.
+5. **Deliver** the final `.docx` (and the `.pdf` if the user asked or the institution requires it) saved in `/work/out/`. Tell the student what is not automatic (for example, opening the `.docx` in Word may ask to update fields; lists of figures or tables are not generated).
+
+If your model cannot view images, say that the layout was not checked visually and verify what you can with text (page count and extracted text per page).
