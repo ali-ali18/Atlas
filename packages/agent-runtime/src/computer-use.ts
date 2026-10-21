@@ -4759,6 +4759,8 @@ export async function runComputerUse(params: {
 		...ROUTINE_MANAGE_TOOLS,
 		"web_search",
 		"web_extract",
+		// `memory` é núcleo no chat; rotina não escreve memória (a revisão pós-run decide o que guardar).
+		"memory",
 		// Pedem uma pessoa (cartão de senha / aprovação de login).
 		"secret_request",
 		"login_fill",
