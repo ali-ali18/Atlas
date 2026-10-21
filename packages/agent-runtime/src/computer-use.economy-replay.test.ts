@@ -153,7 +153,9 @@ describe("economia ligada: chat simples", () => {
 		expect(first).toEqual(expect.arrayContaining(["web_search", "web_extract", "mcp_tool_search", "propose_questionnaire"]));
 		// V6: núcleo + grupo browser (7); o desktop e as raras ficam de fora.
 		// +2: propose_skill e delete_skill viraram núcleo (o modelo decide quando criar skill).
-		expect(first.length).toBeLessThanOrEqual(22);
+		// +1: propose_plan virou núcleo (o plano aparece antes das escritas).
+		expect(first).toContain("propose_plan");
+		expect(first.length).toBeLessThanOrEqual(23);
 		expect(steps).toBe(1);
 	});
 });
