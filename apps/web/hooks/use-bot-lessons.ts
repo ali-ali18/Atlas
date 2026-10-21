@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { LessonView } from "@workspace/shared";
-import { deleteBotLesson, editBotLesson, listApiConnections, listBotLessons, listMcpConnections, restoreBotLesson } from "@/lib/atlas-api";
+import { connectorScopeKey, isReadOnlyMcpTool, mcpToolName, type LessonRule, type LessonView } from "@workspace/shared";
+import { clearBotLessonRule, deleteBotLesson, editBotLesson, listApiConnections, listBotLessons, listMcpConnections, restoreBotLesson, setBotLessonRule } from "@/lib/atlas-api";
+import type { LessonToolOption } from "@/components/ui/templates/template-4/chat-context-panel/lessons-tab-helpers";
 
 function messageOf(cause: unknown, fallback: string): string {
 	return cause instanceof Error && cause.message ? cause.message : fallback;
@@ -15,6 +16,7 @@ function messageOf(cause: unknown, fallback: string): string {
 export function useBotLessons(botId: string, active: boolean) {
 	const [lessons, setLessons] = useState<LessonView[]>([]);
 	const [names, setNames] = useState<Record<string, string>>({});
+	const [tools, setTools] = useState<LessonToolOption[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const request = useRef(0);
@@ -52,6 +54,19 @@ export function useBotLessons(botId: string, active: boolean) {
 			if (cancelled) return;
 			const map: Record<string, string> = {};
 			if (mcp.status === "fulfilled") for (const connection of mcp.value) map[`mcp:${connection.id}`] = connection.name;
+			// Seletor da regra: as ferramentas dos conectores ligados, com o nome exposto ao bot.
+			const options: LessonToolOption[] = [];
+			if (mcp.status === "fulfilled") {
+				for (const connection of mcp.value) {
+					if (connection.status !== "connected") continue;
+					const key = connectorScopeKey("mcp", connection.id);
+					for (const tool of connection.tools) {
+						if (connection.disabledTools.includes(tool.name)) continue;
+						options.push({ value: mcpToolName(connection.slug, tool.name), label: `${tool.title ?? tool.name}${isReadOnlyMcpTool(tool) ? " (leitura)" : ""}`, group: connection.name, connectorKey: key });
+					}
+				}
+			}
+			setTools(options);
 			if (api.status === "fulfilled") for (const connection of api.value) map[`api:${connection.id}`] = connection.name;
 			setNames(map);
 		});
@@ -78,5 +93,7 @@ export function useBotLessons(botId: string, active: boolean) {
 	const remove = useCallback((lessonId: string) => act(() => deleteBotLesson(lessonId), "Não foi possível apagar."), [act]);
 	const restore = useCallback((lessonId: string) => act(() => restoreBotLesson(lessonId), "Não foi possível restaurar."), [act]);
 
-	return { lessons, names, loading, error, refresh, edit, remove, restore };
+	const setRule = useCallback((lessonId: string, rule: LessonRule | null) => act(() => (rule ? setBotLessonRule(lessonId, rule) : clearBotLessonRule(lessonId)), "Não foi possível salvar a regra."), [act]);
+
+	return { lessons, names, tools, loading, error, refresh, edit, remove, restore, setRule };
 }

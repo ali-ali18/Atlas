@@ -93,3 +93,19 @@ test("chooseDuplicateLosers tira o pior de cada par, por distância, sem repetir
 	assert.deepEqual(chooseDuplicateLosers(rows, pairs, 1), ["d2"]);
 	assert.deepEqual(chooseDuplicateLosers(rows, pairs, 5).sort(), ["d2", "d4"]);
 });
+
+test("a regra (hooks) vai junto no add e continua na versão nova quando o texto é editado", () => {
+	const rule = { kind: "confirm_always" as const, tool: "mcp__erp__create_order" };
+	const added = planLessonDeltas(active, [{ op: "add", scope: "tool", scopeKey: "mcp__erp__create_order", content: "Ao criar pedido, confirme sempre — porque o usuário pediu", origin: "user", rule }]);
+	const create = added.ops.find((op) => op.type === "create");
+	assert.ok(create && create.type === "create");
+	assert.deepEqual(create.data.rule, rule);
+	const withRule = lesson("cmcccc3c3c3", { rule });
+	const edited = planLessonDeltas([withRule], [{ op: "update", id: withRule.id, content: "Ao criar pedido, confirme com o usuário — porque ele pediu" }]);
+	const next = edited.ops.find((op) => op.type === "create");
+	assert.ok(next && next.type === "create");
+	assert.deepEqual(next.data.rule, rule);
+	const plain = planLessonDeltas(active, [{ op: "update", id: B.id, content: "Ao agir B, faça Z — porque W" }]).ops.find((op) => op.type === "create");
+	assert.ok(plain && plain.type === "create");
+	assert.equal(plain.data.rule, null);
+});

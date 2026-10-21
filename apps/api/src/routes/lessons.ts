@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { LESSON_MAX_CHARS, type LessonView } from "@workspace/shared";
-import { isBotOwnedBy, listBotLessons, restoreBotLessonVersion, retireBotLesson, updateBotLessonContent } from "@workspace/db";
+import { LESSON_MAX_CHARS, parseLessonRule, type LessonRule, type LessonView } from "@workspace/shared";
+import { isBotOwnedBy, listBotLessons, restoreBotLessonVersion, retireBotLesson, setBotLessonRule, updateBotLessonContent } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 
 /** Portas do banco (injetáveis nos testes). Toda porta recebe o `userId` da sessão. */
@@ -10,6 +10,7 @@ export type LessonRouteDeps = {
 	edit(userId: string, lessonId: string, content: string): Promise<LessonView | null>;
 	retire(userId: string, lessonId: string): Promise<LessonView | null>;
 	restore(userId: string, lessonId: string): Promise<LessonView | null>;
+	setRule(userId: string, lessonId: string, rule: LessonRule | null): Promise<LessonView | null>;
 };
 
 const defaultDeps: LessonRouteDeps = {
@@ -18,6 +19,7 @@ const defaultDeps: LessonRouteDeps = {
 	edit: updateBotLessonContent,
 	retire: retireBotLesson,
 	restore: restoreBotLessonVersion,
+	setRule: setBotLessonRule,
 };
 
 const NOT_FOUND = { error: "Lição não encontrada" } as const;
@@ -81,6 +83,40 @@ export function createLessonRoutes(deps: LessonRouteDeps = defaultDeps) {
 		} catch (error) {
 			console.error("restore lesson failed", error);
 			return c.json({ error: "Failed to restore lesson" }, 503);
+		}
+	});
+
+	/**
+	 * Regra da lição (hooks): o dono liga, troca ou tira. O formato é estrito e só aperta o comportamento
+	 * (campos obrigatórios, chamada prévia, confirmar sempre); qualquer outra coisa é 400 com o motivo.
+	 */
+	app.put("/v1/lessons/:id/rule", async (c) => {
+		let body: unknown;
+		try {
+			body = await c.req.json();
+		} catch {
+			return c.json({ error: "Invalid JSON body" }, 400);
+		}
+		const parsed = parseLessonRule((body as { rule?: unknown } | null)?.rule, { userAuthored: true });
+		if (!parsed.ok) return c.json({ error: parsed.reason }, 400);
+		try {
+			const { userId } = scopeFor(c.get("session"));
+			const lesson = await deps.setRule(userId, c.req.param("id"), parsed.rule);
+			return lesson ? c.json({ lesson }) : c.json(NOT_FOUND, 404);
+		} catch (error) {
+			console.error("set lesson rule failed", error);
+			return c.json({ error: "Failed to save rule" }, 503);
+		}
+	});
+
+	app.delete("/v1/lessons/:id/rule", async (c) => {
+		try {
+			const { userId } = scopeFor(c.get("session"));
+			const lesson = await deps.setRule(userId, c.req.param("id"), null);
+			return lesson ? c.json({ lesson }) : c.json(NOT_FOUND, 404);
+		} catch (error) {
+			console.error("clear lesson rule failed", error);
+			return c.json({ error: "Failed to remove rule" }, 503);
 		}
 	});
 

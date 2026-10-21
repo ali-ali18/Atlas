@@ -1,13 +1,13 @@
 "use client";
 
 import { RefreshCwIcon } from "lucide-react";
-import type { LessonView } from "@workspace/shared";
+import type { LessonRule, LessonView } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
 import { ButtonGroup } from "@workspace/ui/components/button-group";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { useBotLessons } from "@/hooks/use-bot-lessons";
 import { LessonsSection } from "./lessons-section";
-import { groupLessons } from "./lessons-tab-helpers";
+import { groupLessons, type LessonToolOption } from "./lessons-tab-helpers";
 import { SectionAction } from "./memory-section";
 
 export const LESSONS_EMPTY = "O bot ainda não aprendeu nenhuma lição. Quando você o corrigir ou uma ação falhar e depois der certo, o que ele aprender aparece aqui.";
@@ -23,6 +23,8 @@ export function LessonsView({
 	onEdit,
 	onRemove,
 	onRestore,
+	onSetRule,
+	tools,
 	evidenceOpen,
 }: {
 	lessons: LessonView[];
@@ -34,6 +36,8 @@ export function LessonsView({
 	onEdit: (lessonId: string, content: string) => Promise<string | null>;
 	onRemove: (lessonId: string) => Promise<string | null>;
 	onRestore: (lessonId: string) => Promise<string | null>;
+	onSetRule?: (lessonId: string, rule: LessonRule | null) => Promise<string | null>;
+	tools?: readonly LessonToolOption[];
 	evidenceOpen?: boolean;
 }) {
 	const groups = groupLessons(lessons, names);
@@ -58,7 +62,7 @@ export function LessonsView({
 					{LESSONS_EMPTY}
 				</p>
 			) : (
-				groups.map((group) => <LessonsSection evidenceOpen={evidenceOpen} group={group} key={group.id} now={now} onEdit={onEdit} onRemove={onRemove} onRestore={onRestore} />)
+				groups.map((group) => <LessonsSection evidenceOpen={evidenceOpen} group={group} key={group.id} now={now} onEdit={onEdit} onRemove={onRemove} onRestore={onRestore} onSetRule={onSetRule} tools={tools} />)
 			)}
 		</div>
 	);
@@ -89,5 +93,5 @@ export function LessonsTab({ botId, active }: { botId: string; active: boolean }
 		);
 	}
 
-	return <LessonsView error={state.error} lessons={state.lessons} names={state.names} onEdit={state.edit} onRefresh={() => void state.refresh()} onRemove={state.remove} onRestore={state.restore} />;
+	return <LessonsView error={state.error} lessons={state.lessons} names={state.names} onEdit={state.edit} onRefresh={() => void state.refresh()} onRemove={state.remove} onRestore={state.restore} onSetRule={state.setRule} tools={state.tools} />;
 }

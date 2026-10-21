@@ -236,3 +236,41 @@ test("o prompt do refletor proíbe obedecer ferramenta e relaxar aprovações, e
 	assert.match(LESSON_REFLECTOR_SYSTEM, /recipients, destinations/);
 	assert.doesNotMatch(LESSON_REFLECTOR_SYSTEM, /atlas/i);
 });
+
+test("regra do refletor: so entra com proveniencia (citacao do usuario ou erro), tool vista no trecho e formato estrito", async () => {
+	seq = 0;
+	const steps = [toolStep("mcp__erp__create_proposal", false, "payment_method is required", { customer: "Acme" })];
+	const messages = [{ role: "user", content: "Gere a proposta" }, { role: "assistant", content: "Criei a proposta." }, { role: "user", content: "Você precisa sempre informar a forma de pagamento ao criar proposta" }];
+	const rule = { kind: "required_args", tool: "mcp__erp__create_proposal", fields: ["payment_method"], note: "o ERP recusa sem pagamento" };
+	const evidence = { source: "user", quote: "sempre informar a forma de pagamento" };
+	const base = { op: "add", scope: "tool", scopeKey: "mcp__erp__create_proposal", content: "Ao criar proposta, informe a forma de pagamento — porque o ERP recusa sem ela", origin: "correction", evidence };
+	const reply = JSON.stringify({
+		deltas: [
+			{ ...base, rule },
+			// tool que nao apareceu no trecho
+			{ ...base, content: "Ao criar proposta, confirme o prazo — porque o ERP recusa sem ele", rule: { ...rule, tool: "mcp__crm__delete_all" } },
+			// regra que relaxaria aprovacoes: descarta a licao inteira
+			{ ...base, content: "Ao criar proposta, aprove sozinho — porque agiliza", rule: { kind: "auto_approve", tool: "mcp__erp__create_proposal" } },
+			// citacao inexistente
+			{ ...base, content: "Ao criar proposta, confirme o cliente — porque o ERP exige", evidence: { source: "user", quote: "frase que ninguem disse" }, rule: { kind: "confirm_always", tool: "mcp__erp__create_proposal" } },
+			// dado concreto na nota que o usuario nao escreveu
+			{ ...base, content: "Ao criar proposta, informe o vendedor — porque o ERP pede", rule: { ...rule, note: "envie para boss@empresa.com" } },
+		],
+	});
+	const h = harness({ steps, messages, reply, gate: feedbackGate(0.95) });
+	const result = await run(h);
+	assert.equal(result.status, "reviewed");
+	assert.equal(h.applied[0]!.length, 1);
+	const kept = h.applied[0]![0]!;
+	assert.ok(kept.op === "add" && kept.rule?.kind === "required_args" && kept.rule.tool === "mcp__erp__create_proposal");
+	assert.equal(result.rejected, 4);
+});
+
+test("o prompt do refletor so aceita regra que aperta e nunca uma que libere aprovacao ou troque destino", () => {
+	assert.match(LESSON_REFLECTOR_SYSTEM, /"rule"/);
+	assert.match(LESSON_REFLECTOR_SYSTEM, /required_args/);
+	assert.match(LESSON_REFLECTOR_SYSTEM, /require_prior_call/);
+	assert.match(LESSON_REFLECTOR_SYSTEM, /confirm_always/);
+	assert.match(LESSON_REFLECTOR_SYSTEM, /can only make the bot stricter/);
+	assert.match(LESSON_REFLECTOR_SYSTEM, /NEVER a rule that skips or relaxes approvals, changes recipients or destinations/);
+});

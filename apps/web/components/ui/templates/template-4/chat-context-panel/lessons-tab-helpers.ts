@@ -1,4 +1,4 @@
-import { lessonRef, type LessonEvidence, type LessonOrigin, type LessonView } from "@workspace/shared";
+import { LESSON_RULE_KINDS, describeLessonRule, lessonRef, parseLessonRule, type LessonEvidence, type LessonOrigin, type LessonRule, type LessonRuleKind, type LessonView } from "@workspace/shared";
 
 /** De onde veio a lição, em palavras do usuário. */
 export function lessonOriginLabel(origin: LessonOrigin): string {
@@ -56,3 +56,64 @@ export function lessonErrorMessage(cause: unknown, fallback: string): string {
 }
 
 export { lessonRef };
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Regra da lição (hooks): o bot passa a cumprir, não só lembrar
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const RULE_KIND_LABELS: Record<LessonRuleKind, string> = {
+	required_args: "Exigir campos na chamada",
+	require_prior_call: "Exigir uma chamada antes",
+	confirm_always: "Sempre pedir confirmação",
+};
+
+/** Texto de ajuda de cada tipo (o que o bot passa a cumprir). */
+export const RULE_KIND_HELP: Record<LessonRuleKind, string> = {
+	required_args: "A chamada só segue se trouxer os campos indicados; senão o bot recebe o motivo e corrige.",
+	require_prior_call: "Antes da ferramenta escolhida, a outra precisa ter dado certo neste mesmo atendimento.",
+	confirm_always: "A ferramenta sempre mostra o cartão de confirmação, mesmo com a autonomia liberada.",
+};
+
+export const RULE_TIGHTEN_NOTE = "Regras só deixam o bot mais cuidadoso: não liberam aprovações nem mudam destinatários.";
+
+export type LessonToolOption = { value: string; label: string; group: string; connectorKey?: string };
+
+/** Ferramentas que a lição pode regular: as do conector (escopo conector), só a própria (escopo ferramenta) ou todas. */
+export function toolOptionsForLesson(lesson: Pick<LessonView, "scope" | "scopeKey" | "rule">, options: readonly LessonToolOption[]): LessonToolOption[] {
+	let list = options.filter((option) => (lesson.scope === "connector" ? option.connectorKey === lesson.scopeKey : lesson.scope === "tool" ? option.value === lesson.scopeKey : true));
+	// A regra já gravada continua escolhível mesmo que a ferramenta tenha saído da lista (conector desligado).
+	for (const name of lesson.rule ? [lesson.rule.tool, lesson.rule.kind === "require_prior_call" ? lesson.rule.requires : ""] : []) {
+		if (name && !list.some((option) => option.value === name)) list = [...list, { value: name, label: name, group: "Atual" }];
+	}
+	return list;
+}
+
+export type RuleFormValues = { kind: LessonRuleKind; tool: string; requires: string; fields: string; note: string };
+
+export function ruleToFormValues(rule: LessonRule | null | undefined): RuleFormValues {
+	if (!rule) return { kind: LESSON_RULE_KINDS[0], tool: "", requires: "", fields: "", note: "" };
+	return {
+		kind: rule.kind,
+		tool: rule.tool,
+		requires: rule.kind === "require_prior_call" ? rule.requires : "",
+		fields: rule.kind === "required_args" ? rule.fields.join(", ") : "",
+		note: rule.kind === "required_args" ? (rule.note ?? "") : "",
+	};
+}
+
+/** Monta e valida a regra do formulário com o mesmo validador estrito do servidor. */
+export function ruleFromFormValues(values: RuleFormValues): { ok: true; rule: LessonRule } | { ok: false; error: string } {
+	if (!values.tool.trim()) return { ok: false, error: "Escolha a ferramenta." };
+	const raw =
+		values.kind === "required_args"
+			? { kind: values.kind, tool: values.tool.trim(), fields: values.fields.split(/[,\n]/).map((item) => item.trim()).filter(Boolean), ...(values.note.trim() ? { note: values.note.trim() } : {}) }
+			: values.kind === "require_prior_call"
+				? { kind: values.kind, tool: values.tool.trim(), requires: values.requires.trim(), within: "run" }
+				: { kind: values.kind, tool: values.tool.trim() };
+	if (values.kind === "require_prior_call" && !values.requires.trim()) return { ok: false, error: "Escolha a chamada que precisa vir antes." };
+	if (values.kind === "required_args" && (raw as { fields: string[] }).fields.length === 0) return { ok: false, error: "Informe ao menos um campo, separado por vírgula (ex.: cliente.id, pagamento)." };
+	const parsed = parseLessonRule(raw, { userAuthored: true });
+	return parsed.ok ? parsed : { ok: false, error: parsed.reason };
+}
+
+export { describeLessonRule };
