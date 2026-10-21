@@ -64,6 +64,7 @@ import {
 	resolveRoutineProposal,
 	resolveBotProposal,
 	resolveSkillProposal,
+	undoLearnedSkill,
 } from "@/lib/atlas-api";
 import { hasModelTiers, readBotModelTiers, readProactiveSettings } from "@workspace/shared";
 import { openSkillProposalInEditor, proposalErrorMessage } from "@/components/ai-elements/skills";
@@ -362,6 +363,11 @@ export function ChatThread({
 		} catch (cause) {
 			applySkillProposalState(proposalId, { error: proposalErrorMessage(cause) });
 		}
+	}
+	// "Aprendi": desfaz na API (apaga a criada / volta a anterior). Erro sobe para o card mostrar a mensagem.
+	async function undoLearned(card: Extract<Message, { kind: "skill" }>) {
+		if (!card.skillId || card.versionNumber === undefined || (card.action !== "created" && card.action !== "updated")) return;
+		await undoLearnedSkill({ skillId: card.skillId, action: card.action, revision: card.versionNumber, conversationId: agent?.conversationId ?? undefined });
 	}
 	// Novo agente proposto pelo bot: Criar agente / Agora não. Nada existe antes do OK; aprovar duas vezes devolve o mesmo resultado.
 	async function decideBotProposal(
@@ -1283,6 +1289,7 @@ export function ChatThread({
 										onRoutineProposalDecline={(card) => void decideRoutineProposal(card, "decline")}
 										onSkillProposalApprove={(card) => void decideSkillProposal(card, "approved")}
 										onSkillProposalReject={(card) => void decideSkillProposal(card, "rejected")}
+										onUndoLearnedSkill={undoLearned}
 										onSkillProposalEdit={
 											agent?.conversationId
 												? (card) => openSkillProposalInEditor(card.proposal, agent.conversationId as string)

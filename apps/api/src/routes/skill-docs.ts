@@ -4,8 +4,11 @@ import {
 	createSkillDoc,
 	deleteDraftSkillDocs,
 	deleteSkillDoc,
+	getOwnedConversation,
 	getSkillDoc,
 	listSkillDocs,
+	markLearnedSkillCardUndone,
+	undoLearnedSkill,
 	setSkillDocEnabled,
 	updateSkillDoc,
 	type SkillDocRecord,
@@ -258,6 +261,33 @@ export function createSkillDocRoutes() {
 				updatedBy: "user",
 			});
 			return c.json({ skill });
+		} catch (error) {
+			return failure(c, error);
+		}
+	});
+
+	/**
+	 * POST /v1/skills/:id/undo-learned — `{ action: "created" | "updated", revision, conversationId? }`.
+	 * Desfaz o que o agente gravou sozinho ("Aprendi: ..."): apaga a skill criada ou volta à versão anterior.
+	 * Só vale para a revisão exata do aviso; skill (ou conversa) de outro dono = 404.
+	 */
+	app.post("/v1/skills/:id/undo-learned", async (c) => {
+		const { userId } = scopeFor(c.get("session"));
+		const body = (await c.req.json().catch(() => null)) as Json | null;
+		const action = body?.action;
+		const revision = body?.revision;
+		const conversationId = typeof body?.conversationId === "string" ? body.conversationId.trim() : "";
+		if ((action !== "created" && action !== "updated") || typeof revision !== "number" || !Number.isInteger(revision) || revision < 1) {
+			return c.json({ error: 'Corpo inválido: esperado { action: "created" | "updated", revision }.' }, 400);
+		}
+		try {
+			const skillId = c.req.param("id");
+			const done = await undoLearnedSkill(userId, skillId, { action, revision });
+			// O card só é marcado se a conversa também é do dono; falha aqui não desfaz o desfazer.
+			if (conversationId && (await getOwnedConversation(conversationId, userId))) {
+				await markLearnedSkillCardUndone(conversationId, skillId).catch(() => false);
+			}
+			return c.json({ ok: true, result: done.result, name: done.name });
 		} catch (error) {
 			return failure(c, error);
 		}

@@ -18,7 +18,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import { CopyButton, ReactionBadges, ReactionTrigger, useMessageReactionControls } from "./message-reactions";
 
 import type { Message } from "../data";
-import { SkillActivityCard, SkillProposalCard, SkillsList } from "@/components/ai-elements/skills";
+import { SkillActivityCard, SkillLearnedCard, SkillProposalCard, SkillsList } from "@/components/ai-elements/skills";
 import { BotProposalCard, type BotProposalEdits } from "@/components/ai-elements/bots";
 import {
 	RoutineActivityCard,
@@ -79,6 +79,7 @@ export function MessageRow({
 	onSkillProposalApprove,
 	onSkillProposalReject,
 	onSkillProposalEdit,
+	onUndoLearnedSkill,
 	skillBots,
 	mentionMembers,
 	knownSkills,
@@ -128,6 +129,8 @@ export function MessageRow({
 	onSkillProposalApprove?: (message: Extract<Message, { kind: "skill-proposal" }>) => void;
 	onSkillProposalReject?: (message: Extract<Message, { kind: "skill-proposal" }>) => void;
 	onSkillProposalEdit?: (message: Extract<Message, { kind: "skill-proposal" }>) => void;
+	/** Desfaz uma skill que o agente aprendeu sozinho; rejeitar mostra o erro no card. */
+	onUndoLearnedSkill?: (message: Extract<Message, { kind: "skill" }>) => Promise<void>;
 	skillBots?: readonly { id: string; name: string }[];
 	/** Rotina proposta pelo bot (modo proativo): Criar/Manter e Agora não/Desfazer. */
 	onRoutineProposalAccept?: (message: Extract<Message, { kind: "routine-proposal" }>) => void;
@@ -189,6 +192,17 @@ export function MessageRow({
 			if (message.action === "listed") {
 				return (
 					<SkillsList items={message.items ?? []} draftCount={message.draftCount} />
+				);
+			}
+			if (message.learned && (message.action === "created" || message.action === "updated")) {
+				return (
+					<SkillLearnedCard
+						action={message.action}
+						name={message.title ?? message.capabilityKey ?? "skill"}
+						onUndo={message.skillId && onUndoLearnedSkill ? () => onUndoLearnedSkill(message) : undefined}
+						summary={message.detail}
+						undone={message.undone}
+					/>
 				);
 			}
 			return (

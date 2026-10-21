@@ -360,6 +360,7 @@ export async function persistConversationCardFromEvent(
 			...(typeof event.detail === "string" ? { detail: event.detail } : {}),
 			...(items ? { items } : {}),
 			...(typeof event.draftCount === "number" ? { draftCount: event.draftCount } : {}),
+			...(event.learned === true && typeof event.skillId === "string" ? { learned: true, skillId: event.skillId } : {}),
 		};
 		await appendConversationCard(conversationId, card);
 		return;

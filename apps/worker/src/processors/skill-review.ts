@@ -2,10 +2,10 @@ import type { Job } from "bullmq";
 import {
 	ATLAS_JOB_NAMES,
 	SKILL_DESCRIPTION_MAX_CHARS,
+	SKILL_REVIEW_DAILY_CAP,
 	languageInstruction,
 	parseSkillReviewDecision,
 	redactSecrets,
-	renderSkillMarkdown,
 	shouldReviewForSkill,
 	skillProvenanceProblem,
 	type BotLanguage,
@@ -16,6 +16,8 @@ import {
 	type SkillReviewJobResult,
 } from "@workspace/shared";
 import {
+	SkillDocError,
+	applySkillProposal,
 	getBotProfile,
 	getRunInspectionData,
 	listSkillDocs,
@@ -99,15 +101,14 @@ export type SkillReviewDeps = {
 	loadRun?: (runId: string, userId: string) => Promise<{ steps: InspectRawStep[]; approvals: InspectRawApproval[] } | null>;
 	messages?: (conversationId: string, limit: number) => Promise<Array<{ role: string; content: string }>>;
 	skills?: (userId: string) => Promise<SkillDocRecord[]>;
+	apply?: typeof applySkillProposal;
 	persistCard?: typeof persistConversationCardFromEvent;
+	now?: () => Date;
 };
 
 type Skipped = SkillReviewJobResult & { status: "skipped" };
 
-/** Escopo da skill criada pela revisão: o bot do run (conservador; nunca vira da conta sem o usuário pedir). */
-function scopeOf(botId: string): string {
-	return botId;
-}
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Revisão de skill pós-run (aprendizado procedural). Só segue se o run foi de chat, concluiu e teve trabalho de
@@ -148,11 +149,16 @@ export async function processSkillReview(
 	});
 	if (!proceed) return skip("tarefa simples demais para virar skill");
 
+	const all = await (deps.skills ?? ((id) => listSkillDocs(id)))(userId);
+	// Freio de custo e de ruído: no máximo N skills por dia gravadas sozinhas na conta.
+	const since = (deps.now?.() ?? new Date()).getTime() - DAY_MS;
+	if (all.filter((doc) => doc.createdBy === "agent" && doc.updatedAt.getTime() >= since).length >= SKILL_REVIEW_DAILY_CAP) return skip("limite diário de skills automáticas");
+
 	const llm = deps.llm ?? (await createMaintenanceLlm({ kind: "skill-review", config, userId }));
 	if (llm.candidates.length === 0) return skip("sem modelo de manutenção");
 
 	// Só skills da conta e as deste bot: as de outros bots não existem para este run.
-	const docs = (await (deps.skills ?? ((id) => listSkillDocs(id)))(userId)).filter((doc) => doc.botId === null || doc.botId === botId);
+	const docs = all.filter((doc) => doc.botId === null || doc.botId === botId);
 	const index = docs.filter((doc) => doc.enabled && doc.status === "active");
 	const read = index.filter((doc) => detected.skillsRead.includes(doc.name));
 
@@ -198,7 +204,8 @@ export async function processSkillReview(
 		return { status: "reviewed", outcome: "none", reason: problem, maintenance };
 	}
 
-	const written = await commitSkill(decision, { userId, botId, conversationId, runId, docs, persistCard: deps.persistCard ?? persistConversationCardFromEvent });
+	const written = await commitSkill(decision, { userId, botId, conversationId, docs, apply: deps.apply ?? applySkillProposal, persistCard: deps.persistCard ?? persistConversationCardFromEvent });
+	if (written.outcome === "none") return { status: "reviewed", outcome: "none", reason: written.reason, maintenance };
 	console.log(`[skill.review] done job=${job.id} outcome=${written.outcome} skill=${decision.name}`);
 	return { status: "reviewed", outcome: written.outcome, skill: decision.name, maintenance };
 }
@@ -212,7 +219,7 @@ function checkDecision(decision: Exclude<SkillReviewDecision, { decision: "none"
 	if (decision.description.length > SKILL_DESCRIPTION_MAX_CHARS) return "descrição longa demais";
 	if (decision.decision === "create") {
 		if (findBuiltinSkill(decision.name)) return "nome de skill nativa";
-		const similar = findSimilarSkill(input.docs, decision.name, decision.description, scopeOf(input.botId));
+		const similar = findSimilarSkill(input.docs, decision.name, decision.description, input.botId);
 		if (similar) return `skill parecida já existe: ${similar.name}`;
 		return null;
 	}
@@ -222,26 +229,57 @@ function checkDecision(decision: Exclude<SkillReviewDecision, { decision: "none"
 	return null;
 }
 
-type CommitInput = { userId: string; botId: string; conversationId: string; runId: string; docs: readonly SkillDocRecord[]; persistCard: typeof persistConversationCardFromEvent };
+type CommitInput = {
+	userId: string;
+	botId: string;
+	conversationId: string;
+	docs: readonly SkillDocRecord[];
+	apply: typeof applySkillProposal;
+	persistCard: typeof persistConversationCardFromEvent;
+};
 
-/** Por enquanto a revisão só PROPÕE: o cartão de aprovação é o mesmo do `propose_skill`. */
-async function commitSkill(decision: Exclude<SkillReviewDecision, { decision: "none" }>, input: CommitInput): Promise<{ outcome: "proposed" }> {
+/**
+ * Grava a skill sozinha (o dono escolheu "cria sozinho e me avisa") e deixa um card "Aprendi" na conversa com
+ * desfazer. Criar cai no escopo do bot; atualizar mantém o escopo e as tools da skill existente.
+ */
+async function commitSkill(
+	decision: Exclude<SkillReviewDecision, { decision: "none" }>,
+	input: CommitInput,
+): Promise<{ outcome: "created" | "updated" } | { outcome: "none"; reason: string }> {
 	const target = decision.decision === "update" ? input.docs.find((doc) => doc.name === decision.name && (doc.botId === null || doc.botId === input.botId)) : undefined;
-	const botId = target ? target.botId : scopeOf(input.botId);
-	const body = redactSecrets(decision.body);
+	if (decision.decision === "update" && !target) return { outcome: "none", reason: "skill alvo não encontrada" };
 	const description = redactSecrets(decision.description);
-	await input.persistCard(input.conversationId, {
-		type: "skill-proposal",
-		proposalId: `skill-review-${input.runId}-${decision.decision}-${decision.name}`.slice(0, 120),
-		action: decision.decision === "create" ? "create" : "edit",
-		status: "pending",
-		name: decision.name,
-		description,
-		tools: decision.tools,
-		body,
-		markdown: renderSkillMarkdown({ name: decision.name, description, tools: decision.tools, body }),
-		botId,
-		...(target ? { skillId: target.id, expectedRevision: target.revision } : {}),
-	});
-	return { outcome: "proposed" };
+	const body = redactSecrets(decision.body);
+	let applied: Awaited<ReturnType<typeof applySkillProposal>>;
+	try {
+		applied = await input.apply(input.userId, {
+			action: decision.decision === "create" ? "create" : "edit",
+			name: decision.name,
+			description,
+			tools: target ? target.tools : decision.tools,
+			body,
+			botId: target ? target.botId : input.botId,
+			skillId: target?.id,
+			expectedRevision: target?.revision,
+		});
+	} catch (error) {
+		// Limite, nome já usado ou edição concorrente: nada foi gravado e não há o que avisar.
+		if (error instanceof SkillDocError) return { outcome: "none", reason: error.message };
+		throw error;
+	}
+	if (!applied.skillId || !applied.revision) return { outcome: "none", reason: "gravação sem id" };
+	const created = decision.decision === "create";
+	await input
+		.persistCard(input.conversationId, {
+			type: "skill",
+			action: created ? "created" : "updated",
+			title: decision.name,
+			capabilityKey: decision.name,
+			skillId: applied.skillId,
+			versionNumber: applied.revision,
+			detail: description,
+			learned: true,
+		})
+		.catch((error: unknown) => console.warn(`[skill.review] card failed (${error instanceof Error ? error.name : "erro"})`));
+	return { outcome: created ? "created" : "updated" };
 }

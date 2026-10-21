@@ -141,6 +141,8 @@ export type ComputerUseEvent =
 			detail?: string;
 			items?: SkillListItemData[];
 			draftCount?: number;
+			/** Gravada sozinha pelo agente: o card mostra "Aprendi" e oferece desfazer. */
+			learned?: boolean;
 	  }
 	| SkillProposalEvent
 	| BotProposalEvent

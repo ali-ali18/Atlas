@@ -60,3 +60,18 @@ describe("card de proposta de skill", () => {
 		expect(parseSkillProposal({ ...proposal, status: "weird" })?.status).toBe("pending");
 	});
 });
+
+describe("card de skill aprendida sozinha", () => {
+	const learned = { v: 1, kind: "skill", action: "created", title: "pesquisa", capabilityKey: "pesquisa", versionNumber: 1, skillId: "s1", learned: true } as const;
+
+	it("preserva learned, skillId e undone na ida e volta", () => {
+		const card = parseConversationCard(serializeConversationCard({ ...learned, undone: true }));
+		expect(card).toMatchObject({ kind: "skill", learned: true, skillId: "s1", undone: true });
+	});
+
+	it("undone e skillId só valem em card learned; card comum não ganha os campos", () => {
+		const plain = parseConversationCard(JSON.stringify({ v: 1, kind: "skill", action: "created", title: "x", undone: true }));
+		expect(plain).not.toHaveProperty("learned");
+		expect(plain).not.toHaveProperty("undone");
+	});
+});
