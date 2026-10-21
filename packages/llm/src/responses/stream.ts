@@ -55,7 +55,7 @@ export function createChatgptStreamChat(options: ChatgptStreamOptions) {
 					const send = () => abortable(fetchFn(options.endpoint ? options.endpoint.url : accountId ? `${CHATGPT_CODEX_BASE_URL}/responses` : "https://api.openai.com/v1/responses", {
 						method: "POST", headers: { ...(accountId ? chatgptCodexHeaders(token, accountId) : { Authorization: `Bearer ${token}` }), "Content-Type": "application/json", Accept: "text/event-stream", ...(options.endpoint?.headers?.(params) ?? {}) },
 						// O backend do plano exige `instructions` não vazio.
-						body: JSON.stringify(accountId && !body.instructions ? { ...body, instructions: "Você é o Atlas, um assistente prestativo." } : body), redirect: "error", signal: attempt.signal,
+						body: JSON.stringify(accountId && !body.instructions ? { ...body, instructions: "Você é um assistente prestativo." } : body), redirect: "error", signal: attempt.signal,
 					}), attempt.signal);
 					let response = await send();
 					if (response.status === 400 && "prompt_cache_key" in body) {
