@@ -59,7 +59,7 @@ function QuestionnaireTitle({
     <QuestionnairePrimitive.Title
       data-slot="questionnaire-title"
       className={cn(
-        "font-heading text-base font-semibold text-pretty [&:not(:has(~[data-slot=questionnaire-description]))]:mb-5",
+        "max-w-full font-heading text-base font-semibold text-pretty wrap-break-word [&:not(:has(~[data-slot=questionnaire-description]))]:mb-5",
         className
       )}
       {...props}
@@ -74,7 +74,7 @@ function QuestionnaireDescription({
   return (
     <QuestionnairePrimitive.Description
       data-slot="questionnaire-description"
-      className={cn("text-sm text-pretty text-muted-foreground", className)}
+      className={cn("text-sm text-pretty wrap-break-word text-muted-foreground", className)}
       {...props}
     />
   )
@@ -121,7 +121,7 @@ function QuestionnaireChoice({
       />
       <QuestionnairePrimitive.ChoiceLabel
         data-slot="questionnaire-choice-label"
-        className="flex min-w-0 flex-1 flex-col gap-0.5 leading-snug"
+        className="flex min-w-0 flex-1 flex-col gap-0.5 leading-snug wrap-break-word"
       >
         {children}
       </QuestionnairePrimitive.ChoiceLabel>

@@ -137,7 +137,7 @@ export function collectStoredRefs(old: readonly LlmMessage[], previousSummary?: 
 
 export function buildSummaryNote(summary: string, refs: readonly string[]): string {
 	const lines = [
-		`${SUMMARY_NOTE_PREFIX} The earlier part of this conversation was replaced by the summary below. Treat it as the history of the task and do not repeat work already delivered.`,
+		`${SUMMARY_NOTE_PREFIX} The earlier part of this conversation was replaced by the summary below. Treat it as the history of the task and do not repeat work already delivered. If a detail you need is not in it, session_search recovers it from this conversation's full history, including earlier tool results.`,
 		clip(summary.trim(), SUMMARY_MAX_CHARS),
 	];
 	if (refs.length > 0) {

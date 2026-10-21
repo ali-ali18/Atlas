@@ -12,7 +12,7 @@ function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
     <fieldset
       data-slot="field-set"
       className={cn(
-        "flex flex-col gap-6 has-[>[data-slot=checkbox-group]]:gap-3 has-[>[data-slot=radio-group]]:gap-3",
+        "flex min-w-0 flex-col gap-6 has-[>[data-slot=checkbox-group]]:gap-3 has-[>[data-slot=radio-group]]:gap-3",
         className
       )}
       {...props}
@@ -30,7 +30,7 @@ function FieldLegend({
       data-slot="field-legend"
       data-variant={variant}
       className={cn(
-        "mb-3 font-medium data-[variant=label]:text-sm data-[variant=legend]:text-base",
+        "mb-3 max-w-full font-medium wrap-break-word data-[variant=label]:text-sm data-[variant=legend]:text-base",
         className
       )}
       {...props}

@@ -80,19 +80,19 @@ export function SkillActivityCard({
 
 	if ((action === "shown" || action === "created" || action === "updated") && detail) {
 		return (
-			<div className="flex w-full max-w-xl flex-col gap-2 self-start rounded-2xl border bg-card px-3 py-3 text-xs">
+			<div className="flex w-full min-w-0 max-w-xl flex-col gap-2 self-start rounded-2xl border bg-card px-3 py-3 text-xs">
 				<div className="flex items-center gap-2">
 					<span className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
 						<Icon className="size-3" />
 					</span>
-					<span className="min-w-0">
+					<span className="min-w-0 [overflow-wrap:anywhere]">
 						<span className="block font-medium text-foreground">{main}</span>
 						{capabilityLine ? (
 							<span className="block text-muted-foreground">{capabilityLine}</span>
 						) : null}
 					</span>
 				</div>
-				<pre className="whitespace-pre-wrap font-sans text-foreground text-xs leading-relaxed">
+				<pre className="whitespace-pre-wrap [overflow-wrap:anywhere] font-sans text-foreground text-xs leading-relaxed">
 					{detail}
 				</pre>
 			</div>
@@ -100,11 +100,11 @@ export function SkillActivityCard({
 	}
 
 	return (
-		<div className="flex items-center gap-2 self-start rounded-2xl border bg-card px-3 py-2 text-xs">
+		<div className="flex max-w-full min-w-0 items-center gap-2 self-start rounded-2xl border bg-card px-3 py-2 text-xs">
 			<span className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
 				<Icon className="size-3" />
 			</span>
-			<span className="min-w-0">
+			<span className="min-w-0 [overflow-wrap:anywhere]">
 				<span className="block font-medium text-foreground">{main}</span>
 				{capabilityLine ? (
 					<span className="block text-muted-foreground">{capabilityLine}</span>

@@ -140,7 +140,7 @@ export function buildCompactionNote(input: {
 	dropped: readonly LlmMessage[];
 	coding?: CodingNoteContext;
 }): string {
-	const lines = [`${COMPACTION_NOTE_PREFIX} Earlier steps were dropped to keep the working context small. Treat this note as the task state.`];
+	const lines = [`${COMPACTION_NOTE_PREFIX} Earlier steps were dropped to keep the working context small. Treat this note as the task state; session_search recovers earlier details.`];
 	const objective = input.taskState?.objective.text || input.objectiveText?.trim().slice(0, 600);
 	if (objective) lines.push(`Objective: ${objective}`);
 	if (input.taskState) {
