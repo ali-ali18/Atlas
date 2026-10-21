@@ -4,6 +4,8 @@ import { resolveBudget } from "@workspace/agent-runtime";
 import type { AccountConfigV1, AgentRunCheckpoint } from "@workspace/shared";
 import { loadWorkerConfig, parseJevModes } from "./config.js";
 import {
+	effectiveCostCapUsd,
+	runtimeBudgetParams,
 	HISTORY_LIMIT_ECONOMY,
 	HISTORY_LIMIT_STANDARD,
 	accountBudgetPolicy,
@@ -227,6 +229,26 @@ test("orçamento: request > bot > conta > código", async () => {
 	// Bot e request vencem a conta.
 	assert.equal(resolveBudget({ maxSteps: 100, policy: { ...account, hardMaxSteps: 50, maxWallMs: 60_000 } }).hardMaxSteps, 50);
 	assert.equal(resolveBudget({ maxSteps: 100, policy: { ...account, maxWallMs: 60_000 } }).maxWallMs, 60_000);
+});
+
+test("teto de custo da conta chega ao runtime: o menor entre pedido/bot (ou o que sobrou da retomada) e a conta", async () => {
+	const { snapshot } = await resolveRunConfigSnapshot({ userId: USER_A, sandboxAutoStart: true }, { env: {}, loadConfig: load });
+	const withCap = { ...snapshot, maxRunCostUsd: 2 };
+	const without = { ...snapshot, maxRunCostUsd: undefined };
+	// só a conta: o runtime recebe o teto dela (antes o campo nunca era preenchido)
+	assert.equal(effectiveCostCapUsd(undefined, withCap), 2);
+	// a conta é teto, não piso: pedido/bot mais baixo vence, mais alto não passa dela
+	assert.equal(effectiveCostCapUsd(0.5, withCap), 0.5);
+	assert.equal(effectiveCostCapUsd(10, withCap), 2);
+	// retomada automática: o que sobrou (0.3) vence a conta
+	assert.equal(effectiveCostCapUsd(0.3, withCap), 0.3);
+	assert.equal(effectiveCostCapUsd(undefined, without), undefined);
+	assert.equal(effectiveCostCapUsd(0, { maxRunCostUsd: 0 }), undefined);
+	const budget = resolveBudget({ maxSteps: 100, policy: accountBudgetPolicy(withCap, 100) });
+	assert.equal(runtimeBudgetParams(budget, effectiveCostCapUsd(budget.maxCostUsd, withCap)).maxCostUsd, 2);
+	assert.equal("maxCostUsd" in runtimeBudgetParams(budget, undefined), false);
+	// o runtime recusa o gasto acima do teto com o tipo "cost" (a mesma resolução que ele faz)
+	assert.equal(resolveBudget({ maxSteps: 100, policy: runtimeBudgetParams(budget, 2) }).maxCostUsd, 2);
 });
 
 test("modelo de visão da conta é só OpenRouter e opcional", async () => {

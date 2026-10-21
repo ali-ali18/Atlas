@@ -1,5 +1,6 @@
 import {
 	BUDGET_HARD_CAP,
+	type AgentBudget,
 	type AgentBudgetPolicy,
 	type ModelTiersRuntime,
 } from "@workspace/agent-runtime";
@@ -86,6 +87,28 @@ export function accountBudgetPolicy(snapshot: RunConfigSnapshot, requestMaxSteps
 	}
 	if (snapshot.maxWallMinutes !== undefined) policy.maxWallMs = snapshot.maxWallMinutes * 60_000;
 	return policy;
+}
+
+/**
+ * Teto de custo (USD) que o runtime impõe a este run: o menor entre o do pedido/bot (nas retomadas automáticas, o que
+ * sobrou do teto) e o da conta. A conta é teto, nunca piso; sem nenhum dos dois, sem limite.
+ */
+export function effectiveCostCapUsd(requestOrBotCap: number | undefined, snapshot: Pick<RunConfigSnapshot, "maxRunCostUsd">): number | undefined {
+	const caps = [requestOrBotCap, snapshot.maxRunCostUsd].filter((cap): cap is number => typeof cap === "number" && Number.isFinite(cap) && cap > 0);
+	return caps.length ? Math.min(...caps) : undefined;
+}
+
+/** Orçamento entregue ao runtime (`runComputerUse({ budget })`): o resolvido do run mais o teto de custo efetivo. */
+export function runtimeBudgetParams(budget: AgentBudget, costCapUsd: number | undefined): AgentBudgetPolicy {
+	return {
+		softMaxSteps: budget.softMaxSteps,
+		hardMaxSteps: budget.hardMaxSteps,
+		maxWallMs: budget.maxWallMs,
+		maxTokens: budget.maxTokens,
+		maxCallsPerTool: budget.maxCallsPerTool,
+		extensionSteps: budget.extensionSteps,
+		...(costCapUsd !== undefined ? { maxCostUsd: costCapUsd } : {}),
+	};
 }
 
 /** Histórico entre turnos carregado no run novo: Econômico mantém 40 mensagens (ou 6 com resumo fresco); Padrão, 80 sempre. */

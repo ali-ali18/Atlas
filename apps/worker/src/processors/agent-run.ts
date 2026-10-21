@@ -148,8 +148,10 @@ import {
 	HISTORY_LIMIT_ECONOMY,
 	accountBudgetPolicy,
 	appendObjective,
+	effectiveCostCapUsd,
 	historyWindowFor,
 	resolveRunConfigSnapshot,
+	runtimeBudgetParams,
 	runtimeParamsFromSnapshot,
 
 	resolveRunCodingModel,
@@ -763,6 +765,7 @@ async function executeLeasedRun(ctx: {
 		maxSteps: run.maxSteps,
 		policy: { ...accountBudgetPolicy(configSnapshot, run.maxSteps), ...botPolicy, ...requestBudget },
 	});
+	const effectiveCostCap = effectiveCostCapUsd(budget.maxCostUsd, configSnapshot);
 	const runStartedAt = run.startedAt
 		? new Date(run.startedAt).getTime()
 		: Date.now();
@@ -971,16 +974,8 @@ async function executeLeasedRun(ctx: {
 			contextLength: parseModelRef(run.model).provider !== "openrouter" ? (await providers.contextLength(run.model)) ?? 64000 : readRunContextLength(run),
 			// Retomada automática só no 1o fechamento por teto de passos de um run do usuário ou das retomadas anteriores.
 			autoContinue: { canSchedule: Boolean(deps.enqueueNextRun) && run.origin === "chat" && autoContinueAttempt < AUTO_CONTINUE_MAX },
-			budget: {
-				softMaxSteps: budget.softMaxSteps,
-				hardMaxSteps: budget.hardMaxSteps,
-				maxWallMs: budget.maxWallMs,
-				maxTokens: budget.maxTokens,
-				maxCallsPerTool: budget.maxCallsPerTool,
-				extensionSteps: budget.extensionSteps,
-				// O limite de custo só chega ao runtime nas retomadas: elas levam apenas o que sobrou dele.
-				...(autoContinueAttempt > 0 && budget.maxCostUsd !== undefined ? { maxCostUsd: budget.maxCostUsd } : {}),
-			},
+			// Teto de custo: o menor entre o do pedido/bot (nas retomadas, só o que sobrou dele) e o da conta.
+			budget: runtimeBudgetParams(budget, effectiveCostCap),
 			runStartedAt,
 			onEvent: emitWithSegments,
 			restoredCheckpoint: checkpoint,
@@ -1260,7 +1255,7 @@ async function executeLeasedRun(ctx: {
 
 		if (error instanceof BudgetExhaustedError) {
 			// Teto de passos com progresso: retoma sozinho (limitado) em vez de pedir "responda continuar".
-			const costCapUsd = [budget.maxCostUsd, configSnapshot.maxRunCostUsd].filter((cap): cap is number => typeof cap === "number" && cap > 0).sort((a, b) => a - b)[0];
+			const costCapUsd = effectiveCostCap;
 			const autoIo = deps.autoContinueIo ?? createAutoContinueIo(deps.enqueueNextRun);
 			const autoPlan = deps.enqueueNextRun || deps.autoContinueIo
 				? await planAutoContinue(run, { cause: autoContinueCauseOfBudgetStop(error), progress: error.okToolCalls ?? 0, costCapUsd, costUsedUsd: error.usage?.costUsd }, autoIo).catch((planError): AutoContinueDecision => {
