@@ -30,7 +30,7 @@ export function CompactionCard({ before, after, summary, focus, defaultOpen = fa
 		>
 			<CollapsibleTrigger className="group/trigger flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50">
 				<ShrinkIcon aria-hidden="true" className="size-3.5 shrink-0" />
-				<span className="shrink-0 font-medium text-foreground/90">Conversa compactada</span>
+				<span className="shrink-0 font-medium text-foreground/90"><span className="max-sm:hidden">Conversa compactada</span><span className="sm:hidden">Compactada</span></span>
 				<span className="min-w-0 truncate tabular-nums" data-testid="compaction-numbers">{formatCompactionLine(before, after)}</span>
 				<ChevronDownIcon aria-hidden="true" className="ml-auto size-3.5 shrink-0 transition-transform group-aria-expanded/trigger:rotate-180" />
 			</CollapsibleTrigger>
