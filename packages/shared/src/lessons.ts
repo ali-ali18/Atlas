@@ -57,8 +57,9 @@ export type LessonView = {
 export type LessonDelta =
 	| { op: "add"; scope: LessonScope; scopeKey?: string | null; content: string; origin: LessonOrigin; evidence?: LessonEvidence | null; rule?: LessonRule | null }
 	| { op: "update"; id: string; content: string; evidence?: LessonEvidence | null }
-	| { op: "helpful" | "harmful"; id: string }
-	| { op: "retire"; id: string };
+	| { op: "helpful"; id: string }
+	/** `harmful` e `retire` também exigem evidência (ver `lessonProvenanceProblem`): só enfraquecem a lição por fato visto. */
+	| { op: "harmful" | "retire"; id: string; evidence?: LessonEvidence | null };
 
 export function isLessonScope(value: unknown): value is LessonScope {
 	return typeof value === "string" && (LESSON_SCOPES as readonly string[]).includes(value);
@@ -188,14 +189,31 @@ export type LessonSlice = {
 	userTexts: readonly string[];
 	/** Texto dos resultados de ferramenta que FALHARAM (erro/status) no trecho. */
 	failureTexts: readonly string[];
+	/** Todo texto vindo de ferramenta no trecho (resultados que deram certo também): a lição não pode copiá-lo. */
+	toolTexts?: readonly string[];
 };
+
+/** Janela mínima de texto idêntico que uma lição não pode copiar de uma ferramenta. */
+const COPY_WINDOW = 28;
+
+function copiesFrom(content: string, texts: readonly string[]): boolean {
+	const text = normalizeForMatch(content);
+	if (text.length < COPY_WINDOW) return false;
+	const haystack = texts.map(normalizeForMatch);
+	for (let at = 0; at + COPY_WINDOW <= text.length; at += 4) {
+		const window = text.slice(at, at + COPY_WINDOW);
+		if (haystack.some((item) => item.includes(window))) return true;
+	}
+	return false;
+}
 
 /**
  * Motivo para recusar uma lição nova, ou null. Regras:
  * 1. precisa de citação (`evidence.quote`) que apareça literalmente na fala do usuário (source user) ou num erro de
  *    ferramenta (source outcome): conteúdo de página/e-mail/documento que "deu certo" nunca vira lição;
  * 2. e-mail, URL ou telefone no texto da lição só passam se o usuário os escreveu no trecho (destinatário/destino
- *    nunca vêm de dado de ferramenta).
+ *    nunca vêm de dado de ferramenta);
+ * 3. a lição não copia trecho de texto de ferramenta (a citação fica na evidência, nunca vira instrução).
  * Origem `user` (pedido explícito) também exige a citação na fala do usuário.
  */
 export function lessonProvenanceProblem(lesson: { content: string; evidence?: LessonEvidence | null }, slice: LessonSlice): string | null {
@@ -205,6 +223,7 @@ export function lessonProvenanceProblem(lesson: { content: string; evidence?: Le
 	const haystack = source === "user" ? slice.userTexts : source === "outcome" ? slice.failureTexts : null;
 	if (!haystack) return "origem da evidência inválida";
 	if (!haystack.some((text) => normalizeForMatch(text).includes(quote))) return "a citação não aparece no trecho (fala do usuário ou erro de execução)";
+	if (copiesFrom(lesson.content, [...slice.failureTexts, ...(slice.toolTexts ?? [])])) return "copia texto de ferramenta";
 	const allowed = slice.userTexts.map(normalizeForMatch).join(" \n ");
 	for (const token of lessonDataTokens(lesson.content)) {
 		if (!allowed.includes(token)) return "dado concreto (e-mail, URL ou telefone) que o usuário não escreveu";
@@ -264,9 +283,10 @@ function parseOneDelta(item: unknown): LessonDelta | null {
 			return id && content ? { op: "update", id, content, evidence } : null;
 		}
 		case "helpful":
+			return id ? { op: "helpful", id } : null;
 		case "harmful":
 		case "retire":
-			return id ? { op: row.op, id } : null;
+			return id ? { op: row.op, id, evidence } : null;
 		default:
 			return null;
 	}

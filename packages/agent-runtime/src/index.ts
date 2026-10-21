@@ -214,6 +214,15 @@ export {
 	type MemoryGateVerdict,
 	type MemoryJudge,
 } from "./memory-gate.js";
+export {
+	createLessonJudge,
+	detectUserFeedback,
+	LESSON_FEEDBACK_MIN,
+	LESSON_GATE_UNSAFE_MIN,
+	type LessonGateCandidate,
+	type LessonGateVerdict,
+	type LessonJudge,
+} from "./lesson-gate.js";
 export { detectJevIntents, NO_INTENTS, type JevIntents } from "./jev/intent.js";
 export { detectReactionOnly, REACTION_QUESTIONS } from "./jev/reaction.js";
 export { discoverOpenApiSpec, findSpecLinks, type DiscoveredApi } from "./api-connector/discover.js";
