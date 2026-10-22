@@ -13,6 +13,7 @@ import { BarChart } from "@workspace/ui/charts/bar-chart"
 import { Bar } from "@workspace/ui/charts/bar"
 import { BarXAxis } from "@workspace/ui/charts/bar-x-axis"
 import { BarYAxis } from "@workspace/ui/charts/bar-y-axis"
+import { chartPaletteCss, resolveChartPalette } from "@workspace/ui/charts/chart-palettes"
 import { XLabelFormatContext } from "@workspace/ui/charts/chart-formatters"
 import { Grid } from "@workspace/ui/charts/grid"
 import { LineChart, Line } from "@workspace/ui/charts/line-chart"
@@ -424,9 +425,11 @@ function ChartView({ spec }: { spec: ChartSpec }) {
     observer.observe(node)
     return () => observer.disconnect()
   }, [])
+  const palette = React.useMemo(() => resolveChartPalette(spec.palette, spec.colors), [spec.palette, spec.colors])
   return (
     <PlotWidthContext.Provider value={width}>
-    <div data-slot="chart-view" data-chart-type={spec.type} ref={ref}>
+    <div data-chart-palette={palette?.scope} data-slot="chart-view" data-chart-type={spec.type} ref={ref}>
+      {palette ? <style>{chartPaletteCss(palette)}</style> : null}
       {spec.type === "pie" ? (
         <PiePlot spec={spec} />
       ) : spec.type === "bar" ? (

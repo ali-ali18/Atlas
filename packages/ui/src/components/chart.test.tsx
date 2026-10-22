@@ -83,3 +83,25 @@ describe("CSV", () => {
     expect(chartSpecToCsv(spec({ ...monthly, type: "line" }))).toBe("mes;Receita;Despesas\n2025-01-01;1200,5;900\n2025-02-01;1500;\n2025-03-01;1800,25;1000")
   })
 })
+
+describe("Chart: paleta", () => {
+  it("sem paleta não injeta estilo nem escopo (visual padrão)", () => {
+    const html = renderToStaticMarkup(<Chart spec={spec({ ...monthly, type: "line" })} />)
+    expect(html).not.toContain("data-chart-palette")
+    expect(html).not.toContain("<style")
+  })
+
+  it("paleta pronta escopa o CSS no gráfico, com valores claro e escuro", () => {
+    const html = renderToStaticMarkup(<Chart spec={spec({ ...monthly, type: "bar", palette: "ocean" })} />)
+    expect(html).toContain('data-chart-palette="ocean"')
+    expect(html).toContain('[data-chart-palette="ocean"]{--chart-1:oklch(0.546 0.245 262.881);')
+    expect(html).toContain('.dark [data-chart-palette="ocean"]')
+  })
+
+  it("paleta personalizada usa as cores informadas", () => {
+    const html = renderToStaticMarkup(<Chart spec={spec({ ...monthly, type: "line", colors: ["#1d4ed8", "#b45309"] })} />)
+    expect(html).toMatch(/data-chart-palette="custom-[a-z0-9]+"/)
+    expect(html).toContain("--chart-1:#1d4ed8;")
+    expect(html).toContain("--chart-2:#b45309;")
+  })
+})
