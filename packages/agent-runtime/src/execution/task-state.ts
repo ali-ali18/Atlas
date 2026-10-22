@@ -46,6 +46,16 @@ export function createTaskTracker(initial: unknown, objective: string) {
 		snapshot(): TaskState {
 			return structuredClone(state);
 		},
+		/**
+		 * Estado que vai para o checkpoint. Checklist herdado que o run nunca adotou
+		 * (carry offered/asked) não é regravado: re-salvá-lo o manteria vivo para sempre
+		 * e o run seguinte o ofereceria de novo. Adotado (set/update) ou criado aqui, persiste.
+		 */
+		persistable(): TaskState {
+			const copy = structuredClone(state);
+			if (copy.ledger?.carry === "offered" || copy.ledger?.carry === "asked") delete copy.ledger;
+			return copy;
+		},
 		reviseObjective(text: string) {
 			const next = text.trim().slice(0, MAX_TASK_OBJECTIVE_CHARS);
 			if (!next || next === state.objective.text) return;

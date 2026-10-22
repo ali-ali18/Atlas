@@ -5827,7 +5827,7 @@ export async function runComputerUse(params: {
 				loginAsked: [...loginAsked],
 				pendingLogin,
 				executionLedger: { ...(ledger?.snapshot() ?? parseLedgerState(undefined)), ...journal.snapshot() },
-				taskState: taskTracker.snapshot(),
+				taskState: taskTracker.persistable(),
 				objectiveRevisions,
 				triagedInputs,
 				pendingFollowUps,
