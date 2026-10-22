@@ -1,7 +1,7 @@
 "use client";
 
 import { RefreshCwIcon, Trash2Icon } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -15,6 +15,8 @@ import {
 import { Button } from "@workspace/ui/components/button";
 import { PageDialog } from "@/components/ai-elements/pages";
 import { LIBRARY_REFRESH_EVENT } from "@/components/ai-elements/files/file-attachment";
+import { cn } from "@workspace/ui/lib/utils";
+import { useLongPress } from "@/hooks/use-long-press";
 import { type AtlasPage, type AtlasPageListItem, deletePage, getPage, listBotPages } from "@/lib/atlas-api";
 import { PAGES_REFRESH_EVENT } from "@/lib/pages-refresh";
 import type { Routine } from "../data";
@@ -38,17 +40,27 @@ export function routineSummaryByPage(routines: readonly Routine[]): Map<string, 
 function PageRow({
 	model,
 	busy,
+	revealed,
 	onOpen,
 	onDelete,
+	onReveal,
 }: {
 	model: PageCardModel;
 	busy: boolean;
+	/** Toque: a lixeira foi revelada por pressão longa neste item. */
+	revealed: boolean;
 	onOpen: () => void;
 	onDelete: () => void;
+	onReveal: () => void;
 }) {
+	const longPress = useLongPress(onReveal);
 	const meta = [model.sources, model.updated].filter(Boolean).join(" · ");
 	return (
-		<li className="flex min-w-0 items-stretch gap-1 rounded-xl border border-border/60 bg-card" data-page-card={model.id}>
+		<li
+			className="group/row flex min-w-0 items-stretch gap-1 rounded-xl border border-border/60 bg-card [@media(hover:none)]:select-none"
+			data-page-card={model.id}
+			{...longPress}
+		>
 			<button
 				aria-label={`Abrir página ${model.title}`}
 				className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-xl px-3 py-2.5 text-left outline-none hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
@@ -65,7 +77,18 @@ function PageRow({
 				{meta ? <span className="truncate text-muted-foreground text-xs">{meta}</span> : null}
 				{model.routine ? <span className="truncate text-muted-foreground text-xs">{model.routine}</span> : null}
 			</button>
-			<Button aria-label={`Apagar página ${model.title}`} className="my-1 mr-1 self-start" onClick={onDelete} size="icon-sm" variant="ghost">
+			<Button
+				aria-label={`Apagar página ${model.title}`}
+				className={cn(
+					"my-1 mr-1 self-start transition-opacity",
+					// Mouse: some até passar o mouse ou focar dentro do item. Toque: some até a pressão longa.
+					"[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/row:opacity-100 [@media(hover:hover)]:group-focus-within/row:opacity-100 focus-visible:opacity-100",
+					!revealed && "[@media(hover:none)]:hidden",
+				)}
+				onClick={onDelete}
+				size="icon-sm"
+				variant="ghost"
+			>
 				<Trash2Icon />
 			</Button>
 		</li>
@@ -78,6 +101,7 @@ export function PagesList({
 	routineByPage,
 	now,
 	openingId,
+	revealedId: initialRevealedId = null,
 	onOpen,
 	onDelete,
 }: {
@@ -85,21 +109,41 @@ export function PagesList({
 	routineByPage?: ReadonlyMap<string, string>;
 	now?: Date;
 	openingId?: string | null;
+	/** Item com a lixeira revelada de saída (teste); no uso real nasce da pressão longa. */
+	revealedId?: string | null;
 	onOpen?: (id: string) => void;
 	onDelete?: (item: AtlasPageListItem) => void;
 }) {
+	const [revealedId, setRevealedId] = useState<string | null>(initialRevealedId);
+	const listRef = useRef<HTMLUListElement>(null);
+	useEffect(() => {
+		if (!revealedId) return;
+		// Tocar fora do item revelado (ou em outro item) esconde a lixeira; no próprio item, não.
+		const onPointerDown = (event: PointerEvent) => {
+			const row = (event.target as Element | null)?.closest?.("[data-page-card]");
+			if (row && listRef.current?.contains(row) && row.getAttribute("data-page-card") === revealedId) return;
+			setRevealedId(null);
+		};
+		document.addEventListener("pointerdown", onPointerDown);
+		return () => document.removeEventListener("pointerdown", onPointerDown);
+	}, [revealedId]);
 	if (items.length === 0) {
 		return <p className="px-2 py-6 text-center text-muted-foreground text-xs leading-relaxed">{PAGES_EMPTY_TEXT}</p>;
 	}
 	return (
-		<ul aria-label="Páginas do Bot" className="m-0 flex list-none flex-col gap-2 p-0">
+		<ul aria-label="Páginas do Bot" ref={listRef} className="m-0 flex list-none flex-col gap-2 p-0">
 			{items.map((item) => (
 				<PageRow
 					busy={openingId === item.id}
 					key={item.id}
 					model={pageCardModel(item, routineByPage?.get(item.id) ?? null, now)}
-					onDelete={() => onDelete?.(item)}
+					onDelete={() => {
+						setRevealedId(null);
+						onDelete?.(item);
+					}}
 					onOpen={() => onOpen?.(item.id)}
+					onReveal={() => setRevealedId(item.id)}
+					revealed={revealedId === item.id}
 				/>
 			))}
 		</ul>

@@ -69,3 +69,18 @@ test("routineSummaryByPage: só rotinas ligadas a página; pausada avisa; a prim
 	assert.equal(byPage.get("p9"), "A cada 50 min (pausada)");
 	assert.equal(byPage.size, 2);
 });
+
+test("lixeira some até o hover/foco no mouse e até a pressão longa no toque", () => {
+	const hidden = renderToStaticMarkup(<PagesList items={[page()]} now={now} />);
+	assert.match(hidden, /group\/row/);
+	assert.match(hidden, /\[@media\(hover:hover\)\]:opacity-0/);
+	assert.match(hidden, /\[@media\(hover:hover\)\]:group-hover\/row:opacity-100/);
+	assert.match(hidden, /\[@media\(hover:hover\)\]:group-focus-within\/row:opacity-100/);
+	assert.match(hidden, /\[@media\(hover:none\)\]:hidden/);
+	assert.match(hidden, /aria-label="Apagar página Vendas da semana"/);
+
+	const shown = renderToStaticMarkup(<PagesList items={[page(), page({ id: "p2", title: "Estoque" })]} now={now} revealedId="p1" />);
+	const [first = "", second = ""] = shown.split('data-page-card="p2"');
+	assert.doesNotMatch(first.slice(first.indexOf("Apagar página Vendas")), /hover:none\)\]:hidden/);
+	assert.match(second, /\[@media\(hover:none\)\]:hidden/);
+});
