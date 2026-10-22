@@ -37,7 +37,7 @@ def md_to_docx_abnt(md_path: str, out_path: str, toc: bool = False, number_secti
 
     toc=True insere um campo de sumario (preenchido pelo Word ao abrir e pelo docx_to_pdf).
     """
-    cmd = ["pandoc", md_path, "-f", "markdown+smart", "-o", out_path, "--reference-doc", os.path.join(TEMPLATES, "abnt-reference.docx")]
+    cmd = ["pandoc", md_path, "-f", "markdown+smart", "-o", out_path, "--reference-doc", os.path.join(TEMPLATES, "abnt-reference.docx"), "-M", "lang=pt-BR", "-M", "toc-title=SUMÁRIO"]
     if number_sections:
         cmd.append("--number-sections")
     if toc:
