@@ -4,7 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parsePageSpec, type PageSpec } from "@workspace/shared";
 
-import { PageCard, updatedLabel } from "./page-card";
+import { PageCard, remotePageFromApi, updatedLabel } from "./page-card";
 import { PageView } from "./page-view";
 import { scrollEdges } from "./components/table";
 
@@ -190,4 +190,11 @@ test("updatedLabel: relativo, vazio sem data", () => {
 	assert.equal(updatedLabel("2026-10-22T11:55:00Z", now), "Atualizado há 5 min");
 	assert.equal(updatedLabel("2026-10-22T11:59:50Z", now), "Atualizado agora");
 	assert.equal(updatedLabel(null, now), null);
+});
+
+test("remotePageFromApi: a data mostrada é a da última atualização com dados novos (refreshedAt), senão a da edição", () => {
+	const base = { spec: page([{ type: "divider" }]), revision: 4, sources: [], updatedAt: "2026-10-22T10:00:00Z" };
+	assert.equal(remotePageFromApi({ ...base, refreshedAt: "2026-10-22T11:55:00Z" }).updatedAt, "2026-10-22T11:55:00Z");
+	assert.equal(remotePageFromApi({ ...base, refreshedAt: null }).updatedAt, "2026-10-22T10:00:00Z");
+	assert.equal(remotePageFromApi({ ...base, refreshedAt: null }).revision, 4);
 });

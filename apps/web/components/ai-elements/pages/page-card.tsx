@@ -6,7 +6,7 @@ import type { PageSource, PageSpec } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
 
-import { AtlasApiError, getPage } from "@/lib/atlas-api";
+import { AtlasApiError, type AtlasPage, getPage } from "@/lib/atlas-api";
 import { memoryRelativeDate } from "@/components/ui/templates/template-4/chat-context-panel/memory-tab-helpers";
 
 import { PageDialog } from "./page-dialog";
@@ -24,11 +24,15 @@ export type PageCardData = {
 
 export type LoadPage = (pageId: string) => Promise<RemotePage | "missing">;
 
+/** Página do servidor → o que o cartão compara/mostra; "Atualizado há X" vale a última atualização com dados novos (rotina), senão a edição. */
+export function remotePageFromApi(page: Pick<AtlasPage, "spec" | "revision" | "sources" | "refreshedAt" | "updatedAt">): RemotePage {
+	return { spec: page.spec, revision: page.revision, sources: page.sources as PageSource[], updatedAt: page.refreshedAt ?? page.updatedAt };
+}
+
 /** Leitura do servidor (revalida a revisão); 404 = página apagada. Outros erros: fica o snapshot. */
 const defaultLoadPage: LoadPage = async (pageId) => {
 	try {
-		const page = await getPage(pageId);
-		return { spec: page.spec, revision: page.revision, sources: page.sources as PageSource[], updatedAt: page.updatedAt };
+		return remotePageFromApi(await getPage(pageId));
 	} catch (error) {
 		if (error instanceof AtlasApiError && error.status === 404) return "missing";
 		throw error;
