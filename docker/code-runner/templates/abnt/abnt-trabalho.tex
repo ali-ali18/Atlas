@@ -1,0 +1,70 @@
+% Trabalho academico ABNT (abnTeX2). Marcadores <<CHAVE>> sao trocados por doclib.fill_template();
+% o corpo do texto vai em <<TEXTO>> (LaTeX: \chapter{...}, \section{...}, \citeonline{...}, \cite{...}).
+% Compile com doclib.latex_abnt("trabalho.tex") ou: latexmk -r /app/templates/abnt/latexmkrc trabalho.tex
+\documentclass[12pt, oneside, a4paper, chapter=TITLE, section=TITLE, sumario=abnt-6027-2012, english, brazil]{abntex2}
+
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{indentfirst}
+\usepackage{color}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage[alf]{abntex2cite}
+% Links sem caixas coloridas (impressao e PDF entregue).
+\hypersetup{hidelinks}
+
+% Dados da capa e da folha de rosto
+\titulo{<<TITULO>>}
+\autor{<<AUTOR>>}
+\local{<<LOCAL>>}
+\data{<<ANO>>}
+\orientador{<<ORIENTADOR>>}
+\instituicao{<<INSTITUICAO>>}
+\tipotrabalho{<<TIPO_TRABALHO>>}
+\preambulo{<<PREAMBULO>>}
+
+\setlength{\parindent}{1.25cm}
+\setlength{\parskip}{0pt}
+\SingleSpacing
+\OnehalfSpacing
+\makeindex
+
+\begin{document}
+\selectlanguage{brazil}
+\frenchspacing
+
+% ---------- Elementos pre-textuais ----------
+\imprimircapa
+\imprimirfolhaderosto*
+
+\begin{resumo}
+<<RESUMO>>
+
+\textbf{Palavras-chave}: <<PALAVRAS_CHAVE>>.
+\end{resumo}
+
+\begin{resumo}[Abstract]
+\begin{otherlanguage*}{english}
+<<ABSTRACT>>
+
+\vspace{\onelineskip}
+\noindent\textbf{Keywords}: <<KEYWORDS>>.
+\end{otherlanguage*}
+\end{resumo}
+
+\pdfbookmark[0]{\contentsname}{toc}
+\tableofcontents*
+\cleardoublepage
+
+% ---------- Elementos textuais ----------
+\textual
+
+<<TEXTO>>
+
+% ---------- Elementos pos-textuais ----------
+\postextual
+\bibliography{referencias}
+
+\end{document}

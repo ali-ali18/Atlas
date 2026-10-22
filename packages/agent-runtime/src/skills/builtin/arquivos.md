@@ -3,7 +3,7 @@ name: Arquivos
 description: How to create and edit files well — picking the format, structuring PDF/Word/Excel/slides content, reading attachments, and checking the file before delivering it.
 when: Read before creating a document, spreadsheet or presentation that matters (reports, proposals, tables with formulas, multi-page files), or when the user is unhappy with a file.
 groups: [files]
-version: 1
+version: 2
 ---
 
 # Files
@@ -62,6 +62,15 @@ If they named a format, use it. If not, pick from the table and mention it in on
 - Facts and figures from research keep their sources; anything unconfirmed is marked as such in the file.
 - If `create_file` returns an error, read it, fix the content and try again once; then report the error plainly.
 
-## 8. Reply
+## 8. Render and look before delivering
+
+For documents, spreadsheets and slides that matter (reports, contracts, proposals, multi-page files, anything with a layout the user will print or send), do not trust the source: look at the result.
+
+- Build the file with `run_code` (python-docx, openpyxl, python-pptx, pandoc, LaTeX are installed), convert it to PDF with LibreOffice headless, rasterize the pages to PNG into `/work/preview/` and read them. Those images come back to you as images and are not delivered to the user; only files in `/work/out/` are. Up to 12 pages per call, so check long files in parts (first pages, then the rest).
+- Look for what the text does not show: cut-off or overflowing tables and cells, text outside the page, orphan headings at the bottom of a page, broken numbering, empty pages, wrong fonts, overlapping elements, unreadable charts, missing images.
+- Fix the script and render again until the pages are clean; then save the final file to `/work/out/`. If your model cannot view images, check the structure with text tools instead (page count, extracted text) and tell the user the layout was not checked visually.
+- Quick, simple files made with `create_file` do not need this loop.
+
+## 9. Reply
 
 One or two lines: what the file contains and anything the user must review (for example, values you estimated). Do not repeat the file content in chat.

@@ -5,7 +5,10 @@ import { Lexer, type Token, type Tokens } from "marked";
  * trabalho (capa, folha de rosto, pré-textual, textual) para os renderizadores de docx e pdf.
  *
  * Convenções do Markdown (todas opcionais; sem elas o corpo sai em ABNT, sem capa):
- * - `<!-- capa -->` ... `<!-- /capa -->`: capa, em até 3 zonas separadas por `---` (topo, meio, rodapé).
+ * - `<!-- capa -->` ... `<!-- /capa -->`: capa, em 3 ou 4 zonas separadas por `---` (topo, meio, rodapé; com 4: topo, duas do meio, rodapé).
+ *   Todo o texto da capa sai em negrito e centralizado; linhas seguidas na mesma zona viram linhas separadas (quebra de título).
+ * - Trabalho curto (sem folha de rosto nem sumário): seções primárias em sequência, sem quebra de página; os parágrafos
+ *   soltos antes da primeira seção viram nota de abertura (10 pt) no topo da primeira página textual.
  * - `<!-- folha-de-rosto -->` ... `<!-- /folha-de-rosto -->`: idem; `>` vira a natureza do trabalho (recuo de 8 cm).
  * - `<!-- pagebreak -->` ou `\pagebreak` (ou `\newpage`) sozinho na linha: quebra de página.
  * - `<!-- sumario -->` ou um `# SUMÁRIO` (o que estiver embaixo é descartado): sumário gerado dos títulos da parte textual.
@@ -25,6 +28,10 @@ export type AbntParts = {
 	textual: string;
 	/** O texto pediu sumário (marcador ou `# SUMÁRIO`): o conteúdo traz o `ABNT_TOC`. */
 	hasToc: boolean;
+	/** Trabalho curto (sem folha de rosto nem sumário): seções primárias correm em sequência, sem quebra de página. */
+	continuous: boolean;
+	/** Modo contínuo: parágrafos sem título antes da primeira seção (declaração, identificação), no topo da primeira página textual. */
+	note?: string;
 };
 
 export type TocHeading = { depth: number; text: string };
@@ -98,12 +105,22 @@ export function parseAbntMarkdown(markdown: string): AbntParts {
 		target.push(line);
 	}
 	const split = textualAt ?? 0;
+	const continuous = !blocks.titlePage && !hasToc;
+	let pretextual = normalizeBlocks(main.slice(0, split)).join("\n").trim();
+	let note: string | undefined;
+	// Nota de abertura: pré-textual sem título próprio vira texto do topo da primeira página textual.
+	if (continuous && pretextual && !/^\s*#{1,6}\s/m.test(pretextual)) {
+		note = pretextual.split("\n").filter((line) => line.trim() !== ABNT_PAGE_BREAK).join("\n").trim() || undefined;
+		pretextual = "";
+	}
 	return {
 		...(blocks.cover ? { cover: blocks.cover.join("\n").trim() } : {}),
 		...(blocks.titlePage ? { titlePage: blocks.titlePage.join("\n").trim() } : {}),
-		pretextual: normalizeBlocks(main.slice(0, split)).join("\n").trim(),
+		pretextual,
 		textual: normalizeBlocks(main.slice(split)).join("\n").trim(),
 		hasToc,
+		continuous,
+		...(note ? { note } : {}),
 	};
 }
 
@@ -200,13 +217,14 @@ export function isCaptionText(text: string): boolean {
 	return /^\s*(?:(?:fonte|notas?|elabora[cç][aã]o)\s*:|(?:figura|quadro|tabela|gr[aá]fico|fotografia|mapa|fluxograma|organograma|imagem|ilustra[cç][aã]o)\s+\d+\s*[–—:.-])/i.test(text);
 }
 
-/** Capa / folha de rosto: topo, meio e rodapé, separados por `---` (o que passar de três zonas vai para o rodapé). */
-export function splitFrontZones(markdown: string): [string, string, string] {
+/** Capa / folha de rosto: 3 zonas (topo, meio, rodapé) ou 4 (topo, duas do meio, rodapé) separadas por `---`; o excedente vai para a última. */
+export function splitFrontZones(markdown: string): string[] {
 	const zones: string[][] = [[]];
 	for (const line of markdown.split("\n")) {
 		if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) zones.push([]);
 		else zones[zones.length - 1]!.push(line);
 	}
 	const join = (lines: string[]) => lines.join("\n").trim();
+	if (zones.length >= 4) return [join(zones[0]!), join(zones[1]!), join(zones[2]!), join(zones.slice(3).flat())];
 	return [join(zones[0] ?? []), join(zones[1] ?? []), join(zones.slice(2).flat())];
 }

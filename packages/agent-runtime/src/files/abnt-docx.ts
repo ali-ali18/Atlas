@@ -48,7 +48,7 @@ const TEXT_WIDTH = ABNT_DOCX.page.width - ABNT_DOCX.margin.left - ABNT_DOCX.marg
 
 type Mode = "front" | "pre" | "textual";
 type Block = Paragraph | Table;
-type Ctx = { mode: Mode; atStart: boolean; breakNext: boolean; refs: boolean; quoteIndent: number; afterQuote?: boolean; toc?: { headings: TocHeading[]; pages?: ReadonlyArray<number> } };
+type Ctx = { mode: Mode; atStart: boolean; breakNext: boolean; refs: boolean; quoteIndent: number; continuous?: boolean; bold?: boolean; afterQuote?: boolean; toc?: { headings: TocHeading[]; pages?: ReadonlyArray<number> } };
 
 const SPACING_15 = { line: ABNT_DOCX.lineOneAndHalf, lineRule: LineRuleType.AUTO, before: 0, after: 0 };
 const SPACING_1 = { line: ABNT_DOCX.lineSingle, lineRule: LineRuleType.AUTO, before: 0, after: 0 };
@@ -104,7 +104,7 @@ function heading(token: Tokens.Heading, ctx: Ctx): Block[] {
 				),
 			];
 		}
-		// Seção primária abre página (menos a primeira da parte, que já começa numa).
+		// Seção primária abre página (menos a primeira da parte, que já começa numa); no modo contínuo (trabalho curto) corre em sequência.
 		return [
 			para(
 				ctx,
@@ -112,10 +112,10 @@ function heading(token: Tokens.Heading, ctx: Ctx): Block[] {
 					heading: HEADING_LEVELS[0],
 					alignment: isUnnumberedTitle(token.text) ? AlignmentType.CENTER : AlignmentType.LEFT,
 					keepNext: true,
-					spacing: { ...SPACING_15, after: ABNT_DOCX.lineOneAndHalf },
+					spacing: { ...SPACING_15, ...(ctx.continuous ? { before: 240 } : {}), after: ABNT_DOCX.lineOneAndHalf },
 					children: runs(token.tokens),
 				},
-				!ctx.atStart,
+				!ctx.atStart && !ctx.continuous,
 			),
 		];
 	}
@@ -142,7 +142,7 @@ function bodyParagraph(tokens: Token[] | undefined, text: string, ctx: Ctx): Par
 		if (ctx.afterQuote) {
 			return para(ctx, { alignment: AlignmentType.LEFT, indent: { left: ctx.quoteIndent }, spacing: { ...SPACING_1, after: 120 }, children: runs(tokens) });
 		}
-		return para(ctx, { alignment: AlignmentType.CENTER, spacing: { ...SPACING_1, after: 120 }, children: runs(tokens) });
+		return para(ctx, { alignment: AlignmentType.CENTER, spacing: { ...SPACING_1, after: 120 }, children: runs(tokens, ctx.bold ? { bold: true } : {}) });
 	}
 	if (ctx.refs) {
 		return para(ctx, {
@@ -330,8 +330,22 @@ function tocBlocks(ctx: Ctx): Block[] {
 	return xml.map((item) => (ImportedXmlComponent.fromXmlString(item) as unknown as { root: unknown[] }).root[0] as Paragraph);
 }
 
-function newCtx(mode: Mode, quoteIndent: number = ABNT_DOCX.quoteIndent, toc?: Ctx["toc"]): Ctx {
-	return { mode, atStart: true, breakNext: false, refs: false, quoteIndent, ...(toc ? { toc } : {}) };
+function newCtx(mode: Mode, quoteIndent: number = ABNT_DOCX.quoteIndent, toc?: Ctx["toc"], extra: Partial<Ctx> = {}): Ctx {
+	return { mode, atStart: true, breakNext: false, refs: false, quoteIndent, ...(toc ? { toc } : {}), ...extra };
+}
+
+/** Nota de abertura do trabalho curto: 10 pt, espaçamento simples, justificada, sem recuo; negrito e itálico preservados. */
+function noteBlocks(markdown: string): Block[] {
+	const paragraphs = new Lexer({ gfm: true }).lex(markdown).filter((token) => token.type === "paragraph" || token.type === "text");
+	return paragraphs.map((token, index) => {
+		const last = index === paragraphs.length - 1;
+		const inline = (token as Tokens.Paragraph).tokens ?? [token];
+		return new Paragraph({
+			alignment: AlignmentType.JUSTIFIED,
+			spacing: { ...SPACING_1, after: last ? ABNT_DOCX.lineSingle : 120 },
+			children: runs(inline, { size: ABNT_DOCX.smallSize }),
+		});
+	});
 }
 
 function blocksOf(markdown: string, ctx: Ctx): Block[] {
@@ -343,14 +357,14 @@ function blocksOf(markdown: string, ctx: Ctx): Block[] {
 }
 
 /** Capa / folha de rosto: três zonas (topo, meio, rodapé) separadas por `---`, numa tabela de linhas altas sem bordas. */
-function frontPage(markdown: string, quoteIndent: number): Block[] {
+function frontPage(markdown: string, quoteIndent: number, bold = false): Block[] {
 	const zones = splitFrontZones(markdown);
 	const none = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
-	const heights = [4200, 5200, 4200];
-	const aligns = [VerticalAlign.TOP, VerticalAlign.CENTER, VerticalAlign.BOTTOM];
-	const rows = [0, 1, 2].map((index) => {
-		const zone = zones[index]!;
-		const children = zone ? blocksOf(zone, newCtx("front", quoteIndent)) : [];
+	const four = zones.length === 4;
+	const heights = four ? [3400, 3400, 3400, 3400] : [4200, 5200, 4200];
+	const aligns = four ? [VerticalAlign.TOP, VerticalAlign.CENTER, VerticalAlign.CENTER, VerticalAlign.BOTTOM] : [VerticalAlign.TOP, VerticalAlign.CENTER, VerticalAlign.BOTTOM];
+	const rows = zones.map((zone, index) => {
+		const children = zone ? blocksOf(zone, newCtx("front", quoteIndent, undefined, { bold })) : [];
 		return new TableRow({
 			height: { value: heights[index]!, rule: HeightRule.ATLEAST },
 			cantSplit: true,
@@ -389,7 +403,7 @@ export async function abntMarkdownToDocx(markdown: string, title?: string, opts:
 	const sections: ISectionOptions[] = [];
 	const toc = parts.hasToc ? { headings: tocHeadings(parts), ...(opts.tocPages ? { pages: opts.tocPages } : {}) } : undefined;
 
-	if (parts.cover) sections.push({ properties: { page: pageProps }, children: frontPage(parts.cover, ABNT_DOCX.quoteIndent) });
+	if (parts.cover) sections.push({ properties: { page: pageProps }, children: frontPage(parts.cover, ABNT_DOCX.quoteIndent, true) });
 
 	const preChildren: Block[] = [];
 	if (parts.titlePage) preChildren.push(...frontPage(parts.titlePage, ABNT_DOCX.titlePageNoteIndent));
@@ -405,7 +419,9 @@ export async function abntMarkdownToDocx(markdown: string, title?: string, opts:
 		sections.push({ properties: { page: { ...pageProps, pageNumbers: { start: 1, formatType: NumberFormat.DECIMAL } } }, children: preChildren });
 	}
 
-	const textualChildren = parts.textual ? blocksOf(parts.textual, newCtx("textual", ABNT_DOCX.quoteIndent, toc)) : [];
+	const textualChildren: Block[] = [];
+	if (parts.note) textualChildren.push(...noteBlocks(parts.note));
+	if (parts.textual) textualChildren.push(...blocksOf(parts.textual, newCtx("textual", ABNT_DOCX.quoteIndent, toc, { continuous: parts.continuous })));
 	if (textualChildren.length > 0 || sections.length === 0) {
 		sections.push({
 			// Continua da seção anterior; sem pré-textual, a capa não deve ser contada.
