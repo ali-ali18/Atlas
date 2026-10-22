@@ -132,3 +132,93 @@ describe("paleta", () => {
 		expect(error({ colors: [] })).toContain("1 to 6");
 	});
 });
+
+describe("novos tipos", () => {
+	const err = (raw: Record<string, unknown>) => {
+		const parsed = parseChartSpec(raw);
+		return parsed.ok ? "" : parsed.error;
+	};
+	const radarRows = [
+		{ eixo: "Preço", a: 80, b: 60 },
+		{ eixo: "Prazo", a: 70, b: 90 },
+		{ eixo: "Qualidade", a: 90, b: 75 },
+	];
+
+	it("radar: 3 a 12 eixos, várias séries, sem negativos", () => {
+		const ok = parseChartSpec({ type: "radar", x: "eixo", series: [{ key: "a" }, { key: "b" }], data: radarRows });
+		expect(ok.ok && ok.spec.type).toBe("radar");
+		expect(ok.ok && ok.spec.xKind).toBe("category");
+		expect(err({ type: "radar", x: "eixo", series: [{ key: "a" }], data: radarRows.slice(0, 2) })).toContain("at least 3 axes");
+		expect(err({ type: "radar", x: "eixo", series: [{ key: "a" }], data: Array.from({ length: 13 }, (_, i) => ({ eixo: `e${i}`, a: 1 })) })).toContain("too many axes");
+		expect(err({ type: "radar", x: "eixo", series: [{ key: "a" }], data: [...radarRows.slice(0, 2), { eixo: "x", a: -1 }] })).toContain("cannot be negative");
+	});
+
+	it("funil: uma série, etapas limitadas, valor positivo", () => {
+		const ok = parseChartSpec({ type: "funnel", x: "etapa", series: [{ key: "v" }, { key: "w" }], data: [{ etapa: "Leads", v: 100 }, { etapa: "Venda", v: 20 }] });
+		expect(ok.ok && ok.spec.series).toHaveLength(1);
+		expect(err({ type: "funnel", x: "etapa", series: [{ key: "v" }], data: Array.from({ length: 13 }, (_, i) => ({ etapa: `e${i}`, v: 1 })) })).toContain("too many stages");
+		expect(err({ type: "funnel", x: "etapa", series: [{ key: "v" }], data: [{ etapa: "a", v: 0 }] })).toContain("at least one positive");
+	});
+
+	it("medidor: uma linha, max opcional e valor dentro da escala", () => {
+		const ok = parseChartSpec({ type: "gauge", x: "m", series: [{ key: "v", label: "Meta atingida" }], data: [{ m: "Meta", v: 72 }], unit: "%" });
+		expect(ok.ok && ok.spec.max).toBeUndefined();
+		const withMax = parseChartSpec({ type: "gauge", x: "m", series: [{ key: "v" }], data: [{ m: "Meta", v: 420 }], max: 500 });
+		expect(withMax.ok && withMax.spec.max).toBe(500);
+		expect(err({ type: "gauge", x: "m", series: [{ key: "v" }], data: [{ m: "a", v: 1 }, { m: "b", v: 2 }] })).toContain("single value");
+		expect(err({ type: "gauge", x: "m", series: [{ key: "v" }], data: [{ m: "a", v: 120 }] })).toContain("exceeds max");
+		expect(err({ ...base, max: 10 })).toContain('only used with type "gauge"');
+		expect(err({ type: "gauge", x: "m", series: [{ key: "v" }], data: [{ m: "a", v: 1 }], max: 0 })).toContain("positive number");
+	});
+
+	it("composto: datas obrigatórias e kind por série", () => {
+		const data = [{ mes: "2025-01-01", r: 10, m: 5 }, { mes: "2025-02-01", r: 12, m: 6 }];
+		const ok = parseChartSpec({ type: "composed", x: "mes", series: [{ key: "r", kind: "bar" }, { key: "m", kind: "line" }], data });
+		expect(ok.ok && ok.spec.series.map((item) => item.kind)).toEqual(["bar", "line"]);
+		expect(err({ type: "composed", x: "mes", series: [{ key: "r" }], data: [{ mes: "jan", r: 1 }] })).toContain("needs ISO dates");
+		expect(err({ type: "composed", x: "mes", series: [{ key: "r", kind: "pizza" }], data })).toContain("kind must be one of");
+		expect(err({ ...base, series: [{ key: "total", kind: "bar" }] })).toContain('only used with type "composed"');
+	});
+});
+
+describe("meta e projeção", () => {
+	const err = (extra: Record<string, unknown>, from: Record<string, unknown> = base) => {
+		const parsed = parseChartSpec({ ...from, ...extra });
+		return parsed.ok ? "" : parsed.error;
+	};
+	const trend = {
+		type: "line",
+		x: "mes",
+		series: [{ key: "v" }],
+		data: [{ mes: "2025-01-01", v: 1 }, { mes: "2025-02-01", v: 2 }, { mes: "2025-03-01", v: 3 }],
+	};
+
+	it("reference: faixa, meta com um limite só e rótulo", () => {
+		const band = parseChartSpec({ ...base, reference: { from: 800, to: 1000, label: "Faixa ideal" } });
+		expect(band.ok && band.spec.reference).toEqual({ from: 800, to: 1000, label: "Faixa ideal" });
+		const target = parseChartSpec({ ...base, reference: { from: 5000 } });
+		expect(target.ok && target.spec.reference).toEqual({ from: 5000 });
+	});
+
+	it("reference: valida limites e tipo de gráfico", () => {
+		expect(err({ reference: {} })).toContain("needs from, to or both");
+		expect(err({ reference: { from: "alto" } })).toContain("reference.from must be a number");
+		expect(err({ reference: { from: 10, to: 5 } })).toContain("less than or equal");
+		expect(err({ reference: { from: 1 } }, { type: "pie", x: "c", series: [{ key: "v" }], data: [{ c: "a", v: 1 }] })).toContain("only available for line, area, bar and composed");
+	});
+
+	it("forecast: só linha/área com datas, 3+ pontos e 1 a 24 períodos", () => {
+		const ok = parseChartSpec({ ...trend, forecast: { points: 3 } });
+		expect(ok.ok && ok.spec.forecast).toEqual({ points: 3 });
+		expect(err({ forecast: { points: 3 } }, { ...trend, type: "bar" })).toContain("only available for line and area");
+		expect(err({ forecast: { points: 0 } }, trend)).toContain("integer from 1 to 24");
+		expect(err({ forecast: { points: 25 } }, trend)).toContain("integer from 1 to 24");
+		expect(err({ forecast: { points: 2 } }, { ...trend, data: trend.data.slice(0, 2) })).toContain("at least 3 data points");
+		expect(err({ forecast: { points: 2 } }, { ...trend, data: [{ mes: "a", v: 1 }, { mes: "b", v: 2 }, { mes: "c", v: 3 }] })).toContain("needs ISO dates");
+	});
+
+	it("specs antigos continuam válidos sem os novos campos", () => {
+		const parsed = parseChartSpec(base);
+		expect(parsed.ok && ["reference", "forecast", "max"].some((key) => key in parsed.spec)).toBe(false);
+	});
+});
