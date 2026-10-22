@@ -45,7 +45,7 @@ export interface LineChartLoadingProps {
   loadingStyle?: LoadingStyle;
   /** Centered shimmer label text. Default: "Loading" */
   label?: string;
-  /** Aspect ratio as "width / height". Default: "2 / 1" */
+  /** Aspect ratio as "width / height". Sem valor, o esqueleto ocupa a altura do contêiner (mín. 160px). */
   aspectRatio?: string;
   /** Additional class name for the container */
   className?: string;
@@ -63,7 +63,7 @@ export function LineChartLoading({
   gridShimmerSync = false,
   loadingStyle = "pulse",
   label = "Loading",
-  aspectRatio = "2 / 1",
+  aspectRatio,
   className = "",
 }: LineChartLoadingProps) {
   const data = useMemo(
@@ -78,8 +78,8 @@ export function LineChartLoading({
   return (
     <LineChart
       animationDuration={0}
-      aspectRatio={aspectRatio}
-      className={className}
+      aspectRatio={aspectRatio ?? ""}
+      className={aspectRatio ? className : `h-full min-h-[160px] w-full ${className}`}
       data={data}
       loadingLabel={label}
       margin={margin}
