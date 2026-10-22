@@ -109,12 +109,11 @@ describe("createTaskOrchestrator", () => {
 			expect(orchestrator.gate("create_file", ctx).action).toBe("allow");
 		});
 
-		it("a resposta final recebe uma pergunta sobre o checklist herdado, uma vez só", () => {
+		it("a resposta final do pedido novo passa direto, sem bloqueio nem marca no ledger", () => {
 			const { orchestrator, tracker } = build({ prior: prior() });
-			const first = orchestrator.gate("final_answer", ctx);
-			expect(first).toMatchObject({ action: "block", kind: "carry_offer" });
-			expect(tracker.ledger()?.carry).toBe("asked");
-			expect(orchestrator.gate("final_answer", ctx).action).toBe("allow");
+			expect(orchestrator.gate("final_answer", ctx)).toEqual({ action: "allow", declareGaps: false });
+			expect(tracker.ledger()?.carry).toBe("offered");
+			expect(tracker.ledger()?.gateBlocks).toBe(0);
 		});
 
 		it("adotado (via track_items), o portão volta a valer e o Now aparece", () => {

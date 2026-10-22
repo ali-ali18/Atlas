@@ -6,6 +6,7 @@ import { runComputerUse } from "./computer-use.js";
 import { CREATE_FILE_TOOL } from "./tools/create-file.js";
 import { createResearchNotes } from "./tools/research-note.js";
 import { REGENERATE_FILE_NOTE } from "./execution/delivery-correction.js";
+import { withWithdrawnReply } from "./execution/task-state.js";
 import { applyComputerUseEventsToTranscript, type ComputerUseEvent } from "@workspace/shared";
 import { printPdfWithChromium } from "./files/pdf-chromium.js";
 
@@ -181,7 +182,7 @@ describe("F4: erro achado depois do arquivo, com orçamento sobrando, regera o a
 		expect(printedHtml()).toHaveLength(2);
 		expect(printedHtml()[1]).toContain("5 assentos");
 		// O modelo recebeu o pedido para regerar; a admissão nunca foi ao chat.
-		expect(requests[3]?.some((message) => message.role === "system" && message.content === REGENERATE_FILE_NOTE)).toBe(true);
+		expect(requests[3]?.some((message) => message.role === "system" && message.content === withWithdrawnReply(REGENERATE_FILE_NOTE))).toBe(true);
 		// A admissão chegou em deltas, mas o balão foi retirado (assistant_discard) antes da regeração.
 		expect(publicText(events).join("")).toContain("Se quiser, eu gero");
 		const discardAt = events.findIndex((event) => event.type === "assistant_discard");
@@ -205,7 +206,7 @@ describe("F4: erro achado depois do arquivo, com orçamento sobrando, regera o a
 			'{"fixFile": true}',
 		);
 		expect(checkCalls()).toBe(1);
-		expect(requests[3]?.some((message) => message.role === "system" && message.content === REGENERATE_FILE_NOTE)).toBe(true);
+		expect(requests[3]?.some((message) => message.role === "system" && message.content === withWithdrawnReply(REGENERATE_FILE_NOTE))).toBe(true);
 		expect(result.text).toBe("PDF aktualisiert (v2).");
 	});
 

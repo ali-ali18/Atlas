@@ -14,7 +14,7 @@ import { buildStableSystemPrompt, buildSystemPrompt, swapLanguageInstruction } f
 import { namespaceToolCallId, renameProviderItemCallIds } from "./context/transcript.js";
 import { triageUserMessage, type TriageHistoryEntry } from "./loop/message-triage.js";
 import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } from "./loop/interrupt.js";
-import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE } from "./execution/task-state.js";
+import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
 import { parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
 import { alreadyLoadedSummary, findAlreadyLoadedTools } from "./execution/tool-search-guard.js";
@@ -5827,7 +5827,7 @@ export async function runComputerUse(params: {
 				loginAsked: [...loginAsked],
 				pendingLogin,
 				executionLedger: { ...(ledger?.snapshot() ?? parseLedgerState(undefined)), ...journal.snapshot() },
-				taskState: taskTracker.snapshot(),
+				taskState: taskTracker.persistable(),
 				objectiveRevisions,
 				triagedInputs,
 				pendingFollowUps,
@@ -7795,7 +7795,7 @@ ${blockHint}`;
 						conversation.push({ role: "assistant", content: text });
 						// O texto já foi em deltas ao chat; como o run segue, o balão é retirado (assistant_discard).
 						await onEvent({ type: "assistant_discard" });
-						conversation.push({ role: "system", content: gate.note });
+						conversation.push({ role: "system", content: withWithdrawnReply(gate.note) });
 						await persistCheckpoint(step + 1);
 						continue;
 					}
@@ -7882,7 +7882,7 @@ ${blockHint}`;
 						conversation.push({ role: "assistant", content: text });
 						// O texto já foi em deltas ao chat; como será refeito, o balão é retirado (assistant_discard).
 						await onEvent({ type: "assistant_discard" });
-						conversation.push({ role: "system", content: REGENERATE_FILE_NOTE });
+						conversation.push({ role: "system", content: withWithdrawnReply(REGENERATE_FILE_NOTE) });
 						await persistCheckpoint(step + 1);
 						continue;
 					}
@@ -7903,7 +7903,7 @@ ${blockHint}`;
 						conversation.push({ role: "assistant", content: text });
 						// O texto já foi em deltas ao chat; como será refeito, o balão é retirado (assistant_discard).
 						await onEvent({ type: "assistant_discard" });
-						conversation.push({ role: "system", content: verifierNote(issues) });
+						conversation.push({ role: "system", content: withWithdrawnReply(verifierNote(issues)) });
 						await persistCheckpoint(step + 1);
 						continue;
 					}

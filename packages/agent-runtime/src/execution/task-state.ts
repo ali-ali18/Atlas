@@ -32,7 +32,15 @@ export const EMPTY_REPLY_NOTE =
 export const EMPTY_REPLY_FALLBACK_TEXT =
 	"O modelo não devolveu uma resposta para este pedido, mesmo após uma nova tentativa. O que foi feito até aqui está salvo na conversa; envie o pedido de novo ou reformule.";
 
-export type TaskTracker = ReturnType<typeof createTaskTracker>;
+/**
+ * Rascunho retirado do chat (`assistant_discard`) e refeito: o modelo o vê no histórico como se tivesse
+ * sido dito, então o aviso precisa dizer que o usuário NÃO o viu (senão ele responde só ao aviso).
+ */
+export const WITHDRAWN_REPLY_NOTE =
+	"The user did NOT see your previous reply: it was withdrawn before delivery. Your next final answer must be complete and stand on its own, with every fact and result the user asked for. Do not say it was already given.";
+export const withWithdrawnReply = (note: string) => `${note} ${WITHDRAWN_REPLY_NOTE}`;
+
+export type TaskTracker =ReturnType<typeof createTaskTracker>;
 
 /**
  * Mantém o TaskState do run. Critérios só entram por sinal determinístico
@@ -45,6 +53,16 @@ export function createTaskTracker(initial: unknown, objective: string) {
 	return {
 		snapshot(): TaskState {
 			return structuredClone(state);
+		},
+		/**
+		 * Estado que vai para o checkpoint. Checklist herdado que o run nunca adotou
+		 * (carry offered/asked) não é regravado: re-salvá-lo o manteria vivo para sempre
+		 * e o run seguinte o ofereceria de novo. Adotado (set/update) ou criado aqui, persiste.
+		 */
+		persistable(): TaskState {
+			const copy = structuredClone(state);
+			if (copy.ledger?.carry === "offered" || copy.ledger?.carry === "asked") delete copy.ledger;
+			return copy;
 		},
 		reviseObjective(text: string) {
 			const next = text.trim().slice(0, MAX_TASK_OBJECTIVE_CHARS);
