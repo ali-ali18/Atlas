@@ -74,15 +74,12 @@ test("cabeçalho do bot: avatar, nome em negrito e rótulo editáveis ali mesmo 
 	assert.doesNotMatch(labelled, /Adicionar um rótulo/);
 });
 
-test("Sobre: a descrição se edita na visão geral (placeholder quando vazia)", () => {
-	const empty = panel();
-	assert.match(empty, /data-about/);
-	assert.match(empty, />Sobre</);
-	assert.match(empty, /aria-label="Editar descrição do bot"/);
-	assert.match(empty, />Adicionar uma descrição</);
-	const filled = panel({ agent: { ...agent, description: "Cuida do financeiro" } });
-	assert.match(filled, />Cuida do financeiro</);
-	assert.doesNotMatch(filled, /Adicionar uma descrição/);
+test("Sobre saiu da visão geral: a descrição se edita nas configurações (engrenagem)", () => {
+	const html = panel({ agent: { ...agent, description: "Cuida do financeiro" }, onOpenSettings: () => {} });
+	assert.doesNotMatch(html, /data-about/);
+	assert.doesNotMatch(html, />Sobre</);
+	assert.doesNotMatch(html, /Cuida do financeiro/);
+	assert.match(html, /aria-label="Configurações do bot"/);
 });
 
 test("abas Detalhes | Biblioteca | Computador, Detalhes por padrão", () => {
@@ -140,7 +137,7 @@ test("configurações do bot abrem como subvisão com voltar, título Configura�
 	assert.match(html, /aria-label="Fechar painel"/);
 	assert.doesNotMatch(html, /aria-label="Configurações do bot"/, "sem engrenagem dentro da vista");
 	assert.doesNotMatch(html, />Biblioteca</);
-	assert.doesNotMatch(html, /data-about/, "a descrição não está mais nas configurações");
+	assert.match(html, /data-about/, "a descrição do bot (Sobre) mora nas configurações");
 });
 
 test("cards de rotina: nome, resumo, toggle com aria-label e botão …", () => {

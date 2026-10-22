@@ -36,7 +36,6 @@ import {
 	type RoutineGithubUiConfig,
 } from "../data";
 import { AGENT_SETTINGS_TITLES, AgentSettings, type AgentSettingsPage } from "./agent-settings";
-import { AboutSection } from "./about-section";
 import { botAccentStyle } from "./bot-accent";
 import { GroupPanelContent, type GroupPanelProps } from "./group-panel";
 import { BotLibrary } from "./bot-library";
@@ -749,11 +748,6 @@ export function ChatContextPanel({
 								</TabsList>
 
 								<TabsContent className="flex flex-col gap-5" value="details">
-									<AboutSection
-										description={agent.description}
-										onChange={(description) => onUpdate({ description })}
-									/>
-
 									<section aria-labelledby="info-pane-routines" className="space-y-2">
 										<div className="flex items-center justify-between">
 											<h3

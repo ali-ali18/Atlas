@@ -35,6 +35,7 @@ import {
 import { type Agent, defaultBodyColor, defaultBotShape } from "../data";
 import { AutonomySettings } from "../autonomy/autonomy-settings";
 import { SettingsPicker } from "../settings-picker";
+import { AboutSection } from "./about-section";
 import { AvatarEditor } from "./avatar-editor";
 import { LessonsTab } from "./lessons-tab";
 import { MemoryTab } from "./memory-tab";
@@ -111,7 +112,7 @@ function ProfileField({
 /**
  * Configurações do bot (vista do painel, estilo Grok): avatar, Nome, Rótulo e um cartão com
  * Modelo, Autonomia, Idioma e Notificações. O bot principal ganha a linha "Modo proativo", que abre
- * a subvista. Tudo vale na hora (sem botão Salvar). A descrição se edita em "Sobre", na visão geral.
+ * a subvista. Tudo vale na hora (sem botão Salvar). A descrição do bot se edita em "Sobre", logo abaixo do Rótulo.
  */
 export function AgentSettings({
 	agent,
@@ -235,6 +236,7 @@ export function AgentSettings({
 						placeholder="Pesquisa, marketing, admin"
 						value={agent.snippet}
 					/>
+					<AboutSection description={agent.description} onChange={(description) => onChange({ description })} />
 				</div>
 
 				<SettingsGroup>
