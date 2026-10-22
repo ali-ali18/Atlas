@@ -24,7 +24,7 @@ export async function getRunInspectionData(runId: string, userId: string): Promi
 	if (!run) return null;
 	const [steps, events, approvals] = await Promise.all([
 		prisma.agentStep.findMany({ where: { runId }, orderBy: { index: "asc" }, take: INSPECT_MAX_STEPS }),
-		prisma.runEvent.findMany({ where: { runId, type: { in: ["inspect_context", "error"] } }, orderBy: { seq: "asc" }, take: INSPECT_MAX_EVENTS }),
+		prisma.runEvent.findMany({ where: { runId, type: { in: ["inspect_context", "inspect_lessons", "inspect_hooks", "error"] } }, orderBy: { seq: "asc" }, take: INSPECT_MAX_EVENTS }),
 		run.conversationId
 			? prisma.conversationMessage.findMany({ where: { conversationId: run.conversationId, runId, role: "confirm" }, orderBy: { createdAt: "asc" }, take: INSPECT_MAX_APPROVALS, select: { id: true, content: true } })
 			: Promise.resolve([] as Array<{ id: string; content: string }>),
@@ -52,4 +52,9 @@ export async function getRunInspectionData(runId: string, userId: string): Promi
 /** Chamadas de ferramenta que terminaram bem no run: sinal de progresso para a retomada automática. */
 export async function countCompletedToolResults(runId: string): Promise<number> {
 	return prisma.agentStep.count({ where: { runId, type: "tool_result", status: "completed" } });
+}
+
+/** Chamadas de ferramenta que falharam no run (sinal de aprendizado para a revisão de lições). */
+export async function countFailedToolResults(runId: string): Promise<number> {
+	return prisma.agentStep.count({ where: { runId, type: "tool_result", status: "failed" } });
 }

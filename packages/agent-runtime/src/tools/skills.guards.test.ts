@@ -19,7 +19,7 @@ function doc(name: string, description: string, extra: Partial<SkillDocRecord> =
 }
 
 function setup(existing: SkillDocRecord[]) {
-	const apply = vi.fn(async () => undefined);
+	const apply = vi.fn(async () => ({ skillId: "id-alpha-flow", revision: 2 }));
 	const store = { listAll: async () => existing, readActive: async () => null, apply } as unknown as SkillsStore;
 	const persistCard = vi.fn(async () => undefined);
 	return { apply, persistCard, ctx: { userId: "u1", conversationId: "c1", runId: `run-${Math.random()}`, store, persistCard } };

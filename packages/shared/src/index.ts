@@ -2,6 +2,7 @@ export type { AtlasDomainEvent, AtlasDomainEventType } from "./events.js";
 export { ATLAS_QUEUE_NAMES, type AtlasQueueName } from "./queues.js";
 export * from "./bot-messaging.js";
 export * from "./email.js";
+export * from "./reply-segments.js";
 export * from "./composer-mentions.js";
 export * from "./bot-group.js";
 export * from "./bot-group-jev.js";
@@ -361,7 +362,9 @@ export type {
 	PersistedRoutineCard,
 } from "./routine-card.js";
 export { isPersistedRoutineCard } from "./routine-card.js";
+export { parseRoutineNotifyMode } from "./routines.js";
 export type {
+	RoutineNotifyMode,
 	RoutineTriggerType,
 	RoutineCreatedBy,
 	RoutineTriggeredBy,
@@ -707,6 +710,7 @@ export {
 	type UsageTotals,
 } from "./usage.js";
 export { redactSecrets } from "./redact-secrets.js";
+export { buildToolResultNotes, renderToolNotesBlock, TOOL_NOTE_MAX_CHARS, TOOL_NOTES_MAX_COUNT, TOOL_NOTES_MAX_TOTAL_CHARS, type ToolResultNote } from "./memory-review-notes.js";
 export {
 	SKILL_NAME_MAX_CHARS,
 	SKILL_DESCRIPTION_MAX_CHARS,
@@ -764,6 +768,8 @@ export * from "./github-identity.js";
 export * from "./dev-command-approval.js";
 export * from "./test-pr.js";
 export * from "./coding-model.js";
+export * from "./plan.js";
+export * from "./lesson-rules.js";
 export * from "./push.js";
 export * from "./avatar/push-avatar.js";
 export * from "./profile.js";
@@ -831,3 +837,5 @@ export * from "./model-tiers.js";
 
 export * from "./maintenance-status.js";
 export * from "./run-inspect.js";
+export * from "./lessons.js";
+export * from "./skill-review.js";

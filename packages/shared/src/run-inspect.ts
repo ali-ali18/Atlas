@@ -4,6 +4,9 @@
  * flag `ATLAS_RUN_INSPECTOR_FULL=1` está ligada (já redigido). Funções puras (sem I/O).
  */
 
+import { lessonRef, parseLessonFeedback, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackOutcome } from "./lessons.js";
+import { PLAN_OUTCOME_ADJUSTED, PLAN_OUTCOME_APPROVED } from "./plan.js";
+
 export const INSPECT_CATEGORIES = ["system", "tools", "history", "toolResults", "notes", "turn"] as const;
 export type InspectCategory = (typeof INSPECT_CATEGORIES)[number];
 
@@ -89,6 +92,28 @@ export type InspectApproval = {
 	status: "pending" | "approved" | "rejected" | "failed";
 	detail?: string;
 	ok?: boolean;
+	/** Cartão de plano (`propose_plan`): proposto, aprovado, ajustado (o usuário pediu mudança) ou cancelado. */
+	plan?: { steps: number; state: "proposed" | "approved" | "adjusted" | "cancelled" };
+};
+
+/** Hooks do run: acertos do portão do plano e das regras das lições (só metadados). */
+export type InspectHooks = {
+	hits: Array<{ source: "plan" | "rule"; action: "blocked" | "confirm" | "skipped"; tool: string; ref?: string; ruleKind?: string; detail?: string }>;
+	/** Refs (L1a2b) das lições cuja regra barrou uma chamada que depois deu certo. */
+	helped: string[];
+};
+
+/** Lições (playbook do bot) neste run: o que foi injetado, o que o modelo marcou como usado e a última revisão em segundo plano. */
+export type InspectLessons = {
+	/** Ids curtos (L1a2b) das lições injetadas, sem repetição, na ordem em que entraram. */
+	injected: string[];
+	atStart: number;
+	/** Lições de conector/tool que entraram depois, ao carregar o conector (chave → ids curtos). */
+	loaded: Array<{ key: string; refs: string[] }>;
+	/** Marcadas pelo modelo com `lesson_feedback`. */
+	used: Array<{ ref: string; outcome: LessonFeedbackOutcome }>;
+	/** Resultado da revisão de lições do run anterior (job em segundo plano), mostrado como ação neste run. */
+	review?: NonNullable<InspectLessonsPayload["review"]>;
 };
 
 export type RunInspection = {
@@ -100,6 +125,8 @@ export type RunInspection = {
 	error?: string;
 	fullRequestEnabled: boolean;
 	context?: InspectContextPayload["transcript"];
+	lessons?: InspectLessons;
+	hooks?: InspectHooks;
 	steps: InspectStepView[];
 	toolCalls: InspectToolCall[];
 	approvals: InspectApproval[];
@@ -127,6 +154,7 @@ export type InspectRawApproval = { id: string; content: string };
 export const INSPECT_ARGS_MAX = 400;
 export const INSPECT_SUMMARY_MAX = 300;
 export const INSPECT_ERRORS_MAX = 10;
+export const INSPECT_HOOK_HITS_MAX = 30;
 
 function record(value: unknown): Record<string, unknown> | undefined {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
@@ -199,7 +227,20 @@ function parseApproval(row: InspectRawApproval): InspectApproval | null {
 		const status = card.status;
 		if (status !== "pending" && status !== "approved" && status !== "rejected" && status !== "failed") return null;
 		const outcome = record(card.outcome);
+		const planCard = record(card.plan);
+		const planSteps = Array.isArray(planCard?.steps) ? planCard.steps.length : 0;
+		const detailText = str(outcome?.detail);
+		const planState: NonNullable<InspectApproval["plan"]>["state"] | undefined = !planCard
+			? undefined
+			: status === "approved" || detailText === PLAN_OUTCOME_APPROVED
+				? "approved"
+				: detailText === PLAN_OUTCOME_ADJUSTED
+					? "adjusted"
+					: status === "pending"
+						? "proposed"
+						: "cancelled";
 		return {
+			...(planState ? { plan: { steps: planSteps, state: planState } } : {}),
 			id: str(card.confirmId) ?? row.id,
 			title: clip(str(card.title) ?? "", 200),
 			status,
@@ -228,6 +269,7 @@ export function buildRunInspection(input: {
 	const steps: InspectStepView[] = [];
 	const toolCalls: InspectToolCall[] = [];
 	let currentTools: string[] = [];
+	const used: InspectLessons["used"] = [];
 	let prompt = 0;
 	let completion = 0;
 	let cost: number | undefined;
@@ -289,6 +331,17 @@ export function buildRunInspection(input: {
 			const status = record(output?.status);
 			const uncertain = status?.uncertain === true;
 			const failed = step.status === "failed" || output?.ok === false;
+			if (name === "lesson_feedback" && step.type === "tool_result" && !failed) {
+				let rawArgs: unknown = inputJson?.args;
+				if (typeof rawArgs === "string") {
+					try {
+						rawArgs = JSON.parse(rawArgs);
+					} catch {
+						rawArgs = undefined;
+					}
+				}
+				for (const entry of parseLessonFeedback(record(rawArgs) ?? {})) used.push({ ref: entry.ref.replace(/^\[|\]$/g, ""), outcome: entry.outcome });
+			}
 			toolCalls.push({
 				id: step.idempotencyKey ?? `${step.decisionIndex}:${step.subIndex}`,
 				name,
@@ -302,6 +355,12 @@ export function buildRunInspection(input: {
 	}
 
 	let context: InspectContextPayload["transcript"] | undefined;
+	const lessonIds: string[] = [];
+	let lessonsAtStart = 0;
+	const lessonsLoaded: InspectLessons["loaded"] = [];
+	let lessonReview: InspectLessons["review"];
+	const hookHits: InspectHooks["hits"] = [];
+	const hookHelped: string[] = [];
 	const errors: Array<{ message: string; at?: string }> = [];
 	for (const event of input.events) {
 		const payload = record(event.payload);
@@ -315,6 +374,48 @@ export function buildRunInspection(input: {
 					...(num(transcript?.priorMessages) !== undefined ? { priorMessages: num(transcript?.priorMessages) } : {}),
 					...(num(transcript?.loadedTools) !== undefined ? { loadedTools: num(transcript?.loadedTools) } : {}),
 				};
+			}
+		} else if (event.type === "inspect_lessons") {
+			const ids = strings(payload?.injected) ?? [];
+			const key = str(payload?.key);
+			const refs = ids.map(lessonRef);
+			for (const ref of refs) if (!lessonIds.includes(ref)) lessonIds.push(ref);
+			if (key) lessonsLoaded.push({ key: clip(key, 120), refs });
+			else lessonsAtStart += refs.length;
+			const review = record(payload?.review);
+			if (review && str(review.status) && str(review.runId)) {
+				lessonReview = {
+					runId: str(review.runId)!,
+					at: str(review.at) ?? "",
+					status: str(review.status)!,
+					...(num(review.added) !== undefined ? { added: num(review.added) } : {}),
+					...(num(review.updated) !== undefined ? { updated: num(review.updated) } : {}),
+					...(num(review.retired) !== undefined ? { retired: num(review.retired) } : {}),
+					...(num(review.counters) !== undefined ? { counters: num(review.counters) } : {}),
+					...(num(review.rejected) !== undefined ? { rejected: num(review.rejected) } : {}),
+					...(review.skillProposal === true ? { skillProposal: true } : {}),
+					...(strings(review.signals) ? { signals: strings(review.signals)!.slice(0, 6) } : {}),
+				};
+			}
+		} else if (event.type === "inspect_hooks") {
+			const hooks = payload as Partial<InspectHooksPayload> | undefined;
+			for (const hit of Array.isArray(hooks?.hits) ? hooks.hits : []) {
+				const row = record(hit);
+				const source = row?.source === "plan" || row?.source === "rule" ? row.source : undefined;
+				const action = row?.action === "blocked" || row?.action === "confirm" || row?.action === "skipped" ? row.action : undefined;
+				if (!row || !source || !action || !str(row.tool) || hookHits.length >= INSPECT_HOOK_HITS_MAX) continue;
+				hookHits.push({
+					source,
+					action,
+					tool: clip(str(row.tool)!, 120),
+					...(str(row.lessonId) ? { ref: lessonRef(str(row.lessonId)!) } : {}),
+					...(str(row.ruleKind) ? { ruleKind: clip(str(row.ruleKind)!, 40) } : {}),
+					...(str(row.detail) ? { detail: clip(scrub(str(row.detail)!), 160) } : {}),
+				});
+			}
+			for (const id of strings(hooks?.helped) ?? []) {
+				const ref = lessonRef(id);
+				if (!hookHelped.includes(ref)) hookHelped.push(ref);
 			}
 		} else if (event.type === "error") {
 			const message = str(payload?.error);
@@ -331,6 +432,10 @@ export function buildRunInspection(input: {
 		...(input.run.error ? { error: clip(scrub(input.run.error), INSPECT_SUMMARY_MAX) } : {}),
 		fullRequestEnabled: input.fullRequestEnabled ?? steps.some((item) => item.hasRequest),
 		...(context ? { context } : {}),
+		...(lessonIds.length > 0 || used.length > 0 || lessonReview
+			? { lessons: { injected: lessonIds, atStart: lessonsAtStart, loaded: lessonsLoaded, used, ...(lessonReview ? { review: lessonReview } : {}) } }
+			: {}),
+		...(hookHits.length > 0 || hookHelped.length > 0 ? { hooks: { hits: hookHits, helped: hookHelped } } : {}),
 		steps,
 		toolCalls,
 		approvals: input.approvals.map(parseApproval).filter((item): item is InspectApproval => item !== null),

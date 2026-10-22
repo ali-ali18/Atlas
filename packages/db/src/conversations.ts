@@ -19,6 +19,7 @@ import {
 	parseSecretsRequestInfo,
 	parseEmailKeyRequestInfo,
 	parseGithubIdentityInfo,
+	parsePlanInfo,
 	parseSkillProposalCard,
 	serializeConversationCard,
 	SUPERSEDED_CARD_DETAIL,
@@ -359,6 +360,7 @@ export async function persistConversationCardFromEvent(
 			...(typeof event.detail === "string" ? { detail: event.detail } : {}),
 			...(items ? { items } : {}),
 			...(typeof event.draftCount === "number" ? { draftCount: event.draftCount } : {}),
+			...(event.learned === true && typeof event.skillId === "string" ? { learned: true, skillId: event.skillId } : {}),
 		};
 		await appendConversationCard(conversationId, card);
 		return;
@@ -427,6 +429,7 @@ export async function persistConversationCardFromEvent(
 			...(parseDevApprovalInfo(event.devApproval) ? { devApproval: parseDevApprovalInfo(event.devApproval) } : {}),
 			...(parseSecretsRequestInfo(event.secretsRequest) ? { secretsRequest: parseSecretsRequestInfo(event.secretsRequest) } : {}),
 			...(parseEmailKeyRequestInfo(event.emailKeyRequest) ? { emailKeyRequest: parseEmailKeyRequestInfo(event.emailKeyRequest) } : {}),
+			...(parsePlanInfo(event.plan) ? { plan: parsePlanInfo(event.plan) } : {}),
 			...(parseGithubIdentityInfo(event.githubIdentity) ? { githubIdentity: parseGithubIdentityInfo(event.githubIdentity) } : {}),
 		});
 		if (event.status !== "approved" && event.status !== "rejected" && event.status !== "failed") {

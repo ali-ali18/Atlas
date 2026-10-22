@@ -72,14 +72,14 @@ function overlapQuestion(subject: string): JevQuestion {
 	};
 }
 
-const oneLine = (text: string, max: number) => text.replace(/\s+/g, " ").trim().slice(0, max);
+export const oneLine = (text: string, max: number) => text.replace(/\s+/g, " ").trim().slice(0, max);
 
 function isProbability(value: unknown): value is number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
 /** Uma chamada ao Jev com prazo próprio; resposta fora de [0,1] ou incompleta lança. */
-async function askJevChecked(ask: JevAsk, input: { state: unknown; questions: Record<string, JevQuestion>; timeoutMs: number; signal?: AbortSignal }): Promise<Record<string, number>> {
+export async function askJevChecked(ask: JevAsk, input: { state: unknown; questions: Record<string, JevQuestion>; timeoutMs: number; signal?: AbortSignal }): Promise<Record<string, number>> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		const timeout = new Promise<never>((_, reject) => {
@@ -95,7 +95,7 @@ async function askJevChecked(ask: JevAsk, input: { state: unknown; questions: Re
 	}
 }
 
-function parseJsonObject(text: string): Record<string, unknown> {
+export function parseJsonObject(text: string): Record<string, unknown> {
 	const start = text.indexOf("{");
 	const end = text.lastIndexOf("}");
 	if (start < 0 || end <= start) throw new Error("memory gate: resposta sem JSON");

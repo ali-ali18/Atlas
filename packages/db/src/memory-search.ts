@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { embedText } from "@workspace/llm";
-import type { MemoryEntry, MemoryTarget } from "@workspace/shared";
+import type { MemoryEntry, MemoryStoreView, MemoryTarget } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { getMemorySnapshot, memoryRef, promptMemoryView, renderMemoryStoreBlock, toMemoryEntry } from "./memory-entries.js";
 
@@ -180,10 +180,31 @@ function renderRelevantBlock(
 }
 
 /**
- * F2 — memória em dois tiers. `stable`: perfil USER integral (e as notas do bot
- * inteiras quando não há pergunta para ranquear): muda só quando a memória muda.
- * `volatile`: notas do bot por relevância à pergunta: muda a cada pedido, então
- * quem monta o prompt a coloca depois do histórico, nunca no prefixo.
+ * Decisão pura dos dois tiers (testável sem banco). `stable`: perfil USER e notas do
+ * bot inteiras (`promptMemoryView`, mesmo orçamento): muda só quando a memória muda,
+ * então o cache do prefixo se mantém. `volatile`: só o que NÃO coube na visão estável
+ * e casa com a pergunta (bots com limite alto, tipo orquestrador), sem repetir ids.
+ */
+export function composeMemoryTiers(
+	snapshot: { user: MemoryStoreView; memory: MemoryStoreView },
+	hits: MemorySearchHit[],
+	now: Date = new Date(),
+): { stable: string | null; volatile: string | null } {
+	const userBlock = renderMemoryStoreBlock("USER (perfil do usuário)", snapshot.user);
+	const memoryView = promptMemoryView(snapshot.memory, now);
+	const memoryBlock = renderMemoryStoreBlock("MEMORY (notas do agente)", memoryView);
+	const blocks = [userBlock, memoryBlock].filter((block): block is string => Boolean(block));
+	const shown = new Set(memoryView.entries.map((entry) => entry.id));
+	const extra = hits.filter((hit) => !shown.has(hit.entry.id));
+	return {
+		stable: blocks.length > 0 ? blocks.join("\n\n") : null,
+		volatile: renderRelevantBlock("MEMORY (outras notas, por relevância)", extra, "memory"),
+	};
+}
+
+/**
+ * F2 — memória em dois tiers (ver `composeMemoryTiers`). A busca por relevância só
+ * roda quando há pergunta; sem ela, tudo que cabe já está no estável.
  * Conta única: leitura inclui o legado `default`.
  */
 export async function renderMemoryTiers(
@@ -193,18 +214,9 @@ export async function renderMemoryTiers(
 ): Promise<{ stable: string | null; volatile: string | null }> {
 	const effective = userId ?? "default";
 	const snapshot = await getMemorySnapshot(effective, botId);
-	const userBlock = renderMemoryStoreBlock(
-		"USER (perfil do usuário)",
-		snapshot.user,
-	);
 	const trimmed = query?.trim() ?? "";
-	if (!trimmed) {
-		const memoryBlock = renderMemoryStoreBlock("MEMORY (notas do agente)", promptMemoryView(snapshot.memory));
-		const blocks = [userBlock, memoryBlock].filter((block): block is string => Boolean(block));
-		return { stable: blocks.length > 0 ? blocks.join("\n\n") : null, volatile: null };
-	}
-	const hits = await searchMemoryEntries({ userId: effective, botId, query: trimmed });
-	return { stable: userBlock, volatile: renderRelevantBlock("MEMORY (notas do agente)", hits, "memory") };
+	const hits = trimmed ? await searchMemoryEntries({ userId: effective, botId, query: trimmed }) : [];
+	return composeMemoryTiers(snapshot, hits);
 }
 
 /** Perfil USER sempre integral; notas do bot só por relevância da pergunta (tudo num bloco só). */

@@ -19,6 +19,10 @@ import {
 	type ConnectorGuideJobResult,
 	type ConnectorLessonJobPayload,
 	type ConnectorLessonJobResult,
+	type LessonReviewJobPayload,
+	type LessonReviewJobResult,
+	type SkillReviewJobPayload,
+	type SkillReviewJobResult,
 	type AttachmentExtractJobResult,
 	type MemoryCleanupJobPayload,
 	type MemoryCleanupJobResult,
@@ -78,6 +82,8 @@ import { warmAttachmentExtract } from "./attachments.js";
 import { processChatCompletionJob } from "./processors/chat-completion.js";
 import { processMemoryCleanup } from "./processors/memory-cleanup.js";
 import { processMemoryReview } from "./processors/memory-review.js";
+import { processLessonReview } from "./processors/lesson-review.js";
+import { processSkillReview } from "./processors/skill-review.js";
 import { processSummaryJob } from "./processors/summary.js";
 import { processConnectorGuideJob, processConnectorLessonJob } from "./processors/connector-guide.js";
 import { chainRunFollowUp, finalizeExhaustedAgentRun, processAgentRunJob } from "./processors/agent-run.js";
@@ -128,7 +134,9 @@ type AtlasJobPayload =
 	| SummaryJobPayload
 	| AttachmentExtractJobPayload
 	| ConnectorGuideJobPayload
-	| ConnectorLessonJobPayload;
+	| ConnectorLessonJobPayload
+	| LessonReviewJobPayload
+	| SkillReviewJobPayload;
 type AtlasJobResult =
 	| ChatCompletionJobResult
 	| MemoryReviewJobResult
@@ -136,7 +144,9 @@ type AtlasJobResult =
 	| SummaryJobResult
 	| AttachmentExtractJobResult
 	| ConnectorGuideJobResult
-	| ConnectorLessonJobResult;
+	| ConnectorLessonJobResult
+	| LessonReviewJobResult
+	| SkillReviewJobResult;
 
 const chatWorker = new Worker<AtlasJobPayload, AtlasJobResult>(
 	CHAT_QUEUE_NAME,
@@ -163,6 +173,10 @@ const chatWorker = new Worker<AtlasJobPayload, AtlasJobResult>(
 				return processConnectorGuideJob(job as Job<ConnectorGuideJobPayload, ConnectorGuideJobResult>, config);
 			case ATLAS_JOB_NAMES.connectorLesson:
 				return processConnectorLessonJob(job as Job<ConnectorLessonJobPayload, ConnectorLessonJobResult>, config);
+			case ATLAS_JOB_NAMES.lessonReview:
+				return processLessonReview(job as Job<LessonReviewJobPayload, LessonReviewJobResult>, config);
+			case ATLAS_JOB_NAMES.skillReview:
+				return processSkillReview(job as Job<SkillReviewJobPayload, SkillReviewJobResult>, config);
 			case ATLAS_JOB_NAMES.attachmentExtract: {
 				const payload = (job as Job<AttachmentExtractJobPayload, AttachmentExtractJobResult>).data;
 				return { status: await warmAttachmentExtract(payload) };
@@ -259,6 +273,27 @@ const agentWorker = new Worker<AgentRunJobPayload, AgentRunJobResult>(
 			enqueueMemoryReview: async (payload) => {
 				await chatQueue.add(ATLAS_JOB_NAMES.memoryReview, payload, {
 					jobId: `memory-review-${job.data.runId}-${Date.now()}`,
+				});
+			},
+			enqueueLessonReview: async (payload) => {
+				// Debounce por conversa: o job fica 45 s atrasado e um segundo aviso nesse intervalo é ignorado (mesmo jobId);
+				// ao terminar ele some da fila (removeOnComplete) e a conversa pode agendar o próximo.
+				await chatQueue.add(ATLAS_JOB_NAMES.lessonReview, payload, {
+					jobId: `lesson-review-${payload.conversationId}`,
+					delay: 45_000,
+					attempts: 1,
+					removeOnComplete: true,
+					removeOnFail: true,
+				});
+			},
+			enqueueSkillReview: async (payload) => {
+				// Depois da revisão de lições (45 s): uma por run, sem debounce (o run já é o recorte).
+				await chatQueue.add(ATLAS_JOB_NAMES.skillReview, payload, {
+					jobId: `skill-review-${payload.runId}`,
+					delay: 60_000,
+					attempts: 1,
+					removeOnComplete: true,
+					removeOnFail: true,
 				});
 			},
 			enqueueConnectorLesson: async (payload) => {

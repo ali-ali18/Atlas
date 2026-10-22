@@ -1,7 +1,8 @@
+import type { PlanInfo } from "@workspace/shared";
 import { prisma } from "./client.js";
 
 export type SkillPendingKind = "need-name" | "pick-skill" | "confirm";
-export type SkillPendingAction = "dev-pr-create" | "request-secrets" | "dev-command" | "rename" | "edit" | "show" | "delete" | "delete-all" | "clean-drafts" | "mcp-call" | "generate-image" | "set-primary-bot" | "vault-use" | "email-send" | "email-key" | "email-create-mailbox";
+export type SkillPendingAction = "dev-pr-create" | "request-secrets" | "dev-command" | "rename" | "edit" | "show" | "delete" | "delete-all" | "clean-drafts" | "mcp-call" | "generate-image" | "set-primary-bot" | "vault-use" | "email-send" | "email-key" | "email-create-mailbox" | "plan";
 export type SkillPendingCandidate = { skillId: string; capabilityKey: string; title: string };
 /** Chamada de conector MCP que escreve dados, aguardando o "confirmado". */
 export type SkillPendingMcpCall = {
@@ -45,6 +46,8 @@ export type SkillPendingPayload = {
 	devPrCreate?: { callKey: string; sessionId: string; title: string; base: string; head: string };
 	/** Pedido de segredos do projeto: só nomes e o ambiente; os valores vão do cartão direto para a API. */
 	secretsRequest?: { environmentId: string; repo: string; names: string[] };
+	/** Plano proposto (`propose_plan`) aguardando "Aprovar plano"; aprovar não aprova escritas. */
+	plan?: PlanInfo;
 	/** Uso de um login do Cofre pelo bot (aprovação por conversa); nenhum valor aqui. */
 	vaultUse?: { secretId: string; name: string; label: string; domain: string };
 };

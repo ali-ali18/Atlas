@@ -22,7 +22,7 @@ import { exchangeFocusKey } from "@/lib/bot-exchange";
 import { groupBotMessages, type BotPartner, type ThreadItem } from "@/lib/bot-thread";
 import { BotAutoDecisionNote, BotLinkMarker, BotNeedsUserCard, BotThreadGroup, type BotRef } from "@/components/ai-elements/bot-messages";
 import { pendingNeedsUser } from "@/lib/bot-needs-thread";
-import { botNeedsUserStatusLine, devApprovalRejectText } from "@workspace/shared";
+import { PLAN_ADJUST_DRAFT, botNeedsUserStatusLine, devApprovalRejectText } from "@workspace/shared";
 import { beginCardDecision, cardDecisionKey, endCardDecision } from "@/lib/card-decision";
 import { approvalMarkerFor, failedApprovalDetail, approvalShortLabel, isHiddenProtocolBubble, selectDockEntries } from "@/lib/approval-dock";
 import { answerBotPending } from "@/lib/atlas-api";
@@ -64,6 +64,7 @@ import {
 	resolveRoutineProposal,
 	resolveBotProposal,
 	resolveSkillProposal,
+	undoLearnedSkill,
 } from "@/lib/atlas-api";
 import { hasModelTiers, readBotModelTiers, readProactiveSettings } from "@workspace/shared";
 import { openSkillProposalInEditor, proposalErrorMessage } from "@/components/ai-elements/skills";
@@ -192,6 +193,9 @@ export function ChatThread({
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const [barHeight, setBarHeight] = useState(0);
+	// "Ajustar" no cartão do plano: rascunho no composer. Um prefill novo vindo de fora passa na frente.
+	const [adjustPrefill, setAdjustPrefill] = useState<{ text: string; nonce: number } | null>(null);
+	useEffect(() => setAdjustPrefill(null), [prefill?.nonce]);
 	// A barra só pode reagir ao observer depois da abertura na posição final (fim ou primeira não lida).
 	const [opened, setOpened] = useState(false);
 	// Cartões pendentes que a conversa já deixou para trás (fora da tela): só eles vão para a barra do composer.
@@ -359,6 +363,11 @@ export function ChatThread({
 		} catch (cause) {
 			applySkillProposalState(proposalId, { error: proposalErrorMessage(cause) });
 		}
+	}
+	// "Aprendi": desfaz na API (apaga a criada / volta a anterior). Erro sobe para o card mostrar a mensagem.
+	async function undoLearned(card: Extract<Message, { kind: "skill" }>) {
+		if (!card.skillId || card.versionNumber === undefined || (card.action !== "created" && card.action !== "updated")) return;
+		await undoLearnedSkill({ skillId: card.skillId, action: card.action, revision: card.versionNumber, conversationId: agent?.conversationId ?? undefined });
 	}
 	// Novo agente proposto pelo bot: Criar agente / Agora não. Nada existe antes do OK; aprovar duas vezes devolve o mesmo resultado.
 	async function decideBotProposal(
@@ -1009,7 +1018,7 @@ export function ChatThread({
 			</header>
 
 			<div
-				className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+				className="min-h-0 flex-1 overflow-x-clip overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
 				ref={scrollRef}
 			>
 				{loading && messages.length === 0 ? (
@@ -1250,6 +1259,7 @@ export function ChatThread({
 											void resumeRun();
 										}}
 										onCancel={confirmHandlers.onCancel}
+										onAdjustPlan={() => setAdjustPrefill({ text: PLAN_ADJUST_DRAFT, nonce: Date.now() })}
 										onBotProfileConfirm={(profile) => {
 											// Gate humano: otimista approved + resolve no
 											// servidor (aplica o PATCH no bot). Erro volta
@@ -1279,6 +1289,7 @@ export function ChatThread({
 										onRoutineProposalDecline={(card) => void decideRoutineProposal(card, "decline")}
 										onSkillProposalApprove={(card) => void decideSkillProposal(card, "approved")}
 										onSkillProposalReject={(card) => void decideSkillProposal(card, "rejected")}
+										onUndoLearnedSkill={undoLearned}
 										onSkillProposalEdit={
 											agent?.conversationId
 												? (card) => openSkillProposalInEditor(card.proposal, agent.conversationId as string)
@@ -1389,7 +1400,7 @@ export function ChatThread({
 				disabled={false}
 				model={model}
 				servedModel={servedModel}
-				prefill={prefill}
+				prefill={adjustPrefill ?? prefill}
 				onModelChange={(next) => {
 					setModel(next);
 					onAgentModelChange?.(next);

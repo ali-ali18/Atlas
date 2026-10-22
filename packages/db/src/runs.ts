@@ -19,7 +19,7 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { AGENT_RUNTIME_CHECKPOINT_VERSION, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolResultStatus, redactSecrets } from "@workspace/shared";
+import { AGENT_RUNTIME_CHECKPOINT_VERSION, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
 import type { ToolResultStatus } from "@workspace/shared";
 import type { ComputerUseEvent, ConversationTaskContext, ResearchNote, TaskLedger, TaskListItem } from "@workspace/shared";
 import { Prisma } from "@prisma/client";
@@ -2141,10 +2141,7 @@ export async function completeAgentRunAtomically(input: {
 		}
 
 		if (input.conversationId && conversationOk) {
-			const segments = input.assistantText
-				.split(/\n{2,}/)
-				.map((s) => s.trim())
-				.filter((s) => s.length > 0);
+			const segments = splitReplySegments(input.assistantText);
 			for (const segment of segments) {
 				await tx.conversationMessage.create({
 					data: {

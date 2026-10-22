@@ -66,7 +66,8 @@ export function makeValueFormatter(
     const intl = new Intl.NumberFormat("pt-BR", {
       style: "currency",
       currency,
-      ...(compact ? { notation: "compact", maximumFractionDigits: 1 } : {}),
+      // Moeda herda 2 casas mínimas; no compacto isso vira "R$ 60,0 mil".
+      ...(compact ? { notation: "compact", maximumFractionDigits: 1, minimumFractionDigits: 0 } : {}),
       ...(!compact && options.axis ? { maximumFractionDigits: 2, minimumFractionDigits: 0 } : {}),
     })
     return (value) => intl.format(value)

@@ -1,6 +1,6 @@
 "use client";
 
-import { BellIcon, BotIcon, ChevronRightIcon, CodeIcon, LanguagesIcon, LayersIcon, SignalHighIcon, SparklesIcon, UserCheckIcon, WorkflowIcon } from "lucide-react";
+import { BellIcon, BotIcon, ChevronRightIcon, CodeIcon, LanguagesIcon, LayersIcon, ListChecksIcon, SignalHighIcon, SparklesIcon, UserCheckIcon, WorkflowIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
@@ -22,10 +22,12 @@ import {
 	modelDisplayName,
 	readCodingModel,
 	readDecideForOtherBots,
+	readPlanMode,
 	readSubagentModel,
 	resolveChatgptFallbackModel,
 	withCodingModel,
 	withDecideForOtherBots,
+	withPlanMode,
 	withSubagentModel,
 } from "@workspace/shared";
 
@@ -33,6 +35,7 @@ import { type Agent, defaultBodyColor, defaultBotShape } from "../data";
 import { AutonomySettings } from "../autonomy/autonomy-settings";
 import { SettingsPicker } from "../settings-picker";
 import { AvatarEditor } from "./avatar-editor";
+import { LessonsTab } from "./lessons-tab";
 import { MemoryTab } from "./memory-tab";
 import { ProactiveSettingsSection } from "./proactive-settings";
 
@@ -201,6 +204,7 @@ export function AgentSettings({
 				<TabsList aria-label="Seções das configurações">
 					<TabsTrigger value="general">Geral</TabsTrigger>
 					<TabsTrigger value="memory">Memória</TabsTrigger>
+					<TabsTrigger value="lessons">Lições</TabsTrigger>
 				</TabsList>
 				<TabsContent className="pt-3" value="general">
 			<SettingsStack>
@@ -326,6 +330,20 @@ export function AgentSettings({
 					<AutonomySettings botId={agent.id} scope="bot" variant="row" />
 
 					<SettingRow
+						caption={<p>Em tarefas com vários passos que alteram dados ou enviam algo, o bot mostra o plano e espera o seu OK. Aprovar o plano não aprova as ações: cada alteração continua pedindo confirmação.</p>}
+						control="inline"
+						htmlFor="agent-plan-mode"
+						icon={ListChecksIcon}
+						label="Planejar antes de tarefas grandes"
+					>
+						<Switch
+							checked={readPlanMode(policyJson)}
+							id="agent-plan-mode"
+							onCheckedChange={(checked) => onChange({ policyJson: withPlanMode(policyJson, checked) })}
+						/>
+					</SettingRow>
+
+					<SettingRow
 						caption={<p>{DECIDE_FOR_OTHER_BOTS_HINT}</p>}
 						control="inline"
 						htmlFor="agent-decide-for-others"
@@ -394,6 +412,9 @@ export function AgentSettings({
 				</TabsContent>
 				<TabsContent className="pt-3" value="memory">
 					<MemoryTab active={tab === "memory"} botId={agent.id} focusChanges={changesFocus} onFixInChat={onFixMemoryInChat} />
+				</TabsContent>
+				<TabsContent className="pt-3" value="lessons">
+					<LessonsTab active={tab === "lessons"} botId={agent.id} />
 				</TabsContent>
 			</Tabs>
 		</div>

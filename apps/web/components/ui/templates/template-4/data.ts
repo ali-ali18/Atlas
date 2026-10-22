@@ -216,6 +216,8 @@ export type Routine = {
 	/** Id do modelo desta rotina. */
 	model: string;
 	allowChatgptPlan?: boolean;
+	/** Aviso ao fim da execução: sempre, ou só quando o bot julgar importante. Ausente = sempre. */
+	notify?: "always" | "important";
 	/** cron = agendamento; event = webhook/github; once = lembrete de uma vez só; interval = a cada N min. */
 	triggerKind: "cron" | "event" | "once" | "interval";
 	triggers: RoutineTrigger[];
@@ -355,6 +357,10 @@ type MessageVariant =
 			emailKeyRequest?: import("@workspace/shared").EmailKeyRequestInfo;
 			/** Escrita no GitHub bloqueada: cartão com "Instalar o app" / "Usar minha conta desta vez". */
 			githubIdentity?: import("@workspace/shared").GithubIdentityCardInfo;
+			/** Plano proposto (`propose_plan`): cartão próprio com passos numerados e "Aprovar plano". */
+			plan?: import("@workspace/shared").PlanInfo;
+			/** Desfecho gravado no cartão (`outcome.detail`): diferencia "ajuste pedido" de "cancelado" no plano. */
+			planOutcome?: string;
 			confirmId?: string;
 			/** Um pedido mais novo da mesma conversa substituiu este (o servidor o recusou): aparece como "Expirado". */
 			superseded?: boolean;
@@ -412,6 +418,10 @@ type MessageVariant =
 			detail?: string;
 			items?: SkillListItemData[];
 			draftCount?: number;
+			/** Gravada sozinha pelo agente ("Aprendi"): `skillId` + `versionNumber` identificam o que desfazer. */
+			skillId?: string;
+			learned?: boolean;
+			undone?: boolean;
 	  }
 	| {
 			id: string;

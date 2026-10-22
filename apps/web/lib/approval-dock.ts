@@ -18,7 +18,7 @@ function shorten(text: string): string {
 
 /** Cartão de aprovação local que vai para o dock (o pedido de segredos é um formulário e continua na conversa). */
 function isDockConfirm(message: Message): message is ConfirmMessage {
-	return message.kind === "confirm" && !message.secretsRequest && !message.emailKeyRequest;
+	return message.kind === "confirm" && !message.secretsRequest && !message.emailKeyRequest && !message.plan;
 }
 
 /** Cartão repassado de outro bot que o usuário pode decidir daqui (questionário e logins ficam na conversa). */

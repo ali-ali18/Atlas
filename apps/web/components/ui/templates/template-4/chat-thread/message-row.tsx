@@ -18,7 +18,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import { CopyButton, ReactionBadges, ReactionTrigger, useMessageReactionControls } from "./message-reactions";
 
 import type { Message } from "../data";
-import { SkillActivityCard, SkillProposalCard, SkillsList } from "@/components/ai-elements/skills";
+import { SkillActivityCard, SkillLearnedCard, SkillProposalCard, SkillsList } from "@/components/ai-elements/skills";
 import { BotProposalCard, type BotProposalEdits } from "@/components/ai-elements/bots";
 import {
 	RoutineActivityCard,
@@ -43,6 +43,7 @@ import { EmailReceivedCard } from "./email-received-card";
 import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 import { CodeRunCard } from "./code-run-card";
 import { TaskListCard } from "./task-list-card";
+import { PlanCard, type PlanCardStatus } from "@workspace/ui/components/plan-card";
 import { CompactionCard } from "./compaction-card";
 import { ImagePendingCard } from "@/components/ai-elements/images/image-pending-card";
 import { MemoryUpdatedMarker } from "./memory-updated-marker";
@@ -63,6 +64,7 @@ export function MessageRow({
 	onConfirmAlways,
 	onConfirmReject,
 	onCancel,
+	onAdjustPlan,
 	onLoginOpenViewer,
 	onLoginDone,
 	onLoginUseVault,
@@ -77,6 +79,7 @@ export function MessageRow({
 	onSkillProposalApprove,
 	onSkillProposalReject,
 	onSkillProposalEdit,
+	onUndoLearnedSkill,
 	skillBots,
 	mentionMembers,
 	knownSkills,
@@ -96,6 +99,8 @@ export function MessageRow({
 	/** "Não perguntar mais para isto": confirma e cria a exceção de autonomia. */
 	onConfirmAlways?: (message: Extract<Message, { kind: "confirm" }>) => void;
 	onCancel?: (message: Extract<Message, { kind: "confirm" }>) => void;
+	/** "Ajustar" no cartão do plano: abre o composer com o rascunho do ajuste. */
+	onAdjustPlan?: (message: Extract<Message, { kind: "confirm" }>) => void;
 	/** "Recusar com comentário" (aprovação de comando): o agente recebe o comentário. */
 	onConfirmReject?: (message: Extract<Message, { kind: "confirm" }>, feedback: string) => void;
 	/** Card de login (F12/B5): abre o viewer da VM; "Terminei" retoma o run. */
@@ -124,6 +129,8 @@ export function MessageRow({
 	onSkillProposalApprove?: (message: Extract<Message, { kind: "skill-proposal" }>) => void;
 	onSkillProposalReject?: (message: Extract<Message, { kind: "skill-proposal" }>) => void;
 	onSkillProposalEdit?: (message: Extract<Message, { kind: "skill-proposal" }>) => void;
+	/** Desfaz uma skill que o agente aprendeu sozinho; rejeitar mostra o erro no card. */
+	onUndoLearnedSkill?: (message: Extract<Message, { kind: "skill" }>) => Promise<void>;
 	skillBots?: readonly { id: string; name: string }[];
 	/** Rotina proposta pelo bot (modo proativo): Criar/Manter e Agora não/Desfazer. */
 	onRoutineProposalAccept?: (message: Extract<Message, { kind: "routine-proposal" }>) => void;
@@ -172,12 +179,12 @@ export function MessageRow({
 			);
 		case "tool":
 			return (
-				<div className="flex items-center gap-2 self-start rounded-2xl border bg-card px-3 py-2 text-xs">
+				<div className="flex max-w-full min-w-0 items-center gap-2 self-start rounded-2xl border bg-card px-3 py-2 text-xs">
 					<span className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
 						<SparklesIcon className="size-3" />
 					</span>
-					<span className="text-muted-foreground">{message.label}</span>
-					<span className="font-medium text-foreground">{message.text}</span>
+					<span className="shrink-0 text-muted-foreground">{message.label}</span>
+					<span className="min-w-0 font-medium text-foreground [overflow-wrap:anywhere]">{message.text}</span>
 				</div>
 			);
 		case "skill":
@@ -185,6 +192,17 @@ export function MessageRow({
 			if (message.action === "listed") {
 				return (
 					<SkillsList items={message.items ?? []} draftCount={message.draftCount} />
+				);
+			}
+			if (message.learned && (message.action === "created" || message.action === "updated")) {
+				return (
+					<SkillLearnedCard
+						action={message.action}
+						name={message.title ?? message.capabilityKey ?? "skill"}
+						onUndo={message.skillId && onUndoLearnedSkill ? () => onUndoLearnedSkill(message) : undefined}
+						summary={message.detail}
+						undone={message.undone}
+					/>
 				);
 			}
 			return (
@@ -263,6 +281,24 @@ export function MessageRow({
 				/>
 			);
 		case "confirm":
+			if (message.plan) {
+				const status: PlanCardStatus = message.status === "approved" ? "approved" : message.status === "failed" ? "failed" : message.status === "rejected" ? (message.planOutcome === "ajuste pedido" ? "adjusted" : "cancelled") : "pending";
+				return (
+					<PlanCard
+						adjustLabel="Ajustar"
+						approveLabel={message.confirmLabel}
+						cancelLabel={message.cancelLabel}
+						needs={message.plan.needs}
+						onAdjust={onAdjustPlan ? () => onAdjustPlan(message) : undefined}
+						onApprove={() => onConfirm?.(message)}
+						onCancel={() => onCancel?.(message)}
+						risks={message.plan.risks}
+						status={status}
+						steps={message.plan.steps}
+						title={message.plan.title}
+					/>
+				);
+			}
 			if (message.emailKeyRequest) {
 				return (
 					<EmailKeyRequestCard
@@ -460,7 +496,7 @@ function UserMessageBubble({
 			</div>
 			<Bubble align="end" variant="muted">
 				<BubbleContent
-					className={cn("text-foreground", bubbleRadius("right", groupPosition))}
+					className={cn("whitespace-pre-wrap text-foreground", bubbleRadius("right", groupPosition))}
 				>
 					{mentionMembers?.length || knownSkills?.size ? renderMentions(text, mentionMembers ?? [], knownSkills) : text}
 				</BubbleContent>

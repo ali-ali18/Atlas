@@ -4,6 +4,7 @@ import type { ComputerMetrics } from "./computer-state.js";
 import type { DevApprovalCardInfo } from "./dev-command-approval.js";
 import type { SecretsRequestInfo } from "./dev-env-auto.js";
 import type { EmailKeyRequestInfo } from "./email.js";
+import type { PlanInfo } from "./plan.js";
 import type { GithubIdentityCardInfo } from "./github-identity.js";
 import type { ChatMessage } from "./chat.js";
 import type { QuestionnaireCardItem, PersistedImagesCard } from "./skill-card.js";
@@ -140,6 +141,8 @@ export type ComputerUseEvent =
 			detail?: string;
 			items?: SkillListItemData[];
 			draftCount?: number;
+			/** Gravada sozinha pelo agente: o card mostra "Aprendi" e oferece desfazer. */
+			learned?: boolean;
 	  }
 	| SkillProposalEvent
 	| BotProposalEvent
@@ -224,6 +227,8 @@ export type ComputerUseEvent =
 		secretsRequest?: SecretsRequestInfo;
 		/** Pedido da chave do e-mail (cartão com campo de senha; o valor nunca passa pelo modelo). */
 		emailKeyRequest?: EmailKeyRequestInfo;
+		/** Plano proposto (`propose_plan`): passos, o que falta saber e riscos; o cartão tem "Aprovar plano", "Ajustar" e "Cancelar". */
+		plan?: PlanInfo;
 		/** Escrita no GitHub bloqueada (repositório fora do app): instalar o app ou usar a conta desta vez. */
 		githubIdentity?: GithubIdentityCardInfo;
 		/** Card já decidido (ex.: resumo de autonomia): sem botões e não para o run. */

@@ -6,6 +6,11 @@ import type {
 
 /** Quem criou a rotina: o usuário (padrão) ou o bot, no modo proativo. */
 export type RoutineCreatedBy = "user" | "bot";
+/** Aviso (push) ao fim da execução: sempre, ou só quando o bot julgar importante. */
+export type RoutineNotifyMode = "always" | "important";
+export function parseRoutineNotifyMode(value: unknown): RoutineNotifyMode {
+	return value === "important" ? "important" : "always";
+}
 export type RoutineTriggerType = "cron" | "event" | "once" | "interval";
 export type RoutineTriggeredBy = "schedule" | "manual" | "event";
 export type RoutineRunStatus =
@@ -28,6 +33,8 @@ export type RoutineRecord = {
 	/** Id OpenRouter escolhido no painel para esta rotina. */
 	model: string;
 	allowChatgptPlan?: boolean;
+	/** Ausente = "always". */
+	notify?: RoutineNotifyMode;
 	enabled: boolean;
 	triggerType: RoutineTriggerType;
 	schedule: string | null;
@@ -91,6 +98,8 @@ export type CreateRoutineInput = {
 	prompt: string;
 	model?: string;
 	allowChatgptPlan?: boolean;
+	/** Default "always". */
+	notify?: RoutineNotifyMode;
 	/** Default "user". */
 	createdBy?: RoutineCreatedBy;
 	/** Default "cron". */
@@ -142,6 +151,7 @@ export type UpdateRoutineInput = {
 	prompt?: string;
 	model?: string;
 	allowChatgptPlan?: boolean;
+	notify?: RoutineNotifyMode;
 	triggerType?: RoutineTriggerType;
 	schedule?: string | null;
 	enabled?: boolean;

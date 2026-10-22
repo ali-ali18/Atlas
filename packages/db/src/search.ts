@@ -87,7 +87,7 @@ export async function searchConversationMessages(
 					AND cm."role" IN ('system', 'user', 'assistant', 'tool')
 					${excludeFilter}
 					${scopeFilter}
-				ORDER BY cm."createdAt" DESC
+				ORDER BY ts_rank(to_tsvector('portuguese', cm."content"), plainto_tsquery('portuguese', ${trimmed})) DESC, cm."createdAt" DESC
 				LIMIT ${limit}
 			`;
 

@@ -133,6 +133,20 @@ export function isSameModelChoice(
 }
 
 /**
+ * Decide o que persistir quando o composer troca o modelo do bot. Vazio = "Automático" e
+ * também é uma escolha: vai ao servidor como `null` (limpa o modelo fixo). Sem isso o
+ * bot voltava ao último modelo concreto ao reabrir. Devolve `null` se nada mudou.
+ */
+export function planModelPersist(
+	current: string | null | undefined,
+	next: string,
+): { model: string; apiValue: string | null } | null {
+	const model = next.trim();
+	if (isSameModelChoice(current, model)) return null;
+	return { model, apiValue: model || null };
+}
+
+/**
  * Realinha o `before` do snapshot ao modelo recém-persistido, para o fechamento
  * não reenviar o mesmo diff. Outro bot ou sem snapshot: devolve o mesmo objeto.
  */

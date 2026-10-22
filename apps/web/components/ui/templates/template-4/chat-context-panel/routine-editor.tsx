@@ -364,6 +364,7 @@ export function RoutineEditor({
 	const [newGroupError, setNewGroupError] = useState<string | null>(null);
 	const [newGroupSaving, setNewGroupSaving] = useState(false);
 	const [allowChatgptPlan, setAllowChatgptPlan, setAllowChatgptPlanRaw] = useDirtyState(routine?.allowChatgptPlan ?? false, dirtyRef);
+	const [notify, setNotify, setNotifyRaw] = useDirtyState<"always" | "important">(routine?.notify ?? "always", dirtyRef);
 	const [triggerKind, setTriggerKind, setTriggerKindRaw] = useDirtyState<
 		"cron" | "event" | "once" | "interval"
 	>(routine?.triggerKind ?? "cron", dirtyRef);
@@ -480,6 +481,7 @@ export function RoutineEditor({
 			active,
 			model,
 			allowChatgptPlan,
+			notify,
 			...(groupId !== null || routine?.groupId ? { groupId } : {}),
 			triggerKind,
 			triggers: triggers.map((trigger) => ({
@@ -556,6 +558,7 @@ export function RoutineEditor({
 		instruction,
 		model,
 		allowChatgptPlan,
+		notify,
 		groupId,
 		name,
 		triggerKind,
@@ -601,6 +604,7 @@ export function RoutineEditor({
 		if (!routine) return;
 		setActiveRaw(routine.active);
 		setAllowChatgptPlanRaw(routine.allowChatgptPlan ?? false);
+		setNotifyRaw(routine.notify ?? "always");
 		setGroupIdRaw(routine.groupId ?? null);
 		setNameRaw(routine.name);
 		setInstructionRaw(routine.instruction);
@@ -816,6 +820,20 @@ export function RoutineEditor({
 					) : null}
 				</Field>
 			) : null}
+
+			<Field>
+				<FieldLabel className="text-xs text-muted-foreground">Avisar</FieldLabel>
+				<SettingsPicker
+					aria-label="Quando avisar"
+					onChange={(value) => setNotify(value === "important" ? "important" : "always")}
+					options={[
+						{ value: "always", label: "Sempre" },
+						{ value: "important", label: "Só quando importante" },
+					]}
+					value={notify}
+				/>
+				<p className="text-xs text-muted-foreground">O resultado sempre fica no chat. Em “Só quando importante”, a notificação só sai se o bot achar que vale você saber agora.</p>
+			</Field>
 
 			{model.startsWith("chatgpt/") ? <Field><FieldLabel className="text-xs text-muted-foreground">Rotinas usam o plano</FieldLabel><SettingsPicker aria-label="Rotinas usam o plano" value={allowChatgptPlan ? "on" : "off"} onChange={(value) => setAllowChatgptPlan(value === "on")} options={[{ value: "off", label: "Não, usar OpenRouter" }, { value: "on", label: "Sim, usar plano ChatGPT" }]} /><p className="text-xs text-muted-foreground">Desligado por padrão. Ao ativar, execuções automáticas consomem sua cota pessoal.</p></Field> : null}
 {!isGithubTrigger ? (

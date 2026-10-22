@@ -102,6 +102,7 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 			active: record.enabled,
 			model: record.model,
 		allowChatgptPlan: record.allowChatgptPlan ?? false,
+		notify: record.notify ?? "always",
 			triggerKind: "once",
 			triggers: runAt
 				? [{ id: "once", text: formatOnceSummary(runAt, record.timezone) }]
@@ -117,6 +118,7 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 			active: record.enabled,
 			model: record.model,
 		allowChatgptPlan: record.allowChatgptPlan ?? false,
+		notify: record.notify ?? "always",
 			triggerKind: "interval",
 			triggers: everyMinutes
 				? [{ id: "interval", text: formatIntervalSummary(everyMinutes) }]
@@ -133,6 +135,7 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 			active: record.enabled,
 			model: record.model,
 		allowChatgptPlan: record.allowChatgptPlan ?? false,
+		notify: record.notify ?? "always",
 			triggerKind: "event",
 			triggers: [
 				isGithub
@@ -174,6 +177,7 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 		active: record.enabled,
 		model: record.model,
 		allowChatgptPlan: record.allowChatgptPlan ?? false,
+		notify: record.notify ?? "always",
 		triggerKind: "cron",
 		triggers,
 	};
@@ -198,6 +202,7 @@ function uiRoutineToPayloadBase(
 			prompt: routine.instruction,
 			model: routine.model.trim(),
 		allowChatgptPlan: routine.allowChatgptPlan ?? false,
+		notify: routine.notify ?? "always",
 			enabled: routine.active,
 			triggerType: "once",
 			schedule: null,
@@ -211,6 +216,7 @@ function uiRoutineToPayloadBase(
 			prompt: routine.instruction,
 			model: routine.model.trim(),
 		allowChatgptPlan: routine.allowChatgptPlan ?? false,
+		notify: routine.notify ?? "always",
 			enabled: routine.active,
 			triggerType: "interval",
 			schedule: null,
@@ -236,6 +242,7 @@ function uiRoutineToPayloadBase(
 				prompt: routine.instruction,
 				model: routine.model.trim(),
 		allowChatgptPlan: routine.allowChatgptPlan ?? false,
+		notify: routine.notify ?? "always",
 				enabled: routine.active,
 				triggerType: "event",
 				trigger: {
@@ -254,6 +261,7 @@ function uiRoutineToPayloadBase(
 			prompt: routine.instruction,
 			model: routine.model.trim(),
 		allowChatgptPlan: routine.allowChatgptPlan ?? false,
+		notify: routine.notify ?? "always",
 			enabled: routine.active,
 			triggerType: "event",
 			trigger: { kind: "generic" },
@@ -269,6 +277,7 @@ function uiRoutineToPayloadBase(
 		prompt: routine.instruction,
 		model: routine.model.trim(),
 		allowChatgptPlan: routine.allowChatgptPlan ?? false,
+		notify: routine.notify ?? "always",
 		enabled: Boolean(routine.active && cron),
 		triggerType: "cron",
 		schedule: cron,
@@ -299,6 +308,7 @@ export function diffRoutineUpdatePayload(
 			prompt: next.prompt,
 			model: next.model,
 			allowChatgptPlan: next.allowChatgptPlan ?? false,
+			notify: next.notify ?? "always",
 			enabled: next.enabled,
 			triggerType: next.triggerType,
 			schedule: next.schedule,
@@ -311,6 +321,7 @@ export function diffRoutineUpdatePayload(
 	if (next.prompt !== previous.prompt) patch.prompt = next.prompt;
 	if (next.model !== previous.model) patch.model = next.model;
 	if ((next.allowChatgptPlan ?? false) !== (previous.allowChatgptPlan ?? false)) patch.allowChatgptPlan = next.allowChatgptPlan ?? false;
+	if ((next.notify ?? "always") !== (previous.notify ?? "always")) patch.notify = next.notify ?? "always";
 	if (next.enabled !== previous.enabled) patch.enabled = next.enabled;
 	if ((next.groupId ?? null) !== (previous.groupId ?? null)) patch.groupId = next.groupId ?? null;
 	if (next.triggerType !== previous.triggerType) {

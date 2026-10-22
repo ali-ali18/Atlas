@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { executeMemoryTool, type MemoryOps } from "./memory-review.js";
+import { ATLAS_JOB_NAMES } from "@workspace/shared";
+import { executeMemoryTool, processMemoryReview, type MemoryOps } from "./memory-review.js";
 
 function ops(addResult: { ok: boolean; error?: string } = { ok: true }) {
 	const calls: string[] = [];
@@ -84,4 +85,51 @@ test("isolamento: perfil pessoal estável continua no store user compartilhado",
 		c.ops,
 	);
 	assert.deepEqual(c.targets, ["user", "user", "memory"]);
+});
+
+test("revisão enxerga fato que só apareceu em resultado de ferramenta e não vaza segredo", async () => {
+	const prompts: string[] = [];
+	const config = { redisUrl: "unused", openRouterApiKey: "test", openRouterModel: "m", summarizerModel: "cheap", agentRunConcurrency: 1 };
+	await processMemoryReview(
+		{
+			name: ATLAS_JOB_NAMES.memoryReview,
+			id: "job",
+			data: {
+				userId: "u1",
+				botId: "bot-a",
+				messages: [{ role: "user", content: "consulta o cliente Silva" }, { role: "assistant", content: "Pronto." }],
+				toolNotes: [{ tool: "api_call", summary: "Cliente Silva LTDA, CNPJ 12.345.678/0001-90, token ghp_abcdefghijklmnopqrstuvwx" }],
+			},
+		} as never,
+		config,
+		{
+			profile: async () => null,
+			bots: async () => [],
+			snapshot: async () => ({ user: { entries: [] }, memory: { entries: [] } }),
+			complete: async (input) => {
+				prompts.push(input.messages.map((message) => String(message.content)).join("\n"));
+				return { model: input.model, message: { role: "assistant", content: "" } };
+			},
+		},
+	);
+	assert.equal(prompts.length, 1);
+	assert.match(prompts[0]!, /12\.345\.678\/0001-90/);
+	assert.match(prompts[0]!, /não confiáveis/);
+	assert.doesNotMatch(prompts[0]!, /ghp_abcdefghijklmnopqrstuvwx/);
+});
+
+test("sem toolNotes o prompt da revisão não ganha bloco de ferramentas", async () => {
+	const prompts: string[] = [];
+	const config = { redisUrl: "unused", openRouterApiKey: "test", openRouterModel: "m", summarizerModel: "cheap", agentRunConcurrency: 1 };
+	await processMemoryReview(
+		{ name: ATLAS_JOB_NAMES.memoryReview, id: "job", data: { userId: "u1", messages: [{ role: "user", content: "oi" }] } } as never,
+		config,
+		{
+			profile: async () => null,
+			bots: async () => [],
+			snapshot: async () => ({ user: { entries: [] }, memory: { entries: [] } }),
+			complete: async (input) => (prompts.push(input.messages.map((m) => String(m.content)).join("\n")), { model: input.model, message: { role: "assistant", content: "" } }),
+		},
+	);
+	assert.doesNotMatch(prompts[0]!, /Resultados de ferramentas/);
 });

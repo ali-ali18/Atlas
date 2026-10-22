@@ -304,7 +304,8 @@ export function collapseOldToolGroups(
 					`${COLLAPSE_MARKER}: ${name}${statusLabel} ` +
 					`(${fresh.length} resultado(s) antigos).` +
 					(excerpt ? ` Trecho: ${excerpt}` : "") +
-					(refLines.length > 0 ? ` ${refLines.join(" ")}` : ""),
+					(refLines.length > 0 ? ` ${refLines.join(" ")}` : "") +
+					" Full text: session_search.",
 			});
 		}
 		next.splice(group.start, slice.length, ...replacements);

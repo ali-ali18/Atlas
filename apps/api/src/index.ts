@@ -43,6 +43,7 @@ import { createDefaultDiagnosticsDeps } from "./routes/diagnostics-deps.js";
 import { createFileRoutes } from "./routes/files.js";
 import { createProfileRoutes } from "./routes/profile.js";
 import { createMemoryRoutes } from "./routes/memory.js";
+import { createLessonRoutes } from "./routes/lessons.js";
 import { createComposioRoutes } from "./routes/composio.js";
 import { createMcpRoutes } from "./routes/mcp.js";
 import { createApiConnectionRoutes } from "./routes/api-connections.js";
@@ -234,6 +235,7 @@ app.route("/", createVaultRoutes());
 app.route("/", createFileRoutes());
 app.route("/", createProfileRoutes());
 app.route("/", createMemoryRoutes());
+app.route("/", createLessonRoutes());
 app.route("/", createMcpRoutes({
 	onConnected: (userId, catalogId) => resumeRunsAwaitingConnector(agentRunQueue, userId, catalogId),
 	onApiConnected: (userId, slug) => resumeRunsAwaitingConnector(agentRunQueue, userId, slug, "api"),

@@ -63,6 +63,10 @@ export {
 	type MemoryContextOptions,
 } from "./memory-context.js";
 export {
+	searchConversationHistory,
+	type ConversationHistoryHit,
+} from "./conversation-history-search.js";
+export {
 	searchConversationMessages,
 	type ConversationSearchHit,
 } from "./search.js";
@@ -313,6 +317,7 @@ export {
 	hasOverlappingRoutineRun,
 	STALE_QUEUED_ROUTINE_RUN_MS,
 	findRoutineRunByAgentRunId,
+	getRoutineNotifyModeForAgentRun,
 	findRecentRoutineRunByIdempotency,
 	createRoutineRun,
 	markRoutineRunSkipped,
@@ -445,6 +450,7 @@ export {
 	type SkillRevisionRecord,
 } from "./skill-docs.js";
 export { applySkillProposal } from "./skill-proposal-apply.js";
+export { markLearnedSkillCardUndone, undoLearnedSkill, type UndoLearnedResult } from "./skill-learned.js";
 export { getPendingBotProposal, resolveBotProposal, type BotProposalDeps, type BotProposalResolution } from "./bot-proposals.js";
 export { upsertTaskListCard } from "./task-list-cards.js";
 export { findCompactionBlocker, writeCompactedTranscript, type CompactionBlocker, type CompactionWrite } from "./conversation-compaction.js";
@@ -639,3 +645,22 @@ export {
 	type StartEmailRunDeps,
 } from "./bot-mailbox.js";
 export { countCompletedToolResults, getRunInspectionData, type RunInspectionData } from "./run-inspect.js";
+export {
+	applyLessonDeltas,
+	enforceLessonCap,
+	getBotLesson,
+	listBotLessons,
+	listLessonsForPrompt,
+	recordLessonFeedback,
+	restoreBotLessonVersion,
+	setBotLessonRule,
+	retireBotLesson,
+	toLessonView,
+	updateBotLessonContent,
+	type ApplyLessonResult,
+	type LessonDeps,
+	type LessonFeedbackResult,
+} from "./bot-lessons.js";
+export { chooseDuplicateLosers, pickEvictions, planLessonDeltas, resolveLesson, type DuplicatePair, type LessonOp, type LessonPlan, type PlanLesson } from "./lesson-deltas.js";
+export { countFailedToolResults } from "./run-inspect.js";
+export { LESSON_REVIEW_EVENT, getLatestLessonReviewEvent, listRunsForLessonReview, runIdsAlreadyReviewed, type LessonReviewRun } from "./lesson-review-data.js";

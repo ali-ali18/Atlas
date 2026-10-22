@@ -65,3 +65,56 @@ describe("buildRunInspection", () => {
 		expect(out.steps[0]!.tokens).toBeUndefined();
 	});
 });
+
+describe("buildRunInspection: lições", () => {
+	it("mostra as lições injetadas (início e ao carregar o conector), as marcadas como usadas e a revisão do run anterior", () => {
+		const out = buildRunInspection({
+			run,
+			steps: [
+				step({ decisionIndex: 2, subIndex: 1, type: "tool_result", idempotencyKey: "k1", inputJson: { name: "lesson_feedback", args: { lessons: [{ id: "[Lab12]", outcome: "helped" }, { id: "Lcd34" }] } }, outputJson: { ok: true, summary: "Recorded" } }),
+				step({ decisionIndex: 3, subIndex: 1, type: "tool_result", status: "failed", idempotencyKey: "k2", inputJson: { name: "lesson_feedback", args: { lessons: [{ id: "Lzz99" }] } }, outputJson: { ok: false, summary: "erro" } }),
+			],
+			events: [
+				{ seq: 1, type: "inspect_lessons", payload: { type: "inspect_lessons", injected: ["cmx00ab12", "cmx00cd34"], review: { runId: "r0", at: "2026-10-20T10:00:00.000Z", status: "reviewed", added: 1, retired: 1, rejected: 2, skillProposal: true, signals: ["user_feedback"] } } },
+				{ seq: 2, type: "inspect_lessons", payload: { type: "inspect_lessons", injected: ["cmx00ef56"], key: "mcp:c1" } },
+			],
+			approvals: [],
+		});
+		expect(out.lessons).toEqual({
+			injected: ["Lab12", "Lcd34", "Lef56"],
+			atStart: 2,
+			loaded: [{ key: "mcp:c1", refs: ["Lef56"] }],
+			used: [{ ref: "Lab12", outcome: "helped" }, { ref: "Lcd34", outcome: "applied" }],
+			review: { runId: "r0", at: "2026-10-20T10:00:00.000Z", status: "reviewed", added: 1, retired: 1, rejected: 2, skillProposal: true, signals: ["user_feedback"] },
+		});
+	});
+
+	it("sem lições nem revisão, a inspeção não ganha o campo", () => {
+		expect(buildRunInspection({ run, steps: [], events: [], approvals: [] }).lessons).toBeUndefined();
+	});
+
+	it("hooks: acertos do plano pendente e das regras, o 'ajudou' e o estado do cartão do plano", () => {
+		const out = buildRunInspection({
+			run: { id: "r1", status: "completed", model: "m", origin: "chat" },
+			steps: [],
+			events: [
+				{ seq: 1, type: "inspect_hooks", payload: { type: "inspect_hooks", plan: { status: "proposed", title: "Criar propostas" } } },
+				{ seq: 2, type: "inspect_hooks", payload: { type: "inspect_hooks", hits: [{ source: "plan", action: "blocked", tool: "mcp__erp__criar" }, { source: "rule", action: "blocked", tool: "mcp__erp__criar", lessonId: "cmx00ab12", ruleKind: "required_args", detail: "faltam: pagamento" }, { source: "nope", action: "blocked", tool: "x" }] } },
+				{ seq: 3, type: "inspect_hooks", payload: { type: "inspect_hooks", helped: ["cmx00ab12", "cmx00ab12"] } },
+			],
+			approvals: [
+				{ id: "a1", content: JSON.stringify({ v: 1, kind: "confirm", confirmId: "confirm-plan-r1", title: "Criar propostas", status: "rejected", outcome: { ok: false, detail: "ajuste pedido" }, plan: { title: "Criar propostas", steps: [{ text: "a", kind: "read" }, { text: "b", kind: "write" }] } }) },
+				{ id: "a2", content: JSON.stringify({ v: 1, kind: "confirm", confirmId: "c2", title: "Plano", status: "approved", plan: { title: "Plano", steps: [{ text: "a", kind: "read" }] } }) },
+				{ id: "a3", content: JSON.stringify({ v: 1, kind: "confirm", confirmId: "c3", title: "Plano", status: "rejected", outcome: { ok: false, detail: "plano cancelado" }, plan: { title: "Plano", steps: [{ text: "a", kind: "read" }] } }) },
+			],
+		});
+		expect(out.hooks).toEqual({
+			hits: [
+				{ source: "plan", action: "blocked", tool: "mcp__erp__criar" },
+				{ source: "rule", action: "blocked", tool: "mcp__erp__criar", ref: "Lab12", ruleKind: "required_args", detail: "faltam: pagamento" },
+			],
+			helped: ["Lab12"],
+		});
+		expect(out.approvals.map((approval) => approval.plan)).toEqual([{ steps: 2, state: "adjusted" }, { steps: 1, state: "approved" }, { steps: 1, state: "cancelled" }]);
+	});
+});

@@ -3,6 +3,7 @@ import type { ChatMessage } from "./chat.js";
 import type { ComputerUseEvent, RunUsage } from "./computer.js";
 import type { RunConfigSnapshot } from "./effective-config.js";
 import type { LoginConnector } from "./login-connector.js";
+import type { TaskListItem } from "./task-list.js";
 import type { LoginVaultOffer } from "./login-wall.js";
 import type {
 	CapabilitySnapshot,
@@ -93,6 +94,8 @@ export type TranscriptSeed = {
 	resultContent: string;
 	/** Mensagem curta do turno quando o resultado entrou na conversa (sem repetir o resultado). */
 	shortContent: string;
+	/** Plano aprovado: os passos semeiam a lista de tarefas do run novo. */
+	taskList?: TaskListItem[];
 };
 
 /** Nota de sistema de um turno que define uma tarefa em andamento (procedimento de skill, menção) e segue nos turnos seguintes. */

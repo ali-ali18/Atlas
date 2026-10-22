@@ -1,4 +1,4 @@
-import { readProactiveSettings, type ProactiveSettings } from "@workspace/shared";
+import { readProactiveSettings, type ProactiveSettings, type RoutineNotifyMode } from "@workspace/shared";
 
 /**
  * Modo proativo de UM run: só o bot principal, com o modo ligado, em chat próprio ou
@@ -16,6 +16,27 @@ export function resolveProactiveForRun(input: {
 	if (input.origin !== "chat" && input.origin !== "proactive") return undefined;
 	const settings = readProactiveSettings(input.policyJson, input.accountTimezone);
 	return settings.enabled ? { settings } : undefined;
+}
+
+/**
+ * Push avulso (`notify_user` só-push) de UM run: rotina "só importante" (o fim do run não avisa
+ * sozinho) e chat (aviso no meio de tarefa longa). Sem notifier, conversa ou em grupo, não há.
+ * O silêncio do usuário só vale se ele ligou o modo proativo (é onde configura os horários).
+ */
+export function resolveUserPushForRun(input: {
+	origin: string;
+	isGroupRun: boolean;
+	hasConversation: boolean;
+	routineNotify: RoutineNotifyMode;
+	policyJson: unknown;
+	accountTimezone?: string | null;
+	send?: (text: string) => Promise<void>;
+}): { mode: "routine" | "chat"; send: (text: string) => Promise<void>; quiet?: ProactiveSettings } | undefined {
+	if (!input.send || !input.hasConversation || input.isGroupRun) return undefined;
+	const mode = input.origin === "routine" ? (input.routineNotify === "important" ? "routine" : null) : input.origin === "chat" ? "chat" : null;
+	if (!mode) return undefined;
+	const settings = readProactiveSettings(input.policyJson, input.accountTimezone);
+	return { mode, send: input.send, ...(settings.enabled ? { quiet: settings } : {}) };
 }
 
 type JevMode = "off" | "shadow" | "on";

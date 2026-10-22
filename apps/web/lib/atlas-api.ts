@@ -67,7 +67,7 @@ import type {
 	RunInputMode,
 } from "@workspace/shared";
 import type { CompactConversationResponse } from "@workspace/shared";
-import type { RunInspection, MemoryChange, MemoryChangesPage, MemoryCleanupView, MemoryEntry, MemorySnapshot, MemoryTarget } from "@workspace/shared";
+import type { LessonRule, LessonView, RunInspection, MemoryChange, MemoryChangesPage, MemoryCleanupView, MemoryEntry, MemorySnapshot, MemoryTarget } from "@workspace/shared";
 import type {
 	CatalogBotEntry,
 	CatalogBotTemplate,
@@ -666,6 +666,36 @@ export async function deleteMemoryItem(entryId: string): Promise<void> {
 	await atlasFetch(`/v1/memory/entries/${encodeURIComponent(entryId)}`, { method: "DELETE" });
 }
 
+/** Lições do bot (aba "Lições"): playbook procedural aprendido com o uso. */
+export async function listBotLessons(botId: string): Promise<LessonView[]> {
+	const { lessons } = await atlasFetch<{ lessons: LessonView[] }>(`/v1/lessons?botId=${encodeURIComponent(botId)}`);
+	return lessons;
+}
+
+export async function editBotLesson(lessonId: string, content: string): Promise<LessonView> {
+	const { lesson } = await atlasFetch<{ lesson: LessonView }>(`/v1/lessons/${encodeURIComponent(lessonId)}`, { method: "PATCH", body: JSON.stringify({ content }) });
+	return lesson;
+}
+
+export async function deleteBotLesson(lessonId: string): Promise<void> {
+	await atlasFetch(`/v1/lessons/${encodeURIComponent(lessonId)}`, { method: "DELETE" });
+}
+
+export async function setBotLessonRule(lessonId: string, rule: LessonRule): Promise<LessonView> {
+	const { lesson } = await atlasFetch<{ lesson: LessonView }>(`/v1/lessons/${encodeURIComponent(lessonId)}/rule`, { method: "PUT", body: JSON.stringify({ rule }) });
+	return lesson;
+}
+
+export async function clearBotLessonRule(lessonId: string): Promise<LessonView> {
+	const { lesson } = await atlasFetch<{ lesson: LessonView }>(`/v1/lessons/${encodeURIComponent(lessonId)}/rule`, { method: "DELETE" });
+	return lesson;
+}
+
+export async function restoreBotLesson(lessonId: string): Promise<LessonView> {
+	const { lesson } = await atlasFetch<{ lesson: LessonView }>(`/v1/lessons/${encodeURIComponent(lessonId)}/restore`, { method: "POST" });
+	return lesson;
+}
+
 /** "O que mudou": últimos 30 dias, mais novas primeiro. */
 export async function listMemoryHistory(botId: string, options: { cursor?: string | null; limit?: number } = {}): Promise<MemoryChangesPage> {
 	const query = new URLSearchParams({ botId });
@@ -1196,6 +1226,7 @@ export type ComputerUseHandlers = {
 		detail?: string;
 		items?: SkillListItemData[];
 		draftCount?: number;
+		learned?: boolean;
 	}) => void;
 	onRoutine?: (event: {
 		action: string;
@@ -1250,6 +1281,7 @@ export type ComputerUseHandlers = {
 		secretsRequest?: import("@workspace/shared").SecretsRequestInfo;
 		emailKeyRequest?: import("@workspace/shared").EmailKeyRequestInfo;
 		githubIdentity?: import("@workspace/shared").GithubIdentityCardInfo;
+		plan?: import("@workspace/shared").PlanInfo;
 		status?: "pending" | "approved" | "rejected";
 	}) => void;
 	onFile?: (event: Extract<ComputerUseEvent, { type: "file" }>) => void;
@@ -2232,6 +2264,20 @@ export async function deleteSkillDrafts(scope: { botId?: string; account?: boole
 	const query = scope.botId ? `?botId=${encodeURIComponent(scope.botId)}` : scope.account ? "?scope=account" : "";
 	const body = await atlasFetch<{ ok: boolean; deleted: number }>(`/v1/skills/delete-drafts${query}`, { method: "POST" });
 	return body.deleted;
+}
+
+/**
+ * Desfaz o que o agente aprendeu sozinho ("Aprendi: ..."): apaga a skill criada ou volta à versão anterior.
+ * `revision` é a versão anunciada no card; 409 = a skill mudou depois, 404 = não existe mais.
+ */
+export async function undoLearnedSkill(request: {
+	skillId: string;
+	action: "created" | "updated";
+	revision: number;
+	conversationId?: string;
+}): Promise<{ ok: boolean; result: "deleted" | "restored"; name: string }> {
+	const { skillId, ...body } = request;
+	return atlasFetch(`/v1/skills/${encodeURIComponent(skillId)}/undo-learned`, { method: "POST", body: JSON.stringify(body) });
 }
 
 /**

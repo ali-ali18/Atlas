@@ -32,7 +32,7 @@ type Reply = { id: number; ok: true; extracted?: ExtractedAttachment; pageCount?
 type Outcome = { reply: Reply } | { failure: ExtractFailure };
 type Pending = { id: number; message: Record<string, unknown>; done: (outcome: Outcome) => void };
 // O lib DOM do tsconfig base esconde os `on(...)` do Worker do Node; só o que o pool usa.
-type Thread = { on(event: string, listener: (...args: any[]) => void): unknown; postMessage(value: unknown): void; terminate(): Promise<number>; unref(): void };
+type Thread = { on(event: string, listener: (...args: any[]) => void): unknown; postMessage(value: unknown): void; terminate(): Promise<number>; ref(): void; unref(): void };
 type Slot = { worker: Thread; job: Pending | null; timer: NodeJS.Timeout | null; idleTimer: NodeJS.Timeout | null; jobs: number; dead: boolean };
 
 function defaultEntry(): string {
@@ -122,7 +122,6 @@ export class ExtractPool implements Extractor {
 	private spawn(): Slot {
 		const worker = new Worker(this.entry, { resourceLimits: this.limits }) as unknown as Thread;
 		const slot: Slot = { worker, job: null, timer: null, idleTimer: null, jobs: 0, dead: false };
-		worker.unref();
 		worker.on("message", (reply: Reply) => {
 			const job = slot.job;
 			if (!job || job.id !== reply.id) return;
@@ -137,6 +136,9 @@ export class ExtractPool implements Extractor {
 		worker.on("exit", () => {
 			void this.kill(slot, "crash");
 		});
+		// Ocioso não segura o processo: `on("message")` religa o handle, então o unref vem depois dos listeners
+		// (senão o processo ficava vivo até o idle de 60 s). `assign` religa enquanto há trabalho em curso.
+		worker.unref();
 		this.slots.push(slot);
 		return slot;
 	}
@@ -149,6 +151,7 @@ export class ExtractPool implements Extractor {
 		slot.timer = setTimeout(() => void this.kill(slot, "timeout"), this.timeoutMs);
 		slot.timer.unref();
 		try {
+			slot.worker.ref();
 			slot.worker.postMessage(job.message);
 		} catch {
 			void this.kill(slot, "crash");
@@ -160,6 +163,7 @@ export class ExtractPool implements Extractor {
 		slot.job = null;
 		if (slot.timer) clearTimeout(slot.timer);
 		slot.timer = null;
+		slot.worker.unref();
 		job?.done(outcome);
 	}
 

@@ -24,7 +24,7 @@ const HEADINGS = [
 	HeadingLevel.HEADING_6,
 ] as const;
 
-export type Style = { bold?: boolean; italics?: boolean; code?: boolean; strike?: boolean; size?: number; caps?: boolean };
+export type Style = { bold?: boolean; italics?: boolean; code?: boolean; strike?: boolean; size?: number; caps?: boolean; plainLinks?: boolean };
 
 export function decodeEntities(text: string): string {
 	return text
@@ -69,7 +69,7 @@ export function inlineRuns(tokens: Token[] | undefined, style: Style = {}): Para
 			case "link": {
 				const link = token as Tokens.Link;
 				runs.push(...inlineRuns(link.tokens, style));
-				if (link.href && /^(https?:|mailto:)/i.test(link.href)) runs.push(textRun(` (${link.href})`, style));
+				if (link.href && /^(https?:|mailto:)/i.test(link.href) && !(style.plainLinks && link.text === link.href)) runs.push(textRun(` (${link.href})`, style));
 				break;
 			}
 			case "image":

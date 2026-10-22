@@ -1,4 +1,5 @@
 import type { ChatMessage, ChatRole, SessionMessage } from "@workspace/shared";
+import { renderLessonsBlock } from "@workspace/shared";
 import {
 	buildBotRosterSection,
 	buildGroupSection,
@@ -17,6 +18,7 @@ import { getBotIdentity } from "./bots.js";
 import { listUserBotRoster } from "./bot-messages.js";
 import { botDecidesForOthers } from "./bot-pending.js";
 import { renderMemoryTiers } from "./memory-search.js";
+import { listLessonsForPrompt } from "./bot-lessons.js";
 import {
 	getLatestSummary,
 	renderSummaryBlock,
@@ -47,6 +49,11 @@ export type MemoryContextOptions = {
 	 * (falas dos outros com autor) e o prompt traz o bloco do grupo no lugar do roster.
 	 */
 	group?: { name: string; selfId: string; members: GroupMember[] };
+	/**
+	 * Recebe as lições do bot injetadas na camada estável (ids completos), para o inspetor do run. As lições de
+	 * conector/tool entram depois, quando o conector é carregado (ver o runtime).
+	 */
+	onLessons?: (ids: string[]) => void;
 };
 
 /**
@@ -58,6 +65,8 @@ export function assembleMemoryContext(input: {
 	identity: string | null;
 	profile: string | null;
 	summary: string | null;
+	/** Lições do bot (escopo bot): mudam raramente, então ficam na camada estável, antes do histórico. */
+	lessons?: string | null;
 	relevantMemory: string | null;
 	sessionMessages: ChatMessage[];
 	incoming: ChatMessage[];
@@ -91,7 +100,7 @@ export function assembleMemoryContext(input: {
 	}
 
 	return composeTieredMessages({
-		context: [input.identity, input.profile, input.summary],
+		context: [input.identity, input.profile, input.lessons ?? null, input.summary],
 		history: input.volatileAfterTurn ? all : placeVolatileBeforeTurn(all, [input.relevantMemory]),
 		volatile: input.volatileAfterTurn ? [input.relevantMemory] : [],
 	});
@@ -145,6 +154,18 @@ export async function buildMemoryAugmentedMessages(
 		compact = false;
 	}
 
+	// Lições do bot (playbook): só as de escopo bot; falha aqui nunca quebra o run, só omite o bloco.
+	let lessonsBlock: string | null = null;
+	if (options.userId && options.botId && !options.group) {
+		try {
+			const lessons = await listLessonsForPrompt(options.userId, options.botId, { onlyScopes: ["bot"] });
+			lessonsBlock = renderLessonsBlock(lessons);
+			if (lessons.length > 0) options.onLessons?.(lessons.map((lesson) => lesson.id));
+		} catch (error) {
+			console.error("lessons inject failed; continuing without lessons", error);
+		}
+	}
+
 	let sessionMessages: ChatMessage[] = [];
 	// Ciclo limpo: pula a janela de 40 — o incoming já traz a cauda mínima
 	// (worker) e o resumo acima ancora o resto.
@@ -176,6 +197,7 @@ export async function buildMemoryAugmentedMessages(
 		identity,
 		profile: memory.stable,
 		summary: summaryBlock,
+		lessons: lessonsBlock,
 		relevantMemory: memory.volatile,
 		sessionMessages,
 		incoming: turnMessages,

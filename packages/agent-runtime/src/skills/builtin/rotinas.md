@@ -32,7 +32,7 @@ The instruction is what the future run will read. Make it self-contained:
 - **Sources:** where to get the data (which connector, repo, site, account). Use exact names (`owner/repo`, the spreadsheet name, the inbox label).
 - **Steps:** the few steps in order.
 - **Output:** what the message to the user looks like (short summary, a table, a file), and the language.
-- **When to stay quiet:** e.g. "if there are no new emails, send nothing" or "send a short 'nada novo' line" — decide with the user's intent.
+- **When to stay quiet:** e.g. "if there are no new emails, send nothing" or "send a short 'nada novo' line" — decide with the user's intent. For monitoring where most runs find nothing, set the routine's notify option to `important`: every run is still saved in the chat, but the user is only pushed when the run itself judges the result worth knowing now.
 - **Limits:** read-only unless the user explicitly asked the routine to change things.
 
 Do not repeat the schedule inside the instruction; the trigger already handles it.

@@ -10,6 +10,7 @@ import {
 	parseCapabilitySnapshot,
 	parseLoginConnector,
 	parseLoginVaultOffer,
+	parseTaskList,
 	parseTaskState,
 } from "@workspace/shared";
 import type { LlmContentPart, LlmMessage } from "@workspace/llm";
@@ -535,7 +536,8 @@ function parseTranscriptSeed(raw: unknown): AgentRunCheckpoint["transcriptSeed"]
 	if (!raw || typeof raw !== "object") return undefined;
 	const seed = raw as Record<string, unknown>;
 	if (typeof seed.fromRunId !== "string" || (seed.toolName !== undefined && typeof seed.toolName !== "string") || typeof seed.resultContent !== "string" || typeof seed.shortContent !== "string") return undefined;
-	return { fromRunId: seed.fromRunId, ...(typeof seed.toolName === "string" ? { toolName: seed.toolName } : {}), resultContent: seed.resultContent, shortContent: seed.shortContent };
+	const taskList = parseTaskList(seed.taskList);
+	return { fromRunId: seed.fromRunId, ...(typeof seed.toolName === "string" ? { toolName: seed.toolName } : {}), resultContent: seed.resultContent, shortContent: seed.shortContent, ...(taskList ? { taskList } : {}) };
 }
 
 function isModelTier(value: unknown): value is ModelTier {

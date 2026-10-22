@@ -110,13 +110,15 @@ describe("L5: prefixo fixo da 1ª decisão", () => {
 		);
 		// Meta do plano: -6k a -8k tokens na 1ª decisão (4 chars por token).
 		expect(estimatedTokens(beforeChars - afterChars)).toBeGreaterThanOrEqual(6_000);
-		expect(afterChars).toBeLessThan(beforeChars * 0.52);
+		// 0,55 (era 0,52): `memory` virou núcleo e o schema dela entra no prefixo de todo chat.
+		expect(afterChars).toBeLessThan(beforeChars * 0.55);
+		expect(names(after)).toContain("memory");
 		// O núcleo continua inteiro: pesquisa, delegação e a busca que carrega o resto.
 		expect(names(after)).toEqual(expect.arrayContaining(["web_search", "web_extract", "mcp_tool_search"]));
 		// `propose_questionnaire` é núcleo: vai sempre.
 		expect(names(after)).toContain("propose_questionnaire");
 		// As raras ficaram de fora e estão no índice do prompt.
-		for (const rare of ["propose_routine", "memory", "create_file", "click"]) {
+		for (const rare of ["propose_routine", "memory_search", "create_file", "click"]) {
 			expect(names(after)).not.toContain(rare);
 			expect(systemOf(after)).toContain(rare);
 		}
@@ -144,7 +146,7 @@ describe("L5: prefixo fixo da 1ª decisão", () => {
 		const mcp = { toolset: small, call: async () => ({ ok: true, text: "x", truncated: false }) };
 		const before = (await run({ message: "Bom dia", economy: false, mcp })).requests[0]!;
 		const after = (await run({ message: "Bom dia", economy: true, mcp })).requests[0]!;
-		expect(fixedPrefix(after).length).toBeLessThan(fixedPrefix(before).length * 0.52);
+		expect(fixedPrefix(after).length).toBeLessThan(fixedPrefix(before).length * 0.55);
 		expect(names(after)).toContain("mcp__data__search");
 	});
 

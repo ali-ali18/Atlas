@@ -106,9 +106,11 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 		hint: "propose changes to this bot profile",
 		keywords: ["profile", "perfil"],
 	},
+	// `memory` (salvar) é núcleo: a regra P_MEMORY manda guardar fato durável em qualquer conversa.
+	// Só a busca (prefixo maior, uso raro) fica sob demanda.
 	memory: {
-		tools: ["memory", "session_search", "memory_search"],
-		hint: "save or search durable memory and past conversations",
+		tools: ["session_search", "memory_search"],
+		hint: "search durable memory and past conversations",
 		keywords: ["memory", "memoria", "remember", "lembrar", "history", "historico", "conversation", "conversas"],
 	},
 	references: {

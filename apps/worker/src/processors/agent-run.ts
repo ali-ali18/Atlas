@@ -1,7 +1,7 @@
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
-import type { ConnectorLessonJobPayload, InspectContextPayload } from "@workspace/shared";
-import { parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef } from "@workspace/shared";
+import { shouldReviewForSkill, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
+import { parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode } from "@workspace/shared";
 import {
 	ATLAS_JOB_NAMES,
 	COMPACT_TAIL_KEEP,
@@ -13,6 +13,7 @@ import {
 	type ChatMessage,
 	type ComputerUseEvent,
 	type MemoryReviewJobPayload,
+	buildToolResultNotes,
 	type RoutineRecord,
 	type SessionMessage,
 	type UserSettings,
@@ -31,6 +32,13 @@ import {
 	appendConversationCard,
 	appendRunAssistantSegment,
 	appendRunEvent,
+	countCompletedToolResults,
+	countFailedToolResults,
+	getLatestLessonReviewEvent,
+	getSkillPendingIntent,
+	upsertTaskListCard,
+	listBotLessons,
+	recordLessonFeedback,
 	createPublishThrottle,
 	publishUserEvent,
 	buildMemoryAugmentedMessages,
@@ -92,6 +100,7 @@ import {
 	tryAcquireRunLease,
 	type RunLease,
 	getAccountConfig,
+	getRoutineNotifyModeForAgentRun,
 	persistConversationCardFromEvent,
 } from "@workspace/db";
 import {
@@ -163,7 +172,7 @@ import { createRunEventCoalescer } from "../coalesce-run-events.js";
 import { createRunControlReader } from "../run-control.js";
 import { loadRunBase } from "../run-setup.js";
 import { resolveRunAutonomy } from "../run-autonomy.js";
-import { actionsJevMode, actionsJudgeModel, pendingJevMode, proactiveFailureDisplay, proactiveJevMode, resolveProactiveForRun } from "../proactive-run.js";
+import { actionsJevMode, actionsJudgeModel, pendingJevMode, proactiveFailureDisplay, proactiveJevMode, resolveProactiveForRun, resolveUserPushForRun } from "../proactive-run.js";
 import { loadRunSkillIndex } from "../run-skills.js";
 import { buildMentionNotes } from "../run-mentions.js";
 import { getOpenRouterContextLength, isKnownOpenRouterModel } from "../openrouter-models.js";
@@ -171,6 +180,7 @@ import { imageVisionForRun } from "../image-vision.js";
 import { attachmentRuntimeForRun } from "../attachments.js";
 import { chainFollowUp, followUpRequest, laterFollowUpInput } from "../follow-up.js";
 import { runPostCompletionSteps } from "../post-completion.js";
+import { shouldReviewLessons } from "../lesson-trigger.js";
 import { reconcileRunCosts } from "../cost-reconcile.js";
 import { createAwayNoteHandler, settleRunDelivery, type RunEnd } from "../delivery/run-hooks.js";
 import { acquireRunLeaseOrYield } from "../lease-owner.js";
@@ -182,7 +192,9 @@ export { tickLeaseHeartbeat };
 const runActivityThrottle = createPublishThrottle(3_000);
 
 /** Vale avisar o usuário do fim deste run? Sem conversa, sem texto ou de subagente, não. */
-export function shouldPushRunEnd(run: { conversationId?: string | null; origin?: string | null }, text: string, hasNotify = true): boolean {
+export function shouldPushRunEnd(run: { conversationId?: string | null; origin?: string | null }, text: string, hasNotify = true, routineNotify: RoutineNotifyMode = "always"): boolean {
+	// Rotina "só importante": o resultado fica no chat sem push; quem avisa é o `notify_user` do próprio run.
+	if (run.origin === "routine" && routineNotify === "important") return false;
 	return hasNotify && Boolean(run.conversationId) && text.trim().length > 0 && run.origin !== "subagent";
 }
 
@@ -197,6 +209,10 @@ export type AgentRunProcessorDeps = {
 	enqueueMemoryReview?: (payload: MemoryReviewJobPayload) => Promise<void>;
 	/** Lição de conector (falha → sucesso no run): vira job que guarda uma sugestão pendente. */
 	enqueueConnectorLesson?: (payload: ConnectorLessonJobPayload) => Promise<void>;
+	/** Revisão de lições em segundo plano (debounce por conversa feito por quem enfileira). */
+	enqueueLessonReview?: (payload: LessonReviewJobPayload) => Promise<void>;
+	/** Revisão de skill após tarefa complexa e bem-sucedida (um job por run). */
+	enqueueSkillReview?: (payload: SkillReviewJobPayload) => Promise<void>;
 	enqueueNextRun?: (runId: string, options?: { delayMs?: number }) => Promise<boolean>;
 	/** Teste: troca a ligação da retomada automática com banco e fila. */
 	autoContinueIo?: AutoContinueIo;
@@ -213,6 +229,19 @@ export type AgentRunProcessorDeps = {
 	) => Promise<void>;
 };
 
+/** Contagens da revisão de lições que o inspetor mostra (só números e flags). */
+function pickReviewCounts(payload: Record<string, unknown>): Partial<NonNullable<InspectLessonsPayload["review"]>> {
+	const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+	const out: Partial<NonNullable<InspectLessonsPayload["review"]>> = {};
+	for (const key of ["added", "updated", "retired", "counters", "rejected"] as const) {
+		const value = num(payload[key]);
+		if (value !== undefined) out[key] = value;
+	}
+	if (payload.skillProposal === true) out.skillProposal = true;
+	if (Array.isArray(payload.signals)) out.signals = payload.signals.filter((item): item is string => typeof item === "string").slice(0, 6);
+	return out;
+}
+
 async function prepareMessages(
 	messages: ChatMessage[],
 	botId?: string | null,
@@ -222,6 +251,7 @@ async function prepareMessages(
 	group?: MemoryContextOptions["group"],
 	historySlot?: string,
 	volatileAfterTurn?: boolean,
+	onLessons?: (ids: string[]) => void,
 ): Promise<ChatMessage[]> {
 	// Fase 4: userId é obrigatório (vem da linha do run). Sem ele, falha
 	// explícita em vez de seguir como "default".
@@ -240,6 +270,7 @@ async function prepareMessages(
 			...(group ? { group } : {}),
 			...(historySlot ? { historySlot } : {}),
 			...(volatileAfterTurn ? { volatileAfterTurn: true } : {}),
+			...(onLessons ? { onLessons } : {}),
 		});
 		return base;
 	} catch (error) {
@@ -519,6 +550,8 @@ async function executeLeasedRun(ctx: {
 		const imageVision = imageVisionForRun({ userId: runUserId, apiKey, fallbackModel });
 		return { configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision };
 	};
+	// Lições do bot injetadas no prompt estável deste run (para o inspetor); vazio na retomada (vêm do checkpoint).
+	let startLessonIds: string[] = [];
 	const messagesStage = async () => {
 		// Fase 2 — ciclo limpo: modo congelado no checkpoint; em run fresco,
 		// liga sozinho com resumo fresco (sem resumo não há ciclo). Rotina fora.
@@ -623,6 +656,9 @@ async function executeLeasedRun(ctx: {
 					groupPrompt,
 					transcript ? TRANSCRIPT_SLOT : undefined,
 					true,
+					(ids) => {
+						startLessonIds = ids;
+					},
 				);
 
 		// Injetar nota sobre artefatos de runs anteriores (A2 step 3): apenas para run novo
@@ -719,21 +755,51 @@ async function executeLeasedRun(ctx: {
 			: null;
 
 		// Lista de passos (update_task_list) da conversa: mesmo escopo de dono; falha não derruba o run.
-		const priorTaskList = !groupRun && run.conversationId && run.origin === "chat"
+		// Plano aprovado: os passos do plano semeiam a lista (o cartao aparece ja, antes do 1o passo).
+		const seededTaskList = !checkpoint?.llmMessages?.length ? checkpoint?.transcriptSeed?.taskList : undefined;
+		const priorTaskList = seededTaskList?.length ? seededTaskList : !groupRun && run.conversationId && run.origin === "chat"
 			? await getConversationTaskList(runUserId, run.conversationId, { excludeRunId: runId, origin: run.origin }).catch((error) => {
 				console.error(`load task list failed run=${runId}`, error);
 				return null;
 			})
 			: null;
 
-		return { messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments: attachmentsForRun?.runtime };
+		if (seededTaskList?.length && run.conversationId) {
+			await upsertTaskListCard(run.conversationId, runId, seededTaskList).catch(() => undefined);
+			await appendRunEvent(runId, "task_list", { type: "task_list", items: seededTaskList, runId }).catch(() => undefined);
+		}
+		// Plano esperando aprovacao nesta conversa: escritas voltam com erro ate o usuario decidir.
+		const planPending = !groupRun && run.conversationId && run.origin === "chat"
+			? await getSkillPendingIntent(runUserId, run.conversationId).then((pending) => pending?.payload.action === "plan", () => false)
+			: false;
+
+		return { planPending, messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments: attachmentsForRun?.runtime };
 	};
-	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, priorCompaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments }] =
+	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { planPending, messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, priorCompaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments }] =
 		await Promise.all([configStage(), messagesStage()]);
 	// Inspetor: como o histórico deste turno foi montado (só metadados; nunca o texto).
 	if (transcriptOutcome) {
 		const payload: InspectContextPayload = { type: "inspect_context", transcript: transcriptOutcome };
 		await appendRunEvent(runId, "inspect_context", payload).catch(() => undefined);
+	}
+
+	// Lições (playbook do bot): todas as ativas vão ao runtime (conector/tool entram ao carregar; `lesson_feedback` conta o uso).
+	const runLessons = run.botId && !groupRun ? await listBotLessons(runUserId, run.botId).catch(() => []) : [];
+	if (!checkpoint?.llmMessages?.length && (startLessonIds.length > 0 || run.conversationId)) {
+		// Inspetor: o que foi injetado no início e o resultado da última revisão de lições (ação "no run seguinte").
+		const last = run.conversationId && run.botId ? await getLatestLessonReviewEvent(runUserId, run.conversationId, runId).catch(() => null) : null;
+		const review = last && last.payload && typeof last.payload === "object" ? (last.payload as Record<string, unknown>) : null;
+		const reviewed = review && review.status && review.status !== "covered";
+		if (startLessonIds.length > 0 || reviewed) {
+			const payload: InspectLessonsPayload = {
+				type: "inspect_lessons",
+				injected: startLessonIds,
+				...(reviewed && last
+					? { review: { runId: last.runId, at: last.createdAt, status: String(review!.status), ...pickReviewCounts(review!) } }
+					: {}),
+			};
+			await appendRunEvent(runId, "inspect_lessons", payload).catch(() => undefined);
+		}
 	}
 
 	let cachedSessionId: string | null =
@@ -758,6 +824,20 @@ async function executeLeasedRun(ctx: {
 		isGroupRun: Boolean(groupRun),
 		isPrimary: proactiveBot?.isPrimary === true,
 		policyJson: rawBotPolicy,
+	});
+	// Aviso da rotina ("always" = push ao fim, como sempre) e push avulso do bot (rotina "só importante" / chat).
+	const routineNotify: RoutineNotifyMode = run.origin === "routine" ? await getRoutineNotifyModeForAgentRun(runId).catch(() => "always" as const) : "always";
+	const userPushZone = (run.origin === "routine" && routineNotify === "important") || run.origin === "chat"
+		? (proactiveBot?.isPrimary === true ? accountTimezone : (await getAccountConfig(runUserId).catch(() => null))?.general?.timezone)
+		: undefined;
+	const userPushForRun = resolveUserPushForRun({
+		origin: run.origin,
+		isGroupRun: Boolean(groupRun),
+		hasConversation: Boolean(run.conversationId),
+		routineNotify,
+		policyJson: rawBotPolicy,
+		accountTimezone: userPushZone,
+		send: deps.notify ? async (text) => { await deps.notify!(runUserId, run.conversationId!, "reminder", text); } : undefined,
 	});
 	const requestBudget = parseBudgetPolicy(run.budgetJson ?? null);
 	const autoContinueAttempt = readAutoContinueAttempt(run.budgetJson);
@@ -858,7 +938,10 @@ async function executeLeasedRun(ctx: {
 				},
 			})
 		: null;
+	// Resultados de ferramentas do run: a revisão de memória salva fatos que só apareceram por tool (ex.: CNPJ do ERP).
+	const toolResultsForReview: Array<{ name: string; ok: boolean; summary: string }> = [];
 	const emitWithSegments = async (event: ComputerUseEvent) => {
+		if (event.type === "tool_result") toolResultsForReview.push({ name: event.name, ok: event.ok, summary: event.summary });
 		await segmentRecorder?.observe(event);
 		return emit(event);
 	};
@@ -902,7 +985,7 @@ async function executeLeasedRun(ctx: {
 			mcp,
 			apiConnector,
 			...(deps.enqueueConnectorLesson
-				? { onConnectorLesson: (lesson: { kind: "mcp" | "api"; connectionId: string; failed: ConnectorLessonJobPayload["failed"]; succeeded: ConnectorLessonJobPayload["succeeded"] }) => deps.enqueueConnectorLesson!({ ...lesson, userId: runUserId }) }
+				? { onConnectorLesson: (lesson: { kind: "mcp" | "api"; connectionId: string; failed: ConnectorLessonJobPayload["failed"]; succeeded: ConnectorLessonJobPayload["succeeded"] }) => deps.enqueueConnectorLesson!({ ...lesson, userId: runUserId, ...(run.botId ? { botId: run.botId } : {}) }) }
 				: {}),
 			email: emailContext,
 			// `@App` do usuário neste turno: as tools desses conectores já entram no 1º passo.
@@ -913,7 +996,20 @@ async function executeLeasedRun(ctx: {
 				: undefined,
 			autonomy,
 			skillIndex,
+			...(runLessons.length > 0 && run.botId
+				? {
+						lessons: {
+							items: runLessons,
+							onInjected: ({ ids, key }: { ids: string[]; key: string }) => {
+								const payload: InspectLessonsPayload = { type: "inspect_lessons", injected: ids, key };
+								void appendRunEvent(runId, "inspect_lessons", payload).catch(() => undefined);
+							},
+							recordFeedback: (entries: LessonFeedbackEntry[]) => recordLessonFeedback(runUserId, run.botId!, entries),
+						},
+					}
+				: {}),
 			proactive: proactiveForRun,
+			userPush: userPushForRun,
 			jevMcpMode: runtimeConfig.jevMcpMode,
 			executionDiscipline: runtimeConfig.executionDiscipline,
 			contextEconomy: runtimeConfig.contextEconomy,
@@ -1002,6 +1098,9 @@ async function executeLeasedRun(ctx: {
 			priorResearchNotes,
 			priorTaskLedger,
 			priorTaskList,
+			planMode: readPlanMode(rawBotPolicy),
+			planPending,
+			onInspect: (payload: InspectHooksPayload) => { void appendRunEvent(runId, "inspect_hooks", payload).catch(() => undefined); },
 			canSeeUserImages,
 			loadUserImage: imageVision.loadUserImage,
 			describeUserImage: imageVision.describeUserImage,
@@ -1181,6 +1280,7 @@ async function executeLeasedRun(ctx: {
 		// Manutenção pós-conclusão (W6): o run já está concluído e é irrevogável.
 		// Falha de Redis/db aqui só é logada: nunca emite erro nem marca o run como
 		// falho (o catch abaixo também respeita `completionPersisted`).
+		const toolNotes = buildToolResultNotes(toolResultsForReview);
 		await runPostCompletionSteps(runId, [
 			{
 				name: "memory-review",
@@ -1196,8 +1296,54 @@ async function executeLeasedRun(ctx: {
 										...inputMessages,
 										{ role: "assistant", content: result.text },
 									],
+									...(toolNotes.length > 0 ? { toolNotes } : {}),
 								})
 						: undefined,
+			},
+			{
+				// Aprendizado (sleep-time): fora do caminho da resposta; o job só age se houver sinal e tem debounce por conversa.
+				name: "lesson-review",
+				run: deps.enqueueLessonReview
+					? async () => {
+							const failedToolCalls = await countFailedToolResults(runId).catch(() => 0);
+							const proceed = shouldReviewLessons({
+								origin: run.origin,
+								hasBot: Boolean(run.botId),
+								hasConversation: Boolean(run.conversationId),
+								groupRun: Boolean(groupRun),
+								onboardingRun,
+								priorAssistantTurn: inputMessages.slice(0, -1).some((message) => message.role === "assistant"),
+								failedToolCalls,
+							});
+							if (!proceed) return;
+							await deps.enqueueLessonReview!({ userId: runUserId, botId: run.botId!, conversationId: run.conversationId!, runId, since: new Date(run.createdAt).toISOString() });
+						}
+					: undefined,
+			},
+			{
+				// Aprendizado procedural: tarefa de vários passos que deu certo pode virar (ou refinar) uma skill.
+				// A decisão barata (contagens) fica aqui; o job confere com os dados completos e só então chama o modelo.
+				name: "skill-review",
+				run: deps.enqueueSkillReview
+					? async () => {
+							const [completedToolCalls, failedToolCalls] = await Promise.all([
+								countCompletedToolResults(runId).catch(() => 0),
+								countFailedToolResults(runId).catch(() => 0),
+							]);
+							const proceed = shouldReviewForSkill({
+								origin: run.origin,
+								hasBot: Boolean(run.botId),
+								hasConversation: Boolean(run.conversationId),
+								groupRun: Boolean(groupRun),
+								onboardingRun,
+								hitWall: Boolean(result.hitWall),
+								completedToolCalls,
+								failedToolCalls,
+							});
+							if (!proceed) return;
+							await deps.enqueueSkillReview!({ userId: runUserId, botId: run.botId!, conversationId: run.conversationId!, runId });
+						}
+					: undefined,
 			},
 			{
 				// Custo que o OpenRouter não informou: consulta depois pelo id da geração.
@@ -1215,7 +1361,7 @@ async function executeLeasedRun(ctx: {
 			{
 				// Push: terminou (ou lembrete/rotina). O notify cuida de switch do bot, "está olhando", protocolo e coalescência.
 				name: "push",
-				run: shouldPushRunEnd(run, result.text, Boolean(deps.notify)) ? () => deps.notify!(runUserId, run.conversationId!, pushKindForOrigin(run.origin), result.text) : undefined,
+				run: shouldPushRunEnd(run, result.text, Boolean(deps.notify), routineNotify) ? () => deps.notify!(runUserId, run.conversationId!, pushKindForOrigin(run.origin), result.text) : undefined,
 			},
 		]);
 

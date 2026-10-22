@@ -48,7 +48,7 @@ export function FileAttachment({ artifactId, filename, size, version, mime, orig
 		// px-1/-mx-1: o grupo rola na horizontal (overflow-x) e cortava o anel/borda
 		// do cartão nas laterais; o respiro fica dentro e o alinhamento não muda.
 		<AttachmentGroup className={origin === "user" ? "-mx-1 ml-auto w-fit max-w-full px-1" : "-mx-1 px-1"}>
-			<Attachment className="min-w-56 max-w-sm" data-origin={origin}>
+			<Attachment className="min-w-56 max-w-[min(24rem,100%)]" data-origin={origin}>
 				<AttachmentMedia className="overflow-hidden">
 					<FileTypeIcon category={category} />
 				</AttachmentMedia>

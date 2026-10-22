@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type {
+	RoutineNotifyMode,
 	CreateRoutineInput,
 	EventEnvelope,
 	GithubTriggerState,
@@ -14,6 +15,7 @@ import type {
 	UpdateRoutineInput,
 } from "@workspace/shared";
 import {
+	parseRoutineNotifyMode,
 	githubTriggerToView,
 	isGenericWebhookTrigger,
 	parseRoutineTriggerJson,
@@ -273,6 +275,7 @@ function toRoutine(
 		prompt: row.prompt,
 		model: row.model,
 		allowChatgptPlan: row.allowChatgptPlan ?? false,
+		notify: parseRoutineNotifyMode(row.notify),
 		enabled: row.enabled,
 		triggerType,
 		schedule: row.schedule,
@@ -741,6 +744,7 @@ export async function createRoutine(
 			prompt: input.prompt,
 			model,
 			allowChatgptPlan: input.allowChatgptPlan === true,
+			notify: parseRoutineNotifyMode(input.notify),
 			schedule,
 			enabled: input.enabled ?? true,
 			timezone: input.timezone?.trim() || DEFAULT_TIMEZONE,
@@ -779,6 +783,7 @@ export async function updateRoutine(
 		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
 		...(input.model !== undefined ? { model: input.model.trim() } : {}),
 		...(input.allowChatgptPlan !== undefined ? { allowChatgptPlan: input.allowChatgptPlan } : {}),
+		...(input.notify !== undefined ? { notify: parseRoutineNotifyMode(input.notify) } : {}),
 		...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
 		...(input.timezone !== undefined
 			? { timezone: input.timezone.trim() || DEFAULT_TIMEZONE }
@@ -1110,6 +1115,16 @@ export async function findRoutineRunByAgentRunId(
 		orderBy: { createdAt: "desc" },
 	});
 	return row ? toRoutineRun(row) : null;
+}
+
+/** Modo de aviso da rotina que originou este run ("always" se não achar a rotina). */
+export async function getRoutineNotifyModeForAgentRun(agentRunId: string): Promise<RoutineNotifyMode> {
+	const row = await prisma.routineRun.findFirst({
+		where: { agentRunId },
+		orderBy: { createdAt: "desc" },
+		select: { routine: { select: { notify: true } } },
+	});
+	return parseRoutineNotifyMode(row?.routine?.notify);
 }
 
 export async function findRecentRoutineRunByIdempotency(

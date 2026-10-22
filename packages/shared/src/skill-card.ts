@@ -14,6 +14,7 @@ import {
 } from "./routine-card.js";
 import { parseRoutineProposalCard, type PersistedRoutineProposalCard } from "./routine-proposal.js";
 import { parseTaskList, type TaskListItem } from "./task-list.js";
+import { parsePlanInfo, type PlanInfo } from "./plan.js";
 import { COMPACT_CARD_SUMMARY_MAX_CHARS, COMPACT_FOCUS_MAX_CHARS, type PersistedCompactionCard } from "./compaction.js";
 import { parseBotProposalCard, type PersistedBotProposalCard } from "./bot-proposal.js";
 
@@ -58,6 +59,10 @@ export type PersistedSkillCard = {
 	detail?: string;
 	items?: SkillListItemData[];
 	draftCount?: number;
+	/** Skill gravada sozinha pelo agente ("Aprendi: ..."): o card oferece desfazer. `skillId` + `versionNumber` dizem o que desfazer. */
+	skillId?: string;
+	learned?: boolean;
+	undone?: boolean;
 };
 
 export type PersistedConfirmCard = {
@@ -77,6 +82,8 @@ export type PersistedConfirmCard = {
 	devApproval?: DevApprovalCardInfo;
 	secretsRequest?: SecretsRequestInfo;
 	emailKeyRequest?: EmailKeyRequestInfo;
+	/** Plano proposto (`propose_plan`): o cartão mostra os passos e "Aprovar plano". */
+	plan?: PlanInfo;
 	/** Escrita no GitHub bloqueada: instalar o app no repositório ou usar a conta só desta vez. */
 	githubIdentity?: GithubIdentityCardInfo;
 	/** Resultado da chamada depois do "Executar" (a API roda a chamada e devolve ao agente). */
@@ -563,6 +570,9 @@ export function parseConversationCard(content: string): PersistedConversationCar
 			...(asOptionalString(row.detail) ? { detail: asOptionalString(row.detail) } : {}),
 			...(items ? { items } : {}),
 			...(asOptionalNumber(row.draftCount) ? { draftCount: asOptionalNumber(row.draftCount) } : {}),
+			...(asOptionalString(row.skillId) ? { skillId: asOptionalString(row.skillId) } : {}),
+			...(row.learned === true ? { learned: true } : {}),
+			...(row.learned === true && row.undone === true ? { undone: true } : {}),
 		};
 	}
 	if (row.kind === "confirm") {
@@ -586,6 +596,7 @@ export function parseConversationCard(content: string): PersistedConversationCar
 			...(parseDevApprovalInfo(row.devApproval) ? { devApproval: parseDevApprovalInfo(row.devApproval) } : {}),
 			...(parseSecretsRequestInfo(row.secretsRequest) ? { secretsRequest: parseSecretsRequestInfo(row.secretsRequest) } : {}),
 			...(parseEmailKeyRequestInfo(row.emailKeyRequest) ? { emailKeyRequest: parseEmailKeyRequestInfo(row.emailKeyRequest) } : {}),
+			...(parsePlanInfo(row.plan) ? { plan: parsePlanInfo(row.plan) } : {}),
 			...(parseGithubIdentityInfo(row.githubIdentity) ? { githubIdentity: parseGithubIdentityInfo(row.githubIdentity) } : {}),
 			...(isRecordLike(row.outcome) && typeof row.outcome.ok === "boolean" && typeof row.outcome.detail === "string"
 				? { outcome: { ok: row.outcome.ok, detail: row.outcome.detail.slice(0, 2000) } }

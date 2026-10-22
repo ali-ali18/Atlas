@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/component
 import { memoryFixDraft, memoryOriginLabel, memoryRelativeDate } from "./memory-tab-helpers";
 
 /** Campo de texto com Salvar/Cancelar (edição inline e "Adicionar"); mostra a recusa do servidor logo abaixo. */
-function MemoryTextForm({
+export function MemoryTextForm({
 	initial = "",
 	label,
 	submitLabel = "Salvar",

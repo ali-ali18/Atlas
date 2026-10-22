@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	isSameModelChoice,
+	planModelPersist,
 	planConfigClose,
 	realignSnapshotModel,
 	toConfigSnapshot,
@@ -61,4 +62,16 @@ test("A4: realinhar não mexe no snapshot de outro bot", () => {
 	const snapshot = { botId: "b1", before: toConfigSnapshot(base) };
 	assert.equal(realignSnapshotModel(snapshot, "b2", "x/y"), snapshot);
 	assert.equal(realignSnapshotModel(null, "b1", "x/y"), null);
+});
+
+test("Automático (vazio) é escolha persistida: limpa o modelo fixo do bot com null", () => {
+	assert.deepEqual(planModelPersist("vendor/model-a", ""), { model: "", apiValue: null });
+	assert.deepEqual(planModelPersist("vendor/model-a", "  "), { model: "", apiValue: null });
+});
+
+test("planModelPersist: modelo concreto vai como string; sem mudança não persiste", () => {
+	assert.deepEqual(planModelPersist(undefined, " vendor/model-b "), { model: "vendor/model-b", apiValue: "vendor/model-b" });
+	assert.equal(planModelPersist(undefined, ""), null);
+	assert.equal(planModelPersist(null, "  "), null);
+	assert.equal(planModelPersist("vendor/model-a", "vendor/model-a"), null);
 });

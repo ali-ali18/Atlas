@@ -114,7 +114,7 @@ import { setServerWorking } from "@/lib/bot-activity";
 import { agentUnreadPatch, botHasUnread, previewWithSource, totalUnread, withUnreadTitle } from "@/lib/unread";
 import {
 	type ConfigSnapshot,
-	isSameModelChoice,
+	planModelPersist,
 	planConfigClose,
 	realignSnapshotModel,
 	stableStringify,
@@ -1120,11 +1120,13 @@ export function Template4Client({
 	/** Modelo trocado pelo composer (fora da Config): persiste na hora. */
 	function persistAgentModelNow(model: string) {
 		const id = activeIdRef.current;
-		const trimmed = model.trim();
-		if (!id || !trimmed) return;
+		if (!id) return;
 		// Mesmo modelo já salvo: sem PATCH vazio nem evento duplicado.
+		// Vazio (Automático) também persiste: limpa o modelo fixo do bot (PATCH null).
 		const current = agentsRef.current.find((agent) => agent.id === id);
-		if (isSameModelChoice(current?.openRouterModel, trimmed)) return;
+		const plan = planModelPersist(current?.openRouterModel, model);
+		if (!plan) return;
+		const trimmed = plan.model;
 		const previousModel = current?.openRouterModel;
 		setStoredAgentModel(id, trimmed);
 		setAgents((previous) =>
@@ -1140,15 +1142,13 @@ export function Template4Client({
 			trimmed,
 		);
 		void settleOptimistic({
-			request: updateBotRequest(id, { openRouterModel: trimmed }),
+			request: updateBotRequest(id, { openRouterModel: plan.apiValue }),
 			log: (error) => console.error("update bot model failed", error),
 			message: modelFailureMessage(current?.name ?? "bot"),
 			notify: (message) => toast.error(message),
 			revert: () => {
-				if (previousModel) {
-					setStoredAgentModel(id, previousModel);
-					configSnapshotRef.current = realignSnapshotModel(configSnapshotRef.current, id, previousModel);
-				}
+				setStoredAgentModel(id, previousModel ?? "");
+				configSnapshotRef.current = realignSnapshotModel(configSnapshotRef.current, id, previousModel ?? "");
 				setAgents((previous) => restoreAgentFields(previous, id, { openRouterModel: previousModel }));
 			},
 		});

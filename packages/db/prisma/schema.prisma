@@ -34,6 +34,7 @@ model User {
   settings      UserSettings?
   memories      MemoryEntry[]
   memoryChanges MemoryChange[]
+  botLessons    BotLesson[]
   runs          AgentRun[]
   artifacts     Artifact[]
   routines      Routine[]
@@ -307,11 +308,50 @@ model Bot {
   routines        Routine[]
   routineGroups   RoutineGroup[]
   mailbox        BotMailbox?
+  lessons        BotLesson[]
 
   @@index([pinned, pinOrder])
   @@index([ownerId])
   @@index([memberIds], type: Gin)
   @@map("bots")
+}
+
+/// Lição do bot (memória procedural, "Ao X, faça Y — porque Z"): item curto com contadores de utilidade.
+/// O LLM só propõe deltas; a fusão é código determinístico (`applyLessonDeltas`). Editar cria uma versão nova
+/// (`supersedesId` aponta a anterior, que fica `retired`) para poder restaurar. `rule` é reservado para a fase 2
+/// (regra checável por máquina) e nada o lê hoje.
+model BotLesson {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId        String
+  bot          Bot       @relation(fields: [botId], references: [id], onDelete: Cascade)
+  /// bot | connector | tool
+  scope        String
+  /// Chave do conector (`mcp:<id>` / `api:<id>`) ou nome exposto da tool; null no escopo bot.
+  scopeKey     String?
+  content      String
+  /// correction | failure_recovery | failed_action | reflection | user
+  origin       String
+  /// JSON curto: runId, step, source (user | outcome) e citação (até 300 caracteres).
+  evidence     Json?
+  helpful      Int       @default(0)
+  harmful      Int       @default(0)
+  uses         Int       @default(0)
+  /// active | retired
+  status       String    @default("active")
+  version      Int       @default(1)
+  supersedesId String?
+  rule         Json?
+  /// Embedding pgvector (1536 dims) para a de-duplicação semântica preguiçosa; via queryRaw.
+  embedding    Unsupported("vector(1536)")?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastUsedAt   DateTime?
+
+  @@index([botId, status])
+  @@index([userId, botId])
+  @@map("bot_lessons")
 }
 
 model Section {
@@ -677,6 +717,8 @@ model Routine {
   /// Modelo OpenRouter dedicado a esta rotina (escolhido no painel).
   model           String    @default("")
   allowChatgptPlan Boolean   @default(false)
+  /// always | important: "important" não envia push automático; o bot avisa só quando vale (tool notify_user).
+  notify          String    @default("always")
   enabled         Boolean   @default(true)
   triggerType     String    @default("cron")
   schedule        String?

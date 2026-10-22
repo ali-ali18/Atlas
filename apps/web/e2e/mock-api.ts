@@ -1,5 +1,5 @@
 import type { BrowserContext, Route } from "@playwright/test"
-import { resolveEffectiveConfig } from "@workspace/shared"
+import { resolveEffectiveConfig, splitReplySegments } from "@workspace/shared"
 
 /**
  * API simulada no navegador para o E2E mobile: intercepta `/api/auth/*` e `/v1/*` e mantém um
@@ -471,7 +471,7 @@ export class MockAtlas {
         this.pushMessage("code-run", JSON.stringify({ v: 1, kind: "code-run", callId: `rc-${id}`, code: rc.code, status: rc.ok === false ? "error" : "ok", durationMs: rc.durationMs ?? 1200, output: rc.output ?? "" }), true)
         if (rc.chart) this.pushMessage("chart", JSON.stringify({ v: 1, kind: "chart", chartId: `rc-${id}:grafico.chart.json`, spec: rc.chart, filename: "grafico.chart.json" }), true)
       }
-      for (const paragraph of record.reply.split(/\n{2,}/).filter((part) => part.trim())) this.pushMessage("assistant", paragraph, true)
+      for (const paragraph of splitReplySegments(record.reply)) this.pushMessage("assistant", paragraph, true)
     }, this.options.replyDelayMs)
     return this.json(route, { runId: id, status: "queued", enqueued: true })
   }
