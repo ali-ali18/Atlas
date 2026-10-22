@@ -1,14 +1,16 @@
 import type { ChatTool } from "@workspace/llm";
 import {
-	PAGE_MAX_BLOCKS,
 	PAGE_MAX_CHARTS,
+	PAGE_MAX_DEPTH,
+	PAGE_MAX_NODES,
+	PAGE_PRESET_PALETTES,
 	applyPagePatch,
 	parsePagePatchOps,
 	parsePageSources,
 	parsePageSpec,
 	summarizePageSpec,
 	type ComputerUseEvent,
-	type PageBlock,
+	type PageNode,
 	type PageSource,
 	type PageSpec,
 	type ResearchNote,
@@ -27,15 +29,25 @@ export const PAGE_READ_TOOL_NAME = "page_read";
 export const PAGE_LIST_TOOL_NAME = "page_list";
 export const PAGE_TOOL_NAMES: readonly string[] = [PAGE_CREATE_TOOL_NAME, PAGE_UPDATE_TOOL_NAME, PAGE_READ_TOOL_NAME, PAGE_LIST_TOOL_NAME];
 
-const BLOCK_GRAMMAR =
-	"Block shapes (every block may carry a stable `id`; it is generated if missing): " +
-	'{type:"heading",text} · {type:"markdown",text<=4000} · ' +
-	'{type:"stats",items<=8:[{label,value:number|string,unit?,format?:number|compact|percent|currency,delta?:{value,direction:up|down|flat,label?}}]} · ' +
-	'{type:"chart",spec:{type:line|bar|area|pie,x,series:[{key,label?}],data:[{...}],unit?}} (same spec as the chart tool) · ' +
-	'{type:"bar_list",items<=30:[{label,value:number,display?}],unit?} · ' +
-	'{type:"table",columns<=10:[{key,label,align?,format?}],rows<=100:[{key:value}]} · ' +
-	'{type:"tabs",tabs:[{id?,label,blocks:[...]}]} with 2-6 tabs and no nested tabs. ' +
-	`Limits: ${PAGE_MAX_BLOCKS} blocks in total (tab contents included), ${PAGE_MAX_CHARTS} charts. Put the key numbers first (stats), then charts and tables.`;
+/**
+ * Gramática compacta dos componentes (texto do modelo). Os detalhes e as props válidas de cada um vêm nos
+ * erros do `parsePageSpec` (packages/shared), para não inflar o prefixo do prompt.
+ */
+const NODE_GRAMMAR =
+	"A page is a TREE of ready-made components that you compose freely: `root` is one node {type, id?, props?, children?}; ids are generated when missing and stay stable for page_update. " +
+	"Layout: section{title?,description?} · grid{cols:1-4,gap?} (1 col on phones; `span` on a child = columns it takes) · stack{direction?,gap?} · card{title?,variant?,tone?} · tabs{tabs:[{id,label}]} with one {type:\"tab\",props:{tab:id}} child per tab · divider. " +
+	"Data: stat{label,value,unit?,format?,delta?:{value,kind?:percent|absolute,direction:up|down|flat,label?},size?,tone?} · chart{spec} (same spec as the chart tool: line|area|bar|pie|composed|radar|funnel|gauge, reference for a goal, forecast) · " +
+	"bar_list{items:[{label,value,display?}],unit?} · table{columns:[{key,label,align?,format?,unit?}],rows,variant?} · progress{label,value,max} for a goal · badge{text,tone} · callout{title?,text,tone:info|success|warning|critical} · " +
+	"timeline{items:[{date,title,text?,tone?}]} · kanban{columns:[{title,items:[{title,subtitle?,badge?}]}]} · list{items:[{title,subtitle?,value?,tone?}]} · text{markdown} · heading{text,level?}. " +
+	"tone = neutral|positive|warning|critical|accent. Colors come only from the palette and tones: never write hex colors on components. " +
+	`Limits: ${PAGE_MAX_NODES} nodes, depth ${PAGE_MAX_DEPTH}, ${PAGE_MAX_CHARTS} charts. Compose to fit the content (KPIs in a grid first, then charts, tables, lists) and keep it readable on a phone; invalid props come back as an error that names the valid ones.`;
+
+const PALETTE_PARAM = {
+	description: `Page palette (accent and charts): ${PAGE_PRESET_PALETTES.join(" | ")} or {colors:["#rrggbb"...]} (1-6). Pick one that fits the content (money/growth: grove; alerts/collections: sunset; neutral: ocean or monochrome).`,
+	anyOf: [{ type: "string", enum: [...PAGE_PRESET_PALETTES] }, { type: "object", properties: { colors: { type: "array", items: { type: "string" } } }, required: ["colors"] }],
+};
+
+const NODE_PARAM = { type: "object", description: "A component node {type, id?, props?, children?}.", properties: { type: { type: "string" } }, required: ["type"] };
 
 const SOURCES_PARAM = {
 	type: "array",
@@ -48,20 +60,21 @@ export const PAGE_CREATE_TOOL: ChatTool = {
 	function: {
 		name: PAGE_CREATE_TOOL_NAME,
 		description:
-			"Builds a live page (report, memo or dashboard) that renders inline in the chat as a card and opens full screen on tap; the user keeps it and you refresh it later with page_update. " +
+			"Builds a live page (report, memo or dashboard) composed of ready-made components, which renders inline in the chat as a card and opens full screen on tap; the user keeps it and you refresh it later with page_update. " +
 			"USE WHEN the user asks for a dashboard, report, overview, forecast or page to keep, review and refresh. " +
-			"DO NOT USE for a single chart (use the chart block of run_code or a chart fence), a downloadable document (use create_file) or a plain answer. " +
+			"DO NOT USE for a single chart (use the chart tool path of run_code or a chart fence), a downloadable document (use create_file) or a plain answer. " +
 			"Every number must come from tools or run_code results, never invented or estimated; gather the data first, then build the page once. " +
-			BLOCK_GRAMMAR,
+			NODE_GRAMMAR,
 		parameters: {
 			type: "object",
 			properties: {
 				title: { type: "string", description: "Short page title (up to 120 characters)." },
 				summary: { type: "string", description: "One or two sentences with the main takeaway (up to 400 characters)." },
-				blocks: { type: "array", description: "The page content, in order.", items: { type: "object", properties: { type: { type: "string", enum: ["heading", "markdown", "stats", "chart", "bar_list", "table", "tabs"] } }, required: ["type"] } },
+				palette: PALETTE_PARAM,
+				root: { ...NODE_PARAM, description: "Root component of the tree, usually a stack or section whose children are the page content." },
 				sources: SOURCES_PARAM,
 			},
-			required: ["title", "blocks"],
+			required: ["title", "root"],
 		},
 	},
 };
@@ -71,27 +84,28 @@ export const PAGE_UPDATE_TOOL: ChatTool = {
 	function: {
 		name: PAGE_UPDATE_TOOL_NAME,
 		description:
-			"Updates an existing page IN PLACE (same card in the chat, revision + 1). Pass `ops` to change only some blocks by id (replace | insert_after | remove; insert_after without id appends), " +
-			"or `blocks` to rewrite the whole content; `title`, `summary` and `sources` can change on their own. " +
-			"USE WHEN the user asks to change, extend or refresh a page you built (get the block ids from page_read first when you do not have them). DO NOT USE to create another page for the same subject. " +
+			"Updates an existing page IN PLACE (same card in the chat, revision + 1). Pass `ops` to change only some nodes by id (replace | insert_after | append_child | remove; insert_after without id appends to the root), " +
+			"or `root` to rewrite the whole tree; `title`, `summary`, `palette` and `sources` can change on their own. " +
+			"USE WHEN the user asks to change, extend or refresh a page you built (get the node ids from page_read first when you do not have them). DO NOT USE to create another page for the same subject. " +
 			"Refreshed numbers must come from tools, never invented. " +
-			BLOCK_GRAMMAR,
+			NODE_GRAMMAR,
 		parameters: {
 			type: "object",
 			properties: {
 				page_id: { type: "string", description: "Id returned by page_create or page_list." },
 				title: { type: "string" },
 				summary: { type: "string" },
-				blocks: { type: "array", description: "Full replacement of the content.", items: { type: "object", properties: { type: { type: "string" } }, required: ["type"] } },
+				palette: PALETTE_PARAM,
+				root: { ...NODE_PARAM, description: "Full replacement of the tree." },
 				ops: {
 					type: "array",
-					description: "Partial changes by block id (also tab contents).",
+					description: "Partial changes by node id (any depth).",
 					items: {
 						type: "object",
 						properties: {
-							op: { type: "string", enum: ["replace", "insert_after", "remove"] },
-							id: { type: "string", description: "Block id (optional for insert_after: omitted appends at the end)." },
-							block: { type: "object", description: "New block for replace / insert_after." },
+							op: { type: "string", enum: ["replace", "insert_after", "append_child", "remove"] },
+							id: { type: "string", description: "Node id (parent id for append_child; optional for insert_after: omitted appends to the root)." },
+							node: { type: "object", description: "New node for replace / insert_after / append_child." },
 						},
 						required: ["op"],
 					},
@@ -107,7 +121,7 @@ export const PAGE_READ_TOOL: ChatTool = {
 	type: "function",
 	function: {
 		name: PAGE_READ_TOOL_NAME,
-		description: "Reads a page of this user: the block ids and content, to update only part of it. USE BEFORE page_update when you do not have the current block ids. DO NOT USE just to show the page to the user (the chat already shows it).",
+		description: "Reads a page of this user: the node ids and content, to update only part of it. USE BEFORE page_update when you do not have the current node ids. DO NOT USE just to show the page to the user (the chat already shows it).",
 		parameters: { type: "object", properties: { page_id: { type: "string" } }, required: ["page_id"] },
 	},
 };
@@ -160,34 +174,49 @@ export function sourcesFromResearchNotes(notes: readonly ResearchNote[]): PageSo
 
 const READ_FULL_MAX_CHARS = 20_000;
 
-function blockLabel(block: PageBlock): string {
-	switch (block.type) {
+function nodeLabel(node: PageNode): string {
+	switch (node.type) {
+		case "section":
+		case "card":
+			return node.props.title ?? "";
+		case "stat":
+		case "progress":
+			return node.props.label;
 		case "heading":
-		case "markdown":
-			return block.text.slice(0, 60);
-		case "stats":
-			return block.items.map((item) => item.label).join(", ").slice(0, 60);
+			return node.props.text.slice(0, 60);
+		case "text":
+			return node.props.markdown.slice(0, 60);
+		case "badge":
+			return node.props.text;
+		case "callout":
+			return (node.props.title ?? node.props.text).slice(0, 60);
 		case "chart":
-			return block.spec.title ?? block.spec.type;
+			return node.props.spec.title ?? node.props.spec.type;
 		case "table":
-			return block.columns.map((column) => column.label).join(", ").slice(0, 60);
+			return node.props.columns.map((column) => column.label).join(", ").slice(0, 60);
 		case "bar_list":
-			return `${block.items.length} items`;
+		case "list":
+		case "timeline":
+			return `${node.props.items.length} items`;
+		case "kanban":
+			return node.props.columns.map((column) => column.title).join(" | ").slice(0, 60);
 		case "tabs":
-			return block.tabs.map((tab) => tab.label).join(" | ");
+			return node.props.tabs.map((tab) => tab.label).join(" | ");
+		case "grid":
+			return `${node.props.cols} cols`;
+		default:
+			return "";
 	}
 }
 
-/** Uma linha por bloco (id, tipo, rótulo), com as abas indentadas. */
+/** Uma linha por nó (id, tipo, rótulo), com os filhos indentados. */
 export function outlinePage(spec: PageSpec): string {
 	const lines: string[] = [];
-	const visit = (blocks: readonly PageBlock[], depth: number) => {
-		for (const block of blocks) {
-			lines.push(`${"  ".repeat(depth)}- ${block.id} [${block.type}] ${blockLabel(block)}`);
-			if (block.type === "tabs") for (const tab of block.tabs) visit(tab.blocks, depth + 1);
-		}
+	const visit = (node: PageNode, depth: number) => {
+		lines.push(`${"  ".repeat(depth)}- ${node.id} [${node.type}] ${nodeLabel(node)}`.trimEnd());
+		for (const child of node.children ?? []) visit(child, depth + 1);
 	};
-	visit(spec.blocks, 0);
+	visit(spec.root, 0);
 	return lines.join("\n");
 }
 
@@ -231,7 +260,7 @@ async function emit(ctx: PageToolContext, action: "created" | "updated", page: P
 
 async function createTool(args: Record<string, unknown>, ctx: PageToolContext): Promise<{ summary: string }> {
 	const { userId, botId, store } = requireScope(ctx);
-	const parsed = parsePageSpec({ v: 1, title: args.title, summary: args.summary, blocks: args.blocks });
+	const parsed = parsePageSpec({ v: 2, title: args.title, summary: args.summary, palette: args.palette, root: args.root });
 	if (!parsed.ok) throw invalid(parsed.error);
 	const sources = sourcesArg(args) ?? sourcesFromResearchNotes(ctx.researchNotes?.() ?? []);
 	const page = await store.create(userId, { botId, conversationId: ctx.conversationId ?? null, spec: parsed.spec, sources });
@@ -246,11 +275,11 @@ async function updateTool(args: Record<string, unknown>, ctx: PageToolContext): 
 	const { userId, store } = requireScope(ctx);
 	const pageId = pageIdArg(args);
 	const hasOps = args.ops !== undefined && args.ops !== null;
-	const hasBlocks = args.blocks !== undefined && args.blocks !== null;
-	if (hasOps && hasBlocks) throw new Error("Pass either `ops` (partial change) or `blocks` (full rewrite), not both.");
+	const hasRoot = args.root !== undefined && args.root !== null;
+	if (hasOps && hasRoot) throw new Error("Pass either `ops` (partial change) or `root` (full rewrite), not both.");
 	const sources = sourcesArg(args);
-	if (!hasOps && !hasBlocks && args.title === undefined && args.summary === undefined && sources === undefined) {
-		throw new Error("Nothing to update: pass `ops`, `blocks`, `title`, `summary` or `sources`.");
+	if (!hasOps && !hasRoot && args.title === undefined && args.summary === undefined && args.palette === undefined && sources === undefined) {
+		throw new Error("Nothing to update: pass `ops`, `root`, `title`, `summary`, `palette` or `sources`.");
 	}
 	const parsedOps = hasOps ? parsePagePatchOps(args.ops) : null;
 	if (parsedOps && !parsedOps.ok) throw invalid(parsedOps.error);
@@ -266,10 +295,11 @@ async function updateTool(args: Record<string, unknown>, ctx: PageToolContext): 
 			base = patched.spec;
 		}
 		const parsed = parsePageSpec({
-			v: 1,
+			v: 2,
 			title: typeof args.title === "string" ? args.title : base.title,
 			summary: typeof args.summary === "string" ? args.summary : base.summary,
-			blocks: hasBlocks ? args.blocks : base.blocks,
+			palette: args.palette !== undefined && args.palette !== null ? args.palette : base.palette,
+			root: hasRoot ? args.root : base.root,
 		});
 		if (!parsed.ok) throw invalid(parsed.error);
 		const result = await store.update(pageId, userId, { spec: parsed.spec, ...(sources ? { sources } : {}), expectedRevision: current.revision });
@@ -290,8 +320,8 @@ async function readTool(args: Record<string, unknown>, ctx: PageToolContext): Pr
 	const pageId = pageIdArg(args);
 	const page = await store.get(pageId, userId);
 	if (!page) throw new Error(`Page ${pageId} not found. Use page_list to see this bot's pages.`);
-	const json = JSON.stringify({ title: page.title, summary: page.spec.summary, blocks: page.spec.blocks });
-	const head = `Page ${page.id}, revision ${page.revision}, ${page.sources.length} sources. ${summarizePageSpec(page.spec)}.\nBlock ids:\n${outlinePage(page.spec)}`;
+	const json = JSON.stringify({ title: page.title, summary: page.spec.summary, palette: page.spec.palette, root: page.spec.root });
+	const head = `Page ${page.id}, revision ${page.revision}, ${page.sources.length} sources. ${summarizePageSpec(page.spec)}.\nNode ids:\n${outlinePage(page.spec)}`;
 	if (json.length > READ_FULL_MAX_CHARS) {
 		return { summary: `${head}\n(The full content is too large to print; use the ids above with page_update ops.)` };
 	}

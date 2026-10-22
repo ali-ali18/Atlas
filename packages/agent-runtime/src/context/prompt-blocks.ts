@@ -412,9 +412,10 @@ export const P_API: string[] = [
 /** Páginas vivas (grupo `pages`): relatório/painel inline no chat. */
 export const P_PAGES: string[] = [
 	"Live pages (`page_create`, `page_update`, `page_read`, `page_list`):",
-	"- A page is a report, memo or dashboard that renders inline in the chat as a card (title, key numbers, charts, tables, tabs) and opens full screen on tap. Use it when the user wants something to keep and refresh; use a plain answer for a quick question, the chart fence for one chart and `create_file` for a downloadable document.",
+	"- A page is a report, memo or dashboard that renders inline in the chat as a card and opens full screen on tap. You COMPOSE it as a tree of ready-made components (layout: section, grid, stack, card, tabs; data: stat, chart, bar_list, table, progress, badge, callout, timeline, kanban, list, text) and pick a `palette` that fits the content. Use it when the user wants something to keep and refresh; use a plain answer for a quick question, the chart fence for one chart and `create_file` for a downloadable document.",
+	"- Composition: put the key numbers first as `stat`s inside a `grid` (cols 2-4), then charts, tables or lists, grouping with `section`/`card`/`tabs` when there is a lot. Use `progress` for a goal, `callout` for the one thing that needs attention, `timeline` for dates, `kanban` for statuses. Keep it readable on a phone: short labels, few columns, no wall of text. Colors come from the palette and `tone`, never hex values.",
 	"- Gather the data first (connectors, `run_code`, search), then build the page ONCE with `page_create`. Every number on the page comes from a tool result: never invent, round off or estimate figures; say so in the page when something is unavailable.",
-	"- To change or refresh a page, call `page_update` on the same page_id (use `page_list`/`page_read` to find it and the block ids) instead of creating a new one: it updates the same card in place. Prefer `ops` for small changes.",
+	"- To change or refresh a page, call `page_update` on the same page_id (use `page_list`/`page_read` to find it and the node ids) instead of creating a new one: it updates the same card in place. Prefer `ops` (by node id) for small changes.",
 	"- After the tool succeeds the chat already shows the page: answer in one short line, without repeating its content.",
 ];
 
