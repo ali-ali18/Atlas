@@ -205,6 +205,12 @@ function labelBudget(plotWidth: number, margin: { left: number; right: number },
   return Math.max(2, Math.min(max, Math.floor((plotWidth - margin.left - margin.right) / perLabel)))
 }
 
+/** Largura reservada por rótulo do eixo X: texto (≈6,4px por caractere em 12px) + folga entre rótulos vizinhos. */
+export function xLabelSlot(labels: string[]): number {
+  const longest = Math.max(0, ...labels.map((label) => label.length))
+  return Math.min(110, Math.max(48, Math.round(longest * 6.4 + 28)))
+}
+
 /** Barras ficam na vertical enquanto os rótulos couberem ou puderem ser afinados (datas e nomes curtos); só nomes longos e numerosos viram barras horizontais. */
 export function shouldUseHorizontalBars(labels: string[], plotInnerWidth: number): boolean {
   const longest = Math.max(0, ...labels.map((label) => label.length))
@@ -294,6 +300,10 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
   const plotWidth = React.useContext(PlotWidthContext)
   const { rows, categoryByTime } = React.useMemo(() => toTimeData(spec), [spec])
   const labels = React.useMemo(() => makeXLabels(spec), [spec])
+  const monthlyX = React.useMemo(
+    () => spec.xKind === "date" && spec.data.every((point) => parseChartDate(String(point[spec.x])).getDate() === 1),
+    [spec]
+  )
   const tooltipFormat = React.useMemo(() => makeValueFormatter(spec), [spec])
   const axisFormat = React.useMemo(
     () => makeValueFormatter(spec, { axis: true, max: spec.type === "area" && spec.stacked ? stackedMax(spec) : maxAbs(spec) }),
@@ -393,7 +403,7 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
         )}
         {projection.length > 1 ? <ProjectionLine data={projection} stroke={seriesColor(0)} /> : null}
         <YAxis formatValue={axisFormat} labelPadding={spec.type === "composed" ? 18 : 8} />
-        <XAxis numTicks={labelBudget(plotWidth, margin, 6, 96)} />
+        <XAxis snapToMonth={monthlyX} numTicks={labelBudget(plotWidth, margin, 6, xLabelSlot(spec.data.map((point) => labels.axis(String(point[spec.x] ?? "")))))} />
         <ChartTooltip content={tooltipContent} showCrosshair={spec.type !== "composed"} />
       </Chart>
     </XLabelFormatContext.Provider>

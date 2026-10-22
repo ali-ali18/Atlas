@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { chartSpecToCsv, parseChartSpec, type ChartSpec } from "@workspace/shared"
-import { Chart, describeReference, horizontalBarLeftMargin, makeValueFormatter, makeXLabels, parseChartDate, shouldUseHorizontalBars } from "./chart"
+import { Chart, describeReference, horizontalBarLeftMargin, makeValueFormatter, makeXLabels, parseChartDate, shouldUseHorizontalBars, xLabelSlot } from "./chart"
 
 const spec = (raw: Record<string, unknown>): ChartSpec => {
   const parsed = parseChartSpec(raw)
@@ -75,6 +75,11 @@ describe("formatação pt-BR", () => {
   it("moeda com `whole` mostra reais cheios; sem ele (ou com centavos) segue com 2 casas", () => {
     expect(plain(makeValueFormatter({ unit: "BRL" }, { whole: true })(28_400))).toBe("R$ 28.400")
     expect(plain(makeValueFormatter({ unit: "BRL" })(28_400))).toBe("R$ 28.400,00")
+  })
+
+  it("reserva por rótulo do eixo X acompanha o tamanho do texto (mensal cabe mais rótulos que dd/mm/aa)", () => {
+    expect(xLabelSlot(["jan/26", "fev/26"])).toBeLessThan(xLabelSlot(["01/01/26", "02/01/26"]))
+    expect(xLabelSlot([])).toBe(48)
   })
 
   it("eixo usa notação compacta só a partir de 10 mil", () => {

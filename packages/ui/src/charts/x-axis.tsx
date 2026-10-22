@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useContext, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@workspace/ui/lib/utils";
 import {
@@ -8,7 +8,7 @@ import {
   useChartPortalContainer,
   useChartStable,
 } from "./chart-context";
-import { shortDateFmt } from "./chart-formatters";
+import { shortDateFmt, XLabelFormatContext } from "./chart-formatters";
 import { DEFAULT_Y_DOMAIN_TWEEN_MS } from "./chart-phase";
 import { LINE_LOADING_PULSE_EASE } from "./line-loading-timing";
 import {
@@ -30,6 +30,17 @@ export interface XAxisProps {
   tickMode?: "domain" | "data";
   /** Optional labels aligned with data rows for the displayed ticks. */
   labels?: string[];
+  /** Série mensal: os ticks por domínio caem no dia 1 do mês mais próximo (jan, abr, jul… em vez de datas soltas). */
+  snapToMonth?: boolean;
+}
+
+/** Primeiro dia do mês mais próximo de `date`. */
+export function nearestMonthStart(date: Date): Date {
+  const thisMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+  const nextMonth = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+  return date.getTime() - thisMonth.getTime() <= nextMonth.getTime() - date.getTime()
+    ? thisMonth
+    : nextMonth;
 }
 
 interface AxisTick {
@@ -440,11 +451,21 @@ function buildDataAlignedTicks({
   return ticks;
 }
 
-function buildDomainTicks({
+type TickDateFormatter = (date: Date) => string;
+
+/**
+ * Ticks espaçados por igual no domínio (dados + projeção). O rótulo vem do formatador do gráfico (ex.: "jan/26"
+ * em série mensal) e não de "dd/mm" fixo; rótulos repetidos (dois ticks no mesmo mês) são descartados.
+ */
+export function buildDomainTicks({
+  formatDate = (date) => shortDateFmt.format(date),
   marginLeft,
   numTicks,
+  snapToMonth = false,
   xScale,
 }: {
+  formatDate?: TickDateFormatter;
+  snapToMonth?: boolean;
   marginLeft: number;
   numTicks: number;
   xScale: {
@@ -469,8 +490,10 @@ function buildDomainTicks({
 
   for (let i = 0; i < tickCount; i++) {
     const t = i / (tickCount - 1);
-    const date = new Date(startTime + t * timeRange);
-    const label = shortDateFmt.format(date);
+    const raw = new Date(startTime + t * timeRange);
+    // As pontas ficam no domínio; só os ticks do meio encaixam no mês.
+    const date = snapToMonth && i > 0 && i < tickCount - 1 ? nearestMonthStart(raw) : raw;
+    const label = formatDate(date);
     if (seenLabels.has(label)) {
       continue;
     }
@@ -511,7 +534,8 @@ function appendProjectionTailTicks(
     (date: Date): number | undefined;
   },
   marginLeft: number,
-  maxExtraTicks: number
+  maxExtraTicks: number,
+  formatDate: TickDateFormatter = (date) => shortDateFmt.format(date)
 ): AxisTick[] {
   if (data.length === 0 || maxExtraTicks <= 0) {
     return ticks;
@@ -538,7 +562,7 @@ function appendProjectionTailTicks(
     const date = new Date(
       startTime + (i / (extraCount + 1)) * (endTime - startTime)
     );
-    const label = shortDateFmt.format(date);
+    const label = formatDate(date);
     if (seenLabels.has(label)) {
       continue;
     }
@@ -550,7 +574,7 @@ function appendProjectionTailTicks(
     });
   }
 
-  const endLabel = shortDateFmt.format(domainEnd);
+  const endLabel = formatDate(domainEnd);
   if (!seenLabels.has(endLabel)) {
     extras.push({
       date: domainEnd,
@@ -582,6 +606,7 @@ const XAxisInner = memo(function XAxisInner({
   tickerHalfWidth = 50,
   tickMode = "data",
   labels: labelsProp,
+  snapToMonth = false,
   container,
 }: XAxisProps & { container: HTMLDivElement }) {
   const {
@@ -595,6 +620,11 @@ const XAxisInner = memo(function XAxisInner({
     width,
   } = useChart();
   const dateLabels = labelsProp ?? contextDateLabels;
+  const externalFormat = useContext(XLabelFormatContext);
+  const formatDate = useMemo<TickDateFormatter>(
+    () => externalFormat ?? ((date) => shortDateFmt.format(date)),
+    [externalFormat]
+  );
   const resolvedNumTicks = useMemo(
     () => resolveResponsiveChartLabelCount(numTicks, width, 5),
     [numTicks, width]
@@ -606,8 +636,10 @@ const XAxisInner = memo(function XAxisInner({
 
     if (tickMode === "domain") {
       return buildDomainTicks({
+        formatDate,
         marginLeft: margin.left,
         numTicks: resolvedNumTicks,
+        snapToMonth,
         xScale,
       });
     }
@@ -615,8 +647,10 @@ const XAxisInner = memo(function XAxisInner({
     // No brush: evenly spaced ticks across the full domain (data + projection).
     if (projectionExtendsScale && xDomain == null) {
       return buildDomainTicks({
+        formatDate,
         marginLeft: margin.left,
         numTicks: resolvedNumTicks,
+        snapToMonth,
         xScale,
       });
     }
@@ -638,7 +672,8 @@ const XAxisInner = memo(function XAxisInner({
         xAccessor,
         xScale,
         margin.left,
-        Math.max(1, resolvedNumTicks - dataTicks.length + 1)
+        Math.max(1, resolvedNumTicks - dataTicks.length + 1),
+        formatDate
       );
     }
 
@@ -648,6 +683,8 @@ const XAxisInner = memo(function XAxisInner({
     xDomain,
     data,
     dateLabels,
+    formatDate,
+    snapToMonth,
     xAccessor,
     xScale,
     margin.left,
