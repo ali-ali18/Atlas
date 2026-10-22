@@ -6,6 +6,7 @@ import type { Transition } from "motion/react";
 import {
   Children,
   cloneElement,
+  useContext,
   isValidElement,
   memo,
   type ReactElement,
@@ -33,7 +34,7 @@ import {
 } from "./chart-child-passthrough";
 import { ChartProvider, type LineConfig, type Margin } from "./chart-context";
 import { isGradientDefComponent, isPatternDefComponent } from "./chart-defs";
-import { shortDateFmt } from "./chart-formatters";
+import { shortDateFmt, XLabelFormatContext } from "./chart-formatters";
 import {
   type ChartPhase,
   type ChartStatus,
@@ -396,9 +397,14 @@ const TimeSeriesChartCore = memo(function TimeSeriesChartCore({
     scaleLinear({ range: [innerHeight, 0], domain: [0, 100], nice: true })
   );
 
+  // Contexto de fora (gráfico de categorias com datas sintéticas) devolve o nome da categoria no lugar de "dd/mm".
+  const xLabelFormat = useContext(XLabelFormatContext);
   const dateLabels = useMemo(
-    () => visiblePlotData.map((d) => shortDateFmt.format(xAccessor(d))),
-    [visiblePlotData, xAccessor]
+    () =>
+      visiblePlotData.map((d) =>
+        xLabelFormat ? xLabelFormat(xAccessor(d)) : shortDateFmt.format(xAccessor(d))
+      ),
+    [visiblePlotData, xAccessor, xLabelFormat]
   );
 
   const canInteract = isLoaded && isChartInteractionPhase(chartPhase);

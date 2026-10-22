@@ -55,7 +55,7 @@ export function ChoroplethTooltip({
   formatValue = intFmt,
   getFeatureName,
   getFeatureValue,
-  valueLabel = "Value",
+  valueLabel = "Valor",
   className = "",
   panelStyle,
   backgroundColor,

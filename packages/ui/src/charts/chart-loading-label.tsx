@@ -18,7 +18,7 @@ export interface ChartLoadingLabelProps {
 }
 
 export function ChartLoadingLabel({
-  text = "Loading",
+  text = "Carregando",
   className,
   exiting = false,
 }: ChartLoadingLabelProps) {

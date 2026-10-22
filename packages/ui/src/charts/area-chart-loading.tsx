@@ -62,7 +62,7 @@ export function AreaChartLoading({
   gridShimmerSpeed,
   gridShimmerSync = false,
   loadingStyle = "pulse",
-  label = "Loading",
+  label = "Carregando",
   aspectRatio,
   className = "",
 }: AreaChartLoadingProps) {

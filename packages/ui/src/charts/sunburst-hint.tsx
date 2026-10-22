@@ -27,9 +27,9 @@ export const SunburstHint = memo(function SunburstHint({
       return hoveredArc.trail.join("  ›  ");
     }
     if (focus.depth === 0) {
-      return "Click a segment to zoom in · hover to inspect";
+      return "Clique em um segmento para ampliar · passe o mouse para ver";
     }
-    return "Click the center to zoom out";
+    return "Clique no centro para voltar";
   })();
 
   const context: SunburstHintContext = { hintText, hoveredArc, focus };

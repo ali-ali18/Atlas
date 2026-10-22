@@ -32,7 +32,7 @@ export function HeatmapChartLoading({
   margin,
   gap = 2,
   cornerRadius = 2,
-  label = "Loading",
+  label = "Carregando",
   className = "",
 }: HeatmapChartLoadingProps) {
   const skeletonData = useMemo(

@@ -42,7 +42,7 @@ export const SunburstBreadcrumb = memo(function SunburstBreadcrumb({
   children,
 }: SunburstBreadcrumbProps) {
   return (
-    <nav aria-label="Drill-down path" className={className ?? "mb-4"}>
+    <nav aria-label="Caminho do detalhamento" className={className ?? "mb-4"}>
       {children}
     </nav>
   );

@@ -64,8 +64,8 @@ export interface HeatmapLegendProps {
 }
 
 export const HeatmapLegend = memo(function HeatmapLegend({
-  lessLabel = "Less",
-  moreLabel = "More",
+  lessLabel = "Menos",
+  moreLabel = "Mais",
   cellSize = 11,
   gap = 2,
   cornerRadius = 2,
