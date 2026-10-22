@@ -18,14 +18,15 @@
     }
   },
   "dependencies": {
+    "@workspace/observability": "workspace:*",
     "@workspace/shared": "workspace:*",
     "bullmq": "^5.66.4",
-    "ioredis": "^5.9.2",
-    "@workspace/observability": "workspace:*"
+    "ioredis": "^5.9.2"
   },
   "devDependencies": {
+    "@types/node": "^20.19.41",
     "@workspace/typescript-config": "workspace:*",
     "typescript": "^5",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   }
 }
