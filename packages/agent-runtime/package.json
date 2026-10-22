@@ -20,7 +20,7 @@
     }
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "@workspace/db": "workspace:*",
     "@workspace/llm": "workspace:*",
     "@workspace/sandbox": "workspace:*",
@@ -34,7 +34,7 @@
     "pdfjs-dist": "6.3.289",
     "playwright-core": "^1.63.0",
     "pptxgenjs": "^4.0.1",
-    "sanitize-html": "^2.18.0",
+    "sanitize-html": "^2.18.1",
     "sharp": "^0.35.5",
     "undici": "^6.29.0"
   },
