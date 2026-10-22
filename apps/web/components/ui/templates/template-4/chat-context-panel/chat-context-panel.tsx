@@ -280,8 +280,6 @@ export function ChatContextPanel({
 	agentPointer = null,
 	view = "default",
 	initialTab = "library",
-	memoryRequest,
-	onFixMemoryInChat,
 }: {
 	agent: Agent;
 	className?: string;
@@ -350,21 +348,12 @@ export function ChatContextPanel({
 	/** settings = configurações do bot; routine = rascunho de rotina ou rotina aberta pelo chat. */
 	view?: "default" | "settings" | "routine" | "activity";
 	initialTab?: "library" | "computer" | "email";
-	/** Pedido de fora (chip "Memória atualizada · ver", cartão da reflexão) para abrir a aba Memória das configurações; o nonce muda a cada pedido. */
-	memoryRequest?: { nonce: number; section?: "changes" };
-	/** "Corrigir no chat": põe o rascunho no campo de mensagem (sem enviar) e, no celular, fecha o painel. */
-	onFixMemoryInChat?: (draft: string) => void;
 }) {
 	const [width, setWidth] = useState(initialWidth ?? DEFAULT_WIDTH);
 	const [resizing, setResizing] = useState(false);
 	const [mounted, setMounted] = useState(false);
 	const [snapshotVersion, setSnapshotVersion] = useState(0);
 	const [tab, setTab] = useState<string>(initialTab);
-	const memoryNonce = memoryRequest?.nonce;
-	// Pedido de abrir a Memória: volta à página principal das configurações (a aba Memória fica nela).
-	useEffect(() => {
-		if (memoryNonce) setSettingsPage("main");
-	}, [memoryNonce]);
 	const [historyFor, setHistoryFor] = useState<Routine | null>(null);
 	const [webhookFor, setWebhookFor] = useState<Routine | null>(null);
 	const [githubFor, setGithubFor] = useState<Routine | null>(null);
@@ -709,9 +698,7 @@ export function ChatContextPanel({
 								accountCodingModel={accountCodingModel}
 								accountTimezone={accountTimezone}
 								agent={agent}
-								memoryRequest={memoryRequest}
 								onChange={onUpdate}
-								onFixMemoryInChat={onFixMemoryInChat}
 								onOpenPage={setSettingsPage}
 								page={settingsPage}
 							/>

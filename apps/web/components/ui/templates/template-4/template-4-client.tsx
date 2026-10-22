@@ -1491,12 +1491,6 @@ export function Template4Client({
 		setComposerPrefill({ text, nonce: Date.now() });
 	}
 
-	/** "Corrigir no chat": rascunho no campo de mensagem (não envia) e, no celular, fecha o painel para mostrar o chat. */
-	function fixMemoryInChat(draft: string) {
-		prefillComposer(draft);
-		if (isMobile) closePanel();
-	}
-
 	/** "Editar com o agente": prefill do composer + fecha o overlay da rotina. */
 	function editRoutineWithAgent(routine: Routine) {
 		prefillComposer(
@@ -2432,7 +2426,6 @@ export function Template4Client({
 							onCreateScheduledRoutine={openNewScheduledRoutineDraft}
 							onCreateWebhookRoutine={openNewWebhookRoutineDraft}
 							onEditRoutineWithAgent={editRoutineWithAgent}
-							onFixMemoryInChat={fixMemoryInChat}
 							defaultRoutineModel={
 								active.openRouterModel?.trim() || DEFAULT_OPENROUTER_MODEL
 							}
