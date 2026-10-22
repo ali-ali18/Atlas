@@ -88,7 +88,8 @@ export function parseUsersInput(value: string): string[] | undefined {
 /** Registro do servidor -> rotina da UI; marca as que o bot criou sozinho (modo proativo). */
 export function recordToUiRoutine(record: RoutineRecord): Routine {
 	const base = recordToUiRoutineBase(record);
-	const routine = record.groupId ? { ...base, groupId: record.groupId } : base;
+	const withGroup = record.groupId ? { ...base, groupId: record.groupId } : base;
+	const routine = record.pageId ? { ...withGroup, pageId: record.pageId } : withGroup;
 	return record.createdBy === "bot" ? { ...routine, createdBy: "bot" } : routine;
 }
 

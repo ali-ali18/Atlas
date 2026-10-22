@@ -282,7 +282,7 @@ export function FollowupDetail({
 }
 
 /**
- * Lembretes agendados pelo bot principal (Detalhes do painel, junto das rotinas). Cada item
+ * Lembretes agendados pelo bot principal (seção Rotinas da Biblioteca do painel). Cada item
  * mostra o texto e quando vai disparar, com o mesmo cartão das rotinas; tocar abre o detalhe
  * no painel e o X cancela.
  */

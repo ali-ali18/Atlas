@@ -213,6 +213,8 @@ export type Routine = {
 	id: string;
 	instruction: string;
 	name: string;
+	/** Página que cada execução atualiza no lugar (o agente liga; a UI só mostra). */
+	pageId?: string;
 	/** Id do modelo desta rotina. */
 	model: string;
 	allowChatgptPlan?: boolean;

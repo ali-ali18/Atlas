@@ -1,5 +1,6 @@
 "use client";
 
+import { RefreshCwIcon } from "lucide-react";
 import type { PageSource, PageSpec } from "@workspace/shared";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@workspace/ui/components/dialog";
 
@@ -19,6 +20,7 @@ export function PageDialog({
 	spec,
 	sources,
 	updatedLabel,
+	routineLabel,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
@@ -27,6 +29,8 @@ export function PageDialog({
 	spec: PageSpec;
 	sources: PageSource[] | null;
 	updatedLabel?: string | null;
+	/** Quando uma rotina atualiza a página ("Toda segunda às 08:00"). */
+	routineLabel?: string | null;
 }) {
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -37,6 +41,12 @@ export function PageDialog({
 				<DialogHeader className="pr-10">
 					<DialogTitle>{title}</DialogTitle>
 					<DialogDescription>{[summary, updatedLabel].filter(Boolean).join(" · ")}</DialogDescription>
+					{routineLabel ? (
+						<p className="flex items-center gap-1.5 text-muted-foreground text-xs" data-page-routine>
+							<RefreshCwIcon aria-hidden className="size-3.5 shrink-0" />
+							<span>Atualizada por rotina · {routineLabel}</span>
+						</p>
+					) : null}
 				</DialogHeader>
 				<PageView spec={spec} />
 				{sources && sources.length > 0 ? (

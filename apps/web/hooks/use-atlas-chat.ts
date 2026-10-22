@@ -118,6 +118,7 @@ import {
 	type ComputerUseHandlers,
 } from "@/lib/atlas-api";
 import { isCardProtocolText } from "@/lib/card-decision";
+import { notifyPagesChanged } from "@/lib/pages-refresh";
 import {
 	resolveAgentModel,
 	setStoredAgentModel,
@@ -967,6 +968,7 @@ export function createComputerHandlers(params: {
 		},
 		onPage: (event) => {
 			params.onActivity?.();
+			notifyPagesChanged();
 			params.setMessages((previous) => applyPageEvent(previous, event, (message) => insertCardAfterCurrentTurn(previous, message)));
 		},
 		onFile: (event) => {
