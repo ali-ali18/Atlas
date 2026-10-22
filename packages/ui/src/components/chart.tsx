@@ -297,7 +297,13 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
     () => makeValueFormatter(spec, { axis: true, max: spec.type === "area" && spec.stacked ? stackedMax(spec) : maxAbs(spec) }),
     [spec]
   )
-  const margin = React.useMemo(() => chartMargin(axisFormat, spec.type === "area" && spec.stacked ? stackedMax(spec) : maxAbs(spec)), [axisFormat, spec])
+  const margin = React.useMemo(() => {
+    const base = chartMargin(axisFormat, spec.type === "area" && spec.stacked ? stackedMax(spec) : maxAbs(spec))
+    if (spec.xKind === "date") return base
+    // O último nome de categoria é centrado no último ponto e passaria da borda: reserva metade da largura dele.
+    const lastLabel = String(spec.data[spec.data.length - 1]?.[spec.x] ?? "")
+    return { ...base, right: Math.max(base.right, Math.round(lastLabel.length * 3.3) + 8) }
+  }, [axisFormat, spec])
   const formatX = React.useCallback(
     (date: Date) => {
       const category = categoryByTime.get(date.getTime())
@@ -454,7 +460,7 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
           fill={seriesColor(index)}
           key={item.key}
           lineCap={spec.data.length > 24 ? 0 : 3}
-          {...(horizontal && spec.series.length === 1 ? { showValue: true, valueLabelFormatter: axisFormat, valueLabelPosition: "top" as const, valueLabelColor: "var(--foreground)" } : {})}
+          {...(horizontal && spec.series.length === 1 ? { showValue: true, valueLabelFormatter: axisFormat, valueLabelPosition: "top" as const } : {})}
         />
       ))}
       {horizontal ? <BarYAxis maxLabels={40} /> : <YAxis formatValue={axisFormat} />}
@@ -582,7 +588,7 @@ function FunnelPlot({ spec }: { spec: ChartSpec }) {
   )
   const vertical = plotWidth < 520 || stages.length > 6
   return (
-    <div className={vertical ? "h-[320px] px-3" : "h-[240px] px-3"}>
+    <div className="px-3" style={{ height: vertical ? Math.max(320, stages.length * 112) : 240 }}>
       <FunnelChart
         color="var(--chart-1)"
         data={stages}
