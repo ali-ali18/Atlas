@@ -208,7 +208,7 @@ function labelBudget(plotWidth: number, margin: { left: number; right: number },
 /** Largura reservada por rótulo do eixo X: texto (≈6,4px por caractere em 12px) + folga entre rótulos vizinhos. */
 export function xLabelSlot(labels: string[]): number {
   const longest = Math.max(0, ...labels.map((label) => label.length))
-  return Math.min(110, Math.max(48, Math.round(longest * 6.4 + 28)))
+  return Math.min(110, Math.max(48, Math.round(longest * 6.4 + 20)))
 }
 
 /** Barras ficam na vertical enquanto os rótulos couberem ou puderem ser afinados (datas e nomes curtos); só nomes longos e numerosos viram barras horizontais. */
