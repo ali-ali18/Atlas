@@ -99,5 +99,6 @@ export function devLiveLine({ view, activity, pendingApproval = false, now }: Li
 		}
 	}
 	if (!view) return null;
+	if (activity.phase === "revising") return "Revisando a resposta…";
 	return activity.phase === "writing" ? "Escrevendo a resposta…" : "Pensando…";
 }
