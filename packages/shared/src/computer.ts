@@ -1,4 +1,5 @@
 import type { ChartSpec } from "./chart-spec.js";
+import type { PageSpec } from "./page-spec.js";
 import type { RunTelemetryMeta } from "./run-telemetry.js";
 import type { ComputerMetrics } from "./computer-state.js";
 import type { DevApprovalCardInfo } from "./dev-command-approval.js";
@@ -176,6 +177,17 @@ export type ComputerUseEvent =
 		chartId: string;
 		spec: ChartSpec;
 		filename?: string;
+		runId?: string;
+	  }
+	| {
+		/** Página viva (relatório/painel) criada ou atualizada no lugar: o mesmo `pageId` troca de revisão, não vira outra mensagem. */
+		type: "page";
+		action: "created" | "updated";
+		pageId: string;
+		revision: number;
+		title: string;
+		spec: PageSpec;
+		sourceCount: number;
 		runId?: string;
 	  }
 	| {

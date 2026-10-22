@@ -385,6 +385,7 @@ export const CONTEXT_GROUPS = [
 	"api",
 	"email",
 	"data",
+	"pages",
 ] as const;
 export type ContextGroup = (typeof CONTEXT_GROUPS)[number];
 
@@ -408,6 +409,15 @@ export const P_API: string[] = [
 	"- After a new API is connected, offer to save a short how-to skill (\"como usar <API>\") with `propose_skill`; create it only if the user agrees.",
 ];
 
+/** Páginas vivas (grupo `pages`): relatório/painel inline no chat. */
+export const P_PAGES: string[] = [
+	"Live pages (`page_create`, `page_update`, `page_read`, `page_list`):",
+	"- A page is a report, memo or dashboard that renders inline in the chat as a card (title, key numbers, charts, tables, tabs) and opens full screen on tap. Use it when the user wants something to keep and refresh; use a plain answer for a quick question, the chart fence for one chart and `create_file` for a downloadable document.",
+	"- Gather the data first (connectors, `run_code`, search), then build the page ONCE with `page_create`. Every number on the page comes from a tool result: never invent, round off or estimate figures; say so in the page when something is unavailable.",
+	"- To change or refresh a page, call `page_update` on the same page_id (use `page_list`/`page_read` to find it and the block ids) instead of creating a new one: it updates the same card in place. Prefer `ops` for small changes.",
+	"- After the tool succeeds the chat already shows the page: answer in one short line, without repeating its content.",
+];
+
 const join = (...blocks: string[][]): string => blocks.map((block) => block.join("\n")).join("\n\n");
 
 /** Texto do procedimento de cada grupo (grupo sem procedimento próprio não aparece). */
@@ -428,6 +438,7 @@ const GROUP_PROMPT_BLOCKS: Partial<Record<ContextGroup, string[][]>> = {
 	api: [P_API],
 	email: [P_EMAIL],
 	data: [P_DATA],
+	pages: [P_PAGES],
 };
 
 /** Com as sessões de código desligadas o procedimento `dev` vira esta linha (nada de improvisar na VM). */

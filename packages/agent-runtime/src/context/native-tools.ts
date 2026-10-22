@@ -76,6 +76,11 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 		hint: "create a downloadable file (PDF, Word, Excel, CSV, code, text)",
 		keywords: ["file", "files", "arquivo", "arquivos", "pdf", "docx", "excel", "xlsx", "csv", "spreadsheet", "planilha", "document", "documento", "report", "relatorio"],
 	},
+	pages: {
+		tools: ["page_create", "page_update", "page_read", "page_list"],
+		hint: "build a live page (report, memo, dashboard) that renders inline in the chat, then update it in place later",
+		keywords: ["dashboard", "dashboards", "painel", "paineis", "pagina", "paginas", "page", "pages", "relatorio", "relatorios", "report", "forecast", "overview", "visao geral", "kpi", "kpis", "scorecard", "resumo executivo"],
+	},
 	bots: {
 		tools: ["propose_bot"],
 		hint: "propose a new agent (bot) for the user, shown as an approval card",

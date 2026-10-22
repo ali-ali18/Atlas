@@ -338,6 +338,7 @@ import {
 } from "./tools/delegate-task.js";
 import { CREATE_FILE_TOOL, executeCreateFile, previewCreateFileArgs, type CreateFileDeps, type FileEvent } from "./tools/create-file.js";
 import { RUN_CODE_TOOL, executeRunCode, type RunCodeDeps } from "./tools/run-code.js";
+import { PAGE_TOOLS, executePageTool, isPageTool, type PagesStore } from "./tools/pages.js";
 import {
 	availableWebFallbacks,
 	budgetUsedFraction,
@@ -1882,6 +1883,9 @@ type ToolContext = {
 	emitFile?: (event: FileEvent) => Promise<void>;
 	/** Entrega gráficos nativos do run_code (*.chart.json): persiste o cartão e emite o evento. */
 	emitChart?: (event: Extract<ComputerUseEvent, { type: "chart" }>) => Promise<void>;
+	/** Páginas vivas (`page_*`): acesso (injetável em teste) e entrega do cartão (persiste e emite o evento). */
+	pagesStore?: PagesStore;
+	emitPage?: (event: Extract<ComputerUseEvent, { type: "page" }>) => Promise<void>;
 	/** Id da chamada de tool em execução (liga o cartão gravado do run_code ao cartão ao vivo). */
 	toolCallId?: string;
 	/** Dependências do `run_code` (teste; produção usa o executor Docker). */
@@ -3808,6 +3812,20 @@ async function executeToolInner(
 		case "track_items": {
 			return executeTrackItems(args, ctx);
 		}
+		case "page_create":
+		case "page_update":
+		case "page_read":
+		case "page_list": {
+			return executePageTool(name, args, {
+				userId: ctx.userId,
+				botId: ctx.botId,
+				conversationId: ctx.conversationId,
+				runId: ctx.runId,
+				store: ctx.pagesStore,
+				researchNotes: ctx.researchNotes ? () => ctx.researchNotes!.snapshot() : undefined,
+				emitPage: ctx.emitPage,
+			});
+		}
 		case "create_file": {
 			// Partes intermediárias (more=true) só guardam texto: portão e verificação valem na parte final, com o arquivo inteiro.
 			if (args.more !== true) {
@@ -4423,6 +4441,8 @@ export async function runComputerUse(params: {
 	createFileDeps?: Partial<CreateFileDeps>;
 	/** Dependências do `run_code` (teste). */
 	runCodeDeps?: Partial<RunCodeDeps>;
+	/** Acesso às páginas vivas (padrão: db; injetável em teste). */
+	pagesStore?: PagesStore;
 	maxSteps?: number;
 	/** Política de orçamento (soft/hard/wall/tokens/caps). */
 	budget?: AgentBudgetPolicy;
@@ -5134,6 +5154,12 @@ export async function runComputerUse(params: {
 	// `create_file` (F9): escrita reversível, só no agente principal.
 	if (!isSubagent && (params.toolFilter?.(CREATE_FILE_TOOL.function.name) ?? true)) {
 		baseTools.push(CREATE_FILE_TOOL);
+	}
+	// Páginas vivas (relatório/painel inline): só o agente principal, em chat com humano e com dono real (grupo `pages`, adiado por intenção).
+	if (!isSubagent && params.origin === "chat" && userId !== "default") {
+		for (const tool of PAGE_TOOLS) {
+			if (params.toolFilter?.(tool.function.name) ?? true) baseTools.push(tool);
+		}
 	}
 	// `run_code`: Python leve em container efêmero, sem a VM. Só no agente principal, com executor ligado.
 	if (!isSubagent && userId !== "default" && loadCodeRunnerConfig().enabled && (params.toolFilter?.(RUN_CODE_TOOL.function.name) ?? true)) {
@@ -6889,6 +6915,11 @@ export async function runComputerUse(params: {
 						await onEvent(event);
 					},
 					emitChart: async (event) => {
+						await persistConversationCardFromEvent(conversationId, event).catch(() => undefined);
+						await onEvent(event);
+					},
+					pagesStore: params.pagesStore,
+					emitPage: isSubagent ? undefined : async (event) => {
 						await persistConversationCardFromEvent(conversationId, event).catch(() => undefined);
 						await onEvent(event);
 					},
