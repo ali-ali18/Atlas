@@ -73,13 +73,11 @@ export function MessageRow({
 	onBotProfileDismiss,
 	onBotProfileEdit,
 	onOpenRoutine,
-	onOpenMemory,
 	onQuestionnaireSubmit,
 	onQuestionnaireDismiss,
 	onSkillProposalApprove,
 	onSkillProposalReject,
 	onSkillProposalEdit,
-	onUndoLearnedSkill,
 	skillBots,
 	mentionMembers,
 	knownSkills,
@@ -119,7 +117,6 @@ export function MessageRow({
 	) => void;
 	onOpenRoutine?: (payload: OpenRoutinePayload) => void;
 	/** "Memória atualizada · ver": abre a aba Memória do painel. */
-	onOpenMemory?: () => void;
 	onQuestionnaireSubmit?: (
 		message: QuestionnaireCardMessage,
 		answers: QuestionnaireAnswersMap,
@@ -130,7 +127,6 @@ export function MessageRow({
 	onSkillProposalReject?: (message: Extract<Message, { kind: "skill-proposal" }>) => void;
 	onSkillProposalEdit?: (message: Extract<Message, { kind: "skill-proposal" }>) => void;
 	/** Desfaz uma skill que o agente aprendeu sozinho; rejeitar mostra o erro no card. */
-	onUndoLearnedSkill?: (message: Extract<Message, { kind: "skill" }>) => Promise<void>;
 	skillBots?: readonly { id: string; name: string }[];
 	/** Rotina proposta pelo bot (modo proativo): Criar/Manter e Agora não/Desfazer. */
 	onRoutineProposalAccept?: (message: Extract<Message, { kind: "routine-proposal" }>) => void;
@@ -199,9 +195,6 @@ export function MessageRow({
 					<SkillLearnedCard
 						action={message.action}
 						name={message.title ?? message.capabilityKey ?? "skill"}
-						onUndo={message.skillId && onUndoLearnedSkill ? () => onUndoLearnedSkill(message) : undefined}
-						summary={message.detail}
-						undone={message.undone}
 					/>
 				);
 			}
@@ -258,7 +251,7 @@ export function MessageRow({
 		case "compaction":
 			return <CompactionCard after={message.after} before={message.before} focus={message.focus} summary={message.summary} />;
 		case "memory-updated":
-			return <MemoryUpdatedMarker onOpen={onOpenMemory} />;
+			return <MemoryUpdatedMarker />;
 		case "routine":
 			if (message.action === "listed") {
 				return (
