@@ -404,11 +404,17 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
         {projection.length > 1 ? <ProjectionLine data={projection} stroke={seriesColor(0)} /> : null}
         <YAxis formatValue={axisFormat} labelPadding={spec.type === "composed" ? 18 : 8} />
         <XAxis snapToMonth={monthlyX} numTicks={labelBudget(plotWidth, margin, 6, xLabelSlot(spec.data.map((point) => labels.axis(String(point[spec.x] ?? "")))))} />
-        <ChartTooltip content={tooltipContent} showCrosshair={spec.type !== "composed"} />
+        <ChartTooltip content={tooltipContent} showCrosshair={spec.type !== "composed"} {...(spec.type === "composed" ? BAR_HOVER_MARKER : {})} />
       </Chart>
     </XLabelFormatContext.Provider>
   )
 }
+
+/**
+ * Marcador do hover em barras: preenchimento na cor do texto com anel na cor do fundo, para nunca ficar
+ * da mesma cor da barra (verde sobre verde sumia). Vale também para as barras do gráfico composto.
+ */
+export const BAR_HOVER_MARKER = { dotColor: "var(--foreground)", dotStrokeWidth: 2 } as const
 
 function BarPlot({ spec }: { spec: ChartSpec }) {
   const plotWidth = React.useContext(PlotWidthContext)
@@ -477,7 +483,7 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
       ))}
       {horizontal ? <BarYAxis maxLabels={40} /> : <YAxis formatValue={axisFormat} />}
       {horizontal ? null : <BarXAxis maxLabels={labelBudget(plotWidth, margin, 12, 62)} />}
-      <ChartTooltip content={tooltipContent} />
+      <ChartTooltip content={tooltipContent} {...BAR_HOVER_MARKER} />
     </BarChart>
     </div>
   )
