@@ -520,6 +520,8 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
         .map((slice, index) => ({ ...slice, color: sliceColor(index) })),
     [spec, valueKey]
   )
+  // Rosca e legenda lado a lado só quando o gráfico (não a janela) tem ~500px: em meia coluna a legenda era cortada.
+  const sideBySide = React.useContext(PlotWidthContext) >= 500
   const whole = slices.every((slice) => Number.isInteger(slice.value))
   const format = React.useMemo(() => makeValueFormatter(spec, { whole }), [spec, whole])
   const compactFormat = React.useMemo(() => makeValueFormatter({ ...spec, format: "compact" }), [spec])
@@ -528,7 +530,7 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
   const valueIsPercent = spec.unit === "%" || spec.format === "percent"
 
   return (
-    <div className="flex min-w-0 flex-col items-center gap-4 py-2 sm:flex-row sm:justify-center sm:gap-8">
+    <div className={cn("flex min-w-0 flex-col items-center gap-4 py-2", sideBySide ? "flex-row justify-center gap-8" : "")}>
       <PieChart cornerRadius={3} data={slices} innerRadius={64} padAngle={0.015} size={200}>
         {slices.map((slice, index) => (
           <PieSlice index={index} key={slice.label + index} showGlow={false} />
