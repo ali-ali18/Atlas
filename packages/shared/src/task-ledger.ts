@@ -282,7 +282,10 @@ export function renderLedgerLayer(ledger: TaskLedger, maxChars = LEDGER_LAYER_CH
 	const failed = ledger.items.filter((item) => item.status === "failed").length;
 	const head = `Items: ${done}/${ledger.items.length} done${failed ? `, ${failed} failed` : ""}.`;
 	if (ledger.carry === "offered" || ledger.carry === "asked") {
-		const text = `${head} Checklist from an earlier run in this conversation (not yet adopted). Open: ${describeOpenItems(ledger, maxChars - head.length - 120)}. If the user continues that task, resume it with track_items update; if the request is new, call track_items with action "clear".`;
+		// Oferta, não obrigação: a resposta ao pedido atual nunca espera por esta lista.
+		const guide =
+			" Old checklist from an earlier run, not adopted. Answer the user's current request fully first; never clear the list on your own. If the request is unrelated, end your reply with one short question, in the user's language, asking whether to close the old list. If the user continues it, resume with track_items update.";
+		const text = `${head}${guide} Open: ${describeOpenItems(ledger, Math.max(40, maxChars - head.length - guide.length - 10))}.`;
 		return text.slice(0, maxChars);
 	}
 	const current = currentItem(ledger);

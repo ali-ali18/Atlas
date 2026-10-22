@@ -319,15 +319,66 @@ describe("replay: continuação entre runs", () => {
 		expect(lastTaskState(checkpoints)?.ledger?.replans).toBe(0);
 	});
 
-	it("pedido novo na mesma conversa: a resposta final pergunta uma vez sobre o checklist herdado e segue", async () => {
-		const { requests, events, result } = await run({
-			message: "what is the capital of France?",
-			priorTaskLedger: priorLedger(),
-			driver: ({ index }) => (index === 0 ? say("Paris.") : index === 1 ? turn(call("clear", "track_items", { action: "clear" })) : say("Paris.")),
+	const proposta = () => ({
+		v: 1,
+		items: ["Item A", "Item B", "Item C", "Item D"].map((label, i) => ({ id: String(i + 1), label, scope: "proposta 3801", status: "pending" })),
+		stalled: 0,
+		replans: 0,
+		gateBlocks: 0,
+	});
+	const PRICE = "Canela rama: R$ 12,90 o kg.";
+
+	it("pedido novo com checklist antigo aberto: a resposta com o preço sai intacta, sem descarte, e o checklist não é regravado", async () => {
+		const { requests, events, result, checkpoints, error } = await run({
+			message: "Preço canela rama",
+			jev: jevSaying({}),
+			priorTaskLedger: proposta(),
+			driver: ({ index }) => (index === 0 ? turn(readPage("price")) : say(PRICE)),
 		});
-		expect(events.filter((e) => e.type === "assistant_discard")).toHaveLength(1);
-		expect(systemTexts(requests[1]!).some((t) => t.includes("An earlier checklist from this conversation still has open items"))).toBe(true);
-		expect(itemsLayer(requests[2]!)).toBeNull();
-		expect(result?.text).toBe("Paris.");
+		expect(error).toBeUndefined();
+		expect(events.filter((e) => e.type === "assistant_discard")).toHaveLength(0);
+		expect(result?.text).toBe(PRICE);
+		// o modelo vê a oferta com a instrução de responder primeiro e nunca limpar por conta própria
+		expect(itemsLayer(requests[0]!)).toContain("Answer the user's current request fully first");
+		expect(itemsLayer(requests[0]!)).toContain('1 "Item A" (proposta 3801)');
+		expect(requests).toHaveLength(2);
+		// o run não adotou o checklist: o checkpoint não o grava, então o turno seguinte não o recebe de novo
+		expect(lastTaskState(checkpoints)?.ledger).toBeUndefined();
+	});
+
+	it("o modelo limpa a lista antiga por conta própria e responde: nada de descarte, e o ledger não volta", async () => {
+		const { events, result, checkpoints } = await run({
+			message: "Preço canela rama",
+			jev: jevSaying({}),
+			priorTaskLedger: proposta(),
+			driver: ({ index }) => (index === 0 ? turn(call("clear", "track_items", { action: "clear" }), readPage("price")) : say(PRICE)),
+		});
+		expect(events.filter((e) => e.type === "assistant_discard")).toHaveLength(0);
+		expect(result?.text).toBe(PRICE);
+		expect(lastTaskState(checkpoints)?.ledger).toBeUndefined();
+	});
+
+	it("checklist adotado no mesmo run continua persistindo", async () => {
+		const { checkpoints } = await run({
+			message: "continue a proposta 3801",
+			priorTaskLedger: proposta(),
+			driver: ({ index }) => (index === 0 ? turn(call("adopt", "track_items", { action: "update", id: "1", status: "in_progress" })) : say("ainda faltam itens")),
+			maxSteps: 3,
+		});
+		expect(lastTaskState(checkpoints)?.ledger?.carry).toBe("adopted");
+	});
+
+	it("rascunho retirado pelo portão do run atual: o modelo é avisado de que o usuário NÃO o viu", async () => {
+		const { requests, events } = await run({
+			driver: ({ index }) => {
+				if (index === 0) return turn(setItems("set"));
+				if (index === 1) return say("Here is the PDF with the 9 weeks.");
+				return say("done");
+			},
+			maxSteps: 4,
+		});
+		expect(events.some((e) => e.type === "assistant_discard")).toBe(true);
+		const note = systemTexts(requests[2]!).find((t) => t.includes("Continue with the next open item"));
+		expect(note).toContain("The user did NOT see your previous reply");
 	});
 });

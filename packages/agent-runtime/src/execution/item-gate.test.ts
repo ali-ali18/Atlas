@@ -62,10 +62,9 @@ describe("decideItemGate", () => {
 		expect(gate({ requireLedger: true, ledger: { ...createTaskLedger(), gateBlocks: ITEM_GATE_MAX_BLOCKS } }).action).toBe("allow");
 	});
 
-	it("checklist herdado: pergunta uma vez na resposta final e nunca segura arquivo", () => {
+	it("checklist herdado não adotado nunca segura a resposta final nem o arquivo", () => {
 		const offered = { ...withItems(4, 1), carry: "offered" as const };
-		const decision = gate({ ledger: offered, event: "final_answer" });
-		expect(decision.action === "block" && decision.kind).toBe("carry_offer");
+		expect(gate({ ledger: offered, event: "final_answer" })).toEqual({ action: "allow", declareGaps: false });
 		expect(gate({ ledger: offered, event: "create_file" }).action).toBe("allow");
 		expect(gate({ ledger: { ...offered, carry: "asked" }, event: "final_answer" }).action).toBe("allow");
 	});
