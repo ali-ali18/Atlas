@@ -137,7 +137,7 @@ test("conversa compactada: o cartão ao vivo (id do servidor) e o gravado viram 
 	assert.equal(dedupeCards([card("a"), card("b")]).length, 2);
 });
 
-const pageSpec = (title: string): PageSpec => ({ v: 1, title, blocks: [{ id: "h", type: "heading", text: title }] });
+const pageSpec = (title: string): PageSpec => ({ v: 2, title, root: { id: "root", type: "stack", props: {}, children: [{ id: "h", type: "heading", props: { text: title } }] } });
 const pageCard = (id: string, revision: number, pageId = "page-1", title = `v${revision}`): Message => ({ id, kind: "page", pageId, revision, title, action: revision > 1 ? "updated" : "created", spec: pageSpec(title), sourceCount: 0 });
 const pageEvent = (revision: number, pageId = "page-1"): Extract<ComputerUseEvent, { type: "page" }> => ({ type: "page", action: revision > 1 ? "updated" : "created", pageId, revision, title: `v${revision}`, spec: pageSpec(`v${revision}`), sourceCount: 0 });
 const insertLive = (previous: Message[]) => (message: Message) => insertCardAfterCurrentTurn(previous, message);

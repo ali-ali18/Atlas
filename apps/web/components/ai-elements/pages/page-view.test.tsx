@@ -9,70 +9,153 @@ import { PageView } from "./page-view";
 
 Object.assign(globalThis, { React });
 
-function page(blocks: unknown[], extra: Record<string, unknown> = {}): PageSpec {
-	const parsed = parsePageSpec({ title: "Forecast", blocks, ...extra });
+/** Página v2 com a árvore dada dentro de uma `stack`. */
+function page(children: unknown[], extra: Record<string, unknown> = {}): PageSpec {
+	const parsed = parsePageSpec({ v: 2, title: "Forecast", root: { type: "stack", children }, ...extra });
 	if (!parsed.ok) throw new Error(parsed.error);
 	return parsed.spec;
 }
 
 const render = (spec: PageSpec, initialTab?: string) => renderToStaticMarkup(<PageView initialTab={initialTab} spec={spec} />);
+const stat = (label: string, props: Record<string, unknown> = {}) => ({ type: "stat", props: { label, value: 1, ...props } });
 
-test("heading e markdown: título e texto formatado (sem HTML cru)", () => {
-	const html = render(page([{ type: "heading", text: "Resumo" }, { type: "markdown", text: "**negrito** e <script>alert(1)</script>" }]));
-	assert.match(html, /<h3[^>]*>Resumo<\/h3>/);
+test("heading e text: título e markdown formatado (sem HTML cru)", () => {
+	const html = render(page([{ type: "heading", props: { text: "Resumo" } }, { type: "text", props: { markdown: "**negrito** e <script>alert(1)</script>" } }]));
+	assert.match(html, /<h4[^>]*>Resumo<\/h4>/);
 	assert.match(html, /<strong[^>]*>negrito<\/strong>/);
 	assert.doesNotMatch(html, /<script>/);
 });
 
-test("stats: tiles em grade de 2 colunas no celular, com valor formatado e variação", () => {
-	const html = render(page([{ type: "stats", items: [{ label: "Receita", value: 120000, unit: "BRL", delta: { value: 8, direction: "up", label: "vs meta" } }, { label: "Churn", value: "baixo" }] }]));
-	assert.match(html, /grid-cols-2/);
-	assert.equal(html.match(/data-testid="page-stat"/g)?.length, 2);
-	assert.match(html, /R\$\s120\.000,00/);
-	assert.match(html, /▲ 8% vs meta/);
-	assert.match(html, />baixo</);
+test("página v1 antiga continua renderizando (convertida para v2)", () => {
+	const parsed = parsePageSpec({ v: 1, title: "Velha", blocks: [{ type: "stats", items: [{ label: "Receita", value: 10 }] }, { type: "bar_list", items: [{ label: "Sul", value: 1 }] }] });
+	if (!parsed.ok) throw new Error(parsed.error);
+	const html = render(parsed.spec);
+	assert.match(html, /data-testid="page-stat"/);
+	assert.match(html, /data-page-node="bar_list"/);
 });
 
-test("bar_list: uma barra por item, proporcional ao maior, com display e unidade", () => {
-	const html = render(page([{ type: "bar_list", unit: "BRL", items: [{ label: "Sul", value: 200 }, { label: "Norte", value: 50, display: "50 mil" }] }]));
-	assert.match(html, /Sul/);
+test("stat: grade só de stats tem 2 colunas no celular; tiles com a mesma altura; valor e variação formatados", () => {
+	const html = render(page([{ type: "grid", props: { cols: 4 }, children: [
+		stat("Faturamento", { value: 48320, format: "currency", delta: { value: 12, direction: "up", label: "vs. semana anterior" } }),
+		stat("Pedidos", { value: 37, delta: { value: 4, kind: "absolute", direction: "up" } }),
+		stat("Ticket médio", { value: 1306, unit: "BRL", delta: { value: 3, direction: "down" } }),
+		stat("Em aberto", { value: 6, delta: { value: 0, direction: "flat" }, size: "lg" }),
+	] }]));
+	assert.match(html, /grid-cols-2 @2xl:grid-cols-4/);
+	assert.equal(html.match(/data-testid="page-stat"/g)?.length, 4);
+	assert.match(html, /h-full/);
+	assert.match(html, /R\$\s48\.320</);
+	assert.doesNotMatch(html, /48\.320,00/);
+	assert.match(html, /▲ 12% vs\. semana anterior/);
+	assert.match(html, /▲ 4</);
+	assert.match(html, /▼ 3%/);
+	assert.match(html, />—</);
+	assert.doesNotMatch(html, /▬/);
+	assert.match(html, /text-3xl/);
+	// o rótulo da variação é truncado em uma linha, não quebra
+	assert.match(html, /truncate text-\[11px\]/);
+});
+
+test("grid com outros componentes empilha no celular e usa span", () => {
+	const html = render(page([{ type: "grid", props: { cols: 2 }, children: [{ type: "card", props: { title: "A" }, children: [{ type: "divider" }] }, { type: "card", props: { title: "B" }, children: [{ type: "divider" }], span: 2 }] }]));
+	assert.match(html, /grid-cols-1 @md:grid-cols-2/);
+	assert.match(html, /@md:col-span-2/);
+});
+
+test("bar_list: barras na cor de destaque da paleta (não preto/branco), proporcionais, com display e moeda coerente", () => {
+	const html = render(page([{ type: "bar_list", props: { unit: "BRL", items: [{ label: "Sul", value: 200 }, { label: "Norte", value: 50, display: "R$ 50" }, { label: "Leste", value: 100.5 }] } }]));
+	assert.match(html, /bg-\[var\(--tone\)\]/);
+	assert.match(html, /--tone:var\(--chart-1\)/);
+	assert.doesNotMatch(html, /bg-primary|bg-foreground/);
 	assert.match(html, /width:100%/);
 	assert.match(html, /width:25%/);
-	assert.match(html, />50 mil</);
+	assert.match(html, />R\$ 50</);
+	// um valor fracionado: TODOS ganham centavos
 	assert.match(html, /R\$\s200,00/);
+	assert.match(html, /R\$\s100,50/);
 });
 
-test("table: rolagem horizontal, cabeçalho com escopo, números à direita e célula vazia como traço", () => {
-	const html = render(page([{ type: "table", columns: [{ key: "n", label: "Nome" }, { key: "v", label: "Valor", format: "compact" }], rows: [{ n: "A", v: 1500 }, { n: "B", v: null }] }]));
+test("table: rolagem horizontal, largura mínima do texto, folga na última coluna, moeda da coluna uniforme", () => {
+	const html = render(page([{ type: "table", props: { variant: "striped", columns: [{ key: "c", label: "Cliente" }, { key: "v", label: "Valor", format: "currency" }], rows: [{ c: "Cooperativa Vale Verde", v: 4890 }, { c: "B", v: 3250.5 }, { c: "C", v: null }] } }]));
 	assert.match(html, /overflow-x-auto/);
-	assert.match(html, /<th[^>]*scope="col"[^>]*>Nome<\/th>/);
-	assert.match(html, /text-right[^>]*>1,5\smil</);
+	assert.match(html, /min-w-max/);
+	assert.match(html, /min-w-\[8.5rem\]/);
+	assert.match(html, /pr-5/);
+	assert.match(html, /<th[^>]*scope="col"[^>]*>Cliente<\/th>/);
+	assert.match(html, /text-right[^>]*>R\$\s4\.890,00</);
+	assert.match(html, /text-right[^>]*>R\$\s3\.250,50</);
 	assert.match(html, />—</);
+	assert.match(html, /bg-muted\/30/);
 });
 
-test("chart: reserva o espaço do gráfico (carregado sob demanda)", () => {
-	const html = render(page([{ type: "chart", spec: { type: "bar", x: "m", series: [{ key: "v" }], data: [{ m: "a", v: 1 }] } }]));
-	assert.match(html, /data-page-block="chart"/);
+test("chart: reserva o espaço do gráfico na largura da coluna (carregado sob demanda)", () => {
+	const html = render(page([{ type: "chart", props: { spec: { type: "bar", x: "m", series: [{ key: "v" }], data: [{ m: "a", v: 1 }] } } }]));
+	assert.match(html, /data-page-node="chart"/);
 	assert.match(html, /chart-placeholder/);
+	assert.match(html, /my-0 w-full/);
 });
 
-test("tabs: mostra só a aba ativa (a primeira por padrão) e troca ao escolher outra", () => {
-	const spec = page([{ type: "tabs", tabs: [{ label: "Visão", blocks: [{ type: "markdown", text: "conteúdo da visão" }] }, { label: "Detalhe", blocks: [{ type: "markdown", text: "conteúdo do detalhe" }] }] }]);
+test("paleta da página: escopo data-chart-palette com o CSS das cores; sem paleta, nada é injetado", () => {
+	const html = render(page([stat("a")], { palette: "grove" }));
+	assert.match(html, /data-chart-palette="grove"/);
+	assert.match(html, /\[data-chart-palette="grove"\]\{--chart-1:/);
+	assert.match(html, /@container/);
+	const none = render(page([stat("a")]));
+	assert.doesNotMatch(none, /data-chart-palette/);
+	assert.doesNotMatch(none, /<style>/);
+	const custom = render(page([stat("a")], { palette: { colors: ["#2563eb", "#f59e0b"] } }));
+	assert.match(custom, /data-chart-palette="custom-/);
+	assert.match(custom, /--chart-1:#/);
+});
+
+test("progress, badge e callout usam tons semânticos (nunca hex) e expõem acessibilidade", () => {
+	const html = render(page([
+		{ type: "progress", props: { label: "Meta de recebimento", value: 62000, max: 100000, unit: "BRL" } },
+		{ type: "badge", props: { text: "Atrasado", tone: "critical" } },
+		{ type: "callout", props: { title: "3 vencidos", text: "R$ 12 mil em atraso", tone: "warning" } },
+	]));
+	assert.match(html, /role="progressbar"[^>]*/);
+	assert.match(html, /aria-valuenow="62000"/);
+	assert.match(html, /62%/);
+	assert.match(html, /R\$\s62\.000 de R\$\s100\.000/);
+	assert.match(html, /--tone:var\(--chart-negative\)/);
+	assert.match(html, /role="note"/);
+	assert.match(html, /<div[^>]*data-slot="alert-title"[^>]*>3 vencidos/);
+	assert.doesNotMatch(html, /#[0-9a-f]{6}/i);
+});
+
+test("timeline, kanban e list: datas, colunas com contagem, valores à direita", () => {
+	const html = render(page([
+		{ type: "timeline", props: { items: [{ date: "12/11", title: "Loja Exemplo", text: "R$ 4.200", tone: "warning" }, { date: "20/11", title: "Santa Rita" }] } },
+		{ type: "kanban", props: { columns: [{ title: "A vencer", items: [{ title: "Loja Exemplo", subtitle: "Pedido 10482", badge: "R$ 4.200" }] }, { title: "Vencidas", items: [] }] } },
+		{ type: "list", props: { unit: "BRL", items: [{ title: "Fazenda Santa Rita", subtitle: "14 pedidos", value: 14850 }, { title: "Vale Verde", value: 11200 }] } },
+	]));
+	assert.match(html, /<time[^>]*>12\/11<\/time>/);
+	assert.match(html, /aria-label="A vencer"/);
+	assert.match(html, />Nada aqui</);
+	assert.match(html, /overflow-x-auto/);
+	assert.match(html, /R\$\s14\.850</);
+	assert.match(html, /14 pedidos/);
+});
+
+test("tabs: mostra só a aba ativa (a primeira por padrão) e escolhe pela aba pedida; desconhecida cai na primeira", () => {
+	const spec = page([{ type: "tabs", props: { tabs: [{ id: "visao", label: "Visão" }, { id: "detalhe", label: "Detalhe" }] }, children: [
+		{ type: "tab", props: { tab: "visao" }, children: [{ type: "text", props: { markdown: "conteúdo da visão" } }] },
+		{ type: "tab", props: { tab: "detalhe" }, children: [{ type: "text", props: { markdown: "conteúdo do detalhe" } }] },
+	] }]);
 	const first = render(spec);
 	assert.match(first, /conteúdo da visão/);
 	assert.doesNotMatch(first, /conteúdo do detalhe/);
-	assert.match(first, />Visão</);
-	assert.match(first, />Detalhe</);
 	assert.match(first, /aria-selected="true"[^>]*>Visão</);
+	assert.match(first, />Detalhe</);
 	const second = render(spec, "detalhe");
 	assert.match(second, /conteúdo do detalhe/);
 	assert.doesNotMatch(second, /conteúdo da visão/);
-	// Aba desconhecida cai na primeira.
 	assert.match(render(spec, "nao-existe"), /conteúdo da visão/);
 });
 
 test("PageCard: título, N fontes, resumo, página inteira inline e rodapé", () => {
-	const spec = page([{ type: "stats", items: [{ label: "Receita", value: 10 }] }, { type: "heading", text: "Detalhes" }], { summary: "Receita acima da meta" });
+	const spec = page([stat("Receita", { value: 10 }), { type: "heading", props: { text: "Detalhes" } }], { summary: "Receita acima da meta" });
 	const html = renderToStaticMarkup(<PageCard card={{ pageId: "p1", revision: 1, title: "Forecast Q4", action: "created", spec, sourceCount: 3 }} loadPage={async () => "missing"} />);
 	assert.match(html, /aria-label="Página: Forecast Q4"/);
 	assert.match(html, /<h3[^>]*>Forecast Q4<\/h3>/);

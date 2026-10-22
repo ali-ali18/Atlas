@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { PageSpec } from "@workspace/shared";
 
-import { barPercent, formatPageDelta, formatPageNumber, formatPageValue, reconcilePageSnapshot, resolveTab, sourceCountLabel } from "./page-format";
+import { barPercent, currencyDigits, formatPageDelta, formatPageNumber, formatPageValue, reconcilePageSnapshot, resolveTab, sourceCountLabel } from "./page-format";
 
 const nbsp = (text: string) => text.replace(/\s/g, " ");
 
-const spec = (title: string): PageSpec => ({ v: 1, title, blocks: [{ id: "h", type: "heading", text: title }] });
+const spec = (title: string): PageSpec => ({ v: 2, title, root: { id: "root", type: "stack", props: {}, children: [{ id: "h", type: "heading", props: { text: title } }] } });
 
 test("formatPageNumber: moeda, percentual, compacto e sufixo em pt-BR", () => {
 	assert.equal(nbsp(formatPageNumber(1234.5, { unit: "BRL" })), "R$ 1.234,50");
@@ -24,10 +24,25 @@ test("formatPageValue: texto passa como veio, vazio vira traço", () => {
 	assert.equal(formatPageValue(10), "10");
 });
 
-test("formatPageDelta: seta e sinal carregam a direção", () => {
+test("moeda: reais inteiros quando todos os valores do grupo são inteiros, senão centavos para todos", () => {
+	assert.equal(currencyDigits([4890, 1190]), 0);
+	assert.equal(currencyDigits([4890, 3250.5, null]), 2);
+	assert.equal(nbsp(formatPageNumber(48320, { format: "currency" })), "R$ 48.320");
+	assert.equal(nbsp(formatPageNumber(4890, { format: "currency", digits: 2 })), "R$ 4.890,00");
+	assert.equal(nbsp(formatPageNumber(3250.5, { unit: "BRL", digits: 2 })), "R$ 3.250,50");
+	assert.equal(nbsp(formatPageValue(1306, { format: "currency", digits: 0 })), "R$ 1.306");
+});
+
+test("formatPageDelta: seta e sinal carregam a direção; percentual x absoluto; estável é traço", () => {
 	assert.equal(formatPageDelta({ value: 8, direction: "up", label: "vs meta" }), "▲ 8% vs meta");
 	assert.equal(formatPageDelta({ value: -3.5, direction: "down" }), "▼ 3,5%");
-	assert.equal(formatPageDelta({ value: "estável", direction: "flat" }), "▬ estável");
+	assert.equal(formatPageDelta({ value: 4, kind: "absolute", direction: "up" }), "▲ 4");
+	assert.equal(nbsp(formatPageDelta({ value: 300, kind: "absolute", direction: "down", label: "vs ontem" }, { format: "currency" })), "▼ R$ 300 vs ontem");
+	assert.equal(formatPageDelta({ value: "12%", direction: "up" }), "▲ 12%");
+	assert.equal(formatPageDelta({ value: 12, direction: "up", label: "vs. semana anterior" }), "▲ 12% vs. sem. ant.");
+	assert.equal(formatPageDelta({ value: 2, direction: "down", label: "vs. mês anterior" }), "▼ 2% vs. mês ant.");
+	assert.equal(formatPageDelta({ value: 0, direction: "flat" }), "—");
+	assert.equal(formatPageDelta({ value: 0, direction: "flat", label: "vs ontem" }), "— vs ontem");
 });
 
 test("barPercent: relativo ao maior, sem negativo nem divisão por zero", () => {
