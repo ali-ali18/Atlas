@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import {
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -38,6 +39,7 @@ import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
 import { getStoredDraft, setStoredDraft } from "@/lib/active-run";
 import { DEFAULT_OPENROUTER_MODEL } from "@/lib/openrouter-models";
 import { composerPrimaryAction, showSeparateMic } from "./composer-primary-action";
+import { COMPOSER_FIELD_CLASS, shouldStickToEnd } from "./composer-scroll";
 import { useSecretPasteGuard } from "./use-secret-paste-guard";
 import {
 	Tooltip,
@@ -238,6 +240,18 @@ export function ChatComposer({
 		return () => clearTimeout(timer);
 	}, [dictationError]);
 
+	// Cursor no fim de um campo que passou do teto: mantém a última linha à vista ao digitar/colar.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: roda a cada mudança do texto.
+	useLayoutEffect(() => {
+		const textarea = localTextareaRef.current;
+		const field = textarea?.parentElement;
+		if (!textarea || !field) return;
+		const focused = textarea.ownerDocument.activeElement === textarea;
+		if (shouldStickToEnd({ focused, selectionStart: textarea.selectionStart, selectionEnd: textarea.selectionEnd, valueLength: textarea.value.length })) {
+			field.scrollTop = field.scrollHeight;
+		}
+	}, [value]);
+
 	function updateValue(next: string) {
 		setValue(next);
 		if (conversationKey) setStoredDraft(conversationKey, next);
@@ -320,7 +334,7 @@ export function ChatComposer({
 						{/* Textarea e overlay dividem a mesma célula do grid: o overlay repete as métricas do texto
 						    (digitado transparente, prévia em itálico logo depois), então a prévia flui na linha do
 						    cursor e a altura cresce junto. O wrapper é quem rola; o textarea real segue intacto. */}
-						<div className="grid max-h-32 min-h-7 w-full overflow-y-auto" data-slot="composer-field">
+						<div className={COMPOSER_FIELD_CLASS} data-slot="composer-field">
 							<InputGroupTextarea
 								ref={mergeRefs(textareaRef, localTextareaRef)}
 								aria-label={`Mensagem para ${agentName}`}
