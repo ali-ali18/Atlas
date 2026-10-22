@@ -1133,6 +1133,18 @@ export async function getRoutineNotifyModeForAgentRun(agentRunId: string): Promi
 	return parseRoutineNotifyMode(row?.routine?.notify);
 }
 
+/** Página que a rotina deste run atualiza no lugar (só se a rotina é do usuário; null = nenhuma). */
+export async function getRoutinePageIdForAgentRun(agentRunId: string, userId: string | undefined): Promise<string | null> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return null;
+	const row = await prisma.routineRun.findFirst({
+		where: { agentRunId, routine: { userId: { in: owners } } },
+		orderBy: { createdAt: "desc" },
+		select: { routine: { select: { pageId: true } } },
+	});
+	return row?.routine?.pageId ?? null;
+}
+
 export async function findRecentRoutineRunByIdempotency(
 	routineId: string,
 	idempotencyKey: string,

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { prisma } from "./client.js";
 import { FakeTable, installFakes } from "./testing/fake-tables.js";
 import { assertPageUsable } from "./pages.js";
-import { createRoutine, updateRoutine } from "./routines.js";
+import { createRoutine, getRoutinePageIdForAgentRun, updateRoutine } from "./routines.js";
 
 let pages: FakeTable;
 let bots: FakeTable;
@@ -28,6 +28,7 @@ beforeEach(() => {
 	installed = installFakes({ bot: bots, page: pages });
 	const client = prisma as unknown as Record<string, Record<string, unknown>>;
 	originals.routine = client.routine;
+	originals.routineRun = client.routineRun;
 	client.routine = {
 		create: async ({ data }: { data: Record<string, unknown> }) => {
 			created.push(data);
@@ -44,6 +45,7 @@ beforeEach(() => {
 afterEach(() => {
 	installed.restore();
 	(prisma as unknown as Record<string, unknown>).routine = originals.routine;
+	(prisma as unknown as Record<string, unknown>).routineRun = originals.routineRun;
 });
 
 const base = { botId: "bot-a", name: "Painel", prompt: "refaça", triggerType: "cron" as const, schedule: "0 8 * * 1" };
@@ -86,4 +88,25 @@ test("updateRoutine liga a página do dono, desliga com null e recusa a de outro
 	assert.equal(created.length, before);
 	await updateRoutine("user-a", "bot-a", "r1", { name: "outro" });
 	assert.equal("page" in created.at(-1)!, false, "omitido mantém o vínculo");
+});
+
+test("getRoutinePageIdForAgentRun filtra pelo dono da rotina e devolve a página só a ele", async () => {
+	const client = prisma as unknown as Record<string, Record<string, unknown>>;
+	const original = client.routineRun;
+	let seen: Record<string, unknown> | undefined;
+	client.routineRun = {
+		findFirst: async ({ where }: { where: { routine: { userId: { in: string[] } } } }) => {
+			seen = where as unknown as Record<string, unknown>;
+			return where.routine.userId.in.includes("user-a") ? { routine: { pageId: "page-a" } } : null;
+		},
+	};
+	try {
+		assert.equal(await getRoutinePageIdForAgentRun("run-1", "user-a"), "page-a");
+		assert.equal(await getRoutinePageIdForAgentRun("run-1", "user-b"), null);
+		assert.equal(await getRoutinePageIdForAgentRun("run-1", "default"), null);
+		assert.equal(await getRoutinePageIdForAgentRun("run-1", undefined), null);
+		assert.ok(seen);
+	} finally {
+		client.routineRun = original!;
+	}
 });

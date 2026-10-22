@@ -318,6 +318,7 @@ export {
 	STALE_QUEUED_ROUTINE_RUN_MS,
 	findRoutineRunByAgentRunId,
 	getRoutineNotifyModeForAgentRun,
+	getRoutinePageIdForAgentRun,
 	findRecentRoutineRunByIdempotency,
 	createRoutineRun,
 	markRoutineRunSkipped,

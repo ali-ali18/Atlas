@@ -13,6 +13,7 @@ import {
 	expireStaleQueuedRoutineRuns,
 	findRoutineRunByAgentRunId,
 	getLastCompletedRoutineRunAt,
+	getPageForUser,
 	hasOverlappingRoutineRun,
 	listActiveRunsForConversation,
 	listRoutineRuns,
@@ -198,11 +199,40 @@ export function formatLastRunLine(lastRunAt: string | null | undefined): string 
 		: "lastRunAt=none (first run; look at the last 24 hours)";
 }
 
+export const ROUTINE_PAGE_DELETED_REASON = "Página apagada";
+
+/** Título numa linha só e curto: vira texto de modelo, então nada de quebra de linha nem de bloco enorme. */
+function oneLineTitle(title: string): string {
+	const clean = title.replace(/\s+/g, " ").trim();
+	return clean.length > 120 ? `${clean.slice(0, 119)}…` : clean;
+}
+
+/** Bloco (texto do modelo, inglês) de uma rotina que atualiza uma página no lugar. */
+export function formatPageTargetBlock(page: { id: string; title: string }): string {
+	return [
+		`[PAGE TARGET] page_id=${page.id} title=${oneLineTitle(page.title)}`,
+		"This routine keeps the page above up to date. Rebuild it with fresh data from your tools, then call page_update with this page_id and the full root (not partial ops).",
+		"Do not create another page and do not touch other pages. Reply in one short line; do not repeat the page content.",
+		"[/PAGE TARGET]",
+	].join("\n");
+}
+
+/** Decide o que fazer com a página da rotina: sem página segue normal; sumiu/apagada pula a execução; senão vira alvo. */
+export function planRoutinePage(
+	routinePageId: string | null | undefined,
+	page: { id: string; title: string } | null,
+): { kind: "none" } | { kind: "skip"; reason: string } | { kind: "target"; page: { id: string; title: string } } {
+	if (!routinePageId) return { kind: "none" };
+	if (!page) return { kind: "skip", reason: ROUTINE_PAGE_DELETED_REASON };
+	return { kind: "target", page };
+}
+
 export function buildUserTurn(
 	routinePrompt: string,
 	routineName: string,
 	payload: ExecuteRoutineJobPayload,
 	lastRunAt?: string | null,
+	page?: { id: string; title: string } | null,
 ): string {
 	const task = routinePrompt.trim() || routineName;
 	const header = [
@@ -214,6 +244,7 @@ export function buildUserTurn(
 		"Não comente, não responda nem altere nada no GitHub, a menos que o prompt salvo peça explicitamente.",
 		"[/EXECUÇÃO DE ROTINA]",
 		"",
+		...(page ? [formatPageTargetBlock(page), ""] : []),
 		"Tarefa:",
 		task,
 	].join("\n");
@@ -416,6 +447,12 @@ async function runRoutineJob(
 	if (!bot) {
 		return skip("Bot da rotina não existe mais");
 	}
+	// Rotina que atualiza uma página: a página precisa existir para o dono (apagada = pula, sem inventar outra).
+	const pagePlan = planRoutinePage(
+		routine.pageId,
+		routine.pageId ? await getPageForUser(routine.pageId, routineUserId).catch(() => null) : null,
+	);
+	if (pagePlan.kind === "skip") return skip(pagePlan.reason);
 	if (bot.conversationId) {
 		const active = await listActiveRunsForConversation(bot.conversationId);
 		if (active.length > 0) {
@@ -467,7 +504,7 @@ async function runRoutineJob(
 	const lastRunAt = await getLastCompletedRoutineRunAt(routineUserId, routine.id).catch(
 		() => null,
 	);
-	const userTurn = buildUserTurn(routine.prompt, routine.name, payload, lastRunAt);
+	const userTurn = buildUserTurn(routine.prompt, routine.name, payload, lastRunAt, pagePlan.kind === "target" ? pagePlan.page : null);
 	let agentRun;
 	try {
 		// Sempre origin:"routine" — nunca "webhook".

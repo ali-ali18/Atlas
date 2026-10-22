@@ -49,6 +49,7 @@ function memoryStore() {
 			row.spec = input.spec;
 			row.title = input.spec.title;
 			if (input.sources) row.sources = input.sources;
+			if (input.refreshed) row.refreshedAt = "2026-10-26T08:00:00.000Z";
 			row.revision += 1;
 			return { ok: true, page: row };
 		},
@@ -317,5 +318,51 @@ describe("page_* no loop do agente", () => {
 			say("ok"),
 		], store);
 		expect(rows[0]!.sources).toEqual([{ title: "Vendas do trimestre por região", url: "https://dados.example.com/vendas" } satisfies PageSource]);
+	});
+});
+
+describe("rotina que atualiza uma página no lugar", () => {
+	const target = "[PAGE TARGET] page_id=page-1 title=Forecast do trimestre";
+
+	it("as tools page_* já vão no 1º passo, page_update na página alvo marca refreshedAt e a revisão sobe", async () => {
+		const { rows, store } = memoryStore();
+		await store.create("user-1", { botId: "bot-1", spec: parsePageSpec(forecast).ok ? (parsePageSpec(forecast) as { spec: PageSpec }).spec : (undefined as never), sources: [] });
+		const { events, offered } = await run(`[EXECUÇÃO DE ROTINA]\nnome=Atualiza painel\n${target}`, [
+			toolCall("page_update", { page_id: "page-1", root: forecast.root, summary: "Receita 10% acima da meta" }),
+			say("Atualizei o painel."),
+		], store, { origin: "routine", routinePageId: "page-1" });
+		expect(offered[0]).toEqual(expect.arrayContaining(["page_update", "page_read"]));
+		expect(offered[0]).not.toContain("page_create");
+		expect(offered[0]).not.toContain("page_list");
+		const [result] = resultOf(events, "page_update");
+		expect(result!.ok).toBe(true);
+		expect(rows[0]!.revision).toBe(2);
+		expect(rows[0]!.refreshedAt).toBe("2026-10-26T08:00:00.000Z");
+		expect(rows[0]!.spec.summary).toBe("Receita 10% acima da meta");
+	});
+
+	it("page_update em outra página no run da rotina dá erro claro e nada muda", async () => {
+		const { rows, store } = memoryStore();
+		const spec = (parsePageSpec(forecast) as { spec: PageSpec }).spec;
+		await store.create("user-1", { botId: "bot-1", spec, sources: [] });
+		await store.create("user-1", { botId: "bot-1", spec: { ...spec, title: "Outra" }, sources: [] });
+		const { events } = await run(`${target}`, [
+			toolCall("page_update", { page_id: "page-2", title: "hack" }),
+			say("não consegui"),
+		], store, { origin: "routine", routinePageId: "page-1" });
+		const [result] = resultOf(events, "page_update");
+		expect(result).toMatchObject({ ok: false });
+		expect(result!.summary).toMatch(/may only update its own page \(page_id page-1\)/);
+		expect(rows[1]!.title).toBe("Outra");
+		expect(rows[1]!.revision).toBe(1);
+		expect(events.some((e) => e.type === "page")).toBe(false);
+	});
+
+	it("no chat, page_update continua sem marcar refreshedAt e vale em qualquer página do bot", async () => {
+		const { rows, store } = memoryStore();
+		await store.create("user-1", { botId: "bot-1", spec: (parsePageSpec(forecast) as { spec: PageSpec }).spec, sources: [] });
+		await run("atualiza meu dashboard", [toolCall("page_update", { page_id: "page-1", title: "Novo título" }), say("ok")], store);
+		expect(rows[0]!.title).toBe("Novo título");
+		expect(rows[0]!.refreshedAt).toBeNull();
 	});
 });

@@ -142,7 +142,7 @@ export type PagesStore = {
 	create(userId: string, input: { botId: string; conversationId?: string | null; spec: PageSpec; sources: PageSource[] }): Promise<PageRecord | null>;
 	get(id: string, userId: string): Promise<PageRecord | null>;
 	list(userId: string, botId: string): Promise<PageListItem[]>;
-	update(id: string, userId: string, input: { spec: PageSpec; sources?: PageSource[]; expectedRevision?: number }): Promise<UpdatePageResult>;
+	update(id: string, userId: string, input: { spec: PageSpec; sources?: PageSource[]; expectedRevision?: number; refreshed?: boolean }): Promise<UpdatePageResult>;
 };
 
 export const dbPagesStore: PagesStore = {
@@ -160,6 +160,8 @@ export type PageToolContext = {
 	store?: PagesStore;
 	/** Notas de pesquisa do run (fontes padrão da página). */
 	researchNotes?: () => readonly ResearchNote[];
+	/** Rotina que atualiza uma página: `page_update` só vale nela e marca a página como atualizada com dados novos. */
+	routinePageId?: string;
 	emitPage?: (event: Extract<ComputerUseEvent, { type: "page" }>) => Promise<void>;
 };
 
@@ -274,6 +276,9 @@ async function createTool(args: Record<string, unknown>, ctx: PageToolContext): 
 async function updateTool(args: Record<string, unknown>, ctx: PageToolContext): Promise<{ summary: string }> {
 	const { userId, store } = requireScope(ctx);
 	const pageId = pageIdArg(args);
+	if (ctx.routinePageId && pageId !== ctx.routinePageId) {
+		throw new Error(`This routine run may only update its own page (page_id ${ctx.routinePageId}); ${pageId} is not it. Call page_update with page_id ${ctx.routinePageId}.`);
+	}
 	const hasOps = args.ops !== undefined && args.ops !== null;
 	const hasRoot = args.root !== undefined && args.root !== null;
 	if (hasOps && hasRoot) throw new Error("Pass either `ops` (partial change) or `root` (full rewrite), not both.");
@@ -302,7 +307,7 @@ async function updateTool(args: Record<string, unknown>, ctx: PageToolContext): 
 			root: hasRoot ? args.root : base.root,
 		});
 		if (!parsed.ok) throw invalid(parsed.error);
-		const result = await store.update(pageId, userId, { spec: parsed.spec, ...(sources ? { sources } : {}), expectedRevision: current.revision });
+		const result = await store.update(pageId, userId, { spec: parsed.spec, ...(sources ? { sources } : {}), expectedRevision: current.revision, ...(ctx.routinePageId ? { refreshed: true } : {}) });
 		if (!result.ok && result.error === "conflict" && attempt === 0) continue;
 		if (!result.ok) {
 			throw new Error(result.error === "conflict" ? "The page changed while updating. Call page_read and try again." : `Page ${pageId} not found. Use page_list to see this bot's pages.`);

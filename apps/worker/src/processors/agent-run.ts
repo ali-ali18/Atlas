@@ -101,6 +101,7 @@ import {
 	type RunLease,
 	getAccountConfig,
 	getRoutineNotifyModeForAgentRun,
+	getRoutinePageIdForAgentRun,
 	persistConversationCardFromEvent,
 } from "@workspace/db";
 import {
@@ -827,6 +828,8 @@ async function executeLeasedRun(ctx: {
 	});
 	// Aviso da rotina ("always" = push ao fim, como sempre) e push avulso do bot (rotina "só importante" / chat).
 	const routineNotify: RoutineNotifyMode = run.origin === "routine" ? await getRoutineNotifyModeForAgentRun(runId).catch(() => "always" as const) : "always";
+	// Rotina ligada a uma página: o run só pode atualizar essa página (o runtime trava as outras).
+	const routinePageId = run.origin === "routine" ? await getRoutinePageIdForAgentRun(runId, runUserId).catch(() => null) : null;
 	const userPushZone = (run.origin === "routine" && routineNotify === "important") || run.origin === "chat"
 		? (proactiveBot?.isPrimary === true ? accountTimezone : (await getAccountConfig(runUserId).catch(() => null))?.general?.timezone)
 		: undefined;
@@ -1064,6 +1067,7 @@ async function executeLeasedRun(ctx: {
 			conversationId: run.conversationId ?? undefined,
 			runId,
 			origin: run.origin,
+			...(routinePageId ? { routinePageId } : {}),
 			objective: run.objective,
 			maxSteps: run.maxSteps,
 			// Janela gravada na criação (API); desconhecida = fallback 128k.

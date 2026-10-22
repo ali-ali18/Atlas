@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { EventEnvelope, NormalizedGithubEvent } from "@workspace/shared";
-import { buildUserTurn, formatEventBlock } from "./routine.js";
+import { buildUserTurn, formatEventBlock, planRoutinePage } from "./routine.js";
 
 function envelope(payload: unknown, overrides: Partial<EventEnvelope> = {}): EventEnvelope {
 	return {
@@ -169,4 +169,27 @@ test("formatEventBlock: PR enriquecido mostra corpo, contagem de commits e arqui
 	assert.match(block, /pr\.commits=7/);
 	assert.match(block, /pr\.summary=1 files changed, \+4 -0/);
 	assert.match(block, /pr\.file=added a\.ts \+4 -0/);
+});
+
+test("buildUserTurn: rotina com página ganha o bloco [PAGE TARGET] em inglês, antes da tarefa", () => {
+	const turn = buildUserTurn("Rebuild the sales dashboard", "Painel", { routineId: "r", triggeredBy: "schedule" }, null, { id: "page-1", title: "Vendas\nda semana" });
+	assert.match(turn, /\[PAGE TARGET\] page_id=page-1 title=Vendas da semana\n/);
+	assert.match(turn, /call page_update with this page_id and the full root/);
+	assert.match(turn, /Reply in one short line/);
+	assert.match(turn, /\[\/PAGE TARGET\]/);
+	assert.ok(turn.indexOf("[PAGE TARGET]") < turn.indexOf("Tarefa:"));
+	assert.ok(turn.indexOf("[/EXECUÇÃO DE ROTINA]") < turn.indexOf("[PAGE TARGET]"));
+});
+
+test("buildUserTurn: sem página o turno fica igual ao de antes (sem bloco)", () => {
+	const turn = buildUserTurn("Resumo", "Resumo", { routineId: "r", triggeredBy: "schedule" }, null);
+	assert.doesNotMatch(turn, /PAGE TARGET/);
+	assert.doesNotMatch(buildUserTurn("Resumo", "Resumo", { routineId: "r", triggeredBy: "schedule" }, null, null), /PAGE TARGET/);
+});
+
+test("planRoutinePage: sem pageId segue; página sumida pula com o motivo; senão é o alvo", () => {
+	assert.deepEqual(planRoutinePage(null, null), { kind: "none" });
+	assert.deepEqual(planRoutinePage(undefined, null), { kind: "none" });
+	assert.deepEqual(planRoutinePage("page-1", null), { kind: "skip", reason: "Página apagada" });
+	assert.deepEqual(planRoutinePage("page-1", { id: "page-1", title: "x" }), { kind: "target", page: { id: "page-1", title: "x" } });
 });
