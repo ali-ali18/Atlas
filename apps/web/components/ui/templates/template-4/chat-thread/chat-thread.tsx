@@ -66,7 +66,6 @@ import {
 	resolveRoutineProposal,
 	resolveBotProposal,
 	resolveSkillProposal,
-	undoLearnedSkill,
 } from "@/lib/atlas-api";
 import { hasModelTiers, readBotModelTiers, readProactiveSettings } from "@workspace/shared";
 import { openSkillProposalInEditor, proposalErrorMessage } from "@/components/ai-elements/skills";
@@ -121,7 +120,6 @@ export function ChatThread({
 	onOpenExchange,
 	onTogglePanel,
 	onOpenRoutine,
-	onOpenMemory,
 	onRoutineEvent,
 	onBotCreated,
 	unreadAnchorId = null,
@@ -174,7 +172,6 @@ export function ChatThread({
 	onMarkRead?: (messageId: string) => void;
 	onOpenRoutine?: (payload: OpenRoutinePayload) => void;
 	/** Abre a aba Memória do painel (chip "Memória atualizada · ver"; `changes` = direto no "O que mudou"). */
-	onOpenMemory?: (section?: "changes") => void;
 	/** SSE `routine` (agente criou/editou/listou uma rotina) — recarrega a lista no painel. */
 	/** O card do bot criou um agente novo: a lista de conversas o inclui. */
 	onBotCreated?: () => void;
@@ -365,11 +362,6 @@ export function ChatThread({
 		} catch (cause) {
 			applySkillProposalState(proposalId, { error: proposalErrorMessage(cause) });
 		}
-	}
-	// "Aprendi": desfaz na API (apaga a criada / volta a anterior). Erro sobe para o card mostrar a mensagem.
-	async function undoLearned(card: Extract<Message, { kind: "skill" }>) {
-		if (!card.skillId || card.versionNumber === undefined || (card.action !== "created" && card.action !== "updated")) return;
-		await undoLearnedSkill({ skillId: card.skillId, action: card.action, revision: card.versionNumber, conversationId: agent?.conversationId ?? undefined });
 	}
 	// Novo agente proposto pelo bot: Criar agente / Agora não. Nada existe antes do OK; aprovar duas vezes devolve o mesmo resultado.
 	async function decideBotProposal(
@@ -1086,7 +1078,7 @@ export function ChatThread({
 							) : null;
 							const sourceMarker =
 								item.type === "message" && item.message.kind === "assistant" && item.message.runSource && sourceIds.has(item.message.id) ? (
-									<SourceMarker onOpenMemory={item.message.runSource.kind === "reflection" && onOpenMemory ? () => onOpenMemory("changes") : undefined} source={item.message.runSource} />
+									<SourceMarker source={item.message.runSource} />
 								) : null;
 							if (item.type === "bot-group") {
 								return (
@@ -1240,7 +1232,6 @@ export function ChatThread({
 										})}
 										message={message}
 										onOpenRoutine={onOpenRoutine}
-										onOpenMemory={onOpenMemory ? () => onOpenMemory() : undefined}
 										onConfirm={confirmHandlers.onConfirm}
 										onConfirmAlways={confirmHandlers.onConfirmAlways}
 										onConfirmReject={confirmHandlers.onConfirmReject}
@@ -1299,7 +1290,6 @@ export function ChatThread({
 										onRoutineProposalDecline={(card) => void decideRoutineProposal(card, "decline")}
 										onSkillProposalApprove={(card) => void decideSkillProposal(card, "approved")}
 										onSkillProposalReject={(card) => void decideSkillProposal(card, "rejected")}
-										onUndoLearnedSkill={undoLearned}
 										onSkillProposalEdit={
 											agent?.conversationId
 												? (card) => openSkillProposalInEditor(card.proposal, agent.conversationId as string)

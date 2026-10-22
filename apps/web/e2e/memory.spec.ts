@@ -125,7 +125,7 @@ test("desfazer: mudança disponível desfaz; a que mudou depois mostra a recusa 
   await noHorizontalScroll(page)
 })
 
-test("chip 'Memória atualizada · ver' aparece depois da gravação no chat e abre a aba Memória", async ({ context, page }) => {
+test("aviso 'Memória atualizada' aparece depois da gravação no chat, sem ação", async ({ context, page }) => {
   const api = new MockAtlas({ memory: SEED, memoryToolInRun: true, reply: "Anotado." })
   await api.install(context)
   await openApp(page)
@@ -136,16 +136,13 @@ test("chip 'Memória atualizada · ver' aparece depois da gravação no chat e a
   const chip = page.getByTestId("memory-updated-marker")
   await expect(chip).toBeVisible()
   await expect(chip).toContainText("Memória atualizada")
-  await chip.getByRole("button", { name: "Ver a memória atualizada" }).click()
-  await expect(page.getByRole("tab", { name: "Memória", selected: true })).toBeVisible()
-  await expect(page.getByRole("heading", { name: "Sobre você" })).toBeVisible()
+  await expect(chip.getByRole("button")).toHaveCount(0)
 })
 
-test("o 'ver' da reflexão diária abre a aba Memória no 'O que mudou'", async ({ context, page }) => {
+test("marcador da reflexão diária é só o aviso, sem 'ver'", async ({ context, page }) => {
   const api = new MockAtlas({ memory: SEED, reflectionMessage: "Revisei a memória: atualizei o dia de pagamento do Silva." })
   await api.install(context)
   await openApp(page)
-  await page.getByRole("button", { name: "Ver o que mudou na memória" }).click()
-  await expect(page.getByRole("tab", { name: "Memória", selected: true })).toBeVisible()
-  await expect(page.getByRole("heading", { name: "O que mudou" })).toBeInViewport()
+  await expect(page.locator('[data-testid="source-marker"][data-source-kind="reflection"]')).toBeVisible()
+  await expect(page.getByRole("button", { name: "Ver o que mudou na memória" })).toHaveCount(0)
 })

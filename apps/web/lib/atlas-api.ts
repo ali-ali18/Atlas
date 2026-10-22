@@ -2267,20 +2267,6 @@ export async function deleteSkillDrafts(scope: { botId?: string; account?: boole
 }
 
 /**
- * Desfaz o que o agente aprendeu sozinho ("Aprendi: ..."): apaga a skill criada ou volta à versão anterior.
- * `revision` é a versão anunciada no card; 409 = a skill mudou depois, 404 = não existe mais.
- */
-export async function undoLearnedSkill(request: {
-	skillId: string;
-	action: "created" | "updated";
-	revision: number;
-	conversationId?: string;
-}): Promise<{ ok: boolean; result: "deleted" | "restored"; name: string }> {
-	const { skillId, ...body } = request;
-	return atlasFetch(`/v1/skills/${encodeURIComponent(skillId)}/undo-learned`, { method: "POST", body: JSON.stringify(body) });
-}
-
-/**
  * Resolve a proposta de skill do agente (gate humano). `markdown` é o documento
  * revisado em "Editar antes" (só criar/editar). Erros: 404 (não existe/já
  * resolvida), 409 (nome repetido/revisão velha), 422 (limite), 400 (inválido).

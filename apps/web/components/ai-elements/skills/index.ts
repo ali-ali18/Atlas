@@ -18,7 +18,7 @@ export {
 	type SkillsVariant,
 	type SkillListItemData as SkillListItem,
 } from "./skills-list";
-export { SkillLearnedCard, learnedTitle, undoErrorMessage, type SkillLearnedCardProps } from "./skill-learned";
+export { SkillLearnedCard, learnedTitle, type SkillLearnedCardProps } from "./skill-learned";
 export {
 	SkillProposalCard,
 	type SkillProposalCardProps,

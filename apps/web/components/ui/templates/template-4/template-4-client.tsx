@@ -295,8 +295,6 @@ export function Template4Client({
 	const [composerPrefill, setComposerPrefill] = useState<
 		{ text: string; nonce: number } | undefined
 	>(undefined);
-	// Pedido de abrir a aba Memória nas configurações do bot (chip "Memória atualizada · ver", cartão da reflexão).
-	const [memoryRequest, setMemoryRequest] = useState<{ nonce: number; section?: "changes" } | undefined>(undefined);
 	const [panelView, setPanelView] = useState<
 		"default" | "settings" | "routine" | "activity"
 	>("default");
@@ -1493,12 +1491,6 @@ export function Template4Client({
 		setComposerPrefill({ text, nonce: Date.now() });
 	}
 
-	/** Abre as configurações do bot na aba Memória (`changes` = rola até "O que mudou"). */
-	function openMemory(section?: "changes") {
-		openSettings();
-		setMemoryRequest({ nonce: Date.now(), section });
-	}
-
 	/** "Corrigir no chat": rascunho no campo de mensagem (não envia) e, no celular, fecha o painel para mostrar o chat. */
 	function fixMemoryInChat(draft: string) {
 		prefillComposer(draft);
@@ -2370,7 +2362,6 @@ export function Template4Client({
 						}}
 						onOpenSettings={openSettings}
 						onOpenRoutine={openRoutineFromChat}
-						onOpenMemory={openMemory}
 						onBotCreated={addBotsFromServer}
 						onRoutineEvent={(event) => {
 							if (
@@ -2441,7 +2432,6 @@ export function Template4Client({
 							onCreateScheduledRoutine={openNewScheduledRoutineDraft}
 							onCreateWebhookRoutine={openNewWebhookRoutineDraft}
 							onEditRoutineWithAgent={editRoutineWithAgent}
-							memoryRequest={memoryRequest}
 							onFixMemoryInChat={fixMemoryInChat}
 							defaultRoutineModel={
 								active.openRouterModel?.trim() || DEFAULT_OPENROUTER_MODEL
