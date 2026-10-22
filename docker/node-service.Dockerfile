@@ -12,7 +12,7 @@
 #   builder   -> copia o código e compila (só esta parte roda a cada deploy)
 ARG SERVICE=api
 
-FROM node:20-bookworm-slim AS base
+FROM node:22-bookworm-slim AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN apt-get update \
@@ -24,7 +24,7 @@ RUN apt-get update \
 # Só os manifests. O COPY seguinte (`--from=manifests`) é por conteúdo: se os
 # package.json/lockfile não mudaram, a camada de deps continua em cache mesmo
 # que este estágio rode de novo por causa de mudança no código.
-FROM node:20-bookworm-slim AS manifests
+FROM node:22-bookworm-slim AS manifests
 WORKDIR /src
 COPY . .
 RUN mkdir /out \
@@ -35,7 +35,7 @@ RUN mkdir /out \
 
 # Commit do checkout, lido do .git (sem o binário git). Sem .git, arquivo vazio.
 # Estágio próprio: o hash só entra nas camadas finais, sem invalidar o cache de deps/build.
-FROM node:20-bookworm-slim AS commit
+FROM node:22-bookworm-slim AS commit
 WORKDIR /src
 COPY scripts/resolve-git-commit.mjs ./scripts/
 COPY .gi[t] ./.git

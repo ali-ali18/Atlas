@@ -190,7 +190,7 @@ async function replay(discipline: boolean) {
 
 afterEach(() => vi.unstubAllEnvs());
 
-it("replay: disciplina ligada corta payload e prompt, nomeia a paginação e dispara os avisos", async () => {
+it("replay: disciplina ligada corta payload e prompt, nomeia a paginação e dispara os avisos", { timeout: 20_000 }, async () => {
 	const off = await replay(false);
 	const on = await replay(true);
 
@@ -244,7 +244,7 @@ it("replay: disciplina ligada corta payload e prompt, nomeia a paginação e dis
 	expect(on.toolPayloadChars).toBeLessThan(off.toolPayloadChars * 0.75);
 	expect(on.promptChars).toBeLessThan(off.promptChars);
 	expect(on.effectiveInput).toBeLessThan(off.effectiveInput * 0.6);
-}, { timeout: 20_000 });
+});
 
 it("replay: com a flag desligada nada muda (sem ledger no checkpoint, sem avisos)", async () => {
 	vi.stubEnv("ATLAS_EXECUTION_DISCIPLINE", "off");

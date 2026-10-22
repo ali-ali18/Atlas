@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim AS base
+FROM node:22-bookworm-slim AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN apt-get update \
@@ -10,7 +10,7 @@ RUN apt-get update \
 # Só os manifests (package.json/lockfile): a camada de deps depende apenas
 # deles (COPY --from é por conteúdo), então mudança de código NÃO reinstala
 # dependências.
-FROM node:20-bookworm-slim AS manifests
+FROM node:22-bookworm-slim AS manifests
 WORKDIR /src
 COPY . .
 RUN mkdir /out \
@@ -20,7 +20,7 @@ RUN mkdir /out \
 		-exec cp --parents {} /out/ \;
 
 # Commit do checkout, lido do .git (sem o binário git). Sem .git, arquivo vazio.
-FROM node:20-bookworm-slim AS commit
+FROM node:22-bookworm-slim AS commit
 WORKDIR /src
 COPY scripts/resolve-git-commit.mjs ./scripts/
 COPY .gi[t] ./.git

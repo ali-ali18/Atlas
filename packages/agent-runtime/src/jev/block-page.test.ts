@@ -26,7 +26,7 @@ describe("página de bloqueio (F11)", () => {
 	});
 
 	it("bloqueio claro em on: dica de proxy mais forte sem gastar chamada", async () => {
-		const ask = vi.fn(yes);
+		const ask = vi.fn<JevAsk>((...args) => yes(...args));
 		const hint = await detectBlockPage({ rt: rt("on", ask), toolName: "mcp__firecrawl__firecrawl_scrape", resultText: cloudflare });
 		expect(hint).toContain("stronger proxy option");
 		expect(ask).not.toHaveBeenCalled();
@@ -38,7 +38,7 @@ describe("página de bloqueio (F11)", () => {
 	});
 
 	it("conteúdo limpo não chama o Jev; off e shadow não mudam o resultado; falha = sem dica", async () => {
-		const ask = vi.fn(yes);
+		const ask = vi.fn<JevAsk>((...args) => yes(...args));
 		expect(await detectBlockPage({ rt: rt("on", ask), toolName: "web_extract", resultText: article })).toBeNull();
 		expect(ask).not.toHaveBeenCalled();
 		expect(await detectBlockPage({ rt: rt("off", ask), toolName: "web_extract", resultText: cloudflare })).toBeNull();
