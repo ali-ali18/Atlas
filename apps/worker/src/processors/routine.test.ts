@@ -190,6 +190,6 @@ test("buildUserTurn: sem página o turno fica igual ao de antes (sem bloco)", ()
 test("planRoutinePage: sem pageId segue; página sumida pula com o motivo; senão é o alvo", () => {
 	assert.deepEqual(planRoutinePage(null, null), { kind: "none" });
 	assert.deepEqual(planRoutinePage(undefined, null), { kind: "none" });
-	assert.deepEqual(planRoutinePage("page-1", null), { kind: "skip", reason: "Página apagada" });
+	assert.deepEqual(planRoutinePage("page-1", null), { kind: "skip", reason: "Painel apagado" });
 	assert.deepEqual(planRoutinePage("page-1", { id: "page-1", title: "x" }), { kind: "target", page: { id: "page-1", title: "x" } });
 });
