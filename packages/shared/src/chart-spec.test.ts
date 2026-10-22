@@ -31,6 +31,18 @@ describe("parseChartSpec: orientation e campos desconhecidos", () => {
 		expect(wrongType.ok ? "" : wrongType.error).toMatch(/only used with type "bar"/);
 	});
 
+	it("campo desconhecido não é descartado em silêncio: erro nomeia o campo e lista os aceitos", () => {
+		const parsed = parseChartSpec({ ...bar, layout: "horizontal", barh: true });
+		expect(parsed.ok).toBe(false);
+		const error = parsed.ok ? "" : parsed.error;
+		expect(error).toMatch(/unknown chart fields: layout, barh/);
+		expect(error).toMatch(/Accepted fields: .*orientation/);
+	});
+
+	it("spec já lida (com xKind) é aceita de novo", () => {
+		const first = parseChartSpec(base);
+		expect(first.ok && parseChartSpec(first.spec).ok).toBe(true);
+	});
 });
 
 describe("parseChartSpec", () => {

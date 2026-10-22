@@ -25,6 +25,9 @@ export const CHART_MAX_JSON_CHARS = 120_000;
 export const CHART_ORIENTATIONS = ["vertical", "horizontal"] as const;
 export type ChartOrientation = (typeof CHART_ORIENTATIONS)[number];
 
+/** Campos de primeiro nível aceitos (`xKind` é derivado, mas volta quando uma spec já lida é relida). */
+export const CHART_SPEC_FIELDS = ["type", "title", "x", "series", "data", "unit", "format", "stacked", "orientation", "reference", "forecast", "max", "palette", "colors", "xKind"] as const;
+
 export const CHART_FORMATS = ["number", "compact", "percent"] as const;
 export type ChartFormat = (typeof CHART_FORMATS)[number];
 
@@ -115,6 +118,11 @@ export function parseChartSpec(input: unknown): ChartSpecParse {
 	}
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fail("chart spec must be a JSON object");
 	const row = raw as Record<string, unknown>;
+
+	const unknownFields = Object.keys(row).filter((key) => !(CHART_SPEC_FIELDS as readonly string[]).includes(key));
+	if (unknownFields.length > 0) {
+		return fail(`unknown chart field${unknownFields.length > 1 ? "s" : ""}: ${unknownFields.join(", ")}. Accepted fields: ${CHART_SPEC_FIELDS.filter((key) => key !== "xKind").join(", ")}. For horizontal bars use type "bar" with orientation "horizontal".`);
+	}
 
 	const type = row.type;
 	if (typeof type !== "string" || !(CHART_TYPES as readonly string[]).includes(type)) return fail(`type must be one of: ${CHART_TYPES.join(", ")}`);
