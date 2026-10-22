@@ -105,10 +105,10 @@ describe("grupo pages", () => {
 	it("é um grupo adiado, com as quatro tools, e a intenção de dashboard/relatório/painel o carrega", () => {
 		expect(NATIVE_TOOL_GROUPS.pages.tools).toEqual([...PAGE_TOOL_NAMES]);
 		expect(nativeToolGroupOf("page_create")).toBe("pages");
-		for (const text of ["monta meu forecast do trimestre", "quero um dashboard de vendas", "cria um painel com os KPIs", "faz um relatório semanal de leads", "build me a live page of this", "me dá uma visão geral do mês"]) {
+		for (const text of ["monta meu forecast do trimestre", "quero um dashboard de vendas", "cria um painel com os KPIs", "faz um relatório semanal de leads", "build me a live dashboard of this", "me dá uma visão geral do mês"]) {
 			expect(routeContextGroups({ text }).has("pages"), text).toBe(true);
 		}
-		for (const text of ["oi, tudo bem?", "qual a capital da França?", "abre o site do banco"]) {
+		for (const text of ["oi, tudo bem?", "qual a capital da França?", "abre o site do banco", "abre a página do banco", "open the page of the bank", "cria uma página nova no Notion"]) {
 			expect(routeContextGroups({ text }).has("pages"), text).toBe(false);
 		}
 	});
@@ -124,6 +124,9 @@ describe("grupo pages", () => {
 		expect(prompt).toMatch(/`palette`/);
 		expect(prompt).toMatch(/readable on a phone/);
 		expect(prompt).toMatch(/never hex/);
+		// nome para o usuário: painel/dashboard, nunca "página" (confunde com página da web)
+		expect(prompt).toMatch(/users call these \"painel\" \/ \"painéis\" \(dashboard\)/);
+		expect(prompt).toMatch(/never \"página\"\/\"page\"/);
 	});
 
 	it("as tools descrevem a árvore (componentes, tone, limites) sem inflar o prefixo", () => {

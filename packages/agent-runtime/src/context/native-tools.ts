@@ -78,8 +78,8 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 	},
 	pages: {
 		tools: ["page_create", "page_update", "page_read", "page_list"],
-		hint: "build a live page (report, memo, dashboard) that renders inline in the chat, then update it in place later",
-		keywords: ["dashboard", "dashboards", "painel", "paineis", "pagina", "paginas", "page", "pages", "relatorio", "relatorios", "report", "forecast", "overview", "visao geral", "kpi", "kpis", "scorecard", "resumo executivo"],
+		hint: "build a live panel (dashboard, report, memo; users call it \"painel\" / \"dashboard\", never \"page\") that renders inline in the chat, then update it in place later",
+		keywords: ["dashboard", "dashboards", "painel", "paineis", "relatorio", "relatorios", "report", "forecast", "overview", "visao geral", "kpi", "kpis", "scorecard", "resumo executivo"],
 	},
 	bots: {
 		tools: ["propose_bot"],

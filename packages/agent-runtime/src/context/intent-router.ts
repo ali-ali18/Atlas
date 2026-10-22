@@ -38,7 +38,7 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 	],
 	[
 		"pages",
-		/\b(dashboards?|paineis|painel|forecast|kpis?|scorecard|visao geral|overview|resumo executivo|(pagina|page) (viva|ao vivo|atualizavel|live)|(live|living) (page|report)s?|relatorios? (semanal|mensal|diario|executivo|vivo|do (mes|trimestre|ano))|(mont\w+|cri\w+|faz\w*|ger\w+|build|create|make) (uma? |meu |minha |o |a )*(pagina|relatorio|report|page))\b/,
+		/\b(dashboards?|paineis|painel|forecast|kpis?|scorecard|visao geral|overview|resumo executivo|(live|living) (dashboard|report)s?|relatorios? (semanal|mensal|diario|executivo|vivo|do (mes|trimestre|ano))|(mont\w+|cri\w+|faz\w*|ger\w+|build|create|make) (uma? |meu |minha |o |a )*(relatorio|report))\b/,
 	],
 	[
 		"data",

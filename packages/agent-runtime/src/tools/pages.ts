@@ -60,8 +60,8 @@ export const PAGE_CREATE_TOOL: ChatTool = {
 	function: {
 		name: PAGE_CREATE_TOOL_NAME,
 		description:
-			"Builds a live page (report, memo or dashboard) composed of ready-made components, which renders inline in the chat as a card and opens full screen on tap; the user keeps it and you refresh it later with page_update. " +
-			"USE WHEN the user asks for a dashboard, report, overview, forecast or page to keep, review and refresh. " +
+			"Builds a live page (report, memo or dashboard) composed of ready-made components, which renders inline in the chat as a card and opens full screen on tap; the user keeps it and you refresh it later with page_update. Users call it a \"painel\" (pt-BR) / \"dashboard\": use that word in your replies, never \"página\"/\"page\", which users confuse with a web page. " +
+			"USE WHEN the user asks for a dashboard (painel), report, overview or forecast to keep, review and refresh. " +
 			"DO NOT USE for a single chart (use the chart tool path of run_code or a chart fence), a downloadable document (use create_file) or a plain answer. " +
 			"Every number must come from tools or run_code results, never invented or estimated; gather the data first, then build the page once. " +
 			NODE_GRAMMAR,
@@ -130,7 +130,7 @@ export const PAGE_LIST_TOOL: ChatTool = {
 	type: "function",
 	function: {
 		name: PAGE_LIST_TOOL_NAME,
-		description: "Lists this bot's pages (id, title, revision, last update). USE to find the page the user means before updating it, or to avoid creating a duplicate. DO NOT USE to open a page for the user.",
+		description: "Lists this bot's live pages, which users call \"painéis\"/dashboards (id, title, revision, last update). USE to find the page the user means before updating it, or to avoid creating a duplicate. DO NOT USE to open a page for the user.",
 		parameters: { type: "object", properties: {} },
 	},
 };
