@@ -173,7 +173,7 @@ function toTimeData(spec: ChartSpec): { rows: TimePoint[]; categoryByTime: Map<n
   return { rows, categoryByTime }
 }
 
-const CHART_MARGIN = { top: 16, right: 14, bottom: 36, left: 58 }
+const CHART_MARGIN = { top: 16, right: 18, bottom: 44, left: 58 }
 
 /** Margem esquerda que cabe o maior rótulo do eixo Y (≈6,6px por caractere em 12px). */
 function chartMargin(axisFormat: ValueFormatter, max: number) {
@@ -183,8 +183,21 @@ function chartMargin(axisFormat: ValueFormatter, max: number) {
 
 const PlotWidthContext = React.createContext(600)
 /** Quantos rótulos do eixo X cabem sem encostar (~74px cada). */
-function labelBudget(plotWidth: number, margin: { left: number; right: number }, max: number) {
-  return Math.max(2, Math.min(max, Math.floor((plotWidth - margin.left - margin.right) / 74)))
+function labelBudget(plotWidth: number, margin: { left: number; right: number }, max: number, perLabel = 74) {
+  return Math.max(2, Math.min(max, Math.floor((plotWidth - margin.left - margin.right) / perLabel)))
+}
+
+/** Barras ficam na vertical enquanto os rótulos couberem ou puderem ser afinados (datas e nomes curtos); só nomes longos e numerosos viram barras horizontais. */
+export function shouldUseHorizontalBars(labels: string[], budget: number): boolean {
+  if (labels.length <= budget) return false
+  const longest = Math.max(0, ...labels.map((label) => label.length))
+  return longest > 9 || labels.length > 40
+}
+
+/** Margem esquerda das barras horizontais: cabe o maior rótulo (limitada), para não truncar nomes comuns. */
+export function horizontalBarLeftMargin(labels: string[]): number {
+  const longest = Math.max(0, ...labels.map((label) => label.length))
+  return Math.min(160, Math.max(56, Math.round(longest * 6.4 + 16)))
 }
 const PLOT_CLASS = "h-[260px] w-full"
 
@@ -278,7 +291,7 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
           )
         )}
         <YAxis formatValue={axisFormat} />
-        <XAxis numTicks={labelBudget(plotWidth, margin, 6)} />
+        <XAxis numTicks={labelBudget(plotWidth, margin, 6, 96)} />
         <ChartTooltip content={tooltipContent} />
       </Chart>
     </XLabelFormatContext.Provider>
@@ -323,8 +336,9 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
     [labels, spec, tooltipFormat]
   )
 
-  // Largura que não comporta todos os rótulos: barras horizontais, categorias à esquerda (truncadas; o tooltip traz o nome inteiro).
-  const horizontal = labelBudget(plotWidth, margin, 12) < spec.data.length
+  // Rótulos que não cabem: nomes longos viram barras horizontais (categorias à esquerda); datas e nomes curtos ficam na vertical com rótulos afinados.
+  const categoryLabels = React.useMemo(() => data.map((row) => String(row.__label)), [data])
+  const horizontal = shouldUseHorizontalBars(categoryLabels, labelBudget(plotWidth, margin, 12, 62))
   const rowHeight = Math.max(260, spec.data.length * (spec.series.length > 1 ? 14 * spec.series.length + 14 : 34) + 24)
   return (
     <div style={horizontal ? { height: rowHeight } : undefined}>
@@ -333,7 +347,7 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
       barGap={spec.data.length > 24 ? 0.1 : 0.25}
       className={horizontal ? "h-full w-full" : PLOT_CLASS}
       data={data}
-      margin={horizontal ? { top: 8, right: 16, bottom: 16, left: 84 } : margin}
+      margin={horizontal ? { top: 8, right: 56, bottom: 16, left: horizontalBarLeftMargin(categoryLabels) } : margin}
       orientation={horizontal ? "horizontal" : "vertical"}
       stacked={spec.stacked === true}
       xDataKey="__label"
@@ -345,10 +359,11 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
           fill={seriesColor(index)}
           key={item.key}
           lineCap={spec.data.length > 24 ? 0 : 3}
+          {...(horizontal && spec.series.length === 1 ? { showValue: true, valueLabelFormatter: axisFormat, valueLabelPosition: "top" as const, valueLabelColor: "var(--foreground)" } : {})}
         />
       ))}
       {horizontal ? <BarYAxis maxLabels={40} /> : <YAxis formatValue={axisFormat} />}
-      {horizontal ? null : <BarXAxis maxLabels={labelBudget(plotWidth, margin, 12)} />}
+      {horizontal ? null : <BarXAxis maxLabels={labelBudget(plotWidth, margin, 12, 62)} />}
       <ChartTooltip content={tooltipContent} />
     </BarChart>
     </div>
@@ -376,6 +391,9 @@ function PieCenterText({ format, label }: { format: ValueFormatter; label: strin
   )
 }
 
+// O PieChart só leva para a camada HTML (fora do <svg>) o filho chamado "PieCenter".
+PieCenterText.displayName = "PieCenter"
+
 function PiePlot({ spec }: { spec: ChartSpec }) {
   const valueKey = spec.series[0]!.key
   const slices = React.useMemo(
@@ -389,6 +407,7 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
   const format = React.useMemo(() => makeValueFormatter(spec), [spec])
   const total = slices.reduce((sum, slice) => sum + slice.value, 0)
   const percent = React.useMemo(() => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }), [])
+  const valueIsPercent = spec.unit === "%" || spec.format === "percent"
 
   return (
     <div className="flex min-w-0 flex-col items-center gap-4 py-2 sm:flex-row sm:justify-center sm:gap-8">
@@ -404,9 +423,11 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
             <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: slice.color }} />
             <span className="min-w-0 flex-1 truncate text-muted-foreground">{slice.label}</span>
             <span className="shrink-0 text-foreground tabular-nums">{format(slice.value)}</span>
-            <span className="w-12 shrink-0 text-right text-muted-foreground tabular-nums">
-              {percent.format((slice.value / total) * 100)}%
-            </span>
+            {valueIsPercent ? null : (
+              <span className="w-12 shrink-0 text-right text-muted-foreground tabular-nums">
+                {percent.format((slice.value / total) * 100)}%
+              </span>
+            )}
           </li>
         ))}
       </ul>

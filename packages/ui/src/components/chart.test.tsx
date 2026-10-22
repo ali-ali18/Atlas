@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { chartSpecToCsv, parseChartSpec, type ChartSpec } from "@workspace/shared"
-import { Chart, makeValueFormatter, makeXLabels, parseChartDate } from "./chart"
+import { Chart, horizontalBarLeftMargin, makeValueFormatter, makeXLabels, parseChartDate, shouldUseHorizontalBars } from "./chart"
 
 const spec = (raw: Record<string, unknown>): ChartSpec => {
   const parsed = parseChartSpec(raw)
@@ -103,5 +103,35 @@ describe("Chart: paleta", () => {
     expect(html).toMatch(/data-chart-palette="custom-[a-z0-9]+"/)
     expect(html).toContain("--chart-1:#1d4ed8;")
     expect(html).toContain("--chart-2:#b45309;")
+  })
+})
+
+describe("Chart: correções de layout", () => {
+  const pie = (extra: Record<string, unknown>) =>
+    spec({ type: "pie", x: "canal", series: [{ key: "v" }], data: [{ canal: "Loja", v: 62 }, { canal: "Site", v: 38 }], ...extra })
+
+  it("pizza: o total do centro fica fora do <svg>", () => {
+    const html = plain(renderToStaticMarkup(<Chart spec={pie({ unit: "BRL" })} />))
+    const afterSvg = html.slice(html.lastIndexOf("</svg>"))
+    expect(afterSvg).toContain("R$ 100,00")
+    expect(html.slice(0, html.lastIndexOf("</svg>"))).not.toContain("R$ 100,00")
+  })
+
+  it("pizza com unidade % mostra o valor uma vez só", () => {
+    const html = plain(renderToStaticMarkup(<Chart spec={pie({ unit: "%" })} />))
+    expect(html.match(/38%/g)).toHaveLength(1)
+  })
+
+  it("barras: datas e nomes curtos ficam na vertical; nomes longos e numerosos vão para horizontal", () => {
+    const months = Array.from({ length: 12 }, (_, i) => `jan/${25 + i}`)
+    expect(shouldUseHorizontalBars(months, 6)).toBe(false)
+    expect(shouldUseHorizontalBars(["Camiseta básica branca", "Calça jeans", "Boné"], 2)).toBe(true)
+    expect(shouldUseHorizontalBars(["Camiseta básica branca", "Calça jeans"], 5)).toBe(false)
+  })
+
+  it("barras horizontais: margem esquerda acompanha o maior rótulo, com teto", () => {
+    expect(horizontalBarLeftMargin(["Boné"])).toBe(56)
+    expect(horizontalBarLeftMargin(["Camiseta básica branca"])).toBeGreaterThan(120)
+    expect(horizontalBarLeftMargin(["x".repeat(80)])).toBe(160)
   })
 })
