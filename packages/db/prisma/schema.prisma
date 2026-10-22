@@ -714,6 +714,9 @@ model Routine {
   conversationId  String?
   groupId         String?
   group           RoutineGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  /// Página que a rotina atualiza no lugar a cada execução (mesmo dono e bot; SetNull se a linha sumir).
+  pageId          String?
+  page            Page?     @relation(fields: [pageId], references: [id], onDelete: SetNull)
   name            String
   prompt          String
   /// Modelo OpenRouter dedicado a esta rotina (escolhido no painel).
@@ -736,6 +739,7 @@ model Routine {
   @@index([botId, enabled])
   @@index([userId])
   @@index([groupId])
+  @@index([pageId])
   @@map("routines")
 }
 
@@ -1389,6 +1393,7 @@ model Page {
   updatedAt      DateTime       @updatedAt
   deletedAt      DateTime?
   revisions      PageRevision[]
+  routines       Routine[]
 
   @@index([userId, botId, updatedAt])
   @@map("pages")

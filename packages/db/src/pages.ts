@@ -175,6 +175,14 @@ export async function deletePage(id: string, userId: string): Promise<boolean> {
 	return result.count > 0;
 }
 
+/** Garante que a página é do mesmo usuário e bot e não foi apagada. Lança "Página não encontrada" caso contrário (outro dono é indistinguível de inexistente). */
+export async function assertPageUsable(userId: string | undefined, botId: string, pageId: string): Promise<string> {
+	if (ownerIds(userId).length === 0) throw new Error("Página não encontrada");
+	const found = await prisma.page.findFirst({ where: { id: pageId, botId, userId, deletedAt: null }, select: { id: true } });
+	if (!found) throw new Error("Página não encontrada");
+	return found.id;
+}
+
 /** Revisões guardadas (mais nova primeiro), só se a página é do usuário. */
 export async function listPageRevisionsForUser(id: string, userId: string): Promise<Array<{ revision: number; createdAt: string }>> {
 	if (ownerIds(userId).length === 0) return [];

@@ -28,6 +28,8 @@ export type RoutineRecord = {
 	/** Grupo da rotina (null = sem grupo). */
 	groupId?: string | null;
 	group?: { id: string; name: string } | null;
+	/** Página que cada execução reconstrói no lugar (null/ausente = nenhuma). */
+	pageId?: string | null;
 	name: string;
 	prompt: string;
 	/** Id OpenRouter escolhido no painel para esta rotina. */
@@ -94,6 +96,8 @@ export type CreateRoutineInput = {
 	botId: string;
 	/** Grupo existente do mesmo bot/usuário. */
 	groupId?: string | null;
+	/** Página do mesmo usuário e bot que a rotina atualiza no lugar. */
+	pageId?: string | null;
 	name: string;
 	prompt: string;
 	model?: string;
@@ -147,6 +151,8 @@ export type CreateRoutineInput = {
 export type UpdateRoutineInput = {
 	/** Move para o grupo (id) ou `null` para tirar do grupo. */
 	groupId?: string | null;
+	/** Liga a uma página (id) ou `null` para desligar; omitido mantém. */
+	pageId?: string | null;
 	name?: string;
 	prompt?: string;
 	model?: string;
