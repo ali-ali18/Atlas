@@ -67,7 +67,7 @@ export type ValueFormatter = (value: number) => string
 /** Formata valores do spec em pt-BR (1.234,56 · R$ · % · sufixo da unidade); `axis` encurta para os eixos. */
 export function makeValueFormatter(
   spec: Pick<ChartSpec, "unit" | "format">,
-  options: { axis?: boolean; max?: number } = {}
+  options: { axis?: boolean; max?: number; whole?: boolean } = {}
 ): ValueFormatter {
   const compact =
     spec.format === "compact" ||
@@ -83,6 +83,8 @@ export function makeValueFormatter(
       // Moeda herda 2 casas mínimas; no compacto isso vira "R$ 60,0 mil".
       ...(compact ? { notation: "compact", maximumFractionDigits: 1, minimumFractionDigits: 0 } : {}),
       ...(!compact && options.axis ? { maximumFractionDigits: 2, minimumFractionDigits: 0 } : {}),
+      // Todos os valores do grupo são inteiros: reais cheios ("R$ 28.400"), igual ao formatador das páginas.
+      ...(!compact && !options.axis && options.whole ? { maximumFractionDigits: 0, minimumFractionDigits: 0 } : {}),
     })
     return (value) => intl.format(value)
   }
@@ -508,7 +510,8 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
         .map((slice, index) => ({ ...slice, color: sliceColor(index) })),
     [spec, valueKey]
   )
-  const format = React.useMemo(() => makeValueFormatter(spec), [spec])
+  const whole = slices.every((slice) => Number.isInteger(slice.value))
+  const format = React.useMemo(() => makeValueFormatter(spec, { whole }), [spec, whole])
   const compactFormat = React.useMemo(() => makeValueFormatter({ ...spec, format: "compact" }), [spec])
   const total = slices.reduce((sum, slice) => sum + slice.value, 0)
   const percent = React.useMemo(() => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }), [])

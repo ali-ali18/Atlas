@@ -37,10 +37,21 @@ describe("Chart: cada tipo renderiza com dados", () => {
         <Chart spec={spec({ type: "pie", x: "canal", series: [{ key: "v" }], unit: "BRL", data: [{ canal: "Loja", v: 750 }, { canal: "Site", v: 250 }, { canal: "Zero", v: 0 }] })} />
       )
     )
-    expect(html).toContain("R$ 750,00")
+    expect(html).toContain("R$ 750")
+    expect(html).not.toContain("R$ 750,00")
     expect(html).toContain("75%")
     expect(html).toContain("25%")
     expect(html).not.toContain("Zero")
+  })
+
+  it("pizza com algum valor fracionário mantém os centavos em toda a legenda", () => {
+    const html = plain(
+      renderToStaticMarkup(
+        <Chart spec={spec({ type: "pie", x: "canal", series: [{ key: "v" }], unit: "BRL", data: [{ canal: "Loja", v: 750 }, { canal: "Site", v: 250.5 }] })} />
+      )
+    )
+    expect(html).toContain("R$ 750,00")
+    expect(html).toContain("R$ 250,50")
   })
 
   it("série única não mostra legenda; sem título o cabeçalho fica só com o botão", () => {
@@ -59,6 +70,11 @@ describe("formatação pt-BR", () => {
     expect(makeValueFormatter({ format: "percent" })(3)).toBe("3%")
     expect(plain(makeValueFormatter({ unit: "kg" })(2.5))).toBe("2,5 kg")
     expect(plain(makeValueFormatter({ format: "compact" })(1_500_000))).toMatch(/1,5\s?mi/)
+  })
+
+  it("moeda com `whole` mostra reais cheios; sem ele (ou com centavos) segue com 2 casas", () => {
+    expect(plain(makeValueFormatter({ unit: "BRL" }, { whole: true })(28_400))).toBe("R$ 28.400")
+    expect(plain(makeValueFormatter({ unit: "BRL" })(28_400))).toBe("R$ 28.400,00")
   })
 
   it("eixo usa notação compacta só a partir de 10 mil", () => {
@@ -113,8 +129,8 @@ describe("Chart: correções de layout", () => {
   it("pizza: o total do centro fica fora do <svg>", () => {
     const html = plain(renderToStaticMarkup(<Chart spec={pie({ unit: "BRL" })} />))
     const afterSvg = html.slice(html.lastIndexOf("</svg>"))
-    expect(afterSvg).toContain("R$ 100,00")
-    expect(html.slice(0, html.lastIndexOf("</svg>"))).not.toContain("R$ 100,00")
+    expect(afterSvg).toContain("R$ 100")
+    expect(html.slice(0, html.lastIndexOf("</svg>"))).not.toContain("R$ 100")
   })
 
   it("pizza com unidade % mostra o valor uma vez só", () => {
