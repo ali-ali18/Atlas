@@ -124,9 +124,10 @@ describe("Chart: correções de layout", () => {
 
   it("barras: datas e nomes curtos ficam na vertical; nomes longos e numerosos vão para horizontal", () => {
     const months = Array.from({ length: 12 }, (_, i) => `jan/${25 + i}`)
-    expect(shouldUseHorizontalBars(months, 6)).toBe(false)
-    expect(shouldUseHorizontalBars(["Camiseta básica branca", "Calça jeans", "Boné"], 2)).toBe(true)
-    expect(shouldUseHorizontalBars(["Camiseta básica branca", "Calça jeans"], 5)).toBe(false)
+    expect(shouldUseHorizontalBars(months, 400)).toBe(false)
+    const produtos = ["Camiseta básica branca", "Calça jeans slim", "Tênis casual urbano", "Jaqueta corta-vento", "Boné aba curva", "Meia esportiva (par)"]
+    expect(shouldUseHorizontalBars(produtos, 520)).toBe(true)
+    expect(shouldUseHorizontalBars(["Camiseta básica branca", "Calça jeans"], 520)).toBe(false)
   })
 
   it("barras horizontais: margem esquerda acompanha o maior rótulo, com teto", () => {

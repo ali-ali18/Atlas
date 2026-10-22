@@ -33,6 +33,8 @@ export interface YAxisProps {
   formatLargeNumbers?: boolean;
   /** Custom formatter for tick labels (e.g. USD). Overrides formatLargeNumbers when set. */
   formatValue?: (value: number) => string;
+  /** Distância em px entre os rótulos e o gráfico. Default: 8. Maior com barras na borda (composto). */
+  labelPadding?: number;
 }
 
 function formatLabel(
@@ -95,6 +97,7 @@ const YAxisInner = memo(function YAxisInner({
   numTicks = Y_AXIS_DEFAULT_TICK_COUNT,
   formatLargeNumbers = true,
   formatValue,
+  labelPadding = 8,
   container,
 }: YAxisProps & { container: HTMLDivElement }) {
   const { margin, referenceAreas } = useChartStable();
@@ -147,8 +150,8 @@ const YAxisInner = memo(function YAxisInner({
               transform: "translateY(-50%)",
               transition: `top ${Y_AXIS_POSITION_TWEEN_MS}ms cubic-bezier(${LINE_LOADING_PULSE_EASE.join(", ")})`,
               ...(isLeft
-                ? { right: 0, justifyContent: "flex-end", paddingRight: 8 }
-                : { left: 0, justifyContent: "flex-start", paddingLeft: 8 }),
+                ? { right: 0, justifyContent: "flex-end", paddingRight: labelPadding }
+                : { left: 0, justifyContent: "flex-start", paddingLeft: labelPadding }),
             }}
           >
             <span

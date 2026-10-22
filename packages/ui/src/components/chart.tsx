@@ -204,9 +204,10 @@ function labelBudget(plotWidth: number, margin: { left: number; right: number },
 }
 
 /** Barras ficam na vertical enquanto os rótulos couberem ou puderem ser afinados (datas e nomes curtos); só nomes longos e numerosos viram barras horizontais. */
-export function shouldUseHorizontalBars(labels: string[], budget: number): boolean {
-  if (labels.length <= budget) return false
+export function shouldUseHorizontalBars(labels: string[], plotInnerWidth: number): boolean {
   const longest = Math.max(0, ...labels.map((label) => label.length))
+  // ~6,4px por caractere (12px) + folga: se todos os rótulos cabem lado a lado, fica na vertical.
+  if (labels.length * (longest * 6.4 + 10) <= plotInnerWidth) return false
   return longest > 9 || labels.length > 40
 }
 
@@ -249,8 +250,9 @@ function ReferenceLayer({ spec }: { spec: ChartSpec }) {
       showMarkers={false}
       stroke="var(--chart-foreground-muted)"
       strokeStyle="dashed"
-      y1={reference.from}
-      y2={reference.to}
+      // O ReferenceArea estende o limite ausente: y1 omitido vai até o topo, y2 omitido vai até a base.
+      y1={reference.to === undefined ? undefined : reference.from === undefined ? reference.to : reference.from}
+      y2={reference.to === undefined ? reference.from : reference.from === undefined ? undefined : reference.to}
     />
   )
 }
@@ -352,6 +354,7 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
         className={PLOT_CLASS}
         data={rows}
         margin={margin}
+        {...(spec.type === "composed" ? { maxBarSize: 28 } : {})}
         xDataKey="__date"
       >
         <Grid horizontal />
@@ -381,7 +384,7 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
           )
         )}
         {projection.length > 1 ? <ProjectionLine data={projection} stroke={seriesColor(0)} /> : null}
-        <YAxis formatValue={axisFormat} />
+        <YAxis formatValue={axisFormat} labelPadding={spec.type === "composed" ? 18 : 8} />
         <XAxis numTicks={labelBudget(plotWidth, margin, 6, 96)} />
         <ChartTooltip content={tooltipContent} showCrosshair={spec.type !== "composed"} />
       </Chart>
@@ -429,7 +432,7 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
 
   // Rótulos que não cabem: nomes longos viram barras horizontais (categorias à esquerda); datas e nomes curtos ficam na vertical com rótulos afinados.
   const categoryLabels = React.useMemo(() => data.map((row) => String(row.__label)), [data])
-  const horizontal = shouldUseHorizontalBars(categoryLabels, labelBudget(plotWidth, margin, 12, 62))
+  const horizontal = shouldUseHorizontalBars(categoryLabels, plotWidth - margin.left - margin.right)
   const rowHeight = Math.max(260, spec.data.length * (spec.series.length > 1 ? 14 * spec.series.length + 14 : 34) + 24)
   return (
     <div style={horizontal ? { height: rowHeight } : undefined}>
@@ -462,19 +465,22 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
   )
 }
 
-function PieCenterText({ format, label }: { format: ValueFormatter; label: string }) {
+function PieCenterText({ format, compact, label }: { format: ValueFormatter; compact: ValueFormatter; label: string }) {
   const { data, totalValue, innerRadius } = usePieStable()
   const { hoveredIndex } = usePieHover()
   if (innerRadius <= 0) return null
   const hovered = hoveredIndex === null ? null : data[hoveredIndex]
   const size = innerRadius * 2 - 16
+  const full = format(hovered ? hovered.value : totalValue)
+  // Total comprido não cabe no miolo da rosca: usa a forma compacta ("R$ 490,5 mil").
+  const text = full.length > 10 ? compact(hovered ? hovered.value : totalValue) : full
   return (
     <div
       className="pointer-events-none absolute inset-0 m-auto flex flex-col items-center justify-center text-center"
       style={{ width: size, height: size }}
     >
       <span className="max-w-full truncate font-medium text-foreground text-lg tabular-nums leading-tight">
-        {format(hovered ? hovered.value : totalValue)}
+        {text}
       </span>
       <span className="max-w-full truncate text-muted-foreground text-xs">
         {hovered ? hovered.label : label}
@@ -497,6 +503,7 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
     [spec, valueKey]
   )
   const format = React.useMemo(() => makeValueFormatter(spec), [spec])
+  const compactFormat = React.useMemo(() => makeValueFormatter({ ...spec, format: "compact" }), [spec])
   const total = slices.reduce((sum, slice) => sum + slice.value, 0)
   const percent = React.useMemo(() => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }), [])
   const valueIsPercent = spec.unit === "%" || spec.format === "percent"
@@ -507,7 +514,7 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
         {slices.map((slice, index) => (
           <PieSlice index={index} key={slice.label + index} showGlow={false} />
         ))}
-        <PieCenterText format={format} label={spec.series[0]!.label} />
+        <PieCenterText compact={compactFormat} format={format} label={spec.series[0]!.label} />
       </PieChart>
       <ul className="w-full min-w-0 max-w-xs space-y-1.5 text-xs" data-slot="chart-legend">
         {slices.map((slice, index) => (
@@ -545,8 +552,8 @@ function RadarPlot({ spec }: { spec: ChartSpec }) {
   )
   return (
     <div>
-      <div className="mx-auto h-[300px] w-full max-w-[420px]">
-        <RadarChart data={data} levels={4} margin={52} metrics={metrics}>
+      <div className="mx-auto h-[330px] w-full max-w-[420px]">
+        <RadarChart data={data} levels={4} margin={60} metrics={metrics} size={330}>
           <RadarGrid showLabels={false} />
           <RadarAxis />
           <RadarLabels fontSize={11} />
@@ -575,7 +582,7 @@ function FunnelPlot({ spec }: { spec: ChartSpec }) {
   )
   const vertical = plotWidth < 520 || stages.length > 6
   return (
-    <div className={vertical ? "h-[320px]" : "h-[240px]"}>
+    <div className={vertical ? "h-[320px] px-3" : "h-[240px] px-3"}>
       <FunnelChart
         color="var(--chart-1)"
         data={stages}
@@ -602,7 +609,7 @@ function GaugePlot({ spec }: { spec: ChartSpec }) {
   const max = spec.max ?? 100
   const { formatOptions, suffix } = gaugeFormat(spec)
   return (
-    <div className="flex justify-center py-2">
+    <div className="mx-auto flex w-full max-w-[340px] justify-center py-2">
       <Gauge
         centerValue={value}
         defaultLabel={item.label}
