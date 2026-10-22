@@ -27,3 +27,33 @@ export const intFmt = new Intl.NumberFormat("pt-BR").format;
  * (um dia por ponto) e este contexto devolve o nome da categoria no lugar de "dd/mm".
  */
 export const XLabelFormatContext = createContext<((date: Date) => string) | null>(null);
+
+export const valueLabelFmt = new Intl.NumberFormat("pt-BR", {
+  maximumFractionDigits: 0,
+}).format;
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+/**
+ * Tooltip value for a `<Band>` row: `"low – high"` (ordered), the value itself
+ * when both edges read the same key, or `null` when either edge is missing
+ * (e.g. Bollinger warm-up rows).
+ */
+export function formatBandRange(
+  point: Record<string, unknown>,
+  upperKey: string,
+  lowerKey: string,
+  format: (value: number) => string = intFmt
+): string | number | null {
+  const upper = point[upperKey];
+  const lower = point[lowerKey];
+  if (!(isFiniteNumber(upper) && isFiniteNumber(lower))) {
+    return null;
+  }
+  if (upperKey === lowerKey) {
+    return upper;
+  }
+  return `${format(Math.min(lower, upper))} – ${format(Math.max(lower, upper))}`;
+}

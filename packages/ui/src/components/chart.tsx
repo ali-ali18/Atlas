@@ -13,6 +13,7 @@ import { BarChart } from "@workspace/ui/charts/bar-chart"
 import { Bar } from "@workspace/ui/charts/bar"
 import { BarXAxis } from "@workspace/ui/charts/bar-x-axis"
 import { BarYAxis } from "@workspace/ui/charts/bar-y-axis"
+import { chartPaletteCss, resolveChartPalette } from "@workspace/ui/charts/chart-palettes"
 import { XLabelFormatContext } from "@workspace/ui/charts/chart-formatters"
 import { Grid } from "@workspace/ui/charts/grid"
 import { LineChart, Line } from "@workspace/ui/charts/line-chart"
@@ -23,10 +24,23 @@ import { TooltipContent } from "@workspace/ui/charts/tooltip/tooltip-content"
 import { ChartTooltip } from "@workspace/ui/charts/tooltip/chart-tooltip"
 import { XAxis } from "@workspace/ui/charts/x-axis"
 import { YAxis } from "@workspace/ui/charts/y-axis"
+import { ChartLegendHoverProvider } from "@workspace/ui/charts/chart-legend-hover"
+import { ComposedChart } from "@workspace/ui/charts/composed-chart"
+import { SeriesBar } from "@workspace/ui/charts/series-bar"
+import { FunnelChart } from "@workspace/ui/charts/funnel-chart"
+import { Gauge } from "@workspace/ui/charts/gauge"
+import { buildProjectionPath } from "@workspace/ui/charts/projection-utils"
+import { ProjectionLine } from "@workspace/ui/charts/projection-line"
+import { RadarArea } from "@workspace/ui/charts/radar-area"
+import { RadarAxis } from "@workspace/ui/charts/radar-axis"
+import { RadarChart } from "@workspace/ui/charts/radar-chart"
+import { RadarGrid } from "@workspace/ui/charts/radar-grid"
+import { RadarLabels } from "@workspace/ui/charts/radar-labels"
+import { ReferenceArea } from "@workspace/ui/charts/reference-area"
 import { curveMonotoneX } from "@visx/curve"
 
 /**
- * Gráfico nativo do chat: desenha uma `ChartSpec` (linha, barras, área, pizza) com os componentes do Bklit UI
+ * Gráfico nativo do chat: desenha uma `ChartSpec` (linha, barras, área, pizza, radar, funil, medidor, composto) com os componentes do Bklit UI
  * (MIT, vendorizados em `src/charts`), cores `--chart-1..6`, números e datas em pt-BR.
  */
 
@@ -90,6 +104,8 @@ export function parseChartDate(value: string): Date {
 type XLabels = {
   /** Rótulo curto do eixo. */
   axis: (value: string | number) => string
+  /** Rótulo curto do eixo para uma data qualquer (inclui períodos projetados). */
+  axisDate: (date: Date) => string
   /** Título do tooltip. */
   title: (value: string | number) => string
 }
@@ -97,20 +113,21 @@ type XLabels = {
 /** Rótulos do eixo X: categorias como vieram; datas mensais "jan/25"; demais datas "dd/mm" (com ano se passar de um ano). */
 export function makeXLabels(spec: ChartSpec): XLabels {
   if (spec.xKind !== "date") {
-    return { axis: (value) => String(value), title: (value) => String(value) }
+    return { axis: (value) => String(value), axisDate: (date) => date.toLocaleDateString("pt-BR"), title: (value) => String(value) }
   }
   const dates = spec.data.map((point) => parseChartDate(String(point[spec.x])))
   const monthly = dates.every((date) => date.getDate() === 1)
   const times = dates.map((date) => date.getTime())
   const spanDays = (Math.max(...times) - Math.min(...times)) / 86_400_000
   const pad = (value: number) => String(value).padStart(2, "0")
+  const axisDate = (date: Date) => {
+    if (monthly) return `${MONTHS[date.getMonth()]}/${pad(date.getFullYear() % 100)}`
+    const base = `${pad(date.getDate())}/${pad(date.getMonth() + 1)}`
+    return spanDays > 366 ? `${base}/${pad(date.getFullYear() % 100)}` : base
+  }
   return {
-    axis: (value) => {
-      const date = parseChartDate(String(value))
-      if (monthly) return `${MONTHS[date.getMonth()]}/${pad(date.getFullYear() % 100)}`
-      const base = `${pad(date.getDate())}/${pad(date.getMonth() + 1)}`
-      return spanDays > 366 ? `${base}/${pad(date.getFullYear() % 100)}` : base
-    },
+    axis: (value) => axisDate(parseChartDate(String(value))),
+    axisDate,
     title: (value) => {
       const date = parseChartDate(String(value))
       if (monthly) return `${MONTHS_LONG[date.getMonth()]} de ${date.getFullYear()}`
@@ -172,7 +189,7 @@ function toTimeData(spec: ChartSpec): { rows: TimePoint[]; categoryByTime: Map<n
   return { rows, categoryByTime }
 }
 
-const CHART_MARGIN = { top: 16, right: 14, bottom: 36, left: 58 }
+const CHART_MARGIN = { top: 16, right: 18, bottom: 44, left: 58 }
 
 /** Margem esquerda que cabe o maior rótulo do eixo Y (≈6,6px por caractere em 12px). */
 function chartMargin(axisFormat: ValueFormatter, max: number) {
@@ -182,12 +199,26 @@ function chartMargin(axisFormat: ValueFormatter, max: number) {
 
 const PlotWidthContext = React.createContext(600)
 /** Quantos rótulos do eixo X cabem sem encostar (~74px cada). */
-function labelBudget(plotWidth: number, margin: { left: number; right: number }, max: number) {
-  return Math.max(2, Math.min(max, Math.floor((plotWidth - margin.left - margin.right) / 74)))
+function labelBudget(plotWidth: number, margin: { left: number; right: number }, max: number, perLabel = 74) {
+  return Math.max(2, Math.min(max, Math.floor((plotWidth - margin.left - margin.right) / perLabel)))
+}
+
+/** Barras ficam na vertical enquanto os rótulos couberem ou puderem ser afinados (datas e nomes curtos); só nomes longos e numerosos viram barras horizontais. */
+export function shouldUseHorizontalBars(labels: string[], plotInnerWidth: number): boolean {
+  const longest = Math.max(0, ...labels.map((label) => label.length))
+  // ~6,4px por caractere (12px) + folga: se todos os rótulos cabem lado a lado, fica na vertical.
+  if (labels.length * (longest * 6.4 + 10) <= plotInnerWidth) return false
+  return longest > 9 || labels.length > 40
+}
+
+/** Margem esquerda das barras horizontais: cabe o maior rótulo (limitada), para não truncar nomes comuns. */
+export function horizontalBarLeftMargin(labels: string[]): number {
+  const longest = Math.max(0, ...labels.map((label) => label.length))
+  return Math.min(160, Math.max(56, Math.round(longest * 6.4 + 16)))
 }
 const PLOT_CLASS = "h-[260px] w-full"
 
-function Legend({ spec }: { spec: ChartSpec }) {
+function Legend({ spec, onHover }: { spec: ChartSpec; onHover?: (index: number | null) => void }) {
   if (spec.series.length < 2) return null
   return (
     <ul
@@ -195,13 +226,66 @@ function Legend({ spec }: { spec: ChartSpec }) {
       data-slot="chart-legend"
     >
       {spec.series.map((item, index) => (
-        <li className="flex min-w-0 items-center gap-1.5" key={item.key}>
+        <li
+          className="flex min-w-0 items-center gap-1.5"
+          key={item.key}
+          onMouseEnter={() => onHover?.(index)}
+          onMouseLeave={() => onHover?.(null)}
+        >
           <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: seriesColor(index) }} />
           <span className="truncate">{item.label}</span>
         </li>
       ))}
     </ul>
   )
+}
+
+/** Faixa/meta do spec desenhada atrás das séries (eixo Y). */
+function ReferenceLayer({ spec }: { spec: ChartSpec }) {
+  const reference = spec.reference
+  if (!reference) return null
+  return (
+    <ReferenceArea
+      fillOpacity={0.5}
+      showMarkers={false}
+      stroke="var(--chart-foreground-muted)"
+      strokeStyle="dashed"
+      // O ReferenceArea estende o limite ausente: y1 omitido vai até o topo, y2 omitido vai até a base.
+      y1={reference.to === undefined ? undefined : reference.from === undefined ? reference.to : reference.from}
+      y2={reference.to === undefined ? reference.from : reference.from === undefined ? undefined : reference.to}
+    />
+  )
+}
+
+/** Texto da legenda da meta/faixa, com os valores no formato do gráfico. */
+export function describeReference(spec: ChartSpec): string | null {
+  const reference = spec.reference
+  if (!reference) return null
+  const format = makeValueFormatter(spec)
+  const range =
+    reference.from !== undefined && reference.to !== undefined
+      ? `${format(reference.from)} – ${format(reference.to)}`
+      : reference.from !== undefined
+        ? `a partir de ${format(reference.from)}`
+        : `até ${format(reference.to!)}`
+  return reference.label ? `${reference.label} (${range})` : range
+}
+
+function ReferenceCaption({ spec }: { spec: ChartSpec }) {
+  const text = describeReference(spec)
+  if (!text) return null
+  return (
+    <p className="mt-1 flex items-center gap-1.5 px-1 text-muted-foreground text-xs" data-slot="chart-reference">
+      <span className="h-2.5 w-4 shrink-0 rounded-[2px] border border-chart-foreground-muted border-dashed bg-chart-foreground-muted/20" />
+      <span className="truncate">{text}</span>
+    </p>
+  )
+}
+
+type SeriesKind = "bar" | "line" | "area"
+function seriesKindOf(spec: ChartSpec, index: number): SeriesKind {
+  if (spec.type === "composed") return spec.series[index]?.kind ?? (index === 0 ? "bar" : "line")
+  return spec.type === "area" ? "area" : "line"
 }
 
 function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
@@ -213,13 +297,19 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
     () => makeValueFormatter(spec, { axis: true, max: spec.type === "area" && spec.stacked ? stackedMax(spec) : maxAbs(spec) }),
     [spec]
   )
-  const margin = React.useMemo(() => chartMargin(axisFormat, spec.type === "area" && spec.stacked ? stackedMax(spec) : maxAbs(spec)), [axisFormat, spec])
+  const margin = React.useMemo(() => {
+    const base = chartMargin(axisFormat, spec.type === "area" && spec.stacked ? stackedMax(spec) : maxAbs(spec))
+    if (spec.xKind === "date") return base
+    // O último nome de categoria é centrado no último ponto e passaria da borda: reserva metade da largura dele.
+    const lastLabel = String(spec.data[spec.data.length - 1]?.[spec.x] ?? "")
+    return { ...base, right: Math.max(base.right, Math.round(lastLabel.length * 3.3) + 8) }
+  }, [axisFormat, spec])
   const formatX = React.useCallback(
     (date: Date) => {
       const category = categoryByTime.get(date.getTime())
       if (category !== undefined) return category
       const index = rows.findIndex((row) => row.__date.getTime() === date.getTime())
-      return labels.axis(String(spec.data[index]?.[spec.x] ?? ""))
+      return index < 0 ? labels.axisDate(date) : labels.axis(String(spec.data[index]?.[spec.x] ?? ""))
     },
     [categoryByTime, labels, rows, spec]
   )
@@ -242,7 +332,26 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
     },
     [labels, spec, tooltipFormat]
   )
-  const Chart = spec.type === "area" ? AreaChart : LineChart
+  const Chart = spec.type === "area" ? AreaChart : spec.type === "composed" ? ComposedChart : LineChart
+  const projection = React.useMemo(
+    () =>
+      spec.forecast
+        ? buildProjectionPath({
+            sourceData: rows,
+            seriesKey: spec.series[0]!.key,
+            xDataKey: "__date",
+            mode: "auto",
+            autoMethod: "linearRegression",
+            pathDensity: "endpoints",
+            horizonPoints: spec.forecast.points,
+          })
+        : [],
+    [rows, spec]
+  )
+  // Áreas atrás, barras no meio, linhas por cima (ordem de empilhamento do gráfico composto).
+  const layers = (["area", "bar", "line"] as const).flatMap((kind) =>
+    spec.series.flatMap((item, index) => (seriesKindOf(spec, index) === kind ? [{ item, index, kind }] : []))
+  )
 
   return (
     <XLabelFormatContext.Provider value={formatX}>
@@ -251,11 +360,13 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
         className={PLOT_CLASS}
         data={rows}
         margin={margin}
+        {...(spec.type === "composed" ? { maxBarSize: 28 } : {})}
         xDataKey="__date"
       >
         <Grid horizontal />
-        {spec.series.map((item, index) =>
-          spec.type === "area" ? (
+        <ReferenceLayer spec={spec} />
+        {layers.map(({ item, index, kind }) =>
+          kind === "area" ? (
             <Area
               curve={curveMonotoneX}
               dataKey={item.key}
@@ -265,6 +376,8 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
               stroke={seriesColor(index)}
               strokeWidth={2}
             />
+          ) : kind === "bar" ? (
+            <SeriesBar dataKey={item.key} fill={seriesColor(index)} key={item.key} radius={3} />
           ) : (
             <Line
               curve={curveMonotoneX}
@@ -276,9 +389,10 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
             />
           )
         )}
-        <YAxis formatValue={axisFormat} />
-        <XAxis numTicks={labelBudget(plotWidth, margin, 6)} />
-        <ChartTooltip content={tooltipContent} />
+        {projection.length > 1 ? <ProjectionLine data={projection} stroke={seriesColor(0)} /> : null}
+        <YAxis formatValue={axisFormat} labelPadding={spec.type === "composed" ? 18 : 8} />
+        <XAxis numTicks={labelBudget(plotWidth, margin, 6, 96)} />
+        <ChartTooltip content={tooltipContent} showCrosshair={spec.type !== "composed"} />
       </Chart>
     </XLabelFormatContext.Provider>
   )
@@ -322,8 +436,9 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
     [labels, spec, tooltipFormat]
   )
 
-  // Largura que não comporta todos os rótulos: barras horizontais, categorias à esquerda (truncadas; o tooltip traz o nome inteiro).
-  const horizontal = labelBudget(plotWidth, margin, 12) < spec.data.length
+  // Rótulos que não cabem: nomes longos viram barras horizontais (categorias à esquerda); datas e nomes curtos ficam na vertical com rótulos afinados.
+  const categoryLabels = React.useMemo(() => data.map((row) => String(row.__label)), [data])
+  const horizontal = shouldUseHorizontalBars(categoryLabels, plotWidth - margin.left - margin.right)
   const rowHeight = Math.max(260, spec.data.length * (spec.series.length > 1 ? 14 * spec.series.length + 14 : 34) + 24)
   return (
     <div style={horizontal ? { height: rowHeight } : undefined}>
@@ -332,41 +447,46 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
       barGap={spec.data.length > 24 ? 0.1 : 0.25}
       className={horizontal ? "h-full w-full" : PLOT_CLASS}
       data={data}
-      margin={horizontal ? { top: 8, right: 16, bottom: 16, left: 84 } : margin}
+      margin={horizontal ? { top: 8, right: 56, bottom: 16, left: horizontalBarLeftMargin(categoryLabels) } : margin}
       orientation={horizontal ? "horizontal" : "vertical"}
       stacked={spec.stacked === true}
       xDataKey="__label"
     >
       <Grid horizontal={!horizontal} vertical={horizontal} />
+      {horizontal ? null : <ReferenceLayer spec={spec} />}
       {spec.series.map((item, index) => (
         <Bar
           dataKey={item.key}
           fill={seriesColor(index)}
           key={item.key}
           lineCap={spec.data.length > 24 ? 0 : 3}
+          {...(horizontal && spec.series.length === 1 ? { showValue: true, valueLabelFormatter: axisFormat, valueLabelPosition: "top" as const } : {})}
         />
       ))}
       {horizontal ? <BarYAxis maxLabels={40} /> : <YAxis formatValue={axisFormat} />}
-      {horizontal ? null : <BarXAxis maxLabels={labelBudget(plotWidth, margin, 12)} />}
+      {horizontal ? null : <BarXAxis maxLabels={labelBudget(plotWidth, margin, 12, 62)} />}
       <ChartTooltip content={tooltipContent} />
     </BarChart>
     </div>
   )
 }
 
-function PieCenterText({ format, label }: { format: ValueFormatter; label: string }) {
+function PieCenterText({ format, compact, label }: { format: ValueFormatter; compact: ValueFormatter; label: string }) {
   const { data, totalValue, innerRadius } = usePieStable()
   const { hoveredIndex } = usePieHover()
   if (innerRadius <= 0) return null
   const hovered = hoveredIndex === null ? null : data[hoveredIndex]
   const size = innerRadius * 2 - 16
+  const full = format(hovered ? hovered.value : totalValue)
+  // Total comprido não cabe no miolo da rosca: usa a forma compacta ("R$ 490,5 mil").
+  const text = full.length > 10 ? compact(hovered ? hovered.value : totalValue) : full
   return (
     <div
       className="pointer-events-none absolute inset-0 m-auto flex flex-col items-center justify-center text-center"
       style={{ width: size, height: size }}
     >
       <span className="max-w-full truncate font-medium text-foreground text-lg tabular-nums leading-tight">
-        {format(hovered ? hovered.value : totalValue)}
+        {text}
       </span>
       <span className="max-w-full truncate text-muted-foreground text-xs">
         {hovered ? hovered.label : label}
@@ -374,6 +494,9 @@ function PieCenterText({ format, label }: { format: ValueFormatter; label: strin
     </div>
   )
 }
+
+// O PieChart só leva para a camada HTML (fora do <svg>) o filho chamado "PieCenter".
+PieCenterText.displayName = "PieCenter"
 
 function PiePlot({ spec }: { spec: ChartSpec }) {
   const valueKey = spec.series[0]!.key
@@ -386,8 +509,10 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
     [spec, valueKey]
   )
   const format = React.useMemo(() => makeValueFormatter(spec), [spec])
+  const compactFormat = React.useMemo(() => makeValueFormatter({ ...spec, format: "compact" }), [spec])
   const total = slices.reduce((sum, slice) => sum + slice.value, 0)
   const percent = React.useMemo(() => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }), [])
+  const valueIsPercent = spec.unit === "%" || spec.format === "percent"
 
   return (
     <div className="flex min-w-0 flex-col items-center gap-4 py-2 sm:flex-row sm:justify-center sm:gap-8">
@@ -395,7 +520,7 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
         {slices.map((slice, index) => (
           <PieSlice index={index} key={slice.label + index} showGlow={false} />
         ))}
-        <PieCenterText format={format} label={spec.series[0]!.label} />
+        <PieCenterText compact={compactFormat} format={format} label={spec.series[0]!.label} />
       </PieChart>
       <ul className="w-full min-w-0 max-w-xs space-y-1.5 text-xs" data-slot="chart-legend">
         {slices.map((slice, index) => (
@@ -403,12 +528,102 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
             <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: slice.color }} />
             <span className="min-w-0 flex-1 truncate text-muted-foreground">{slice.label}</span>
             <span className="shrink-0 text-foreground tabular-nums">{format(slice.value)}</span>
-            <span className="w-12 shrink-0 text-right text-muted-foreground tabular-nums">
-              {percent.format((slice.value / total) * 100)}%
-            </span>
+            {valueIsPercent ? null : (
+              <span className="w-12 shrink-0 text-right text-muted-foreground tabular-nums">
+                {percent.format((slice.value / total) * 100)}%
+              </span>
+            )}
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+/** Radar: eixos = linhas do spec, uma área por série; escala relativa ao maior valor (a legenda informa). */
+function RadarPlot({ spec }: { spec: ChartSpec }) {
+  const format = React.useMemo(() => makeValueFormatter(spec), [spec])
+  const peak = Math.max(1e-9, maxAbs(spec))
+  const metrics = React.useMemo(() => spec.data.map((point, index) => ({ key: `m${index}`, label: String(point[spec.x]) })), [spec])
+  const data = React.useMemo(
+    () =>
+      spec.series.map((item, index) => ({
+        label: item.label,
+        color: seriesColor(index),
+        values: Object.fromEntries(
+          spec.data.map((point, metric) => [`m${metric}`, ((typeof point[item.key] === "number" ? (point[item.key] as number) : 0) / peak) * 100])
+        ),
+      })),
+    [peak, spec]
+  )
+  return (
+    <div>
+      <div className="mx-auto h-[330px] w-full max-w-[420px]">
+        <RadarChart data={data} levels={4} margin={60} metrics={metrics} size={330}>
+          <RadarGrid showLabels={false} />
+          <RadarAxis />
+          <RadarLabels fontSize={11} />
+          {data.map((item, index) => (
+            <RadarArea index={index} key={item.label + index} />
+          ))}
+        </RadarChart>
+      </div>
+      <p className="mt-1 px-1 text-center text-muted-foreground text-xs">Escala relativa ao maior valor ({format(peak)})</p>
+    </div>
+  )
+}
+
+/** Funil: cada linha é uma etapa (primeira = 100%); vertical em largura estreita. */
+function FunnelPlot({ spec }: { spec: ChartSpec }) {
+  const plotWidth = React.useContext(PlotWidthContext)
+  const format = React.useMemo(() => makeValueFormatter(spec), [spec])
+  const valueKey = spec.series[0]!.key
+  const stages = React.useMemo(
+    () =>
+      spec.data.map((point) => {
+        const value = typeof point[valueKey] === "number" ? (point[valueKey] as number) : 0
+        return { label: String(point[spec.x]), value, displayValue: format(value) }
+      }),
+    [format, spec, valueKey]
+  )
+  const vertical = plotWidth < 520 || stages.length > 6
+  return (
+    <div className="px-3" style={{ height: vertical ? Math.max(320, stages.length * 112) : 240 }}>
+      <FunnelChart
+        color="var(--chart-1)"
+        data={stages}
+        formatPercentage={(pct) => `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 }).format(pct)}%`}
+        formatValue={format}
+        orientation={vertical ? "vertical" : "horizontal"}
+      />
+    </div>
+  )
+}
+
+function gaugeFormat(spec: ChartSpec): { formatOptions?: { style: "currency"; currency: string; maximumFractionDigits: number }; suffix?: string } {
+  const unit = spec.unit?.toUpperCase()
+  if (unit && CURRENCY[unit]) return { formatOptions: { style: "currency", currency: CURRENCY[unit]!, maximumFractionDigits: 0 } }
+  if (spec.unit) return { suffix: spec.unit === "%" ? "%" : ` ${spec.unit}` }
+  return {}
+}
+
+/** Medidor: uma linha; preenche valor / max (padrão 100) e mostra o valor no centro. */
+function GaugePlot({ spec }: { spec: ChartSpec }) {
+  const item = spec.series[0]!
+  const raw = spec.data[0]?.[item.key]
+  const value = typeof raw === "number" ? raw : 0
+  const max = spec.max ?? 100
+  const { formatOptions, suffix } = gaugeFormat(spec)
+  return (
+    <div className="mx-auto flex w-full max-w-[340px] justify-center py-2">
+      <Gauge
+        centerValue={value}
+        defaultLabel={item.label}
+        formatOptions={formatOptions}
+        inactiveFillOpacity={0.4}
+        suffix={suffix}
+        value={Math.min(100, Math.max(0, (value / max) * 100))}
+      />
     </div>
   )
 }
@@ -424,19 +639,31 @@ function ChartView({ spec }: { spec: ChartSpec }) {
     observer.observe(node)
     return () => observer.disconnect()
   }, [])
+  const palette = React.useMemo(() => resolveChartPalette(spec.palette, spec.colors), [spec.palette, spec.colors])
+  const [legendHover, setLegendHover] = React.useState<number | null>(null)
   return (
+    <ChartLegendHoverProvider hoveredIndex={legendHover} onHoverChange={setLegendHover}>
     <PlotWidthContext.Provider value={width}>
-    <div data-slot="chart-view" data-chart-type={spec.type} ref={ref}>
+    <div data-chart-palette={palette?.scope} data-slot="chart-view" data-chart-type={spec.type} ref={ref}>
+      {palette ? <style>{chartPaletteCss(palette)}</style> : null}
       {spec.type === "pie" ? (
         <PiePlot spec={spec} />
       ) : spec.type === "bar" ? (
         <BarPlot spec={spec} />
+      ) : spec.type === "radar" ? (
+        <RadarPlot spec={spec} />
+      ) : spec.type === "funnel" ? (
+        <FunnelPlot spec={spec} />
+      ) : spec.type === "gauge" ? (
+        <GaugePlot spec={spec} />
       ) : (
         <TimeSeriesPlot spec={spec} />
       )}
-      {spec.type === "pie" ? null : <Legend spec={spec} />}
+      <ReferenceCaption spec={spec} />
+      {spec.type === "pie" || spec.type === "funnel" || spec.type === "gauge" ? null : <Legend onHover={setLegendHover} spec={spec} />}
     </div>
     </PlotWidthContext.Provider>
+    </ChartLegendHoverProvider>
   )
 }
 

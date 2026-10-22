@@ -63,9 +63,13 @@ export function resolveLazyChartChild(child: ReactElement): ReactElement {
   ) {
     return child;
   }
+  // Only forward a real key: `createElement` stringifies any non-undefined
+  // key, so `key: null` would become the literal key "null" on every
+  // unkeyed child (duplicate-key warnings, and it defeats the index fallback
+  // in `renderKeyedChartLayers`).
   return createElement(resolved as Parameters<typeof createElement>[0], {
     ...(child.props as object),
-    key: child.key,
+    ...(child.key == null ? {} : { key: child.key }),
   });
 }
 
@@ -114,7 +118,12 @@ const CLIP_EXCLUDED_COMPONENT_NAMES = new Set([
   "LiveYAxis",
 ]);
 
-const UNDERLAY_COMPONENT_NAMES = new Set(["ReferenceArea", "BarColumnTrack"]);
+const UNDERLAY_COMPONENT_NAMES = new Set([
+  "ReferenceArea",
+  "BarColumnTrack",
+  "Weekends",
+  "Deadline",
+]);
 
 /** Markers render after the interaction overlay so they stay clickable. */
 export function isPostOverlayComponent(child: ReactElement): boolean {

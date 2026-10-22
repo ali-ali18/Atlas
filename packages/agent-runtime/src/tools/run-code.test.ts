@@ -191,7 +191,7 @@ describe("run_code: gráficos nativos (*.chart.json)", () => {
 	});
 
 	it("spec inválido não vira gráfico nem arquivo: o motivo volta ao modelo", async () => {
-		const { deps, ctx, files } = setup({ outputs: [{ name: "ruim.chart.json", bytes: bytes('{"type":"radar"}') }, { name: "quebrado.chart.json", bytes: bytes("{") }] });
+		const { deps, ctx, files } = setup({ outputs: [{ name: "ruim.chart.json", bytes: bytes('{"type":"scatter"}') }, { name: "quebrado.chart.json", bytes: bytes("{") }] });
 		const { summary, chartEvents } = await executeRunCode({ code: "x" }, ctx, deps);
 		expect(chartEvents).toHaveLength(0);
 		expect(files).toHaveLength(0);
@@ -212,6 +212,8 @@ describe("run_code: gráficos nativos (*.chart.json)", () => {
 		expect(description).toMatch(/PREFER a native chart spec/);
 		expect(description).toMatch(/\.chart\.json/);
 		expect(description).toMatch(/only for charts the spec cannot express/);
+		expect(description).toMatch(/radar.*funnel.*gauge.*composed/);
+		expect(description).toMatch(/"reference".*"forecast".*"palette"/);
 	});
 });
 
