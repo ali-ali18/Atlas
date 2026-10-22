@@ -178,6 +178,9 @@ function conversationCardToMessage(
 	if (card.kind === "task-list") return { id, kind: "task-list", runId: card.runId, items: card.items };
 	if (card.kind === "compaction") return { id, kind: "compaction", before: card.before, after: card.after, summary: card.summary, ...(card.focus ? { focus: card.focus } : {}) };
 	if (card.kind === "chart") return { id, kind: "chart", chartId: card.chartId, spec: card.spec, ...(card.filename ? { filename: card.filename } : {}) };
+	if (card.kind === "page") {
+		return { id, kind: "page", pageId: card.pageId, revision: card.revision, title: card.title, action: card.action, sourceCount: card.sourceCount, ...(card.spec ? { spec: card.spec } : {}) };
+	}
 	if (card.kind === "file") {
 		return {
 			id,

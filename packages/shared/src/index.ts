@@ -313,6 +313,7 @@ export {
 	type PersistedFileCard,
 	type PersistedCodeRunCard,
 	type PersistedChartCard,
+	type PersistedPageCard,
 	CODE_RUN_CARD_CODE_MAX,
 	CODE_RUN_CARD_OUTPUT_MAX,
 	type PersistedQuestionnaireCard,
@@ -833,6 +834,7 @@ export {
 	type ChartSpecParse,
 	type ChartType,
 } from "./chart-spec.js";
+export * from "./page-spec.js";
 export * from "./model-tiers.js";
 
 export * from "./maintenance-status.js";

@@ -1,4 +1,5 @@
 import { parseChartSpec, type ChartSpec } from "./chart-spec.js";
+import { parsePageSpec, type PageSpec } from "./page-spec.js";
 import { parseDevApprovalInfo, type DevApprovalCardInfo } from "./dev-command-approval.js";
 import { parseEmailKeyRequestInfo, type EmailKeyRequestInfo } from "./email.js";
 import { parseSecretsRequestInfo, type SecretsRequestInfo } from "./dev-env-auto.js";
@@ -37,6 +38,7 @@ export type ConversationCardRole =
 	| "images"
 	| "code-run"
 	| "chart"
+	| "page"
 	| "task-list"
 	| "compaction";
 
@@ -303,10 +305,24 @@ export type PersistedChartCard = {
 	runId?: string;
 };
 
+/** Página viva (relatório/painel) desenhada inline no chat; atualizada no lugar (mesmo `pageId`, `revision` maior). */
+export type PersistedPageCard = {
+	v: 1;
+	kind: "page";
+	pageId: string;
+	revision: number;
+	title: string;
+	action: "created" | "updated";
+	/** Snapshot da revisão; a UI revalida pelo servidor se houver uma mais nova. */
+	spec?: PageSpec;
+	sourceCount: number;
+};
+
 export type PersistedConversationCard =
 	| PersistedCompactionCard
 	| PersistedCodeRunCard
 	| PersistedChartCard
+	| PersistedPageCard
 	| PersistedTaskListCard
 	| PersistedSkillCard
 	| PersistedConfirmCard
@@ -699,6 +715,25 @@ export function parseConversationCard(content: string): PersistedConversationCar
 			...(asOptionalString(row.runId) ? { runId: asOptionalString(row.runId) } : {}),
 		};
 	}
+	if (row.kind === "page") {
+		const pageId = asOptionalString(row.pageId);
+		const title = asOptionalString(row.title);
+		const revision = asOptionalNumber(row.revision);
+		if (!pageId || !title || revision === undefined || !Number.isInteger(revision) || revision < 1) return null;
+		const parsed = row.spec === undefined ? undefined : parsePageSpec(row.spec);
+		if (parsed && !parsed.ok) return null;
+		const sourceCount = asOptionalNumber(row.sourceCount);
+		return {
+			v: 1,
+			kind: "page",
+			pageId: pageId.slice(0, 160),
+			revision,
+			title: title.slice(0, 120),
+			action: row.action === "updated" ? "updated" : "created",
+			...(parsed ? { spec: parsed.spec } : {}),
+			sourceCount: sourceCount !== undefined && sourceCount > 0 ? Math.min(Math.round(sourceCount), 20) : 0,
+		};
+	}
 	if (row.kind === "questionnaire") {
 		if (typeof row.questionnaireId !== "string" || row.questionnaireId.trim().length === 0) return null;
 		if (typeof row.title !== "string" || row.title.trim().length === 0) return null;
@@ -846,6 +881,7 @@ export function insertCardAfterCurrentTurn<T extends { kind: string }>(
 			messages[insertAt]?.kind === "file" ||
 			messages[insertAt]?.kind === "code-run" ||
 			messages[insertAt]?.kind === "chart" ||
+			messages[insertAt]?.kind === "page" ||
 			messages[insertAt]?.kind === "task-list" ||
 			messages[insertAt]?.kind === "compaction" ||
 			messages[insertAt]?.kind === "routine" ||
