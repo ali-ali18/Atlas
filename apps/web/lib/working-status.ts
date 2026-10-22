@@ -2,7 +2,14 @@ export type AgentActivity =
 	| { phase: "idle" }
 	| { phase: "thinking" }
 	| { phase: "writing" }
+	/** O rascunho foi retirado e a resposta está sendo refeita. */
+	| { phase: "revising" }
 	| { phase: "tool"; tool: string; step?: number; maxSteps?: number; /** Alvo da chamada (arquivo, comando), curto. */ detail?: string };
+
+/** Fase do indicador quando chega texto (`writing`) ou quando o rascunho é retirado (`revising`). */
+export function activityForAssistantEvent(type: "assistant_delta" | "assistant_discard"): AgentActivity {
+	return type === "assistant_discard" ? { phase: "revising" } : { phase: "writing" };
+}
 
 export function statusForTool(tool: string): string {
 	switch (tool) {
@@ -63,6 +70,8 @@ export function workingStatusLabel(
 			}
 			return base;
 		}
+		case "revising":
+			return "Revisando a resposta…";
 		case "thinking":
 			return `${agentName} está trabalhando`;
 		default:

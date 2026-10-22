@@ -7857,7 +7857,8 @@ ${blockHint}`;
 					}
 				}
 				// F11: confere o rascunho contra as evidências; no máximo UMA revisão.
-				if (!jevVerifyDone && !isSubagent && toolOutcomes.some((outcome) => outcome.ok)) {
+				// Só vale tool usada NESTE turno: os outcomes semeados do histórico são de turnos anteriores.
+				if (!jevVerifyDone && !isSubagent && toolOutcomes.slice(seededOutcomeCount).some((outcome) => outcome.ok)) {
 					jevVerifyDone = true;
 					const issues = await verifyDraftAnswer({
 						rt: params.jev,

@@ -38,7 +38,7 @@ import {
 	decideStreamFailure,
 	runFollowBackoffMs,
 } from "@workspace/shared";
-import type { AgentActivity } from "@/lib/working-status";
+import { activityForAssistantEvent, type AgentActivity } from "@/lib/working-status";
 import { jevStatusText } from "@/lib/jev-status";
 import { dedupeCards, reconcilePersistedThread } from "@/lib/thread-merge";
 import { isMemoryUpdateResult, memoryChipId } from "@/lib/memory-chip";
@@ -620,7 +620,7 @@ export function createComputerHandlers(params: {
 		onDelta: (id, delta) => {
 			params.onActivity?.();
 			params.onStreamingMessage?.(id);
-			params.onAgentActivity?.({ phase: "writing" });
+			params.onAgentActivity?.(activityForAssistantEvent("assistant_delta"));
 			params.setMessages((previous) =>
 				applyLiveEvent(previous, { type: "assistant_delta", id, delta }, liveState),
 			);
@@ -628,7 +628,8 @@ export function createComputerHandlers(params: {
 		onDiscard: () => {
 			params.onActivity?.();
 			params.onStreamingMessage?.(null);
-			params.onAgentActivity?.({ phase: "thinking" });
+			// Sem balão e sem texto descartado: o indicador avisa que a resposta está sendo revisada.
+			params.onAgentActivity?.(activityForAssistantEvent("assistant_discard"));
 			params.setMessages((previous) =>
 				applyLiveEvent(previous, { type: "assistant_discard" }, liveState),
 			);

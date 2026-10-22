@@ -56,3 +56,8 @@ test("linha ao vivo: segredos do comando (running e tool) são redigidos antes d
 	assert.ok(!tool.includes(token), tool);
 	assert.ok(!(devCurrentStep(view) ?? "").includes(token));
 });
+
+test("fase 'revising' mostra que a resposta está sendo revisada", () => {
+	const view = viewWith([running]);
+	assert.equal(devLiveLine({ view, activity: { phase: "revising" }, now: NOW }), "Revisando a resposta…");
+});
