@@ -8,12 +8,14 @@ import {
 	focusNoVncKeyboard,
 	SandboxViewerDialog,
 	viewerSessionId,
+	viewerUrlIdentity,
 } from "./sandbox-viewer-dialog";
 
-const render = (onFinish?: () => void) =>
+const render = (onFinish?: () => void, desktop = false) =>
 	renderToStaticMarkup(
 		<SandboxViewerDialog
 			botName="Atlas"
+			desktop={desktop}
 			onClose={() => undefined}
 			onFinish={onFinish}
 			onReload={() => undefined}
@@ -67,18 +69,39 @@ test("o cursor do agente aparece sobre a tela ao vivo, sem capturar cliques", ()
 	assert.match(html, /pointer-events-none absolute inset-0/);
 });
 
-test("celular: voltar, bot, recarregar e Terminei no cabeçalho; colar e teclado flutuantes, sem zoom", () => {
-	const html = render(() => undefined);
-	assert.match(html, /aria-label="Abrir o teclado"/);
-	assert.match(html, /aria-label="Colar texto na VM"/);
-	assert.match(html, /aria-label="Recarregar tela do sandbox"/);
-	assert.match(html, /h-dvh w-dvw/);
-	assert.match(html, /aspect-video/);
-	assert.match(html, /left-4/);
-	assert.match(html, /right-4/);
-	assert.doesNotMatch(html, /Ampliar a tela|Mover a tela|Zoom/);
-	// "Terminei" fica antes da área da VM (iframe), não por cima dela.
-	assert.ok(html.indexOf("Terminei") < html.indexOf("<iframe"));
+test("sem barra preta: só botões sobrepostos nos cantos, que não cobrem a VM", () => {
+	for (const html of [render(() => undefined, false), render(() => undefined, true)]) {
+		assert.doesNotMatch(html, /h-14|bg-zinc-950 px-2|shrink-0 items-center gap-2 bg-black/);
+		assert.match(html, /aria-label="Recarregar tela do sandbox"/);
+		assert.match(html, /absolute z-10[^"]*left-2/);
+		assert.match(html, /absolute z-10[^"]*right-2/);
+		assert.match(html, /bg-black\/40/);
+		// Terminei continua disponível, sobreposto.
+		assert.match(html, />Terminei<\/button>/);
+	}
+});
+
+test("teclado e colar existem só no celular", () => {
+	const mobile = render(undefined, false);
+	assert.match(mobile, /aria-label="Abrir o teclado"/);
+	assert.match(mobile, /aria-label="Colar texto na VM"/);
+	assert.match(mobile, /h-dvh w-dvw/);
+	assert.match(mobile, /aspect-video/);
+	assert.doesNotMatch(mobile, /Ampliar a tela|Mover a tela|Zoom/);
+	const desktop = render(undefined, true);
+	assert.doesNotMatch(desktop, /aria-label="Abrir o teclado"/);
+	assert.doesNotMatch(desktop, /aria-label="Colar texto na VM"/);
+});
+
+test("viewerUrlIdentity ignora o token efêmero (evita recarregar o iframe a cada poll)", () => {
+	const base = "/v1/sandbox/sessions/s1/viewer/vnc.html?autoconnect=1&reconnect=true&resize=scale&path=";
+	const url = (token: string) =>
+		base + encodeURIComponent(`/v1/sandbox/sessions/s1/viewer/websockify?t=${token}`);
+	assert.notEqual(url("aaa.bbb"), url("ccc.ddd"));
+	assert.equal(viewerUrlIdentity(url("aaa.bbb")), viewerUrlIdentity(url("ccc.ddd")));
+	const other = url("x.y").replace("/s1/", "/s2/");
+	assert.notEqual(viewerUrlIdentity(url("aaa.bbb")), viewerUrlIdentity(other));
+	assert.equal(viewerUrlIdentity("http://localhost:6080/vnc.html?a=1"), "/vnc.html?a=1");
 });
 
 test("viewerSessionId lê o id da sessão da URL em modo proxy", () => {

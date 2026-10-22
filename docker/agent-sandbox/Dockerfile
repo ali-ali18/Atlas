@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	websockify \
 	wmctrl \
 	x11vnc \
+	x11-xserver-utils \
 	xclip \
 	xdotool \
 	xfce4-settings \

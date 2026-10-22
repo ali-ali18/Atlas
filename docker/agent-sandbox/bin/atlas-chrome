@@ -20,6 +20,9 @@ fi
 # Sem Chrome nosso rodando (checado acima), esses arquivos são lixo.
 rm -f -- "${USER_DATA_DIR}/SingletonLock" "${USER_DATA_DIR}/SingletonSocket" "${USER_DATA_DIR}/SingletonCookie"
 
+# --no-sandbox é obrigatório no container (root, sem userns); --test-type
+# esconde a infobar "unsupported command-line flag: --no-sandbox" (o
+# --disable-infobars foi removido do Chrome moderno e não faz mais nada).
 exec "$CHROME_BIN" \
 	--no-first-run \
 	--no-default-browser-check \

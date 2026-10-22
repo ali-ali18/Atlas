@@ -189,6 +189,9 @@ export function createViewerUpgradeHandler(deps: ViewerUpgradeDeps) {
 			upstream.once(target.tls ? "secureConnect" : "connect", () => {
 				console.log(`[sandbox-viewer] websocket conectado à VM ${target.host}:${target.port}`);
 				connected = true;
+				// Keepalive TCP nos dois lados: tela parada não trafega bytes e NAT/proxy derrubam o socket ocioso.
+				(socket as net.Socket).setKeepAlive?.(true, 20_000);
+				upstream.setKeepAlive(true, 20_000);
 				upstream.setTimeout(0);
 				upstream.write(`${lines.join("\r\n")}\r\n\r\n`);
 				if (head.length > 0) upstream.write(head);

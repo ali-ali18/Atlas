@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-	ArrowLeftIcon,
 	ClipboardPasteIcon,
 	KeyboardIcon,
 	Minimize2Icon,
@@ -42,42 +41,84 @@ export function focusNoVncKeyboard(iframe: HTMLIFrameElement | null): boolean {
 	}
 }
 
-const toolbarButton = `grid size-10 shrink-0 place-items-center rounded-full border border-white/15 bg-white/10 text-white transition-colors hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white aria-pressed:bg-white/30 [@media(min-width:640px)_and_(min-height:520px)]:size-9 [@media(min-width:640px)_and_(min-height:520px)]:rounded-md`;
-const floatingButton = `absolute bottom-[max(1rem,env(safe-area-inset-bottom))] z-10 grid size-12 place-items-center rounded-full border border-white/15 bg-zinc-800/90 text-white shadow-lg backdrop-blur transition-colors hover:bg-zinc-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white aria-pressed:bg-zinc-600 [@media(min-width:640px)_and_(min-height:520px)]:hidden`;
+const DESKTOP_QUERY = "(min-width: 640px) and (min-height: 520px)";
+
+/** Desktop = cartão 16:9; abaixo disso (celular) é tela cheia com teclado e colar. */
+function readDesktop(): boolean {
+	return typeof window !== "undefined" && typeof window.matchMedia === "function"
+		? window.matchMedia(DESKTOP_QUERY).matches
+		: false;
+}
+
+/** Acompanha o breakpoint em JS: teclado e colar só EXISTEM no celular. */
+export function useIsDesktopViewer(override?: boolean): boolean {
+	const [desktop, setDesktop] = useState(() => override ?? readDesktop());
+	useEffect(() => {
+		if (override !== undefined || typeof window.matchMedia !== "function") return;
+		const query = window.matchMedia(DESKTOP_QUERY);
+		const update = () => setDesktop(query.matches);
+		update();
+		query.addEventListener("change", update);
+		return () => query.removeEventListener("change", update);
+	}, [override]);
+	return override ?? desktop;
+}
+
+/**
+ * URL do viewer sem o token efêmero (`?t=` dentro de `path=`). Cada consulta à
+ * API assina um token novo; comparar a URL inteira recarregava o iframe (e o
+ * noVNC mostrava "Reconectando") a cada poll de 15 s.
+ */
+export function viewerUrlIdentity(viewerUrl: string): string {
+	try {
+		const url = new URL(viewerUrl, "http://viewer.invalid");
+		const path = url.searchParams.get("path");
+		if (path) url.searchParams.set("path", path.replace(/\?t=[^&]*/, ""));
+		return `${url.pathname}${url.search}`;
+	} catch {
+		return viewerUrl;
+	}
+}
+
+// Botões pequenos e translúcidos sobre os cantos da tela. Cada um é absoluto
+// por conta própria: nenhuma camada cobre a VM e rouba o ponteiro.
+const overlayBase = `absolute z-10 grid place-items-center rounded-full border border-white/15 bg-black/40 text-white/80 opacity-70 backdrop-blur-sm transition hover:bg-black/70 hover:text-white hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white aria-pressed:bg-black/80`;
+const overlayButton = `${overlayBase} size-8`;
+const mobileOverlayButton = `${overlayBase} bottom-[max(0.75rem,env(safe-area-inset-bottom))] size-11`;
+const topInset = "top-[max(0.5rem,env(safe-area-inset-top))] sm:top-2";
 
 /**
  * Tela ao vivo da VM em tela cheia, na mesma página (sem aba nova). Fecha com
  * Esc ou pelo botão; quando aberta por um card de login, "Terminei" fica no
- * cabeçalho (fora da VM) para o usuário concluir sem voltar ao chat.
- * No celular é uma folha preta: cabeçalho com voltar + bot, a VM em 16:9 na
- * largura toda e, embaixo, botões redondos de colar (esquerda) e teclado (direita).
+ * canto da tela. Sem cabeçalho: só botões pequenos e translúcidos sobre os
+ * cantos; teclado e colar existem apenas no celular.
  */
 export function SandboxViewerDialog({
 	agentPointer = null,
 	botName,
 	botColor,
-	botId,
-	botShape,
 	viewerUrl,
 	reloadKey,
 	onClose,
 	onReload,
 	onFinish,
+	desktop: desktopOverride,
 }: {
 	/** Cursor do agente desenhado sobre a tela ao vivo. */
 	agentPointer?: AgentPointerState | null;
 	botName: string;
 	/** Cor do bot (hex), usada no avatar e no cursor do agente. */
 	botColor?: string;
-	botId?: string;
-	botShape?: string;
 	viewerUrl: string;
 	reloadKey: number;
 	onClose: () => void;
 	onReload: () => void;
 	/** Presente quando a VM foi aberta por um card de login/captcha. */
 	onFinish?: () => void;
+	/** Força o layout (testes/preview); por padrão segue o tamanho da janela. */
+	desktop?: boolean;
 }) {
+	const desktop = useIsDesktopViewer(desktopOverride);
 	const iframeRef = useRef<HTMLIFrameElement>(null);
 	const [typingBar, setTypingBar] = useState(false);
 	const [draft, setDraft] = useState("");
@@ -137,7 +178,7 @@ export function SandboxViewerDialog({
 		<div
 			aria-label={`Tela do sandbox de ${botName}`}
 			aria-modal="true"
-			className={`fixed inset-0 z-50 flex items-center justify-center bg-black/80 supports-backdrop-filter:backdrop-blur-sm [@media(min-width:640px)_and_(min-height:520px)]:p-6`}
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 supports-backdrop-filter:backdrop-blur-sm [@media(min-width:640px)_and_(min-height:520px)]:p-6"
 			role="dialog"
 		>
 			<button
@@ -146,76 +187,9 @@ export function SandboxViewerDialog({
 				onClick={onClose}
 				type="button"
 			/>
-			<div
-				className={`relative flex h-dvh w-dvw flex-col overflow-hidden bg-black pb-[env(safe-area-inset-bottom)] [@media(min-width:640px)_and_(min-height:520px)]:h-auto [@media(min-width:640px)_and_(min-height:520px)]:w-[min(94vw,calc((100dvh-7rem)*16/9))] [@media(min-width:640px)_and_(min-height:520px)]:rounded-xl [@media(min-width:640px)_and_(min-height:520px)]:border [@media(min-width:640px)_and_(min-height:520px)]:border-white/10 [@media(min-width:640px)_and_(min-height:520px)]:pb-0`}
-			>
-				<div
-					className={`flex h-14 shrink-0 items-center gap-2 bg-black px-3 pt-[env(safe-area-inset-top)] [@media(min-width:640px)_and_(min-height:520px)]:h-auto [@media(min-width:640px)_and_(min-height:520px)]:bg-zinc-950 [@media(min-width:640px)_and_(min-height:520px)]:px-2 [@media(min-width:640px)_and_(min-height:520px)]:py-1.5 [@media(min-width:640px)_and_(min-height:520px)]:pt-1.5`}
-				>
-					<button
-						aria-label="Fechar tela do sandbox"
-						className={toolbarButton}
-						onClick={onClose}
-						type="button"
-					>
-						<ArrowLeftIcon className={`size-5 [@media(min-width:640px)_and_(min-height:520px)]:hidden`} />
-						<Minimize2Icon className={`hidden size-4 [@media(min-width:640px)_and_(min-height:520px)]:block`} />
-					</button>
-					<span
-						className={`flex min-w-0 items-center gap-2 font-medium text-sm text-white [@media(min-width:640px)_and_(min-height:520px)]:hidden`}
-					>
-						<AgentAvatar
-							animated={false}
-							bodyColor={botColor}
-							id={botId}
-							shape={botShape}
-							size={28}
-						/>
-						<span className="truncate">{botName}</span>
-					</span>
-					<button
-						aria-label="Recarregar tela do sandbox"
-						className={`${toolbarButton} ml-auto [@media(min-width:640px)_and_(min-height:520px)]:ml-0`}
-						onClick={onReload}
-						type="button"
-					>
-						<RotateCwIcon className="size-4" />
-					</button>
-					<button
-						aria-label="Abrir o teclado"
-						aria-pressed={typingBar}
-						className={`${toolbarButton} hidden [@media(min-width:640px)_and_(min-height:520px)]:grid`}
-						onClick={openKeyboard}
-						type="button"
-					>
-						<KeyboardIcon className="size-4" />
-					</button>
-					<button
-						aria-label="Colar texto na VM"
-						className={`${toolbarButton} hidden [@media(min-width:640px)_and_(min-height:520px)]:grid`}
-						onClick={() => void pasteClipboard()}
-						type="button"
-					>
-						<ClipboardPasteIcon className="size-4" />
-					</button>
-					{onFinish ? (
-						<Button
-							aria-label="Terminei o login, continuar a tarefa"
-							className={`rounded-full [@media(min-width:640px)_and_(min-height:520px)]:ml-auto [@media(min-width:640px)_and_(min-height:520px)]:rounded-md`}
-							onClick={onFinish}
-							size="sm"
-							type="button"
-						>
-							Terminei
-						</Button>
-					) : null}
-				</div>
-				<div
-					className={`relative flex min-h-0 flex-1 items-center justify-center [@media(min-width:640px)_and_(min-height:520px)]:block [@media(min-width:640px)_and_(min-height:520px)]:flex-none`}
-				>
-					<div
-						className={`relative aspect-video w-[min(100vw,calc((100dvh-3.5rem)*16/9))] [@media(min-width:640px)_and_(min-height:520px)]:w-full`}
-					>
+			<div className="relative flex h-dvh w-dvw flex-col overflow-hidden bg-black pb-[env(safe-area-inset-bottom)] [@media(min-width:640px)_and_(min-height:520px)]:h-auto [@media(min-width:640px)_and_(min-height:520px)]:w-[min(94vw,calc((100dvh-4rem)*16/9))] [@media(min-width:640px)_and_(min-height:520px)]:rounded-xl [@media(min-width:640px)_and_(min-height:520px)]:border [@media(min-width:640px)_and_(min-height:520px)]:border-white/10 [@media(min-width:640px)_and_(min-height:520px)]:pb-0">
+				<div className="relative flex min-h-0 flex-1 items-center justify-center [@media(min-width:640px)_and_(min-height:520px)]:block [@media(min-width:640px)_and_(min-height:520px)]:flex-none">
+					<div className="relative aspect-video w-[min(100vw,calc(100dvh*16/9))] [@media(min-width:640px)_and_(min-height:520px)]:w-full">
 						<iframe
 							allow="clipboard-read; clipboard-write"
 							className="absolute inset-0 h-full w-full bg-black"
@@ -227,24 +201,57 @@ export function SandboxViewerDialog({
 						<AgentPointerOverlay botName={botName} color={botColor} pointer={agentPointer} />
 					</div>
 					<button
-						aria-label="Colar texto na VM"
-						className={`${floatingButton} left-4`}
-						onClick={() => void pasteClipboard()}
+						aria-label="Fechar tela do sandbox"
+						className={`${overlayButton} ${topInset} left-2`}
+						onClick={onClose}
 						type="button"
 					>
-						<ClipboardPasteIcon className="size-5" />
+						<Minimize2Icon className="size-4" />
 					</button>
 					<button
-						aria-label="Abrir o teclado"
-						aria-pressed={typingBar}
-						className={`${floatingButton} right-4`}
-						onClick={openKeyboard}
+						aria-label="Recarregar tela do sandbox"
+						className={`${overlayButton} ${topInset} right-2`}
+						onClick={onReload}
 						type="button"
 					>
-						<KeyboardIcon className="size-5" />
+						<RotateCwIcon className="size-4" />
 					</button>
+					{onFinish ? (
+						<Button
+							aria-label="Terminei o login, continuar a tarefa"
+							className={`absolute right-12 z-10 rounded-full bg-black/50 backdrop-blur-sm ${topInset}`}
+							onClick={onFinish}
+							size="xs"
+							type="button"
+							variant="secondary"
+						>
+							Terminei
+						</Button>
+					) : null}
+					{desktop ? null : (
+						<>
+							<button
+								aria-label="Colar texto na VM"
+								className={`${mobileOverlayButton} left-3`}
+								onClick={() => void pasteClipboard()}
+								type="button"
+							>
+								<ClipboardPasteIcon className="size-5" />
+							</button>
+							<button
+								aria-label="Abrir o teclado"
+								aria-pressed={typingBar}
+								className={`${mobileOverlayButton} right-3`}
+								onClick={openKeyboard}
+								type="button"
+							>
+								<KeyboardIcon className="size-5" />
+							</button>
+						</>
+					)}
 				</div>
-				{typingBar ? (
+
+				{typingBar && !desktop ? (
 					<form
 						className="flex shrink-0 items-center gap-2 bg-zinc-950 px-2 py-2"
 						onSubmit={(event) => {
@@ -283,7 +290,7 @@ export function SandboxViewerDialog({
 						</Button>
 					</form>
 				) : null}
-				{typingBar && sendError ? (
+				{typingBar && !desktop && sendError ? (
 					<p className="shrink-0 bg-zinc-950 px-3 pb-2 text-xs text-red-300" role="alert">
 						{sendError}
 					</p>
