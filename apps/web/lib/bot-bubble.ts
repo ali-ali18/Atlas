@@ -34,31 +34,70 @@ export function contrastRatio(a: number, b: number): number {
 }
 
 const MIN_CONTRAST = 4.5;
+/** |Lc| mínimo do APCA para texto de balão (corpo de texto legível). */
+const MIN_APCA = 60;
+const MAX_STEPS = 40;
 const DARK_TEXT: [number, number, number] = [17, 17, 17];
+const WHITE_TEXT: [number, number, number] = [255, 255, 255];
 
-function toHex(rgb: [number, number, number]): string {
+type Rgb = [number, number, number];
+
+function toHex(rgb: Rgb): string {
 	return `#${rgb.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
 }
 
+/** Luminância APCA (sRGB com gama 2.4 e coeficientes próprios, sem o limiar linear do WCAG). */
+function apcaLuminance([r, g, b]: Rgb): number {
+	return 0.2126729 * (r / 255) ** 2.4 + 0.7151522 * (g / 255) ** 2.4 + 0.072175 * (b / 255) ** 2.4;
+}
+
+/** Suaviza luminâncias muito baixas (blkThrs 0.022, blkClmp 1.414). */
+function softClamp(y: number): number {
+	return y > 0.022 ? y : y + (0.022 - y) ** 1.414;
+}
+
 /**
- * Fundo = cor do bot; texto = branco ou quase-preto, o que tiver mais contraste.
- * Em tons médios (nenhum dos dois chega a 4.5:1) o fundo é escurecido, se o texto
- * é branco, ou clareado, se é escuro, o mínimo para ficar legível.
+ * Contraste APCA (0.0.98G-4g) do texto sobre o fundo, em Lc inteiro com sinal:
+ * positivo = texto escuro em fundo claro; negativo = texto claro em fundo escuro.
+ * O WCAG 2 superestima texto escuro em cores saturadas de brilho médio; o APCA
+ * modela melhor a percepção.
+ */
+export function apcaContrast(textRgb: Rgb, bgRgb: Rgb): number {
+	const text = softClamp(apcaLuminance(textRgb));
+	const bg = softClamp(apcaLuminance(bgRgb));
+	let lc: number;
+	if (bg > text) {
+		lc = (bg ** 0.56 - text ** 0.57) * 1.14;
+		lc = lc < 0.1 ? 0 : lc - 0.027;
+	} else {
+		lc = (bg ** 0.65 - text ** 0.62) * 1.14;
+		lc = lc > -0.1 ? 0 : lc + 0.027;
+	}
+	return Math.round(lc * 100);
+}
+
+/**
+ * Fundo = cor do bot; texto = branco ou quase-preto, o de maior |Lc| no APCA.
+ * Se o par não atinge WCAG >= 4.5:1 e |Lc| >= 60, o fundo é escurecido (texto branco)
+ * ou clareado (texto escuro) o mínimo necessário, em até 40 passos.
  * `null` = cor inválida (o balão mantém o estilo neutro).
  */
 export function bubbleColors(color: string | undefined): { background: string; foreground: string } | null {
 	const rgb = parseHex(color);
 	if (!rgb) return null;
-	const lum = relativeLuminance(rgb);
+	const whiteText = Math.abs(apcaContrast(WHITE_TEXT, rgb)) >= Math.abs(apcaContrast(DARK_TEXT, rgb));
+	const text = whiteText ? WHITE_TEXT : DARK_TEXT;
 	const darkLum = relativeLuminance(DARK_TEXT);
-	const whiteText = contrastRatio(1, lum) >= contrastRatio(lum, darkLum);
+	const readable = (bg: Rgb) => {
+		const lum = relativeLuminance(bg);
+		const wcag = whiteText ? contrastRatio(1, lum) : contrastRatio(lum, darkLum);
+		return wcag >= MIN_CONTRAST && Math.abs(apcaContrast(text, bg)) >= MIN_APCA;
+	};
 	let current = rgb;
-	for (let i = 0; i < 30; i += 1) {
-		const l = relativeLuminance(current);
-		if ((whiteText ? contrastRatio(1, l) : contrastRatio(l, darkLum)) >= MIN_CONTRAST) break;
+	for (let i = 0; i < MAX_STEPS && !readable(current); i += 1) {
 		current = whiteText
-			? [current[0] * 0.95, current[1] * 0.95, current[2] * 0.95]
-			: [current[0] + (255 - current[0]) * 0.08, current[1] + (255 - current[1]) * 0.08, current[2] + (255 - current[2]) * 0.08];
+			? [current[0] * 0.96, current[1] * 0.96, current[2] * 0.96]
+			: [current[0] + (255 - current[0]) * 0.06, current[1] + (255 - current[1]) * 0.06, current[2] + (255 - current[2]) * 0.06];
 	}
 	return { background: toHex(current), foreground: whiteText ? "#ffffff" : "#111111" };
 }
