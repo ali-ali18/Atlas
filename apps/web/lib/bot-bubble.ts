@@ -1,5 +1,3 @@
-import { relativeLuminance } from "@/components/ui/templates/template-4/chat-context-panel/bot-accent";
-
 /** Chave em `policyJson` (sem migração): balão do usuário na cor do bot. Padrão: ligado. */
 const BUBBLE_KEY = "userBubbleBotColor";
 
@@ -27,14 +25,11 @@ function parseHex(color: string | undefined): [number, number, number] | null {
 	return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-/** Razão de contraste WCAG entre duas luminâncias relativas. */
-export function contrastRatio(a: number, b: number): number {
-	const [hi, lo] = a > b ? [a, b] : [b, a];
-	return (hi + 0.05) / (lo + 0.05);
-}
-
-const MIN_CONTRAST = 4.5;
-/** |Lc| mínimo do APCA para texto de balão (corpo de texto legível). */
+/**
+ * |Lc| mínimo do APCA para texto de balão (corpo de texto legível). Só o APCA decide:
+ * o WCAG 2 (4.5:1) obrigaria a escurecer laranja, rosa, azul etc. e o balão perderia
+ * a cor do avatar, mesmo com o texto branco já legível.
+ */
 const MIN_APCA = 60;
 const MAX_STEPS = 40;
 const DARK_TEXT: [number, number, number] = [17, 17, 17];
@@ -78,7 +73,7 @@ export function apcaContrast(textRgb: Rgb, bgRgb: Rgb): number {
 
 /**
  * Fundo = cor do bot; texto = branco ou quase-preto, o de maior |Lc| no APCA.
- * Se o par não atinge WCAG >= 4.5:1 e |Lc| >= 60, o fundo é escurecido (texto branco)
+ * Se o par não atinge |Lc| >= 60, o fundo é escurecido (texto branco)
  * ou clareado (texto escuro) o mínimo necessário, em até 40 passos.
  * `null` = cor inválida (o balão mantém o estilo neutro).
  */
@@ -87,12 +82,7 @@ export function bubbleColors(color: string | undefined): { background: string; f
 	if (!rgb) return null;
 	const whiteText = Math.abs(apcaContrast(WHITE_TEXT, rgb)) >= Math.abs(apcaContrast(DARK_TEXT, rgb));
 	const text = whiteText ? WHITE_TEXT : DARK_TEXT;
-	const darkLum = relativeLuminance(DARK_TEXT);
-	const readable = (bg: Rgb) => {
-		const lum = relativeLuminance(bg);
-		const wcag = whiteText ? contrastRatio(1, lum) : contrastRatio(lum, darkLum);
-		return wcag >= MIN_CONTRAST && Math.abs(apcaContrast(text, bg)) >= MIN_APCA;
-	};
+	const readable = (bg: Rgb) => Math.abs(apcaContrast(text, bg)) >= MIN_APCA;
 	let current = rgb;
 	for (let i = 0; i < MAX_STEPS && !readable(current); i += 1) {
 		current = whiteText
