@@ -48,6 +48,10 @@ a { color: inherit; text-decoration: none; }
 .front blockquote { text-align: justify; }
 .front blockquote p { text-align: justify; line-height: 1.15; }
 .front.cover { page: cover; }
+.front.cover, .front.cover * { font-weight: bold; }
+.zones.four { display: flex; flex-direction: column; justify-content: space-between; }
+.zones.four > div { display: flex; flex-direction: column; justify-content: center; align-self: stretch; }
+.zones.four > .z1 { justify-content: flex-start; } .zones.four > .z4 { justify-content: flex-end; }
 .front.rosto { page: pre; }
 .front.rosto blockquote { margin-left: 8cm; font-size: 12pt; }
 .front.rosto blockquote ~ p { margin-left: 8cm; text-align: left; }
@@ -59,6 +63,9 @@ a { color: inherit; text-decoration: none; }
 .zones > .z3 { align-self: end; }
 section.pre { page: pre; }
 section.tex { page: tex; }
+section.tex.cont h1 { break-before: auto; margin-top: 12pt; }
+section.tex.cont .pb + h1 { break-before: page; }
+.note { margin: 0 0 6pt; } .note p { font-size: 10pt; line-height: 1.15; text-indent: 0; text-align: justify; margin: 0 0 6pt; }
 `;
 }
 
@@ -96,9 +103,9 @@ function clean(html: string): string {
 }
 
 function frontHtml(kind: "cover" | "rosto", markdown: string): string {
-	const [top, middle, bottom] = splitFrontZones(markdown);
-	const zone = (name: string, md: string) => `<div class="${name}">${md ? clean(renderPart(md, true)) : ""}</div>`;
-	return `<div class="front ${kind}"><div class="zones">${zone("z1", top)}${zone("z2", middle)}${zone("z3", bottom)}</div></div>`;
+	const zones = splitFrontZones(markdown);
+	const zone = (md: string, index: number) => `<div class="z${index + 1}">${md ? clean(renderPart(md, true)) : ""}</div>`;
+	return `<div class="front ${kind}"><div class="zones${zones.length === 4 ? " four" : ""}">${zones.map(zone).join("")}</div></div>`;
 }
 
 /** Sumário (NBR 6027): títulos com o mesmo destaque do texto, linha pontilhada e número da página à direita. */
@@ -124,7 +131,10 @@ export function buildAbntPdfHtml(content: string, opts: AbntPdfOptions = {}): st
 	if (parts.cover) body.push(frontHtml("cover", parts.cover));
 	if (parts.titlePage) body.push(frontHtml("rosto", parts.titlePage));
 	if (parts.pretextual) body.push(`<section class="pre">${section(parts.pretextual)}</section>`);
-	if (parts.textual || body.length === 0) body.push(`<section class="tex">${section(parts.textual)}</section>`);
+	if (parts.textual || parts.note || body.length === 0) {
+		const note = parts.note ? `<div class="note">${clean(renderPart(parts.note))}</div>` : "";
+		body.push(`<section class="tex${parts.continuous ? " cont" : ""}">${note}${section(parts.textual)}</section>`);
+	}
 	return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(opts.title ?? "")}</title><style>${abntCss({ font: opts.font, cover: Boolean(parts.cover) })}${safeCss(opts.css)}</style></head><body>${body.join("")}</body></html>`;
 }
 

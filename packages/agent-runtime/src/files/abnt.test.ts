@@ -430,3 +430,130 @@ describe("renderFile com layout abnt", () => {
 		expect(normal.header).toBe("");
 	});
 });
+
+describe("modo contínuo (trabalho curto)", () => {
+	const SHORT = `<!-- capa -->
+INSTITUIÇÃO EXEMPLO
+
+---
+
+Autora Exemplo
+
+---
+
+# TÍTULO PRINCIPAL:
+SUBTÍTULO EXEMPLO
+
+---
+
+Cidade Exemplo
+
+2026
+<!-- /capa -->
+
+**Declaração:** texto *solto* de abertura.
+
+# 1 PRIMEIRA SEÇÃO
+
+Texto da primeira seção.
+
+# 2 SEGUNDA SEÇÃO
+
+Texto da segunda seção.
+
+# REFERÊNCIAS
+
+Sobrenome, N. Obra exemplo. 2020.
+`;
+	const FULL = `${SHORT.replace("**Declaração:**", "Resumo solto:")}`.replace("<!-- /capa -->", "<!-- /capa -->\n\n<!-- folha-de-rosto -->\nAutora\n<!-- /folha-de-rosto -->");
+
+	it("detecta o modo pela ausência de folha de rosto e sumário", () => {
+		expect(parseAbntMarkdown(SHORT).continuous).toBe(true);
+		expect(parseAbntMarkdown(FULL).continuous).toBe(false);
+		expect(parseAbntMarkdown(`${SHORT}\n<!-- sumario -->`).continuous).toBe(true);
+		expect(parseAbntMarkdown(SHORT.replace("<!-- /capa -->", "<!-- /capa -->\n<!-- sumario -->")).continuous).toBe(false);
+	});
+
+	it("tira a nota de abertura do pré-textual só no modo contínuo", () => {
+		const parts = parseAbntMarkdown(SHORT);
+		expect(parts.note).toContain("texto *solto* de abertura");
+		expect(parts.pretextual).toBe("");
+		const full = parseAbntMarkdown(FULL);
+		expect(full.note).toBeUndefined();
+		expect(full.pretextual).toContain("Resumo solto");
+	});
+
+	it("não quebra página antes das seções no PDF contínuo e mantém nos trabalhos completos", () => {
+		const html = buildAbntPdfHtml(SHORT);
+		expect(html).toContain('<section class="tex cont">');
+		expect(html).toContain("section.tex.cont h1 { break-before: auto");
+		expect(html).toContain('<div class="note"><p><strong>Declaração:</strong>');
+		expect(html.indexOf('class="note"')).toBeLessThan(html.indexOf("<h1>1 PRIMEIRA"));
+		expect(buildAbntPdfHtml(FULL)).toContain('<section class="tex">');
+	});
+
+	it("DOCX contínuo: seções sem pageBreakBefore, com 12 pt antes; completo continua quebrando", async () => {
+		const { paragraphs } = await docxParts(await abntMarkdownToDocx(SHORT));
+		const headings = paragraphs.filter((p) => p.includes('<w:pStyle w:val="Heading1"/>'));
+		expect(headings).toHaveLength(3);
+		for (const heading of headings) {
+			expect(heading).not.toContain("pageBreakBefore");
+			expect(heading).toContain('w:before="240"');
+			expect(heading).toContain("<w:keepNext/>");
+		}
+		const full = await docxParts(await abntMarkdownToDocx(FULL));
+		const fullHeadings = full.paragraphs.filter((p) => p.includes('<w:pStyle w:val="Heading1"/>'));
+		expect(fullHeadings.slice(1).every((p) => p.includes("pageBreakBefore"))).toBe(true);
+	});
+
+	it("DOCX: nota de abertura em 10 pt, simples, justificada, sem recuo, antes da primeira seção", async () => {
+		const { paragraphs, document } = await docxParts(await abntMarkdownToDocx(SHORT));
+		const note = paragraphs.find((p) => p.includes("de abertura"))!;
+		expect(note).toContain('<w:jc w:val="both"/>');
+		expect(note).toContain('w:line="240"');
+		expect(note).toContain('<w:sz w:val="20"/>');
+		expect(note).not.toContain("firstLine");
+		expect(note).toContain("<w:b/>");
+		expect(note).toContain("<w:i/>");
+		expect(document.indexOf("de abertura")).toBeLessThan(document.indexOf("1 PRIMEIRA"));
+	});
+
+	it("PDF: pagebreak explícito antes de seção continua valendo", () => {
+		const html = buildAbntPdfHtml(SHORT.replace("# 2 SEGUNDA", "<!-- pagebreak -->\n\n# 2 SEGUNDA"));
+		expect(html).toContain('<div class="pb"></div><h1>2 SEGUNDA');
+		expect(html).toContain("section.tex.cont .pb + h1 { break-before: page");
+	});
+});
+
+describe("capa em negrito, 4 zonas e quebra de título", () => {
+	const COVER4 = "TOPO\n\n---\n\nAUTORA\n\n---\n\n# TÍTULO:\nSUBTÍTULO\n\n---\n\nCidade\n\n2026";
+	const doc = `<!-- capa -->\n${COVER4}\n<!-- /capa -->\n\n# 1 INTRODUÇÃO\n\nTexto.`;
+
+	it("separa 4 zonas e mantém 3", () => {
+		expect(splitFrontZones(COVER4)).toEqual(["TOPO", "AUTORA", "# TÍTULO:\nSUBTÍTULO", "Cidade\n\n2026"]);
+		expect(splitFrontZones("a\n---\nb\n---\nc")).toHaveLength(3);
+	});
+
+	it("PDF: capa em negrito com zonas distribuídas e título em linhas separadas", () => {
+		const html = buildAbntPdfHtml(doc);
+		expect(html).toContain(".front.cover, .front.cover * { font-weight: bold; }");
+		expect(html).toContain('class="zones four"');
+		expect(html).toContain(">TÍTULO:</h1>");
+		expect(html).toMatch(/>TÍTULO:<\/h1>\s*<p>SUBTÍTULO<\/p>/);
+		expect(buildAbntPdfHtml("<!-- capa -->\na\n---\nb\n---\nc\n<!-- /capa -->")).not.toContain("zones four");
+	});
+
+	it("PDF: linhas seguidas num parágrafo da capa viram <br>", () => {
+		const html = buildAbntPdfHtml("<!-- capa -->\nLinha um\nLinha dois\n<!-- /capa -->\n\n# 1 A\n\nx");
+		expect(html).toContain("Linha um<br");
+	});
+
+	it("DOCX: capa em negrito, 4 linhas de zona e quebras de linha preservadas", async () => {
+		const { paragraphs, document } = await docxParts(await abntMarkdownToDocx(`<!-- capa -->\nLinha um\nLinha dois\n---\nB\n---\nC\n---\nD\n<!-- /capa -->\n\n# 1 A\n\nTexto.`));
+		const rows = document.match(/<w:tr>/g) ?? [];
+		expect(rows).toHaveLength(4);
+		const first = paragraphs.find((p) => p.includes("Linha um"))!;
+		expect(first).toContain("<w:b/>");
+		expect(first).toContain("<w:br/>");
+	});
+});
