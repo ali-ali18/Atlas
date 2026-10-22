@@ -1,0 +1,98 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Maximize2Icon } from "lucide-react";
+import type { PageSource, PageSpec } from "@workspace/shared";
+import { Button } from "@workspace/ui/components/button";
+import { cn } from "@workspace/ui/lib/utils";
+
+import { AtlasApiError, getPage } from "@/lib/atlas-api";
+import { memoryRelativeDate } from "@/components/ui/templates/template-4/chat-context-panel/memory-tab-helpers";
+
+import { PageDialog } from "./page-dialog";
+import { reconcilePageSnapshot, sourceCountLabel, type PageViewState, type RemotePage } from "./page-format";
+import { PageView } from "./page-view";
+
+export type PageCardData = {
+	pageId: string;
+	revision: number;
+	title: string;
+	action: "created" | "updated";
+	spec?: PageSpec;
+	sourceCount: number;
+};
+
+export type LoadPage = (pageId: string) => Promise<RemotePage | "missing">;
+
+/** Leitura do servidor (revalida a revisão); 404 = página apagada. Outros erros: fica o snapshot. */
+const defaultLoadPage: LoadPage = async (pageId) => {
+	try {
+		const page = await getPage(pageId);
+		return { spec: page.spec, revision: page.revision, sources: page.sources as PageSource[], updatedAt: page.updatedAt };
+	} catch (error) {
+		if (error instanceof AtlasApiError && error.status === 404) return "missing";
+		throw error;
+	}
+};
+
+/** "Atualizado há 5 min" (ou "Atualizado agora", "Atualizado ontem"). */
+export function updatedLabel(iso: string | null, now: Date = new Date()): string | null {
+	if (!iso) return null;
+	const relative = memoryRelativeDate(iso, now);
+	return relative ? `Atualizado ${relative}` : null;
+}
+
+/**
+ * Cartão da página no chat: desenha a página inteira inline (snapshot gravado na mensagem), revalida pelo
+ * servidor e troca para a revisão mais nova se houver. Toque em "Abrir" (ou no rodapé) abre em tela cheia.
+ */
+export function PageCard({ card, loadPage = defaultLoadPage, now }: { card: PageCardData; loadPage?: LoadPage; now?: Date }) {
+	const [remote, setRemote] = useState<RemotePage | "missing" | null>(null);
+	const [open, setOpen] = useState(false);
+
+	// Nova revisão do cartão (evento ao vivo) → lê de novo; o snapshot do cartão já cobre o intervalo.
+	useEffect(() => {
+		let cancelled = false;
+		loadPage(card.pageId)
+			.then((result) => {
+				if (!cancelled) setRemote(result);
+			})
+			.catch(() => undefined);
+		return () => {
+			cancelled = true;
+		};
+	}, [card.pageId, card.revision, loadPage]);
+
+	const view: PageViewState | null = reconcilePageSnapshot(card, remote);
+	const count = sourceCountLabel(view?.sourceCount ?? card.sourceCount);
+	const updated = view ? updatedLabel(view.updatedAt, now) : null;
+
+	return (
+		<section aria-label={`Página: ${card.title}`} className="my-1 w-full min-w-0 max-w-[min(68ch,calc(100vw-3rem))] overflow-hidden rounded-xl border border-border/60 bg-card text-card-foreground" data-testid="page-card">
+			<header className="flex items-start gap-2 px-4 pt-3">
+				<div className="min-w-0 flex-1">
+					<h3 className="font-heading font-semibold text-sm [overflow-wrap:anywhere]">{card.title}</h3>
+					{count ? <p className="text-muted-foreground text-xs">{count}</p> : null}
+				</div>
+				<Button aria-label="Abrir página em tela cheia" className="shrink-0" onClick={() => setOpen(true)} size="icon-sm" variant="ghost">
+					<Maximize2Icon />
+				</Button>
+			</header>
+			{view?.spec.summary ? <p className="px-4 pt-1 text-sm [overflow-wrap:anywhere]">{view.spec.summary}</p> : null}
+			<div className="px-4 py-3">
+				{view ? <PageView spec={view.spec} /> : <div aria-live="polite" className="h-24 animate-pulse rounded-lg bg-muted/40 motion-reduce:animate-none" data-testid="page-loading" />}
+			</div>
+			<footer className="border-border/60 border-t">
+				<button
+					className={cn("flex w-full items-center gap-1 px-4 py-2 text-left text-muted-foreground text-xs outline-none hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/30")}
+					onClick={() => setOpen(true)}
+					type="button"
+				>
+					<span>{view?.removed ? "Página apagada" : "Página"}</span>
+					{updated ? <span>· {updated}</span> : null}
+				</button>
+			</footer>
+			{view ? <PageDialog onOpenChange={setOpen} open={open} sources={view.sources} spec={view.spec} summary={view.spec.summary} title={card.title} updatedLabel={updated} /> : null}
+		</section>
+	);
+}

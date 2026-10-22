@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Message } from "@/components/ui/templates/template-4/data";
-import { dedupeCards, reconcilePersistedThread } from "./thread-merge";
+import { insertCardAfterCurrentTurn, type ComputerUseEvent, type PageSpec } from "@workspace/shared";
+import { applyPageEvent, dedupeCards, reconcilePersistedThread } from "./thread-merge";
 
 const MARKER_TEXT = "JEV pediu confirmação; a ação ainda não foi executada.";
 const USER_TEXT = "Crie um evento de teste amanhã às 15h";
@@ -134,4 +135,40 @@ test("conversa compactada: o cartão ao vivo (id do servidor) e o gravado viram 
 	assert.deepEqual(reconcilePersistedThread([user("db-u1", "faça"), card("db-compact")], [user("db-u1", "faça")]).map((message) => message.kind), ["user", "compaction"]);
 	assert.equal(dedupeCards([card("db-compact"), card("db-compact")]).length, 1);
 	assert.equal(dedupeCards([card("a"), card("b")]).length, 2);
+});
+
+const pageSpec = (title: string): PageSpec => ({ v: 1, title, blocks: [{ id: "h", type: "heading", text: title }] });
+const pageCard = (id: string, revision: number, pageId = "page-1", title = `v${revision}`): Message => ({ id, kind: "page", pageId, revision, title, action: revision > 1 ? "updated" : "created", spec: pageSpec(title), sourceCount: 0 });
+const pageEvent = (revision: number, pageId = "page-1"): Extract<ComputerUseEvent, { type: "page" }> => ({ type: "page", action: revision > 1 ? "updated" : "created", pageId, revision, title: `v${revision}`, spec: pageSpec(`v${revision}`), sourceCount: 0 });
+const insertLive = (previous: Message[]) => (message: Message) => insertCardAfterCurrentTurn(previous, message);
+const pageRevisions = (messages: Message[]) => messages.filter((m) => m.kind === "page").map((m) => `${m.id}@${(m as { revision: number }).revision}`);
+
+test("página: o evento ao vivo entra depois do turno e o mesmo pageId atualiza no lugar (revisão++), sem nova mensagem", () => {
+	const first = applyPageEvent([user("db-u1", "monta o forecast")], pageEvent(1), insertLive([user("db-u1", "monta o forecast")]));
+	assert.deepEqual(kinds(first), ["user", "page"]);
+	const withReply: Message[] = [...first, { id: "as-1", kind: "assistant", text: "Pronto." } as Message];
+	const updated = applyPageEvent(withReply, pageEvent(2), insertLive(withReply));
+	assert.deepEqual(kinds(updated), ["user", "page", "assistant"]);
+	assert.deepEqual(pageRevisions(updated), ["page-live-page-1@2"]);
+	// Evento atrasado (revisão menor) não desfaz a mais nova.
+	assert.equal(applyPageEvent(updated, pageEvent(1), insertLive(updated)), updated);
+	// Outra página é outro cartão.
+	assert.equal(applyPageEvent(updated, pageEvent(1, "page-2"), insertLive(updated)).filter((m) => m.kind === "page").length, 2);
+});
+
+test("página: o cartão gravado segura a posição e a revisão mais nova vence (ao vivo × gravado)", () => {
+	assert.deepEqual(pageRevisions(dedupeCards([user("u1"), pageCard("db-pg", 2), pageCard("page-live-page-1", 3)])), ["db-pg@3"]);
+	assert.deepEqual(pageRevisions(dedupeCards([user("u1"), pageCard("db-pg", 3), pageCard("page-live-page-1", 2)])), ["db-pg@3"]);
+	// Páginas diferentes não se colapsam.
+	assert.equal(dedupeCards([pageCard("a", 1, "p1"), pageCard("b", 1, "p2")]).length, 2);
+});
+
+test("página ao vivo e a gravada não duplicam ao reconciliar; a gravada reaparece após recarregar", () => {
+	const live: Message[] = [user("db-u1", "forecast"), pageCard("page-live-page-1", 1)];
+	const persisted: Message[] = [user("db-u1", "forecast"), pageCard("db-pg", 1)];
+	assert.deepEqual(reconcilePersistedThread(persisted, live).map((message) => message.id), ["db-u1", "db-pg"]);
+	assert.deepEqual(kinds(reconcilePersistedThread(persisted, [user("db-u1", "forecast")])), ["user", "page"]);
+	// Atualização ao vivo ainda não gravada: um cartão só, com a revisão nova.
+	const result = reconcilePersistedThread(persisted, [user("db-u1", "forecast"), pageCard("page-live-page-1", 2)]);
+	assert.deepEqual(pageRevisions(result), ["db-pg@2"]);
 });

@@ -40,7 +40,7 @@ import {
 } from "@workspace/shared";
 import { activityForAssistantEvent, type AgentActivity } from "@/lib/working-status";
 import { jevStatusText } from "@/lib/jev-status";
-import { dedupeCards, reconcilePersistedThread } from "@/lib/thread-merge";
+import { applyPageEvent, dedupeCards, reconcilePersistedThread } from "@/lib/thread-merge";
 import { isMemoryUpdateResult, memoryChipId } from "@/lib/memory-chip";
 import { isAwaitingBot, mergeNeedsUserMarkers } from "@/lib/bot-needs-thread";
 import {
@@ -964,6 +964,10 @@ export function createComputerHandlers(params: {
 				};
 				return dedupeCards(insertCardAfterCurrentTurn(previous, chartMessage));
 			});
+		},
+		onPage: (event) => {
+			params.onActivity?.();
+			params.setMessages((previous) => applyPageEvent(previous, event, (message) => insertCardAfterCurrentTurn(previous, message)));
 		},
 		onFile: (event) => {
 			params.onActivity?.();

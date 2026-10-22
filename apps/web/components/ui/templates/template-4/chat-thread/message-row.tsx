@@ -43,6 +43,7 @@ import { EmailReceivedCard } from "./email-received-card";
 import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 import { CodeRunCard } from "./code-run-card";
 import { TaskListCard } from "./task-list-card";
+import { PageCard } from "@/components/ai-elements/pages";
 import { PlanCard, type PlanCardStatus } from "@workspace/ui/components/plan-card";
 import { CompactionCard } from "./compaction-card";
 import { ImagePendingCard } from "@/components/ai-elements/images/image-pending-card";
@@ -253,6 +254,8 @@ export function MessageRow({
 			return <CodeRunCard code={message.code} durationMs={message.durationMs} output={message.output} status={message.status} />;
 		case "chart":
 			return <LazyChart spec={message.spec} />;
+		case "page":
+			return <PageCard card={message} />;
 		case "task-list":
 			return <TaskListCard items={message.items} />;
 		case "compaction":

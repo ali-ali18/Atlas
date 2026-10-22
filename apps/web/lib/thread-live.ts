@@ -56,6 +56,7 @@ export function mergePreservingSkills(
 			item.kind === "code-run" ||
 			item.kind === "image-gen" ||
 			item.kind === "chart" ||
+			item.kind === "page" ||
 			item.kind === "task-list" ||
 			item.kind === "compaction" ||
 			item.kind === "subagents" ||
