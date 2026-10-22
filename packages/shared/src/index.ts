@@ -816,7 +816,10 @@ export {
 	type ScanSeverity,
 } from "./catalog-scan.js";
 export {
+	CHART_CUSTOM_COLORS_MAX,
+	CHART_CUSTOM_COLORS_MIN,
 	CHART_FORMATS,
+	CHART_PALETTES,
 	CHART_MAX_JSON_CHARS,
 	CHART_MAX_PIE_SLICES,
 	CHART_MAX_POINTS,
@@ -824,9 +827,11 @@ export {
 	CHART_TYPES,
 	chartSpecToCsv,
 	isChartDateString,
+	normalizeChartHexColor,
 	parseChartSpec,
 	summarizeChartSpec,
 	type ChartFormat,
+	type ChartPalette,
 	type ChartRow,
 	type ChartSeries,
 	type ChartSpec,

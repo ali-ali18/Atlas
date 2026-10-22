@@ -95,3 +95,40 @@ describe("cartões persistidos", () => {
 		expect(parseConversationCard(JSON.stringify({ ...raw, spec: { type: "line" } }))).toBeNull();
 	});
 });
+
+describe("paleta", () => {
+	it("sem paleta mantém o visual padrão (campos ausentes)", () => {
+		const parsed = parseChartSpec(base);
+		expect(parsed.ok && "palette" in parsed.spec).toBe(false);
+		expect(parsed.ok && "colors" in parsed.spec).toBe(false);
+	});
+
+	it("aceita paletas prontas e descarta colors fora de custom", () => {
+		const parsed = parseChartSpec({ ...base, palette: "ocean", colors: ["#fff"] });
+		expect(parsed.ok && parsed.spec.palette).toBe("ocean");
+		expect(parsed.ok && parsed.spec.colors).toBeUndefined();
+	});
+
+	it("custom normaliza hex (#abc → #aabbcc, minúsculas)", () => {
+		const parsed = parseChartSpec({ ...base, palette: "custom", colors: ["#ABC", " #2563EB "] });
+		expect(parsed.ok && parsed.spec.colors).toEqual(["#aabbcc", "#2563eb"]);
+	});
+
+	it("colors sozinho implica custom", () => {
+		const parsed = parseChartSpec({ ...base, colors: ["#2563eb"] });
+		expect(parsed.ok && parsed.spec.palette).toBe("custom");
+	});
+
+	it("rejeita paleta desconhecida, custom sem cores, cor inválida e excesso de cores", () => {
+		const error = (extra: Record<string, unknown>) => {
+			const parsed = parseChartSpec({ ...base, ...extra });
+			return parsed.ok ? "" : parsed.error;
+		};
+		expect(error({ palette: "neon" })).toContain("palette must be one of");
+		expect(error({ palette: "custom" })).toContain('needs colors');
+		expect(error({ colors: ["red"] })).toContain("colors[0] must be a hex color");
+		expect(error({ colors: ["#fff", "javascript:alert(1)"] })).toContain("colors[1]");
+		expect(error({ colors: ["#111", "#222", "#333", "#444", "#555", "#666", "#777"] })).toContain("1 to 6");
+		expect(error({ colors: [] })).toContain("1 to 6");
+	});
+});

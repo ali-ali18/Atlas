@@ -18,6 +18,23 @@ export const CHART_MAX_JSON_CHARS = 120_000;
 export const CHART_FORMATS = ["number", "compact", "percent"] as const;
 export type ChartFormat = (typeof CHART_FORMATS)[number];
 
+/** Paletas prontas (cores definidas em `packages/ui`); sem `palette` vale o visual padrão do Atlas. */
+export const CHART_PALETTES = ["primary", "monochrome", "ocean", "sunset", "grove", "vivid", "custom"] as const;
+export type ChartPalette = (typeof CHART_PALETTES)[number];
+export const CHART_CUSTOM_COLORS_MIN = 1;
+export const CHART_CUSTOM_COLORS_MAX = 6;
+
+const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/** `#abc` ou `#aabbcc` → `#aabbcc` em minúsculas; qualquer outra coisa → `undefined`. */
+export function normalizeChartHexColor(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const trimmed = value.trim();
+	if (!HEX_COLOR.test(trimmed)) return undefined;
+	const hex = trimmed.slice(1).toLowerCase();
+	return `#${hex.length === 3 ? [...hex].map((char) => char + char).join("") : hex}`;
+}
+
 export type ChartSeries = { key: string; label: string };
 export type ChartRow = Record<string, string | number | null>;
 
@@ -33,6 +50,10 @@ export type ChartSpec = {
 	format?: ChartFormat;
 	/** Barras/áreas empilhadas (ignorado em linha e pizza). */
 	stacked?: boolean;
+	/** Paleta de cores; `custom` exige `colors`. Ausente = visual padrão. */
+	palette?: ChartPalette;
+	/** Cores hex (`#rrggbb`) da paleta `custom`, na ordem das séries/fatias. */
+	colors?: string[];
 	/** `date` quando todo valor de X é uma data ISO (AAAA-MM-DD[...]); senão `category`. */
 	xKind: "date" | "category";
 };
@@ -125,6 +146,29 @@ export function parseChartSpec(input: unknown): ChartSpecParse {
 	const unit = unitRaw && CURRENCIES.has(unitRaw.toUpperCase()) ? unitRaw.toUpperCase() : unitRaw;
 	const format = typeof row.format === "string" && (CHART_FORMATS as readonly string[]).includes(row.format) ? (row.format as ChartFormat) : undefined;
 	const title = text(row.title, 120);
+
+	let palette: ChartPalette | undefined;
+	let colors: string[] | undefined;
+	if (row.palette !== undefined && row.palette !== null) {
+		if (typeof row.palette !== "string" || !(CHART_PALETTES as readonly string[]).includes(row.palette)) {
+			return fail(`palette must be one of: ${CHART_PALETTES.join(", ")}`);
+		}
+		palette = row.palette as ChartPalette;
+	}
+	if (row.colors !== undefined && row.colors !== null) {
+		if (!Array.isArray(row.colors) || row.colors.length < CHART_CUSTOM_COLORS_MIN || row.colors.length > CHART_CUSTOM_COLORS_MAX) {
+			return fail(`colors must be an array of ${CHART_CUSTOM_COLORS_MIN} to ${CHART_CUSTOM_COLORS_MAX} hex colors like "#2563eb"`);
+		}
+		colors = [];
+		for (const [index, color] of row.colors.entries()) {
+			const normalized = normalizeChartHexColor(color);
+			if (!normalized) return fail(`colors[${index}] must be a hex color like "#2563eb" (got ${JSON.stringify(String(color).slice(0, 20))})`);
+			colors.push(normalized);
+		}
+		palette ??= "custom";
+	}
+	if (palette === "custom" && !colors) return fail('palette "custom" needs colors: an array of hex colors like ["#2563eb", "#f59e0b"]');
+	if (palette !== "custom") colors = undefined;
 	return {
 		ok: true,
 		spec: {
@@ -135,6 +179,8 @@ export function parseChartSpec(input: unknown): ChartSpecParse {
 			data,
 			...(unit ? { unit } : {}),
 			...(format ? { format } : {}),
+			...(palette ? { palette } : {}),
+			...(colors ? { colors } : {}),
 			...(row.stacked === true && (type === "bar" || type === "area") ? { stacked: true } : {}),
 			xKind,
 		},
