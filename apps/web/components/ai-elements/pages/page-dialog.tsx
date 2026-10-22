@@ -11,7 +11,7 @@ export function safeSourceHref(url: string | undefined): string | undefined {
 	return url && /^https?:\/\//i.test(url) ? url : undefined;
 }
 
-/** Página em tela cheia (celular) ou folha larga (desktop), com as fontes ao final. */
+/** Painel em tela cheia (celular) ou folha larga (desktop), com as fontes ao final. */
 export function PageDialog({
 	open,
 	onOpenChange,
@@ -29,7 +29,7 @@ export function PageDialog({
 	spec: PageSpec;
 	sources: PageSource[] | null;
 	updatedLabel?: string | null;
-	/** Quando uma rotina atualiza a página ("Toda segunda às 08:00"). */
+	/** Quando uma rotina atualiza o painel ("Toda segunda às 08:00"). */
 	routineLabel?: string | null;
 }) {
 	return (
@@ -44,7 +44,7 @@ export function PageDialog({
 					{routineLabel ? (
 						<p className="flex items-center gap-1.5 text-muted-foreground text-xs" data-page-routine>
 							<RefreshCwIcon aria-hidden className="size-3.5 shrink-0" />
-							<span>Atualizada por rotina · {routineLabel}</span>
+							<span>Atualizado por rotina · {routineLabel}</span>
 						</p>
 					) : null}
 				</DialogHeader>

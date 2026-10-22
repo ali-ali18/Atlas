@@ -24,12 +24,12 @@ export type PageCardData = {
 
 export type LoadPage = (pageId: string) => Promise<RemotePage | "missing">;
 
-/** Página do servidor → o que o cartão compara/mostra; "Atualizado há X" vale a última atualização com dados novos (rotina), senão a edição. */
+/** Painel do servidor → o que o cartão compara/mostra; "Atualizado há X" vale a última atualização com dados novos (rotina), senão a edição. */
 export function remotePageFromApi(page: Pick<AtlasPage, "spec" | "revision" | "sources" | "refreshedAt" | "updatedAt">): RemotePage {
 	return { spec: page.spec, revision: page.revision, sources: page.sources as PageSource[], updatedAt: page.refreshedAt ?? page.updatedAt };
 }
 
-/** Leitura do servidor (revalida a revisão); 404 = página apagada. Outros erros: fica o snapshot. */
+/** Leitura do servidor (revalida a revisão); 404 = painel apagado. Outros erros: fica o snapshot. */
 const defaultLoadPage: LoadPage = async (pageId) => {
 	try {
 		return remotePageFromApi(await getPage(pageId));
@@ -47,7 +47,7 @@ export function updatedLabel(iso: string | null, now: Date = new Date()): string
 }
 
 /**
- * Cartão da página no chat: desenha a página inteira inline (snapshot gravado na mensagem), revalida pelo
+ * Cartão do painel no chat: desenha o painel inteiro inline (snapshot gravado na mensagem), revalida pelo
  * servidor e troca para a revisão mais nova se houver. Toque em "Abrir" (ou no rodapé) abre em tela cheia.
  */
 export function PageCard({ card, loadPage = defaultLoadPage, now }: { card: PageCardData; loadPage?: LoadPage; now?: Date }) {
@@ -72,13 +72,13 @@ export function PageCard({ card, loadPage = defaultLoadPage, now }: { card: Page
 	const updated = view ? updatedLabel(view.updatedAt, now) : null;
 
 	return (
-		<section aria-label={`Página: ${card.title}`} className="my-1 w-full min-w-0 max-w-[min(68ch,calc(100vw-3rem))] overflow-hidden rounded-xl border border-border/60 bg-card text-card-foreground" data-testid="page-card">
+		<section aria-label={`Painel: ${card.title}`} className="my-1 w-full min-w-0 max-w-[min(68ch,calc(100vw-3rem))] overflow-hidden rounded-xl border border-border/60 bg-card text-card-foreground" data-testid="page-card">
 			<header className="flex items-start gap-2 px-4 pt-3">
 				<div className="min-w-0 flex-1">
 					<h3 className="font-heading font-semibold text-sm [overflow-wrap:anywhere]">{card.title}</h3>
 					{count ? <p className="text-muted-foreground text-xs">{count}</p> : null}
 				</div>
-				<Button aria-label="Abrir página em tela cheia" className="shrink-0" onClick={() => setOpen(true)} size="icon-sm" variant="ghost">
+				<Button aria-label="Abrir painel em tela cheia" className="shrink-0" onClick={() => setOpen(true)} size="icon-sm" variant="ghost">
 					<Maximize2Icon />
 				</Button>
 			</header>
@@ -92,7 +92,7 @@ export function PageCard({ card, loadPage = defaultLoadPage, now }: { card: Page
 					onClick={() => setOpen(true)}
 					type="button"
 				>
-					<span>{view?.removed ? "Página apagada" : "Página"}</span>
+					<span>{view?.removed ? "Painel apagado" : "Painel"}</span>
 					{updated ? <span>· {updated}</span> : null}
 				</button>
 			</footer>

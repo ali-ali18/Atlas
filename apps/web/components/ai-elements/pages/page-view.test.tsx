@@ -10,7 +10,7 @@ import { scrollEdges } from "./components/table";
 
 Object.assign(globalThis, { React });
 
-/** Página v2 com a árvore dada dentro de uma `stack`. */
+/** Painel v2 com a árvore dada dentro de uma `stack`. */
 function page(children: unknown[], extra: Record<string, unknown> = {}): PageSpec {
 	const parsed = parsePageSpec({ v: 2, title: "Forecast", root: { type: "stack", children }, ...extra });
 	if (!parsed.ok) throw new Error(parsed.error);
@@ -27,7 +27,7 @@ test("heading e text: título e markdown formatado (sem HTML cru)", () => {
 	assert.doesNotMatch(html, /<script>/);
 });
 
-test("página v1 antiga continua renderizando (convertida para v2)", () => {
+test("painel v1 antigo continua renderizando (convertida para v2)", () => {
 	const parsed = parsePageSpec({ v: 1, title: "Velha", blocks: [{ type: "stats", items: [{ label: "Receita", value: 10 }] }, { type: "bar_list", items: [{ label: "Sul", value: 1 }] }] });
 	if (!parsed.ok) throw new Error(parsed.error);
 	const html = render(parsed.spec);
@@ -106,7 +106,7 @@ test("chart: reserva o espaço do gráfico na largura da coluna (carregado sob d
 	assert.match(html, /my-0 w-full/);
 });
 
-test("paleta da página: escopo data-chart-palette com o CSS das cores; sem paleta, nada é injetado", () => {
+test("paleta do painel: escopo data-chart-palette com o CSS das cores; sem paleta, nada é injetado", () => {
 	const html = render(page([stat("a")], { palette: "grove" }));
 	assert.match(html, /data-chart-palette="grove"/);
 	assert.match(html, /\[data-chart-palette="grove"\]\{--chart-1:/);
@@ -166,17 +166,17 @@ test("tabs: mostra só a aba ativa (a primeira por padrão) e escolhe pela aba p
 	assert.match(render(spec, "nao-existe"), /conteúdo da visão/);
 });
 
-test("PageCard: título, N fontes, resumo, página inteira inline e rodapé", () => {
+test("PageCard: título, N fontes, resumo, painel inteiro inline e rodapé", () => {
 	const spec = page([stat("Receita", { value: 10 }), { type: "heading", props: { text: "Detalhes" } }], { summary: "Receita acima da meta" });
 	const html = renderToStaticMarkup(<PageCard card={{ pageId: "p1", revision: 1, title: "Forecast Q4", action: "created", spec, sourceCount: 3 }} loadPage={async () => "missing"} />);
-	assert.match(html, /aria-label="Página: Forecast Q4"/);
+	assert.match(html, /aria-label="Painel: Forecast Q4"/);
 	assert.match(html, /<h3[^>]*>Forecast Q4<\/h3>/);
 	assert.match(html, /3 fontes/);
 	assert.match(html, /Receita acima da meta/);
 	assert.match(html, /data-testid="page-stat"/);
 	assert.match(html, /Detalhes/);
-	assert.match(html, />Página</);
-	assert.match(html, /aria-label="Abrir página em tela cheia"/);
+	assert.match(html, />Painel</);
+	assert.match(html, /aria-label="Abrir painel em tela cheia"/);
 });
 
 test("PageCard sem snapshot mostra o esqueleto até o servidor responder, e 1 fonte no singular", () => {

@@ -1,6 +1,6 @@
 import type { PageFormat, PageSource, PageSpec, PageStatDelta } from "@workspace/shared";
 
-/** Formatação dos valores da página em pt-BR (1.234,56 · R$ · % · sufixo da unidade). Pura: sem React nem DOM. */
+/** Formatação dos valores do painel em pt-BR (1.234,56 · R$ · % · sufixo da unidade). Pura: sem React nem DOM. */
 
 const CURRENCIES = new Set(["BRL", "USD", "EUR"]);
 
@@ -94,7 +94,7 @@ export type RemotePage = { spec: PageSpec; revision: number; sources: PageSource
 
 /**
  * O que o cartão mostra: o snapshot gravado na mensagem, trocado pela versão do servidor só se ela for MAIS NOVA
- * (um evento ao vivo pode chegar antes de a leitura voltar). `null` no remoto = página apagada.
+ * (um evento ao vivo pode chegar antes de a leitura voltar). `null` no remoto = painel apagado.
  */
 export function reconcilePageSnapshot(
 	card: { revision: number; spec?: PageSpec; sourceCount: number },

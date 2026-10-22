@@ -24,9 +24,9 @@ import { type PageCardModel, pageCardModel, updatedAgo } from "./library-section
 import { routineScheduleSummary } from "./routine-map";
 
 export const PAGES_EMPTY_TEXT =
-	"Peça ao bot um painel ou relatório, como “monta um painel das vendas da semana”, e a página fica guardada aqui para você abrir e atualizar.";
+	"Peça ao bot um painel ou relatório, como “monta um painel das vendas da semana”, e o painel fica guardado aqui para você abrir e atualizar.";
 
-/** Resumo da rotina que atualiza cada página ("Toda segunda às 08:00"; pausada avisa). Pura. */
+/** Resumo da rotina que atualiza cada painel ("Toda segunda às 08:00"; pausada avisa). Pura. */
 export function routineSummaryByPage(routines: readonly Routine[]): Map<string, string> {
 	const byPage = new Map<string, string>();
 	for (const routine of routines) {
@@ -62,7 +62,7 @@ function PageRow({
 			{...longPress}
 		>
 			<button
-				aria-label={`Abrir página ${model.title}`}
+				aria-label={`Abrir painel ${model.title}`}
 				className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-xl px-3 py-2.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
 				disabled={busy}
 				onClick={onOpen}
@@ -71,14 +71,14 @@ function PageRow({
 				<span className="flex min-w-0 items-center gap-1.5">
 					<span className="min-w-0 truncate font-medium text-[13px]">{model.title}</span>
 					{model.routine ? (
-						<RefreshCwIcon aria-label={`Atualizada por rotina: ${model.routine}`} className="size-3.5 shrink-0 text-muted-foreground" role="img" />
+						<RefreshCwIcon aria-label={`Atualizado por rotina: ${model.routine}`} className="size-3.5 shrink-0 text-muted-foreground" role="img" />
 					) : null}
 				</span>
 				{meta ? <span className="truncate text-muted-foreground text-xs">{meta}</span> : null}
 				{model.routine ? <span className="truncate text-muted-foreground text-xs">{model.routine}</span> : null}
 			</button>
 			<Button
-				aria-label={`Apagar página ${model.title}`}
+				aria-label={`Apagar painel ${model.title}`}
 				className={cn(
 					"my-1 mr-1 self-start transition-opacity",
 					// Mouse: some até passar o mouse ou focar dentro do item. Toque: some até a pressão longa.
@@ -95,7 +95,7 @@ function PageRow({
 	);
 }
 
-/** Lista das páginas do bot (cartões) com estado vazio; pura para teste. */
+/** Lista dos painéis do bot (cartões) com estado vazio; pura para teste. */
 export function PagesList({
 	items,
 	routineByPage,
@@ -131,7 +131,7 @@ export function PagesList({
 		return <p className="px-2 py-6 text-center text-muted-foreground text-xs leading-relaxed">{PAGES_EMPTY_TEXT}</p>;
 	}
 	return (
-		<ul aria-label="Páginas do Bot" ref={listRef} className="m-0 flex list-none flex-col gap-2 p-0">
+		<ul aria-label="Painéis do Bot" ref={listRef} className="m-0 flex list-none flex-col gap-2 p-0">
 			{items.map((item) => (
 				<PageRow
 					busy={openingId === item.id}
@@ -150,7 +150,7 @@ export function PagesList({
 	);
 }
 
-/** Seção Páginas da Biblioteca: carrega ao abrir, recarrega quando o chat cria ou atualiza uma página. */
+/** Seção Painéis da Biblioteca: carrega ao abrir, recarrega quando o chat cria ou atualiza um painel. */
 export function BotPagesSection({ botId, active, routines }: { botId: string; active: boolean; routines: readonly Routine[] }) {
 	const [items, setItems] = useState<AtlasPageListItem[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -168,7 +168,7 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 				setError(null);
 			})
 			.catch(() => {
-				if (!stale) setError("Não consegui carregar as páginas agora.");
+				if (!stale) setError("Não consegui carregar os painéis agora.");
 			});
 		return () => {
 			stale = true;
@@ -208,7 +208,7 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 		try {
 			setOpened(await getPage(id));
 		} catch {
-			setError("Não consegui abrir a página. Ela pode ter sido apagada.");
+			setError("Não consegui abrir o painel. Ele pode ter sido apagado.");
 			reload();
 		} finally {
 			setOpeningId(null);
@@ -224,7 +224,7 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 			setItems((current) => current?.filter((item) => item.id !== target.id) ?? current);
 			setError(null);
 		} catch {
-			setError("Não consegui apagar a página agora. Tente de novo.");
+			setError("Não consegui apagar o painel agora. Tente de novo.");
 		}
 	}
 
@@ -258,17 +258,17 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 			<AlertDialog onOpenChange={(next) => !next && setPendingDelete(null)} open={pendingDelete !== null}>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Apagar a página “{pendingDelete?.title}”?</AlertDialogTitle>
+						<AlertDialogTitle>Apagar o painel “{pendingDelete?.title}”?</AlertDialogTitle>
 						<AlertDialogDescription>
 							{pendingDelete && routineByPage.has(pendingDelete.id)
-								? "Ela some da Biblioteca e a rotina que a atualiza passa a pular as execuções. Isso não pode ser desfeito."
-								: "Ela some da Biblioteca. Isso não pode ser desfeito."}
+								? "Ele some da Biblioteca e a rotina que o atualiza passa a pular as execuções. Isso não pode ser desfeito."
+								: "Ele some da Biblioteca. Isso não pode ser desfeito."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancelar</AlertDialogCancel>
 						<AlertDialogAction onClick={() => void confirmDelete()} variant="destructive">
-							Apagar página
+							Apagar painel
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>

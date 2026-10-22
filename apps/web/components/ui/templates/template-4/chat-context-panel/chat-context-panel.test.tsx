@@ -92,12 +92,12 @@ test("abas Biblioteca | Computador | E-mail, sem Detalhes, Biblioteca por padrã
 	assert.doesNotMatch(html, /O computador está dormindo/);
 });
 
-test("Biblioteca: Páginas aberta; Documentos e Rotinas recolhidas", () => {
+test("Biblioteca: Painéis aberto; Documentos e Rotinas recolhidas", () => {
 	const html = panel({ initialTab: "library" });
 	for (const [id, expanded] of [["pages", "true"], ["documents", "false"], ["routines", "false"]] as const) {
 		assert.match(html, new RegExp(`data-library-section="${id}"[\\s\\S]*?aria-expanded="${expanded}"`), `${id} ${expanded}`);
 	}
-	assert.match(html, />Páginas</);
+	assert.match(html, />Painéis</);
 	assert.match(html, />Documentos</);
 	assert.match(html, />Rotinas</);
 	assert.doesNotMatch(html, /Criar rotina/, "sem rotinas, o convite só aparece com a seção aberta");
