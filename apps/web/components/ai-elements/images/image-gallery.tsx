@@ -1,19 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { planImageRow } from "@/lib/image-row-plan";
 import { ImageCard, type ImageItem } from "./image-card";
 import { ImageLightbox } from "./image-lightbox";
 
-export function ImageGallery({ items, source }: { items: ImageItem[]; source: "user" | "assistant" }) {
+/** Largura inicial (antes da medição): coluna de texto típica do chat. */
+const INITIAL_WIDTH = 384;
+
+/**
+ * Imagens em sequência viram uma fileira justificada (mesma altura, +N na última
+ * quando dobra). Clicar abre o visualizador na posição, com a galeria inteira.
+ */
+export function ImageGallery({ items, source, initialWidth = INITIAL_WIDTH }: { items: ImageItem[]; source: "user" | "assistant"; initialWidth?: number }) {
 	const [index, setIndex] = useState<number | null>(null);
+	const [width, setWidth] = useState(initialWidth);
+	const rowRef = useRef<HTMLDivElement>(null);
+
+	// Largura disponível = largura do contêiner da fileira.
+	useEffect(() => {
+		const element = rowRef.current;
+		if (!element) return;
+		const measure = () => { if (element.clientWidth > 0) setWidth(element.clientWidth); };
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, []);
+
+	const plan = useMemo(() => planImageRow({ sizes: items.map((item) => ({ width: item.width, height: item.height })), availableWidth: width }), [items, width]);
 	if (items.length === 0) return null;
-	return <div className={source === "user" ? "ml-auto w-fit max-w-sm" : "mr-auto w-fit max-w-sm"}>
-		<div className={items.length === 1 ? "w-full" : "grid grid-cols-2 gap-2"}>
-			{items.slice(0, 6).map((item, position) => <div className="relative" key={`${item.artifactId}-${position}`}>
-				<ImageCard item={item} onOpen={() => setIndex(position)} />
-				{position === 5 && items.length > 6 && <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-xl bg-black/60 text-lg text-white">+{items.length - 6}</span>}
-			</div>)}
-		</div>
+	return <div className={`flex w-full min-w-0 max-w-full items-start gap-1.5 ${source === "user" ? "justify-end" : "justify-start"}`} ref={rowRef}>
+		{plan.tiles.map((tile, position) => {
+			const last = position === plan.tiles.length - 1;
+			return <ImageCard height={tile.height} item={items[tile.index]!} key={`${items[tile.index]!.artifactId}-${tile.index}`} onOpen={() => setIndex(tile.index)} overflowCount={last ? plan.foldedCount : 0} width={tile.width} />;
+		})}
 		<ImageLightbox index={index} items={items} onChange={setIndex} onClose={() => setIndex(null)} />
 	</div>;
 }

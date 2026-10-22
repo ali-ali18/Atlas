@@ -54,12 +54,15 @@ import {
 	type QuestionnaireCardMessage,
 } from "./questionnaire-card";
 import { bubbleRadius, type GroupPosition } from "./bubble-radius";
+import { bubbleColors } from "@/lib/bot-bubble";
 import { renderMentions, type MentionMember } from "./mention-text";
 
 export function MessageRow({
 	live = false,
 	message,
 	groupPosition = "single",
+	imageItems,
+	userBubbleColor,
 	onConfirm,
 	onConfirmAlways,
 	onConfirmReject,
@@ -93,6 +96,10 @@ export function MessageRow({
 	/** Chat 1:1: `/skill` conhecidas, para desenhar o token como chip no balão do usuário. */
 	knownSkills?: ReadonlySet<string>;
 	live?: boolean;
+	/** Imagens seguidas agrupadas pelo thread: substitui os itens da própria mensagem. */
+	imageItems?: Extract<Message, { kind: "images" }>["items"];
+	/** Cor do bot para o balão do usuário (undefined = balão neutro). */
+	userBubbleColor?: string;
 	message: Message;
 	groupPosition?: GroupPosition;
 	onConfirm?: (message: Extract<Message, { kind: "confirm" }>) => void;
@@ -141,7 +148,7 @@ export function MessageRow({
 }) {
 	switch (message.kind) {
 		case "images":
-			return <ImageGallery items={message.items} source={message.source} />;
+			return <ImageGallery items={imageItems ?? message.items} source={message.source} />;
 		case "assistant":
 			return (
 				<AssistantMessage
@@ -156,7 +163,7 @@ export function MessageRow({
 			if (message.email) return <EmailReceivedCard from={message.email.from} subject={message.email.subject} text={message.text} />;
 			if (!message.text.trim()) return null;
 			return (
-				<UserMessageBubble groupPosition={groupPosition} knownSkills={knownSkills} mentionMembers={mentionMembers} messageId={message.id} text={message.text} />
+				<UserMessageBubble groupPosition={groupPosition} knownSkills={knownSkills} mentionMembers={mentionMembers} messageId={message.id} text={message.text} userBubbleColor={userBubbleColor} />
 			);
 		case "attachment":
 			return (
@@ -480,14 +487,17 @@ function UserMessageBubble({
 	mentionMembers,
 	messageId,
 	text,
+	userBubbleColor,
 }: {
 	messageId?: string;
+	userBubbleColor?: string;
 	groupPosition: GroupPosition;
 	knownSkills?: ReadonlySet<string>;
 	mentionMembers?: readonly MentionMember[];
 	text: string;
 }) {
 	const controls = useMessageReactionControls(messageId);
+	const colors = bubbleColors(userBubbleColor);
 	return (
 		<div className="group/message flex items-center justify-end gap-2">
 			<div className="flex shrink-0 items-center">
@@ -496,7 +506,8 @@ function UserMessageBubble({
 			</div>
 			<Bubble align="end" variant="muted">
 				<BubbleContent
-					className={cn("whitespace-pre-wrap text-foreground", bubbleRadius("right", groupPosition))}
+					className={cn("whitespace-pre-wrap", colors ? "border-transparent" : "text-foreground", bubbleRadius("right", groupPosition))}
+					style={colors ? { backgroundColor: colors.background, color: colors.foreground } : undefined}
 				>
 					{mentionMembers?.length || knownSkills?.size ? renderMentions(text, mentionMembers ?? [], knownSkills) : text}
 				</BubbleContent>

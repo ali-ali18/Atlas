@@ -1,6 +1,6 @@
 "use client";
 
-import { BellIcon, BotIcon, ChevronRightIcon, CodeIcon, LanguagesIcon, LayersIcon, ListChecksIcon, SignalHighIcon, SparklesIcon, UserCheckIcon, WorkflowIcon } from "lucide-react";
+import { BellIcon, BotIcon, ChevronRightIcon, CodeIcon, LanguagesIcon, LayersIcon, ListChecksIcon, PaletteIcon, SignalHighIcon, SparklesIcon, UserCheckIcon, WorkflowIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
@@ -10,6 +10,7 @@ import { SettingRow, SettingsGroup, SettingsStack } from "@/components/settings/
 import { TIER_ROWS, TierModelsControl, TierRow } from "@/components/settings/sections/model-tiers";
 import { ModelPicker } from "@/components/model-picker";
 import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
+import { readBubbleBotColor, withBubbleBotColor } from "@/lib/bot-bubble";
 import { BOT_LANGUAGE_OPTIONS, DEFAULT_BOT_LANGUAGE } from "@/lib/bot-language";
 import { readProactiveSettings } from "@/lib/proactive-settings";
 import {
@@ -340,6 +341,20 @@ export function AgentSettings({
 							checked={readPlanMode(policyJson)}
 							id="agent-plan-mode"
 							onCheckedChange={(checked) => onChange({ policyJson: withPlanMode(policyJson, checked) })}
+						/>
+					</SettingRow>
+
+					<SettingRow
+						caption={<p>Os seus balões nesta conversa usam a cor deste bot. O texto muda para claro ou escuro sozinho, conforme a cor.</p>}
+						control="inline"
+						htmlFor="agent-bubble-color"
+						icon={PaletteIcon}
+						label="Balão na cor do bot"
+					>
+						<Switch
+							checked={readBubbleBotColor(policyJson)}
+							id="agent-bubble-color"
+							onCheckedChange={(checked) => onChange({ policyJson: withBubbleBotColor(policyJson, checked) })}
 						/>
 					</SettingRow>
 

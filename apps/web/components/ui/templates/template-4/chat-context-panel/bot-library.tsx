@@ -32,6 +32,7 @@ export function BotLibraryList({
 			{files.map((file) => (
 				<li className="min-w-0" key={file.id}>
 					<FileAttachment
+						fullWidth
 						artifactId={file.id}
 						filename={file.filename}
 						size={file.size}

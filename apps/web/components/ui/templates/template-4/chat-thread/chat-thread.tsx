@@ -19,6 +19,8 @@ import { Marker, MarkerContent } from "@workspace/ui/components/marker";
 import { cn } from "@workspace/ui/lib/utils";
 import { buildTimeSeparators } from "@/lib/chat-time-separators";
 import { exchangeFocusKey } from "@/lib/bot-exchange";
+import { readBubbleBotColor } from "@/lib/bot-bubble";
+import { planImageRuns } from "@/lib/image-groups";
 import { groupBotMessages, type BotPartner, type ThreadItem } from "@/lib/bot-thread";
 import { BotAutoDecisionNote, BotLinkMarker, BotNeedsUserCard, BotThreadGroup, type BotRef } from "@/components/ai-elements/bot-messages";
 import { pendingNeedsUser } from "@/lib/bot-needs-thread";
@@ -591,6 +593,10 @@ export function ChatThread({
 		() => buildTimeSeparators(threadItems),
 		[threadItems],
 	);
+	// Imagens seguidas (ex.: screenshots) viram um só baralho; as demais mensagens da sequência somem.
+	const imageRuns = useMemo(() => planImageRuns(threadItems, timeSeparators), [threadItems, timeSeparators]);
+	// Balão do usuário na cor do bot: só no chat 1:1 e se a Config não desligou.
+	const userBubbleColor = !isGroup && readBubbleBotColor((agent as { policyJson?: unknown } | undefined)?.policyJson) ? agent?.color : undefined;
 	// Grupo: nome/avatar só no primeiro balão de cada trecho do mesmo membro.
 	const groupLayouts = useMemo(
 		() =>
@@ -1116,6 +1122,8 @@ export function ChatThread({
 								);
 							}
 							const message = item.message;
+							const imageRun = message.kind === "images" ? imageRuns.get(item.id) : undefined;
+							if (imageRun === null) return null;
 							if (message.kind === "bot-link") {
 								return (
 									<div key={item.id}>
@@ -1221,6 +1229,8 @@ export function ChatThread({
 									{sourceMarker}
 									<MessageRow
 										groupPosition={groupPosition}
+										imageItems={imageRun?.items}
+										userBubbleColor={userBubbleColor}
 										knownSkills={isGroup ? undefined : knownSkills}
 										mentionMembers={isGroup ? mentionMembers : bubbleMembers}
 										live={isLiveStreamingBubble({
