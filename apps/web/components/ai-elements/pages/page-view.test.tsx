@@ -6,6 +6,7 @@ import { parsePageSpec, type PageSpec } from "@workspace/shared";
 
 import { PageCard, updatedLabel } from "./page-card";
 import { PageView } from "./page-view";
+import { scrollEdges } from "./components/table";
 
 Object.assign(globalThis, { React });
 
@@ -86,6 +87,16 @@ test("table: rolagem horizontal, largura mínima do texto, folga na última colu
 	assert.match(html, /text-right[^>]*>R\$\s3\.250,50</);
 	assert.match(html, />—</);
 	assert.match(html, /bg-muted\/30/);
+	// Degradês nas bordas (começam apagados no servidor; o cliente acende o lado com mais conteúdo ao medir).
+	assert.match(html, /data-scroll-fade="start"[^>]*>/);
+	assert.match(html, /data-scroll-fade="end"/);
+});
+
+test("scrollEdges: degradê só no lado que ainda tem conteúdo", () => {
+	assert.deepEqual(scrollEdges({ scrollLeft: 0, scrollWidth: 300, clientWidth: 300 }), { start: false, end: false });
+	assert.deepEqual(scrollEdges({ scrollLeft: 0, scrollWidth: 600, clientWidth: 300 }), { start: false, end: true });
+	assert.deepEqual(scrollEdges({ scrollLeft: 150, scrollWidth: 600, clientWidth: 300 }), { start: true, end: true });
+	assert.deepEqual(scrollEdges({ scrollLeft: 300, scrollWidth: 600, clientWidth: 300 }), { start: true, end: false });
 });
 
 test("chart: reserva o espaço do gráfico na largura da coluna (carregado sob demanda)", () => {
