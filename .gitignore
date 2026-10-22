@@ -45,3 +45,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 packages/agent-runtime/evals/web/results/
+
+__pycache__/
