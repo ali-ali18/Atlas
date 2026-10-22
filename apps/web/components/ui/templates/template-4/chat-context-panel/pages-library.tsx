@@ -57,13 +57,13 @@ function PageRow({
 	const meta = [model.sources, model.updated].filter(Boolean).join(" · ");
 	return (
 		<li
-			className="group/row flex min-w-0 items-stretch gap-1 rounded-xl border border-border/60 bg-card [@media(hover:none)]:select-none"
+			className="group/row flex min-w-0 items-stretch gap-1 rounded-xl border border-border/60 bg-card transition-colors [@media(hover:hover)]:hover:bg-muted/40 [@media(hover:none)]:select-none"
 			data-page-card={model.id}
 			{...longPress}
 		>
 			<button
 				aria-label={`Abrir página ${model.title}`}
-				className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-xl px-3 py-2.5 text-left outline-none hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
+				className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-xl px-3 py-2.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
 				disabled={busy}
 				onClick={onOpen}
 				type="button"
