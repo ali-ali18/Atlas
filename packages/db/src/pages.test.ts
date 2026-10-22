@@ -52,7 +52,7 @@ test("createPage grava dono, revisão 1 e a revisão inicial; bot de outro dono 
 test("usuário B não lê, lista, atualiza nem apaga a página do usuário A", async () => {
 	const page = (await createPage("user-a", { botId: "bot-a", spec: spec("Segredo") }))!;
 	assert.equal(await getPageForUser(page.id, "user-b"), null);
-	assert.deepEqual(await listBotPagesForUser("user-b", "bot-a"), []);
+	assert.equal(await listBotPagesForUser("user-b", "bot-a"), null);
 	assert.deepEqual(await updatePage(page.id, "user-b", { spec: spec("hack") }), { ok: false, error: "not_found" });
 	assert.equal(await deletePage(page.id, "user-b"), false);
 	assert.deepEqual(await listPageRevisionsForUser(page.id, "user-b"), []);
@@ -61,14 +61,14 @@ test("usuário B não lê, lista, atualiza nem apaga a página do usuário A", a
 	assert.equal(pages.rows[0]!.revision, 1);
 	// O dono continua vendo.
 	assert.equal((await getPageForUser(page.id, "user-a"))?.title, "Segredo");
-	assert.equal((await listBotPagesForUser("user-a", "bot-a")).length, 1);
+	assert.equal((await listBotPagesForUser("user-a", "bot-a"))?.length, 1);
 });
 
 test("legado \"default\" e usuário vazio nunca enxergam nada", async () => {
 	const page = (await createPage("user-a", { botId: "bot-a", spec: spec("x") }))!;
 	assert.equal(await getPageForUser(page.id, "default"), null);
 	assert.equal(await getPageForUser(page.id, ""), null);
-	assert.deepEqual(await listBotPagesForUser("default", "bot-a"), []);
+	assert.equal(await listBotPagesForUser("default", "bot-a"), null);
 });
 
 test("updatePage sobe a revisão, guarda só as últimas 10 e mantém as fontes se não vierem", async () => {
@@ -119,7 +119,7 @@ test("a lista traz resumo e contagem de fontes, mais recente primeiro", async ()
 	const first = (await createPage("user-a", { botId: "bot-a", spec: spec("Primeira"), sources: [{ title: "a" }, { title: "b" }] }))!;
 	await createPage("user-a", { botId: "bot-a", spec: spec("Segunda") });
 	pages.rows.find((r) => r.id === first.id)!.updatedAt = new Date(Date.now() + 10_000);
-	const list = await listBotPagesForUser("user-a", "bot-a");
+	const list = (await listBotPagesForUser("user-a", "bot-a"))!;
 	assert.deepEqual(list.map((p) => p.title), ["Primeira", "Segunda"]);
 	assert.equal(list[0]!.sourceCount, 2);
 	assert.equal(list[0]!.summary, "resumo");

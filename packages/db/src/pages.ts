@@ -101,9 +101,11 @@ export async function getPageForUser(id: string, userId: string): Promise<PageRe
 	return row ? toRecord(row as PageRow) : null;
 }
 
-/** Páginas do bot (mais recentes primeiro), só do dono. */
-export async function listBotPagesForUser(userId: string, botId: string, limit = PAGE_LIST_LIMIT): Promise<PageListItem[]> {
-	if (ownerIds(userId).length === 0) return [];
+/** Páginas do bot (mais recentes primeiro), só do dono. `null` se o bot não é do usuário (a rota responde 404). */
+export async function listBotPagesForUser(userId: string, botId: string, limit = PAGE_LIST_LIMIT): Promise<PageListItem[] | null> {
+	if (ownerIds(userId).length === 0) return null;
+	const bot = await prisma.bot.findFirst({ where: { id: botId, ownerId: userId }, select: { id: true } });
+	if (!bot) return null;
 	const rows = await prisma.page.findMany({
 		where: { userId, botId, deletedAt: null },
 		orderBy: { updatedAt: "desc" },

@@ -29,6 +29,10 @@ const {
 	updateRoutine,
 	getLastCompletedRoutineRunAt,
 	getSkillDetail,
+	getPageForUser,
+	listBotPagesForUser,
+	updatePage,
+	deletePage,
 } = await import("@workspace/db");
 
 const USER_A = "user-a-ficticio";
@@ -405,5 +409,62 @@ test("skills: B recebe null em skill de A; 'default' não é de ninguém", { ski
 		assert.equal(await getSkillDetail(USER_A, "bot-a", "skill-missing"), null);
 	} finally {
 		prisma.skill.findFirst = original;
+	}
+});
+
+test("pages: B não lê, lista, atualiza nem apaga página de A; 'default' não é de ninguém", { skip: SKIP_WITHOUT_DB }, async () => {
+	type PageRow = { id: string; userId: string; botId: string; deletedAt: Date | null };
+	const rows: PageRow[] = [
+		{ id: "page-a", userId: USER_A, botId: "bot-a", deletedAt: null },
+		{ id: "page-legacy", userId: "default", botId: "bot-a", deletedAt: null },
+	];
+	const wheres: Array<Record<string, unknown>> = [];
+	const matchRow = (row: PageRow, where: Record<string, unknown>) => row.id === (where.id ?? row.id) && row.userId === where.userId && row.deletedAt === (where.deletedAt ?? null);
+	const originalFind = stub(
+		prisma.page,
+		"findFirst",
+		(async (args: unknown) => {
+			const where = (args as { where: Record<string, unknown> }).where;
+			wheres.push(where);
+			const row = rows.find((candidate) => matchRow(candidate, where));
+			return row ? { ...row, conversationId: null, title: "T", specJson: { v: 1, title: "T", blocks: [{ id: "h", type: "heading", text: "x" }] }, sourcesJson: [], revision: 1, refreshedAt: null, createdAt: now(), updatedAt: now() } : null;
+		}) as unknown as typeof prisma.page.findFirst,
+	);
+	const originalUpdateMany = stub(
+		prisma.page,
+		"updateMany",
+		(async (args: unknown) => {
+			const where = (args as { where: Record<string, unknown> }).where;
+			wheres.push(where);
+			const found = rows.filter((candidate) => matchRow(candidate, where));
+			for (const row of found) row.deletedAt = now();
+			return { count: found.length };
+		}) as unknown as typeof prisma.page.updateMany,
+	);
+	const originalBot = stub(
+		prisma.bot,
+		"findFirst",
+		(async (args: unknown) => {
+			const where = (args as { where: { id: string; ownerId: string } }).where;
+			return where.id === "bot-a" && where.ownerId === USER_A ? { id: "bot-a" } : null;
+		}) as unknown as typeof prisma.bot.findFirst,
+	);
+	const originalTransaction = stub(prisma, "$transaction", (async (fn: (tx: unknown) => unknown) => fn(prisma)) as unknown as typeof prisma.$transaction);
+	try {
+		assert.ok(await getPageForUser("page-a", USER_A));
+		assert.equal(await getPageForUser("page-a", USER_B), null);
+		assert.equal(await getPageForUser("page-legacy", USER_B), null);
+		assert.equal(await getPageForUser("page-legacy", "default"), null);
+		assert.equal(await listBotPagesForUser(USER_B, "bot-a"), null);
+		assert.deepEqual(await updatePage("page-a", USER_B, { spec: { v: 1, title: "hack", blocks: [] } }), { ok: false, error: "not_found" });
+		assert.equal(await deletePage("page-a", USER_B), false);
+		assert.equal(rows[0]!.deletedAt, null);
+		assert.ok(wheres.length > 0 && wheres.every((where) => typeof where.userId === "string"), "toda query filtra pelo dono");
+		assert.equal(await deletePage("page-a", USER_A), true);
+	} finally {
+		prisma.page.findFirst = originalFind;
+		prisma.page.updateMany = originalUpdateMany;
+		prisma.bot.findFirst = originalBot;
+		prisma.$transaction = originalTransaction;
 	}
 });
