@@ -50,3 +50,28 @@ test("ledger herdado: só do dono, só da conversa, sem o run atual, só com ite
 		agentRun.findMany = original;
 	}
 });
+
+test("ledger limpo no run mais recente não ressuscita o de um run mais antigo", async () => {
+	const cleared = { taskState: { v: 1, objective: { text: "x", version: 1 } } };
+	const rows: Row[] = [
+		{ id: "r1", userId: "user-a", conversationId: "conv-1", createdAt: new Date(1), checkpointJson: ledger(["1", "pending"], ["2", "pending"]) },
+		{ id: "r2", userId: "user-a", conversationId: "conv-1", createdAt: new Date(2), checkpointJson: cleared },
+		// sem estado de tarefa (checkpoint antigo): não decide, o run anterior vale
+		{ id: "r3", userId: "user-a", conversationId: "conv-2", createdAt: new Date(1), checkpointJson: ledger(["1", "pending"]) },
+		{ id: "r4", userId: "user-a", conversationId: "conv-2", createdAt: new Date(2), checkpointJson: { messages: [] } },
+	];
+	const agentRun = prisma.agentRun as unknown as Record<string, unknown>;
+	const original = agentRun.findMany;
+	agentRun.findMany = async ({ where, take }: { where: { conversationId: string; userId: { in: string[] } }; take: number }) =>
+		rows
+			.filter((row) => row.conversationId === where.conversationId && where.userId.in.includes(row.userId))
+			.sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime())
+			.slice(0, take)
+			.map((row) => ({ checkpointJson: row.checkpointJson }));
+	try {
+		assert.equal(await getConversationTaskLedger("user-a", "conv-1"), null);
+		assert.deepEqual((await getConversationTaskLedger("user-a", "conv-2"))?.items.map((entry) => entry.id), ["1"]);
+	} finally {
+		agentRun.findMany = original;
+	}
+});

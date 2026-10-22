@@ -2284,8 +2284,8 @@ export async function getRunTranscript(userId: string, conversationId: string, r
 
 /**
  * Ledger de itens (V3) do run mais recente da MESMA conversa e do mesmo dono
- * que declarou itens. Só volta se ainda houver item aberto: tarefa concluída
- * não é herdada. O dono vem da sessão do run (nunca do modelo). O runtime
+ * que tem estado de tarefa. Só volta se ainda houver item aberto: tarefa concluída
+ * ou limpa não é herdada. O dono vem da sessão do run (nunca do modelo). O runtime
  * oferece o ledger ao modelo; ele só vale depois de adotado.
  */
 export async function getConversationTaskLedger(
@@ -2308,8 +2308,12 @@ export async function getConversationTaskLedger(
 	for (const row of rows) {
 		const raw = row.checkpointJson;
 		if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-		const ledger = parseTaskLedger((raw as { taskState?: { ledger?: unknown } }).taskState?.ledger);
-		if (!ledger || ledger.items.length === 0) continue;
+		const taskState = (raw as { taskState?: { ledger?: unknown } }).taskState;
+		if (!taskState) continue;
+		const ledger = parseTaskLedger(taskState.ledger);
+		// O run mais recente com estado de tarefa decide (como em getConversationTaskList): sem ledger nele,
+		// a lista foi limpa (`track_items clear`) e o ledger de um run mais antigo não pode voltar.
+		if (!ledger || ledger.items.length === 0) return null;
 		return openItems(ledger).length > 0 ? ledger : null;
 	}
 	return null;
