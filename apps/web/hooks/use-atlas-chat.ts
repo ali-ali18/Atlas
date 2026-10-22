@@ -422,6 +422,7 @@ function buildSessionMessage(message: SessionMessage): Message | null {
 		|| (message.role as string) === "images"
 		|| (message.role as string) === "code-run"
 		|| (message.role as string) === "chart"
+		|| (message.role as string) === "page"
 		|| (message.role as string) === "task-list"
 		|| (message.role as string) === "compaction"
 	) {
