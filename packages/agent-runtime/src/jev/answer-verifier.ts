@@ -68,7 +68,9 @@ export async function verifyDraftAnswer(input: {
 }): Promise<string[] | null> {
 	const mode = jevModeFor(input.rt, "verify");
 	if (mode === "off" || !input.draft.trim()) return null;
-	const evidence = collectEvidence(input.conversation, input.statusOf);
+	// Evidência só deste turno: resultados de tools de turnos anteriores não contam contra o rascunho.
+	const lastUser = input.conversation.map((message) => message.role).lastIndexOf("user");
+	const evidence = collectEvidence(input.conversation.slice(lastUser + 1), input.statusOf);
 	if (evidence.length === 0) return null;
 	const result = await decideWithJev({
 		rt: input.rt,
