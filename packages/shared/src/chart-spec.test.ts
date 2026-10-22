@@ -14,6 +14,25 @@ const base = {
 	unit: "brl",
 };
 
+describe("parseChartSpec: orientation e campos desconhecidos", () => {
+	const bar = { ...base, type: "bar", x: "mes" };
+
+	it("orientation horizontal passa em bar e vem no spec; ausente fica ausente", () => {
+		const parsed = parseChartSpec({ ...bar, orientation: "horizontal" });
+		expect(parsed.ok && parsed.spec.orientation).toBe("horizontal");
+		const auto = parseChartSpec(bar);
+		expect(auto.ok && "orientation" in auto.spec).toBe(false);
+	});
+
+	it("orientation inválida ou fora de bar falha com mensagem para o modelo", () => {
+		const invalid = parseChartSpec({ ...bar, orientation: "diagonal" });
+		expect(invalid.ok ? "" : invalid.error).toMatch(/orientation must be one of: vertical, horizontal/);
+		const wrongType = parseChartSpec({ ...base, orientation: "horizontal" });
+		expect(wrongType.ok ? "" : wrongType.error).toMatch(/only used with type "bar"/);
+	});
+
+});
+
 describe("parseChartSpec", () => {
 	it("aceita o spec válido, normaliza a moeda e detecta datas", () => {
 		const parsed = parseChartSpec(base);

@@ -36,7 +36,7 @@ export const PAGE_TOOL_NAMES: readonly string[] = [PAGE_CREATE_TOOL_NAME, PAGE_U
 const NODE_GRAMMAR =
 	"A page is a TREE of ready-made components that you compose freely: `root` is one node {type, id?, props?, children?}; ids are generated when missing and stay stable for page_update. " +
 	"Layout: section{title?,description?} · grid{cols:1-4,gap?} (1 col on phones; `span` on a child = columns it takes) · stack{direction?,gap?} · card{title?,variant?,tone?} · tabs{tabs:[{id,label}]} with one {type:\"tab\",props:{tab:id}} child per tab · divider. " +
-	"Data: stat{label,value,unit?,format?,delta?:{value,kind?:percent|absolute,direction:up|down|flat,label?},size?,tone?} · chart{spec} (same spec as the chart tool: line|area|bar|pie|composed|radar|funnel|gauge, reference for a goal, forecast) · " +
+	"Data: stat{label,value,unit?,format?,delta?:{value,kind?:percent|absolute,direction:up|down|flat,label?},size?,tone?} · chart{spec} (same spec as the chart tool: line|area|bar|pie|composed|radar|funnel|gauge, reference for a goal, forecast; bar accepts orientation:\"horizontal\" for horizontal bars, unknown fields are rejected) · " +
 	"bar_list{items:[{label,value,display?}],unit?} · table{columns:[{key,label,align?,format?,unit?}],rows,variant?} · progress{label,value,max} for a goal · badge{text,tone} · callout{title?,text,tone:info|success|warning|critical} · " +
 	"timeline{items:[{date,title,text?,tone?}]} · kanban{columns:[{title,items:[{title,subtitle?,badge?}]}]} · list{items:[{title,subtitle?,value?,tone?}]} · text{markdown} · heading{text,level?}. " +
 	"tone = neutral|positive|warning|critical|accent. Colors come only from the palette and tones: never write hex colors on components. " +

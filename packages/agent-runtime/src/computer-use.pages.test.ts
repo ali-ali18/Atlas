@@ -134,6 +134,9 @@ describe("grupo pages", () => {
 		const description = create.function.description!;
 		for (const word of ["grid", "tabs", "stat", "chart", "kanban", "timeline", "progress", "callout", "tone", "120 nodes"]) expect(description, word).toContain(word);
 		expect(JSON.stringify(create.function.parameters)).toContain("grove");
+		// barras horizontais: o modelo sabe que existe `orientation` (e que campo desconhecido é recusado)
+		expect(description).toContain('orientation:"horizontal"');
+		expect(assembleSystemPrompt(new Set(["code"]))).toMatch(/"orientation":"horizontal"/);
 		expect((create.function.parameters as { required: string[] }).required).toEqual(["title", "root"]);
 		const update = PAGE_TOOLS.find((tool) => tool.function.name === "page_update")!;
 		expect(JSON.stringify(update.function.parameters)).toContain("append_child");

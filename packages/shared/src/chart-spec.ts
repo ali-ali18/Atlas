@@ -22,6 +22,9 @@ export const CHART_MAX_FORECAST_POINTS = 24;
 /** Tipos que desenham um único valor por linha (a primeira série): fatias, etapas ou o ponteiro. */
 const SINGLE_SERIES_TYPES: readonly string[] = ["pie", "funnel", "gauge"];
 export const CHART_MAX_JSON_CHARS = 120_000;
+export const CHART_ORIENTATIONS = ["vertical", "horizontal"] as const;
+export type ChartOrientation = (typeof CHART_ORIENTATIONS)[number];
+
 export const CHART_FORMATS = ["number", "compact", "percent"] as const;
 export type ChartFormat = (typeof CHART_FORMATS)[number];
 
@@ -64,6 +67,8 @@ export type ChartSpec = {
 	format?: ChartFormat;
 	/** Barras/áreas empilhadas (ignorado em linha e pizza). */
 	stacked?: boolean;
+	/** Só em `bar`: `horizontal` força barras deitadas (categorias à esquerda); ausente = automático (deitadas só se os rótulos não couberem). */
+	orientation?: ChartOrientation;
 	/** Meta/faixa de referência (linha, área, barras, composto). */
 	reference?: ChartReference;
 	/** Projeção tracejada da primeira série por tendência (linha/área com datas). */
@@ -192,6 +197,15 @@ export function parseChartSpec(input: unknown): ChartSpecParse {
 		return fail(`gauge value exceeds max (${max ?? 100}); set max to the full-scale value`);
 	}
 
+	let orientation: ChartOrientation | undefined;
+	if (row.orientation !== undefined && row.orientation !== null) {
+		if (type !== "bar") return fail('orientation is only used with type "bar"');
+		if (typeof row.orientation !== "string" || !(CHART_ORIENTATIONS as readonly string[]).includes(row.orientation)) {
+			return fail(`orientation must be one of: ${CHART_ORIENTATIONS.join(", ")}`);
+		}
+		orientation = row.orientation as ChartOrientation;
+	}
+
 	let reference: ChartReference | undefined;
 	if (row.reference !== undefined && row.reference !== null) {
 		if (!["line", "area", "bar", "composed"].includes(type)) return fail("reference is only available for line, area, bar and composed charts");
@@ -258,6 +272,7 @@ export function parseChartSpec(input: unknown): ChartSpecParse {
 			...(palette ? { palette } : {}),
 			...(colors ? { colors } : {}),
 			...(row.stacked === true && (type === "bar" || type === "area") ? { stacked: true } : {}),
+			...(orientation ? { orientation } : {}),
 			xKind,
 		},
 	};

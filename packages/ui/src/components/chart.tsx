@@ -450,7 +450,7 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
 
   // Rótulos que não cabem: nomes longos viram barras horizontais (categorias à esquerda); datas e nomes curtos ficam na vertical com rótulos afinados.
   const categoryLabels = React.useMemo(() => data.map((row) => String(row.__label)), [data])
-  const horizontal = shouldUseHorizontalBars(categoryLabels, plotWidth - margin.left - margin.right)
+  const horizontal = spec.orientation === "horizontal" || shouldUseHorizontalBars(categoryLabels, plotWidth - margin.left - margin.right)
   const rowHeight = Math.max(260, spec.data.length * (spec.series.length > 1 ? 14 * spec.series.length + 14 : 34) + 24)
   return (
     <div style={horizontal ? { height: rowHeight } : undefined}>

@@ -18,6 +18,15 @@ const monthly = {
   unit: "BRL",
 }
 
+describe("Chart: orientation das barras", () => {
+  it("horizontal força as barras deitadas mesmo com rótulos curtos; sem orientation fica na vertical", () => {
+    const auto = renderToStaticMarkup(<Chart spec={spec({ ...monthly, type: "bar" })} />)
+    const forced = renderToStaticMarkup(<Chart spec={spec({ ...monthly, type: "bar", orientation: "horizontal" })} />)
+    expect(auto).not.toMatch(/style="height:\d+px"/)
+    expect(forced).toMatch(/style="height:\d+px"/)
+  })
+})
+
 describe("Chart: cada tipo renderiza com dados", () => {
   for (const type of ["line", "bar", "area"] as const) {
     it(`${type}: moldura, título, botão de CSV e legenda das séries`, () => {
