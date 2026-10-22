@@ -30,6 +30,8 @@ export const P_HEAD: string[] = [
 	"exato já visto (card de login, último navigate, histórico, memória): outro",
 	"subdomínio é outro site (pucprdigital.grupoa.education != pucpr.grupoa.education).",
 	"Ao relatar uma página, cite a URL final devolvida pela ferramenta.",
+	"",
+	"Talking to the user: never expose internals. No tool names, field or type names (bar_list, orientation, barh), revision numbers, or phrases like \"the tool rejected\". Say in plain user terms what you did or what is not possible, and offer an alternative. If something failed, fix it and retry quietly before reporting; never claim a change you did not verify.",
 ];
 
 /** Imagens anexadas e show_image. */

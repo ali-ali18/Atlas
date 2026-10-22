@@ -18,9 +18,9 @@ const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 describe("prompt em blocos (L5)", () => {
 	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(19_030);
+		expect(legacy.length).toBe(19_390);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"abf824b3e55a1555dff3c573ef6746039664a839786833bb7014920f74299bea",
+			"1fa404e4505dd8ea0b363c40830408555e562f3c2ee2c1cdf3c9ac9df09068db",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
 	});
@@ -129,5 +129,12 @@ describe("prompt em blocos (L5)", () => {
 	it("mesmos grupos, mesmos bytes (determinístico)", () => {
 		const groups = new Set<ContextGroup>(["files", "routines"]);
 		expect(assembleSystemPrompt(groups)).toBe(assembleSystemPrompt(new Set<ContextGroup>(["routines", "files"])));
+	});
+
+	it("regra de núcleo: nunca expor internals (tools, campos, revisões) ao usuário", () => {
+		const prompt = assembleSystemPrompt(none);
+		expect(prompt).toMatch(/never expose internals/);
+		expect(prompt).toMatch(/No tool names, field or type names \(bar_list, orientation, barh\), revision numbers/);
+		expect(prompt).toMatch(/offer an alternative/);
 	});
 });
