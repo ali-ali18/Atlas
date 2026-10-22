@@ -13,7 +13,7 @@ import {
 import { Trash2Icon } from "lucide-react";
 import { listenForCustomMcp, listenForMarketplace, type CustomMcpDraft } from "@/lib/open-marketplace";
 import { reduceAgentPointer, type AgentPointerState } from "@/lib/agent-pointer";
-import { SandboxViewerDialog } from "./sandbox-viewer-dialog";
+import { SandboxViewerDialog, viewerUrlIdentity } from "./sandbox-viewer-dialog";
 
 import type {
 	Bot,
@@ -495,7 +495,7 @@ export function Template4Client({
 								const current = previous[conversationId];
 								if (
 									current?.sessionId === session.sessionId &&
-									current.viewerUrl === session.viewerUrl
+									viewerUrlIdentity(current.viewerUrl) === viewerUrlIdentity(session.viewerUrl)
 								)
 									return previous;
 								return {
@@ -2497,8 +2497,6 @@ export function Template4Client({
 						<SandboxViewerDialog
 							agentPointer={agentPointer}
 							botColor={active?.color}
-							botId={active?.id}
-							botShape={active?.shape}
 							botName={active?.name ?? "bot"}
 							onClose={closeSandboxViewer}
 							onFinish={

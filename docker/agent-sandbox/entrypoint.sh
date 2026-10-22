@@ -109,12 +109,24 @@ if ! curl -sf "http://127.0.0.1:9222/json/version" >/dev/null 2>&1; then
 	echo "[entrypoint] WARNING: Chrome CDP not ready after 20s — continuing without it" >&2
 fi
 
+# Sem sino: o X bell (Chrome/xfwm4) chegava ao noVNC como RFB Bell e tocava um bip.
+xset -display "${DISPLAY}" b off 2>/dev/null || true
+
 echo "[entrypoint] Starting x11vnc"
-/usr/bin/x11vnc -display "${DISPLAY}" -forever -shared -rfbport 5900 -nopw -localhost &
+# -nobell: não repassa o sino do X ao cliente. Em loop: se o x11vnc cair, o
+# websockify ficaria recusando e o noVNC em "Reconectando" para sempre.
+(
+	while true; do
+		/usr/bin/x11vnc -display "${DISPLAY}" -forever -shared -rfbport 5900 -nopw -localhost -nobell || true
+		sleep 1
+	done
+) &
 sleep 1
 
 # noVNC: HTTP por padrão; com SANDBOX_TLS=true gera cert self-signed e usa WSS.
-WEBSOCKIFY_ARGS=(--web /usr/share/novnc 6080 localhost:5900)
+# --heartbeat: ping WebSocket a cada 20 s; tela parada não gera tráfego e proxies
+# (Cloudflare/nginx) derrubam conexões ociosas, o que disparava o "Reconectando".
+WEBSOCKIFY_ARGS=(--heartbeat 20 --web /usr/share/novnc 6080 localhost:5900)
 if [[ "${SANDBOX_TLS:-false}" == "true" || "${SANDBOX_TLS:-false}" == "1" ]]; then
 	CERT_DIR=/etc/atlas-sandbox
 	mkdir -p "$CERT_DIR"
@@ -123,7 +135,7 @@ if [[ "${SANDBOX_TLS:-false}" == "true" || "${SANDBOX_TLS:-false}" == "1" ]]; th
 			-keyout "$CERT_DIR/key.pem" -out "$CERT_DIR/cert.pem" \
 			-subj "/CN=atlas-sandbox" >/dev/null 2>&1
 	fi
-	WEBSOCKIFY_ARGS=(--web /usr/share/novnc --cert "$CERT_DIR/cert.pem" --key "$CERT_DIR/key.pem" 6080 localhost:5900)
+	WEBSOCKIFY_ARGS=(--heartbeat 20 --web /usr/share/novnc --cert "$CERT_DIR/cert.pem" --key "$CERT_DIR/key.pem" 6080 localhost:5900)
 	echo "[entrypoint] noVNC TLS enabled (self-signed) — use viewerHost https://"
 fi
 
