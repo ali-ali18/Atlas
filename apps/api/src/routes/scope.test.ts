@@ -456,7 +456,7 @@ test("pages: B não lê, lista, atualiza nem apaga página de A; 'default' não 
 		assert.equal(await getPageForUser("page-legacy", USER_B), null);
 		assert.equal(await getPageForUser("page-legacy", "default"), null);
 		assert.equal(await listBotPagesForUser(USER_B, "bot-a"), null);
-		assert.deepEqual(await updatePage("page-a", USER_B, { spec: { v: 1, title: "hack", blocks: [] } }), { ok: false, error: "not_found" });
+		assert.deepEqual(await updatePage("page-a", USER_B, { spec: { v: 2, title: "hack", root: { id: "root", type: "divider", props: {} } } }), { ok: false, error: "not_found" });
 		assert.equal(await deletePage("page-a", USER_B), false);
 		assert.equal(rows[0]!.deletedAt, null);
 		assert.ok(wheres.length > 0 && wheres.every((where) => typeof where.userId === "string"), "toda query filtra pelo dono");
