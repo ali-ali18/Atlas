@@ -88,7 +88,8 @@ export function parseUsersInput(value: string): string[] | undefined {
 /** Registro do servidor -> rotina da UI; marca as que o bot criou sozinho (modo proativo). */
 export function recordToUiRoutine(record: RoutineRecord): Routine {
 	const base = recordToUiRoutineBase(record);
-	const routine = record.groupId ? { ...base, groupId: record.groupId } : base;
+	const withGroup = record.groupId ? { ...base, groupId: record.groupId } : base;
+	const routine = record.pageId ? { ...withGroup, pageId: record.pageId } : withGroup;
 	return record.createdBy === "bot" ? { ...routine, createdBy: "bot" } : routine;
 }
 
@@ -443,6 +444,21 @@ export function routineTriggerRows(routine: Routine): RoutineTriggerRow[] {
 			),
 		},
 	];
+}
+
+/**
+ * Linha única de agendamento do cartão "Rotina criada" no chat, a partir do `detail` que o agente persistiu
+ * ("Cron: 0 8 * * 1 (fuso)", "A cada 50 min…", "Uma vez · …"). Webhook/GitHub e texto desconhecido: nada.
+ */
+export function routineCardSummary(triggerType: Routine["triggerKind"] | undefined, detail: string | undefined): string | null {
+	const first = detail?.split("\n")[0]?.trim();
+	if (!first) return null;
+	if (triggerType === "cron") {
+		const cron = /^Cron:\s+((?:\S+\s+){4}\S+)/.exec(first)?.[1];
+		return cron ? capitalizeFirst(scheduleLabel(toScheduleState(cronToScheduleInput(cron)))) : null;
+	}
+	if (triggerType === "interval" || triggerType === "once") return capitalizeFirst(first);
+	return null;
 }
 
 /** Resumo curto de quando a rotina roda ("Dias úteis às 18:02", "Webhook", "GitHub · org/repo"). */

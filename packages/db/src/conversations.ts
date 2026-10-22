@@ -29,6 +29,7 @@ import {
 	type PersistedQuestionnaireCard,
 	type PersistedJevStatusCard,
 	type PersistedSkillCard,
+	type PersistedPageCard,
 	type QuestionnaireCardItem,
 } from "@workspace/shared";
 import { prisma } from "./client.js";
@@ -306,6 +307,25 @@ function stripEventType(event: { type: string } & Record<string, unknown>): Reco
 	return rest;
 }
 
+/** Cartão de página: atualiza no lugar o existente (mesmo `pageId`) ou acrescenta um novo. */
+export async function upsertPageCard(conversationId: string, card: PersistedPageCard): Promise<void> {
+	const rows = await prisma.conversationMessage.findMany({
+		where: { conversationId, role: "page" },
+		orderBy: { createdAt: "desc" },
+		take: 100,
+		select: { id: true, content: true },
+	});
+	const existing = rows.find((row) => {
+		const current = parseConversationCard(row.content);
+		return current?.kind === "page" && current.pageId === card.pageId;
+	});
+	if (existing) {
+		await prisma.conversationMessage.update({ where: { id: existing.id }, data: { content: serializeConversationCard(card) } });
+		return;
+	}
+	await appendConversationCard(conversationId, card);
+}
+
 export async function persistConversationCardFromEvent(
 	conversationId: string | null | undefined,
 	event: ComputerUseEvent | { type: string } & Record<string, unknown>,
@@ -329,6 +349,12 @@ export async function persistConversationCardFromEvent(
 	if (event.type === "chart") {
 		const card = parseConversationCard(JSON.stringify({ v: 1, kind: "chart", ...stripEventType(event) }));
 		if (card?.kind === "chart") await appendConversationCard(conversationId, card);
+		return;
+	}
+	// Página viva: criar acrescenta; atualizar substitui o cartão do mesmo pageId na conversa (posição preservada).
+	if (event.type === "page") {
+		const card = parseConversationCard(JSON.stringify({ v: 1, kind: "page", ...stripEventType(event) }));
+		if (card?.kind === "page") await upsertPageCard(conversationId, card);
 		return;
 	}
 	if (event.type === "skill") {

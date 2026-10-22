@@ -16,7 +16,11 @@ const params = (model: string): CompleteChatWithToolsParams => ({
 	messages: [{ role: "user", content: "oi" }],
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+	vi.unstubAllGlobals();
+	// vitest 4: spyOn em método já espionado reaproveita o mock (e as chamadas anteriores).
+	vi.restoreAllMocks();
+});
 
 describe("roteamento por família do OpenCode Go", () => {
 	it("usa a tabela de prefixos da documentação", () => {

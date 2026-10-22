@@ -87,6 +87,7 @@ describe("isSummaryFreshSnapshot", () => {
 			"confirm",
 			"file",
 			"login",
+			"page",
 			"provider-fallback",
 			"questionnaire",
 			"routine",

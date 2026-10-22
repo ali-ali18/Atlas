@@ -1,8 +1,12 @@
 "use client";
 
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { useChartStable, useYScale } from "./chart-context";
+import {
+  useChartPortalContainer,
+  useChartStable,
+  useYScale,
+} from "./chart-context";
 import { DEFAULT_Y_DOMAIN_TWEEN_MS } from "./chart-phase";
 import { LINE_LOADING_PULSE_EASE } from "./line-loading-timing";
 import { resolveReferenceDataRange } from "./reference-area-geometry";
@@ -29,6 +33,8 @@ export interface YAxisProps {
   formatLargeNumbers?: boolean;
   /** Custom formatter for tick labels (e.g. USD). Overrides formatLargeNumbers when set. */
   formatValue?: (value: number) => string;
+  /** Distância em px entre os rótulos e o gráfico. Default: 8. Maior com barras na borda (composto). */
+  labelPadding?: number;
 }
 
 function formatLabel(
@@ -76,14 +82,9 @@ function resolveTickLabelColor(
 
 export function YAxis(props: YAxisProps) {
   const { containerRef } = useChartStable();
-  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const container = containerRef.current;
-  if (!(mounted && container)) {
+  const container = useChartPortalContainer(containerRef);
+  if (!container) {
     return null;
   }
 
@@ -96,6 +97,7 @@ const YAxisInner = memo(function YAxisInner({
   numTicks = Y_AXIS_DEFAULT_TICK_COUNT,
   formatLargeNumbers = true,
   formatValue,
+  labelPadding = 8,
   container,
 }: YAxisProps & { container: HTMLDivElement }) {
   const { margin, referenceAreas } = useChartStable();
@@ -148,8 +150,8 @@ const YAxisInner = memo(function YAxisInner({
               transform: "translateY(-50%)",
               transition: `top ${Y_AXIS_POSITION_TWEEN_MS}ms cubic-bezier(${LINE_LOADING_PULSE_EASE.join(", ")})`,
               ...(isLeft
-                ? { right: 0, justifyContent: "flex-end", paddingRight: 8 }
-                : { left: 0, justifyContent: "flex-start", paddingLeft: 8 }),
+                ? { right: 0, justifyContent: "flex-end", paddingRight: labelPadding }
+                : { left: 0, justifyContent: "flex-start", paddingLeft: labelPadding }),
             }}
           >
             <span

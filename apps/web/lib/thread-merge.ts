@@ -1,4 +1,4 @@
-import { mergeSubagentTasks, type SubagentTaskView } from "@workspace/shared";
+import { mergeSubagentTasks, type ComputerUseEvent, type SubagentTaskView } from "@workspace/shared";
 import type { Message } from "@/components/ui/templates/template-4/data";
 import { insertDevSessionCards } from "@/lib/dev-session/cards";
 import { collapseSkillProposalCards } from "@/lib/skill-proposal-message";
@@ -40,6 +40,8 @@ function cardDedupeKey(message: Message): string | null {
 	// Cartão ao vivo (id da chamada) e o gravado (id do banco) colapsam.
 	if (message.kind === "code-run" && message.callId) return `code-run|${message.callId}`;
 	if (message.kind === "chart") return `chart|${message.chartId}`;
+	// Uma página, um cartão: o colapso por pageId (collapsePageCards) escolhe a revisão; a chave só evita vizinhos iguais.
+	if (message.kind === "page") return `page|${message.pageId}|${message.revision}`;
 	// Um cartão por run: o ao vivo (id do run) e o gravado (id do banco) colapsam.
 	if (message.kind === "task-list") return `task-list|${message.runId}`;
 	// O ao vivo usa o id do cartão gravado: os dois colapsam num só.
@@ -83,6 +85,58 @@ function collapseSubagentGroups(messages: Message[]): Message[] {
 		);
 		return [{ ...message, tasks }];
 	});
+}
+
+type PageMessage = Extract<Message, { kind: "page" }>;
+
+/**
+ * Uma página (`pageId`) tem UM cartão na conversa, sempre na revisão mais nova: a atualização troca o conteúdo
+ * no lugar, não vira mensagem nova. O cartão gravado (id do banco) segura a posição; o ao vivo (`page-live-…`)
+ * só empresta a revisão se for mais nova.
+ */
+function collapsePageCards(messages: Message[]): Message[] {
+	const groups = new Map<string, PageMessage[]>();
+	for (const message of messages) {
+		if (message.kind !== "page") continue;
+		groups.set(message.pageId, [...(groups.get(message.pageId) ?? []), message]);
+	}
+	if ([...groups.values()].every((cards) => cards.length === 1)) return messages;
+	const isLive = (id: string) => id.startsWith("page-live-");
+	return messages.flatMap((message): Message[] => {
+		if (message.kind !== "page") return [message];
+		const cards = groups.get(message.pageId) ?? [message];
+		if (cards.length === 1) return [message];
+		const keeper = cards.find((card) => !isLive(card.id)) ?? cards[0]!;
+		if (message !== keeper) return [];
+		const newest = cards.reduce((best, card) => (card.revision > best.revision ? card : best), keeper);
+		return [{ ...newest, id: keeper.id }];
+	});
+}
+
+/**
+ * Evento ao vivo de página: se o cartão do mesmo `pageId` já está na tela, ele é atualizado no lugar (revisão
+ * mais nova vence); senão entra depois do turno atual. `insert` cria a posição do cartão novo.
+ */
+export function applyPageEvent(
+	previous: Message[],
+	event: Extract<ComputerUseEvent, { type: "page" }>,
+	insert: (message: Message) => Message[],
+): Message[] {
+	const next: PageMessage = {
+		id: `page-live-${event.pageId}`,
+		kind: "page",
+		pageId: event.pageId,
+		revision: event.revision,
+		title: event.title,
+		action: event.action,
+		spec: event.spec,
+		sourceCount: event.sourceCount,
+	};
+	const index = previous.findIndex((message) => message.kind === "page" && message.pageId === event.pageId);
+	if (index < 0) return dedupeCards(insert(next));
+	const current = previous[index] as PageMessage;
+	if (current.revision > event.revision) return previous;
+	return previous.map((message, i) => (i === index ? { ...next, id: current.id } : message));
 }
 
 /** Divisores "Contexto resumido" empilhados viram um só (o último); `mergedIds` guarda os ids juntados (contagem sem repetir). */
@@ -145,7 +199,7 @@ export function settleTurnCards(messages: Message[]): Message[] {
 
 /** Cards iguais consecutivos ou com o mesmo id aparecem uma vez; turnos diferentes ficam. */
 export function dedupeCards(input: Message[]): Message[] {
-	const messages = collapseContextSummaries(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input))))));
+	const messages = collapseContextSummaries(collapsePageCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input)))))));
 	const seenIds = new Set<string>();
 	const result: Message[] = [];
 	// Aviso de fallback repetido no mesmo turno (run retomado) aparece uma vez, mesmo não consecutivo.
@@ -297,6 +351,7 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 		message.kind !== "code-run" &&
 		message.kind !== "image-gen" &&
 		message.kind !== "chart" &&
+		message.kind !== "page" &&
 		message.kind !== "task-list" &&
 		message.kind !== "compaction" &&
 		message.kind !== "subagents" &&

@@ -14,7 +14,7 @@ import { buildStableSystemPrompt, buildSystemPrompt, swapLanguageInstruction } f
 import { namespaceToolCallId, renameProviderItemCallIds } from "./context/transcript.js";
 import { triageUserMessage, type TriageHistoryEntry } from "./loop/message-triage.js";
 import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } from "./loop/interrupt.js";
-import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE } from "./execution/task-state.js";
+import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
 import { parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
 import { alreadyLoadedSummary, findAlreadyLoadedTools } from "./execution/tool-search-guard.js";
@@ -338,6 +338,7 @@ import {
 } from "./tools/delegate-task.js";
 import { CREATE_FILE_TOOL, executeCreateFile, previewCreateFileArgs, type CreateFileDeps, type FileEvent } from "./tools/create-file.js";
 import { RUN_CODE_TOOL, executeRunCode, type RunCodeDeps } from "./tools/run-code.js";
+import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME, dbPagesStore, executePageTool, isPageTool, type PagesStore } from "./tools/pages.js";
 import {
 	availableWebFallbacks,
 	budgetUsedFraction,
@@ -1139,7 +1140,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "propose_routine",
 			description:
-				"Create (action create) or edit (action edit) a routine. Card only on create. Create: title=name, detail=prompt to run on each trigger, trigger_type cron|interval|once|event|github. cron: needs schedule (5 fields), fixed clock times. interval: needs every_minutes (5-1440), exact \"every N minutes/hours\" counted from the last run (use for \"every 50 min\", including GitHub monitoring). once (\"remind me on 03/10 at 10h\"): needs run_at (ISO 8601; no offset = America/Sao_Paulo), fires once and deletes itself; several times = one call per time. event: generic webhook (URL+secret). github: instant webhook, needs the `github` object (repo, events; use github_list_repos if the repo is not owner/name). The github trigger creates and manages the repository webhook AUTOMATICALLY (URL and secret are internal, using the user's GitHub from the Marketplace or Composio). NEVER create, edit or delete GitHub webhooks yourself via Composio or any other tool (e.g. GITHUB_CREATE_A_REPOSITORY_WEBHOOK): deliveries signed with any other secret are rejected. Never show secret or URL to assemble by hand. Webhook and interval can coexist for the same repo as two routines. Security review of a GitHub repo: set template=github_security_review and repo=owner/name (detail may be empty or hold an extra focus); combine with interval for periodic reviews. Edit: target=name or id (use the id if the message has '(id ...)'; never confuse with editing the bot profile); no card; trigger_type may change (switching to github needs repo+events, to once needs run_at, to interval needs every_minutes); enabled omitted keeps the current state. Use only when the user's latest message asks to schedule, monitor or change a recurring or timed job. Do not use when the user only thanks, praises or acknowledges (answer in one sentence instead), inside a routine run, or for a one-off task to do now. If a routine with the same name exists, edit instead of duplicating.",
+				"Create (action create) or edit (action edit) a routine. Card only on create. Create: title=name, detail=prompt to run on each trigger, trigger_type cron|interval|once|event|github. cron: needs schedule (5 fields), fixed clock times. interval: needs every_minutes (5-1440), exact \"every N minutes/hours\" counted from the last run (use for \"every 50 min\", including GitHub monitoring). once (\"remind me on 03/10 at 10h\"): needs run_at (ISO 8601; no offset = America/Sao_Paulo), fires once and deletes itself; several times = one call per time. event: generic webhook (URL+secret). github: instant webhook, needs the `github` object (repo, events; use github_list_repos if the repo is not owner/name). The github trigger creates and manages the repository webhook AUTOMATICALLY (URL and secret are internal, using the user's GitHub from the Marketplace or Composio). NEVER create, edit or delete GitHub webhooks yourself via Composio or any other tool (e.g. GITHUB_CREATE_A_REPOSITORY_WEBHOOK): deliveries signed with any other secret are rejected. Never show secret or URL to assemble by hand. Webhook and interval can coexist for the same repo as two routines. Security review of a GitHub repo: set template=github_security_review and repo=owner/name (detail may be empty or hold an extra focus); combine with interval for periodic reviews. Edit: target=name or id (use the id if the message has '(id ...)'; never confuse with editing the bot profile); no card; trigger_type may change (switching to github needs repo+events, to once needs run_at, to interval needs every_minutes); enabled omitted keeps the current state. Use only when the user's latest message asks to schedule, monitor or change a recurring or timed job. Do not use when the user only thanks, praises or acknowledges (answer in one sentence instead), inside a routine run, or for a one-off task to do now. If a routine with the same name exists, edit instead of duplicating. To keep a page up to date, pass page_id (from page_create or page_list) and write in detail how to rebuild it with fresh data (which sources to query, which sections to refresh); each run then updates that page in place instead of posting a new message.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -1208,6 +1209,11 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 						enum: ["always", "important"],
 						description:
 							"Aviso (push) ao fim de cada execução. always (padrão) = sempre avisa. important = a execução fica salva no chat sem aviso, e quem executa só avisa quando o resultado merece atenção agora. Use important para monitoramentos em que a maioria das execuções não traz nada novo. Em edit, omita para manter.",
+					},
+					page_id: {
+						type: "string",
+						description:
+							"Id of a page of this bot (from page_create or page_list) that each run refreshes in place via page_update. Omit unless the user wants a page kept up to date. In edit, an empty string detaches the page; omit to keep.",
 					},
 					group: {
 						type: "string",
@@ -1882,6 +1888,11 @@ type ToolContext = {
 	emitFile?: (event: FileEvent) => Promise<void>;
 	/** Entrega gráficos nativos do run_code (*.chart.json): persiste o cartão e emite o evento. */
 	emitChart?: (event: Extract<ComputerUseEvent, { type: "chart" }>) => Promise<void>;
+	/** Páginas vivas (`page_*`): acesso (injetável em teste) e entrega do cartão (persiste e emite o evento). */
+	pagesStore?: PagesStore;
+	/** Run de rotina ligada a uma página: `page_update` só vale nela (e marca `refreshedAt`). */
+	routinePageId?: string;
+	emitPage?: (event: Extract<ComputerUseEvent, { type: "page" }>) => Promise<void>;
 	/** Id da chamada de tool em execução (liga o cartão gravado do run_code ao cartão ao vivo). */
 	toolCallId?: string;
 	/** Dependências do `run_code` (teste; produção usa o executor Docker). */
@@ -2422,6 +2433,15 @@ async function executeProposeRoutine(
 	const scheduleRaw =
 		typeof args.schedule === "string" ? args.schedule.trim() : "";
 	let existingOnCreate: RoutineRecord | undefined;
+	// `page_id`: a página precisa ser deste bot e do usuário (o db confere de novo; aqui o erro já vem acionável).
+	const pageIdRaw = typeof args.page_id === "string" ? args.page_id.trim() : undefined;
+	if (pageIdRaw) {
+		const page = await (ctx.pagesStore ?? dbPagesStore).get(pageIdRaw, scope.userId);
+		if (!page || page.botId !== scope.botId) {
+			throw new Error(`page_id ${pageIdRaw} not found for this bot. Use page_list to see its pages, or create the page first with page_create.`);
+		}
+	}
+	const pageFields = (): { pageId?: string } => (pageIdRaw ? { pageId: pageIdRaw } : {});
 	// `group` (nome): reaproveita o grupo de mesmo nome ou cria; só resolve depois da validação do gatilho.
 	const groupName = typeof args.group === "string" ? args.group.trim() : "";
 	const groupFields = async (): Promise<{ groupId?: string }> => {
@@ -2457,6 +2477,7 @@ async function executeProposeRoutine(
 			const { routine } = await createRoutine(scope.userId, {
 				botId: scope.botId,
 				...(await groupFields()),
+				...pageFields(),
 				name: title,
 				prompt: detail,
 				triggerType: "cron",
@@ -2486,6 +2507,7 @@ async function executeProposeRoutine(
 			const { routine } = await createRoutine(scope.userId, {
 				botId: scope.botId,
 				...(await groupFields()),
+				...pageFields(),
 				name: title,
 				prompt: detail,
 				triggerType: "interval",
@@ -2517,6 +2539,7 @@ async function executeProposeRoutine(
 			const { routine } = await createRoutine(scope.userId, {
 				botId: scope.botId,
 				...(await groupFields()),
+				...pageFields(),
 				name: title,
 				prompt: detail,
 				triggerType: "once",
@@ -2549,6 +2572,7 @@ async function executeProposeRoutine(
 			const { routine } = await createRoutine(scope.userId, {
 				botId: scope.botId,
 				...(await groupFields()),
+				...pageFields(),
 				name: title,
 				prompt: detail,
 				triggerType: "event",
@@ -2587,6 +2611,7 @@ async function executeProposeRoutine(
 			const { routine, hookSecret } = await createRoutine(scope.userId, {
 				botId: scope.botId,
 				...(await groupFields()),
+				...pageFields(),
 				name: title,
 				prompt: detail,
 				triggerType: "event",
@@ -2642,6 +2667,10 @@ async function executeProposeRoutine(
 		// String vazia tira do grupo; nome reaproveita/cria.
 		const groupId = groupName ? (await findOrCreateRoutineGroup(scope.userId, scope.botId, groupName)).group.id : null;
 		await updateRoutine(scope.userId, scope.botId, previous.id, { groupId });
+	}
+	if (pageIdRaw !== undefined) {
+		// String vazia desliga; id válido liga (a página já foi conferida acima).
+		await updateRoutine(scope.userId, scope.botId, previous.id, { pageId: pageIdRaw || null });
 	}
 
 	if (triggerType === "once") {
@@ -3808,6 +3837,21 @@ async function executeToolInner(
 		case "track_items": {
 			return executeTrackItems(args, ctx);
 		}
+		case "page_create":
+		case "page_update":
+		case "page_read":
+		case "page_list": {
+			return executePageTool(name, args, {
+				userId: ctx.userId,
+				botId: ctx.botId,
+				conversationId: ctx.conversationId,
+				runId: ctx.runId,
+				store: ctx.pagesStore,
+				routinePageId: ctx.routinePageId,
+				researchNotes: ctx.researchNotes ? () => ctx.researchNotes!.snapshot() : undefined,
+				emitPage: ctx.emitPage,
+			});
+		}
 		case "create_file": {
 			// Partes intermediárias (more=true) só guardam texto: portão e verificação valem na parte final, com o arquivo inteiro.
 			if (args.more !== true) {
@@ -4423,6 +4467,10 @@ export async function runComputerUse(params: {
 	createFileDeps?: Partial<CreateFileDeps>;
 	/** Dependências do `run_code` (teste). */
 	runCodeDeps?: Partial<RunCodeDeps>;
+	/** Acesso às páginas vivas (padrão: db; injetável em teste). */
+	pagesStore?: PagesStore;
+	/** Run de rotina ligada a uma página: `page_update` só vale nela (e marca `refreshedAt`). */
+	routinePageId?: string;
 	maxSteps?: number;
 	/** Política de orçamento (soft/hard/wall/tokens/caps). */
 	budget?: AgentBudgetPolicy;
@@ -5135,6 +5183,15 @@ export async function runComputerUse(params: {
 	if (!isSubagent && (params.toolFilter?.(CREATE_FILE_TOOL.function.name) ?? true)) {
 		baseTools.push(CREATE_FILE_TOOL);
 	}
+	// Páginas vivas (relatório/painel inline): só o agente principal, em chat com humano e com dono real (grupo `pages`, adiado por intenção).
+	// Rotina ligada a uma página: só ler e atualizar (a página alvo; o executor trava as outras).
+	const routinePageTools = params.origin === "routine" && Boolean(params.routinePageId);
+	if (!isSubagent && (params.origin === "chat" || routinePageTools) && userId !== "default") {
+		for (const tool of PAGE_TOOLS) {
+			if (routinePageTools && tool.function.name !== PAGE_UPDATE_TOOL_NAME && tool.function.name !== PAGE_READ_TOOL_NAME) continue;
+			if (params.toolFilter?.(tool.function.name) ?? true) baseTools.push(tool);
+		}
+	}
 	// `run_code`: Python leve em container efêmero, sem a VM. Só no agente principal, com executor ligado.
 	if (!isSubagent && userId !== "default" && loadCodeRunnerConfig().enabled && (params.toolFilter?.(RUN_CODE_TOOL.function.name) ?? true)) {
 		baseTools.push(RUN_CODE_TOOL);
@@ -5223,6 +5280,7 @@ export async function runComputerUse(params: {
 				preloadBrowser: sandboxEnabled,
 				preloadVault: vaultLoginDomains.length > 0,
 				preloadEmail: params.origin === "email",
+				preloadPages: params.origin === "routine" && Boolean(params.routinePageId),
 				preloadApi: apiMentioned(params.apiConnector?.connections ?? [], economyRouterText({ origin: params.origin, objective: params.objective, messages: params.messages, lastUserMessage: lastUserMessageContent })),
 			})
 		: null;
@@ -5801,7 +5859,7 @@ export async function runComputerUse(params: {
 				loginAsked: [...loginAsked],
 				pendingLogin,
 				executionLedger: { ...(ledger?.snapshot() ?? parseLedgerState(undefined)), ...journal.snapshot() },
-				taskState: taskTracker.snapshot(),
+				taskState: taskTracker.persistable(),
 				objectiveRevisions,
 				triagedInputs,
 				pendingFollowUps,
@@ -6892,6 +6950,12 @@ export async function runComputerUse(params: {
 						await persistConversationCardFromEvent(conversationId, event).catch(() => undefined);
 						await onEvent(event);
 					},
+					pagesStore: params.pagesStore,
+					routinePageId: params.origin === "routine" ? params.routinePageId : undefined,
+					emitPage: isSubagent ? undefined : async (event) => {
+						await persistConversationCardFromEvent(conversationId, event).catch(() => undefined);
+						await onEvent(event);
+					},
 					canSeeImages: canSeeImages,
 					currentStep: () => decisionIndex,
 					listScreenshotArtifacts: () => {
@@ -7764,7 +7828,7 @@ ${blockHint}`;
 						conversation.push({ role: "assistant", content: text });
 						// O texto já foi em deltas ao chat; como o run segue, o balão é retirado (assistant_discard).
 						await onEvent({ type: "assistant_discard" });
-						conversation.push({ role: "system", content: gate.note });
+						conversation.push({ role: "system", content: withWithdrawnReply(gate.note) });
 						await persistCheckpoint(step + 1);
 						continue;
 					}
@@ -7851,7 +7915,7 @@ ${blockHint}`;
 						conversation.push({ role: "assistant", content: text });
 						// O texto já foi em deltas ao chat; como será refeito, o balão é retirado (assistant_discard).
 						await onEvent({ type: "assistant_discard" });
-						conversation.push({ role: "system", content: REGENERATE_FILE_NOTE });
+						conversation.push({ role: "system", content: withWithdrawnReply(REGENERATE_FILE_NOTE) });
 						await persistCheckpoint(step + 1);
 						continue;
 					}
@@ -7872,7 +7936,7 @@ ${blockHint}`;
 						conversation.push({ role: "assistant", content: text });
 						// O texto já foi em deltas ao chat; como será refeito, o balão é retirado (assistant_discard).
 						await onEvent({ type: "assistant_discard" });
-						conversation.push({ role: "system", content: verifierNote(issues) });
+						conversation.push({ role: "system", content: withWithdrawnReply(verifierNote(issues)) });
 						await persistCheckpoint(step + 1);
 						continue;
 					}

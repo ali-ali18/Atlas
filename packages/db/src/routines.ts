@@ -25,6 +25,7 @@ import {
 import { prisma } from "./client.js";
 import { ownerIds } from "./mcp-connections.js";
 import { assertGroupUsable } from "./routine-groups.js";
+import { assertPageUsable } from "./pages.js";
 
 const DEFAULT_TIMEZONE = "America/Sao_Paulo";
 const ACTIVE_RUN_STATUSES: RoutineRunStatus[] = ["queued", "running"];
@@ -271,6 +272,7 @@ function toRoutine(
 		conversationId: row.conversationId,
 		groupId: row.groupId ?? null,
 		group: row.group ? { id: row.group.id, name: row.group.name } : null,
+		pageId: row.pageId ?? null,
 		name: row.name,
 		prompt: row.prompt,
 		model: row.model,
@@ -668,6 +670,7 @@ export async function createRoutine(
 	const model =
 		input.model?.trim() || bot.openRouterModel?.trim() || "";
 	const groupId = input.groupId ? await assertGroupUsable(userId, input.botId, input.groupId) : null;
+	const pageId = input.pageId ? await assertPageUsable(userId, input.botId, input.pageId) : null;
 
 	const wantsGithub = input.trigger?.kind === "github";
 	const wantsOnce = !wantsGithub && input.trigger?.kind === "once";
@@ -740,6 +743,7 @@ export async function createRoutine(
 			botId: input.botId,
 			conversationId: bot.conversationId,
 			groupId,
+			pageId,
 			name: input.name.trim(),
 			prompt: input.prompt,
 			model,
@@ -780,6 +784,8 @@ export async function updateRoutine(
 		...(input.name !== undefined ? { name: input.name.trim() } : {}),
 		...(input.groupId === null ? { group: { disconnect: true } } : {}),
 		...(input.groupId ? { group: { connect: { id: await assertGroupUsable(userId, botId, input.groupId) } } } : {}),
+		...(input.pageId === null ? { page: { disconnect: true } } : {}),
+		...(input.pageId ? { page: { connect: { id: await assertPageUsable(userId, botId, input.pageId) } } } : {}),
 		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
 		...(input.model !== undefined ? { model: input.model.trim() } : {}),
 		...(input.allowChatgptPlan !== undefined ? { allowChatgptPlan: input.allowChatgptPlan } : {}),
@@ -1125,6 +1131,18 @@ export async function getRoutineNotifyModeForAgentRun(agentRunId: string): Promi
 		select: { routine: { select: { notify: true } } },
 	});
 	return parseRoutineNotifyMode(row?.routine?.notify);
+}
+
+/** Página que a rotina deste run atualiza no lugar (só se a rotina é do usuário; null = nenhuma). */
+export async function getRoutinePageIdForAgentRun(agentRunId: string, userId: string | undefined): Promise<string | null> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return null;
+	const row = await prisma.routineRun.findFirst({
+		where: { agentRunId, routine: { userId: { in: owners } } },
+		orderBy: { createdAt: "desc" },
+		select: { routine: { select: { pageId: true } } },
+	});
+	return row?.routine?.pageId ?? null;
 }
 
 export async function findRecentRoutineRunByIdempotency(

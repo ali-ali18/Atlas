@@ -18,7 +18,7 @@ export interface ChartLoadingLabelProps {
 }
 
 export function ChartLoadingLabel({
-  text = "Loading",
+  text = "Carregando",
   className,
   exiting = false,
 }: ChartLoadingLabelProps) {
@@ -46,7 +46,7 @@ export function ChartLoadingLabel({
       }}
     >
       <ShimmeringText
-        className="font-medium text-sm tracking-wide [--color:var(--muted-foreground)] [--shimmering-color:var(--foreground)]"
+        className="whitespace-nowrap font-medium text-sm tracking-normal [--color:var(--muted-foreground)] [--shimmering-color:var(--foreground)]"
         text={text}
       />
     </motion.div>

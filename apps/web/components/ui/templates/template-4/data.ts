@@ -1,5 +1,5 @@
 import { AVATAR_COLORS, eyeColorFor as engineEyeColorFor } from "@workspace/ui/lib/avatar/identity";
-import type { MessageSource, BotLanguage, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec } from "@workspace/shared";
+import type { MessageSource, BotLanguage, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec } from "@workspace/shared";
 import type { BotProfileProposal } from "@/components/ai-elements/confirm";
 
 export type BodyColor = {
@@ -213,6 +213,8 @@ export type Routine = {
 	id: string;
 	instruction: string;
 	name: string;
+	/** Página que cada execução atualiza no lugar (o agente liga; a UI só mostra). */
+	pageId?: string;
 	/** Id do modelo desta rotina. */
 	model: string;
 	allowChatgptPlan?: boolean;
@@ -453,6 +455,8 @@ type MessageVariant =
 	| { id: string; kind: "compaction"; before: number; after: number; summary: string; focus?: string }
 	/** Gráfico nativo (spec validado) gerado pelo run_code em *.chart.json. */
 	| { id: string; kind: "chart"; chartId: string; spec: ChartSpec; filename?: string }
+	/** Página viva (relatório/painel) inline; o mesmo `pageId` é atualizado no lugar (revision maior). */
+	| { id: string; kind: "page"; pageId: string; revision: number; title: string; action: "created" | "updated"; spec?: PageSpec; sourceCount: number }
 	| {
 			id: string;
 			kind: "routine";

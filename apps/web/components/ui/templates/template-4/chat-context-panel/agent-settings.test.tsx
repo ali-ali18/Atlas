@@ -39,9 +39,27 @@ test("Notificações: o switch carrega a descrição ao lado, visível", () => {
 	assert.match(render(bot({ notifications: false })), /aria-checked="false"/);
 });
 
-test("saíram das configurações: Descrição, Título, 'Bot principal' e o botão Salvar", () => {
+test("Sobre: a descrição do bot se edita nas configurações, com placeholder quando vazia", () => {
+	const empty = render(bot());
+	assert.match(empty, /data-about/);
+	assert.match(empty, />Sobre</);
+	assert.match(empty, /aria-label="Editar descrição do bot"/);
+	assert.match(empty, />Adicionar uma descrição</);
+	assert.ok(empty.indexOf('for="agent-title"') < empty.indexOf("data-about"), "Sobre vem depois do Rótulo");
+	const filled = render(bot({ description: "Cuida do financeiro" }));
+	assert.match(filled, />Cuida do financeiro</);
+	assert.doesNotMatch(filled, /Adicionar uma descrição/);
+});
+
+test("Sobre: descrição longa fica recolhida com 'Mostrar mais'", () => {
+	const html = render(bot({ description: "texto longo ".repeat(40) }));
+	assert.match(html, /line-clamp-6/);
+	assert.match(html, />Mostrar mais</);
+	assert.doesNotMatch(render(bot({ description: "curta" })), /Mostrar mais/);
+});
+
+test("saíram das configurações: campo Descrição solto, Título, 'Bot principal' e o botão Salvar", () => {
 	const html = render(bot({ isPrimary: true }));
-	assert.doesNotMatch(html, /Descrição/);
 	assert.doesNotMatch(html, /agent-description/);
 	assert.doesNotMatch(html, /Título/);
 	assert.doesNotMatch(html, /Bot principal/);

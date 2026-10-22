@@ -8,6 +8,7 @@ import { MenuIcon, RoutineCard } from "./routine-card";
 import { botAccentStyle } from "./bot-accent";
 import { buildRoutineMenu } from "./routine-actions";
 import { HistoryList } from "./routine-dialogs";
+import { RoutinesSectionBody } from "./routines-section";
 import { WebhookSection } from "./webhook-fields";
 
 Object.assign(globalThis, { React });
@@ -74,31 +75,39 @@ test("cabeçalho do bot: avatar, nome em negrito e rótulo editáveis ali mesmo 
 	assert.doesNotMatch(labelled, /Adicionar um rótulo/);
 });
 
-test("Sobre: a descrição se edita na visão geral (placeholder quando vazia)", () => {
-	const empty = panel();
-	assert.match(empty, /data-about/);
-	assert.match(empty, />Sobre</);
-	assert.match(empty, /aria-label="Editar descrição do bot"/);
-	assert.match(empty, />Adicionar uma descrição</);
-	const filled = panel({ agent: { ...agent, description: "Cuida do financeiro" } });
-	assert.match(filled, />Cuida do financeiro</);
-	assert.doesNotMatch(filled, /Adicionar uma descrição/);
+test("Sobre saiu da visão geral: a descrição se edita nas configurações (engrenagem)", () => {
+	const html = panel({ agent: { ...agent, description: "Cuida do financeiro" }, onOpenSettings: () => {} });
+	assert.doesNotMatch(html, /data-about/);
+	assert.doesNotMatch(html, />Sobre</);
+	assert.doesNotMatch(html, /Cuida do financeiro/);
+	assert.match(html, /aria-label="Configurações do bot"/);
 });
 
-test("abas Detalhes | Biblioteca | Computador, Detalhes por padrão", () => {
+test("abas Biblioteca | Computador | E-mail, sem Detalhes, Biblioteca por padrão", () => {
 	const html = panel();
-	assert.match(html, />Detalhes</);
-	assert.match(html, />Biblioteca</);
-	assert.match(html, />Computador</);
-	assert.match(html, /Rotinas/);
-	assert.match(html, /Criar rotina/);
+	assert.doesNotMatch(html, />Detalhes</);
+	const order = ["Biblioteca", "Computador", "E-mail"].map((label) => html.indexOf(`>${label}<`));
+	assert.ok(order.every((at) => at > 0) && order[0]! < order[1]! && order[1]! < order[2]!, "ordem das abas");
+	assert.match(html, /<button[^>]*role="tab"[^>]*aria-selected="true"[^>]*>Biblioteca</);
 	assert.doesNotMatch(html, /O computador está dormindo/);
 });
 
-test("aba Biblioteca mostra o estado vazio", () => {
+test("Biblioteca: Páginas aberta; Documentos e Rotinas recolhidas", () => {
 	const html = panel({ initialTab: "library" });
-	assert.match(html, /As páginas, os arquivos e os apps que este Bot cria aparecem aqui/);
-	assert.doesNotMatch(html, /Criar rotina/);
+	for (const [id, expanded] of [["pages", "true"], ["documents", "false"], ["routines", "false"]] as const) {
+		assert.match(html, new RegExp(`data-library-section="${id}"[\\s\\S]*?aria-expanded="${expanded}"`), `${id} ${expanded}`);
+	}
+	assert.match(html, />Páginas</);
+	assert.match(html, />Documentos</);
+	assert.match(html, />Rotinas</);
+	assert.doesNotMatch(html, /Criar rotina/, "sem rotinas, o convite só aparece com a seção aberta");
+	assert.doesNotMatch(html, /Histórico de execuções/, "o histórico mora dentro de Rotinas, fechada");
+});
+
+test("Biblioteca: com rotinas, o + de criar fica no cabeçalho de Rotinas mesmo recolhida", () => {
+	const html = panel({ routines: [hookRoutine], isRoutinePersisted: () => true });
+	assert.match(html, /aria-label="Criar rotina"/);
+	assert.doesNotMatch(html, /data-routine-card/, "os cartões só aparecem com a seção aberta");
 });
 
 test("aba Computador dormindo mostra Acordar e a legenda", () => {
@@ -140,21 +149,36 @@ test("configurações do bot abrem como subvisão com voltar, título Configura�
 	assert.match(html, /aria-label="Fechar painel"/);
 	assert.doesNotMatch(html, /aria-label="Configurações do bot"/, "sem engrenagem dentro da vista");
 	assert.doesNotMatch(html, />Biblioteca</);
-	assert.doesNotMatch(html, /data-about/, "a descrição não está mais nas configurações");
+	assert.match(html, /data-about/, "a descrição do bot (Sobre) mora nas configurações");
 });
 
-test("cards de rotina: nome, resumo, toggle com aria-label e botão …", () => {
-	const html = panel({
-		routines: [hookRoutine],
-		isRoutinePersisted: () => true,
-		onToggleRoutine: async () => null,
-	});
+const chooser = (trigger: React.ReactElement) => trigger;
+const noGroups = {};
+
+test("seção Rotinas: nome, resumo, toggle com aria-label, botão … e histórico dentro", () => {
+	const html = renderToStaticMarkup(
+		<RoutinesSectionBody
+			cards={{ isPersisted: () => true, onToggle: async () => null }}
+			createChooser={chooser}
+			executions={[{ id: "e1", name: "Rotina webhook", time: "há 5 min" }]}
+			groupHandlers={noGroups}
+			routines={[hookRoutine]}
+		/>,
+	);
 	assert.match(html, /data-routine-card="r-1"/);
 	assert.match(html, />Rotina webhook</);
 	assert.match(html, />Webhook</);
 	assert.match(html, /aria-label="Pausar Rotina webhook, Webhook"/);
 	assert.match(html, /aria-label="Mais ações de Rotina webhook"/);
-	assert.match(html, /aria-label="Criar rotina"/);
+	assert.match(html, />Histórico de execuções</);
+	assert.match(html, />há 5 min</);
+});
+
+test("seção Rotinas sem rotinas: convite com Criar rotina e histórico vazio", () => {
+	const html = renderToStaticMarkup(<RoutinesSectionBody cards={{}} createChooser={chooser} executions={[]} groupHandlers={noGroups} routines={[]} />);
+	assert.match(html, /Rotinas são tarefas recorrentes/);
+	assert.match(html, />Criar rotina</);
+	assert.match(html, /Nenhuma execução ainda/);
 });
 
 test("card pausado oferece Retomar; rascunho mostra o selo e bloqueia o toggle", () => {

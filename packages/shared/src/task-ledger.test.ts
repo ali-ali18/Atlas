@@ -109,8 +109,10 @@ describe("renderLedgerLayer", () => {
 		const ledger = { ...setLedgerItems(createTaskLedger(), weeks(3)), carry: "offered" as const };
 		const layer = renderLedgerLayer(ledger)!;
 		expect(layer).toContain("earlier run");
-		expect(layer).toContain('action "clear"');
+		expect(layer).toContain("Answer the user's current request fully first");
+		expect(layer).toContain("never clear the list on your own");
 		expect(layer).not.toContain("Now:");
+		expect(layer.length).toBeLessThanOrEqual(LEDGER_LAYER_CHARS);
 	});
 });
 

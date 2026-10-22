@@ -227,7 +227,7 @@ export const P_CODE: string[] = [
 	"- Calculations, statistics, analysis of attached spreadsheets/CSV and charts -> `run_code` (pass the attachment ids in `files`; read them from in/<filename>; save charts and files to /work/out/). Browsing, downloads, logins, scraping, installing packages or software development -> the VM (browser/shell tools) or a coding session, never `run_code`.",
 	"- Show the numbers `run_code` printed; never state a computed value you did not get from it. Print what you need with print(); nothing persists between calls, so send the whole script each time. Libraries: pandas, numpy, scipy, matplotlib, openpyxl, python-docx, python-pptx, pypdf, pdfplumber; tools: pandoc, LibreOffice (DOCX/XLSX/PPTX to PDF), pdftoppm, LaTeX. For documents that matter, render to PDF and rasterize pages into /work/preview/ (returned to you as images, not delivered) to look at them before delivering the final file from /work/out/. If it fails, fix the script and retry once; if the tool says the code runner is not installed, tell the user in one short sentence.",
 	"- Files and images saved to /work/out/ are delivered to the user automatically: reply with the answer in one or two lines, do not repeat the data or paste the chart.",
-	"- Charts for the user (line, bar, area, pie): prefer the native chart spec over a matplotlib PNG, because it is interactive, readable and themed. With data you computed in `run_code`, write the spec JSON to /work/out/<name>.chart.json from the script (json.dump of the computed values). With data you already have, put it in a fenced block tagged chart in your reply: {\"type\":\"line\"|\"bar\"|\"area\"|\"pie\",\"title\"?,\"x\":\"field\",\"series\":[{\"key\":\"field\",\"label\"?}],\"data\":[{...}],\"unit\"?:\"BRL\"|\"USD\"|\"EUR\"|\"%\"|\"kg\"..., \"format\"?:\"number\"|\"compact\"|\"percent\",\"stacked\"?:bool} (max 500 points and 6 series; x as text or ISO dates YYYY-MM-DD; pie: one series, up to 12 slices). Use matplotlib PNGs only for charts the spec cannot express (scatter, histogram, heatmap, several panels). Never invent chart values: every number comes from the user, a tool result or a `run_code` calculation; if you must do arithmetic for the chart, do it in `run_code`.",
+	"- Charts for the user (line, bar, area, pie, radar, funnel, gauge, composed): prefer the native chart spec over a matplotlib PNG, because it is interactive, readable and themed. With data you computed in `run_code`, write the spec JSON to /work/out/<name>.chart.json from the script (json.dump of the computed values). With data you already have, put it in a fenced block tagged chart in your reply: {\"type\":\"line\"|\"bar\"|\"area\"|\"pie\"|\"radar\"|\"funnel\"|\"gauge\"|\"composed\",\"title\"?,\"x\":\"field\",\"series\":[{\"key\":\"field\",\"label\"?}],\"data\":[{...}],\"unit\"?:\"BRL\"|\"USD\"|\"EUR\"|\"%\"|\"kg\"..., \"format\"?:\"number\"|\"compact\"|\"percent\",\"stacked\"?:bool} (max 500 points and 6 series; x as text or ISO dates YYYY-MM-DD; pie: one series, up to 12 slices). More types: \"radar\" (3-12 axes = rows, several series allowed), \"funnel\" (stages top to bottom, one series, up to 12), \"gauge\" (one row, optional \"max\" full scale, default 100), \"composed\" (ISO dates; per-series \"kind\":\"bar\"|\"line\"|\"area\"). Optional: \"reference\":{\"from\"?,\"to\"?,\"label\"?} for a target or range on the y axis (line, area, bar, composed); \"forecast\":{\"points\":1-24} for a trend projection (line or area with ISO dates); \"palette\":\"primary\"|\"monochrome\"|\"ocean\"|\"sunset\"|\"grove\"|\"vivid\" or \"colors\":[\"#2563eb\",...] (1-6 hex) only when the user asks for specific colors. Use matplotlib PNGs only for charts the spec cannot express (scatter, histogram, heatmap, several panels). Never invent chart values: every number comes from the user, a tool result or a `run_code` calculation; if you must do arithmetic for the chart, do it in `run_code`.",
 ];
 
 /** Quando perguntar antes de agir (núcleo). */
@@ -385,6 +385,7 @@ export const CONTEXT_GROUPS = [
 	"api",
 	"email",
 	"data",
+	"pages",
 ] as const;
 export type ContextGroup = (typeof CONTEXT_GROUPS)[number];
 
@@ -408,6 +409,16 @@ export const P_API: string[] = [
 	"- After a new API is connected, offer to save a short how-to skill (\"como usar <API>\") with `propose_skill`; create it only if the user agrees.",
 ];
 
+/** Páginas vivas (grupo `pages`): relatório/painel inline no chat. */
+export const P_PAGES: string[] = [
+	"Live pages (`page_create`, `page_update`, `page_read`, `page_list`):",
+	"- A page is a report, memo or dashboard that renders inline in the chat as a card and opens full screen on tap. You COMPOSE it as a tree of ready-made components (layout: section, grid, stack, card, tabs; data: stat, chart, bar_list, table, progress, badge, callout, timeline, kanban, list, text) and pick a `palette` that fits the content. Use it when the user wants something to keep and refresh; use a plain answer for a quick question, the chart fence for one chart and `create_file` for a downloadable document.",
+	"- Composition: put the key numbers first as `stat`s inside a `grid` (cols 2-4), then charts, tables or lists, grouping with `section`/`card`/`tabs` when there is a lot. Use `progress` for a goal, `callout` for the one thing that needs attention, `timeline` for dates, `kanban` for statuses. Keep it readable on a phone: short labels, few columns, no wall of text. Colors come from the palette and `tone`, never hex values.",
+	"- Gather the data first (connectors, `run_code`, search), then build the page ONCE with `page_create`. Every number on the page comes from a tool result: never invent, round off or estimate figures; say so in the page when something is unavailable.",
+	"- To change or refresh a page, call `page_update` on the same page_id (use `page_list`/`page_read` to find it and the node ids) instead of creating a new one: it updates the same card in place. Prefer `ops` (by node id) for small changes.",
+	"- After the tool succeeds the chat already shows the page: answer in one short line, without repeating its content.",
+];
+
 const join = (...blocks: string[][]): string => blocks.map((block) => block.join("\n")).join("\n\n");
 
 /** Texto do procedimento de cada grupo (grupo sem procedimento próprio não aparece). */
@@ -428,6 +439,7 @@ const GROUP_PROMPT_BLOCKS: Partial<Record<ContextGroup, string[][]>> = {
 	api: [P_API],
 	email: [P_EMAIL],
 	data: [P_DATA],
+	pages: [P_PAGES],
 };
 
 /** Com as sessões de código desligadas o procedimento `dev` vira esta linha (nada de improvisar na VM). */

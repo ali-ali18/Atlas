@@ -8,6 +8,7 @@ import {
 } from "@/components/ai-elements/attachments";
 import type { AttachmentData } from "@/components/ai-elements/attachments";
 import { CalendarClockIcon, ClockIcon, WebhookIcon } from "lucide-react";
+import { routineCardSummary } from "@/components/ui/templates/template-4/chat-context-panel/routine-map";
 
 export type RoutineActivityAction = "created" | "listed" | "updated";
 
@@ -58,48 +59,56 @@ export function RoutineActivityCard({
 	const label = title ?? (action === "updated" ? "Rotina atualizada" : "Rotina");
 	const Icon = routineTriggerIcon(triggerType);
 	const canOpen = Boolean(routineId && onOpen);
+	const summary = action === "created" ? routineCardSummary(triggerType, detail) : null;
 
 	return (
-		<Attachments variant="list" className="w-full max-w-sm self-start">
-			<Attachment
-				data={routineAttachmentData(routineId ?? "routine", label)}
-				className={
-					canOpen
-						? "cursor-pointer border-border bg-card shadow-sm"
-						: "border-border bg-card shadow-sm"
-				}
-				role={canOpen ? "button" : undefined}
-				tabIndex={canOpen ? 0 : undefined}
-				onClick={() => {
-					if (!routineId || !onOpen) return;
-					onOpen({
-						routineId,
-						title,
-						triggerType,
-						detail,
-						hookUrl,
-						hookSecret,
-					});
-				}}
-				onKeyDown={(event) => {
-					if (!canOpen) return;
-					if (event.key !== "Enter" && event.key !== " ") return;
-					event.preventDefault();
-					onOpen?.({
-						routineId: routineId!,
-						title,
-						triggerType,
-						detail,
-						hookUrl,
-						hookSecret,
-					});
-				}}
-			>
-				<AttachmentPreview
-					fallbackIcon={<Icon className="size-4 text-muted-foreground" />}
-				/>
-				<AttachmentInfo />
-			</Attachment>
-		</Attachments>
+		<div className="flex w-full max-w-sm flex-col gap-1 self-start">
+			<Attachments variant="list" className="w-full">
+				<Attachment
+					data={routineAttachmentData(routineId ?? "routine", label)}
+					className={
+						canOpen
+							? "cursor-pointer border-border bg-card shadow-sm"
+							: "border-border bg-card shadow-sm"
+					}
+					role={canOpen ? "button" : undefined}
+					tabIndex={canOpen ? 0 : undefined}
+					onClick={() => {
+						if (!routineId || !onOpen) return;
+						onOpen({
+							routineId,
+							title,
+							triggerType,
+							detail,
+							hookUrl,
+							hookSecret,
+						});
+					}}
+					onKeyDown={(event) => {
+						if (!canOpen) return;
+						if (event.key !== "Enter" && event.key !== " ") return;
+						event.preventDefault();
+						onOpen?.({
+							routineId: routineId!,
+							title,
+							triggerType,
+							detail,
+							hookUrl,
+							hookSecret,
+						});
+					}}
+				>
+					<AttachmentPreview
+						fallbackIcon={<Icon className="size-4 text-muted-foreground" />}
+					/>
+					<AttachmentInfo />
+				</Attachment>
+			</Attachments>
+			{summary ? (
+				<p className="px-1 text-muted-foreground text-xs" data-routine-summary>
+					Rotina criada · {summary}
+				</p>
+			) : null}
+		</div>
 	);
 }

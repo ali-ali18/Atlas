@@ -72,11 +72,7 @@ export function createTaskOrchestrator(options: {
 			const ledger = tracker.ledger();
 			const decision = decideItemGate({ ledger, event, requireLedger: options.requireLedger(), ...context });
 			if (decision.action === "block") {
-				bump((current) => ({
-					...current,
-					gateBlocks: current.gateBlocks + 1,
-					...(decision.kind === "carry_offer" ? { carry: "asked" as const } : {}),
-				}), ledger);
+				bump((current) => ({ ...current, gateBlocks: current.gateBlocks + 1 }), ledger);
 			} else if (decision.declareGaps && ledger && !ledger.partial) {
 				bump((current) => ({ ...current, partial: buildPartial(current, "not reached before delivery") }), ledger);
 			}

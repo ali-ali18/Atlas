@@ -8,10 +8,12 @@ const EMPTY_DATA: Record<string, unknown>[] = [];
 export interface BarChartLoadingProps {
   /** Chart margins. */
   margin?: Partial<Margin>;
-  /** Aspect ratio as "width / height". Default: "2 / 1" */
+  /** Aspect ratio as "width / height". Sem valor, o esqueleto ocupa a altura do contêiner (mín. 160px). */
   aspectRatio?: string;
   /** Additional class name for the container. */
   className?: string;
+  /** Fill color for the loading skeleton. Defaults to the chart foreground. */
+  loadingFill?: string;
 }
 
 /**
@@ -21,14 +23,16 @@ export interface BarChartLoadingProps {
  */
 export function BarChartLoading({
   margin,
-  aspectRatio = "2 / 1",
+  aspectRatio,
   className = "",
+  loadingFill,
 }: BarChartLoadingProps) {
   return (
     <BarChart
-      aspectRatio={aspectRatio}
-      className={className}
+      aspectRatio={aspectRatio ?? ""}
+      className={aspectRatio ? className : `h-full min-h-[160px] w-full ${className}`}
       data={EMPTY_DATA}
+      loadingFill={loadingFill}
       margin={margin}
       status="loading"
     />

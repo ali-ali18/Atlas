@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeftIcon, Maximize2Icon, PlusIcon, SettingsIcon, XIcon } from "lucide-react";
+import { ChevronLeftIcon, Maximize2Icon, SettingsIcon, XIcon } from "lucide-react";
 import {
 	useCallback,
 	useEffect,
@@ -36,7 +36,6 @@ import {
 	type RoutineGithubUiConfig,
 } from "../data";
 import { AGENT_SETTINGS_TITLES, AgentSettings, type AgentSettingsPage } from "./agent-settings";
-import { AboutSection } from "./about-section";
 import { botAccentStyle } from "./bot-accent";
 import { GroupPanelContent, type GroupPanelProps } from "./group-panel";
 import { BotLibrary } from "./bot-library";
@@ -46,12 +45,8 @@ import {
 	RoutineCreateChooser,
 	type TemplateCreateFields,
 } from "./routine-create-chooser";
-import { RoutineCard } from "./routine-card";
-import {
-	groupRoutinesForPanel,
-	RoutineGroupBlock,
-	type RoutineGroupHandlers,
-} from "./routine-group-block";
+import { RoutinesSectionBody } from "./routines-section";
+import type { RoutineGroupHandlers } from "./routine-group-block";
 import { GithubDialog, HistoryDialog, WebhookDialog } from "./routine-dialogs";
 import { routinePrimaryTriggerKind } from "./routine-map";
 import type { GithubRoutineTemplate } from "@workspace/shared";
@@ -284,7 +279,7 @@ export function ChatContextPanel({
 	sandboxViewerUrl,
 	agentPointer = null,
 	view = "default",
-	initialTab = "details",
+	initialTab = "library",
 	memoryRequest,
 	onFixMemoryInChat,
 }: {
@@ -354,7 +349,7 @@ export function ChatContextPanel({
 	agentPointer?: AgentPointerState | null;
 	/** settings = configurações do bot; routine = rascunho de rotina ou rotina aberta pelo chat. */
 	view?: "default" | "settings" | "routine" | "activity";
-	initialTab?: "details" | "library" | "computer";
+	initialTab?: "library" | "computer" | "email";
 	/** Pedido de fora (chip "Memória atualizada · ver", cartão da reflexão) para abrir a aba Memória das configurações; o nonce muda a cada pedido. */
 	memoryRequest?: { nonce: number; section?: "changes" };
 	/** "Corrigir no chat": põe o rascunho no campo de mensagem (sem enviar) e, no celular, fecha o painel. */
@@ -449,7 +444,7 @@ export function ChatContextPanel({
 		}
 		if (openedFromView.current === editingRoutine.id) return;
 		openedFromView.current = editingRoutine.id;
-		setTab("details");
+		setTab("library");
 		const kind = routinePrimaryTriggerKind(editingRoutine);
 		if (kind === "webhook") setWebhookFor(editingRoutine);
 		else if (kind === "github") setGithubFor(editingRoutine);
@@ -742,127 +737,48 @@ export function ChatContextPanel({
 							<BotHeader agent={agent} onUpdate={onUpdate} />
 							<Tabs onValueChange={setTab} value={tab}>
 								<TabsList aria-label="Seções do painel" className="w-full">
-									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="details">Detalhes</TabsTrigger>
 									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="library">Biblioteca</TabsTrigger>
 									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="computer">Computador</TabsTrigger>
 									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="email">E-mail</TabsTrigger>
 								</TabsList>
 
-								<TabsContent className="flex flex-col gap-5" value="details">
-									<AboutSection
-										description={agent.description}
-										onChange={(description) => onUpdate({ description })}
-									/>
-
-									<section aria-labelledby="info-pane-routines" className="space-y-2">
-										<div className="flex items-center justify-between">
-											<h3
-												className="font-medium text-muted-foreground text-xs"
-												id="info-pane-routines"
-											>
-												Rotinas
-											</h3>
-											{routines.length > 0
-												? createChooser(
-														<Button
-															aria-label="Criar rotina"
-															size="icon-sm"
-															variant="ghost"
-														>
-															<PlusIcon />
-														</Button>,
-													)
-												: null}
-										</div>
-										{routines.length === 0 ? (
-											<div className="flex flex-col items-center gap-2 py-4 text-center">
-												<p className="text-muted-foreground text-xs leading-relaxed">
-													Rotinas são tarefas recorrentes que este bot executa em um
-													agendamento.
-												</p>
-												{createChooser(
-													<Button size="sm" variant="outline">
-														Criar rotina
-													</Button>,
-												)}
-											</div>
-										) : (
-											<ul className="flex flex-col gap-2">
-												{groupRoutinesForPanel(routines, routineGroups).map((item) => {
-													const renderCard = (routine: Routine) => (
-														<RoutineCard
-															key={routine.id}
-															onDelete={onDeleteRoutine}
-															onEdit={onEditRoutineWithAgent}
-															onOpenGithub={setGithubFor}
-															onOpenHistory={setHistoryFor}
-															onOpenWebhook={setWebhookFor}
-															onRun={onRunRoutine}
-															onToggle={onToggleRoutine}
-															persisted={isRoutinePersisted?.(routine) ?? false}
-															routine={routine}
-														/>
-													);
-													if (item.kind === "routine") return renderCard(item.routine);
-													return (
-														<RoutineGroupBlock
-															id={item.group.id}
-															key={`group-${item.group.id}`}
-															name={item.group.name}
-															onDelete={onDeleteRoutineGroup}
-															onRename={onRenameRoutineGroup}
-															onSetEnabled={onSetRoutineGroupEnabled}
-															routines={item.routines}
-														>
-															{item.routines.map(renderCard)}
-														</RoutineGroupBlock>
-													);
-												})}
-											</ul>
-										)}
-									</section>
-
-									{showFollowups ? (
-										<FollowupsSection
-											followups={followups.followups}
-											loaded={followups.loaded}
-											onCancel={followups.cancel}
-											onOpen={setFollowupId}
-											timeZone={proactiveSettings.timezone}
-										/>
-									) : null}
-
-									<section aria-labelledby="info-pane-history" className="space-y-2">
-										<h3
-											className="font-medium text-muted-foreground text-xs"
-											id="info-pane-history"
-										>
-											Histórico de execuções
-										</h3>
-										{executions.length === 0 ? (
-											<p className="text-muted-foreground text-xs">
-												Nenhuma execução ainda
-											</p>
-										) : (
-											<ul className="flex flex-col gap-2 rounded-2xl border border-border bg-card px-3 py-2.5">
-												{executions.slice(-4).map((run) => (
-													<li
-														className="flex items-center justify-between gap-2 text-xs"
-														key={run.id}
-													>
-														<span className="min-w-0 flex-1 truncate">{run.name}</span>
-														<span className="shrink-0 text-muted-foreground">
-															{run.time}
-														</span>
-													</li>
-												))}
-											</ul>
-										)}
-									</section>
-								</TabsContent>
-
 								<TabsContent value="library">
-									<BotLibrary active={tab === "library"} botId={agent.id} />
+									<BotLibrary
+										active={tab === "library"}
+										botId={agent.id}
+										createRoutine={createChooser}
+										routines={routines}
+										routinesBody={
+											<RoutinesSectionBody
+												cards={{
+													onDelete: onDeleteRoutine,
+													onEdit: onEditRoutineWithAgent,
+													onOpenGithub: setGithubFor,
+													onOpenHistory: setHistoryFor,
+													onOpenWebhook: setWebhookFor,
+													onRun: onRunRoutine,
+													onToggle: onToggleRoutine,
+													isPersisted: isRoutinePersisted,
+												}}
+												createChooser={createChooser}
+												executions={executions}
+												extra={
+													showFollowups ? (
+														<FollowupsSection
+															followups={followups.followups}
+															loaded={followups.loaded}
+															onCancel={followups.cancel}
+															onOpen={setFollowupId}
+															timeZone={proactiveSettings.timezone}
+														/>
+													) : null
+												}
+												groupHandlers={{ onDelete: onDeleteRoutineGroup, onRename: onRenameRoutineGroup, onSetEnabled: onSetRoutineGroupEnabled }}
+												groups={routineGroups}
+												routines={routines}
+											/>
+										}
+									/>
 								</TabsContent>
 
 								<TabsContent value="email">

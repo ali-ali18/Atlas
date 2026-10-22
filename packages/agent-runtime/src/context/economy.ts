@@ -75,6 +75,8 @@ export function planContextEconomy(input: {
 	preloadApi?: boolean;
 	/** Run disparado por e-mail recebido: o grupo email já vai no 1º passo (procedimento anti-manipulação incluso). */
 	preloadEmail?: boolean;
+	/** Rotina que atualiza uma página: as tools `page_*` já vão no 1º passo (o texto do turno não precisa citar "painel"). */
+	preloadPages?: boolean;
 }): ContextEconomyPlan {
 	const groups = routeContextGroups({
 		text: input.routerText,
@@ -88,6 +90,7 @@ export function planContextEconomy(input: {
 	if (input.preloadBrowser) groups.add("browser");
 	if (input.preloadVault) groups.add("vault");
 	if (input.preloadApi) groups.add("api");
+	if (input.preloadPages) groups.add("pages");
 	// Sem as tools (bot sem e-mail) o procedimento de e-mail é só ruído.
 	if (!input.eligible.some((tool) => tool.function.name.startsWith("email_"))) groups.delete("email");
 	else if (input.preloadEmail) groups.add("email");

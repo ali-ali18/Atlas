@@ -84,6 +84,7 @@ export const FRESH_SUMMARY_IGNORE_ROLES: readonly string[] = [
 	"subagents",
 	"code-run",
 	"chart",
+	"page",
 	"task-list",
 	"compaction",
 ];

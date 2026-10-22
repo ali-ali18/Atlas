@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { PlusIcon } from "lucide-react";
+import { type ReactElement, type ReactNode, useCallback, useEffect, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { FileAttachment, LIBRARY_REFRESH_EVENT } from "@/components/ai-elements/files/file-attachment";
 import { listBotArtifacts, type BotLibraryFile } from "@/lib/atlas-api";
+import type { Routine } from "../data";
+import { LibrarySection } from "./library-section";
+import { BotPagesSection } from "./pages-library";
 
 export const LIBRARY_EMPTY_TEXT =
-	"As páginas, os arquivos e os apps que este Bot cria aparecem aqui";
+	"Os documentos que este Bot cria (PDF, Word, Excel, PowerPoint e outros arquivos) aparecem aqui";
 
 /** Lista de arquivos (cartões de arquivo) com estado vazio; pura para teste. */
 export function BotLibraryList({
@@ -51,8 +55,8 @@ export function BotLibraryList({
 	);
 }
 
-/** Aba Biblioteca: recarrega ao abrir a aba e quando surge um cartão de arquivo no chat. */
-export function BotLibrary({ botId, active }: { botId: string; active: boolean }) {
+/** Seção Documentos: recarrega ao abrir e quando surge um cartão de arquivo no chat. */
+export function BotDocuments({ botId, active }: { botId: string; active: boolean }) {
 	const [files, setFiles] = useState<BotLibraryFile[]>([]);
 	const [cursor, setCursor] = useState<string | null>(null);
 	const [loadingMore, setLoadingMore] = useState(false);
@@ -115,5 +119,51 @@ export function BotLibrary({ botId, active }: { botId: string; active: boolean }
 			loadingMore={loadingMore}
 			onLoadMore={loadMore}
 		/>
+	);
+}
+
+/**
+ * Aba Biblioteca em seções recolhíveis: Páginas (aberta), Documentos e Rotinas (fechadas). A seção Rotinas
+ * recebe o conteúdo pronto (a lista, os toggles e o histórico moram no painel); o "+" fica no cabeçalho.
+ */
+export function BotLibrary({
+	botId,
+	active,
+	routines,
+	routinesBody,
+	createRoutine,
+}: {
+	botId: string;
+	active: boolean;
+	routines: readonly Routine[];
+	routinesBody: ReactNode;
+	/** Monta o botão "+" com o seletor de tipo de rotina; só aparece quando já há rotinas. */
+	createRoutine?: (trigger: ReactElement) => ReactNode;
+}) {
+	return (
+		<div className="flex flex-col gap-1" data-bot-library>
+			<LibrarySection id="pages" title="Páginas">
+				<BotPagesSection active={active} botId={botId} routines={routines} />
+			</LibrarySection>
+			<LibrarySection id="documents" title="Documentos">
+				<BotDocuments active={active} botId={botId} />
+			</LibrarySection>
+			<LibrarySection
+				action={
+					routines.length > 0 && createRoutine
+						? createRoutine(
+								<Button aria-label="Criar rotina" size="icon-sm" variant="ghost">
+									<PlusIcon />
+								</Button>,
+							)
+						: null
+				}
+				count={routines.length}
+				id="routines"
+				title="Rotinas"
+			>
+				{routinesBody}
+			</LibrarySection>
+		</div>
 	);
 }

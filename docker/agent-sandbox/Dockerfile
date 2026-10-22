@@ -1,5 +1,5 @@
 # Atlas agent sandbox — desktop limpo (XFCE + dock Plank) + Chrome/VS Code + noVNC + control API
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
 	DISPLAY=:99 \

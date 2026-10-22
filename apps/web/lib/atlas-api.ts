@@ -644,6 +644,47 @@ export async function listBotArtifacts(
 	return atlasFetch(`/v1/bots/${encodeURIComponent(botId)}/artifacts${suffix}`);
 }
 
+// --- Páginas vivas (relatório/painel inline no chat) ---
+
+export type AtlasPage = {
+	id: string;
+	botId: string;
+	title: string;
+	spec: import("@workspace/shared").PageSpec;
+	sources: Array<{ title: string; url?: string }>;
+	revision: number;
+	refreshedAt: string | null;
+	createdAt: string;
+	updatedAt: string;
+};
+
+export type AtlasPageListItem = {
+	id: string;
+	botId: string;
+	title: string;
+	summary?: string;
+	revision: number;
+	sourceCount: number;
+	updatedAt: string;
+	refreshedAt: string | null;
+};
+
+/** Página do usuário (revisão atual). 404 = não existe ou foi apagada. */
+export async function getPage(pageId: string): Promise<AtlasPage> {
+	const body = await atlasFetch<{ page: AtlasPage }>(`/v1/pages/${encodeURIComponent(pageId)}`);
+	return body.page;
+}
+
+export async function listBotPages(botId: string, limit?: number): Promise<AtlasPageListItem[]> {
+	const suffix = limit ? `?limit=${limit}` : "";
+	const body = await atlasFetch<{ items: AtlasPageListItem[] }>(`/v1/bots/${encodeURIComponent(botId)}/pages${suffix}`);
+	return body.items;
+}
+
+export async function deletePage(pageId: string): Promise<void> {
+	await atlasFetch(`/v1/pages/${encodeURIComponent(pageId)}`, { method: "DELETE" });
+}
+
 // --- Aba Memória: o que o bot lembra, edição e histórico com desfazer ---
 
 /** As duas seções (perfil do usuário e memória deste bot), com ids. */
@@ -1286,6 +1327,7 @@ export type ComputerUseHandlers = {
 	}) => void;
 	onFile?: (event: Extract<ComputerUseEvent, { type: "file" }>) => void;
 	onChart?: (event: Extract<ComputerUseEvent, { type: "chart" }>) => void;
+	onPage?: (event: Extract<ComputerUseEvent, { type: "page" }>) => void;
 	onTaskList?: (event: Extract<ComputerUseEvent, { type: "task_list" }>) => void;
 	/** Cursor do agente no navegador do sandbox (efêmero, só para a UI). */
 	onAgentPointer?: (event: AgentPointerEvent) => void;
@@ -1405,6 +1447,9 @@ function dispatchComputerUseEvent(
 			break;
 		case "chart":
 			handlers.onChart?.(event);
+			break;
+		case "page":
+			handlers.onPage?.(event);
 			break;
 		case "task_list":
 			handlers.onTaskList?.(event);

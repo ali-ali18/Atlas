@@ -35,6 +35,7 @@ model User {
   memories      MemoryEntry[]
   memoryChanges MemoryChange[]
   botLessons    BotLesson[]
+  pages         Page[]
   runs          AgentRun[]
   artifacts     Artifact[]
   routines      Routine[]
@@ -309,6 +310,7 @@ model Bot {
   routineGroups   RoutineGroup[]
   mailbox        BotMailbox?
   lessons        BotLesson[]
+  pages          Page[]
 
   @@index([pinned, pinOrder])
   @@index([ownerId])
@@ -712,6 +714,9 @@ model Routine {
   conversationId  String?
   groupId         String?
   group           RoutineGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  /// Página que a rotina atualiza no lugar a cada execução (mesmo dono e bot; SetNull se a linha sumir).
+  pageId          String?
+  page            Page?     @relation(fields: [pageId], references: [id], onDelete: SetNull)
   name            String
   prompt          String
   /// Modelo OpenRouter dedicado a esta rotina (escolhido no painel).
@@ -734,6 +739,7 @@ model Routine {
   @@index([botId, enabled])
   @@index([userId])
   @@index([groupId])
+  @@index([pageId])
   @@map("routines")
 }
 
@@ -1365,4 +1371,44 @@ model EmailMessage {
   @@index([mailboxId, direction, createdAt])
   @@index([mailboxId, threadId])
   @@map("email_messages")
+}
+
+/// Página viva (relatório/painel) que o bot monta e a UI desenha inline no chat. `specJson` é o `PageSpec` validado
+/// (packages/shared); `revision` sobe a cada atualização (concorrência otimista). Apagar = `deletedAt` (os cartões
+/// antigos no chat deixam de revalidar). Reservado para a onda B: `Routine.pageId` (rotina que atualiza a página).
+model Page {
+  id             String         @id @default(cuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  botId          String
+  bot            Bot            @relation(fields: [botId], references: [id], onDelete: Cascade)
+  conversationId String?
+  title          String
+  specJson       Json
+  /// [{ title, url? }] até 20.
+  sourcesJson    Json           @default("[]")
+  revision       Int            @default(1)
+  refreshedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?
+  revisions      PageRevision[]
+  routines       Routine[]
+
+  @@index([userId, botId, updatedAt])
+  @@map("pages")
+}
+
+/// Histórico das últimas 10 revisões de uma página (a atual inclusive).
+model PageRevision {
+  id          String   @id @default(cuid())
+  pageId      String
+  page        Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  revision    Int
+  specJson    Json
+  sourcesJson Json     @default("[]")
+  createdAt   DateTime @default(now())
+
+  @@unique([pageId, revision])
+  @@map("page_revisions")
 }

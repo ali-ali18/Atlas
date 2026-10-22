@@ -37,6 +37,10 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 		/\b(pdf|docx?|word|xlsx?|excel|planilhas?|csv|pptx|slides?|powerpoint|apresentac\w+|arquivos?|documentos?|relatorios?|files?|spreadsheets?|reports?|presentations?|markdown|txt|exporta\w*)\b/,
 	],
 	[
+		"pages",
+		/\b(dashboards?|paineis|painel|forecast|kpis?|scorecard|visao geral|overview|resumo executivo|(pagina|page) (viva|ao vivo|atualizavel|live)|(live|living) (page|report)s?|relatorios? (semanal|mensal|diario|executivo|vivo|do (mes|trimestre|ano))|(mont\w+|cri\w+|faz\w*|ger\w+|build|create|make) (uma? |meu |minha |o |a )*(pagina|relatorio|report|page))\b/,
+	],
+	[
 		"data",
 		/\b(relatorios?|listar|lista de|filtr\w+|totais|total (de|do|da|dos|das)|quanto (foi|deu|tenho|temos|vendi|vendemos|recebi|gastei|falta)|quantos?|quantas?|vendas?|faturamento|receitas?|despesas?|atrasad\w+|vencid\w+|em aberto|ranking|top \d+|por (mes|dia|semana|cliente|empresa|categoria)|reports?|list (all|the)|breakdown|how (much|many)|overdue|outstanding)\b/,
 	],

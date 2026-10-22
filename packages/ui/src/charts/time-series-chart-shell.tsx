@@ -6,12 +6,12 @@ import type { Transition } from "motion/react";
 import {
   Children,
   cloneElement,
+  useContext,
   isValidElement,
   memo,
   type ReactElement,
   type ReactNode,
   useCallback,
-  useContext,
   useEffect,
   useId,
   useMemo,
@@ -21,6 +21,11 @@ import {
   DEFAULT_ANIMATION_EASING,
   DEFAULT_CHART_ENTER_TRANSITION,
 } from "./animation";
+import {
+  type BandConfig,
+  bandKeysByAxis,
+  extractBandConfigs,
+} from "./band-config";
 import {
   isClipExcludedComponent,
   isPostOverlayComponent,
@@ -71,7 +76,10 @@ import {
   getPrimaryYScale,
   groupLinesByYAxisId,
 } from "./y-axis-scales";
-import { computeYDomainsByAxis } from "./y-domain-utils";
+import {
+  computeYDomainsByAxis,
+  resolveTimeSeriesYDomain,
+} from "./y-domain-utils";
 
 /**
  * Bleed around the series reveal clip so glyphs centred on the plot edge
@@ -81,54 +89,6 @@ import { computeYDomainsByAxis } from "./y-domain-utils";
  * `xDomain` viewport is set because series then extend past the plot edges.
  */
 const SERIES_CLIP_EDGE_BLEED = 24;
-
-function collectNumericExtents(
-  data: Record<string, unknown>[],
-  dataKeys: string[]
-) {
-  let minValue = Number.POSITIVE_INFINITY;
-  let maxValue = Number.NEGATIVE_INFINITY;
-
-  for (const d of data) {
-    for (const key of dataKeys) {
-      const value = d[key];
-      if (typeof value === "number") {
-        if (value < minValue) {
-          minValue = value;
-        }
-        if (value > maxValue) {
-          maxValue = value;
-        }
-      }
-    }
-  }
-
-  if (minValue === Number.POSITIVE_INFINITY) {
-    return { minValue: 0, maxValue: 100 };
-  }
-
-  return { minValue, maxValue };
-}
-
-function resolveTimeSeriesYDomain(
-  data: Record<string, unknown>[],
-  dataKeys: string[],
-  yScaleDomainMax: number | undefined
-): [number, number] {
-  if (yScaleDomainMax != null && yScaleDomainMax > 0) {
-    return [0, yScaleDomainMax * 1.1];
-  }
-
-  const { minValue, maxValue } = collectNumericExtents(data, dataKeys);
-
-  if (minValue >= 0) {
-    const top = maxValue <= 0 ? 100 : maxValue * 1.1;
-    return [0, top];
-  }
-
-  const padding = (maxValue - minValue) * 0.05 || 1;
-  return [minValue - padding, maxValue + padding];
-}
 
 function ensureChildKey(child: ReactElement, index: number): ReactElement {
   if (child.key != null) {
@@ -297,6 +257,20 @@ const TimeSeriesChartCore = memo(function TimeSeriesChartCore({
     [children]
   );
 
+  // `<Band>` edges extend the y-domain and survive decimation, but are not
+  // series: they never enter `lines`. The tooltip reads `bands` separately for
+  // range rows / edge dots. Keyed by a string signature so new `children`
+  // identities don't redo decimation.
+  const bandConfigsSignature = JSON.stringify(extractBandConfigs(children));
+  const bandConfigs = useMemo(
+    () => JSON.parse(bandConfigsSignature) as BandConfig[],
+    [bandConfigsSignature]
+  );
+  const bandKeysByAxisId = useMemo(
+    () => bandKeysByAxis(bandConfigs),
+    [bandConfigs]
+  );
+
   const xScale = useMemo(() => {
     const minTime = xDomain
       ? xDomain[0].getTime()
@@ -323,12 +297,19 @@ const TimeSeriesChartCore = memo(function TimeSeriesChartCore({
 
   const renderData = useMemo(() => {
     const valueKeys = lines.map((line) => line.dataKey);
+    for (const keys of Object.values(bandKeysByAxisId)) {
+      for (const key of keys) {
+        if (!valueKeys.includes(key)) {
+          valueKeys.push(key);
+        }
+      }
+    }
     return decimateTimeSeries(
       seriesSourceData,
       maxRenderPointsForWidth(innerWidth),
       valueKeys
     );
-  }, [seriesSourceData, innerWidth, lines]);
+  }, [seriesSourceData, innerWidth, lines, bandKeysByAxisId]);
 
   const columnWidth = useMemo(() => {
     const slotCount =
@@ -352,6 +333,7 @@ const TimeSeriesChartCore = memo(function TimeSeriesChartCore({
 
   const yDomainTargetByAxis = useMemo(() => {
     const base = computeYDomainsByAxis({
+      extraKeysByAxis: bandKeysByAxisId,
       lines,
       resolveDomain: (dataKeys) =>
         resolveYDomain(xDomain ? visiblePlotData : data, dataKeys),
@@ -378,6 +360,7 @@ const TimeSeriesChartCore = memo(function TimeSeriesChartCore({
     }
     return merged;
   }, [
+    bandKeysByAxisId,
     data,
     lines,
     projectionConfigs,
@@ -414,6 +397,7 @@ const TimeSeriesChartCore = memo(function TimeSeriesChartCore({
     scaleLinear({ range: [innerHeight, 0], domain: [0, 100], nice: true })
   );
 
+  // Contexto de fora (gráfico de categorias com datas sintéticas) devolve o nome da categoria no lugar de "dd/mm".
   const xLabelFormat = useContext(XLabelFormatContext);
   const dateLabels = useMemo(
     () =>
@@ -435,6 +419,7 @@ const TimeSeriesChartCore = memo(function TimeSeriesChartCore({
   } = useChartInteraction({
     bisectDate,
     canInteract,
+    bands: bandConfigs,
     data: visiblePlotData,
     lines,
     margin,
@@ -543,6 +528,7 @@ const TimeSeriesChartCore = memo(function TimeSeriesChartCore({
       setTooltipData,
       containerRef,
       lines,
+      bands: bandConfigs,
       referenceAreas,
       chartPhase,
       chartStatus,
@@ -586,6 +572,7 @@ const TimeSeriesChartCore = memo(function TimeSeriesChartCore({
       setTooltipData,
       containerRef,
       lines,
+      bandConfigs,
       referenceAreas,
       chartPhase,
       chartStatus,

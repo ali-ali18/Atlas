@@ -313,6 +313,7 @@ export {
 	type PersistedFileCard,
 	type PersistedCodeRunCard,
 	type PersistedChartCard,
+	type PersistedPageCard,
 	CODE_RUN_CARD_CODE_MAX,
 	CODE_RUN_CARD_OUTPUT_MAX,
 	type PersistedQuestionnaireCard,
@@ -816,23 +817,36 @@ export {
 	type ScanSeverity,
 } from "./catalog-scan.js";
 export {
+	CHART_CUSTOM_COLORS_MAX,
+	CHART_CUSTOM_COLORS_MIN,
 	CHART_FORMATS,
+	CHART_PALETTES,
+	CHART_MAX_FORECAST_POINTS,
+	CHART_MAX_FUNNEL_STAGES,
 	CHART_MAX_JSON_CHARS,
+	CHART_MAX_RADAR_AXES,
+	CHART_MIN_RADAR_AXES,
+	CHART_SERIES_KINDS,
 	CHART_MAX_PIE_SLICES,
 	CHART_MAX_POINTS,
 	CHART_MAX_SERIES,
 	CHART_TYPES,
 	chartSpecToCsv,
 	isChartDateString,
+	normalizeChartHexColor,
 	parseChartSpec,
 	summarizeChartSpec,
 	type ChartFormat,
+	type ChartPalette,
+	type ChartReference,
+	type ChartSeriesKind,
 	type ChartRow,
 	type ChartSeries,
 	type ChartSpec,
 	type ChartSpecParse,
 	type ChartType,
 } from "./chart-spec.js";
+export * from "./page-spec.js";
 export * from "./model-tiers.js";
 
 export * from "./maintenance-status.js";

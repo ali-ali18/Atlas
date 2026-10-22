@@ -40,7 +40,7 @@ import {
 } from "@workspace/shared";
 import { activityForAssistantEvent, type AgentActivity } from "@/lib/working-status";
 import { jevStatusText } from "@/lib/jev-status";
-import { dedupeCards, reconcilePersistedThread } from "@/lib/thread-merge";
+import { applyPageEvent, dedupeCards, reconcilePersistedThread } from "@/lib/thread-merge";
 import { isMemoryUpdateResult, memoryChipId } from "@/lib/memory-chip";
 import { isAwaitingBot, mergeNeedsUserMarkers } from "@/lib/bot-needs-thread";
 import {
@@ -118,6 +118,7 @@ import {
 	type ComputerUseHandlers,
 } from "@/lib/atlas-api";
 import { isCardProtocolText } from "@/lib/card-decision";
+import { notifyPagesChanged } from "@/lib/pages-refresh";
 import {
 	resolveAgentModel,
 	setStoredAgentModel,
@@ -178,6 +179,9 @@ function conversationCardToMessage(
 	if (card.kind === "task-list") return { id, kind: "task-list", runId: card.runId, items: card.items };
 	if (card.kind === "compaction") return { id, kind: "compaction", before: card.before, after: card.after, summary: card.summary, ...(card.focus ? { focus: card.focus } : {}) };
 	if (card.kind === "chart") return { id, kind: "chart", chartId: card.chartId, spec: card.spec, ...(card.filename ? { filename: card.filename } : {}) };
+	if (card.kind === "page") {
+		return { id, kind: "page", pageId: card.pageId, revision: card.revision, title: card.title, action: card.action, sourceCount: card.sourceCount, ...(card.spec ? { spec: card.spec } : {}) };
+	}
 	if (card.kind === "file") {
 		return {
 			id,
@@ -419,6 +423,7 @@ function buildSessionMessage(message: SessionMessage): Message | null {
 		|| (message.role as string) === "images"
 		|| (message.role as string) === "code-run"
 		|| (message.role as string) === "chart"
+		|| (message.role as string) === "page"
 		|| (message.role as string) === "task-list"
 		|| (message.role as string) === "compaction"
 	) {
@@ -960,6 +965,11 @@ export function createComputerHandlers(params: {
 				};
 				return dedupeCards(insertCardAfterCurrentTurn(previous, chartMessage));
 			});
+		},
+		onPage: (event) => {
+			params.onActivity?.();
+			notifyPagesChanged();
+			params.setMessages((previous) => applyPageEvent(previous, event, (message) => insertCardAfterCurrentTurn(previous, message)));
 		},
 		onFile: (event) => {
 			params.onActivity?.();
