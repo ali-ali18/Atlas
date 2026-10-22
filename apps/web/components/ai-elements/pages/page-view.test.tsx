@@ -131,9 +131,10 @@ test("timeline, kanban e list: datas, colunas com contagem, valores à direita",
 		{ type: "list", props: { unit: "BRL", items: [{ title: "Fazenda Santa Rita", subtitle: "14 pedidos", value: 14850 }, { title: "Vale Verde", value: 11200 }] } },
 	]));
 	assert.match(html, /<time[^>]*>12\/11<\/time>/);
-	assert.match(html, /aria-label="A vencer"/);
+	// Kanban empilha em contêiner estreito (nada cortado no celular): colunas recolhíveis com contagem, lado a lado só em @2xl.
+	assert.match(html, /class="[^"]*flex-col[^"]*@2xl:flex-row[^"]*" data-page-node="kanban"/);
+	assert.match(html, /<details[^>]*open=""[^>]*>\s*<summary[^>]*><h5[^>]*>A vencer<\/h5><span[^>]*>1</);
 	assert.match(html, />Nada aqui</);
-	assert.match(html, /overflow-x-auto/);
 	assert.match(html, /R\$\s14\.850</);
 	assert.match(html, /14 pedidos/);
 });
