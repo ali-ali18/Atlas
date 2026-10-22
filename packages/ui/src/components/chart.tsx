@@ -24,10 +24,23 @@ import { TooltipContent } from "@workspace/ui/charts/tooltip/tooltip-content"
 import { ChartTooltip } from "@workspace/ui/charts/tooltip/chart-tooltip"
 import { XAxis } from "@workspace/ui/charts/x-axis"
 import { YAxis } from "@workspace/ui/charts/y-axis"
+import { ChartLegendHoverProvider } from "@workspace/ui/charts/chart-legend-hover"
+import { ComposedChart } from "@workspace/ui/charts/composed-chart"
+import { SeriesBar } from "@workspace/ui/charts/series-bar"
+import { FunnelChart } from "@workspace/ui/charts/funnel-chart"
+import { Gauge } from "@workspace/ui/charts/gauge"
+import { buildProjectionPath } from "@workspace/ui/charts/projection-utils"
+import { ProjectionLine } from "@workspace/ui/charts/projection-line"
+import { RadarArea } from "@workspace/ui/charts/radar-area"
+import { RadarAxis } from "@workspace/ui/charts/radar-axis"
+import { RadarChart } from "@workspace/ui/charts/radar-chart"
+import { RadarGrid } from "@workspace/ui/charts/radar-grid"
+import { RadarLabels } from "@workspace/ui/charts/radar-labels"
+import { ReferenceArea } from "@workspace/ui/charts/reference-area"
 import { curveMonotoneX } from "@visx/curve"
 
 /**
- * Gráfico nativo do chat: desenha uma `ChartSpec` (linha, barras, área, pizza) com os componentes do Bklit UI
+ * Gráfico nativo do chat: desenha uma `ChartSpec` (linha, barras, área, pizza, radar, funil, medidor, composto) com os componentes do Bklit UI
  * (MIT, vendorizados em `src/charts`), cores `--chart-1..6`, números e datas em pt-BR.
  */
 
@@ -91,6 +104,8 @@ export function parseChartDate(value: string): Date {
 type XLabels = {
   /** Rótulo curto do eixo. */
   axis: (value: string | number) => string
+  /** Rótulo curto do eixo para uma data qualquer (inclui períodos projetados). */
+  axisDate: (date: Date) => string
   /** Título do tooltip. */
   title: (value: string | number) => string
 }
@@ -98,20 +113,21 @@ type XLabels = {
 /** Rótulos do eixo X: categorias como vieram; datas mensais "jan/25"; demais datas "dd/mm" (com ano se passar de um ano). */
 export function makeXLabels(spec: ChartSpec): XLabels {
   if (spec.xKind !== "date") {
-    return { axis: (value) => String(value), title: (value) => String(value) }
+    return { axis: (value) => String(value), axisDate: (date) => date.toLocaleDateString("pt-BR"), title: (value) => String(value) }
   }
   const dates = spec.data.map((point) => parseChartDate(String(point[spec.x])))
   const monthly = dates.every((date) => date.getDate() === 1)
   const times = dates.map((date) => date.getTime())
   const spanDays = (Math.max(...times) - Math.min(...times)) / 86_400_000
   const pad = (value: number) => String(value).padStart(2, "0")
+  const axisDate = (date: Date) => {
+    if (monthly) return `${MONTHS[date.getMonth()]}/${pad(date.getFullYear() % 100)}`
+    const base = `${pad(date.getDate())}/${pad(date.getMonth() + 1)}`
+    return spanDays > 366 ? `${base}/${pad(date.getFullYear() % 100)}` : base
+  }
   return {
-    axis: (value) => {
-      const date = parseChartDate(String(value))
-      if (monthly) return `${MONTHS[date.getMonth()]}/${pad(date.getFullYear() % 100)}`
-      const base = `${pad(date.getDate())}/${pad(date.getMonth() + 1)}`
-      return spanDays > 366 ? `${base}/${pad(date.getFullYear() % 100)}` : base
-    },
+    axis: (value) => axisDate(parseChartDate(String(value))),
+    axisDate,
     title: (value) => {
       const date = parseChartDate(String(value))
       if (monthly) return `${MONTHS_LONG[date.getMonth()]} de ${date.getFullYear()}`
@@ -201,7 +217,7 @@ export function horizontalBarLeftMargin(labels: string[]): number {
 }
 const PLOT_CLASS = "h-[260px] w-full"
 
-function Legend({ spec }: { spec: ChartSpec }) {
+function Legend({ spec, onHover }: { spec: ChartSpec; onHover?: (index: number | null) => void }) {
   if (spec.series.length < 2) return null
   return (
     <ul
@@ -209,13 +225,65 @@ function Legend({ spec }: { spec: ChartSpec }) {
       data-slot="chart-legend"
     >
       {spec.series.map((item, index) => (
-        <li className="flex min-w-0 items-center gap-1.5" key={item.key}>
+        <li
+          className="flex min-w-0 items-center gap-1.5"
+          key={item.key}
+          onMouseEnter={() => onHover?.(index)}
+          onMouseLeave={() => onHover?.(null)}
+        >
           <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: seriesColor(index) }} />
           <span className="truncate">{item.label}</span>
         </li>
       ))}
     </ul>
   )
+}
+
+/** Faixa/meta do spec desenhada atrás das séries (eixo Y). */
+function ReferenceLayer({ spec }: { spec: ChartSpec }) {
+  const reference = spec.reference
+  if (!reference) return null
+  return (
+    <ReferenceArea
+      fillOpacity={0.5}
+      showMarkers={false}
+      stroke="var(--chart-foreground-muted)"
+      strokeStyle="dashed"
+      y1={reference.from}
+      y2={reference.to}
+    />
+  )
+}
+
+/** Texto da legenda da meta/faixa, com os valores no formato do gráfico. */
+export function describeReference(spec: ChartSpec): string | null {
+  const reference = spec.reference
+  if (!reference) return null
+  const format = makeValueFormatter(spec)
+  const range =
+    reference.from !== undefined && reference.to !== undefined
+      ? `${format(reference.from)} – ${format(reference.to)}`
+      : reference.from !== undefined
+        ? `a partir de ${format(reference.from)}`
+        : `até ${format(reference.to!)}`
+  return reference.label ? `${reference.label} (${range})` : range
+}
+
+function ReferenceCaption({ spec }: { spec: ChartSpec }) {
+  const text = describeReference(spec)
+  if (!text) return null
+  return (
+    <p className="mt-1 flex items-center gap-1.5 px-1 text-muted-foreground text-xs" data-slot="chart-reference">
+      <span className="h-2.5 w-4 shrink-0 rounded-[2px] border border-chart-foreground-muted border-dashed bg-chart-foreground-muted/20" />
+      <span className="truncate">{text}</span>
+    </p>
+  )
+}
+
+type SeriesKind = "bar" | "line" | "area"
+function seriesKindOf(spec: ChartSpec, index: number): SeriesKind {
+  if (spec.type === "composed") return spec.series[index]?.kind ?? (index === 0 ? "bar" : "line")
+  return spec.type === "area" ? "area" : "line"
 }
 
 function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
@@ -233,7 +301,7 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
       const category = categoryByTime.get(date.getTime())
       if (category !== undefined) return category
       const index = rows.findIndex((row) => row.__date.getTime() === date.getTime())
-      return labels.axis(String(spec.data[index]?.[spec.x] ?? ""))
+      return index < 0 ? labels.axisDate(date) : labels.axis(String(spec.data[index]?.[spec.x] ?? ""))
     },
     [categoryByTime, labels, rows, spec]
   )
@@ -256,7 +324,26 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
     },
     [labels, spec, tooltipFormat]
   )
-  const Chart = spec.type === "area" ? AreaChart : LineChart
+  const Chart = spec.type === "area" ? AreaChart : spec.type === "composed" ? ComposedChart : LineChart
+  const projection = React.useMemo(
+    () =>
+      spec.forecast
+        ? buildProjectionPath({
+            sourceData: rows,
+            seriesKey: spec.series[0]!.key,
+            xDataKey: "__date",
+            mode: "auto",
+            autoMethod: "linearRegression",
+            pathDensity: "endpoints",
+            horizonPoints: spec.forecast.points,
+          })
+        : [],
+    [rows, spec]
+  )
+  // Áreas atrás, barras no meio, linhas por cima (ordem de empilhamento do gráfico composto).
+  const layers = (["area", "bar", "line"] as const).flatMap((kind) =>
+    spec.series.flatMap((item, index) => (seriesKindOf(spec, index) === kind ? [{ item, index, kind }] : []))
+  )
 
   return (
     <XLabelFormatContext.Provider value={formatX}>
@@ -268,8 +355,9 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
         xDataKey="__date"
       >
         <Grid horizontal />
-        {spec.series.map((item, index) =>
-          spec.type === "area" ? (
+        <ReferenceLayer spec={spec} />
+        {layers.map(({ item, index, kind }) =>
+          kind === "area" ? (
             <Area
               curve={curveMonotoneX}
               dataKey={item.key}
@@ -279,6 +367,8 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
               stroke={seriesColor(index)}
               strokeWidth={2}
             />
+          ) : kind === "bar" ? (
+            <SeriesBar dataKey={item.key} fill={seriesColor(index)} key={item.key} radius={3} />
           ) : (
             <Line
               curve={curveMonotoneX}
@@ -290,9 +380,10 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
             />
           )
         )}
+        {projection.length > 1 ? <ProjectionLine data={projection} stroke={seriesColor(0)} /> : null}
         <YAxis formatValue={axisFormat} />
         <XAxis numTicks={labelBudget(plotWidth, margin, 6, 96)} />
-        <ChartTooltip content={tooltipContent} />
+        <ChartTooltip content={tooltipContent} showCrosshair={spec.type !== "composed"} />
       </Chart>
     </XLabelFormatContext.Provider>
   )
@@ -353,6 +444,7 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
       xDataKey="__label"
     >
       <Grid horizontal={!horizontal} vertical={horizontal} />
+      {horizontal ? null : <ReferenceLayer spec={spec} />}
       {spec.series.map((item, index) => (
         <Bar
           dataKey={item.key}
@@ -435,6 +527,94 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
   )
 }
 
+/** Radar: eixos = linhas do spec, uma área por série; escala relativa ao maior valor (a legenda informa). */
+function RadarPlot({ spec }: { spec: ChartSpec }) {
+  const format = React.useMemo(() => makeValueFormatter(spec), [spec])
+  const peak = Math.max(1e-9, maxAbs(spec))
+  const metrics = React.useMemo(() => spec.data.map((point, index) => ({ key: `m${index}`, label: String(point[spec.x]) })), [spec])
+  const data = React.useMemo(
+    () =>
+      spec.series.map((item, index) => ({
+        label: item.label,
+        color: seriesColor(index),
+        values: Object.fromEntries(
+          spec.data.map((point, metric) => [`m${metric}`, ((typeof point[item.key] === "number" ? (point[item.key] as number) : 0) / peak) * 100])
+        ),
+      })),
+    [peak, spec]
+  )
+  return (
+    <div>
+      <div className="mx-auto h-[300px] w-full max-w-[420px]">
+        <RadarChart data={data} levels={4} margin={52} metrics={metrics}>
+          <RadarGrid showLabels={false} />
+          <RadarAxis />
+          <RadarLabels fontSize={11} />
+          {data.map((item, index) => (
+            <RadarArea index={index} key={item.label + index} />
+          ))}
+        </RadarChart>
+      </div>
+      <p className="mt-1 px-1 text-center text-muted-foreground text-xs">Escala relativa ao maior valor ({format(peak)})</p>
+    </div>
+  )
+}
+
+/** Funil: cada linha é uma etapa (primeira = 100%); vertical em largura estreita. */
+function FunnelPlot({ spec }: { spec: ChartSpec }) {
+  const plotWidth = React.useContext(PlotWidthContext)
+  const format = React.useMemo(() => makeValueFormatter(spec), [spec])
+  const valueKey = spec.series[0]!.key
+  const stages = React.useMemo(
+    () =>
+      spec.data.map((point) => {
+        const value = typeof point[valueKey] === "number" ? (point[valueKey] as number) : 0
+        return { label: String(point[spec.x]), value, displayValue: format(value) }
+      }),
+    [format, spec, valueKey]
+  )
+  const vertical = plotWidth < 520 || stages.length > 6
+  return (
+    <div className={vertical ? "h-[320px]" : "h-[240px]"}>
+      <FunnelChart
+        color="var(--chart-1)"
+        data={stages}
+        formatPercentage={(pct) => `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 }).format(pct)}%`}
+        formatValue={format}
+        orientation={vertical ? "vertical" : "horizontal"}
+      />
+    </div>
+  )
+}
+
+function gaugeFormat(spec: ChartSpec): { formatOptions?: { style: "currency"; currency: string; maximumFractionDigits: number }; suffix?: string } {
+  const unit = spec.unit?.toUpperCase()
+  if (unit && CURRENCY[unit]) return { formatOptions: { style: "currency", currency: CURRENCY[unit]!, maximumFractionDigits: 0 } }
+  if (spec.unit) return { suffix: spec.unit === "%" ? "%" : ` ${spec.unit}` }
+  return {}
+}
+
+/** Medidor: uma linha; preenche valor / max (padrão 100) e mostra o valor no centro. */
+function GaugePlot({ spec }: { spec: ChartSpec }) {
+  const item = spec.series[0]!
+  const raw = spec.data[0]?.[item.key]
+  const value = typeof raw === "number" ? raw : 0
+  const max = spec.max ?? 100
+  const { formatOptions, suffix } = gaugeFormat(spec)
+  return (
+    <div className="flex justify-center py-2">
+      <Gauge
+        centerValue={value}
+        defaultLabel={item.label}
+        formatOptions={formatOptions}
+        inactiveFillOpacity={0.4}
+        suffix={suffix}
+        value={Math.min(100, Math.max(0, (value / max) * 100))}
+      />
+    </div>
+  )
+}
+
 /** O gráfico em si (sem moldura): escolhe o desenho pelo `type` do spec. */
 function ChartView({ spec }: { spec: ChartSpec }) {
   const ref = React.useRef<HTMLDivElement>(null)
@@ -447,7 +627,9 @@ function ChartView({ spec }: { spec: ChartSpec }) {
     return () => observer.disconnect()
   }, [])
   const palette = React.useMemo(() => resolveChartPalette(spec.palette, spec.colors), [spec.palette, spec.colors])
+  const [legendHover, setLegendHover] = React.useState<number | null>(null)
   return (
+    <ChartLegendHoverProvider hoveredIndex={legendHover} onHoverChange={setLegendHover}>
     <PlotWidthContext.Provider value={width}>
     <div data-chart-palette={palette?.scope} data-slot="chart-view" data-chart-type={spec.type} ref={ref}>
       {palette ? <style>{chartPaletteCss(palette)}</style> : null}
@@ -455,12 +637,20 @@ function ChartView({ spec }: { spec: ChartSpec }) {
         <PiePlot spec={spec} />
       ) : spec.type === "bar" ? (
         <BarPlot spec={spec} />
+      ) : spec.type === "radar" ? (
+        <RadarPlot spec={spec} />
+      ) : spec.type === "funnel" ? (
+        <FunnelPlot spec={spec} />
+      ) : spec.type === "gauge" ? (
+        <GaugePlot spec={spec} />
       ) : (
         <TimeSeriesPlot spec={spec} />
       )}
-      {spec.type === "pie" ? null : <Legend spec={spec} />}
+      <ReferenceCaption spec={spec} />
+      {spec.type === "pie" || spec.type === "funnel" || spec.type === "gauge" ? null : <Legend onHover={setLegendHover} spec={spec} />}
     </div>
     </PlotWidthContext.Provider>
+    </ChartLegendHoverProvider>
   )
 }
 

@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { chartSpecToCsv, parseChartSpec, type ChartSpec } from "@workspace/shared"
-import { Chart, horizontalBarLeftMargin, makeValueFormatter, makeXLabels, parseChartDate, shouldUseHorizontalBars } from "./chart"
+import { Chart, describeReference, horizontalBarLeftMargin, makeValueFormatter, makeXLabels, parseChartDate, shouldUseHorizontalBars } from "./chart"
 
 const spec = (raw: Record<string, unknown>): ChartSpec => {
   const parsed = parseChartSpec(raw)
@@ -133,5 +133,72 @@ describe("Chart: correções de layout", () => {
     expect(horizontalBarLeftMargin(["Boné"])).toBe(56)
     expect(horizontalBarLeftMargin(["Camiseta básica branca"])).toBeGreaterThan(120)
     expect(horizontalBarLeftMargin(["x".repeat(80)])).toBe(160)
+  })
+})
+
+describe("Chart: novos tipos", () => {
+  const months = [
+    { mes: "2025-01-01", receita: 1000, meta: 900 },
+    { mes: "2025-02-01", receita: 1400, meta: 950 },
+    { mes: "2025-03-01", receita: 1700, meta: 1000 },
+    { mes: "2025-04-01", receita: 2100, meta: 1050 },
+  ]
+
+  it("radar: uma área por série e nota da escala relativa", () => {
+    const html = plain(
+      renderToStaticMarkup(
+        <Chart
+          spec={spec({
+            type: "radar",
+            x: "eixo",
+            series: [{ key: "a", label: "Loja A" }, { key: "b", label: "Loja B" }],
+            data: [{ eixo: "Preço", a: 80, b: 60 }, { eixo: "Prazo", a: 70, b: 90 }, { eixo: "Qualidade", a: 90, b: 75 }],
+          })}
+        />
+      )
+    )
+    expect(html).toContain('data-chart-type="radar"')
+    expect(html).toContain("Escala relativa ao maior valor (90)")
+    expect(html).toContain("Loja A")
+    expect(html).toContain("Loja B")
+  })
+
+  it("funil: renderiza a moldura (o desenho depende da medida, só no navegador)", () => {
+    const html = plain(
+      renderToStaticMarkup(<Chart spec={spec({ type: "funnel", x: "etapa", series: [{ key: "v" }], data: [{ etapa: "Leads", v: 12400 }, { etapa: "Venda", v: 620 }] })} />)
+    )
+    expect(html).toContain('data-chart-type="funnel"')
+    expect(html).toContain("aspect-ratio")
+  })
+
+  it("medidor: renderiza com rótulo da série e sem legenda", () => {
+    const html = renderToStaticMarkup(<Chart spec={spec({ type: "gauge", x: "m", series: [{ key: "v", label: "Meta atingida" }], data: [{ m: "mês", v: 72 }], unit: "%" })} />)
+    expect(html).toContain('data-chart-type="gauge"')
+    expect(html).not.toContain('data-slot="chart-legend"')
+  })
+
+  it("composto: barras e linhas na mesma moldura, com legenda", () => {
+    const html = renderToStaticMarkup(
+      <Chart spec={spec({ type: "composed", x: "mes", series: [{ key: "receita", label: "Receita", kind: "bar" }, { key: "meta", label: "Meta", kind: "line" }], data: months })} />
+    )
+    expect(html).toContain('data-chart-type="composed"')
+    expect(html).toContain("Receita")
+    expect(html).toContain("Meta")
+  })
+
+  it("meta e faixa: texto da legenda com a unidade e o rótulo", () => {
+    expect(plain(describeReference(spec({ type: "line", x: "mes", series: [{ key: "receita" }], data: months, unit: "BRL", reference: { from: 1500, label: "Meta" } }))!)).toBe("Meta (a partir de R$ 1.500,00)")
+    expect(describeReference(spec({ type: "bar", x: "mes", series: [{ key: "receita" }], data: months, reference: { from: 800, to: 1000 } }))).toBe("800 – 1.000")
+    expect(describeReference(spec({ type: "bar", x: "mes", series: [{ key: "receita" }], data: months }))).toBeNull()
+  })
+
+  it("meta renderiza a legenda; projeção não quebra a renderização", () => {
+    const html = plain(
+      renderToStaticMarkup(
+        <Chart spec={spec({ type: "line", x: "mes", series: [{ key: "receita" }], data: months, reference: { from: 1500, to: 1800, label: "Faixa" }, forecast: { points: 3 } })} />
+      )
+    )
+    expect(html).toContain('data-slot="chart-reference"')
+    expect(html).toContain("Faixa (1.500 – 1.800)")
   })
 })
