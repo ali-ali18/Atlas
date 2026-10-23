@@ -521,3 +521,11 @@ export function routineScheduleSummary(routine: Routine): string {
 export function webhookAuthHeader(key: string): string {
 	return `Authorization: Bearer ${key}`;
 }
+
+/** Lista de execuções igual à da tela (id, nome e horário): a consulta periódica não troca o estado. */
+export function sameRoutineRuns(
+	previous: ReadonlyArray<{ id: string; name: string; time: string }>,
+	next: ReadonlyArray<{ id: string; name: string; time: string }>,
+): boolean {
+	return previous.length === next.length && previous.every((run, index) => run.id === next[index]!.id && run.name === next[index]!.name && run.time === next[index]!.time);
+}

@@ -56,7 +56,7 @@ import { clearConversationNotifications } from "@/lib/push-client";
 
 import { closeActivity, hydrateDevSessionFromApi, openActivity, useActivitySelection } from "@/lib/dev-session/store";
 import type { ActiveWorkItemResponse } from "@/lib/atlas-api";
-import { currentPollMode, getSharedEventHub, shouldPollTick } from "@/lib/event-hub-client";
+import { DEGRADED_POLL_MS, currentPollMode, getSharedEventHub, shouldPollTick } from "@/lib/event-hub-client";
 import { ChatContextPanel } from "./chat-context-panel/chat-context-panel";
 import { isRoutineDraftValid } from "./chat-context-panel/routine-draft";
 import { botAccentStyle } from "./chat-context-panel/bot-accent";
@@ -155,6 +155,7 @@ import {
 	parseUsersInput,
 	recordToUiRoutine,
 	routineRunLabel,
+	sameRoutineRuns,
 	uiRoutineToPayload,
 } from "./chat-context-panel/routine-map";
 import type { TemplateCreateFields } from "./chat-context-panel/routine-create-chooser";
@@ -753,25 +754,48 @@ export function Template4Client({
 	useEffect(() => {
 		if (!activeId) return;
 		let cancelled = false;
+		let lastRefreshAt = Date.now();
 		const refresh = () => {
 			if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+			lastRefreshAt = Date.now();
 			listBotRoutineRuns(activeId)
 				.then((runs) => {
 					if (cancelled) return;
-					setBotRoutineRuns(
-						runs.map((run) => ({
-							id: run.id,
-							name: `${run.routineName} · ${routineRunLabel(run)}`,
-							time: formatRoutineRunTime(run.createdAt),
-						})),
-					);
+					const next = runs.map((run) => ({
+						id: run.id,
+						name: `${run.routineName} · ${routineRunLabel(run)}`,
+						time: formatRoutineRunTime(run.createdAt),
+					}));
+					// Mesma lista: devolve a anterior e nada re-renderiza (a consulta roda a cada 15 s).
+					setBotRoutineRuns((previous) => (sameRoutineRuns(previous, next) ? previous : next));
 				})
 				.catch(() => undefined);
 		};
-		const timer = window.setInterval(refresh, 15_000);
+		// Sem hub: a consulta antiga de 15 s. Com hub: a execução de rotina vira run do bot e o evento traz a
+		// lista na hora; fica só uma consulta de segurança lenta (execução sem run, hub caindo).
+		const timer = window.setInterval(() => {
+			const mode = currentPollMode();
+			if (mode === "legacy" || Date.now() - lastRefreshAt >= DEGRADED_POLL_MS) refresh();
+		}, 15_000);
+		const hub = getSharedEventHub();
+		let hubTimer: ReturnType<typeof setTimeout> | null = null;
+		const refreshSoon = () => {
+			if (hubTimer !== null) return;
+			hubTimer = setTimeout(() => {
+				hubTimer = null;
+				refresh();
+			}, 500);
+		};
+		const offRuns = hub?.subscribeBots((event) => {
+			if (event.type === "run" && event.payload.botId === activeId) refreshSoon();
+		});
+		const offResync = hub?.onResync(refreshSoon);
 		return () => {
 			cancelled = true;
 			window.clearInterval(timer);
+			offRuns?.();
+			offResync?.();
+			if (hubTimer !== null) clearTimeout(hubTimer);
 		};
 	}, [activeId]);
 
