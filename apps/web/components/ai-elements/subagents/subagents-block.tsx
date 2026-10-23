@@ -9,7 +9,7 @@ import { subagentElapsedMs, type SubagentTrack } from "@/lib/dev-session/subagen
 
 import { SubagentAvatar } from "./subagent-avatars";
 import { ActivityCard } from "../dev-session/parts";
-import { SUBAGENT_STATUS_LABEL, SUBAGENT_STATUS_TONE } from "./subagent-status";
+import { SUBAGENT_STATUS_LABEL, SUBAGENT_STATUS_TONE, subagentFailureReason } from "./subagent-status";
 
 /** Texto do indicador enquanto rodam ("Esperando resposta dos subagentes (2 de 3)"). */
 export function subagentsWaitingLabel(tasks: readonly SubagentTaskView[]): string {
@@ -47,13 +47,16 @@ export function SubagentCardView({
 	const running = task.status === "running";
 	const status = running ? (time ?? SUBAGENT_STATUS_LABEL.running) : [SUBAGENT_STATUS_LABEL[task.status], time].filter(Boolean).join(" · ");
 	const toolCount = track?.tools.reduce((sum, tool) => sum + tool.count, 0) || task.toolsUsed.length;
+	const reason = subagentFailureReason(task);
 	const extra = running
 		? track?.lastTool
 			? <span className="font-mono">{track.lastTool}</span>
 			: null
-		: toolCount > 0
-			? `${toolCount} ${toolCount === 1 ? "ferramenta" : "ferramentas"}`
-			: null;
+		: reason
+			? <span data-subagent-reason title={reason}>{reason}</span>
+			: toolCount > 0
+				? `${toolCount} ${toolCount === 1 ? "ferramenta" : "ferramentas"}`
+				: null;
 	return (
 		<ActivityCard
 			extra={extra}

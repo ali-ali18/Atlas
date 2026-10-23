@@ -8,6 +8,7 @@ import { FIXTURE_SESSION_ID, devSessionFixtureEvents, devSessionFixtureMode } fr
 import { applyDevSessionEvent, type DevSessionMap } from "@/lib/dev-session/reducer";
 import { SubagentCardView } from "@/components/ai-elements/subagents/subagents-block";
 import { SubagentDetailView } from "@/components/ai-elements/subagents/subagent-detail";
+import { subagentFailureReason } from "@/components/ai-elements/subagents/subagent-status";
 
 import { DevSessionCardView } from "./dev-session-card";
 import { CommandItem, DevSessionDetailView, DiffView, ExitBadge, TerminalOutput } from "./dev-session-detail";
@@ -165,4 +166,33 @@ test("sessão parada: shell_started atrasado não fica 'em execução'", () => {
 	assert.equal(command.status, "done");
 	assert.equal(command.endedReason, "stopped");
 	assert.equal(map[sessionId]!.commands.some((c) => c.status === "running"), false);
+});
+
+test("subagente que falhou mostra o motivo na linha; o relatório segue no detalhe", () => {
+	const failed: SubagentTaskView = {
+		taskIndex: 1,
+		title: "Bobinho",
+		goal: "Escreva o resumo da Semana 2.",
+		status: "failed",
+		toolsUsed: [],
+		summary: "The sub-agent returned no report: it ended without any text or findings, so nothing was done for this task. Do it yourself, or tell the user plainly that this part is missing.",
+	};
+	const card = renderToStaticMarkup(<SubagentCardView groupId="g" now={0} task={failed} />);
+	assert.match(card, /Bobinho/);
+	assert.match(card, /Falhou/);
+	assert.match(card, /data-subagent-reason/);
+	assert.match(card, /The sub-agent returned no report/);
+	const detail = renderToStaticMarkup(<SubagentDetailView groupId="g" now={0} task={failed} />);
+	assert.match(detail, /Resumo/);
+	assert.match(detail, /tell the user plainly/);
+	// tarefa concluída não mostra motivo
+	const ok = renderToStaticMarkup(<SubagentCardView groupId="g" now={0} task={{ ...failed, status: "ok", summary: "R$ 12,90" }} />);
+	assert.doesNotMatch(ok, /data-subagent-reason/);
+});
+
+test("subagentFailureReason: primeira linha útil, sem prefixo técnico, cortada", () => {
+	assert.equal(subagentFailureReason({ status: "ok", summary: "x" }), null);
+	assert.equal(subagentFailureReason({ status: "failed", summary: "Sub-agent failed: provider down" }), "provider down");
+	assert.equal(subagentFailureReason({ status: "partial", summary: "\n[stopped early: deadline]" }), null);
+	assert.equal(subagentFailureReason({ status: "failed", summary: "a".repeat(200) })!.length, 90);
 });
