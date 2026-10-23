@@ -523,8 +523,10 @@ const staleRunReconciler = setInterval(() => {
 
 // Fase 1: resumo por inatividade (30 min sem msg, sem run ativo, com
 // conteúdo novo). jobId determinístico por estado; duplicata viva pula.
-// Falha recente entra em cooldown (não re-enfileira a cada 60s em loop).
+// Falha recente entra em cooldown (não re-enfileira a cada varredura em loop).
+// A cada 5 min: com 30 min de ociosidade, alguns minutos a mais não mudam nada para o usuário.
 const SUMMARY_IDLE_MS = 30 * 60 * 1000;
+const SUMMARY_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 const SUMMARY_FAIL_COOLDOWN_MS = 30 * 60 * 1000;
 
 async function sweepIdleConversations(): Promise<void> {
@@ -587,7 +589,7 @@ async function sweepIdleConversations(): Promise<void> {
 void sweepIdleConversations();
 const summarySweeper = setInterval(() => {
 	void sweepIdleConversations();
-}, 60_000);
+}, SUMMARY_SWEEP_INTERVAL_MS);
 
 // Entrega offline (F5): a cada minuto, resultados de runs em que o usuário avisou que ia
 // sair e já passou a janela/horário combinado saem num e-mail só por usuário.

@@ -141,6 +141,8 @@ model ConversationMessage {
   reactions      MessageReaction[]
 
   @@index([conversationId, createdAt])
+  /// Varredura de resumo por inatividade: só conversas com mensagem recente (BRIN: minúsculo, a tabela cresce em ordem de createdAt).
+  @@index([createdAt], type: Brin)
   @@map("conversation_messages")
 }
 
