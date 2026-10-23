@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 type HandlerMap = Record<string, (...args: never[]) => unknown>;
 
@@ -31,4 +31,14 @@ export function useStableHandlers<T extends HandlerMap>(impl: T): T {
 	});
 	const [stable] = useState(() => createStableHandlers(Object.keys(impl) as (keyof T)[], () => latest.current));
 	return stable;
+}
+
+/**
+ * Mesmo conteúdo (comparado por JSON) = mesma referência de antes. Para listas pequenas derivadas de dados
+ * que trocam de referência com frequência (ex.: a lista de bots a cada prévia).
+ */
+export function useStructuralMemo<T>(value: T): T {
+	const key = JSON.stringify(value);
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	return useMemo(() => value, [key]);
 }

@@ -75,7 +75,8 @@ import { onChatMessageRequest } from "@/lib/dev-session/chat-send-request";
 import { setBotWorking } from "@/lib/bot-activity";
 import { emitSkillProposalResolved } from "@/lib/skill-draft-handoff";
 import { ThreadSkeleton } from "./thread-skeleton";
-import { useStableHandlers } from "./stable-handlers";
+import { useStableHandlers, useStructuralMemo } from "./stable-handlers";
+import { createPreviewReporter } from "@/lib/preview-throttle";
 import type { OpenRoutinePayload } from "@/components/ai-elements/routines";
 
 /** Última mensagem que satisfaz o filtro, sem copiar e inverter a lista. */
@@ -221,9 +222,16 @@ export function ChatThread({
 		key: string;
 		staleMessages: Message[] | null;
 	} | null>(null);
-	const lastReportedPreviewRef = useRef<{ key: string; text: string } | null>(
-		null,
+	// Prévia na lista de conversas: atualizar a lista re-renderiza o app inteiro, então durante o stream ela
+	// sai no máximo uma vez por segundo (e na hora quando o run termina).
+	const latestPreviewChangeRef = useRef(onLatestMessageChange);
+	useEffect(() => {
+		latestPreviewChangeRef.current = onLatestMessageChange;
+	}, [onLatestMessageChange]);
+	const [previewReporter] = useState(() =>
+		createPreviewReporter({ report: (botId, text) => latestPreviewChangeRef.current?.(botId, text) }),
 	);
+	useEffect(() => () => previewReporter.cancel(), [previewReporter]);
 	// "Grudado no fim?" — follow automático só quando o usuário já estava
 	// no fim; nunca sequestra quem subiu para ler o histórico.
 	const stickRef = useRef(true);
@@ -312,16 +320,18 @@ export function ChatThread({
 		return () => observer.disconnect();
 	}, [pendingCardKey, messages, opened]);
 	useEffect(() => (isGroup ? undefined : onChatMessageRequest((text) => void sendMessageRef.current(text))), [isGroup]);
-	const skillBots = useMemo(
+	// Listas derivadas de `agents` mantêm a referência enquanto o conteúdo não muda: a lista de conversas
+	// muda por qualquer prévia ou não lida, e uma referência nova redesenharia todas as linhas memoizadas.
+	const skillBots = useStructuralMemo(useMemo(
 		() => (agents ?? (agent ? [agent] : [])).map((item) => ({ id: item.id, name: item.name })),
 		[agents, agent],
-	);
+	));
 	// Membros do grupo (principal primeiro): autocompletar, chips de menção e autoria dos balões.
 	const groupMembers = useMemo(
 		() => (agent && isGroup ? orderMembers(resolveGroupMembers(agent, agents ?? [])) : []),
 		[agent, agents, isGroup],
 	);
-	const mentionMembers = useMemo(
+	const mentionMembers = useStructuralMemo(useMemo(
 		() =>
 			groupMembers.map((member) => ({
 				id: member.id,
@@ -332,7 +342,7 @@ export function ChatThread({
 				isPrimary: member.isPrimary,
 			})),
 		[groupMembers],
-	);
+	));
 	// Chat 1:1: os outros bots (sem grupos nem o atual) que o `@` oferece, e as skills que o `/` reconhece nos balões.
 	const otherBots = useMemo(
 		() =>
@@ -353,13 +363,13 @@ export function ChatThread({
 	// Apps só carregam (uma vez por sessão) quando alguma fala do usuário tem "@": para desenhar o chip.
 	const hasAtMention = useMemo(() => messages.some((item) => item.kind === "user" && item.text.includes("@")), [messages]);
 	const mentionApps = useMentionApps(!isGroup && hasAtMention);
-	const bubbleMembers = useMemo(
+	const bubbleMembers = useStructuralMemo(useMemo(
 		() => [
 			...otherBots,
 			...(mentionApps ?? []).map((app) => ({ id: app.id, name: app.name, kind: "app" as const, logo: app.logo })),
 		],
 		[otherBots, mentionApps],
-	);
+	));
 	const stampedAuthorsRef = useRef<{ groupId: string | undefined; map: Map<string, MessageAuthor> }>({ groupId: undefined, map: new Map() });
 	const liveMember = isGroup && liveBotId ? groupMembers.find((member) => member.id === liveBotId) : undefined;
 	// Gate humano da skill: trava o card, chama o resolve e mostra o estado final (ou o erro em pt-BR).
@@ -464,14 +474,9 @@ export function ChatThread({
 			}
 		}
 		if (!text) return;
-		if (
-			lastReportedPreviewRef.current?.key === key &&
-			lastReportedPreviewRef.current.text === text
-		)
-			return;
-		lastReportedPreviewRef.current = { key, text };
-		onLatestMessageChange(agent.id, text);
-	}, [agent?.id, agent?.conversationId, messages, onLatestMessageChange]);
+		previewReporter.update(key, agent.id, text, sending);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [agent?.id, agent?.conversationId, messages, sending, Boolean(onLatestMessageChange), previewReporter]);
 
 	useEffect(() => {
 		const element = scrollRef.current;
@@ -857,6 +862,7 @@ export function ChatThread({
 	// Handlers das linhas com identidade estável (chamam sempre a versão mais nova): sem isso cada render
 	// criava ~20 funções novas por linha e o memo do MessageRow nunca acertava durante o stream.
 	const rowHandlers = useStableHandlers({
+		onOpenRoutine: (payload: OpenRoutinePayload) => onOpenRoutine?.(payload),
 		onConfirm: (confirm: { id: string; confirmId?: string; title: string; status?: string }) => decideCard(confirm, "approved", `confirmado: ${confirm.title}`),
 		onConfirmAlways: (confirm: { id: string; confirmId?: string; title: string; status?: string }) => decideCard(confirm, "approved", `confirmado sempre: ${confirm.title}`),
 		onConfirmReject: (confirm: { id: string; confirmId?: string; status?: string }, feedback: string) => decideCard(confirm, "rejected", devApprovalRejectText(feedback)),
@@ -1341,7 +1347,7 @@ export function ChatThread({
 											phase: activity.phase,
 										})}
 										message={message}
-										onOpenRoutine={onOpenRoutine}
+										onOpenRoutine={onOpenRoutine ? rowHandlers.onOpenRoutine : undefined}
 										onConfirm={rowHandlers.onConfirm}
 										onConfirmAlways={rowHandlers.onConfirmAlways}
 										onConfirmReject={rowHandlers.onConfirmReject}

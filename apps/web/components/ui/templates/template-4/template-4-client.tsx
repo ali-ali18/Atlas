@@ -2011,6 +2011,14 @@ export function Template4Client({
 		onReplacePrimary: () => setReplacePrimaryOpen(true),
 	};
 
+	// Estável: a conversa aberta chama isto durante o stream (com limite de frequência).
+	const updateLatestMessage = useCallback((botId: string, text: string) => {
+		setAgents((previous) => {
+			if (!previous.some((agent) => agent.id === botId && agent.lastMessage !== text)) return previous;
+			return previous.map((agent) => (agent.id === botId ? { ...agent, lastMessage: text } : agent));
+		});
+	}, []);
+
 	function openSettings() {
 		const id = activeIdRef.current;
 		// Grupo: a terceira coluna já é o painel do grupo (membros e detalhes), sem tela de configuração.
@@ -2341,19 +2349,7 @@ export function Template4Client({
 						onBotProfileApplied={(botId, patch) => {
 							applyBotProfilePatch(botId, patch);
 						}}
-						onLatestMessageChange={(botId, text) => {
-							setAgents((previous) => {
-								if (
-									!previous.some(
-										(agent) => agent.id === botId && agent.lastMessage !== text,
-									)
-								)
-									return previous;
-								return previous.map((agent) =>
-									agent.id === botId ? { ...agent, lastMessage: text } : agent,
-								);
-							});
-						}}
+						onLatestMessageChange={updateLatestMessage}
 						onOpenSettings={openSettings}
 						onOpenRoutine={openRoutineFromChat}
 						onBotCreated={addBotsFromServer}
