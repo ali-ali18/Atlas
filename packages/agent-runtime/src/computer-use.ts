@@ -2293,7 +2293,10 @@ async function executeListRoutines(
 		const alertSentence = describeRoutineAlertSentence(row);
 		const alertNote = alertSentence ? ` — ${alertSentence}${row.alert?.active ? " (avisando agora: condição ainda vale)" : ""}` : "";
 		const notifyNote = !row.alert && row.notify === "important" ? " [aviso: só o importante]" : "";
-		return `${index + 1}. ${row.name} (${kind}, ${state})${groupNote}${alertNote}${notifyNote}`;
+		// O que a rotina faz: sem isso o bot não sabe responder "o que tem na rotina X?".
+		const task = row.prompt?.replace(/\s+/g, " ").trim();
+		const taskNote = task ? `\n   faz: ${task.length > 280 ? `${task.slice(0, 279)}…` : task}` : "";
+		return `${index + 1}. ${row.name} (${kind}, ${state})${groupNote}${alertNote}${notifyNote}${taskNote}`;
 	});
 	return {
 		summary: `Rotinas (${items.length}):\n${lines.join("\n")}`,
