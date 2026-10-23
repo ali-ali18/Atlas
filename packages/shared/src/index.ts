@@ -150,6 +150,12 @@ export {
 	type SubagentTaskResult,
 } from "./subagents.js";
 export {
+	DRAFT_REVISION_REASONS,
+	draftRevisionLabel,
+	keepsRevisedDraft,
+	type DraftRevisionReason,
+} from "./draft-revision.js";
+export {
 	applyComputerUseEventToTranscript,
 	applyComputerUseEventsToTranscript,
 	type TranscriptBubble,

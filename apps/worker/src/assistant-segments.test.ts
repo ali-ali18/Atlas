@@ -50,6 +50,15 @@ test("assistant_discard retira o texto do passo", async () => {
 	assert.equal(writes.length, 0);
 });
 
+test("assistant_discard com id retira só o passo dele", async () => {
+	const { writes, recorder } = setup();
+	await recorder.observe(delta("s1", "Vou abrir o AVA."));
+	// Passo seguinte estourou o prazo antes de escrever: o descarte dele não leva a fala do s1.
+	await recorder.observe({ type: "assistant_discard", id: "s2", reason: "timeout" });
+	await recorder.observe(toolCall());
+	assert.deepEqual(writes.map((w) => w.text), ["Vou abrir o AVA."]);
+});
+
 test("falha ao gravar não derruba o run", async () => {
 	const recorder = createAssistantSegmentRecorder({ write: async () => Promise.reject(new Error("db")) });
 	await assert.doesNotReject(recorder.observe(delta("t-reply1", "oi")));

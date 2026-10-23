@@ -42,7 +42,9 @@ export function createAssistantSegmentRecorder(deps: { write: AssistantSegmentWr
 				return;
 			}
 			if (event.type === "assistant_discard") {
-				steps.pop();
+				// Com id: só o passo retirado (um passo sem texto não leva a fala de outro). Sem id: o último, como antes.
+				if (event.id) steps = steps.filter((item) => item.id !== event.id);
+				else steps.pop();
 				return;
 			}
 			if (event.type === "tool_call") {

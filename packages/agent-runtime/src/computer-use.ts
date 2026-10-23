@@ -7771,7 +7771,7 @@ ${blockHint}`;
 		if (stepOutcome === "timeout") {
 			if (decisionTimeouts < 1) {
 				decisionTimeouts += 1;
-				await onEvent({ type: "assistant_discard" });
+				await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "timeout" });
 				conversation.push({ role: "system", content: DECISION_TIMEOUT_NOTE });
 				await persistCheckpoint(step + 1);
 				continue;
@@ -7831,8 +7831,8 @@ ${blockHint}`;
 					const gate = taskOrchestrator.gate("final_answer", { budgetFraction: lastBudgetFraction, canContinue: gateCanContinue, browserAvailable: browserAvailable() });
 					if (gate.action === "block") {
 						conversation.push({ role: "assistant", content: text });
-						// O texto já foi em deltas ao chat; como o run segue, o balão é retirado (assistant_discard).
-						await onEvent({ type: "assistant_discard" });
+						// O texto já foi em deltas ao chat; como o run segue, o balão vira rascunho revisado (fica recolhido).
+						await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "items_open" });
 						conversation.push({ role: "system", content: withWithdrawnReply(gate.note) });
 						await persistCheckpoint(step + 1);
 						continue;
@@ -7857,6 +7857,8 @@ ${blockHint}`;
 					})
 				) {
 					exhaustionNudged = true;
+					// Sem isto o balão ficava ao vivo e sumia no fim do run (só a resposta final é gravada).
+					await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "exhaustion" });
 					conversation.push({ role: "assistant", content: text });
 					conversation.push({ role: "system", content: CONTINUE_AFTER_EXHAUSTION_NOTE });
 					await persistCheckpoint(step + 1);
@@ -7868,6 +7870,8 @@ ${blockHint}`;
 					taskTracker.setPhase("verifying");
 					if (!artifactNudged) {
 						artifactNudged = true;
+						// Sem isto o balão ficava ao vivo e sumia no fim do run (só a resposta final é gravada).
+						await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "missing_file" });
 						conversation.push({ role: "assistant", content: text });
 						conversation.push({ role: "system", content: MISSING_ARTIFACT_NOTE });
 						await persistCheckpoint(step + 1);
@@ -7918,8 +7922,8 @@ ${blockHint}`;
 					if (verdict) usageTotals = addUsage(usageTotals, verdict.usage);
 					if (verdict?.fixFile) {
 						conversation.push({ role: "assistant", content: text });
-						// O texto já foi em deltas ao chat; como será refeito, o balão é retirado (assistant_discard).
-						await onEvent({ type: "assistant_discard" });
+						// O texto já foi em deltas ao chat; como será refeito, o balão vira rascunho revisado (fica recolhido).
+						await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "file_fix" });
 						conversation.push({ role: "system", content: withWithdrawnReply(REGENERATE_FILE_NOTE) });
 						await persistCheckpoint(step + 1);
 						continue;
@@ -7939,8 +7943,8 @@ ${blockHint}`;
 					});
 					if (issues) {
 						conversation.push({ role: "assistant", content: text });
-						// O texto já foi em deltas ao chat; como será refeito, o balão é retirado (assistant_discard).
-						await onEvent({ type: "assistant_discard" });
+						// O texto já foi em deltas ao chat; como será refeito, o balão vira rascunho revisado (fica recolhido).
+						await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "evidence" });
 						conversation.push({ role: "system", content: withWithdrawnReply(verifierNote(issues)) });
 						await persistCheckpoint(step + 1);
 						continue;
@@ -7970,7 +7974,7 @@ ${blockHint}`;
 		if (text.length > 0 && !isSubagent) {
 			const quiet = readOnlyDecision && readOnlyStreak >= STALL_QUIET_AT && stallFileIntent(deliverablePending());
 			if (quiet || narrationMemory.isDuplicate(text)) {
-				await onEvent({ type: "assistant_discard" });
+				await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "duplicate" });
 				narration = "";
 			} else {
 				narrationMemory.remember(text);

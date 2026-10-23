@@ -99,4 +99,38 @@ describe("resposta já exibida não some (replay: arquivo repassado ao Bobinho)"
 		expect(events.filter((event) => event.type === "assistant_discard")).toHaveLength(0);
 		expect(transcript.filter((bubble) => bubble.text.trim()).map((bubble) => bubble.text)).toEqual([ASKED]);
 	});
+
+	it("sem repasse, a resposta reescrita pela cobrança do arquivo deixa o rascunho visível e recolhido, com o motivo", async () => {
+		const { result, events, transcript } = await run({
+			bots: 1,
+			queue: [say(ASKED), say(WITHDRAWN)],
+		});
+		expect(result.text).toBe(WITHDRAWN);
+		const discards = events.filter((event) => event.type === "assistant_discard");
+		expect(discards).toHaveLength(1);
+		expect(discards[0]).toMatchObject({ reason: "missing_file" });
+		expect(String(discards[0]!.id)).toMatch(/-step-\d+$/);
+		// O texto já lido continua na tela (recolhido como rascunho revisado) e a versão nova vem depois.
+		expect(transcript.map((bubble) => ({ text: bubble.text, revised: bubble.revised }))).toEqual([
+			{ text: ASKED, revised: "missing_file" },
+			{ text: WITHDRAWN, revised: undefined },
+		]);
+	});
+
+	it("rascunho recusado pelo verificador também fica visível como revisado, nunca apagado", async () => {
+		verify.mockResolvedValueOnce(["Your draft blames a tool that actually returned a successful result."]);
+		const { result, events, transcript } = await run({
+			queue: [
+				turn(null, call("c1", "send_to_bot", { bot: "Bobinho", message: "Monte o PDF.", title: "PDF" })),
+				say("Não consegui falar com o Bobinho."),
+				say(ASKED),
+			],
+		});
+		expect(result.text).toBe(ASKED);
+		expect(events.find((event) => event.type === "assistant_discard")).toMatchObject({ reason: "evidence" });
+		expect(transcript.filter((bubble) => bubble.text.trim()).map((bubble) => [bubble.text, bubble.revised])).toEqual([
+			["Não consegui falar com o Bobinho.", "evidence"],
+			[ASKED, undefined],
+		]);
+	});
 });

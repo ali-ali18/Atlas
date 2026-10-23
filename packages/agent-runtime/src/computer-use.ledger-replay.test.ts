@@ -228,7 +228,7 @@ describe("replay: 9 semanas de uma disciplina", () => {
 				return say("I could not read the weeks; weeks 1 to 9 are missing.");
 			},
 		});
-		expect(events.filter((e) => e.type === "assistant_discard")).toHaveLength(3);
+		expect(events.filter((e) => e.type === "assistant_discard" && e.reason === "items_open")).toHaveLength(3);
 		expect(result?.text).toBe("I could not read the weeks; weeks 1 to 9 are missing.");
 	});
 
@@ -312,7 +312,7 @@ describe("replay: continuação entre runs", () => {
 		expect(itemsLayer(requests[0]!)).toContain('3 "Week 3" (Course X)');
 		expect(itemsLayer(requests[1]!)).toContain('Now: item 3 "Week 3" (parent: Course X)');
 		expect(itemsLayer(requests[1]!)).toContain("Items: 2/9 done.");
-		expect(events.filter((e) => e.type === "assistant_discard")).toHaveLength(0);
+		expect(events.filter((e) => e.type === "assistant_discard" && e.reason === "items_open")).toHaveLength(0);
 		expect(result?.text).toBe("Here is everything.");
 		expect(lastTaskState(checkpoints)?.ledger?.items.filter((i) => i.status === "done")).toHaveLength(9);
 		// os contadores do run anterior não vazam
