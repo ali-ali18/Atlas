@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "id": "rejeicao-informal-remove",
+  "title": "'Dx sem esse mesmo, n tem algo q me agrade' depois de reverter um gráfico → remove do painel, não 'deixei como está'",
+  "description": "Caso real (Jujubinha): o bot voltou o gráfico de limite para a barra horizontal única e o usuário respondeu em abreviação que era para deixar SEM o gráfico. Em produção o bot leu só o 'deixa' e respondeu 'Deixei como está', e o usuário teve de pedir de novo ('Remove o limite total…').",
+  "tags": ["intencao", "paineis"],
+  "bot": { "name": "Jujubinha", "about": "Assistente financeira pessoal, com um painel de gastos do cartão.", "language": "pt-BR" },
+  "history": [
+    { "role": "user", "content": "não gostei desse gráfico novo do limite, volta como era" },
+    {
+      "role": "assistant",
+      "content": null,
+      "toolCalls": [
+        {
+          "id": "call-prev-1",
+          "name": "page_update",
+          "args": { "page_id": "pg_cartao", "ops": [{ "op": "replace", "id": "grafico-limite", "node": { "type": "chart", "props": { "spec": { "type": "bar", "orientation": "horizontal", "title": "Limite", "x": "item", "series": [{ "key": "usado", "label": "Usado" }, { "key": "disponivel", "label": "Disponível" }], "data": [{ "item": "Limite", "usado": 1951.37, "disponivel": 22508.63 }], "stacked": true, "unit": "BRL" } } } }] }
+        }
+      ]
+    },
+    { "role": "tool", "toolCallId": "call-prev-1", "content": "Page pg_cartao updated (revision 4)." },
+    {
+      "role": "assistant",
+      "content": "Voltei o gráfico de limite para a barra horizontal única: usado R$ 1.951,37 e disponível R$ 22.508,63, de R$ 24.460,00."
+    }
+  ],
+  "user": "Dx sem esse mesmo, n tem algo q me agrade no momento",
+  "tools": {
+    "fixtures": [
+      { "tool": "page_list", "result": { "ok": true, "summary": "Pages: pg_cartao \"Gastos do cartão\" (revision 4)." } },
+      {
+        "tool": "page_read",
+        "result": { "ok": true, "summary": "Page pg_cartao \"Gastos do cartão\" (revision 4). Nodes: raiz (stack) > kpis (grid: stat gasto-mes, stat fatura) · grafico-limite (chart: bar horizontal \"Limite\", usado 1951.37, disponivel 22508.63) · categorias (bar_list)." }
+      },
+      { "tool": "page_update", "args": { "page_id": { "equals": "pg_cartao" } }, "result": { "ok": true, "summary": "Page pg_cartao updated (revision 5)." } }
+    ]
+  },
+  "expect": [
+    { "type": "completed" },
+    { "id": "removeu-do-painel", "type": "tool_called", "tool": "page_update", "args": { "page_id": { "equals": "pg_cartao" } } },
+    { "id": "nao-manteve", "type": "text_not_contains", "pattern": "deixei como est|mantive|continua como est|ficou como est", "ignoreCase": true },
+    { "type": "no_question" },
+    { "type": "no_internals" }
+  ],
+  "mock": {
+    "turns": [
+      { "calls": [{ "name": "mcp_tool_search", "args": { "query": "page_update" } }] },
+      { "calls": [{ "name": "page_update", "args": { "page_id": "pg_cartao", "ops": [{ "op": "remove", "id": "grafico-limite" }] } }] },
+      { "say": "Pronto, tirei o gráfico de limite do painel." }
+    ]
+  }
+}
