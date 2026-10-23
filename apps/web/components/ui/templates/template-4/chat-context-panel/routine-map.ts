@@ -458,6 +458,8 @@ export function routineTriggerRows(routine: Routine): RoutineTriggerRow[] {
 export function routineCardSummary(triggerType: Routine["triggerKind"] | undefined, detail: string | undefined): string | null {
 	const first = detail?.split("\n")[0]?.trim();
 	if (!first) return null;
+	// Alerta por condição: o agente já grava a frase pronta ("Alerta · verifica a cada 30 minutos · avisa se …").
+	if ((triggerType === "cron" || triggerType === "interval") && first.startsWith("Alerta · ")) return first;
 	if (triggerType === "cron") {
 		const cron = /^Cron:\s+((?:\S+\s+){4}\S+)/.exec(first)?.[1];
 		return cron ? capitalizeFirst(scheduleLabel(toScheduleState(cronToScheduleInput(cron)))) : null;
