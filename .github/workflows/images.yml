@@ -1,0 +1,167 @@
+name: Imagens
+
+# Publica as imagens de deploy no GHCR (ghcr.io/ali-ali18/atlas-<serviço>) depois que o CI passa na main.
+# O servidor (Dokploy) só faz `pull`: nada de `next build`/`pnpm install` na VPS.
+# Guia: docs/deploy-dokploy.md · Análise: docs/features/deploy-por-imagem.md
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sandboxes:
+        description: "Construir também as imagens de sandbox (agent-sandbox, code-runner, dev-sandbox)"
+        type: boolean
+        default: true
+
+# Um publish por vez; um novo push não cancela o que está terminando de enviar imagens.
+concurrency:
+  group: images-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/ali-ali18/atlas-
+
+jobs:
+  changes:
+    name: Decidir o que construir
+    # Só publica da main; no workflow_run, só se o CI passou.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      sha: ${{ steps.matrix.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+      - name: Montar a matriz
+        id: matrix
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
+          WITH_SANDBOXES: ${{ github.event_name != 'workflow_dispatch' || inputs.sandboxes }}
+        run: |
+          set -euo pipefail
+          # App: sempre as quatro imagens (o código mudou, o cache de camadas faz o resto).
+          matrix='[
+            {"name":"web","file":"docker/web/Dockerfile","context":".","target":"","args":""},
+            {"name":"api","file":"docker/node-service.Dockerfile","context":".","target":"","args":"SERVICE=api"},
+            {"name":"worker","file":"docker/node-service.Dockerfile","context":".","target":"","args":"SERVICE=worker"},
+            {"name":"migrate","file":"docker/node-service.Dockerfile","context":".","target":"migrate","args":"SERVICE=api"}
+          ]'
+
+          # Sandboxes: só quando a pasta própria mudou desde o último publish que deu certo
+          # (ou sempre, no disparo manual). Sem publish anterior => constrói todas.
+          prev=""
+          if [ "$DISPATCH" != "true" ]; then
+            prev=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/images.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""' || true)
+            if [ -n "$prev" ] && ! git cat-file -e "${prev}^{commit}" 2>/dev/null; then prev=""; fi
+          fi
+          for s in agent-sandbox code-runner dev-sandbox; do
+            build=false
+            if [ "$WITH_SANDBOXES" = "true" ]; then
+              if [ "$DISPATCH" = "true" ] || [ -z "$prev" ]; then
+                build=true
+              elif ! git diff --quiet "$prev" "$HEAD_SHA" -- "docker/$s"; then
+                build=true
+              fi
+            fi
+            echo "sandbox $s: build=$build (base=${prev:-nenhuma})"
+            if [ "$build" = "true" ]; then
+              matrix=$(jq -c --arg s "$s" '. + [{"name":$s,"file":("docker/"+$s+"/Dockerfile"),"context":("docker/"+$s),"target":"","args":"","sandbox":true}]' <<<"$matrix")
+            fi
+          done
+          echo "matrix=$(jq -c . <<<"$matrix")" >> "$GITHUB_OUTPUT"
+          echo "sha=${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Imagem ${{ matrix.name }}
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Argumentos de build
+        id: args
+        env:
+          NAME: ${{ matrix.name }}
+          SVC: ${{ matrix.args }}
+          # Embutidos no bundle do navegador pelo `next build`: valem para a imagem inteira.
+          # Repository Variables (Settings > Secrets and variables > Actions > Variables).
+          SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+          API_INTERNAL_URL: ${{ vars.ATLAS_API_INTERNAL_URL }}
+        run: |
+          {
+            echo 'list<<EOF'
+            if [ "$NAME" = "web" ]; then
+              echo "NEXT_PUBLIC_SENTRY_DSN=${SENTRY_DSN}"
+              echo "ATLAS_API_INTERNAL_URL=${API_INTERNAL_URL:-http://api:3001}"
+            elif [ -n "$SVC" ]; then
+              echo "$SVC"
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          target: ${{ matrix.target }}
+          build-args: ${{ steps.args.outputs.list }}
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}${{ matrix.name }}:sha-${{ needs.changes.outputs.sha }}
+            ${{ env.IMAGE_PREFIX }}${{ matrix.name }}:latest
+          # Cache no próprio registry (sem o teto de 10 GB do cache do Actions; as sandboxes são grandes).
+          cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}${{ matrix.name }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}${{ matrix.name }}:buildcache,mode=max
+          provenance: false
+
+  deploy:
+    name: Disparar deploy no Dokploy
+    needs: [changes, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DOKPLOY_DEPLOY_WEBHOOK: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK }}
+    steps:
+      # Só depois de TODAS as imagens estarem no GHCR (o auto-deploy por git do Dokploy deve ficar desligado:
+      # senão ele corre na frente e sobe o `latest` antigo). Sem o secret, o passo é pulado.
+      - name: Chamar o webhook de deploy
+        if: ${{ env.DOKPLOY_DEPLOY_WEBHOOK != '' }}
+        run: |
+          curl --fail --silent --show-error --max-time 30 -X POST "$DOKPLOY_DEPLOY_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: push" \
+            -d '{"ref":"refs/heads/main"}'
