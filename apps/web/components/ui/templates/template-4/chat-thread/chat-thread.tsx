@@ -78,6 +78,15 @@ import { ThreadSkeleton } from "./thread-skeleton";
 import { useStableHandlers } from "./stable-handlers";
 import type { OpenRoutinePayload } from "@/components/ai-elements/routines";
 
+/** Última mensagem que satisfaz o filtro, sem copiar e inverter a lista. */
+function lastMessageWhere<T extends Message>(messages: readonly Message[], match: (message: Message) => message is T): T | undefined {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index]!;
+		if (match(message)) return message;
+	}
+	return undefined;
+}
+
 function itemKind(item: ThreadItem | undefined): Message["kind"] | null {
 	return item?.type === "message" ? item.message.kind : null;
 }
@@ -277,7 +286,9 @@ export function ChatThread({
 	// Pedidos de outras partes da tela (painel da sessão: "Testar de novo") entram como mensagem do usuário.
 	const sendMessageRef = useRef(sendMessage);
 	sendMessageRef.current = sendMessage;
-	const pendingCardKey = selectDockEntries(messages).map((entry) => entry.id).join("|");
+	// Uma passada por mudança da thread (antes eram duas por render: aqui e no dock).
+	const allDockEntries = useMemo(() => selectDockEntries(messages), [messages]);
+	const pendingCardKey = useMemo(() => allDockEntries.map((entry) => entry.id).join("|"), [allDockEntries]);
 	useEffect(() => {
 		const root = scrollRef.current;
 		if (!root || !opened || !pendingCardKey || typeof IntersectionObserver === "undefined") {
@@ -542,25 +553,34 @@ export function ChatThread({
 	}, [agent?.conversationId]);
 
 	// Subagentes rodando aparecem no WorkingIndicator, não como bloco na lista.
-	const activeSubagents = sending
-		? ([...messages]
-				.reverse()
-				.find(
-					(message) =>
-						message.kind === "subagents" &&
-						message.tasks.some((task) => task.status === "running"),
-				) as Extract<Message, { kind: "subagents" }> | undefined)
-		: undefined;
+	const activeSubagents = useMemo(
+		() =>
+			sending
+				? lastMessageWhere(
+						messages,
+						(message): message is Extract<Message, { kind: "subagents" }> =>
+							message.kind === "subagents" && message.tasks.some((task) => task.status === "running"),
+					)
+				: undefined,
+		[messages, sending],
+	);
 	// Autor das falas ainda sem autor gravado: fixado na primeira vez (por grupo), nunca segue o membro ativo.
 	if (stampedAuthorsRef.current.groupId !== agent?.id) stampedAuthorsRef.current = { groupId: agent?.id, map: new Map() };
-	const visibleMessages = (isGroup
-		? withLiveAuthor(messages, liveMember ? { id: liveMember.id, name: liveMember.name } : null, stampedAuthorsRef.current.map)
-		: messages
-	).filter(
-		(message) =>
-			message.kind !== "tool" &&
-			!isHiddenProtocolBubble(message) &&
-			!(message.kind === "assistant" && message.text.trim().length === 0),
+	const stampedAuthors = stampedAuthorsRef.current.map;
+	const liveAuthorId = liveMember?.id;
+	const liveAuthorName = liveMember?.name;
+	const visibleMessages = useMemo(
+		() =>
+			(isGroup
+				? withLiveAuthor(messages, liveAuthorId && liveAuthorName ? { id: liveAuthorId, name: liveAuthorName } : null, stampedAuthors)
+				: messages
+			).filter(
+				(message) =>
+					message.kind !== "tool" &&
+					!isHiddenProtocolBubble(message) &&
+					!(message.kind === "assistant" && message.text.trim().length === 0),
+			),
+		[messages, isGroup, liveAuthorId, liveAuthorName, stampedAuthors],
 	);
 	// Conversa entre bots: o texto cru não vira balão (marcador ou linha "N mensagens com X").
 	// Delegou e o outro bot parou esperando o usuário: a linha de status diz isso.
@@ -583,8 +603,7 @@ export function ChatThread({
 
 	const threadItems = useMemo(
 		() => groupBotMessages(visibleMessages),
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[messages, activeSubagents],
+		[visibleMessages],
 	);
 	const timeSeparators = useMemo(
 		() => buildTimeSeparators(threadItems),
@@ -914,6 +933,15 @@ export function ChatThread({
 		},
 	});
 
+	const lastDevSessionId = useMemo(
+		() => lastMessageWhere(messages, (message): message is Extract<Message, { kind: "devsession" }> => message.kind === "devsession")?.sessionId ?? null,
+		[messages],
+	);
+	// O dock e a linha "Aguardando sua aprovação" leem a mesma lista: não há como um aparecer sem o outro.
+	const dockEntries = useMemo(() => allDockEntries.filter((entry) => !relayedDone.has(entry.id)), [allDockEntries, relayedDone]);
+	const dockIds = useMemo(() => new Set(dockEntries.map((entry) => entry.id)), [dockEntries]);
+	const messageIndex = useMemo(() => new Map(messages.map((entry, position) => [entry.id, position] as const)), [messages]);
+
 	if (!agent) {
 		return (
 			<div
@@ -982,11 +1010,6 @@ export function ChatThread({
 	}
 
 	const pausedLike = runStatus === "paused" || runStatus === "pausing";
-	const lastDevSession = [...messages].reverse().find((message) => message.kind === "devsession");
-	const lastDevSessionId = lastDevSession?.kind === "devsession" ? lastDevSession.sessionId : null;
-	// O dock e a linha "Aguardando sua aprovação" leem a mesma lista: não há como um aparecer sem o outro.
-	const dockEntries = selectDockEntries(messages).filter((entry) => !relayedDone.has(entry.id));
-	const dockIds = new Set(dockEntries.map((entry) => entry.id));
 	const hasPendingApproval = dockEntries.length > 0;
 	const barEntries = dockEntries.filter((entry) => offscreen.has(entry.id));
 	const locateCard = (id: string) => {
@@ -1005,7 +1028,6 @@ export function ChatThread({
 			.catch(() => undefined)
 			.finally(() => endCardDecision(key));
 	};
-	const messageIndex = new Map(messages.map((entry, position) => [entry.id, position] as const));
 	const working = sending || pausedLike || devFixtureWorking;
 	const runActive = sending || pausedLike;
 	// Grupo, entre um run e outro: quem o servidor diz que está respondendo ou escolhendo.
@@ -1224,7 +1246,11 @@ export function ChatThread({
 								);
 							}
 							const markerSource = message.kind === "needs-user" && relayedDone.has(message.id) ? ({ ...message, status: "resolved" } as typeof message) : message;
-							const approvalMarker = approvalMarkerFor(markerSource, dockIds, messages.slice((messageIndex.get(message.id) ?? messages.length) + 1));
+							// Só cartões de aprovação têm marcador; a thread vai inteira com o índice (sem fatia por linha).
+							const approvalMarker =
+								message.kind === "confirm" || message.kind === "needs-user"
+									? approvalMarkerFor(markerSource, dockIds, messages, (messageIndex.get(message.id) ?? messages.length) + 1)
+									: null;
 							// Pendente e acionável: o cartão inteiro fica onde nasceu. Só decidido ou expirado vira linha.
 							const approvalCardAttr = dockIds.has(message.id) ? message.id : undefined;
 							if (approvalMarker && approvalMarker.status !== "pending") {

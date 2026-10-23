@@ -71,6 +71,12 @@ test("marcador: um texto por estado, e expirado para pendente que não é o ativ
 	assert.equal(text(5), "Recusado · make e");
 	assert.equal(approvalMarkerFor(relayed("r", "resolved"), active)?.label, "Respondido · git push origin main");
 	assert.equal(approvalMarkerFor(user("x", "oi"), active), null);
+	// Thread inteira + índice dá o mesmo que a fatia (sem copiar a lista por linha).
+	for (let index = 0; index < messages.length; index += 1) {
+		assert.deepEqual(approvalMarkerFor(messages[index]!, active, messages, index + 1), approvalMarkerFor(messages[index]!, active, messages.slice(index + 1)));
+	}
+	// O índice conta: a partir de depois da recusa "make d", a decisão seguinte é a do "make e".
+	assert.equal(approvalMarkerFor(messages[3]!, active, messages, 6)?.label, "Recusado · make d");
 });
 
 test("marcador: comando longo é encurtado em uma linha", () => {
