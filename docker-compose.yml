@@ -353,6 +353,7 @@ services:
   web:
     # NEXT_PUBLIC_* e o destino do rewrite /v1 são embutidos no build da imagem (ver images.yml / docs/deploy-dokploy.md).
     image: ghcr.io/ali-ali18/atlas-web:${ATLAS_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     mem_limit: 512m
     # Sem `ports:` aqui: no Dokploy o Traefik alcança o web pela rede interna
