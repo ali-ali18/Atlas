@@ -90,6 +90,7 @@ describe("isSummaryFreshSnapshot", () => {
 			"page",
 			"provider-fallback",
 			"questionnaire",
+			"revised-draft",
 			"routine",
 			"skill",
 			"subagents",
