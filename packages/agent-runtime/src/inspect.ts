@@ -1,6 +1,7 @@
 import type { LlmMessage } from "@workspace/llm";
 import { scrubValue, type InspectAction, type InspectCategory, type StepInspect } from "@workspace/shared";
 import { estimateMessagesTokens, type HygieneReport } from "./hygiene.js";
+import { toolsJsonCharsOf } from "./tools-json-size.js";
 
 /**
  * Inspetor do run: por chamada ao modelo, um resumo compacto do que foi enviado (tokens estimados por
@@ -93,7 +94,7 @@ export function createStepInspector(options: { full?: boolean } = {}) {
 		step(input: { messages: readonly LlmMessage[]; tools: readonly ToolLike[]; contextLength?: number }): StepInspect {
 			const names = input.tools.map((tool) => tool.function.name);
 			const split = categorizeMessages(input.messages);
-			const toolTokens = estimateMessagesTokens([], JSON.stringify(input.tools).length);
+			const toolTokens = estimateMessagesTokens([], toolsJsonCharsOf(input.tools));
 			const tokens: Record<InspectCategory, number> = { ...split, tools: toolTokens };
 			const total = Object.values(tokens).reduce((sum, value) => sum + value, 0);
 			let tools: StepInspect["tools"];

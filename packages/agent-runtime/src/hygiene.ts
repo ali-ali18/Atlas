@@ -56,20 +56,42 @@ function textLength(message: LlmMessage): number {
 	return Math.min(JSON.stringify(message.content).length, MAX_BINARY_CHARS) + imageCount * 6_000;
 }
 
+type MessageCharsEntry = {
+	content: LlmMessage["content"];
+	toolCalls: LlmMessage["tool_calls"];
+	providerItems: LlmMessage["providerItems"];
+	chars: number;
+};
+
+/**
+ * Tamanho por mensagem, memorizado: a higiene estima a conversa inteira várias vezes por passo e
+ * o `JSON.stringify` de conteúdo multimodal/tool_calls domina. As mensagens são trocadas (spread),
+ * não mutadas; mesmo assim a entrada só vale com as mesmas referências de conteúdo e chamadas.
+ */
+const messageCharsMemo = new WeakMap<LlmMessage, MessageCharsEntry>();
+
+function messageChars(message: LlmMessage): number {
+	const cached = messageCharsMemo.get(message);
+	if (cached && cached.content === message.content && cached.toolCalls === message.tool_calls && cached.providerItems === message.providerItems) {
+		return cached.chars;
+	}
+	let chars = textLength(message);
+	// Conservador: itens opacos também ocupam a janela de contexto.
+	if (message.providerItems) chars += JSON.stringify(message.providerItems).length;
+	if (message.tool_calls) {
+		chars += JSON.stringify(message.tool_calls).length;
+	}
+	messageCharsMemo.set(message, { content: message.content, toolCalls: message.tool_calls, providerItems: message.providerItems, chars });
+	return chars;
+}
+
 /** Soma caracteres de texto + tool_calls (JSON das chamadas conta junto). */
 export function estimateMessagesTokens(
 	messages: readonly LlmMessage[],
 	toolsJsonChars = 0,
 ): number {
 	let chars = Math.max(0, toolsJsonChars);
-	for (const message of messages) {
-		chars += textLength(message);
-		// Conservador: itens opacos também ocupam a janela de contexto.
-		if (message.providerItems) chars += JSON.stringify(message.providerItems).length;
-		if (message.tool_calls) {
-			chars += JSON.stringify(message.tool_calls).length;
-		}
-	}
+	for (const message of messages) chars += messageChars(message);
 	if (chars <= 0) return 0;
 	return Math.max(
 		1,

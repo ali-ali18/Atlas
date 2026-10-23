@@ -289,6 +289,7 @@ import { contextEconomyEnabled, contextTranscriptEnabled } from "./context/flag.
 import { clippedResultRefLine, createResultStore, resultStoreLimits, extractResultRef, RESULT_MAX_STORED_CHARS } from "./context/result-store.js";
 import { createContextUsageReporter } from "./context/usage.js";
 import { createStepInspector } from "./inspect.js";
+import { toolsJsonCharsOf } from "./tools-json-size.js";
 import { createDevTimingTracker } from "./dev-timing.js";
 import { contextBudgetFor, DEV_HYGIENE_RATIOS, devContextBudget, type ContextBudget } from "./context/budget.js";
 import { compactWithSummary, createStreamSummarizer } from "./context/summary-compaction.js";
@@ -5948,7 +5949,7 @@ export async function runComputerUse(params: {
 	const summarizeIfNeeded = async (step: number, taskState?: TaskState) => {
 		const budget = hygieneBudget(baseContextBudget());
 		if (!summaryEnabled() || !budget || step < summaryRetryAtStep) return;
-		const toolsJsonChars = JSON.stringify(tools).length;
+		const toolsJsonChars = toolsJsonCharsOf(tools);
 		const estimate = (list: readonly LlmMessage[]) => estimateMessagesTokens(list, toolsJsonChars);
 		// Barato: abaixo do teto nem o texto bruto (maior que o já colapsado) passa, nada a fazer.
 		if (estimate(conversation) <= budget.ceilingTokens) return;
@@ -6011,7 +6012,7 @@ export async function runComputerUse(params: {
 	const firstHygiene = applyPromptHygiene(conversation, {
 			lastGroupMaxChars: hygieneLastGroupChars,
 		contextLength,
-		toolsJsonChars: JSON.stringify(tools).length,
+		toolsJsonChars: toolsJsonCharsOf(tools),
 		model,
 		collapseBatch,
 		statusOf: (id) => journal.resultOf(id)?.status,
@@ -8132,7 +8133,7 @@ ${blockHint}`;
 		const stepHygiene = applyPromptHygiene(conversation, {
 			lastGroupMaxChars: hygieneLastGroupChars,
 			contextLength,
-			toolsJsonChars: JSON.stringify(tools).length,
+			toolsJsonChars: toolsJsonCharsOf(tools),
 			model,
 			collapseBatch,
 			statusOf: (id) => journal.resultOf(id)?.status,
