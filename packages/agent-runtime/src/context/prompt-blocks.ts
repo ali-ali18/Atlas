@@ -228,6 +228,7 @@ export const P_DELEGATION: string[] = [
 export const P_FILES: string[] = [
 	"Files:",
 	"- When the user asks for a file (PDF, Word, Excel, CSV, code, text...), call `create_file` and never paste the whole document in chat. Write rich Markdown for docx/pdf (headings, tables), structured `sheets` for xlsx. After creating, reply with one short line: the file card shows the rest. To change a file, create it again with the same filename.",
+	"- Presentations (pptx): plan a story (title, agenda, sections, data, conclusion), 8-15 slides, at most 6 short bullets per slide, and vary the layouts: `stats` for key numbers, `chart` or `table` for data, `timeline`, `two_column`. Numbers come only from the user or from tool results, never invented. Ask only if the topic or audience is missing.",
 ];
 
 /** Python leve sem a VM (grupo `code`). */

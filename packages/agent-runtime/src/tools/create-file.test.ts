@@ -33,6 +33,32 @@ describe("create_file", () => {
 		expect(text).toMatch(/Not for images or executables/);
 	});
 
+	it("descrição e schema de pptx cobrem layouts, temas e a regra de não inventar números", () => {
+		const text = CREATE_FILE_TOOL.function.description ?? "";
+		for (const layout of ["two_column", "stats", "chart", "table", "timeline", "quote", "closing"]) expect(text).toContain(layout);
+		expect(text).toMatch(/never invent/);
+		const props = (CREATE_FILE_TOOL.function.parameters as { properties: Record<string, { enum?: string[] }> }).properties;
+		expect(props.theme?.enum).toEqual(["clean", "dark", "corporate", "vivid"]);
+		expect(props.brand_color).toBeDefined();
+	});
+
+	it("pptx em partes mantém tema e slides; o resumo traz o id para conferir com run_code", async () => {
+		resetStagedFilesForTest();
+		const d = deps();
+		await executeCreateFile({ filename: "d.pptx", part: 1, more: true, theme: "dark", slides: [{ layout: "title", title: "Oi" }] }, ctx, d.value);
+		const out = await executeCreateFile({ filename: "d.pptx", part: 2, more: false, slides: [{ layout: "closing", title: "Tchau" }] }, ctx, d.value);
+		expect(d.persisted[0]?.meta).toMatchObject({ format: "pptx" });
+		expect(out.summary).toContain('files ["art-1"]');
+	});
+
+	it("slide com imagem de outro dono falha antes de criar o arquivo", async () => {
+		const d = deps();
+		await expect(
+			executeCreateFile({ filename: "d.pptx", slides: [{ layout: "image", title: "Foto", image: "de-outro" }] }, ctx, { ...d.value, loadArtifact: vi.fn(async () => null) }),
+		).rejects.toThrow(/not found in this conversation/);
+		expect(d.persisted).toHaveLength(0);
+	});
+
 	it("persiste o artefato do dono e emite o evento file", async () => {
 		const d = deps();
 		const out = await executeCreateFile({ filename: "../../x/Resumo.md", content: "# oi" }, ctx, d.value);

@@ -10,11 +10,16 @@ import {
 import {
 	FILES_PER_RUN_MAX,
 	FILE_MAX_CONTENT_CHARS,
+	DECK_LAYOUTS,
+	DECK_MAX_SLIDES,
+	DECK_THEMES,
+	deckImageIds,
 	formatFileSize,
 	parseCreateFileArgs,
 	type ComputerUseEvent,
 	type FileArtifactMeta,
 } from "@workspace/shared";
+import { resolveDeckImages, type DeckImageSource } from "../files/deck/images.js";
 import { renderFile } from "../files/render.js";
 import { printPdfWithChromium } from "../files/pdf-chromium.js";
 import type { PrintPdf } from "../files/pdf.js";
@@ -33,7 +38,7 @@ export const CREATE_FILE_TOOL: ChatTool = {
 	function: {
 		name: CREATE_FILE_TOOL_NAME,
 		description:
-			"Create a downloadable file for the user (PDF, Word .docx, Excel .xlsx, PowerPoint .pptx, or any text/code file such as .txt .md .csv .json .py .js .sql) and show it as a file card in the chat. Use when the user asks for a file or document; do NOT paste the document in chat. filename needs the extension (format is inferred from it). docx/pdf: put rich Markdown in content (headings, lists, tables). xlsx: send sheets [{name, columns?, rows}] (a string starting with '=' becomes a formula). pptx: send slides [{title, bullets[]}]. Text/code: content is saved as is. To change a file, call again with the same filename (creates v2). For a document built from earlier research, use ALL the research notes and sources gathered (every section and finding, with the sources), not a short summary; a thin file is a failure. For research deliverables, write only what your sources state: a figure or claim you could not confirm must be removed, or kept: list the figure in unconfirmed and mark it as unconfirmed in the text, in the file's language. Large files: send them in parts (part=1,2,... with more=true on every part but the last; the file is created only by the last part, and contents are joined in order). Not for images or executables.",
+			"Create a downloadable file for the user (PDF, Word .docx, Excel .xlsx, PowerPoint .pptx, or any text/code file such as .txt .md .csv .json .py .js .sql) and show it as a file card in the chat. Use when the user asks for a file or document; do NOT paste the document in chat. filename needs the extension (format is inferred from it). docx/pdf: put rich Markdown in content (headings, lists, tables). xlsx: send sheets [{name, columns?, rows}] (a string starting with '=' becomes a formula). pptx: send slides (see below). Text/code: content is saved as is. To change a file, call again with the same filename (creates v2). For a document built from earlier research, use ALL the research notes and sources gathered (every section and finding, with the sources), not a short summary; a thin file is a failure. For research deliverables, write only what your sources state: a figure or claim you could not confirm must be removed, or kept: list the figure in unconfirmed and mark it as unconfirmed in the text, in the file's language. Large files: send them in parts (part=1,2,... with more=true on every part but the last; the file is created only by the last part, and contents are joined in order). Not for images or executables.\n\nPresentations (.pptx): you build the whole deck in one call. Plan a story first (title, agenda, sections, data, conclusion), 8-15 slides by default, and VARY the layouts instead of repeating bullets. Per slide: layout (title, agenda, section, bullets, two_column, image, chart, table, quote, stats, timeline, closing), title, optional notes (speaker notes). bullets: up to 6 short ones, each a string or {text, sub[]}. two_column: columns [{heading, bullets[]}, {heading, bullets[]}]. stats (KPI cards, 1-4): stats [{value, label, detail?}] with detail such as '+11% vs. last month'; use it for key numbers (big_number is accepted as an alias). chart: chart {type: bar|line|area|pie, x, series[{key,label}], data[rows], unit?} (same spec as the chat charts; one pie series; at most 40 points); prefer a chart or stats over numbers in bullets. table: columns[], rows[][] (max 8 columns, 14 rows). timeline: steps [{label, title, text?}] (2-6). quote: quote, author?. image: image = id of an attached image or of one made with generate_image (never a URL), optional bullets and caption. closing: title, subtitle?, bullets[] for next steps. Numbers and facts in slides must come from the user or from tool results; never invent them. theme: clean (default), dark, corporate or vivid; brand_color: optional hex such as #1d6b3a to match the user's brand. The old {title, bullets[]} slides still work. Ask the user first only when essential information is missing (topic, audience); otherwise make reasonable choices and deliver.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -70,13 +75,30 @@ export const CREATE_FILE_TOOL: ChatTool = {
 						required: ["rows"],
 					},
 				},
+				theme: { type: "string", enum: [...DECK_THEMES], description: "pptx only. Visual theme; default clean." },
+				brand_color: { type: "string", description: "pptx only. Optional brand color as hex, e.g. #1d6b3a." },
 				slides: {
 					type: "array",
-					description: "pptx only",
+					description: `pptx only, up to ${DECK_MAX_SLIDES} slides. Fields by layout are in the tool description.`,
 					items: {
 						type: "object",
-						properties: { title: { type: "string" }, bullets: { type: "array", items: { type: "string" } } },
-						required: ["title"],
+						properties: {
+							layout: { type: "string", enum: [...DECK_LAYOUTS], description: "Default bullets." },
+							title: { type: "string" },
+							subtitle: { type: "string" },
+							bullets: { type: "array", items: {} },
+							items: { type: "array", items: { type: "string" }, description: "agenda" },
+							columns: { type: "array", items: {}, description: "two_column: [{heading, bullets[]}, {heading, bullets[]}]; table: header strings" },
+							rows: { type: "array", items: { type: "array", items: {} }, description: "table" },
+							stats: { type: "array", items: { type: "object", properties: { value: { type: "string" }, label: { type: "string" }, detail: { type: "string" } }, required: ["value", "label"] } },
+							steps: { type: "array", items: { type: "object", properties: { label: { type: "string" }, title: { type: "string" }, text: { type: "string" } }, required: ["label", "title"] } },
+							chart: { type: "object", description: "chart spec: {type, x, series, data, unit?}" },
+							image: { type: "string", description: "Attachment id or generate_image artifact id" },
+							quote: { type: "string" },
+							author: { type: "string" },
+							caption: { type: "string" },
+							notes: { type: "string", description: "Speaker notes" },
+						},
 					},
 				},
 			},
@@ -92,6 +114,7 @@ export type CreateFileDeps = {
 	nextVersion: typeof nextFileVersion;
 	countRunFiles: typeof countRunFileArtifacts;
 	printPdf: PrintPdf;
+	loadArtifact?: DeckImageSource["loadArtifact"];
 };
 
 const DEFAULT_DEPS: CreateFileDeps = {
@@ -107,6 +130,8 @@ export type CreateFileContext = {
 	userId: string | undefined;
 	runId?: string;
 	conversationId?: string;
+	/** Anexos do usuário na conversa: fonte das imagens dos slides (junto das imagens geradas). */
+	attachmentFiles?: DeckImageSource["attachments"];
 };
 
 type StagedFile = {
@@ -117,6 +142,8 @@ type StagedFile = {
 	title?: unknown;
 	css?: unknown;
 	layout?: unknown;
+	theme?: unknown;
+	brandColor?: unknown;
 	format?: unknown;
 	touchedAt: number;
 };
@@ -161,6 +188,8 @@ function mergeInto(base: StagedFile, args: Record<string, unknown>): StagedFile 
 		title: base.title ?? args.title,
 		css: base.css ?? args.css,
 		layout: base.layout ?? args.layout,
+		theme: base.theme ?? args.theme,
+		brandColor: base.brandColor ?? args.brand_color,
 		format: base.format ?? args.format,
 		touchedAt: Date.now(),
 	};
@@ -185,7 +214,7 @@ export function previewCreateFileArgs(args: Record<string, unknown>, ctx: Create
 	const staged = stagedFiles.get(stageKey(args, ctx));
 	if (!staged || staged.nextPart !== part) return args;
 	const merged = mergeInto(staged, args);
-	return { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, format: merged.format };
+	return { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, theme: merged.theme, brand_color: merged.brandColor, format: merged.format };
 }
 
 export async function executeCreateFile(
@@ -214,7 +243,7 @@ export async function executeCreateFile(
 				summary: `Part ${part} stored (${merged.content.length} chars so far). Nothing is created yet. Send part ${part + 1} next, with more=true if more follows or more=false for the last part. Do not repeat earlier parts.`,
 			};
 		}
-		args = { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, format: merged.format };
+		args = { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, theme: merged.theme, brand_color: merged.brandColor, format: merged.format };
 		stagedKeyToClear = key;
 	}
 	// Valida antes de gastar render: erro acionável volta ao modelo.
@@ -228,7 +257,11 @@ export async function executeCreateFile(
 		}
 	}
 
-	const rendered = await runSandboxOperation(ctx, 60_000, (signal) => renderFile(input, { printPdf: (html, _signal, options) => d.printPdf(html, signal, options) }));
+	const deckImages =
+		input.slides && deckImageIds(input.slides).length > 0
+			? await resolveDeckImages(input.slides, { userId: ctx.userId, conversationId: ctx.conversationId, attachments: ctx.attachmentFiles, loadArtifact: d.loadArtifact })
+			: undefined;
+	const rendered = await runSandboxOperation(ctx, 60_000, (signal) => renderFile(input, { printPdf: (html, _signal, options) => d.printPdf(html, signal, options), deckImages }));
 	assertSandboxExecution(ctx);
 	const version = await d.nextVersion({
 		userId: ctx.userId,
@@ -266,7 +299,7 @@ export async function executeCreateFile(
 		...(ctx.runId ? { runId: ctx.runId } : {}),
 	};
 	return {
-		summary: `File created: ${input.filename} (${formatFileSize(size)}${version > 1 ? `, v${version}` : ""}). The chat already shows the file card; reply with one short line and do not repeat the content. If you later find an error in this file, call create_file again with the same filename and the fix instead of offering to.`,
+		summary: `File created: ${input.filename} (${formatFileSize(size)}${version > 1 ? `, v${version}` : ""}). The chat already shows the file card; reply with one short line and do not repeat the content. If you later find an error in this file, call create_file again with the same filename and the fix instead of offering to.${input.format === "pptx" ? ` To check the slides visually, run_code with files ["${artifact.id}"] (see the Files skill, section 8).` : ""}`,
 		fileEvent,
 	};
 }
