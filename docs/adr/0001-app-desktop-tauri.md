@@ -16,6 +16,8 @@ Queremos que o bot também use o **computador do usuário**: os sites onde ele j
 3. **Túnel reverso de saída.** O app abre um WebSocket TLS para a API (`wss://…/v1/devices/tunnel`). A API repassa as chamadas de controle por esse canal. Nenhuma porta abre na máquina do usuário e não precisa de NAT nem de firewall.
 4. **A nuvem é a fonte da verdade.** Bots, conversas, rotinas, painéis e memória ficam no servidor, e o app só os lê e assina eventos. Sem banco local além do cache.
 5. **Login por navegador com deep link (`atlas://`)**, emitindo um token de dispositivo revogável. Nenhuma senha passa pelo app.
+6. **Windows primeiro.** O dono só tem Windows para testar: a primeira versão sai só para Windows 10/11 (WebView2, UI Automation, SendInput). macOS e Linux entram depois, quando houver como testar de verdade (ver "Plataformas").
+7. **Usar o computador como o Claude desktop:** agir pela **árvore de acessibilidade** (elementos com nome) e não só por coordenada; usar o **navegador do usuário** por extensão; **permissão por app em níveis**; **ferramentas locais (MCP)** expostas ao bot; atalho global para chamar o Atlas.
 
 ## Arquitetura
 
@@ -48,7 +50,10 @@ flowchart LR
 | Onde | O quê |
 |---|---|
 | `apps/desktop/` (novo) | Projeto Tauri: `src-tauri/` (Rust) + uma página local mínima (login, estado offline). A janela principal carrega `ATLAS_URL`. |
-| `apps/desktop/src-tauri/src/control/` | Implementação do protocolo de controle: captura de tela (`xcap`), entrada (`enigo`), navegador local por CDP (Chrome/Edge do usuário num **perfil dedicado do Atlas**, nunca o perfil pessoal), shell e arquivos só em pastas liberadas. |
+| `apps/desktop/src-tauri/src/control/` | Implementação do protocolo de controle: captura de tela (`xcap`), entrada (`enigo`/SendInput), shell e arquivos só em pastas liberadas. |
+| `apps/desktop/src-tauri/src/a11y/` | **Árvore de acessibilidade** (Windows: UI Automation; depois macOS AX e Linux AT-SPI) virando um "snapshot" com ids de elemento, no mesmo formato do `browser_snapshot`; ações por elemento (`invoke`, `set_value`, `select`, `scroll_into_view`). A screenshot vira conferência e fallback para o que não expõe estrutura (canvas, jogos). Novas ops no protocolo: `app_snapshot`, `app_act`, `app_list`, `app_focus`. |
+| `apps/desktop/extension/` | Extensão do Atlas para Chrome/Edge (Manifest V3) conectada ao app por native messaging: usa **as abas e os logins do usuário**, lê a página como texto/árvore e age nos elementos (as mesmas ops `browser_*`). Alternativa mais segura e padrão nas rotinas: perfil dedicado do Atlas por CDP. |
+| `apps/desktop/src-tauri/src/mcp/` | Hospedeiro de **MCPs locais** (arquivos, Office/Excel aberto, terminal, apps instalados) cujas tools aparecem para o bot pelo túnel como um conector "Meu computador", com as mesmas permissões e confirmações dos conectores da nuvem. |
 | `apps/desktop/src-tauri/src/tunnel/` | Cliente WSS com reconexão (backoff), heartbeat, multiplexação de requisições (id por chamada) e limite de tamanho por mensagem. |
 | `packages/sandbox/src/device-manager.ts` | `SandboxManager` cujo transporte é o túnel (via hub), com os mesmos tipos de `types.ts`. |
 | `packages/db` | Modelos `Device` (userId, nome, SO, versão, `tokenHash`, `lastSeenAt`, `revokedAt`, permissões) e `DeviceAuditEvent`. |
@@ -75,6 +80,7 @@ flowchart LR
 
 - **Consentimento visível:** enquanto o bot controla a máquina, aparece uma borda e um selo "Atlas está usando seu computador", com o ícone da bandeja animado. Uma tecla de pânico global (por exemplo Ctrl+Alt+Esc) pausa na hora.
 - **O usuário assume o controle:** mouse ou teclado reais durante uma ação pausam o bot e emitem o evento `user_took_over`.
+- **Permissão por app, em níveis** (como no Claude desktop): na primeira vez que o bot precisa de um app (Excel, Chrome, Explorador…), o app desktop pergunta e o usuário escolhe **ver**, **clicar/digitar** ou **controle total**, e se vale "só agora" ou "sempre". Apps sensíveis (banco, gerenciador de senhas, configurações do sistema) começam bloqueados e sempre perguntam.
 - **Permissões por dispositivo:** "só olhar" (screenshot e leitura), navegador do perfil Atlas, apps liberados, pastas liberadas e shell (desligado por padrão). A checagem acontece no **núcleo Rust**, não na nuvem: um servidor comprometido não amplia o acesso.
 - **Rotinas e alertas** não usam o computador local por padrão, porque rodam sem você olhando. Para ligar, é preciso permitir explicitamente por rotina.
 - **Escopo por dono:** testes de IDOR garantem que o usuário B nunca pareia, lista, revoga nem alcança o dispositivo de A. O hub recusa chamada de run de outro `userId`.
@@ -90,19 +96,31 @@ flowchart LR
 - **Túnel genérico (ngrok/Cloudflare Tunnel):** expõe uma porta e um serviço de terceiros. O túnel próprio de saída reaproveita a autenticação e o escopo do Atlas.
 - **Agente local completo (LLM rodando no PC):** mais privacidade, mas duplica o runtime. A nuvem continua decidindo e o PC só executa.
 
+## Plataformas
+
+- **Fase 1: só Windows 10/11.** É onde o dono testa. Instalador NSIS/MSI, WebView2 (já vem no Windows 11), UI Automation, assinatura com um certificado só.
+- **Testes sem ter Mac:** o CI do GitHub tem runners `windows-latest`, `macos-latest` e `ubuntu-latest`. Todos compilam e rodam os testes automáticos (protocolo, permissões, túnel com dispositivo simulado). O que precisa de gente (permissões do macOS, sensação de uso) espera:
+  - **Linux:** dá para testar no próprio Windows com WSL2 (WSLg tem interface gráfica) ou numa VM (Hyper-V/VirtualBox).
+  - **macOS:** precisa de um Mac real ou alugado (Mac na nuvem por hora) e de alguns usuários beta. Só entra quando houver isso.
+- O código fica separado por plataforma (`a11y/windows.rs`, `a11y/macos.rs`…) desde o início, para não travar a portabilidade depois.
+
 ## Etapas
 
-1. **#97 Casca:** projeto Tauri, janela com `ATLAS_URL`, bandeja, instaladores (MSI/NSIS, DMG assinado e notarizado, AppImage/deb), updater e CI de release. Testar o web no WebView2 e no WebKit.
+1. **#97 Casca (Windows):** projeto Tauri, janela com `ATLAS_URL`, bandeja, atalho global para chamar o Atlas, instalador NSIS/MSI, updater e CI de release. Builds de macOS/Linux só no CI, sem publicar.
 2. **#99 Login e dispositivos:** modelos `Device`, rotas de pareamento, tela "Dispositivos", token no cofre do SO e revogação. Testes de IDOR.
 3. **#98a Túnel e "só olhar":** hub, `device-manager`, screenshot e leitura de tela, seletor de alvo no web e aviso no chat. Replay do agente com o dispositivo mockado.
-4. **#98b Controle:** clique, digitação, teclas, rolagem, navegador por CDP no perfil Atlas, tecla de pânico, assumir o controle e auditoria.
-5. **#98c Arquivos e shell:** pastas liberadas, shell opcional e downloads para a pasta do Atlas.
+4. **#98b Controle por acessibilidade:** árvore de UI Automation, ações por elemento, permissão por app em níveis, clique/digitação/teclas/rolagem como fallback, tecla de pânico, assumir o controle e auditoria.
+5. **#98c Navegador do usuário:** extensão Chrome/Edge com native messaging; perfil dedicado por CDP como opção.
+6. **#98d Ferramentas locais:** hospedeiro de MCPs locais (arquivos, Excel, terminal opcional) como conector "Meu computador".
+7. **macOS e Linux:** quando houver como testar (ver "Plataformas").
 
 Cada etapa vai num PR próprio, com prévias. Uma só não quebra o fluxo da nuvem.
 
 ## Riscos e perguntas abertas
 
-- **Permissões do macOS** (Gravação de Tela, Acessibilidade) exigem um fluxo de onboarding claro. No Wayland (Linux), a captura e a entrada dependem de portal, então começamos por X11 e Windows/macOS.
+- **Permissões do macOS** (Gravação de Tela, Acessibilidade) exigem um fluxo de onboarding claro. No Wayland (Linux), a captura e a entrada dependem de portal. Ambos ficam para depois do Windows.
+- **Apps sem acessibilidade boa** (alguns jogos, canvas, apps antigos) caem no modo print + coordenada, menos preciso.
+- **Extensão nas lojas:** publicar na Chrome Web Store e na Edge Add-ons exige revisão; no começo pode ser instalada pelo próprio app.
 - **Custo de banda das screenshots:** reaproveitar a compressão e o limite de resolução do container.
 - **Assinatura de código:** um certificado Windows (EV ou OV) e o Apple Developer têm custo anual.
 - **Escopo do navegador:** o perfil dedicado (mais seguro) não tem os logins pessoais. Decidir se oferecemos "usar meu navegador" com aviso forte.
