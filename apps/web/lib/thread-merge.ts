@@ -6,7 +6,7 @@ import { collapseBotProposalCards } from "@/lib/bot-proposal-message";
 
 /** Cartão ao vivo que, quando o servidor já gravou o equivalente, vale o gravado. */
 function isDedupedLiveCard(message: Message): boolean {
-	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart" || message.kind === "task-list" || message.kind === "compaction";
+	return message.kind === "images" || message.kind === "provider-fallback" || message.kind === "code-run" || message.kind === "chart" || message.kind === "task-list" || message.kind === "compaction" || (message.kind === "routine" && message.action === "created" && !!message.routineId);
 }
 
 function cardDedupeKey(message: Message): string | null {
@@ -14,6 +14,9 @@ function cardDedupeKey(message: Message): string | null {
 	if (message.kind === "skill") {
 		return `skill|${message.action}|${message.capabilityKey ?? ""}|${message.title ?? ""}|${message.versionNumber ?? ""}|${message.draftCount ?? ""}|${message.detail ?? ""}|${JSON.stringify(message.items ?? [])}`;
 	}
+	// Rotina criada: a identidade é a rotina. O cartão ao vivo e o gravado diferem em campos (o banco só guarda
+	// triggerType cron/event, o ao vivo traz once/interval, hookSecret etc.), então a chave completa não casava.
+	if (message.kind === "routine" && message.action === "created" && message.routineId) return `routine|created|${message.routineId}`;
 	if (message.kind === "routine") {
 		return `routine|${message.action}|${message.routineId ?? ""}|${message.title ?? ""}|${message.triggerType ?? ""}|${message.detail ?? ""}|${message.hookUrl ?? ""}|${JSON.stringify(message.items ?? [])}`;
 	}
@@ -84,6 +87,23 @@ function collapseSubagentGroups(messages: Message[]): Message[] {
 			[],
 		);
 		return [{ ...message, tasks }];
+	});
+}
+
+/** Uma rotina criada tem UM cartão na conversa: se o ao vivo (`routine-<run>-…`) e o gravado coexistem, fica o gravado. */
+function collapseRoutineCreatedCards(messages: Message[]): Message[] {
+	const groups = new Map<string, Message[]>();
+	for (const message of messages) {
+		if (message.kind !== "routine" || message.action !== "created" || !message.routineId) continue;
+		groups.set(message.routineId, [...(groups.get(message.routineId) ?? []), message]);
+	}
+	if ([...groups.values()].every((cards) => cards.length === 1)) return messages;
+	return messages.filter((message) => {
+		if (message.kind !== "routine" || message.action !== "created" || !message.routineId) return true;
+		const cards = groups.get(message.routineId) ?? [message];
+		if (cards.length === 1) return true;
+		const keeper = cards.find((card) => !card.id.startsWith("routine-")) ?? cards[0];
+		return message === keeper;
 	});
 }
 
@@ -199,7 +219,7 @@ export function settleTurnCards(messages: Message[]): Message[] {
 
 /** Cards iguais consecutivos ou com o mesmo id aparecem uma vez; turnos diferentes ficam. */
 export function dedupeCards(input: Message[]): Message[] {
-	const messages = collapseContextSummaries(collapsePageCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input)))))));
+	const messages = collapseContextSummaries(collapseRoutineCreatedCards(collapsePageCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input))))))));
 	const seenIds = new Set<string>();
 	const result: Message[] = [];
 	// Aviso de fallback repetido no mesmo turno (run retomado) aparece uma vez, mesmo não consecutivo.
