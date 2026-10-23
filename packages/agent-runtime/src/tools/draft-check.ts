@@ -166,8 +166,12 @@ export function draftLines(args: Record<string, unknown>): string[] {
 			if (value && typeof value === "object") Object.values(value).forEach((item) => walk(item, depth + 1));
 		};
 		for (const slide of args.slides as Array<Record<string, unknown>>) {
-			const { layout: _layout, image: _image, chart: _chart, ...rest } = slide ?? {};
+			// So o texto que o leitor ve: tipos, cores, ids de imagem, icones e nomes de layout nao sao afirmacoes.
+			const { layout: _layout, image: _image, chart: _chart, background: _background, template_layout: _templateLayout, elements, ...rest } = slide ?? {};
 			walk(rest, 0);
+			if (Array.isArray(elements)) {
+				for (const element of elements as Array<Record<string, unknown>>) walk({ text: element?.text, columns: element?.columns, rows: element?.rows }, 0);
+			}
 		}
 	}
 	return lines;

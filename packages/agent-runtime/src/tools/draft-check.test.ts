@@ -87,6 +87,29 @@ describe("draft-check: nÃºmeros do rascunho contra as fontes", () => {
 		});
 		expect(lines).toEqual(["T", "a", "b", "x | 10", "y | 20", "S", "b1"]);
 	});
+
+	it("draftLines de slide livre conta só o texto visivel (nada de cores, tipos ou ids)", () => {
+		const lines = draftLines({
+			filename: "p.pptx",
+			slides: [
+				{
+					layout: "free",
+					name: "Tracao",
+					background: { image: "art-123", scrim: { color: "#0b132b", opacity: 0.45 } },
+					elements: [
+						{ type: "text", x: 1, y: 1, w: 4, h: 1, text: "42 fazendas", size: 30, color: "#16a34a" },
+						{ type: "shape", shape: "circle", x: 1, y: 3, w: 1, h: 1, fill: "#1b4332", text: "-70%" },
+						{ type: "icon", name: "rocket", x: 6, y: 1, w: 1, h: 1, color: "#3a86ff" },
+						{ type: "table", x: 1, y: 5, w: 5, h: 1, columns: ["Mes"], rows: [["Out"]] },
+					],
+				},
+			],
+		});
+		expect(lines).toContain("42 fazendas");
+		expect(lines).toContain("Tracao");
+		expect(lines).toContain("Mes");
+		expect(lines.join("|")).not.toMatch(/#16a34a|#1b4332|art-123|rocket|circle|#0b132b/);
+	});
 });
 
 describe("draft-check: porteiro do create_file", () => {
