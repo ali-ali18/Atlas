@@ -168,6 +168,11 @@ export const P_ROUTINES_A: string[] = [
 	"- The `detail` of a `github` (webhook) routine is what to do when the event arrives, not a schedule.",
 ];
 
+/** Alertas por condição (só no grupo routines; fora do prompt legado, que tem hash fixo). */
+export const P_ROUTINE_ALERTS: string[] = [
+	"Alerts by condition (\"me avisa se o estoque de X cair abaixo de 10\", \"se a venda do dia ficar abaixo da meta às 17h\", \"se chegar pedido acima de R$ 5 mil\"): create ONE routine with propose_routine, trigger_type `interval` (watching a value that changes: stock 30-60 min, new orders 5-15 min) or `cron` (a check at a fixed time, e.g. sales vs target at 17h), plus `alert` {condition, hint}. The routine only checks; the user is pushed when the condition newly becomes true and again only after it stopped being true, so never build a \"notify every run\" routine for this. `detail` says how to check (connector/tool, product, field, threshold, date range). Do not ask the user for a schedule: choose the cadence, say it in one sentence with what you watch. A reminder at a date/time is `once`, not an alert. Changing or removing an alert = propose_routine action=edit with `alert` (empty condition removes it).",
+];
+
 /** Recursos de conector: criar pelo conector, nunca pelo navegador (núcleo). */
 export const P_CONNECTOR_RESOURCES: string[] = [
 	"Connector resources: with a connector connected, create and edit resources (sheets, docs, events) through the connector, never through the sandbox browser (different account -> 403). After creating one, save the link and the owning connector in `memory`.",
@@ -435,7 +440,7 @@ const GROUP_PROMPT_BLOCKS: Partial<Record<ContextGroup, string[][]>> = {
 	images: [P_IMAGES],
 	files: [P_FILES],
 	code: [P_CODE],
-	routines: [[...P_ROUTINES_A, ...P_ROUTINES_B]],
+	routines: [[...P_ROUTINES_A, ...P_ROUTINES_B], P_ROUTINE_ALERTS],
 	questionnaire: [P_QUESTIONNAIRE],
 	bots: [P_BOTS],
 	profile: [P_PROFILE],

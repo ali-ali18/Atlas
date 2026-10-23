@@ -41,6 +41,7 @@ const DENY_TOOLS = new Set([
 	"create_file",
 	"send_to_bot",
 	"notify_user",
+	"report_alert",
 	"delegate_task",
 	"memory",
 	"research_note",

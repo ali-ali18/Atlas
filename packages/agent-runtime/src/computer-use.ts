@@ -64,6 +64,9 @@ import {
 	buildGithubSecurityReviewPrompt,
 	GITHUB_SECURITY_REVIEW_TEMPLATE,
 	formatIntervalSummary,
+	describeRoutineAlertSentence,
+	parseRoutineAlertInput,
+	type RoutineAlertConfig,
 	languageInstruction,
 	BROWSER_CHILD_MAX_CONCURRENCY,
 	DELEGATE_TOOL_NAME,
@@ -338,6 +341,7 @@ import {
 } from "./tools/delegate-task.js";
 import { CREATE_FILE_TOOL, executeCreateFile, previewCreateFileArgs, type CreateFileDeps, type FileEvent } from "./tools/create-file.js";
 import { RUN_CODE_TOOL, executeRunCode, type RunCodeDeps } from "./tools/run-code.js";
+import { REPORT_ALERT_TOOL, REPORT_ALERT_TOOL_NAME, alertRunNote, executeReportAlert, type AlertRunState } from "./tools/report-alert.js";
 import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME, dbPagesStore, executePageTool, isPageTool, type PagesStore } from "./tools/pages.js";
 import {
 	availableWebFallbacks,
@@ -1140,7 +1144,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "propose_routine",
 			description:
-				"Create (action create) or edit (action edit) a routine. Card only on create. Create: title=name, detail=prompt to run on each trigger, trigger_type cron|interval|once|event|github. cron: needs schedule (5 fields), fixed clock times. interval: needs every_minutes (5-1440), exact \"every N minutes/hours\" counted from the last run (use for \"every 50 min\", including GitHub monitoring). once (\"remind me on 03/10 at 10h\"): needs run_at (ISO 8601; no offset = America/Sao_Paulo), fires once and deletes itself; several times = one call per time. event: generic webhook (URL+secret). github: instant webhook, needs the `github` object (repo, events; use github_list_repos if the repo is not owner/name). The github trigger creates and manages the repository webhook AUTOMATICALLY (URL and secret are internal, using the user's GitHub from the Marketplace or Composio). NEVER create, edit or delete GitHub webhooks yourself via Composio or any other tool (e.g. GITHUB_CREATE_A_REPOSITORY_WEBHOOK): deliveries signed with any other secret are rejected. Never show secret or URL to assemble by hand. Webhook and interval can coexist for the same repo as two routines. Security review of a GitHub repo: set template=github_security_review and repo=owner/name (detail may be empty or hold an extra focus); combine with interval for periodic reviews. Edit: target=name or id (use the id if the message has '(id ...)'; never confuse with editing the bot profile); no card; trigger_type may change (switching to github needs repo+events, to once needs run_at, to interval needs every_minutes); enabled omitted keeps the current state. Use only when the user's latest message asks to schedule, monitor or change a recurring or timed job. Do not use when the user only thanks, praises or acknowledges (answer in one sentence instead), inside a routine run, or for a one-off task to do now. If a routine with the same name exists, edit instead of duplicating. To keep a page up to date, pass page_id (from page_create or page_list) and write in detail how to rebuild it with fresh data (which sources to query, which sections to refresh); each run then updates that page in place instead of posting a new message.",
+				"Create (action create) or edit (action edit) a routine. Card only on create. Create: title=name, detail=prompt to run on each trigger, trigger_type cron|interval|once|event|github. cron: needs schedule (5 fields), fixed clock times. interval: needs every_minutes (5-1440), exact \"every N minutes/hours\" counted from the last run (use for \"every 50 min\", including GitHub monitoring). once (\"remind me on 03/10 at 10h\"): needs run_at (ISO 8601; no offset = America/Sao_Paulo), fires once and deletes itself; several times = one call per time. event: generic webhook (URL+secret). github: instant webhook, needs the `github` object (repo, events; use github_list_repos if the repo is not owner/name). The github trigger creates and manages the repository webhook AUTOMATICALLY (URL and secret are internal, using the user's GitHub from the Marketplace or Composio). NEVER create, edit or delete GitHub webhooks yourself via Composio or any other tool (e.g. GITHUB_CREATE_A_REPOSITORY_WEBHOOK): deliveries signed with any other secret are rejected. Never show secret or URL to assemble by hand. Webhook and interval can coexist for the same repo as two routines. Security review of a GitHub repo: set template=github_security_review and repo=owner/name (detail may be empty or hold an extra focus); combine with interval for periodic reviews. Edit: target=name or id (use the id if the message has '(id ...)'; never confuse with editing the bot profile); no card; trigger_type may change (switching to github needs repo+events, to once needs run_at, to interval needs every_minutes); enabled omitted keeps the current state. Use only when the user's latest message asks to schedule, monitor or change a recurring or timed job. Do not use when the user only thanks, praises or acknowledges (answer in one sentence instead), inside a routine run, or for a one-off task to do now. If a routine with the same name exists, edit instead of duplicating. Alert by condition (\"avisa se o estoque do produto X cair abaixo de 10\", \"se a venda do dia ficar abaixo da meta às 17h\", \"se chegar pedido acima de R$ 5 mil\"): create a routine with trigger_type interval (every N minutes) or cron (fixed times) plus the alert object. Each run only checks the condition with read tools and the user is notified only when it newly becomes true, so do not ask for a notification schedule. detail = how to check it (which connector/tool, product, field, threshold, and the date range: \"today\" for daily totals); alert.condition = the user's condition as a short phrase in their language that completes \"avisa se ...\"; alert.hint = optional pointer on where to look. Pick the cadence from how fast the data changes (stock: 30-60 min; new orders: 5-15 min; end-of-day target: cron at that time) and tell the user in one sentence what you will watch and how often. Only with trigger_type cron or interval; not for one-off reminders (use once) or instant events (use github/event). Edit: pass alert to change the condition, or alert.condition empty to turn it back into a normal routine. To keep a page up to date, pass page_id (from page_create or page_list) and write in detail how to rebuild it with fresh data (which sources to query, which sections to refresh); each run then updates that page in place instead of posting a new message.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -1209,6 +1213,22 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 						enum: ["always", "important"],
 						description:
 							"Aviso (push) ao fim de cada execução. always (padrão) = sempre avisa. important = a execução fica salva no chat sem aviso, e quem executa só avisa quando o resultado merece atenção agora. Use important para monitoramentos em que a maioria das execuções não traz nada novo. Em edit, omita para manter.",
+					},
+					alert: {
+						type: "object",
+						description:
+							"Turns the routine into an alert by condition (only trigger_type cron or interval): the routine checks on its schedule and the user is notified only when the condition becomes true (and again only after it stopped being true). In edit, an empty condition removes the alert; omit to keep.",
+						properties: {
+							condition: {
+								type: "string",
+								description: "The condition as a short phrase in the user's language that completes \"avisa se ...\", e.g. \"o estoque da canela cair abaixo de 10\", \"a venda do dia ficar abaixo da meta\", \"chegar pedido acima de R$ 5 mil\".",
+							},
+							hint: {
+								type: "string",
+								description: "Optional pointer for the checker: connector/tool to use, product, field, threshold, date range.",
+							},
+						},
+						required: ["condition"],
 					},
 					page_id: {
 						type: "string",
@@ -1851,6 +1871,10 @@ function routineDetailText(
 			.filter((line): line is string => Boolean(line))
 			.join("\n");
 	}
+	const alertSentence = describeRoutineAlertSentence(routine);
+	if (alertSentence) {
+		return [alertSentence, "Verifica sozinho e só avisa quando a condição passa a valer.", `Ativa: ${routine.enabled ? "sim" : "não"}`, "", routine.prompt].join("\n");
+	}
 	if (routine.triggerType === "interval") {
 		return [
 			formatIntervalSummary(routine.interval?.everyMinutes ?? 0),
@@ -2001,6 +2025,8 @@ type ToolContext = {
 	proactive?: ProactiveToolContext;
 	/** Push avulso (`notify_user` em rotina "só importante" ou chat longo): só ao dono do run. */
 	userPush?: UserPushContext;
+	/** Run de rotina de alerta: `report_alert` guarda o veredito aqui (o worker decide avisar). */
+	alertRun?: AlertRunState;
 	/** Após create/update de rotina: sync BullMQ scheduler (cron-only). */
 	onRoutineMutated?: (
 		routine: Pick<
@@ -2430,6 +2456,23 @@ async function executeProposeRoutine(
 			: undefined;
 	// Aviso: "important" = sem push automático, o bot avisa só quando vale; omitido mantém o atual (edit) ou "always" (create).
 	const notify = args.notify === "important" || args.notify === "always" ? args.notify : undefined;
+	// `alert`: undefined = não informado (edit mantém); null = condição vazia (edit remove o alerta); objeto = liga/troca.
+	let alertInput: RoutineAlertConfig | null | undefined;
+	if (args.alert !== undefined && args.alert !== null) {
+		const rawAlert = args.alert as Record<string, unknown>;
+		if (typeof rawAlert === "object" && typeof rawAlert.condition === "string" && !rawAlert.condition.trim()) {
+			alertInput = null;
+		} else {
+			const parsedAlert = parseRoutineAlertInput(args.alert);
+			if (!parsedAlert.ok) throw new Error(parsedAlert.error);
+			if (triggerType !== "cron" && triggerType !== "interval") {
+				throw new Error("alert only works with trigger_type cron or interval (a routine that checks on a schedule). For a one-off reminder use once; for instant events use github/event.");
+			}
+			alertInput = parsedAlert.alert;
+		}
+	}
+	const alertCreateFields = (): { alert?: RoutineAlertConfig } => (alertInput ? { alert: alertInput } : {});
+	const alertEditFields = (): { alert?: RoutineAlertConfig | null } => (alertInput !== undefined ? { alert: alertInput } : {});
 	const scheduleRaw =
 		typeof args.schedule === "string" ? args.schedule.trim() : "";
 	let existingOnCreate: RoutineRecord | undefined;
@@ -2486,6 +2529,7 @@ async function executeProposeRoutine(
 				timezone,
 				...(model ? { model } : {}),
 				...(notify ? { notify } : {}),
+				...alertCreateFields(),
 			});
 			await ctx.onRoutineMutated?.(routine).catch(() => undefined);
 			const routineEvent = await emitRoutineCard(ctx, {
@@ -2497,7 +2541,9 @@ async function executeProposeRoutine(
 				detail: routineDetailText(routine),
 			});
 			return {
-				summary: `Rotina cron "${routine.name}" criada (${routine.schedule ?? "sem schedule"}). Card emitido só nesta criação. Responda em texto.`,
+				summary: routine.alert
+					? `Alerta "${routine.name}" criado (${describeRoutineAlertSentence(routine)}). Card emitido só nesta criação. Responda em texto, em uma frase: o que você vai vigiar e com que frequência.`
+					: `Rotina cron "${routine.name}" criada (${routine.schedule ?? "sem schedule"}). Card emitido só nesta criação. Responda em texto.`,
 				routineEvent,
 			};
 		}
@@ -2516,6 +2562,7 @@ async function executeProposeRoutine(
 				timezone,
 				...(model ? { model } : {}),
 				...(notify ? { notify } : {}),
+				...alertCreateFields(),
 			});
 			await ctx.onRoutineMutated?.(routine).catch(() => undefined);
 			const routineEvent = await emitRoutineCard(ctx, {
@@ -2527,7 +2574,9 @@ async function executeProposeRoutine(
 				detail: routineDetailText(routine),
 			});
 			return {
-				summary: `Rotina "${routine.name}" criada (${formatIntervalSummary(parsedEvery.everyMinutes)}). Card emitido só nesta criação. Responda em texto.`,
+				summary: routine.alert
+					? `Alerta "${routine.name}" criado (${describeRoutineAlertSentence(routine)}). Card emitido só nesta criação. Responda em texto, em uma frase: o que você vai vigiar e com que frequência.`
+					: `Rotina "${routine.name}" criada (${formatIntervalSummary(parsedEvery.everyMinutes)}). Card emitido só nesta criação. Responda em texto.`,
 				routineEvent,
 			};
 		}
@@ -2697,6 +2746,7 @@ async function executeProposeRoutine(
 			timezone,
 			...(model ? { model } : {}),
 			...(notify ? { notify } : {}),
+			...alertEditFields(),
 			onceTrigger: { runAt: runAtIso },
 		});
 		if (!updated) {
@@ -2736,6 +2786,7 @@ async function executeProposeRoutine(
 			timezone,
 			...(model ? { model } : {}),
 			...(notify ? { notify } : {}),
+			...alertEditFields(),
 			intervalTrigger: { everyMinutes },
 		});
 		if (!updated) {
@@ -2749,7 +2800,9 @@ async function executeProposeRoutine(
 		}
 		await ctx.onRoutineMutated?.(updated).catch(() => undefined);
 		return {
-			summary: `Rotina "${updated.name}" atualizada (sem card): ${formatIntervalSummary(everyMinutes)}.`,
+			summary: updated.alert
+				? `Alerta "${updated.name}" atualizado (sem card): ${describeRoutineAlertSentence(updated)}.`
+				: `Rotina "${updated.name}" atualizada (sem card): ${formatIntervalSummary(everyMinutes)}.`,
 			routineEvent: routineUpdatedEvent(updated),
 		};
 	}
@@ -2788,6 +2841,7 @@ async function executeProposeRoutine(
 			timezone,
 			...(model ? { model } : {}),
 			...(notify ? { notify } : {}),
+			...alertEditFields(),
 			githubTrigger: {
 				repo: nextGithub.repo,
 				events: nextGithub.events,
@@ -2900,6 +2954,7 @@ async function executeProposeRoutine(
 			timezone,
 			...(model ? { model } : {}),
 			...(notify ? { notify } : {}),
+			...alertEditFields(),
 		},
 	);
 	if (!updated) {
@@ -2914,7 +2969,9 @@ async function executeProposeRoutine(
 	}
 	await ctx.onRoutineMutated?.(updated).catch(() => undefined);
 	return {
-		summary: `Rotina "${updated.name}" atualizada (sem card). Responda em texto.`,
+		summary: updated.alert
+			? `Alerta "${updated.name}" atualizado (sem card): ${describeRoutineAlertSentence(updated)}. Responda em texto.`
+			: `Rotina "${updated.name}" atualizada (sem card). Responda em texto.`,
 		routineEvent: routineUpdatedEvent(updated),
 	};
 }
@@ -3784,6 +3841,10 @@ async function executeToolInner(
 		case "set_autonomy": {
 			return executeSetAutonomyTool(args, ctx);
 		}
+		case REPORT_ALERT_TOOL_NAME: {
+			if (!ctx.alertRun) throw new Error("report_alert só existe em execução de rotina de alerta.");
+			return executeReportAlert(args, ctx.alertRun);
+		}
 		case "schedule_followup":
 		case "list_followups":
 		case "cancel_followup":
@@ -4594,6 +4655,11 @@ export async function runComputerUse(params: {
 	 * (aviso no meio de tarefa longa). `send` é ligado pelo worker ao notifier; `quiet` = silêncio do usuário.
 	 */
 	userPush?: { mode: UserPushMode; send: (text: string) => Promise<void>; quiet?: ProactiveSettings };
+	/**
+	 * Rotina de alerta por condição (só origin "routine"): habilita `report_alert` e a nota da tarefa.
+	 * O worker passa o `report` vazio e lê o veredito depois do loop; quem avisa (com debounce) é ele.
+	 */
+	alertRun?: AlertRunState;
 	/** Persiste checkpoint após cada passo confirmado. */
 	onCheckpoint?: (checkpoint: AgentRunCheckpoint) => Promise<void>;
 	/** Sync BullMQ scheduler após create/update de rotina (cron). */
@@ -5172,6 +5238,9 @@ export async function runComputerUse(params: {
 	const userPushRun = !isSubagent && params.userPush && (params.origin === "routine" || params.origin === "chat") ? params.userPush : null;
 	const userPushSent = { used: 0 };
 	if (userPushRun && (params.toolFilter?.("notify_user") ?? true)) baseTools.push(notifyUserPushTool(userPushRun.mode));
+	// Rotina de alerta: o veredito estruturado é o fim da verificação (nunca em chat nem subagente).
+	const alertRun = !isSubagent && params.origin === "routine" ? params.alertRun : undefined;
+	if (alertRun && (params.toolFilter?.(REPORT_ALERT_TOOL_NAME) ?? true)) baseTools.push(REPORT_ALERT_TOOL);
 	const imageModel = params.imageModel ?? process.env.ATLAS_IMAGE_MODEL?.trim();
 	// Sem modelo configurado a tool continua visível: a chamada devolve o aviso "Configure um modelo de imagem…"
 	// em vez de o bot dizer que não consegue gerar imagens.
@@ -5502,10 +5571,12 @@ export async function runComputerUse(params: {
 		const botConfigExtra = getBotConfigEventExtraSystemMessage(messages);
 		const proactiveSection = proactiveRun && params.origin === "chat" ? buildProactiveChatPromptSection(proactiveRun.settings) : null;
 		const userPushSection = userPushRun?.mode === "routine" ? USER_PUSH_ROUTINE_NOTE : null;
+		const alertSection = alertRun ? alertRunNote(alertRun) : null;
 		conversation = [
 			{ role: "system", content: buildSystemPrompt({ stable: systemContent, nativeLine: nativeComputerOn ? NATIVE_COMPUTER_PROMPT_LINE : undefined, todayLine: isSubagent ? undefined : todayNote(new Date()), languageInstruction: currentLanguageInstruction }) },
 			...(proactiveSection ? [{ role: "system" as const, content: proactiveSection }] : []),
 			...(userPushSection ? [{ role: "system" as const, content: userPushSection }] : []),
+			...(alertSection ? [{ role: "system" as const, content: alertSection }] : []),
 			...(botConfigExtra
 				? [{ role: "system" as const, content: botConfigExtra }]
 				: []),
@@ -6904,6 +6975,7 @@ export async function runComputerUse(params: {
 				recentUserTexts: recentUserPlainTexts(conversation),
 				recentAssistantTexts: recentAssistantPlainTexts(conversation),
 				onRoutineMutated: params.onRoutineMutated,
+				...(alertRun ? { alertRun } : {}),
 				...(userPushRun
 					? { userPush: { mode: userPushRun.mode, send: userPushRun.send, quiet: userPushRun.quiet, sent: userPushSent, log: (line: string) => console.log(`[push] ${line}`) } }
 					: {}),
