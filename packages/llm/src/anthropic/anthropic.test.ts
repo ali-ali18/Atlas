@@ -90,6 +90,23 @@ describe("conversão para a Messages API", () => {
 	});
 });
 
+describe("breakpoint de cache em resultado de tool", () => {
+	it("o cache_control marcado no texto do resultado vai para o bloco tool_result (não some no join)", () => {
+		const { messages } = toAnthropicMessages([
+			{ role: "user", content: "oi" },
+			{ role: "assistant", content: null, tool_calls: [{ id: "t1", type: "function", function: { name: "x", arguments: "{}" } }] },
+			{ role: "tool", tool_call_id: "t1", content: [{ type: "text", text: "resultado", cache_control: { type: "ephemeral" } }] },
+		]);
+		expect(messages.at(-1)!.content[0]).toEqual({ type: "tool_result", tool_use_id: "t1", content: "resultado", cache_control: { type: "ephemeral" } });
+		const plain = toAnthropicMessages([
+			{ role: "user", content: "oi" },
+			{ role: "assistant", content: null, tool_calls: [{ id: "t1", type: "function", function: { name: "x", arguments: "{}" } }] },
+			{ role: "tool", tool_call_id: "t1", content: "resultado" },
+		]);
+		expect(plain.messages.at(-1)!.content[0]).toEqual({ type: "tool_result", tool_use_id: "t1", content: "resultado" });
+	});
+});
+
 describe("parser SSE da Anthropic", () => {
 	it("acumula texto, tool_use e uso", async () => {
 		const events: string[] = [];
