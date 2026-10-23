@@ -4,7 +4,7 @@ import test from "node:test";
 import { activityForAssistantEvent, workingStatusLabel, type AgentActivity } from "./working-status";
 
 // Mesma sequência do onDelta/onDiscard do use-atlas-chat: o indicador acompanha o evento.
-test("assistant_discard expõe a fase 'revising' e o texto descartado não aparece", () => {
+test("assistant_discard expõe a fase 'revising' enquanto a resposta é refeita", () => {
 	let activity: AgentActivity = activityForAssistantEvent("assistant_delta");
 	assert.equal(activity.phase, "writing");
 

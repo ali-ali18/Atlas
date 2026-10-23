@@ -335,6 +335,11 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 			}
 		} else if (message.kind === "assistant" && message.id.startsWith("cu-")) {
 			if (!message.text.trim()) continue;
+			// Rascunho revisado nunca é gravado: fica na tela (recolhido) até recarregar, em vez de sumir no fim do run.
+			if (message.revised) {
+				pending.set(anchor, [...(pending.get(anchor) ?? []), message]);
+				continue;
+			}
 			if (finalPersisted && index > lastKnownLiveIndex) continue;
 			// Fala intermediária que o servidor já gravou: vale a linha dele, na posição dele.
 			const matched = takeMatch("assistant", message.text);

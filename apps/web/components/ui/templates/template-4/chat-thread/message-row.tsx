@@ -39,6 +39,7 @@ import { DevSessionCard } from "@/components/ai-elements/dev-session/dev-session
 import { SubagentsBlock } from "@/components/ai-elements/subagents";
 import { ToolBudgetMarker } from "@/components/ai-elements/tool-budget";
 import { AssistantMessage } from "./assistant-message";
+import { RevisedDraft } from "./revised-draft";
 import { EmailReceivedCard } from "./email-received-card";
 import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 import { CodeRunCard } from "./code-run-card";
@@ -147,6 +148,7 @@ export function MessageRow({
 		case "images":
 			return <ImageGallery items={imageItems ?? message.items} source={message.source} />;
 		case "assistant":
+			if (message.revised) return <RevisedDraft reason={message.revised} text={message.text} />;
 			return (
 				<AssistantMessage
 					groupPosition={groupPosition}

@@ -25,7 +25,9 @@ export function fromTranscript(messages: TranscriptBubble[]): Message[] {
 	return messages.map((message) =>
 		message.kind === "tool"
 			? { id: message.id, kind: "tool", label: message.label ?? "tool", text: message.text, createdAt: message.createdAt }
-			: { id: message.id, kind: message.kind, text: message.text, createdAt: message.createdAt },
+			: message.kind === "assistant"
+				? { id: message.id, kind: "assistant", text: message.text, createdAt: message.createdAt, ...(message.revised ? { revised: message.revised } : {}) }
+				: { id: message.id, kind: message.kind, text: message.text, createdAt: message.createdAt },
 	);
 }
 
