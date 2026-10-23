@@ -4,6 +4,8 @@ import {
 	PROACTIVE_FOLLOWUP_MARKER,
 	PROACTIVE_REFLECTION_MARKER,
 	buildFollowupPrompt,
+	isNoUpdateReply,
+	PROACTIVE_NO_UPDATE_TOKEN,
 	buildProactiveChatPromptSection,
 	buildReflectionPrompt,
 	type ReflectionContext,
@@ -84,9 +86,35 @@ describe("buildFollowupPrompt", () => {
 		expect(buildFollowupPrompt({ ...base, kind: "check" })).toContain("This is a check");
 		expect(reminder).not.toMatch(/atlas/i);
 	});
+
+	it("verificação: só leitura e só fala com novidade; sem novidade responde o token (nada é postado)", () => {
+		const base = { note: "Ver se o pedido do cliente X chegou", requestedFor: new Date("2026-10-13T14:00:00Z"), settings, now: NOW, recentMessages: [] };
+		const check = buildFollowupPrompt({ ...base, kind: "check" });
+		expect(check).toContain("READ-ONLY");
+		expect(check).toContain(`reply with exactly ${PROACTIVE_NO_UPDATE_TOKEN}`);
+		expect(buildFollowupPrompt({ ...base, kind: "reminder" })).not.toContain(PROACTIVE_NO_UPDATE_TOKEN);
+	});
+});
+
+describe("isNoUpdateReply", () => {
+	it("só o token exato (com espaços) conta como 'sem novidade'", () => {
+		expect(isNoUpdateReply(" [NO_UPDATE]\n")).toBe(true);
+		expect(isNoUpdateReply("[NO_UPDATE] mas o pedido atrasou")).toBe(false);
+		expect(isNoUpdateReply("")).toBe(false);
+		expect(isNoUpdateReply(null)).toBe(false);
+	});
 });
 
 describe("buildProactiveChatPromptSection", () => {
+	it("follow-up autônomo: agenda sozinho quando há verificação futura implícita, em silêncio e com teto", () => {
+		const section = buildProactiveChatPromptSection(settings);
+		expect(section).toContain("never ask permission and never announce it");
+		expect(section).toContain("o pedido do cliente X deve chegar essa semana");
+		expect(section).toContain("inferred=true");
+		expect(section).toContain("at most 5 inferred follow-ups");
+		expect(section).toContain("Not for small talk");
+	});
+
 	it("orienta o gatilho de prazo/compromisso e o uso de suggest_routine", () => {
 		const section = buildProactiveChatPromptSection(settings);
 		expect(section).toContain("vence dia 13");
