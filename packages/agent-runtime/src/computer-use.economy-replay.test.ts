@@ -289,3 +289,21 @@ describe("política de agir primeiro: pedido óbvio não abre questionário", ()
 		expect(eventTypes).not.toContain("questionnaire");
 	});
 });
+
+describe("persona do bot no topo do prompt", () => {
+	it("nome e papel do perfil aparecem uma vez, no começo, com o idioma; o núcleo não fala de nome nem idioma", async () => {
+		const profile = { name: "TomTom", snippet: "", description: "Cuida das vendas da loja.", openRouterModel: null, language: "pt-BR" as const };
+		vi.mocked(getBotProfile).mockImplementation(async () => profile);
+		try {
+			const { system } = await replay({ messages: [{ role: "user", content: "Bom dia" }] });
+			const prompt = system();
+			expect(prompt.startsWith('Persona:\n- You are "TomTom"')).toBe(true);
+			expect(prompt.split('You are "TomTom"')).toHaveLength(2);
+			expect(prompt).toContain("- Your role, from your profile: Cuida das vendas da loja.");
+			expect(prompt.split("Always reply to the user in Brazilian Portuguese.")).toHaveLength(2);
+			expect(prompt).not.toMatch(/IDENTIDADE DO BOT|Responda em português/);
+		} finally {
+			vi.mocked(getBotProfile).mockImplementation(async () => ({ description: "A bot that is already configured." }) as never);
+		}
+	});
+});

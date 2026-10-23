@@ -16,11 +16,11 @@ const none = new Set<ContextGroup>();
 const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 
 describe("prompt em blocos (L5)", () => {
-	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador e a política única de agir primeiro (hash fixa o texto)", () => {
+	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador e a política única de agir primeiro, sem identidade nem idioma no núcleo (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(25_566);
+		expect(legacy.length).toBe(25_177);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"1583fa0f73f5efe9f1a09ae9b33376651c1909cd87a1635c530e78a2e95018e1",
+			"8de3252636419f871840219decf0a65770795a730d23d29e8b1ca254306276ac",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
 	});
@@ -146,6 +146,15 @@ describe("prompt em blocos (L5)", () => {
 	it("mesmos grupos, mesmos bytes (determinístico)", () => {
 		const groups = new Set<ContextGroup>(["files", "routines"]);
 		expect(assembleSystemPrompt(groups)).toBe(assembleSystemPrompt(new Set<ContextGroup>(["routines", "files"])));
+	});
+
+	it("o núcleo não tem identidade nem idioma fixo: a persona do bot (topo) é o único lugar", () => {
+		const core = assembleSystemPrompt(none);
+		expect(core).not.toMatch(/Responda em portugu|IDENTIDADE DO BOT|Você é um assistente|portugu[eê]s/i);
+		expect(legacySystemPrompt()).not.toMatch(/Responda em portugu|IDENTIDADE DO BOT/);
+		// Nada de idioma fixo nos procedimentos: verdito de PR e aviso de sessão desligada seguem o idioma do usuário.
+		expect(groupProcedureText(new Set<ContextGroup>(["dev"]), true)).not.toContain("in Portuguese");
+		expect(groupProcedureText(new Set<ContextGroup>(["dev"]), false)).toContain("in the user's language");
 	});
 
 	it("regra de núcleo: nunca expor internals (tools, campos, revisões) ao usuário", () => {

@@ -136,9 +136,38 @@ describe("runComputerUse resume", () => {
 					return assistantDone();
 				},
 			});
-			expect(systemContent.endsWith(`\n${languageInstruction(language)}`)).toBe(true);
+			// Persona no topo: identidade, estilo e idioma num lugar só (uma vez).
+			expect(systemContent.startsWith("Persona:\n")).toBe(true);
+			expect(systemContent.split(languageInstruction(language))).toHaveLength(2);
+			expect(systemContent.indexOf(languageInstruction(language))).toBeLessThan(systemContent.indexOf("Act, don't ask:"));
 		},
 	);
+
+	it("bot en-US nunca recebe 'português' no prompt; pt-BR recebe Portuguese", async () => {
+		const systemOf = async (language: "en-US" | "pt-BR") => {
+			let systemContent = "";
+			await runComputerUse({
+				manager: {} as SandboxManager,
+				getSessionId: async () => "session-1",
+				sandboxEnabled: false,
+				model: "test-model",
+				apiKey: "test",
+				messages: [{ role: "user", content: "hello" }],
+				language,
+				maxSteps: 1,
+				onEvent: () => undefined,
+				streamChat: async (request) => {
+					systemContent = request.messages.filter((message) => message.role === "system").map((message) => String(message.content)).join("\n");
+					return assistantDone();
+				},
+			});
+			return systemContent;
+		};
+		const en = await systemOf("en-US");
+		expect(en).not.toMatch(/portugu[eê]s|Responda em/i);
+		expect(en).toContain("Always reply to the user in American English.");
+		expect(await systemOf("pt-BR")).toContain("Always reply to the user in Brazilian Portuguese.");
+	});
 
 	it.each([
 		[{ role: "user" as const, content: "hello" }],
@@ -232,7 +261,7 @@ describe("runComputerUse resume", () => {
 		});
 
 		await expect(first).rejects.toThrow(/crash after tool/);
-		expect(seenSystemContent[0]?.endsWith(`\n${languageInstruction("en-US")}`)).toBe(true);
+		expect(seenSystemContent[0]).toContain(languageInstruction("en-US"));
 		expect(navigate).toHaveBeenCalledTimes(1);
 		expect(parseRuntimeCheckpoint(stored)?.nextStepIndex).toBe(1);
 
@@ -258,7 +287,7 @@ describe("runComputerUse resume", () => {
 		});
 
 		expect(navigate).toHaveBeenCalledTimes(1);
-		expect(seenSystemContent[1]?.endsWith(`\n${languageInstruction("es-ES")}`)).toBe(true);
+		expect(seenSystemContent[1]?.split(languageInstruction("es-ES"))).toHaveLength(2);
 		expect(seenSystemContent[1]).not.toContain(languageInstruction("en-US"));
 		expect(result.text).toContain("Pronto");
 	});

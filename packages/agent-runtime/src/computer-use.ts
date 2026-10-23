@@ -73,6 +73,7 @@ import {
 	validateAlertInterval,
 	type RoutineAlertConfig,
 	languageInstruction,
+	buildPersonaBlock,
 	BROWSER_CHILD_MAX_CONCURRENCY,
 	DELEGATE_TOOL_NAME,
 	SUBAGENT_BASE_TOOLS,
@@ -660,15 +661,15 @@ const USER_PUSH_ROUTINE_NOTE =
  * (ver `packages/shared/src/runs.ts`, `packages/db/src/runs.ts`).
  */
 export const BOT_CONFIG_EVENT_SYSTEM_INSTRUCTION = [
-	"EVENTO DE BOT (criação/fechamento de config/questionário): responda em PT-BR, curto e simpático.",
-	"Apresente-se brevemente (1-2 frases: quem você é + diga que vai fazer umas perguntas para ajudar na experiência dele). Sem 'boas-vindas' formais.",
-	"UMA pergunta por vez: chame `propose_questionnaire` com 1 item, aguarde a resposta e só então faça a próxima (máx. 3 no onboarding). NUNCA todas de uma vez.",
-	"Antes de perguntar, consulte `session_search` (histórico DESTE bot) e `memory_search` para aproveitar o que já foi dito. Cada bot é isolado: NUNCA presuma ou cite contexto de outros bots do usuário.",
-	"Se emitiu `propose_questionnaire`, o texto final confirma o entendimento + introduz a próxima pergunta (o card já mostra a pergunta em si).",
-	"Sem card e trivial: no máximo 1 pergunta curta em texto. Não abra conversa longa.",
-	"Se a conclusão mudar decisões futuras, salve via tool `memory` target `memory` category `bot_config` ou `bot_evolution` importance>=0.7 (content=\"<estado>. Porquê: <motivo>\"). Não crie tabela nova.",
-	"Resposta repetida não duplica: `add` idêntico/paráfrase (<0.08) devolve \"duplicado\"; em overflow 2200 use `replace` consolidando.",
-	"Antes de afirmar sobre o bot ou dizer \"não sei\", consulte `memory_search` e `session_search` (description=estado atual, memory=porquê/histórico).",
+	"BOT EVENT (bot created, config or questionnaire answers): reply briefly and warmly, in the bot's language.",
+	"Introduce yourself in 1-2 sentences (who you are, and that you will ask a few questions to tailor the experience). No formal welcome.",
+	"One question at a time: call `propose_questionnaire` with 1 item, wait for the answer, then ask the next (at most 3 in onboarding).",
+	"Before asking, check `session_search` (this bot's history) and `memory_search` to reuse what was already said. Each bot is isolated: do not assume or cite context from the user's other bots.",
+	"After `propose_questionnaire`, the final text confirms what you understood and introduces the next question (the card already shows the question).",
+	"Without a card and for a trivial point: at most one short question in text. Do not open a long conversation.",
+	"If the conclusion changes future decisions, save it with the `memory` tool, target `memory`, category `bot_config` or `bot_evolution`, importance>=0.7 (content=\"<state>. Why: <reason>\").",
+	"A repeated answer is not duplicated: an identical or paraphrased `add` (<0.08) returns \"duplicado\"; when over 2200 chars, use `replace` to consolidate.",
+	"Before stating something about the bot or saying you do not know, check `memory_search` and `session_search` (description = current state, memory = why/history).",
 ].join("\n");
 
 const BOT_CONFIG_EVENT_MARKERS = [
@@ -691,6 +692,7 @@ function containsBotConfigInstruction(text: string): boolean {
 	const lower = (text ?? "").toLowerCase();
 	return (
 		lower.includes("evento de bot") ||
+		lower.includes("bot event") ||
 		lower.includes("bot_config") ||
 		lower.includes("bot_evolution") ||
 		lower.includes("questionnaire-submitted")
@@ -5767,6 +5769,8 @@ export async function runComputerUse(params: {
 					.join("")
 			: "";
 		const systemContent = buildStableSystemPrompt({
+			// Persona do bot no topo: identidade, estilo e idioma num lugar só (o subagente fala com o pai, sem persona).
+			persona: isSubagent ? undefined : buildPersonaBlock({ name: botProfileForGate?.name, role: botProfileForGate?.description, language }),
 			base: isSubagent ? subagentSystemPrompt(params.browserTabId !== undefined) : economyParts ? economyParts.core : SYSTEM_PROMPT,
 			routine: !isSubagent && params.origin === "routine",
 			research: isSubagent || economyParts ? "" : researchBlock,
@@ -5784,7 +5788,7 @@ export async function runComputerUse(params: {
 		const userPushSection = userPushRun?.mode === "routine" ? USER_PUSH_ROUTINE_NOTE : null;
 		const alertSection = alertRun ? alertRunNote(alertRun) : null;
 		conversation = [
-			{ role: "system", content: buildSystemPrompt({ stable: systemContent, nativeLine: nativeComputerOn ? NATIVE_COMPUTER_PROMPT_LINE : undefined, todayLine: isSubagent ? undefined : todayNote(new Date()), languageInstruction: currentLanguageInstruction }) },
+			{ role: "system", content: buildSystemPrompt({ stable: systemContent, nativeLine: nativeComputerOn ? NATIVE_COMPUTER_PROMPT_LINE : undefined, todayLine: isSubagent ? undefined : todayNote(new Date()), languageInstruction: isSubagent ? currentLanguageInstruction : undefined }) },
 			...(proactiveSection ? [{ role: "system" as const, content: proactiveSection }] : []),
 			...(userPushSection ? [{ role: "system" as const, content: userPushSection }] : []),
 			...(alertSection ? [{ role: "system" as const, content: alertSection }] : []),

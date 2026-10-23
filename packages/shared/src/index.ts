@@ -90,6 +90,7 @@ export {
 	languageInstruction,
 	type BotLanguage,
 } from "./bot-language.js";
+export { buildPersonaBlock, PERSONA_ROLE_MAX_CHARS, PERSONA_STYLE_LINE, type PersonaInput } from "./persona.js";
 export type { OpenRouterModel, ListModelsResponse } from "./model.js";
 export { modelSupportsImageInput } from "./model.js";
 export {
