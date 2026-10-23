@@ -77,6 +77,7 @@ import { emitSkillProposalResolved } from "@/lib/skill-draft-handoff";
 import { ThreadSkeleton } from "./thread-skeleton";
 import { useStableHandlers, useStructuralMemo } from "./stable-handlers";
 import { createPreviewReporter } from "@/lib/preview-throttle";
+import { createFrameCoalescer } from "@/lib/frame-coalescer";
 import type { OpenRoutinePayload } from "@/components/ai-elements/routines";
 
 /** Última mensagem que satisfaz o filtro, sem copiar e inverter a lista. */
@@ -318,7 +319,8 @@ export function ChatThread({
 			if (element) observer.observe(element);
 		}
 		return () => observer.disconnect();
-	}, [pendingCardKey, messages, opened]);
+		// Só a lista de cartões pendentes (ids) importa: refazer o observer a cada token custava uma busca no DOM.
+	}, [pendingCardKey, opened]);
 	useEffect(() => (isGroup ? undefined : onChatMessageRequest((text) => void sendMessageRef.current(text))), [isGroup]);
 	// Listas derivadas de `agents` mantêm a referência enquanto o conteúdo não muda: a lista de conversas
 	// muda por qualquer prévia ou não lida, e uma referência nova redesenharia todas as linhas memoizadas.
@@ -845,11 +847,28 @@ export function ChatThread({
 	const newCount = loading || seenKeyRef.current !== conversationKey ? 0 : newMessagesSince(visibleMessages, seenUpToId);
 	const sourceIds = useMemo(() => sourceMarkerIds(visibleMessages), [visibleMessages]);
 
-	// Durante o stream: acompanha só se o usuário já estava no fim.
+	// Durante o stream: acompanha só se o usuário já estava no fim. Uma rolagem por quadro, não por token: a
+	// leitura do layout e a escrita do scrollTop acontecem uma vez, e só se o usuário continua no fim.
+	const [streamFollow] = useState(() =>
+		createFrameCoalescer(() => {
+			const element = scrollRef.current;
+			if (element && stickRef.current) element.scrollTop = element.scrollHeight;
+		}),
+	);
+	useEffect(() => () => streamFollow.cancel(), [streamFollow]);
 	useEffect(() => {
 		if (!sending || !stickRef.current) return;
+		streamFollow.request();
+	}, [messages, sending, streamFollow]);
+	// Fim do run: o layout ainda assenta (cursor some, markdown final); confere uma vez com a correção de sempre.
+	const wasSendingRef = useRef(sending);
+	useEffect(() => {
+		const wasSending = wasSendingRef.current;
+		wasSendingRef.current = sending;
+		if (!wasSending || sending || !stickRef.current) return;
 		scrollToEnd();
-	}, [messages, sending]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [sending]);
 
 	// Uma decisão por cartão: toque duplo, remontagem ou volta ao app não reenviam o mesmo "confirmado".
 	const decideCard = (confirm: { id: string; confirmId?: string; status?: string }, status: "approved" | "rejected", text: string) => {
