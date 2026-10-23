@@ -1207,6 +1207,26 @@ export async function recordRoutineAlertState(userId: string | undefined, routin
 	return count === 1;
 }
 
+/** Rotina (nome e conversa do bot) de um run: base do aviso quando a rotina não rodou. Só do dono; null = não é rotina dele. */
+export async function getRoutineContextForAgentRun(
+	agentRunId: string,
+	userId: string | undefined,
+): Promise<{ routineId: string; name: string; conversationId: string | null } | null> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return null;
+	const row = await prisma.routineRun.findFirst({
+		where: { agentRunId, routine: { userId: { in: owners } } },
+		orderBy: { createdAt: "desc" },
+		select: { routine: { select: { id: true, name: true, botId: true } } },
+	});
+	if (!row?.routine) return null;
+	const bot = await prisma.bot.findFirst({
+		where: { id: row.routine.botId, ownerId: { in: owners } },
+		select: { conversationId: true },
+	});
+	return { routineId: row.routine.id, name: row.routine.name, conversationId: bot?.conversationId ?? null };
+}
+
 export async function findRecentRoutineRunByIdempotency(
 	routineId: string,
 	idempotencyKey: string,

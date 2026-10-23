@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import { prisma } from "./client.js";
 import { FakeTable, installFakes } from "./testing/fake-tables.js";
-import { createRoutine, getRoutineAlertForAgentRun, recordRoutineAlertState, updateRoutine } from "./routines.js";
+import { createRoutine, getRoutineAlertForAgentRun, getRoutineContextForAgentRun, recordRoutineAlertState, updateRoutine } from "./routines.js";
 
 let installed: { restore: () => void };
 const writes: Array<Record<string, unknown>> = [];
@@ -157,4 +157,24 @@ test("recordRoutineAlertState: só o dono grava e só se a condição ainda é a
 	assert.equal(writes.length, 0);
 	assert.equal(await recordRoutineAlertState("user-a", "r1", next), true);
 	assert.deepEqual(writes[0]!.alertJson, next);
+});
+
+test("getRoutineContextForAgentRun: nome e conversa do bot só para o dono da rotina", async () => {
+	const client = prisma as unknown as Record<string, Record<string, unknown>>;
+	const original = client.routineRun;
+	client.routineRun = {
+		findFirst: async ({ where }: { where: { routine: { userId: { in: string[] } } } }) =>
+			where.routine.userId.in.includes("user-a") ? { routine: { id: "r1", name: "Estoque", botId: "bot-a" } } : null,
+	};
+	const botTable = new FakeTable([{ id: "bot-a", ownerId: "user-a", conversationId: "conv-a" }]);
+	const fakes = installFakes({ bot: botTable });
+	try {
+		assert.deepEqual(await getRoutineContextForAgentRun("run-1", "user-a"), { routineId: "r1", name: "Estoque", conversationId: "conv-a" });
+		assert.equal(await getRoutineContextForAgentRun("run-1", "user-b"), null);
+		assert.equal(await getRoutineContextForAgentRun("run-1", "default"), null);
+		assert.equal(await getRoutineContextForAgentRun("run-1", undefined), null);
+	} finally {
+		fakes.restore();
+		client.routineRun = original!;
+	}
 });

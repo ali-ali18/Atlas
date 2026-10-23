@@ -319,6 +319,7 @@ export {
 	findRoutineRunByAgentRunId,
 	getRoutineNotifyModeForAgentRun,
 	getRoutineAlertForAgentRun,
+	getRoutineContextForAgentRun,
 	recordRoutineAlertState,
 	getRoutinePageIdForAgentRun,
 	findRecentRoutineRunByIdempotency,
