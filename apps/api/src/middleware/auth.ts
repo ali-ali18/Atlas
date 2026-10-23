@@ -15,6 +15,9 @@ export function scopeFor(session: AuthSession) {
 function isPublicV1Request(method: string, path: string): boolean {
 	// Webhook do GitHub App: sem sessão; autentica pela assinatura HMAC (X-Hub-Signature-256).
 	if (method === "POST" && path === "/v1/github-app/webhook") return true;
+	// Painel compartilhado por link público (somente leitura): sem sessão; autoriza pelo token da URL (256 bits, só o
+	// hash fica no banco), revogável pelo dono, limitado por IP e com resposta mínima (rotas/public-pages.ts).
+	if (method === "GET" && /^\/v1\/public\/paineis\/[A-Za-z0-9_-]{43}$/.test(path)) return true;
 	// Entrada de e-mail do bot: sem sessão; autentica pelo token da URL + assinatura HMAC do provedor.
 	if ((method === "POST" || method === "GET") && /^\/v1\/email\/inbound\/[^/]+$/.test(path)) return true;
 	// Ícone de notificação push (PNG do avatar): público, a chave só tem forma e cor.

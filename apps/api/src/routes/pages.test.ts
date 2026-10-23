@@ -66,6 +66,21 @@ routineGroup.findMany = async ({ where }: { where: { botId: string; userId: stri
 (prisma.routine as unknown as Record<string, unknown>).findMany = async ({ where }: { where: { userId: string; botId: string; pageId: { in: string[] } } }) =>
 	routines.filter((r) => r.userId === where.userId && r.botId === where.botId && where.pageId.in.includes(r.pageId) && r.groupId !== null);
 
+const shareRows: Array<{ id: string; pageId: string; userId: string; tokenHash: string; createdAt: Date; revokedAt: Date | null }> = [];
+const pageShare = prisma.pageShare as unknown as Record<string, unknown>;
+const sameShare = (r: (typeof shareRows)[number], where: Record<string, unknown>) => Object.entries(where).every(([key, value]) => (r as Record<string, unknown>)[key] === value);
+pageShare.findFirst = async ({ where }: { where: Record<string, unknown> }) => shareRows.find((r) => sameShare(r, where)) ?? null;
+pageShare.create = async ({ data }: { data: Omit<(typeof shareRows)[number], "id" | "revokedAt"> }) => {
+	const created = { id: `share-${shareRows.length + 1}`, revokedAt: null, ...data };
+	shareRows.push(created);
+	return created;
+};
+pageShare.updateMany = async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+	const found = shareRows.filter((r) => Object.entries(where).every(([key, value]) => (r as Record<string, unknown>)[key] === value));
+	for (const r of found) Object.assign(r, data);
+	return { count: found.length };
+};
+
 function appFor(userId: string) {
 	const app = new Hono();
 	app.use("*", async (c, next) => {
@@ -165,4 +180,40 @@ test("PATCH sem groupId ou com tipo errado dá 400", async () => {
 	assert.equal((await patch(USER_A, "page-a", { groupId: 5 })).status, 400);
 	assert.equal((await patch(USER_A, "page-a", { groupId: "  " })).status, 400);
 	assert.equal((await appFor(USER_A).request("/v1/pages/page-a", { method: "PATCH", body: "oi" })).status, 400);
+});
+
+const call = (userId: string, id: string, method: string) => appFor(userId).request(`/v1/pages/${id}/share`, { method });
+
+test("link público: o dono cria (URL só na resposta), consulta o estado e desativa", async () => {
+	process.env.ATLAS_URL = "https://atlas.example.com";
+	const created = await call(USER_A, "page-a", "POST");
+	assert.equal(created.status, 200);
+	const body = (await created.json()) as { active: boolean; url: string };
+	assert.equal(body.active, true);
+	assert.match(body.url, /^https:\/\/atlas\.example\.com\/p\/[A-Za-z0-9_-]{43}$/);
+	assert.equal(created.headers.get("cache-control"), "private, no-store");
+	const token = body.url.split("/p/")[1]!;
+	assert.ok(!JSON.stringify(shareRows).includes(token), "o banco guarda só o hash");
+	const status = (await (await call(USER_A, "page-a", "GET")).json()) as { active: boolean; createdAt: string | null; url?: string };
+	assert.equal(status.active, true);
+	assert.equal(status.url, undefined);
+	const rotated = (await (await call(USER_A, "page-a", "POST")).json()) as { url: string };
+	assert.notEqual(rotated.url, body.url);
+	assert.equal(shareRows.length, 1);
+	const revoked = await call(USER_A, "page-a", "DELETE");
+	assert.equal(revoked.status, 200);
+	assert.deepEqual(await revoked.json(), { active: false, createdAt: null });
+	assert.equal(((await (await call(USER_A, "page-a", "GET")).json()) as { active: boolean }).active, false);
+	assert.equal((await call(USER_A, "page-a", "DELETE")).status, 200);
+});
+
+test("link público: usuário B não cria, consulta nem revoga o link do painel de A (404 igual a inexistente)", async () => {
+	await call(USER_A, "page-a", "POST");
+	const before = JSON.stringify(shareRows);
+	const attempts = await Promise.all(["POST", "GET", "DELETE"].map((method) => call(USER_B, "page-a", method)));
+	const missing = await call(USER_B, "page-nope", "POST");
+	for (const res of [...attempts, missing]) assert.equal(res.status, 404);
+	assert.deepEqual(await attempts[0]!.json(), await missing.json());
+	assert.equal(JSON.stringify(shareRows), before);
+	await call(USER_A, "page-a", "DELETE");
 });
