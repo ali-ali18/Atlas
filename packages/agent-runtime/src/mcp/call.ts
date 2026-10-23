@@ -154,6 +154,7 @@ export async function callMcpTool(input: {
 					signal: input.signal,
 					timeout,
 				}),
+				{ signal: input.signal },
 			);
 			const normalized = normalizeCallToolResult(raw);
 			const redacted = redactSecrets(normalized.text, secrets);
