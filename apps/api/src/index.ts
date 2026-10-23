@@ -58,6 +58,7 @@ import { createModelRoutes } from "./routes/models.js";
 import { createEventRoutes } from "./routes/events.js";
 import { createHealthRoutes } from "./health.js";
 import { endAllObserverStreams } from "./routes/run-observer.js";
+import { closeUserEventWaker } from "./user-event-wakeups.js";
 import { createRunRoutes, enqueueAgentRunJob, reconcileQueuedAgentRuns, resumeRunsAwaitingConnector } from "./routes/runs.js";
 import { createEmailRoutes } from "./routes/email.js";
 import { createEmailInboundRoutes } from "./webhooks/email-inbound.js";
@@ -538,6 +539,7 @@ async function shutdown() {
 	}
 	clearInterval(reconcileTimer);
 	await closeRunSignals().catch(() => undefined);
+	await closeUserEventWaker().catch(() => undefined);
 	if (redisConnection) {
 		await redisConnection.quit();
 	}

@@ -197,3 +197,79 @@ test("rota: SSE com Last-Event-ID; REALTIME_HUB=0 devolve 404", async () => {
 	assert.equal(realtimeHubEnabled({}), true);
 	assert.equal(realtimeHubEnabled({ REALTIME_HUB: "off" }), false);
 });
+
+test("com a escuta de pé espera 5 s e acorda no aviso; sem ela, 600 ms", async () => {
+	const { EVENTS_LISTENING_POLL_MS, EVENTS_POLL_MS } = await import("./events.js");
+	assert.equal(EVENTS_POLL_MS, 600);
+	assert.equal(EVENTS_LISTENING_POLL_MS, 5_000);
+	for (const listening of [true, false]) {
+		const store = createMemoryUserEventStore();
+		const waits: number[] = [];
+		const subscribed: string[] = [];
+		let unsubscribed = 0;
+		let wake: (() => void) | undefined;
+		const raw: string[] = [];
+		await runUserEventStream({
+			store,
+			userId: "u1",
+			cursor: 0,
+			waker: {
+				subscribe: (userId, onWake) => {
+					subscribed.push(userId);
+					wake = onWake;
+					return () => void (unsubscribed += 1);
+				},
+				listening: () => listening,
+			},
+			io: {
+				stopped: () => waits.length >= 2,
+				send: (frame) => void raw.push(frame),
+				wakeUp: () => undefined,
+				wait: async (ms) => {
+					waits.push(ms);
+					// Evento novo + aviso: a próxima volta lê sem esperar a consulta lenta.
+					await publishUserEvent("u1", "message", { i: waits.length }, store);
+					wake?.();
+				},
+			},
+		});
+		assert.deepEqual(waits, listening ? [5_000, 5_000] : [600, 600]);
+		assert.deepEqual(subscribed, ["u1"]);
+		assert.equal(unsubscribed, 1);
+		assert.equal(parseFrames(raw).filter((frame) => frame.event === "message").length, 1);
+	}
+});
+
+test("rota: o aviso do banco acorda o stream na hora (sem esperar a consulta de 5 s)", async () => {
+	const store = createMemoryUserEventStore();
+	let wake: (() => void) | undefined;
+	const waker = {
+		subscribe: (_userId: string, onWake: () => void) => ((wake = onWake), () => undefined),
+		listening: () => true,
+	};
+	const outer = new Hono<AuthEnv>();
+	outer.use("*", async (c, next) => {
+		c.set("session", { user: { id: "u1" } } as AuthEnv["Variables"]["session"]);
+		await next();
+	});
+	outer.route("/", createEventRoutes(store, {}, waker));
+	const abort = new AbortController();
+	const response = await outer.request("/v1/events", { headers: { "Last-Event-ID": "0" }, signal: abort.signal });
+	const reader = response.body!.getReader();
+	const decoder = new TextDecoder();
+	let text = "";
+	const started = Date.now();
+	setTimeout(async () => {
+		await publishUserEvent("u1", "run", { i: 1 }, store);
+		wake?.();
+	}, 30);
+	while (!text.includes("event: run")) {
+		const { value, done } = await reader.read();
+		if (done) break;
+		text += decoder.decode(value);
+	}
+	abort.abort();
+	await reader.cancel().catch(() => undefined);
+	assert.match(text, /id: 1\nevent: run/);
+	assert.ok(Date.now() - started < 2_000, "acordou pelo aviso, não pela consulta de 5 s");
+});
