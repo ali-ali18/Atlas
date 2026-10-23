@@ -1,0 +1,8 @@
+---
+description: Fluxo de trabalho de toda feature (análise, plano, verificação, documentação, auditoria, entrega, custo dos agentes)
+alwaysApply: true
+---
+
+Regra mantida em `.agents/rules/80-fluxo-de-trabalho.md` (fonte única, não edite aqui).
+
+@.agents/rules/80-fluxo-de-trabalho.md

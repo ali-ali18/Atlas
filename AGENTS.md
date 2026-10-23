@@ -19,6 +19,7 @@ Todo agente (Claude, Cursor, GPT/Codex, Gemini…) segue estas regras. Leia as q
 | [`.agents/rules/50-testes.md`](.agents/rules/50-testes.md) | o que testar e como rodar | sim |
 | [`.agents/rules/60-agente.md`](.agents/rules/60-agente.md) | runtime do agente: tools honestas, prompt, agent-first | ao mexer no agente |
 | [`.agents/rules/70-padroes-produto.md`](.agents/rules/70-padroes-produto.md) | decisões de produto e arquitetura: autonomia, contexto lazy, linguagem com o usuário, chat, UI, prévias e merge | sim |
+| [`.agents/rules/80-fluxo-de-trabalho.md`](.agents/rules/80-fluxo-de-trabalho.md) | fluxo de toda feature: análise, plano, verificação, documentação, auditoria independente, entrega, custo dos agentes | sim |
 
 `CLAUDE.md` (Claude Code) e `.cursor/rules/*.mdc` (Cursor) só apontam para esses arquivos. **Edite as regras em `.agents/rules/`**, nunca nas cópias.
 

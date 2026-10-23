@@ -14,3 +14,4 @@ Fonte única das regras: `.agents/rules/`. Edite lá, não aqui.
 @.agents/rules/50-testes.md
 @.agents/rules/60-agente.md
 @.agents/rules/70-padroes-produto.md
+@.agents/rules/80-fluxo-de-trabalho.md

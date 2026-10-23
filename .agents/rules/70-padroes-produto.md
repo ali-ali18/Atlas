@@ -30,8 +30,4 @@ Decisões que o dono do projeto já fez. Siga sem perguntar de novo; só proponh
 - Seções da Biblioteca recolhíveis; listas relacionadas agrupadas (painéis e rotinas pelo mesmo grupo).
 
 ## Fluxo de trabalho
-- Pesquisa e implementação por subagentes em worktree isolado; o orquestrador integra (cherry-pick) no branch unificado e roda a verificação completa.
-- Recurso da máquina é limitado: um processo pesado por vez (suíte grande, dev server, build). Mais de 2 subagentes pesados ao mesmo tempo já derrubou o container.
-- Mudança visível ao usuário só é dada como pronta com **prévias**: desktop e celular, tema escuro, no máximo 3 blocos por imagem (MockAtlas + Chromium).
-- Tudo é unificado num branch e vai para a `main` num PR só. **Merge só depois que o usuário aprovar as prévias.**
-- Ideia grande ainda não priorizada vira issue no GitHub (planejamento), não código.
+- Processo, prévias, merge só com ok do dono, subagentes, um processo pesado por vez e ideias fora do escopo (issue no GitHub): ver `80-fluxo-de-trabalho.md`.

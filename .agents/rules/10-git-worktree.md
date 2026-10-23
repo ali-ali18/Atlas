@@ -33,7 +33,7 @@ git worktree remove ../atlas-<agente>
 ## Proibido sem pedido explícito do usuário
 - `git push` (qualquer um), `--force`, `reset --hard`, `checkout -- <arquivo>`/`restore` em arquivo que não é seu, `clean -fd`, `branch -D`, rebase de branch de outro agente.
 - `--no-verify`, ou pular hooks e assinatura.
-- Merge no branch base: é o revisor que faz, depois de aprovar (ordem definida no plano).
+- Merge no branch base: é o revisor que faz, depois de aprovar (ordem definida no plano). Merge na `main` só com o ok do dono (ver `80-fluxo-de-trabalho.md`).
 
 ## Lock e concorrência
 - `index.lock` existe → espere alguns segundos e tente de novo. Nunca apague o lock sem checar se há processo git ativo.
