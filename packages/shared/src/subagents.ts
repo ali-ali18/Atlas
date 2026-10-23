@@ -63,7 +63,7 @@ export type DelegateTask = {
 	context?: string;
 	/** Nomes exatos ou prefixos (`mcp__github__`, `web_search`). */
 	tools?: string[];
-	/** Modo navegador (V8): id do item no ledger do pai que esta tarefa lê. */
+	/** Id do item no ledger do pai que esta tarefa cobre (fecha com o resultado do filho). */
 	item?: string;
 	/** Modo navegador (V8): página inicial da aba do filho (http/https). */
 	url?: string;
@@ -153,14 +153,15 @@ export function parseDelegateTaskArgs(args: unknown): ParsedDelegateArgs {
 			}
 			if (tools.length > 0) task.tools = [...new Set(tools as string[])];
 		}
-		if (mode) {
-			if (record?.item !== undefined) {
-				const item = typeof record.item === "string" ? record.item.trim() : "";
-				if (!item || item.length > BROWSER_ITEM_ID_MAX_CHARS) {
-					return { ok: false, error: `tasks[${index}].item must be a ledger item id (up to ${BROWSER_ITEM_ID_MAX_CHARS} characters).` };
-				}
-				task.item = item;
+		// `item` vale nos dois modos: o resultado do filho fecha esse item do checklist do pai.
+		if (record?.item !== undefined && record.item !== null && record.item !== "") {
+			const item = typeof record.item === "string" ? record.item.trim() : "";
+			if (!item || item.length > BROWSER_ITEM_ID_MAX_CHARS) {
+				return { ok: false, error: `tasks[${index}].item must be a ledger item id (up to ${BROWSER_ITEM_ID_MAX_CHARS} characters).` };
 			}
+			task.item = item;
+		}
+		if (mode) {
 			if (record?.url !== undefined) {
 				const url = parseBrowserStartUrl(record.url);
 				if (!url) return { ok: false, error: `tasks[${index}].url must be an http(s) URL without credentials.` };
@@ -169,10 +170,8 @@ export function parseDelegateTaskArgs(args: unknown): ParsedDelegateArgs {
 		}
 		tasks.push(task);
 	}
-	if (mode) {
-		const items = tasks.map((task) => task.item).filter((item): item is string => Boolean(item));
-		if (new Set(items).size !== items.length) return { ok: false, error: "Each task needs a different item id." };
-	}
+	const items = tasks.map((task) => task.item).filter((item): item is string => Boolean(item));
+	if (new Set(items).size !== items.length) return { ok: false, error: "Each task needs a different item id." };
 	return { ok: true, tasks, ...(model ? { model } : {}), ...(mode ? { mode } : {}) };
 }
 

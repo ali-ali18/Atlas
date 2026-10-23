@@ -22,6 +22,7 @@ import {
 	formatDelegateResults,
 	isMcpToolName,
 	ledgerUpdateFromChild,
+	mapDelegatedItems,
 	parseDelegateTaskArgs,
 	planChildBudget,
 	resolveSubagentModel,
@@ -105,9 +106,12 @@ function buildDelegateTaskTool(browserItems: boolean): ChatTool {
 									items: { type: "string" },
 									description: "Restrict to these tool names or prefixes. Optional.",
 								},
+								item: {
+									type: "string",
+									description: "The track_items id this task covers. Optional; the item is closed for you with the report (done) or the failure reason.",
+								},
 								...(browserItems
 									? {
-											item: { type: "string", description: "browser_item: the track_items id this task reads." },
 											url: { type: "string", description: "browser_item: http(s) page to open in the task's tab." },
 										}
 									: {}),
@@ -346,7 +350,16 @@ export async function executeDelegateTask(
 	const results = outcomes.map(
 		(outcome) => (outcome as PromiseFulfilledResult<SubagentTaskResult>).value,
 	);
-	const ledgerLines = browserMode ? applyResultsToLedger(ctx, results) : [];
+	// Fora do modo navegador o item vem do arg `item` ou do rótulo no objetivo (regra conservadora de
+	// `mapDelegatedItems`): sem isso o item ficava pendente e o portão refazia a resposta final.
+	if (!browserMode) {
+		const itemIds = mapDelegatedItems(tasks, ctx.ledgerStore?.get());
+		for (const result of results) {
+			const itemId = itemIds[result.taskIndex];
+			if (itemId) result.itemId = itemId;
+		}
+	}
+	const ledgerLines = applyResultsToLedger(ctx, results, browserMode);
 	const formatted = [formatDelegateResults(results), ...(ledgerLines.length ? ["", ...ledgerLines] : [])].join("\n");
 	const text = choice.note ? `${formatted}\n\nNote: ${choice.note}` : formatted;
 	if (ctx.conversationId) {
@@ -667,14 +680,14 @@ function markItemsInProgress(ctx: DelegateContext, tasks: readonly DelegateTask[
 }
 
 /** Grava o resultado de cada filho no ledger do pai (done com evidência, ou failed com motivo). */
-function applyResultsToLedger(ctx: DelegateContext, results: readonly SubagentTaskResult[]): string[] {
+function applyResultsToLedger(ctx: DelegateContext, results: readonly SubagentTaskResult[], browserMode: boolean): string[] {
 	const store = ctx.ledgerStore;
 	const lines: string[] = [];
 	let ledger = store?.get();
 	let failed = 0;
 	for (const result of results) {
-		if (result.status !== "ok") failed += 1;
 		if (!result.itemId) continue;
+		if (result.status !== "ok") failed += 1;
 		if (!store || !ledger) {
 			lines.push(`Item ${result.itemId}: no item list to update (use track_items set first).`);
 			continue;
@@ -687,7 +700,13 @@ function applyResultsToLedger(ctx: DelegateContext, results: readonly SubagentTa
 		}
 	}
 	if (store && ledger) store.set(ledger);
-	if (failed > 0) lines.push("Read every failed item yourself with the page tools, then update it with track_items, before answering.");
+	if (failed > 0) {
+		lines.push(
+			browserMode
+				? "Read every failed item yourself with the page tools, then update it with track_items, before answering."
+				: "Failed items stay failed: do them yourself, or tell the user plainly which item is missing and why.",
+		);
+	}
 	return lines;
 }
 

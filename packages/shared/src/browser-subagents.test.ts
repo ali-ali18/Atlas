@@ -10,6 +10,7 @@ import {
 	createTaskLedger,
 	formatDelegateResults,
 	ledgerUpdateFromChild,
+	mapDelegatedItems,
 	parseBrowserStartUrl,
 	parseDelegateTaskArgs,
 	setLedgerItems,
@@ -33,13 +34,14 @@ describe("parseDelegateTaskArgs: modo browser_item", () => {
 		expect(parseDelegateTaskArgs({ mode: "browser_item", tasks: [{ goal: "a", item: "e1" }, { goal: "b", item: "e1" }] })).toMatchObject({ ok: false });
 	});
 
-	it("sem modo, item e url são ignorados (delegação comum não muda)", () => {
+	it("sem modo, a url é ignorada e o item vale (o resultado fecha o item do checklist)", () => {
 		const parsed = parseDelegateTaskArgs({ tasks: [{ goal: "g", item: "e1", url: "ftp://x" }] });
 		expect(parsed).toMatchObject({ ok: true });
 		if (parsed.ok) {
 			expect(parsed.mode).toBeUndefined();
-			expect(parsed.tasks[0]).toEqual({ goal: "g" });
+			expect(parsed.tasks[0]).toEqual({ goal: "g", item: "e1" });
 		}
+		expect(parseDelegateTaskArgs({ tasks: [{ goal: "a", item: "e1" }, { goal: "b", item: "e1" }] })).toMatchObject({ ok: false });
 	});
 });
 
@@ -136,5 +138,44 @@ describe("helpers", () => {
 	it("o relatório mostra o item de cada tarefa", () => {
 		const text = formatDelegateResults([{ taskIndex: 0, goal: "g", status: "ok", report: "r", toolsUsed: [], itemId: "e7" }]);
 		expect(text).toContain("### Task 1 (item e7) [ok]");
+	});
+});
+
+describe("mapDelegatedItems: tarefa delegada -> item do checklist", () => {
+	const ledger = (labels: string[], done: number[] = []) => {
+		let l = setLedgerItems(createTaskLedger(), labels.map((label) => ({ label })));
+		for (const index of done) l = updateLedgerItem(l, { id: l.items[index]!.id, status: "done", evidence: "x" });
+		return l;
+	};
+
+	it("sem ledger ou sem itens: nada é mapeado", () => {
+		expect(mapDelegatedItems([{ goal: "Semana 2" }], undefined)).toEqual([undefined]);
+		expect(mapDelegatedItems([{ goal: "Semana 2" }], createTaskLedger())).toEqual([undefined]);
+	});
+
+	it("item explícito vale se existe; id desconhecido é ignorado", () => {
+		const l = ledger(["Semana 1", "Semana 2"]);
+		expect(mapDelegatedItems([{ goal: "qualquer", item: "2" }, { goal: "x", item: "99" }], l)).toEqual(["2", undefined]);
+	});
+
+	it("rótulo inteiro no objetivo ou no título (sem acento, palavra inteira) casa com o único item aberto", () => {
+		const l = ledger(["Semana 2", "Semana 12", "Conclusão"]);
+		expect(mapDelegatedItems([{ goal: "Escreva o resumo da SEMANA 2 da disciplina" }], l)).toEqual(["1"]);
+		expect(mapDelegatedItems([{ title: "Conclusao", goal: "escreva o fecho" }], l)).toEqual(["3"]);
+	});
+
+	it("ambíguo ou sem casamento: não fecha nada", () => {
+		const l = ledger(["Semana 2", "Semana 3"]);
+		expect(mapDelegatedItems([{ goal: "leia a semana 2 e a semana 3" }], l)).toEqual([undefined]);
+		expect(mapDelegatedItems([{ goal: "pesquise preços" }], l)).toEqual([undefined]);
+		// duas tarefas casando o mesmo item
+		expect(mapDelegatedItems([{ goal: "semana 2 parte A" }, { goal: "semana 2 parte B" }], l)).toEqual([undefined, undefined]);
+		// item explícito em uma tarefa: a outra não o reivindica por rótulo
+		expect(mapDelegatedItems([{ goal: "a", item: "1" }, { goal: "semana 2" }], l)).toEqual(["1", undefined]);
+	});
+
+	it("item já fechado e rótulo curto demais não casam por rótulo", () => {
+		expect(mapDelegatedItems([{ goal: "semana 2" }], ledger(["Semana 2"], [0]))).toEqual([undefined]);
+		expect(mapDelegatedItems([{ goal: "item A de novo" }], ledger(["A"]))).toEqual([undefined]);
 	});
 });
