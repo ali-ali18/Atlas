@@ -1,0 +1,9 @@
+---
+description: Catálogo de componentes do Atlas (packages/ui, charts Bklit, ai-elements, painéis, cards do chat, telas) e quando usar cada um
+globs: apps/web/**,packages/ui/**,packages/shared/src/**
+alwaysApply: false
+---
+
+Regra mantida em `.agents/rules/35-componentes.md` (fonte única, não edite aqui).
+
+@.agents/rules/35-componentes.md

@@ -14,6 +14,7 @@ Todo agente (Claude, Cursor, GPT/Codex, Gemini…) segue estas regras. Leia as q
 | [`.agents/rules/10-git-worktree.md`](.agents/rules/10-git-worktree.md) | um worktree por agente, staging explícito, o que nunca fazer | sim |
 | [`.agents/rules/20-commits.md`](.agents/rules/20-commits.md) | Conventional Commits em pt-BR, commits atômicos | sim |
 | [`.agents/rules/30-componentizacao.md`](.agents/rules/30-componentizacao.md) | camadas, reuso, funções puras, UI com `packages/ui` | ao mexer em código |
+| [`.agents/rules/35-componentes.md`](.agents/rules/35-componentes.md) | catálogo de componentes (ui, gráficos, painéis, cards do chat, telas) e quando usar | ao mexer em UI ou em cards |
 | [`.agents/rules/40-seguranca.md`](.agents/rules/40-seguranca.md) | IDOR/escopo por usuário, segredos, entrada externa, webhooks | sim |
 | [`.agents/rules/50-testes.md`](.agents/rules/50-testes.md) | o que testar e como rodar | sim |
 | [`.agents/rules/60-agente.md`](.agents/rules/60-agente.md) | runtime do agente: tools honestas, prompt, agent-first | ao mexer no agente |
