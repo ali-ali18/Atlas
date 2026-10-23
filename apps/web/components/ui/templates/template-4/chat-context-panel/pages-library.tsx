@@ -24,7 +24,7 @@ import {
 	DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 import { groupPagesForDisplay } from "@workspace/shared";
-import { PageDialog } from "@/components/ai-elements/pages";
+import { PageDialog, PageShareDialog } from "@/components/ai-elements/pages";
 import { LIBRARY_REFRESH_EVENT } from "@/components/ai-elements/files/file-attachment";
 import { cn } from "@workspace/ui/lib/utils";
 import { useLongPress } from "@/hooks/use-long-press";
@@ -241,6 +241,7 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 	const [items, setItems] = useState<AtlasPageListItem[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [opened, setOpened] = useState<AtlasPage | null>(null);
+	const [shareOpen, setShareOpen] = useState(false);
 	const [openingId, setOpeningId] = useState<string | null>(null);
 	const [pendingDelete, setPendingDelete] = useState<AtlasPageListItem | null>(null);
 	const [groups, setGroups] = useState<PageGroupOption[] | undefined>(undefined);
@@ -347,8 +348,12 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 			{opened ? (
 				<PageDialog
 					onOpenChange={(next) => {
-						if (!next) setOpened(null);
+						if (!next) {
+							setOpened(null);
+							setShareOpen(false);
+						}
 					}}
+					onPublicLink={() => setShareOpen(true)}
 					open
 					routineLabel={openedRoutine}
 					sources={opened.sources}
@@ -358,6 +363,7 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 					updatedLabel={updatedAgo(opened.refreshedAt ?? opened.updatedAt)}
 				/>
 			) : null}
+			{opened && shareOpen ? <PageShareDialog onOpenChange={setShareOpen} open pageId={opened.id} title={opened.title} /> : null}
 			<AlertDialog onOpenChange={(next) => !next && setPendingDelete(null)} open={pendingDelete !== null}>
 				<AlertDialogContent>
 					<AlertDialogHeader>

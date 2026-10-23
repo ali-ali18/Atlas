@@ -12,6 +12,7 @@ import { memoryRelativeDate } from "@/components/ui/templates/template-4/chat-co
 import { ShareMenu } from "@/components/ai-elements/share/share-menu";
 
 import { PageDialog } from "./page-dialog";
+import { PageShareDialog } from "./page-share-dialog";
 import { reconcilePageSnapshot, sourceCountLabel, type PageViewState, type RemotePage } from "./page-format";
 import { PageView } from "./page-view";
 
@@ -55,6 +56,7 @@ export function updatedLabel(iso: string | null, now: Date = new Date()): string
 export function PageCard({ card, loadPage = defaultLoadPage, now, botName }: { card: PageCardData; loadPage?: LoadPage; now?: Date; botName?: string | null }) {
 	const [remote, setRemote] = useState<RemotePage | "missing" | null>(null);
 	const [open, setOpen] = useState(false);
+	const [shareOpen, setShareOpen] = useState(false);
 
 	// Nova revisão do cartão (evento ao vivo) → lê de novo; o snapshot do cartão já cobre o intervalo.
 	useEffect(() => {
@@ -81,7 +83,7 @@ export function PageCard({ card, loadPage = defaultLoadPage, now, botName }: { c
 					<h3 className="font-heading font-semibold text-sm [overflow-wrap:anywhere]">{card.title}</h3>
 					{count ? <p className="text-muted-foreground text-xs">{count}</p> : null}
 				</div>
-				{view && !view.removed ? <ShareMenu botName={botName} pdf targetSelector="[data-share-target]" title={card.title} /> : null}
+				{view && !view.removed ? <ShareMenu botName={botName} onPublicLink={() => setShareOpen(true)} pdf targetSelector="[data-share-target]" title={card.title} /> : null}
 				<Button aria-label="Abrir painel em tela cheia" className="shrink-0" data-share-ignore onClick={() => setOpen(true)} size="icon-sm" variant="ghost">
 					<Maximize2Icon />
 				</Button>
@@ -101,7 +103,8 @@ export function PageCard({ card, loadPage = defaultLoadPage, now, botName }: { c
 					{updated ? <span>· {updated}</span> : null}
 				</button>
 			</footer>
-			{view ? <PageDialog botName={botName} onOpenChange={setOpen} open={open} sources={view.sources} spec={view.spec} summary={view.spec.summary} title={card.title} updatedLabel={updated} /> : null}
+			{view ? <PageDialog botName={botName} onOpenChange={setOpen} onPublicLink={() => setShareOpen(true)} open={open} sources={view.sources} spec={view.spec} summary={view.spec.summary} title={card.title} updatedLabel={updated} /> : null}
+			{shareOpen ? <PageShareDialog onOpenChange={setShareOpen} open pageId={card.pageId} title={card.title} /> : null}
 		</section>
 	);
 }

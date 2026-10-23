@@ -691,6 +691,22 @@ export async function movePageToGroup(pageId: string, groupId: string | null): P
 	await atlasFetch(`/v1/pages/${encodeURIComponent(pageId)}`, { method: "PATCH", body: JSON.stringify({ groupId }) });
 }
 
+/** Link público do painel. `url` só vem ao criar/girar (o servidor guarda apenas o hash do token). */
+export type AtlasPageShare = { active: boolean; createdAt: string | null; url?: string };
+
+export async function getPageShare(pageId: string): Promise<AtlasPageShare> {
+	return atlasFetch<AtlasPageShare>(`/v1/pages/${encodeURIComponent(pageId)}/share`);
+}
+
+/** Ativa o link público (ou gira: o link anterior deixa de valer). */
+export async function createPageShare(pageId: string): Promise<AtlasPageShare> {
+	return atlasFetch<AtlasPageShare>(`/v1/pages/${encodeURIComponent(pageId)}/share`, { method: "POST" });
+}
+
+export async function revokePageShare(pageId: string): Promise<AtlasPageShare> {
+	return atlasFetch<AtlasPageShare>(`/v1/pages/${encodeURIComponent(pageId)}/share`, { method: "DELETE" });
+}
+
 export async function deletePage(pageId: string): Promise<void> {
 	await atlasFetch(`/v1/pages/${encodeURIComponent(pageId)}`, { method: "DELETE" });
 }
