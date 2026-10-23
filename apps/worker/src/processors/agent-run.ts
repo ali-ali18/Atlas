@@ -1,7 +1,7 @@
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
 import { isNoUpdateReply, shouldReviewForSkill, type AlertVerdict, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
-import { parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode } from "@workspace/shared";
+import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode } from "@workspace/shared";
 import {
 	ATLAS_JOB_NAMES,
 	COMPACT_TAIL_KEEP,
@@ -954,6 +954,10 @@ async function executeLeasedRun(ctx: {
 		? createAssistantSegmentRecorder({
 				write: async (text, createdAt) => {
 					await appendRunAssistantSegment(run.conversationId!, text, { createdAt });
+				},
+				// Rascunho revisado gravado recolhido: recarregar mostra o mesmo que o ao vivo (o card corta o texto).
+				writeDraft: async (text, reason, createdAt) => {
+					await appendConversationCard(run.conversationId!, { v: 1, kind: "revised-draft", text: text.slice(0, REVISED_DRAFT_MAX_CHARS), reason }, { createdAt });
 				},
 			})
 		: null;

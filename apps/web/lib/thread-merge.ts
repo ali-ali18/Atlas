@@ -270,8 +270,12 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 	const newPersisted = persisted.slice(lastKnownIndex + 1);
 	// Otimista (msg-*) casa com qualquer bolha persistida de mesmo texto que o live ainda não conhece.
 	const unknownPersisted = persisted.filter((message) => !liveIds.has(message.id));
+	// Rascunho revisado gravado (card recolhido): o live mostra o mesmo, então o dele sai na troca.
+	const persistedDrafts = new Set(
+		persisted.flatMap((message) => (message.kind === "assistant" && message.revised ? [normalizeUserText(message.text)] : [])),
+	);
 	const newPersistedText = newPersisted
-		.filter((message) => message.kind === "assistant")
+		.flatMap((message) => (message.kind === "assistant" && !message.revised ? [message] : []))
 		.map((message) => message.text.trim())
 		.filter(Boolean)
 		.join("\n\n");
@@ -281,6 +285,7 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 	const unknownByText = new Map<string, string[]>();
 	for (const message of unknownPersisted) {
 		if (message.kind !== "user" && message.kind !== "assistant") continue;
+		if (message.kind === "assistant" && message.revised) continue;
 		const key = `${message.kind}|${normalizeUserText(message.text)}`;
 		unknownByText.set(key, [...(unknownByText.get(key) ?? []), message.id]);
 	}
@@ -357,6 +362,7 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 			if (!message.text.trim()) continue;
 			// Rascunho revisado nunca é gravado: fica na tela (recolhido) até recarregar, em vez de sumir no fim do run.
 			if (message.revised) {
+				if (persistedDrafts.has(normalizeUserText(message.text))) continue;
 				pending.set(anchor, [...(pending.get(anchor) ?? []), message]);
 				continue;
 			}

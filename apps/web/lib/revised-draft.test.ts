@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { SessionMessage } from "@workspace/shared";
+import { buildSessionMessage } from "@/hooks/use-atlas-chat";
 import { SimClient, SimServer } from "./chat-sim.testkit";
 
 /**
@@ -36,4 +38,31 @@ test("fala repetida (duplicate) continua saindo da tela", () => {
 	client.discard("t1-step-3", "duplicate");
 	assert.deepEqual(revisedOf(client), []);
 	assert.equal(client.screen.some((m) => m.kind === "assistant" && m.text.trim()), false);
+});
+
+test("rascunho revisado gravado (card) volta igual ao recarregar e não duplica com o do live", () => {
+	const row = buildSessionMessage({
+		id: "row-9",
+		conversationId: "c1",
+		role: "revised-draft" as SessionMessage["role"],
+		content: JSON.stringify({ v: 1, kind: "revised-draft", text: ASKED, reason: "items_open" }),
+		createdAt: "2026-10-23T00:00:00.000Z",
+	});
+	assert.deepEqual(row, { id: "row-9", kind: "assistant", text: ASKED, revised: "items_open" });
+
+	const server = new SimServer();
+	const client = new SimClient();
+	client.send("me manda o PDF da Semana 2");
+	server.user("me manda o PDF da Semana 2");
+	client.delta("t1-step-1", ASKED);
+	client.discard("t1-step-1", "items_open");
+	server.card(row!);
+	client.delta("t1-step-2", FINAL);
+	server.assistant(FINAL);
+	client.fetch(server.head, { runLive: false, resultText: FINAL });
+	assert.deepEqual(revisedOf(client), [[ASKED, "items_open"]]);
+	// recarregar: só o banco, mesma tela
+	const reloaded = new SimClient(server.head);
+	assert.deepEqual(revisedOf(reloaded), [[ASKED, "items_open"]]);
+	assert.deepEqual(reloaded.screen.flatMap((m) => (m.kind === "assistant" ? [m.text] : [])), [ASKED, FINAL]);
 });

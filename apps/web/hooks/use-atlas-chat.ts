@@ -262,6 +262,9 @@ function conversationCardToMessage(
 			text: jevStatusText(card, card.ok),
 		};
 	}
+	if (card.kind === "revised-draft") {
+		return { id, kind: "assistant", text: card.text, revised: card.reason };
+	}
 	if (card.kind === "subagents") {
 		return {
 			id,
@@ -333,7 +336,7 @@ function sessionMessageToThread(message: SessionMessage): Message | null {
 	return { ...built, createdAt: message.createdAt };
 }
 
-function buildSessionMessage(message: SessionMessage): Message | null {
+export function buildSessionMessage(message: SessionMessage): Message | null {
 	// Conversa entre bots: marcador "Enviou mensagem para X" (id estável = o do live).
 	if ((message.role as string) === BOT_LINK_ROLE) {
 		// "X precisa de você": o id é o da linha (o marcador muda de estado no lugar).
@@ -426,6 +429,7 @@ function buildSessionMessage(message: SessionMessage): Message | null {
 		|| (message.role as string) === "page"
 		|| (message.role as string) === "task-list"
 		|| (message.role as string) === "compaction"
+		|| (message.role as string) === "revised-draft"
 	) {
 		// Fallback: card questionnaire persistido sob outro role.
 		if (message.content.includes('"questionnaire"')) {

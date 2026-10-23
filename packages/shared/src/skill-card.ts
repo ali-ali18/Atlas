@@ -40,7 +40,8 @@ export type ConversationCardRole =
 	| "chart"
 	| "page"
 	| "task-list"
-	| "compaction";
+	| "compaction"
+	| "revised-draft";
 
 export type PersistedImagesCard = {
 	v: 1;
@@ -216,6 +217,16 @@ export type PersistedToolBudgetCard = {
 	to: number;
 };
 
+/** Rascunho que o usuário viu sendo escrito e o run refez: gravado recolhido para não sumir ao recarregar. */
+export const REVISED_DRAFT_MAX_CHARS = 4_000;
+export type PersistedRevisedDraftCard = {
+	v: 1;
+	kind: "revised-draft";
+	text: string;
+	/** `DraftRevisionReason` (motivo desconhecido vira rótulo genérico na UI). */
+	reason: string;
+};
+
 /** Marcador discreto: o provedor do modelo escolhido falhou e o run seguiu em outro modelo. */
 export type PersistedProviderFallbackCard = {
 	v: 1;
@@ -337,7 +348,8 @@ export type PersistedConversationCard =
 	| PersistedRoutineCard
 	| PersistedRoutineProposalCard
 	| PersistedBotProposalCard
-	| PersistedImagesCard;
+	| PersistedImagesCard
+	| PersistedRevisedDraftCard;
 
 const SKILL_ACTIONS: ReadonlySet<PersistedSkillCard["action"]> = new Set([
 	"created",
@@ -366,7 +378,8 @@ export function isConversationCardRole(role: string): role is ConversationCardRo
 		role === "bot-proposal" ||
 		role === "images" ||
 		role === "task-list" ||
-		role === "compaction"
+		role === "compaction" ||
+		role === "revised-draft"
 	);
 }
 
@@ -813,6 +826,12 @@ export function parseConversationCard(content: string): PersistedConversationCar
 		if (row.result !== "allow" && row.result !== "ask" && row.result !== "unavailable") return null;
 		if (typeof row.ok !== "boolean") return null;
 		return { v: 1, kind: "jev-status", runId, toolCallId, mode: row.mode, result: row.result, ok: row.ok };
+	}
+	if (row.kind === "revised-draft") {
+		const text = asOptionalString(row.text)?.trim();
+		const reason = asOptionalString(row.reason);
+		if (!text || !reason || reason.length > 40) return null;
+		return { v: 1, kind: "revised-draft", text: text.slice(0, REVISED_DRAFT_MAX_CHARS), reason };
 	}
 	if (row.kind === "provider-fallback") {
 		const from = asOptionalString(row.from);

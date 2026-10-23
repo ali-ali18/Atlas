@@ -63,3 +63,22 @@ test("falha ao gravar não derruba o run", async () => {
 	const recorder = createAssistantSegmentRecorder({ write: async () => Promise.reject(new Error("db")) });
 	await assert.doesNotReject(recorder.observe(delta("t-reply1", "oi")));
 });
+
+test("rascunho revisado é gravado como card recolhido (motivo e hora do 1º delta); fala repetida não", async () => {
+	const drafts: Array<{ text: string; reason: string; at: number }> = [];
+	const writes: string[] = [];
+	let clock = 1_000;
+	const recorder = createAssistantSegmentRecorder({
+		write: async (text) => void writes.push(text),
+		writeDraft: async (text, reason, at) => void drafts.push({ text, reason, at: at.getTime() }),
+		now: () => new Date((clock += 10)),
+	});
+	await recorder.observe(delta("s1", "Pedi pro Bobinho, "));
+	await recorder.observe(delta("s1", "te aviso."));
+	await recorder.observe({ type: "assistant_discard", id: "s1", reason: "items_open" });
+	await recorder.observe(delta("s2", "Vou abrir o AVA."));
+	await recorder.observe({ type: "assistant_discard", id: "s2", reason: "duplicate" });
+	await recorder.observe(toolCall());
+	assert.deepEqual(drafts, [{ text: "Pedi pro Bobinho, te aviso.", reason: "items_open", at: 1_010 }]);
+	assert.deepEqual(writes, []);
+});

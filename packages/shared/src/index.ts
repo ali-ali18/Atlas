@@ -327,6 +327,8 @@ export {
 	type PersistedToolBudgetCard,
 	type PersistedJevStatusCard,
 	type PersistedProviderFallbackCard,
+	type PersistedRevisedDraftCard,
+	REVISED_DRAFT_MAX_CHARS,
 	type PersistedSubagentsCard,
 	type BotProfileCardField,
 	type BotProfileCardSnapshot,
