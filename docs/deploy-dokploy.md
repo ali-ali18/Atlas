@@ -3,12 +3,14 @@
 O servidor **não compila mais nada**. O GitHub Actions (`.github/workflows/images.yml`) constrói as
 imagens e as envia ao GHCR; o Dokploy só faz `pull` e sobe. Motivo e riscos: `docs/features/deploy-por-imagem.md`.
 
+O `latest` só avança quando todas as imagens do run deram certo.
+
 Imagens (todas `linux/amd64`, privadas porque o repositório é privado):
 
 | Imagem | Quando é reconstruída |
 |---|---|
 | `ghcr.io/ali-ali18/atlas-web`, `-api`, `-worker`, `-migrate` | a cada push na `main` com o CI verde |
-| `ghcr.io/ali-ali18/atlas-agent-sandbox`, `-code-runner`, `-dev-sandbox` | só quando `docker/<nome>/**` muda (ou no disparo manual) |
+| `ghcr.io/ali-ali18/atlas-agent-sandbox`, `-code-runner`, `-dev-sandbox` | quando a imagem `:latest` não existe, ou `docker/<nome>/**` mudou desde a revisão gravada no label da imagem (ou no disparo manual) |
 
 Tags: `sha-<7 primeiros do commit>` e `latest`.
 
@@ -49,16 +51,25 @@ O servidor precisa de permissão para baixar imagens privadas.
 (Alternativa: token fine-grained com permissão de leitura em Packages. Pacotes de usuário nem sempre aparecem
 em fine-grained; se não funcionar, use o classic.) **(confirmar)**
 
-### 1.3 Registry no Dokploy
+### 1.3 Login no GHCR (no contexto certo)
 
-1. Painel do Dokploy → **Settings → Registry → Add Registry**.
-2. Registry Name: `ghcr`. Username: `ali-ali18`. Password: o token do passo 1.2. Registry URL: `ghcr.io`.
-3. Salve (use **Test Registry**, se existir). Se o Dokploy não tiver essa tela na sua versão, rode **uma vez**
-   no servidor, por SSH: `docker login ghcr.io -u ali-ali18` e cole o token no prompt (nada de passar o token na linha de comando).
+O `docker compose pull` do deploy roda **onde o Dokploy o executa**, e isso pode ser dentro do container do Dokploy
+(com o Docker do host via socket), não no seu shell SSH. Um `docker login` feito no host só vale se o Docker que faz o
+pull lê as credenciais do host (`~/.docker/config.json` do usuário que roda o comando). Por isso, faça o login e **verifique no mesmo contexto do deploy**:
 
-**(confirmar)** Num compose, o Dokploy nem sempre usa o registry cadastrado para `docker compose pull`; quem faz o
-pull é o Docker do servidor, que usa as credenciais do `docker login`. Se o deploy falhar com `unauthorized`,
-faça o `docker login` por SSH como acima: ele fica gravado no servidor.
+1. Painel do Dokploy → **Settings → Registry → Add Registry** **(confirmar o caminho)**.
+   Registry Name: `ghcr`. Username: `ali-ali18`. Password: o token do passo 1.2. Registry URL: `ghcr.io`. Salve.
+2. Também faça login no host, por SSH, como o mesmo usuário que o Dokploy usa (normalmente `root`), digitando o token só no prompt:
+   `docker login ghcr.io -u ali-ali18` (cole o token quando pedir a senha; não o passe na linha de comando).
+3. **Verificação obrigatória**, no contexto do Dokploy: abra o terminal do próprio Dokploy (aba **Terminal** do serviço, ou
+   `docker exec -it <container-do-dokploy> sh` por SSH) e rode:
+
+   ```sh
+   docker pull ghcr.io/ali-ali18/atlas-api:latest
+   ```
+
+   Se baixar, o contexto está autenticado. Se der `unauthorized`/`denied`, rode o `docker login ghcr.io -u ali-ali18` **nesse mesmo
+   terminal** e repita o pull. Só siga quando o pull funcionar (isso exige a imagem já publicada: faça o passo 1.4 antes de verificar).
 
 ### 1.4 Gerar as primeiras imagens
 
@@ -70,37 +81,59 @@ faça o `docker login` por SSH como acima: ele fica gravado no servidor.
 ### 1.5 Apontar o Dokploy para o compose novo
 
 1. Projeto/serviço Compose do Atlas → aba **General**.
-2. Origem: o repositório e a branch `main`. **Compose Path**: `./docker-compose.yml` (o override de dev **não** é lido, e é isso que queremos).
-3. Aba **Environment**: mantenha as variáveis atuais e adicione:
+2. **O tipo do serviço precisa ser Compose** (Create Service → Compose, tipo **Docker Compose**), **não Stack/Swarm**. O Stack ignora
+   `mem_limit` e `depends_on`: sem os limites de memória o servidor volta a cair e o `migrate` deixa de rodar antes da api.
+   Se o serviço atual for Stack, crie um novo como Compose.
+3. Origem: o repositório e a branch `main`. **Compose Path**: `./docker-compose.yml` (o override de dev **não** é lido, e é isso que queremos).
+4. Aba **Environment**: mantenha as variáveis atuais e adicione:
 
    ```env
    ATLAS_IMAGE_TAG=latest
    ```
 
+   O compose usa `pull_policy: always`, então todo Deploy baixa a imagem de novo (o Dokploy roda `up -d` sem `--pull`).
+
    (`ATLAS_SANDBOX_TAG` só se precisar fixar sandboxes; o padrão é `latest`.)
-4. **Desligue o build no servidor**: nada a fazer além do que o compose já faz; ele agora não tem `build:`. Confirme
+5. **Desligue o build no servidor**: nada a fazer além do que o compose já faz; ele agora não tem `build:`. Confirme
    que não há "Build"/"Pre-deploy command" customizado, e não use "Rebuild" (ele tentaria construir e não existe `build:`).
-5. **Desligue o Auto Deploy por git**: na aba **Deployments** (ou **General**) do compose, desative **Auto Deploy**
+6. **Desligue o Auto Deploy por git**: na aba **Deployments** (ou **General**) do compose, desative **Auto Deploy**
    **(confirmar o nome exato do toggle)**. Motivo: hoje todo push na `main` dispara deploy no Dokploy. Com imagens
    prontas isso subiria o `latest` **antigo** (as imagens novas ainda não existem) ou correria com o build. Quem
    dispara o deploy agora é o workflow, depois que todas as imagens foram enviadas (passo 2).
-6. Clique **Deploy**. Primeiro deploy: o Docker baixa as 7 imagens (alguns GB), pode levar alguns minutos.
+7. Clique **Deploy**. Primeiro deploy: o Docker baixa as 7 imagens (alguns GB), pode levar alguns minutos.
 
 ## 2. Deploy automático pelo workflow
 
-O último job do `images.yml` chama o webhook do Dokploy **só se** o secret `DOKPLOY_DEPLOY_WEBHOOK` existir (sem ele, é pulado).
+O último job do `images.yml` só roda depois que **todas** as imagens foram construídas e o `latest` foi movido. Duas formas
+(a API tem prioridade; sem nenhuma, o job é pulado e o deploy é manual). Erro HTTP faz o job falhar, de propósito.
 
-1. No Dokploy, no compose do Atlas → aba **Deployments** → copie a **Webhook URL** (algo como `https://<painel>/api/deploy/compose/<token>`) **(confirmar o caminho)**.
-2. GitHub → **Settings → Secrets and variables → Actions → aba Secrets → New repository secret**: nome `DOKPLOY_DEPLOY_WEBHOOK`, valor a URL. É um segredo: não cole em chat nem no repositório.
-3. Fluxo final: push na `main` → CI verde → imagens no GHCR → webhook → Dokploy faz `pull` e recria os serviços.
+### 2a. API do Dokploy (preferida)
 
-Incerteza importante **(confirmar)**: o webhook de compose do Dokploy foi feito para eventos do GitHub; o workflow envia um
-corpo `{"ref":"refs/heads/main"}` com `X-GitHub-Event: push`. Se o Dokploy ignorar o webhook enquanto o **Auto Deploy**
-estiver desligado, as opções são (a) deixar Auto Deploy ligado **só** para o webhook funcionar, desde que o repositório
-não esteja conectado a um webhook do GitHub (remova o webhook automático do Dokploy em GitHub → Settings → Webhooks, para
-o push da `main` não disparar sozinho), ou (b) clicar **Deploy** manualmente depois do workflow verde.
+Secrets do GitHub (**Settings → Secrets and variables → Actions → Secrets → New repository secret**):
 
-Sem webhook, o fluxo manual: esperar o workflow **Imagens** ficar verde e clicar **Deploy** no Dokploy.
+| Secret | O que é |
+|---|---|
+| `DOKPLOY_URL` | endereço do painel, ex.: `https://painel.seudominio.com` (sem `/` no fim) |
+| `DOKPLOY_API_KEY` | chave de API do Dokploy |
+| `DOKPLOY_COMPOSE_ID` | id do serviço Compose do Atlas |
+
+- **API key:** no Dokploy, foto/nome do usuário → **Settings → Profile** → seção **API/CLI** → **Generate API Key** **(confirmar o caminho)**. Copie na hora (só aparece uma vez) e cole direto no secret do GitHub.
+- **Compose id:** abra o serviço Compose do Atlas; o id aparece na URL do navegador (`.../project/<projectId>/services/compose/<composeId>`) **(confirmar o formato)**.
+- O workflow chama `POST <DOKPLOY_URL>/api/compose.deploy` com o header `x-api-key` e corpo `{"composeId":"..."}`.
+  **(confirmar)** o nome do endpoint e o formato do corpo na documentação/Swagger do seu painel (`<DOKPLOY_URL>/swagger` costuma listar a API); não pude verificar daqui.
+
+### 2b. Webhook (alternativa)
+
+1. No Dokploy, no compose do Atlas → aba **Deployments** → copie a **Webhook URL** **(confirmar o caminho)**.
+2. Secret `DOKPLOY_DEPLOY_WEBHOOK` com essa URL (segredo: não cole em chat nem no repositório).
+3. O workflow envia `{"ref":"refs/heads/main"}` com `X-GitHub-Event: push`. **(confirmar)**: o webhook de compose é pensado para eventos do GitHub e pode exigir
+   o Auto Deploy ligado; se ele ignorar a chamada com Auto Deploy desligado, prefira a opção 2a.
+
+### Fluxo e proteção contra run antigo
+
+Push na `main` → CI verde → imagens `sha-<curto>` → `latest` movido para todas de uma vez → deploy. Se a `main` já avançou
+quando o run começa, ele não publica nem faz deploy (o run mais novo cuida). Sem API nem webhook: espere o workflow **Imagens**
+ficar verde e clique **Deploy** no Dokploy.
 
 ## 3. Rollback
 
@@ -117,19 +150,22 @@ Com `pull` a cada deploy, ficam imagens antigas no disco. Desligue a limpeza di�
 (Settings → Server → Daily Docker Cleanup), que não é mais necessária (não há cache de build no servidor), e use um cron:
 
 ```cron
-# todo dia às 04:00: remove imagens sem uso há mais de 7 dias (as em uso e as recentes ficam, dá para fazer rollback)
+# todo dia às 04:00: remove imagens sem container e criadas há mais de 7 dias
 0 4 * * * docker image prune -a -f --filter "until=168h"
 ```
 
-Cuidado: `docker image prune -a` apaga imagens **sem container**, incluindo as de sandbox que ficam sem uso por
-dias (serão puxadas de novo no próximo deploy, porque os serviços `agent-sandbox`/`dev-sandbox` as puxam). O filtro
-`until=168h` considera a data de criação da imagem, e imagens de sandbox raramente mudam: por isso elas também podem ser
-removidas, e o próximo deploy as baixa de novo. Se uma sessão pedir sandbox antes disso, a criação falha por falta da imagem: rode **Deploy** de novo.
-Uma alternativa mais conservadora é só `docker image prune -f` (apenas imagens sem tag).
+O que o comando faz: `docker image prune -a` remove toda imagem **que nenhum container usa** (parado ou rodando), e
+`until=168h` limita às criadas há mais de 7 dias. Consequências:
+
+- Imagens de app (`web`, `api`, `worker`, `migrate`) das versões anteriores somem depois de 7 dias; o rollback por `sha-...` dentro desse prazo ainda funciona, depois dele a imagem é baixada de novo do GHCR (leva alguns minutos).
+- Imagens de sandbox também: elas só são **usadas** por containers criados sob demanda e os serviços `agent-sandbox`/`code-runner`/`dev-sandbox` do compose terminam logo
+  (o container parado ainda conta como "em uso" enquanto existir). Se a imagem for removida, o próximo **Deploy** a puxa de novo (`pull_policy: always`). Entre a remoção e o próximo Deploy, uma sessão que precise da sandbox falha por falta da imagem.
+- Opção mais conservadora, sem esse efeito: `docker image prune -f` (só imagens sem tag, as sobras dos `latest` antigos).
 
 ## 5. Memória (VPS de 8 GB, ~5 GB para o Atlas)
 
-Limites em `docker-compose.yml` (`mem_limit`); um vazamento reinicia só o container (`restart: unless-stopped`), não o servidor:
+Limites em `docker-compose.yml` (`mem_limit`); um vazamento reinicia só o container (`restart: unless-stopped`), não o servidor.
+Isso só vale com o serviço do tipo **Compose** (Stack/Swarm ignora `mem_limit`).
 
 | Serviço | Limite | Heap do Node |
 |---|---|---|
@@ -138,19 +174,22 @@ Limites em `docker-compose.yml` (`mem_limit`); um vazamento reinicia só o conta
 | searxng | 256m | n/a |
 | docker-socket-proxy | 64m | n/a |
 | api | 768m | 576 MB |
-| worker | 1g (inclui o Chromium) | 640 MB |
+| worker | 1536m (inclui o Chromium do PDF, fora do heap) | 640 MB |
 | web | 512m | 384 MB |
 | migrate (curto) | 512m | 384 MB |
 | sandboxes (só puxam imagem) | 64m | n/a |
 
-Soma dos permanentes: ~3,4 GB; com o `migrate` rodando, ~3,9 GB. O restante é para as **sandboxes criadas pelo app**
-(`SANDBOX_MEMORY_MB`, padrão 2048 por VM; `DEV_SANDBOX_MEMORY_BUDGET_MB`, padrão 4096; `CODE_RUNNER_MEMORY_MB`, padrão 512).
-O gerenciador (`packages/sandbox`) já aplica esses limites na criação de cada container, então o limite mora lá e não
-no compose. Em 5 GB, considere `SANDBOX_MEMORY_MB=1024` e `DEV_SANDBOX_MEMORY_BUDGET_MB=1536`, ou deixe `DEV_SANDBOX_ENABLED=false`.
+Soma dos tetos permanentes: 1024 + 256 + 256 + 64 + 768 + 1536 + 512 = **4416 MB (~4,3 GB)**; com o `migrate` rodando, ~4,8 GB.
+São tetos, não consumo: o uso real costuma ficar bem abaixo (acompanhe com `docker stats` na primeira semana e ajuste).
+As **sandboxes criadas pelo app** entram por cima: o compose agora usa `SANDBOX_MEMORY_MB=1024` (por VM),
+`DEV_SANDBOX_MEMORY_BUDGET_MB=1536` (orçamento total das sessões de desenvolvimento, desligadas por padrão) e `CODE_RUNNER_MEMORY_MB=512`
+(por execução). O limite de cada uma é aplicado por `packages/sandbox` na criação do container, não no compose; o próprio
+gerenciador também respeita `DEV_SANDBOX_MIN_FREE_MB`. Com 1 VM + código ativos o total encosta nos 5 GB; mantenha poucas sessões simultâneas.
 
 ## 6. Checklist de nomes (só nomes, sem valores aqui)
 
 - GitHub, Variables: `SENTRY_DSN` (opcional), `ATLAS_API_INTERNAL_URL` (opcional).
-- GitHub, Secrets: `DOKPLOY_DEPLOY_WEBHOOK` (opcional; sem ele o deploy é manual).
-- Dokploy, Registry: usuário `ali-ali18` + token `read:packages` (só no painel).
+- GitHub, Secrets (opcionais; sem nenhum, o deploy é manual): `DOKPLOY_URL`, `DOKPLOY_API_KEY`, `DOKPLOY_COMPOSE_ID` (preferido) ou `DOKPLOY_DEPLOY_WEBHOOK`.
+- Dokploy, Registry e `docker login` no contexto do Dokploy: usuário `ali-ali18` + token `read:packages` (só no painel/terminal).
+- Serviço do tipo Compose (não Stack/Swarm).
 - Dokploy, Environment: `ATLAS_IMAGE_TAG` (e as variáveis que já existem).
