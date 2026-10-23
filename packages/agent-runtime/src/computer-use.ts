@@ -4636,6 +4636,21 @@ async function searchConnectorTools(
 
 export { AgentRunCancelledError };
 
+/** Soma o uso das checagens de observação (`null` = nenhuma chamou modelo). */
+function sumObserveUsage(usages: ReadonlyArray<TokenUsage | null>): TokenUsage | null {
+	const present = usages.filter((usage): usage is TokenUsage => usage !== null);
+	return present.length === 0 ? null : present.reduce((total, usage) => addUsage(total, usage), emptyUsage());
+}
+
+export type RunComputerUseResult = {
+	text: string;
+	model: string;
+	hitWall: boolean;
+	usage: TokenUsage;
+	/** Só com `backgroundObserveChecks`: termina quando as checagens de observação terminam; uso delas (ou `null`). */
+	observeChecks?: Promise<TokenUsage | null>;
+};
+
 export async function runComputerUse(params: {
 	/** Provedores sem créditos do run pai: o subagente herda (não repete a falha em cada filho). */
 	providerHealth?: ProviderHealth;
@@ -4899,7 +4914,13 @@ export async function runComputerUse(params: {
 	listBotRoster?: (userId: string) => Promise<Array<{ id: string; isPrimary?: boolean }>>;
 	/** "Decidir pelos outros bots" ligado neste bot (policyJson): expõe `decide_bot_pending`. */
 	decideForOtherBots?: boolean;
-}): Promise<{ text: string; model: string; hitWall: boolean; usage: TokenUsage }> {
+	/**
+	 * Checagens que só observam a resposta final (correção de arquivo, verificador Jev em sombra) não
+	 * seguram o fim do run: o resultado sai já e `observeChecks` termina depois, com o uso delas para
+	 * o chamador somar (nunca rejeita). Sem isto elas são aguardadas antes de devolver (como antes).
+	 */
+	backgroundObserveChecks?: boolean;
+}): Promise<RunComputerUseResult> {
 	const { apiKey, messages, botId, onEvent } =
 		params;
 	// `let`: o modelo para código troca o modelo do run entre passos (ver `applyCodingModel`).
@@ -8371,6 +8392,9 @@ ${blockHint}`;
 					}
 					taskTracker.waiveFile(artifactNudged ? "file was not produced; the reply was accepted after one reminder" : "file was not produced; the answer was already revised once");
 				}
+				// Checagens que só observam a resposta final: rodam juntas e, com `backgroundObserveChecks`, fora do
+				// caminho do fim do run (o resultado delas só vai para log, decisão do Jev e uso).
+				const observeChecks: Array<Promise<TokenUsage | null>> = [];
 				// F4 (só observa): com arquivo no run, UMA chamada barata diz se a resposta admite erro no arquivo. Fica
 				// registrado; a resposta não é descartada (o usuário já a viu e um juiz não reescreve resposta completa).
 				if (
@@ -8389,33 +8413,46 @@ ${blockHint}`;
 					})
 				) {
 					fileCorrectionChecked = true;
-					const verdict = await askFileCorrection({
-						streamChat,
-						model: params.messageTriageModel?.trim() || model,
-						apiKey,
-						reply: text,
-						signal: params.abortSignal,
-					});
-					if (verdict) usageTotals = addUsage(usageTotals, verdict.usage);
-					if (verdict?.fixFile) console.info(`[gate:shadow] file_fix run=${runId} step=${step}: reply admits a file problem (kept as is)`);
+					observeChecks.push(
+						askFileCorrection({
+							streamChat,
+							model: params.messageTriageModel?.trim() || model,
+							apiKey,
+							reply: text,
+							signal: params.abortSignal,
+						}).then((verdict) => {
+							if (verdict?.fixFile) console.info(`[gate:shadow] file_fix run=${runId} step=${step}: reply admits a file problem (kept as is)`);
+							return verdict ? addUsage(emptyUsage(), verdict.usage) : null;
+						}),
+					);
 				}
 				// F11 (só observa): o verificador Jev confere o rascunho contra as evidências em modo sombra (registra a
 				// decisão via `onDecision`), sem descartar a resposta final.
 				// Só vale tool usada NESTE turno: os outcomes semeados do histórico são de turnos anteriores.
 				if (!jevVerifyDone && !isSubagent && toolOutcomes.slice(seededOutcomeCount).some((outcome) => outcome.ok)) {
 					jevVerifyDone = true;
-					await verifyDraftAnswer({
-						rt: observeOnly(params.jev, "verify"),
-						userRequest: lastUserMessageContent,
-						draft: text,
-						conversation,
-						statusOf: (id) => journal.resultOf(id),
-						signal: params.abortSignal,
-					});
+					observeChecks.push(
+						verifyDraftAnswer({
+							rt: observeOnly(params.jev, "verify"),
+							userRequest: lastUserMessageContent,
+							draft: text,
+							conversation: [...conversation],
+							statusOf: (id) => journal.resultOf(id),
+							signal: params.abortSignal,
+						}).then(() => null),
+					);
+				}
+				let observeChecksSettled: Promise<TokenUsage | null> | undefined;
+				if (params.backgroundObserveChecks) {
+					// Falha (inclusive abort) não vira rejeição sem dono: só observa, então vira "sem uso".
+					observeChecksSettled = Promise.all(observeChecks.map((check) => check.catch(() => null))).then(sumObserveUsage);
+				} else {
+					const usage = sumObserveUsage(await Promise.all(observeChecks));
+					if (usage) usageTotals = addUsage(usageTotals, usage);
 				}
 				taskTracker.setPhase("done");
 				await persistCheckpoint(step + 1);
-				return { text, model: lastModel, hitWall: false, usage: usageTotals };
+				return { text, model: lastModel, hitWall: false, usage: usageTotals, ...(observeChecksSettled ? { observeChecks: observeChecksSettled } : {}) };
 			}
 			if (stopForSkillCard || stopForConfirm || stopForQuestionnaire || stopForProfile) {
 				return { text: "", model: lastModel, hitWall: false, usage: usageTotals };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	applyLateRunUsage,
 	applyReconciledCost,
 	formatCostLabel,
 	percentile,
@@ -119,4 +120,31 @@ it("plano não vira custo desconhecido ou USD zero, inclusive no uso misto", () 
  const plan = model({modelMs:10, provider:"chatgpt", costKind:"plan"});
  expect(summarizeRunTelemetry([plan])).toMatchObject({costUsd:null, costUnknownSteps:0,costPartial:false});
  expect(summarizeRunTelemetry([plan,model({modelMs:10,costUsd:0.2}),model({modelMs:10})])).toMatchObject({costUsd:0.2,costUnknownSteps:1,costPartial:true});
+});
+
+describe("applyLateRunUsage", () => {
+	it("soma o uso tardio sem criar campo que não existia nos dois lados", () => {
+		const usage = { promptTokens: 100, completionTokens: 20, totalTokens: 120, costUsd: 0.01, telemetry: { v: 1 as const } };
+		const next = applyLateRunUsage(usage, { promptTokens: 40, completionTokens: 2, totalTokens: 42, costUsd: 0.0005 });
+		expect(next.promptTokens).toBe(140);
+		expect(next.totalTokens).toBe(162);
+		expect(next.costUsd).toBeCloseTo(0.0105, 10);
+		expect("costUnknownCalls" in next).toBe(false);
+		expect("cachedTokens" in next).toBe(false);
+		// Pura: o original fica igual.
+		expect(usage.promptTokens).toBe(100);
+	});
+
+	it("custo desconhecido soma em costUnknownCalls; nada a somar devolve igual", () => {
+		const usage = { promptTokens: 1, completionTokens: 1, totalTokens: 2 };
+		expect(applyLateRunUsage(usage, { promptTokens: 5, totalTokens: 5, costUnknownCalls: 1 })).toEqual({ promptTokens: 6, completionTokens: 1, totalTokens: 7, costUnknownCalls: 1 });
+		expect(applyLateRunUsage(usage, null)).toEqual(usage);
+		expect(applyLateRunUsage(usage, { costUsd: Number.NaN })).toEqual(usage);
+	});
+
+	it("troca a telemetria quando vem uma nova (decisão do Jev registrada depois)", () => {
+		const usage = { promptTokens: 1, completionTokens: 0, totalTokens: 1, telemetry: { v: 1 as const, setupMs: 5 } };
+		const next = applyLateRunUsage(usage, null, { v: 1, setupMs: 5, jev: { calls: 1, totalMs: 9, answered: 1, unavailable: 0, inputTokens: 0, models: [], byFeature: {}, costUsd: null } });
+		expect(next.telemetry).toMatchObject({ setupMs: 5, jev: { calls: 1 } });
+	});
 });

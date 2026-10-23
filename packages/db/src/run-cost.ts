@@ -1,4 +1,4 @@
-import { applyReconciledCost, stepTelemetryOf } from "@workspace/shared";
+import { applyLateRunUsage, applyReconciledCost, stepTelemetryOf, type LateRunUsage, type RunTelemetryMeta } from "@workspace/shared";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./client.js";
 
@@ -82,5 +82,35 @@ export async function applyReconciledStepCost(input: {
 			},
 		});
 		return true;
+	});
+}
+
+/**
+ * Soma no `usageJson` do run o uso que terminou depois da conclusão (checagens que só observam a
+ * resposta final) e grava a telemetria nova (ex.: decisão do Jev registrada depois). Escopado pelo
+ * dono do run; outro usuário ou run inexistente devolve false sem mudar nada.
+ */
+export async function addLateRunUsage(input: {
+	runId: string;
+	userId: string;
+	usage: LateRunUsage | null;
+	telemetry?: RunTelemetryMeta;
+}): Promise<boolean> {
+	if (!input.usage && !input.telemetry) return false;
+	return prisma.$transaction(async (tx) => {
+		const run = await tx.agentRun.findFirst({
+			where: { id: input.runId, userId: input.userId },
+			select: { usageJson: true },
+		});
+		if (!run) return false;
+		const usage =
+			run.usageJson && typeof run.usageJson === "object" && !Array.isArray(run.usageJson)
+				? (run.usageJson as Record<string, unknown>)
+				: {};
+		const updated = await tx.agentRun.updateMany({
+			where: { id: input.runId, userId: input.userId },
+			data: { usageJson: applyLateRunUsage(usage, input.usage, input.telemetry) as Prisma.InputJsonValue },
+		});
+		return updated.count === 1;
 	});
 }

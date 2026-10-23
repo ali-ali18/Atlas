@@ -215,6 +215,7 @@ export {
 } from "./runs.js";
 export {
 	applyReconciledStepCost,
+	addLateRunUsage,
 	listStepsMissingCost,
 	type StepMissingCost,
 } from "./run-cost.js";

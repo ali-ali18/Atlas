@@ -628,6 +628,8 @@ export {
 } from "./captcha-wall.js";
 export {
 	applyReconciledCost,
+	applyLateRunUsage,
+	type LateRunUsage,
 	formatCostLabel,
 	percentile,
 	servedModelNote,

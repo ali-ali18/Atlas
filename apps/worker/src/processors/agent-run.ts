@@ -1,5 +1,6 @@
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
+import { recordObserveChecks } from "../observe-checks.js";
 import { isNoUpdateReply, shouldReviewForSkill, type AlertVerdict, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
 import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode } from "@workspace/shared";
 import {
@@ -68,6 +69,7 @@ import {
 	requestCancelAgentRun,
 	requestPauseAgentRun,
 	applyReconciledStepCost,
+	addLateRunUsage,
 	listConversationArtifacts,
 	listConversationResearchNotes,
 	getConversationTaskContext,
@@ -1207,6 +1209,8 @@ async function executeLeasedRun(ctx: {
 			// No grupo o canal é a conversa (menção @Nome); send_to_bot fica de fora.
 			listBotRoster: groupRun ? undefined : listUserBotRoster,
 			decideForOtherBots: readDecideForOtherBots(rawBotPolicy),
+			// Checagens que só observam a resposta final não seguram a conclusão: o uso delas é somado depois (abaixo).
+			backgroundObserveChecks: true,
 		});
 		runTelemetry.markRuntimeDone();
 		await coalescer.flush();
@@ -1230,6 +1234,7 @@ async function executeLeasedRun(ctx: {
 		const noUpdate = run.origin === "proactive" && isNoUpdateReply(result.text);
 		const resultText = alertPlan ? alertPlan.text : result.text;
 		const resultConversationId = (alertPlan && !alertPlan.notify) || noUpdate ? null : run.conversationId;
+		const jevAtCompletion = jevTelemetry.snapshot();
 		await completeAgentRunAtomically({
 			runId,
 			conversationId: resultConversationId,
@@ -1238,7 +1243,7 @@ async function executeLeasedRun(ctx: {
 			lease,
 			status: result.hitWall ? "budget_exhausted" : "completed",
 			// Telemetria só no usageJson persistido; o evento `done` (UI) não a leva.
-			usage: withRunTelemetry(result.usage, runTelemetry.meta(jevTelemetry.snapshot())),
+			usage: withRunTelemetry(result.usage, runTelemetry.meta(jevAtCompletion)),
 			donePayload: {
 				type: "done",
 				message: { role: "assistant", content: resultText },
@@ -1347,7 +1352,23 @@ async function executeLeasedRun(ctx: {
 		// Falha de Redis/db aqui só é logada: nunca emite erro nem marca o run como
 		// falho (o catch abaixo também respeita `completionPersisted`).
 		const toolNotes = buildToolResultNotes(toolResultsForReview);
+		// Checagens de observação que terminaram depois da conclusão: o uso (e a decisão do Jev) entram no
+		// usageJson do run quando elas terminam. Nunca rejeita; a reconciliação de custo espera por isto
+		// para as duas gravações do usageJson não se atropelarem.
+		const observeChecksRecorded = recordObserveChecks(
+			{
+				runId,
+				userId: runUserId,
+				observeChecks: result.observeChecks,
+				jevCallsAtCompletion: jevAtCompletion?.calls ?? 0,
+				jevSnapshot: () => jevTelemetry.snapshot(),
+				meta: (jev) => runTelemetry.meta(jev),
+				hasUsage: Boolean(result.usage),
+			},
+			{ addLateRunUsage },
+		);
 		await runPostCompletionSteps(runId, [
+			{ name: "observe-checks", run: () => observeChecksRecorded },
 			{
 				name: "memory-review",
 				run:
@@ -1416,10 +1437,14 @@ async function executeLeasedRun(ctx: {
 				// Fora do caminho do run (não espera) e sem nunca falhar.
 				name: "cost-reconcile",
 				run: async () => {
-					void reconcileRunCosts(
-						{ runId, userId: runUserId, apiKey },
-						{ listMissing: listStepsMissingCost, apply: applyReconciledStepCost },
-					).catch(() => undefined);
+					void observeChecksRecorded
+						.then(() =>
+							reconcileRunCosts(
+								{ runId, userId: runUserId, apiKey },
+								{ listMissing: listStepsMissingCost, apply: applyReconciledStepCost },
+							),
+						)
+						.catch(() => undefined);
 				},
 			},
 			{ name: "follow-up", run: () => chainRunFollowUp(run, runUserId, deps) },

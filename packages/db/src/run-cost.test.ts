@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { prisma } from "./client.js";
-import { applyReconciledStepCost, listStepsMissingCost } from "./run-cost.js";
+import { addLateRunUsage, applyReconciledStepCost, listStepsMissingCost } from "./run-cost.js";
 
 const db = prisma as unknown as Record<string, Record<string, unknown> | unknown>;
 const originals = { tx: db.$transaction, step: { ...(db.agentStep as object) }, run: { ...(db.agentRun as object) } };
@@ -94,4 +94,34 @@ test("custo de chamada do plano nunca é reconciliado como USD", async () => {
  assert.equal(await applyReconciledStepCost({ runId: "r1", userId: "owner", stepId: "s1", costUsd: 10 }), false); assert.equal(step.costUsd, null);
  const original = prisma.agentStep.findMany; Reflect.set(prisma.agentStep, "findMany", async () => [step]);
  try { assert.deepEqual(await listStepsMissingCost({ runId: "r1", userId: "owner", limit: 20 }), []); } finally { Reflect.set(prisma.agentStep, "findMany", original); }
+});
+
+test("addLateRunUsage soma o uso tardio e troca a telemetria no run do dono", async () => {
+	const { run } = stubDb("owner");
+	const ok = await addLateRunUsage({
+		runId: "r1",
+		userId: "owner",
+		usage: { promptTokens: 10, totalTokens: 10, costUsd: 0.002 },
+		telemetry: { v: 1, setupMs: 3 },
+	});
+	assert.equal(ok, true);
+	const usage = run.usageJson as { promptTokens: number; costUsd: number; costUnknownCalls: number; telemetry: unknown };
+	assert.equal(usage.promptTokens, 11);
+	assert.ok(Math.abs(usage.costUsd - 0.102) < 1e-9);
+	assert.equal(usage.costUnknownCalls, 2);
+	assert.deepEqual(usage.telemetry, { v: 1, setupMs: 3 });
+});
+
+test("addLateRunUsage: outro usuário não altera o run", async () => {
+	const { run } = stubDb("owner");
+	assert.equal(await addLateRunUsage({ runId: "r1", userId: "intruso", usage: { costUsd: 5 } }), false);
+	assert.deepEqual(run.usageJson, { promptTokens: 1, costUsd: 0.1, costUnknownCalls: 2 });
+});
+
+test("addLateRunUsage sem nada a somar não toca no banco", async () => {
+	stubDb("owner");
+	db.$transaction = async () => {
+		throw new Error("não deveria abrir transação");
+	};
+	assert.equal(await addLateRunUsage({ runId: "r1", userId: "owner", usage: null }), false);
 });
