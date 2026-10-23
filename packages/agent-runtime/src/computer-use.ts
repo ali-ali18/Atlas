@@ -7313,6 +7313,11 @@ ${blockHint}`;
 				kind: ok ? undefined : failureKind,
 				...(tierPlan && ok && looksEmptyResult(summary) ? { empty: true } : {}),
 			});
+			// Arquivo repassado a outro bot: a resposta dele chega depois, em outro run. Cobrar o arquivo
+			// neste run fazia o modelo reescrever "pedi pro X" como "X não me respondeu, não criei nada".
+			if (ok && name === SEND_TO_BOT_TOOL.function.name && deliverablePending()) {
+				taskTracker.waiveFile("file delegated to another bot with send_to_bot; its answer arrives later");
+			}
 			trackExhaustion();
 			// Modo Automático: a mesma ferramenta falhando ou voltando vazia várias vezes pede um modelo mais forte.
 			if (tierPlan && !pendingEscalationReason && repeatedWeakResults(toolOutcomes, name, tierEscalateSince)) pendingEscalationReason = "tool_failures";
