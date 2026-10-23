@@ -243,6 +243,26 @@ export async function listConversationArtifacts(
 }
 
 /**
+ * Ids das imagens geradas (`generate_image`) na conversa, da mais recente para a mais antiga. O dono vem
+ * da sessão, nunca de argumento: imagem de outro usuário não aparece.
+ */
+export async function listGeneratedImageIds(userId: string, conversationId: string, limit = 5): Promise<string[]> {
+	if (!userId || !conversationId) return [];
+	const rows = await prisma.artifact.findMany({
+		where: {
+			conversationId,
+			userId: { in: ownerIds(userId) },
+			kind: "image",
+			metaJson: { path: ["source"], equals: "generated" },
+		},
+		select: { id: true },
+		orderBy: { createdAt: "desc" },
+		take: Math.min(Math.max(1, limit), 10),
+	});
+	return rows.map((row) => row.id);
+}
+
+/**
  * Próxima versão de um arquivo gerado: mesmo nome na mesma conversa (ou, sem
  * conversa, no mesmo run) sobe `version`. Sempre escopado pelo dono.
  */

@@ -53,6 +53,8 @@ describe("generate_image no loop", () => {
 		expect(offered[0]).toContain("generate_image");
 		expect(generateImages).toHaveBeenCalledWith(expect.objectContaining({ model: "bytedance-seed/seedream-4.5", prompt: "gato astronauta", aspectRatio: "16:9", n: 1, apiKey: "test-key" }));
 		expect(result(events).ok).toBe(true);
+		// o modelo recebe o id da imagem para usar como fundo/figura de slide
+		expect(result(events).summary).toContain("Image id: art-img-1");
 		expect(events.find((e) => e.type === "images")).toMatchObject({ origin: "assistant", items: [{ artifactId: "art-img-1" }] });
 	});
 

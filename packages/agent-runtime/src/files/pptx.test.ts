@@ -118,6 +118,21 @@ describe("resolveDeckImages", () => {
 		await expect(resolveDeckImages(slides, { userId: "user-a", loadArtifact: file })).rejects.toThrow(/not found/);
 	});
 
+	it("generated:latest resolve a imagem gerada mais recente do próprio dono, na conversa", async () => {
+		const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#000" } }).png().toBuffer();
+		const slides = parseDeckSlides([{ layout: "title", title: "Capa", background: { image: "generated:latest" } }, { layout: "image", title: "Segunda", image: "generated:2" }]);
+		const loadArtifact = vi.fn(async (id: string, userId: string) => (userId === "user-a" ? ({ id, kind: "image", bytes: png, conversationId: "conv-1", meta: { mime: "image/png" } } as never) : null));
+		const listGenerated = vi.fn(async (userId: string, conversationId: string, limit: number) => (userId === "user-a" && conversationId === "conv-1" ? ["gen-new", "gen-old"].slice(0, limit) : []));
+		const ok = await resolveDeckImages(slides, { userId: "user-a", conversationId: "conv-1", loadArtifact, listGenerated });
+		expect(ok.has("generated:latest")).toBe(true);
+		expect(ok.has("generated:2")).toBe(true);
+		expect(loadArtifact).toHaveBeenCalledWith("gen-new", "user-a");
+		expect(loadArtifact).toHaveBeenCalledWith("gen-old", "user-a");
+		// sem imagem gerada (ou outro usuário/conversa): erro que manda gerar primeiro
+		await expect(resolveDeckImages(slides, { userId: "user-b", conversationId: "conv-1", loadArtifact, listGenerated })).rejects.toThrow(/no generated image "generated:latest".*Call generate_image first/);
+		await expect(resolveDeckImages(slides, { userId: "user-a", loadArtifact, listGenerated })).rejects.toThrow(/no generated image/);
+	});
+
 	it("anexos da conversa valem e imagem ilegível dá erro acionável", async () => {
 		const png = await sharp({ create: { width: 10, height: 5, channels: 3, background: "#fff" } }).png().toBuffer();
 		const slides = parseDeckSlides([{ layout: "image", title: "A", image: "att-1" }]);

@@ -232,6 +232,7 @@ export {
 	loadArtifactForUser,
 	loadArtifactFromConversation,
 	listConversationArtifacts,
+	listGeneratedImageIds,
 	listBotArtifactsForUser,
 	type BotLibraryFile,
 	setArtifactDescriptionForUser,

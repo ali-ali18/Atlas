@@ -36,9 +36,13 @@ export function list(value: unknown, label: string, min: number, max: number): u
 	return value;
 }
 
+/** `generated:latest` ou `generated:2`: a imagem gerada mais recente da conversa (1 = a última), sem precisar do id. */
+export const GENERATED_IMAGE_ALIAS = /^generated:(latest|[1-5])$/;
+
 /** Id de anexo ou de imagem gerada (`attachment:`/`artifact:` aceitos). URL não vale: o servidor não busca rede. */
 export function parseDeckImageId(value: unknown, label: string): string {
 	const raw = need(value, 200, label).replace(/^(attachment|artifact):/, "");
+	if (GENERATED_IMAGE_ALIAS.test(raw)) return raw;
 	if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) || raw.startsWith("data:")) {
 		fail(`${label} must be the id of an attached or generated image, not a URL. Generate the image first (generate_image) or use an attachment id.`);
 	}

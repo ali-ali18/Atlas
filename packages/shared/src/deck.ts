@@ -7,7 +7,7 @@ import { normalizeChartHexColor, type ChartSpec } from "./chart-spec.js";
 import { fail, list, need, obj, parseChart, parseDeckImageId, str } from "./deck-util.js";
 import { freeImageIds, parseDeckBackground, parseFreeElements, type DeckBackground, type FreeElement } from "./deck-free.js";
 
-export { DECK_CHART_TYPES, DECK_MAX_CHART_POINTS, parseDeckImageId } from "./deck-util.js";
+export { DECK_CHART_TYPES, DECK_MAX_CHART_POINTS, GENERATED_IMAGE_ALIAS, parseDeckImageId } from "./deck-util.js";
 export * from "./deck-free.js";
 
 export const DECK_MAX_SLIDES = 60;
