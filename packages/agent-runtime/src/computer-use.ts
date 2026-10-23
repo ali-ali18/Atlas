@@ -281,7 +281,8 @@ import {
 } from "./tools/computer-native.js";
 import { shouldAnnounceCompaction } from "./context/compaction-notice.js";
 import { disciplineForModel } from "./context/model-discipline.js";
-import { appendToLatestToolResult, conversationHasNote, createStepNotices, NOTICE_PRIORITY } from "./loop/tool-result-notes.js";
+import { appendToLatestToolResult, appendToToolResult, conversationHasNote, createStepNotices, NOTICE_PRIORITY } from "./loop/tool-result-notes.js";
+import { REPAIRED_ARGS_NOTE, repairedToolNote, repairToolArguments, repairToolName, unresolvedToolHint, type ToolNameCandidate } from "./execution/tool-repair.js";
 import { assembleSystemPromptParts, groupProcedureText, legacySystemPrompt, skillIndexPrompt } from "./context/prompt-blocks.js";
 import { contextEconomyEnabled, contextTranscriptEnabled } from "./context/flag.js";
 import { clippedResultRefLine, createResultStore, resultStoreLimits, extractResultRef, RESULT_MAX_STORED_CHARS } from "./context/result-store.js";
@@ -2164,11 +2165,15 @@ export type CompletedToolReplay = {
 const EXECUTOR_GUARDED_TOOLS: ReadonlySet<string> = new Set(["mcp_tool_search", "propose_profile_update", ...DEPRECATED_SKILL_ALIASES]);
 
 /** L19: resposta ao modelo quando ele pede uma tool fora do conjunto executável. */
-export function unavailableToolMessage(name: string, loadable: boolean, canSearch: boolean): string {
-	return loadable && canSearch
+export function unavailableToolMessage(name: string, loadable: boolean, canSearch: boolean, hint = ""): string {
+	const message = loadable && canSearch
 		? `Tool ${name} is not loaded in this run. Load it with mcp_tool_search first, then call it.`
 		: `Tool ${name} is not available in this run. Use one of the tools you were given, or tell the user what is missing.`;
+	return hint ? `${message} ${hint}` : message;
 }
+
+/** Leituras do navegador: observar a página não muda nada (podem ser alvo de correção de nome aproximada). */
+const BROWSER_OBSERVATION_TOOLS: ReadonlySet<string> = new Set(["navigate", "browser_read", "browser_find", "browser_snapshot", "browser_wait", "screenshot"]);
 
 /** subIndex do passo que registra as tools oferecidas (entre o model 0 e o 1). */
 export const OFFERED_TOOLS_SUB_INDEX = 98;
@@ -6769,6 +6774,44 @@ export async function runComputerUse(params: {
 			}),
 	});
 
+	// Transporte tolerante: nome de tool torto (caixa, separador, namespace, apelido, letra trocada) e JSON malformado
+	// são corrigidos antes de gravar a decisão, só com alvo único e seguro (ver execution/tool-repair.ts).
+	const toolCallRepairNotes = new Map<string, string[]>();
+	const unresolvedToolHints = new Map<string, string>();
+	const repairCandidates = (): ToolNameCandidate[] => {
+		const names = new Set(tools.map((tool) => tool.function.name));
+		if (!isSubagent) {
+			for (const name of nativeDeferral?.pending() ?? []) names.add(name);
+			for (const name of mcp?.toolset.available.keys() ?? []) if (params.toolFilter?.(name) ?? true) names.add(name);
+		}
+		return [...names].map((name) => ({ name, readOnly: isReadOnlyToolName(name, isReadOnlyTool) || BROWSER_OBSERVATION_TOOLS.has(name) }));
+	};
+	const repairToolCalls = (toolCalls: LlmToolCall[], truncated: boolean) => {
+		if (toolCalls.length === 0) return;
+		const candidates = repairCandidates();
+		const known = new Set<string>([...LEGACY_BROWSER_TOOL_NAMES, ...(isSubagent ? [] : EXECUTOR_GUARDED_TOOLS)]);
+		toolCalls.forEach((call, index) => {
+			const notes: string[] = [];
+			const repair = repairToolName(call.function.name, candidates, known);
+			if (repair.kind === "repaired") {
+				notes.push(repairedToolNote(repair.from, repair.name));
+				call.function.name = repair.name;
+			} else if (repair.kind !== "exact") {
+				const hint = unresolvedToolHint(repair);
+				if (hint) unresolvedToolHints.set(call.id, hint);
+			}
+			// JSON cortado pelo limite de saída tem orientação própria no executor: não é reparado.
+			if (!(truncated && index === toolCalls.length - 1)) {
+				const args = repairToolArguments(call.function.arguments);
+				if (args.ok && args.repaired) {
+					call.function.arguments = JSON.stringify(args.value);
+					notes.push(REPAIRED_ARGS_NOTE);
+				}
+			}
+			if (notes.length > 0) toolCallRepairNotes.set(call.id, notes);
+		});
+	};
+
 	const runToolBatch = async (decisionIndex: number, toolCalls: LlmToolCall[]) => {
 		const doneIds = completedToolCallIds(conversation);
 		const batchStart = conversation.length;
@@ -6935,8 +6978,8 @@ export async function runComputerUse(params: {
 					name,
 					argsKey,
 					isSubagent
-						? `Tool ${name} is not available to this sub-agent. Use one of the tools you were given, or finish with what you have.`
-						: unavailableToolMessage(name, Boolean(mcp?.toolset.available.has(name)), tools.some((tool) => tool.function.name === MCP_TOOL_SEARCH_TOOL.function.name)),
+						? [`Tool ${name} is not available to this sub-agent. Use one of the tools you were given, or finish with what you have.`, unresolvedToolHints.get(call.id)].filter(Boolean).join(" ")
+						: unavailableToolMessage(name, Boolean(mcp?.toolset.available.has(name)), tools.some((tool) => tool.function.name === MCP_TOOL_SEARCH_TOOL.function.name), unresolvedToolHints.get(call.id)),
 					"argument",
 					buildToolResultStatus({ ok: false, writes: false, code: "unavailable" }),
 				);
@@ -7685,6 +7728,11 @@ ${blockHint}`;
 			.sort((a, b) => (order.get(a.tool_call_id ?? "") ?? 0) - (order.get(b.tool_call_id ?? "") ?? 0));
 		let resultIndex = 0;
 		conversation.splice(batchStart, tail.length, ...tail.map((message) => message.role === "tool" ? results[resultIndex++]! : message));
+		// Nome ou argumentos corrigidos: a nota vai no resultado da própria chamada (o modelo aprende o nome exato).
+		for (const call of toolCalls) {
+			const notes = toolCallRepairNotes.get(call.id);
+			if (notes?.length) appendToToolResult(conversation, call.id, notes.join(" "));
+		}
 
 		// Avisos de laço do lote: uma nota curta anexada ao resultado (no máximo um aviso por passo).
 		if (batchLoopWarnings.length > 0) stepNotices.push(batchLoopWarnings.join(" "), NOTICE_PRIORITY.normal);
@@ -8273,6 +8321,7 @@ ${blockHint}`;
 		}
 
 		finishRetries = 0;
+		repairToolCalls(toolCalls, stepFinishTruncated);
 		// Fala repetida antes de tools (ou fala de passo só de leitura em enrolação) não vira balão novo.
 		const readOnlyDecision = toolCalls.every((call) => isReadOnlyToolName(call.function.name, isReadOnlyTool));
 		let narration = content;

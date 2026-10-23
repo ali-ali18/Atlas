@@ -239,3 +239,17 @@ describe("simulações: persona e família do modelo", () => {
 		}
 	});
 });
+
+describe("simulações: transporte tolerante", () => {
+	it("11. modelo chama 'List-Routines' com JSON de aspas simples → roda list_routines, nota curta no resultado, sem erro", async () => {
+		const torto = calls(["List-Routines", {}]);
+		torto.message.tool_calls![0]!.function.arguments = "{'limit': 10,}";
+		const sim = await simulate({ messages: scenario(6).messages, script: [torto, say("Você não tem rotinas agendadas.")] });
+		expect(scenario(6).check(outcomeOf(sim))).toBeNull();
+		expect(sim.toolResults).toEqual([expect.objectContaining({ name: "list_routines", ok: true })]);
+		expect(sim.notes(1).join("\n")).toContain("Called `List-Routines` as `list_routines`");
+		expect(sim.notes(1).join("\n")).toContain("were not valid JSON");
+		expect(sim.requests[1]!.messages.flatMap((message) => message.tool_calls ?? []).map((call) => call.function.name)).toEqual(["list_routines"]);
+		expect(sim.visible).toEqual(["Você não tem rotinas agendadas."]);
+	});
+});

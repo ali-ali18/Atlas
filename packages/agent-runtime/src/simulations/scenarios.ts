@@ -103,4 +103,10 @@ export const SCENARIOS: Scenario[] = [
 			return null;
 		},
 	},
+	{
+		id: 6,
+		name: "nome de ferramenta torto ('List-Routines') → o runtime corrige e a leitura roda",
+		messages: [{ role: "user", content: "quais rotinas eu tenho agendadas?" }],
+		check: (outcome) => (outcome.toolsCalled.includes("list_routines") ? null : "não listou as rotinas"),
+	},
 ];
