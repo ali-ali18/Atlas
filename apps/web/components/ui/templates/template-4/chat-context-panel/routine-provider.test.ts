@@ -1,8 +1,23 @@
 ﻿import assert from "node:assert/strict";
 import test from "node:test";
-import { diffRoutineUpdatePayload, hookUrlWithSecret, routineScheduleSummary, routinePrimaryTriggerKind, routineRunLabel, routineTriggerRows, uiRoutineToPayload, webhookAuthHeader } from "./routine-map";
+import { diffRoutineUpdatePayload, hookUrlWithSecret, routineScheduleSummary, routinePrimaryTriggerKind, recordToUiRoutine, routineRunLabel, routineTriggerRows, uiRoutineToPayload, webhookAuthHeader } from "./routine-map";
 import type { Routine } from "../data";
+import type { RoutineRecord } from "@workspace/shared";
 const routine: Routine = { id: "fixture", name: "Rotina", instruction: "Teste", model: "chatgpt/luna", active: true, triggerKind: "once", triggers: [] };
+test("histórico: falha mostra o motivo amigável em pt-BR, sem erro técnico nem segredo", () => {
+	const label = routineRunLabel({ status: "failed", triggeredBy: "schedule", error: "402 This request requires more credits sk-or-v1-abcdef1234567890abcdef" });
+	assert.equal(label, "cron · falhou · sem créditos no provedor do modelo");
+	assert.equal(routineRunLabel({ status: "failed", triggeredBy: "manual", error: null }), "manual · falhou");
+});
+
+test("rotina de alerta ganha a frase do alerta; rotina comum não", () => {
+	const base = { id: "r1", botId: "b", name: "Estoque", prompt: "p", model: "m", enabled: true, triggerType: "interval", interval: { everyMinutes: 30 }, schedule: null, createdAt: "", updatedAt: "" } as unknown as RoutineRecord;
+	const alert = { condition: "estoque de canela abaixo de 10", active: false } as unknown as RoutineRecord["alert"];
+	const withAlert = recordToUiRoutine({ ...base, alert });
+	assert.match(withAlert.alertSentence ?? "", /^Alerta · verifica a cada 30 minutos · avisa se /);
+	assert.equal(recordToUiRoutine(base).alertSentence, undefined);
+});
+
 test("rotina não usa assinatura sem opt-in explícito", () => {
  assert.equal(uiRoutineToPayload(routine).allowChatgptPlan, false);
  assert.equal(uiRoutineToPayload({ ...routine, allowChatgptPlan: true }).allowChatgptPlan, true);

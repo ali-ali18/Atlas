@@ -7,6 +7,8 @@ import type {
 } from "@workspace/shared";
 import {
 	describeGithubTriggerClauses,
+	describeRoutineAlertSentence,
+	formatRoutineRunReason,
 	cronToScheduleInput,
 	formatIntervalSummary,
 	formatOnceSummary,
@@ -89,7 +91,9 @@ export function parseUsersInput(value: string): string[] | undefined {
 export function recordToUiRoutine(record: RoutineRecord): Routine {
 	const base = recordToUiRoutineBase(record);
 	const withGroup = record.groupId ? { ...base, groupId: record.groupId } : base;
-	const routine = record.pageId ? { ...withGroup, pageId: record.pageId } : withGroup;
+	const withPage = record.pageId ? { ...withGroup, pageId: record.pageId } : withGroup;
+	const alertSentence = describeRoutineAlertSentence(record);
+	const routine = alertSentence ? { ...withPage, alertSentence } : withPage;
 	return record.createdBy === "bot" ? { ...routine, createdBy: "bot" } : routine;
 }
 
@@ -374,8 +378,9 @@ export function routineRunLabel(
 				? `${via} · pulada · ${run.error}`
 				: `${via} · pulada`;
 		default:
+			// O erro guardado é técnico (e em inglês): o histórico mostra o motivo em pt-BR, sem segredo.
 			return run.error
-				? `${via} · falhou · ${run.error}`
+				? `${via} · falhou · ${formatRoutineRunReason(run.error)}`
 				: `${via} · falhou`;
 	}
 }
