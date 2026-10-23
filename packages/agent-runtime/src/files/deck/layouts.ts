@@ -1,5 +1,8 @@
 import type pptxgen from "pptxgenjs";
-import type { DeckBullet, SlideInput } from "@workspace/shared";
+import type { ChartSpec, DeckBullet, SlideInput } from "@workspace/shared";
+import { backgroundKey, gradientKey, type DeckAssets } from "./assets.js";
+import { resolveDeckColor, slideStyle } from "./backdrop.js";
+import { drawFree } from "./free.js";
 import { chartColors, chartNumberFormat, chartSeriesData } from "./charts.js";
 import type { DeckImage } from "./images.js";
 import type { DeckPalette } from "./themes.js";
@@ -16,7 +19,10 @@ export const CONTENT_W = PAGE_W - MARGIN * 2;
 const BODY_TOP = 1.75;
 const BODY_BOTTOM = 6.75;
 
-export type DeckContext = { pptx: Pptx; palette: DeckPalette; images: Map<string, DeckImage>; sectionCount: { n: number } };
+/** `palette` é a do slide atual (já adaptada ao fundo); `base` é a do tema, de onde saem os tokens do fundo. */
+export type DeckContext = { pptx: Pptx; palette: DeckPalette; base: DeckPalette; images: Map<string, DeckImage>; sectionCount: { n: number }; assets: DeckAssets; slideIndex: number };
+
+export type Box = { x: number; y: number; w: number; h: number };
 
 /** Tamanho do texto de lista pelo volume (não há autoajuste confiável fora do PowerPoint). */
 export function bodyFontSize(bullets: DeckBullet[], width = CONTENT_W): number {
@@ -148,13 +154,11 @@ const drawImage: Draw<"image"> = ({ palette: p, images }, slide, input) => {
 	caption(slide, input.caption, p, 6.35);
 };
 
-const drawChart: Draw<"chart"> = ({ pptx, palette: p }, slide, input) => {
-	slideTitle(slide, input.title, p);
-	const spec = input.chart;
+/** Gráfico nativo do PowerPoint dentro de `area` (usado pelo layout `chart` e pelo elemento livre). */
+export function placeChart(pptx: Pptx, slide: Slide, spec: ChartSpec, area: Box, p: DeckPalette): void {
 	const data = chartSeriesData(spec);
 	const format = chartNumberFormat(spec);
 	const manySeries = spec.series.length > 1;
-	const area = { x: MARGIN, y: BODY_TOP - 0.1, w: CONTENT_W, h: (input.caption ? 6.25 : BODY_BOTTOM + 0.1) - BODY_TOP + 0.1 };
 	const common = {
 		...area,
 		showTitle: false,
@@ -210,23 +214,34 @@ const drawChart: Draw<"chart"> = ({ pptx, palette: p }, slide, input) => {
 			dataLabelPosition: spec.stacked ? undefined : "outEnd",
 		});
 	}
+}
+
+const drawChart: Draw<"chart"> = ({ pptx, palette: p }, slide, input) => {
+	slideTitle(slide, input.title, p);
+	const area = { x: MARGIN, y: BODY_TOP - 0.1, w: CONTENT_W, h: (input.caption ? 6.25 : BODY_BOTTOM + 0.1) - BODY_TOP + 0.1 };
+	placeChart(pptx, slide, input.chart, area, p);
 	caption(slide, input.caption, p);
 };
 
 const NUMBER_LIKE = /^[-+−–R$US€\s\d.,%()]+$/;
 
-const drawTable: Draw<"table"> = ({ palette: p }, slide, input) => {
-	slideTitle(slide, input.title, p);
-	const size = input.rows.length > 9 ? 13 : input.rows.length > 6 ? 16 : 20;
-	const align = input.columns.map((_, c) => (input.rows.length > 0 && input.rows.every((r) => !r[c] || NUMBER_LIKE.test(r[c]!)) ? ("right" as const) : ("left" as const)));
+/** Tabela nativa dentro de `box`; o tamanho da letra acompanha o número de linhas e a altura disponível. */
+export function placeTable(slide: Slide, p: DeckPalette, columns: string[], rows: string[][], box: Box): void {
+	const rowH = Math.min(0.72, box.h / (rows.length + 1));
+	const size = Math.min(rows.length > 9 ? 13 : rows.length > 6 ? 16 : 20, Math.max(9, Math.floor(rowH * 72 * 0.6)));
+	const align = columns.map((_, c) => (rows.length > 0 && rows.every((r) => !r[c] || NUMBER_LIKE.test(r[c]!)) ? ("right" as const) : ("left" as const)));
 	const cell = (text: string, c: number, fill: string, color: string, bold = false) => ({
 		text,
 		options: { fontSize: size, bold, color, fill: { color: fill }, align: align[c], valign: "middle" as const, fontFace: p.bodyFont, margin: [0.04, 0.12, 0.04, 0.12] as [number, number, number, number] },
 	});
-	const header = input.columns.map((name, c) => cell(name, c, p.accent, p.onAccent, true));
-	const rows = input.rows.map((row, r) => row.map((text, c) => cell(text, c, r % 2 === 0 ? p.bg : p.surface, p.text, c === 0)));
-	const rowH = Math.min(0.72, (6.2 - BODY_TOP) / (input.rows.length + 1));
-	slide.addTable([header, ...rows], { x: MARGIN, y: BODY_TOP, w: CONTENT_W, rowH, border: { type: "solid", pt: 0.5, color: p.border }, autoPage: false });
+	const header = columns.map((name, c) => cell(name, c, p.accent, p.onAccent, true));
+	const body = rows.map((row, r) => row.map((text, c) => cell(text, c, r % 2 === 0 ? p.bg : p.surface, p.text, c === 0)));
+	slide.addTable([header, ...body], { x: box.x, y: box.y, w: box.w, rowH, border: { type: "solid", pt: 0.5, color: p.border }, autoPage: false });
+}
+
+const drawTable: Draw<"table"> = ({ palette: p }, slide, input) => {
+	slideTitle(slide, input.title, p);
+	placeTable(slide, p, input.columns, input.rows, { x: MARGIN, y: BODY_TOP, w: CONTENT_W, h: 6.2 - BODY_TOP });
 	caption(slide, input.caption, p, 6.4);
 };
 
@@ -314,17 +329,42 @@ const DRAWERS: { [K in SlideInput["layout"]]: Draw<K> } = {
 	stats: drawStats,
 	timeline: drawTimeline,
 	closing: drawClosing,
+	free: drawFree,
 };
 
 /** Qual fundo (slide master) cada layout usa. */
-export function masterFor(layout: SlideInput["layout"]): "COVER" | "SECTION" | "CONTENT" | "QUOTE" {
+export function masterFor(layout: SlideInput["layout"]): "COVER" | "SECTION" | "CONTENT" | "QUOTE" | "FREE" {
+	if (layout === "free") return "FREE";
 	if (layout === "title" || layout === "closing") return "COVER";
 	if (layout === "section") return "SECTION";
 	if (layout === "quote") return "QUOTE";
 	return "CONTENT";
 }
 
+/** Fundo do slide (cor, gradiente ou foto) e o véu de legibilidade sobre fotos. Vem antes de qualquer desenho. */
+function applyBackground(ctx: DeckContext, slide: Slide, input: SlideInput): void {
+	const bg = input.background;
+	if (!bg) return;
+	if (bg.kind === "color") slide.background = { color: resolveDeckColor(bg.color, ctx.base) };
+	else if (bg.kind === "gradient") slide.background = { data: ctx.assets.get(gradientKey(ctx.slideIndex)) };
+	else {
+		slide.background = { data: ctx.assets.get(backgroundKey(ctx.slideIndex)) };
+		const scrim = slideStyle(ctx.base, input).backdrop?.scrim;
+		if (scrim) {
+			slide.addShape("rect", {
+				x: 0,
+				y: 0,
+				w: PAGE_W,
+				h: PAGE_H,
+				fill: { color: scrim.color, transparency: Math.round((1 - scrim.opacity) * 100) },
+				line: { color: scrim.color, width: 0, transparency: 100 },
+			});
+		}
+	}
+}
+
 export function drawSlide(ctx: DeckContext, slide: Slide, input: SlideInput): void {
+	applyBackground(ctx, slide, input);
 	(DRAWERS[input.layout] as Draw<typeof input.layout>)(ctx, slide, input as never);
 	if (input.notes) slide.addNotes(input.notes);
 }

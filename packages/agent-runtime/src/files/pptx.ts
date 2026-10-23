@@ -1,6 +1,8 @@
 import pptxgen from "pptxgenjs";
 import type { DeckTheme, SlideInput } from "@workspace/shared";
 import type { DeckImage } from "./deck/images.js";
+import { prepareDeckAssets } from "./deck/assets.js";
+import { slideStyle } from "./deck/backdrop.js";
 import { drawSlide, masterFor, PAGE_W, MARGIN, type DeckContext } from "./deck/layouts.js";
 import { buildPalette, type DeckPalette } from "./deck/themes.js";
 
@@ -25,6 +27,11 @@ function defineMasters(pptx: PptxInstance, p: DeckPalette, footer: string): void
 	pptx.defineSlideMaster({ title: "COVER", background: { color: p.coverBg } });
 	pptx.defineSlideMaster({ title: "SECTION", background: { color: p.coverBg } });
 	pptx.defineSlideMaster({ title: "QUOTE", background: { color: p.surface } });
+	pptx.defineSlideMaster({
+		title: "FREE",
+		background: { color: p.bg },
+		slideNumber: { x: PAGE_W - MARGIN - 1, y: 7.03, w: 1, h: 0.3, fontSize: 11, color: p.muted, fontFace: p.bodyFont, align: "right" },
+	});
 	const objects: MasterObject[] = [
 		{ rect: { x: 0, y: 0, w: PAGE_W, h: 0.18, fill: { color: p.accent } } },
 		{ line: { x: MARGIN, y: 6.98, w: PAGE_W - MARGIN * 2, h: 0, line: { color: p.border, width: 0.75 } } },
@@ -49,9 +56,13 @@ export async function renderPptx(slides: SlideInput[], options: RenderPptxOption
 	pptx.title = deckTitle;
 	pptx.theme = { headFontFace: palette.headFont, bodyFontFace: palette.bodyFont };
 	defineMasters(pptx, palette, deckTitle);
-	const ctx: DeckContext = { pptx, palette, images: options.images ?? new Map(), sectionCount: { n: 0 } };
-	for (const input of slides) {
+	const images = options.images ?? new Map();
+	const assets = await prepareDeckAssets(slides, palette, images);
+	const ctx: DeckContext = { pptx, palette, base: palette, images, sectionCount: { n: 0 }, assets, slideIndex: 0 };
+	for (const [index, input] of slides.entries()) {
 		const slide = pptx.addSlide({ masterName: masterFor(input.layout) });
+		ctx.slideIndex = index;
+		ctx.palette = slideStyle(palette, input).palette;
 		drawSlide(ctx, slide, input);
 	}
 	return (await pptx.write({ outputType: "uint8array" })) as Uint8Array;
