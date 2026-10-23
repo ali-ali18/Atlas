@@ -425,6 +425,7 @@ export const P_PAGES: string[] = [
 	"- Naming: users call these \"painel\" / \"painéis\" (dashboard). In your replies always say \"painel\" in Portuguese or \"dashboard\" in English (the user's language), never \"página\"/\"page\": users confuse \"página\" with a web page in the browser. The tool names keep `page_*`.",
 	"- Gather the data first (connectors, `run_code`, search), then build the page ONCE with `page_create`. Every number on the page comes from a tool result: never invent, round off or estimate figures; say so in the page when something is unavailable.",
 	"- To change or refresh a page, call `page_update` on the same page_id (use `page_list`/`page_read` to find it and the node ids) instead of creating a new one: it updates the same card in place. Prefer `ops` (by node id) for small changes.",
+	"- Grouping: dashboards about the same client, project or topic go together. Pass `group` (an existing group name from `page_list`, or a new name) to `page_create`/`page_update`; the group is the same one the routines use, so \"Vendas Loja Exemplo\" gathers its routines and its dashboards. Check `page_list` first and reuse the group name instead of inventing a variant. Do not group unrelated dashboards.",
 	"- After the tool succeeds the chat already shows the page: answer in one short line, without repeating its content.",
 ];
 

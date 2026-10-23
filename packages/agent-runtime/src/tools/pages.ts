@@ -15,7 +15,7 @@ import {
 	type PageSpec,
 	type ResearchNote,
 } from "@workspace/shared";
-import { createPage, getPageForUser, listBotPagesForUser, updatePage, type PageListItem, type PageRecord, type UpdatePageResult } from "@workspace/db";
+import { createPage, getPageForUser, listBotPagesForUser, resolvePageGroup, setPageGroup, updatePage, type PageListItem, type PageRecord, type SetPageGroupResult, type UpdatePageResult } from "@workspace/db";
 
 /**
  * Páginas vivas: relatório/painel que o bot monta e o chat desenha inline (cartão que abre em tela cheia).
@@ -55,6 +55,12 @@ const SOURCES_PARAM = {
 	items: { type: "object", properties: { title: { type: "string" }, url: { type: "string", description: "http(s) link" } }, required: ["title"] },
 };
 
+const GROUP_PARAM = {
+	type: "string",
+	description:
+		"Group of related dashboards (same client or topic; the routines use the same groups): an existing group name (see page_list) or a new name. DO NOT USE for unrelated dashboards. Empty string on page_update removes the group.",
+};
+
 export const PAGE_CREATE_TOOL: ChatTool = {
 	type: "function",
 	function: {
@@ -73,6 +79,7 @@ export const PAGE_CREATE_TOOL: ChatTool = {
 				palette: PALETTE_PARAM,
 				root: { ...NODE_PARAM, description: "Root component of the tree, usually a stack or section whose children are the page content." },
 				sources: SOURCES_PARAM,
+				group: GROUP_PARAM,
 			},
 			required: ["title", "root"],
 		},
@@ -111,6 +118,7 @@ export const PAGE_UPDATE_TOOL: ChatTool = {
 					},
 				},
 				sources: SOURCES_PARAM,
+				group: GROUP_PARAM,
 			},
 			required: ["page_id"],
 		},
@@ -130,7 +138,7 @@ export const PAGE_LIST_TOOL: ChatTool = {
 	type: "function",
 	function: {
 		name: PAGE_LIST_TOOL_NAME,
-		description: "Lists this bot's live pages, which users call \"painéis\"/dashboards (id, title, revision, last update). USE to find the page the user means before updating it, or to avoid creating a duplicate. DO NOT USE to open a page for the user.",
+		description: "Lists this bot's live pages, which users call \"painéis\"/dashboards (id, title, group, revision, last update). USE to find the page the user means before updating it, or to avoid creating a duplicate. DO NOT USE to open a page for the user.",
 		parameters: { type: "object", properties: {} },
 	},
 };
@@ -139,10 +147,14 @@ export const PAGE_TOOLS: readonly ChatTool[] = [PAGE_CREATE_TOOL, PAGE_UPDATE_TO
 
 /** Acesso às páginas (injetável em teste; produção usa o db). */
 export type PagesStore = {
-	create(userId: string, input: { botId: string; conversationId?: string | null; spec: PageSpec; sources: PageSource[] }): Promise<PageRecord | null>;
+	create(userId: string, input: { botId: string; conversationId?: string | null; groupId?: string | null; spec: PageSpec; sources: PageSource[] }): Promise<PageRecord | null>;
 	get(id: string, userId: string): Promise<PageRecord | null>;
 	list(userId: string, botId: string): Promise<PageListItem[]>;
 	update(id: string, userId: string, input: { spec: PageSpec; sources?: PageSource[]; expectedRevision?: number; refreshed?: boolean }): Promise<UpdatePageResult>;
+	/** Grupo citado pelo agente (id ou nome) → grupo deste dono e bot (cria se for nome novo); lança "Grupo não encontrado". */
+	resolveGroup?(userId: string, botId: string, ref: string): Promise<{ id: string; name: string; created: boolean }>;
+	/** Move o painel para o grupo (ou tira dele com `null`), sem nova revisão. */
+	setGroup?(id: string, userId: string, groupId: string | null): Promise<SetPageGroupResult>;
 };
 
 export const dbPagesStore: PagesStore = {
@@ -150,6 +162,8 @@ export const dbPagesStore: PagesStore = {
 	get: (id, userId) => getPageForUser(id, userId),
 	list: async (userId, botId) => (await listBotPagesForUser(userId, botId)) ?? [],
 	update: (id, userId, input) => updatePage(id, userId, input),
+	resolveGroup: (userId, botId, ref) => resolvePageGroup(userId, botId, ref),
+	setGroup: (id, userId, groupId) => setPageGroup(id, userId, groupId),
 };
 
 export type PageToolContext = {
@@ -241,6 +255,24 @@ function sourcesArg(args: Record<string, unknown>): PageSource[] | undefined {
 	return parsed.sources;
 }
 
+/** `group` do agente: texto (id ou nome), "" tira do grupo (só no update). `undefined` = não mexer. */
+function groupArg(args: Record<string, unknown>): string | undefined {
+	if (args.group === undefined || args.group === null) return undefined;
+	if (typeof args.group !== "string") throw new Error("group must be a string: the name of a group (existing or new), or an empty string to remove the page from its group.");
+	const group = args.group.trim().replace(/\s+/g, " ");
+	if (group.length > 80) throw new Error("group is too long: use a short name (up to 80 characters).");
+	return group;
+}
+
+async function resolveGroupArg(store: PagesStore, userId: string, botId: string, ref: string): Promise<{ id: string; name: string; created: boolean }> {
+	const resolve = store.resolveGroup ?? resolvePageGroup;
+	try {
+		return await resolve(userId, botId, ref);
+	} catch {
+		throw new Error(`Group "${ref.slice(0, 80)}" was not found for this bot. Pass the name of an existing group or a new name; page_list shows the current groups.`);
+	}
+}
+
 function invalid(error: string): Error {
 	return new Error(`Invalid page: ${error}. Fix the page and call the tool again.`);
 }
@@ -265,16 +297,19 @@ async function createTool(args: Record<string, unknown>, ctx: PageToolContext): 
 	const parsed = parsePageSpec({ v: 2, title: args.title, summary: args.summary, palette: args.palette, root: args.root });
 	if (!parsed.ok) throw invalid(parsed.error);
 	const sources = sourcesArg(args) ?? sourcesFromResearchNotes(ctx.researchNotes?.() ?? []);
-	const page = await store.create(userId, { botId, conversationId: ctx.conversationId ?? null, spec: parsed.spec, sources });
+	const groupRef = groupArg(args);
+	const group = groupRef ? await resolveGroupArg(store, userId, botId, groupRef) : null;
+	const page = await store.create(userId, { botId, conversationId: ctx.conversationId ?? null, groupId: group?.id ?? null, spec: parsed.spec, sources });
 	if (!page) throw new Error("Could not create the page for this bot. Tell the user it failed; do not retry in a loop.");
 	await emit(ctx, "created", page);
+	const inGroup = group ? ` In group "${group.name}"${group.created ? " (new group)" : ""}.` : "";
 	return {
-		summary: `Page created (page_id ${page.id}, revision ${page.revision}). ${summarizePageSpec(page.spec)}; ${page.sources.length} sources. ${SHOWN_NOTE} To change it later use page_update with this page_id.`,
+		summary: `Page created (page_id ${page.id}, revision ${page.revision}). ${summarizePageSpec(page.spec)}; ${page.sources.length} sources.${inGroup} ${SHOWN_NOTE} To change it later use page_update with this page_id.`,
 	};
 }
 
 async function updateTool(args: Record<string, unknown>, ctx: PageToolContext): Promise<{ summary: string }> {
-	const { userId, store } = requireScope(ctx);
+	const { userId, botId, store } = requireScope(ctx);
 	const pageId = pageIdArg(args);
 	if (ctx.routinePageId && pageId !== ctx.routinePageId) {
 		throw new Error(`This routine run may only update its own page (page_id ${ctx.routinePageId}); ${pageId} is not it. Call page_update with page_id ${ctx.routinePageId}.`);
@@ -283,11 +318,30 @@ async function updateTool(args: Record<string, unknown>, ctx: PageToolContext): 
 	const hasRoot = args.root !== undefined && args.root !== null;
 	if (hasOps && hasRoot) throw new Error("Pass either `ops` (partial change) or `root` (full rewrite), not both.");
 	const sources = sourcesArg(args);
-	if (!hasOps && !hasRoot && args.title === undefined && args.summary === undefined && args.palette === undefined && sources === undefined) {
-		throw new Error("Nothing to update: pass `ops`, `root`, `title`, `summary`, `palette` or `sources`.");
+	const groupRef = groupArg(args);
+	const contentChange = hasOps || hasRoot || args.title !== undefined || args.summary !== undefined || args.palette !== undefined || sources !== undefined;
+	if (!contentChange && groupRef === undefined) {
+		throw new Error("Nothing to update: pass `ops`, `root`, `title`, `summary`, `palette`, `sources` or `group`.");
 	}
 	const parsedOps = hasOps ? parsePagePatchOps(args.ops) : null;
 	if (parsedOps && !parsedOps.ok) throw invalid(parsedOps.error);
+
+	// Só a página do próprio dono entra em grupo: confere antes de mexer no conteúdo.
+	let group: { id: string; name: string; created: boolean } | null = null;
+	if (groupRef) {
+		if (!(await store.get(pageId, userId))) throw new Error(`Page ${pageId} not found. Use page_list to see this bot's pages.`);
+		group = await resolveGroupArg(store, userId, botId, groupRef);
+	}
+	const moveToGroup = async (): Promise<string> => {
+		if (groupRef === undefined) return "";
+		const moved = await (store.setGroup ?? setPageGroup)(pageId, userId, group?.id ?? null);
+		if (!moved.ok) throw new Error(moved.error === "not_found" ? `Page ${pageId} not found. Use page_list to see this bot's pages.` : "That group was not found for this bot's pages.");
+		return group ? ` Moved to group "${group.name}"${group.created ? " (new group)" : ""}.` : " Removed from its group.";
+	};
+	if (!contentChange) {
+		const moved = await moveToGroup();
+		return { summary: `Page ${pageId} group changed.${moved} The page content and revision are unchanged; reply in one short line.` };
+	}
 
 	// Uma releitura se outro update ganhou a corrida entre a leitura e a gravação.
 	for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -312,9 +366,10 @@ async function updateTool(args: Record<string, unknown>, ctx: PageToolContext): 
 		if (!result.ok) {
 			throw new Error(result.error === "conflict" ? "The page changed while updating. Call page_read and try again." : `Page ${pageId} not found. Use page_list to see this bot's pages.`);
 		}
+		const moved = await moveToGroup();
 		await emit(ctx, "updated", result.page);
 		return {
-			summary: `Page updated in place (page_id ${result.page.id}, revision ${result.page.revision}). ${summarizePageSpec(result.page.spec)}. ${SHOWN_NOTE}`,
+			summary: `Page updated in place (page_id ${result.page.id}, revision ${result.page.revision}). ${summarizePageSpec(result.page.spec)}.${moved} ${SHOWN_NOTE}`,
 		};
 	}
 	throw new Error("The page changed while updating. Call page_read and try again.");
@@ -337,7 +392,7 @@ async function listTool(_args: Record<string, unknown>, ctx: PageToolContext): P
 	const { userId, botId, store } = requireScope(ctx);
 	const items = await store.list(userId, botId);
 	if (items.length === 0) return { summary: "This bot has no pages yet." };
-	const lines = items.map((item) => `- ${item.id}: "${item.title}" (revision ${item.revision}, updated ${item.updatedAt})`);
+	const lines = items.map((item) => `- ${item.id}: "${item.title}"${item.groupName ? ` [group: ${item.groupName}]` : ""} (revision ${item.revision}, updated ${item.updatedAt})`);
 	return { summary: `${items.length} page${items.length === 1 ? "" : "s"}:\n${lines.join("\n")}` };
 }
 

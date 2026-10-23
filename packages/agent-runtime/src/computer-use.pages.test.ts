@@ -31,17 +31,34 @@ const say = (text: string): CompleteChatWithToolsResult => ({ model: "test-model
 /** Store em memória com a mesma regra de dono do db: de outro usuário = não existe. */
 function memoryStore() {
 	const rows: Array<PageRecord & { userId: string }> = [];
+	/** Grupos por dono e bot (mesma regra do db). Um id de outro dono tem cara de cuid e nunca vira nome novo. */
+	const groups: Array<{ id: string; userId: string; botId: string; name: string }> = [{ id: "cmgrupodooutrousuario0001", userId: "user-2", botId: "bot-1", name: "Do outro" }];
 	const store: PagesStore = {
+		resolveGroup: async (userId, botId, ref) => {
+			const found = groups.find((g) => g.userId === userId && g.botId === botId && (g.id === ref || g.name.toLowerCase() === ref.toLowerCase()));
+			if (found) return { id: found.id, name: found.name, created: false };
+			if (/^c[a-z0-9]{20,}$/.test(ref)) throw new Error("Grupo não encontrado");
+			const created = { id: `group-${groups.length + 1}`, userId, botId, name: ref };
+			groups.push(created);
+			return { id: created.id, name: created.name, created: true };
+		},
+		setGroup: async (id, userId, groupId) => {
+			const row = rows.find((r) => r.id === id && r.userId === userId);
+			if (!row) return { ok: false, error: "not_found" };
+			if (groupId && !groups.some((g) => g.id === groupId && g.userId === userId && g.botId === row.botId)) return { ok: false, error: "group_not_found" };
+			row.groupId = groupId;
+			return { ok: true, page: row };
+		},
 		create: async (userId, input) => {
 			const row = {
-				id: `page-${rows.length + 1}`, userId, botId: input.botId, conversationId: input.conversationId ?? null, title: input.spec.title, spec: input.spec,
+				id: `page-${rows.length + 1}`, userId, botId: input.botId, conversationId: input.conversationId ?? null, groupId: input.groupId ?? null, title: input.spec.title, spec: input.spec,
 				sources: input.sources, revision: 1, refreshedAt: null, createdAt: "2026-10-22T00:00:00.000Z", updatedAt: "2026-10-22T00:00:00.000Z",
 			};
 			rows.push(row);
 			return row;
 		},
 		get: async (id, userId) => rows.find((row) => row.id === id && row.userId === userId) ?? null,
-		list: async (userId, botId) => rows.filter((row) => row.userId === userId && row.botId === botId).map((row) => ({ id: row.id, botId: row.botId, title: row.title, revision: row.revision, updatedAt: row.updatedAt, refreshedAt: null, sourceCount: row.sources.length })),
+		list: async (userId, botId) => rows.filter((row) => row.userId === userId && row.botId === botId).map((row) => ({ id: row.id, botId: row.botId, title: row.title, revision: row.revision, updatedAt: row.updatedAt, refreshedAt: null, sourceCount: row.sources.length, groupId: row.groupId, explicitGroupId: row.groupId, groupName: groups.find((g) => g.id === row.groupId)?.name ?? null })),
 		update: async (id, userId, input) => {
 			const row = rows.find((r) => r.id === id && r.userId === userId);
 			if (!row) return { ok: false, error: "not_found" };
@@ -54,7 +71,7 @@ function memoryStore() {
 			return { ok: true, page: row };
 		},
 	};
-	return { rows, store };
+	return { rows, groups, store };
 }
 
 async function run(userText: string, queue: CompleteChatWithToolsResult[], store: PagesStore, extra: Record<string, unknown> = {}) {
@@ -145,6 +162,83 @@ describe("grupo pages", () => {
 });
 
 describe("page_* no loop do agente", () => {
+	it("prompt: o bot agrupa painéis do mesmo assunto, reusando o nome do grupo", () => {
+		const prompt = assembleSystemPrompt(new Set(["pages"]));
+		expect(prompt).toMatch(/Grouping: dashboards about the same client, project or topic go together/);
+		expect(prompt).toMatch(/Pass `group`/);
+		expect(prompt).toMatch(/reuse the group name/);
+		const create = PAGE_TOOLS.find((tool) => tool.function.name === "page_create")!;
+		expect(JSON.stringify(create.function.parameters)).toContain("DO NOT USE for unrelated dashboards");
+	});
+
+	it("page_create com group novo cria o grupo do dono e liga o painel; a lista mostra o grupo", async () => {
+		const { rows, groups, store } = memoryStore();
+		const { events } = await run("monta um painel de vendas da Loja Exemplo", [
+			toolCall("page_create", { ...forecast, group: "Vendas Loja Exemplo" }, "a"),
+			toolCall("page_create", { ...forecast, title: "Funil", group: " vendas  loja-exemplo " }, "b"),
+			toolCall("page_list", {}, "c"),
+			say("ok"),
+		], store);
+		const [first, second] = resultOf(events, "page_create");
+		expect(first!.ok && second!.ok).toBe(true);
+		expect(first!.summary).toContain('In group "Vendas Loja Exemplo" (new group)');
+		expect(second!.summary).toContain('In group "Vendas Loja Exemplo".');
+		expect(groups.filter((g) => g.userId === "user-1")).toHaveLength(1);
+		expect(rows.map((r) => r.groupId)).toEqual([groups[1]!.id, groups[1]!.id]);
+		expect(resultOf(events, "page_list")[0]!.summary).toContain("[group: Vendas Loja Exemplo]");
+	});
+
+	it("page_create recusa grupo de outro usuário: nada é criado nem emitido", async () => {
+		const { rows, groups, store } = memoryStore();
+		const { events } = await run("monta um painel de vendas", [
+			toolCall("page_create", { ...forecast, group: "cmgrupodooutrousuario0001" }),
+			say("não deu"),
+		], store);
+		const [result] = resultOf(events, "page_create");
+		expect(result!.ok).toBe(false);
+		expect(result!.summary).toMatch(/was not found for this bot/);
+		expect(result!.summary).not.toContain("Do outro");
+		expect(rows).toHaveLength(0);
+		expect(groups).toHaveLength(1);
+		expect(events.some((e) => e.type === "page")).toBe(false);
+	});
+
+	it("group inválido (não texto, longo demais) vira erro acionável", async () => {
+		const { rows, store } = memoryStore();
+		const { events } = await run("monta um painel", [
+			toolCall("page_create", { ...forecast, group: 7 }, "a"),
+			toolCall("page_create", { ...forecast, group: "x".repeat(81) }, "b"),
+			say("falhou"),
+		], store);
+		const results = resultOf(events, "page_create");
+		expect(results.map((r) => r.ok)).toEqual([false, false]);
+		expect(results[0]!.summary).toMatch(/group must be a string/);
+		expect(results[1]!.summary).toMatch(/group is too long/);
+		expect(rows).toHaveLength(0);
+	});
+
+	it("page_update só com group move o painel sem revisão nova nem evento; \"\" tira do grupo; painel de outro dono não existe", async () => {
+		const { rows, store } = memoryStore();
+		const alheio = parsePageSpec({ v: 2, title: "Alheio", root: { type: "stack", children: [{ type: "divider" }] } });
+		if (!alheio.ok) throw new Error(alheio.error);
+		await store.create("user-2", { botId: "bot-1", spec: alheio.spec, sources: [] }); // page-1, de outro dono
+		const { events } = await run("monta meu forecast", [
+			toolCall("page_create", forecast, "a"),
+			toolCall("page_update", { page_id: "page-1", group: "Vendas" }, "b"),
+			toolCall("page_update", { page_id: "page-2", group: "Vendas" }, "c"),
+			toolCall("page_update", { page_id: "page-2", group: "" }, "d"),
+			say("ok"),
+		], store);
+		const updates = resultOf(events, "page_update");
+		expect(updates.map((r) => r.ok)).toEqual([false, true, true]);
+		expect(updates[0]!.summary).toMatch(/Page page-1 not found/);
+		expect(updates[1]!.summary).toContain('Moved to group "Vendas" (new group)');
+		expect(updates[2]!.summary).toContain("Removed from its group");
+		expect(rows[1]!.revision).toBe(1);
+		expect(rows[1]!.groupId).toBeNull();
+		expect(events.filter((e) => e.type === "page")).toHaveLength(1);
+	});
+
 	it("replay: \"monta meu forecast do trimestre\" carrega as tools, cria a página, emite o evento e persiste o cartão", async () => {
 		const { rows, store } = memoryStore();
 		const { events, offered } = await run("monta meu forecast do trimestre", [
