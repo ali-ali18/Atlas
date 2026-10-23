@@ -150,6 +150,7 @@ import {
 	hydrateLlmMessages,
 	parseRuntimeCheckpoint,
 	resolveLlmMessagesForModel,
+	createMediaMemo,
 	toolIdempotencyKey,
 } from "./checkpoint.js";
 import {
@@ -6358,6 +6359,8 @@ export async function runComputerUse(params: {
 	// Streaming com tool calls: emite deltas. Cada passo vira UM balão (estilo WhatsApp), que cresce
 	// enquanto o passo é escrito; o próximo passo abre outro balão (id por passo).
 	// (Sem fatiar por parágrafo: N balões simultâneos embaralhavam a leitura.)
+	// Mídia do histórico (screenshots, imagens, PDFs) carregada uma vez por run, não a cada passo.
+	const mediaMemo = createMediaMemo();
 	const streamStep = async (
 		history: LlmMessage[],
 		toolChoice: "auto" | "none",
@@ -6409,6 +6412,7 @@ export async function runComputerUse(params: {
 					else if (result.costUnknown) usageTotals = addUsage(usageTotals, { costUnknownCalls: 1 });
 					return result.description;
 				} : undefined,
+				memo: mediaMemo,
 			},
 		);
 		const effectiveTools = reserveRestrict ? tools.filter((tool) => FILE_RESERVE_TOOLS.includes(tool.function.name)) : tools;
