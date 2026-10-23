@@ -516,11 +516,12 @@ async function recoverExpiredLeases(): Promise<void> {
 async function reconcileStaleRuns(): Promise<void> {
 	try {
 		await recoverExpiredLeases();
+		// Cancel órfão (worker morreu antes de observar): graça curta, o lease
+		// saudável renova a cada 10s então 30s só pega órfão de verdade.
 		const [failed, cancelled] = await Promise.all([
 			failStaleRunningRuns(),
 			cancelStaleCancelledRuns(30_000),
 		]);
-		await promoteOrphanInputs();
 		if (failed.length > 0 || cancelled.length > 0) {
 			console.warn(
 				`[agent] reconciled stale runs: failed=${failed.length} cancelled=${cancelled.length}`,
@@ -531,9 +532,24 @@ async function reconcileStaleRuns(): Promise<void> {
 	}
 }
 
+// Única dona da reconciliação de runs presos (a API não repete): a cada 15 s, a cadência que a API usava.
+const STALE_RUN_RECONCILE_MS = 15_000;
 void reconcileStaleRuns();
 const staleRunReconciler = setInterval(() => {
 	void reconcileStaleRuns();
+}, STALE_RUN_RECONCILE_MS);
+
+// Entradas órfãs (steer de run que acabou): a cada minuto, como antes.
+async function promoteOrphanInputsSafely(): Promise<void> {
+	try {
+		await promoteOrphanInputs();
+	} catch (error) {
+		console.error("[agent] orphan input promotion failed", error);
+	}
+}
+void promoteOrphanInputsSafely();
+const orphanInputPromoter = setInterval(() => {
+	void promoteOrphanInputsSafely();
 }, 60_000);
 
 // Fase 1: resumo por inatividade (30 min sem msg, sem run ativo, com
@@ -687,6 +703,7 @@ async function shutdown() {
 		process.exit(1);
 	}, 125_000).unref();
 	clearInterval(staleRunReconciler);
+	clearInterval(orphanInputPromoter);
 	botMessageSweeper.stop();
 	groupSweeper.stop();
 	proactiveSweeper.stop();

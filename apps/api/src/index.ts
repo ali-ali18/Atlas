@@ -16,7 +16,6 @@ import {
 	createChatCompletionQueue,
 	createRedisConnection,
 	createRoutineQueue,
-	rehydrateRoutineSchedulers,
 } from "@workspace/queue";
 import { loadConfig } from "./config.js";
 import { rateLimitByIp } from "./middleware/rate-limit.js";
@@ -100,12 +99,8 @@ import {
 	setRunFinalizedByRequestHook,
 	onGroupTurnCreated,
 	onBotMessageCreated,
-	cancelStaleCancelledRuns,
-	failStaleRunningRuns,
 	listGithubRoutineRepoOwners,
-	listSchedulableRoutines,
 	maybeClaimDefaultOnBoot,
-	recoverStaleRunningRuns,
 } from "@workspace/db";
 import {
 	createDockerDevProvider,
@@ -464,63 +459,21 @@ if (devSandboxConfig.enabled) {
 	});
 }
 
+// Runs presos (lease vencida, worker sem heartbeat, cancelamento órfão) e o reagendamento das rotinas
+// ficam só no worker (index.ts dele, mesma cadência): rodar aqui também duplicava as consultas.
 function runReconciliation() {
-	void recoverStaleRunningRuns()
-		.then((recovered) => {
-			if (recovered.length > 0) {
-				console.warn(
-					`[agent] recovered stale running runs: ${recovered.length}`,
-				);
-			}
-		})
-		.catch((error) => {
-			console.error("stale run recovery failed", error);
-		})
-		.finally(() => {
-			void reconcileQueuedAgentRuns(agentRunQueue).catch((error) => {
-				console.error("agent run reconciler failed", error);
-			});
-		});
+	void reconcileQueuedAgentRuns(agentRunQueue).catch((error) => {
+		console.error("agent run reconciler failed", error);
+	});
 	// Decisões automáticas dos orquestradores ("Decidir pelos outros bots") esperando o card do destino.
 	void applyQueuedBotDecisions({ queue: agentRunQueue, openRouterModel: config.openRouterModel }).catch((error) => {
 		console.error("bot decisions sweeper failed", error);
 	});
-	void failStaleRunningRuns()
-		.then((failed) => {
-			for (const runId of failed) {
-				console.error(`[agent] Run ${runId} falhou: worker sem heartbeat`);
-			}
-		})
-		.catch((error) => {
-			console.error("stale run sweeper failed", error);
-		});
-	// Cancel órfão (worker morreu antes de observar): graça curta, o lease
-	// saudável renova a cada 10s então 30s só pega órfão de verdade.
-	void cancelStaleCancelledRuns(30_000)
-		.then((cancelled) => {
-			for (const runId of cancelled) {
-				console.warn(`[agent] Run ${runId} cancelado (órfão reconciliado)`);
-			}
-		})
-		.catch((error) => {
-			console.error("stale cancel sweeper failed", error);
-		});
 }
 
 const reconcileTimer = setInterval(runReconciliation, 15_000);
 runReconciliation();
 
-if (routineQueue) {
-	const queue = routineQueue;
-	void listSchedulableRoutines()
-		.then((routines) => rehydrateRoutineSchedulers(queue, routines))
-		.then(() => {
-			console.log("Routine schedulers rehydrated from Postgres");
-		})
-		.catch((error) => {
-			console.error("routine scheduler rehydrate failed", error);
-		});
-}
 
 /**
  * Ordem do encerramento (deploy/SIGTERM): sai da rotação (/health/ready 503), para de
