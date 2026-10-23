@@ -58,7 +58,7 @@ export async function renderPptx(slides: SlideInput[], options: RenderPptxOption
 	defineMasters(pptx, palette, deckTitle);
 	const images = options.images ?? new Map();
 	const assets = await prepareDeckAssets(slides, palette, images);
-	const ctx: DeckContext = { pptx, palette, base: palette, images, sectionCount: { n: 0 }, assets, slideIndex: 0 };
+	const ctx: DeckContext = { pptx, palette, base: palette, images, sectionCount: { n: 0 }, assets, slideIndex: 0, photo: false };
 	for (const [index, input] of slides.entries()) {
 		const slide = pptx.addSlide({ masterName: masterFor(input.layout) });
 		ctx.slideIndex = index;

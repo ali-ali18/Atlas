@@ -120,19 +120,27 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], label: s
 	return fail(`${label} must be one of: ${allowed.join(", ")}.`);
 }
 
-/** Retângulo dentro da página 13.333 x 7.5. Linhas e setas aceitam w/h negativos (vetor). */
-function parseBox(e: Record<string, unknown>, label: string, vector: boolean): Box {
-	const x = num(e.x, `${label}.x`, 0, DECK_PAGE_W);
-	const y = num(e.y, `${label}.y`, 0, DECK_PAGE_H);
-	const w = num(e.w, `${label}.w`, vector ? -DECK_PAGE_W : 0, DECK_PAGE_W);
-	const h = num(e.h, `${label}.h`, vector ? -DECK_PAGE_H : 0, DECK_PAGE_H);
+/** Quanto uma forma decorativa (retângulo, círculo) pode sair da página: círculos e faixas "sangrando" na borda. */
+export const DECK_SHAPE_BLEED_IN = 3;
+
+/** Retângulo dentro da página 13.333 x 7.5 (formas decorativas podem sangrar até 3 pol., sempre tocando a página). Linhas e setas aceitam w/h negativos (vetor). */
+function parseBox(e: Record<string, unknown>, label: string, vector: boolean, bleed = 0): Box {
+	const x = num(e.x, `${label}.x`, -bleed, DECK_PAGE_W);
+	const y = num(e.y, `${label}.y`, -bleed, DECK_PAGE_H);
+	const w = num(e.w, `${label}.w`, vector ? -DECK_PAGE_W : 0, DECK_PAGE_W + bleed);
+	const h = num(e.h, `${label}.h`, vector ? -DECK_PAGE_H : 0, DECK_PAGE_H + bleed);
 	if (!vector && (w <= 0 || h <= 0)) fail(`${label} needs w and h greater than 0.`);
 	const right = Math.max(x, x + w);
 	const bottom = Math.max(y, y + h);
 	const left = Math.min(x, x + w);
 	const top = Math.min(y, y + h);
-	if (right > DECK_PAGE_W + BOUNDS_TOLERANCE || bottom > DECK_PAGE_H + BOUNDS_TOLERANCE || left < -BOUNDS_TOLERANCE || top < -BOUNDS_TOLERANCE) {
-		fail(`${label} falls outside the ${DECK_PAGE_W} x ${DECK_PAGE_H} in slide (x=${x}, y=${y}, w=${w}, h=${h}). Keep x+w <= ${DECK_PAGE_W} and y+h <= ${DECK_PAGE_H}.`);
+	const limit = BOUNDS_TOLERANCE + bleed;
+	if (right > DECK_PAGE_W + limit || bottom > DECK_PAGE_H + limit || left < -limit || top < -limit || right <= 0 || bottom <= 0) {
+		fail(
+			bleed > 0
+				? `${label} falls outside the ${DECK_PAGE_W} x ${DECK_PAGE_H} in slide (x=${x}, y=${y}, w=${w}, h=${h}). A decorative shape may bleed at most ${bleed} in past an edge.`
+				: `${label} falls outside the ${DECK_PAGE_W} x ${DECK_PAGE_H} in slide (x=${x}, y=${y}, w=${w}, h=${h}). Keep x+w <= ${DECK_PAGE_W} and y+h <= ${DECK_PAGE_H}.`,
+		);
 	}
 	return { x, y, w, h };
 }
@@ -162,7 +170,7 @@ function parseElement(raw: unknown, label: string): FreeElement {
 		case "shape": {
 			const shape = oneOf(e.shape, DECK_SHAPES, `${label}.shape`, "rect");
 			const isLine = shape === "line" || shape === "arrow";
-			const box = parseBox(e, label, isLine);
+			const box = parseBox(e, label, isLine, isLine ? 0 : DECK_SHAPE_BLEED_IN);
 			const fill = optColor(e.fill, `${label}.fill`);
 			const stroke = optColor(e.stroke, `${label}.stroke`);
 			const strokeWidth = optNum(e.stroke_width ?? e.strokeWidth, `${label}.stroke_width`, 0, 20);

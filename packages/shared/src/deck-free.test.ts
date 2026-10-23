@@ -37,6 +37,11 @@ describe("layout free", () => {
 		expect(() => parseDeckSlides([{ layout: "free", elements: [text({ y: 7, h: 1 })] }])).toThrow(/outside/);
 		expect(() => parseDeckSlides([{ layout: "free", elements: [text({ x: -1 })] }])).toThrow(/x must be between/);
 		expect(() => parseDeckSlides([{ layout: "free", elements: [text({ w: 0 })] }])).toThrow(/greater than 0/);
+		// forma decorativa pode sangrar na borda (círculo parcial), mas não ficar toda fora nem passar de 3 pol.
+		expect(() => parseDeckSlides([{ layout: "free", elements: [{ type: "shape", shape: "circle", x: 9.4, y: -1.2, w: 5.2, h: 5.2, fill: "accent" }] }])).not.toThrow();
+		expect(() => parseDeckSlides([{ layout: "free", elements: [{ type: "shape", shape: "circle", x: 9.4, y: -4, w: 5.2, h: 5.2, fill: "accent" }] }])).toThrow(/y must be between -3 and/);
+		expect(() => parseDeckSlides([{ layout: "free", elements: [{ type: "shape", shape: "rect", x: -3, y: 1, w: 2, h: 2, fill: "accent" }] }])).toThrow(/outside/);
+		expect(() => parseDeckSlides([{ layout: "free", elements: [{ type: "image", image: "a", x: -1, y: 1, w: 2, h: 2 }] }])).toThrow(/x must be between/);
 		// folga de arredondamento é aceita
 		expect(() => parseDeckSlides([{ layout: "free", elements: [text({ x: 9.34, w: 4 })] }])).not.toThrow();
 	});

@@ -23,7 +23,7 @@ export const BODY_TOP_IN = BODY_TOP;
 export const BODY_BOTTOM_IN = BODY_BOTTOM;
 
 /** `palette` é a do slide atual (já adaptada ao fundo); `base` é a do tema, de onde saem os tokens do fundo. */
-export type DeckContext = { pptx: Pptx; palette: DeckPalette; base: DeckPalette; images: Map<string, DeckImage>; sectionCount: { n: number }; assets: DeckAssets; slideIndex: number };
+export type DeckContext = { pptx: Pptx; palette: DeckPalette; base: DeckPalette; images: Map<string, DeckImage>; sectionCount: { n: number }; assets: DeckAssets; slideIndex: number; /** O slide atual tem foto de fundo (sem os círculos decorativos das capas). */ photo: boolean };
 
 export type Box = { x: number; y: number; w: number; h: number };
 
@@ -77,7 +77,12 @@ export function fitInside(box: { x: number; y: number; w: number; h: number }, i
 type Draw<T extends SlideInput["layout"]> = (ctx: DeckContext, slide: Slide, input: Extract<SlideInput, { layout: T }>) => void;
 
 /** Círculos translúcidos das capas (mestre só aceita retângulos, então ficam no slide). */
-function coverDecor(slide: Slide, p: DeckPalette, kind: "cover" | "section"): void {
+function coverDecor(slide: Slide, p: DeckPalette, kind: "cover" | "section", photo = false): void {
+	// Sobre uma foto de fundo os círculos translúcidos brigam com a imagem: fica só a faixa lateral da seção.
+	if (photo) {
+		if (kind === "section") slide.addShape("rect", { x: 0, y: 0, w: 0.28, h: PAGE_H, fill: { color: p.accent }, line: { color: p.accent, width: 0 } });
+		return;
+	}
 	if (kind === "cover") {
 		slide.addShape("ellipse", { x: 8.6, y: -2.4, w: 7.4, h: 7.4, fill: { color: p.accent, transparency: 72 }, line: { color: p.accent, width: 0, transparency: 100 } });
 		slide.addShape("ellipse", { x: 10.9, y: 4.6, w: 4.2, h: 4.2, fill: { color: p.coverAccent, transparency: 80 }, line: { color: p.coverAccent, width: 0, transparency: 100 } });
@@ -87,15 +92,15 @@ function coverDecor(slide: Slide, p: DeckPalette, kind: "cover" | "section"): vo
 	}
 }
 
-const drawTitle: Draw<"title"> = ({ palette: p }, slide, input) => {
-	coverDecor(slide, p, "cover");
+const drawTitle: Draw<"title"> = ({ palette: p, photo }, slide, input) => {
+	coverDecor(slide, p, "cover", photo);
 	slide.addText(input.title, { x: MARGIN, y: 1.8, w: 9.2, h: 2.4, fontSize: input.title.length > 50 ? 42 : 54, bold: true, color: p.coverText, fontFace: p.headFont, valign: "bottom", margin: 0, fit: "shrink" });
 	slide.addShape("rect", { x: MARGIN, y: 4.4, w: 1.4, h: 0.09, fill: { color: p.coverAccent }, line: { color: p.coverAccent, width: 0 } });
 	if (input.subtitle) slide.addText(input.subtitle, { x: MARGIN, y: 4.7, w: 8.6, h: 1.1, fontSize: 24, color: p.coverMuted, fontFace: p.bodyFont, valign: "top", margin: 0 });
 };
 
-const drawSection: Draw<"section"> = ({ palette: p, sectionCount }, slide, input) => {
-	coverDecor(slide, p, "section");
+const drawSection: Draw<"section"> = ({ palette: p, sectionCount, photo }, slide, input) => {
+	coverDecor(slide, p, "section", photo);
 	sectionCount.n += 1;
 	slide.addText(String(sectionCount.n).padStart(2, "0"), { x: MARGIN, y: 1.9, w: 4, h: 1.5, fontSize: 88, bold: true, color: p.coverAccent, fontFace: p.headFont, margin: 0 });
 	slide.addText(input.title, { x: MARGIN, y: 3.5, w: 9.5, h: 1.3, fontSize: input.title.length > 40 ? 38 : 48, bold: true, color: p.coverText, fontFace: p.headFont, valign: "top", margin: 0, fit: "shrink" });
@@ -301,8 +306,8 @@ const drawTimeline: Draw<"timeline"> = ({ palette: p }, slide, input) => {
 	});
 };
 
-const drawClosing: Draw<"closing"> = ({ palette: p }, slide, input) => {
-	coverDecor(slide, p, "cover");
+const drawClosing: Draw<"closing"> = ({ palette: p, photo }, slide, input) => {
+	coverDecor(slide, p, "cover", photo);
 	slide.addShape("rect", { x: MARGIN, y: 1.9, w: 1.4, h: 0.09, fill: { color: p.coverAccent }, line: { color: p.coverAccent, width: 0 } });
 	slide.addText(input.title, { x: MARGIN, y: 2.15, w: 9.2, h: 1.3, fontSize: input.title.length > 40 ? 40 : 54, bold: true, color: p.coverText, fontFace: p.headFont, valign: "top", margin: 0, fit: "shrink" });
 	let y = 3.6;
@@ -367,6 +372,7 @@ function applyBackground(ctx: DeckContext, slide: Slide, input: SlideInput): voi
 }
 
 export function drawSlide(ctx: DeckContext, slide: Slide, input: SlideInput): void {
+	ctx.photo = input.background?.kind === "image";
 	applyBackground(ctx, slide, input);
 	(DRAWERS[input.layout] as Draw<typeof input.layout>)(ctx, slide, input as never);
 	if (input.notes) slide.addNotes(input.notes);

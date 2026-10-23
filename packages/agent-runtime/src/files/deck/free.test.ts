@@ -123,6 +123,14 @@ describe("fundos", () => {
 		expect(sizes).toContain("1920x1080");
 	});
 
+	it("capa com foto não leva os círculos decorativos do tema (só a foto, o véu e o texto)", async () => {
+		const images = new Map([["bg", await photo(800, 450)]]);
+		const withPhoto = await openPptx(await renderPptx(parseDeckSlides([{ layout: "title", title: "Capa", background: { image: "bg" } }]), { images }));
+		const plain = await openPptx(await renderPptx(parseDeckSlides([{ layout: "title", title: "Capa" }]), { images }));
+		expect((await withPhoto.slide(0)).match(/prst="ellipse"/g) ?? []).toHaveLength(0);
+		expect((await plain.slide(0)).match(/prst="ellipse"/g) ?? []).toHaveLength(2);
+	});
+
 	it("véu pode ser personalizado ou desligado; em slide de conteúdo o padrão é claro", async () => {
 		const images = new Map([["bg", await photo(800, 450)]]);
 		const custom = await openPptx(await renderPptx(parseDeckSlides([{ layout: "title", title: "X", background: { image: "bg", scrim: { color: "#1b4332", opacity: 0.7 } } }]), { images }));
@@ -162,7 +170,7 @@ describe("fundos", () => {
 		expect(adaptPalette(p, false, undefined)).toBe(p);
 		const photoBackdrop = resolveBackdrop({ kind: "image", image: "x" }, true, p)!;
 		expect(photoBackdrop).toMatchObject({ dark: true, scrim: { color: "000000", opacity: 0.45 } });
-		expect(adaptPalette(p, true, photoBackdrop)).toBe(p);
+		expect(adaptPalette(p, true, photoBackdrop)).toMatchObject({ coverText: "FFFFFF", coverMuted: "E5E7EB" });
 		const vector = gradientVector(90);
 		expect(vector.x1).toBeCloseTo(0);
 		expect(vector.x2).toBeCloseTo(1);

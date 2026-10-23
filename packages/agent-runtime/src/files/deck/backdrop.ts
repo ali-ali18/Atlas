@@ -81,7 +81,8 @@ export function resolveBackdrop(bg: DeckBackground | undefined, cover: boolean, 
 export function adaptPalette(p: DeckPalette, cover: boolean, backdrop: Backdrop | undefined): DeckPalette {
 	if (!backdrop) return p;
 	if (cover) {
-		if (backdrop.dark) return p;
+		// Foto com véu escuro: o subtítulo precisa de um cinza bem claro, o "muted" do tema some sobre a imagem.
+		if (backdrop.dark) return backdrop.hex === undefined ? { ...p, coverMuted: "E5E7EB" } : p;
 		return { ...p, coverText: "111827", coverMuted: "475467", coverAccent: p.accent };
 	}
 	const themeDark = isDarkColor(p.bg);
