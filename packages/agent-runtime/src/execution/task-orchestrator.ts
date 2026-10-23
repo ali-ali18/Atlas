@@ -39,7 +39,7 @@ export function createTaskOrchestrator(options: {
 		const prior = parseTaskLedger(options.prior);
 		if (prior && openItems(prior).length > 0) {
 			const { partial: _partial, stopped: _stopped, ...rest } = prior;
-			tracker.setLedger(markItemsCarried({ ...rest, stalled: 0, replans: 0, gateBlocks: 0, carry: "offered" }));
+			tracker.setLedger(markItemsCarried({ ...rest, stalled: 0, replans: 0, gateBlocks: 0, answerBlocks: 0, carry: "offered" }));
 		}
 	}
 	let recent: StepSignal[] = [];
@@ -72,11 +72,27 @@ export function createTaskOrchestrator(options: {
 			const ledger = tracker.ledger();
 			const decision = decideItemGate({ ledger, event, requireLedger: options.requireLedger(), ...context });
 			if (decision.action === "block") {
-				bump((current) => ({ ...current, gateBlocks: current.gateBlocks + 1 }), ledger);
+				bump(
+					(current) => ({
+						...current,
+						gateBlocks: current.gateBlocks + 1,
+						...(event === "final_answer" ? { answerBlocks: (current.answerBlocks ?? 0) + 1 } : {}),
+					}),
+					ledger,
+				);
 			} else if (decision.declareGaps && ledger && !ledger.partial) {
 				bump((current) => ({ ...current, partial: buildPartial(current, "not reached before delivery") }), ledger);
 			}
 			return decision;
+		},
+		/** Há lacuna declarável neste run: item obrigatório aberto ou item que falhou. */
+		hasGaps(): boolean {
+			const ledger = tracker.ledger();
+			return Boolean(ledger && (obligatedOpenItems(ledger).length > 0 || ledger.items.some((item) => item.status === "failed")));
+		},
+		/** O portão já refez a resposta final neste run (a próxima sai como está). */
+		answerRevised(): boolean {
+			return (tracker.ledger()?.answerBlocks ?? 0) > 0;
 		},
 		/** Entrega liberada com itens abertos (orçamento >= 80% ou 3 interceptações): pede a verdade sobre as lacunas. */
 		gapsNote(budgetFraction: number): string | null {

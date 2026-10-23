@@ -50,6 +50,8 @@ export type TaskLedger = {
 	replans: number;
 	/** Interceptações do portão de entrega neste run. */
 	gateBlocks: number;
+	/** Respostas finais recusadas pelo portão neste run (a resposta é refeita no máximo uma vez). */
+	answerBlocks?: number;
 	carry?: LedgerCarry;
 	/** O orquestrador desistiu depois de M replans: fecha com a entrega parcial. */
 	stopped?: boolean;
@@ -149,6 +151,7 @@ export function parseTaskLedger(raw: unknown): TaskLedger | undefined {
 		stalled: count(raw.stalled),
 		replans: count(raw.replans),
 		gateBlocks: count(raw.gateBlocks),
+		...(count(raw.answerBlocks) > 0 ? { answerBlocks: count(raw.answerBlocks) } : {}),
 		...(carry ? { carry } : {}),
 		...(raw.stopped === true ? { stopped: true } : {}),
 		...(missing.length ? { partial: { missing } } : {}),

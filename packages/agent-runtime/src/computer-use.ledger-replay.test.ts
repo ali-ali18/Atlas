@@ -220,16 +220,22 @@ describe("replay: 9 semanas de uma disciplina", () => {
 		expect(ledger?.partial?.missing[0]!.reason).toBe("not reached before delivery");
 	});
 
-	it("depois de 3 interceptações libera a resposta, listando o que falta", async () => {
-		const { result, events } = await run({
+	it("recusa a resposta final uma vez só: a nota diz como fechar, e a resposta seguinte sai como está", async () => {
+		const { result, events, requests, checkpoints } = await run({
 			driver: ({ index }) => {
 				if (index === 0) return turn(setItems("set"));
-				if (index <= 3) return say(`attempt ${index}: please paste the weeks.`);
+				if (index === 1) return say("attempt 1: please paste the weeks.");
 				return say("I could not read the weeks; weeks 1 to 9 are missing.");
 			},
 		});
-		expect(events.filter((e) => e.type === "assistant_discard" && e.reason === "items_open")).toHaveLength(3);
+		expect(events.filter((e) => e.type === "assistant_discard" && e.reason === "items_open")).toHaveLength(1);
+		const note = systemTexts(requests[2]!).find((t) => t.includes("Continue with the next open item"))!;
+		expect(note).toContain("track_items update with status done");
+		expect(note).toContain("name each missing item and the real reason");
+		expect(note).toContain("your next reply goes to the user as is");
 		expect(result?.text).toBe("I could not read the weeks; weeks 1 to 9 are missing.");
+		// a lacuna fica registrada (a UI mostra o que faltou)
+		expect(lastTaskState(checkpoints)?.ledger?.partial?.missing).toHaveLength(9);
 	});
 
 	it("tarefa de vários itens (Jev) exige a lista antes de entregar", async () => {

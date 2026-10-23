@@ -8004,6 +8004,9 @@ ${blockHint}`;
 				// existe quando a tool de criação está disponível; o sucesso vem do evento de arquivo.
 				if (taskTracker.unmet().length > 0) {
 					taskTracker.setPhase("verifying");
+					// O portão de itens já refez esta resposta e mandou declarar as lacunas (item que falhou,
+					// delegação sem resultado): cobrar o arquivo agora seria uma segunda reescrita do mesmo balão.
+					if (!artifactNudged && taskOrchestrator.answerRevised() && taskOrchestrator.hasGaps()) artifactNudged = true;
 					if (!artifactNudged) {
 						artifactNudged = true;
 						// Sem isto o balão ficava ao vivo e sumia no fim do run (só a resposta final é gravada).
