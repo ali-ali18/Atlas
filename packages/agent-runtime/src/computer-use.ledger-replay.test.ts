@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { appendedToolNotes } from "./loop/tool-result-notes.js";
 import type { CompleteChatWithToolsParams, CompleteChatWithToolsResult, LlmToolCall } from "@workspace/llm";
 import type { AgentRunCheckpoint } from "@workspace/shared";
 import { parseTaskState } from "@workspace/shared";
@@ -124,7 +125,8 @@ async function run(input: {
 }
 
 const text = (message: Message) => (typeof message.content === "string" ? message.content : "");
-const systemTexts = (request: Request) => request.messages.filter((m) => m.role === "system").map(text);
+// Notas de sistema (início do run, portões da resposta final) e avisos anexados aos resultados de tool.
+const systemTexts = (request: Request) => [...request.messages.filter((m) => m.role === "system").map(text), ...appendedToolNotes(request.messages)];
 const itemsLayer = (request: Request) => systemTexts(request).find((t) => t.startsWith("Items:")) ?? null;
 const toolResults = (events: Ev[], name: string) => events.filter((e) => e.type === "tool_result" && e.name === name) as Array<Ev & { ok: boolean; summary: string }>;
 const fileEvents = (events: Ev[]) => events.filter((e) => e.type === "file");
@@ -291,7 +293,17 @@ describe("replay: estagnação", () => {
 		expect(error).toBeUndefined();
 		const notes = systemTexts(requests.at(-1)!).filter((t) => t.startsWith("[Execution note]"));
 		const unique = notes;
-		expect(unique.filter((t) => t.includes("Update the plan"))).toHaveLength(2);
+		// Os avisos vão anexados aos resultados de tool: a higiene pode recolher os antigos, então conta as entregas
+		// ao longo dos pedidos (cada aumento é um aviso novo que o modelo viu).
+		let seenBefore = 0;
+		let replans = 0;
+		for (const request of requests) {
+			const count = systemTexts(request).filter((t) => t.includes("Update the plan")).length;
+			if (count > seenBefore) replans += count - seenBefore;
+			seenBefore = count;
+		}
+		expect(replans).toBe(2);
+		expect(requests.every((request) => !request.messages.some((m) => m.role === "system" && text(m).includes("Update the plan")))).toBe(true);
 		expect(unique.filter((t) => t.includes("Stopping with a partial result"))).toHaveLength(1);
 		const stop = unique.find((t) => t.includes("Stopping with a partial result"))!;
 		expect(stop).toContain("Done: 1.");

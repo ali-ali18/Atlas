@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { TOOL_RESULT_NOTE_MARKER } from "./loop/tool-result-notes.js";
 import type { CompleteChatWithToolsResult, LlmMessage } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import { buildMcpToolset } from "./mcp/registry.js";
@@ -313,7 +314,7 @@ describe("avisos de lote vão depois dos tool results", () => {
 		return { error, requests };
 	}
 
-	it("tool bloqueada no meio do lote: nenhum system entre assistant(tool_calls) e seus tool results", async () => {
+	it("tool bloqueada no meio do lote: nenhum system no meio do run; o aviso vai anexado ao último tool result", async () => {
 		const notFound = vi.fn(async () => ({ ok: false, text: "Not Found (404)", truncated: false }));
 		const { requests } = await runCapturing(notFound, [
 			step([{ id: "c1", name: NAME, args: { path: "1" } }]),
@@ -328,9 +329,9 @@ describe("avisos de lote vão depois dos tool results", () => {
 		const at = messages.findIndex((m) => m.role === "assistant" && m.tool_calls?.length === 2);
 		expect(at).toBeGreaterThan(-1);
 		expect(messages.slice(at + 1, at + 3).map((m) => m.role)).toEqual(["tool", "tool"]);
-		const warning = messages[at + 3];
-		expect(warning?.role).toBe("system");
-		expect(warning?.content).toMatch(
+		expect(messages.slice(at + 1).some((m) => m.role === "system")).toBe(false);
+		const warning = String(messages[at + 2]?.content).split(TOOL_RESULT_NOTE_MARKER)[1];
+		expect(warning).toMatch(
 			new RegExp(`^Tool ${NAME} became unavailable in this run after 3 failures: .*\. Use an alternative or continue with what you have\.$`),
 		);
 	});
@@ -366,9 +367,8 @@ describe("avisos de lote vão depois dos tool results", () => {
 		// 10º pedido ao modelo: já inclui o aviso do ciclo, logo após o último tool result.
 		const messages = requests[9]!;
 		const last = messages.length - 1;
-		expect(messages[last]?.role).toBe("system");
-		expect(messages[last]?.content).toMatch(/Period-3 loop/);
-		expect(messages[last - 1]?.role).toBe("tool");
+		expect(messages[last]?.role).toBe("tool");
+		expect(String(messages[last]?.content).split(TOOL_RESULT_NOTE_MARKER)[1]).toMatch(/Period-3 loop/);
 		expect(error).toMatchObject({ name: "AgentRunLoopDetectedError" });
 		expect(String((error as Error).message)).toMatch(/Period-3 loop/);
 	});

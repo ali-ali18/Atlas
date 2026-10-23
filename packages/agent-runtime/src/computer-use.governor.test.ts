@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { appendedToolNotes } from "./loop/tool-result-notes.js";
 import type { CompleteChatWithToolsParams, CompleteChatWithToolsResult, LlmToolCall } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import type { AgentBudgetPolicy } from "./budget.js";
@@ -144,7 +145,8 @@ async function run(input: {
 					index,
 					offered,
 					toolChoice: String(params.toolChoice),
-					notes: messages.filter((m) => m.role === "system" && typeof m.content === "string").map((m) => String(m.content)),
+					// Avisos do runtime: notas de sistema do início e as anexadas aos resultados de tool.
+					notes: [...messages.filter((m) => m.role === "system" && typeof m.content === "string").map((m) => String(m.content)), ...appendedToolNotes(messages)],
 					messages,
 				});
 				const next = input.driver({ index, offered, toolChoice: String(params.toolChoice), messages, events });

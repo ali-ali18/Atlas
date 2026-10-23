@@ -281,6 +281,7 @@ import {
 } from "./tools/computer-native.js";
 import { shouldAnnounceCompaction } from "./context/compaction-notice.js";
 import { disciplineForModel } from "./context/model-discipline.js";
+import { appendToLatestToolResult, conversationHasNote, createStepNotices, NOTICE_PRIORITY } from "./loop/tool-result-notes.js";
 import { assembleSystemPromptParts, groupProcedureText, legacySystemPrompt, skillIndexPrompt } from "./context/prompt-blocks.js";
 import { contextEconomyEnabled, contextTranscriptEnabled } from "./context/flag.js";
 import { clippedResultRefLine, createResultStore, resultStoreLimits, extractResultRef, RESULT_MAX_STORED_CHARS } from "./context/result-store.js";
@@ -5581,8 +5582,15 @@ export async function runComputerUse(params: {
 	const baseContextBudget = (): ContextBudget | undefined =>
 		economy ? (params.contextBudget ?? contextBudgetFor(isSubagent ? "economy" : params.contextMemory, contextLength)) : undefined;
 	const promptedGroups = new Set(economyPlan?.groups ?? []);
-	// Grupo `data`: entra (uma vez, como nota) quando o run usa conector, API ou código de dados e o roteador ainda não o carregou.
+	// Grupo `data`: entra (uma vez, anexado ao resultado da tool) quando o run usa conector, API ou código de dados e o roteador ainda não o carregou.
 	let dataToolRan = false;
+	// Nada de `system` novo no meio do run: avisos (laço, orçamento, estagnação) vão anexados ao resultado de tool mais
+	// recente, no máximo um por passo; procedimentos que só valem depois de uma tool (dados, guia, lições) vão inteiros.
+	const stepNotices = createStepNotices();
+	const procedureNotes: string[] = [];
+	const attachProcedure = (text: string) => {
+		if (!appendToLatestToolResult(conversation, text)) procedureNotes.push(text);
+	};
 	// Guia do conector (dado): entra uma vez por conexão, ao usar ou carregar uma tool dela.
 	const guideInjector = createConnectorGuideInjector([
 		...(mcp?.guides ? [...mcp.guides].map(([id, item]) => ({ id, name: item.name })) : []),
@@ -6096,6 +6104,10 @@ export async function runComputerUse(params: {
 	// O pedido de arquivo vem do Jev (qualquer idioma, na mesma chamada de intenção). Jev off/falha = sem expectativa.
 	if (!isSubagent && canCreateFile() && jevIntents.wantsFile) {
 		taskTracker.expectFile("The user asked for a file deliverable.");
+	}
+	// Tarefa de vários itens (Jev): a instrução de declarar a lista vem no início do run, não no meio.
+	if (!isSubagent && jevIntents.multiItem && !taskOrchestrator.ledger()?.items.length && !conversationHasNote(conversation, MULTI_ITEM_START_NOTE)) {
+		conversation.push({ role: "system", content: MULTI_ITEM_START_NOTE });
 	}
 	let forcedWrapUp = false;
 	const jevCheckpointsDone = new Set<string>();
@@ -7024,12 +7036,7 @@ export async function runComputerUse(params: {
 					repeatWarned.add(
 						`${argsKey}|${(lastTwo[1] as { resultKey: string }).resultKey}`,
 					);
-					conversation.push({
-						role: "system",
-						content:
-							`Você repetiu ${name} com o mesmo resultado. Mude de abordagem ` +
-							`(outra tool, outro argumento) ou conclua.`,
-					});
+					stepNotices.push(`You repeated ${name} with the same result. Change approach (another tool or other arguments) or conclude.`, NOTICE_PRIORITY.normal);
 				}
 			}
 
@@ -7674,13 +7681,8 @@ ${blockHint}`;
 		let resultIndex = 0;
 		conversation.splice(batchStart, tail.length, ...tail.map((message) => message.role === "tool" ? results[resultIndex++]! : message));
 
-		// Push collected loop warnings after all tool results
-		if (batchLoopWarnings.length > 0) {
-			conversation.push({
-				role: "system",
-				content: batchLoopWarnings.join(" "),
-			});
-		}
+		// Avisos de laço do lote: uma nota curta anexada ao resultado (no máximo um aviso por passo).
+		if (batchLoopWarnings.length > 0) stepNotices.push(batchLoopWarnings.join(" "), NOTICE_PRIORITY.normal);
 
 		// F4 — aborta só com 6 passos seguidos envolvendo 3+ tools distintas.
 		checkGlobalFailureLock();
@@ -7689,7 +7691,7 @@ ${blockHint}`;
 		// por sequência); nunca aborta o run.
 		const closed = ledger?.endDecision(decisionIndex);
 		// Com itens abertos, quem escala a estagnação é o ledger de itens (replan, depois parcial): os avisos genéricos ficam de fora.
-		if (closed?.nudge && !taskOrchestrator.hasOpenItems()) conversation.push({ role: "system", content: closed.nudge });
+		if (closed?.nudge && !taskOrchestrator.hasOpenItems()) stepNotices.push(closed.nudge, NOTICE_PRIORITY.normal);
 		// V3b: progresso por item; estagnação replaneja e, esgotados os replans, fecha com parcial honesta.
 		if (!isSubagent) {
 			const progress = taskOrchestrator.endDecision({
@@ -7697,7 +7699,7 @@ ${blockHint}`;
 				novelty: closed?.novelty,
 				bookkeepingOnly: isBookkeepingOnly(toolCalls.map((call) => call.function.name)),
 			});
-			if (progress.note) conversation.push({ role: "system", content: progress.note });
+			if (progress.note) stepNotices.push(progress.note, NOTICE_PRIORITY.normal);
 		}
 	};
 
@@ -7840,7 +7842,7 @@ ${blockHint}`;
 		tierEscalations.push({ from, to, reason, step });
 		tierEscalationNote = { from, to, reason };
 		tierEscalateSince = toolOutcomes.length;
-		conversation.push({ role: "system", content: MODEL_ESCALATION_NOTE });
+		stepNotices.push(MODEL_ESCALATION_NOTE, NOTICE_PRIORITY.normal);
 		await persistCheckpoint(step);
 		return true;
 	};
@@ -7863,7 +7865,9 @@ ${blockHint}`;
 				...lessonScopesPending.splice(0),
 			];
 			for (const injected of lessonInjector.notesFor(scopes)) {
-				conversation.push({ role: "system", content: injected.note });
+				// Lições entram no início do run; as de um conector carregado depois vão junto do resultado que o carregou.
+				if (step === firstStep) conversation.push({ role: "system", content: injected.note });
+				else attachProcedure(injected.note);
 				try {
 					params.lessons?.onInjected?.({ ids: injected.ids, key: injected.key });
 				} catch {
@@ -7982,16 +7986,7 @@ ${blockHint}`;
 			lastBudgetFraction = usage.fraction;
 			gateCanContinue = !wrapUp;
 			const gapsNote = taskOrchestrator.gapsNote(usage.fraction);
-			if (gapsNote && !conversation.some((message) => message.role === "system" && message.content === gapsNote)) {
-				conversation.push({ role: "system", content: gapsNote });
-			}
-			if (
-				jevIntents.multiItem &&
-				!taskOrchestrator.ledger()?.items.length &&
-				!conversation.some((message) => message.role === "system" && message.content === MULTI_ITEM_START_NOTE)
-			) {
-				conversation.push({ role: "system", content: MULTI_ITEM_START_NOTE });
-			}
+			if (gapsNote) stepNotices.push(gapsNote, NOTICE_PRIORITY.budget, { once: true });
 			const reserve = decideReserve({ fraction: usage.fraction, deliverablePending: pending, wrapUp });
 			if (reserve.restrictTools) nativeDeferral?.load(FILE_RESERVE_TOOLS.filter((name) => nativeDeferral.isDeferred(name)));
 			notesDeliver = pending && (reserve.note !== null || wrapUp);
@@ -7999,9 +7994,7 @@ ${blockHint}`;
 			// Fechamento sem arquivo pendente: sem tools, o modelo responde com o que tem.
 			forceFinalAnswer = wrapUp && !pending;
 			const note = reserve.note ?? (forcedWrapUp && !pending ? STUCK_ANSWER_NOW_NOTE : null);
-			if (note && !conversation.some((message) => message.role === "system" && message.content === note)) {
-				conversation.push({ role: "system", content: note });
-			}
+			if (note) stepNotices.push(note, NOTICE_PRIORITY.budget, { once: true });
 			// Enrolação pesquisa -> arquivo: aviso, só tools de arquivo e, por fim, parada honesta.
 			if (stallFileIntent(pending)) {
 				const stage = stallStage(readOnlyStreak);
@@ -8013,7 +8006,7 @@ ${blockHint}`;
 				const stallNote = stage === "nudge" ? STALL_NUDGE_NOTE : stage === "restrict" ? STALL_RESTRICT_NOTE : null;
 				if (stallNote && !stallNoted.has(stallNote)) {
 					stallNoted.add(stallNote);
-					conversation.push({ role: "system", content: stallNote });
+					stepNotices.push(stallNote, NOTICE_PRIORITY.normal);
 				}
 			}
 			if (stallRestrict) reserveRestrict = true;
@@ -8030,12 +8023,7 @@ ${blockHint}`;
 					"other",
 				);
 			}
-			const noted = conversation.some(
-				(message) => message.role === "system" && message.content === CHILD_WRAPUP_NOTE,
-			);
-			if (!noted && shouldSendWrapUpNote(usage)) {
-				conversation.push({ role: "system", content: CHILD_WRAPUP_NOTE });
-			}
+			if (shouldSendWrapUpNote(usage)) stepNotices.push(CHILD_WRAPUP_NOTE, NOTICE_PRIORITY.budget, { once: true });
 		}
 
 		// Parte A1: reaplica a higiene a cada passo (antes de cada chamada ao
@@ -8061,6 +8049,9 @@ ${blockHint}`;
 		stepInspector.noteHygiene(stepHygiene.report);
 		await reportCompaction(stepHygiene.report);
 
+		// Notas do runtime vão anexadas ao resultado de tool mais recente: procedimentos pendentes e UM aviso por passo.
+		while (procedureNotes.length > 0 && appendToLatestToolResult(conversation, procedureNotes[0]!)) procedureNotes.shift();
+		stepNotices.flush(conversation);
 		// Continuação de uma resposta cortada pelo limite de saída: mesmo balão (id do passo cortado).
 		const stepId = truncatedReply?.id ?? `${turnId}-step-${step}`;
 		const stepOutcome = await streamStep(
@@ -8305,7 +8296,7 @@ ${blockHint}`;
 		await runTools(step, toolCalls);
 		if (dataToolRan && !isSubagent && !promptedGroups.has("data")) {
 			promptedGroups.add("data");
-			conversation.push({ role: "system", content: groupProcedureText(new Set(["data"])) });
+			attachProcedure(groupProcedureText(new Set(["data"])));
 		}
 		// Guia do conector: nota de dados (uma vez por conexão e run), depois das regras; também ao carregar tools por busca.
 		if (mcp?.guides || params.apiConnector?.connections.some((item) => item.guide)) {
@@ -8322,9 +8313,7 @@ ${blockHint}`;
 					guideInjector.seed(conversation);
 					guideSeeded = true;
 				}
-				for (const note of guideInjector.notesFor(guideRefsPending.splice(0))) {
-					conversation.push({ role: "system", content: note });
-				}
+				for (const note of guideInjector.notesFor(guideRefsPending.splice(0))) attachProcedure(note);
 			}
 		}
 		nextStepIndex = step + 1;
