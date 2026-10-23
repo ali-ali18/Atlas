@@ -130,11 +130,11 @@ test("getRoutineAlertForAgentRun filtra pelo dono e só devolve rotina de alerta
 	const original = client.routineRun;
 	client.routineRun = {
 		findFirst: async ({ where }: { where: { routine: { userId: { in: string[] } } } }) =>
-			where.routine.userId.in.includes("user-a") ? { routine: { id: "r1", alertJson: stored.alertJson } } : null,
+			where.routine.userId.in.includes("user-a") ? { routine: { id: "r1", name: "Estoque", alertJson: stored.alertJson } } : null,
 	};
 	try {
 		stored.alertJson = { condition: "estoque baixo", active: true };
-		assert.deepEqual(await getRoutineAlertForAgentRun("run-1", "user-a"), { routineId: "r1", alert: { condition: "estoque baixo", active: true } });
+		assert.deepEqual(await getRoutineAlertForAgentRun("run-1", "user-a"), { routineId: "r1", name: "Estoque", alert: { condition: "estoque baixo", active: true } });
 		assert.equal(await getRoutineAlertForAgentRun("run-1", "user-b"), null);
 		assert.equal(await getRoutineAlertForAgentRun("run-1", "default"), null);
 		assert.equal(await getRoutineAlertForAgentRun("run-1", undefined), null);

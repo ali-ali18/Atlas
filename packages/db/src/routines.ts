@@ -1181,16 +1181,16 @@ export async function getRoutinePageIdForAgentRun(agentRunId: string, userId: st
 export async function getRoutineAlertForAgentRun(
 	agentRunId: string,
 	userId: string | undefined,
-): Promise<{ routineId: string; alert: RoutineAlert } | null> {
+): Promise<{ routineId: string; name: string; alert: RoutineAlert } | null> {
 	const owners = ownerIds(userId);
 	if (owners.length === 0) return null;
 	const row = await prisma.routineRun.findFirst({
 		where: { agentRunId, routine: { userId: { in: owners } } },
 		orderBy: { createdAt: "desc" },
-		select: { routine: { select: { id: true, alertJson: true } } },
+		select: { routine: { select: { id: true, name: true, alertJson: true } } },
 	});
 	const alert = parseRoutineAlert(row?.routine?.alertJson);
-	return row?.routine && alert ? { routineId: row.routine.id, alert } : null;
+	return row?.routine && alert ? { routineId: row.routine.id, name: row.routine.name, alert } : null;
 }
 
 /**
