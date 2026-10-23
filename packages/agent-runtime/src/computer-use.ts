@@ -44,6 +44,7 @@ import type {
 	RoutineRecord,
 	StepTelemetry,
 	OpenBotRequest,
+	ToolCacheState,
 } from "@workspace/shared";
 import {
 	connectorScopeKey,
@@ -281,7 +282,8 @@ import {
 } from "./tools/computer-native.js";
 import { shouldAnnounceCompaction } from "./context/compaction-notice.js";
 import { disciplineForModel } from "./context/model-discipline.js";
-import { appendToLatestToolResult, conversationHasNote, createStepNotices, NOTICE_PRIORITY } from "./loop/tool-result-notes.js";
+import { appendToLatestToolResult, appendToToolResult, conversationHasNote, createStepNotices, NOTICE_PRIORITY } from "./loop/tool-result-notes.js";
+import { REPAIRED_ARGS_NOTE, repairedToolNote, repairToolArguments, repairToolName, unresolvedToolHint, type ToolNameCandidate } from "./execution/tool-repair.js";
 import { assembleSystemPromptParts, groupProcedureText, legacySystemPrompt, skillIndexPrompt } from "./context/prompt-blocks.js";
 import { contextEconomyEnabled, contextTranscriptEnabled } from "./context/flag.js";
 import { clippedResultRefLine, createResultStore, resultStoreLimits, extractResultRef, RESULT_MAX_STORED_CHARS } from "./context/result-store.js";
@@ -295,6 +297,9 @@ import { ARTIFACT_READ_TOOL, readStoredResult } from "./tools/artifact-read.js";
 import { apiMentioned, economyRouterText, orderEconomyTools, planContextEconomy } from "./context/economy.js";
 import { delegationCue } from "./context/intent-router.js";
 import { createNativeDeferral, type NativeDeferral } from "./context/native-deferral.js";
+import { deferredToolsIndex, nativeToolGroupOf } from "./context/native-tools.js";
+import { arrangeGroupSegments, nextToolCacheState, orderByPrior, planStickyGroups } from "./context/sticky-groups.js";
+import type { ContextGroup } from "./context/prompt-blocks.js";
 
 import {
 	COMPUTER_REF_TOOLS,
@@ -2164,11 +2169,15 @@ export type CompletedToolReplay = {
 const EXECUTOR_GUARDED_TOOLS: ReadonlySet<string> = new Set(["mcp_tool_search", "propose_profile_update", ...DEPRECATED_SKILL_ALIASES]);
 
 /** L19: resposta ao modelo quando ele pede uma tool fora do conjunto executável. */
-export function unavailableToolMessage(name: string, loadable: boolean, canSearch: boolean): string {
-	return loadable && canSearch
+export function unavailableToolMessage(name: string, loadable: boolean, canSearch: boolean, hint = ""): string {
+	const message = loadable && canSearch
 		? `Tool ${name} is not loaded in this run. Load it with mcp_tool_search first, then call it.`
 		: `Tool ${name} is not available in this run. Use one of the tools you were given, or tell the user what is missing.`;
+	return hint ? `${message} ${hint}` : message;
 }
+
+/** Leituras do navegador: observar a página não muda nada (podem ser alvo de correção de nome aproximada). */
+const BROWSER_OBSERVATION_TOOLS: ReadonlySet<string> = new Set(["navigate", "browser_read", "browser_find", "browser_snapshot", "browser_wait", "screenshot"]);
 
 /** subIndex do passo que registra as tools oferecidas (entre o model 0 e o 1). */
 export const OFFERED_TOOLS_SUB_INDEX = 98;
@@ -4732,6 +4741,8 @@ export async function runComputerUse(params: {
 	skillIndex?: string;
 	/** Acesso às skills em Markdown (padrão: db; injetável em teste). */
 	skillStore?: SkillsStore;
+	/** Perfil do bot (persona e gate do onboarding). Padrão: db; o harness de avaliação injeta um fixo. */
+	loadBotProfile?: typeof getBotProfile;
 	/** Dependências do `create_file` (teste e harness de avaliação; produção usa db + Chromium). */
 	createFileDeps?: Partial<CreateFileDeps>;
 	/** Dependências do `run_code` (teste). */
@@ -4791,6 +4802,8 @@ export async function runComputerUse(params: {
 	priorTranscript?: SerializedLlmMessage[];
 	/** Tools de conector/adiadas que os turnos anteriores deixaram carregadas (ficam carregadas neste run). */
 	priorLoadedTools?: string[];
+	/** Grupos e ordem de tools congelados na conversa pelo turno anterior (cache de prompt; ver `context/sticky-groups.ts`). */
+	priorToolCache?: ToolCacheState;
 	/** `/compact` aplicado à conversa antes deste turno: vira a ação "Conversa compactada" no inspetor do 1º passo. */
 	priorCompaction?: { before: number; after: number };
 	/** Marca d'água da conversa (última mensagem vista ao montar o histórico); vai em todo checkpoint do run. */
@@ -5104,7 +5117,7 @@ export async function runComputerUse(params: {
 		[...params.messages].reverse().find((message) => message.role === "user")
 			?.content ?? "";
 	const botProfileForGate = params.botId && !isSubagent
-		? await getBotProfile(params.botId, params.userId).catch(() => null)
+		? await (params.loadBotProfile ?? getBotProfile)(params.botId, params.userId).catch(() => null)
 		: null;
 	const onboardingIncomplete = !botProfileForGate?.description?.trim();
 	const isConfigEventRun =
@@ -5556,6 +5569,8 @@ export async function runComputerUse(params: {
 		vaultUsable && !isSubagent && sandboxEnabled && userId !== "default" && !isUnattendedOrigin(params.origin)
 			? await listVaultLoginDomains(vaultService, userId).catch(() => [])
 			: [];
+	// Cache de prompt: grupos do turno anterior seguem carregados (e na mesma ordem) por alguns turnos.
+	const stickyPlan = economy ? planStickyGroups({ prior: parsedCheckpoint?.toolCache ?? params.priorToolCache, resume: Boolean(parsedCheckpoint?.toolCache), now: new Date() }) : null;
 	const economyPlan = economy
 		? planContextEconomy({
 				eligible: baseTools,
@@ -5571,8 +5586,19 @@ export async function runComputerUse(params: {
 				preloadEmail: params.origin === "email",
 				preloadPages: params.origin === "routine" && Boolean(params.routinePageId),
 				preloadApi: apiMentioned(params.apiConnector?.connections ?? [], economyRouterText({ origin: params.origin, objective: params.objective, messages: params.messages, lastUserMessage: lastUserMessageContent })),
+				stickyGroups: stickyPlan?.carriedGroups,
 			})
 		: null;
+	// Blocos de procedimento no prompt: os do turno anterior na mesma ordem e o novo no fim. Grupo carregado no meio de
+	// um turno anterior (procedimento já está na conversa) não ganha bloco: o prompt do turno seguinte fica igual.
+	const carriedSegmentGroups = new Set(stickyPlan?.carriedSegments.flat() ?? []);
+	const promptSegments: ContextGroup[][] = economyPlan
+		? arrangeGroupSegments({
+				carried: stickyPlan?.carriedSegments ?? [],
+				groups: economyPlan.groups,
+				exclude: new Set([...(stickyPlan?.carriedGroups ?? [])].filter((group) => !carriedSegmentGroups.has(group))),
+			})
+		: [];
 	const searchToolAllowed = params.toolFilter?.(MCP_TOOL_SEARCH_TOOL.function.name) ?? true;
 	const wantsSearchTool =
 		Boolean(economyPlan) && searchToolAllowed && (economyPlan!.plan.deferred.size > 0 || Boolean(mcp?.toolset.deferred));
@@ -5743,7 +5769,11 @@ export async function runComputerUse(params: {
 
 	let conversation: LlmMessage[];
 	// Conversa dos turnos anteriores: troca a marcação deixada pelo worker; sem conversa a marcação só some.
-	const priorLoadedTools = params.priorLoadedTools ?? parsedCheckpoint?.loadedTools ?? [];
+	// Tool nativa de grupo expirado (sem uso há vários turnos ou conversa parada) não volta.
+	const priorLoadedTools = (params.priorLoadedTools ?? parsedCheckpoint?.loadedTools ?? []).filter((name) => {
+		const group = nativeToolGroupOf(name);
+		return !(group && stickyPlan?.expired.has(group));
+	});
 	const priorHistory = params.priorTranscript?.length ? await hydrateLlmMessages(params.priorTranscript) : [];
 	const placeTranscript = <T extends { role: string; content: unknown }>(list: T[]): LlmMessage[] => {
 		const slot = list.findIndex((message) => message.role === "system" && message.content === TRANSCRIPT_SLOT);
@@ -5771,12 +5801,16 @@ export async function runComputerUse(params: {
 		const skillIndexText = skillIndexPrompt(params.skillIndex);
 		const skillIndexBlock = skillIndexText ? `\n\n${skillIndexText}` : "";
 		const economyParts = economyPlan ? assembleSystemPromptParts(economyPlan.groups) : null;
+		// Índice pelos grupos do 1º bloco: grupo que entra depois não reescreve o começo do prompt.
+		const economyIndex = economyPlan ? deferredToolsIndex(baseTools, new Set(promptSegments[0] ?? [])) : "";
 		const economyTail = economyPlan
 			? [
-					nativeDeferral && wantsSearchTool && economyPlan.index ? economyPlan.index : "",
-					economyParts?.procedures ?? "",
+					nativeDeferral && wantsSearchTool && economyIndex ? economyIndex : "",
 					vaultLoginsPromptLine(vaultLoginDomains),
-					economyPlan.groups.has("web") && params.origin !== "routine" ? AGENTIC_RESEARCH_PROMPT : "",
+					// Um bloco por leva de grupos, na ordem em que entraram (o que muda fica no fim).
+					...promptSegments.map((segment) =>
+						[groupProcedureText(new Set(segment)), segment.includes("web") && params.origin !== "routine" ? AGENTIC_RESEARCH_PROMPT : ""].filter(Boolean).join("\n\n"),
+					),
 				]
 					.filter(Boolean)
 					.map((block) => `\n\n${block}`)
@@ -5874,6 +5908,11 @@ export async function runComputerUse(params: {
 			}
 		}
 	}
+
+	// Cache de prompt: o array de tools começa na ordem do turno anterior; o que é novo vai no fim.
+	if (stickyPlan && stickyPlan.toolOrder.length > 0) tools.splice(0, tools.length, ...orderByPrior(tools, (tool) => tool.function.name, stickyPlan.toolOrder));
+	const promptedAtStart = new Set(promptedGroups);
+	const usedToolGroups = new Set<string>();
 
 	// F2b: journal de efeitos + status estruturado (W9/L20). Antes da primeira higiene:
 	// o colapso preserva o status de cada resultado.
@@ -6143,6 +6182,17 @@ export async function runComputerUse(params: {
 		const stillDeferred = new Set(nativeDeferral?.pending() ?? []);
 		return [...mcpActiveOrder, ...nativeDeferredAtStart.filter((name) => !stillDeferred.has(name))];
 	};
+	// Grupos usados neste turno (pedidos pelo roteador, carregados no meio ou com tool chamada) renovam o prazo.
+	const toolCacheSnapshot = (): ToolCacheState | undefined =>
+		stickyPlan && economyPlan && !isSubagent
+			? nextToolCacheState({
+					plan: stickyPlan,
+					now: new Date(),
+					segments: promptSegments,
+					used: [...economyPlan.routed, ...[...promptedGroups].filter((group) => !promptedAtStart.has(group)), ...usedToolGroups],
+					toolOrder: tools.map((tool) => tool.function.name),
+				})
+			: undefined;
 	let checkpointTail: Promise<void> = Promise.resolve();
 	const writeCheckpoint = async (stepIndex: number) => {
 		if (!onCheckpoint) return;
@@ -6178,6 +6228,7 @@ export async function runComputerUse(params: {
 				modelEscalations: tierEscalations,
 				activeElapsedMs: activeElapsedMs(),
 				...(isSubagent ? {} : { loadedTools: loadedToolNames() }),
+				toolCache: toolCacheSnapshot(),
 				transcriptWatermark: parsedCheckpoint?.transcriptWatermark ?? params.transcriptWatermark,
 				carriedNotes: parsedCheckpoint?.carriedNotes ?? params.carriedNotes,
 			}),
@@ -6769,6 +6820,44 @@ export async function runComputerUse(params: {
 			}),
 	});
 
+	// Transporte tolerante: nome de tool torto (caixa, separador, namespace, apelido, letra trocada) e JSON malformado
+	// são corrigidos antes de gravar a decisão, só com alvo único e seguro (ver execution/tool-repair.ts).
+	const toolCallRepairNotes = new Map<string, string[]>();
+	const unresolvedToolHints = new Map<string, string>();
+	const repairCandidates = (): ToolNameCandidate[] => {
+		const names = new Set(tools.map((tool) => tool.function.name));
+		if (!isSubagent) {
+			for (const name of nativeDeferral?.pending() ?? []) names.add(name);
+			for (const name of mcp?.toolset.available.keys() ?? []) if (params.toolFilter?.(name) ?? true) names.add(name);
+		}
+		return [...names].map((name) => ({ name, readOnly: isReadOnlyToolName(name, isReadOnlyTool) || BROWSER_OBSERVATION_TOOLS.has(name) }));
+	};
+	const repairToolCalls = (toolCalls: LlmToolCall[], truncated: boolean) => {
+		if (toolCalls.length === 0) return;
+		const candidates = repairCandidates();
+		const known = new Set<string>([...LEGACY_BROWSER_TOOL_NAMES, ...(isSubagent ? [] : EXECUTOR_GUARDED_TOOLS)]);
+		toolCalls.forEach((call, index) => {
+			const notes: string[] = [];
+			const repair = repairToolName(call.function.name, candidates, known);
+			if (repair.kind === "repaired") {
+				notes.push(repairedToolNote(repair.from, repair.name));
+				call.function.name = repair.name;
+			} else if (repair.kind !== "exact") {
+				const hint = unresolvedToolHint(repair);
+				if (hint) unresolvedToolHints.set(call.id, hint);
+			}
+			// JSON cortado pelo limite de saída tem orientação própria no executor: não é reparado.
+			if (!(truncated && index === toolCalls.length - 1)) {
+				const args = repairToolArguments(call.function.arguments);
+				if (args.ok && args.repaired) {
+					call.function.arguments = JSON.stringify(args.value);
+					notes.push(REPAIRED_ARGS_NOTE);
+				}
+			}
+			if (notes.length > 0) toolCallRepairNotes.set(call.id, notes);
+		});
+	};
+
 	const runToolBatch = async (decisionIndex: number, toolCalls: LlmToolCall[]) => {
 		const doneIds = completedToolCallIds(conversation);
 		const batchStart = conversation.length;
@@ -6935,8 +7024,8 @@ export async function runComputerUse(params: {
 					name,
 					argsKey,
 					isSubagent
-						? `Tool ${name} is not available to this sub-agent. Use one of the tools you were given, or finish with what you have.`
-						: unavailableToolMessage(name, Boolean(mcp?.toolset.available.has(name)), tools.some((tool) => tool.function.name === MCP_TOOL_SEARCH_TOOL.function.name)),
+						? [`Tool ${name} is not available to this sub-agent. Use one of the tools you were given, or finish with what you have.`, unresolvedToolHints.get(call.id)].filter(Boolean).join(" ")
+						: unavailableToolMessage(name, Boolean(mcp?.toolset.available.has(name)), tools.some((tool) => tool.function.name === MCP_TOOL_SEARCH_TOOL.function.name), unresolvedToolHints.get(call.id)),
 					"argument",
 					buildToolResultStatus({ ok: false, writes: false, code: "unavailable" }),
 				);
@@ -7685,6 +7774,11 @@ ${blockHint}`;
 			.sort((a, b) => (order.get(a.tool_call_id ?? "") ?? 0) - (order.get(b.tool_call_id ?? "") ?? 0));
 		let resultIndex = 0;
 		conversation.splice(batchStart, tail.length, ...tail.map((message) => message.role === "tool" ? results[resultIndex++]! : message));
+		// Nome ou argumentos corrigidos: a nota vai no resultado da própria chamada (o modelo aprende o nome exato).
+		for (const call of toolCalls) {
+			const notes = toolCallRepairNotes.get(call.id);
+			if (notes?.length) appendToToolResult(conversation, call.id, notes.join(" "));
+		}
 
 		// Avisos de laço do lote: uma nota curta anexada ao resultado (no máximo um aviso por passo).
 		if (batchLoopWarnings.length > 0) stepNotices.push(batchLoopWarnings.join(" "), NOTICE_PRIORITY.normal);
@@ -8273,6 +8367,11 @@ ${blockHint}`;
 		}
 
 		finishRetries = 0;
+		repairToolCalls(toolCalls, stepFinishTruncated);
+		for (const call of toolCalls) {
+			const group = nativeToolGroupOf(call.function.name);
+			if (group) usedToolGroups.add(group);
+		}
 		// Fala repetida antes de tools (ou fala de passo só de leitura em enrolação) não vira balão novo.
 		const readOnlyDecision = toolCalls.every((call) => isReadOnlyToolName(call.function.name, isReadOnlyTool));
 		let narration = content;

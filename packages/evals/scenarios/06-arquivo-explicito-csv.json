@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "arquivo-explicito-csv",
+  "title": "Pedido explícito de arquivo (CSV) → cria o arquivo, não cola no chat",
+  "tags": ["arquivos"],
+  "bot": { "name": "Ada", "about": "Assistente do escritório.", "language": "pt-BR" },
+  "user": "exporta essa lista pra um arquivo CSV com as colunas nome e cidade:\nAna Souza - Curitiba\nBruno Lima - Recife\nCarla Dias - Natal",
+  "expect": [
+    { "type": "completed" },
+    { "type": "file_created", "extension": "csv" },
+    { "id": "csv-com-dados", "type": "tool_called", "tool": "create_file", "args": { "content": { "contains": "Recife" } } },
+    { "type": "no_question" },
+    { "type": "no_unfulfilled_promise" }
+  ],
+  "mock": {
+    "turns": [
+      { "calls": [{ "name": "create_file", "args": { "filename": "contatos.csv", "content": "nome,cidade\nAna Souza,Curitiba\nBruno Lima,Recife\nCarla Dias,Natal\n" } }] },
+      { "say": "Pronto: o arquivo contatos.csv com as três pessoas está no card acima." }
+    ]
+  }
+}

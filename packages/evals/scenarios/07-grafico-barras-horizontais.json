@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "grafico-barras-horizontais",
+  "title": "Gráfico de barras horizontais → spec válido com orientation horizontal (sem 'barh' nem campo inventado)",
+  "tags": ["graficos"],
+  "bot": { "name": "Ada", "about": "Assistente de vendas.", "language": "pt-BR" },
+  "user": "faz um gráfico de barras horizontais com as vendas por produto: Camiseta 361, Caneca 248, Boné 129",
+  "expect": [
+    { "type": "completed" },
+    { "id": "barras-horizontais", "type": "chart", "spec": { "type": { "equals": "bar" }, "orientation": { "equals": "horizontal" } } },
+    { "type": "no_question" },
+    { "type": "no_internals", "extraTerms": ["orientation", "barh", "spec"] }
+  ],
+  "mock": {
+    "turns": [
+      { "say": "Aqui está o gráfico das vendas por produto:\n\n```chart\n{\"type\":\"bar\",\"orientation\":\"horizontal\",\"title\":\"Vendas por produto\",\"x\":\"produto\",\"series\":[{\"key\":\"vendas\",\"label\":\"Vendas\"}],\"data\":[{\"produto\":\"Camiseta\",\"vendas\":361},{\"produto\":\"Caneca\",\"vendas\":248},{\"produto\":\"Boné\",\"vendas\":129}]}\n```" }
+    ]
+  }
+}

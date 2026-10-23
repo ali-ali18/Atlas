@@ -1,7 +1,7 @@
 /**
- * Cenários de conversa compartilhados entre a suíte roteirizada (`conversations.test.ts`) e o script opcional com
- * modelo real (`scripts/sim-real-model.mts`). Cada cenário tem a conversa e uma checagem do comportamento que vale
- * para qualquer modelo; a suíte roteirizada ainda confere os detalhes do runtime.
+ * Cenários de conversa da suíte roteirizada (`conversations.test.ts`). Cada cenário tem a conversa e uma checagem do
+ * comportamento que vale para qualquer modelo; a suíte ainda confere os detalhes do runtime. Os mesmos casos rodam
+ * com modelo real (e mais outros) no pacote `@workspace/evals` (`packages/evals/scenarios/`).
  */
 
 export type ScenarioOutcome = { text: string; toolsCalled: string[]; discards: string[]; systemNotes: string };
@@ -102,5 +102,11 @@ export const SCENARIOS: Scenario[] = [
 			if (/^(vou|deixa eu|um momento)/i.test(outcome.text.trim())) return "terminou prometendo";
 			return null;
 		},
+	},
+	{
+		id: 6,
+		name: "nome de ferramenta torto ('List-Routines') → o runtime corrige e a leitura roda",
+		messages: [{ role: "user", content: "quais rotinas eu tenho agendadas?" }],
+		check: (outcome) => (outcome.toolsCalled.includes("list_routines") ? null : "não listou as rotinas"),
 	},
 ];

@@ -38,6 +38,19 @@ export function appendToLatestToolResult(conversation: LlmMessage[], text: strin
 	return true;
 }
 
+/** Anexa `text` ao resultado da chamada `toolCallId` (in place). `false` = a chamada ainda não tem resultado. */
+export function appendToToolResult(conversation: LlmMessage[], toolCallId: string, text: string): boolean {
+	let index = conversation.length - 1;
+	while (index >= 0 && !(conversation[index]!.role === "tool" && conversation[index]!.tool_call_id === toolCallId)) index -= 1;
+	if (index < 0 || !text.trim()) return false;
+	const message = conversation[index]!;
+	const note = `${TOOL_RESULT_NOTE_MARKER}${text.trim()}`;
+	conversation[index] = Array.isArray(message.content)
+		? { ...message, content: [...message.content, { type: "text", text: note.trimStart() }] }
+		: { ...message, content: `${message.content ?? ""}${note}` };
+	return true;
+}
+
 /** Corpo e notas anexadas de um resultado de tool (a higiene encurta só o corpo). */
 export function splitToolResultNotes(content: string): { body: string; notes: string } {
 	const at = content.indexOf(TOOL_RESULT_NOTE_MARKER);

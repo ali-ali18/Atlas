@@ -19,8 +19,8 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { AGENT_RUNTIME_CHECKPOINT_VERSION, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
-import type { ToolResultStatus } from "@workspace/shared";
+import { AGENT_RUNTIME_CHECKPOINT_VERSION, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
+import type { ToolCacheState, ToolResultStatus } from "@workspace/shared";
 import type { ComputerUseEvent, ConversationTaskContext, ResearchNote, TaskLedger, TaskListItem } from "@workspace/shared";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -2217,6 +2217,8 @@ export type RunTranscript = {
 	/** Mensagens do LLM como gravadas no checkpoint (forma serializada; o runtime valida e higieniza). */
 	llmMessages: unknown[];
 	loadedTools?: string[];
+	/** Grupos e ordem de tools congelados na conversa (cache de prompt). */
+	toolCache?: ToolCacheState;
 	/** Última escrita da linha do run: a compactação manual só grava se ela não mudou desde a leitura. */
 	updatedAt?: Date;
 	/** `/compact` aplicado a esta conversa levada (o inspetor mostra no primeiro run depois dele). */
@@ -2226,7 +2228,7 @@ export type RunTranscript = {
 function transcriptOf(row: { id: string; createdAt: Date; updatedAt?: Date; finishedAt: Date | null; checkpointJson: unknown }): RunTranscript | null {
 	const raw = row.checkpointJson;
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-	const { llmMessages, loadedTools, transcriptWatermark, carriedNotes, compaction } = raw as { llmMessages?: unknown; loadedTools?: unknown; transcriptWatermark?: unknown; carriedNotes?: Array<{ key?: unknown; content?: unknown; idleTurns?: unknown }>; compaction?: { before?: unknown; after?: unknown; at?: unknown } };
+	const { llmMessages, loadedTools, toolCache, transcriptWatermark, carriedNotes, compaction } = raw as { llmMessages?: unknown; loadedTools?: unknown; toolCache?: unknown; transcriptWatermark?: unknown; carriedNotes?: Array<{ key?: unknown; content?: unknown; idleTurns?: unknown }>; compaction?: { before?: unknown; after?: unknown; at?: unknown } };
 	const mark = transcriptWatermark as { messageId?: unknown; createdAt?: unknown; count?: unknown } | undefined;
 	if (!Array.isArray(llmMessages) || llmMessages.length === 0) return null;
 	return {
@@ -2239,6 +2241,7 @@ function transcriptOf(row: { id: string; createdAt: Date; updatedAt?: Date; fini
 		...(compaction && typeof compaction.before === "number" && typeof compaction.after === "number" && typeof compaction.at === "string" ? { compaction: { before: compaction.before, after: compaction.after, at: compaction.at } } : {}),
 		llmMessages,
 		...(Array.isArray(loadedTools) ? { loadedTools: loadedTools.filter((name): name is string => typeof name === "string").slice(0, 200) } : {}),
+		...(parseToolCacheState(toolCache) ? { toolCache: parseToolCacheState(toolCache)! } : {}),
 	};
 }
 

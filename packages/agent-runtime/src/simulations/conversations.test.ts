@@ -4,13 +4,15 @@ import { disciplineForModel } from "../context/model-discipline.js";
 import { MISSING_ARTIFACT_NOTE } from "../execution/task-state.js";
 import { jevSaying, WANTS_FILE_JEV } from "../jev/test-support.js";
 import { USER_MESSAGE_HEADER } from "../loop/inputs.js";
+import { buildTranscriptHistory, cleanTranscript, namespaceToolCallIds } from "../context/transcript.js";
+import { TRANSCRIPT_SLOT, type SerializedLlmMessage, type ToolCacheState } from "@workspace/shared";
 import { calls, say, simulate, systemAfterStart, type Simulation } from "./harness.js";
 import { endsWithQuestion, SCENARIOS, type ScenarioOutcome } from "./scenarios.js";
 
 /**
  * Simulações de conversa de ponta a ponta (LLM roteirizado, sem rede): cada cenário roda o runtime inteiro e confere
- * o que o usuário veria (balões, cards, texto final) e o que o modelo recebeu (tools, prompt, notas). A checagem de
- * comportamento de `scenarios.ts` é a mesma que o script com modelo real (`scripts/sim-real-model.mts`) usa.
+ * o que o usuário veria (balões, cards, texto final) e o que o modelo recebeu (tools, prompt, notas). Com modelo
+ * real, os mesmos casos rodam no pacote `@workspace/evals` (matriz cenário × modelo e diagnóstico modelo x harness).
  */
 
 vi.mock("@workspace/db", async (original) => ({
@@ -223,6 +225,15 @@ describe("simulações: persona e família do modelo", () => {
 		expect(pt.system()).toContain("Always reply to the user in Brazilian Portuguese.");
 	});
 
+	it("9b. perfil injetado (harness de avaliação) vale para a persona e o gate do onboarding, sem o banco", async () => {
+		const loadBotProfile = vi.fn(async () => ({ name: "Lia", snippet: "", description: "Assistente da padaria.", openRouterModel: null, language: "pt-BR" as const }));
+		const sim = await simulate({ messages: [{ role: "user", content: "Bom dia" }], script: [say("Bom dia!")], extra: { loadBotProfile } });
+		expect(loadBotProfile).toHaveBeenCalledWith("bot-sim", "user-sim");
+		expect(getBotProfile).not.toHaveBeenCalled();
+		expect(sim.system()).toContain('You are "Lia"');
+		expect(sim.requests[0]!.tools).not.toContain("propose_profile_update");
+	});
+
 	it("10. DeepSeek recebe a disciplina completa; Claude só o mínimo; 'Bom dia' segue pequeno", async () => {
 		const deepseek = await simulate({ messages: [{ role: "user", content: "Bom dia" }], model: "deepseek/deepseek-chat", script: [say("Bom dia!")] });
 		const claude = await simulate({ messages: [{ role: "user", content: "Bom dia" }], model: "anthropic/claude-sonnet-4.5", script: [say("Bom dia!")] });
@@ -237,5 +248,45 @@ describe("simulações: persona e família do modelo", () => {
 			expect(sim.requests[0]!.tools).not.toContain("propose_plan");
 			expect(sim.requests).toHaveLength(1);
 		}
+	});
+});
+
+describe("simulações: transporte tolerante", () => {
+	it("11. modelo chama 'List-Routines' com JSON de aspas simples → roda list_routines, nota curta no resultado, sem erro", async () => {
+		const torto = calls(["List-Routines", {}]);
+		torto.message.tool_calls![0]!.function.arguments = "{'limit': 10,}";
+		const sim = await simulate({ messages: scenario(6).messages, script: [torto, say("Você não tem rotinas agendadas.")] });
+		expect(scenario(6).check(outcomeOf(sim))).toBeNull();
+		expect(sim.toolResults).toEqual([expect.objectContaining({ name: "list_routines", ok: true })]);
+		expect(sim.notes(1).join("\n")).toContain("Called `List-Routines` as `list_routines`");
+		expect(sim.notes(1).join("\n")).toContain("were not valid JSON");
+		expect(sim.requests[1]!.messages.flatMap((message) => message.tool_calls ?? []).map((call) => call.function.name)).toEqual(["list_routines"]);
+		expect(sim.visible).toEqual(["Você não tem rotinas agendadas."]);
+	});
+});
+
+describe("simulações: cache de prompt entre turnos", () => {
+	it("12. 'me lembra amanhã às 9h' e depois 'obrigado' → o 2º turno manda as mesmas tools e o mesmo sistema", async () => {
+		type Checkpoint = { llmMessages?: SerializedLlmMessage[]; loadedTools?: string[]; toolCache?: ToolCacheState };
+		let saved: Checkpoint | undefined;
+		const onCheckpoint = async (checkpoint: unknown) => {
+			saved = JSON.parse(JSON.stringify(checkpoint)) as Checkpoint;
+		};
+		const one = await simulate({ messages: [{ role: "user", content: "me lembra amanhã às 9h de ligar pro fornecedor" }], script: [say("Anotado: amanhã às 9h.")], extra: { onCheckpoint } });
+		expect(one.requests.at(-1)!.tools).toContain("propose_routine");
+		const priorTranscript = buildTranscriptHistory({
+			transcript: namespaceToolCallIds(cleanTranscript(saved!.llmMessages, { model: "sim/model" })!, "run-sim"),
+			after: [{ role: "assistant", content: "Anotado: amanhã às 9h." }, { role: "user", content: "obrigado" }],
+			objective: "obrigado",
+		});
+		const two = await simulate({
+			messages: [{ role: "system", content: TRANSCRIPT_SLOT }, { role: "user", content: "obrigado" }],
+			script: [say("De nada!")],
+			extra: { priorTranscript, priorLoadedTools: saved!.loadedTools, priorToolCache: saved!.toolCache },
+		});
+		expect(two.requests[0]!.tools).toEqual(one.requests.at(-1)!.tools);
+		expect(JSON.stringify(two.requests[0]!.toolSchemas)).toBe(JSON.stringify(one.requests.at(-1)!.toolSchemas));
+		expect(String(two.requests[0]!.messages[0]!.content)).toBe(String(one.requests.at(-1)!.messages[0]!.content));
+		expect(two.visible).toEqual(["De nada!"]);
 	});
 });

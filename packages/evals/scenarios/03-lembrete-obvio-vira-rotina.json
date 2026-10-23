@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "id": "lembrete-obvio-vira-rotina",
+  "title": "Pedido óbvio de lembrete → cria a rotina de uma vez, sem questionário",
+  "tags": ["rotinas", "agir-sem-perguntar"],
+  "bot": { "name": "Ada", "about": "Assistente pessoal.", "language": "pt-BR" },
+  "user": "me lembra amanhã às 9h de ligar pro fornecedor",
+  "tools": {
+    "fixtures": [
+      { "tool": "propose_routine", "args": { "action": { "equals": "create" } }, "result": { "ok": true, "summary": "Routine created: \"Ligar pro fornecedor\" · once · tomorrow 09:00 (America/Sao_Paulo). The user sees the routine card." } },
+      { "tool": "list_routines", "result": { "ok": true, "summary": "No routines yet." } }
+    ]
+  },
+  "expect": [
+    { "type": "completed" },
+    { "id": "criou-rotina-once", "type": "tool_called", "tool": "propose_routine", "args": { "action": { "equals": "create" }, "trigger_type": { "equals": "once" } } },
+    { "type": "tool_not_called", "tool": "propose_questionnaire" },
+    { "type": "no_question" },
+    { "type": "no_internals" }
+  ],
+  "mock": {
+    "turns": [
+      { "calls": [{ "name": "propose_routine", "args": { "action": "create", "title": "Ligar pro fornecedor", "detail": "Lembrar de ligar pro fornecedor.", "trigger_type": "once", "run_at": "2026-10-24T12:00:00.000Z" } }] },
+      { "say": "Combinado: amanhã às 9h te lembro de ligar pro fornecedor." }
+    ]
+  }
+}

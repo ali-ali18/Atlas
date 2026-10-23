@@ -1,0 +1,26 @@
+{
+  "name": "@workspace/evals",
+  "version": "0.0.1",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval": "tsx src/cli.ts",
+    "lint": "node -e \"process.exit(0)\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@workspace/agent-runtime": "workspace:*",
+    "@workspace/llm": "workspace:*",
+    "@workspace/shared": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.41",
+    "@workspace/typescript-config": "workspace:*",
+    "tsx": "^4.23.13",
+    "typescript": "^5",
+    "vitest": "^4.1.12"
+  }
+}

@@ -39,7 +39,8 @@ export type Simulation = {
 };
 
 export type SimulateInput = {
-	messages: Array<{ role: "user" | "assistant"; content: string }>;
+	/** `system` só para a marcação do histórico (TRANSCRIPT_SLOT) num 2º turno. */
+	messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
 	script: Turn[] | ((index: number, request: CompleteChatWithToolsParams) => Turn);
 	model?: string;
 	language?: "pt-BR" | "en-US" | "es-ES";

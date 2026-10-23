@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "bot-en-us-responde-em-ingles",
+  "title": "Bot en-US → answers in English, without internals",
+  "tags": ["idioma"],
+  "bot": { "name": "Ada", "about": "Personal assistant for a small store.", "language": "en-US" },
+  "user": "Good morning! Can you give me three quick tips to organize my week?",
+  "expect": [
+    { "type": "completed" },
+    { "type": "language", "value": "en-US" },
+    { "type": "no_internals" },
+    { "type": "max_model_calls", "value": 2 }
+  ],
+  "mock": {
+    "turns": [
+      { "say": "Good morning! Here are three quick tips to organize your week:\n1. Pick the three tasks that matter most and put them on your calendar.\n2. Batch small chores like email into one block a day.\n3. Leave a short buffer on Friday to review what is still open." }
+    ]
+  }
+}
