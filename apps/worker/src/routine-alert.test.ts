@@ -16,7 +16,7 @@ function plan(alert: RoutineAlert, verdict: typeof yes | null, modelText?: strin
 function fakeDeps(over: { record?: () => Promise<boolean>; push?: boolean } = {}) {
 	const calls = { records: [] as Array<{ userId: string; routineId: string; next: RoutineAlert }>, pushes: [] as Array<{ userId: string; conversationId: string; text: string }>, logs: [] as string[] };
 	const deps = {
-		record: over.record ?? (async (userId: string, routineId: string, next: RoutineAlert) => {
+		record: over.record ?? (async (userId: string, routineId: string, next: RoutineAlert, _every?: number) => {
 			calls.records.push({ userId, routineId, next });
 			return true;
 		}),
@@ -144,4 +144,48 @@ test("rotina que falhou: push em pt-BR com o motivo amigável, escopado pelo don
 	assert.equal(await notifyRoutineRunFailure({ origin: "chat", agentRunId: "run-1", userId: "user-a", error }, deps), false);
 	assert.equal(await notifyRoutineRunFailure({ origin: "routine", agentRunId: "run-1", userId: "user-a", error }, { ...deps, push: undefined }), false);
 	assert.equal(pushes.length, 1);
+});
+
+test("backoff: depois de 3 conferências tranquilas e iguais o intervalo dobra, grava junto do estado e reagenda; disparar volta ao original", async () => {
+	const { deps, calls } = fakeDeps();
+	let rescheduled = 0;
+	const withReschedule = { ...deps, reschedule: async () => void (rescheduled += 1) };
+	let alert: RoutineAlert = { ...idle, lastSummary: no.summary };
+	let every = 120;
+	const recorded: Array<number | undefined> = [];
+	const spyDeps = { ...withReschedule, record: async (u: string, r: string, n: RoutineAlert, e?: number) => (recorded.push(e), deps.record(u, r, n, e)) };
+	for (let i = 0; i < 3; i += 1) {
+		const p = planAlertRun({ alert, routineName: "Estoque", verdict: no, interval: { everyMinutes: every }, now: NOW });
+		await settleAlertRun(p, target, spyDeps);
+		alert = p.next;
+		if (p.everyMinutes) every = p.everyMinutes;
+	}
+	assert.equal(every, 240);
+	assert.deepEqual(recorded, [undefined, undefined, 240]);
+	assert.equal(rescheduled, 1);
+	assert.deepEqual(alert.backoff, { base: 120, to: 240 });
+	const fired = planAlertRun({ alert, routineName: "Estoque", verdict: yes, interval: { everyMinutes: every }, now: NOW });
+	assert.equal(fired.everyMinutes, 120);
+	assert.equal(fired.next.backoff, undefined);
+	assert.equal(fired.notify, true);
+	void calls;
+});
+
+test("alerta por horário (cron) não tem backoff: nenhuma mudança de intervalo nem campos de estado extras", () => {
+	let alert: RoutineAlert = { ...idle, lastSummary: no.summary };
+	for (let i = 0; i < 5; i += 1) {
+		const p = planAlertRun({ alert, routineName: "Estoque", verdict: no, interval: null, now: NOW });
+		assert.equal(p.everyMinutes, undefined);
+		alert = p.next;
+	}
+	assert.equal(alert.quietStreak, undefined);
+	assert.equal(alert.backoff, undefined);
+});
+
+test("reagendamento que falha não derruba o alerta: o estado segue gravado", async () => {
+	const { deps } = fakeDeps();
+	const p = planAlertRun({ alert: { ...idle, lastSummary: no.summary, quietStreak: 2 }, routineName: "Estoque", verdict: no, interval: { everyMinutes: 120 }, now: NOW });
+	assert.equal(p.everyMinutes, 240);
+	const result = await settleAlertRun(p, target, { ...deps, reschedule: async () => { throw new Error("redis fora"); } });
+	assert.deepEqual(result, { recorded: true, pushed: false });
 });

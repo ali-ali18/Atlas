@@ -100,6 +100,7 @@ import {
 	tryAcquireRunLease,
 	type RunLease,
 	getAccountConfig,
+	getRoutine,
 	getRoutineAlertForAgentRun,
 	getRoutineContextForAgentRun,
 	getRoutineNotifyModeForAgentRun,
@@ -1206,7 +1207,7 @@ async function executeLeasedRun(ctx: {
 		runTelemetry.markBeforeFinalWrite();
 		// Alerta: o texto do run é o resultado da verificação; só entra na conversa quando avisa.
 		const alertPlan = alertCtx && alertRun
-			? planAlertRun({ alert: alertCtx.alert, routineName: alertCtx.name, verdict: alertRun.report.verdict, modelText: result.text, now: new Date() })
+			? planAlertRun({ alert: alertCtx.alert, routineName: alertCtx.name, verdict: alertRun.report.verdict, modelText: result.text, interval: alertCtx.interval ?? null, now: new Date() })
 			: null;
 		const resultText = alertPlan ? alertPlan.text : result.text;
 		const resultConversationId = alertPlan && !alertPlan.notify ? null : run.conversationId;
@@ -1233,7 +1234,14 @@ async function executeLeasedRun(ctx: {
 			await settleAlertRun(
 				alertPlan,
 				{ userId: runUserId, routineId: alertCtx.routineId, conversationId: run.conversationId },
-				{ record: recordRoutineAlertState, push: deps.notify ? (userId, conversationId, text) => deps.notify!(userId, conversationId, "alert", text) : undefined },
+				{
+					record: recordRoutineAlertState,
+					reschedule: async () => {
+						const updated = await getRoutine(runUserId, alertCtx.botId, alertCtx.routineId);
+						if (updated) await deps.onRoutineMutated?.(updated);
+					},
+					push: deps.notify ? (userId, conversationId, text) => deps.notify!(userId, conversationId, "alert", text) : undefined,
+				},
 			).catch((error) => console.error(`[alert] liquidação falhou run=${runId}`, error));
 		}
 

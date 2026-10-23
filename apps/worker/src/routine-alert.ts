@@ -3,6 +3,7 @@ import {
 	decideAlertNotification,
 	firstLine,
 	nextAlertState,
+	planAlertBackoff,
 	redactSecrets,
 	type AlertDecision,
 	type AlertVerdict,
@@ -19,6 +20,8 @@ export type AlertRunPlan = {
 	next: RoutineAlert;
 	/** Resultado da execução: histórico da rotina sempre; conversa só quando avisa. */
 	text: string;
+	/** Novo intervalo (backoff) a gravar junto do estado; ausente = não muda. Só rotina por intervalo. */
+	everyMinutes?: number;
 	/** Vai para a conversa e vira push. Falso = execução silenciosa (nada na conversa, sem push). */
 	notify: boolean;
 };
@@ -37,12 +40,24 @@ export function planAlertRun(input: {
 	verdict: AlertVerdict | null;
 	/** Texto final do modelo (só usado como motivo quando não houve veredito). */
 	modelText?: string | null;
+	/** Intervalo atual da rotina (só por intervalo): habilita o backoff; cron já tem horários escolhidos. */
+	interval?: { everyMinutes: number } | null;
 	now: Date;
 }): AlertRunPlan {
 	const decision = decideAlertNotification({ wasActive: input.alert.active, wasUnverified: input.alert.unverified === true, verdict: input.verdict });
+	const base = nextAlertState(input.alert, decision, input.verdict, input.now);
+	let next = base;
+	let everyMinutes: number | undefined;
+	if (input.interval) {
+		const backoff = planAlertBackoff({ everyMinutes: input.interval.everyMinutes, alert: input.alert, decision, verdict: input.verdict });
+		const { quietStreak: _q, backoff: _b, ...clean } = base;
+		next = { ...clean, ...(backoff.quietStreak > 0 ? { quietStreak: backoff.quietStreak } : {}), ...(backoff.backoff ? { backoff: backoff.backoff } : {}) };
+		if (backoff.everyMinutes !== input.interval.everyMinutes) everyMinutes = backoff.everyMinutes;
+	}
 	return {
 		decision,
-		next: nextAlertState(input.alert, decision, input.verdict, input.now),
+		next,
+		...(everyMinutes !== undefined ? { everyMinutes } : {}),
 		text: buildAlertRunText(decision, input.verdict, { name: input.routineName, reason: failureReason(input.modelText) }),
 		notify: decision.notify,
 	};
@@ -50,7 +65,9 @@ export function planAlertRun(input: {
 
 export type AlertSettleDeps = {
 	/** Grava o estado só se a condição ainda é a avaliada (db escopado pelo dono). */
-	record: (userId: string, routineId: string, next: RoutineAlert) => Promise<boolean>;
+	record: (userId: string, routineId: string, next: RoutineAlert, everyMinutes?: number) => Promise<boolean>;
+	/** Sincroniza o agendador depois de mudar o intervalo (backoff). Falha não derruba o alerta. */
+	reschedule?: () => Promise<unknown>;
 	/** Push (ausente = sem chaves VAPID). Respeita o switch do bot, quem está olhando e a coalescência. */
 	push?: (userId: string, conversationId: string, text: string) => Promise<unknown>;
 	log?: (line: string) => void;
@@ -68,7 +85,7 @@ export async function settleAlertRun(
 	const log = deps.log ?? ((line: string) => console.log(line));
 	let recorded = true;
 	try {
-		recorded = await deps.record(target.userId, target.routineId, plan.next);
+		recorded = await deps.record(target.userId, target.routineId, plan.next, plan.everyMinutes);
 	} catch (error) {
 		console.error(`[alert] estado não gravado routine=${target.routineId}`, error);
 	}
@@ -76,7 +93,10 @@ export async function settleAlertRun(
 		log(`[alert] routine=${target.routineId} resultado descartado (condição mudou durante a verificação)`);
 		return { recorded: false, pushed: false };
 	}
-	log(`[alert] routine=${target.routineId} transition=${plan.decision.transition} notify=${plan.notify}`);
+	log(`[alert] routine=${target.routineId} transition=${plan.decision.transition} notify=${plan.notify}${plan.everyMinutes ? ` everyMinutes=${plan.everyMinutes}` : ""}`);
+	if (plan.everyMinutes && deps.reschedule) {
+		await deps.reschedule().catch((error) => console.error(`[alert] agendador não sincronizado routine=${target.routineId}`, error instanceof Error ? error.message : "erro"));
+	}
 	if (!plan.notify || !deps.push || !target.conversationId) return { recorded: true, pushed: false };
 	await deps.push(target.userId, target.conversationId, plan.text).catch((error) => {
 		console.error(`[alert] push falhou routine=${target.routineId}`, error instanceof Error ? error.message : "erro");
