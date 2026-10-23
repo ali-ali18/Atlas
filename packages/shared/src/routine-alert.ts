@@ -6,6 +6,7 @@
  * O estado (`active`) mora na própria rotina: enquanto a condição continua verdadeira não avisa de
  * novo; só volta a avisar depois que ela deixou de valer pelo menos uma vez.
  */
+import { describeRoutineProposalSchedule } from "./routine-proposal.js";
 import type { RoutineTriggerType } from "./routines.js";
 
 export const ALERT_CONDITION_MIN = 3;
@@ -148,4 +149,18 @@ export function alertConditionPhrase(condition: string): string {
 export function formatRoutineAlertSentence(alert: Pick<RoutineAlertConfig, "condition">, cadence: string): string {
 	const when = lowerFirst(cleanLine(cadence));
 	return `Alerta · verifica ${when || "de tempos em tempos"} · avisa se ${alertConditionPhrase(alert.condition)}`;
+}
+
+/** Frase do alerta de uma rotina (card, lista e detalhe), com a cadência lida do gatilho. null = não é rotina de alerta. */
+export function describeRoutineAlertSentence(routine: {
+	alert?: Pick<RoutineAlertConfig, "condition"> | null;
+	triggerType: RoutineTriggerType;
+	schedule?: string | null;
+	interval?: { everyMinutes: number } | null;
+}): string | null {
+	if (!routine.alert?.condition) return null;
+	const cadence = describeRoutineProposalSchedule(
+		routine.triggerType === "interval" && routine.interval ? { everyMinutes: routine.interval.everyMinutes } : { schedule: routine.schedule ?? undefined },
+	);
+	return formatRoutineAlertSentence(routine.alert, cadence);
 }

@@ -5,6 +5,7 @@ import {
 	applyAlertConfig,
 	buildAlertRunText,
 	decideAlertNotification,
+	describeRoutineAlertSentence,
 	formatRoutineAlertSentence,
 	nextAlertState,
 	parseAlertVerdict,
@@ -151,6 +152,18 @@ describe("formatRoutineAlertSentence", () => {
 		expect(formatRoutineAlertSentence({ condition: "se a venda do dia ficar abaixo da meta" }, "Todo dia às 17:00")).toBe(
 			"Alerta · verifica todo dia às 17:00 · avisa se a venda do dia ficar abaixo da meta",
 		);
+	});
+
+	it("lê a cadência do próprio gatilho (intervalo ou horário), nunca o cron cru", () => {
+		const alert = { condition: "o estoque da canela cair abaixo de 10" };
+		expect(describeRoutineAlertSentence({ alert, triggerType: "interval", interval: { everyMinutes: 30 } })).toBe(
+			"Alerta · verifica a cada 30 minutos · avisa se o estoque da canela cair abaixo de 10",
+		);
+		expect(describeRoutineAlertSentence({ alert, triggerType: "interval", interval: { everyMinutes: 120 } })).toContain("a cada 2 horas");
+		const cron = describeRoutineAlertSentence({ alert: { condition: "a venda do dia ficar abaixo da meta" }, triggerType: "cron", schedule: "0 17 * * *" });
+		expect(cron).toBe("Alerta · verifica todo dia às 17h · avisa se a venda do dia ficar abaixo da meta");
+		expect(cron).not.toMatch(/\* \*/);
+		expect(describeRoutineAlertSentence({ triggerType: "interval", interval: { everyMinutes: 30 } })).toBeNull();
 	});
 
 	it("não duplica o 'se' e tolera cadência vazia", () => {
