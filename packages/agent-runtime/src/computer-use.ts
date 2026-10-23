@@ -4741,6 +4741,8 @@ export async function runComputerUse(params: {
 	skillIndex?: string;
 	/** Acesso às skills em Markdown (padrão: db; injetável em teste). */
 	skillStore?: SkillsStore;
+	/** Perfil do bot (persona e gate do onboarding). Padrão: db; o harness de avaliação injeta um fixo. */
+	loadBotProfile?: typeof getBotProfile;
 	/** Dependências do `create_file` (teste e harness de avaliação; produção usa db + Chromium). */
 	createFileDeps?: Partial<CreateFileDeps>;
 	/** Dependências do `run_code` (teste). */
@@ -5115,7 +5117,7 @@ export async function runComputerUse(params: {
 		[...params.messages].reverse().find((message) => message.role === "user")
 			?.content ?? "";
 	const botProfileForGate = params.botId && !isSubagent
-		? await getBotProfile(params.botId, params.userId).catch(() => null)
+		? await (params.loadBotProfile ?? getBotProfile)(params.botId, params.userId).catch(() => null)
 		: null;
 	const onboardingIncomplete = !botProfileForGate?.description?.trim();
 	const isConfigEventRun =

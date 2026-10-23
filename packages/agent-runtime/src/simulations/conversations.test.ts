@@ -225,6 +225,15 @@ describe("simulações: persona e família do modelo", () => {
 		expect(pt.system()).toContain("Always reply to the user in Brazilian Portuguese.");
 	});
 
+	it("9b. perfil injetado (harness de avaliação) vale para a persona e o gate do onboarding, sem o banco", async () => {
+		const loadBotProfile = vi.fn(async () => ({ name: "Lia", snippet: "", description: "Assistente da padaria.", openRouterModel: null, language: "pt-BR" as const }));
+		const sim = await simulate({ messages: [{ role: "user", content: "Bom dia" }], script: [say("Bom dia!")], extra: { loadBotProfile } });
+		expect(loadBotProfile).toHaveBeenCalledWith("bot-sim", "user-sim");
+		expect(getBotProfile).not.toHaveBeenCalled();
+		expect(sim.system()).toContain('You are "Lia"');
+		expect(sim.requests[0]!.tools).not.toContain("propose_profile_update");
+	});
+
 	it("10. DeepSeek recebe a disciplina completa; Claude só o mínimo; 'Bom dia' segue pequeno", async () => {
 		const deepseek = await simulate({ messages: [{ role: "user", content: "Bom dia" }], model: "deepseek/deepseek-chat", script: [say("Bom dia!")] });
 		const claude = await simulate({ messages: [{ role: "user", content: "Bom dia" }], model: "anthropic/claude-sonnet-4.5", script: [say("Bom dia!")] });
