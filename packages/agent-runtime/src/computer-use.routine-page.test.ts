@@ -85,7 +85,7 @@ describe("propose_routine com page_id", () => {
 		const tool = COMPUTER_USE_TOOLS.find((item) => item.function.name === "propose_routine")!;
 		expect(tool.function.description).toMatch(/pass page_id/);
 		expect(JSON.stringify(tool.function.parameters)).toContain("page_id");
-		expect(PAGE_TOOLS.length).toBe(4);
+		expect(PAGE_TOOLS.length).toBe(5);
 	});
 
 	it("create com page_id da página do bot liga a rotina e emite o card de criação", async () => {
