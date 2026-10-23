@@ -757,6 +757,7 @@ model RoutineGroup {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   routines    Routine[]
+  pages       Page[]
 
   @@index([botId])
   @@map("routine_groups")
@@ -1397,8 +1398,12 @@ model Page {
   deletedAt      DateTime?
   revisions      PageRevision[]
   routines       Routine[]
+  /// Grupo (o mesmo das rotinas) em que o painel aparece; SetNull se o grupo for apagado.
+  groupId        String?
+  group          RoutineGroup?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
 
   @@index([userId, botId, updatedAt])
+  @@index([groupId])
   @@map("pages")
 }
 
