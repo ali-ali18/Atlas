@@ -25,6 +25,8 @@ export type StableSystemPromptParts = {
 	persona?: string;
 	/** Núcleo: prompt do subagente, núcleo da economia ou prompt legado. */
 	base: string;
+	/** Disciplina de execução da família do modelo (`disciplineForModel`): logo após o núcleo, fixa por run. */
+	discipline?: string;
 	routine: boolean;
 	/** Já com o `\n\n` à frente; "" quando vazio. */
 	research?: string;
@@ -48,9 +50,10 @@ export function deploymentLine(atlasUrl: string | undefined): string {
 	return `\n\nINSTALAÇÃO: você está rodando no app publicado em ${url} (é o endereço que o usuário usa para falar com você). Use-o quando precisar passar o link do app. Webhooks e gatilhos de rotina o sistema configura sozinho, com a URL e o segredo certos: nunca crie webhooks apontando para este endereço por conta própria.`;
 }
 
-/** Tier `stable`: ordem fixa persona → núcleo → rotina → instalação → pesquisa → conectores → skills → grupos. */
+/** Tier `stable`: ordem fixa persona → núcleo → disciplina do modelo → rotina → instalação → pesquisa → conectores → skills → grupos. */
 export function buildStableSystemPrompt(parts: StableSystemPromptParts): string {
-	const base = parts.persona ? `${parts.persona}\n\n${parts.base}` : parts.base;
+	const core = parts.discipline ? `${parts.base}\n\n${parts.discipline}` : parts.base;
+	const base = parts.persona ? `${parts.persona}\n\n${core}` : core;
 	const head = parts.routine ? [base, ...ROUTINE_MODE_LINES].join("\n") : base;
 	return `${head}${deploymentLine(parts.atlasUrl)}${parts.research ?? ""}${parts.connectors ?? ""}${parts.skills ?? ""}${parts.tail ?? ""}`;
 }

@@ -3,6 +3,7 @@ import type { SandboxManager } from "@workspace/sandbox";
 import type { ChatTool, CompleteChatWithToolsResult, LlmToolCall } from "@workspace/llm";
 import { addMemoryEntry, getBotProfile } from "@workspace/db";
 import { runComputerUse } from "./computer-use.js";
+import { disciplineForModel } from "./context/model-discipline.js";
 
 vi.mock("@workspace/db", async (original) => ({
 	...(await original<typeof import("@workspace/db")>()),
@@ -305,5 +306,44 @@ describe("persona do bot no topo do prompt", () => {
 		} finally {
 			vi.mocked(getBotProfile).mockImplementation(async () => ({ description: "A bot that is already configured." }) as never);
 		}
+	});
+});
+
+describe("disciplina de execução por família de modelo (prefixo estável)", () => {
+	const systemFor = async (model: string) => {
+		const prompts: string[] = [];
+		await runComputerUse({
+			manager: {} as SandboxManager,
+			getSessionId: async () => "session-1",
+			apiKey: "test",
+			model,
+			runId: "run-discipline",
+			userId: "user-a",
+			botId: "bot-a",
+			origin: "chat",
+			contextEconomy: true,
+			messages: [{ role: "user", content: "Bom dia" }],
+			maxSteps: 2,
+			onEvent: () => undefined,
+			streamChat: async (params) => {
+				prompts.push(String(params.messages[0]!.content));
+				return done;
+			},
+		});
+		return prompts[0]!;
+	};
+
+	it("DeepSeek recebe o bloco completo logo após o núcleo; Claude só o mínimo", async () => {
+		const deepseek = await systemFor("deepseek/deepseek-chat");
+		const claude = await systemFor("anthropic/claude-sonnet-4.5");
+		expect(deepseek).toContain(disciplineForModel("deepseek/deepseek-chat"));
+		expect(deepseek).toContain("valid JSON that matches the schema");
+		expect(claude).toContain(disciplineForModel("anthropic/claude-sonnet-4.5"));
+		expect(claude).not.toContain("valid JSON that matches the schema");
+		// Fica no prefixo estável: antes do índice de tools adiadas e da data de hoje.
+		expect(deepseek.indexOf("Execution discipline:")).toBeLessThan(deepseek.indexOf("Built-in tools loaded on demand"));
+		expect(deepseek.indexOf("Execution discipline:")).toBeLessThan(deepseek.indexOf("Today is"));
+		// Mesmo modelo, mesmos bytes (cache).
+		expect(await systemFor("deepseek/deepseek-chat")).toBe(deepseek);
 	});
 });

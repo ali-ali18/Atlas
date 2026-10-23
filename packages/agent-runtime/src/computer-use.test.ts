@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CompleteChatWithToolsResult, LlmMessage } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import { languageInstruction } from "@workspace/shared";
+import { disciplineForModel } from "./context/model-discipline.js";
 import {
 	createRoutine,
 	convertRoutineToGenericWebhook,
@@ -2027,9 +2028,11 @@ describe("SYSTEM_PROMPT: regras de lembrete e honestidade", () => {
 		expect(SYSTEM_PROMPT).toMatch(/nunca substitui o lembrete no chat/);
 	});
 
-	it("instrui honestidade: nunca dizer que não consegue sem tentar a tool", () => {
-		expect(SYSTEM_PROMPT).toMatch(/nunca diga que não consegue fazer algo sem ter tentado a/);
-		expect(SYSTEM_PROMPT).toMatch(/se a tool falhar, diga o erro real/);
+	it("instrui honestidade: nunca dizer que não consegue sem tentar a tool (bloco de disciplina, todo modelo)", () => {
+		for (const model of ["anthropic/claude-sonnet-4.5", "deepseek/deepseek-chat"]) {
+			expect(disciplineForModel(model)).toContain("Never say you cannot do something before trying the matching tool.");
+			expect(disciplineForModel(model)).toContain("say so with the real error");
+		}
 	});
 
 	it("política única de agir primeiro: ações reversíveis não esperam pergunta", () => {

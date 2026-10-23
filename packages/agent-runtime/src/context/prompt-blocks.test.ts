@@ -16,11 +16,11 @@ const none = new Set<ContextGroup>();
 const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 
 describe("prompt em blocos (L5)", () => {
-	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador e a política única de agir primeiro, sem identidade nem idioma no núcleo (hash fixa o texto)", () => {
+	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador e a política única de agir primeiro, sem identidade nem idioma no núcleo e sem as frases cobertas pela disciplina do modelo (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(25_177);
+		expect(legacy.length).toBe(24_502);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"8de3252636419f871840219decf0a65770795a730d23d29e8b1ca254306276ac",
+			"4b7fd648c1bb463e870fa6c4b46324176c7e514d4f6b14aa88a6cf38ae739ef1",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
 	});
@@ -76,7 +76,9 @@ describe("prompt em blocos (L5)", () => {
 		expect(core).not.toContain("propose_routine");
 		expect(core).not.toContain("propose_skill_change");
 		expect(core).not.toContain("browser_snapshot");
-		expect(core).toContain("Honestidade");
+		// Honestidade/evidência e "não termine prometendo" saíram do núcleo: vêm do bloco de disciplina por modelo.
+		expect(core).not.toContain("Honestidade");
+		expect(core).not.toContain("NUNCA termine prometendo");
 	});
 
 	it("o núcleo é prefixo exato de qualquer combinação de grupos (cache estável)", () => {

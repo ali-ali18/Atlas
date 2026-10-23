@@ -18,6 +18,10 @@ describe("buildStableSystemPrompt", () => {
 		expect(buildStableSystemPrompt({ persona: "PERSONA", base: "CORE", routine: true })).toBe(["PERSONA\n\nCORE", ...ROUTINE_MODE_LINES].join("\n"));
 	});
 
+	it("disciplina do modelo logo após o núcleo, antes do modo rotina e do que varia", () => {
+		expect(buildStableSystemPrompt({ persona: "P", base: "CORE", discipline: "DISC", routine: false, connectors: "\n\nCON" })).toBe("P\n\nCORE\n\nDISC\n\nCON");
+	});
+
 	it("subagente: núcleo + conectores, nada mais", () => {
 		expect(buildStableSystemPrompt({ base: "SUB", routine: false, connectors: "\n\nCON" })).toBe("SUB\n\nCON");
 	});

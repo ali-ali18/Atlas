@@ -280,6 +280,7 @@ import {
 	translateNativeComputerAction,
 } from "./tools/computer-native.js";
 import { shouldAnnounceCompaction } from "./context/compaction-notice.js";
+import { disciplineForModel } from "./context/model-discipline.js";
 import { assembleSystemPromptParts, groupProcedureText, legacySystemPrompt, skillIndexPrompt } from "./context/prompt-blocks.js";
 import { contextEconomyEnabled, contextTranscriptEnabled } from "./context/flag.js";
 import { clippedResultRefLine, createResultStore, resultStoreLimits, extractResultRef, RESULT_MAX_STORED_CHARS } from "./context/result-store.js";
@@ -5772,6 +5773,8 @@ export async function runComputerUse(params: {
 			// Persona do bot no topo: identidade, estilo e idioma num lugar só (o subagente fala com o pai, sem persona).
 			persona: isSubagent ? undefined : buildPersonaBlock({ name: botProfileForGate?.name, role: botProfileForGate?.description, language }),
 			base: isSubagent ? subagentSystemPrompt(params.browserTabId !== undefined) : economyParts ? economyParts.core : SYSTEM_PROMPT,
+			// Disciplina por família do modelo do início do run (fixa: troca de nível no meio não muda o prefixo).
+			discipline: disciplineForModel(model),
 			routine: !isSubagent && params.origin === "routine",
 			research: isSubagent || economyParts ? "" : researchBlock,
 			connectors: connectorsBlock,
