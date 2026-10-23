@@ -77,9 +77,9 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 		keywords: ["file", "files", "arquivo", "arquivos", "pdf", "docx", "excel", "xlsx", "csv", "spreadsheet", "planilha", "document", "documento", "report", "relatorio"],
 	},
 	pages: {
-		tools: ["page_create", "page_update", "page_read", "page_list"],
-		hint: "build a live panel (dashboard, report, memo; users call it \"painel\" / \"dashboard\", never \"page\") that renders inline in the chat, then update it in place later",
-		keywords: ["dashboard", "dashboards", "painel", "paineis", "relatorio", "relatorios", "report", "forecast", "overview", "visao geral", "kpi", "kpis", "scorecard", "resumo executivo"],
+		tools: ["page_create", "page_update", "page_read", "page_list", "page_share"],
+		hint: "build a live panel (dashboard, report, memo; users call it \"painel\" / \"dashboard\", never \"page\") that renders inline in the chat, then update it in place later; group dashboards and share one through a public link when asked",
+		keywords: ["dashboard", "dashboards", "painel", "paineis", "relatorio", "relatorios", "report", "forecast", "overview", "visao geral", "kpi", "kpis", "scorecard", "resumo executivo", "link publico", "public link"],
 	},
 	bots: {
 		tools: ["propose_bot"],

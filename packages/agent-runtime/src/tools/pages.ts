@@ -15,7 +15,7 @@ import {
 	type PageSpec,
 	type ResearchNote,
 } from "@workspace/shared";
-import { createPage, getPageForUser, listBotPagesForUser, resolvePageGroup, setPageGroup, updatePage, type PageListItem, type PageRecord, type SetPageGroupResult, type UpdatePageResult } from "@workspace/db";
+import { createOrRotatePageShare, createPage, getPageForUser, getPageShareStatus, revokePageShare, listBotPagesForUser, resolvePageGroup, setPageGroup, updatePage, type PageListItem, type PageRecord, type SetPageGroupResult, type UpdatePageResult } from "@workspace/db";
 
 /**
  * Páginas vivas: relatório/painel que o bot monta e o chat desenha inline (cartão que abre em tela cheia).
@@ -27,7 +27,8 @@ export const PAGE_CREATE_TOOL_NAME = "page_create";
 export const PAGE_UPDATE_TOOL_NAME = "page_update";
 export const PAGE_READ_TOOL_NAME = "page_read";
 export const PAGE_LIST_TOOL_NAME = "page_list";
-export const PAGE_TOOL_NAMES: readonly string[] = [PAGE_CREATE_TOOL_NAME, PAGE_UPDATE_TOOL_NAME, PAGE_READ_TOOL_NAME, PAGE_LIST_TOOL_NAME];
+export const PAGE_SHARE_TOOL_NAME = "page_share";
+export const PAGE_TOOL_NAMES: readonly string[] = [PAGE_CREATE_TOOL_NAME, PAGE_UPDATE_TOOL_NAME, PAGE_READ_TOOL_NAME, PAGE_LIST_TOOL_NAME, PAGE_SHARE_TOOL_NAME];
 
 /**
  * Gramática compacta dos componentes (texto do modelo). Os detalhes e as props válidas de cada um vêm nos
@@ -143,7 +144,30 @@ export const PAGE_LIST_TOOL: ChatTool = {
 	},
 };
 
-export const PAGE_TOOLS: readonly ChatTool[] = [PAGE_CREATE_TOOL, PAGE_UPDATE_TOOL, PAGE_READ_TOOL, PAGE_LIST_TOOL];
+export const PAGE_SHARE_WARNING = "Anyone with the link sees this dashboard and its updates (read-only, no login). The user can turn the link off at any time.";
+
+export const PAGE_SHARE_TOOL: ChatTool = {
+	type: "function",
+	function: {
+		name: PAGE_SHARE_TOOL_NAME,
+		description:
+			"Manages the PUBLIC read-only link of a dashboard (painel): create it (or rotate it: the old link stops working), revoke it, or check if it is on. A public link lets anyone who has it see the dashboard and its future updates without logging in. " +
+			"USE WHEN the user explicitly asks to share a dashboard through a link, to generate a new link, or to turn the link off. " +
+			"DO NOT USE on your own initiative, to \"help\", when the user only asks to export or send an image/PDF, or for a dashboard the user did not name. Never create a link unless the user asked for it in their latest message (set user_asked=true only then). " +
+			"After creating, give the user the URL and tell them anyone with the link can see the dashboard; the URL is shown only once (a later create makes a new one).",
+		parameters: {
+			type: "object",
+			properties: {
+				page_id: { type: "string", description: "Id from page_create or page_list." },
+				action: { type: "string", enum: ["create", "revoke", "status"], description: "create = turn on (or rotate) the link; revoke = turn it off; status = is it on?" },
+				user_asked: { type: "boolean", description: "Must be true for create: the user explicitly asked for a public link in their latest message." },
+			},
+			required: ["page_id", "action"],
+		},
+	},
+};
+
+export const PAGE_TOOLS: readonly ChatTool[] = [PAGE_CREATE_TOOL, PAGE_UPDATE_TOOL, PAGE_READ_TOOL, PAGE_LIST_TOOL, PAGE_SHARE_TOOL];
 
 /** Acesso às páginas (injetável em teste; produção usa o db). */
 export type PagesStore = {
@@ -155,6 +179,19 @@ export type PagesStore = {
 	resolveGroup?(userId: string, botId: string, ref: string): Promise<{ id: string; name: string; created: boolean }>;
 	/** Move o painel para o grupo (ou tira dele com `null`), sem nova revisão. */
 	setGroup?(id: string, userId: string, groupId: string | null): Promise<SetPageGroupResult>;
+};
+
+/** Link público do painel (injetável em teste; produção usa o db). O token só existe na resposta de `create`. */
+export type PageShareStore = {
+	status(id: string, userId: string): Promise<{ active: boolean } | null>;
+	create(id: string, userId: string): Promise<{ token: string } | null>;
+	revoke(id: string, userId: string): Promise<boolean | null>;
+};
+
+export const dbPageShareStore: PageShareStore = {
+	status: (id, userId) => getPageShareStatus(id, userId),
+	create: (id, userId) => createOrRotatePageShare(id, userId),
+	revoke: (id, userId) => revokePageShare(id, userId),
 };
 
 export const dbPagesStore: PagesStore = {
@@ -172,6 +209,9 @@ export type PageToolContext = {
 	conversationId?: string;
 	runId?: string;
 	store?: PagesStore;
+	shareStore?: PageShareStore;
+	/** Base pública do web (onde mora `/p/:token`); padrão `ATLAS_URL`. */
+	publicWebUrl?: string;
 	/** Notas de pesquisa do run (fontes padrão da página). */
 	researchNotes?: () => readonly ResearchNote[];
 	/** Rotina que atualiza uma página: `page_update` só vale nela e marca a página como atualizada com dados novos. */
@@ -396,11 +436,46 @@ async function listTool(_args: Record<string, unknown>, ctx: PageToolContext): P
 	return { summary: `${items.length} page${items.length === 1 ? "" : "s"}:\n${lines.join("\n")}` };
 }
 
+function publicWebBase(ctx: PageToolContext): string {
+	const base = (ctx.publicWebUrl ?? process.env.ATLAS_URL ?? "").trim().replace(/\/$/, "");
+	if (!base) throw new Error("The public web address is not configured on the server (ATLAS_URL). Tell the user the link cannot be created from chat; they can use Compartilhar > Link público in the dashboard.");
+	return base;
+}
+
+async function shareTool(args: Record<string, unknown>, ctx: PageToolContext): Promise<{ summary: string }> {
+	const { userId, store } = requireScope(ctx);
+	const pageId = pageIdArg(args);
+	const action = typeof args.action === "string" ? args.action : "";
+	if (action !== "create" && action !== "revoke" && action !== "status") throw new Error("action must be create, revoke or status.");
+	const shares = ctx.shareStore ?? dbPageShareStore;
+	const notFound = () => new Error(`Page ${pageId} not found. Use page_list to see this bot's pages.`);
+	// Só painel do próprio dono (e deste bot): o db filtra por dono; aqui o bot também.
+	const page = await store.get(pageId, userId);
+	if (!page || page.botId !== ctx.botId) throw notFound();
+	if (action === "status") {
+		const status = await shares.status(pageId, userId);
+		if (!status) throw notFound();
+		return { summary: status.active ? `The public link of "${page.title}" is ON. Its address is not stored (only shown when created); to get a new one, create again after the user asks (the old link stops working).` : `The public link of "${page.title}" is OFF.` };
+	}
+	if (action === "revoke") {
+		const revoked = await shares.revoke(pageId, userId);
+		if (revoked === null) throw notFound();
+		return { summary: revoked ? `Public link of "${page.title}" turned off: the old address no longer works. Tell the user in one short line.` : `"${page.title}" had no active public link; nothing to turn off.` };
+	}
+	if (args.user_asked !== true) throw new Error("Refusing to create a public link: only create one when the user explicitly asked for it in their latest message, then call again with user_asked=true.");
+	const base = publicWebBase(ctx);
+	const created = await shares.create(pageId, userId);
+	if (!created) throw notFound();
+	return {
+		summary: `Public link created for "${page.title}": ${base}/p/${created.token}\nShow this URL to the user now (it is not shown again; creating again replaces it and the old one stops working) and say: "Qualquer pessoa com o link vê este painel e as atualizações dele." They can turn it off by asking you or in Compartilhar > Link público.`,
+	};
+}
+
 export function isPageTool(name: string): boolean {
 	return PAGE_TOOL_NAMES.includes(name);
 }
 
-/** Executor das quatro tools; falha lança erro (resultado honesto, `ok:false` no loop). */
+/** Executor das tools de painel; falha lança erro (resultado honesto, `ok:false` no loop). */
 export async function executePageTool(name: string, args: Record<string, unknown>, ctx: PageToolContext): Promise<{ summary: string }> {
 	switch (name) {
 		case PAGE_CREATE_TOOL_NAME:
@@ -411,6 +486,8 @@ export async function executePageTool(name: string, args: Record<string, unknown
 			return readTool(args, ctx);
 		case PAGE_LIST_TOOL_NAME:
 			return listTool(args, ctx);
+		case PAGE_SHARE_TOOL_NAME:
+			return shareTool(args, ctx);
 		default:
 			throw new Error(`Unknown page tool: ${name}`);
 	}

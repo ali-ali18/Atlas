@@ -105,6 +105,7 @@ import {
 	convertRoutineToGenericWebhook,
 	deleteRoutine,
 	deleteRoutineGroup,
+	updateRoutineGroup,
 	findOrCreateRoutineGroup,
 	getBotProfile,
 	hookPublicUrl,
@@ -342,7 +343,7 @@ import {
 import { CREATE_FILE_TOOL, executeCreateFile, previewCreateFileArgs, type CreateFileDeps, type FileEvent } from "./tools/create-file.js";
 import { RUN_CODE_TOOL, executeRunCode, type RunCodeDeps } from "./tools/run-code.js";
 import { REPORT_ALERT_TOOL, REPORT_ALERT_TOOL_NAME, alertRunNote, executeReportAlert, type AlertRunState } from "./tools/report-alert.js";
-import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME, dbPagesStore, executePageTool, isPageTool, type PagesStore } from "./tools/pages.js";
+import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME, dbPagesStore, executePageTool, isPageTool, type PageShareStore, type PagesStore } from "./tools/pages.js";
 import {
 	availableWebFallbacks,
 	budgetUsedFraction,
@@ -1086,15 +1087,16 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "routine_group",
 			description:
-				"Pausa, retoma ou desfaz um grupo de rotinas de uma vez. delete só remove o grupo: as rotinas continuam, sem grupo. group = nome ou id do grupo (aparece em list_routines).",
+				"Pausa, retoma, renomeia ou desfaz um grupo de uma vez (o mesmo grupo reúne rotinas e painéis). delete só remove o grupo: rotinas e painéis continuam, sem grupo. group = nome ou id do grupo (aparece em list_routines e page_list). rename exige new_name. Para criar um grupo ou mover um painel, use o campo group de page_create/page_update.",
 			parameters: {
 				type: "object",
 				properties: {
 					action: {
 						type: "string",
-						enum: ["pause", "resume", "delete"],
-						description: "pause = pausa todas; resume = ativa todas; delete = desfaz o grupo mantendo as rotinas.",
+						enum: ["pause", "resume", "rename", "delete"],
+						description: "pause = pausa todas; resume = ativa todas; rename = muda o nome (new_name); delete = desfaz o grupo mantendo as rotinas.",
 					},
+					new_name: { type: "string", description: "Novo nome do grupo (só em rename, até 80 caracteres)." },
 					group: {
 						type: "string",
 						description: "Nome ou id do grupo.",
@@ -1914,6 +1916,7 @@ type ToolContext = {
 	emitChart?: (event: Extract<ComputerUseEvent, { type: "chart" }>) => Promise<void>;
 	/** Páginas vivas (`page_*`): acesso (injetável em teste) e entrega do cartão (persiste e emite o evento). */
 	pagesStore?: PagesStore;
+	pageShareStore?: PageShareStore;
 	/** Run de rotina ligada a uma página: `page_update` só vale nela (e marca `refreshedAt`). */
 	routinePageId?: string;
 	emitPage?: (event: Extract<ComputerUseEvent, { type: "page" }>) => Promise<void>;
@@ -2233,8 +2236,8 @@ async function executeRoutineGroup(
 		};
 	}
 	const action = String(args.action ?? "").trim();
-	if (action !== "pause" && action !== "resume" && action !== "delete") {
-		throw new Error("action deve ser pause, resume ou delete");
+	if (action !== "pause" && action !== "resume" && action !== "rename" && action !== "delete") {
+		throw new Error("action deve ser pause, resume, rename ou delete");
 	}
 	const query = String(args.group ?? "").trim();
 	if (!query) throw new Error("informe group (nome ou id do grupo)");
@@ -2245,6 +2248,15 @@ async function executeRoutineGroup(
 		groups.find((row) => normalizeRoutineGroupName(row.name) === key);
 	if (!group) {
 		return { summary: `Não achei grupo "${query.slice(0, 80)}". Use list_routines.` };
+	}
+	if (action === "rename") {
+		const newName = typeof args.new_name === "string" ? args.new_name.trim().replace(/\s+/g, " ") : "";
+		if (!newName || newName.length > 80) throw new Error("rename exige new_name (até 80 caracteres)");
+		const renamed = await updateRoutineGroup(scope.userId, scope.botId, group.id, { name: newName }).catch((error: unknown) => {
+			throw new Error(error instanceof Error && error.message ? error.message : "Não consegui renomear o grupo agora.");
+		});
+		if (!renamed) return { summary: "Não consegui renomear o grupo agora." };
+		return { summary: `Grupo "${group.name}" renomeado para "${renamed.name}". Rotinas e painéis do grupo continuam nele.` };
 	}
 	if (action === "delete") {
 		const result = await deleteRoutineGroup(scope.userId, scope.botId, group.id);
@@ -3901,13 +3913,15 @@ async function executeToolInner(
 		case "page_create":
 		case "page_update":
 		case "page_read":
-		case "page_list": {
+		case "page_list":
+		case "page_share": {
 			return executePageTool(name, args, {
 				userId: ctx.userId,
 				botId: ctx.botId,
 				conversationId: ctx.conversationId,
 				runId: ctx.runId,
 				store: ctx.pagesStore,
+				shareStore: ctx.pageShareStore,
 				routinePageId: ctx.routinePageId,
 				researchNotes: ctx.researchNotes ? () => ctx.researchNotes!.snapshot() : undefined,
 				emitPage: ctx.emitPage,
@@ -4530,6 +4544,7 @@ export async function runComputerUse(params: {
 	runCodeDeps?: Partial<RunCodeDeps>;
 	/** Acesso às páginas vivas (padrão: db; injetável em teste). */
 	pagesStore?: PagesStore;
+	pageShareStore?: PageShareStore;
 	/** Run de rotina ligada a uma página: `page_update` só vale nela (e marca `refreshedAt`). */
 	routinePageId?: string;
 	maxSteps?: number;
@@ -7023,6 +7038,7 @@ export async function runComputerUse(params: {
 						await onEvent(event);
 					},
 					pagesStore: params.pagesStore,
+					pageShareStore: params.pageShareStore,
 					routinePageId: params.origin === "routine" ? params.routinePageId : undefined,
 					emitPage: isSubagent ? undefined : async (event) => {
 						await persistConversationCardFromEvent(conversationId, event).catch(() => undefined);

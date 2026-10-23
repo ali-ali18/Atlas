@@ -9,6 +9,7 @@ import {
 	listRoutines,
 	setRoutineGroupEnabled,
 	updateRoutine,
+	updateRoutineGroup,
 } from "@workspace/db";
 import { runComputerUse } from "./computer-use.js";
 
@@ -28,6 +29,7 @@ vi.mock("@workspace/db", async (importOriginal) => {
 		listRoutineGroups: vi.fn(async () => []),
 		setRoutineGroupEnabled: vi.fn(),
 		deleteRoutineGroup: vi.fn(),
+		updateRoutineGroup: vi.fn(),
 	};
 });
 
@@ -164,6 +166,22 @@ describe("grupos de rotinas nas tools do bot", () => {
 		expect(setRoutineGroupEnabled).toHaveBeenCalledWith("user-real", "bot-1", "g1", false);
 		expect(toolResults[0]?.ok).toBe(true);
 		expect(toolResults[0]?.summary).toContain("pausadas");
+	});
+
+	it("routine_group rename muda o nome do grupo do dono; sem new_name ou nome repetido dá erro honesto", async () => {
+		vi.mocked(listRoutineGroups).mockResolvedValue([group] as never);
+		vi.mocked(updateRoutineGroup).mockResolvedValueOnce({ ...group, name: "Vendas Loja Exemplo" } as never);
+		vi.mocked(updateRoutineGroup).mockRejectedValueOnce(new Error("Já existe um grupo com esse nome"));
+		const { toolResults } = await run([
+			toolCall("c1", "routine_group", { action: "rename", group: "vendas", new_name: " Vendas   Loja Exemplo " }),
+			toolCall("c2", "routine_group", { action: "rename", group: "g1" }),
+			toolCall("c3", "routine_group", { action: "rename", group: "g1", new_name: "Outro" }),
+		]);
+		expect(updateRoutineGroup).toHaveBeenNthCalledWith(1, "user-real", "bot-1", "g1", { name: "Vendas Loja Exemplo" });
+		expect(toolResults.map((r) => r.ok)).toEqual([true, false, false]);
+		expect(toolResults[0]?.summary).toContain('renomeado para "Vendas Loja Exemplo"');
+		expect(toolResults[1]?.summary).toContain("new_name");
+		expect(toolResults[2]?.summary).toContain("Já existe um grupo");
 	});
 
 	it("routine_group delete só desfaz o grupo: as rotinas ficam", async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CompleteChatWithToolsResult } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import { parsePageSpec, type PageSource, type PageSpec } from "@workspace/shared";
@@ -8,7 +8,7 @@ import { runComputerUse } from "./computer-use.js";
 import { routeContextGroups } from "./context/intent-router.js";
 import { assembleSystemPrompt, P_PAGES } from "./context/prompt-blocks.js";
 import { NATIVE_TOOL_GROUPS, nativeToolGroupOf } from "./context/native-tools.js";
-import { PAGE_TOOLS, PAGE_TOOL_NAMES, type PagesStore } from "./tools/pages.js";
+import { PAGE_TOOLS, PAGE_TOOL_NAMES, type PageShareStore, type PagesStore } from "./tools/pages.js";
 
 /** Páginas vivas no loop: a tool aparece por intenção, valida o spec, emite o evento e atualiza no lugar. */
 
@@ -157,7 +157,7 @@ describe("grupo pages", () => {
 		expect((create.function.parameters as { required: string[] }).required).toEqual(["title", "root"]);
 		const update = PAGE_TOOLS.find((tool) => tool.function.name === "page_update")!;
 		expect(JSON.stringify(update.function.parameters)).toContain("append_child");
-		expect(JSON.stringify(PAGE_TOOLS).length).toBeLessThan(9000);
+		expect(JSON.stringify(PAGE_TOOLS).length).toBeLessThan(10500);
 	});
 });
 
@@ -464,5 +464,90 @@ describe("rotina que atualiza uma página no lugar", () => {
 		await run("atualiza meu dashboard", [toolCall("page_update", { page_id: "page-1", title: "Novo título" }), say("ok")], store);
 		expect(rows[0]!.title).toBe("Novo título");
 		expect(rows[0]!.refreshedAt).toBeNull();
+	});
+});
+
+describe("page_share: link público do painel pelo chat", () => {
+	beforeEach(() => vi.stubEnv("ATLAS_URL", "https://atlas.test/"));
+	afterEach(() => vi.unstubAllEnvs());
+
+	/** Links em memória; o token só aparece em `create`. */
+	function memoryShares(store: PagesStore) {
+		const links = new Map<string, string>();
+		const shares: PageShareStore = {
+			status: async (id, userId) => ((await store.get(id, userId)) ? { active: links.has(id) } : null),
+			create: async (id, userId) => {
+				if (!(await store.get(id, userId))) return null;
+				const token = `tok-${links.size + 1}-${"x".repeat(30)}`;
+				links.set(id, token);
+				return { token };
+			},
+			revoke: async (id, userId) => {
+				if (!(await store.get(id, userId))) return null;
+				return links.delete(id);
+			},
+		};
+		return { links, shares };
+	}
+
+	it("a tool só vai com o grupo de painéis, avisa que é público e proíbe criar por conta própria", () => {
+		const share = PAGE_TOOLS.find((tool) => tool.function.name === "page_share")!;
+		expect(share.function.description).toMatch(/USE WHEN the user explicitly asks/);
+		expect(share.function.description).toMatch(/DO NOT USE on your own initiative/);
+		expect(nativeToolGroupOf("page_share")).toBe("pages");
+		expect(PAGE_TOOL_NAMES).toContain("page_share");
+		expect(assembleSystemPrompt(new Set(["pages"]))).toMatch(/Only when the user explicitly asks in their latest message/);
+	});
+
+	it("create devolve a URL e o aviso; sem user_asked recusa; rotacionar troca o link; revoke desliga; status reflete", async () => {
+		const { store } = memoryStore();
+		const { links, shares } = memoryShares(store);
+		const { events } = await run("monta meu forecast e depois me dá um link público dele", [
+			toolCall("page_create", forecast, "a"),
+			toolCall("page_share", { page_id: "page-1", action: "create" }, "b"),
+			toolCall("page_share", { page_id: "page-1", action: "create", user_asked: true }, "c"),
+			toolCall("page_share", { page_id: "page-1", action: "status" }, "d"),
+			toolCall("page_share", { page_id: "page-1", action: "create", user_asked: true }, "e"),
+			toolCall("page_share", { page_id: "page-1", action: "revoke" }, "f"),
+			toolCall("page_share", { page_id: "page-1", action: "revoke" }, "g"),
+			say("pronto"),
+		], store, { pageShareStore: shares, maxSteps: 12 });
+		const results = resultOf(events, "page_share");
+		expect(results.map((r) => r.ok)).toEqual([false, true, true, true, true, true]);
+		expect(results[0]!.summary).toMatch(/only create one when the user explicitly asked/);
+		expect(results[1]!.summary).toContain("/p/tok-1-");
+		expect(results[1]!.summary).toContain("Qualquer pessoa com o link vê este painel e as atualizações dele.");
+		expect(results[2]!.summary).toMatch(/is ON/);
+		expect(results[2]!.summary).not.toContain("tok-");
+		expect(results[3]!.summary).toContain("https://atlas.test/p/tok-2-");
+		expect(results[3]!.summary).not.toContain("tok-1-");
+		expect(results[4]!.summary).toMatch(/turned off/);
+		expect(results[5]!.summary).toMatch(/no active public link/);
+		expect(links.size).toBe(0);
+	});
+
+	it("painel de outro dono ou de outro bot não existe para a tool (nada é criado)", async () => {
+		const { store, rows } = memoryStore();
+		const { links, shares } = memoryShares(store);
+		const alheio = parsePageSpec({ v: 2, title: "Alheio", root: { type: "stack", children: [{ type: "divider" }] } });
+		if (!alheio.ok) throw new Error(alheio.error);
+		await store.create("user-2", { botId: "bot-1", spec: alheio.spec, sources: [] }); // page-1 de outro dono
+		await store.create("user-1", { botId: "bot-2", spec: alheio.spec, sources: [] }); // page-2 de outro bot
+		expect(rows).toHaveLength(2);
+		const { events } = await run("compartilha o painel por link", [
+			toolCall("page_share", { page_id: "page-1", action: "create", user_asked: true }, "a"),
+			toolCall("page_share", { page_id: "page-2", action: "create", user_asked: true }, "b"),
+			say("ok"),
+		], store, { pageShareStore: shares });
+		const results = resultOf(events, "page_share");
+		expect(results.map((r) => r.ok)).toEqual([false, false]);
+		expect(results[0]!.summary).toMatch(/not found/);
+		expect(links.size).toBe(0);
+	});
+
+	it("rotina não recebe page_share (só page_update/page_read da página alvo)", async () => {
+		const { store } = memoryStore();
+		const { offered } = await run("atualiza", [say("ok")], store, { origin: "routine", routinePageId: "page-1" });
+		expect(offered[0]).not.toContain("page_share");
 	});
 });
