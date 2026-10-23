@@ -16,7 +16,7 @@ import { triageUserMessage, type TriageHistoryEntry } from "./loop/message-triag
 import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } from "./loop/interrupt.js";
 import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MAX_ANSWER_REVISIONS_PER_RUN, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
-import { parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
+import { describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
 import { alreadyLoadedSummary, findAlreadyLoadedTools } from "./execution/tool-search-guard.js";
 import { runSandboxOperation, type SandboxExecutionContext } from "@workspace/sandbox";
 import {
@@ -2287,7 +2287,7 @@ async function executeListRoutines(
 					? formatOnceSummary(row.once?.runAt ?? "", row.timezone)
 					: row.triggerType === "interval"
 						? formatIntervalSummary(row.interval?.everyMinutes ?? 0)
-						: `cron · ${row.schedule ?? "—"}`;
+						: describeRoutineProposalSchedule({ schedule: row.schedule ?? undefined });
 		const state = row.enabled ? "ativa" : "pausada";
 		const groupNote = row.group ? ` [grupo: ${row.group.name}]` : "";
 		const alertSentence = describeRoutineAlertSentence(row);
