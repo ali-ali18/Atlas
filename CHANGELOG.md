@@ -16,6 +16,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 - **agent, worker, api, db, web, auth:** pacote de desempenho: início do run sem esperas em série, buscas nativas em paralelo, `/v1/events` por LISTEN/NOTIFY, respostas comprimidas, sessão em cookie por 5 min, listas sem colunas JSON grandes, chat sem re-render por token (#104)
 
 ### Corrigido
+- **web:** a conversa não puxa mais para baixo quando o usuário subiu para ler enquanto o bot escreve (#107)
 - **agent:** entende abreviação e "deixa sem" como remover, a regra de rejeição informal (#104)
 - **web:** favicon com PNG RGBA (build com Turbopack falhava) (#104)
 - **ui:** realce de código sem `setState` durante o render (#104)
