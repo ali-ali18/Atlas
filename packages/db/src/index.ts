@@ -88,6 +88,7 @@ export {
 	BOT_EXCHANGE_DEFAULT_LIMIT,
 	BOT_EXCHANGE_MAX_LIMIT,
 	listUserBotRoster,
+	listOpenBotRequests,
 	escalatePendingNeed,
 	postNeedsUserMarker,
 	onBotMessageCreated,

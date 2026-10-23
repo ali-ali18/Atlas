@@ -30,6 +30,7 @@ import {
 	prisma,
 	appendAgentStep,
 	appendConversationCard,
+	listOpenBotRequests,
 	appendRunAssistantSegment,
 	appendRunEvent,
 	countCompletedToolResults,
@@ -771,6 +772,14 @@ async function executeLeasedRun(ctx: {
 			})
 			: null;
 
+		// Pedidos deste bot a outros bots ainda sem resposta (send_to_bot): bloco curto no prompt. Dono do run; falha = nenhum.
+		const openBotRequests = !groupRun && run.botId && (run.origin === "chat" || run.origin === "bot")
+			? await listOpenBotRequests({ userId: runUserId, fromBotId: run.botId }).catch((error) => {
+				console.error(`load open bot requests failed run=${runId}`, error);
+				return [];
+			})
+			: [];
+
 		// Lista de passos (update_task_list) da conversa: mesmo escopo de dono; falha não derruba o run.
 		// Plano aprovado: os passos do plano semeiam a lista (o cartao aparece ja, antes do 1o passo).
 		const seededTaskList = !checkpoint?.llmMessages?.length ? checkpoint?.transcriptSeed?.taskList : undefined;
@@ -790,9 +799,9 @@ async function executeLeasedRun(ctx: {
 			? await getSkillPendingIntent(runUserId, run.conversationId).then((pending) => pending?.payload.action === "plan", () => false)
 			: false;
 
-		return { planPending, messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments: attachmentsForRun?.runtime };
+		return { planPending, messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, openBotRequests, attachments: attachmentsForRun?.runtime };
 	};
-	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { planPending, messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, priorCompaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments }] =
+	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { planPending, messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, priorCompaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, openBotRequests, attachments }] =
 		await Promise.all([configStage(), messagesStage()]);
 	// Inspetor: como o histórico deste turno foi montado (só metadados; nunca o texto).
 	if (transcriptOutcome) {
@@ -1128,6 +1137,7 @@ async function executeLeasedRun(ctx: {
 			priorResearchNotes,
 			priorTaskLedger,
 			priorTaskList,
+			openBotRequests,
 			planMode: readPlanMode(rawBotPolicy),
 			planPending,
 			onInspect: (payload: InspectHooksPayload) => { void appendRunEvent(runId, "inspect_hooks", payload).catch(() => undefined); },

@@ -336,7 +336,7 @@ export type BotTag = {
 
 type MessageVariant =
 	| { id: string; kind: "assistant"; text: string; bot?: BotTag; author?: MessageAuthor; runSource?: MessageSource; /** Run que gravou a fala (inspetor). */ runId?: string; /** Rascunho já exibido que o run refez: fica recolhido com o motivo (`DraftRevisionReason`). */ revised?: string }
-	| { id: string; kind: "bot-link"; botId: string; botName: string; title: string; botMessageId?: string }
+	| { id: string; kind: "bot-link"; botId: string; botName: string; title: string; botMessageId?: string; /** Sem resposta depois do prazo ("Bobinho ainda não respondeu"). */ overdue?: string }
 	| { id: string; kind: "needs-user"; botId: string; botName: string; title: string; botMessageId: string; need: BotNeed; status: "pending" | "resolved" }
 	| { id: string; kind: "auto-decision"; botId: string; botName: string; decision: "approved" | "rejected" | "answered"; note: string; subject: string; reason: string; status: "queued" | "applied" | "failed" }
 	| { id: string; kind: "images"; source: "user" | "assistant"; items: Array<{ artifactId: string; mime: string; width: number; height: number; alt?: string; name?: string }> }

@@ -43,9 +43,11 @@ import type {
 	MemoryTarget,
 	RoutineRecord,
 	StepTelemetry,
+	OpenBotRequest,
 } from "@workspace/shared";
 import {
 	connectorScopeKey,
+	formatOpenBotRequests,
 	lessonRef,
 	toolPatternMatches,
 	decideMemoryScope,
@@ -4635,6 +4637,8 @@ export async function runComputerUse(params: {
 	priorTaskLedger?: unknown;
 	/** Lista de passos (`update_task_list`) de um run anterior da conversa. */
 	priorTaskList?: unknown;
+	/** Pedidos deste bot a outros bots ainda sem resposta (`send_to_bot`), já escopados por dono. */
+	openBotRequests?: OpenBotRequest[];
 	/** Subagente: notas do filho ficam num armazém do delegate_task, que as anexa ao relatório. */
 	researchNotesStore?: ResearchNotes;
 	/** Imagens de turnos anteriores da conversa, já filtradas pelo dono (ver `loadUserImageHistory`). */
@@ -5825,6 +5829,9 @@ export async function runComputerUse(params: {
 
 	const jevDelegateHint = await jevDelegatePromise;
 	if (jevDelegateHint) conversation.push({ role: "system", content: jevDelegateHint });
+	// Pedidos a outros bots sem resposta: o modelo não apresenta o resultado deles como pronto (só no início do run).
+	const openBotRequestsBlock = !isSubagent && !parsedCheckpoint?.llmMessages?.length ? formatOpenBotRequests(params.openBotRequests ?? [], new Date()) : null;
+	if (openBotRequestsBlock) conversation.push({ role: "system", content: openBotRequestsBlock });
 
 	// `model` é o modelo do run e vai em TODA chamada; `lastModel` é só o que o
 	// OpenRouter reportou (pode ser o fallback) e serve para relatório. Reusar o

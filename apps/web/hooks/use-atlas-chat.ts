@@ -350,7 +350,7 @@ export function buildSessionMessage(message: SessionMessage): Message | null {
 		}
 		const card = parseBotLinkCard(message.content);
 		return card
-			? { id: botLinkMessageId(card.botMessageId), kind: "bot-link", botId: card.botId, botName: card.botName, title: card.title, botMessageId: card.botMessageId }
+			? { id: botLinkMessageId(card.botMessageId), kind: "bot-link", botId: card.botId, botName: card.botName, title: card.title, botMessageId: card.botMessageId, ...(card.overdue ? { overdue: card.overdue.label } : {}) }
 			: null;
 	}
 	if (message.role === "user" && message.origin === "bot") {
