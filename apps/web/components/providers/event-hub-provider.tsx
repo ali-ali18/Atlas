@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation"
 import { useEffect } from "react"
 
 import { startSharedEventHub } from "@/lib/event-hub-client"
+import { isPublicWebPath } from "@/lib/public-paths"
 
 /**
  * Liga o canal único de eventos do usuário (`GET /v1/events`) enquanto o app está aberto e logado.
@@ -11,7 +12,8 @@ import { startSharedEventHub } from "@/lib/event-hub-client"
  */
 export function EventHubProvider() {
   const pathname = usePathname()
-  const onLogin = pathname?.startsWith("/login") ?? false
+  // Login e página pública de painel compartilhado não têm sessão: sem canal de eventos.
+  const onLogin = pathname ? isPublicWebPath(pathname) : false
   useEffect(() => {
     if (onLogin) return
     return startSharedEventHub()
