@@ -32,7 +32,7 @@ const closing: CompleteChatWithToolsResult = { model: "test-model", message: { r
 function routineRow(extra: Record<string, unknown> = {}) {
 	return {
 		id: "routine-1", userId: "user-1", botId: "bot-1", conversationId: null, name: "Estoque da canela", prompt: "Check the stock.", model: "", enabled: true,
-		triggerType: "interval" as const, schedule: null, interval: { everyMinutes: 30 }, timezone: "America/Sao_Paulo", lastRunAt: null,
+		triggerType: "interval" as const, schedule: null, interval: { everyMinutes: 120 }, timezone: "America/Sao_Paulo", lastRunAt: null,
 		createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
 		alert: { condition: "o estoque de canela cair abaixo de 10", active: false },
 		...extra,
@@ -78,7 +78,7 @@ const loaded = (call: CompleteChatWithToolsResult): CompleteChatWithToolsResult[
 
 const STOCK_ALERT = {
 	action: "create", title: "Estoque da canela", detail: "Read the current stock of canela from the ERP connector and compare with 10.",
-	trigger_type: "interval", every_minutes: 30,
+	trigger_type: "interval", every_minutes: 120,
 	alert: { condition: "o estoque de canela cair abaixo de 10", hint: "produto: canela; limite: 10" },
 };
 
@@ -109,14 +109,14 @@ describe("propose_routine com alert (agent-first)", () => {
 			"user-1",
 			expect.objectContaining({
 				triggerType: "interval",
-				trigger: { kind: "interval", everyMinutes: 30 },
+				trigger: { kind: "interval", everyMinutes: 120 },
 				alert: { condition: "o estoque de canela cair abaixo de 10", hint: "produto: canela; limite: 10" },
 			}),
 		);
 		expect(toolResults[0]).toMatchObject({ ok: true });
-		expect(toolResults[0]!.summary).toContain("Alerta · confere a cada 30 minutos · avisa se o estoque de canela cair abaixo de 10");
+		expect(toolResults[0]!.summary).toContain("Alerta · confere a cada 2 horas · avisa se o estoque de canela cair abaixo de 10");
 		expect(routines[0]).toMatchObject({ action: "created", triggerType: "interval" });
-		expect(routines[0]!.detail).toMatch(/^Alerta · confere a cada 30 minutos/);
+		expect(routines[0]!.detail).toMatch(/^Alerta · confere a cada 2 horas/);
 		expect(routines[0]!.detail).not.toMatch(/cron|\* \*/i);
 	});
 
@@ -159,7 +159,7 @@ describe("propose_routine com alert (agent-first)", () => {
 			message: "muda o alerta da rotina de estoque para 5",
 			calls: [toolCall("c1", "propose_routine", { ...STOCK_ALERT, action: "edit", target: "Estoque da canela", alert: { condition: "o estoque de canela cair abaixo de 5" } }), closing],
 		});
-		expect(updateRoutine).toHaveBeenLastCalledWith("user-1", "bot-1", "routine-1", expect.objectContaining({ alert: { condition: "o estoque de canela cair abaixo de 5" }, intervalTrigger: { everyMinutes: 30 } }));
+		expect(updateRoutine).toHaveBeenLastCalledWith("user-1", "bot-1", "routine-1", expect.objectContaining({ alert: { condition: "o estoque de canela cair abaixo de 5" }, intervalTrigger: { everyMinutes: 120 } }));
 		await run({
 			message: "tira o alerta da rotina de estoque, quero só a rotina",
 			calls: [toolCall("c2", "propose_routine", { ...STOCK_ALERT, action: "edit", target: "Estoque da canela", alert: { condition: "" } }), closing],
@@ -171,8 +171,54 @@ describe("propose_routine com alert (agent-first)", () => {
 		vi.mocked(listRoutines).mockResolvedValue([routineRow()] as never);
 		vi.mocked(updateRoutine).mockResolvedValue(routineRow() as never);
 		const { alert: _omit, ...withoutAlert } = STOCK_ALERT;
-		await run({ message: "muda o intervalo da rotina de estoque", calls: [toolCall("c1", "propose_routine", { ...withoutAlert, action: "edit", target: "Estoque da canela", every_minutes: 60 }), closing] });
+		await run({ message: "muda o intervalo da rotina de estoque", calls: [toolCall("c1", "propose_routine", { ...withoutAlert, action: "edit", target: "Estoque da canela", every_minutes: 240 }), closing] });
 		expect(vi.mocked(updateRoutine).mock.calls.at(-1)![3]).not.toHaveProperty("alert");
+	});
+});
+
+describe("horários inteligentes (nada de conferir a cada 30 min)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		vi.mocked(listRoutines).mockResolvedValue([]);
+	});
+
+	it("a tool e o prompt ensinam horários em dias úteis e o mínimo de 2 h", () => {
+		const tool = COMPUTER_USE_TOOLS.find((item) => item.function.name === "propose_routine")!;
+		expect(tool.function.description).toMatch(/Never pick every 30 minutes/);
+		expect(tool.function.description).toContain("0 10,14,17 * * 1-5");
+		expect(JSON.stringify(tool.function.parameters)).toContain("frequent");
+		const prompt = groupProcedureText(new Set(["routines"]));
+		expect(prompt).toContain("never default to every 30 minutes");
+		expect(prompt).toContain("0 17 * * 1-5");
+	});
+
+	it("replay: 'me avisa se o estoque de canela cair abaixo de 10' vira conferência em horários úteis, não a cada 30 min", async () => {
+		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: routineRow({ triggerType: "cron", schedule: "0 10,14,17 * * 1-5", interval: undefined }) } as never);
+		const { toolResults, routines } = await run({
+			message: "me avisa se o estoque de canela cair abaixo de 10",
+			calls: [toolCall("c1", "propose_routine", { ...STOCK_ALERT, trigger_type: "cron", every_minutes: undefined, schedule: "0 10,14,17 * * 1-5" }), closing],
+		});
+		expect(createRoutine).toHaveBeenCalledWith("user-1", expect.objectContaining({ triggerType: "cron", schedule: "0 10,14,17 * * 1-5" }));
+		expect(toolResults[0]!.summary).toContain("Alerta · confere em dias úteis às 10h, 14h e 17h · avisa se o estoque de canela cair abaixo de 10");
+		expect(routines[0]!.detail).toMatch(/^Alerta · confere em dias úteis às 10h, 14h e 17h/);
+	});
+
+	it("intervalo curto sem pedido explícito é recusado com a dica de horários; com pedido explícito passa", async () => {
+		const refused = await run({ message: "me avisa se o estoque cair", calls: [toolCall("c1", "propose_routine", { ...STOCK_ALERT, every_minutes: 30 }), closing] });
+		expect(refused.toolResults[0]).toMatchObject({ ok: false });
+		expect(refused.toolResults[0]!.summary).toMatch(/at least 120|explicitly asked/);
+		expect(createRoutine).not.toHaveBeenCalled();
+		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: routineRow({ interval: { everyMinutes: 10 } }) } as never);
+		const allowed = await run({ message: "confere a cada 10 minutos o estoque de canela", calls: [toolCall("c2", "propose_routine", { ...STOCK_ALERT, every_minutes: 10, alert: { ...STOCK_ALERT.alert, frequent: true } }), closing] });
+		expect(allowed.toolResults[0]).toMatchObject({ ok: true });
+		expect(createRoutine).toHaveBeenCalledWith("user-1", expect.objectContaining({ trigger: { kind: "interval", everyMinutes: 10 } }));
+	});
+
+	it("editar o intervalo de um alerta existente também respeita o mínimo", async () => {
+		vi.mocked(listRoutines).mockResolvedValue([routineRow()] as never);
+		const { toolResults } = await run({ message: "confere mais vezes", calls: [toolCall("c1", "propose_routine", { ...STOCK_ALERT, action: "edit", target: "Estoque da canela", alert: undefined, every_minutes: 15 }), closing] });
+		expect(toolResults[0]).toMatchObject({ ok: false });
+		expect(updateRoutine).not.toHaveBeenCalled();
 	});
 });
 
@@ -246,7 +292,7 @@ describe("gerir alertas por conversa (tudo que o cartão da rotina faz)", () => 
 	it("'quais alertas eu tenho?' lista só os alertas, com condição e frequência, escopado pelo dono", async () => {
 		const { toolResults } = await run({ message: "quais alertas eu tenho?", calls: [...loaded(toolCall("c1", "list_routines", { only_alerts: true })), closing] });
 		expect(listRoutines).toHaveBeenCalledWith("user-1", "bot-1");
-		expect(toolResults.at(-1)!.summary).toContain("Alerta · confere a cada 30 minutos · avisa se o estoque de canela cair abaixo de 10");
+		expect(toolResults.at(-1)!.summary).toContain("Alerta · confere a cada 2 horas · avisa se o estoque de canela cair abaixo de 10");
 		expect(toolResults.at(-1)!.summary).not.toContain("Resumo da agenda");
 	});
 
@@ -317,10 +363,10 @@ describe("gerir alertas por conversa (tudo que o cartão da rotina faz)", () => 
 	});
 
 	it("muda a frequência de um alerta sem perder a condição", async () => {
-		vi.mocked(updateRoutine).mockResolvedValue(routineRow({ interval: { everyMinutes: 15 } }) as never);
-		await run({ message: "verifica a cada 15 minutos", calls: [toolCall("c1", "propose_routine", { ...STOCK_ALERT, action: "edit", target: "Estoque da canela", alert: undefined, every_minutes: 15 }), closing] });
+		vi.mocked(updateRoutine).mockResolvedValue(routineRow({ interval: { everyMinutes: 180 } }) as never);
+		await run({ message: "confere a cada 3 horas", calls: [toolCall("c1", "propose_routine", { ...STOCK_ALERT, action: "edit", target: "Estoque da canela", alert: undefined, every_minutes: 180 }), closing] });
 		const patch = vi.mocked(updateRoutine).mock.calls.at(-1)![3];
-		expect(patch).toMatchObject({ intervalTrigger: { everyMinutes: 15 } });
+		expect(patch).toMatchObject({ intervalTrigger: { everyMinutes: 180 } });
 		expect(patch).not.toHaveProperty("alert");
 	});
 

@@ -66,6 +66,7 @@ import {
 	formatIntervalSummary,
 	describeRoutineAlertSentence,
 	parseRoutineAlertInput,
+	validateAlertInterval,
 	type RoutineAlertConfig,
 	languageInstruction,
 	BROWSER_CHILD_MAX_CONCURRENCY,
@@ -1152,7 +1153,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "propose_routine",
 			description:
-				"Create (action create) or edit (action edit) a routine. Card only on create. Create: title=name, detail=prompt to run on each trigger, trigger_type cron|interval|once|event|github. cron: needs schedule (5 fields), fixed clock times. interval: needs every_minutes (5-1440), exact \"every N minutes/hours\" counted from the last run (use for \"every 50 min\", including GitHub monitoring). once (\"remind me on 03/10 at 10h\"): needs run_at (ISO 8601; no offset = America/Sao_Paulo), fires once and deletes itself; several times = one call per time. event: generic webhook (URL+secret). github: instant webhook, needs the `github` object (repo, events; use github_list_repos if the repo is not owner/name). The github trigger creates and manages the repository webhook AUTOMATICALLY (URL and secret are internal, using the user's GitHub from the Marketplace or Composio). NEVER create, edit or delete GitHub webhooks yourself via Composio or any other tool (e.g. GITHUB_CREATE_A_REPOSITORY_WEBHOOK): deliveries signed with any other secret are rejected. Never show secret or URL to assemble by hand. Webhook and interval can coexist for the same repo as two routines. Security review of a GitHub repo: set template=github_security_review and repo=owner/name (detail may be empty or hold an extra focus); combine with interval for periodic reviews. Edit: target=name or id (use the id if the message has '(id ...)'; never confuse with editing the bot profile); no card; trigger_type may change (switching to github needs repo+events, to once needs run_at, to interval needs every_minutes); enabled omitted keeps the current state. Use only when the user's latest message asks to schedule, monitor or change a recurring or timed job. Do not use when the user only thanks, praises or acknowledges (answer in one sentence instead), inside a routine run, or for a one-off task to do now. If a routine with the same name exists, edit instead of duplicating. Alert by condition (\"avisa se o estoque do produto X cair abaixo de 10\", \"se a venda do dia ficar abaixo da meta às 17h\", \"se chegar pedido acima de R$ 5 mil\"): create a routine with trigger_type interval (every N minutes) or cron (fixed times) plus the alert object. Each run only checks the condition with read tools and the user is notified only when it newly becomes true, so do not ask for a notification schedule. detail = how to check it (which connector/tool, product, field, threshold, and the date range: \"today\" for daily totals); alert.condition = the user's condition as a short phrase in their language that completes \"avisa se ...\"; alert.hint = optional pointer on where to look. Pick the cadence from how fast the data changes (stock: 30-60 min; new orders: 5-15 min; end-of-day target: cron at that time) and tell the user in one sentence what you will watch and how often. Only with trigger_type cron or interval; not for one-off reminders (use once) or instant events (use github/event). Edit: pass alert to change the condition, or alert.condition empty to turn it back into a normal routine. To keep a page up to date, pass page_id (from page_create or page_list) and write in detail how to rebuild it with fresh data (which sources to query, which sections to refresh); each run then updates that page in place instead of posting a new message.",
+				"Create (action create) or edit (action edit) a routine. Card only on create. Create: title=name, detail=prompt to run on each trigger, trigger_type cron|interval|once|event|github. cron: needs schedule (5 fields), fixed clock times. interval: needs every_minutes (5-1440), exact \"every N minutes/hours\" counted from the last run (use for \"every 50 min\", including GitHub monitoring). once (\"remind me on 03/10 at 10h\"): needs run_at (ISO 8601; no offset = America/Sao_Paulo), fires once and deletes itself; several times = one call per time. event: generic webhook (URL+secret). github: instant webhook, needs the `github` object (repo, events; use github_list_repos if the repo is not owner/name). The github trigger creates and manages the repository webhook AUTOMATICALLY (URL and secret are internal, using the user's GitHub from the Marketplace or Composio). NEVER create, edit or delete GitHub webhooks yourself via Composio or any other tool (e.g. GITHUB_CREATE_A_REPOSITORY_WEBHOOK): deliveries signed with any other secret are rejected. Never show secret or URL to assemble by hand. Webhook and interval can coexist for the same repo as two routines. Security review of a GitHub repo: set template=github_security_review and repo=owner/name (detail may be empty or hold an extra focus); combine with interval for periodic reviews. Edit: target=name or id (use the id if the message has '(id ...)'; never confuse with editing the bot profile); no card; trigger_type may change (switching to github needs repo+events, to once needs run_at, to interval needs every_minutes); enabled omitted keeps the current state. Use only when the user's latest message asks to schedule, monitor or change a recurring or timed job. Do not use when the user only thanks, praises or acknowledges (answer in one sentence instead), inside a routine run, or for a one-off task to do now. If a routine with the same name exists, edit instead of duplicating. Alert by condition (\"avisa se o estoque do produto X cair abaixo de 10\", \"se a venda do dia ficar abaixo da meta às 17h\", \"se chegar pedido acima de R$ 5 mil\"): create a routine with trigger_type interval (every N minutes) or cron (fixed times) plus the alert object. Each run only checks the condition with read tools and the user is notified only when it newly becomes true, so do not ask for a notification schedule. detail = how to check it (which connector/tool, product, field, threshold, and the date range: \"today\" for daily totals); alert.condition = the user's condition as a short phrase in their language that completes \"avisa se ...\"; alert.hint = optional pointer on where to look. Each check costs a model run, so pick few, well-placed check times instead of a short interval: business data only changes in business hours, so use trigger_type cron on weekdays (stock: a few times a day, e.g. \"0 10,14,17 * * 1-5\"; end-of-day target such as \"venda do dia abaixo da meta\": one check near the moment it matters, e.g. \"0 17 * * 1-5\"; new orders: every 2-4 hours in business hours, e.g. \"0 9-18/3 * * 1-5\"). An interval alert (every_minutes) must be at least 120 minutes unless the user explicitly asked for a more frequent check (then pass alert.frequent=true); the server widens a quiet alert's interval by itself. Never pick every 30 minutes on your own. Tell the user in one sentence what you will watch and when. Only with trigger_type cron or interval; not for one-off reminders (use once) or instant events (use github/event). Edit: pass alert to change the condition, or alert.condition empty to turn it back into a normal routine. To keep a page up to date, pass page_id (from page_create or page_list) and write in detail how to rebuild it with fresh data (which sources to query, which sections to refresh); each run then updates that page in place instead of posting a new message.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -1230,6 +1231,10 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 							condition: {
 								type: "string",
 								description: "The condition as a short phrase in the user's language that completes \"avisa se ...\", e.g. \"o estoque da canela cair abaixo de 10\", \"a venda do dia ficar abaixo da meta\", \"chegar pedido acima de R$ 5 mil\".",
+							},
+							frequent: {
+								type: "boolean",
+								description: "true ONLY when the user explicitly asked for checks more often than every 2 hours (e.g. \"confere a cada 10 minutos\"). Never set it on your own.",
 							},
 							hint: {
 								type: "string",
@@ -2443,6 +2448,13 @@ function mapGithubToolArgs(raw: unknown): Record<string, unknown> {
 	};
 }
 
+/** Alerta por intervalo curto só com pedido explícito do usuário (`alert.frequent`): cada conferência gasta uma execução do modelo. */
+function assertAlertIntervalAllowed(everyMinutes: number, rawAlert: unknown): void {
+	const frequent = Boolean(rawAlert && typeof rawAlert === "object" && (rawAlert as Record<string, unknown>).frequent === true);
+	const error = validateAlertInterval(everyMinutes, frequent);
+	if (error) throw new Error(error);
+}
+
 async function executeProposeRoutine(
 	args: Record<string, unknown>,
 	ctx: ToolContext,
@@ -2592,6 +2604,7 @@ async function executeProposeRoutine(
 		if (action === "create" && triggerType === "interval") {
 			const parsedEvery = parseIntervalEveryMinutes({ everyMinutes: args.every_minutes });
 			if (!parsedEvery.ok) throw new Error(parsedEvery.error);
+			if (alertInput) assertAlertIntervalAllowed(parsedEvery.everyMinutes, args.alert);
 			const { routine } = await createRoutine(scope.userId, {
 				botId: scope.botId,
 				...(await groupFields()),
@@ -2813,6 +2826,7 @@ async function executeProposeRoutine(
 		if (args.every_minutes !== undefined) {
 			const parsedEvery = parseIntervalEveryMinutes({ everyMinutes: args.every_minutes });
 			if (!parsedEvery.ok) throw new Error(parsedEvery.error);
+			if (alertInput || (alertInput === undefined && previous.alert)) assertAlertIntervalAllowed(parsedEvery.everyMinutes, args.alert);
 			everyMinutes = parsedEvery.everyMinutes;
 		} else if (previous.interval?.everyMinutes) {
 			everyMinutes = previous.interval.everyMinutes;
