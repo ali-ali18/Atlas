@@ -51,6 +51,17 @@ describe("create_file", () => {
 		expect(out.summary).toContain('files ["art-1"]');
 	});
 
+	it("pptx com texto que estoura volta com avisos de layout no resultado; deck enxuto não", async () => {
+		const d = deps();
+		const long = "Este item descreve em detalhes todo o cenário do mercado e as metas do trimestre seguinte";
+		const bad = await executeCreateFile({ filename: "a.pptx", slides: [{ layout: "bullets", title: "Muito", bullets: Array.from({ length: 10 }, () => `${long}. ${long}`) }] }, ctx, d.value);
+		expect(bad.summary).toMatch(/Layout check found 1 issue/);
+		expect(bad.summary).toMatch(/slide 1: bullets: the text needs about/);
+		expect(d.persisted).toHaveLength(1);
+		const good = await executeCreateFile({ filename: "b.pptx", slides: [{ layout: "bullets", title: "Curto", bullets: ["a", "b"] }] }, ctx, d.value);
+		expect(good.summary).not.toMatch(/Layout check/);
+	});
+
 	it("slide com imagem de outro dono falha antes de criar o arquivo", async () => {
 		const d = deps();
 		await expect(

@@ -18,6 +18,9 @@ export const MARGIN = 0.65;
 export const CONTENT_W = PAGE_W - MARGIN * 2;
 const BODY_TOP = 1.75;
 const BODY_BOTTOM = 6.75;
+/** Área do corpo dos slides de conteúdo (para a conferência de layout). */
+export const BODY_TOP_IN = BODY_TOP;
+export const BODY_BOTTOM_IN = BODY_BOTTOM;
 
 /** `palette` é a do slide atual (já adaptada ao fundo); `base` é a do tema, de onde saem os tokens do fundo. */
 export type DeckContext = { pptx: Pptx; palette: DeckPalette; base: DeckPalette; images: Map<string, DeckImage>; sectionCount: { n: number }; assets: DeckAssets; slideIndex: number };

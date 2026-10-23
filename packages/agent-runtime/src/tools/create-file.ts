@@ -20,6 +20,7 @@ import {
 	type FileArtifactMeta,
 } from "@workspace/shared";
 import { resolveDeckImages, type DeckImageSource } from "../files/deck/images.js";
+import { formatDeckWarnings, lintDeck } from "../files/deck/lint.js";
 import { renderFile } from "../files/render.js";
 import { printPdfWithChromium } from "../files/pdf-chromium.js";
 import type { PrintPdf } from "../files/pdf.js";
@@ -298,8 +299,10 @@ export async function executeCreateFile(
 		version,
 		...(ctx.runId ? { runId: ctx.runId } : {}),
 	};
+	// Conferência barata (sem sandbox): estima estouro de texto, sobreposição e contraste a partir dos próprios slides.
+	const layoutCheck = input.format === "pptx" && input.slides ? formatDeckWarnings(lintDeck(input.slides, { theme: input.theme, brandColor: input.brandColor })) : "";
 	return {
-		summary: `File created: ${input.filename} (${formatFileSize(size)}${version > 1 ? `, v${version}` : ""}). The chat already shows the file card; reply with one short line and do not repeat the content. If you later find an error in this file, call create_file again with the same filename and the fix instead of offering to.${input.format === "pptx" ? ` To check the slides visually, run_code with files ["${artifact.id}"] (see the Files skill, section 8).` : ""}`,
+		summary: `File created: ${input.filename} (${formatFileSize(size)}${version > 1 ? `, v${version}` : ""}). The chat already shows the file card; reply with one short line and do not repeat the content. If you later find an error in this file, call create_file again with the same filename and the fix instead of offering to.${input.format === "pptx" ? ` To check the slides visually, run_code with files ["${artifact.id}"] (see the Files skill, section 8).` : ""}${layoutCheck ? `\n${layoutCheck}` : ""}`,
 		fileEvent,
 	};
 }

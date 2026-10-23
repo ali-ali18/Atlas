@@ -54,6 +54,12 @@ function luminance(hex: string): number {
 	return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+/** Razão de contraste WCAG entre duas cores (hex sem "#"): 1 a 21. */
+export function contrastRatio(a: string, b: string): number {
+	const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+	return (hi! + 0.05) / (lo! + 0.05);
+}
+
 /** Preto ou branco, o que contrasta mais com `bg`. */
 export function readableOn(bg: string): string {
 	return luminance(bg) > 0.4 ? "111827" : "FFFFFF";
