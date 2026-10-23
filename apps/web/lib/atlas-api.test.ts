@@ -218,3 +218,41 @@ describe("transcribeDictation", () => {
 		assert.deepStrictEqual([500, 502, 503, 504, 413].map(isRetryableDictationStatus), [true, true, false, true, false]);
 	});
 });
+
+describe("compactErrorText (/compact)", () => {
+	const realFetch = globalThis.fetch;
+	afterEach(() => {
+		globalThis.fetch = realFetch;
+	});
+
+	async function compactFailure(response: () => Response | Promise<Response>): Promise<unknown> {
+		globalThis.fetch = (async () => response()) as unknown as typeof fetch;
+		const { compactConversation } = await import("./atlas-api");
+		return compactConversation("conv-1").then(
+			() => assert.fail("deveria falhar"),
+			(error: unknown) => error,
+		);
+	}
+
+	it("502 do proxy com página HTML (sem statusText, como no HTTP/2): aviso amigável, nunca 'HTTP 502'", async () => {
+		const { compactErrorText, COMPACT_FAILED_TEXT } = await import("./atlas-api");
+		const error = await compactFailure(() => new Response("<html><title>502 Bad Gateway</title></html>", { status: 502 }));
+		const text = compactErrorText(error);
+		assert.strictEqual(text, COMPACT_FAILED_TEXT);
+		assert.doesNotMatch(text, /HTTP|502|Bad Gateway/);
+	});
+
+	it("mensagem da API (falha do resumo 503, bloqueio 409) aparece como veio", async () => {
+		const { compactErrorText } = await import("./atlas-api");
+		const failed = await compactFailure(() => new Response(JSON.stringify({ error: "Não consegui resumir a conversa agora. Tente de novo em instantes." }), { status: 503 }));
+		assert.strictEqual(compactErrorText(failed), "Não consegui resumir a conversa agora. Tente de novo em instantes.");
+		const blocked = await compactFailure(() => new Response(JSON.stringify({ error: "Há uma execução em andamento.", reason: "run_active" }), { status: 409 }));
+		assert.strictEqual(compactErrorText(blocked), "Há uma execução em andamento.");
+	});
+
+	it("queda de rede: aviso amigável", async () => {
+		const { compactErrorText, COMPACT_FAILED_TEXT } = await import("./atlas-api");
+		const error = await compactFailure(() => Promise.reject(new TypeError("Failed to fetch")));
+		assert.strictEqual(compactErrorText(error), COMPACT_FAILED_TEXT);
+	});
+});

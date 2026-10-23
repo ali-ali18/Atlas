@@ -543,6 +543,21 @@ export async function compactConversation(conversationId: string, focus?: string
 	});
 }
 
+/** Falha do `/compact` sem mensagem do servidor (proxy, rede): nunca o "HTTP 502" cru. */
+export const COMPACT_FAILED_TEXT = "Não consegui resumir a conversa agora; ela segue como estava. Tente de novo em instantes.";
+
+/**
+ * Texto do aviso quando o `/compact` falha: a mensagem que a API mandou (bloqueio, falha do resumo) ou, sem
+ * ela (página de erro do proxy, queda de rede), o aviso amigável.
+ */
+export function compactErrorText(error: unknown): string {
+	if (error instanceof AtlasApiError) {
+		const server = (error.details as { error?: unknown } | undefined)?.error;
+		if (typeof server === "string" && server.trim()) return server.trim();
+	}
+	return COMPACT_FAILED_TEXT;
+}
+
 /** Abriu a conversa: resultados de runs em background contam como vistos (some o badge). */
 export async function markConversationResultsSeen(conversationId: string): Promise<void> {
 	await atlasFetch(`/v1/conversations/${encodeURIComponent(conversationId)}/results/seen`, { method: "POST" });

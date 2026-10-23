@@ -95,6 +95,7 @@ import { SESSION_SYNC_MS, syncConversationDevSessions } from "@/lib/dev-session/
 import {
 	AtlasApiError,
 	compactConversation,
+	compactErrorText,
 	type CreateAgentRunResult,
 	cancelAgentRun,
 	getDevSessionDetail,
@@ -2213,7 +2214,7 @@ export function useAtlasChat({
 				setCompactState({ status: "notice", text: result.message });
 			}
 		} catch (err) {
-			setCompactState({ status: "notice", text: err instanceof Error && err.message ? err.message : "Não foi possível compactar a conversa." });
+			setCompactState({ status: "notice", text: compactErrorText(err) });
 		} finally {
 			compactingRef.current = false;
 		}
