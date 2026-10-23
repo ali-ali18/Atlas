@@ -593,8 +593,13 @@ export function parsePageSpec(input: unknown): PageSpecParse {
 	const ctx: Ctx = { ids: new Set(), nodes: 0, charts: 0, auto: 0, maxNodes: legacy ? LEGACY_MAX_NODES : PAGE_MAX_NODES };
 	const root = parseNode(doc.root, ctx, "root", 1);
 	if (isFail(root)) return root;
-	const summary = text(doc.summary, 400);
+	const summary = pageSummaryText(doc.summary);
 	return { ok: true, spec: { v: 2, title, ...(summary ? { summary } : {}), ...(palette ? { palette } : {}), root } };
+}
+
+/** Resumo do painel como `parsePageSpec` o normaliza (vale para v1 e v2). Listagens leem só esse campo do JSON. */
+export function pageSummaryText(raw: unknown): string | undefined {
+	return text(raw, 400);
 }
 
 export type PageSourcesParse = { ok: true; sources: PageSource[] } | { ok: false; error: string };

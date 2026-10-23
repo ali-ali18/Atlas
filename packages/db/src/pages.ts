@@ -4,7 +4,7 @@
  * (null / `not_found`). A atualização usa concorrência otimista por `revision` (updateMany condicionado).
  */
 import { Prisma } from "@prisma/client";
-import { effectivePageGroupIds, parsePageSources, parsePageSpec, type PageSource, type PageSpec } from "@workspace/shared";
+import { effectivePageGroupIds, pageSummaryText, parsePageSources, parsePageSpec, type PageSource, type PageSpec } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { ownerIds } from "./mcp-connections.js";
 import { assertGroupUsable, findOrCreateRoutineGroup } from "./routine-groups.js";
@@ -74,6 +74,29 @@ function toRecord(row: PageRow): PageRecord | null {
 
 const toJson = (value: unknown) => value as Prisma.InputJsonValue;
 
+/** Colunas da listagem: tudo menos o `specJson` (o grande). `sourcesJson` é curto (até 20 fontes). */
+const PAGE_LIST_SELECT = {
+	id: true,
+	botId: true,
+	groupId: true,
+	title: true,
+	sourcesJson: true,
+	revision: true,
+	refreshedAt: true,
+	updatedAt: true,
+} as const satisfies Prisma.PageSelect;
+
+/** Só o campo `summary` de cada spec (operador JSON no banco), escopado pelo dono. */
+async function pageSummaries(userId: string, ids: string[]): Promise<Map<string, unknown>> {
+	if (ids.length === 0) return new Map();
+	const rows = await prisma.$queryRaw<Array<{ id: string; summary: unknown }>>`
+		SELECT "id", "specJson"->'summary' AS "summary"
+		FROM "pages"
+		WHERE "userId" = ${userId} AND "id" = ANY(${ids}::text[])
+	`;
+	return new Map(rows.map((row) => [row.id, row.summary]));
+}
+
 export type CreatePageInput = {
 	botId: string;
 	conversationId?: string | null;
@@ -121,37 +144,39 @@ export async function listBotPagesForUser(userId: string, botId: string, limit =
 	if (ownerIds(userId).length === 0) return null;
 	const bot = await prisma.bot.findFirst({ where: { id: botId, ownerId: userId }, select: { id: true } });
 	if (!bot) return null;
+	// Sem o `specJson` (até 200 mil caracteres por painel): a lista só precisa do resumo, lido à parte no SQL.
 	const rows = await prisma.page.findMany({
 		where: { userId, botId, deletedAt: null },
 		orderBy: { updatedAt: "desc" },
 		take: Math.max(1, Math.min(limit, 200)),
+		select: PAGE_LIST_SELECT,
 	});
+	const ids = rows.map((row) => row.id);
+	const summaries = await pageSummaries(userId, ids);
 	const linked = await prisma.routine.findMany({
-		where: { userId, botId, pageId: { in: rows.map((row) => row.id) }, groupId: { not: null } },
+		where: { userId, botId, pageId: { in: ids }, groupId: { not: null } },
 		select: { pageId: true, groupId: true },
 	});
-	const effective = effectivePageGroupIds(rows as PageRow[], linked);
+	const effective = effectivePageGroupIds(rows, linked);
 	const groupRows = await prisma.routineGroup.findMany({ where: { botId, userId }, select: { id: true, name: true } });
 	const groupNames = new Map(groupRows.map((group) => [group.id, group.name]));
-	const items: PageListItem[] = [];
-	for (const row of rows as PageRow[]) {
-		const record = toRecord(row);
-		if (!record) continue;
-		items.push({
-			id: record.id,
-			botId: record.botId,
-			title: record.title,
-			revision: record.revision,
-			updatedAt: record.updatedAt,
-			refreshedAt: record.refreshedAt,
-			...(record.spec.summary ? { summary: record.spec.summary } : {}),
-			sourceCount: record.sources.length,
-			groupId: effective.get(record.id) ?? null,
-			explicitGroupId: record.groupId,
-			groupName: groupNames.get(effective.get(record.id) ?? "") ?? null,
-		});
-	}
-	return items;
+	return rows.map((row) => {
+		const sources = parsePageSources(row.sourcesJson);
+		const summary = pageSummaryText(summaries.get(row.id));
+		return {
+			id: row.id,
+			botId: row.botId,
+			title: row.title,
+			revision: row.revision,
+			updatedAt: row.updatedAt.toISOString(),
+			refreshedAt: row.refreshedAt?.toISOString() ?? null,
+			...(summary ? { summary } : {}),
+			sourceCount: sources.ok ? sources.sources.length : 0,
+			groupId: effective.get(row.id) ?? null,
+			explicitGroupId: row.groupId ?? null,
+			groupName: groupNames.get(effective.get(row.id) ?? "") ?? null,
+		};
+	});
 }
 
 export type UpdatePageInput = {

@@ -222,3 +222,27 @@ test("resolvePageGroup: por id, por nome (sem caixa), nome novo cria; id de outr
 	assert.equal(groups.rows.length, before);
 	await assert.rejects(resolvePageGroup("default", "bot-a", "Vendas"), /Grupo não encontrado/);
 });
+
+test("listagem não lê o specJson: resumo vem do SQL (só do dono) e a contagem de fontes do sourcesJson", async () => {
+	const page = (await createPage("user-a", { botId: "bot-a", spec: spec("Vendas"), sources: [{ title: "A", url: "https://a.com/" }, { title: "B" }] }))!;
+	const listCalls: Array<Record<string, unknown>> = [];
+	const findMany = pages.findMany.bind(pages);
+	pages.findMany = async (args: Parameters<typeof findMany>[0] & { select?: Record<string, boolean> }) => {
+		listCalls.push(args as Record<string, unknown>);
+		return findMany(args);
+	};
+	const items = (await listBotPagesForUser("user-a", "bot-a"))!;
+	assert.equal(items.length, 1);
+	assert.deepEqual(
+		{ id: items[0]!.id, title: items[0]!.title, summary: items[0]!.summary, sourceCount: items[0]!.sourceCount },
+		{ id: page.id, title: "Vendas", summary: "resumo", sourceCount: 2 },
+	);
+	const select = listCalls[0]!.select as Record<string, boolean>;
+	assert.ok(select, "listagem usa select");
+	assert.equal("specJson" in select, false);
+	assert.equal(select.sourcesJson, true);
+	// O resumo de outro dono não vaza pela consulta SQL.
+	const raw = prisma.$queryRaw as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown[]>;
+	const strings = Object.assign([`SELECT "id", "specJson"->'summary' AS "summary" FROM "pages" WHERE "userId" = `, ` AND "id" = ANY(`, `::text[])`], { raw: [] }) as unknown as TemplateStringsArray;
+	assert.deepEqual(await raw(strings, "user-b", [page.id]), []);
+});

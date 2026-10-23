@@ -6,7 +6,32 @@ import { getUnreadStates } from "./read-state.js";
 import { listWorkingTargets } from "./runs.js";
 import { ownerIds } from "./mcp-connections.js";
 
-type BotRow = Prisma.BotGetPayload<Record<string, never>>;
+/**
+ * Colunas que `toBot` usa. Fora: `autonomyJson`, `memoryCleanupJson` (sugestões da limpeza de memória, pode
+ * ser grande) e o resto do estado da limpeza, que nenhuma listagem mostra.
+ */
+const BOT_SELECT = {
+	id: true,
+	name: true,
+	snippet: true,
+	color: true,
+	shape: true,
+	description: true,
+	openRouterModel: true,
+	language: true,
+	pinned: true,
+	pinOrder: true,
+	notify: true,
+	sectionId: true,
+	memberIds: true,
+	conversationId: true,
+	policyJson: true,
+	isPrimary: true,
+	createdAt: true,
+	updatedAt: true,
+} as const satisfies Prisma.BotSelect;
+
+type BotRow = Prisma.BotGetPayload<{ select: typeof BOT_SELECT }>;
 
 /**
  * Filtro de posse do bot: só o dono explícito. Legado sem dono (`ownerId` null)
@@ -184,6 +209,7 @@ export async function listBots(ownerId: string | undefined): Promise<Bot[]> {
 	const rows = await prisma.bot.findMany({
 		where: { ownerId: { in: owners } },
 		orderBy: { createdAt: "asc" },
+		select: BOT_SELECT,
 	});
 	const conversationIds = rows.flatMap((row) => (row.conversationId ? [row.conversationId] : []));
 	// Consultas independentes em paralelo (antes: em fila, mais uma por bot para a prévia).

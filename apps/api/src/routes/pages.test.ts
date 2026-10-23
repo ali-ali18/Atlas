@@ -53,6 +53,9 @@ page.updateMany = async ({ where, data }: { where: Partial<Row>; data: Partial<R
 	return { count: found.length };
 };
 bot.findFirst = async ({ where }: { where: { id: string; ownerId: string } }) => bots.find((b) => b.id === where.id && b.ownerId === where.ownerId) ?? null;
+// A lista lê só `"specJson"->'summary'` no SQL, escopado pelo dono: dublado com as mesmas linhas.
+(prisma as unknown as Record<string, unknown>).$queryRaw = async (_strings: TemplateStringsArray, userId: string, ids: string[]) =>
+	pages.filter((r) => r.userId === userId && ids.includes(r.id)).map((r) => ({ id: r.id, summary: (r.specJson as { summary?: unknown }).summary ?? null }));
 
 const groups = [
 	{ id: "group-a", userId: USER_A, botId: "bot-a", name: "Vendas Loja Exemplo" },
