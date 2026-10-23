@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyMention, mentionState, stepMentionIndex, triggerState } from "./mention-input";
+import { applyMention, isCompletedMention, mentionState, stepMentionIndex, triggerState } from "./mention-input";
 
 const members = [
 	{ id: "ana", name: "Ana" },
@@ -68,3 +68,20 @@ test("aplica / no lugar da consulta e mantém o @ como padrão", () => {
 	assert.deepEqual(applyMention("/p resto", 2, 0, "pesquisar", "/"), { value: "/pesquisar resto", caret: 11 });
 	assert.deepEqual(applyMention("oi @bi", 6, 3, "Bia", "@"), { value: "oi @Bia ", caret: 8 });
 });
+
+test("menção completa fecha o popup: depois de @Cookie + espaço e texto, nada de lista nem vazio", () => {
+	const names = ["Cookie", "Ana", "Ana Maria"];
+	assert.equal(isCompletedMention("Cookie ", names), true);
+	assert.equal(isCompletedMention("Cookie asd", names), true);
+	assert.equal(isCompletedMention("Cookie", names), false);
+	assert.equal(isCompletedMention("Ana ", names), false);
+	assert.equal(isCompletedMention("Ana Maria x", names), true);
+	const sources = { skills, bots: [{ id: "c", name: "Cookie" }] };
+	assert.equal(triggerState("@Cookie", 7, sources)?.candidates.length, 1);
+	assert.equal(triggerState("@Cookie ", 8, sources), null);
+	assert.equal(triggerState("@Cookie asd", 11, sources), null);
+	assert.equal(triggerState("@zz asd", 7, sources), null);
+	assert.equal(mentionState("@Ana x", 6, members), null);
+	assert.equal(mentionState("@Caio S", 7, members)?.candidates[0]?.id, "caio");
+}
+);
