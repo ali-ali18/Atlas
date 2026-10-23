@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { redactSecrets } from "@workspace/shared";
@@ -7,6 +7,7 @@ import { redactSecrets } from "@workspace/shared";
  * CLI das avaliações. Comandos:
  *   run (padrão)  cenários × modelos com modelo real (OpenRouter) ou `--mock`
  *   compare A B   delta de acerto entre dois resultados (ex.: dois commits rodados em worktrees)
+ *   from-run      cenário a partir de um run de produção exportado (inspetor + eventos)
  *   list          cenários disponíveis
  * A chave (`OPENROUTER_API_KEY`) vem do ambiente ou de `--env-file`; nunca é impressa nem gravada.
  */
@@ -36,7 +37,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
 			index += 1;
 		}
 	}
-	const commands = new Set(["run", "compare", "list"]);
+	const commands = new Set(["run", "compare", "from-run", "list"]);
 	const command = positional[0] && commands.has(positional[0]) ? positional.shift()! : "run";
 	return { command, positional, flags };
 }
@@ -65,6 +66,7 @@ run (padrão)
   --env-file ARQ        carrega variáveis (OPENROUTER_API_KEY) de um .env
 
 compare DIR_A DIR_B     delta de acerto de B sobre A (summary.json de cada um)
+from-run --inspect ARQ [--events ARQ] [--user TEXTO] [--id ID] [--language en-US] --out ARQ
 list                    lista os cenários`;
 
 async function loadAll(args: CliArgs) {
@@ -124,6 +126,27 @@ async function commandCompare(args: CliArgs): Promise<number> {
 	return 0;
 }
 
+async function commandFromRun(args: CliArgs): Promise<number> {
+	const inspectPath = flag(args, "inspect");
+	const out = flag(args, "out");
+	if (!inspectPath || !out) throw new Error("uso: from-run --inspect <inspect.json> [--events <events.json>] [--user <texto>] --out <cenario.json>");
+	const { scenarioFromRun } = await import("./from-run.js");
+	const eventsPath = flag(args, "events");
+	const language = flag(args, "language");
+	const { scenario, redactions } = scenarioFromRun({
+		inspect: JSON.parse(await readFile(resolve(inspectPath), "utf8")) as unknown,
+		...(eventsPath ? { events: JSON.parse(await readFile(resolve(eventsPath), "utf8")) as unknown } : {}),
+		...(flag(args, "user") ? { user: flag(args, "user")! } : {}),
+		...(flag(args, "id") ? { id: flag(args, "id")! } : {}),
+		...(language === "pt-BR" || language === "en-US" || language === "es-ES" ? { language } : {}),
+	});
+	await mkdir(dirname(resolve(out)), { recursive: true });
+	await writeFile(resolve(out), `${JSON.stringify(scenario, null, 2)}\n`);
+	console.log(`cenário gravado em ${resolve(out)} · redigidos: ${Object.entries(redactions).map(([kind, count]) => `${kind} ${count}`).join(", ")}`);
+	console.log("Revise o arquivo, ajuste o título e adicione as expectativas antes de commitar.");
+	return 0;
+}
+
 async function commandList(args: CliArgs): Promise<number> {
 	for (const scenario of await loadAll(args)) console.log(`${scenario.id.padEnd(34)} ${scenario.tags.join(",").padEnd(28)} ${scenario.title}`);
 	return 0;
@@ -141,6 +164,7 @@ export async function main(argv: string[]): Promise<number> {
 	process.env.ATLAS_HOOK_PEPPER ||= "evals-local-only";
 	process.env.ATLAS_CONTEXT_ECONOMY ||= "on";
 	if (args.command === "compare") return commandCompare(args);
+	if (args.command === "from-run") return commandFromRun(args);
 	if (args.command === "list") return commandList(args);
 	return commandRun(args);
 }
