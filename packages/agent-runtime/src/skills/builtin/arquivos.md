@@ -3,7 +3,7 @@ name: Arquivos
 description: How to create and edit files well — picking the format, structuring PDF/Word/Excel/slides content, reading attachments, and checking the file before delivering it.
 when: Read before creating a document, spreadsheet or presentation that matters (reports, proposals, tables with formulas, multi-page files), or when the user is unhappy with a file.
 groups: [files]
-version: 2
+version: 4
 ---
 
 # Files
@@ -46,8 +46,15 @@ If they named a format, use it. If not, pick from the table and mention it in on
 
 ## 5. Presentations (pptx)
 
-- Send `slides: [{ title, bullets }]`. One idea per slide, a short title, at most ~5 short bullets, no paragraphs.
-- Start with a title slide and end with a summary or next steps.
+`create_file` builds the whole deck natively (themes, charts, tables, KPI cards, free-form slides, backgrounds, speaker notes) and can fill the user's own .pptx template. The field-by-field schema is in the presentations notes, which load on their own when the request is about slides; if they are not in your prompt, call `mcp_tool_search` with "presentations". Do not hand-write python-pptx for a normal deck.
+
+- **Story first.** Plan before calling: title, agenda, 2-4 sections, the data, a conclusion or next steps. 8-15 slides by default; fewer for a quick brief. Ask the user only when essential information is missing (topic or audience).
+- **One idea per slide.** Short titles that state the point ("Revenue grew 11% in October"), at most 6 short bullets, no paragraphs. Put detail in `notes`.
+- **Vary the layouts** and put numbers in `stats`, `chart` or `table`, not in bullets. Every figure comes from the user or from tool results; name the source in `caption`.
+- **Custom designs** (pitch decks, comparison grids, diagrams): the `free` layout with absolute positions; keep margins, readable sizes and no overlaps.
+- **Style requests** ("minimalista japonês", "tema agro"): generate the cover or section image with `generate_image` first, then use it as `background` (keep the scrim so the text stays readable).
+- **User template**: pass `template_file_id`; read its layouts with `inspect_presentation` first.
+- **Look at the result.** The create_file result lists layout warnings and, when possible, images of the slides: fix what you see by creating the file again with the same filename.
 
 ## 6. Reading files the user sent
 
@@ -69,7 +76,7 @@ For documents, spreadsheets and slides that matter (reports, contracts, proposal
 - Build the file with `run_code` (python-docx, openpyxl, python-pptx, pandoc, LaTeX are installed), convert it to PDF with LibreOffice headless, rasterize the pages to PNG into `/work/preview/` and read them. Those images come back to you as images and are not delivered to the user; only files in `/work/out/` are. Up to 12 pages per call, so check long files in parts (first pages, then the rest).
 - Look for what the text does not show: cut-off or overflowing tables and cells, text outside the page, orphan headings at the bottom of a page, broken numbering, empty pages, wrong fonts, overlapping elements, unreadable charts, missing images.
 - Fix the script and render again until the pages are clean; then save the final file to `/work/out/`. If your model cannot view images, check the structure with text tools instead (page count, extracted text) and tell the user the layout was not checked visually.
-- Quick, simple files made with `create_file` do not need this loop.
+- Quick, simple files made with `create_file` do not need this loop. A deck made with `create_file` is checked automatically (the result attaches the rendered slides when the code runner is available); if it says the visual check was not done, you can do it by hand: pass the file id in `run_code` `files`, convert `in/<name>.pptx` to PDF with soffice and rasterize to `/work/preview/`; if something is cut off, fix the slide content and create the file again.
 
 ## 9. Reply
 

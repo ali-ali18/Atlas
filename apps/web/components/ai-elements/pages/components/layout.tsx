@@ -17,7 +17,7 @@ type Of<T extends PageNode["type"]> = Extract<PageNode, { type: T }>;
 const GAP = { sm: "gap-2", md: "gap-3", lg: "gap-5" } as const;
 
 /**
- * Colunas por largura do CONTÊINER da página (não da janela): o cartão do chat e a tela cheia têm larguras
+ * Colunas por largura do CONTÊINER do painel (não da janela): o cartão do chat e a tela cheia têm larguras
  * diferentes no mesmo desktop. Celular = 1 coluna, tablet = 2; grade só de `stat` fica em 2 colunas no celular
  * (os tiles são curtos e 1 coluna vira uma coluna longa de números).
  */

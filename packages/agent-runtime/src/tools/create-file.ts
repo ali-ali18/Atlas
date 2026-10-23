@@ -1,4 +1,4 @@
-import { assertSandboxExecution, runSandboxOperation } from "@workspace/sandbox";
+import { assertSandboxExecution, loadCodeRunnerConfig, runCode, runSandboxOperation } from "@workspace/sandbox";
 import type { ChatTool } from "@workspace/llm";
 import {
 	countRunFileArtifacts,
@@ -10,12 +10,19 @@ import {
 import {
 	FILES_PER_RUN_MAX,
 	FILE_MAX_CONTENT_CHARS,
+	DECK_MAX_SLIDES,
+	DECK_THEMES,
+	deckImageIds,
 	formatFileSize,
 	parseCreateFileArgs,
 	type ComputerUseEvent,
 	type FileArtifactMeta,
 } from "@workspace/shared";
-import { renderFile } from "../files/render.js";
+import { resolveDeckImages, type DeckImageSource } from "../files/deck/images.js";
+import type { RunPython } from "../files/deck/template/fill.js";
+import { processImageForStorage } from "../images/process.js";
+import { deckResultNotes, persistDeckPreviews, renderDeck, type RenderedDeck } from "./deck-file.js";
+import { renderFile, type RenderedFile } from "../files/render.js";
 import { printPdfWithChromium } from "../files/pdf-chromium.js";
 import type { PrintPdf } from "../files/pdf.js";
 
@@ -33,7 +40,7 @@ export const CREATE_FILE_TOOL: ChatTool = {
 	function: {
 		name: CREATE_FILE_TOOL_NAME,
 		description:
-			"Create a downloadable file for the user (PDF, Word .docx, Excel .xlsx, PowerPoint .pptx, or any text/code file such as .txt .md .csv .json .py .js .sql) and show it as a file card in the chat. Use when the user asks for a file or document; do NOT paste the document in chat. filename needs the extension (format is inferred from it). docx/pdf: put rich Markdown in content (headings, lists, tables). xlsx: send sheets [{name, columns?, rows}] (a string starting with '=' becomes a formula). pptx: send slides [{title, bullets[]}]. Text/code: content is saved as is. To change a file, call again with the same filename (creates v2). For a document built from earlier research, use ALL the research notes and sources gathered (every section and finding, with the sources), not a short summary; a thin file is a failure. For research deliverables, write only what your sources state: a figure or claim you could not confirm must be removed, or kept: list the figure in unconfirmed and mark it as unconfirmed in the text, in the file's language. Large files: send them in parts (part=1,2,... with more=true on every part but the last; the file is created only by the last part, and contents are joined in order). Not for images or executables.",
+			"Create a downloadable file for the user (PDF, Word .docx, Excel .xlsx, PowerPoint .pptx, or any text/code file such as .txt .md .csv .json .py .js .sql) and show it as a file card in the chat. Use when the user asks for a file or document; do NOT paste the document in chat. filename needs the extension (format is inferred from it). docx/pdf: put rich Markdown in content (headings, lists, tables). xlsx: send sheets [{name, columns?, rows}] (a string starting with '=' becomes a formula). pptx: send slides[] (+ theme, brand_color, template_file_id); the layouts, free-form slides, backgrounds and template rules are in the presentations notes; if they are not in your prompt, call mcp_tool_search with query \"presentations\" before building the deck. Text/code: content is saved as is. To change a file, call again with the same filename (creates v2). For a document built from earlier research, use ALL the research notes and sources gathered (every section and finding, with the sources), not a short summary; a thin file is a failure. For research deliverables, write only what your sources state: a figure or claim you could not confirm must be removed, or kept: list the figure in unconfirmed and mark it as unconfirmed in the text, in the file's language. Large files: send them in parts (part=1,2,... with more=true on every part but the last; the file is created only by the last part, and contents are joined in order). Not for images or executables.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -70,14 +77,13 @@ export const CREATE_FILE_TOOL: ChatTool = {
 						required: ["rows"],
 					},
 				},
+				theme: { type: "string", enum: [...DECK_THEMES], description: "pptx only. Visual theme; default clean." },
+				brand_color: { type: "string", description: "pptx only. Optional brand color as hex, e.g. #1d6b3a." },
+				template_file_id: { type: "string", description: "pptx only. Id of an attached .pptx/.potx or a .pptx file of the user to use as the template (its layouts, fonts and colors). Never a URL." },
 				slides: {
 					type: "array",
-					description: "pptx only",
-					items: {
-						type: "object",
-						properties: { title: { type: "string" }, bullets: { type: "array", items: { type: "string" } } },
-						required: ["title"],
-					},
+					description: `pptx only, up to ${DECK_MAX_SLIDES} slides, each {layout?, title, ...fields of that layout, notes?, background?}. Fields per layout are in the presentations notes.`,
+					items: { type: "object" },
 				},
 			},
 			required: ["filename"],
@@ -92,6 +98,10 @@ export type CreateFileDeps = {
 	nextVersion: typeof nextFileVersion;
 	countRunFiles: typeof countRunFileArtifacts;
 	printPdf: PrintPdf;
+	loadArtifact?: DeckImageSource["loadArtifact"];
+	/** Sandbox `run_code` (python-pptx e LibreOffice): preenche modelos .pptx e renderiza as páginas para conferência. */
+	runPython: RunPython;
+	processImage: typeof processImageForStorage;
 };
 
 const DEFAULT_DEPS: CreateFileDeps = {
@@ -99,6 +109,8 @@ const DEFAULT_DEPS: CreateFileDeps = {
 	nextVersion: nextFileVersion,
 	countRunFiles: countRunFileArtifacts,
 	printPdf: printPdfWithChromium,
+	runPython: (input) => runCode(input, loadCodeRunnerConfig()),
+	processImage: processImageForStorage,
 };
 
 export type CreateFileContext = {
@@ -107,6 +119,10 @@ export type CreateFileContext = {
 	userId: string | undefined;
 	runId?: string;
 	conversationId?: string;
+	/** Anexos do usuário na conversa: fonte das imagens dos slides (junto das imagens geradas). */
+	attachmentFiles?: DeckImageSource["attachments"];
+	/** O modelo enxerga imagens: só então o deck é renderizado e as páginas voltam como visão. */
+	canSeeImages?: boolean;
 };
 
 type StagedFile = {
@@ -117,6 +133,9 @@ type StagedFile = {
 	title?: unknown;
 	css?: unknown;
 	layout?: unknown;
+	theme?: unknown;
+	brandColor?: unknown;
+	templateFileId?: unknown;
 	format?: unknown;
 	touchedAt: number;
 };
@@ -161,6 +180,9 @@ function mergeInto(base: StagedFile, args: Record<string, unknown>): StagedFile 
 		title: base.title ?? args.title,
 		css: base.css ?? args.css,
 		layout: base.layout ?? args.layout,
+		theme: base.theme ?? args.theme,
+		brandColor: base.brandColor ?? args.brand_color,
+		templateFileId: base.templateFileId ?? args.template_file_id,
 		format: base.format ?? args.format,
 		touchedAt: Date.now(),
 	};
@@ -185,14 +207,14 @@ export function previewCreateFileArgs(args: Record<string, unknown>, ctx: Create
 	const staged = stagedFiles.get(stageKey(args, ctx));
 	if (!staged || staged.nextPart !== part) return args;
 	const merged = mergeInto(staged, args);
-	return { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, format: merged.format };
+	return { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, theme: merged.theme, brand_color: merged.brandColor, template_file_id: merged.templateFileId, format: merged.format };
 }
 
 export async function executeCreateFile(
 	args: Record<string, unknown>,
 	ctx: CreateFileContext,
 	deps: Partial<CreateFileDeps> = {},
-): Promise<{ summary: string; fileEvent?: FileEvent }> {
+): Promise<{ summary: string; fileEvent?: FileEvent; visionArtifactIds?: string[] }> {
 	const d = { ...DEFAULT_DEPS, ...deps };
 	if (!ctx.userId) throw new Error("create_file needs a signed-in user.");
 	// A8: arquivo em partes. Partes intermediárias só guardam; a última junta tudo e renderiza.
@@ -214,7 +236,7 @@ export async function executeCreateFile(
 				summary: `Part ${part} stored (${merged.content.length} chars so far). Nothing is created yet. Send part ${part + 1} next, with more=true if more follows or more=false for the last part. Do not repeat earlier parts.`,
 			};
 		}
-		args = { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, format: merged.format };
+		args = { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, theme: merged.theme, brand_color: merged.brandColor, template_file_id: merged.templateFileId, format: merged.format };
 		stagedKeyToClear = key;
 	}
 	// Valida antes de gastar render: erro acionável volta ao modelo.
@@ -228,7 +250,18 @@ export async function executeCreateFile(
 		}
 	}
 
-	const rendered = await runSandboxOperation(ctx, 60_000, (signal) => renderFile(input, { printPdf: (html, _signal, options) => d.printPdf(html, signal, options) }));
+	const deckImages =
+		input.slides && deckImageIds(input.slides).length > 0
+			? await resolveDeckImages(input.slides, { userId: ctx.userId, conversationId: ctx.conversationId, attachments: ctx.attachmentFiles, loadArtifact: d.loadArtifact })
+			: undefined;
+	let deck: RenderedDeck | undefined;
+	let rendered: RenderedFile;
+	if (input.format === "pptx") {
+		deck = await renderDeck(input, { ...ctx, userId: ctx.userId }, d, deckImages);
+		rendered = deck;
+	} else {
+		rendered = await runSandboxOperation(ctx, 60_000, (signal) => renderFile(input, { printPdf: (html, _signal, options) => d.printPdf(html, signal, options), deckImages }));
+	}
 	assertSandboxExecution(ctx);
 	const version = await d.nextVersion({
 		userId: ctx.userId,
@@ -265,8 +298,16 @@ export async function executeCreateFile(
 		version,
 		...(ctx.runId ? { runId: ctx.runId } : {}),
 	};
+	// Apresentação: avisos de layout (estimados, sem sandbox) e conferência visual (páginas renderizadas, quando há sandbox).
+	let deckNotes = "";
+	let visionArtifactIds: string[] = [];
+	if (deck) {
+		visionArtifactIds = await persistDeckPreviews(deck.previews, { ...ctx, userId: ctx.userId }, d);
+		deckNotes = deckResultNotes(input, deck, visionArtifactIds.length, input.slides?.length ?? 0, artifact.id);
+	}
 	return {
-		summary: `File created: ${input.filename} (${formatFileSize(size)}${version > 1 ? `, v${version}` : ""}). The chat already shows the file card; reply with one short line and do not repeat the content. If you later find an error in this file, call create_file again with the same filename and the fix instead of offering to.`,
+		summary: `File created: ${input.filename} (${formatFileSize(size)}${version > 1 ? `, v${version}` : ""}). The chat already shows the file card; reply with one short line and do not repeat the content. If you later find an error in this file, call create_file again with the same filename and the fix instead of offering to.${deckNotes ? `\n${deckNotes}` : ""}`,
 		fileEvent,
+		...(visionArtifactIds.length ? { visionArtifactIds } : {}),
 	};
 }

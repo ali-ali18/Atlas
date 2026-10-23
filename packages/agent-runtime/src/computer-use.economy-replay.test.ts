@@ -36,6 +36,7 @@ async function replay(input: {
 	objective?: string;
 }) {
 	const requested: ChatTool[][] = [];
+	const prompts: string[] = [];
 	const results: Array<{ name: string; ok: boolean; summary: string }> = [];
 	const script = [...(input.script ?? [done])];
 	const manager = {
@@ -60,10 +61,19 @@ async function replay(input: {
 		},
 		streamChat: async (params) => {
 			requested.push(JSON.parse(JSON.stringify(params.tools)) as ChatTool[]);
+			prompts.push(params.messages.filter((m) => m.role === "system").map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content))).join("\n"));
 			return script.shift() ?? done;
 		},
 	});
-	return { first: requested[0]!.map((tool) => tool.function.name), steps: requested.length, results };
+	return {
+		first: requested[0]!.map((tool) => tool.function.name),
+		steps: requested.length,
+		results,
+		/** Tools do passo `step` (0 = primeiro) com o JSON completo, para medir o prefixo. */
+		tools: (step = 0) => requested[step]!,
+		system: (step = 0) => prompts[step]!,
+		prefixChars: (step = 0) => JSON.stringify(requested[step]).length + prompts[step]!.length,
+	};
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -176,5 +186,67 @@ describe("economia ligada: chat simples", () => {
 	it("rotina não recebe `memory` (não escreve memória)", async () => {
 		const { first } = await replay({ origin: "routine", objective: "todo dia, lembre o que o usuário prefere", messages: [{ role: "user", content: "Execute a rotina." }] });
 		expect(first).not.toContain("memory");
+	});
+});
+
+describe("economia ligada: apresentações só entram quando o pedido é sobre apresentação", () => {
+	const DECK_SCHEMA_MARKERS = ["Free layout", "rounded_rect", "template_file_id", "inspect_presentation", "scrim", "two_column", "chart-pie"];
+
+	it("'Bom dia' mantém o prefixo pequeno e SEM o esquema do deck", async () => {
+		const small = await replay({ messages: [{ role: "user", content: "Bom dia" }] });
+		const text = small.system() + JSON.stringify(small.tools());
+		for (const marker of DECK_SCHEMA_MARKERS) {
+			// o índice cita o grupo em uma linha (nome da tool); o esquema não pode estar lá
+			if (marker === "inspect_presentation") continue;
+			expect(text, marker).not.toContain(marker);
+		}
+		expect(small.first).not.toContain("create_file");
+		expect(small.first).not.toContain("inspect_presentation");
+		// o índice dos grupos adiados mostra só uma linha do grupo, sem layouts nem campos
+		expect(small.system()).toMatch(/- presentations: inspect_presentation\./);
+		expect(small.system()).not.toContain("Plan a story first");
+	});
+
+	it("'faz uma apresentação…' carrega guia, create_file, inspect_presentation e generate_image já no passo 1", async () => {
+		const small = await replay({ messages: [{ role: "user", content: "Bom dia" }] });
+		const deck = await replay({ messages: [{ role: "user", content: "Faz uma apresentação de 8 slides sobre as vendas de outubro, com capa de tema agro" }] });
+		expect(deck.first).toEqual(expect.arrayContaining(["create_file", "inspect_presentation", "generate_image"]));
+		const system = deck.system();
+		for (const needle of ["Plan a story first", "Free layout", "rounded_rect", "{gradient:{from,to,angle?}}", "template_file_id", "generate_image` FIRST", "chart-pie"]) expect(system, needle).toContain(needle);
+		// o guia saiu do índice (já está carregado) e custa só neste pedido
+		expect(system).not.toMatch(/- presentations: inspect_presentation\./);
+		expect(deck.prefixChars() - small.prefixChars()).toBeGreaterThan(5_000);
+		expect(deck.steps).toBe(1);
+	});
+
+	it("pedido de arquivo comum (PDF) não carrega o guia de apresentações", async () => {
+		const pdf = await replay({ messages: [{ role: "user", content: "Gera um relatório em PDF das vendas" }] });
+		expect(pdf.first).toContain("create_file");
+		expect(pdf.first).not.toContain("inspect_presentation");
+		expect(pdf.system()).not.toContain("Free layout");
+		// a descrição do create_file é curta e aponta para o grupo, sem os campos de cada layout
+		const createFile = pdf.tools().find((t) => t.function.name === "create_file")!;
+		expect(JSON.stringify(createFile)).toContain("presentations");
+		expect(JSON.stringify(createFile)).not.toContain("two_column");
+		expect(JSON.stringify(createFile).length).toBeLessThan(4_500);
+	});
+
+	it("sem palavra-chave, o modelo pede 'presentations' e o guia vem no resultado da busca", async () => {
+		const { tools, results, first } = await replay({
+			messages: [{ role: "user", content: "Monta o material da reunião de amanhã" }],
+			script: [turn("mcp_tool_search", { query: "presentations" }), done],
+		});
+		expect(first).not.toContain("inspect_presentation");
+		expect(results[0]).toMatchObject({ name: "mcp_tool_search", ok: true });
+		expect(results[0]!.summary).toContain("Loaded built-in tools");
+		expect(results[0]!.summary).toContain("Free layout");
+		expect(results[0]!.summary).toContain("template_file_id");
+		expect(tools(1).map((t) => t.function.name)).toContain("inspect_presentation");
+	});
+
+	it("template anexado: o nome do arquivo .pptx na mensagem já carrega o guia", async () => {
+		const { system, first } = await replay({ messages: [{ role: "user", content: "Usa esse modelo para o plano de 2027\n[Anexo: marca-corporativa.pptx (id att-9)]" }] });
+		expect(first).toContain("inspect_presentation");
+		expect(system()).toContain("Template: when the user attached a PowerPoint");
 	});
 });

@@ -67,7 +67,7 @@ import type {
 	RunInputMode,
 } from "@workspace/shared";
 import type { CompactConversationResponse } from "@workspace/shared";
-import type { LessonRule, LessonView, RunInspection, MemoryChange, MemoryChangesPage, MemoryCleanupView, MemoryEntry, MemorySnapshot, MemoryTarget } from "@workspace/shared";
+import type { RunInspection } from "@workspace/shared";
 import type {
 	CatalogBotEntry,
 	CatalogBotTemplate,
@@ -667,6 +667,11 @@ export type AtlasPageListItem = {
 	sourceCount: number;
 	updatedAt: string;
 	refreshedAt: string | null;
+	/** Grupo efetivo (o mesmo das rotinas): o escolhido ou, na falta, o da rotina que atualiza o painel. */
+	groupId?: string | null;
+	/** Grupo escolhido para o painel; null quando o grupo vem só da rotina. */
+	explicitGroupId?: string | null;
+	groupName?: string | null;
 };
 
 /** Página do usuário (revisão atual). 404 = não existe ou foi apagada. */
@@ -681,100 +686,29 @@ export async function listBotPages(botId: string, limit?: number): Promise<Atlas
 	return body.items;
 }
 
+/** Move o painel para um grupo (o mesmo das rotinas) ou tira dele (`null`). */
+export async function movePageToGroup(pageId: string, groupId: string | null): Promise<void> {
+	await atlasFetch(`/v1/pages/${encodeURIComponent(pageId)}`, { method: "PATCH", body: JSON.stringify({ groupId }) });
+}
+
+/** Link público do painel. `url` só vem ao criar/girar (o servidor guarda apenas o hash do token). */
+export type AtlasPageShare = { active: boolean; createdAt: string | null; url?: string };
+
+export async function getPageShare(pageId: string): Promise<AtlasPageShare> {
+	return atlasFetch<AtlasPageShare>(`/v1/pages/${encodeURIComponent(pageId)}/share`);
+}
+
+/** Ativa o link público (ou gira: o link anterior deixa de valer). */
+export async function createPageShare(pageId: string): Promise<AtlasPageShare> {
+	return atlasFetch<AtlasPageShare>(`/v1/pages/${encodeURIComponent(pageId)}/share`, { method: "POST" });
+}
+
+export async function revokePageShare(pageId: string): Promise<AtlasPageShare> {
+	return atlasFetch<AtlasPageShare>(`/v1/pages/${encodeURIComponent(pageId)}/share`, { method: "DELETE" });
+}
+
 export async function deletePage(pageId: string): Promise<void> {
 	await atlasFetch(`/v1/pages/${encodeURIComponent(pageId)}`, { method: "DELETE" });
-}
-
-// --- Aba Memória: o que o bot lembra, edição e histórico com desfazer ---
-
-/** As duas seções (perfil do usuário e memória deste bot), com ids. */
-export async function getBotMemory(botId: string): Promise<MemorySnapshot> {
-	const { snapshot } = await atlasFetch<{ snapshot: MemorySnapshot }>(`/v1/memory?botId=${encodeURIComponent(botId)}`);
-	return snapshot;
-}
-
-export async function addMemoryItem(input: { target: MemoryTarget; content: string; botId: string }): Promise<MemoryEntry> {
-	const { entry } = await atlasFetch<{ entry: MemoryEntry }>("/v1/memory", { method: "POST", body: JSON.stringify(input) });
-	return entry;
-}
-
-export async function editMemoryItem(entryId: string, content: string): Promise<MemoryEntry> {
-	const { entry } = await atlasFetch<{ entry: MemoryEntry }>(`/v1/memory/entries/${encodeURIComponent(entryId)}`, { method: "PATCH", body: JSON.stringify({ content }) });
-	return entry;
-}
-
-export async function deleteMemoryItem(entryId: string): Promise<void> {
-	await atlasFetch(`/v1/memory/entries/${encodeURIComponent(entryId)}`, { method: "DELETE" });
-}
-
-/** Lições do bot (aba "Lições"): playbook procedural aprendido com o uso. */
-export async function listBotLessons(botId: string): Promise<LessonView[]> {
-	const { lessons } = await atlasFetch<{ lessons: LessonView[] }>(`/v1/lessons?botId=${encodeURIComponent(botId)}`);
-	return lessons;
-}
-
-export async function editBotLesson(lessonId: string, content: string): Promise<LessonView> {
-	const { lesson } = await atlasFetch<{ lesson: LessonView }>(`/v1/lessons/${encodeURIComponent(lessonId)}`, { method: "PATCH", body: JSON.stringify({ content }) });
-	return lesson;
-}
-
-export async function deleteBotLesson(lessonId: string): Promise<void> {
-	await atlasFetch(`/v1/lessons/${encodeURIComponent(lessonId)}`, { method: "DELETE" });
-}
-
-export async function setBotLessonRule(lessonId: string, rule: LessonRule): Promise<LessonView> {
-	const { lesson } = await atlasFetch<{ lesson: LessonView }>(`/v1/lessons/${encodeURIComponent(lessonId)}/rule`, { method: "PUT", body: JSON.stringify({ rule }) });
-	return lesson;
-}
-
-export async function clearBotLessonRule(lessonId: string): Promise<LessonView> {
-	const { lesson } = await atlasFetch<{ lesson: LessonView }>(`/v1/lessons/${encodeURIComponent(lessonId)}/rule`, { method: "DELETE" });
-	return lesson;
-}
-
-export async function restoreBotLesson(lessonId: string): Promise<LessonView> {
-	const { lesson } = await atlasFetch<{ lesson: LessonView }>(`/v1/lessons/${encodeURIComponent(lessonId)}/restore`, { method: "POST" });
-	return lesson;
-}
-
-/** "O que mudou": últimos 30 dias, mais novas primeiro. */
-export async function listMemoryHistory(botId: string, options: { cursor?: string | null; limit?: number } = {}): Promise<MemoryChangesPage> {
-	const query = new URLSearchParams({ botId });
-	if (options.cursor) query.set("cursor", options.cursor);
-	if (options.limit) query.set("limit", String(options.limit));
-	return atlasFetch<MemoryChangesPage>(`/v1/memory/changes?${query}`);
-}
-
-/** Desfaz uma mudança; entrada alterada depois responde 409 com a mensagem em pt-BR (vira `AtlasApiError.message`). */
-export async function undoMemoryHistoryItem(changeId: string): Promise<MemoryChange> {
-	const { change } = await atlasFetch<{ change: MemoryChange }>(`/v1/memory/changes/${encodeURIComponent(changeId)}/undo`, { method: "POST" });
-	return change;
-}
-
-// --- Limpeza da memória com aprovação: o worker sugere, o usuário aplica ou ignora ---
-
-export async function getMemoryCleanup(botId: string): Promise<MemoryCleanupView> {
-	const { cleanup } = await atlasFetch<{ cleanup: MemoryCleanupView }>(`/v1/memory/cleanup?botId=${encodeURIComponent(botId)}`);
-	return cleanup;
-}
-
-/** Pede a revisão em segundo plano; as sugestões chegam por `getMemoryCleanup` (status "generating" até lá). */
-export async function startMemoryCleanup(botId: string): Promise<void> {
-	await atlasFetch("/v1/memory/cleanup", { method: "POST", body: JSON.stringify({ botId }) });
-}
-
-export async function applyMemoryCleanupSuggestion(botId: string, suggestionId: string): Promise<MemoryCleanupView> {
-	const { cleanup } = await atlasFetch<{ cleanup: MemoryCleanupView }>(`/v1/memory/cleanup/${encodeURIComponent(suggestionId)}/apply`, { method: "POST", body: JSON.stringify({ botId }) });
-	return cleanup;
-}
-
-export async function dismissMemoryCleanupSuggestion(botId: string, suggestionId: string): Promise<MemoryCleanupView> {
-	const { cleanup } = await atlasFetch<{ cleanup: MemoryCleanupView }>(`/v1/memory/cleanup/${encodeURIComponent(suggestionId)}/dismiss`, { method: "POST", body: JSON.stringify({ botId }) });
-	return cleanup;
-}
-
-export async function applyAllMemoryCleanup(botId: string): Promise<{ cleanup: MemoryCleanupView; applied: number; skipped: number }> {
-	return atlasFetch("/v1/memory/cleanup/apply-all", { method: "POST", body: JSON.stringify({ botId }) });
 }
 
 export async function createBot(input: CreateBotInput): Promise<Bot> {

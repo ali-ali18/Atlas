@@ -1,3 +1,4 @@
+import type { DraftRevisionReason } from "./draft-revision.js";
 import type { ChartSpec } from "./chart-spec.js";
 import type { PageSpec } from "./page-spec.js";
 import type { RunTelemetryMeta } from "./run-telemetry.js";
@@ -68,7 +69,12 @@ export type ComputerUseEvent =
 	| { type: "images"; origin: "assistant"; items: PersistedImagesCard["items"]; caption?: string }
 	| { type: "run"; runId: string; status: string }
 	| { type: "assistant_delta"; id: string; delta: string }
-	| { type: "assistant_discard" }
+	/**
+	 * Fala já transmitida que não é a resposta final (o run segue e refaz). `id` = o mesmo do
+	 * `assistant_delta` do passo; `reason` diz por quê (ver `draft-revision.ts`). Só `duplicate`
+	 * some da tela; o resto fica visível, recolhido como rascunho revisado.
+	 */
+	| { type: "assistant_discard"; id?: string; reason?: DraftRevisionReason }
 	| AgentPointerEvent
 	| DevSessionEvent
 	| ContextCompactedEvent

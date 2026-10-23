@@ -54,5 +54,5 @@ export async function executeGenerateImage(args: GenerateImageArgs, ctx: {
 		items.push({ artifactId, mime: processed.mime, width: processed.width, height: processed.height });
 	}
 	await ctx.onImages({ type: "images", origin: "assistant", items });
-	return { summary: `Imagem gerada: ${items.length}.`, count: items.length };
+	return { summary: `Imagem gerada: ${items.length}. Image id${items.length > 1 ? "s" : ""}: ${items.map((item) => item.artifactId).join(", ")} (use as a slide background or image in create_file; never a URL).`, count: items.length };
 }

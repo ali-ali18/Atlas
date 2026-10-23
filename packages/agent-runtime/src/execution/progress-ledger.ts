@@ -1,4 +1,4 @@
-import { buildPartial, currentItem, describeOpenItems, isLedgerSatisfied, openItems, type LedgerItem, type TaskLedger } from "@workspace/shared";
+import { buildPartial, currentItem, describeOpenItems, isLedgerSatisfied, obligatedOpenItems, type LedgerItem, type TaskLedger } from "@workspace/shared";
 
 /**
  * Progress Ledger (V3b): a cada decisão de ferramenta, funções puras respondem
@@ -77,7 +77,7 @@ export function advanceReplan(
 ): ReplanOutcome {
 	const k = limits.k ?? REPLAN_AFTER_STALLED;
 	const m = limits.m ?? MAX_REPLANS;
-	const idle = ledger.carry === "offered" || ledger.carry === "asked" || openItems(ledger).length === 0 || verdict.progressing;
+	const idle = obligatedOpenItems(ledger).length === 0 || verdict.progressing;
 	if (idle) return { action: "none", ledger: ledger.stalled ? { ...ledger, stalled: 0 } : ledger };
 	const stalled = ledger.stalled + 1;
 	if (stalled < k) return { action: "none", ledger: { ...ledger, stalled } };

@@ -729,6 +729,9 @@ model Routine {
   schedule        String?
   timezone        String    @default("America/Sao_Paulo")
   triggerJson     Json?
+  /// Alerta por condição (só cron/interval): { condition, hint?, active, checkedAt?, triggeredAt?, lastSummary? }.
+  /// `active` é o estado da última verificação conclusiva (debounce: só avisa na virada para verdadeiro).
+  alertJson       Json?
   /// user | bot (criada pelo bot no modo proativo)
   createdBy       String    @default("user")
   lastRunAt       DateTime?
@@ -754,6 +757,7 @@ model RoutineGroup {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   routines    Routine[]
+  pages       Page[]
 
   @@index([botId])
   @@map("routine_groups")
@@ -1394,9 +1398,28 @@ model Page {
   deletedAt      DateTime?
   revisions      PageRevision[]
   routines       Routine[]
+  share          PageShare?
+  /// Grupo (o mesmo das rotinas) em que o painel aparece; SetNull se o grupo for apagado.
+  groupId        String?
+  group          RoutineGroup?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
 
   @@index([userId, botId, updatedAt])
+  @@index([groupId])
   @@map("pages")
+}
+
+/// Link público somente leitura do painel (um por painel). Guarda só o hash do token (sha256 com pepper);
+/// o token aparece uma única vez, na criação/rotação. `revokedAt` desliga o link.
+model PageShare {
+  id        String    @id @default(cuid())
+  pageId    String    @unique
+  page      Page      @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  userId    String
+  tokenHash String    @unique
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  @@map("page_shares")
 }
 
 /// Histórico das últimas 10 revisões de uma página (a atual inclusive).

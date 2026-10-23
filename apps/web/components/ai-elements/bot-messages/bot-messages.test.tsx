@@ -24,6 +24,23 @@ test("marcador: linha inteira é um botão 'Ver conversa com X', sem chevron nem
 	assert.match(html, /<svg/);
 });
 
+test("marcador de pedido atrasado mostra o status (e o card gravado chega até ele)", async () => {
+	const { buildSessionMessage } = await import("@/hooks/use-atlas-chat");
+	const row = buildSessionMessage({
+		id: "row-1",
+		conversationId: "c1",
+		role: "bot-link" as never,
+		content: JSON.stringify({ v: 1, kind: "sent", botMessageId: "m1", botId: "b2", botName: "Bobinho", title: "PDF", overdue: { label: "Bobinho ainda não respondeu", at: "2026-10-23T12:00:00.000Z" } }),
+		createdAt: "2026-10-23T11:00:00.000Z",
+	});
+	assert.equal(row?.kind === "bot-link" && row.overdue, "Bobinho ainda não respondeu");
+	const html = renderToStaticMarkup(<BotLinkMarker bot={{ id: "b2", name: "Bobinho" }} direction="sent" overdue="Bobinho ainda não respondeu" />);
+	assert.match(html, /data-bot-overdue/);
+	assert.match(html, /Bobinho ainda não respondeu/);
+	const plain = renderToStaticMarkup(<BotLinkMarker bot={{ id: "b2", name: "Bobinho" }} direction="sent" />);
+	assert.doesNotMatch(plain, /data-bot-overdue/);
+});
+
 test("marcador de recebimento sem bot conhecido não vira botão", () => {
 	const html = renderToStaticMarkup(<BotLinkMarker bot={{ name: "Caio" }} direction="received" />);
 	assert.match(html, /Mensagem de/);

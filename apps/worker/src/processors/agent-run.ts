@@ -1,7 +1,7 @@
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
-import { shouldReviewForSkill, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
-import { parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode } from "@workspace/shared";
+import { isNoUpdateReply, shouldReviewForSkill, type AlertVerdict, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
+import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode } from "@workspace/shared";
 import {
 	ATLAS_JOB_NAMES,
 	COMPACT_TAIL_KEEP,
@@ -30,6 +30,7 @@ import {
 	prisma,
 	appendAgentStep,
 	appendConversationCard,
+	listOpenBotRequests,
 	appendRunAssistantSegment,
 	appendRunEvent,
 	countCompletedToolResults,
@@ -100,9 +101,13 @@ import {
 	tryAcquireRunLease,
 	type RunLease,
 	getAccountConfig,
+	getRoutine,
+	getRoutineAlertForAgentRun,
+	getRoutineContextForAgentRun,
 	getRoutineNotifyModeForAgentRun,
 	getRoutinePageIdForAgentRun,
 	persistConversationCardFromEvent,
+	recordRoutineAlertState,
 } from "@workspace/db";
 import {
 	AgentRunCancelledError,
@@ -175,6 +180,8 @@ import { loadRunBase } from "../run-setup.js";
 import { resolveRunAutonomy } from "../run-autonomy.js";
 import { actionsJevMode, actionsJudgeModel, pendingJevMode, proactiveFailureDisplay, proactiveJevMode, resolveProactiveForRun, resolveUserPushForRun } from "../proactive-run.js";
 import { loadRunSkillIndex } from "../run-skills.js";
+import { planAlertRun, settleAlertRun } from "../routine-alert.js";
+import { notifyRoutineRunFailure, type RoutineRunFailureDeps } from "../routine-run-failure.js";
 import { buildMentionNotes } from "../run-mentions.js";
 import { getOpenRouterContextLength, isKnownOpenRouterModel } from "../openrouter-models.js";
 import { imageVisionForRun } from "../image-vision.js";
@@ -193,7 +200,9 @@ export { tickLeaseHeartbeat };
 const runActivityThrottle = createPublishThrottle(3_000);
 
 /** Vale avisar o usuário do fim deste run? Sem conversa, sem texto ou de subagente, não. */
-export function shouldPushRunEnd(run: { conversationId?: string | null; origin?: string | null }, text: string, hasNotify = true, routineNotify: RoutineNotifyMode = "always"): boolean {
+export function shouldPushRunEnd(run: { conversationId?: string | null; origin?: string | null }, text: string, hasNotify = true, routineNotify: RoutineNotifyMode = "always", alertRun = false): boolean {
+	// Rotina de alerta (quem avisa é o veredito, só na virada) ou verificação sem novidade: nunca avisa no fim.
+	if (alertRun) return false;
 	// Rotina "só importante": o resultado fica no chat sem push; quem avisa é o `notify_user` do próprio run.
 	if (run.origin === "routine" && routineNotify === "important") return false;
 	return hasNotify && Boolean(run.conversationId) && text.trim().length > 0 && run.origin !== "subagent";
@@ -202,6 +211,14 @@ export function shouldPushRunEnd(run: { conversationId?: string | null; origin?:
 /** Origem automatizada (lembrete proativo, rotina, webhook) é "lembrete"; conversa normal é "terminou". */
 export function pushKindForOrigin(origin: string | null | undefined): "reminder" | "run-finished" {
 	return origin === "proactive" || origin === "routine" || origin === "webhook" ? "reminder" : "run-finished";
+}
+
+/** Aviso de rotina que falhou: contexto escopado pelo dono + push `routine-failed` (ausente = sem VAPID). */
+export function routineRunFailureDeps(deps: Pick<AgentRunProcessorDeps, "notify">): RoutineRunFailureDeps {
+	return {
+		loadContext: (agentRunId, userId) => getRoutineContextForAgentRun(agentRunId, userId),
+		push: deps.notify ? (userId, conversationId, text) => deps.notify!(userId, conversationId, "routine-failed", text) : undefined,
+	};
 }
 
 export type AgentRunProcessorDeps = {
@@ -755,6 +772,14 @@ async function executeLeasedRun(ctx: {
 			})
 			: null;
 
+		// Pedidos deste bot a outros bots ainda sem resposta (send_to_bot): bloco curto no prompt. Dono do run; falha = nenhum.
+		const openBotRequests = !groupRun && run.botId && (run.origin === "chat" || run.origin === "bot")
+			? await listOpenBotRequests({ userId: runUserId, fromBotId: run.botId }).catch((error) => {
+				console.error(`load open bot requests failed run=${runId}`, error);
+				return [];
+			})
+			: [];
+
 		// Lista de passos (update_task_list) da conversa: mesmo escopo de dono; falha não derruba o run.
 		// Plano aprovado: os passos do plano semeiam a lista (o cartao aparece ja, antes do 1o passo).
 		const seededTaskList = !checkpoint?.llmMessages?.length ? checkpoint?.transcriptSeed?.taskList : undefined;
@@ -774,9 +799,9 @@ async function executeLeasedRun(ctx: {
 			? await getSkillPendingIntent(runUserId, run.conversationId).then((pending) => pending?.payload.action === "plan", () => false)
 			: false;
 
-		return { planPending, messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments: attachmentsForRun?.runtime };
+		return { planPending, messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, openBotRequests, attachments: attachmentsForRun?.runtime };
 	};
-	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { planPending, messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, priorCompaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, attachments }] =
+	const [{ configSnapshot, runtimeConfig, providers, canSeeUserImages, imageVision }, { planPending, messages, inputMessages, transcriptOutcome, priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools, priorCompaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, openBotRequests, attachments }] =
 		await Promise.all([configStage(), messagesStage()]);
 	// Inspetor: como o histórico deste turno foi montado (só metadados; nunca o texto).
 	if (transcriptOutcome) {
@@ -939,6 +964,10 @@ async function executeLeasedRun(ctx: {
 				write: async (text, createdAt) => {
 					await appendRunAssistantSegment(run.conversationId!, text, { createdAt });
 				},
+				// Rascunho revisado gravado recolhido: recarregar mostra o mesmo que o ao vivo (o card corta o texto).
+				writeDraft: async (text, reason, createdAt) => {
+					await appendConversationCard(run.conversationId!, { v: 1, kind: "revised-draft", text: text.slice(0, REVISED_DRAFT_MAX_CHARS), reason }, { createdAt });
+				},
 			})
 		: null;
 	// Resultados de ferramentas do run: a revisão de memória salva fatos que só apareceram por tool (ex.: CNPJ do ERP).
@@ -951,6 +980,10 @@ async function executeLeasedRun(ctx: {
 
 	// Cancelamento e pausa dividem uma leitura (L10).
 	const control = createRunControlReader({ read: () => getRunControlState(runId) });
+
+	// Rotina de alerta: o run só verifica a condição; o aviso (com debounce) é decidido aqui, depois do veredito.
+	const alertCtx = run.origin === "routine" ? await getRoutineAlertForAgentRun(runId, runUserId).catch(() => null) : null;
+	const alertRun = alertCtx ? { condition: alertCtx.alert.condition, ...(alertCtx.alert.hint ? { hint: alertCtx.alert.hint } : {}), report: { verdict: null as AlertVerdict | null } } : undefined;
 
 	let completionPersisted: "completed" | "budget_exhausted" | null = null;
 	// Triagem de mensagens do usuário durante o run: modelo barato de manutenção; falha = modelo do run.
@@ -1012,7 +1045,9 @@ async function executeLeasedRun(ctx: {
 					}
 				: {}),
 			proactive: proactiveForRun,
-			userPush: userPushForRun,
+			// Alerta não usa o `notify_user` da rotina "só importante": o veredito é o único aviso.
+			userPush: alertRun ? undefined : userPushForRun,
+			alertRun,
 			jevMcpMode: runtimeConfig.jevMcpMode,
 			executionDiscipline: runtimeConfig.executionDiscipline,
 			contextEconomy: runtimeConfig.contextEconomy,
@@ -1102,6 +1137,7 @@ async function executeLeasedRun(ctx: {
 			priorResearchNotes,
 			priorTaskLedger,
 			priorTaskList,
+			openBotRequests,
 			planMode: readPlanMode(rawBotPolicy),
 			planPending,
 			onInspect: (payload: InspectHooksPayload) => { void appendRunEvent(runId, "inspect_hooks", payload).catch(() => undefined); },
@@ -1183,10 +1219,18 @@ async function executeLeasedRun(ctx: {
 		}
 
 		runTelemetry.markBeforeFinalWrite();
+		// Alerta: o texto do run é o resultado da verificação; só entra na conversa quando avisa.
+		const alertPlan = alertCtx && alertRun
+			? planAlertRun({ alert: alertCtx.alert, routineName: alertCtx.name, verdict: alertRun.report.verdict, modelText: result.text, interval: alertCtx.interval ?? null, now: new Date() })
+			: null;
+		// Verificação de follow-up sem novidade ([NO_UPDATE]): nada entra na conversa, sem push e sem revisão de memória.
+		const noUpdate = run.origin === "proactive" && isNoUpdateReply(result.text);
+		const resultText = alertPlan ? alertPlan.text : result.text;
+		const resultConversationId = (alertPlan && !alertPlan.notify) || noUpdate ? null : run.conversationId;
 		await completeAgentRunAtomically({
 			runId,
-			conversationId: run.conversationId,
-			assistantText: result.text,
+			conversationId: resultConversationId,
+			assistantText: resultText,
 			sandboxSessionId: cachedSessionId,
 			lease,
 			status: result.hitWall ? "budget_exhausted" : "completed",
@@ -1194,19 +1238,34 @@ async function executeLeasedRun(ctx: {
 			usage: withRunTelemetry(result.usage, runTelemetry.meta(jevTelemetry.snapshot())),
 			donePayload: {
 				type: "done",
-				message: { role: "assistant", content: result.text },
+				message: { role: "assistant", content: resultText },
 				model: result.model,
 				usage: result.usage,
 			},
 		});
 		// Daqui em diante a conclusão é irrevogável (ver catch).
 		completionPersisted = result.hitWall ? "budget_exhausted" : "completed";
+		// Estado do alerta + push `alert` (só na virada). Fora do caminho do run: nunca derruba a conclusão.
+		if (alertPlan && alertCtx) {
+			await settleAlertRun(
+				alertPlan,
+				{ userId: runUserId, routineId: alertCtx.routineId, conversationId: run.conversationId },
+				{
+					record: recordRoutineAlertState,
+					reschedule: async () => {
+						const updated = await getRoutine(runUserId, alertCtx.botId, alertCtx.routineId);
+						if (updated) await deps.onRoutineMutated?.(updated);
+					},
+					push: deps.notify ? (userId, conversationId, text) => deps.notify!(userId, conversationId, "alert", text) : undefined,
+				},
+			).catch((error) => console.error(`[alert] liquidação falhou run=${runId}`, error));
+		}
 
 		// Ordem na thread: o card do questionário foi gravado durante o run e
 		// a saudação/confirmação só na conclusão — sem o toque, o card fica
 		// acima da saudação (invertido). Best effort, nunca quebra o run.
 		// O questionnaireId é determinístico por run (ver runtime).
-		if (run.conversationId && result.text.trim().length > 0) {
+		if (run.conversationId && !noUpdate && result.text.trim().length > 0) {
 			await touchQuestionnaireCard(
 				run.conversationId,
 				`questionnaire-${runId}`,
@@ -1290,7 +1349,7 @@ async function executeLeasedRun(ctx: {
 				name: "memory-review",
 				run:
 					// Grupo: a conversa dele só vira memória do bot se o próprio bot salvar (tool memory) no run.
-					deps.enqueueMemoryReview && run.conversationId && !groupRun && !onboardingRun
+					deps.enqueueMemoryReview && run.conversationId && !noUpdate && !groupRun && !onboardingRun
 						? () =>
 								deps.enqueueMemoryReview!({
 									userId: runUserId,
@@ -1361,11 +1420,11 @@ async function executeLeasedRun(ctx: {
 				},
 			},
 			{ name: "follow-up", run: () => chainRunFollowUp(run, runUserId, deps) },
-			{ name: "delivery", run: () => settleDelivery(result.hitWall ? "budget_exhausted" : "completed", result.text) },
+			{ name: "delivery", run: () => settleDelivery(result.hitWall ? "budget_exhausted" : "completed", noUpdate ? null : result.text) },
 			{
 				// Push: terminou (ou lembrete/rotina). O notify cuida de switch do bot, "está olhando", protocolo e coalescência.
 				name: "push",
-				run: shouldPushRunEnd(run, result.text, Boolean(deps.notify), routineNotify) ? () => deps.notify!(runUserId, run.conversationId!, pushKindForOrigin(run.origin), result.text) : undefined,
+				run: shouldPushRunEnd(run, result.text, Boolean(deps.notify), routineNotify, Boolean(alertCtx) || noUpdate) ? () => deps.notify!(runUserId, run.conversationId!, pushKindForOrigin(run.origin), result.text) : undefined,
 			},
 		]);
 
@@ -1438,6 +1497,7 @@ async function executeLeasedRun(ctx: {
 				if (run.conversationId) await appendConversationMessage(run.conversationId, "assistant", budgetStopFallbackText(error.message)).catch(() => undefined);
 			}
 			if (!autoPlan.schedule) await settleDelivery("budget_exhausted", resultText);
+			await notifyRoutineRunFailure({ origin: run.origin, agentRunId: runId, userId: runUserId, error: error.message }, routineRunFailureDeps(deps));
 			await chainRunFollowUp(run, runUserId, deps);
 			return { runId, status: "budget_exhausted" };
 		}
@@ -1505,6 +1565,7 @@ async function executeLeasedRun(ctx: {
 		});
 		if (kind !== "waiting_user") {
 			await settleDelivery("failed", displayMessage);
+			await notifyRoutineRunFailure({ origin: run.origin, agentRunId: runId, userId: runUserId, error: message }, routineRunFailureDeps(deps));
 			await chainRunFollowUp(run, runUserId, deps);
 		}
 		if (kind === "waiting_user") {
@@ -1529,6 +1590,8 @@ export type ExhaustedRunIo = {
 	autoContinue?: AutoContinueIo;
 	/** Fala do assistente na conversa (aviso quando a retomada não saiu do papel). */
 	appendAssistant: (conversationId: string, text: string) => Promise<unknown>;
+	/** Push de rotina que falhou de vez (padrão: db + notifier reais). */
+	notifyRoutineFailure?: (input: { origin: string | null | undefined; agentRunId: string; userId: string; error: string }) => Promise<unknown>;
 };
 
 const EXHAUSTED_IO: ExhaustedRunIo = {
@@ -1571,6 +1634,7 @@ export async function finalizeExhaustedAgentRun(
 		}
 		if (run.userId) {
 			await d.settle({ userId: run.userId, runId, end: "failed", resultText: failureDisplay }).catch((error) => console.error(`settleDelivery failed run=${runId}`, error));
+			await (d.notifyRoutineFailure ?? ((input) => notifyRoutineRunFailure(input, routineRunFailureDeps(deps))))({ origin: run.origin, agentRunId: runId, userId: run.userId, error: technical });
 			await d.chain(run, run.userId, deps);
 		}
 		return true;

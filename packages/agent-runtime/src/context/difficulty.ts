@@ -17,7 +17,7 @@ const HARD_GROUPS: readonly ContextGroup[] = ["dev", "shell", "desktop"];
  * ficam de fora: citar o assunto não torna o pedido mais difícil. Anexos e conectores citados
  * com @ são sinais próprios; na dúvida o nível fica baixo e a subida de nível corrige.
  */
-const MEDIUM_GROUPS: readonly ContextGroup[] = ["data", "files", "browser", "web", "code"];
+const MEDIUM_GROUPS: readonly ContextGroup[] = ["data", "files", "browser", "web", "code", "presentations"];
 
 /** Pedido longo ou com várias etapas encadeadas. */
 const LONG_REQUEST_CHARS = 700;

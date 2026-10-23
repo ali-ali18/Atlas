@@ -3,7 +3,7 @@ import { memoryRelativeDate } from "./memory-tab-helpers";
 /** Seções recolhíveis da aba Biblioteca. Cada pessoa lembra, no próprio navegador, quais deixou abertas. */
 export type LibrarySectionId = "pages" | "documents" | "routines";
 
-/** Páginas começa aberta (é o que mais se consulta); o resto, fechado. */
+/** Painéis começam abertos (é o que mais se consulta); o resto, fechado. */
 export const LIBRARY_SECTION_DEFAULT_OPEN: Record<LibrarySectionId, boolean> = {
 	pages: true,
 	documents: false,
@@ -60,7 +60,7 @@ export type PageCardModel = {
 	sources: string | null;
 	/** "Atualizado há 2 h": a última atualização com dados novos, senão a última edição. */
 	updated: string | null;
-	/** "Toda segunda às 08:00" quando uma rotina atualiza a página. */
+	/** "Toda segunda às 08:00" quando uma rotina atualiza o painel. */
 	routine: string | null;
 };
 
@@ -71,7 +71,7 @@ export function updatedAgo(iso: string | null | undefined, now: Date = new Date(
 	return relative ? `Atualizado ${relative}` : null;
 }
 
-/** O que o cartão da página mostra na Biblioteca. Puro: o relógio entra por `now`. */
+/** O que o cartão do painel mostra na Biblioteca. Puro: o relógio entra por `now`. */
 export function pageCardModel(item: PageListFields, routineSummary: string | null, now: Date = new Date()): PageCardModel {
 	const count = item.sourceCount;
 	return {

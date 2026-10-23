@@ -5,7 +5,7 @@
  * `packages/agent-runtime/src/tools/delegate-task.ts`.
  */
 import type { ChildBudget, SubagentStatus } from "./subagents.js";
-import type { ItemUpdate } from "./task-ledger.js";
+import { isOpenItem, type ItemUpdate, type TaskLedger } from "./task-ledger.js";
 
 export const DELEGATE_BROWSER_MODE = "browser_item";
 
@@ -73,6 +73,53 @@ export function clipBrowserReport(report: string): string {
 }
 
 const oneLine = (text: string, max: number) => text.replace(/\s+/g, " ").trim().slice(0, max);
+
+/** Rótulo curto demais casa com qualquer coisa ("A", "1"): não vale como sinal. */
+const MIN_MATCH_LABEL_CHARS = 4;
+
+const matchText = (text: string) =>
+	` ${text
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, " ")
+		.trim()} `;
+
+/**
+ * Qual item do checklist cada tarefa delegada cobre (um id por tarefa, ou `undefined`).
+ * Regra conservadora, para nunca fechar item alheio:
+ * 1. `item` explícito na tarefa vale se o id existe no ledger;
+ * 2. sem ele, um item aberto casa só quando o rótulo inteiro dele (sem acento e caixa,
+ *    palavras inteiras, >= 4 caracteres) aparece no título ou no objetivo da tarefa,
+ *    e é o ÚNICO item aberto que casa com ela;
+ * 3. o mesmo item casado por duas tarefas é ambíguo: nenhuma o fecha.
+ */
+export function mapDelegatedItems(
+	tasks: ReadonlyArray<{ goal: string; title?: string; item?: string }>,
+	ledger: TaskLedger | undefined,
+): Array<string | undefined> {
+	if (!ledger || ledger.items.length === 0) return tasks.map(() => undefined);
+	const known = new Set(ledger.items.map((item) => item.id));
+	const open = ledger.items
+		.filter(isOpenItem)
+		.map((item) => ({ id: item.id, key: matchText(item.label) }))
+		.filter((item) => item.key.trim().length >= MIN_MATCH_LABEL_CHARS);
+	const mapped = tasks.map((task) => {
+		if (task.item) return known.has(task.item) ? task.item : undefined;
+		const text = matchText(`${task.title ?? ""} ${task.goal}`);
+		const hits = open.filter((item) => text.includes(item.key));
+		return hits.length === 1 ? hits[0]!.id : undefined;
+	});
+	const inferredCount = new Map<string, number>();
+	mapped.forEach((id, index) => {
+		if (id && !tasks[index]!.item) inferredCount.set(id, (inferredCount.get(id) ?? 0) + 1);
+	});
+	const explicit = new Set(tasks.map((task) => task.item).filter(Boolean));
+	return mapped.map((id, index) => {
+		if (!id || tasks[index]!.item) return id;
+		return (inferredCount.get(id) ?? 0) > 1 || explicit.has(id) ? undefined : id;
+	});
+}
 
 /**
  * Resultado do filho -> atualização do item no ledger do pai. `ok` fecha com a evidência

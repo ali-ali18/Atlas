@@ -519,7 +519,7 @@ describe("delegate_task (F5)", () => {
 
 	it("prompt tem a seção Delegation e a descrição da tool não proíbe lojas por causa do browser", () => {
 		expect(SYSTEM_PROMPT).toContain("Delegation:");
-		expect(SYSTEM_PROMPT).toContain("call `delegate_task` ONCE with one task per item");
+		expect(SYSTEM_PROMPT).toContain("Call it ONCE with one task per part");
 		expect(SYSTEM_PROMPT).toContain("They cannot use the browser");
 		// O pai não dita nomes de tool nativa: o conector (Firecrawl) substitui.
 		expect(SYSTEM_PROMPT).toContain("do not name web_search/web_extract");
@@ -648,5 +648,51 @@ describe("V2: delegação cega no replay do pai", () => {
 		expect(String(delegate?.summary)).toContain("Sub-agents cannot use your browser session");
 		expect(createSubagentRun).not.toHaveBeenCalled();
 		expect(result.text).toBe("Vou ler eu mesmo.");
+	});
+});
+
+describe("replay: quando o bot delega", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		childCounter = 0;
+		vi.mocked(createSubagentRun).mockImplementation(async () => ({ id: `child-${++childCounter}` }));
+	});
+
+	const hinted = (params: CompleteChatWithToolsParams) =>
+		params.messages.some((m) => m.role === "system" && typeof m.content === "string" && m.content.includes("split into 2-3 independent"));
+
+	// O modelo mockado segue a dica: com ela (e a tool no 1º passo) delega um fornecedor por tarefa.
+	const followHint = async (params: CompleteChatWithToolsParams, ctx: { parentCalls: number }) => {
+		if (isChild(params)) return say(`${childGoal(params).split("\n")[1] ?? "fornecedor"}: R$ 12,90/kg`);
+		if (ctx.parentCalls === 1 && hinted(params) && params.tools.some((t) => t.function.name === "delegate_task")) {
+			return toolCalls([
+				{
+					id: "dg",
+					name: "delegate_task",
+					args: { tasks: ["Fornecedor A", "Fornecedor B", "Fornecedor C"].map((title) => ({ title, goal: `Search the web for the price of cinnamon at ${title}.` })) },
+				},
+			]);
+		}
+		return say("Comparação pronta: o Fornecedor A é o mais barato.");
+	};
+
+	it("'pesquisa o preço da canela em 3 fornecedores e compara': a dica chega sem Jev e o bot delega em paralelo", async () => {
+		const { events, seen } = await runParent({
+			llm: followHint,
+			extra: { messages: [{ role: "user", content: "pesquisa o preço da canela em 3 fornecedores e compara" }] },
+		});
+		expect(seen[0]!.tools).toContain("delegate_task");
+		expect(events.filter((e) => e.type === "subagent_started")).toHaveLength(3);
+		expect(events.find((e) => e.type === "tool_result" && e.name === "delegate_task")).toMatchObject({ ok: true });
+	});
+
+	it("'oi': nenhuma dica e nenhuma delegação", async () => {
+		const { events, result } = await runParent({
+			llm: followHint,
+			extra: { messages: [{ role: "user", content: "oi" }] },
+		});
+		expect(events.some((e) => e.type === "subagent_started")).toBe(false);
+		expect(createSubagentRun).not.toHaveBeenCalled();
+		expect(result.text).toBe("Comparação pronta: o Fornecedor A é o mais barato.");
 	});
 });

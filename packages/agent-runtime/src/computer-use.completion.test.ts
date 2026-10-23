@@ -132,14 +132,21 @@ describe("L18: arquivo pedido (Jev) sem artefato", () => {
 });
 
 describe("L18: finish_reason", () => {
-	it("a reply cut by the output limit is continued once, not completed", async () => {
-		const { result, requests, systemTexts } = await run([
-			reply("The first half of a long ans", "length"),
-			reply("The full answer.", "stop"),
-		]);
+	it("a reply cut by the output limit is continued once in the same bubble: the first part does not vanish", async () => {
+		const events: Array<{ type: string; id?: string }> = [];
+		const { result, requests, systemTexts } = await run(
+			[reply("The first half of a long ans", "length"), reply("wer, and the second half.", "stop")],
+			{
+				onEvent: (event: { type: string; id?: string }) => {
+					events.push(event);
+				},
+			},
+		);
 		expect(requests).toHaveLength(2);
 		expect(systemTexts(requests[1]!)).toContain(TRUNCATED_REPLY_NOTE);
-		expect(result?.text).toBe("The full answer.");
+		// a resposta gravada é a parte exibida + a continuação, no mesmo balão (nenhum descarte)
+		expect(result?.text).toBe("The first half of a long answer, and the second half.");
+		expect(events.some((event) => event.type === "assistant_discard")).toBe(false);
 	});
 
 	it("still cut after the retry -> not completed", async () => {

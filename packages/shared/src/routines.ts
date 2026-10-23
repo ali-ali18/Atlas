@@ -1,4 +1,6 @@
 import type { EventEnvelope, RoutineHookInfo } from "./events/triggers.js";
+import type { RoutineAlert, RoutineAlertConfig } from "./routine-alert.js";
+import type { RoutineEmailTriggerView } from "./routine-email.js";
 import type {
 	GithubTriggerEvent,
 	RoutineGithubTriggerView,
@@ -57,10 +59,14 @@ export type RoutineRecord = {
 	hook?: Omit<RoutineHookInfo, "secret">;
 	/** Presente em rotinas event/github — config completa do gatilho (não há mais secret por rotina pra esconder). */
 	github?: RoutineGithubTriggerView;
+	/** Presente em rotinas event/email — filtros do gatilho "chegou e-mail" na caixa do bot. */
+	email?: RoutineEmailTriggerView;
 	/** Presente em rotinas `once` — horário (UTC) do disparo único. */
 	once?: { runAt: string };
 	/** Presente em rotinas `interval` — repete a cada N minutos. */
 	interval?: { everyMinutes: number };
+	/** Presente em rotinas de alerta (cron/interval): condição + estado da última verificação. */
+	alert?: RoutineAlert;
 };
 
 export type RoutineGroupRecord = {
@@ -102,6 +108,8 @@ export type CreateRoutineInput = {
 	prompt: string;
 	model?: string;
 	allowChatgptPlan?: boolean;
+	/** Alerta por condição (só cron/interval): a rotina verifica e só avisa quando a condição passa a valer. */
+	alert?: RoutineAlertConfig;
 	/** Default "always". */
 	notify?: RoutineNotifyMode;
 	/** Default "user". */
@@ -137,6 +145,12 @@ export type CreateRoutineInput = {
 				ciBranch?: string;
 		  }
 		| {
+				kind: "email";
+				/** Já validado por `parseEmailTriggerInput`. */
+				fromContains?: string;
+				subjectContains?: string;
+		  }
+		| {
 				kind: "once";
 				/** ISO 8601 em UTC — já validado/normalizado por `parseOnceRunAt`. */
 				runAt: string;
@@ -158,6 +172,8 @@ export type UpdateRoutineInput = {
 	model?: string;
 	allowChatgptPlan?: boolean;
 	notify?: RoutineNotifyMode;
+	/** Define/troca o alerta (condição nova rearma o estado) ou `null` para voltar a rotina comum. Omitido mantém. */
+	alert?: RoutineAlertConfig | null;
 	triggerType?: RoutineTriggerType;
 	schedule?: string | null;
 	enabled?: boolean;
@@ -174,6 +190,8 @@ export type UpdateRoutineInput = {
 		/** @deprecated alias legado de `branch` — ainda aceito, migrado internamente. */
 		ciBranch?: string | null;
 	};
+	/** Patch dos filtros de uma rotina event/email (`null` remove o filtro; já validado). */
+	emailTrigger?: { fromContains?: string | null; subjectContains?: string | null };
 	/** Patch do horário de uma rotina `once` (ISO 8601 UTC, já validado). */
 	onceTrigger?: { runAt: string };
 	/** Patch do intervalo de uma rotina `interval` (minutos, já validado). */

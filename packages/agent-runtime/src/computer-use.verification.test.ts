@@ -104,9 +104,12 @@ async function run(script: CompleteChatWithToolsResult[], check: string | Error 
 }
 
 const publicText = (events: Ev[]) => events.filter((event) => event.type === "assistant_delta").map((event) => String(event.delta));
-/** O que o usuário vê: os eventos aplicados ao transcript da UI (inclui retirada de balão). */
+/** Balões de resposta na UI: os eventos aplicados ao transcript, sem os rascunhos revisados (ficam recolhidos). */
 const visibleBubbles = (events: Ev[]) =>
-	applyComputerUseEventsToTranscript([], events as unknown as ComputerUseEvent[]).map((bubble) => bubble.text).filter((text) => text.trim().length > 0);
+	applyComputerUseEventsToTranscript([], events as unknown as ComputerUseEvent[]).filter((bubble) => !bubble.revised).map((bubble) => bubble.text).filter((text) => text.trim().length > 0);
+/** Rascunhos já lidos que o run refez: continuam na tela, recolhidos, com o motivo. */
+const revisedDrafts = (events: Ev[]) =>
+	applyComputerUseEventsToTranscript([], events as unknown as ComputerUseEvent[]).filter((bubble) => bubble.revised).map((bubble) => [bubble.text, bubble.revised]);
 const results = (events: Ev[]) => events.filter((event) => event.type === "tool_result");
 const printedHtml = () => vi.mocked(printPdfWithChromium).mock.calls.map((args) => String(args[0]));
 
@@ -183,13 +186,15 @@ describe("F4: erro achado depois do arquivo, com orçamento sobrando, regera o a
 		expect(printedHtml()[1]).toContain("5 assentos");
 		// O modelo recebeu o pedido para regerar; a admissão nunca foi ao chat.
 		expect(requests[3]?.some((message) => message.role === "system" && message.content === withWithdrawnReply(REGENERATE_FILE_NOTE))).toBe(true);
-		// A admissão chegou em deltas, mas o balão foi retirado (assistant_discard) antes da regeração.
+		// A admissão chegou em deltas; antes da regeração ela vira rascunho revisado (recolhido, não apagado).
 		expect(publicText(events).join("")).toContain("Se quiser, eu gero");
 		const discardAt = events.findIndex((event) => event.type === "assistant_discard");
 		expect(discardAt).toBeGreaterThan(-1);
+		expect(events[discardAt]).toMatchObject({ reason: "file_fix" });
 		expect(events.slice(discardAt).some((event) => event.type === "tool_call")).toBe(true);
 		const bubbles = visibleBubbles(events);
 		expect(bubbles.join("\n")).not.toContain("Se quiser, eu gero");
+		expect(revisedDrafts(events)).toEqual([[admission, "file_fix"]]);
 		expect(bubbles[bubbles.length - 1]).toBe("Atualizei o PDF (v2): o plano Pro tem 5 assentos.");
 		expect(result.text).toBe("Atualizei o PDF (v2): o plano Pro tem 5 assentos.");
 	});

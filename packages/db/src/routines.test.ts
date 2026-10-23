@@ -121,3 +121,94 @@ describe("URL pública do hook GitHub", () => {
 		}
 	});
 });
+
+describe("gatilho de e-mail", () => {
+	type Prisma = typeof import("./client.js").prisma;
+	const fakeRoutineRow = (data: Record<string, unknown>) => ({
+		id: "r1",
+		botId: "bot-1",
+		conversationId: null,
+		lastRunAt: null,
+		createdAt: new Date(0),
+		updatedAt: new Date(0),
+		...data,
+	});
+
+	async function withFakes<T>(
+		fakes: { mailbox: unknown; rows?: Array<Record<string, unknown>> },
+		run: (prisma: Prisma, created: Array<{ data: Record<string, unknown> }>, finds: Array<{ where: Record<string, unknown> }>) => Promise<T>,
+	): Promise<T> {
+		const { prisma } = await import("./client.js");
+		const saved = {
+			bot: prisma.bot.findFirst,
+			create: prisma.routine.create,
+			mailbox: prisma.botMailbox.findFirst,
+			many: prisma.routine.findMany,
+		};
+		const created: Array<{ data: Record<string, unknown> }> = [];
+		const finds: Array<{ where: Record<string, unknown> }> = [];
+		prisma.bot.findFirst = (async () => ({ id: "bot-1", conversationId: null, openRouterModel: "m" })) as unknown as typeof prisma.bot.findFirst;
+		prisma.botMailbox.findFirst = (async () => fakes.mailbox) as unknown as typeof prisma.botMailbox.findFirst;
+		prisma.routine.create = (async (args: { data: Record<string, unknown> }) => {
+			created.push(args);
+			return fakeRoutineRow(args.data);
+		}) as unknown as typeof prisma.routine.create;
+		prisma.routine.findMany = (async (args: { where: Record<string, unknown> }) => {
+			finds.push(args);
+			return fakes.rows ?? [];
+		}) as unknown as typeof prisma.routine.findMany;
+		try {
+			return await run(prisma, created, finds);
+		} finally {
+			prisma.bot.findFirst = saved.bot;
+			prisma.routine.create = saved.create;
+			prisma.botMailbox.findFirst = saved.mailbox;
+			prisma.routine.findMany = saved.many;
+		}
+	}
+
+	it("createRoutine grava event/email com os filtros validados e expõe routine.email", async () => {
+		const { createRoutine } = await import("./routines.js");
+		await withFakes({ mailbox: { id: "mb1", enabled: true } }, async (_p, created) => {
+			const { routine } = await createRoutine("user-a", {
+				botId: "bot-1",
+				name: "NF",
+				prompt: "registre",
+				trigger: { kind: "email", fromContains: " fornecedor@x.com ", subjectContains: "NF" },
+			});
+			assert.equal(created[0]?.data.triggerType, "event");
+			assert.equal(created[0]?.data.schedule, null);
+			assert.deepEqual(created[0]?.data.triggerJson, { kind: "email", fromContains: "fornecedor@x.com", subjectContains: "NF" });
+			assert.deepEqual(routine.email, { fromContains: "fornecedor@x.com", subjectContains: "NF" });
+			assert.equal(routine.hook, undefined);
+			assert.equal(routine.github, undefined);
+		});
+	});
+
+	it("createRoutine recusa quando o bot não tem caixa ativa", async () => {
+		const { createRoutine } = await import("./routines.js");
+		for (const mailbox of [null, { id: "mb1", enabled: false }]) {
+			await withFakes({ mailbox }, async (_p, created) => {
+				await assert.rejects(
+					createRoutine("user-a", { botId: "bot-1", name: "NF", prompt: "x", trigger: { kind: "email" } }),
+					/aba E-mail/,
+				);
+				assert.equal(created.length, 0);
+			});
+		}
+	});
+
+	it("listEmailRoutinesForMailbox filtra por dono+bot da caixa e só devolve gatilhos de e-mail", async () => {
+		const { listEmailRoutinesForMailbox } = await import("./routines.js");
+		const rows = [
+			fakeRoutineRow({ id: "a", userId: "user-a", triggerType: "event", enabled: true, triggerJson: { kind: "email", subjectContains: "NF" } }),
+			fakeRoutineRow({ id: "b", userId: "user-a", triggerType: "event", enabled: true, triggerJson: { kind: "generic", hookKey: "k", secretHash: "h" } }),
+		];
+		await withFakes({ mailbox: null, rows }, async (_p, _c, finds) => {
+			const found = await listEmailRoutinesForMailbox({ userId: "user-a", botId: "bot-1" });
+			assert.deepEqual(found.map((item) => item.routine.id), ["a"]);
+			assert.deepEqual(found[0]?.trigger, { kind: "email", subjectContains: "NF" });
+			assert.deepEqual(finds[0]?.where, { userId: "user-a", botId: "bot-1", triggerType: "event", enabled: true });
+		});
+	});
+});

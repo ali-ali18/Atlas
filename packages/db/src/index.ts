@@ -66,6 +66,7 @@ export {
 	searchConversationHistory,
 	type ConversationHistoryHit,
 } from "./conversation-history-search.js";
+export { searchOtherBotsConversations, type UserConversationHit } from "./user-conversations-search.js";
 export {
 	searchConversationMessages,
 	type ConversationSearchHit,
@@ -88,6 +89,7 @@ export {
 	BOT_EXCHANGE_DEFAULT_LIMIT,
 	BOT_EXCHANGE_MAX_LIMIT,
 	listUserBotRoster,
+	listOpenBotRequests,
 	escalatePendingNeed,
 	postNeedsUserMarker,
 	onBotMessageCreated,
@@ -230,6 +232,7 @@ export {
 	loadArtifactForUser,
 	loadArtifactFromConversation,
 	listConversationArtifacts,
+	listGeneratedImageIds,
 	listBotArtifactsForUser,
 	type BotLibraryFile,
 	setArtifactDescriptionForUser,
@@ -299,6 +302,7 @@ export {
 	type GenericHookMatch,
 	listGenericHookKeysForDiagnostics,
 	listGithubRoutinesForRepo,
+	listEmailRoutinesForMailbox,
 	listGithubRoutineRepoOwners,
 	findGithubRoutineByLegacyHookKey,
 	cleanupGithubRoutineIfPendingDelete,
@@ -318,6 +322,9 @@ export {
 	STALE_QUEUED_ROUTINE_RUN_MS,
 	findRoutineRunByAgentRunId,
 	getRoutineNotifyModeForAgentRun,
+	getRoutineAlertForAgentRun,
+	getRoutineContextForAgentRun,
+	recordRoutineAlertState,
 	getRoutinePageIdForAgentRun,
 	findRecentRoutineRunByIdempotency,
 	createRoutineRun,
@@ -455,6 +462,7 @@ export { markLearnedSkillCardUndone, undoLearnedSkill, type UndoLearnedResult } 
 export { getPendingBotProposal, resolveBotProposal, type BotProposalDeps, type BotProposalResolution } from "./bot-proposals.js";
 export { upsertTaskListCard } from "./task-list-cards.js";
 export * from "./pages.js";
+export * from "./page-shares.js";
 export { findCompactionBlocker, writeCompactedTranscript, type CompactionBlocker, type CompactionWrite } from "./conversation-compaction.js";
 
 export { getUnreadStates, getUnreadState, markConversationRead, markConversationUnread } from "./read-state.js";

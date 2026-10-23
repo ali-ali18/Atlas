@@ -30,7 +30,7 @@ const broken = {
 	},
 };
 
-test("padrão: Páginas aberta; Documentos e Rotinas fechadas", () => {
+test("padrão: Painéis aberto; Documentos e Rotinas fechadas", () => {
 	assert.deepEqual(LIBRARY_SECTION_DEFAULT_OPEN, { pages: true, documents: false, routines: false });
 	for (const id of ["pages", "documents", "routines"] as LibrarySectionId[]) {
 		assert.equal(readLibrarySectionOpen(id, memoryStorage()), LIBRARY_SECTION_DEFAULT_OPEN[id]);

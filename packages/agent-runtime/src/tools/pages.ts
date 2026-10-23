@@ -15,7 +15,7 @@ import {
 	type PageSpec,
 	type ResearchNote,
 } from "@workspace/shared";
-import { createPage, getPageForUser, listBotPagesForUser, updatePage, type PageListItem, type PageRecord, type UpdatePageResult } from "@workspace/db";
+import { createOrRotatePageShare, createPage, getPageForUser, getPageShareStatus, revokePageShare, listBotPagesForUser, resolvePageGroup, setPageGroup, updatePage, type PageListItem, type PageRecord, type SetPageGroupResult, type UpdatePageResult } from "@workspace/db";
 
 /**
  * Páginas vivas: relatório/painel que o bot monta e o chat desenha inline (cartão que abre em tela cheia).
@@ -27,7 +27,8 @@ export const PAGE_CREATE_TOOL_NAME = "page_create";
 export const PAGE_UPDATE_TOOL_NAME = "page_update";
 export const PAGE_READ_TOOL_NAME = "page_read";
 export const PAGE_LIST_TOOL_NAME = "page_list";
-export const PAGE_TOOL_NAMES: readonly string[] = [PAGE_CREATE_TOOL_NAME, PAGE_UPDATE_TOOL_NAME, PAGE_READ_TOOL_NAME, PAGE_LIST_TOOL_NAME];
+export const PAGE_SHARE_TOOL_NAME = "page_share";
+export const PAGE_TOOL_NAMES: readonly string[] = [PAGE_CREATE_TOOL_NAME, PAGE_UPDATE_TOOL_NAME, PAGE_READ_TOOL_NAME, PAGE_LIST_TOOL_NAME, PAGE_SHARE_TOOL_NAME];
 
 /**
  * Gramática compacta dos componentes (texto do modelo). Os detalhes e as props válidas de cada um vêm nos
@@ -36,14 +37,14 @@ export const PAGE_TOOL_NAMES: readonly string[] = [PAGE_CREATE_TOOL_NAME, PAGE_U
 const NODE_GRAMMAR =
 	"A page is a TREE of ready-made components that you compose freely: `root` is one node {type, id?, props?, children?}; ids are generated when missing and stay stable for page_update. " +
 	"Layout: section{title?,description?} · grid{cols:1-4,gap?} (1 col on phones; `span` on a child = columns it takes) · stack{direction?,gap?} · card{title?,variant?,tone?} · tabs{tabs:[{id,label}]} with one {type:\"tab\",props:{tab:id}} child per tab · divider. " +
-	"Data: stat{label,value,unit?,format?,delta?:{value,kind?:percent|absolute,direction:up|down|flat,label?},size?,tone?} · chart{spec} (same spec as the chart tool: line|area|bar|pie|composed|radar|funnel|gauge, reference for a goal, forecast) · " +
+	"Data: stat{label,value,unit?,format?,delta?:{value,kind?:percent|absolute,direction:up|down|flat,label?},size?,tone?} · chart{spec} (same spec as the chart tool: line|area|bar|pie|composed|radar|funnel|gauge, reference for a goal, forecast; bar accepts orientation:\"horizontal\" for horizontal bars, unknown fields are rejected) · " +
 	"bar_list{items:[{label,value,display?}],unit?} · table{columns:[{key,label,align?,format?,unit?}],rows,variant?} · progress{label,value,max} for a goal · badge{text,tone} · callout{title?,text,tone:info|success|warning|critical} · " +
 	"timeline{items:[{date,title,text?,tone?}]} · kanban{columns:[{title,items:[{title,subtitle?,badge?}]}]} · list{items:[{title,subtitle?,value?,tone?}]} · text{markdown} · heading{text,level?}. " +
 	"tone = neutral|positive|warning|critical|accent. Colors come only from the palette and tones: never write hex colors on components. " +
 	`Limits: ${PAGE_MAX_NODES} nodes, depth ${PAGE_MAX_DEPTH}, ${PAGE_MAX_CHARTS} charts. Compose to fit the content (KPIs in a grid first, then charts, tables, lists) and keep it readable on a phone; invalid props come back as an error that names the valid ones.`;
 
 const PALETTE_PARAM = {
-	description: `Page palette (accent and charts): ${PAGE_PRESET_PALETTES.join(" | ")} or {colors:["#rrggbb"...]} (1-6). Pick one that fits the content (money/growth: grove; alerts/collections: sunset; neutral: ocean or monochrome).`,
+	description: `Page palette (accent and charts): ${PAGE_PRESET_PALETTES.join(" | ")} or {colors:["#rrggbb"...]} (1-6). The ids are for this tool only: tell the user the display name (pt-BR: Primária, Monocromática, Oceano, Pôr do sol, Bosque, Vívida) described by look, never the id. Pick one that fits the content (money/growth: grove; alerts/collections: sunset; neutral: ocean or monochrome).`,
 	anyOf: [{ type: "string", enum: [...PAGE_PRESET_PALETTES] }, { type: "object", properties: { colors: { type: "array", items: { type: "string" } } }, required: ["colors"] }],
 };
 
@@ -55,13 +56,19 @@ const SOURCES_PARAM = {
 	items: { type: "object", properties: { title: { type: "string" }, url: { type: "string", description: "http(s) link" } }, required: ["title"] },
 };
 
+const GROUP_PARAM = {
+	type: "string",
+	description:
+		"Group of related dashboards (same client or topic; the routines use the same groups): an existing group name (see page_list) or a new name. DO NOT USE for unrelated dashboards. Empty string on page_update removes the group.",
+};
+
 export const PAGE_CREATE_TOOL: ChatTool = {
 	type: "function",
 	function: {
 		name: PAGE_CREATE_TOOL_NAME,
 		description:
-			"Builds a live page (report, memo or dashboard) composed of ready-made components, which renders inline in the chat as a card and opens full screen on tap; the user keeps it and you refresh it later with page_update. " +
-			"USE WHEN the user asks for a dashboard, report, overview, forecast or page to keep, review and refresh. " +
+			"Builds a live page (report, memo or dashboard) composed of ready-made components, which renders inline in the chat as a card and opens full screen on tap; the user keeps it and you refresh it later with page_update. Users call it a \"painel\" (pt-BR) / \"dashboard\": use that word in your replies, never \"página\"/\"page\", which users confuse with a web page. " +
+			"USE WHEN the user asks for a dashboard (painel), report, overview or forecast to keep, review and refresh. " +
 			"DO NOT USE for a single chart (use the chart tool path of run_code or a chart fence), a downloadable document (use create_file) or a plain answer. " +
 			"Every number must come from tools or run_code results, never invented or estimated; gather the data first, then build the page once. " +
 			NODE_GRAMMAR,
@@ -73,6 +80,7 @@ export const PAGE_CREATE_TOOL: ChatTool = {
 				palette: PALETTE_PARAM,
 				root: { ...NODE_PARAM, description: "Root component of the tree, usually a stack or section whose children are the page content." },
 				sources: SOURCES_PARAM,
+				group: GROUP_PARAM,
 			},
 			required: ["title", "root"],
 		},
@@ -111,6 +119,7 @@ export const PAGE_UPDATE_TOOL: ChatTool = {
 					},
 				},
 				sources: SOURCES_PARAM,
+				group: GROUP_PARAM,
 			},
 			required: ["page_id"],
 		},
@@ -130,19 +139,59 @@ export const PAGE_LIST_TOOL: ChatTool = {
 	type: "function",
 	function: {
 		name: PAGE_LIST_TOOL_NAME,
-		description: "Lists this bot's pages (id, title, revision, last update). USE to find the page the user means before updating it, or to avoid creating a duplicate. DO NOT USE to open a page for the user.",
+		description: "Lists this bot's live pages, which users call \"painéis\"/dashboards (id, title, group, revision, last update). USE to find the page the user means before updating it, or to avoid creating a duplicate. DO NOT USE to open a page for the user.",
 		parameters: { type: "object", properties: {} },
 	},
 };
 
-export const PAGE_TOOLS: readonly ChatTool[] = [PAGE_CREATE_TOOL, PAGE_UPDATE_TOOL, PAGE_READ_TOOL, PAGE_LIST_TOOL];
+export const PAGE_SHARE_WARNING = "Anyone with the link sees this dashboard and its updates (read-only, no login). The user can turn the link off at any time.";
+
+export const PAGE_SHARE_TOOL: ChatTool = {
+	type: "function",
+	function: {
+		name: PAGE_SHARE_TOOL_NAME,
+		description:
+			"Manages the PUBLIC read-only link of a dashboard (painel): create it (or rotate it: the old link stops working), revoke it, or check if it is on. A public link lets anyone who has it see the dashboard and its future updates without logging in. " +
+			"USE WHEN the user explicitly asks to share a dashboard through a link, to generate a new link, or to turn the link off. " +
+			"DO NOT USE on your own initiative, to \"help\", when the user only asks to export or send an image/PDF, or for a dashboard the user did not name. Never create a link unless the user asked for it in their latest message (set user_asked=true only then). " +
+			"After creating, give the user the URL and tell them anyone with the link can see the dashboard; the URL is shown only once (a later create makes a new one).",
+		parameters: {
+			type: "object",
+			properties: {
+				page_id: { type: "string", description: "Id from page_create or page_list." },
+				action: { type: "string", enum: ["create", "revoke", "status"], description: "create = turn on (or rotate) the link; revoke = turn it off; status = is it on?" },
+				user_asked: { type: "boolean", description: "Must be true for create: the user explicitly asked for a public link in their latest message." },
+			},
+			required: ["page_id", "action"],
+		},
+	},
+};
+
+export const PAGE_TOOLS: readonly ChatTool[] = [PAGE_CREATE_TOOL, PAGE_UPDATE_TOOL, PAGE_READ_TOOL, PAGE_LIST_TOOL, PAGE_SHARE_TOOL];
 
 /** Acesso às páginas (injetável em teste; produção usa o db). */
 export type PagesStore = {
-	create(userId: string, input: { botId: string; conversationId?: string | null; spec: PageSpec; sources: PageSource[] }): Promise<PageRecord | null>;
+	create(userId: string, input: { botId: string; conversationId?: string | null; groupId?: string | null; spec: PageSpec; sources: PageSource[] }): Promise<PageRecord | null>;
 	get(id: string, userId: string): Promise<PageRecord | null>;
 	list(userId: string, botId: string): Promise<PageListItem[]>;
 	update(id: string, userId: string, input: { spec: PageSpec; sources?: PageSource[]; expectedRevision?: number; refreshed?: boolean }): Promise<UpdatePageResult>;
+	/** Grupo citado pelo agente (id ou nome) → grupo deste dono e bot (cria se for nome novo); lança "Grupo não encontrado". */
+	resolveGroup?(userId: string, botId: string, ref: string): Promise<{ id: string; name: string; created: boolean }>;
+	/** Move o painel para o grupo (ou tira dele com `null`), sem nova revisão. */
+	setGroup?(id: string, userId: string, groupId: string | null): Promise<SetPageGroupResult>;
+};
+
+/** Link público do painel (injetável em teste; produção usa o db). O token só existe na resposta de `create`. */
+export type PageShareStore = {
+	status(id: string, userId: string): Promise<{ active: boolean } | null>;
+	create(id: string, userId: string): Promise<{ token: string } | null>;
+	revoke(id: string, userId: string): Promise<boolean | null>;
+};
+
+export const dbPageShareStore: PageShareStore = {
+	status: (id, userId) => getPageShareStatus(id, userId),
+	create: (id, userId) => createOrRotatePageShare(id, userId),
+	revoke: (id, userId) => revokePageShare(id, userId),
 };
 
 export const dbPagesStore: PagesStore = {
@@ -150,6 +199,8 @@ export const dbPagesStore: PagesStore = {
 	get: (id, userId) => getPageForUser(id, userId),
 	list: async (userId, botId) => (await listBotPagesForUser(userId, botId)) ?? [],
 	update: (id, userId, input) => updatePage(id, userId, input),
+	resolveGroup: (userId, botId, ref) => resolvePageGroup(userId, botId, ref),
+	setGroup: (id, userId, groupId) => setPageGroup(id, userId, groupId),
 };
 
 export type PageToolContext = {
@@ -158,6 +209,9 @@ export type PageToolContext = {
 	conversationId?: string;
 	runId?: string;
 	store?: PagesStore;
+	shareStore?: PageShareStore;
+	/** Base pública do web (onde mora `/p/:token`); padrão `ATLAS_URL`. */
+	publicWebUrl?: string;
 	/** Notas de pesquisa do run (fontes padrão da página). */
 	researchNotes?: () => readonly ResearchNote[];
 	/** Rotina que atualiza uma página: `page_update` só vale nela e marca a página como atualizada com dados novos. */
@@ -241,6 +295,24 @@ function sourcesArg(args: Record<string, unknown>): PageSource[] | undefined {
 	return parsed.sources;
 }
 
+/** `group` do agente: texto (id ou nome), "" tira do grupo (só no update). `undefined` = não mexer. */
+function groupArg(args: Record<string, unknown>): string | undefined {
+	if (args.group === undefined || args.group === null) return undefined;
+	if (typeof args.group !== "string") throw new Error("group must be a string: the name of a group (existing or new), or an empty string to remove the page from its group.");
+	const group = args.group.trim().replace(/\s+/g, " ");
+	if (group.length > 80) throw new Error("group is too long: use a short name (up to 80 characters).");
+	return group;
+}
+
+async function resolveGroupArg(store: PagesStore, userId: string, botId: string, ref: string): Promise<{ id: string; name: string; created: boolean }> {
+	const resolve = store.resolveGroup ?? resolvePageGroup;
+	try {
+		return await resolve(userId, botId, ref);
+	} catch {
+		throw new Error(`Group "${ref.slice(0, 80)}" was not found for this bot. Pass the name of an existing group or a new name; page_list shows the current groups.`);
+	}
+}
+
 function invalid(error: string): Error {
 	return new Error(`Invalid page: ${error}. Fix the page and call the tool again.`);
 }
@@ -265,16 +337,19 @@ async function createTool(args: Record<string, unknown>, ctx: PageToolContext): 
 	const parsed = parsePageSpec({ v: 2, title: args.title, summary: args.summary, palette: args.palette, root: args.root });
 	if (!parsed.ok) throw invalid(parsed.error);
 	const sources = sourcesArg(args) ?? sourcesFromResearchNotes(ctx.researchNotes?.() ?? []);
-	const page = await store.create(userId, { botId, conversationId: ctx.conversationId ?? null, spec: parsed.spec, sources });
+	const groupRef = groupArg(args);
+	const group = groupRef ? await resolveGroupArg(store, userId, botId, groupRef) : null;
+	const page = await store.create(userId, { botId, conversationId: ctx.conversationId ?? null, groupId: group?.id ?? null, spec: parsed.spec, sources });
 	if (!page) throw new Error("Could not create the page for this bot. Tell the user it failed; do not retry in a loop.");
 	await emit(ctx, "created", page);
+	const inGroup = group ? ` In group "${group.name}"${group.created ? " (new group)" : ""}.` : "";
 	return {
-		summary: `Page created (page_id ${page.id}, revision ${page.revision}). ${summarizePageSpec(page.spec)}; ${page.sources.length} sources. ${SHOWN_NOTE} To change it later use page_update with this page_id.`,
+		summary: `Page created (page_id ${page.id}, revision ${page.revision}). ${summarizePageSpec(page.spec)}; ${page.sources.length} sources.${inGroup} ${SHOWN_NOTE} To change it later use page_update with this page_id.`,
 	};
 }
 
 async function updateTool(args: Record<string, unknown>, ctx: PageToolContext): Promise<{ summary: string }> {
-	const { userId, store } = requireScope(ctx);
+	const { userId, botId, store } = requireScope(ctx);
 	const pageId = pageIdArg(args);
 	if (ctx.routinePageId && pageId !== ctx.routinePageId) {
 		throw new Error(`This routine run may only update its own page (page_id ${ctx.routinePageId}); ${pageId} is not it. Call page_update with page_id ${ctx.routinePageId}.`);
@@ -283,11 +358,30 @@ async function updateTool(args: Record<string, unknown>, ctx: PageToolContext): 
 	const hasRoot = args.root !== undefined && args.root !== null;
 	if (hasOps && hasRoot) throw new Error("Pass either `ops` (partial change) or `root` (full rewrite), not both.");
 	const sources = sourcesArg(args);
-	if (!hasOps && !hasRoot && args.title === undefined && args.summary === undefined && args.palette === undefined && sources === undefined) {
-		throw new Error("Nothing to update: pass `ops`, `root`, `title`, `summary`, `palette` or `sources`.");
+	const groupRef = groupArg(args);
+	const contentChange = hasOps || hasRoot || args.title !== undefined || args.summary !== undefined || args.palette !== undefined || sources !== undefined;
+	if (!contentChange && groupRef === undefined) {
+		throw new Error("Nothing to update: pass `ops`, `root`, `title`, `summary`, `palette`, `sources` or `group`.");
 	}
 	const parsedOps = hasOps ? parsePagePatchOps(args.ops) : null;
 	if (parsedOps && !parsedOps.ok) throw invalid(parsedOps.error);
+
+	// Só a página do próprio dono entra em grupo: confere antes de mexer no conteúdo.
+	let group: { id: string; name: string; created: boolean } | null = null;
+	if (groupRef) {
+		if (!(await store.get(pageId, userId))) throw new Error(`Page ${pageId} not found. Use page_list to see this bot's pages.`);
+		group = await resolveGroupArg(store, userId, botId, groupRef);
+	}
+	const moveToGroup = async (): Promise<string> => {
+		if (groupRef === undefined) return "";
+		const moved = await (store.setGroup ?? setPageGroup)(pageId, userId, group?.id ?? null);
+		if (!moved.ok) throw new Error(moved.error === "not_found" ? `Page ${pageId} not found. Use page_list to see this bot's pages.` : "That group was not found for this bot's pages.");
+		return group ? ` Moved to group "${group.name}"${group.created ? " (new group)" : ""}.` : " Removed from its group.";
+	};
+	if (!contentChange) {
+		const moved = await moveToGroup();
+		return { summary: `Page ${pageId} group changed.${moved} The page content and revision are unchanged; reply in one short line.` };
+	}
 
 	// Uma releitura se outro update ganhou a corrida entre a leitura e a gravação.
 	for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -312,9 +406,10 @@ async function updateTool(args: Record<string, unknown>, ctx: PageToolContext): 
 		if (!result.ok) {
 			throw new Error(result.error === "conflict" ? "The page changed while updating. Call page_read and try again." : `Page ${pageId} not found. Use page_list to see this bot's pages.`);
 		}
+		const moved = await moveToGroup();
 		await emit(ctx, "updated", result.page);
 		return {
-			summary: `Page updated in place (page_id ${result.page.id}, revision ${result.page.revision}). ${summarizePageSpec(result.page.spec)}. ${SHOWN_NOTE}`,
+			summary: `Page updated in place (page_id ${result.page.id}, revision ${result.page.revision}). ${summarizePageSpec(result.page.spec)}.${moved} ${SHOWN_NOTE}`,
 		};
 	}
 	throw new Error("The page changed while updating. Call page_read and try again.");
@@ -337,15 +432,50 @@ async function listTool(_args: Record<string, unknown>, ctx: PageToolContext): P
 	const { userId, botId, store } = requireScope(ctx);
 	const items = await store.list(userId, botId);
 	if (items.length === 0) return { summary: "This bot has no pages yet." };
-	const lines = items.map((item) => `- ${item.id}: "${item.title}" (revision ${item.revision}, updated ${item.updatedAt})`);
+	const lines = items.map((item) => `- ${item.id}: "${item.title}"${item.groupName ? ` [group: ${item.groupName}]` : ""} (revision ${item.revision}, updated ${item.updatedAt})`);
 	return { summary: `${items.length} page${items.length === 1 ? "" : "s"}:\n${lines.join("\n")}` };
+}
+
+function publicWebBase(ctx: PageToolContext): string {
+	const base = (ctx.publicWebUrl ?? process.env.ATLAS_URL ?? "").trim().replace(/\/$/, "");
+	if (!base) throw new Error("The public web address is not configured on the server (ATLAS_URL). Tell the user the link cannot be created from chat; they can use Compartilhar > Link público in the dashboard.");
+	return base;
+}
+
+async function shareTool(args: Record<string, unknown>, ctx: PageToolContext): Promise<{ summary: string }> {
+	const { userId, store } = requireScope(ctx);
+	const pageId = pageIdArg(args);
+	const action = typeof args.action === "string" ? args.action : "";
+	if (action !== "create" && action !== "revoke" && action !== "status") throw new Error("action must be create, revoke or status.");
+	const shares = ctx.shareStore ?? dbPageShareStore;
+	const notFound = () => new Error(`Page ${pageId} not found. Use page_list to see this bot's pages.`);
+	// Só painel do próprio dono (e deste bot): o db filtra por dono; aqui o bot também.
+	const page = await store.get(pageId, userId);
+	if (!page || page.botId !== ctx.botId) throw notFound();
+	if (action === "status") {
+		const status = await shares.status(pageId, userId);
+		if (!status) throw notFound();
+		return { summary: status.active ? `The public link of "${page.title}" is ON. Its address is not stored (only shown when created); to get a new one, create again after the user asks (the old link stops working).` : `The public link of "${page.title}" is OFF.` };
+	}
+	if (action === "revoke") {
+		const revoked = await shares.revoke(pageId, userId);
+		if (revoked === null) throw notFound();
+		return { summary: revoked ? `Public link of "${page.title}" turned off: the old address no longer works. Tell the user in one short line.` : `"${page.title}" had no active public link; nothing to turn off.` };
+	}
+	if (args.user_asked !== true) throw new Error("Refusing to create a public link: only create one when the user explicitly asked for it in their latest message, then call again with user_asked=true.");
+	const base = publicWebBase(ctx);
+	const created = await shares.create(pageId, userId);
+	if (!created) throw notFound();
+	return {
+		summary: `Public link created for "${page.title}": ${base}/p/${created.token}\nShow this URL to the user now (it is not shown again; creating again replaces it and the old one stops working) and say: "Qualquer pessoa com o link vê este painel e as atualizações dele." They can turn it off by asking you or in Compartilhar > Link público.`,
+	};
 }
 
 export function isPageTool(name: string): boolean {
 	return PAGE_TOOL_NAMES.includes(name);
 }
 
-/** Executor das quatro tools; falha lança erro (resultado honesto, `ok:false` no loop). */
+/** Executor das tools de painel; falha lança erro (resultado honesto, `ok:false` no loop). */
 export async function executePageTool(name: string, args: Record<string, unknown>, ctx: PageToolContext): Promise<{ summary: string }> {
 	switch (name) {
 		case PAGE_CREATE_TOOL_NAME:
@@ -356,6 +486,8 @@ export async function executePageTool(name: string, args: Record<string, unknown
 			return readTool(args, ctx);
 		case PAGE_LIST_TOOL_NAME:
 			return listTool(args, ctx);
+		case PAGE_SHARE_TOOL_NAME:
+			return shareTool(args, ctx);
 		default:
 			throw new Error(`Unknown page tool: ${name}`);
 	}

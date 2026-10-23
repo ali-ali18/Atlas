@@ -404,11 +404,17 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
         {projection.length > 1 ? <ProjectionLine data={projection} stroke={seriesColor(0)} /> : null}
         <YAxis formatValue={axisFormat} labelPadding={spec.type === "composed" ? 18 : 8} />
         <XAxis snapToMonth={monthlyX} numTicks={labelBudget(plotWidth, margin, 6, xLabelSlot(spec.data.map((point) => labels.axis(String(point[spec.x] ?? "")))))} />
-        <ChartTooltip content={tooltipContent} showCrosshair={spec.type !== "composed"} />
+        <ChartTooltip content={tooltipContent} showCrosshair={spec.type !== "composed"} {...(spec.type === "composed" ? BAR_HOVER_MARKER : {})} />
       </Chart>
     </XLabelFormatContext.Provider>
   )
 }
+
+/**
+ * Marcador do hover em barras: preenchimento na cor do texto com anel na cor do fundo, para nunca ficar
+ * da mesma cor da barra (verde sobre verde sumia). Vale também para as barras do gráfico composto.
+ */
+export const BAR_HOVER_MARKER = { dotColor: "var(--foreground)", dotStrokeWidth: 2 } as const
 
 function BarPlot({ spec }: { spec: ChartSpec }) {
   const plotWidth = React.useContext(PlotWidthContext)
@@ -450,7 +456,7 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
 
   // Rótulos que não cabem: nomes longos viram barras horizontais (categorias à esquerda); datas e nomes curtos ficam na vertical com rótulos afinados.
   const categoryLabels = React.useMemo(() => data.map((row) => String(row.__label)), [data])
-  const horizontal = shouldUseHorizontalBars(categoryLabels, plotWidth - margin.left - margin.right)
+  const horizontal = spec.orientation === "horizontal" || shouldUseHorizontalBars(categoryLabels, plotWidth - margin.left - margin.right)
   const rowHeight = Math.max(260, spec.data.length * (spec.series.length > 1 ? 14 * spec.series.length + 14 : 34) + 24)
   return (
     <div style={horizontal ? { height: rowHeight } : undefined}>
@@ -477,7 +483,7 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
       ))}
       {horizontal ? <BarYAxis maxLabels={40} /> : <YAxis formatValue={axisFormat} />}
       {horizontal ? null : <BarXAxis maxLabels={labelBudget(plotWidth, margin, 12, 62)} />}
-      <ChartTooltip content={tooltipContent} />
+      <ChartTooltip content={tooltipContent} {...BAR_HOVER_MARKER} />
     </BarChart>
     </div>
   )
@@ -693,6 +699,7 @@ function CopyCsvButton({ spec }: { spec: ChartSpec }) {
     <button
       aria-label="Copiar dados (CSV)"
       className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-muted-foreground text-xs outline-none transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:bg-foreground/10"
+      data-share-ignore
       data-slot="chart-copy-csv"
       onClick={() => {
         navigator.clipboard
@@ -709,7 +716,7 @@ function CopyCsvButton({ spec }: { spec: ChartSpec }) {
 }
 
 /** Gráfico com moldura: título opcional, botão discreto de copiar os dados e o desenho. */
-function Chart({ spec, className }: { spec: ChartSpec; className?: string }) {
+function Chart({ spec, className, actions }: { spec: ChartSpec; className?: string; actions?: React.ReactNode }) {
   return (
     <figure
       className={cn(
@@ -722,7 +729,10 @@ function Chart({ spec, className }: { spec: ChartSpec; className?: string }) {
         <span className="min-w-0 truncate font-medium text-foreground/90 text-sm" data-slot="chart-title">
           {spec.title ?? ""}
         </span>
-        <CopyCsvButton spec={spec} />
+        <span className="flex shrink-0 items-center gap-1">
+          {actions}
+          <CopyCsvButton spec={spec} />
+        </span>
       </figcaption>
       <div className="px-2">
         <ChartView spec={spec} />

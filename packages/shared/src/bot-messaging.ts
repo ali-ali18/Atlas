@@ -127,6 +127,8 @@ export type BotLinkCard = {
 	botId: string;
 	botName: string;
 	title: string;
+	/** Sem resposta depois do prazo (`BOT_REPLY_SLA_MS`): o marcador mostra o rótulo. */
+	overdue?: { label: string; at: string };
 };
 
 export function serializeBotLinkCard(card: BotLinkCard | BotNeedsUserCard | BotAutoDecisionCard): string {
@@ -268,7 +270,11 @@ export function parseBotLinkCard(content: string): BotLinkCard | null {
 		const raw = JSON.parse(content) as Partial<BotLinkCard> | null;
 		if (!raw || raw.v !== 1 || raw.kind !== "sent") return null;
 		if (typeof raw.botMessageId !== "string" || typeof raw.botId !== "string" || typeof raw.botName !== "string") return null;
-		return { v: 1, kind: "sent", botMessageId: raw.botMessageId, botId: raw.botId, botName: raw.botName, title: typeof raw.title === "string" ? raw.title : "" };
+		const overdue =
+			raw.overdue && typeof raw.overdue.label === "string" && raw.overdue.label && typeof raw.overdue.at === "string"
+				? { label: raw.overdue.label.slice(0, 120), at: raw.overdue.at }
+				: undefined;
+		return { v: 1, kind: "sent", botMessageId: raw.botMessageId, botId: raw.botId, botName: raw.botName, title: typeof raw.title === "string" ? raw.title : "", ...(overdue ? { overdue } : {}) };
 	} catch {
 		return null;
 	}

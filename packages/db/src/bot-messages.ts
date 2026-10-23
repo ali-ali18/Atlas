@@ -2,6 +2,14 @@ import { randomUUID } from "node:crypto";
 import { emitUserNeeded } from "./user-needed.js";
 import {
 	BOT_LINK_ROLE,
+	BOT_REPLY_SLA_MS,
+	OPEN_BOT_REQUESTS_MAX,
+	OPEN_BOT_REQUESTS_WINDOW_MS,
+	OPEN_BOT_REQUEST_STATUSES,
+	botOverdueLabel,
+	isBotRequestOverdue,
+	parseBotLinkCard,
+	type OpenBotRequest,
 	BOT_MESSAGE_MAX_CHARS,
 	BOT_MESSAGE_MAX_DEPTH,
 	clampBotMessageTitle,
@@ -664,6 +672,7 @@ async function deliverReply(id: string, deps: BotMessageDeps): Promise<"delivere
 			return "busy";
 		}
 		await prisma.botMessage.update({ where: { id }, data: { status: "reply_delivered", wakeRunId: started.runId } });
+		await clearOverdue(message).catch((error) => console.error("[bot-messages] clear overdue failed", error));
 		return "delivered";
 	} catch (error) {
 		console.error(`[bot-messages] reply failed id=${id}`, error);
@@ -672,24 +681,97 @@ async function deliverReply(id: string, deps: BotMessageDeps): Promise<"delivere
 	}
 }
 
+/** Marcador "Enviou mensagem para X" do pedido, na conversa do remetente (do mesmo dono). */
+async function findSentMarker(message: { id: string; userId: string; fromConversationId: string | null }) {
+	if (!message.fromConversationId) return null;
+	const row = await prisma.conversationMessage.findFirst({
+		where: {
+			conversationId: message.fromConversationId,
+			conversation: { userId: message.userId },
+			role: BOT_LINK_ROLE,
+			content: { contains: `"botMessageId":${JSON.stringify(message.id)}` },
+		},
+		select: { id: true, content: true },
+	});
+	const card = row ? parseBotLinkCard(row.content) : null;
+	return row && card ? { rowId: row.id, card } : null;
+}
+
+/**
+ * Prazo de resposta (BOT_REPLY_SLA_MS): pedido ainda em aberto depois dele ganha, uma vez, o aviso
+ * no marcador do remetente ("Bobinho ainda não respondeu"). O pedido continua aberto: a resposta
+ * tardia ainda chega e limpa o aviso.
+ */
+async function flagOverdue(now: Date): Promise<number> {
+	const rows = await prisma.botMessage.findMany({
+		where: {
+			status: { in: [...OPEN_BOT_REQUEST_STATUSES] },
+			createdAt: { lt: new Date(now.getTime() - BOT_REPLY_SLA_MS), gt: new Date(now.getTime() - OPEN_BOT_REQUESTS_WINDOW_MS) },
+			fromConversationId: { not: null },
+		},
+		orderBy: { createdAt: "desc" },
+		take: SWEEP_BATCH,
+		select: { id: true, userId: true, toBotId: true, status: true, createdAt: true, fromConversationId: true },
+	});
+	let flagged = 0;
+	for (const message of rows) {
+		if (!isBotRequestOverdue(message, now)) continue;
+		const marker = await findSentMarker(message);
+		if (!marker || marker.card.overdue) continue;
+		const overdue = { label: botOverdueLabel(marker.card.botName, message.status), at: now.toISOString() };
+		await prisma.conversationMessage.update({ where: { id: marker.rowId }, data: { content: serializeBotLinkCard({ ...marker.card, overdue }) } });
+		flagged += 1;
+	}
+	return flagged;
+}
+
+/** A resposta chegou: o marcador perde o aviso de atraso (melhor esforço). */
+async function clearOverdue(message: { id: string; userId: string; fromConversationId: string | null }): Promise<void> {
+	const marker = await findSentMarker(message);
+	if (!marker?.card.overdue) return;
+	const { overdue: _overdue, ...card } = marker.card;
+	await prisma.conversationMessage.update({ where: { id: marker.rowId }, data: { content: serializeBotLinkCard(card) } });
+}
+
+/** Pedidos deste bot a outros bots ainda sem resposta (do mesmo dono, últimas 24 h). */
+export async function listOpenBotRequests(input: { userId: string; fromBotId: string; now?: Date }): Promise<OpenBotRequest[]> {
+	const now = input.now ?? new Date();
+	const rows = await prisma.botMessage.findMany({
+		where: {
+			userId: input.userId,
+			fromBotId: input.fromBotId,
+			status: { in: [...OPEN_BOT_REQUEST_STATUSES] },
+			createdAt: { gt: new Date(now.getTime() - OPEN_BOT_REQUESTS_WINDOW_MS) },
+		},
+		orderBy: { createdAt: "desc" },
+		take: OPEN_BOT_REQUESTS_MAX,
+		select: { toBotId: true, title: true, status: true, createdAt: true },
+	});
+	if (rows.length === 0) return [];
+	const bots = await prisma.bot.findMany({ where: { id: { in: rows.map((row) => row.toBotId) }, ownerId: input.userId }, select: { id: true, name: true } });
+	const names = new Map(bots.map((bot) => [bot.id, bot.name]));
+	return rows.map((row) => ({ botName: names.get(row.toBotId) ?? "bot removido", title: row.title, status: row.status, createdAt: row.createdAt }));
+}
+
 async function recoverStale(now: Date): Promise<void> {
 	const before = new Date(now.getTime() - BOT_MESSAGE_STALE_MS);
 	await prisma.botMessage.updateMany({ where: { status: "delivering", updatedAt: { lt: before } }, data: { status: "pending" } });
 	await prisma.botMessage.updateMany({ where: { status: "replying", updatedAt: { lt: before } }, data: { status: "replied" } });
 }
 
-export type BotMessageSweepResult = { delivered: number; busy: number; replies: number; settled: number; needsUser: number };
+export type BotMessageSweepResult = { delivered: number; busy: number; replies: number; settled: number; needsUser: number; overdue: number };
 
 /** Um passo do outbox (idempotente; várias instâncias do worker podem rodar juntas). */
 export async function processBotMessages(deps: BotMessageDeps): Promise<BotMessageSweepResult> {
 	const now = (deps.now ?? (() => new Date()))();
-	const result: BotMessageSweepResult = { delivered: 0, busy: 0, replies: 0, settled: 0, needsUser: 0 };
+	const result: BotMessageSweepResult = { delivered: 0, busy: 0, replies: 0, settled: 0, needsUser: 0, overdue: 0 };
 	await recoverStale(now).catch((error) => console.error("[bot-messages] recover failed", error));
 	// Antes de encerrar: o destino pode ter terminado o turno com um card esperando o usuário.
 	result.needsUser += await relayNeedsUser().catch((error) => (console.error("[bot-messages] relay needs-user failed", error), 0));
 	result.needsUser += await resolveNeedsUser().catch((error) => (console.error("[bot-messages] resolve needs-user failed", error), 0));
 	result.settled += await settleDelivered().catch((error) => (console.error("[bot-messages] settle failed", error), 0));
 	result.settled += await closeWoken().catch((error) => (console.error("[bot-messages] close failed", error), 0));
+	result.overdue += await flagOverdue(now).catch((error) => (console.error("[bot-messages] overdue failed", error), 0));
 
 	const pending = await prisma.botMessage.findMany({ where: { status: "pending" }, orderBy: { createdAt: "asc" }, take: SWEEP_BATCH, select: { id: true } });
 	for (const row of pending) {

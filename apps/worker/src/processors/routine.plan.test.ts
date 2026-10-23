@@ -94,7 +94,7 @@ test("rotina de B não acessa bot de A; sem opt-in e fallback não enfileira", a
 	}
 });
 
-test("rotina com página apagada (ou de outro dono) pula com 'Página apagada' e nada é enfileirado", async () => {
+test("rotina com painel apagado (ou de outro dono) pula com 'Painel apagado' e nada é enfileirado", async () => {
 	const routineFind = prisma.routine.findUnique,
 		botFind = prisma.bot.findFirst,
 		pageFind = prisma.page.findFirst,
@@ -127,8 +127,8 @@ test("rotina com página apagada (ou de outro dono) pula com 'Página apagada' e
 		);
 		assert.equal(result.status, "skipped");
 		assert.equal(created[0]?.status, "skipped");
-		assert.equal(created[0]?.error, "Página apagada");
-		// A página é buscada escopada pelo dono da rotina e ignorando as apagadas.
+		assert.equal(created[0]?.error, "Painel apagado");
+		// O painel é buscado escopado pelo dono da rotina e ignorando os apagados.
 		assert.equal(pageWhere?.userId, "user-a");
 		assert.equal(pageWhere?.id, "page-1");
 		assert.equal(pageWhere?.deletedAt, null);

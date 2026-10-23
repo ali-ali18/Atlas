@@ -14,6 +14,8 @@ app.get("/v1/bots", (c) => c.json({ ok: true }));
 app.post("/v1/hooks/github", (c) => c.json({ ok: true }));
 app.post("/v1/internal/dev-jobs/callback", (c) => c.json({ ok: true }));
 app.get("/v1/internal/dev-jobs/other", (c) => c.json({ ok: true }));
+app.get("/v1/public/paineis/:token", (c) => c.json({ ok: true }));
+app.all("/v1/pages/:id/share", (c) => c.json({ ok: true }));
 app.get("/v1/mcp/oauth/callback", (c) => c.json({ ok: true }));
 app.post("/v1/mcp/oauth/callback", (c) => c.json({ ok: true }));
 // Espelha apps/api/src/index.ts:97 — /health está FORA de /v1/*,
@@ -49,6 +51,15 @@ test("webhook POST (and the GET usage hint) bypass the session guard; connector 
   assert.equal((await app.request("/v1/hooks/github", { method: "DELETE" })).status, 401);
   assert.equal((await app.request("/v1/mcp/oauth/callback")).status, 401);
   assert.equal((await app.request("/v1/mcp/oauth/callback", { method: "POST" })).status, 401);
+});
+
+test("link público de painel: só o GET com token de 43 caracteres é público; criar/revogar o link exige sessão", async () => {
+  const token = "A".repeat(43);
+  assert.equal((await app.request(`/v1/public/paineis/${token}`)).status, 200);
+  assert.equal((await app.request(`/v1/public/paineis/${token}`, { method: "POST" })).status, 401);
+  assert.equal((await app.request("/v1/public/paineis/curto")).status, 401);
+  assert.equal((await app.request(`/v1/public/paineis/${token}/extra`)).status, 401);
+  for (const method of ["GET", "POST", "DELETE"]) assert.equal((await app.request("/v1/pages/page-a/share", { method })).status, 401);
 });
 
 test("session with non-owner email is refused even when authenticated", async () => {

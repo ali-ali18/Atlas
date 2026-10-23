@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { chartSpecToCsv, parseChartSpec, type ChartSpec } from "@workspace/shared"
-import { Chart, describeReference, horizontalBarLeftMargin, makeValueFormatter, makeXLabels, parseChartDate, shouldUseHorizontalBars, xLabelSlot } from "./chart"
+import { TooltipDot } from "../charts/tooltip/tooltip-dot"
+import { BAR_HOVER_MARKER, Chart, describeReference, horizontalBarLeftMargin, makeValueFormatter, makeXLabels, parseChartDate, shouldUseHorizontalBars, xLabelSlot } from "./chart"
 
 const spec = (raw: Record<string, unknown>): ChartSpec => {
   const parsed = parseChartSpec(raw)
@@ -17,6 +18,30 @@ const monthly = {
   data: [{ mes: "2025-01-01", r: 1200.5, d: 900 }, { mes: "2025-02-01", r: 1500, d: null }, { mes: "2025-03-01", r: 1800.25, d: 1000 }],
   unit: "BRL",
 }
+
+describe("Chart: marcador do hover nas barras", () => {
+  it("o marcador não usa a cor da barra: preenchimento em foreground com anel na cor do fundo", () => {
+    expect(BAR_HOVER_MARKER.dotColor).toBe("var(--foreground)")
+    expect(BAR_HOVER_MARKER.dotStrokeWidth).toBeGreaterThan(0)
+    const html = renderToStaticMarkup(
+      <svg>
+        <TooltipDot animate={false} color={BAR_HOVER_MARKER.dotColor} strokeWidth={BAR_HOVER_MARKER.dotStrokeWidth} visible x={10} y={10} />
+      </svg>
+    )
+    expect(html).toContain('fill="var(--foreground)"')
+    expect(html).toContain('stroke="var(--chart-background)"')
+    expect(html).toContain('stroke-width="2"')
+  })
+})
+
+describe("Chart: orientation das barras", () => {
+  it("horizontal força as barras deitadas mesmo com rótulos curtos; sem orientation fica na vertical", () => {
+    const auto = renderToStaticMarkup(<Chart spec={spec({ ...monthly, type: "bar" })} />)
+    const forced = renderToStaticMarkup(<Chart spec={spec({ ...monthly, type: "bar", orientation: "horizontal" })} />)
+    expect(auto).not.toMatch(/style="height:\d+px"/)
+    expect(forced).toMatch(/style="height:\d+px"/)
+  })
+})
 
 describe("Chart: cada tipo renderiza com dados", () => {
   for (const type of ["line", "bar", "area"] as const) {

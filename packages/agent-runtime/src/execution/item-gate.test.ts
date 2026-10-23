@@ -12,6 +12,18 @@ const gate = (over: Partial<GateInput>) =>
 	decideItemGate({ ledger: undefined, event: "create_file", budgetFraction: 0.2, requireLedger: false, browserAvailable: true, canContinue: true, ...over });
 
 describe("decideItemGate", () => {
+	it("resposta final é recusada uma vez só (create_file segue com o teto antigo)", () => {
+		const once = { ...withItems(3), answerBlocks: 1, gateBlocks: 1 };
+		expect(gate({ ledger: once, event: "final_answer" })).toEqual({ action: "allow", declareGaps: true });
+		expect(gate({ ledger: once, event: "create_file" }).action).toBe("block");
+		const required = { ...createTaskLedger(), answerBlocks: 1, gateBlocks: 1 };
+		expect(gate({ ledger: required, event: "final_answer", requireLedger: true })).toEqual({ action: "allow", declareGaps: false });
+		const first = gate({ ledger: withItems(3), event: "final_answer" });
+		expect(first.action === "block" && first.note).toContain("This is the only reminder");
+		const file = gate({ ledger: withItems(3), event: "create_file" });
+		expect(file.action === "block" && file.note).not.toContain("only reminder");
+	});
+
 	it("sem ledger ou sem itens: libera", () => {
 		expect(gate({})).toEqual({ action: "allow", declareGaps: false });
 		expect(gate({ ledger: createTaskLedger() })).toEqual({ action: "allow", declareGaps: false });

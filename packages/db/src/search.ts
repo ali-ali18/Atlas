@@ -36,7 +36,7 @@ function toHit(row: SearchRow): ConversationSearchHit {
 
 export async function searchConversationMessages(
 	query: string,
-	opts?: { limit?: number; excludeConversationId?: string; userId?: string; botId?: string; groupConversationId?: string },
+	opts?: { limit?: number; excludeConversationId?: string; userId?: string; botId?: string; groupConversationId?: string; since?: Date; until?: Date },
 ): Promise<ConversationSearchHit[]> {
 	const trimmed = query.trim();
 	if (trimmed.length === 0) {
@@ -78,6 +78,10 @@ export async function searchConversationMessages(
 	const excludeFilter = exclude
 		? Prisma.sql` AND cm."conversationId" <> ${exclude}`
 		: Prisma.empty;
+	// Janela de datas opcional ("semana passada"): vale para todos os caminhos de busca abaixo.
+	const since = opts?.since && !Number.isNaN(opts.since.getTime()) ? opts.since : undefined;
+	const until = opts?.until && !Number.isNaN(opts.until.getTime()) ? opts.until : undefined;
+	const dateFilter = Prisma.sql`${since ? Prisma.sql` AND cm."createdAt" >= ${since}` : Prisma.empty}${until ? Prisma.sql` AND cm."createdAt" < ${until}` : Prisma.empty}`;
 
 	try {
 		const rows = await prisma.$queryRaw<SearchRow[]>`
@@ -86,6 +90,7 @@ export async function searchConversationMessages(
 				WHERE to_tsvector('portuguese', cm."content") @@ plainto_tsquery('portuguese', ${trimmed})
 					AND cm."role" IN ('system', 'user', 'assistant', 'tool')
 					${excludeFilter}
+					${dateFilter}
 					${scopeFilter}
 				ORDER BY ts_rank(to_tsvector('portuguese', cm."content"), plainto_tsquery('portuguese', ${trimmed})) DESC, cm."createdAt" DESC
 				LIMIT ${limit}
@@ -110,6 +115,7 @@ export async function searchConversationMessages(
 				WHERE cm."content" ILIKE ${`%${trimmed.slice(0, 120)}%`}
 					AND cm."role" IN ('system', 'user', 'assistant', 'tool')
 					${excludeFilter}
+					${dateFilter}
 					${scopeFilter}
 				ORDER BY cm."createdAt" DESC
 				LIMIT ${limit}
@@ -129,6 +135,7 @@ export async function searchConversationMessages(
 			content: { contains: trimmed, mode: "insensitive" },
 			role: { in: ["system", "user", "assistant", "tool"] },
 			...(exclude ? { conversationId: { not: exclude } } : {}),
+			...(since || until ? { createdAt: { ...(since ? { gte: since } : {}), ...(until ? { lt: until } : {}) } } : {}),
 		},
 		orderBy: { createdAt: "desc" },
 		take: userId || botId ? limit * 4 : limit,

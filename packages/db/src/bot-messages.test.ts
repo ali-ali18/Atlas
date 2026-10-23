@@ -9,7 +9,7 @@ import { BOT_MESSAGE_MAX_DEPTH } from "@workspace/shared";
 
 process.env.ATLAS_HOOK_PEPPER ||= "test-pepper";
 const { prisma } = await import("./client.js");
-const { BotMessageError, processBotMessages, sendBotMessage, BOT_RUN_MAX_SENDS } = await import("./bot-messages.js");
+const { BotMessageError, listOpenBotRequests, processBotMessages, sendBotMessage, BOT_RUN_MAX_SENDS } = await import("./bot-messages.js");
 
 type Row = Record<string, unknown>;
 
@@ -23,7 +23,7 @@ function matches(row: Row, where: Row | undefined): boolean {
 			const c = cond as Record<string, unknown>;
 			if ("in" in c) return (c.in as unknown[]).includes(value);
 			if ("not" in c) return value !== c.not;
-			if ("lt" in c) return (value as Date) < (c.lt as Date);
+			if ("lt" in c || "gt" in c) return (!("lt" in c) || (value as Date) < (c.lt as Date)) && (!("gt" in c) || (value as Date) > (c.gt as Date));
 			if ("gte" in c) return (value as Date) >= (c.gte as Date);
 			if ("contains" in c) return String(value ?? "").includes(c.contains as string);
 			if ("isEmpty" in c) return (value as unknown[]).length === 0 === c.isEmpty;
@@ -88,7 +88,12 @@ function install(world: World) {
 	};
 	conv.findMany = async ({ where, orderBy, take }: { where: Row; orderBy?: Record<string, "asc" | "desc">; take?: number }) =>
 		sort(world.convMessages.filter((row) => matches(row, where)), orderBy).slice(0, take);
-	conv.findFirst = async ({ where }: { where: Row }) => world.convMessages.find((row) => matches(row, where)) ?? null;
+	conv.findFirst = async ({ where }: { where: Row }) => {
+		// Filtro de dono pela relação: a conversa é de um bot do dono (como no banco).
+		const { conversation, ...rest } = where as Row & { conversation?: { userId: string } };
+		const owned = (row: Row) => !conversation || world.bots.some((b) => b.conversationId === row.conversationId && b.ownerId === conversation.userId);
+		return world.convMessages.find((row) => matches(row, rest) && owned(row)) ?? null;
+	};
 	conv.findUnique = async ({ where }: { where: Row }) => world.convMessages.find((row) => matches(row, where)) ?? null;
 	conv.update = async ({ where, data }: { where: Row; data: Row }) => {
 		const row = world.convMessages.find((r) => matches(r, where))!;
@@ -445,4 +450,36 @@ test("orquestrador sem a configuração: o card chega ao usuário na hora, como 
 	world.runs.set(m.toRunId as string, { status: "completed", resultText: "Aguardando.", error: null });
 	await processBotMessages(deps);
 	assert.equal(world.convMessages.filter((row) => (row.content as string).includes("needs-user")).length, 1);
+});
+
+test("prazo: pedido sem resposta depois de 30 min marca o marcador do remetente uma vez; a resposta limpa o aviso", async () => {
+	const world = newWorld();
+	install(world);
+	const { deps } = makeDeps(world);
+	await sendBotMessage({ userId: "u1", fromBotId: "ana", fromRunId: "r-ana", bot: "bia", message: "PDF da Semana 2", title: "PDF" });
+	const m = world.messages[0]!;
+	const sentAt = m.createdAt as Date;
+	const at = (minutes: number) => ({ ...(deps as object), now: () => new Date(sentAt.getTime() + minutes * 60_000) }) as never;
+	await processBotMessages(at(1));
+	const marker = () => JSON.parse(world.convMessages.find((row) => row.role === "bot-link")!.content as string);
+	assert.equal(marker().overdue, undefined);
+
+	let result = await processBotMessages(at(29));
+	assert.equal(result.overdue, 0);
+	result = await processBotMessages(at(45));
+	assert.equal(result.overdue, 1);
+	assert.equal(marker().overdue.label, "Bia ainda não respondeu");
+	result = await processBotMessages(at(50));
+	assert.equal(result.overdue, 0, "uma vez só");
+
+	// o turno seguinte do remetente vê o pedido em aberto; outro usuário não vê nada
+	const open = await listOpenBotRequests({ userId: "u1", fromBotId: "ana", now: new Date(sentAt.getTime() + 50 * 60_000) });
+	assert.deepEqual(open.map((r) => [r.botName, r.title, r.status]), [["Bia", "PDF", "delivered"]]);
+	assert.deepEqual(await listOpenBotRequests({ userId: "u2", fromBotId: "ana", now: new Date(sentAt.getTime() + 50 * 60_000) }), []);
+
+	// resposta tardia chega: o aviso sai
+	world.runs.set(m.toRunId as string, { status: "completed", resultText: "PDF pronto", error: null });
+	await processBotMessages(at(60));
+	assert.equal(m.status, "reply_delivered");
+	assert.equal(marker().overdue, undefined);
 });

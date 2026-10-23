@@ -25,6 +25,7 @@ const {
 	getOwnedConversation,
 	getMcpConnection,
 	claimMcpConnectionByStateHash,
+	createRoutine,
 	getRoutine,
 	updateRoutine,
 	getLastCompletedRoutineRunAt,
@@ -384,6 +385,65 @@ test("routines interval: B não lê, não altera e não vê o último run da rot
 		prisma.routine.findFirst = originalFind;
 		prisma.routine.update = originalUpdate;
 		prisma.routineRun.findFirst = originalRun;
+	}
+});
+
+test("routines e-mail: B não cria gatilho no bot de A nem altera o filtro da rotina de A", { skip: SKIP_WITHOUT_DB }, async () => {
+	const row = {
+		id: "routine-mail",
+		userId: USER_A,
+		botId: "bot-a",
+		conversationId: null,
+		name: "NF",
+		prompt: "registre",
+		model: "model-x",
+		enabled: true,
+		triggerType: "event",
+		schedule: null,
+		timezone: "America/Sao_Paulo",
+		triggerJson: { kind: "email", subjectContains: "NF" },
+		lastRunAt: null,
+		createdAt: now(),
+		updatedAt: now(),
+	};
+	const updates: unknown[] = [];
+	const originalFind = stub(
+		prisma.routine,
+		"findFirst",
+		(async (args: unknown) => {
+			const where = (args as { where: { id: string; botId: string; userId: string | { in: string[] } } }).where;
+			const owners = typeof where.userId === "string" ? [where.userId] : where.userId.in;
+			return where.id === row.id && where.botId === row.botId && owners.includes(row.userId) ? row : null;
+		}) as unknown as typeof prisma.routine.findFirst,
+	);
+	const originalUpdate = stub(
+		prisma.routine,
+		"update",
+		(async (args: unknown) => {
+			updates.push(args);
+			return row;
+		}) as unknown as typeof prisma.routine.update,
+	);
+	const originalRun = stub(prisma.routineRun, "findFirst", (async () => null) as unknown as typeof prisma.routineRun.findFirst);
+	const originalBot = stub(
+		prisma.bot,
+		"findFirst",
+		(async (args: unknown) => ((args as { where: { ownerId: string } }).where.ownerId === USER_A ? { id: "bot-a", conversationId: null, openRouterModel: "m" } : null)) as unknown as typeof prisma.bot.findFirst,
+	);
+	try {
+		assert.equal((await getRoutine(USER_A, "bot-a", "routine-mail"))?.email?.subjectContains, "NF");
+		assert.equal(await getRoutine(USER_B, "bot-a", "routine-mail"), null);
+		assert.equal(await updateRoutine(USER_B, "bot-a", "routine-mail", { triggerType: "event", emailTrigger: { subjectContains: "x" } }), null);
+		assert.equal(updates.length, 0);
+		await assert.rejects(
+			createRoutine(USER_B, { botId: "bot-a", name: "NF", prompt: "x", trigger: { kind: "email" } }),
+			/Bot não encontrado/,
+		);
+	} finally {
+		prisma.routine.findFirst = originalFind;
+		prisma.routine.update = originalUpdate;
+		prisma.routineRun.findFirst = originalRun;
+		prisma.bot.findFirst = originalBot;
 	}
 });
 

@@ -1,0 +1,6 @@
+# frontend local compilado (build:frontend)
+dist/
+# Rust
+src-tauri/target/
+# esquemas gerados pelo tauri-build a cada build
+src-tauri/gen/

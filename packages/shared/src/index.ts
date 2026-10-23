@@ -2,6 +2,7 @@ export type { AtlasDomainEvent, AtlasDomainEventType } from "./events.js";
 export { ATLAS_QUEUE_NAMES, type AtlasQueueName } from "./queues.js";
 export * from "./bot-messaging.js";
 export * from "./email.js";
+export * from "./routine-email.js";
 export * from "./reply-segments.js";
 export * from "./composer-mentions.js";
 export * from "./bot-group.js";
@@ -150,6 +151,12 @@ export {
 	type SubagentTaskResult,
 } from "./subagents.js";
 export {
+	DRAFT_REVISION_REASONS,
+	draftRevisionLabel,
+	keepsRevisedDraft,
+	type DraftRevisionReason,
+} from "./draft-revision.js";
+export {
 	applyComputerUseEventToTranscript,
 	applyComputerUseEventsToTranscript,
 	type TranscriptBubble,
@@ -242,6 +249,7 @@ export {
 export { parseSseBlock } from "./sse.js";
 export * from "./read-state.js";
 export * from "./files.js";
+export * from "./deck.js";
 export * from "./attachments.js";
 export {
 	parseSkillRecipe,
@@ -321,6 +329,8 @@ export {
 	type PersistedToolBudgetCard,
 	type PersistedJevStatusCard,
 	type PersistedProviderFallbackCard,
+	type PersistedRevisedDraftCard,
+	REVISED_DRAFT_MAX_CHARS,
 	type PersistedSubagentsCard,
 	type BotProfileCardField,
 	type BotProfileCardSnapshot,
@@ -440,6 +450,9 @@ export * from "./memory-scope.js";
 export * from "./memory-cleanup.js";
 export * from "./proactive-prompt.js";
 export * from "./routine-proposal.js";
+export * from "./routine-alert.js";
+export * from "./routine-alert-schedule.js";
+export * from "./routine-failure-text.js";
 export {
 	isOnceTrigger,
 	parseOnceRunAt,
@@ -820,6 +833,8 @@ export {
 	CHART_CUSTOM_COLORS_MAX,
 	CHART_CUSTOM_COLORS_MIN,
 	CHART_FORMATS,
+	CHART_ORIENTATIONS,
+	CHART_SPEC_FIELDS,
 	CHART_PALETTES,
 	CHART_MAX_FORECAST_POINTS,
 	CHART_MAX_FUNNEL_STAGES,
@@ -837,6 +852,7 @@ export {
 	parseChartSpec,
 	summarizeChartSpec,
 	type ChartFormat,
+	type ChartOrientation,
 	type ChartPalette,
 	type ChartReference,
 	type ChartSeriesKind,
@@ -847,9 +863,11 @@ export {
 	type ChartType,
 } from "./chart-spec.js";
 export * from "./page-spec.js";
+export * from "./page-groups.js";
 export * from "./model-tiers.js";
 
 export * from "./maintenance-status.js";
 export * from "./run-inspect.js";
 export * from "./lessons.js";
 export * from "./skill-review.js";
+export * from "./bot-sla.js";

@@ -158,9 +158,20 @@ export function draftLines(args: Record<string, unknown>): string[] {
 		}
 	}
 	if (Array.isArray(args.slides)) {
+		// Layouts ricos (stats, tabela, timeline, colunas...): todo texto do slide conta, inclusive notas.
+		const walk = (value: unknown, depth: number): void => {
+			if (depth > 6) return;
+			if (typeof value === "string") return push(value);
+			if (Array.isArray(value)) return value.forEach((item) => walk(item, depth + 1));
+			if (value && typeof value === "object") Object.values(value).forEach((item) => walk(item, depth + 1));
+		};
 		for (const slide of args.slides as Array<Record<string, unknown>>) {
-			push(slide?.title);
-			if (Array.isArray(slide?.bullets)) for (const bullet of slide.bullets) push(bullet);
+			// So o texto que o leitor ve: tipos, cores, ids de imagem, icones e nomes de layout nao sao afirmacoes.
+			const { layout: _layout, image: _image, chart: _chart, background: _background, template_layout: _templateLayout, elements, ...rest } = slide ?? {};
+			walk(rest, 0);
+			if (Array.isArray(elements)) {
+				for (const element of elements as Array<Record<string, unknown>>) walk({ text: element?.text, columns: element?.columns, rows: element?.rows }, 0);
+			}
 		}
 	}
 	return lines;

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PersistUserArtifactInput } from "@workspace/db";
+import { DECK_ICON_NAMES, DECK_LAYOUTS, DECK_SHAPES } from "@workspace/shared";
+import { P_PRESENTATIONS } from "../context/presentations-prompt.js";
 import { CREATE_FILE_TOOL, executeCreateFile, previewCreateFileArgs, resetStagedFilesForTest, type CreateFileDeps } from "./create-file.js";
 
 function deps(overrides: Partial<CreateFileDeps> = {}) {
@@ -31,6 +33,51 @@ describe("create_file", () => {
 		const text = CREATE_FILE_TOOL.function.description ?? "";
 		expect(text).toMatch(/do NOT paste the document in chat/);
 		expect(text).toMatch(/Not for images or executables/);
+	});
+
+	it("descrição do pptx é curta e aponta para o guia; o esquema do deck mora no grupo presentations", () => {
+		const whole = JSON.stringify(CREATE_FILE_TOOL);
+		expect(CREATE_FILE_TOOL.function.description).toMatch(/presentations notes/);
+		for (const layout of ["two_column", "timeline", "agenda", "stats", "closing", "rounded_rect"]) expect(whole, layout).not.toContain(layout);
+		expect(whole.length).toBeLessThan(4_500);
+		const props = (CREATE_FILE_TOOL.function.parameters as { properties: Record<string, { enum?: string[] }> }).properties;
+		expect(props.theme?.enum).toEqual(["clean", "dark", "corporate", "vivid"]);
+		expect(props.brand_color).toBeDefined();
+		expect(props.template_file_id).toBeDefined();
+		// o guia completo (carregado só em pedido de apresentação) cobre layouts, ícones, formas, fundos, template e a regra de não inventar números
+		const guide = P_PRESENTATIONS.join("\n");
+		for (const layout of DECK_LAYOUTS) expect(guide, layout).toContain(layout);
+		for (const icon of DECK_ICON_NAMES) expect(guide, icon).toContain(icon);
+		for (const shape of DECK_SHAPES) expect(guide, shape).toContain(shape);
+		for (const needle of ["never invent", "background", "template_file_id", "inspect_presentation", "generate_image", "scrim", "13.333 x 7.5"]) expect(guide, needle).toContain(needle);
+	});
+
+	it("pptx em partes mantém tema e slides; o resumo traz o id para conferir com run_code", async () => {
+		resetStagedFilesForTest();
+		const d = deps();
+		await executeCreateFile({ filename: "d.pptx", part: 1, more: true, theme: "dark", slides: [{ layout: "title", title: "Oi" }] }, ctx, d.value);
+		const out = await executeCreateFile({ filename: "d.pptx", part: 2, more: false, slides: [{ layout: "closing", title: "Tchau" }] }, ctx, d.value);
+		expect(d.persisted[0]?.meta).toMatchObject({ format: "pptx" });
+		expect(out.summary).toContain('files ["art-1"]');
+	});
+
+	it("pptx com texto que estoura volta com avisos de layout no resultado; deck enxuto não", async () => {
+		const d = deps();
+		const long = "Este item descreve em detalhes todo o cenário do mercado e as metas do trimestre seguinte";
+		const bad = await executeCreateFile({ filename: "a.pptx", slides: [{ layout: "bullets", title: "Muito", bullets: Array.from({ length: 10 }, () => `${long}. ${long}`) }] }, ctx, d.value);
+		expect(bad.summary).toMatch(/Layout check found 1 issue/);
+		expect(bad.summary).toMatch(/slide 1: bullets: the text needs about/);
+		expect(d.persisted).toHaveLength(1);
+		const good = await executeCreateFile({ filename: "b.pptx", slides: [{ layout: "bullets", title: "Curto", bullets: ["a", "b"] }] }, ctx, d.value);
+		expect(good.summary).not.toMatch(/Layout check/);
+	});
+
+	it("slide com imagem de outro dono falha antes de criar o arquivo", async () => {
+		const d = deps();
+		await expect(
+			executeCreateFile({ filename: "d.pptx", slides: [{ layout: "image", title: "Foto", image: "de-outro" }] }, ctx, { ...d.value, loadArtifact: vi.fn(async () => null) }),
+		).rejects.toThrow(/not found in this conversation/);
+		expect(d.persisted).toHaveLength(0);
 	});
 
 	it("persiste o artefato do dono e emite o evento file", async () => {

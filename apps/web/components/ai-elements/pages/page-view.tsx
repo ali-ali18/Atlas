@@ -15,9 +15,9 @@ import { TableNode } from "./components/table";
 import { HeadingNode, TextNode } from "./components/text";
 
 /**
- * Desenha a árvore de componentes de uma página (v2). Usado inline no cartão do chat e na tela cheia: o mesmo
+ * Desenha a árvore de componentes de um painel (v2). Usado inline no cartão do chat e na tela cheia: o mesmo
  * componente, só muda o espaço (o layout responde à largura do contêiner, não da janela). Cada tipo do spec
- * mapeia para um componente de `./components/*`; o resto da página nunca vira HTML do modelo.
+ * mapeia para um componente de `./components/*`; o resto do painel nunca vira HTML do modelo.
  */
 
 function renderChildren(node: PageNode, initialTab?: string): RenderedChild[] {
@@ -73,7 +73,7 @@ export function PageNodeView({ node, initialTab }: { node: PageNode; initialTab?
 }
 
 /**
- * Escopo da paleta: define `--chart-1..6` (e derivados) só dentro da página, pelo mesmo mecanismo dos gráficos
+ * Escopo da paleta: define `--chart-1..6` (e derivados) só dentro do painel, pelo mesmo mecanismo dos gráficos
  * (`data-chart-palette` + CSS gerado de ids fixos ou hash, nunca texto livre). O destaque dos componentes
  * (`accent`) e os gráficos sem paleta própria herdam daqui.
  */

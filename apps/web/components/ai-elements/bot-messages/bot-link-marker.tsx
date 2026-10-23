@@ -13,9 +13,12 @@ export function BotLinkMarker({
 	direction,
 	bot,
 	onOpen,
+	overdue,
 }: {
 	direction: "sent" | "received";
 	bot: BotRef;
+	/** Pedido sem resposta depois do prazo: status visível sob o marcador. */
+	overdue?: string;
 	/** Abre a conversa com o bot; sem ele (bot apagado) o marcador é só informativo. */
 	onOpen?: () => void;
 }) {
@@ -24,6 +27,11 @@ export function BotLinkMarker({
 			<MarkerContent className="inline-flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5">
 				<span>{direction === "sent" ? "Enviou mensagem para" : "Mensagem de"}</span>
 				<BotChip bot={bot} />
+				{overdue ? (
+					<span className="text-amber-600 dark:text-amber-400" data-bot-overdue>
+						· {overdue}
+					</span>
+				) : null}
 			</MarkerContent>
 		</Marker>
 	);

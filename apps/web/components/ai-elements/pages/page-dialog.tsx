@@ -4,6 +4,8 @@ import { RefreshCwIcon } from "lucide-react";
 import type { PageSource, PageSpec } from "@workspace/shared";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@workspace/ui/components/dialog";
 
+import { ShareMenu } from "@/components/ai-elements/share/share-menu";
+
 import { PageView } from "./page-view";
 
 /** Segurança: só http(s) vira link (o servidor já valida; aqui é a segunda trava antes do `href`). */
@@ -11,7 +13,7 @@ export function safeSourceHref(url: string | undefined): string | undefined {
 	return url && /^https?:\/\//i.test(url) ? url : undefined;
 }
 
-/** Página em tela cheia (celular) ou folha larga (desktop), com as fontes ao final. */
+/** Painel em tela cheia (celular) ou folha larga (desktop), com as fontes ao final. */
 export function PageDialog({
 	open,
 	onOpenChange,
@@ -21,7 +23,13 @@ export function PageDialog({
 	sources,
 	updatedLabel,
 	routineLabel,
+	botName,
+	onPublicLink,
 }: {
+	/** Nome do bot no rodapé da imagem exportada. */
+	botName?: string | null;
+	/** Abre o diálogo do link público do painel (só para painel salvo). */
+	onPublicLink?: () => void;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	title: string;
@@ -29,7 +37,7 @@ export function PageDialog({
 	spec: PageSpec;
 	sources: PageSource[] | null;
 	updatedLabel?: string | null;
-	/** Quando uma rotina atualiza a página ("Toda segunda às 08:00"). */
+	/** Quando uma rotina atualiza o painel ("Toda segunda às 08:00"). */
 	routineLabel?: string | null;
 }) {
 	return (
@@ -38,16 +46,20 @@ export function PageDialog({
 				className="max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:content-start max-sm:rounded-none sm:max-h-[90dvh] sm:max-w-3xl content-start overflow-y-auto overscroll-contain"
 				data-testid="page-dialog"
 			>
-				<DialogHeader className="pr-10">
+				<div className="grid gap-4" data-share-target>
+				<div className="flex items-start gap-1 pr-10">
+				<DialogHeader className="min-w-0 flex-1">
 					<DialogTitle>{title}</DialogTitle>
 					<DialogDescription>{[summary, updatedLabel].filter(Boolean).join(" · ")}</DialogDescription>
 					{routineLabel ? (
 						<p className="flex items-center gap-1.5 text-muted-foreground text-xs" data-page-routine>
 							<RefreshCwIcon aria-hidden className="size-3.5 shrink-0" />
-							<span>Atualizada por rotina · {routineLabel}</span>
+							<span>Atualizado por rotina · {routineLabel}</span>
 						</p>
 					) : null}
 				</DialogHeader>
+				<ShareMenu botName={botName} onPublicLink={onPublicLink} pdf targetSelector="[data-share-target]" title={title} />
+				</div>
 				<PageView spec={spec} />
 				{sources && sources.length > 0 ? (
 					<section aria-label="Fontes" className="border-border/60 border-t pt-3">
@@ -70,6 +82,7 @@ export function PageDialog({
 						</ul>
 					</section>
 				) : null}
+				</div>
 			</DialogContent>
 		</Dialog>
 	);

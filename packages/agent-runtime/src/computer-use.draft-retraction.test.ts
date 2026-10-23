@@ -6,8 +6,8 @@ import { runComputerUse } from "./computer-use.js";
 
 /**
  * O rascunho da resposta final sai em deltas (balão escrito aos poucos). Se o
- * verificador de resposta o recusar, o balão é retirado (assistant_discard) e o
- * usuário só vê a versão refeita. LLM e verificador mockados.
+ * verificador de resposta o recusar, o balão vira rascunho revisado (assistant_discard
+ * com motivo: continua na tela, recolhido) e a versão refeita vem depois. LLM e verificador mockados.
  */
 
 vi.mock("@workspace/db", async (importOriginal) => ({
@@ -72,10 +72,16 @@ describe("rascunho recusado pelo verificador", () => {
 		const rejectedStreamed = events.filter((event) => event.type === "assistant_delta").map((event) => String(event.delta)).join("");
 		expect(rejectedStreamed).toContain("Não encontrei o preço");
 		expect(events.some((event) => event.type === "assistant_discard")).toBe(true);
-		const visible = applyComputerUseEventsToTranscript([], events as unknown as ComputerUseEvent[])
+		const transcript = applyComputerUseEventsToTranscript([], events as unknown as ComputerUseEvent[]);
+		const visible = transcript
+			.filter((bubble) => !bubble.revised)
 			.map((bubble) => bubble.text)
 			.filter((text) => text.trim().length > 0);
 		expect(visible).toEqual(["Vou procurar.", "O plano custa US$ 20."]);
+		// O rascunho já lido não some: fica recolhido como revisado, com o motivo.
+		expect(transcript.filter((bubble) => bubble.revised).map((bubble) => [bubble.text, bubble.revised])).toEqual([
+			["Não encontrei o preço em nenhuma fonte.", "evidence"],
+		]);
 	});
 
 	const priorToolTurn: Array<Record<string, unknown>> = [

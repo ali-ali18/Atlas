@@ -7,7 +7,7 @@ import {
 	AttachmentInfo,
 } from "@/components/ai-elements/attachments";
 import type { AttachmentData } from "@/components/ai-elements/attachments";
-import { CalendarClockIcon, ClockIcon, WebhookIcon } from "lucide-react";
+import { CalendarClockIcon, ClockIcon, MailIcon, WebhookIcon } from "lucide-react";
 import { routineCardSummary } from "@/components/ui/templates/template-4/chat-context-panel/routine-map";
 
 export type RoutineActivityAction = "created" | "listed" | "updated";
@@ -21,7 +21,8 @@ export type OpenRoutinePayload = {
 	hookSecret?: string;
 };
 
-function routineTriggerIcon(triggerType?: "cron" | "event" | "once" | "interval") {
+function routineTriggerIcon(triggerType?: "cron" | "event" | "once" | "interval", detail?: string) {
+	if (triggerType === "event" && detail?.startsWith("Quando chegar e-mail")) return MailIcon;
 	if (triggerType === "cron" || triggerType === "interval") return CalendarClockIcon;
 	if (triggerType === "once") return ClockIcon;
 	return WebhookIcon;
@@ -57,7 +58,7 @@ export function RoutineActivityCard({
 	onOpen?: (payload: OpenRoutinePayload) => void;
 }) {
 	const label = title ?? (action === "updated" ? "Rotina atualizada" : "Rotina");
-	const Icon = routineTriggerIcon(triggerType);
+	const Icon = routineTriggerIcon(triggerType, detail);
 	const canOpen = Boolean(routineId && onOpen);
 	const summary = action === "created" ? routineCardSummary(triggerType, detail) : null;
 

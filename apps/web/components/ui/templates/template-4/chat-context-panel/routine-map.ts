@@ -6,7 +6,10 @@ import type {
 	UpdateRoutineInput,
 } from "@workspace/shared";
 import {
+	describeEmailTrigger,
 	describeGithubTriggerClauses,
+	describeRoutineAlertSentence,
+	formatRoutineRunReason,
 	cronToScheduleInput,
 	formatIntervalSummary,
 	formatOnceSummary,
@@ -89,7 +92,9 @@ export function parseUsersInput(value: string): string[] | undefined {
 export function recordToUiRoutine(record: RoutineRecord): Routine {
 	const base = recordToUiRoutineBase(record);
 	const withGroup = record.groupId ? { ...base, groupId: record.groupId } : base;
-	const routine = record.pageId ? { ...withGroup, pageId: record.pageId } : withGroup;
+	const withPage = record.pageId ? { ...withGroup, pageId: record.pageId } : withGroup;
+	const alertSentence = describeRoutineAlertSentence(record);
+	const routine = alertSentence ? { ...withPage, alertSentence } : withPage;
 	return record.createdBy === "bot" ? { ...routine, createdBy: "bot" } : routine;
 }
 
@@ -124,6 +129,20 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 			triggers: everyMinutes
 				? [{ id: "interval", text: formatIntervalSummary(everyMinutes) }]
 				: [],
+		};
+	}
+	if (record.triggerType === "event" && record.email) {
+		return {
+			id: record.id,
+			name: record.name,
+			instruction: record.prompt,
+			active: record.enabled,
+			model: record.model,
+			allowChatgptPlan: record.allowChatgptPlan ?? false,
+			notify: record.notify ?? "always",
+			triggerKind: "event",
+			triggers: [{ id: "email", text: describeEmailTrigger(record.email) }],
+			email: record.email,
 		};
 	}
 	const isEvent = record.triggerType === "event";
@@ -220,6 +239,19 @@ function uiRoutineToPayloadBase(
 		notify: routine.notify ?? "always",
 			enabled: routine.active,
 			triggerType: "interval",
+			schedule: null,
+		};
+	}
+	if (routine.triggerKind === "event" && routine.triggers[0]?.id === "email") {
+		// Gatilho de e-mail só é criado/editado pelo agente; o autosave não manda `trigger` (mantém o salvo).
+		return {
+			name: routine.name.trim() || "Nova rotina",
+			prompt: routine.instruction,
+			model: routine.model.trim(),
+			allowChatgptPlan: routine.allowChatgptPlan ?? false,
+			notify: routine.notify ?? "always",
+			enabled: routine.active,
+			triggerType: "event",
 			schedule: null,
 		};
 	}
@@ -374,8 +406,9 @@ export function routineRunLabel(
 				? `${via} · pulada · ${run.error}`
 				: `${via} · pulada`;
 		default:
+			// O erro guardado é técnico (e em inglês): o histórico mostra o motivo em pt-BR, sem segredo.
 			return run.error
-				? `${via} · falhou · ${run.error}`
+				? `${via} · falhou · ${formatRoutineRunReason(run.error)}`
 				: `${via} · falhou`;
 	}
 }
@@ -405,6 +438,7 @@ function capitalizeFirst(text: string) {
 /** Tipo de gatilho principal da rotina (ícone da lista). */
 export function routinePrimaryTriggerKind(routine: Routine): RoutineTriggerKind {
 	if (routine.triggerKind === "event") {
+		if (routine.triggers[0]?.id === "email") return "email";
 		return routine.triggers[0]?.id === "github" || routine.github
 			? "github"
 			: "webhook";
@@ -434,6 +468,9 @@ export function routineTriggerRows(routine: Routine): RoutineTriggerRow[] {
 	if (kind === "webhook") {
 		return [{ kind, text: "Quando uma requisição chegar no webhook da rotina" }];
 	}
+	if (kind === "email") {
+		return [{ kind, text: describeEmailTrigger(routine.email ?? {}) }];
+	}
 	const first = routine.triggers[0];
 	if (!first) return [];
 	return [
@@ -453,11 +490,14 @@ export function routineTriggerRows(routine: Routine): RoutineTriggerRow[] {
 export function routineCardSummary(triggerType: Routine["triggerKind"] | undefined, detail: string | undefined): string | null {
 	const first = detail?.split("\n")[0]?.trim();
 	if (!first) return null;
+	// Alerta por condição: o agente já grava a frase pronta ("Alerta · confere a cada 30 minutos · avisa se …").
+	if ((triggerType === "cron" || triggerType === "interval") && first.startsWith("Alerta · ")) return first;
 	if (triggerType === "cron") {
 		const cron = /^Cron:\s+((?:\S+\s+){4}\S+)/.exec(first)?.[1];
 		return cron ? capitalizeFirst(scheduleLabel(toScheduleState(cronToScheduleInput(cron)))) : null;
 	}
 	if (triggerType === "interval" || triggerType === "once") return capitalizeFirst(first);
+	if (triggerType === "event" && first.startsWith("Quando chegar e-mail")) return first;
 	return null;
 }
 
@@ -465,6 +505,7 @@ export function routineCardSummary(triggerType: Routine["triggerKind"] | undefin
 export function routineScheduleSummary(routine: Routine): string {
 	const kind = routinePrimaryTriggerKind(routine);
 	if (kind === "webhook") return "Webhook";
+	if (kind === "email") return describeEmailTrigger(routine.email ?? {});
 	if (kind === "github") {
 		const repo = routine.github?.repo.trim();
 		return repo ? `GitHub · ${repo}` : "GitHub";

@@ -1,4 +1,4 @@
-import { describeOpenItems, openItems, type TaskLedger } from "@workspace/shared";
+import { describeOpenItems, obligatedOpenItems, type TaskLedger } from "@workspace/shared";
 import { RESERVE_NOTE_AT } from "./run-governor.js";
 
 /**
@@ -9,6 +9,12 @@ import { RESERVE_NOTE_AT } from "./run-governor.js";
  */
 
 export const ITEM_GATE_MAX_BLOCKS = 3;
+/**
+ * A resposta final é recusada no máximo uma vez por run: cada recusa apaga o balão que o usuário
+ * já viu e o reescreve. A nota da recusa diz exatamente o que fazer; a resposta seguinte sai como
+ * está (com as lacunas declaradas) em vez de ser refeita de novo.
+ */
+export const ITEM_GATE_MAX_ANSWER_BLOCKS = 1;
 /** A partir daqui o portão libera: entrega o que tem, listando as lacunas. */
 export const ITEM_GATE_RELEASE_AT = RESERVE_NOTE_AT;
 
@@ -31,18 +37,23 @@ export type GateDecision =
 	| { action: "block"; kind: "items_open" | "ledger_required"; note: string };
 
 /** Textos voltados ao modelo: neutros, em inglês. */
-export function itemsOpenNote(ledger: TaskLedger, browserAvailable: boolean): string {
-	const open = openItems(ledger);
+export function itemsOpenNote(ledger: TaskLedger, browserAvailable: boolean, event: GateEvent = "create_file"): string {
+	const open = obligatedOpenItems(ledger);
 	return [
-		`${open.length} item${open.length === 1 ? " is" : "s are"} still open: ${describeOpenItems(ledger)}.`,
+		`${open.length} item${open.length === 1 ? " is" : "s are"} still open: ${describeOpenItems({ ...ledger, items: open })}.`,
 		"Continue with the next open item using your tools.",
 		...(browserAvailable ? ["Content that is visible in the browser is yours to read; do not ask the user to paste it."] : []),
 		"Deliver or answer only when every item is done, or failed for a real reason (login, captcha, permission, not found).",
+		...(event === "final_answer" ? [FINAL_ANSWER_CLOSE_NOTE] : []),
 	].join(" ");
 }
 
+/** Só na recusa da resposta final: o caminho exato para fechar, e o aviso de que não há segunda recusa. */
+export const FINAL_ANSWER_CLOSE_NOTE =
+	"To close an item: track_items update with status done (evidence) or failed (reason login, captcha, permission or not_found, plus a detail). If an item cannot be finished, your final answer must name each missing item and the real reason. This is the only reminder: your next reply goes to the user as is.";
+
 export const LEDGER_REQUIRED_NOTE =
-	"This task covers several similar items. Declare them first with track_items (action set: the list, and the parent in scope), then go through them one by one before you deliver.";
+	"This task covers several similar items. Declare them first with track_items (action set: the list, and the parent in scope), then go through them one by one before you deliver. If the work is already done or cannot be done, answer stating what was done and what is missing; this is the only reminder: your next reply goes to the user as is.";
 
 /** Entrega liberada com itens abertos: dizer a verdade sobre o que falta. */
 export const PARTIAL_DELIVERY_NOTE =
@@ -50,8 +61,12 @@ export const PARTIAL_DELIVERY_NOTE =
 
 export function decideItemGate(input: GateInput): GateDecision {
 	const { ledger } = input;
-	const open = ledger ? openItems(ledger) : [];
+	// Herdado não tocado neste run não é obrigação (camada do ledger): não segura resposta nem arquivo.
+	const open = ledger ? obligatedOpenItems(ledger) : [];
 	if (!input.canContinue) return { action: "allow", declareGaps: open.length > 0 };
+	if (input.event === "final_answer" && (ledger?.answerBlocks ?? 0) >= ITEM_GATE_MAX_ANSWER_BLOCKS) {
+		return { action: "allow", declareGaps: open.length > 0 };
+	}
 	if (!ledger || ledger.items.length === 0) {
 		if (input.requireLedger && (ledger?.gateBlocks ?? 0) < ITEM_GATE_MAX_BLOCKS) {
 			return { action: "block", kind: "ledger_required", note: LEDGER_REQUIRED_NOTE };
@@ -64,5 +79,5 @@ export function decideItemGate(input: GateInput): GateDecision {
 	if (input.budgetFraction >= ITEM_GATE_RELEASE_AT || ledger.gateBlocks >= ITEM_GATE_MAX_BLOCKS) {
 		return { action: "allow", declareGaps: true };
 	}
-	return { action: "block", kind: "items_open", note: itemsOpenNote(ledger, input.browserAvailable) };
+	return { action: "block", kind: "items_open", note: itemsOpenNote(ledger, input.browserAvailable, input.event) };
 }

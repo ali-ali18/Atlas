@@ -1,8 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type {
+	RoutineAlert,
 	RoutineNotifyMode,
 	CreateRoutineInput,
+	EmailTriggerJson,
 	EventEnvelope,
 	GithubTriggerState,
 	GithubWebhookTrigger,
@@ -15,7 +17,13 @@ import type {
 	UpdateRoutineInput,
 } from "@workspace/shared";
 import {
+	alertSupportsTrigger,
+	applyAlertConfig,
+	parseRoutineAlert,
+	parseRoutineAlertInput,
 	parseRoutineNotifyMode,
+	parseEmailTriggerInput,
+	emailTriggerToView,
 	githubTriggerToView,
 	isGenericWebhookTrigger,
 	parseRoutineTriggerJson,
@@ -23,6 +31,7 @@ import {
 	shouldAutoDeleteAfterRun,
 } from "@workspace/shared";
 import { prisma } from "./client.js";
+import { getMailboxForBot } from "./bot-mailbox.js";
 import { ownerIds } from "./mcp-connections.js";
 import { assertGroupUsable } from "./routine-groups.js";
 import { assertPageUsable } from "./pages.js";
@@ -210,7 +219,7 @@ function hookInfoFromTriggerJson(
 	if (parsed.kind === "generic") {
 		return { hookKey: parsed.hookKey, url: hookPublicUrl(parsed.hookKey), ...(parsed.urlSecretAt ? { urlSecretAt: parsed.urlSecretAt } : {}) };
 	}
-	if (parsed.kind === "once" || parsed.kind === "interval") return undefined;
+	if (parsed.kind === "once" || parsed.kind === "interval" || parsed.kind === "email") return undefined;
 	// GitHub: endpoint único (sem hookKey por rotina) — hookKey aqui é só um
 	// placeholder pra satisfazer o shape de RoutineHookInfo, nunca usado de
 	// verdade (quem identifica a rotina pro caller é `repo`, via routine.github).
@@ -227,6 +236,12 @@ function githubInfoFromTriggerJson(
 	const parsed = parseRoutineTriggerJson(triggerJson);
 	if (!parsed || parsed.kind !== "github") return undefined;
 	return githubTriggerToView(parsed);
+}
+
+function emailInfoFromTriggerJson(triggerJson: unknown): RoutineRecord["email"] | undefined {
+	const parsed = parseRoutineTriggerJson(triggerJson);
+	if (!parsed || parsed.kind !== "email") return undefined;
+	return emailTriggerToView(parsed);
 }
 
 function onceInfoFromTriggerJson(triggerJson: unknown): RoutineRecord["once"] | undefined {
@@ -293,8 +308,10 @@ function toRoutine(
 		lastRun: lastRun ?? null,
 		hook: hookInfoFromTriggerJson(row.triggerJson),
 		github: githubInfoFromTriggerJson(row.triggerJson),
+		email: emailInfoFromTriggerJson(row.triggerJson),
 		once: onceInfoFromTriggerJson(row.triggerJson),
 		interval: intervalInfoFromTriggerJson(row.triggerJson),
+		alert: parseRoutineAlert(row.alertJson) ?? undefined,
 	};
 }
 
@@ -655,6 +672,41 @@ export async function getRoutineGithubTrigger(
 	return trigger && trigger.kind === "github" ? trigger : null;
 }
 
+const ALERT_TRIGGER_ERROR = "Alerta só funciona em rotina por horário ou por intervalo (a cada N minutos)";
+
+function alertJsonForCreate(raw: unknown, triggerType: RoutineTriggerType): Prisma.InputJsonValue {
+	const parsed = parseRoutineAlertInput(raw);
+	if (!parsed.ok) throw new Error(parsed.error);
+	if (!alertSupportsTrigger(triggerType)) throw new Error(ALERT_TRIGGER_ERROR);
+	return jsonValue(applyAlertConfig(null, parsed.alert)) as Prisma.InputJsonValue;
+}
+
+const NO_MAILBOX_ERROR = "Este bot ainda não tem e-mail próprio: ative na aba E-mail do bot antes de criar um gatilho de e-mail";
+
+/** O gatilho de e-mail só faz sentido com a caixa do bot ativa (a caixa é do mesmo dono). */
+async function assertBotHasMailbox(userId: string, botId: string): Promise<void> {
+	const mailbox = await getMailboxForBot(botId, userId);
+	if (!mailbox?.enabled) throw new Error(NO_MAILBOX_ERROR);
+}
+
+/**
+ * Rotinas habilitadas com gatilho de e-mail da caixa de um bot. O dono vem da CAIXA (nunca do e-mail
+ * recebido): só rotinas do mesmo `userId` e `botId` da caixa são candidatas.
+ */
+export async function listEmailRoutinesForMailbox(
+	mailbox: { userId: string; botId: string },
+): Promise<Array<{ routine: RoutineRecord; trigger: EmailTriggerJson }>> {
+	const rows = await prisma.routine.findMany({
+		where: { userId: mailbox.userId, botId: mailbox.botId, triggerType: "event", enabled: true },
+	});
+	const matched: Array<{ routine: RoutineRecord; trigger: EmailTriggerJson }> = [];
+	for (const row of rows) {
+		const trigger = parseRoutineTriggerJson(row.triggerJson);
+		if (trigger?.kind === "email") matched.push({ routine: toRoutine(row), trigger });
+	}
+	return matched;
+}
+
 export async function createRoutine(
 	userId: string | undefined,
 	input: CreateRoutineInput,
@@ -673,15 +725,17 @@ export async function createRoutine(
 	const pageId = input.pageId ? await assertPageUsable(userId, input.botId, input.pageId) : null;
 
 	const wantsGithub = input.trigger?.kind === "github";
-	const wantsOnce = !wantsGithub && input.trigger?.kind === "once";
-	const wantsInterval = !wantsGithub && !wantsOnce && input.trigger?.kind === "interval";
+	const wantsEmail = !wantsGithub && input.trigger?.kind === "email";
+	const wantsOnce = !wantsGithub && !wantsEmail && input.trigger?.kind === "once";
+	const wantsInterval = !wantsGithub && !wantsEmail && !wantsOnce && input.trigger?.kind === "interval";
 	const wantsGeneric =
 		!wantsGithub &&
+		!wantsEmail &&
 		!wantsOnce &&
 		!wantsInterval &&
 		(input.triggerType === "event" || input.trigger?.kind === "generic");
 
-	let triggerType: RoutineTriggerType = wantsGithub || wantsGeneric
+	let triggerType: RoutineTriggerType = wantsGithub || wantsEmail || wantsGeneric
 		? "event"
 		: wantsOnce
 			? "once"
@@ -700,6 +754,13 @@ export async function createRoutine(
 		triggerType = "interval";
 		schedule = null;
 		triggerJson = { kind: "interval", everyMinutes: input.trigger.everyMinutes };
+	} else if (wantsEmail && input.trigger?.kind === "email") {
+		await assertBotHasMailbox(userId, input.botId);
+		triggerType = "event";
+		schedule = null;
+		const parsed = parseEmailTriggerInput(input.trigger);
+		if ("error" in parsed) throw new Error(parsed.error);
+		triggerJson = { kind: "email", ...parsed.value } satisfies EmailTriggerJson;
 	} else if (wantsGithub && input.trigger?.kind === "github") {
 		triggerType = "event";
 		schedule = null;
@@ -737,6 +798,8 @@ export async function createRoutine(
 		triggerJson = kept !== undefined ? { scheduleState: kept } : undefined;
 	}
 
+	const alertJson = input.alert ? alertJsonForCreate(input.alert, triggerType) : undefined;
+
 	const row = await prisma.routine.create({
 		data: {
 			userId: userId?.trim() ? userId.trim() : LEGACY_OWNER_ID,
@@ -755,6 +818,7 @@ export async function createRoutine(
 			triggerType,
 			createdBy: input.createdBy === "bot" ? "bot" : "user",
 			triggerJson: jsonValue(triggerJson) ?? undefined,
+			...(alertJson ? { alertJson } : {}),
 		},
 		include: { group: { select: { id: true, name: true } } },
 	});
@@ -770,7 +834,7 @@ export async function updateRoutine(
 	if (!userId?.trim() || userId === LEGACY_OWNER_ID) return null;
 	const existing = await prisma.routine.findFirst({
 		where: { id: routineId, botId, userId },
-		select: { id: true, userId: true, triggerType: true, triggerJson: true, schedule: true },
+		select: { id: true, userId: true, triggerType: true, triggerJson: true, schedule: true, alertJson: true },
 	});
 	if (!existing) return null;
 	if (!isOwnerAllowed(existing.userId, userId)) return null;
@@ -779,8 +843,22 @@ export async function updateRoutine(
 		input.triggerType !== undefined
 			? input.triggerType
 			: asTriggerType(existing.triggerType);
+	const previousAlert = parseRoutineAlert(existing.alertJson);
+	let alertPatch: Prisma.InputJsonValue | typeof Prisma.DbNull | undefined;
+	if (input.alert === null) {
+		alertPatch = Prisma.DbNull;
+	} else if (input.alert !== undefined) {
+		const parsedAlert = parseRoutineAlertInput(input.alert);
+		if (!parsedAlert.ok) throw new Error(parsedAlert.error);
+		alertPatch = jsonValue(applyAlertConfig(previousAlert, parsedAlert.alert));
+	}
+	// Alerta (novo ou já existente) exige gatilho por tempo: trocar para webhook/uma vez com alerta ligado é erro.
+	if (alertPatch !== Prisma.DbNull && (alertPatch !== undefined || previousAlert) && !alertSupportsTrigger(nextType)) {
+		throw new Error(ALERT_TRIGGER_ERROR);
+	}
 
 	const data: Prisma.RoutineUpdateInput = {
+		...(alertPatch !== undefined ? { alertJson: alertPatch } : {}),
 		...(input.name !== undefined ? { name: input.name.trim() } : {}),
 		...(input.groupId === null ? { group: { disconnect: true } } : {}),
 		...(input.groupId ? { group: { connect: { id: await assertGroupUsable(userId, botId, input.groupId) } } } : {}),
@@ -805,6 +883,18 @@ export async function updateRoutine(
 	if (nextType === "event") {
 		if (input.schedule !== undefined) {
 			data.schedule = null;
+		}
+		if (input.emailTrigger) {
+			await assertBotHasMailbox(userId, botId);
+			const base = existingTrigger && existingTrigger.kind === "email" ? existingTrigger : { kind: "email" as const };
+			const patch = input.emailTrigger;
+			const merged = {
+				fromContains: patch.fromContains === null ? undefined : (patch.fromContains ?? base.fromContains),
+				subjectContains: patch.subjectContains === null ? undefined : (patch.subjectContains ?? base.subjectContains),
+			};
+			const parsed = parseEmailTriggerInput(merged);
+			if ("error" in parsed) throw new Error(parsed.error);
+			data.triggerJson = jsonValue({ kind: "email", ...parsed.value } satisfies EmailTriggerJson) ?? undefined;
 		}
 		if (input.githubTrigger) {
 			// Base pro merge: o trigger github atual, OU um esqueleto vazio quando
@@ -1143,6 +1233,70 @@ export async function getRoutinePageIdForAgentRun(agentRunId: string, userId: st
 		select: { routine: { select: { pageId: true } } },
 	});
 	return row?.routine?.pageId ?? null;
+}
+
+/** Alerta da rotina que originou este run (só se a rotina é do usuário; null = não é rotina de alerta). */
+export async function getRoutineAlertForAgentRun(
+	agentRunId: string,
+	userId: string | undefined,
+): Promise<{ routineId: string; botId: string; name: string; alert: RoutineAlert; interval?: { everyMinutes: number } } | null> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return null;
+	const row = await prisma.routineRun.findFirst({
+		where: { agentRunId, routine: { userId: { in: owners } } },
+		orderBy: { createdAt: "desc" },
+		select: { routine: { select: { id: true, botId: true, name: true, alertJson: true, triggerType: true, triggerJson: true } } },
+	});
+	const alert = parseRoutineAlert(row?.routine?.alertJson);
+	if (!row?.routine || !alert) return null;
+	const interval = row.routine.triggerType === "interval" ? intervalInfoFromTriggerJson(row.routine.triggerJson) : undefined;
+	return { routineId: row.routine.id, botId: row.routine.botId, name: row.routine.name, alert, ...(interval ? { interval } : {}) };
+}
+
+/**
+ * Grava o estado do alerta depois de uma verificação. Só do dono, e só se a condição ainda é a que foi
+ * avaliada (editada no meio do run = descarta, a condição nova começa de fora). false = nada gravado.
+ */
+export async function recordRoutineAlertState(
+	userId: string | undefined,
+	routineId: string,
+	next: RoutineAlert,
+	/** Novo intervalo (backoff): só vale em rotina `interval`, na mesma gravação do estado. */
+	everyMinutes?: number,
+): Promise<boolean> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return false;
+	const widen = everyMinutes !== undefined && Number.isInteger(everyMinutes) && everyMinutes >= 1;
+	const { count } = await prisma.routine.updateMany({
+		where: {
+			id: routineId,
+			userId: { in: owners },
+			alertJson: { path: ["condition"], equals: next.condition },
+			...(widen ? { triggerType: "interval" } : {}),
+		},
+		data: { alertJson: jsonValue(next), ...(widen ? { triggerJson: jsonValue({ kind: "interval", everyMinutes }) } : {}) },
+	});
+	return count === 1;
+}
+
+/** Rotina (nome e conversa do bot) de um run: base do aviso quando a rotina não rodou. Só do dono; null = não é rotina dele. */
+export async function getRoutineContextForAgentRun(
+	agentRunId: string,
+	userId: string | undefined,
+): Promise<{ routineId: string; name: string; conversationId: string | null } | null> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return null;
+	const row = await prisma.routineRun.findFirst({
+		where: { agentRunId, routine: { userId: { in: owners } } },
+		orderBy: { createdAt: "desc" },
+		select: { routine: { select: { id: true, name: true, botId: true } } },
+	});
+	if (!row?.routine) return null;
+	const bot = await prisma.bot.findFirst({
+		where: { id: row.routine.botId, ownerId: { in: owners } },
+		select: { conversationId: true },
+	});
+	return { routineId: row.routine.id, name: row.routine.name, conversationId: bot?.conversationId ?? null };
 }
 
 export async function findRecentRoutineRunByIdempotency(

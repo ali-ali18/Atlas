@@ -9,6 +9,7 @@ import {
 	parseGithubTriggerInput,
 	parseOnceRunAt,
 	parseIntervalEveryMinutes,
+	parseEmailTriggerInput,
 	type CreateRoutineInput,
 	type UpdateRoutineInput,
 } from "@workspace/shared";
@@ -134,6 +135,24 @@ function parseCreateBodyBase(
 			prompt: body.prompt,
 			triggerType: "interval",
 			trigger: { kind: "interval", everyMinutes: parsedInterval.everyMinutes },
+			model,
+			allowChatgptPlan: body.allowChatgptPlan === true,
+			schedule: null,
+			enabled: enabledRaw,
+			timezone,
+		};
+	}
+
+	// E-mail recebido na caixa do próprio bot (a caixa ativa é exigida no db).
+	if (rawTrigger?.kind === "email") {
+		const parsedEmail = parseEmailTriggerInput(rawTrigger);
+		if ("error" in parsedEmail) return { error: parsedEmail.error };
+		return {
+			botId,
+			name,
+			prompt: body.prompt,
+			triggerType: "event",
+			trigger: { kind: "email", ...parsedEmail.value },
 			model,
 			allowChatgptPlan: body.allowChatgptPlan === true,
 			schedule: null,
@@ -279,6 +298,21 @@ export function parseUpdateBody(json: unknown): UpdateRoutineInput | { error: st
 		patch.timezone = body.timezone.trim() || DEFAULT_TIMEZONE;
 	}
 	if ("triggerJson" in body) patch.triggerJson = body.triggerJson;
+	if (body.emailTrigger && typeof body.emailTrigger === "object") {
+		const raw = body.emailTrigger as Record<string, unknown>;
+		const emailPatch: NonNullable<UpdateRoutineInput["emailTrigger"]> = {};
+		for (const key of ["fromContains", "subjectContains"] as const) {
+			if (raw[key] === undefined) continue;
+			if (raw[key] === null || raw[key] === "") {
+				emailPatch[key] = null;
+				continue;
+			}
+			const checked = parseEmailTriggerInput({ [key]: raw[key] });
+			if ("error" in checked) return { error: checked.error };
+			emailPatch[key] = checked.value[key] ?? null;
+		}
+		patch.emailTrigger = emailPatch;
+	}
 	if (body.githubTrigger && typeof body.githubTrigger === "object") {
 		const raw = body.githubTrigger as Record<string, unknown>;
 		const githubPatch: NonNullable<UpdateRoutineInput["githubTrigger"]> = {};

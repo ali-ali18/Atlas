@@ -76,10 +76,15 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 		hint: "create a downloadable file (PDF, Word, Excel, CSV, code, text)",
 		keywords: ["file", "files", "arquivo", "arquivos", "pdf", "docx", "excel", "xlsx", "csv", "spreadsheet", "planilha", "document", "documento", "report", "relatorio"],
 	},
+	presentations: {
+		tools: ["inspect_presentation"],
+		hint: "PowerPoint decks: read a .pptx (layouts, theme) and see its slides; the notes cover layouts, free-form slides, generated backgrounds and user templates",
+		keywords: ["presentation", "presentations", "apresentacao", "apresentacoes", "slide", "slides", "powerpoint", "pptx", "potx", "deck", "pitch", "keynote"],
+	},
 	pages: {
-		tools: ["page_create", "page_update", "page_read", "page_list"],
-		hint: "build a live page (report, memo, dashboard) that renders inline in the chat, then update it in place later",
-		keywords: ["dashboard", "dashboards", "painel", "paineis", "pagina", "paginas", "page", "pages", "relatorio", "relatorios", "report", "forecast", "overview", "visao geral", "kpi", "kpis", "scorecard", "resumo executivo"],
+		tools: ["page_create", "page_update", "page_read", "page_list", "page_share"],
+		hint: "build a live panel (dashboard, report, memo; users call it \"painel\" / \"dashboard\", never \"page\") that renders inline in the chat, then update it in place later; group dashboards and share one through a public link when asked",
+		keywords: ["dashboard", "dashboards", "painel", "paineis", "relatorio", "relatorios", "report", "forecast", "overview", "visao geral", "kpi", "kpis", "scorecard", "resumo executivo", "link publico", "public link"],
 	},
 	bots: {
 		tools: ["propose_bot"],
@@ -87,9 +92,9 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 		keywords: ["agent", "agente", "agentes", "bot", "bots", "assistente", "assistant", "novo agente", "new agent"],
 	},
 	routines: {
-		tools: ["list_routines", "propose_routine", "routine_group", "github_list_repos"],
-		hint: "create, edit or list scheduled routines and reminders (time, interval, event or webhook triggers)",
-		keywords: ["routine", "routines", "rotina", "rotinas", "reminder", "lembrete", "schedule", "agendar", "cron", "webhook", "trigger", "gatilho", "recurring"],
+		tools: ["list_routines", "propose_routine", "routine_group", "routine_control", "github_list_repos"],
+		hint: "create, edit, pause, resume, delete or list scheduled routines, alerts by condition and reminders (time, interval, event or webhook triggers)",
+		keywords: ["routine", "routines", "rotina", "rotinas", "alerta", "alertas", "alert", "alerts", "reminder", "lembrete", "schedule", "agendar", "cron", "webhook", "trigger", "gatilho", "recurring"],
 	},
 	vault: {
 		tools: ["secret_list", "routine_webhook_info", "secret_request", "login_fill"],

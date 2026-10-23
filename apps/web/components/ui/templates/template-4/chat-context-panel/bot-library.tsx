@@ -123,7 +123,7 @@ export function BotDocuments({ botId, active }: { botId: string; active: boolean
 }
 
 /**
- * Aba Biblioteca em seções recolhíveis: Páginas (aberta), Documentos e Rotinas (fechadas). A seção Rotinas
+ * Aba Biblioteca em seções recolhíveis: Painéis (aberto), Documentos e Rotinas (fechadas). A seção Rotinas
  * recebe o conteúdo pronto (a lista, os toggles e o histórico moram no painel); o "+" fica no cabeçalho.
  */
 export function BotLibrary({
@@ -142,7 +142,7 @@ export function BotLibrary({
 }) {
 	return (
 		<div className="flex flex-col gap-1" data-bot-library>
-			<LibrarySection id="pages" title="Páginas">
+			<LibrarySection id="pages" title="Painéis">
 				<BotPagesSection active={active} botId={botId} routines={routines} />
 			</LibrarySection>
 			<LibrarySection id="documents" title="Documentos">

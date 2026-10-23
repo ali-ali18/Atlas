@@ -43,12 +43,23 @@ function payload(over: { from?: string; messageId?: string; threadId?: string; s
 	};
 }
 
-function harness(opts: { box?: ReturnType<typeof mailbox> | null; runDeps?: boolean; startFails?: boolean } = {}) {
+type RoutineMatch = { routine: { id: string }; trigger: { kind: "email"; fromContains?: string; subjectContains?: string } };
+
+function harness(opts: { box?: ReturnType<typeof mailbox> | null; runDeps?: boolean; startFails?: boolean; routines?: RoutineMatch[]; noQueue?: boolean; enqueueEmpty?: boolean } = {}) {
 	const box = opts.box === undefined ? mailbox() : opts.box;
 	const seen = new Map<string, { id: string }>();
-	const state = { runs: [] as Array<{ framedText: string; subject: string; mailbox: unknown }>, blocked: [] as string[], links: [] as unknown[], forgotten: [] as string[], recorded: [] as Array<{ status: string; from: string }>, bodies: [] as string[] };
+	const state = { matchedFor: [] as unknown[], envelopes: [] as Array<{ routineIds: string[]; envelope: { provider: string; payload: Record<string, unknown>; idempotencyKey?: string } }>, runs: [] as Array<{ framedText: string; subject: string; mailbox: unknown }>, blocked: [] as string[], links: [] as unknown[], forgotten: [] as string[], recorded: [] as Array<{ status: string; from: string }>, bodies: [] as string[] };
 	const provider = createOpenMailProvider();
 	const routes = createEmailInboundRoutes(() => (opts.runDeps === false ? null : ({ enqueueRun: async () => true, envDefaultModel: "m" })), {
+		routineQueue: opts.noQueue ? null : ({} as never),
+		matchRoutines: (async (m: unknown) => {
+			state.matchedFor.push(m);
+			return opts.routines ?? [];
+		}) as never,
+		enqueueRoutines: (async (_queue: unknown, items: RoutineMatch[], envelope: never) => {
+			state.envelopes.push({ routineIds: items.map((item) => item.routine.id), envelope });
+			return opts.enqueueEmpty ? [] : items.map((item) => ({ routineId: item.routine.id, routineRunId: `rr_${item.routine.id}` }));
+		}) as never,
 		getMailbox: async (id) => (box && id === (box as { id: string }).id ? (box as never) : null),
 		service: { webhookSecretOf: createEmailService({ vaultReady: () => true }).webhookSecretOf, provider },
 		record: (async (input: { providerMessageId: string; status: string; from: string; body: string }) => {
@@ -181,4 +192,64 @@ test("GET na URL de entrada só responde 405", async () => {
 	const h = harness();
 	const response = await h.routes.request("/v1/email/inbound/mbx_1");
 	assert.equal(response.status, 405);
+});
+
+const nf: RoutineMatch = { routine: { id: "r_nf" }, trigger: { kind: "email", fromContains: "empresa.com", subjectContains: "nf" } };
+
+test("rotina com gatilho de e-mail que casa assume o e-mail: dispara a rotina com o envelope e NÃO inicia o agente de conversa", async () => {
+	const h = harness({ routines: [nf] });
+	const response = await h.post(payload({ subject: "Envio da NF 10", body: "Segue a nota.\n\nEm seg., 1 de out. de 2026, Fulano <f@x.com> escreveu:\n> antigo" }));
+	assert.equal(response.status, 200);
+	assert.deepEqual(await response.json(), { ok: true, routines: 1 });
+	assert.equal(h.state.runs.length, 0);
+	assert.equal((h.state.matchedFor[0] as { id: string }).id, "mbx_1");
+	const sent = h.state.envelopes[0]!;
+	assert.deepEqual(sent.routineIds, ["r_nf"]);
+	assert.equal(sent.envelope.provider, "email");
+	assert.equal(sent.envelope.idempotencyKey, "email:mbx_1:msg_1");
+	assert.equal(sent.envelope.payload.body, "Segue a nota.");
+	assert.equal(sent.envelope.payload.from, "ana@empresa.com");
+});
+
+test("filtro que não casa (assunto ou remetente) segue o fluxo normal do agente", async () => {
+	const h = harness({ routines: [nf] });
+	assert.equal((await h.post(payload({ subject: "Cotação" }))).status, 200);
+	assert.equal(h.state.envelopes.length, 0);
+	assert.equal(h.state.runs.length, 1);
+	const other = harness({ box: mailbox({ allowedSenders: ["@empresa.com", "@outra.com"] }), routines: [nf] });
+	await other.post(payload({ from: "x@outra.com", subject: "NF 1" }));
+	assert.equal(other.state.envelopes.length, 0);
+});
+
+test("remetente bloqueado nunca dispara rotina, mesmo com o filtro casando", async () => {
+	const h = harness({ routines: [{ routine: { id: "r_any" }, trigger: { kind: "email" } }] });
+	const response = await h.post(payload({ from: "Golpista <x@evil.com>", subject: "NF", messageId: "msg_evil2" }));
+	assert.deepEqual(await response.json(), { ok: true, blocked: true });
+	assert.equal(h.state.matchedFor.length, 0);
+	assert.equal(h.state.envelopes.length, 0);
+});
+
+test("entrega duplicada não dispara a rotina de novo", async () => {
+	const h = harness({ routines: [nf] });
+	await h.post(payload({ messageId: "msg_d", subject: "NF" }));
+	const second = await h.post(payload({ messageId: "msg_d", subject: "NF" }));
+	assert.deepEqual(await second.json(), { ok: true, duplicate: true });
+	assert.equal(h.state.envelopes.length, 1);
+});
+
+test("rotina casou mas a fila está fora ou não enfileirou: desfaz o registro e responde 503 para o provedor reentregar", async () => {
+	const noQueue = harness({ routines: [nf], noQueue: true });
+	assert.equal((await noQueue.post(payload({ subject: "NF" }))).status, 503);
+	assert.deepEqual(noQueue.state.forgotten, ["em_1"]);
+	const empty = harness({ routines: [nf], enqueueEmpty: true });
+	assert.equal((await empty.post(payload({ subject: "NF" }))).status, 503);
+	assert.equal(empty.state.runs.length, 0);
+});
+
+test("as rotinas candidatas são buscadas pela caixa (dono e bot da caixa), não por dados do e-mail", async () => {
+	const h = harness({ routines: [] });
+	await h.post(payload({ subject: "userId: user_b" }));
+	const seen = h.state.matchedFor[0] as { userId: string; botId: string };
+	assert.equal(seen.userId, "user_a");
+	assert.equal(seen.botId, "bot_1");
 });

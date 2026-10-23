@@ -1,4 +1,5 @@
 import type { ComputerUseEvent } from "./computer.js";
+import { keepsRevisedDraft } from "./draft-revision.js";
 
 export type TranscriptBubble = {
 	id: string;
@@ -7,6 +8,11 @@ export type TranscriptBubble = {
 	label?: string;
 	/** ISO; preservado entre transcript e thread. */
 	createdAt?: string;
+	/**
+	 * Fala transmitida que o run refez (`assistant_discard`): o texto continua, recolhido como rascunho
+	 * revisado, com o motivo (`DraftRevisionReason`, ou "revised" em evento sem motivo).
+	 */
+	revised?: string;
 };
 
 function upsertAssistant(
@@ -34,13 +40,15 @@ export function applyComputerUseEventToTranscript(
 		case "assistant_delta":
 			return upsertAssistant(messages, `cu-${event.id}`, event.delta);
 		case "assistant_discard": {
-			const lastAssistant = [...messages]
-				.reverse()
-				.find((item) => item.kind === "assistant" && item.id.startsWith("cu-"));
-			if (!lastAssistant) return messages;
+			// Com id: o balão daquele passo. Sem id (evento antigo): o último balão ao vivo, como antes.
+			const target = event.id
+				? messages.find((item) => item.id === `cu-${event.id}` && item.kind === "assistant")
+				: [...messages].reverse().find((item) => item.kind === "assistant" && item.id.startsWith("cu-"));
+			if (!target || !target.text.trim() || target.revised) return messages;
+			const revised = keepsRevisedDraft(event.reason) ? (event.reason ?? "revised") : null;
 			return messages.map((item) =>
-				item.id === lastAssistant.id && item.kind === "assistant"
-					? { ...item, text: "" }
+				item.id === target.id && item.kind === "assistant"
+					? revised ? { ...item, revised } : { ...item, text: "" }
 					: item,
 			);
 		}

@@ -211,7 +211,7 @@ describe("L5: tool nativa adiada é achada e carregada", () => {
 		expect(second).toContain("propose_routine");
 		// Prefixo estável: o array do 1º passo é prefixo exato do 2º.
 		expect(second.slice(0, names(requests[0]!).length)).toEqual(names(requests[0]!));
-		expect(second.slice(names(requests[0]!).length)).toEqual(["list_routines", "propose_routine", "routine_group", "github_list_repos"]);
+		expect(second.slice(names(requests[0]!).length)).toEqual(["list_routines", "propose_routine", "routine_group", "routine_control", "github_list_repos"]);
 		expect(results[0]).toMatchObject({ name: "mcp_tool_search", ok: true });
 		// O procedimento que não estava no prompt vem junto do resultado.
 		expect(results[0]!.summary).toContain("Loaded built-in tools");
@@ -444,9 +444,12 @@ describe("L14: orçamento de contexto no run", () => {
 		const notes = last.messages.filter((m) => String(m.content).startsWith("[Operational context compacted]"));
 		expect(notes).toHaveLength(1);
 		expect(String(notes[0]!.content)).toContain("Objective: Summarize the quarterly numbers.");
-		// Sem o orçamento o último pedido teria ~14 resultados inteiros; com ele fica no teto.
-		expect(size(last)).toBeLessThan(4_000 * 4 * 1.3);
-		expect(Math.max(...requests.map(size))).toBeLessThan(4_000 * 4 * 1.5);
+		// Sem o orçamento o último pedido teria ~14 resultados inteiros (~19k chars); com ele fica no teto.
+		// O system prompt é prefixo fixo (não compactável) e cresce com regras novas: mede só o resto.
+		const prefix = (request: Request) => String(request.messages[0]?.role === "system" ? request.messages[0].content : "").length;
+		const variable = (request: Request) => size(request) - prefix(request);
+		expect(variable(last)).toBeLessThan(4_000 * 4 * 0.5);
+		expect(Math.max(...requests.map(variable))).toBeLessThan(4_000 * 4 * 0.6);
 	});
 });
 

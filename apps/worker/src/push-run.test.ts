@@ -51,3 +51,24 @@ test("push avulso só leva silêncio quando o modo proativo está ligado", () =>
 	const on = resolveUserPushForRun({ ...base, policyJson: { proactive: { enabled: true, quietStart: "21:00", quietEnd: "07:00" } } });
 	assert.equal(on?.quiet?.quietStart, "21:00");
 });
+
+test("rotina de alerta nunca avisa no fim da execução: quem avisa é o veredito, só na virada", () => {
+	const run = { conversationId: "c1", origin: "routine" };
+	assert.equal(shouldPushRunEnd(run, "⚠️ Estoque: 7 un.", true, "always", true), false);
+	assert.equal(shouldPushRunEnd(run, "Resultado", true, "always", false), true);
+});
+
+test("o push de alerta e o de falha de rotina têm kinds próprios (⚠️ no título)", async () => {
+	const { buildPushPayload } = await import("@workspace/shared");
+	assert.equal(buildPushPayload({ kind: "alert", conversationId: "c1", botId: "b1", botName: "Adolfinho", text: "⚠️ Estoque: 7 un." })?.title, "⚠️ Adolfinho");
+	assert.equal(buildPushPayload({ kind: "routine-failed", conversationId: "c1", botId: "b1", botName: "Adolfinho", text: "x" })?.kind, "routine-failed");
+});
+
+test("follow-up de verificação sem novidade ([NO_UPDATE]) é silencioso: sem push no fim do run", async () => {
+	const { isNoUpdateReply } = await import("@workspace/shared");
+	const run = { conversationId: "c1", origin: "proactive" };
+	assert.equal(isNoUpdateReply("[NO_UPDATE]"), true);
+	assert.equal(shouldPushRunEnd(run, "[NO_UPDATE]", true, "always", isNoUpdateReply("[NO_UPDATE]")), false);
+	// com novidade o aviso sai como lembrete
+	assert.equal(shouldPushRunEnd(run, "O pedido do cliente X chegou.", true, "always", isNoUpdateReply("O pedido do cliente X chegou.")), true);
+});

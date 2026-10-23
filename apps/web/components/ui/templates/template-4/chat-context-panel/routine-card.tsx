@@ -126,7 +126,7 @@ export function RoutineCard({
 	}, [routine.active, optimistic]);
 
 	const active = optimistic ?? routine.active;
-	const summary = routineScheduleSummary(routine);
+	const summary = routine.alertSentence ?? routineScheduleSummary(routine);
 	const kind = routinePrimaryTriggerKind(routine);
 	const items = buildRoutineMenu({
 		active,
@@ -174,7 +174,7 @@ export function RoutineCard({
 					{routine.name}
 				</span>
 				<span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-muted-foreground text-xs">
-					<span className="truncate">
+					<span className={routine.alertSentence ? "line-clamp-2 break-words" : "truncate"} data-routine-alert={routine.alertSentence ? "" : undefined} title={routine.alertSentence}>
 						{summary}
 						{persisted ? "" : " · Rascunho"}
 					</span>

@@ -14,6 +14,37 @@ const base = {
 	unit: "brl",
 };
 
+describe("parseChartSpec: orientation e campos desconhecidos", () => {
+	const bar = { ...base, type: "bar", x: "mes" };
+
+	it("orientation horizontal passa em bar e vem no spec; ausente fica ausente", () => {
+		const parsed = parseChartSpec({ ...bar, orientation: "horizontal" });
+		expect(parsed.ok && parsed.spec.orientation).toBe("horizontal");
+		const auto = parseChartSpec(bar);
+		expect(auto.ok && "orientation" in auto.spec).toBe(false);
+	});
+
+	it("orientation inválida ou fora de bar falha com mensagem para o modelo", () => {
+		const invalid = parseChartSpec({ ...bar, orientation: "diagonal" });
+		expect(invalid.ok ? "" : invalid.error).toMatch(/orientation must be one of: vertical, horizontal/);
+		const wrongType = parseChartSpec({ ...base, orientation: "horizontal" });
+		expect(wrongType.ok ? "" : wrongType.error).toMatch(/only used with type "bar"/);
+	});
+
+	it("campo desconhecido não é descartado em silêncio: erro nomeia o campo e lista os aceitos", () => {
+		const parsed = parseChartSpec({ ...bar, layout: "horizontal", barh: true });
+		expect(parsed.ok).toBe(false);
+		const error = parsed.ok ? "" : parsed.error;
+		expect(error).toMatch(/unknown chart fields: layout, barh/);
+		expect(error).toMatch(/Accepted fields: .*orientation/);
+	});
+
+	it("spec já lida (com xKind) é aceita de novo", () => {
+		const first = parseChartSpec(base);
+		expect(first.ok && parseChartSpec(first.spec).ok).toBe(true);
+	});
+});
+
 describe("parseChartSpec", () => {
 	it("aceita o spec válido, normaliza a moeda e detecta datas", () => {
 		const parsed = parseChartSpec(base);

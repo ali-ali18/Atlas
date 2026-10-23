@@ -1,0 +1,21 @@
+{
+  "name": "@workspace/desktop",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "tauri": "tauri",
+    "build:frontend": "node scripts/build-frontend.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "node -e \"process.exit(0)\"",
+    "test": "node ../../scripts/run-node-tests.mjs \"src/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.3",
+    "@types/node": "^20.19.41",
+    "@workspace/typescript-config": "workspace:*",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
+  }
+}

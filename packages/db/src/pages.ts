@@ -4,9 +4,10 @@
  * (null / `not_found`). A atualização usa concorrência otimista por `revision` (updateMany condicionado).
  */
 import { Prisma } from "@prisma/client";
-import { parsePageSources, parsePageSpec, type PageSource, type PageSpec } from "@workspace/shared";
+import { effectivePageGroupIds, parsePageSources, parsePageSpec, type PageSource, type PageSpec } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { ownerIds } from "./mcp-connections.js";
+import { assertGroupUsable, findOrCreateRoutineGroup } from "./routine-groups.js";
 
 /** Revisões guardadas por página (a atual inclusive). */
 export const PAGE_REVISIONS_KEPT = 10;
@@ -16,6 +17,8 @@ export type PageRecord = {
 	id: string;
 	botId: string;
 	conversationId: string | null;
+	/** Grupo explícito (o mesmo das rotinas); o efetivo, que considera a rotina ligada, vem na listagem. */
+	groupId: string | null;
 	title: string;
 	spec: PageSpec;
 	sources: PageSource[];
@@ -28,12 +31,19 @@ export type PageRecord = {
 export type PageListItem = Pick<PageRecord, "id" | "botId" | "title" | "revision" | "updatedAt" | "refreshedAt"> & {
 	summary?: string;
 	sourceCount: number;
+	/** Grupo efetivo: o explícito ou, na falta, o da rotina ligada ao painel. */
+	groupId: string | null;
+	/** Grupo explícito (o que "Sem grupo" desfaz); null quando o grupo só vem da rotina. */
+	explicitGroupId: string | null;
+	/** Nome do grupo efetivo (para o agente e a UI), null sem grupo. */
+	groupName: string | null;
 };
 
 type PageRow = {
 	id: string;
 	botId: string;
 	conversationId: string | null;
+	groupId?: string | null;
 	title: string;
 	specJson: Prisma.JsonValue;
 	sourcesJson: Prisma.JsonValue;
@@ -51,6 +61,7 @@ function toRecord(row: PageRow): PageRecord | null {
 		id: row.id,
 		botId: row.botId,
 		conversationId: row.conversationId,
+		groupId: row.groupId ?? null,
 		title: row.title,
 		spec: spec.spec,
 		sources: sources.ok ? sources.sources : [],
@@ -66,6 +77,8 @@ const toJson = (value: unknown) => value as Prisma.InputJsonValue;
 export type CreatePageInput = {
 	botId: string;
 	conversationId?: string | null;
+	/** Grupo já resolvido (ver `resolvePageGroup`); deve ser do mesmo dono e bot, senão lança "Grupo não encontrado". */
+	groupId?: string | null;
 	spec: PageSpec;
 	sources?: PageSource[];
 };
@@ -75,6 +88,7 @@ export async function createPage(userId: string, input: CreatePageInput): Promis
 	if (ownerIds(userId).length === 0) return null;
 	const bot = await prisma.bot.findFirst({ where: { id: input.botId, ownerId: userId }, select: { id: true } });
 	if (!bot) return null;
+	if (input.groupId) await assertGroupUsable(userId, input.botId, input.groupId);
 	const sources = input.sources ?? [];
 	const row = await prisma.$transaction(async (tx) => {
 		const created = await tx.page.create({
@@ -82,6 +96,7 @@ export async function createPage(userId: string, input: CreatePageInput): Promis
 				userId,
 				botId: input.botId,
 				conversationId: input.conversationId ?? null,
+				groupId: input.groupId ?? null,
 				title: input.spec.title,
 				specJson: toJson(input.spec),
 				sourcesJson: toJson(sources),
@@ -111,6 +126,13 @@ export async function listBotPagesForUser(userId: string, botId: string, limit =
 		orderBy: { updatedAt: "desc" },
 		take: Math.max(1, Math.min(limit, 200)),
 	});
+	const linked = await prisma.routine.findMany({
+		where: { userId, botId, pageId: { in: rows.map((row) => row.id) }, groupId: { not: null } },
+		select: { pageId: true, groupId: true },
+	});
+	const effective = effectivePageGroupIds(rows as PageRow[], linked);
+	const groupRows = await prisma.routineGroup.findMany({ where: { botId, userId }, select: { id: true, name: true } });
+	const groupNames = new Map(groupRows.map((group) => [group.id, group.name]));
 	const items: PageListItem[] = [];
 	for (const row of rows as PageRow[]) {
 		const record = toRecord(row);
@@ -124,6 +146,9 @@ export async function listBotPagesForUser(userId: string, botId: string, limit =
 			refreshedAt: record.refreshedAt,
 			...(record.spec.summary ? { summary: record.spec.summary } : {}),
 			sourceCount: record.sources.length,
+			groupId: effective.get(record.id) ?? null,
+			explicitGroupId: record.groupId,
+			groupName: groupNames.get(effective.get(record.id) ?? "") ?? null,
 		});
 	}
 	return items;
@@ -166,6 +191,44 @@ export async function updatePage(id: string, userId: string, input: UpdatePageIn
 		const page = row ? toRecord(row as PageRow) : null;
 		return page ? { ok: true, page } : { ok: false, error: "not_found" };
 	});
+}
+
+export type SetPageGroupResult = { ok: true; page: PageRecord } | { ok: false; error: "not_found" | "group_not_found" };
+
+/**
+ * Move o painel para um grupo (ou tira dele, `null`). O grupo precisa ser do mesmo usuário E do mesmo bot do painel;
+ * página ou grupo de outro dono é indistinguível de inexistente. Não conta como edição (não muda `updatedAt` nem a revisão).
+ */
+export async function setPageGroup(id: string, userId: string, groupId: string | null): Promise<SetPageGroupResult> {
+	if (ownerIds(userId).length === 0) return { ok: false, error: "not_found" };
+	const current = await prisma.page.findFirst({ where: { id, userId, deletedAt: null } });
+	if (!current) return { ok: false, error: "not_found" };
+	if (groupId) {
+		const group = await prisma.routineGroup.findFirst({ where: { id: groupId, botId: current.botId, userId }, select: { id: true } });
+		if (!group) return { ok: false, error: "group_not_found" };
+	}
+	const moved = await prisma.page.updateMany({ where: { id, userId, deletedAt: null }, data: { groupId, updatedAt: current.updatedAt } });
+	if (moved.count === 0) return { ok: false, error: "not_found" };
+	const row = await prisma.page.findFirst({ where: { id, userId, deletedAt: null } });
+	const page = row ? toRecord(row as PageRow) : null;
+	return page ? { ok: true, page } : { ok: false, error: "not_found" };
+}
+
+/** `c` + ≥20 caracteres minúsculos/dígitos: cara de id (cuid), não de nome de grupo. */
+const GROUP_ID_SHAPE = /^c[a-z0-9]{20,}$/;
+
+/**
+ * Resolve o grupo que o agente citou: id existente, nome existente (sem caixa) ou nome novo (cria o grupo no bot).
+ * Algo com cara de id que não é um grupo deste dono e bot é recusado ("Grupo não encontrado"), nunca vira nome novo.
+ */
+export async function resolvePageGroup(userId: string, botId: string, ref: string): Promise<{ id: string; name: string; created: boolean }> {
+	const clean = ref.trim();
+	if (!clean || ownerIds(userId).length === 0) throw new Error("Grupo não encontrado");
+	const byId = await prisma.routineGroup.findFirst({ where: { id: clean, botId, userId }, select: { id: true, name: true } });
+	if (byId) return { id: byId.id, name: byId.name, created: false };
+	if (GROUP_ID_SHAPE.test(clean)) throw new Error("Grupo não encontrado");
+	const { group, created } = await findOrCreateRoutineGroup(userId, botId, clean);
+	return { id: group.id, name: group.name, created };
 }
 
 /** Apaga (soft delete). `false` se não existe ou é de outro dono. */

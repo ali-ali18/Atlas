@@ -9,6 +9,8 @@ Fonte única das regras: `.agents/rules/`. Edite lá, não aqui.
 @.agents/rules/10-git-worktree.md
 @.agents/rules/20-commits.md
 @.agents/rules/30-componentizacao.md
+@.agents/rules/35-componentes.md
 @.agents/rules/40-seguranca.md
 @.agents/rules/50-testes.md
 @.agents/rules/60-agente.md
+@.agents/rules/70-padroes-produto.md

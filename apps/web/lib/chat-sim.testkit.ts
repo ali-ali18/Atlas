@@ -1,4 +1,4 @@
-import type { ComputerUseEvent } from "@workspace/shared";
+import type { ComputerUseEvent, DraftRevisionReason } from "@workspace/shared";
 import type { Message } from "@/components/ui/templates/template-4/data";
 import { applyLiveEvent, createLiveBubbleState, hydrateRunEvents, trackSupersededBubbles, type LiveBubbleState } from "./thread-live";
 import { dedupeCards } from "./thread-merge";
@@ -63,8 +63,8 @@ export class SimClient {
 	delta(step: string, delta: string) {
 		this.screen = applyLiveEvent(this.screen, { type: "assistant_delta", id: step, delta }, this.live);
 	}
-	discard() {
-		this.screen = applyLiveEvent(this.screen, { type: "assistant_discard" }, this.live);
+	discard(step?: string, reason?: DraftRevisionReason) {
+		this.screen = applyLiveEvent(this.screen, { type: "assistant_discard", ...(step ? { id: step } : {}), ...(reason ? { reason } : {}) }, this.live);
 	}
 	/** Cartão que chega ao vivo (confirmação, etc.). */
 	liveCard(message: Message) {

@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import {
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -25,7 +26,8 @@ import { ComposerImageAttachments } from "./composer-image-attachments";
 import { ComposerFileAttachments } from "./composer-file-attachments";
 import { MentionPopup, type MentionCandidate } from "./mention-popup";
 import { composerEnterAction, isTouchKeyboardDevice } from "@/lib/composer-keys";
-import { applyMention, mentionState, stepMentionIndex, triggerState } from "@/lib/mention-input";
+import { applyMention, mentionState, mentionedCandidates, stepMentionIndex, triggerState } from "@/lib/mention-input";
+import { MentionChip } from "./mention-text";
 import { ChatAddMenu, useAddMenuSkills } from "./chat-add-menu";
 import { useMentionApps } from "@/hooks/use-mention-apps";
 import { useDevPermission } from "@/hooks/use-dev-permission";
@@ -38,6 +40,7 @@ import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
 import { getStoredDraft, setStoredDraft } from "@/lib/active-run";
 import { DEFAULT_OPENROUTER_MODEL } from "@/lib/openrouter-models";
 import { composerPrimaryAction, showSeparateMic } from "./composer-primary-action";
+import { COMPOSER_FIELD_CLASS, shouldStickToEnd } from "./composer-scroll";
 import { useSecretPasteGuard } from "./use-secret-paste-guard";
 import {
 	Tooltip,
@@ -141,6 +144,12 @@ export function ChatComposer({
 		() => (mentionApps ?? []).map((app) => ({ id: app.id, name: app.name, description: app.description, kind: "app" as const, logo: app.logo, connected: app.connected })),
 		[mentionApps],
 	);
+	// Chips acima do campo: avatar do bot / logo do app de cada `@Nome` já escrito. O texto do campo não muda
+	// (um overlay com imagem no lugar do "@" desalinharia o cursor), então a identidade visual fica numa linha própria.
+	const mentioned = useMemo(
+		() => (groupMode ? [] : mentionedCandidates(value, [...botCandidates, ...appCandidates])),
+		[groupMode, value, botCandidates, appCandidates],
+	);
 	const groupState = groupMode && mentionMembers?.length ? mentionState(value, caret, mentionMembers) : null;
 	const mention: { trigger: ComposerTrigger; start: number; query: string; candidates: MentionCandidate[] } | null = groupMode
 		? groupState && { trigger: "@", ...groupState }
@@ -238,6 +247,18 @@ export function ChatComposer({
 		return () => clearTimeout(timer);
 	}, [dictationError]);
 
+	// Cursor no fim de um campo que passou do teto: mantém a última linha à vista ao digitar/colar.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: roda a cada mudança do texto.
+	useLayoutEffect(() => {
+		const textarea = localTextareaRef.current;
+		const field = textarea?.parentElement;
+		if (!textarea || !field) return;
+		const focused = textarea.ownerDocument.activeElement === textarea;
+		if (shouldStickToEnd({ focused, selectionStart: textarea.selectionStart, selectionEnd: textarea.selectionEnd, valueLength: textarea.value.length })) {
+			field.scrollTop = field.scrollHeight;
+		}
+	}, [value]);
+
 	function updateValue(next: string) {
 		setValue(next);
 		if (conversationKey) setStoredDraft(conversationKey, next);
@@ -317,10 +338,19 @@ export function ChatComposer({
 					<InputGroup className="h-auto rounded-3xl border-border bg-input p-1">
 						<ComposerImageAttachments items={images.items} onRemove={images.remove} />
 						<ComposerFileAttachments items={files.items} onRemove={files.remove} />
+						{mentioned.length > 0 ? (
+							<ul aria-label="Menções na mensagem" className="col-span-full flex w-full flex-wrap gap-1.5 px-3 pt-1.5 text-xs" data-slot="composer-mentions">
+								{mentioned.map((item) => (
+									<li key={item.id}>
+										<MentionChip member={{ id: item.id, name: item.name, color: item.color, shape: item.shape, kind: item.kind === "app" ? "app" : "bot", logo: item.logo }} text={`@${item.name}`} />
+									</li>
+								))}
+							</ul>
+						) : null}
 						{/* Textarea e overlay dividem a mesma célula do grid: o overlay repete as métricas do texto
 						    (digitado transparente, prévia em itálico logo depois), então a prévia flui na linha do
 						    cursor e a altura cresce junto. O wrapper é quem rola; o textarea real segue intacto. */}
-						<div className="grid max-h-32 min-h-7 w-full overflow-y-auto" data-slot="composer-field">
+						<div className={COMPOSER_FIELD_CLASS} data-slot="composer-field">
 							<InputGroupTextarea
 								ref={mergeRefs(textareaRef, localTextareaRef)}
 								aria-label={`Mensagem para ${agentName}`}

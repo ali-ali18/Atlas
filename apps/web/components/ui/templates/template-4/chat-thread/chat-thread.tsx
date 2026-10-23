@@ -1123,6 +1123,7 @@ export function ChatThread({
 										<BotLinkMarker
 											bot={resolveBot({ id: message.botId, name: message.botName })}
 											direction="sent"
+											overdue={message.overdue}
 											onOpen={openExchange(
 												{ id: message.botId, name: message.botName },
 												message.botMessageId,
@@ -1220,6 +1221,7 @@ export function ChatThread({
 									{separator}
 									{sourceMarker}
 									<MessageRow
+										botName={agent?.name}
 										groupPosition={groupPosition}
 										imageItems={imageRun?.items}
 										userBubbleColor={userBubbleColor}

@@ -48,16 +48,16 @@ const trigger = (html: string, id: string) => {
 	return section.match(/<button[^>]*aria-expanded="(true|false)"[^>]*>/)?.[1];
 };
 
-test("seções recolhíveis: Páginas aberta por padrão; Documentos e Rotinas fechadas", () => {
+test("seções recolhíveis: Painéis aberto por padrão; Documentos e Rotinas fechadas", () => {
 	const html = library();
 	assert.deepEqual(["pages", "documents", "routines"].map((id) => trigger(html, id)), ["true", "false", "false"]);
-	const order = ["Páginas", "Documentos", "Rotinas"].map((title) => html.indexOf(`>${title}<`));
+	const order = ["Painéis", "Documentos", "Rotinas"].map((title) => html.indexOf(`>${title}<`));
 	assert.ok(order[0]! > 0 && order[0]! < order[1]! && order[1]! < order[2]!, "ordem das seções");
 });
 
 test("seção aberta mostra o conteúdo; fechada só o cabeçalho (gatilho é um botão com aria-controls)", () => {
 	const html = library();
-	assert.match(html, /data-testid="pages-loading"/, "Páginas aberta carrega a lista");
+	assert.match(html, /data-testid="pages-loading"/, "Painéis aberto carrega a lista");
 	assert.doesNotMatch(html, /corpo das rotinas/, "Rotinas fechada não monta o conteúdo");
 	assert.doesNotMatch(html, /Ver mais|relatorio/, "Documentos fechada não monta a lista");
 	assert.match(html, /<button[^>]*data-slot="collapsible-trigger"/);

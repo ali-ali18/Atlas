@@ -1,7 +1,7 @@
 import type { PageCalloutTone, PageTone } from "@workspace/shared";
 
 /**
- * Cores dos componentes da página: SÓ tokens. O destaque (`accent`) é a `--chart-1` da paleta da página e os tons
+ * Cores dos componentes do painel: SÓ tokens. O destaque (`accent`) é a `--chart-1` da paleta do painel e os tons
  * semânticos vêm dos tokens de tendência (positivo/negativo) e de um âmbar fixo para alerta. O componente define
  * `--tone` com `toneStyle` e usa as classes abaixo, que misturam a cor com o texto/fundo para manter o contraste.
  */

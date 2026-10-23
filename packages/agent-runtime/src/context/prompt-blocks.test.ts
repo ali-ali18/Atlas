@@ -18,9 +18,9 @@ const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 describe("prompt em blocos (L5)", () => {
 	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(19_030);
+		expect(legacy.length).toBe(26_044);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"abf824b3e55a1555dff3c573ef6746039664a839786833bb7014920f74299bea",
+			"87e81d962fa47e2ce006af6a5f10473bbc8fdcb15c80b6962f7c79b323473f12",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
 	});
@@ -129,5 +129,17 @@ describe("prompt em blocos (L5)", () => {
 	it("mesmos grupos, mesmos bytes (determinístico)", () => {
 		const groups = new Set<ContextGroup>(["files", "routines"]);
 		expect(assembleSystemPrompt(groups)).toBe(assembleSystemPrompt(new Set<ContextGroup>(["routines", "files"])));
+	});
+
+	it("regra de núcleo: nunca expor internals (tools, campos, revisões) ao usuário", () => {
+		const prompt = assembleSystemPrompt(none);
+		expect(prompt).toMatch(/never expose internals/);
+		expect(prompt).toMatch(/No tool names, field or type names \(bar_list, orientation, barh\), revision numbers/);
+		expect(prompt).toMatch(/offer an alternative/);
+		// paletas: nome de exibição por idioma, nunca o id nem a lista de opções da tool
+		expect(prompt).toMatch(/ids \(primary, monochrome, ocean, sunset, grove, vivid\) are for tools only/);
+		expect(prompt).toMatch(/Primária, Monocromática, Oceano, Pôr do sol, Bosque, Vívida/);
+		expect(prompt).toMatch(/Primary, Monochrome, Ocean, Sunset, Grove, Vivid/);
+		expect(prompt).toMatch(/never list the options the tool accepts/);
 	});
 });

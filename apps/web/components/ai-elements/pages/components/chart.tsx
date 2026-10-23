@@ -3,8 +3,8 @@ import type { PageNode } from "@workspace/shared";
 import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 
 /**
- * Gráfico Bklit (`packages/ui` Chart) na largura toda da coluna. A paleta da página vem do escopo
- * `data-chart-palette` do `PageView`; um `palette` no próprio spec do gráfico vence a da página.
+ * Gráfico Bklit (`packages/ui` Chart) na largura toda da coluna. A paleta do painel vem do escopo
+ * `data-chart-palette` do `PageView`; um `palette` no próprio spec do gráfico vence a do painel.
  */
 export function ChartNode({ node }: { node: Extract<PageNode, { type: "chart" }> }) {
 	return (

@@ -172,3 +172,29 @@ test("página ao vivo e a gravada não duplicam ao reconciliar; a gravada reapar
 	const result = reconcilePersistedThread(persisted, [user("db-u1", "forecast"), pageCard("page-live-page-1", 2)]);
 	assert.deepEqual(pageRevisions(result), ["db-pg@2"]);
 });
+
+test("rotina criada ao vivo e a gravada viram um cartão só, mesmo com fala no meio", () => {
+	const liveRoutine: Message = { id: "routine-run1-created-r1", kind: "routine", action: "created", routineId: "r1", title: "Resumo semanal", triggerType: "cron", detail: "A cada segunda-feira às 9:00", hookSecret: "s" };
+	const persistedRoutine: Message = { id: "db-routine", kind: "routine", action: "created", routineId: "r1", title: "Resumo semanal", detail: "A cada segunda-feira às 9:00" };
+	const narration = "Vou montar a lista de tarefas da semana agora.";
+	const live: Message[] = [user("db-u1", "faz toda segunda"), liveRoutine, { id: "cu-1", kind: "assistant", text: narration }];
+	const persisted: Message[] = [user("db-u1", "faz toda segunda"), persistedRoutine, { id: "db-a1", kind: "assistant", text: narration }];
+	const result = reconcilePersistedThread(persisted, live);
+	assert.equal(result.filter((message) => message.kind === "routine").length, 1);
+	assert.deepEqual(result.map((message) => message.id), ["db-u1", "db-routine", "db-a1"]);
+});
+
+test("cartão de arquivo ao vivo e o gravado do mesmo artifact viram um só", () => {
+	const file = (id: string): Message => ({ id, kind: "file", artifactId: "art-1", filename: "a.pdf", mime: "application/pdf", size: 10, origin: "user" });
+	const live: Message[] = [user("db-u1", "gera"), file("file-live"), { id: "cu-1", kind: "assistant", text: "Segue o arquivo gerado agora." }];
+	const persisted: Message[] = [user("db-u1", "gera"), file("db-file"), { id: "db-a1", kind: "assistant", text: "Segue o arquivo gerado agora." }];
+	const result = reconcilePersistedThread(persisted, live);
+	assert.equal(result.filter((message) => message.kind === "file").length, 1);
+});
+
+test("dedupeCards: rotina criada ao vivo e gravada não vizinhas colapsam no gravado", () => {
+	const live: Message = { id: "routine-run1-created-r1", kind: "routine", action: "created", routineId: "r1", title: "R", triggerType: "once" };
+	const saved: Message = { id: "db-routine", kind: "routine", action: "created", routineId: "r1", title: "R" };
+	const result = dedupeCards([user("u"), saved, { id: "cu-1", kind: "assistant", text: "Vou montar a lista." }, live]);
+	assert.deepEqual(result.map((message) => message.id), ["u", "db-routine", "cu-1"]);
+});

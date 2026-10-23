@@ -39,6 +39,7 @@ import { DevSessionCard } from "@/components/ai-elements/dev-session/dev-session
 import { SubagentsBlock } from "@/components/ai-elements/subagents";
 import { ToolBudgetMarker } from "@/components/ai-elements/tool-budget";
 import { AssistantMessage } from "./assistant-message";
+import { RevisedDraft } from "./revised-draft";
 import { EmailReceivedCard } from "./email-received-card";
 import { LazyChart } from "@/components/ai-elements/chart/lazy-chart";
 import { CodeRunCard } from "./code-run-card";
@@ -61,6 +62,7 @@ import { renderMentions, type MentionMember } from "./mention-text";
 export function MessageRow({
 	live = false,
 	message,
+	botName,
 	groupPosition = "single",
 	imageItems,
 	userBubbleColor,
@@ -100,6 +102,8 @@ export function MessageRow({
 	/** Cor do bot para o balão do usuário (undefined = balão neutro). */
 	userBubbleColor?: string;
 	message: Message;
+	/** Nome do bot da conversa: vai no rodapé das imagens exportadas de gráfico e painel. */
+	botName?: string;
 	groupPosition?: GroupPosition;
 	onConfirm?: (message: Extract<Message, { kind: "confirm" }>) => void;
 	/** "Não perguntar mais para isto": confirma e cria a exceção de autonomia. */
@@ -147,6 +151,7 @@ export function MessageRow({
 		case "images":
 			return <ImageGallery items={imageItems ?? message.items} source={message.source} />;
 		case "assistant":
+			if (message.revised) return <RevisedDraft reason={message.revised} text={message.text} />;
 			return (
 				<AssistantMessage
 					groupPosition={groupPosition}
@@ -253,9 +258,9 @@ export function MessageRow({
 		case "code-run":
 			return <CodeRunCard code={message.code} durationMs={message.durationMs} output={message.output} status={message.status} />;
 		case "chart":
-			return <LazyChart spec={message.spec} />;
+			return <LazyChart share={{ botName }} spec={message.spec} />;
 		case "page":
-			return <PageCard card={message} />;
+			return <PageCard botName={botName} card={message} />;
 		case "task-list":
 			return <TaskListCard items={message.items} />;
 		case "compaction":

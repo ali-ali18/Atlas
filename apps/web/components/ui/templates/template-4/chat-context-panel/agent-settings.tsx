@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Switch } from "@workspace/ui/components/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
 import { SettingRow, SettingsGroup, SettingsStack } from "@/components/settings/setting-row";
 import { TIER_ROWS, TierModelsControl, TierRow } from "@/components/settings/sections/model-tiers";
 import { ModelPicker } from "@/components/model-picker";
@@ -37,8 +36,6 @@ import { AutonomySettings } from "../autonomy/autonomy-settings";
 import { SettingsPicker } from "../settings-picker";
 import { AboutSection } from "./about-section";
 import { AvatarEditor } from "./avatar-editor";
-import { LessonsTab } from "./lessons-tab";
-import { MemoryTab } from "./memory-tab";
 import { ProactiveSettingsSection } from "./proactive-settings";
 
 /** Páginas da vista de configurações do bot: a principal e a subvista do modo proativo. */
@@ -121,14 +118,8 @@ export function AgentSettings({
 	onOpenPage,
 	accountTimezone,
 	accountCodingModel,
-	memoryRequest,
-	onFixMemoryInChat,
 }: {
 	agent: Agent;
-	/** Pedido de fora para abrir a aba Memória (`changes` = rola até "O que mudou"); o nonce muda a cada pedido. */
-	memoryRequest?: { nonce: number; section?: "changes" };
-	/** "Corrigir no chat": rascunho no campo de mensagem. */
-	onFixMemoryInChat?: (draft: string) => void;
 	onChange: (patch: Partial<Agent> & { policyJson?: unknown }) => void;
 	page?: AgentSettingsPage;
 	onOpenPage?: (page: AgentSettingsPage) => void;
@@ -140,15 +131,6 @@ export function AgentSettings({
 	const { models, loading } = useOpenRouterModels();
 	// policyJson vive no runtime sem campo tipado em Agent (ver bot-to-agent).
 	const policyJson = (agent as { policyJson?: unknown }).policyJson;
-	const [tab, setTab] = useState<string>("general");
-	const [changesFocus, setChangesFocus] = useState(0);
-	const memoryNonce = memoryRequest?.nonce;
-	const memorySection = memoryRequest?.section;
-	useEffect(() => {
-		if (!memoryNonce) return;
-		setTab("memory");
-		if (memorySection === "changes") setChangesFocus(memoryNonce);
-	}, [memoryNonce, memorySection]);
 
 	const botTiers = readBotModelTiers(policyJson);
 	if (page === "tiers") {
@@ -202,13 +184,6 @@ export function AgentSettings({
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-2 pb-[calc(2rem+env(safe-area-inset-bottom))]" data-agent-settings-page="main">
-			<Tabs onValueChange={setTab} value={tab}>
-				<TabsList aria-label="Seções das configurações">
-					<TabsTrigger value="general">Geral</TabsTrigger>
-					<TabsTrigger value="memory">Memória</TabsTrigger>
-					<TabsTrigger value="lessons">Lições</TabsTrigger>
-				</TabsList>
-				<TabsContent className="pt-3" value="general">
 			<SettingsStack>
 				<div className="flex flex-col gap-5">
 					<div className="grid place-items-center py-1">
@@ -426,14 +401,6 @@ export function AgentSettings({
 					</SettingsGroup>
 				) : null}
 			</SettingsStack>
-				</TabsContent>
-				<TabsContent className="pt-3" value="memory">
-					<MemoryTab active={tab === "memory"} botId={agent.id} focusChanges={changesFocus} onFixInChat={onFixMemoryInChat} />
-				</TabsContent>
-				<TabsContent className="pt-3" value="lessons">
-					<LessonsTab active={tab === "lessons"} botId={agent.id} />
-				</TabsContent>
-			</Tabs>
 		</div>
 	);
 }

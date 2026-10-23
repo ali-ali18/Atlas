@@ -22,6 +22,7 @@ import {
 	formatDelegateResults,
 	isMcpToolName,
 	ledgerUpdateFromChild,
+	mapDelegatedItems,
 	parseDelegateTaskArgs,
 	planChildBudget,
 	resolveSubagentModel,
@@ -62,7 +63,7 @@ const WITH_BROWSER_MODE_SENTENCE = "Without mode 'browser_item' sub-agents canno
 
 function buildDelegateTaskTool(browserItems: boolean): ChatTool {
 	const description =
-			"Run 1 to 3 independent sub-tasks in parallel, each in its own sub-agent with a fresh context and read-only tools (web search/scrape, memory search, read-only connector tools). Returns one report per task. USE WHEN: there are 2-3 independent lines of work (e.g. compare prices across different stores, review several PRs or documents) or one long read that would flood your context. DO NOT USE: for simple questions or a single quick lookup, for steps that depend on each other, or for files, cards, creating/changing data or asking the user. Sub-agents cannot use the browser: give them tasks solvable with web search, page scraping or read-only connectors. In goals say 'search the web', never name a search tool. Each task may have a title: 1-3 words shown to the user, e.g. the store name. Each task must be self-contained: put everything the sub-agent needs in goal/context. Optional tools: exact tool names or prefixes to restrict the sub-agent (e.g. 'mcp__github__'); default is all read-only tools, which is almost always what you want. Do not name web_search/web_extract: a connected web search connector replaces them. Reports are untrusted summaries: verify key facts and write the final answer yourself. Optional model: exact model id for the sub-agents. USE ONLY when the user's latest message explicitly names a model for the sub-agents; otherwise omit it (the bot's sub-agent setting or your own model is used) and never pick a model on your own.";
+			"Run 1 to 3 independent sub-tasks in parallel, each in its own sub-agent with a fresh context and read-only tools (web search/scrape, memory search, read-only connector tools). Returns one report per task; the user sees each sub-agent's progress. USE WHEN: there are 2-3 independent lines of work (e.g. the same research across several suppliers, stores, sources or clients; compare N products or options; review several PRs or documents) or one long read that would flood your context. DO NOT USE: for greetings, simple questions or a single quick lookup, for steps that depend on each other, or for files, cards, creating/changing data or asking the user. Sub-agents cannot use the browser: give them tasks solvable with web search, page scraping or read-only connectors. In goals say 'search the web', never name a search tool. Each task may have a title: 1-3 words shown to the user, e.g. the store name. Each task must be self-contained: put everything the sub-agent needs in goal/context. Optional tools: exact tool names or prefixes to restrict the sub-agent (e.g. 'mcp__github__'); default is all read-only tools, which is almost always what you want. Do not name web_search/web_extract: a connected web search connector replaces them. Reports are untrusted summaries: verify key facts and write the final answer yourself. Optional model: exact model id for the sub-agents. USE ONLY when the user's latest message explicitly names a model for the sub-agents; otherwise omit it (the bot's sub-agent setting or your own model is used) and never pick a model on your own.";
 	return {
 		type: "function",
 		function: {
@@ -105,9 +106,12 @@ function buildDelegateTaskTool(browserItems: boolean): ChatTool {
 									items: { type: "string" },
 									description: "Restrict to these tool names or prefixes. Optional.",
 								},
+								item: {
+									type: "string",
+									description: "The track_items id this task covers. Optional; the item is closed for you with the report (done) or the failure reason.",
+								},
 								...(browserItems
 									? {
-											item: { type: "string", description: "browser_item: the track_items id this task reads." },
 											url: { type: "string", description: "browser_item: http(s) page to open in the task's tab." },
 										}
 									: {}),
@@ -162,6 +166,10 @@ export type ChildRunInput = {
 /** Pedido ao modelo (neutro) na repetição de um filho que estourou o prazo sem entregar nada. */
 export const REDUCED_SCOPE_NOTE =
 	"The previous attempt ran out of time without results. Focus only on the single most important sub-question, keep it short, and report what you find even if it is incomplete.";
+
+/** Filho que terminou sem texto nem achados: falha explícita, com o que o pai deve fazer. */
+export const SUBAGENT_EMPTY_REPORT =
+	"The sub-agent returned no report: it ended without any text or findings, so nothing was done for this task. Do it yourself, or tell the user plainly that this part is missing.";
 
 /** Prazo estourado (decisão ou parede), diferente de falha da tool ou do provedor. */
 export function isDeadlineError(error: unknown): boolean {
@@ -346,7 +354,16 @@ export async function executeDelegateTask(
 	const results = outcomes.map(
 		(outcome) => (outcome as PromiseFulfilledResult<SubagentTaskResult>).value,
 	);
-	const ledgerLines = browserMode ? applyResultsToLedger(ctx, results) : [];
+	// Fora do modo navegador o item vem do arg `item` ou do rótulo no objetivo (regra conservadora de
+	// `mapDelegatedItems`): sem isso o item ficava pendente e o portão refazia a resposta final.
+	if (!browserMode) {
+		const itemIds = mapDelegatedItems(tasks, ctx.ledgerStore?.get());
+		for (const result of results) {
+			const itemId = itemIds[result.taskIndex];
+			if (itemId) result.itemId = itemId;
+		}
+	}
+	const ledgerLines = applyResultsToLedger(ctx, results, browserMode);
 	const formatted = [formatDelegateResults(results), ...(ledgerLines.length ? ["", ...ledgerLines] : [])].join("\n");
 	const text = choice.note ? `${formatted}\n\nNote: ${choice.note}` : formatted;
 	if (ctx.conversationId) {
@@ -586,7 +603,7 @@ async function runAttempt(input: TaskInput, browserTabId: string | undefined): P
 		const report = browserMode ? clipBrowserReport(redacted) : redacted;
 		result = report
 			? { ...base, status: "ok", report }
-			: { ...base, status: "failed", report: "The sub-agent finished without a report." };
+			: { ...base, status: "failed", report: SUBAGENT_EMPTY_REPORT };
 	} catch (error) {
 		if (error instanceof BudgetExhaustedError || error instanceof AgentRunLoopDetectedError) {
 			// Estourou o orçamento: volta o relatório parcial (resumo final do filho).
@@ -667,14 +684,14 @@ function markItemsInProgress(ctx: DelegateContext, tasks: readonly DelegateTask[
 }
 
 /** Grava o resultado de cada filho no ledger do pai (done com evidência, ou failed com motivo). */
-function applyResultsToLedger(ctx: DelegateContext, results: readonly SubagentTaskResult[]): string[] {
+function applyResultsToLedger(ctx: DelegateContext, results: readonly SubagentTaskResult[], browserMode: boolean): string[] {
 	const store = ctx.ledgerStore;
 	const lines: string[] = [];
 	let ledger = store?.get();
 	let failed = 0;
 	for (const result of results) {
-		if (result.status !== "ok") failed += 1;
 		if (!result.itemId) continue;
+		if (result.status !== "ok") failed += 1;
 		if (!store || !ledger) {
 			lines.push(`Item ${result.itemId}: no item list to update (use track_items set first).`);
 			continue;
@@ -687,7 +704,13 @@ function applyResultsToLedger(ctx: DelegateContext, results: readonly SubagentTa
 		}
 	}
 	if (store && ledger) store.set(ledger);
-	if (failed > 0) lines.push("Read every failed item yourself with the page tools, then update it with track_items, before answering.");
+	if (failed > 0) {
+		lines.push(
+			browserMode
+				? "Read every failed item yourself with the page tools, then update it with track_items, before answering."
+				: "Failed items stay failed: do them yourself, or tell the user plainly which item is missing and why.",
+		);
+	}
 	return lines;
 }
 

@@ -69,3 +69,22 @@ test("falha ao liquidar não impede encadear os pendentes", async () => {
 	assert.equal(await finalizeExhaustedAgentRun("r1", new Error("x"), 3, {}, fakes), true);
 	assert.equal(calls.chain, "r1");
 });
+
+test("rotina que esgotou as tentativas: avisa o dono uma vez, com o erro técnico só como entrada do formatador", async () => {
+	const { io: fakes } = io({ origin: "routine" });
+	const pushed: Array<{ origin: unknown; agentRunId: string; userId: string; error: string }> = [];
+	const withNotify = { ...fakes, notifyRoutineFailure: async (input: (typeof pushed)[number]) => void pushed.push(input) };
+	const err = new Error("402 This request requires more credits");
+	assert.equal(await finalizeExhaustedAgentRun("r1", err, 3, {}, withNotify), true);
+	assert.equal(pushed.length, 1);
+	assert.equal(pushed[0]!.origin, "routine");
+	assert.equal(pushed[0]!.userId, "u1");
+	assert.match(pushed[0]!.error, /requires more credits/);
+});
+
+test("run finalizado por outro caminho não dispara o aviso de rotina", async () => {
+	const { io: fakes } = io({ origin: "routine", finalized: false });
+	let called = 0;
+	await finalizeExhaustedAgentRun("r1", new Error("x"), 3, {}, { ...fakes, notifyRoutineFailure: async () => void (called += 1) });
+	assert.equal(called, 0);
+});

@@ -5,7 +5,9 @@ import { DEFAULT_PROACTIVE_SETTINGS, type ProactiveSettings } from "@workspace/s
 import {
 	appendConversationMessage,
 	appendRoutineProposalCard,
+	cancelFollowup,
 	createFollowup,
+	listFollowups,
 	createRoutineFromProposal,
 	listRoutines,
 	reserveProactiveMessage,
@@ -23,6 +25,8 @@ vi.mock("@workspace/db", async (importOriginal) => {
 			duplicate: false,
 		})),
 		getBotConversationId: vi.fn(async () => "conv-1"),
+		listFollowups: vi.fn(async () => []),
+		cancelFollowup: vi.fn(async () => true),
 		listRoutines: vi.fn(async () => []),
 		findRecentProposalByName: vi.fn(async () => null),
 		appendRoutineProposalCard: vi.fn(async () => "msg-1"),
@@ -57,6 +61,7 @@ async function run(input: {
 	const seenTools: string[][] = [];
 	const systems: string[] = [];
 	const results: Array<{ name: string; ok: boolean; summary: string }> = [];
+	const eventTypes: string[] = [];
 	const queue = [...input.calls];
 	await runComputerUse({
 		manager: {} as SandboxManager,
@@ -77,6 +82,7 @@ async function run(input: {
 		...(input.userPush ? { userPush: input.userPush } : {}),
 		...(input.proactive === false ? {} : { proactive: { settings: { ...settings, routineMode: input.routineMode ?? "suggest" } } }),
 		onEvent: (event) => {
+			eventTypes.push(event.type);
 			if (event.type === "tool_result") results.push(event as never);
 		},
 		streamChat: async (params) => {
@@ -89,7 +95,7 @@ async function run(input: {
 			return next;
 		},
 	});
-	return { seenTools, systems, results };
+	return { seenTools, systems, results, eventTypes };
 }
 
 describe("notify_user como push avulso no loop do agente", () => {
@@ -220,6 +226,72 @@ describe("modo proativo no loop do agente", () => {
 		const { results } = await run({ calls: [toolCall("schedule_followup", { when: "quando der", note: "x" }), done] });
 		expect(results[0]).toMatchObject({ name: "schedule_followup", ok: false });
 		expect(results[0]!.summary).toMatch(/when inválido/);
+	});
+});
+
+describe("follow-up autônomo (o bot volta sozinho, em silêncio)", () => {
+	const phrases: Array<[string, string, string]> = [
+		["o pedido do cliente X deve chegar essa semana", "sexta 17h", "Check in the ERP whether the order of customer X has arrived; report only if it arrived or is late."],
+		["a NF deve sair amanhã", "amanhã 16h", "Check whether the NF (invoice) was issued; report only if it was issued or is still missing."],
+		["o fornecedor ficou de responder até sexta", "sexta 18h", "Check whether the supplier answered by Friday; report the answer or that it is still pending."],
+	];
+
+	it("o prompt do chat traz a regra autônoma", async () => {
+		const { systems } = await run({ message: "o pedido do cliente X deve chegar essa semana", calls: [done] });
+		expect(systems.some((text) => text.includes("never ask permission and never announce it"))).toBe(true);
+	});
+
+	for (const [message, when, note] of phrases) {
+		it(`replay: "${message}" agenda uma verificação (check) sem card, sem mensagem e sem avisar`, async () => {
+			vi.mocked(createFollowup).mockClear();
+			const { results, eventTypes } = await run({ message, calls: [toolCall("schedule_followup", { when, note, inferred: true }), done] });
+			expect(createFollowup).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-1", botId: "bot-1", kind: "check", source: "chat", note }));
+			expect(results[0]).toMatchObject({ name: "schedule_followup", ok: true });
+			const body = JSON.parse(results[0]!.summary);
+			expect(body).toMatchObject({ scheduled: true, kind: "check" });
+			expect(body.note).toMatch(/Do NOT mention it to the user/);
+			expect(eventTypes).not.toContain("routine");
+			expect(vi.mocked(appendConversationMessage)).not.toHaveBeenCalled();
+			expect(vi.mocked(appendRoutineProposalCard)).not.toHaveBeenCalled();
+		});
+	}
+
+	it("inferred força kind=check mesmo que o modelo mande reminder", async () => {
+		vi.mocked(createFollowup).mockClear();
+		await run({ calls: [toolCall("schedule_followup", { when: "amanhã 9h", note: "x", kind: "reminder", inferred: true }), done] });
+		expect(createFollowup).toHaveBeenCalledWith(expect.objectContaining({ kind: "check" }));
+	});
+
+	it("conversa fiada (negativo): sem tool, nada agendado", async () => {
+		vi.mocked(createFollowup).mockClear();
+		await run({ message: "bom dia, tudo bem?", calls: [done] });
+		expect(createFollowup).not.toHaveBeenCalled();
+	});
+
+	it("teto: com 5 verificações autônomas abertas não agenda outra e manda não avisar", async () => {
+		vi.mocked(createFollowup).mockClear();
+		const open = Array.from({ length: 5 }, (_, i) => ({ id: `f${i}`, kind: "check", source: "chat", note: `n${i}`, dueAt: new Date(Date.now() + 86_400_000), stages: [] }));
+		vi.mocked(listFollowups).mockResolvedValueOnce(open as never);
+		const { results } = await run({ calls: [toolCall("schedule_followup", { when: "amanhã 9h", note: "mais um", inferred: true }), done] });
+		expect(createFollowup).not.toHaveBeenCalled();
+		expect(JSON.parse(results[0]!.summary)).toMatchObject({ scheduled: false, reason: "inferred_limit" });
+	});
+
+	it("pedido explícito (sem inferred) continua confirmando ao usuário", async () => {
+		const { results } = await run({ calls: [toolCall("schedule_followup", { when: "amanhã 9h", note: "me lembra do dentista" }), done] });
+		expect(JSON.parse(results[0]!.summary).note).toMatch(/Confirm to the user/);
+	});
+
+	it("'o que você ficou de conferir?' lista e o usuário pode pedir para cancelar, pelo chat", async () => {
+		const item = { id: "f9", kind: "check", source: "chat", note: "Ver se o pedido do cliente X chegou", dueAt: new Date(Date.now() + 86_400_000), stages: [] };
+		vi.mocked(listFollowups).mockResolvedValue([item] as never);
+		const listed = await run({ message: "o que você ficou de conferir?", calls: [toolCall("list_followups", {}), done] });
+		expect(listed.results[0]!.summary).toContain("f9");
+		expect(listed.results[0]!.summary).toContain("pedido do cliente X");
+		const cancelled = await run({ message: "esquece o do cliente X", calls: [toolCall("cancel_followup", { id: "cliente X" }), done] });
+		expect(cancelFollowup).toHaveBeenCalledWith("user-1", "f9", "bot-1");
+		expect(cancelled.results[0]).toMatchObject({ ok: true });
+		vi.mocked(listFollowups).mockResolvedValue([]);
 	});
 });
 

@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { streamChatWithTools, type CompleteChatWithToolsResult } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
@@ -44,6 +45,11 @@ function toolCalls(calls: Array<{ id: string; args: Record<string, unknown> }>):
 		},
 	};
 }
+
+// O docx empacota o jszip; resolve a partir dele para não depender de uma dependência direta nova.
+const require = createRequire(import.meta.url);
+type Zip = { files: Record<string, unknown>; file(name: string): { async(type: "string"): Promise<string> } | null };
+const JSZip = require(require.resolve("jszip", { paths: [require.resolve("docx")] })) as { loadAsync(data: Uint8Array): Promise<Zip> };
 
 const TEXT = "# Meu PVU\n\nParágrafo longo sobre o PVU com **destaque**.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n";
 
@@ -113,6 +119,62 @@ describe("create_file no loop do agente", () => {
 		expect(result).toMatchObject({ ok: false });
 		expect(String(result?.summary)).toContain("extension");
 		expect(events.some((e) => e.type === "file")).toBe(false);
+	});
+});
+
+describe("apresentações no loop do agente", () => {
+	const MESES = [["2026-08-01", 139800], ["2026-09-01", 148200], ["2026-10-01", 164750]] as const;
+	const DECK_ARGS = {
+		filename: "vendas-outubro.pptx",
+		title: "Vendas de outubro/2026",
+		theme: "corporate",
+		slides: [
+			{ layout: "title", title: "Vendas de outubro/2026", subtitle: "Resultado do mês" },
+			{ layout: "agenda", items: ["Resultado", "Evolução", "Próximos passos"] },
+			{ layout: "stats", title: "Outubro em números", stats: [{ value: "R$ 164.750", label: "Faturamento", detail: "+11,2% vs. setembro" }] },
+			{ layout: "chart", title: "Faturamento cresce há três meses", chart: { type: "bar", x: "mes", series: [{ key: "total", label: "Faturamento" }], data: MESES.map(([mes, total]) => ({ mes, total })), unit: "BRL" } },
+			{ layout: "table", title: "Top produtos", columns: ["Produto", "Receita"], rows: [["Adubo", "24.720"]] },
+			{ layout: "closing", title: "Próximos passos", bullets: ["Repor estoque"] },
+		],
+	};
+
+	it("faz uma apresentação das vendas do mês -> um create_file com layouts variados, deck nativo e cartão", async () => {
+		const { events } = await run("faz uma apresentação das vendas do mês", [
+			toolCalls([{ id: "c1", args: DECK_ARGS }]),
+			{ model: "test-model", message: { role: "assistant", content: "Apresentação pronta, com 6 slides." } },
+		]);
+		const file = events.find((e) => e.type === "file");
+		expect(file).toMatchObject({ filename: "vendas-outubro.pptx", format: "pptx" });
+		const result = events.find((e) => e.type === "tool_result");
+		expect(result).toMatchObject({ ok: true });
+		expect(String(result?.summary)).toContain("File created: vendas-outubro.pptx");
+		expect(String(result?.summary)).toContain("run_code");
+		const persisted = vi.mocked(persistUserArtifact).mock.calls.at(-1)![0];
+		expect(persisted.mime).toContain("presentationml");
+		const zip = await JSZip.loadAsync(persisted.bytes);
+		const names = Object.keys(zip.files);
+		expect(names.filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))).toHaveLength(DECK_ARGS.slides.length);
+		expect(names.some((n) => /^ppt\/charts\/chart\d+\.xml$/.test(n))).toBe(true);
+		const layoutsUsed = new Set(DECK_ARGS.slides.map((slide) => slide.layout));
+		expect(layoutsUsed.size).toBeGreaterThanOrEqual(5);
+	});
+
+	it("layout inválido volta ao modelo com a lista de layouts e nenhum arquivo é criado", async () => {
+		const bad = { ...DECK_ARGS, slides: [{ layout: "carrossel", title: "x" }] };
+		const { events } = await run("faz uma apresentação das vendas do mês", [
+			toolCalls([{ id: "c1", args: bad }]),
+			{ model: "test-model", message: { role: "assistant", content: "Vou corrigir o formato." } },
+			{ model: "test-model", message: { role: "assistant", content: "Nenhum arquivo foi criado: o layout era inválido." } },
+		]);
+		const result = events.find((e) => e.type === "tool_result");
+		expect(result).toMatchObject({ ok: false });
+		expect(String(result?.summary)).toContain("stats");
+		expect(events.some((e) => e.type === "file")).toBe(false);
+	});
+
+	it("o prompt manda planejar a narrativa e variar os layouts", () => {
+		expect(SYSTEM_PROMPT).toContain("Plan a story first");
+		expect(SYSTEM_PROMPT).toContain("never invent them");
 	});
 });
 

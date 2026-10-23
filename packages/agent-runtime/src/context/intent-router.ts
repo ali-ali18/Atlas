@@ -37,8 +37,12 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 		/\b(pdf|docx?|word|xlsx?|excel|planilhas?|csv|pptx|slides?|powerpoint|apresentac\w+|arquivos?|documentos?|relatorios?|files?|spreadsheets?|reports?|presentations?|markdown|txt|exporta\w*)\b/,
 	],
 	[
+		"presentations",
+		/\b(apresentac\w*|presentations?|slides?|power ?points?|pptx?|potx|decks?|pitch(es)?|keynote|google slides)\b/,
+	],
+	[
 		"pages",
-		/\b(dashboards?|paineis|painel|forecast|kpis?|scorecard|visao geral|overview|resumo executivo|(pagina|page) (viva|ao vivo|atualizavel|live)|(live|living) (page|report)s?|relatorios? (semanal|mensal|diario|executivo|vivo|do (mes|trimestre|ano))|(mont\w+|cri\w+|faz\w*|ger\w+|build|create|make) (uma? |meu |minha |o |a )*(pagina|relatorio|report|page))\b/,
+		/\b(dashboards?|paineis|painel|forecast|kpis?|scorecard|visao geral|overview|resumo executivo|(live|living) (dashboard|report)s?|relatorios? (semanal|mensal|diario|executivo|vivo|do (mes|trimestre|ano))|(mont\w+|cri\w+|faz\w*|ger\w+|build|create|make) (uma? |meu |minha |o |a )*(relatorio|report))\b/,
 	],
 	[
 		"data",
@@ -95,6 +99,11 @@ export function routeContextGroups(input: {
 	}
 	// Lembrete/rotina costuma precisar de uma pergunta de escolha (canal, horário).
 	if (groups.has("routines")) groups.add("questionnaire");
+	// Apresentação precisa de create_file e, para fundos e ilustrações, de generate_image.
+	if (groups.has("presentations")) {
+		groups.add("files");
+		groups.add("images");
+	}
 	if (groups.has("shell")) groups.add("browser");
 	if (groups.has("browser")) {
 		// Mostrar ao usuário o que o navegador viu e a escada de pesquisa vêm junto.
@@ -108,4 +117,23 @@ export function routeContextGroups(input: {
 		if (input.profileAllowed) groups.add("profile");
 	}
 	return groups;
+}
+
+const COUNT_WORDS = "[2-9]|10|dois|duas|tres|quatro|cinco|seis|two|three|four|five|six|dos|cuatro";
+const PARALLEL_TARGETS =
+	"lojas|fornecedor\\w*|sites|fontes|empresas|clientes|produtos|concorrentes|marcas|bancos|planos|opcoes|alternativas|cidades|universidades|cursos|ferramentas|modelos|repositorios|repos|documentos|artigos|papers|stores|shops|suppliers|vendors|sources|companies|clients|customers|products|competitors|brands|banks|plans|options|alternatives|cities|tools|models|documents|articles|tiendas|proveedores";
+/** "3 fornecedores", "cinco lojas", "two suppliers". */
+const COUNTED_TARGETS = new RegExp(`\\b(${COUNT_WORDS})\\s+(${PARALLEL_TARGETS})\\b`);
+/** Pesquisa/comparação: o verbo que torna as partes leituras independentes. */
+const RESEARCH_VERB = /\b(pesquis\w+|busc\w+|procur\w+|compar\w+|cot\w+|levant\w+|analis\w+|avali\w+|research\w*|search\w*|compare\w*|look up|find|investig\w+|benchmark\w*|review\w*|revis\w+)\b/;
+
+/**
+ * Pedido que divide em partes independentes que valem um subagente cada (mesma pesquisa em N
+ * fontes, comparar N itens): só por palavra-chave, sem chamada ao modelo. Serve de reserva
+ * quando o Jev de delegação está desligado ou não respondeu; conversa curta nunca casa.
+ */
+export function delegationCue(text: string): boolean {
+	const plain = normalize(text ?? "");
+	if (plain.length < 12) return false;
+	return COUNTED_TARGETS.test(plain) && RESEARCH_VERB.test(plain);
 }

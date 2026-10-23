@@ -218,6 +218,8 @@ export type Routine = {
 	/** Id do modelo desta rotina. */
 	model: string;
 	allowChatgptPlan?: boolean;
+	/** Rotina de alerta: frase pronta ("Alerta · confere a cada 30 min · avisa se estoque de canela < 10"). A UI só mostra; o agente configura. */
+	alertSentence?: string;
 	/** Aviso ao fim da execução: sempre, ou só quando o bot julgar importante. Ausente = sempre. */
 	notify?: "always" | "important";
 	/** cron = agendamento; event = webhook/github; once = lembrete de uma vez só; interval = a cada N min. */
@@ -232,6 +234,8 @@ export type Routine = {
 		urlSecretAt?: string;
 	};
 	github?: RoutineGithubUiConfig;
+	/** Só rotina de e-mail recebido: filtros do gatilho (a UI só mostra; o agente configura). */
+	email?: { fromContains?: string; subjectContains?: string };
 };
 
 export const initialAgents: Agent[] = [
@@ -333,8 +337,8 @@ export type BotTag = {
 };
 
 type MessageVariant =
-	| { id: string; kind: "assistant"; text: string; bot?: BotTag; author?: MessageAuthor; runSource?: MessageSource; /** Run que gravou a fala (inspetor). */ runId?: string }
-	| { id: string; kind: "bot-link"; botId: string; botName: string; title: string; botMessageId?: string }
+	| { id: string; kind: "assistant"; text: string; bot?: BotTag; author?: MessageAuthor; runSource?: MessageSource; /** Run que gravou a fala (inspetor). */ runId?: string; /** Rascunho já exibido que o run refez: fica recolhido com o motivo (`DraftRevisionReason`). */ revised?: string }
+	| { id: string; kind: "bot-link"; botId: string; botName: string; title: string; botMessageId?: string; /** Sem resposta depois do prazo ("Bobinho ainda não respondeu"). */ overdue?: string }
 	| { id: string; kind: "needs-user"; botId: string; botName: string; title: string; botMessageId: string; need: BotNeed; status: "pending" | "resolved" }
 	| { id: string; kind: "auto-decision"; botId: string; botName: string; decision: "approved" | "rejected" | "answered"; note: string; subject: string; reason: string; status: "queued" | "applied" | "failed" }
 	| { id: string; kind: "images"; source: "user" | "assistant"; items: Array<{ artifactId: string; mime: string; width: number; height: number; alt?: string; name?: string }> }
