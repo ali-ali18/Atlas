@@ -11,7 +11,7 @@ test("histórico: falha mostra o motivo amigável em pt-BR, sem erro técnico ne
 });
 
 test("cartão 'Rotina criada' de alerta mostra a frase do alerta, não o cron", () => {
-	const sentence = "Alerta · verifica a cada 30 minutos · avisa se o estoque da canela cair abaixo de 10";
+	const sentence = "Alerta · confere a cada 30 minutos · avisa se o estoque da canela cair abaixo de 10";
 	assert.equal(routineCardSummary("interval", `${sentence}\nVerifica sozinho`), sentence);
 	assert.equal(routineCardSummary("cron", `${sentence}\nVerifica sozinho`), sentence);
 });
@@ -20,7 +20,7 @@ test("rotina de alerta ganha a frase do alerta; rotina comum não", () => {
 	const base = { id: "r1", botId: "b", name: "Estoque", prompt: "p", model: "m", enabled: true, triggerType: "interval", interval: { everyMinutes: 30 }, schedule: null, createdAt: "", updatedAt: "" } as unknown as RoutineRecord;
 	const alert = { condition: "estoque de canela abaixo de 10", active: false } as unknown as RoutineRecord["alert"];
 	const withAlert = recordToUiRoutine({ ...base, alert });
-	assert.match(withAlert.alertSentence ?? "", /^Alerta · verifica a cada 30 minutos · avisa se /);
+	assert.match(withAlert.alertSentence ?? "", /^Alerta · confere a cada 30 minutos · avisa se /);
 	assert.equal(recordToUiRoutine(base).alertSentence, undefined);
 });
 

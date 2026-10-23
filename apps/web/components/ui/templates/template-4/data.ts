@@ -218,7 +218,7 @@ export type Routine = {
 	/** Id do modelo desta rotina. */
 	model: string;
 	allowChatgptPlan?: boolean;
-	/** Rotina de alerta: frase pronta ("Alerta · verifica a cada 30 min · avisa se estoque de canela < 10"). A UI só mostra; o agente configura. */
+	/** Rotina de alerta: frase pronta ("Alerta · confere a cada 30 min · avisa se estoque de canela < 10"). A UI só mostra; o agente configura. */
 	alertSentence?: string;
 	/** Aviso ao fim da execução: sempre, ou só quando o bot julgar importante. Ausente = sempre. */
 	notify?: "always" | "important";

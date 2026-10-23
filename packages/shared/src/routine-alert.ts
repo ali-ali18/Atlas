@@ -7,6 +7,7 @@
  * novo; só volta a avisar depois que ela deixou de valer pelo menos uma vez.
  */
 import { describeRoutineProposalSchedule } from "./routine-proposal.js";
+import { describeAlertCron } from "./routine-alert-schedule.js";
 import type { RoutineTriggerType } from "./routines.js";
 
 export const ALERT_CONDITION_MIN = 3;
@@ -36,6 +37,10 @@ export type RoutineAlert = RoutineAlertConfig & {
 	lastSummary?: string;
 	/** A última verificação não chegou a um veredito (dados ilegíveis): o aviso de "não consegui verificar" sai uma vez só. */
 	unverified?: boolean;
+	/** Conferências tranquilas e iguais, seguidas (base do backoff do intervalo). */
+	quietStreak?: number;
+	/** Intervalo original e o atual depois de espaçar as conferências (ver `planAlertBackoff`). */
+	backoff?: { base: number; to: number };
 };
 
 export type ParseRoutineAlertResult = { ok: true; alert: RoutineAlertConfig } | { ok: false; error: string };
@@ -72,7 +77,15 @@ export function parseRoutineAlert(value: unknown): RoutineAlert | null {
 		...(typeof row.triggeredAt === "string" ? { triggeredAt: row.triggeredAt } : {}),
 		...(typeof row.lastSummary === "string" ? { lastSummary: row.lastSummary.slice(0, ALERT_SUMMARY_MAX) } : {}),
 		...(row.unverified === true ? { unverified: true } : {}),
+		...(typeof row.quietStreak === "number" && row.quietStreak > 0 ? { quietStreak: Math.trunc(row.quietStreak) } : {}),
+		...parseBackoff(row.backoff),
 	};
+}
+
+function parseBackoff(value: unknown): { backoff?: { base: number; to: number } } {
+	if (!value || typeof value !== "object") return {};
+	const { base, to } = value as Record<string, unknown>;
+	return typeof base === "number" && typeof to === "number" && base > 0 && to > base ? { backoff: { base, to } } : {};
 }
 
 /** Config nova mantendo o estado quando a condição não mudou; condição nova começa "de fora" (pode avisar na hora). */
@@ -156,10 +169,10 @@ export function alertConditionPhrase(condition: string): string {
 	return cleanLine(condition).replace(/^(?:avis(?:a|ar|e)\s+)?se\s+/i, "");
 }
 
-/** "Alerta · verifica a cada 30 min · avisa se o estoque da canela cair abaixo de 10" (sem cron nem modo interno). */
+/** "Alerta · confere a cada 30 min · avisa se o estoque da canela cair abaixo de 10" (sem cron nem modo interno). */
 export function formatRoutineAlertSentence(alert: Pick<RoutineAlertConfig, "condition">, cadence: string): string {
 	const when = lowerFirst(cleanLine(cadence));
-	return `Alerta · verifica ${when || "de tempos em tempos"} · avisa se ${alertConditionPhrase(alert.condition)}`;
+	return `Alerta · confere ${when || "de tempos em tempos"} · avisa se ${alertConditionPhrase(alert.condition)}`;
 }
 
 /** Frase do alerta de uma rotina (card, lista e detalhe), com a cadência lida do gatilho. null = não é rotina de alerta. */
@@ -170,8 +183,10 @@ export function describeRoutineAlertSentence(routine: {
 	interval?: { everyMinutes: number } | null;
 }): string | null {
 	if (!routine.alert?.condition) return null;
-	const cadence = describeRoutineProposalSchedule(
-		routine.triggerType === "interval" && routine.interval ? { everyMinutes: routine.interval.everyMinutes } : { schedule: routine.schedule ?? undefined },
-	);
+	const cadence =
+		(routine.triggerType === "cron" ? describeAlertCron(routine.schedule) : null) ??
+		describeRoutineProposalSchedule(
+			routine.triggerType === "interval" && routine.interval ? { everyMinutes: routine.interval.everyMinutes } : { schedule: routine.schedule ?? undefined },
+		);
 	return formatRoutineAlertSentence(routine.alert, cadence);
 }

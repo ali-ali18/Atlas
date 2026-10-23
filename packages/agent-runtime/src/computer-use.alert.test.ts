@@ -114,9 +114,9 @@ describe("propose_routine com alert (agent-first)", () => {
 			}),
 		);
 		expect(toolResults[0]).toMatchObject({ ok: true });
-		expect(toolResults[0]!.summary).toContain("Alerta · verifica a cada 30 minutos · avisa se o estoque de canela cair abaixo de 10");
+		expect(toolResults[0]!.summary).toContain("Alerta · confere a cada 30 minutos · avisa se o estoque de canela cair abaixo de 10");
 		expect(routines[0]).toMatchObject({ action: "created", triggerType: "interval" });
-		expect(routines[0]!.detail).toMatch(/^Alerta · verifica a cada 30 minutos/);
+		expect(routines[0]!.detail).toMatch(/^Alerta · confere a cada 30 minutos/);
 		expect(routines[0]!.detail).not.toMatch(/cron|\* \*/i);
 	});
 
@@ -246,7 +246,7 @@ describe("gerir alertas por conversa (tudo que o cartão da rotina faz)", () => 
 	it("'quais alertas eu tenho?' lista só os alertas, com condição e frequência, escopado pelo dono", async () => {
 		const { toolResults } = await run({ message: "quais alertas eu tenho?", calls: [...loaded(toolCall("c1", "list_routines", { only_alerts: true })), closing] });
 		expect(listRoutines).toHaveBeenCalledWith("user-1", "bot-1");
-		expect(toolResults.at(-1)!.summary).toContain("Alerta · verifica a cada 30 minutos · avisa se o estoque de canela cair abaixo de 10");
+		expect(toolResults.at(-1)!.summary).toContain("Alerta · confere a cada 30 minutos · avisa se o estoque de canela cair abaixo de 10");
 		expect(toolResults.at(-1)!.summary).not.toContain("Resumo da agenda");
 	});
 
