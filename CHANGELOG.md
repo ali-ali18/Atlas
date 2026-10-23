@@ -11,6 +11,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 - **worker:** retenção diária de `run_events` e execuções de rotina (#104)
 
 ### Alterado
+- **infra:** deploy por imagem pronta: o GitHub Actions monta as imagens depois do CI e publica no GHCR; o Dokploy só baixa, com limite de memória por serviço (#106)
 - **agent:** ferramentas carregadas ficam fixas na conversa, melhorando o cache (#103)
 - **agent, worker, api, db, web, auth:** pacote de desempenho: início do run sem esperas em série, buscas nativas em paralelo, `/v1/events` por LISTEN/NOTIFY, respostas comprimidas, sessão em cookie por 5 min, listas sem colunas JSON grandes, chat sem re-render por token (#104)
 
