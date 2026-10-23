@@ -158,9 +158,16 @@ export function draftLines(args: Record<string, unknown>): string[] {
 		}
 	}
 	if (Array.isArray(args.slides)) {
+		// Layouts ricos (stats, tabela, timeline, colunas...): todo texto do slide conta, inclusive notas.
+		const walk = (value: unknown, depth: number): void => {
+			if (depth > 6) return;
+			if (typeof value === "string") return push(value);
+			if (Array.isArray(value)) return value.forEach((item) => walk(item, depth + 1));
+			if (value && typeof value === "object") Object.values(value).forEach((item) => walk(item, depth + 1));
+		};
 		for (const slide of args.slides as Array<Record<string, unknown>>) {
-			push(slide?.title);
-			if (Array.isArray(slide?.bullets)) for (const bullet of slide.bullets) push(bullet);
+			const { layout: _layout, image: _image, chart: _chart, ...rest } = slide ?? {};
+			walk(rest, 0);
 		}
 	}
 	return lines;

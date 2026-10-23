@@ -3,12 +3,13 @@ import { abntMarkdownToDocx } from "./abnt-docx.js";
 import { measureAbntPages, renderAbntPdf } from "./abnt-pdf.js";
 import { markdownToDocx } from "./markdown-to-docx.js";
 import { renderPdf, type PrintPdf, type PrintPdfOptions } from "./pdf.js";
+import type { DeckImage } from "./deck/images.js";
 import { renderPptx } from "./pptx.js";
 import { renderXlsx } from "./xlsx.js";
 
 export type RenderedFile = { bytes: Uint8Array; mime: string; ext: string };
 
-export type RenderDeps = { printPdf?: PrintPdf };
+export type RenderDeps = { printPdf?: PrintPdf; deckImages?: Map<string, DeckImage> };
 
 const printWith = (deps: RenderDeps, html: string, options?: PrintPdfOptions) => deps.printPdf!(html, undefined, options);
 
@@ -36,7 +37,7 @@ export async function renderFile(input: CreateFileInput, deps: RenderDeps = {}):
 			bytes = await renderXlsx(input.sheets ?? []);
 			break;
 		case "pptx":
-			bytes = await renderPptx(input.slides ?? [], input.title);
+			bytes = await renderPptx(input.slides ?? [], { title: input.title, theme: input.theme, brandColor: input.brandColor, images: deps.deckImages });
 			break;
 		case "pdf": {
 			if (!deps.printPdf) throw new Error("PDF generation is not available on this server (no PDF printer configured).");

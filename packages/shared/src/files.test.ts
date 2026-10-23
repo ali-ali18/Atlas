@@ -84,7 +84,7 @@ describe("parseCreateFileArgs", () => {
 	it("pptx exige slides com título", () => {
 		expect(() => parseCreateFileArgs({ filename: "a.pptx", slides: [{ bullets: ["x"] }] })).toThrow(/title/);
 		const out = parseCreateFileArgs({ filename: "a.pptx", slides: [{ title: "Oi", bullets: ["a", " ", "b"] }] });
-		expect(out.slides).toEqual([{ title: "Oi", bullets: ["a", "b"] }]);
+		expect(out.slides).toEqual([{ layout: "bullets", title: "Oi", bullets: [{ text: "a", sub: [] }, { text: "b", sub: [] }] }]);
 	});
 	it("css só vale para pdf", () => {
 		expect(parseCreateFileArgs({ filename: "a.pdf", content: "# x", css: "h1{color:red}" }).css).toBe("h1{color:red}");

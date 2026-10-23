@@ -1,3 +1,5 @@
+import { parseDeckBrandColor, parseDeckSlides, parseDeckTheme, type DeckTheme, type SlideInput } from "./deck.js";
+
 /**
  * F9 — arquivos gerados pelo agente (PDF, Word, Excel, texto/código).
  * Só funções puras: formato pela extensão, nome seguro, MIME, validação dos
@@ -18,8 +20,6 @@ export const XLSX_MAX_SHEETS = 20;
 export const XLSX_MAX_ROWS = 5_000;
 export const XLSX_MAX_COLUMNS = 100;
 export const XLSX_MAX_CELL_CHARS = 5_000;
-export const PPTX_MAX_SLIDES = 60;
-export const PPTX_MAX_BULLETS = 20;
 /** Linhas por aba na prévia de planilha. */
 export const PREVIEW_MAX_ROWS = 500;
 /** Texto máximo na prévia de texto/código. */
@@ -193,7 +193,6 @@ export function formatFileSize(bytes: number): string {
 
 export type SheetCell = string | number | boolean | null;
 export type SheetInput = { name: string; columns?: string[]; rows: SheetCell[][] };
-export type SlideInput = { title: string; bullets: string[] };
 
 export const FILE_LAYOUTS = ["default", "abnt"] as const;
 export type FileLayout = (typeof FILE_LAYOUTS)[number];
@@ -206,6 +205,9 @@ export type CreateFileInput = {
 	content?: string;
 	sheets?: SheetInput[];
 	slides?: SlideInput[];
+	/** Só pptx: tema visual e cor da marca (hex). */
+	theme?: DeckTheme;
+	brandColor?: string;
 	title?: string;
 	css?: string;
 	/** Só docx/pdf: "abnt" aplica o layout da NBR 14724. Ausente = layout de sempre. */
@@ -292,25 +294,6 @@ export function parseSheets(value: unknown): SheetInput[] {
 	});
 }
 
-export function parseSlides(value: unknown): SlideInput[] {
-	if (!Array.isArray(value) || value.length === 0) fail("slides must be a non-empty array of { title, bullets[] }.");
-	if (value.length > PPTX_MAX_SLIDES) fail(`Too many slides (max ${PPTX_MAX_SLIDES}).`);
-	return value.map((raw, index) => {
-		if (!raw || typeof raw !== "object") fail(`slides[${index}] must be an object.`);
-		const slide = raw as Record<string, unknown>;
-		const title = asTrimmedString(slide.title, 300, `slides[${index}].title`);
-		if (!title) fail(`slides[${index}].title is required.`);
-		const bulletsRaw = slide.bullets === undefined ? [] : slide.bullets;
-		if (!Array.isArray(bulletsRaw) || bulletsRaw.length > PPTX_MAX_BULLETS) {
-			fail(`slides[${index}].bullets must be an array of up to ${PPTX_MAX_BULLETS} strings.`);
-		}
-		return {
-			title,
-			bullets: bulletsRaw.map((b) => String(b ?? "").trim().slice(0, 500)).filter(Boolean),
-		};
-	});
-}
-
 function parseLayout(value: unknown): FileLayout | undefined {
 	if (value === undefined || value === null || value === "") return undefined;
 	const layout = typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -334,7 +317,16 @@ export function parseCreateFileArgs(args: Record<string, unknown>): CreateFileIn
 		return { filename, format: kind, ext, sheets: parseSheets(args.sheets), ...(title ? { title } : {}) };
 	}
 	if (kind === "pptx") {
-		return { filename, format: kind, ext, slides: parseSlides(args.slides), ...(title ? { title } : {}) };
+		const brandColor = parseDeckBrandColor(args.brand_color);
+		return {
+			filename,
+			format: kind,
+			ext,
+			slides: parseDeckSlides(args.slides),
+			theme: parseDeckTheme(args.theme),
+			...(brandColor ? { brandColor } : {}),
+			...(title ? { title } : {}),
+		};
 	}
 	if (typeof args.content !== "string" || args.content.length === 0) {
 		fail(`content is required for .${ext} files (${kind === "text" ? "the file text" : "Markdown"}).`);

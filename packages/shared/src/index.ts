@@ -248,6 +248,7 @@ export {
 export { parseSseBlock } from "./sse.js";
 export * from "./read-state.js";
 export * from "./files.js";
+export * from "./deck.js";
 export * from "./attachments.js";
 export {
 	parseSkillRecipe,
