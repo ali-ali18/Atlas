@@ -1,4 +1,4 @@
-import { buildPartial, createTaskLedger, openItems, parseTaskLedger, renderLedgerLayer, type TaskLedger } from "@workspace/shared";
+import { buildPartial, createTaskLedger, markItemsCarried, obligatedOpenItems, openItems, parseTaskLedger, renderLedgerLayer, type TaskLedger } from "@workspace/shared";
 import type { LedgerStore } from "../tools/track-items.js";
 import { ITEM_GATE_MAX_BLOCKS, ITEM_GATE_RELEASE_AT, PARTIAL_DELIVERY_NOTE, decideItemGate, type GateDecision, type GateEvent } from "./item-gate.js";
 import { advanceReplan, evaluateProgress, type StepSignal } from "./progress-ledger.js";
@@ -39,7 +39,7 @@ export function createTaskOrchestrator(options: {
 		const prior = parseTaskLedger(options.prior);
 		if (prior && openItems(prior).length > 0) {
 			const { partial: _partial, stopped: _stopped, ...rest } = prior;
-			tracker.setLedger({ ...rest, stalled: 0, replans: 0, gateBlocks: 0, carry: "offered" });
+			tracker.setLedger(markItemsCarried({ ...rest, stalled: 0, replans: 0, gateBlocks: 0, carry: "offered" }));
 		}
 	}
 	let recent: StepSignal[] = [];
@@ -65,7 +65,7 @@ export function createTaskOrchestrator(options: {
 		},
 		hasOpenItems(): boolean {
 			const ledger = tracker.ledger();
-			return Boolean(ledger && ledger.carry !== "offered" && ledger.carry !== "asked" && openItems(ledger).length > 0);
+			return Boolean(ledger && obligatedOpenItems(ledger).length > 0);
 		},
 		/** Portão de `create_file` e da resposta final. Conta a interceptação e grava a parcial declarada. */
 		gate(event: GateEvent, context: GateContext): GateDecision {
@@ -81,13 +81,13 @@ export function createTaskOrchestrator(options: {
 		/** Entrega liberada com itens abertos (orçamento >= 80% ou 3 interceptações): pede a verdade sobre as lacunas. */
 		gapsNote(budgetFraction: number): string | null {
 			const ledger = tracker.ledger();
-			if (!ledger || ledger.carry === "offered" || ledger.carry === "asked" || openItems(ledger).length === 0) return null;
+			if (!ledger || obligatedOpenItems(ledger).length === 0) return null;
 			return budgetFraction >= ITEM_GATE_RELEASE_AT || ledger.gateBlocks >= ITEM_GATE_MAX_BLOCKS ? PARTIAL_DELIVERY_NOTE : null;
 		},
 		/** Depois de M replans e K passos sem progresso: fecha com a entrega parcial (sem mais tools). */
 		stopRequested(): boolean {
 			const ledger = tracker.ledger();
-			return Boolean(ledger?.stopped && openItems(ledger).length > 0);
+			return Boolean(ledger?.stopped && obligatedOpenItems(ledger).length > 0);
 		},
 		/** Fecha uma decisão de ferramenta; devolve o aviso de replanejamento/parcial, se for a hora. */
 		endDecision(input: { actionKey: string; novelty: number | undefined; bookkeepingOnly: boolean }): { note: string | null; stop: boolean } {

@@ -1,4 +1,4 @@
-import { describeOpenItems, openItems, type TaskLedger } from "@workspace/shared";
+import { describeOpenItems, obligatedOpenItems, type TaskLedger } from "@workspace/shared";
 import { RESERVE_NOTE_AT } from "./run-governor.js";
 
 /**
@@ -32,9 +32,9 @@ export type GateDecision =
 
 /** Textos voltados ao modelo: neutros, em inglês. */
 export function itemsOpenNote(ledger: TaskLedger, browserAvailable: boolean): string {
-	const open = openItems(ledger);
+	const open = obligatedOpenItems(ledger);
 	return [
-		`${open.length} item${open.length === 1 ? " is" : "s are"} still open: ${describeOpenItems(ledger)}.`,
+		`${open.length} item${open.length === 1 ? " is" : "s are"} still open: ${describeOpenItems({ ...ledger, items: open })}.`,
 		"Continue with the next open item using your tools.",
 		...(browserAvailable ? ["Content that is visible in the browser is yours to read; do not ask the user to paste it."] : []),
 		"Deliver or answer only when every item is done, or failed for a real reason (login, captcha, permission, not found).",
@@ -50,7 +50,8 @@ export const PARTIAL_DELIVERY_NOTE =
 
 export function decideItemGate(input: GateInput): GateDecision {
 	const { ledger } = input;
-	const open = ledger ? openItems(ledger) : [];
+	// Herdado não tocado neste run não é obrigação (camada do ledger): não segura resposta nem arquivo.
+	const open = ledger ? obligatedOpenItems(ledger) : [];
 	if (!input.canContinue) return { action: "allow", declareGaps: open.length > 0 };
 	if (!ledger || ledger.items.length === 0) {
 		if (input.requireLedger && (ledger?.gateBlocks ?? 0) < ITEM_GATE_MAX_BLOCKS) {

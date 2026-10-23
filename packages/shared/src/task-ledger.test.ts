@@ -7,6 +7,8 @@ import {
 	currentItem,
 	describeOpenItems,
 	isLedgerSatisfied,
+	markItemsCarried,
+	obligatedOpenItems,
 	parseTaskLedger,
 	parseTaskState,
 	renderLedgerLayer,
@@ -172,5 +174,33 @@ describe("checkpoint", () => {
 		const ledger = updateLedgerItem(setLedgerItems(createTaskLedger(), weeks(2)), { id: "1", status: "done", evidence: "x" });
 		const round = parseTaskState(JSON.parse(JSON.stringify({ ...state, ledger })));
 		expect(round?.ledger?.items[0]).toMatchObject({ id: "1", status: "done", evidence: "x" });
+	});
+});
+
+describe("itens herdados (carried)", () => {
+	const inherited = () => ({ ...markItemsCarried(setLedgerItems(createTaskLedger(), weeks(3))), carry: "offered" as const });
+
+	it("lista oferecida não obriga nada; atualizar um item adota só ele", () => {
+		const offered = inherited();
+		expect(obligatedOpenItems(offered)).toEqual([]);
+		const adopted = updateLedgerItem(offered, { id: "1", status: "in_progress" });
+		expect(adopted.carry).toBe("adopted");
+		expect(obligatedOpenItems(adopted).map((item) => item.id)).toEqual(["1"]);
+		const closed = updateLedgerItem(adopted, { id: "1", status: "done", evidence: "x" });
+		expect(obligatedOpenItems(closed)).toEqual([]);
+		// os outros seguem visíveis como abertos, só não são obrigação deste run
+		expect(closed.items.filter((item) => item.carried).map((item) => item.id)).toEqual(["2", "3"]);
+		expect(buildPartial(closed, "n/a").missing).toEqual([]);
+	});
+
+	it("set com os itens herdados os adota explicitamente", () => {
+		const reset = setLedgerItems(inherited(), weeks(2));
+		expect(obligatedOpenItems(reset).map((item) => item.id)).toEqual(["1", "2"]);
+		expect(reset.items.some((item) => item.carried)).toBe(false);
+	});
+
+	it("carried sobrevive ao checkpoint", () => {
+		const round = parseTaskLedger(JSON.parse(JSON.stringify(inherited())));
+		expect(round?.items.every((item) => item.carried === true)).toBe(true);
 	});
 });

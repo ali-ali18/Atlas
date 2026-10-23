@@ -358,6 +358,22 @@ describe("replay: continuação entre runs", () => {
 		expect(lastTaskState(checkpoints)?.ledger).toBeUndefined();
 	});
 
+	it("checklist herdado com 2 itens: fechar só um não torna o outro obrigação (cenário B, sem descarte)", async () => {
+		const prior = { ...proposta(), items: proposta().items.slice(0, 2) };
+		const FINAL = "Item A conferido: R$ 12,90.";
+		const { events, result, checkpoints } = await run({
+			message: "confere o item A da proposta",
+			jev: jevSaying({}),
+			priorTaskLedger: prior,
+			driver: ({ index }) => (index === 0 ? turn(call("u1", "track_items", { action: "update", id: "1", status: "done", evidence: "R$ 12,90" })) : say(FINAL)),
+		});
+		expect(events.filter((e) => e.type === "assistant_discard")).toHaveLength(0);
+		expect(result?.text).toBe(FINAL);
+		const ledger = lastTaskState(checkpoints)?.ledger;
+		expect(ledger?.carry).toBe("adopted");
+		expect(ledger?.items.find((item) => item.id === "2")).toMatchObject({ status: "pending", carried: true });
+	});
+
 	it("checklist adotado no mesmo run continua persistindo", async () => {
 		const { checkpoints } = await run({
 			message: "continue a proposta 3801",

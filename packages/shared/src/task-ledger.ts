@@ -29,6 +29,11 @@ export type LedgerItem = {
 	ref?: string;
 	reason?: LedgerFailReason;
 	detail?: string;
+	/**
+	 * Veio de um run anterior e ainda não foi tocado neste run. Adotar a lista (atualizar um
+	 * item) não torna os demais herdados obrigação: só `set` com o item ou `update` nele o adota.
+	 */
+	carried?: true;
 };
 
 /** `offered`: ledger herdado de um run anterior da conversa, ainda não adotado neste run. */
@@ -98,6 +103,7 @@ function parseItem(raw: unknown): LedgerItem | null {
 	const ref = clean(raw.ref, 120);
 	const reason = [...LEDGER_FAIL_REASONS, LEDGER_SUBAGENT_FAIL_REASON].find((value) => value === raw.reason);
 	const detail = clean(raw.detail, LEDGER_TEXT_CHARS);
+	const carried = raw.carried === true;
 	return {
 		id,
 		label,
@@ -107,6 +113,7 @@ function parseItem(raw: unknown): LedgerItem | null {
 		...(ref ? { ref } : {}),
 		...(reason ? { reason } : {}),
 		...(detail ? { detail } : {}),
+		...(carried ? { carried: true as const } : {}),
 	};
 }
 
@@ -152,6 +159,20 @@ export const isOpenItem = (item: LedgerItem) => item.status === "pending" || ite
 
 export function openItems(ledger: TaskLedger): LedgerItem[] {
 	return ledger.items.filter(isOpenItem);
+}
+
+/**
+ * Itens abertos que este run deve fechar antes de entregar (portão, estagnação, parcial).
+ * Lista só oferecida não obriga; numa lista adotada, herdado não tocado também não.
+ */
+export function obligatedOpenItems(ledger: TaskLedger): LedgerItem[] {
+	if (ledger.carry === "offered" || ledger.carry === "asked") return [];
+	return ledger.items.filter((item) => isOpenItem(item) && !item.carried);
+}
+
+/** Marca todos os itens como herdados (início de um run que recebe a lista de outro). */
+export function markItemsCarried(ledger: TaskLedger): TaskLedger {
+	return { ...ledger, items: ledger.items.map((item) => ({ ...item, carried: true as const })) };
 }
 
 export function countDone(ledger: TaskLedger): number {
@@ -205,7 +226,11 @@ export function setLedgerItems(
 			id = String(n);
 		}
 		used.add(id);
-		if (known) return { ...known, id, label, ...(scope ? { scope } : {}) };
+		// Item listado de novo num `set` é adotado explicitamente: deixa de ser só herdado.
+		if (known) {
+			const { carried: _carried, ...rest } = known;
+			return { ...rest, id, label, ...(scope ? { scope } : {}) };
+		}
 		return { id, label, status: "pending", ...(scope ? { scope } : {}) };
 	});
 	const factsGiven = extras?.factsGiven === undefined ? ledger.factsGiven : cleanList(extras.factsGiven, MAX_LEDGER_FACTS, LEDGER_TEXT_CHARS);
@@ -303,7 +328,7 @@ export function renderLedgerLayer(ledger: TaskLedger, maxChars = LEDGER_LAYER_CH
 /** Entrega parcial honesta: o que faltou e o motivo (campo estruturado). */
 export function buildPartial(ledger: TaskLedger, fallbackReason: string): NonNullable<TaskLedger["partial"]> {
 	const missing = ledger.items
-		.filter((item) => item.status !== "done")
+		.filter((item) => item.status !== "done" && !(item.carried && isOpenItem(item)))
 		.map((item) => ({
 			id: item.id,
 			label: item.label,
