@@ -102,6 +102,8 @@ export function resolveBackground(node: HTMLElement): string {
 	return "#ffffff";
 }
 
+const SHARE_MARGIN = 16;
+
 /**
  * Desenha o nó (com o tema atual) e acrescenta o rodapé "bot · data". Elementos com `data-share-ignore`
  * (o próprio botão de compartilhar) ficam de fora.
@@ -120,19 +122,21 @@ export async function renderShareCanvas(node: HTMLElement, options: ShareRenderO
 	});
 	const footer = Math.round(FOOTER_HEIGHT * ratio);
 	const canvas = document.createElement("canvas");
-	canvas.width = drawn.width;
-	canvas.height = drawn.height + footer;
+	// Margem em volta: o painel/gráfico não encosta na borda da imagem.
+	const margin = Math.round(SHARE_MARGIN * ratio);
+	canvas.width = drawn.width + margin * 2;
+	canvas.height = drawn.height + margin * 2 + footer;
 	const ctx = canvas.getContext("2d");
 	if (!ctx) throw new Error("canvas indisponível");
 	ctx.fillStyle = background;
 	ctx.fillRect(0, 0, canvas.width, canvas.height);
-	ctx.drawImage(drawn, 0, 0);
+	ctx.drawImage(drawn, margin, margin);
 	ctx.fillStyle = body.color || "#666666";
 	ctx.globalAlpha = 0.6;
 	ctx.font = `${Math.round(12 * ratio)}px ${body.fontFamily || "sans-serif"}`;
 	ctx.textBaseline = "middle";
 	ctx.textAlign = "right";
-	ctx.fillText(shareFooterText(options.botName, now), canvas.width - Math.round(16 * ratio), drawn.height + footer / 2);
+	ctx.fillText(shareFooterText(options.botName, now), canvas.width - margin, margin + drawn.height + footer / 2);
 	ctx.globalAlpha = 1;
 	return canvas;
 }
