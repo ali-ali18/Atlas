@@ -504,16 +504,26 @@ export async function escalatePendingNeed(input: { message: { id: string; userId
 	return posted;
 }
 
+/**
+ * Marcadores "precisa de você" ainda pendentes, mais antigos primeiro. O varredor roda a cada poucos
+ * segundos: os predicados são literais e IGUAIS aos do índice parcial
+ * `conversation_messages_needs_user_pending_idx` (migration 20261201000000), assim o Postgres lê só esse
+ * índice minúsculo em vez de varrer `conversation_messages` inteira. Mudou o texto aqui? Mude o índice junto.
+ */
+export async function listPendingNeedsUserMarkers(limit: number): Promise<Array<{ id: string; content: string }>> {
+	return prisma.$queryRaw<Array<{ id: string; content: string }>>`
+		SELECT "id", "content" FROM "conversation_messages"
+		WHERE "role" = 'bot-link'
+		  AND "content" LIKE '%"kind":"needs-user"%'
+		  AND "content" LIKE '%"status":"pending"%'
+		ORDER BY "createdAt" ASC
+		LIMIT ${limit}
+	`;
+}
+
 /** O pedido relayado foi atendido (card resolvido, run retomado/encerrado ou card sumiu): marca como resolvido. */
 async function resolveNeedsUser(): Promise<number> {
-	const rows = await prisma.conversationMessage.findMany({
-		where: {
-			role: BOT_LINK_ROLE,
-			AND: [{ content: { contains: '"kind":"needs-user"' } }, { content: { contains: '"status":"pending"' } }],
-		},
-		orderBy: { createdAt: "asc" },
-		take: SWEEP_BATCH * 2,
-	});
+	const rows = await listPendingNeedsUserMarkers(SWEEP_BATCH * 2);
 	let resolved = 0;
 	for (const row of rows) {
 		const card = parseBotNeedsUserCard(row.content);
