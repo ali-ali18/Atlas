@@ -66,6 +66,7 @@ export {
 	searchConversationHistory,
 	type ConversationHistoryHit,
 } from "./conversation-history-search.js";
+export { searchOtherBotsConversations, type UserConversationHit } from "./user-conversations-search.js";
 export {
 	searchConversationMessages,
 	type ConversationSearchHit,
