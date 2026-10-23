@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCwIcon, Trash2Icon } from "lucide-react";
+import { CheckIcon, FolderIcon, MoreHorizontalIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	AlertDialog,
@@ -13,15 +13,29 @@ import {
 	AlertDialogTitle,
 } from "@workspace/ui/components/alert-dialog";
 import { Button } from "@workspace/ui/components/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
+	DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu";
+import { groupPagesForDisplay } from "@workspace/shared";
 import { PageDialog } from "@/components/ai-elements/pages";
 import { LIBRARY_REFRESH_EVENT } from "@/components/ai-elements/files/file-attachment";
 import { cn } from "@workspace/ui/lib/utils";
 import { useLongPress } from "@/hooks/use-long-press";
-import { type AtlasPage, type AtlasPageListItem, deletePage, getPage, listBotPages } from "@/lib/atlas-api";
+import { type AtlasPage, type AtlasPageListItem, deletePage, getPage, listBotPages, listRoutineGroups, movePageToGroup } from "@/lib/atlas-api";
 import { PAGES_REFRESH_EVENT } from "@/lib/pages-refresh";
 import type { Routine } from "../data";
 import { type PageCardModel, pageCardModel, updatedAgo } from "./library-sections";
+import { PageGroupBlock } from "./page-group-block";
 import { routineScheduleSummary } from "./routine-map";
+
+export type PageGroupOption = { id: string; name: string };
 
 export const PAGES_EMPTY_TEXT =
 	"Peça ao bot um painel ou relatório, como “monta um painel das vendas da semana”, e o painel fica guardado aqui para você abrir e atualizar.";
@@ -44,7 +58,14 @@ function PageRow({
 	onOpen,
 	onDelete,
 	onReveal,
+	groups,
+	explicitGroupId,
+	onMove,
 }: {
+	groups?: readonly PageGroupOption[];
+	/** Grupo escolhido para o painel (null: sem grupo ou só o da rotina). */
+	explicitGroupId?: string | null;
+	onMove?: (groupId: string | null) => void;
 	model: PageCardModel;
 	busy: boolean;
 	/** Toque: a lixeira foi revelada por pressão longa neste item. */
@@ -77,6 +98,46 @@ function PageRow({
 				{meta ? <span className="truncate text-muted-foreground text-xs">{meta}</span> : null}
 				{model.routine ? <span className="truncate text-muted-foreground text-xs">{model.routine}</span> : null}
 			</button>
+			{onMove ? (
+				<DropdownMenu>
+					<DropdownMenuTrigger
+						render={
+							<Button
+								aria-label={`Mais ações do painel ${model.title}`}
+								className="my-1 self-start [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/row:opacity-100 [@media(hover:hover)]:group-focus-within/row:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100"
+								size="icon-sm"
+								type="button"
+								variant="ghost"
+							/>
+						}
+					>
+						<MoreHorizontalIcon aria-hidden />
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end">
+						<DropdownMenuSub>
+							<DropdownMenuSubTrigger>
+								<FolderIcon aria-hidden />
+								Mover para grupo
+							</DropdownMenuSubTrigger>
+							<DropdownMenuSubContent>
+								{(groups ?? []).length === 0 ? <DropdownMenuItem disabled>Nenhum grupo ainda</DropdownMenuItem> : null}
+								{(groups ?? []).map((group) => (
+									<DropdownMenuItem key={group.id} onClick={() => onMove(group.id)}>
+										{explicitGroupId === group.id ? <CheckIcon aria-hidden /> : null}
+										{group.name}
+									</DropdownMenuItem>
+								))}
+								{explicitGroupId ? (
+									<>
+										<DropdownMenuSeparator />
+										<DropdownMenuItem onClick={() => onMove(null)}>Sem grupo</DropdownMenuItem>
+									</>
+								) : null}
+							</DropdownMenuSubContent>
+						</DropdownMenuSub>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			) : null}
 			<Button
 				aria-label={`Apagar painel ${model.title}`}
 				className={cn(
@@ -104,7 +165,12 @@ export function PagesList({
 	revealedId: initialRevealedId = null,
 	onOpen,
 	onDelete,
+	groups,
+	onMove,
 }: {
+	/** Grupos do bot (os mesmos das rotinas), para as seções e o menu "Mover para grupo". */
+	groups?: readonly PageGroupOption[];
+	onMove?: (item: AtlasPageListItem, groupId: string | null) => void;
 	items: readonly AtlasPageListItem[];
 	routineByPage?: ReadonlyMap<string, string>;
 	now?: Date;
@@ -130,22 +196,42 @@ export function PagesList({
 	if (items.length === 0) {
 		return <p className="px-2 py-6 text-center text-muted-foreground text-xs leading-relaxed">{PAGES_EMPTY_TEXT}</p>;
 	}
+	// Sem a lista de grupos (teste, carga falhou) as seções saem dos nomes que a própria listagem traz.
+	const knownGroups: PageGroupOption[] = groups ? [...groups] : [];
+	if (!groups) {
+		for (const item of items) {
+			if (item.groupId && item.groupName && !knownGroups.some((group) => group.id === item.groupId)) knownGroups.push({ id: item.groupId, name: item.groupName });
+		}
+	}
+	const sections = groupPagesForDisplay(items, knownGroups);
+	const row = (item: AtlasPageListItem) => (
+		<PageRow
+			busy={openingId === item.id}
+			explicitGroupId={item.explicitGroupId ?? null}
+			groups={knownGroups}
+			key={item.id}
+			model={pageCardModel(item, routineByPage?.get(item.id) ?? null, now)}
+			onDelete={() => {
+				setRevealedId(null);
+				onDelete?.(item);
+			}}
+			onMove={onMove ? (groupId) => onMove(item, groupId) : undefined}
+			onOpen={() => onOpen?.(item.id)}
+			onReveal={() => setRevealedId(item.id)}
+			revealed={revealedId === item.id}
+		/>
+	);
 	return (
 		<ul aria-label="Painéis do Bot" ref={listRef} className="m-0 flex list-none flex-col gap-2 p-0">
-			{items.map((item) => (
-				<PageRow
-					busy={openingId === item.id}
-					key={item.id}
-					model={pageCardModel(item, routineByPage?.get(item.id) ?? null, now)}
-					onDelete={() => {
-						setRevealedId(null);
-						onDelete?.(item);
-					}}
-					onOpen={() => onOpen?.(item.id)}
-					onReveal={() => setRevealedId(item.id)}
-					revealed={revealedId === item.id}
-				/>
-			))}
+			{sections.map((section) => {
+				if (section.groupId === null) return section.items.map(row);
+				const group = knownGroups.find((candidate) => candidate.id === section.groupId);
+				return (
+					<PageGroupBlock count={section.items.length} id={section.groupId} key={section.groupId} name={group?.name ?? ""}>
+						{section.items.map(row)}
+					</PageGroupBlock>
+				);
+			})}
 		</ul>
 	);
 }
@@ -157,10 +243,16 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 	const [opened, setOpened] = useState<AtlasPage | null>(null);
 	const [openingId, setOpeningId] = useState<string | null>(null);
 	const [pendingDelete, setPendingDelete] = useState<AtlasPageListItem | null>(null);
+	const [groups, setGroups] = useState<PageGroupOption[] | undefined>(undefined);
 	const routineByPage = routineSummaryByPage(routines);
 
 	const reload = useCallback(() => {
 		let stale = false;
+		listRoutineGroups(botId)
+			.then((list) => {
+				if (!stale) setGroups(list.map((group) => ({ id: group.id, name: group.name })));
+			})
+			.catch(() => undefined);
 		listBotPages(botId, 50)
 			.then((list) => {
 				if (stale) return;
@@ -177,6 +269,7 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 
 	useEffect(() => {
 		setItems(null);
+		setGroups(undefined);
 		setOpened(null);
 	}, [botId]);
 
@@ -215,6 +308,16 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 		}
 	}
 
+	async function move(item: AtlasPageListItem, groupId: string | null) {
+		try {
+			await movePageToGroup(item.id, groupId);
+			setError(null);
+			reload();
+		} catch {
+			setError("Não consegui mover o painel agora. Tente de novo.");
+		}
+	}
+
 	async function confirmDelete() {
 		const target = pendingDelete;
 		setPendingDelete(null);
@@ -234,7 +337,7 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 			{items === null ? (
 				error ? null : <div aria-live="polite" className="h-16 animate-pulse rounded-xl bg-muted/40 motion-reduce:animate-none" data-testid="pages-loading" />
 			) : (
-				<PagesList items={items} onDelete={setPendingDelete} onOpen={open} openingId={openingId} routineByPage={routineByPage} />
+				<PagesList groups={groups} items={items} onDelete={setPendingDelete} onMove={move} onOpen={open} openingId={openingId} routineByPage={routineByPage} />
 			)}
 			{error ? (
 				<p className="m-0 text-destructive text-xs" role="alert">

@@ -667,6 +667,11 @@ export type AtlasPageListItem = {
 	sourceCount: number;
 	updatedAt: string;
 	refreshedAt: string | null;
+	/** Grupo efetivo (o mesmo das rotinas): o escolhido ou, na falta, o da rotina que atualiza o painel. */
+	groupId?: string | null;
+	/** Grupo escolhido para o painel; null quando o grupo vem só da rotina. */
+	explicitGroupId?: string | null;
+	groupName?: string | null;
 };
 
 /** Página do usuário (revisão atual). 404 = não existe ou foi apagada. */
@@ -679,6 +684,11 @@ export async function listBotPages(botId: string, limit?: number): Promise<Atlas
 	const suffix = limit ? `?limit=${limit}` : "";
 	const body = await atlasFetch<{ items: AtlasPageListItem[] }>(`/v1/bots/${encodeURIComponent(botId)}/pages${suffix}`);
 	return body.items;
+}
+
+/** Move o painel para um grupo (o mesmo das rotinas) ou tira dele (`null`). */
+export async function movePageToGroup(pageId: string, groupId: string | null): Promise<void> {
+	await atlasFetch(`/v1/pages/${encodeURIComponent(pageId)}`, { method: "PATCH", body: JSON.stringify({ groupId }) });
 }
 
 export async function deletePage(pageId: string): Promise<void> {

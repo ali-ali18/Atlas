@@ -84,3 +84,32 @@ test("lixeira some até o hover/foco no mouse e até a pressão longa no toque",
 	assert.doesNotMatch(first.slice(first.indexOf("Apagar painel Vendas")), /hover:none\)\]:hidden/);
 	assert.match(second, /\[@media\(hover:none\)\]:hidden/);
 });
+
+test("painéis agrupados: bloco do grupo com 'N painéis' e, depois, os sem grupo", () => {
+	const html = renderToStaticMarkup(
+		<PagesList
+			groups={[{ id: "g1", name: "Vendas Loja Exemplo" }, { id: "g2", name: "Financeiro" }]}
+			items={[
+				page({ id: "p1", title: "Funil", groupId: "g1", explicitGroupId: "g1" }),
+				page({ id: "p2", title: "Solto" }),
+				page({ id: "p3", title: "Meta", groupId: "g1", explicitGroupId: null }),
+			]}
+			now={now}
+			onMove={() => undefined}
+		/>,
+	);
+	assert.match(html, /data-page-group="g1"/);
+	assert.doesNotMatch(html, /data-page-group="g2"/);
+	assert.match(html, />Vendas Loja Exemplo</);
+	assert.match(html, />2 painéis</);
+	assert.match(html, /aria-label="Recolher grupo Vendas Loja Exemplo"/);
+	assert.ok(html.indexOf('data-page-card="p2"') > html.indexOf('data-page-card="p3"'));
+	assert.match(html, /aria-label="Mais ações do painel Funil"/);
+});
+
+test("sem a lista de grupos, as seções saem do nome que a listagem traz; sem onMove não há menu", () => {
+	const html = renderToStaticMarkup(<PagesList items={[page({ groupId: "g9", groupName: "Clima" })]} now={now} />);
+	assert.match(html, /data-page-group="g9"/);
+	assert.match(html, />1 painel</);
+	assert.doesNotMatch(html, /Mais ações do painel/);
+});
