@@ -96,6 +96,16 @@ flowchart LR
 - **Túnel genérico (ngrok/Cloudflare Tunnel):** expõe uma porta e um serviço de terceiros. O túnel próprio de saída reaproveita a autenticação e o escopo do Atlas.
 - **Agente local completo (LLM rodando no PC):** mais privacidade, mas duplica o runtime. A nuvem continua decidindo e o PC só executa.
 
+## Modo "assumir o controle"
+
+Além de agir app por app, o bot pode **assumir o PC inteiro** durante uma tarefa (como o agente do ChatGPT):
+
+- O usuário entrega o controle ("pode assumir") ou já deixou "controle total" liberado. O app mostra uma moldura e um contador ("Atlas no controle · Esc para retomar") e passa a responder sem pedir app por app, exceto nos apps bloqueados.
+- O que deixa o controle certeiro: ciclo curto **ver → agir → conferir** em cada passo. Antes de agir, o bot lê a árvore de acessibilidade e a tela. Depois, confere se a tela mudou como esperado; se não mudou, tenta outro caminho (atalho de teclado, outro elemento) antes de seguir.
+- Prioridade das ações: atalhos de teclado e ações por elemento, depois clique por coordenada. Screenshots em resolução real da tela (escalada só para o modelo) e com o DPI do Windows considerado.
+- Qualquer movimento real de mouse ou teclado do usuário, ou Esc, devolve o controle na hora. O bot recebe o evento e para.
+- Fim da tarefa: o controle volta sozinho e o chat mostra o resumo com o que foi feito, e a auditoria guarda cada passo.
+
 ## Plataformas
 
 - **Fase 1: só Windows 10/11.** É onde o dono testa. Instalador NSIS/MSI, WebView2 (já vem no Windows 11), UI Automation, assinatura com um certificado só.
