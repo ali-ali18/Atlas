@@ -109,3 +109,22 @@ export function routeContextGroups(input: {
 	}
 	return groups;
 }
+
+const COUNT_WORDS = "[2-9]|10|dois|duas|tres|quatro|cinco|seis|two|three|four|five|six|dos|cuatro";
+const PARALLEL_TARGETS =
+	"lojas|fornecedor\\w*|sites|fontes|empresas|clientes|produtos|concorrentes|marcas|bancos|planos|opcoes|alternativas|cidades|universidades|cursos|ferramentas|modelos|repositorios|repos|documentos|artigos|papers|stores|shops|suppliers|vendors|sources|companies|clients|customers|products|competitors|brands|banks|plans|options|alternatives|cities|tools|models|documents|articles|tiendas|proveedores";
+/** "3 fornecedores", "cinco lojas", "two suppliers". */
+const COUNTED_TARGETS = new RegExp(`\\b(${COUNT_WORDS})\\s+(${PARALLEL_TARGETS})\\b`);
+/** Pesquisa/comparação: o verbo que torna as partes leituras independentes. */
+const RESEARCH_VERB = /\b(pesquis\w+|busc\w+|procur\w+|compar\w+|cot\w+|levant\w+|analis\w+|avali\w+|research\w*|search\w*|compare\w*|look up|find|investig\w+|benchmark\w*|review\w*|revis\w+)\b/;
+
+/**
+ * Pedido que divide em partes independentes que valem um subagente cada (mesma pesquisa em N
+ * fontes, comparar N itens): só por palavra-chave, sem chamada ao modelo. Serve de reserva
+ * quando o Jev de delegação está desligado ou não respondeu; conversa curta nunca casa.
+ */
+export function delegationCue(text: string): boolean {
+	const plain = normalize(text ?? "");
+	if (plain.length < 12) return false;
+	return COUNTED_TARGETS.test(plain) && RESEARCH_VERB.test(plain);
+}

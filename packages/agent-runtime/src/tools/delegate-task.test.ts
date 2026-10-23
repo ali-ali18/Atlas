@@ -5,6 +5,7 @@ import { P_DELEGATION, P_TAIL } from "../context/prompt-blocks.js";
 import { SUBAGENT_SYSTEM_PROMPT } from "./subagent-prompt.js";
 import { createResearchNotes } from "./research-note.js";
 import {
+	DELEGATE_TASK_TOOL,
 	REDUCED_SCOPE_NOTE,
 	executeDelegateTask,
 	shouldExposeDelegateTask,
@@ -264,6 +265,15 @@ describe("pré-ativação do Firecrawl no filho (catálogo adiado)", () => {
 		expect(SUBAGENT_SYSTEM_PROMPT).not.toMatch(/firecrawl/i);
 		expect(P_TAIL.join(" ")).not.toMatch(/firecrawl/i);
 		expect(P_DELEGATION.join(" ")).not.toMatch(/firecrawl/i);
+	});
+
+	it("prompt e descrição dizem quando delegar e quando não", () => {
+		const rule = P_DELEGATION.join(" ");
+		expect(rule).toContain("the same research across several sources, suppliers, stores, clients or products");
+		expect(rule).toContain("Do not delegate a greeting, a single quick lookup");
+		const description = DELEGATE_TASK_TOOL.function.description ?? "";
+		expect(description).toContain("USE WHEN");
+		expect(description).toContain("DO NOT USE: for greetings");
 	});
 });
 

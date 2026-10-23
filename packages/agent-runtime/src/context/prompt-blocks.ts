@@ -219,7 +219,8 @@ export const P_ROUTINES_B: string[] = [
 /** Delegação a subagentes (núcleo). */
 export const P_DELEGATION: string[] = [
 	"Delegation:",
-	"- For 2-3 independent lookups (e.g. prices in several stores, several documents or repos), call `delegate_task` ONCE with one task per item instead of doing them one after another.",
+	"- Use `delegate_task` when the request splits into independent parts that each need their own searching or reading: the same research across several sources, suppliers, stores, clients or products; comparing N options; several documents, repos or PRs to review. Call it ONCE with one task per part (up to 3, they run in parallel), then verify the key facts and write the final answer yourself.",
+	"- Do not delegate a greeting, a single quick lookup, steps that depend on each other, or anything that writes data, creates files or needs the user.",
 	"- Sub-agents have web search/scrape (a web connector when connected, otherwise native web tools) and read-only connectors. In task goals say \"search the web\" or \"use the available search/scrape tools (prefer a connected web connector)\"; do not name web_search/web_extract and do not pass `tools` for web work. They cannot use the browser: use it yourself only as a fallback, after their reports.",
 ];
 

@@ -227,7 +227,7 @@ import type { ModelTier } from "@workspace/shared";
 import { createNarrationMemory, mentionsFileDeliverable, STALL_NUDGE_NOTE, STALL_QUIET_AT, STALL_RESTRICT_NOTE, STALL_ABORT_MESSAGE, stallStage } from "./execution/stall-guard.js";
 import { budgetUsage, canExtendBudget, costCapMessage, costCapReached, decideReserve, EXTENSION_NOVELTY_WINDOW, FILE_RESERVE_TOOLS, isReadOnlyToolName, jevCheckpointKey, onlyReadsRecently, shouldWrapUp, STUCK_ANSWER_NOW_NOTE } from "./execution/run-governor.js";
 import { createRereadGuard, isRereadNotice, type RereadGuard } from "./execution/reread-guard.js";
-import { suggestDelegation } from "./jev/delegation.js";
+import { DELEGATION_HINT, suggestDelegation } from "./jev/delegation.js";
 import { detectBlockPage } from "./jev/block-page.js";
 import { preselectMcpTools } from "./jev/tool-preselect.js";
 import { APP_INFO_TOOL, executeAppInfo } from "./tools/app-info.js";
@@ -285,6 +285,7 @@ import { compactWithSummary, createStreamSummarizer } from "./context/summary-co
 import { hasRecoverableGap, parseSessionSearchScope, runSessionSearch } from "./context/history-search.js";
 import { ARTIFACT_READ_TOOL, readStoredResult } from "./tools/artifact-read.js";
 import { apiMentioned, economyRouterText, orderEconomyTools, planContextEconomy } from "./context/economy.js";
+import { delegationCue } from "./context/intent-router.js";
 import { createNativeDeferral, type NativeDeferral } from "./context/native-deferral.js";
 
 import {
@@ -4986,7 +4987,11 @@ export async function runComputerUse(params: {
 	// F11: o Jev também diz se o pedido divide em partes independentes (só com delegate_task exposta).
 	const jevDelegatePromise: Promise<string | null> =
 		!isSubagent && shouldExposeDelegateTask(params.origin) && !parsedCheckpoint?.llmMessages?.length
-			? suggestDelegation({ rt: params.jev, userRequest: lastUserMessageContent, signal: params.abortSignal }).catch(() => null)
+			? suggestDelegation({ rt: params.jev, userRequest: lastUserMessageContent, signal: params.abortSignal })
+					.catch(() => null)
+					// Jev de delegação desligado (o padrão) ou sem resposta: o roteador por palavra-chave é a reserva.
+					// Sem isso a dica nunca chegava e o modelo quase nunca delegava.
+					.then((hint) => hint ?? (delegationCue(lastUserMessageContent) ? DELEGATION_HINT : null))
 			: Promise.resolve(null);
 	// F11: Jev lê SÓ a última fala do usuário (nunca tool result) e decide a intenção em qualquer idioma.
 	const jevIntents: JevIntents =
