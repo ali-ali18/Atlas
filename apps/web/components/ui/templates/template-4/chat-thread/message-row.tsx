@@ -8,6 +8,8 @@ import {
 	SparklesIcon,
 } from "lucide-react";
 
+import { memo } from "react";
+
 import {
 	Bubble,
 	BubbleContent,
@@ -59,7 +61,11 @@ import { bubbleRadius, type GroupPosition } from "./bubble-radius";
 import { bubbleColors } from "@/lib/bot-bubble";
 import { renderMentions, type MentionMember } from "./mention-text";
 
-export function MessageRow({
+/**
+ * Uma linha da conversa. Memoizada: durante o stream só a linha do balão ao vivo recebe props novas
+ * (o pai mantém as referências das mensagens e dos handlers), então as outras não redesenham a cada token.
+ */
+export const MessageRow = memo(function MessageRow({
 	live = false,
 	message,
 	botName,
@@ -480,7 +486,7 @@ export function MessageRow({
 				/>
 			);
 	}
-}
+});
 
 function UserMessageBubble({
 	groupPosition,

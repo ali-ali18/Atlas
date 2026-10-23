@@ -20,7 +20,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import { buildTimeSeparators } from "@/lib/chat-time-separators";
 import { exchangeFocusKey } from "@/lib/bot-exchange";
 import { readBubbleBotColor } from "@/lib/bot-bubble";
-import { planImageRuns } from "@/lib/image-groups";
+import { planImageRuns, reuseImageRuns } from "@/lib/image-groups";
 import { groupBotMessages, type BotPartner, type ThreadItem } from "@/lib/bot-thread";
 import { BotAutoDecisionNote, BotLinkMarker, BotNeedsUserCard, BotThreadGroup, type BotRef } from "@/components/ai-elements/bot-messages";
 import { pendingNeedsUser } from "@/lib/bot-needs-thread";
@@ -50,6 +50,7 @@ import { ChatComposer } from "./chat-composer";
 import { CompactionNotice } from "./compaction-card";
 import { CreateBotHeader } from "./create-bot-header";
 import { MessageRow } from "./message-row";
+import type { QuestionnaireAnswersMap, QuestionnaireCardMessage } from "./questionnaire-card";
 import { ScrollToBottom } from "./scroll-to-bottom";
 import { NewMessagesDivider } from "./new-messages-divider";
 import { SourceMarker } from "./source-marker";
@@ -74,6 +75,7 @@ import { onChatMessageRequest } from "@/lib/dev-session/chat-send-request";
 import { setBotWorking } from "@/lib/bot-activity";
 import { emitSkillProposalResolved } from "@/lib/skill-draft-handoff";
 import { ThreadSkeleton } from "./thread-skeleton";
+import { useStableHandlers } from "./stable-handlers";
 import type { OpenRoutinePayload } from "@/components/ai-elements/routines";
 
 function itemKind(item: ThreadItem | undefined): Message["kind"] | null {
@@ -299,7 +301,10 @@ export function ChatThread({
 		return () => observer.disconnect();
 	}, [pendingCardKey, messages, opened]);
 	useEffect(() => (isGroup ? undefined : onChatMessageRequest((text) => void sendMessageRef.current(text))), [isGroup]);
-	const skillBots = (agents ?? (agent ? [agent] : [])).map((item) => ({ id: item.id, name: item.name }));
+	const skillBots = useMemo(
+		() => (agents ?? (agent ? [agent] : [])).map((item) => ({ id: item.id, name: item.name })),
+		[agents, agent],
+	);
 	// Membros do grupo (principal primeiro): autocompletar, chips de menção e autoria dos balões.
 	const groupMembers = useMemo(
 		() => (agent && isGroup ? orderMembers(resolveGroupMembers(agent, agents ?? [])) : []),
@@ -586,7 +591,11 @@ export function ChatThread({
 		[threadItems],
 	);
 	// Imagens seguidas (ex.: screenshots) viram um só baralho; as demais mensagens da sequência somem.
-	const imageRuns = useMemo(() => planImageRuns(threadItems, timeSeparators), [threadItems, timeSeparators]);
+	const previousImageRunsRef = useRef<ReturnType<typeof planImageRuns> | null>(null);
+	const imageRuns = useMemo(() => reuseImageRuns(planImageRuns(threadItems, timeSeparators), previousImageRunsRef.current), [threadItems, timeSeparators]);
+	useEffect(() => {
+		previousImageRunsRef.current = imageRuns;
+	}, [imageRuns]);
 	// Balão do usuário na cor do bot: só no chat 1:1 e se a Config não desligou.
 	const userBubbleColor = !isGroup && readBubbleBotColor((agent as { policyJson?: unknown } | undefined)?.policyJson) ? agent?.color : undefined;
 	// Grupo: nome/avatar só no primeiro balão de cada trecho do mesmo membro.
@@ -818,6 +827,93 @@ export function ChatThread({
 		scrollToEnd();
 	}, [messages, sending]);
 
+	// Uma decisão por cartão: toque duplo, remontagem ou volta ao app não reenviam o mesmo "confirmado".
+	const decideCard = (confirm: { id: string; confirmId?: string; status?: string }, status: "approved" | "rejected", text: string) => {
+		if ((confirm.status ?? "pending") !== "pending") return;
+		const key = cardDecisionKey(agent?.conversationId, confirm);
+		if (!beginCardDecision(key)) return;
+		setConfirmStatus(confirm.id, status);
+		void sendMessage(text, [], { confirmId: confirm.confirmId }).finally(() => endCardDecision(key));
+	};
+	// Handlers das linhas com identidade estável (chamam sempre a versão mais nova): sem isso cada render
+	// criava ~20 funções novas por linha e o memo do MessageRow nunca acertava durante o stream.
+	const rowHandlers = useStableHandlers({
+		onConfirm: (confirm: { id: string; confirmId?: string; title: string; status?: string }) => decideCard(confirm, "approved", `confirmado: ${confirm.title}`),
+		onConfirmAlways: (confirm: { id: string; confirmId?: string; title: string; status?: string }) => decideCard(confirm, "approved", `confirmado sempre: ${confirm.title}`),
+		onConfirmReject: (confirm: { id: string; confirmId?: string; status?: string }, feedback: string) => decideCard(confirm, "rejected", devApprovalRejectText(feedback)),
+		onCancel: (confirm: { id: string; confirmId?: string; status?: string }) => decideCard(confirm, "rejected", "cancela isso"),
+		onLoginOpenViewer: (login: Extract<Message, { kind: "login" }>) =>
+			onOpenSandboxViewerForLogin?.(() => {
+				setLoginStatus(login.id, "done");
+				void resumeRun();
+			}),
+		onLoginUseVault: (login: Extract<Message, { kind: "login" }>) => {
+			// "Entrar": o servidor marca o login do Cofre no checkpoint e o runtime preenche ao retomar.
+			setLoginStatus(login.id, "done");
+			void resumeRun({ via: "vault" });
+		},
+		onLoginCode: (login: Extract<Message, { kind: "login" }>, code: string) => {
+			// O código vai direto ao servidor/runtime (selado), nunca ao modelo.
+			setLoginStatus(login.id, "done");
+			void resumeRun({ via: "code", code });
+		},
+		onLoginDone: (login: Extract<Message, { kind: "login" }>) => {
+			// Retoma o mesmo run do checkpoint; o servidor marca o card como feito.
+			setLoginStatus(login.id, "done");
+			void resumeRun();
+		},
+		onAdjustPlan: () => setAdjustPrefill({ text: PLAN_ADJUST_DRAFT, nonce: Date.now() }),
+		onBotProfileConfirm: (profile: Extract<Message, { kind: "bot-profile-confirm" }>) => {
+			// Gate humano: otimista approved + resolve no servidor (aplica o PATCH no bot). Erro volta a pending.
+			// Sem balão na thread.
+			const proposalId = profile.proposal.proposalId;
+			const conversationId = agent?.conversationId;
+			if (!proposalId || !conversationId) return;
+			setBotProfileStatus(profile.id, "approved");
+			void resolveBotProfileProposal({ conversationId, proposalId, decision: "approved" })
+				.then(() => {
+					onBotProfileApplied?.(profile.proposal.botId, { ...profile.proposal.after });
+				})
+				.catch(() => setBotProfileStatus(profile.id, "pending"));
+		},
+		onBotProfileDismiss: (profile: Extract<Message, { kind: "bot-profile-confirm" }>) => {
+			const proposalId = profile.proposal.proposalId;
+			const conversationId = agent?.conversationId;
+			setBotProfileStatus(profile.id, "rejected");
+			if (!proposalId || !conversationId) return;
+			void resolveBotProfileProposal({ conversationId, proposalId, decision: "rejected" }).catch(() =>
+				setBotProfileStatus(profile.id, "pending"),
+			);
+		},
+		onBotProposalApprove: (card: Extract<Message, { kind: "bot-proposal" }>, edits?: { name?: string; description?: string }) =>
+			void decideBotProposal(card, "approved", edits),
+		onBotProposalReject: (card: Extract<Message, { kind: "bot-proposal" }>) => void decideBotProposal(card, "rejected"),
+		onRoutineProposalAccept: (card: Extract<Message, { kind: "routine-proposal" }>) => void decideRoutineProposal(card, "accept"),
+		onRoutineProposalDecline: (card: Extract<Message, { kind: "routine-proposal" }>) => void decideRoutineProposal(card, "decline"),
+		onSkillProposalApprove: (card: Extract<Message, { kind: "skill-proposal" }>) => void decideSkillProposal(card, "approved"),
+		onSkillProposalReject: (card: Extract<Message, { kind: "skill-proposal" }>) => void decideSkillProposal(card, "rejected"),
+		onSkillProposalEdit: (card: Extract<Message, { kind: "skill-proposal" }>) => {
+			if (agent?.conversationId) openSkillProposalInEditor(card.proposal, agent.conversationId);
+		},
+		onQuestionnaireSubmit: (questionnaire: QuestionnaireCardMessage, answers: QuestionnaireAnswersMap) => {
+			// Sem balão user: colapsa o card com as respostas e envia ao bot pelo endpoint silencioso (run sem
+			// mensagem user na thread). Erro volta a pending.
+			setQuestionnaireStatus(questionnaire.id, "submitted", answers);
+			const conversationId = agent?.conversationId;
+			if (!conversationId) return;
+			void submitQuestionnaire({
+				conversationId,
+				questionnaireId: questionnaire.questionnaireId,
+				botId: agent?.id,
+				answers,
+			}).catch(() => setQuestionnaireStatus(questionnaire.id, "pending"));
+		},
+		onQuestionnaireDismiss: (questionnaire: QuestionnaireCardMessage) => {
+			// Dispensar não envia nada: só marca dismissed.
+			setQuestionnaireStatus(questionnaire.id, "dismissed");
+		},
+	});
+
 	if (!agent) {
 		return (
 			<div
@@ -910,20 +1006,6 @@ export function ChatThread({
 			.finally(() => endCardDecision(key));
 	};
 	const messageIndex = new Map(messages.map((entry, position) => [entry.id, position] as const));
-	// Uma decisão por cartão: toque duplo, remontagem ou volta ao app não reenviam o mesmo "confirmado".
-	const decideCard = (confirm: { id: string; confirmId?: string; status?: string }, status: "approved" | "rejected", text: string) => {
-		if ((confirm.status ?? "pending") !== "pending") return;
-		const key = cardDecisionKey(agent?.conversationId, confirm);
-		if (!beginCardDecision(key)) return;
-		setConfirmStatus(confirm.id, status);
-		void sendMessage(text, [], { confirmId: confirm.confirmId }).finally(() => endCardDecision(key));
-	};
-	const confirmHandlers = {
-		onConfirm: (confirm: { id: string; confirmId?: string; title: string; status?: string }) => decideCard(confirm, "approved", `confirmado: ${confirm.title}`),
-		onConfirmAlways: (confirm: { id: string; confirmId?: string; title: string; status?: string }) => decideCard(confirm, "approved", `confirmado sempre: ${confirm.title}`),
-		onConfirmReject: (confirm: { id: string; confirmId?: string; status?: string }, feedback: string) => decideCard(confirm, "rejected", devApprovalRejectText(feedback)),
-		onCancel: (confirm: { id: string; confirmId?: string; status?: string }) => decideCard(confirm, "rejected", "cancela isso"),
-	};
 	const working = sending || pausedLike || devFixtureWorking;
 	const runActive = sending || pausedLike;
 	// Grupo, entre um run e outro: quem o servidor diz que está respondendo ou escolhendo.
@@ -1234,106 +1316,27 @@ export function ChatThread({
 										})}
 										message={message}
 										onOpenRoutine={onOpenRoutine}
-										onConfirm={confirmHandlers.onConfirm}
-										onConfirmAlways={confirmHandlers.onConfirmAlways}
-										onConfirmReject={confirmHandlers.onConfirmReject}
-										onLoginOpenViewer={
-											sandboxViewerUrl && onOpenSandboxViewerForLogin
-												? (login) =>
-														onOpenSandboxViewerForLogin(() => {
-															setLoginStatus(login.id, "done");
-															void resumeRun();
-														})
-												: undefined
-										}
-										onLoginUseVault={(login) => {
-											// "Entrar": o servidor marca o login do Cofre no checkpoint e o runtime preenche ao retomar.
-											setLoginStatus(login.id, "done");
-											void resumeRun({ via: "vault" });
-										}}
-										onLoginCode={(login, code) => {
-											// O código vai direto ao servidor/runtime (selado), nunca ao modelo.
-											setLoginStatus(login.id, "done");
-											void resumeRun({ via: "code", code });
-										}}
-										onLoginDone={(login) => {
-											// Retoma o mesmo run do checkpoint; o servidor marca o card como feito.
-											setLoginStatus(login.id, "done");
-											void resumeRun();
-										}}
-										onCancel={confirmHandlers.onCancel}
-										onAdjustPlan={() => setAdjustPrefill({ text: PLAN_ADJUST_DRAFT, nonce: Date.now() })}
-										onBotProfileConfirm={(profile) => {
-											// Gate humano: otimista approved + resolve no
-											// servidor (aplica o PATCH no bot). Erro volta
-											// a pending. Sem balão na thread.
-											const proposalId = profile.proposal.proposalId;
-											const conversationId = agent?.conversationId;
-											if (!proposalId || !conversationId) return;
-											setBotProfileStatus(profile.id, "approved");
-											void resolveBotProfileProposal({
-												conversationId,
-												proposalId,
-												decision: "approved",
-											})
-												.then(() => {
-													onBotProfileApplied?.(profile.proposal.botId, {
-														...profile.proposal.after,
-													});
-												})
-												.catch(() =>
-													setBotProfileStatus(profile.id, "pending"),
-												);
-										}}
+										onConfirm={rowHandlers.onConfirm}
+										onConfirmAlways={rowHandlers.onConfirmAlways}
+										onConfirmReject={rowHandlers.onConfirmReject}
+										onLoginOpenViewer={sandboxViewerUrl && onOpenSandboxViewerForLogin ? rowHandlers.onLoginOpenViewer : undefined}
+										onLoginUseVault={rowHandlers.onLoginUseVault}
+										onLoginCode={rowHandlers.onLoginCode}
+										onLoginDone={rowHandlers.onLoginDone}
+										onCancel={rowHandlers.onCancel}
+										onAdjustPlan={rowHandlers.onAdjustPlan}
+										onBotProfileConfirm={rowHandlers.onBotProfileConfirm}
 										skillBots={skillBots}
-										onBotProposalApprove={(card, edits) => void decideBotProposal(card, "approved", edits)}
-										onBotProposalReject={(card) => void decideBotProposal(card, "rejected")}
-										onRoutineProposalAccept={(card) => void decideRoutineProposal(card, "accept")}
-										onRoutineProposalDecline={(card) => void decideRoutineProposal(card, "decline")}
-										onSkillProposalApprove={(card) => void decideSkillProposal(card, "approved")}
-										onSkillProposalReject={(card) => void decideSkillProposal(card, "rejected")}
-										onSkillProposalEdit={
-											agent?.conversationId
-												? (card) => openSkillProposalInEditor(card.proposal, agent.conversationId as string)
-												: undefined
-										}
-										onBotProfileDismiss={(profile) => {
-											const proposalId = profile.proposal.proposalId;
-											const conversationId = agent?.conversationId;
-											setBotProfileStatus(profile.id, "rejected");
-											if (!proposalId || !conversationId) return;
-											void resolveBotProfileProposal({
-												conversationId,
-												proposalId,
-												decision: "rejected",
-											}).catch(() =>
-												setBotProfileStatus(profile.id, "pending"),
-											);
-										}}
-										onQuestionnaireSubmit={(questionnaire, answers) => {
-											// Sem balão user: colapsa o card com as respostas e
-											// envia ao bot pelo endpoint silencioso (run sem
-											// mensagem user na thread). Erro volta a pending.
-											setQuestionnaireStatus(
-												questionnaire.id,
-												"submitted",
-												answers,
-											);
-											const conversationId = agent?.conversationId;
-											if (!conversationId) return;
-											void submitQuestionnaire({
-												conversationId,
-												questionnaireId: questionnaire.questionnaireId,
-												botId: agent?.id,
-												answers,
-											}).catch(() =>
-												setQuestionnaireStatus(questionnaire.id, "pending"),
-											);
-										}}
-										onQuestionnaireDismiss={(questionnaire) => {
-											// Dispensar não envia nada: só marca dismissed.
-											setQuestionnaireStatus(questionnaire.id, "dismissed");
-										}}
+										onBotProposalApprove={rowHandlers.onBotProposalApprove}
+										onBotProposalReject={rowHandlers.onBotProposalReject}
+										onRoutineProposalAccept={rowHandlers.onRoutineProposalAccept}
+										onRoutineProposalDecline={rowHandlers.onRoutineProposalDecline}
+										onSkillProposalApprove={rowHandlers.onSkillProposalApprove}
+										onSkillProposalReject={rowHandlers.onSkillProposalReject}
+										onSkillProposalEdit={agent?.conversationId ? rowHandlers.onSkillProposalEdit : undefined}
+										onBotProfileDismiss={rowHandlers.onBotProfileDismiss}
+										onQuestionnaireSubmit={rowHandlers.onQuestionnaireSubmit}
+										onQuestionnaireDismiss={rowHandlers.onQuestionnaireDismiss}
 									/>
 								</div>
 							);
@@ -1386,11 +1389,11 @@ export function ChatThread({
 				dock={
 					<ApprovalBar
 						entries={barEntries}
-						onApprove={(entry) => (entry.type === "confirm" ? confirmHandlers.onConfirm(entry.message) : decideRelayed(entry, "approve"))}
-						onAlways={(entry) => (entry.type === "confirm" ? confirmHandlers.onConfirmAlways(entry.message) : undefined)}
+						onApprove={(entry) => (entry.type === "confirm" ? rowHandlers.onConfirm(entry.message) : decideRelayed(entry, "approve"))}
+						onAlways={(entry) => (entry.type === "confirm" ? rowHandlers.onConfirmAlways(entry.message) : undefined)}
 						onHeight={setBarHeight}
 						onLocate={locateCard}
-						onSkip={(entry) => (entry.type === "confirm" ? confirmHandlers.onCancel(entry.message) : decideRelayed(entry, "reject"))}
+						onSkip={(entry) => (entry.type === "confirm" ? rowHandlers.onCancel(entry.message) : decideRelayed(entry, "reject"))}
 					/>
 				}
 				mentionBots={isGroup ? undefined : otherBots}

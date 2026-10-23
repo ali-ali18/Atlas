@@ -31,3 +31,20 @@ export function planImageRuns(
 	}
 	return plan;
 }
+
+/**
+ * O plano é refeito a cada mudança da thread (cada token do stream): o baralho que não mudou volta com a
+ * mesma lista de antes, para a linha memoizada não redesenhar a galeria à toa.
+ */
+export function reuseImageRuns(
+	next: Map<string, ImageRun | null>,
+	previous: ReadonlyMap<string, ImageRun | null> | null,
+): Map<string, ImageRun | null> {
+	if (!previous) return next;
+	for (const [id, run] of next) {
+		const before = previous.get(id);
+		if (!run || !before || before.source !== run.source || before.items.length !== run.items.length) continue;
+		if (before.items.every((item, index) => item === run.items[index])) next.set(id, before);
+	}
+	return next;
+}
