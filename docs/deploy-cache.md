@@ -1,5 +1,10 @@
 # Cache de build no deploy (Dokploy + BuildKit)
 
+> **Produção não compila mais no servidor.** As imagens saem do GitHub Actions para o GHCR e o Dokploy só faz
+> `pull` (ver `docs/deploy-dokploy.md`). O cache de build abaixo vale agora para o **CI** (cache no registry,
+> tag `buildcache` de cada imagem) e para quem roda `docker compose up --build` na máquina local. No servidor, o
+> que resta é limpar imagens antigas (cron em `docs/deploy-dokploy.md`, seção 4); a limpeza de cache de build não é mais necessária.
+
 ## O que fica em cache
 
 - `api`, `worker`, `migrate` (`docker/node-service.Dockerfile`): estágio `deps` depende só de
@@ -27,7 +32,7 @@ docker builder prune -f --keep-storage 15GB
 Evite `docker system prune -a`, `docker builder prune -a` sem filtro e `docker image prune -a`:
 apagam o cache e forçam rebuild completo (pnpm install de tudo, apt do sandbox, next build).
 
-## Dokploy
+## Dokploy (somente se você ainda construir no servidor)
 
 A limpeza diária do Dokploy (Settings > Server > Daily Docker Cleanup / "Clean Cache") executa
 `docker builder prune` completo: com ela ligada, todo deploy no dia seguinte recompila do zero.
