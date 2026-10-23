@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { Trash2Icon } from "lucide-react";
+import dynamic from "next/dynamic";
 import { listenForCustomMcp, listenForMarketplace, type CustomMcpDraft } from "@/lib/open-marketplace";
 import { reduceAgentPointer, type AgentPointerState } from "@/lib/agent-pointer";
 import { SandboxViewerDialog, viewerUrlIdentity } from "./sandbox-viewer-dialog";
@@ -62,17 +63,13 @@ import { isRoutineDraftValid } from "./chat-context-panel/routine-draft";
 import { botAccentStyle } from "./chat-context-panel/bot-accent";
 import { ChatSidebar } from "./chat-sidebar/chat-sidebar";
 import { ChatThread } from "./chat-thread/chat-thread";
-import { BotExchangeScreen } from "@/components/ai-elements/bot-messages";
 import { MobileCreateBot } from "./mobile-create-bot";
 import { NewChatTo, groupCandidates } from "./new-group";
 import { resolveGroupMembers } from "./group-avatar";
 import { MobileChatList } from "./mobile-chat-list";
-import { AutonomyDialog } from "./autonomy/autonomy-dialog";
-import { MarketplacePage } from "./marketplace/marketplace-page";
-import { AllowedSendersPage } from "./chat-context-panel/allowed-senders-page";
 import { useSendersLocation } from "@/lib/email-senders-url";
 import { closeMarketplacePage, openMarketplacePage, useMarketplaceLocation } from "@/lib/marketplace-url";
-import { SettingsDialog } from "@/components/settings/settings-dialog";
+import { LazySettingsDialog } from "@/components/settings/lazy-settings-dialog";
 import { listenForProviderSettings, openSettingsModal } from "@/components/settings/settings-url";
 import { resolveNewBotLanguage } from "@/lib/new-bot-language";
 import {
@@ -163,6 +160,18 @@ import type { OpenRoutinePayload } from "@/components/ai-elements/routines";
 
 const LAST_ACTIVE_CHAT_COOKIE = "template4_last_active_chat";
 const ANCHOR_WAIT_MS = 2000;
+
+// Telas e modais que só existem quando abertos: fora do bundle inicial, baixados na primeira abertura.
+const BotExchangeScreen = dynamic(
+	() => import("@/components/ai-elements/bot-messages/bot-exchange-screen").then((mod) => mod.BotExchangeScreen),
+	{ ssr: false },
+);
+const AutonomyDialog = dynamic(() => import("./autonomy/autonomy-dialog").then((mod) => mod.AutonomyDialog), { ssr: false });
+const MarketplacePage = dynamic(() => import("./marketplace/marketplace-page").then((mod) => mod.MarketplacePage), { ssr: false });
+const AllowedSendersPage = dynamic(
+	() => import("./chat-context-panel/allowed-senders-page").then((mod) => mod.AllowedSendersPage),
+	{ ssr: false },
+);
 
 function readLastActiveChatCookie() {
 	const entry = document.cookie
@@ -332,6 +341,11 @@ export function Template4Client({
 		open: boolean;
 		connector?: string;
 	}>({ open: false });
+	// O modal de Autonomia só é montado (e baixado) na primeira abertura; depois fica, para a animação de fechar.
+	const [autonomyEverOpened, setAutonomyEverOpened] = useState(false);
+	useEffect(() => {
+		if (autonomyDialog.open) setAutonomyEverOpened(true);
+	}, [autonomyDialog.open]);
 	const [loadingBots, setLoadingBots] = useState(true);
 	// Falha ao carregar/atualizar a lista de bots: nunca pode parecer "nenhuma conversa" (ver ListLoadError).
 	const [listLoadError, setListLoadError] = useState(false);
@@ -2544,7 +2558,7 @@ export function Template4Client({
 					/>
 				) : null}
 				<Suspense fallback={null}>
-					<SettingsDialog
+					<LazySettingsDialog
 						onShortcut={(id) => {
 							// Atalhos das Configurações levam à aba certa do Marketplace; "MCP personalizado" abre o formulário vazio.
 							if (id === "mcp") {
@@ -2555,13 +2569,15 @@ export function Template4Client({
 						}}
 					/>
 				</Suspense>
-				<AutonomyDialog
-					connectorFilter={autonomyDialog.connector}
-					onOpenChange={(open) =>
-						setAutonomyDialog((previous) => ({ ...previous, open }))
-					}
-					open={autonomyDialog.open}
-				/>
+				{autonomyEverOpened || autonomyDialog.open ? (
+					<AutonomyDialog
+						connectorFilter={autonomyDialog.connector}
+						onOpenChange={(open) =>
+							setAutonomyDialog((previous) => ({ ...previous, open }))
+						}
+						open={autonomyDialog.open}
+					/>
+				) : null}
 				<PrimaryBotIntroDialog
 					agents={agents}
 					onChoose={(id) => setPrimaryBot(id)}

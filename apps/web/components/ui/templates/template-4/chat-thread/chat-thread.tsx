@@ -22,7 +22,12 @@ import { exchangeFocusKey } from "@/lib/bot-exchange";
 import { readBubbleBotColor } from "@/lib/bot-bubble";
 import { planImageRuns, reuseImageRuns } from "@/lib/image-groups";
 import { groupBotMessages, type BotPartner, type ThreadItem } from "@/lib/bot-thread";
-import { BotAutoDecisionNote, BotLinkMarker, BotNeedsUserCard, BotThreadGroup, type BotRef } from "@/components/ai-elements/bot-messages";
+// Módulos diretos (não o índice): o índice também exporta a tela da conversa entre bots, carregada sob demanda.
+import type { BotRef } from "@/components/ai-elements/bot-messages/bot-chip";
+import { BotAutoDecisionNote } from "@/components/ai-elements/bot-messages/bot-auto-decision-note";
+import { BotLinkMarker } from "@/components/ai-elements/bot-messages/bot-link-marker";
+import { BotNeedsUserCard } from "@/components/ai-elements/bot-messages/bot-needs-user-card";
+import { BotThreadGroup } from "@/components/ai-elements/bot-messages/bot-thread-group";
 import { pendingNeedsUser } from "@/lib/bot-needs-thread";
 import { PLAN_ADJUST_DRAFT, botNeedsUserStatusLine, devApprovalRejectText } from "@workspace/shared";
 import { beginCardDecision, cardDecisionKey, endCardDecision } from "@/lib/card-decision";
