@@ -624,6 +624,16 @@ export {
 } from "./github-app.js";
 export * from "./push.js";
 export * from "./user-events.js";
+export {
+	planRetention,
+	pruneOldRunEvents,
+	pruneRoutineRuns,
+	runDataRetention,
+	RETAINED_RUN_EVENT_TYPES,
+	ROUTINE_RUNS_KEEP,
+	RUN_EVENTS_RETENTION_DAYS,
+	type RetentionResult,
+} from "./retention.js";
 export * from "./user-needed.js";
 
 export * from "./reflection.js";

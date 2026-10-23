@@ -23,6 +23,8 @@ import {
 	type LessonReviewJobResult,
 	type SkillReviewJobPayload,
 	type SkillReviewJobResult,
+	type DataRetentionJobPayload,
+	type DataRetentionJobResult,
 	type AttachmentExtractJobResult,
 	type MemoryCleanupJobPayload,
 	type MemoryCleanupJobResult,
@@ -93,6 +95,7 @@ import { chainRunFollowUp, finalizeExhaustedAgentRun, processAgentRunJob } from 
 import { processExecuteRoutineJob } from "./processors/routine.js";
 import { reportRoutineFailure, type RoutineFailureDeps } from "./processors/routine-failure.js";
 import { startBotMessageSweeper } from "./bot-messages.js";
+import { processDataRetention, scheduleDataRetention } from "./data-retention.js";
 import { createGroupJev, createGroupRouter, startGroupSweeper } from "./bot-groups.js";
 import { startProactiveSweeper } from "./proactive.js";
 import { startReflectionSweeper } from "./reflection.js";
@@ -139,7 +142,8 @@ type AtlasJobPayload =
 	| ConnectorGuideJobPayload
 	| ConnectorLessonJobPayload
 	| LessonReviewJobPayload
-	| SkillReviewJobPayload;
+	| SkillReviewJobPayload
+	| DataRetentionJobPayload;
 type AtlasJobResult =
 	| ChatCompletionJobResult
 	| MemoryReviewJobResult
@@ -149,7 +153,8 @@ type AtlasJobResult =
 	| ConnectorGuideJobResult
 	| ConnectorLessonJobResult
 	| LessonReviewJobResult
-	| SkillReviewJobResult;
+	| SkillReviewJobResult
+	| DataRetentionJobResult;
 
 const chatWorker = new Worker<AtlasJobPayload, AtlasJobResult>(
 	CHAT_QUEUE_NAME,
@@ -180,6 +185,8 @@ const chatWorker = new Worker<AtlasJobPayload, AtlasJobResult>(
 				return processLessonReview(job as Job<LessonReviewJobPayload, LessonReviewJobResult>, config);
 			case ATLAS_JOB_NAMES.skillReview:
 				return processSkillReview(job as Job<SkillReviewJobPayload, SkillReviewJobResult>, config);
+			case ATLAS_JOB_NAMES.dataRetention:
+				return processDataRetention();
 			case ATLAS_JOB_NAMES.attachmentExtract: {
 				const payload = (job as Job<AttachmentExtractJobPayload, AttachmentExtractJobResult>).data;
 				return { status: await warmAttachmentExtract(payload) };
@@ -616,6 +623,9 @@ async function sweepIdleConversations(): Promise<void> {
 		console.error("[summary] idle sweep failed", error);
 	}
 }
+
+// Retenção diária (run_events de runs encerrados há 30+ dias, execuções de rotina além das 50 últimas).
+void scheduleDataRetention(chatQueue).catch((error) => console.error("[retention] agendamento falhou", error));
 
 void sweepIdleConversations();
 const summarySweeper = setInterval(() => {
