@@ -44,6 +44,7 @@ import type {
 	RoutineRecord,
 	StepTelemetry,
 	OpenBotRequest,
+	ToolCacheState,
 } from "@workspace/shared";
 import {
 	connectorScopeKey,
@@ -296,6 +297,9 @@ import { ARTIFACT_READ_TOOL, readStoredResult } from "./tools/artifact-read.js";
 import { apiMentioned, economyRouterText, orderEconomyTools, planContextEconomy } from "./context/economy.js";
 import { delegationCue } from "./context/intent-router.js";
 import { createNativeDeferral, type NativeDeferral } from "./context/native-deferral.js";
+import { deferredToolsIndex, nativeToolGroupOf } from "./context/native-tools.js";
+import { arrangeGroupSegments, nextToolCacheState, orderByPrior, planStickyGroups } from "./context/sticky-groups.js";
+import type { ContextGroup } from "./context/prompt-blocks.js";
 
 import {
 	COMPUTER_REF_TOOLS,
@@ -4796,6 +4800,8 @@ export async function runComputerUse(params: {
 	priorTranscript?: SerializedLlmMessage[];
 	/** Tools de conector/adiadas que os turnos anteriores deixaram carregadas (ficam carregadas neste run). */
 	priorLoadedTools?: string[];
+	/** Grupos e ordem de tools congelados na conversa pelo turno anterior (cache de prompt; ver `context/sticky-groups.ts`). */
+	priorToolCache?: ToolCacheState;
 	/** `/compact` aplicado à conversa antes deste turno: vira a ação "Conversa compactada" no inspetor do 1º passo. */
 	priorCompaction?: { before: number; after: number };
 	/** Marca d'água da conversa (última mensagem vista ao montar o histórico); vai em todo checkpoint do run. */
@@ -5561,6 +5567,8 @@ export async function runComputerUse(params: {
 		vaultUsable && !isSubagent && sandboxEnabled && userId !== "default" && !isUnattendedOrigin(params.origin)
 			? await listVaultLoginDomains(vaultService, userId).catch(() => [])
 			: [];
+	// Cache de prompt: grupos do turno anterior seguem carregados (e na mesma ordem) por alguns turnos.
+	const stickyPlan = economy ? planStickyGroups({ prior: parsedCheckpoint?.toolCache ?? params.priorToolCache, resume: Boolean(parsedCheckpoint?.toolCache), now: new Date() }) : null;
 	const economyPlan = economy
 		? planContextEconomy({
 				eligible: baseTools,
@@ -5576,8 +5584,19 @@ export async function runComputerUse(params: {
 				preloadEmail: params.origin === "email",
 				preloadPages: params.origin === "routine" && Boolean(params.routinePageId),
 				preloadApi: apiMentioned(params.apiConnector?.connections ?? [], economyRouterText({ origin: params.origin, objective: params.objective, messages: params.messages, lastUserMessage: lastUserMessageContent })),
+				stickyGroups: stickyPlan?.carriedGroups,
 			})
 		: null;
+	// Blocos de procedimento no prompt: os do turno anterior na mesma ordem e o novo no fim. Grupo carregado no meio de
+	// um turno anterior (procedimento já está na conversa) não ganha bloco: o prompt do turno seguinte fica igual.
+	const carriedSegmentGroups = new Set(stickyPlan?.carriedSegments.flat() ?? []);
+	const promptSegments: ContextGroup[][] = economyPlan
+		? arrangeGroupSegments({
+				carried: stickyPlan?.carriedSegments ?? [],
+				groups: economyPlan.groups,
+				exclude: new Set([...(stickyPlan?.carriedGroups ?? [])].filter((group) => !carriedSegmentGroups.has(group))),
+			})
+		: [];
 	const searchToolAllowed = params.toolFilter?.(MCP_TOOL_SEARCH_TOOL.function.name) ?? true;
 	const wantsSearchTool =
 		Boolean(economyPlan) && searchToolAllowed && (economyPlan!.plan.deferred.size > 0 || Boolean(mcp?.toolset.deferred));
@@ -5748,7 +5767,11 @@ export async function runComputerUse(params: {
 
 	let conversation: LlmMessage[];
 	// Conversa dos turnos anteriores: troca a marcação deixada pelo worker; sem conversa a marcação só some.
-	const priorLoadedTools = params.priorLoadedTools ?? parsedCheckpoint?.loadedTools ?? [];
+	// Tool nativa de grupo expirado (sem uso há vários turnos ou conversa parada) não volta.
+	const priorLoadedTools = (params.priorLoadedTools ?? parsedCheckpoint?.loadedTools ?? []).filter((name) => {
+		const group = nativeToolGroupOf(name);
+		return !(group && stickyPlan?.expired.has(group));
+	});
 	const priorHistory = params.priorTranscript?.length ? await hydrateLlmMessages(params.priorTranscript) : [];
 	const placeTranscript = <T extends { role: string; content: unknown }>(list: T[]): LlmMessage[] => {
 		const slot = list.findIndex((message) => message.role === "system" && message.content === TRANSCRIPT_SLOT);
@@ -5776,12 +5799,16 @@ export async function runComputerUse(params: {
 		const skillIndexText = skillIndexPrompt(params.skillIndex);
 		const skillIndexBlock = skillIndexText ? `\n\n${skillIndexText}` : "";
 		const economyParts = economyPlan ? assembleSystemPromptParts(economyPlan.groups) : null;
+		// Índice pelos grupos do 1º bloco: grupo que entra depois não reescreve o começo do prompt.
+		const economyIndex = economyPlan ? deferredToolsIndex(baseTools, new Set(promptSegments[0] ?? [])) : "";
 		const economyTail = economyPlan
 			? [
-					nativeDeferral && wantsSearchTool && economyPlan.index ? economyPlan.index : "",
-					economyParts?.procedures ?? "",
+					nativeDeferral && wantsSearchTool && economyIndex ? economyIndex : "",
 					vaultLoginsPromptLine(vaultLoginDomains),
-					economyPlan.groups.has("web") && params.origin !== "routine" ? AGENTIC_RESEARCH_PROMPT : "",
+					// Um bloco por leva de grupos, na ordem em que entraram (o que muda fica no fim).
+					...promptSegments.map((segment) =>
+						[groupProcedureText(new Set(segment)), segment.includes("web") && params.origin !== "routine" ? AGENTIC_RESEARCH_PROMPT : ""].filter(Boolean).join("\n\n"),
+					),
 				]
 					.filter(Boolean)
 					.map((block) => `\n\n${block}`)
@@ -5879,6 +5906,11 @@ export async function runComputerUse(params: {
 			}
 		}
 	}
+
+	// Cache de prompt: o array de tools começa na ordem do turno anterior; o que é novo vai no fim.
+	if (stickyPlan && stickyPlan.toolOrder.length > 0) tools.splice(0, tools.length, ...orderByPrior(tools, (tool) => tool.function.name, stickyPlan.toolOrder));
+	const promptedAtStart = new Set(promptedGroups);
+	const usedToolGroups = new Set<string>();
 
 	// F2b: journal de efeitos + status estruturado (W9/L20). Antes da primeira higiene:
 	// o colapso preserva o status de cada resultado.
@@ -6148,6 +6180,17 @@ export async function runComputerUse(params: {
 		const stillDeferred = new Set(nativeDeferral?.pending() ?? []);
 		return [...mcpActiveOrder, ...nativeDeferredAtStart.filter((name) => !stillDeferred.has(name))];
 	};
+	// Grupos usados neste turno (pedidos pelo roteador, carregados no meio ou com tool chamada) renovam o prazo.
+	const toolCacheSnapshot = (): ToolCacheState | undefined =>
+		stickyPlan && economyPlan && !isSubagent
+			? nextToolCacheState({
+					plan: stickyPlan,
+					now: new Date(),
+					segments: promptSegments,
+					used: [...economyPlan.routed, ...[...promptedGroups].filter((group) => !promptedAtStart.has(group)), ...usedToolGroups],
+					toolOrder: tools.map((tool) => tool.function.name),
+				})
+			: undefined;
 	let checkpointTail: Promise<void> = Promise.resolve();
 	const writeCheckpoint = async (stepIndex: number) => {
 		if (!onCheckpoint) return;
@@ -6183,6 +6226,7 @@ export async function runComputerUse(params: {
 				modelEscalations: tierEscalations,
 				activeElapsedMs: activeElapsedMs(),
 				...(isSubagent ? {} : { loadedTools: loadedToolNames() }),
+				toolCache: toolCacheSnapshot(),
 				transcriptWatermark: parsedCheckpoint?.transcriptWatermark ?? params.transcriptWatermark,
 				carriedNotes: parsedCheckpoint?.carriedNotes ?? params.carriedNotes,
 			}),
@@ -8322,6 +8366,10 @@ ${blockHint}`;
 
 		finishRetries = 0;
 		repairToolCalls(toolCalls, stepFinishTruncated);
+		for (const call of toolCalls) {
+			const group = nativeToolGroupOf(call.function.name);
+			if (group) usedToolGroups.add(group);
+		}
 		// Fala repetida antes de tools (ou fala de passo só de leitura em enrolação) não vira balão novo.
 		const readOnlyDecision = toolCalls.every((call) => isReadOnlyToolName(call.function.name, isReadOnlyTool));
 		let narration = content;

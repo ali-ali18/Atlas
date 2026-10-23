@@ -1,12 +1,14 @@
 import { attachPendingResult, buildTranscriptHistory, cleanTranscript, namespaceToolCallIds } from "@workspace/agent-runtime";
 import type { RunTranscript } from "@workspace/db";
-import type { CarriedNote, InspectContextPayload, SerializedLlmMessage, TranscriptSeed } from "@workspace/shared";
+import type { CarriedNote, InspectContextPayload, SerializedLlmMessage, ToolCacheState, TranscriptSeed } from "@workspace/shared";
 
 export type TranscriptHistory = {
 	/** Conversa completa dos turnos anteriores, pronta para o runtime (sem as camadas que o prepareMessages refaz). */
 	priorTranscript: SerializedLlmMessage[];
 	/** Tools que o turno anterior deixou carregadas. */
 	loadedTools: string[];
+	/** Grupos e ordem de tools congelados na conversa pelo turno anterior (cache de prompt). */
+	toolCache?: ToolCacheState;
 	/** Notas de turno que seguem valendo (procedimento de skill, menções) do run anterior. */
 	carriedNotes?: CarriedNote[];
 	/** O resultado da aprovação foi encaixado na chamada pendente: o turno atual já não precisa repeti-lo. */
@@ -63,7 +65,7 @@ export async function resolveTranscriptHistory(input: {
 		if (source && attached) {
 			const priorTranscript = namespaceToolCallIds(attached, source.runId);
 			report({ mode: "seed", priorMessages: priorTranscript.length, loadedTools: (source.loadedTools ?? []).length });
-			return { priorTranscript, loadedTools: source.loadedTools ?? [], carriedNotes: source.carriedNotes, seedApplied: true, ...(source.compaction ? { compaction: { before: source.compaction.before, after: source.compaction.after } } : {}) };
+			return { priorTranscript, loadedTools: source.loadedTools ?? [], ...(source.toolCache ? { toolCache: source.toolCache } : {}), carriedNotes: source.carriedNotes, seedApplied: true, ...(source.compaction ? { compaction: { before: source.compaction.before, after: source.compaction.after } } : {}) };
 		}
 		warn(`transcript_fallback reason=seed_unavailable run=${input.runId}`);
 	}
@@ -85,5 +87,5 @@ export async function resolveTranscriptHistory(input: {
 		priorRunEndedAt: latest.finishedAt?.toISOString(),
 	});
 	report({ mode: "carried", priorMessages: priorTranscript.length, loadedTools: (latest.loadedTools ?? []).length });
-	return { priorTranscript, loadedTools: latest.loadedTools ?? [], carriedNotes: latest.carriedNotes, seedApplied: false, ...(latest.compaction ? { compaction: { before: latest.compaction.before, after: latest.compaction.after } } : {}) };
+	return { priorTranscript, loadedTools: latest.loadedTools ?? [], ...(latest.toolCache ? { toolCache: latest.toolCache } : {}), carriedNotes: latest.carriedNotes, seedApplied: false, ...(latest.compaction ? { compaction: { before: latest.compaction.before, after: latest.compaction.after } } : {}) };
 }

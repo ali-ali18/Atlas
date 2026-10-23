@@ -224,6 +224,7 @@ export {
 	parseRunInputMode,
 } from "./runs.js";
 export * from "./task-contracts.js";
+export * from "./tool-cache.js";
 export * from "./task-list.js";
 export * from "./task-ledger.js";
 export * from "./browser-subagents.js";

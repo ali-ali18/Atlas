@@ -155,3 +155,12 @@ describe("checkpoint: triagedInputs", () => {
 		expect(parseRuntimeCheckpoint({ messages: [], triagedInputs: [{ ids: [], text: "x" }, "lixo", { ids: ["a"], text: "b", verdict: { kind: "x" } }] })?.triagedInputs).toBeUndefined();
 	});
 });
+
+describe("checkpoint: ferramentas congeladas na conversa", () => {
+	it("grava e lê o estado do cache de prompt; malformado é ignorado", () => {
+		const toolCache = { turn: 2, at: "2026-10-23T12:00:00.000Z", segments: [["routines"], ["files"]], lastUsed: { routines: 1, files: 2 }, toolOrder: ["memory", "propose_routine", "create_file"] };
+		const checkpoint = buildRuntimeCheckpoint({ messages: [], conversation: [], nextStepIndex: 1, model: "m", toolCache });
+		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify(checkpoint)))?.toolCache).toEqual(toolCache);
+		expect(parseRuntimeCheckpoint({ messages: [], toolCache: { turn: "x" } })?.toolCache).toBeUndefined();
+	});
+});

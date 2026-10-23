@@ -4,6 +4,7 @@ import type { ComputerUseEvent, RunUsage } from "./computer.js";
 import type { RunConfigSnapshot } from "./effective-config.js";
 import type { LoginConnector } from "./login-connector.js";
 import type { TaskListItem } from "./task-list.js";
+import type { ToolCacheState } from "./tool-cache.js";
 import type { LoginVaultOffer } from "./login-wall.js";
 import type {
 	CapabilitySnapshot,
@@ -364,6 +365,8 @@ export type AgentRunCheckpoint = {
 	llmMessages?: SerializedLlmMessage[];
 	/** Tools de conector/adiadas expostas ao fim do run: o próximo turno da conversa já as tem carregadas. */
 	loadedTools?: string[];
+	/** Grupos e ordem das tools congelados na conversa (ver `ToolCacheState`). */
+	toolCache?: ToolCacheState;
 	/** Marca d'água da conversa no começo do run: o turno seguinte lê só as mensagens depois dela. */
 	transcriptWatermark?: TranscriptWatermark;
 	/** Notas de turno que seguem valendo (ver `CarriedNote`). */

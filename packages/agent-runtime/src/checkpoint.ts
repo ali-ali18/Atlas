@@ -12,6 +12,7 @@ import {
 	parseLoginVaultOffer,
 	parseTaskList,
 	parseTaskState,
+	parseToolCacheState,
 } from "@workspace/shared";
 import type { LlmContentPart, LlmMessage } from "@workspace/llm";
 import { TOOL_CALL_HISTORY_SIZE } from "./tool-budget.js";
@@ -373,6 +374,7 @@ export function buildRuntimeCheckpoint(input: {
 	modelEscalations?: AgentRunCheckpoint["modelEscalations"];
 	activeElapsedMs?: number;
 	loadedTools?: string[];
+	toolCache?: AgentRunCheckpoint["toolCache"];
 	transcriptWatermark?: AgentRunCheckpoint["transcriptWatermark"];
 	carriedNotes?: AgentRunCheckpoint["carriedNotes"];
 }): AgentRunCheckpoint {
@@ -410,6 +412,7 @@ export function buildRuntimeCheckpoint(input: {
 		...(input.modelTier ? { modelTier: input.modelTier } : {}),
 		...(input.modelEscalations?.length ? { modelEscalations: input.modelEscalations } : {}),
 		...(input.loadedTools?.length ? { loadedTools: input.loadedTools.slice(0, 200) } : {}),
+		...(input.toolCache ? { toolCache: input.toolCache } : {}),
 		...(input.transcriptWatermark ? { transcriptWatermark: input.transcriptWatermark } : {}),
 		...(input.carriedNotes?.length ? { carriedNotes: input.carriedNotes } : {}),
 	};
@@ -511,6 +514,7 @@ export function parseRuntimeCheckpoint(
 		...(isModelTier(value.modelTier) ? { modelTier: value.modelTier } : {}),
 		...(parseModelEscalations(value.modelEscalations).length ? { modelEscalations: parseModelEscalations(value.modelEscalations) } : {}),
 		...(Array.isArray(value.loadedTools) ? { loadedTools: value.loadedTools.filter((name): name is string => typeof name === "string").slice(0, 200) } : {}),
+		...(parseToolCacheState(value.toolCache) ? { toolCache: parseToolCacheState(value.toolCache)! } : {}),
 		...(parseCarriedNotes(value.carriedNotes).length ? { carriedNotes: parseCarriedNotes(value.carriedNotes) } : {}),
 		...(parseTranscriptWatermark(value.transcriptWatermark) ? { transcriptWatermark: parseTranscriptWatermark(value.transcriptWatermark)! } : {}),
 		...(parseTranscriptSeed(value.transcriptSeed) ? { transcriptSeed: parseTranscriptSeed(value.transcriptSeed)! } : {}),

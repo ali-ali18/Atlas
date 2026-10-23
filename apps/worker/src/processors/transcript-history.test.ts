@@ -176,3 +176,13 @@ test("conversa compactada (/compact): o turno seguinte parte do resumo + cauda, 
 	// ids da cauda ganham o prefixo do run de origem como sempre
 	assert.match(String(out.priorTranscript[2]!.tool_calls?.[0]?.id), /^r[0-9a-z]{6}_c9$/);
 });
+
+test("cache de prompt: os grupos e a ordem de tools congelados no turno anterior seguem para o turno seguinte", async () => {
+	const toolCache = { turn: 2, at: "2026-01-01T10:05:00.000Z", segments: [["routines"]], lastUsed: { routines: 2 }, toolOrder: ["memory", "propose_routine"] };
+	const out = await resolveTranscriptHistory({ ...base, loadLatest: async () => ({ ...latest, toolCache }) });
+	assert.ok(out);
+	assert.deepEqual(out.toolCache, toolCache);
+	// sem estado gravado (checkpoint antigo), nada é inventado
+	const old = await resolveTranscriptHistory(base);
+	assert.equal(old?.toolCache, undefined);
+});

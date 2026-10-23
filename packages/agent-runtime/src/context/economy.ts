@@ -17,6 +17,8 @@ import type { ContextGroup } from "./prompt-blocks.js";
 export type ContextEconomyPlan = {
 	/** Grupos pré-carregados (tools e procedimento no prompt). */
 	groups: Set<ContextGroup>;
+	/** Grupos que ESTE pedido trouxe (roteador e pré-cargas), sem os que vieram fixos de turnos anteriores. */
+	routed: Set<ContextGroup>;
 	plan: NativeToolPlan;
 	/** Índice do prompt das tools adiadas ("" quando não há o que adiar). */
 	index: string;
@@ -77,6 +79,8 @@ export function planContextEconomy(input: {
 	preloadEmail?: boolean;
 	/** Rotina que atualiza uma página: as tools `page_*` já vão no 1º passo (o texto do turno não precisa citar "painel"). */
 	preloadPages?: boolean;
+	/** Grupos fixos da conversa (turnos anteriores, ver `sticky-groups.ts`): seguem carregados mesmo sem palavra-chave. */
+	stickyGroups?: Iterable<ContextGroup>;
 }): ContextEconomyPlan {
 	const groups = routeContextGroups({
 		text: input.routerText,
@@ -91,15 +95,23 @@ export function planContextEconomy(input: {
 	if (input.preloadVault) groups.add("vault");
 	if (input.preloadApi) groups.add("api");
 	if (input.preloadPages) groups.add("pages");
+	// Fixo de turno anterior que este pedido não trouxe de novo: carregado, mas não conta como pedido agora.
+	const stickyOnly = new Set([...(input.stickyGroups ?? [])].filter((group) => !groups.has(group)));
+	for (const group of stickyOnly) groups.add(group);
+	if (!input.eligible.some((tool) => tool.function.name === "propose_bot")) groups.delete("bots");
 	// Sem as tools (bot sem e-mail) o procedimento de e-mail é só ruído.
 	if (!input.eligible.some((tool) => tool.function.name.startsWith("email_"))) groups.delete("email");
-	else if (input.preloadEmail) groups.add("email");
+	else if (input.preloadEmail) {
+		groups.add("email");
+		stickyOnly.delete("email");
+	}
 	for (const name of input.resumedToolNames ?? []) {
 		const group = nativeToolGroupOf(name);
 		if (group && isNativeToolGroup(group)) groups.add(group);
 	}
+	const routed = new Set([...groups].filter((group) => !stickyOnly.has(group)));
 	const plan = planNativeTools(input.eligible, groups);
-	return { groups, plan, index: deferredToolsIndex(input.eligible, groups) };
+	return { groups, routed, plan, index: deferredToolsIndex(input.eligible, groups) };
 }
 
 /**
