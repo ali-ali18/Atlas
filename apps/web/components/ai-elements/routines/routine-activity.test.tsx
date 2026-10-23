@@ -31,3 +31,13 @@ test("sem agendamento reconhecível (ou ação que não é criação) o cartão 
 	const updated = renderToStaticMarkup(<RoutineActivityCard action="updated" detail={cronDetail} routineId="r1" title="Painel" triggerType="cron" />);
 	assert.doesNotMatch(updated, /data-routine-summary/);
 });
+
+test("cartão de rotina de e-mail mostra a frase do gatilho e o ícone de e-mail (não o de webhook)", () => {
+	const detail = "Quando chegar e-mail de fornecedor@ com 'NF' no assunto\n\nRegistre a NF.";
+	const email = renderToStaticMarkup(<RoutineActivityCard action="created" detail={detail} routineId="r1" title="NF" triggerType="event" />);
+	assert.match(email, /data-routine-summary[^>]*>Rotina criada · Quando chegar e-mail de fornecedor@ com &#x27;NF&#x27; no assunto</);
+	assert.match(email, /lucide-mail/);
+	assert.doesNotMatch(email, /lucide-webhook/);
+	const webhook = renderToStaticMarkup(<RoutineActivityCard action="created" detail="Webhook: https://x.test" routineId="r1" title="Hook" triggerType="event" />);
+	assert.match(webhook, /lucide-webhook/);
+});
