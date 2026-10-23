@@ -1,0 +1,8 @@
+---
+description: Padrões de produto e arquitetura do Atlas já decididos (autonomia, custo/contexto, linguagem, chat, UI, fluxo)
+alwaysApply: true
+---
+
+Regra mantida em `.agents/rules/70-padroes-produto.md` (fonte única, não edite aqui).
+
+@.agents/rules/70-padroes-produto.md
