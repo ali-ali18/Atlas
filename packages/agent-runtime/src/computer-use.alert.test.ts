@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CompleteChatWithToolsResult } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
-import { createRoutine, listRoutines, updateRoutine } from "@workspace/db";
+import { createRoutine, deleteRoutine, listRoutines, updateRoutine } from "@workspace/db";
 import { runComputerUse, COMPUTER_USE_TOOLS } from "./computer-use.js";
 import { groupProcedureText } from "./context/prompt-blocks.js";
 import type { AlertRunState } from "./tools/report-alert.js";
@@ -69,6 +69,12 @@ async function run(input: { message: string; calls: CompleteChatWithToolsResult[
 	});
 	return { toolResults, routines, seenTools, systems };
 }
+
+/** Tool nativa adiada: a 1ª chamada só carrega o grupo; o modelo repete (comportamento real). */
+const loaded = (call: CompleteChatWithToolsResult): CompleteChatWithToolsResult[] => {
+	const first = call.message.tool_calls![0]!;
+	return [call, { ...call, message: { ...call.message, tool_calls: [{ ...first, id: `${first.id}-retry` }] } }];
+};
 
 const STOCK_ALERT = {
 	action: "create", title: "Estoque da canela", detail: "Read the current stock of canela from the ERP connector and compare with 10.",
@@ -218,5 +224,109 @@ describe("report_alert na execução da rotina", () => {
 		expect(toolResults[1]).toMatchObject({ ok: false });
 		expect(toolResults[1]!.summary).toMatch(/summary is required/);
 		expect(state.report.verdict).toBeNull();
+	});
+});
+
+describe("gerir alertas por conversa (tudo que o cartão da rotina faz)", () => {
+	const plain = () => routineRow({ id: "routine-2", name: "Resumo da agenda", alert: undefined, triggerType: "cron", interval: undefined, schedule: "0 9 * * *" });
+	beforeEach(() => {
+		vi.clearAllMocks();
+		vi.mocked(listRoutines).mockResolvedValue([routineRow(), plain()] as never);
+		vi.mocked(deleteRoutine).mockResolvedValue(true);
+	});
+
+	it("o prompt de rotinas ensina a listar e gerir sem mandar o usuário ao painel", () => {
+		const prompt = groupProcedureText(new Set(["routines"]));
+		expect(prompt).toContain("only_alerts");
+		expect(prompt).toContain("routine_control");
+		const tool = COMPUTER_USE_TOOLS.find((item) => item.function.name === "routine_control")!;
+		expect(tool.function.description).toMatch(/alert already|only when its condition turns true/);
+	});
+
+	it("'quais alertas eu tenho?' lista só os alertas, com condição e frequência, escopado pelo dono", async () => {
+		const { toolResults } = await run({ message: "quais alertas eu tenho?", calls: [...loaded(toolCall("c1", "list_routines", { only_alerts: true })), closing] });
+		expect(listRoutines).toHaveBeenCalledWith("user-1", "bot-1");
+		expect(toolResults.at(-1)!.summary).toContain("Alerta · verifica a cada 30 minutos · avisa se o estoque de canela cair abaixo de 10");
+		expect(toolResults.at(-1)!.summary).not.toContain("Resumo da agenda");
+	});
+
+	it("sem alertas: diz que não há nenhum", async () => {
+		vi.mocked(listRoutines).mockResolvedValue([plain()] as never);
+		const { toolResults } = await run({ message: "quais alertas eu tenho?", calls: [...loaded(toolCall("c1", "list_routines", { only_alerts: true })), closing] });
+		expect(toolResults.at(-1)!.summary).toBe("Nenhum alerta neste bot.");
+	});
+
+	it("pausa e retoma um alerta, com cartão visível", async () => {
+		vi.mocked(updateRoutine).mockResolvedValueOnce(routineRow({ enabled: false }) as never);
+		const paused = await run({ message: "pausa o alerta do estoque", calls: [...loaded(toolCall("c1", "routine_control", { action: "pause", target: "estoque" })), closing] });
+		expect(updateRoutine).toHaveBeenLastCalledWith("user-1", "bot-1", "routine-1", { enabled: false });
+		expect(paused.toolResults.at(-1)).toMatchObject({ ok: true });
+		expect(paused.toolResults.at(-1)!.summary).toContain("pausado");
+		expect(paused.routines[0]).toMatchObject({ action: "updated", title: "Estoque da canela" });
+		expect(paused.routines[0]!.detail).toContain("Pausada");
+
+		vi.mocked(listRoutines).mockResolvedValue([routineRow({ enabled: false })] as never);
+		vi.mocked(updateRoutine).mockResolvedValueOnce(routineRow() as never);
+		const resumed = await run({ message: "volta com o alerta do estoque", calls: [...loaded(toolCall("c2", "routine_control", { action: "resume", target: "Estoque da canela" })), closing] });
+		expect(updateRoutine).toHaveBeenLastCalledWith("user-1", "bot-1", "routine-1", { enabled: true });
+		expect(resumed.routines[0]!.detail).toContain("Retomada");
+	});
+
+	it("pausar o que já está pausado não grava nada", async () => {
+		vi.mocked(listRoutines).mockResolvedValue([routineRow({ enabled: false })] as never);
+		const { toolResults, routines } = await run({ message: "pausa o estoque", calls: [...loaded(toolCall("c1", "routine_control", { action: "pause", target: "estoque" })), closing] });
+		expect(updateRoutine).not.toHaveBeenCalled();
+		expect(toolResults.at(-1)!.summary).toContain("já está pausada");
+		expect(routines).toHaveLength(0);
+	});
+
+	it("apaga um alerta (cartão sem link para a rotina apagada)", async () => {
+		const { toolResults, routines } = await run({ message: "apaga o alerta do estoque", calls: [...loaded(toolCall("c1", "routine_control", { action: "delete", target: "estoque" })), closing] });
+		expect(deleteRoutine).toHaveBeenCalledWith("user-1", "bot-1", "routine-1");
+		expect(toolResults.at(-1)!.summary).toContain("apagado");
+		expect(routines[0]).toMatchObject({ action: "updated", title: "Estoque da canela" });
+		expect(routines[0]).not.toHaveProperty("routineId");
+	});
+
+	it("falha ao apagar vira erro de verdade (ok:false), sem sucesso falso", async () => {
+		vi.mocked(deleteRoutine).mockResolvedValueOnce(false);
+		const { toolResults } = await run({ message: "apaga", calls: [...loaded(toolCall("c1", "routine_control", { action: "delete", target: "estoque" })), closing] });
+		expect(toolResults.at(-1)).toMatchObject({ ok: false });
+	});
+
+	it("rotina que não existe (ou é de outro dono: o db escopado não devolve) não altera nada", async () => {
+		const { toolResults } = await run({ message: "apaga a rotina do vizinho", calls: [...loaded(toolCall("c1", "routine_control", { action: "delete", target: "rotina do vizinho" })), closing] });
+		expect(toolResults.at(-1)!.summary).toMatch(/Não achei rotina/);
+		expect(deleteRoutine).not.toHaveBeenCalled();
+		expect(updateRoutine).not.toHaveBeenCalled();
+	});
+
+	it("liga/desliga o aviso (push) de uma rotina comum", async () => {
+		vi.mocked(updateRoutine).mockResolvedValue(plain() as never);
+		const off = await run({ message: "só me avisa do que for importante no resumo da agenda", calls: [...loaded(toolCall("c1", "routine_control", { action: "notify_important", target: "Resumo da agenda" })), closing] });
+		expect(updateRoutine).toHaveBeenLastCalledWith("user-1", "bot-1", "routine-2", { notify: "important" });
+		expect(off.routines[0]!.detail).toContain("importante");
+		await run({ message: "volta a me avisar sempre", calls: [...loaded(toolCall("c2", "routine_control", { action: "notify_always", target: "Resumo da agenda" })), closing] });
+		expect(updateRoutine).toHaveBeenLastCalledWith("user-1", "bot-1", "routine-2", { notify: "always" });
+	});
+
+	it("aviso de um alerta: explica que só avisa na virada e como silenciar, sem gravar", async () => {
+		const { toolResults } = await run({ message: "para de me avisar do estoque", calls: [...loaded(toolCall("c1", "routine_control", { action: "notify_important", target: "estoque" })), closing] });
+		expect(updateRoutine).not.toHaveBeenCalled();
+		expect(toolResults.at(-1)!.summary).toMatch(/pause o alerta/);
+	});
+
+	it("muda a frequência de um alerta sem perder a condição", async () => {
+		vi.mocked(updateRoutine).mockResolvedValue(routineRow({ interval: { everyMinutes: 15 } }) as never);
+		await run({ message: "verifica a cada 15 minutos", calls: [toolCall("c1", "propose_routine", { ...STOCK_ALERT, action: "edit", target: "Estoque da canela", alert: undefined, every_minutes: 15 }), closing] });
+		const patch = vi.mocked(updateRoutine).mock.calls.at(-1)![3];
+		expect(patch).toMatchObject({ intervalTrigger: { everyMinutes: 15 } });
+		expect(patch).not.toHaveProperty("alert");
+	});
+
+	it("dentro de uma execução de rotina a gestão é recusada", async () => {
+		const { toolResults } = await run({ message: "run", origin: "routine", calls: [...loaded(toolCall("c1", "routine_control", { action: "delete", target: "estoque" })), closing] });
+		expect(deleteRoutine).not.toHaveBeenCalled();
+		expect(JSON.stringify(toolResults)).not.toContain("apagado");
 	});
 });

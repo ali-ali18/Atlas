@@ -211,7 +211,7 @@ describe("L5: tool nativa adiada é achada e carregada", () => {
 		expect(second).toContain("propose_routine");
 		// Prefixo estável: o array do 1º passo é prefixo exato do 2º.
 		expect(second.slice(0, names(requests[0]!).length)).toEqual(names(requests[0]!));
-		expect(second.slice(names(requests[0]!).length)).toEqual(["list_routines", "propose_routine", "routine_group", "github_list_repos"]);
+		expect(second.slice(names(requests[0]!).length)).toEqual(["list_routines", "propose_routine", "routine_group", "routine_control", "github_list_repos"]);
 		expect(results[0]).toMatchObject({ name: "mcp_tool_search", ok: true });
 		// O procedimento que não estava no prompt vem junto do resultado.
 		expect(results[0]!.summary).toContain("Loaded built-in tools");

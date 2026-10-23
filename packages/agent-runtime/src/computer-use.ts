@@ -342,6 +342,7 @@ import {
 } from "./tools/delegate-task.js";
 import { CREATE_FILE_TOOL, executeCreateFile, previewCreateFileArgs, type CreateFileDeps, type FileEvent } from "./tools/create-file.js";
 import { RUN_CODE_TOOL, executeRunCode, type RunCodeDeps } from "./tools/run-code.js";
+import { ROUTINE_CONTROL_TOOL, ROUTINE_CONTROL_TOOL_NAME, executeRoutineControl } from "./tools/routine-control.js";
 import { REPORT_ALERT_TOOL, REPORT_ALERT_TOOL_NAME, alertRunNote, executeReportAlert, type AlertRunState } from "./tools/report-alert.js";
 import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME, dbPagesStore, executePageTool, isPageTool, type PageShareStore, type PagesStore } from "./tools/pages.js";
 import {
@@ -1070,7 +1071,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "list_routines",
 			description:
-				"Lista as rotinas deste bot em texto (sem card). Use para consultar crons/webhooks existentes. Não invente rotinas.",
+				"Lista as rotinas deste bot em texto (sem card), com os alertas por condição (condição, frequência, se está avisando agora) e o modo de aviso. Use para consultar rotinas e alertas existentes, e antes de pausar, retomar, apagar ou editar uma. Não invente rotinas.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -1078,10 +1079,15 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 						type: "boolean",
 						description: "Lista só ativas (padrão false = todas).",
 					},
+					only_alerts: {
+						type: "boolean",
+						description: "Lista só alertas por condição (\"quais alertas eu tenho?\"). Padrão false = todas.",
+					},
 				},
 			},
 		},
 	},
+	ROUTINE_CONTROL_TOOL,
 	{
 		type: "function",
 		function: {
@@ -2196,10 +2202,11 @@ async function executeListRoutines(
 	}
 	const onlyEnabled = Boolean(args.only_enabled);
 	const rows = await listRoutines(scope.userId, scope.botId);
-	const filtered = onlyEnabled ? rows.filter((row) => row.enabled) : rows;
+	const onlyAlerts = Boolean(args.only_alerts);
+	const filtered = rows.filter((row) => (!onlyEnabled || row.enabled) && (!onlyAlerts || row.alert));
 	const items = filtered.slice(0, 25);
 	if (items.length === 0) {
-		return { summary: "Nenhuma rotina neste bot." };
+		return { summary: onlyAlerts ? "Nenhum alerta neste bot." : "Nenhuma rotina neste bot." };
 	}
 	const lines = items.map((row, index) => {
 		const kind =
@@ -2214,11 +2221,34 @@ async function executeListRoutines(
 						: `cron · ${row.schedule ?? "—"}`;
 		const state = row.enabled ? "ativa" : "pausada";
 		const groupNote = row.group ? ` [grupo: ${row.group.name}]` : "";
-		return `${index + 1}. ${row.name} (${kind}, ${state})${groupNote}`;
+		const alertSentence = describeRoutineAlertSentence(row);
+		const alertNote = alertSentence ? ` — ${alertSentence}${row.alert?.active ? " (avisando agora: condição ainda vale)" : ""}` : "";
+		const notifyNote = !row.alert && row.notify === "important" ? " [aviso: só o importante]" : "";
+		return `${index + 1}. ${row.name} (${kind}, ${state})${groupNote}${alertNote}${notifyNote}`;
 	});
 	return {
 		summary: `Rotinas (${items.length}):\n${lines.join("\n")}`,
 	};
+}
+
+async function executeRoutineControlTool(
+	args: Record<string, unknown>,
+	ctx: ToolContext,
+): Promise<{ summary: string; routineEvent?: RoutineEvent }> {
+	const scope = skillScope(ctx);
+	if (!scope) return { summary: "Rotinas indisponíveis: este run não tem bot vinculado." };
+	if (ctx.origin === "routine") {
+		return { summary: "Este run é execução de rotina. Não gerencie rotinas — execute a instrução." };
+	}
+	const result = await executeRoutineControl(args, {
+		resolve: (target) => resolveRoutineTarget(scope, target),
+		update: (routineId, patch) => updateRoutine(scope.userId, scope.botId, routineId, patch),
+		remove: (routineId) => deleteRoutine(scope.userId, scope.botId, routineId),
+		onMutated: (routine) => ctx.onRoutineMutated?.(routine) ?? Promise.resolve(),
+	});
+	if (!result.routineEvent) return { summary: result.summary };
+	const routineEvent = await emitRoutineCard(ctx, result.routineEvent);
+	return { summary: result.summary, routineEvent };
 }
 
 async function executeRoutineGroup(
@@ -3819,6 +3849,9 @@ async function executeToolInner(
 		case "routine_group": {
 			return executeRoutineGroup(args, ctx);
 		}
+		case ROUTINE_CONTROL_TOOL_NAME: {
+			return executeRoutineControlTool(args, ctx);
+		}
 		case "github_list_repos": {
 			return executeGithubListRepos(args, ctx);
 		}
@@ -4881,6 +4914,7 @@ export async function runComputerUse(params: {
 		"list_routines",
 		"propose_routine",
 		"routine_group",
+		ROUTINE_CONTROL_TOOL_NAME,
 		"github_list_repos",
 	]);
 	// Fase 1: pesquisa web NÃO entra em rotina (execução só executa a instrução).
