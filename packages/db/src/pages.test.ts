@@ -205,8 +205,8 @@ test("a lista traz o grupo efetivo: o explícito ou o da rotina ligada ao painel
 		{ id: "r4", userId: "user-b", botId: "bot-b", pageId: solto.id, groupId: "g-b" },
 	);
 	const list = (await listBotPagesForUser("user-a", "bot-a"))!;
-	const byTitle = Object.fromEntries(list.map((item) => [item.title, [item.groupId, item.explicitGroupId]]));
-	assert.deepEqual(byTitle, { Solto: [null, null], Explícito: ["g-a2", "g-a2"], "Via rotina": ["g-a", null] });
+	const byTitle = Object.fromEntries(list.map((item) => [item.title, [item.groupId, item.explicitGroupId, item.groupName]]));
+	assert.deepEqual(byTitle, { Solto: [null, null, null], Explícito: ["g-a2", "g-a2", "Financeiro"], "Via rotina": ["g-a", null, "Vendas Loja Exemplo"] });
 });
 
 test("resolvePageGroup: por id, por nome (sem caixa), nome novo cria; id de outro dono é recusado", async () => {

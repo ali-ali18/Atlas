@@ -35,6 +35,8 @@ export type PageListItem = Pick<PageRecord, "id" | "botId" | "title" | "revision
 	groupId: string | null;
 	/** Grupo explícito (o que "Sem grupo" desfaz); null quando o grupo só vem da rotina. */
 	explicitGroupId: string | null;
+	/** Nome do grupo efetivo (para o agente e a UI), null sem grupo. */
+	groupName: string | null;
 };
 
 type PageRow = {
@@ -129,6 +131,8 @@ export async function listBotPagesForUser(userId: string, botId: string, limit =
 		select: { pageId: true, groupId: true },
 	});
 	const effective = effectivePageGroupIds(rows as PageRow[], linked);
+	const groupRows = await prisma.routineGroup.findMany({ where: { botId, userId }, select: { id: true, name: true } });
+	const groupNames = new Map(groupRows.map((group) => [group.id, group.name]));
 	const items: PageListItem[] = [];
 	for (const row of rows as PageRow[]) {
 		const record = toRecord(row);
@@ -144,6 +148,7 @@ export async function listBotPagesForUser(userId: string, botId: string, limit =
 			sourceCount: record.sources.length,
 			groupId: effective.get(record.id) ?? null,
 			explicitGroupId: record.groupId,
+			groupName: groupNames.get(effective.get(record.id) ?? "") ?? null,
 		});
 	}
 	return items;
