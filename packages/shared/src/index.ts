@@ -447,6 +447,7 @@ export * from "./memory-cleanup.js";
 export * from "./proactive-prompt.js";
 export * from "./routine-proposal.js";
 export * from "./routine-alert.js";
+export * from "./routine-failure-text.js";
 export {
 	isOnceTrigger,
 	parseOnceRunAt,
