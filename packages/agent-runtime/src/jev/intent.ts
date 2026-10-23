@@ -46,7 +46,7 @@ export const INTENT_QUESTIONS = {
 		criteria: yesNo,
 	},
 	wants_file: {
-		instructions: "Does the user's message ask for a file as the deliverable (for example a PDF, spreadsheet, document, presentation or CSV to download), rather than only talking about files or asking about a format? The message may be in any language.",
+		instructions: "Does the user's message explicitly ask for a file to download or send as the deliverable (it names a file or format such as PDF, spreadsheet/Excel, Word document, presentation, CSV, or says 'file')? A report, summary, table, list or answer written in the chat is not a file, and neither is talking about files or asking about a format. The message may be in any language.",
 		criteria: yesNo,
 	},
 	multi_item: {
@@ -85,7 +85,8 @@ export async function detectJevIntents(input: {
 		autonomy: jevYes(a.autonomy),
 		subagentModel: jevYes(a.subagent_model),
 		cancel: jevYes(a.cancel),
-		wantsFile: jevYes(a.wants_file),
+		// Arquivo pedido liga o portão que cobra a entrega: só pedido explícito, limiar alto como o de confirmar.
+		wantsFile: jevYes(a.wants_file, 0.9),
 		multiItem: jevYes(a.multi_item),
 		// Confirmar executa a ação pendente: limiar mais alto que os demais.
 		confirm: jevYes(a.confirm, 0.9),

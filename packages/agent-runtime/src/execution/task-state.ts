@@ -33,11 +33,13 @@ export const EMPTY_REPLY_FALLBACK_TEXT =
 	"O modelo não devolveu uma resposta para este pedido, mesmo após uma nova tentativa. O que foi feito até aqui está salvo na conversa; envie o pedido de novo ou reformule.";
 
 /**
- * Rascunho retirado do chat (`assistant_discard`) e refeito: o modelo o vê no histórico como se tivesse
- * sido dito, então o aviso precisa dizer que o usuário NÃO o viu (senão ele responde só ao aviso).
+ * Rascunho refeito (`assistant_discard`): o usuário VIU o rascunho (fica no chat como "Rascunho revisado", recolhido).
+ * O aviso diz isso com verdade e pede a resposta final corrigida, completa, sem repetir nem pedir desculpas pelo rascunho.
  */
 export const WITHDRAWN_REPLY_NOTE =
-	"The user did NOT see your previous reply: it was withdrawn before delivery. Your next final answer must be complete and stand on its own, with every fact and result the user asked for. Do not say it was already given.";
+	"Your previous reply was shown to the user as a draft (it stays visible, collapsed as a revised draft). Write the corrected final answer: complete and self-contained, keeping what was right and fixing what this note points out. Do not mention the draft or apologize for it.";
+/** Revisões da resposta final por run, somando todos os portões (itens, créditos, arquivo): no máximo uma. */
+export const MAX_ANSWER_REVISIONS_PER_RUN = 1;
 export const withWithdrawnReply = (note: string) => `${note} ${WITHDRAWN_REPLY_NOTE}`;
 
 export type TaskTracker =ReturnType<typeof createTaskTracker>;

@@ -83,18 +83,32 @@ describe("L18: arquivo pedido (Jev) sem artefato", () => {
 		expect(result?.text).toContain("could not produce the file");
 		expect(checkpoint?.taskState?.criteria).toEqual([]);
 		expect(checkpoint?.taskState?.blockers.length).toBe(1);
-		// Uma chamada barata, só depois do aviso, para saber se a resposta ainda promete o arquivo.
-		expect(promiseChecks()).toBe(1);
+		// No chat nenhum juiz confere a resposta depois do aviso: ela sai como está (o usuário já viu o rascunho).
+		expect(promiseChecks()).toBe(0);
 	});
 
-	it("prometer de novo depois do aviso (veredito do modelo barato) encerra o run como não concluído", async () => {
+	it("no chat, prometer de novo depois do aviso não derruba o run: a resposta sai como está, sem segunda revisão", async () => {
+		const events: Array<{ type: string }> = [];
+		const { result, error, requests, promiseChecks } = await run(
+			[reply("Vou gerar o PDF agora.", "stop"), reply("Vou gerar o PDF agora, um momento.", "stop")],
+			{ ...askPdf, onEvent: (event: { type: string }) => { events.push(event); } },
+			true,
+		);
+		expect(error).toBeUndefined();
+		expect(requests).toHaveLength(2);
+		expect(result?.text).toContain("um momento");
+		expect(promiseChecks()).toBe(0);
+		expect(events.filter((event) => event.type === "assistant_discard")).toHaveLength(1);
+	});
+
+	it("run sem o usuário no chat (conversa entre bots): prometer de novo depois do aviso (veredito do modelo barato) encerra o run como não concluído", async () => {
 		const { error, checkpoint } = await run(
 			[
 				reply("Vou gerar o PDF agora.", "stop"),
 				reply("Vou gerar o PDF agora, um momento.", "stop"),
 				reply("Summary of what happened.", "stop"),
 			],
-			askPdf,
+			{ ...askPdf, origin: "bot" },
 			true,
 		);
 		expect(error).toBeInstanceOf(AgentRunLoopDetectedError);

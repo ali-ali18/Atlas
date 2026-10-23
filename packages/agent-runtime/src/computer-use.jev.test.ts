@@ -276,19 +276,21 @@ describe("Jev: verificador de resposta (JEV_VERIFY_MODE)", () => {
 	const priceResult = async () => ({ ok: true, text: "iPhone 16 128GB - R$ 4.999 na Loja X. Token: Bearer abcdefghijklmnop1234567", truncated: false });
 	const base = { text: "qual o preço do iPhone 16?", deferred: false, mcpCall: priceResult };
 
-	it("on + contradição: uma nota em inglês e UMA revisão", async () => {
+	it("on + contradição: o Jev roda (rebaixado para sombra) e a resposta final já exibida não é refeita", async () => {
 		const ask = answer({ contradicts_evidence: 0.95 });
+		const decisions: Array<{ feature: string; mode: string }> = [];
+		const jev = { ...jevWith({ verify: "on" }, ask), onDecision: (record: { feature: string; mode: string }) => { decisions.push(record); } };
 		const { result, seenMessages } = await run({
 			...base,
-			jev: jevWith({ verify: "on" }, ask),
-			calls: [priceCall(), say("Não consegui confirmar o preço."), say("O iPhone 16 128GB custa R$ 4.999 na Loja X.")],
+			jev,
+			calls: [priceCall(), say("Não consegui confirmar o preço."), say("nunca chega")],
 		});
-		expect(seenMessages).toHaveLength(3);
-		const last = seenMessages[2]!;
-		expect(JSON.stringify(last)).toContain("Answer check (automatic, once)");
-		expect(JSON.stringify(last)).toContain("contradicts the tool results");
-		expect(result?.text).toBe("O iPhone 16 128GB custa R$ 4.999 na Loja X.");
+		expect(seenMessages).toHaveLength(2);
+		expect(JSON.stringify(seenMessages)).not.toContain("Answer check (automatic, once)");
+		expect(result?.text).toBe("Não consegui confirmar o preço.");
 		expect(ask).toHaveBeenCalledTimes(1);
+		// Fica registrado para medir (telemetria), sem agir.
+		expect(decisions.filter((record) => record.feature === "verify").map((record) => record.mode)).toEqual(["shadow"]);
 		const state = JSON.stringify(vi.mocked(ask).mock.calls[0]![0].state);
 		expect(state).toContain("R$ 4.999");
 		expect(state).not.toContain("abcdefghijklmnop1234567");
@@ -332,17 +334,18 @@ describe("Jev: verificador de resposta (JEV_VERIFY_MODE)", () => {
 		expect(ask).toHaveBeenCalledTimes(1);
 	});
 
-	it("sem tools usadas não verifica; e nunca revisa duas vezes", async () => {
+	it("sem tools usadas não verifica; com tools verifica uma vez e nunca revisa", async () => {
 		const noTools = answer({ contradicts_evidence: 1 });
 		await run({ text: "oi", jev: jevWith({ verify: "on" }, noTools), calls: [say("Olá!")] });
 		expect(noTools).not.toHaveBeenCalled();
 		const always = answer({ contradicts_evidence: 1, blames_working_tool: 1 });
-		const { seenMessages } = await run({
+		const { seenMessages, result } = await run({
 			...base,
 			jev: jevWith({ verify: "on" }, always),
 			calls: [priceCall(), say("rascunho 1"), say("rascunho 2")],
 		});
-		expect(seenMessages).toHaveLength(3);
+		expect(seenMessages).toHaveLength(2);
+		expect(result?.text).toBe("rascunho 1");
 		expect(always).toHaveBeenCalledTimes(1);
 	});
 });

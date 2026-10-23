@@ -63,6 +63,15 @@ export function jevModeFor(rt: JevRuntime | undefined, feature: JevFeature): Jev
 	return rt.modes?.[feature] ?? "off";
 }
 
+/**
+ * O mesmo runtime com `feature` rebaixada de `on` para `shadow`: a decisão roda e é registrada (`onDecision`), mas
+ * quem chama não age sobre ela. Usado nos juízes que não podem descartar uma resposta final completa.
+ */
+export function observeOnly(rt: JevRuntime | undefined, feature: JevFeature): JevRuntime | undefined {
+	if (!rt || jevModeFor(rt, feature) !== "on") return rt;
+	return { ...rt, modes: { ...rt.modes, [feature]: "shadow" } };
+}
+
 /** Redige segredos e corta: nada vai inteiro ao Jev. */
 export function clipForJev(text: string, max: number): string {
 	return redactSecrets(text).slice(0, max);

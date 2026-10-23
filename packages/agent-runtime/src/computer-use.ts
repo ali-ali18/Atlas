@@ -14,7 +14,7 @@ import { buildStableSystemPrompt, buildSystemPrompt, swapLanguageInstruction } f
 import { namespaceToolCallId, renameProviderItemCallIds } from "./context/transcript.js";
 import { triageUserMessage, type TriageHistoryEntry } from "./loop/message-triage.js";
 import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } from "./loop/interrupt.js";
-import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
+import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MAX_ANSWER_REVISIONS_PER_RUN, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
 import { parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
 import { alreadyLoadedSummary, findAlreadyLoadedTools } from "./execution/tool-search-guard.js";
@@ -221,9 +221,9 @@ import type { McpRuntime } from "./mcp/runtime.js";
 import { isUnattendedOrigin } from "./autonomy-gate.js";
 import { jevMcpState, reviewMcpWithJev, type JevMcpAudit, type JevMcpEvaluator, type JevMcpMode } from "./mcp/jev-gate.js";
 import { detectJevIntents, NO_INTENTS, type JevIntents } from "./jev/intent.js";
-import type { JevRuntime } from "./jev/decide.js";
+import { observeOnly, type JevRuntime } from "./jev/decide.js";
 import { memoryJudgeFor, type MemoryGateCandidate, type MemoryGateVerdict, type MemoryJudge } from "./memory-gate.js";
-import { verifierNote, verifyDraftAnswer } from "./jev/answer-verifier.js";
+import { verifyDraftAnswer } from "./jev/answer-verifier.js";
 import { detectStuckRun, shouldCheckStuck } from "./jev/stuck.js";
 import { classifyDifficulty } from "./context/difficulty.js";
 import { classifyDifficultyWithReviewer } from "./jev/difficulty.js";
@@ -376,7 +376,7 @@ import { executeProposePlan, PROPOSE_PLAN_TOOL, PROPOSE_PLAN_TOOL_NAME } from ".
 import { isNativeWriteTool, runPreToolHooks, type HookLesson, type PreToolHit } from "./hooks/pre-tool.js";
 import { createTaskOrchestrator, isBookkeepingOnly, MULTI_ITEM_START_NOTE } from "./execution/task-orchestrator.js";
 import { collectEvidence, createDeliverableVerifier } from "./tools/draft-check.js";
-import { REGENERATE_FILE_NOTE, askFileCorrection, askFilePromise, shouldCheckFileCorrection } from "./execution/delivery-correction.js";
+import { askFileCorrection, askFilePromise, shouldCheckFileCorrection } from "./execution/delivery-correction.js";
 import {
 	executeProactiveTool,
 	executeUserPush,
@@ -7821,6 +7821,10 @@ ${blockHint}`;
 	const stallFileIntent = (pending: boolean) => !pending && !taskTracker.hasArtifact("file") && canCreateFile() && mentionsFileDeliverable(userTextsForFile);
 	let exhaustionNudged = false;
 	let fileCorrectionChecked = false;
+	/** Revisões da resposta final neste run, somando todos os portões (teto: `MAX_ANSWER_REVISIONS_PER_RUN`). */
+	let answerRevisions = 0;
+	/** Run com o usuário olhando o chat (não rotina, e-mail ou outro bot). */
+	const interactiveRun = params.origin === undefined || params.origin === "chat";
 	const firstStep = nextStepIndex;
 	/** Modo Automático: sobe um nível (no máximo uma vez por nível) e segue o run com o novo modelo; `false` = não há nível mais forte. */
 	const tryEscalate = async (reason: string, step: number): Promise<boolean> => {
@@ -8132,10 +8136,15 @@ ${blockHint}`;
 				}
 			}
 			if (text.length > 0) {
+				// Portões que refazem a resposta final: no máximo UMA revisão por run somando todos (o usuário já viu o
+				// rascunho; cada revisão vira "Rascunho revisado" no chat). Juiz LLM nunca descarta resposta completa.
+				const canReviseAnswer = answerRevisions < MAX_ANSWER_REVISIONS_PER_RUN;
 				// V3: resposta final com itens abertos (ou sem a lista exigida) volta ao modelo; estrutural, sem ler a frase.
+				// O portão roda sempre (grava a parcial declarada); só refaz se ainda há revisão disponível no run.
 				if (!isSubagent) {
 					const gate = taskOrchestrator.gate("final_answer", { budgetFraction: lastBudgetFraction, canContinue: gateCanContinue, browserAvailable: browserAvailable() });
-					if (gate.action === "block") {
+					if (gate.action === "block" && canReviseAnswer) {
+						answerRevisions += 1;
 						conversation.push({ role: "assistant", content: text });
 						// O texto já foi em deltas ao chat; como o run segue, o balão vira rascunho revisado (fica recolhido).
 						await onEvent({ type: "assistant_discard", id: stepId, reason: "items_open" });
@@ -8148,6 +8157,7 @@ ${blockHint}`;
 				// uma cutucada para terminar o que falta em vez de oferecer "retomar depois".
 				if (
 					!isSubagent &&
+					canReviseAnswer &&
 					shouldContinueAfterExhaustion({
 						anyExhausted: providerHealth.any(),
 						alternatives: availableWebFallbacks(hasToolInRun),
@@ -8163,6 +8173,7 @@ ${blockHint}`;
 					})
 				) {
 					exhaustionNudged = true;
+					answerRevisions += 1;
 					// Sem isto o balão ficava ao vivo e sumia no fim do run (só a resposta final é gravada).
 					await onEvent({ type: "assistant_discard", id: stepId, reason: "exhaustion" });
 					conversation.push({ role: "assistant", content: text });
@@ -8170,15 +8181,13 @@ ${blockHint}`;
 					await persistCheckpoint(step + 1);
 					continue;
 				}
-				// L18: arquivo pedido (Jev `wantsFile`) e ainda não criado. O critério só
+				// L18: arquivo pedido explicitamente na última fala (Jev `wantsFile`) e ainda não criado. O critério só
 				// existe quando a tool de criação está disponível; o sucesso vem do evento de arquivo.
 				if (taskTracker.unmet().length > 0) {
 					taskTracker.setPhase("verifying");
-					// O portão de itens já refez esta resposta e mandou declarar as lacunas (item que falhou,
-					// delegação sem resultado): cobrar o arquivo agora seria uma segunda reescrita do mesmo balão.
-					if (!artifactNudged && taskOrchestrator.answerRevised() && taskOrchestrator.hasGaps()) artifactNudged = true;
-					if (!artifactNudged) {
+					if (!artifactNudged && canReviseAnswer) {
 						artifactNudged = true;
+						answerRevisions += 1;
 						// Sem isto o balão ficava ao vivo e sumia no fim do run (só a resposta final é gravada).
 						await onEvent({ type: "assistant_discard", id: stepId, reason: "missing_file" });
 						conversation.push({ role: "assistant", content: text });
@@ -8186,25 +8195,27 @@ ${blockHint}`;
 						await persistCheckpoint(step + 1);
 						continue;
 					}
-					// Depois do aviso, resposta honesta (sem nova promessa) encerra; promessa de novo não.
-					// Caminho raro (arquivo pedido, duas rodadas sem criar): uma chamada barata, sem frases por idioma.
-					const promise = await askFilePromise({
-						streamChat,
-						model: params.messageTriageModel?.trim() || model,
-						apiKey,
-						reply: text,
-						signal: params.abortSignal,
-					});
-					if (promise) usageTotals = addUsage(usageTotals, promise.usage);
-					if (promise?.promisesFile) {
-						taskTracker.addBlocker("promised file was never created");
-						await persistCheckpoint(step + 1);
-						throw new AgentRunLoopDetectedError("A resposta anunciou um arquivo, mas nenhum arquivo foi criado.");
+					// Outro portão já refez a resposta, ou o aviso já foi dado: a resposta sai como está. Só o run sem
+					// ninguém olhando (rotina, e-mail) confere se ela ainda promete um arquivo que não existe e falha honesto.
+					if (artifactNudged && !interactiveRun) {
+						const promise = await askFilePromise({
+							streamChat,
+							model: params.messageTriageModel?.trim() || model,
+							apiKey,
+							reply: text,
+							signal: params.abortSignal,
+						});
+						if (promise) usageTotals = addUsage(usageTotals, promise.usage);
+						if (promise?.promisesFile) {
+							taskTracker.addBlocker("promised file was never created");
+							await persistCheckpoint(step + 1);
+							throw new AgentRunLoopDetectedError("A resposta anunciou um arquivo, mas nenhum arquivo foi criado.");
+						}
 					}
-					taskTracker.waiveFile("file was not produced; the reply says so");
+					taskTracker.waiveFile(artifactNudged ? "file was not produced; the reply was accepted after one reminder" : "file was not produced; the answer was already revised once");
 				}
-				// F4: com arquivo no run e orçamento sobrando, UMA chamada barata decide (sem frases por idioma)
-				// se a resposta admite erro no arquivo ou oferece refazê-lo; se sim, regera.
+				// F4 (só observa): com arquivo no run, UMA chamada barata diz se a resposta admite erro no arquivo. Fica
+				// registrado; a resposta não é descartada (o usuário já a viu e um juiz não reescreve resposta completa).
 				if (
 					!isSubagent &&
 					shouldCheckFileCorrection({
@@ -8229,35 +8240,21 @@ ${blockHint}`;
 						signal: params.abortSignal,
 					});
 					if (verdict) usageTotals = addUsage(usageTotals, verdict.usage);
-					if (verdict?.fixFile) {
-						conversation.push({ role: "assistant", content: text });
-						// O texto já foi em deltas ao chat; como será refeito, o balão vira rascunho revisado (fica recolhido).
-						await onEvent({ type: "assistant_discard", id: stepId, reason: "file_fix" });
-						conversation.push({ role: "system", content: withWithdrawnReply(REGENERATE_FILE_NOTE) });
-						await persistCheckpoint(step + 1);
-						continue;
-					}
+					if (verdict?.fixFile) console.info(`[gate:shadow] file_fix run=${runId} step=${step}: reply admits a file problem (kept as is)`);
 				}
-				// F11: confere o rascunho contra as evidências; no máximo UMA revisão.
+				// F11 (só observa): o verificador Jev confere o rascunho contra as evidências em modo sombra (registra a
+				// decisão via `onDecision`), sem descartar a resposta final.
 				// Só vale tool usada NESTE turno: os outcomes semeados do histórico são de turnos anteriores.
 				if (!jevVerifyDone && !isSubagent && toolOutcomes.slice(seededOutcomeCount).some((outcome) => outcome.ok)) {
 					jevVerifyDone = true;
-					const issues = await verifyDraftAnswer({
-						rt: params.jev,
+					await verifyDraftAnswer({
+						rt: observeOnly(params.jev, "verify"),
 						userRequest: lastUserMessageContent,
 						draft: text,
 						conversation,
 						statusOf: (id) => journal.resultOf(id),
 						signal: params.abortSignal,
 					});
-					if (issues) {
-						conversation.push({ role: "assistant", content: text });
-						// O texto já foi em deltas ao chat; como será refeito, o balão vira rascunho revisado (fica recolhido).
-						await onEvent({ type: "assistant_discard", id: stepId, reason: "evidence" });
-						conversation.push({ role: "system", content: withWithdrawnReply(verifierNote(issues)) });
-						await persistCheckpoint(step + 1);
-						continue;
-					}
 				}
 				taskTracker.setPhase("done");
 				await persistCheckpoint(step + 1);

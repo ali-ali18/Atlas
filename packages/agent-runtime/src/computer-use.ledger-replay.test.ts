@@ -5,6 +5,7 @@ import { parseTaskState } from "@workspace/shared";
 import type { SandboxManager } from "@workspace/sandbox";
 import { runComputerUse } from "./computer-use.js";
 import { jevSaying } from "./jev/test-support.js";
+import { MAX_ANSWER_REVISIONS_PER_RUN, MISSING_ARTIFACT_NOTE } from "./execution/task-state.js";
 
 /**
  * V3/V3b — replay com LLM mockado do caso real: "leia as 9 semanas da disciplina
@@ -238,6 +239,25 @@ describe("replay: 9 semanas de uma disciplina", () => {
 		expect(lastTaskState(checkpoints)?.ledger?.partial?.missing).toHaveLength(9);
 	});
 
+	it("teto global: uma revisão por run somando os portões (o arquivo pendente não refaz a resposta de novo)", async () => {
+		const finalText = "Read all 9 weeks: each one covers a chapter of the course.";
+		const { result, events, requests } = await run({
+			driver: ({ index }) => {
+				if (index === 0) return turn(setItems("set"));
+				if (index === 1) return say("attempt 1: please paste the weeks.");
+				if (index === 2) return turn(...Array.from({ length: 9 }, (_, i) => done(`d${i + 1}`, i + 1)));
+				return say(finalText);
+			},
+		});
+		// Itens abertos refizeram uma vez; depois, com os itens fechados, o arquivo pedido e não criado não cobra
+		// uma segunda revisão (antes do teto global, a cobrança do arquivo refazia o balão de novo).
+		expect(events.filter((e) => e.type === "assistant_discard").map((e) => e.reason)).toEqual(["items_open"]);
+		expect(requests.some((r) => systemTexts(r).some((t) => t.includes(MISSING_ARTIFACT_NOTE)))).toBe(false);
+		expect(requests).toHaveLength(4);
+		expect(result?.text).toBe(finalText);
+		expect(MAX_ANSWER_REVISIONS_PER_RUN).toBe(1);
+	});
+
 	it("tarefa de vários itens (Jev) exige a lista antes de entregar", async () => {
 		const { requests, events, result } = await run({
 			jev: jevSaying({ wants_file: 0.95, multi_item: 0.95 }),
@@ -390,7 +410,7 @@ describe("replay: continuação entre runs", () => {
 		expect(lastTaskState(checkpoints)?.ledger?.carry).toBe("adopted");
 	});
 
-	it("rascunho retirado pelo portão do run atual: o modelo é avisado de que o usuário NÃO o viu", async () => {
+	it("rascunho refeito pelo portão do run atual: o aviso diz a verdade (o usuário viu o rascunho) e pede a resposta final corrigida", async () => {
 		const { requests, events } = await run({
 			driver: ({ index }) => {
 				if (index === 0) return turn(setItems("set"));
@@ -401,6 +421,8 @@ describe("replay: continuação entre runs", () => {
 		});
 		expect(events.some((e) => e.type === "assistant_discard")).toBe(true);
 		const note = systemTexts(requests[2]!).find((t) => t.includes("Continue with the next open item"));
-		expect(note).toContain("The user did NOT see your previous reply");
+		expect(note).toContain("Your previous reply was shown to the user as a draft");
+		expect(note).toContain("Write the corrected final answer");
+		expect(note).not.toContain("did NOT see");
 	});
 });
