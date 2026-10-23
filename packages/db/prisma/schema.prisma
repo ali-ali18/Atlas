@@ -500,8 +500,8 @@ model RunEvent {
   payload   Json
   createdAt DateTime @default(now())
 
+  /// Também serve de índice para ler eventos por run em ordem (não há @@index([runId, seq]) separado).
   @@unique([runId, seq])
-  @@index([runId, seq])
   @@index([runId, type])
   @@map("run_events")
 }
