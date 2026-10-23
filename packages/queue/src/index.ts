@@ -36,6 +36,7 @@ export {
 	publishRunSignal,
 	publishRunEventsSignal,
 	subscribeRunEventsSignal,
+	isRunEventsSignalSubscribed,
 	runEventsChannel,
 	runSignalChannel,
 	subscribeRunSignals,

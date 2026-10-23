@@ -594,7 +594,7 @@ export async function markAgentRunRetrying(
 	error: string,
 	lease: RunLease,
 ): Promise<boolean> {
-	return prisma.$transaction(async (tx) => {
+	const marked = await prisma.$transaction(async (tx) => {
 		const changed = await tx.agentRun.updateMany({
 			where: {
 				id: runId,
@@ -613,6 +613,9 @@ export async function markAgentRunRetrying(
 		});
 		return true;
 	});
+	// Evento novo: acorda o stream SSE (que espaça a consulta quando o sinal está de pé).
+	if (marked) signalRunEventAppended(runId);
+	return marked;
 }
 
 export async function getAgentRunCheckpoint(
@@ -1163,6 +1166,7 @@ export async function failAgentRunAfterRetries(
 		{ isolationLevel: "ReadCommitted" },
 	).then(async (finalized) => {
 		if (finalized) {
+			signalRunEventAppended(runId);
 			await settleRoutineRunForAgentRun(runId, { status: "failed", error });
 			if (display?.resultText) {
 				const row = await prisma.agentRun.findUnique({ where: { id: runId }, select: { conversationId: true, origin: true } });

@@ -47,7 +47,7 @@ import {
 } from "@workspace/db";
 import { demoteSteerInputToQueue, getOwnedConversation, markPendingLoginCode, markPendingLoginUseVault, promoteQueuedInputToSteer } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
-import { publishRunSignal as defaultPublishRunSignal, subscribeRunEventsSignal, type AgentRunQueue } from "@workspace/queue";
+import { isRunEventsSignalSubscribed, publishRunSignal as defaultPublishRunSignal, subscribeRunEventsSignal, type AgentRunQueue } from "@workspace/queue";
 import { runRunStream } from "./run-stream.js";
 import { sseEncode } from "./sse-encode.js";
 import { notifyRunSignal, type PublishRunSignal } from "../run-signal.js";
@@ -281,7 +281,9 @@ export function createRunRoutes(
 		/** Aviso ao worker (Redis pub/sub); injetável em teste. */
 		publishRunSignal?: PublishRunSignal;
 		/** Sinal de "run ganhou eventos" (Redis) para o stream SSE; injetável em teste. */
-		subscribeRunEvents?: (runId: string, onEvents: () => void) => () => void;
+		subscribeRunEvents?: (runId: string, onEvents: () => void, onReady?: () => void) => () => void;
+		/** Assinatura do sinal confirmada (stream espaça a consulta de segurança); injetável em teste. */
+		runEventsSubscribed?: (runId: string) => boolean;
 		/** "Responder só com reação"; injetável em teste. */
 		reactionOnly?: ReactionOnlyDeps;
 	} = {},
@@ -289,6 +291,7 @@ export function createRunRoutes(
 	const validateModel = dependencies.validateModel ?? validateProviderModel;
 	const publish = dependencies.publishRunSignal ?? defaultPublishRunSignal;
 	const subscribeEvents = dependencies.subscribeRunEvents ?? subscribeRunEventsSignal;
+	const eventsSubscribed = dependencies.runEventsSubscribed ?? (dependencies.subscribeRunEvents ? () => false : isRunEventsSignalSubscribed);
 	const app = new Hono<AuthEnv>();
 	async function validateRunModel(userId: string, model: string): Promise<{
 		error: string; status: 400 | 404 | 409 | 503;
@@ -640,7 +643,8 @@ export function createRunRoutes(
 			await runRunStream(cursor, {
 				getState: () => getAgentRunStreamState(runId, userId),
 				listEvents: (after, limit) => listRunEventsAfter(runId, after, limit),
-				subscribe: (onWake) => subscribeEvents(runId, onWake),
+				subscribe: (onWake, onReady) => subscribeEvents(runId, onWake, onReady),
+				subscribed: () => eventsSubscribed(runId),
 				io: { stopped: observer.stopped, send: observer.send, wait: observer.wait, wakeUp: observer.wakeUp },
 			});
 		});
