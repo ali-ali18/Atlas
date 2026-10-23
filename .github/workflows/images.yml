@@ -36,28 +36,54 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
        (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
-      actions: read
+      packages: read
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      names: ${{ steps.matrix.outputs.names }}
       sha: ${{ steps.matrix.outputs.sha }}
+      stale: ${{ steps.stale.outputs.stale }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
+      # Run velho: se a main já avançou, um run mais novo cuida de tudo. Evita que um run antigo
+      # reponha o `latest` depois de um mais novo.
+      - name: Este commit ainda é a ponta da main?
+        id: stale
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main
+          tip=$(git rev-parse FETCH_HEAD)
+          if [ "$tip" = "$HEAD_SHA" ]; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::main avançou ($tip); este run ($HEAD_SHA) não publica nem faz deploy."
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/setup-buildx-action@v3
+        if: steps.stale.outputs.stale == 'false'
+      - uses: docker/login-action@v3
+        if: steps.stale.outputs.stale == 'false'
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Montar a matriz
         id: matrix
+        if: steps.stale.outputs.stale == 'false'
         env:
-          GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
           WITH_SANDBOXES: ${{ github.event_name != 'workflow_dispatch' || inputs.sandboxes }}
         run: |
           set -euo pipefail
-          # App: sempre as quatro imagens (o código mudou, o cache de camadas faz o resto).
+          # App: sempre as quatro imagens (o código mudou; o cache de camadas faz o resto).
           matrix='[
             {"name":"web","file":"docker/web/Dockerfile","context":".","target":"","args":""},
             {"name":"api","file":"docker/node-service.Dockerfile","context":".","target":"","args":"SERVICE=api"},
@@ -65,33 +91,40 @@ jobs:
             {"name":"migrate","file":"docker/node-service.Dockerfile","context":".","target":"migrate","args":"SERVICE=api"}
           ]'
 
-          # Sandboxes: só quando a pasta própria mudou desde o último publish que deu certo
-          # (ou sempre, no disparo manual). Sem publish anterior => constrói todas.
-          prev=""
-          if [ "$DISPATCH" != "true" ]; then
-            prev=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/images.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""' || true)
-            if [ -n "$prev" ] && ! git cat-file -e "${prev}^{commit}" 2>/dev/null; then prev=""; fi
-          fi
+          # Sandboxes: constrói se a imagem :latest não existe no GHCR, ou se docker/<nome>/** mudou desde
+          # a revisão gravada no label org.opencontainers.image.revision dessa imagem (ou sempre, no disparo manual).
           for s in agent-sandbox code-runner dev-sandbox; do
+            img="${IMAGE_PREFIX}${s}:latest"
             build=false
+            reason=""
             if [ "$WITH_SANDBOXES" = "true" ]; then
-              if [ "$DISPATCH" = "true" ] || [ -z "$prev" ]; then
-                build=true
-              elif ! git diff --quiet "$prev" "$HEAD_SHA" -- "docker/$s"; then
-                build=true
+              if [ "$DISPATCH" = "true" ]; then
+                build=true; reason="disparo manual"
+              elif ! meta=$(docker buildx imagetools inspect "$img" --format '{{json .Image}}' 2>/dev/null); then
+                build=true; reason="imagem não existe"
+              else
+                rev=$(jq -r '(.config.Labels // .Config.Labels // {})["org.opencontainers.image.revision"] // ""' <<<"$meta")
+                if [ -z "$rev" ] || ! git cat-file -e "${rev}^{commit}" 2>/dev/null; then
+                  build=true; reason="sem revisão conhecida no label"
+                elif ! git diff --quiet "$rev" "$HEAD_SHA" -- "docker/$s"; then
+                  build=true; reason="docker/$s mudou desde ${rev:0:7}"
+                fi
               fi
             fi
-            echo "sandbox $s: build=$build (base=${prev:-nenhuma})"
+            echo "sandbox $s: build=$build ${reason}"
             if [ "$build" = "true" ]; then
-              matrix=$(jq -c --arg s "$s" '. + [{"name":$s,"file":("docker/"+$s+"/Dockerfile"),"context":("docker/"+$s),"target":"","args":"","sandbox":true}]' <<<"$matrix")
+              matrix=$(jq -c --arg s "$s" '. + [{"name":$s,"file":("docker/"+$s+"/Dockerfile"),"context":("docker/"+$s),"target":"","args":""}]' <<<"$matrix")
             fi
           done
           echo "matrix=$(jq -c . <<<"$matrix")" >> "$GITHUB_OUTPUT"
+          echo "names=$(jq -c '[.[].name]' <<<"$matrix")" >> "$GITHUB_OUTPUT"
           echo "sha=${HEAD_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
+  # Só empurra `sha-<curto>`. O `latest` só se move no job `promote`, depois que TODAS as imagens deram certo.
   build:
     name: Imagem ${{ matrix.name }}
     needs: changes
+    if: needs.changes.outputs.stale == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -139,29 +172,69 @@ jobs:
           build-args: ${{ steps.args.outputs.list }}
           platforms: linux/amd64
           push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}${{ matrix.name }}:sha-${{ needs.changes.outputs.sha }}
-            ${{ env.IMAGE_PREFIX }}${{ matrix.name }}:latest
+          tags: ${{ env.IMAGE_PREFIX }}${{ matrix.name }}:sha-${{ needs.changes.outputs.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha || github.sha }}
           # Cache no próprio registry (sem o teto de 10 GB do cache do Actions; as sandboxes são grandes).
           cache-from: type=registry,ref=${{ env.IMAGE_PREFIX }}${{ matrix.name }}:buildcache
           cache-to: type=registry,ref=${{ env.IMAGE_PREFIX }}${{ matrix.name }}:buildcache,mode=max
           provenance: false
 
-  deploy:
-    name: Disparar deploy no Dokploy
+  # Move o `latest` de todas as imagens construídas neste run para o mesmo commit, de uma vez só.
+  # Uma falha parcial em `build` impede este job: nunca sobra `latest` misturado.
+  promote:
+    name: Publicar latest
     needs: [changes, build]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: sha-<curto> vira latest
+        env:
+          NAMES: ${{ needs.changes.outputs.names }}
+          SHA: ${{ needs.changes.outputs.sha }}
+        run: |
+          set -euo pipefail
+          for n in $(jq -r '.[]' <<<"$NAMES"); do
+            docker buildx imagetools create -t "${IMAGE_PREFIX}${n}:latest" "${IMAGE_PREFIX}${n}:sha-${SHA}"
+          done
+
+  deploy:
+    name: Disparar deploy no Dokploy
+    needs: [changes, promote]
+    if: ${{ !cancelled() && needs.promote.result == 'success' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
+      DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+      DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+      DOKPLOY_COMPOSE_ID: ${{ secrets.DOKPLOY_COMPOSE_ID }}
       DOKPLOY_DEPLOY_WEBHOOK: ${{ secrets.DOKPLOY_DEPLOY_WEBHOOK }}
     steps:
-      # Só depois de TODAS as imagens estarem no GHCR (o auto-deploy por git do Dokploy deve ficar desligado:
-      # senão ele corre na frente e sobe o `latest` antigo). Sem o secret, o passo é pulado.
-      - name: Chamar o webhook de deploy
-        if: ${{ env.DOKPLOY_DEPLOY_WEBHOOK != '' }}
+      # Só depois do `latest` publicado (o auto-deploy por git do Dokploy deve ficar desligado, senão corre
+      # na frente e sobe o `latest` antigo). Prefere a API do Dokploy; senão o webhook; sem nenhum, pula.
+      - name: Deploy pela API do Dokploy
+        if: ${{ env.DOKPLOY_URL != '' && env.DOKPLOY_API_KEY != '' && env.DOKPLOY_COMPOSE_ID != '' }}
         run: |
-          curl --fail --silent --show-error --max-time 30 -X POST "$DOKPLOY_DEPLOY_WEBHOOK" \
+          # confirmar: endpoint compose.deploy da API do Dokploy (<DOKPLOY_URL>/api/compose.deploy).
+          curl --fail-with-body --silent --show-error --max-time 60 -X POST "${DOKPLOY_URL%/}/api/compose.deploy" \
+            -H "x-api-key: ${DOKPLOY_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -cn --arg id "$DOKPLOY_COMPOSE_ID" '{composeId:$id}')"
+      - name: Deploy pelo webhook do Dokploy
+        if: ${{ env.DOKPLOY_DEPLOY_WEBHOOK != '' && !(env.DOKPLOY_URL != '' && env.DOKPLOY_API_KEY != '' && env.DOKPLOY_COMPOSE_ID != '') }}
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 30 -X POST "$DOKPLOY_DEPLOY_WEBHOOK" \
             -H "Content-Type: application/json" \
             -H "X-GitHub-Event: push" \
             -d '{"ref":"refs/heads/main"}'
