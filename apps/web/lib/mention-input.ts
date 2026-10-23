@@ -5,6 +5,7 @@ import {
 	filterMentionCandidates,
 	filterSkillCandidates,
 	foldText,
+	splitGroupMentions,
 	type ComposerTrigger,
 	type GroupMember,
 } from "@workspace/shared";
@@ -93,6 +94,20 @@ export function applyMention(
 	const spaced = after.startsWith(" ");
 	const inserted = `${trigger}${name.trim()}${spaced ? "" : " "}`;
 	return { value: `${before}${inserted}${after}`, caret: before.length + inserted.length + (spaced ? 1 : 0) };
+}
+
+/** Bots e apps citados no texto (`@Nome` completo), sem repetir e na ordem em que aparecem. */
+export function mentionedCandidates<T extends GroupMember>(value: string, candidates: readonly T[]): T[] {
+	if (!value.includes("@") || candidates.length === 0) return [];
+	const seen = new Set<string>();
+	const out: T[] = [];
+	for (const part of splitGroupMentions(value, candidates)) {
+		if (part.type !== "mention" || seen.has(part.botId)) continue;
+		seen.add(part.botId);
+		const found = candidates.find((item) => item.id === part.botId);
+		if (found) out.push(found);
+	}
+	return out;
 }
 
 /** Move o item destacado com ↑/↓, dando a volta nas pontas. */

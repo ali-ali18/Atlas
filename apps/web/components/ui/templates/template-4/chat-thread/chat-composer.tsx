@@ -26,7 +26,8 @@ import { ComposerImageAttachments } from "./composer-image-attachments";
 import { ComposerFileAttachments } from "./composer-file-attachments";
 import { MentionPopup, type MentionCandidate } from "./mention-popup";
 import { composerEnterAction, isTouchKeyboardDevice } from "@/lib/composer-keys";
-import { applyMention, mentionState, stepMentionIndex, triggerState } from "@/lib/mention-input";
+import { applyMention, mentionState, mentionedCandidates, stepMentionIndex, triggerState } from "@/lib/mention-input";
+import { MentionChip } from "./mention-text";
 import { ChatAddMenu, useAddMenuSkills } from "./chat-add-menu";
 import { useMentionApps } from "@/hooks/use-mention-apps";
 import { useDevPermission } from "@/hooks/use-dev-permission";
@@ -142,6 +143,12 @@ export function ChatComposer({
 	const appCandidates = useMemo<MentionCandidate[]>(
 		() => (mentionApps ?? []).map((app) => ({ id: app.id, name: app.name, description: app.description, kind: "app" as const, logo: app.logo, connected: app.connected })),
 		[mentionApps],
+	);
+	// Chips acima do campo: avatar do bot / logo do app de cada `@Nome` já escrito. O texto do campo não muda
+	// (um overlay com imagem no lugar do "@" desalinharia o cursor), então a identidade visual fica numa linha própria.
+	const mentioned = useMemo(
+		() => (groupMode ? [] : mentionedCandidates(value, [...botCandidates, ...appCandidates])),
+		[groupMode, value, botCandidates, appCandidates],
 	);
 	const groupState = groupMode && mentionMembers?.length ? mentionState(value, caret, mentionMembers) : null;
 	const mention: { trigger: ComposerTrigger; start: number; query: string; candidates: MentionCandidate[] } | null = groupMode
@@ -331,6 +338,15 @@ export function ChatComposer({
 					<InputGroup className="h-auto rounded-3xl border-border bg-input p-1">
 						<ComposerImageAttachments items={images.items} onRemove={images.remove} />
 						<ComposerFileAttachments items={files.items} onRemove={files.remove} />
+						{mentioned.length > 0 ? (
+							<ul aria-label="Menções na mensagem" className="col-span-full flex w-full flex-wrap gap-1.5 px-3 pt-1.5 text-xs" data-slot="composer-mentions">
+								{mentioned.map((item) => (
+									<li key={item.id}>
+										<MentionChip member={{ id: item.id, name: item.name, color: item.color, shape: item.shape, kind: item.kind === "app" ? "app" : "bot", logo: item.logo }} text={`@${item.name}`} />
+									</li>
+								))}
+							</ul>
+						) : null}
 						{/* Textarea e overlay dividem a mesma célula do grid: o overlay repete as métricas do texto
 						    (digitado transparente, prévia em itálico logo depois), então a prévia flui na linha do
 						    cursor e a altura cresce junto. O wrapper é quem rola; o textarea real segue intacto. */}

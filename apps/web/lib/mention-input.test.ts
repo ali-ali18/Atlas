@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyMention, isCompletedMention, mentionState, stepMentionIndex, triggerState } from "./mention-input";
+import { applyMention, isCompletedMention, mentionedCandidates, mentionState, stepMentionIndex, triggerState } from "./mention-input";
 
 const members = [
 	{ id: "ana", name: "Ana" },
@@ -67,6 +67,16 @@ test("aplica / no lugar da consulta e mantém o @ como padrão", () => {
 	assert.deepEqual(applyMention("faz /pe", 7, 4, "pesquisar", "/"), { value: "faz /pesquisar ", caret: 15 });
 	assert.deepEqual(applyMention("/p resto", 2, 0, "pesquisar", "/"), { value: "/pesquisar resto", caret: 11 });
 	assert.deepEqual(applyMention("oi @bi", 6, 3, "Bia", "@"), { value: "oi @Bia ", caret: 8 });
+});
+
+test("mentionedCandidates: bots e apps citados, sem repetir", () => {
+	const all = [
+		{ id: "c", name: "Cookie" },
+		{ id: "app:gh", name: "GitHub" },
+	];
+	assert.deepEqual(mentionedCandidates("oi @Cookie e @GitHub, de novo @Cookie", all).map((m) => m.id), ["c", "app:gh"]);
+	assert.deepEqual(mentionedCandidates("sem menção", all), []);
+	assert.deepEqual(mentionedCandidates("email a@Cookie.com", all), []);
 });
 
 test("menção completa fecha o popup: depois de @Cookie + espaço e texto, nada de lista nem vazio", () => {
