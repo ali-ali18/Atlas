@@ -44,3 +44,18 @@ test("B recebe 404 ao criar ou alterar opt-in de rotina do bot de A", async()=>{
   assert.equal(update.status,404);
  } finally {prisma.bot.findFirst=botFind;prisma.routine.findFirst=routineFind;}
 });
+
+test("gatilho de e-mail: create valida os filtros e update aceita patch (null remove)", () => {
+	const base = { name: "NF", prompt: "registre" };
+	const created = parseCreateBody("bot", { ...base, trigger: { kind: "email", fromContains: " fornecedor@x.com ", subjectContains: "NF" } });
+	assert.ok(!("error" in created));
+	assert.equal(created.triggerType, "event");
+	assert.deepEqual(created.trigger, { kind: "email", fromContains: "fornecedor@x.com", subjectContains: "NF" });
+	assert.deepEqual((parseCreateBody("bot", { ...base, trigger: { kind: "email" } }) as { trigger: unknown }).trigger, { kind: "email" });
+	assert.ok("error" in parseCreateBody("bot", { ...base, trigger: { kind: "email", subjectContains: "x".repeat(500) } }));
+	assert.ok("error" in parseCreateBody("bot", { ...base, trigger: { kind: "email", fromContains: 7 } }));
+	assert.deepEqual(parseUpdateBody({ emailTrigger: { fromContains: null, subjectContains: " boleto " } }), {
+		emailTrigger: { fromContains: null, subjectContains: "boleto" },
+	});
+	assert.ok("error" in parseUpdateBody({ emailTrigger: { subjectContains: 3 } }));
+});

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import {
 	forgetEmailMessage,
 	getMailboxById,
+	listEmailRoutinesForMailbox,
 	linkEmailMessage,
 	notifyBlockedSender,
 	recordEmailMessage,
@@ -11,7 +12,15 @@ import {
 	type StartEmailRunDeps,
 } from "@workspace/db";
 import { emailService, type EmailService, type WebhookVerification } from "@workspace/agent-runtime";
-import { frameInboundEmail, isAddressAllowed, normalizeEmailAddress } from "@workspace/shared";
+import type { RoutineQueue } from "@workspace/queue";
+import {
+	buildEmailEventEnvelope,
+	emailTriggerMatches,
+	frameInboundEmail,
+	isAddressAllowed,
+	normalizeEmailAddress,
+} from "@workspace/shared";
+import { enqueueMatchedRoutineEvents } from "./dispatch.js";
 
 /** Um e-mail com anexos já convertidos em texto cabe folgado em 5 MB. */
 const MAX_BODY_BYTES = 5 * 1_048_576;
@@ -25,6 +34,10 @@ export type EmailInboundDeps = {
 	notifyBlocked: typeof notifyBlockedSender;
 	startRun: (deps: StartEmailRunDeps, input: Parameters<typeof startEmailRun>[1]) => ReturnType<typeof startEmailRun>;
 	runDeps: () => StartEmailRunDeps | null;
+	/** Fila das rotinas com gatilho de e-mail; sem ela, e-mail que casa com rotina responde 503 (o provedor reentrega). */
+	routineQueue: RoutineQueue | null;
+	matchRoutines: typeof listEmailRoutinesForMailbox;
+	enqueueRoutines: typeof enqueueMatchedRoutineEvents;
 	now?: () => Date;
 };
 
@@ -45,6 +58,9 @@ export function createEmailInboundRoutes(runDeps: () => StartEmailRunDeps | null
 		notifyBlocked: notifyBlockedSender,
 		startRun: startEmailRun,
 		runDeps,
+		routineQueue: null,
+		matchRoutines: listEmailRoutinesForMailbox,
+		enqueueRoutines: enqueueMatchedRoutineEvents,
 		...deps,
 	};
 	const app = new Hono();
@@ -98,6 +114,32 @@ export function createEmailInboundRoutes(runDeps: () => StartEmailRunDeps | null
 		if (!allowed) {
 			await d.notifyBlocked(mailbox, from, row.id);
 			return c.json({ ok: true, blocked: true }, 200);
+		}
+
+		// Rotinas com gatilho de e-mail da MESMA caixa (dono e bot vêm da caixa) e filtros que casam: a rotina
+		// assume o e-mail (o agente de conversa não responde em paralelo). Só chega aqui remetente permitido.
+		const routines = (await d.matchRoutines(mailbox)).filter((item) => emailTriggerMatches(item.trigger, { from, subject: event.subject }));
+		if (routines.length > 0) {
+			try {
+				if (!d.routineQueue) throw new Error("fila de rotinas indisponível");
+				const envelope = buildEmailEventEnvelope({
+					mailboxId: mailbox.id,
+					providerMessageId: event.providerMessageId,
+					from,
+					subject: event.subject,
+					threadId: event.threadId,
+					body: event.body,
+					attachmentNames: event.attachments?.map((attachment) => attachment.filename),
+					occurredAt: (d.now?.() ?? new Date()).toISOString(),
+				});
+				const runs = await d.enqueueRoutines(d.routineQueue, routines, envelope);
+				if (runs.length === 0) throw new Error("nenhuma rotina enfileirada");
+				return c.json({ ok: true, routines: runs.length }, 200);
+			} catch (error) {
+				console.error("email inbound: falha ao disparar rotinas", error instanceof Error ? error.message : "erro");
+				await d.forget(row.id).catch(() => undefined);
+				return c.json({ error: "Não foi possível iniciar a rotina" }, 503);
+			}
 		}
 
 		const startDeps = d.runDeps();

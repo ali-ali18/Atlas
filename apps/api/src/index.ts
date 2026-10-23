@@ -291,6 +291,7 @@ app.route(
 					envDefaultModel: config.openRouterModel,
 				}
 			: null,
+		{ routineQueue },
 	),
 );
 
