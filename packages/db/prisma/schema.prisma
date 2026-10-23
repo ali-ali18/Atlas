@@ -1398,6 +1398,7 @@ model Page {
   deletedAt      DateTime?
   revisions      PageRevision[]
   routines       Routine[]
+  share          PageShare?
   /// Grupo (o mesmo das rotinas) em que o painel aparece; SetNull se o grupo for apagado.
   groupId        String?
   group          RoutineGroup?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
@@ -1405,6 +1406,20 @@ model Page {
   @@index([userId, botId, updatedAt])
   @@index([groupId])
   @@map("pages")
+}
+
+/// Link público somente leitura do painel (um por painel). Guarda só o hash do token (sha256 com pepper);
+/// o token aparece uma única vez, na criação/rotação. `revokedAt` desliga o link.
+model PageShare {
+  id        String    @id @default(cuid())
+  pageId    String    @unique
+  page      Page      @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  userId    String
+  tokenHash String    @unique
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  @@map("page_shares")
 }
 
 /// Histórico das últimas 10 revisões de uma página (a atual inclusive).
