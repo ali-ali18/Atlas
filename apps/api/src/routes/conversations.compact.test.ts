@@ -51,7 +51,7 @@ test("compactar: só o dono; outro usuário recebe 404 e nada é executado", asy
 	});
 });
 
-test("compactar: respostas por desfecho (compactada, aviso, bloqueio 409, falha 502)", async () => {
+test("compactar: respostas por desfecho (compactada, aviso, bloqueio 409, falha 503 com a mensagem)", async () => {
 	await withOwner(async () => {
 		const card = { v: 1 as const, kind: "compaction" as const, before: 48_200, after: 6_100, summary: "Resumo." };
 		const compacted = await post(appFor(USER_A, async () => ({ kind: "compacted", before: 48_200, after: 6_100, percent: 87, messageId: "m1", card })));
@@ -63,7 +63,9 @@ test("compactar: respostas por desfecho (compactada, aviso, bloqueio 409, falha 
 		assert.equal(blocked.status, 409);
 		assert.deepEqual(await blocked.json(), { error: "Há uma aprovação pendente nesta conversa. Responda a ela antes de compactar.", reason: "approval_pending" });
 		const failed = await post(appFor(USER_A, async () => ({ kind: "failed", message: "Não consegui resumir a conversa agora. Tente de novo em instantes." })));
-		assert.equal(failed.status, 502);
+		// 503, não 502: proxies de borda trocam o corpo de 502/504 pela própria página e a mensagem se perde.
+		assert.equal(failed.status, 503);
+		assert.deepEqual(await failed.json(), { error: "Não consegui resumir a conversa agora. Tente de novo em instantes." });
 		const crashed = await post(appFor(USER_A, async () => { throw new Error("db caiu"); }));
 		assert.equal(crashed.status, 503);
 		assert.deepEqual(await crashed.json(), { error: "Não consegui resumir a conversa agora. Tente de novo em instantes." });

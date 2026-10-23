@@ -1,13 +1,16 @@
 import {
 	SUMMARY_MAX_OUTPUT_TOKENS,
-	SUMMARY_TIMEOUT_MS,
+	TransientRunError,
 	buildTranscriptHistory,
+	callSummaryWithRetry,
 	cleanTranscript,
 	compactTranscript,
 	createMaintenanceLlm,
 	namespaceToolCallIds,
 	replaceCompactedHistory,
+	type MaintenanceLlm,
 	type SummarizeFn,
+	type SummaryRetryOptions,
 } from "@workspace/agent-runtime";
 import {
 	appendConversationCard,
@@ -72,35 +75,58 @@ async function defaultLanguage(conversationId: string, userId: string): Promise<
 	return ((await getBotProfile(row.bot.id, userId).catch(() => null))?.language ?? "pt-BR") as BotLanguage;
 }
 
+/** Só o tipo e o status do erro do provedor vão ao log: a mensagem pode trazer trechos da conversa ou da chave. */
+function errorTag(error: unknown): string {
+	const name = error instanceof Error ? error.name : "unknown";
+	const status = (error as { status?: unknown } | null)?.status;
+	return typeof status === "number" ? `${name} ${status}` : name;
+}
+
+type CompactLlm = Pick<MaintenanceLlm, "model" | "completeWithTools" | "report">;
+
+/**
+ * Resumidor do `/compact` sobre o cliente da manutenção: uma nova tentativa em falha passageira (5xx, resposta
+ * vazia, rede) dentro do prazo total; falhou de vez, registra no Diagnóstico e devolve `null` (a conversa fica como
+ * estava e a pessoa vê a mensagem amigável).
+ */
+export function createCompactSummarizer(llm: CompactLlm, retry: SummaryRetryOptions = {}): { summarize: SummarizeFn; report: (ok: boolean, error?: unknown) => Promise<void> } {
+	const summarize: SummarizeFn = async (request) => {
+		try {
+			const text = await callSummaryWithRetry(async (timeoutMs) => {
+				const result = await llm.completeWithTools({
+					messages: [
+						{ role: "system", content: request.system },
+						{ role: "user", content: request.user },
+					],
+					model: llm.model,
+					apiKey: "",
+					tools: [],
+					toolChoice: "none",
+					signal: AbortSignal.timeout(timeoutMs),
+					timeoutMs,
+					maxOutputTokens: SUMMARY_MAX_OUTPUT_TOKENS,
+				});
+				const content = typeof result.message.content === "string" ? result.message.content.trim() : "";
+				if (!content) throw new TransientRunError("summary came back empty");
+				return content;
+			}, { ...retry, onRetry: (error) => console.warn("compact summary call failed; retrying", errorTag(error)) });
+			return { text };
+		} catch (error) {
+			console.error("compact summary call failed", errorTag(error));
+			await llm.report({ ok: false, error });
+			return null;
+		}
+	};
+	return { summarize, report: async (ok, error) => { if (ok) await llm.report({ ok: true }); else if (error) await llm.report({ ok: false, error }); } };
+}
+
 async function defaultSummarizer(userId: string): ReturnType<CompactDeps["summarizer"]> {
 	const llm = await createMaintenanceLlm({
 		kind: "summary",
 		config: { openRouterApiKey: process.env.OPENROUTER_API_KEY, summarizerModel: process.env.SUMMARIZER_MODEL?.trim() || DEFAULT_MAINTENANCE_MODEL },
 		userId,
 	});
-	const summarize: SummarizeFn = async (request) => {
-		try {
-			const result = await llm.completeWithTools({
-				messages: [
-					{ role: "system", content: request.system },
-					{ role: "user", content: request.user },
-				],
-				model: llm.model,
-				apiKey: "",
-				tools: [],
-				toolChoice: "none",
-				signal: AbortSignal.timeout(SUMMARY_TIMEOUT_MS),
-				timeoutMs: SUMMARY_TIMEOUT_MS,
-				maxOutputTokens: SUMMARY_MAX_OUTPUT_TOKENS,
-			});
-			return { text: typeof result.message.content === "string" ? result.message.content : "" };
-		} catch (error) {
-			console.error("compact summary call failed", error instanceof Error ? error.name : "unknown");
-			await llm.report({ ok: false, error });
-			return null;
-		}
-	};
-	return { summarize, report: async (ok, error) => { if (ok) await llm.report({ ok: true }); else if (error) await llm.report({ ok: false, error }); } };
+	return createCompactSummarizer(llm);
 }
 
 const defaultDeps: CompactDeps = {

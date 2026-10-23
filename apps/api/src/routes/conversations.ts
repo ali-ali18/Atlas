@@ -136,7 +136,9 @@ export function createConversationRoutes(options: { compact?: typeof compactConv
 			}
 			if (outcome.kind === "noop") return c.json({ status: "noop" as const, reason: outcome.reason, message: outcome.message });
 			if (outcome.kind === "blocked") return c.json({ error: outcome.message, reason: outcome.reason }, 409);
-			return c.json({ error: outcome.message }, 502);
+			// 503, não 502: proxies de borda (ex.: Cloudflare) trocam o corpo de 502/504 pela própria página, e o
+			// cliente ficava só com "HTTP 502" no lugar da mensagem.
+			return c.json({ error: outcome.message }, 503);
 		} catch (error) {
 			console.error("compact conversation failed", error);
 			return c.json({ error: COMPACT_MESSAGES.failed }, 503);
