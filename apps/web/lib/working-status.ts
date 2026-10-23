@@ -7,8 +7,12 @@ export type AgentActivity =
 	| { phase: "tool"; tool: string; step?: number; maxSteps?: number; /** Alvo da chamada (arquivo, comando), curto. */ detail?: string };
 
 /** Fase do indicador quando chega texto (`writing`) ou quando o rascunho é retirado (`revising`). */
+// Objetos fixos: o stream chama isto a cada token e o mesmo valor não dispara outro render do estado.
+const WRITING: AgentActivity = { phase: "writing" };
+const REVISING: AgentActivity = { phase: "revising" };
+
 export function activityForAssistantEvent(type: "assistant_delta" | "assistant_discard"): AgentActivity {
-	return type === "assistant_discard" ? { phase: "revising" } : { phase: "writing" };
+	return type === "assistant_discard" ? REVISING : WRITING;
 }
 
 export function statusForTool(tool: string): string {

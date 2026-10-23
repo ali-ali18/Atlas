@@ -191,9 +191,20 @@ export function installFakes(tables: Record<string, FakeTable>): { restore: () =
 	// Com leitura + mensagens em memória, dubla a consulta SQL de não lidas de `getUnreadStates`
 	// (a SQL de verdade é coberta por bots.list-queries.db.test.ts): fala do assistente depois de
 	// lastReadAt; a primeira é a mais antiga por (createdAt, id).
-	const { conversationRead: reads, conversationMessage: messages } = tables;
+	const { conversationRead: reads, conversationMessage: messages, page: pages } = tables;
+	// Resumo dos painéis na listagem (`"specJson"->'summary'` em pages.ts): lido das linhas em memória, do mesmo dono.
+	const pageSummaries = (sql: string, values: unknown[]) => {
+		if (!pages || !sql.includes(`"specJson"->'summary'`)) return undefined;
+		const [userId, ids] = values as [string, string[]];
+		return pages.rows
+			.filter((row) => row.userId === userId && ids.includes(row.id as string))
+			.map((row) => ({ id: row.id, summary: (row.specJson as { summary?: unknown } | null)?.summary ?? null }));
+	};
+	if (pages) client.$queryRaw = async (strings: TemplateStringsArray, ...values: unknown[]) => pageSummaries(strings.join("?"), values) ?? [];
 	if (reads && messages) {
-		client.$queryRaw = async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+		client.$queryRaw = async (strings: TemplateStringsArray, ...values: unknown[]) => {
+			const pageRows = pageSummaries(strings.join("?"), values);
+			if (pageRows) return pageRows;
 			const userId = values[0];
 			const ids = values.find(Array.isArray) as string[];
 			return reads.rows

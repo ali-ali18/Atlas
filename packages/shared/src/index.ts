@@ -9,7 +9,7 @@ export * from "./bot-group.js";
 export * from "./bot-group-jev.js";
 export * from "./bot-needs.js";
 export * from "./bot-pending.js";
-export { ATLAS_JOB_NAMES, type AtlasJobName } from "./jobs.js";
+export { ATLAS_JOB_NAMES, type AtlasJobName, type DataRetentionJobPayload, type DataRetentionJobResult } from "./jobs.js";
 export type {
 	MemoryTarget,
 	MemoryEntry,
@@ -628,6 +628,8 @@ export {
 } from "./captcha-wall.js";
 export {
 	applyReconciledCost,
+	applyLateRunUsage,
+	type LateRunUsage,
 	formatCostLabel,
 	percentile,
 	servedModelNote,

@@ -1,6 +1,6 @@
 "use client";
 
-import { isValidElement, type ReactNode } from "react";
+import { isValidElement, memo, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -125,7 +125,11 @@ export const markdownComponents: Components = {
 	),
 };
 
-export function AssistantMessage({
+/** Plugins do markdown: constante de módulo para não trocar a referência a cada render. */
+const REMARK_PLUGINS = [remarkGfm];
+
+/** Balão do assistente. Memoizado: só o balão ao vivo muda a cada token. */
+export const AssistantMessage = memo(function AssistantMessage({
 	live = false,
 	text,
 	groupPosition = "single",
@@ -164,7 +168,7 @@ export function AssistantMessage({
 				>
 					{revealed.length > 0 ? (
 						<MarkdownStreamingContext.Provider value={live}>
-							<ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
+							<ReactMarkdown components={components} remarkPlugins={REMARK_PLUGINS}>
 								{revealed}
 							</ReactMarkdown>
 						</MarkdownStreamingContext.Provider>
@@ -197,4 +201,4 @@ export function AssistantMessage({
 			) : null}
 		</div>
 	);
-}
+});

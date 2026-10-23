@@ -16,11 +16,11 @@ const none = new Set<ContextGroup>();
 const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 
 describe("prompt em blocos (L5)", () => {
-	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador e a política única de agir primeiro, sem identidade nem idioma no núcleo e sem as frases cobertas pela disciplina do modelo (hash fixa o texto)", () => {
+	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador e a política única de agir primeiro (com leitura por intenção), sem identidade nem idioma no núcleo e sem as frases cobertas pela disciplina do modelo (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(24_502);
+		expect(legacy.length).toBe(24_768);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"4b7fd648c1bb463e870fa6c4b46324176c7e514d4f6b14aa88a6cf38ae739ef1",
+			"6fef254e438a2aae490efbc6829683cad910e82e65360ac95f6fff81d12afb82",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
 	});
@@ -123,6 +123,17 @@ describe("prompt em blocos (L5)", () => {
 		const questionnaire = groupProcedureText(new Set<ContextGroup>(["questionnaire"]));
 		expect(questionnaire).toContain("when the ask policy says you must ask and the answer is one of 2-4 clear options");
 		expect(questionnaire).not.toMatch(/NUNCA lista em texto|qualquer pergunta com escolhas fixas/);
+	});
+
+	it("resposta curta ou informal vale pela intenção; rejeição sem pedir substituto desfaz (sem gíria nem frase de nicho no núcleo)", () => {
+		const core = assembleSystemPrompt(none);
+		const ask = P_ASK.join("\n");
+		expect(ask).toContain(
+			"- Read short or informal replies by the user's intent in context, not by a literal or partial match of one word. When the user rejects the current result without asking for a replacement, undo or remove it instead of keeping it; never answer that you kept it as is.",
+		);
+		expect(core).toContain("When the user rejects the current result without asking for a replacement, undo or remove it");
+		// Princípio genérico: o caso real (Jujubinha, "Dx sem esse mesmo") fica só no replay e no eval.
+		expect(ask).not.toMatch(/\bdx\b|deixa sem|\btira\b|Jujubinha/i);
 	});
 
 	it("a regra de skills (inglês, neutra) está no núcleo e protegida por texto exato", () => {

@@ -10,11 +10,15 @@ import type { FilePreview } from "@workspace/shared";
 
 import { fetchFilePreview } from "@/lib/atlas-api";
 import { fileCardDescription, fileDownloadPath } from "@/lib/file-card";
-import { CodeView } from "./code-view";
 import { SheetView } from "./sheet-view";
 
 // pdf.js usa APIs do navegador: sem SSR.
 const PdfViewer = dynamic(() => import("./pdf-viewer"), { ssr: false });
+// highlight.js (núcleo + linguagens) só é baixado ao abrir a prévia de um arquivo de texto, fora do chat.
+const CodeView = dynamic(() => import("./code-view").then((mod) => mod.CodeView), {
+	ssr: false,
+	loading: () => <p className="text-muted-foreground text-sm">Carregando prévia…</p>,
+});
 
 type State = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; preview: FilePreview };
 

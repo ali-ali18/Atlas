@@ -9,6 +9,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { McpError } from "@modelcontextprotocol/sdk/types.js";
 import { createGoogleMcpServer, type GoogleProduct } from "./builtin/google.js";
+import { sanitizeErrorMessage } from "./sanitize.js";
 
 /**
  * Pool de clientes MCP por processo (API e worker). Não é store: só mantém a
@@ -74,9 +75,21 @@ export const defaultTransportFactory: McpTransportFactory = (config, kind) => {
 			});
 };
 
+/** Teto para abrir a conexão (handshake `initialize`, inclusive o fallback SSE). */
+export const MCP_CONNECT_TIMEOUT_MS = 10_000;
+
+/**
+ * Servidor que não completou o handshake no prazo. Não pede reconexão imediata: repetir na hora
+ * só dobraria a espera de um servidor que já não respondeu.
+ */
+export class McpConnectTimeoutError extends Error {
+	override readonly name = "McpConnectTimeoutError";
+}
+
 /** Erro que pede reconexão (rede, sessão expirada) — não auth, não protocolo. */
 export function isRetryableMcpError(error: unknown): boolean {
 	if (error instanceof UnauthorizedError) return false;
+	if (error instanceof McpConnectTimeoutError) return false;
 	if (error instanceof McpError) return false;
 	if (error instanceof Error && error.name === "AbortError") return false;
 	return true;
@@ -84,33 +97,73 @@ export function isRetryableMcpError(error: unknown): boolean {
 
 type PoolEntry = { key: string; client: Promise<Client> };
 
+export type McpGetOptions = {
+	/** Cancela só a espera deste chamador; a conexão compartilhada segue (limitada pelo timeout). */
+	signal?: AbortSignal;
+};
+
+function abortReason(signal: AbortSignal): Error {
+	const reason: unknown = signal.reason;
+	if (reason instanceof Error && reason.name === "AbortError") return reason;
+	const error = new Error("MCP connection wait aborted");
+	error.name = "AbortError";
+	return error;
+}
+
+/** Espera `promise`, mas desiste quando `signal` aborta (sem cancelar o trabalho compartilhado). */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+	if (!signal) return promise;
+	if (signal.aborted) return Promise.reject(abortReason(signal));
+	return new Promise<T>((resolve, reject) => {
+		const onAbort = () => reject(abortReason(signal));
+		signal.addEventListener("abort", onAbort, { once: true });
+		promise.then(
+			(value) => {
+				signal.removeEventListener("abort", onAbort);
+				resolve(value);
+			},
+			(error: unknown) => {
+				signal.removeEventListener("abort", onAbort);
+				reject(error);
+			},
+		);
+	});
+}
+
 export class McpClientPool {
 	private readonly entries = new Map<string, PoolEntry>();
+	private readonly connectTimeoutMs: number;
 
-	constructor(private readonly transportFactory: McpTransportFactory = defaultTransportFactory) {}
+	constructor(
+		private readonly transportFactory: McpTransportFactory = defaultTransportFactory,
+		options: { connectTimeoutMs?: number } = {},
+	) {
+		this.connectTimeoutMs = options.connectTimeoutMs ?? MCP_CONNECT_TIMEOUT_MS;
+	}
 
-	async get(config: McpClientConfig): Promise<Client> {
+	async get(config: McpClientConfig, options: McpGetOptions = {}): Promise<Client> {
 		const key = `${config.id}:${config.version}`;
 		const current = this.entries.get(config.id);
-		if (current?.key === key) return current.client;
+		if (current?.key === key) return untilAborted(current.client, options.signal);
 		if (current) void this.closeEntry(current);
-		const client = this.connect(config);
+		const client = this.connectWithTimeout(config);
 		const entry = { key, client };
 		this.entries.set(config.id, entry);
+		// Falha ou timeout: sai do pool, para a próxima chamada tentar de novo (nunca fica preso no cache).
 		client.catch(() => {
 			if (this.entries.get(config.id) === entry) this.entries.delete(config.id);
 		});
-		return client;
+		return untilAborted(client, options.signal);
 	}
 
 	/** Executa com o cliente; em falha de transporte reconecta 1x e repete. */
-	async withClient<T>(config: McpClientConfig, fn: (client: Client) => Promise<T>): Promise<T> {
+	async withClient<T>(config: McpClientConfig, fn: (client: Client) => Promise<T>, options: McpGetOptions = {}): Promise<T> {
 		try {
-			return await fn(await this.get(config));
+			return await fn(await this.get(config, options));
 		} catch (error) {
-			if (!isRetryableMcpError(error)) throw error;
+			if (!isRetryableMcpError(error) || options.signal?.aborted) throw error;
 			await this.drop(config.id);
-			return fn(await this.get(config));
+			return fn(await this.get(config, options));
 		}
 	}
 
@@ -127,8 +180,45 @@ export class McpClientPool {
 		await Promise.all(entries.map((entry) => this.closeEntry(entry)));
 	}
 
-	private async connect(config: McpClientConfig): Promise<Client> {
+	/**
+	 * `client.connect()` não tem prazo próprio: um servidor que aceita a conexão e nunca responde ao
+	 * `initialize` prenderia o run (e o pool) para sempre. No timeout, fecha o que foi aberto.
+	 */
+	private connectWithTimeout(config: McpClientConfig): Promise<Client> {
+		const opened: Client[] = [];
+		let timedOut = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const closeOpened = () => {
+			for (const client of opened) void client.close().catch(() => undefined);
+		};
+		const attempt = this.connect(config, opened);
+		const timeout = new Promise<never>((_, reject) => {
+			timer = setTimeout(() => {
+				timedOut = true;
+				const seconds = Math.round(this.connectTimeoutMs / 100) / 10;
+				reject(new McpConnectTimeoutError(sanitizeErrorMessage(`MCP server "${config.name}" did not finish connecting within ${seconds}s; try again later`)));
+			}, this.connectTimeoutMs);
+		});
+		// Conectou depois do prazo: ninguém mais usa este cliente.
+		attempt.then(() => {
+			if (timedOut) closeOpened();
+		}, () => undefined);
+		return Promise.race([attempt, timeout]).then(
+			(client) => {
+				clearTimeout(timer);
+				return client;
+			},
+			(error: unknown) => {
+				clearTimeout(timer);
+				if (timedOut) closeOpened();
+				throw error;
+			},
+		);
+	}
+
+	private async connect(config: McpClientConfig, opened: Client[] = []): Promise<Client> {
 		const client = new Client(MCP_CLIENT_INFO);
+		opened.push(client);
 		try {
 			await client.connect(this.transportFactory(config, "streamable-http"));
 			return client;
@@ -137,6 +227,7 @@ export class McpClientPool {
 			if (!isRetryableMcpError(error)) throw error;
 			// Servidores antigos só falam HTTP+SSE.
 			const legacy = new Client(MCP_CLIENT_INFO);
+			opened.push(legacy);
 			try {
 				await legacy.connect(this.transportFactory(config, "sse"));
 				return legacy;

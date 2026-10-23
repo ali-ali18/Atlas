@@ -5,6 +5,7 @@ import { createRunSignals, runEventsChannel, runSignalChannel, type RunSignalSub
 function fakeRedis() {
 	const subscribed = new Set<string>();
 	const messageListeners: Array<(channel: string, message: string) => void> = [];
+	const connectionListeners: Record<"close" | "ready", Array<() => void>> = { close: [], ready: [] };
 	const calls: string[] = [];
 	let subscribersCreated = 0;
 	const subscriber: RunSignalSubscriber = {
@@ -16,8 +17,9 @@ function fakeRedis() {
 			calls.push(`unsub:${channel}`);
 			subscribed.delete(channel);
 		},
-		on: (_event, listener) => {
-			messageListeners.push(listener);
+		on: (event, listener) => {
+			if (event === "message") messageListeners.push(listener);
+			else connectionListeners[event].push(listener);
 		},
 		quit: vi.fn(async () => undefined),
 	};
@@ -31,6 +33,10 @@ function fakeRedis() {
 	return {
 		subscribed,
 		calls,
+		/** Simula a conexão do subscriber caindo ("close") e voltando ("ready"). */
+		emit: (event: "close" | "ready") => {
+			for (const listener of connectionListeners[event]) listener();
+		},
 		publisher,
 		subscriber,
 		get subscribersCreated() {
@@ -60,7 +66,7 @@ describe("run-signals: canal de eventos do run (stream SSE)", () => {
 			createSubscriber: () => ({
 				subscribe: async (c: string) => void subscribed.add(c),
 				unsubscribe: async (c: string) => void subscribed.delete(c),
-				on: (_e, l) => void listeners.push(l),
+				on: (e, l) => void (e === "message" && listeners.push(l)),
 			}),
 			channel: runEventsChannel,
 			kinds: new Set(["events"]),
@@ -152,5 +158,53 @@ describe("run-signals", () => {
 		expect(redis.subscriber.quit).toHaveBeenCalledTimes(1);
 		expect(redis.publisher.quit).toHaveBeenCalledTimes(1);
 		await expect(redis.signals.publishRunSignal("run-a", "input")).resolves.toBe(false);
+	});
+
+	it("isSubscribed só depois do SUBSCRIBE confirmado; onReady avisa (e de novo ao reconectar)", async () => {
+		const redis = fakeRedis();
+		const ready = vi.fn();
+		const off = redis.signals.subscribeRunSignals("run-a", () => undefined, ready);
+		// O SUBSCRIBE ainda não respondeu: quem consome segue na consulta rápida.
+		expect(redis.signals.isSubscribed("run-a")).toBe(false);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(redis.signals.isSubscribed("run-a")).toBe(true);
+		expect(ready).toHaveBeenCalledTimes(1);
+
+		// Conexão caiu: nada confirmado até reassinar.
+		redis.emit("close");
+		expect(redis.signals.isSubscribed("run-a")).toBe(false);
+		redis.emit("ready");
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(redis.signals.isSubscribed("run-a")).toBe(true);
+		expect(ready).toHaveBeenCalledTimes(2);
+
+		// Segundo ouvinte num canal já confirmado também recebe o aviso.
+		const late = vi.fn();
+		const offLate = redis.signals.subscribeRunSignals("run-a", () => undefined, late);
+		await Promise.resolve();
+		expect(late).toHaveBeenCalledTimes(1);
+		offLate();
+		off();
+		expect(redis.signals.isSubscribed("run-a")).toBe(false);
+	});
+
+	it("SUBSCRIBE que falha nunca confirma (consumidor fica na consulta rápida)", async () => {
+		const ready = vi.fn();
+		const signals = createRunSignals({
+			createPublisher: () => ({ publish: async () => 1 }),
+			createSubscriber: () => ({
+				subscribe: async () => {
+					throw new Error("down");
+				},
+				unsubscribe: async () => undefined,
+				on: () => undefined,
+			}),
+		});
+		signals.subscribeRunSignals("run-a", () => undefined, ready);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(signals.isSubscribed("run-a")).toBe(false);
+		expect(ready).not.toHaveBeenCalled();
 	});
 });

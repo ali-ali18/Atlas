@@ -261,6 +261,32 @@ export function applyReconciledCost<T extends { costUsd?: number; costUnknownCal
 	} as T;
 }
 
+/** Campos numéricos de uso que somam (mesmos de `RunUsage`). */
+const LATE_USAGE_FIELDS = ["promptTokens", "completionTokens", "totalTokens", "cachedTokens", "cacheWriteTokens", "costUsd", "costUnknownCalls", "planCalls"] as const;
+
+export type LateRunUsage = Partial<Record<(typeof LATE_USAGE_FIELDS)[number], number>>;
+
+/**
+ * Soma ao `usageJson` do run o uso que terminou depois da conclusão (checagens que só observam a
+ * resposta final) e troca `telemetry` quando vier uma nova. Campo opcional ausente dos dois lados
+ * continua ausente (custo desconhecido não vira 0). Pura: devolve um objeto novo.
+ */
+export function applyLateRunUsage<T extends Record<string, unknown>>(
+	usage: T,
+	late: LateRunUsage | null | undefined,
+	telemetry?: RunTelemetryMeta,
+): T {
+	const next: Record<string, unknown> = { ...usage };
+	for (const field of LATE_USAGE_FIELDS) {
+		const add = late?.[field];
+		if (typeof add !== "number" || !Number.isFinite(add) || add === 0) continue;
+		const current = typeof next[field] === "number" && Number.isFinite(next[field]) ? (next[field] as number) : 0;
+		next[field] = current + add;
+	}
+	if (telemetry) next.telemetry = telemetry;
+	return next as T;
+}
+
 /**
  * Modelo servido a destacar na UI: só quando difere do pedido (fallback do
  * provider). Ids são opacos; vazio/igual devolve null (nada a mostrar).

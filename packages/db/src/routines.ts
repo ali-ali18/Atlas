@@ -323,18 +323,37 @@ async function lastRunFor(routineId: string): Promise<RoutineRunRecord | null> {
 	return row ? toRoutineRun(row) : null;
 }
 
+/**
+ * Última execução de cada rotina, uma consulta só (LATERAL ... LIMIT 1 pelo índice (routineId, createdAt)).
+ * O `include: { runs: { take: 1 } }` do Prisma 6 (sem relationJoins) busca TODAS as execuções das rotinas
+ * e corta em memória. Os ids vêm de rotinas já filtradas pelo dono.
+ */
+async function latestRunsByRoutine(routineIds: string[]): Promise<Map<string, RoutineRunRecord>> {
+	if (routineIds.length === 0) return new Map();
+	const rows = await prisma.$queryRaw<Array<Prisma.RoutineRunGetPayload<Record<string, never>>>>`
+		SELECT rr.*
+		FROM unnest(${routineIds}::text[]) AS r("id")
+		CROSS JOIN LATERAL (
+			SELECT * FROM "routine_runs" x
+			WHERE x."routineId" = r."id"
+			ORDER BY x."createdAt" DESC
+			LIMIT 1
+		) rr
+	`;
+	return new Map(rows.map((row) => [row.routineId, toRoutineRun(row)]));
+}
+
 export async function listRoutines(
 	userId?: string,
 	botId?: string,
 ): Promise<RoutineRecord[]> {
 	const rows = await prisma.routine.findMany({
 		where: { ...(botId ? { botId } : {}), userId: { in: ownerIds(userId) } },
-		include: { runs: { orderBy: { createdAt: "desc" }, take: 1 }, group: { select: { id: true, name: true } } },
+		include: { group: { select: { id: true, name: true } } },
 		orderBy: { createdAt: "desc" },
 	});
-	return rows.map((row) =>
-		toRoutine(row, row.runs[0] ? toRoutineRun(row.runs[0]) : null),
-	);
+	const lastRuns = await latestRunsByRoutine(rows.map((row) => row.id));
+	return rows.map((row) => toRoutine(row, lastRuns.get(row.id) ?? null));
 }
 
 export async function getRoutine(
@@ -1133,15 +1152,22 @@ export async function listRecentRoutineRunsForBot(
 	botId?: string,
 	take = 10,
 ): Promise<RoutineRunListItem[]> {
+	// Rotinas do dono primeiro; depois `routineId IN (...)` pelo índice (routineId, createdAt), em vez do
+	// filtro pela relação (subconsulta por linha de routine_runs).
+	const routines = await prisma.routine.findMany({
+		where: { ...(botId ? { botId } : {}), userId: { in: ownerIds(userId) } },
+		select: { id: true, name: true },
+	});
+	if (routines.length === 0) return [];
+	const names = new Map(routines.map((routine) => [routine.id, routine.name]));
 	const rows = await prisma.routineRun.findMany({
-		where: { routine: { is: { ...(botId ? { botId } : {}), userId: { in: ownerIds(userId) } } } },
-		include: { routine: { select: { name: true } } },
+		where: { routineId: { in: [...names.keys()] } },
 		orderBy: { createdAt: "desc" },
 		take,
 	});
 	return rows.map((row) => ({
 		...toRoutineRun(row),
-		routineName: row.routine.name,
+		routineName: names.get(row.routineId) ?? "",
 	}));
 }
 

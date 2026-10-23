@@ -3,8 +3,10 @@ import { isDurableRunStale } from "@workspace/shared";
 import { closesRunStream, pausedClosingEvent } from "./run-observer.js";
 import { sseEncode } from "./sse-encode.js";
 
-/** Consulta de segurança (sem sinal do Redis): nunca abaixo de 500ms. */
+/** Consulta de segurança sem a assinatura do Redis (fora do ar ou ainda não confirmada): nunca abaixo de 500ms. */
 export const RUN_STREAM_FALLBACK_POLL_MS = 500;
+/** Com a assinatura confirmada, o sinal acorda o stream; a consulta só cobre sinal perdido. */
+export const RUN_STREAM_SUBSCRIBED_POLL_MS = 3_000;
 /** Estado do run (existência/status/liveness) é lido no máximo a cada tanto, salvo logo após eventos. */
 export const RUN_STREAM_STATE_EVERY_MS = 2_000;
 const KEEPALIVE_MS = 15_000;
@@ -24,8 +26,13 @@ export type RunStreamState = {
 export type RunStreamDeps = {
 	getState: () => Promise<RunStreamState | null>;
 	listEvents: (afterSeq: number, limit: number) => Promise<Array<{ seq: number; payload: unknown }>>;
-	/** Liga o sinal de "eventos novos" (Redis). Devolve o unsubscribe. */
-	subscribe?: (onWake: () => void) => () => void;
+	/**
+	 * Liga o sinal de "eventos novos" (Redis). Devolve o unsubscribe. `onReady` dispara quando a assinatura
+	 * é confirmada (e de novo ao reconectar): o stream relê os eventos e não perde o que foi publicado antes.
+	 */
+	subscribe?: (onWake: () => void, onReady: () => void) => () => void;
+	/** A assinatura está confirmada agora (Redis de pé). Ausente ou falso = consulta de segurança a cada 500ms. */
+	subscribed?: () => boolean;
 	io: {
 		stopped: () => boolean;
 		send: (bytes: Uint8Array) => void;
@@ -39,7 +46,9 @@ export type RunStreamDeps = {
 /**
  * Loop do stream SSE de um run. Cada volta consulta SÓ os eventos novos (índice por runId+seq);
  * o estado do run (select curto) é lido quando não veio evento e (acabou de passar um evento
- * de encerramento OU passaram ~2s), e a espera acorda por sinal do Redis, com consulta de segurança a cada 500ms.
+ * de encerramento OU passaram ~2s), e a espera acorda por sinal do Redis, com consulta de segurança a cada 3s
+ * com a assinatura confirmada e a cada 500ms sem ela. A assinatura nasce antes da primeira leitura e, ao ser
+ * confirmada, acorda o laço para mais uma leitura: evento publicado entre a leitura e o SUBSCRIBE não se perde.
  * Semântica de Last-Event-ID preservada: cada evento sai com `id: seq`, em ordem.
  */
 export async function runRunStream(cursorStart: number, deps: RunStreamDeps): Promise<void> {
@@ -52,7 +61,7 @@ export async function runRunStream(cursorStart: number, deps: RunStreamDeps): Pr
 		io.send(encoder.encode(sseEncode({ id: seq, event: typeof payload?.type === "string" ? payload.type : "message", data })));
 	};
 	io.send(encoder.encode("retry: 2000\n\n"));
-	const unsubscribe = deps.subscribe?.(() => io.wakeUp());
+	const unsubscribe = deps.subscribe?.(() => io.wakeUp(), () => io.wakeUp());
 	let lastSentAt = clock();
 	let lastStateAt = 0;
 	let lastStaleSentAt = 0;
@@ -118,7 +127,7 @@ export async function runRunStream(cursorStart: number, deps: RunStreamDeps): Pr
 					io.send(encoder.encode(": keepalive\n\n"));
 				}
 			}
-			await io.wait(RUN_STREAM_FALLBACK_POLL_MS);
+			await io.wait(deps.subscribed?.() ? RUN_STREAM_SUBSCRIBED_POLL_MS : RUN_STREAM_FALLBACK_POLL_MS);
 		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : "stream error";

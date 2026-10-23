@@ -2,7 +2,7 @@ import { mcpArgsErrorMessage, validateMcpArgs } from "./mcp/args-validation.js";
 import { modelUsage } from "./telemetry/model-usage.js";
 import { todayNote } from "./context/today-note.js";
 import { agentOutputBudget } from "./generation-budget.js";
-import { createReadCache, stableReadKey, scheduleIndependentReads, countEmptySearches, MAX_PARALLEL_READS, READ_CACHED_RESULT_TOOL } from "./read-execution.js";
+import { createReadCache, stableReadKey, scheduleIndependentReads, countEmptySearches, MAX_PARALLEL_READS, READ_CACHED_RESULT_TOOL, parallelBuiltinReadKey } from "./read-execution.js";
 import { createHash } from "node:crypto";
 import { semanticReadKey } from "./execution/arg-key.js";
 import { browserSubagentsEnabled, executionDisciplineEnabled } from "./execution/flag.js";
@@ -150,6 +150,7 @@ import {
 	hydrateLlmMessages,
 	parseRuntimeCheckpoint,
 	resolveLlmMessagesForModel,
+	createMediaMemo,
 	toolIdempotencyKey,
 } from "./checkpoint.js";
 import {
@@ -289,6 +290,7 @@ import { contextEconomyEnabled, contextTranscriptEnabled } from "./context/flag.
 import { clippedResultRefLine, createResultStore, resultStoreLimits, extractResultRef, RESULT_MAX_STORED_CHARS } from "./context/result-store.js";
 import { createContextUsageReporter } from "./context/usage.js";
 import { createStepInspector } from "./inspect.js";
+import { toolsJsonCharsOf } from "./tools-json-size.js";
 import { createDevTimingTracker } from "./dev-timing.js";
 import { contextBudgetFor, DEV_HYGIENE_RATIOS, devContextBudget, type ContextBudget } from "./context/budget.js";
 import { compactWithSummary, createStreamSummarizer } from "./context/summary-compaction.js";
@@ -4634,6 +4636,21 @@ async function searchConnectorTools(
 
 export { AgentRunCancelledError };
 
+/** Soma o uso das checagens de observação (`null` = nenhuma chamou modelo). */
+function sumObserveUsage(usages: ReadonlyArray<TokenUsage | null>): TokenUsage | null {
+	const present = usages.filter((usage): usage is TokenUsage => usage !== null);
+	return present.length === 0 ? null : present.reduce((total, usage) => addUsage(total, usage), emptyUsage());
+}
+
+export type RunComputerUseResult = {
+	text: string;
+	model: string;
+	hitWall: boolean;
+	usage: TokenUsage;
+	/** Só com `backgroundObserveChecks`: termina quando as checagens de observação terminam; uso delas (ou `null`). */
+	observeChecks?: Promise<TokenUsage | null>;
+};
+
 export async function runComputerUse(params: {
 	/** Provedores sem créditos do run pai: o subagente herda (não repete a falha em cada filho). */
 	providerHealth?: ProviderHealth;
@@ -4897,7 +4914,13 @@ export async function runComputerUse(params: {
 	listBotRoster?: (userId: string) => Promise<Array<{ id: string; isPrimary?: boolean }>>;
 	/** "Decidir pelos outros bots" ligado neste bot (policyJson): expõe `decide_bot_pending`. */
 	decideForOtherBots?: boolean;
-}): Promise<{ text: string; model: string; hitWall: boolean; usage: TokenUsage }> {
+	/**
+	 * Checagens que só observam a resposta final (correção de arquivo, verificador Jev em sombra) não
+	 * seguram o fim do run: o resultado sai já e `observeChecks` termina depois, com o uso delas para
+	 * o chamador somar (nunca rejeita). Sem isto elas são aguardadas antes de devolver (como antes).
+	 */
+	backgroundObserveChecks?: boolean;
+}): Promise<RunComputerUseResult> {
 	const { apiKey, messages, botId, onEvent } =
 		params;
 	// `let`: o modelo para código troca o modelo do run entre passos (ver `applyCodingModel`).
@@ -5116,9 +5139,43 @@ export async function runComputerUse(params: {
 	const lastUserMessageContent =
 		[...params.messages].reverse().find((message) => message.role === "user")
 			?.content ?? "";
-	const botProfileForGate = params.botId && !isSubagent
-		? await (params.loadBotProfile ?? getBotProfile)(params.botId, params.userId).catch(() => null)
-		: null;
+	// Leituras do início do run são independentes entre si: começam todas aqui e cada uma é aguardada
+	// onde é usada (antes iam em série até a 1ª chamada ao modelo). Intenção e dificuldade leem só a
+	// última fala do usuário. As que podem rejeitar (abort) ganham um `.catch` vazio para não virar
+	// rejeição sem dono enquanto esperam; o `await` de cada uma ainda propaga o erro.
+	const botProfilePromise = params.botId && !isSubagent
+		? (params.loadBotProfile ?? getBotProfile)(params.botId, params.userId).catch(() => null)
+		: Promise.resolve(null);
+	// F11: Jev lê SÓ a última fala do usuário (nunca tool result) e decide a intenção em qualquer idioma.
+	const jevIntentsPromise: Promise<JevIntents> =
+		isSubagent || isUnattendedOrigin(params.origin)
+			? Promise.resolve(NO_INTENTS)
+			: detectJevIntents({
+					rt: params.jev,
+					latestUserMessage: lastUserMessageContent,
+					signal: params.abortSignal,
+				});
+	jevIntentsPromise.catch(() => undefined);
+	// Modo Automático: o revisor só é consultado quando o nível ainda não veio do checkpoint (mesma condição do uso abaixo).
+	const reviewerDifficultyPromise =
+		!isSubagent && params.modelTiers?.classifyWithReviewer && !parsedCheckpoint?.modelTier
+			? classifyDifficultyWithReviewer({ rt: params.jev, request: lastUserMessageContent, signal: params.abortSignal })
+			: null;
+	reviewerDifficultyPromise?.catch(() => undefined);
+	const botRosterPromise =
+		params.listBotRoster && !isSubagent && botId && userId !== "default" && (params.origin === "chat" || params.origin === "bot")
+			? params.listBotRoster(userId).catch(() => [] as Array<{ id: string; isPrimary?: boolean }>)
+			: null;
+	// Cofre com logins de site: login_fill e secret_list ficam sempre ao alcance (e o prompt diz quais domínios),
+	// para o modelo não depender de lembrar que o cofre existe.
+	const vaultService = params.vault ?? getVaultService();
+	// Sem chave do servidor não existe item no cofre: nem consulta o banco.
+	const vaultUsable = Boolean(params.vault) || isSecretBoxConfigured();
+	const vaultLoginDomainsPromise: Promise<string[]> =
+		vaultUsable && !isSubagent && sandboxEnabled && userId !== "default" && !isUnattendedOrigin(params.origin)
+			? listVaultLoginDomains(vaultService, userId).catch(() => [])
+			: Promise.resolve([]);
+	const [botProfileForGate, jevIntents] = await Promise.all([botProfilePromise, jevIntentsPromise]);
 	const onboardingIncomplete = !botProfileForGate?.description?.trim();
 	const isConfigEventRun =
 		isBotConfigEventObjective(params.objective ?? "") ||
@@ -5154,15 +5211,6 @@ export async function runComputerUse(params: {
 					// Sem isso a dica nunca chegava e o modelo quase nunca delegava.
 					.then((hint) => hint ?? (delegationCue(lastUserMessageContent) ? DELEGATION_HINT : null))
 			: Promise.resolve(null);
-	// F11: Jev lê SÓ a última fala do usuário (nunca tool result) e decide a intenção em qualquer idioma.
-	const jevIntents: JevIntents =
-		isSubagent || isUnattendedOrigin(params.origin)
-			? NO_INTENTS
-			: await detectJevIntents({
-					rt: params.jev,
-					latestUserMessage: lastUserMessageContent,
-					signal: params.abortSignal,
-				});
 	// Só o Jev reconhece "pedido explícito de mudar o perfil". Com Jev off/indisponível
 	// vale NO_INTENTS: a tool só abre em onboarding/evento de config (nunca por chute).
 	const explicitProfileChangeRequest = jevIntents.profileChange;
@@ -5252,9 +5300,7 @@ export async function runComputerUse(params: {
 	};
 	if (tierPlan && params.modelTiers) {
 		if (!activeTier) {
-			const asked = params.modelTiers.classifyWithReviewer
-				? await classifyDifficultyWithReviewer({ rt: params.jev, request: lastUserMessageContent, signal: params.abortSignal })
-				: null;
+			const asked = reviewerDifficultyPromise ? await reviewerDifficultyPromise : null;
 			const chosen =
 				asked ??
 				classifyDifficulty({
@@ -5283,8 +5329,8 @@ export async function runComputerUse(params: {
 	}
 	if (exposeSetAutonomy) baseTools.push(SET_AUTONOMY_TOOL);
 	// Conversa entre bots: só com 2+ bots do usuário; falha ao listar nunca derruba o run.
-	if (params.listBotRoster && !isSubagent && botId && userId !== "default" && (params.origin === "chat" || params.origin === "bot")) {
-		const roster = await params.listBotRoster(userId).catch(() => []);
+	if (botRosterPromise) {
+		const roster = await botRosterPromise;
 		const botCount = roster.length;
 		if (shouldExposeSendToBot({ origin: params.origin, botCount }) && (params.toolFilter?.(SEND_TO_BOT_TOOL.function.name) ?? true)) {
 			baseTools.push(SEND_TO_BOT_TOOL);
@@ -5403,6 +5449,8 @@ export async function runComputerUse(params: {
 		});
 		return devRuntime;
 	};
+	// Sessão de código já aberta na conversa: a consulta começa aqui e é aguardada antes da primeira higiene.
+	const devAttachPromise: Promise<boolean> | null = devDeps?.config.enabled && !isSubagent ? getDevRuntime().attach().catch(() => false) : null;
 	// Run de código (sessão de desenvolvimento na conversa ou ferramenta de código usada): orçamento de contexto maior.
 	let codingRun = false;
 	const hygieneBudget = (base: ContextBudget | undefined): ContextBudget | undefined =>
@@ -5558,17 +5606,9 @@ export async function runComputerUse(params: {
 	// determinística: o prefixo (tools + prompt) tem os mesmos bytes entre runs do mesmo
 	// bot/config e tool carregada no meio entra no fim, sem reordenar o que já foi enviado.
 	const economy = !isSubagent && (params.contextEconomy ?? contextEconomyEnabled());
-	// Cofre com logins de site: login_fill e secret_list ficam sempre ao alcance (e o prompt diz quais domínios),
-	// para o modelo não depender de lembrar que o cofre existe.
-	const vaultService = params.vault ?? getVaultService();
 	// Conector de e-mail do usuário (Gmail/Outlook/MCP/Composio, só leitura): busca o código de login por e-mail.
 	const emailSource = !isSubagent && !isUnattendedOrigin(params.origin) ? findEmailSource(params.mcp, params.abortSignal) : null;
-	// Sem chave do servidor não existe item no cofre: nem consulta o banco.
-	const vaultUsable = Boolean(params.vault) || isSecretBoxConfigured();
-	const vaultLoginDomains: string[] =
-		vaultUsable && !isSubagent && sandboxEnabled && userId !== "default" && !isUnattendedOrigin(params.origin)
-			? await listVaultLoginDomains(vaultService, userId).catch(() => [])
-			: [];
+	const vaultLoginDomains = await vaultLoginDomainsPromise;
 	// Cache de prompt: grupos do turno anterior seguem carregados (e na mesma ordem) por alguns turnos.
 	const stickyPlan = economy ? planStickyGroups({ prior: parsedCheckpoint?.toolCache ?? params.priorToolCache, resume: Boolean(parsedCheckpoint?.toolCache), now: new Date() }) : null;
 	const economyPlan = economy
@@ -5921,7 +5961,7 @@ export async function runComputerUse(params: {
 	// Higiene Fase 0 (ponto único: cobre fresh E resume, que ignora o
 	// prepareMessages do worker). Colapsa tool-results antigos + apara pela
 	// janela do modelo. Nunca toca no banco: só emagrece este pacote.
-	if (devDeps?.config.enabled && !isSubagent) codingRun = await getDevRuntime().attach().catch(() => false);
+	if (devAttachPromise) codingRun = await devAttachPromise;
 	if (codingRun) await applyCodingModel("run_start");
 
 	// Memória Padrão: antes da poda, a parte antiga vira um resumo do modelo de manutenção. Uma vez por
@@ -5948,7 +5988,7 @@ export async function runComputerUse(params: {
 	const summarizeIfNeeded = async (step: number, taskState?: TaskState) => {
 		const budget = hygieneBudget(baseContextBudget());
 		if (!summaryEnabled() || !budget || step < summaryRetryAtStep) return;
-		const toolsJsonChars = JSON.stringify(tools).length;
+		const toolsJsonChars = toolsJsonCharsOf(tools);
 		const estimate = (list: readonly LlmMessage[]) => estimateMessagesTokens(list, toolsJsonChars);
 		// Barato: abaixo do teto nem o texto bruto (maior que o já colapsado) passa, nada a fazer.
 		if (estimate(conversation) <= budget.ceilingTokens) return;
@@ -6011,7 +6051,7 @@ export async function runComputerUse(params: {
 	const firstHygiene = applyPromptHygiene(conversation, {
 			lastGroupMaxChars: hygieneLastGroupChars,
 		contextLength,
-		toolsJsonChars: JSON.stringify(tools).length,
+		toolsJsonChars: toolsJsonCharsOf(tools),
 		model,
 		collapseBatch,
 		statusOf: (id) => journal.resultOf(id)?.status,
@@ -6194,10 +6234,8 @@ export async function runComputerUse(params: {
 				})
 			: undefined;
 	let checkpointTail: Promise<void> = Promise.resolve();
-	const writeCheckpoint = async (stepIndex: number) => {
-		if (!onCheckpoint) return;
-		await onCheckpoint(
-			buildRuntimeCheckpoint({
+	const snapshotCheckpoint = (stepIndex: number) =>
+		buildRuntimeCheckpoint({
 				messages,
 				conversation,
 				userImageArtifactIds: params.userImageArtifactIds ?? parsedCheckpoint?.userImageArtifactIds,
@@ -6231,8 +6269,10 @@ export async function runComputerUse(params: {
 				toolCache: toolCacheSnapshot(),
 				transcriptWatermark: parsedCheckpoint?.transcriptWatermark ?? params.transcriptWatermark,
 				carriedNotes: parsedCheckpoint?.carriedNotes ?? params.carriedNotes,
-			}),
-		);
+			});
+	const writeCheckpoint = async (stepIndex: number) => {
+		if (!onCheckpoint) return;
+		await onCheckpoint(snapshotCheckpoint(stepIndex));
 	};
 
 	const persistCheckpoint = (stepIndex: number) => {
@@ -6240,6 +6280,27 @@ export async function runComputerUse(params: {
 		checkpointTail = write.catch(() => undefined);
 		return write;
 	};
+	/**
+	 * Checkpoint do início do passo sem segurar a chamada ao modelo: o estado é fotografado AGORA (o
+	 * mesmo que o `await persistCheckpoint` gravaria) e a escrita entra na mesma fila (`checkpointTail`),
+	 * então a ordem das gravações não muda. `settleStepCheckpoint` é a barreira: roda antes de qualquer
+	 * tool (inclusive escrita com journal) e antes de devolver o run; a falha da escrita sobe ali.
+	 */
+	let pendingStepCheckpoint: Promise<void> | undefined;
+	const persistCheckpointInBackground = (stepIndex: number) => {
+		if (!onCheckpoint) return;
+		const snapshot = snapshotCheckpoint(stepIndex);
+		const write = checkpointTail.then(() => onCheckpoint(snapshot));
+		checkpointTail = write.catch(() => undefined);
+		pendingStepCheckpoint = write;
+	};
+	const settleStepCheckpoint = async () => {
+		const pending = pendingStepCheckpoint;
+		pendingStepCheckpoint = undefined;
+		if (pending) await pending;
+	};
+	/** Gravações de observabilidade fora do caminho do modelo; o run só termina depois delas. */
+	const backgroundWrites: Array<Promise<unknown>> = [];
 
 	// F12/B5 — retomada depois do "Terminei": o mesmo checkpoint segue e o modelo
 	// relê a página antes de continuar. O card passa a "done".
@@ -6357,6 +6418,8 @@ export async function runComputerUse(params: {
 	// Streaming com tool calls: emite deltas. Cada passo vira UM balão (estilo WhatsApp), que cresce
 	// enquanto o passo é escrito; o próximo passo abre outro balão (id por passo).
 	// (Sem fatiar por parágrafo: N balões simultâneos embaralhavam a leitura.)
+	// Mídia do histórico (screenshots, imagens, PDFs) carregada uma vez por run, não a cada passo.
+	const mediaMemo = createMediaMemo();
 	const streamStep = async (
 		history: LlmMessage[],
 		toolChoice: "auto" | "none",
@@ -6408,6 +6471,7 @@ export async function runComputerUse(params: {
 					else if (result.costUnknown) usageTotals = addUsage(usageTotals, { costUnknownCalls: 1 });
 					return result.description;
 				} : undefined,
+				memo: mediaMemo,
 			},
 		);
 		const effectiveTools = reserveRestrict ? tools.filter((tool) => FILE_RESERVE_TOOLS.includes(tool.function.name)) : tools;
@@ -7749,10 +7813,21 @@ ${blockHint}`;
 			if (stopForConfirm) return;
 		};
 		const batchStartedAt = performance.now();
+		const callsPerName = new Map<string, number>();
+		for (const call of toolCalls) callsPerName.set(call.function.name, (callsPerName.get(call.function.name) ?? 0) + 1);
 		await scheduleIndependentReads(toolCalls, (call) => {
 			if (devDeps?.config.enabled && tools.some((tool) => tool.function.name === call.function.name)) {
 				const devKey = parallelDevReadKey(call.function.name, call.function.arguments);
 				if (devKey) return devKey;
+			}
+			// Leitura nativa (busca, extração, histórico, memória): só junto quando todas as chamadas dela
+			// neste passo cabem no teto (o teto é checado antes de contar, então em paralelo não estoura).
+			const builtinKey = parallelBuiltinReadKey(call.function.name, call.function.arguments);
+			if (builtinKey) {
+				if (!tools.some((tool) => tool.function.name === call.function.name)) return null;
+				const cap = budget.maxCallsPerTool?.[call.function.name];
+				if (cap !== undefined && (toolCallCounts.get(call.function.name) ?? 0) + (callsPerName.get(call.function.name) ?? 0) > cap) return null;
+				return builtinKey;
 			}
 			const entry = mcp?.toolset.entries.get(call.function.name);
 			if (!entry?.readOnly || decideAction(autonomyPolicy, entry.autonomyMeta) !== "allow" || !tools.some((tool) => tool.function.name === call.function.name)) return null;
@@ -7894,17 +7969,23 @@ ${blockHint}`;
 
 	// Observabilidade: quais tools o modelo viu neste run (verifica exposição de
 	// `delegate_task` etc. depois). Chave idempotente: retomada só reescreve.
-	await params.onStep?.({
-		decisionIndex: 0,
-		subIndex: OFFERED_TOOLS_SUB_INDEX,
-		type: "checkpoint",
-		status: "completed",
-		idempotencyKey: `${runId}:offered-tools`,
-		outputJson: {
-			offeredTools: tools.map((tool) => tool.function.name),
-			...(nativeDeferral ? { deferredTools: nativeDeferral.pending() } : {}),
-		},
+	// Fora do caminho da 1ª chamada ao modelo: a gravação corre junto e o run só termina depois dela.
+	const offeredToolsWrite = Promise.resolve(
+		params.onStep?.({
+			decisionIndex: 0,
+			subIndex: OFFERED_TOOLS_SUB_INDEX,
+			type: "checkpoint",
+			status: "completed",
+			idempotencyKey: `${runId}:offered-tools`,
+			outputJson: {
+				offeredTools: tools.map((tool) => tool.function.name),
+				...(nativeDeferral ? { deferredTools: nativeDeferral.pending() } : {}),
+			},
+		}),
+	).catch((error: unknown) => {
+		console.warn(`[run] offered-tools não gravado run=${runId}: ${error instanceof Error ? error.message : String(error)}`);
 	});
+	backgroundWrites.push(offeredToolsWrite);
 
 	let jevVerifyDone = false;
 	// L18: uma nova tentativa por corte/stream incompleto e um aviso por arquivo prometido.
@@ -7978,7 +8059,8 @@ ${blockHint}`;
 		// L9: no máximo UM checkpoint por decisão (o do fim do passo). O do início só
 		// sai quando há estado novo que o do passo anterior não tem: 1º passo de run
 		// novo (grava o snapshot de config e a conversa inicial) ou mensagem do usuário.
-		if (steered || (step === firstStep && !parsedCheckpoint)) await persistCheckpoint(step);
+		// A escrita corre junto com a chamada ao modelo (foto do estado tirada aqui); barreira logo depois dela.
+		if (steered || (step === firstStep && !parsedCheckpoint)) persistCheckpointInBackground(step);
 
 		if (pendingEscalationReason) {
 			const reason = pendingEscalationReason;
@@ -8009,6 +8091,7 @@ ${blockHint}`;
 			if (workingLimit < hardCap) {
 				const verdict = await softEvaluate();
 				if (verdict.action === "conclude") {
+					await settleStepCheckpoint();
 					return {
 						text: verdict.summary,
 						model: lastModel,
@@ -8132,7 +8215,7 @@ ${blockHint}`;
 		const stepHygiene = applyPromptHygiene(conversation, {
 			lastGroupMaxChars: hygieneLastGroupChars,
 			contextLength,
-			toolsJsonChars: JSON.stringify(tools).length,
+			toolsJsonChars: toolsJsonCharsOf(tools),
 			model,
 			collapseBatch,
 			statusOf: (id) => journal.resultOf(id)?.status,
@@ -8163,6 +8246,8 @@ ${blockHint}`;
 			if (!params.abortSignal?.aborted && isDecisionTimeout(error)) return "timeout" as const;
 			throw error;
 		});
+		// Barreira do checkpoint do início do passo: nenhuma tool roda (nem o passo segue) sem ele gravado.
+		await settleStepCheckpoint();
 		if (stepOutcome === "timeout") {
 			if (decisionTimeouts < 1) {
 				decisionTimeouts += 1;
@@ -8307,6 +8392,9 @@ ${blockHint}`;
 					}
 					taskTracker.waiveFile(artifactNudged ? "file was not produced; the reply was accepted after one reminder" : "file was not produced; the answer was already revised once");
 				}
+				// Checagens que só observam a resposta final: rodam juntas e, com `backgroundObserveChecks`, fora do
+				// caminho do fim do run (o resultado delas só vai para log, decisão do Jev e uso).
+				const observeChecks: Array<Promise<TokenUsage | null>> = [];
 				// F4 (só observa): com arquivo no run, UMA chamada barata diz se a resposta admite erro no arquivo. Fica
 				// registrado; a resposta não é descartada (o usuário já a viu e um juiz não reescreve resposta completa).
 				if (
@@ -8325,33 +8413,46 @@ ${blockHint}`;
 					})
 				) {
 					fileCorrectionChecked = true;
-					const verdict = await askFileCorrection({
-						streamChat,
-						model: params.messageTriageModel?.trim() || model,
-						apiKey,
-						reply: text,
-						signal: params.abortSignal,
-					});
-					if (verdict) usageTotals = addUsage(usageTotals, verdict.usage);
-					if (verdict?.fixFile) console.info(`[gate:shadow] file_fix run=${runId} step=${step}: reply admits a file problem (kept as is)`);
+					observeChecks.push(
+						askFileCorrection({
+							streamChat,
+							model: params.messageTriageModel?.trim() || model,
+							apiKey,
+							reply: text,
+							signal: params.abortSignal,
+						}).then((verdict) => {
+							if (verdict?.fixFile) console.info(`[gate:shadow] file_fix run=${runId} step=${step}: reply admits a file problem (kept as is)`);
+							return verdict ? addUsage(emptyUsage(), verdict.usage) : null;
+						}),
+					);
 				}
 				// F11 (só observa): o verificador Jev confere o rascunho contra as evidências em modo sombra (registra a
 				// decisão via `onDecision`), sem descartar a resposta final.
 				// Só vale tool usada NESTE turno: os outcomes semeados do histórico são de turnos anteriores.
 				if (!jevVerifyDone && !isSubagent && toolOutcomes.slice(seededOutcomeCount).some((outcome) => outcome.ok)) {
 					jevVerifyDone = true;
-					await verifyDraftAnswer({
-						rt: observeOnly(params.jev, "verify"),
-						userRequest: lastUserMessageContent,
-						draft: text,
-						conversation,
-						statusOf: (id) => journal.resultOf(id),
-						signal: params.abortSignal,
-					});
+					observeChecks.push(
+						verifyDraftAnswer({
+							rt: observeOnly(params.jev, "verify"),
+							userRequest: lastUserMessageContent,
+							draft: text,
+							conversation: [...conversation],
+							statusOf: (id) => journal.resultOf(id),
+							signal: params.abortSignal,
+						}).then(() => null),
+					);
+				}
+				let observeChecksSettled: Promise<TokenUsage | null> | undefined;
+				if (params.backgroundObserveChecks) {
+					// Falha (inclusive abort) não vira rejeição sem dono: só observa, então vira "sem uso".
+					observeChecksSettled = Promise.all(observeChecks.map((check) => check.catch(() => null))).then(sumObserveUsage);
+				} else {
+					const usage = sumObserveUsage(await Promise.all(observeChecks));
+					if (usage) usageTotals = addUsage(usageTotals, usage);
 				}
 				taskTracker.setPhase("done");
 				await persistCheckpoint(step + 1);
-				return { text, model: lastModel, hitWall: false, usage: usageTotals };
+				return { text, model: lastModel, hitWall: false, usage: usageTotals, ...(observeChecksSettled ? { observeChecks: observeChecksSettled } : {}) };
 			}
 			if (stopForSkillCard || stopForConfirm || stopForQuestionnaire || stopForProfile) {
 				return { text: "", model: lastModel, hitWall: false, usage: usageTotals };
@@ -8472,6 +8573,9 @@ ${blockHint}`;
 		}
 		throw error;
 	} finally {
+		// Nenhuma gravação do run fica pendente depois que ele devolve (a fila nunca rejeita).
+		await checkpointTail;
+		await Promise.allSettled(backgroundWrites);
 		// Fecha o relógio do run de código (também em pausa por confirmação, erro ou cancelamento).
 		await noteDevTiming(true);
 	}

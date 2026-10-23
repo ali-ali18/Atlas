@@ -1,11 +1,18 @@
-import { getAccountConfig, onGroupTurnCreated, processGroupTurns, type GroupDispatchDeps } from "@workspace/db";
+import { getAccountConfig, onGroupTurnCreated, processGroupTurns, type GroupDispatchDeps, type GroupDispatchResult } from "@workspace/db";
 import { buildGroupRouterPrompt, parseGroupRouterReply, resolveEffectiveConfig } from "@workspace/shared";
 import { createReviewerClient, type ReviewerLlmDeps } from "@workspace/agent-runtime";
 import type { askJev } from "@workspace/llm";
 import type { WorkerConfig } from "./config.js";
 import { createMaintenanceLlm } from "./maintenance-llm.js";
+import { startAdaptiveSweeper, type AdaptiveSweeper } from "./adaptive-sweeper.js";
 
-const SWEEP_INTERVAL_MS = 1_500;
+/** Com turno roteando ou ativo: volta logo, como antes. */
+export const GROUP_SWEEP_BUSY_MS = 1_500;
+/**
+ * Sem turno aberto: só consulta de segurança. Turno novo acorda na hora (gancho no processo ou aviso do
+ * Redis vindo da API) e o fim de um run no worker também.
+ */
+export const GROUP_SWEEP_IDLE_MS = 15_000;
 const ROUTER_TIMEOUT_MS = 12_000;
 
 /**
@@ -72,41 +79,28 @@ export function createGroupJev(
  * membros e inicia uma por vez. Um passo por vez (sem sobreposição); pedido de passo
  * durante outro roda de novo ao terminar. Nunca lança.
  */
-export function startGroupSweeper(deps: GroupDispatchDeps): { kick: () => void; stop: () => void } {
-	let running = false;
-	let again = false;
-	const sweep = async (): Promise<void> => {
-		if (running) {
-			again = true;
-			return;
-		}
-		running = true;
-		try {
-			do {
-				again = false;
-				const result = await processGroupTurns(deps);
-				if (result.routed + result.started + result.settled + result.followUps > 0) {
-					console.log(
-						`[bot-groups] roteados=${result.routed} iniciadas=${result.started} encerradas=${result.settled} por-mencao=${result.followUps} adiadas=${result.busy}`,
-					);
-				}
-			} while (again);
-		} catch (error) {
-			console.error("[bot-groups] sweep failed", error);
-		} finally {
-			running = false;
-		}
-	};
-	const kick = (): void => {
-		void sweep();
-	};
-	const timer = setInterval(kick, SWEEP_INTERVAL_MS);
-	const unsubscribe = onGroupTurnCreated(kick);
-	return {
-		kick,
-		stop: () => {
-			clearInterval(timer);
-			unsubscribe();
+export function startGroupSweeper(
+	deps: GroupDispatchDeps,
+	options: {
+		step?: (deps: GroupDispatchDeps) => Promise<GroupDispatchResult>;
+		triggers?: Array<(kick: () => void) => () => void>;
+		busyMs?: number;
+		idleMs?: number;
+	} = {},
+): AdaptiveSweeper {
+	const step = options.step ?? processGroupTurns;
+	return startAdaptiveSweeper({
+		name: "bot-groups",
+		step: () => step(deps),
+		onResult: (result) => {
+			if (result.routed + result.started + result.settled + result.followUps > 0) {
+				console.log(
+					`[bot-groups] roteados=${result.routed} iniciadas=${result.started} encerradas=${result.settled} por-mencao=${result.followUps} adiadas=${result.busy}`,
+				);
+			}
 		},
-	};
+		busyMs: options.busyMs ?? GROUP_SWEEP_BUSY_MS,
+		idleMs: options.idleMs ?? GROUP_SWEEP_IDLE_MS,
+		triggers: [onGroupTurnCreated, ...(options.triggers ?? [])],
+	});
 }

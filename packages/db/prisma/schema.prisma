@@ -141,6 +141,8 @@ model ConversationMessage {
   reactions      MessageReaction[]
 
   @@index([conversationId, createdAt])
+  /// Varredura de resumo por inatividade: só conversas com mensagem recente (BRIN: minúsculo, a tabela cresce em ordem de createdAt).
+  @@index([createdAt], type: Brin)
   @@map("conversation_messages")
 }
 
@@ -498,8 +500,8 @@ model RunEvent {
   payload   Json
   createdAt DateTime @default(now())
 
+  /// Também serve de índice para ler eventos por run em ordem (não há @@index([runId, seq]) separado).
   @@unique([runId, seq])
-  @@index([runId, seq])
   @@index([runId, type])
   @@map("run_events")
 }

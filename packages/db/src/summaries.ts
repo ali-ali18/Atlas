@@ -198,17 +198,34 @@ export async function writeConversationSummary(input: {
 }
 
 /**
+ * Quanto além do limiar de ociosidade o varredor ainda olha. Cobre o cooldown de falha (30 min), runs ativos
+ * que seguraram a conversa por horas e o worker fora do ar por um tempo. Conversa com a última msg mais velha
+ * que isso já passou por várias varreduras (resumida ou sem conteúdo suficiente).
+ */
+export const SUMMARY_SWEEP_LOOKBACK_MS = 6 * 60 * 60 * 1000;
+
+/**
  * Conversas ociosas precisando de resumo: última msg mais velha que o idle,
  * com ao menos `minMessages`, sem run ativo e sem resumo cobrindo a última
  * msg (snapshotVersion = id da última msg = fresco, pula).
+ *
+ * Só olha conversas com mensagem na janela `[agora - idle - lookback, agora)` (índice BRIN em `createdAt`):
+ * antes, cada varredura agregava TODAS as mensagens da tabela. Última msg, contagem e resumo saem por
+ * conversa candidata, pelo índice `(conversationId, createdAt)`.
  */
 export async function findConversationsNeedingSummary(
 	idleMs: number,
 	minMessages = 20,
 	limit = 20,
+	lookbackMs = SUMMARY_SWEEP_LOOKBACK_MS,
 ): Promise<IdleConversation[]> {
 	const rows = (await prisma.$queryRawUnsafe(
 		`
+		WITH recent AS (
+			SELECT DISTINCT "conversationId"
+			FROM conversation_messages
+			WHERE "createdAt" >= NOW() - (($1::bigint + $4::bigint) * INTERVAL '1 millisecond')
+		)
 		SELECT m."conversationId" AS "conversationId",
 		       b."id" AS "botId",
 		       m."id" AS "lastMessageId",
@@ -216,16 +233,19 @@ export async function findConversationsNeedingSummary(
 		       c."count" AS "messageCount",
 		       s."snapshotVersion" AS "snapshotVersion",
 		       s."version" AS "summaryVersion"
-		FROM (
-			SELECT DISTINCT ON ("conversationId") "conversationId", id, "createdAt"
+		FROM recent rc
+		CROSS JOIN LATERAL (
+			SELECT "conversationId", id, "createdAt"
 			FROM conversation_messages
-			ORDER BY "conversationId", "createdAt" DESC, id DESC
+			WHERE "conversationId" = rc."conversationId"
+			ORDER BY "createdAt" DESC, id DESC
+			LIMIT 1
 		) m
-		JOIN (
-			SELECT "conversationId", COUNT(*) AS count
+		CROSS JOIN LATERAL (
+			SELECT COUNT(*) AS count
 			FROM conversation_messages
-			GROUP BY "conversationId"
-		) c ON c."conversationId" = m."conversationId"
+			WHERE "conversationId" = rc."conversationId"
+		) c
 		LEFT JOIN bots b ON b."conversationId" = m."conversationId"
 		LEFT JOIN LATERAL (
 			SELECT "snapshotVersion", "version"
@@ -248,6 +268,7 @@ export async function findConversationsNeedingSummary(
 		idleMs,
 		minMessages,
 		limit,
+		lookbackMs,
 	)) as IdleRow[];
 	return rows.map((row) => ({
 		conversationId: row.conversationId,

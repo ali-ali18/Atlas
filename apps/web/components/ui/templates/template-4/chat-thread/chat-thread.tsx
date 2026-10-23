@@ -20,9 +20,14 @@ import { cn } from "@workspace/ui/lib/utils";
 import { buildTimeSeparators } from "@/lib/chat-time-separators";
 import { exchangeFocusKey } from "@/lib/bot-exchange";
 import { readBubbleBotColor } from "@/lib/bot-bubble";
-import { planImageRuns } from "@/lib/image-groups";
+import { planImageRuns, reuseImageRuns } from "@/lib/image-groups";
 import { groupBotMessages, type BotPartner, type ThreadItem } from "@/lib/bot-thread";
-import { BotAutoDecisionNote, BotLinkMarker, BotNeedsUserCard, BotThreadGroup, type BotRef } from "@/components/ai-elements/bot-messages";
+// Módulos diretos (não o índice): o índice também exporta a tela da conversa entre bots, carregada sob demanda.
+import type { BotRef } from "@/components/ai-elements/bot-messages/bot-chip";
+import { BotAutoDecisionNote } from "@/components/ai-elements/bot-messages/bot-auto-decision-note";
+import { BotLinkMarker } from "@/components/ai-elements/bot-messages/bot-link-marker";
+import { BotNeedsUserCard } from "@/components/ai-elements/bot-messages/bot-needs-user-card";
+import { BotThreadGroup } from "@/components/ai-elements/bot-messages/bot-thread-group";
 import { pendingNeedsUser } from "@/lib/bot-needs-thread";
 import { PLAN_ADJUST_DRAFT, botNeedsUserStatusLine, devApprovalRejectText } from "@workspace/shared";
 import { beginCardDecision, cardDecisionKey, endCardDecision } from "@/lib/card-decision";
@@ -50,6 +55,7 @@ import { ChatComposer } from "./chat-composer";
 import { CompactionNotice } from "./compaction-card";
 import { CreateBotHeader } from "./create-bot-header";
 import { MessageRow } from "./message-row";
+import type { QuestionnaireAnswersMap, QuestionnaireCardMessage } from "./questionnaire-card";
 import { ScrollToBottom } from "./scroll-to-bottom";
 import { NewMessagesDivider } from "./new-messages-divider";
 import { SourceMarker } from "./source-marker";
@@ -74,7 +80,19 @@ import { onChatMessageRequest } from "@/lib/dev-session/chat-send-request";
 import { setBotWorking } from "@/lib/bot-activity";
 import { emitSkillProposalResolved } from "@/lib/skill-draft-handoff";
 import { ThreadSkeleton } from "./thread-skeleton";
+import { useStableHandlers, useStructuralMemo } from "./stable-handlers";
+import { createPreviewReporter } from "@/lib/preview-throttle";
+import { createFrameCoalescer } from "@/lib/frame-coalescer";
 import type { OpenRoutinePayload } from "@/components/ai-elements/routines";
+
+/** Última mensagem que satisfaz o filtro, sem copiar e inverter a lista. */
+function lastMessageWhere<T extends Message>(messages: readonly Message[], match: (message: Message) => message is T): T | undefined {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index]!;
+		if (match(message)) return message;
+	}
+	return undefined;
+}
 
 function itemKind(item: ThreadItem | undefined): Message["kind"] | null {
 	return item?.type === "message" ? item.message.kind : null;
@@ -210,9 +228,16 @@ export function ChatThread({
 		key: string;
 		staleMessages: Message[] | null;
 	} | null>(null);
-	const lastReportedPreviewRef = useRef<{ key: string; text: string } | null>(
-		null,
+	// Prévia na lista de conversas: atualizar a lista re-renderiza o app inteiro, então durante o stream ela
+	// sai no máximo uma vez por segundo (e na hora quando o run termina).
+	const latestPreviewChangeRef = useRef(onLatestMessageChange);
+	useEffect(() => {
+		latestPreviewChangeRef.current = onLatestMessageChange;
+	}, [onLatestMessageChange]);
+	const [previewReporter] = useState(() =>
+		createPreviewReporter({ report: (botId, text) => latestPreviewChangeRef.current?.(botId, text) }),
 	);
+	useEffect(() => () => previewReporter.cancel(), [previewReporter]);
 	// "Grudado no fim?" — follow automático só quando o usuário já estava
 	// no fim; nunca sequestra quem subiu para ler o histórico.
 	const stickRef = useRef(true);
@@ -275,7 +300,9 @@ export function ChatThread({
 	// Pedidos de outras partes da tela (painel da sessão: "Testar de novo") entram como mensagem do usuário.
 	const sendMessageRef = useRef(sendMessage);
 	sendMessageRef.current = sendMessage;
-	const pendingCardKey = selectDockEntries(messages).map((entry) => entry.id).join("|");
+	// Uma passada por mudança da thread (antes eram duas por render: aqui e no dock).
+	const allDockEntries = useMemo(() => selectDockEntries(messages), [messages]);
+	const pendingCardKey = useMemo(() => allDockEntries.map((entry) => entry.id).join("|"), [allDockEntries]);
 	useEffect(() => {
 		const root = scrollRef.current;
 		if (!root || !opened || !pendingCardKey || typeof IntersectionObserver === "undefined") {
@@ -297,15 +324,21 @@ export function ChatThread({
 			if (element) observer.observe(element);
 		}
 		return () => observer.disconnect();
-	}, [pendingCardKey, messages, opened]);
+		// Só a lista de cartões pendentes (ids) importa: refazer o observer a cada token custava uma busca no DOM.
+	}, [pendingCardKey, opened]);
 	useEffect(() => (isGroup ? undefined : onChatMessageRequest((text) => void sendMessageRef.current(text))), [isGroup]);
-	const skillBots = (agents ?? (agent ? [agent] : [])).map((item) => ({ id: item.id, name: item.name }));
+	// Listas derivadas de `agents` mantêm a referência enquanto o conteúdo não muda: a lista de conversas
+	// muda por qualquer prévia ou não lida, e uma referência nova redesenharia todas as linhas memoizadas.
+	const skillBots = useStructuralMemo(useMemo(
+		() => (agents ?? (agent ? [agent] : [])).map((item) => ({ id: item.id, name: item.name })),
+		[agents, agent],
+	));
 	// Membros do grupo (principal primeiro): autocompletar, chips de menção e autoria dos balões.
 	const groupMembers = useMemo(
 		() => (agent && isGroup ? orderMembers(resolveGroupMembers(agent, agents ?? [])) : []),
 		[agent, agents, isGroup],
 	);
-	const mentionMembers = useMemo(
+	const mentionMembers = useStructuralMemo(useMemo(
 		() =>
 			groupMembers.map((member) => ({
 				id: member.id,
@@ -316,7 +349,7 @@ export function ChatThread({
 				isPrimary: member.isPrimary,
 			})),
 		[groupMembers],
-	);
+	));
 	// Chat 1:1: os outros bots (sem grupos nem o atual) que o `@` oferece, e as skills que o `/` reconhece nos balões.
 	const otherBots = useMemo(
 		() =>
@@ -337,13 +370,13 @@ export function ChatThread({
 	// Apps só carregam (uma vez por sessão) quando alguma fala do usuário tem "@": para desenhar o chip.
 	const hasAtMention = useMemo(() => messages.some((item) => item.kind === "user" && item.text.includes("@")), [messages]);
 	const mentionApps = useMentionApps(!isGroup && hasAtMention);
-	const bubbleMembers = useMemo(
+	const bubbleMembers = useStructuralMemo(useMemo(
 		() => [
 			...otherBots,
 			...(mentionApps ?? []).map((app) => ({ id: app.id, name: app.name, kind: "app" as const, logo: app.logo })),
 		],
 		[otherBots, mentionApps],
-	);
+	));
 	const stampedAuthorsRef = useRef<{ groupId: string | undefined; map: Map<string, MessageAuthor> }>({ groupId: undefined, map: new Map() });
 	const liveMember = isGroup && liveBotId ? groupMembers.find((member) => member.id === liveBotId) : undefined;
 	// Gate humano da skill: trava o card, chama o resolve e mostra o estado final (ou o erro em pt-BR).
@@ -448,14 +481,9 @@ export function ChatThread({
 			}
 		}
 		if (!text) return;
-		if (
-			lastReportedPreviewRef.current?.key === key &&
-			lastReportedPreviewRef.current.text === text
-		)
-			return;
-		lastReportedPreviewRef.current = { key, text };
-		onLatestMessageChange(agent.id, text);
-	}, [agent?.id, agent?.conversationId, messages, onLatestMessageChange]);
+		previewReporter.update(key, agent.id, text, sending);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [agent?.id, agent?.conversationId, messages, sending, Boolean(onLatestMessageChange), previewReporter]);
 
 	useEffect(() => {
 		const element = scrollRef.current;
@@ -537,25 +565,34 @@ export function ChatThread({
 	}, [agent?.conversationId]);
 
 	// Subagentes rodando aparecem no WorkingIndicator, não como bloco na lista.
-	const activeSubagents = sending
-		? ([...messages]
-				.reverse()
-				.find(
-					(message) =>
-						message.kind === "subagents" &&
-						message.tasks.some((task) => task.status === "running"),
-				) as Extract<Message, { kind: "subagents" }> | undefined)
-		: undefined;
+	const activeSubagents = useMemo(
+		() =>
+			sending
+				? lastMessageWhere(
+						messages,
+						(message): message is Extract<Message, { kind: "subagents" }> =>
+							message.kind === "subagents" && message.tasks.some((task) => task.status === "running"),
+					)
+				: undefined,
+		[messages, sending],
+	);
 	// Autor das falas ainda sem autor gravado: fixado na primeira vez (por grupo), nunca segue o membro ativo.
 	if (stampedAuthorsRef.current.groupId !== agent?.id) stampedAuthorsRef.current = { groupId: agent?.id, map: new Map() };
-	const visibleMessages = (isGroup
-		? withLiveAuthor(messages, liveMember ? { id: liveMember.id, name: liveMember.name } : null, stampedAuthorsRef.current.map)
-		: messages
-	).filter(
-		(message) =>
-			message.kind !== "tool" &&
-			!isHiddenProtocolBubble(message) &&
-			!(message.kind === "assistant" && message.text.trim().length === 0),
+	const stampedAuthors = stampedAuthorsRef.current.map;
+	const liveAuthorId = liveMember?.id;
+	const liveAuthorName = liveMember?.name;
+	const visibleMessages = useMemo(
+		() =>
+			(isGroup
+				? withLiveAuthor(messages, liveAuthorId && liveAuthorName ? { id: liveAuthorId, name: liveAuthorName } : null, stampedAuthors)
+				: messages
+			).filter(
+				(message) =>
+					message.kind !== "tool" &&
+					!isHiddenProtocolBubble(message) &&
+					!(message.kind === "assistant" && message.text.trim().length === 0),
+			),
+		[messages, isGroup, liveAuthorId, liveAuthorName, stampedAuthors],
 	);
 	// Conversa entre bots: o texto cru não vira balão (marcador ou linha "N mensagens com X").
 	// Delegou e o outro bot parou esperando o usuário: a linha de status diz isso.
@@ -578,15 +615,18 @@ export function ChatThread({
 
 	const threadItems = useMemo(
 		() => groupBotMessages(visibleMessages),
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[messages, activeSubagents],
+		[visibleMessages],
 	);
 	const timeSeparators = useMemo(
 		() => buildTimeSeparators(threadItems),
 		[threadItems],
 	);
 	// Imagens seguidas (ex.: screenshots) viram um só baralho; as demais mensagens da sequência somem.
-	const imageRuns = useMemo(() => planImageRuns(threadItems, timeSeparators), [threadItems, timeSeparators]);
+	const previousImageRunsRef = useRef<ReturnType<typeof planImageRuns> | null>(null);
+	const imageRuns = useMemo(() => reuseImageRuns(planImageRuns(threadItems, timeSeparators), previousImageRunsRef.current), [threadItems, timeSeparators]);
+	useEffect(() => {
+		previousImageRunsRef.current = imageRuns;
+	}, [imageRuns]);
 	// Balão do usuário na cor do bot: só no chat 1:1 e se a Config não desligou.
 	const userBubbleColor = !isGroup && readBubbleBotColor((agent as { policyJson?: unknown } | undefined)?.policyJson) ? agent?.color : undefined;
 	// Grupo: nome/avatar só no primeiro balão de cada trecho do mesmo membro.
@@ -812,11 +852,125 @@ export function ChatThread({
 	const newCount = loading || seenKeyRef.current !== conversationKey ? 0 : newMessagesSince(visibleMessages, seenUpToId);
 	const sourceIds = useMemo(() => sourceMarkerIds(visibleMessages), [visibleMessages]);
 
-	// Durante o stream: acompanha só se o usuário já estava no fim.
+	// Durante o stream: acompanha só se o usuário já estava no fim. Uma rolagem por quadro, não por token: a
+	// leitura do layout e a escrita do scrollTop acontecem uma vez, e só se o usuário continua no fim.
+	const [streamFollow] = useState(() =>
+		createFrameCoalescer(() => {
+			const element = scrollRef.current;
+			if (element && stickRef.current) element.scrollTop = element.scrollHeight;
+		}),
+	);
+	useEffect(() => () => streamFollow.cancel(), [streamFollow]);
 	useEffect(() => {
 		if (!sending || !stickRef.current) return;
+		streamFollow.request();
+	}, [messages, sending, streamFollow]);
+	// Fim do run: o layout ainda assenta (cursor some, markdown final); confere uma vez com a correção de sempre.
+	const wasSendingRef = useRef(sending);
+	useEffect(() => {
+		const wasSending = wasSendingRef.current;
+		wasSendingRef.current = sending;
+		if (!wasSending || sending || !stickRef.current) return;
 		scrollToEnd();
-	}, [messages, sending]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [sending]);
+
+	// Uma decisão por cartão: toque duplo, remontagem ou volta ao app não reenviam o mesmo "confirmado".
+	const decideCard = (confirm: { id: string; confirmId?: string; status?: string }, status: "approved" | "rejected", text: string) => {
+		if ((confirm.status ?? "pending") !== "pending") return;
+		const key = cardDecisionKey(agent?.conversationId, confirm);
+		if (!beginCardDecision(key)) return;
+		setConfirmStatus(confirm.id, status);
+		void sendMessage(text, [], { confirmId: confirm.confirmId }).finally(() => endCardDecision(key));
+	};
+	// Handlers das linhas com identidade estável (chamam sempre a versão mais nova): sem isso cada render
+	// criava ~20 funções novas por linha e o memo do MessageRow nunca acertava durante o stream.
+	const rowHandlers = useStableHandlers({
+		onOpenRoutine: (payload: OpenRoutinePayload) => onOpenRoutine?.(payload),
+		onConfirm: (confirm: { id: string; confirmId?: string; title: string; status?: string }) => decideCard(confirm, "approved", `confirmado: ${confirm.title}`),
+		onConfirmAlways: (confirm: { id: string; confirmId?: string; title: string; status?: string }) => decideCard(confirm, "approved", `confirmado sempre: ${confirm.title}`),
+		onConfirmReject: (confirm: { id: string; confirmId?: string; status?: string }, feedback: string) => decideCard(confirm, "rejected", devApprovalRejectText(feedback)),
+		onCancel: (confirm: { id: string; confirmId?: string; status?: string }) => decideCard(confirm, "rejected", "cancela isso"),
+		onLoginOpenViewer: (login: Extract<Message, { kind: "login" }>) =>
+			onOpenSandboxViewerForLogin?.(() => {
+				setLoginStatus(login.id, "done");
+				void resumeRun();
+			}),
+		onLoginUseVault: (login: Extract<Message, { kind: "login" }>) => {
+			// "Entrar": o servidor marca o login do Cofre no checkpoint e o runtime preenche ao retomar.
+			setLoginStatus(login.id, "done");
+			void resumeRun({ via: "vault" });
+		},
+		onLoginCode: (login: Extract<Message, { kind: "login" }>, code: string) => {
+			// O código vai direto ao servidor/runtime (selado), nunca ao modelo.
+			setLoginStatus(login.id, "done");
+			void resumeRun({ via: "code", code });
+		},
+		onLoginDone: (login: Extract<Message, { kind: "login" }>) => {
+			// Retoma o mesmo run do checkpoint; o servidor marca o card como feito.
+			setLoginStatus(login.id, "done");
+			void resumeRun();
+		},
+		onAdjustPlan: () => setAdjustPrefill({ text: PLAN_ADJUST_DRAFT, nonce: Date.now() }),
+		onBotProfileConfirm: (profile: Extract<Message, { kind: "bot-profile-confirm" }>) => {
+			// Gate humano: otimista approved + resolve no servidor (aplica o PATCH no bot). Erro volta a pending.
+			// Sem balão na thread.
+			const proposalId = profile.proposal.proposalId;
+			const conversationId = agent?.conversationId;
+			if (!proposalId || !conversationId) return;
+			setBotProfileStatus(profile.id, "approved");
+			void resolveBotProfileProposal({ conversationId, proposalId, decision: "approved" })
+				.then(() => {
+					onBotProfileApplied?.(profile.proposal.botId, { ...profile.proposal.after });
+				})
+				.catch(() => setBotProfileStatus(profile.id, "pending"));
+		},
+		onBotProfileDismiss: (profile: Extract<Message, { kind: "bot-profile-confirm" }>) => {
+			const proposalId = profile.proposal.proposalId;
+			const conversationId = agent?.conversationId;
+			setBotProfileStatus(profile.id, "rejected");
+			if (!proposalId || !conversationId) return;
+			void resolveBotProfileProposal({ conversationId, proposalId, decision: "rejected" }).catch(() =>
+				setBotProfileStatus(profile.id, "pending"),
+			);
+		},
+		onBotProposalApprove: (card: Extract<Message, { kind: "bot-proposal" }>, edits?: { name?: string; description?: string }) =>
+			void decideBotProposal(card, "approved", edits),
+		onBotProposalReject: (card: Extract<Message, { kind: "bot-proposal" }>) => void decideBotProposal(card, "rejected"),
+		onRoutineProposalAccept: (card: Extract<Message, { kind: "routine-proposal" }>) => void decideRoutineProposal(card, "accept"),
+		onRoutineProposalDecline: (card: Extract<Message, { kind: "routine-proposal" }>) => void decideRoutineProposal(card, "decline"),
+		onSkillProposalApprove: (card: Extract<Message, { kind: "skill-proposal" }>) => void decideSkillProposal(card, "approved"),
+		onSkillProposalReject: (card: Extract<Message, { kind: "skill-proposal" }>) => void decideSkillProposal(card, "rejected"),
+		onSkillProposalEdit: (card: Extract<Message, { kind: "skill-proposal" }>) => {
+			if (agent?.conversationId) openSkillProposalInEditor(card.proposal, agent.conversationId);
+		},
+		onQuestionnaireSubmit: (questionnaire: QuestionnaireCardMessage, answers: QuestionnaireAnswersMap) => {
+			// Sem balão user: colapsa o card com as respostas e envia ao bot pelo endpoint silencioso (run sem
+			// mensagem user na thread). Erro volta a pending.
+			setQuestionnaireStatus(questionnaire.id, "submitted", answers);
+			const conversationId = agent?.conversationId;
+			if (!conversationId) return;
+			void submitQuestionnaire({
+				conversationId,
+				questionnaireId: questionnaire.questionnaireId,
+				botId: agent?.id,
+				answers,
+			}).catch(() => setQuestionnaireStatus(questionnaire.id, "pending"));
+		},
+		onQuestionnaireDismiss: (questionnaire: QuestionnaireCardMessage) => {
+			// Dispensar não envia nada: só marca dismissed.
+			setQuestionnaireStatus(questionnaire.id, "dismissed");
+		},
+	});
+
+	const lastDevSessionId = useMemo(
+		() => lastMessageWhere(messages, (message): message is Extract<Message, { kind: "devsession" }> => message.kind === "devsession")?.sessionId ?? null,
+		[messages],
+	);
+	// O dock e a linha "Aguardando sua aprovação" leem a mesma lista: não há como um aparecer sem o outro.
+	const dockEntries = useMemo(() => allDockEntries.filter((entry) => !relayedDone.has(entry.id)), [allDockEntries, relayedDone]);
+	const dockIds = useMemo(() => new Set(dockEntries.map((entry) => entry.id)), [dockEntries]);
+	const messageIndex = useMemo(() => new Map(messages.map((entry, position) => [entry.id, position] as const)), [messages]);
 
 	if (!agent) {
 		return (
@@ -886,11 +1040,6 @@ export function ChatThread({
 	}
 
 	const pausedLike = runStatus === "paused" || runStatus === "pausing";
-	const lastDevSession = [...messages].reverse().find((message) => message.kind === "devsession");
-	const lastDevSessionId = lastDevSession?.kind === "devsession" ? lastDevSession.sessionId : null;
-	// O dock e a linha "Aguardando sua aprovação" leem a mesma lista: não há como um aparecer sem o outro.
-	const dockEntries = selectDockEntries(messages).filter((entry) => !relayedDone.has(entry.id));
-	const dockIds = new Set(dockEntries.map((entry) => entry.id));
 	const hasPendingApproval = dockEntries.length > 0;
 	const barEntries = dockEntries.filter((entry) => offscreen.has(entry.id));
 	const locateCard = (id: string) => {
@@ -908,21 +1057,6 @@ export function ChatThread({
 			.then(() => setRelayedDone((current) => new Set(current).add(entry.id)))
 			.catch(() => undefined)
 			.finally(() => endCardDecision(key));
-	};
-	const messageIndex = new Map(messages.map((entry, position) => [entry.id, position] as const));
-	// Uma decisão por cartão: toque duplo, remontagem ou volta ao app não reenviam o mesmo "confirmado".
-	const decideCard = (confirm: { id: string; confirmId?: string; status?: string }, status: "approved" | "rejected", text: string) => {
-		if ((confirm.status ?? "pending") !== "pending") return;
-		const key = cardDecisionKey(agent?.conversationId, confirm);
-		if (!beginCardDecision(key)) return;
-		setConfirmStatus(confirm.id, status);
-		void sendMessage(text, [], { confirmId: confirm.confirmId }).finally(() => endCardDecision(key));
-	};
-	const confirmHandlers = {
-		onConfirm: (confirm: { id: string; confirmId?: string; title: string; status?: string }) => decideCard(confirm, "approved", `confirmado: ${confirm.title}`),
-		onConfirmAlways: (confirm: { id: string; confirmId?: string; title: string; status?: string }) => decideCard(confirm, "approved", `confirmado sempre: ${confirm.title}`),
-		onConfirmReject: (confirm: { id: string; confirmId?: string; status?: string }, feedback: string) => decideCard(confirm, "rejected", devApprovalRejectText(feedback)),
-		onCancel: (confirm: { id: string; confirmId?: string; status?: string }) => decideCard(confirm, "rejected", "cancela isso"),
 	};
 	const working = sending || pausedLike || devFixtureWorking;
 	const runActive = sending || pausedLike;
@@ -1142,7 +1276,11 @@ export function ChatThread({
 								);
 							}
 							const markerSource = message.kind === "needs-user" && relayedDone.has(message.id) ? ({ ...message, status: "resolved" } as typeof message) : message;
-							const approvalMarker = approvalMarkerFor(markerSource, dockIds, messages.slice((messageIndex.get(message.id) ?? messages.length) + 1));
+							// Só cartões de aprovação têm marcador; a thread vai inteira com o índice (sem fatia por linha).
+							const approvalMarker =
+								message.kind === "confirm" || message.kind === "needs-user"
+									? approvalMarkerFor(markerSource, dockIds, messages, (messageIndex.get(message.id) ?? messages.length) + 1)
+									: null;
 							// Pendente e acionável: o cartão inteiro fica onde nasceu. Só decidido ou expirado vira linha.
 							const approvalCardAttr = dockIds.has(message.id) ? message.id : undefined;
 							if (approvalMarker && approvalMarker.status !== "pending") {
@@ -1233,107 +1371,28 @@ export function ChatThread({
 											phase: activity.phase,
 										})}
 										message={message}
-										onOpenRoutine={onOpenRoutine}
-										onConfirm={confirmHandlers.onConfirm}
-										onConfirmAlways={confirmHandlers.onConfirmAlways}
-										onConfirmReject={confirmHandlers.onConfirmReject}
-										onLoginOpenViewer={
-											sandboxViewerUrl && onOpenSandboxViewerForLogin
-												? (login) =>
-														onOpenSandboxViewerForLogin(() => {
-															setLoginStatus(login.id, "done");
-															void resumeRun();
-														})
-												: undefined
-										}
-										onLoginUseVault={(login) => {
-											// "Entrar": o servidor marca o login do Cofre no checkpoint e o runtime preenche ao retomar.
-											setLoginStatus(login.id, "done");
-											void resumeRun({ via: "vault" });
-										}}
-										onLoginCode={(login, code) => {
-											// O código vai direto ao servidor/runtime (selado), nunca ao modelo.
-											setLoginStatus(login.id, "done");
-											void resumeRun({ via: "code", code });
-										}}
-										onLoginDone={(login) => {
-											// Retoma o mesmo run do checkpoint; o servidor marca o card como feito.
-											setLoginStatus(login.id, "done");
-											void resumeRun();
-										}}
-										onCancel={confirmHandlers.onCancel}
-										onAdjustPlan={() => setAdjustPrefill({ text: PLAN_ADJUST_DRAFT, nonce: Date.now() })}
-										onBotProfileConfirm={(profile) => {
-											// Gate humano: otimista approved + resolve no
-											// servidor (aplica o PATCH no bot). Erro volta
-											// a pending. Sem balão na thread.
-											const proposalId = profile.proposal.proposalId;
-											const conversationId = agent?.conversationId;
-											if (!proposalId || !conversationId) return;
-											setBotProfileStatus(profile.id, "approved");
-											void resolveBotProfileProposal({
-												conversationId,
-												proposalId,
-												decision: "approved",
-											})
-												.then(() => {
-													onBotProfileApplied?.(profile.proposal.botId, {
-														...profile.proposal.after,
-													});
-												})
-												.catch(() =>
-													setBotProfileStatus(profile.id, "pending"),
-												);
-										}}
+										onOpenRoutine={onOpenRoutine ? rowHandlers.onOpenRoutine : undefined}
+										onConfirm={rowHandlers.onConfirm}
+										onConfirmAlways={rowHandlers.onConfirmAlways}
+										onConfirmReject={rowHandlers.onConfirmReject}
+										onLoginOpenViewer={sandboxViewerUrl && onOpenSandboxViewerForLogin ? rowHandlers.onLoginOpenViewer : undefined}
+										onLoginUseVault={rowHandlers.onLoginUseVault}
+										onLoginCode={rowHandlers.onLoginCode}
+										onLoginDone={rowHandlers.onLoginDone}
+										onCancel={rowHandlers.onCancel}
+										onAdjustPlan={rowHandlers.onAdjustPlan}
+										onBotProfileConfirm={rowHandlers.onBotProfileConfirm}
 										skillBots={skillBots}
-										onBotProposalApprove={(card, edits) => void decideBotProposal(card, "approved", edits)}
-										onBotProposalReject={(card) => void decideBotProposal(card, "rejected")}
-										onRoutineProposalAccept={(card) => void decideRoutineProposal(card, "accept")}
-										onRoutineProposalDecline={(card) => void decideRoutineProposal(card, "decline")}
-										onSkillProposalApprove={(card) => void decideSkillProposal(card, "approved")}
-										onSkillProposalReject={(card) => void decideSkillProposal(card, "rejected")}
-										onSkillProposalEdit={
-											agent?.conversationId
-												? (card) => openSkillProposalInEditor(card.proposal, agent.conversationId as string)
-												: undefined
-										}
-										onBotProfileDismiss={(profile) => {
-											const proposalId = profile.proposal.proposalId;
-											const conversationId = agent?.conversationId;
-											setBotProfileStatus(profile.id, "rejected");
-											if (!proposalId || !conversationId) return;
-											void resolveBotProfileProposal({
-												conversationId,
-												proposalId,
-												decision: "rejected",
-											}).catch(() =>
-												setBotProfileStatus(profile.id, "pending"),
-											);
-										}}
-										onQuestionnaireSubmit={(questionnaire, answers) => {
-											// Sem balão user: colapsa o card com as respostas e
-											// envia ao bot pelo endpoint silencioso (run sem
-											// mensagem user na thread). Erro volta a pending.
-											setQuestionnaireStatus(
-												questionnaire.id,
-												"submitted",
-												answers,
-											);
-											const conversationId = agent?.conversationId;
-											if (!conversationId) return;
-											void submitQuestionnaire({
-												conversationId,
-												questionnaireId: questionnaire.questionnaireId,
-												botId: agent?.id,
-												answers,
-											}).catch(() =>
-												setQuestionnaireStatus(questionnaire.id, "pending"),
-											);
-										}}
-										onQuestionnaireDismiss={(questionnaire) => {
-											// Dispensar não envia nada: só marca dismissed.
-											setQuestionnaireStatus(questionnaire.id, "dismissed");
-										}}
+										onBotProposalApprove={rowHandlers.onBotProposalApprove}
+										onBotProposalReject={rowHandlers.onBotProposalReject}
+										onRoutineProposalAccept={rowHandlers.onRoutineProposalAccept}
+										onRoutineProposalDecline={rowHandlers.onRoutineProposalDecline}
+										onSkillProposalApprove={rowHandlers.onSkillProposalApprove}
+										onSkillProposalReject={rowHandlers.onSkillProposalReject}
+										onSkillProposalEdit={agent?.conversationId ? rowHandlers.onSkillProposalEdit : undefined}
+										onBotProfileDismiss={rowHandlers.onBotProfileDismiss}
+										onQuestionnaireSubmit={rowHandlers.onQuestionnaireSubmit}
+										onQuestionnaireDismiss={rowHandlers.onQuestionnaireDismiss}
 									/>
 								</div>
 							);
@@ -1386,11 +1445,11 @@ export function ChatThread({
 				dock={
 					<ApprovalBar
 						entries={barEntries}
-						onApprove={(entry) => (entry.type === "confirm" ? confirmHandlers.onConfirm(entry.message) : decideRelayed(entry, "approve"))}
-						onAlways={(entry) => (entry.type === "confirm" ? confirmHandlers.onConfirmAlways(entry.message) : undefined)}
+						onApprove={(entry) => (entry.type === "confirm" ? rowHandlers.onConfirm(entry.message) : decideRelayed(entry, "approve"))}
+						onAlways={(entry) => (entry.type === "confirm" ? rowHandlers.onConfirmAlways(entry.message) : undefined)}
 						onHeight={setBarHeight}
 						onLocate={locateCard}
-						onSkip={(entry) => (entry.type === "confirm" ? confirmHandlers.onCancel(entry.message) : decideRelayed(entry, "reject"))}
+						onSkip={(entry) => (entry.type === "confirm" ? rowHandlers.onCancel(entry.message) : decideRelayed(entry, "reject"))}
 					/>
 				}
 				mentionBots={isGroup ? undefined : otherBots}

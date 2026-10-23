@@ -23,6 +23,8 @@ import {
 	type LessonReviewJobResult,
 	type SkillReviewJobPayload,
 	type SkillReviewJobResult,
+	type DataRetentionJobPayload,
+	type DataRetentionJobResult,
 	type AttachmentExtractJobResult,
 	type MemoryCleanupJobPayload,
 	type MemoryCleanupJobResult,
@@ -39,6 +41,9 @@ import {
 	createChatCompletionQueue,
 	createRedisConnection,
 	closeRunSignals,
+	closeSweepSignals,
+	subscribeSweepSignals,
+	type SweepSignalKind,
 	createRoutineQueue,
 	enqueueRoutineEventDeferred,
 	reconcileOnceRoutines,
@@ -90,6 +95,7 @@ import { chainRunFollowUp, finalizeExhaustedAgentRun, processAgentRunJob } from 
 import { processExecuteRoutineJob } from "./processors/routine.js";
 import { reportRoutineFailure, type RoutineFailureDeps } from "./processors/routine-failure.js";
 import { startBotMessageSweeper } from "./bot-messages.js";
+import { processDataRetention, scheduleDataRetention } from "./data-retention.js";
 import { createGroupJev, createGroupRouter, startGroupSweeper } from "./bot-groups.js";
 import { startProactiveSweeper } from "./proactive.js";
 import { startReflectionSweeper } from "./reflection.js";
@@ -136,7 +142,8 @@ type AtlasJobPayload =
 	| ConnectorGuideJobPayload
 	| ConnectorLessonJobPayload
 	| LessonReviewJobPayload
-	| SkillReviewJobPayload;
+	| SkillReviewJobPayload
+	| DataRetentionJobPayload;
 type AtlasJobResult =
 	| ChatCompletionJobResult
 	| MemoryReviewJobResult
@@ -146,7 +153,8 @@ type AtlasJobResult =
 	| ConnectorGuideJobResult
 	| ConnectorLessonJobResult
 	| LessonReviewJobResult
-	| SkillReviewJobResult;
+	| SkillReviewJobResult
+	| DataRetentionJobResult;
 
 const chatWorker = new Worker<AtlasJobPayload, AtlasJobResult>(
 	CHAT_QUEUE_NAME,
@@ -177,6 +185,8 @@ const chatWorker = new Worker<AtlasJobPayload, AtlasJobResult>(
 				return processLessonReview(job as Job<LessonReviewJobPayload, LessonReviewJobResult>, config);
 			case ATLAS_JOB_NAMES.skillReview:
 				return processSkillReview(job as Job<SkillReviewJobPayload, SkillReviewJobResult>, config);
+			case ATLAS_JOB_NAMES.dataRetention:
+				return processDataRetention();
 			case ATLAS_JOB_NAMES.attachmentExtract: {
 				const payload = (job as Job<AttachmentExtractJobPayload, AttachmentExtractJobResult>).data;
 				return { status: await warmAttachmentExtract(payload) };
@@ -439,20 +449,32 @@ routineWorker.on("failed", (job, err) => {
 });
 
 // Conversa entre bots (send_to_bot): entrega, resposta e despertar do remetente.
-const botMessageSweeper = startBotMessageSweeper({
-	enqueueRun: enqueueChainedRun,
-	envDefaultModel: config.openRouterModel,
-});
+// Aviso da API (Redis): turno de grupo ou mensagem entre bots criados fora deste processo.
+const sweepSignal = (kind: SweepSignalKind) => (kick: () => void) =>
+	subscribeSweepSignals((signal) => {
+		if (signal === kind) kick();
+	});
+const botMessageSweeper = startBotMessageSweeper(
+	{
+		enqueueRun: enqueueChainedRun,
+		envDefaultModel: config.openRouterModel,
+	},
+	{ triggers: [sweepSignal("bot-messages")] },
+);
 // Run terminou: a resposta do destino sai na hora em vez de esperar o intervalo.
 agentWorker.on("completed", () => botMessageSweeper.kick());
+agentWorker.on("failed", () => botMessageSweeper.kick());
 
 // Grupos de bots: roteia a fala do usuário e dispara as respostas dos membros, uma por vez.
-const groupSweeper = startGroupSweeper({
-	enqueueRun: enqueueChainedRun,
-	envDefaultModel: config.openRouterModel,
-	route: createGroupRouter(config),
-	jev: createGroupJev(config),
-});
+const groupSweeper = startGroupSweeper(
+	{
+		enqueueRun: enqueueChainedRun,
+		envDefaultModel: config.openRouterModel,
+		route: createGroupRouter(config),
+		jev: createGroupJev(config),
+	},
+	{ triggers: [sweepSignal("groups")] },
+);
 agentWorker.on("completed", () => groupSweeper.kick());
 agentWorker.on("failed", () => groupSweeper.kick());
 
@@ -501,11 +523,12 @@ async function recoverExpiredLeases(): Promise<void> {
 async function reconcileStaleRuns(): Promise<void> {
 	try {
 		await recoverExpiredLeases();
+		// Cancel órfão (worker morreu antes de observar): graça curta, o lease
+		// saudável renova a cada 10s então 30s só pega órfão de verdade.
 		const [failed, cancelled] = await Promise.all([
 			failStaleRunningRuns(),
 			cancelStaleCancelledRuns(30_000),
 		]);
-		await promoteOrphanInputs();
 		if (failed.length > 0 || cancelled.length > 0) {
 			console.warn(
 				`[agent] reconciled stale runs: failed=${failed.length} cancelled=${cancelled.length}`,
@@ -516,15 +539,32 @@ async function reconcileStaleRuns(): Promise<void> {
 	}
 }
 
+// Única dona da reconciliação de runs presos (a API não repete): a cada 15 s, a cadência que a API usava.
+const STALE_RUN_RECONCILE_MS = 15_000;
 void reconcileStaleRuns();
 const staleRunReconciler = setInterval(() => {
 	void reconcileStaleRuns();
+}, STALE_RUN_RECONCILE_MS);
+
+// Entradas órfãs (steer de run que acabou): a cada minuto, como antes.
+async function promoteOrphanInputsSafely(): Promise<void> {
+	try {
+		await promoteOrphanInputs();
+	} catch (error) {
+		console.error("[agent] orphan input promotion failed", error);
+	}
+}
+void promoteOrphanInputsSafely();
+const orphanInputPromoter = setInterval(() => {
+	void promoteOrphanInputsSafely();
 }, 60_000);
 
 // Fase 1: resumo por inatividade (30 min sem msg, sem run ativo, com
 // conteúdo novo). jobId determinístico por estado; duplicata viva pula.
-// Falha recente entra em cooldown (não re-enfileira a cada 60s em loop).
+// Falha recente entra em cooldown (não re-enfileira a cada varredura em loop).
+// A cada 5 min: com 30 min de ociosidade, alguns minutos a mais não mudam nada para o usuário.
 const SUMMARY_IDLE_MS = 30 * 60 * 1000;
+const SUMMARY_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 const SUMMARY_FAIL_COOLDOWN_MS = 30 * 60 * 1000;
 
 async function sweepIdleConversations(): Promise<void> {
@@ -584,10 +624,13 @@ async function sweepIdleConversations(): Promise<void> {
 	}
 }
 
+// Retenção diária (run_events de runs encerrados há 30+ dias, execuções de rotina além das 50 últimas).
+void scheduleDataRetention(chatQueue).catch((error) => console.error("[retention] agendamento falhou", error));
+
 void sweepIdleConversations();
 const summarySweeper = setInterval(() => {
 	void sweepIdleConversations();
-}, 60_000);
+}, SUMMARY_SWEEP_INTERVAL_MS);
 
 // Entrega offline (F5): a cada minuto, resultados de runs em que o usuário avisou que ia
 // sair e já passou a janela/horário combinado saem num e-mail só por usuário.
@@ -670,6 +713,7 @@ async function shutdown() {
 		process.exit(1);
 	}, 125_000).unref();
 	clearInterval(staleRunReconciler);
+	clearInterval(orphanInputPromoter);
 	botMessageSweeper.stop();
 	groupSweeper.stop();
 	proactiveSweeper.stop();
@@ -704,6 +748,7 @@ async function shutdown() {
 	await closeSharedMcpPool().catch(() => undefined);
 	await shutdownSharedExtractor().catch(() => undefined);
 	await closeRunSignals().catch(() => undefined);
+	await closeSweepSignals().catch(() => undefined);
 	await connection.quit();
 	process.exit(0);
 }

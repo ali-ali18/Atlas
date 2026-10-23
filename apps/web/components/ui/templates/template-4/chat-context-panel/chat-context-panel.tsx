@@ -22,6 +22,7 @@ import { AgentPointerOverlay } from "../agent-pointer-overlay";
 import { AgentAvatar } from "../agent-avatar";
 import { getAtlasApiBaseUrl, listRoutineRuns } from "@/lib/atlas-api";
 import { useAccountCodingModel } from "@/hooks/use-account-coding-model";
+import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { useAccountTimezone } from "@/hooks/use-account-timezone";
 import { useBotFollowups } from "@/hooks/use-bot-followups";
 import { readProactiveSettings } from "@workspace/shared";
@@ -395,7 +396,10 @@ export function ChatContextPanel({
 	const snapshotUrl = sandboxSessionId
 		? `${getAtlasApiBaseUrl()}/v1/sandbox/sessions/${encodeURIComponent(sandboxSessionId)}/screenshot?v=${snapshotVersion}`
 		: null;
-	const previewVisible = open && view === "default" && tab === "computer";
+	// Prévia do computador só atualiza com a aba Computador aberta E a página visível (aba do navegador em
+	// segundo plano não baixa screenshot a cada 4 s).
+	const documentVisible = useDocumentVisible();
+	const previewVisible = open && view === "default" && tab === "computer" && documentVisible;
 	const activitySelection = useActivitySelection();
 	const isActivityView = view === "activity" && activitySelection !== null;
 	const isDraftView = view === "routine" && !(routinePersisted && editingRoutine);
@@ -789,7 +793,10 @@ export function ChatContextPanel({
 														aria-hidden="true"
 														alt=""
 														className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+														// Mesma proporção do quadro (aspect-video): o navegador reserva o espaço antes de carregar.
+														height={720}
 														key={sandboxSessionId}
+														width={1280}
 														onError={() => {
 															setSnapshotStatus({
 																sessionId: sandboxSessionId!,

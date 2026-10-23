@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ThreadItem } from "./bot-thread";
-import { planImageRuns } from "./image-groups";
+import { planImageRuns, reuseImageRuns } from "./image-groups";
 
 const img = (artifactId: string) => ({ artifactId, mime: "image/png", width: 10, height: 10 });
 const images = (id: string, source: "user" | "assistant", ...ids: string[]): ThreadItem => ({
@@ -28,4 +28,14 @@ test("texto no meio, origem diferente ou separador quebram o grupo", () => {
 
 test("uma mensagem com várias imagens mantém todas", () => {
 	assert.equal(planImageRuns([images("a", "assistant", "1", "2")]).get("a")?.items.length, 2);
+});
+
+test("plano refeito com as mesmas imagens devolve o mesmo baralho (referência estável para o memo da linha)", () => {
+	const thread = [images("a", "assistant", "1"), images("b", "assistant", "2"), text("t")];
+	const first = planImageRuns(thread);
+	const again = reuseImageRuns(planImageRuns(thread), first);
+	assert.equal(again.get("a"), first.get("a"));
+	const grown = reuseImageRuns(planImageRuns([...thread.slice(0, 2), images("c", "assistant", "3")]), first);
+	assert.notEqual(grown.get("a"), first.get("a"));
+	assert.equal(grown.get("a")?.items.length, 3);
 });

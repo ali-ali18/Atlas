@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { Trash2Icon } from "lucide-react";
+import dynamic from "next/dynamic";
 import { listenForCustomMcp, listenForMarketplace, type CustomMcpDraft } from "@/lib/open-marketplace";
 import { reduceAgentPointer, type AgentPointerState } from "@/lib/agent-pointer";
 import { SandboxViewerDialog, viewerUrlIdentity } from "./sandbox-viewer-dialog";
@@ -56,23 +57,19 @@ import { clearConversationNotifications } from "@/lib/push-client";
 
 import { closeActivity, hydrateDevSessionFromApi, openActivity, useActivitySelection } from "@/lib/dev-session/store";
 import type { ActiveWorkItemResponse } from "@/lib/atlas-api";
-import { currentPollMode, getSharedEventHub, shouldPollTick } from "@/lib/event-hub-client";
+import { DEGRADED_POLL_MS, currentPollMode, getSharedEventHub, shouldPollTick } from "@/lib/event-hub-client";
 import { ChatContextPanel } from "./chat-context-panel/chat-context-panel";
 import { isRoutineDraftValid } from "./chat-context-panel/routine-draft";
 import { botAccentStyle } from "./chat-context-panel/bot-accent";
 import { ChatSidebar } from "./chat-sidebar/chat-sidebar";
 import { ChatThread } from "./chat-thread/chat-thread";
-import { BotExchangeScreen } from "@/components/ai-elements/bot-messages";
 import { MobileCreateBot } from "./mobile-create-bot";
 import { NewChatTo, groupCandidates } from "./new-group";
 import { resolveGroupMembers } from "./group-avatar";
 import { MobileChatList } from "./mobile-chat-list";
-import { AutonomyDialog } from "./autonomy/autonomy-dialog";
-import { MarketplacePage } from "./marketplace/marketplace-page";
-import { AllowedSendersPage } from "./chat-context-panel/allowed-senders-page";
 import { useSendersLocation } from "@/lib/email-senders-url";
 import { closeMarketplacePage, openMarketplacePage, useMarketplaceLocation } from "@/lib/marketplace-url";
-import { SettingsDialog } from "@/components/settings/settings-dialog";
+import { LazySettingsDialog } from "@/components/settings/lazy-settings-dialog";
 import { listenForProviderSettings, openSettingsModal } from "@/components/settings/settings-url";
 import { resolveNewBotLanguage } from "@/lib/new-bot-language";
 import {
@@ -155,6 +152,7 @@ import {
 	parseUsersInput,
 	recordToUiRoutine,
 	routineRunLabel,
+	sameRoutineRuns,
 	uiRoutineToPayload,
 } from "./chat-context-panel/routine-map";
 import type { TemplateCreateFields } from "./chat-context-panel/routine-create-chooser";
@@ -162,6 +160,18 @@ import type { OpenRoutinePayload } from "@/components/ai-elements/routines";
 
 const LAST_ACTIVE_CHAT_COOKIE = "template4_last_active_chat";
 const ANCHOR_WAIT_MS = 2000;
+
+// Telas e modais que só existem quando abertos: fora do bundle inicial, baixados na primeira abertura.
+const BotExchangeScreen = dynamic(
+	() => import("@/components/ai-elements/bot-messages/bot-exchange-screen").then((mod) => mod.BotExchangeScreen),
+	{ ssr: false },
+);
+const AutonomyDialog = dynamic(() => import("./autonomy/autonomy-dialog").then((mod) => mod.AutonomyDialog), { ssr: false });
+const MarketplacePage = dynamic(() => import("./marketplace/marketplace-page").then((mod) => mod.MarketplacePage), { ssr: false });
+const AllowedSendersPage = dynamic(
+	() => import("./chat-context-panel/allowed-senders-page").then((mod) => mod.AllowedSendersPage),
+	{ ssr: false },
+);
 
 function readLastActiveChatCookie() {
 	const entry = document.cookie
@@ -331,6 +341,11 @@ export function Template4Client({
 		open: boolean;
 		connector?: string;
 	}>({ open: false });
+	// O modal de Autonomia só é montado (e baixado) na primeira abertura; depois fica, para a animação de fechar.
+	const [autonomyEverOpened, setAutonomyEverOpened] = useState(false);
+	useEffect(() => {
+		if (autonomyDialog.open) setAutonomyEverOpened(true);
+	}, [autonomyDialog.open]);
 	const [loadingBots, setLoadingBots] = useState(true);
 	// Falha ao carregar/atualizar a lista de bots: nunca pode parecer "nenhuma conversa" (ver ListLoadError).
 	const [listLoadError, setListLoadError] = useState(false);
@@ -753,25 +768,48 @@ export function Template4Client({
 	useEffect(() => {
 		if (!activeId) return;
 		let cancelled = false;
+		let lastRefreshAt = Date.now();
 		const refresh = () => {
 			if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+			lastRefreshAt = Date.now();
 			listBotRoutineRuns(activeId)
 				.then((runs) => {
 					if (cancelled) return;
-					setBotRoutineRuns(
-						runs.map((run) => ({
-							id: run.id,
-							name: `${run.routineName} · ${routineRunLabel(run)}`,
-							time: formatRoutineRunTime(run.createdAt),
-						})),
-					);
+					const next = runs.map((run) => ({
+						id: run.id,
+						name: `${run.routineName} · ${routineRunLabel(run)}`,
+						time: formatRoutineRunTime(run.createdAt),
+					}));
+					// Mesma lista: devolve a anterior e nada re-renderiza (a consulta roda a cada 15 s).
+					setBotRoutineRuns((previous) => (sameRoutineRuns(previous, next) ? previous : next));
 				})
 				.catch(() => undefined);
 		};
-		const timer = window.setInterval(refresh, 15_000);
+		// Sem hub: a consulta antiga de 15 s. Com hub: a execução de rotina vira run do bot e o evento traz a
+		// lista na hora; fica só uma consulta de segurança lenta (execução sem run, hub caindo).
+		const timer = window.setInterval(() => {
+			const mode = currentPollMode();
+			if (mode === "legacy" || Date.now() - lastRefreshAt >= DEGRADED_POLL_MS) refresh();
+		}, 15_000);
+		const hub = getSharedEventHub();
+		let hubTimer: ReturnType<typeof setTimeout> | null = null;
+		const refreshSoon = () => {
+			if (hubTimer !== null) return;
+			hubTimer = setTimeout(() => {
+				hubTimer = null;
+				refresh();
+			}, 500);
+		};
+		const offRuns = hub?.subscribeBots((event) => {
+			if (event.type === "run" && event.payload.botId === activeId) refreshSoon();
+		});
+		const offResync = hub?.onResync(refreshSoon);
 		return () => {
 			cancelled = true;
 			window.clearInterval(timer);
+			offRuns?.();
+			offResync?.();
+			if (hubTimer !== null) clearTimeout(hubTimer);
 		};
 	}, [activeId]);
 
@@ -2011,6 +2049,14 @@ export function Template4Client({
 		onReplacePrimary: () => setReplacePrimaryOpen(true),
 	};
 
+	// Estável: a conversa aberta chama isto durante o stream (com limite de frequência).
+	const updateLatestMessage = useCallback((botId: string, text: string) => {
+		setAgents((previous) => {
+			if (!previous.some((agent) => agent.id === botId && agent.lastMessage !== text)) return previous;
+			return previous.map((agent) => (agent.id === botId ? { ...agent, lastMessage: text } : agent));
+		});
+	}, []);
+
 	function openSettings() {
 		const id = activeIdRef.current;
 		// Grupo: a terceira coluna já é o painel do grupo (membros e detalhes), sem tela de configuração.
@@ -2341,19 +2387,7 @@ export function Template4Client({
 						onBotProfileApplied={(botId, patch) => {
 							applyBotProfilePatch(botId, patch);
 						}}
-						onLatestMessageChange={(botId, text) => {
-							setAgents((previous) => {
-								if (
-									!previous.some(
-										(agent) => agent.id === botId && agent.lastMessage !== text,
-									)
-								)
-									return previous;
-								return previous.map((agent) =>
-									agent.id === botId ? { ...agent, lastMessage: text } : agent,
-								);
-							});
-						}}
+						onLatestMessageChange={updateLatestMessage}
 						onOpenSettings={openSettings}
 						onOpenRoutine={openRoutineFromChat}
 						onBotCreated={addBotsFromServer}
@@ -2524,7 +2558,7 @@ export function Template4Client({
 					/>
 				) : null}
 				<Suspense fallback={null}>
-					<SettingsDialog
+					<LazySettingsDialog
 						onShortcut={(id) => {
 							// Atalhos das Configurações levam à aba certa do Marketplace; "MCP personalizado" abre o formulário vazio.
 							if (id === "mcp") {
@@ -2535,13 +2569,15 @@ export function Template4Client({
 						}}
 					/>
 				</Suspense>
-				<AutonomyDialog
-					connectorFilter={autonomyDialog.connector}
-					onOpenChange={(open) =>
-						setAutonomyDialog((previous) => ({ ...previous, open }))
-					}
-					open={autonomyDialog.open}
-				/>
+				{autonomyEverOpened || autonomyDialog.open ? (
+					<AutonomyDialog
+						connectorFilter={autonomyDialog.connector}
+						onOpenChange={(open) =>
+							setAutonomyDialog((previous) => ({ ...previous, open }))
+						}
+						open={autonomyDialog.open}
+					/>
+				) : null}
 				<PrimaryBotIntroDialog
 					agents={agents}
 					onChoose={(id) => setPrimaryBot(id)}

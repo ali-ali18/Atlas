@@ -51,6 +51,9 @@ const authOptions: BetterAuthOptions = {
 	secret: authSecret,
 	database: prismaAdapter(prisma, { provider: "postgresql" }),
 	trustedOrigins: [baseURL.origin],
+	// Sessão assinada num cookie por 5 min: o requireUser não vai ao banco a cada requisição. Contrapartida
+	// (decidida pelo dono): sessão revogada no servidor ainda vale até o cookie expirar; sair (sign-out) apaga o cookie.
+	session: { cookieCache: { enabled: true, maxAge: 5 * 60 } },
 	advanced: { useSecureCookies: baseURL.protocol === "https:" },
 	socialProviders,
 	user: {

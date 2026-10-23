@@ -66,6 +66,7 @@ import { inboundEmailBodyOf, inboundEmailThreadMessage } from "@/lib/email-messa
 import { adoptLoadedThread, applyLiveEvent, createLiveBubbleState, hydrateRunEvents, mergePreservingSkills, trackSupersededBubbles, type LiveBubbleState } from "@/lib/thread-live";
 import { eventRunStatus, isActiveRunStatus, isParkedRunStatus, isTerminalRunStatus, type HubEvent } from "@/lib/event-hub";
 import { currentPollMode, getSharedEventHub, shouldPollTick } from "@/lib/event-hub-client";
+import { GROUP_SEND_BUSY_HINT_MS, GROUP_STATE_BUSY_MS, groupStatePollDue } from "@/lib/group-state-poll";
 import { messageReactions } from "@/lib/message-reactions";
 import {
 	clearStoredActiveRunId,
@@ -1159,7 +1160,6 @@ const TERMINAL_RUN_STATUSES = new Set([
 	"budget_exhausted",
 ]);
 
-const GROUP_STATE_POLL_MS = 1500;
 const PROACTIVE_WATCH_MS = 20_000;
 
 export function useAtlasChat({
@@ -1246,6 +1246,8 @@ export function useAtlasChat({
 	const sendAbortRef = useRef<AbortController | null>(null);
 	const activeRunIdRef = useRef<string | null>(null);
 	const sendingRef = useRef(false);
+	// Até quando a consulta do estado do grupo trata o grupo como ocupado depois de um envio (0 = não).
+	const groupBusyUntilRef = useRef(0);
 	/** Falhas seguidas do stream de follow; `notBefore` segura o poll (backoff). */
 	const followBackoffRef = useRef({ failures: 0, notBefore: 0 });
 	const transcriptEpochRef = useRef(0);
@@ -1737,14 +1739,23 @@ export function useAtlasChat({
 		let cancelled = false;
 		let wasBusy = false;
 		let inFlight = false;
+		let lastRunAt = 0;
+		let idleStreak = 0;
 		const tick = async () => {
 			if (inFlight || cancelled || document.visibilityState === "hidden") return;
 			inFlight = true;
+			lastRunAt = Date.now();
 			try {
 				const state = await getGroupState(groupId);
 				if (cancelled) return;
-				setGroupState(state);
+				// Mesmo estado da tela: devolve o anterior e o React não re-renderiza (antes cada consulta, a cada
+				// 1,5 s, redesenhava a conversa). Compara com a tela, não com a última consulta: o envio põe um
+				// "escolhendo quem responde…" otimista que a consulta precisa poder desfazer.
+				const payload = JSON.stringify(state);
+				setGroupState((previous) => (previous && JSON.stringify(previous) === payload ? previous : state));
 				const busy = state.routing || state.replies.length > 0;
+				idleStreak = busy ? 0 : idleStreak + 1;
+				if (busy) groupBusyUntilRef.current = 0;
 				if (wasBusy && !busy && !activeRunIdRef.current && !sendingRef.current) {
 					const refreshed = await loadConversationThread(conversationId);
 					if (!cancelled && conversationIdRef.current === conversationId) {
@@ -1759,10 +1770,28 @@ export function useAtlasChat({
 			}
 		};
 		void tick();
-		const timer = window.setInterval(() => void tick(), GROUP_STATE_POLL_MS);
+		// Ocupado (ou envio local): ritmo curto. Parado: segue o hub como as outras consultas e recua sem ele.
+		const timer = window.setInterval(() => {
+			const busy = wasBusy || sendingRef.current || Boolean(activeRunIdRef.current) || Date.now() < groupBusyUntilRef.current;
+			if (!groupStatePollDue({ mode: currentPollMode(), busy, now: Date.now(), lastRunAt, idleStreak })) return;
+			void tick();
+		}, GROUP_STATE_BUSY_MS);
+		// Hub: mensagem ou run novo na conversa do grupo traz o estado sem esperar a consulta.
+		let hubTimer: ReturnType<typeof setTimeout> | null = null;
+		const offHub = getSharedEventHub()?.subscribeConversation(conversationId, (event) => {
+			if (event.type !== "message" && event.type !== "run") return;
+			idleStreak = 0;
+			if (hubTimer !== null) return;
+			hubTimer = setTimeout(() => {
+				hubTimer = null;
+				void tick();
+			}, 250);
+		});
 		return () => {
 			cancelled = true;
 			window.clearInterval(timer);
+			offHub?.();
+			if (hubTimer !== null) clearTimeout(hubTimer);
 		};
 	}, [groupId, conversationId, loadConversationThread]);
 
@@ -2267,6 +2296,8 @@ export function useAtlasChat({
 					}
 					// Já mostra "escolhendo quem responde…" sem esperar o próximo ciclo.
 					setGroupState((previous) => previous ?? { routing: true, replies: [] });
+					// A consulta do estado do grupo volta ao ritmo curto até o servidor começar a responder.
+					groupBusyUntilRef.current = Date.now() + GROUP_SEND_BUSY_HINT_MS;
 				} catch (err) {
 					setMessages((previous) => previous.filter((item) => item.id !== userMessage.id));
 					setError(

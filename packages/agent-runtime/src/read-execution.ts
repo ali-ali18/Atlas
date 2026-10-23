@@ -79,6 +79,25 @@ export function createReadCache(runId: string, now = Date.now, ttlMs = 30_000) {
 	};
 }
 
+/**
+ * Tools nativas que só leem e não dependem da ordem entre si (sem card, sem escrita, sem estado do
+ * run além dos contadores, que são checados antes de rodar). `memory` só na ação `list`.
+ */
+const PARALLEL_BUILTIN_READS: ReadonlySet<string> = new Set(["web_search", "web_extract", "session_search", "memory_search"]);
+
+/** Chave de leitura paralela de uma tool nativa; `null` = roda sozinha (barreira). */
+export function parallelBuiltinReadKey(name: string, rawArgs: string): string | null {
+	if (!PARALLEL_BUILTIN_READS.has(name) && name !== "memory") return null;
+	try {
+		const args = JSON.parse(rawArgs || "{}") as unknown;
+		if (!args || typeof args !== "object" || Array.isArray(args)) return null;
+		if (name === "memory" && (args as { action?: unknown }).action !== "list") return null;
+		return stableReadKey(name, args as Record<string, unknown>);
+	} catch {
+		return null;
+	}
+}
+
 /** Quantas leituras independentes do mesmo passo rodam juntas. */
 export const MAX_PARALLEL_READS = 10;
 

@@ -1,5 +1,6 @@
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
+import { recordObserveChecks } from "../observe-checks.js";
 import { isNoUpdateReply, shouldReviewForSkill, type AlertVerdict, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
 import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode } from "@workspace/shared";
 import {
@@ -68,6 +69,7 @@ import {
 	requestCancelAgentRun,
 	requestPauseAgentRun,
 	applyReconciledStepCost,
+	addLateRunUsage,
 	listConversationArtifacts,
 	listConversationResearchNotes,
 	getConversationTaskContext,
@@ -505,10 +507,15 @@ async function executeLeasedRun(ctx: {
 	const manager = createSandboxManager(loadSandboxConfig(), runUserId);
 	const unattended = run.origin === "routine" || run.origin === "webhook" || run.origin === "proactive";
 	// Grupo de bots: o run é de um membro na conversa do grupo (histórico com autores, VM e memória do membro).
-	const groupRun = run.origin === "chat"
-		? await getGroupRunContext({ userId: runUserId, botId: run.botId, conversationId: run.conversationId }).catch(() => null)
-		: null;
-	const groupPrompt = groupRun && run.botId ? { name: groupRun.groupName, selfId: run.botId, members: groupRun.members } : undefined;
+	// Sai junto das leituras de base abaixo (nenhuma delas depende do grupo).
+	const groupRunPromise = run.origin === "chat"
+		? getGroupRunContext({ userId: runUserId, botId: run.botId, conversationId: run.conversationId }).catch(() => null)
+		: Promise.resolve(null);
+	// Configuração da conta: uma leitura por run (snapshot, memória da conversa, fuso do aviso, modelo
+	// padrão). Antes eram até quatro leituras iguais, uma depois da outra.
+	const accountConfigRead = getAccountConfig(runUserId);
+	accountConfigRead.catch(() => undefined);
+	const loadAccountConfig = () => accountConfigRead.catch(() => null);
 	// L10: leituras independentes saem juntas (settings, checkpoint, política e
 	// idioma do bot, autonomia e, depois dela, conectores MCP).
 	const base = await loadRunBase({
@@ -535,15 +542,47 @@ async function executeLeasedRun(ctx: {
 		onMcpError: (error) => console.error(`load mcp connectors failed run=${runId}`, error),
 	});
 	const { settings, checkpoint, rawBotPolicy, language, autonomy, mcp } = base;
+	const groupRun = await groupRunPromise;
+	const groupPrompt = groupRun && run.botId ? { name: groupRun.groupName, selfId: run.botId, members: groupRun.members } : undefined;
 	// E-mail próprio do bot (tools adiadas). No run de e-mail o envio segue a política real do dono, o resto é limitado.
-	const emailContext = await loadEmailRunContext({
-		userId: runUserId,
-		botId: run.botId,
-		sendPolicy: run.origin === "email"
-			? await resolveRunAutonomy({ userId: runUserId, botId: run.botId, conversationId: run.conversationId, origin: run.origin, now: new Date(), uncapped: true })
-			: autonomy,
-	}).catch((error) => {
-		console.error(`load email context failed run=${runId}`, error);
+	// Corre junto das etapas abaixo; falha ao resolver a política do e-mail ainda derruba o run (no `await`).
+	const emailContextPromise = (run.origin === "email"
+		? resolveRunAutonomy({ userId: runUserId, botId: run.botId, conversationId: run.conversationId, origin: run.origin, now: new Date(), uncapped: true })
+		: Promise.resolve(autonomy)
+	).then((sendPolicy) =>
+		loadEmailRunContext({ userId: runUserId, botId: run.botId, sendPolicy }).catch((error) => {
+			console.error(`load email context failed run=${runId}`, error);
+			return null;
+		}),
+	);
+	emailContextPromise.catch(() => undefined);
+	// L10: leituras que não dependem do histórico nem da configuração saem já, junto das etapas abaixo;
+	// cada uma é aguardada onde é usada. Todas têm o próprio `.catch` (falha = valor padrão, como antes).
+	const runLessonsPromise = run.botId && !groupRun ? listBotLessons(runUserId, run.botId).catch(() => []) : Promise.resolve([]);
+	// Inspetor: resultado da última revisão de lições (ação "no run seguinte"); só run novo.
+	const latestLessonReviewPromise = !checkpoint?.llmMessages?.length && run.conversationId && run.botId
+		? getLatestLessonReviewEvent(runUserId, run.conversationId, runId).catch(() => null)
+		: Promise.resolve(null);
+	// Modo proativo: só o bot principal com o modo ligado (nunca em grupo).
+	const proactiveBotPromise = run.botId && (run.origin === "chat" || run.origin === "proactive") && !groupRun
+		? prisma.bot.findFirst({ where: { id: run.botId, ownerId: runUserId }, select: { isPrimary: true } }).catch(() => null)
+		: Promise.resolve(null);
+	// Aviso da rotina ("always" = push ao fim, como sempre) e push avulso do bot (rotina "só importante" / chat).
+	const routineNotifyPromise: Promise<RoutineNotifyMode> = run.origin === "routine" ? getRoutineNotifyModeForAgentRun(runId).catch(() => "always" as const) : Promise.resolve("always");
+	// Rotina ligada a uma página: o run só pode atualizar essa página (o runtime trava as outras).
+	const routinePageIdPromise = run.origin === "routine" ? getRoutinePageIdForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
+	// Rotina de alerta: o run só verifica a condição; o aviso (com debounce) é decidido depois do veredito.
+	const alertCtxPromise = run.origin === "routine" ? getRoutineAlertForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
+	// Triagem de mensagens do usuário durante o run: modelo barato de manutenção; falha = modelo do run.
+	// Primeiro modelo da cadeia da manutenção (chave própria ou OpenRouter); sem chave ou falha = modelo do run.
+	const messageTriageModelPromise = resolveMaintenanceCandidates({ kind: "summary", config, userId: runUserId })
+		.then((resolved) => resolved.candidates[0]?.model)
+		.catch(() => undefined);
+	// Revisor (Jev): modelo escolhido > Jev fixo no OpenRouter > cadeia da manutenção. Sem caminho nenhum = Jev desligado.
+	const reviewerPromise = createReviewerClient({ userId: runUserId, config, judgeModel: actionsJudgeModel() }).catch(() => null);
+	// APIs conectadas por OpenAPI (leitura). Falha ao carregar nunca derruba o run: segue sem elas.
+	const apiConnectorPromise = loadApiConnectorRuntime(runUserId).catch((error) => {
+		console.error(`load api connections failed run=${runId}`, error);
 		return null;
 	});
 	// L10: config/provedores e mensagens/skills não dependem um do outro: em paralelo.
@@ -554,9 +593,9 @@ async function executeLeasedRun(ctx: {
 			userId: runUserId,
 			sandboxAutoStart: settings.sandboxAutoStart,
 			restored: checkpoint?.configSnapshot,
-		});
+		}, { loadConfig: () => accountConfigRead });
 		const runtimeConfig = runtimeParamsFromSnapshot(configSnapshot);
-	 const providers = createRunProviderServices({ userId: runUserId, conversationId: run.conversationId, policy: rawBotPolicy, chatgptEnabled: configSnapshot.chatgptEnabled, openRouterKey: Boolean(config.openRouterApiKey), accountDefaultModel: async () => (await getAccountConfig(runUserId).catch(() => null))?.models?.default ?? null, onFallback: async notice => {
+	 const providers = createRunProviderServices({ userId: runUserId, conversationId: run.conversationId, policy: rawBotPolicy, chatgptEnabled: configSnapshot.chatgptEnabled, openRouterKey: Boolean(config.openRouterApiKey), accountDefaultModel: async () => (await loadAccountConfig())?.models?.default ?? null, onFallback: async notice => {
 			await emit(notice);
 			// Marcador persistido na conversa: sobrevive ao fim do run e a recarregar a thread.
 			await persistConversationCardFromEvent(run.conversationId, notice, { runStartedAt: new Date(run.createdAt) }).catch((error) => console.error(`persist provider fallback card failed run=${runId}`, error));
@@ -573,18 +612,108 @@ async function executeLeasedRun(ctx: {
 	// Lições do bot injetadas no prompt estável deste run (para o inspetor); vazio na retomada (vêm do checkpoint).
 	let startLessonIds: string[] = [];
 	const messagesStage = async () => {
+		const fresh = !checkpoint?.llmMessages?.length;
+		// L10: o que não depende do histórico começa já, junto das leituras do histórico abaixo; cada
+		// resultado é aplicado na mesma ordem de antes (as notas entram no prompt sempre na mesma posição).
+		// Artefatos de runs anteriores (A2 step 3): apenas para run novo na mesma conversa.
+		const artifactsPromise = fresh && run.conversationId && run.origin !== "routine"
+			? listConversationArtifacts(runUserId, run.conversationId, { limit: 5, excludeRunId: runId }).then(
+				(artifacts) => ({ ok: true as const, artifacts }),
+				(error: unknown) => ({ ok: false as const, error }),
+			)
+			: null;
+		// Tarefa ativa (bug #80): rotina/webhook ficam de fora (nunca viram "a tarefa").
+		const taskContextPromise = fresh && run.conversationId && run.origin === "chat" && !groupRun
+			? getConversationTaskContext(runUserId, run.conversationId, { excludeRunId: runId }).then(
+				(context) => ({ ok: true as const, context }),
+				(error: unknown) => ({ ok: false as const, error }),
+			)
+			: null;
+		// `/skill` e `@Bot` digitados pelo usuário neste turno (só chat 1:1, run novo).
+		const mentionsPromise = fresh && run.origin === "chat" && !groupRun && run.botId
+			? buildMentionNotes({ userId: runUserId, botId: run.botId, text: run.objective, toolset: mcp?.toolset }).then(
+				(turn) => ({ ok: true as const, turn }),
+				(error: unknown) => ({ ok: false as const, error }),
+			)
+			: null;
+		// Imagens de turnos anteriores vêm do que está persistido (dono validado no db), nunca de ids do cliente.
+		const historyImagesPromise = fresh && run.conversationId && run.origin !== "routine"
+			? loadUserImageHistory(run.conversationId, runUserId).catch((error) => {
+				console.error(`load image history failed run=${runId}`, error);
+				return [];
+			})
+			: Promise.resolve([]);
+		// Arquivos anexados (PDF, Office, planilha, texto, zip...): conteúdo do pedido atual e lista da conversa.
+		const attachmentsPromise = run.origin !== "routine"
+			? attachmentRuntimeForRun({
+				userId: runUserId,
+				conversationId: run.conversationId,
+				currentIds: checkpoint?.userFileArtifactIds ?? [],
+				fresh,
+				model: run.model,
+			}).catch((error) => {
+				console.error(`load attachments failed run=${runId}`, error);
+				return null;
+			})
+			: Promise.resolve(null);
+		// Índice das skills do dono (K1): só em run novo; na retomada o prompt vem do checkpoint.
+		const skillIndexPromise = fresh ? loadRunSkillIndex({ userId: runUserId, botId: run.botId }) : Promise.resolve("");
+		// Notas de pesquisa (F3) de runs anteriores da conversa: escopadas pelo dono da sessão; falha não derruba o run.
+		const researchConversation = !groupRun && run.conversationId && (run.origin === "chat" || run.origin === "webhook") ? run.conversationId : null;
+		const priorResearchNotesPromise = researchConversation
+			? listConversationResearchNotes(runUserId, researchConversation, { excludeRunId: runId, origin: run.origin }).catch((error) => {
+				console.error(`load research notes failed run=${runId}`, error);
+				return [];
+			})
+			: Promise.resolve([]);
+		// Ledger de itens (V3) de um run anterior da conversa: mesmo escopo de dono; falha não derruba o run.
+		const priorTaskLedgerPromise = researchConversation
+			? getConversationTaskLedger(runUserId, researchConversation, { excludeRunId: runId, origin: run.origin }).catch((error) => {
+				console.error(`load task ledger failed run=${runId}`, error);
+				return null;
+			})
+			: Promise.resolve(null);
+		// Pedidos deste bot a outros bots ainda sem resposta (send_to_bot): bloco curto no prompt. Dono do run; falha = nenhum.
+		const openBotRequestsPromise = !groupRun && run.botId && (run.origin === "chat" || run.origin === "bot")
+			? listOpenBotRequests({ userId: runUserId, fromBotId: run.botId }).catch((error) => {
+				console.error(`load open bot requests failed run=${runId}`, error);
+				return [];
+			})
+			: Promise.resolve([]);
+		// Lista de passos (update_task_list) da conversa: mesmo escopo de dono; falha não derruba o run.
+		// Plano aprovado: os passos do plano semeiam a lista (o cartao aparece ja, antes do 1o passo).
+		const seededTaskList = fresh ? checkpoint?.transcriptSeed?.taskList : undefined;
+		const priorTaskListPromise = seededTaskList?.length
+			? Promise.resolve(seededTaskList)
+			: !groupRun && run.conversationId && run.origin === "chat"
+				? getConversationTaskList(runUserId, run.conversationId, { excludeRunId: runId, origin: run.origin }).catch((error) => {
+					console.error(`load task list failed run=${runId}`, error);
+					return null;
+				})
+				: Promise.resolve(null);
+		// Plano esperando aprovacao nesta conversa: escritas voltam com erro ate o usuario decidir.
+		const planPendingPromise = !groupRun && run.conversationId && run.origin === "chat"
+			? getSkillPendingIntent(runUserId, run.conversationId).then((pending) => pending?.payload.action === "plan", () => false)
+			: Promise.resolve(false);
+
 		// Fase 2 — ciclo limpo: modo congelado no checkpoint; em run fresco,
 		// liga sozinho com resumo fresco (sem resumo não há ciclo). Rotina fora.
 		// Memória da conversa da conta (Padrão quando ausente). Retomada mantém o modo já congelado no checkpoint.
-		const contextMemory = checkpoint?.llmMessages?.length
-			? undefined
-			: (await getAccountConfig(runUserId).catch(() => null))?.execution?.contextMemory;
+		// Conversa contínua: a marca d'água é lida ANTES do histórico (o próximo turno lê só o que vier depois
+		// dela); por isso sai junto da configuração da conta, antes de qualquer leitura do histórico.
+		const watermarkPromise = fresh && run.conversationId && run.origin === "chat" && !groupRun && contextTranscriptEnabled()
+			? getConversationWatermark(run.conversationId).catch((error) => {
+				console.error(`load conversation watermark failed run=${runId}`, error);
+				return null;
+			})
+			: Promise.resolve(null);
+		const contextMemory = fresh ? (await loadAccountConfig())?.execution?.contextMemory : undefined;
 		let compact = groupRun ? false : (checkpoint?.compact ?? false);
 		let historyLimit = HISTORY_LIMIT_ECONOMY;
 		if (
 			!compact &&
 			!groupRun &&
-			!checkpoint?.llmMessages?.length &&
+			fresh &&
 			run.conversationId &&
 			run.origin !== "routine"
 		) {
@@ -593,7 +722,41 @@ async function executeLeasedRun(ctx: {
 				: false;
 			({ compact, limit: historyLimit } = historyWindowFor(contextMemory, hasFreshSummary));
 		}
+		const transcriptWatermark: TranscriptWatermark | undefined = (await watermarkPromise) ?? undefined;
+
+		// Histórico de texto e conversa contínua (chamadas e resultados de ferramenta do run anterior) saem juntos.
 		let inputMessages = checkpoint?.messages ?? [];
+		const recentPromise = inputMessages.length === 0 && run.origin !== "routine" && run.conversationId
+			? loadRecentConversationMessages(
+				run.conversationId,
+				compact ? COMPACT_TAIL_KEEP : historyLimit,
+			)
+			: null;
+		// Falha do histórico derruba o run (como antes), mas só quando for aguardada abaixo.
+		recentPromise?.catch(() => undefined);
+		let transcriptOutcome: InspectContextPayload["transcript"] | undefined;
+		const transcriptPromise: Promise<TranscriptHistory | null> = fresh && run.conversationId && run.origin === "chat"
+			? resolveTranscriptHistory({
+				enabled: contextTranscriptEnabled(),
+				origin: run.origin,
+				runId,
+				conversationId: run.conversationId,
+				groupRun: Boolean(groupRun),
+				compact,
+				model: run.model,
+				objective: run.objective,
+				seed: checkpoint?.transcriptSeed,
+				report: (outcome) => {
+					transcriptOutcome = outcome;
+				},
+				loadLatest: () => getConversationTranscript(runUserId, run.conversationId!, { excludeRunId: runId }),
+				loadById: (fromRunId) => getRunTranscript(runUserId, run.conversationId!, fromRunId),
+				loadAfter: (watermark, excludeRunId) => loadMessagesAfterWatermark(run.conversationId!, watermark, { excludeRunId }),
+			}).catch((error) => {
+				console.error(`load conversation transcript failed run=${runId}`, error);
+				return null;
+			})
+			: Promise.resolve(null);
 		if (inputMessages.length === 0) {
 			// Rotina: NÃO carrega o histórico do chat — senão o modelo relê o
 			// "cria um webhook…" original e tenta criar de novo a cada disparo.
@@ -606,11 +769,8 @@ async function executeLeasedRun(ctx: {
 				if (run.objective.trim().length > 0) {
 					inputMessages = [{ role: "user", content: run.objective }];
 				}
-			} else if (run.conversationId) {
-				const recent = await loadRecentConversationMessages(
-					run.conversationId,
-					compact ? COMPACT_TAIL_KEEP : historyLimit,
-				);
+			} else if (recentPromise) {
+				const recent = await recentPromise;
 				inputMessages = recent
 					.filter((m): m is SessionMessage & { role: ChatMessage["role"] } =>
 						isLlmChatRole(m.role),
@@ -625,38 +785,8 @@ async function executeLeasedRun(ctx: {
 
 		// Conversa contínua: o run novo parte das chamadas e resultados de ferramenta do anterior, não só do texto.
 		// Qualquer falha ou divergência cai no histórico de texto de sempre.
-		let transcript: TranscriptHistory | null = null;
-		let transcriptOutcome: InspectContextPayload["transcript"] | undefined;
-		let transcriptWatermark: TranscriptWatermark | undefined;
-		if (!checkpoint?.llmMessages?.length && run.conversationId && run.origin === "chat" && !groupRun && contextTranscriptEnabled()) {
-			// Marca d'água ANTES de ler o histórico: o próximo turno lê só o que vier depois dela.
-			transcriptWatermark = (await getConversationWatermark(run.conversationId).catch((error) => {
-				console.error(`load conversation watermark failed run=${runId}`, error);
-				return null;
-			})) ?? undefined;
-		}
-		if (!checkpoint?.llmMessages?.length && run.conversationId && run.origin === "chat") {
-			const conversationId = run.conversationId;
-			transcript = await resolveTranscriptHistory({
-				enabled: contextTranscriptEnabled(),
-				origin: run.origin,
-				runId,
-				conversationId,
-				groupRun: Boolean(groupRun),
-				compact,
-				model: run.model,
-				objective: run.objective,
-				seed: checkpoint?.transcriptSeed,
-				report: (outcome) => {
-					transcriptOutcome = outcome;
-				},
-				loadLatest: () => getConversationTranscript(runUserId, conversationId, { excludeRunId: runId }),
-				loadById: (fromRunId) => getRunTranscript(runUserId, conversationId, fromRunId),
-				loadAfter: (watermark, excludeRunId) => loadMessagesAfterWatermark(conversationId, watermark, { excludeRunId }),
-			}).catch((error) => {
-				console.error(`load conversation transcript failed run=${runId}`, error);
-				return null;
-			});
+		const transcript = await transcriptPromise;
+		if (fresh && run.conversationId && run.origin === "chat") {
 			// O resultado da aprovação já está na chamada pendente: o turno só leva a orientação, sem repeti-lo.
 			const seed = checkpoint?.transcriptSeed;
 			if (transcript?.seedApplied && seed) {
@@ -665,7 +795,7 @@ async function executeLeasedRun(ctx: {
 			}
 		}
 
-		let messages = checkpoint?.llmMessages?.length
+		let messages = !fresh
 			? inputMessages
 			: await prepareMessages(
 					inputMessages,
@@ -683,10 +813,11 @@ async function executeLeasedRun(ctx: {
 
 		// Injetar nota sobre artefatos de runs anteriores (A2 step 3): apenas para run novo
 		// na mesma conversa que tem histórico de artefatos.
-		if (!checkpoint?.llmMessages?.length && run.conversationId && run.origin !== "routine") {
+		if (artifactsPromise) {
+			const loaded = await artifactsPromise;
 			try {
-				const artifacts = await listConversationArtifacts(runUserId, run.conversationId, { limit: 5, excludeRunId: runId });
-				const artifactsNote = buildConversationArtifactsNote(artifacts);
+				if (!loaded.ok) throw loaded.error;
+				const artifactsNote = buildConversationArtifactsNote(loaded.artifacts);
 				if (artifactsNote) {
 					messages = appendTurnNote(messages, artifactsNote);
 				}
@@ -698,11 +829,11 @@ async function executeLeasedRun(ctx: {
 
 		// Tarefa ativa (bug #80): as últimas tarefas do usuário e os recursos que criaram, do banco.
 		// Sobrevive à compactação do histórico; rotina/webhook ficam de fora (nunca viram "a tarefa").
-		if (!checkpoint?.llmMessages?.length && run.conversationId && run.origin === "chat" && !groupRun) {
+		if (taskContextPromise) {
+			const loaded = await taskContextPromise;
 			try {
-				const taskNote = buildConversationTaskNote(
-					await getConversationTaskContext(runUserId, run.conversationId, { excludeRunId: runId }),
-				);
+				if (!loaded.ok) throw loaded.error;
+				const taskNote = buildConversationTaskNote(loaded.context);
 				if (taskNote) messages = appendTurnNote(messages, { role: "system", content: taskNote });
 			} catch (error) {
 				console.error(`load conversation task context failed run=${runId}`, error);
@@ -713,9 +844,11 @@ async function executeLeasedRun(ctx: {
 		// carregada e os bots citados chegam com id. Falha não derruba o run.
 		let forcedConnectors: string[] = [];
 		let carriedNotes: CarriedNote[] = [];
-		if (!checkpoint?.llmMessages?.length && run.origin === "chat" && !groupRun && run.botId) {
+		if (mentionsPromise) {
+			const loaded = await mentionsPromise;
 			try {
-				const turn = await buildMentionNotes({ userId: runUserId, botId: run.botId, text: run.objective, toolset: mcp?.toolset });
+				if (!loaded.ok) throw loaded.error;
+				const turn = loaded.turn;
 				// Notas de turnos anteriores que definem a tarefa em andamento voltam (antes das deste turno).
 				const merged = contextTranscriptEnabled() ? mergeCarriedNotes(transcript?.carriedNotes, turn.notes) : { carried: [], reinject: [] };
 				carriedNotes = merged.carried;
@@ -729,77 +862,22 @@ async function executeLeasedRun(ctx: {
 			}
 		}
 
-		// Imagens de turnos anteriores vêm do que está persistido (dono validado no db),
-		// nunca de ids enviados pelo cliente. Falha aqui não derruba o run.
-		const historyImages = !checkpoint?.llmMessages?.length && run.conversationId && run.origin !== "routine"
-			? await loadUserImageHistory(run.conversationId, runUserId).catch((error) => {
-				console.error(`load image history failed run=${runId}`, error);
-				return [];
-			})
-			: [];
-
-		// Arquivos anexados (PDF, Office, planilha, texto, zip...): conteúdo do pedido atual e lista da conversa.
-		const attachmentsForRun = run.origin !== "routine"
-			? await attachmentRuntimeForRun({
-				userId: runUserId,
-				conversationId: run.conversationId,
-				currentIds: checkpoint?.userFileArtifactIds ?? [],
-				fresh: !checkpoint?.llmMessages?.length,
-				model: run.model,
-			}).catch((error) => {
-				console.error(`load attachments failed run=${runId}`, error);
-				return null;
-			})
-			: null;
+		const [historyImages, attachmentsForRun, skillIndex, priorResearchNotes, priorTaskLedger, openBotRequests, priorTaskList, planPending] = await Promise.all([
+			historyImagesPromise,
+			attachmentsPromise,
+			skillIndexPromise,
+			priorResearchNotesPromise,
+			priorTaskLedgerPromise,
+			openBotRequestsPromise,
+			priorTaskListPromise,
+			planPendingPromise,
+		]);
 		if (attachmentsForRun?.historyNote) messages = appendTurnNote(messages, { role: "system", content: attachmentsForRun.historyNote });
-
-		// Índice das skills do dono (K1): só em run novo; na retomada o prompt vem do checkpoint.
-		const skillIndex = checkpoint?.llmMessages?.length
-			? ""
-			: await loadRunSkillIndex({ userId: runUserId, botId: run.botId });
-
-		// Notas de pesquisa (F3) de runs anteriores da conversa: escopadas pelo dono da sessão; falha não derruba o run.
-		const priorResearchNotes = !groupRun && run.conversationId && (run.origin === "chat" || run.origin === "webhook")
-			? await listConversationResearchNotes(runUserId, run.conversationId, { excludeRunId: runId, origin: run.origin }).catch((error) => {
-				console.error(`load research notes failed run=${runId}`, error);
-				return [];
-			})
-			: [];
-
-		// Ledger de itens (V3) de um run anterior da conversa: mesmo escopo de dono; falha não derruba o run.
-		const priorTaskLedger = !groupRun && run.conversationId && (run.origin === "chat" || run.origin === "webhook")
-			? await getConversationTaskLedger(runUserId, run.conversationId, { excludeRunId: runId, origin: run.origin }).catch((error) => {
-				console.error(`load task ledger failed run=${runId}`, error);
-				return null;
-			})
-			: null;
-
-		// Pedidos deste bot a outros bots ainda sem resposta (send_to_bot): bloco curto no prompt. Dono do run; falha = nenhum.
-		const openBotRequests = !groupRun && run.botId && (run.origin === "chat" || run.origin === "bot")
-			? await listOpenBotRequests({ userId: runUserId, fromBotId: run.botId }).catch((error) => {
-				console.error(`load open bot requests failed run=${runId}`, error);
-				return [];
-			})
-			: [];
-
-		// Lista de passos (update_task_list) da conversa: mesmo escopo de dono; falha não derruba o run.
-		// Plano aprovado: os passos do plano semeiam a lista (o cartao aparece ja, antes do 1o passo).
-		const seededTaskList = !checkpoint?.llmMessages?.length ? checkpoint?.transcriptSeed?.taskList : undefined;
-		const priorTaskList = seededTaskList?.length ? seededTaskList : !groupRun && run.conversationId && run.origin === "chat"
-			? await getConversationTaskList(runUserId, run.conversationId, { excludeRunId: runId, origin: run.origin }).catch((error) => {
-				console.error(`load task list failed run=${runId}`, error);
-				return null;
-			})
-			: null;
 
 		if (seededTaskList?.length && run.conversationId) {
 			await upsertTaskListCard(run.conversationId, runId, seededTaskList).catch(() => undefined);
 			await appendRunEvent(runId, "task_list", { type: "task_list", items: seededTaskList, runId }).catch(() => undefined);
 		}
-		// Plano esperando aprovacao nesta conversa: escritas voltam com erro ate o usuario decidir.
-		const planPending = !groupRun && run.conversationId && run.origin === "chat"
-			? await getSkillPendingIntent(runUserId, run.conversationId).then((pending) => pending?.payload.action === "plan", () => false)
-			: false;
 
 		return { planPending, messages, inputMessages, transcriptOutcome, priorTranscript: transcript?.priorTranscript, transcriptWatermark, carriedNotes, priorLoadedTools: transcript?.loadedTools, priorToolCache: transcript?.toolCache, priorCompaction: transcript?.compaction, historyImages, skillIndex, forcedConnectors, priorResearchNotes, priorTaskLedger, priorTaskList, openBotRequests, attachments: attachmentsForRun?.runtime };
 	};
@@ -811,11 +889,12 @@ async function executeLeasedRun(ctx: {
 		await appendRunEvent(runId, "inspect_context", payload).catch(() => undefined);
 	}
 
+	const emailContext = await emailContextPromise;
 	// Lições (playbook do bot): todas as ativas vão ao runtime (conector/tool entram ao carregar; `lesson_feedback` conta o uso).
-	const runLessons = run.botId && !groupRun ? await listBotLessons(runUserId, run.botId).catch(() => []) : [];
+	const runLessons = await runLessonsPromise;
 	if (!checkpoint?.llmMessages?.length && (startLessonIds.length > 0 || run.conversationId)) {
 		// Inspetor: o que foi injetado no início e o resultado da última revisão de lições (ação "no run seguinte").
-		const last = run.conversationId && run.botId ? await getLatestLessonReviewEvent(runUserId, run.conversationId, runId).catch(() => null) : null;
+		const last = await latestLessonReviewPromise;
 		const review = last && last.payload && typeof last.payload === "object" ? (last.payload as Record<string, unknown>) : null;
 		const reviewed = review && review.status && review.status !== "covered";
 		if (startLessonIds.length > 0 || reviewed) {
@@ -839,12 +918,9 @@ async function executeLeasedRun(ctx: {
 	// Orçamento: request (budgetJson) > bot (policyJson) > conta > padrões.
 
 	const botPolicy = parseBudgetPolicy(rawBotPolicy);
-	// Modo proativo: só o bot principal com o modo ligado (nunca em grupo).
-	const proactiveBot = run.botId && (run.origin === "chat" || run.origin === "proactive") && !groupRun
-		? await prisma.bot.findFirst({ where: { id: run.botId, ownerId: runUserId }, select: { isPrimary: true } }).catch(() => null)
-		: null;
+	const proactiveBot = await proactiveBotPromise;
 	const accountTimezone = proactiveBot?.isPrimary === true
-		? (await getAccountConfig(runUserId).catch(() => null))?.general?.timezone
+		? (await loadAccountConfig())?.general?.timezone
 		: undefined;
 	const proactiveForRun = resolveProactiveForRun({
 		accountTimezone,
@@ -853,12 +929,10 @@ async function executeLeasedRun(ctx: {
 		isPrimary: proactiveBot?.isPrimary === true,
 		policyJson: rawBotPolicy,
 	});
-	// Aviso da rotina ("always" = push ao fim, como sempre) e push avulso do bot (rotina "só importante" / chat).
-	const routineNotify: RoutineNotifyMode = run.origin === "routine" ? await getRoutineNotifyModeForAgentRun(runId).catch(() => "always" as const) : "always";
-	// Rotina ligada a uma página: o run só pode atualizar essa página (o runtime trava as outras).
-	const routinePageId = run.origin === "routine" ? await getRoutinePageIdForAgentRun(runId, runUserId).catch(() => null) : null;
+	const routineNotify = await routineNotifyPromise;
+	const routinePageId = await routinePageIdPromise;
 	const userPushZone = (run.origin === "routine" && routineNotify === "important") || run.origin === "chat"
-		? (proactiveBot?.isPrimary === true ? accountTimezone : (await getAccountConfig(runUserId).catch(() => null))?.general?.timezone)
+		? (proactiveBot?.isPrimary === true ? accountTimezone : (await loadAccountConfig())?.general?.timezone)
 		: undefined;
 	const userPushForRun = resolveUserPushForRun({
 		origin: run.origin,
@@ -879,15 +953,25 @@ async function executeLeasedRun(ctx: {
 	const runStartedAt = run.startedAt
 		? new Date(run.startedAt).getTime()
 		: Date.now();
+	// Sessão herdada (checkpoint/run): a conferência de que ainda roda corre em segundo plano, fora do
+	// caminho até a 1ª chamada ao modelo. Quem lê `cachedSessionId` (pedir a sessão, gravar progresso ou
+	// o fim do run) espera por ela antes; a sessão morta continua sendo trocada/limpa como antes.
+	let sessionProbe: Promise<void> = Promise.resolve();
 	if (cachedSessionId) {
 		// Mesmo prazo do runtime: só tempo ativo (pausa e fila não contam).
 		const { deadlineAtMs } = wallClockAnchors({ maxWallMs: budget.maxWallMs, now: Date.now(), runStartedAt, restored: checkpoint });
 		const initialContext = { signal: aborter.signal, deadlineAtMs };
-		cachedSessionId = await getRunningSessionId(manager.withExecutionContext?.(initialContext) ?? manager, cachedSessionId);
+		const inherited = cachedSessionId;
+		// `getRunningSession` nunca rejeita (falha = sessão não está rodando).
+		sessionProbe = getRunningSessionId(manager.withExecutionContext?.(initialContext) ?? manager, inherited).then((running) => {
+			// Só troca se ninguém mexeu nela enquanto isso (ex.: erro de sandbox já a descartou).
+			if (cachedSessionId === inherited) cachedSessionId = running;
+		});
 		aborter.signal.throwIfAborted();
 	}
 
 	const persistCheckpoint = async (next: AgentRunCheckpoint) => {
+		await sessionProbe;
 		try {
 			await persistRunProgress({
 				runId,
@@ -904,6 +988,7 @@ async function executeLeasedRun(ctx: {
 	const getSessionId = async (execution: { signal?: AbortSignal; deadlineAtMs?: number } = {}): Promise<string> => {
 		const scopedManager = manager.withExecutionContext?.(execution) ?? manager;
 		if (guards.isLeaseLost()) throw new LeaseLostError();
+		await sessionProbe;
 		if (cachedSessionId) {
 			const running = await getRunningSession(scopedManager, cachedSessionId);
 			if (running) {
@@ -984,28 +1069,19 @@ async function executeLeasedRun(ctx: {
 	const control = createRunControlReader({ read: () => getRunControlState(runId) });
 
 	// Rotina de alerta: o run só verifica a condição; o aviso (com debounce) é decidido aqui, depois do veredito.
-	const alertCtx = run.origin === "routine" ? await getRoutineAlertForAgentRun(runId, runUserId).catch(() => null) : null;
+	const alertCtx = await alertCtxPromise;
 	const alertRun = alertCtx ? { condition: alertCtx.alert.condition, ...(alertCtx.alert.hint ? { hint: alertCtx.alert.hint } : {}), report: { verdict: null as AlertVerdict | null } } : undefined;
 
 	let completionPersisted: "completed" | "budget_exhausted" | null = null;
-	// Triagem de mensagens do usuário durante o run: modelo barato de manutenção; falha = modelo do run.
-	// Primeiro modelo da cadeia da manutenção (chave própria ou OpenRouter); sem chave ou falha = modelo do run.
-	const messageTriageModel = await resolveMaintenanceCandidates({ kind: "summary", config, userId: runUserId })
-		.then((resolved) => resolved.candidates[0]?.model)
-		.catch(() => undefined);
-	// Revisor (Jev): modelo escolhido > Jev fixo no OpenRouter > cadeia da manutenção. Sem caminho nenhum = Jev desligado.
-	const reviewer = await createReviewerClient({ userId: runUserId, config, judgeModel: actionsJudgeModel() }).catch(() => null);
+	const messageTriageModel = await messageTriageModelPromise;
+	const reviewer = await reviewerPromise;
 	// Entrega offline: com nota de ausência, o fim do run coloca o resultado no backlog.
 	const settleDelivery = (end: RunEnd, resultText?: string | null) =>
 		settleRunDelivery(
 			{ userId: runUserId, runId, end, resultText },
 			{ markReady: markDeliveryReady, cancel: cancelRunDelivery },
 		);
-	// APIs conectadas por OpenAPI (leitura). Falha ao carregar nunca derruba o run: segue sem elas.
-	const apiConnector = await loadApiConnectorRuntime(runUserId).catch((error) => {
-		console.error(`load api connections failed run=${runId}`, error);
-		return null;
-	});
+	const apiConnector = await apiConnectorPromise;
 	try {
 		const result = await runComputerUse({
 			messageTriageModel,
@@ -1207,6 +1283,8 @@ async function executeLeasedRun(ctx: {
 			// No grupo o canal é a conversa (menção @Nome); send_to_bot fica de fora.
 			listBotRoster: groupRun ? undefined : listUserBotRoster,
 			decideForOtherBots: readDecideForOtherBots(rawBotPolicy),
+			// Checagens que só observam a resposta final não seguram a conclusão: o uso delas é somado depois (abaixo).
+			backgroundObserveChecks: true,
 		});
 		runTelemetry.markRuntimeDone();
 		await coalescer.flush();
@@ -1230,6 +1308,8 @@ async function executeLeasedRun(ctx: {
 		const noUpdate = run.origin === "proactive" && isNoUpdateReply(result.text);
 		const resultText = alertPlan ? alertPlan.text : result.text;
 		const resultConversationId = (alertPlan && !alertPlan.notify) || noUpdate ? null : run.conversationId;
+		const jevAtCompletion = jevTelemetry.snapshot();
+		await sessionProbe;
 		await completeAgentRunAtomically({
 			runId,
 			conversationId: resultConversationId,
@@ -1238,7 +1318,7 @@ async function executeLeasedRun(ctx: {
 			lease,
 			status: result.hitWall ? "budget_exhausted" : "completed",
 			// Telemetria só no usageJson persistido; o evento `done` (UI) não a leva.
-			usage: withRunTelemetry(result.usage, runTelemetry.meta(jevTelemetry.snapshot())),
+			usage: withRunTelemetry(result.usage, runTelemetry.meta(jevAtCompletion)),
 			donePayload: {
 				type: "done",
 				message: { role: "assistant", content: resultText },
@@ -1347,7 +1427,23 @@ async function executeLeasedRun(ctx: {
 		// Falha de Redis/db aqui só é logada: nunca emite erro nem marca o run como
 		// falho (o catch abaixo também respeita `completionPersisted`).
 		const toolNotes = buildToolResultNotes(toolResultsForReview);
+		// Checagens de observação que terminaram depois da conclusão: o uso (e a decisão do Jev) entram no
+		// usageJson do run quando elas terminam. Nunca rejeita; a reconciliação de custo espera por isto
+		// para as duas gravações do usageJson não se atropelarem.
+		const observeChecksRecorded = recordObserveChecks(
+			{
+				runId,
+				userId: runUserId,
+				observeChecks: result.observeChecks,
+				jevCallsAtCompletion: jevAtCompletion?.calls ?? 0,
+				jevSnapshot: () => jevTelemetry.snapshot(),
+				meta: (jev) => runTelemetry.meta(jev),
+				hasUsage: Boolean(result.usage),
+			},
+			{ addLateRunUsage },
+		);
 		await runPostCompletionSteps(runId, [
+			{ name: "observe-checks", run: () => observeChecksRecorded },
 			{
 				name: "memory-review",
 				run:
@@ -1416,10 +1512,14 @@ async function executeLeasedRun(ctx: {
 				// Fora do caminho do run (não espera) e sem nunca falhar.
 				name: "cost-reconcile",
 				run: async () => {
-					void reconcileRunCosts(
-						{ runId, userId: runUserId, apiKey },
-						{ listMissing: listStepsMissingCost, apply: applyReconciledStepCost },
-					).catch(() => undefined);
+					void observeChecksRecorded
+						.then(() =>
+							reconcileRunCosts(
+								{ runId, userId: runUserId, apiKey },
+								{ listMissing: listStepsMissingCost, apply: applyReconciledStepCost },
+							),
+						)
+						.catch(() => undefined);
 				},
 			},
 			{ name: "follow-up", run: () => chainRunFollowUp(run, runUserId, deps) },
@@ -1443,6 +1543,8 @@ async function executeLeasedRun(ctx: {
 			console.error(`post-completion failure ignored run=${runId}`, error);
 			return { runId, status: completionPersisted };
 		}
+		// A sessão herdada gravada no fim do run é a conferida (nunca rejeita).
+		await sessionProbe;
 		if (error instanceof AgentRunPausedError) {
 			await emit({ type: "paused", reason: error.message });
 			await coalescer.flush();

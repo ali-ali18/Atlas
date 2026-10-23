@@ -8,8 +8,10 @@ import { resolveRedisUrl } from "./connection.js";
  * é coberta pela consulta de segurança de quem consome.
  */
 export type RunSignalKind = "input" | "cancel";
-/** Inclui "events" (canal de eventos do run, ver `runEventsChannel`). */
-type AnySignalKind = RunSignalKind | "events";
+/** Varredura que o worker deve rodar já (ver `sweep-signals.ts`). */
+export type SweepSignalKind = "groups" | "bot-messages";
+/** Inclui "events" (canal de eventos do run, ver `runEventsChannel`) e os avisos de varredura. */
+type AnySignalKind = RunSignalKind | "events" | SweepSignalKind;
 
 const RUN_SIGNAL_KINDS: ReadonlySet<string> = new Set<RunSignalKind>(["input", "cancel"]);
 
@@ -36,7 +38,8 @@ export type RunSignalPublisher = {
 export type RunSignalSubscriber = {
 	subscribe: (channel: string) => Promise<unknown>;
 	unsubscribe: (channel: string) => Promise<unknown>;
-	on: (event: "message", listener: (channel: string, message: string) => void) => unknown;
+	/** `message` (canal, mensagem); `close` (conexão caiu); `ready` (reconectou). */
+	on: (event: "message" | "close" | "ready", listener: (...args: string[]) => void) => unknown;
 	quit?: () => Promise<unknown>;
 	disconnect?: () => void;
 };
@@ -44,8 +47,14 @@ export type RunSignalSubscriber = {
 export type RunSignals = {
 	/** Melhor esforço: nunca lança; devolve false se não deu para publicar. */
 	publishRunSignal: (runId: string, kind: AnySignalKind) => Promise<boolean>;
-	/** Escuta o canal do run na conexão compartilhada. Devolve o `unsubscribe` (idempotente). */
-	subscribeRunSignals: (runId: string, onSignal: (kind: AnySignalKind) => void) => () => void;
+	/**
+	 * Escuta o canal do run na conexão compartilhada. Devolve o `unsubscribe` (idempotente).
+	 * `onReady`: a assinatura foi confirmada pelo Redis (de novo após reconectar). Sinal publicado antes
+	 * disso se perdeu: quem consome relê o estado ao receber `onReady`.
+	 */
+	subscribeRunSignals: (runId: string, onSignal: (kind: AnySignalKind) => void, onReady?: () => void) => () => void;
+	/** O canal do run está assinado e confirmado agora (Redis de pé). Falso = quem consome mantém a consulta rápida. */
+	isSubscribed: (runId: string) => boolean;
 	/** Fecha as conexões (shutdown). Idempotente. */
 	close: () => Promise<void>;
 };
@@ -64,12 +73,41 @@ export function createRunSignals(deps: {
 	let subscriber: RunSignalSubscriber | null = null;
 	let closed = false;
 	const listeners = new Map<string, Set<(kind: AnySignalKind) => void>>();
+	const readyListeners = new Map<string, Set<() => void>>();
+	/** Canais com SUBSCRIBE confirmado na conexão atual. */
+	const confirmed = new Set<string>();
+	let lostConnection = false;
+
+	const notifyReady = (channel: string) => {
+		for (const listener of [...(readyListeners.get(channel) ?? [])]) {
+			try {
+				listener();
+			} catch {
+				// idem: consumidor com defeito não derruba os outros
+			}
+		}
+	};
+
+	const confirm = (target: RunSignalSubscriber, channel: string) => {
+		try {
+			void target
+				.subscribe(channel)
+				.then(() => {
+					if (closed || subscriber !== target || !listeners.has(channel)) return;
+					confirmed.add(channel);
+					notifyReady(channel);
+				})
+				.catch(() => undefined);
+		} catch {
+			// falha de subscribe: o consumidor segue na consulta de segurança
+		}
+	};
 
 	const getSubscriber = (): RunSignalSubscriber => {
 		if (subscriber) return subscriber;
 		const created = deps.createSubscriber();
 		created.on("message", (channel, message) => {
-			if (!acceptedKinds.has(message)) return;
+			if (!channel || !message || !acceptedKinds.has(message)) return;
 			for (const listener of [...(listeners.get(channel) ?? [])]) {
 				try {
 					listener(message as AnySignalKind);
@@ -77,6 +115,17 @@ export function createRunSignals(deps: {
 					// um consumidor com defeito não derruba os outros nem a conexão
 				}
 			}
+		});
+		// Conexão caiu: nada está confirmado até reassinar (quem consome volta à consulta rápida).
+		created.on("close", () => {
+			confirmed.clear();
+			lostConnection = true;
+		});
+		// Reconectou: reassina e só confirma quando o Redis responder (o ioredis também reassina sozinho).
+		created.on("ready", () => {
+			if (!lostConnection) return;
+			lostConnection = false;
+			for (const channel of listeners.keys()) confirm(created, channel);
 		});
 		subscriber = created;
 		return created;
@@ -95,7 +144,7 @@ export function createRunSignals(deps: {
 				return false;
 			}
 		},
-		subscribeRunSignals: (runId, onSignal) => {
+		subscribeRunSignals: (runId, onSignal, onReady) => {
 			if (closed) return () => undefined;
 			const channel = channelFor(runId);
 			let set = listeners.get(channel);
@@ -105,23 +154,40 @@ export function createRunSignals(deps: {
 				listeners.set(channel, set);
 			}
 			set.add(onSignal);
-			if (first) {
-				// falha de subscribe: o consumidor segue na consulta de segurança
-				try {
-					void getSubscriber().subscribe(channel).catch(() => undefined);
-				} catch {
-					// idem
+			if (onReady) {
+				let ready = readyListeners.get(channel);
+				if (!ready) {
+					ready = new Set();
+					readyListeners.set(channel, ready);
 				}
+				ready.add(onReady);
 			}
 			let active = true;
+			if (first) {
+				let target: RunSignalSubscriber | null = null;
+				try {
+					target = getSubscriber();
+				} catch {
+					// sem conexão: o consumidor segue na consulta de segurança
+				}
+				if (target) confirm(target, channel);
+			} else if (onReady && confirmed.has(channel)) {
+				// Canal já confirmado por outro ouvinte: nada se perdeu, mas avisa igual (o consumidor relê uma vez).
+				queueMicrotask(() => {
+					if (active && confirmed.has(channel)) onReady();
+				});
+			}
 			return () => {
 				if (!active) return;
 				active = false;
+				if (onReady) readyListeners.get(channel)?.delete(onReady);
+				if (readyListeners.get(channel)?.size === 0) readyListeners.delete(channel);
 				const current = listeners.get(channel);
 				if (!current) return;
 				current.delete(onSignal);
 				if (current.size > 0) return;
 				listeners.delete(channel);
+				confirmed.delete(channel);
 				try {
 					void subscriber?.unsubscribe(channel).catch(() => undefined);
 				} catch {
@@ -129,10 +195,13 @@ export function createRunSignals(deps: {
 				}
 			};
 		},
+		isSubscribed: (runId) => !closed && confirmed.has(channelFor(runId)),
 		close: async () => {
 			if (closed) return;
 			closed = true;
 			listeners.clear();
+			readyListeners.clear();
+			confirmed.clear();
 			const connections = [publisher, subscriber];
 			publisher = null;
 			subscriber = null;
@@ -153,7 +222,7 @@ export function createRunSignals(deps: {
 let defaultSignals: RunSignals | null = null;
 let defaultEventSignals: RunSignals | null = null;
 
-function redisFactories() {
+export function redisFactories() {
 	return {
 		// Publicar falha rápido (sem fila offline): requisição HTTP nunca espera o Redis voltar.
 		createPublisher: () => {
@@ -189,9 +258,18 @@ export function publishRunEventsSignal(runId: string): Promise<boolean> {
 	return getDefaultRunEventSignals().publishRunSignal(runId, "events");
 }
 
-/** API: escuta eventos novos do run; devolve o unsubscribe. Sem Redis, o stream segue no polling de segurança. */
-export function subscribeRunEventsSignal(runId: string, onEvents: () => void): () => void {
-	return getDefaultRunEventSignals().subscribeRunSignals(runId, () => onEvents());
+/**
+ * API: escuta eventos novos do run; devolve o unsubscribe. Sem Redis, o stream segue no polling de segurança.
+ * `onReady`: assinatura confirmada (inclusive após reconectar); o stream relê os eventos para não perder o
+ * que foi publicado antes dela.
+ */
+export function subscribeRunEventsSignal(runId: string, onEvents: () => void, onReady?: () => void): () => void {
+	return getDefaultRunEventSignals().subscribeRunSignals(runId, () => onEvents(), onReady);
+}
+
+/** O canal de eventos do run está assinado e confirmado (o stream pode espaçar a consulta de segurança). */
+export function isRunEventsSignalSubscribed(runId: string): boolean {
+	return defaultEventSignals?.isSubscribed(runId) ?? false;
 }
 
 export function publishRunSignal(runId: string, kind: RunSignalKind): Promise<boolean> {

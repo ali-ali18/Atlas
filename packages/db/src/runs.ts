@@ -107,6 +107,33 @@ function mapRun(row: {
 	};
 }
 
+/**
+ * Colunas que `mapRun` usa. Leituras que viram `AgentRun` selecionam só isto: a linha inteira traz o
+ * `checkpointJson` (transcrição do modelo, pode passar de MBs) que `mapRun` descarta.
+ */
+export const AGENT_RUN_SELECT = {
+	id: true,
+	userId: true,
+	botId: true,
+	conversationId: true,
+	origin: true,
+	parentRunId: true,
+	objective: true,
+	status: true,
+	model: true,
+	maxSteps: true,
+	sandboxSessionId: true,
+	error: true,
+	resultText: true,
+	cancelRequested: true,
+	budgetJson: true,
+	usageJson: true,
+	createdAt: true,
+	updatedAt: true,
+	startedAt: true,
+	finishedAt: true,
+} as const satisfies Prisma.AgentRunSelect;
+
 function lastUserObjective(messages: CreateAgentRunRequest["messages"]): string {
 	for (let i = messages.length - 1; i >= 0; i -= 1) {
 		const message = messages[i];
@@ -309,6 +336,7 @@ export async function createAgentRun(input: {
 				status: { in: ACTIVE_STATUSES },
 			},
 			orderBy: { createdAt: "desc" },
+			select: AGENT_RUN_SELECT,
 		});
 		if (!existing) {
 			if (attempt < 1) continue;
@@ -491,7 +519,7 @@ export async function getRunLeaseState(runId: string): Promise<{
 }
 
 export async function getAgentRun(runId: string): Promise<AgentRun | null> {
-	const row = await prisma.agentRun.findUnique({ where: { id: runId } });
+	const row = await prisma.agentRun.findUnique({ where: { id: runId }, select: AGENT_RUN_SELECT });
 	return row ? mapRun(row) : null;
 }
 
@@ -501,7 +529,7 @@ export async function getAgentRunForUser(
 	userId: string,
 ): Promise<AgentRun | null> {
 	if (!userId.trim() || userId === "default") return null;
-	const row = await prisma.agentRun.findFirst({ where: { id: runId, userId } });
+	const row = await prisma.agentRun.findFirst({ where: { id: runId, userId }, select: AGENT_RUN_SELECT });
 	return row ? mapRun(row) : null;
 }
 
@@ -566,7 +594,7 @@ export async function markAgentRunRetrying(
 	error: string,
 	lease: RunLease,
 ): Promise<boolean> {
-	return prisma.$transaction(async (tx) => {
+	const marked = await prisma.$transaction(async (tx) => {
 		const changed = await tx.agentRun.updateMany({
 			where: {
 				id: runId,
@@ -585,6 +613,9 @@ export async function markAgentRunRetrying(
 		});
 		return true;
 	});
+	// Evento novo: acorda o stream SSE (que espaça a consulta quando o sinal está de pé).
+	if (marked) signalRunEventAppended(runId);
+	return marked;
 }
 
 export async function getAgentRunCheckpoint(
@@ -674,6 +705,7 @@ export async function listRunsForConversation(
 		},
 		orderBy: { createdAt: "desc" },
 		take: options?.take ?? 20,
+		select: AGENT_RUN_SELECT,
 	});
 	return rows.map(mapRun);
 }
@@ -689,12 +721,22 @@ export async function getLatestCompletedRunForConversation(
 			resultText: { not: null },
 		},
 		orderBy: { finishedAt: "desc" },
+		select: AGENT_RUN_SELECT,
 	});
 	return row ? mapRun(row) : null;
 }
 
+let runFinalizedByRequestHook: ((runId: string) => void) | null = null;
+/**
+ * Run encerrado fora do worker (cancelar um run na fila ou parado num card). O worker não vê o fim pelo job,
+ * então quem depende dele (grupos, mensagens entre bots) é avisado por aqui. Um gancho por processo.
+ */
+export function setRunFinalizedByRequestHook(hook: ((runId: string) => void) | null): void {
+	runFinalizedByRequestHook = hook;
+}
+
 export async function requestCancelAgentRun(runId: string): Promise<AgentRun | null> {
-	const existing = await prisma.agentRun.findUnique({ where: { id: runId } });
+	const existing = await prisma.agentRun.findUnique({ where: { id: runId }, select: { ...AGENT_RUN_SELECT, leaseUntil: true } });
 	if (!existing) return null;
 
 	if (!ACTIVE_STATUSES.includes(asStatus(existing.status))) {
@@ -720,12 +762,20 @@ export async function requestCancelAgentRun(runId: string): Promise<AgentRun | n
 			finishedAt: finalizeNow ? new Date() : existing.finishedAt,
 			...(parked ? { leaseOwner: null, leaseUntil: null, leaseToken: null } : {}),
 		},
+		select: AGENT_RUN_SELECT,
 	});
 	// Cancelar o pai cancela os filhos (subagentes) ainda ativos.
 	await prisma.agentRun.updateMany({
 		where: { parentRunId: runId, status: { in: ACTIVE_STATUSES } },
 		data: { cancelRequested: true },
 	});
+	if (finalizeNow) {
+		try {
+			runFinalizedByRequestHook?.(runId);
+		} catch {
+			// gancho com defeito não afeta o cancelamento
+		}
+	}
 	return mapRun(row);
 }
 
@@ -740,7 +790,7 @@ export async function requestPauseAgentRun(runId: string): Promise<AgentRun | nu
 		where: { id: runId, status: { in: ["queued", "running"] } },
 		data: { status: "paused" },
 	});
-	const row = await prisma.agentRun.findUnique({ where: { id: runId } });
+	const row = await prisma.agentRun.findUnique({ where: { id: runId }, select: AGENT_RUN_SELECT });
 	return row ? mapRun(row) : null;
 }
 
@@ -1014,7 +1064,7 @@ export async function finishAgentRun(
 		if (result.count !== 1) {
 			throw new Error("lease_lost");
 		}
-		const row = await prisma.agentRun.findUniqueOrThrow({ where: { id: runId } });
+		const row = await prisma.agentRun.findUniqueOrThrow({ where: { id: runId }, select: AGENT_RUN_SELECT });
 		await persistFinishTranscript(row.conversationId, row.origin, input, runId);
 		await settleRoutineRunForAgentRun(runId, {
 			status: input.status,
@@ -1027,6 +1077,7 @@ export async function finishAgentRun(
 	const row = await prisma.agentRun.update({
 		where: { id: runId },
 		data,
+		select: AGENT_RUN_SELECT,
 	});
 	await persistFinishTranscript(row.conversationId, row.origin, input, runId);
 	await settleRoutineRunForAgentRun(runId, {
@@ -1131,6 +1182,7 @@ export async function failAgentRunAfterRetries(
 		{ isolationLevel: "ReadCommitted" },
 	).then(async (finalized) => {
 		if (finalized) {
+			signalRunEventAppended(runId);
 			await settleRoutineRunForAgentRun(runId, { status: "failed", error });
 			if (display?.resultText) {
 				const row = await prisma.agentRun.findUnique({ where: { id: runId }, select: { conversationId: true, origin: true } });
@@ -1681,8 +1733,8 @@ export async function createRunInput(
 	userId?: string,
 ): Promise<RunInputRecord> {
 	const run = userId !== undefined
-		? await prisma.agentRun.findFirst({ where: { id: runId, userId: { in: userId.trim() && userId !== "default" ? [userId] : [] } } })
-		: await prisma.agentRun.findUnique({ where: { id: runId } });
+		? await prisma.agentRun.findFirst({ where: { id: runId, userId: { in: userId.trim() && userId !== "default" ? [userId] : [] } }, select: AGENT_RUN_SELECT })
+		: await prisma.agentRun.findUnique({ where: { id: runId }, select: AGENT_RUN_SELECT });
 	if (!run) throw new ResourceOwnershipError();
 	// F4 — steer/queue numa conversa apagada: cria o input, sem a mensagem.
 	const conversationOk = run.conversationId

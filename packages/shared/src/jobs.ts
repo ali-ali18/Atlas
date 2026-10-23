@@ -15,7 +15,13 @@ export const ATLAS_JOB_NAMES = {
 	attachmentExtract: "attachment.extract",
 	lessonReview: "lesson.review",
 	skillReview: "skill.review",
+	/** Retenção diária (run_events antigos, execuções de rotina além das 50 mais recentes). */
+	dataRetention: "maintenance.retention",
 } as const;
+
+/** Job diário de retenção: sem dados de entrada; devolve só contagens. */
+export type DataRetentionJobPayload = Record<string, never>;
+export type DataRetentionJobResult = { runEvents: number; routineRuns: number };
 
 export type AtlasJobName =
 	(typeof ATLAS_JOB_NAMES)[keyof typeof ATLAS_JOB_NAMES];

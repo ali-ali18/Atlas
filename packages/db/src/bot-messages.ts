@@ -504,16 +504,27 @@ export async function escalatePendingNeed(input: { message: { id: string; userId
 	return posted;
 }
 
+/**
+ * Marcadores "precisa de você" ainda pendentes, mais antigos primeiro. O varredor roda a cada poucos
+ * segundos: os predicados são literais e IGUAIS aos do índice parcial
+ * `conversation_messages_needs_user_pending_idx` (migration 20261201000000), assim o Postgres lê só esse
+ * índice minúsculo em vez de varrer `conversation_messages` inteira. Mudou o texto aqui? Mude o índice junto.
+ */
+export async function listPendingNeedsUserMarkers(limit: number): Promise<Array<{ id: string; content: string }>> {
+	return prisma.$queryRaw<Array<{ id: string; content: string }>>`
+		SELECT "id", "content" FROM "conversation_messages"
+		WHERE "role" = 'bot-link'
+		  AND "content" LIKE '%"kind":"needs-user"%'
+		  AND "content" LIKE '%"status":"pending"%'
+		ORDER BY "createdAt" ASC
+		LIMIT ${limit}
+	`;
+}
+
 /** O pedido relayado foi atendido (card resolvido, run retomado/encerrado ou card sumiu): marca como resolvido. */
-async function resolveNeedsUser(): Promise<number> {
-	const rows = await prisma.conversationMessage.findMany({
-		where: {
-			role: BOT_LINK_ROLE,
-			AND: [{ content: { contains: '"kind":"needs-user"' } }, { content: { contains: '"status":"pending"' } }],
-		},
-		orderBy: { createdAt: "asc" },
-		take: SWEEP_BATCH * 2,
-	});
+async function resolveNeedsUser(seen: { markers: number }): Promise<number> {
+	const rows = await listPendingNeedsUserMarkers(SWEEP_BATCH * 2);
+	seen.markers = rows.length;
 	let resolved = 0;
 	for (const row of rows) {
 		const card = parseBotNeedsUserCard(row.content);
@@ -759,16 +770,26 @@ async function recoverStale(now: Date): Promise<void> {
 	await prisma.botMessage.updateMany({ where: { status: "replying", updatedAt: { lt: before } }, data: { status: "replied" } });
 }
 
-export type BotMessageSweepResult = { delivered: number; busy: number; replies: number; settled: number; needsUser: number; overdue: number };
+export type BotMessageSweepResult = {
+	delivered: number;
+	busy: number;
+	replies: number;
+	settled: number;
+	needsUser: number;
+	overdue: number;
+	/** Ainda há pedido aberto ou marcador "precisa de você" pendente: o worker volta a varrer logo. */
+	inFlight: boolean;
+};
 
 /** Um passo do outbox (idempotente; várias instâncias do worker podem rodar juntas). */
 export async function processBotMessages(deps: BotMessageDeps): Promise<BotMessageSweepResult> {
 	const now = (deps.now ?? (() => new Date()))();
-	const result: BotMessageSweepResult = { delivered: 0, busy: 0, replies: 0, settled: 0, needsUser: 0, overdue: 0 };
+	const result: BotMessageSweepResult = { delivered: 0, busy: 0, replies: 0, settled: 0, needsUser: 0, overdue: 0, inFlight: false };
+	const seen = { markers: 0 };
 	await recoverStale(now).catch((error) => console.error("[bot-messages] recover failed", error));
 	// Antes de encerrar: o destino pode ter terminado o turno com um card esperando o usuário.
 	result.needsUser += await relayNeedsUser().catch((error) => (console.error("[bot-messages] relay needs-user failed", error), 0));
-	result.needsUser += await resolveNeedsUser().catch((error) => (console.error("[bot-messages] resolve needs-user failed", error), 0));
+	result.needsUser += await resolveNeedsUser(seen).catch((error) => (console.error("[bot-messages] resolve needs-user failed", error), 0));
 	result.settled += await settleDelivered().catch((error) => (console.error("[bot-messages] settle failed", error), 0));
 	result.settled += await closeWoken().catch((error) => (console.error("[bot-messages] close failed", error), 0));
 	result.overdue += await flagOverdue(now).catch((error) => (console.error("[bot-messages] overdue failed", error), 0));
@@ -785,5 +806,10 @@ export async function processBotMessages(deps: BotMessageDeps): Promise<BotMessa
 		if (outcome === "delivered") result.replies += 1;
 		if (outcome === "busy") result.busy += 1;
 	}
+	// Erro na leitura conta como "em andamento": melhor varrer de novo logo do que dormir com trabalho aberto.
+	const open = await prisma.botMessage
+		.findFirst({ where: { status: { in: OPEN_STATUSES } }, select: { id: true } })
+		.catch(() => ({ id: "unknown" }));
+	result.inFlight = open !== null || seen.markers > 0;
 	return result;
 }

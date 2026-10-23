@@ -9,7 +9,7 @@ import { BOT_MESSAGE_MAX_DEPTH } from "@workspace/shared";
 
 process.env.ATLAS_HOOK_PEPPER ||= "test-pepper";
 const { prisma } = await import("./client.js");
-const { BotMessageError, listOpenBotRequests, processBotMessages, sendBotMessage, BOT_RUN_MAX_SENDS } = await import("./bot-messages.js");
+const { BotMessageError, listOpenBotRequests, listPendingNeedsUserMarkers, processBotMessages, sendBotMessage, BOT_RUN_MAX_SENDS } = await import("./bot-messages.js");
 
 type Row = Record<string, unknown>;
 
@@ -95,6 +95,15 @@ function install(world: World) {
 		return world.convMessages.find((row) => matches(row, rest) && owned(row)) ?? null;
 	};
 	conv.findUnique = async ({ where }: { where: Row }) => world.convMessages.find((row) => matches(row, where)) ?? null;
+	// Marcadores pendentes: SQL cru com os predicados do índice parcial (emulado aqui).
+	(prisma as unknown as Record<string, unknown>).$queryRaw = async (strings: TemplateStringsArray, ...values: unknown[]) => {
+		const sql = strings.join("?");
+		assert.match(sql, /"kind":"needs-user"/);
+		const rows = world.convMessages.filter(
+			(row) => row.role === "bot-link" && String(row.content).includes('"kind":"needs-user"') && String(row.content).includes('"status":"pending"'),
+		);
+		return sort(rows, { createdAt: "asc" }).slice(0, values[0] as number);
+	};
 	conv.update = async ({ where, data }: { where: Row; data: Row }) => {
 		const row = world.convMessages.find((r) => matches(r, where))!;
 		Object.assign(row, data);
@@ -482,4 +491,36 @@ test("prazo: pedido sem resposta depois de 30 min marca o marcador do remetente 
 	await processBotMessages(at(60));
 	assert.equal(m.status, "reply_delivered");
 	assert.equal(marker().overdue, undefined);
+});
+
+test("marcadores pendentes: SQL usa exatamente os predicados do índice parcial (sem varrer a tabela)", async () => {
+	const { readFileSync } = await import("node:fs");
+	const { BOT_LINK_ROLE } = await import("@workspace/shared");
+	const migration = readFileSync(new URL("../prisma/migrations/20261201000000_needs_user_pending_index/migration.sql", import.meta.url), "utf8");
+	let captured = "";
+	let limit: unknown;
+	const original = (prisma as unknown as Record<string, unknown>).$queryRaw;
+	(prisma as unknown as Record<string, unknown>).$queryRaw = async (strings: TemplateStringsArray, ...values: unknown[]) => {
+		captured = strings.join("$1");
+		limit = values[0];
+		return [];
+	};
+	try {
+		assert.deepEqual(await listPendingNeedsUserMarkers(40), []);
+	} finally {
+		(prisma as unknown as Record<string, unknown>).$queryRaw = original;
+	}
+	const predicates = (text: string) => (text.match(/"role" = '[^']+'|"content" LIKE '[^']+'/g) ?? []).join(" AND ");
+	assert.equal(predicates(captured), predicates(migration));
+	assert.equal(predicates(captured), `"role" = '${BOT_LINK_ROLE}' AND "content" LIKE '%"kind":"needs-user"%' AND "content" LIKE '%"status":"pending"%'`);
+	assert.equal(limit, 40);
+});
+
+test("varredura sem nada aberto diz que está parada (o worker espaça a consulta); com pedido aberto, em andamento", async () => {
+	const world = newWorld();
+	install(world);
+	const { deps } = makeDeps(world);
+	assert.equal((await processBotMessages(deps)).inFlight, false);
+	await sendBotMessage({ userId: "u1", fromBotId: "ana", fromRunId: "r-ana", bot: "bia", message: "oi", title: "Oi" });
+	assert.equal((await processBotMessages(deps)).inFlight, true);
 });

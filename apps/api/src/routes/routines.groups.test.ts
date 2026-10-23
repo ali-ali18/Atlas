@@ -212,9 +212,12 @@ test("apagar grupo mantém as rotinas por padrão e as apaga com deleteRoutines"
 		routineDeletes += 1;
 		return { count: 1 };
 	});
+	const queryRaw = prisma.$queryRaw;
 	Reflect.set(prisma.routine, "findMany", async () => [
-		{ ...routineRow("b", "group-b"), runs: [], group: { id: "group-b", name: "Vendas" } },
+		{ ...routineRow("b", "group-b"), group: { id: "group-b", name: "Vendas" } },
 	]);
+	// Última execução de cada rotina (LATERAL): nenhuma.
+	Reflect.set(prisma, "$queryRaw", async () => []);
 	try {
 		const app = await appFor("b");
 		const keep = await app.request("/v1/bots/bot-b/routine-groups/group-b", { method: "DELETE" });
@@ -232,6 +235,7 @@ test("apagar grupo mantém as rotinas por padrão e as apaga com deleteRoutines"
 		prisma.routineGroup.deleteMany = groupDelete;
 		prisma.routine.deleteMany = routineDelete;
 		prisma.routine.findMany = routineMany;
+		Reflect.set(prisma, "$queryRaw", queryRaw);
 	}
 });
 

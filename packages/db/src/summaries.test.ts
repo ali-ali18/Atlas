@@ -100,3 +100,29 @@ describe("isSummaryFreshSnapshot", () => {
 		]);
 	});
 });
+
+describe("findConversationsNeedingSummary", () => {
+	it("só agrega conversas com mensagem na janela recente (idle + lookback), não a tabela inteira", async () => {
+		const { prisma } = await import("./client.js");
+		const { findConversationsNeedingSummary, SUMMARY_SWEEP_LOOKBACK_MS } = await import("./summaries.js");
+		const calls: Array<{ sql: string; params: unknown[] }> = [];
+		const original = (prisma as unknown as Record<string, unknown>).$queryRawUnsafe;
+		(prisma as unknown as Record<string, unknown>).$queryRawUnsafe = async (sql: string, ...params: unknown[]) => {
+			calls.push({ sql, params });
+			return [{ conversationId: "c1", botId: "b1", lastMessageId: "m9", lastMessageAt: new Date(0), messageCount: BigInt(25), snapshotVersion: null, summaryVersion: null }];
+		};
+		try {
+			const rows = await findConversationsNeedingSummary(30 * 60_000, 20, 20);
+			assert.deepEqual(rows.map((row) => [row.conversationId, row.messageCount]), [["c1", 25]]);
+		} finally {
+			(prisma as unknown as Record<string, unknown>).$queryRawUnsafe = original;
+		}
+		assert.equal(calls.length, 1);
+		const { sql, params } = calls[0]!;
+		assert.deepEqual(params, [30 * 60_000, 20, 20, SUMMARY_SWEEP_LOOKBACK_MS]);
+		// A janela filtra por createdAt antes de qualquer agregação; nada de GROUP BY sobre a tabela toda.
+		assert.match(sql, /WITH recent AS \(\s*SELECT DISTINCT "conversationId"\s*FROM conversation_messages\s*WHERE "createdAt" >= NOW\(\) - \(\(\$1::bigint \+ \$4::bigint\)/);
+		assert.doesNotMatch(sql, /GROUP BY/);
+		assert.ok(SUMMARY_SWEEP_LOOKBACK_MS > 60 * 60_000, "a janela cobre o cooldown de falha (30 min) com folga");
+	});
+});

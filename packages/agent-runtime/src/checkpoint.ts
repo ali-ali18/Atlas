@@ -158,9 +158,22 @@ export async function hydrateLlmMessages(
 }
 
 /**
+ * Memo de mídia do run (`chave -> Data URL/descrição`): o histórico é reenviado a cada passo e, sem
+ * isso, cada screenshot, imagem e PDF era carregado e recodificado de novo em todo passo. Só guarda
+ * resultado não vazio (falha ou artefato ausente tenta de novo no passo seguinte, como antes) e
+ * descarta o que o passo atual não usou, para não reter mídia antiga na memória.
+ */
+export type MediaMemo = Map<string, Promise<string | null>>;
+
+export function createMediaMemo(): MediaMemo {
+	return new Map();
+}
+
+/**
  * Expande a forma canônica para a forma de TRANSPORTE do modelo:
  * `screenshot_ref` vira `image_url` com Data URL (ou texto placeholder se o
- * artefato sumiu). O array canônico NÃO é mutado.
+ * artefato sumiu). O array canônico NÃO é mutado. As partes são resolvidas
+ * em paralelo, na mesma ordem.
  */
 export async function resolveLlmMessagesForModel(
 	messages: LlmMessage[],
@@ -173,58 +186,68 @@ export async function resolveLlmMessagesForModel(
 		/** O provedor lê PDF como documento; sem isso o PDF vira um aviso para usar attachment_read. */
 		canReadNativePdf?: boolean;
 		loadUserPdf?: (artifactId: string) => Promise<string | null>;
+		/** Memo do run (ver `MediaMemo`). Ausente: carrega tudo de novo. */
+		memo?: MediaMemo;
 	},
 ): Promise<LlmMessage[]> {
-	const resolved: LlmMessage[] = [];
-	for (const message of messages) {
-		if (!Array.isArray(message.content)) {
-			resolved.push({ ...message });
-			continue;
+	const memo = options?.memo;
+	const used = new Set<string>();
+	const load = (
+		key: string,
+		loader: ((artifactId: string) => Promise<string | null>) | undefined,
+		artifactId: string,
+	): Promise<string | null | undefined> => {
+		if (!loader) return Promise.resolve(undefined);
+		if (!memo) return loader(artifactId);
+		used.add(key);
+		const cached = memo.get(key);
+		if (cached) return cached;
+		const pending = loader(artifactId);
+		memo.set(key, pending);
+		const forget = () => {
+			if (memo.get(key) === pending) memo.delete(key);
+		};
+		pending.then((value) => {
+			if (!value) forget();
+		}, forget);
+		return pending;
+	};
+	const resolvePart = async (part: LlmContentPart): Promise<LlmContentPart> => {
+		if (part.type === "image_ref") {
+			if (options?.canSeeUserImages) {
+				const dataUrl = await load(`image:${part.artifactId}`, options.loadUserImage, part.artifactId);
+				return dataUrl ? { type: "image_url", image_url: { url: dataUrl } } : { type: "text", text: "[the user attached an image, but it is unavailable]" };
+			}
+			const description = await load(`describe:${part.artifactId}`, options?.describeUserImage, part.artifactId);
+			return { type: "text", text: description ? `[image attached by the user; description by a vision helper: ${description}]` : "[the user attached an image, but this model cannot see images]" };
 		}
-		const parts: LlmContentPart[] = [];
-		for (const part of message.content) {
-			if (part.type === "image_ref") {
-				if (options?.canSeeUserImages) {
-					const dataUrl = await options.loadUserImage?.(part.artifactId);
-					parts.push(dataUrl ? { type: "image_url", image_url: { url: dataUrl } } : { type: "text", text: "[the user attached an image, but it is unavailable]" });
-				} else {
-					const description = await options?.describeUserImage?.(part.artifactId);
-					parts.push({ type: "text", text: description ? `[image attached by the user; description by a vision helper: ${description}]` : "[the user attached an image, but this model cannot see images]" });
-				}
-				continue;
-			}
-			if (part.type === "file_ref") {
-				const dataUrl = options?.canReadNativePdf ? await options.loadUserPdf?.(part.artifactId) : null;
-				parts.push(dataUrl
-					? { type: "file", file: { filename: part.filename, file_data: dataUrl } }
-					: { type: "text", text: `[PDF "${part.filename}" is attached but not sent to this model as a document; read it with attachment_read (id ${part.artifactId})]` });
-				continue;
-			}
-			if (part.type !== "screenshot_ref") {
-				parts.push(part);
-				continue;
-			}
-			// L19: sem visão, screenshot não vai ao modelo; o texto aponta a alternativa.
-			if (options?.canSeeScreenshots === false) {
-				parts.push({
-					type: "text",
-					text: `[screenshot artifact:${part.artifactId} omitted: this model cannot see images; read the page as text instead]`,
-				});
-				continue;
-			}
-			const dataUrl = loadScreenshot
-				? await loadScreenshot(part.artifactId)
-				: null;
-			if (dataUrl) {
-				parts.push({ type: "image_url", image_url: { url: dataUrl } });
-			} else {
-				parts.push({
-					type: "text",
-					text: `[screenshot artifact:${part.artifactId}]`,
-				});
-			}
+		if (part.type === "file_ref") {
+			const dataUrl = options?.canReadNativePdf ? await load(`pdf:${part.artifactId}`, options.loadUserPdf, part.artifactId) : null;
+			return dataUrl
+				? { type: "file", file: { filename: part.filename, file_data: dataUrl } }
+				: { type: "text", text: `[PDF "${part.filename}" is attached but not sent to this model as a document; read it with attachment_read (id ${part.artifactId})]` };
 		}
-		resolved.push({ ...message, content: parts });
+		if (part.type !== "screenshot_ref") return part;
+		// L19: sem visão, screenshot não vai ao modelo; o texto aponta a alternativa.
+		if (options?.canSeeScreenshots === false) {
+			return {
+				type: "text",
+				text: `[screenshot artifact:${part.artifactId} omitted: this model cannot see images; read the page as text instead]`,
+			};
+		}
+		const dataUrl = await load(`screenshot:${part.artifactId}`, loadScreenshot, part.artifactId);
+		return dataUrl
+			? { type: "image_url", image_url: { url: dataUrl } }
+			: { type: "text", text: `[screenshot artifact:${part.artifactId}]` };
+	};
+	const resolved = await Promise.all(
+		messages.map(async (message): Promise<LlmMessage> => {
+			if (!Array.isArray(message.content)) return { ...message };
+			return { ...message, content: await Promise.all(message.content.map(resolvePart)) };
+		}),
+	);
+	if (memo) {
+		for (const key of [...memo.keys()]) if (!used.has(key)) memo.delete(key);
 	}
 	return resolved;
 }

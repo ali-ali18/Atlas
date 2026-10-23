@@ -63,6 +63,7 @@ test("rotinas por botId: usuário B não lista, lê, rotaciona nem apaga as do b
 	});
 	stubMethod(prisma.routineRun, "findFirst", async () => null);
 	stubMethod(prisma.routineRun, "findMany", async () => []);
+	stubMethod(prisma, "$queryRaw", async () => []);
 
 	assert.deepEqual(ids(await listRoutines(A, "bot-a1")), ["r-a"]);
 	assert.deepEqual(await listRoutines(B, "bot-a1"), []);

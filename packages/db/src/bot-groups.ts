@@ -309,7 +309,15 @@ export type GroupDispatchDeps = {
 	ensureConversation?: typeof ensureBotConversation;
 };
 
-export type GroupDispatchResult = { routed: number; started: number; settled: number; followUps: number; busy: number };
+export type GroupDispatchResult = {
+	routed: number;
+	started: number;
+	settled: number;
+	followUps: number;
+	busy: number;
+	/** Ainda há turno roteando ou ativo: o worker volta a varrer logo. */
+	inFlight: boolean;
+};
 
 /** Uma chamada ao Jev para decidir quem responde. `null` = indisponível (cai no fluxo base). Log sem conteúdo. */
 async function decideWithJev(
@@ -722,5 +730,9 @@ export async function processGroupTurns(deps: GroupDispatchDeps): Promise<GroupD
 	const routed = await routeTurns(deps).catch((error) => (console.error("[bot-groups] routing failed", error), 0));
 	const dispatch = await dispatchReplies(deps).catch((error) => (console.error("[bot-groups] dispatch failed", error), { started: 0, busy: 0 }));
 	await closeFinishedTurns().catch((error) => console.error("[bot-groups] close failed", error));
-	return { routed, started: dispatch.started, settled: settle.settled, followUps: settle.followUps, busy: dispatch.busy };
+	// Erro na leitura conta como "em andamento": melhor varrer de novo logo do que dormir com trabalho aberto.
+	const open = await prisma.groupTurn
+		.findFirst({ where: { status: { in: ["routing", "active"] } }, select: { id: true } })
+		.catch(() => ({ id: "unknown" }));
+	return { routed, started: dispatch.started, settled: settle.settled, followUps: settle.followUps, busy: dispatch.busy, inFlight: open !== null };
 }

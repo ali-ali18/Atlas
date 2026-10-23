@@ -90,20 +90,25 @@ export function failedApprovalDetail(description: string | undefined, failure: s
 }
 
 /** Recusa sem comentário ("cancela isso") = pulou; "recusado: …" = recusou. Olha a primeira decisão que vem depois do cartão. */
-function skippedBy(following: readonly Message[]): boolean {
-	for (const next of following) {
+function skippedBy(following: readonly Message[], from: number): boolean {
+	for (let index = from; index < following.length; index += 1) {
+		const next = following[index]!;
 		if (next.kind !== "user" || !isCardProtocolText(next.text)) continue;
 		return /^cancela isso$/i.test(next.text.trim());
 	}
 	return false;
 }
 
-/** Marcador da conversa para um cartão de aprovação; `null` se a mensagem não é um (segue inline). */
-export function approvalMarkerFor(message: Message, activeIds: ReadonlySet<string>, following: readonly Message[] = []): ApprovalMarker | null {
+/**
+ * Marcador da conversa para um cartão de aprovação; `null` se a mensagem não é um (segue inline).
+ * `following` são as mensagens depois do cartão a partir de `from` (a thread inteira + índice evita copiar
+ * um pedaço da lista para cada linha).
+ */
+export function approvalMarkerFor(message: Message, activeIds: ReadonlySet<string>, following: readonly Message[] = [], from = 0): ApprovalMarker | null {
 	let status: ApprovalMarkerStatus;
 	if (isDockConfirm(message)) {
 		const base = message.status ?? "pending";
-		status = base === "pending" ? (activeIds.has(message.id) ? "pending" : "expired") : base === "rejected" && message.superseded ? "expired" : base === "rejected" ? (skippedBy(following) ? "skipped" : "rejected") : base;
+		status = base === "pending" ? (activeIds.has(message.id) ? "pending" : "expired") : base === "rejected" && message.superseded ? "expired" : base === "rejected" ? (skippedBy(following, from) ? "skipped" : "rejected") : base;
 	} else if (isDockRelayed(message)) {
 		status = message.status === "pending" ? (activeIds.has(message.id) ? "pending" : "expired") : "resolved";
 	} else {

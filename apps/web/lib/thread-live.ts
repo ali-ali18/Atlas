@@ -21,13 +21,18 @@ export function asTranscript(messages: Message[]): TranscriptBubble[] {
 	);
 }
 
-export function fromTranscript(messages: TranscriptBubble[]): Message[] {
+export function fromTranscript(messages: TranscriptBubble[], previous?: readonly Message[]): Message[] {
+	// Bolha que o reducer não tocou é o mesmo objeto da tela: fica a mesma referência (as linhas memoizadas
+	// não redesenham). Só a bolha nova ou alterada é remontada no formato da thread.
+	const known = previous ? new Set<unknown>(previous) : null;
 	return messages.map((message) =>
-		message.kind === "tool"
-			? { id: message.id, kind: "tool", label: message.label ?? "tool", text: message.text, createdAt: message.createdAt }
-			: message.kind === "assistant"
-				? { id: message.id, kind: "assistant", text: message.text, createdAt: message.createdAt, ...(message.revised ? { revised: message.revised } : {}) }
-				: { id: message.id, kind: message.kind, text: message.text, createdAt: message.createdAt },
+		known?.has(message)
+			? (message as Message)
+			: message.kind === "tool"
+				? { id: message.id, kind: "tool", label: message.label ?? "tool", text: message.text, createdAt: message.createdAt }
+				: message.kind === "assistant"
+					? { id: message.id, kind: "assistant", text: message.text, createdAt: message.createdAt, ...(message.revised ? { revised: message.revised } : {}) }
+					: { id: message.id, kind: message.kind, text: message.text, createdAt: message.createdAt },
 	);
 }
 
@@ -43,6 +48,8 @@ export function mergePreservingSkills(
 ): Message[] {
 	const nextById = new Map(nextTranscript.map((item) => [item.id, item]));
 	const consumed = new Set<string>();
+	// Ids já na saída: o teste "já entrou?" era um `some` por item (O(n²) por delta).
+	const resultIds = new Set<string>();
 	const result: Message[] = [];
 	for (const item of previous) {
 		if (
@@ -75,6 +82,7 @@ export function mergePreservingSkills(
 			|| item.kind === "context-summary"
 		) {
 			result.push(item);
+			resultIds.add(item.id);
 			continue;
 		}
 		const updated = nextById.get(item.id);
@@ -84,14 +92,16 @@ export function mergePreservingSkills(
 			// O e-mail recebido (cartão) também some no transcript (só id/tipo/texto): sem ele o corpo viraria balão do dono.
 			const email = item.kind === "user" ? item.email : undefined;
 			let merged: Message = bot && (updated.kind === "user" || updated.kind === "assistant") && !updated.bot ? { ...updated, bot } : updated;
-			if (email && item.kind === "user" && merged.kind === "user") merged = { ...merged, text: item.text, email };
+			if (email && item.kind === "user" && merged.kind === "user" && merged !== item) merged = { ...merged, text: item.text, email };
 			result.push(merged);
+			resultIds.add(merged.id);
 			consumed.add(item.id);
 		}
 	}
 	for (const item of nextTranscript) {
-		if (!consumed.has(item.id) && !result.some((row) => row.id === item.id)) {
+		if (!consumed.has(item.id) && !resultIds.has(item.id)) {
 			result.push(item);
+			resultIds.add(item.id);
 		}
 	}
 	return dedupeCards(result);
@@ -107,13 +117,52 @@ export function createLiveBubbleState(): LiveBubbleState {
 	return { superseded: new Set() };
 }
 
+/**
+ * Telas que já passaram pelo pipeline completo (merge + dedupe + balões cobertos). Sobre elas, um delta de
+ * texto num balão ao vivo que já existe não muda nada além do texto desse balão: o caminho rápido troca só
+ * esse item em vez de refazer a thread inteira a cada token. Tela vinda de outro lugar (cartão, sync,
+ * reconciliação) passa de novo pelo pipeline completo no primeiro delta.
+ */
+const settledThreads = new WeakSet<Message[]>();
+
+function settle(messages: Message[]): Message[] {
+	settledThreads.add(messages);
+	return messages;
+}
+
+/** Delta de texto num balão ao vivo já na tela: só ele muda (os outros itens mantêm a referência). */
+function applyDeltaFast(previous: Message[], event: Extract<ComputerUseEvent, { type: "assistant_delta" }>, state: LiveBubbleState): Message[] | null {
+	if (!settledThreads.has(previous)) return null;
+	const id = `cu-${event.id}`;
+	const index = previous.findIndex((item) => item.id === id);
+	const current = previous[index];
+	if (!current || current.kind !== "assistant") return null;
+	const updated: Message = { ...current, text: `${current.text}${event.delta}` };
+	// O pipeline completo tiraria o balão se a fala inteira já estiver gravada (linha do servidor chegou antes
+	// do último delta). Os outros balões não mudaram, então só este precisa da conferência.
+	if (normalizeText(updated.text).length >= MIN_COVERED_LENGTH) {
+		const persisted = previous.filter((item) => !(item.kind === "assistant" && item.id.startsWith("cu-")));
+		if (persistedAssistantCovers(persisted, updated.text)) {
+			state.superseded.add(id);
+			return settle(previous.filter((_, position) => position !== index));
+		}
+	}
+	const next = previous.slice();
+	next[index] = updated;
+	return settle(next);
+}
+
 /** Um evento de texto do stream (delta/descarte/erro) aplicado à thread, preservando os cards já exibidos. */
 export function applyLiveEvent(previous: Message[], event: ComputerUseEvent, state: LiveBubbleState = createLiveBubbleState()): Message[] {
 	if (event.type === "assistant_delta" && state.superseded.has(`cu-${event.id}`)) return previous;
-	return dropLiveBubblesCoveredByPersisted(
-		mergePreservingSkills(previous, fromTranscript(applyComputerUseEventToTranscript(asTranscript(previous), event))),
+	if (event.type === "assistant_delta") {
+		const fast = applyDeltaFast(previous, event, state);
+		if (fast) return fast;
+	}
+	return settle(dropLiveBubblesCoveredByPersisted(
+		mergePreservingSkills(previous, fromTranscript(applyComputerUseEventToTranscript(asTranscript(previous), event), previous)),
 		state,
-	);
+	));
 }
 
 /**
@@ -121,10 +170,10 @@ export function applyLiveEvent(previous: Message[], event: ComputerUseEvent, sta
  * servidor e os eventos do run (deltas) são reaplicados por cima para recuperar o balão em andamento.
  */
 export function hydrateRunEvents(thread: Message[], events: ComputerUseEvent[], state: LiveBubbleState = createLiveBubbleState()): Message[] {
-	return dropLiveBubblesCoveredByPersisted(
-		mergePreservingSkills(thread, fromTranscript(applyComputerUseEventsToTranscript(asTranscript(thread), events))),
+	return settle(dropLiveBubblesCoveredByPersisted(
+		mergePreservingSkills(thread, fromTranscript(applyComputerUseEventsToTranscript(asTranscript(thread), events), thread)),
 		state,
-	);
+	));
 }
 
 function normalizeText(text: string): string {

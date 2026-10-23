@@ -8,18 +8,20 @@ import { cors } from "hono/cors";
 import { accountChatgptGate, ensureGithubRepoHook } from "@workspace/agent-runtime";
 import {
 	closeRunSignals,
+	closeSweepSignals,
+	publishSweepSignal,
 	publishRunSignal,
 	publishRunEventsSignal,
 	createAgentRunQueue,
 	createChatCompletionQueue,
 	createRedisConnection,
 	createRoutineQueue,
-	rehydrateRoutineSchedulers,
 } from "@workspace/queue";
 import { loadConfig } from "./config.js";
 import { rateLimitByIp } from "./middleware/rate-limit.js";
 import { requireUser } from "./middleware/auth.js";
 import { jsonBodyLimit } from "./middleware/json-body-limit.js";
+import { apiCompress } from "./middleware/compress.js";
 import { auth, authProviders, isOwnerEmail } from "./auth.js";
 import { createViewerUpgradeHandler } from "./routes/sandbox-viewer.js";
 import { createChatRoutes } from "./routes/chat.js";
@@ -58,6 +60,7 @@ import { createModelRoutes } from "./routes/models.js";
 import { createEventRoutes } from "./routes/events.js";
 import { createHealthRoutes } from "./health.js";
 import { endAllObserverStreams } from "./routes/run-observer.js";
+import { closeUserEventWaker } from "./user-event-wakeups.js";
 import { createRunRoutes, enqueueAgentRunJob, reconcileQueuedAgentRuns, resumeRunsAwaitingConnector } from "./routes/runs.js";
 import { createEmailRoutes } from "./routes/email.js";
 import { createEmailInboundRoutes } from "./webhooks/email-inbound.js";
@@ -93,12 +96,11 @@ import {
 	updateDevSession,
 	prisma,
 	setRunEventAppendedHook,
-	cancelStaleCancelledRuns,
-	failStaleRunningRuns,
+	setRunFinalizedByRequestHook,
+	onGroupTurnCreated,
+	onBotMessageCreated,
 	listGithubRoutineRepoOwners,
-	listSchedulableRoutines,
 	maybeClaimDefaultOnBoot,
-	recoverStaleRunningRuns,
 } from "@workspace/db";
 import {
 	createDockerDevProvider,
@@ -180,6 +182,9 @@ app.use(
 	}),
 );
 
+// gzip/deflate em JSON e texto (listas, conversas); SSE fica de fora (ver middleware/compress.ts).
+app.use("/*", apiCompress());
+
 app.use("/v1/hooks/*", rateLimitByIp(60, 60_000));
 app.use("/v1/email/inbound/*", rateLimitByIp(120, 60_000));
 app.use("/v1/runs/:id/stream", rateLimitByIp(30, 60_000));
@@ -193,6 +198,14 @@ app.use("/v1/*", jsonBodyLimit);
 
 // Acorda os streams SSE quando o run ganha evento (o worker faz o mesmo no processo dele).
 setRunEventAppendedHook((runId) => void publishRunEventsSignal(runId));
+// Turno de grupo / mensagem entre bots criados aqui: o worker varre na hora (o gancho do db é só deste processo).
+onGroupTurnCreated(() => void publishSweepSignal("groups"));
+onBotMessageCreated(() => void publishSweepSignal("bot-messages"));
+// Run encerrado aqui (cancelar na fila ou parado num card): grupos e mensagens entre bots seguem sem esperar.
+setRunFinalizedByRequestHook(() => {
+	void publishSweepSignal("groups");
+	void publishSweepSignal("bot-messages");
+});
 
 let apiShuttingDown = false;
 app.route(
@@ -446,63 +459,21 @@ if (devSandboxConfig.enabled) {
 	});
 }
 
+// Runs presos (lease vencida, worker sem heartbeat, cancelamento órfão) e o reagendamento das rotinas
+// ficam só no worker (index.ts dele, mesma cadência): rodar aqui também duplicava as consultas.
 function runReconciliation() {
-	void recoverStaleRunningRuns()
-		.then((recovered) => {
-			if (recovered.length > 0) {
-				console.warn(
-					`[agent] recovered stale running runs: ${recovered.length}`,
-				);
-			}
-		})
-		.catch((error) => {
-			console.error("stale run recovery failed", error);
-		})
-		.finally(() => {
-			void reconcileQueuedAgentRuns(agentRunQueue).catch((error) => {
-				console.error("agent run reconciler failed", error);
-			});
-		});
+	void reconcileQueuedAgentRuns(agentRunQueue).catch((error) => {
+		console.error("agent run reconciler failed", error);
+	});
 	// Decisões automáticas dos orquestradores ("Decidir pelos outros bots") esperando o card do destino.
 	void applyQueuedBotDecisions({ queue: agentRunQueue, openRouterModel: config.openRouterModel }).catch((error) => {
 		console.error("bot decisions sweeper failed", error);
 	});
-	void failStaleRunningRuns()
-		.then((failed) => {
-			for (const runId of failed) {
-				console.error(`[agent] Run ${runId} falhou: worker sem heartbeat`);
-			}
-		})
-		.catch((error) => {
-			console.error("stale run sweeper failed", error);
-		});
-	// Cancel órfão (worker morreu antes de observar): graça curta, o lease
-	// saudável renova a cada 10s então 30s só pega órfão de verdade.
-	void cancelStaleCancelledRuns(30_000)
-		.then((cancelled) => {
-			for (const runId of cancelled) {
-				console.warn(`[agent] Run ${runId} cancelado (órfão reconciliado)`);
-			}
-		})
-		.catch((error) => {
-			console.error("stale cancel sweeper failed", error);
-		});
 }
 
 const reconcileTimer = setInterval(runReconciliation, 15_000);
 runReconciliation();
 
-if (routineQueue) {
-	const queue = routineQueue;
-	void listSchedulableRoutines()
-		.then((routines) => rehydrateRoutineSchedulers(queue, routines))
-		.then(() => {
-			console.log("Routine schedulers rehydrated from Postgres");
-		})
-		.catch((error) => {
-			console.error("routine scheduler rehydrate failed", error);
-		});
-}
 
 /**
  * Ordem do encerramento (deploy/SIGTERM): sai da rotação (/health/ready 503), para de
@@ -538,6 +509,8 @@ async function shutdown() {
 	}
 	clearInterval(reconcileTimer);
 	await closeRunSignals().catch(() => undefined);
+	await closeSweepSignals().catch(() => undefined);
+	await closeUserEventWaker().catch(() => undefined);
 	if (redisConnection) {
 		await redisConnection.quit();
 	}

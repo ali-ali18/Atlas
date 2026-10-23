@@ -26,10 +26,12 @@
     "better-auth": "^1.7.6",
     "dotenv": "^17.2.3",
     "hono": "^4.13.11",
+    "pg": "^8.23.0",
     "sharp": "0.35.5"
   },
   "devDependencies": {
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@workspace/typescript-config": "workspace:*",
     "tsx": "^4.21.0",
     "typescript": "^5"

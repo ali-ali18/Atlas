@@ -150,3 +150,52 @@ test("run pausado fecha com evento explícito", async () => {
 	await done;
 	assert.match(frames.join(""), /event: paused/);
 });
+
+test("assinatura confirmada espaça a consulta de segurança (3 s); sem Redis fica em 500 ms", async () => {
+	for (const subscribed of [true, false]) {
+		const run = fakeRun([], "running");
+		const waits: number[] = [];
+		let stop = false;
+		await runRunStream(0, {
+			...run.deps,
+			subscribed: () => subscribed,
+			io: {
+				stopped: () => stop,
+				send: () => undefined,
+				wakeUp: () => undefined,
+				wait: async (ms) => {
+					waits.push(ms);
+					if (waits.length >= 2) stop = true;
+				},
+			},
+		});
+		assert.deepEqual(waits, subscribed ? [3_000, 3_000] : [500, 500]);
+	}
+});
+
+test("evento gravado entre a primeira leitura e a confirmação do SUBSCRIBE não espera a consulta lenta", async () => {
+	const run = fakeRun([], "running");
+	let ready: (() => void) | undefined;
+	let confirmed = false;
+	const abort = new AbortController();
+	const { frames, done } = collect(abort, (io) =>
+		runRunStream(0, {
+			...run.deps,
+			subscribe: (onWake, onReady) => {
+				ready = onReady;
+				return run.deps.subscribe(onWake);
+			},
+			subscribed: () => confirmed,
+			io: { ...io, wait: (ms) => io.wait(Math.min(ms, 3_000)) },
+		}),
+	);
+	await sleep(20);
+	// Publicado antes de a assinatura valer: o sinal se perdeu (sem wake).
+	run.events.push({ seq: 1, payload: { type: "assistant_delta", delta: "oi" } });
+	confirmed = true;
+	ready!();
+	await sleep(50);
+	assert.match(frames.join(""), /^id: 1$/m);
+	abort.abort();
+	await done;
+});
