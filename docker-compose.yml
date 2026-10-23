@@ -1,3 +1,4 @@
+# `pull_policy: always`: o Dokploy roda `up -d` sem `--pull`; sem isto um `latest` em cache nunca atualiza.
 # Produção (Dokploy): este arquivo SÓ puxa imagens prontas do GHCR (publicadas por
 # .github/workflows/images.yml); nada é compilado no servidor. Guia: docs/deploy-dokploy.md.
 #   ATLAS_IMAGE_TAG     tag de web/api/worker/migrate (padrão `latest`; rollback: `sha-abc1234`).
@@ -56,7 +57,7 @@ x-api-environment: &api-environment
   SANDBOX_VIEWER_MODE: ${SANDBOX_VIEWER_MODE:-proxy}
   SANDBOX_CONTROL_HOST: ${SANDBOX_CONTROL_HOST:-host.docker.internal}
   SANDBOX_TLS: ${SANDBOX_TLS:-false}
-  SANDBOX_MEMORY_MB: ${SANDBOX_MEMORY_MB:-2048}
+  SANDBOX_MEMORY_MB: ${SANDBOX_MEMORY_MB:-1024}
   SANDBOX_CPUS: ${SANDBOX_CPUS:-1}
   # VM na rede `atlas-sandbox` (só api/worker), alcançada pelo IP interno:
   # num Linux, a porta publicada em 127.0.0.1 do host não é alcançável de
@@ -70,7 +71,7 @@ x-api-environment: &api-environment
   DEV_SANDBOX_ENABLED: ${DEV_SANDBOX_ENABLED:-false}
   DEV_SANDBOX_IMAGE: ${DEV_SANDBOX_IMAGE:-ghcr.io/ali-ali18/atlas-dev-sandbox:${ATLAS_SANDBOX_TAG:-latest}}
   DEV_SANDBOX_MAX_CONCURRENT: ${DEV_SANDBOX_MAX_CONCURRENT:-2}
-  DEV_SANDBOX_MEMORY_BUDGET_MB: ${DEV_SANDBOX_MEMORY_BUDGET_MB:-4096}
+  DEV_SANDBOX_MEMORY_BUDGET_MB: ${DEV_SANDBOX_MEMORY_BUDGET_MB:-1536}
   DEV_SANDBOX_MIN_FREE_MB: ${DEV_SANDBOX_MIN_FREE_MB:-512}
   DEV_SANDBOX_IDLE_MS: ${DEV_SANDBOX_IDLE_MS:-600000}
   DEV_SANDBOX_DEFAULT_TIER: ${DEV_SANDBOX_DEFAULT_TIER:-small}
@@ -218,6 +219,7 @@ services:
   # Só puxa a imagem da sandbox do GHCR; o container sai imediatamente (só a imagem importa).
   agent-sandbox:
     image: ghcr.io/ali-ali18/atlas-agent-sandbox:${ATLAS_SANDBOX_TAG:-latest}
+    pull_policy: always
     mem_limit: 64m
     entrypoint: ["/bin/sh", "-c", "echo 'Image atlas-agent-sandbox:latest ready'"]
     restart: "no"
@@ -226,6 +228,7 @@ services:
   # Memória de cada execução: CODE_RUNNER_MEMORY_MB (definida em packages/sandbox na criação do container).
   code-runner:
     image: ghcr.io/ali-ali18/atlas-code-runner:${ATLAS_SANDBOX_TAG:-latest}
+    pull_policy: always
     mem_limit: 64m
     entrypoint: ["/bin/sh", "-c", "echo 'Image atlas-code-runner:latest ready'"]
     restart: "no"
@@ -233,12 +236,14 @@ services:
   # Puxa a imagem das sessões de desenvolvimento; o container sai imediatamente.
   dev-sandbox:
     image: ghcr.io/ali-ali18/atlas-dev-sandbox:${ATLAS_SANDBOX_TAG:-latest}
+    pull_policy: always
     mem_limit: 64m
     entrypoint: ["/bin/sh", "-c", "echo 'Image atlas-dev-sandbox:latest ready'"]
     restart: "no"
 
   migrate:
     image: ghcr.io/ali-ali18/atlas-migrate:${ATLAS_IMAGE_TAG:-latest}
+    pull_policy: always
     mem_limit: 512m
     environment:
       NODE_OPTIONS: --max-old-space-size=384
@@ -250,6 +255,7 @@ services:
 
   api:
     image: ghcr.io/ali-ali18/atlas-api:${ATLAS_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     # Teto do container: um vazamento reinicia só a api (não o servidor). Heap do Node abaixo do teto.
     mem_limit: 768m
@@ -303,9 +309,10 @@ services:
 
   worker:
     image: ghcr.io/ali-ali18/atlas-worker:${ATLAS_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     # Inclui o Chromium (PDF), que fica fora do heap do Node: por isso o heap é bem menor que o teto.
-    mem_limit: 1g
+    mem_limit: 1536m
     # Deploy: o worker para de pegar jobs e deixa o run ativo terminar o passo atual (até 90s);
     # se não der, grava checkpoint e solta o lease para o novo worker retomar na hora.
     # Precisa ser MAIOR que a janela de graça do código (WORKER_SHUTDOWN_GRACE_MS=90s + 20s de checkpoint).

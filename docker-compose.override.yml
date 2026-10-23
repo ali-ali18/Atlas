@@ -6,24 +6,29 @@
 #   alcançá-los. Publica SÓ em 127.0.0.1 (não expõe na rede).
 services:
   # --- Build local (produção puxa do GHCR) ---
+  # pull_policy: build anula o `always` do compose de produção (imagens locais não existem no registry).
   agent-sandbox:
     build:
       context: ./docker/agent-sandbox
     image: atlas-agent-sandbox:latest
+    pull_policy: build
   code-runner:
     build:
       context: ./docker/code-runner
     image: atlas-code-runner:latest
+    pull_policy: build
   dev-sandbox:
     build:
       context: ./docker/dev-sandbox
     image: atlas-dev-sandbox:latest
+    pull_policy: build
   migrate:
     build:
       context: .
       dockerfile: docker/node-service.Dockerfile
       target: migrate
     image: atlas-migrate:local
+    pull_policy: build
   web:
     build:
       context: .
@@ -32,6 +37,7 @@ services:
         ATLAS_API_INTERNAL_URL: http://api:3001
         NEXT_PUBLIC_SENTRY_DSN: ${SENTRY_DSN:-}
     image: atlas-web:local
+    pull_policy: build
     ports:
       - "3000:3000"
 
@@ -43,6 +49,7 @@ services:
       args:
         SERVICE: api
     image: atlas-api:local
+    pull_policy: build
     environment:
       SANDBOX_IMAGE: atlas-agent-sandbox:latest
       CODE_RUNNER_IMAGE: atlas-code-runner:latest
@@ -59,6 +66,7 @@ services:
       args:
         SERVICE: worker
     image: atlas-worker:local
+    pull_policy: build
     environment:
       SANDBOX_IMAGE: atlas-agent-sandbox:latest
       CODE_RUNNER_IMAGE: atlas-code-runner:latest
