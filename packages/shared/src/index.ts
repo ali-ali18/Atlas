@@ -858,6 +858,7 @@ export {
 	type ChartType,
 } from "./chart-spec.js";
 export * from "./page-spec.js";
+export * from "./page-groups.js";
 export * from "./model-tiers.js";
 
 export * from "./maintenance-status.js";
