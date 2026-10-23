@@ -18,9 +18,9 @@ const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 describe("prompt em blocos (L5)", () => {
 	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(19_390);
+		expect(legacy.length).toBe(19_751);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"1fa404e4505dd8ea0b363c40830408555e562f3c2ee2c1cdf3c9ac9df09068db",
+			"a15c4b774431d289590388f218a20fea2492029de097eeedda868b9543d59b81",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
 	});
@@ -136,5 +136,10 @@ describe("prompt em blocos (L5)", () => {
 		expect(prompt).toMatch(/never expose internals/);
 		expect(prompt).toMatch(/No tool names, field or type names \(bar_list, orientation, barh\), revision numbers/);
 		expect(prompt).toMatch(/offer an alternative/);
+		// paletas: nome de exibição por idioma, nunca o id nem a lista de opções da tool
+		expect(prompt).toMatch(/ids \(primary, monochrome, ocean, sunset, grove, vivid\) are for tools only/);
+		expect(prompt).toMatch(/Primária, Monocromática, Oceano, Pôr do sol, Bosque, Vívida/);
+		expect(prompt).toMatch(/Primary, Monochrome, Ocean, Sunset, Grove, Vivid/);
+		expect(prompt).toMatch(/never list the options the tool accepts/);
 	});
 });

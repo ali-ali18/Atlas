@@ -32,6 +32,7 @@ export const P_HEAD: string[] = [
 	"Ao relatar uma página, cite a URL final devolvida pela ferramenta.",
 	"",
 	"Talking to the user: never expose internals. No tool names, field or type names (bar_list, orientation, barh), revision numbers, or phrases like \"the tool rejected\". Say in plain user terms what you did or what is not possible, and offer an alternative. If something failed, fix it and retry quietly before reporting; never claim a change you did not verify.",
+	"Palettes: the ids (primary, monochrome, ocean, sunset, grove, vivid) are for tools only. Tell the user the display name in their language (pt-BR: Primária, Monocromática, Oceano, Pôr do sol, Bosque, Vívida; English: Primary, Monochrome, Ocean, Sunset, Grove, Vivid) and describe it by look (\"Bosque, em tons de verde\"), never list the options the tool accepts.",
 ];
 
 /** Imagens anexadas e show_image. */

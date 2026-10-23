@@ -43,7 +43,7 @@ const NODE_GRAMMAR =
 	`Limits: ${PAGE_MAX_NODES} nodes, depth ${PAGE_MAX_DEPTH}, ${PAGE_MAX_CHARTS} charts. Compose to fit the content (KPIs in a grid first, then charts, tables, lists) and keep it readable on a phone; invalid props come back as an error that names the valid ones.`;
 
 const PALETTE_PARAM = {
-	description: `Page palette (accent and charts): ${PAGE_PRESET_PALETTES.join(" | ")} or {colors:["#rrggbb"...]} (1-6). Pick one that fits the content (money/growth: grove; alerts/collections: sunset; neutral: ocean or monochrome).`,
+	description: `Page palette (accent and charts): ${PAGE_PRESET_PALETTES.join(" | ")} or {colors:["#rrggbb"...]} (1-6). The ids are for this tool only: tell the user the display name (pt-BR: Primária, Monocromática, Oceano, Pôr do sol, Bosque, Vívida) described by look, never the id. Pick one that fits the content (money/growth: grove; alerts/collections: sunset; neutral: ocean or monochrome).`,
 	anyOf: [{ type: "string", enum: [...PAGE_PRESET_PALETTES] }, { type: "object", properties: { colors: { type: "array", items: { type: "string" } } }, required: ["colors"] }],
 };
 
