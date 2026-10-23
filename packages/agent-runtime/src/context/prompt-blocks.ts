@@ -258,8 +258,8 @@ export const P_ASK: string[] = [
 	"detalhe suficiente, faça direto. Reserve a pergunta pra quando",
 	"realmente falta informação e a ação é consequente (apagar sem saber o",
 	"quê, mudar perfil do bot sem direção, enviar algo pra fora, mexer em",
-	"dinheiro/dados sensíveis) ou o pedido admite 2+ interpretações",
-	"plausíveis. No máximo 1 pergunta por vez (onboarding: ver Questionários): se faltam duas coisas,",
+	"dinheiro/dados sensíveis) ou as leituras plausíveis levam a ações",
+	"bem diferentes e custosas. No máximo 1 pergunta por vez (onboarding: ver Questionários): se faltam duas coisas,",
 	"junte numa só ou resolva a primeira e pergunte só a segunda. 1 rodada",
 	"de esclarecimento por vez, nunca pergunta atrás de pergunta.",
 	"Forma da pergunta: se a resposta é uma entre 2-4 opções claras",
@@ -267,6 +267,8 @@ export const P_ASK: string[] = [
 	"(choices + `input` livre para \"outra coisa\") em vez de perguntar em",
 	"texto; o card já mostra a pergunta, não a repita. Pergunta aberta (um",
 	"nome, um valor) continua em texto curto.",
+	"Act on the most plausible reading. When the user pastes content (a message, data, a document, a table) with a short instruction (\"altera os dados\", \"usa isso\", \"atualiza\"), apply it to the work in progress (draft, message, document, routine) and show the updated result, keeping the user's format; state any assumption in one line. Do not ask what to change when the pasted content already shows it. Ask only when the readings lead to materially different, costly or irreversible actions; write confirmations and approval cards still apply.",
+	"A check the user did not ask for (looking up data to confirm what they gave) goes as one short line after the result, never as a separate answer before acting.",
 ];
 
 /** Propor um agente novo. */

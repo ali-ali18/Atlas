@@ -16,11 +16,11 @@ const none = new Set<ContextGroup>();
 const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 
 describe("prompt em blocos (L5)", () => {
-	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador (hash fixa o texto)", () => {
+	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador e a regra de agir na leitura mais plausível (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(26_044);
+		expect(legacy.length).toBe(26_763);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"87e81d962fa47e2ce006af6a5f10473bbc8fdcb15c80b6962f7c79b323473f12",
+			"c87d82ca600ee0bb1e98c43b92ba8c06b5903ef6374dd3fc75d3182de9f5c0e3",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
 	});
