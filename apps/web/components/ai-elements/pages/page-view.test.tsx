@@ -177,6 +177,10 @@ test("PageCard: título, N fontes, resumo, painel inteiro inline e rodapé", () 
 	assert.match(html, /Detalhes/);
 	assert.match(html, />Painel</);
 	assert.match(html, /aria-label="Abrir painel em tela cheia"/);
+	// compartilhar: botão com nome acessível, fora do que vira imagem (data-share-ignore) e alvo da imagem marcado
+	assert.match(html, /aria-label="Compartilhar Forecast Q4"/);
+	assert.match(html, /data-share-ignore/);
+	assert.match(html, /data-share-target/);
 });
 
 test("PageCard sem snapshot mostra o esqueleto até o servidor responder, e 1 fonte no singular", () => {

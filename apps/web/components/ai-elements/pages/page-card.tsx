@@ -9,6 +9,8 @@ import { cn } from "@workspace/ui/lib/utils";
 import { AtlasApiError, type AtlasPage, getPage } from "@/lib/atlas-api";
 import { memoryRelativeDate } from "@/components/ui/templates/template-4/chat-context-panel/memory-tab-helpers";
 
+import { ShareMenu } from "@/components/ai-elements/share/share-menu";
+
 import { PageDialog } from "./page-dialog";
 import { reconcilePageSnapshot, sourceCountLabel, type PageViewState, type RemotePage } from "./page-format";
 import { PageView } from "./page-view";
@@ -50,7 +52,7 @@ export function updatedLabel(iso: string | null, now: Date = new Date()): string
  * Cartão do painel no chat: desenha o painel inteiro inline (snapshot gravado na mensagem), revalida pelo
  * servidor e troca para a revisão mais nova se houver. Toque em "Abrir" (ou no rodapé) abre em tela cheia.
  */
-export function PageCard({ card, loadPage = defaultLoadPage, now }: { card: PageCardData; loadPage?: LoadPage; now?: Date }) {
+export function PageCard({ card, loadPage = defaultLoadPage, now, botName }: { card: PageCardData; loadPage?: LoadPage; now?: Date; botName?: string | null }) {
 	const [remote, setRemote] = useState<RemotePage | "missing" | null>(null);
 	const [open, setOpen] = useState(false);
 
@@ -73,18 +75,21 @@ export function PageCard({ card, loadPage = defaultLoadPage, now }: { card: Page
 
 	return (
 		<section aria-label={`Painel: ${card.title}`} className="my-1 w-full min-w-0 max-w-[min(68ch,calc(100vw-3rem))] overflow-hidden rounded-xl border border-border/60 bg-card text-card-foreground" data-testid="page-card">
+			<div data-share-target>
 			<header className="flex items-start gap-2 px-4 pt-3">
 				<div className="min-w-0 flex-1">
 					<h3 className="font-heading font-semibold text-sm [overflow-wrap:anywhere]">{card.title}</h3>
 					{count ? <p className="text-muted-foreground text-xs">{count}</p> : null}
 				</div>
-				<Button aria-label="Abrir painel em tela cheia" className="shrink-0" onClick={() => setOpen(true)} size="icon-sm" variant="ghost">
+				{view && !view.removed ? <ShareMenu botName={botName} pdf targetSelector="[data-share-target]" title={card.title} /> : null}
+				<Button aria-label="Abrir painel em tela cheia" className="shrink-0" data-share-ignore onClick={() => setOpen(true)} size="icon-sm" variant="ghost">
 					<Maximize2Icon />
 				</Button>
 			</header>
 			{view?.spec.summary ? <p className="px-4 pt-1 text-sm [overflow-wrap:anywhere]">{view.spec.summary}</p> : null}
 			<div className="px-4 py-3">
 				{view ? <PageView spec={view.spec} /> : <div aria-live="polite" className="h-24 animate-pulse rounded-lg bg-muted/40 motion-reduce:animate-none" data-testid="page-loading" />}
+			</div>
 			</div>
 			<footer className="border-border/60 border-t">
 				<button
@@ -96,7 +101,7 @@ export function PageCard({ card, loadPage = defaultLoadPage, now }: { card: Page
 					{updated ? <span>· {updated}</span> : null}
 				</button>
 			</footer>
-			{view ? <PageDialog onOpenChange={setOpen} open={open} sources={view.sources} spec={view.spec} summary={view.spec.summary} title={card.title} updatedLabel={updated} /> : null}
+			{view ? <PageDialog botName={botName} onOpenChange={setOpen} open={open} sources={view.sources} spec={view.spec} summary={view.spec.summary} title={card.title} updatedLabel={updated} /> : null}
 		</section>
 	);
 }

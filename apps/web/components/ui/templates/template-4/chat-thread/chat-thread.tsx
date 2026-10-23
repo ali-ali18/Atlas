@@ -1220,6 +1220,7 @@ export function ChatThread({
 									{separator}
 									{sourceMarker}
 									<MessageRow
+										botName={agent?.name}
 										groupPosition={groupPosition}
 										imageItems={imageRun?.items}
 										userBubbleColor={userBubbleColor}

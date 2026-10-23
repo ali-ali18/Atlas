@@ -2,6 +2,7 @@
 
 import { lazy, Suspense } from "react";
 import type { ChartSpec } from "@workspace/shared";
+import { ShareMenu } from "@/components/ai-elements/share/share-menu";
 import { cn } from "@workspace/ui/lib/utils";
 
 // O gráfico (visx + motion + d3) só é baixado quando a primeira resposta com gráfico aparece.
@@ -20,10 +21,15 @@ export function ChartPlaceholder({ label = "Gerando gráfico…", className }: {
 	);
 }
 
-export function LazyChart({ spec, className }: { spec: ChartSpec; className?: string }) {
+/** `share`: mostra "Compartilhar" (copiar imagem, baixar PNG) no cabeçalho do gráfico; o rodapé da imagem leva o nome do bot. */
+export function LazyChart({ spec, className, share }: { spec: ChartSpec; className?: string; share?: { botName?: string | null } }) {
 	return (
 		<Suspense fallback={<ChartPlaceholder className={className} label="Carregando gráfico…" />}>
-			<Chart className={className} spec={spec} />
+			<Chart
+				actions={share ? <ShareMenu botName={share.botName} targetSelector='[data-slot="chart"]' title={spec.title ?? "Gráfico"} /> : undefined}
+				className={className}
+				spec={spec}
+			/>
 		</Suspense>
 	);
 }

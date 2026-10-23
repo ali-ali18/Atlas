@@ -699,6 +699,7 @@ function CopyCsvButton({ spec }: { spec: ChartSpec }) {
     <button
       aria-label="Copiar dados (CSV)"
       className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-muted-foreground text-xs outline-none transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:bg-foreground/10"
+      data-share-ignore
       data-slot="chart-copy-csv"
       onClick={() => {
         navigator.clipboard
@@ -715,7 +716,7 @@ function CopyCsvButton({ spec }: { spec: ChartSpec }) {
 }
 
 /** Gráfico com moldura: título opcional, botão discreto de copiar os dados e o desenho. */
-function Chart({ spec, className }: { spec: ChartSpec; className?: string }) {
+function Chart({ spec, className, actions }: { spec: ChartSpec; className?: string; actions?: React.ReactNode }) {
   return (
     <figure
       className={cn(
@@ -728,7 +729,10 @@ function Chart({ spec, className }: { spec: ChartSpec; className?: string }) {
         <span className="min-w-0 truncate font-medium text-foreground/90 text-sm" data-slot="chart-title">
           {spec.title ?? ""}
         </span>
-        <CopyCsvButton spec={spec} />
+        <span className="flex shrink-0 items-center gap-1">
+          {actions}
+          <CopyCsvButton spec={spec} />
+        </span>
       </figcaption>
       <div className="px-2">
         <ChartView spec={spec} />
