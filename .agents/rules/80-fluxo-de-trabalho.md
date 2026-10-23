@@ -45,11 +45,11 @@ Ao finalizar, antes das prévias e do merge:
 - **Relato honesto:** nunca diga "passou" sem ter rodado. Mostre a saída real e diga o que ficou de fora e por quê.
 - **Comunicação com o dono:** resumo em pt-BR simples, sem despejo técnico.
 - Mudança visível só é dada como pronta com **prévias**: desktop e celular, tema escuro, no máximo 3 blocos por imagem (MockAtlas + Chromium).
-- Tudo é unificado num branch e vai para a `main` num PR só. **Merge só com o ok do dono**, depois de ele aprovar as prévias.
+- Cada assunto vai para a `main` no seu próprio PR. **Merge só com o ok do dono**, depois de ele aprovar as prévias.
 - **Limpeza:** remova o worktree do agente após o merge e apague os branches de agente antigos.
 
 ## Agentes: custo e recursos
 - Subagentes no **Sonnet** ou **Haiku** (Haiku para buscas simples), até **3 em paralelo**. **Opus** só com pedido explícito do dono.
 - Uma tarefa específica por agente. Nada de auditoria ampla que ninguém pediu.
-- Pesquisa e implementação por subagentes em worktree isolado; o orquestrador integra (cherry-pick) no branch unificado e roda a verificação completa.
+- Pesquisa e implementação por subagentes em worktree isolado; o orquestrador integra (cherry-pick) no branch do PR e roda a verificação completa.
 - **Um processo pesado por vez** (suíte grande, build, install, dev server). Rode pela fila compartilhada, com `flock` num lock comum, por exemplo `flock <caminho-do-lock> pnpm exec turbo typecheck`. Mais de um ao mesmo tempo já derrubou o container.
