@@ -108,7 +108,8 @@ Além de agir app por app, o bot pode **assumir o PC inteiro** durante uma taref
 
 ## Plataformas
 
-- **Fase 1: só Windows 10/11.** É onde o dono testa. Instalador NSIS/MSI, WebView2 (já vem no Windows 11), UI Automation, assinatura com um certificado só.
+- **Fase 1: só Windows 10/11.** É onde o dono testa. Instalador NSIS/MSI, WebView2 (já vem no Windows 11), UI Automation.
+- **Sem certificado pago.** O instalador sai sem assinatura de código: o Windows mostra o SmartScreen ("O Windows protegeu o computador" → "Mais informações" → "Executar assim mesmo"), explicado na página de download. A **integridade das atualizações** não depende de certificado: o updater do Tauri assina cada versão com uma chave própria gratuita (guardada como segredo do CI) e recusa pacote alterado. Caminhos gratuitos para tirar o aviso depois, a confirmar quando chegar a hora: publicar na Microsoft Store (a Store assina o pacote) ou um programa de assinatura gratuita para projeto open source (por exemplo SignPath Foundation).
 - **Testes sem ter Mac:** o CI do GitHub tem runners `windows-latest`, `macos-latest` e `ubuntu-latest`. Todos compilam e rodam os testes automáticos (protocolo, permissões, túnel com dispositivo simulado). O que precisa de gente (permissões do macOS, sensação de uso) espera:
   - **Linux:** dá para testar no próprio Windows com WSL2 (WSLg tem interface gráfica) ou numa VM (Hyper-V/VirtualBox).
   - **macOS:** precisa de um Mac real ou alugado (Mac na nuvem por hora) e de alguns usuários beta. Só entra quando houver isso.
@@ -116,7 +117,7 @@ Além de agir app por app, o bot pode **assumir o PC inteiro** durante uma taref
 
 ## Etapas
 
-1. **#97 Casca (Windows):** projeto Tauri, janela com `ATLAS_URL`, bandeja, atalho global para chamar o Atlas, instalador NSIS/MSI, updater e CI de release. Builds de macOS/Linux só no CI, sem publicar.
+1. **#97 Casca (Windows):** projeto Tauri, janela com `ATLAS_URL`, bandeja, atalho global para chamar o Atlas, instalador NSIS/MSI sem certificado pago, updater com chave própria do Tauri e CI de release. Builds de macOS/Linux só no CI, sem publicar.
 2. **#99 Login e dispositivos:** modelos `Device`, rotas de pareamento, tela "Dispositivos", token no cofre do SO e revogação. Testes de IDOR.
 3. **#98a Túnel e "só olhar":** hub, `device-manager`, screenshot e leitura de tela, seletor de alvo no web e aviso no chat. Replay do agente com o dispositivo mockado.
 4. **#98b Controle por acessibilidade:** árvore de UI Automation, ações por elemento, permissão por app em níveis, clique/digitação/teclas/rolagem como fallback, tecla de pânico, assumir o controle e auditoria.
@@ -130,8 +131,8 @@ Cada etapa vai num PR próprio, com prévias. Uma só não quebra o fluxo da nuv
 
 - **Permissões do macOS** (Gravação de Tela, Acessibilidade) exigem um fluxo de onboarding claro. No Wayland (Linux), a captura e a entrada dependem de portal. Ambos ficam para depois do Windows.
 - **Apps sem acessibilidade boa** (alguns jogos, canvas, apps antigos) caem no modo print + coordenada, menos preciso.
-- **Extensão nas lojas:** publicar na Chrome Web Store e na Edge Add-ons exige revisão; no começo pode ser instalada pelo próprio app.
+- **Extensão nas lojas:** a Edge Add-ons é gratuita; a Chrome Web Store cobra uma taxa única pequena. No começo a extensão pode ser instalada pelo próprio app (modo desenvolvedor) e publicada só na loja do Edge.
 - **Custo de banda das screenshots:** reaproveitar a compressão e o limite de resolução do container.
-- **Assinatura de código:** um certificado Windows (EV ou OV) e o Apple Developer têm custo anual.
+- **Sem assinatura de código:** o aviso do SmartScreen assusta parte dos usuários; mitigar com página de download clara e, depois, Microsoft Store ou assinatura gratuita para open source. No macOS, sem a conta paga da Apple o app não é notarizado — mais um motivo para o Mac ficar para depois.
 - **Escopo do navegador:** o perfil dedicado (mais seguro) não tem os logins pessoais. Decidir se oferecemos "usar meu navegador" com aviso forte.
 - **Vários computadores:** escolher qual está ativo por bot e o que acontece quando dois estão online.
