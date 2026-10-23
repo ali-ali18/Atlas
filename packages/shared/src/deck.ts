@@ -34,7 +34,8 @@ export type DeckColumn = { heading?: string; bullets: DeckBullet[] };
 export type DeckStat = { value: string; label: string; detail?: string };
 export type DeckStep = { label: string; title: string; text?: string };
 
-type Common = { notes?: string; background?: DeckBackground };
+/** `templateLayout`: nome de um layout do .pptx modelo (só vale com `template_file_id`). */
+type Common = { notes?: string; background?: DeckBackground; templateLayout?: string };
 
 export type SlideInput = Common &
 	(
@@ -87,7 +88,8 @@ function parseOne(raw: unknown, index: number): SlideInput {
 	const slide = obj(raw, label);
 	const notes = str(slide.notes, DECK_MAX_NOTES_CHARS, `${label}.notes`);
 	const background = parseDeckBackground(slide.background, `${label}.background`);
-	const extra = { ...(notes ? { notes } : {}), ...(background ? { background } : {}) };
+	const templateLayout = str(slide.template_layout, 80, `${label}.template_layout`);
+	const extra = { ...(notes ? { notes } : {}), ...(background ? { background } : {}), ...(templateLayout ? { templateLayout } : {}) };
 	let layout = typeof slide.layout === "string" ? slide.layout.trim().toLowerCase() : "bullets";
 	if (layout === "big_number" || layout === "kpi" || layout === "kpis") layout = "stats";
 	if (layout === "default" || layout === "") layout = "bullets";

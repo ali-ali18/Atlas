@@ -4108,7 +4108,7 @@ async function executeToolInner(
 				ctx.deliverableVerifier?.verify(previewCreateFileArgs(args, { ...ctx, signal: ctx.abortSignal }));
 			}
 			const runtime = ctx.attachments?.runtime;
-			return executeCreateFile(args, { ...ctx, signal: ctx.abortSignal, attachmentFiles: runtime ? { list: () => runtime.list(), bytes: (id: string) => runtime.cache.bytes(id) } : undefined }, ctx.createFileDeps);
+			return executeCreateFile(args, { ...ctx, signal: ctx.abortSignal, canSeeImages: ctx.canSeeImages, attachmentFiles: runtime ? { list: () => runtime.list(), bytes: (id: string) => runtime.cache.bytes(id) } : undefined }, ctx.createFileDeps);
 		}
 		case "run_code": {
 			const attachments = ctx.attachments?.runtime;

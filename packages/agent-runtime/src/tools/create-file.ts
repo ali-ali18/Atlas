@@ -1,4 +1,4 @@
-import { assertSandboxExecution, runSandboxOperation } from "@workspace/sandbox";
+import { assertSandboxExecution, loadCodeRunnerConfig, runCode, runSandboxOperation } from "@workspace/sandbox";
 import type { ChatTool } from "@workspace/llm";
 import {
 	countRunFileArtifacts,
@@ -20,8 +20,10 @@ import {
 	type FileArtifactMeta,
 } from "@workspace/shared";
 import { resolveDeckImages, type DeckImageSource } from "../files/deck/images.js";
-import { formatDeckWarnings, lintDeck } from "../files/deck/lint.js";
-import { renderFile } from "../files/render.js";
+import type { RunPython } from "../files/deck/template/fill.js";
+import { processImageForStorage } from "../images/process.js";
+import { deckResultNotes, persistDeckPreviews, renderDeck, type RenderedDeck } from "./deck-file.js";
+import { renderFile, type RenderedFile } from "../files/render.js";
 import { printPdfWithChromium } from "../files/pdf-chromium.js";
 import type { PrintPdf } from "../files/pdf.js";
 
@@ -116,6 +118,9 @@ export type CreateFileDeps = {
 	countRunFiles: typeof countRunFileArtifacts;
 	printPdf: PrintPdf;
 	loadArtifact?: DeckImageSource["loadArtifact"];
+	/** Sandbox `run_code` (python-pptx e LibreOffice): preenche modelos .pptx e renderiza as páginas para conferência. */
+	runPython: RunPython;
+	processImage: typeof processImageForStorage;
 };
 
 const DEFAULT_DEPS: CreateFileDeps = {
@@ -123,6 +128,8 @@ const DEFAULT_DEPS: CreateFileDeps = {
 	nextVersion: nextFileVersion,
 	countRunFiles: countRunFileArtifacts,
 	printPdf: printPdfWithChromium,
+	runPython: (input) => runCode(input, loadCodeRunnerConfig()),
+	processImage: processImageForStorage,
 };
 
 export type CreateFileContext = {
@@ -133,6 +140,8 @@ export type CreateFileContext = {
 	conversationId?: string;
 	/** Anexos do usuário na conversa: fonte das imagens dos slides (junto das imagens geradas). */
 	attachmentFiles?: DeckImageSource["attachments"];
+	/** O modelo enxerga imagens: só então o deck é renderizado e as páginas voltam como visão. */
+	canSeeImages?: boolean;
 };
 
 type StagedFile = {
@@ -145,6 +154,7 @@ type StagedFile = {
 	layout?: unknown;
 	theme?: unknown;
 	brandColor?: unknown;
+	templateFileId?: unknown;
 	format?: unknown;
 	touchedAt: number;
 };
@@ -191,6 +201,7 @@ function mergeInto(base: StagedFile, args: Record<string, unknown>): StagedFile 
 		layout: base.layout ?? args.layout,
 		theme: base.theme ?? args.theme,
 		brandColor: base.brandColor ?? args.brand_color,
+		templateFileId: base.templateFileId ?? args.template_file_id,
 		format: base.format ?? args.format,
 		touchedAt: Date.now(),
 	};
@@ -215,14 +226,14 @@ export function previewCreateFileArgs(args: Record<string, unknown>, ctx: Create
 	const staged = stagedFiles.get(stageKey(args, ctx));
 	if (!staged || staged.nextPart !== part) return args;
 	const merged = mergeInto(staged, args);
-	return { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, theme: merged.theme, brand_color: merged.brandColor, format: merged.format };
+	return { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, theme: merged.theme, brand_color: merged.brandColor, template_file_id: merged.templateFileId, format: merged.format };
 }
 
 export async function executeCreateFile(
 	args: Record<string, unknown>,
 	ctx: CreateFileContext,
 	deps: Partial<CreateFileDeps> = {},
-): Promise<{ summary: string; fileEvent?: FileEvent }> {
+): Promise<{ summary: string; fileEvent?: FileEvent; visionArtifactIds?: string[] }> {
 	const d = { ...DEFAULT_DEPS, ...deps };
 	if (!ctx.userId) throw new Error("create_file needs a signed-in user.");
 	// A8: arquivo em partes. Partes intermediárias só guardam; a última junta tudo e renderiza.
@@ -244,7 +255,7 @@ export async function executeCreateFile(
 				summary: `Part ${part} stored (${merged.content.length} chars so far). Nothing is created yet. Send part ${part + 1} next, with more=true if more follows or more=false for the last part. Do not repeat earlier parts.`,
 			};
 		}
-		args = { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, theme: merged.theme, brand_color: merged.brandColor, format: merged.format };
+		args = { ...args, content: merged.content, sheets: merged.sheets, slides: merged.slides, title: merged.title, css: merged.css, layout: merged.layout, theme: merged.theme, brand_color: merged.brandColor, template_file_id: merged.templateFileId, format: merged.format };
 		stagedKeyToClear = key;
 	}
 	// Valida antes de gastar render: erro acionável volta ao modelo.
@@ -262,7 +273,14 @@ export async function executeCreateFile(
 		input.slides && deckImageIds(input.slides).length > 0
 			? await resolveDeckImages(input.slides, { userId: ctx.userId, conversationId: ctx.conversationId, attachments: ctx.attachmentFiles, loadArtifact: d.loadArtifact })
 			: undefined;
-	const rendered = await runSandboxOperation(ctx, 60_000, (signal) => renderFile(input, { printPdf: (html, _signal, options) => d.printPdf(html, signal, options), deckImages }));
+	let deck: RenderedDeck | undefined;
+	let rendered: RenderedFile;
+	if (input.format === "pptx") {
+		deck = await renderDeck(input, { ...ctx, userId: ctx.userId }, d, deckImages);
+		rendered = deck;
+	} else {
+		rendered = await runSandboxOperation(ctx, 60_000, (signal) => renderFile(input, { printPdf: (html, _signal, options) => d.printPdf(html, signal, options), deckImages }));
+	}
 	assertSandboxExecution(ctx);
 	const version = await d.nextVersion({
 		userId: ctx.userId,
@@ -299,10 +317,16 @@ export async function executeCreateFile(
 		version,
 		...(ctx.runId ? { runId: ctx.runId } : {}),
 	};
-	// Conferência barata (sem sandbox): estima estouro de texto, sobreposição e contraste a partir dos próprios slides.
-	const layoutCheck = input.format === "pptx" && input.slides ? formatDeckWarnings(lintDeck(input.slides, { theme: input.theme, brandColor: input.brandColor })) : "";
+	// Apresentação: avisos de layout (estimados, sem sandbox) e conferência visual (páginas renderizadas, quando há sandbox).
+	let deckNotes = "";
+	let visionArtifactIds: string[] = [];
+	if (deck) {
+		visionArtifactIds = await persistDeckPreviews(deck.previews, { ...ctx, userId: ctx.userId }, d);
+		deckNotes = deckResultNotes(input, deck, visionArtifactIds.length, input.slides?.length ?? 0, artifact.id);
+	}
 	return {
-		summary: `File created: ${input.filename} (${formatFileSize(size)}${version > 1 ? `, v${version}` : ""}). The chat already shows the file card; reply with one short line and do not repeat the content. If you later find an error in this file, call create_file again with the same filename and the fix instead of offering to.${input.format === "pptx" ? ` To check the slides visually, run_code with files ["${artifact.id}"] (see the Files skill, section 8).` : ""}${layoutCheck ? `\n${layoutCheck}` : ""}`,
+		summary: `File created: ${input.filename} (${formatFileSize(size)}${version > 1 ? `, v${version}` : ""}). The chat already shows the file card; reply with one short line and do not repeat the content. If you later find an error in this file, call create_file again with the same filename and the fix instead of offering to.${deckNotes ? `\n${deckNotes}` : ""}`,
 		fileEvent,
+		...(visionArtifactIds.length ? { visionArtifactIds } : {}),
 	};
 }
