@@ -300,6 +300,7 @@ export {
 	type GenericHookMatch,
 	listGenericHookKeysForDiagnostics,
 	listGithubRoutinesForRepo,
+	listEmailRoutinesForMailbox,
 	listGithubRoutineRepoOwners,
 	findGithubRoutineByLegacyHookKey,
 	cleanupGithubRoutineIfPendingDelete,

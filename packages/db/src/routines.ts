@@ -4,6 +4,7 @@ import type {
 	RoutineAlert,
 	RoutineNotifyMode,
 	CreateRoutineInput,
+	EmailTriggerJson,
 	EventEnvelope,
 	GithubTriggerState,
 	GithubWebhookTrigger,
@@ -21,6 +22,8 @@ import {
 	parseRoutineAlert,
 	parseRoutineAlertInput,
 	parseRoutineNotifyMode,
+	parseEmailTriggerInput,
+	emailTriggerToView,
 	githubTriggerToView,
 	isGenericWebhookTrigger,
 	parseRoutineTriggerJson,
@@ -28,6 +31,7 @@ import {
 	shouldAutoDeleteAfterRun,
 } from "@workspace/shared";
 import { prisma } from "./client.js";
+import { getMailboxForBot } from "./bot-mailbox.js";
 import { ownerIds } from "./mcp-connections.js";
 import { assertGroupUsable } from "./routine-groups.js";
 import { assertPageUsable } from "./pages.js";
@@ -215,7 +219,7 @@ function hookInfoFromTriggerJson(
 	if (parsed.kind === "generic") {
 		return { hookKey: parsed.hookKey, url: hookPublicUrl(parsed.hookKey), ...(parsed.urlSecretAt ? { urlSecretAt: parsed.urlSecretAt } : {}) };
 	}
-	if (parsed.kind === "once" || parsed.kind === "interval") return undefined;
+	if (parsed.kind === "once" || parsed.kind === "interval" || parsed.kind === "email") return undefined;
 	// GitHub: endpoint único (sem hookKey por rotina) — hookKey aqui é só um
 	// placeholder pra satisfazer o shape de RoutineHookInfo, nunca usado de
 	// verdade (quem identifica a rotina pro caller é `repo`, via routine.github).
@@ -232,6 +236,12 @@ function githubInfoFromTriggerJson(
 	const parsed = parseRoutineTriggerJson(triggerJson);
 	if (!parsed || parsed.kind !== "github") return undefined;
 	return githubTriggerToView(parsed);
+}
+
+function emailInfoFromTriggerJson(triggerJson: unknown): RoutineRecord["email"] | undefined {
+	const parsed = parseRoutineTriggerJson(triggerJson);
+	if (!parsed || parsed.kind !== "email") return undefined;
+	return emailTriggerToView(parsed);
 }
 
 function onceInfoFromTriggerJson(triggerJson: unknown): RoutineRecord["once"] | undefined {
@@ -298,6 +308,7 @@ function toRoutine(
 		lastRun: lastRun ?? null,
 		hook: hookInfoFromTriggerJson(row.triggerJson),
 		github: githubInfoFromTriggerJson(row.triggerJson),
+		email: emailInfoFromTriggerJson(row.triggerJson),
 		once: onceInfoFromTriggerJson(row.triggerJson),
 		interval: intervalInfoFromTriggerJson(row.triggerJson),
 		alert: parseRoutineAlert(row.alertJson) ?? undefined,
@@ -670,6 +681,32 @@ function alertJsonForCreate(raw: unknown, triggerType: RoutineTriggerType): Pris
 	return jsonValue(applyAlertConfig(null, parsed.alert)) as Prisma.InputJsonValue;
 }
 
+const NO_MAILBOX_ERROR = "Este bot ainda não tem e-mail próprio: ative na aba E-mail do bot antes de criar um gatilho de e-mail";
+
+/** O gatilho de e-mail só faz sentido com a caixa do bot ativa (a caixa é do mesmo dono). */
+async function assertBotHasMailbox(userId: string, botId: string): Promise<void> {
+	const mailbox = await getMailboxForBot(botId, userId);
+	if (!mailbox?.enabled) throw new Error(NO_MAILBOX_ERROR);
+}
+
+/**
+ * Rotinas habilitadas com gatilho de e-mail da caixa de um bot. O dono vem da CAIXA (nunca do e-mail
+ * recebido): só rotinas do mesmo `userId` e `botId` da caixa são candidatas.
+ */
+export async function listEmailRoutinesForMailbox(
+	mailbox: { userId: string; botId: string },
+): Promise<Array<{ routine: RoutineRecord; trigger: EmailTriggerJson }>> {
+	const rows = await prisma.routine.findMany({
+		where: { userId: mailbox.userId, botId: mailbox.botId, triggerType: "event", enabled: true },
+	});
+	const matched: Array<{ routine: RoutineRecord; trigger: EmailTriggerJson }> = [];
+	for (const row of rows) {
+		const trigger = parseRoutineTriggerJson(row.triggerJson);
+		if (trigger?.kind === "email") matched.push({ routine: toRoutine(row), trigger });
+	}
+	return matched;
+}
+
 export async function createRoutine(
 	userId: string | undefined,
 	input: CreateRoutineInput,
@@ -688,15 +725,17 @@ export async function createRoutine(
 	const pageId = input.pageId ? await assertPageUsable(userId, input.botId, input.pageId) : null;
 
 	const wantsGithub = input.trigger?.kind === "github";
-	const wantsOnce = !wantsGithub && input.trigger?.kind === "once";
-	const wantsInterval = !wantsGithub && !wantsOnce && input.trigger?.kind === "interval";
+	const wantsEmail = !wantsGithub && input.trigger?.kind === "email";
+	const wantsOnce = !wantsGithub && !wantsEmail && input.trigger?.kind === "once";
+	const wantsInterval = !wantsGithub && !wantsEmail && !wantsOnce && input.trigger?.kind === "interval";
 	const wantsGeneric =
 		!wantsGithub &&
+		!wantsEmail &&
 		!wantsOnce &&
 		!wantsInterval &&
 		(input.triggerType === "event" || input.trigger?.kind === "generic");
 
-	let triggerType: RoutineTriggerType = wantsGithub || wantsGeneric
+	let triggerType: RoutineTriggerType = wantsGithub || wantsEmail || wantsGeneric
 		? "event"
 		: wantsOnce
 			? "once"
@@ -715,6 +754,13 @@ export async function createRoutine(
 		triggerType = "interval";
 		schedule = null;
 		triggerJson = { kind: "interval", everyMinutes: input.trigger.everyMinutes };
+	} else if (wantsEmail && input.trigger?.kind === "email") {
+		await assertBotHasMailbox(userId, input.botId);
+		triggerType = "event";
+		schedule = null;
+		const parsed = parseEmailTriggerInput(input.trigger);
+		if ("error" in parsed) throw new Error(parsed.error);
+		triggerJson = { kind: "email", ...parsed.value } satisfies EmailTriggerJson;
 	} else if (wantsGithub && input.trigger?.kind === "github") {
 		triggerType = "event";
 		schedule = null;
@@ -837,6 +883,18 @@ export async function updateRoutine(
 	if (nextType === "event") {
 		if (input.schedule !== undefined) {
 			data.schedule = null;
+		}
+		if (input.emailTrigger) {
+			await assertBotHasMailbox(userId, botId);
+			const base = existingTrigger && existingTrigger.kind === "email" ? existingTrigger : { kind: "email" as const };
+			const patch = input.emailTrigger;
+			const merged = {
+				fromContains: patch.fromContains === null ? undefined : (patch.fromContains ?? base.fromContains),
+				subjectContains: patch.subjectContains === null ? undefined : (patch.subjectContains ?? base.subjectContains),
+			};
+			const parsed = parseEmailTriggerInput(merged);
+			if ("error" in parsed) throw new Error(parsed.error);
+			data.triggerJson = jsonValue({ kind: "email", ...parsed.value } satisfies EmailTriggerJson) ?? undefined;
 		}
 		if (input.githubTrigger) {
 			// Base pro merge: o trigger github atual, OU um esqueleto vazio quando
