@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 import { prisma } from "./client.js";
 import { FakeTable, installFakes } from "./testing/fake-tables.js";
+import { parseRoutineAlert } from "@workspace/shared";
 import { createRoutine, getRoutineAlertForAgentRun, getRoutineContextForAgentRun, recordRoutineAlertState, updateRoutine } from "./routines.js";
 
 let installed: { restore: () => void };
 const writes: Array<Record<string, unknown>> = [];
+let lastWhere: Record<string, unknown> = {};
 const originals: Record<string, unknown> = {};
 let stored: { userId: string; triggerType: string; alertJson: unknown };
 
@@ -57,6 +59,7 @@ beforeEach(() => {
 			const sameCondition = (stored.alertJson as { condition?: string } | null)?.condition === where.alertJson.equals;
 			if (!mine || !sameCondition) return { count: 0 };
 			writes.push(data);
+			lastWhere = where as unknown as Record<string, unknown>;
 			return { count: 1 };
 		},
 	};
@@ -130,11 +133,11 @@ test("getRoutineAlertForAgentRun filtra pelo dono e só devolve rotina de alerta
 	const original = client.routineRun;
 	client.routineRun = {
 		findFirst: async ({ where }: { where: { routine: { userId: { in: string[] } } } }) =>
-			where.routine.userId.in.includes("user-a") ? { routine: { id: "r1", name: "Estoque", alertJson: stored.alertJson } } : null,
+			where.routine.userId.in.includes("user-a") ? { routine: { id: "r1", botId: "bot-a", name: "Estoque", alertJson: stored.alertJson, triggerType: "interval", triggerJson: { kind: "interval", everyMinutes: 120 } } } : null,
 	};
 	try {
 		stored.alertJson = { condition: "estoque baixo", active: true };
-		assert.deepEqual(await getRoutineAlertForAgentRun("run-1", "user-a"), { routineId: "r1", name: "Estoque", alert: { condition: "estoque baixo", active: true } });
+		assert.deepEqual(await getRoutineAlertForAgentRun("run-1", "user-a"), { routineId: "r1", botId: "bot-a", name: "Estoque", alert: { condition: "estoque baixo", active: true }, interval: { everyMinutes: 120 } });
 		assert.equal(await getRoutineAlertForAgentRun("run-1", "user-b"), null);
 		assert.equal(await getRoutineAlertForAgentRun("run-1", "default"), null);
 		assert.equal(await getRoutineAlertForAgentRun("run-1", undefined), null);
@@ -157,6 +160,28 @@ test("recordRoutineAlertState: só o dono grava e só se a condição ainda é a
 	assert.equal(writes.length, 0);
 	assert.equal(await recordRoutineAlertState("user-a", "r1", next), true);
 	assert.deepEqual(writes[0]!.alertJson, next);
+});
+
+test("recordRoutineAlertState com backoff grava o novo intervalo junto, só em rotina de intervalo e só do dono", async () => {
+	stored.alertJson = { condition: "estoque baixo", active: false };
+	const next = { condition: "estoque baixo", active: false, quietStreak: 0, backoff: { base: 120, to: 240 } };
+	assert.equal(await recordRoutineAlertState("user-b", "r1", next, 240), false);
+	assert.equal(writes.length, 0);
+	assert.equal(await recordRoutineAlertState("user-a", "r1", next, 240), true);
+	assert.deepEqual(writes[0]!.triggerJson, { kind: "interval", everyMinutes: 240 });
+	assert.equal(lastWhere.triggerType, "interval");
+	assert.deepEqual(writes[0]!.alertJson, next);
+	// sem novo intervalo (ou valor inválido) o gatilho não é tocado
+	writes.length = 0;
+	assert.equal(await recordRoutineAlertState("user-a", "r1", next), true);
+	assert.equal(await recordRoutineAlertState("user-a", "r1", next, 0.5), true);
+	assert.ok(writes.every((write) => !("triggerJson" in write)));
+});
+
+test("o estado de backoff do alerta sobrevive ao ciclo gravar/ler", () => {
+	const alert = parseRoutineAlert({ condition: "x y z", active: false, quietStreak: 2, backoff: { base: 120, to: 240 } });
+	assert.deepEqual(alert, { condition: "x y z", active: false, quietStreak: 2, backoff: { base: 120, to: 240 } });
+	assert.equal(parseRoutineAlert({ condition: "x y z", active: false, backoff: { base: 240, to: 120 } })!.backoff, undefined);
 });
 
 test("getRoutineContextForAgentRun: nome e conversa do bot só para o dono da rotina", async () => {

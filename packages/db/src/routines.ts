@@ -1181,28 +1181,42 @@ export async function getRoutinePageIdForAgentRun(agentRunId: string, userId: st
 export async function getRoutineAlertForAgentRun(
 	agentRunId: string,
 	userId: string | undefined,
-): Promise<{ routineId: string; name: string; alert: RoutineAlert } | null> {
+): Promise<{ routineId: string; botId: string; name: string; alert: RoutineAlert; interval?: { everyMinutes: number } } | null> {
 	const owners = ownerIds(userId);
 	if (owners.length === 0) return null;
 	const row = await prisma.routineRun.findFirst({
 		where: { agentRunId, routine: { userId: { in: owners } } },
 		orderBy: { createdAt: "desc" },
-		select: { routine: { select: { id: true, name: true, alertJson: true } } },
+		select: { routine: { select: { id: true, botId: true, name: true, alertJson: true, triggerType: true, triggerJson: true } } },
 	});
 	const alert = parseRoutineAlert(row?.routine?.alertJson);
-	return row?.routine && alert ? { routineId: row.routine.id, name: row.routine.name, alert } : null;
+	if (!row?.routine || !alert) return null;
+	const interval = row.routine.triggerType === "interval" ? intervalInfoFromTriggerJson(row.routine.triggerJson) : undefined;
+	return { routineId: row.routine.id, botId: row.routine.botId, name: row.routine.name, alert, ...(interval ? { interval } : {}) };
 }
 
 /**
  * Grava o estado do alerta depois de uma verificação. Só do dono, e só se a condição ainda é a que foi
  * avaliada (editada no meio do run = descarta, a condição nova começa de fora). false = nada gravado.
  */
-export async function recordRoutineAlertState(userId: string | undefined, routineId: string, next: RoutineAlert): Promise<boolean> {
+export async function recordRoutineAlertState(
+	userId: string | undefined,
+	routineId: string,
+	next: RoutineAlert,
+	/** Novo intervalo (backoff): só vale em rotina `interval`, na mesma gravação do estado. */
+	everyMinutes?: number,
+): Promise<boolean> {
 	const owners = ownerIds(userId);
 	if (owners.length === 0) return false;
+	const widen = everyMinutes !== undefined && Number.isInteger(everyMinutes) && everyMinutes >= 1;
 	const { count } = await prisma.routine.updateMany({
-		where: { id: routineId, userId: { in: owners }, alertJson: { path: ["condition"], equals: next.condition } },
-		data: { alertJson: jsonValue(next) },
+		where: {
+			id: routineId,
+			userId: { in: owners },
+			alertJson: { path: ["condition"], equals: next.condition },
+			...(widen ? { triggerType: "interval" } : {}),
+		},
+		data: { alertJson: jsonValue(next), ...(widen ? { triggerJson: jsonValue({ kind: "interval", everyMinutes }) } : {}) },
 	});
 	return count === 1;
 }
