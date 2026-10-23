@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import type {
+	RoutineAlert,
 	RoutineNotifyMode,
 	CreateRoutineInput,
 	EventEnvelope,
@@ -15,6 +16,10 @@ import type {
 	UpdateRoutineInput,
 } from "@workspace/shared";
 import {
+	alertSupportsTrigger,
+	applyAlertConfig,
+	parseRoutineAlert,
+	parseRoutineAlertInput,
 	parseRoutineNotifyMode,
 	githubTriggerToView,
 	isGenericWebhookTrigger,
@@ -295,6 +300,7 @@ function toRoutine(
 		github: githubInfoFromTriggerJson(row.triggerJson),
 		once: onceInfoFromTriggerJson(row.triggerJson),
 		interval: intervalInfoFromTriggerJson(row.triggerJson),
+		alert: parseRoutineAlert(row.alertJson) ?? undefined,
 	};
 }
 
@@ -655,6 +661,15 @@ export async function getRoutineGithubTrigger(
 	return trigger && trigger.kind === "github" ? trigger : null;
 }
 
+const ALERT_TRIGGER_ERROR = "Alerta só funciona em rotina por horário ou por intervalo (a cada N minutos)";
+
+function alertJsonForCreate(raw: unknown, triggerType: RoutineTriggerType): Prisma.InputJsonValue {
+	const parsed = parseRoutineAlertInput(raw);
+	if (!parsed.ok) throw new Error(parsed.error);
+	if (!alertSupportsTrigger(triggerType)) throw new Error(ALERT_TRIGGER_ERROR);
+	return jsonValue(applyAlertConfig(null, parsed.alert)) as Prisma.InputJsonValue;
+}
+
 export async function createRoutine(
 	userId: string | undefined,
 	input: CreateRoutineInput,
@@ -737,6 +752,8 @@ export async function createRoutine(
 		triggerJson = kept !== undefined ? { scheduleState: kept } : undefined;
 	}
 
+	const alertJson = input.alert ? alertJsonForCreate(input.alert, triggerType) : undefined;
+
 	const row = await prisma.routine.create({
 		data: {
 			userId: userId?.trim() ? userId.trim() : LEGACY_OWNER_ID,
@@ -755,6 +772,7 @@ export async function createRoutine(
 			triggerType,
 			createdBy: input.createdBy === "bot" ? "bot" : "user",
 			triggerJson: jsonValue(triggerJson) ?? undefined,
+			...(alertJson ? { alertJson } : {}),
 		},
 		include: { group: { select: { id: true, name: true } } },
 	});
@@ -770,7 +788,7 @@ export async function updateRoutine(
 	if (!userId?.trim() || userId === LEGACY_OWNER_ID) return null;
 	const existing = await prisma.routine.findFirst({
 		where: { id: routineId, botId, userId },
-		select: { id: true, userId: true, triggerType: true, triggerJson: true, schedule: true },
+		select: { id: true, userId: true, triggerType: true, triggerJson: true, schedule: true, alertJson: true },
 	});
 	if (!existing) return null;
 	if (!isOwnerAllowed(existing.userId, userId)) return null;
@@ -779,8 +797,22 @@ export async function updateRoutine(
 		input.triggerType !== undefined
 			? input.triggerType
 			: asTriggerType(existing.triggerType);
+	const previousAlert = parseRoutineAlert(existing.alertJson);
+	let alertPatch: Prisma.InputJsonValue | typeof Prisma.DbNull | undefined;
+	if (input.alert === null) {
+		alertPatch = Prisma.DbNull;
+	} else if (input.alert !== undefined) {
+		const parsedAlert = parseRoutineAlertInput(input.alert);
+		if (!parsedAlert.ok) throw new Error(parsedAlert.error);
+		alertPatch = jsonValue(applyAlertConfig(previousAlert, parsedAlert.alert));
+	}
+	// Alerta (novo ou já existente) exige gatilho por tempo: trocar para webhook/uma vez com alerta ligado é erro.
+	if (alertPatch !== Prisma.DbNull && (alertPatch !== undefined || previousAlert) && !alertSupportsTrigger(nextType)) {
+		throw new Error(ALERT_TRIGGER_ERROR);
+	}
 
 	const data: Prisma.RoutineUpdateInput = {
+		...(alertPatch !== undefined ? { alertJson: alertPatch } : {}),
 		...(input.name !== undefined ? { name: input.name.trim() } : {}),
 		...(input.groupId === null ? { group: { disconnect: true } } : {}),
 		...(input.groupId ? { group: { connect: { id: await assertGroupUsable(userId, botId, input.groupId) } } } : {}),
@@ -1143,6 +1175,36 @@ export async function getRoutinePageIdForAgentRun(agentRunId: string, userId: st
 		select: { routine: { select: { pageId: true } } },
 	});
 	return row?.routine?.pageId ?? null;
+}
+
+/** Alerta da rotina que originou este run (só se a rotina é do usuário; null = não é rotina de alerta). */
+export async function getRoutineAlertForAgentRun(
+	agentRunId: string,
+	userId: string | undefined,
+): Promise<{ routineId: string; alert: RoutineAlert } | null> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return null;
+	const row = await prisma.routineRun.findFirst({
+		where: { agentRunId, routine: { userId: { in: owners } } },
+		orderBy: { createdAt: "desc" },
+		select: { routine: { select: { id: true, alertJson: true } } },
+	});
+	const alert = parseRoutineAlert(row?.routine?.alertJson);
+	return row?.routine && alert ? { routineId: row.routine.id, alert } : null;
+}
+
+/**
+ * Grava o estado do alerta depois de uma verificação. Só do dono, e só se a condição ainda é a que foi
+ * avaliada (editada no meio do run = descarta, a condição nova começa de fora). false = nada gravado.
+ */
+export async function recordRoutineAlertState(userId: string | undefined, routineId: string, next: RoutineAlert): Promise<boolean> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return false;
+	const { count } = await prisma.routine.updateMany({
+		where: { id: routineId, userId: { in: owners }, alertJson: { path: ["condition"], equals: next.condition } },
+		data: { alertJson: jsonValue(next) },
+	});
+	return count === 1;
 }
 
 export async function findRecentRoutineRunByIdempotency(

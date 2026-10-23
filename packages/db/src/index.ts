@@ -318,6 +318,8 @@ export {
 	STALE_QUEUED_ROUTINE_RUN_MS,
 	findRoutineRunByAgentRunId,
 	getRoutineNotifyModeForAgentRun,
+	getRoutineAlertForAgentRun,
+	recordRoutineAlertState,
 	getRoutinePageIdForAgentRun,
 	findRecentRoutineRunByIdempotency,
 	createRoutineRun,

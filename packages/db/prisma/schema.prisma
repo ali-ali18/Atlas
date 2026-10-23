@@ -729,6 +729,9 @@ model Routine {
   schedule        String?
   timezone        String    @default("America/Sao_Paulo")
   triggerJson     Json?
+  /// Alerta por condição (só cron/interval): { condition, hint?, active, checkedAt?, triggeredAt?, lastSummary? }.
+  /// `active` é o estado da última verificação conclusiva (debounce: só avisa na virada para verdadeiro).
+  alertJson       Json?
   /// user | bot (criada pelo bot no modo proativo)
   createdBy       String    @default("user")
   lastRunAt       DateTime?
