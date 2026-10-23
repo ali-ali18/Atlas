@@ -1,5 +1,6 @@
 import type { EventEnvelope, RoutineHookInfo } from "./events/triggers.js";
 import type { RoutineAlert, RoutineAlertConfig } from "./routine-alert.js";
+import type { RoutineEmailTriggerView } from "./routine-email.js";
 import type {
 	GithubTriggerEvent,
 	RoutineGithubTriggerView,
@@ -58,6 +59,8 @@ export type RoutineRecord = {
 	hook?: Omit<RoutineHookInfo, "secret">;
 	/** Presente em rotinas event/github — config completa do gatilho (não há mais secret por rotina pra esconder). */
 	github?: RoutineGithubTriggerView;
+	/** Presente em rotinas event/email — filtros do gatilho "chegou e-mail" na caixa do bot. */
+	email?: RoutineEmailTriggerView;
 	/** Presente em rotinas `once` — horário (UTC) do disparo único. */
 	once?: { runAt: string };
 	/** Presente em rotinas `interval` — repete a cada N minutos. */
@@ -142,6 +145,12 @@ export type CreateRoutineInput = {
 				ciBranch?: string;
 		  }
 		| {
+				kind: "email";
+				/** Já validado por `parseEmailTriggerInput`. */
+				fromContains?: string;
+				subjectContains?: string;
+		  }
+		| {
 				kind: "once";
 				/** ISO 8601 em UTC — já validado/normalizado por `parseOnceRunAt`. */
 				runAt: string;
@@ -181,6 +190,8 @@ export type UpdateRoutineInput = {
 		/** @deprecated alias legado de `branch` — ainda aceito, migrado internamente. */
 		ciBranch?: string | null;
 	};
+	/** Patch dos filtros de uma rotina event/email (`null` remove o filtro; já validado). */
+	emailTrigger?: { fromContains?: string | null; subjectContains?: string | null };
 	/** Patch do horário de uma rotina `once` (ISO 8601 UTC, já validado). */
 	onceTrigger?: { runAt: string };
 	/** Patch do intervalo de uma rotina `interval` (minutos, já validado). */

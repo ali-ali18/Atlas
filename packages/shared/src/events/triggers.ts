@@ -4,6 +4,8 @@ import type { OnceTriggerJson } from "../routine-once.js";
 import { isOnceTrigger } from "../routine-once.js";
 import type { IntervalTriggerJson } from "../routine-interval.js";
 import { isIntervalTrigger } from "../routine-interval.js";
+import type { EmailTriggerJson } from "../routine-email.js";
+import { normalizeEmailTrigger } from "../routine-email.js";
 
 /** Envelope estável: genérico e providers tipados convergem nisto antes do match. */
 export type EventEnvelope = {
@@ -38,7 +40,7 @@ export type GenericWebhookTrigger = {
 	maxBodyBytes?: number;
 };
 
-export type RoutineTriggerJson = GenericWebhookTrigger | GithubWebhookTrigger | OnceTriggerJson | IntervalTriggerJson;
+export type RoutineTriggerJson = GenericWebhookTrigger | GithubWebhookTrigger | OnceTriggerJson | IntervalTriggerJson | EmailTriggerJson;
 
 export function isGenericWebhookTrigger(
 	value: unknown,
@@ -73,6 +75,9 @@ export function parseRoutineTriggerJson(
 	}
 	if (row.kind === "github") {
 		return parseGithubWebhookTrigger(value);
+	}
+	if (row.kind === "email") {
+		return normalizeEmailTrigger(value);
 	}
 	if (row.kind === "once" && isOnceTrigger(value)) {
 		return { kind: "once", runAt: String(row.runAt) };

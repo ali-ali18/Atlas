@@ -2,6 +2,7 @@ export type { AtlasDomainEvent, AtlasDomainEventType } from "./events.js";
 export { ATLAS_QUEUE_NAMES, type AtlasQueueName } from "./queues.js";
 export * from "./bot-messaging.js";
 export * from "./email.js";
+export * from "./routine-email.js";
 export * from "./reply-segments.js";
 export * from "./composer-mentions.js";
 export * from "./bot-group.js";
