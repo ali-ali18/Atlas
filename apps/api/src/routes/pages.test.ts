@@ -30,6 +30,7 @@ type Row = {
 	createdAt: Date;
 	updatedAt: Date;
 	deletedAt: Date | null;
+	groupId?: string | null;
 };
 
 const spec = parsePageSpec({ title: "Forecast", summary: "Resumo", blocks: [{ type: "heading", text: "Oi" }] });
@@ -52,6 +53,18 @@ page.updateMany = async ({ where, data }: { where: Partial<Row>; data: Partial<R
 	return { count: found.length };
 };
 bot.findFirst = async ({ where }: { where: { id: string; ownerId: string } }) => bots.find((b) => b.id === where.id && b.ownerId === where.ownerId) ?? null;
+
+const groups = [
+	{ id: "group-a", userId: USER_A, botId: "bot-a", name: "Vendas Loja Exemplo" },
+	{ id: "group-b", userId: USER_B, botId: "bot-b", name: "Do B" },
+];
+const routines: Array<{ pageId: string; groupId: string | null; userId: string; botId: string }> = [];
+const routineGroup = prisma.routineGroup as unknown as Record<string, unknown>;
+routineGroup.findFirst = async ({ where }: { where: { id: string; botId: string; userId: string } }) =>
+	groups.find((g) => g.id === where.id && g.botId === where.botId && g.userId === where.userId) ?? null;
+routineGroup.findMany = async ({ where }: { where: { botId: string; userId: string } }) => groups.filter((g) => g.botId === where.botId && g.userId === where.userId);
+(prisma.routine as unknown as Record<string, unknown>).findMany = async ({ where }: { where: { userId: string; botId: string; pageId: { in: string[] } } }) =>
+	routines.filter((r) => r.userId === where.userId && r.botId === where.botId && where.pageId.in.includes(r.pageId) && r.groupId !== null);
 
 function appFor(userId: string) {
 	const app = new Hono();
@@ -109,4 +122,47 @@ test("usuário B não apaga a página de A; o dono apaga e ela some da leitura e
 	assert.equal((await appFor(USER_A).request("/v1/pages/page-a2", { method: "DELETE" })).status, 404);
 	const list = (await (await appFor(USER_A).request("/v1/bots/bot-a/pages")).json()) as { items: Array<{ id: string }> };
 	assert.deepEqual(list.items.map((item) => item.id), ["page-a"]);
+});
+
+test("lista traz o grupo efetivo (explícito ou da rotina ligada) com o nome", async () => {
+	pages.push(row("page-a3", USER_A, "bot-a"));
+	routines.push({ pageId: "page-a", groupId: "group-a", userId: USER_A, botId: "bot-a" });
+	const list = (await (await appFor(USER_A).request("/v1/bots/bot-a/pages")).json()) as { items: Array<{ id: string; groupId: string | null; groupName: string | null; explicitGroupId: string | null }> };
+	const byId = Object.fromEntries(list.items.map((item) => [item.id, item]));
+	assert.deepEqual([byId["page-a"]!.groupId, byId["page-a"]!.groupName, byId["page-a"]!.explicitGroupId], ["group-a", "Vendas Loja Exemplo", null]);
+	assert.equal(byId["page-a3"]!.groupId, null);
+	routines.length = 0;
+	pages.pop();
+});
+
+const patch = (userId: string, id: string, body: unknown) =>
+	appFor(userId).request(`/v1/pages/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+test("PATCH move o painel para um grupo do dono e tira dele com null", async () => {
+	const moved = await patch(USER_A, "page-a", { groupId: "group-a" });
+	assert.equal(moved.status, 200);
+	assert.deepEqual(await moved.json(), { ok: true, id: "page-a", groupId: "group-a" });
+	assert.equal(pages.find((r) => r.id === "page-a")!.groupId, "group-a");
+	assert.equal(pages.find((r) => r.id === "page-a")!.revision, 3);
+	const cleared = await patch(USER_A, "page-a", { groupId: null });
+	assert.deepEqual(await cleared.json(), { ok: true, id: "page-a", groupId: null });
+});
+
+test("PATCH: usuário B não move o painel de A, nem põe o próprio painel no grupo de A; tudo 404 idêntico", async () => {
+	pages.push(row("page-b", USER_B, "bot-b"));
+	const foreignPage = await patch(USER_B, "page-a", { groupId: "group-b" });
+	const foreignGroup = await patch(USER_B, "page-b", { groupId: "group-a" });
+	const missing = await patch(USER_B, "page-nope", { groupId: null });
+	for (const res of [foreignPage, foreignGroup, missing]) assert.equal(res.status, 404);
+	assert.deepEqual(await foreignPage.json(), await foreignGroup.json());
+	assert.equal(pages.find((r) => r.id === "page-a")!.groupId ?? null, null);
+	assert.equal(pages.find((r) => r.id === "page-b")!.groupId ?? null, null);
+	pages.pop();
+});
+
+test("PATCH sem groupId ou com tipo errado dá 400", async () => {
+	assert.equal((await patch(USER_A, "page-a", {})).status, 400);
+	assert.equal((await patch(USER_A, "page-a", { groupId: 5 })).status, 400);
+	assert.equal((await patch(USER_A, "page-a", { groupId: "  " })).status, 400);
+	assert.equal((await appFor(USER_A).request("/v1/pages/page-a", { method: "PATCH", body: "oi" })).status, 400);
 });

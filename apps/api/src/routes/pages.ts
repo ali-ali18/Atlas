@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { deletePage, getPageForUser, listBotPagesForUser } from "@workspace/db";
+import { deletePage, getPageForUser, listBotPagesForUser, setPageGroup } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 
 /**
@@ -12,6 +12,7 @@ export type PageRouteDeps = {
 	getPage?: typeof getPageForUser;
 	listBotPages?: typeof listBotPagesForUser;
 	removePage?: typeof deletePage;
+	moveToGroup?: typeof setPageGroup;
 };
 
 const NOT_FOUND = { error: "Page not found" } as const;
@@ -21,6 +22,7 @@ export function createPageRoutes(deps: PageRouteDeps = {}) {
 	const getPage = deps.getPage ?? getPageForUser;
 	const listBotPages = deps.listBotPages ?? listBotPagesForUser;
 	const removePage = deps.removePage ?? deletePage;
+	const moveToGroup = deps.moveToGroup ?? setPageGroup;
 
 	/** Páginas do bot (mais recentes primeiro), só do dono; bot de outro dono = 404. */
 	app.get("/v1/bots/:botId/pages", async (c) => {
@@ -43,6 +45,21 @@ export function createPageRoutes(deps: PageRouteDeps = {}) {
 		const page = await getPage(c.req.param("id"), userId).catch(() => null);
 		if (!page) return c.json(NOT_FOUND, 404);
 		return c.json({ page }, 200, { "Cache-Control": "private, no-store" });
+	});
+
+	/**
+	 * Move o painel para um grupo (o mesmo das rotinas) ou tira dele (`groupId: null`). O grupo precisa ser do mesmo
+	 * dono e bot do painel; painel ou grupo de outro dono responde 404 igual a inexistente.
+	 */
+	app.patch("/v1/pages/:id", async (c) => {
+		const { userId } = scopeFor(c.get("session"));
+		const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+		if (!body || typeof body !== "object" || !("groupId" in body)) return c.json({ error: "groupId is required (a group id or null)" }, 400);
+		const groupId = body.groupId;
+		if (groupId !== null && (typeof groupId !== "string" || !groupId.trim() || groupId.length > 100)) return c.json({ error: "groupId must be a group id or null" }, 400);
+		const moved = await moveToGroup(c.req.param("id"), userId, groupId === null ? null : groupId.trim()).catch(() => null);
+		if (!moved?.ok) return c.json(NOT_FOUND, 404);
+		return c.json({ ok: true, id: moved.page.id, groupId: moved.page.groupId });
 	});
 
 	app.delete("/v1/pages/:id", async (c) => {
