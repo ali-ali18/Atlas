@@ -1,6 +1,6 @@
 import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
-import { shouldReviewForSkill, type AlertVerdict, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
+import { isNoUpdateReply, shouldReviewForSkill, type AlertVerdict, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
 import { parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode } from "@workspace/shared";
 import {
 	ATLAS_JOB_NAMES,
@@ -200,7 +200,7 @@ const runActivityThrottle = createPublishThrottle(3_000);
 
 /** Vale avisar o usuário do fim deste run? Sem conversa, sem texto ou de subagente, não. */
 export function shouldPushRunEnd(run: { conversationId?: string | null; origin?: string | null }, text: string, hasNotify = true, routineNotify: RoutineNotifyMode = "always", alertRun = false): boolean {
-	// Rotina de alerta: quem avisa é o veredito (só na virada), nunca o fim da execução.
+	// Rotina de alerta (quem avisa é o veredito, só na virada) ou verificação sem novidade: nunca avisa no fim.
 	if (alertRun) return false;
 	// Rotina "só importante": o resultado fica no chat sem push; quem avisa é o `notify_user` do próprio run.
 	if (run.origin === "routine" && routineNotify === "important") return false;
@@ -1209,8 +1209,10 @@ async function executeLeasedRun(ctx: {
 		const alertPlan = alertCtx && alertRun
 			? planAlertRun({ alert: alertCtx.alert, routineName: alertCtx.name, verdict: alertRun.report.verdict, modelText: result.text, interval: alertCtx.interval ?? null, now: new Date() })
 			: null;
+		// Verificação de follow-up sem novidade ([NO_UPDATE]): nada entra na conversa, sem push e sem revisão de memória.
+		const noUpdate = run.origin === "proactive" && isNoUpdateReply(result.text);
 		const resultText = alertPlan ? alertPlan.text : result.text;
-		const resultConversationId = alertPlan && !alertPlan.notify ? null : run.conversationId;
+		const resultConversationId = (alertPlan && !alertPlan.notify) || noUpdate ? null : run.conversationId;
 		await completeAgentRunAtomically({
 			runId,
 			conversationId: resultConversationId,
@@ -1249,7 +1251,7 @@ async function executeLeasedRun(ctx: {
 		// a saudação/confirmação só na conclusão — sem o toque, o card fica
 		// acima da saudação (invertido). Best effort, nunca quebra o run.
 		// O questionnaireId é determinístico por run (ver runtime).
-		if (run.conversationId && result.text.trim().length > 0) {
+		if (run.conversationId && !noUpdate && result.text.trim().length > 0) {
 			await touchQuestionnaireCard(
 				run.conversationId,
 				`questionnaire-${runId}`,
@@ -1333,7 +1335,7 @@ async function executeLeasedRun(ctx: {
 				name: "memory-review",
 				run:
 					// Grupo: a conversa dele só vira memória do bot se o próprio bot salvar (tool memory) no run.
-					deps.enqueueMemoryReview && run.conversationId && !groupRun && !onboardingRun
+					deps.enqueueMemoryReview && run.conversationId && !noUpdate && !groupRun && !onboardingRun
 						? () =>
 								deps.enqueueMemoryReview!({
 									userId: runUserId,
@@ -1404,11 +1406,11 @@ async function executeLeasedRun(ctx: {
 				},
 			},
 			{ name: "follow-up", run: () => chainRunFollowUp(run, runUserId, deps) },
-			{ name: "delivery", run: () => settleDelivery(result.hitWall ? "budget_exhausted" : "completed", result.text) },
+			{ name: "delivery", run: () => settleDelivery(result.hitWall ? "budget_exhausted" : "completed", noUpdate ? null : result.text) },
 			{
 				// Push: terminou (ou lembrete/rotina). O notify cuida de switch do bot, "está olhando", protocolo e coalescência.
 				name: "push",
-				run: shouldPushRunEnd(run, result.text, Boolean(deps.notify), routineNotify, Boolean(alertCtx)) ? () => deps.notify!(runUserId, run.conversationId!, pushKindForOrigin(run.origin), result.text) : undefined,
+				run: shouldPushRunEnd(run, result.text, Boolean(deps.notify), routineNotify, Boolean(alertCtx) || noUpdate) ? () => deps.notify!(runUserId, run.conversationId!, pushKindForOrigin(run.origin), result.text) : undefined,
 			},
 		]);
 
