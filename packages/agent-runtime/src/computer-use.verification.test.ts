@@ -160,12 +160,10 @@ describe("F4: rascunho com número sem fonte é barrado antes do create_file", (
 	});
 });
 
-describe("F4: erro achado depois do arquivo, com orçamento sobrando, regera o arquivo", () => {
+describe("F4: juiz do arquivo só observa (a resposta final já exibida não é descartada)", () => {
 	const FIRST = { filename: "planos.pdf", content: "# Planos\n\nPlano Pro: US$ 20 por mês, 10 assentos." };
-	const FIXED = { filename: "planos.pdf", content: "# Planos\n\nPlano Pro: US$ 20 por mês, 5 assentos." };
 
-	it("a chamada barata diz fixFile=true: vira nova versão e a admissão não vai ao chat", async () => {
-		vi.mocked(nextFileVersion).mockResolvedValueOnce(1).mockResolvedValueOnce(2);
+	it("a chamada barata diz fixFile=true: fica registrado, sem regerar nem retirar a resposta", async () => {
 		const admission =
 			"Corrijo dois pontos do PDF: o plano Pro tem 5 assentos, não 10. Se quiser, eu gero uma versão corrigida do PDF.";
 		const { result, events, requests, checkCalls } = await run(
@@ -173,46 +171,17 @@ describe("F4: erro achado depois do arquivo, com orçamento sobrando, regera o a
 				turn("Vou pesquisar.", NOTE),
 				turn("Montando o arquivo agora.", call("f1", "create_file", FIRST)),
 				say(admission),
-				turn(null, call("f2", "create_file", FIXED)),
-				say("Atualizei o PDF (v2): o plano Pro tem 5 assentos."),
-			],
-			'{"fixFile": true}',
-		);
-		// Uma checagem só: a resposta final corrigida não é checada de novo.
-		expect(checkCalls()).toBe(1);
-		const files = events.filter((event) => event.type === "file");
-		expect(files.map((file) => [file.filename, file.version])).toEqual([["planos.pdf", 1], ["planos.pdf", 2]]);
-		expect(printedHtml()).toHaveLength(2);
-		expect(printedHtml()[1]).toContain("5 assentos");
-		// O modelo recebeu o pedido para regerar; a admissão nunca foi ao chat.
-		expect(requests[3]?.some((message) => message.role === "system" && message.content === withWithdrawnReply(REGENERATE_FILE_NOTE))).toBe(true);
-		// A admissão chegou em deltas; antes da regeração ela vira rascunho revisado (recolhido, não apagado).
-		expect(publicText(events).join("")).toContain("Se quiser, eu gero");
-		const discardAt = events.findIndex((event) => event.type === "assistant_discard");
-		expect(discardAt).toBeGreaterThan(-1);
-		expect(events[discardAt]).toMatchObject({ reason: "file_fix" });
-		expect(events.slice(discardAt).some((event) => event.type === "tool_call")).toBe(true);
-		const bubbles = visibleBubbles(events);
-		expect(bubbles.join("\n")).not.toContain("Se quiser, eu gero");
-		expect(revisedDrafts(events)).toEqual([[admission, "file_fix"]]);
-		expect(bubbles[bubbles.length - 1]).toBe("Atualizei o PDF (v2): o plano Pro tem 5 assentos.");
-		expect(result.text).toBe("Atualizei o PDF (v2): o plano Pro tem 5 assentos.");
-	});
-
-	it("admissão em alemão também regera: a decisão é da chamada, não de frases", async () => {
-		const { result, requests, checkCalls } = await run(
-			[
-				turn(null, NOTE),
-				turn(null, call("f1", "create_file", FIRST)),
-				say("Im PDF steht ein Fehler: Der Pro-Plan hat 5 Plätze, nicht 10. Soll ich eine korrigierte Version erstellen?"),
-				turn(null, call("f2", "create_file", FIXED)),
-				say("PDF aktualisiert (v2)."),
+				say("nunca chega"),
 			],
 			'{"fixFile": true}',
 		);
 		expect(checkCalls()).toBe(1);
-		expect(requests[3]?.some((message) => message.role === "system" && message.content === withWithdrawnReply(REGENERATE_FILE_NOTE))).toBe(true);
-		expect(result.text).toBe("PDF aktualisiert (v2).");
+		expect(events.filter((event) => event.type === "file")).toHaveLength(1);
+		expect(events.some((event) => event.type === "assistant_discard")).toBe(false);
+		expect(requests).toHaveLength(3);
+		expect(JSON.stringify(requests)).not.toContain(REGENERATE_FILE_NOTE);
+		expect(revisedDrafts(events)).toEqual([]);
+		expect(result.text).toBe(admission);
 	});
 
 	it("fixFile=false, falha ou JSON inválido da chamada: a resposta é aceita como está", async () => {

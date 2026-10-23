@@ -3,6 +3,7 @@ import type { LlmContentPart, LlmMessage } from "@workspace/llm";
 import type { TaskState } from "@workspace/shared";
 import { BudgetExhaustedError } from "./errors.js";
 import { extractResultRef, stripResultRef } from "./context/result-store.js";
+import { splitToolResultNotes } from "./loop/tool-result-notes.js";
 import { compactToBudget, type CodingNoteContext, type ContextBudget } from "./context/budget.js";
 
 /**
@@ -123,14 +124,16 @@ export function stubLargeToolOutputs(
 			return message;
 		}
 		const cap = index >= lastGroupStart ? lastLimit : limit;
+		// Notas do runtime anexadas ao resultado (avisos, procedimento de dados, guia) sobrevivem ao corte.
+		const { body: raw, notes } = splitToolResultNotes(message.content);
 		// L3: a linha de referência do resultado guardado sobrevive ao corte (o modelo relê com artifact_read).
-		const ref = extractResultRef(message.content);
-		const body = ref ? stripResultRef(message.content) : message.content;
+		const ref = extractResultRef(raw);
+		const body = ref ? stripResultRef(raw) : raw;
 		if (body.length <= cap) return message;
-		if (message.content.includes(STUB_TRUNCATED_MARKER)) return message;
+		if (raw.includes(STUB_TRUNCATED_MARKER)) return message;
 		return {
 			...message,
-			content: `${body.slice(0, cap)}\n${STUB_TRUNCATED_MARKER} ${body.length} caracteres]${ref ? `\n${ref.line}` : ""}`,
+			content: `${body.slice(0, cap)}\n${STUB_TRUNCATED_MARKER} ${body.length} caracteres]${ref ? `\n${ref.line}` : ""}${notes}`,
 		};
 	});
 }

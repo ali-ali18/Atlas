@@ -36,10 +36,11 @@ export function createConnectorGuideInjector(
 		},
 		seed(messages) {
 			for (const message of messages) {
-				if (message.role !== "system" || typeof message.content !== "string") continue;
-				if (!message.content.startsWith(CONNECTOR_GUIDE_NOTE_PREFIX)) continue;
+				// O guia pode estar numa nota de sistema antiga ou anexado a um resultado de tool.
+				if ((message.role !== "system" && message.role !== "tool") || typeof message.content !== "string") continue;
+				if (!message.content.includes(CONNECTOR_GUIDE_NOTE_PREFIX)) continue;
 				for (const item of known) {
-					if (message.content.startsWith(`${CONNECTOR_GUIDE_NOTE_PREFIX}${item.name} (`)) {
+					if (message.content.includes(`${CONNECTOR_GUIDE_NOTE_PREFIX}${item.name} (`)) {
 						injected.add(`mcp:${item.id}`);
 						injected.add(`api:${item.id}`);
 					}

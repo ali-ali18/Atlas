@@ -1,4 +1,5 @@
 import type { JevRuntime } from "./jev/decide.js";
+import { appendedToolNotes } from "./loop/tool-result-notes.js";
 import { WANTS_FILE_JEV } from "./jev/test-support.js";
 import { describe, expect, it, vi } from "vitest";
 import type { CompleteChatWithToolsParams, CompleteChatWithToolsResult, LlmToolCall } from "@workspace/llm";
@@ -164,7 +165,7 @@ describe("F3: research_note em uma pesquisa que chega a 80% do orçamento", () =
 		expect(requests[5]!.layer!.indexOf("fonte-5")).toBeLessThan(requests[5]!.layer!.indexOf("fonte-3"));
 		// 80%: aviso do governador + a camada pede o arquivo a partir das notas.
 		const at80 = requests[7]!;
-		expect(at80.messages.some((m) => m.role === "system" && m.content === DELIVERABLE_RESERVE_NOTE)).toBe(true);
+		expect(appendedToolNotes(at80.messages)).toContain(DELIVERABLE_RESERVE_NOTE);
 		expect(at80.layer).toContain("write the requested file now from these notes");
 		// Nenhuma leitura repetida.
 		expect(new Set(readArgs).size).toBe(readArgs.length);

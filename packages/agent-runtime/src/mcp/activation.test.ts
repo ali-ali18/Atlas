@@ -5,6 +5,7 @@ import {
 	connectorToolNames,
 	findExactMcpToolMatches,
 	findReferencedMcpTools,
+	findSiblingReadTools,
 	listMcpToolNames,
 	planMcpActivation,
 	searchMcpTools,
@@ -309,5 +310,42 @@ describe("connectorToolNames (@App do usuário)", () => {
 		const trimmed = new Map(available);
 		trimmed.delete("mcp__gmail__send_email");
 		expect(connectorToolNames({ connectors: ["Gmail"], available: trimmed, entries })).toEqual(["mcp__gmail__search_threads"]);
+	});
+});
+
+describe("busca em conector com nomes camelCase (caso real: contas a receber do Bling)", () => {
+	const { available, entries } = buildCatalog([
+		{ name: "mcp__bling__listAccountReceivables", toolName: "listAccountReceivables", connectorName: "Bling", description: "Obtém contas a receber — Obtém contas a receber paginadas." },
+		{ name: "mcp__bling__getAccountReceivableBoletos", toolName: "getAccountReceivableBoletos", connectorName: "Bling", description: "Obtém boletos de contas a receber — Obtém os boletos vinculados a um idOrigem, o qual corresponde ao ID de uma venda ou nota fiscal." },
+		{ name: "mcp__bling__createAccountReceivable", toolName: "createAccountReceivable", connectorName: "Bling", description: "Cria uma conta a receber", readOnly: false },
+		{ name: "mcp__bling__listSalesOrders", toolName: "listSalesOrders", connectorName: "Bling", description: "Obtém pedidos de vendas paginados." },
+		{ name: "mcp__bling__listProposals", toolName: "listProposals", connectorName: "Bling", description: "Obtém propostas comerciais paginadas." },
+	]);
+	(available.get("mcp__bling__listAccountReceivables")!.function.parameters as { properties: Record<string, unknown> }).properties = {
+		situacoes: { description: "`1` Em aberto `2` Recebido", type: "string" },
+		tipoFiltroData: { description: "Data de emissão, Data de vencimento ou Data de recebimento", type: "string" },
+		boletoGerado: { description: "contas com ou sem boletos emitidos", type: "string" },
+	};
+
+	it("'títulos vencidos a receber' acha a listagem de contas a receber", () => {
+		const names = searchMcpTools({ query: "titulos vencidos a receber", available, entries }).map((c) => c.name);
+		expect(names[0]).toBe("mcp__bling__listAccountReceivables");
+	});
+
+	it("'boletos vencidos' acha a listagem (que filtra por vencimento e boleto), não só a de boletos por id", () => {
+		const names = searchMcpTools({ query: "boletos vencidos", available, entries }).map((c) => c.name);
+		expect(names).toContain("mcp__bling__listAccountReceivables");
+	});
+
+	it("o nome em inglês também casa: 'account receivable'", () => {
+		const names = searchMcpTools({ query: "account receivable", available, entries }).map((c) => c.name);
+		expect(names).toContain("mcp__bling__listAccountReceivables");
+	});
+
+	it("tool que pede id carrega junto a leitura da mesma entidade (nunca a de escrita)", () => {
+		const extra = findSiblingReadTools({ names: ["mcp__bling__getAccountReceivableBoletos"], available, entries });
+		expect(extra).toEqual(["mcp__bling__listAccountReceivables"]);
+		expect(extra).not.toContain("mcp__bling__createAccountReceivable");
+		expect(findSiblingReadTools({ names: ["mcp__bling__listSalesOrders"], available, entries })).toEqual([]);
 	});
 });

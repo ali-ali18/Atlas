@@ -296,6 +296,18 @@ describe("gerir alertas por conversa (tudo que o cartão da rotina faz)", () => 
 		expect(toolResults.at(-1)!.summary).not.toContain("Resumo da agenda");
 	});
 
+	it("lista as rotinas com o horário em frase, sem expressão cron (o modelo repetia o cron ao usuário)", async () => {
+		const { toolResults } = await run({ message: "quais rotinas eu tenho?", calls: [...loaded(toolCall("c1", "list_routines", {})), closing] });
+		const summary = toolResults.at(-1)!.summary;
+		expect(summary).toContain("Resumo da agenda (todo dia às 9h, ativa)");
+		expect(summary).not.toMatch(/cron|0 9 \* \* \*/);
+	});
+
+	it("lista o que cada rotina faz (o bot precisa saber para responder sobre ela)", async () => {
+		const { toolResults } = await run({ message: "o que tem nas rotinas?", calls: [...loaded(toolCall("c1", "list_routines", {})), closing] });
+		expect(toolResults.at(-1)!.summary).toContain("faz: Check the stock.");
+	});
+
 	it("sem alertas: diz que não há nenhum", async () => {
 		vi.mocked(listRoutines).mockResolvedValue([plain()] as never);
 		const { toolResults } = await run({ message: "quais alertas eu tenho?", calls: [...loaded(toolCall("c1", "list_routines", { only_alerts: true })), closing] });

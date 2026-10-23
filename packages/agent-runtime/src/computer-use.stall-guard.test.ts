@@ -1,4 +1,5 @@
 import type { JevRuntime } from "./jev/decide.js";
+import { appendedToolNotes } from "./loop/tool-result-notes.js";
 import { WANTS_FILE_JEV } from "./jev/test-support.js";
 import { describe, expect, it, vi } from "vitest";
 import type { CompleteChatWithToolsParams, CompleteChatWithToolsResult, LlmToolCall } from "@workspace/llm";
@@ -178,9 +179,11 @@ describe("enrolação lendo fontes sem gerar o arquivo", () => {
 		expect((error as Error).name).toBe("AgentRunLoopDetectedError");
 		// Para antes do teto de passos (60): os limiares de enrolação mandam.
 		expect(requests.length).toBeLessThan(30);
-		const notes = (index: number) => requests[index]!.messages.filter((m) => m.role === "system" && typeof m.content === "string" && m.content.startsWith("[Execution note]"));
-		expect(notes(STALL_NUDGE_AT + 1).some((m) => m.content === STALL_NUDGE_NOTE)).toBe(true);
-		expect(notes(STALL_RESTRICT_AT + 1).some((m) => m.content === STALL_RESTRICT_NOTE)).toBe(true);
+		// Os avisos vão anexados ao resultado da tool (nada de system no meio do run).
+		const notes = (index: number) => appendedToolNotes(requests[index]!.messages).filter((note) => note.startsWith("[Execution note]"));
+		expect(requests[STALL_NUDGE_AT + 1]!.messages.some((m) => m.role === "system" && String(m.content).startsWith("[Execution note]"))).toBe(false);
+		expect(notes(STALL_NUDGE_AT + 1)).toContain(STALL_NUDGE_NOTE);
+		expect(notes(STALL_RESTRICT_AT + 1)).toContain(STALL_RESTRICT_NOTE);
 		expect(requests[STALL_RESTRICT_AT + 1]!.offered.every((name) => FILE_RESERVE_TOOLS.includes(name))).toBe(true);
 		// Falas repetidas viram um balão só: o resto é retirado.
 		expect(events.filter((event) => event.type === "assistant_discard").length).toBeGreaterThan(5);

@@ -348,3 +348,22 @@ it("reasoning opaco conta na janela e é podado com seu turno, sem separar os pa
 	expect(trimmed).toEqual([recent, toolMsg("recent", "result")]);
 	expect(trimmed.every((message) => !message.providerItems)).toBe(true);
 });
+
+describe("notas do runtime anexadas ao resultado", () => {
+	it("o corte de um resultado grande preserva as notas anexadas no fim", async () => {
+		const { stubLargeToolOutputs } = await import("./hygiene.js");
+		const { TOOL_RESULT_NOTE_MARKER } = await import("./loop/tool-result-notes.js");
+		const content = `${"x".repeat(9_000)}${TOOL_RESULT_NOTE_MARKER}Data-query rules now apply.`;
+		const out = stubLargeToolOutputs(
+			[
+				{ role: "tool", tool_call_id: "old", content },
+				{ role: "assistant", content: null, tool_calls: [{ id: "n", type: "function", function: { name: "x", arguments: "{}" } }] },
+				{ role: "tool", tool_call_id: "n", content: "small" },
+			],
+			8_000,
+			24_000,
+		);
+		expect(String(out[0]!.content).length).toBeLessThan(content.length);
+		expect(String(out[0]!.content).endsWith(`${TOOL_RESULT_NOTE_MARKER}Data-query rules now apply.`)).toBe(true);
+	});
+});

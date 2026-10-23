@@ -7,6 +7,7 @@ import { AgentRunCancelledError, runComputerUse } from "./computer-use.js";
 import { JOIN_NOTE_HEADER, REDIRECT_NOTE_HEADER, USER_MESSAGE_HEADER } from "./loop/inputs.js";
 import { MISSING_ARTIFACT_NOTE } from "./execution/task-state.js";
 import { MESSAGE_TRIAGE_SYSTEM } from "./loop/message-triage.js";
+import { appendedToolNotes } from "./loop/tool-result-notes.js";
 
 /** F1 — mensagem mid-run entra como join: não reescreve o objetivo (Bug A, run cmuxij8ix000rlg3c1s1kkfmr; #35). */
 
@@ -455,5 +456,35 @@ describe("triagem: o agente decide o que a mensagem significa", () => {
 		expect(last.objectiveRevisions?.filter((r) => r.reason === "user_message")).toHaveLength(5);
 		expect(last.taskState?.objective.text).toBe("Nova tarefa 6");
 		expect(requests.flat().some((m) => String(m.content).includes(`${USER_MESSAGE_HEADER}\nmuda para variante 7`))).toBe(true);
+	});
+});
+
+describe("mensagem do usuário durante a tarefa depois de tirar os `system` do meio do run", () => {
+	it("continua chegando ao modelo no meio do run como fala do usuário; avisos do runtime vão no resultado da tool", async () => {
+		let calls = 0;
+		const NOTE = "Também inclui os preços de 2025, por favor.";
+		const { execute, requests } = harness(
+			[
+				call("c1", "memory_search", { query: "baterias" }),
+				call("c2", "memory_search", { query: "baterias" }),
+				call("c3", "memory_search", { query: "baterias" }),
+				text("Resumo do mercado de baterias, com os preços de 2025."),
+			],
+			{ consumeSteerInputs: async () => (++calls === 2 ? [{ id: "in-mid", content: NOTE, mode: "join" }] : []) },
+			PLAIN_OBJECTIVE,
+		);
+		const result = await execute();
+		expect(result.text).toContain("preços de 2025");
+		// A mensagem chega no pedido seguinte, durante o run, como `user` (não como nota do runtime).
+		const at = requests.findIndex((request) => request.some((m) => m.role === "user" && String(m.content).includes(NOTE)));
+		expect(at).toBeGreaterThan(0);
+		expect(at).toBeLessThan(requests.length - 1);
+		expect(appendedToolNotes(requests.at(-1)!).some((note) => note.includes(NOTE))).toBe(false);
+		// Nenhuma mensagem de sistema nova depois que o run começou (só as do início).
+		for (const request of requests) {
+			const firstAssistant = request.findIndex((m) => m.role === "assistant");
+			if (firstAssistant < 0) continue;
+			expect(request.slice(firstAssistant).filter((m) => m.role === "system")).toEqual([]);
+		}
 	});
 });

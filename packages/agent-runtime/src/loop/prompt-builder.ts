@@ -21,8 +21,12 @@ export const ROUTINE_MODE_LINES = [
 ] as const;
 
 export type StableSystemPromptParts = {
+	/** Persona do bot (identidade, estilo e idioma): a primeira coisa do prompt; ausente no subagente. */
+	persona?: string;
 	/** Núcleo: prompt do subagente, núcleo da economia ou prompt legado. */
 	base: string;
+	/** Disciplina de execução da família do modelo (`disciplineForModel`): logo após o núcleo, fixa por run. */
+	discipline?: string;
 	routine: boolean;
 	/** Já com o `\n\n` à frente; "" quando vazio. */
 	research?: string;
@@ -46,27 +50,33 @@ export function deploymentLine(atlasUrl: string | undefined): string {
 	return `\n\nINSTALAÇÃO: você está rodando no app publicado em ${url} (é o endereço que o usuário usa para falar com você). Use-o quando precisar passar o link do app. Webhooks e gatilhos de rotina o sistema configura sozinho, com a URL e o segredo certos: nunca crie webhooks apontando para este endereço por conta própria.`;
 }
 
-/** Tier `stable`: ordem fixa núcleo → rotina → instalação → pesquisa → conectores → skills → grupos. */
+/** Tier `stable`: ordem fixa persona → núcleo → disciplina do modelo → rotina → instalação → pesquisa → conectores → skills → grupos. */
 export function buildStableSystemPrompt(parts: StableSystemPromptParts): string {
-	const head = parts.routine ? [parts.base, ...ROUTINE_MODE_LINES].join("\n") : parts.base;
+	const core = parts.discipline ? `${parts.base}\n\n${parts.discipline}` : parts.base;
+	const base = parts.persona ? `${parts.persona}\n\n${core}` : core;
+	const head = parts.routine ? [base, ...ROUTINE_MODE_LINES].join("\n") : base;
 	return `${head}${deploymentLine(parts.atlasUrl)}${parts.research ?? ""}${parts.connectors ?? ""}${parts.skills ?? ""}${parts.tail ?? ""}`;
 }
 
-/** Prompt completo do turno: estável + linha do computador nativo + data de hoje + idioma por último. */
-export function buildSystemPrompt(input: { stable: string; nativeLine?: string; todayLine?: string; languageInstruction: string }): string {
+/**
+ * Prompt completo do turno: estável + linha do computador nativo + data de hoje. O idioma vai na persona (topo);
+ * `languageInstruction` só para quem não tem persona (subagente), por último.
+ */
+export function buildSystemPrompt(input: { stable: string; nativeLine?: string; todayLine?: string; languageInstruction?: string }): string {
 	const native = input.nativeLine ? `\n${input.nativeLine}` : "";
 	const today = input.todayLine ? `\n${input.todayLine}` : "";
-	return `${input.stable}${native}${today}\n${input.languageInstruction}`;
+	const language = input.languageInstruction ? `\n${input.languageInstruction}` : "";
+	return `${input.stable}${native}${today}${language}`;
 }
 
 /**
- * Retomada: o prompt do checkpoint termina na instrução de idioma de quando o
- * run começou. Troca só esse rabo (idioma mudou), sem tocar no resto do prefixo.
+ * Retomada: o prompt do checkpoint traz a instrução de idioma de quando o run começou (na persona, ou no fim nos
+ * checkpoints antigos e no subagente). Troca só ela (idioma mudou), sem tocar no resto; sem ela, acrescenta no fim.
  */
 export function swapLanguageInstruction(content: string, previous: readonly string[], current: string): string {
 	for (const instruction of previous) {
-		const suffix = `\n${instruction}`;
-		if (content.endsWith(suffix)) return `${content.slice(0, -suffix.length)}\n${current}`;
+		const at = content.indexOf(instruction);
+		if (at >= 0) return `${content.slice(0, at)}${current}${content.slice(at + instruction.length)}`;
 	}
 	return `${content}\n${current}`;
 }

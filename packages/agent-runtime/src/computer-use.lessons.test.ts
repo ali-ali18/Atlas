@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { appendedToolNotes } from "./loop/tool-result-notes.js";
 import type { AgentRunCheckpoint, ComputerUseEvent, LessonFeedbackEntry } from "@workspace/shared";
 import { LESSON_INJECT_MAX_CHARS, LESSON_INJECT_MAX_ITEMS, lessonRef } from "@workspace/shared";
 import type { SandboxManager } from "@workspace/sandbox";
@@ -61,8 +62,11 @@ async function run(steps: CompleteChatWithToolsResult[], extra: { lessons?: RunL
 }
 
 const erp = (): McpRuntime => ({ toolset: buildMcpToolset([ERP_CONNECTION], { autonomy: { level: "autonomous", exceptions: [] } }), call: fakeErp().call });
-const lessonNotes = (messages: LlmMessage[]) =>
-	messages.filter((message) => message.role === "system" && typeof message.content === "string" && message.content.startsWith("════ LIÇÕES APRENDIDAS"));
+// Lições entram no início (system) ou, para conector carregado depois, anexadas ao resultado da tool.
+const lessonNotes = (messages: LlmMessage[]): LlmMessage[] => [
+	...messages.filter((message) => message.role === "system" && typeof message.content === "string" && message.content.startsWith("════ LIÇÕES APRENDIDAS")),
+	...appendedToolNotes(messages).filter((note) => note.startsWith("════ LIÇÕES APRENDIDAS")).map((content) => ({ role: "tool" as const, content })),
+];
 const text = (message: LlmMessage) => String(message.content);
 
 describe("lições no run", () => {

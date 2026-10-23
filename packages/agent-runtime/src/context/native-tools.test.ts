@@ -17,7 +17,6 @@ const everyName = [
 	"delegate_task",
 	"read_cached_result",
 	"set_autonomy",
-	"propose_questionnaire",
 	...Object.values(NATIVE_TOOL_GROUPS).flatMap((group) => group.tools),
 ];
 const all = everyName.map(tool);
@@ -38,11 +37,11 @@ describe("catálogo das tools nativas raras", () => {
 
 	it("o plano separa núcleo, pré-carregadas (ordem do catálogo) e adiadas", () => {
 		const plan = planNativeTools(all, new Set<ContextGroup>(["routines"]));
-		expect(names(plan.core)).toEqual(["web_search", "web_extract", "delegate_task", "read_cached_result", "set_autonomy", "propose_questionnaire"]);
+		expect(names(plan.core)).toEqual(["web_search", "web_extract", "delegate_task", "read_cached_result", "set_autonomy"]);
 		expect(names(plan.preloaded)).toEqual(["list_routines", "propose_routine", "routine_group", "routine_control", "github_list_repos"]);
-		// propose_questionnaire é núcleo: nunca adiada.
-		expect(names(plan.core)).toContain("propose_questionnaire");
-		expect(plan.deferred.has("propose_questionnaire")).toBe(false);
+		// Política de agir primeiro: os cards de pergunta e de plano saíram do núcleo (entram por intenção ou busca).
+		expect(plan.deferred.get("propose_questionnaire")?.group).toBe("questionnaire");
+		expect(plan.deferred.get("propose_plan")?.group).toBe("plan");
 		expect(plan.deferred.has("propose_routine")).toBe(false);
 	});
 
@@ -66,7 +65,6 @@ describe("catálogo das tools nativas raras", () => {
 			"web_extract",
 			"delegate_task",
 			"read_cached_result",
-			"propose_questionnaire",
 			"mcp_tool_search",
 			"mcp__a__x",
 			"mcp__b__x",
@@ -125,8 +123,9 @@ describe("roteador de intenção", () => {
 		expect(groups("o que você lembra de mim?")).toContain("memory");
 	});
 
-	it("rotina carrega também o questionário (canal e horário costumam precisar de escolha)", () => {
-		expect(groups("me lembra de dar deploy amanhã")).toEqual(expect.arrayContaining(["routines", "questionnaire"]));
+	it("lembrete carrega a rotina sem o questionário (se faltar a hora, a pergunta é uma frase)", () => {
+		expect(groups("me lembra de dar deploy amanhã")).toContain("routines");
+		expect(groups("me lembra de dar deploy amanhã")).not.toContain("questionnaire");
 	});
 
 	it("é determinístico e insensível a acento e caixa", () => {

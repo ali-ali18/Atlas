@@ -117,7 +117,7 @@ describe("resposta já exibida não some (replay: arquivo repassado ao Bobinho)"
 		]);
 	});
 
-	it("rascunho recusado pelo verificador também fica visível como revisado, nunca apagado", async () => {
+	it("o verificador só observa: a resposta já exibida fica como final, sem rascunho revisado", async () => {
 		verify.mockResolvedValueOnce(["Your draft blames a tool that actually returned a successful result."]);
 		const { result, events, transcript } = await run({
 			queue: [
@@ -126,11 +126,10 @@ describe("resposta já exibida não some (replay: arquivo repassado ao Bobinho)"
 				say(ASKED),
 			],
 		});
-		expect(result.text).toBe(ASKED);
-		expect(events.find((event) => event.type === "assistant_discard")).toMatchObject({ reason: "evidence" });
+		expect(result.text).toBe("Não consegui falar com o Bobinho.");
+		expect(events.some((event) => event.type === "assistant_discard")).toBe(false);
 		expect(transcript.filter((bubble) => bubble.text.trim()).map((bubble) => [bubble.text, bubble.revised])).toEqual([
-			["Não consegui falar com o Bobinho.", "evidence"],
-			[ASKED, undefined],
+			["Não consegui falar com o Bobinho.", undefined],
 		]);
 	});
 });

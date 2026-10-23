@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
-import { assembleMemoryContext } from "./memory-context.js";
+import { afterEach, mock, test } from "node:test";
+import { prisma } from "./client.js";
+import { assembleMemoryContext, buildBotIdentityMessage } from "./memory-context.js";
 
 const base = {
 	identity: "IDENTIDADE",
@@ -99,4 +100,37 @@ test("lições do bot ficam na camada estável (depois do perfil, antes do resum
 	// sem lições o resultado é idêntico ao de antes
 	const none = assembleMemoryContext({ ...base, relevantMemory: null, incoming: [{ role: "user", content: "x" }] });
 	assert.deepEqual(none.map((m) => m.content).slice(0, 3), ["IDENTIDADE", "PERFIL", "RESUMO"]);
+});
+
+const restores: Array<() => void> = [];
+afterEach(() => {
+	for (const restore of restores.splice(0).reverse()) restore();
+	mock.restoreAll();
+});
+// Delegates Prisma são proxies: troca o método direto (mesmo padrão de bots.ownership.test.ts).
+function stubBot(row: Record<string, unknown> | null) {
+	const original = Reflect.get(prisma.bot, "findFirst");
+	Object.assign(prisma.bot, { findFirst: mock.fn(async () => row) });
+	restores.push(() => Object.assign(prisma.bot, { findFirst: original }));
+}
+const group = { name: "Time", selfId: "bot-1", members: [{ id: "bot-1", name: "Ada" }, { id: "bot-2", name: "Bia" }] };
+
+test("persona do bot: identidade, estilo e idioma do perfil num bloco só, em inglês (sem caixa alta)", async () => {
+	stubBot({ name: "Ada", snippet: "", description: "Cuida das vendas.", openRouterModel: null, language: "en-US" });
+	const block = (await buildBotIdentityMessage("bot-1", "user-a", group))!;
+	assert.ok(block.startsWith("Persona:\n"));
+	assert.match(block, /You are "Ada"/);
+	assert.match(block, /Your role, from your profile: Cuida das vendas\./);
+	assert.match(block, /Always reply to the user in American English\./);
+	assert.doesNotMatch(block, /portugu/i);
+	assert.doesNotMatch(block.split("\n\n")[0]!, /IDENTIDADE|SEMPRE|NUNCA|Responda/);
+	assert.equal(block.split('You are "Ada"').length, 2);
+});
+
+test("bot pt-BR recebe português; com a persona no prompt do runtime sai só o grupo (identidade uma vez)", async () => {
+	stubBot({ name: "Ada", snippet: "", description: null, openRouterModel: null, language: "pt-BR" });
+	assert.match((await buildBotIdentityMessage("bot-1", "user-a", group))!, /Brazilian Portuguese/);
+	const withoutPersona = (await buildBotIdentityMessage("bot-1", "user-a", group, { persona: false }))!;
+	assert.doesNotMatch(withoutPersona, /Persona:|You are "Ada"|Always reply/);
+	assert.match(withoutPersona, /Bia/);
 });

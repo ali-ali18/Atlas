@@ -5,9 +5,9 @@ import { applyComputerUseEventsToTranscript, TRANSCRIPT_SLOT, type ComputerUseEv
 import { runComputerUse } from "./computer-use.js";
 
 /**
- * O rascunho da resposta final sai em deltas (balão escrito aos poucos). Se o
- * verificador de resposta o recusar, o balão vira rascunho revisado (assistant_discard
- * com motivo: continua na tela, recolhido) e a versão refeita vem depois. LLM e verificador mockados.
+ * A resposta final sai em deltas (balão escrito aos poucos) e o usuário a lê. O verificador de resposta
+ * (juiz LLM) só observa: registra a decisão em modo sombra e nunca descarta a resposta completa.
+ * LLM e verificador mockados.
  */
 
 vi.mock("@workspace/db", async (importOriginal) => ({
@@ -20,7 +20,6 @@ vi.mock("@workspace/db", async (importOriginal) => ({
 const verify = vi.hoisted(() => vi.fn());
 vi.mock("./jev/answer-verifier.js", () => ({
 	verifyDraftAnswer: verify,
-	verifierNote: () => "Answer check (automatic, once): rewrite.",
 }));
 
 const call = (id: string, name: string, args: Record<string, unknown>): LlmToolCall => ({
@@ -34,16 +33,17 @@ const turn = (content: string | null, ...calls: LlmToolCall[]): CompleteChatWith
 });
 const say = (content: string): CompleteChatWithToolsResult => ({ model: "m", message: { role: "assistant", content } });
 
-describe("rascunho recusado pelo verificador", () => {
-	it("o balão do rascunho é retirado e só a versão refeita fica visível", async () => {
-		verify.mockResolvedValueOnce(["Your draft contradicts the tool results."]).mockResolvedValue(null);
+describe("verificador de resposta só observa", () => {
+	it("mesmo achando problema, a resposta já exibida é a final: sem descarte e sem nova chamada ao modelo", async () => {
+		verify.mockReset();
+		verify.mockResolvedValue(["Your draft contradicts the tool results."]);
 		const events: Array<Record<string, unknown> & { type: string }> = [];
 		const queue = [
 			turn("Vou procurar.", call("n1", "research_note", { sourceRef: "https://example.test/a", findings: "The plan costs 20 dollars.", keyFacts: ["US$ 20"], confidence: "high" })),
-			say("Não encontrei o preço em nenhuma fonte."),
 			say("O plano custa US$ 20."),
 		];
-		await runComputerUse({
+		const jev = { ask: vi.fn(), modes: { verify: "on" as const } };
+		const result = await runComputerUse({
 			manager: {} as SandboxManager,
 			getSessionId: async () => {
 				throw new Error("sem sandbox");
@@ -57,6 +57,7 @@ describe("rascunho recusado pelo verificador", () => {
 			conversationId: "conv-draft",
 			runId: "run-draft",
 			origin: "chat",
+			jev,
 			maxSteps: 8,
 			onEvent: (event) => {
 				events.push(event as never);
@@ -69,19 +70,13 @@ describe("rascunho recusado pelo verificador", () => {
 				return { ...next, usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 } };
 			},
 		} as never);
-		const rejectedStreamed = events.filter((event) => event.type === "assistant_delta").map((event) => String(event.delta)).join("");
-		expect(rejectedStreamed).toContain("Não encontrei o preço");
-		expect(events.some((event) => event.type === "assistant_discard")).toBe(true);
+		expect(verify).toHaveBeenCalledTimes(1);
+		// O juiz roda rebaixado para sombra: registra a decisão, mas não manda refazer.
+		expect(verify.mock.calls[0]![0].rt.modes.verify).toBe("shadow");
+		expect(events.some((event) => event.type === "assistant_discard")).toBe(false);
+		expect(result.text).toBe("O plano custa US$ 20.");
 		const transcript = applyComputerUseEventsToTranscript([], events as unknown as ComputerUseEvent[]);
-		const visible = transcript
-			.filter((bubble) => !bubble.revised)
-			.map((bubble) => bubble.text)
-			.filter((text) => text.trim().length > 0);
-		expect(visible).toEqual(["Vou procurar.", "O plano custa US$ 20."]);
-		// O rascunho já lido não some: fica recolhido como revisado, com o motivo.
-		expect(transcript.filter((bubble) => bubble.revised).map((bubble) => [bubble.text, bubble.revised])).toEqual([
-			["Não encontrei o preço em nenhuma fonte.", "evidence"],
-		]);
+		expect(transcript.filter((bubble) => bubble.revised)).toEqual([]);
 	});
 
 	const priorToolTurn: Array<Record<string, unknown>> = [
@@ -136,19 +131,18 @@ describe("rascunho recusado pelo verificador", () => {
 		expect(result.text).toBe("SIM, entendi certinho como faz.");
 	});
 
-	it("tool com sucesso neste turno: o verificador roda e pode retirar o rascunho", async () => {
+	it("tool com sucesso neste turno: o verificador roda uma vez, só observa, e a resposta fica", async () => {
 		verify.mockReset();
-		verify.mockResolvedValueOnce(["Your draft contradicts the tool results."]).mockResolvedValue(null);
+		verify.mockResolvedValue(["Your draft contradicts the tool results."]);
 		const { events, result } = await runWith(
 			"Anota isso na pesquisa.",
 			[
 				turn("Anotando.", call("n2", "research_note", { sourceRef: "https://example.test/a", findings: "The plan costs 20 dollars.", keyFacts: ["US$ 20"], confidence: "high" })),
-				say("Não encontrei o preço."),
-				say("O plano custa US$ 20."),
+				say("Anotei: o plano custa US$ 20."),
 			],
 		);
 		expect(verify).toHaveBeenCalledTimes(1);
-		expect(events.some((event) => event.type === "assistant_discard")).toBe(true);
-		expect(result.text).toBe("O plano custa US$ 20.");
+		expect(events.some((event) => event.type === "assistant_discard")).toBe(false);
+		expect(result.text).toBe("Anotei: o plano custa US$ 20.");
 	});
 });

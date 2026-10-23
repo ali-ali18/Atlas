@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { clipForJev, decideWithJev, jevModeFor, jevYes, parseJevFeatureMode, type JevAsk } from "./decide.js";
+import { clipForJev, decideWithJev, jevModeFor, jevYes, observeOnly, parseJevFeatureMode, type JevAsk } from "./decide.js";
+import { detectJevIntents, INTENT_QUESTIONS } from "./intent.js";
+import { jevSaying } from "./test-support.js";
 
 const questions = { q: { instructions: "?", criteria: { true: "t", false: "f" } } };
 const ok: JevAsk = async () => ({ model: "m", answers: { q: 0.9 }, durationMs: 1 });
@@ -74,5 +76,29 @@ describe("decideWithJev (F11)", () => {
 		expect(jevYes(0.79)).toBe(false);
 		expect(jevYes(0.8)).toBe(true);
 		expect(jevYes(undefined)).toBe(false);
+	});
+});
+
+describe("juízes que só observam", () => {
+	const ask: JevAsk = vi.fn(async () => ({ answers: {}, model: "jev", durationMs: 1 })) as never;
+	it("observeOnly rebaixa on para shadow só na feature pedida; off e ausente ficam como estão", () => {
+		const rt = { ask, modes: { verify: "on" as const, intent: "on" as const } };
+		expect(jevModeFor(observeOnly(rt, "verify"), "verify")).toBe("shadow");
+		expect(jevModeFor(observeOnly(rt, "verify"), "intent")).toBe("on");
+		expect(rt.modes.verify).toBe("on");
+		expect(observeOnly(undefined, "verify")).toBeUndefined();
+		const off = { ask, modes: { verify: "off" as const } };
+		expect(observeOnly(off, "verify")).toBe(off);
+	});
+
+	it("pedido de arquivo só conta quando explícito: a pergunta exclui relatório no chat e o limiar é alto", async () => {
+		expect(INTENT_QUESTIONS.wants_file.instructions).toContain("A report, summary, table, list or answer written in the chat is not a file");
+		const intents = async (score: number) =>
+			detectJevIntents({
+				rt: jevSaying({ wants_file: score }),
+				latestUserMessage: "me faz um relatório das vendas",
+			});
+		expect((await intents(0.85)).wantsFile).toBe(false);
+		expect((await intents(0.95)).wantsFile).toBe(true);
 	});
 });

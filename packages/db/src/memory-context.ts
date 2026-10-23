@@ -1,5 +1,5 @@
 import type { ChatMessage, ChatRole, SessionMessage } from "@workspace/shared";
-import { renderLessonsBlock } from "@workspace/shared";
+import { buildPersonaBlock, renderLessonsBlock } from "@workspace/shared";
 import {
 	buildBotRosterSection,
 	buildGroupSection,
@@ -14,7 +14,7 @@ import {
 	appendConversationMessage,
 	loadRecentConversationMessages,
 } from "./conversations.js";
-import { getBotIdentity } from "./bots.js";
+import { getBotProfile } from "./bots.js";
 import { listUserBotRoster } from "./bot-messages.js";
 import { botDecidesForOthers } from "./bot-pending.js";
 import { renderMemoryTiers } from "./memory-search.js";
@@ -54,6 +54,11 @@ export type MemoryContextOptions = {
 	 * conector/tool entram depois, quando o conector é carregado (ver o runtime).
 	 */
 	onLessons?: (ids: string[]) => void;
+	/**
+	 * O runtime do agente já põe a persona do bot (identidade, estilo e idioma) no topo do prompt: aqui sai só o
+	 * roster/grupo, para a identidade aparecer uma vez. Chat simples (sem o runtime) recebe a persona daqui.
+	 */
+	personaInSystemPrompt?: boolean;
 };
 
 /**
@@ -125,7 +130,7 @@ export async function buildMemoryAugmentedMessages(
 	// nunca quebra o run: só omite o bloco.
 	let identity: string | null = null;
 	try {
-		if (options.botId) identity = await buildBotIdentityMessage(options.botId, options.userId, options.group);
+		if (options.botId) identity = await buildBotIdentityMessage(options.botId, options.userId, options.group, { persona: options.personaInSystemPrompt !== true });
 	} catch (error) {
 		console.error("bot identity failed; continuing without identity", error);
 	}
@@ -207,32 +212,26 @@ export async function buildMemoryAugmentedMessages(
 }
 
 /**
- * Bloco `system` com a identidade do bot (nome + papel). O prompt global diz
- * "você é o Atlas" — este bloco especializa por bot para o modelo se
- * apresentar e responder com o nome certo, sem alucinar outra identidade.
- * Retorna `null` sem botId, sem bot ou em erro (caller ignora).
+ * Bloco `system` do bot: a persona (nome, papel, estilo e idioma, ver `buildPersonaBlock`) e o roster dos outros
+ * bots (ou o bloco do grupo). Com `persona: false` (o runtime já pôs a persona no topo do prompt) sai só o
+ * roster/grupo. Retorna `null` sem botId, sem bot ou em erro (caller ignora).
  */
 export async function buildBotIdentityMessage(
 	botId: string | null | undefined,
 	userId: string | undefined,
 	group?: { name: string; selfId: string; members: GroupMember[] },
+	options: { persona?: boolean } = {},
 ): Promise<string | null> {
 	try {
-		const identity = await getBotIdentity(botId, userId);
-		if (!identity || !identity.name.trim()) return null;
-		const name = identity.name.trim().slice(0, 80);
-		const lines = [`Você está atuando como o bot "${name}".`];
-		const description = identity.description?.trim().slice(0, 500);
-		if (description) {
-			lines.push(`Papel do bot: ${description}`);
-		}
-		lines.push(
-			`Responda SEMPRE como "${name}" — nunca como Atlas, nunca como outro assistente genérico. Fale SEMPRE em primeira pessoa como "${name}" (diga "vou", nunca "o ${name} vai..."). Apresente-se APENAS no primeiro contato (evento bot-created); em respostas e follow-ups, NÃO se apresente de novo.`,
-		);
-		const identityBlock = `════ IDENTIDADE DO BOT ════\n${lines.join("\n")}`;
+		const profile = await getBotProfile(botId, userId);
+		if (!profile || !profile.name.trim()) return null;
+		const persona = options.persona === false
+			? null
+			: buildPersonaBlock({ name: profile.name, role: profile.description, language: profile.language });
+		const join = (section: string | null) => [persona, section].filter(Boolean).join("\n\n") || null;
 		// Grupo: os outros membros e as regras da conversa no lugar do roster do send_to_bot.
 		if (group) {
-			return `${identityBlock}\n\n${buildGroupSection({ groupName: group.name, selfId: group.selfId, members: group.members })}`;
+			return join(buildGroupSection({ groupName: group.name, selfId: group.selfId, members: group.members }));
 		}
 		// Roster dos outros bots do usuário (send_to_bot); falha aqui só omite o bloco.
 		const roster = userId && botId ? await listUserBotRoster(userId).catch(() => []) : [];
@@ -242,7 +241,7 @@ export async function buildBotIdentityMessage(
 			bots: roster,
 			decidesForOthers: userId && botId ? await botDecidesForOthers(botId, userId).catch(() => false) : false,
 		});
-		return rosterBlock ? `${identityBlock}\n\n${rosterBlock}` : identityBlock;
+		return join(rosterBlock || null);
 	} catch (error) {
 		console.error("bot identity load failed; skipping", error);
 		return null;

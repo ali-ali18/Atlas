@@ -8,7 +8,7 @@ export type AnthropicBlock =
 	| { type: "image"; source: { type: "base64"; media_type: string; data: string } | { type: "url"; url: string } }
 	| { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string }; title?: string }
 	| { type: "tool_use"; id: string; name: string; input: unknown }
-	| { type: "tool_result"; tool_use_id: string; content: string | AnthropicBlock[]; is_error?: boolean };
+	| { type: "tool_result"; tool_use_id: string; content: string | AnthropicBlock[]; is_error?: boolean; cache_control?: Cache };
 export type AnthropicMessage = { role: "user" | "assistant"; content: AnthropicBlock[] };
 export type AnthropicTool = { name: string; description: string; input_schema: Record<string, unknown>; cache_control?: Cache };
 export type AnthropicRequest = {
@@ -96,7 +96,10 @@ export function toAnthropicMessages(messages: readonly LlmMessage[]): { system: 
 			const content: string | AnthropicBlock[] = inner.every((b) => b.type === "text")
 				? inner.map((b) => (b.type === "text" ? b.text : "")).join("\n")
 				: inner;
-			pushUser(out, [{ type: "tool_result", tool_use_id: message.tool_call_id ?? "", content: content.length ? content : "(sem saída)" }]);
+			// Breakpoint de cache marcado no texto do resultado: em texto puro ele iria embora no join, então sobe para o bloco.
+			const cached = typeof content === "string" ? inner.find((b) => b.type === "text" && b.cache_control) : undefined;
+			const cache = cached?.type === "text" ? cached.cache_control : undefined;
+			pushUser(out, [{ type: "tool_result", tool_use_id: message.tool_call_id ?? "", content: content.length ? content : "(sem saída)", ...(cache ? { cache_control: cache } : {}) }]);
 			continue;
 		}
 		if (message.role === "user") {

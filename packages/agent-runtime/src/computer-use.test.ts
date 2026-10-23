@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CompleteChatWithToolsResult, LlmMessage } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import { languageInstruction } from "@workspace/shared";
+import { disciplineForModel } from "./context/model-discipline.js";
 import {
 	createRoutine,
 	convertRoutineToGenericWebhook,
@@ -136,9 +137,38 @@ describe("runComputerUse resume", () => {
 					return assistantDone();
 				},
 			});
-			expect(systemContent.endsWith(`\n${languageInstruction(language)}`)).toBe(true);
+			// Persona no topo: identidade, estilo e idioma num lugar só (uma vez).
+			expect(systemContent.startsWith("Persona:\n")).toBe(true);
+			expect(systemContent.split(languageInstruction(language))).toHaveLength(2);
+			expect(systemContent.indexOf(languageInstruction(language))).toBeLessThan(systemContent.indexOf("Act, don't ask:"));
 		},
 	);
+
+	it("bot en-US nunca recebe 'português' no prompt; pt-BR recebe Portuguese", async () => {
+		const systemOf = async (language: "en-US" | "pt-BR") => {
+			let systemContent = "";
+			await runComputerUse({
+				manager: {} as SandboxManager,
+				getSessionId: async () => "session-1",
+				sandboxEnabled: false,
+				model: "test-model",
+				apiKey: "test",
+				messages: [{ role: "user", content: "hello" }],
+				language,
+				maxSteps: 1,
+				onEvent: () => undefined,
+				streamChat: async (request) => {
+					systemContent = request.messages.filter((message) => message.role === "system").map((message) => String(message.content)).join("\n");
+					return assistantDone();
+				},
+			});
+			return systemContent;
+		};
+		const en = await systemOf("en-US");
+		expect(en).not.toMatch(/portugu[eê]s|Responda em/i);
+		expect(en).toContain("Always reply to the user in American English.");
+		expect(await systemOf("pt-BR")).toContain("Always reply to the user in Brazilian Portuguese.");
+	});
 
 	it.each([
 		[{ role: "user" as const, content: "hello" }],
@@ -232,7 +262,7 @@ describe("runComputerUse resume", () => {
 		});
 
 		await expect(first).rejects.toThrow(/crash after tool/);
-		expect(seenSystemContent[0]?.endsWith(`\n${languageInstruction("en-US")}`)).toBe(true);
+		expect(seenSystemContent[0]).toContain(languageInstruction("en-US"));
 		expect(navigate).toHaveBeenCalledTimes(1);
 		expect(parseRuntimeCheckpoint(stored)?.nextStepIndex).toBe(1);
 
@@ -258,7 +288,7 @@ describe("runComputerUse resume", () => {
 		});
 
 		expect(navigate).toHaveBeenCalledTimes(1);
-		expect(seenSystemContent[1]?.endsWith(`\n${languageInstruction("es-ES")}`)).toBe(true);
+		expect(seenSystemContent[1]?.split(languageInstruction("es-ES"))).toHaveLength(2);
 		expect(seenSystemContent[1]).not.toContain(languageInstruction("en-US"));
 		expect(result.text).toContain("Pronto");
 	});
@@ -1998,15 +2028,17 @@ describe("SYSTEM_PROMPT: regras de lembrete e honestidade", () => {
 		expect(SYSTEM_PROMPT).toMatch(/nunca substitui o lembrete no chat/);
 	});
 
-	it("instrui honestidade: nunca dizer que não consegue sem tentar a tool", () => {
-		expect(SYSTEM_PROMPT).toMatch(/nunca diga que não consegue fazer algo sem ter tentado a/);
-		expect(SYSTEM_PROMPT).toMatch(/se a tool falhar, diga o erro real/);
+	it("instrui honestidade: nunca dizer que não consegue sem tentar a tool (bloco de disciplina, todo modelo)", () => {
+		for (const model of ["anthropic/claude-sonnet-4.5", "deepseek/deepseek-chat"]) {
+			expect(disciplineForModel(model)).toContain("Never say you cannot do something before trying the matching tool.");
+			expect(disciplineForModel(model)).toContain("say so with the real error");
+		}
 	});
 
-	it("restringe 'pergunte antes de agir': ações reversíveis não esperam questionário", () => {
-		expect(SYSTEM_PROMPT).toMatch(/NUNCA pergunte o que o usuário já disse/);
-		expect(SYSTEM_PROMPT).toMatch(/No máximo 1 pergunta por vez/);
-		expect(SYSTEM_PROMPT).toMatch(/Ações reversíveis \(criar\/editar/);
+	it("política única de agir primeiro: ações reversíveis não esperam pergunta", () => {
+		expect(SYSTEM_PROMPT).toMatch(/Never ask for something the user already said or a tool can find/);
+		expect(SYSTEM_PROMPT).toMatch(/When you must ask: one short question, then wait\./);
+		expect(SYSTEM_PROMPT).toMatch(/Reversible writes the user asked for \(routines, reminders, skills, drafts\) show a card or result they can adjust: do them directly\./);
 	});
 });
 
@@ -2393,6 +2425,8 @@ describe("propose_questionnaire: purpose e original request no card", () => {
 			conversationId: "conv-q2",
 			runId: "run-q2",
 			objective: "me lembra de dar deploy dia 03/10 pelo chat",
+			// O teste é do conteúdo do card: com a economia o questionário só entra por intenção (onboarding, novo agente).
+			contextEconomy: false,
 			maxSteps: 4,
 			onEvent: () => undefined,
 			streamChat: async () => {

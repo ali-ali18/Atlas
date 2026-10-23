@@ -308,7 +308,7 @@ describe("buildMcpToolset", () => {
 		]);
 	});
 
-	it("várias contas do mesmo serviço: nomes incluem a conta, tools têm prefixos distintos e o prompt manda perguntar", () => {
+	it("várias contas do mesmo serviço: nomes incluem a conta, tools têm prefixos distintos e o prompt manda escolher pela conversa (pergunta só antes de escrita)", () => {
 		const set = buildMcpToolset([
 			connection({ id: "c1", slug: "notion", accountLabel: "Notion pessoal" }),
 			connection({ id: "c2", slug: "notion-2", accountLabel: null }),
@@ -319,7 +319,7 @@ describe("buildMcpToolset", () => {
 		expect(set.tools.find((t) => t.function.name === "mcp__notion__search")?.function.description).toBe("[Notion — Notion pessoal] Busca páginas");
 		expect(set.entries.get("mcp__notion-2__search")).toMatchObject({ connectionId: "c2", connectionName: "Notion — notion-2" });
 		expect(set.multiAccountServices).toEqual(["Notion"]);
-		expect(multiAccountLine(set).join(" ")).toMatch(/mais de uma conta de: Notion.*pergunte ao usuário/);
+		expect(multiAccountLine(set).join(" ")).toMatch(/More than one account of: Notion.*Pick the account from the request, memory or earlier use.*Ask which one only before a write when nothing points to an account\./);
 	});
 
 	it("uma conta só: sem apelido nada muda; com apelido o nome o inclui; sem linha de várias contas", () => {

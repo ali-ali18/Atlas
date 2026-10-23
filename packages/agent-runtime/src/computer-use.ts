@@ -14,9 +14,9 @@ import { buildStableSystemPrompt, buildSystemPrompt, swapLanguageInstruction } f
 import { namespaceToolCallId, renameProviderItemCallIds } from "./context/transcript.js";
 import { triageUserMessage, type TriageHistoryEntry } from "./loop/message-triage.js";
 import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } from "./loop/interrupt.js";
-import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
+import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MAX_ANSWER_REVISIONS_PER_RUN, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
-import { parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
+import { describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
 import { alreadyLoadedSummary, findAlreadyLoadedTools } from "./execution/tool-search-guard.js";
 import { runSandboxOperation, type SandboxExecutionContext } from "@workspace/sandbox";
 import {
@@ -73,6 +73,7 @@ import {
 	validateAlertInterval,
 	type RoutineAlertConfig,
 	languageInstruction,
+	buildPersonaBlock,
 	BROWSER_CHILD_MAX_CONCURRENCY,
 	DELEGATE_TOOL_NAME,
 	SUBAGENT_BASE_TOOLS,
@@ -220,9 +221,9 @@ import type { McpRuntime } from "./mcp/runtime.js";
 import { isUnattendedOrigin } from "./autonomy-gate.js";
 import { jevMcpState, reviewMcpWithJev, type JevMcpAudit, type JevMcpEvaluator, type JevMcpMode } from "./mcp/jev-gate.js";
 import { detectJevIntents, NO_INTENTS, type JevIntents } from "./jev/intent.js";
-import type { JevRuntime } from "./jev/decide.js";
+import { observeOnly, type JevRuntime } from "./jev/decide.js";
 import { memoryJudgeFor, type MemoryGateCandidate, type MemoryGateVerdict, type MemoryJudge } from "./memory-gate.js";
-import { verifierNote, verifyDraftAnswer } from "./jev/answer-verifier.js";
+import { verifyDraftAnswer } from "./jev/answer-verifier.js";
 import { detectStuckRun, shouldCheckStuck } from "./jev/stuck.js";
 import { classifyDifficulty } from "./context/difficulty.js";
 import { classifyDifficultyWithReviewer } from "./jev/difficulty.js";
@@ -279,6 +280,8 @@ import {
 	translateNativeComputerAction,
 } from "./tools/computer-native.js";
 import { shouldAnnounceCompaction } from "./context/compaction-notice.js";
+import { disciplineForModel } from "./context/model-discipline.js";
+import { appendToLatestToolResult, conversationHasNote, createStepNotices, NOTICE_PRIORITY } from "./loop/tool-result-notes.js";
 import { assembleSystemPromptParts, groupProcedureText, legacySystemPrompt, skillIndexPrompt } from "./context/prompt-blocks.js";
 import { contextEconomyEnabled, contextTranscriptEnabled } from "./context/flag.js";
 import { clippedResultRefLine, createResultStore, resultStoreLimits, extractResultRef, RESULT_MAX_STORED_CHARS } from "./context/result-store.js";
@@ -375,7 +378,7 @@ import { executeProposePlan, PROPOSE_PLAN_TOOL, PROPOSE_PLAN_TOOL_NAME } from ".
 import { isNativeWriteTool, runPreToolHooks, type HookLesson, type PreToolHit } from "./hooks/pre-tool.js";
 import { createTaskOrchestrator, isBookkeepingOnly, MULTI_ITEM_START_NOTE } from "./execution/task-orchestrator.js";
 import { collectEvidence, createDeliverableVerifier } from "./tools/draft-check.js";
-import { REGENERATE_FILE_NOTE, askFileCorrection, askFilePromise, shouldCheckFileCorrection } from "./execution/delivery-correction.js";
+import { askFileCorrection, askFilePromise, shouldCheckFileCorrection } from "./execution/delivery-correction.js";
 import {
 	executeProactiveTool,
 	executeUserPush,
@@ -410,6 +413,7 @@ import {
 import {
 	findExactMcpToolMatches,
 	findReferencedMcpTools,
+	findSiblingReadTools,
 	listMcpToolNames,
 	planMcpActivation,
 	connectorToolNames,
@@ -530,10 +534,10 @@ const MCP_INDEX_TOTAL_MAX_CHARS = 6_000;
  * serem carregadas.
  */
 export const CONNECTOR_ARGS_GUIDANCE =
-	"- When calling connector tools, set only the parameters you need; leave optional filters empty unless the user asked for them. If a search returns nothing: retry with only the main filter, then without filters, then with a partial keyword; pick the closest match and ask the user to confirm when the name doesn't match exactly. Reuse ids from earlier results instead of searching again.\n" +
+	"- When calling connector tools, set only the parameters you need; leave optional filters empty unless the user asked for them. If a search returns nothing: retry with only the main filter, then without filters, then with a partial keyword; use the closest match and name it in your answer; ask only when several matches are equally close and the call writes data. Reuse ids from earlier results instead of searching again.\n" +
 	"- Before saying data is missing, check the tool's inputSchema `required`. Optional fields never block a create/update call: omit them, or fill them only with real ids seen in results (ignore placeholder ids like 0).\n" +
 	"- Call the write tool with the required fields. Before the call (which may open a confirmation card), check that every required field has a real value from the user or from a result you read; if one is missing, ask the user for it instead of guessing or sending a placeholder. If the connector returns an error, show the real error and fix the field it points to; after an approved action fails, correct the argument instead of repeating the same call; don't refuse up front.\n" +
-	"- If the user named someone for an optional field and you can't resolve it, still create without it and say so (or ask once).\n" +
+	"- If the user named someone for an optional field and you can't resolve it, still create without it and say so.\n" +
 	"- Mention any item that looks inactive or blocked in the results when you use it.\n" +
 	"- When a list tool supports pagination and a result looks truncated, or the user says items are missing, fetch further pages or narrow the query before concluding; never claim you checked everything when you saw only part of it.\n" +
 	"- Ids vs numbers: for an id parameter (id, *_id, idSomething), use the resource's id field from a previous list or search result, never its display number (order or invoice number) or name.\n" +
@@ -543,7 +547,7 @@ export const CONNECTOR_ARGS_GUIDANCE =
 export function multiAccountLine(toolset: McpToolset): string[] {
 	const services = toolset.multiAccountServices ?? [];
 	if (services.length === 0) return [];
-	return [`- Há mais de uma conta de: ${services.join(", ")}. Se o pedido não deixar claro qual conta usar, pergunte ao usuário antes de usar; ao agir, use as tools da conta escolhida (o nome do conector inclui a conta).`];
+	return [`- More than one account of: ${services.join(", ")} (the connector name includes the account). Pick the account from the request, memory or earlier use and name it in your answer; for reads you can check each account. Ask which one only before a write when nothing points to an account.`];
 }
 
 function connectorsPrompt(toolset: McpToolset): string {
@@ -660,15 +664,15 @@ const USER_PUSH_ROUTINE_NOTE =
  * (ver `packages/shared/src/runs.ts`, `packages/db/src/runs.ts`).
  */
 export const BOT_CONFIG_EVENT_SYSTEM_INSTRUCTION = [
-	"EVENTO DE BOT (criação/fechamento de config/questionário): responda em PT-BR, curto e simpático.",
-	"Apresente-se brevemente (1-2 frases: quem você é + diga que vai fazer umas perguntas para ajudar na experiência dele). Sem 'boas-vindas' formais.",
-	"UMA pergunta por vez: chame `propose_questionnaire` com 1 item, aguarde a resposta e só então faça a próxima (máx. 3 no onboarding). NUNCA todas de uma vez.",
-	"Antes de perguntar, consulte `session_search` (histórico DESTE bot) e `memory_search` para aproveitar o que já foi dito. Cada bot é isolado: NUNCA presuma ou cite contexto de outros bots do usuário.",
-	"Se emitiu `propose_questionnaire`, o texto final confirma o entendimento + introduz a próxima pergunta (o card já mostra a pergunta em si).",
-	"Sem card e trivial: no máximo 1 pergunta curta em texto. Não abra conversa longa.",
-	"Se a conclusão mudar decisões futuras, salve via tool `memory` target `memory` category `bot_config` ou `bot_evolution` importance>=0.7 (content=\"<estado>. Porquê: <motivo>\"). Não crie tabela nova.",
-	"Resposta repetida não duplica: `add` idêntico/paráfrase (<0.08) devolve \"duplicado\"; em overflow 2200 use `replace` consolidando.",
-	"Antes de afirmar sobre o bot ou dizer \"não sei\", consulte `memory_search` e `session_search` (description=estado atual, memory=porquê/histórico).",
+	"BOT EVENT (bot created, config or questionnaire answers): reply briefly and warmly, in the bot's language.",
+	"Introduce yourself in 1-2 sentences (who you are, and that you will ask a few questions to tailor the experience). No formal welcome.",
+	"One question at a time: call `propose_questionnaire` with 1 item, wait for the answer, then ask the next (at most 3 in onboarding).",
+	"Before asking, check `session_search` (this bot's history) and `memory_search` to reuse what was already said. Each bot is isolated: do not assume or cite context from the user's other bots.",
+	"After `propose_questionnaire`, the final text confirms what you understood and introduces the next question (the card already shows the question).",
+	"Without a card and for a trivial point: at most one short question in text. Do not open a long conversation.",
+	"If the conclusion changes future decisions, save it with the `memory` tool, target `memory`, category `bot_config` or `bot_evolution`, importance>=0.7 (content=\"<state>. Why: <reason>\").",
+	"A repeated answer is not duplicated: an identical or paraphrased `add` (<0.08) returns \"duplicado\"; when over 2200 chars, use `replace` to consolidate.",
+	"Before stating something about the bot or saying you do not know, check `memory_search` and `session_search` (description = current state, memory = why/history).",
 ].join("\n");
 
 const BOT_CONFIG_EVENT_MARKERS = [
@@ -691,6 +695,7 @@ function containsBotConfigInstruction(text: string): boolean {
 	const lower = (text ?? "").toLowerCase();
 	return (
 		lower.includes("evento de bot") ||
+		lower.includes("bot event") ||
 		lower.includes("bot_config") ||
 		lower.includes("bot_evolution") ||
 		lower.includes("questionnaire-submitted")
@@ -1327,7 +1332,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "propose_questionnaire",
 			description:
-				"Pergunta ao usuário com escolhas fixas num card (onboarding, preferências, esclarecer pedido ambíguo, ou 2-4 opções claras: use em vez de perguntar em texto). 1 item por chamada; aguarde a resposta. Nova chamada substitui a pendente. Depois de emitir, não repita as perguntas em texto.",
+				"Asks the user a question with fixed choices in a card. USE WHEN onboarding a new bot, or when you are blocked (the answer cannot be found with tools and the options lead to materially different, costly or irreversible actions) and the answer is one of 2-4 clear options. DO NOT USE for low-stakes choices (decide them yourself and say so), for anything a tool can look up, or when the request has a plausible reading: act on it. One item per call; wait for the answer. A new call replaces the pending one. Do not repeat the question in text.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -2283,13 +2288,16 @@ async function executeListRoutines(
 					? formatOnceSummary(row.once?.runAt ?? "", row.timezone)
 					: row.triggerType === "interval"
 						? formatIntervalSummary(row.interval?.everyMinutes ?? 0)
-						: `cron · ${row.schedule ?? "—"}`;
+						: describeRoutineProposalSchedule({ schedule: row.schedule ?? undefined });
 		const state = row.enabled ? "ativa" : "pausada";
 		const groupNote = row.group ? ` [grupo: ${row.group.name}]` : "";
 		const alertSentence = describeRoutineAlertSentence(row);
 		const alertNote = alertSentence ? ` — ${alertSentence}${row.alert?.active ? " (avisando agora: condição ainda vale)" : ""}` : "";
 		const notifyNote = !row.alert && row.notify === "important" ? " [aviso: só o importante]" : "";
-		return `${index + 1}. ${row.name} (${kind}, ${state})${groupNote}${alertNote}${notifyNote}`;
+		// O que a rotina faz: sem isso o bot não sabe responder "o que tem na rotina X?".
+		const task = row.prompt?.replace(/\s+/g, " ").trim();
+		const taskNote = task ? `\n   faz: ${task.length > 280 ? `${task.slice(0, 279)}…` : task}` : "";
+		return `${index + 1}. ${row.name} (${kind}, ${state})${groupNote}${alertNote}${notifyNote}${taskNote}`;
 	});
 	return {
 		summary: `Rotinas (${items.length}):\n${lines.join("\n")}`,
@@ -4590,6 +4598,7 @@ async function searchConnectorTools(
 
 	// Tool que manda "chamar X antes" (referência, validação): carrega X junto.
 	names = [...names, ...findReferencedMcpTools({ names, available: toolset.available, entries: toolset.entries, unattended })];
+	names = [...names, ...findSiblingReadTools({ names, available: toolset.available, entries: toolset.entries })];
 	const { activated, evicted } = ctx.activateMcpTools!(names);
 	if (activated.length === 0) {
 		if (loaded) return { summary: alreadyLoadedSummary(names), matched: true };
@@ -5578,8 +5587,15 @@ export async function runComputerUse(params: {
 	const baseContextBudget = (): ContextBudget | undefined =>
 		economy ? (params.contextBudget ?? contextBudgetFor(isSubagent ? "economy" : params.contextMemory, contextLength)) : undefined;
 	const promptedGroups = new Set(economyPlan?.groups ?? []);
-	// Grupo `data`: entra (uma vez, como nota) quando o run usa conector, API ou código de dados e o roteador ainda não o carregou.
+	// Grupo `data`: entra (uma vez, anexado ao resultado da tool) quando o run usa conector, API ou código de dados e o roteador ainda não o carregou.
 	let dataToolRan = false;
+	// Nada de `system` novo no meio do run: avisos (laço, orçamento, estagnação) vão anexados ao resultado de tool mais
+	// recente, no máximo um por passo; procedimentos que só valem depois de uma tool (dados, guia, lições) vão inteiros.
+	const stepNotices = createStepNotices();
+	const procedureNotes: string[] = [];
+	const attachProcedure = (text: string) => {
+		if (!appendToLatestToolResult(conversation, text)) procedureNotes.push(text);
+	};
 	// Guia do conector (dado): entra uma vez por conexão, ao usar ou carregar uma tool dela.
 	const guideInjector = createConnectorGuideInjector([
 		...(mcp?.guides ? [...mcp.guides].map(([id, item]) => ({ id, name: item.name })) : []),
@@ -5767,7 +5783,11 @@ export async function runComputerUse(params: {
 					.join("")
 			: "";
 		const systemContent = buildStableSystemPrompt({
+			// Persona do bot no topo: identidade, estilo e idioma num lugar só (o subagente fala com o pai, sem persona).
+			persona: isSubagent ? undefined : buildPersonaBlock({ name: botProfileForGate?.name, role: botProfileForGate?.description, language }),
 			base: isSubagent ? subagentSystemPrompt(params.browserTabId !== undefined) : economyParts ? economyParts.core : SYSTEM_PROMPT,
+			// Disciplina por família do modelo do início do run (fixa: troca de nível no meio não muda o prefixo).
+			discipline: disciplineForModel(model),
 			routine: !isSubagent && params.origin === "routine",
 			research: isSubagent || economyParts ? "" : researchBlock,
 			connectors: connectorsBlock,
@@ -5784,7 +5804,7 @@ export async function runComputerUse(params: {
 		const userPushSection = userPushRun?.mode === "routine" ? USER_PUSH_ROUTINE_NOTE : null;
 		const alertSection = alertRun ? alertRunNote(alertRun) : null;
 		conversation = [
-			{ role: "system", content: buildSystemPrompt({ stable: systemContent, nativeLine: nativeComputerOn ? NATIVE_COMPUTER_PROMPT_LINE : undefined, todayLine: isSubagent ? undefined : todayNote(new Date()), languageInstruction: currentLanguageInstruction }) },
+			{ role: "system", content: buildSystemPrompt({ stable: systemContent, nativeLine: nativeComputerOn ? NATIVE_COMPUTER_PROMPT_LINE : undefined, todayLine: isSubagent ? undefined : todayNote(new Date()), languageInstruction: isSubagent ? currentLanguageInstruction : undefined }) },
 			...(proactiveSection ? [{ role: "system" as const, content: proactiveSection }] : []),
 			...(userPushSection ? [{ role: "system" as const, content: userPushSection }] : []),
 			...(alertSection ? [{ role: "system" as const, content: alertSection }] : []),
@@ -6089,6 +6109,10 @@ export async function runComputerUse(params: {
 	// O pedido de arquivo vem do Jev (qualquer idioma, na mesma chamada de intenção). Jev off/falha = sem expectativa.
 	if (!isSubagent && canCreateFile() && jevIntents.wantsFile) {
 		taskTracker.expectFile("The user asked for a file deliverable.");
+	}
+	// Tarefa de vários itens (Jev): a instrução de declarar a lista vem no início do run, não no meio.
+	if (!isSubagent && jevIntents.multiItem && !taskOrchestrator.ledger()?.items.length && !conversationHasNote(conversation, MULTI_ITEM_START_NOTE)) {
+		conversation.push({ role: "system", content: MULTI_ITEM_START_NOTE });
 	}
 	let forcedWrapUp = false;
 	const jevCheckpointsDone = new Set<string>();
@@ -7017,12 +7041,7 @@ export async function runComputerUse(params: {
 					repeatWarned.add(
 						`${argsKey}|${(lastTwo[1] as { resultKey: string }).resultKey}`,
 					);
-					conversation.push({
-						role: "system",
-						content:
-							`Você repetiu ${name} com o mesmo resultado. Mude de abordagem ` +
-							`(outra tool, outro argumento) ou conclua.`,
-					});
+					stepNotices.push(`You repeated ${name} with the same result. Change approach (another tool or other arguments) or conclude.`, NOTICE_PRIORITY.normal);
 				}
 			}
 
@@ -7667,13 +7686,8 @@ ${blockHint}`;
 		let resultIndex = 0;
 		conversation.splice(batchStart, tail.length, ...tail.map((message) => message.role === "tool" ? results[resultIndex++]! : message));
 
-		// Push collected loop warnings after all tool results
-		if (batchLoopWarnings.length > 0) {
-			conversation.push({
-				role: "system",
-				content: batchLoopWarnings.join(" "),
-			});
-		}
+		// Avisos de laço do lote: uma nota curta anexada ao resultado (no máximo um aviso por passo).
+		if (batchLoopWarnings.length > 0) stepNotices.push(batchLoopWarnings.join(" "), NOTICE_PRIORITY.normal);
 
 		// F4 — aborta só com 6 passos seguidos envolvendo 3+ tools distintas.
 		checkGlobalFailureLock();
@@ -7682,7 +7696,7 @@ ${blockHint}`;
 		// por sequência); nunca aborta o run.
 		const closed = ledger?.endDecision(decisionIndex);
 		// Com itens abertos, quem escala a estagnação é o ledger de itens (replan, depois parcial): os avisos genéricos ficam de fora.
-		if (closed?.nudge && !taskOrchestrator.hasOpenItems()) conversation.push({ role: "system", content: closed.nudge });
+		if (closed?.nudge && !taskOrchestrator.hasOpenItems()) stepNotices.push(closed.nudge, NOTICE_PRIORITY.normal);
 		// V3b: progresso por item; estagnação replaneja e, esgotados os replans, fecha com parcial honesta.
 		if (!isSubagent) {
 			const progress = taskOrchestrator.endDecision({
@@ -7690,7 +7704,7 @@ ${blockHint}`;
 				novelty: closed?.novelty,
 				bookkeepingOnly: isBookkeepingOnly(toolCalls.map((call) => call.function.name)),
 			});
-			if (progress.note) conversation.push({ role: "system", content: progress.note });
+			if (progress.note) stepNotices.push(progress.note, NOTICE_PRIORITY.normal);
 		}
 	};
 
@@ -7817,6 +7831,10 @@ ${blockHint}`;
 	const stallFileIntent = (pending: boolean) => !pending && !taskTracker.hasArtifact("file") && canCreateFile() && mentionsFileDeliverable(userTextsForFile);
 	let exhaustionNudged = false;
 	let fileCorrectionChecked = false;
+	/** Revisões da resposta final neste run, somando todos os portões (teto: `MAX_ANSWER_REVISIONS_PER_RUN`). */
+	let answerRevisions = 0;
+	/** Run com o usuário olhando o chat (não rotina, e-mail ou outro bot). */
+	const interactiveRun = params.origin === undefined || params.origin === "chat";
 	const firstStep = nextStepIndex;
 	/** Modo Automático: sobe um nível (no máximo uma vez por nível) e segue o run com o novo modelo; `false` = não há nível mais forte. */
 	const tryEscalate = async (reason: string, step: number): Promise<boolean> => {
@@ -7829,7 +7847,7 @@ ${blockHint}`;
 		tierEscalations.push({ from, to, reason, step });
 		tierEscalationNote = { from, to, reason };
 		tierEscalateSince = toolOutcomes.length;
-		conversation.push({ role: "system", content: MODEL_ESCALATION_NOTE });
+		stepNotices.push(MODEL_ESCALATION_NOTE, NOTICE_PRIORITY.normal);
 		await persistCheckpoint(step);
 		return true;
 	};
@@ -7852,7 +7870,9 @@ ${blockHint}`;
 				...lessonScopesPending.splice(0),
 			];
 			for (const injected of lessonInjector.notesFor(scopes)) {
-				conversation.push({ role: "system", content: injected.note });
+				// Lições entram no início do run; as de um conector carregado depois vão junto do resultado que o carregou.
+				if (step === firstStep) conversation.push({ role: "system", content: injected.note });
+				else attachProcedure(injected.note);
 				try {
 					params.lessons?.onInjected?.({ ids: injected.ids, key: injected.key });
 				} catch {
@@ -7971,16 +7991,7 @@ ${blockHint}`;
 			lastBudgetFraction = usage.fraction;
 			gateCanContinue = !wrapUp;
 			const gapsNote = taskOrchestrator.gapsNote(usage.fraction);
-			if (gapsNote && !conversation.some((message) => message.role === "system" && message.content === gapsNote)) {
-				conversation.push({ role: "system", content: gapsNote });
-			}
-			if (
-				jevIntents.multiItem &&
-				!taskOrchestrator.ledger()?.items.length &&
-				!conversation.some((message) => message.role === "system" && message.content === MULTI_ITEM_START_NOTE)
-			) {
-				conversation.push({ role: "system", content: MULTI_ITEM_START_NOTE });
-			}
+			if (gapsNote) stepNotices.push(gapsNote, NOTICE_PRIORITY.budget, { once: true });
 			const reserve = decideReserve({ fraction: usage.fraction, deliverablePending: pending, wrapUp });
 			if (reserve.restrictTools) nativeDeferral?.load(FILE_RESERVE_TOOLS.filter((name) => nativeDeferral.isDeferred(name)));
 			notesDeliver = pending && (reserve.note !== null || wrapUp);
@@ -7988,9 +7999,7 @@ ${blockHint}`;
 			// Fechamento sem arquivo pendente: sem tools, o modelo responde com o que tem.
 			forceFinalAnswer = wrapUp && !pending;
 			const note = reserve.note ?? (forcedWrapUp && !pending ? STUCK_ANSWER_NOW_NOTE : null);
-			if (note && !conversation.some((message) => message.role === "system" && message.content === note)) {
-				conversation.push({ role: "system", content: note });
-			}
+			if (note) stepNotices.push(note, NOTICE_PRIORITY.budget, { once: true });
 			// Enrolação pesquisa -> arquivo: aviso, só tools de arquivo e, por fim, parada honesta.
 			if (stallFileIntent(pending)) {
 				const stage = stallStage(readOnlyStreak);
@@ -8002,7 +8011,7 @@ ${blockHint}`;
 				const stallNote = stage === "nudge" ? STALL_NUDGE_NOTE : stage === "restrict" ? STALL_RESTRICT_NOTE : null;
 				if (stallNote && !stallNoted.has(stallNote)) {
 					stallNoted.add(stallNote);
-					conversation.push({ role: "system", content: stallNote });
+					stepNotices.push(stallNote, NOTICE_PRIORITY.normal);
 				}
 			}
 			if (stallRestrict) reserveRestrict = true;
@@ -8019,12 +8028,7 @@ ${blockHint}`;
 					"other",
 				);
 			}
-			const noted = conversation.some(
-				(message) => message.role === "system" && message.content === CHILD_WRAPUP_NOTE,
-			);
-			if (!noted && shouldSendWrapUpNote(usage)) {
-				conversation.push({ role: "system", content: CHILD_WRAPUP_NOTE });
-			}
+			if (shouldSendWrapUpNote(usage)) stepNotices.push(CHILD_WRAPUP_NOTE, NOTICE_PRIORITY.budget, { once: true });
 		}
 
 		// Parte A1: reaplica a higiene a cada passo (antes de cada chamada ao
@@ -8050,6 +8054,9 @@ ${blockHint}`;
 		stepInspector.noteHygiene(stepHygiene.report);
 		await reportCompaction(stepHygiene.report);
 
+		// Notas do runtime vão anexadas ao resultado de tool mais recente: procedimentos pendentes e UM aviso por passo.
+		while (procedureNotes.length > 0 && appendToLatestToolResult(conversation, procedureNotes[0]!)) procedureNotes.shift();
+		stepNotices.flush(conversation);
 		// Continuação de uma resposta cortada pelo limite de saída: mesmo balão (id do passo cortado).
 		const stepId = truncatedReply?.id ?? `${turnId}-step-${step}`;
 		const stepOutcome = await streamStep(
@@ -8128,10 +8135,15 @@ ${blockHint}`;
 				}
 			}
 			if (text.length > 0) {
+				// Portões que refazem a resposta final: no máximo UMA revisão por run somando todos (o usuário já viu o
+				// rascunho; cada revisão vira "Rascunho revisado" no chat). Juiz LLM nunca descarta resposta completa.
+				const canReviseAnswer = answerRevisions < MAX_ANSWER_REVISIONS_PER_RUN;
 				// V3: resposta final com itens abertos (ou sem a lista exigida) volta ao modelo; estrutural, sem ler a frase.
+				// O portão roda sempre (grava a parcial declarada); só refaz se ainda há revisão disponível no run.
 				if (!isSubagent) {
 					const gate = taskOrchestrator.gate("final_answer", { budgetFraction: lastBudgetFraction, canContinue: gateCanContinue, browserAvailable: browserAvailable() });
-					if (gate.action === "block") {
+					if (gate.action === "block" && canReviseAnswer) {
+						answerRevisions += 1;
 						conversation.push({ role: "assistant", content: text });
 						// O texto já foi em deltas ao chat; como o run segue, o balão vira rascunho revisado (fica recolhido).
 						await onEvent({ type: "assistant_discard", id: stepId, reason: "items_open" });
@@ -8144,6 +8156,7 @@ ${blockHint}`;
 				// uma cutucada para terminar o que falta em vez de oferecer "retomar depois".
 				if (
 					!isSubagent &&
+					canReviseAnswer &&
 					shouldContinueAfterExhaustion({
 						anyExhausted: providerHealth.any(),
 						alternatives: availableWebFallbacks(hasToolInRun),
@@ -8159,6 +8172,7 @@ ${blockHint}`;
 					})
 				) {
 					exhaustionNudged = true;
+					answerRevisions += 1;
 					// Sem isto o balão ficava ao vivo e sumia no fim do run (só a resposta final é gravada).
 					await onEvent({ type: "assistant_discard", id: stepId, reason: "exhaustion" });
 					conversation.push({ role: "assistant", content: text });
@@ -8166,15 +8180,13 @@ ${blockHint}`;
 					await persistCheckpoint(step + 1);
 					continue;
 				}
-				// L18: arquivo pedido (Jev `wantsFile`) e ainda não criado. O critério só
+				// L18: arquivo pedido explicitamente na última fala (Jev `wantsFile`) e ainda não criado. O critério só
 				// existe quando a tool de criação está disponível; o sucesso vem do evento de arquivo.
 				if (taskTracker.unmet().length > 0) {
 					taskTracker.setPhase("verifying");
-					// O portão de itens já refez esta resposta e mandou declarar as lacunas (item que falhou,
-					// delegação sem resultado): cobrar o arquivo agora seria uma segunda reescrita do mesmo balão.
-					if (!artifactNudged && taskOrchestrator.answerRevised() && taskOrchestrator.hasGaps()) artifactNudged = true;
-					if (!artifactNudged) {
+					if (!artifactNudged && canReviseAnswer) {
 						artifactNudged = true;
+						answerRevisions += 1;
 						// Sem isto o balão ficava ao vivo e sumia no fim do run (só a resposta final é gravada).
 						await onEvent({ type: "assistant_discard", id: stepId, reason: "missing_file" });
 						conversation.push({ role: "assistant", content: text });
@@ -8182,25 +8194,27 @@ ${blockHint}`;
 						await persistCheckpoint(step + 1);
 						continue;
 					}
-					// Depois do aviso, resposta honesta (sem nova promessa) encerra; promessa de novo não.
-					// Caminho raro (arquivo pedido, duas rodadas sem criar): uma chamada barata, sem frases por idioma.
-					const promise = await askFilePromise({
-						streamChat,
-						model: params.messageTriageModel?.trim() || model,
-						apiKey,
-						reply: text,
-						signal: params.abortSignal,
-					});
-					if (promise) usageTotals = addUsage(usageTotals, promise.usage);
-					if (promise?.promisesFile) {
-						taskTracker.addBlocker("promised file was never created");
-						await persistCheckpoint(step + 1);
-						throw new AgentRunLoopDetectedError("A resposta anunciou um arquivo, mas nenhum arquivo foi criado.");
+					// Outro portão já refez a resposta, ou o aviso já foi dado: a resposta sai como está. Só o run sem
+					// ninguém olhando (rotina, e-mail) confere se ela ainda promete um arquivo que não existe e falha honesto.
+					if (artifactNudged && !interactiveRun) {
+						const promise = await askFilePromise({
+							streamChat,
+							model: params.messageTriageModel?.trim() || model,
+							apiKey,
+							reply: text,
+							signal: params.abortSignal,
+						});
+						if (promise) usageTotals = addUsage(usageTotals, promise.usage);
+						if (promise?.promisesFile) {
+							taskTracker.addBlocker("promised file was never created");
+							await persistCheckpoint(step + 1);
+							throw new AgentRunLoopDetectedError("A resposta anunciou um arquivo, mas nenhum arquivo foi criado.");
+						}
 					}
-					taskTracker.waiveFile("file was not produced; the reply says so");
+					taskTracker.waiveFile(artifactNudged ? "file was not produced; the reply was accepted after one reminder" : "file was not produced; the answer was already revised once");
 				}
-				// F4: com arquivo no run e orçamento sobrando, UMA chamada barata decide (sem frases por idioma)
-				// se a resposta admite erro no arquivo ou oferece refazê-lo; se sim, regera.
+				// F4 (só observa): com arquivo no run, UMA chamada barata diz se a resposta admite erro no arquivo. Fica
+				// registrado; a resposta não é descartada (o usuário já a viu e um juiz não reescreve resposta completa).
 				if (
 					!isSubagent &&
 					shouldCheckFileCorrection({
@@ -8225,35 +8239,21 @@ ${blockHint}`;
 						signal: params.abortSignal,
 					});
 					if (verdict) usageTotals = addUsage(usageTotals, verdict.usage);
-					if (verdict?.fixFile) {
-						conversation.push({ role: "assistant", content: text });
-						// O texto já foi em deltas ao chat; como será refeito, o balão vira rascunho revisado (fica recolhido).
-						await onEvent({ type: "assistant_discard", id: stepId, reason: "file_fix" });
-						conversation.push({ role: "system", content: withWithdrawnReply(REGENERATE_FILE_NOTE) });
-						await persistCheckpoint(step + 1);
-						continue;
-					}
+					if (verdict?.fixFile) console.info(`[gate:shadow] file_fix run=${runId} step=${step}: reply admits a file problem (kept as is)`);
 				}
-				// F11: confere o rascunho contra as evidências; no máximo UMA revisão.
+				// F11 (só observa): o verificador Jev confere o rascunho contra as evidências em modo sombra (registra a
+				// decisão via `onDecision`), sem descartar a resposta final.
 				// Só vale tool usada NESTE turno: os outcomes semeados do histórico são de turnos anteriores.
 				if (!jevVerifyDone && !isSubagent && toolOutcomes.slice(seededOutcomeCount).some((outcome) => outcome.ok)) {
 					jevVerifyDone = true;
-					const issues = await verifyDraftAnswer({
-						rt: params.jev,
+					await verifyDraftAnswer({
+						rt: observeOnly(params.jev, "verify"),
 						userRequest: lastUserMessageContent,
 						draft: text,
 						conversation,
 						statusOf: (id) => journal.resultOf(id),
 						signal: params.abortSignal,
 					});
-					if (issues) {
-						conversation.push({ role: "assistant", content: text });
-						// O texto já foi em deltas ao chat; como será refeito, o balão vira rascunho revisado (fica recolhido).
-						await onEvent({ type: "assistant_discard", id: stepId, reason: "evidence" });
-						conversation.push({ role: "system", content: withWithdrawnReply(verifierNote(issues)) });
-						await persistCheckpoint(step + 1);
-						continue;
-					}
 				}
 				taskTracker.setPhase("done");
 				await persistCheckpoint(step + 1);
@@ -8301,7 +8301,7 @@ ${blockHint}`;
 		await runTools(step, toolCalls);
 		if (dataToolRan && !isSubagent && !promptedGroups.has("data")) {
 			promptedGroups.add("data");
-			conversation.push({ role: "system", content: groupProcedureText(new Set(["data"])) });
+			attachProcedure(groupProcedureText(new Set(["data"])));
 		}
 		// Guia do conector: nota de dados (uma vez por conexão e run), depois das regras; também ao carregar tools por busca.
 		if (mcp?.guides || params.apiConnector?.connections.some((item) => item.guide)) {
@@ -8318,9 +8318,7 @@ ${blockHint}`;
 					guideInjector.seed(conversation);
 					guideSeeded = true;
 				}
-				for (const note of guideInjector.notesFor(guideRefsPending.splice(0))) {
-					conversation.push({ role: "system", content: note });
-				}
+				for (const note of guideInjector.notesFor(guideRefsPending.splice(0))) attachProcedure(note);
 			}
 		}
 		nextStepIndex = step + 1;

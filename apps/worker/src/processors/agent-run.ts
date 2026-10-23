@@ -289,6 +289,8 @@ async function prepareMessages(
 			...(historySlot ? { historySlot } : {}),
 			...(volatileAfterTurn ? { volatileAfterTurn: true } : {}),
 			...(onLessons ? { onLessons } : {}),
+			// O runtime põe a persona do bot (identidade, estilo e idioma) no topo do prompt: aqui só o roster/grupo.
+			personaInSystemPrompt: true,
 		});
 		return base;
 	} catch (error) {

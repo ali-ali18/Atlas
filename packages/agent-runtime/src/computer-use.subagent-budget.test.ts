@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { appendedToolNotes } from "./loop/tool-result-notes.js";
 import type { CompleteChatWithToolsParams, CompleteChatWithToolsResult } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import { createSubagentRun } from "@workspace/db";
@@ -124,7 +125,7 @@ async function runReader(opts: { summary: () => CompleteChatWithToolsResult; mcp
 			if (lastText(params).includes("AVALIAÇÃO DE PROGRESSO")) return say("sem json");
 			childCalls.push({
 				toolChoice: params.toolChoice,
-				notes: params.messages.filter((m) => m.role === "system" && m.content === CHILD_WRAPUP_NOTE).length,
+				notes: params.messages.filter((m) => m.role === "system" && m.content === CHILD_WRAPUP_NOTE).length + appendedToolNotes(params.messages).filter((note) => note === CHILD_WRAPUP_NOTE).length,
 				toolMessages: params.messages.filter((m) => m.role === "tool").map((m) => String(m.content)),
 			});
 			if (params.toolChoice === "none") {

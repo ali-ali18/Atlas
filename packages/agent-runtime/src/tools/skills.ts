@@ -345,7 +345,7 @@ export async function executeProposeSkill(args: Record<string, unknown>, ctx: Sk
 	const action: "create" | "edit" = args.action;
 	if (action === "create" && isBareSkillCreateRequest(ctx.recentUserTexts)) {
 		throw new Error(
-			"The user only asked to create a skill and did not say what it should do. Do NOT create it yet: call propose_questionnaire with 1 item (what the skill should do, with 2-4 concrete options plus a free-text input), then create it from the answers.",
+			"The user only asked to create a skill and did not say what it should do. Do not create it yet: ask what it should do in one question (propose_questionnaire with 1 item: 2-4 concrete options plus a free-text input), then create it from the answer.",
 		);
 	}
 	const name = normalizeName(args.name);

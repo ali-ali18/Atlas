@@ -115,10 +115,9 @@ describe("L5: prefixo fixo da 1ª decisão", () => {
 		expect(names(after)).toContain("memory");
 		// O núcleo continua inteiro: pesquisa, delegação e a busca que carrega o resto.
 		expect(names(after)).toEqual(expect.arrayContaining(["web_search", "web_extract", "mcp_tool_search"]));
-		// `propose_questionnaire` é núcleo: vai sempre.
-		expect(names(after)).toContain("propose_questionnaire");
+		// Política de agir primeiro: os cards de pergunta e de plano ficam fora do núcleo (índice + intenção).
 		// As raras ficaram de fora e estão no índice do prompt.
-		for (const rare of ["propose_routine", "memory_search", "create_file", "click"]) {
+		for (const rare of ["propose_routine", "memory_search", "create_file", "click", "propose_questionnaire", "propose_plan"]) {
 			expect(names(after)).not.toContain(rare);
 			expect(systemOf(after)).toContain(rare);
 		}

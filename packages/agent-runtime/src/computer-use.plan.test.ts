@@ -59,10 +59,10 @@ const calls = (...items: Array<[string, unknown]>): CompleteChatWithToolsResult 
 });
 const say = (text: string): CompleteChatWithToolsResult => ({ model: "m", message: { role: "assistant", content: text }, finishReason: "stop" });
 
-async function run(input: { script: CompleteChatWithToolsResult[]; origin?: string; planMode?: boolean; planPending?: boolean }) {
+async function run(input: { script: CompleteChatWithToolsResult[]; origin?: string; planMode?: boolean; planPending?: boolean; text?: string }) {
 	const call = vi.fn(async () => ({ ok: true, text: "feito", truncated: false }));
 	const mcp: McpRuntime = { toolset: buildMcpToolset([erp], { autonomy: { level: "autonomous", exceptions: [] } }), call };
-	const requests: Array<{ tools: string[] }> = [];
+	const requests: Array<{ tools: string[]; system: string }> = [];
 	const events: Array<Record<string, unknown> & { type: string }> = [];
 	const inspect: Array<Record<string, unknown>> = [];
 	const queue = [...input.script];
@@ -72,7 +72,7 @@ async function run(input: { script: CompleteChatWithToolsResult[]; origin?: stri
 		sandboxEnabled: false,
 		model: "m",
 		apiKey: "test",
-		messages: [{ role: "user", content: "crie as propostas de todos os pedidos abertos" }],
+		messages: [{ role: "user", content: input.text ?? "monta um plano e crie as propostas de todos os pedidos abertos" }],
 		botId: "bot-1",
 		userId: "user-1",
 		conversationId: "conv-plan",
@@ -86,7 +86,7 @@ async function run(input: { script: CompleteChatWithToolsResult[]; origin?: stri
 		onInspect: (payload) => { inspect.push(payload as never); },
 		onEvent: (event) => { events.push(event as never); },
 		streamChat: async (params) => {
-			requests.push({ tools: params.tools.map((tool) => tool.function.name) });
+			requests.push({ tools: params.tools.map((tool) => tool.function.name), system: params.messages.filter((m) => m.role === "system").map((m) => String(m.content)).join("\n") });
 			const next = queue.shift();
 			if (!next) throw new Error("LLM extra");
 			return next;
@@ -98,11 +98,17 @@ async function run(input: { script: CompleteChatWithToolsResult[]; origin?: stri
 describe("propose_plan: exposicao", () => {
 	beforeEach(() => { vi.clearAllMocks(); });
 
-	it("e tool do nucleo no chat; some em rotina e com o ajuste do bot desligado", async () => {
+	it("entra pelo pedido de plano no chat; some em rotina e com o ajuste do bot desligado", async () => {
 		expect((await run({ script: [say("ok")] })).requests[0]!.tools).toContain("propose_plan");
 		expect((await run({ script: [say("ok")], origin: "routine" })).requests[0]!.tools).not.toContain("propose_plan");
 		expect((await run({ script: [say("ok")], planMode: false })).requests[0]!.tools).not.toContain("propose_plan");
 		expect((await run({ script: [say("ok")], planMode: true })).requests[0]!.tools).toContain("propose_plan");
+	});
+
+	it("fora do núcleo: sem pedido de plano fica adiada, mas listada no índice para carregar sob demanda", async () => {
+		const { requests } = await run({ script: [say("ok")], text: "crie as propostas de todos os pedidos abertos" });
+		expect(requests[0]!.tools).not.toContain("propose_plan");
+		expect(requests[0]!.system).toMatch(/- plan: propose_plan\./);
 	});
 });
 

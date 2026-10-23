@@ -10,9 +10,9 @@ import {
 
 /**
  * Lições de conector/tool no run. As do bot entram no prompt estável (db, `buildMemoryAugmentedMessages`); estas
- * entram como nota de sistema ao fim da conversa quando o conector (ou a tool) passa a estar carregado, uma vez por
- * escopo e run, sem mexer no prefixo já enviado (cache). Numa retomada, a conversa do checkpoint já traz as notas:
- * `seed` as reconhece e não repete.
+ * entram no início do run (conectores já carregados) ou anexadas ao resultado da tool que carregou o conector depois,
+ * uma vez por escopo e run, sem mensagem de sistema no meio da tarefa. Numa retomada, a conversa do checkpoint já
+ * traz as notas: `seed` as reconhece e não repete.
  */
 
 export type RunLesson = InjectableLesson & { ref?: string; /** Regra que só aperta o comportamento (hooks); ver `hooks/pre-tool.ts`. */ rule?: LessonRule | null };
@@ -43,12 +43,14 @@ export function createLessonInjector(items: readonly RunLesson[]) {
 		has(key: string): boolean {
 			return byKey.has(key);
 		},
-		/** Marca como já injetadas as notas que a conversa (checkpoint) já contém. */
+		/** Marca como já injetadas as notas que a conversa (checkpoint) já contém: no início (system) ou anexadas a um resultado de tool. */
 		seed(conversation: ReadonlyArray<{ role: string; content: unknown }>): void {
 			for (const message of conversation) {
-				if (message.role !== "system" || typeof message.content !== "string" || !message.content.startsWith(LESSONS_HEADER.slice(0, 20))) continue;
-				const key = message.content.split("\n", 1)[0]?.match(KEY_IN_HEADER)?.[1];
-				if (key) done.add(key);
+				if ((message.role !== "system" && message.role !== "tool") || typeof message.content !== "string" || !message.content.includes(LESSONS_HEADER.slice(0, 20))) continue;
+				for (const line of message.content.split("\n")) {
+					const key = line.replace(/^\[Runtime note\] /, "").match(KEY_IN_HEADER)?.[1];
+					if (key) done.add(key);
+				}
 			}
 		},
 		/** Notas novas para os escopos dados (cada um no máximo uma vez). */

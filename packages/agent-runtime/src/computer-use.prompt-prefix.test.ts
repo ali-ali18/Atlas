@@ -171,7 +171,8 @@ describe("prefixo de cache estável entre turnos", () => {
 		expect(b.slice(0, a.length)).toEqual(a);
 		expect(JSON.stringify(b).startsWith(JSON.stringify(a).slice(0, -1))).toBe(true);
 		// breakpoints: tools/sistema, fim do pedido anterior (a mensagem logo antes da última fala do assistente) e a última mensagem
-		const hasMark = (blocks: Array<{ type: string; cache_control?: unknown }>) => blocks.some((block) => block.type === "text" && block.cache_control);
+		// Fim do pedido anterior pode ser um resultado de tool (as notas do runtime vão anexadas a ele): o breakpoint vai no bloco tool_result.
+		const hasMark = (blocks: Array<{ type: string; cache_control?: unknown }>) => blocks.some((block) => (block.type === "text" || block.type === "tool_result") && block.cache_control);
 		const marked = nextBody.messages.flatMap((m, index) => (hasMark(m.content) ? [index] : []));
 		const lastAssistant = nextBody.messages.map((m) => m.role).lastIndexOf("assistant");
 		expect(Boolean(nextBody.system?.some((block) => block.cache_control)) || Boolean(nextBody.tools?.some((tool) => tool.cache_control))).toBe(true);

@@ -7,7 +7,7 @@ process.env.ATLAS_OWNER_EMAIL ||= "owner@example.com";
 process.env.BETTER_AUTH_SECRET ||= "test-secret-long-enough-for-better-auth-middleware";
 process.env.ATLAS_HOOK_PEPPER ||= "test-pepper";
 
-const { compactConversation, COMPACT_MESSAGES } = await import("./compact-conversation.js");
+const { compactConversation, createCompactSummarizer, COMPACT_MESSAGES } = await import("./compact-conversation.js");
 type Deps = Required<NonNullable<Parameters<typeof compactConversation>[1]>>;
 
 const call = (id: string) => ({ id, type: "function" as const, function: { name: "mcp__erp__list_items", arguments: "{}" } });
@@ -169,4 +169,55 @@ test("a marca de aprovação pendente olha só os runs recentes da conversa leva
 	const { deps } = fakes({ blocker: async (_id, since) => { seen.push(since); return null; } });
 	await compactConversation({ userId: "user-a", conversationId: "conv-since" }, deps);
 	assert.equal(seen[0]?.toISOString(), "2026-01-01T00:00:00.000Z");
+});
+
+type CompactLlm = Parameters<typeof createCompactSummarizer>[0];
+const REQUEST = { system: "resuma", user: "<conversation_to_summarize>...</conversation_to_summarize>" };
+const quiet = { sleep: async () => undefined };
+
+/** Provedor que responde em sequência: erro (status HTTP) ou texto. */
+function fakeLlm(script: Array<{ status: number } | string>) {
+	const reports: Array<{ ok: boolean }> = [];
+	let calls = 0;
+	const llm: CompactLlm = {
+		model: "openai/gpt-6-luna",
+		completeWithTools: (async () => {
+			const step = script[Math.min(calls, script.length - 1)]!;
+			calls += 1;
+			if (typeof step !== "string") throw Object.assign(new Error(`OpenRouter request failed with status ${step.status}`), { name: "OpenRouterError", status: step.status });
+			return { message: { role: "assistant", content: step }, model: "openai/gpt-6-luna" };
+		}) as CompactLlm["completeWithTools"],
+		report: async (outcome) => { reports.push({ ok: outcome.ok }); },
+	};
+	return { llm, reports, calls: () => calls };
+}
+
+test("resumidor do /compact: 502 do provedor tenta de novo e devolve o resumo", async () => {
+	const { llm, reports, calls } = fakeLlm([{ status: 502 }, "Objetivo: lista de preços do cliente Alfa."]);
+	const { summarize } = createCompactSummarizer(llm, quiet);
+	assert.deepEqual(await summarize(REQUEST), { text: "Objetivo: lista de preços do cliente Alfa." });
+	assert.equal(calls(), 2);
+	assert.equal(reports.length, 0);
+});
+
+test("resumidor do /compact: resposta vazia conta como falha passageira e tenta de novo", async () => {
+	const { llm, calls } = fakeLlm(["   ", "Resumo depois da resposta vazia."]);
+	const { summarize } = createCompactSummarizer(llm, quiet);
+	assert.deepEqual(await summarize(REQUEST), { text: "Resumo depois da resposta vazia." });
+	assert.equal(calls(), 2);
+});
+
+test("resumidor do /compact: 502 duas vezes vira null (sem terceira tentativa) e a falha vai ao Diagnóstico", async () => {
+	const { llm, reports, calls } = fakeLlm([{ status: 502 }]);
+	const { summarize } = createCompactSummarizer(llm, quiet);
+	assert.equal(await summarize(REQUEST), null);
+	assert.equal(calls(), 2);
+	assert.deepEqual(reports, [{ ok: false }]);
+});
+
+test("resumidor do /compact: recusa 4xx não repete", async () => {
+	const { llm, calls } = fakeLlm([{ status: 400 }]);
+	const { summarize } = createCompactSummarizer(llm, quiet);
+	assert.equal(await summarize(REQUEST), null);
+	assert.equal(calls(), 1);
 });

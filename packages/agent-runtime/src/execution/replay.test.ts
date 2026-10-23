@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { appendedToolNotes, splitToolResultNotes } from "../loop/tool-result-notes.js";
 import type { CompleteChatWithToolsResult, LlmMessage, LlmToolCall } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import type { AgentRunCheckpoint } from "@workspace/shared";
@@ -183,8 +184,10 @@ async function replay(discipline: boolean) {
 		effectiveInput += sharedChars * 0.1 + (total - sharedChars);
 		previous = serialized;
 	}
-	const systemTexts = (request: LlmMessage[]) =>
-		request.filter((m) => m.role === "system").map((m) => (typeof m.content === "string" ? m.content : ""));
+	const systemTexts = (request: LlmMessage[]) => [
+		...request.filter((m) => m.role === "system").map((m) => (typeof m.content === "string" ? m.content : "")),
+		...appendedToolNotes(request),
+	];
 	return { requests, firstSeen, toolSummaries, connectorCalls, checkpoint, promptChars, toolPayloadChars, effectiveInput, toolTexts, systemTexts };
 }
 
@@ -288,7 +291,8 @@ async function resumeRun(executionLedger?: AgentRunCheckpoint["executionLedger"]
 it("replay: a sequência sem novidade sobrevive à retomada pelo checkpoint", async () => {
 	// Descobre o texto exato que o modelo vê (o runtime embrulha dado externo).
 	const probe = await resumeRun();
-	const seen = probe[1]!.find((m) => m.role === "tool")!.content as string;
+	// Sem as notas do runtime anexadas: o ledger guarda o hash do resultado em si.
+	const seen = splitToolResultNotes(probe[1]!.find((m) => m.role === "tool")!.content as string).body;
 	const requests = await resumeRun({
 		v: 1,
 		decisions: [],
@@ -298,7 +302,8 @@ it("replay: a sequência sem novidade sobrevive à retomada pelo checkpoint", as
 		nudged: 0,
 		closedStep: 2,
 	});
-	const isNudge = (m: LlmMessage) => m.role === "system" && typeof m.content === "string" && m.content.includes("Change your approach");
-	expect(probe[1]!.some(isNudge)).toBe(false);
-	expect(requests[1]!.filter(isNudge)).toHaveLength(1);
+	const nudges = (request: LlmMessage[]) => appendedToolNotes(request).filter((note) => note.includes("Change your approach"));
+	expect(probe[1]!.some((m) => m.role === "system" && String(m.content).includes("Change your approach"))).toBe(false);
+	expect(nudges(probe[1]!)).toHaveLength(0);
+	expect(nudges(requests[1]!)).toHaveLength(1);
 });

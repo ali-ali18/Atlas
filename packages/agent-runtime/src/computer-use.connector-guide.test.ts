@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { appendedToolNotes } from "./loop/tool-result-notes.js";
 import type { AgentRunCheckpoint, ComputerUseEvent } from "@workspace/shared";
 import type { SandboxManager } from "@workspace/sandbox";
 import type { ChatTool, CompleteChatWithToolsResult, LlmMessage } from "@workspace/llm";
@@ -67,8 +68,11 @@ async function run(steps: CompleteChatWithToolsResult[], apiConnector: ApiConnec
 	return seen;
 }
 
-const guideNotes = (messages: LlmMessage[]) =>
-	messages.filter((message) => message.role === "system" && typeof message.content === "string" && message.content.startsWith("Guia do conector "));
+// O guia vem anexado ao resultado da tool (nada de system no meio do run).
+const guideNotes = (messages: LlmMessage[]) => {
+	expect(messages.some((message) => message.role === "system" && String(message.content).startsWith("Guia do conector "))).toBe(false);
+	return appendedToolNotes(messages).filter((note) => note.startsWith("Guia do conector ")).map((content) => ({ content }));
+};
 
 describe("guia do conector no run", () => {
 	it("injeta o guia como dado rotulado, uma vez, só depois do primeiro uso", async () => {

@@ -14,6 +14,14 @@ describe("buildStableSystemPrompt", () => {
 		expect(out).toContain("NÃO crie, edite nem liste rotinas");
 	});
 
+	it("persona do bot vem antes de tudo (identidade, estilo e idioma num lugar só)", () => {
+		expect(buildStableSystemPrompt({ persona: "PERSONA", base: "CORE", routine: true })).toBe(["PERSONA\n\nCORE", ...ROUTINE_MODE_LINES].join("\n"));
+	});
+
+	it("disciplina do modelo logo após o núcleo, antes do modo rotina e do que varia", () => {
+		expect(buildStableSystemPrompt({ persona: "P", base: "CORE", discipline: "DISC", routine: false, connectors: "\n\nCON" })).toBe("P\n\nCORE\n\nDISC\n\nCON");
+	});
+
 	it("subagente: núcleo + conectores, nada mais", () => {
 		expect(buildStableSystemPrompt({ base: "SUB", routine: false, connectors: "\n\nCON" })).toBe("SUB\n\nCON");
 	});
@@ -41,7 +49,16 @@ describe("buildSystemPrompt", () => {
 	});
 });
 
+describe("buildSystemPrompt: sem persona", () => {
+	it("com a persona o idioma já está no topo: nada de idioma no fim", () => {
+		expect(buildSystemPrompt({ stable: "PERSONA LANG\n\nS", todayLine: "T" })).toBe("PERSONA LANG\n\nS\nT");
+	});
+});
+
 describe("swapLanguageInstruction", () => {
+	it("troca o idioma dentro da persona (topo) sem mexer no resto", () => {
+		expect(swapLanguageInstruction("Persona:\n- Language: LANG-A\n\nCORE\nT", ["LANG-B", "LANG-A"], "LANG-C")).toBe("Persona:\n- Language: LANG-C\n\nCORE\nT");
+	});
 	it("troca só o rabo de idioma e preserva o prefixo", () => {
 		const prefix = "S\nNATIVE";
 		expect(swapLanguageInstruction(`${prefix}\nLANG-A`, ["LANG-B", "LANG-A"], "LANG-C")).toBe(`${prefix}\nLANG-C`);
