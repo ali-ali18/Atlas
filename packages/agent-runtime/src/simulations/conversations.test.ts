@@ -11,8 +11,8 @@ import { endsWithQuestion, SCENARIOS, type ScenarioOutcome } from "./scenarios.j
 
 /**
  * Simulações de conversa de ponta a ponta (LLM roteirizado, sem rede): cada cenário roda o runtime inteiro e confere
- * o que o usuário veria (balões, cards, texto final) e o que o modelo recebeu (tools, prompt, notas). A checagem de
- * comportamento de `scenarios.ts` é a mesma que o script com modelo real (`scripts/sim-real-model.mts`) usa.
+ * o que o usuário veria (balões, cards, texto final) e o que o modelo recebeu (tools, prompt, notas). Com modelo
+ * real, os mesmos casos rodam no pacote `@workspace/evals` (matriz cenário × modelo e diagnóstico modelo x harness).
  */
 
 vi.mock("@workspace/db", async (original) => ({
