@@ -17,11 +17,11 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DEV_APPROVAL_MODES, DEV_APPROVAL_MODE_HELP, DEV_APPROVAL_MODE_LABEL, type DevApprovalMode } from "@workspace/shared";
 import { useIsMobile } from "@workspace/ui/hooks/use-mobile";
-import { Popover, PopoverContent, PopoverTrigger } from "@workspace/ui/components/popover";
 import { Sheet, SheetContent, SheetTitle } from "@workspace/ui/components/sheet";
 import { InputGroupButton } from "@workspace/ui/components/input-group";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { ChatAddDropdown } from "./chat-add-dropdown";
 import { listBuiltinSkills, listSkills } from "@/lib/atlas-api";
 
 export type AddMenuSkill = { id: string; name: string; /** Nome em slug (o que `/skill` carrega). */ slug: string; description: string; factory: boolean };
@@ -188,6 +188,11 @@ export type ChatAddMenuProps = Omit<AddMenuPanelProps, "step" | "onStep" | "onCl
 	defaultStep?: Step;
 };
 
+/** Celular = gaveta com tiles; desktop = dropdown compacto. */
+export function addMenuVariant(isMobile: boolean): "drawer" | "dropdown" {
+	return isMobile ? "drawer" : "dropdown";
+}
+
 /** "+" do composer: gaveta no celular (alça, cabeçalho com X, passos com voltar) e popover no desktop com o mesmo conteúdo. */
 export function ChatAddMenu({ defaultOpen = false, defaultStep = "root", onTakePhoto, ...rest }: ChatAddMenuProps) {
 	const isMobile = useIsMobile();
@@ -217,7 +222,7 @@ export function ChatAddMenu({ defaultOpen = false, defaultStep = "root", onTakeP
 		/>
 	);
 
-	if (isMobile) {
+	if (addMenuVariant(isMobile) === "drawer") {
 		return (
 			<>
 				<InputGroupButton aria-label="Adicionar" onClick={() => changeOpen(true)} size="icon-sm" type="button" variant="secondary">
@@ -262,13 +267,13 @@ export function ChatAddMenu({ defaultOpen = false, defaultStep = "root", onTakeP
 		);
 	}
 	return (
-		<Popover onOpenChange={changeOpen} open={open}>
-			<PopoverTrigger render={<InputGroupButton aria-label="Adicionar" size="icon-sm" type="button" variant="secondary" />}>
-				<PlusIcon />
-			</PopoverTrigger>
-			<PopoverContent align="start" className="w-80 gap-0 rounded-3xl p-2" side="top" sideOffset={10}>
-				{panel}
-			</PopoverContent>
-		</Popover>
+		<ChatAddDropdown
+			onPickFile={rest.onPickFile}
+			onPickPhotos={rest.onPickPhotos}
+			onPickSkill={rest.onPickSkill}
+			onTestPr={rest.onTestPr}
+			permission={rest.permission}
+			showTestPr={rest.showTestPr}
+		/>
 	);
 }
