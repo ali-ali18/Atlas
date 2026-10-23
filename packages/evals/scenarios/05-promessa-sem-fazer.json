@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "id": "promessa-sem-fazer",
+  "title": "Pedido de PDF → entrega o arquivo em vez de só prometer ('vou gerar agora')",
+  "description": "Modelos fracos respondem 'Vou gerar o PDF agora.' e encerram. O runtime pode dar no máximo um empurrão; o resultado final precisa ter o arquivo.",
+  "tags": ["arquivos", "promessa"],
+  "bot": { "name": "Ada", "about": "Assistente de estudos.", "language": "pt-BR" },
+  "user": "me manda um PDF de uma página explicando o que é inflação",
+  "expect": [
+    { "type": "completed" },
+    { "type": "file_created", "extension": "pdf" },
+    { "type": "max_discards", "value": 1 },
+    { "type": "no_unfulfilled_promise" },
+    { "id": "sem-nota-falsa", "type": "no_model_note", "pattern": "did NOT see" }
+  ],
+  "mock": {
+    "turns": [
+      { "calls": [{ "name": "create_file", "args": { "filename": "inflacao.pdf", "content": "# Inflação\n\nInflação é o aumento geral dos preços ao longo do tempo." } }] },
+      { "say": "Pronto: o PDF sobre inflação está no card acima." }
+    ]
+  }
+}

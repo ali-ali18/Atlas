@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "id": "sem-internals-paleta",
+  "title": "Troca de cores do gráfico → fala 'Oceano' e descreve a cor, sem id de paleta, campo ou revisão",
+  "tags": ["linguagem", "graficos"],
+  "bot": { "name": "Ada", "about": "Assistente de vendas.", "language": "pt-BR" },
+  "history": [
+    { "role": "user", "content": "faz um gráfico de barras das vendas: Camiseta 361, Caneca 248, Boné 129" },
+    { "role": "assistant", "content": "Aqui está:\n\n```chart\n{\"type\":\"bar\",\"x\":\"produto\",\"series\":[{\"key\":\"vendas\"}],\"data\":[{\"produto\":\"Camiseta\",\"vendas\":361},{\"produto\":\"Caneca\",\"vendas\":248},{\"produto\":\"Boné\",\"vendas\":129}]}\n```" }
+  ],
+  "user": "deixa esse gráfico com cores azuis, tipo oceano",
+  "expect": [
+    { "type": "completed" },
+    { "id": "paleta-oceano", "type": "chart", "spec": { "palette": { "equals": "ocean" } } },
+    { "type": "no_internals", "extraTerms": ["ocean", "palette", "primary", "monochrome", "sunset", "grove", "vivid", "revision"] },
+    { "type": "no_question" }
+  ],
+  "mock": {
+    "turns": [
+      { "say": "Pronto, agora com a paleta Oceano (tons de azul):\n\n```chart\n{\"type\":\"bar\",\"palette\":\"ocean\",\"x\":\"produto\",\"series\":[{\"key\":\"vendas\"}],\"data\":[{\"produto\":\"Camiseta\",\"vendas\":361},{\"produto\":\"Caneca\",\"vendas\":248},{\"produto\":\"Boné\",\"vendas\":129}]}\n```" }
+    ]
+  }
+}

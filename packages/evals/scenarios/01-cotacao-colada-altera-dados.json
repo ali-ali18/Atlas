@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "id": "cotacao-colada-altera-dados",
+  "title": "Cotação colada + 'altera os dados' → aplica os dados colados, sem perguntar",
+  "description": "Caso real (anonimizado): o usuário cola os dados novos da cotação e pede para alterar. O certo é aplicar e devolver a mensagem pronta, não perguntar de novo.",
+  "tags": ["agir-sem-perguntar", "colado"],
+  "bot": { "name": "Ada", "about": "Assistente comercial da loja: monta cotações de frete e mensagens para clientes.", "language": "pt-BR" },
+  "history": [
+    { "role": "user", "content": "faz a cotação de frete do pedido 3410" },
+    { "role": "assistant", "content": "Achei os dados do pedido 3410: cliente Empório Exemplo, CNPJ 11.111.111/0001-11. Quer que eu monte a mensagem de cotação com esses dados?" }
+  ],
+  "user": "Bom dia, tudo bem?\nRemetente: CNPJ 22.222.222/0001-22 CEP 01001-000\nDestinatário: CNPJ 33.333.333/0001-33 CEP 20040-002\nCarga: 7 volumes, 43 kg, nota R$ 1.712,67, frete CIF\naltera os dados",
+  "expect": [
+    { "type": "completed" },
+    { "type": "no_question" },
+    { "type": "max_discards", "value": 0 },
+    { "id": "aplicou-destinatario", "type": "text_contains", "value": "33.333.333/0001-33" },
+    { "id": "aplicou-peso", "type": "text_contains", "pattern": "43\\s?kg" },
+    { "type": "no_internals" }
+  ],
+  "mock": {
+    "turns": [
+      { "say": "Bom dia, tudo bem?\nRemetente: CNPJ 22.222.222/0001-22 CEP 01001-000\nDestinatário: CNPJ 33.333.333/0001-33 CEP 20040-002\nCarga: 7 volumes, 43 kg, nota R$ 1.712,67, frete CIF" }
+    ]
+  }
+}

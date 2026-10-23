@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "id": "mensagem-no-meio-do-run",
+  "title": "Mensagem enviada enquanto o bot trabalha → chega ao modelo no mesmo run e entra na resposta",
+  "tags": ["meio-do-run"],
+  "bot": { "name": "Ada", "about": "Assistente de pesquisa.", "language": "pt-BR" },
+  "user": "pesquisa o preço do lítio",
+  "steer": [{ "afterModelCalls": 1, "content": "ah, e inclui o preço de 2025 também" }],
+  "tools": {
+    "fixtures": [
+      { "tool": "web_search", "result": { "ok": true, "summary": "Results:\n1. Lithium carbonate price today: US$ 9,800/t (source: example-metals.test, 2026-10).\n2. Lithium carbonate average 2025: US$ 10,500/t (source: example-metals.test annual report)." } },
+      { "tool": "web_extract", "result": { "ok": true, "summary": "Lithium carbonate: 2026-10 spot US$ 9,800/t; 2025 average US$ 10,500/t." } }
+    ]
+  },
+  "expect": [
+    { "type": "completed" },
+    { "type": "steer_delivered" },
+    { "id": "incluiu-2025", "type": "text_contains", "value": "2025" },
+    { "type": "max_model_calls", "value": 6 }
+  ],
+  "mock": {
+    "turns": [
+      { "calls": [{ "name": "web_search", "args": { "query": "preço do lítio hoje" } }] },
+      { "calls": [{ "name": "web_search", "args": { "query": "preço do lítio 2025" } }] },
+      { "say": "Lítio (carbonato): hoje cerca de US$ 9.800/t; a média de 2025 foi de US$ 10.500/t." }
+    ]
+  }
+}

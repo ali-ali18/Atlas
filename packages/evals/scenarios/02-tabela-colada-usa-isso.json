@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "id": "tabela-colada-usa-isso",
+  "title": "Tabela colada + 'usa isso' → usa os números no resumo, sem perguntar",
+  "tags": ["agir-sem-perguntar", "colado"],
+  "bot": { "name": "Ada", "about": "Assistente da loja.", "language": "pt-BR" },
+  "history": [
+    { "role": "user", "content": "escreve um resumo curto das vendas do trimestre para o time" },
+    { "role": "assistant", "content": "Rascunho: as vendas cresceram no trimestre, puxadas por camisetas. Quer que eu inclua os números por produto?" }
+  ],
+  "user": "Produto | Jan | Fev | Mar\nCamiseta | 120 | 98 | 143\nBoné | 40 | 51 | 38\nCaneca | 77 | 80 | 91\nusa isso",
+  "expect": [
+    { "type": "completed" },
+    { "type": "no_question" },
+    { "type": "max_discards", "value": 0 },
+    { "id": "usou-numeros", "type": "text_contains", "pattern": "143|361|248|129" },
+    { "type": "max_model_calls", "value": 3 }
+  ],
+  "mock": {
+    "turns": [{ "say": "As vendas cresceram no trimestre: camisetas somaram 361 (pico de 143 em março), canecas 248 e bonés 129." }]
+  }
+}
