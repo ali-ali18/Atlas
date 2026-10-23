@@ -37,6 +37,10 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 		/\b(pdf|docx?|word|xlsx?|excel|planilhas?|csv|pptx|slides?|powerpoint|apresentac\w+|arquivos?|documentos?|relatorios?|files?|spreadsheets?|reports?|presentations?|markdown|txt|exporta\w*)\b/,
 	],
 	[
+		"presentations",
+		/\b(apresentac\w*|presentations?|slides?|power ?points?|pptx?|potx|decks?|pitch(es)?|keynote|google slides)\b/,
+	],
+	[
 		"pages",
 		/\b(dashboards?|paineis|painel|forecast|kpis?|scorecard|visao geral|overview|resumo executivo|(live|living) (dashboard|report)s?|relatorios? (semanal|mensal|diario|executivo|vivo|do (mes|trimestre|ano))|(mont\w+|cri\w+|faz\w*|ger\w+|build|create|make) (uma? |meu |minha |o |a )*(relatorio|report))\b/,
 	],
@@ -95,6 +99,11 @@ export function routeContextGroups(input: {
 	}
 	// Lembrete/rotina costuma precisar de uma pergunta de escolha (canal, horário).
 	if (groups.has("routines")) groups.add("questionnaire");
+	// Apresentação precisa de create_file e, para fundos e ilustrações, de generate_image.
+	if (groups.has("presentations")) {
+		groups.add("files");
+		groups.add("images");
+	}
 	if (groups.has("shell")) groups.add("browser");
 	if (groups.has("browser")) {
 		// Mostrar ao usuário o que o navegador viu e a escada de pesquisa vêm junto.

@@ -1,5 +1,5 @@
-import { CodeRunnerUnavailableError, runSandboxOperation, type CodeRunnerOutputFile, type SandboxExecutionContext } from "@workspace/sandbox";
-import { loadArtifactForUser, type PersistUserArtifactInput, type UserArtifact } from "@workspace/db";
+import { CodeRunnerUnavailableError, loadCodeRunnerConfig, runCode, runSandboxOperation, type CodeRunnerOutputFile, type SandboxExecutionContext } from "@workspace/sandbox";
+import { loadArtifactForUser, persistUserArtifact, type PersistUserArtifactInput, type UserArtifact } from "@workspace/db";
 import type { CreateFileInput } from "@workspace/shared";
 import type { DeckImage, DeckImageSource } from "../files/deck/images.js";
 import { fillTemplate, type RunPython } from "../files/deck/template/fill.js";
@@ -7,7 +7,7 @@ import { openTemplate, TEMPLATE_MAX_BYTES, TemplateError, type OpenedTemplate } 
 import { DECK_PREVIEW_PAGES, renderDeckPreview } from "../files/deck/visual-check.js";
 import { formatDeckWarnings, lintDeck } from "../files/deck/lint.js";
 import { renderFile, type RenderedFile } from "../files/render.js";
-import type { processImageForStorage } from "../images/process.js";
+import { processImageForStorage } from "../images/process.js";
 
 /**
  * Parte de apresentações do `create_file`: carrega o .pptx modelo do dono, desenha o deck (pptxgenjs ou
@@ -20,6 +20,16 @@ export type DeckFileDeps = {
 	persist: (input: PersistUserArtifactInput) => Promise<UserArtifact>;
 	loadArtifact?: DeckImageSource["loadArtifact"];
 };
+
+export const DEFAULT_DECK_FILE_DEPS: DeckFileDeps = {
+	runPython: (input) => runCode(input, loadCodeRunnerConfig()),
+	processImage: processImageForStorage,
+	persist: persistUserArtifact,
+};
+
+export function resolveDeckFileDeps(partial: Partial<DeckFileDeps> | undefined): DeckFileDeps {
+	return { ...DEFAULT_DECK_FILE_DEPS, ...partial };
+}
 
 export type DeckFileContext = SandboxExecutionContext & {
 	userId: string;

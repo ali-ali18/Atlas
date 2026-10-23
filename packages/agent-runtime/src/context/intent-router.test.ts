@@ -11,6 +11,25 @@ describe("grupo data (consulta de dados)", () => {
 	});
 });
 
+describe("grupo presentations (apresentações)", () => {
+	it.each([
+		"faz uma apresentação sobre vendas",
+		"preciso de slides para a reunião",
+		"monta um PowerPoint com o resultado",
+		"cria um pitch deck da startup",
+		"usa este modelo.pptx",
+		"make a presentation about our roadmap",
+	])("ativa e traz arquivo e imagens para: %s", (text) => {
+		const groups = routeContextGroups({ text });
+		expect(groups.has("presentations")).toBe(true);
+		expect(groups.has("files")).toBe(true);
+		expect(groups.has("images")).toBe(true);
+	});
+	it.each(["Bom dia", "gera um relatório em PDF", "me manda uma planilha das vendas", "cria um painel de vendas", "escreve um poema"])("não ativa para: %s", (text) => {
+		expect(routeContextGroups({ text }).has("presentations")).toBe(false);
+	});
+});
+
 describe("delegationCue (reserva do Jev de delegação)", () => {
 	it.each([
 		"pesquisa o preço da canela em 3 fornecedores e compara",

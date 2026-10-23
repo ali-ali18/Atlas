@@ -10,7 +10,6 @@ import {
 import {
 	FILES_PER_RUN_MAX,
 	FILE_MAX_CONTENT_CHARS,
-	DECK_LAYOUTS,
 	DECK_MAX_SLIDES,
 	DECK_THEMES,
 	deckImageIds,
@@ -41,7 +40,7 @@ export const CREATE_FILE_TOOL: ChatTool = {
 	function: {
 		name: CREATE_FILE_TOOL_NAME,
 		description:
-			"Create a downloadable file for the user (PDF, Word .docx, Excel .xlsx, PowerPoint .pptx, or any text/code file such as .txt .md .csv .json .py .js .sql) and show it as a file card in the chat. Use when the user asks for a file or document; do NOT paste the document in chat. filename needs the extension (format is inferred from it). docx/pdf: put rich Markdown in content (headings, lists, tables). xlsx: send sheets [{name, columns?, rows}] (a string starting with '=' becomes a formula). pptx: send slides (see below). Text/code: content is saved as is. To change a file, call again with the same filename (creates v2). For a document built from earlier research, use ALL the research notes and sources gathered (every section and finding, with the sources), not a short summary; a thin file is a failure. For research deliverables, write only what your sources state: a figure or claim you could not confirm must be removed, or kept: list the figure in unconfirmed and mark it as unconfirmed in the text, in the file's language. Large files: send them in parts (part=1,2,... with more=true on every part but the last; the file is created only by the last part, and contents are joined in order). Not for images or executables.\n\nPresentations (.pptx): you build the whole deck in one call. Plan a story first (title, agenda, sections, data, conclusion), 8-15 slides by default, and VARY the layouts instead of repeating bullets. Per slide: layout (title, agenda, section, bullets, two_column, image, chart, table, quote, stats, timeline, closing), title, optional notes (speaker notes). bullets: up to 6 short ones, each a string or {text, sub[]}. two_column: columns [{heading, bullets[]}, {heading, bullets[]}]. stats (KPI cards, 1-4): stats [{value, label, detail?}] with detail such as '+11% vs. last month'; use it for key numbers (big_number is accepted as an alias). chart: chart {type: bar|line|area|pie, x, series[{key,label}], data[rows], unit?} (same spec as the chat charts; one pie series; at most 40 points); prefer a chart or stats over numbers in bullets. table: columns[], rows[][] (max 8 columns, 14 rows). timeline: steps [{label, title, text?}] (2-6). quote: quote, author?. image: image = id of an attached image or of one made with generate_image (never a URL), optional bullets and caption. closing: title, subtitle?, bullets[] for next steps. Numbers and facts in slides must come from the user or from tool results; never invent them. theme: clean (default), dark, corporate or vivid; brand_color: optional hex such as #1d6b3a to match the user's brand. The old {title, bullets[]} slides still work. Ask the user first only when essential information is missing (topic, audience); otherwise make reasonable choices and deliver.",
+			"Create a downloadable file for the user (PDF, Word .docx, Excel .xlsx, PowerPoint .pptx, or any text/code file such as .txt .md .csv .json .py .js .sql) and show it as a file card in the chat. Use when the user asks for a file or document; do NOT paste the document in chat. filename needs the extension (format is inferred from it). docx/pdf: put rich Markdown in content (headings, lists, tables). xlsx: send sheets [{name, columns?, rows}] (a string starting with '=' becomes a formula). pptx: send slides[] (+ theme, brand_color, template_file_id); the layouts, free-form slides, backgrounds and template rules are in the presentations notes; if they are not in your prompt, call mcp_tool_search with query \"presentations\" before building the deck. Text/code: content is saved as is. To change a file, call again with the same filename (creates v2). For a document built from earlier research, use ALL the research notes and sources gathered (every section and finding, with the sources), not a short summary; a thin file is a failure. For research deliverables, write only what your sources state: a figure or claim you could not confirm must be removed, or kept: list the figure in unconfirmed and mark it as unconfirmed in the text, in the file's language. Large files: send them in parts (part=1,2,... with more=true on every part but the last; the file is created only by the last part, and contents are joined in order). Not for images or executables.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -80,29 +79,11 @@ export const CREATE_FILE_TOOL: ChatTool = {
 				},
 				theme: { type: "string", enum: [...DECK_THEMES], description: "pptx only. Visual theme; default clean." },
 				brand_color: { type: "string", description: "pptx only. Optional brand color as hex, e.g. #1d6b3a." },
+				template_file_id: { type: "string", description: "pptx only. Id of an attached .pptx/.potx or a .pptx file of the user to use as the template (its layouts, fonts and colors). Never a URL." },
 				slides: {
 					type: "array",
-					description: `pptx only, up to ${DECK_MAX_SLIDES} slides. Fields by layout are in the tool description.`,
-					items: {
-						type: "object",
-						properties: {
-							layout: { type: "string", enum: [...DECK_LAYOUTS], description: "Default bullets." },
-							title: { type: "string" },
-							subtitle: { type: "string" },
-							bullets: { type: "array", items: {} },
-							items: { type: "array", items: { type: "string" }, description: "agenda" },
-							columns: { type: "array", items: {}, description: "two_column: [{heading, bullets[]}, {heading, bullets[]}]; table: header strings" },
-							rows: { type: "array", items: { type: "array", items: {} }, description: "table" },
-							stats: { type: "array", items: { type: "object", properties: { value: { type: "string" }, label: { type: "string" }, detail: { type: "string" } }, required: ["value", "label"] } },
-							steps: { type: "array", items: { type: "object", properties: { label: { type: "string" }, title: { type: "string" }, text: { type: "string" } }, required: ["label", "title"] } },
-							chart: { type: "object", description: "chart spec: {type, x, series, data, unit?}" },
-							image: { type: "string", description: "Attachment id or generate_image artifact id" },
-							quote: { type: "string" },
-							author: { type: "string" },
-							caption: { type: "string" },
-							notes: { type: "string", description: "Speaker notes" },
-						},
-					},
+					description: `pptx only, up to ${DECK_MAX_SLIDES} slides, each {layout?, title, ...fields of that layout, notes?, background?}. Fields per layout are in the presentations notes.`,
+					items: { type: "object" },
 				},
 			},
 			required: ["filename"],

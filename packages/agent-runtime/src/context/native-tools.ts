@@ -76,6 +76,11 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 		hint: "create a downloadable file (PDF, Word, Excel, CSV, code, text)",
 		keywords: ["file", "files", "arquivo", "arquivos", "pdf", "docx", "excel", "xlsx", "csv", "spreadsheet", "planilha", "document", "documento", "report", "relatorio"],
 	},
+	presentations: {
+		tools: ["inspect_presentation"],
+		hint: "PowerPoint decks: read a .pptx (layouts, theme) and see its slides; the notes cover layouts, free-form slides, generated backgrounds and user templates",
+		keywords: ["presentation", "presentations", "apresentacao", "apresentacoes", "slide", "slides", "powerpoint", "pptx", "potx", "deck", "pitch", "keynote"],
+	},
 	pages: {
 		tools: ["page_create", "page_update", "page_read", "page_list", "page_share"],
 		hint: "build a live panel (dashboard, report, memo; users call it \"painel\" / \"dashboard\", never \"page\") that renders inline in the chat, then update it in place later; group dashboards and share one through a public link when asked",

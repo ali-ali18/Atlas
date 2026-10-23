@@ -1,3 +1,4 @@
+import { P_PRESENTATIONS } from "./presentations-prompt.js";
 import { builtinGroupPointers, visibleBuiltinSkills } from "../skills/builtin.js";
 import { devSessionsEnabled } from "../skills/dev-enabled.js";
 import { COMPUTER_PROMPT_LINES } from "../tools/computer-refs.js";
@@ -233,7 +234,7 @@ export const P_DELEGATION: string[] = [
 export const P_FILES: string[] = [
 	"Files:",
 	"- When the user asks for a file (PDF, Word, Excel, CSV, code, text...), call `create_file` and never paste the whole document in chat. Write rich Markdown for docx/pdf (headings, tables), structured `sheets` for xlsx. After creating, reply with one short line: the file card shows the rest. To change a file, create it again with the same filename.",
-	"- Presentations (pptx): plan a story (title, agenda, sections, data, conclusion), 8-15 slides, at most 6 short bullets per slide, and vary the layouts: `stats` for key numbers, `chart` or `table` for data, `timeline`, `two_column`. Numbers come only from the user or from tool results, never invented. Ask only if the topic or audience is missing.",
+	"- Presentations (.pptx): slides, layouts, backgrounds and templates are described in the presentations notes. If they are not in your prompt, load them with `mcp_tool_search` (query \"presentations\") before building the deck.",
 ];
 
 /** Python leve sem a VM (grupo `code`). */
@@ -401,6 +402,7 @@ export const CONTEXT_GROUPS = [
 	"email",
 	"data",
 	"pages",
+	"presentations",
 ] as const;
 export type ContextGroup = (typeof CONTEXT_GROUPS)[number];
 
@@ -459,6 +461,7 @@ const GROUP_PROMPT_BLOCKS: Partial<Record<ContextGroup, string[][]>> = {
 	email: [P_EMAIL],
 	data: [P_DATA],
 	pages: [P_PAGES],
+	presentations: [P_PRESENTATIONS],
 };
 
 /** Com as sessões de código desligadas o procedimento `dev` vira esta linha (nada de improvisar na VM). */
@@ -523,6 +526,8 @@ export function legacySystemPrompt(): string {
 		...P_DELEGATION,
 		"",
 		...P_FILES,
+		"",
+		...P_PRESENTATIONS,
 		"",
 		...P_ASK,
 		"",

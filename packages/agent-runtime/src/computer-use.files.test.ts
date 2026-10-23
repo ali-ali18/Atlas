@@ -173,8 +173,8 @@ describe("apresentações no loop do agente", () => {
 	});
 
 	it("o prompt manda planejar a narrativa e variar os layouts", () => {
-		expect(SYSTEM_PROMPT).toContain("Presentations (pptx): plan a story");
-		expect(SYSTEM_PROMPT).toContain("never invented");
+		expect(SYSTEM_PROMPT).toContain("Plan a story first");
+		expect(SYSTEM_PROMPT).toContain("never invent them");
 	});
 });
 

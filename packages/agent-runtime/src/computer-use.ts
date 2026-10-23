@@ -348,6 +348,8 @@ import {
 	type DelegateContext,
 } from "./tools/delegate-task.js";
 import { CREATE_FILE_TOOL, executeCreateFile, previewCreateFileArgs, type CreateFileDeps, type FileEvent } from "./tools/create-file.js";
+import { resolveDeckFileDeps } from "./tools/deck-file.js";
+import { executeInspectPresentation, INSPECT_PRESENTATION_TOOL } from "./tools/inspect-presentation.js";
 import { RUN_CODE_TOOL, executeRunCode, type RunCodeDeps } from "./tools/run-code.js";
 import { ROUTINE_CONTROL_TOOL, ROUTINE_CONTROL_TOOL_NAME, executeRoutineControl } from "./tools/routine-control.js";
 import { REPORT_ALERT_TOOL, REPORT_ALERT_TOOL_NAME, alertRunNote, executeReportAlert, type AlertRunState } from "./tools/report-alert.js";
@@ -4110,6 +4112,14 @@ async function executeToolInner(
 			const runtime = ctx.attachments?.runtime;
 			return executeCreateFile(args, { ...ctx, signal: ctx.abortSignal, canSeeImages: ctx.canSeeImages, attachmentFiles: runtime ? { list: () => runtime.list(), bytes: (id: string) => runtime.cache.bytes(id) } : undefined }, ctx.createFileDeps);
 		}
+		case "inspect_presentation": {
+			const runtime = ctx.attachments?.runtime;
+			return executeInspectPresentation(
+				args,
+				{ ...ctx, signal: ctx.abortSignal, canSeeImages: ctx.canSeeImages, attachmentFiles: runtime ? { list: () => runtime.list(), bytes: (id: string) => runtime.cache.bytes(id) } : undefined },
+				resolveDeckFileDeps(ctx.createFileDeps),
+			);
+		}
 		case "run_code": {
 			const attachments = ctx.attachments?.runtime;
 			const startedAt = new Date();
@@ -5448,6 +5458,10 @@ export async function runComputerUse(params: {
 	// `create_file` (F9): escrita reversível, só no agente principal.
 	if (!isSubagent && (params.toolFilter?.(CREATE_FILE_TOOL.function.name) ?? true)) {
 		baseTools.push(CREATE_FILE_TOOL);
+	}
+	// `inspect_presentation` (grupo presentations, adiado por intenção): lê um .pptx do dono; só no agente principal.
+	if (!isSubagent && userId !== "default" && (params.toolFilter?.(INSPECT_PRESENTATION_TOOL.function.name) ?? true)) {
+		baseTools.push(INSPECT_PRESENTATION_TOOL);
 	}
 	// Páginas vivas (relatório/painel inline): só o agente principal, em chat com humano e com dono real (grupo `pages`, adiado por intenção).
 	// Rotina ligada a uma página: só ler e atualizar (a página alvo; o executor trava as outras).

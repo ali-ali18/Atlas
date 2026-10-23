@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PersistUserArtifactInput } from "@workspace/db";
+import { DECK_ICON_NAMES, DECK_LAYOUTS, DECK_SHAPES } from "@workspace/shared";
+import { P_PRESENTATIONS } from "../context/presentations-prompt.js";
 import { CREATE_FILE_TOOL, executeCreateFile, previewCreateFileArgs, resetStagedFilesForTest, type CreateFileDeps } from "./create-file.js";
 
 function deps(overrides: Partial<CreateFileDeps> = {}) {
@@ -33,13 +35,21 @@ describe("create_file", () => {
 		expect(text).toMatch(/Not for images or executables/);
 	});
 
-	it("descrição e schema de pptx cobrem layouts, temas e a regra de não inventar números", () => {
-		const text = CREATE_FILE_TOOL.function.description ?? "";
-		for (const layout of ["two_column", "stats", "chart", "table", "timeline", "quote", "closing"]) expect(text).toContain(layout);
-		expect(text).toMatch(/never invent/);
+	it("descrição do pptx é curta e aponta para o guia; o esquema do deck mora no grupo presentations", () => {
+		const whole = JSON.stringify(CREATE_FILE_TOOL);
+		expect(CREATE_FILE_TOOL.function.description).toMatch(/presentations notes/);
+		for (const layout of ["two_column", "timeline", "agenda", "stats", "closing", "rounded_rect"]) expect(whole, layout).not.toContain(layout);
+		expect(whole.length).toBeLessThan(4_500);
 		const props = (CREATE_FILE_TOOL.function.parameters as { properties: Record<string, { enum?: string[] }> }).properties;
 		expect(props.theme?.enum).toEqual(["clean", "dark", "corporate", "vivid"]);
 		expect(props.brand_color).toBeDefined();
+		expect(props.template_file_id).toBeDefined();
+		// o guia completo (carregado só em pedido de apresentação) cobre layouts, ícones, formas, fundos, template e a regra de não inventar números
+		const guide = P_PRESENTATIONS.join("\n");
+		for (const layout of DECK_LAYOUTS) expect(guide, layout).toContain(layout);
+		for (const icon of DECK_ICON_NAMES) expect(guide, icon).toContain(icon);
+		for (const shape of DECK_SHAPES) expect(guide, shape).toContain(shape);
+		for (const needle of ["never invent", "background", "template_file_id", "inspect_presentation", "generate_image", "scrim", "13.333 x 7.5"]) expect(guide, needle).toContain(needle);
 	});
 
 	it("pptx em partes mantém tema e slides; o resumo traz o id para conferir com run_code", async () => {
