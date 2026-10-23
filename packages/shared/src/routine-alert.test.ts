@@ -89,26 +89,37 @@ describe("decideAlertNotification (debounce)", () => {
 	const no = { triggered: false, summary: "25 un." };
 
 	it("avisa só na virada de falso para verdadeiro", () => {
-		expect(decideAlertNotification({ wasActive: false, verdict: yes })).toEqual({ transition: "triggered", notify: true, active: true });
+		expect(decideAlertNotification({ wasActive: false, verdict: yes })).toEqual({ transition: "triggered", notify: true, active: true, unverified: false });
 	});
 
 	it("não avisa de novo enquanto a condição continua verdadeira", () => {
-		expect(decideAlertNotification({ wasActive: true, verdict: yes })).toEqual({ transition: "still", notify: false, active: true });
+		expect(decideAlertNotification({ wasActive: true, verdict: yes })).toEqual({ transition: "still", notify: false, active: true, unverified: false });
 	});
 
 	it("rearma quando a condição deixa de valer e avisa de novo na próxima virada", () => {
 		const reset = decideAlertNotification({ wasActive: true, verdict: no });
-		expect(reset).toEqual({ transition: "reset", notify: false, active: false });
+		expect(reset).toEqual({ transition: "reset", notify: false, active: false, unverified: false });
 		expect(decideAlertNotification({ wasActive: reset.active, verdict: yes }).notify).toBe(true);
 	});
 
 	it("falso continuando falso é silêncio", () => {
-		expect(decideAlertNotification({ wasActive: false, verdict: no })).toEqual({ transition: "quiet", notify: false, active: false });
+		expect(decideAlertNotification({ wasActive: false, verdict: no })).toEqual({ transition: "quiet", notify: false, active: false, unverified: false });
 	});
 
-	it("sem veredito não muda o estado nem avisa", () => {
-		expect(decideAlertNotification({ wasActive: true, verdict: null })).toEqual({ transition: "inconclusive", notify: false, active: true });
+	it("sem veredito não muda o 'em alerta'; avisa que não verificou só na primeira vez seguida", () => {
+		expect(decideAlertNotification({ wasActive: true, verdict: null })).toEqual({ transition: "inconclusive", notify: true, active: true, unverified: true });
 		expect(decideAlertNotification({ wasActive: false, verdict: null }).active).toBe(false);
+		expect(decideAlertNotification({ wasActive: false, wasUnverified: true, verdict: null }).notify).toBe(false);
+	});
+
+	it("a primeira verificação conclusiva depois de falhar rearma o aviso de falha", () => {
+		const now = new Date("2026-10-02T12:00:00.000Z");
+		const failed = nextAlertState({ condition: "estoque baixo", active: false }, decideAlertNotification({ wasActive: false, verdict: null }), null, now);
+		expect(failed.unverified).toBe(true);
+		const ok = { triggered: false, summary: "25 un." };
+		const recovered = nextAlertState(failed, decideAlertNotification({ wasActive: false, wasUnverified: true, verdict: ok }), ok, now);
+		expect(recovered.unverified).toBeUndefined();
+		expect(decideAlertNotification({ wasActive: false, wasUnverified: recovered.unverified, verdict: null }).notify).toBe(true);
 	});
 });
 
@@ -130,17 +141,21 @@ describe("nextAlertState / buildAlertRunText", () => {
 		expect(next.checkedAt).toBe(now.toISOString());
 	});
 
-	it("sem veredito devolve o estado intacto", () => {
-		expect(nextAlertState(base, decideAlertNotification({ wasActive: false, verdict: null }), null, now)).toBe(base);
+	it("sem veredito mantém o 'em alerta' e marca a falha", () => {
+		const prev = { ...base, active: true };
+		expect(nextAlertState(prev, decideAlertNotification({ wasActive: true, verdict: null }), null, now)).toEqual({ ...prev, checkedAt: now.toISOString(), unverified: true });
 	});
 
 	it("texto do resultado por transição", () => {
 		const v = { triggered: true, summary: "7 un." };
-		expect(buildAlertRunText({ transition: "triggered", notify: true, active: true }, v)).toBe("⚠️ 7 un.");
-		expect(buildAlertRunText({ transition: "still", notify: false, active: true }, v)).toMatch(/^Continua em alerta/);
-		expect(buildAlertRunText({ transition: "reset", notify: false, active: false }, v)).toMatch(/^Voltou ao normal/);
-		expect(buildAlertRunText({ transition: "quiet", notify: false, active: false }, v)).toMatch(/^Tudo certo/);
-		expect(buildAlertRunText({ transition: "inconclusive", notify: false, active: false }, null)).toMatch(/Não consegui verificar/);
+		const base = { notify: false, unverified: false };
+		expect(buildAlertRunText({ ...base, transition: "triggered", notify: true, active: true }, v)).toBe("⚠️ 7 un.");
+		expect(buildAlertRunText({ ...base, transition: "still", active: true }, v)).toMatch(/^Continua em alerta/);
+		expect(buildAlertRunText({ ...base, transition: "reset", active: false }, v)).toMatch(/^Voltou ao normal/);
+		expect(buildAlertRunText({ ...base, transition: "quiet", active: false }, v)).toMatch(/^Tudo certo/);
+		const failed = { transition: "inconclusive" as const, notify: true, active: false, unverified: true };
+		expect(buildAlertRunText(failed, null)).toBe("⚠️ Não consegui verificar o alerta desta vez.");
+		expect(buildAlertRunText(failed, null, { name: "Estoque da canela", reason: "o ERP não respondeu" })).toBe("⚠️ Não consegui verificar o alerta “Estoque da canela”: o ERP não respondeu.");
 	});
 });
 

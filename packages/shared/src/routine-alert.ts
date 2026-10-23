@@ -34,6 +34,8 @@ export type RoutineAlert = RoutineAlertConfig & {
 	checkedAt?: string;
 	triggeredAt?: string;
 	lastSummary?: string;
+	/** A última verificação não chegou a um veredito (dados ilegíveis): o aviso de "não consegui verificar" sai uma vez só. */
+	unverified?: boolean;
 };
 
 export type ParseRoutineAlertResult = { ok: true; alert: RoutineAlertConfig } | { ok: false; error: string };
@@ -69,6 +71,7 @@ export function parseRoutineAlert(value: unknown): RoutineAlert | null {
 		...(typeof row.checkedAt === "string" ? { checkedAt: row.checkedAt } : {}),
 		...(typeof row.triggeredAt === "string" ? { triggeredAt: row.triggeredAt } : {}),
 		...(typeof row.lastSummary === "string" ? { lastSummary: row.lastSummary.slice(0, ALERT_SUMMARY_MAX) } : {}),
+		...(row.unverified === true ? { unverified: true } : {}),
 	};
 }
 
@@ -95,25 +98,29 @@ export function parseAlertVerdict(args: unknown): ParseAlertVerdictResult {
 }
 
 export type AlertTransition = "triggered" | "still" | "reset" | "quiet" | "inconclusive";
-export type AlertDecision = { transition: AlertTransition; notify: boolean; active: boolean };
+export type AlertDecision = { transition: AlertTransition; notify: boolean; active: boolean; unverified: boolean };
 
 /**
  * Debounce: avisa só na virada (falso → verdadeiro). Verdadeiro de novo = ainda em alerta, sem aviso;
- * verdadeiro → falso rearma. Sem veredito (o modelo não chegou a concluir) não muda nada.
+ * verdadeiro → falso rearma. Sem veredito (dados ilegíveis, conector fora) não muda `active`, e o aviso
+ * "não consegui verificar" sai só na primeira vez seguida, para não repetir a cada ciclo.
  */
-export function decideAlertNotification(input: { wasActive: boolean; verdict: AlertVerdict | null }): AlertDecision {
-	if (!input.verdict) return { transition: "inconclusive", notify: false, active: input.wasActive };
+export function decideAlertNotification(input: { wasActive: boolean; wasUnverified?: boolean; verdict: AlertVerdict | null }): AlertDecision {
+	if (!input.verdict) return { transition: "inconclusive", notify: input.wasUnverified !== true, active: input.wasActive, unverified: true };
 	if (input.verdict.triggered) {
-		return input.wasActive ? { transition: "still", notify: false, active: true } : { transition: "triggered", notify: true, active: true };
+		return input.wasActive
+			? { transition: "still", notify: false, active: true, unverified: false }
+			: { transition: "triggered", notify: true, active: true, unverified: false };
 	}
-	return { transition: input.wasActive ? "reset" : "quiet", notify: false, active: false };
+	return { transition: input.wasActive ? "reset" : "quiet", notify: false, active: false, unverified: false };
 }
 
 /** Estado novo da rotina depois de uma verificação. */
 export function nextAlertState(previous: RoutineAlert, decision: AlertDecision, verdict: AlertVerdict | null, now: Date): RoutineAlert {
-	if (!verdict) return previous;
+	const { unverified: _was, ...rest } = previous;
+	if (!verdict) return { ...rest, checkedAt: now.toISOString(), unverified: true };
 	return {
-		...previous,
+		...rest,
 		active: decision.active,
 		checkedAt: now.toISOString(),
 		lastSummary: verdict.summary,
@@ -122,8 +129,12 @@ export function nextAlertState(previous: RoutineAlert, decision: AlertDecision, 
 }
 
 /** Texto do resultado da execução: o que entra na conversa (só quando avisa) e no histórico da rotina. */
-export function buildAlertRunText(decision: AlertDecision, verdict: AlertVerdict | null): string {
-	if (!verdict) return "Não consegui verificar a condição desta vez.";
+export function buildAlertRunText(decision: AlertDecision, verdict: AlertVerdict | null, context: { name?: string; reason?: string } = {}): string {
+	if (!verdict) {
+		const who = context.name ? ` “${context.name}”` : "";
+		const reason = context.reason?.trim();
+		return `⚠️ Não consegui verificar o alerta${who}${reason ? `: ${reason}` : " desta vez"}.`;
+	}
 	switch (decision.transition) {
 		case "triggered":
 			return `⚠️ ${verdict.summary}`;
