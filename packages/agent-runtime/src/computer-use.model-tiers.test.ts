@@ -66,6 +66,7 @@ const stuckJev = (probability: number, extra: Record<string, number> = {}): JevR
 
 async function run(input: {
 	text: string;
+	history?: Array<{ role: "user" | "assistant" | "tool"; content: string }>;
 	modelTiers?: ModelTiersRuntime;
 	calls: Array<CompleteChatWithToolsResult>;
 	jev?: JevRuntime;
@@ -97,7 +98,7 @@ async function run(input: {
 			modelTiers: input.modelTiers,
 			codingModel: input.codingModel,
 			apiKey: "test",
-			messages: [{ role: "user", content: input.text }],
+			messages: [...(input.history ?? []), { role: "user", content: input.text }],
 			botId: "bot-1",
 			userId: "user-1",
 			conversationId: "conv-tiers",
@@ -285,5 +286,81 @@ describe("modo Automático: subir de nível quando o run trava", () => {
 	it("resultados bons não sobem de nível", async () => {
 		const { calls } = await run({ text, modelTiers: TIERS, calls: [...searches(4), say("Pronto.")] });
 		expect(calls.every((call) => call.model === "med/main")).toBe(true);
+	});
+});
+
+/** Caso real (Zequinha): cotação de frete colada + "altera os dados" depois de o bot oferecer montar a mensagem. */
+const QUOTE_OFFER = [
+	{ role: "user" as const, content: "faz a cotação de frete do pedido 3410" },
+	{
+		role: "assistant" as const,
+		content:
+			"Achei os dados do pedido 3410 no Bling: cliente Loja Exemplo, CNPJ 11.222.333/0001-81, endereço e contatos. Quer que eu monte a mensagem de cotação com esses dados e os 42 itens do pedido?",
+	},
+];
+const PASTED_QUOTE = [
+	"Bom dia, tudo bem?",
+	"🌿 Remetente: CNPJ: 12.345.678/0001-95 CEP: 01001-000",
+	"🏢 Destinatário: CNPJ: 98.765.432/0001-98 CEP: 20040-020",
+	"📦 Carga: Volumes: 7  Peso total: 43Kg  Valor da nota: R$ 1.712,67  Tipo de frete: CIF",
+	"📏 Medidas: 1Vol. 70x50x15 / 1Vol. 50x30x12 / 2vol. 48x48x15 / 1Vol. 55x50x18 / 1Vol. 105x60x25 / 1vol. 60x40x50",
+	"📞 Telefones: (11) 3000-1234 / (11) 99999-1234",
+	"⏰ Horário limite: Até as 17:40",
+	"altera os dados",
+].join("\n");
+
+describe("modo Automático: tarefa em andamento não cai no modelo barato", () => {
+	it("dados colados com 'altera os dados' depois da oferta do bot sobem para Média", async () => {
+		const { calls, telemetry } = await run({ text: PASTED_QUOTE, history: QUOTE_OFFER, modelTiers: TIERS, calls: [say("Mensagem atualizada.")] });
+		expect(calls[0]?.model).toBe("med/main");
+		expect(telemetry[0]?.tier).toBe("medium");
+	});
+
+	it("revisor classifica como Fácil: a tarefa em andamento segura a Média", async () => {
+		const reviewer = stuckJev(0, { hard: 0, medium: 0 });
+		const { calls, telemetry } = await run({
+			text: PASTED_QUOTE,
+			history: QUOTE_OFFER,
+			modelTiers: { ...TIERS, classifyWithReviewer: true },
+			jev: reviewer,
+			calls: [say("Mensagem atualizada.")],
+		});
+		expect(calls[0]?.model).toBe("med/main");
+		expect(telemetry[0]).toMatchObject({ tier: "medium", tierSource: "reviewer" });
+		// Sem tarefa em andamento o mesmo veredito fica no Fácil.
+		const chat = await run({ text: "oi", modelTiers: { ...TIERS, classifyWithReviewer: true }, jev: stuckJev(0, { hard: 0, medium: 0 }), calls: [say("Olá!")] });
+		expect(chat.calls[0]?.model).toBe("easy/main");
+	});
+
+	it("'sim' curto depois da oferta do bot não cai no Fácil", async () => {
+		const { calls } = await run({ text: "sim", history: QUOTE_OFFER, modelTiers: TIERS, calls: [say("Pronto.")] });
+		expect(calls[0]?.model).toBe("med/main");
+	});
+
+	it("Média igual ao Fácil (modelo barato): fica o modelo padrão do bot", async () => {
+		const cheapMedium: ModelTiersRuntime = { tiers: { easy: ["haiku/x"], medium: ["haiku/x"], hard: ["opus/x"] } };
+		const { calls, telemetry } = await run({ text: PASTED_QUOTE, history: QUOTE_OFFER, modelTiers: cheapMedium, calls: [say("Mensagem atualizada.")] });
+		expect(calls[0]?.model).toBe("base/model");
+		expect(calls[0]?.fallbackModels).toEqual(["base/backup"]);
+		expect(telemetry[0]?.tier).toBe("medium");
+	});
+
+	it("outro domínio: tabela colada com 'usa isso' depois de um rascunho também sobe", async () => {
+		const history = [
+			{ role: "user" as const, content: "escreve um resumo das vendas do trimestre" },
+			{ role: "assistant" as const, content: "Rascunho: as vendas cresceram no trimestre, puxadas por camisetas." },
+		];
+		const table = ["Produto | Jan | Fev | Mar", "Camiseta | 120 | 98 | 143", "Boné | 40 | 51 | 38", "Caneca | 77 | 80 | 91", "Meia | 15 | 22 | 19", "usa isso"].join("\n");
+		const { calls } = await run({ text: table, history, modelTiers: { ...TIERS, classifyWithReviewer: true }, jev: stuckJev(0, { hard: 0, medium: 0 }), calls: [say("Resumo atualizado.")] });
+		expect(calls[0]?.model).toBe("med/main");
+	});
+
+	it("conversa solta segue no Fácil, mesmo depois de uma tarefa", async () => {
+		const history = [
+			{ role: "user" as const, content: "me ajuda com um convite de aniversário" },
+			{ role: "assistant" as const, content: "Pronto, aqui está o convite." },
+		];
+		const { calls } = await run({ text: "obrigado!", history, modelTiers: TIERS, calls: [say("De nada!")] });
+		expect(calls[0]?.model).toBe("easy/main");
 	});
 });

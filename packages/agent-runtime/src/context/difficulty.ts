@@ -89,3 +89,46 @@ export function classifyDifficulty(input: DifficultyInput): DifficultyResult {
 	const groups = routeContextGroups({ text: input.routerText, hasImageAttachments: input.hasImageAttachments });
 	return classifyDifficultyFromGroups(groups, input);
 }
+
+/** Conteúdo colado (mensagem pronta, tabela, documento): a partir daqui é material de trabalho, não conversa. */
+const STRUCTURED_INPUT_CHARS = 400;
+/** Linhas com números (documentos, valores, medidas, contatos) que indicam dados colados. */
+const DATA_LINES_MIN = 4;
+/** Só as últimas mensagens contam como "turnos recentes". */
+const RECENT_MESSAGES = 6;
+/** Fala curta (reação, agradecimento, "sim"): só conta como tarefa quando responde a uma pergunta do bot. */
+const SHORT_REPLY_WORDS = 3;
+
+export type OngoingTaskInput = {
+	/** Conversa ANTES da última fala do usuário (papéis `user`, `assistant`, `tool`). */
+	history: ReadonlyArray<{ role: string; content?: unknown }>;
+	lastUserText: string;
+};
+
+/** A última linha da fala termina em pergunta (o bot propôs algo ou pediu um dado). */
+function endsWithQuestion(text: string): boolean {
+	const lines = text.trim().split("\n").map((line) => line.trim()).filter(Boolean);
+	return (lines.at(-1) ?? "").replace(/[\s*_)"'»]+$/u, "").endsWith("?");
+}
+
+/**
+ * A fala continua uma tarefa em andamento? Só sinais estruturais, sem lista de
+ * frases nem de assuntos: conteúdo colado (longo ou com várias linhas de dados),
+ * resposta a uma pergunta/proposta do bot, ou ferramenta usada nos turnos
+ * recentes. Devolve o motivo curto (telemetria, nunca texto do usuário) ou
+ * `null`. Puro. No modo Automático, turno que continua uma tarefa não cai no
+ * modelo mais barato; conversa solta (fala curta que não responde a nada) segue.
+ */
+export function ongoingTaskReason(input: OngoingTaskInput): string | null {
+	const last = input.lastUserText.trim();
+	if (!last) return null;
+	if (last.length >= STRUCTURED_INPUT_CHARS) return "structured_input";
+	const dataLines = last.split("\n").filter((line) => /\d/.test(line) && line.trim().length >= 6).length;
+	if (dataLines >= DATA_LINES_MIN) return "structured_input";
+	const previous = [...input.history].reverse().find((message) => message.role === "assistant" && typeof message.content === "string" && message.content.trim());
+	if (previous && endsWithQuestion(previous.content as string)) return "assistant_question";
+	const shortReply = last.split(/\s+/).length <= SHORT_REPLY_WORDS && !/[\d?]/.test(last);
+	if (shortReply) return null;
+	if (input.history.slice(-RECENT_MESSAGES).some((message) => message.role === "tool")) return "recent_tools";
+	return null;
+}

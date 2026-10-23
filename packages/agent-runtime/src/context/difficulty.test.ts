@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyDifficulty, countRequestSteps } from "./difficulty.js";
+import { classifyDifficulty, countRequestSteps, ongoingTaskReason } from "./difficulty.js";
 
 const tier = (text: string, extra: Partial<Parameters<typeof classifyDifficulty>[0]> = {}) =>
 	classifyDifficulty({ routerText: text, lastUserText: text, ...extra }).tier;
@@ -80,5 +80,50 @@ describe("palavra solta de assunto não sobe o nível", () => {
 		for (const text of ["o que é uma API?", "o que é um e-mail?", "para que serve um cofre de senhas?", "o que é uma rotina?", "o que é uma imagem vetorial?"]) {
 			expect(tier(text), text).toBe("easy");
 		}
+	});
+});
+
+describe("ongoingTaskReason (turno que continua uma tarefa, só sinais estruturais)", () => {
+	const offer = [
+		{ role: "user", content: "prepara a mensagem de cotação do pedido" },
+		{ role: "assistant", content: "Juntei os dados. Quer que eu monte a mensagem com esses dados e os itens do pedido?" },
+	];
+	const quote = [
+		"Bom dia, tudo bem?",
+		"Remetente: CNPJ: 12.345.678/0001-95 CEP: 01001-000",
+		"Destinatário: CNPJ: 98.765.432/0001-98 CEP: 20040-020",
+		"Carga: Volumes: 7 Peso total: 43Kg Valor da nota: R$ 1.712,67",
+		"Telefones: (11) 3000-1234 / (11) 99999-1234",
+		"altera os dados",
+	].join("\n");
+	const table = ["Produto | Jan | Fev | Mar", "Camiseta | 120 | 98 | 143", "Boné | 40 | 51 | 38", "Caneca | 77 | 80 | 91", "Meia | 15 | 22 | 19", "usa isso"].join("\n");
+
+	it("dados colados (várias linhas com números) contam, mesmo sem histórico", () => {
+		expect(ongoingTaskReason({ history: [], lastUserText: quote })).toBe("structured_input");
+		expect(ongoingTaskReason({ history: [], lastUserText: table })).toBe("structured_input");
+	});
+
+	it("texto longo colado (documento, e-mail) conta", () => {
+		const email = `${"Prezados, segue a proposta revisada com os novos prazos de entrega e condições. ".repeat(6)}\natualiza`;
+		expect(ongoingTaskReason({ history: [], lastUserText: email })).toBe("structured_input");
+	});
+
+	it("resposta à pergunta/proposta do bot conta, em qualquer idioma", () => {
+		expect(ongoingTaskReason({ history: offer, lastUserText: "sim" })).toBe("assistant_question");
+		expect(ongoingTaskReason({ history: [{ role: "assistant", content: "Draft ready.\n\nShould I tighten the intro?" }], lastUserText: "yes" })).toBe("assistant_question");
+	});
+
+	it("ferramenta nos turnos recentes conta para um pedido de verdade", () => {
+		const tools = [{ role: "user", content: "x" }, { role: "tool", content: "ok" }, { role: "assistant", content: "Feito." }];
+		expect(ongoingTaskReason({ history: tools, lastUserText: "agora faz o mesmo com o outro pedido" })).toBe("recent_tools");
+		// Reação curta que não responde a nada fica barata.
+		expect(ongoingTaskReason({ history: tools, lastUserText: "valeu!" })).toBeNull();
+	});
+
+	it("conversa solta não conta", () => {
+		expect(ongoingTaskReason({ history: [], lastUserText: "qual a capital da França?" })).toBeNull();
+		expect(ongoingTaskReason({ history: [{ role: "assistant", content: "Paris é a capital." }], lastUserText: "e da Itália?" })).toBeNull();
+		expect(ongoingTaskReason({ history: [{ role: "assistant", content: "Paris é a capital." }], lastUserText: "obrigado!" })).toBeNull();
+		expect(ongoingTaskReason({ history: [], lastUserText: "  " })).toBeNull();
 	});
 });

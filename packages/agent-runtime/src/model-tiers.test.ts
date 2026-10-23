@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { JevRuntime } from "./jev/decide.js";
 import { classifyDifficultyWithReviewer, difficultyFromAnswers } from "./jev/difficulty.js";
-import { buildTierPlan, modelsForTier, nextEscalationTier, repeatedWeakResults } from "./model-tiers.js";
+import { buildTierPlan, holdTierForOngoingTask, modelsForTier, nextEscalationTier, repeatedWeakResults } from "./model-tiers.js";
 import type { ToolOutcome } from "./progress.js";
 
 describe("plano de níveis", () => {
@@ -105,5 +105,30 @@ describe("classificação pelo revisor", () => {
 		await expect(
 			classifyDifficultyWithReviewer({ rt: jev(new Error("abort")), request: "oi", signal: controller.signal }),
 		).rejects.toThrow();
+	});
+});
+
+describe("holdTierForOngoingTask", () => {
+	const plan = buildTierPlan({ easy: ["cheap/1"], medium: ["mid/1"], hard: ["top/1"] }, ["base/m"]);
+
+	it("sem tarefa em andamento mantém a escolha", () => {
+		expect(holdTierForOngoingTask({ chosen: "easy", ongoing: false, plan, defaultModel: "base/m" })).toEqual({ tier: "easy", keepDefault: false });
+	});
+
+	it("tarefa em andamento sobe Fácil para Média; Média e Difícil ficam", () => {
+		expect(holdTierForOngoingTask({ chosen: "easy", ongoing: true, plan, defaultModel: "base/m" })).toEqual({ tier: "medium", keepDefault: false });
+		expect(holdTierForOngoingTask({ chosen: "hard", ongoing: true, plan, defaultModel: "base/m" })).toEqual({ tier: "hard", keepDefault: false });
+	});
+
+	it("Média com o mesmo modelo barato do Fácil: fica o modelo padrão", () => {
+		const cheapMedium = buildTierPlan({ easy: ["cheap/1"], medium: ["cheap/1"], hard: ["top/1"] }, ["base/m"]);
+		expect(holdTierForOngoingTask({ chosen: "easy", ongoing: true, plan: cheapMedium, defaultModel: "base/m" })).toEqual({ tier: "medium", keepDefault: true });
+	});
+
+	it("tudo no mesmo modelo (escolha do usuário) ou padrão já barato: respeita o nível", () => {
+		const allCheap = buildTierPlan({ easy: ["cheap/1"], medium: ["cheap/1"], hard: ["cheap/1"] }, ["base/m"]);
+		expect(holdTierForOngoingTask({ chosen: "easy", ongoing: true, plan: allCheap, defaultModel: "base/m" }).keepDefault).toBe(false);
+		const inherited = buildTierPlan({ hard: ["top/1"] }, ["base/m"]);
+		expect(holdTierForOngoingTask({ chosen: "easy", ongoing: true, plan: inherited, defaultModel: "base/m" }).keepDefault).toBe(false);
 	});
 });

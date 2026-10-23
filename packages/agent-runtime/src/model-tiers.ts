@@ -64,3 +64,33 @@ export function repeatedWeakResults(
 	if (own.length < threshold) return false;
 	return own.slice(-threshold).every((outcome) => (outcome.ok ? outcome.empty === true : outcome.kind !== "argument"));
 }
+
+export type OngoingTierDecision = {
+	tier: ModelTier;
+	/** Manter o modelo padrão do bot em vez do modelo do nível (o nível só tem o modelo barato). */
+	keepDefault: boolean;
+};
+
+/**
+ * Turno que continua uma tarefa (ver `ongoingTaskReason`) nunca roda no modelo
+ * mais barato: o nível sobe no mínimo para Média e, se a Média também é o
+ * modelo do Fácil, fica o modelo padrão do bot. Conversa solta segue a escolha
+ * original. Puro; `computer-use.ts` só aplica.
+ */
+export function holdTierForOngoingTask(input: {
+	chosen: ModelTier;
+	ongoing: boolean;
+	plan: TierPlan;
+	/** Modelo padrão do run (o do bot), usado antes do nível ser aplicado. */
+	defaultModel: string;
+}): OngoingTierDecision {
+	if (!input.ongoing) return { tier: input.chosen, keepDefault: false };
+	const tier = MODEL_TIERS.indexOf(input.chosen) < MODEL_TIERS.indexOf("medium") ? "medium" : input.chosen;
+	const cheapest = modelsForTier(input.plan, "easy").model;
+	const strongest = modelsForTier(input.plan, "hard").model;
+	// Todos os níveis no mesmo modelo = escolha explícita do usuário: respeita.
+	const userUsesStrongerModel = strongest !== cheapest;
+	const keepDefault =
+		userUsesStrongerModel && cheapest !== input.defaultModel && modelsForTier(input.plan, tier).model === cheapest;
+	return { tier, keepDefault };
+}
