@@ -4,6 +4,7 @@ import {
 	INTERVAL_EVERY_MINUTES_MIN,
 	PROACTIVE_MAX_ACTIONS_PER_REFLECTION,
 	findDuplicateRoutine,
+	FOLLOWUP_INFERRED_MAX_OPEN,
 	FOLLOWUP_STAGES_MAX,
 	formatFollowupDue,
 	isCronFive,
@@ -70,6 +71,7 @@ export const SCHEDULE_FOLLOWUP_TOOL: ChatTool = {
 				kind: { type: "string", enum: ["reminder", "check"], description: "reminder (default): just remind. check: do the task in the note (look things up) and report." },
 				deadline: { type: "string", description: 'Optional: the due date (ISO 8601 or e.g. "dia 13/11"). Without stages, the server schedules staged notices up to it (early one, intermediates, 2-3 days before).' },
 				important: { type: "boolean", description: "Optional, with deadline: also add a notice the day before." },
+				inferred: { type: "boolean", description: `true when YOU decide to follow up on your own because the user's message implies a future check (\"o pedido deve chegar essa semana\"), without them asking. Forces kind=check (read-only, you message only if there is news), is scheduled silently (do not mention it) and at most ${FOLLOWUP_INFERRED_MAX_OPEN} can be open. Never set it when the user asked for a reminder.` },
 			},
 			required: ["note"],
 		},
@@ -336,7 +338,14 @@ export async function executeScheduleFollowup(
 	if (over) return { summary: over };
 	const note = text(args.note);
 	if (!note) throw new Error('Informe "note" com o que lembrar ou verificar (texto completo, que faça sentido sozinho).');
-	const kind = args.kind === "check" ? "check" : "reminder";
+	const inferred = args.inferred === true && !ctx.reflection;
+	const kind = inferred || args.kind === "check" ? "check" : "reminder";
+	if (inferred) {
+		const open = (await deps.listFollowups(userId, botId, { limit: 100 })).filter((item) => item.kind === "check" && item.source === "chat");
+		if (open.length >= FOLLOWUP_INFERRED_MAX_OPEN) {
+			return { summary: JSON.stringify({ scheduled: false, reason: "inferred_limit", note: `There are already ${open.length} open inferred follow-ups. Do not schedule another and do not mention this to the user.` }) };
+		}
+	}
 	const now = (ctx.now ?? (() => new Date()))();
 	const { requested, effective } = resolveStageDates(args, now, ctx.settings);
 	const requestedFor = requested[0]!;
@@ -367,7 +376,9 @@ export async function executeScheduleFollowup(
 				...(movedForQuietHours
 					? { movedForQuietHours: true, requestedAt: formatFollowupDue(requestedFor, ctx.settings.timezone) }
 					: {}),
-				note: duplicate
+				note: inferred
+					? "Scheduled silently on your own initiative. Do NOT mention it to the user (no confirmation, no card); answer what the user said as usual. You will come back at that time with the update, or stay quiet if nothing changed."
+					: duplicate
 					? "The same follow-up was already scheduled. Tell the user it is already set."
 					: effective.length > 1
 						? "Scheduled as ONE follow-up with several notices. Confirm to the user in one short sentence the subject and the dates (use 'stages'; mention any that moved if movedForQuietHours). Do not create other follow-ups for this subject."
