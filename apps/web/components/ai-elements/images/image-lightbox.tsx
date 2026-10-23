@@ -127,7 +127,7 @@ export function ImageLightbox({ items, index, onChange, onClose }: { items: Imag
 							onClick={() => onChange(position)}
 							ref={active ? activeThumb : undefined}
 							type="button"
-						><img alt="" className={`size-full object-cover ${active ? "rounded-md" : ""}`} draggable={false} src={imageFileUrl(thumb.artifactId)} /></button>;
+						><img alt="" className={`size-full object-cover ${active ? "rounded-md" : ""}`} decoding="async" draggable={false} height={48} src={imageFileUrl(thumb.artifactId)} width={48} /></button>;
 					})}
 				</div>}
 			</>}

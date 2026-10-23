@@ -793,7 +793,10 @@ export function ChatContextPanel({
 														aria-hidden="true"
 														alt=""
 														className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+														// Mesma proporção do quadro (aspect-video): o navegador reserva o espaço antes de carregar.
+														height={720}
 														key={sandboxSessionId}
+														width={1280}
 														onError={() => {
 															setSnapshotStatus({
 																sessionId: sandboxSessionId!,
