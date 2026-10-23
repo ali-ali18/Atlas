@@ -3,6 +3,7 @@
 import { ArrowDownIcon } from "lucide-react";
 import { type RefObject, useEffect, useState } from "react";
 
+import { FOLLOW_RESUME_PX } from "@/lib/follow-bottom";
 import { needsBottomCorrection } from "@/lib/scroll-bottom";
 import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
@@ -15,10 +16,13 @@ export function newCountLabel(count: number): string {
 export function ScrollToBottom({
 	targetRef,
 	newCount = 0,
+	onJump,
 }: {
 	targetRef: RefObject<HTMLElement | null>;
 	/** Mensagens novas fora da tela; > 0 mostra a pílula "↓ N novas". */
 	newCount?: number;
+	/** Tocou na seta: volta a acompanhar o fim. */
+	onJump?: () => void;
 }) {
 	const [visible, setVisible] = useState(false);
 
@@ -29,7 +33,7 @@ export function ScrollToBottom({
 		const update = () => {
 			const distance =
 				element.scrollHeight - element.scrollTop - element.clientHeight;
-			setVisible(distance > 120);
+			setVisible(distance > FOLLOW_RESUME_PX);
 		};
 
 		update();
@@ -49,6 +53,7 @@ export function ScrollToBottom({
 			onClick={() => {
 				const element = targetRef.current;
 				if (!element) return;
+				onJump?.();
 				element.scrollTo({ top: element.scrollHeight, behavior: "smooth" });
 				// O layout pode mudar no meio da rolagem suave (barra de aprovação, imagens): confere no fim e corrige.
 				window.setTimeout(() => {
