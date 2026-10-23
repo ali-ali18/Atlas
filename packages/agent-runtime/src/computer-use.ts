@@ -2,7 +2,7 @@ import { mcpArgsErrorMessage, validateMcpArgs } from "./mcp/args-validation.js";
 import { modelUsage } from "./telemetry/model-usage.js";
 import { todayNote } from "./context/today-note.js";
 import { agentOutputBudget } from "./generation-budget.js";
-import { createReadCache, stableReadKey, scheduleIndependentReads, countEmptySearches, MAX_PARALLEL_READS, READ_CACHED_RESULT_TOOL } from "./read-execution.js";
+import { createReadCache, stableReadKey, scheduleIndependentReads, countEmptySearches, MAX_PARALLEL_READS, READ_CACHED_RESULT_TOOL, parallelBuiltinReadKey } from "./read-execution.js";
 import { createHash } from "node:crypto";
 import { semanticReadKey } from "./execution/arg-key.js";
 import { browserSubagentsEnabled, executionDisciplineEnabled } from "./execution/flag.js";
@@ -7754,10 +7754,21 @@ ${blockHint}`;
 			if (stopForConfirm) return;
 		};
 		const batchStartedAt = performance.now();
+		const callsPerName = new Map<string, number>();
+		for (const call of toolCalls) callsPerName.set(call.function.name, (callsPerName.get(call.function.name) ?? 0) + 1);
 		await scheduleIndependentReads(toolCalls, (call) => {
 			if (devDeps?.config.enabled && tools.some((tool) => tool.function.name === call.function.name)) {
 				const devKey = parallelDevReadKey(call.function.name, call.function.arguments);
 				if (devKey) return devKey;
+			}
+			// Leitura nativa (busca, extração, histórico, memória): só junto quando todas as chamadas dela
+			// neste passo cabem no teto (o teto é checado antes de contar, então em paralelo não estoura).
+			const builtinKey = parallelBuiltinReadKey(call.function.name, call.function.arguments);
+			if (builtinKey) {
+				if (!tools.some((tool) => tool.function.name === call.function.name)) return null;
+				const cap = budget.maxCallsPerTool?.[call.function.name];
+				if (cap !== undefined && (toolCallCounts.get(call.function.name) ?? 0) + (callsPerName.get(call.function.name) ?? 0) > cap) return null;
+				return builtinKey;
 			}
 			const entry = mcp?.toolset.entries.get(call.function.name);
 			if (!entry?.readOnly || decideAction(autonomyPolicy, entry.autonomyMeta) !== "allow" || !tools.some((tool) => tool.function.name === call.function.name)) return null;
