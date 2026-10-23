@@ -7655,6 +7655,8 @@ ${blockHint}`;
 	let jevVerifyDone = false;
 	// L18: uma nova tentativa por corte/stream incompleto e um aviso por arquivo prometido.
 	let finishRetries = 0;
+	/** Resposta cortada pelo limite de saída: o passo seguinte continua no mesmo balão e soma o texto. */
+	let truncatedReply: { id: string; text: string } | undefined;
 	// A8: timeout da decisão (stream/retries) é tratado aqui: um novo passo com orientação; o segundo falha com mensagem clara.
 	let decisionTimeouts = 0;
 	let emptyReplyRetries = 0;
@@ -7902,10 +7904,12 @@ ${blockHint}`;
 		stepInspector.noteHygiene(stepHygiene.report);
 		await reportCompaction(stepHygiene.report);
 
+		// Continuação de uma resposta cortada pelo limite de saída: mesmo balão (id do passo cortado).
+		const stepId = truncatedReply?.id ?? `${turnId}-step-${step}`;
 		const stepOutcome = await streamStep(
 			conversation,
 			"auto",
-			`${turnId}-step-${step}`,
+			stepId,
 			{ interruptible: true },
 		).catch((error: unknown) => {
 			if (error instanceof InterruptedByInputError) return null;
@@ -7915,7 +7919,7 @@ ${blockHint}`;
 		if (stepOutcome === "timeout") {
 			if (decisionTimeouts < 1) {
 				decisionTimeouts += 1;
-				await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "timeout" });
+				await onEvent({ type: "assistant_discard", id: stepId, reason: "timeout" });
 				conversation.push({ role: "system", content: DECISION_TIMEOUT_NOTE });
 				await persistCheckpoint(step + 1);
 				continue;
@@ -7924,10 +7928,16 @@ ${blockHint}`;
 			throw new PermanentRunError(DECISION_TIMEOUT_MESSAGE);
 		}
 		// Interrompido: a resposta parcial foi descartada; o próximo passo ingere o input como redirect.
-		if (!stepOutcome) continue;
+		if (!stepOutcome) {
+			truncatedReply = undefined;
+			continue;
+		}
 		const { content, toolCalls, providerItems, usage, telemetry: modelTelemetry, finishReason } = stepOutcome;
 		stepFinishTruncated = classifyFinish(finishReason) === "truncated";
-		const text = sanitizeAssistantText(content);
+		// A continuação de uma resposta cortada só vale junto com a parte já exibida: o balão é um só, ao vivo e gravado.
+		const continued = truncatedReply;
+		truncatedReply = undefined;
+		const text = continued && toolCalls.length === 0 ? `${continued.text}${sanitizeAssistantText(content)}` : sanitizeAssistantText(content);
 
 		await params.onStep?.({
 			decisionIndex: step,
@@ -7959,6 +7969,8 @@ ${blockHint}`;
 					if (finishClass === "truncated" && text.length > 0) {
 						conversation.push({ role: "assistant", content: text });
 						conversation.push({ role: "system", content: TRUNCATED_REPLY_NOTE });
+						// Sem isto a parte já exibida sumia: só a continuação era gravada como resposta final.
+						truncatedReply = { id: stepId, text };
 					}
 					await persistCheckpoint(step + 1);
 					continue;
@@ -7976,7 +7988,7 @@ ${blockHint}`;
 					if (gate.action === "block") {
 						conversation.push({ role: "assistant", content: text });
 						// O texto já foi em deltas ao chat; como o run segue, o balão vira rascunho revisado (fica recolhido).
-						await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "items_open" });
+						await onEvent({ type: "assistant_discard", id: stepId, reason: "items_open" });
 						conversation.push({ role: "system", content: withWithdrawnReply(gate.note) });
 						await persistCheckpoint(step + 1);
 						continue;
@@ -8002,7 +8014,7 @@ ${blockHint}`;
 				) {
 					exhaustionNudged = true;
 					// Sem isto o balão ficava ao vivo e sumia no fim do run (só a resposta final é gravada).
-					await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "exhaustion" });
+					await onEvent({ type: "assistant_discard", id: stepId, reason: "exhaustion" });
 					conversation.push({ role: "assistant", content: text });
 					conversation.push({ role: "system", content: CONTINUE_AFTER_EXHAUSTION_NOTE });
 					await persistCheckpoint(step + 1);
@@ -8018,7 +8030,7 @@ ${blockHint}`;
 					if (!artifactNudged) {
 						artifactNudged = true;
 						// Sem isto o balão ficava ao vivo e sumia no fim do run (só a resposta final é gravada).
-						await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "missing_file" });
+						await onEvent({ type: "assistant_discard", id: stepId, reason: "missing_file" });
 						conversation.push({ role: "assistant", content: text });
 						conversation.push({ role: "system", content: MISSING_ARTIFACT_NOTE });
 						await persistCheckpoint(step + 1);
@@ -8070,7 +8082,7 @@ ${blockHint}`;
 					if (verdict?.fixFile) {
 						conversation.push({ role: "assistant", content: text });
 						// O texto já foi em deltas ao chat; como será refeito, o balão vira rascunho revisado (fica recolhido).
-						await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "file_fix" });
+						await onEvent({ type: "assistant_discard", id: stepId, reason: "file_fix" });
 						conversation.push({ role: "system", content: withWithdrawnReply(REGENERATE_FILE_NOTE) });
 						await persistCheckpoint(step + 1);
 						continue;
@@ -8091,7 +8103,7 @@ ${blockHint}`;
 					if (issues) {
 						conversation.push({ role: "assistant", content: text });
 						// O texto já foi em deltas ao chat; como será refeito, o balão vira rascunho revisado (fica recolhido).
-						await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "evidence" });
+						await onEvent({ type: "assistant_discard", id: stepId, reason: "evidence" });
 						conversation.push({ role: "system", content: withWithdrawnReply(verifierNote(issues)) });
 						await persistCheckpoint(step + 1);
 						continue;
@@ -8121,7 +8133,7 @@ ${blockHint}`;
 		if (text.length > 0 && !isSubagent) {
 			const quiet = readOnlyDecision && readOnlyStreak >= STALL_QUIET_AT && stallFileIntent(deliverablePending());
 			if (quiet || narrationMemory.isDuplicate(text)) {
-				await onEvent({ type: "assistant_discard", id: `${turnId}-step-${step}`, reason: "duplicate" });
+				await onEvent({ type: "assistant_discard", id: stepId, reason: "duplicate" });
 				narration = "";
 			} else {
 				narrationMemory.remember(text);
