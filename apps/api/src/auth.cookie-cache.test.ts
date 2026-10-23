@@ -12,8 +12,9 @@ process.env.BETTER_AUTH_SECRET ||= "test-secret-long-enough-for-better-auth-midd
 const { auth } = await import("./auth.js");
 const { requireUser, scopeFor } = await import("./middleware/auth.js");
 
-test("cookie cache ligado por 5 minutos", () => {
-	assert.deepEqual(auth.options.session?.cookieCache, { enabled: true, maxAge: 300 });
+test("cookie cache desligado (travou o login em produção) e erro de login volta para /login", () => {
+	assert.equal(auth.options.session?.cookieCache?.enabled, false);
+	assert.equal(auth.options.onAPIError?.errorURL, "/login");
 });
 
 test("sair expira o cookie da sessão e o do cache", async () => {
@@ -27,7 +28,6 @@ test("sair expira o cookie da sessão e o do cache", async () => {
 	const cookies = response.headers.getSetCookie();
 	const expired = (name: string) => cookies.some((cookie) => cookie.includes(`${name}=`) && /Max-Age=0/i.test(cookie));
 	assert.ok(expired("better-auth.session_token"), cookies.join("\n"));
-	assert.ok(expired("better-auth.session_data"), cookies.join("\n"));
 });
 
 test("requireUser/scopeFor: o escopo é o user.id da sessão (venha do cookie ou do banco)", async () => {
