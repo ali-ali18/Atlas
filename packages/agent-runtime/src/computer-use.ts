@@ -224,9 +224,9 @@ import type { JevRuntime } from "./jev/decide.js";
 import { memoryJudgeFor, type MemoryGateCandidate, type MemoryGateVerdict, type MemoryJudge } from "./memory-gate.js";
 import { verifierNote, verifyDraftAnswer } from "./jev/answer-verifier.js";
 import { detectStuckRun, shouldCheckStuck } from "./jev/stuck.js";
-import { classifyDifficulty, ongoingTaskReason } from "./context/difficulty.js";
+import { classifyDifficulty } from "./context/difficulty.js";
 import { classifyDifficultyWithReviewer } from "./jev/difficulty.js";
-import { buildTierPlan, holdTierForOngoingTask, modelsForTier, nextEscalationTier, repeatedWeakResults, type ModelTiersRuntime } from "./model-tiers.js";
+import { buildTierPlan, modelsForTier, nextEscalationTier, repeatedWeakResults, type ModelTiersRuntime } from "./model-tiers.js";
 import { looksEmptyResult } from "./mcp/empty-hint.js";
 import type { ModelTier } from "@workspace/shared";
 import { createNarrationMemory, mentionsFileDeliverable, STALL_NUDGE_NOTE, STALL_QUIET_AT, STALL_RESTRICT_NOTE, STALL_ABORT_MESSAGE, stallStage } from "./execution/stall-guard.js";
@@ -5246,15 +5246,7 @@ export async function runComputerUse(params: {
 			activeTier = chosen.tier;
 			tierSource = asked ? "reviewer" : "rules";
 		}
-		// Turno que continua uma tarefa (dados colados, oferta do bot, ferramentas há pouco) não cai no modelo barato.
-		const lastUserIndex = params.messages.map((message) => message.role).lastIndexOf("user");
-		const ongoing = isUnattendedOrigin(params.origin)
-			? null
-			: ongoingTaskReason({ history: lastUserIndex >= 0 ? params.messages.slice(0, lastUserIndex) : params.messages, lastUserText: lastUserMessageContent });
-		const held = holdTierForOngoingTask({ chosen: activeTier, ongoing: ongoing !== null, plan: tierPlan, defaultModel: model });
-		if (held.tier !== activeTier || held.keepDefault) console.info(`[model-tier] ongoing task (${ongoing}): ${activeTier} -> ${held.tier}${held.keepDefault ? " (default model)" : ""}`);
-		activeTier = held.tier;
-		if (!held.keepDefault) await applyTier(activeTier);
+		await applyTier(activeTier);
 	}
 	const nativeEligible = sandboxEnabled && !isSubagent && supportsNativeComputerTool(model);
 	const nativeComputerOn = nativeEligible && nativeMode === "on";
