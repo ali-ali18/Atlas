@@ -22,6 +22,7 @@ import { loadConfig } from "./config.js";
 import { rateLimitByIp } from "./middleware/rate-limit.js";
 import { requireUser } from "./middleware/auth.js";
 import { jsonBodyLimit } from "./middleware/json-body-limit.js";
+import { apiCompress } from "./middleware/compress.js";
 import { auth, authProviders, isOwnerEmail } from "./auth.js";
 import { createViewerUpgradeHandler } from "./routes/sandbox-viewer.js";
 import { createChatRoutes } from "./routes/chat.js";
@@ -185,6 +186,9 @@ app.use(
 		exposeHeaders: ["X-Atlas-Run-Id", "X-Request-Id"],
 	}),
 );
+
+// gzip/deflate em JSON e texto (listas, conversas); SSE fica de fora (ver middleware/compress.ts).
+app.use("/*", apiCompress());
 
 app.use("/v1/hooks/*", rateLimitByIp(60, 60_000));
 app.use("/v1/email/inbound/*", rateLimitByIp(120, 60_000));
