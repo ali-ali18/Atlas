@@ -6,6 +6,7 @@ import type {
 	UpdateRoutineInput,
 } from "@workspace/shared";
 import {
+	describeEmailTrigger,
 	describeGithubTriggerClauses,
 	describeRoutineAlertSentence,
 	formatRoutineRunReason,
@@ -130,6 +131,20 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 				: [],
 		};
 	}
+	if (record.triggerType === "event" && record.email) {
+		return {
+			id: record.id,
+			name: record.name,
+			instruction: record.prompt,
+			active: record.enabled,
+			model: record.model,
+			allowChatgptPlan: record.allowChatgptPlan ?? false,
+			notify: record.notify ?? "always",
+			triggerKind: "event",
+			triggers: [{ id: "email", text: describeEmailTrigger(record.email) }],
+			email: record.email,
+		};
+	}
 	const isEvent = record.triggerType === "event";
 	if (isEvent) {
 		const isGithub = Boolean(record.github);
@@ -224,6 +239,19 @@ function uiRoutineToPayloadBase(
 		notify: routine.notify ?? "always",
 			enabled: routine.active,
 			triggerType: "interval",
+			schedule: null,
+		};
+	}
+	if (routine.triggerKind === "event" && routine.triggers[0]?.id === "email") {
+		// Gatilho de e-mail só é criado/editado pelo agente; o autosave não manda `trigger` (mantém o salvo).
+		return {
+			name: routine.name.trim() || "Nova rotina",
+			prompt: routine.instruction,
+			model: routine.model.trim(),
+			allowChatgptPlan: routine.allowChatgptPlan ?? false,
+			notify: routine.notify ?? "always",
+			enabled: routine.active,
+			triggerType: "event",
 			schedule: null,
 		};
 	}
@@ -410,6 +438,7 @@ function capitalizeFirst(text: string) {
 /** Tipo de gatilho principal da rotina (ícone da lista). */
 export function routinePrimaryTriggerKind(routine: Routine): RoutineTriggerKind {
 	if (routine.triggerKind === "event") {
+		if (routine.triggers[0]?.id === "email") return "email";
 		return routine.triggers[0]?.id === "github" || routine.github
 			? "github"
 			: "webhook";
@@ -439,6 +468,9 @@ export function routineTriggerRows(routine: Routine): RoutineTriggerRow[] {
 	if (kind === "webhook") {
 		return [{ kind, text: "Quando uma requisição chegar no webhook da rotina" }];
 	}
+	if (kind === "email") {
+		return [{ kind, text: describeEmailTrigger(routine.email ?? {}) }];
+	}
 	const first = routine.triggers[0];
 	if (!first) return [];
 	return [
@@ -465,6 +497,7 @@ export function routineCardSummary(triggerType: Routine["triggerKind"] | undefin
 		return cron ? capitalizeFirst(scheduleLabel(toScheduleState(cronToScheduleInput(cron)))) : null;
 	}
 	if (triggerType === "interval" || triggerType === "once") return capitalizeFirst(first);
+	if (triggerType === "event" && first.startsWith("Quando chegar e-mail")) return first;
 	return null;
 }
 
@@ -472,6 +505,7 @@ export function routineCardSummary(triggerType: Routine["triggerKind"] | undefin
 export function routineScheduleSummary(routine: Routine): string {
 	const kind = routinePrimaryTriggerKind(routine);
 	if (kind === "webhook") return "Webhook";
+	if (kind === "email") return describeEmailTrigger(routine.email ?? {});
 	if (kind === "github") {
 		const repo = routine.github?.repo.trim();
 		return repo ? `GitHub · ${repo}` : "GitHub";

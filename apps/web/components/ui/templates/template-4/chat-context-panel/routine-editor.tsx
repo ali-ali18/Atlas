@@ -8,6 +8,7 @@ import {
 	SearchIcon,
 	Trash2Icon,
 	WebhookIcon,
+	MailIcon,
 	XIcon,
 } from "lucide-react";
 import {
@@ -79,6 +80,7 @@ import {
 	GITHUB_TRIGGER_EVENT_GROUPS,
 	GITHUB_TRIGGER_EVENT_META,
 	GITHUB_TRIGGER_EVENTS,
+	describeEmailTrigger,
 	describeGithubTriggerClauses,
 	isGithubCiEvent,
 	type RoutineRunRecord,
@@ -262,6 +264,7 @@ function triggerPhrase(id: string) {
 	if (id === "schedule") return "chegar o horário agendado";
 	if (id === "webhook") return "receber um webhook";
 	if (id === "github") return "algo acontecer no repositório GitHub";
+	if (id === "email") return "chegar um e-mail na caixa do bot";
 	if (id === "once") return "chegar a data/hora do lembrete";
 	if (id === "interval") return "passar o intervalo configurado";
 	return "";
@@ -397,6 +400,7 @@ export function RoutineEditor({
 	const skipSaveRef = useRef(false);
 
 	const isGithubTrigger = triggers[0]?.id === "github";
+	const isEmailTrigger = triggers[0]?.id === "email";
 
 	const [githubStatus, setGithubStatus] = useState<GithubStatus | null>(null);
 	const [githubStatusLoading, setGithubStatusLoading] = useState(false);
@@ -493,6 +497,7 @@ export function RoutineEditor({
 			})),
 			hook: routine?.hook,
 			github: isGithubTrigger ? githubConfig : routine?.github,
+			email: routine?.email,
 		};
 	}
 
@@ -671,6 +676,9 @@ export function RoutineEditor({
 		}
 		if (id === "github") {
 			return { label: "GitHub", icon: <GithubMarkIcon />, schedule: false };
+		}
+		if (id === "email") {
+			return { label: routine?.email ? describeEmailTrigger(routine.email) : "E-mail recebido", icon: <MailIcon />, schedule: false };
 		}
 		if (id === "once") {
 			return { label: "Uma vez", icon: <ClockIcon />, schedule: false };
@@ -1019,7 +1027,7 @@ export function RoutineEditor({
 				</div>
 			) : null}
 
-			{triggerKind === "event" && !isGithubTrigger ? (
+			{triggerKind === "event" && !isGithubTrigger && !isEmailTrigger ? (
 				<div className="space-y-2 rounded-2xl border p-3">
 					<p className="font-medium text-muted-foreground text-xs">
 						Webhook

@@ -69,3 +69,18 @@ test("resumo do agendamento por tipo de rotina", () => {
  assert.equal(routineScheduleSummary({ ...routine, triggerKind: "event", triggers: [{ id: "webhook", text: "Webhook" }] }), "Webhook");
  assert.equal(routineScheduleSummary({ ...routine, triggerKind: "event", triggers: [{ id: "github", text: "GitHub" }], github: { repo: "a/b", events: ["pr_opened"], prNumber: "", users: "", ciBranch: "" } }), "GitHub · a/b");
 });
+
+test("rotina de e-mail: frase do gatilho no painel e no cartão, ícone de e-mail e autosave sem trigger", () => {
+	const record = { id: "r2", botId: "b", name: "NF", prompt: "p", model: "m", enabled: true, triggerType: "event", schedule: null, email: { fromContains: "fornecedor@", subjectContains: "NF" }, createdAt: "", updatedAt: "" } as unknown as RoutineRecord;
+	const ui = recordToUiRoutine(record);
+	const sentence = "Quando chegar e-mail de fornecedor@ com 'NF' no assunto";
+	assert.equal(ui.triggerKind, "event");
+	assert.equal(routinePrimaryTriggerKind(ui), "email");
+	assert.equal(routineScheduleSummary(ui), sentence);
+	assert.deepEqual(routineTriggerRows(ui), [{ kind: "email", text: sentence }]);
+	assert.equal(routineCardSummary("event", `${sentence}\n\nRegistre`), sentence);
+	const payload = uiRoutineToPayload(ui);
+	assert.equal(payload.triggerType, "event");
+	assert.equal("trigger" in payload, false);
+	assert.equal(routineCardSummary("event", "Webhook: https://x"), null);
+});

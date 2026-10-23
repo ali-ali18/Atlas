@@ -234,6 +234,8 @@ export type Routine = {
 		urlSecretAt?: string;
 	};
 	github?: RoutineGithubUiConfig;
+	/** Só rotina de e-mail recebido: filtros do gatilho (a UI só mostra; o agente configura). */
+	email?: { fromContains?: string; subjectContains?: string };
 };
 
 export const initialAgents: Agent[] = [
