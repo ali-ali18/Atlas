@@ -183,7 +183,8 @@ app.use(
 );
 
 // gzip/deflate em JSON e texto (listas, conversas); SSE fica de fora (ver middleware/compress.ts).
-app.use("/*", apiCompress());
+// O login (/api/auth/*) fica fora: redirects e cookies do Better Auth passam sem transformação.
+app.use("/v1/*", apiCompress());
 
 app.use("/v1/hooks/*", rateLimitByIp(60, 60_000));
 app.use("/v1/email/inbound/*", rateLimitByIp(120, 60_000));

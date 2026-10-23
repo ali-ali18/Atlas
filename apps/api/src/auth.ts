@@ -51,9 +51,11 @@ const authOptions: BetterAuthOptions = {
 	secret: authSecret,
 	database: prismaAdapter(prisma, { provider: "postgresql" }),
 	trustedOrigins: [baseURL.origin],
-	// Sessão assinada num cookie por 5 min: o requireUser não vai ao banco a cada requisição. Contrapartida
-	// (decidida pelo dono): sessão revogada no servidor ainda vale até o cookie expirar; sair (sign-out) apaga o cookie.
-	session: { cookieCache: { enabled: true, maxAge: 5 * 60 } },
+	// Sem cookieCache: com ele ligado o login (Google e link por e-mail) travou na criação da sessão em produção.
+	// Volta a ligar só com teste do fluxo completo de login.
+	session: { cookieCache: { enabled: false } },
+	// Erro no login (estado vencido, callback repetido) volta para a tela de login em vez de um 500 cru.
+	onAPIError: { errorURL: "/login" },
 	advanced: { useSecureCookies: baseURL.protocol === "https:" },
 	socialProviders,
 	user: {

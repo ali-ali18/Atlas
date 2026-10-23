@@ -34,6 +34,7 @@ import { beginCardDecision, cardDecisionKey, endCardDecision } from "@/lib/card-
 import { approvalMarkerFor, failedApprovalDetail, approvalShortLabel, isHiddenProtocolBubble, selectDockEntries } from "@/lib/approval-dock";
 import { answerBotPending } from "@/lib/atlas-api";
 import { ApprovalBar } from "./approval-bar";
+import { insideNestedScrollerThatCanScrollUp, keyIsUpward, stickAfterScroll, touchIsUpward, wheelIsUpward } from "@/lib/follow-bottom";
 import { shouldKeepBottomOnResize } from "@/lib/keep-bottom-on-resize";
 import { ApprovalMarker } from "./approval-marker";
 import { needsBottomCorrection, transcriptBottomPadding } from "@/lib/scroll-bottom";
@@ -241,6 +242,9 @@ export function ChatThread({
 	// "Grudado no fim?" — follow automático só quando o usuário já estava
 	// no fim; nunca sequestra quem subiu para ler o histórico.
 	const stickRef = useRef(true);
+	// A área de rolagem só existe com agente: os ouvintes de rolagem precisam (re)ligar quando ela aparece,
+	// senão ficam presos a um ref vazio e nada solta o acompanhamento.
+	const hasThread = Boolean(agent);
 	// Grupo: o hook fala com /v1/groups e o servidor escolhe quem responde.
 	const isGroup = Boolean(agent?.members?.length);
 	const {
@@ -326,7 +330,16 @@ export function ChatThread({
 		return () => observer.disconnect();
 		// Só a lista de cartões pendentes (ids) importa: refazer o observer a cada token custava uma busca no DOM.
 	}, [pendingCardKey, opened]);
-	useEffect(() => (isGroup ? undefined : onChatMessageRequest((text) => void sendMessageRef.current(text))), [isGroup]);
+	useEffect(
+		() =>
+			isGroup
+				? undefined
+				: onChatMessageRequest((text) => {
+						stickRef.current = true;
+						void sendMessageRef.current(text);
+					}),
+		[isGroup],
+	);
 	// Listas derivadas de `agents` mantêm a referência enquanto o conteúdo não muda: a lista de conversas
 	// muda por qualquer prévia ou não lida, e uma referência nova redesenharia todas as linhas memoizadas.
 	const skillBots = useStructuralMemo(useMemo(
@@ -488,15 +501,64 @@ export function ChatThread({
 	useEffect(() => {
 		const element = scrollRef.current;
 		if (!element) return;
-		const updateStick = () => {
-			const distance =
-				element.scrollHeight - element.scrollTop - element.clientHeight;
-			stickRef.current = distance < 120;
+		// Acompanhar o fim só enquanto a pessoa está de fato no fim. Roda, dedo e teclas só registram a
+		// intenção de subir; solta quem de fato rolou para cima logo depois (scrollTop caiu). Só ela volta (fim, seta, envio).
+		let previousTop = element.scrollTop;
+		let lastIntentAt = 0;
+		let touchX = 0;
+		let touchY = 0;
+		const markIntent = () => {
+			lastIntentAt = performance.now();
 		};
-		updateStick();
-		element.addEventListener("scroll", updateStick, { passive: true });
-		return () => element.removeEventListener("scroll", updateStick);
-	}, []);
+		const onScroll = () => {
+			const top = element.scrollTop;
+			stickRef.current = stickAfterScroll({
+				stuck: stickRef.current,
+				previousTop,
+				top,
+				distance: element.scrollHeight - top - element.clientHeight,
+				now: performance.now(),
+				lastIntentAt,
+			});
+			previousTop = top;
+		};
+		const onWheel = (event: WheelEvent) => {
+			if (wheelIsUpward(event.deltaY, event.deltaX) && !insideNestedScrollerThatCanScrollUp(event.target, element)) markIntent();
+		};
+		const onTouchStart = (event: TouchEvent) => {
+			touchX = event.touches[0]?.clientX ?? 0;
+			touchY = event.touches[0]?.clientY ?? 0;
+		};
+		const onTouchMove = (event: TouchEvent) => {
+			const touch = event.touches[0];
+			if (!touch) return;
+			if (touchIsUpward(touch.clientX - touchX, touch.clientY - touchY) && !insideNestedScrollerThatCanScrollUp(event.target, element)) markIntent();
+			touchX = touch.clientX;
+			touchY = touch.clientY;
+		};
+		// Teclas só chegam aqui com o foco dentro da conversa; só registram a intenção, não soltam nada sozinhas.
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (keyIsUpward(event.key)) markIntent();
+		};
+		// Arrastar a barra de rolagem: o alvo do clique é a própria área.
+		const onPointerDown = (event: PointerEvent) => {
+			if (event.target === element) markIntent();
+		};
+		element.addEventListener("scroll", onScroll, { passive: true });
+		element.addEventListener("wheel", onWheel, { passive: true });
+		element.addEventListener("touchstart", onTouchStart, { passive: true });
+		element.addEventListener("touchmove", onTouchMove, { passive: true });
+		element.addEventListener("keydown", onKeyDown);
+		element.addEventListener("pointerdown", onPointerDown, { passive: true });
+		return () => {
+			element.removeEventListener("scroll", onScroll);
+			element.removeEventListener("wheel", onWheel);
+			element.removeEventListener("touchstart", onTouchStart);
+			element.removeEventListener("touchmove", onTouchMove);
+			element.removeEventListener("keydown", onKeyDown);
+			element.removeEventListener("pointerdown", onPointerDown);
+		};
+	}, [hasThread]);
 
 	// Teclado do celular abre/fecha: a área da conversa muda de altura; quem estava no fim continua vendo a
 	// última mensagem (síncrono, antes do paint, sem salto). Cobre também o visualViewport (navegadores que
@@ -520,7 +582,7 @@ export function ChatThread({
 			observer?.disconnect();
 			viewport?.removeEventListener("resize", onResize);
 		};
-	}, []);
+	}, [hasThread]);
 
 	useLayoutEffect(() => {
 		const pending = pendingHistoryScrollRef.current;
@@ -663,6 +725,8 @@ export function ChatThread({
 		const element = scrollRef.current;
 		if (!element) return;
 		const jump = () => {
+			// A pessoa pode ter subido nos dois quadros de espera: nada rola a conversa se ela soltou o fim.
+			if (!stickRef.current) return;
 			element.scrollTop = element.scrollHeight;
 			done?.();
 			// O layout ainda pode crescer (barra, markdown, fontes): confere uma vez mais e só corrige se ficou curto.
@@ -676,6 +740,13 @@ export function ChatThread({
 		}
 		// rAF duplo: espera o layout assentar (markdown, fontes, imagens).
 		requestAnimationFrame(() => requestAnimationFrame(jump));
+	};
+
+	// Enviar sempre leva ao fim e volta a acompanhar, mesmo de quem estava lendo mais acima.
+	const sendFollowing = (...args: Parameters<typeof sendMessage>) => {
+		stickRef.current = true;
+		scrollToEnd();
+		return sendMessage(...args);
 	};
 
 	// Pouso ao entrar: sem não lidas, no fim; com não lidas, na linha "Novas mensagens" (decideLanding).
@@ -881,6 +952,7 @@ export function ChatThread({
 		const key = cardDecisionKey(agent?.conversationId, confirm);
 		if (!beginCardDecision(key)) return;
 		setConfirmStatus(confirm.id, status);
+		stickRef.current = true;
 		void sendMessage(text, [], { confirmId: confirm.confirmId }).finally(() => endCardDecision(key));
 	};
 	// Handlers das linhas com identidade estável (chamam sempre a versão mais nova): sem isso cada render
@@ -1151,6 +1223,7 @@ export function ChatThread({
 
 			<div
 				className="min-h-0 flex-1 overflow-x-clip overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+				data-testid="chat-scroll"
 				ref={scrollRef}
 			>
 				{loading && messages.length === 0 ? (
@@ -1439,7 +1512,7 @@ export function ChatThread({
 				)}
 			</div>
 
-			<ScrollToBottom newCount={newCount} targetRef={scrollRef} />
+			<ScrollToBottom newCount={newCount} onJump={() => (stickRef.current = true)} targetRef={scrollRef} />
 
 			<ChatComposer
 				dock={
@@ -1466,7 +1539,7 @@ export function ChatThread({
 					setModel(next);
 					onAgentModelChange?.(next);
 				}}
-				onSend={sendMessage}
+				onSend={sendFollowing}
 				onCompact={isGroup ? undefined : (focus) => void compact(focus)}
 				onStop={() => void cancelRun()}
 				runActive={runActive}
