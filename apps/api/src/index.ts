@@ -8,6 +8,8 @@ import { cors } from "hono/cors";
 import { accountChatgptGate, ensureGithubRepoHook } from "@workspace/agent-runtime";
 import {
 	closeRunSignals,
+	closeSweepSignals,
+	publishSweepSignal,
 	publishRunSignal,
 	publishRunEventsSignal,
 	createAgentRunQueue,
@@ -94,6 +96,9 @@ import {
 	updateDevSession,
 	prisma,
 	setRunEventAppendedHook,
+	setRunFinalizedByRequestHook,
+	onGroupTurnCreated,
+	onBotMessageCreated,
 	cancelStaleCancelledRuns,
 	failStaleRunningRuns,
 	listGithubRoutineRepoOwners,
@@ -194,6 +199,14 @@ app.use("/v1/*", jsonBodyLimit);
 
 // Acorda os streams SSE quando o run ganha evento (o worker faz o mesmo no processo dele).
 setRunEventAppendedHook((runId) => void publishRunEventsSignal(runId));
+// Turno de grupo / mensagem entre bots criados aqui: o worker varre na hora (o gancho do db é só deste processo).
+onGroupTurnCreated(() => void publishSweepSignal("groups"));
+onBotMessageCreated(() => void publishSweepSignal("bot-messages"));
+// Run encerrado aqui (cancelar na fila ou parado num card): grupos e mensagens entre bots seguem sem esperar.
+setRunFinalizedByRequestHook(() => {
+	void publishSweepSignal("groups");
+	void publishSweepSignal("bot-messages");
+});
 
 let apiShuttingDown = false;
 app.route(
@@ -539,6 +552,7 @@ async function shutdown() {
 	}
 	clearInterval(reconcileTimer);
 	await closeRunSignals().catch(() => undefined);
+	await closeSweepSignals().catch(() => undefined);
 	await closeUserEventWaker().catch(() => undefined);
 	if (redisConnection) {
 		await redisConnection.quit();

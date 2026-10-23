@@ -726,6 +726,15 @@ export async function getLatestCompletedRunForConversation(
 	return row ? mapRun(row) : null;
 }
 
+let runFinalizedByRequestHook: ((runId: string) => void) | null = null;
+/**
+ * Run encerrado fora do worker (cancelar um run na fila ou parado num card). O worker não vê o fim pelo job,
+ * então quem depende dele (grupos, mensagens entre bots) é avisado por aqui. Um gancho por processo.
+ */
+export function setRunFinalizedByRequestHook(hook: ((runId: string) => void) | null): void {
+	runFinalizedByRequestHook = hook;
+}
+
 export async function requestCancelAgentRun(runId: string): Promise<AgentRun | null> {
 	const existing = await prisma.agentRun.findUnique({ where: { id: runId }, select: { ...AGENT_RUN_SELECT, leaseUntil: true } });
 	if (!existing) return null;
@@ -760,6 +769,13 @@ export async function requestCancelAgentRun(runId: string): Promise<AgentRun | n
 		where: { parentRunId: runId, status: { in: ACTIVE_STATUSES } },
 		data: { cancelRequested: true },
 	});
+	if (finalizeNow) {
+		try {
+			runFinalizedByRequestHook?.(runId);
+		} catch {
+			// gancho com defeito não afeta o cancelamento
+		}
+	}
 	return mapRun(row);
 }
 

@@ -515,3 +515,12 @@ test("marcadores pendentes: SQL usa exatamente os predicados do índice parcial 
 	assert.equal(predicates(captured), `"role" = '${BOT_LINK_ROLE}' AND "content" LIKE '%"kind":"needs-user"%' AND "content" LIKE '%"status":"pending"%'`);
 	assert.equal(limit, 40);
 });
+
+test("varredura sem nada aberto diz que está parada (o worker espaça a consulta); com pedido aberto, em andamento", async () => {
+	const world = newWorld();
+	install(world);
+	const { deps } = makeDeps(world);
+	assert.equal((await processBotMessages(deps)).inFlight, false);
+	await sendBotMessage({ userId: "u1", fromBotId: "ana", fromRunId: "r-ana", bot: "bia", message: "oi", title: "Oi" });
+	assert.equal((await processBotMessages(deps)).inFlight, true);
+});

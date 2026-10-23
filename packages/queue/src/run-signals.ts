@@ -8,8 +8,10 @@ import { resolveRedisUrl } from "./connection.js";
  * é coberta pela consulta de segurança de quem consome.
  */
 export type RunSignalKind = "input" | "cancel";
-/** Inclui "events" (canal de eventos do run, ver `runEventsChannel`). */
-type AnySignalKind = RunSignalKind | "events";
+/** Varredura que o worker deve rodar já (ver `sweep-signals.ts`). */
+export type SweepSignalKind = "groups" | "bot-messages";
+/** Inclui "events" (canal de eventos do run, ver `runEventsChannel`) e os avisos de varredura. */
+type AnySignalKind = RunSignalKind | "events" | SweepSignalKind;
 
 const RUN_SIGNAL_KINDS: ReadonlySet<string> = new Set<RunSignalKind>(["input", "cancel"]);
 
@@ -220,7 +222,7 @@ export function createRunSignals(deps: {
 let defaultSignals: RunSignals | null = null;
 let defaultEventSignals: RunSignals | null = null;
 
-function redisFactories() {
+export function redisFactories() {
 	return {
 		// Publicar falha rápido (sem fila offline): requisição HTTP nunca espera o Redis voltar.
 		createPublisher: () => {

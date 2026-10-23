@@ -39,6 +39,9 @@ import {
 	createChatCompletionQueue,
 	createRedisConnection,
 	closeRunSignals,
+	closeSweepSignals,
+	subscribeSweepSignals,
+	type SweepSignalKind,
 	createRoutineQueue,
 	enqueueRoutineEventDeferred,
 	reconcileOnceRoutines,
@@ -439,20 +442,32 @@ routineWorker.on("failed", (job, err) => {
 });
 
 // Conversa entre bots (send_to_bot): entrega, resposta e despertar do remetente.
-const botMessageSweeper = startBotMessageSweeper({
-	enqueueRun: enqueueChainedRun,
-	envDefaultModel: config.openRouterModel,
-});
+// Aviso da API (Redis): turno de grupo ou mensagem entre bots criados fora deste processo.
+const sweepSignal = (kind: SweepSignalKind) => (kick: () => void) =>
+	subscribeSweepSignals((signal) => {
+		if (signal === kind) kick();
+	});
+const botMessageSweeper = startBotMessageSweeper(
+	{
+		enqueueRun: enqueueChainedRun,
+		envDefaultModel: config.openRouterModel,
+	},
+	{ triggers: [sweepSignal("bot-messages")] },
+);
 // Run terminou: a resposta do destino sai na hora em vez de esperar o intervalo.
 agentWorker.on("completed", () => botMessageSweeper.kick());
+agentWorker.on("failed", () => botMessageSweeper.kick());
 
 // Grupos de bots: roteia a fala do usuário e dispara as respostas dos membros, uma por vez.
-const groupSweeper = startGroupSweeper({
-	enqueueRun: enqueueChainedRun,
-	envDefaultModel: config.openRouterModel,
-	route: createGroupRouter(config),
-	jev: createGroupJev(config),
-});
+const groupSweeper = startGroupSweeper(
+	{
+		enqueueRun: enqueueChainedRun,
+		envDefaultModel: config.openRouterModel,
+		route: createGroupRouter(config),
+		jev: createGroupJev(config),
+	},
+	{ triggers: [sweepSignal("groups")] },
+);
 agentWorker.on("completed", () => groupSweeper.kick());
 agentWorker.on("failed", () => groupSweeper.kick());
 
@@ -706,6 +721,7 @@ async function shutdown() {
 	await closeSharedMcpPool().catch(() => undefined);
 	await shutdownSharedExtractor().catch(() => undefined);
 	await closeRunSignals().catch(() => undefined);
+	await closeSweepSignals().catch(() => undefined);
 	await connection.quit();
 	process.exit(0);
 }

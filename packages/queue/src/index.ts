@@ -44,4 +44,12 @@ export {
 	type RunSignalPublisher,
 	type RunSignals,
 	type RunSignalSubscriber,
+	type SweepSignalKind,
 } from "./run-signals.js";
+export {
+	closeSweepSignals,
+	createSweepSignals,
+	publishSweepSignal,
+	subscribeSweepSignals,
+	SWEEP_SIGNAL_CHANNEL,
+} from "./sweep-signals.js";

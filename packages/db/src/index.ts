@@ -184,6 +184,7 @@ export {
 	setRunSandboxSession,
 	appendRunEvent,
 	setRunEventAppendedHook,
+	setRunFinalizedByRequestHook,
 	listRunEventsAfter,
 	appendAgentStep,
 	findCompletedToolStep,

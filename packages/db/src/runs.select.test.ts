@@ -67,3 +67,24 @@ test("getAgentRun, listagem por conversa e pausa usam o select curto", async () 
 	assert.equal(calls.length, 3);
 	for (const call of calls) assert.equal(call.args.select, AGENT_RUN_SELECT, call.method);
 });
+
+test("cancelar run parado fora do worker avisa o gancho (grupos e mensagens entre bots seguem na hora)", async () => {
+	const { setRunFinalizedByRequestHook, requestCancelAgentRun } = await import("./runs.js");
+	const agentRun = prisma.agentRun as unknown as Record<string, unknown>;
+	let status = "queued";
+	agentRun.findUnique = async () => ({ ...row, status, leaseUntil: null });
+	agentRun.update = async ({ data }: { data: { status: string } }) => ({ ...row, status: data.status });
+	agentRun.updateMany = async () => ({ count: 0 });
+	const finalized: string[] = [];
+	setRunFinalizedByRequestHook((runId) => finalized.push(runId));
+	try {
+		assert.equal((await requestCancelAgentRun("r1"))?.status, "cancelled");
+		// Rodando com lease: quem encerra é o worker (que já acorda as varreduras ao terminar o job).
+		status = "running";
+		agentRun.findUnique = async () => ({ ...row, status, leaseUntil: new Date(Date.now() + 60_000) });
+		assert.equal((await requestCancelAgentRun("r1"))?.status, "running");
+	} finally {
+		setRunFinalizedByRequestHook(null);
+	}
+	assert.deepEqual(finalized, ["r1"]);
+});
