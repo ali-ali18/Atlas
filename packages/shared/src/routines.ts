@@ -1,4 +1,5 @@
 import type { EventEnvelope, RoutineHookInfo } from "./events/triggers.js";
+import type { RoutineAlert, RoutineAlertConfig } from "./routine-alert.js";
 import type {
 	GithubTriggerEvent,
 	RoutineGithubTriggerView,
@@ -61,6 +62,8 @@ export type RoutineRecord = {
 	once?: { runAt: string };
 	/** Presente em rotinas `interval` — repete a cada N minutos. */
 	interval?: { everyMinutes: number };
+	/** Presente em rotinas de alerta (cron/interval): condição + estado da última verificação. */
+	alert?: RoutineAlert;
 };
 
 export type RoutineGroupRecord = {
@@ -102,6 +105,8 @@ export type CreateRoutineInput = {
 	prompt: string;
 	model?: string;
 	allowChatgptPlan?: boolean;
+	/** Alerta por condição (só cron/interval): a rotina verifica e só avisa quando a condição passa a valer. */
+	alert?: RoutineAlertConfig;
 	/** Default "always". */
 	notify?: RoutineNotifyMode;
 	/** Default "user". */
@@ -158,6 +163,8 @@ export type UpdateRoutineInput = {
 	model?: string;
 	allowChatgptPlan?: boolean;
 	notify?: RoutineNotifyMode;
+	/** Define/troca o alerta (condição nova rearma o estado) ou `null` para voltar a rotina comum. Omitido mantém. */
+	alert?: RoutineAlertConfig | null;
 	triggerType?: RoutineTriggerType;
 	schedule?: string | null;
 	enabled?: boolean;
