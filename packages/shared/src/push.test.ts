@@ -32,6 +32,24 @@ describe("texto da notificação", () => {
 		expect(payload?.body.endsWith("…")).toBe(true);
 	});
 
+	it("alerta: título com ⚠️ e o nome do bot, resumo no corpo, abre a conversa", () => {
+		const payload = buildPushPayload({ kind: "alert", conversationId: "c1", botId: "b1", botName: "Adolfinho", text: "⚠️ Estoque da canela: 7 un. (mínimo 10)" });
+		expect(payload).toMatchObject({ title: "⚠️ Adolfinho", body: "Estoque da canela: 7 un. (mínimo 10)", url: "/?bot=b1", kind: "alert" });
+		expect(buildPushPayload({ kind: "alert", conversationId: "c1", botName: "A" })?.body).toMatch(/alerta/i);
+	});
+
+	it("rotina que falhou: texto amigável no corpo e nunca engolido como protocolo", () => {
+		const payload = buildPushPayload({ kind: "routine-failed", conversationId: "c1", botId: "b1", botName: "Adolfinho", text: "Sem créditos no provedor do modelo — a rotina Vendas não rodou" });
+		expect(payload).toMatchObject({ title: "⚠️ Adolfinho", body: "Sem créditos no provedor do modelo — a rotina Vendas não rodou", kind: "routine-failed" });
+	});
+
+	it("alerta e falha de rotina passam na frente de um 'terminou' recente, mas não de 'precisa de você'", () => {
+		const last = { at: 1_000_000, kind: "run-finished" as const };
+		expect(decideCoalesce({ last, kind: "alert", now: last.at + 1000 })).toBe(true);
+		expect(decideCoalesce({ last, kind: "routine-failed", now: last.at + 1000 })).toBe(true);
+		expect(decideCoalesce({ last: { at: last.at, kind: "needs-user" }, kind: "alert", now: last.at + 1000 })).toBe(false);
+	});
+
 	it("protocolo de cartão nunca notifica", () => {
 		expect(isProtocolText("confirmado: Executar")).toBe(true);
 		expect(isProtocolText("Recusado")).toBe(true);

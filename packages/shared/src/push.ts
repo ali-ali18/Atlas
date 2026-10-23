@@ -4,7 +4,8 @@
  */
 import { isCardConfirmToken } from "./conversation-task.js";
 
-export type PushKind = "run-finished" | "needs-user" | "coding-failed" | "reminder" | "test";
+/** `alert` = condição de um alerta passou a valer; `routine-failed` = uma rotina não rodou. Ambos pesam mais que "terminou". */
+export type PushKind = "run-finished" | "needs-user" | "coding-failed" | "reminder" | "alert" | "routine-failed" | "test";
 
 /** Ícones do app (gerados em /icons). */
 export const PUSH_ICON = "/icons/icon-192.png";
@@ -59,7 +60,7 @@ export function isProtocolText(text: string | null | undefined): boolean {
 	return isCardConfirmToken(trimmed) || trimmed.split("\n")[0]!.trim().toLowerCase() === "cancela isso";
 }
 
-const KIND_PRIORITY: Record<PushKind, number> = { "run-finished": 1, reminder: 1, test: 1, "coding-failed": 2, "needs-user": 3 };
+const KIND_PRIORITY: Record<PushKind, number> = { "run-finished": 1, reminder: 1, test: 1, "coding-failed": 2, alert: 2, "routine-failed": 2, "needs-user": 3 };
 
 export function pushPriority(kind: PushKind): number {
 	return KIND_PRIORITY[kind];
@@ -112,6 +113,15 @@ export function buildPushPayload(input: PushInput): PushPayload | null {
 		case "reminder":
 			title = who;
 			body = line || "Lembrete";
+			break;
+		case "alert":
+			// O resumo já pode vir com o "⚠️" do texto da conversa: o título leva um só.
+			title = `⚠️ ${who}`;
+			body = line.replace(/^⚠️\s*/, "") || "Um alerta disparou. Abra a conversa para ver.";
+			break;
+		case "routine-failed":
+			title = `⚠️ ${who}`;
+			body = line.replace(/^⚠️\s*/, "") || "Uma rotina não rodou. Abra a conversa para ver o motivo.";
 			break;
 		case "test":
 			title = "Notificações ativadas";
