@@ -261,7 +261,7 @@ const drawStats: Draw<"stats"> = ({ palette: p }, slide, input) => {
 		slide.addShape("rect", { x: x + 0.3, y: y + 0.3, w: 0.6, h: 0.07, fill: { color: i % 2 === 0 ? p.accent : p.accent2 }, line: { color: p.accent, width: 0 } });
 		const tight = n >= 3;
 		const valueSize = stat.value.length > 12 ? 26 : stat.value.length > 8 ? (tight ? 30 : 40) : n === 1 ? 80 : stat.value.length > 5 ? (tight ? 40 : 54) : tight ? 54 : 64;
-		slide.addText(stat.value, { x: x + 0.3, y: y + 0.55, w: w - 0.6, h: 1.4, fontSize: valueSize, bold: true, color: p.accent, fontFace: p.headFont, valign: "middle", margin: 0, fit: "shrink" });
+		slide.addText(stat.value, { x: x + 0.3, y: y + 0.55, w: w - 0.6, h: 1.4, fontSize: valueSize, bold: true, color: p.accent, fontFace: p.bodyFont, valign: "middle", margin: 0, fit: "shrink" });
 		slide.addText(stat.label, { x: x + 0.3, y: y + 2.0, w: w - 0.6, h: 0.75, fontSize: n >= 4 ? 18 : 22, color: p.text, fontFace: p.bodyFont, valign: "top", margin: 0, fit: "shrink" });
 		if (stat.detail) slide.addText(stat.detail, { x: x + 0.3, y: y + 2.8, w: w - 0.6, h: 0.5, fontSize: 17, bold: true, color: deltaColor(stat.detail, p), fontFace: p.bodyFont, valign: "top", margin: 0 });
 	});
