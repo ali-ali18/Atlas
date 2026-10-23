@@ -1,4 +1,4 @@
-import { parseDeckBrandColor, parseDeckSlides, parseDeckTheme, type DeckTheme, type SlideInput } from "./deck.js";
+import { parseDeckBrandColor, parseDeckSlides, parseDeckTemplateId, parseDeckTheme, type DeckTheme, type SlideInput } from "./deck.js";
 
 /**
  * F9 — arquivos gerados pelo agente (PDF, Word, Excel, texto/código).
@@ -208,6 +208,8 @@ export type CreateFileInput = {
 	/** Só pptx: tema visual e cor da marca (hex). */
 	theme?: DeckTheme;
 	brandColor?: string;
+	/** Só pptx: id do .pptx modelo do usuário (anexo ou arquivo próprio). Ausente = tema embutido. */
+	templateFileId?: string;
 	title?: string;
 	css?: string;
 	/** Só docx/pdf: "abnt" aplica o layout da NBR 14724. Ausente = layout de sempre. */
@@ -318,6 +320,7 @@ export function parseCreateFileArgs(args: Record<string, unknown>): CreateFileIn
 	}
 	if (kind === "pptx") {
 		const brandColor = parseDeckBrandColor(args.brand_color);
+		const templateFileId = parseDeckTemplateId(args.template_file_id);
 		return {
 			filename,
 			format: kind,
@@ -325,6 +328,7 @@ export function parseCreateFileArgs(args: Record<string, unknown>): CreateFileIn
 			slides: parseDeckSlides(args.slides),
 			theme: parseDeckTheme(args.theme),
 			...(brandColor ? { brandColor } : {}),
+			...(templateFileId ? { templateFileId } : {}),
 			...(title ? { title } : {}),
 		};
 	}

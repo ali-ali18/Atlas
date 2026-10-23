@@ -3,7 +3,12 @@
  * Só funções puras. O desenho (pptxgenjs) mora em `packages/agent-runtime/src/files`.
  * O formato antigo `{ title, bullets[] }` continua valendo e vira o layout `bullets`.
  */
-import { parseChartSpec, normalizeChartHexColor, type ChartSpec } from "./chart-spec.js";
+import { normalizeChartHexColor, type ChartSpec } from "./chart-spec.js";
+import { fail, list, need, obj, parseChart, parseDeckImageId, str } from "./deck-util.js";
+import { freeImageIds, parseDeckBackground, parseFreeElements, type DeckBackground, type FreeElement } from "./deck-free.js";
+
+export { DECK_CHART_TYPES, DECK_MAX_CHART_POINTS, parseDeckImageId } from "./deck-util.js";
+export * from "./deck-free.js";
 
 export const DECK_MAX_SLIDES = 60;
 export const DECK_MAX_BULLETS = 20;
@@ -13,7 +18,6 @@ export const DECK_MAX_TIMELINE_STEPS = 6;
 export const DECK_MAX_AGENDA_ITEMS = 8;
 export const DECK_MAX_TABLE_COLUMNS = 8;
 export const DECK_MAX_TABLE_ROWS = 14;
-export const DECK_MAX_CHART_POINTS = 40;
 export const DECK_MAX_NOTES_CHARS = 2_000;
 export const DECK_TITLE_MAX_CHARS = 300;
 export const DECK_TEXT_MAX_CHARS = 500;
@@ -21,18 +25,16 @@ export const DECK_TEXT_MAX_CHARS = 500;
 export const DECK_THEMES = ["clean", "dark", "corporate", "vivid"] as const;
 export type DeckTheme = (typeof DECK_THEMES)[number];
 
-export const DECK_LAYOUTS = ["title", "agenda", "section", "bullets", "two_column", "image", "chart", "table", "quote", "stats", "timeline", "closing"] as const;
+export const DECK_LAYOUTS = ["title", "agenda", "section", "bullets", "two_column", "image", "chart", "table", "quote", "stats", "timeline", "closing", "free"] as const;
 export type DeckLayout = (typeof DECK_LAYOUTS)[number];
 
-/** Gráficos que viram gráfico nativo do PowerPoint. */
-export const DECK_CHART_TYPES = ["bar", "line", "area", "pie"] as const;
 
 export type DeckBullet = { text: string; sub: string[] };
 export type DeckColumn = { heading?: string; bullets: DeckBullet[] };
 export type DeckStat = { value: string; label: string; detail?: string };
 export type DeckStep = { label: string; title: string; text?: string };
 
-type Common = { notes?: string };
+type Common = { notes?: string; background?: DeckBackground };
 
 export type SlideInput = Common &
 	(
@@ -48,38 +50,11 @@ export type SlideInput = Common &
 		| { layout: "stats"; title: string; stats: DeckStat[]; caption?: string }
 		| { layout: "timeline"; title: string; steps: DeckStep[] }
 		| { layout: "closing"; title: string; subtitle?: string; bullets: DeckBullet[] }
+		/** Posições absolutas na grade 13.333 x 7.5 pol.; nenhum título é desenhado sozinho. */
+		| { layout: "free"; name?: string; elements: FreeElement[] }
 	);
 
 export type DeckOptions = { theme: DeckTheme; brandColor?: string };
-
-function fail(message: string): never {
-	throw new Error(message);
-}
-
-function str(value: unknown, max: number, label: string): string | undefined {
-	if (value === undefined || value === null) return undefined;
-	if (typeof value !== "string" && typeof value !== "number") fail(`${label} must be a string.`);
-	const text = String(value).trim();
-	if (!text) return undefined;
-	if (text.length > max) fail(`${label} is too long (max ${max} characters).`);
-	return text;
-}
-
-function need(value: unknown, max: number, label: string): string {
-	return str(value, max, label) ?? fail(`${label} is required.`);
-}
-
-function obj(value: unknown, label: string): Record<string, unknown> {
-	if (!value || typeof value !== "object" || Array.isArray(value)) fail(`${label} must be an object.`);
-	return value as Record<string, unknown>;
-}
-
-function list(value: unknown, label: string, min: number, max: number): unknown[] {
-	if (!Array.isArray(value)) fail(`${label} must be an array.`);
-	if (value.length < min) fail(`${label} needs at least ${min} item${min > 1 ? "s" : ""}.`);
-	if (value.length > max) fail(`${label} has too many items (max ${max}).`);
-	return value;
-}
 
 /** Aceita `"texto"` ou `{ text, sub?: string[] }`. Itens vazios somem (compatível com o formato antigo). */
 function parseBullets(value: unknown, label: string, max = DECK_MAX_BULLETS): DeckBullet[] {
@@ -107,32 +82,12 @@ function parseColumn(raw: unknown, label: string): DeckColumn {
 	return { ...(heading ? { heading } : {}), bullets: parseBullets(col.bullets, `${label}.bullets`, 10) };
 }
 
-/** Id de anexo ou de imagem gerada (`attachment:`/`artifact:` aceitos). URL não vale: o servidor não busca rede. */
-export function parseDeckImageId(value: unknown, label: string): string {
-	const raw = need(value, 200, label).replace(/^(attachment|artifact):/, "");
-	if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) || raw.startsWith("data:")) {
-		fail(`${label} must be the id of an attached or generated image, not a URL. Generate the image first (generate_image) or use an attachment id.`);
-	}
-	if (!/^[\w.-]{1,200}$/.test(raw)) fail(`${label} is not a valid image id.`);
-	return raw;
-}
-
-function parseChart(value: unknown, label: string): ChartSpec {
-	const parsed = parseChartSpec(value);
-	if (!parsed.ok) return fail(`${label} is invalid: ${parsed.error}.`);
-	const spec = parsed.spec;
-	if (!(DECK_CHART_TYPES as readonly string[]).includes(spec.type)) {
-		fail(`${label}.type "${spec.type}" is not available in slides. Use one of: ${DECK_CHART_TYPES.join(", ")}.`);
-	}
-	if (spec.data.length > DECK_MAX_CHART_POINTS) fail(`${label} has too many points for a slide (max ${DECK_MAX_CHART_POINTS}); aggregate the data first.`);
-	return spec;
-}
-
 function parseOne(raw: unknown, index: number): SlideInput {
 	const label = `slides[${index}]`;
 	const slide = obj(raw, label);
 	const notes = str(slide.notes, DECK_MAX_NOTES_CHARS, `${label}.notes`);
-	const extra = notes ? { notes } : {};
+	const background = parseDeckBackground(slide.background, `${label}.background`);
+	const extra = { ...(notes ? { notes } : {}), ...(background ? { background } : {}) };
 	let layout = typeof slide.layout === "string" ? slide.layout.trim().toLowerCase() : "bullets";
 	if (layout === "big_number" || layout === "kpi" || layout === "kpis") layout = "stats";
 	if (layout === "default" || layout === "") layout = "bullets";
@@ -204,6 +159,10 @@ function parseOne(raw: unknown, index: number): SlideInput {
 			});
 			return { layout: "timeline", title: title(true)!, steps, ...extra };
 		}
+		case "free": {
+			const name = str(slide.name ?? slide.title, DECK_TITLE_MAX_CHARS, `${label}.name`);
+			return { layout: "free", ...(name ? { name } : {}), elements: parseFreeElements(slide.elements, `${label}.elements`), ...extra };
+		}
 		case "closing":
 			return { layout: "closing", title: title(true)!, ...(subtitle ? { subtitle } : {}), bullets: parseBullets(slide.bullets, `${label}.bullets`, 4), ...extra };
 	}
@@ -231,7 +190,21 @@ export function parseDeckBrandColor(value: unknown): string | undefined {
 	return normalizeChartHexColor(value) ?? fail('brand_color must be a hex color such as "#1d6b3a".');
 }
 
-/** Ids de imagem usados pelos slides, sem repetição (o runtime resolve cada um uma vez). */
+/** Ids de imagem usados pelos slides (layout image, elementos livres e fundos), sem repetição: o runtime resolve cada um uma vez. */
 export function deckImageIds(slides: SlideInput[]): string[] {
-	return [...new Set(slides.flatMap((s) => (s.layout === "image" ? [s.image] : [])))];
+	const ids = slides.flatMap((s) => [
+		...(s.layout === "image" ? [s.image] : []),
+		...(s.layout === "free" ? freeImageIds(s.elements) : []),
+		...(s.background?.kind === "image" ? [s.background.image] : []),
+	]);
+	return [...new Set(ids)];
+}
+
+/** `template_file_id`: id de um anexo .pptx ou de um arquivo do usuário. URL não vale. */
+export function parseDeckTemplateId(value: unknown): string | undefined {
+	if (value === undefined || value === null || value === "") return undefined;
+	const raw = need(value, 200, "template_file_id").replace(/^(attachment|artifact):/, "");
+	if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) || raw.startsWith("data:")) fail("template_file_id must be the id of an attached .pptx or of a file in the user's library, not a URL.");
+	if (!/^[\w.-]{1,200}$/.test(raw)) fail("template_file_id is not a valid file id.");
+	return raw;
 }
