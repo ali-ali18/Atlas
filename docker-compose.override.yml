@@ -1,27 +1,73 @@
 # Dev local: o Compose junta este arquivo sozinho ao `docker compose up`.
-# Em produção (Dokploy) ele não é lido: o deploy roda `-f ./docker-compose.yml`.
+# Em produção (Dokploy) ele não é lido: o deploy roda `-f ./docker-compose.yml`, que só puxa
+# imagens do GHCR. Aqui ficam os `build:` (e nomes locais das imagens) para `docker compose up --build`.
 # - web: publica a 3000 no PC (na VPS a 3000 é do painel do Dokploy).
 # - postgres/redis: api/worker rodando fora do Docker (pnpm dev) precisam
 #   alcançá-los. Publica SÓ em 127.0.0.1 (não expõe na rede).
 services:
+  # --- Build local (produção puxa do GHCR) ---
+  agent-sandbox:
+    build:
+      context: ./docker/agent-sandbox
+    image: atlas-agent-sandbox:latest
+  code-runner:
+    build:
+      context: ./docker/code-runner
+    image: atlas-code-runner:latest
+  dev-sandbox:
+    build:
+      context: ./docker/dev-sandbox
+    image: atlas-dev-sandbox:latest
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/node-service.Dockerfile
+      target: migrate
+    image: atlas-migrate:local
+  web:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+      args:
+        ATLAS_API_INTERNAL_URL: http://api:3001
+        NEXT_PUBLIC_SENTRY_DSN: ${SENTRY_DSN:-}
+    image: atlas-web:local
+    ports:
+      - "3000:3000"
+
   # PC (Docker Desktop): VM com portas publicadas e viewer direto no navegador.
   api:
+    build:
+      context: .
+      dockerfile: docker/node-service.Dockerfile
+      args:
+        SERVICE: api
+    image: atlas-api:local
     environment:
+      SANDBOX_IMAGE: atlas-agent-sandbox:latest
+      CODE_RUNNER_IMAGE: atlas-code-runner:latest
+      DEV_SANDBOX_IMAGE: atlas-dev-sandbox:latest
       SANDBOX_NETWORK_MODE: bridge
       SANDBOX_CONNECT_MODE: published
       SANDBOX_VIEWER_MODE: direct
       DEV_SANDBOX_NETWORK_MODE: bridge
       DEV_SANDBOX_CONNECT_MODE: published
   worker:
+    build:
+      context: .
+      dockerfile: docker/node-service.Dockerfile
+      args:
+        SERVICE: worker
+    image: atlas-worker:local
     environment:
+      SANDBOX_IMAGE: atlas-agent-sandbox:latest
+      CODE_RUNNER_IMAGE: atlas-code-runner:latest
+      DEV_SANDBOX_IMAGE: atlas-dev-sandbox:latest
       SANDBOX_NETWORK_MODE: bridge
       SANDBOX_CONNECT_MODE: published
       SANDBOX_VIEWER_MODE: direct
       DEV_SANDBOX_NETWORK_MODE: bridge
       DEV_SANDBOX_CONNECT_MODE: published
-  web:
-    ports:
-      - "3000:3000"
   postgres:
     ports:
       - "127.0.0.1:5432:5432"

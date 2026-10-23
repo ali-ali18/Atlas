@@ -1,5 +1,9 @@
-# Stack local completo: `docker compose up --build`
-# Configure OPENROUTER_API_KEY em `.env` (veja `.env.example`).
+# Produção (Dokploy): este arquivo SÓ puxa imagens prontas do GHCR (publicadas por
+# .github/workflows/images.yml); nada é compilado no servidor. Guia: docs/deploy-dokploy.md.
+#   ATLAS_IMAGE_TAG     tag de web/api/worker/migrate (padrão `latest`; rollback: `sha-abc1234`).
+#   ATLAS_SANDBOX_TAG   tag das sandboxes (padrão `latest`; só são reconstruídas quando docker/<nome> muda).
+# Dev local: `docker compose up --build`. O docker-compose.override.yml (juntado sozinho) traz os
+# `build:` e os nomes locais das imagens. Configure OPENROUTER_API_KEY em `.env` (veja `.env.example`).
 
 x-api-environment: &api-environment
   # Arquivos gerados: o worker grava, a API serve. Volume comum aos dois.
@@ -40,11 +44,13 @@ x-api-environment: &api-environment
   PORT: "3001"
   CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://127.0.0.1:3000}
   SANDBOX_ENABLED: ${SANDBOX_ENABLED:-true}
-  SANDBOX_IMAGE: atlas-agent-sandbox:latest
+  # Imagens das sandboxes (criadas pela api/worker via docker-socket-proxy). Em produção são as do GHCR,
+  # puxadas pelos serviços `*-sandbox`/`code-runner` abaixo; o override local volta aos nomes atlas-*:latest.
+  SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/ali-ali18/atlas-agent-sandbox:${ATLAS_SANDBOX_TAG:-latest}}
   # `run_code`: Python leve em container efêmero (imagem docker/code-runner). Sem a imagem, a ferramenta
   # responde "o executor de código não está instalado". CODE_RUNNER_ENABLED=false desliga.
   CODE_RUNNER_ENABLED: ${CODE_RUNNER_ENABLED:-true}
-  CODE_RUNNER_IMAGE: atlas-code-runner:latest
+  CODE_RUNNER_IMAGE: ${CODE_RUNNER_IMAGE:-ghcr.io/ali-ali18/atlas-code-runner:${ATLAS_SANDBOX_TAG:-latest}}
   CODE_RUNNER_MEMORY_MB: ${CODE_RUNNER_MEMORY_MB:-512}
   SANDBOX_VIEWER_HOST: ${SANDBOX_VIEWER_HOST:-http://localhost}
   SANDBOX_VIEWER_MODE: ${SANDBOX_VIEWER_MODE:-proxy}
@@ -62,7 +68,7 @@ x-api-environment: &api-environment
   # Sessões de desenvolvimento (container leve por sessão; imagem docker/dev-sandbox).
   # Desligado por padrão: ligue com DEV_SANDBOX_ENABLED=true depois de construir a imagem.
   DEV_SANDBOX_ENABLED: ${DEV_SANDBOX_ENABLED:-false}
-  DEV_SANDBOX_IMAGE: atlas-dev-sandbox:latest
+  DEV_SANDBOX_IMAGE: ${DEV_SANDBOX_IMAGE:-ghcr.io/ali-ali18/atlas-dev-sandbox:${ATLAS_SANDBOX_TAG:-latest}}
   DEV_SANDBOX_MAX_CONCURRENT: ${DEV_SANDBOX_MAX_CONCURRENT:-2}
   DEV_SANDBOX_MEMORY_BUDGET_MB: ${DEV_SANDBOX_MEMORY_BUDGET_MB:-4096}
   DEV_SANDBOX_MIN_FREE_MB: ${DEV_SANDBOX_MIN_FREE_MB:-512}
@@ -134,6 +140,7 @@ services:
     # existentes funcionando; troque em instalação nova).
     image: pgvector/pgvector:pg16
     restart: unless-stopped
+    mem_limit: 1g
     # Deploy: dá tempo do Postgres fechar limpo (checkpoint) antes do SIGKILL.
     stop_grace_period: 30s
     environment:
@@ -154,6 +161,7 @@ services:
     # (ex.: REDIS_URL=redis://:SUASENHA@redis:6379).
     image: redis:7-alpine
     restart: unless-stopped
+    mem_limit: 256m
     command: ["sh", "-c", "if [ -n \"$REDIS_PASSWORD\" ]; then exec redis-server --appendonly yes --requirepass \"$REDIS_PASSWORD\"; else exec redis-server --appendonly yes; fi"]
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
@@ -170,6 +178,7 @@ services:
   searxng:
     image: searxng/searxng:latest
     restart: unless-stopped
+    mem_limit: 256m
     volumes:
       - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
@@ -181,6 +190,7 @@ services:
   docker-socket-proxy:
     image: tecnativa/docker-socket-proxy:latest
     restart: unless-stopped
+    mem_limit: 64m
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
@@ -205,36 +215,33 @@ services:
       DISTRIBUTION: 0
       POST: 1
 
-  # Constrói atlas-agent-sandbox:latest; o container sai imediatamente (só a imagem importa).
+  # Só puxa a imagem da sandbox do GHCR; o container sai imediatamente (só a imagem importa).
   agent-sandbox:
-    build:
-      context: ./docker/agent-sandbox
-    image: atlas-agent-sandbox:latest
+    image: ghcr.io/ali-ali18/atlas-agent-sandbox:${ATLAS_SANDBOX_TAG:-latest}
+    mem_limit: 64m
     entrypoint: ["/bin/sh", "-c", "echo 'Image atlas-agent-sandbox:latest ready'"]
     restart: "no"
 
-  # Constrói atlas-code-runner:latest (`run_code`); sem serviço permanente: cada execução cria um container efêmero.
+  # Puxa a imagem do `run_code`; sem serviço permanente: cada execução cria um container efêmero.
+  # Memória de cada execução: CODE_RUNNER_MEMORY_MB (definida em packages/sandbox na criação do container).
   code-runner:
-    build:
-      context: ./docker/code-runner
-    image: atlas-code-runner:latest
+    image: ghcr.io/ali-ali18/atlas-code-runner:${ATLAS_SANDBOX_TAG:-latest}
+    mem_limit: 64m
     entrypoint: ["/bin/sh", "-c", "echo 'Image atlas-code-runner:latest ready'"]
     restart: "no"
 
-  # Constrói atlas-dev-sandbox:latest (sessões de desenvolvimento); o container sai imediatamente.
+  # Puxa a imagem das sessões de desenvolvimento; o container sai imediatamente.
   dev-sandbox:
-    build:
-      context: ./docker/dev-sandbox
-    image: atlas-dev-sandbox:latest
+    image: ghcr.io/ali-ali18/atlas-dev-sandbox:${ATLAS_SANDBOX_TAG:-latest}
+    mem_limit: 64m
     entrypoint: ["/bin/sh", "-c", "echo 'Image atlas-dev-sandbox:latest ready'"]
     restart: "no"
 
   migrate:
-    build:
-      context: .
-      dockerfile: docker/node-service.Dockerfile
-      target: migrate
+    image: ghcr.io/ali-ali18/atlas-migrate:${ATLAS_IMAGE_TAG:-latest}
+    mem_limit: 512m
     environment:
+      NODE_OPTIONS: --max-old-space-size=384
       DATABASE_URL: postgresql://atlas:${POSTGRES_PASSWORD:-atlas}@postgres:5432/atlas
     depends_on:
       postgres:
@@ -242,12 +249,10 @@ services:
     restart: "no"
 
   api:
-    build:
-      context: .
-      dockerfile: docker/node-service.Dockerfile
-      args:
-        SERVICE: api
+    image: ghcr.io/ali-ali18/atlas-api:${ATLAS_IMAGE_TAG:-latest}
     restart: unless-stopped
+    # Teto do container: um vazamento reinicia só a api (não o servidor). Heap do Node abaixo do teto.
+    mem_limit: 768m
     # Deploy: a API para de aceitar conexões, fecha os SSE (o cliente reconecta com
     # Last-Event-ID) e só então solta Prisma/filas; o código tem teto de 25s.
     stop_grace_period: 30s
@@ -265,6 +270,7 @@ services:
       - atlas-artifacts:/data/artifacts
     environment:
       <<: *api-environment
+      NODE_OPTIONS: --max-old-space-size=576
     # Fase 0: sem socket cru — acesso via docker-socket-proxy (DOCKER_HOST).
     # A API alcança as portas publicadas da sandbox no host via host.docker.internal.
     extra_hosts:
@@ -296,12 +302,10 @@ services:
       start_period: 15s
 
   worker:
-    build:
-      context: .
-      dockerfile: docker/node-service.Dockerfile
-      args:
-        SERVICE: worker
+    image: ghcr.io/ali-ali18/atlas-worker:${ATLAS_IMAGE_TAG:-latest}
     restart: unless-stopped
+    # Inclui o Chromium (PDF), que fica fora do heap do Node: por isso o heap é bem menor que o teto.
+    mem_limit: 1g
     # Deploy: o worker para de pegar jobs e deixa o run ativo terminar o passo atual (até 90s);
     # se não der, grava checkpoint e solta o lease para o novo worker retomar na hora.
     # Precisa ser MAIOR que a janela de graça do código (WORKER_SHUTDOWN_GRACE_MS=90s + 20s de checkpoint).
@@ -315,6 +319,7 @@ services:
       - atlas-artifacts:/data/artifacts
     environment:
       <<: *api-environment
+      NODE_OPTIONS: --max-old-space-size=640
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
       DATABASE_URL: postgresql://atlas:${POSTGRES_PASSWORD:-atlas}@postgres:5432/atlas
@@ -339,19 +344,17 @@ services:
         condition: service_completed_successfully
 
   web:
-    build:
-      context: .
-      dockerfile: docker/web/Dockerfile
-      args:
-        ATLAS_API_INTERNAL_URL: http://api:3001
-        NEXT_PUBLIC_SENTRY_DSN: ${SENTRY_DSN:-}
+    # NEXT_PUBLIC_* e o destino do rewrite /v1 são embutidos no build da imagem (ver images.yml / docs/deploy-dokploy.md).
+    image: ghcr.io/ali-ali18/atlas-web:${ATLAS_IMAGE_TAG:-latest}
     restart: unless-stopped
+    mem_limit: 512m
     # Sem `ports:` aqui: no Dokploy o Traefik alcança o web pela rede interna
     # (e a 3000 do host é o painel do Dokploy). No PC, a porta 3000 vem do
     # docker-compose.override.yml, que o Compose junta sozinho.
     expose:
       - "3000"
     environment:
+      NODE_OPTIONS: --max-old-space-size=384
       PORT: "3000"
       HOSTNAME: "0.0.0.0"
       SENTRY_DSN: ${SENTRY_DSN:-}
