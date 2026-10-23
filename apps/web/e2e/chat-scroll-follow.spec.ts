@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { expect, test, type Page } from "@playwright/test"
+import { LANDING_LOCK_MS } from "../lib/thread-position"
 import { MockAtlas } from "./mock-api"
 
 /**
@@ -115,6 +116,26 @@ async function stopSampling(page: Page) {
   })
 }
 
+/** Espera a posição de leitura assentar: scrollTop igual por vários quadros seguidos (no lugar de pausas fixas). Só para quem não está acompanhando o fim. */
+async function settled(page: Page) {
+  await expect
+    .poll(
+      () =>
+        page.locator(SCROLLER).evaluate(
+          (element) =>
+            new Promise<boolean>((resolve) => {
+              const read = () => element.scrollTop
+              const first = read()
+              let frames = 0
+              const tick = () => (++frames < 8 ? requestAnimationFrame(tick) : resolve(read() === first))
+              requestAnimationFrame(tick)
+            }),
+        ),
+      { timeout: 20_000 },
+    )
+    .toBe(true)
+}
+
 type ScrollBy = (page: Page, deltaY: number) => Promise<void>
 
 /** Desktop: roda do mouse em cima da conversa. */
@@ -160,7 +181,7 @@ async function openChat(page: Page) {
   await expect(box).toBeVisible({ timeout: 20_000 })
   await expect(page.getByText("Resposta antiga 30.").first()).toBeVisible({ timeout: 20_000 })
   // pouso no fim + trava de re-ancoragem (LANDING_LOCK_MS) assentam
-  await page.waitForTimeout(3000)
+  await page.waitForTimeout(LANDING_LOCK_MS + 500)
 }
 
 async function send(page: Page, text: string) {
@@ -217,15 +238,15 @@ for (const size of VIEWPORTS) {
         // 1) Enviar puxa para o fim; durante o stream a pessoa sobe ~300px e lá fica até o run terminar.
         await send(page, "Faz a análise completa de outubro")
         await expect(page.getByText("Análise completa de outubro").first()).toBeVisible({ timeout: 15_000 })
-        await page.waitForTimeout(400)
+        await expect.poll(async () => (await metrics(page)).distance, { timeout: 10_000 }).toBeLessThan(4)
         await size.scroll(page, -300)
-        await page.waitForTimeout(500)
+        await settled(page)
         const left = await metrics(page)
         expect(left.distance, "subiu de fato").toBeGreaterThan(150)
         await startSampling(page)
         await waitStreamEnd(finished, 1)
         // fim do run: o layout assenta e a conferência de fim de run roda
-        await page.waitForTimeout(1500)
+        await settled(page)
         const held = await stopSampling(page)
         const moved = held.filter((sample) => Math.abs(sample.top - left.top) > 2)
         expect(moved, `scrollTop deveria ficar em ${left.top}; mudou para ${[...new Set(moved.map((s) => Math.round(s.top)))].slice(0, 8).join(", ")}`).toHaveLength(0)
@@ -235,16 +256,14 @@ for (const size of VIEWPORTS) {
         // 2) Novo stream: sobe, fica parado; volta ao fim rolando sozinho -> acompanha até o fim.
         await send(page, "De novo, por favor")
         await expect.poll(async () => (await metrics(page)).distance, { timeout: 10_000 }).toBeLessThan(4)
-        await page.waitForTimeout(600)
         await size.scroll(page, -300)
-        await page.waitForTimeout(500)
+        await settled(page)
         const up = await metrics(page)
         expect(up.distance).toBeGreaterThan(150)
         await page.waitForTimeout(800)
         expect(Math.abs((await metrics(page)).top - up.top), "parado enquanto lê").toBeLessThanOrEqual(2)
         // volta ao fim "com a mão" (no celular, um gesto não cobre tudo; para sozinho ao chegar, o resto é o acompanhar)
         for (let i = 0; i < 10 && (await metrics(page)).distance > 8; i++) await size.scroll(page, Math.min((await metrics(page)).distance + 400, 1200))
-        await page.waitForTimeout(400)
         await startSampling(page)
         await page.waitForTimeout(1200)
         const following = await stopSampling(page)
@@ -253,8 +272,7 @@ for (const size of VIEWPORTS) {
         const glued = following.filter((sample) => sample.distance < 40).length / following.length
         expect(glued, "acompanha o fim de novo").toBeGreaterThan(0.8)
         await waitStreamEnd(finished, 2)
-        await page.waitForTimeout(1500)
-        expect((await metrics(page)).distance, "terminou no fim").toBeLessThan(4)
+        await expect.poll(async () => (await metrics(page)).distance, { message: "terminou no fim", timeout: 10_000 }).toBeLessThan(4)
         await expect(page.getByText(SENTINEL).last()).toBeInViewport()
       } finally {
         server.close()

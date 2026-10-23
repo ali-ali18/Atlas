@@ -34,7 +34,7 @@ import { beginCardDecision, cardDecisionKey, endCardDecision } from "@/lib/card-
 import { approvalMarkerFor, failedApprovalDetail, approvalShortLabel, isHiddenProtocolBubble, selectDockEntries } from "@/lib/approval-dock";
 import { answerBotPending } from "@/lib/atlas-api";
 import { ApprovalBar } from "./approval-bar";
-import { keyReleasesFollow, stickAfterScroll, touchReleasesFollow, wheelReleasesFollow } from "@/lib/follow-bottom";
+import { insideNestedScrollerThatCanScrollUp, keyIsUpward, stickAfterScroll, touchIsUpward, wheelIsUpward } from "@/lib/follow-bottom";
 import { shouldKeepBottomOnResize } from "@/lib/keep-bottom-on-resize";
 import { ApprovalMarker } from "./approval-marker";
 import { needsBottomCorrection, transcriptBottomPadding } from "@/lib/scroll-bottom";
@@ -501,12 +501,14 @@ export function ChatThread({
 	useEffect(() => {
 		const element = scrollRef.current;
 		if (!element) return;
-		// Acompanhar o fim só enquanto a pessoa está de fato no fim. Qualquer sinal de que ela subiu (roda, dedo,
-		// teclado, scrollTop que diminuiu sem a gente) solta na hora; só ela volta (chegando ao fim, seta, envio).
+		// Acompanhar o fim só enquanto a pessoa está de fato no fim. Roda, dedo e teclas só registram a
+		// intenção de subir; solta quem de fato rolou para cima logo depois (scrollTop caiu). Só ela volta (fim, seta, envio).
 		let previousTop = element.scrollTop;
+		let lastIntentAt = 0;
+		let touchX = 0;
 		let touchY = 0;
-		const release = () => {
-			stickRef.current = false;
+		const markIntent = () => {
+			lastIntentAt = performance.now();
 		};
 		const onScroll = () => {
 			const top = element.scrollTop;
@@ -515,34 +517,46 @@ export function ChatThread({
 				previousTop,
 				top,
 				distance: element.scrollHeight - top - element.clientHeight,
+				now: performance.now(),
+				lastIntentAt,
 			});
 			previousTop = top;
 		};
 		const onWheel = (event: WheelEvent) => {
-			if (wheelReleasesFollow(event.deltaY)) release();
+			if (wheelIsUpward(event.deltaY, event.deltaX) && !insideNestedScrollerThatCanScrollUp(event.target, element)) markIntent();
 		};
 		const onTouchStart = (event: TouchEvent) => {
+			touchX = event.touches[0]?.clientX ?? 0;
 			touchY = event.touches[0]?.clientY ?? 0;
 		};
 		const onTouchMove = (event: TouchEvent) => {
-			const y = event.touches[0]?.clientY ?? touchY;
-			if (touchReleasesFollow(touchY, y)) release();
-			touchY = y;
+			const touch = event.touches[0];
+			if (!touch) return;
+			if (touchIsUpward(touch.clientX - touchX, touch.clientY - touchY) && !insideNestedScrollerThatCanScrollUp(event.target, element)) markIntent();
+			touchX = touch.clientX;
+			touchY = touch.clientY;
 		};
+		// Teclas só chegam aqui com o foco dentro da conversa; só registram a intenção, não soltam nada sozinhas.
 		const onKeyDown = (event: KeyboardEvent) => {
-			if (keyReleasesFollow(event.key)) release();
+			if (keyIsUpward(event.key)) markIntent();
+		};
+		// Arrastar a barra de rolagem: o alvo do clique é a própria área.
+		const onPointerDown = (event: PointerEvent) => {
+			if (event.target === element) markIntent();
 		};
 		element.addEventListener("scroll", onScroll, { passive: true });
 		element.addEventListener("wheel", onWheel, { passive: true });
 		element.addEventListener("touchstart", onTouchStart, { passive: true });
 		element.addEventListener("touchmove", onTouchMove, { passive: true });
 		element.addEventListener("keydown", onKeyDown);
+		element.addEventListener("pointerdown", onPointerDown, { passive: true });
 		return () => {
 			element.removeEventListener("scroll", onScroll);
 			element.removeEventListener("wheel", onWheel);
 			element.removeEventListener("touchstart", onTouchStart);
 			element.removeEventListener("touchmove", onTouchMove);
 			element.removeEventListener("keydown", onKeyDown);
+			element.removeEventListener("pointerdown", onPointerDown);
 		};
 	}, [hasThread]);
 

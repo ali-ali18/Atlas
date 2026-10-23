@@ -3,7 +3,7 @@
 import { ArrowDownIcon } from "lucide-react";
 import { type RefObject, useEffect, useState } from "react";
 
-import { FOLLOW_RESUME_PX } from "@/lib/follow-bottom";
+import { JUMP_ARROW_PX } from "@/lib/follow-bottom";
 import { needsBottomCorrection } from "@/lib/scroll-bottom";
 import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
@@ -33,7 +33,7 @@ export function ScrollToBottom({
 		const update = () => {
 			const distance =
 				element.scrollHeight - element.scrollTop - element.clientHeight;
-			setVisible(distance > FOLLOW_RESUME_PX);
+			setVisible(distance > JUMP_ARROW_PX);
 		};
 
 		update();
