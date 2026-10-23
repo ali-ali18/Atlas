@@ -89,7 +89,8 @@ describe("dados colados com instrução curta: o bot aplica em vez de perguntar"
 		expect(system).toContain("Act on the most plausible reading.");
 		expect(system).toContain("apply it to the work in progress (draft, message, document, routine) and show the updated result, keeping the user's format");
 		expect(system).toContain("Do not ask what to change when the pasted content already shows it.");
-		expect(system).toContain("Ask only when the readings lead to materially different, costly or irreversible actions; write confirmations and approval cards still apply.");
+		expect(system).toContain("Ask only when the missing information cannot be obtained with tools AND the plausible readings lead to materially different, costly or irreversible actions");
+		expect(system).toContain("Write confirmations and approval cards still apply.");
 		expect(system).toContain("goes as one short line after the result, never as a separate answer before acting");
 		// A regra antiga ("2+ interpretações plausíveis" bastava para perguntar) saiu.
 		expect(system).not.toContain("admite 2+ interpretações");

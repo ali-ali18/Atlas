@@ -35,7 +35,7 @@ export const PROPOSE_BOT_TOOL: ChatTool = {
 	function: {
 		name: PROPOSE_BOT_TOOL_NAME,
 		description:
-			"Propose creating a NEW agent (bot) for the user when they ask for one. A card shows the agent (avatar, name, role, model, skills) and nothing is created until the user approves it. Only after the user said what the agent is for: if they only said \"create an agent\", call propose_questionnaire first (purpose, tone, apps). At most one proposal per turn. Do not use it for skills or routines, nor on your own initiative. name: short. description: the agent's role and behavior (its briefing). Optional: color and shape (avatar), model, skills (slugs of existing account skills to copy to it), first_task (a self-contained message sent to the new agent once created).",
+			"Propose creating a NEW agent (bot) for the user when they ask for one. A card shows the agent (avatar, name, role, model, skills) and nothing is created until the user approves it. Only after the user said what the agent is for: if they only said \"create an agent\", ask what it is for first (one question; propose_questionnaire). Choose sensible defaults for tone and apps yourself. At most one proposal per turn. Do not use it for skills or routines, nor on your own initiative. name: short. description: the agent's role and behavior (its briefing). Optional: color and shape (avatar), model, skills (slugs of existing account skills to copy to it), first_task (a self-contained message sent to the new agent once created).",
 		parameters: {
 			type: "object",
 			properties: {
@@ -96,7 +96,7 @@ export async function executeProposeBot(args: Record<string, unknown>, ctx: BotP
 	}
 	if (isBareBotCreateRequest(ctx.recentUserTexts?.[0])) {
 		throw new Error(
-			"The user only asked to create an agent and did not say what it is for. Do NOT propose it yet: call propose_questionnaire with 1 item (what the agent is for, with 2-4 concrete options plus a free-text input), then ask tone and apps/connectors if still unclear, and propose it from the answers.",
+			"The user only asked to create an agent and did not say what it is for. Do not propose it yet: ask what the agent is for in one question (propose_questionnaire with 1 item: 2-4 concrete options plus a free-text input), choose sensible defaults for tone and apps yourself, and propose it from the answer.",
 		);
 	}
 

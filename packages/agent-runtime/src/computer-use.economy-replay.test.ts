@@ -38,6 +38,7 @@ async function replay(input: {
 	const requested: ChatTool[][] = [];
 	const prompts: string[] = [];
 	const results: Array<{ name: string; ok: boolean; summary: string }> = [];
+	const eventTypes: string[] = [];
 	const script = [...(input.script ?? [done])];
 	const manager = {
 		execNavigate: vi.fn(async () => ({ url: "https://loja.exemplo.com.br", title: "Loja" })),
@@ -57,6 +58,7 @@ async function replay(input: {
 		messages: input.messages,
 		maxSteps: 6,
 		onEvent: (event) => {
+			eventTypes.push(event.type);
 			if (event.type === "tool_result") results.push({ name: event.name, ok: event.ok, summary: event.summary });
 		},
 		streamChat: async (params) => {
@@ -69,6 +71,7 @@ async function replay(input: {
 		first: requested[0]!.map((tool) => tool.function.name),
 		steps: requested.length,
 		results,
+		eventTypes,
 		/** Tools do passo `step` (0 = primeiro) com o JSON completo, para medir o prefixo. */
 		tools: (step = 0) => requested[step]!,
 		system: (step = 0) => prompts[step]!,
@@ -130,7 +133,9 @@ describe("economia ligada: lembrete", () => {
 			messages: [{ role: "user", content: "me lembra de dar deploy dia 03/10 às 10h e às 20h aqui pelo chat" }],
 			script: [turn("list_routines", {}), done],
 		});
-		expect(first).toEqual(expect.arrayContaining(["propose_routine", "list_routines", "propose_questionnaire"]));
+		expect(first).toEqual(expect.arrayContaining(["propose_routine", "list_routines"]));
+		// Lembrete com data e hora não abre card de pergunta: o questionário nem entra no passo 1.
+		expect(first).not.toContain("propose_questionnaire");
 		expect(results[0]).toMatchObject({ name: "list_routines", ok: true });
 		expect(results[0]!.summary).not.toMatch(/not loaded/i);
 	});
@@ -151,7 +156,9 @@ describe("economia ligada: onboarding do bot", () => {
 
 describe("economia ligada: chat simples", () => {
 	it("'Bom dia' mantém o prefixo pequeno: nenhuma tool rara e só o núcleo", async () => {
-		const { first, steps } = await replay({ messages: [{ role: "user", content: "Bom dia" }] });
+		const { first, steps, prefixChars } = await replay({ messages: [{ role: "user", content: "Bom dia" }] });
+		// Prompt de sistema + schemas do passo 1: era ~42,6 mil chars antes da política única de agir primeiro.
+		expect(prefixChars()).toBeLessThan(40_000);
 		for (const rare of [
 			"propose_routine",
 			"create_file",
@@ -160,15 +167,16 @@ describe("economia ligada: chat simples", () => {
 		]) {
 			expect(first).not.toContain(rare);
 		}
-		expect(first).toEqual(expect.arrayContaining(["web_search", "web_extract", "mcp_tool_search", "propose_questionnaire"]));
+		expect(first).toEqual(expect.arrayContaining(["web_search", "web_extract", "mcp_tool_search"]));
 		// V6: núcleo + grupo browser (7); o desktop e as raras ficam de fora.
 		// +2: propose_skill e delete_skill viraram núcleo (o modelo decide quando criar skill).
-		// +1: propose_plan virou núcleo (o plano aparece antes das escritas).
-		expect(first).toContain("propose_plan");
+		// -2: política de agir primeiro: propose_questionnaire e propose_plan saíram do núcleo (índice + intenção).
+		expect(first).not.toContain("propose_questionnaire");
+		expect(first).not.toContain("propose_plan");
 		// +1: `memory` virou núcleo: sem ela no 1º passo o modelo não consegue salvar fato durável (P_MEMORY manda salvar).
 		expect(first).toContain("memory");
 		expect(first).not.toContain("memory_search");
-		expect(first.length).toBeLessThanOrEqual(24);
+		expect(first.length).toBeLessThanOrEqual(22);
 		expect(steps).toBe(1);
 	});
 
@@ -248,5 +256,36 @@ describe("economia ligada: apresentações só entram quando o pedido é sobre a
 		const { system, first } = await replay({ messages: [{ role: "user", content: "Usa esse modelo para o plano de 2027\n[Anexo: marca-corporativa.pptx (id att-9)]" }] });
 		expect(first).toContain("inspect_presentation");
 		expect(system()).toContain("Template: when the user attached a PowerPoint");
+	});
+});
+
+describe("política de agir primeiro: pedido óbvio não abre questionário", () => {
+	const OBVIOUS = "me escreve um parágrafo curto explicando o que é inflação, pro meu blog";
+
+	it("o passo 1 traz a política única e não traz os cards de pergunta nem de plano", async () => {
+		const { first, system, steps, results } = await replay({ messages: [{ role: "user", content: OBVIOUS }] });
+		expect(first).not.toContain("propose_questionnaire");
+		expect(first).not.toContain("propose_plan");
+		const prompt = system();
+		expect(prompt).toContain("Act, don't ask:");
+		expect(prompt).toContain("Low-stakes choices (format, wording, order, defaults, which of two similar options) are yours: decide and say so in one line.");
+		// As regras antigas e conflitantes de "pergunte com card" sumiram do núcleo.
+		expect(prompt).not.toContain("Pergunte antes de agir");
+		expect(prompt).not.toContain("2-4 opções claras");
+		expect(steps).toBe(1);
+		expect(results).toHaveLength(0);
+	});
+
+	it("modelo fraco que tenta abrir o card mesmo assim não mostra questionário no passo (a tool não está carregada)", async () => {
+		const { results, eventTypes } = await replay({
+			messages: [{ role: "user", content: OBVIOUS }],
+			script: [
+				turn("propose_questionnaire", { title: "Tom", items: [{ name: "tom", prompt: "Qual tom?", choices: [{ value: "formal" }, { value: "leve" }] }] }),
+				{ model: "m", message: { role: "assistant", content: "A inflação é o aumento geral dos preços..." } },
+			],
+		});
+		expect(results[0]).toMatchObject({ name: "propose_questionnaire", ok: false });
+		expect(results[0]!.summary).toMatch(/not loaded/i);
+		expect(eventTypes).not.toContain("questionnaire");
 	});
 });

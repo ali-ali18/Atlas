@@ -2003,10 +2003,10 @@ describe("SYSTEM_PROMPT: regras de lembrete e honestidade", () => {
 		expect(SYSTEM_PROMPT).toMatch(/se a tool falhar, diga o erro real/);
 	});
 
-	it("restringe 'pergunte antes de agir': ações reversíveis não esperam questionário", () => {
-		expect(SYSTEM_PROMPT).toMatch(/NUNCA pergunte o que o usuário já disse/);
-		expect(SYSTEM_PROMPT).toMatch(/No máximo 1 pergunta por vez/);
-		expect(SYSTEM_PROMPT).toMatch(/Ações reversíveis \(criar\/editar/);
+	it("política única de agir primeiro: ações reversíveis não esperam pergunta", () => {
+		expect(SYSTEM_PROMPT).toMatch(/Never ask for something the user already said or a tool can find/);
+		expect(SYSTEM_PROMPT).toMatch(/When you must ask: one short question, then wait\./);
+		expect(SYSTEM_PROMPT).toMatch(/Reversible writes the user asked for \(routines, reminders, skills, drafts\) show a card or result they can adjust: do them directly\./);
 	});
 });
 
@@ -2393,6 +2393,8 @@ describe("propose_questionnaire: purpose e original request no card", () => {
 			conversationId: "conv-q2",
 			runId: "run-q2",
 			objective: "me lembra de dar deploy dia 03/10 pelo chat",
+			// O teste é do conteúdo do card: com a economia o questionário só entra por intenção (onboarding, novo agente).
+			contextEconomy: false,
 			maxSteps: 4,
 			onEvent: () => undefined,
 			streamChat: async () => {

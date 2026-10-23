@@ -43,3 +43,23 @@ describe("delegationCue (reserva do Jev de delegação)", () => {
 		expect(delegationCue(text)).toBe(false);
 	});
 });
+
+describe("cards de pergunta e de plano só entram quando servem (política de agir primeiro)", () => {
+	it.each(["me lembra de pagar a conta amanhã às 10h", "Bom dia", "lista as contas em aberto", "atualiza a planilha com esses dados"])("sem questionário nem plano: %s", (text) => {
+		const groups = routeContextGroups({ text });
+		expect(groups.has("questionnaire")).toBe(false);
+		expect(groups.has("plan")).toBe(false);
+	});
+	it("novo agente traz o card de escolhas (a única pergunta do fluxo)", () => {
+		expect(routeContextGroups({ text: "cria um agente pra mim" }).has("questionnaire")).toBe(true);
+	});
+	it("onboarding traz o questionário", () => {
+		expect(routeContextGroups({ text: "oi", onboarding: true }).has("questionnaire")).toBe(true);
+	});
+	it.each(["monta um plano antes de mexer no ERP", "faz um plano de ação para migrar os contatos", "make a plan first"])("pedido de plano traz propose_plan: %s", (text) => {
+		expect(routeContextGroups({ text }).has("plan")).toBe(true);
+	});
+	it.each(["qual o melhor plano de celular?", "compara os planos de 4 bancos"])("plano de produto não é plano de tarefa: %s", (text) => {
+		expect(routeContextGroups({ text }).has("plan")).toBe(false);
+	});
+});

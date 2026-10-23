@@ -530,10 +530,10 @@ const MCP_INDEX_TOTAL_MAX_CHARS = 6_000;
  * serem carregadas.
  */
 export const CONNECTOR_ARGS_GUIDANCE =
-	"- When calling connector tools, set only the parameters you need; leave optional filters empty unless the user asked for them. If a search returns nothing: retry with only the main filter, then without filters, then with a partial keyword; pick the closest match and ask the user to confirm when the name doesn't match exactly. Reuse ids from earlier results instead of searching again.\n" +
+	"- When calling connector tools, set only the parameters you need; leave optional filters empty unless the user asked for them. If a search returns nothing: retry with only the main filter, then without filters, then with a partial keyword; use the closest match and name it in your answer; ask only when several matches are equally close and the call writes data. Reuse ids from earlier results instead of searching again.\n" +
 	"- Before saying data is missing, check the tool's inputSchema `required`. Optional fields never block a create/update call: omit them, or fill them only with real ids seen in results (ignore placeholder ids like 0).\n" +
 	"- Call the write tool with the required fields. Before the call (which may open a confirmation card), check that every required field has a real value from the user or from a result you read; if one is missing, ask the user for it instead of guessing or sending a placeholder. If the connector returns an error, show the real error and fix the field it points to; after an approved action fails, correct the argument instead of repeating the same call; don't refuse up front.\n" +
-	"- If the user named someone for an optional field and you can't resolve it, still create without it and say so (or ask once).\n" +
+	"- If the user named someone for an optional field and you can't resolve it, still create without it and say so.\n" +
 	"- Mention any item that looks inactive or blocked in the results when you use it.\n" +
 	"- When a list tool supports pagination and a result looks truncated, or the user says items are missing, fetch further pages or narrow the query before concluding; never claim you checked everything when you saw only part of it.\n" +
 	"- Ids vs numbers: for an id parameter (id, *_id, idSomething), use the resource's id field from a previous list or search result, never its display number (order or invoice number) or name.\n" +
@@ -543,7 +543,7 @@ export const CONNECTOR_ARGS_GUIDANCE =
 export function multiAccountLine(toolset: McpToolset): string[] {
 	const services = toolset.multiAccountServices ?? [];
 	if (services.length === 0) return [];
-	return [`- Há mais de uma conta de: ${services.join(", ")}. Se o pedido não deixar claro qual conta usar, pergunte ao usuário antes de usar; ao agir, use as tools da conta escolhida (o nome do conector inclui a conta).`];
+	return [`- More than one account of: ${services.join(", ")} (the connector name includes the account). Pick the account from the request, memory or earlier use and name it in your answer; for reads you can check each account. Ask which one only before a write when nothing points to an account.`];
 }
 
 function connectorsPrompt(toolset: McpToolset): string {
@@ -1327,7 +1327,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "propose_questionnaire",
 			description:
-				"Pergunta ao usuário com escolhas fixas num card (onboarding, preferências, esclarecer pedido ambíguo, ou 2-4 opções claras: use em vez de perguntar em texto). 1 item por chamada; aguarde a resposta. Nova chamada substitui a pendente. Depois de emitir, não repita as perguntas em texto.",
+				"Asks the user a question with fixed choices in a card. USE WHEN onboarding a new bot, or when you are blocked (the answer cannot be found with tools and the options lead to materially different, costly or irreversible actions) and the answer is one of 2-4 clear options. DO NOT USE for low-stakes choices (decide them yourself and say so), for anything a tool can look up, or when the request has a plausible reading: act on it. One item per call; wait for the answer. A new call replaces the pending one. Do not repeat the question in text.",
 			parameters: {
 				type: "object",
 				properties: {

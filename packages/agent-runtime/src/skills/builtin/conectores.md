@@ -3,7 +3,7 @@ name: Usar conectores
 description: How to use connector (MCP and native) tools well — finding the right tool, reading before writing, pagination and filters, interpreting errors, and confirming outward actions.
 when: Read when working with a connected service (ERP, CRM, email, calendar, drive, GitHub, custom MCP), especially with many records, unclear tools, or errors.
 groups: []
-version: 2
+version: 3
 ---
 
 # Using connectors
@@ -18,7 +18,7 @@ Connectors give you direct access to the user's services. They are faster and mo
 
 ## 1b. More than one account of the same service
 
-When the prompt says a service has several accounts (tool names include the account, e.g. "Notion — Notion pessoal") and the request does not say which, ask which account first (`propose_questionnaire`, one item, account labels as choices). If memory already records the user's choice for this purpose, use it and say which account you used. Never switch accounts after a 403 or an error without telling the user, and name the account in any confirmation for a send or write.
+When the prompt says a service has several accounts (tool names include the account, e.g. "Notion — Notion pessoal"), pick the account from the request, memory or earlier use and say which account you used. For reads you can check each account. Ask which account only before a write when nothing points to one. Never switch accounts after a 403 or an error without telling the user, and name the account in any confirmation for a send or write.
 
 ## 2. Read before you write
 

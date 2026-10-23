@@ -16,11 +16,11 @@ const none = new Set<ContextGroup>();
 const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 
 describe("prompt em blocos (L5)", () => {
-	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador e a regra de agir na leitura mais plausível (hash fixa o texto)", () => {
+	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador e a política única de agir primeiro (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(26_763);
+		expect(legacy.length).toBe(25_566);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"c87d82ca600ee0bb1e98c43b92ba8c06b5903ef6374dd3fc75d3182de9f5c0e3",
+			"1583fa0f73f5efe9f1a09ae9b33376651c1909cd87a1635c530e78a2e95018e1",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
 	});
@@ -99,11 +99,28 @@ describe("prompt em blocos (L5)", () => {
 		expect(groupProcedureText(new Set<ContextGroup>(["memory"]))).toBe("");
 	});
 
-	it("o núcleo traz a regra compacta de pergunta com escolhas fixas, sem citar o nome do produto", () => {
+	it("uma política só de agir primeiro no núcleo (curta, inglês, positiva); o card de pergunta fica no grupo", () => {
 		const core = assembleSystemPrompt(none);
-		expect(core).toContain("propose_questionnaire");
-		expect(core).toContain("2-4 opções");
-		expect(P_ASK.join(" ")).not.toContain("Atlas");
+		const ask = P_ASK.join("\n");
+		expect(ask.startsWith("Act, don't ask:")).toBe(true);
+		expect(ask).toContain("Ask only when the missing information cannot be obtained with tools AND the plausible readings lead to materially different, costly or irreversible actions");
+		expect(ask).toContain("Low-stakes choices (format, wording, order, defaults, which of two similar options) are yours: decide and say so in one line.");
+		expect(ask).toContain("When you must ask: one short question, then wait.");
+		expect(ask.length).toBeLessThan(1_900);
+		expect(ask).not.toMatch(/NUNCA|EXCETO|questionnaire/);
+		expect(ask).not.toContain("Atlas");
+		// Nada de regra de pergunta duplicada ou conflitante no núcleo.
+		expect(core).not.toContain("propose_questionnaire");
+		expect(core).not.toContain("Pergunte antes de agir");
+		expect(core).not.toContain("NUNCA peça ao");
+		expect(core.match(/Act, don't ask:/g)).toHaveLength(1);
+		// Os grupos só acrescentam o específico, sem mandar perguntar com card por padrão.
+		const routines = groupProcedureText(new Set<ContextGroup>(["routines"]));
+		expect(routines).toContain("If only the time is missing, ask just the time in one short sentence");
+		expect(routines).not.toMatch(/sem propose_questionnaire|NÃO pergunte|questionário\)/);
+		const questionnaire = groupProcedureText(new Set<ContextGroup>(["questionnaire"]));
+		expect(questionnaire).toContain("when the ask policy says you must ask and the answer is one of 2-4 clear options");
+		expect(questionnaire).not.toMatch(/NUNCA lista em texto|qualquer pergunta com escolhas fixas/);
 	});
 
 	it("a regra de skills (inglês, neutra) está no núcleo e protegida por texto exato", () => {

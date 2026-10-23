@@ -28,6 +28,8 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 		/\b(cri\w+|faz\w*|mont\w+|nov[oa]s?|quero|preciso|queria|gostaria|create|make|new)\b[^.!?\n]{0,40}\b(agentes?|bots?|assistentes?|agents?|assistants?)\b/,
 	],
 	["questionnaire", /\b(question\w*rio|questionnaires?|formularios?|enquetes?|onboarding)\b/],
+	// Plano para aprovar: só quando o usuário fala em plano; tarefa longa sem a palavra carrega pelo índice (`mcp_tool_search`).
+	["plan", /\b(planej\w*|plano de (acao|trabalho|execucao)|(monta|faz|faca|mostra|cria|me da|me de) (um |o )?plano|passo a passo|make a plan|plan (it|this) (out|first)|step[- ]by[- ]step)\b/],
 	[
 		"memory",
 		/\b(memori\w*|guarda\w*|anota\w*|salv\w+ (isso|que|na|em)|meu nome|o que (voce )?(lembra|sabe)|voce (se )?lembra|lembra (de mim|que eu|do que)|me chama\w*|prefiro|preferenc\w*|esquec\w*|remember|my name|call me|i prefer|forget|conversas? (anterior\w*|passada\w*)|ontem|semana passada|ja falamos|combinamos|last time|previous (chat|conversation)s?)\b/,
@@ -97,8 +99,8 @@ export function routeContextGroups(input: {
 		groups.add("browser");
 		groups.add("web");
 	}
-	// Lembrete/rotina costuma precisar de uma pergunta de escolha (canal, horário).
-	if (groups.has("routines")) groups.add("questionnaire");
+	// Novo agente sem dizer para quê: a única pergunta do fluxo usa o card de escolhas.
+	if (groups.has("bots")) groups.add("questionnaire");
 	// Apresentação precisa de create_file e, para fundos e ilustrações, de generate_image.
 	if (groups.has("presentations")) {
 		groups.add("files");
