@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Atlas</title>
+		<link rel="stylesheet" href="styles.css" />
+		<script type="module" src="boot.js"></script>
+	</head>
+	<body>
+		<main>
+			<section id="splash" aria-live="polite">
+				<img class="logo" src="icon.png" alt="" width="72" height="72" />
+				<p class="title">Abrindo o Atlas…</p>
+				<div class="spinner" role="progressbar" aria-label="Carregando"></div>
+			</section>
+
+			<section id="offline" hidden aria-live="assertive">
+				<img class="logo" src="icon.png" alt="" width="56" height="56" />
+				<h1>Sem conexão com o Atlas</h1>
+				<p id="offline-reason"></p>
+				<p class="muted">Endereço: <code id="offline-url"></code></p>
+				<button id="retry" type="button">Tentar de novo</button>
+				<p id="offline-countdown" class="muted"></p>
+				<p id="settings-hint" class="hint" hidden>
+					Endereço errado? Edite o campo <code>atlasUrl</code> em
+					<code id="settings-path"></code> e reabra o app.
+				</p>
+			</section>
+		</main>
+	</body>
+</html>

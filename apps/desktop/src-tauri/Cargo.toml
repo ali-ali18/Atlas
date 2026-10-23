@@ -1,0 +1,38 @@
+[package]
+name = "atlas-desktop"
+version = "0.1.0"
+description = "Atlas para desktop (Windows): janela para o Atlas web, bandeja e atalho global"
+authors = ["Atlas"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.90"
+publish = false
+
+[lib]
+# O nome com _lib evita colisão com o binário no Windows (bug conhecido do cargo com lib e bin homônimos).
+name = "atlas_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = ["tray-icon", "image-png"] }
+tauri-plugin-single-instance = "2.5"
+tauri-plugin-window-state = "2.5"
+tauri-plugin-global-shortcut = "2.4"
+tauri-plugin-opener = "2.7"
+tauri-plugin-updater = "2.14"
+tauri-plugin-dialog = "2.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2.5"
+log = "0.4"
+
+[profile.release]
+# Binário pequeno: o app é só uma casca para o Atlas web.
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
