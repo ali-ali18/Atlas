@@ -24,11 +24,38 @@ function stripAccents(text: string): string {
 	return text.normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
-/** Minúsculo, sem acento, tokens alfanuméricos com 3+ chars. */
+/** Plural simples (pt/en): "boletos" ≈ "boleto", "receivables" ≈ "receivable". */
+function stem(token: string): string {
+	return token.length > 4 && token.endsWith("s") ? token.slice(0, -1) : token;
+}
+
+/**
+ * Minúsculo, sem acento, tokens alfanuméricos com 3+ chars. Quebra camelCase
+ * ("listAccountReceivables" → list, account, receivable): sem isso o nome da tool
+ * virava um token só e nunca casava com a busca.
+ */
 function tokenize(text: string): string[] {
-	return stripAccents(text.toLowerCase())
+	return stripAccents(text.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase())
 		.split(/[^a-z0-9]+/)
-		.filter((token) => token.length >= 3);
+		.filter((token) => token.length >= 3)
+		.map(stem);
+}
+
+/** Texto dos parâmetros (nomes, descrições e opções): "vencimento", "boleto", "situação" moram aqui. */
+function parameterText(tool: ChatTool): string {
+	const properties = (tool.function.parameters as { properties?: Record<string, { description?: unknown; enum?: unknown }> } | undefined)?.properties;
+	if (!properties) return "";
+	return Object.entries(properties)
+		.map(([key, value]) => `${key} ${typeof value?.description === "string" ? value.description : ""} ${Array.isArray(value?.enum) ? value.enum.join(" ") : ""}`)
+		.join(" ");
+}
+
+const VERB_PREFIX = /^(list|get|search|find|create|update|patch|delete|manage|generate|authorize)/i;
+
+/** Entidade da tool pelo nome ("getAccountReceivableBoletos" → "account receivable"). */
+function entityOf(toolName: string): string {
+	const tokens = tokenize(toolName.replace(VERB_PREFIX, ""));
+	return tokens.slice(0, 2).join(" ");
 }
 
 function hits(queryTokens: readonly string[], haystack: readonly string[]): number {
@@ -142,7 +169,8 @@ export function searchMcpTools(input: {
 		const score =
 			3 * hits(queryTokens, tokenize(entry.toolName)) +
 			2 * hits(queryTokens, tokenize(entry.connectionName)) +
-			1 * hits(queryTokens, tokenize(summary));
+			1 * hits(queryTokens, tokenize(tool.function.description)) +
+			0.5 * hits(queryTokens, tokenize(parameterText(tool)));
 		if (score <= 0) continue;
 		candidates.push({
 			name,
@@ -155,6 +183,35 @@ export function searchMcpTools(input: {
 	}
 	candidates.sort((a, b) => b.score - a.score);
 	return candidates.slice(0, limit);
+}
+
+/**
+ * Leitura da mesma entidade que a tool escolhida ("getAccountReceivableBoletos" pede um id que só
+ * "listAccountReceivables" dá): carrega junto para o modelo não concluir que "não há como listar".
+ */
+export function findSiblingReadTools(input: {
+	names: readonly string[];
+	available: ReadonlyMap<string, ChatTool>;
+	entries: ReadonlyMap<string, McpToolEntry>;
+	limit?: number;
+}): string[] {
+	const chosen = new Set(input.names);
+	const wanted = new Map<string, string>();
+	for (const name of input.names) {
+		const entry = input.entries.get(name);
+		if (!entry) continue;
+		const entity = entityOf(entry.toolName);
+		if (entity) wanted.set(`${entry.connectionName}|${entity}`, name);
+	}
+	const extra: string[] = [];
+	for (const [name, entry] of input.entries) {
+		if (chosen.has(name) || !input.available.has(name) || !entry.readOnly) continue;
+		if (!/^(list|get|search|find)/i.test(entry.toolName)) continue;
+		if (!wanted.has(`${entry.connectionName}|${entityOf(entry.toolName)}`)) continue;
+		extra.push(name);
+		if (extra.length >= (input.limit ?? 3)) break;
+	}
+	return extra;
 }
 
 export type McpActivationPlan = {

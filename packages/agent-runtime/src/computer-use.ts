@@ -413,6 +413,7 @@ import {
 import {
 	findExactMcpToolMatches,
 	findReferencedMcpTools,
+	findSiblingReadTools,
 	listMcpToolNames,
 	planMcpActivation,
 	connectorToolNames,
@@ -4597,6 +4598,7 @@ async function searchConnectorTools(
 
 	// Tool que manda "chamar X antes" (referência, validação): carrega X junto.
 	names = [...names, ...findReferencedMcpTools({ names, available: toolset.available, entries: toolset.entries, unattended })];
+	names = [...names, ...findSiblingReadTools({ names, available: toolset.available, entries: toolset.entries })];
 	const { activated, evicted } = ctx.activateMcpTools!(names);
 	if (activated.length === 0) {
 		if (loaded) return { summary: alreadyLoadedSummary(names), matched: true };
