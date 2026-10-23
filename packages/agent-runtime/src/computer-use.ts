@@ -6275,7 +6275,10 @@ export async function runComputerUse(params: {
 			if (isControlFlowError(error)) throw error;
 		}
 		const summary = await summarizeTerminalStop("the model returned an empty reply twice");
-		return { text: summary ?? (isSubagent ? buildFallbackReport(childFindings) : undefined) ?? EMPTY_REPLY_FALLBACK_TEXT, model: lastModel };
+		// Subagente sem resumo nem achados devolve texto vazio: o delegate_task trata como falha explícita.
+		// O aviso ao usuário (pt-BR) virava "relatório" e o filho saía como ok sem ter feito nada.
+		if (isSubagent) return { text: summary ?? buildFallbackReport(childFindings) ?? "", model: lastModel };
+		return { text: summary ?? EMPTY_REPLY_FALLBACK_TEXT, model: lastModel };
 	};
 
 	/**

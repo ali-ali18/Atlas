@@ -167,6 +167,10 @@ export type ChildRunInput = {
 export const REDUCED_SCOPE_NOTE =
 	"The previous attempt ran out of time without results. Focus only on the single most important sub-question, keep it short, and report what you find even if it is incomplete.";
 
+/** Filho que terminou sem texto nem achados: falha explícita, com o que o pai deve fazer. */
+export const SUBAGENT_EMPTY_REPORT =
+	"The sub-agent returned no report: it ended without any text or findings, so nothing was done for this task. Do it yourself, or tell the user plainly that this part is missing.";
+
 /** Prazo estourado (decisão ou parede), diferente de falha da tool ou do provedor. */
 export function isDeadlineError(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
@@ -599,7 +603,7 @@ async function runAttempt(input: TaskInput, browserTabId: string | undefined): P
 		const report = browserMode ? clipBrowserReport(redacted) : redacted;
 		result = report
 			? { ...base, status: "ok", report }
-			: { ...base, status: "failed", report: "The sub-agent finished without a report." };
+			: { ...base, status: "failed", report: SUBAGENT_EMPTY_REPORT };
 	} catch (error) {
 		if (error instanceof BudgetExhaustedError || error instanceof AgentRunLoopDetectedError) {
 			// Estourou o orçamento: volta o relatório parcial (resumo final do filho).

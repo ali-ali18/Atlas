@@ -239,3 +239,25 @@ describe("replay: portão de itens refaz a resposta no máximo uma vez", () => {
 		expect(result?.text).toBe(GAP);
 	});
 });
+
+describe("replay: subagente sem relatório", () => {
+	it("filho que só devolve vazio: delegate_task ok:false com mensagem acionável, item failed, resposta honesta sem descarte", async () => {
+		const HONEST = "O Bobinho não trouxe nada sobre a Semana 2, então ainda não tenho o resumo.";
+		const { result, discards, events, ledger } = await run({
+			child: () => say(""),
+			parent: (index) => {
+				if (index === 0) return turn(setItems(["Semana 2"]));
+				if (index === 1) return turn(delegate({ goal: "Escreva o resumo da Semana 2." }));
+				return say(HONEST);
+			},
+		});
+		const delegated = toolResult(events, "delegate_task");
+		expect(delegated).toMatchObject({ ok: false });
+		expect(delegated!.summary).toContain("returned no report");
+		expect(delegated!.summary).not.toContain("O modelo não devolveu");
+		expect(events.find((e) => e.type === "subagent_done")).toMatchObject({ status: "failed" });
+		expect(ledger?.items[0]).toMatchObject({ status: "failed", reason: "subagent" });
+		expect(discards).toHaveLength(0);
+		expect(result?.text).toBe(HONEST);
+	});
+});
