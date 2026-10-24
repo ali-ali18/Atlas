@@ -32,6 +32,7 @@ import { pendingNeedsUser } from "@/lib/bot-needs-thread";
 import { PLAN_ADJUST_DRAFT, botNeedsUserStatusLine, devApprovalRejectText } from "@workspace/shared";
 import { beginCardDecision, cardDecisionKey, endCardDecision } from "@/lib/card-decision";
 import { approvalMarkerFor, failedApprovalDetail, approvalShortLabel, isHiddenProtocolBubble, selectDockEntries } from "@/lib/approval-dock";
+import { isRevisedDraftMessage } from "@/lib/hidden-revisions";
 import { answerBotPending } from "@/lib/atlas-api";
 import { ApprovalBar } from "./approval-bar";
 import { insideNestedScrollerThatCanScrollUp, keyIsUpward, stickAfterScroll, touchIsUpward, wheelIsUpward } from "@/lib/follow-bottom";
@@ -652,6 +653,7 @@ export function ChatThread({
 				(message) =>
 					message.kind !== "tool" &&
 					!isHiddenProtocolBubble(message) &&
+					!isRevisedDraftMessage(message) &&
 					!(message.kind === "assistant" && message.text.trim().length === 0),
 			),
 		[messages, isGroup, liveAuthorId, liveAuthorName, stampedAuthors],

@@ -21,7 +21,7 @@ Antes de criar componente, procure aqui. Se existe algo 80% igual, estenda (prop
 - `chart/`, `files/`, `images/`, `share/` (copiar/baixar imagem, link público), `routines/`, `subagents/`, `confirm/`, `login/`, `connectors/`, `skills/`, `bots/`, `bot-messages/`, `email/`, `dev-session/`, `run-inspector/`, `tool-budget/`, `model-selector.tsx`, `attachments.tsx`, `chain-of-thought.tsx`.
 
 ## `apps/web/components/ui/templates/template-4` — telas
-- `chat-thread/`: `message-row` (escolhe o card pelo `kind`), `assistant-message`, `revised-draft` (rascunho revisado recolhido), `chat-composer` (+ `composer-scroll`, `mention-popup`, anexos), `chat-add-menu` (gaveta no celular) / `chat-add-dropdown` (menu compacto no desktop), cards de `task-list`, `code-run`, `compaction`, `questionnaire`, `email-received`.
+- `chat-thread/`: `message-row` (escolhe o card pelo `kind`), `assistant-message`, `revised-draft` (não renderizado: a conversa esconde o rascunho revisado), `chat-composer` (+ `composer-scroll`, `mention-popup`, anexos), `chat-add-menu` (gaveta no celular) / `chat-add-dropdown` (menu compacto no desktop), cards de `task-list`, `code-run`, `compaction`, `questionnaire`, `email-received`.
 - `chat-context-panel/`: painel lateral do bot. Abas Biblioteca · Computador · E-mail. Biblioteca = seções recolhíveis (`library-section`) de Painéis (`pages-library`, `page-group-block`), Documentos e Rotinas (`routines-section`, `routine-group-block`, `routine-card`). Engrenagem = `agent-settings` (Geral + Sobre; sem abas de Memória/Lições).
 - `chat-sidebar/`, `marketplace/`, `autonomy/`, `agent-avatar`, `group-avatar`, `live-agent-avatar`.
 - Tela com mais de ~250 linhas: extraia subcomponentes na mesma pasta.
