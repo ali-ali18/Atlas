@@ -492,6 +492,32 @@ export {
 	buildGithubSecurityReviewPrompt,
 } from "./routine-security-review.js";
 export {
+	SOURCE_CATEGORIES,
+	SOURCE_CATEGORY_LABELS,
+	categorizeSource,
+	composioToolkitOfTool,
+	isBriefCategory,
+	type BriefSourceKind,
+	type SourceCategory,
+} from "./source-category.js";
+export {
+	BRIEF_NATIVE_TOOLS,
+	DAILY_BRIEF_DEFAULT_CRON,
+	DAILY_BRIEF_DEFAULT_FOCUS,
+	DAILY_BRIEF_MAX_EMAILS,
+	DAILY_BRIEF_NAME,
+	DAILY_BRIEF_PAGE_TITLE,
+	DAILY_BRIEF_TEMPLATE,
+	buildDailyBriefInstructions,
+	dailyBriefPlaceholderSpec,
+	formatBriefSourcesBlock,
+	formatDailyBriefSummary,
+	isBriefToolAllowed,
+	parseDailyBriefSchedule,
+	type BriefSource,
+	type DailyBriefSchedule,
+} from "./daily-brief.js";
+export {
 	QUESTIONNAIRE_SUBMITTED_EVENT,
 	QUESTIONNAIRE_ANSWERED_EVENT,
 	QUESTIONNAIRE_ANSWER_SYSTEM_INSTRUCTION,
