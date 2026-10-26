@@ -1,6 +1,7 @@
 "use client";
 
 import { CalendarDaysIcon, BriefcaseIcon } from "lucide-react";
+import { useState } from "react";
 import { parseWorkHours, readWorkHours, type WorkHours } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
 import { ButtonGroup } from "@workspace/ui/components/button-group";
@@ -38,6 +39,18 @@ export function nextWorkHours(
 	const candidate = { start: change.start ?? current.start, end: change.end ?? current.end, days };
 	const parsed = parseWorkHours(candidate);
 	return parsed ? { ok: true, value: parsed } : { ok: false, error: WORK_HOURS_ORDER_ERROR };
+}
+
+/**
+ * O que o container faz a cada edição: valor válido vai para salvar e limpa o erro; inválido não é enviado e
+ * devolve o motivo para a tela. Pura, para testar o fluxo sem DOM.
+ */
+export function resolveWorkHoursEdit(
+	current: WorkHours,
+	change: { start?: string; end?: string; toggleDay?: number },
+): { save: WorkHours | null; error: string | null } {
+	const next = nextWorkHours(current, change);
+	return next.ok ? { save: next.value, error: null } : { save: null, error: next.error };
 }
 
 /**
@@ -134,13 +147,16 @@ export function WorkHoursSettings({
 	isVisible?: (itemId: string) => boolean;
 }) {
 	const value = readWorkHours(account.view?.config);
+	const [localError, setLocalError] = useState<string | null>(null);
 	return (
 		<WorkHoursSettingsView
 			disabled={!account.view}
 			isVisible={isVisible}
+			localError={localError}
 			onChange={(change) => {
-				const next = nextWorkHours(value, change);
-				if (next.ok) void account.save({ general: { workHours: next.value } });
+				const edit = resolveWorkHoursEdit(value, change);
+				setLocalError(edit.error);
+				if (edit.save) void account.save({ general: { workHours: edit.save } });
 			}}
 			saveError={account.saveError}
 			status={account.status}

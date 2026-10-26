@@ -6,6 +6,7 @@ import { DEFAULT_WORK_HOURS, readWorkHours, type AccountSettingsResponse } from 
 import { applyOptimisticPatch, commitSettingsChange } from "./account-settings-state";
 import {
 	nextWorkHours,
+	resolveWorkHoursEdit,
 	WORK_HOURS_DAYS_ERROR,
 	WORK_HOURS_ORDER_ERROR,
 	WorkHoursSettingsView,
@@ -74,4 +75,15 @@ test("persistência: salvar aparece na hora (otimista) e vai no PATCH como gener
 	assert.deepEqual(sent, [{ config: { general: { workHours: next } } }]);
 	assert.equal(result.ok, true);
 	assert.deepEqual(readWorkHours(result.view.config), next);
+});
+
+test("fluxo do container: início depois do fim não salva e mostra o erro; o próximo valor válido salva e limpa", () => {
+	const invalid = resolveWorkHoursEdit(DEFAULT_WORK_HOURS, { start: "19:00" });
+	assert.deepEqual(invalid, { save: null, error: WORK_HOURS_ORDER_ERROR });
+	// o erro do container chega à tela com role=alert
+	assert.match(view({ localError: invalid.error }), /role="alert"[^>]*>O início precisa ser antes do fim\./);
+	const valid = resolveWorkHoursEdit(DEFAULT_WORK_HOURS, { start: "09:00" });
+	assert.deepEqual(valid, { save: { start: "09:00", end: "18:00", days: [1, 2, 3, 4, 5] }, error: null });
+	assert.doesNotMatch(view({ localError: valid.error }), /role="alert"/);
+	assert.deepEqual(resolveWorkHoursEdit({ start: "08:00", end: "18:00", days: [1] }, { toggleDay: 1 }), { save: null, error: WORK_HOURS_DAYS_ERROR });
 });
