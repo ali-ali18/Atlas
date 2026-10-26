@@ -12,6 +12,16 @@ import {
 } from "./checkpoint.js";
 
 describe("checkpoint serialization", () => {
+	it("carrega o contador de recuperações e lê checkpoint antigo como 0", () => {
+		const base = { messages: [], conversation: [], nextStepIndex: 1, model: "m" };
+		const carried = buildRuntimeCheckpoint({ ...base, recoveries: 2 });
+		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify(carried)))?.recoveries).toBe(2);
+		expect(buildRuntimeCheckpoint(base)).not.toHaveProperty("recoveries");
+		for (const recoveries of [undefined, -1, "2", Number.NaN]) {
+			expect(parseRuntimeCheckpoint({ messages: [], recoveries })).not.toHaveProperty("recoveries");
+		}
+	});
+
 	it("preserva limite de imagens mostradas e aceita checkpoints antigos", () => {
 		const checkpoint = buildRuntimeCheckpoint({ messages: [], conversation: [], nextStepIndex: 1, model: "m", shownImageCount: 6 });
 		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify(checkpoint)))?.shownImageCount).toBe(6);

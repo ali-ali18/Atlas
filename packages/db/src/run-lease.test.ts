@@ -163,6 +163,42 @@ test("W2: reconciliador recupera run com lease vencido", async () => {
 	assert.equal(runs.rows[0]!.leaseToken, null);
 });
 
+test("recuperação: contador vive no checkpoint e a 3ª recuperação falha o run", async () => {
+	runs.rows = [staleRunning({ checkpointJson: { version: 2, messages: [], nextStepIndex: 4 } })];
+	for (const expected of [1, 2]) {
+		assert.deepEqual(await recoverStaleRunningRuns(), ["run-1"]);
+		const row = runs.rows[0]!;
+		assert.equal(row.status, "queued");
+		assert.equal((row.checkpointJson as { recoveries: number }).recoveries, expected);
+		// O resto do checkpoint segue intacto.
+		assert.equal((row.checkpointJson as { nextStepIndex: number }).nextStepIndex, 4);
+		// O worker pegou o run de novo e sumiu outra vez.
+		Object.assign(row, staleRunning({ checkpointJson: row.checkpointJson }));
+	}
+	assert.deepEqual(await recoverStaleRunningRuns(), []);
+	const row = runs.rows[0]!;
+	assert.equal(row.status, "failed");
+	assert.equal(row.error, "Esta tarefa derrubou o processamento repetidas vezes e foi interrompida.");
+	assert.ok(row.finishedAt instanceof Date);
+	assert.equal(row.leaseToken, null);
+});
+
+test("recuperação: uma única recuperação normal reenfileira", async () => {
+	runs.rows = [staleRunning({ checkpointJson: { version: 2, messages: [] } })];
+	assert.deepEqual(await recoverStaleRunningRuns(), ["run-1"]);
+	assert.equal(runs.rows[0]!.status, "queued");
+	assert.equal(runs.rows[0]!.jobEnqueuedAt, null);
+});
+
+test("recuperação: checkpoint antigo sem o campo conta como 0; sem checkpoint também reenfileira", async () => {
+	runs.rows = [staleRunning({ checkpointJson: { version: 1, messages: [] } })];
+	assert.deepEqual(await recoverStaleRunningRuns(), ["run-1"]);
+	assert.equal((runs.rows[0]!.checkpointJson as { recoveries: number }).recoveries, 1);
+	runs.rows = [staleRunning({ checkpointJson: null })];
+	assert.deepEqual(await recoverStaleRunningRuns(), ["run-1"]);
+	assert.equal(runs.rows[0]!.status, "queued");
+});
+
 test("W2: corrida heartbeat × reconciler — renovação entre SELECT e UPDATE vence", async () => {
 	runs.rows = [staleRunning()];
 	runs.afterFindMany = () => {

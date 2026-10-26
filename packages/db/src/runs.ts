@@ -19,7 +19,7 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { AGENT_RUNTIME_CHECKPOINT_VERSION, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
+import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, readRunRecoveries, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
 import type { ToolCacheState, ToolResultStatus } from "@workspace/shared";
 import type { ComputerUseEvent, ConversationTaskContext, ResearchNote, TaskLedger, TaskListItem } from "@workspace/shared";
 import { Prisma } from "@prisma/client";
@@ -1937,6 +1937,8 @@ export async function listQueuedRunsWithStaleJob(
 /**
  * Runs `running` com lease expirada: recoloca na fila em vez de falhar.
  * O worker antigo não deve finalizar o run; o reconciliador assume a recuperação.
+ * Cada recuperação soma 1 em `checkpoint.recoveries`; na {@link RUN_MAX_RECOVERIES}-ésima o run falha
+ * (tarefa que derruba o worker em loop não volta para a fila para sempre).
  */
 export async function recoverStaleRunningRuns(
 	graceMs = 90_000,
@@ -1959,8 +1961,22 @@ export async function recoverStaleRunningRuns(
 	});
 	const recovered: string[] = [];
 	for (const row of stale) {
+		// O contador vive no JSON do checkpoint (sem migration). Lê só das linhas que vão ser mexidas: o JSON pode ter MBs.
+		const current = await prisma.agentRun.findUnique({
+			where: { id: row.id },
+			select: { checkpointJson: true },
+		});
+		const recoveries = readRunRecoveries(current?.checkpointJson) + 1;
+		const exceeded = recoveries >= RUN_MAX_RECOVERIES;
+		const checkpointJson =
+			current?.checkpointJson &&
+			typeof current.checkpointJson === "object" &&
+			!Array.isArray(current.checkpointJson)
+				? ({ ...current.checkpointJson, recoveries } as Prisma.InputJsonValue)
+				: undefined;
 		// Reconfere no UPDATE o que a seleção viu: se o dono renovou ou outro
 		// executor assumiu (token novo) entre o SELECT e aqui, não recupera.
+		// `updatedAt` na guarda também cobre um checkpoint gravado entre a leitura e a escrita.
 		const changed = await prisma.agentRun.updateMany({
 			where: {
 				id: row.id,
@@ -1972,14 +1988,30 @@ export async function recoverStaleRunningRuns(
 				updatedAt: { lt: cutoff },
 			},
 			data: {
-				status: "queued",
-				jobEnqueuedAt: null,
+				...(exceeded
+					? { status: "failed", error: RUN_RECOVERY_LIMIT_MESSAGE, finishedAt: new Date() }
+					: { status: "queued", jobEnqueuedAt: null }),
+				...(checkpointJson ? { checkpointJson } : {}),
 				leaseOwner: null,
 				leaseUntil: null,
 				leaseToken: null,
 			},
 		});
 		if (changed.count !== 1) continue;
+		if (exceeded) {
+			// Mesmo caminho de falha do varredor de fantasmas: evento visível ao usuário e rotina assentada.
+			await appendRunEvent(row.id, "error", {
+				type: "error",
+				error: RUN_RECOVERY_LIMIT_MESSAGE,
+			}).catch((error) =>
+				console.error("recovery-limit run event failed", row.id, error),
+			);
+			await settleRoutineRunForAgentRun(row.id, {
+				status: "failed",
+				error: RUN_RECOVERY_LIMIT_MESSAGE,
+			});
+			continue;
+		}
 		recovered.push(row.id);
 	}
 	return recovered;

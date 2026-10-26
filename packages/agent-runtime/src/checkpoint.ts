@@ -13,6 +13,7 @@ import {
 	parseTaskList,
 	parseTaskState,
 	parseToolCacheState,
+	readRunRecoveries,
 } from "@workspace/shared";
 import type { LlmContentPart, LlmMessage } from "@workspace/llm";
 import { TOOL_CALL_HISTORY_SIZE } from "./tool-budget.js";
@@ -400,6 +401,7 @@ export function buildRuntimeCheckpoint(input: {
 	toolCache?: AgentRunCheckpoint["toolCache"];
 	transcriptWatermark?: AgentRunCheckpoint["transcriptWatermark"];
 	carriedNotes?: AgentRunCheckpoint["carriedNotes"];
+	recoveries?: number;
 }): AgentRunCheckpoint {
 	return {
 		version: AGENT_RUNTIME_CHECKPOINT_VERSION,
@@ -438,6 +440,8 @@ export function buildRuntimeCheckpoint(input: {
 		...(input.toolCache ? { toolCache: input.toolCache } : {}),
 		...(input.transcriptWatermark ? { transcriptWatermark: input.transcriptWatermark } : {}),
 		...(input.carriedNotes?.length ? { carriedNotes: input.carriedNotes } : {}),
+		// O contador de recuperações é do reconciliador: o runtime só o carrega para não zerá-lo a cada gravação.
+		...(input.recoveries ? { recoveries: input.recoveries } : {}),
 	};
 }
 
@@ -540,6 +544,7 @@ export function parseRuntimeCheckpoint(
 		...(parseToolCacheState(value.toolCache) ? { toolCache: parseToolCacheState(value.toolCache)! } : {}),
 		...(parseCarriedNotes(value.carriedNotes).length ? { carriedNotes: parseCarriedNotes(value.carriedNotes) } : {}),
 		...(parseTranscriptWatermark(value.transcriptWatermark) ? { transcriptWatermark: parseTranscriptWatermark(value.transcriptWatermark)! } : {}),
+		...(readRunRecoveries(value) > 0 ? { recoveries: readRunRecoveries(value) } : {}),
 		...(parseTranscriptSeed(value.transcriptSeed) ? { transcriptSeed: parseTranscriptSeed(value.transcriptSeed)! } : {}),
 	};
 }

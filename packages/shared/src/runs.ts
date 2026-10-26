@@ -419,4 +419,21 @@ export type AgentRunCheckpoint = {
 	modelTier?: ModelTier;
 	/** Subidas de nível já feitas neste run (cada nível sobe no máximo uma vez). */
 	modelEscalations?: Array<{ from: ModelTier; to: ModelTier; reason: string; step: number }>;
+	/**
+	 * Quantas vezes o reconciliador recolocou este run na fila depois de o worker sumir (lease vencido).
+	 * Ausente em checkpoint antigo = 0. Vive no JSON do checkpoint (sem coluna nem migration).
+	 */
+	recoveries?: number;
 };
+
+/** Na recuperação de número N (N >= este valor) o run falha em vez de voltar à fila. */
+export const RUN_MAX_RECOVERIES = 3;
+export const RUN_RECOVERY_LIMIT_MESSAGE =
+	"Esta tarefa derrubou o processamento repetidas vezes e foi interrompida.";
+
+/** Lê o contador de recuperações do JSON cru do checkpoint; ausente ou inválido vale 0. */
+export function readRunRecoveries(checkpoint: unknown): number {
+	if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint)) return 0;
+	const value = (checkpoint as { recoveries?: unknown }).recoveries;
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
