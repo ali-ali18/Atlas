@@ -1,6 +1,7 @@
 import { BOT_LANGUAGES, type BotLanguage } from "./bot-language.js";
 import { parseModelRef } from "./model-ref.js";
 import { isValidTimeZone } from "./proactive.js";
+import { parseWorkHours, type WorkHours } from "./work-hours.js";
 import { ORCHESTRATOR_MEMORY_MAX_CHARS, ORCHESTRATOR_MEMORY_MIN_CHARS } from "./memory-limits.js";
 
 /**
@@ -77,7 +78,12 @@ export type AccountConfigV1 = {
 	};
 	/** Sessões de código: Verificador inteligente das ações (ligado quando ausente). */
 	coding?: { verifier?: boolean };
-	general?: { defaultBotLanguage?: BotLanguage; timezone?: string };
+	general?: {
+		defaultBotLanguage?: BotLanguage;
+		timezone?: string;
+		/** Horário de trabalho e dias úteis, no fuso da conta (ausente = 08:00-18:00, segunda a sexta). */
+		workHours?: WorkHours;
+	};
 	/** Reflexao diaria do orquestrador: liga/desliga e horario (no fuso da conta). */
 	reflection?: { enabled?: boolean; time?: string; memoryChars?: number };
 };
@@ -223,6 +229,13 @@ const SPEC: Spec = {
 		timezone: {
 			message: "Informe um fuso horário válido (ex.: America/Sao_Paulo).",
 			parse: (v) => (isValidTimeZone(v) ? { value: v } : null),
+		},
+		workHours: {
+			message: "Informe início e fim em HH:MM (início antes do fim) e os dias úteis de 0 (domingo) a 6 (sábado).",
+			parse: (v) => {
+				const parsed = parseWorkHours(v);
+				return parsed ? { value: parsed } : null;
+			},
 		},
 	},
 };
