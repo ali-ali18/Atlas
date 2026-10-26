@@ -398,6 +398,7 @@ export function buildRuntimeCheckpoint(input: {
 	consecutiveToolFailures?: number;
 	blockedTools?: Record<string, string>;
 	blockedToolSteps?: Record<string, number>;
+	unblockedAtStep?: Record<string, number>;
 	effectiveHard?: number;
 	progressCursor?: number;
 	loginAsked?: string[];
@@ -440,6 +441,7 @@ export function buildRuntimeCheckpoint(input: {
 		consecutiveToolFailures: input.consecutiveToolFailures,
 		blockedTools: input.blockedTools,
 		blockedToolSteps: input.blockedToolSteps,
+		unblockedAtStep: input.unblockedAtStep && Object.keys(input.unblockedAtStep).length ? input.unblockedAtStep : undefined,
 		effectiveHard: input.effectiveHard,
 		progressCursor: input.progressCursor,
 		loginAsked: input.loginAsked,
@@ -518,6 +520,7 @@ export function parseRuntimeCheckpoint(
 				: undefined,
 		blockedTools: sanitizeBlockedTools(value.blockedTools),
 		blockedToolSteps: sanitizeBlockedToolSteps(value.blockedToolSteps),
+		unblockedAtStep: sanitizeBlockedToolSteps(value.unblockedAtStep),
 		effectiveHard:
 			typeof value.effectiveHard === "number"
 				? Math.max(1, Math.floor(value.effectiveHard))

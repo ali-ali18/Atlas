@@ -6140,6 +6140,8 @@ export async function runComputerUse(params: {
 			blockedToolSteps.set(name, parsedCheckpoint.blockedToolSteps?.[name] ?? nextStepIndex);
 		}
 	}
+	// Sem isto, falhas de antes da expiração contariam de novo após o resume e uma falha nova re-bloquearia a tool.
+	for (const [name, step] of Object.entries(parsedCheckpoint?.unblockedAtStep ?? {})) unblockedAtStep.set(name, step);
 	if (typeof parsedCheckpoint?.effectiveHard === "number") {
 		workingLimit = Math.min(hardCap, parsedCheckpoint.effectiveHard);
 		effectiveHard = workingLimit;
@@ -6267,6 +6269,7 @@ export async function runComputerUse(params: {
 			consecutiveToolFailures,
 			blockedTools: Object.fromEntries(blockedTools),
 			blockedToolSteps: Object.fromEntries(blockedToolSteps),
+			unblockedAtStep: Object.fromEntries(unblockedAtStep),
 			effectiveHard,
 				progressCursor,
 				loginAsked: [...loginAsked],

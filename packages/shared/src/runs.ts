@@ -391,6 +391,8 @@ export type AgentRunCheckpoint = {
 	blockedTools?: Record<string, string>;
 	/** Último passo em que cada tool bloqueada foi chamada/bloqueada (expira após 3 passos sem chamada). Ausente em checkpoint antigo. */
 	blockedToolSteps?: Record<string, number>;
+	/** Passo em que o bloqueio de cada tool expirou: falhas anteriores não contam de novo após resume. Ausente em checkpoint antigo. */
+	unblockedAtStep?: Record<string, number>;
 	effectiveHard?: number;
 	progressCursor?: number;
 	/** F12/B5: URLs (origem+caminho) em que já pedi login neste run — no máximo uma vez cada. */
