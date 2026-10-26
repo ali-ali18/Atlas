@@ -12,7 +12,7 @@ import { modelUsage } from "../telemetry/model-usage.js";
  */
 
 export const MESSAGE_TRIAGE_TIMEOUT_MS = 10_000;
-export const MESSAGE_TRIAGE_MAX_OUTPUT_TOKENS = 120;
+export const MESSAGE_TRIAGE_MAX_OUTPUT_TOKENS = 400;
 const OBJECTIVE_MAX_CHARS = 300;
 const PROGRESS_MAX_CHARS = 200;
 const MESSAGE_MAX_CHARS = 1_500;
@@ -42,6 +42,7 @@ export const MESSAGE_TRIAGE_SYSTEM = [
 	"Classify it: chat = small talk or a comment that does not change the task; change = the user changes, narrows, or cancels the current task; later = a request to do something after the current task.",
 	"Write a short reply: for chat respond naturally and say you are continuing; for change confirm the new direction; for later confirm you will do it after finishing.",
 	"For change, instruction is the full updated task; for later, instruction is what to do afterwards; otherwise leave it empty. Set cancel to true only if the user wants to stop the task.",
+	"Keep instruction self-contained and concise (two short sentences at most): the full updated task, since it replaces the current objective.",
 	"Set wantsFile to true only if the new or later task asks for a file as its deliverable (for example a PDF, spreadsheet or document); otherwise false.",
 	"Set away to true only if the user says they are leaving or will check back later and expects the result then; otherwise false.",
 	"If away is true and the user names a time to be notified, set deliverAt to that local time as ISO 8601 without offset (for example 2026-01-31T07:00), computed from Current local time; otherwise leave it empty.",
@@ -142,7 +143,10 @@ export async function triageUserMessage(input: {
 	timezone?: string;
 	signal?: AbortSignal;
 	timeoutMs?: number;
+	/** Log de diagnóstico (só motivo e metadados; nunca conteúdo do usuário). */
+	log?: (line: string) => void;
 }): Promise<MessageTriageResult | null> {
+	const log = input.log ?? ((line: string) => console.warn(line));
 	const timeoutMs = input.timeoutMs ?? MESSAGE_TRIAGE_TIMEOUT_MS;
 	const timeoutSignal = AbortSignal.timeout(timeoutMs);
 	const signal = input.signal ? AbortSignal.any([input.signal, timeoutSignal]) : timeoutSignal;
@@ -164,11 +168,19 @@ export async function triageUserMessage(input: {
 		});
 		call.catch(() => undefined);
 		const result = await Promise.race([call, deadline]);
-		if (result === "timeout") return null;
+		if (result === "timeout") {
+			log("[triage] sem veredito: timeout");
+			return null;
+		}
 		const triage = parseMessageTriage(result.message.content);
-		return triage ? { triage, usage: modelUsage(result) } : null;
-	} catch {
+		if (!triage) {
+			log(`[triage] sem veredito: ${result.finishReason === "length" ? "truncated" : "invalid_json"}`);
+			return null;
+		}
+		return { triage, usage: modelUsage(result) };
+	} catch (error) {
 		// Só metadados: o erro pode carregar trecho da conversa.
+		log(`[triage] sem veredito: ${timeoutSignal.aborted ? "timeout" : `other (${error instanceof Error ? error.name : "erro"})`}`);
 		return null;
 	} finally {
 		if (timer) clearTimeout(timer);

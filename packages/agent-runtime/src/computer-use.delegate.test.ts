@@ -52,6 +52,12 @@ const say = (content: string, usage?: Usage): CompleteChatWithToolsResult => ({
 	usage,
 });
 
+/** Filho que leu uma fonte (1 tool ok no conector) antes de responder; sem tool o resultado seria "partial". */
+const readThen = (params: CompleteChatWithToolsParams, text: string, usage?: Usage) =>
+	params.messages.some((m) => m.role === "tool")
+		? say(text, usage)
+		: toolCalls([{ id: "r1", name: "mcp__github__read_things", args: {} }]);
+
 const isChild = (params: CompleteChatWithToolsParams) => {
 	const first = params.messages[0];
 	return typeof first?.content === "string" && first.content.includes("focused sub-agent");
@@ -172,15 +178,18 @@ describe("delegate_task (F5)", () => {
 	it("replay: 3 pesquisas independentes em paralelo, filhos vinculados ao pai, uma resposta final", async () => {
 		const window: Array<{ goal: string; start: number; end: number }> = [];
 		const { result, events, seen } = await runParent({
+			withMcp: true,
 			llm: async (params, ctx) => {
 				if (isChild(params)) {
 					const goal = childGoal(params);
+					const store = goal.includes("Amazon") ? "Amazon" : goal.includes("Kabum") ? "Kabum" : "Mercado Livre";
+					// 2ª chamada do filho (depois de ler a fonte): só responde, fora da janela medida.
+					if (params.messages.some((m) => m.role === "tool")) return readThen(params, `${store}: R$ 19.999 (fonte ${store})`, { promptTokens: 100, completionTokens: 50, totalTokens: 150 });
 					const entry = { goal, start: Date.now(), end: 0 };
 					window.push(entry);
 					await new Promise((resolve) => setTimeout(resolve, 40));
 					entry.end = Date.now();
-					const store = goal.includes("Amazon") ? "Amazon" : goal.includes("Kabum") ? "Kabum" : "Mercado Livre";
-					return say(`${store}: R$ 19.999 (fonte ${store})`, { promptTokens: 100, completionTokens: 50, totalTokens: 150 });
+					return readThen(params, "");
 				}
 				if (ctx.parentCalls === 1) return delegateThree;
 				return say("Melhor preço: Mercado Livre, R$ 19.999.", { promptTokens: 10, completionTokens: 5, totalTokens: 15 });
@@ -335,10 +344,11 @@ describe("delegate_task (F5)", () => {
 
 	it("um filho falha: o pai recebe 'failed' e continua", async () => {
 		const { result, events } = await runParent({
+			withMcp: true,
 			llm: async (params, ctx) => {
 				if (isChild(params)) {
 					if (childGoal(params).includes("Kabum")) throw new Error("Kabum fora do ar token=Bearer abcdefghijklmnop1234");
-					return say("Amazon: R$ 20.000");
+					return readThen(params, "Amazon: R$ 20.000");
 				}
 				if (ctx.parentCalls === 1) {
 					return toolCalls([
@@ -568,9 +578,11 @@ it("B1: delegate_task termina após 180s dentro do orçamento do filho", async (
 	vi.useFakeTimers();
 	vi.mocked(finishSubagentRun).mockClear();
 	const work = runParent({
+		withMcp: true,
 		budget: { maxWallMs: 600_000 },
 		llm: async (params, ctx) => {
 			if (isChild(params)) {
+				if (!params.messages.some((m) => m.role === "tool")) return readThen(params, "");
 				await new Promise((resolve) => setTimeout(resolve, 200_000));
 				return say("Relatório após trabalho demorado.");
 			}

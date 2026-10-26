@@ -9,22 +9,14 @@ Object.assign(globalThis, { React });
 
 const SUMMARY = "Objetivo: montar a proposta do cliente Alfa.\nPendente: forma de pagamento.";
 
-test("cartão recolhido: título, números antes → depois e percentual", () => {
-	const html = renderToStaticMarkup(<CompactionCard after={6_100} before={48_200} summary={SUMMARY} />);
+test("marcador: título, números antes → depois e percentual, sem resumo nem linhas", () => {
+	const html = renderToStaticMarkup(<CompactionCard after={6_100} before={48_200} focus="preço" summary={SUMMARY} />);
 	assert.match(html, /data-testid="compaction-card"/);
 	assert.match(html, /Conversa compactada/);
 	assert.match(html, /48,2 mil → 6,1 mil tokens \(−87%\)/);
-	assert.match(html, /aria-expanded="false"/);
+	assert.doesNotMatch(html, /aria-expanded/);
 	assert.doesNotMatch(html, /Objetivo: montar a proposta/);
-});
-
-test("aberto: mostra o texto do resumo (com quebras) e o foco pedido", () => {
-	const html = renderToStaticMarkup(<CompactionCard after={6_100} before={48_200} defaultOpen focus="decisões de preço" summary={SUMMARY} />);
-	assert.match(html, /aria-expanded="true"/);
-	assert.match(html, /data-testid="compaction-summary"/);
-	assert.match(html, /Objetivo: montar a proposta do cliente Alfa\./);
-	assert.match(html, /Foco: decisões de preço/);
-	assert.match(html, /whitespace-pre-wrap/);
+	assert.doesNotMatch(html, /data-variant="separator"/);
 });
 
 test("conversas pequenas: números abaixo de mil aparecem inteiros", () => {

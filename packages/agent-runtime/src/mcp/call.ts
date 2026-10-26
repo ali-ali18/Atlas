@@ -117,8 +117,20 @@ export function capResultText(text: string, maxChars = MCP_RESULT_MAX_CHARS, hin
 	return clipWithNotice(text, maxChars, hint);
 }
 
-/** Falhas em que a requisição pode ter chegado ao servidor antes de cair. */
-const UNCERTAIN_OUTCOME = /timeout|timed out|econnreset|socket hang up|\b5\d\d\b/i;
+/**
+ * Falhas em que a requisição pode ter chegado ao servidor antes de cair: transporte
+ * (timeout, reset) ou um 5xx com cara de HTTP. Um número solto ("quantidade máxima 500",
+ * "produto 512 não existe") é regra de negócio, então o 5xx só vale junto de uma palavra
+ * de HTTP/servidor na mesma mensagem ("HTTP/1.1 503", "statusCode: 500", "Bad Gateway (502)").
+ */
+const UNCERTAIN_TRANSPORT = /timeout|timed out|econnreset|socket hang up|\berror[ :=]+5\d\d(?!\d)/i;
+const STANDALONE_5XX = /(?<![\d.,])5\d\d(?!\d|[.,]\d)/;
+const HTTP_SERVER_HINT =
+	/\bhttp|\bstatus|bad gateway|service unavailable|gateway time-?out|internal server error|\bupstream\b|server ?error/i;
+
+export function isUncertainOutcome(text: string): boolean {
+	return UNCERTAIN_TRANSPORT.test(text) || (STANDALONE_5XX.test(text) && HTTP_SERVER_HINT.test(text));
+}
 export const UNCERTAIN_WRITE_NOTE =
 	"This write was not retried and may or may not have been applied. Check the current state (read or list the resource) before trying again, and only repeat it if the change is missing.";
 
@@ -191,7 +203,7 @@ export async function callMcpTool(input: {
 	if (result.ok || result.authFailed) return result;
 	// Escrita que falhou sem resposta conclusiva: o efeito pode ter sido aplicado.
 	const uncertain =
-		input.readOnly !== true && (UNCERTAIN_OUTCOME.test(result.text) || input.signal?.aborted === true);
+		input.readOnly !== true && (isUncertainOutcome(result.text) || input.signal?.aborted === true);
 	if (uncertain) result.text = `${result.text}
 ${UNCERTAIN_WRITE_NOTE}`;
 	return {

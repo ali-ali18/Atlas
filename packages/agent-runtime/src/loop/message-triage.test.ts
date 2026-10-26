@@ -77,6 +77,57 @@ describe("triageUserMessage", () => {
 		expect(user).toContain("User message:\nboa noite");
 	});
 
+	it("o teto de saída cobre o JSON completo de um 'pare tudo' (7 campos) e o prompt pede instrução curta", async () => {
+		expect(MESSAGE_TRIAGE_MAX_OUTPUT_TOKENS).toBe(400);
+		expect(MESSAGE_TRIAGE_SYSTEM).toContain("Keep instruction");
+		expect(MESSAGE_TRIAGE_SYSTEM).toContain("the full updated task");
+		expect(MESSAGE_TRIAGE_SYSTEM).not.toContain("only what changes");
+		let seen: CompleteChatWithToolsParams | undefined;
+		const full = JSON.stringify({
+			kind: "change",
+			cancel: true,
+			reply: "Parei tudo, como você pediu.",
+			instruction: "",
+			wantsFile: false,
+			away: false,
+			deliverAt: "",
+		});
+		const result = await triageUserMessage({
+			...base,
+			message: "para tudo",
+			streamChat: async (params) => {
+				seen = params;
+				return reply(full);
+			},
+		});
+		expect(result?.triage).toMatchObject({ kind: "change", cancel: true });
+		expect(seen?.maxOutputTokens).toBe(400);
+	});
+
+	it("sem veredito: loga só o motivo (truncated, invalid_json, timeout, other), sem conteúdo do usuário", async () => {
+		const lines: string[] = [];
+		const log = (line: string) => lines.push(line);
+		const secret = "SEGREDO-DO-USUARIO";
+		const truncated = { ...reply('{"kind":"change","cancel":true,"reply":"Par'), finishReason: "length" as const };
+		await triageUserMessage({ ...base, message: secret, log, streamChat: async () => truncated });
+		await triageUserMessage({ ...base, message: secret, log, streamChat: async () => reply("claro!") });
+		await triageUserMessage({ ...base, message: secret, log, timeoutMs: 20, streamChat: () => new Promise<never>(() => undefined) });
+		await triageUserMessage({
+			...base,
+			message: secret,
+			log,
+			streamChat: async () => {
+				throw new Error(`falha com ${secret}`);
+			},
+		});
+		expect(lines).toHaveLength(4);
+		expect(lines[0]).toContain("truncated");
+		expect(lines[1]).toContain("invalid_json");
+		expect(lines[2]).toContain("timeout");
+		expect(lines[3]).toContain("other");
+		expect(lines.join("\n")).not.toContain(secret);
+	});
+
 	it("away: valida o tipo, mantém deliverAt só quando há ausência e limita o tamanho", () => {
 		const base = '"kind":"chat","cancel":false,"reply":"Boa noite!","instruction":""';
 		expect(parseMessageTriage(`{${base},"away":true,"deliverAt":"2026-10-12T07:00"}`)).toMatchObject({ away: true, deliverAt: "2026-10-12T07:00" });

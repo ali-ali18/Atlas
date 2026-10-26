@@ -20,7 +20,23 @@ export function createRunEventCoalescer(
 		null;
 	let bufferBytes = 0;
 	let timer: ReturnType<typeof setTimeout> | null = null;
-	let chain = Promise.resolve();
+	// A cadeia nunca fica rejeitada: uma gravação que falha não pode pular as seguintes.
+	let chain: Promise<void> = Promise.resolve();
+	// Primeira falha de gravação best-effort (deltas): vira erro no `flush` explícito, uma vez.
+	let firstError: unknown;
+	let hasError = false;
+	const remember = (error: unknown) => {
+		if (hasError) return;
+		hasError = true;
+		firstError = error;
+	};
+
+	/** Enfileira a tarefa; a falha dela rejeita só o promise devolvido, nunca a cadeia. */
+	const enqueue = (task: () => Promise<void>) => {
+		const result = chain.then(task);
+		chain = result.catch(() => undefined);
+		return result;
+	};
 
 	const flushLocked = async () => {
 		if (timer) {
@@ -34,41 +50,57 @@ export function createRunEventCoalescer(
 		await write(event);
 	};
 
+	/** Grava o lote pendente sem propagar: delta é best-effort e não pode derrubar quem veio depois. */
+	const flushBestEffort = async () => {
+		try {
+			await flushLocked();
+		} catch (error) {
+			remember(error);
+		}
+	};
+
 	const scheduleFlush = () => {
 		if (timer) return;
 		timer = setTimeout(() => {
 			timer = null;
-			chain = chain.then(flushLocked);
+			void enqueue(flushBestEffort);
 		}, windowMs);
 	};
 
 	const push = (event: ComputerUseEvent) => {
-		chain = chain.then(async () => {
-			if (event.type === "assistant_delta") {
+		if (event.type === "assistant_delta") {
+			// Best-effort: nunca rejeita (a falha fica para o `flush` do fim do run).
+			return enqueue(async () => {
 				if (buffer && buffer.id === event.id) {
 					buffer = { ...buffer, delta: `${buffer.delta}${event.delta}` };
 				} else {
-					await flushLocked();
+					await flushBestEffort();
 					buffer = event;
 				}
 				bufferBytes += Buffer.byteLength(event.delta, "utf8");
 				if (bufferBytes >= maxBytes) {
-					await flushLocked();
+					await flushBestEffort();
 					return;
 				}
 				scheduleFlush();
-				return;
-			}
-			await flushLocked();
+			});
+		}
+		// Evento importante (tool, card, done): a ordem se mantém e a falha dele chega a quem chamou.
+		return enqueue(async () => {
+			await flushBestEffort();
 			await write(event);
 		});
-		return chain;
 	};
 
-	const flush = () => {
-		chain = chain.then(flushLocked);
-		return chain;
-	};
+	const flush = () =>
+		enqueue(async () => {
+			await flushBestEffort();
+			if (!hasError) return;
+			const error = firstError;
+			hasError = false;
+			firstError = undefined;
+			throw error;
+		});
 
 	return { push, flush };
 }

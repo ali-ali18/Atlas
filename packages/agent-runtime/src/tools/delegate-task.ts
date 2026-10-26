@@ -270,6 +270,10 @@ function childMessage(task: DelegateTask, browser: boolean): string {
 		: `Task:\n${task.goal}${start}`;
 }
 
+/** Texto para o modelo pai: o filho respondeu sem consultar nada. */
+export const SUBAGENT_NO_TOOLS_NOTE =
+	"The sub-agent answered without consulting any source (0 tool calls), so this is unverified. Check it yourself or re-delegate with an explicit instruction to read the source.";
+
 function statusToRunStatus(status: SubagentStatus): "completed" | "budget_exhausted" | "failed" {
 	if (status === "ok") return "completed";
 	return status === "partial" ? "budget_exhausted" : "failed";
@@ -642,6 +646,14 @@ async function runAttempt(input: TaskInput, browserTabId: string | undefined): P
 			...base,
 			status: "failed",
 			report: `The sub-agent could not read the source: all ${toolOutcomes.failed} tool calls failed (${[...toolsUsed].join(", ")}). This is not a finding; do not present it as page content. ${browserMode ? "Read this item yourself with the page tools." : ctx.browser ? BLIND_DELEGATION_HINT_BROWSER : BLIND_DELEGATION_HINT}`,
+		};
+	}
+	// Filho que respondeu sem chamar nenhuma tool não consultou fonte: o texto é palpite, não leitura.
+	if (result.status === "ok" && toolOutcomes.ok + toolOutcomes.failed === 0) {
+		result = {
+			...result,
+			status: "partial",
+			report: `[${SUBAGENT_NO_TOOLS_NOTE}]\n${result.report}`,
 		};
 	}
 	if (!browserMode && result.status === "failed" && toolOutcomes.ok === 0 && toolOutcomes.failed > 0 && ctx.parentBrowserActive?.() && ctx.blindState) {

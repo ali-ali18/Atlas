@@ -11,7 +11,27 @@ import {
 	toolIdempotencyKey,
 } from "./checkpoint.js";
 
+import { perToolFailureStreak } from "./tool-failure.js";
+import type { ToolOutcome } from "./progress.js";
+
+function fail(name: string, step: number): ToolOutcome {
+	return { name, argsKey: `${name}:${step}`, resultKey: "err:x", ok: false, step, kind: "other" };
+}
+
 describe("checkpoint serialization", () => {
+	it("carrega o contador de recuperações e lê checkpoint antigo como 0", () => {
+		const base = { messages: [], conversation: [], nextStepIndex: 1, model: "m" };
+		const carried = buildRuntimeCheckpoint({ ...base, recoveries: 2 });
+		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify(carried)))?.recoveries).toBe(2);
+		expect(buildRuntimeCheckpoint(base)).not.toHaveProperty("recoveries");
+		const withStep = buildRuntimeCheckpoint({ ...base, recoveries: 1, recoveredAtStep: 7 });
+		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify(withStep)))?.recoveredAtStep).toBe(7);
+		expect(parseRuntimeCheckpoint({ messages: [], recoveries: 2 })).not.toHaveProperty("recoveredAtStep");
+		for (const recoveries of [undefined, -1, "2", Number.NaN]) {
+			expect(parseRuntimeCheckpoint({ messages: [], recoveries })).not.toHaveProperty("recoveries");
+		}
+	});
+
 	it("preserva limite de imagens mostradas e aceita checkpoints antigos", () => {
 		const checkpoint = buildRuntimeCheckpoint({ messages: [], conversation: [], nextStepIndex: 1, model: "m", shownImageCount: 6 });
 		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify(checkpoint)))?.shownImageCount).toBe(6);
@@ -162,5 +182,31 @@ describe("checkpoint: ferramentas congeladas na conversa", () => {
 		const checkpoint = buildRuntimeCheckpoint({ messages: [], conversation: [], nextStepIndex: 1, model: "m", toolCache });
 		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify(checkpoint)))?.toolCache).toEqual(toolCache);
 		expect(parseRuntimeCheckpoint({ messages: [], toolCache: { turn: "x" } })?.toolCache).toBeUndefined();
+	});
+});
+
+describe("checkpoint: bloqueio de tool com validade", () => {
+	it("blockedToolSteps sobrevive ao ciclo build -> JSON -> parse e descarta lixo", () => {
+		const checkpoint = buildRuntimeCheckpoint({ messages: [], conversation: [], nextStepIndex: 5, model: "m", blockedTools: { web_extract: "boom" }, blockedToolSteps: { web_extract: 4 } });
+		const parsed = parseRuntimeCheckpoint(JSON.parse(JSON.stringify(checkpoint)));
+		expect(parsed?.blockedTools).toEqual({ web_extract: "boom" });
+		expect(parsed?.blockedToolSteps).toEqual({ web_extract: 4 });
+		expect(parseRuntimeCheckpoint({ messages: [], blockedToolSteps: { a: "x", b: Infinity, c: -2.5 } })?.blockedToolSteps).toEqual({ c: 0 });
+	});
+	it("unblockedAtStep sobrevive ao resume (a contagem de falhas não volta a incluir o que veio antes da expiração)", () => {
+		const checkpoint = buildRuntimeCheckpoint({ messages: [], conversation: [], nextStepIndex: 9, model: "m", unblockedAtStep: { web_extract: 7 } });
+		const parsed = parseRuntimeCheckpoint(JSON.parse(JSON.stringify(checkpoint)));
+		expect(parsed?.unblockedAtStep).toEqual({ web_extract: 7 });
+		// Com o marcador restaurado, as 3 falhas antigas não contam e uma falha nova vale 1 (não re-bloqueia).
+		const outcomes = [fail("web_extract", 1), fail("web_extract", 2), fail("web_extract", 3), fail("web_extract", 9)];
+		expect(perToolFailureStreak(outcomes, "web_extract", parsed?.unblockedAtStep?.web_extract)).toBe(1);
+		expect(perToolFailureStreak(outcomes, "web_extract", undefined)).toBe(4);
+		expect(buildRuntimeCheckpoint({ messages: [], conversation: [], nextStepIndex: 1, model: "m" }).unblockedAtStep).toBeUndefined();
+		expect(parseRuntimeCheckpoint({ messages: [] })?.unblockedAtStep).toBeUndefined();
+	});
+	it("checkpoint antigo (só blockedTools) ainda carrega, sem passos", () => {
+		const parsed = parseRuntimeCheckpoint({ messages: [], blockedTools: { web_extract: "boom" } });
+		expect(parsed?.blockedTools).toEqual({ web_extract: "boom" });
+		expect(parsed?.blockedToolSteps).toBeUndefined();
 	});
 });

@@ -73,7 +73,9 @@ describe("runner em modo real (modelo injetado)", () => {
 			const turn = (counters.get(params.model) ?? 0) + 1;
 			counters.set(params.model, turn);
 			const usage = { promptTokens: 100, completionTokens: 10, totalTokens: 110, costUsd: 0.002 };
-			if (params.model.includes("claude") && params.messages.at(-1)?.role !== "tool") {
+			// A nota de hora (camada efêmera) vem por último como system: olha a última mensagem da conversa.
+			const lastTurn = params.messages.filter((message) => message.role !== "system").at(-1);
+			if (params.model.includes("claude") && lastTurn?.role !== "tool") {
 				return { model: params.model, finishReason: "tool_calls", usage, message: { role: "assistant", content: null, tool_calls: [{ id: `c${turn}`, type: "function", function: { name: "propose_routine", arguments: JSON.stringify({ action: "create", title: "Ligar", detail: "Ligar pro fornecedor", trigger_type: "once", run_at: "2026-10-24T12:00:00Z" }) } }] } };
 			}
 			if (params.model.includes("claude")) return { model: params.model, finishReason: "stop", usage, message: { role: "assistant", content: "Combinado: amanhã às 9h te lembro." } };

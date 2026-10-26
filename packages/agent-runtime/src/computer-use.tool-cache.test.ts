@@ -69,8 +69,8 @@ async function turn(input: { runId: string; user: string; reply?: string; prior?
 
 const names = (params: CompleteChatWithToolsParams) => params.tools.map((tool) => tool.function.name);
 const system = (params: CompleteChatWithToolsParams) => String(params.messages[0]!.content);
-/** Parte estável do sistema (antes da linha da data, que muda à meia-noite). */
-const stableSystem = (params: CompleteChatWithToolsParams) => system(params).split("\nToday is ")[0]!;
+/** Parte estável do sistema (a data e hora vai numa camada efêmera fora dele). */
+const stableSystem = (params: CompleteChatWithToolsParams) => system(params);
 const anthropic = (params: CompleteChatWithToolsParams) => {
 	const body = anthropicRequestBody(params, "claude-sonnet-5.5");
 	return JSON.stringify({ tools: body.tools, system: body.system }, (key, value) => (key === "cache_control" ? undefined : value));

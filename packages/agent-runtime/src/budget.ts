@@ -46,6 +46,8 @@ export const BUDGET_EXTENSION_DEFAULT = 24;
  * aborta com 6 falhas seguidas envolvendo 3+ tools distintas.
  */
 export const TOOL_FAILURE_BLOCK_AFTER = 3;
+/** Passos seguidos sem chamar a tool bloqueada depois dos quais o bloqueio expira. */
+export const TOOL_BLOCK_EXPIRY_STEPS = 3;
 export const RUN_ABORT_CONSECUTIVE_FAILURES = 6;
 export const RUN_ABORT_DISTINCT_TOOLS = 3;
 

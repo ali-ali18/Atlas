@@ -41,6 +41,8 @@ export type ToolOutcome = {
 	step?: number;
 	/** Só em falhas: erro de argumento não conta para a trava global. */
 	kind?: "argument" | "other";
+	/** Resultado sintético (tool bloqueada ou teto de chamadas): a tool não rodou, então não é falha dela. */
+	synthetic?: boolean;
 	/** Leitura que deu certo mas voltou vazia (coleção vazia). */
 	empty?: boolean;
 };

@@ -389,6 +389,10 @@ export type AgentRunCheckpoint = {
 	consecutiveToolFailures?: number;
 	/** Tools bloqueadas no run (F4): nome → último erro. Sobrevive a resume. */
 	blockedTools?: Record<string, string>;
+	/** Último passo em que cada tool bloqueada foi chamada/bloqueada (expira após 3 passos sem chamada). Ausente em checkpoint antigo. */
+	blockedToolSteps?: Record<string, number>;
+	/** Passo em que o bloqueio de cada tool expirou: falhas anteriores não contam de novo após resume. Ausente em checkpoint antigo. */
+	unblockedAtStep?: Record<string, number>;
 	effectiveHard?: number;
 	progressCursor?: number;
 	/** F12/B5: URLs (origem+caminho) em que já pedi login neste run — no máximo uma vez cada. */
@@ -419,4 +423,49 @@ export type AgentRunCheckpoint = {
 	modelTier?: ModelTier;
 	/** Subidas de nível já feitas neste run (cada nível sobe no máximo uma vez). */
 	modelEscalations?: Array<{ from: ModelTier; to: ModelTier; reason: string; step: number }>;
+	/**
+	 * Quantas vezes o reconciliador recolocou este run na fila depois de o worker sumir (lease vencido).
+	 * Ausente em checkpoint antigo = 0. Vive no JSON do checkpoint (sem coluna nem migration).
+	 */
+	recoveries?: number;
+	/**
+	 * `nextStepIndex` do checkpoint na última recuperação. Se o run avançou desde então, o contador
+	 * recomeça: só recuperação sem progresso conta (run longo que atravessa deploys não falha).
+	 */
+	recoveredAtStep?: number;
 };
+
+/** Na recuperação de número N (N >= este valor) o run falha em vez de voltar à fila. */
+export const RUN_MAX_RECOVERIES = 3;
+export const RUN_RECOVERY_LIMIT_MESSAGE =
+	"Esta tarefa derrubou o processamento repetidas vezes e foi interrompida.";
+
+/** Lê o contador de recuperações do JSON cru do checkpoint; ausente ou inválido vale 0. */
+export function readRunRecoveries(checkpoint: unknown): number {
+	if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint)) return 0;
+	const value = (checkpoint as { recoveries?: unknown }).recoveries;
+	return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+/** Lê `recoveredAtStep` do JSON cru do checkpoint; ausente ou inválido = undefined. */
+export function readRunRecoveredAtStep(checkpoint: unknown): number | undefined {
+	if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint)) return undefined;
+	const value = (checkpoint as { recoveredAtStep?: unknown }).recoveredAtStep;
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined;
+}
+
+/**
+ * Contadores após mais uma recuperação. Com progresso desde a recuperação anterior
+ * (`nextStepIndex` > `recoveredAtStep`) volta a 1; sem progresso (ou checkpoint antigo sem o
+ * marcador) soma 1.
+ */
+export function nextRunRecoveryState(checkpoint: unknown): { recoveries: number; recoveredAtStep: number } {
+	const raw =
+		checkpoint && typeof checkpoint === "object" && !Array.isArray(checkpoint)
+			? (checkpoint as { nextStepIndex?: unknown }).nextStepIndex
+			: undefined;
+	const step = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
+	const previousStep = readRunRecoveredAtStep(checkpoint);
+	const progressed = previousStep !== undefined && step > previousStep;
+	return { recoveries: progressed ? 1 : readRunRecoveries(checkpoint) + 1, recoveredAtStep: step };
+}

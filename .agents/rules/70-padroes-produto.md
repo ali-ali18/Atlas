@@ -19,7 +19,7 @@ Decisões que o dono do projeto já fez. Siga sem perguntar de novo; só proponh
 - Tool honesta: campo desconhecido ou valor inválido **falha** com a lista do que é aceito; nunca descarte em silêncio e responda como se tivesse feito.
 
 ## Chat e streaming
-- Texto já exibido nunca some em silêncio. Revisão vira "Rascunho revisado" recolhido (persistido, sobrevive a recarregar) e a resposta nova vem embaixo. Só a repetição exata pode sumir.
+- Revisão da resposta não aparece na conversa: o rascunho revisado fica salvo, mas o chat mostra só a resposta final (decisão do dono, 24/10). Compactação aparece só como marcador "Conversa compactada · antes → depois", sem abrir o resumo.
 - Card tem identidade estável entre ao vivo e persistido (ex.: `routineId`, `chartId`, `pageId` + run); o merge nunca mostra os dois.
 - Portões que fazem o modelo refazer a resposta revisam no máximo uma vez por run.
 

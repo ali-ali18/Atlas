@@ -7,6 +7,7 @@ import { createResearchNotes } from "./research-note.js";
 import {
 	DELEGATE_TASK_TOOL,
 	REDUCED_SCOPE_NOTE,
+	SUBAGENT_NO_TOOLS_NOTE,
 	executeDelegateTask,
 	shouldExposeDelegateTask,
 	type DelegateContext,
@@ -145,6 +146,32 @@ describe("executeDelegateTask", () => {
 		vi.mocked(deps.createChild).mockResolvedValueOnce(null);
 		await expect(executeDelegateTask({ tasks: [{ goal: "x" }] }, ctx)).rejects.toThrow(/All sub-agents failed/);
 		expect(deps.finishChild).not.toHaveBeenCalled();
+	});
+});
+
+describe("filho sem nenhuma tool", () => {
+	it("respondeu sem consultar fonte: volta partial com a nota para o pai (e fecha como budget_exhausted no db)", async () => {
+		const { ctx, deps, events } = makeCtx({ runChild: async () => ({ text: "Chute: R$ 10." }) });
+		const { summary } = await executeDelegateTask({ tasks: [{ goal: "preço" }] }, ctx);
+		expect(summary).toContain("[partial]");
+		expect(summary).toContain(SUBAGENT_NO_TOOLS_NOTE);
+		expect(summary).toContain("Chute: R$ 10.");
+		expect(summary).not.toContain("[ok]");
+		expect(events.find((e) => e.type === "subagent_done")).toMatchObject({ status: "partial" });
+		expect(vi.mocked(deps.finishChild).mock.calls[0]?.[0]).toMatchObject({ status: "budget_exhausted" });
+	});
+
+	it("filho que usou tool com sucesso segue ok, sem nota", async () => {
+		const { ctx, events } = makeCtx({
+			runChild: async (input) => {
+				await input.onEvent({ type: "tool_result", id: "t1", name: "web_search", ok: true, summary: "x" });
+				return { text: "Achei: R$ 10." };
+			},
+		});
+		const { summary } = await executeDelegateTask({ tasks: [{ goal: "preço" }] }, ctx);
+		expect(summary).toContain("[ok]");
+		expect(summary).not.toContain(SUBAGENT_NO_TOOLS_NOTE);
+		expect(events.find((e) => e.type === "subagent_done")).toMatchObject({ status: "ok" });
 	});
 });
 
@@ -355,6 +382,7 @@ describe("F4: notas de pesquisa dos filhos", () => {
 			runChild: async (child) => {
 				goals.push(child.messages[0]!.content);
 				if (goals.length === 1) throw new DOMException("Decision deadline exceeded", "TimeoutError");
+				await child.onEvent({ type: "tool_result", id: "t1", name: "web_search", ok: true, summary: "x" });
 				return { text: "Resposta curta." };
 			},
 		});

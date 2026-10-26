@@ -4,6 +4,7 @@ import {
 	ARGUMENT_ERROR_HINT,
 	classifyToolFailure,
 	globalFailureAbort,
+	isWebPageTool,
 	perToolFailureStreak,
 	withArgumentErrorHint,
 } from "./tool-failure.js";
@@ -68,9 +69,9 @@ describe("perToolFailureStreak", () => {
 		).toBe(1);
 	});
 
-	it("erro de argumento conta para a trava por tool", () => {
+	it("erro de argumento não conta para a trava por tool", () => {
 		const outcomes = [fail("a", 0, "argument"), fail("a", 1, "argument")];
-		expect(perToolFailureStreak(outcomes, "a")).toBe(2);
+		expect(perToolFailureStreak(outcomes, "a")).toBe(0);
 	});
 
 	it("sem step cada outcome é um grupo (checkpoint antigo)", () => {
@@ -133,5 +134,36 @@ describe("globalFailureAbort", () => {
 			fail(i % 2 ? "a" : "b", i),
 		);
 		expect(globalFailureAbort(outcomes)).toBeNull();
+	});
+});
+
+describe("bloqueio por tool só conta falha do tipo other", () => {
+	it("erro de argumento (link morto) é neutro: nem conta nem zera", () => {
+		const outcomes = [fail("web_extract", 1, "argument"), fail("web_extract", 2, "argument"), fail("web_extract", 3, "argument")];
+		expect(perToolFailureStreak(outcomes, "web_extract")).toBe(0);
+		expect(perToolFailureStreak([fail("t", 1), fail("t", 2, "argument"), fail("t", 3)], "t")).toBe(2);
+		expect(perToolFailureStreak([ok("t", 1), fail("t", 2), fail("t", 3, "argument"), fail("t", 4)], "t")).toBe(2);
+	});
+
+	it("resultado sintético é neutro para a trava por tool e para a global", () => {
+		const synthetic = (name: string, step: number): ToolOutcome => ({ ...fail(name, step), synthetic: true });
+		expect(perToolFailureStreak([fail("a", 1), fail("a", 2), synthetic("a", 3), synthetic("a", 4)], "a")).toBe(2);
+		// A, A, A reais; 2 sintéticos de A; B; C: sem os sintéticos são 5 passos, abaixo de 6.
+		const outcomes = [fail("a", 1), fail("a", 2), fail("a", 3), synthetic("a", 4), synthetic("a", 5), fail("b", 6), fail("c", 7)];
+		expect(globalFailureAbort(outcomes)).toBeNull();
+		// Controle: os mesmos passos como falha comum (comportamento antigo) abortariam.
+		expect(globalFailureAbort(outcomes.map(({ synthetic: _s, ...rest }) => rest))).not.toBeNull();
+	});
+
+	it("sinceStep recomeça a contagem depois de um bloqueio expirado", () => {
+		const outcomes = [fail("a", 1), fail("a", 2), fail("a", 3), fail("a", 9)];
+		expect(perToolFailureStreak(outcomes, "a")).toBe(4);
+		expect(perToolFailureStreak(outcomes, "a", 8)).toBe(1);
+	});
+
+	it("tools de leitura de página não ganham a dica de argumento", () => {
+		expect(isWebPageTool("web_extract")).toBe(true);
+		expect(isWebPageTool("mcp__firecrawl__firecrawl_scrape")).toBe(true);
+		expect(isWebPageTool("mcp__github__get_file")).toBe(false);
 	});
 });

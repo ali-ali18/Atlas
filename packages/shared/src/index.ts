@@ -216,6 +216,11 @@ export type {
 } from "./runs.js";
 export {
 	AGENT_RUNTIME_CHECKPOINT_VERSION,
+	RUN_MAX_RECOVERIES,
+	RUN_RECOVERY_LIMIT_MESSAGE,
+	readRunRecoveries,
+	readRunRecoveredAtStep,
+	nextRunRecoveryState,
 	TRANSCRIPT_SLOT,
 	DEFAULT_RUN_INPUT_MODE,
 	LIVE_RUN_INPUT_MODES,
@@ -458,6 +463,8 @@ export * from "./routine-failure-text.js";
 export {
 	isOnceTrigger,
 	parseOnceRunAt,
+	resolveOnceRunAt,
+	MAX_ONCE_IN_MINUTES,
 	formatOnceSummary,
 	planOnceRoutine,
 	shouldAutoDeleteAfterRun,

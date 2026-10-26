@@ -13,6 +13,8 @@ import {
 	parseTaskList,
 	parseTaskState,
 	parseToolCacheState,
+	readRunRecoveries,
+	readRunRecoveredAtStep,
 } from "@workspace/shared";
 import type { LlmContentPart, LlmMessage } from "@workspace/llm";
 import { TOOL_CALL_HISTORY_SIZE } from "./tool-budget.js";
@@ -267,6 +269,19 @@ function sanitizeBlockedTools(value: unknown): Record<string, string> | undefine
 	return Object.keys(blocked).length > 0 ? blocked : undefined;
 }
 
+function sanitizeBlockedToolSteps(value: unknown): Record<string, number> | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const steps: Record<string, number> = {};
+	for (const [name, step] of Object.entries(value as Record<string, unknown>)) {
+		if (typeof step !== "number" || !Number.isFinite(step)) continue;
+		const key = name.trim();
+		if (!key || key.length > 120) continue;
+		steps[key] = Math.max(0, Math.floor(step));
+		if (Object.keys(steps).length >= 20) break;
+	}
+	return Object.keys(steps).length > 0 ? steps : undefined;
+}
+
 function sanitizeToolCallHistory(
 	value: unknown,
 ): AgentRunCheckpoint["toolCallHistory"] {
@@ -382,6 +397,8 @@ export function buildRuntimeCheckpoint(input: {
 	extensionCount?: number;
 	consecutiveToolFailures?: number;
 	blockedTools?: Record<string, string>;
+	blockedToolSteps?: Record<string, number>;
+	unblockedAtStep?: Record<string, number>;
 	effectiveHard?: number;
 	progressCursor?: number;
 	loginAsked?: string[];
@@ -400,6 +417,8 @@ export function buildRuntimeCheckpoint(input: {
 	toolCache?: AgentRunCheckpoint["toolCache"];
 	transcriptWatermark?: AgentRunCheckpoint["transcriptWatermark"];
 	carriedNotes?: AgentRunCheckpoint["carriedNotes"];
+	recoveries?: number;
+	recoveredAtStep?: number;
 }): AgentRunCheckpoint {
 	return {
 		version: AGENT_RUNTIME_CHECKPOINT_VERSION,
@@ -421,6 +440,8 @@ export function buildRuntimeCheckpoint(input: {
 		extensionCount: input.extensionCount,
 		consecutiveToolFailures: input.consecutiveToolFailures,
 		blockedTools: input.blockedTools,
+		blockedToolSteps: input.blockedToolSteps,
+		unblockedAtStep: input.unblockedAtStep && Object.keys(input.unblockedAtStep).length ? input.unblockedAtStep : undefined,
 		effectiveHard: input.effectiveHard,
 		progressCursor: input.progressCursor,
 		loginAsked: input.loginAsked,
@@ -438,6 +459,9 @@ export function buildRuntimeCheckpoint(input: {
 		...(input.toolCache ? { toolCache: input.toolCache } : {}),
 		...(input.transcriptWatermark ? { transcriptWatermark: input.transcriptWatermark } : {}),
 		...(input.carriedNotes?.length ? { carriedNotes: input.carriedNotes } : {}),
+		// O contador de recuperações é do reconciliador: o runtime só o carrega para não zerá-lo a cada gravação.
+		...(input.recoveries ? { recoveries: input.recoveries } : {}),
+		...(input.recoveries && input.recoveredAtStep !== undefined ? { recoveredAtStep: input.recoveredAtStep } : {}),
 	};
 }
 
@@ -495,6 +519,8 @@ export function parseRuntimeCheckpoint(
 				? Math.max(0, Math.floor(value.consecutiveToolFailures))
 				: undefined,
 		blockedTools: sanitizeBlockedTools(value.blockedTools),
+		blockedToolSteps: sanitizeBlockedToolSteps(value.blockedToolSteps),
+		unblockedAtStep: sanitizeBlockedToolSteps(value.unblockedAtStep),
 		effectiveHard:
 			typeof value.effectiveHard === "number"
 				? Math.max(1, Math.floor(value.effectiveHard))
@@ -540,6 +566,8 @@ export function parseRuntimeCheckpoint(
 		...(parseToolCacheState(value.toolCache) ? { toolCache: parseToolCacheState(value.toolCache)! } : {}),
 		...(parseCarriedNotes(value.carriedNotes).length ? { carriedNotes: parseCarriedNotes(value.carriedNotes) } : {}),
 		...(parseTranscriptWatermark(value.transcriptWatermark) ? { transcriptWatermark: parseTranscriptWatermark(value.transcriptWatermark)! } : {}),
+		...(readRunRecoveries(value) > 0 ? { recoveries: readRunRecoveries(value) } : {}),
+		...(readRunRecoveries(value) > 0 && readRunRecoveredAtStep(value) !== undefined ? { recoveredAtStep: readRunRecoveredAtStep(value)! } : {}),
 		...(parseTranscriptSeed(value.transcriptSeed) ? { transcriptSeed: parseTranscriptSeed(value.transcriptSeed)! } : {}),
 	};
 }

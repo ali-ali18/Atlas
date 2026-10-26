@@ -117,7 +117,15 @@ const TRANSIENT_PATTERNS = [
 	/chrome indispon/i,
 	/perfil do chrome/i,
 	/control server/i,
+	// Banco (Prisma/pg): conexão caiu ou o pool esgotou; passa sozinho.
+	/can'?t reach database server/i,
+	/connection terminated/i,
+	/timed out fetching a new connection/i,
+	/server closed the connection unexpectedly/i,
 ];
+
+/** Prisma: P1001 inalcançável, P1002 timeout, P1008 operação expirou, P1017 servidor fechou, P2024 pool esgotado. */
+const TRANSIENT_DB_CODES = new Set(["P1001", "P1002", "P1008", "P1017", "P2024"]);
 
 function walkErrorChain(error: unknown): unknown[] {
 	const chain: unknown[] = [];
@@ -206,6 +214,11 @@ export function classifyRunError(error: unknown): ClassifiedRunError {
 			const kind = providerFailureKind(item as ProviderApiError);
 			return kind === "upstream" ? "transient" : "permanent";
 		}
+	}
+
+	for (const item of chain) {
+		const code = (item as { code?: unknown } | null)?.code;
+		if (typeof code === "string" && TRANSIENT_DB_CODES.has(code)) return "transient";
 	}
 
 	// Status HTTP estruturado (OpenRouterError e afins) antes de olhar o texto.

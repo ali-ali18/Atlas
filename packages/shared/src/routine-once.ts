@@ -145,6 +145,41 @@ export function parseOnceRunAt(
 	return { ok: true, runAtIso: parsed.toISOString() };
 }
 
+export const MAX_ONCE_IN_MINUTES = 7 * 24 * 60;
+
+/**
+ * Resolve o horário de `propose_routine` (once): `run_at` (relógio, ISO) OU
+ * `in_minutes` (relativo, calculado aqui com o `now` do servidor para o
+ * modelo não adivinhar a hora atual). Exatamente um dos dois.
+ */
+export function resolveOnceRunAt(
+	input: { runAt?: unknown; inMinutes?: unknown; timezone?: string },
+	now: Date = new Date(),
+): ParseOnceRunAtResult {
+	const hasRunAt = input.runAt !== undefined && input.runAt !== null && String(input.runAt).trim() !== "";
+	const hasInMinutes = input.inMinutes !== undefined && input.inMinutes !== null;
+	if (hasRunAt && hasInMinutes) {
+		return { ok: false, error: "informe run_at OU in_minutes, não os dois" };
+	}
+	if (!hasInMinutes) {
+		if (!hasRunAt) {
+			return {
+				ok: false,
+				error: "informe run_at (horário de relógio, ISO 8601) ou in_minutes (daqui a N minutos)",
+			};
+		}
+		return parseOnceRunAt({ runAt: input.runAt, timezone: input.timezone }, now);
+	}
+	const minutes = input.inMinutes;
+	if (typeof minutes !== "number" || !Number.isInteger(minutes) || minutes < 1 || minutes > MAX_ONCE_IN_MINUTES) {
+		return {
+			ok: false,
+			error: `in_minutes inválido: use um inteiro de 1 a ${MAX_ONCE_IN_MINUTES} (7 dias); para mais longe use run_at`,
+		};
+	}
+	return { ok: true, runAtIso: new Date(now.getTime() + minutes * 60_000).toISOString() };
+}
+
 /** "Uma vez · 03/10 às 10:00" (data dd/MM, hora HH:mm, no fuso informado). */
 export function formatOnceSummary(
 	runAtIso: string,
