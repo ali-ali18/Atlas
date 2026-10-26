@@ -5,6 +5,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 ## [Não lançado]
 
 ### Adicionado
+- **agent, worker, shared, db:** "Seu dia", o brief da manhã: peça "me prepara o dia às 7h30" e o bot monta o Painel "Seu dia" (agenda, e-mails que pedem você, prioridades) com as fontes que você conectou, qualquer categoria, e avisa quando fica pronto. Só leitura (trava em código), nunca pulado por chat em andamento, uma por bot. Modelo de rotina `daily_brief`, coluna `routines.template`, eval do e-mail malicioso (ver `docs/features/seu-dia.md`)
 - **agent:** o bot sabe a hora local (camada efêmera, sem invalidar o cache) e `propose_routine` aceita `in_minutes` para lembretes relativos calculados pelo servidor (#108)
 - **agent:** corrige nome de ferramenta e argumentos malformados (#103)
 - **agent:** perfil do bot injetável no `runComputerUse` (#103)
