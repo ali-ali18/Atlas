@@ -134,7 +134,7 @@ describe("F4 - caso loja-exemplo: falhas em lote e erro de argumento", () => {
 		expect(notFound).toHaveBeenCalledTimes(2);
 	});
 
-	it("3 passos seguidos falhando por argumento ainda bloqueiam a tool", async () => {
+	it("3 passos seguidos falhando por argumento NÃO bloqueiam a tool (só falha comum bloqueia)", async () => {
 		const notFound = vi.fn(async () => ({
 			ok: false,
 			text: "Not Found (404)",
@@ -148,7 +148,21 @@ describe("F4 - caso loja-exemplo: falhas em lote e erro de argumento", () => {
 			text("Sigo sem essa tool."),
 		]);
 		expect(result.text).toContain("Sigo");
-		expect(notFound).toHaveBeenCalledTimes(3);
+		expect(notFound).toHaveBeenCalledTimes(4);
+		expect(toolResults[3]?.summary).not.toMatch(/indisponível neste run/);
+	});
+
+	it("3 passos seguidos com falha comum bloqueiam a tool", async () => {
+		const exploded = vi.fn(async () => ({ ok: false, text: "upstream exploded", truncated: false }));
+		const { result, toolResults } = await run(exploded, [
+			step([{ id: "1", name: NAME, args: { path: "1" } }]),
+			step([{ id: "2", name: NAME, args: { path: "2" } }]),
+			step([{ id: "3", name: NAME, args: { path: "3" } }]),
+			step([{ id: "4", name: NAME, args: { path: "4" } }]),
+			text("Sigo sem essa tool."),
+		]);
+		expect(result.text).toContain("Sigo");
+		expect(exploded).toHaveBeenCalledTimes(3);
 		expect(toolResults[3]?.summary).toMatch(/indisponível neste run/);
 	});
 });
@@ -315,7 +329,7 @@ describe("avisos de lote vão depois dos tool results", () => {
 	}
 
 	it("tool bloqueada no meio do lote: nenhum system no meio do run; o aviso vai anexado ao último tool result", async () => {
-		const notFound = vi.fn(async () => ({ ok: false, text: "Not Found (404)", truncated: false }));
+		const notFound = vi.fn(async () => ({ ok: false, text: "upstream exploded", truncated: false }));
 		const { requests } = await runCapturing(notFound, [
 			step([{ id: "c1", name: NAME, args: { path: "1" } }]),
 			step([{ id: "c2", name: NAME, args: { path: "2" } }]),

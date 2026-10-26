@@ -155,6 +155,7 @@ import {
 } from "./checkpoint.js";
 import {
 	classifyToolFailure,
+	isWebPageTool,
 	globalFailureAbort,
 	perToolFailureStreak,
 	withArgumentErrorHint,
@@ -171,6 +172,7 @@ import {
 } from "./errors.js";
 import {
 	TOOL_FAILURE_BLOCK_AFTER,
+	TOOL_BLOCK_EXPIRY_STEPS,
 	BUDGET_HARD_CAP,
 	addUsage,
 	emptyUsage,
@@ -4999,6 +5001,10 @@ export async function runComputerUse(params: {
 	// (argsKey|resultKey). Contagem de oks no momento da última falha de
 	// sandbox por argsKey (recuperação no meio diferencia a chave).
 	const blockedTools = new Map<string, string>();
+	/** Último passo em que a tool bloqueada foi bloqueada/chamada: 3 passos sem chamada e o bloqueio expira. */
+	const blockedToolSteps = new Map<string, number>();
+	/** Passo em que o bloqueio expirou: a contagem de falhas recomeça dali. */
+	const unblockedAtStep = new Map<string, number>();
 	const repeatWarned = new Set<string>();
 	const loopWarned = new Set<string>();
 	const sandboxFailOkCount = new Map<string, number>();
@@ -6123,6 +6129,8 @@ export async function runComputerUse(params: {
 	if (parsedCheckpoint?.blockedTools) {
 		for (const [name, lastError] of Object.entries(parsedCheckpoint.blockedTools)) {
 			blockedTools.set(name, lastError);
+			// Checkpoint antigo não tem o passo: a contagem de expiração começa na retomada.
+			blockedToolSteps.set(name, parsedCheckpoint.blockedToolSteps?.[name] ?? nextStepIndex);
 		}
 	}
 	if (typeof parsedCheckpoint?.effectiveHard === "number") {
@@ -6251,6 +6259,7 @@ export async function runComputerUse(params: {
 			extensionCount,
 			consecutiveToolFailures,
 			blockedTools: Object.fromEntries(blockedTools),
+			blockedToolSteps: Object.fromEntries(blockedToolSteps),
 			effectiveHard,
 				progressCursor,
 				loginAsked: [...loginAsked],
@@ -6982,9 +6991,10 @@ export async function runComputerUse(params: {
 				ok: false,
 				step: decisionIndex,
 				kind,
+				// A tool nem rodou: não conta como falha dela nem para a trava global.
+				synthetic: true,
 			});
 			trackExhaustion();
-			if (kind !== "argument") consecutiveToolFailures += 1;
 		};
 		// Trava global: avaliada no fim do passo (chamadas paralelas do mesmo
 		// passo contam como 1; erro de argumento não conta).
@@ -7101,6 +7111,7 @@ export async function runComputerUse(params: {
 			// F4 — tool bloqueada neste run: não executa, avisa no resultado.
 			const blockedError = blockedTools.get(name);
 			if (blockedError !== undefined) {
+				blockedToolSteps.set(name, decisionIndex);
 				await emitSyntheticToolResult(
 					sub,
 					call,
@@ -7520,7 +7531,7 @@ export async function runComputerUse(params: {
 			if (ok && name === "dev_session_start") await applyCodingModel("dev_session_start");
 			const failureKind: ToolFailureKind =
 				!ok && !isSandboxTool(name) ? classifyToolFailure(summary) : "other";
-			if (!ok && failureKind === "argument") {
+			if (!ok && failureKind === "argument" && !isWebPageTool(name)) {
 				summary = withArgumentErrorHint(summary);
 			}
 			if (uncertainEffect && !summary.includes(UNCERTAIN_WRITE_NOTE)) summary = `${summary}
@@ -7800,12 +7811,13 @@ ${blockHint}`;
 				// F4 — 3 falhas seguidas da mesma tool a bloqueiam no run
 				// (avisa o modelo); o run continua com alternativas.
 				if (
-					perToolFailureStreak(toolOutcomes, name) >=
+					perToolFailureStreak(toolOutcomes, name, unblockedAtStep.get(name)) >=
 						TOOL_FAILURE_BLOCK_AFTER &&
 					!blockedTools.has(name)
 				) {
 					const lastError = truncateSnippet(summary, 200);
 					blockedTools.set(name, lastError);
+					blockedToolSteps.set(name, decisionIndex);
 					batchLoopWarnings.push(
 						`Tool ${name} became unavailable in this run after ${TOOL_FAILURE_BLOCK_AFTER} failures: ${lastError}. Use an alternative or continue with what you have.`,
 					);
@@ -8030,6 +8042,14 @@ ${blockHint}`;
 		return true;
 	};
 	for (let step = nextStepIndex; ; step += 1) {
+		// Bloqueio de tool expira depois de N passos sem chamá-la (insistir renova o bloqueio).
+		for (const [blockedName, lastStep] of blockedToolSteps) {
+			if (step - lastStep > TOOL_BLOCK_EXPIRY_STEPS) {
+				blockedTools.delete(blockedName);
+				blockedToolSteps.delete(blockedName);
+				unblockedAtStep.set(blockedName, step);
+			}
+		}
 		const decisionStartedAt = performance.now();
 		decisionToolMs = 0;
 		await ensureContinue();

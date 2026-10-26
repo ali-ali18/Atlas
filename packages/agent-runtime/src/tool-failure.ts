@@ -32,6 +32,14 @@ export const ARGUMENT_ERROR_HINT =
 	"(e.g. list the parent folder, or use the list/search tool of the same " +
 	"connector) before retrying, and do not guess values.";
 
+/**
+ * Tools que leem página da web: um 404/"not found" ali é do site (link morto), não do modelo
+ * ter chutado um id. A dica "não chute valores" não se aplica e só confunde.
+ */
+export function isWebPageTool(name: string): boolean {
+	return name.startsWith("web_") || name.startsWith("mcp__firecrawl__");
+}
+
 export function withArgumentErrorHint(summary: string): string {
 	return summary.includes(ARGUMENT_ERROR_HINT)
 		? summary
@@ -60,25 +68,34 @@ function groupByStep(outcomes: ToolOutcome[]): ToolOutcome[][] {
 /**
  * Trava por tool: falhas seguidas da MESMA tool, com várias falhas no mesmo
  * passo (chamadas paralelas) contando como 1. Qualquer sucesso ou outra tool
- * no meio zera a sequência.
+ * no meio zera a sequência. Só falha do tipo `other` conta: erro de argumento
+ * (link morto, id errado) e resultado sintético são neutros (nem contam nem
+ * zeram). `sinceStep` ignora passos anteriores (bloqueio que acabou de expirar
+ * começa a contar do zero).
  */
 export function perToolFailureStreak(
 	outcomes: ToolOutcome[],
 	name: string,
+	sinceStep?: number,
 ): number {
 	let count = 0;
 	for (const group of groupByStep(outcomes).reverse()) {
+		if (sinceStep !== undefined && group[0]?.step !== undefined && group[0].step < sinceStep) break;
 		const relevant = group.filter((item) => item.name === name);
 		if (relevant.length === 0 || relevant.some((item) => item.ok)) break;
+		if (relevant.every((item) => item.synthetic || item.kind === "argument")) continue;
 		count += 1;
 	}
 	return count;
 }
 
+const isCountedFailure = (item: ToolOutcome) => item.kind !== "argument" && !item.synthetic;
+
 /**
  * Trava global: N passos seguidos falhando, envolvendo M+ tools distintas.
  * Um passo conta 1 (mesmo com várias chamadas paralelas falhando). Passo só
- * com erro de argumento é neutro (não conta e não zera). Sucesso zera.
+ * com erro de argumento ou só com resultado sintético (tool bloqueada, teto) é
+ * neutro (não conta e não zera). Sucesso zera.
  */
 export function globalFailureAbort(
 	outcomes: ToolOutcome[],
@@ -90,7 +107,7 @@ export function globalFailureAbort(
 	for (let i = groups.length - 1; i >= 0 && failing.length < consecutive; i -= 1) {
 		const group = groups[i] as ToolOutcome[];
 		if (group.some((item) => item.ok)) break;
-		const counted = group.filter((item) => item.kind !== "argument");
+		const counted = group.filter(isCountedFailure);
 		if (counted.length === 0) continue;
 		failing.push(new Set(counted.map((item) => item.name)));
 	}
@@ -99,8 +116,8 @@ export function globalFailureAbort(
 	if (tools.size < distinct) return null;
 	const lastGroup = [...groups]
 		.reverse()
-		.find((group) => group.some((item) => item.kind !== "argument"));
-	const last = lastGroup?.filter((item) => item.kind !== "argument").pop();
+		.find((group) => group.some(isCountedFailure));
+	const last = lastGroup?.filter(isCountedFailure).pop();
 	return (
 		`${consecutive} ferramentas falharam em sequência ` +
 		`(${[...tools].slice(0, 3).join(", ")} — última: ${last?.name ?? "?"}).`

@@ -174,3 +174,18 @@ describe("checkpoint: ferramentas congeladas na conversa", () => {
 		expect(parseRuntimeCheckpoint({ messages: [], toolCache: { turn: "x" } })?.toolCache).toBeUndefined();
 	});
 });
+
+describe("checkpoint: bloqueio de tool com validade", () => {
+	it("blockedToolSteps sobrevive ao ciclo build -> JSON -> parse e descarta lixo", () => {
+		const checkpoint = buildRuntimeCheckpoint({ messages: [], conversation: [], nextStepIndex: 5, model: "m", blockedTools: { web_extract: "boom" }, blockedToolSteps: { web_extract: 4 } });
+		const parsed = parseRuntimeCheckpoint(JSON.parse(JSON.stringify(checkpoint)));
+		expect(parsed?.blockedTools).toEqual({ web_extract: "boom" });
+		expect(parsed?.blockedToolSteps).toEqual({ web_extract: 4 });
+		expect(parseRuntimeCheckpoint({ messages: [], blockedToolSteps: { a: "x", b: Infinity, c: -2.5 } })?.blockedToolSteps).toEqual({ c: 0 });
+	});
+	it("checkpoint antigo (só blockedTools) ainda carrega, sem passos", () => {
+		const parsed = parseRuntimeCheckpoint({ messages: [], blockedTools: { web_extract: "boom" } });
+		expect(parsed?.blockedTools).toEqual({ web_extract: "boom" });
+		expect(parsed?.blockedToolSteps).toBeUndefined();
+	});
+});
