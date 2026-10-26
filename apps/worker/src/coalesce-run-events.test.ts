@@ -54,3 +54,52 @@ test("evento que não é delta grava o lote antes dele (ordem preservada) e flus
 	await coalescer.flush();
 	assert.deepEqual(written, [delta("a", "antes"), tool, delta("b", "depois"), delta("c", "outro balão")]);
 });
+
+test("uma gravação falha: as seguintes continuam gravadas e não há unhandled rejection", async () => {
+	const written: ComputerUseEvent[] = [];
+	let calls = 0;
+	const unhandled: unknown[] = [];
+	const onUnhandled = (reason: unknown) => void unhandled.push(reason);
+	process.on("unhandledRejection", onUnhandled);
+	try {
+		const coalescer = createRunEventCoalescer(
+			async (event) => {
+				calls += 1;
+				if (calls === 1) throw new Error("db caiu");
+				written.push(event);
+			},
+			{ windowMs: 10 },
+		);
+		// Delta cai no timer da janela: a primeira gravação (que falha) roda sem catch externo.
+		await coalescer.push(delta("a", "perdido"));
+		await sleep(40);
+		await coalescer.push(delta("b", "salvo"));
+		const tool = { type: "status", status: "running", detail: "tool" } as ComputerUseEvent;
+		await coalescer.push(tool);
+		await assert.rejects(() => coalescer.flush(), /db caiu/);
+		assert.deepEqual(written, [delta("b", "salvo"), tool]);
+		// O erro sai uma vez só; depois o flush volta ao normal.
+		await coalescer.flush();
+		await sleep(10);
+		assert.deepEqual(unhandled, []);
+	} finally {
+		process.off("unhandledRejection", onUnhandled);
+	}
+});
+
+test("evento importante que falha rejeita para quem chamou, sem travar os próximos", async () => {
+	const written: ComputerUseEvent[] = [];
+	let fail = true;
+	const coalescer = createRunEventCoalescer(async (event) => {
+		if (fail) {
+			fail = false;
+			throw new Error("falha única");
+		}
+		written.push(event);
+	});
+	const tool = { type: "status", status: "running", detail: "tool" } as ComputerUseEvent;
+	await assert.rejects(() => coalescer.push(tool), /falha única/);
+	await coalescer.push(tool);
+	await coalescer.flush();
+	assert.deepEqual(written, [tool]);
+});

@@ -6438,7 +6438,9 @@ export async function runComputerUse(params: {
 
 		let persistTail = Promise.resolve();
 		const queueEvent = (event: ComputerUseEvent) => {
-			persistTail = persistTail.then(() => Promise.resolve(onEvent(event)));
+			// Delta é só exibição ao vivo (o texto final vai pelo histórico): falha ao gravar não pode
+			// descartar a resposta do modelo já recebida nem travar os deltas seguintes.
+			persistTail = persistTail.then(() => Promise.resolve(onEvent(event))).catch(() => undefined);
 		};
 
 		const emitSegment = (delta: string) => {

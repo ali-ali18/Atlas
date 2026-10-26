@@ -1554,7 +1554,7 @@ async function executeLeasedRun(ctx: {
 		}
 		if (error instanceof AgentRunCancelledError) {
 			await emit({ type: "cancelled", reason: error.message });
-			await coalescer.flush();
+			await coalescer.flush().catch(() => undefined);
 			await emitState.tail;
 			await finishAgentRun(runId, {
 				status: "cancelled",
@@ -1582,7 +1582,7 @@ async function executeLeasedRun(ctx: {
 			const closingText = error.finalText ?? (error.deferredClosing ? budgetStopFallbackText(error.message) : error.message);
 			const resultText = autoPlan.schedule ? AUTO_CONTINUE_STATUS_TEXT : closingText;
 			if (!autoPlan.schedule) await emit({ type: "error", error: error.message });
-			await coalescer.flush();
+			await coalescer.flush().catch(() => undefined);
 			await emitState.tail;
 			await finishAgentRun(runId, {
 				status: "budget_exhausted",
@@ -1627,7 +1627,7 @@ async function executeLeasedRun(ctx: {
 		if (kind === "transient") {
 			const message =
 				error instanceof Error ? error.message : "Falha transitória no worker";
-			await coalescer.flush();
+			await coalescer.flush().catch(() => undefined);
 			await emitState.tail.catch(() => undefined);
 			await markAgentRunRetrying(runId, message, lease).catch((persistError) => {
 				console.error(`retry state persistence failed run=${runId}`, persistError);
@@ -1645,7 +1645,7 @@ async function executeLeasedRun(ctx: {
 		if (run.origin === "proactive") console.error(`proactive run failed run=${runId}`, error);
 		const displayMessage = proactiveFailureDisplay(run.origin, describeRunError(error).message);
 		await emit({ type: "error", error: displayMessage });
-		await coalescer.flush();
+		await coalescer.flush().catch(() => undefined);
 		await emitState.tail;
 		await finishAgentRun(runId, {
 			status: kind === "waiting_user" ? "waiting_user" : "failed",

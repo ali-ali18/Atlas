@@ -29,6 +29,33 @@ describe("classifyRunError", () => {
 		expect(classifyRunError(new Error("ECONNRESET"))).toBe("transient");
 	});
 
+	it("marca erros de conexão do banco (Prisma/pg) como transitórios", () => {
+		for (const code of ["P1001", "P1002", "P1008", "P1017", "P2024"]) {
+			const error = Object.assign(new Error("Prisma failure"), { code });
+			expect(classifyRunError(error)).toBe("transient");
+		}
+		const wrapped = new Error("run failed", {
+			cause: Object.assign(new Error("x"), { code: "P1017" }),
+		});
+		expect(classifyRunError(wrapped)).toBe("transient");
+		for (const message of [
+			"Can't reach database server at `db:5432`",
+			"Connection terminated unexpectedly",
+			"Connection terminated",
+			"Timed out fetching a new connection from the connection pool",
+			"server closed the connection unexpectedly",
+		]) {
+			expect(classifyRunError(new Error(message))).toBe("transient");
+		}
+	});
+
+	it("erro de banco de regra (ex.: unique P2002) continua permanente", () => {
+		const error = Object.assign(new Error("Unique constraint failed"), {
+			code: "P2002",
+		});
+		expect(classifyRunError(error)).toBe("permanent");
+	});
+
 	it("marca rate-limit com hífen/sem espaço como transitório", () => {
 		expect(
 			classifyRunError(
