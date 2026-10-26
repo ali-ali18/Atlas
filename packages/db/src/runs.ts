@@ -19,7 +19,7 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, readRunRecoveries, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
+import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
 import type { ToolCacheState, ToolResultStatus } from "@workspace/shared";
 import type { ComputerUseEvent, ConversationTaskContext, ResearchNote, TaskLedger, TaskListItem } from "@workspace/shared";
 import { Prisma } from "@prisma/client";
@@ -1937,7 +1937,7 @@ export async function listQueuedRunsWithStaleJob(
 /**
  * Runs `running` com lease expirada: recoloca na fila em vez de falhar.
  * O worker antigo não deve finalizar o run; o reconciliador assume a recuperação.
- * Cada recuperação soma 1 em `checkpoint.recoveries`; na {@link RUN_MAX_RECOVERIES}-ésima o run falha
+ * Cada recuperação sem progresso soma 1 em `checkpoint.recoveries` (com progresso desde a anterior, recomeça em 1); na {@link RUN_MAX_RECOVERIES}-ésima o run falha
  * (tarefa que derruba o worker em loop não volta para a fila para sempre).
  */
 export async function recoverStaleRunningRuns(
@@ -1966,13 +1966,13 @@ export async function recoverStaleRunningRuns(
 			where: { id: row.id },
 			select: { checkpointJson: true },
 		});
-		const recoveries = readRunRecoveries(current?.checkpointJson) + 1;
+		const { recoveries, recoveredAtStep } = nextRunRecoveryState(current?.checkpointJson);
 		const exceeded = recoveries >= RUN_MAX_RECOVERIES;
 		const checkpointJson =
 			current?.checkpointJson &&
 			typeof current.checkpointJson === "object" &&
 			!Array.isArray(current.checkpointJson)
-				? ({ ...current.checkpointJson, recoveries } as Prisma.InputJsonValue)
+				? ({ ...current.checkpointJson, recoveries, recoveredAtStep } as Prisma.InputJsonValue)
 				: undefined;
 		// Reconfere no UPDATE o que a seleção viu: se o dono renovou ou outro
 		// executor assumiu (token novo) entre o SELECT e aqui, não recupera.

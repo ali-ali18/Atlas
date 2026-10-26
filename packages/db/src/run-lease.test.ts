@@ -183,6 +183,30 @@ test("recuperação: contador vive no checkpoint e a 3ª recuperação falha o r
 	assert.equal(row.leaseToken, null);
 });
 
+test("recuperação: run que avança entre recuperações zera o contador e volta à fila", async () => {
+	runs.rows = [staleRunning({ checkpointJson: { version: 2, messages: [], nextStepIndex: 4 } })];
+	// 5 recuperações (deploys), cada uma com progresso desde a anterior: nunca falha.
+	for (let i = 0; i < 5; i++) {
+		assert.deepEqual(await recoverStaleRunningRuns(), ["run-1"]);
+		const row = runs.rows[0]!;
+		assert.equal(row.status, "queued");
+		const cp = row.checkpointJson as { recoveries: number; recoveredAtStep: number; nextStepIndex: number };
+		assert.equal(cp.recoveredAtStep, 4 + i);
+		if (i > 0) assert.equal(cp.recoveries, 1);
+		// O run andou um passo antes de cair de novo.
+		Object.assign(row, staleRunning({ checkpointJson: { ...cp, nextStepIndex: cp.nextStepIndex + 1 } }));
+	}
+});
+
+test("recuperação: sem progresso entre recuperações ainda falha na 3ª", async () => {
+	runs.rows = [staleRunning({ checkpointJson: { version: 2, messages: [], nextStepIndex: 4, recoveries: 1, recoveredAtStep: 4 } })];
+	assert.deepEqual(await recoverStaleRunningRuns(), ["run-1"]);
+	assert.equal((runs.rows[0]!.checkpointJson as { recoveries: number }).recoveries, 2);
+	Object.assign(runs.rows[0]!, staleRunning({ checkpointJson: runs.rows[0]!.checkpointJson }));
+	assert.deepEqual(await recoverStaleRunningRuns(), []);
+	assert.equal(runs.rows[0]!.status, "failed");
+});
+
 test("recuperação: uma única recuperação normal reenfileira", async () => {
 	runs.rows = [staleRunning({ checkpointJson: { version: 2, messages: [] } })];
 	assert.deepEqual(await recoverStaleRunningRuns(), ["run-1"]);

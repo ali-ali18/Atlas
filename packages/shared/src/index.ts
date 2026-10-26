@@ -219,6 +219,8 @@ export {
 	RUN_MAX_RECOVERIES,
 	RUN_RECOVERY_LIMIT_MESSAGE,
 	readRunRecoveries,
+	readRunRecoveredAtStep,
+	nextRunRecoveryState,
 	TRANSCRIPT_SLOT,
 	DEFAULT_RUN_INPUT_MODE,
 	LIVE_RUN_INPUT_MODES,

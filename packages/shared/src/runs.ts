@@ -426,6 +426,11 @@ export type AgentRunCheckpoint = {
 	 * Ausente em checkpoint antigo = 0. Vive no JSON do checkpoint (sem coluna nem migration).
 	 */
 	recoveries?: number;
+	/**
+	 * `nextStepIndex` do checkpoint na última recuperação. Se o run avançou desde então, o contador
+	 * recomeça: só recuperação sem progresso conta (run longo que atravessa deploys não falha).
+	 */
+	recoveredAtStep?: number;
 };
 
 /** Na recuperação de número N (N >= este valor) o run falha em vez de voltar à fila. */
@@ -438,4 +443,27 @@ export function readRunRecoveries(checkpoint: unknown): number {
 	if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint)) return 0;
 	const value = (checkpoint as { recoveries?: unknown }).recoveries;
 	return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+/** Lê `recoveredAtStep` do JSON cru do checkpoint; ausente ou inválido = undefined. */
+export function readRunRecoveredAtStep(checkpoint: unknown): number | undefined {
+	if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint)) return undefined;
+	const value = (checkpoint as { recoveredAtStep?: unknown }).recoveredAtStep;
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined;
+}
+
+/**
+ * Contadores após mais uma recuperação. Com progresso desde a recuperação anterior
+ * (`nextStepIndex` > `recoveredAtStep`) volta a 1; sem progresso (ou checkpoint antigo sem o
+ * marcador) soma 1.
+ */
+export function nextRunRecoveryState(checkpoint: unknown): { recoveries: number; recoveredAtStep: number } {
+	const raw =
+		checkpoint && typeof checkpoint === "object" && !Array.isArray(checkpoint)
+			? (checkpoint as { nextStepIndex?: unknown }).nextStepIndex
+			: undefined;
+	const step = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
+	const previousStep = readRunRecoveredAtStep(checkpoint);
+	const progressed = previousStep !== undefined && step > previousStep;
+	return { recoveries: progressed ? 1 : readRunRecoveries(checkpoint) + 1, recoveredAtStep: step };
 }

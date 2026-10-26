@@ -17,6 +17,9 @@ describe("checkpoint serialization", () => {
 		const carried = buildRuntimeCheckpoint({ ...base, recoveries: 2 });
 		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify(carried)))?.recoveries).toBe(2);
 		expect(buildRuntimeCheckpoint(base)).not.toHaveProperty("recoveries");
+		const withStep = buildRuntimeCheckpoint({ ...base, recoveries: 1, recoveredAtStep: 7 });
+		expect(parseRuntimeCheckpoint(JSON.parse(JSON.stringify(withStep)))?.recoveredAtStep).toBe(7);
+		expect(parseRuntimeCheckpoint({ messages: [], recoveries: 2 })).not.toHaveProperty("recoveredAtStep");
 		for (const recoveries of [undefined, -1, "2", Number.NaN]) {
 			expect(parseRuntimeCheckpoint({ messages: [], recoveries })).not.toHaveProperty("recoveries");
 		}

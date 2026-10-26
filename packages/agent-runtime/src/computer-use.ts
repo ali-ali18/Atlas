@@ -6286,6 +6286,7 @@ export async function runComputerUse(params: {
 				transcriptWatermark: parsedCheckpoint?.transcriptWatermark ?? params.transcriptWatermark,
 				carriedNotes: parsedCheckpoint?.carriedNotes ?? params.carriedNotes,
 				recoveries: parsedCheckpoint?.recoveries,
+				recoveredAtStep: parsedCheckpoint?.recoveredAtStep,
 			});
 	const writeCheckpoint = async (stepIndex: number) => {
 		if (!onCheckpoint) return;
