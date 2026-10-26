@@ -3,7 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { getMcpCatalogEntry } from "@workspace/shared";
-import { callMcpTool } from "./call.js";
+import { callMcpTool, isUncertainOutcome } from "./call.js";
 import { McpClientPool, type McpClientConfig } from "./client-pool.js";
 import { firecrawlErrorHint, githubErrorHint, withMcpErrorHint } from "./hints.js";
 import { shouldRetryMcpFailure } from "./retry.js";
@@ -239,5 +239,31 @@ describe("callMcpTool: escrita não é retentada (R1)", () => {
 		expect((await run(pool, { readOnly: true })).ok).toBe(true);
 		expect(calls()).toBe(2);
 		await pool.closeAll();
+	});
+});
+
+describe("isUncertainOutcome", () => {
+	it.each([
+		"HTTP/1.1 503 Service Unavailable",
+		"statusCode: 500",
+		"Bad Gateway (502)",
+		"upstream 503",
+		"upstream responded 504",
+		"ServerError: 500",
+		"request timed out",
+		"ECONNRESET",
+		"socket hang up",
+	])("incerto: %s", (text) => {
+		expect(isUncertainOutcome(text)).toBe(true);
+	});
+
+	it.each([
+		"quantidade máxima 500",
+		"produto 512 não existe",
+		"valor 1.500 acima do limite",
+		"ECONNREFUSED 127.0.0.1:443",
+		"status inválido, pedido 5000",
+	])("falha comum: %s", (text) => {
+		expect(isUncertainOutcome(text)).toBe(false);
 	});
 });
