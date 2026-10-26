@@ -23,7 +23,7 @@ import {
 	parseRoutineTriggerJson,
 	prisma,
 } from "@workspace/db";
-import { listBriefSources } from "@workspace/agent-runtime";
+import { listBriefSources, restoreBriefPage } from "@workspace/agent-runtime";
 import type { AgentRunQueue } from "@workspace/queue";
 import type { WorkerConfig } from "../config.js";
 import { formatRoutineLogLine, planBusyHandling, runsDetachedFromChat, type BusyKind } from "./routine-defer.js";
@@ -37,6 +37,8 @@ type RoutineJobMeta = {
 	deferJob?: DeferJob;
 	/** Disparo agendado que desistiu de esperar o bot: o worker avisa o usuário (uma vez). */
 	onGaveUp?: (info: { reason: string; routineRunId: string }) => Promise<void>;
+	/** Recria o painel do brief apagado (injetável em teste). */
+	restoreBriefPage?: typeof restoreBriefPage;
 };
 type DeferJob = (
 	payload: ExecuteRoutineJobPayload & { routineRunId: string },
@@ -456,10 +458,21 @@ async function runRoutineJob(
 	if (!bot) {
 		return skip("Bot da rotina não existe mais");
 	}
+	// "Seu dia" sem painel (apagaram: o banco zera o pageId): recria e religa antes de rodar, senão o brief
+	// rodaria sem alvo e avisaria "pronto". Falha ao recriar pula a execução com o motivo.
+	let routinePageId = routine.pageId;
+	if (routine.template === DAILY_BRIEF_TEMPLATE && !routinePageId) {
+		try {
+			routinePageId = await (meta.restoreBriefPage ?? restoreBriefPage)({ userId: routineUserId, botId: routine.botId, routineId: routine.id });
+		} catch (error) {
+			console.error(`[routine] brief page restore failed routine=${routine.id}`, error instanceof Error ? error.message : "erro");
+			return skip("Não consegui recriar o painel Seu dia");
+		}
+	}
 	// Rotina que atualiza um painel: o painel precisa existir para o dono (apagado = pula, sem inventar outro).
 	const pagePlan = planRoutinePage(
-		routine.pageId,
-		routine.pageId ? await getPageForUser(routine.pageId, routineUserId).catch(() => null) : null,
+		routinePageId,
+		routinePageId ? await getPageForUser(routinePageId, routineUserId).catch(() => null) : null,
 	);
 	if (pagePlan.kind === "skip") return skip(pagePlan.reason);
 	// "Seu dia" roda sem conversa (ver `runsDetachedFromChat`): chat em andamento não adia nem pula o brief.

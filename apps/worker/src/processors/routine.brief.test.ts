@@ -18,17 +18,17 @@ function patch(list: Patched, target: object, key: string, value: unknown) {
 	Reflect.set(target, key, value);
 }
 
-function scenario(input: { template: string | null; chatBusy: boolean }) {
+function scenario(input: { template: string | null; chatBusy: boolean; pageId?: string | null }) {
 	const patched: Patched = [];
 	const seen = { agentRunData: [] as Array<Record<string, unknown>>, activeRunQueries: 0, routineRunCreates: [] as Array<Record<string, unknown>>, mcpWhere: [] as unknown[], apiWhere: [] as unknown[], enqueued: [] as string[], attached: [] as Array<Record<string, unknown>> };
 	patch(patched, prisma.routine, "findUnique", async () => ({
-		id: "r", userId: "user-a", botId: "bot-a", pageId: "page-1", template: input.template, name: "Seu dia", prompt: "Do not look at Slack.", enabled: true,
+		id: "r", userId: "user-a", botId: "bot-a", pageId: input.pageId === undefined ? "page-1" : input.pageId, template: input.template, name: "Seu dia", prompt: "Do not look at Slack.", enabled: true,
 		triggerType: "cron", triggerJson: null, model: "openrouter/x", allowChatgptPlan: false,
 	}));
 	patch(patched, prisma.bot, "findFirst", async ({ where }: { where: { id?: unknown } }) =>
 		// "outro bot na mesma conversa" (checagem de grupo/dono do createAgentRun): não há.
 		typeof where.id === "object" && where.id !== null ? null : { id: "bot-a", conversationId: "conv-a", openRouterModel: "openrouter/x", policyJson: null });
-	patch(patched, prisma.page, "findFirst", async () => ({ id: "page-1", botId: "bot-a", conversationId: null, groupId: null, title: "Seu dia", specJson: dailyBriefPlaceholderSpec(), sourcesJson: [], revision: 1, refreshedAt: null, createdAt: now, updatedAt: now }));
+	patch(patched, prisma.page, "findFirst", async ({ where }: { where: { id?: string } }) => ({ id: where.id ?? "page-1", botId: "bot-a", conversationId: null, groupId: null, title: "Seu dia", specJson: dailyBriefPlaceholderSpec(), sourcesJson: [], revision: 1, refreshedAt: null, createdAt: now, updatedAt: now }));
 	patch(patched, prisma.conversation, "findFirst", async () => ({ id: "conv-a", userId: "user-a" }));
 	patch(patched, prisma.bot, "updateMany", async () => ({ count: 0 }));
 	patch(patched, prisma.routineRun, "findFirst", async () => null);
@@ -134,4 +134,51 @@ test("buildUserTurn: brief traz instruções e fontes antes da tarefa; sem brief
 	const plain = buildUserTurn("Revise.", "n", { routineId: "r", triggeredBy: "schedule" }, null);
 	assert.doesNotMatch(plain, /DAILY BRIEF|SOURCES/);
 	assert.match(plain, /Tarefa:\nRevise\./);
+});
+
+test("brief com painel apagado (pageId nulo): recria e religa antes de rodar, e o painel novo é o alvo", async () => {
+	const s = scenario({ template: "daily_brief", chatBusy: false, pageId: null });
+	const restored: Array<Record<string, unknown>> = [];
+	try {
+		const result = await processExecuteRoutineJob({ routineId: "r", triggeredBy: "schedule" }, config, s.queue, {
+			restoreBriefPage: async (deps) => {
+				restored.push(deps);
+				return "page-new";
+			},
+		});
+		assert.equal(result.status, "running");
+		assert.deepEqual(restored, [{ userId: "user-a", botId: "bot-a", routineId: "r" }]);
+		assert.match(String(s.seen.agentRunData[0]?.objective), /\[PAGE TARGET\] page_id=page-new/);
+	} finally {
+		s.restore();
+	}
+});
+
+test("brief com painel apagado e falha ao recriar: pula com o motivo, sem rodar", async () => {
+	const s = scenario({ template: "daily_brief", chatBusy: false, pageId: null });
+	try {
+		const result = await processExecuteRoutineJob({ routineId: "r", triggeredBy: "schedule" }, config, s.queue, {
+			restoreBriefPage: async () => {
+				throw new Error("db fora");
+			},
+		});
+		assert.equal(result.status, "skipped");
+		assert.equal(s.seen.agentRunData.length, 0);
+	} finally {
+		s.restore();
+	}
+});
+
+test("rotina comum sem painel não recria nada", async () => {
+	const s = scenario({ template: null, chatBusy: false, pageId: null });
+	try {
+		const result = await processExecuteRoutineJob({ routineId: "r", triggeredBy: "schedule" }, config, s.queue, {
+			restoreBriefPage: async () => {
+				throw new Error("não devia ser chamado");
+			},
+		});
+		assert.equal(result.status, "running");
+	} finally {
+		s.restore();
+	}
 });

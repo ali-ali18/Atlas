@@ -13,7 +13,7 @@ import {
 	type RoutineNotifyMode,
 	type RoutineRecord,
 } from "@workspace/shared";
-import type { PagesStore } from "./pages.js";
+import { dbPagesStore, type PagesStore } from "./pages.js";
 
 const FALLBACK_TIMEZONE = "America/Sao_Paulo";
 const FOCUS_MAX_CHARS = 600;
@@ -67,6 +67,19 @@ export async function ensureBriefPage(deps: Pick<DailyBriefDeps, "userId" | "bot
 	const page = await deps.pages.create(deps.userId, { botId: deps.botId, conversationId: deps.conversationId ?? null, spec: spec.spec, sources: [] });
 	if (!page) throw new Error(`could not create the "${DAILY_BRIEF_PAGE_TITLE}" page for this bot`);
 	return page.id;
+}
+
+/**
+ * Painel apagado: apagar o painel zera o `pageId` da rotina (SetNull), e o brief rodaria sem alvo e ainda diria
+ * "pronto". Recria o painel e religa à rotina antes da execução. Devolve o id novo.
+ */
+export async function restoreBriefPage(
+	deps: { userId: string; botId: string; routineId: string; pages?: PagesStore; updateRoutine?: typeof updateRoutine },
+): Promise<string> {
+	const pageId = await ensureBriefPage({ userId: deps.userId, botId: deps.botId, pages: deps.pages ?? dbPagesStore }, undefined);
+	const updated = await (deps.updateRoutine ?? updateRoutine)(deps.userId, deps.botId, deps.routineId, { pageId });
+	if (!updated) throw new Error("could not relink the daily brief page");
+	return pageId;
 }
 
 /**
