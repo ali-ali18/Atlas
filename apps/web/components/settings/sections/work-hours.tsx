@@ -81,7 +81,7 @@ export function WorkHoursSettingsView({
 			<SettingRow
 				caption={localError ? <p role="alert">{localError}</p> : <SaveIndicator error={saveError} status={status} />}
 				control="inline"
-				description="Início e fim do expediente, no fuso da conta. O bot usa para escolher quando chamar você."
+				description="Seu expediente, no fuso da conta. O bot vai usar isso para não te chamar fora dele."
 				icon={BriefcaseIcon}
 				label="Horário de trabalho"
 				wrap

@@ -87,3 +87,7 @@ test("fluxo do container: início depois do fim não salva e mostra o erro; o pr
 	assert.doesNotMatch(view({ localError: valid.error }), /role="alert"/);
 	assert.deepEqual(resolveWorkHoursEdit({ start: "08:00", end: "18:00", days: [1] }, { toggleDay: 1 }), { save: null, error: WORK_HOURS_DAYS_ERROR });
 });
+
+test("texto do expediente só promete o que é verdade", () => {
+	assert.match(view(), /Seu expediente, no fuso da conta\. O bot vai usar isso para não te chamar fora dele\./);
+});
