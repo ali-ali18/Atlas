@@ -5,7 +5,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 ## [Não lançado]
 
 ### Adicionado
-- **agent:** o bot sabe a hora local (camada efêmera, sem invalidar o cache) e `propose_routine` aceita `in_minutes` para lembretes relativos calculados pelo servidor
+- **agent:** o bot sabe a hora local (camada efêmera, sem invalidar o cache) e `propose_routine` aceita `in_minutes` para lembretes relativos calculados pelo servidor (#108)
 - **agent:** corrige nome de ferramenta e argumentos malformados (#103)
 - **agent:** perfil do bot injetável no `runComputerUse` (#103)
 - **evals:** pacote de avaliação com cenários, runner com modelo real (diagnóstico modelo x harness) e cenário a partir de um run de produção (#103)
@@ -17,6 +17,14 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 - **agent, worker, api, db, web, auth:** pacote de desempenho: início do run sem esperas em série, buscas nativas em paralelo, `/v1/events` por LISTEN/NOTIFY, respostas comprimidas, sessão em cookie por 5 min, listas sem colunas JSON grandes, chat sem re-render por token (#104)
 
 ### Corrigido
+- **web:** a compactação aparece só como marcador, e o rascunho revisado não aparece mais na conversa (#108)
+- **worker, agent:** um soluço do banco não derruba o run (retoma do checkpoint), e uma gravação de evento que falha não trava as seguintes (#108)
+- **db:** um run que derruba o worker é interrompido depois de 3 recuperações sem progresso (#108)
+- **worker:** o "Parar" fecha o run na hora mesmo quando o cancelamento chega como lease perdido (#108)
+- **agent:** erro de argumento ou link morto não bloqueia a ferramenta pelo resto do run; o bloqueio expira em 3 passos (#108)
+- **agent:** subagente que não consultou nenhuma fonte volta como parcial, não como pesquisa feita (#108)
+- **mcp:** erro de negócio com número (ex.: "máximo 500") não vira mais "escrita incerta"; 5xx real continua incerto (#108)
+- **agent:** triagem de mensagem no meio do run com teto de saída suficiente e motivo da falha no log (#108)
 - **web:** a conversa não puxa mais para baixo quando o usuário subiu para ler enquanto o bot escreve (#107)
 - **agent:** entende abreviação e "deixa sem" como remover, a regra de rejeição informal (#104)
 - **web:** favicon com PNG RGBA (build com Turbopack falhava) (#104)
