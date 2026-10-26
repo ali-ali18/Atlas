@@ -288,6 +288,7 @@ function toRoutine(
 		groupId: row.groupId ?? null,
 		group: row.group ? { id: row.group.id, name: row.group.name } : null,
 		pageId: row.pageId ?? null,
+		template: row.template ?? null,
 		name: row.name,
 		prompt: row.prompt,
 		model: row.model,
@@ -826,6 +827,7 @@ export async function createRoutine(
 			conversationId: bot.conversationId,
 			groupId,
 			pageId,
+			template: input.template?.trim() || null,
 			name: input.name.trim(),
 			prompt: input.prompt,
 			model,
@@ -1247,6 +1249,18 @@ export async function getRoutineNotifyModeForAgentRun(agentRunId: string): Promi
 		select: { routine: { select: { notify: true } } },
 	});
 	return parseRoutineNotifyMode(row?.routine?.notify);
+}
+
+/** Modelo da rotina que originou este run (só se a rotina é do usuário; null = rotina comum ou run que não é de rotina). */
+export async function getRoutineTemplateForAgentRun(agentRunId: string, userId: string | undefined): Promise<string | null> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return null;
+	const row = await prisma.routineRun.findFirst({
+		where: { agentRunId, routine: { userId: { in: owners } } },
+		orderBy: { createdAt: "desc" },
+		select: { routine: { select: { template: true } } },
+	});
+	return row?.routine?.template ?? null;
 }
 
 /** Página que a rotina deste run atualiza no lugar (só se a rotina é do usuário; null = nenhuma). */

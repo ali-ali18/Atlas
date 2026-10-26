@@ -325,6 +325,7 @@ export {
 	findRoutineRunByAgentRunId,
 	getRoutineNotifyModeForAgentRun,
 	getRoutineAlertForAgentRun,
+	getRoutineTemplateForAgentRun,
 	getRoutineContextForAgentRun,
 	recordRoutineAlertState,
 	getRoutinePageIdForAgentRun,
