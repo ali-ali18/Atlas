@@ -1,4 +1,4 @@
-import { DAILY_BRIEF_TEMPLATE, type RoutineNotifyMode } from "@workspace/shared";
+import type { RoutineNotifyMode } from "@workspace/shared";
 
 /**
  * Entrega do brief "Seu dia". O run nasce SEM conversa (ver `runsDetachedFromChat`), então o fim do run não
@@ -20,9 +20,13 @@ export type BriefDeliveryDeps = {
 
 export type BriefDeliveryResult = { posted: boolean; pushed: boolean; reason?: string };
 
-/** Só o run da rotina "Seu dia", que nasceu sem conversa, é entregue por aqui. */
-export function isDetachedBriefRun(run: { origin?: string | null; conversationId?: string | null }, template: string | null | undefined): boolean {
-	return run.origin === "routine" && !run.conversationId && template === DAILY_BRIEF_TEMPLATE;
+/**
+ * Run de rotina sem conversa = brief "Seu dia" (só o brief nasce assim, ver `runsDetachedFromChat`): só leitura e
+ * entregue por aqui. Decidido pelo próprio run, sem consultar o banco: uma falha transitória na consulta do modelo
+ * da rotina não pode abrir as ferramentas de escrita (falha fechada).
+ */
+export function isDetachedBriefRun(run: { origin?: string | null; conversationId?: string | null }): boolean {
+	return run.origin === "routine" && !run.conversationId;
 }
 
 export async function deliverDailyBrief(

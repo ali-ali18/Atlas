@@ -55,12 +55,12 @@ test("sem texto, sem bot ou bot de outro dono: não entrega nada", async () => {
 	assert.equal(calls.appended.length + calls.pushed.length, 0);
 });
 
-test("isDetachedBriefRun: só o run de rotina sem conversa da rotina 'Seu dia'", () => {
-	assert.equal(isDetachedBriefRun({ origin: "routine", conversationId: null }, "daily_brief"), true);
-	assert.equal(isDetachedBriefRun({ origin: "routine", conversationId: "c" }, "daily_brief"), false);
-	assert.equal(isDetachedBriefRun({ origin: "routine", conversationId: null }, null), false);
-	assert.equal(isDetachedBriefRun({ origin: "chat", conversationId: null }, "daily_brief"), false);
-	assert.equal(isDetachedBriefRun({ origin: "proactive", conversationId: null }, "daily_brief"), false);
+test("isDetachedBriefRun: run de rotina sem conversa é brief (falha fechada, sem depender do banco)", () => {
+	assert.equal(isDetachedBriefRun({ origin: "routine", conversationId: null }), true);
+	assert.equal(isDetachedBriefRun({ origin: "routine" }), true);
+	assert.equal(isDetachedBriefRun({ origin: "routine", conversationId: "c" }), false);
+	assert.equal(isDetachedBriefRun({ origin: "chat", conversationId: null }), false);
+	assert.equal(isDetachedBriefRun({ origin: "proactive", conversationId: null }), false);
 });
 
 test("runsDetachedFromChat: só o modelo daily_brief", () => {

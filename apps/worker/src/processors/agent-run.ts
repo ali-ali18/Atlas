@@ -108,7 +108,6 @@ import {
 	getRoutineContextForAgentRun,
 	getRoutineNotifyModeForAgentRun,
 	getRoutinePageIdForAgentRun,
-	getRoutineTemplateForAgentRun,
 	getBotConversationId,
 	listActiveRunsForConversation as listActiveConversationRuns,
 	persistConversationCardFromEvent,
@@ -615,7 +614,6 @@ async function executeLeasedRun(ctx: {
 	// Rotina ligada a uma página: o run só pode atualizar essa página (o runtime trava as outras).
 	const routinePageIdPromise = run.origin === "routine" ? getRoutinePageIdForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
 	// Modelo da rotina ("Seu dia"): trava de leitura no run e entrega fora da conversa. Falha ao ler = rotina comum.
-	const routineTemplatePromise: Promise<string | null> = run.origin === "routine" ? getRoutineTemplateForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
 	// Rotina de alerta: o run só verifica a condição; o aviso (com debounce) é decidido depois do veredito.
 	const alertCtxPromise = run.origin === "routine" ? getRoutineAlertForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
 	// Triagem de mensagens do usuário durante o run: modelo barato de manutenção; falha = modelo do run.
@@ -976,7 +974,6 @@ async function executeLeasedRun(ctx: {
 	});
 	const routineNotify = await routineNotifyPromise;
 	const routinePageId = await routinePageIdPromise;
-	const routineTemplate = await routineTemplatePromise;
 	const userPushZone = (run.origin === "routine" && routineNotify === "important") || run.origin === "chat"
 		? (proactiveBot?.isPrimary === true ? accountTimezone : (await loadAccountConfig())?.general?.timezone)
 		: undefined;
@@ -1152,7 +1149,7 @@ async function executeLeasedRun(ctx: {
 			forcedConnectors: forcedConnectors.length > 0 ? forcedConnectors : undefined,
 			// Verificação de pendências da reflexão: só leitura (nativa ou conector que se declara somente leitura).
 			// Brief "Seu dia": só leitura, em código (nativa da lista do brief; conector só se declarado de leitura).
-			toolFilter: isDetachedBriefRun(run, routineTemplate)
+			toolFilter: isDetachedBriefRun(run)
 				? briefToolFilter(mcp)
 				: isRecheckObjective(run.origin, run.objective)
 					? (toolName: string) => isRecheckToolAllowed(toolName, mcp?.toolset.entries.get(toolName)?.readOnly)
@@ -1577,7 +1574,7 @@ async function executeLeasedRun(ctx: {
 			{
 				// "Seu dia" nasce sem conversa: a frase curta e o push saem daqui, na conversa do bot (ver daily-brief.ts).
 				name: "brief-delivery",
-				run: isDetachedBriefRun(run, routineTemplate)
+				run: isDetachedBriefRun(run)
 					? async () => {
 							const delivery = await deliverDailyBrief(
 								{ userId: runUserId, botId: run.botId, text: result.text, notify: routineNotify },
