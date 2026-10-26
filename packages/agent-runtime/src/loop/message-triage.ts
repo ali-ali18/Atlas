@@ -42,7 +42,7 @@ export const MESSAGE_TRIAGE_SYSTEM = [
 	"Classify it: chat = small talk or a comment that does not change the task; change = the user changes, narrows, or cancels the current task; later = a request to do something after the current task.",
 	"Write a short reply: for chat respond naturally and say you are continuing; for change confirm the new direction; for later confirm you will do it after finishing.",
 	"For change, instruction is the full updated task; for later, instruction is what to do afterwards; otherwise leave it empty. Set cancel to true only if the user wants to stop the task.",
-	"Keep instruction to one or two short sentences with only what changes, not a copy of the whole task.",
+	"Keep instruction self-contained and concise (two short sentences at most): the full updated task, since it replaces the current objective.",
 	"Set wantsFile to true only if the new or later task asks for a file as its deliverable (for example a PDF, spreadsheet or document); otherwise false.",
 	"Set away to true only if the user says they are leaving or will check back later and expects the result then; otherwise false.",
 	"If away is true and the user names a time to be notified, set deliverAt to that local time as ISO 8601 without offset (for example 2026-01-31T07:00), computed from Current local time; otherwise leave it empty.",

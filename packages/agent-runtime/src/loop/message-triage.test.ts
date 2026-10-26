@@ -80,6 +80,8 @@ describe("triageUserMessage", () => {
 	it("o teto de saída cobre o JSON completo de um 'pare tudo' (7 campos) e o prompt pede instrução curta", async () => {
 		expect(MESSAGE_TRIAGE_MAX_OUTPUT_TOKENS).toBe(400);
 		expect(MESSAGE_TRIAGE_SYSTEM).toContain("Keep instruction");
+		expect(MESSAGE_TRIAGE_SYSTEM).toContain("the full updated task");
+		expect(MESSAGE_TRIAGE_SYSTEM).not.toContain("only what changes");
 		let seen: CompleteChatWithToolsParams | undefined;
 		const full = JSON.stringify({
 			kind: "change",
