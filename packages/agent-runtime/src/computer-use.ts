@@ -69,6 +69,7 @@ import {
 	buildGithubSecurityReviewPrompt,
 	DAILY_BRIEF_TEMPLATE,
 	formatDailyBriefSummary,
+	type RoutineNotifyMode,
 	GITHUB_SECURITY_REVIEW_TEMPLATE,
 	formatIntervalSummary,
 	describeRoutineAlertSentence,
@@ -2649,7 +2650,7 @@ async function executeProposeRoutine(
 			? args.model.trim()
 			: undefined;
 	// Aviso: "important" = sem push automático, o bot avisa só quando vale; omitido mantém o atual (edit) ou "always" (create).
-	const notify = args.notify === "important" || args.notify === "always" ? args.notify : undefined;
+	let notify: RoutineNotifyMode | undefined = args.notify === "important" || args.notify === "always" ? args.notify : undefined;
 	// `alert`: undefined = não informado (edit mantém); null = condição vazia (edit remove o alerta); objeto = liga/troca.
 	let alertInput: RoutineAlertConfig | null | undefined;
 	if (args.alert !== undefined && args.alert !== null) {
@@ -2934,6 +2935,10 @@ async function executeProposeRoutine(
 		};
 	}
 	const previous = resolved.routine;
+	if (previous.template === DAILY_BRIEF_TEMPLATE) {
+		// Sempre avisa: o run do brief não tem notify_user.
+		notify = "always";
+	}
 	// Edit preserva o enabled/disabled atual quando o argumento não veio —
 	// nunca reativa uma rotina pausada só por editar outra coisa (prompt,
 	// gatilho, etc).

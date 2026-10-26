@@ -98,7 +98,8 @@ export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDep
 	const timezoneArg = typeof args.timezone === "string" && args.timezone.trim() ? args.timezone.trim() : undefined;
 	const timezone = timezoneArg ?? existing?.timezone ?? (await (deps.accountTimezone ?? defaultAccountTimezone)(deps.userId)) ?? FALLBACK_TIMEZONE;
 	const enabled = typeof args.enabled === "boolean" ? args.enabled : (existing?.enabled ?? true);
-	const notify: RoutineNotifyMode | undefined = args.notify === "important" || args.notify === "always" ? args.notify : undefined;
+	// Sempre "always": o run do brief não tem `notify_user`, então com "important" o brief nunca avisaria ninguém.
+	const notify: RoutineNotifyMode = "always";
 	const detail = typeof args.detail === "string" && args.detail.trim() ? args.detail.trim().slice(0, FOCUS_MAX_CHARS) : undefined;
 	const prompt = detail ?? existing?.prompt ?? DAILY_BRIEF_DEFAULT_FOCUS;
 	const pageId = await ensureBriefPage(deps, existing);
@@ -111,7 +112,7 @@ export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDep
 			schedule: parsed.schedule,
 			enabled,
 			timezone,
-			...(notify ? { notify } : {}),
+			notify,
 		});
 		if (!updated) throw new Error("could not update the daily brief routine right now");
 		return { routine: updated, created: false, pageId, sentence: formatDailyBriefSummary({ schedule: updated.schedule, enabled: updated.enabled }) };
@@ -126,7 +127,7 @@ export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDep
 		schedule: parsed.schedule,
 		enabled,
 		timezone,
-		notify: notify ?? "always",
+		notify,
 	});
 	return { routine, created: true, pageId, sentence: formatDailyBriefSummary({ schedule: routine.schedule, enabled: routine.enabled }) };
 }

@@ -196,6 +196,18 @@ describe("uma por bot e edição pela rotina normal", () => {
 		expect(updateRoutine).toHaveBeenCalledWith("user-1", "bot-1", "routine-brief", expect.objectContaining({ enabled: false, schedule: "30 7 * * 1-5" }));
 	});
 
+	it("notify 'important' não silencia o 'Seu dia': criar, pedir de novo e editar mantêm 'always'", async () => {
+		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: briefRoutine() } as never);
+		await run("me prepara o dia, avisa só o importante", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron", notify: "important" })], pagesStore().store);
+		expect(createRoutine).toHaveBeenCalledWith("user-1", expect.objectContaining({ notify: "always" }));
+		vi.mocked(listRoutines).mockResolvedValue([briefRoutine()]);
+		vi.mocked(updateRoutine).mockResolvedValue(briefRoutine() as never);
+		await run("me prepara o dia de novo", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron", notify: "important" })], pagesStore().store);
+		expect(updateRoutine).toHaveBeenLastCalledWith("user-1", "bot-1", "routine-brief", expect.objectContaining({ notify: "always" }));
+		await run("muda a rotina Seu dia para avisar só o importante", [toolCall("c1", "propose_routine", { action: "edit", target: "Seu dia", trigger_type: "cron", notify: "important" })], pagesStore().store);
+		expect(updateRoutine).toHaveBeenLastCalledWith("user-1", "bot-1", "routine-brief", expect.objectContaining({ notify: "always" }));
+	});
+
 	it("horário que roda mais de uma vez por dia falha com a lista do que é aceito e não grava", async () => {
 		const { toolResults } = await run("me prepara o dia a cada 5 minutos", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron", schedule: "*/5 * * * *" })], pagesStore().store);
 		expect(toolResults[0]).toMatchObject({ ok: false });
