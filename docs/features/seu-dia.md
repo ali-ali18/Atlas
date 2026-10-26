@@ -23,7 +23,7 @@ Começar o dia é abrir e-mail, agenda, chat e as ferramentas do negócio uma po
 - **Vigia do dia, rascunhos e aprendizado:** fora do escopo da F1 (F2 a F4 do plano).
 
 ## Como funciona
-1. **Criação por chat.** `propose_routine` com `template=daily_brief` (`packages/agent-runtime/src/tools/daily-brief.ts`). Cron de uma execução por dia (padrão `30 7 * * 1-5`, no fuso da conta; recusa horário que roda mais de uma vez por dia). Cria o painel "Seu dia" se faltar (reusa o do bot se existir), liga à rotina, aviso "sempre". Uma por bot: pedir de novo edita a existente. Horário, dias e pausa vão pelo edit normal (`action=edit target="Seu dia"`, sem reenviar o prompt). O procedimento mora no grupo lazy de rotinas (`prompt-blocks.ts`), carregado por "me prepara o dia", "resumo do meu dia" etc. (`intent-router.ts`).
+1. **Criação por chat.** `propose_routine` com `template=daily_brief` (`packages/agent-runtime/src/tools/daily-brief.ts`). Cron de uma execução por dia (padrão `30 7 * * 1-5`, no fuso da conta; recusa horário que roda mais de uma vez por dia). Cria o painel "Seu dia" se faltar (só reaproveita o já ligado à rotina; se o título já é de outro painel, o novo vira "Seu dia (resumo)"), liga à rotina, aviso sempre "sempre" (também no edit). Uma por bot: pedir de novo edita a existente. Horário, dias e pausa vão pelo edit normal (`action=edit target="Seu dia"`, sem reenviar o prompt). O procedimento mora no grupo lazy de rotinas (`prompt-blocks.ts`), carregado por "me prepara o dia", "resumo do meu dia" etc. (`intent-router.ts`).
 2. **Marca da rotina.** Coluna nula `routines.template` (migration `20261202000000_routine_template`). Define as travas do run.
 3. **Fontes.** `categorizeSource` (`packages/shared/src/source-category.ts`) cobre o catálogo nativo, os toolkits do Composio (por prefixo da tool) e conectores de API (negócio por padrão). `listBriefSources` (`tools/daily-brief-sources.ts`) lista só as conexões do dono, com a categoria e só as tools de leitura; login expirado vira `needsReconnect`. O bloco `[SOURCES]` (dado não confiável) entra só no turno do brief.
 4. **Execução.** O worker (`processors/routine.ts`) monta o turno com `[PAGE TARGET]`, `[DAILY BRIEF]` (instruções em inglês, `shared/daily-brief.ts`) e `[SOURCES]`. O modelo preenche o painel (Agenda de hoje, Pedem você, Prioridades do dia, O que já adiantei) e responde uma linha em pt-BR. Falha de autenticação vira a linha "Reconecte <fonte>" no painel, nunca erro técnico.
@@ -43,8 +43,11 @@ Consequência: sem conversa, o fim do run não grava a resposta nem manda o push
 - **Frase não entra no chat quando há tarefa ativa:** ver acima; aceitável na F1.
 - **Muito conteúdo:** instruções limitam a 50 e-mails por execução e proíbem copiar corpo inteiro.
 - **Fuso e horário de verão:** cron com fuso da rotina (copiado do fuso da conta na criação); `now` injetado nos testes.
-- **Painel apagado:** a execução é pulada com "Painel apagado" (regra existente das rotinas com painel); pedir de novo recria.
+- **Painel apagado:** apagar zera o `pageId` da rotina; o job recria o painel e religa antes de rodar (se não conseguir, pula com o motivo).
 - **Interface:** o card e a lista de rotinas mostram o cron cru fora do card de criação (o card traz a frase). Resumo amigável na lista fica para a F3.
+
+## Deploy
+Rode a migration antes da nova api/worker (o deploy da imagem já faz isso). Durante um deploy misto, um worker antigo trata o `daily_brief` como rotina comum (adiável e sem o filtro de leitura): risco baixo, porque roda uma vez por dia. A trava do run novo não depende de consulta ao banco: run de rotina sem conversa é sempre brief (falha fechada).
 
 ## Custo
 Uma execução de modelo por dia útil por usuário com o brief ligado, com teto de 50 e-mails e as leituras do dia. Nenhuma chamada de modelo quando o brief está desligado. O custo em dólares não foi medido nesta fase (depende do modelo e das fontes); medir nos primeiros dias de uso antes da F3. Sem custo no "Bom dia": o grupo lazy não carrega (teste de economia).
