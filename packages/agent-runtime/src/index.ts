@@ -455,6 +455,7 @@ export {
 	type ComposioToolkitSort,
 } from "./mcp/composio/client.js";
 export { withoutNativeDuplicates } from "./mcp/composio/records.js";
+export { briefToolFilter, upsertDailyBrief } from "./tools/daily-brief.js";
 export { listBriefSources, type BriefSourcesDeps } from "./tools/daily-brief-sources.js";
 export { findSimilarSkill } from "./tools/skills.js";
 export {
