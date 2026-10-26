@@ -5,10 +5,11 @@ import type {
 	ExecuteRoutineJobResult,
 	NormalizedGithubEvent,
 } from "@workspace/shared";
-import { ATLAS_JOB_NAMES, EMAIL_EVENT_PROVIDER, formatEmailEventFields, isEmailEventPayload } from "@workspace/shared";
+import { ATLAS_JOB_NAMES, DAILY_BRIEF_TEMPLATE, EMAIL_EVENT_PROVIDER, buildDailyBriefInstructions, formatBriefSourcesBlock, formatEmailEventFields, isEmailEventPayload } from "@workspace/shared";
 import {
 	attachAgentRunToRoutineRun,
 	createAgentRun,
+	createDetachedProactiveRun,
 	createRoutineRun,
 	expireStaleQueuedRoutineRuns,
 	findRoutineRunByAgentRunId,
@@ -22,9 +23,10 @@ import {
 	parseRoutineTriggerJson,
 	prisma,
 } from "@workspace/db";
+import { listBriefSources } from "@workspace/agent-runtime";
 import type { AgentRunQueue } from "@workspace/queue";
 import type { WorkerConfig } from "../config.js";
-import { formatRoutineLogLine, planBusyHandling, type BusyKind } from "./routine-defer.js";
+import { formatRoutineLogLine, planBusyHandling, runsDetachedFromChat, type BusyKind } from "./routine-defer.js";
 
 type RoutineJobOutcome = ExecuteRoutineJobResult & { reason?: string };
 /** Janela em que uma retentativa ainda reaproveita a RoutineRun da 1ª tentativa. */
@@ -234,8 +236,10 @@ export function buildUserTurn(
 	payload: ExecuteRoutineJobPayload,
 	lastRunAt?: string | null,
 	page?: { id: string; title: string } | null,
+	/** Brief "Seu dia": instruções e catálogo de fontes só desta rotina (nunca no prompt sempre carregado). */
+	brief?: { instructions: string; sourcesBlock: string } | null,
 ): string {
-	const task = routinePrompt.trim() || routineName;
+	const task = brief ? "Build the daily brief as instructed in [DAILY BRIEF]." : routinePrompt.trim() || routineName;
 	const header = [
 		"[EXECUÇÃO DE ROTINA]",
 		`nome=${routineName}`,
@@ -249,6 +253,7 @@ export function buildUserTurn(
 		"[/EXECUÇÃO DE ROTINA]",
 		"",
 		...(page ? [formatPageTargetBlock(page), ""] : []),
+		...(brief ? [brief.instructions, "", brief.sourcesBlock, ""] : []),
 		"Tarefa:",
 		task,
 	].join("\n");
@@ -457,7 +462,9 @@ async function runRoutineJob(
 		routine.pageId ? await getPageForUser(routine.pageId, routineUserId).catch(() => null) : null,
 	);
 	if (pagePlan.kind === "skip") return skip(pagePlan.reason);
-	if (bot.conversationId) {
+	// "Seu dia" roda sem conversa (ver `runsDetachedFromChat`): chat em andamento não adia nem pula o brief.
+	const detached = runsDetachedFromChat(routine.template);
+	if (bot.conversationId && !detached) {
 		const active = await listActiveRunsForConversation(bot.conversationId);
 		if (active.length > 0) {
 			return busy("bot_busy", active.map((run) => run.status));
@@ -508,20 +515,36 @@ async function runRoutineJob(
 	const lastRunAt = await getLastCompletedRoutineRunAt(routineUserId, routine.id).catch(
 		() => null,
 	);
-	const userTurn = buildUserTurn(routine.prompt, routine.name, payload, lastRunAt, pagePlan.kind === "target" ? pagePlan.page : null);
+	// Fontes do brief: só as conexões do dono da rotina, com a categoria e as tools de leitura (dado, não instrução).
+	const brief = routine.template === DAILY_BRIEF_TEMPLATE
+		? {
+				instructions: buildDailyBriefInstructions({ focus: routine.prompt }),
+				sourcesBlock: formatBriefSourcesBlock(await listBriefSources(routineUserId).catch(() => [])),
+			}
+		: null;
+	const userTurn = buildUserTurn(routine.prompt, routine.name, payload, lastRunAt, pagePlan.kind === "target" ? pagePlan.page : null, brief);
 	let agentRun;
 	try {
-		// Sempre origin:"routine" — nunca "webhook".
-		agentRun = await createAgentRun({
-			userId: routineUserId,
-			model,
-			request: {
-				botId: routine.botId,
-				origin: "routine",
-				objective: userTurn,
-				messages: [{ role: "user", content: userTurn }],
-			},
-		});
+		// Sempre origin:"routine" — nunca "webhook". O brief nasce sem conversa (não disputa o run ativo do chat).
+		agentRun = detached
+			? await createDetachedProactiveRun({
+					userId: routineUserId,
+					botId: routine.botId,
+					model,
+					objective: userTurn,
+					messages: [{ role: "user", content: userTurn }],
+					origin: "routine",
+				})
+			: await createAgentRun({
+					userId: routineUserId,
+					model,
+					request: {
+						botId: routine.botId,
+						origin: "routine",
+						objective: userTurn,
+						messages: [{ role: "user", content: userTurn }],
+					},
+				});
 	} catch (error) {
 		const message =
 			error instanceof Error ? error.message : "Falha ao criar AgentRun";

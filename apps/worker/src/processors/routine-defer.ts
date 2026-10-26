@@ -1,4 +1,4 @@
-import type { ExecuteRoutineJobResult, RoutineTriggeredBy } from "@workspace/shared";
+import { DAILY_BRIEF_TEMPLATE, type ExecuteRoutineJobResult, type RoutineTriggeredBy } from "@workspace/shared";
 
 /** Janela máxima de adiamento de um disparo por evento antes de virar "pulada". */
 export const ROUTINE_DEFER_MAX_MS = 30 * 60_000;
@@ -9,6 +9,16 @@ export const ROUTINE_DEFER_DELAY_MS = 90_000;
 const BLOCKED_ON_HUMAN = new Set(["paused", "waiting_user", "waiting_external"]);
 
 export type BusyKind = "bot_busy" | "overlap";
+
+/**
+ * Rotina que nunca espera a conversa: o brief "Seu dia" (hora marcada, o usuário quer o painel pronto cedo).
+ * Ela roda SEM conversa, como a reflexão diária (`createDetachedProactiveRun`): o índice único "um run ativo por
+ * conversa" não a alcança, então não há o que adiar nem pular por causa de um chat em andamento. Só sobreposição
+ * da própria rotina (o brief de ontem ainda rodando) continua pulando.
+ */
+export function runsDetachedFromChat(template: string | null | undefined): boolean {
+	return template === DAILY_BRIEF_TEMPLATE;
+}
 
 export type BusyPlan =
 	| { action: "defer"; delayMs: number; reason: string }

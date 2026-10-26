@@ -108,6 +108,9 @@ import {
 	getRoutineContextForAgentRun,
 	getRoutineNotifyModeForAgentRun,
 	getRoutinePageIdForAgentRun,
+	getRoutineTemplateForAgentRun,
+	getBotConversationId,
+	listActiveRunsForConversation as listActiveConversationRuns,
 	persistConversationCardFromEvent,
 	recordRoutineAlertState,
 } from "@workspace/db";
@@ -133,7 +136,8 @@ import {
 	runComputerUse,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { briefToolFilter, budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { deliverDailyBrief, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage } from "@workspace/db";
 import {
 	AUTO_CONTINUE_MAX,
@@ -610,6 +614,8 @@ async function executeLeasedRun(ctx: {
 	const routineNotifyPromise: Promise<RoutineNotifyMode> = run.origin === "routine" ? getRoutineNotifyModeForAgentRun(runId).catch(() => "always" as const) : Promise.resolve("always");
 	// Rotina ligada a uma página: o run só pode atualizar essa página (o runtime trava as outras).
 	const routinePageIdPromise = run.origin === "routine" ? getRoutinePageIdForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
+	// Modelo da rotina ("Seu dia"): trava de leitura no run e entrega fora da conversa. Falha ao ler = rotina comum.
+	const routineTemplatePromise: Promise<string | null> = run.origin === "routine" ? getRoutineTemplateForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
 	// Rotina de alerta: o run só verifica a condição; o aviso (com debounce) é decidido depois do veredito.
 	const alertCtxPromise = run.origin === "routine" ? getRoutineAlertForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
 	// Triagem de mensagens do usuário durante o run: modelo barato de manutenção; falha = modelo do run.
@@ -970,6 +976,7 @@ async function executeLeasedRun(ctx: {
 	});
 	const routineNotify = await routineNotifyPromise;
 	const routinePageId = await routinePageIdPromise;
+	const routineTemplate = await routineTemplatePromise;
 	const userPushZone = (run.origin === "routine" && routineNotify === "important") || run.origin === "chat"
 		? (proactiveBot?.isPrimary === true ? accountTimezone : (await loadAccountConfig())?.general?.timezone)
 		: undefined;
@@ -1144,9 +1151,12 @@ async function executeLeasedRun(ctx: {
 			// `@App` do usuário neste turno: as tools desses conectores já entram no 1º passo.
 			forcedConnectors: forcedConnectors.length > 0 ? forcedConnectors : undefined,
 			// Verificação de pendências da reflexão: só leitura (nativa ou conector que se declara somente leitura).
-			toolFilter: isRecheckObjective(run.origin, run.objective)
-				? (toolName: string) => isRecheckToolAllowed(toolName, mcp?.toolset.entries.get(toolName)?.readOnly)
-				: undefined,
+			// Brief "Seu dia": só leitura, em código (nativa da lista do brief; conector só se declarado de leitura).
+			toolFilter: isDetachedBriefRun(run, routineTemplate)
+				? briefToolFilter(mcp)
+				: isRecheckObjective(run.origin, run.objective)
+					? (toolName: string) => isRecheckToolAllowed(toolName, mcp?.toolset.entries.get(toolName)?.readOnly)
+					: undefined,
 			autonomy,
 			skillIndex,
 			...(runLessons.length > 0 && run.botId
@@ -1564,6 +1574,24 @@ async function executeLeasedRun(ctx: {
 			},
 			{ name: "follow-up", run: () => chainRunFollowUp(run, runUserId, deps) },
 			{ name: "delivery", run: () => settleDelivery(result.hitWall ? "budget_exhausted" : "completed", noUpdate ? null : result.text) },
+			{
+				// "Seu dia" nasce sem conversa: a frase curta e o push saem daqui, na conversa do bot (ver daily-brief.ts).
+				name: "brief-delivery",
+				run: isDetachedBriefRun(run, routineTemplate)
+					? async () => {
+							const delivery = await deliverDailyBrief(
+								{ userId: runUserId, botId: run.botId, text: result.text, notify: routineNotify },
+								{
+									conversationOf: getBotConversationId,
+									hasActiveRun: async (conversationId) => (await listActiveConversationRuns(conversationId)).length > 0,
+									appendMessage: (conversationId, text) => appendConversationMessage(conversationId, "assistant", text, "routine"),
+									push: deps.notify ? (userId, conversationId, text) => deps.notify!(userId, conversationId, "reminder", text) : undefined,
+								},
+							);
+							console.log(`[brief] run=${runId} posted=${delivery.posted} pushed=${delivery.pushed}${delivery.reason ? ` reason=${JSON.stringify(delivery.reason)}` : ""}`);
+						}
+					: undefined,
+			},
 			{
 				// Push: terminou (ou lembrete/rotina). O notify cuida de switch do bot, "está olhando", protocolo e coalescência.
 				name: "push",
