@@ -52,13 +52,17 @@ async function defaultAccountTimezone(userId: string): Promise<string | undefine
 	return (await getAccountConfig(userId).catch(() => null))?.general?.timezone || undefined;
 }
 
-/** Painel "Seu dia" do bot: o já ligado à rotina, senão um com o mesmo título, senão um novo (nunca duplica). */
-async function ensureBriefPage(deps: DailyBriefDeps, existing: RoutineRecord | undefined): Promise<string> {
+/**
+ * Painel do brief: só reaproveita o já ligado à rotina (e deste bot). Nunca adota um painel do usuário só porque
+ * o título bate: o brief reescreve o painel inteiro a cada execução. Sem painel ligado, cria um novo; se o título
+ * "Seu dia" já é de outro painel do bot, o novo se chama "Seu dia (resumo)".
+ */
+export async function ensureBriefPage(deps: Pick<DailyBriefDeps, "userId" | "botId" | "conversationId" | "pages">, existing: Pick<RoutineRecord, "pageId"> | undefined): Promise<string> {
 	if (existing?.pageId && (await deps.pages.get(existing.pageId, deps.userId))?.botId === deps.botId) return existing.pageId;
-	const pages = await deps.pages.list(deps.userId, deps.botId);
-	const byTitle = pages.find((page) => page.title.trim().toLowerCase() === DAILY_BRIEF_PAGE_TITLE.toLowerCase());
-	if (byTitle) return byTitle.id;
-	const spec = parsePageSpec(dailyBriefPlaceholderSpec());
+	const taken = new Set((await deps.pages.list(deps.userId, deps.botId)).map((page) => page.title.trim().toLowerCase()));
+	let title: string = DAILY_BRIEF_PAGE_TITLE;
+	for (let n = 1; taken.has(title.toLowerCase()); n += 1) title = `${DAILY_BRIEF_PAGE_TITLE} (resumo${n > 1 ? ` ${n}` : ""})`;
+	const spec = parsePageSpec({ ...dailyBriefPlaceholderSpec(), title });
 	if (!spec.ok) throw new Error(`could not build the "${DAILY_BRIEF_PAGE_TITLE}" page: ${spec.error}`);
 	const page = await deps.pages.create(deps.userId, { botId: deps.botId, conversationId: deps.conversationId ?? null, spec: spec.spec, sources: [] });
 	if (!page) throw new Error(`could not create the "${DAILY_BRIEF_PAGE_TITLE}" page for this bot`);

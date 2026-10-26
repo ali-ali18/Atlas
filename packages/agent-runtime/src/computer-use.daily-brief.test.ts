@@ -143,12 +143,21 @@ describe("pedido por chat: 'me prepara o dia às 7h30'", () => {
 		expect(system).not.toContain("Morning brief");
 	});
 
-	it("reaproveita o painel 'Seu dia' que já existe (não cria outro)", async () => {
+	it("painel do usuário chamado 'Seu dia' (não ligado à rotina) não é adotado nem sobrescrito: cria outro com título livre", async () => {
 		const pages = pagesStore([{ id: "page-old", title: "Seu dia", botId: "bot-1" }]);
-		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: briefRoutine({ pageId: "page-old" }) } as never);
+		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: briefRoutine({ pageId: "page-new-2" }) } as never);
+		await run("me prepara o dia", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron" })], pages.store);
+		expect(pages.created).toEqual([{ title: "Seu dia (resumo)" }]);
+		expect(createRoutine).toHaveBeenCalledWith("user-1", expect.objectContaining({ pageId: "page-new-2" }));
+	});
+
+	it("o painel já ligado à rotina é o que se reaproveita (editar não cria outro)", async () => {
+		vi.mocked(listRoutines).mockResolvedValue([briefRoutine({ pageId: "page-brief" })]);
+		vi.mocked(updateRoutine).mockResolvedValue(briefRoutine() as never);
+		const pages = pagesStore([{ id: "page-brief", title: "Seu dia", botId: "bot-1" }]);
 		await run("me prepara o dia", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron" })], pages.store);
 		expect(pages.created).toEqual([]);
-		expect(createRoutine).toHaveBeenCalledWith("user-1", expect.objectContaining({ pageId: "page-old" }));
+		expect(updateRoutine).toHaveBeenCalledWith("user-1", "bot-1", "routine-brief", expect.objectContaining({ pageId: "page-brief" }));
 	});
 
 	it("painel 'Seu dia' de OUTRO bot não é reaproveitado", async () => {
