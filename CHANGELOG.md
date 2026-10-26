@@ -5,6 +5,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 ## [Não lançado]
 
 ### Adicionado
+- **agent:** o bot sabe a hora local (camada efêmera, sem invalidar o cache) e `propose_routine` aceita `in_minutes` para lembretes relativos calculados pelo servidor
 - **agent:** corrige nome de ferramenta e argumentos malformados (#103)
 - **agent:** perfil do bot injetável no `runComputerUse` (#103)
 - **evals:** pacote de avaliação com cenários, runner com modelo real (diagnóstico modelo x harness) e cenário a partir de um run de produção (#103)

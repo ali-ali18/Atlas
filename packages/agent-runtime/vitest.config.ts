@@ -10,6 +10,8 @@ export default defineConfig({
 		// produção, então a suíte roda como produção. Teste que precisa do conjunto completo
 		// de tools passa `contextEconomy: false` e diz por quê.
 		// Typecheck em segundo plano depois de editar só roda onde o teste liga de propósito.
-		env: { ATLAS_CONTEXT_ECONOMY: "on", DEV_AFTER_EDIT_DIAGNOSTICS: "off" },
+		// A nota de data e hora é uma camada efêmera no fim de todo pedido; fica desligada aqui para as suítes
+		// que fixam o formato exato do pedido (prefixo, último item). Quem testa a nota liga com `vi.stubEnv`.
+		env: { ATLAS_CONTEXT_ECONOMY: "on", DEV_AFTER_EDIT_DIAGNOSTICS: "off", ATLAS_NOW_NOTE: "off" },
 	},
 });

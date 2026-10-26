@@ -2020,6 +2020,188 @@ describe("replay: 'me lembra de dar deploy dia 03/10 às 10h e às 20h aqui pelo
 	});
 });
 
+describe("replay: 'me lembra daqui 30 minutos de tomar água' (in_minutes)", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-25T17:32:00Z"));
+		vi.stubEnv("ATLAS_NOW_NOTE", "on");
+		vi.clearAllMocks();
+		vi.mocked(listRoutines).mockResolvedValue([]);
+		vi.mocked(getBotProfile).mockResolvedValue({
+			name: "Bot",
+			snippet: "",
+			description: "Bot de suporte já configurado",
+			openRouterModel: null,
+			language: "pt-BR",
+		} as never);
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.unstubAllEnvs();
+	});
+
+	it("a hora vai numa camada efêmera no fim: o prefixo (sistema e histórico) não muda quando o minuto muda", async () => {
+		const ask = async (iso: string) => {
+			vi.setSystemTime(new Date(iso));
+			const requests: LlmMessage[][] = [];
+			await runComputerUse({
+				manager: {} as unknown as SandboxManager,
+				getSessionId: async () => "session-prefix",
+				model: "test-model",
+				apiKey: "test",
+				messages: [{ role: "user", content: "Bom dia" }],
+				runId: "run-prefix",
+				conversationId: "conv-prefix",
+				botId: "bot-1",
+				maxSteps: 2,
+				onEvent: () => {},
+				streamChat: async (params) => {
+					requests.push(params.messages);
+					return { model: "test-model", message: { role: "assistant", content: "Bom dia!" } };
+				},
+			});
+			return requests[0]!;
+		};
+		const early = await ask("2026-10-25T17:32:00Z");
+		const later = await ask("2026-10-25T17:40:00Z");
+		expect(String(early[0]!.content)).not.toContain("Now is");
+		expect(String(early.at(-1)!.content)).toContain("Now is 2026-10-25 14:32");
+		expect(String(later.at(-1)!.content)).toContain("Now is 2026-10-25 14:40");
+		expect(later.slice(0, -1)).toEqual(early.slice(0, -1));
+	});
+
+	it("a tool recebe in_minutes, o servidor calcula agora+30min e o prompt do passo 1 traz a hora local", async () => {
+		const expectedRunAt = "2026-10-25T18:02:00.000Z";
+		vi.mocked(createRoutine).mockResolvedValueOnce({
+			routine: {
+				id: "routine-agua",
+				userId: "default",
+				botId: "bot-1",
+				conversationId: null,
+				name: "Tomar água",
+				prompt: "Lembra de tomar água.",
+				model: "",
+				enabled: true,
+				triggerType: "once" as const,
+				schedule: null,
+				timezone: "America/Sao_Paulo",
+				lastRunAt: null,
+				createdAt: new Date(0).toISOString(),
+				updatedAt: new Date(0).toISOString(),
+				once: { runAt: expectedRunAt },
+			},
+		} as never);
+		const prompts: string[] = [];
+		const routineEvents: { action: string; detail?: string }[] = [];
+		const toolResults: { ok: boolean; summary: string }[] = [];
+		const llmQueue: CompleteChatWithToolsResult[] = [
+			{
+				model: "test-model",
+				message: {
+					role: "assistant",
+					content: null,
+					tool_calls: [
+						{
+							id: "call-agua",
+							type: "function",
+							function: {
+								name: "propose_routine",
+								arguments: JSON.stringify({
+									action: "create",
+									title: "Tomar água",
+									detail: "Lembra de tomar água.",
+									trigger_type: "once",
+									in_minutes: 30,
+								}),
+							},
+						},
+					],
+				},
+			},
+			{ model: "test-model", message: { role: "assistant", content: "Pronto, te aviso em 30 minutos." } },
+		];
+		await runComputerUse({
+			manager: {} as unknown as SandboxManager,
+			getSessionId: async () => "session-agua",
+			model: "test-model",
+			apiKey: "test",
+			messages: [{ role: "user", content: "me lembra daqui 30 minutos de tomar água" }],
+			runId: "run-agua",
+			conversationId: "conv-agua",
+			botId: "bot-1",
+			maxSteps: 4,
+			onEvent: (event) => {
+				if (event.type === "routine") routineEvents.push({ action: event.action, detail: event.detail });
+				if (event.type === "tool_result" && event.name === "propose_routine") toolResults.push({ ok: event.ok, summary: event.summary });
+			},
+			streamChat: async (params) => {
+				prompts.push(params.messages.map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content))).join("\n"));
+				const next = llmQueue.shift();
+				if (!next) throw new Error("LLM extra");
+				return next;
+			},
+		});
+
+		expect(prompts[0]).toContain("Now is 2026-10-25 14:32 (domingo), timezone America/Sao_Paulo");
+		expect(createRoutine).toHaveBeenCalledTimes(1);
+		expect(createRoutine).toHaveBeenCalledWith(
+			"default",
+			expect.objectContaining({ triggerType: "once", trigger: { kind: "once", runAt: expectedRunAt } }),
+		);
+		expect(toolResults).toHaveLength(1);
+		expect(toolResults[0]!.ok).toBe(true);
+		expect(toolResults[0]!.summary).toContain("15:02");
+		expect(routineEvents).toHaveLength(1);
+		expect(routineEvents[0]!.action).toBe("created");
+	});
+
+	it("run_at e in_minutes juntos (ou nenhum) não criam nada e voltam o erro ao modelo", async () => {
+		const toolResults: { ok: boolean; summary: string }[] = [];
+		const call = (id: string, extra: Record<string, unknown>) => ({
+			id,
+			type: "function" as const,
+			function: {
+				name: "propose_routine",
+				arguments: JSON.stringify({ action: "create", title: "X", detail: "Y", trigger_type: "once", ...extra }),
+			},
+		});
+		const llmQueue: CompleteChatWithToolsResult[] = [
+			{
+				model: "test-model",
+				message: {
+					role: "assistant",
+					content: null,
+					tool_calls: [call("both", { run_at: "2026-10-26T10:00", in_minutes: 30 }), call("none", {})],
+				},
+			},
+			{ model: "test-model", message: { role: "assistant", content: "Não consegui." } },
+		];
+		await runComputerUse({
+			manager: {} as unknown as SandboxManager,
+			getSessionId: async () => "session-agua-2",
+			model: "test-model",
+			apiKey: "test",
+			messages: [{ role: "user", content: "me lembra daqui 30 minutos de tomar água" }],
+			runId: "run-agua-2",
+			conversationId: "conv-agua-2",
+			botId: "bot-1",
+			maxSteps: 4,
+			onEvent: (event) => {
+				if (event.type === "tool_result" && event.name === "propose_routine") toolResults.push({ ok: event.ok, summary: event.summary });
+			},
+			streamChat: async () => {
+				const next = llmQueue.shift();
+				if (!next) throw new Error("LLM extra");
+				return next;
+			},
+		});
+		expect(createRoutine).not.toHaveBeenCalled();
+		expect(toolResults).toHaveLength(2);
+		expect(toolResults[0]!.summary).toContain("run_at OU in_minutes");
+		expect(toolResults[1]!.summary).toContain("informe run_at");
+	});
+});
+
 describe("SYSTEM_PROMPT: regras de lembrete e honestidade", () => {
 	it("instrui lembrete 'once' por horário e não substituir pelo calendário", () => {
 		expect(SYSTEM_PROMPT).toContain("Lembretes:");

@@ -3,6 +3,7 @@ import {
 	formatOnceSummary,
 	parseOnceRunAt,
 	planOnceRoutine,
+	resolveOnceRunAt,
 	shouldAutoDeleteAfterRun,
 } from "./routine-once.js";
 
@@ -106,5 +107,31 @@ describe("shouldAutoDeleteAfterRun", () => {
 		expect(shouldAutoDeleteAfterRun("once")).toBe(true);
 		expect(shouldAutoDeleteAfterRun("cron")).toBe(false);
 		expect(shouldAutoDeleteAfterRun("event")).toBe(false);
+	});
+});
+
+describe("resolveOnceRunAt", () => {
+	it("in_minutes: now + N minutos, calculado pelo servidor", () => {
+		expect(resolveOnceRunAt({ inMinutes: 30 }, NOW)).toEqual({ ok: true, runAtIso: "2026-09-28T12:30:00.000Z" });
+		expect(resolveOnceRunAt({ inMinutes: 1 }, NOW)).toEqual({ ok: true, runAtIso: "2026-09-28T12:01:00.000Z" });
+		expect(resolveOnceRunAt({ inMinutes: 10080 }, NOW)).toEqual({ ok: true, runAtIso: "2026-10-05T12:00:00.000Z" });
+	});
+
+	it("run_at sozinho segue o parse de sempre", () => {
+		expect(resolveOnceRunAt({ runAt: "2026-10-03T10:00" }, NOW)).toEqual(parseOnceRunAt({ runAt: "2026-10-03T10:00" }, NOW));
+	});
+
+	it("erra com os dois ou com nenhum", () => {
+		const both = resolveOnceRunAt({ runAt: "2026-10-03T10:00", inMinutes: 30 }, NOW);
+		expect(both.ok).toBe(false);
+		const neither = resolveOnceRunAt({}, NOW);
+		expect(neither.ok).toBe(false);
+		expect(resolveOnceRunAt({ runAt: "  " }, NOW).ok).toBe(false);
+	});
+
+	it("rejeita in_minutes fora de 1..10080 ou não inteiro", () => {
+		for (const bad of [0, -5, 10081, 1.5, "30", Number.NaN]) {
+			expect(resolveOnceRunAt({ inMinutes: bad }, NOW).ok).toBe(false);
+		}
 	});
 });

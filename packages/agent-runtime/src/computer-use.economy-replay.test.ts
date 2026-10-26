@@ -342,7 +342,8 @@ describe("disciplina de execução por família de modelo (prefixo estável)", (
 		expect(claude).not.toContain("valid JSON that matches the schema");
 		// Fica no prefixo estável: antes do índice de tools adiadas e da data de hoje.
 		expect(deepseek.indexOf("Execution discipline:")).toBeLessThan(deepseek.indexOf("Built-in tools loaded on demand"));
-		expect(deepseek.indexOf("Execution discipline:")).toBeLessThan(deepseek.indexOf("Today is"));
+		// A data e hora (muda a cada minuto) não fica no sistema: vai numa camada efêmera no fim do pedido.
+		expect(deepseek).not.toContain("\nNow is ");
 		// Mesmo modelo, mesmos bytes (cache).
 		expect(await systemFor("deepseek/deepseek-chat")).toBe(deepseek);
 	});

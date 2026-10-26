@@ -461,6 +461,8 @@ export * from "./routine-failure-text.js";
 export {
 	isOnceTrigger,
 	parseOnceRunAt,
+	resolveOnceRunAt,
+	MAX_ONCE_IN_MINUTES,
 	formatOnceSummary,
 	planOnceRoutine,
 	shouldAutoDeleteAfterRun,
