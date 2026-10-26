@@ -86,6 +86,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
 	{ id: "notificacoes.celular", section: "notificacoes", label: "Notificações no celular", keywords: ["push", "aviso", "alerta", "celular", "notificar", "terminou", "precisa de você", "pwa", "testar"] },
 	{ id: "notificacoes.aparelhos", section: "notificacoes", label: "Aparelhos com notificações", keywords: ["push", "celular", "dispositivos", "remover", "notificações"] },
 	{ id: "geral.fuso", section: "geral", label: "Fuso horário", keywords: ["horário", "timezone", "agendamento", "lembretes", "rotinas", "modo proativo", "silêncio"] },
+	{ id: "geral.horario", section: "geral", label: "Horário de trabalho", keywords: ["expediente", "dias úteis", "segunda a sexta", "horário comercial", "trabalho", "fim de semana", "avisos", "brief"] },
 	{ id: "geral.reflexao", section: "bots", label: "Reflexão diária", keywords: ["reflexão", "refletir", "memória", "orquestrador", "bot principal", "pendências", "limpeza", "horário", "diária", "agora"] },
 	{ id: "modelos.padrao", section: "modelos", label: "Modelo padrão", keywords: ["modelo", "bots novos", "openrouter", "chatgpt"] },
 	{ id: "modelos.codigo", section: "modelos", label: "Modelo para código", keywords: ["modelo", "código", "programar", "sessão de código", "desenvolvimento", "bots"] },

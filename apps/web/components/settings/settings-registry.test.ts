@@ -109,7 +109,7 @@ test("cada item pesquisável mora numa única seção (sem repetir entre seçõe
 	const expected: Record<string, string> = {
 		"conta.foto": "conta", "conta.nome": "conta", "conta.sair": "conta",
 		"ambientes.lista": "computador", "habilidades.lista": "habilidades", "cofre.lista": "cofre", "github.app": "conexoes", "composio.apps": "conexoes",
-		"geral.tema": "geral", "geral.idioma": "geral", "geral.fuso": "geral",
+		"geral.tema": "geral", "geral.idioma": "geral", "geral.fuso": "geral", "geral.horario": "geral",
 		"modelos.padrao": "modelos", "modelos.visao": "modelos", "execucao.memoria": "modelos", "execucao.economia": "modelos", "execucao.resposta": "modelos",
 		"provedores.chatgpt": "provedores", "provedores.openrouter": "provedores", "provedores.openmail": "provedores",
 		"execucao.reacao": "bots", "execucao.disciplina": "execucao", "execucao.custo": "execucao", "execucao.tempo": "execucao",
