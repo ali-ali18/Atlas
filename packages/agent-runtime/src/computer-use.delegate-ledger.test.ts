@@ -6,6 +6,8 @@ import { parseTaskState } from "@workspace/shared";
 import { createSubagentRun } from "@workspace/db";
 import { runComputerUse } from "./computer-use.js";
 import { jevSaying } from "./jev/test-support.js";
+import { buildMcpToolset } from "./mcp/registry.js";
+import type { McpRuntime } from "./mcp/runtime.js";
 
 /**
  * Replay (LLM mockado) do caso "a resposta some e é reescrita 3 vezes depois de delegar": o bot declara o
@@ -40,12 +42,33 @@ const isChild = (params: CompleteChatWithToolsParams) => {
 	return typeof first?.content === "string" && first.content.includes("focused sub-agent");
 };
 
+/** Filho que consultou uma fonte (1 tool) antes de responder: sem tool o resultado seria "partial". */
+const readThenSay = (params: CompleteChatWithToolsParams) =>
+	params.messages.some((m) => m.role === "tool") ? say(REPORT) : turn(call("c1", "mcp__lms__read_course", {}));
+
+/** Conector de leitura do AVA: o filho lê uma fonte de verdade (1 tool ok) antes de responder. */
+const lms: McpRuntime = {
+	toolset: buildMcpToolset(
+		[
+			{
+				id: "conn-lms",
+				slug: "lms",
+				name: "AVA",
+				disabledTools: [],
+				tools: [{ name: "read_course", description: "Lê", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } }],
+			},
+		],
+		{ autonomy: { level: "autonomous", exceptions: [] }, maxTools: 40 },
+	),
+	call: vi.fn(async () => ({ ok: true, text: "conteúdo da semana", truncated: false })) as never,
+};
+
 const FINAL = "Pronto, Ali: o resumo da Semana 2 está acima.";
 const REPORT = "Semana 2: introdução a grafos, BFS e DFS, exercícios 1 a 5.";
 
 async function run(input: {
 	parent: (index: number, messages: Message[]) => CompleteChatWithToolsResult;
-	child?: () => CompleteChatWithToolsResult;
+	child?: (params: CompleteChatWithToolsParams) => CompleteChatWithToolsResult;
 	jev?: ReturnType<typeof jevSaying>;
 	priorTaskLedger?: unknown;
 	message?: string;
@@ -62,6 +85,7 @@ async function run(input: {
 				throw new Error("sem sandbox");
 			},
 			sandboxEnabled: false,
+			mcp: lms,
 			model: "m",
 			apiKey: "test",
 			messages: [{ role: "user", content: input.message ?? "faz o resumo da Semana 2 da disciplina" }],
@@ -82,7 +106,7 @@ async function run(input: {
 			},
 			streamChat: async (params, handlers) => {
 				const reply = isChild(params)
-					? (input.child ?? (() => say(REPORT)))()
+					? (input.child ?? readThenSay)(params)
 					: (() => {
 							const messages = JSON.parse(JSON.stringify(params.messages)) as Message[];
 							parentRequests.push(messages);

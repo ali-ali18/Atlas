@@ -69,13 +69,20 @@ function makeCtx(overrides: Partial<DelegateContext> = {}) {
 			usage.tokens += u.totalTokens;
 			usage.cost += u.costUsd ?? 0;
 		},
-		runChild: async () => ({ text: "report" }),
+		runChild: async (input: ChildRunInput) => {
+			// Filho que leu algo: sem nenhuma tool o resultado vira "partial" (respondeu sem consultar fonte).
+			await didRead(input);
+			return { text: "report" };
+		},
 		researchNotes: createResearchNotes(),
 		deps,
 		...overrides,
 	};
 	return { ctx, deps, usage };
 }
+
+/** O filho leu uma página (1 tool ok): sem nenhuma tool o resultado vira "partial". */
+const didRead = (input: ChildRunInput) => input.onEvent({ type: "tool_result", id: "t1", name: "browser_extract", ok: true, summary: "page" });
 
 const browserTask = (item: string, url = `https://lms.test/${item}`) => ({ goal: `Read ${item}`, item, url });
 const args = (...tasks: Array<ReturnType<typeof browserTask>>) => ({ mode: "browser_item", tasks });
@@ -141,7 +148,7 @@ describe("delegate_task browser_item: abas", () => {
 
 	it("o limitador é liberado mesmo com falha: a fila seguinte anda", async () => {
 		const tabs = fakeTabs(1);
-		const { ctx } = makeCtx({ browser: tabs.browser, runChild: async (input) => { if (input.objective.includes("e1")) throw new Error("boom"); return { text: "ok" }; } });
+		const { ctx } = makeCtx({ browser: tabs.browser, runChild: async (input) => { if (input.objective.includes("e1")) throw new Error("boom"); await didRead(input); return { text: "ok" }; } });
 		const { summary } = await executeDelegateTask(args(browserTask("e1"), browserTask("e2")), ctx);
 		expect(summary).toContain("[failed]");
 		expect(summary).toContain("[ok]");
@@ -171,6 +178,7 @@ describe("delegate_task browser_item: ledger e custo", () => {
 			runChild: async (input) => {
 				midRun = store.current()!.items.map((item) => item.status);
 				if (input.objective.includes("e2")) throw new Error("page crashed");
+				await didRead(input);
 				return { text: `${input.objective} summary` };
 			},
 		});
