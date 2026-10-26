@@ -13,4 +13,14 @@ describe("todayNote", () => {
 		expect(todayNote(new Date("2026-10-25T17:32:00Z"))).toContain("Now is 2026-10-25 14:32 (domingo)");
 		expect(todayNote(new Date("2026-10-25T03:05:00Z"))).toContain("Now is 2026-10-25 00:05");
 	});
+
+	it("usa o fuso informado (conta)", () => {
+		expect(todayNote(new Date("2026-10-25T17:32:00Z"), "Asia/Tokyo")).toContain("Now is 2026-10-26 02:32 (segunda-feira), timezone Asia/Tokyo.");
+	});
+
+	it("fuso inválido, vazio ou ausente cai no padrão", () => {
+		for (const zone of ["Mars/Olympus", "", null, undefined]) {
+			expect(todayNote(new Date("2026-10-25T17:32:00Z"), zone)).toContain("Now is 2026-10-25 14:32 (domingo), timezone America/Sao_Paulo.");
+		}
+	});
 });

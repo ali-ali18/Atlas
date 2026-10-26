@@ -4705,6 +4705,8 @@ export async function runComputerUse(params: {
 	 * economy enxuga cedo (12k/20k, sem resumo). Subagentes sempre usam o orçamento econômico.
 	 */
 	contextMemory?: ContextMemory;
+	/** Fuso IANA da conta para a nota de hora do bot. Ausente ou inválido = América/São Paulo. Subagentes não levam a nota. */
+	timeZone?: string;
 	/** F12/C4: sobrescreve `COMPUTER_NATIVE_MODE` (off|shadow|on); usado em teste. */
 	nativeComputerMode?: NativeComputerMode;
 	model: string;
@@ -6479,7 +6481,7 @@ export async function runComputerUse(params: {
 		const taskListLayer = isSubagent ? null : renderTaskListNote(taskTracker.taskList());
 		// Data e hora de agora: camada efêmera (muda a cada minuto; no sistema invalidaria o cache do histórico inteiro).
 		// `ATLAS_NOW_NOTE=off` só nas suítes que fixam o formato exato do pedido (ver vitest.config.ts).
-		const nowLayer = isSubagent || process.env.ATLAS_NOW_NOTE === "off" ? null : todayNote(new Date());
+		const nowLayer = isSubagent || process.env.ATLAS_NOW_NOTE === "off" ? null : todayNote(new Date(), params.timeZone);
 		const layers = [notesLayer, itemsLayer, taskListLayer, nowLayer].filter((layer): layer is string => Boolean(layer));
 		const withNotes: LlmMessage[] = layers.length ? [...history, ...layers.map((content) => ({ role: "system" as const, content }))] : history;
 		const transport = await resolveLlmMessagesForModel(

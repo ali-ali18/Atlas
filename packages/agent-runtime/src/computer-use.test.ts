@@ -2070,6 +2070,32 @@ describe("replay: 'me lembra daqui 30 minutos de tomar água' (in_minutes)", () 
 		expect(later.slice(0, -1)).toEqual(early.slice(0, -1));
 	});
 
+	it("o fuso da conta (timeZone) chega na nota de hora; inválido cai em São Paulo", async () => {
+		const ask = async (timeZone?: string) => {
+			const requests: LlmMessage[][] = [];
+			await runComputerUse({
+				manager: {} as unknown as SandboxManager,
+				getSessionId: async () => "session-tz",
+				model: "test-model",
+				apiKey: "test",
+				messages: [{ role: "user", content: "Bom dia" }],
+				runId: "run-tz",
+				conversationId: "conv-tz",
+				botId: "bot-1",
+				maxSteps: 2,
+				timeZone,
+				onEvent: () => {},
+				streamChat: async (params) => {
+					requests.push(params.messages);
+					return { model: "test-model", message: { role: "assistant", content: "Bom dia!" } };
+				},
+			});
+			return String(requests[0]!.at(-1)!.content);
+		};
+		expect(await ask("Asia/Tokyo")).toContain("Now is 2026-10-26 02:32 (segunda-feira), timezone Asia/Tokyo");
+		expect(await ask("Nao/Existe")).toContain("Now is 2026-10-25 14:32 (domingo), timezone America/Sao_Paulo");
+	});
+
 	it("a tool recebe in_minutes, o servidor calcula agora+30min e o prompt do passo 1 traz a hora local", async () => {
 		const expectedRunAt = "2026-10-25T18:02:00.000Z";
 		vi.mocked(createRoutine).mockResolvedValueOnce({

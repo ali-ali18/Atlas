@@ -50,6 +50,11 @@ async function loadConfigOrEmpty(userId: string, load: NonNullable<RunConfigDeps
 	}
 }
 
+/** Fuso da conta para a nota de hora do bot; sem conta ou sem fuso, o runtime usa o padrão. */
+export function runTimeZoneFromConfig(config: AccountConfigV1 | null | undefined): string | undefined {
+	return config?.general?.timezone;
+}
+
 /**
  * Snapshot do run: retomada reusa o que está no checkpoint; run novo resolve
  * uma vez com o `userId` do run. Mudar a conta no meio do run não o afeta.

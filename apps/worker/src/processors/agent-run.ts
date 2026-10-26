@@ -175,6 +175,7 @@ import {
 	resolveRunModelTiers,
 	visionFallbackFromSnapshot,
 	withConfigSnapshot,
+	runTimeZoneFromConfig,
 } from "../run-config.js";
 import { createRunEventCoalescer } from "../coalesce-run-events.js";
 import { createRunControlReader } from "../run-control.js";
@@ -1168,6 +1169,7 @@ async function executeLeasedRun(ctx: {
 			executionDiscipline: runtimeConfig.executionDiscipline,
 			contextEconomy: runtimeConfig.contextEconomy,
 			contextMemory: runtimeConfig.contextMemory,
+			timeZone: runTimeZoneFromConfig(await loadAccountConfig()),
 			maxOutputTokens: runtimeConfig.maxOutputTokens,
 			toolResultMaxChars: runtimeConfig.toolResultMaxChars,
 			modelCallTimeoutMs: runtimeConfig.modelCallTimeoutMs,
