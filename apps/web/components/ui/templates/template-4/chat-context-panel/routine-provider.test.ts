@@ -16,6 +16,11 @@ test("cartão 'Rotina criada' de alerta mostra a frase do alerta, não o cron", 
 	assert.equal(routineCardSummary("cron", `${sentence}\nVerifica sozinho`), sentence);
 });
 
+test("\"Seu dia\": o cartão da rotina mostra a frase pronta do horário", () => {
+	assert.equal(routineCardSummary("cron", "Seu dia · seg–sex às 07:30\nMonto o painel"), "Seu dia · seg–sex às 07:30");
+	assert.equal(routineCardSummary("interval", "Seu dia · seg–sex às 07:30"), "Seu dia · seg–sex às 07:30");
+});
+
 test("rotina de alerta ganha a frase do alerta; rotina comum não", () => {
 	const base = { id: "r1", botId: "b", name: "Estoque", prompt: "p", model: "m", enabled: true, triggerType: "interval", interval: { everyMinutes: 30 }, schedule: null, createdAt: "", updatedAt: "" } as unknown as RoutineRecord;
 	const alert = { condition: "estoque de canela abaixo de 10", active: false } as unknown as RoutineRecord["alert"];
