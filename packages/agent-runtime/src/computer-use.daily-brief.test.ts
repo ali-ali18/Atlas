@@ -196,6 +196,25 @@ describe("uma por bot e edição pela rotina normal", () => {
 		expect(updateRoutine).toHaveBeenCalledWith("user-1", "bot-1", "routine-brief", expect.objectContaining({ enabled: false, schedule: "30 7 * * 1-5" }));
 	});
 
+	it("o edit genérico não tira o 'Seu dia' do cron de uma vez por dia (intervalo, vários horários e criar com o mesmo nome)", async () => {
+		vi.mocked(listRoutines).mockResolvedValue([briefRoutine()]);
+		const interval = await run("o Seu dia a cada 30 min", [toolCall("c1", "propose_routine", { action: "edit", target: "Seu dia", trigger_type: "interval", every_minutes: 30 })], pagesStore().store);
+		expect(interval.toolResults[0]).toMatchObject({ ok: false });
+		expect(interval.toolResults[0]!.summary).toMatch(/uma vez por dia/);
+		const multi = await run("o Seu dia de hora em hora", [toolCall("c1", "propose_routine", { action: "edit", target: "Seu dia", trigger_type: "cron", schedule: "0 8-18 * * 1-5" })], pagesStore().store);
+		expect(multi.toolResults[0]).toMatchObject({ ok: false });
+		expect(multi.toolResults[0]!.summary).toMatch(/once a day/);
+		// "criar" com o mesmo nome vira edição da rotina existente: mesma trava
+		const sameName = await run("cria Seu dia a cada hora", [toolCall("c1", "propose_routine", { action: "create", title: "Seu dia", detail: "x", trigger_type: "interval", every_minutes: 60 })], pagesStore().store);
+		expect(sameName.toolResults[0]).toMatchObject({ ok: false });
+		expect(updateRoutine).not.toHaveBeenCalled();
+		expect(createRoutine).not.toHaveBeenCalled();
+		// horário de uma vez por dia continua valendo pelo edit genérico
+		vi.mocked(updateRoutine).mockResolvedValue(briefRoutine({ schedule: "0 6 * * 1-5" }) as never);
+		const ok = await run("muda o Seu dia para 6h", [toolCall("c1", "propose_routine", { action: "edit", target: "Seu dia", trigger_type: "cron", schedule: "0 6 * * 1-5" })], pagesStore().store);
+		expect(ok.toolResults[0]!.ok).toBe(true);
+	});
+
 	it("notify 'important' não silencia o 'Seu dia': criar, pedir de novo e editar mantêm 'always'", async () => {
 		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: briefRoutine() } as never);
 		await run("me prepara o dia, avisa só o importante", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron", notify: "important" })], pagesStore().store);

@@ -69,6 +69,7 @@ import {
 	buildGithubSecurityReviewPrompt,
 	DAILY_BRIEF_TEMPLATE,
 	formatDailyBriefSummary,
+	parseDailyBriefSchedule,
 	type RoutineNotifyMode,
 	GITHUB_SECURITY_REVIEW_TEMPLATE,
 	formatIntervalSummary,
@@ -2936,7 +2937,14 @@ async function executeProposeRoutine(
 	}
 	const previous = resolved.routine;
 	if (previous.template === DAILY_BRIEF_TEMPLATE) {
-		// Sempre avisa: o run do brief não tem notify_user.
+		// "Seu dia" é uma execução por dia, só em cron, e sempre avisa (o run do brief não tem notify_user).
+		if (triggerType !== "cron") {
+			throw new Error('"Seu dia" roda uma vez por dia em horário fixo: mantenha trigger_type cron (mude só horário, dias ou pausa).');
+		}
+		if (scheduleRaw) {
+			const parsedBrief = parseDailyBriefSchedule(scheduleRaw);
+			if (!parsedBrief.ok) throw new Error(parsedBrief.error);
+		}
 		notify = "always";
 	}
 	// Edit preserva o enabled/disabled atual quando o argumento não veio —

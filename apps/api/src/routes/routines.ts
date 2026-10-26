@@ -2,7 +2,9 @@ import { Hono } from "hono";
 import { ensureGithubRepoHook } from "@workspace/agent-runtime";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 import {
+	DAILY_BRIEF_TEMPLATE,
 	isCronFive,
+	parseDailyBriefSchedule,
 	normalizeGithubEvents,
 	normalizeGithubRepo,
 	normalizeGithubUsers,
@@ -624,6 +626,17 @@ export function createRoutineRoutes(routineQueue: RoutineQueue | null) {
 		if ("error" in parsed) return c.json({ error: parsed.error }, 400);
 		const current = await getRoutine(userId, botId, routineId);
 		if (!current) return c.json({ error: "Routine not found" }, 404);
+		if (current.template === DAILY_BRIEF_TEMPLATE) {
+			// "Seu dia": uma execução por dia, só em cron, e sempre avisa (o run do brief não tem notify_user).
+			if (parsed.triggerType !== undefined && parsed.triggerType !== "cron") {
+				return c.json({ error: '"Seu dia" roda uma vez por dia em horário fixo: mantenha o gatilho cron' }, 400);
+			}
+			if (typeof parsed.schedule === "string") {
+				const brief = parseDailyBriefSchedule(parsed.schedule);
+				if (!brief.ok) return c.json({ error: brief.error }, 400);
+			}
+			if (parsed.notify !== undefined) parsed.notify = "always";
+		}
 		const nextType = parsed.triggerType ?? current.triggerType;
 		const nextEnabled = parsed.enabled ?? current.enabled;
 		const nextSchedule =
