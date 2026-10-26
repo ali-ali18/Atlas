@@ -1,4 +1,4 @@
-import { runComputerUse } from "@workspace/agent-runtime";
+import { briefToolFilter, runComputerUse } from "@workspace/agent-runtime";
 import { applyComputerUseEventsToTranscript, TRANSCRIPT_SLOT, type ComputerUseEvent, type SerializedLlmMessage } from "@workspace/shared";
 import { buildEnvironment, EVAL_BOT_ID, EVAL_USER_ID } from "./environment.js";
 import type { StreamChat } from "./mock-model.js";
@@ -100,6 +100,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		abortSignal: abort.signal,
 		...toRunMessages(scenario),
 		...env.params,
+		...(scenario.run.briefReadOnly ? { toolFilter: briefToolFilter(env.params.mcp) } : {}),
 		onEvent: (event) => {
 			const record = event as unknown as Record<string, unknown>;
 			env.observe(record);

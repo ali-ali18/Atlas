@@ -117,7 +117,15 @@ export const scenarioSchema = z
 			})
 			.strict()
 			.default({ fixtures: [], connectors: [], allowReal: [] }),
-		run: z.object({ maxSteps: z.number().int().min(1).max(40).default(8), origin: z.string().default("chat") }).strict().default({ maxSteps: 8, origin: "chat" }),
+		run: z
+			.object({
+				maxSteps: z.number().int().min(1).max(40).default(8),
+				origin: z.string().default("chat"),
+				/** Run do brief "Seu dia": aplica o mesmo filtro só de leitura do worker (nativa da lista do brief + conector somente leitura). */
+				briefReadOnly: z.boolean().default(false),
+			})
+			.strict()
+			.default({ maxSteps: 8, origin: "chat", briefReadOnly: false }),
 		expect: z.array(expectation).min(1),
 		/** Roteiro do modelo falso (modo mock/CI): valida o harness, não o modelo. */
 		mock: z.object({ turns: z.array(mockTurn).min(1), cheapAnswer: z.string().optional() }).strict().optional(),
