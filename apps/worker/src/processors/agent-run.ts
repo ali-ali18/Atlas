@@ -413,6 +413,15 @@ export async function closeCancelledRun(reason: string, io: CancelCloseIo): Prom
 }
 
 /** "Parar" que chegou como lease perdido (o heartbeat não renova run com cancel pedido): fecha igual ao cancel direto. */
+/**
+ * Só fecha o cancel se o lease é nosso ou está livre. Com outro executor dono do run, emitir
+ * "cancelled" aqui duplicaria/deslocaria o evento. Com lease expirado (sem dono), o varredor
+ * de cancel órfão finaliza.
+ */
+export function ownsLeaseForCancelClose(state: { leaseOwner?: string | null } | null | undefined, ownerId: string): boolean {
+	return !state?.leaseOwner || state.leaseOwner === ownerId;
+}
+
 export async function closeCancelledAfterLeaseLoss(runId: string, io: CancelCloseIo): Promise<void> {
 	try {
 		await closeCancelledRun(new AgentRunCancelledError().message, io);
@@ -1649,7 +1658,7 @@ async function executeLeasedRun(ctx: {
 		const kind = classifyRunError(error);
 		if (kind === "lease_lost") {
 			const state = await getRunLeaseState(runId);
-			if (state?.cancelRequested) {
+			if (state?.cancelRequested && ownsLeaseForCancelClose(state, lease.owner)) {
 				// O heartbeat não renova lease de run com cancel pedido, então o "Parar" chega aqui como lease perdido.
 				// Fecha como no cancel direto; se nem isso der (lease já tomado), o varredor de cancel órfão finaliza.
 				await closeCancelledAfterLeaseLoss(runId, cancelIo);

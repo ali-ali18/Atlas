@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { closeCancelledAfterLeaseLoss, closeCancelledRun, type CancelCloseIo } from "./agent-run.js";
+import { closeCancelledAfterLeaseLoss, closeCancelledRun, ownsLeaseForCancelClose, type CancelCloseIo } from "./agent-run.js";
 
 function fakeIo(overrides: Partial<CancelCloseIo> = {}) {
 	const calls: string[] = [];
@@ -49,4 +49,18 @@ test("lease perdido: se o fechamento falha (lease tomado por outro), não lança
 		},
 	});
 	await closeCancelledAfterLeaseLoss("r1", io);
+});
+
+test("lease perdido com cancel pedido: outro executor dono do run → não fecha (sem cancelled nem finish)", async () => {
+	const { io, calls } = fakeIo();
+	const state = { cancelRequested: true, leaseOwner: "worker-b" };
+	if (ownsLeaseForCancelClose(state, "worker-a")) await closeCancelledAfterLeaseLoss("r1", io);
+	assert.deepEqual(calls, []);
+});
+
+test("lease do próprio executor ou livre (expirado) → pode fechar", () => {
+	assert.equal(ownsLeaseForCancelClose({ leaseOwner: "worker-a" }, "worker-a"), true);
+	assert.equal(ownsLeaseForCancelClose({ leaseOwner: null }, "worker-a"), true);
+	assert.equal(ownsLeaseForCancelClose(null, "worker-a"), true);
+	assert.equal(ownsLeaseForCancelClose({ leaseOwner: "worker-b" }, "worker-a"), false);
 });
