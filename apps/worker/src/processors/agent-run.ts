@@ -393,6 +393,35 @@ export async function chainRunFollowUp(
 	});
 }
 
+/** Pontos de efeito do fechamento de um run parado (injetáveis para teste). */
+export type CancelCloseIo = {
+	emit: (event: ComputerUseEvent) => Promise<void>;
+	/** Esvazia o buffer de deltas e espera os eventos gravarem. */
+	flush: () => Promise<void>;
+	finish: () => Promise<void>;
+	settle: () => Promise<void>;
+	chain: () => Promise<void>;
+};
+
+/** Run parado: evento "cancelled", run cancelado, entrega liquidada e entradas não consumidas viram o próximo turno. */
+export async function closeCancelledRun(reason: string, io: CancelCloseIo): Promise<void> {
+	await io.emit({ type: "cancelled", reason });
+	await io.flush();
+	await io.finish();
+	await io.settle();
+	await io.chain();
+}
+
+/** "Parar" que chegou como lease perdido (o heartbeat não renova run com cancel pedido): fecha igual ao cancel direto. */
+export async function closeCancelledAfterLeaseLoss(runId: string, io: CancelCloseIo): Promise<void> {
+	try {
+		await closeCancelledRun(new AgentRunCancelledError().message, io);
+	} catch (error) {
+		// Lease já tomado por outro executor: o run fica cancelRequested e o varredor de cancel órfão finaliza.
+		console.error(`cancel close after lease loss failed run=${runId}`, error);
+	}
+}
+
 export async function processAgentRunJob(
 	payload: AgentRunJobPayload,
 	config: WorkerConfig,
@@ -1547,25 +1576,35 @@ async function executeLeasedRun(ctx: {
 		await sessionProbe;
 		if (error instanceof AgentRunPausedError) {
 			await emit({ type: "paused", reason: error.message });
-			await coalescer.flush();
+			await coalescer.flush().catch(() => undefined);
 			await emitState.tail;
 			await releasePausedRunLease(runId, lease);
 			return { runId, status: "paused" };
 		}
+		// Fechamento de um "Parar": compartilhado entre o abort direto (AgentRunCancelledError) e o lease perdido com cancel pedido.
+		const cancelIo: CancelCloseIo = {
+			emit: async (event) => void (await emit(event)),
+			flush: async () => {
+				await coalescer.flush().catch(() => undefined);
+				await emitState.tail;
+			},
+			finish: async () => {
+				await finishAgentRun(runId, {
+					status: "cancelled",
+					error: "cancelled",
+					sandboxSessionId: cachedSessionId,
+					lease,
+				}).catch((finishError) => asLeaseError(finishError));
+			},
+			settle: () => settleDelivery("cancelled"),
+			chain: () => chainRunFollowUp(run, runUserId, deps),
+		};
+		const closeCancelled = async (reason: string) => {
+			await closeCancelledRun(reason, cancelIo);
+			return { runId, status: "cancelled" as const };
+		};
 		if (error instanceof AgentRunCancelledError) {
-			await emit({ type: "cancelled", reason: error.message });
-			await coalescer.flush().catch(() => undefined);
-			await emitState.tail;
-			await finishAgentRun(runId, {
-				status: "cancelled",
-				error: "cancelled",
-				sandboxSessionId: cachedSessionId,
-				lease,
-			}).catch((finishError) => asLeaseError(finishError));
-			await settleDelivery("cancelled");
-			// Entradas que chegaram antes da parada e nunca foram consumidas viram o próximo turno.
-			await chainRunFollowUp(run, runUserId, deps);
-			return { runId, status: "cancelled" };
+			return closeCancelled(error.message);
 		}
 
 		if (error instanceof BudgetExhaustedError) {
@@ -1611,6 +1650,9 @@ async function executeLeasedRun(ctx: {
 		if (kind === "lease_lost") {
 			const state = await getRunLeaseState(runId);
 			if (state?.cancelRequested) {
+				// O heartbeat não renova lease de run com cancel pedido, então o "Parar" chega aqui como lease perdido.
+				// Fecha como no cancel direto; se nem isso der (lease já tomado), o varredor de cancel órfão finaliza.
+				await closeCancelledAfterLeaseLoss(runId, cancelIo);
 				return { runId, status: "cancelled" };
 			}
 			if (state?.leaseOwner && state.leaseOwner !== lease.owner) {
