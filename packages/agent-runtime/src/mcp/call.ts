@@ -117,8 +117,13 @@ export function capResultText(text: string, maxChars = MCP_RESULT_MAX_CHARS, hin
 	return clipWithNotice(text, maxChars, hint);
 }
 
-/** Falhas em que a requisição pode ter chegado ao servidor antes de cair. */
-const UNCERTAIN_OUTCOME = /timeout|timed out|econnreset|socket hang up|\b5\d\d\b/i;
+/**
+ * Falhas em que a requisição pode ter chegado ao servidor antes de cair. Um número solto
+ * ("quantidade máxima 500") é regra de negócio, não 5xx: só vale com prefixo HTTP/status/error
+ * ou no início da mensagem.
+ */
+export const UNCERTAIN_OUTCOME =
+	/timeout|timed out|econnreset|socket hang up|(?:^\s*|\b(?:http|status(?: code)?|error)[ :=]*)5\d\d\b/i;
 export const UNCERTAIN_WRITE_NOTE =
 	"This write was not retried and may or may not have been applied. Check the current state (read or list the resource) before trying again, and only repeat it if the change is missing.";
 

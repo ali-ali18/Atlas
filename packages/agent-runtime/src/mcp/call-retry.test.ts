@@ -216,6 +216,24 @@ describe("callMcpTool: escrita não é retentada (R1)", () => {
 		await pool.closeAll();
 	});
 
+	it("erro de negócio com número (500, 512) é falha simples; 5xx com prefixo e timeout são incertos", async () => {
+		const outcome = async (text: string) => {
+			const { pool } = scriptedPool([{ isError: true, text }]);
+			const result = await run(pool, { readOnly: false });
+			await pool.closeAll();
+			return result;
+		};
+		for (const text of ["quantidade máxima 500", "produto 512 não existe"]) {
+			const result = await outcome(text);
+			expect(result.uncertain).toBeUndefined();
+			expect(result.text).not.toContain("may or may not");
+		}
+		for (const text of ["HTTP 502", "status 503", "Error: 500 internal", "504 Gateway Timeout", "socket hang up"]) {
+			const result = await outcome(text);
+			expect(result.uncertain, text).toBe(true);
+		}
+	});
+
 	it("leitura segue retentada no timeout/5xx", async () => {
 		const { pool, calls } = scriptedPool([{ isError: true, text: "upstream 503" }, { text: "ok" }]);
 		expect((await run(pool, { readOnly: true })).ok).toBe(true);
