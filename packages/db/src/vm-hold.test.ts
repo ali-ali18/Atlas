@@ -14,6 +14,9 @@ beforeEach(() => {
 			{ id: "r1", userId: "user-a", conversationId: "conv-login", status: "paused", updatedAt: hoursAgo(1) },
 			{ id: "r2", userId: "user-a", conversationId: "conv-ask", status: "waiting_user", updatedAt: hoursAgo(2) },
 			{ id: "r3", userId: "user-a", conversationId: "conv-old", status: "paused", updatedAt: hoursAgo(30) },
+			{ id: "r5", userId: "user-a", conversationId: "conv-running", status: "running", updatedAt: hoursAgo(0.1) },
+			{ id: "r6", userId: "user-a", conversationId: "conv-queued", status: "queued", updatedAt: hoursAgo(0.1) },
+			{ id: "r7", userId: "user-a", conversationId: "conv-retry", status: "retrying", updatedAt: hoursAgo(0.1) },
 			{ id: "r4", userId: "user-a", conversationId: "conv-done", status: "completed", updatedAt: hoursAgo(1) },
 		]),
 	});
@@ -30,4 +33,11 @@ test("run pausado no login ou esperando o usuário segura a VM; concluído ou mu
 test("usuário B não segura (nem enxerga) a VM da conversa do usuário A", async () => {
 	assert.equal(await conversationHoldsVm("user-b", "conv-login", NOW), false);
 	assert.equal(await conversationHoldsVm("default", "conv-login", NOW), false);
+});
+
+test("run ativo (queued, running, retrying) segura a VM, só do dono", async () => {
+	for (const conv of ["conv-running", "conv-queued", "conv-retry"]) {
+		assert.equal(await conversationHoldsVm("user-a", conv, NOW), true, conv);
+		assert.equal(await conversationHoldsVm("user-b", conv, NOW), false, conv);
+	}
 });
