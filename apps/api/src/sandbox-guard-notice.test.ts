@@ -1,54 +1,63 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { NotifyResult } from "@workspace/db";
-import { noticeVmStop, VM_STOPPED_CHAT_TEXT } from "./sandbox-guard-notice.js";
+import { isVmProtectedFromGuard, noticeVmStopped, VM_STOPPED_CHAT_TEXT, VM_STOPPED_PUSH_TEXT, type VmGuardDeps } from "./sandbox-guard-notice.js";
 
 const vm = { userId: "user-a", conversationId: "conv-a" };
 const sent: NotifyResult = { status: "sent", sent: 1, deleted: 0, failed: 0 };
 const skipped: NotifyResult = { status: "skipped", reason: "viewing" };
 
-function deps(over: Partial<Parameters<typeof noticeVmStop>[1]> = {}) {
+function deps(over: Partial<VmGuardDeps> = {}) {
 	const appended: Array<[string, string]> = [];
-	return {
-		appended,
-		deps: {
-			push: async () => sent,
-			ownsConversation: async (user: string, conversation: string) => user === "user-a" && conversation === "conv-a",
-			appendMessage: async (conversation: string, text: string) => void appended.push([conversation, text]),
-			...over,
+	const pushed: string[] = [];
+	const d: VmGuardDeps = {
+		push: async (_u, _c, text) => {
+			pushed.push(text);
+			return sent;
 		},
+		ownsConversation: async (user, conversation) => user === "user-a" && conversation === "conv-a",
+		holdsVm: async () => false,
+		appendMessage: async (conversation, text) => void appended.push([conversation, text]),
+		...over,
 	};
+	return { appended, pushed, deps: d };
 }
 
-test("grava a mensagem em pt-BR na conversa mesmo quando o push sai", async () => {
-	const { deps: d, appended } = deps();
-	await noticeVmStop(vm, d);
+test("depois do stop: mensagem no passado na conversa e push de bônus", async () => {
+	const { deps: d, appended, pushed } = deps();
+	await noticeVmStopped(vm, d);
 	assert.deepEqual(appended, [["conv-a", VM_STOPPED_CHAT_TEXT]]);
-	assert.match(VM_STOPPED_CHAT_TEXT, /Desliguei o computador para liberar memória/);
+	assert.deepEqual(pushed, [VM_STOPPED_PUSH_TEXT]);
+	assert.match(VM_STOPPED_CHAT_TEXT, /^Desliguei o computador para liberar memória/);
 });
 
-test("push ignorado (sem VAPID, aviso desligado, conversa aberta) ainda deixa o aviso na conversa", async () => {
-	for (const push of [null, async () => skipped]) {
+test("push ausente, ignorado ou que falha não impede o aviso na conversa", async () => {
+	for (const push of [null, async () => skipped, async (): Promise<NotifyResult> => { throw new Error("vapid"); }]) {
 		const { deps: d, appended } = deps({ push });
-		await noticeVmStop(vm, d);
+		await noticeVmStopped(vm, d);
 		assert.equal(appended.length, 1);
 	}
 });
 
-test("push ignorado E mensagem não gravada: lança (a parada fica para a próxima rodada)", async () => {
-	const { deps: d } = deps({ push: async () => skipped, appendMessage: async () => { throw new Error("db fora"); } });
-	await assert.rejects(noticeVmStop(vm, d), /could not warn the owner/);
-	const { deps: noPush } = deps({ push: null, appendMessage: async () => { throw new Error("db fora"); } });
-	await assert.rejects(noticeVmStop(vm, noPush));
-});
-
-test("push enviado e mensagem falhou: o dono foi avisado, segue", async () => {
+test("mensagem não gravada lança (quem chama só registra: a VM já parou)", async () => {
 	const { deps: d } = deps({ appendMessage: async () => { throw new Error("db fora"); } });
-	await noticeVmStop(vm, d);
+	await assert.rejects(noticeVmStopped(vm, d), /db fora/);
 });
 
-test("conversa de outro dono não recebe mensagem", async () => {
+test("sem usuário ou conversa não há onde avisar", async () => {
 	const { deps: d, appended } = deps();
-	await noticeVmStop({ userId: "user-b", conversationId: "conv-a" }, d);
+	await noticeVmStopped({ userId: "user-a" }, d);
 	assert.deepEqual(appended, []);
+});
+
+test("VM protegida: dono não verificável (conversa de outro, sem conversa) nunca é desligada", async () => {
+	const { deps: d } = deps();
+	assert.equal(await isVmProtectedFromGuard({ userId: "user-b", conversationId: "conv-a" }, d), true);
+	assert.equal(await isVmProtectedFromGuard({ userId: "user-a" }, d), true);
+	assert.equal(await isVmProtectedFromGuard({ userId: "", conversationId: "conv-a" }, d), true);
+});
+
+test("VM protegida: run usando ou esperando o usuário segura; dono verificado e sem run libera", async () => {
+	assert.equal(await isVmProtectedFromGuard(vm, deps({ holdsVm: async () => true }).deps), true);
+	assert.equal(await isVmProtectedFromGuard(vm, deps().deps), false);
 });

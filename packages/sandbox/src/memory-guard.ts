@@ -47,14 +47,25 @@ export function pickVmsToStop(
 	availableMemBytes: number | null,
 	minIdleMs: number = MIN_IDLE_FOR_MEMORY_STOP_MS,
 ): RunningVm[] {
+	const { wanted, candidates } = planVmStops(vms, limits, availableMemBytes, minIdleMs);
+	return candidates.slice(0, wanted);
+}
+
+/** Quantas VMs parar e todas as candidatas ociosas, da mais parada à menos (para tentar a próxima se uma falhar). */
+export function planVmStops(
+	vms: RunningVm[],
+	limits: MemoryGuardLimits,
+	availableMemBytes: number | null,
+	minIdleMs: number = MIN_IDLE_FOR_MEMORY_STOP_MS,
+): { wanted: number; candidates: RunningVm[] } {
 	const overflow = limits.maxRunning > 0 ? Math.max(0, vms.length - limits.maxRunning) : 0;
 	const lowMemory = limits.minFreeBytes > 0 && availableMemBytes !== null && availableMemBytes < limits.minFreeBytes;
 	const wanted = Math.max(overflow, lowMemory ? 1 : 0);
-	if (wanted === 0) return [];
+	if (wanted === 0) return { wanted: 0, candidates: [] };
 	const idle = vms
 		.filter((vm): vm is RunningVm & { idleMs: number } => vm.idleMs !== null && vm.idleMs >= minIdleMs)
 		.sort((a, b) => b.idleMs - a.idleMs);
-	return idle.slice(0, wanted);
+	return { wanted, candidates: idle };
 }
 
 /** Memória realmente disponível (MemAvailable inclui cache liberável); cai em os.freemem(). */
@@ -77,13 +88,13 @@ export type MemoryGuardDeps = {
 	availableMemBytes?: () => number | null;
 	probe?: typeof probeSandboxIdleMs;
 	/**
-	 * Avisa o dono ANTES de parar (push e/ou mensagem na conversa). Se lançar, a parada fica para a
-	 * próxima rodada: o dono nunca deve descobrir a VM desligada sem aviso.
+	 * Chamado só DEPOIS de a VM parar com sucesso (avisa o dono: mensagem na conversa + push). Falha
+	 * aqui é só logada: a VM já está parada e não volta a ser tentada.
 	 */
-	notify?: (vm: RunningVm) => Promise<void>;
+	onStopped?: (vm: RunningVm) => Promise<void>;
 	/**
-	 * VM que não pode parar agora mesmo ociosa (ex.: run esperando o usuário terminar um login nela).
-	 * Erro ao consultar = proteger.
+	 * VM que não pode parar agora mesmo ociosa (ex.: run esperando o usuário terminar um login nela, ou
+	 * dono que não dá para verificar). Erro ao consultar = proteger.
 	 */
 	isProtected?: (vm: RunningVm) => Promise<boolean>;
 };
@@ -122,21 +133,23 @@ export async function runMemoryGuard(
 		}
 	}
 	const available = (deps.availableMemBytes ?? readAvailableMemBytes)();
-	const candidates = pickVmsToStop(vms, limits, available);
+	const { wanted, candidates } = planVmStops(vms, limits, available);
 	const victims: RunningVm[] = [];
 	for (const vm of candidates) {
-		try {
-			await deps.notify?.(vm);
-		} catch (error) {
-			console.error(`[sandbox-memory-guard] could not warn the owner of ${vm.name}; postponing the stop`, error instanceof Error ? error.message : "erro");
-			continue;
-		}
-		victims.push(vm);
+		if (victims.length >= wanted) break;
 		try {
 			console.log(`[sandbox-memory-guard] stopping idle ${vm.name} idleMs=${vm.idleMs} running=${vms.length} availableMem=${available ?? "?"}`);
 			await docker.getContainer(vm.id).stop({ t: SANDBOX_STOP_TIMEOUT_S });
 		} catch (error) {
-			console.error("[sandbox-memory-guard] failed to stop", error);
+			// Não parou: não avisa o dono e tenta a próxima candidata na mesma rodada.
+			console.error(`[sandbox-memory-guard] failed to stop ${vm.name}; trying the next candidate`, error);
+			continue;
+		}
+		victims.push(vm);
+		try {
+			await deps.onStopped?.(vm);
+		} catch (error) {
+			console.error(`[sandbox-memory-guard] stopped ${vm.name} but could not warn the owner`, error instanceof Error ? error.message : "erro");
 		}
 	}
 	return victims;

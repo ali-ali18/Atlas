@@ -36,7 +36,7 @@ import { createReactionRoutes } from "./routes/reactions.js";
 import { createPushRoutes } from "./routes/push.js";
 import { createAvatarRoutes } from "./routes/avatars.js";
 import { appendConversationMessage, conversationHoldsVm, createNotifier, createRedisCoalesce, createRedisPresence, getStrictOwnedConversation, installPushListener } from "@workspace/db";
-import { noticeVmStop } from "./sandbox-guard-notice.js";
+import { isVmProtectedFromGuard, noticeVmStopped, type VmGuardDeps } from "./sandbox-guard-notice.js";
 import { createWebPushSender } from "@workspace/mail";
 import { ATLAS_JOB_NAMES, formatMissingEnv, readVapidConfig, vapidProblems } from "@workspace/shared";
 import { captureError, currentRequestId, initSentry, installRequestIdLogging } from "@workspace/observability";
@@ -410,21 +410,22 @@ const sandboxTtlMs = Number.parseInt(
 	process.env.SANDBOX_TTL_MS ?? "900000",
 	10,
 );
+const vmGuardDeps: VmGuardDeps = {
+	push: pushNotify ? (userId, conversationId, text) => pushNotify!(userId, conversationId, "run-finished", text) : null,
+	ownsConversation: async (userId, conversationId) => Boolean(await getStrictOwnedConversation(conversationId, userId)),
+	holdsVm: (userId, conversationId) => conversationHoldsVm(userId, conversationId),
+	appendMessage: (conversationId, text) => appendConversationMessage(conversationId, "assistant", text),
+};
 startSandboxReaper(loadSandboxConfig(), {
 	ttlMs: Number.isFinite(sandboxTtlMs) && sandboxTtlMs > 0 ? sandboxTtlMs : 900000,
 	hardTtlMs: Number.POSITIVE_INFINITY,
 	intervalMs: 60_000,
 	idleStop: process.env.SANDBOX_IDLE_STOP === "1" || process.env.SANDBOX_IDLE_STOP === "true",
 	memoryGuard: {
-		// Antes de desligar: push (se sair) + mensagem na conversa (garantida). Sem nenhum dos dois, adia a parada.
-		notify: (vm) =>
-			noticeVmStop(vm, {
-				push: pushNotify ? (userId, conversationId, text) => pushNotify!(userId, conversationId, "run-finished", text) : null,
-				ownsConversation: async (userId, conversationId) => Boolean(await getStrictOwnedConversation(conversationId, userId)),
-				appendMessage: (conversationId, text) => appendConversationMessage(conversationId, "assistant", text),
-			}),
-		// Run esperando o usuário (login no computador, pergunta, aprovação): a VM guarda a tela dele.
-		isProtected: async (vm) => Boolean(vm.userId && vm.conversationId && (await conversationHoldsVm(vm.userId, vm.conversationId))),
+		// Depois de desligar: mensagem na conversa (garantida) + push (bônus).
+		onStopped: (vm) => noticeVmStopped(vm, vmGuardDeps),
+		// Não desliga VM sem dono verificável nem com run usando/esperando o usuário (a VM guarda a tela dele).
+		isProtected: (vm) => isVmProtectedFromGuard(vm, vmGuardDeps),
 	},
 });
 

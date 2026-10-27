@@ -65,36 +65,67 @@ describe("runMemoryGuard", () => {
 		return { docker, stopped };
 	}
 
-	it("avisa o dono antes de parar, com stop de 15 s, só a VM ociosa mais antiga", async () => {
+	it("para só a VM ociosa mais antiga (stop de 15 s) e avisa o dono DEPOIS de parar", async () => {
 		vi.spyOn(console, "log").mockImplementation(() => undefined);
-		const { docker, stopped } = fakeDocker(["a", "b", "c", "d"]);
 		const order: string[] = [];
+		const stopped: string[] = [];
+		const docker = {
+			listContainers: async () => ["a", "b", "c", "d"].map((id) => ({ Id: id, Names: [`/atlas-sandbox-${id}`], Labels: { "atlas.sandbox.userId": "u1", "atlas.sandbox.conversationId": `c-${id}` } })),
+			getContainer: (id: string) => ({ stop: async (opts: unknown) => void (order.push(`stop:${id}`), stopped.push(JSON.stringify(opts))) }),
+		} as unknown as Docker;
 		const idle: Record<string, number> = { a: 5 * MIN, b: 50 * MIN, c: 20 * MIN, d: 0 };
 		const result = await runMemoryGuard(docker, config, {
 			limits,
 			availableMemBytes: () => 4096 * MB,
 			probe: async (_d, _c, id) => idle[id]!,
-			notify: async (v) => void order.push(`notify:${v.id}`),
+			onStopped: async (v) => void order.push(`notified:${v.id}`),
 		});
 		expect(result.map((v) => v.id)).toEqual(["b"]);
-		expect(stopped).toEqual([{ id: "b", opts: { t: 15 } }]);
-		expect(order).toEqual(["notify:b"]);
+		expect(stopped).toEqual([JSON.stringify({ t: 15 })]);
+		expect(order).toEqual(["stop:b", "notified:b"]);
 	});
 
-	it("sem conseguir avisar o dono, adia a parada para a próxima rodada", async () => {
+	it("stop que falha não avisa o dono e a rodada tenta a próxima candidata", async () => {
 		vi.spyOn(console, "log").mockImplementation(() => undefined);
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
-		const { docker, stopped } = fakeDocker(["a", "b"]);
+		const notified: string[] = [];
+		const stopped: string[] = [];
+		const docker = {
+			listContainers: async () => ["a", "b"].map((id) => ({ Id: id, Names: [`/atlas-sandbox-${id}`], Labels: { "atlas.sandbox.userId": "u1", "atlas.sandbox.conversationId": `c-${id}` } })),
+			getContainer: (id: string) => ({
+				stop: async () => {
+					if (id === "b") throw new Error("docker fora");
+					stopped.push(id);
+				},
+			}),
+		} as unknown as Docker;
+		const idle: Record<string, number> = { a: 20 * MIN, b: 50 * MIN };
+		const result = await runMemoryGuard(docker, config, {
+			limits,
+			availableMemBytes: () => 10 * MB,
+			probe: async (_d, _c, id) => idle[id]!,
+			onStopped: async (v) => void notified.push(v.id),
+		});
+		expect(stopped).toEqual(["a"]);
+		expect(notified).toEqual(["a"]);
+		expect(result.map((v) => v.id)).toEqual(["a"]);
+	});
+
+	it("falha ao avisar depois de parar é só logada (a VM já parou)", async () => {
+		vi.spyOn(console, "log").mockImplementation(() => undefined);
+		const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const { docker, stopped } = fakeDocker(["a"]);
 		const result = await runMemoryGuard(docker, config, {
 			limits,
 			availableMemBytes: () => 10 * MB,
 			probe: async () => 30 * MIN,
-			notify: async () => {
-				throw new Error("push fora e mensagem não gravada");
+			onStopped: async () => {
+				throw new Error("db fora");
 			},
 		});
-		expect(stopped).toEqual([]);
-		expect(result).toEqual([]);
+		expect(stopped.map((s) => s.id)).toEqual(["a"]);
+		expect(result.map((v) => v.id)).toEqual(["a"]);
+		expect(err).toHaveBeenCalled();
 	});
 
 	it("nunca para VM protegida (run esperando o login do usuário), mesmo ociosa; erro na consulta protege", async () => {
