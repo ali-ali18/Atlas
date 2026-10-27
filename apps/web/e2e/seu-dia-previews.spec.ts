@@ -3,7 +3,7 @@ import { MockAtlas, type MockHandler } from "./mock-api"
 
 /**
  * Capturas (390 e 1440, claro e escuro) do brief "Seu dia": configuração "Horário de trabalho",
- * cartão da rotina criada e painel "Seu dia". Só roda com SEU_DIA_PREVIEW_DIR (pasta de saída).
+ * cartão da rotina criada e o brief como mensagem normal do bot no chat (sem painel). Só roda com SEU_DIA_PREVIEW_DIR (pasta de saída).
  */
 const OUT = process.env.SEU_DIA_PREVIEW_DIR
 /** Opcional: Chromium já instalado (quando a versão do Playwright não bate com o browser baixado). */
@@ -16,78 +16,19 @@ const SIZES = [
   { name: "1440", viewport: { width: 1440, height: 1200 }, mobile: false },
 ] as const
 
-const SPEC = {
-  v: 2,
-  title: "Seu dia",
-  summary: "Quarta, 28 de outubro · 3 reuniões, 2 e-mails pedem resposta",
-  root: {
-    type: "stack",
-    props: { gap: "md" },
-    children: [
-      {
-        type: "section",
-        props: { title: "Agenda de hoje" },
-        children: [
-          {
-            type: "timeline",
-            props: {
-              items: [
-                { date: "09:00", title: "Daily do time", text: "Meet · 15 min" },
-                { date: "11:30", title: "Reunião com a Loja Exemplo", text: "Revisar pedidos em aberto de outubro", tone: "accent" },
-                { date: "15:00", title: "1:1 com a Marina", text: "Sala 2 · 30 min" },
-              ],
-            },
-          },
-        ],
-      },
-      {
-        type: "section",
-        props: { title: "Pedem você" },
-        children: [
-          {
-            type: "list",
-            props: {
-              items: [
-                { title: "Proposta comercial — Lojas Aurora", subtitle: "João Teixeira · e-mail de ontem, 18:42", value: "Responder", tone: "warning" },
-                { title: "Aprovação do orçamento de novembro", subtitle: "Financeiro · e-mail de hoje, 06:15", value: "Aprovar", tone: "warning" },
-              ],
-            },
-          },
-        ],
-      },
-      {
-        type: "section",
-        props: { title: "Prioridades do dia" },
-        children: [
-          {
-            type: "list",
-            props: {
-              items: [
-                { title: "1. Fechar a proposta das Lojas Aurora", subtitle: "Prazo do cliente: hoje às 17h", tone: "critical" },
-                { title: "2. Preparar a pauta da reunião das 11:30", subtitle: "12 pedidos em aberto no Bling", tone: "accent" },
-                { title: "3. Revisar o orçamento de novembro", tone: "neutral" },
-              ],
-            },
-          },
-        ],
-      },
-      {
-        type: "section",
-        props: { title: "O que já adiantei" },
-        children: [
-          {
-            type: "callout",
-            props: {
-              title: "Nada por enquanto",
-              text: "Só li suas fontes; não enviei, respondi nem apaguei nada.",
-              tone: "info",
-            },
-          },
-        ],
-      },
-    ],
-  },
-}
+/** O brief é a mensagem: curto, sem cabeçalho nem enfeite, mistura aula, prazo e um e-mail. */
+const BRIEF_FIRST_LINE = "Hoje você tem uma aula e um prazo, e um e-mail espera sua resposta."
+const BRIEF_TEXT = [
+  BRIEF_FIRST_LINE,
+  "",
+  "- 10h: aula de Estatística, sala 204. Leve a lista 3 para tirar dúvidas.",
+  "- 14h30: consulta com a Dra. Paula (clínica da Rua Augusta).",
+  "- Prazo hoje às 23h59: entrega do trabalho de História no portal.",
+  "- Precisa de você: Marina, da turma, pergunta se pode dividir o grupo de Estatística.",
+  "",
+  "Próximos passos: terminar o trabalho de História antes da aula, depois responder a Marina.",
+  "Reconecte o Gmail para eu ver os e-mails novos.",
+].join("\n")
 
 /** O mock base não conhece a lista de painéis da Biblioteca (devolve `{}` e a tela quebra): lista vazia. */
 const libraryHandler: MockHandler = ({ method, path }) =>
@@ -148,7 +89,7 @@ for (const size of SIZES) {
         await group.screenshot({ path: file("horario-erro") })
       })
 
-      test("cartão da rotina e painel no chat", async ({ context, page }) => {
+      test("cartão da rotina e brief como mensagem no chat", async ({ context, page }) => {
         test.setTimeout(150_000)
         const api = new MockAtlas({ history: [{ role: "user", content: "Quero um resumo do meu dia toda manhã, de segunda a sexta, às 7h30." }] })
         api.messages.push(
@@ -156,7 +97,7 @@ for (const size of SIZES) {
             id: "m-seu-dia-1",
             conversationId: api.messages[0]!.conversationId,
             role: "assistant",
-            content: "Pronto! Vou montar o seu dia toda manhã de segunda a sexta, às 07:30. Deixei o primeiro painel preparado na Biblioteca.",
+            content: "Pronto! Toda manhã, de segunda a sexta, às 07:30, eu te mando um resumo curto do seu dia aqui no chat.",
             createdAt: "2026-10-26T10:00:01.000Z",
           },
           {
@@ -169,38 +110,33 @@ for (const size of SIZES) {
           {
             id: "m-seu-dia-3",
             conversationId: api.messages[0]!.conversationId,
-            role: "page",
-            content: JSON.stringify({ v: 1, kind: "page", pageId: "page-seu-dia", revision: 1, title: "Seu dia", action: "created", spec: SPEC, sourceCount: 3 }),
-            createdAt: "2026-10-26T10:00:03.000Z",
+            role: "assistant",
+            content: BRIEF_TEXT,
+            createdAt: "2026-10-27T10:30:00.000Z",
           },
         )
-        api.handler = (request) => {
-          const { method, path } = request
-          return method === "GET" && path === "/v1/pages/page-seu-dia"
-            ? { body: { page: { id: "page-seu-dia", botId: "bot-e2e", title: "Seu dia", spec: SPEC, sources: [{ title: "Google Agenda" }, { title: "Gmail" }, { title: "Slack" }], revision: 1, refreshedAt: new Date().toISOString(), createdAt: "2026-10-26T10:00:00.000Z", updatedAt: "2026-10-26T10:00:00.000Z" } } }
-            : libraryHandler(request)
-        }
+        api.handler = libraryHandler
         await api.install(context)
         await page.goto("/")
         if (size.mobile) {
           await page.getByText("Atlas", { exact: true }).first().waitFor()
           await openChat(page)
         }
-        const pageCard = page.getByTestId("page-card")
-        await pageCard.waitFor()
         const routineCard = page.getByText("Seu dia · seg–sex às 07:30").first()
         await routineCard.waitFor()
-        await page.getByText("Agenda de hoje").first().waitFor()
+        const brief = page.getByText(BRIEF_FIRST_LINE).first()
+        await brief.waitFor()
         await prep(page)
-        // Cartão da rotina (+ a fala do bot acima): recorte do início do cartão até o fim do cartão.
+        // Cartão da rotina (+ a fala do bot acima).
         const box = await routineCard.locator("xpath=ancestor::*[self::section or self::div][3]").boundingBox()
-        const pageBox = await pageCard.boundingBox()
-        if (!box || !pageBox) throw new Error("sem caixa")
-        const x = Math.max(0, Math.min(box.x, pageBox.x) - 8)
-        const width = Math.min(size.viewport.width - x, Math.max(box.width, pageBox.width) + 16)
+        if (!box) throw new Error("sem caixa")
+        const x = Math.max(0, box.x - 8)
+        const width = Math.min(size.viewport.width - x, box.width + 16)
         await page.screenshot({ path: file("cartao-rotina"), clip: { x, y: Math.max(0, box.y - 8), width, height: box.height + 16 } })
-        await pageCard.scrollIntoViewIfNeeded()
-        await pageCard.screenshot({ path: file("painel") })
+        // O brief: mensagem normal do bot, sem painel.
+        await brief.scrollIntoViewIfNeeded()
+        const briefBubble = brief.locator("xpath=ancestor::*[self::article or self::div][2]")
+        await briefBubble.screenshot({ path: file("brief-mensagem") })
       })
     })
   }
