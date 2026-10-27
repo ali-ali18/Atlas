@@ -7,7 +7,7 @@ import { createAutoBriefEnsurer, ensureAutoBrief, type AutoBriefDeps } from "./b
 const NOW = new Date("2026-10-27T15:00:00Z"); // 12:00 em São Paulo
 const email: BriefSource = { kind: "composio", name: "Gmail", category: "email", readTools: ["GMAIL_FETCH"] };
 
-const bot = (over: Partial<AutoBriefCandidate> = {}): AutoBriefCandidate => ({ id: "bot-a", ownerId: "user-a", conversationId: "conv-a", policyJson: null, ...over });
+const bot = (over: Partial<AutoBriefCandidate> = {}): AutoBriefCandidate => ({ id: "bot-a", ownerId: "user-a", conversationId: "conv-a", policyJson: null, sourcesChangedAt: null, ...over });
 const activeDays = (hhmm: string, days = 6): Date[] =>
 	Array.from({ length: days }, (_, index) => {
 		const [h, m] = hhmm.split(":").map(Number) as [number, number];
@@ -155,6 +155,14 @@ test("bot sem fonte: a data é gravada e só volta a ser checado depois de 7 dia
 	await ensure();
 	assert.equal(h.seen.sources.length, 2, "uma semana depois tenta de novo");
 	assert.equal(await ensureAutoBrief(bot({ policyJson: { briefAutoCheckedAt: "2026-11-03" } }), h.deps), "skipped_not_due");
+});
+
+test("conectou um conector depois da checagem 'sem fonte': liga já, sem esperar a semana", async () => {
+	const checked = { briefAutoCheckedAt: NOW.toISOString().slice(0, 10) };
+	const h = harness({ sources: [] });
+	assert.equal(await ensureAutoBrief(bot({ policyJson: checked }), h.deps), "skipped_not_due");
+	const withSource = harness({ sources: [email] });
+	assert.equal(await ensureAutoBrief(bot({ policyJson: checked, sourcesChangedAt: new Date(NOW.getTime() + 60_000) }), withSource.deps), "created");
 });
 
 test("orçamento por varredura com cursor: não lê todos os bots num ciclo e dá a volta no fim", async () => {

@@ -48,8 +48,9 @@ export async function ensureAutoBrief(bot: AutoBriefCandidate, deps: AutoBriefDe
 		if (!canAutoEnableBrief({ isPrimary: true, policyJson: bot.policyJson })) return "skipped_policy";
 		// Sem conversa o brief não tem onde entrar (expiraria): fica para quando o bot tiver conversa.
 		if (!bot.conversationId) return "skipped_no_conversation";
-		// Sem fonte na última checagem: só volta a olhar depois de BRIEF_RECHECK_DAYS dias (a data está no banco).
-		if (!isBriefCheckDue(bot.policyJson, now)) return "skipped_not_due";
+		// Sem fonte na última checagem: só volta a olhar depois de BRIEF_RECHECK_DAYS dias (a data está no banco),
+		// ou antes, se o usuário conectou/reconectou um conector desde então.
+		if (!isBriefCheckDue(bot.policyJson, now, bot.sourcesChangedAt)) return "skipped_not_due";
 		const [sources, signals, timezone] = await Promise.all([
 			(deps.listSources ?? listBriefSources)(bot.ownerId),
 			(deps.loadSignals ?? loadAutoBriefSignals)({ userId: bot.ownerId, botId: bot.id, conversationId: bot.conversationId, now }),

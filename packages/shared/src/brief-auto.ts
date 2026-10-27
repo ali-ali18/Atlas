@@ -41,12 +41,14 @@ export const briefCheckDayKey = (now: Date): string => now.toISOString().slice(0
 /**
  * Está na hora de checar fontes/atividade deste bot? Sem registro, ou registro com `BRIEF_RECHECK_DAYS` dias ou mais
  * (ou ilegível): sim. Só o resultado "sem fonte" grava a data; quem tem fonte vira rotina e sai da lista.
+ * Conector conectado ou reconectado desde o dia da checagem (`sourcesChangedAt`) também: o usuário não espera 7 dias.
  */
-export function isBriefCheckDue(policyJson: unknown, now: Date): boolean {
+export function isBriefCheckDue(policyJson: unknown, now: Date, sourcesChangedAt?: Date | null): boolean {
 	const raw = asRecord(policyJson)?.[BRIEF_CHECKED_AT_KEY];
 	if (typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return true;
 	const checked = Date.parse(`${raw}T00:00:00Z`);
 	if (!Number.isFinite(checked)) return true;
+	if (sourcesChangedAt && sourcesChangedAt.getTime() >= checked) return true;
 	return now.getTime() - checked >= BRIEF_RECHECK_DAYS * 24 * 60 * 60 * 1000;
 }
 

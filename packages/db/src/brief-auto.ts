@@ -71,7 +71,14 @@ export async function releaseBriefNotice(userId: string, routineRunId: string): 
 	`;
 }
 
-export type AutoBriefCandidate = { id: string; ownerId: string; conversationId: string | null; policyJson: unknown };
+export type AutoBriefCandidate = {
+	id: string;
+	ownerId: string;
+	conversationId: string | null;
+	policyJson: unknown;
+	/** Última mudança numa conexão conectada do dono (conectou ou reconectou): antecipa a recheca semanal. */
+	sourcesChangedAt: Date | null;
+};
 
 /**
  * Uma página de bots principais (de um dono real) que ainda NÃO têm rotina "Seu dia", em ordem de id, a partir de
@@ -87,11 +94,28 @@ export async function listAutoBriefCandidates(input: { afterId?: string | null; 
 			routines: { none: { template: DAILY_BRIEF_TEMPLATE } },
 			...(input.afterId ? { id: { gt: input.afterId } } : {}),
 		},
-		select: { id: true, ownerId: true, conversationId: true, policyJson: true },
+		select: {
+			id: true,
+			ownerId: true,
+			conversationId: true,
+			policyJson: true,
+			// Só a mais recente de cada tipo, do próprio dono (relação pelo ownerId do bot).
+			owner: {
+				select: {
+					mcpConnections: { where: { status: "connected" }, select: { updatedAt: true }, orderBy: { updatedAt: "desc" }, take: 1 },
+					apiConnections: { where: { status: "connected" }, select: { updatedAt: true }, orderBy: { updatedAt: "desc" }, take: 1 },
+				},
+			},
+		},
 		orderBy: { id: "asc" },
 		take,
 	});
-	return rows.flatMap((row) => (row.ownerId && row.ownerId !== "default" ? [{ ...row, ownerId: row.ownerId }] : []));
+	return rows.flatMap(({ owner, ...row }) => {
+		if (!row.ownerId || row.ownerId === "default") return [];
+		const times = [owner?.mcpConnections[0]?.updatedAt, owner?.apiConnections[0]?.updatedAt].filter((at): at is Date => at instanceof Date);
+		const sourcesChangedAt = times.length > 0 ? new Date(Math.max(...times.map((at) => at.getTime()))) : null;
+		return [{ ...row, ownerId: row.ownerId, sourcesChangedAt }];
+	});
 }
 
 export type AutoBriefSignals = {

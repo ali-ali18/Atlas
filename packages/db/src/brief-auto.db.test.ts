@@ -184,6 +184,21 @@ describe("Seu dia por padrão (Postgres real)", { skip: dbSkip }, () => {
 		}
 	};
 
+	test("listAutoBriefCandidates traz a última conexão conectada do próprio dono (não a de outro usuário)", async () => {
+		const owner = await createTestUser("auto-src-a");
+		const other = await createTestUser("auto-src-b");
+		const botId = await newBot(owner.id, undefined, true);
+		const conn = (userId: string, slug: string, status: string) =>
+			prisma.mcpConnection.create({ data: { userId, slug, name: slug, url: "https://example.com/mcp", authType: "none", status } });
+		const find = async () => (await allCandidates()).find((bot) => bot.id === botId)!;
+		assert.equal((await find()).sourcesChangedAt, null);
+		await conn(other.id, "outro", "connected");
+		await conn(owner.id, "pendente", "pending_auth");
+		assert.equal((await find()).sourcesChangedAt, null, "conexão de outro dono ou não conectada não conta");
+		const created = await conn(owner.id, "gmail", "connected");
+		assert.equal((await find()).sourcesChangedAt?.getTime(), created.updatedAt.getTime());
+	});
+
 	test("listAutoBriefCandidates pagina por cursor de id (ordem estável, sem repetir nem pular)", async () => {
 		const owners = await Promise.all([1, 2, 3].map((n) => createTestUser(`auto-page-${n}`)));
 		const ids = (await Promise.all(owners.map((owner) => newBot(owner.id, undefined, true)))).sort();

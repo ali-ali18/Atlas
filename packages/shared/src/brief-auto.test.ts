@@ -162,4 +162,11 @@ describe("isBriefCheckDue (bots sem fonte: recheca por semana)", () => {
 		expect(isBriefCheckDue({ [BRIEF_CHECKED_AT_KEY]: "2026-10-21" }, now)).toBe(false);
 		expect(isBriefCheckDue({ [BRIEF_CHECKED_AT_KEY]: "2026-10-20" }, now)).toBe(true);
 	});
+	it("conector conectado no dia da checagem ou depois: devida antes dos 7 dias; antes da checagem: não", () => {
+		const policy = { [BRIEF_CHECKED_AT_KEY]: "2026-10-25" };
+		expect(isBriefCheckDue(policy, now, new Date("2026-10-26T09:00:00Z"))).toBe(true);
+		expect(isBriefCheckDue(policy, now, new Date("2026-10-25T00:00:00Z"))).toBe(true);
+		expect(isBriefCheckDue(policy, now, new Date("2026-10-24T23:59:59Z"))).toBe(false);
+		expect(isBriefCheckDue(policy, now, null)).toBe(false);
+	});
 });
