@@ -10,6 +10,13 @@ describe("aprovação por tarefa", () => {
 		expect(canGrantMcpTask("read")).toBe(false);
 		expect(canGrantMcpTask(undefined)).toBe(false);
 	});
+	it("verbo que atinge terceiros (reply, invite, share) não vira concessão mesmo classificado como write", () => {
+		expect(canGrantMcpTask("write", "create_event")).toBe(true);
+		expect(canGrantMcpTask("write", "GMAIL_REPLY_TO_THREAD")).toBe(false);
+		expect(canGrantMcpTask("write", "calendar_invite_guest")).toBe(false);
+		expect(canGrantMcpTask("write", "share-document")).toBe(false);
+		expect(canGrantMcpTask("write", "forwardMessage")).toBe(false);
+	});
 	it("vale por 30 minutos", () => {
 		expect(mcpTaskGrantExpiry(now).getTime() - now.getTime()).toBe(MCP_TASK_GRANT_TTL_MS);
 	});

@@ -144,7 +144,9 @@ import {
 	findExecutedConfirmCall,
 	consumeMcpTaskGrant,
 	setConfirmCardGrantUses,
-	listApprovedConfirmTitles,
+	listApprovedConfirmTools,
+	releaseMcpTaskGrant,
+	markMcpTaskGrantsUntrusted,
 	persistJevStatusCard,
 	updateBot,
 	updateRoutine,
@@ -231,7 +233,7 @@ import { githubReauthMessage, resolveGithubReadOps } from "./github/read-ops.js"
 import { ensureGithubRepoHook } from "./github/hook-sync.js";
 import type { McpRuntime } from "./mcp/runtime.js";
 import { isUnattendedOrigin } from "./autonomy-gate.js";
-import { jevMcpState, reviewMcpWithJev, summarizeApprovedAction, type JevMcpAudit, type JevMcpEvaluator, type JevMcpMode } from "./mcp/jev-gate.js";
+import { jevMcpState, reviewMcpWithJev, type JevMcpAudit, type JevMcpEvaluator, type JevMcpMode, type JevReviewReason } from "./mcp/jev-gate.js";
 import { detectJevIntents, NO_INTENTS, type JevIntents } from "./jev/intent.js";
 import { observeOnly, type JevRuntime } from "./jev/decide.js";
 import { memoryJudgeFor, type MemoryGateCandidate, type MemoryGateVerdict, type MemoryJudge } from "./memory-gate.js";
@@ -249,7 +251,7 @@ import { DELEGATION_HINT, suggestDelegation } from "./jev/delegation.js";
 import { detectBlockPage } from "./jev/block-page.js";
 import { preselectMcpTools } from "./jev/tool-preselect.js";
 import { APP_INFO_TOOL, executeAppInfo } from "./tools/app-info.js";
-import { canGrantMcpTask, autonomyExceptionMode } from "@workspace/shared";
+import { canGrantMcpTask, autonomyExceptionMode, hasExternalTargetArgs, isUntrustedContentTool } from "@workspace/shared";
 import { collectRefs, createSecretSession, type SecretSession } from "./secrets/session.js";
 import { isSecretBoxConfigured } from "./secrets/secret-box.js";
 import { getVaultService, type VaultService } from "./secrets/vault-service.js";
@@ -559,7 +561,6 @@ export const CONNECTOR_ARGS_GUIDANCE =
 	"- When calling connector tools, set only the parameters you need; leave optional filters empty unless the user asked for them. If a search returns nothing: retry with only the main filter, then without filters, then with a partial keyword; use the closest match and name it in your answer; ask only when several matches are equally close and the call writes data. Reuse ids from earlier results instead of searching again.\n" +
 	"- Before saying data is missing, check the tool's inputSchema `required`. Optional fields never block a create/update call: omit them, or fill them only with real ids seen in results (ignore placeholder ids like 0).\n" +
 	"- Call the write tool with the required fields. Before the call (which may open a confirmation card), check that every required field has a real value from the user or from a result you read; if one is missing, ask the user for it instead of guessing or sending a placeholder. If the connector returns an error, show the real error and fix the field it points to; after an approved action fails, correct the argument instead of repeating the same call; don't refuse up front.\n" +
-	"- Batches of similar writes (for example several calendar events): say the count up front and report progress (\"3 of 8 created\"). If one needs the user's approval, the other similar calls you made in that step were skipped, not failed: never say they \"did not run\" or failed; say they are waiting for approval and make them right after it. When the user approves a tool for the task, call it for the remaining items without asking again.\n" +
 	"- If the user named someone for an optional field and you can't resolve it, still create without it and say so.\n" +
 	"- Mention any item that looks inactive or blocked in the results when you use it.\n" +
 	"- When a list tool supports pagination and a result looks truncated, or the user says items are missing, fetch further pages or narrow the query before concluding; never claim you checked everything when you saw only part of it.\n" +
@@ -2065,7 +2066,7 @@ type ToolContext = {
 	/** F12/B5: URLs em que o login já foi pedido neste run (checkpoint). */
 	loginAsked?: Set<string>;
 	/** Estado do run para o Jev de conector: leu conteúdo externo? o que já foi aprovado e executado? */
-	mcpRun?: { untrustedSeen: boolean; executed: string[] };
+	mcpRun?: { untrustedSeen: boolean; /** Nomes das tools de escrita executadas neste run (só o nome, nunca argumento). */ executed: string[] };
 	/** Cofre: injeta {{secret:...}} nas ferramentas de saída permitidas e redige os resultados. */
 	secrets?: SecretSession;
 	/** Provedores externos sem créditos/cota neste run (não insistir; ver `tools/provider-health.ts`). */
@@ -4382,12 +4383,46 @@ async function executeMcpTool(
 	// Cofre: enviar um segredo a um conector sempre passa pelo cartão (diz o que será gravado e onde).
 	const secretRefs = collectRefs(args);
 	const jevEligible = (entry.actionClass === "write" || entry.actionClass === "irreversible") && ctx.origin === "chat" && !!ctx.conversationId && !!ctx.jevMcpMode && ctx.jevMcpMode !== "off";
-	// Aprovação por tarefa: o usuário já aprovou esta tool nesta conversa (só escrita reversível, no chat, sem segredo).
-	// Vale antes do Jev. Não vence regra do usuário ("sempre perguntar"), lição `confirm_always` nem bloqueio.
+	// Conteúdo que o usuário não escreveu (e-mail, página, arquivo, subagente, conector) já passou por este run ou por um anterior da conversa.
+	const untrustedSeen = ctx.mcpRun?.untrustedSeen === true;
+	const neverAsk = policy ? autonomyExceptionMode(policy, entry.autonomyMeta) === "never_ask" : false;
+	// Aprovação por tarefa: o usuário já aprovou esta tool nesta conversa (só escrita reversível, no chat, sem segredo,
+	// sem convidado/destinatário/webhook e sem conteúdo externo lido). Não vence regra do usuário ("sempre perguntar"),
+	// lição `confirm_always` nem bloqueio. Consumir a concessão NÃO dispensa o Jev: ele ainda confere instrução vinda de fora.
 	let grantUse: McpTaskGrantUse | null = null;
+	let jevReviewReason: JevReviewReason | undefined;
 	const alwaysAsk = policy ? autonomyExceptionMode(policy, entry.autonomyMeta) === "always_ask" : false;
-	if (!ctx.forceConfirm && !alwaysAsk && canGrantMcpTask(entry.actionClass) && !entry.readOnly && ctx.origin === "chat" && ctx.conversationId && ctx.userId && secretRefs.length === 0 && (decision === "ask" || (decision === "allow" && jevEligible))) {
-		grantUse = await consumeMcpTaskGrant({ userId: ctx.userId, conversationId: ctx.conversationId, connectionId: entry.connectionId, exposedName: name }).catch(() => null);
+	const grantKey = ctx.conversationId && ctx.userId ? { userId: ctx.userId, conversationId: ctx.conversationId, connectionId: entry.connectionId, exposedName: name } : undefined;
+	if (grantKey && !ctx.forceConfirm && !alwaysAsk && !untrustedSeen && canGrantMcpTask(entry.actionClass, entry.toolName) && !entry.readOnly && ctx.origin === "chat" && secretRefs.length === 0 && !hasExternalTargetArgs(args) && (decision === "ask" || (decision === "allow" && jevEligible))) {
+		grantUse = await consumeMcpTaskGrant(grantKey).catch(() => null);
+		if (grantUse && jevEligible) {
+			const grantReview = await reviewMcpWithJev({
+				mode: ctx.jevMcpMode!,
+				evaluator: ctx.evaluateMcpWithJev,
+				untrustedContent: false,
+				externalInstructionOnly: true,
+				state: jevMcpState({
+					userRequest: ctx.objective || ctx.userRequestText || "",
+					latestUserMessage: ctx.lastUserText,
+					toolName: entry.toolName,
+					toolDescription: ctx.mcp.toolset.available.get(name)?.function.description,
+					actionClass: entry.actionClass as "write" | "irreversible",
+					args,
+					approvedTools: ctx.mcpRun?.executed,
+				}),
+				signal: ctx.abortSignal,
+			});
+			jevAudit = grantReview.audit;
+			if (jevAudit) ctx.onJevAudit?.(jevAudit);
+			if (grantReview.ask) {
+				// Instrução vinda de fora no argumento: a concessão não vale para esta chamada, volta o cartão.
+				await releaseMcpTaskGrant(grantKey).catch(() => undefined);
+				grantUse = null;
+				decision = "ask";
+				jevAsked = true;
+				jevReviewReason = grantReview.reason;
+			}
+		}
 		if (grantUse) {
 			decision = "allow";
 			// Auditoria sem argumentos: só quem, onde e quantos usos.
@@ -4395,12 +4430,11 @@ async function executeMcpTool(
 		}
 	}
 	if (decision === "allow" && !grantUse && jevEligible) {
-		const neverAsk = policy ? autonomyExceptionMode(policy, entry.autonomyMeta) === "never_ask" : false;
-		const alreadyApproved = [...(await listApprovedConfirmTitles(ctx.conversationId!).catch(() => [])), ...(ctx.mcpRun?.executed ?? [])];
+		const alreadyApproved = [...(await listApprovedConfirmTools(ctx.userId ?? "", ctx.conversationId!, new Date()).catch(() => [])), ...(ctx.mcpRun?.executed ?? [])];
 		const review = await reviewMcpWithJev({
 			mode: ctx.jevMcpMode!,
 			evaluator: ctx.evaluateMcpWithJev,
-			untrustedContent: ctx.mcpRun?.untrustedSeen === true,
+			untrustedContent: untrustedSeen,
 			neverAsk,
 			state: jevMcpState({
 				userRequest: ctx.objective || ctx.userRequestText || "",
@@ -4409,13 +4443,14 @@ async function executeMcpTool(
 				toolDescription: ctx.mcp.toolset.available.get(name)?.function.description,
 				actionClass: entry.actionClass as "write" | "irreversible",
 				args,
-				alreadyApproved,
+				approvedTools: alreadyApproved,
+				untrustedContentSeen: untrustedSeen,
 			}),
 			signal: ctx.abortSignal,
 		});
 		jevAudit = review.audit;
 		if (jevAudit) ctx.onJevAudit?.(jevAudit);
-		if (review.ask) { decision = "ask"; jevAsked = true; }
+		if (review.ask) { decision = "ask"; jevAsked = true; jevReviewReason = review.reason; }
 	}
 	if (secretRefs.length > 0 && decision === "allow") decision = "ask";
 	logMcpDecision({ runId: ctx.runId, tool: name, actionClass: entry.actionClass, autonomy: autonomyDecision, jevMode: ctx.jevMcpMode ?? "off", jev: jevAudit, final: decision });
@@ -4474,11 +4509,8 @@ ${exhaustedNotice(entry.connectionName, availableWebFallbacks(hasTool))}`);
 				// Sem artefato, o aviso de corte do conector segue valendo.
 			}
 		}
-		// Conteúdo lido de conector é dado externo: daqui em diante, Jev fora do ar não libera escrita sozinho.
-		if (ctx.mcpRun) {
-			if (entry.readOnly) ctx.mcpRun.untrustedSeen = true;
-			else if (ctx.mcpRun.executed.length < 20) ctx.mcpRun.executed.push(`executed: ${summarizeApprovedAction(entry.toolName, args)}`);
-		}
+		// Só o nome da tool vai para o histórico do Jev (leitura de conector marca conteúdo externo no despacho, em runComputerUse).
+		if (ctx.mcpRun && !entry.readOnly && ctx.mcpRun.executed.length < 20) ctx.mcpRun.executed.push(entry.toolName);
 		let grantNote = "";
 		if (grantUse) {
 			if (grantUse.confirmId && ctx.conversationId) await setConfirmCardGrantUses(ctx.conversationId, grantUse.confirmId, grantUse.uses).catch(() => undefined);
@@ -4542,7 +4574,8 @@ Não repita a chamada igual: corrija os argumentos ou explique a falha ao usuár
 				exposedName: name,
 				actionClass: entry.actionClass === "irreversible" ? "irreversible" : "write",
 				args,
-				...(jevAsked ? { jevReview: true } : {}),
+				...(jevAsked ? { jevReview: true, ...(jevReviewReason ? { jevReviewReason } : {}) } : {}),
+				...(untrustedSeen ? { untrustedSeen: true } : {}),
 				...(ctx.runId ? { runId: ctx.runId } : {}),
 			},
 		},
@@ -4558,7 +4591,8 @@ Não repita a chamada igual: corrija os argumentos ou explique a falha ao usuár
 		// Só escrita reversível ganha "Sempre para ...": irreversível (apagar, enviar) só some a pergunta
 		// pela tela de Autonomia, com aviso. Vale também no cartão do Jev (a exceção `never_ask` ainda
 		// deixa o Jev barrar instrução vinda de fora).
-		...(entry.actionClass === "write" && secretRefs.length === 0 ? { alwaysLabel: `Sempre para ${entry.connectionName} · ${entry.toolName.replace(/_/g, " ")}` } : {}),
+		// Não no cartão que o Jev levantou por instrução vinda de fora: "sempre" não pode dispensar essa checagem.
+		...(entry.actionClass === "write" && secretRefs.length === 0 && jevReviewReason !== "external_instruction" && !((jevAudit?.externalInstruction ?? 0) >= 0.2) ? { alwaysLabel: `Sempre para ${entry.connectionName} · ${entry.toolName.replace(/_/g, " ")}` } : {}),
 	};
 	await persistConversationCardFromEvent(convId, card).catch(() => undefined);
 	return {
@@ -6221,7 +6255,15 @@ export async function runComputerUse(params: {
 	const consumedInputIds = new Set(parsedCheckpoint?.consumedInputIds ?? []);
 	// F12/B5: login já pedido (no máx. 1 card por URL por run) e pedido pendente.
 	const loginAsked = new Set(parsedCheckpoint?.loginAsked ?? []);
-	const mcpRun = { untrustedSeen: false, executed: [] as string[] };
+	// Conteúdo que o usuário não escreveu já entrou no contexto (também em run anterior da conversa, via checkpoint): sem aprovação por tarefa.
+	const mcpRun = { untrustedSeen: parsedCheckpoint?.untrustedSeen === true, executed: [] as string[] };
+	let grantsMarkedUntrusted = false;
+	const markUntrusted = async () => {
+		mcpRun.untrustedSeen = true;
+		if (grantsMarkedUntrusted || !userId || !conversationId) return;
+		grantsMarkedUntrusted = true;
+		await markMcpTaskGrantsUntrusted({ userId, conversationId }).catch(() => { grantsMarkedUntrusted = false; });
+	};
 	const botProposals = { count: 0 };
 	const secretSession: SecretSession | undefined = params.userId
 		? createSecretSession({ userId: params.userId, by: () => ({ actor: "bot", botId: params.botId, conversationId: params.conversationId }) })
@@ -6419,6 +6461,7 @@ export async function runComputerUse(params: {
 			effectiveHard,
 				progressCursor,
 				loginAsked: [...loginAsked],
+				untrustedSeen: mcpRun.untrustedSeen,
 				pendingLogin,
 				executionLedger: { ...(ledger?.snapshot() ?? parseLedgerState(undefined)), ...journal.snapshot() },
 				taskState: taskTracker.persistable(),
@@ -7625,6 +7668,8 @@ export async function runComputerUse(params: {
 						return ids;
 					},
 				}));
+				// Ponto único: todo resultado que volta ao modelo com conteúdo que o usuário não escreveu invalida a aprovação por tarefa.
+				if (isUntrustedContentTool(name, mcp?.toolset.entries.get(name)?.readOnly === true)) await markUntrusted();
 				summary = outcome.summary;
 				image = outcome.image;
 				visionArtifactIds = outcome.visionArtifactIds ?? [];
@@ -7719,6 +7764,7 @@ export async function runComputerUse(params: {
 				if (params.abortSignal?.aborted) throw errorFromAbortSignal(params.abortSignal);
 				if (isControlFlowError(error)) throw error;
 				ok = false;
+				if (isUntrustedContentTool(name, mcp?.toolset.entries.get(name)?.readOnly === true)) await markUntrusted();
 				uncertainEffect = error instanceof ToolEffectUncertainError;
 				const rawMessage = error instanceof Error ? error.message : "erro";
 				// Blocked web_search doesn't count toward the cap

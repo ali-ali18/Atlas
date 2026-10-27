@@ -6,6 +6,8 @@
  * enviar) nunca entra: cada uma continua pedindo.
  */
 
+import { hasOutwardVerb } from "./autonomy-tools.js";
+
 export const MCP_TASK_GRANT_TTL_MS = 30 * 60_000;
 export const MCP_TASK_GRANT_MAX_USES = 30;
 /** Teto de vida da concessão contado da primeira aprovação: renovar nunca estende além disso. */
@@ -13,9 +15,13 @@ export const MCP_TASK_GRANT_MAX_LIFETIME_MS = 2 * 60 * 60_000;
 
 export type McpTaskGrantState = { uses: number; maxUses: number; expiresAt: Date };
 
-/** Só `write` reversível vira concessão; `irreversible` e `read` não. */
-export function canGrantMcpTask(actionClass: string | undefined): boolean {
-	return actionClass === "write";
+/**
+ * Só `write` reversível vira concessão; `irreversible` e `read` não. Com o nome da tool, verbo que atinge
+ * terceiros (reply, invite, share, forward…) também não: servidores sem anotações (Composio) classificam
+ * "reply" como `write`, e uma resposta a e-mail sai para fora da conta do usuário.
+ */
+export function canGrantMcpTask(actionClass: string | undefined, toolName?: string): boolean {
+	return actionClass === "write" && !(toolName && hasOutwardVerb(toolName));
 }
 
 /** `now + 30 min`, nunca além de `createdAt + 2 h` (a concessão original não vira eterna por renovações). */

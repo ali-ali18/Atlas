@@ -24,7 +24,6 @@ export {
 	updateConfirmCardStatus,
 	findExecutedConfirmCall,
 	setConfirmCardGrantUses,
-	listApprovedConfirmTitles,
 	listApprovedConfirmTools,
 	getLatestConfirmCardStatus,
 	markLoginCardDone,

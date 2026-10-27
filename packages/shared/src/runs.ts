@@ -397,6 +397,8 @@ export type AgentRunCheckpoint = {
 	progressCursor?: number;
 	/** F12/B5: URLs (origem+caminho) em que já pedi login neste run — no máximo uma vez cada. */
 	loginAsked?: string[];
+	/** O run (ou um anterior da conversa) leu conteúdo que o usuário não escreveu: sem aprovação por tarefa. */
+	untrustedSeen?: boolean;
 	/** F12/B5: login pedido e ainda não confirmado; no resume vira o aviso "[login-complete]". */
 	pendingLogin?: { loginId: string; site: string; url: string; reason?: "login" | "captcha"; composioToolkit?: string; connector?: LoginConnector; vault?: LoginVaultOffer; vaultTried?: string; useVault?: boolean; codeField?: boolean; codeEnc?: string };
 	/** Disciplina de execução: livro-razão do run (ausente com a flag desligada). */

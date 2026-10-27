@@ -955,27 +955,6 @@ export async function updateConfirmCardStatus(
 	});
 }
 
-/**
- * Títulos dos cartões de conector que o usuário aprovou e a API executou com sucesso nesta conversa
- * (mais antigos primeiro). Alimenta o Jev: "o usuário já aprovou 1 de 8 inserções iguais".
- */
-/** @deprecated use `listApprovedConfirmTools` (escopada e com `now`); sai no próximo commit. */
-export async function listApprovedConfirmTitles(conversationId: string, limit = 8, windowMs = 30 * 60_000): Promise<string[]> {
-	const rows = await prisma.conversationMessage.findMany({
-		where: { conversationId, role: "confirm", createdAt: { gt: new Date(Date.now() - windowMs) } },
-		orderBy: { createdAt: "desc" },
-		take: 30,
-	});
-	const titles: string[] = [];
-	for (const row of rows) {
-		const card = parseConversationCard(row.content);
-		if (card?.kind !== "confirm" || card.status !== "approved" || !card.outcome?.ok || !card.callKey) continue;
-		titles.push(`approved by the user and executed: ${card.title.slice(0, 100)}`);
-		if (titles.length >= limit) break;
-	}
-	return titles.reverse();
-}
-
 /** Janela do que o Jev vê como "já aprovado nesta conversa". */
 const APPROVED_TOOLS_WINDOW_MS = 30 * 60_000;
 

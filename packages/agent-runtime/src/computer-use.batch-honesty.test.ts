@@ -1,18 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { CONNECTOR_ARGS_GUIDANCE } from "./computer-use.js";
 
-/** Regra de lote honesto no bloco de conectores (só entra no prompt de quem tem conector). */
+/**
+ * Regra de lote honesto: NÃO fica no bloco de conectores (sempre carregado para quem tem conector).
+ * Ela viaja no resultado do cartão de confirmação e no aviso de retomada depois da aprovação, ou seja,
+ * só entra no contexto quando o lote realmente existe (regra 70: só entra no contexto se for usar).
+ */
 describe("lote de escritas em conector", () => {
-	it("manda dizer a contagem e não afirmar que as outras 'não rodaram'", () => {
-		expect(CONNECTOR_ARGS_GUIDANCE).toContain("say the count up front and report progress");
-		expect(CONNECTOR_ARGS_GUIDANCE).toContain("skipped, not failed");
-		expect(CONNECTOR_ARGS_GUIDANCE).toContain('never say they "did not run"');
-		expect(CONNECTOR_ARGS_GUIDANCE).toContain("without asking again");
-	});
-
-	it("a regra é curta (o bloco de conectores não cresce mais que ~450 caracteres)", () => {
-		const line = CONNECTOR_ARGS_GUIDANCE.split("\n").find((entry) => entry.includes("Batches of similar writes"));
-		expect(line).toBeDefined();
-		expect(line!.length).toBeLessThan(550);
+	it("o bloco sempre carregado de conectores não leva a regra de lote nem de aprovação por tarefa", () => {
+		expect(CONNECTOR_ARGS_GUIDANCE).not.toContain("Batches of similar writes");
+		expect(CONNECTOR_ARGS_GUIDANCE).not.toContain("approves a tool for the task");
+		expect(CONNECTOR_ARGS_GUIDANCE).not.toContain("did not run");
 	});
 });

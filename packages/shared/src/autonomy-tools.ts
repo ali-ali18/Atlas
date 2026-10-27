@@ -60,6 +60,11 @@ function hasIrreversibleVerb(tokens: readonly string[]): boolean {
 	);
 }
 
+/** O nome tem verbo que atinge terceiros (responder, convidar, compartilhar…), mesmo sem `openWorldHint`. */
+export function hasOutwardVerb(name: string): boolean {
+	return toolNameTokens(name).some((token) => OUTWARD_VERBS.has(token));
+}
+
 export function classifyMcpTool(input: {
 	name: string;
 	annotations?: McpToolInfo["annotations"];
