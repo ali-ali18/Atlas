@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -5,6 +6,7 @@ const state = vi.hoisted(() => ({
 	created: [] as Array<{ Labels?: Record<string, string>; HostConfig: { Binds?: string[]; Init?: boolean } }>,
 	volumeError: undefined as { statusCode: number } | undefined,
 	execs: [] as Array<Record<string, unknown>>,
+	stopOpts: [] as unknown[],
 }));
 
 vi.mock("dockerode", () => {
@@ -74,7 +76,7 @@ vi.mock("node:net", () => ({
 	},
 }));
 
-import { createSandboxManager, profileVolumeName, setProfileScopeResolver, SANDBOX_STOP_TIMEOUT_S, sandboxBinds, workVolumeName } from "./docker-manager.js";
+import { createSandboxManager, profileVolumeName, SANDBOX_STOP_TIMEOUT_S, sandboxBinds, workVolumeName } from "./docker-manager.js";
 import { loadSandboxConfig } from "./config.js";
 import { deleteSession, listAllSessionsForCleanup } from "./session-store.js";
 
@@ -113,38 +115,15 @@ describe("sandbox volumes e shell via manager", () => {
 		expect(state.created[2]!.HostConfig.Binds).toBeUndefined();
 	});
 
-	it("perfil é por usuário+bot: conversas do mesmo bot compartilham, bots e donos diferentes não", async () => {
-		const bots: Record<string, string> = { "conv-a1": "bot-a", "conv-a2": "bot-a", "conv-b1": "bot-b" };
-		setProfileScopeResolver(async (_user, conversationId) => bots[conversationId] ?? null);
-		try {
-			const manager = createSandboxManager(config, "u1");
-			await manager.createSession("conv-a1");
-			await manager.createSession("conv-a2");
-			await manager.createSession("conv-b1");
-			const profile = (index: number) => state.created[index]!.HostConfig.Binds![0];
-			expect(profile(0)).toBe(profile(1));
-			expect(profile(0)).toBe(`${profileVolumeName("bot-a", "u1")}:/tmp/chrome-data`);
-			expect(profile(2)).not.toBe(profile(0));
-			expect(profileVolumeName("bot-a", "u2")).not.toBe(profileVolumeName("bot-a", "u1"));
-			expect(state.created[0]!.Labels?.["atlas.sandbox.profile"]).toBe(profileVolumeName("bot-a", "u1"));
-			// O volume de trabalho continua por conversa.
-			expect(state.created[0]!.HostConfig.Binds![1]).not.toBe(state.created[1]!.HostConfig.Binds![1]);
-		} finally {
-			setProfileScopeResolver(null);
-		}
-	});
-
-	it("sem bot (ou resolver falhando) cai no perfil por conversa", async () => {
-		setProfileScopeResolver(async () => {
-			throw new Error("db fora");
-		});
-		vi.spyOn(console, "warn").mockImplementation(() => undefined);
-		try {
-			await createSandboxManager(config, "u1").createSession("conv-x");
-			expect(state.created[0]!.HostConfig.Binds).toEqual(sandboxBinds("conv-x", "u1"));
-		} finally {
-			setProfileScopeResolver(null);
-		}
+	it("o perfil continua chaveado por [userId, conversationId]: volumes existentes seguem valendo no deploy", async () => {
+		// Cada bot tem uma única conversa, então esta chave já é "por bot". Mudar a chave perderia todo login salvo.
+		expect(profileVolumeName("conv-a", "u1")).toBe(
+			`atlas-profile-${createHash("sha256").update(JSON.stringify(["u1", "conv-a"])).digest("hex")}`,
+		);
+		expect(profileVolumeName("conv-a", "u2")).not.toBe(profileVolumeName("conv-a", "u1"));
+		await createSandboxManager(config, "u1").createSession("conv-a");
+		expect(state.created[0]!.HostConfig.Binds).toEqual(sandboxBinds("conv-a", "u1"));
+		expect(state.created[0]!.HostConfig.Binds![0]).toBe(`${profileVolumeName("conv-a", "u1")}:/tmp/chrome-data`);
 	});
 
 	it("createSession usa Init (tini) para o SIGTERM chegar ao entrypoint", async () => {
