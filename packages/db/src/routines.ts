@@ -1023,13 +1023,14 @@ export async function updateRoutine(
 		}
 	}
 
+	// Pausar o "Seu dia" (pelo chat, pela API ou pela tela) é recusar: o bot não o liga de novo sozinho.
+	// Grava antes de pausar: se o opt-out falhar, a pausa falha junto (senão o brief voltaria sozinho).
+	if (existing.template === DAILY_BRIEF_TEMPLATE && input.enabled === false) await markBriefOptOut(userId, botId);
 	const row = await prisma.routine.update({
 		where: { id: routineId, userId, botId },
 		data,
 		include: { group: { select: { id: true, name: true } } },
 	});
-	// Pausar o "Seu dia" (pelo chat, pela API ou pela tela) é recusar: o bot não o liga de novo sozinho.
-	if (existing.template === DAILY_BRIEF_TEMPLATE && input.enabled === false) await markBriefOptOut(userId, botId);
 	return toRoutine(row, await lastRunFor(row.id));
 }
 
@@ -1115,11 +1116,12 @@ export async function deleteRoutine(
 	});
 	if (!existing) return false;
 	if (!isOwnerAllowed(existing.userId, userId)) return false;
+	// Apagar o "Seu dia" é recusar: o bot não o recria sozinho. Grava antes de apagar: se o opt-out
+	// falhar, nada é apagado e o erro chega ao usuário.
+	if (existing.template === DAILY_BRIEF_TEMPLATE) await markBriefOptOut(existing.userId, botId);
 	const result = await prisma.routine.deleteMany({
 		where: { id: routineId, userId: { in: ownerIds(userId) } },
 	});
-	// Apagar o "Seu dia" é recusar: o bot não o recria sozinho.
-	if (result.count === 1 && existing.template === DAILY_BRIEF_TEMPLATE) await markBriefOptOut(existing.userId, botId);
 	return result.count === 1;
 }
 

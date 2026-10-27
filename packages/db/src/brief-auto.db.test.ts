@@ -69,6 +69,23 @@ describe("Seu dia por padrão (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(readBriefOptOut(await policyOf(botId)), true);
 	});
 
+	test("opt-out que não grava aborta a pausa e a exclusão: o Seu dia fica como estava", async () => {
+		const botId = await newBot(userA);
+		const routine = await newBrief(userA, botId);
+		const original = Reflect.get(prisma, "$executeRaw");
+		Object.assign(prisma, { $executeRaw: async () => { throw new Error("db fora"); } });
+		try {
+			await assert.rejects(markBriefOptOut(userA, botId), /db fora/);
+			await assert.rejects(updateRoutine(userA, botId, routine.id, { enabled: false }), /db fora/);
+			await assert.rejects(deleteRoutine(userA, botId, routine.id), /db fora/);
+		} finally {
+			Object.assign(prisma, { $executeRaw: original });
+		}
+		const kept = await prisma.routine.findUniqueOrThrow({ where: { id: routine.id } });
+		assert.equal(kept.enabled, true, "não pausou");
+		assert.equal(readBriefOptOut(await policyOf(botId)), false);
+	});
+
 	test("pausar uma rotina comum não marca o opt-out", async () => {
 		const botId = await newBot(userA);
 		const routine = await newBrief(userA, botId, { template: null });

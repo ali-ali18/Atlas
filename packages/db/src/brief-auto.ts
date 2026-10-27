@@ -18,14 +18,13 @@ async function setPolicyFlag(userId: string, botId: string, key: string): Promis
 	`;
 }
 
-/** O usuário pausou, apagou ou recusou o brief: não recriar sozinho. Idempotente; nunca lança por causa do flag. */
+/**
+ * O usuário pausou, apagou ou recusou o brief: não recriar sozinho. Idempotente. LANÇA se não gravar: quem chama
+ * grava o opt-out ANTES de pausar/apagar, então a falha aborta a ação (nada muda, o usuário tenta de novo) em vez
+ * de deixar o brief voltar sozinho no dia seguinte.
+ */
 export async function markBriefOptOut(userId: string, botId: string): Promise<void> {
-	try {
-		await setPolicyFlag(userId, botId, BRIEF_OPT_OUT_KEY);
-	} catch (error) {
-		// Falhar em gravar o flag não pode impedir o usuário de pausar/apagar a rotina; o log leva só o tipo do erro.
-		console.error(`[brief-auto] opt-out não gravado (${error instanceof Error ? error.name : "erro"})`);
-	}
+	await setPolicyFlag(userId, botId, BRIEF_OPT_OUT_KEY);
 }
 
 /**
