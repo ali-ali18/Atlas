@@ -99,16 +99,12 @@ export async function releaseBriefPush(userId: string, routineRunId: string): Pr
 export async function appendBriefMessage(
 	userId: string,
 	conversationId: string,
-	routineRunId: string | null,
+	routineRunId: string,
 	text: string,
 ): Promise<"created" | "exists"> {
 	const owners = ownerIds(userId);
 	const conversation = await prisma.conversation.findFirst({ where: { id: conversationId, userId: { in: owners } }, select: { id: true } });
 	if (!conversation) throw new Error("Conversation not found");
-	if (!routineRunId) {
-		await appendConversationMessage(conversationId, "assistant", text, "routine");
-		return "created";
-	}
 	const run = await prisma.routineRun.findFirst({ where: ownedRun(userId, routineRunId), select: { id: true } });
 	if (!run) throw new Error("Routine run not found");
 	try {

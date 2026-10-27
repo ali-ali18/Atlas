@@ -1586,7 +1586,8 @@ async function executeLeasedRun(ctx: {
 					? async () => {
 							const delivery = await deliverDailyBrief(
 								{
-									// A consulta falhar não pode perder o brief nem o push: tenta de novo e, sem id, entrega direto (ver daily-brief.ts).
+									// A consulta falhar não pode perder o brief: tenta de novo e, sem id, nada sai aqui e a recuperação entrega (ver daily-brief.ts).
+									agentRunId: runId,
 									routineRunId: await findRoutineRunIdWithRetry(async () => (await findRoutineRunByAgentRunId(runId))?.id),
 									userId: runUserId,
 									botId: run.botId,

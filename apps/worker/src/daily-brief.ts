@@ -47,8 +47,8 @@ export type BriefDeliveryDeps = {
 	conversationOf: (botId: string, userId: string) => Promise<string | null>;
 	/** Conversa ocupada para o brief (ver `isConversationBusyForBrief`). */
 	isBusy: (conversationId: string) => Promise<boolean>;
-	/** Grava a mensagem do brief uma vez só ("exists" = já estava lá). Sem `routineRunId` grava sem idempotência. */
-	appendMessage: (userId: string, conversationId: string, routineRunId: string | null, text: string) => Promise<"created" | "exists">;
+	/** Grava a mensagem do brief uma vez só ("exists" = já estava lá). */
+	appendMessage: (userId: string, conversationId: string, routineRunId: string, text: string) => Promise<"created" | "exists">;
 	/** Ausente = sem chaves de push. */
 	push?: (userId: string, conversationId: string, text: string) => Promise<unknown>;
 	/** Guarda o brief como pendente no run da rotina (false = já postado/expirado/tratado ou run de outro dono). */
@@ -125,6 +125,8 @@ async function sendBriefPush(item: { userId: string; routineRunId: string }, con
 export async function deliverDailyBrief(
 	input: {
 		routineRunId: string | null | undefined;
+		/** Só para o log quando `routineRunId` não foi achado. */
+		agentRunId?: string;
 		userId: string;
 		botId: string | null | undefined;
 		/** Vazio = o run não produziu brief (falhou, esgotou o orçamento ou voltou sem texto): vai a linha fixa de falha. */
@@ -143,29 +145,12 @@ export async function deliverDailyBrief(
 	if (!conversationId) return { posted: false, pushed: false, reason: "bot sem conversa" };
 	const wantsPush = input.notify === "always" && !input.skipPush;
 	if (!input.routineRunId) {
-		// Sem a execução da rotina não há estado nem idempotência: push e depois posta direto, melhor esforço.
-		console.warn("[brief] execução da rotina não encontrada; entrega direta, sem estado");
-		let pushed = false;
-		if (wantsPush && deps.push) {
-			try {
-				await deps.push(input.userId, conversationId, briefPushBody(text));
-				pushed = true;
-			} catch (error) {
-				console.error(`[brief] push não enviado (${briefErrorTag(error)})`);
-			}
-		}
-		try {
-			// O push já saiu; a mensagem só entra com a conversa livre (não corta o que o bot está escrevendo).
-			if (await deps.isBusy(conversationId)) {
-				console.warn("[brief] conversa ocupada na entrega direta; mensagem não postada (só o push saiu)");
-				return { posted: false, pushed, reason: "sem execução da rotina; conversa ocupada" };
-			}
-			await deps.appendMessage(input.userId, conversationId, null, text);
-			return { posted: true, pushed, reason: "sem execução da rotina; postado direto" };
-		} catch (error) {
-			console.error(`[brief] mensagem não gravada (${briefErrorTag(error)})`);
-			return { posted: false, pushed, reason: "sem execução da rotina; falha ao gravar" };
-		}
+		// Sem a execução da rotina não há estado nem idempotência, então NADA sai daqui (nem push, nem mensagem): um
+		// envio direto não tem como não duplicar. Este ponto roda depois de o run concluir (não há retry do job); a
+		// execução da rotina existe com `briefStatus` NULL e `recoverUnstartedBriefs` a encontra na varredura,
+		// guarda o texto e a varredura entrega (com o push, se a rotina avisa). O log leva só o id do run, se houver.
+		console.warn(`[brief] execução da rotina não encontrada${input.agentRunId ? ` run=${input.agentRunId}` : ""}; a varredura de recuperação entrega`);
+		return { posted: false, pushed: false, reason: "execução da rotina não encontrada; fica para a recuperação" };
 	}
 	// 1) Pendente primeiro: se o worker cair daqui em diante, a varredura ainda entrega o texto.
 	let marked = false;
@@ -185,7 +170,7 @@ export async function deliverDailyBrief(
 
 /**
  * Tenta achar a execução da rotina deste run: o fim do run e o registro dela podem estar a poucos ms um do
- * outro, e uma falha transitória não deve mandar o brief para o caminho sem estado.
+ * outro, e uma falha transitória na consulta não deve adiar o brief para a recuperação.
  */
 export async function findRoutineRunIdWithRetry(
 	find: () => Promise<string | null | undefined>,
@@ -218,7 +203,7 @@ export async function deliverBriefFailure(
 	try {
 		const routineRunId = await findRoutineRunIdWithRetry(() => io.findRoutineRunId(run.id));
 		await deliverDailyBrief(
-			{ routineRunId, userId: run.userId, botId: run.botId, text: "", notify: "always", skipPush: true, failure: true },
+			{ routineRunId, agentRunId: run.id, userId: run.userId, botId: run.botId, text: "", notify: "always", skipPush: true, failure: true },
 			io.delivery,
 		);
 	} catch (error) {

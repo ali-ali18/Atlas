@@ -44,7 +44,7 @@ function fixture(overrides: Partial<BriefDeliveryDeps> = {}) {
 		conversationOf: async (botId, userId) => (botId === "bot-a" && userId === "user-a" ? "conv-a" : null),
 		isBusy: async () => busy,
 		appendMessage: async (_userId, conversationId, routineRunId, text) => {
-			const key = routineRunId ?? `direct-${calls.appended.length}`;
+			const key = routineRunId;
 			if (messages.has(key)) return "exists";
 			messages.set(key, text);
 			calls.appended.push([conversationId, text]);
@@ -307,23 +307,29 @@ test("a ocupação é conferida logo antes de gravar (corrida entre checagem e i
 	assert.equal(f.calls.appended.length, 0);
 });
 
-test("push sai antes de qualquer consulta da execução: sem routineRunId o push vai e o brief é postado direto", async () => {
+test("sem execução da rotina: nada sai (nem push nem mensagem), só log com o id do run; a recuperação entrega depois", async () => {
 	const f = fixture();
-	const result = await deliverDailyBrief({ ...input, routineRunId: null }, f.deps);
-	assert.equal(result.pushed, true);
-	assert.equal(result.posted, true);
-	assert.equal(f.calls.pushed.length, 1);
+	const logged: string[] = [];
+	const original = console.warn;
+	console.warn = (...args: unknown[]) => void logged.push(args.join(" "));
+	try {
+		const result = await deliverDailyBrief({ ...input, routineRunId: null, agentRunId: "ar-9" }, f.deps);
+		assert.equal(result.posted, false);
+		assert.equal(result.pushed, false);
+	} finally {
+		console.warn = original;
+	}
+	assert.equal(f.calls.pushed.length, 0, "sem push não idempotente");
+	assert.equal(f.calls.appended.length, 0, "sem mensagem não idempotente");
+	assert.equal(f.rows.size, 0, "sem estado");
+	assert.ok(logged.some((line) => line.includes("run=ar-9")));
+	assert.ok(logged.every((line) => !line.includes("Estatística")), "o texto do brief nunca vai ao log");
+	// A execução existe com briefStatus NULL: a recuperação guarda o texto e a varredura entrega, com o push uma vez só.
+	f.rows.set("rr-1", { status: null, text: null, botId: "bot-a", userId: "user-a" });
+	await f.deps.markPending("user-a", "rr-1", TEXT, "ifUnset");
+	assert.equal(await f.flush(), 1);
 	assert.deepEqual(f.calls.appended, [["conv-a", TEXT]]);
-	assert.equal(f.rows.size, 0, "sem estado para guardar");
-});
-
-test("entrega direta (sem execução da rotina) com a conversa ocupada: o push sai e a mensagem não corta o bot", async () => {
-	const f = fixture();
-	f.setBusy(true);
-	const result = await deliverDailyBrief({ ...input, routineRunId: null }, f.deps);
-	assert.equal(result.pushed, true);
-	assert.equal(result.posted, false);
-	assert.equal(f.calls.appended.length, 0);
+	assert.equal(f.calls.pushed.length, 1);
 });
 
 test("findRoutineRunIdWithRetry: tenta até 3 vezes com espera e devolve o id; esgotou = null", async () => {
@@ -565,7 +571,7 @@ test("linha de falha só em run de brief; consulta que falha ou erro nunca lanç
 	const f = fixture();
 	await deliverBriefFailure({ id: "ar-2", origin: "chat", conversationId: "c", userId: "user-a", botId: "bot-a" }, { findRoutineRunId: async () => "rr-2", delivery: f.deps });
 	await deliverBriefFailure({ id: "ar-3", origin: "routine", conversationId: null, userId: "user-a", botId: "bot-a" }, { findRoutineRunId: async () => { throw new Error("db"); }, delivery: f.deps });
-	assert.deepEqual(f.calls.appended, [["conv-a", BRIEF_FAILURE_LINE]], "sem id da execução, posta direto (melhor esforço)");
+	assert.deepEqual(f.calls.appended, [], "sem id da execução, nada é postado direto (fica para a recuperação)");
 	const broken = fixture({ conversationOf: async () => { throw new Error("db"); } });
 	await deliverBriefFailure({ id: "ar-4", origin: "routine", conversationId: null, userId: "user-a", botId: "bot-a" }, { findRoutineRunId: async () => "rr-4", delivery: broken.deps });
 });
