@@ -492,11 +492,12 @@ const proactiveSweeper = startProactiveSweeper(
 		enqueueRun: enqueueChainedRun,
 		envDefaultModel: config.openRouterModel,
 	},
-	// Cada ciclo (fim de run e a cada 60 s) também libera briefs pendentes e garante o "Seu dia" ligado por padrão
-	// (checagem barata, sem modelo, no máximo uma por bot por dia).
+	// Cada ciclo (fim de run e a cada 60 s) também libera briefs pendentes e dispara a garantia do "Seu dia" ligado
+	// por padrão. Esta não é aguardada: roda em segundo plano (orçamento e cursor próprios, nunca lança) para não
+	// atrasar o sweep do modo proativo.
 	async () => {
 		await flushBriefs();
-		await ensureAutoBriefs();
+		void ensureAutoBriefs();
 	},
 );
 agentWorker.on("completed", () => proactiveSweeper.kick());

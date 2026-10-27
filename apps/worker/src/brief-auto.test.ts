@@ -20,11 +20,19 @@ function harness(over: Partial<AutoBriefDeps> & { sources?: BriefSource[]; signa
 	const created: Array<{ userId: string; botId: string; createdBy?: string; schedule?: unknown; timezone?: unknown }> = [];
 	const seen = { sources: [] as string[], signals: [] as string[], policy: [] as Array<[string, string]> };
 	const existing = new Set<string>();
+	const marks = new Map<string, string>();
 	const deps: AutoBriefDeps = {
 		now: () => NOW,
 		minIntervalMs: 0,
 		log: () => undefined,
-		listCandidates: async () => (over.bots ?? [bot()]).filter((candidate) => !existing.has(candidate.id)),
+		// Como o db: ordem de id, cursor, só quem ainda não tem rotina; a data gravada volta no policyJson.
+		listCandidates: async ({ afterId, limit }) =>
+			(over.bots ?? [bot()])
+				.filter((candidate) => !existing.has(candidate.id) && (!afterId || candidate.id > afterId))
+				.sort((a, b) => a.id.localeCompare(b.id))
+				.slice(0, limit)
+				.map((candidate) => (marks.has(candidate.id) ? { ...candidate, policyJson: { ...(candidate.policyJson as object | null), briefAutoCheckedAt: marks.get(candidate.id) } } : candidate)),
+		markChecked: async (_userId, botId, day) => void marks.set(botId, day),
 		listSources: async (userId) => (seen.sources.push(userId), over.sources ?? [email]),
 		loadSignals: async ({ userId }) => (seen.signals.push(userId), over.signals ?? { userMessageAts: activeDays("08:40"), hasPendingWork: false }),
 		accountTimezone: async () => "America/Sao_Paulo",
@@ -41,7 +49,7 @@ function harness(over: Partial<AutoBriefDeps> & { sources?: BriefSource[]; signa
 		}) as never,
 		...over,
 	};
-	return { deps, created, seen, existing };
+	return { deps, created, seen, existing, marks };
 }
 
 test("cria exatamente uma rotina por bot principal: todo dia, no horário da atividade, createdBy bot", async () => {
@@ -125,20 +133,62 @@ test("tudo vai escopado pelo dono do bot (outro usuário nunca entra)", async ()
 	assert.deepEqual(h.seen.policy, [["bot-a", "user-a"], ["bot-b", "user-b"]]);
 });
 
-test("uma checagem por bot por dia: sem fonte hoje, só tenta de novo amanhã; a varredura tem intervalo mínimo", async () => {
+test("bot sem fonte: a data é gravada e só volta a ser checado depois de 7 dias (não todo ciclo)", async () => {
 	let now = NOW;
-	let listed = 0;
-	const h = harness({ sources: [], signals: { userMessageAts: [], hasPendingWork: false }, now: () => now, listCandidates: async () => (listed++, [bot()]) });
+	const h = harness({ sources: [], signals: { userMessageAts: [], hasPendingWork: false }, now: () => now });
 	const ensure = createAutoBriefEnsurer(h.deps);
 	await ensure();
+	assert.deepEqual([...h.marks], [["bot-a", "2026-10-27"]]);
+	for (const days of [1, 3, 6]) {
+		now = new Date(NOW.getTime() + days * 86_400_000);
+		await ensure();
+	}
+	assert.equal(h.seen.sources.length, 1, "nenhuma checagem com consulta nos próximos 6 dias");
+	now = new Date(NOW.getTime() + 7 * 86_400_000);
 	await ensure();
-	now = new Date(NOW.getTime() + 3 * 3_600_000);
-	await ensure();
-	assert.equal(h.seen.sources.length, 1, "uma checagem no dia");
-	now = new Date(NOW.getTime() + 24 * 3_600_000);
-	await ensure();
-	assert.equal(h.seen.sources.length, 2, "amanhã tenta de novo");
+	assert.equal(h.seen.sources.length, 2, "uma semana depois tenta de novo");
+	assert.equal(await ensureAutoBrief(bot({ policyJson: { briefAutoCheckedAt: "2026-11-03" } }), h.deps), "skipped_not_due");
+});
 
+test("orçamento por varredura com cursor: não lê todos os bots num ciclo e dá a volta no fim", async () => {
+	const bots = ["a", "b", "c", "d", "e"].map((id) => bot({ id: `bot-${id}`, ownerId: `user-${id}`, conversationId: `conv-${id}` }));
+	const h = harness({ bots, sources: [], signals: { userMessageAts: [], hasPendingWork: false } });
+	const ensure = createAutoBriefEnsurer({ ...h.deps, maxChecksPerSweep: 2, pageSize: 2 });
+	await ensure();
+	assert.deepEqual(h.seen.sources, ["user-a", "user-b"], "só 2 checagens");
+	await ensure();
+	assert.deepEqual(h.seen.sources, ["user-a", "user-b", "user-c", "user-d"], "continua de onde parou");
+	await ensure();
+	assert.deepEqual(h.seen.sources.slice(4), ["user-e"], "fim da lista");
+	await ensure();
+	assert.equal(h.seen.sources.length, 5, "deu a volta: todos já têm a data gravada, nada gasta consulta");
+});
+
+test("bots que só pulam por política não gastam o orçamento; o limite de leitura também vale", async () => {
+	const skipped = Array.from({ length: 6 }, (_, i) => bot({ id: `bot-s${i}`, ownerId: `user-s${i}`, policyJson: { briefOptOut: true } }));
+	const real = bot({ id: "bot-z", ownerId: "user-z", conversationId: "conv-z" });
+	const h = harness({ bots: [...skipped, real] });
+	assert.equal(await createAutoBriefEnsurer({ ...h.deps, maxChecksPerSweep: 1, pageSize: 3 })(), 1, "pulou 6 sem gastar e criou o do fim");
+	const limited = harness({ bots: [...skipped, real] });
+	assert.equal(await createAutoBriefEnsurer({ ...limited.deps, maxScanPerSweep: 4, pageSize: 3 })(), 0, "parou depois de ler 4+ bots");
+});
+
+test("erro de vez não grava a data nem lança, e tenta de novo na próxima varredura", async () => {
+	let fail = true;
+	const h = harness({
+		listSources: async () => {
+			if (fail) throw new Error("db fora");
+			return [email];
+		},
+	});
+	const ensure = createAutoBriefEnsurer(h.deps);
+	assert.equal(await ensure(), 0);
+	assert.equal(h.marks.size, 0);
+	fail = false;
+	assert.equal(await ensure(), 1);
+});
+
+test("a varredura tem intervalo mínimo e não roda duas ao mesmo tempo", async () => {
 	let n = 0;
 	let t = NOW;
 	const throttled = createAutoBriefEnsurer({ ...harness().deps, minIntervalMs: 30 * 60_000, now: () => t, listCandidates: async () => (n++, []) });
@@ -149,20 +199,6 @@ test("uma checagem por bot por dia: sem fonte hoje, só tenta de novo amanhã; a
 	t = new Date(t.getTime() + 31 * 60_000);
 	await throttled();
 	assert.equal(n, 2);
-});
-
-test("erro de vez não gasta a checagem do dia e nunca lança", async () => {
-	let fail = true;
-	const h = harness({
-		listSources: async () => {
-			if (fail) throw new Error("db fora");
-			return [email];
-		},
-	});
-	const ensure = createAutoBriefEnsurer(h.deps);
-	assert.equal(await ensure(), 0);
-	fail = false;
-	assert.equal(await ensure(), 1, "tenta de novo na próxima varredura");
 });
 
 test("silêncio configurado pelo usuário empurra o horário; o padrão do sistema não", async () => {

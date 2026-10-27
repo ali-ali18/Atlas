@@ -1,4 +1,4 @@
-import { BRIEF_AUTO_WINDOW_DAYS, BRIEF_NOTICE_SHOWN_KEY, BRIEF_OPT_OUT_KEY, DAILY_BRIEF_TEMPLATE } from "@workspace/shared";
+import { BRIEF_AUTO_WINDOW_DAYS, BRIEF_CHECKED_AT_KEY, BRIEF_NOTICE_SHOWN_KEY, BRIEF_OPT_OUT_KEY, DAILY_BRIEF_TEMPLATE } from "@workspace/shared";
 import { prisma } from "./client.js";
 
 /**
@@ -14,6 +14,16 @@ async function setPolicyFlag(userId: string, botId: string, key: string): Promis
 	return prisma.$executeRaw`
 		UPDATE "bots"
 		SET "policyJson" = (CASE WHEN jsonb_typeof("policyJson") = 'object' THEN "policyJson" ELSE '{}'::jsonb END) || jsonb_build_object(${key}::text, true)
+		WHERE "id" = ${botId} AND "ownerId" = ${userId}
+	`;
+}
+
+/** Grava a data da última checagem "sem fonte" (merge de uma chave só; o PATCH da UI a preserva). Escopado pelo dono. */
+export async function markBriefAutoChecked(userId: string, botId: string, day: string): Promise<void> {
+	if (!userId.trim() || userId === "default" || !botId.trim()) return;
+	await prisma.$executeRaw`
+		UPDATE "bots"
+		SET "policyJson" = (CASE WHEN jsonb_typeof("policyJson") = 'object' THEN "policyJson" ELSE '{}'::jsonb END) || jsonb_build_object(${BRIEF_CHECKED_AT_KEY}::text, ${day}::text)
 		WHERE "id" = ${botId} AND "ownerId" = ${userId}
 	`;
 }
@@ -63,11 +73,23 @@ export async function releaseBriefNotice(userId: string, routineRunId: string): 
 
 export type AutoBriefCandidate = { id: string; ownerId: string; conversationId: string | null; policyJson: unknown };
 
-/** Bots principais (de um dono real) que ainda NÃO têm rotina "Seu dia". O filtro de opt-out/proativo é do chamador (função pura). */
-export async function listAutoBriefCandidates(): Promise<AutoBriefCandidate[]> {
+/**
+ * Uma página de bots principais (de um dono real) que ainda NÃO têm rotina "Seu dia", em ordem de id, a partir de
+ * `afterId` (cursor): o worker anda por páginas em vez de varrer todos a cada ciclo. O filtro de opt-out/proativo/data
+ * da última checagem é do chamador (funções puras).
+ */
+export async function listAutoBriefCandidates(input: { afterId?: string | null; limit?: number } = {}): Promise<AutoBriefCandidate[]> {
+	const take = Math.min(Math.max(Math.floor(input.limit ?? 100), 1), 500);
 	const rows = await prisma.bot.findMany({
-		where: { isPrimary: true, ownerId: { not: null }, routines: { none: { template: DAILY_BRIEF_TEMPLATE } } },
+		where: {
+			isPrimary: true,
+			ownerId: { not: null },
+			routines: { none: { template: DAILY_BRIEF_TEMPLATE } },
+			...(input.afterId ? { id: { gt: input.afterId } } : {}),
+		},
 		select: { id: true, ownerId: true, conversationId: true, policyJson: true },
+		orderBy: { id: "asc" },
+		take,
 	});
 	return rows.flatMap((row) => (row.ownerId && row.ownerId !== "default" ? [{ ...row, ownerId: row.ownerId }] : []));
 }

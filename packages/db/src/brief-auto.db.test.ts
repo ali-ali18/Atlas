@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { describe, test, before, mock } from "node:test";
 import { BRIEF_NOTICE_SHOWN_KEY, BRIEF_OPT_OUT_KEY, BRIEF_CHECKED_AT_KEY, DAILY_BRIEF_TEMPLATE, readBriefNoticeShown, readBriefOptOut } from "@workspace/shared";
 import { prisma } from "./client.js";
-import { claimBriefNotice, listAutoBriefCandidates, loadAutoBriefSignals, markBriefOptOut, releaseBriefNotice, withBriefAutoLock } from "./brief-auto.js";
+import { claimBriefNotice, listAutoBriefCandidates, loadAutoBriefSignals, markBriefAutoChecked, markBriefOptOut, releaseBriefNotice, withBriefAutoLock } from "./brief-auto.js";
 import { deleteRoutineGroup } from "./routine-groups.js";
 import { deleteRoutine, updateRoutine } from "./routines.js";
 import { updateBot } from "./bots.js";
@@ -174,13 +174,46 @@ describe("Seu dia por padrão (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(results.filter(Boolean).length, 1);
 	});
 
+	const allCandidates = async () => {
+		const all: Awaited<ReturnType<typeof listAutoBriefCandidates>> = [];
+		for (let afterId: string | undefined; ; ) {
+			const page = await listAutoBriefCandidates({ afterId, limit: 500 });
+			all.push(...page);
+			if (page.length < 500) return all;
+			afterId = page[page.length - 1]!.id;
+		}
+	};
+
+	test("listAutoBriefCandidates pagina por cursor de id (ordem estável, sem repetir nem pular)", async () => {
+		const owners = await Promise.all([1, 2, 3].map((n) => createTestUser(`auto-page-${n}`)));
+		const ids = (await Promise.all(owners.map((owner) => newBot(owner.id, undefined, true)))).sort();
+		const walked: string[] = [];
+		for (let afterId: string | undefined; ; ) {
+			const page = await listAutoBriefCandidates({ afterId, limit: 2 });
+			walked.push(...page.map((bot) => bot.id));
+			if (page.length < 2) break;
+			afterId = page[page.length - 1]!.id;
+		}
+		assert.deepEqual(walked, [...walked].sort(), "ordem de id");
+		assert.equal(new Set(walked).size, walked.length, "sem repetir");
+		for (const id of ids) assert.ok(walked.includes(id));
+	});
+
+	test("markBriefAutoChecked grava só a data, preserva o resto e só vale para o dono", async () => {
+		const botId = await newBot(userA, { proactive: { enabled: true } });
+		await markBriefAutoChecked(userA, botId, "2026-10-27");
+		assert.deepEqual(await policyOf(botId), { proactive: { enabled: true }, [BRIEF_CHECKED_AT_KEY]: "2026-10-27" });
+		await markBriefAutoChecked(userB, botId, "2030-01-01");
+		assert.equal((await policyOf(botId) as Record<string, unknown>)[BRIEF_CHECKED_AT_KEY], "2026-10-27");
+	});
+
 	test("listAutoBriefCandidates: só principais sem Seu dia, de dono real", async () => {
 		const withBrief = await newBot(userA, undefined, true);
 		await newBrief(userA, withBrief);
 		const user = (await createTestUser("auto-c")).id;
 		const free = await newBot(user, undefined, true);
 		const secondary = await newBot((await createTestUser("auto-d")).id, undefined, false);
-		const ids = (await listAutoBriefCandidates()).map((bot) => bot.id);
+		const ids = (await allCandidates()).map((bot) => bot.id);
 		assert.ok(ids.includes(free));
 		assert.ok(!ids.includes(withBrief));
 		assert.ok(!ids.includes(secondary));

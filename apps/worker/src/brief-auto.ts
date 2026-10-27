@@ -1,26 +1,34 @@
-import { getAccountConfig, getBotPolicy, listAutoBriefCandidates, loadAutoBriefSignals, withBriefAutoLock, type AutoBriefCandidate, type AutoBriefSignals } from "@workspace/db";
+import { getAccountConfig, getBotPolicy, listAutoBriefCandidates, loadAutoBriefSignals, markBriefAutoChecked, withBriefAutoLock, type AutoBriefCandidate, type AutoBriefSignals } from "@workspace/db";
 import { listBriefSources, upsertDailyBrief } from "@workspace/agent-runtime";
-import { canAutoEnableBrief, inferAutoBriefTime, readConfiguredQuietHours, readableBriefCategories, type BriefSource, type RoutineRecord } from "@workspace/shared";
+import { briefCheckDayKey, canAutoEnableBrief, isBriefCheckDue, inferAutoBriefTime, readConfiguredQuietHours, readableBriefCategories, type BriefSource, type RoutineRecord } from "@workspace/shared";
 
 /**
  * "Seu dia" ligado por padrão: passo idempotente de garantia, chamado pela varredura do modo proativo
  * (nenhum agendador novo, nenhuma chamada de modelo). Para cada bot principal sem "Seu dia":
  * - pula quem recusou antes (`briefOptOut`), quem desligou o modo proativo de propósito e bot sem conversa;
- * - pula (e tenta de novo no dia seguinte) quem não tem fonte conectada nem pendência para mencionar;
+ * - pula quem não tem fonte conectada nem pendência para mencionar (grava a data; recheca em 7 dias);
  * - cria UMA rotina `daily_brief` (`createdBy: "bot"`), todo dia, no horário inferido da atividade do usuário,
  *   reaproveitando `upsertDailyBrief` em modo só-criar, sob lock por bot (várias instâncias do worker).
- * No máximo uma checagem por bot por dia (em memória: depois de reiniciar o worker a checagem é só repetida,
- * e é barata e idempotente) e a varredura inteira roda no máximo a cada `minIntervalMs`.
+ * A varredura é limitada por orçamento e cursor (ver `createAutoBriefEnsurer`).
  */
 
 const DEFAULT_MIN_INTERVAL_MS = 30 * 60_000;
+const DEFAULT_MAX_CHECKS = 20;
+const DEFAULT_MAX_SCAN = 500;
+const DEFAULT_PAGE_SIZE = 50;
 
-export type AutoBriefOutcome = "created" | "exists" | "skipped_policy" | "skipped_no_conversation" | "skipped_no_sources" | "skipped_checked_today" | "failed";
+export type AutoBriefOutcome = "created" | "exists" | "skipped_policy" | "skipped_no_conversation" | "skipped_no_sources" | "skipped_not_due" | "failed";
 
 export type AutoBriefDeps = {
 	now?: () => Date;
 	minIntervalMs?: number;
-	listCandidates?: () => Promise<AutoBriefCandidate[]>;
+	/** Checagens com consulta por varredura (orçamento), bots lidos por varredura e tamanho da página. */
+	maxChecksPerSweep?: number;
+	maxScanPerSweep?: number;
+	pageSize?: number;
+	listCandidates?: (input: { afterId: string | null; limit: number }) => Promise<AutoBriefCandidate[]>;
+	/** Grava a data da checagem "sem fonte" (`briefAutoCheckedAt`). */
+	markChecked?: (userId: string, botId: string, day: string) => Promise<void>;
 	loadSignals?: (input: { userId: string; botId: string; conversationId: string | null; now: Date }) => Promise<AutoBriefSignals>;
 	listSources?: (userId: string) => Promise<BriefSource[]>;
 	accountTimezone?: (userId: string) => Promise<string | undefined>;
@@ -32,8 +40,6 @@ export type AutoBriefDeps = {
 	log?: (line: string) => void;
 };
 
-const dayKey = (now: Date): string => now.toISOString().slice(0, 10);
-
 /** Uma checagem de um bot. Nunca lança. */
 export async function ensureAutoBrief(bot: AutoBriefCandidate, deps: AutoBriefDeps = {}): Promise<AutoBriefOutcome> {
 	const now = (deps.now ?? (() => new Date()))();
@@ -42,12 +48,17 @@ export async function ensureAutoBrief(bot: AutoBriefCandidate, deps: AutoBriefDe
 		if (!canAutoEnableBrief({ isPrimary: true, policyJson: bot.policyJson })) return "skipped_policy";
 		// Sem conversa o brief não tem onde entrar (expiraria): fica para quando o bot tiver conversa.
 		if (!bot.conversationId) return "skipped_no_conversation";
+		// Sem fonte na última checagem: só volta a olhar depois de BRIEF_RECHECK_DAYS dias (a data está no banco).
+		if (!isBriefCheckDue(bot.policyJson, now)) return "skipped_not_due";
 		const [sources, signals, timezone] = await Promise.all([
 			(deps.listSources ?? listBriefSources)(bot.ownerId),
 			(deps.loadSignals ?? loadAutoBriefSignals)({ userId: bot.ownerId, botId: bot.id, conversationId: bot.conversationId, now }),
 			(deps.accountTimezone ?? defaultAccountTimezone)(bot.ownerId),
 		]);
-		if (readableBriefCategories(sources).length === 0 && !signals.hasPendingWork) return "skipped_no_sources";
+		if (readableBriefCategories(sources).length === 0 && !signals.hasPendingWork) {
+			await (deps.markChecked ?? markBriefAutoChecked)(bot.ownerId, bot.id, briefCheckDayKey(now)).catch(() => log(`[brief-auto] bot=${bot.id} data da checagem não gravada`));
+			return "skipped_no_sources";
+		}
 		const time = inferAutoBriefTime({ userMessageAts: signals.userMessageAts, now, timeZone: timezone, quiet: readConfiguredQuietHours(bot.policyJson) });
 		const run = deps.withLock ?? withBriefAutoLock;
 		return await run(bot.id, async () => {
@@ -86,12 +97,19 @@ async function defaultAccountTimezone(userId: string): Promise<string | undefine
 	return (await getAccountConfig(userId).catch(() => null))?.general?.timezone || undefined;
 }
 
+/** Resultados que gastaram consulta (fontes, sinais, lock): contam no orçamento da varredura. Os outros são decididos só pela política. */
+const SPENT: ReadonlySet<AutoBriefOutcome> = new Set(["created", "exists", "skipped_no_sources", "failed"]);
+
 /**
- * Cria a função de varredura (`() => Promise<number>`, quantos briefs criou). Guarda o estado do dia em memória:
- * cada bot é checado uma vez por dia (UTC) e a varredura inteira respeita `minIntervalMs`. Nunca lança.
+ * Cria a função de varredura (`() => Promise<number>`, quantos briefs criou). Fora do caminho crítico do sweep:
+ * - orçamento: no máximo `maxChecksPerSweep` checagens com consulta por varredura e `maxScanPerSweep` bots lidos;
+ * - cursor (em memória) por id: a varredura seguinte continua de onde parou e dá a volta no fim da lista;
+ * - sem estado em memória do dia: bot com brief sai da lista; bot sem fonte tem a data gravada no banco
+ *   (`briefAutoCheckedAt`) e só é rechecado depois de `BRIEF_RECHECK_DAYS` dias, por qualquer instância.
+ * A varredura inteira também respeita `minIntervalMs`. Nunca lança.
  */
 export function createAutoBriefEnsurer(deps: AutoBriefDeps = {}): () => Promise<number> {
-	const checked = new Map<string, string>();
+	let cursor: string | null = null;
 	let lastSweepAt = 0;
 	let running = false;
 	return async () => {
@@ -99,16 +117,28 @@ export function createAutoBriefEnsurer(deps: AutoBriefDeps = {}): () => Promise<
 		if (running || now.getTime() - lastSweepAt < (deps.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS)) return 0;
 		running = true;
 		lastSweepAt = now.getTime();
+		const budget = deps.maxChecksPerSweep ?? DEFAULT_MAX_CHECKS;
+		const maxScan = deps.maxScanPerSweep ?? DEFAULT_MAX_SCAN;
+		const pageSize = deps.pageSize ?? DEFAULT_PAGE_SIZE;
 		let created = 0;
 		try {
-			const today = dayKey(now);
-			for (const [botId, day] of checked) if (day !== today) checked.delete(botId);
-			for (const bot of await (deps.listCandidates ?? listAutoBriefCandidates)()) {
-				if (checked.get(bot.id) === today) continue;
-				const outcome = await ensureAutoBrief(bot, deps);
-				// Erro de vez (ex.: banco fora do ar) tenta de novo na próxima varredura; o resto fica para amanhã.
-				if (outcome !== "failed") checked.set(bot.id, today);
-				if (outcome === "created") created += 1;
+			let spent = 0;
+			let scanned = 0;
+			while (spent < budget && scanned < maxScan) {
+				const page = await (deps.listCandidates ?? listAutoBriefCandidates)({ afterId: cursor, limit: pageSize });
+				for (const bot of page) {
+					cursor = bot.id;
+					scanned += 1;
+					const outcome = await ensureAutoBrief(bot, deps);
+					if (SPENT.has(outcome)) spent += 1;
+					if (outcome === "created") created += 1;
+					if (spent >= budget) break;
+				}
+				// Página curta = fim da lista: a próxima varredura recomeça do início.
+				if (page.length < pageSize) {
+					cursor = null;
+					break;
+				}
 			}
 		} catch (error) {
 			(deps.log ?? console.error)(`[brief-auto] varredura falhou (${error instanceof Error ? error.name : "erro"})`);

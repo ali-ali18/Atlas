@@ -723,6 +723,7 @@ export {
 	claimBriefNotice,
 	listAutoBriefCandidates,
 	loadAutoBriefSignals,
+	markBriefAutoChecked,
 	markBriefOptOut,
 	releaseBriefNotice,
 	withBriefAutoLock,

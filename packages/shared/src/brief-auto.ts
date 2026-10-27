@@ -32,6 +32,24 @@ export function mergeServerPolicyKeys(incoming: unknown, current: unknown): Reco
 	return null;
 }
 
+/** Bot sem fonte nem pendência é rechecado só depois de tantos dias (não todo ciclo da varredura). */
+export const BRIEF_RECHECK_DAYS = 7;
+
+/** Dia UTC (AAAA-MM-DD) que vai em `briefAutoCheckedAt`. */
+export const briefCheckDayKey = (now: Date): string => now.toISOString().slice(0, 10);
+
+/**
+ * Está na hora de checar fontes/atividade deste bot? Sem registro, ou registro com `BRIEF_RECHECK_DAYS` dias ou mais
+ * (ou ilegível): sim. Só o resultado "sem fonte" grava a data; quem tem fonte vira rotina e sai da lista.
+ */
+export function isBriefCheckDue(policyJson: unknown, now: Date): boolean {
+	const raw = asRecord(policyJson)?.[BRIEF_CHECKED_AT_KEY];
+	if (typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return true;
+	const checked = Date.parse(`${raw}T00:00:00Z`);
+	if (!Number.isFinite(checked)) return true;
+	return now.getTime() - checked >= BRIEF_RECHECK_DAYS * 24 * 60 * 60 * 1000;
+}
+
 /** Linha única (pt-BR, vista pelo usuário) no fim do primeiro brief criado pelo bot. */
 export const BRIEF_AUTO_NOTICE = "Comecei a te mandar esse resumo toda manhã. Se não quiser, é só dizer.";
 

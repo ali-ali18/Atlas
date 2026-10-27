@@ -3,6 +3,9 @@ import {
 	BRIEF_AUTO_NOTICE,
 	BRIEF_CHECKED_AT_KEY,
 	BRIEF_NOTICE_SHOWN_KEY,
+	BRIEF_RECHECK_DAYS,
+	briefCheckDayKey,
+	isBriefCheckDue,
 	BRIEF_OPT_OUT_KEY,
 	appendAutoBriefNotice,
 	canAutoEnableBrief,
@@ -145,5 +148,18 @@ describe("mergeServerPolicyKeys", () => {
 		expect(mergeServerPolicyKeys(null, current)).toEqual({ [BRIEF_OPT_OUT_KEY]: true, [BRIEF_NOTICE_SHOWN_KEY]: true, [BRIEF_CHECKED_AT_KEY]: "2026-10-01" });
 		expect(mergeServerPolicyKeys(null, { proactive: {} })).toBeNull();
 		expect(mergeServerPolicyKeys({ a: 1 }, null)).toEqual({ a: 1 });
+	});
+});
+
+describe("isBriefCheckDue (bots sem fonte: recheca por semana)", () => {
+	const now = new Date("2026-10-27T15:00:00Z");
+	it("sem registro, ilegível ou de tipo errado: devida", () => {
+		for (const policy of [null, {}, { [BRIEF_CHECKED_AT_KEY]: "ontem" }, { [BRIEF_CHECKED_AT_KEY]: 5 }, { [BRIEF_CHECKED_AT_KEY]: "2026-13-45" }]) expect(isBriefCheckDue(policy, now)).toBe(true);
+	});
+	it("checado há menos de 7 dias: não; a partir de 7 dias: sim", () => {
+		expect(BRIEF_RECHECK_DAYS).toBe(7);
+		expect(isBriefCheckDue({ [BRIEF_CHECKED_AT_KEY]: briefCheckDayKey(now) }, now)).toBe(false);
+		expect(isBriefCheckDue({ [BRIEF_CHECKED_AT_KEY]: "2026-10-21" }, now)).toBe(false);
+		expect(isBriefCheckDue({ [BRIEF_CHECKED_AT_KEY]: "2026-10-20" }, now)).toBe(true);
 	});
 });
