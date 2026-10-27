@@ -4942,10 +4942,11 @@ export async function runComputerUse(params: {
 	/** Espera depois de preencher o login do Cofre antes de conferir a página (padrão 3 s). */
 	vaultLoginSettleMs?: number;
 	/**
-	 * Sites para os quais a conversa já mostrou o card de login nos últimos 30 min (vale entre runs).
+	 * Cards de login da conversa nos últimos 30 min (vale entre runs): `asked` = sites com card pendente (não repetir),
+	 * `vaultTried` = sites onde o Cofre já falhou (sem novo auto-login). Lido só quando aparece uma tela de login.
 	 * Sem isto o guarda de "já pedi" só vale dentro do run e cada mensagem nova reabria o mesmo card.
 	 */
-	recentLoginSites?: () => Promise<readonly string[]>;
+	recentLoginAsks?: () => Promise<{ asked: readonly string[]; vaultTried: readonly string[] }>;
 	/** Prazo da busca do código no e-mail (padrão 60 s). */
 	vaultEmailTimeoutMs?: number;
 	consumeSteerInputs?: () => Promise<
@@ -6190,10 +6191,17 @@ export async function runComputerUse(params: {
 		: undefined;
 	let pendingLogin = parsedCheckpoint?.pendingLogin;
 	// "Já pedi login neste site" por conversa (30 min), alimentado pelos cards persistidos; vale por site, não por URL.
-	const recentLoginSites = new Set<string>();
-	if (!isSubagent && userId !== "default" && params.recentLoginSites) {
-		for (const site of await params.recentLoginSites().catch(() => [] as readonly string[])) recentLoginSites.add(site);
-	}
+	// Carregado sob demanda (só quando uma tela de login aparece): run sem muro de login não paga a consulta.
+	const recentLoginAsks = { asked: new Set<string>(), vaultTried: new Set<string>(), loaded: false };
+	const loadRecentLoginAsks = async () => {
+		if (recentLoginAsks.loaded) return recentLoginAsks;
+		recentLoginAsks.loaded = true;
+		if (userId === "default" || !params.recentLoginAsks) return recentLoginAsks;
+		const recent = await params.recentLoginAsks().catch(() => null);
+		for (const site of recent?.asked ?? []) recentLoginAsks.asked.add(site);
+		for (const site of recent?.vaultTried ?? []) recentLoginAsks.vaultTried.add(site);
+		return recentLoginAsks;
+	};
 	// Provedores sem créditos/cota neste run e as tools que existem (para dicas honestas).
 	const providerHealth = params.providerHealth ?? createProviderHealth();
 	const hasToolInRun = (toolName: string) =>
@@ -7599,6 +7607,9 @@ export async function runComputerUse(params: {
 				loginEvent = outcome.loginEvent;
 				fileEvent = outcome.fileEvent;
 				if (loginEvent && !isSubagent) {
+					const recentAsks = await loadRecentLoginAsks();
+					// O Cofre já falhou neste site na conversa (30 min): nada de digitar a senha de novo; vai o card humano.
+					if (recentAsks.vaultTried.has(loginEvent.site)) loginAsked.add(vaultTriedKey(loginEvent.url));
 					if (vaultUsable) loginEvent = await withVaultOffer(loginEvent, { vault: vaultService, userId, loginAsked, unattended: isUnattendedOrigin(params.origin), emailSourceName: emailSource?.name });
 					// Cofre primeiro: login salvo e já aprovado entra sozinho, sem card. Sem aprovação, o card com a
 					// oferta do Cofre é o de aprovação; só sobra o card "faça você" sem login salvo ou se faltar 2FA/captcha/senha.
@@ -7630,13 +7641,14 @@ export async function runComputerUse(params: {
 							loginEvent = { ...humanEvent, vaultTried: auto.reason, ...(auto.codeField ? { codeField: true } : {}) };
 						}
 					}
-					// Card humano repetido: o mesmo site já pediu login nesta conversa (30 min). Não reabre o card; o modelo recebe a nota.
-					if (loginEvent && !loginEvent.vault && loginEvent.reason !== "captcha" && !loginEvent.connector && !loginEvent.composioToolkit) {
-						if (recentLoginSites.has(loginEvent.site)) {
+					// Card repetido (humano ou aprovação do Cofre): o mesmo site já tem um card pendente nesta conversa
+					// (30 min). Não reabre; o modelo recebe a nota. Login concluído depois disso libera um card novo.
+					if (loginEvent && loginEvent.reason !== "captcha" && !loginEvent.connector && !loginEvent.composioToolkit) {
+						if (recentAsks.asked.has(loginEvent.site)) {
 							summary = `${summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "")}${LOGIN_ALREADY_ASKED_NOTE(loginEvent.site)}`;
 							loginEvent = undefined;
 						} else {
-							recentLoginSites.add(loginEvent.site);
+							recentAsks.asked.add(loginEvent.site);
 						}
 					}
 					stopForLogin = loginEvent;

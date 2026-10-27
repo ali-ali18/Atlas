@@ -625,7 +625,7 @@ export {
 	type GithubInstallationRepo,
 } from "./github-app.js";
 export * from "./push.js";
-export { listRecentLoginAskSites, LOGIN_ASK_WINDOW_MS } from "./login-asks.js";
+export { listRecentLoginAsks, LOGIN_ASK_WINDOW_MS, type RecentLoginAsks } from "./login-asks.js";
 export { conversationHoldsVm, VM_HOLD_WINDOW_MS } from "./vm-hold.js";
 export * from "./user-events.js";
 export {

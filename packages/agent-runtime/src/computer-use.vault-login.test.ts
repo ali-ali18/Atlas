@@ -64,7 +64,8 @@ async function run(opts: {
 	snapshotAfterTyping?: (typedCount: number) => ReturnType<typeof wallSnapshot>;
 	/** Tela vista quando o run é retomado por "Terminei" (padrão: já logado). */
 	snapshotOnResume?: () => ReturnType<typeof wallSnapshot>;
-	recentLoginSites?: string[];
+	recentLoginAsks?: { asked?: string[]; vaultTried?: string[] };
+	recentLoginAsksSpy?: ReturnType<typeof vi.fn>;
 	mcp?: McpRuntime;
 }) {
 	const events: Array<Record<string, unknown>> = [];
@@ -97,7 +98,7 @@ async function run(opts: {
 		mcp: opts.mcp,
 		restoredCheckpoint: opts.restored ?? null,
 		onLoginRequired,
-		...(opts.recentLoginSites ? { recentLoginSites: async () => opts.recentLoginSites! } : {}),
+		...(opts.recentLoginAsks || opts.recentLoginAsksSpy ? { recentLoginAsks: async () => { opts.recentLoginAsksSpy?.(); return { asked: opts.recentLoginAsks?.asked ?? [], vaultTried: opts.recentLoginAsks?.vaultTried ?? [] }; } } : {}),
 		onCheckpoint: async (checkpoint) => {
 			checkpoints.push(checkpoint);
 		},
@@ -400,7 +401,7 @@ describe("Terminei confere a tela e o aviso de login vale por conversa", () => {
 	});
 
 	it("o site já pediu login nesta conversa (run anterior, 30 min): sem card novo, o modelo recebe a nota", async () => {
-		const { error, events, seen, onLoginRequired } = await run({ queue: [step("browser_snapshot"), text("O site ainda pede login.")], recentLoginSites: ["chatgpt.com"] });
+		const { error, events, seen, onLoginRequired } = await run({ queue: [step("browser_snapshot"), text("O site ainda pede login.")], recentLoginAsks: { asked: ["chatgpt.com"] } });
 		expect(error).toBeUndefined();
 		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
 		expect(onLoginRequired).not.toHaveBeenCalled();
@@ -408,7 +409,7 @@ describe("Terminei confere a tela e o aviso de login vale por conversa", () => {
 	});
 
 	it("outro site da conversa não é bloqueado pelo aviso de um site já perguntado", async () => {
-		const { error, events } = await run({ queue: [step("browser_snapshot")], recentLoginSites: ["outro.example.com"] });
+		const { error, events } = await run({ queue: [step("browser_snapshot")], recentLoginAsks: { asked: ["outro.example.com"] } });
 		expect(error).toMatchObject({ name: "AgentRunPausedError" });
 		expect(events.find((e) => e.type === "login" && e.status === "pending")).toMatchObject({ site: "chatgpt.com" });
 	});
@@ -416,9 +417,37 @@ describe("Terminei confere a tela e o aviso de login vale por conversa", () => {
 	it("login salvo e aprovado continua entrando sozinho mesmo com aviso recente do site", async () => {
 		await addChatgpt();
 		await approveChatgpt();
-		const { error, events, execBrowserType } = await run({ queue: [step("browser_snapshot"), text("ok")], recentLoginSites: ["chatgpt.com"], snapshotAfterTyping: homeSnapshot, pageAfter: { url: "https://chatgpt.com/", title: "ChatGPT", text: "Como posso ajudar hoje?" } });
+		const { error, events, execBrowserType } = await run({ queue: [step("browser_snapshot"), text("ok")], recentLoginAsks: { asked: ["chatgpt.com"] }, snapshotAfterTyping: homeSnapshot, pageAfter: { url: "https://chatgpt.com/", title: "ChatGPT", text: "Como posso ajudar hoje?" } });
 		expect(error).toBeUndefined();
 		expect(execBrowserType).toHaveBeenCalled();
 		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
+	});
+
+	it("o Cofre já falhou neste site na conversa (30 min): não digita a senha de novo e mostra o card humano", async () => {
+		await addChatgpt();
+		await approveChatgpt();
+		const { error, events, execBrowserType } = await run({ queue: [step("browser_snapshot")], recentLoginAsks: { vaultTried: ["chatgpt.com"] } });
+		expect(error).toMatchObject({ name: "AgentRunPausedError" });
+		expect(execBrowserType).not.toHaveBeenCalled();
+		const card = events.find((e) => e.type === "login" && e.status === "pending");
+		expect(card).toMatchObject({ site: "chatgpt.com" });
+		expect(card).toHaveProperty("vaultTried");
+		expect(card).not.toHaveProperty("vault");
+	});
+
+	it("card de aprovação do Cofre também não se repete na conversa enquanto o anterior está pendente", async () => {
+		await addChatgpt();
+		const { events, onLoginRequired, seen } = await run({ queue: [step("browser_snapshot"), text("Preciso da sua aprovação.")], recentLoginAsks: { asked: ["chatgpt.com"] } });
+		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
+		expect(onLoginRequired).not.toHaveBeenCalled();
+		expect(seen.some((m) => m.includes("LOGIN STILL REQUIRED on chatgpt.com"))).toBe(true);
+	});
+
+	it("as pesquisas de card recente só rodam quando uma tela de login aparece", async () => {
+		const spy = vi.fn();
+		await run({ queue: [text("Bom dia!")], recentLoginAsksSpy: spy });
+		expect(spy).not.toHaveBeenCalled();
+		await run({ queue: [step("browser_snapshot")], recentLoginAsksSpy: spy });
+		expect(spy).toHaveBeenCalledTimes(1);
 	});
 });
