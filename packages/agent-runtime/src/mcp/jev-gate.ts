@@ -24,6 +24,22 @@ function compact(value: unknown, depth: number): unknown {
 	return value;
 }
 
+/** Quantas ações já aprovadas entram no estado do Jev (as mais recentes). */
+const APPROVED_ACTIONS_MAX = 8;
+const APPROVED_SUMMARY_MAX = 120;
+
+/**
+ * Uma linha curta de uma ação já executada ("create_event: Prova de Cálculo"), para o Jev ver o que o
+ * usuário já aprovou. Só valores de texto curtos; chaves com cara de segredo nunca entram.
+ */
+export function summarizeApprovedAction(toolName: string, args: Record<string, unknown>): string {
+	const values = Object.entries(args)
+		.filter(([key, value]) => !PRIVATE_KEY.test(key) && typeof value === "string" && value.trim().length > 0)
+		.slice(0, 2)
+		.map(([, value]) => String(value).replace(/\s+/g, " ").trim().slice(0, 50));
+	return `${toolName}${values.length ? `: ${values.join(" | ")}` : ""}`.slice(0, APPROVED_SUMMARY_MAX);
+}
+
 export function jevMcpState(input: {
 	userRequest: string;
 	latestUserMessage?: string;
@@ -31,7 +47,10 @@ export function jevMcpState(input: {
 	toolDescription?: string;
 	actionClass: "write" | "irreversible";
 	args: Record<string, unknown>;
+	/** Ações já aprovadas e executadas (mais antigas primeiro). */
+	alreadyApproved?: readonly string[];
 }): JevMcpState {
+	const approved = (input.alreadyApproved ?? []).slice(-APPROVED_ACTIONS_MAX).map((line) => line.slice(0, APPROVED_SUMMARY_MAX));
 	return {
 		userRequest: input.userRequest.slice(0, 2_000),
 		...(input.latestUserMessage ? { latestUserMessage: input.latestUserMessage.slice(0, 2_000) } : {}),
@@ -39,15 +58,26 @@ export function jevMcpState(input: {
 		toolDescription: (input.toolDescription ?? "").slice(0, 500),
 		actionClass: input.actionClass,
 		arguments: compact(input.args, 0) as Record<string, unknown>,
+		...(approved.length > 0 ? { alreadyApproved: approved } : {}),
 	};
 }
 
-/** A política de autonomia já autorizou a ação; Jev só pode acrescentar revisão. */
+/**
+ * A política de autonomia já autorizou a ação; Jev só pode acrescentar revisão.
+ *
+ * Jev fora do ar (sem avaliador, erro, resposta inválida) não é motivo, sozinho, para perguntar: escrita
+ * reversível que a autonomia liberou segue. Continua perguntando quando a ação é irreversível ou quando
+ * o run já leu conteúdo externo não confiável (e-mail, página, resultado de conector).
+ */
 export async function reviewMcpWithJev(input: {
 	mode: JevMcpMode;
 	evaluator?: JevMcpEvaluator;
 	state: JevMcpState;
 	signal?: AbortSignal;
+	/** O run já leu conteúdo externo não confiável. */
+	untrustedContent?: boolean;
+	/** "Nunca perguntar" do usuário vale para esta tool: só instrução vinda de fora pode fazer perguntar. */
+	neverAsk?: boolean;
 }): Promise<{ ask: boolean; audit?: JevMcpAudit }> {
 	if (input.mode === "off") return { ask: false };
 	try {
@@ -56,7 +86,7 @@ export async function reviewMcpWithJev(input: {
 		if (![answer.alignment, answer.externalInstruction].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)) {
 			throw new Error("Invalid Jev probabilities");
 		}
-		const proposedAsk = answer.alignment < 0.9 || answer.externalInstruction >= 0.2;
+		const proposedAsk = (!input.neverAsk && answer.alignment < 0.9) || answer.externalInstruction >= 0.2;
 		return {
 			ask: input.mode === "gate" && proposedAsk,
 			audit: {
@@ -71,6 +101,7 @@ export async function reviewMcpWithJev(input: {
 		};
 	} catch (error) {
 		if (input.signal?.aborted) throw error;
-		return { ask: input.mode === "gate", audit: { mode: input.mode, result: "unavailable" } };
+		const strict = !input.neverAsk && (input.state.actionClass === "irreversible" || input.untrustedContent === true);
+		return { ask: input.mode === "gate" && strict, audit: { mode: input.mode, result: "unavailable" } };
 	}
 }
