@@ -7,6 +7,7 @@ export {
 	SandboxControlError,
 } from "./docker-manager.js";
 export { startSandboxReaper } from "./reaper.js";
+export { pickVmsToStop, loadMemoryGuardLimits, type RunningVm } from "./memory-guard.js";
 export type {
 	ControlActionEffect,
 	ControlPageChanges,

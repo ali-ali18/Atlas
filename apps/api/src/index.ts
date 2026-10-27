@@ -230,6 +230,8 @@ app.route("/", createBotRoutes());
 app.route("/", createGroupRoutes());
 app.route("/", createConversationRoutes());
 app.route("/", createReactionRoutes());
+// Notificador compartilhado com o guarda de memória das VMs (null sem VAPID/Redis).
+let pushNotify: ReturnType<typeof createNotifier> | null = null;
 {
 	// Web Push: sem as chaves VAPID o app segue normal, só sem notificações no celular.
 	const vapid = readVapidConfig(process.env);
@@ -242,7 +244,8 @@ app.route("/", createReactionRoutes());
 	app.route("/", createPushRoutes({ vapid, sender, presence: redisConnection ? createRedisPresence(redisConnection) : null }));
 	// A API também grava estados que viram aviso (sessão de código que falhou, cartão decidido no chat).
 	if (sender && redisConnection) {
-		installPushListener(createNotifier({ sender, presence: createRedisPresence(redisConnection), coalesce: createRedisCoalesce(redisConnection) }));
+		pushNotify = createNotifier({ sender, presence: createRedisPresence(redisConnection), coalesce: createRedisCoalesce(redisConnection) });
+		installPushListener(pushNotify);
 	}
 }
 app.route("/", createDevSessionRoutes());
@@ -397,10 +400,11 @@ void listGithubRoutineRepoOwners()
 		console.error("[github-hook-resync] falhou ao listar rotinas GitHub", error);
 	});
 
-// GC das sessões de sandbox ociosas (TTL configurável).
-// Política: a VM é do bot — TTL só ADORMECE (stop, preserva perfil/login).
-// Remoção automática desligada (custo de parado ~zero e a sessão é sempre
-// reutilizada); remover é ação administrativa manual.
+// Ciclo de vida das VMs de sandbox. A VM guarda o login do navegador, então NÃO é
+// parada por inatividade (SANDBOX_IDLE_STOP=1 reativa o modo antigo, com SANDBOX_TTL_MS).
+// Ela para quando o usuário manda, quando o bot termina (sandbox_release) ou pelo guarda
+// de memória: acima de SANDBOX_MAX_RUNNING VMs (padrão 3) ou com pouca memória livre
+// (SANDBOX_MIN_FREE_MEM_MB, padrão 512), para a VM ociosa há mais tempo e avisa o dono.
 const sandboxTtlMs = Number.parseInt(
 	process.env.SANDBOX_TTL_MS ?? "900000",
 	10,
@@ -409,6 +413,13 @@ startSandboxReaper(loadSandboxConfig(), {
 	ttlMs: Number.isFinite(sandboxTtlMs) && sandboxTtlMs > 0 ? sandboxTtlMs : 900000,
 	hardTtlMs: Number.POSITIVE_INFINITY,
 	intervalMs: 60_000,
+	idleStop: process.env.SANDBOX_IDLE_STOP === "1" || process.env.SANDBOX_IDLE_STOP === "true",
+	memoryGuard: {
+		notify: async (vm) => {
+			if (!pushNotify || !vm.conversationId || !vm.userId) return;
+			await pushNotify(vm.userId, vm.conversationId, "run-finished", "Desliguei a VM para liberar memória. Ela liga de novo quando você precisar.");
+		},
+	},
 });
 
 // Sessões de desenvolvimento (container leve por sessão): para as ociosas
