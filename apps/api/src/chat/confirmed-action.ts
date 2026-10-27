@@ -1,5 +1,5 @@
 import type { TranscriptSeed } from "@workspace/shared";
-import { DEFAULT_COMMAND_ALLOWLIST, PLAN_OUTCOME_ADJUSTED, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
+import { DEFAULT_COMMAND_ALLOWLIST, canGrantMcpTask, PLAN_OUTCOME_ADJUSTED, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
 import type { AgentRun } from "@workspace/shared";
 import {
 	addBotAutonomyException,
@@ -9,6 +9,8 @@ import {
 	claimSkillPendingIntent,
 	completeAgentRunAtomically,
 	createAgentRun,
+	grantMcpTask,
+	setConfirmCardGrantUses,
 	getDevEnvironment,
 	getLatestConfirmCardStatus,
 	getMailboxForBot,
@@ -21,7 +23,7 @@ import {
 	updateConfirmCardStatus,
 	type SkillPendingPayload,
 } from "@workspace/db";
-import { EmailServiceError, emailService, executeConfirmedMcpCall, getVaultService, executeGenerateImage, openSecrets, isSecretBoxConfigured, parseGenerateImageArgs, sanitizeErrorMessage } from "@workspace/agent-runtime";
+import { collectRefs, EmailServiceError, emailService, executeConfirmedMcpCall, getVaultService, executeGenerateImage, openSecrets, isSecretBoxConfigured, parseGenerateImageArgs, sanitizeErrorMessage } from "@workspace/agent-runtime";
 import { peekModelContextLength } from "../routes/models.js";
 import { loadEffectiveConfig } from "./account-config.js";
 
@@ -120,13 +122,39 @@ export async function rememberAlwaysAllow(input: {
 	}
 }
 
+/**
+ * Aprovação por tarefa: escrita reversível aprovada e executada vale para a mesma tool nesta conversa
+ * (30 min, teto de usos). Nunca para irreversível nem com segredo nos argumentos.
+ */
+export async function grantAfterApproval(input: {
+	userId: string;
+	conversationId: string;
+	call: { connectionId: string; exposedName: string; actionClass?: "write" | "irreversible"; args: Record<string, unknown> };
+	confirmId?: string;
+}): Promise<{ uses: number; maxUses: number } | undefined> {
+	if (!canGrantMcpTask(input.call.actionClass) || collectRefs(input.call.args).length > 0) return undefined;
+	const granted = await grantMcpTask({
+		userId: input.userId,
+		conversationId: input.conversationId,
+		connectionId: input.call.connectionId,
+		exposedName: input.call.exposedName,
+		...(input.confirmId ? { confirmId: input.confirmId } : {}),
+	}).catch(() => null);
+	if (!granted) return undefined;
+	// Auditoria sem argumentos.
+	console.info("[mcp-task-grant]", JSON.stringify({ event: "granted", conversationId: input.conversationId, tool: input.call.exposedName, connectionId: input.call.connectionId, maxUses: granted.maxUses }));
+	return { uses: granted.uses, maxUses: granted.maxUses };
+}
+
+type PendingMcpResult = { ok: boolean; text: string; truncated: boolean; /** Aprovação por tarefa concedida por esta confirmação. */ grant?: { uses: number; maxUses: number } };
+
 async function executePendingMcp(input: {
 	userId: string;
 	botId: string;
 	conversationId: string;
 	payload: SkillPendingPayload;
 	always: boolean;
-}) {
+}): Promise<PendingMcpResult> {
 	const call = input.payload.mcpCall;
 	const denied = (text: string) => ({ ok: false, text, truncated: false });
 	if (!call || !input.payload.botId || input.payload.botId !== input.botId) {
@@ -146,10 +174,14 @@ async function executePendingMcp(input: {
 		exposedName: call.exposedName,
 		args: call.args,
 	});
-	if (result.ok && input.always && !call.jevReview) {
+	// "Sempre para isto" vale também no cartão do Jev: a exceção deixa o Jev barrar só instrução vinda de fora.
+	if (result.ok && input.always) {
 		await rememberAlwaysAllow({ userId: input.userId, botId: input.botId, call });
 	}
-	return result;
+	const grant = result.ok && !input.always
+		? await grantAfterApproval({ userId: input.userId, conversationId: input.conversationId, call, confirmId: input.payload.confirmId })
+		: undefined;
+	return { ...result, ...(grant ? { grant } : {}) };
 }
 
 /** FALLBACK (pt) quando o Jev está indisponível; ver `isCancelCommand`. */
@@ -313,6 +345,7 @@ async function resolvePendingIntent(input: {
 		const call = payload.mcpCall;
 		if (!call) return done(`Perdi o contexto da confirmação — me pede de novo.`);
 		const result = await executePendingMcp({ userId: input.userId, botId: input.botId, conversationId: input.conversationId, payload, always: isConfirmAlways(input.reply) });
+		if (result.grant && payload.confirmId) await setConfirmCardGrantUses(input.conversationId, payload.confirmId, result.grant.uses).catch(() => undefined);
 		await clear();
 		const detail = result.text.length > 3000 ? `${result.text.slice(0, 3000)}…` : result.text;
 		return done(
@@ -367,6 +400,8 @@ export function mcpFollowUpShortContent(
 	userText: string,
 	call: { connectorName: string; toolName: string; exposedName: string },
 	result: { ok: boolean },
+	/** Aprovação por tarefa concedida: o modelo sabe que pode seguir com as próximas sem novo cartão. */
+	granted = false,
 ): string {
 	return [
 		userText,
@@ -376,13 +411,23 @@ export function mcpFollowUpShortContent(
 			? `Continue o pedido original usando esse resultado e responda ao usuário de forma resumida e legível (nunca cole o JSON/markdown cru). Não chame "${call.exposedName}" de novo com os mesmos argumentos.`
 			: `Explique a falha ao usuário em 1-2 frases e, se fizer sentido, proponha outro caminho. Before concluding the capability is unavailable, check whether an argument (for example an id) was wrong, and retry only with a corrected value; do not repeat the same call unchanged.`,
 		"Se o pedido original tinha outras partes ainda não feitas (ex.: lembrete no chat), faça agora.",
+		...mcpGrantFollowUpLines(call, result.ok && granted),
 	].join("\n");
+}
+
+/** Quando a aprovação vale para a tarefa, o modelo segue com os itens restantes sem esperar outro cartão. */
+function mcpGrantFollowUpLines(call: { exposedName: string }, granted: boolean): string[] {
+	if (!granted) return [];
+	return [
+		`The user's approval now covers "${call.exposedName}" for this task (about 30 minutes, up to 30 calls): call it for the remaining similar items WITHOUT asking again. Calls from the earlier step that were skipped pending this approval were NOT executed: make them now. Report the count (for example "3 of 8 created"), and never claim the others failed or did not run.`,
+	];
 }
 
 export function mcpFollowUpContent(
 	userText: string,
 	call: { connectorName: string; toolName: string; exposedName: string },
 	result: { ok: boolean; text: string; truncated: boolean },
+	granted = false,
 ): string {
 	const text = result.text.length > MCP_FOLLOW_UP_MAX_CHARS
 		? `${result.text.slice(0, MCP_FOLLOW_UP_MAX_CHARS)}\n[truncado]`
@@ -399,6 +444,7 @@ export function mcpFollowUpContent(
 			? `Continue o pedido original usando esse resultado e responda ao usuário de forma resumida e legível (nunca cole o JSON/markdown cru). Não chame "${call.exposedName}" de novo com os mesmos argumentos.`
 			: `Explique a falha ao usuário em 1-2 frases e, se fizer sentido, proponha outro caminho. Before concluding the capability is unavailable, check whether an argument (for example an id) was wrong, and retry only with a corrected value; do not repeat the same call unchanged.`,
 		"Se o pedido original tinha outras partes ainda não feitas (ex.: lembrete no chat), faça agora.",
+		...mcpGrantFollowUpLines(call, result.ok && granted),
 	].join("\n");
 }
 
@@ -734,15 +780,17 @@ export async function maybeHandleConfirmedAction(input: {
 			const result = await executePendingMcp({ userId, botId: input.botId, conversationId: input.conversationId, payload: pending.payload, always: isConfirmAlways(commandText) });
 			// O resultado fica no card: se o modelo pedir a MESMA chamada de novo, recebe isto em vez de outro card.
 			await updateConfirmCardStatus(input.conversationId, result.ok ? "approved" : "failed", pending.payload.confirmId, undefined, { ok: result.ok, detail: result.text }).catch(() => undefined);
+			if (result.grant && pending.payload.confirmId) await setConfirmCardGrantUses(input.conversationId, pending.payload.confirmId, result.grant.uses).catch(() => undefined);
 			await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 			const userText = input.text.trim();
+			const granted = Boolean(result.grant);
 			return {
 				handled: false,
 				followUp: {
 					objective: userText,
-					content: mcpFollowUpContent(userText, call, result),
+					content: mcpFollowUpContent(userText, call, result, granted),
 					...(call.runId
-						? { transcript: { fromRunId: call.runId, toolName: call.exposedName, resultContent: mcpResultToolContent(call, result), shortContent: labelCardProtocolMessage(mcpFollowUpShortContent(userText, call, result)) } }
+						? { transcript: { fromRunId: call.runId, toolName: call.exposedName, resultContent: mcpResultToolContent(call, result), shortContent: labelCardProtocolMessage(mcpFollowUpShortContent(userText, call, result, granted)) } }
 						: {}),
 				},
 			};

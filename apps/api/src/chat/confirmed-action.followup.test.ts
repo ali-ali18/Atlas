@@ -76,3 +76,12 @@ test("semente da aprovação por família de ação: o desfecho vira o resultado
 	assert.deepEqual(seedField({ confirmId: "confirm-local" }, undefined, "x", "y"), {});
 	assert.deepEqual(seedField(payload, undefined, "  ", "y"), {});
 });
+
+test("aprovação por tarefa: o follow-up manda seguir com os itens restantes sem novo cartão", () => {
+	const granted = mcpFollowUpContent("confirmado", call, { ok: true, text: "ok", truncated: false }, true);
+	assert.match(granted, /approval now covers "mcp__tracker__link_child" for this task/);
+	assert.match(granted, /WITHOUT asking again/);
+	assert.match(granted, /skipped pending this approval were NOT executed/);
+	assert.doesNotMatch(mcpFollowUpContent("confirmado", call, { ok: true, text: "ok", truncated: false }), /for this task/);
+	assert.doesNotMatch(mcpFollowUpContent("confirmado", call, { ok: false, text: "erro", truncated: false }, true), /for this task/);
+});

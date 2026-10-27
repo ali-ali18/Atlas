@@ -73,3 +73,41 @@ test("bot de outro usuário: nada é gravado", async () => {
 		fake.restore();
 	}
 });
+
+test("aprovação por tarefa: só escrita reversível sem segredo, só em conversa do dono", async () => {
+	const { grantAfterApproval } = await import("./confirmed-action.js");
+	const originalFind = prisma.conversation.findFirst;
+	const originalUpsert = prisma.mcpTaskGrant.upsert;
+	const upserts: Array<{ create: { userId: string; conversationId: string; connectionId: string; exposedName: string; uses: number; maxUses: number } }> = [];
+	prisma.conversation.findFirst = (async (args: { where: { id: string; userId: string } }) =>
+		args.where.id === "conv-a" && args.where.userId === "user-a" ? { id: "conv-a" } : null) as unknown as typeof prisma.conversation.findFirst;
+	prisma.mcpTaskGrant.upsert = (async (args: (typeof upserts)[number]) => {
+		upserts.push(args);
+		return { ...args.create, confirmId: null };
+	}) as unknown as typeof prisma.mcpTaskGrant.upsert;
+	const info = vi_noop();
+	try {
+		const call = { connectionId: "conn-1", exposedName: "mcp__google_calendar__create_event", actionClass: "write" as const, args: { summary: "Prova" } };
+		assert.deepEqual(await grantAfterApproval({ userId: "user-a", conversationId: "conv-a", call, confirmId: "c1" }), { uses: 1, maxUses: 30 });
+		assert.equal(upserts[0]?.create.userId, "user-a");
+		assert.equal(upserts[0]?.create.connectionId, "conn-1");
+		assert.equal(await grantAfterApproval({ userId: "user-b", conversationId: "conv-a", call }), undefined, "outro usuário não concede");
+		assert.equal(await grantAfterApproval({ userId: "user-a", conversationId: "conv-x", call }), undefined, "outra conversa");
+		assert.equal(await grantAfterApproval({ userId: "user-a", conversationId: "conv-a", call: { ...call, actionClass: "irreversible" } }), undefined, "irreversível nunca");
+		assert.equal(await grantAfterApproval({ userId: "user-a", conversationId: "conv-a", call: { ...call, actionClass: undefined } }), undefined);
+		assert.equal(upserts.length, 1);
+	} finally {
+		info();
+		prisma.conversation.findFirst = originalFind;
+		prisma.mcpTaskGrant.upsert = originalUpsert;
+	}
+});
+
+/** Silencia o log de auditoria durante o teste; devolve a função que restaura. */
+function vi_noop(): () => void {
+	const original = console.info;
+	console.info = () => undefined;
+	return () => {
+		console.info = original;
+	};
+}
