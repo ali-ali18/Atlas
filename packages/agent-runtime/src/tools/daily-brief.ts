@@ -24,6 +24,8 @@ export type DailyBriefDeps = {
 	listRoutines?: typeof listRoutines;
 	createRoutine?: typeof createRoutine;
 	updateRoutine?: typeof updateRoutine;
+	/** Chamado só quando a rotina foi CRIADA (não na edição): quem cria fora de um run agenda o cron aqui (ex.: `syncRoutineScheduler`). */
+	onCreated?: (routine: RoutineRecord) => Promise<void>;
 	/** Fuso das configurações da conta (padrão do horário do brief); falha ou ausente = São Paulo. */
 	accountTimezone?: (userId: string) => Promise<string | undefined>;
 };
@@ -99,6 +101,7 @@ export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDep
 		notify,
 		...(deps.createdBy ? { createdBy: deps.createdBy } : {}),
 	});
+	await deps.onCreated?.(routine);
 	return { routine, created: true, sentence: formatDailyBriefSummary({ schedule: routine.schedule, enabled: routine.enabled }) };
 }
 

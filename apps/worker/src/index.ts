@@ -483,7 +483,8 @@ agentWorker.on("failed", () => groupSweeper.kick());
 // Brief "Seu dia" pendente entra no chat assim que a conversa fica livre (uma consulta indexada por briefStatus).
 const flushBriefs = createBriefFlusher(() => flushPendingBriefs(briefDeliveryDeps(notify)));
 
-const ensureAutoBriefs = createAutoBriefEnsurer();
+// A rotina criada aqui nasce fora de um run: sem este hook o cron só seria agendado no próximo boot.
+const ensureAutoBriefs = createAutoBriefEnsurer({ onCreated: (routine) => syncRoutineScheduler(routineQueue, routine) });
 
 // Modo proativo: lembretes vencidos e reflexão diária (o banco guarda tudo; reinício retoma os pendentes).
 const proactiveSweeper = startProactiveSweeper(

@@ -372,6 +372,18 @@ describe("upsertDailyBrief: criação automática pelo bot", () => {
 		expect(plain).toHaveBeenCalledWith("user-1", expect.not.objectContaining({ createdBy: expect.anything() }));
 	});
 
+	it("onCreated roda só na criação, com a rotina criada (o worker agenda o cron ali)", async () => {
+		const made = briefRoutine({ id: "novo" });
+		const onCreated = vi.fn(async () => undefined);
+		await upsertDailyBrief({}, { userId: "user-1", botId: "bot-1", createdBy: "bot", listRoutines: async () => [], createRoutine: (async () => ({ routine: made })) as never, accountTimezone: async () => undefined, onCreated });
+		expect(onCreated).toHaveBeenCalledTimes(1);
+		expect(onCreated).toHaveBeenCalledWith(made);
+		const again = vi.fn(async () => undefined);
+		await upsertDailyBrief({}, { userId: "user-1", botId: "bot-1", createOnly: true, listRoutines: async () => [made], onCreated: again });
+		await upsertDailyBrief({}, { userId: "user-1", botId: "bot-1", listRoutines: async () => [made], updateRoutine: (async () => made) as never, onCreated: again });
+		expect(again).not.toHaveBeenCalled();
+	});
+
 	it("createOnly com um 'Seu dia' existente devolve-o intacto: nem cria nem edita (nem reativa um pausado)", async () => {
 		const create = vi.fn() as never;
 		const update = vi.fn() as never;

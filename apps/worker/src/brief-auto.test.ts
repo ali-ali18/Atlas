@@ -30,12 +30,14 @@ function harness(over: Partial<AutoBriefDeps> & { sources?: BriefSource[]; signa
 		accountTimezone: async () => "America/Sao_Paulo",
 		readPolicy: async (botId, userId) => (seen.policy.push([botId, userId]), over.policy ?? null),
 		withLock: async (_botId, fn) => fn(),
-		upsert: (async (args: { schedule?: unknown; timezone?: unknown }, d: { userId: string; botId: string; createdBy?: string; createOnly?: boolean }) => {
+		upsert: (async (args: { schedule?: unknown; timezone?: unknown }, d: { userId: string; botId: string; createdBy?: string; createOnly?: boolean; onCreated?: (routine: never) => Promise<void> }) => {
 			if (existing.has(d.botId)) return { created: false, routine: {}, sentence: "" };
 			existing.add(d.botId);
 			created.push({ userId: d.userId, botId: d.botId, createdBy: d.createdBy, schedule: args.schedule, timezone: args.timezone });
 			assert.equal(d.createOnly, true, "o ensure nunca edita uma rotina existente");
-			return { created: true, routine: {}, sentence: "" };
+			const routine = { id: `routine-${d.botId}` };
+			await d.onCreated?.(routine as never);
+			return { created: true, routine, sentence: "" };
 		}) as never,
 		...over,
 	};
@@ -46,6 +48,25 @@ test("cria exatamente uma rotina por bot principal: todo dia, no horário da ati
 	const h = harness();
 	assert.equal(await ensureAutoBrief(bot(), h.deps), "created");
 	assert.deepEqual(h.created, [{ userId: "user-a", botId: "bot-a", createdBy: "bot", schedule: "10 8 * * *", timezone: "America/Sao_Paulo" }]);
+});
+
+test("depois de criar, agenda o cron da rotina (onCreated); rotina que já existia não é reagendada; falha ao agendar não derruba", async () => {
+	const scheduled: unknown[] = [];
+	const h = harness({ onCreated: async (routine) => void scheduled.push(routine) });
+	assert.equal(await ensureAutoBrief(bot(), h.deps), "created");
+	assert.equal(await ensureAutoBrief(bot(), h.deps), "exists");
+	assert.deepEqual(scheduled, [{ id: "routine-bot-a" }], "agendou uma vez, na criação");
+
+	const logs: string[] = [];
+	const broken = harness({
+		log: (line) => void logs.push(line),
+		onCreated: async () => {
+			throw new Error("redis fora");
+		},
+	});
+	assert.equal(await ensureAutoBrief(bot(), broken.deps), "created", "a rotina existe; o agendamento é refeito no boot");
+	assert.ok(logs.some((line) => line.includes("agendamento falhou")));
+	assert.ok(!logs.join("\n").includes("redis fora"), "só o tipo do erro");
 });
 
 test("sem dados de atividade: 07:30 todo dia", async () => {

@@ -1,6 +1,6 @@
 import { getAccountConfig, getBotPolicy, listAutoBriefCandidates, loadAutoBriefSignals, withBriefAutoLock, type AutoBriefCandidate, type AutoBriefSignals } from "@workspace/db";
 import { listBriefSources, upsertDailyBrief } from "@workspace/agent-runtime";
-import { canAutoEnableBrief, inferAutoBriefTime, readConfiguredQuietHours, readableBriefCategories, type BriefSource } from "@workspace/shared";
+import { canAutoEnableBrief, inferAutoBriefTime, readConfiguredQuietHours, readableBriefCategories, type BriefSource, type RoutineRecord } from "@workspace/shared";
 
 /**
  * "Seu dia" ligado por padrão: passo idempotente de garantia, chamado pela varredura do modo proativo
@@ -27,6 +27,8 @@ export type AutoBriefDeps = {
 	readPolicy?: (botId: string, userId: string) => Promise<unknown>;
 	withLock?: <T>(botId: string, fn: () => Promise<T>) => Promise<T>;
 	upsert?: typeof upsertDailyBrief;
+	/** Agenda o cron da rotina recém-criada (fora de um run ninguém mais o faria até o worker reiniciar). */
+	onCreated?: (routine: RoutineRecord) => Promise<void>;
 	log?: (line: string) => void;
 };
 
@@ -54,7 +56,7 @@ export async function ensureAutoBrief(bot: AutoBriefCandidate, deps: AutoBriefDe
 			if (!canAutoEnableBrief({ isPrimary: true, policyJson: policy })) return "skipped_policy";
 			const result = await (deps.upsert ?? upsertDailyBrief)(
 				{ schedule: time.cron, ...(timezone ? { timezone } : {}) },
-				{ userId: bot.ownerId, botId: bot.id, createdBy: "bot", createOnly: true },
+				{ userId: bot.ownerId, botId: bot.id, createdBy: "bot", createOnly: true, ...(deps.onCreated ? { onCreated: scheduleCreated(deps.onCreated, bot.id, log) } : {}) },
 			);
 			if (result.created) log(`[brief-auto] bot=${bot.id} criado ${time.cron} basis=${time.basis}`);
 			return result.created ? "created" : "exists";
@@ -64,6 +66,20 @@ export async function ensureAutoBrief(bot: AutoBriefCandidate, deps: AutoBriefDe
 		log(`[brief-auto] bot=${bot.id} falhou (${error instanceof Error ? error.name : "erro"})`);
 		return "failed";
 	}
+}
+
+/**
+ * Falha ao agendar não desfaz a rotina criada (ela existe e o dono a vê): loga só o tipo do erro, e o
+ * `rehydrateRoutineSchedulers` do próximo boot do worker agenda. Não deixa o ensure marcar o bot como "falhou".
+ */
+function scheduleCreated(onCreated: (routine: RoutineRecord) => Promise<void>, botId: string, log: (line: string) => void) {
+	return async (routine: RoutineRecord): Promise<void> => {
+		try {
+			await onCreated(routine);
+		} catch (error) {
+			log(`[brief-auto] bot=${botId} criado, mas o agendamento falhou (${error instanceof Error ? error.name : "erro"})`);
+		}
+	};
 }
 
 async function defaultAccountTimezone(userId: string): Promise<string | undefined> {
