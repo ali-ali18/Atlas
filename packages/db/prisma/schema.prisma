@@ -669,6 +669,8 @@ model McpTaskGrant {
   uses Int @default(0)
   maxUses Int
   expiresAt DateTime
+  /// Conteúdo que o usuário não escreveu (e-mail, página, arquivo, conector) foi lido na conversa depois da concessão: ela não vale mais.
+  untrustedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@unique([conversationId, connectionId, exposedName])

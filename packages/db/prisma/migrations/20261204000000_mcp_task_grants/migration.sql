@@ -1,4 +1,4 @@
--- Aprovação por tarefa: uma aprovação de escrita reversível vale para a mesma tool na mesma conversa (30 min, teto de usos).
+-- Aprovação por tarefa: uma aprovação de escrita reversível vale para a mesma tool na mesma conversa (30 min, teto de usos, no máximo 2h desde a primeira aprovação; conteúdo externo lido depois invalida).
 -- Tabela nova e aditiva: api e worker em versões diferentes durante o deploy continuam funcionando (a versão antiga não a usa).
 CREATE TABLE "mcp_task_grants" (
   "id" TEXT NOT NULL PRIMARY KEY,
@@ -10,6 +10,7 @@ CREATE TABLE "mcp_task_grants" (
   "uses" INTEGER NOT NULL DEFAULT 0,
   "maxUses" INTEGER NOT NULL,
   "expiresAt" TIMESTAMP(3) NOT NULL,
+  "untrustedAt" TIMESTAMP(3),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL
 );

@@ -25,6 +25,7 @@ export {
 	findExecutedConfirmCall,
 	setConfirmCardGrantUses,
 	listApprovedConfirmTitles,
+	listApprovedConfirmTools,
 	getLatestConfirmCardStatus,
 	markLoginCardDone,
 	hasPendingQuestionnaireCard,
@@ -711,6 +712,8 @@ export {
 export {
 	grantMcpTask,
 	consumeMcpTaskGrant,
+	releaseMcpTaskGrant,
+	markMcpTaskGrantsUntrusted,
 	deleteExpiredMcpTaskGrants,
 	type McpTaskGrantKey,
 	type McpTaskGrantUse,
