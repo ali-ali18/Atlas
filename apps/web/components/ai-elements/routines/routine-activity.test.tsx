@@ -41,3 +41,10 @@ test("cartão de rotina de e-mail mostra a frase do gatilho e o ícone de e-mail
 	const webhook = renderToStaticMarkup(<RoutineActivityCard action="created" detail="Webhook: https://x.test" routineId="r1" title="Hook" triggerType="event" />);
 	assert.match(webhook, /lucide-webhook/);
 });
+
+test("cartão do Seu dia não repete o nome na legenda: 'Rotina criada · todo dia às 06:00'", () => {
+	const detail = "Seu dia · todo dia às 06:00\nTe mando um resumo curto no chat, no horário combinado.";
+	const html = renderToStaticMarkup(<RoutineActivityCard action="created" detail={detail} routineId="r1" title="Seu dia" triggerType="cron" />);
+	assert.match(html, /data-routine-summary[^>]*>Rotina criada · todo dia às 06:00</);
+	assert.doesNotMatch(html, /Rotina criada · Seu dia/);
+});
