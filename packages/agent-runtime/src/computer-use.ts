@@ -7680,7 +7680,7 @@ export async function runComputerUse(params: {
 					},
 				}));
 				// Ponto único: todo resultado que volta ao modelo com conteúdo que o usuário não escreveu invalida a aprovação por tarefa.
-				if (isUntrustedContentTool(name, mcp?.toolset.entries.get(name)?.readOnly === true)) await markUntrusted();
+				if (isUntrustedContentTool(name)) await markUntrusted();
 				summary = outcome.summary;
 				image = outcome.image;
 				visionArtifactIds = outcome.visionArtifactIds ?? [];
@@ -7775,7 +7775,7 @@ export async function runComputerUse(params: {
 				if (params.abortSignal?.aborted) throw errorFromAbortSignal(params.abortSignal);
 				if (isControlFlowError(error)) throw error;
 				ok = false;
-				if (isUntrustedContentTool(name, mcp?.toolset.entries.get(name)?.readOnly === true)) await markUntrusted();
+				if (isUntrustedContentTool(name)) await markUntrusted();
 				uncertainEffect = error instanceof ToolEffectUncertainError;
 				const rawMessage = error instanceof Error ? error.message : "erro";
 				// Blocked web_search doesn't count toward the cap

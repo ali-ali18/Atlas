@@ -85,20 +85,21 @@ export function hasExternalTargetArgs(args: unknown, depth = 0): boolean {
 }
 
 /**
- * Tool cujo resultado volta ao modelo com conteúdo que o usuário não escreveu (página, e-mail, arquivo,
- * resultado de subagente ou de conector). Depois de uma delas, aprovação por tarefa não vale mais.
+ * Lista permitida (allowlist) de tools internas "limpas": o resultado é produzido inteiramente pelo Atlas (status, id,
+ * card, eco do que o próprio modelo enviou) e não carrega texto de terceiros. QUALQUER outra tool marca a conversa
+ * como tendo lido conteúdo que o usuário não escreveu (web, e-mail, arquivo, subagente, memória, busca, CI, GitHub,
+ * conector MCP...). Na dúvida a tool NÃO entra aqui: o custo é só o Jev conferir cada uso da aprovação por tarefa.
  */
-const UNTRUSTED_CONTENT_TOOLS = new Set([
-	"web_search", "web_extract", "navigate", "screenshot", "click", "type", "key", "scroll",
-	"browser_snapshot", "browser_act", "browser_wait", "browser_read", "browser_find", "browser_text", "browser_links", "browser_click", "browser_type",
-	"email_list", "email_read",
-	"attachment_read", "attachment_list", "attachment_to_computer", "read_file", "grep", "list_files", "sandbox_read", "sandbox_list", "sandbox_download",
-	"shell", "shell_output", "sandbox_shell", "sandbox_shell_wait", "run_code",
-	"delegate_task", "api_call", "api_search", "github_compare", "github_list_repos",
-	"artifact_read", "page_read", "read_cached_result", "inspect_presentation",
+const CLEAN_INTERNAL_TOOLS = new Set([
+	"propose_routine", "propose_questionnaire", "propose_connector", "propose_api_connection", "propose_custom_mcp",
+	"propose_profile_update", "propose_bot", "propose_plan", "propose_skill", "propose_skill_change", "propose_skill_delete",
+	"suggest_routine", "update_task_list", "todo_write", "track_items",
+	"notify_user", "set_autonomy", "schedule_followup", "cancel_followup", "reschedule_followup",
+	"request_secrets", "secret_request", "email_create_mailbox", "shell_kill", "app_info",
 ]);
 
-export function isUntrustedContentTool(name: string, mcpReadOnly = false): boolean {
-	if (name.startsWith("mcp__")) return mcpReadOnly;
-	return UNTRUSTED_CONTENT_TOOLS.has(name);
+/** Inverso da lista permitida: toda tool marca, salvo as internas limpas. Todo `mcp__*` marca, leitura ou escrita. */
+export function isUntrustedContentTool(name: string): boolean {
+	if (name.startsWith("mcp__")) return true;
+	return !CLEAN_INTERNAL_TOOLS.has(name);
 }

@@ -223,7 +223,7 @@ describe("aprovação por tarefa (concessão depois de um cartão aprovado)", ()
 		vi.clearAllMocks();
 	});
 
-	it("1 cartão sem concessão; com a concessão, 8 chamadas iguais executam sem cartão e sem chamar o Jev (nada de fora foi lido)", async () => {
+	it("1 cartão sem concessão; com a concessão, 8 chamadas iguais executam sem cartão; o Jev só entra depois do resultado da 1ª (todo resultado de conector conta como conteúdo de fora)", async () => {
 		const first = await run({ autonomy: lvl("balanced"), text: "coloca as 8 provas na agenda", calls: [toolCall("c1", create, { summary: "Prova 1" })] });
 		expect(first.confirms).toHaveLength(1);
 		expect(first.call).not.toHaveBeenCalled();
@@ -235,7 +235,7 @@ describe("aprovação por tarefa (concessão depois de um cartão aprovado)", ()
 		const granted = await run({ autonomy: lvl("balanced"), text: "coloca as 8 provas na agenda", jevMcpMode: "gate", evaluateMcpWithJev: evaluator, maxSteps: 12, calls });
 		expect(granted.call).toHaveBeenCalledTimes(8);
 		expect(granted.confirms).toHaveLength(0);
-		expect(evaluator).not.toHaveBeenCalled();
+		expect(evaluator).toHaveBeenCalledTimes(7);
 		expect(consumeMcpTaskGrant).toHaveBeenCalledWith({ userId: "user-1", conversationId: "conv-aut", connectionId: "conn-cal", exposedName: create });
 		expect(granted.toolResults.at(-1)?.summary).toContain("execution 9 of at most 30");
 	});
@@ -335,13 +335,17 @@ describe("aprovação por tarefa: conteúdo que o usuário não escreveu passa p
 		expect(saveSkillPendingIntent).toHaveBeenCalledWith(expect.objectContaining({ payload: expect.objectContaining({ mcpCall: expect.objectContaining({ jevReview: true, jevReviewReason: "external_instruction" }) }) }));
 	});
 
-	it("sem conteúdo externo lido o Jev nem é chamado no uso da concessão (nada para injetar, menos custo)", async () => {
+	it("sem nada lido antes o 1º uso da concessão não chama o Jev (menos custo); depois do resultado do conector, os seguintes chamam", async () => {
 		const evaluator = vi.fn(async () => ({ model: "jev", alignment: 0.1, externalInstruction: 0.9, durationMs: 1 }));
-		const result = await run({ autonomy: lvl("balanced"), text: "coloca as provas", jevMcpMode: "gate", evaluateMcpWithJev: evaluator, maxSteps: 8, calls: [toolCall("c1", create, { summary: "Prova 2" }), toolCall("c2", create, { summary: "Prova 3" }), assistantDone()] });
-		expect(result.call).toHaveBeenCalledTimes(2);
-		expect(result.confirms).toHaveLength(0);
+		const first = await run({ autonomy: lvl("balanced"), text: "coloca a prova", jevMcpMode: "gate", evaluateMcpWithJev: evaluator, maxSteps: 8, calls: [toolCall("c1", create, { summary: "Prova 2" }), assistantDone()] });
+		expect(first.call).toHaveBeenCalledTimes(1);
+		expect(first.confirms).toHaveLength(0);
 		expect(evaluator).not.toHaveBeenCalled();
-		expect(releaseMcpTaskGrant).not.toHaveBeenCalled();
+		// O resultado do conector (texto de terceiros possível) já marca a conversa: o 2º uso do mesmo run é conferido, e o Jev barra.
+		const second = await run({ autonomy: lvl("balanced"), text: "coloca as provas", jevMcpMode: "gate", evaluateMcpWithJev: evaluator, maxSteps: 8, calls: [toolCall("c1", create, { summary: "Prova 2" }), toolCall("c2", create, { summary: "Prova 3" }), assistantDone()] });
+		expect(second.call).toHaveBeenCalledTimes(1);
+		expect(second.confirms).toHaveLength(1);
+		expect(evaluator).toHaveBeenCalledTimes(1);
 	});
 
 	it("principal: leu um PDF/site e criou 8 eventos com a concessão e o Jev limpo: sem cartão, com checagem de instrução externa em cada uso", async () => {

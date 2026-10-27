@@ -93,12 +93,17 @@ describe("escrita com alvo externo", () => {
 });
 
 describe("conteúdo que o usuário não escreveu", () => {
-	it("web, e-mail, arquivo, subagente e leitura de conector contam; escrita e memória não", () => {
-		for (const name of ["web_search", "web_extract", "navigate", "screenshot", "browser_snapshot", "email_read", "attachment_read", "read_file", "delegate_task"]) {
-			expect(isUntrustedContentTool(name), name).toBe(true);
-		}
-		expect(isUntrustedContentTool("mcp__cal__list_events", true)).toBe(true);
-		expect(isUntrustedContentTool("mcp__cal__create_event", false)).toBe(false);
-		for (const name of ["memory", "todo_write", "update_task_list", "email_send"]) expect(isUntrustedContentTool(name), name).toBe(false);
+	it("web, e-mail, arquivo, subagente, busca, CI, GitHub, memória e todo conector contam", () => {
+		const names = [
+			"web_search", "web_extract", "navigate", "screenshot", "browser_snapshot", "email_read", "attachment_read", "read_file", "delegate_task",
+			"dev_ci_logs", "dev_ci_status", "dev_pr_checkout", "github_compare", "github_list_repos", "mcp_tool_search", "session_search",
+			"memory_search", "memory", "checkpoint_read", "list_routines", "send_to_bot", "page_read", "some_future_tool",
+			"mcp__cal__list_events", "mcp__cal__create_event", "mcp__gmail__GMAIL_FETCH_EMAILS",
+		];
+		for (const name of names) expect(isUntrustedContentTool(name), name).toBe(true);
+	});
+	it("só as tools internas limpas (resultado feito pelo próprio Atlas) não marcam", () => {
+		const clean = ["propose_routine", "propose_questionnaire", "propose_profile_update", "update_task_list", "todo_write", "notify_user", "set_autonomy", "schedule_followup", "cancel_followup", "reschedule_followup", "request_secrets"];
+		for (const name of clean) expect(isUntrustedContentTool(name), name).toBe(false);
 	});
 });
