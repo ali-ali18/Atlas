@@ -326,6 +326,7 @@ import {
 	sandboxShellBlocked,
 	type SandboxShellToolName,
 } from "./tools/sandbox-shell.js";
+import { SANDBOX_RELEASE_TOOL, SANDBOX_RELEASE_TOOL_NAME, executeSandboxRelease } from "./tools/sandbox-release.js";
 import {
 	createDevSessionRuntime,
 	DEV_SESSION_READONLY_TOOL_NAMES,
@@ -469,6 +470,7 @@ const SANDBOX_TOOL_NAMES = new Set([
 	...COMPUTER_REF_TOOL_NAMES,
 	...COMPUTER_READ_TOOL_NAMES,
 	...SANDBOX_SHELL_TOOL_NAMES,
+	SANDBOX_RELEASE_TOOL_NAME,
 	NATIVE_COMPUTER_TOOL_NAME,
 ]);
 
@@ -915,6 +917,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	...COMPUTER_REF_TOOLS,
 	...COMPUTER_READ_TOOLS,
 	...SANDBOX_SHELL_TOOLS,
+	SANDBOX_RELEASE_TOOL,
 	{
 		type: "function",
 		function: {
@@ -3758,6 +3761,8 @@ async function executeToolInner(
 		case "sandbox_list":
 		case "sandbox_download":
 			return executeSandboxShellTool(name, args, { manager: ctx.manager, getSessionId: ctx.getSessionId });
+		case SANDBOX_RELEASE_TOOL_NAME:
+			return executeSandboxRelease({ manager: ctx.manager, conversationId: ctx.conversationId });
 		case "dev_session_start":
 		case "shell":
 		case "shell_output":

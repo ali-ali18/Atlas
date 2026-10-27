@@ -41,8 +41,9 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 			"browser_act",
 			"browser_wait",
 			"screenshot",
+			"sandbox_release",
 		],
-		hint: "open pages, read them, find, click, type and scroll in the VM browser, and take screenshots",
+		hint: "open pages, read them, find, click, type and scroll in the VM browser, take screenshots, and turn the VM off when the work is done",
 		keywords: ["browser", "navegador", "page", "pagina", "click", "clique", "screenshot", "navigate", "screen", "tela", "website"],
 	},
 	shell: {

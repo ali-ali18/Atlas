@@ -406,6 +406,7 @@ export type SandboxManager = {
 	/** Retorna o sandbox ativo da conversa (religa se parado) ou null. Não cria. */
 	getSessionForConversation: (
 		conversationId: string,
+		options?: { wake?: boolean },
 	) => Promise<SandboxSessionResponse | null>;
 	getSession: (sessionId: string) => Promise<SandboxSessionResponse | null>;
 	/** Confere posse entre processos sem iniciar ou substituir o container. */
@@ -413,6 +414,8 @@ export type SandboxManager = {
 	destroySession: (sessionId: string) => Promise<boolean>;
 	/** Para o container sem removê-lo (preserva o estado p/ religar depois). */
 	stopSession: (sessionId: string) => Promise<boolean>;
+	/** Desliga (graciosamente) a VM ligada da conversa, sem criar nem ligar nada. false = não havia VM ligada. */
+	stopConversationSession: (conversationId: string) => Promise<boolean>;
 	getViewerUrl: (sessionId: string) => string | null;
 	/** Destino (host/porta publicada) do noVNC da sessão do dono, para o proxy da API. */
 	resolveViewerTarget: (sessionId: string) => Promise<{ host: string; port: number; tls: boolean } | null>;
@@ -525,9 +528,11 @@ export function createSandboxManager(
 			return resolved ?? startWithRetries(conversationId, { replaceExisting: true });
 		},
 
-		getSessionForConversation(conversationId) {
+		getSessionForConversation(conversationId, options = {}) {
 			// Caminho só-leitura (API/painel): nunca recria/para/remove container Running.
-			return resolveExisting(conversationId, { readOnly: true });
+			// `wake:false` (poll do painel) também não religa a VM parada: sem isso o painel
+			// aberto desfazia o "Desligar" e o guarda de memória a cada 15 s.
+			return resolveExisting(conversationId, { readOnly: true, ...(options.wake === false ? { noStart: true } : {}) });
 		},
 
 		async getSession(sessionId) {
@@ -574,8 +579,30 @@ export function createSandboxManager(
 			return record ? toResponse(record, config) : null;
 		},
 
+		async stopConversationSession(conversationId) {
+			try {
+				const client = getDocker();
+				const containers = await client.listContainers({
+					all: false,
+					filters: { label: ["atlas.sandbox=true", `atlas.sandbox.conversationId=${conversationId}`, `atlas.sandbox.userId=${userId}`] },
+				});
+				const mine = containers.filter(
+					(item) => item.Labels?.["atlas.sandbox.userId"] === userId && item.Labels?.["atlas.sandbox.conversationId"] === conversationId,
+				);
+				for (const item of mine) await client.getContainer(item.Id).stop({ t: SANDBOX_STOP_TIMEOUT_S });
+				const known = sessionStore.findByConversationId(conversationId, userId);
+				if (known) {
+					known.status = "stopped";
+					sessionStore.putSession(known);
+				}
+				return mine.length > 0;
+			} catch {
+				return false;
+			}
+		},
+
 		async stopSession(sessionId) {
-			const record = sessionStore.getSession(sessionId, userId);
+			const record = sessionStore.getSession(sessionId, userId) ?? await adoptBySessionId(sessionId);
 			if (!record) return false;
 			try {
 				const client = getDocker();
@@ -1038,7 +1065,7 @@ export function createSandboxManager(
 	/** Reinicia o container (se parado) e atualiza a sessão com portas frescas. */
 	async function ensureRunning(
 		record: SandboxSessionRecord,
-		options: { replaceRunningIfOutdated?: boolean; readOnly?: boolean } = {},
+		options: { replaceRunningIfOutdated?: boolean; readOnly?: boolean; noStart?: boolean } = {},
 	): Promise<SandboxSessionRecord | null> {
 		try {
 			const client = getDocker();
@@ -1046,6 +1073,8 @@ export function createSandboxManager(
 				record.containerId || record.containerName,
 			);
 			let inspect = await container.inspect();
+			// Poll do painel: VM parada (de propósito) continua parada.
+			if (options.noStart && !inspect.State.Running) return null;
 			// Só troca a imagem na hora de subir/adotar: container parado, ou
 			// rodando mas sem sessão neste processo (options). Nunca derruba um
 			// container que uma sessão viva deste processo está usando.
@@ -1184,7 +1213,7 @@ export function createSandboxManager(
 	/** Acha um container de sandbox da conversa por label (sobrevive a restart). */
 	async function adoptByLabel(
 		conversationId: string,
-		options: { readOnly?: boolean } = {},
+		options: { readOnly?: boolean; noStart?: boolean } = {},
 	): Promise<SandboxSessionRecord | null> {
 		try {
 			const client = getDocker();
@@ -1217,7 +1246,7 @@ export function createSandboxManager(
 			};
 			// Adoção (ex.: após restart): este processo não tem sessão viva do
 			// container, então pode trocar até um que esteja rodando.
-			return await ensureRunning(record, options.readOnly ? { readOnly: true } : { replaceRunningIfOutdated: true });
+			return await ensureRunning(record, options.readOnly ? { readOnly: true, ...(options.noStart ? { noStart: true } : {}) } : { replaceRunningIfOutdated: true });
 		} catch {
 			return null;
 		}
@@ -1225,12 +1254,12 @@ export function createSandboxManager(
 
 	async function resolveExisting(
 		conversationId?: string,
-		options: { readOnly?: boolean } = {},
+		options: { readOnly?: boolean; noStart?: boolean } = {},
 	): Promise<SandboxSessionResponse | null> {
 		if (!conversationId) return null;
 		const existing = sessionStore.findByConversationId(conversationId, userId);
 		if (existing) {
-			const running = await ensureRunning(existing, options.readOnly ? { readOnly: true } : {});
+			const running = await ensureRunning(existing, { ...(options.readOnly ? { readOnly: true } : {}), ...(options.noStart ? { noStart: true } : {}) });
 			if (running) return toResponse(running, config);
 			sessionStore.deleteSession(existing.sessionId, userId);
 		}

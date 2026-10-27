@@ -137,7 +137,7 @@ export function createSandboxRoutes(sandboxConfig: SandboxRuntimeConfig, deps: {
 		if (!(await ownedConversation(conversationId, scopeFor(c.get("session")).userId))) return c.json({ error: "Conversation not found" }, 404);
 		try {
 			const session =
-				await manager.getSessionForConversation(conversationId);
+				await manager.getSessionForConversation(conversationId, { wake: c.req.query("wake") !== "0" });
 			return c.json({ session: session ? withToken(session, scopeFor(c.get("session")).userId) : session });
 		} catch (error) {
 			console.error("get active sandbox session failed", error);
@@ -228,6 +228,20 @@ export function createSandboxRoutes(sandboxConfig: SandboxRuntimeConfig, deps: {
 		if (!target) return c.json({ error: "Session not found" }, 404);
 		const search = new URL(c.req.url).search;
 		return proxyViewerHttp(c.req.raw, target, `/${rest || "vnc.html"}${search}`);
+	});
+
+	// "Desligar computador": para a VM com graça (Chrome fecha direito) e mantém container,
+	// perfil e login para quando ela for ligada de novo. Diferente do DELETE, que remove o container.
+	app.post("/v1/sandbox/sessions/:id/stop", async (c) => {
+		const manager = c.get("sandboxManager");
+		try {
+			const stopped = await manager.stopSession(c.req.param("id"));
+			if (!stopped) return c.json({ error: "Session not found" }, 404);
+			return c.json({ ok: true });
+		} catch (error) {
+			console.error("stop sandbox session failed", error);
+			return c.json({ error: "Failed to stop sandbox session" }, 500);
+		}
 	});
 
 	app.delete("/v1/sandbox/sessions/:id", async (c) => {

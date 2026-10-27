@@ -27,6 +27,7 @@ function appFor(userId: string, effects: string[]) {
 			getSessionForConversation: async () => { effects.push("lookup"); return session; },
 			resolveSession: async () => { effects.push("create"); return session; },
 			destroySession: async () => { effects.push("destroy"); return true; },
+			stopSession: async () => { effects.push("stop"); return true; },
 			clearBrowserProfile: async (conversationId) => { effects.push(`clear:${conversationId}`); return { cleared: true, removedContainers: 1 }; },
 			execScreenshot: async () => { effects.push("screenshot"); return Buffer.from([1, 2]); },
 			execClick: async () => { effects.push("click"); return { ok: true }; },
@@ -48,6 +49,7 @@ test("outro dono não acessa viewer, captura, controles ou exclusão", async () 
 		["/v1/sandbox/sessions/session-a/scroll", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"deltaY":100}' }],
 		["/v1/sandbox/sessions/session-a/click", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"x":1,"y":1}' }],
 		["/v1/sandbox/sessions/session-a", { method: "DELETE" }],
+		["/v1/sandbox/sessions/session-a/stop", { method: "POST" }],
 	] as const) {
 		const result = await app.request(path, init);
 		assert.equal(result.status, 404);
@@ -72,8 +74,9 @@ test("dono mantém criação, viewer, captura, clique e exclusão", async () => 
 	assert.equal((await app.request("/v1/sandbox/sessions/session-a")).status, 200);
 	assert.equal((await app.request("/v1/sandbox/sessions/session-a/screenshot")).status, 200);
 	assert.equal((await app.request("/v1/sandbox/sessions/session-a/click", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"x":1,"y":1}' })).status, 200);
+	assert.equal((await app.request("/v1/sandbox/sessions/session-a/stop", { method: "POST" })).status, 200);
 	assert.equal((await app.request("/v1/sandbox/sessions/session-a", { method: "DELETE" })).status, 200);
-	assert.deepEqual(effects, ["lookup", "create", "screenshot", "click", "destroy"]);
+	assert.deepEqual(effects, ["lookup", "create", "screenshot", "click", "stop", "destroy"]);
 });
 
 test("limpar sessão do navegador exige dono da conversa e conversationId", async () => {
