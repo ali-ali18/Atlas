@@ -74,6 +74,8 @@ export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDep
 			enabled,
 			timezone,
 			notify,
+			// O brief é mensagem, não painel: solta um painel herdado de versão anterior (o painel em si não é apagado).
+			...(existing.pageId ? { pageId: null } : {}),
 		});
 		if (!updated) throw new Error("could not update the daily brief routine right now");
 		return { routine: updated, created: false, sentence: formatDailyBriefSummary({ schedule: updated.schedule, enabled: updated.enabled }) };

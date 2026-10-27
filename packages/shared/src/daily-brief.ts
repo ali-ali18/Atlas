@@ -130,8 +130,6 @@ export const BRIEF_NATIVE_TOOLS: ReadonlySet<string> = new Set([
 	"mcp_tool_search",
 	"read_cached_result",
 	"research_note",
-	"page_read",
-	"page_list",
 	"api_search",
 	"api_call",
 ]);

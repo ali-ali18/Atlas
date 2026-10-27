@@ -163,6 +163,17 @@ describe("pedido por chat: 'me prepara o dia às 7h30'", () => {
 	});
 });
 
+describe("painel herdado de versão anterior", () => {
+	it("editar uma rotina Seu dia que ainda tinha painel solta o painel (pageId null), sem apagá-lo", async () => {
+		vi.mocked(listRoutines).mockResolvedValue([briefRoutine({ pageId: "page-old" })]);
+		vi.mocked(updateRoutine).mockResolvedValue(briefRoutine({ pageId: null }) as never);
+		const pages = pagesStore();
+		await run("me prepara o dia", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron" })], pages.store);
+		expect(updateRoutine).toHaveBeenCalledWith("user-1", "bot-1", "routine-brief", expect.objectContaining({ pageId: null }));
+		expect(pages.created).toEqual([]);
+	});
+});
+
 describe("uma por bot e edição pela rotina normal", () => {
 	it("pedir de novo edita a existente (nada de segunda rotina) e não emite card de criação", async () => {
 		vi.mocked(listRoutines).mockResolvedValue([briefRoutine()]);

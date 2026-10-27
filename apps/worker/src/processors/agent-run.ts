@@ -611,7 +611,8 @@ async function executeLeasedRun(ctx: {
 	// Aviso da rotina ("always" = push ao fim, como sempre) e push avulso do bot (rotina "só importante" / chat).
 	const routineNotifyPromise: Promise<RoutineNotifyMode> = run.origin === "routine" ? getRoutineNotifyModeForAgentRun(runId).catch(() => "always" as const) : Promise.resolve("always");
 	// Rotina ligada a uma página: o run só pode atualizar essa página (o runtime trava as outras).
-	const routinePageIdPromise = run.origin === "routine" ? getRoutinePageIdForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
+	// O brief "Seu dia" nunca usa painel: sem pageId, o runtime não registra as tools de painel nem pré-carrega páginas.
+	const routinePageIdPromise = run.origin === "routine" && !isDetachedBriefRun(run) ? getRoutinePageIdForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
 	// Modelo da rotina ("Seu dia"): trava de leitura no run e entrega fora da conversa. Falha ao ler = rotina comum.
 	// Rotina de alerta: o run só verifica a condição; o aviso (com debounce) é decidido depois do veredito.
 	const alertCtxPromise = run.origin === "routine" ? getRoutineAlertForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);

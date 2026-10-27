@@ -118,7 +118,7 @@ describe("isBriefToolAllowed", () => {
 		expect(isBriefToolAllowed("mcp__gmail__search_messages", true)).toBe(true);
 		expect(isBriefToolAllowed("mcp__gmail__send_message", false)).toBe(false);
 		expect(isBriefToolAllowed("mcp__gmail__create_draft", undefined)).toBe(false);
-		for (const blocked of ["notify_user", "email_send", "create_file", "run_code", "propose_routine", "create_followup", "memory", "send_to_bot", "delegate_task"]) {
+		for (const blocked of ["page_read", "page_list", "notify_user", "email_send", "create_file", "run_code", "propose_routine", "create_followup", "memory", "send_to_bot", "delegate_task"]) {
 			expect(isBriefToolAllowed(blocked, undefined)).toBe(false);
 			expect(BRIEF_NATIVE_TOOLS.has(blocked)).toBe(false);
 		}
