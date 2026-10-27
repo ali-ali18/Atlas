@@ -2009,6 +2009,8 @@ function routineDetailText(
 
 type ToolContext = {
 	manager: SandboxManager;
+	/** Quando este run usou a VM pela última vez (ms): `sandbox_release` distingue o uso dele do de outro run. */
+	lastSandboxUseAt?: () => number | undefined;
 	/** Runtime das tools de sessão de desenvolvimento (ausente = desligado). */
 	devSession?: DevSessionRuntime;
 	/** Id da chamada de tool (liga os eventos de shell e edição ao card). */
@@ -3776,7 +3778,7 @@ async function executeToolInner(
 		case "sandbox_download":
 			return executeSandboxShellTool(name, args, { manager: ctx.manager, getSessionId: ctx.getSessionId });
 		case SANDBOX_RELEASE_TOOL_NAME:
-			return executeSandboxRelease({ manager: ctx.manager, conversationId: ctx.conversationId });
+			return executeSandboxRelease({ manager: ctx.manager, conversationId: ctx.conversationId, lastOwnUseAt: ctx.lastSandboxUseAt?.() });
 		case "dev_session_start":
 		case "shell":
 		case "shell_output":
@@ -5356,6 +5358,8 @@ export async function runComputerUse(params: {
 		.filter((tool) => !hostToolBlocked(tool.function.name))
 		.filter((tool) => tool.function.name !== LESSON_FEEDBACK_TOOL_NAME || lessonFeedbackEnabled)
 		.filter((tool) => tool.function.name !== "login_fill" || sandboxEnabled)
+		// Rotina/webhook não desliga a VM que o usuário pode estar usando; quem libera memória é o guarda.
+		.filter((tool) => tool.function.name !== SANDBOX_RELEASE_TOOL_NAME || !isUnattendedOrigin(params.origin))
 		// Shell/arquivos da VM: exceção "bloqueado" do usuário tira a tool; webhook/subagente só leem.
 		.filter((tool) => {
 			const shellTool = tool.function.name as SandboxShellToolName;
@@ -6196,6 +6200,7 @@ export async function runComputerUse(params: {
 		tools.some((tool) => tool.function.name === toolName) || Boolean(nativeDeferral?.isDeferred(toolName));
 	// Conferência da tela: o que foi lido no navegador depois da última ação (portão contra "entrou" sem olhar).
 	const browserWatch = createBrowserWatch();
+	let lastSandboxUseAt: number | undefined;
 	// F12/D1-D4: estagnação, captcha e métricas do computador (vão em usage.computer).
 	const computerGuard = createComputerGuard({
 		runId,
@@ -7441,6 +7446,7 @@ export async function runComputerUse(params: {
 				if (preTool.error) throw new Error(preTool.error);
 			const outcome = cached ? { summary: `Already read this result. Continue with it; use read_cached_result only if details are needed. result_ref: ${cached.ref}` } : name === "read_cached_result" ? { summary: await runSandboxOperation(executionContext, undefined, () => readCache.resolve(String(args.result_ref ?? ""), params.findCompletedTool)) } : await runSandboxOperation(executionContext, isSandboxTool(name) ? 180_000 : undefined, (signal) => executeTool(name, args, {
 				loginAsked,
+				lastSandboxUseAt: () => lastSandboxUseAt,
 				secrets: secretSession,
 				health: providerHealth,
 				hasTool: hasToolInRun,
@@ -7740,6 +7746,7 @@ ${blockHint}`;
 				stallAbort = guarded.abort;
 			}
 			browserWatch.note({ name, args, ok, summary });
+			if (isSandboxTool(name) && name !== SANDBOX_RELEASE_TOOL_NAME) lastSandboxUseAt = Date.now();
 
 			let imageArtifactId: string | undefined;
 			if (image && params.persistScreenshot && image.startsWith("data:")) {

@@ -3,7 +3,7 @@ import type { ChatTool, CompleteChatWithToolsResult } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import { runComputerUse } from "./computer-use.js";
 import { NATIVE_TOOL_GROUPS } from "./context/native-tools.js";
-import { executeSandboxRelease } from "./tools/sandbox-release.js";
+import { executeSandboxRelease, otherUseOfVm } from "./tools/sandbox-release.js";
 
 vi.mock("@workspace/db", async (original) => ({
 	...(await original<typeof import("@workspace/db")>()),
@@ -21,13 +21,13 @@ const step = (name: string, args: Record<string, unknown> = {}): CompleteChatWit
 });
 const done: CompleteChatWithToolsResult = { model: "m", message: { role: "assistant", content: "Pronto." } };
 
-async function run(input: { sandboxEnabled: boolean; stop?: (conversationId: string) => Promise<boolean>; script?: CompleteChatWithToolsResult[] }) {
+async function run(input: { sandboxEnabled: boolean; origin?: string; activity?: { idleMs: number; busy: boolean } | null; stop?: (conversationId: string) => Promise<boolean>; script?: CompleteChatWithToolsResult[] }) {
 	const offered: string[][] = [];
 	const results: Array<{ name: string; ok: boolean; summary: string }> = [];
 	const stopConversationSession = vi.fn(input.stop ?? (async () => true));
 	const script = [...(input.script ?? [])];
 	await runComputerUse({
-		manager: { stopConversationSession } as unknown as SandboxManager,
+		manager: { stopConversationSession, getConversationActivity: async () => input.activity ?? null } as unknown as SandboxManager,
 		getSessionId: async () => "s1",
 		sandboxEnabled: input.sandboxEnabled,
 		apiKey: "test",
@@ -36,7 +36,7 @@ async function run(input: { sandboxEnabled: boolean; stop?: (conversationId: str
 		userId: "user-a",
 		botId: "bot-a",
 		conversationId: "conv-1",
-		origin: "chat",
+		origin: (input.origin ?? "chat") as "chat",
 		contextEconomy: true,
 		messages: [{ role: "user", content: "acabei, pode desligar o computador" }],
 		maxSteps: 6,
@@ -67,10 +67,41 @@ describe("sandbox_release", () => {
 		expect(results[0]!.summary).toContain("VM turned off");
 	});
 
-	it("falha de verdade vira erro com dica; sem VM ligada é só aviso", async () => {
+	it("não é oferecida em rotina nem em webhook (sem humano para decidir desligar)", async () => {
+		for (const origin of ["routine", "webhook"]) {
+			const unattended = await run({ sandboxEnabled: true, origin });
+			expect(unattended.offered[0]).not.toContain("sandbox_release");
+		}
+	});
+
+	it("recusa desligar se a VM está em uso agora ou se outro run a usou há poucos segundos", async () => {
+		const busy = await run({ sandboxEnabled: true, activity: { idleMs: 0, busy: true }, script: [step("sandbox_release"), done] });
+		expect(busy.stopConversationSession).not.toHaveBeenCalled();
+		expect(busy.results[0]).toMatchObject({ name: "sandbox_release", ok: false });
+		expect(busy.results[0]!.summary).toMatch(/NOT turned off/);
+		const recent = await run({ sandboxEnabled: true, activity: { idleMs: 4_000, busy: false }, script: [step("sandbox_release"), done] });
+		expect(recent.stopConversationSession).not.toHaveBeenCalled();
+		expect(recent.results[0]).toMatchObject({ ok: false });
+		const idle = await run({ sandboxEnabled: true, activity: { idleMs: 120_000, busy: false }, script: [step("sandbox_release"), done] });
+		expect(idle.stopConversationSession).toHaveBeenCalledWith("conv-1");
+	});
+
+	it("uso recente do PRÓPRIO run não conta como outro run", () => {
+		const now = 1_000_000;
+		expect(otherUseOfVm({ idleMs: 4_000, busy: false }, now - 4_500, now)).toBeNull();
+		expect(otherUseOfVm({ idleMs: 4_000, busy: false }, now - 60_000, now)).toMatch(/another run/);
+		expect(otherUseOfVm({ idleMs: 4_000, busy: false }, undefined, now)).toMatch(/another run/);
+		expect(otherUseOfVm(null, undefined, now)).toBeNull();
+	});
+
+	it("falha de verdade vira erro com a mensagem real (nunca \"já estava desligada\"); sem VM ligada é só aviso", async () => {
+		// Como o manager real: erro de Docker propaga; false só quando não havia VM ligada.
 		await expect(executeSandboxRelease({ manager: { stopConversationSession: async () => { throw new Error("docker fora"); } }, conversationId: "c" })).rejects.toThrow(/Could not turn the VM off \(docker fora\)/);
 		await expect(executeSandboxRelease({ manager: { stopConversationSession: async () => true } })).rejects.toThrow(/no conversation VM/);
 		const none = await executeSandboxRelease({ manager: { stopConversationSession: async () => false }, conversationId: "c" });
 		expect(none.summary).toContain("already off");
+		const failed = await run({ sandboxEnabled: true, stop: async () => { throw new Error("docker fora"); }, script: [step("sandbox_release"), done] });
+		expect(failed.results[0]).toMatchObject({ ok: false });
+		expect(failed.results[0]!.summary).toContain("docker fora");
 	});
 });
