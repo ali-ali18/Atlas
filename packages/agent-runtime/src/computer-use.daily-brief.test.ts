@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatTool, CompleteChatWithToolsResult } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import { createRoutine, getAccountConfig, listRoutines, updateRoutine } from "@workspace/db";
-import { DAILY_BRIEF_DEFAULT_FOCUS, DAILY_BRIEF_TEMPLATE, type RoutineRecord } from "@workspace/shared";
+import { DAILY_BRIEF_DEFAULT_FOCUS, DAILY_BRIEF_TEMPLATE, type BriefSource, type RoutineRecord } from "@workspace/shared";
 import { runComputerUse } from "./computer-use.js";
 import { buildMcpToolset } from "./mcp/registry.js";
-import { briefToolFilter } from "./tools/daily-brief.js";
+import { briefToolFilter, upsertDailyBrief } from "./tools/daily-brief.js";
+import { listBriefSources } from "./tools/daily-brief-sources.js";
 import type { PagesStore } from "./tools/pages.js";
 
 /**
@@ -29,6 +30,11 @@ vi.mock("@workspace/db", async (importOriginal) => {
 		deleteRoutine: vi.fn(async () => true),
 	};
 });
+
+vi.mock("./tools/daily-brief-sources.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./tools/daily-brief-sources.js")>()),
+	listBriefSources: vi.fn(async () => []),
+}));
 
 const toolCall = (id: string, name: string, args: Record<string, unknown>): CompleteChatWithToolsResult => ({
 	model: "m",
@@ -95,6 +101,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	vi.mocked(listRoutines).mockResolvedValue([]);
 	vi.mocked(getAccountConfig).mockResolvedValue({ general: { timezone: "America/Sao_Paulo" } } as never);
+	vi.mocked(listBriefSources).mockResolvedValue([]);
 });
 
 describe("pedido por chat: 'me prepara o dia às 7h30'", () => {
@@ -306,5 +313,72 @@ describe("o run do brief é só leitura (trava em código)", () => {
 		expect(connector).toHaveBeenCalledTimes(1);
 		expect(connector.mock.calls[0]).toEqual(expect.arrayContaining(["mcp__gmail__search_messages", { query: "is:unread" }]));
 		expect(results[0]).toMatchObject({ ok: true });
+	});
+});
+
+describe("honestidade: só promete as fontes que realmente lê", () => {
+	const source = (category: BriefSource["category"], name: string): BriefSource => ({ kind: "composio", name, category, readTools: ["read"] });
+
+	it("ao criar, o card e o resultado da tool citam só as categorias conectadas (nada de AVA)", async () => {
+		vi.mocked(listBriefSources).mockResolvedValue([source("email", "Gmail"), source("calendar", "Google Agenda")]);
+		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: briefRoutine() } as never);
+		const { toolResults, routines } = await run(
+			"me prepara o dia, com os prazos do AVA",
+			[toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron" })],
+			pagesStore().store,
+		);
+		expect(listBriefSources).toHaveBeenCalledWith("user-1");
+		const summary = toolResults[0]!.summary;
+		expect(summary).toContain("e-mail e agenda");
+		expect(summary).toMatch(/never promise a site, portal or app/);
+		expect(summary).not.toMatch(/AVA|mensagens|tarefas/);
+		expect(routines[0]!.detail).toContain("Vou ler só o que você conectou: e-mail e agenda.");
+		expect(routines[0]!.detail).toMatch(/Site ou portal que não está conectado não entra no resumo/);
+		expect(routines[0]!.detail).not.toMatch(/AVA/);
+	});
+
+	it("sem nenhuma fonte conectada o bot não promete leitura nenhuma", async () => {
+		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: briefRoutine() } as never);
+		const { toolResults, routines } = await run("me prepara o dia", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron" })], pagesStore().store);
+		expect(toolResults[0]!.summary).toContain("nenhuma fonte conectada");
+		expect(routines[0]!.detail).toContain("nenhuma fonte conectada");
+		expect(routines[0]!.detail).not.toContain("Vou ler");
+	});
+
+	it("falha ao listar as fontes não derruba a criação nem inventa fontes", async () => {
+		vi.mocked(listBriefSources).mockRejectedValue(new Error("db fora"));
+		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: briefRoutine() } as never);
+		const { toolResults, routines } = await run("me prepara o dia", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron" })], pagesStore().store);
+		expect(toolResults[0]).toMatchObject({ ok: true });
+		expect(routines[0]!.detail).not.toContain("Vou ler");
+		expect(toolResults[0]!.summary).not.toContain("Sources, say only this");
+	});
+
+	it("o guia do brief manda citar só as fontes do resultado da tool e nunca recriar depois de pausar", async () => {
+		const { system } = await run("quero um resumo do meu dia toda manhã", [], pagesStore().store);
+		expect(system).toMatch(/ONLY the user's connected sources/);
+		expect(system).toMatch(/never promise a portal, site or app that is not a connected source/);
+		expect(system).toMatch(/never recreate it/);
+	});
+});
+
+describe("upsertDailyBrief: criação automática pelo bot", () => {
+	it("createdBy 'bot' vai para a rotina criada; sem o parâmetro mantém o padrão do db", async () => {
+		const create = vi.fn(async () => ({ routine: briefRoutine() })) as never;
+		await upsertDailyBrief({ schedule: "10 8 * * *" }, { userId: "user-1", botId: "bot-1", createdBy: "bot", listRoutines: async () => [], createRoutine: create, accountTimezone: async () => "America/Sao_Paulo" });
+		expect(create).toHaveBeenCalledWith("user-1", expect.objectContaining({ createdBy: "bot", schedule: "10 8 * * *", template: "daily_brief" }));
+		const plain = vi.fn(async () => ({ routine: briefRoutine() })) as never;
+		await upsertDailyBrief({}, { userId: "user-1", botId: "bot-1", listRoutines: async () => [], createRoutine: plain, accountTimezone: async () => undefined });
+		expect(plain).toHaveBeenCalledWith("user-1", expect.not.objectContaining({ createdBy: expect.anything() }));
+	});
+
+	it("createOnly com um 'Seu dia' existente devolve-o intacto: nem cria nem edita (nem reativa um pausado)", async () => {
+		const create = vi.fn() as never;
+		const update = vi.fn() as never;
+		const paused = briefRoutine({ enabled: false });
+		const result = await upsertDailyBrief({ schedule: "0 6 * * *" }, { userId: "user-1", botId: "bot-1", createOnly: true, listRoutines: async () => [paused], createRoutine: create, updateRoutine: update });
+		expect(result).toMatchObject({ created: false, routine: paused });
+		expect(create).not.toHaveBeenCalled();
+		expect(update).not.toHaveBeenCalled();
 	});
 });

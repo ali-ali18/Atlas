@@ -17,6 +17,10 @@ const FOCUS_MAX_CHARS = 600;
 export type DailyBriefDeps = {
 	userId: string;
 	botId: string;
+	/** Quem criou a rotina: o bot (ligado por padrão) ou o usuário (pedido por chat). Só vale na criação. */
+	createdBy?: "bot" | "user";
+	/** Só cria: se já existe um "Seu dia" neste bot, devolve-o intacto (sem editar). Usado pelo "ensure" automático. */
+	createOnly?: boolean;
 	listRoutines?: typeof listRoutines;
 	createRoutine?: typeof createRoutine;
 	updateRoutine?: typeof updateRoutine;
@@ -52,6 +56,9 @@ async function defaultAccountTimezone(userId: string): Promise<string | undefine
 export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDeps): Promise<DailyBriefResult> {
 	const list = deps.listRoutines ?? listRoutines;
 	const existing = (await list(deps.userId, deps.botId)).find((routine) => routine.template === DAILY_BRIEF_TEMPLATE);
+	if (existing && deps.createOnly) {
+		return { routine: existing, created: false, sentence: formatDailyBriefSummary({ schedule: existing.schedule, enabled: existing.enabled }) };
+	}
 
 	const scheduleArg = typeof args.schedule === "string" && args.schedule.trim() ? args.schedule : undefined;
 	const scheduleRaw = scheduleArg ?? existing?.schedule ?? DAILY_BRIEF_DEFAULT_CRON;
@@ -90,6 +97,7 @@ export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDep
 		enabled,
 		timezone,
 		notify,
+		...(deps.createdBy ? { createdBy: deps.createdBy } : {}),
 	});
 	return { routine, created: true, sentence: formatDailyBriefSummary({ schedule: routine.schedule, enabled: routine.enabled }) };
 }
