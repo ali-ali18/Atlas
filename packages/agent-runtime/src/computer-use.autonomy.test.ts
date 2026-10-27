@@ -443,6 +443,15 @@ describe("aprovação por tarefa: conteúdo que o usuário não escreveu passa p
 		vi.mocked(getConversationUntrustedAt).mockResolvedValue(null);
 	});
 
+	it("run sem conector não consulta a marca da conversa; com conector, uma consulta só", async () => {
+		vi.mocked(getConversationUntrustedAt).mockClear();
+		await run({ autonomy: lvl("balanced"), text: "oi", calls: [assistantDone()] });
+		expect(getConversationUntrustedAt).not.toHaveBeenCalled();
+		vi.mocked(consumeMcpTaskGrant).mockResolvedValue(null);
+		await run({ autonomy: lvl("balanced"), text: "cria duas", maxSteps: 6, calls: [toolCall("c1", create, { summary: "a" }), toolCall("c2", create, { summary: "b" })] });
+		expect(getConversationUntrustedAt).toHaveBeenCalledTimes(1);
+	});
+
 	it("o mesmo vale em autonomia que liberaria sozinha: Jev fora do ar + 'sempre' + conteúdo externo pergunta", async () => {
 		const result = await run({ autonomy: lvl("balanced", [{ tool: create, mode: "never_ask" }]), text: "lê e cria", jevMcpMode: "gate", maxSteps: 8, calls: [toolCall("r1", list, {}), toolCall("c1", create, { summary: "x" })] });
 		expect(result.confirms).toHaveLength(1);

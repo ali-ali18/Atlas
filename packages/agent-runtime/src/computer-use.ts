@@ -2068,7 +2068,13 @@ type ToolContext = {
 	/** F12/B5: URLs em que o login já foi pedido neste run (checkpoint). */
 	loginAsked?: Set<string>;
 	/** Estado do run para o Jev de conector: leu conteúdo externo? o que já foi aprovado e executado? */
-	mcpRun?: { untrustedSeen: boolean; /** Nomes das tools de escrita executadas neste run (só o nome, nunca argumento). */ executed: string[] };
+	mcpRun?: {
+		untrustedSeen: boolean;
+		/** Nomes das tools de escrita executadas neste run (só o nome, nunca argumento). */
+		executed: string[];
+		/** Marca `untrustedAt` da conversa (run anterior leu conteúdo externo), lida sob demanda e uma vez por run. */
+		conversationUntrusted?: () => Promise<boolean>;
+	};
 	/** Cofre: injeta {{secret:...}} nas ferramentas de saída permitidas e redige os resultados. */
 	secrets?: SecretSession;
 	/** Provedores externos sem créditos/cota neste run (não insistir; ver `tools/provider-health.ts`). */
@@ -4386,7 +4392,7 @@ async function executeMcpTool(
 	const secretRefs = collectRefs(args);
 	const jevEligible = (entry.actionClass === "write" || entry.actionClass === "irreversible") && ctx.origin === "chat" && !!ctx.conversationId && !!ctx.jevMcpMode && ctx.jevMcpMode !== "off";
 	// Conteúdo que o usuário não escreveu (e-mail, página, arquivo, subagente, conector) já passou por este run ou por um anterior da conversa.
-	const untrustedSeen = ctx.mcpRun?.untrustedSeen === true;
+	const untrustedSeen = ctx.mcpRun?.untrustedSeen === true || (await ctx.mcpRun?.conversationUntrusted?.()) === true;
 	const neverAsk = policy ? autonomyExceptionMode(policy, entry.autonomyMeta) === "never_ask" : false;
 	// Aprovação por tarefa: o usuário já aprovou esta tool nesta conversa (só escrita reversível, no chat, sem segredo
 	// e sem convidado/destinatário/webhook). Não vence regra do usuário ("sempre perguntar"), lição `confirm_always`
@@ -6270,11 +6276,14 @@ export async function runComputerUse(params: {
 	const loginAsked = new Set(parsedCheckpoint?.loginAsked ?? []);
 	// Conteúdo que o usuário não escreveu já entrou no contexto (também em run anterior da conversa, via checkpoint): sem aprovação por tarefa.
 	// Também de run anterior da conversa: o que ele leu segue na transcrição (marca `untrustedAt` da conversa, 24 h ou até compactar).
-	// Se a leitura da marca falhar, na dúvida vale como lido (o custo é só o Jev conferir cada uso).
-	const conversationUntrusted = userId && conversationId && !isSubagent
-		? await getConversationUntrustedAt({ userId, conversationId }).then((at) => at !== null, () => true)
-		: false;
-	const mcpRun = { untrustedSeen: parsedCheckpoint?.untrustedSeen === true || conversationUntrusted, executed: [] as string[] };
+	// Lida só quando um conector é chamado (run sem conector não paga a consulta). Se a leitura falhar, na dúvida vale
+	// como lido (o custo é só o Jev conferir cada uso).
+	let conversationUntrustedRead: Promise<boolean> | undefined;
+	const conversationUntrusted = () =>
+		(conversationUntrustedRead ??= userId && conversationId && !isSubagent
+			? getConversationUntrustedAt({ userId, conversationId }).then((at) => at !== null, () => true)
+			: Promise.resolve(false));
+	const mcpRun = { untrustedSeen: parsedCheckpoint?.untrustedSeen === true, executed: [] as string[], conversationUntrusted };
 	let grantsMarkedUntrusted = false;
 	const markUntrusted = async () => {
 		mcpRun.untrustedSeen = true;
