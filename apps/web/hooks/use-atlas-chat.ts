@@ -159,6 +159,7 @@ function conversationCardToMessage(
 			...(card.plan ? { plan: card.plan, ...(card.outcome?.detail ? { planOutcome: card.outcome.detail } : {}) } : {}),
 			...(card.outcome?.detail === SUPERSEDED_CARD_DETAIL ? { superseded: true } : {}),
 			...(card.status === "failed" && card.outcome?.detail ? { failureDetail: card.outcome.detail } : {}),
+			...(card.grantUses ? { grantUses: card.grantUses } : {}),
 		};
 	}
 	if (card.kind === "routine-proposal") return routineProposalMessageFromCard(id, card);

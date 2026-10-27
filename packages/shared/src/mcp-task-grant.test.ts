@@ -24,3 +24,14 @@ describe("aprovação por tarefa", () => {
 		expect(describeMcpTaskGrantUses(3)).toBe("executado 3 vezes nesta tarefa");
 	});
 });
+
+describe("contador no cartão persistido", () => {
+	it("grantUses sobrevive ao parse e valores inválidos são descartados", async () => {
+		const { parseConversationCard, serializeConversationCard } = await import("./skill-card.js");
+		const card = { v: 1 as const, kind: "confirm" as const, confirmId: "c1", title: "Agenda: executar create_event?", status: "approved" as const, grantUses: 3 };
+		expect(parseConversationCard(serializeConversationCard(card))).toMatchObject({ grantUses: 3 });
+		for (const bad of [0, -1, 1.5, "3", 5000]) {
+			expect(parseConversationCard(JSON.stringify({ ...card, grantUses: bad }))).not.toHaveProperty("grantUses");
+		}
+	});
+});

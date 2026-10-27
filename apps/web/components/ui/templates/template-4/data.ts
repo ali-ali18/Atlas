@@ -353,6 +353,8 @@ type MessageVariant =
 			status?: "pending" | "approved" | "rejected" | "failed";
 			/** Motivo da falha (status "failed"): o erro que a ação devolveu ao executar. */
 			failureDetail?: string;
+			/** Aprovação por tarefa: quantas vezes a mesma ferramenta já rodou por este "Aprovado". */
+			grantUses?: number;
 			confirmLabel?: string;
 			cancelLabel?: string;
 			/** "Não perguntar mais para isto" (só escrita reversível de conector). */
