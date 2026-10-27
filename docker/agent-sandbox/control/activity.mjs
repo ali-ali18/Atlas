@@ -51,28 +51,47 @@ export function countUserProcesses(uid, { listDir = readdirSync, read = (path) =
 	return count;
 }
 
+/** Chamada "em andamento" há mais que isto é considerada vazada (handler preso): deixa de contar como uso. */
+export const IN_FLIGHT_MAX_MS = 10 * 60_000;
+
 /**
  * Atividade da VM para o /idle. `idleMs` só passa de 0 quando NADA está em uso: nenhuma chamada em
  * andamento, nenhum viewer conectado e nenhum processo do shell do agente. Chamar ferramenta é
  * instantâneo e a pessoa digitando senha/2FA no viewer não gera chamada alguma, por isso o viewer conta.
+ *
+ * Cada `begin()` devolve um token e `end(token)` é idempotente: um par que se repete (ex.: `finally` e
+ * `close` da resposta) não zera a chamada de outro. Chamada com mais de `IN_FLIGHT_MAX_MS` é ignorada,
+ * então um handler que nunca termina não deixa a VM "ocupada" para sempre.
  */
-export function createActivityTracker({ now = Date.now, viewers = () => 0, shellProcesses = () => 0 } = {}) {
+export function createActivityTracker({ now = Date.now, viewers = () => 0, shellProcesses = () => 0, inFlightMaxMs = IN_FLIGHT_MAX_MS } = {}) {
 	let lastActivityAt = now();
-	let inFlight = 0;
+	let nextToken = 0;
+	/** token -> início (ms) */
+	const inFlight = new Map();
+	const liveCount = () => {
+		const cutoff = now() - inFlightMaxMs;
+		for (const [token, startedAt] of inFlight) if (startedAt < cutoff) inFlight.delete(token);
+		return inFlight.size;
+	};
 	return {
 		begin() {
-			inFlight += 1;
+			const token = ++nextToken;
+			inFlight.set(token, now());
 			lastActivityAt = now();
+			return token;
 		},
-		end() {
-			inFlight = Math.max(0, inFlight - 1);
+		end(token) {
+			// Sem token: encerra a mais antiga (uso legado, begin/end sem par explícito).
+			const key = token ?? inFlight.keys().next().value;
+			if (key !== undefined) inFlight.delete(key);
 			lastActivityAt = now();
 		},
 		snapshot() {
 			const viewerCount = viewers();
 			const shell = shellProcesses();
-			const busy = inFlight > 0 || viewerCount > 0 || shell > 0;
-			return { idleMs: busy ? 0 : now() - lastActivityAt, busy, inFlight, viewers: viewerCount, shellProcesses: shell };
+			const inFlightCount = liveCount();
+			const busy = inFlightCount > 0 || viewerCount > 0 || shell > 0;
+			return { idleMs: busy ? 0 : now() - lastActivityAt, busy, inFlight: inFlightCount, viewers: viewerCount, shellProcesses: shell };
 		},
 	};
 }

@@ -236,11 +236,13 @@ const activity = createActivityTracker({ viewers: countViewerClients, shellProce
 
 const handleRequest = async (req, res) => {
 	if (req.url === "/health" || req.url === "/idle") return handleControlRequest(req, res);
-	activity.begin();
+	const token = activity.begin();
+	// Cliente que desconecta com o handler preso também encerra a chamada (end é idempotente por token).
+	res.once("close", () => activity.end(token));
 	try {
 		await handleControlRequest(req, res);
 	} finally {
-		activity.end();
+		activity.end(token);
 	}
 };
 

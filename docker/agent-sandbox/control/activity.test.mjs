@@ -51,3 +51,27 @@ test("ocioso só sem chamada em andamento, sem viewer e sem processo do shell", 
 	tracker.end(); // end sobrando não deixa o contador negativo
 	assert.equal(tracker.snapshot().inFlight, 0);
 });
+
+test("chamada que nunca termina deixa de contar após 10 min (sem vazar inFlight para sempre)", () => {
+	let t = 1_000;
+	const tracker = createActivityTracker({ now: () => t });
+	const leaked = tracker.begin();
+	t += 9 * 60_000;
+	assert.deepEqual([tracker.snapshot().busy, tracker.snapshot().inFlight], [true, 1]);
+	t += 2 * 60_000; // 11 min
+	const snap = tracker.snapshot();
+	assert.deepEqual([snap.busy, snap.inFlight], [false, 0]);
+	tracker.end(leaked); // fim tardio é inofensivo
+	assert.equal(tracker.snapshot().inFlight, 0);
+});
+
+test("end(token) é idempotente e não encerra a chamada de outro", () => {
+	const tracker = createActivityTracker({ now: () => 1_000 });
+	const a = tracker.begin();
+	const b = tracker.begin();
+	tracker.end(a);
+	tracker.end(a);
+	assert.equal(tracker.snapshot().inFlight, 1);
+	tracker.end(b);
+	assert.equal(tracker.snapshot().inFlight, 0);
+});
