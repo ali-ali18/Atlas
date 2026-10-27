@@ -20,6 +20,8 @@ export const DRAFT_REVISION_REASONS = [
 	"exhaustion",
 	/** O passo estourou o prazo antes de terminar. */
 	"timeout",
+	/** O rascunho afirmava o que a tela mostra sem ter olhado a tela depois da última ação. */
+	"unverified_screen",
 ] as const;
 
 export type DraftRevisionReason = (typeof DRAFT_REVISION_REASONS)[number];
@@ -32,6 +34,7 @@ const LABELS: Record<DraftRevisionReason, string> = {
 	missing_file: "o arquivo pedido ainda não existia",
 	exhaustion: "uma fonte ficou sem créditos e o trabalho seguiu por outra via",
 	timeout: "o passo demorou demais e foi refeito",
+	unverified_screen: "eu ainda não tinha conferido a tela",
 };
 
 /** Motivo curto (pt-BR) mostrado no rascunho recolhido. Motivo desconhecido (evento antigo) → genérico. */

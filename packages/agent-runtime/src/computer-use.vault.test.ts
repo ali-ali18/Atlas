@@ -129,6 +129,21 @@ describe("cofre no loop do agente", () => {
 		expect(everything).toContain("{{login:github.password}}");
 	});
 
+	it("login_fill com submit devolve a URL e o título lidos depois de enviar e manda conferir a tela", async () => {
+		await vault.approveLogin("user-a", store.rows.find((r) => r.name === "github")!.id, { botId: "bot-1", conversationId: "conv-1" });
+		const manager = asManager({
+			execBrowserText: vi.fn(async () => ({ url: "https://github.com/login?x=1", title: "Sign in", text: "" })),
+			execBrowserType: vi.fn(async () => ({ ok: true })),
+		});
+		const { seen } = await run([[call("t1", "login_fill", { login: "github", fields: ["username", "password"], submit: true })]], manager);
+		const everything = seen.join("\n");
+		expect(everything).toContain("Depois de enviar, a página está em");
+		expect(everything).toContain("Sign in");
+		expect(everything).toContain("https://github.com/login?x=1");
+		expect(everything).toContain("browser_snapshot");
+		expect(everything).not.toContain(PASSWORD);
+	});
+
 	it("login_fill recusa domínio diferente (phishing) e não digita nada", async () => {
 		await vault.approveLogin("user-a", store.rows.find((r) => r.name === "github")!.id, { botId: "bot-1", conversationId: "conv-1" });
 		const execBrowserType = vi.fn(async () => ({ ok: true }));

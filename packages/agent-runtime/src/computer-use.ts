@@ -326,6 +326,7 @@ import {
 	sandboxShellBlocked,
 	type SandboxShellToolName,
 } from "./tools/sandbox-shell.js";
+import { createBrowserWatch, SCREEN_CLAIM_NOTE } from "./tools/browser-claims.js";
 import { SANDBOX_RELEASE_TOOL, SANDBOX_RELEASE_TOOL_NAME, executeSandboxRelease } from "./tools/sandbox-release.js";
 import {
 	createDevSessionRuntime,
@@ -3639,6 +3640,10 @@ function vaultToolContext(ctx: Pick<ToolContext, "userId" | "botId" | "conversat
 		unattended: isUnattendedOrigin(ctx.origin),
 		browser: {
 			currentUrl: async () => (await ctx.manager.execBrowserText(await ctx.getSessionId(), { mode: "viewport", limit: 1 })).url,
+			readPage: async () => {
+				const page = await ctx.manager.execBrowserText(await ctx.getSessionId(), { mode: "viewport", limit: 1 });
+				return { url: page.url, title: page.title };
+			},
 			type: async (selector, text, submit) => {
 				const result = await ctx.manager.execBrowserType(await ctx.getSessionId(), { selector, text, submit });
 				if (result.ok === false) throw new Error("campo não encontrado");
@@ -6189,6 +6194,8 @@ export async function runComputerUse(params: {
 	const providerHealth = params.providerHealth ?? createProviderHealth();
 	const hasToolInRun = (toolName: string) =>
 		tools.some((tool) => tool.function.name === toolName) || Boolean(nativeDeferral?.isDeferred(toolName));
+	// Conferência da tela: o que foi lido no navegador depois da última ação (portão contra "entrou" sem olhar).
+	const browserWatch = createBrowserWatch();
 	// F12/D1-D4: estagnação, captcha e métricas do computador (vão em usage.computer).
 	const computerGuard = createComputerGuard({
 		runId,
@@ -7732,6 +7739,7 @@ ${blockHint}`;
 				}
 				stallAbort = guarded.abort;
 			}
+			browserWatch.note({ name, args, ok, summary });
 
 			let imageArtifactId: string | undefined;
 			if (image && params.persistScreenshot && image.startsWith("data:")) {
@@ -8507,6 +8515,16 @@ ${blockHint}`;
 						await persistCheckpoint(step + 1);
 						continue;
 					}
+				}
+				// Afirmou o que a tela mostra ("entrou", "painel logado") sem ter olhado a tela depois da última ação, ou a
+				// última página vista é em branco/login: uma revisão para conferir antes de afirmar.
+				if (!isSubagent && canReviseAnswer && browserWatch.reasonToVerify(text)) {
+					answerRevisions += 1;
+					await onEvent({ type: "assistant_discard", id: stepId, reason: "unverified_screen" });
+					conversation.push({ role: "assistant", content: text });
+					conversation.push({ role: "system", content: withWithdrawnReply(SCREEN_CLAIM_NOTE) });
+					await persistCheckpoint(step + 1);
+					continue;
 				}
 				// Provedor sem créditos no meio da pesquisa + outra via + folga de orçamento:
 				// uma cutucada para terminar o que falta em vez de oferecer "retomar depois".
