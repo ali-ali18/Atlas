@@ -81,6 +81,7 @@ import {
 	createSandboxSession,
 	deleteBot as deleteBotRequest,
 	getActiveSandboxSession,
+	stopSandboxSession,
 	getConversationReadState,
 	listBots,
 	markConversationResultsSeen,
@@ -327,6 +328,8 @@ export function Template4Client({
 	// Cursor do agente no navegador do sandbox (efêmero; some sozinho após alguns segundos).
 	const [agentPointer, setAgentPointer] = useState<AgentPointerState | null>(null);
 	const [sandboxViewerOpen, setSandboxViewerOpen] = useState(false);
+	const [sandboxStopBusy, setSandboxStopBusy] = useState(false);
+	const [sandboxStopError, setSandboxStopError] = useState<string | null>(null);
 	const [sandboxViewerReload, setSandboxViewerReload] = useState(0);
 	// Preenchido quando a VM foi aberta por um card de login: "Terminei" aparece na própria tela.
 	const [sandboxViewerFinish, setSandboxViewerFinish] = useState<(() => void) | null>(null);
@@ -500,7 +503,8 @@ export function Template4Client({
 		const id = window.setInterval(() => {
 			if (checking) return;
 			checking = true;
-			void getActiveSandboxSession(conversationId)
+			// wake:false: o poll só confere; VM desligada (por mim, pelo bot ou pelo guarda de memória) fica desligada.
+			void getActiveSandboxSession(conversationId, { wake: false })
 				.then(
 					(session) => {
 						if (cancelled) return;
@@ -840,7 +844,8 @@ export function Template4Client({
 			return;
 		}
 		let cancelled = false;
-		getActiveSandboxSession(conversationId)
+		// Abrir a conversa só mostra a VM se ela já está ligada; acordar é escolha ("Acordar").
+		getActiveSandboxSession(conversationId, { wake: false })
 			.then((session) => {
 				if (cancelled || !session) return;
 				rememberSandbox(conversationId, {
@@ -2158,6 +2163,27 @@ export function Template4Client({
 		if (target) void flushConfigClose(target);
 	}
 
+	async function stopSandbox() {
+		const conversationId = active?.conversationId;
+		if (!sandboxSessionId || !conversationId) return;
+		setSandboxStopBusy(true);
+		setSandboxStopError(null);
+		try {
+			await stopSandboxSession(sandboxSessionId);
+			closeSandboxViewer();
+			setSandboxByConversation((previous) => {
+				const next = { ...previous };
+				delete next[conversationId];
+				return next;
+			});
+		} catch (error) {
+			console.error("sandbox stop failed", error);
+			setSandboxStopError("Não consegui desligar agora. Tente de novo em instantes.");
+		} finally {
+			setSandboxStopBusy(false);
+		}
+	}
+
 	async function startSandbox() {
 		setSandboxBusy(true);
 		setSandboxError(null);
@@ -2487,6 +2513,11 @@ export function Template4Client({
 							onStartSandbox={() => {
 								void startSandbox();
 							}}
+							onStopSandbox={() => {
+								void stopSandbox();
+							}}
+							sandboxStopBusy={sandboxStopBusy}
+							sandboxStopError={sandboxStopError}
 							onUpdate={updateAgent}
 							group={
 								active.members?.length

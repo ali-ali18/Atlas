@@ -15,15 +15,35 @@ CHROME_BIN="${CHROME_BIN:-/usr/bin/google-chrome-stable}"
 WEBSOCKIFY_BIN="${WEBSOCKIFY_BIN:-/usr/bin/websockify}"
 WALLPAPER="${SANDBOX_WALLPAPER:-/usr/share/backgrounds/atlas-wallpaper.jpg}"
 
+# Desligamento limpo: o Docker manda SIGTERM (via tini, Init: true) e espera o
+# `stop` timeout. Fecha o Chrome primeiro para ele gravar cookies/sessão e marcar
+# a saída como normal; sem isso o login de sessão se perde e aparece "Restore pages?".
+graceful_shutdown() {
+	trap '' TERM INT
+	echo "[entrypoint] SIGTERM: fechando o Chrome"
+	# SIGTERM só ao processo principal do navegador (sem --type=): ele fecha os renderers e grava o perfil.
+	# Sinalizar os renderers junto os derrubaria antes de o principal terminar a escrita.
+	for pid in $(pgrep -x chrome 2>/dev/null); do
+		tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--type=' || kill -TERM "$pid" 2>/dev/null || true
+	done
+	for _ in $(seq 1 100); do
+		pgrep -x chrome >/dev/null 2>&1 || break
+		sleep 0.1
+	done
+	pkill -KILL -x chrome 2>/dev/null || true
+	kill $(jobs -p) 2>/dev/null || true
+	exit 0
+}
+trap graceful_shutdown TERM INT
+
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
 # Volume de trabalho do agente (sandbox_shell roda como `atlas`).
 mkdir -p /home/atlas/work && chown atlas:atlas /home/atlas/work 2>/dev/null || true
 
-# Perfil do Chrome vem de volume que sobrevive a crash/OOM: locks herdados (SingletonLock/Socket/Cookie)
-# fazem o Chrome recusar o perfil. Nenhum Chrome nosso roda ainda neste ponto do boot, entao sao lixo.
-rm -f -- /tmp/chrome-data/SingletonLock /tmp/chrome-data/SingletonSocket /tmp/chrome-data/SingletonCookie 2>/dev/null || true
+# Locks herdados (SingletonLock/Socket/Cookie) do volume do perfil são limpos pelo atlas-chrome,
+# já sob a trava de lançamento (nunca aqui: outra VM pode estar com o mesmo perfil de pé).
 
 for bin in /usr/bin/Xvfb /usr/bin/xfwm4 /usr/bin/xfdesktop /usr/bin/xfsettingsd /usr/bin/plank "$CHROME_BIN" /usr/bin/x11vnc "$WEBSOCKIFY_BIN" /usr/bin/xdotool /usr/bin/scrot /usr/local/bin/node; do
 	if [[ ! -x "$bin" ]]; then
@@ -164,8 +184,10 @@ for _ in $(seq 1 60); do
 done
 
 # Mantém o container vivo; não usar `wait` com set -e.
+# `sleep & wait` para o trap de SIGTERM rodar na hora, sem esperar o sleep acabar.
 while kill -0 "$CONTROL_PID" 2>/dev/null; do
-	sleep 30
+	sleep 30 &
+	wait $! || true
 done
 
 echo "[entrypoint] Control server exited" >&2

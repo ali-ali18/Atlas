@@ -23,6 +23,8 @@ import {
 	controlBrowserAct,
 	controlBrowserWait,
 	controlBrowserLinks,
+	controlActivity,
+	type ControlActivity,
 	controlTabOpen,
 	controlTabClose,
 	SandboxControlError,
@@ -102,12 +104,48 @@ export function createDockerClient(config: Pick<SandboxRuntimeConfig, "dockerHos
 	return new Docker({ socketPath: config.dockerSocketPath });
 }
 
+/** Segundos que o Docker espera o entrypoint fechar o Chrome antes do SIGKILL.
+ * Com 5 s o Chrome morria no meio da escrita do perfil (login de sessão perdido,
+ * "Restore pages?" na volta). */
+export const SANDBOX_STOP_TIMEOUT_S = 15;
+
+/** Para com graça. false = já estava parado ou sumiu (304/404 do Docker); qualquer outro erro propaga. */
+async function stopContainerGracefully(container: Docker.Container): Promise<boolean> {
+	try {
+		await container.stop({ t: SANDBOX_STOP_TIMEOUT_S });
+		return true;
+	} catch (error) {
+		const status = (error as { statusCode?: number }).statusCode;
+		if (status === 304 || status === 404) return false;
+		throw error;
+	}
+}
+
 function containerName(sessionId: string): string {
 	return `atlas-sandbox-${sessionId}`;
 }
 
-/** Volume Docker que guarda o perfil do Chrome de uma conversa. Sobrevive
- * ao stop E à remoção do container — é ele que torna o login durável. */
+/** Nome fixo por volume de perfil: duas criações concorrentes (api e worker são processos
+ * diferentes) disputam o mesmo nome e o Docker devolve 409 para a segunda, que adota a VM
+ * da primeira em vez de montar o mesmo perfil do Chrome numa segunda VM. */
+export function profileContainerName(profileVolume: string): string {
+	return `atlas-sandbox-${profileVolume.replace(/^atlas-profile-/, "").slice(0, 32)}`;
+}
+
+/** createContainer recusou o nome (409): outra criação do mesmo perfil ganhou a corrida. */
+class ContainerNameTakenError extends Error {}
+
+/** Janela em que um container recém-criado é tratado como "subindo por outro criador". */
+const STARTING_GRACE_MS = 60_000;
+
+/** `Created` do listContainers vem em segundos; ausente = antigo (não protege). */
+function isRecentlyCreated(item: { Created?: number }, now: number = Date.now()): boolean {
+	return typeof item.Created === "number" && now - item.Created * 1000 < STARTING_GRACE_MS;
+}
+
+/** Volume Docker que guarda o perfil do Chrome de uma conversa (cada bot tem exatamente
+ * uma conversa, então é também o perfil do bot). Sobrevive ao stop E à remoção do
+ * container — é ele que torna o login durável. */
 export function profileVolumeName(conversationId: string, userId: string): string {
 	const key = createHash("sha256").update(JSON.stringify([userId, conversationId])).digest("hex");
 	return `atlas-profile-${key}`;
@@ -401,13 +439,18 @@ export type SandboxManager = {
 	/** Retorna o sandbox ativo da conversa (religa se parado) ou null. Não cria. */
 	getSessionForConversation: (
 		conversationId: string,
+		options?: { wake?: boolean },
 	) => Promise<SandboxSessionResponse | null>;
 	getSession: (sessionId: string) => Promise<SandboxSessionResponse | null>;
 	/** Confere posse entre processos sem iniciar ou substituir o container. */
 	getOwnedSessionMetadata: (sessionId: string) => Promise<SandboxSessionResponse | null>;
 	destroySession: (sessionId: string) => Promise<boolean>;
-	/** Para o container sem removê-lo (preserva o estado p/ religar depois). */
+	/** Para o container sem removê-lo (preserva o estado p/ religar depois). false = sessão inexistente ou de outro dono; já parada é sucesso; erro de Docker propaga. */
 	stopSession: (sessionId: string) => Promise<boolean>;
+	/** Desliga (graciosamente) a VM ligada da conversa, sem criar nem ligar nada. false = não havia VM ligada; erro de Docker propaga. */
+	stopConversationSession: (conversationId: string) => Promise<boolean>;
+	/** Atividade da VM ligada da conversa (null = sem VM ligada ou sem resposta). Não liga nem cria nada. */
+	getConversationActivity: (conversationId: string) => Promise<ControlActivity | null>;
 	getViewerUrl: (sessionId: string) => string | null;
 	/** Destino (host/porta publicada) do noVNC da sessão do dono, para o proxy da API. */
 	resolveViewerTarget: (sessionId: string) => Promise<{ host: string; port: number; tls: boolean } | null>;
@@ -520,9 +563,11 @@ export function createSandboxManager(
 			return resolved ?? startWithRetries(conversationId, { replaceExisting: true });
 		},
 
-		getSessionForConversation(conversationId) {
+		getSessionForConversation(conversationId, options = {}) {
 			// Caminho só-leitura (API/painel): nunca recria/para/remove container Running.
-			return resolveExisting(conversationId, { readOnly: true });
+			// `wake:false` (poll do painel) também não religa a VM parada: sem isso o painel
+			// aberto desfazia o "Desligar" e o guarda de memória a cada 15 s.
+			return resolveExisting(conversationId, { readOnly: true, ...(options.wake === false ? { noStart: true } : {}) });
 		},
 
 		async getSession(sessionId) {
@@ -555,7 +600,7 @@ export function createSandboxManager(
 				const client = getDocker();
 				const ref = record.containerId || record.containerName;
 				const container = client.getContainer(ref);
-				await container.stop({ t: 5 }).catch(() => undefined);
+				await container.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
 				await container.remove({ force: true }).catch(() => undefined);
 			} catch {
 				// container may already be gone (AutoRemove)
@@ -569,21 +614,46 @@ export function createSandboxManager(
 			return record ? toResponse(record, config) : null;
 		},
 
-		async stopSession(sessionId) {
-			const record = sessionStore.getSession(sessionId, userId);
-			if (!record) return false;
-			try {
-				const client = getDocker();
-				const container = client.getContainer(
-					record.containerId || record.containerName,
-				);
-				await container.stop({ t: 5 });
-				record.status = "stopped";
-				sessionStore.putSession(record);
-				return true;
-			} catch {
-				return false;
+		async stopConversationSession(conversationId) {
+			// Erro de Docker propaga: devolver false aqui diria "já estava desligada" para uma VM que continua ligada.
+			const client = getDocker();
+			const containers = await client.listContainers({
+				all: false,
+				filters: { label: ["atlas.sandbox=true", `atlas.sandbox.conversationId=${conversationId}`, `atlas.sandbox.userId=${userId}`] },
+			});
+			const mine = containers.filter(
+				(item) => item.Labels?.["atlas.sandbox.userId"] === userId && item.Labels?.["atlas.sandbox.conversationId"] === conversationId,
+			);
+			let stopped = 0;
+			for (const item of mine) if (await stopContainerGracefully(client.getContainer(item.Id))) stopped += 1;
+			const known = sessionStore.findByConversationId(conversationId, userId);
+			if (known) {
+				known.status = "stopped";
+				sessionStore.putSession(known);
 			}
+			return stopped > 0;
+		},
+
+		async getConversationActivity(conversationId) {
+			const known = sessionStore.findByConversationId(conversationId, userId);
+			const record = known?.status === "running" && known.controlPort ? known : await adoptByLabel(conversationId, { readOnly: true, noStart: true });
+			if (!record || record.status !== "running" || !record.controlPort) return null;
+			try {
+				return await controlActivity(record.host ?? config.controlHost, record.controlPort, context);
+			} catch {
+				return null;
+			}
+		},
+
+		async stopSession(sessionId) {
+			// false = sessão inexistente ou de outro dono. VM já parada é sucesso; erro de Docker propaga.
+			const record = sessionStore.getSession(sessionId, userId) ?? await adoptBySessionId(sessionId);
+			if (!record) return false;
+			const client = getDocker();
+			await stopContainerGracefully(client.getContainer(record.containerId || record.containerName));
+			record.status = "stopped";
+			sessionStore.putSession(record);
+			return true;
 		},
 
 		getViewerUrl(sessionId) {
@@ -744,7 +814,7 @@ export function createSandboxManager(
 			for (const item of containers) {
 				if (item.Labels?.["atlas.sandbox.userId"] !== userId || item.Labels?.["atlas.sandbox.conversationId"] !== conversationId) continue;
 				const container = client.getContainer(item.Id);
-				await container.stop({ t: 5 }).catch(() => undefined);
+				await container.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
 				await container.remove({ force: true, v: false });
 				removedContainers += 1;
 			}
@@ -767,7 +837,11 @@ export function createSandboxManager(
 	async function startOnce(conversationId: string | undefined, opts: { replaceExisting: boolean }): Promise<SandboxSessionResponse> {
 			const client = getDocker();
 			const sessionId = randomUUID();
-			const name = containerName(sessionId);
+			const profileVolume =
+				config.profileVolumes && conversationId
+					? profileVolumeName(conversationId, userId)
+					: null;
+			const name = profileVolume ? profileContainerName(profileVolume) : containerName(sessionId);
 	
 			const record: SandboxSessionRecord = {
 				userId,
@@ -783,11 +857,10 @@ export function createSandboxManager(
 			};
 			sessionStore.putSession(record);
 	
+		// Id do container que ESTA chamada criou. A limpeza no catch só mexe nele: o nome é fixo por
+		// perfil e pode ser de outro processo (api/worker), então limpar por nome derrubaria a VM alheia.
+		let createdId: string | null = null;
 		try {
-			const profileVolume =
-				config.profileVolumes && conversationId
-					? profileVolumeName(conversationId, userId)
-					: null;
 			if (conversationId) await removeLeftovers(client, conversationId, { includeRunning: opts.replaceExisting });
 			const container = await client.createContainer({
 				Image: config.image,
@@ -802,6 +875,9 @@ export function createSandboxManager(
 						: {}),
 				},
 				HostConfig: {
+					// tini como PID 1: repassa SIGTERM ao entrypoint (que fecha o Chrome
+					// direito) e colhe processos zumbis.
+					Init: true,
 					Memory: config.memoryBytes,
 					NanoCpus: config.nanoCpus,
 					NetworkMode: config.networkMode,
@@ -826,7 +902,10 @@ export function createSandboxManager(
 					[`${VIEWER_PORT}/tcp`]: {},
 					[`${CONTROL_PORT}/tcp`]: {},
 				},
+			}).catch((error: unknown) => {
+				throw errorStatusCode(error) === 409 ? new ContainerNameTakenError("container name in use") : error;
 			});
+			createdId = container.id;
 			if (profileVolume) {
 				console.log(
 					`[sandbox] session ${sessionId} using profile volume ${profileVolume}`,
@@ -860,15 +939,24 @@ export function createSandboxManager(
 				sessionStore.putSession(running);
 				return toResponse(running, config);
 			} catch (error) {
+				if (error instanceof ContainerNameTakenError) {
+					// Não é nosso: não mexe no container de quem ganhou a corrida; adota a VM dele.
+					sessionStore.deleteSession(sessionId, userId);
+					const adopted = conversationId ? await adoptByLabel(conversationId) : null;
+					if (adopted) return toResponse(adopted, config);
+					throw new SandboxDockerUnavailableError(`Failed to start sandbox container: name ${name} is in use by another VM`);
+				}
 				record.status = "error";
 				sessionStore.putSession(record);
-				try {
-					const c = client.getContainer(name);
-					await recordDeath(c, name);
-					await c.stop({ t: 2 }).catch(() => undefined);
-					await c.remove({ force: true }).catch(() => undefined);
-				} catch {
-					// ignore cleanup errors
+				if (createdId) {
+					try {
+						const c = client.getContainer(createdId);
+						await recordDeath(c, name);
+						await c.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
+						await c.remove({ force: true }).catch(() => undefined);
+					} catch {
+						// ignore cleanup errors
+					}
 				}
 				sessionStore.deleteSession(sessionId, userId);
 				if (error instanceof SandboxDockerUnavailableError) {
@@ -899,9 +987,11 @@ export function createSandboxManager(
 	}
 
 	/**
-	 * Remove containers da conversa que impediriam um start limpo: Exited/Dead/Created
+	 * Remove containers da conversa que impediriam um start limpo: Exited/Dead/Created antigos
 	 * (prendem o volume do perfil e confundem a adocao) e, com includeRunning, tambem
-	 * os "rodando" sem saude (a adocao ja falhou). Volumes ficam (v:false).
+	 * os "rodando" sem saude (a adocao ja falhou). Container criado ha menos de
+	 * STARTING_GRACE_MS e de outro criador em andamento: nunca e removido (Created/running).
+	 * Volumes ficam (v:false).
 	 * Tambem solta endpoints de rede orfaos. Best-effort: nunca lanca.
 	 */
 	async function removeLeftovers(
@@ -919,11 +1009,12 @@ export function createSandboxManager(
 				if (item.Labels?.["atlas.sandbox.userId"] !== userId || item.Labels?.["atlas.sandbox.conversationId"] !== conversationId) continue;
 				const live = item.State === "running" || item.State === "restarting" || item.State === "paused";
 				if (live && !options.includeRunning) continue;
+				if ((item.State === "created" || live) && isRecentlyCreated(item)) continue;
 				const ref = client.getContainer(item.Id);
 				const label = (item.Names?.[0] ?? item.Id).replace(/^\//, "");
 				if (!live) await recordDeath(ref, label);
 				try {
-					if (live) await ref.stop({ t: 2 }).catch(() => undefined);
+					if (live) await ref.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
 					await ref.remove({ force: true, v: false });
 					removed += 1;
 					console.warn(`[sandbox] removed leftover container ${label} state=${item.State ?? "?"}`);
@@ -1030,7 +1121,7 @@ export function createSandboxManager(
 	/** Reinicia o container (se parado) e atualiza a sessão com portas frescas. */
 	async function ensureRunning(
 		record: SandboxSessionRecord,
-		options: { replaceRunningIfOutdated?: boolean; readOnly?: boolean } = {},
+		options: { replaceRunningIfOutdated?: boolean; readOnly?: boolean; noStart?: boolean } = {},
 	): Promise<SandboxSessionRecord | null> {
 		try {
 			const client = getDocker();
@@ -1038,6 +1129,8 @@ export function createSandboxManager(
 				record.containerId || record.containerName,
 			);
 			let inspect = await container.inspect();
+			// Poll do painel: VM parada (de propósito) continua parada.
+			if (options.noStart && !inspect.State.Running) return null;
 			// Só troca a imagem na hora de subir/adotar: container parado, ou
 			// rodando mas sem sessão neste processo (options). Nunca derruba um
 			// container que uma sessão viva deste processo está usando.
@@ -1117,7 +1210,7 @@ export function createSandboxManager(
 					}
 				}
 				await recordDeath(c, label);
-				await c.stop({ t: 2 }).catch(() => undefined);
+				await c.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
 				await c.remove({ force: true, v: false });
 			} catch {
 				// ja removido ou Docker indisponivel
@@ -1158,7 +1251,7 @@ export function createSandboxManager(
 			`[sandbox] image of ${record.containerName || record.containerId} is outdated; recreating (profile volume kept)`,
 		);
 		try {
-			if (running) await container.stop({ t: 5 }).catch(() => undefined);
+			if (running) await container.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
 			await container.remove({ force: true, v: false });
 		} catch (error) {
 			console.warn(
@@ -1176,7 +1269,7 @@ export function createSandboxManager(
 	/** Acha um container de sandbox da conversa por label (sobrevive a restart). */
 	async function adoptByLabel(
 		conversationId: string,
-		options: { readOnly?: boolean } = {},
+		options: { readOnly?: boolean; noStart?: boolean } = {},
 	): Promise<SandboxSessionRecord | null> {
 		try {
 			const client = getDocker();
@@ -1195,6 +1288,9 @@ export function createSandboxManager(
 				.filter((item) => item.Labels?.["atlas.sandbox.userId"] === userId && item.Labels?.["atlas.sandbox.conversationId"] === conversationId)
 				.sort((a, b) => (b.Created ?? 0) - (a.Created ?? 0))[0];
 			if (!found) return null;
+			// VM que outro processo ainda está subindo: espera (limitado) em vez de devolver null,
+			// que levaria quem chamou a substituir a VM do outro.
+			if (found.State === "created" && isRecentlyCreated(found)) await waitWhileStarting(client, found.Id);
 			const record: SandboxSessionRecord = {
 				userId,
 				sessionId: found.Labels?.["atlas.sandbox.sessionId"] ?? randomUUID(),
@@ -1209,20 +1305,35 @@ export function createSandboxManager(
 			};
 			// Adoção (ex.: após restart): este processo não tem sessão viva do
 			// container, então pode trocar até um que esteja rodando.
-			return await ensureRunning(record, options.readOnly ? { readOnly: true } : { replaceRunningIfOutdated: true });
+			return await ensureRunning(record, options.readOnly ? { readOnly: true, ...(options.noStart ? { noStart: true } : {}) } : { replaceRunningIfOutdated: true });
 		} catch {
 			return null;
 		}
 	}
 
+	/** Espera o container sair de `created` (outro criador chamando start). Limitado; nunca lança. */
+	async function waitWhileStarting(client: Docker, id: string): Promise<void> {
+		const deadline = Date.now() + envPositiveInt("SANDBOX_ADOPT_WAIT_MS", 30_000);
+		const delay = envPositiveInt("SANDBOX_READY_DELAY_MS", 500);
+		while (Date.now() < deadline) {
+			try {
+				const state = (await client.getContainer(id).inspect()).State;
+				if (state.Running || state.Status !== "created") return;
+			} catch {
+				return;
+			}
+			await new Promise((resolve) => setTimeout(resolve, delay));
+		}
+	}
+
 	async function resolveExisting(
 		conversationId?: string,
-		options: { readOnly?: boolean } = {},
+		options: { readOnly?: boolean; noStart?: boolean } = {},
 	): Promise<SandboxSessionResponse | null> {
 		if (!conversationId) return null;
 		const existing = sessionStore.findByConversationId(conversationId, userId);
 		if (existing) {
-			const running = await ensureRunning(existing, options.readOnly ? { readOnly: true } : {});
+			const running = await ensureRunning(existing, { ...(options.readOnly ? { readOnly: true } : {}), ...(options.noStart ? { noStart: true } : {}) });
 			if (running) return toResponse(running, config);
 			sessionStore.deleteSession(existing.sessionId, userId);
 		}

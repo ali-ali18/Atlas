@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import {
+	controlActivity,
 	controlBrowserLinks,
 	controlBrowserText,
 	controlNavigate,
@@ -39,4 +40,14 @@ it("abrir e fechar aba são sempre do pai (nunca herdam a aba do contexto) e lev
 	expect(calls[1].url).toMatch(/\/browser\/tab\/close$/);
 	expect(JSON.parse(calls[1].body ?? "{}")).toEqual({ tabId: "t7" });
 	expect(calls.every((call) => call.headers["x-atlas-tab"] === undefined)).toBe(true);
+});
+
+it("controlActivity lê /idle; imagem antiga sem `busy` não finge estar ocupada", async () => {
+	const calls = stubFetch({ idleMs: 5_000, busy: true, viewers: 1 });
+	expect(await controlActivity("h", 1)).toEqual({ idleMs: 5_000, busy: true });
+	expect(calls[0].url).toMatch(/\/idle$/);
+	stubFetch({ idleMs: 90_000 });
+	expect(await controlActivity("h", 1)).toEqual({ idleMs: 90_000, busy: false });
+	stubFetch({});
+	await expect(controlActivity("h", 1)).rejects.toThrow(/idleMs/);
 });

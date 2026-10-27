@@ -35,7 +35,8 @@ import { createConversationRoutes } from "./routes/conversations.js";
 import { createReactionRoutes } from "./routes/reactions.js";
 import { createPushRoutes } from "./routes/push.js";
 import { createAvatarRoutes } from "./routes/avatars.js";
-import { createNotifier, createRedisCoalesce, createRedisPresence, installPushListener } from "@workspace/db";
+import { appendConversationMessage, conversationHoldsVm, createNotifier, createRedisCoalesce, createRedisPresence, getStrictOwnedConversation, installPushListener } from "@workspace/db";
+import { isVmProtectedFromGuard, noticeVmStopped, type VmGuardDeps } from "./sandbox-guard-notice.js";
 import { createWebPushSender } from "@workspace/mail";
 import { ATLAS_JOB_NAMES, formatMissingEnv, readVapidConfig, vapidProblems } from "@workspace/shared";
 import { captureError, currentRequestId, initSentry, installRequestIdLogging } from "@workspace/observability";
@@ -230,6 +231,8 @@ app.route("/", createBotRoutes());
 app.route("/", createGroupRoutes());
 app.route("/", createConversationRoutes());
 app.route("/", createReactionRoutes());
+// Notificador compartilhado com o guarda de memória das VMs (null sem VAPID/Redis).
+let pushNotify: ReturnType<typeof createNotifier> | null = null;
 {
 	// Web Push: sem as chaves VAPID o app segue normal, só sem notificações no celular.
 	const vapid = readVapidConfig(process.env);
@@ -242,7 +245,8 @@ app.route("/", createReactionRoutes());
 	app.route("/", createPushRoutes({ vapid, sender, presence: redisConnection ? createRedisPresence(redisConnection) : null }));
 	// A API também grava estados que viram aviso (sessão de código que falhou, cartão decidido no chat).
 	if (sender && redisConnection) {
-		installPushListener(createNotifier({ sender, presence: createRedisPresence(redisConnection), coalesce: createRedisCoalesce(redisConnection) }));
+		pushNotify = createNotifier({ sender, presence: createRedisPresence(redisConnection), coalesce: createRedisCoalesce(redisConnection) });
+		installPushListener(pushNotify);
 	}
 }
 app.route("/", createDevSessionRoutes());
@@ -397,18 +401,32 @@ void listGithubRoutineRepoOwners()
 		console.error("[github-hook-resync] falhou ao listar rotinas GitHub", error);
 	});
 
-// GC das sessões de sandbox ociosas (TTL configurável).
-// Política: a VM é do bot — TTL só ADORMECE (stop, preserva perfil/login).
-// Remoção automática desligada (custo de parado ~zero e a sessão é sempre
-// reutilizada); remover é ação administrativa manual.
+// Ciclo de vida das VMs de sandbox. A VM guarda o login do navegador, então NÃO é
+// parada por inatividade (SANDBOX_IDLE_STOP=1 reativa o modo antigo, com SANDBOX_TTL_MS).
+// Ela para quando o usuário manda, quando o bot termina (sandbox_release) ou pelo guarda
+// de memória: acima de SANDBOX_MAX_RUNNING VMs (padrão 3) ou com pouca memória livre
+// (SANDBOX_MIN_FREE_MEM_MB, padrão 512), para a VM ociosa há mais tempo e avisa o dono.
 const sandboxTtlMs = Number.parseInt(
 	process.env.SANDBOX_TTL_MS ?? "900000",
 	10,
 );
+const vmGuardDeps: VmGuardDeps = {
+	push: pushNotify ? (userId, conversationId, text) => pushNotify!(userId, conversationId, "run-finished", text) : null,
+	ownsConversation: async (userId, conversationId) => Boolean(await getStrictOwnedConversation(conversationId, userId)),
+	holdsVm: (userId, conversationId) => conversationHoldsVm(userId, conversationId),
+	appendMessage: (conversationId, text) => appendConversationMessage(conversationId, "assistant", text),
+};
 startSandboxReaper(loadSandboxConfig(), {
 	ttlMs: Number.isFinite(sandboxTtlMs) && sandboxTtlMs > 0 ? sandboxTtlMs : 900000,
 	hardTtlMs: Number.POSITIVE_INFINITY,
 	intervalMs: 60_000,
+	idleStop: process.env.SANDBOX_IDLE_STOP === "1" || process.env.SANDBOX_IDLE_STOP === "true",
+	memoryGuard: {
+		// Depois de desligar: mensagem na conversa (garantida) + push (bônus).
+		onStopped: (vm) => noticeVmStopped(vm, vmGuardDeps),
+		// Não desliga VM sem dono verificável nem com run usando/esperando o usuário (a VM guarda a tela dele).
+		isProtected: (vm) => isVmProtectedFromGuard(vm, vmGuardDeps),
+	},
 });
 
 // Sessões de desenvolvimento (container leve por sessão): para as ociosas

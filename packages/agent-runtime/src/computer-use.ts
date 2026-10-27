@@ -16,7 +16,7 @@ import { triageUserMessage, type TriageHistoryEntry } from "./loop/message-triag
 import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } from "./loop/interrupt.js";
 import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MAX_ANSWER_REVISIONS_PER_RUN, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
-import { describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
+import { detectLoginWall, describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
 import { alreadyLoadedSummary, findAlreadyLoadedTools } from "./execution/tool-search-guard.js";
 import { runSandboxOperation, type SandboxExecutionContext } from "@workspace/sandbox";
 import {
@@ -250,7 +250,7 @@ import { isSecretBoxConfigured } from "./secrets/secret-box.js";
 import { getVaultService, type VaultService } from "./secrets/vault-service.js";
 import { findEmailSource } from "./tools/email-code.js";
 import { openSecrets } from "./secrets/secret-box.js";
-import { typeLoginCodeOnResume, fillVaultLoginOnResume, listVaultLoginDomains, vaultLoginsPromptLine, vaultTriedKey, withVaultOffer } from "./tools/vault-login-offer.js";
+import { typeLoginCodeOnResume, fillVaultLoginOnResume, tryAutoVaultLogin, listVaultLoginDomains, vaultLoginsPromptLine, vaultTriedKey, withVaultOffer } from "./tools/vault-login-offer.js";
 import {
 	executeLoginFill,
 	executeRoutineWebhookInfo,
@@ -326,6 +326,8 @@ import {
 	sandboxShellBlocked,
 	type SandboxShellToolName,
 } from "./tools/sandbox-shell.js";
+import { createBrowserWatch, SCREEN_CLAIM_NOTE } from "./tools/browser-claims.js";
+import { SANDBOX_RELEASE_TOOL, SANDBOX_RELEASE_TOOL_NAME, executeSandboxRelease } from "./tools/sandbox-release.js";
 import {
 	createDevSessionRuntime,
 	DEV_SESSION_READONLY_TOOL_NAMES,
@@ -469,6 +471,7 @@ const SANDBOX_TOOL_NAMES = new Set([
 	...COMPUTER_REF_TOOL_NAMES,
 	...COMPUTER_READ_TOOL_NAMES,
 	...SANDBOX_SHELL_TOOL_NAMES,
+	SANDBOX_RELEASE_TOOL_NAME,
 	NATIVE_COMPUTER_TOOL_NAME,
 ]);
 
@@ -915,6 +918,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	...COMPUTER_REF_TOOLS,
 	...COMPUTER_READ_TOOLS,
 	...SANDBOX_SHELL_TOOLS,
+	SANDBOX_RELEASE_TOOL,
 	{
 		type: "function",
 		function: {
@@ -3617,6 +3621,15 @@ async function executeTool(
 	}
 }
 
+const LOGIN_ALREADY_ASKED_NOTE = (site: string) =>
+	`\nLOGIN STILL REQUIRED on ${site}: the user was already asked to log in to this site in the last 30 minutes, so no new card was shown. ` +
+	"Do NOT ask again, never type credentials. Tell the user plainly (in their language, no technical terms) that the site still shows the login screen " +
+	"and that they can open the computer, finish signing in and tell you when it is done.";
+
+/** Texto ao usuário (pt-BR) quando "Terminei" volta e a tela de login ainda está lá. */
+export const loginStillShownText = (site: string) =>
+	`Ainda vejo a tela de login de ${site}, então o login não parece ter sido concluído. Abra o computador, termine a entrada nesse site e me diga "pronto" que eu continuo daqui.`;
+
 function vaultToolContext(ctx: Pick<ToolContext, "userId" | "botId" | "conversationId" | "runId" | "origin" | "manager" | "getSessionId">): VaultToolContext {
 	return {
 		userId: ctx.userId,
@@ -3627,6 +3640,10 @@ function vaultToolContext(ctx: Pick<ToolContext, "userId" | "botId" | "conversat
 		unattended: isUnattendedOrigin(ctx.origin),
 		browser: {
 			currentUrl: async () => (await ctx.manager.execBrowserText(await ctx.getSessionId(), { mode: "viewport", limit: 1 })).url,
+			readPage: async () => {
+				const page = await ctx.manager.execBrowserText(await ctx.getSessionId(), { mode: "viewport", limit: 1 });
+				return { url: page.url, title: page.title };
+			},
 			type: async (selector, text, submit) => {
 				const result = await ctx.manager.execBrowserType(await ctx.getSessionId(), { selector, text, submit });
 				if (result.ok === false) throw new Error("campo não encontrado");
@@ -3758,6 +3775,8 @@ async function executeToolInner(
 		case "sandbox_list":
 		case "sandbox_download":
 			return executeSandboxShellTool(name, args, { manager: ctx.manager, getSessionId: ctx.getSessionId });
+		case SANDBOX_RELEASE_TOOL_NAME:
+			return executeSandboxRelease({ manager: ctx.manager, conversationId: ctx.conversationId });
 		case "dev_session_start":
 		case "shell":
 		case "shell_output":
@@ -4920,6 +4939,12 @@ export async function runComputerUse(params: {
 	vault?: VaultService;
 	/** Espera depois de preencher o login do Cofre antes de conferir a página (padrão 3 s). */
 	vaultLoginSettleMs?: number;
+	/**
+	 * Cards de login da conversa nos últimos 30 min (vale entre runs): `asked` = sites com card pendente (não repetir),
+	 * `vaultTried` = sites onde o Cofre já falhou (sem novo auto-login). Lido só quando aparece uma tela de login.
+	 * Sem isto o guarda de "já pedi" só vale dentro do run e cada mensagem nova reabria o mesmo card.
+	 */
+	recentLoginAsks?: () => Promise<{ asked: readonly string[]; vaultTried: readonly string[] }>;
 	/** Prazo da busca do código no e-mail (padrão 60 s). */
 	vaultEmailTimeoutMs?: number;
 	consumeSteerInputs?: () => Promise<
@@ -5332,6 +5357,8 @@ export async function runComputerUse(params: {
 		.filter((tool) => !hostToolBlocked(tool.function.name))
 		.filter((tool) => tool.function.name !== LESSON_FEEDBACK_TOOL_NAME || lessonFeedbackEnabled)
 		.filter((tool) => tool.function.name !== "login_fill" || sandboxEnabled)
+		// Rotina/webhook não desliga a VM que o usuário pode estar usando; quem libera memória é o guarda.
+		.filter((tool) => tool.function.name !== SANDBOX_RELEASE_TOOL_NAME || !isUnattendedOrigin(params.origin))
 		// Shell/arquivos da VM: exceção "bloqueado" do usuário tira a tool; webhook/subagente só leem.
 		.filter((tool) => {
 			const shellTool = tool.function.name as SandboxShellToolName;
@@ -6161,10 +6188,26 @@ export async function runComputerUse(params: {
 		? createSecretSession({ userId: params.userId, by: () => ({ actor: "bot", botId: params.botId, conversationId: params.conversationId }) })
 		: undefined;
 	let pendingLogin = parsedCheckpoint?.pendingLogin;
+	// "Já pedi login neste site" por conversa (30 min), alimentado pelos cards persistidos; vale por site, não por URL.
+	// Carregado sob demanda (só quando uma tela de login aparece): run sem muro de login não paga a consulta.
+	const recentLoginAsks = { asked: new Set<string>(), vaultTried: new Set<string>(), loaded: false };
+	const loadRecentLoginAsks = async () => {
+		if (recentLoginAsks.loaded) return recentLoginAsks;
+		recentLoginAsks.loaded = true;
+		if (userId === "default" || !params.recentLoginAsks) return recentLoginAsks;
+		const recent = await params.recentLoginAsks().catch(() => null);
+		for (const site of recent?.asked ?? []) recentLoginAsks.asked.add(site);
+		for (const site of recent?.vaultTried ?? []) recentLoginAsks.vaultTried.add(site);
+		return recentLoginAsks;
+	};
 	// Provedores sem créditos/cota neste run e as tools que existem (para dicas honestas).
 	const providerHealth = params.providerHealth ?? createProviderHealth();
 	const hasToolInRun = (toolName: string) =>
 		tools.some((tool) => tool.function.name === toolName) || Boolean(nativeDeferral?.isDeferred(toolName));
+	// Conferência da tela: o que foi lido no navegador depois da última ação (portão contra "entrou" sem olhar).
+	const browserWatch = createBrowserWatch({
+		resumedWithBrowser: Boolean(parsedCheckpoint?.sandboxSessionId) || Object.entries(parsedCheckpoint?.toolCallCounts ?? {}).some(([toolName, count]) => SANDBOX_TOOL_NAMES.has(toolName) && toolName !== SANDBOX_RELEASE_TOOL_NAME && count > 0),
+	});
 	// F12/D1-D4: estagnação, captcha e métricas do computador (vão em usage.computer).
 	const computerGuard = createComputerGuard({
 		runId,
@@ -6442,7 +6485,18 @@ export async function runComputerUse(params: {
 	if (pendingLogin) {
 		const resumed = pendingLogin;
 		pendingLogin = undefined;
-		if (!vaultFollowUp) conversation.push({
+		// "Terminei" não prova nada: confere a tela. Se o login ainda está lá, avisa em vez de seguir às cegas.
+		let loginStillShownSite: string | undefined;
+		if (!isSubagent && !vaultFollowUp && !vaultResumeMessage && sandboxEnabled && !resumed.connector && !resumed.composioToolkit && resumed.reason !== "captcha") {
+			try {
+				const snapshot = await manager.execBrowserSnapshot(await getSessionId(), { area: "viewport" });
+				loginStillShownSite = detectLoginWall({ url: snapshot.url, title: snapshot.title, lines: snapshot.lines })?.site;
+				if (!loginStillShownSite) browserWatch.observe(snapshot.url);
+			} catch {
+				// Sem conseguir olhar a tela, segue como antes: o modelo é mandado reler a página.
+			}
+		}
+		if (!vaultFollowUp && !loginStillShownSite) conversation.push({
 			role: "user",
 			content:
 				vaultResumeMessage
@@ -6467,6 +6521,9 @@ export async function runComputerUse(params: {
 		await persistConversationCardFromEvent(conversationId, doneEvent).catch(() => undefined);
 		await onEvent(doneEvent);
 		await persistCheckpoint(nextStepIndex);
+		if (loginStillShownSite) {
+			return { text: loginStillShownText(loginStillShownSite), model: lastModel, hitWall: false, usage: usageTotals };
+		}
 	}
 
 	// F12/B5 — login pedido: o resultado da tool já está na conversa; grava o
@@ -7546,7 +7603,50 @@ export async function runComputerUse(params: {
 				loginEvent = outcome.loginEvent;
 				fileEvent = outcome.fileEvent;
 				if (loginEvent && !isSubagent) {
+					const recentAsks = await loadRecentLoginAsks();
+					// O Cofre já falhou neste site na conversa (30 min): nada de digitar a senha de novo; vai o card humano.
+					if (recentAsks.vaultTried.has(loginEvent.site)) loginAsked.add(vaultTriedKey(loginEvent.url));
 					if (vaultUsable) loginEvent = await withVaultOffer(loginEvent, { vault: vaultService, userId, loginAsked, unattended: isUnattendedOrigin(params.origin), emailSourceName: emailSource?.name });
+					// Cofre primeiro: login salvo e já aprovado entra sozinho, sem card. Sem aprovação, o card com a
+					// oferta do Cofre é o de aprovação; só sobra o card "faça você" sem login salvo ou se faltar 2FA/captcha/senha.
+					if (vaultUsable && loginEvent.vault) {
+						const offered = loginEvent;
+						const auto = await tryAutoVaultLogin({
+							event: offered,
+							userId,
+							botId,
+							conversationId,
+							vault: vaultService,
+							fillContext: vaultToolContext({ userId, botId, conversationId, runId, origin: params.origin, manager, getSessionId: () => getSessionId() }),
+							readPage: async () => {
+								const snapshot = await manager.execBrowserSnapshot(await getSessionId(), { area: "viewport" });
+								return { url: snapshot.url, title: snapshot.title, text: snapshot.lines.join("\n"), lines: snapshot.lines };
+							},
+							settle: () => new Promise<void>((resolve) => setTimeout(resolve, params.vaultLoginSettleMs ?? 3000)),
+							emailSource,
+							...(params.vaultEmailTimeoutMs !== undefined ? { emailSearch: { timeoutMs: params.vaultEmailTimeoutMs, intervalMs: 1000 } } : {}),
+						});
+						if (auto.kind !== "skip") loginAsked.add(vaultTriedKey(offered.url));
+						if (auto.kind === "filled") {
+							summary = `${summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "")}\n[login-vault-filled] ${auto.summary} The login screen was gone when checked. Your next action must be browser_snapshot to confirm you are signed in, then continue the task. Never type credentials.`;
+							loginEvent = undefined;
+						} else if (auto.kind === "needs-human") {
+							const { vault: _offer, ...humanEvent } = offered;
+							summary = summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "");
+							summary += `\nLOGIN REQUIRED on ${offered.site}: the saved vault login was used but the site still needs the user (code, captcha or confirmation). A card asked the user and this run is pausing until they click "Terminei". Do not type credentials or call more tools; after the run resumes, call browser_snapshot and continue.`;
+							loginEvent = { ...humanEvent, vaultTried: auto.reason, ...(auto.codeField ? { codeField: true } : {}) };
+						}
+					}
+					// Card repetido (humano ou aprovação do Cofre): o mesmo site já tem um card pendente nesta conversa
+					// (30 min). Não reabre; o modelo recebe a nota. Login concluído depois disso libera um card novo.
+					if (loginEvent && loginEvent.reason !== "captcha" && !loginEvent.connector && !loginEvent.composioToolkit) {
+						if (recentAsks.asked.has(loginEvent.site)) {
+							summary = `${summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "")}${LOGIN_ALREADY_ASKED_NOTE(loginEvent.site)}`;
+							loginEvent = undefined;
+						} else {
+							recentAsks.asked.add(loginEvent.site);
+						}
+					}
 					stopForLogin = loginEvent;
 				}
 				jevAudit = outcome.jevAudit ?? jevAudit;
@@ -7656,6 +7756,7 @@ ${blockHint}`;
 				}
 				stallAbort = guarded.abort;
 			}
+			browserWatch.note({ name, args, ok, summary });
 
 			let imageArtifactId: string | undefined;
 			if (image && params.persistScreenshot && image.startsWith("data:")) {
@@ -8431,6 +8532,16 @@ ${blockHint}`;
 						await persistCheckpoint(step + 1);
 						continue;
 					}
+				}
+				// Afirmou o que a tela mostra ("entrou", "painel logado") sem ter olhado a tela depois da última ação, ou a
+				// última página vista é em branco/login: uma revisão para conferir antes de afirmar.
+				if (!isSubagent && canReviseAnswer && browserWatch.reasonToVerify(text)) {
+					answerRevisions += 1;
+					await onEvent({ type: "assistant_discard", id: stepId, reason: "unverified_screen" });
+					conversation.push({ role: "assistant", content: text });
+					conversation.push({ role: "system", content: withWithdrawnReply(SCREEN_CLAIM_NOTE) });
+					await persistCheckpoint(step + 1);
+					continue;
 				}
 				// Provedor sem créditos no meio da pesquisa + outra via + folga de orçamento:
 				// uma cutucada para terminar o que falta em vez de oferecer "retomar depois".

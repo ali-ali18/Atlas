@@ -6,6 +6,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ### Adicionado
 - **agent, worker, shared, db:** "Seu dia", o brief da manhã: peça "me prepara o dia às 7h30" e o bot lê as fontes que você conectou, de qualquer categoria, e manda uma mensagem curta no chat (compromissos, quem precisa de você, próximos passos) mais um push, sem painel. Serve para trabalho, estudos e vida pessoal. Com o chat ocupado, a mensagem entra assim que a tarefa termina (estado em colunas de `routine_runs`, mensagem idempotente; falha do run avisa em uma linha). Só leitura (trava em código), nunca pulado por chat em andamento, uma por bot. Modelo de rotina `daily_brief`, colunas `routines.template` e `routine_runs.briefStatus/briefText`, eval do e-mail malicioso (ver `docs/features/seu-dia.md`)
+- **sandbox, web, agent:** VM estável: desligamento limpo do Chrome (o login de sessão não se perde), sem parada por inatividade, guarda de memória que desliga a VM parada há mais tempo (com aviso por push), botão "Desligar computador" e a tool `sandbox_release`, o login do navegador fica salvo e não se perde ao desligar, Cofre primeiro no muro de login, "Terminei" que confere a tela, aviso de login por conversa e trava contra afirmar a tela sem conferir (ver `docs/features/vm-estavel.md`)
 - **agent:** o bot sabe a hora local (camada efêmera, sem invalidar o cache) e `propose_routine` aceita `in_minutes` para lembretes relativos calculados pelo servidor (#108)
 - **agent:** corrige nome de ferramenta e argumentos malformados (#103)
 - **agent:** perfil do bot injetável no `runComputerUse` (#103)
@@ -13,6 +14,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 - **worker:** retenção diária de `run_events` e execuções de rotina (#104)
 
 ### Alterado
+- **sandbox, api:** a VM não é mais parada por inatividade (`SANDBOX_IDLE_STOP=1` volta ao modo antigo); novas variáveis `SANDBOX_MAX_RUNNING` (3) e `SANDBOX_MIN_FREE_MEM_MB` (512); o stop espera 15 s e o poll do painel não religa VM desligada
 - **infra:** deploy por imagem pronta: o GitHub Actions monta as imagens depois do CI e publica no GHCR; o Dokploy só baixa, com limite de memória por serviço (#106)
 - **agent:** ferramentas carregadas ficam fixas na conversa, melhorando o cache (#103)
 - **agent, worker, api, db, web, auth:** pacote de desempenho: início do run sem esperas em série, buscas nativas em paralelo, `/v1/events` por LISTEN/NOTIFY, respostas comprimidas, sessão em cookie por 5 min, listas sem colunas JSON grandes, chat sem re-render por token (#104)

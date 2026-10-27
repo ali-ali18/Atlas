@@ -1118,13 +1118,23 @@ export async function getSandboxSession(
 	);
 }
 
+/** `wake:false` (poll do painel) não religa uma VM que foi desligada. */
 export async function getActiveSandboxSession(
 	conversationId: string,
+	options: { wake?: boolean } = {},
 ): Promise<SandboxSessionResponse | null> {
 	const body = await atlasFetch<{ session: SandboxSessionResponse | null }>(
-		`/v1/sandbox/sessions?conversationId=${encodeURIComponent(conversationId)}`,
+		`/v1/sandbox/sessions?conversationId=${encodeURIComponent(conversationId)}${options.wake === false ? "&wake=0" : ""}`,
 	);
 	return body.session;
+}
+
+/** "Desligar computador": para a VM com graça; o login e o perfil ficam para a próxima vez. */
+export async function stopSandboxSession(sessionId: string): Promise<void> {
+	await atlasFetch<{ ok: boolean }>(
+		`/v1/sandbox/sessions/${encodeURIComponent(sessionId)}/stop`,
+		{ method: "POST" },
+	);
 }
 
 export async function destroySandboxSession(sessionId: string): Promise<void> {

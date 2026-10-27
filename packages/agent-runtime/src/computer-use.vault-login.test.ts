@@ -60,6 +60,12 @@ async function run(opts: {
 	typeFails?: (selector: string) => boolean;
 	emailTimeoutMs?: number;
 	pageFor?: (typed: string[]) => { url: string; title: string; text: string };
+	/** Snapshot devolvido depois que o runtime digitou (quantos campos já foram digitados). */
+	snapshotAfterTyping?: (typedCount: number) => ReturnType<typeof wallSnapshot>;
+	/** Tela vista quando o run é retomado por "Terminei" (padrão: já logado). */
+	snapshotOnResume?: () => ReturnType<typeof wallSnapshot>;
+	recentLoginAsks?: { asked?: string[]; vaultTried?: string[] };
+	recentLoginAsksSpy?: ReturnType<typeof vi.fn>;
 	mcp?: McpRuntime;
 }) {
 	const events: Array<Record<string, unknown>> = [];
@@ -68,8 +74,12 @@ async function run(opts: {
 	const requests: Array<{ tools: string[]; system: string }> = [];
 	const onLoginRequired = vi.fn(async () => undefined);
 	const execBrowserType = vi.fn(async (_s: string, p: { selector: string }) => (opts.typeFails?.(p.selector) ? { ok: false } : { ok: true }));
-	const execBrowserSnapshot = vi.fn(async () => wallSnapshot(opts.url ?? "https://chatgpt.com/auth/login"));
+	const execBrowserSnapshot = vi.fn(async () => {
+		if (opts.restored && execBrowserType.mock.calls.length === 0) return (opts.snapshotOnResume ?? homeSnapshot)();
+		return opts.snapshotAfterTyping && execBrowserType.mock.calls.length > 0 ? opts.snapshotAfterTyping(execBrowserType.mock.calls.length) : wallSnapshot(opts.url ?? "https://chatgpt.com/auth/login");
+	});
 	const execBrowserText = vi.fn(async () => (opts.pageFor ? opts.pageFor(execBrowserType.mock.calls.map((c) => (c[1] as unknown as { text: string }).text)) : null) ?? (execBrowserType.mock.calls.length === 0 ? { url: opts.url ?? "https://chatgpt.com/auth/login", title: "Entrar", text: "", totalLength: 0 } : opts.pageAfter) ?? { url: "https://chatgpt.com/", title: "ChatGPT", text: "Como posso ajudar hoje?", totalLength: 24 });
+	let result: Awaited<ReturnType<typeof runComputerUse>> | undefined;
 	const error = await runComputerUse({
 		manager: { execBrowserSnapshot, execBrowserType, execBrowserText } as unknown as SandboxManager,
 		getSessionId: async () => "session-1",
@@ -88,6 +98,7 @@ async function run(opts: {
 		mcp: opts.mcp,
 		restoredCheckpoint: opts.restored ?? null,
 		onLoginRequired,
+		...(opts.recentLoginAsks || opts.recentLoginAsksSpy ? { recentLoginAsks: async () => { opts.recentLoginAsksSpy?.(); return { asked: opts.recentLoginAsks?.asked ?? [], vaultTried: opts.recentLoginAsks?.vaultTried ?? [] }; } } : {}),
 		onCheckpoint: async (checkpoint) => {
 			checkpoints.push(checkpoint);
 		},
@@ -102,8 +113,11 @@ async function run(opts: {
 			});
 			return opts.queue.shift() ?? text("fim");
 		},
-	} as Parameters<typeof runComputerUse>[0]).catch((e: unknown) => e);
-	return { error, events, checkpoints, seen, requests, onLoginRequired, execBrowserType };
+	} as Parameters<typeof runComputerUse>[0]).then((value) => {
+		result = value;
+		return undefined;
+	}, (e: unknown) => e);
+	return { error, events, checkpoints, seen, requests, onLoginRequired, execBrowserType, execBrowserSnapshot, result };
 }
 
 const CODE = "482913";
@@ -128,6 +142,13 @@ function gmailMcp(messages: Array<{ from: string; subject: string; ageMs: number
 		call,
 	} as unknown as McpRuntime;
 	return { mcp, call };
+}
+
+const homeSnapshot = () => ({ url: "https://chatgpt.com/", title: "ChatGPT", total: 1, offset: 0, limit: 80, nextOffset: null, lines: ['[e1] textbox "Pergunte qualquer coisa"'] });
+
+async function approveChatgpt() {
+	const item = (await vault.listMeta("user-a"))[0]!;
+	await vault.approveLogin("user-a", item.id, { botId: "bot-1", conversationId: "conv-1" });
 }
 
 async function pausedWithOffer(mcp?: McpRuntime) {
@@ -297,5 +318,136 @@ describe("código de login enviado por e-mail", () => {
 		expect(typedOf(third)).toEqual([CODE]);
 		expect(third.seen.some((m) => m.includes("[login-email-code-filled]"))).toBe(true);
 		expect(JSON.stringify([third.seen, third.events, third.checkpoints])).not.toContain(CODE);
+	});
+});
+
+describe("Cofre primeiro: login salvo e aprovado entra sozinho, antes do card", () => {
+	it("aprovado + tela some depois de preencher: sem card, o modelo recebe a confirmação e a senha nunca aparece", async () => {
+		await addChatgpt();
+		await approveChatgpt();
+		const { error, events, seen, execBrowserType, onLoginRequired } = await run({
+			queue: [step("browser_snapshot"), text("Pronto, entrei.")],
+			snapshotAfterTyping: homeSnapshot,
+			pageAfter: { url: "https://chatgpt.com/", title: "ChatGPT", text: "Como posso ajudar hoje?" },
+		});
+		expect(error).not.toBeInstanceOf(Error);
+		expect(execBrowserType.mock.calls.map((c) => (c[1] as unknown as { text: string }).text)).toEqual(["alice@x.com", PASSWORD]);
+		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
+		expect(onLoginRequired).not.toHaveBeenCalled();
+		expect(seen.some((m) => m.includes("[login-vault-filled]") && m.includes("browser_snapshot"))).toBe(true);
+		expect(seen.some((m) => m.includes("LOGIN REQUIRED"))).toBe(false);
+		expect(JSON.stringify([events, seen])).not.toContain(PASSWORD);
+	});
+
+	it("aprovado, mas a tela de login continua (senha errada/2FA): card humano explicando, sem a oferta do Cofre", async () => {
+		await addChatgpt();
+		await approveChatgpt();
+		const { error, events, onLoginRequired, checkpoints } = await run({ queue: [step("browser_snapshot")] });
+		expect(error).toMatchObject({ name: "AgentRunPausedError" });
+		const card = events.find((e) => e.type === "login" && e.status === "pending");
+		expect(card).toMatchObject({ site: "chatgpt.com" });
+		expect(String(card?.vaultTried)).toContain("mais um passo");
+		expect(card?.vault).toBeUndefined();
+		expect(onLoginRequired).toHaveBeenCalledTimes(1);
+		expect(checkpoints.at(-1)?.pendingLogin?.vaultTried).toBeTruthy();
+	});
+
+	it("sem aprovação ainda: nada é digitado e o card é o de aprovação (oferta do Cofre)", async () => {
+		await addChatgpt();
+		const { events, execBrowserType } = await run({ queue: [step("browser_snapshot")], snapshotAfterTyping: homeSnapshot });
+		expect(execBrowserType).not.toHaveBeenCalled();
+		expect(events.find((e) => e.type === "login" && e.status === "pending")).toMatchObject({ vault: { name: "chatgpt" } });
+	});
+
+	it("subdomínio do site salvo casa pelo domínio registrável (painel.chatgpt.com usa o login de chatgpt.com)", async () => {
+		await addChatgpt();
+		await approveChatgpt();
+		const { events, execBrowserType } = await run({
+			queue: [step("browser_snapshot"), text("ok")],
+			url: "https://painel.chatgpt.com/entrar",
+			snapshotAfterTyping: () => ({ ...homeSnapshot(), url: "https://painel.chatgpt.com/" }),
+			pageAfter: { url: "https://painel.chatgpt.com/", title: "Painel", text: "Bem-vindo" },
+		});
+		expect(execBrowserType).toHaveBeenCalled();
+		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
+	});
+
+	it("sem login salvo para o site: card comum 'faça você mesmo', nada digitado", async () => {
+		const { events, execBrowserType } = await run({ queue: [step("browser_snapshot")] });
+		expect(execBrowserType).not.toHaveBeenCalled();
+		expect(events.find((e) => e.type === "login" && e.status === "pending")?.vault).toBeUndefined();
+	});
+});
+
+describe("Terminei confere a tela e o aviso de login vale por conversa", () => {
+	it("Terminei, mas a tela de login continua: avisa em português e não segue às cegas", async () => {
+		await addChatgpt();
+		const { checkpoint } = await pausedWithOffer();
+		const second = await run({ queue: [text("não deve chegar")], restored: checkpoint, snapshotOnResume: () => wallSnapshot("https://chatgpt.com/auth/login") });
+		expect(second.error).toBeUndefined();
+		expect(second.result?.text).toContain("Ainda vejo a tela de login de chatgpt.com");
+		expect(second.result?.text).not.toMatch(/browser_snapshot|login-complete|runtime/i);
+		expect(second.seen.some((m) => m.includes("[login-complete]"))).toBe(false);
+		expect(second.events.some((e) => e.type === "login" && e.status === "done")).toBe(true);
+		expect(second.requests).toHaveLength(0);
+	});
+
+	it("Terminei com a tela já logada: segue e manda reler a página", async () => {
+		await addChatgpt();
+		const { checkpoint } = await pausedWithOffer();
+		const second = await run({ queue: [text("ok")], restored: checkpoint });
+		expect(second.seen.some((m) => m.includes("[login-complete]"))).toBe(true);
+		expect(second.execBrowserSnapshot).toHaveBeenCalled();
+	});
+
+	it("o site já pediu login nesta conversa (run anterior, 30 min): sem card novo, o modelo recebe a nota", async () => {
+		const { error, events, seen, onLoginRequired } = await run({ queue: [step("browser_snapshot"), text("O site ainda pede login.")], recentLoginAsks: { asked: ["chatgpt.com"] } });
+		expect(error).toBeUndefined();
+		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
+		expect(onLoginRequired).not.toHaveBeenCalled();
+		expect(seen.some((m) => m.includes("LOGIN STILL REQUIRED on chatgpt.com") && m.includes("last 30 minutes"))).toBe(true);
+	});
+
+	it("outro site da conversa não é bloqueado pelo aviso de um site já perguntado", async () => {
+		const { error, events } = await run({ queue: [step("browser_snapshot")], recentLoginAsks: { asked: ["outro.example.com"] } });
+		expect(error).toMatchObject({ name: "AgentRunPausedError" });
+		expect(events.find((e) => e.type === "login" && e.status === "pending")).toMatchObject({ site: "chatgpt.com" });
+	});
+
+	it("login salvo e aprovado continua entrando sozinho mesmo com aviso recente do site", async () => {
+		await addChatgpt();
+		await approveChatgpt();
+		const { error, events, execBrowserType } = await run({ queue: [step("browser_snapshot"), text("ok")], recentLoginAsks: { asked: ["chatgpt.com"] }, snapshotAfterTyping: homeSnapshot, pageAfter: { url: "https://chatgpt.com/", title: "ChatGPT", text: "Como posso ajudar hoje?" } });
+		expect(error).toBeUndefined();
+		expect(execBrowserType).toHaveBeenCalled();
+		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
+	});
+
+	it("o Cofre já falhou neste site na conversa (30 min): não digita a senha de novo e mostra o card humano", async () => {
+		await addChatgpt();
+		await approveChatgpt();
+		const { error, events, execBrowserType } = await run({ queue: [step("browser_snapshot")], recentLoginAsks: { vaultTried: ["chatgpt.com"] } });
+		expect(error).toMatchObject({ name: "AgentRunPausedError" });
+		expect(execBrowserType).not.toHaveBeenCalled();
+		const card = events.find((e) => e.type === "login" && e.status === "pending");
+		expect(card).toMatchObject({ site: "chatgpt.com" });
+		expect(card).toHaveProperty("vaultTried");
+		expect(card).not.toHaveProperty("vault");
+	});
+
+	it("card de aprovação do Cofre também não se repete na conversa enquanto o anterior está pendente", async () => {
+		await addChatgpt();
+		const { events, onLoginRequired, seen } = await run({ queue: [step("browser_snapshot"), text("Preciso da sua aprovação.")], recentLoginAsks: { asked: ["chatgpt.com"] } });
+		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
+		expect(onLoginRequired).not.toHaveBeenCalled();
+		expect(seen.some((m) => m.includes("LOGIN STILL REQUIRED on chatgpt.com"))).toBe(true);
+	});
+
+	it("as pesquisas de card recente só rodam quando uma tela de login aparece", async () => {
+		const spy = vi.fn();
+		await run({ queue: [text("Bom dia!")], recentLoginAsksSpy: spy });
+		expect(spy).not.toHaveBeenCalled();
+		await run({ queue: [step("browser_snapshot")], recentLoginAsksSpy: spy });
+		expect(spy).toHaveBeenCalledTimes(1);
 	});
 });

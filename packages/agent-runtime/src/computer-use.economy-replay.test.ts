@@ -177,7 +177,8 @@ describe("economia ligada: chat simples", () => {
 		// +1: `memory` virou núcleo: sem ela no 1º passo o modelo não consegue salvar fato durável (P_MEMORY manda salvar).
 		expect(first).toContain("memory");
 		expect(first).not.toContain("memory_search");
-		expect(first.length).toBeLessThanOrEqual(22);
+		// +1: `sandbox_release` (desligar a VM) entra com o grupo browser; o prefixo continua abaixo de 40 mil chars.
+		expect(first.length).toBeLessThanOrEqual(23);
 		expect(steps).toBe(1);
 	});
 

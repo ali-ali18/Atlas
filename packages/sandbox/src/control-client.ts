@@ -353,6 +353,20 @@ export async function controlBrowserText(
 	);
 }
 
+export type ControlActivity = {
+	/** 0 enquanto a VM está em uso. */
+	idleMs: number;
+	/** Chamada em andamento, viewer conectado ou comando no shell do agente. */
+	busy: boolean;
+};
+
+/** Atividade da VM (GET /idle). Imagem antiga sem os campos novos devolve só `idleMs`. */
+export async function controlActivity(host: string, port: number, context: SandboxExecutionContext = {}): Promise<ControlActivity> {
+	const body = await controlGetJson<{ idleMs?: unknown; busy?: unknown }>(host, port, "/idle", 3_000, context);
+	if (typeof body.idleMs !== "number" || !Number.isFinite(body.idleMs)) throw new Error("control /idle returned no idleMs");
+	return { idleMs: body.idleMs, busy: body.busy === true };
+}
+
 /** Lista os links da página atual. */
 export async function controlBrowserLinks(
 	host: string,

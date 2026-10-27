@@ -40,6 +40,7 @@ import { AGENT_SETTINGS_TITLES, AgentSettings, type AgentSettingsPage } from "./
 import { botAccentStyle } from "./bot-accent";
 import { GroupPanelContent, type GroupPanelProps } from "./group-panel";
 import { BotLibrary } from "./bot-library";
+import { StopComputerButton } from "./stop-computer-button";
 import { BotEmailTab } from "./bot-email-tab";
 import { RoutineEditor } from "./routine-editor";
 import {
@@ -249,6 +250,9 @@ export function ChatContextPanel({
 	onEditRoutineWithAgent,
 	onOpenPanel,
 	onOpenSandboxViewer,
+	onStopSandbox,
+	sandboxStopBusy = false,
+	sandboxStopError = null,
 	onSaveRoutine,
 	onCreateRoutine,
 	onToggleRoutine,
@@ -301,6 +305,10 @@ export function ChatContextPanel({
 	onEditRoutineWithAgent?: (routine: Routine) => void;
 	onOpenPanel?: () => void;
 	onOpenSandboxViewer?: () => void;
+	/** "Desligar computador": para a VM com graça; sem isto o botão não aparece. */
+	onStopSandbox?: () => void;
+	sandboxStopBusy?: boolean;
+	sandboxStopError?: string | null;
 	onSaveRoutine?: (routine: Routine) => void | Promise<void>;
 	onCreateRoutine?: (routine: Routine) => Promise<boolean> | boolean;
 	onToggleRoutine?: (
@@ -855,6 +863,14 @@ export function ChatContextPanel({
 											? `Prévia indisponível — ${agent.name}`
 											: `Tela de ${agent.name}`}
 									</p>
+									{sandboxViewerUrl && onStopSandbox ? (
+										<StopComputerButton
+											agentName={agent.name}
+											busy={sandboxStopBusy}
+											error={sandboxStopError}
+											onStop={onStopSandbox}
+										/>
+									) : null}
 								</TabsContent>
 							</Tabs>
 						</div>

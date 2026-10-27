@@ -95,6 +95,8 @@ export type VaultToolContext = {
 	browser?: {
 		currentUrl: () => Promise<string>;
 		type: (selector: string, text: string, submit: boolean) => Promise<void>;
+		/** URL e título da página agora (lidos depois de enviar o login). */
+		readPage?: () => Promise<{ url: string; title?: string }>;
 	};
 	/** Injetáveis em testes. */
 	saveIntent?: typeof saveSkillPendingIntent;
@@ -269,7 +271,17 @@ export async function executeLoginFill(
 			throw new Error(`Não consegui achar o campo de ${field} nesta página. Use browser_snapshot e passe ${field}_selector.`);
 		}
 	}
-	return { summary: `Preenchi ${done.join(", ")} em ${meta.domain}${submit ? " e enviei" : ""} sem passar os valores por você. ${submit ? "Veja o resultado da página." : "Clique no botão de entrar (ou chame de novo com submit:true)."}` };
+	// Depois de enviar, devolve onde a página foi parar: o modelo não deve afirmar "entrei" sem olhar a tela.
+	let landed = "";
+	if (submit && browser.readPage) {
+		try {
+			const page = await browser.readPage();
+			landed = ` Depois de enviar, a página está em: ${page.title ? `"${page.title.slice(0, 120)}" ` : ""}(${page.url.slice(0, 300)}). Confira com browser_snapshot antes de dizer que entrou.`;
+		} catch {
+			landed = " Não consegui ler a página depois de enviar; confira com browser_snapshot antes de dizer que entrou.";
+		}
+	}
+	return { summary: `Preenchi ${done.join(", ")} em ${meta.domain}${submit ? " e enviei" : ""} sem passar os valores por você. ${submit ? "Veja o resultado da página." : "Clique no botão de entrar (ou chame de novo com submit:true)."}${landed}` };
 }
 
 export { VaultError };

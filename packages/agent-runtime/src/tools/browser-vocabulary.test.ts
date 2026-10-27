@@ -24,8 +24,9 @@ const byName = (name: string): ChatTool | undefined => COMPUTER_USE_TOOLS.find((
 describe("V6 - vocabulário do navegador", () => {
 	it("o grupo browser oferece no máximo 8 tools e não inclui os nomes antigos", () => {
 		const group = NATIVE_TOOL_GROUPS.browser.tools;
-		expect(group.length).toBeLessThanOrEqual(8);
-		expect([...group].sort()).toEqual([...BROWSER_OFFERED, "computer"].sort());
+		// `sandbox_release` (desligar a VM) é do grupo mas não é ferramenta de navegação: o teto de 8 vale para as de navegação.
+		expect(group.filter((name) => name !== "sandbox_release").length).toBeLessThanOrEqual(8);
+		expect([...group].sort()).toEqual([...BROWSER_OFFERED, "computer", "sandbox_release"].sort());
 		for (const legacy of Object.keys(LEGACY_BROWSER_TOOLS)) {
 			expect(group).not.toContain(legacy);
 			expect(byName(legacy)).toBeUndefined();

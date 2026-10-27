@@ -1,6 +1,8 @@
 import Docker from "dockerode";
 import type { SandboxRuntimeConfig } from "./config.js";
-import { createSandboxManager, resolveSandboxEndpoint } from "./docker-manager.js";
+import { createSandboxManager, SANDBOX_STOP_TIMEOUT_S } from "./docker-manager.js";
+import { probeSandboxIdleMs } from "./reaper-probe.js";
+import { runMemoryGuard, type MemoryGuardDeps } from "./memory-guard.js";
 import { listAllSessionsForCleanup as listSessions } from "./session-store.js";
 import { loadCodeRunnerConfig } from "./code-runner/config.js";
 import { reapCodeRunnerContainers } from "./code-runner/executor.js";
@@ -10,40 +12,14 @@ const DEFAULT_HARD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_INTERVAL_MS = 60 * 1000;
 const SANDBOX_LABEL = "atlas.sandbox";
 
-/**
- * Quanto tempo o control server da VM está sem receber ferramenta (GET /idle).
- * null = não deu para saber (VM fora, imagem antiga sem /idle, rede). Existe porque
- * o store de sessões é por processo: a API não enxerga a VM que o worker usa, então
- * "idade do container" ou "lastUsedAt local" derrubavam VM em uso (SIGTERM, exit 143).
- */
-export async function probeSandboxIdleMs(
-	docker: Docker,
-	config: SandboxRuntimeConfig,
-	containerId: string,
-	fetchImpl: typeof fetch = fetch,
-): Promise<number | null> {
-	try {
-		const inspect = await docker.getContainer(containerId).inspect();
-		if (!inspect.State?.Running) return null;
-		const endpoint = resolveSandboxEndpoint(config, inspect);
-		if (!endpoint) return null;
-		const response = await fetchImpl(`http://${endpoint.host}:${endpoint.controlPort}/idle`, {
-			signal: AbortSignal.timeout(3_000),
-		});
-		if (!response.ok) return null;
-		const body = (await response.json()) as { idleMs?: unknown };
-		return typeof body.idleMs === "number" && Number.isFinite(body.idleMs) ? body.idleMs : null;
-	} catch {
-		return null;
-	}
-}
+export { probeSandboxIdleMs };
 
 /** Órfãos (fora do store deste processo): só dorme o que está comprovadamente ocioso; remove velhos além do hardTtl. */
 export async function reapOrphanContainers(
 	docker: Docker,
 	config: SandboxRuntimeConfig,
 	known: Set<string>,
-	options: { ttlMs: number; hardTtlMs: number; now?: number; probe?: typeof probeSandboxIdleMs },
+	options: { ttlMs: number; hardTtlMs: number; now?: number; probe?: typeof probeSandboxIdleMs; idleStop?: boolean },
 ): Promise<void> {
 	const now = options.now ?? Date.now();
 	const probe = options.probe ?? probeSandboxIdleMs;
@@ -73,12 +49,13 @@ export async function reapOrphanContainers(
 			continue;
 		}
 
-		if (ageMs > options.ttlMs && container.State === "running") {
+		// Sem idleStop (padrão) a VM ligada fica ligada: quem decide parar é o usuário, o bot ou o guarda de memória.
+		if (options.idleStop && ageMs > options.ttlMs && container.State === "running") {
 			const idleMs = await probe(docker, config, container.Id);
 			if (idleMs === null || idleMs < options.ttlMs) continue;
 			try {
 				console.log(`[sandbox-reaper] stopping idle orphan ${name} idleMs=${idleMs}`);
-				await docker.getContainer(container.Id).stop({ t: 5 });
+				await docker.getContainer(container.Id).stop({ t: SANDBOX_STOP_TIMEOUT_S });
 				console.log(`[sandbox-reaper] slept orphan ${name}`);
 			} catch (error) {
 				console.error("[sandbox-reaper] failed to stop orphan", error);
@@ -96,7 +73,15 @@ export async function reapOrphanContainers(
  */
 export function startSandboxReaper(
 	config: SandboxRuntimeConfig,
-	options: { ttlMs?: number; hardTtlMs?: number; intervalMs?: number } = {},
+	options: {
+		ttlMs?: number;
+		hardTtlMs?: number;
+		intervalMs?: number;
+		/** Para VMs ociosas após `ttlMs`. Desligado por padrão (o login vive na VM; ver SANDBOX_IDLE_STOP). */
+		idleStop?: boolean;
+		/** Guarda de memória/contagem: para a VM ociosa há mais tempo e avisa o dono. */
+		memoryGuard?: Pick<MemoryGuardDeps, "onStopped" | "limits" | "isProtected">;
+	} = {},
 ): () => void {
 	const codeRunnerEnabled = loadCodeRunnerConfig().enabled;
 	if (!config.enabled && !codeRunnerEnabled) {
@@ -122,6 +107,8 @@ export function startSandboxReaper(
 		}
 		return new Docker({ socketPath: config.dockerSocketPath });
 	})();
+
+	const idleStop = options.idleStop ?? false;
 
 	const reapInMemory = async (): Promise<void> => {
 		const now = Date.now();
@@ -150,13 +137,14 @@ export function startSandboxReaper(
 
 	const reapOrphans = async (): Promise<void> => {
 		const known = new Set(listSessions().map((record) => record.containerName));
-		await reapOrphanContainers(docker, config, known, { ttlMs, hardTtlMs });
+		await reapOrphanContainers(docker, config, known, { ttlMs, hardTtlMs, idleStop });
 	};
 
 	const reap = async (): Promise<void> => {
 		if (config.enabled) {
-			await reapInMemory();
+			if (idleStop) await reapInMemory();
 			await reapOrphans();
+			if (options.memoryGuard) await runMemoryGuard(docker, config, options.memoryGuard);
 		}
 		// Containers efêmeros do `run_code` esquecidos (processo morreu no meio da execução).
 		if (codeRunnerEnabled) await reapCodeRunnerContainers(docker);

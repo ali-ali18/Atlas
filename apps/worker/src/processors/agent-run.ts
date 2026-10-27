@@ -136,7 +136,7 @@ import {
 } from "@workspace/agent-runtime";
 import { briefToolFilter, budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
-import { appendConversationMessage } from "@workspace/db";
+import { appendConversationMessage, listRecentLoginAsks } from "@workspace/db";
 import {
 	AUTO_CONTINUE_MAX,
 	AUTO_CONTINUE_STATUS_TEXT,
@@ -1288,6 +1288,9 @@ async function executeLeasedRun(ctx: {
 			onLoginRequired: async () => {
 				await requestPauseAgentRun(runId);
 			},
+			// "Já pedi login neste site" e "o Cofre falhou aqui" valem por conversa (30 min), não só por run.
+			// Lido só quando uma tela de login aparece.
+			recentLoginAsks: () => (run.conversationId ? listRecentLoginAsks(runUserId, run.conversationId) : Promise.resolve({ asked: [], vaultTried: [] })),
 			onSandboxError: () => {
 				// Sessão pode ter morrido (reaper/container); força re-resolve
 				// (adopt-by-label ou cria nova) na próxima tool em vez de

@@ -47,13 +47,19 @@ describe("reaper: órfãos só dormem se comprovadamente ociosos", () => {
 
 	it("ociosa além do TTL: dorme", async () => {
 		const { docker, stopped } = fakeDocker([{ Id: "a", Names: ["/atlas-sandbox-a"], State: "running", Created: old }]);
-		await reapOrphanContainers(docker, config, new Set(), { ttlMs: 900_000, hardTtlMs: Infinity, probe: async () => 3_600_000 });
+		await reapOrphanContainers(docker, config, new Set(), { ttlMs: 900_000, hardTtlMs: Infinity, probe: async () => 3_600_000, idleStop: true });
 		expect(stopped).toEqual(["a"]);
+	});
+
+	it("sem idleStop (padrão) a VM ociosa NÃO é parada", async () => {
+		const { docker, stopped } = fakeDocker([{ Id: "a", Names: ["/atlas-sandbox-a"], State: "running", Created: old }]);
+		await reapOrphanContainers(docker, config, new Set(), { ttlMs: 900_000, hardTtlMs: Infinity, probe: async () => 3_600_000 });
+		expect(stopped).toEqual([]);
 	});
 
 	it("container conhecido deste processo é ignorado", async () => {
 		const { docker, stopped } = fakeDocker([{ Id: "a", Names: ["/atlas-sandbox-a"], State: "running", Created: old }]);
-		await reapOrphanContainers(docker, config, new Set(["atlas-sandbox-a"]), { ttlMs: 1, hardTtlMs: Infinity, probe: async () => 9e9 });
+		await reapOrphanContainers(docker, config, new Set(["atlas-sandbox-a"]), { ttlMs: 1, hardTtlMs: Infinity, probe: async () => 9e9, idleStop: true });
 		expect(stopped).toEqual([]);
 	});
 

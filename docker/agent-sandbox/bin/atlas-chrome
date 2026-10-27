@@ -6,25 +6,93 @@ export DISPLAY="${DISPLAY:-:99}"
 CHROME_BIN="${CHROME_BIN:-/usr/bin/google-chrome-stable}"
 USER_DATA_DIR="${CHROME_USER_DATA_DIR:-/tmp/chrome-data}"
 
-# Se já há Chrome com nosso perfil, só traz a janela pra frente.
-if pgrep -f "chrome.*--user-data-dir=${USER_DATA_DIR}" >/dev/null 2>&1; then
+CDP_VERSION_URL="http://127.0.0.1:9222/json/version"
+
+focus_chrome() {
 	wmctrl -xa google-chrome.Google-chrome 2>/dev/null \
 		|| wmctrl -xa Chromium 2>/dev/null \
 		|| wmctrl -a Chrome 2>/dev/null \
 		|| true
+}
+
+# Trava de lançamento: dois atlas-chrome ao mesmo tempo (dock, control server, entrypoint) abririam
+# dois Chromes no mesmo perfil e um corromperia o outro. O flock fica no fd 9, que o `exec` do Chrome
+# herda: a trava dura enquanto o Chrome viver (e vale entre containers que montam o mesmo volume).
+mkdir -p "$USER_DATA_DIR"
+LOCK_FILE="${USER_DATA_DIR}/.atlas-launch.lock"
+exec 9>>"$LOCK_FILE"
+acquired=0
+LOCK_WAIT_TICKS=$(( ${ATLAS_CHROME_LOCK_WAIT_S:-15} * 2 ))
+for _ in $(seq 1 "$LOCK_WAIT_TICKS"); do
+	if flock -n 9; then
+		acquired=1
+		break
+	fi
+	# Trava ocupada: ou já há Chrome nosso de pé (só traz a janela), ou outro lançamento / um Chrome
+	# morrendo (reinício) ainda segura a trava; espera até 15 s.
+	if curl -sf --max-time 1 "$CDP_VERSION_URL" >/dev/null 2>&1; then
+		focus_chrome
+		exit 0
+	fi
+	sleep 0.5
+done
+if [[ "$acquired" != 1 ]]; then
+	echo "[atlas-chrome] perfil ${USER_DATA_DIR} em uso por outro Chrome; não abro um segundo" >&2
+	exit 1
+fi
+
+# Trava livre mas o CDP responde: há Chrome nosso de pé que não segura a trava (subiu por outro caminho,
+# ex.: o entrypoint antigo); só traz a janela em vez de abrir um segundo no mesmo perfil.
+if curl -sf --max-time 1 "$CDP_VERSION_URL" >/dev/null 2>&1; then
+	focus_chrome
 	exit 0
 fi
 
 # O perfil mora num volume por conversa e sobrevive ao container. Container novo
 # tem outro hostname e o SingletonLock herdado faz o Chrome recusar o perfil.
-# Sem Chrome nosso rodando (checado acima), esses arquivos são lixo.
+# Com a trava nossa e sem Chrome rodando (checado acima), esses arquivos são lixo.
 rm -f -- "${USER_DATA_DIR}/SingletonLock" "${USER_DATA_DIR}/SingletonSocket" "${USER_DATA_DIR}/SingletonCookie"
+
+# Preferences do perfil, tolerante a arquivo ausente, vazio ou JSON inválido:
+# - exit_type=Normal / exited_cleanly=true: Chrome que morreu sem fechar deixa "Crashed" e mostra "Restore pages?";
+# - session.restore_on_startup=1 ("continuar de onde parou"): só assim o Chrome grava os cookies SEM validade
+#   (login de sessão) ao fechar e os devolve na volta. Sem isso o desligamento limpo ainda perderia o login.
+PREFS_FILE="${USER_DATA_DIR}/Default/Preferences"
+mkdir -p "${USER_DATA_DIR}/Default" 2>/dev/null || true
+node -e '
+const fs = require("fs");
+const file = process.argv[1];
+let prefs = {};
+try {
+	const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+	if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) prefs = parsed;
+} catch {}
+const obj = (value) => (value && typeof value === "object" && !Array.isArray(value) ? value : {});
+prefs.profile = obj(prefs.profile);
+prefs.profile.exit_type = "Normal";
+prefs.profile.exited_cleanly = true;
+prefs.session = obj(prefs.session);
+prefs.session.restore_on_startup = 1;
+fs.writeFileSync(file, JSON.stringify(prefs));
+' "$PREFS_FILE" 2>/dev/null || true
+
+# Com sessão anterior no perfil, o Chrome restaura as abas; o "about:blank" do chamador só acumularia
+# uma aba em branco a cada boot. Sem sessão (perfil novo), ele segue como página inicial.
+args=("$@")
+if compgen -G "${USER_DATA_DIR}/Default/Sessions/*" >/dev/null 2>&1; then
+	args=()
+	for arg in "$@"; do
+		[[ "$arg" == "about:blank" ]] || args+=("$arg")
+	done
+fi
 
 # --no-sandbox é obrigatório no container (root, sem userns); --test-type
 # esconde a infobar "unsupported command-line flag: --no-sandbox" (o
 # --disable-infobars foi removido do Chrome moderno e não faz mais nada).
 exec "$CHROME_BIN" \
 	--no-first-run \
+	--hide-crash-restore-bubble \
+	--restore-last-session \
 	--no-default-browser-check \
 	--no-sandbox \
 	--disable-dev-shm-usage \
@@ -33,4 +101,4 @@ exec "$CHROME_BIN" \
 	--remote-debugging-address=127.0.0.1 \
 	--remote-debugging-port=9222 \
 	--window-size="${XVFB_WIDTH:-1280},${XVFB_HEIGHT:-720}" \
-	${1:+"$@"}
+	${args[@]+"${args[@]}"}

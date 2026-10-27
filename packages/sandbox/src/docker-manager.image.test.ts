@@ -181,6 +181,22 @@ describe("docker-manager: imagem desatualizada", () => {
 		expect(state.calls.some((c) => c.startsWith("stop:") || c.startsWith("remove"))).toBe(false);
 	});
 
+	it("poll do painel (wake:false): VM parada continua parada, sem start nem recriar", async () => {
+		state.running = false;
+		const manager = createSandboxManager(config, "user-image");
+		expect(await manager.getSessionForConversation("conv-7", { wake: false })).toBeNull();
+		expect(state.calls.some((c) => c.startsWith("start:") || c === "create" || c.startsWith("remove"))).toBe(false);
+	});
+
+	it("stopConversationSession desliga só a VM ligada do próprio dono, sem ligar nada", async () => {
+		state.running = true;
+		expect(await createSandboxManager(config, "user-image").stopConversationSession("conv-8")).toBe(true);
+		expect(state.calls).toEqual(["stop:old"]);
+		state.calls = [];
+		expect(await createSandboxManager(config, "user-other").stopConversationSession("conv-8")).toBe(false);
+		expect(state.calls).toEqual([]);
+	});
+
 	it("worker (resolveSession) ainda recria container Running com imagem antiga", async () => {
 		state.running = true;
 		const manager = createSandboxManager(config, "user-image");
