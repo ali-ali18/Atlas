@@ -6,11 +6,15 @@ import { prisma } from "./client.js";
 import {
 	appendBriefMessage,
 	briefMessageId,
+	claimBriefPush,
 	expireStaleBriefs,
 	isConversationBusyForBrief,
 	listPendingBriefs,
+	markBriefExpired,
 	markBriefPending,
 	markBriefPosted,
+	recoverUnstartedBriefs,
+	releaseBriefPush,
 } from "./brief-delivery.js";
 import { settleRoutineRunForAgentRun } from "./routines.js";
 import { createTestBot, createTestUser, dbSkip } from "./testing/test-db.js";
@@ -24,8 +28,25 @@ describe("entrega do brief (Postgres real)", { skip: dbSkip }, () => {
 	let routineA: string;
 
 	/** Execução como o cron cria: `eventJson` e `briefStatus` NULL. */
-	const newRun = async (createdAt = new Date()) =>
-		(await prisma.routineRun.create({ data: { routineId: routineA, createdAt }, select: { id: true } })).id;
+	const newRun = async (createdAt = new Date(), routineId = routineA) =>
+		(await prisma.routineRun.create({ data: { routineId, createdAt }, select: { id: true } })).id;
+	/** Execução concluída do agente + execução da rotina, como o fim do run deixa antes de entregar. */
+	const completedRun = async (over: { userId?: string; resultText?: string | null; finishedAt?: Date; status?: string; createdAt?: Date } = {}) => {
+		const agentRun = await prisma.agentRun.create({
+			data: { userId: over.userId ?? userA, conversationId: conversationA, objective: "o", model: "m", status: over.status ?? "completed", resultText: over.resultText ?? "Resumo do run" },
+		});
+		const run = await prisma.routineRun.create({
+			data: {
+				routineId: routineA,
+				agentRunId: agentRun.id,
+				status: "succeeded",
+				createdAt: over.createdAt ?? new Date(Date.now() - 120_000),
+				finishedAt: over.finishedAt ?? new Date(Date.now() - 90_000),
+			},
+			select: { id: true },
+		});
+		return run.id;
+	};
 	const rowOf = (id: string) => prisma.routineRun.findUniqueOrThrow({ where: { id } });
 	const messagesOf = (id: string) => prisma.conversationMessage.findMany({ where: { id: briefMessageId(id) } });
 
@@ -38,6 +59,15 @@ describe("entrega do brief (Postgres real)", { skip: dbSkip }, () => {
 		routineA = (await prisma.routine.create({ data: { userId: userA, botId: botA, name: "Seu dia", prompt: "p", template: "daily_brief" } })).id;
 	});
 	after(async () => {
+		// Limpa tudo o que o arquivo criou (reexecução não acumula linhas nem interfere nas listas globais).
+		const users = [userA, userB];
+		await prisma.conversationMessage.deleteMany({ where: { conversation: { userId: { in: users } } } });
+		await prisma.routineRun.deleteMany({ where: { routine: { userId: { in: users } } } });
+		await prisma.routine.deleteMany({ where: { userId: { in: users } } });
+		await prisma.agentRun.deleteMany({ where: { userId: { in: users } } });
+		await prisma.conversation.deleteMany({ where: { userId: { in: users } } });
+		await prisma.bot.deleteMany({ where: { ownerId: { in: users } } });
+		await prisma.user.deleteMany({ where: { id: { in: users } } });
 		await prisma.$disconnect();
 	});
 
@@ -125,6 +155,99 @@ describe("entrega do brief (Postgres real)", { skip: dbSkip }, () => {
 		await prisma.agentRun.update({ where: { id: run.id }, data: { status: "completed", finishedAt: new Date(now.getTime() - 2_000) } });
 		assert.equal(await isConversationBusyForBrief(conversationId, now), true, "terminou há 2 s");
 		assert.equal(await isConversationBusyForBrief(conversationId, new Date(now.getTime() + 10_000)), false, "terminou há 12 s");
+	});
+
+	test("modos de marcar: o brief real troca a linha de falha pendente; a linha nunca sobrescreve nem trava", async () => {
+		const failureFirst = await newRun();
+		assert.equal(await markBriefPending(userA, failureFirst, "linha de falha", "ifUnset"), true);
+		assert.equal(await markBriefPending(userA, failureFirst, "brief real", "replace"), true, "troca a linha ainda pendente");
+		assert.equal((await rowOf(failureFirst)).briefText, "brief real");
+
+		const realFirst = await newRun();
+		await markBriefPending(userA, realFirst, "brief real", "replace");
+		assert.equal(await markBriefPending(userA, realFirst, "linha de falha", "ifUnset"), false, "não sobrescreve o pendente");
+		assert.equal((await rowOf(realFirst)).briefText, "brief real");
+
+		const posted = await newRun();
+		await markBriefPending(userA, posted, "brief real");
+		await markBriefPosted(userA, posted);
+		assert.equal(await markBriefPending(userA, posted, "x", "replace"), false, "nunca por cima de postado");
+		assert.equal(await markBriefPending(userA, posted, "x", "ifUnset"), false);
+		assert.equal((await rowOf(posted)).briefStatus, "posted");
+	});
+
+	test("push reivindicado uma vez só (concorrente), devolvível e escopado pelo dono", async () => {
+		const id = await newRun();
+		await markBriefPending(userA, id, "Resumo");
+		assert.equal(await claimBriefPush(userB, id), false, "outro usuário não reivindica");
+		assert.equal((await rowOf(id)).briefPushedAt, null);
+		const wins = await Promise.all(Array.from({ length: 5 }, () => claimBriefPush(userA, id)));
+		assert.equal(wins.filter(Boolean).length, 1);
+		assert.notEqual((await rowOf(id)).briefPushedAt, null);
+		await releaseBriefPush(userB, id);
+		assert.notEqual((await rowOf(id)).briefPushedAt, null, "outro usuário não devolve");
+		await releaseBriefPush(userA, id);
+		assert.equal(await claimBriefPush(userA, id), true);
+		const pending = (await listPendingBriefs()).find((b) => b.routineRunId === id);
+		assert.equal(pending?.pushed, true);
+		assert.equal(pending?.notify, "always");
+	});
+
+	test("expirar um brief: só pendente e só do dono", async () => {
+		const id = await newRun();
+		await markBriefPending(userA, id, "Resumo");
+		assert.equal(await markBriefExpired(userB, id), false);
+		assert.equal(await markBriefExpired(userA, id), true);
+		const row = await rowOf(id);
+		assert.equal(row.briefStatus, "expired");
+		assert.equal(row.briefText, null);
+		assert.equal(await markBriefExpired(userA, id), false);
+	});
+
+	test("lista pendentes por cursor: percorre todas as páginas sem repetir nem pular", async () => {
+		const routine = (await prisma.routine.create({ data: { userId: userA, botId: botA, name: "Seu dia (cursor)", prompt: "p", template: "daily_brief" } })).id;
+		const ids: string[] = [];
+		for (let i = 0; i < 5; i += 1) {
+			const id = await newRun(new Date(Date.now() - (10 - i) * 60_000), routine);
+			await markBriefPending(userA, id, `Resumo ${i}`);
+			ids.push(id);
+		}
+		const seen: string[] = [];
+		let cursor: string | undefined;
+		for (let guard = 0; guard < 500; guard += 1) {
+			const page = await listPendingBriefs(new Date(), 2, cursor);
+			if (page.length === 0) break;
+			for (const item of page) if (ids.includes(item.routineRunId)) seen.push(item.routineRunId);
+			cursor = page[page.length - 1]!.routineRunId;
+		}
+		assert.deepEqual(seen, ids, "ordem de criação, sem repetir");
+	});
+
+	test("recuperação: run concluído sem estado vira pendente com o resultText; escopo, janela, tolerância e status respeitados", async () => {
+		const good = await completedRun({ resultText: "Resumo recuperado" });
+		const empty = await completedRun({ resultText: "  " });
+		const tooFresh = await completedRun({ finishedAt: new Date() });
+		const tooOld = await completedRun({ createdAt: new Date(Date.now() - 13 * 3_600_000), finishedAt: new Date(Date.now() - 13 * 3_600_000 + 60_000) });
+		const notCompleted = await completedRun({ status: "failed" });
+		const foreign = await completedRun({ userId: userB });
+		const alreadyPosted = await completedRun();
+		await prisma.routineRun.update({ where: { id: alreadyPosted }, data: { briefStatus: "posted" } });
+		const alreadyPending = await completedRun();
+		await markBriefPending(userA, alreadyPending, "texto do caminho normal");
+
+		assert.ok((await recoverUnstartedBriefs()) >= 2);
+
+		const good_ = await rowOf(good);
+		assert.equal(good_.briefStatus, "pending");
+		assert.equal(good_.briefText, "Resumo recuperado");
+		assert.equal((await rowOf(empty)).briefText, "Não consegui montar seu resumo de hoje.");
+		for (const [name, id] of [["fresco demais", tooFresh], ["velho", tooOld], ["run não concluído", notCompleted], ["run de outro dono", foreign]] as const) {
+			assert.equal((await rowOf(id)).briefStatus, null, name);
+		}
+		assert.equal((await rowOf(alreadyPosted)).briefStatus, "posted");
+		assert.equal((await rowOf(alreadyPending)).briefText, "texto do caminho normal", "nunca sobrescreve");
+		await recoverUnstartedBriefs();
+		assert.equal((await rowOf(good)).briefText, "Resumo recuperado", "segunda passada é inofensiva");
 	});
 
 	test("summary da execução: brief guarda só o rótulo fixo (o texto vai só ao chat); rotina comum guarda o resultado", async () => {

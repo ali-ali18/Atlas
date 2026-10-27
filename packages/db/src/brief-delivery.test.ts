@@ -23,6 +23,8 @@ test("marcar pendente: filtro de coluna simples (IS NULL ou pending), com o dono
 	patch(prisma.routineRun, "updateMany", async (args: { where: unknown }) => ((where = args.where), { count: 1 }));
 	assert.equal(await markBriefPending("user-a", "rr-1", "texto"), true);
 	assert.deepEqual(where, { id: "rr-1", ...owner, OR: [{ briefStatus: null }, { briefStatus: "pending" }] });
+	assert.equal(await markBriefPending("user-a", "rr-1", "texto", "ifUnset"), true);
+	assert.deepEqual(where, { id: "rr-1", ...owner, briefStatus: null }, "linha de falha: só de sem estado");
 	patch(prisma.routineRun, "updateMany", async () => ({ count: 0 }));
 	assert.equal(await markBriefPending("user-a", "rr-1", "texto"), false);
 });
@@ -40,11 +42,15 @@ test("lista só pendentes de rotina Seu dia pela coluna indexada, com o dono vin
 	patch(prisma.routineRun, "findMany", async (a: typeof args) => {
 		args = a;
 		return [
-			{ id: "rr-1", briefText: "Resumo", routine: { userId: "user-a", botId: "bot-a" } },
-			{ id: "rr-2", briefText: "  ", routine: { userId: "user-a", botId: "bot-a" } },
+			{ id: "rr-1", briefText: "Resumo", briefPushedAt: null, routine: { userId: "user-a", botId: "bot-a", notify: "always" } },
+			{ id: "rr-2", briefText: "  ", briefPushedAt: null, routine: { userId: "user-a", botId: "bot-a", notify: "always" } },
+			{ id: "rr-3", briefText: "Outro", briefPushedAt: new Date(), routine: { userId: "user-a", botId: "bot-a", notify: "important" } },
 		];
 	});
-	assert.deepEqual(await listPendingBriefs(new Date("2026-10-27T10:00:00Z")), [{ routineRunId: "rr-1", userId: "user-a", botId: "bot-a", text: "Resumo" }]);
+	assert.deepEqual(await listPendingBriefs(new Date("2026-10-27T10:00:00Z")), [
+		{ routineRunId: "rr-1", userId: "user-a", botId: "bot-a", text: "Resumo", pushed: false, notify: "always" },
+		{ routineRunId: "rr-3", userId: "user-a", botId: "bot-a", text: "Outro", pushed: true, notify: "important" },
+	]);
 	assert.equal(args?.where.briefStatus, "pending");
 	assert.deepEqual(args?.where.routine, { template: "daily_brief" });
 	assert.deepEqual(args?.where.createdAt, { gte: new Date("2026-10-26T22:00:00Z") });

@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BRIEF_FAILURE_LINE } from "@workspace/shared";
-import { briefErrorTag, deliverBriefFailure, briefPushBody, createBriefFlusher, deliverDailyBrief, flushPendingBriefs, isDetachedBriefRun, type BriefDeliveryDeps } from "./daily-brief.js";
+import {
+	briefErrorTag,
+	briefPushBody,
+	createBriefFlusher,
+	deliverBriefFailure,
+	deliverDailyBrief,
+	findRoutineRunIdWithRetry,
+	flushPendingBriefs,
+	isDetachedBriefRun,
+	type BriefDeliveryDeps,
+} from "./daily-brief.js";
 import { runsDetachedFromChat } from "./processors/routine-defer.js";
 
-type Row = { status: "pending" | "posted" | "expired" | null; text: string | null; botId: string; userId: string };
+type Row = { status: "pending" | "posted" | "expired" | null; text: string | null; botId: string; userId: string; pushed?: boolean };
 
 /**
  * Armazém em memória com a mesma semântica do banco: mensagem com id determinístico (repetir = "exists") e
@@ -13,7 +23,7 @@ type Row = { status: "pending" | "posted" | "expired" | null; text: string | nul
 function fixture(overrides: Partial<BriefDeliveryDeps> = {}) {
 	const rows = new Map<string, Row>();
 	const messages = new Map<string, string>();
-	const calls = { appended: [] as Array<[string, string]>, pushed: [] as Array<[string, string, string]>, expired: 0 };
+	const calls = { appended: [] as Array<[string, string]>, pushed: [] as Array<[string, string, string]>, expired: 0, recovered: 0, order: [] as string[] };
 	let busy = false;
 	const base: BriefDeliveryDeps = {
 		conversationOf: async (botId, userId) => (botId === "bot-a" && userId === "user-a" ? "conv-a" : null),
@@ -25,12 +35,24 @@ function fixture(overrides: Partial<BriefDeliveryDeps> = {}) {
 			calls.appended.push([conversationId, text]);
 			return "created";
 		},
-		push: async (userId, conversationId, text) => void calls.pushed.push([userId, conversationId, text]),
-		markPending: async (userId, id, text) => {
+		push: async (userId, conversationId, text) => void (calls.order.push("push"), calls.pushed.push([userId, conversationId, text])),
+		markPending: async (userId, id, text, mode) => {
 			const row = rows.get(id) ?? { status: null, text: null, botId: "bot-a", userId };
 			if (row.userId !== userId || (row.status !== null && row.status !== "pending")) return false;
+			if (mode === "ifUnset" && row.status !== null) return false;
+			calls.order.push("pending");
 			rows.set(id, { ...row, status: "pending", text });
 			return true;
+		},
+		claimPush: async (userId, id) => {
+			const row = rows.get(id);
+			if (!row || row.userId !== userId || row.pushed) return false;
+			row.pushed = true;
+			return true;
+		},
+		releasePush: async (_userId, id) => {
+			const row = rows.get(id);
+			if (row) row.pushed = false;
 		},
 		markPosted: async (userId, id) => {
 			const row = rows.get(id);
@@ -45,7 +67,11 @@ function fixture(overrides: Partial<BriefDeliveryDeps> = {}) {
 		flushPendingBriefs({
 			...deps,
 			expireStale: async () => calls.expired,
-			listPending: async () => [...rows.entries()].filter(([, row]) => row.status === "pending").map(([routineRunId, row]) => ({ routineRunId, userId: row.userId, botId: row.botId, text: row.text ?? "" })),
+			recover: async () => calls.recovered,
+			listPending: async () =>
+				[...rows.entries()]
+					.filter(([, row]) => row.status === "pending")
+					.map(([routineRunId, row]) => ({ routineRunId, userId: row.userId, botId: row.botId, text: row.text ?? "", pushed: row.pushed ?? false, notify: "always" as const })),
 		});
 	return { calls, deps, rows, messages, flush, setBusy: (value: boolean) => void (busy = value) };
 }
@@ -76,6 +102,68 @@ test("conversa ocupada: o push sai na hora, o brief fica pendente e entra depois
 	assert.equal(await f.flush(), 1);
 	assert.deepEqual(f.calls.appended, [["conv-a", TEXT]]);
 	assert.equal(f.calls.pushed.length, 1, "o push não se repete");
+});
+
+test("ordem: pendente primeiro, depois o push (o worker pode cair entre os dois sem perder o brief)", async () => {
+	const f = fixture();
+	await deliverDailyBrief(input, f.deps);
+	assert.deepEqual(f.calls.order, ["pending", "push"]);
+});
+
+test("queda depois de guardar e antes do push: o texto está pendente e a varredura avisa uma vez só", async () => {
+	const f = fixture();
+	f.setBusy(true);
+	const dying: BriefDeliveryDeps = { ...f.deps, claimPush: async () => { throw new Error("worker morreu"); } };
+	const first = await deliverDailyBrief(input, dying);
+	assert.equal(first.pushed, false);
+	assert.equal(f.rows.get("rr-1")?.status, "pending", "o brief não se perdeu");
+	assert.equal(f.calls.pushed.length, 0);
+	assert.equal(await f.flush(), 0, "conversa ocupada: não posta, mas já avisa");
+	assert.equal(f.calls.pushed.length, 1);
+	f.setBusy(false);
+	assert.equal(await f.flush(), 1);
+	assert.equal(f.calls.pushed.length, 1, "a varredura nunca repete o push");
+});
+
+test("push que falhou devolve a reivindicação: a próxima varredura tenta de novo", async () => {
+	let fail = true;
+	const f = fixture();
+	f.setBusy(true);
+	const flaky: BriefDeliveryDeps = { ...f.deps, push: async (...args) => { if (fail) throw new Error("vapid"); return f.deps.push!(...args); } };
+	assert.equal((await deliverDailyBrief(input, flaky)).pushed, false);
+	fail = false;
+	await flushPendingBriefs({ ...flaky, expireStale: async () => 0, listPending: async () => [{ routineRunId: "rr-1", userId: "user-a", botId: "bot-a", text: TEXT, pushed: false, notify: "always" }] });
+	assert.equal(f.calls.pushed.length, 1);
+});
+
+test("a varredura não avisa pela linha de falha nem quando a rotina só avisa o importante", async () => {
+	const f = fixture();
+	f.rows.set("rr-f", { status: "pending", text: BRIEF_FAILURE_LINE, botId: "bot-a", userId: "user-a" });
+	f.rows.set("rr-i", { status: "pending", text: "Resumo", botId: "bot-a", userId: "user-a" });
+	await flushPendingBriefs({
+		...f.deps,
+		expireStale: async () => 0,
+		listPending: async () => [
+			{ routineRunId: "rr-f", userId: "user-a", botId: "bot-a", text: BRIEF_FAILURE_LINE, pushed: false, notify: "always" },
+			{ routineRunId: "rr-i", userId: "user-a", botId: "bot-a", text: "Resumo", pushed: false, notify: "important" },
+		],
+	});
+	assert.equal(f.calls.pushed.length, 0);
+	assert.equal(f.calls.appended.length, 2);
+});
+
+test("recuperação: a varredura chama a recuperação de run concluído sem estado e registra a contagem", async () => {
+	const f = fixture();
+	f.calls.recovered = 3;
+	const logged: string[] = [];
+	const original = console.warn;
+	console.warn = (...args: unknown[]) => void logged.push(args.join(" "));
+	try {
+		await f.flush();
+	} finally {
+		console.warn = original;
+	}
+	assert.ok(logged.some((line) => /3 brief\(s\) recuperado/.test(line)));
 });
 
 test("catch-up da varredura: brief pendente (worker caiu antes de postar) entra uma vez, sem duplicar", async () => {
@@ -138,6 +226,35 @@ test("push sai antes de qualquer consulta da execução: sem routineRunId o push
 	assert.equal(f.calls.pushed.length, 1);
 	assert.deepEqual(f.calls.appended, [["conv-a", TEXT]]);
 	assert.equal(f.rows.size, 0, "sem estado para guardar");
+});
+
+test("entrega direta (sem execução da rotina) com a conversa ocupada: o push sai e a mensagem não corta o bot", async () => {
+	const f = fixture();
+	f.setBusy(true);
+	const result = await deliverDailyBrief({ ...input, routineRunId: null }, f.deps);
+	assert.equal(result.pushed, true);
+	assert.equal(result.posted, false);
+	assert.equal(f.calls.appended.length, 0);
+});
+
+test("findRoutineRunIdWithRetry: tenta até 3 vezes com espera e devolve o id; esgotou = null", async () => {
+	const waits: number[] = [];
+	const sleep = async (ms: number) => void waits.push(ms);
+	let calls = 0;
+	const id = await findRoutineRunIdWithRetry(
+		async () => {
+			calls += 1;
+			if (calls === 1) throw new Error("db");
+			return calls === 2 ? undefined : "rr-1";
+		},
+		{ sleep },
+	);
+	assert.equal(id, "rr-1");
+	assert.equal(calls, 3);
+	assert.equal(waits.length, 2);
+	calls = 0;
+	assert.equal(await findRoutineRunIdWithRetry(async () => (calls += 1, null), { sleep }), null);
+	assert.equal(calls, 3);
 });
 
 test("estado não pôde ser guardado (brief já tratado): não posta de novo", async () => {
@@ -270,6 +387,31 @@ test("falha do run depois de o brief já ter entrado: não posta a linha por cim
 	await deliverBriefFailure({ id: "ar-1", origin: "routine", conversationId: null, userId: "user-a", botId: "bot-a" }, { findRoutineRunId: async () => "rr-1", delivery: f.deps });
 	assert.equal(f.calls.appended.length, 1);
 	assert.equal(f.calls.appended[0]![1], TEXT);
+});
+
+test("ordem 1: linha de falha pendente e depois o brief de verdade: o de verdade troca o texto", async () => {
+	const f = fixture();
+	f.setBusy(true);
+	const run = { id: "ar-1", origin: "routine", conversationId: null, userId: "user-a", botId: "bot-a" };
+	await deliverBriefFailure(run, { findRoutineRunId: async () => "rr-1", delivery: f.deps });
+	assert.equal(f.rows.get("rr-1")?.text, BRIEF_FAILURE_LINE);
+	await deliverDailyBrief(input, f.deps);
+	assert.equal(f.rows.get("rr-1")?.text, TEXT, "o brief real substituiu a linha pendente");
+	assert.equal(f.calls.pushed.length, 1, "e o push do brief real sai");
+	f.setBusy(false);
+	await f.flush();
+	assert.deepEqual(f.calls.appended, [["conv-a", TEXT]]);
+});
+
+test("ordem 2: brief de verdade pendente e depois a linha de falha: a linha não sobrescreve", async () => {
+	const f = fixture();
+	f.setBusy(true);
+	await deliverDailyBrief(input, f.deps);
+	await deliverBriefFailure({ id: "ar-1", origin: "routine", conversationId: null, userId: "user-a", botId: "bot-a" }, { findRoutineRunId: async () => "rr-1", delivery: f.deps });
+	assert.equal(f.rows.get("rr-1")?.text, TEXT);
+	f.setBusy(false);
+	await f.flush();
+	assert.deepEqual(f.calls.appended, [["conv-a", TEXT]]);
 });
 
 test("linha de falha só em run de brief; consulta que falha ou erro nunca lançam", async () => {

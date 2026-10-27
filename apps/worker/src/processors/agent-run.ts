@@ -135,7 +135,7 @@ import {
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
 import { briefToolFilter, budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
-import { briefDeliveryDeps, briefErrorTag, deliverBriefFailure, deliverDailyBrief, isDetachedBriefRun } from "../daily-brief.js";
+import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage } from "@workspace/db";
 import {
 	AUTO_CONTINUE_MAX,
@@ -1586,11 +1586,8 @@ async function executeLeasedRun(ctx: {
 					? async () => {
 							const delivery = await deliverDailyBrief(
 								{
-									// A consulta falhar não pode perder o brief nem o push: sem id, entrega direto (ver daily-brief.ts).
-									routineRunId: (await findRoutineRunByAgentRunId(runId).catch((error) => {
-										console.error(`[brief] consulta da execução da rotina falhou run=${runId} (${briefErrorTag(error)})`);
-										return null;
-									}))?.id,
+									// A consulta falhar não pode perder o brief nem o push: tenta de novo e, sem id, entrega direto (ver daily-brief.ts).
+									routineRunId: await findRoutineRunIdWithRetry(async () => (await findRoutineRunByAgentRunId(runId))?.id),
 									userId: runUserId,
 									botId: run.botId,
 									// Orçamento esgotado = sem brief: vai a linha de falha (e o push do brief), nunca o texto de erro.

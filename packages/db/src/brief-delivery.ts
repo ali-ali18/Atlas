@@ -1,4 +1,4 @@
-import { DAILY_BRIEF_TEMPLATE } from "@workspace/shared";
+import { BRIEF_FAILURE_LINE, DAILY_BRIEF_TEMPLATE, parseRoutineNotifyMode, type RoutineNotifyMode } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { appendConversationMessage } from "./conversations.js";
 import { ownerIds } from "./mcp-connections.js";
@@ -24,17 +24,37 @@ export const BRIEF_CALM_MARGIN_MS = 5_000;
 
 const BUSY_STATUSES = ["queued", "running", "retrying"];
 
-export type PendingBrief = { routineRunId: string; userId: string; botId: string; text: string };
+/** Run concluído com `briefStatus` NULL só é recuperado depois disto (o caminho normal do worker ainda pode estar gravando). */
+export const BRIEF_RECOVERY_GRACE_MS = 30_000;
+/** Tamanho da página da varredura de pendentes (a varredura percorre todas, com cursor). */
+export const PENDING_PAGE_SIZE = 50;
+const RECOVERY_BATCH = 200;
+
+export type PendingBrief = {
+	routineRunId: string;
+	userId: string;
+	botId: string;
+	text: string;
+	/** O push do brief já foi reivindicado/enviado. */
+	pushed: boolean;
+	notify: RoutineNotifyMode;
+};
+
+/**
+ * "replace": sai de "sem estado" ou "pendente" (o brief de verdade troca a linha de falha ainda pendente).
+ * "ifUnset": só de "sem estado" (a linha de falha nunca sobrescreve um brief pendente nem trava o de verdade).
+ */
+export type MarkPendingMode = "replace" | "ifUnset";
 
 /** Id da mensagem do brief: um por execução da rotina. */
 export const briefMessageId = (routineRunId: string): string => `brief-${routineRunId}`;
 
 const ownedRun = (userId: string, routineRunId: string) => ({ id: routineRunId, routine: { userId: { in: ownerIds(userId) } } });
 
-/** Guarda o texto como pendente. Só sai de "sem estado" ou "pendente"; postado/expirado não volta. `false` = não marcou. */
-export async function markBriefPending(userId: string, routineRunId: string, text: string): Promise<boolean> {
+/** Guarda o texto como pendente. Postado/expirado não volta (ver `MarkPendingMode`). `false` = não marcou. */
+export async function markBriefPending(userId: string, routineRunId: string, text: string, mode: MarkPendingMode = "replace"): Promise<boolean> {
 	const result = await prisma.routineRun.updateMany({
-		where: { ...ownedRun(userId, routineRunId), OR: [{ briefStatus: null }, { briefStatus: "pending" }] },
+		where: { ...ownedRun(userId, routineRunId), ...(mode === "ifUnset" ? { briefStatus: null } : { OR: [{ briefStatus: null }, { briefStatus: "pending" }] }) },
 		data: { briefStatus: "pending", briefText: text },
 	});
 	return result.count === 1;
@@ -47,6 +67,29 @@ export async function markBriefPosted(userId: string, routineRunId: string): Pro
 		data: { briefStatus: "posted", briefText: null },
 	});
 	return result.count === 1;
+}
+
+/** Pendente -> expirado (limpa o texto): brief que nunca vai entrar (ex.: o bot não tem conversa). */
+export async function markBriefExpired(userId: string, routineRunId: string): Promise<boolean> {
+	const result = await prisma.routineRun.updateMany({
+		where: { ...ownedRun(userId, routineRunId), briefStatus: "pending" },
+		data: { briefStatus: "expired", briefText: null },
+	});
+	return result.count === 1;
+}
+
+/** Reivindica o push do brief (uma vez só: quem vence envia). `false` = já reivindicado. */
+export async function claimBriefPush(userId: string, routineRunId: string, now: Date = new Date()): Promise<boolean> {
+	const result = await prisma.routineRun.updateMany({
+		where: { ...ownedRun(userId, routineRunId), briefPushedAt: null },
+		data: { briefPushedAt: now },
+	});
+	return result.count === 1;
+}
+
+/** Devolve a reivindicação quando o envio do push falhou, para a varredura tentar de novo. */
+export async function releaseBriefPush(userId: string, routineRunId: string): Promise<void> {
+	await prisma.routineRun.updateMany({ where: ownedRun(userId, routineRunId), data: { briefPushedAt: null } });
 }
 
 /**
@@ -93,24 +136,63 @@ export async function isConversationBusyForBrief(conversationId: string, now: Da
 	return row !== null;
 }
 
-/** Briefs pendentes recentes, mais antigos primeiro (consulta indexada por `briefStatus`). */
-export async function listPendingBriefs(now: Date = new Date(), limit = 20): Promise<PendingBrief[]> {
+/**
+ * Briefs pendentes recentes, mais antigos primeiro (consulta indexada por `briefStatus`). Paginado por cursor
+ * (`afterId` = último `routineRunId` da página anterior): linhas travadas não escondem as seguintes.
+ */
+export async function listPendingBriefs(now: Date = new Date(), limit = PENDING_PAGE_SIZE, afterId?: string): Promise<PendingBrief[]> {
 	const rows = await prisma.routineRun.findMany({
 		where: {
 			briefStatus: "pending",
 			createdAt: { gte: new Date(now.getTime() - PENDING_MAX_AGE_MS) },
 			routine: { template: DAILY_BRIEF_TEMPLATE },
 		},
-		orderBy: { createdAt: "asc" },
+		orderBy: [{ createdAt: "asc" }, { id: "asc" }],
 		take: limit,
-		select: { id: true, briefText: true, routine: { select: { userId: true, botId: true } } },
+		...(afterId ? { cursor: { id: afterId }, skip: 1 } : {}),
+		select: { id: true, briefText: true, briefPushedAt: true, routine: { select: { userId: true, botId: true, notify: true } } },
 	});
 	const pending: PendingBrief[] = [];
 	for (const row of rows) {
 		if (!row.briefText?.trim()) continue;
-		pending.push({ routineRunId: row.id, userId: row.routine.userId, botId: row.routine.botId, text: row.briefText });
+		pending.push({
+			routineRunId: row.id,
+			userId: row.routine.userId,
+			botId: row.routine.botId,
+			text: row.briefText,
+			pushed: row.briefPushedAt !== null,
+			notify: parseRoutineNotifyMode(row.routine.notify),
+		});
 	}
 	return pending;
+}
+
+/**
+ * Run do brief que terminou bem (últimas 12 h) mas o worker caiu antes de guardar o estado: `briefStatus` NULL.
+ * Guarda o `resultText` do run como pendente (só de NULL: nunca sobrescreve) para a varredura entregar. O dono
+ * vem da rotina e o run tem de ser do mesmo dono. Devolve quantos recuperou.
+ */
+export async function recoverUnstartedBriefs(now: Date = new Date()): Promise<number> {
+	const rows = await prisma.routineRun.findMany({
+		where: {
+			briefStatus: null,
+			status: "succeeded",
+			createdAt: { gte: new Date(now.getTime() - PENDING_MAX_AGE_MS) },
+			finishedAt: { lte: new Date(now.getTime() - BRIEF_RECOVERY_GRACE_MS) },
+			routine: { template: DAILY_BRIEF_TEMPLATE },
+			agentRun: { status: "completed" },
+		},
+		orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+		take: RECOVERY_BATCH,
+		select: { id: true, routine: { select: { userId: true } }, agentRun: { select: { userId: true, resultText: true } } },
+	});
+	let recovered = 0;
+	for (const row of rows) {
+		if (!row.agentRun || !ownerIds(row.routine.userId).includes(row.agentRun.userId)) continue;
+		const text = row.agentRun.resultText?.trim() || BRIEF_FAILURE_LINE;
+		if (await markBriefPending(row.routine.userId, row.id, text, "ifUnset")) recovered += 1;
+	}
+	return recovered;
 }
 
 /** Brief pendente além do limite vira `expired` e perde o texto. Devolve quantos expiraram (o worker registra). */

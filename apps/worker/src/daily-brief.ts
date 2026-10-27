@@ -1,11 +1,15 @@
 import {
 	appendBriefMessage,
+	claimBriefPush,
 	expireStaleBriefs,
 	getBotConversationId,
 	isConversationBusyForBrief,
 	listPendingBriefs,
 	markBriefPending,
 	markBriefPosted,
+	recoverUnstartedBriefs,
+	releaseBriefPush,
+	type MarkPendingMode,
 	type Notify,
 } from "@workspace/db";
 import { BRIEF_FAILURE_LINE, type RoutineNotifyMode } from "@workspace/shared";
@@ -15,16 +19,25 @@ import { BRIEF_FAILURE_LINE, type RoutineNotifyMode } from "@workspace/shared";
  * grava a resposta nem manda o push sozinho: este módulo faz as duas coisas, na conversa do bot do dono.
  *
  * - A resposta final do run É o brief: vira uma mensagem do assistente na conversa do bot.
- * - Push: sai assim que o brief fica pronto (primeira linha como corpo), antes de qualquer consulta que possa falhar.
- * - Estado em colunas de `RoutineRun` (`briefStatus`). Primeiro fica `pending`; a mensagem entra com id
- *   determinístico (idempotente) e só depois vira `posted`. Queda entre os dois passos: a varredura de 60 s
- *   reinsere (a mensagem já existe, nada duplica) e marca. Pendente há mais de 12 h expira.
+ * - Ordem: (1) guarda o texto como `pending`, (2) push (primeira linha como corpo), (3) grava a mensagem e vira
+ *   `posted`. O worker pode cair entre quaisquer dois passos sem perder o brief nem repetir o aviso:
+ *   o push é reivindicado em `briefPushedAt` antes de sair (a varredura nunca repete), a mensagem entra com id
+ *   determinístico (idempotente). Run que terminou bem mas caiu antes do passo 1 (`briefStatus` NULL) é
+ *   recuperado pela varredura a partir do `resultText` do AgentRun. Pendente há mais de 12 h expira.
  * - Conversa ocupada (na fila, rodando, tentando de novo, ou run que acabou há ~5 s) segura o brief; ele entra
  *   quando liberar (fim de run e varredura). `waiting_user` e pausado não seguram.
  * - Logs só com `name`/`code` do erro: o texto do brief e as mensagens do Prisma (que podem embuti-lo) nunca saem.
  */
 
-export type PendingBriefItem = { routineRunId: string; userId: string; botId: string; text: string };
+export type PendingBriefItem = {
+	routineRunId: string;
+	userId: string;
+	botId: string;
+	text: string;
+	/** Push já reivindicado/enviado (a varredura só avisa o que ficou sem aviso). */
+	pushed?: boolean;
+	notify?: RoutineNotifyMode;
+};
 
 export type BriefDeliveryDeps = {
 	/** Conversa do bot, escopada pelo dono (null = bot sem conversa). */
@@ -35,8 +48,12 @@ export type BriefDeliveryDeps = {
 	appendMessage: (userId: string, conversationId: string, routineRunId: string | null, text: string) => Promise<"created" | "exists">;
 	/** Ausente = sem chaves de push. */
 	push?: (userId: string, conversationId: string, text: string) => Promise<unknown>;
-	/** Guarda o brief como pendente no run da rotina (false = já postado/expirado ou run de outro dono). */
-	markPending: (userId: string, routineRunId: string, text: string) => Promise<boolean>;
+	/** Guarda o brief como pendente no run da rotina (false = já postado/expirado/tratado ou run de outro dono). */
+	markPending: (userId: string, routineRunId: string, text: string, mode: MarkPendingMode) => Promise<boolean>;
+	/** Reivindica o push do brief (uma vez só). false = outro caminho já cuidou. */
+	claimPush: (userId: string, routineRunId: string) => Promise<boolean>;
+	/** Devolve a reivindicação quando o envio falhou. */
+	releasePush: (userId: string, routineRunId: string) => Promise<void>;
 	/** Pendente -> postado (false = outro caminho já marcou). */
 	markPosted: (userId: string, routineRunId: string) => Promise<boolean>;
 };
@@ -83,6 +100,25 @@ export function isDetachedBriefRun(run: { origin?: string | null; conversationId
 	return run.origin === "routine" && !run.conversationId;
 }
 
+/** Reivindica e envia o push do brief. Nunca lança. `true` = o aviso saiu agora. */
+async function sendBriefPush(item: { userId: string; routineRunId: string }, conversationId: string, text: string, deps: BriefDeliveryDeps): Promise<boolean> {
+	if (!deps.push) return false;
+	try {
+		if (!(await deps.claimPush(item.userId, item.routineRunId))) return false;
+	} catch (error) {
+		console.error(`[brief] push não reivindicado (${briefErrorTag(error)})`);
+		return false;
+	}
+	try {
+		await deps.push(item.userId, conversationId, briefPushBody(text));
+		return true;
+	} catch (error) {
+		console.error(`[brief] push não enviado (${briefErrorTag(error)})`);
+		await deps.releasePush(item.userId, item.routineRunId).catch(() => undefined);
+		return false;
+	}
+}
+
 export async function deliverDailyBrief(
 	input: {
 		routineRunId: string | null | undefined;
@@ -93,6 +129,8 @@ export async function deliverDailyBrief(
 		notify: RoutineNotifyMode;
 		/** O chamador já avisa por outro push (ex.: `routine-failed`): não duplica o aviso. */
 		skipPush?: boolean;
+		/** Linha de falha: só guarda se ainda não há estado (nunca sobrescreve um brief real pendente). */
+		failure?: boolean;
 	},
 	deps: BriefDeliveryDeps,
 ): Promise<BriefDeliveryResult> {
@@ -100,20 +138,25 @@ export async function deliverDailyBrief(
 	if (!input.botId) return { posted: false, pushed: false, reason: "sem bot" };
 	const conversationId = await deps.conversationOf(input.botId, input.userId);
 	if (!conversationId) return { posted: false, pushed: false, reason: "bot sem conversa" };
-	// Push primeiro: nada que dependa da execução da rotina (consulta, estado) pode engoli-lo.
-	let pushed = false;
-	if (input.notify === "always" && !input.skipPush && deps.push) {
-		try {
-			await deps.push(input.userId, conversationId, briefPushBody(text));
-			pushed = true;
-		} catch (error) {
-			console.error(`[brief] push não enviado (${briefErrorTag(error)})`);
-		}
-	}
+	const wantsPush = input.notify === "always" && !input.skipPush;
 	if (!input.routineRunId) {
-		// Sem a execução da rotina não há estado nem idempotência: posta direto, melhor esforço.
-		console.warn("[brief] execução da rotina não encontrada; postando direto, sem estado");
+		// Sem a execução da rotina não há estado nem idempotência: push e depois posta direto, melhor esforço.
+		console.warn("[brief] execução da rotina não encontrada; entrega direta, sem estado");
+		let pushed = false;
+		if (wantsPush && deps.push) {
+			try {
+				await deps.push(input.userId, conversationId, briefPushBody(text));
+				pushed = true;
+			} catch (error) {
+				console.error(`[brief] push não enviado (${briefErrorTag(error)})`);
+			}
+		}
 		try {
+			// O push já saiu; a mensagem só entra com a conversa livre (não corta o que o bot está escrevendo).
+			if (await deps.isBusy(conversationId)) {
+				console.warn("[brief] conversa ocupada na entrega direta; mensagem não postada (só o push saiu)");
+				return { posted: false, pushed, reason: "sem execução da rotina; conversa ocupada" };
+			}
 			await deps.appendMessage(input.userId, conversationId, null, text);
 			return { posted: true, pushed, reason: "sem execução da rotina; postado direto" };
 		} catch (error) {
@@ -121,16 +164,43 @@ export async function deliverDailyBrief(
 			return { posted: false, pushed, reason: "sem execução da rotina; falha ao gravar" };
 		}
 	}
-	// Pendente primeiro: se o worker cair daqui em diante, a varredura ainda entrega.
+	// 1) Pendente primeiro: se o worker cair daqui em diante, a varredura ainda entrega o texto.
 	let marked = false;
 	try {
-		marked = await deps.markPending(input.userId, input.routineRunId, text);
+		marked = await deps.markPending(input.userId, input.routineRunId, text, input.failure ? "ifUnset" : "replace");
 	} catch (error) {
 		console.error(`[brief] estado pendente não gravado (${briefErrorTag(error)})`);
 	}
-	if (!marked) return { posted: false, pushed, reason: "brief já tratado ou não pôde ser guardado" };
-	const posted = await tryPost({ routineRunId: input.routineRunId, userId: input.userId, botId: input.botId, text }, conversationId, deps);
+	if (!marked) return { posted: false, pushed: false, reason: "brief já tratado ou não pôde ser guardado" };
+	const item = { routineRunId: input.routineRunId, userId: input.userId, botId: input.botId, text };
+	// 2) Push, uma vez só (reivindicado no banco antes de sair).
+	const pushed = wantsPush ? await sendBriefPush(item, conversationId, text, deps) : false;
+	// 3) Mensagem no chat.
+	const posted = await tryPost(item, conversationId, deps);
 	return { posted, pushed, ...(posted ? {} : { reason: "conversa ocupada ou gravação adiada; entra pela varredura" }) };
+}
+
+/**
+ * Tenta achar a execução da rotina deste run: o fim do run e o registro dela podem estar a poucos ms um do
+ * outro, e uma falha transitória não deve mandar o brief para o caminho sem estado.
+ */
+export async function findRoutineRunIdWithRetry(
+	find: () => Promise<string | null | undefined>,
+	opts: { attempts?: number; delayMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<string | null> {
+	const attempts = opts.attempts ?? 3;
+	const delayMs = opts.delayMs ?? 250;
+	const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+	for (let attempt = 1; attempt <= attempts; attempt += 1) {
+		try {
+			const id = await find();
+			if (id) return id;
+		} catch (error) {
+			console.error(`[brief] consulta da execução da rotina falhou (${attempt}/${attempts}, ${briefErrorTag(error)})`);
+		}
+		if (attempt < attempts) await sleep(delayMs * attempt);
+	}
+	return null;
 }
 
 /**
@@ -143,8 +213,11 @@ export async function deliverBriefFailure(
 ): Promise<void> {
 	if (!isDetachedBriefRun(run) || !run.userId) return;
 	try {
-		const routineRunId = await io.findRoutineRunId(run.id).catch(() => null);
-		await deliverDailyBrief({ routineRunId, userId: run.userId, botId: run.botId, text: "", notify: "always", skipPush: true }, io.delivery);
+		const routineRunId = await findRoutineRunIdWithRetry(() => io.findRoutineRunId(run.id));
+		await deliverDailyBrief(
+			{ routineRunId, userId: run.userId, botId: run.botId, text: "", notify: "always", skipPush: true, failure: true },
+			io.delivery,
+		);
 	} catch (error) {
 		console.error(`[brief] linha de falha não entregue run=${run.id} (${briefErrorTag(error)})`);
 	}
@@ -155,16 +228,25 @@ export async function deliverBriefFailure(
  * run termina e a cada 60 s. Nunca lança; devolve quantos entraram.
  */
 export async function flushPendingBriefs(
-	deps: BriefDeliveryDeps & { listPending: () => Promise<PendingBriefItem[]>; expireStale: () => Promise<number> },
+	deps: BriefDeliveryDeps & { listPending: () => Promise<PendingBriefItem[]>; expireStale: () => Promise<number>; recover?: () => Promise<number> },
 ): Promise<number> {
 	let posted = 0;
 	try {
+		const recovered = await deps.recover?.().catch((error) => {
+			console.error(`[brief] recuperação de briefs sem estado falhou (${briefErrorTag(error)})`);
+			return 0;
+		});
+		if (recovered) console.warn(`[brief] ${recovered} brief(s) recuperado(s) de run concluído sem estado (o worker caiu antes de guardar)`);
 		const expired = await deps.expireStale();
 		if (expired > 0) console.warn(`[brief] ${expired} brief(s) expirado(s) sem entrar no chat (pendentes há mais de 12 h)`);
 		for (const item of await deps.listPending()) {
 			try {
 				const conversationId = await deps.conversationOf(item.botId, item.userId);
 				if (!conversationId) continue;
+				// Push que ficou sem sair (queda entre guardar e avisar). A linha de falha nunca avisa aqui: `routine-failed` já avisa.
+				if (!item.pushed && item.notify === "always" && item.text !== BRIEF_FAILURE_LINE) {
+					await sendBriefPush(item, conversationId, item.text, deps);
+				}
 				if (await tryPost(item, conversationId, deps)) posted += 1;
 			} catch (error) {
 				console.error(`[brief] varredura falhou para um brief (${briefErrorTag(error)})`);
@@ -193,15 +275,18 @@ export function createBriefFlusher(flush: () => Promise<number>): () => Promise<
 /** Dependências reais (banco) da entrega; `notify` ausente = sem chaves de push. */
 export function briefDeliveryDeps(
 	notify?: Notify,
-): BriefDeliveryDeps & { listPending: () => Promise<PendingBriefItem[]>; expireStale: () => Promise<number> } {
+): BriefDeliveryDeps & { listPending: () => Promise<PendingBriefItem[]>; expireStale: () => Promise<number>; recover: () => Promise<number> } {
 	return {
 		conversationOf: getBotConversationId,
 		isBusy: (conversationId) => isConversationBusyForBrief(conversationId),
 		appendMessage: appendBriefMessage,
 		push: notify ? (userId, conversationId, text) => notify(userId, conversationId, "reminder", text) : undefined,
 		markPending: markBriefPending,
+		claimPush: (userId, routineRunId) => claimBriefPush(userId, routineRunId),
+		releasePush: releaseBriefPush,
 		markPosted: markBriefPosted,
 		listPending: () => listPendingBriefs(),
 		expireStale: () => expireStaleBriefs(),
+		recover: () => recoverUnstartedBriefs(),
 	};
 }

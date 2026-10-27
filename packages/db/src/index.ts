@@ -689,12 +689,18 @@ export { countFailedToolResults } from "./run-inspect.js";
 export { LESSON_REVIEW_EVENT, getLatestLessonReviewEvent, listRunsForLessonReview, runIdsAlreadyReviewed, type LessonReviewRun } from "./lesson-review-data.js";
 
 export {
+	BRIEF_CALM_MARGIN_MS,
 	appendBriefMessage,
 	briefMessageId,
+	claimBriefPush,
 	expireStaleBriefs,
 	isConversationBusyForBrief,
 	listPendingBriefs,
+	markBriefExpired,
 	markBriefPending,
 	markBriefPosted,
+	recoverUnstartedBriefs,
+	releaseBriefPush,
+	type MarkPendingMode,
 	type PendingBrief,
 } from "./brief-delivery.js";

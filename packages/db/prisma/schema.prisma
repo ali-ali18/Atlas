@@ -785,6 +785,8 @@ model RoutineRun {
   briefStatus   String?
   /// Texto do brief enquanto pending; limpo ao postar ou expirar (nunca sai pela API).
   briefText     String?
+  /// Quando o push do brief foi reivindicado/enviado (uma vez só; a varredura nunca repete o push). Null = ainda não.
+  briefPushedAt DateTime?
   createdAt     DateTime  @default(now())
 
   @@index([routineId, createdAt])
