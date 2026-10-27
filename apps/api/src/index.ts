@@ -35,7 +35,8 @@ import { createConversationRoutes } from "./routes/conversations.js";
 import { createReactionRoutes } from "./routes/reactions.js";
 import { createPushRoutes } from "./routes/push.js";
 import { createAvatarRoutes } from "./routes/avatars.js";
-import { createNotifier, createRedisCoalesce, createRedisPresence, installPushListener } from "@workspace/db";
+import { appendConversationMessage, conversationHoldsVm, createNotifier, createRedisCoalesce, createRedisPresence, getStrictOwnedConversation, installPushListener } from "@workspace/db";
+import { noticeVmStop } from "./sandbox-guard-notice.js";
 import { createWebPushSender } from "@workspace/mail";
 import { ATLAS_JOB_NAMES, formatMissingEnv, readVapidConfig, vapidProblems } from "@workspace/shared";
 import { captureError, currentRequestId, initSentry, installRequestIdLogging } from "@workspace/observability";
@@ -415,10 +416,15 @@ startSandboxReaper(loadSandboxConfig(), {
 	intervalMs: 60_000,
 	idleStop: process.env.SANDBOX_IDLE_STOP === "1" || process.env.SANDBOX_IDLE_STOP === "true",
 	memoryGuard: {
-		notify: async (vm) => {
-			if (!pushNotify || !vm.conversationId || !vm.userId) return;
-			await pushNotify(vm.userId, vm.conversationId, "run-finished", "Desliguei a VM para liberar memória. Ela liga de novo quando você precisar.");
-		},
+		// Antes de desligar: push (se sair) + mensagem na conversa (garantida). Sem nenhum dos dois, adia a parada.
+		notify: (vm) =>
+			noticeVmStop(vm, {
+				push: pushNotify ? (userId, conversationId, text) => pushNotify!(userId, conversationId, "run-finished", text) : null,
+				ownsConversation: async (userId, conversationId) => Boolean(await getStrictOwnedConversation(conversationId, userId)),
+				appendMessage: (conversationId, text) => appendConversationMessage(conversationId, "assistant", text),
+			}),
+		// Run esperando o usuário (login no computador, pergunta, aprovação): a VM guarda a tela dele.
+		isProtected: async (vm) => Boolean(vm.userId && vm.conversationId && (await conversationHoldsVm(vm.userId, vm.conversationId))),
 	},
 });
 

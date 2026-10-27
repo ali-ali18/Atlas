@@ -81,18 +81,37 @@ describe("runMemoryGuard", () => {
 		expect(order).toEqual(["notify:b"]);
 	});
 
-	it("falha do aviso não impede a parada", async () => {
+	it("sem conseguir avisar o dono, adia a parada para a próxima rodada", async () => {
 		vi.spyOn(console, "log").mockImplementation(() => undefined);
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const { docker, stopped } = fakeDocker(["a", "b"]);
-		await runMemoryGuard(docker, config, {
+		const result = await runMemoryGuard(docker, config, {
 			limits,
 			availableMemBytes: () => 10 * MB,
 			probe: async () => 30 * MIN,
 			notify: async () => {
-				throw new Error("push fora");
+				throw new Error("push fora e mensagem não gravada");
 			},
 		});
-		expect(stopped).toHaveLength(1);
+		expect(stopped).toEqual([]);
+		expect(result).toEqual([]);
+	});
+
+	it("nunca para VM protegida (run esperando o login do usuário), mesmo ociosa; erro na consulta protege", async () => {
+		vi.spyOn(console, "log").mockImplementation(() => undefined);
+		const { docker, stopped } = fakeDocker(["a", "b", "c"]);
+		const idle: Record<string, number> = { a: 90 * MIN, b: 40 * MIN, c: 30 * MIN };
+		const result = await runMemoryGuard(docker, config, {
+			limits: { maxRunning: 2, minFreeBytes: 0 },
+			availableMemBytes: () => 4096 * MB,
+			probe: async (_d, _c, id) => idle[id]!,
+			isProtected: async (v) => {
+				if (v.id === "a") return true;
+				if (v.id === "b") throw new Error("db fora");
+				return false;
+			},
+		});
+		expect(result.map((v) => v.id)).toEqual(["c"]);
+		expect(stopped.map((s) => s.id)).toEqual(["c"]);
 	});
 });

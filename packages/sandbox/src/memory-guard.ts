@@ -76,8 +76,16 @@ export type MemoryGuardDeps = {
 	limits?: MemoryGuardLimits;
 	availableMemBytes?: () => number | null;
 	probe?: typeof probeSandboxIdleMs;
-	/** Avisa o dono ANTES de parar (push). Falha aqui não impede a parada. */
+	/**
+	 * Avisa o dono ANTES de parar (push e/ou mensagem na conversa). Se lançar, a parada fica para a
+	 * próxima rodada: o dono nunca deve descobrir a VM desligada sem aviso.
+	 */
 	notify?: (vm: RunningVm) => Promise<void>;
+	/**
+	 * VM que não pode parar agora mesmo ociosa (ex.: run esperando o usuário terminar um login nela).
+	 * Erro ao consultar = proteger.
+	 */
+	isProtected?: (vm: RunningVm) => Promise<boolean>;
 };
 
 /** Uma rodada do guarda: lista VMs ligadas, escolhe as ociosas a parar, avisa o dono e para com graça. */
@@ -105,14 +113,25 @@ export async function runMemoryGuard(
 			idleMs: await probe(docker, config, c.Id),
 		})),
 	);
+	if (deps.isProtected) {
+		// Protegida continua contando no limite, mas deixa de ser candidata (idleMs null).
+		for (const vm of vms) {
+			if (vm.idleMs === null || vm.idleMs < MIN_IDLE_FOR_MEMORY_STOP_MS) continue;
+			const protectedVm = await deps.isProtected(vm).catch(() => true);
+			if (protectedVm) vm.idleMs = null;
+		}
+	}
 	const available = (deps.availableMemBytes ?? readAvailableMemBytes)();
-	const victims = pickVmsToStop(vms, limits, available);
-	for (const vm of victims) {
+	const candidates = pickVmsToStop(vms, limits, available);
+	const victims: RunningVm[] = [];
+	for (const vm of candidates) {
 		try {
 			await deps.notify?.(vm);
 		} catch (error) {
-			console.error("[sandbox-memory-guard] notify failed", error instanceof Error ? error.message : "erro");
+			console.error(`[sandbox-memory-guard] could not warn the owner of ${vm.name}; postponing the stop`, error instanceof Error ? error.message : "erro");
+			continue;
 		}
+		victims.push(vm);
 		try {
 			console.log(`[sandbox-memory-guard] stopping idle ${vm.name} idleMs=${vm.idleMs} running=${vms.length} availableMem=${available ?? "?"}`);
 			await docker.getContainer(vm.id).stop({ t: SANDBOX_STOP_TIMEOUT_S });

@@ -1,5 +1,5 @@
 import http from "node:http";
-import { execFile, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { readFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,6 +16,7 @@ import { createRefActions } from "./browser-refs.mjs";
 import { createPageReader } from "./reader.mjs";
 import { parseScreenshotOptions, scrotPlan } from "./screenshot-options.mjs";
 import { withMarks } from "./marks.mjs";
+import { countUserProcesses, countViewerClients, createActivityTracker } from "./activity.mjs";
 
 const PORT = Number.parseInt(process.env.SANDBOX_CONTROL_PORT ?? "3080", 10);
 const CDP_URL = process.env.CDP_URL ?? "http://127.0.0.1:9222";
@@ -217,15 +218,36 @@ async function browserLinks() {
 	});
 }
 
-// Ultima chamada de ferramenta (nao conta /health nem /idle): o reaper da API usa para dormir so VMs realmente ociosas.
-let lastActivityAt = Date.now();
+// Atividade da VM (nao conta /health nem /idle): o guarda de memoria da API so para VMs realmente ociosas.
+// Em uso = chamada em andamento, viewer noVNC conectado (pessoa digitando senha/2FA) ou processo do shell do agente.
+const SHELL_USER = "atlas";
+let shellUid = null;
+function shellProcesses() {
+	if (shellUid === null) {
+		try {
+			shellUid = Number.parseInt(execFileSync("id", ["-u", SHELL_USER], { encoding: "utf8" }).trim(), 10);
+		} catch {
+			shellUid = -1;
+		}
+	}
+	return shellUid >= 0 ? countUserProcesses(shellUid) : 0;
+}
+const activity = createActivityTracker({ viewers: countViewerClients, shellProcesses });
 
 const handleRequest = async (req, res) => {
+	if (req.url === "/health" || req.url === "/idle") return handleControlRequest(req, res);
+	activity.begin();
 	try {
-		if (req.url !== "/health" && req.url !== "/idle") lastActivityAt = Date.now();
+		await handleControlRequest(req, res);
+	} finally {
+		activity.end();
+	}
+};
 
+const handleControlRequest = async (req, res) => {
+	try {
 		if (req.method === "GET" && req.url === "/idle") {
-			sendJson(res, 200, { idleMs: Date.now() - lastActivityAt });
+			sendJson(res, 200, activity.snapshot());
 			return;
 		}
 
