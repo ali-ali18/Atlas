@@ -518,6 +518,7 @@ export {
 	type BriefSource,
 	type DailyBriefSchedule,
 } from "./daily-brief.js";
+export * from "./brief-auto.js";
 export {
 	QUESTIONNAIRE_SUBMITTED_EVENT,
 	QUESTIONNAIRE_ANSWERED_EVENT,
