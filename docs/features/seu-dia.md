@@ -34,31 +34,35 @@ Começar o dia é abrir e-mail, agenda, chat e as ferramentas do negócio uma po
 5. **Entrega** (`apps/worker/src/daily-brief.ts`). O push sai assim que o brief fica pronto, com a primeira linha como corpo. A mensagem entra no chat do bot como fala do assistente. Se há tarefa rodando na conversa, o brief fica **pendente** e entra logo depois que ela termina (ver "Entrega com chat ocupado").
 
 ### Só leitura, em código
-O run do brief usa `toolFilter` (`briefToolFilter`): ferramenta nativa só da lista do brief (achar tools, reler resultado, ler painéis, API conectada em GET) e ferramenta de conector só se o catálogo ou o servidor a declara de leitura. Envio, rascunho, aceite de convite, exclusão, arquivo, código, rotina, delegação e `notify_user` nem são oferecidos, e o executor recusa a chamada mesmo que o modelo a invente. Vale também com a autonomia da conta em "autônomo" (que hoje deixaria uma rotina escrever). Conteúdo lido de qualquer fonte é dado, nunca instrução.
+O run do brief usa `toolFilter` (`briefToolFilter`): ferramenta nativa só da lista do brief (achar tools, reler resultado, API conectada em GET) e ferramenta de conector só se o catálogo ou o servidor a declara de leitura. Envio, rascunho, aceite de convite, exclusão, arquivo, código, rotina, delegação e `notify_user` nem são oferecidos, e o executor recusa a chamada mesmo que o modelo a invente. Vale também com a autonomia da conta em "autônomo" (que hoje deixaria uma rotina escrever). Conteúdo lido de qualquer fonte é dado, nunca instrução.
 
 ### Nunca pulado (decisão)
 Rotinas comuns esperam até 30 min se há tarefa ativa na conversa e depois desistem, porque o banco só permite um run ativo por conversa. O brief nasce **sem conversa**, como a reflexão diária (`createDetachedProactiveRun` com `origin: "routine"`): o índice único não o alcança, então não há o que adiar ou pular. Só a sobreposição da própria rotina (o brief de ontem ainda rodando) pula. Escolhido por ser a menor mudança segura: nenhuma mudança no índice nem no adiamento das outras rotinas, e todo o encanamento de rotina (aviso, falha, `lastRunAt`) continua valendo porque a origem segue `routine`.
 Consequência: sem conversa, o fim do run não grava a resposta nem manda o push sozinho; `deliverDailyBrief` faz as duas coisas.
 
 ### Entrega com chat ocupado
-Antes, com tarefa rodando na conversa a frase era descartada. Agora o brief nunca se perde:
-- **Estado:** `RoutineRun.eventJson.briefDelivery = { state: "pending" | "posted", text, at }`. Reaproveita a coluna JSON (o disparo por cron não usa `eventJson`), sem migration.
-- **Pendente primeiro:** ao ficar pronto, o brief é gravado como pendente e só então vêm o push e a tentativa de postar.
-- **Postagem idempotente:** a virada pendente para postado é um `UPDATE ... WHERE state = pending` (`claimBriefPosting`); só quem recebe `count = 1` grava a mensagem. Se a gravação falha, o brief volta a pendente.
-- **Quem posta:** (a) na hora, se a conversa está livre; (b) ao fim de qualquer run do worker (`completed`/`failed` chamam o sweeper proativo); (c) a cada 60 s, pelo mesmo sweeper (`flushPendingBriefs`), cobrindo queda do worker no meio.
-- **Limite:** brief pendente com mais de 12 h não é mais postado (já não é o dia de hoje).
+O brief nunca se perde nem entra duas vezes:
+- **Estado em colunas próprias** de `RoutineRun` (migration `20261203000000_routine_run_brief_delivery`, aditiva): `briefStatus` (`pending` | `posted` | `expired`, nulo = não é brief), `briefText` (o texto enquanto pendente; limpo ao postar ou expirar; nunca sai pela API de rotinas) e índice `(briefStatus, createdAt)`. Antes o estado ficava em `eventJson` com um filtro `NOT(path = posted)`; com `eventJson` NULL (como o cron cria a execução) o `NOT(NULL)` não casava, nada era marcado e o brief nunca entrava. Agora todo filtro é de coluna simples e há teste em Postgres real partindo de NULL.
+- **Pendente primeiro:** ao ficar pronto, o texto é gravado como `pending` (`markBriefPending`, confere o `count`); o push sai antes de qualquer consulta da execução, então perder a consulta não perde o aviso (sem a execução, o brief é postado direto, melhor esforço, com log).
+- **Mensagem idempotente:** a mensagem entra com id `brief-<routineRunId>` (`appendBriefMessage`; chave duplicada = já postada) e só depois `markBriefPosted` vira `posted`. Queda entre os dois passos: a próxima varredura reinsere (já existe, nada duplica) e marca. Não há reivindicação antes da gravação.
+- **Ocupada:** só execução `queued`/`running`/`retrying` segura o brief (`waiting_user` e pausada não), mais execução que terminou há menos de ~5 s (dá tempo de um follow-up encadeado começar). A checagem é feita logo antes de gravar.
+- **Quem posta:** (a) na hora, se livre; (b) fim de run (`completed`) pelo sweeper e `failed` só pela liberação de briefs (não roda o modo proativo); (c) a cada 60 s (`flushPendingBriefs`, consulta indexada `briefStatus = 'pending'`).
+- **Expiração:** pendente há mais de 12 h vira `expired`, sem texto, com aviso no log (contagem, nunca o conteúdo).
+- **Falha do run:** erro de vez, orçamento esgotado ou resposta vazia postam a linha fixa "Não consegui montar seu resumo de hoje." com o mesmo id (nunca por cima de um brief já postado). Texto vazio/orçamento esgotado no fim normal do run também mandam o push da linha; erro de vez só entra no chat, porque o `routine-failed` do mesmo fim de run já avisa o celular.
+- **Escopo (rule 40):** as funções por brief recebem o dono e filtram por `routine.userId`; só a varredura do sistema (`listPendingBriefs`, `expireStaleBriefs`) é global e devolve o dono de cada linha. Teste: o usuário B não marca, não posta nem lê o brief do A.
+- **Logs:** só `name`/`code` do erro, nunca o texto do brief nem a mensagem do Prisma.
 
 ## Riscos
 - **Prompt injection por e-mail/convite/mensagem:** trava de leitura em código, `[SOURCES]` e conteúdo marcados como não confiáveis, eval com e-mail malicioso (`12-brief-email-malicioso-nao-age`), teste do executor recusando escrita.
 - **Vazamento entre usuários:** `listBriefSources` só lê conexões do dono (teste com usuário B). O brief herda o `userId` da rotina.
 - **Deploy com versões mistas:** a coluna `template` é nula e aditiva. Quem cria a rotina é o runtime do agente (rodando no worker); API antiga com worker novo não muda nada. Worker antigo com a rotina já criada: ela rodaria como rotina comum (adiável e SEM o filtro de leitura) até o worker atualizar, então publique o worker junto com a migration.
-- **Mensagem atrasada:** com chat ocupado o brief aparece depois da tarefa (o push já avisou antes). Se o worker cair entre reivindicar e gravar a mensagem, ele pode se perder (janela de milissegundos; escolhido no lugar de risco de duplicar).
+- **Mensagem atrasada:** com chat ocupado o brief aparece depois da tarefa (o push já avisou antes). A queda entre gravar e marcar não perde nem duplica (id determinístico).
 - **Muito conteúdo:** instruções limitam a 50 e-mails por execução e proíbem copiar corpo inteiro.
 - **Fuso e horário de verão:** cron com fuso da rotina (copiado do fuso da conta na criação); `now` injetado nos testes.
 - **Interface:** o card e a lista de rotinas mostram o cron cru fora do card de criação (o card traz a frase). Resumo amigável na lista fica para a F3.
 
 ## Deploy
-Rode a migration antes da nova api/worker (o deploy da imagem já faz isso). Durante um deploy misto, um worker antigo trata o `daily_brief` como rotina comum (adiável e sem o filtro de leitura): risco baixo, porque roda uma vez por dia. A trava do run novo não depende de consulta ao banco: run de rotina sem conversa é sempre brief (falha fechada).
+Rode a migration `20261203000000_routine_run_brief_delivery` **antes** da nova api/worker (o deploy da imagem já faz isso): o worker novo lê e grava `briefStatus`/`briefText`. As colunas são nulas e aditivas; um worker antigo simplesmente as ignora. Durante um deploy misto, um worker antigo trata o `daily_brief` como rotina comum (adiável e sem o filtro de leitura): risco baixo, porque roda uma vez por dia. A trava do run novo não depende de consulta ao banco: run de rotina sem conversa é sempre brief (falha fechada).
 
 ## Custo
 Uma execução de modelo por dia útil por usuário com o brief ligado, com teto de 50 e-mails e as leituras do dia. Nenhuma chamada de modelo quando o brief está desligado. O custo em dólares não foi medido nesta fase (depende do modelo e das fontes); medir nos primeiros dias de uso antes da F3. Sem custo no "Bom dia": o grupo lazy não carrega (teste de economia).
