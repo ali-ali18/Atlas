@@ -147,6 +147,8 @@ import {
 	listApprovedConfirmTools,
 	releaseMcpTaskGrant,
 	markMcpTaskGrantsUntrusted,
+	markConversationUntrusted,
+	getConversationUntrustedAt,
 	persistJevStatusCard,
 	updateBot,
 	updateRoutine,
@@ -6267,13 +6269,22 @@ export async function runComputerUse(params: {
 	// F12/B5: login já pedido (no máx. 1 card por URL por run) e pedido pendente.
 	const loginAsked = new Set(parsedCheckpoint?.loginAsked ?? []);
 	// Conteúdo que o usuário não escreveu já entrou no contexto (também em run anterior da conversa, via checkpoint): sem aprovação por tarefa.
-	const mcpRun = { untrustedSeen: parsedCheckpoint?.untrustedSeen === true, executed: [] as string[] };
+	// Também de run anterior da conversa: o que ele leu segue na transcrição (marca `untrustedAt` da conversa, 24 h ou até compactar).
+	// Se a leitura da marca falhar, na dúvida vale como lido (o custo é só o Jev conferir cada uso).
+	const conversationUntrusted = userId && conversationId && !isSubagent
+		? await getConversationUntrustedAt({ userId, conversationId }).then((at) => at !== null, () => true)
+		: false;
+	const mcpRun = { untrustedSeen: parsedCheckpoint?.untrustedSeen === true || conversationUntrusted, executed: [] as string[] };
 	let grantsMarkedUntrusted = false;
 	const markUntrusted = async () => {
 		mcpRun.untrustedSeen = true;
 		if (grantsMarkedUntrusted || !userId || !conversationId) return;
 		grantsMarkedUntrusted = true;
-		await markMcpTaskGrantsUntrusted({ userId, conversationId }).catch(() => { grantsMarkedUntrusted = false; });
+		// A marca da conversa vale para os próximos runs; a das concessões, para as já existentes.
+		await Promise.all([
+			markConversationUntrusted({ userId, conversationId }),
+			markMcpTaskGrantsUntrusted({ userId, conversationId }),
+		]).catch(() => { grantsMarkedUntrusted = false; });
 	};
 	const botProposals = { count: 0 };
 	const secretSession: SecretSession | undefined = params.userId

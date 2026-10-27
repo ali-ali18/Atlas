@@ -13,6 +13,18 @@ export const MCP_TASK_GRANT_MAX_USES = 30;
 /** Teto de vida da concessão contado da primeira aprovação: renovar nunca estende além disso. */
 export const MCP_TASK_GRANT_MAX_LIFETIME_MS = 2 * 60 * 60_000;
 
+/**
+ * Quanto tempo a marca de conteúdo externo da CONVERSA vale. O conteúdo lido continua no contexto do modelo nos runs
+ * seguintes (transcrição levada), então a marca só cai quando ele deixa de estar lá: ao compactar a conversa
+ * (/compact reescreve a transcrição como resumo; o db apaga a marca) ou, no máximo, 24 h depois da última leitura.
+ */
+export const CONVERSATION_UNTRUSTED_TTL_MS = 24 * 60 * 60_000;
+
+/** A conversa ainda carrega conteúdo externo no contexto? `untrustedAt` nulo ou mais velho que o TTL = não. */
+export function isConversationUntrusted(untrustedAt: Date | null | undefined, now: Date): boolean {
+	return !!untrustedAt && now.getTime() - untrustedAt.getTime() < CONVERSATION_UNTRUSTED_TTL_MS;
+}
+
 export type McpTaskGrantState = { uses: number; maxUses: number; expiresAt: Date };
 
 /**

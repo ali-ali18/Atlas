@@ -710,6 +710,8 @@ export {
 } from "./brief-delivery.js";
 export {
 	grantMcpTask,
+	markConversationUntrusted,
+	getConversationUntrustedAt,
 	consumeMcpTaskGrant,
 	releaseMcpTaskGrant,
 	markMcpTaskGrantsUntrusted,

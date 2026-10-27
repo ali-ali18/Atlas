@@ -917,6 +917,8 @@ export {
 	MCP_TASK_GRANT_MAX_LIFETIME_MS,
 	hasExternalTargetArgs,
 	isUntrustedContentTool,
+	CONVERSATION_UNTRUSTED_TTL_MS,
+	isConversationUntrusted,
 	canGrantMcpTask,
 	mcpTaskGrantExpiry,
 	isMcpTaskGrantUsable,

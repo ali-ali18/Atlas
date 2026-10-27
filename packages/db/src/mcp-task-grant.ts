@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { MCP_TASK_GRANT_MAX_LIFETIME_MS, MCP_TASK_GRANT_MAX_USES, MCP_TASK_GRANT_TTL_MS } from "@workspace/shared";
+import { MCP_TASK_GRANT_MAX_LIFETIME_MS, isConversationUntrusted, MCP_TASK_GRANT_MAX_USES, MCP_TASK_GRANT_TTL_MS } from "@workspace/shared";
 import { prisma } from "./client.js";
 
 export type McpTaskGrantKey = { userId: string; conversationId: string; connectionId: string; exposedName: string };
@@ -14,9 +14,11 @@ export type McpTaskGrantUse = { uses: number; maxUses: number; confirmId: string
  * Tudo num único INSERT ... ON CONFLICT (sem corrida entre duas aprovações).
  */
 export async function grantMcpTask(input: McpTaskGrantKey & { confirmId?: string; now?: Date; maxUses?: number; /** O cartão foi levantado depois de conteúdo externo: a concessão já nasce marcada (Jev obrigatório em cada uso). */ untrusted?: boolean }): Promise<McpTaskGrantUse | null> {
-	const owned = await prisma.conversation.findFirst({ where: { id: input.conversationId, userId: input.userId }, select: { id: true } });
+	const owned = await prisma.conversation.findFirst({ where: { id: input.conversationId, userId: input.userId }, select: { id: true, untrustedAt: true } });
 	if (!owned) return null;
 	const now = input.now ?? new Date();
+	// A conversa já leu conteúdo externo (neste ou em run anterior): a concessão já nasce marcada.
+	const untrusted = input.untrusted || isConversationUntrusted(owned.untrustedAt, now);
 	// Tabela minúscula: a limpeza dos vencidos acompanha cada concessão nova.
 	await deleteExpiredMcpTaskGrants(now).catch(() => 0);
 	const maxUses = input.maxUses ?? MCP_TASK_GRANT_MAX_USES;
@@ -24,7 +26,7 @@ export async function grantMcpTask(input: McpTaskGrantKey & { confirmId?: string
 	const lifetimeSeconds = MCP_TASK_GRANT_MAX_LIFETIME_MS / 1000;
 	const rows = await prisma.$queryRaw<Array<{ uses: number; maxUses: number; confirmId: string | null }>>`
 		INSERT INTO "mcp_task_grants" ("id", "userId", "conversationId", "connectionId", "exposedName", "confirmId", "uses", "maxUses", "expiresAt", "createdAt", "updatedAt", "untrustedAt")
-		VALUES (${randomUUID()}, ${input.userId}, ${input.conversationId}, ${input.connectionId}, ${input.exposedName}, ${input.confirmId ?? null}, 1, ${maxUses}, ${expiresAt}, ${now}, ${now}, ${input.untrusted ? now : null})
+		VALUES (${randomUUID()}, ${input.userId}, ${input.conversationId}, ${input.connectionId}, ${input.exposedName}, ${input.confirmId ?? null}, 1, ${maxUses}, ${expiresAt}, ${now}, ${now}, ${untrusted ? now : null})
 		ON CONFLICT ("conversationId", "connectionId", "exposedName") DO UPDATE SET
 			"userId" = EXCLUDED."userId",
 			"confirmId" = EXCLUDED."confirmId",
@@ -82,6 +84,24 @@ export async function markMcpTaskGrantsUntrusted(input: { userId: string; conver
 		data: { untrustedAt: input.now ?? new Date() },
 	});
 	return result.count;
+}
+
+/**
+ * A conversa leu conteúdo externo: grava `untrustedAt` nela (só do dono), para o PRÓXIMO run saber, já que o conteúdo
+ * lido segue na transcrição. Reler renova a marca (o prazo conta da última leitura).
+ */
+export async function markConversationUntrusted(input: { userId: string; conversationId: string; now?: Date }): Promise<boolean> {
+	const result = await prisma.conversation.updateMany({
+		where: { id: input.conversationId, userId: input.userId },
+		data: { untrustedAt: input.now ?? new Date() },
+	});
+	return result.count === 1;
+}
+
+/** Início de um run: a conversa (do dono) ainda carrega conteúdo externo? Marca vencida (24 h) ou compactada = `null`. */
+export async function getConversationUntrustedAt(input: { userId: string; conversationId: string; now?: Date }): Promise<Date | null> {
+	const row = await prisma.conversation.findFirst({ where: { id: input.conversationId, userId: input.userId }, select: { untrustedAt: true } });
+	return isConversationUntrusted(row?.untrustedAt, input.now ?? new Date()) ? row!.untrustedAt : null;
 }
 
 /** Limpeza de concessões vencidas (chamada oportunista; a tabela é minúscula). */

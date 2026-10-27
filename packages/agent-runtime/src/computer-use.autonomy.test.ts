@@ -6,6 +6,8 @@ import {
 	consumeMcpTaskGrant,
 	listApprovedConfirmTools,
 	markMcpTaskGrantsUntrusted,
+	markConversationUntrusted,
+	getConversationUntrustedAt,
 	releaseMcpTaskGrant,
 	persistJevStatusCard,
 	saveSkillPendingIntent,
@@ -34,6 +36,8 @@ vi.mock("@workspace/db", async (importOriginal) => {
 		listApprovedConfirmTools: vi.fn(async () => []),
 		releaseMcpTaskGrant: vi.fn(async () => undefined),
 		markMcpTaskGrantsUntrusted: vi.fn(async () => 0),
+		markConversationUntrusted: vi.fn(async () => true),
+		getConversationUntrustedAt: vi.fn(async () => null),
 		persistConversationCardFromEvent: vi.fn(async () => undefined),
 		updateBot: vi.fn(async () => ({})),
 		loadAutonomyContext: vi.fn(async () => ({ accountRaw: null, botRaw: null, botName: "Taldo" })),
@@ -410,6 +414,33 @@ describe("aprovação por tarefa: conteúdo que o usuário não escreveu passa p
 		const ok = await run({ autonomy: lvl("balanced"), text: "cria", jevMcpMode: "gate", evaluateMcpWithJev: clean, calls: [toolCall("c1", create, { summary: "x" }), assistantDone()] });
 		expect(clean).toHaveBeenCalledTimes(1);
 		expect(ok.call).toHaveBeenCalledTimes(1);
+	});
+
+	it("run 1 lê e-mail (sem cartão), run 2 pede cartão e run 3 usa a concessão: a marca da conversa faz o Jev conferir em run 2 e 3", async () => {
+		// Run 1: leitura de conteúdo externo grava a marca na conversa (só do dono, via ids do run).
+		vi.mocked(consumeMcpTaskGrant).mockResolvedValue(null);
+		const run1 = await run({ autonomy: lvl("balanced"), text: "lê meus e-mails", jevMcpMode: "gate", maxSteps: 6, calls: [toolCall("r1", list, {}), assistantDone()] });
+		expect(run1.confirms).toHaveLength(0);
+		expect(markConversationUntrusted).toHaveBeenCalledWith({ userId: "user-1", conversationId: "conv-aut" });
+		// Run 2: o run novo NÃO tem checkpoint com a marca, mas a conversa tem: o cartão sai marcado (a concessão nasce marcada).
+		vi.mocked(getConversationUntrustedAt).mockResolvedValue(new Date());
+		const run2 = await run({ autonomy: lvl("balanced"), text: "coloca a prova na agenda", jevMcpMode: "gate", maxSteps: 6, calls: [toolCall("c1", create, { summary: "Prova 1" })] });
+		expect(run2.confirms).toHaveLength(1);
+		expect(saveSkillPendingIntent).toHaveBeenLastCalledWith(expect.objectContaining({ payload: expect.objectContaining({ mcpCall: expect.objectContaining({ untrustedSeen: true }) }) }));
+		// Run 3: com a concessão e a conversa marcada, o uso passa pelo Jev (e o Jev limpo libera sem cartão).
+		let uses = 1;
+		vi.mocked(consumeMcpTaskGrant).mockImplementation(async () => ({ uses: (uses += 1), maxUses: 30, confirmId: "x", untrustedAt: null }));
+		const evaluator = vi.fn(async () => ({ model: "jev", alignment: 1, externalInstruction: 0, durationMs: 1 }));
+		const run3 = await run({ autonomy: lvl("balanced"), text: "mais uma prova", jevMcpMode: "gate", evaluateMcpWithJev: evaluator, maxSteps: 6, calls: [toolCall("c2", create, { summary: "Prova 2" }), assistantDone()] });
+		expect(evaluator).toHaveBeenCalledTimes(1);
+		expect(evaluator.mock.calls[0]?.[0]).toMatchObject({ untrustedContentSeen: true });
+		expect(run3.confirms).toHaveLength(0);
+		expect(run3.call).toHaveBeenCalledTimes(1);
+		// ... e o Jev que acusa instrução externa devolve o cartão.
+		const blocking = vi.fn(async () => ({ model: "jev", alignment: 1, externalInstruction: 0.9, durationMs: 1 }));
+		const run3b = await run({ autonomy: lvl("balanced"), text: "mais uma prova", jevMcpMode: "gate", evaluateMcpWithJev: blocking, maxSteps: 6, calls: [toolCall("c3", create, { summary: "Prova 3" })] });
+		expect(run3b.confirms).toHaveLength(1);
+		vi.mocked(getConversationUntrustedAt).mockResolvedValue(null);
 	});
 
 	it("o mesmo vale em autonomia que liberaria sozinha: Jev fora do ar + 'sempre' + conteúdo externo pergunta", async () => {

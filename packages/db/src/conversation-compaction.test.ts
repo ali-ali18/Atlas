@@ -6,6 +6,7 @@ import { FakeTable, installFakes } from "./testing/fake-tables.js";
 
 let runs: InstanceType<typeof FakeTable>;
 let messages: InstanceType<typeof FakeTable>;
+let conversations: InstanceType<typeof FakeTable>;
 let installed: { restore: () => void };
 
 const T0 = new Date("2026-01-01T10:00:00Z");
@@ -28,7 +29,8 @@ beforeEach(() => {
 	]);
 	// O fake só ordena por uma chave; a marca d'água usa [createdAt, id] desc: aqui a última linha por data.
 	messages.findFirst = async () => [...messages.rows].sort((a, b) => (b.createdAt as Date).getTime() - (a.createdAt as Date).getTime())[0] ?? null;
-	installed = installFakes({ agentRun: runs, conversationMessage: messages });
+	conversations = new FakeTable([{ id: "conv-1", userId: "user-a", untrustedAt: new Date("2026-01-01T09:45:00Z") }]);
+	installed = installFakes({ agentRun: runs, conversationMessage: messages, conversation: conversations });
 });
 afterEach(() => installed.restore());
 
@@ -52,6 +54,17 @@ test("grava a conversa compactada, avança a marca d'água e preserva tools, not
 	assert.deepEqual(saved.loadedTools, checkpoint.loadedTools);
 	assert.deepEqual(saved.carriedNotes, checkpoint.carriedNotes);
 	assert.deepEqual(saved.taskState, checkpoint.taskState);
+});
+
+test("compactar tira a marca de conteúdo externo da conversa (e o aviso do checkpoint); falhar na gravação mantém", async () => {
+	runs.rows[0]!.checkpointJson = { ...checkpoint, untrustedSeen: true };
+	assert.equal(await write({ userId: "user-b" }), false);
+	assert.ok(conversations.rows[0]!.untrustedAt instanceof Date, "outro dono não limpa");
+	assert.equal(await write({ transcript: { runId: "run-1", updatedAt: new Date("2026-01-01T09:59:00Z") } }), false);
+	assert.ok(conversations.rows[0]!.untrustedAt instanceof Date, "gravação perdida não limpa");
+	assert.equal(await write(), true);
+	assert.equal(conversations.rows[0]!.untrustedAt, null);
+	assert.equal((runs.rows[0]!.checkpointJson as Record<string, unknown>).untrustedSeen, undefined);
 });
 
 test("gravação otimista: se o run mudou desde a leitura (ou a leitura é de outra versão), nada é gravado", async () => {

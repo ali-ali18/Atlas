@@ -18,3 +18,5 @@ CREATE UNIQUE INDEX "mcp_task_grants_conversationId_connectionId_exposedName_key
 CREATE INDEX "mcp_task_grants_userId_idx" ON "mcp_task_grants"("userId");
 CREATE INDEX "mcp_task_grants_expiresAt_idx" ON "mcp_task_grants"("expiresAt");
 ALTER TABLE "mcp_task_grants" ADD CONSTRAINT "mcp_task_grants_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "conversations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Conteúdo externo lido na conversa (qualquer run): o próximo run herda a marca até 24 h ou até compactar. Coluna nula e aditiva.
+ALTER TABLE "conversations" ADD COLUMN "untrustedAt" TIMESTAMP(3);

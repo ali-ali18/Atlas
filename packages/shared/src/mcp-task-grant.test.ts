@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MCP_TASK_GRANT_MAX_LIFETIME_MS, MCP_TASK_GRANT_MAX_USES, hasExternalTargetArgs, isUntrustedContentTool, MCP_TASK_GRANT_TTL_MS, canGrantMcpTask, describeMcpTaskGrantUses, isMcpTaskGrantUsable, mcpTaskGrantExpiry } from "./mcp-task-grant.js";
+import { MCP_TASK_GRANT_MAX_LIFETIME_MS, MCP_TASK_GRANT_MAX_USES, hasExternalTargetArgs, isUntrustedContentTool, isConversationUntrusted, CONVERSATION_UNTRUSTED_TTL_MS, MCP_TASK_GRANT_TTL_MS, canGrantMcpTask, describeMcpTaskGrantUses, isMcpTaskGrantUsable, mcpTaskGrantExpiry } from "./mcp-task-grant.js";
 
 const now = new Date("2026-10-27T12:00:00Z");
 
@@ -105,5 +105,15 @@ describe("conteúdo que o usuário não escreveu", () => {
 	it("só as tools internas limpas (resultado feito pelo próprio Atlas) não marcam", () => {
 		const clean = ["propose_routine", "propose_questionnaire", "propose_profile_update", "update_task_list", "todo_write", "notify_user", "set_autonomy", "schedule_followup", "cancel_followup", "reschedule_followup", "request_secrets"];
 		for (const name of clean) expect(isUntrustedContentTool(name), name).toBe(false);
+	});
+});
+
+describe("marca de conteúdo externo da conversa", () => {
+	it("vale até 24 h depois da última leitura; sem marca, não vale", () => {
+		expect(isConversationUntrusted(null, now)).toBe(false);
+		expect(isConversationUntrusted(undefined, now)).toBe(false);
+		expect(isConversationUntrusted(new Date(now.getTime() - 60_000), now)).toBe(true);
+		expect(isConversationUntrusted(new Date(now.getTime() - CONVERSATION_UNTRUSTED_TTL_MS + 1), now)).toBe(true);
+		expect(isConversationUntrusted(new Date(now.getTime() - CONVERSATION_UNTRUSTED_TTL_MS), now)).toBe(false);
 	});
 });

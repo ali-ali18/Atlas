@@ -113,6 +113,8 @@ model Conversation {
   summaries ConversationSummary[]
   bot       Bot?
   mcpTaskGrants McpTaskGrant[]
+  /// Última vez que a conversa recebeu conteúdo que o usuário não escreveu (e-mail, página, arquivo, conector). Decai em 24 h ou ao compactar.
+  untrustedAt DateTime?
 
   @@index([userId])
   @@map("conversations")

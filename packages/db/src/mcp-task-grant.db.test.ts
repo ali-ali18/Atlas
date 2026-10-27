@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import { prisma } from "./client.js";
 import { serializeConversationCard } from "@workspace/shared";
 import { listApprovedConfirmTools } from "./conversations.js";
-import { consumeMcpTaskGrant, deleteExpiredMcpTaskGrants, grantMcpTask, markMcpTaskGrantsUntrusted, releaseMcpTaskGrant } from "./mcp-task-grant.js";
+import { consumeMcpTaskGrant, deleteExpiredMcpTaskGrants, getConversationUntrustedAt, grantMcpTask, markConversationUntrusted, markMcpTaskGrantsUntrusted, releaseMcpTaskGrant } from "./mcp-task-grant.js";
 import { createTestUser, dbSkip } from "./testing/test-db.js";
 
 async function conversation(userId: string) {
@@ -112,6 +112,29 @@ describe("aprovação por tarefa (Postgres real)", { skip: dbSkip }, () => {
 		const results = await Promise.all(Array.from({ length: 24 }, () => consumeMcpTaskGrant({ ...key, now })));
 		assert.equal(results.filter(Boolean).length, 5, "1 uso da aprovação + 5 consumos = 6");
 		assert.equal((await prisma.mcpTaskGrant.findFirstOrThrow({ where: { conversationId: conv.id } })).uses, 6);
+	});
+
+	test("marca de conteúdo externo na conversa: só do dono, vale 24 h, e a concessão criada depois nasce marcada", async () => {
+		const a = (await createTestUser("conv-untrusted-a")).id;
+		const b = (await createTestUser("conv-untrusted-b")).id;
+		const conv = await conversation(a);
+		const t0 = new Date("2026-10-27T12:00:00Z");
+		const key = { userId: a, conversationId: conv.id, connectionId: "conn-1", exposedName: "mcp__cal__create_event" };
+		assert.equal(await getConversationUntrustedAt({ userId: a, conversationId: conv.id, now: t0 }), null, "conversa limpa");
+		assert.equal(await markConversationUntrusted({ userId: b, conversationId: conv.id, now: t0 }), false, "outro usuário não marca");
+		assert.equal(await getConversationUntrustedAt({ userId: a, conversationId: conv.id, now: t0 }), null);
+		assert.equal(await markConversationUntrusted({ userId: a, conversationId: conv.id, now: t0 }), true);
+		assert.equal((await getConversationUntrustedAt({ userId: a, conversationId: conv.id, now: new Date(t0.getTime() + 60_000) }))?.getTime(), t0.getTime());
+		assert.equal(await getConversationUntrustedAt({ userId: b, conversationId: conv.id, now: t0 }), null, "outro usuário não lê");
+		assert.equal(await getConversationUntrustedAt({ userId: a, conversationId: conv.id, now: new Date(t0.getTime() + 24 * 3_600_000 + 1) }), null, "vence em 24 h");
+		// Concessão aprovada num run seguinte, sem o aviso do cartão: já nasce marcada pela conversa.
+		await grantMcpTask({ ...key, now: new Date(t0.getTime() + 60_000) });
+		assert.ok((await prisma.mcpTaskGrant.findFirstOrThrow({ where: { conversationId: conv.id } })).untrustedAt instanceof Date);
+		// Marca vencida: a concessão nova não herda.
+		const old = await conversation(a);
+		await markConversationUntrusted({ userId: a, conversationId: old.id, now: t0 });
+		await grantMcpTask({ ...key, conversationId: old.id, now: new Date(t0.getTime() + 25 * 3_600_000) });
+		assert.equal((await prisma.mcpTaskGrant.findFirstOrThrow({ where: { conversationId: old.id } })).untrustedAt, null);
 	});
 
 	test("aprovados da conversa: só nomes de tool, escopados pelo dono e pela janela injetada", async () => {
