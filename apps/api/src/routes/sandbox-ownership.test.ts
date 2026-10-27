@@ -11,7 +11,7 @@ import type { SandboxSessionResponse } from "@workspace/shared";
 
 const config = loadSandboxConfig({ SANDBOX_ENABLED: "false" });
 const session: SandboxSessionResponse = { sessionId: "session-a", conversationId: "conversation-a", status: "running", viewerUrl: "http://localhost:7001/vnc.html", createdAt: new Date(0).toISOString() };
-function appFor(userId: string, effects: string[]) {
+function appFor(userId: string, effects: string[], stop: () => Promise<boolean> = async () => { effects.push("stop"); return true; }) {
 	const app = new Hono<AuthEnv>();
 	app.use("*", async (c, next) => {
 		const now = new Date();
@@ -27,7 +27,7 @@ function appFor(userId: string, effects: string[]) {
 			getSessionForConversation: async () => { effects.push("lookup"); return session; },
 			resolveSession: async () => { effects.push("create"); return session; },
 			destroySession: async () => { effects.push("destroy"); return true; },
-			stopSession: async () => { effects.push("stop"); return true; },
+			stopSession: stop,
 			clearBrowserProfile: async (conversationId) => { effects.push(`clear:${conversationId}`); return { cleared: true, removedContainers: 1 }; },
 			execScreenshot: async () => { effects.push("screenshot"); return Buffer.from([1, 2]); },
 			execClick: async () => { effects.push("click"); return { ok: true }; },
@@ -90,4 +90,15 @@ test("limpar sessão do navegador exige dono da conversa e conversationId", asyn
 	assert.equal(ok.status, 200);
 	assert.deepEqual(await ok.json(), { ok: true, cleared: true, removedContainers: 1 });
 	assert.deepEqual(effects, ["clear:conversation-a"]);
+});
+
+test("parar: VM já parada é sucesso, sessão inexistente é 404 e erro de Docker é 500 (nunca um sucesso falso)", async () => {
+	const effects: string[] = [];
+	const stopRequest = (stop: () => Promise<boolean>) => appFor("user-a", effects, stop).request("/v1/sandbox/sessions/session-a/stop", { method: "POST" });
+	// O manager real devolve true para container já parado (Docker 304); false só para sessão inexistente ou alheia.
+	assert.equal((await stopRequest(async () => true)).status, 200);
+	assert.equal((await stopRequest(async () => false)).status, 404);
+	const failed = await stopRequest(async () => { throw new Error("docker daemon error"); });
+	assert.equal(failed.status, 500);
+	assert.doesNotMatch(await failed.text(), /daemon/);
 });

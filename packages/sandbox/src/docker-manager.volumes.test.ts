@@ -8,6 +8,8 @@ const state = vi.hoisted(() => ({
 	execs: [] as Array<Record<string, unknown>>,
 	stopOpts: [] as unknown[],
 	createError: undefined as { statusCode: number } | undefined,
+	stopError: undefined as { statusCode?: number; message: string } | undefined,
+	listed: undefined as Array<Record<string, unknown>> | undefined,
 }));
 
 vi.mock("dockerode", () => {
@@ -21,6 +23,7 @@ vi.mock("dockerode", () => {
 		stop: async (opts?: unknown) => {
 			state.stopOpts.push(opts);
 			state.calls.push(`stop:${id}`);
+			if (state.stopError) throw state.stopError;
 		},
 		remove: async (opts: unknown) => void state.calls.push(`remove:${id}:${JSON.stringify(opts)}`),
 		exec: async (opts: Record<string, unknown>) => {
@@ -53,6 +56,7 @@ vi.mock("dockerode", () => {
 			};
 		}
 		async listContainers() {
+			if (state.listed) return state.listed;
 			return [{ Id: "c-old", Names: ["/atlas-sandbox-s1"], Labels: { "atlas.sandbox.userId": "u1", "atlas.sandbox.conversationId": "conv-x", "atlas.sandbox.sessionId": "s1" } }];
 		}
 		async createContainer(opts: (typeof state.created)[number]) {
@@ -92,6 +96,8 @@ describe("sandbox volumes e shell via manager", () => {
 		state.execs = [];
 		state.stopOpts = [];
 		state.createError = undefined;
+		state.stopError = undefined;
+		state.listed = undefined;
 		state.volumeError = undefined;
 		vi.stubGlobal("fetch", async () => ({ ok: true }));
 		vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -152,6 +158,29 @@ describe("sandbox volumes e shell via manager", () => {
 		await createSandboxManager(config, "u1").clearBrowserProfile("conv-x");
 		expect(state.stopOpts).toEqual([{ t: SANDBOX_STOP_TIMEOUT_S }]);
 		expect(SANDBOX_STOP_TIMEOUT_S).toBe(15);
+	});
+
+	it("stopConversationSession: sem VM ligada é false; erro de Docker propaga (não finge que já estava desligada)", async () => {
+		const manager = createSandboxManager(config, "u1");
+		state.listed = [];
+		expect(await manager.stopConversationSession("conv-x")).toBe(false);
+		state.listed = [{ Id: "c1", Labels: { "atlas.sandbox.userId": "u1", "atlas.sandbox.conversationId": "conv-x" } }];
+		expect(await manager.stopConversationSession("conv-x")).toBe(true);
+		state.stopError = { statusCode: 304, message: "container already stopped" };
+		expect(await manager.stopConversationSession("conv-x")).toBe(false);
+		state.stopError = { statusCode: 500, message: "docker daemon error" };
+		await expect(manager.stopConversationSession("conv-x")).rejects.toMatchObject({ message: "docker daemon error" });
+	});
+
+	it("stopSession: VM já parada é sucesso, sessão alheia é false e erro de Docker propaga", async () => {
+		const manager = createSandboxManager(config, "u1");
+		const session = await manager.createSession("conv-x");
+		expect(await manager.stopSession(session.sessionId)).toBe(true);
+		state.stopError = { statusCode: 304, message: "container already stopped" };
+		expect(await manager.stopSession(session.sessionId)).toBe(true);
+		expect(await createSandboxManager(config, "u2").stopSession(session.sessionId)).toBe(false);
+		state.stopError = { statusCode: 500, message: "docker daemon error" };
+		await expect(manager.stopSession(session.sessionId)).rejects.toMatchObject({ message: "docker daemon error" });
 	});
 
 	it("clearBrowserProfile remove o container (v:false) e só o volume do perfil, depois do container", async () => {
