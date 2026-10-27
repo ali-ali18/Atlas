@@ -62,6 +62,34 @@ describe("escrita com alvo externo", () => {
 		expect(hasExternalTargetArgs({ title: "Prova de Cálculo", start: "2026-10-30", notes: "levar calculadora" })).toBe(false);
 		expect(hasExternalTargetArgs(null)).toBe(false);
 	});
+	it("chaves comuns de destinatário e sufixos address/addresses bloqueiam", () => {
+		for (const key of ["participants", "members", "collaborators", "reviewers", "shareWith", "permissions", "mailing_address", "ccAddresses"]) {
+			expect(hasExternalTargetArgs({ title: "x", [key]: ["alguem"] }), key).toBe(true);
+			expect(hasExternalTargetArgs({ title: "x", [key]: [] }), `${key} vazio`).toBe(false);
+		}
+	});
+	it("e-mail ou URL em qualquer valor, em qualquer profundidade, bloqueia mesmo com chave desconhecida", () => {
+		// Composio calendar: convidados como objetos aninhados e chaves imprevisíveis.
+		expect(hasExternalTargetArgs({ calendar_id: "primary", event: { people: [{ who: "a@evil.com", optional: false }] } })).toBe(true);
+		expect(hasExternalTargetArgs({ body: { data: { nested: ["ok", { x: "Fulano <f@evil.com>" }] } } })).toBe(true);
+		expect(hasExternalTargetArgs({ who: "a@b.com, c@d.org" })).toBe(true);
+		expect(hasExternalTargetArgs({ meeting: { link: "https://meet.example.com/abc" } })).toBe(true);
+		expect(hasExternalTargetArgs({ ref: "www.evil.test/x" })).toBe(true);
+		expect(hasExternalTargetArgs(["a@b.com"])).toBe(true);
+	});
+	it("create_event típico de data de prova, sem convidados nem links, continua passando", () => {
+		expect(hasExternalTargetArgs({
+			calendar_id: "primary",
+			summary: "Prova de Cálculo II",
+			description: "Levar calculadora e documento. Conteúdo: integrais (cap. 5 e 6). Falar com prof@escola.com se precisar.",
+			start: { dateTime: "2026-11-03T10:00:00-03:00", timeZone: "America/Sao_Paulo" },
+			end: { dateTime: "2026-11-03T12:00:00-03:00", timeZone: "America/Sao_Paulo" },
+			location: "Sala 204, Bloco B",
+			reminders: { useDefault: true },
+			attendees: [],
+			sendUpdates: "none",
+		})).toBe(false);
+	});
 });
 
 describe("conteúdo que o usuário não escreveu", () => {

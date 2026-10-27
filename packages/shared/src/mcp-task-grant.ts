@@ -45,9 +45,12 @@ export function describeMcpTaskGrantUses(uses: number): string {
 const EXTERNAL_TARGET_KEYS = new Set([
 	"attendees", "attendee", "guests", "guest", "invitees", "invitee", "to", "cc", "bcc", "recipients", "recipient",
 	"email", "emails", "webhook", "webhooks", "url", "urls", "uri", "endpoint", "sendto", "sendupdates", "sendnotifications",
+	"participants", "participant", "members", "collaborators", "reviewers", "sharewith", "permissions",
 ]);
-const EXTERNAL_TARGET_SUFFIXES = ["email", "emails", "url", "urls", "webhook", "recipients", "attendees"];
+const EXTERNAL_TARGET_SUFFIXES = ["email", "emails", "url", "urls", "webhook", "recipients", "attendees", "address", "addresses"];
 const EXTERNAL_TARGET_MAX_DEPTH = 5;
+const EMAIL_RE = /^(?:[^<>@,;]*<)?[^<>@\s,;]+@[^<>@\s,;]+\.[^<>@\s,;]+>?$/;
+const URL_RE = /^(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S+$/i;
 
 function isEmptyTargetValue(value: unknown): boolean {
 	if (value === null || value === undefined || value === false) return true;
@@ -57,7 +60,20 @@ function isEmptyTargetValue(value: unknown): boolean {
 	return false;
 }
 
+/**
+ * Valor que, sozinho, é um endereço de e-mail (também "Nome <a@b.c>" e listas separadas por vírgula/ponto e vírgula)
+ * ou uma URL: independe do nome do campo (conectores como o Composio usam chaves imprevisíveis). Texto livre com um
+ * e-mail no meio de uma frase não conta. URL do próprio recurso do conector não tem exceção: na dúvida, conta.
+ */
+function isExternalTargetString(value: string): boolean {
+	const text = value.trim();
+	if (!text || text.length > 2000) return false;
+	if (URL_RE.test(text)) return true;
+	return text.split(/[,;]/).map((part) => part.trim()).filter(Boolean).some((part) => EMAIL_RE.test(part));
+}
+
 export function hasExternalTargetArgs(args: unknown, depth = 0): boolean {
+	if (typeof args === "string") return isExternalTargetString(args);
 	if (depth > EXTERNAL_TARGET_MAX_DEPTH || args === null || typeof args !== "object") return false;
 	if (Array.isArray(args)) return args.slice(0, 100).some((item) => hasExternalTargetArgs(item, depth + 1));
 	for (const [key, value] of Object.entries(args as Record<string, unknown>)) {
