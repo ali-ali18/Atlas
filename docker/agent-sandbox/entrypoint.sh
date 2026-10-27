@@ -21,7 +21,11 @@ WALLPAPER="${SANDBOX_WALLPAPER:-/usr/share/backgrounds/atlas-wallpaper.jpg}"
 graceful_shutdown() {
 	trap '' TERM INT
 	echo "[entrypoint] SIGTERM: fechando o Chrome"
-	pkill -TERM -x chrome 2>/dev/null || true
+	# SIGTERM só ao processo principal do navegador (sem --type=): ele fecha os renderers e grava o perfil.
+	# Sinalizar os renderers junto os derrubaria antes de o principal terminar a escrita.
+	for pid in $(pgrep -x chrome 2>/dev/null); do
+		tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--type=' || kill -TERM "$pid" 2>/dev/null || true
+	done
 	for _ in $(seq 1 100); do
 		pgrep -x chrome >/dev/null 2>&1 || break
 		sleep 0.1
