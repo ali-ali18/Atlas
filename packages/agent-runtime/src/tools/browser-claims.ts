@@ -72,13 +72,16 @@ const GATED_PATTERNS: readonly RegExp[] = [
 const WEBSITE_HINT = /(https?:\/\/|\bwww\.|\b[a-z0-9-]+\.(com|org|net|io|app|dev|gov|edu)(\.[a-z]{2})?\b|\b(do|no|da|na|of the|on the) (site|website|navegador|browser|pagina|portal)\b|\b(no|do) painel d[oae]s? [a-z0-9.-]+\.[a-z]{2,}|\bdo site\b)/;
 
 const NEGATION_WORDS = new Set(["nao", "nunca", "jamais", "sem", "not", "never", "cannot", "unable", "failed", "nem", "tampouco", "impossivel"]);
-const NEGATION_WINDOW_WORDS = 4;
+/** A negação tem de estar colada na afirmação ("não consegui entrar", "cannot tell if the login worked"). */
+const NEGATION_WINDOW_WORDS = 3;
+/** Vírgula e conjunções abrem outra oração: a negação de uma não vale para a seguinte. */
+const CLAUSE_BOUNDARY = /,|\b(mas|e|but|and)\b/g;
 
-/** Negação (não/nao/n't/cannot/sem/not...) nas poucas palavras antes do trecho, dentro da mesma frase. */
+/** Negação (não/nao/n't/cannot/sem/not...) nas 3 palavras antes do trecho, na mesma frase e na mesma oração. */
 function isNegatedBefore(plain: string, index: number): boolean {
 	const sentenceStart = Math.max(plain.lastIndexOf(".", index - 1), plain.lastIndexOf("!", index - 1), plain.lastIndexOf("?", index - 1), plain.lastIndexOf("\n", index - 1), plain.lastIndexOf(";", index - 1), plain.lastIndexOf(":", index - 1));
-	const before = plain.slice(sentenceStart + 1, index);
-	const words = before.split(/[\s,]+/).filter(Boolean).slice(-NEGATION_WINDOW_WORDS);
+	const clause = plain.slice(sentenceStart + 1, index).split(CLAUSE_BOUNDARY).pop() ?? "";
+	const words = clause.split(/\s+/).filter(Boolean).slice(-NEGATION_WINDOW_WORDS);
 	return words.some((word) => NEGATION_WORDS.has(word) || /n't$/.test(word) || word === "nt");
 }
 
@@ -94,7 +97,8 @@ function hasUnnegatedMatch(plain: string, patterns: readonly RegExp[]): boolean 
 
 /** O texto final afirma um estado do navegador ("entrou na conta", "está logado", "a tela mostra…")? Negações não contam. */
 export function claimsBrowserState(text: string): boolean {
-	const plain = strip(text).replace(/[’‘]/g, "'");
+	// "é" (verbo) vira "eh" antes de tirar o acento: senão confunde com a conjunção "e" (limite de oração).
+	const plain = strip(text.replace(/(^|[^\p{L}])é(?![\p{L}])/giu, "$1eh")).replace(/[’‘]/g, "'");
 	if (hasUnnegatedMatch(plain, CLAIM_PATTERNS)) return true;
 	return WEBSITE_HINT.test(plain) && hasUnnegatedMatch(plain, GATED_PATTERNS);
 }

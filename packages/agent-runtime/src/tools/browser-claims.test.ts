@@ -20,6 +20,12 @@ describe("claimsBrowserState", () => {
 		"I accessed the dashboard.",
 		"The dashboard at https://panel.example.com shows two courses.",
 		"Ya inicié sesión.",
+		// a negação de uma oração não vaza para a seguinte
+		"Não deu erro, entrei na conta.",
+		"Sem problemas, loguei.",
+		"Não houve captcha, mas entrei na conta.",
+		"No errors and I'm signed in now.",
+		"É simples e entrei na conta.",
 	])("detecta afirmação: %s", (text) => expect(claimsBrowserState(text)).toBe(true));
 
 	it.each([
@@ -51,6 +57,9 @@ describe("claimsBrowserState", () => {
 		"Sem login feito, não dá para continuar.",
 		"O login não funcionou.",
 		"Não, a tela não mostra o painel.",
+		"Não consegui entrar.",
+		"Não estou logado.",
+		"É que não estou logado.",
 	])("negação não é afirmação: %s", (text) => expect(claimsBrowserState(text)).toBe(false));
 
 	it("a negação vale só para a frase em que está", () => {
