@@ -214,6 +214,14 @@ function matchException(
 	);
 }
 
+/** Modo da exceção que vale para a tool (tool vence conector); `undefined` = nenhuma. */
+export function autonomyExceptionMode(
+	policy: Pick<AutonomyPolicy, "exceptions">,
+	meta: AutonomyToolMeta,
+): AutonomyExceptionMode | undefined {
+	return matchException(policy, meta)?.mode;
+}
+
 /**
  * Gate único. Exceção vence o nível (tool > conector; a primeira da lista
  * vence); sem exceção, vale a matriz nível × classe. `blocked` tira a tool.

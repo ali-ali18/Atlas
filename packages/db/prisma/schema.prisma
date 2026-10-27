@@ -112,6 +112,7 @@ model Conversation {
   messages  ConversationMessage[]
   summaries ConversationSummary[]
   bot       Bot?
+  mcpTaskGrants McpTaskGrant[]
 
   @@index([userId])
   @@map("conversations")
@@ -652,6 +653,28 @@ model SkillPendingIntent {
   @@index([expiresAt])
   @@index([userId])
   @@map("skill_pending_intents")
+}
+
+/// Aprovação que vale para a tarefa: depois de aprovar um cartão de escrita reversível de conector, a mesma
+/// tool na mesma conexão e conversa passa sem cartão até `expiresAt` ou `maxUses`. Escopo por dono (`userId`).
+model McpTaskGrant {
+  id String @id @default(cuid())
+  userId String
+  conversationId String
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  connectionId String
+  exposedName String
+  /// Cartão cuja aprovação gerou a concessão (o contador aparece nele).
+  confirmId String?
+  uses Int @default(0)
+  maxUses Int
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([conversationId, connectionId, exposedName])
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("mcp_task_grants")
 }
 
 /// Skill como documento Markdown (PLANO-SKILLS K0). Escopo: conta (botId nulo)

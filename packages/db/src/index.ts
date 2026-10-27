@@ -23,6 +23,8 @@ export {
 	touchBotProfileCard,
 	updateConfirmCardStatus,
 	findExecutedConfirmCall,
+	setConfirmCardGrantUses,
+	listApprovedConfirmTitles,
 	getLatestConfirmCardStatus,
 	markLoginCardDone,
 	hasPendingQuestionnaireCard,
@@ -706,3 +708,10 @@ export {
 	type MarkPendingMode,
 	type PendingBrief,
 } from "./brief-delivery.js";
+export {
+	grantMcpTask,
+	consumeMcpTaskGrant,
+	deleteExpiredMcpTaskGrants,
+	type McpTaskGrantKey,
+	type McpTaskGrantUse,
+} from "./mcp-task-grant.js";

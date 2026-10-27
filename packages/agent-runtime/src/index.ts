@@ -484,6 +484,7 @@ export { ExtractPool, previewInThread, sharedExtractor, shutdownSharedExtractor,
 export { executeAttachmentTool, ATTACHMENT_TOOL_NAMES } from "./tools/attachment-tools.js";
 export { VaultService, VaultError, getVaultService, routineSlug, registerHookSecretSealer, type VaultMeta, type VaultPayload, type VaultExtraField, type VaultStore, type CreateVaultItemInput } from "./secrets/vault-service.js";
 export { createRedactor, type Redactor, type SecretEntry } from "./secrets/redact.js";
+export { collectRefs } from "./secrets/session.js";
 export { createSecretSession, injectSecretRefs, secretToolPolicy, SecretRefError, type SecretSession } from "./secrets/session.js";
 export { maskKnownSecrets, maskKnownSecretsInMessages } from "./secrets/mask.js";
 export { parseTotpInput, totpAt, base32Decode } from "./secrets/totp.js";

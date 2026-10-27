@@ -956,6 +956,42 @@ export async function updateConfirmCardStatus(
 }
 
 /**
+ * Títulos dos cartões de conector que o usuário aprovou e a API executou com sucesso nesta conversa
+ * (mais antigos primeiro). Alimenta o Jev: "o usuário já aprovou 1 de 8 inserções iguais".
+ */
+export async function listApprovedConfirmTitles(conversationId: string, limit = 8, windowMs = 30 * 60_000): Promise<string[]> {
+	const rows = await prisma.conversationMessage.findMany({
+		where: { conversationId, role: "confirm", createdAt: { gt: new Date(Date.now() - windowMs) } },
+		orderBy: { createdAt: "desc" },
+		take: 30,
+	});
+	const titles: string[] = [];
+	for (const row of rows) {
+		const card = parseConversationCard(row.content);
+		if (card?.kind !== "confirm" || card.status !== "approved" || !card.outcome?.ok || !card.callKey) continue;
+		titles.push(`approved by the user and executed: ${card.title.slice(0, 100)}`);
+		if (titles.length >= limit) break;
+	}
+	return titles.reverse();
+}
+
+/** Contador da aprovação por tarefa no cartão já aprovado ("executado 3 vezes nesta tarefa"). */
+export async function setConfirmCardGrantUses(conversationId: string, confirmId: string, uses: number): Promise<void> {
+	const rows = await prisma.conversationMessage.findMany({
+		where: { conversationId, role: "confirm" },
+		orderBy: { createdAt: "desc" },
+		take: 30,
+	});
+	for (const row of rows) {
+		const card = parseConversationCard(row.content);
+		if (!card || card.kind !== "confirm" || card.confirmId !== confirmId) continue;
+		if (card.status !== "approved" && card.status !== "failed") return;
+		await prisma.conversationMessage.update({ where: { id: row.id }, data: { content: serializeConversationCard({ ...card, grantUses: uses }) } });
+		return;
+	}
+}
+
+/**
  * Chamada de conector (mesma tool + args) que o usuário já confirmou e a API já
  * executou nesta conversa. Evita pedir a mesma confirmação em laço.
  */
