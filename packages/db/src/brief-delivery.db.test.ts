@@ -1,7 +1,7 @@
 /** Entrega do brief "Seu dia" no Postgres real: semântica de NULL, concorrência, escopo por dono e expiração. */
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { BRIEF_RUN_SUMMARY_FAILED, BRIEF_RUN_SUMMARY_SENT } from "@workspace/shared";
+import { BRIEF_FAILURE_LINE, BRIEF_RUN_SUMMARY_FAILED, BRIEF_RUN_SUMMARY_SENT } from "@workspace/shared";
 import { prisma } from "./client.js";
 import {
 	appendBriefMessage,
@@ -248,6 +248,50 @@ describe("entrega do brief (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal((await rowOf(alreadyPending)).briefText, "texto do caminho normal", "nunca sobrescreve");
 		await recoverUnstartedBriefs();
 		assert.equal((await rowOf(good)).briefText, "Resumo recuperado", "segunda passada é inofensiva");
+	});
+
+	test("recuperação de run que falhou: guarda a linha fixa de falha (ifUnset), sem texto parcial, respeitando janela e tolerância", async () => {
+		const failedRun = async (over: { createdAt?: Date; finishedAt?: Date | null; routineId?: string; partial?: string | null } = {}) => {
+			const agentRun = await prisma.agentRun.create({
+				data: { userId: userA, conversationId: conversationA, objective: "o", model: "m", status: "failed", resultText: over.partial ?? null },
+			});
+			return (
+				await prisma.routineRun.create({
+					data: {
+						routineId: over.routineId ?? routineA,
+						agentRunId: agentRun.id,
+						status: "failed",
+						error: "limite de recuperação",
+						createdAt: over.createdAt ?? new Date(Date.now() - 120_000),
+						finishedAt: over.finishedAt === undefined ? new Date(Date.now() - 90_000) : over.finishedAt,
+					},
+					select: { id: true },
+				})
+			).id;
+		};
+		const orphan = await failedRun({ partial: "SEGREDO parcial do modelo" });
+		const tooFresh = await failedRun({ finishedAt: new Date() });
+		const tooOld = await failedRun({ createdAt: new Date(Date.now() - 13 * 3_600_000), finishedAt: new Date(Date.now() - 13 * 3_600_000 + 60_000) });
+		const alreadyPending = await failedRun();
+		await markBriefPending(userA, alreadyPending, "brief real pendente");
+		const alreadyPosted = await failedRun();
+		await prisma.routineRun.update({ where: { id: alreadyPosted }, data: { briefStatus: "posted" } });
+		const plainRoutine = (await prisma.routine.create({ data: { userId: userA, botId: botA, name: "Comum (falha)", prompt: "p" } })).id;
+		const notBrief = await failedRun({ routineId: plainRoutine });
+
+		assert.ok((await recoverUnstartedBriefs()) >= 1);
+
+		const recovered = await rowOf(orphan);
+		assert.equal(recovered.briefStatus, "pending");
+		assert.equal(recovered.briefText, BRIEF_FAILURE_LINE, "linha fixa, nunca o texto parcial");
+		assert.equal((await rowOf(tooFresh)).briefStatus, null, "tolerância");
+		assert.equal((await rowOf(tooOld)).briefStatus, null, "janela de 12 h");
+		assert.equal((await rowOf(alreadyPending)).briefText, "brief real pendente", "nunca sobrescreve");
+		assert.equal((await rowOf(alreadyPosted)).briefStatus, "posted");
+		assert.equal((await rowOf(notBrief)).briefStatus, null, "só rotina do brief");
+		assert.equal((await listPendingBriefs()).find((b) => b.routineRunId === orphan)?.userId, userA, "dono vem da rotina");
+		await recoverUnstartedBriefs();
+		assert.equal((await rowOf(orphan)).briefText, BRIEF_FAILURE_LINE, "segunda passada é inofensiva");
 	});
 
 	test("summary da execução: brief guarda só o rótulo fixo (o texto vai só ao chat); rotina comum guarda o resultado", async () => {

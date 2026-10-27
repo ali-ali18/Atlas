@@ -168,28 +168,31 @@ export async function listPendingBriefs(now: Date = new Date(), limit = PENDING_
 }
 
 /**
- * Run do brief que terminou bem (últimas 12 h) mas o worker caiu antes de guardar o estado: `briefStatus` NULL.
- * Guarda o `resultText` do run como pendente (só de NULL: nunca sobrescreve) para a varredura entregar. O dono
- * vem da rotina e o run tem de ser do mesmo dono. Devolve quantos recuperou.
+ * Run do brief (últimas 12 h) que o worker não chegou a guardar: `briefStatus` NULL.
+ * - Terminou bem: guarda o `resultText` do run como pendente (a linha de falha se vier vazio).
+ * - Terminou como falha (erro, orçamento, limite de recuperação de lease, run fantasma, queda do worker): guarda
+ *   a linha fixa `BRIEF_FAILURE_LINE`. O aviso de falha (`routine-failed`) já saiu, então o push da varredura
+ *   não repete: ela só publica a linha no chat.
+ * Sempre só de NULL (nunca sobrescreve). O dono vem da rotina. Devolve quantos recuperou.
  */
 export async function recoverUnstartedBriefs(now: Date = new Date()): Promise<number> {
+	const common = {
+		briefStatus: null,
+		createdAt: { gte: new Date(now.getTime() - PENDING_MAX_AGE_MS) },
+		finishedAt: { lte: new Date(now.getTime() - BRIEF_RECOVERY_GRACE_MS) },
+		routine: { template: DAILY_BRIEF_TEMPLATE },
+	};
 	const rows = await prisma.routineRun.findMany({
-		where: {
-			briefStatus: null,
-			status: "succeeded",
-			createdAt: { gte: new Date(now.getTime() - PENDING_MAX_AGE_MS) },
-			finishedAt: { lte: new Date(now.getTime() - BRIEF_RECOVERY_GRACE_MS) },
-			routine: { template: DAILY_BRIEF_TEMPLATE },
-			agentRun: { status: "completed" },
-		},
+		where: { OR: [{ ...common, status: "succeeded", agentRun: { status: "completed" } }, { ...common, status: "failed" }] },
 		orderBy: [{ createdAt: "asc" }, { id: "asc" }],
 		take: RECOVERY_BATCH,
-		select: { id: true, routine: { select: { userId: true } }, agentRun: { select: { userId: true, resultText: true } } },
+		select: { id: true, status: true, routine: { select: { userId: true } }, agentRun: { select: { userId: true, resultText: true } } },
 	});
 	let recovered = 0;
 	for (const row of rows) {
-		if (!row.agentRun || !ownerIds(row.routine.userId).includes(row.agentRun.userId)) continue;
-		const text = row.agentRun.resultText?.trim() || BRIEF_FAILURE_LINE;
+		if (row.agentRun && !ownerIds(row.routine.userId).includes(row.agentRun.userId)) continue;
+		if (row.status === "succeeded" && !row.agentRun) continue;
+		const text = row.status === "failed" ? BRIEF_FAILURE_LINE : row.agentRun?.resultText?.trim() || BRIEF_FAILURE_LINE;
 		if (await markBriefPending(row.routine.userId, row.id, text, "ifUnset")) recovered += 1;
 	}
 	return recovered;
