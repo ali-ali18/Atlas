@@ -4386,41 +4386,52 @@ async function executeMcpTool(
 	// Conteúdo que o usuário não escreveu (e-mail, página, arquivo, subagente, conector) já passou por este run ou por um anterior da conversa.
 	const untrustedSeen = ctx.mcpRun?.untrustedSeen === true;
 	const neverAsk = policy ? autonomyExceptionMode(policy, entry.autonomyMeta) === "never_ask" : false;
-	// Aprovação por tarefa: o usuário já aprovou esta tool nesta conversa (só escrita reversível, no chat, sem segredo,
-	// sem convidado/destinatário/webhook e sem conteúdo externo lido). Não vence regra do usuário ("sempre perguntar"),
-	// lição `confirm_always` nem bloqueio. Consumir a concessão NÃO dispensa o Jev: ele ainda confere instrução vinda de fora.
+	// Aprovação por tarefa: o usuário já aprovou esta tool nesta conversa (só escrita reversível, no chat, sem segredo
+	// e sem convidado/destinatário/webhook). Não vence regra do usuário ("sempre perguntar"), lição `confirm_always`
+	// nem bloqueio. Depois de conteúdo externo lido (`untrustedSeen` do run ou `untrustedAt` da concessão) a concessão
+	// AINDA vale, mas cada uso passa pela checagem de instrução externa do Jev (só em modo `gate`, o único que pode
+	// barrar): `externalInstruction >= 0.2`, Jev fora do ar ou desligado → o uso é devolvido e volta o cartão.
+	// Sem conteúdo externo não há o que injetar: o Jev nem é chamado (custo).
 	let grantUse: McpTaskGrantUse | null = null;
 	let jevReviewReason: JevReviewReason | undefined;
 	const alwaysAsk = policy ? autonomyExceptionMode(policy, entry.autonomyMeta) === "always_ask" : false;
 	const grantKey = ctx.conversationId && ctx.userId ? { userId: ctx.userId, conversationId: ctx.conversationId, connectionId: entry.connectionId, exposedName: name } : undefined;
-	if (grantKey && !ctx.forceConfirm && !alwaysAsk && !untrustedSeen && canGrantMcpTask(entry.actionClass, entry.toolName) && !entry.readOnly && ctx.origin === "chat" && secretRefs.length === 0 && !hasExternalTargetArgs(args) && (decision === "ask" || (decision === "allow" && jevEligible))) {
+	if (grantKey && !ctx.forceConfirm && !alwaysAsk && canGrantMcpTask(entry.actionClass, entry.toolName) && !entry.readOnly && ctx.origin === "chat" && secretRefs.length === 0 && !hasExternalTargetArgs(args) && (decision === "ask" || (decision === "allow" && jevEligible))) {
 		grantUse = await consumeMcpTaskGrant(grantKey).catch(() => null);
-		if (grantUse && jevEligible) {
-			const grantReview = await reviewMcpWithJev({
-				mode: ctx.jevMcpMode!,
-				evaluator: ctx.evaluateMcpWithJev,
-				untrustedContent: false,
-				externalInstructionOnly: true,
-				state: jevMcpState({
-					userRequest: ctx.objective || ctx.userRequestText || "",
-					latestUserMessage: ctx.lastUserText,
-					toolName: entry.toolName,
-					toolDescription: ctx.mcp.toolset.available.get(name)?.function.description,
-					actionClass: entry.actionClass as "write" | "irreversible",
-					args,
-					approvedTools: ctx.mcpRun?.executed,
-				}),
-				signal: ctx.abortSignal,
-			});
-			jevAudit = grantReview.audit;
-			if (jevAudit) ctx.onJevAudit?.(jevAudit);
-			if (grantReview.ask) {
-				// Instrução vinda de fora no argumento: a concessão não vale para esta chamada, volta o cartão.
+		const untrustedForGrant = untrustedSeen || (grantUse?.untrustedAt ?? null) !== null;
+		if (grantUse && untrustedForGrant) {
+			if (!jevEligible || ctx.jevMcpMode !== "gate") {
+				// Sem Jev que possa barrar: nada de escrita silenciosa depois de conteúdo externo.
 				await releaseMcpTaskGrant(grantKey).catch(() => undefined);
 				grantUse = null;
-				decision = "ask";
-				jevAsked = true;
-				jevReviewReason = grantReview.reason;
+			} else {
+				const grantReview = await reviewMcpWithJev({
+					mode: ctx.jevMcpMode,
+					evaluator: ctx.evaluateMcpWithJev,
+					untrustedContent: true,
+					externalInstructionOnly: true,
+					state: jevMcpState({
+						userRequest: ctx.objective || ctx.userRequestText || "",
+						latestUserMessage: ctx.lastUserText,
+						toolName: entry.toolName,
+						toolDescription: ctx.mcp.toolset.available.get(name)?.function.description,
+						actionClass: entry.actionClass as "write" | "irreversible",
+						args,
+						approvedTools: ctx.mcpRun?.executed,
+						untrustedContentSeen: true,
+					}),
+					signal: ctx.abortSignal,
+				});
+				jevAudit = grantReview.audit;
+				if (jevAudit) ctx.onJevAudit?.(jevAudit);
+				if (grantReview.ask) {
+					// Instrução vinda de fora no argumento (ou Jev indisponível): a concessão não vale para esta chamada, volta o cartão.
+					await releaseMcpTaskGrant(grantKey).catch(() => undefined);
+					grantUse = null;
+					decision = "ask";
+					jevAsked = true;
+					jevReviewReason = grantReview.reason;
+				}
 			}
 		}
 		if (grantUse) {

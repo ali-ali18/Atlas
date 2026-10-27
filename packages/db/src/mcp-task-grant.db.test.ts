@@ -62,7 +62,7 @@ describe("aprovação por tarefa (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(reset.createdAt.getTime(), at(200).getTime());
 	});
 
-	test("conteúdo externo invalida a concessão (só do dono e da conversa) e a renovação válida mantém a marca", async () => {
+	test("conteúdo externo só marca a concessão (só do dono e da conversa): continua consumível e devolve untrustedAt; a renovação válida mantém a marca", async () => {
 		const a = (await createTestUser("grant-untrusted-a")).id;
 		const b = (await createTestUser("grant-untrusted-b")).id;
 		const conv = await conversation(a);
@@ -73,10 +73,18 @@ describe("aprovação por tarefa (Postgres real)", { skip: dbSkip }, () => {
 		await grantMcpTask({ ...key, conversationId: other.id, now });
 		assert.equal(await markMcpTaskGrantsUntrusted({ userId: b, conversationId: conv.id, now }), 0, "outro usuário não marca");
 		assert.equal(await markMcpTaskGrantsUntrusted({ userId: a, conversationId: conv.id, now }), 1);
-		assert.equal(await consumeMcpTaskGrant({ ...key, now }), null, "invalidada");
-		assert.equal((await consumeMcpTaskGrant({ ...key, conversationId: other.id, now }))?.uses, 2, "outra conversa não é afetada");
+		const marked = await consumeMcpTaskGrant({ ...key, now });
+		assert.equal(marked?.uses, 2, "marcada continua consumível: o runtime decide (Jev em cada uso)");
+		assert.ok(marked?.untrustedAt instanceof Date);
+		const untouched = await consumeMcpTaskGrant({ ...key, conversationId: other.id, now });
+		assert.equal(untouched?.uses, 2, "outra conversa não é afetada");
+		assert.equal(untouched?.untrustedAt, null);
 		await grantMcpTask({ ...key, now: new Date(now.getTime() + 60_000) });
-		assert.equal(await consumeMcpTaskGrant({ ...key, now: new Date(now.getTime() + 61_000) }), null, "nova aprovação não apaga a marca da concessão válida");
+		assert.ok((await consumeMcpTaskGrant({ ...key, now: new Date(now.getTime() + 61_000) }))?.untrustedAt instanceof Date, "nova aprovação não apaga a marca da concessão válida");
+		// Cartão levantado depois de conteúdo externo: a concessão já nasce marcada.
+		const third = await conversation(a);
+		await grantMcpTask({ ...key, conversationId: third.id, now, untrusted: true });
+		assert.ok((await consumeMcpTaskGrant({ ...key, conversationId: third.id, now }))?.untrustedAt instanceof Date);
 	});
 
 	test("devolver um uso não executado e limpar vencidas (também ao conceder)", async () => {

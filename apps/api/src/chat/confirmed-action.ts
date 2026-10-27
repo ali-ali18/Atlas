@@ -135,15 +135,16 @@ export async function grantAfterApproval(input: {
 	confirmId?: string;
 }): Promise<{ uses: number; maxUses: number } | undefined> {
 	if (!canGrantMcpTask(input.call.actionClass, input.call.toolName ?? input.call.exposedName) || collectRefs(input.call.args).length > 0) return undefined;
-	// Nada que o usuário não escreveu pode abrir a porta para as próximas: cartão levantado depois de e-mail/página/arquivo
-	// lido, por instrução vinda de fora, ou com convidado/destinatário/webhook, é aprovado só para esta chamada.
-	if (input.call.untrustedSeen || input.call.jevReviewReason === "external_instruction" || hasExternalTargetArgs(input.call.args)) return undefined;
+	// Cartão levantado por instrução vinda de fora, ou com convidado/destinatário/webhook, é aprovado só para esta chamada.
+	// Conteúdo externo lido antes NÃO impede a concessão: cada uso dela passa pelo Jev (ver executeMcpTool).
+	if (input.call.jevReviewReason === "external_instruction" || hasExternalTargetArgs(input.call.args)) return undefined;
 	const granted = await grantMcpTask({
 		userId: input.userId,
 		conversationId: input.conversationId,
 		connectionId: input.call.connectionId,
 		exposedName: input.call.exposedName,
 		...(input.confirmId ? { confirmId: input.confirmId } : {}),
+		...(input.call.untrustedSeen ? { untrusted: true } : {}),
 	}).catch(() => null);
 	if (!granted) return undefined;
 	// Auditoria sem argumentos.

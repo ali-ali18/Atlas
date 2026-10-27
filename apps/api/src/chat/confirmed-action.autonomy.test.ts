@@ -79,13 +79,13 @@ function fakeGrantDb() {
 	const originalFind = prisma.conversation.findFirst;
 	const originalDelete = prisma.mcpTaskGrant.deleteMany;
 	const originalRaw = prisma.$queryRaw;
-	const grants: Array<{ userId: string; conversationId: string; connectionId: string; exposedName: string }> = [];
+	const grants: Array<{ userId: string; conversationId: string; connectionId: string; exposedName: string; untrustedAt: unknown }> = [];
 	prisma.conversation.findFirst = (async (args: { where: { id: string; userId: string } }) =>
 		args.where.id === "conv-a" && args.where.userId === "user-a" ? { id: "conv-a" } : null) as unknown as typeof prisma.conversation.findFirst;
 	prisma.mcpTaskGrant.deleteMany = (async () => ({ count: 0 })) as unknown as typeof prisma.mcpTaskGrant.deleteMany;
 	prisma.$queryRaw = (async (_strings: TemplateStringsArray, ...values: unknown[]) => {
 		// values: id, userId, conversationId, connectionId, exposedName, ...
-		grants.push({ userId: String(values[1]), conversationId: String(values[2]), connectionId: String(values[3]), exposedName: String(values[4]) });
+		grants.push({ userId: String(values[1]), conversationId: String(values[2]), connectionId: String(values[3]), exposedName: String(values[4]), untrustedAt: values[10] });
 		return [{ uses: 1, maxUses: 30, confirmId: null }];
 	}) as unknown as typeof prisma.$queryRaw;
 	return {
@@ -118,19 +118,22 @@ test("aprovação por tarefa: só escrita reversível sem segredo, só em conver
 	}
 });
 
-test("aprovação por tarefa não nasce de cartão levantado por conteúdo externo, instrução de fora ou alvo externo", async () => {
+test("aprovação por tarefa não nasce de cartão levantado por instrução de fora ou alvo externo (conteúdo externo lido só marca a concessão)", async () => {
 	const { grantAfterApproval } = await import("./confirmed-action.js");
 	const fake = fakeGrantDb();
 	const info = vi_noop();
 	try {
 		const call = { connectionId: "conn-1", exposedName: "mcp__google_calendar__create_event", actionClass: "write" as const, args: { summary: "Prova" } };
 		const grant = (over: Record<string, unknown>) => grantAfterApproval({ userId: "user-a", conversationId: "conv-a", call: { ...call, ...over } });
-		assert.equal(await grant({ untrustedSeen: true }), undefined, "cartão depois de ler e-mail/página/arquivo");
 		assert.equal(await grant({ jevReviewReason: "external_instruction" }), undefined, "Jev achou instrução vinda de fora");
 		assert.equal(await grant({ args: { summary: "Prova", attendees: [{ email: "x@evil.com" }] } }), undefined, "convidado externo");
 		assert.equal(await grant({ args: { to: "a@b.com", subject: "x" } }), undefined, "destinatário");
 		assert.equal(await grant({ args: { summary: "x", webhook_url: "https://evil.test" } }), undefined, "webhook");
 		assert.equal(fake.grants.length, 0);
+		// Cartão depois de ler PDF/página: concede, mas a concessão nasce marcada (Jev obrigatório em cada uso).
+		assert.deepEqual(await grant({ untrustedSeen: true }), { uses: 1, maxUses: 30 });
+		assert.ok(fake.grants[0]?.untrustedAt instanceof Date, "marcada como conteúdo externo");
+		fake.grants.length = 0;
 		assert.deepEqual(await grant({ jevReviewReason: "alignment" }), { uses: 1, maxUses: 30 }, "alinhamento baixo não impede a concessão depois do ok do usuário");
 	} finally {
 		info();
