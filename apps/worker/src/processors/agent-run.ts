@@ -108,8 +108,7 @@ import {
 	getRoutineContextForAgentRun,
 	getRoutineNotifyModeForAgentRun,
 	getRoutinePageIdForAgentRun,
-	getBotConversationId,
-	listActiveRunsForConversation as listActiveConversationRuns,
+	findRoutineRunByAgentRunId,
 	persistConversationCardFromEvent,
 	recordRoutineAlertState,
 } from "@workspace/db";
@@ -136,7 +135,7 @@ import {
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
 import { briefToolFilter, budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
-import { deliverDailyBrief, isDetachedBriefRun } from "../daily-brief.js";
+import { briefDeliveryDeps, deliverDailyBrief, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage } from "@workspace/db";
 import {
 	AUTO_CONTINUE_MAX,
@@ -1577,13 +1576,14 @@ async function executeLeasedRun(ctx: {
 				run: isDetachedBriefRun(run)
 					? async () => {
 							const delivery = await deliverDailyBrief(
-								{ userId: runUserId, botId: run.botId, text: result.text, notify: routineNotify },
 								{
-									conversationOf: getBotConversationId,
-									hasActiveRun: async (conversationId) => (await listActiveConversationRuns(conversationId)).length > 0,
-									appendMessage: (conversationId, text) => appendConversationMessage(conversationId, "assistant", text, "routine"),
-									push: deps.notify ? (userId, conversationId, text) => deps.notify!(userId, conversationId, "reminder", text) : undefined,
+									routineRunId: (await findRoutineRunByAgentRunId(runId))?.id,
+									userId: runUserId,
+									botId: run.botId,
+									text: result.text,
+									notify: routineNotify,
 								},
+								briefDeliveryDeps(deps.notify),
 							);
 							console.log(`[brief] run=${runId} posted=${delivery.posted} pushed=${delivery.pushed}${delivery.reason ? ` reason=${JSON.stringify(delivery.reason)}` : ""}`);
 						}

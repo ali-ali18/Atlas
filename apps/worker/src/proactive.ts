@@ -8,12 +8,14 @@ const SWEEP_INTERVAL_MS = 60_000;
  * (nada em memória): depois de reiniciar o worker, a próxima passada retoma os pendentes.
  * Sem sobreposição; nunca lança.
  */
-export function startProactiveSweeper(deps: ProactiveDeps): { kick: () => void; stop: () => void } {
+export function startProactiveSweeper(deps: ProactiveDeps, extra?: () => Promise<unknown>): { kick: () => void; stop: () => void } {
 	let running = false;
 	const sweep = async (): Promise<void> => {
 		if (running) return;
 		running = true;
 		try {
+			// Briefs "Seu dia" que esperavam a conversa ficar livre (e catch-up se o worker caiu no meio).
+			await extra?.().catch(() => undefined);
 			const result = await processProactive(deps);
 			if (result.followupsRun + result.followupsDeferred + result.followupsAbandoned + result.reflections > 0) {
 				console.log(
