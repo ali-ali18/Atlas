@@ -1,11 +1,12 @@
 /** "Seu dia" ligado por padrão no Postgres real: opt-out por todos os caminhos, aviso único e escopo por dono. */
 import assert from "node:assert/strict";
-import { describe, test, before } from "node:test";
-import { BRIEF_NOTICE_SHOWN_KEY, BRIEF_OPT_OUT_KEY, DAILY_BRIEF_TEMPLATE, readBriefNoticeShown, readBriefOptOut } from "@workspace/shared";
+import { describe, test, before, mock } from "node:test";
+import { BRIEF_NOTICE_SHOWN_KEY, BRIEF_OPT_OUT_KEY, BRIEF_CHECKED_AT_KEY, DAILY_BRIEF_TEMPLATE, readBriefNoticeShown, readBriefOptOut } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { claimBriefNotice, listAutoBriefCandidates, loadAutoBriefSignals, markBriefOptOut, releaseBriefNotice, withBriefAutoLock } from "./brief-auto.js";
 import { deleteRoutineGroup } from "./routine-groups.js";
 import { deleteRoutine, updateRoutine } from "./routines.js";
+import { updateBot } from "./bots.js";
 import { createTestBot, createTestUser, dbSkip } from "./testing/test-db.js";
 
 describe("Seu dia por padrão (Postgres real)", { skip: dbSkip }, () => {
@@ -101,6 +102,30 @@ describe("Seu dia por padrão (Postgres real)", { skip: dbSkip }, () => {
 		await markBriefOptOut(userB, botId);
 		assert.equal(readBriefOptOut(await policyOf(botId)), false);
 		assert.ok(await prisma.routine.findUnique({ where: { id: routine.id } }));
+	});
+
+	test("updateBot (policyJson da UI) preserva briefOptOut/briefNoticeShown/briefAutoCheckedAt e ignora o que o cliente manda", async () => {
+		const botId = await newBot(userA, { proactive: { enabled: true }, [BRIEF_OPT_OUT_KEY]: true, [BRIEF_NOTICE_SHOWN_KEY]: true, [BRIEF_CHECKED_AT_KEY]: "2026-10-01" });
+		// PATCH da tela de configurações: não conhece as chaves do servidor
+		await updateBot(botId, { policyJson: { proactive: { enabled: false } } }, userA);
+		assert.deepEqual(await policyOf(botId), { proactive: { enabled: false }, [BRIEF_OPT_OUT_KEY]: true, [BRIEF_NOTICE_SHOWN_KEY]: true, [BRIEF_CHECKED_AT_KEY]: "2026-10-01" });
+		// cliente tentando limpar ou forjar as chaves: ignorado
+		await updateBot(botId, { policyJson: { [BRIEF_OPT_OUT_KEY]: false, [BRIEF_NOTICE_SHOWN_KEY]: false, [BRIEF_CHECKED_AT_KEY]: "x", a: 1 } }, userA);
+		assert.deepEqual(await policyOf(botId), { a: 1, [BRIEF_OPT_OUT_KEY]: true, [BRIEF_NOTICE_SHOWN_KEY]: true, [BRIEF_CHECKED_AT_KEY]: "2026-10-01" });
+		// null do cliente zera só o que é dele
+		await updateBot(botId, { policyJson: null }, userA);
+		assert.deepEqual(await policyOf(botId), { [BRIEF_OPT_OUT_KEY]: true, [BRIEF_NOTICE_SHOWN_KEY]: true, [BRIEF_CHECKED_AT_KEY]: "2026-10-01" });
+	});
+
+	test("updateBot: cliente não cria as chaves do servidor; bot sem policyJson e null continua null; outro dono é 404", async () => {
+		const botId = await newBot(userA);
+		await updateBot(botId, { policyJson: { [BRIEF_OPT_OUT_KEY]: true, b: 2 } }, userA);
+		assert.deepEqual(await policyOf(botId), { b: 2 });
+		const vazio = await newBot(userA);
+		await updateBot(vazio, { policyJson: null }, userA);
+		assert.equal(await policyOf(vazio), null);
+		await assert.rejects(updateBot(botId, { policyJson: { c: 1 } }, userB), /Bot not found/);
+		assert.deepEqual(await policyOf(botId), { b: 2 });
 	});
 
 	test("claimBriefNotice: uma vez por bot, só para o brief criado pelo bot, só pelo dono", async () => {

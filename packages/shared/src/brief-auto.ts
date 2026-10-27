@@ -13,6 +13,25 @@ export const BRIEF_OPT_OUT_KEY = "briefOptOut";
 /** Chave em `policyJson`: o aviso de "comecei a te mandar" já foi mostrado (uma vez por bot). */
 export const BRIEF_NOTICE_SHOWN_KEY = "briefNoticeShown";
 
+/** Chave em `policyJson`: data (UTC, AAAA-MM-DD) da última checagem do brief automático; reparte o trabalho entre instâncias. */
+export const BRIEF_CHECKED_AT_KEY = "briefAutoCheckedAt";
+
+/** Chaves do `policyJson` que pertencem ao servidor: a UI não as escreve nem as apaga. */
+export const BRIEF_SERVER_POLICY_KEYS = [BRIEF_OPT_OUT_KEY, BRIEF_NOTICE_SHOWN_KEY, BRIEF_CHECKED_AT_KEY] as const;
+
+/**
+ * `policyJson` que vai para o banco depois de um PATCH da UI: o que o cliente mandou, sem as chaves do servidor
+ * (ignoradas), mais as chaves do servidor que a linha já tem. `null` do cliente zera só o que é dele.
+ */
+export function mergeServerPolicyKeys(incoming: unknown, current: unknown): Record<string, unknown> | null {
+	const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+	const result: Record<string, unknown> = isObject(incoming) ? { ...incoming } : {};
+	for (const key of BRIEF_SERVER_POLICY_KEYS) delete result[key];
+	if (isObject(current)) for (const key of BRIEF_SERVER_POLICY_KEYS) if (key in current) result[key] = current[key];
+	if (isObject(incoming) || Object.keys(result).length > 0) return result;
+	return null;
+}
+
 /** Linha única (pt-BR, vista pelo usuário) no fim do primeiro brief criado pelo bot. */
 export const BRIEF_AUTO_NOTICE = "Comecei a te mandar esse resumo toda manhã. Se não quiser, é só dizer.";
 

@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
 	BRIEF_AUTO_NOTICE,
+	BRIEF_CHECKED_AT_KEY,
 	BRIEF_NOTICE_SHOWN_KEY,
 	BRIEF_OPT_OUT_KEY,
 	appendAutoBriefNotice,
 	canAutoEnableBrief,
 	describeBriefSources,
 	inferAutoBriefTime,
+	mergeServerPolicyKeys,
 	parseDailyBriefSchedule,
 	readBriefNoticeShown,
 	readBriefOptOut,
@@ -131,5 +133,17 @@ describe("describeBriefSources (honestidade)", () => {
 		const text = describeBriefSources([source("email", { readTools: [] }), source("calendar", { name: "Google Agenda", readTools: [], needsReconnect: true })]);
 		expect(text).toMatch(/nenhuma fonte conectada/);
 		expect(text).toContain("Reconecte Google Agenda");
+	});
+});
+
+describe("mergeServerPolicyKeys", () => {
+	const current = { [BRIEF_OPT_OUT_KEY]: true, [BRIEF_NOTICE_SHOWN_KEY]: true, [BRIEF_CHECKED_AT_KEY]: "2026-10-01", proactive: { enabled: true } };
+	it("mantém as chaves do servidor da linha e descarta as do cliente", () => {
+		expect(mergeServerPolicyKeys({ a: 1, [BRIEF_OPT_OUT_KEY]: false }, current)).toEqual({ a: 1, [BRIEF_OPT_OUT_KEY]: true, [BRIEF_NOTICE_SHOWN_KEY]: true, [BRIEF_CHECKED_AT_KEY]: "2026-10-01" });
+	});
+	it("null do cliente só zera o que é dele; sem nada do servidor vira null", () => {
+		expect(mergeServerPolicyKeys(null, current)).toEqual({ [BRIEF_OPT_OUT_KEY]: true, [BRIEF_NOTICE_SHOWN_KEY]: true, [BRIEF_CHECKED_AT_KEY]: "2026-10-01" });
+		expect(mergeServerPolicyKeys(null, { proactive: {} })).toBeNull();
+		expect(mergeServerPolicyKeys({ a: 1 }, null)).toEqual({ a: 1 });
 	});
 });

@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { BOT_LINK_ROLE, isBotLanguage, isMessageSourceKind, type Bot, type BotLanguage, type CreateBotInput, type UpdateBotInput } from "@workspace/shared";
+import { BOT_LINK_ROLE, isBotLanguage, isMessageSourceKind, mergeServerPolicyKeys, type Bot, type BotLanguage, type CreateBotInput, type UpdateBotInput } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { unreadResultsByConversation } from "./deliveries.js";
 import { getUnreadStates } from "./read-state.js";
@@ -286,12 +286,6 @@ export async function updateBot(
 	if (patch.sectionId !== undefined) data.sectionId = patch.sectionId;
 	if (patch.memberIds !== undefined) data.memberIds = patch.memberIds;
 	if (patch.isPrimary === false) data.isPrimary = false;
-	if (patch.policyJson !== undefined) {
-		data.policyJson =
-			patch.policyJson === null
-				? Prisma.DbNull
-				: (patch.policyJson as Prisma.InputJsonValue);
-	}
 
 	try {
 		// Seção também é recurso do dono: não dá para pendurar o bot na de outro.
@@ -303,11 +297,22 @@ export async function updateBot(
 			if (!section) throw new Error("Section not found");
 		}
 		// Marcar principal desmarca o anterior na mesma transação (índice parcial: 1 por dono).
+		// O policyJson da UI substitui o jsonb inteiro: as chaves do servidor ("Seu dia": opt-out, aviso, checagem)
+		// são relidas sob lock de linha e preservadas; o que o cliente mandar com esses nomes é ignorado.
+		// Todo PATCH de policyJson (proativo, autonomia, decidir pelos outros bots) passa por aqui.
 		const row =
-			patch.isPrimary === true
+			patch.isPrimary === true || patch.policyJson !== undefined
 				? await prisma.$transaction(async (tx) => {
-						await tx.bot.updateMany({ where: { ownerId: owner, isPrimary: true, id: { not: id } }, data: { isPrimary: false } });
-						return tx.bot.update({ where: { id, ownerId: owner }, data: { ...data, isPrimary: true } });
+						if (patch.policyJson !== undefined) {
+							const current = await tx.$queryRaw<Array<{ policyJson: unknown }>>`SELECT "policyJson" FROM "bots" WHERE "id" = ${id} AND "ownerId" = ${owner} FOR UPDATE`;
+							if (!current[0]) throw new Error("Bot not found");
+							const merged = mergeServerPolicyKeys(patch.policyJson, current[0].policyJson);
+							data.policyJson = merged === null ? Prisma.DbNull : (merged as Prisma.InputJsonValue);
+						}
+						if (patch.isPrimary === true) {
+							await tx.bot.updateMany({ where: { ownerId: owner, isPrimary: true, id: { not: id } }, data: { isPrimary: false } });
+						}
+						return tx.bot.update({ where: { id, ownerId: owner }, data: patch.isPrimary === true ? { ...data, isPrimary: true } : data });
 					})
 				: await prisma.bot.update({ where: { id, ownerId: owner }, data });
 		return toBot(row, await lastConversationMessage(row.conversationId));
