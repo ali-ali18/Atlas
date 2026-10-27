@@ -17,7 +17,7 @@ test("cartão 'Rotina criada' de alerta mostra a frase do alerta, não o cron", 
 });
 
 test("\"Seu dia\": o cartão da rotina mostra a frase pronta do horário", () => {
-	assert.equal(routineCardSummary("cron", "Seu dia · seg–sex às 07:30\nMonto o painel"), "Seu dia · seg–sex às 07:30");
+	assert.equal(routineCardSummary("cron", "Seu dia · seg–sex às 07:30\nTe mando um resumo curto no chat"), "Seu dia · seg–sex às 07:30");
 	assert.equal(routineCardSummary("interval", "Seu dia · seg–sex às 07:30"), "Seu dia · seg–sex às 07:30");
 });
 

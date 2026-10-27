@@ -3,17 +3,13 @@ import {
 	DAILY_BRIEF_DEFAULT_CRON,
 	DAILY_BRIEF_DEFAULT_FOCUS,
 	DAILY_BRIEF_NAME,
-	DAILY_BRIEF_PAGE_TITLE,
 	DAILY_BRIEF_TEMPLATE,
-	dailyBriefPlaceholderSpec,
 	formatDailyBriefSummary,
 	isBriefToolAllowed,
 	parseDailyBriefSchedule,
-	parsePageSpec,
 	type RoutineNotifyMode,
 	type RoutineRecord,
 } from "@workspace/shared";
-import { dbPagesStore, type PagesStore } from "./pages.js";
 
 const FALLBACK_TIMEZONE = "America/Sao_Paulo";
 const FOCUS_MAX_CHARS = 600;
@@ -21,8 +17,6 @@ const FOCUS_MAX_CHARS = 600;
 export type DailyBriefDeps = {
 	userId: string;
 	botId: string;
-	conversationId?: string;
-	pages: PagesStore;
 	listRoutines?: typeof listRoutines;
 	createRoutine?: typeof createRoutine;
 	updateRoutine?: typeof updateRoutine;
@@ -43,7 +37,6 @@ export type DailyBriefArgs = {
 export type DailyBriefResult = {
 	routine: RoutineRecord;
 	created: boolean;
-	pageId: string;
 	/** "Seu dia · seg–sex às 07:30": a frase que o usuário vê. */
 	sentence: string;
 };
@@ -53,38 +46,8 @@ async function defaultAccountTimezone(userId: string): Promise<string | undefine
 }
 
 /**
- * Painel do brief: só reaproveita o já ligado à rotina (e deste bot). Nunca adota um painel do usuário só porque
- * o título bate: o brief reescreve o painel inteiro a cada execução. Sem painel ligado, cria um novo; se o título
- * "Seu dia" já é de outro painel do bot, o novo se chama "Seu dia (resumo)".
- */
-export async function ensureBriefPage(deps: Pick<DailyBriefDeps, "userId" | "botId" | "conversationId" | "pages">, existing: Pick<RoutineRecord, "pageId"> | undefined): Promise<string> {
-	if (existing?.pageId && (await deps.pages.get(existing.pageId, deps.userId))?.botId === deps.botId) return existing.pageId;
-	const taken = new Set((await deps.pages.list(deps.userId, deps.botId)).map((page) => page.title.trim().toLowerCase()));
-	let title: string = DAILY_BRIEF_PAGE_TITLE;
-	for (let n = 1; taken.has(title.toLowerCase()); n += 1) title = `${DAILY_BRIEF_PAGE_TITLE} (resumo${n > 1 ? ` ${n}` : ""})`;
-	const spec = parsePageSpec({ ...dailyBriefPlaceholderSpec(), title });
-	if (!spec.ok) throw new Error(`could not build the "${DAILY_BRIEF_PAGE_TITLE}" page: ${spec.error}`);
-	const page = await deps.pages.create(deps.userId, { botId: deps.botId, conversationId: deps.conversationId ?? null, spec: spec.spec, sources: [] });
-	if (!page) throw new Error(`could not create the "${DAILY_BRIEF_PAGE_TITLE}" page for this bot`);
-	return page.id;
-}
-
-/**
- * Painel apagado: apagar o painel zera o `pageId` da rotina (SetNull), e o brief rodaria sem alvo e ainda diria
- * "pronto". Recria o painel e religa à rotina antes da execução. Devolve o id novo.
- */
-export async function restoreBriefPage(
-	deps: { userId: string; botId: string; routineId: string; pages?: PagesStore; updateRoutine?: typeof updateRoutine },
-): Promise<string> {
-	const pageId = await ensureBriefPage({ userId: deps.userId, botId: deps.botId, pages: deps.pages ?? dbPagesStore }, undefined);
-	const updated = await (deps.updateRoutine ?? updateRoutine)(deps.userId, deps.botId, deps.routineId, { pageId });
-	if (!updated) throw new Error("could not relink the daily brief page");
-	return pageId;
-}
-
-/**
  * Cria ou atualiza a rotina "Seu dia" (template daily_brief). Uma por bot: pedir de novo edita a que existe
- * (horário, dias, foco, pausa). Cron de uma vez por dia, painel vinculado criado se faltar, aviso "sempre".
+ * (horário, dias, foco, pausa). Cron de uma vez por dia, sem painel (o brief é a mensagem), aviso "sempre".
  */
 export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDeps): Promise<DailyBriefResult> {
 	const list = deps.listRoutines ?? listRoutines;
@@ -102,11 +65,9 @@ export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDep
 	const notify: RoutineNotifyMode = "always";
 	const detail = typeof args.detail === "string" && args.detail.trim() ? args.detail.trim().slice(0, FOCUS_MAX_CHARS) : undefined;
 	const prompt = detail ?? existing?.prompt ?? DAILY_BRIEF_DEFAULT_FOCUS;
-	const pageId = await ensureBriefPage(deps, existing);
 
 	if (existing) {
 		const updated = await (deps.updateRoutine ?? updateRoutine)(deps.userId, deps.botId, existing.id, {
-			pageId,
 			prompt,
 			triggerType: "cron",
 			schedule: parsed.schedule,
@@ -115,11 +76,10 @@ export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDep
 			notify,
 		});
 		if (!updated) throw new Error("could not update the daily brief routine right now");
-		return { routine: updated, created: false, pageId, sentence: formatDailyBriefSummary({ schedule: updated.schedule, enabled: updated.enabled }) };
+		return { routine: updated, created: false, sentence: formatDailyBriefSummary({ schedule: updated.schedule, enabled: updated.enabled }) };
 	}
 	const { routine } = await (deps.createRoutine ?? createRoutine)(deps.userId, {
 		botId: deps.botId,
-		pageId,
 		template: DAILY_BRIEF_TEMPLATE,
 		name: DAILY_BRIEF_NAME,
 		prompt,
@@ -129,7 +89,7 @@ export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDep
 		timezone,
 		notify,
 	});
-	return { routine, created: true, pageId, sentence: formatDailyBriefSummary({ schedule: routine.schedule, enabled: routine.enabled }) };
+	return { routine, created: true, sentence: formatDailyBriefSummary({ schedule: routine.schedule, enabled: routine.enabled }) };
 }
 
 /**

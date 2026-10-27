@@ -23,7 +23,7 @@ import {
 	parseRoutineTriggerJson,
 	prisma,
 } from "@workspace/db";
-import { listBriefSources, restoreBriefPage } from "@workspace/agent-runtime";
+import { listBriefSources } from "@workspace/agent-runtime";
 import type { AgentRunQueue } from "@workspace/queue";
 import type { WorkerConfig } from "../config.js";
 import { formatRoutineLogLine, planBusyHandling, runsDetachedFromChat, type BusyKind } from "./routine-defer.js";
@@ -37,8 +37,6 @@ type RoutineJobMeta = {
 	deferJob?: DeferJob;
 	/** Disparo agendado que desistiu de esperar o bot: o worker avisa o usuário (uma vez). */
 	onGaveUp?: (info: { reason: string; routineRunId: string }) => Promise<void>;
-	/** Recria o painel do brief apagado (injetável em teste). */
-	restoreBriefPage?: typeof restoreBriefPage;
 };
 type DeferJob = (
 	payload: ExecuteRoutineJobPayload & { routineRunId: string },
@@ -241,7 +239,7 @@ export function buildUserTurn(
 	/** Brief "Seu dia": instruções e catálogo de fontes só desta rotina (nunca no prompt sempre carregado). */
 	brief?: { instructions: string; sourcesBlock: string } | null,
 ): string {
-	const task = brief ? "Build the daily brief as instructed in [DAILY BRIEF]." : routinePrompt.trim() || routineName;
+	const task = brief ? "Write the daily brief as instructed in [DAILY BRIEF]; your final reply is the brief." : routinePrompt.trim() || routineName;
 	const header = [
 		"[EXECUÇÃO DE ROTINA]",
 		`nome=${routineName}`,
@@ -458,18 +456,9 @@ async function runRoutineJob(
 	if (!bot) {
 		return skip("Bot da rotina não existe mais");
 	}
-	// "Seu dia" sem painel (apagaram: o banco zera o pageId): recria e religa antes de rodar, senão o brief
-	// rodaria sem alvo e avisaria "pronto". Falha ao recriar pula a execução com o motivo.
-	let routinePageId = routine.pageId;
-	if (routine.template === DAILY_BRIEF_TEMPLATE && !routinePageId) {
-		try {
-			routinePageId = await (meta.restoreBriefPage ?? restoreBriefPage)({ userId: routineUserId, botId: routine.botId, routineId: routine.id });
-		} catch (error) {
-			console.error(`[routine] brief page restore failed routine=${routine.id}`, error instanceof Error ? error.message : "erro");
-			return skip("Não consegui recriar o painel Seu dia");
-		}
-	}
 	// Rotina que atualiza um painel: o painel precisa existir para o dono (apagado = pula, sem inventar outro).
+	// "Seu dia" não tem painel (o brief é a mensagem): ignora qualquer pageId herdado.
+	const routinePageId = routine.template === DAILY_BRIEF_TEMPLATE ? null : routine.pageId;
 	const pagePlan = planRoutinePage(
 		routinePageId,
 		routinePageId ? await getPageForUser(routinePageId, routineUserId).catch(() => null) : null,

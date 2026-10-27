@@ -9,7 +9,7 @@ import { briefToolFilter } from "./tools/daily-brief.js";
 import type { PagesStore } from "./tools/pages.js";
 
 /**
- * Brief "Seu dia": configuração por chat (template daily_brief), uma por bot, painel vinculado, frase para o
+ * Brief "Seu dia": configuração por chat (template daily_brief), uma por bot, sem painel, frase para o
  * usuário, e a trava de somente leitura do run. LLM mockado, sem rede.
  */
 
@@ -39,7 +39,7 @@ const done: CompleteChatWithToolsResult = { model: "m", message: { role: "assist
 function briefRoutine(overrides: Partial<RoutineRecord> = {}): RoutineRecord {
 	return {
 		id: "routine-brief", userId: "user-1", botId: "bot-1", conversationId: null, name: "Seu dia", prompt: DAILY_BRIEF_DEFAULT_FOCUS, model: "", enabled: true,
-		triggerType: "cron", schedule: "30 7 * * 1-5", timezone: "America/Sao_Paulo", template: DAILY_BRIEF_TEMPLATE, pageId: "page-brief", notify: "always",
+		triggerType: "cron", schedule: "30 7 * * 1-5", timezone: "America/Sao_Paulo", template: DAILY_BRIEF_TEMPLATE, pageId: null, notify: "always",
 		lastRunAt: null, createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), ...overrides,
 	};
 }
@@ -100,7 +100,7 @@ beforeEach(() => {
 describe("pedido por chat: 'me prepara o dia às 7h30'", () => {
 	it("carrega o grupo de rotinas no passo 1, cria a rotina daily_brief e o card mostra 'Seu dia · seg–sex às 07:30'", async () => {
 		const pages = pagesStore();
-		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: briefRoutine({ pageId: "page-new-1" }) } as never);
+		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: briefRoutine() } as never);
 		const { toolResults, routines, first, system } = await run(
 			"me prepara o dia às 7h30, de segunda a sexta",
 			[toolCall("c1", "propose_routine", { action: "create", title: "Seu dia", template: "daily_brief", trigger_type: "cron", schedule: "30 7 * * 1-5" })],
@@ -109,18 +109,20 @@ describe("pedido por chat: 'me prepara o dia às 7h30'", () => {
 		// grupo carregado pela intenção, com o procedimento do brief
 		expect(first).toContain("propose_routine");
 		expect(system).toContain("template=daily_brief");
-		// a rotina: template, cron, painel ligado, aviso "sempre", fuso da conta
+		// a rotina: template, cron, aviso "sempre", fuso da conta
 		expect(createRoutine).toHaveBeenCalledWith(
 			"user-1",
-			expect.objectContaining({ botId: "bot-1", template: "daily_brief", name: "Seu dia", triggerType: "cron", schedule: "30 7 * * 1-5", pageId: "page-new-1", notify: "always", timezone: "America/Sao_Paulo", enabled: true }),
+			expect.objectContaining({ botId: "bot-1", template: "daily_brief", name: "Seu dia", triggerType: "cron", schedule: "30 7 * * 1-5", notify: "always", timezone: "America/Sao_Paulo", enabled: true }),
 		);
-		// painel "Seu dia" criado (uma vez) e ligado
-		expect(pages.created).toEqual([{ title: "Seu dia" }]);
+		// sem painel: nenhum criado e nenhum ligado à rotina
+		expect(pages.created).toEqual([]);
+		expect(createRoutine).toHaveBeenCalledWith("user-1", expect.not.objectContaining({ pageId: expect.anything() }));
 		expect(toolResults[0]).toMatchObject({ name: "propose_routine", ok: true });
 		expect(toolResults[0]!.summary).toContain("Seu dia · seg–sex às 07:30");
 		expect(routines[0]).toMatchObject({ action: "created", triggerType: "cron" });
 		expect(routines[0]!.detail).toContain("Seu dia · seg–sex às 07:30");
 		expect(routines[0]!.detail).toMatch(/não envio, aceito nem apago nada/);
+		expect(routines[0]!.detail).not.toMatch(/painel/i);
 	});
 
 	it("sem horário nem dias: usa 07:30 seg–sex no fuso da conta e não pergunta", async () => {
@@ -143,29 +145,21 @@ describe("pedido por chat: 'me prepara o dia às 7h30'", () => {
 		expect(system).not.toContain("Morning brief");
 	});
 
-	it("painel do usuário chamado 'Seu dia' (não ligado à rotina) não é adotado nem sobrescrito: cria outro com título livre", async () => {
+	it("um painel do usuário chamado 'Seu dia' não muda nada: o brief nunca cria, liga nem reaproveita painel", async () => {
 		const pages = pagesStore([{ id: "page-old", title: "Seu dia", botId: "bot-1" }]);
-		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: briefRoutine({ pageId: "page-new-2" }) } as never);
-		await run("me prepara o dia", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron" })], pages.store);
-		expect(pages.created).toEqual([{ title: "Seu dia (resumo)" }]);
-		expect(createRoutine).toHaveBeenCalledWith("user-1", expect.objectContaining({ pageId: "page-new-2" }));
-	});
-
-	it("o painel já ligado à rotina é o que se reaproveita (editar não cria outro)", async () => {
-		vi.mocked(listRoutines).mockResolvedValue([briefRoutine({ pageId: "page-brief" })]);
-		vi.mocked(updateRoutine).mockResolvedValue(briefRoutine() as never);
-		const pages = pagesStore([{ id: "page-brief", title: "Seu dia", botId: "bot-1" }]);
+		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: briefRoutine({ pageId: null }) } as never);
 		await run("me prepara o dia", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron" })], pages.store);
 		expect(pages.created).toEqual([]);
-		expect(updateRoutine).toHaveBeenCalledWith("user-1", "bot-1", "routine-brief", expect.objectContaining({ pageId: "page-brief" }));
+		expect(createRoutine).toHaveBeenCalledWith("user-1", expect.not.objectContaining({ pageId: expect.anything() }));
 	});
 
-	it("painel 'Seu dia' de OUTRO bot não é reaproveitado", async () => {
-		const pages = pagesStore([{ id: "page-other", title: "Seu dia", botId: "bot-2" }]);
-		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: briefRoutine({ pageId: "page-new-2" }) } as never);
+	it("editar a rotina existente não cria painel nem mexe no pageId", async () => {
+		vi.mocked(listRoutines).mockResolvedValue([briefRoutine({ pageId: null })]);
+		vi.mocked(updateRoutine).mockResolvedValue(briefRoutine({ pageId: null }) as never);
+		const pages = pagesStore();
 		await run("me prepara o dia", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron" })], pages.store);
-		expect(pages.created).toEqual([{ title: "Seu dia" }]);
-		expect(createRoutine).toHaveBeenCalledWith("user-1", expect.objectContaining({ pageId: "page-new-2" }));
+		expect(pages.created).toEqual([]);
+		expect(updateRoutine).toHaveBeenCalledWith("user-1", "bot-1", "routine-brief", expect.not.objectContaining({ pageId: expect.anything() }));
 	});
 });
 
@@ -176,7 +170,7 @@ describe("uma por bot e edição pela rotina normal", () => {
 		const pages = pagesStore([{ id: "page-brief", title: "Seu dia", botId: "bot-1" }]);
 		const { toolResults, routines } = await run("me prepara o dia às 8h seg, qua e sex", [toolCall("c1", "propose_routine", { action: "create", template: "daily_brief", trigger_type: "cron", schedule: "0 8 * * 1,3,5" })], pages.store);
 		expect(createRoutine).not.toHaveBeenCalled();
-		expect(updateRoutine).toHaveBeenCalledWith("user-1", "bot-1", "routine-brief", expect.objectContaining({ schedule: "0 8 * * 1,3,5", pageId: "page-brief", triggerType: "cron" }));
+		expect(updateRoutine).toHaveBeenCalledWith("user-1", "bot-1", "routine-brief", expect.objectContaining({ schedule: "0 8 * * 1,3,5", triggerType: "cron" }));
 		expect(toolResults[0]!.summary).toContain("Seu dia · seg, qua e sex às 08:00");
 		expect(routines[0]).toMatchObject({ action: "updated" });
 	});

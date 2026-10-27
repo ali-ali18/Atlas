@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { prisma } from "@workspace/db";
-import { dailyBriefPlaceholderSpec } from "@workspace/shared";
 import { buildUserTurn, processExecuteRoutineJob } from "./routine.js";
 
 /**
@@ -28,7 +27,7 @@ function scenario(input: { template: string | null; chatBusy: boolean; pageId?: 
 	patch(patched, prisma.bot, "findFirst", async ({ where }: { where: { id?: unknown } }) =>
 		// "outro bot na mesma conversa" (checagem de grupo/dono do createAgentRun): não há.
 		typeof where.id === "object" && where.id !== null ? null : { id: "bot-a", conversationId: "conv-a", openRouterModel: "openrouter/x", policyJson: null });
-	patch(patched, prisma.page, "findFirst", async ({ where }: { where: { id?: string } }) => ({ id: where.id ?? "page-1", botId: "bot-a", conversationId: null, groupId: null, title: "Seu dia", specJson: dailyBriefPlaceholderSpec(), sourcesJson: [], revision: 1, refreshedAt: null, createdAt: now, updatedAt: now }));
+	patch(patched, prisma.page, "findFirst", async ({ where }: { where: { id?: string } }) => ({ id: where.id ?? "page-1", botId: "bot-a", conversationId: null, groupId: null, title: "Seu dia", specJson: { v: 2, title: "Seu dia", summary: "x", root: { type: "stack", children: [{ type: "callout", props: { title: "t", text: "x", tone: "info" } }] } }, sourcesJson: [], revision: 1, refreshedAt: null, createdAt: now, updatedAt: now }));
 	patch(patched, prisma.conversation, "findFirst", async () => ({ id: "conv-a", userId: "user-a" }));
 	patch(patched, prisma.bot, "updateMany", async () => ({ count: 0 }));
 	patch(patched, prisma.routineRun, "findFirst", async () => null);
@@ -85,7 +84,7 @@ test("brief com chat em andamento: roda sem conversa, não consulta o chat, não
 		const objective = String(s.seen.agentRunData[0]?.objective);
 		assert.match(objective, /\[DAILY BRIEF\]/);
 		assert.match(objective, /\[SOURCES\]/);
-		assert.match(objective, /\[PAGE TARGET\] page_id=page-1/);
+		assert.doesNotMatch(objective, /PAGE TARGET/, "o brief não tem painel, mesmo que a rotina tenha um pageId herdado");
 		assert.match(objective, /User focus \(may exclude sources or add what to watch\): Do not look at Slack\./);
 		// fontes só do dono da rotina (a consulta do db filtra por userId)
 		assert.deepEqual(s.seen.mcpWhere[0] && (s.seen.mcpWhere[0] as { userId: unknown }).userId, { in: ["user-a"] });
@@ -128,56 +127,20 @@ test("brief com chat livre também roda sem conversa; rotina comum roda na conve
 });
 
 test("buildUserTurn: brief traz instruções e fontes antes da tarefa; sem brief nada muda", () => {
-	const turn = buildUserTurn("Do not look at Slack.", "Seu dia", { routineId: "r", triggeredBy: "schedule" }, null, { id: "p", title: "Seu dia" }, { instructions: "[DAILY BRIEF] x", sourcesBlock: "[SOURCES] y\n[/SOURCES]" });
+	const turn = buildUserTurn("Do not look at Slack.", "Seu dia", { routineId: "r", triggeredBy: "schedule" }, null, null, { instructions: "[DAILY BRIEF] x", sourcesBlock: "[SOURCES] y\n[/SOURCES]" });
 	assert.ok(turn.indexOf("[DAILY BRIEF]") < turn.indexOf("Tarefa:"));
-	assert.match(turn, /Tarefa:\nBuild the daily brief as instructed in \[DAILY BRIEF\]\./);
+	assert.match(turn, /Tarefa:\nWrite the daily brief as instructed in \[DAILY BRIEF\]/);
 	const plain = buildUserTurn("Revise.", "n", { routineId: "r", triggeredBy: "schedule" }, null);
 	assert.doesNotMatch(plain, /DAILY BRIEF|SOURCES/);
 	assert.match(plain, /Tarefa:\nRevise\./);
 });
 
-test("brief com painel apagado (pageId nulo): recria e religa antes de rodar, e o painel novo é o alvo", async () => {
-	const s = scenario({ template: "daily_brief", chatBusy: false, pageId: null });
-	const restored: Array<Record<string, unknown>> = [];
-	try {
-		const result = await processExecuteRoutineJob({ routineId: "r", triggeredBy: "schedule" }, config, s.queue, {
-			restoreBriefPage: async (deps) => {
-				restored.push(deps);
-				return "page-new";
-			},
-		});
-		assert.equal(result.status, "running");
-		assert.deepEqual(restored, [{ userId: "user-a", botId: "bot-a", routineId: "r" }]);
-		assert.match(String(s.seen.agentRunData[0]?.objective), /\[PAGE TARGET\] page_id=page-new/);
-	} finally {
-		s.restore();
-	}
-});
-
-test("brief com painel apagado e falha ao recriar: pula com o motivo, sem rodar", async () => {
+test("brief sem painel roda (não recria painel); rotina comum com painel apagado segue pulando", async () => {
 	const s = scenario({ template: "daily_brief", chatBusy: false, pageId: null });
 	try {
-		const result = await processExecuteRoutineJob({ routineId: "r", triggeredBy: "schedule" }, config, s.queue, {
-			restoreBriefPage: async () => {
-				throw new Error("db fora");
-			},
-		});
-		assert.equal(result.status, "skipped");
-		assert.equal(s.seen.agentRunData.length, 0);
-	} finally {
-		s.restore();
-	}
-});
-
-test("rotina comum sem painel não recria nada", async () => {
-	const s = scenario({ template: null, chatBusy: false, pageId: null });
-	try {
-		const result = await processExecuteRoutineJob({ routineId: "r", triggeredBy: "schedule" }, config, s.queue, {
-			restoreBriefPage: async () => {
-				throw new Error("não devia ser chamado");
-			},
-		});
+		const result = await processExecuteRoutineJob({ routineId: "r", triggeredBy: "schedule" }, config, s.queue);
 		assert.equal(result.status, "running");
+		assert.doesNotMatch(String(s.seen.agentRunData[0]?.objective), /PAGE TARGET/);
 	} finally {
 		s.restore();
 	}
