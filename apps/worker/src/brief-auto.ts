@@ -1,6 +1,6 @@
 import { getAccountConfig, getBotPolicy, listAutoBriefCandidates, loadAutoBriefSignals, markBriefAutoChecked, withBriefAutoLock, type AutoBriefCandidate, type AutoBriefSignals } from "@workspace/db";
 import { listBriefSources, upsertDailyBrief } from "@workspace/agent-runtime";
-import { briefCheckDayKey, canAutoEnableBrief, isBriefCheckDue, inferAutoBriefTime, readConfiguredQuietHours, readableBriefCategories, type BriefSource, type RoutineRecord } from "@workspace/shared";
+import { briefCheckDayKey, canAutoEnableBrief, isBriefCheckDue, isValidTimeZone, inferAutoBriefTime, readConfiguredQuietHours, readableBriefCategories, type BriefSource, type RoutineRecord } from "@workspace/shared";
 
 /**
  * "Seu dia" ligado por padrão: passo idempotente de garantia, chamado pela varredura do modo proativo
@@ -59,14 +59,15 @@ export async function ensureAutoBrief(bot: AutoBriefCandidate, deps: AutoBriefDe
 			await (deps.markChecked ?? markBriefAutoChecked)(bot.ownerId, bot.id, briefCheckDayKey(now)).catch(() => log(`[brief-auto] bot=${bot.id} data da checagem não gravada`));
 			return "skipped_no_sources";
 		}
-		const time = inferAutoBriefTime({ userMessageAts: signals.userMessageAts, now, timeZone: timezone, quiet: readConfiguredQuietHours(bot.policyJson) });
+		const zone = isValidTimeZone(timezone) ? timezone : undefined;
+		const time = inferAutoBriefTime({ userMessageAts: signals.userMessageAts, now, timeZone: zone, quiet: readConfiguredQuietHours(bot.policyJson) });
 		const run = deps.withLock ?? withBriefAutoLock;
 		return await run(bot.id, async () => {
 			// Relê a política sob o lock: um opt-out que chegou durante a checagem vale.
 			const policy = await (deps.readPolicy ?? getBotPolicy)(bot.id, bot.ownerId);
 			if (!canAutoEnableBrief({ isPrimary: true, policyJson: policy })) return "skipped_policy";
 			const result = await (deps.upsert ?? upsertDailyBrief)(
-				{ schedule: time.cron, ...(timezone ? { timezone } : {}) },
+				{ schedule: time.cron, ...(zone ? { timezone: zone } : {}) },
 				{ userId: bot.ownerId, botId: bot.id, createdBy: "bot", createOnly: true, ...(deps.onCreated ? { onCreated: scheduleCreated(deps.onCreated, bot.id, log) } : {}) },
 			);
 			if (result.created) log(`[brief-auto] bot=${bot.id} criado ${time.cron} basis=${time.basis}`);
@@ -94,7 +95,9 @@ function scheduleCreated(onCreated: (routine: RoutineRecord) => Promise<void>, b
 }
 
 async function defaultAccountTimezone(userId: string): Promise<string | undefined> {
-	return (await getAccountConfig(userId).catch(() => null))?.general?.timezone || undefined;
+	const zone = (await getAccountConfig(userId).catch(() => null))?.general?.timezone;
+	// Fuso inválido na conta: sem ele o horário usa o padrão (America/Sao_Paulo) em vez de lançar no agendador.
+	return isValidTimeZone(zone) ? zone : undefined;
 }
 
 /** Resultados que gastaram consulta (fontes, sinais, lock): contam no orçamento da varredura. Os outros são decididos só pela política. */

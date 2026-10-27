@@ -77,6 +77,13 @@ test("depois de criar, agenda o cron da rotina (onCreated); rotina que já exist
 	assert.ok(!logs.join("\n").includes("redis fora"), "só o tipo do erro");
 });
 
+test("fuso inválido da conta não lança: horário no padrão e a rotina nasce sem o fuso inválido", async () => {
+	const h = harness({ accountTimezone: async () => "Marte/Olimpo" });
+	assert.equal(await ensureAutoBrief(bot(), h.deps), "created");
+	assert.equal(h.created[0]?.timezone, undefined, "o upsert cai no padrão da conta/São Paulo");
+	assert.match(String(h.created[0]?.schedule), /^\d+ \d+ \* \* \*$/);
+});
+
 test("sem dados de atividade: 07:30 todo dia", async () => {
 	const h = harness({ signals: { userMessageAts: [], hasPendingWork: false } });
 	await ensureAutoBrief(bot(), h.deps);

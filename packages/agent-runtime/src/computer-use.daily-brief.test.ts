@@ -384,6 +384,15 @@ describe("upsertDailyBrief: criação automática pelo bot", () => {
 		expect(again).not.toHaveBeenCalled();
 	});
 
+	it("fuso inválido da conta cai em America/Sao_Paulo em vez de lançar; fuso válido é mantido", async () => {
+		const create = vi.fn(async () => ({ routine: briefRoutine() })) as never;
+		await upsertDailyBrief({}, { userId: "user-1", botId: "bot-1", createdBy: "bot", listRoutines: async () => [], createRoutine: create, accountTimezone: async () => "Marte/Olimpo" });
+		expect(create).toHaveBeenCalledWith("user-1", expect.objectContaining({ timezone: "America/Sao_Paulo" }));
+		const ok = vi.fn(async () => ({ routine: briefRoutine() })) as never;
+		await upsertDailyBrief({}, { userId: "user-1", botId: "bot-1", listRoutines: async () => [], createRoutine: ok, accountTimezone: async () => "Europe/Lisbon" });
+		expect(ok).toHaveBeenCalledWith("user-1", expect.objectContaining({ timezone: "Europe/Lisbon" }));
+	});
+
 	it("createOnly com um 'Seu dia' existente devolve-o intacto: nem cria nem edita (nem reativa um pausado)", async () => {
 		const create = vi.fn() as never;
 		const update = vi.fn() as never;

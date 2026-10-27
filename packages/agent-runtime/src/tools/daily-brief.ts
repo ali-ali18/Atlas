@@ -6,6 +6,7 @@ import {
 	DAILY_BRIEF_TEMPLATE,
 	formatDailyBriefSummary,
 	isBriefToolAllowed,
+	isValidTimeZone,
 	parseDailyBriefSchedule,
 	type RoutineNotifyMode,
 	type RoutineRecord,
@@ -68,7 +69,12 @@ export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDep
 	if (!parsed.ok) throw new Error(parsed.error);
 
 	const timezoneArg = typeof args.timezone === "string" && args.timezone.trim() ? args.timezone.trim() : undefined;
-	const timezone = timezoneArg ?? existing?.timezone ?? (await (deps.accountTimezone ?? defaultAccountTimezone)(deps.userId)) ?? FALLBACK_TIMEZONE;
+	// Fuso salvo na conta que não existe mais (ou lixo) não pode derrubar a criação nem o agendador: cai no padrão.
+	const fromAccount = async () => {
+		const zone = await (deps.accountTimezone ?? defaultAccountTimezone)(deps.userId);
+		return isValidTimeZone(zone) ? zone : FALLBACK_TIMEZONE;
+	};
+	const timezone = timezoneArg ?? existing?.timezone ?? (await fromAccount());
 	const enabled = typeof args.enabled === "boolean" ? args.enabled : (existing?.enabled ?? true);
 	// Sempre "always": o run do brief não tem `notify_user`, então com "important" o brief nunca avisaria ninguém.
 	const notify: RoutineNotifyMode = "always";
