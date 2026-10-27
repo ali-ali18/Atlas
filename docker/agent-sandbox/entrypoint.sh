@@ -38,9 +38,8 @@ chmod 700 "$XDG_RUNTIME_DIR"
 # Volume de trabalho do agente (sandbox_shell roda como `atlas`).
 mkdir -p /home/atlas/work && chown atlas:atlas /home/atlas/work 2>/dev/null || true
 
-# Perfil do Chrome vem de volume que sobrevive a crash/OOM: locks herdados (SingletonLock/Socket/Cookie)
-# fazem o Chrome recusar o perfil. Nenhum Chrome nosso roda ainda neste ponto do boot, entao sao lixo.
-rm -f -- /tmp/chrome-data/SingletonLock /tmp/chrome-data/SingletonSocket /tmp/chrome-data/SingletonCookie 2>/dev/null || true
+# Locks herdados (SingletonLock/Socket/Cookie) do volume do perfil são limpos pelo atlas-chrome,
+# já sob a trava de lançamento (nunca aqui: outra VM pode estar com o mesmo perfil de pé).
 
 for bin in /usr/bin/Xvfb /usr/bin/xfwm4 /usr/bin/xfdesktop /usr/bin/xfsettingsd /usr/bin/plank "$CHROME_BIN" /usr/bin/x11vnc "$WEBSOCKIFY_BIN" /usr/bin/xdotool /usr/bin/scrot /usr/local/bin/node; do
 	if [[ ! -x "$bin" ]]; then

@@ -3,10 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
 	calls: [] as string[],
-	created: [] as Array<{ Labels?: Record<string, string>; HostConfig: { Binds?: string[]; Init?: boolean } }>,
+	created: [] as Array<{ name?: string; Labels?: Record<string, string>; HostConfig: { Binds?: string[]; Init?: boolean } }>,
 	volumeError: undefined as { statusCode: number } | undefined,
 	execs: [] as Array<Record<string, unknown>>,
 	stopOpts: [] as unknown[],
+	createError: undefined as { statusCode: number } | undefined,
 }));
 
 vi.mock("dockerode", () => {
@@ -56,6 +57,7 @@ vi.mock("dockerode", () => {
 		}
 		async createContainer(opts: (typeof state.created)[number]) {
 			state.created.push(opts);
+			if (state.createError) throw state.createError;
 			return container("fresh");
 		}
 	}
@@ -76,7 +78,7 @@ vi.mock("node:net", () => ({
 	},
 }));
 
-import { createSandboxManager, profileVolumeName, SANDBOX_STOP_TIMEOUT_S, sandboxBinds, workVolumeName } from "./docker-manager.js";
+import { createSandboxManager, profileContainerName, profileVolumeName, SANDBOX_STOP_TIMEOUT_S, sandboxBinds, workVolumeName } from "./docker-manager.js";
 import { loadSandboxConfig } from "./config.js";
 import { deleteSession, listAllSessionsForCleanup } from "./session-store.js";
 
@@ -89,6 +91,7 @@ describe("sandbox volumes e shell via manager", () => {
 		state.created = [];
 		state.execs = [];
 		state.stopOpts = [];
+		state.createError = undefined;
 		state.volumeError = undefined;
 		vi.stubGlobal("fetch", async () => ({ ok: true }));
 		vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -124,6 +127,20 @@ describe("sandbox volumes e shell via manager", () => {
 		await createSandboxManager(config, "u1").createSession("conv-a");
 		expect(state.created[0]!.HostConfig.Binds).toEqual(sandboxBinds("conv-a", "u1"));
 		expect(state.created[0]!.HostConfig.Binds![0]).toBe(`${profileVolumeName("conv-a", "u1")}:/tmp/chrome-data`);
+	});
+
+	it("o nome do container é fixo por perfil; 409 (outra criação ganhou) adota a VM sem remover a do vencedor", async () => {
+		const volume = profileVolumeName("conv-x", "u1");
+		const name = profileContainerName(volume);
+		expect(name).toMatch(/^atlas-sandbox-[a-f0-9]{32}$/);
+		const manager = createSandboxManager(config, "u1");
+		await manager.createSession("conv-x");
+		expect(state.created[0]!.name).toBe(name);
+		state.calls = [];
+		state.createError = { statusCode: 409 };
+		const adopted = await manager.createSession("conv-x");
+		expect(adopted.sessionId).toBeTruthy();
+		expect(state.calls.filter((call) => call.startsWith(`remove:${name}`) || call.startsWith(`stop:${name}`))).toEqual([]);
 	});
 
 	it("createSession usa Init (tini) para o SIGTERM chegar ao entrypoint", async () => {

@@ -111,6 +111,16 @@ function containerName(sessionId: string): string {
 	return `atlas-sandbox-${sessionId}`;
 }
 
+/** Nome fixo por volume de perfil: duas criações concorrentes (api e worker são processos
+ * diferentes) disputam o mesmo nome e o Docker devolve 409 para a segunda, que adota a VM
+ * da primeira em vez de montar o mesmo perfil do Chrome numa segunda VM. */
+export function profileContainerName(profileVolume: string): string {
+	return `atlas-sandbox-${profileVolume.replace(/^atlas-profile-/, "").slice(0, 32)}`;
+}
+
+/** createContainer recusou o nome (409): outra criação do mesmo perfil ganhou a corrida. */
+class ContainerNameTakenError extends Error {}
+
 /** Volume Docker que guarda o perfil do Chrome de uma conversa (cada bot tem exatamente
  * uma conversa, então é também o perfil do bot). Sobrevive ao stop E à remoção do
  * container — é ele que torna o login durável. */
@@ -800,7 +810,11 @@ export function createSandboxManager(
 	async function startOnce(conversationId: string | undefined, opts: { replaceExisting: boolean }): Promise<SandboxSessionResponse> {
 			const client = getDocker();
 			const sessionId = randomUUID();
-			const name = containerName(sessionId);
+			const profileVolume =
+				config.profileVolumes && conversationId
+					? profileVolumeName(conversationId, userId)
+					: null;
+			const name = profileVolume ? profileContainerName(profileVolume) : containerName(sessionId);
 	
 			const record: SandboxSessionRecord = {
 				userId,
@@ -817,10 +831,6 @@ export function createSandboxManager(
 			sessionStore.putSession(record);
 	
 		try {
-			const profileVolume =
-				config.profileVolumes && conversationId
-					? profileVolumeName(conversationId, userId)
-					: null;
 			if (conversationId) await removeLeftovers(client, conversationId, { includeRunning: opts.replaceExisting });
 			const container = await client.createContainer({
 				Image: config.image,
@@ -862,6 +872,8 @@ export function createSandboxManager(
 					[`${VIEWER_PORT}/tcp`]: {},
 					[`${CONTROL_PORT}/tcp`]: {},
 				},
+			}).catch((error: unknown) => {
+				throw errorStatusCode(error) === 409 ? new ContainerNameTakenError("container name in use") : error;
 			});
 			if (profileVolume) {
 				console.log(
@@ -896,6 +908,13 @@ export function createSandboxManager(
 				sessionStore.putSession(running);
 				return toResponse(running, config);
 			} catch (error) {
+				if (error instanceof ContainerNameTakenError) {
+					// Não é nosso: não mexe no container de quem ganhou a corrida; adota a VM dele.
+					sessionStore.deleteSession(sessionId, userId);
+					const adopted = conversationId ? await adoptByLabel(conversationId) : null;
+					if (adopted) return toResponse(adopted, config);
+					throw new SandboxDockerUnavailableError(`Failed to start sandbox container: name ${name} is in use by another VM`);
+				}
 				record.status = "error";
 				sessionStore.putSession(record);
 				try {
