@@ -80,7 +80,7 @@ export function startSandboxReaper(
 		/** Para VMs ociosas após `ttlMs`. Desligado por padrão (o login vive na VM; ver SANDBOX_IDLE_STOP). */
 		idleStop?: boolean;
 		/** Guarda de memória/contagem: para a VM ociosa há mais tempo e avisa o dono. */
-		memoryGuard?: Pick<MemoryGuardDeps, "notify" | "limits">;
+		memoryGuard?: Pick<MemoryGuardDeps, "notify" | "limits" | "isProtected">;
 	} = {},
 ): () => void {
 	const codeRunnerEnabled = loadCodeRunnerConfig().enabled;
