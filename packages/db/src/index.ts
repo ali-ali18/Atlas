@@ -719,3 +719,13 @@ export {
 	type McpTaskGrantKey,
 	type McpTaskGrantUse,
 } from "./mcp-task-grant.js";
+export {
+	claimBriefNotice,
+	listAutoBriefCandidates,
+	loadAutoBriefSignals,
+	markBriefOptOut,
+	releaseBriefNotice,
+	withBriefAutoLock,
+	type AutoBriefCandidate,
+	type AutoBriefSignals,
+} from "./brief-auto.js";

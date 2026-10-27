@@ -1,4 +1,5 @@
-import type { RoutineGroupRecord, RoutineRecord } from "@workspace/shared";
+import { DAILY_BRIEF_TEMPLATE, type RoutineGroupRecord, type RoutineRecord } from "@workspace/shared";
+import { markBriefOptOut } from "./brief-auto.js";
 import { prisma } from "./client.js";
 import { ownerIds } from "./mcp-connections.js";
 
@@ -213,6 +214,8 @@ export async function deleteRoutineGroup(
 	const routines = (await listRoutines(uid, botId)).filter((routine) => routine.groupId === groupId);
 	const deleteRoutines = opts.deleteRoutines === true;
 	if (deleteRoutines) {
+		// Apagar o grupo junto com um "Seu dia" que estava nele é recusar o brief.
+		if (routines.some((routine) => routine.template === DAILY_BRIEF_TEMPLATE)) await markBriefOptOut(uid, botId);
 		await prisma.routine.deleteMany({ where: { groupId, botId, userId: uid } });
 	}
 	await prisma.routineGroup.deleteMany({ where: { id: groupId, botId, userId: uid } });
