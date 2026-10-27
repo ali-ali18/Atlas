@@ -69,7 +69,9 @@ describe("estado assinado", () => {
 		const [body, sig] = s.split(".");
 		const forged = Buffer.from(JSON.stringify({ u: "u2", p: "install", n: "x", e: 9e12 })).toString("base64url");
 		expect(verifyGithubAppState(`${forged}.${sig}`, { purpose: "install", now, key: KEY })).toBeNull();
-		expect(verifyGithubAppState(`${body}.${sig!.slice(0, -2)}AA`, { purpose: "install", now, key: KEY })).toBeNull();
+		// Troca o 1º caractere (os bits finais do base64url podem ser ignorados na decodificação).
+		const tampered = `${sig![0] === "A" ? "B" : "A"}${sig!.slice(1)}`;
+		expect(verifyGithubAppState(`${body}.${tampered}`, { purpose: "install", now, key: KEY })).toBeNull();
 		expect(verifyGithubAppState(s, { purpose: "manifest", now, key: KEY })).toBeNull();
 		expect(verifyGithubAppState(s, { purpose: "install", now, key: Buffer.alloc(32, 9) })).toBeNull();
 		expect(verifyGithubAppState("lixo", { purpose: "install", now, key: KEY })).toBeNull();
