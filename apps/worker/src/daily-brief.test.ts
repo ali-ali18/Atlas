@@ -562,3 +562,66 @@ test("linha de falha só em run de brief; consulta que falha ou erro nunca lanç
 	const broken = fixture({ conversationOf: async () => { throw new Error("db"); } });
 	await deliverBriefFailure({ id: "ar-4", origin: "routine", conversationId: null, userId: "user-a", botId: "bot-a" }, { findRoutineRunId: async () => "rr-4", delivery: broken.deps });
 });
+
+// ---------------------------------------------------------------------------
+// Aviso único do 1º brief que o bot ligou sozinho
+// ---------------------------------------------------------------------------
+
+import { BRIEF_AUTO_NOTICE } from "@workspace/shared";
+
+/** Aviso com a mesma semântica do banco: uma vez por bot, só para brief criado pelo bot. */
+function noticeFixture(opts: { createdByBot?: boolean } = {}) {
+	const shown = new Set<string>();
+	const f = fixture({
+		claimNotice: async (userId, routineRunId) => {
+			if (opts.createdByBot === false || userId !== "user-a") return false;
+			if (shown.has("bot-a")) return false;
+			shown.add("bot-a");
+			void routineRunId;
+			return true;
+		},
+		releaseNotice: async () => void shown.delete("bot-a"),
+	});
+	return { ...f, shown };
+}
+
+test("1º brief automático: uma linha de aviso no fim da mensagem; o push leva só a 1ª linha do brief", async () => {
+	const f = noticeFixture();
+	await deliverDailyBrief(input, f.deps);
+	assert.deepEqual(f.calls.appended, [["conv-a", `${TEXT}\n\n${BRIEF_AUTO_NOTICE}`]]);
+	assert.equal(f.calls.pushed[0]?.[2], "Hoje você tem uma aula e um prazo.");
+});
+
+test("o aviso sai uma vez só: o 2º brief do mesmo bot vai sem ele", async () => {
+	const f = noticeFixture();
+	await deliverDailyBrief(input, f.deps);
+	await deliverDailyBrief({ ...input, routineRunId: "rr-2" }, f.deps);
+	assert.equal(f.calls.appended[0]?.[1].endsWith(BRIEF_AUTO_NOTICE), true);
+	assert.equal(f.calls.appended[1]?.[1], TEXT);
+});
+
+test("brief que o usuário pediu (ou sem claimNotice) não leva aviso", async () => {
+	const asked = noticeFixture({ createdByBot: false });
+	await deliverDailyBrief(input, asked.deps);
+	assert.equal(asked.calls.appended[0]?.[1], TEXT);
+	const plain = fixture();
+	await deliverDailyBrief(input, plain.deps);
+	assert.equal(plain.calls.appended[0]?.[1], TEXT);
+});
+
+test("linha de falha nunca leva aviso nem gasta a vez dele", async () => {
+	const f = noticeFixture();
+	await deliverDailyBrief({ ...input, text: "", failure: true }, f.deps);
+	assert.equal(f.calls.appended[0]?.[1], BRIEF_FAILURE_LINE);
+	assert.equal(f.shown.size, 0);
+	await deliverDailyBrief({ ...input, routineRunId: "rr-9", text: "" }, f.deps);
+	assert.equal(f.shown.size, 0, "texto vazio também é falha");
+});
+
+test("brief que não pôde ser guardado devolve o aviso para o próximo", async () => {
+	const f = noticeFixture();
+	f.rows.set("rr-1", { status: "posted", text: null, botId: "bot-a", userId: "user-a" });
+	const result = await deliverDailyBrief(input, f.deps);
+	assert.equal(result.posted, false);
+	assert.equal(f.shown.size, 0, "aviso devolvido");
+});
