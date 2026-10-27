@@ -3,7 +3,7 @@ import type { ChatTool, CompleteChatWithToolsResult } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import { runComputerUse } from "./computer-use.js";
 import { NATIVE_TOOL_GROUPS } from "./context/native-tools.js";
-import { executeSandboxRelease, otherUseOfVm } from "./tools/sandbox-release.js";
+import { executeSandboxRelease } from "./tools/sandbox-release.js";
 
 vi.mock("@workspace/db", async (original) => ({
 	...(await original<typeof import("@workspace/db")>()),
@@ -74,24 +74,17 @@ describe("sandbox_release", () => {
 		}
 	});
 
-	it("recusa desligar se a VM está em uso agora ou se outro run a usou há poucos segundos", async () => {
+	it("recusa desligar só quando a VM está ocupada agora (busy)", async () => {
 		const busy = await run({ sandboxEnabled: true, activity: { idleMs: 0, busy: true }, script: [step("sandbox_release"), done] });
 		expect(busy.stopConversationSession).not.toHaveBeenCalled();
 		expect(busy.results[0]).toMatchObject({ name: "sandbox_release", ok: false });
 		expect(busy.results[0]!.summary).toMatch(/NOT turned off/);
+		// uso recente sem estar ocupada não bloqueia: o guarda de memória é que tem a janela de ociosidade
 		const recent = await run({ sandboxEnabled: true, activity: { idleMs: 4_000, busy: false }, script: [step("sandbox_release"), done] });
-		expect(recent.stopConversationSession).not.toHaveBeenCalled();
-		expect(recent.results[0]).toMatchObject({ ok: false });
+		expect(recent.stopConversationSession).toHaveBeenCalledWith("conv-1");
+		expect(recent.results[0]).toMatchObject({ ok: true });
 		const idle = await run({ sandboxEnabled: true, activity: { idleMs: 120_000, busy: false }, script: [step("sandbox_release"), done] });
 		expect(idle.stopConversationSession).toHaveBeenCalledWith("conv-1");
-	});
-
-	it("uso recente do PRÓPRIO run não conta como outro run", () => {
-		const now = 1_000_000;
-		expect(otherUseOfVm({ idleMs: 4_000, busy: false }, now - 4_500, now)).toBeNull();
-		expect(otherUseOfVm({ idleMs: 4_000, busy: false }, now - 60_000, now)).toMatch(/another run/);
-		expect(otherUseOfVm({ idleMs: 4_000, busy: false }, undefined, now)).toMatch(/another run/);
-		expect(otherUseOfVm(null, undefined, now)).toBeNull();
 	});
 
 	it("falha de verdade vira erro com a mensagem real (nunca \"já estava desligada\"); sem VM ligada é só aviso", async () => {

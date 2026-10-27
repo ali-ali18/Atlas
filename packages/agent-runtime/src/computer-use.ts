@@ -2009,8 +2009,6 @@ function routineDetailText(
 
 type ToolContext = {
 	manager: SandboxManager;
-	/** Quando este run usou a VM pela última vez (ms): `sandbox_release` distingue o uso dele do de outro run. */
-	lastSandboxUseAt?: () => number | undefined;
 	/** Runtime das tools de sessão de desenvolvimento (ausente = desligado). */
 	devSession?: DevSessionRuntime;
 	/** Id da chamada de tool (liga os eventos de shell e edição ao card). */
@@ -3778,7 +3776,7 @@ async function executeToolInner(
 		case "sandbox_download":
 			return executeSandboxShellTool(name, args, { manager: ctx.manager, getSessionId: ctx.getSessionId });
 		case SANDBOX_RELEASE_TOOL_NAME:
-			return executeSandboxRelease({ manager: ctx.manager, conversationId: ctx.conversationId, lastOwnUseAt: ctx.lastSandboxUseAt?.() });
+			return executeSandboxRelease({ manager: ctx.manager, conversationId: ctx.conversationId });
 		case "dev_session_start":
 		case "shell":
 		case "shell_output":
@@ -6210,7 +6208,6 @@ export async function runComputerUse(params: {
 	const browserWatch = createBrowserWatch({
 		resumedWithBrowser: Boolean(parsedCheckpoint?.sandboxSessionId) || Object.entries(parsedCheckpoint?.toolCallCounts ?? {}).some(([toolName, count]) => SANDBOX_TOOL_NAMES.has(toolName) && toolName !== SANDBOX_RELEASE_TOOL_NAME && count > 0),
 	});
-	let lastSandboxUseAt: number | undefined;
 	// F12/D1-D4: estagnação, captcha e métricas do computador (vão em usage.computer).
 	const computerGuard = createComputerGuard({
 		runId,
@@ -7457,7 +7454,6 @@ export async function runComputerUse(params: {
 				if (preTool.error) throw new Error(preTool.error);
 			const outcome = cached ? { summary: `Already read this result. Continue with it; use read_cached_result only if details are needed. result_ref: ${cached.ref}` } : name === "read_cached_result" ? { summary: await runSandboxOperation(executionContext, undefined, () => readCache.resolve(String(args.result_ref ?? ""), params.findCompletedTool)) } : await runSandboxOperation(executionContext, isSandboxTool(name) ? 180_000 : undefined, (signal) => executeTool(name, args, {
 				loginAsked,
-				lastSandboxUseAt: () => lastSandboxUseAt,
 				secrets: secretSession,
 				health: providerHealth,
 				hasTool: hasToolInRun,
@@ -7761,7 +7757,6 @@ ${blockHint}`;
 				stallAbort = guarded.abort;
 			}
 			browserWatch.note({ name, args, ok, summary });
-			if (isSandboxTool(name) && name !== SANDBOX_RELEASE_TOOL_NAME) lastSandboxUseAt = Date.now();
 
 			let imageArtifactId: string | undefined;
 			if (image && params.persistScreenshot && image.startsWith("data:")) {
