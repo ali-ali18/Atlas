@@ -6199,7 +6199,9 @@ export async function runComputerUse(params: {
 	const hasToolInRun = (toolName: string) =>
 		tools.some((tool) => tool.function.name === toolName) || Boolean(nativeDeferral?.isDeferred(toolName));
 	// Conferência da tela: o que foi lido no navegador depois da última ação (portão contra "entrou" sem olhar).
-	const browserWatch = createBrowserWatch();
+	const browserWatch = createBrowserWatch({
+		resumedWithBrowser: Boolean(parsedCheckpoint?.sandboxSessionId) || Object.entries(parsedCheckpoint?.toolCallCounts ?? {}).some(([toolName, count]) => SANDBOX_TOOL_NAMES.has(toolName) && toolName !== SANDBOX_RELEASE_TOOL_NAME && count > 0),
+	});
 	let lastSandboxUseAt: number | undefined;
 	// F12/D1-D4: estagnação, captcha e métricas do computador (vão em usage.computer).
 	const computerGuard = createComputerGuard({
@@ -6484,6 +6486,7 @@ export async function runComputerUse(params: {
 			try {
 				const snapshot = await manager.execBrowserSnapshot(await getSessionId(), { area: "viewport" });
 				loginStillShownSite = detectLoginWall({ url: snapshot.url, title: snapshot.title, lines: snapshot.lines })?.site;
+				if (!loginStillShownSite) browserWatch.observe(snapshot.url);
 			} catch {
 				// Sem conseguir olhar a tela, segue como antes: o modelo é mandado reler a página.
 			}

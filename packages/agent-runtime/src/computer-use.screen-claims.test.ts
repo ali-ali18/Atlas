@@ -23,7 +23,7 @@ const say = (content: string): CompleteChatWithToolsResult => ({ model: "m", mes
 
 const snapshotOf = (url: string, title = "Painel") => ({ url, title, total: 1, offset: 0, limit: 80, nextOffset: null, lines: ['[e1] link "Cursos"'] });
 
-async function run(input: { script: CompleteChatWithToolsResult[]; snapshotUrl?: string; message?: string }) {
+async function run(input: { script: CompleteChatWithToolsResult[]; snapshotUrl?: string; message?: string; restoredCheckpoint?: unknown }) {
 	const manager = {
 		execNavigate: vi.fn(async () => ({ url: "https://painel.exemplo.com/cursos", title: "Painel", ready: true })),
 		execBrowserSnapshot: vi.fn(async () => snapshotOf(input.snapshotUrl ?? "https://painel.exemplo.com/cursos")),
@@ -43,6 +43,7 @@ async function run(input: { script: CompleteChatWithToolsResult[]; snapshotUrl?:
 		botId: "bot-a",
 		origin: "chat",
 		contextEconomy: true,
+		...(input.restoredCheckpoint ? { restoredCheckpoint: input.restoredCheckpoint } : {}),
 		messages: [{ role: "user", content: input.message ?? "entra no painel e me diz o que tem" }],
 		maxSteps: 10,
 		onEvent: (event) => void events.push(event as unknown as Record<string, unknown>),
@@ -106,5 +107,23 @@ describe("portão contra inventar a tela", () => {
 		expect(chat.events.some((e) => e.type === "assistant_discard")).toBe(false);
 		const plain = await run({ script: [step("navigate", { url: "https://painel.exemplo.com" }), say("Abri o site, quer que eu leia a página?")] });
 		expect(plain.events.some((e) => e.type === "assistant_discard")).toBe(false);
+	});
+
+	it("run retomado com a VM ativa: afirmar a tela sem olhar de novo também volta ao modelo", async () => {
+		const restoredCheckpoint = { version: 1, messages: [], sandboxSessionId: "s1", nextStepIndex: 1, toolCallCounts: { navigate: 1 } };
+		const { result, events, requests } = await run({
+			restoredCheckpoint,
+			script: [say("Entrei no painel, está tudo certo."), step("browser_snapshot"), say("Pronto: a tela mostra a lista de cursos.")],
+		});
+		expect(events.filter((e) => e.type === "assistant_discard")).toHaveLength(1);
+		expect(noteSeen(requests)).toBe(true);
+		expect(result.text).toBe("Pronto: a tela mostra a lista de cursos.");
+	});
+
+	it("negação e 'painel' do produto não disparam a revisão", async () => {
+		const denied = await run({ script: [step("navigate", { url: "https://painel.exemplo.com" }), say("Não consegui entrar na conta: pediu captcha.")] });
+		expect(denied.events.some((e) => e.type === "assistant_discard")).toBe(false);
+		const product = await run({ script: [step("navigate", { url: "https://painel.exemplo.com" }), say("O painel mostra a receita do mês.")] });
+		expect(product.events.some((e) => e.type === "assistant_discard")).toBe(false);
 	});
 });
