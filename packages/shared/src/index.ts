@@ -501,6 +501,7 @@ export {
 	type SourceCategory,
 } from "./source-category.js";
 export {
+	BRIEF_FAILURE_LINE,
 	BRIEF_NATIVE_TOOLS,
 	DAILY_BRIEF_DEFAULT_CRON,
 	DAILY_BRIEF_DEFAULT_FOCUS,

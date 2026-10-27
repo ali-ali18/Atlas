@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { briefErrorTag, briefPushBody, createBriefFlusher, deliverDailyBrief, flushPendingBriefs, isDetachedBriefRun, type BriefDeliveryDeps } from "./daily-brief.js";
+import { BRIEF_FAILURE_LINE } from "@workspace/shared";
+import { briefErrorTag, deliverBriefFailure, briefPushBody, createBriefFlusher, deliverDailyBrief, flushPendingBriefs, isDetachedBriefRun, type BriefDeliveryDeps } from "./daily-brief.js";
 import { runsDetachedFromChat } from "./processors/routine-defer.js";
 
 type Row = { status: "pending" | "posted" | "expired" | null; text: string | null; botId: string; userId: string };
@@ -175,9 +176,8 @@ test("falha do push não impede a mensagem; sem chave de push também segue", as
 	assert.deepEqual(await deliverDailyBrief(input, noPush.deps), { posted: true, pushed: false });
 });
 
-test("sem texto, sem bot ou bot de outro dono: não entrega nem guarda nada", async () => {
+test("sem bot ou bot de outro dono: não entrega nem guarda nada", async () => {
 	const { calls, deps, rows } = fixture();
-	assert.equal((await deliverDailyBrief({ ...input, text: "  " }, deps)).posted, false);
 	assert.equal((await deliverDailyBrief({ ...input, botId: null }, deps)).posted, false);
 	assert.deepEqual(await deliverDailyBrief({ ...input, userId: "user-b" }, deps), { posted: false, pushed: false, reason: "bot sem conversa" });
 	assert.equal(calls.appended.length + calls.pushed.length + rows.size, 0);
@@ -242,4 +242,41 @@ test("createBriefFlusher: chamadas simultâneas dividem uma varredura só", asyn
 	assert.equal(runs, 1);
 	await flusher();
 	assert.equal(runs, 2, "depois de terminar, a próxima chamada varre de novo");
+});
+
+test("run sem texto (voltou vazio ou orçamento esgotado): posta e avisa a linha fixa de falha", async () => {
+	const f = fixture();
+	const result = await deliverDailyBrief({ ...input, text: "  " }, f.deps);
+	assert.deepEqual(result, { posted: true, pushed: true });
+	assert.deepEqual(f.calls.appended, [["conv-a", BRIEF_FAILURE_LINE]]);
+	assert.deepEqual(f.calls.pushed, [["user-a", "conv-a", BRIEF_FAILURE_LINE]]);
+	assert.equal(BRIEF_FAILURE_LINE, "Não consegui montar seu resumo de hoje.");
+});
+
+test("falha de vez do run: a linha entra no chat sem push próprio (o routine-failed já avisa) e uma vez só", async () => {
+	const f = fixture();
+	const run = { id: "ar-1", origin: "routine", conversationId: null, userId: "user-a", botId: "bot-a" };
+	const io = { findRoutineRunId: async () => "rr-1", delivery: f.deps };
+	await deliverBriefFailure(run, io);
+	await deliverBriefFailure(run, io);
+	assert.deepEqual(f.calls.appended, [["conv-a", BRIEF_FAILURE_LINE]]);
+	assert.equal(f.calls.pushed.length, 0, "sem push duplicado");
+	assert.equal(f.rows.get("rr-1")?.status, "posted");
+});
+
+test("falha do run depois de o brief já ter entrado: não posta a linha por cima", async () => {
+	const f = fixture();
+	await deliverDailyBrief(input, f.deps);
+	await deliverBriefFailure({ id: "ar-1", origin: "routine", conversationId: null, userId: "user-a", botId: "bot-a" }, { findRoutineRunId: async () => "rr-1", delivery: f.deps });
+	assert.equal(f.calls.appended.length, 1);
+	assert.equal(f.calls.appended[0]![1], TEXT);
+});
+
+test("linha de falha só em run de brief; consulta que falha ou erro nunca lançam", async () => {
+	const f = fixture();
+	await deliverBriefFailure({ id: "ar-2", origin: "chat", conversationId: "c", userId: "user-a", botId: "bot-a" }, { findRoutineRunId: async () => "rr-2", delivery: f.deps });
+	await deliverBriefFailure({ id: "ar-3", origin: "routine", conversationId: null, userId: "user-a", botId: "bot-a" }, { findRoutineRunId: async () => { throw new Error("db"); }, delivery: f.deps });
+	assert.deepEqual(f.calls.appended, [["conv-a", BRIEF_FAILURE_LINE]], "sem id da execução, posta direto (melhor esforço)");
+	const broken = fixture({ conversationOf: async () => { throw new Error("db"); } });
+	await deliverBriefFailure({ id: "ar-4", origin: "routine", conversationId: null, userId: "user-a", botId: "bot-a" }, { findRoutineRunId: async () => "rr-4", delivery: broken.deps });
 });

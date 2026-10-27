@@ -8,7 +8,7 @@ import {
 	markBriefPosted,
 	type Notify,
 } from "@workspace/db";
-import type { RoutineNotifyMode } from "@workspace/shared";
+import { BRIEF_FAILURE_LINE, type RoutineNotifyMode } from "@workspace/shared";
 
 /**
  * Entrega do brief "Seu dia". O run nasce SEM conversa (ver `runsDetachedFromChat`), então o fim do run não
@@ -84,17 +84,25 @@ export function isDetachedBriefRun(run: { origin?: string | null; conversationId
 }
 
 export async function deliverDailyBrief(
-	input: { routineRunId: string | null | undefined; userId: string; botId: string | null | undefined; text: string; notify: RoutineNotifyMode },
+	input: {
+		routineRunId: string | null | undefined;
+		userId: string;
+		botId: string | null | undefined;
+		/** Vazio = o run não produziu brief (falhou, esgotou o orçamento ou voltou sem texto): vai a linha fixa de falha. */
+		text: string;
+		notify: RoutineNotifyMode;
+		/** O chamador já avisa por outro push (ex.: `routine-failed`): não duplica o aviso. */
+		skipPush?: boolean;
+	},
 	deps: BriefDeliveryDeps,
 ): Promise<BriefDeliveryResult> {
-	const text = input.text.trim();
-	if (!text) return { posted: false, pushed: false, reason: "sem texto" };
+	const text = input.text.trim() || BRIEF_FAILURE_LINE;
 	if (!input.botId) return { posted: false, pushed: false, reason: "sem bot" };
 	const conversationId = await deps.conversationOf(input.botId, input.userId);
 	if (!conversationId) return { posted: false, pushed: false, reason: "bot sem conversa" };
 	// Push primeiro: nada que dependa da execução da rotina (consulta, estado) pode engoli-lo.
 	let pushed = false;
-	if (input.notify === "always" && deps.push) {
+	if (input.notify === "always" && !input.skipPush && deps.push) {
 		try {
 			await deps.push(input.userId, conversationId, briefPushBody(text));
 			pushed = true;
@@ -123,6 +131,23 @@ export async function deliverDailyBrief(
 	if (!marked) return { posted: false, pushed, reason: "brief já tratado ou não pôde ser guardado" };
 	const posted = await tryPost({ routineRunId: input.routineRunId, userId: input.userId, botId: input.botId, text }, conversationId, deps);
 	return { posted, pushed, ...(posted ? {} : { reason: "conversa ocupada ou gravação adiada; entra pela varredura" }) };
+}
+
+/**
+ * Run do brief que falhou de vez (erro, orçamento esgotado): posta a linha fixa de falha, com o mesmo id
+ * idempotente do brief. Sem push próprio: o aviso `routine-failed` do mesmo fim de run já sai. Nunca lança.
+ */
+export async function deliverBriefFailure(
+	run: { id: string; origin?: string | null; conversationId?: string | null; userId?: string | null; botId?: string | null },
+	io: { findRoutineRunId: (agentRunId: string) => Promise<string | null | undefined>; delivery: BriefDeliveryDeps },
+): Promise<void> {
+	if (!isDetachedBriefRun(run) || !run.userId) return;
+	try {
+		const routineRunId = await io.findRoutineRunId(run.id).catch(() => null);
+		await deliverDailyBrief({ routineRunId, userId: run.userId, botId: run.botId, text: "", notify: "always", skipPush: true }, io.delivery);
+	} catch (error) {
+		console.error(`[brief] linha de falha não entregue run=${run.id} (${briefErrorTag(error)})`);
+	}
 }
 
 /**

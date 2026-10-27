@@ -125,6 +125,9 @@ export function formatBriefSourcesBlock(sources: readonly BriefSource[]): string
 	return lines.join("\n");
 }
 
+/** Linha fixa (pt-BR, vista pelo usuário) quando o run do brief falha, esgota o orçamento ou volta sem texto. */
+export const BRIEF_FAILURE_LINE = "Não consegui montar seu resumo de hoje.";
+
 /** Tools nativas que o run do brief pode usar: achar tools de leitura, reler resultado, anotar. O brief é só a resposta final. */
 export const BRIEF_NATIVE_TOOLS: ReadonlySet<string> = new Set([
 	"mcp_tool_search",

@@ -135,7 +135,7 @@ import {
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
 import { briefToolFilter, budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
-import { briefDeliveryDeps, briefErrorTag, deliverDailyBrief, isDetachedBriefRun } from "../daily-brief.js";
+import { briefDeliveryDeps, briefErrorTag, deliverBriefFailure, deliverDailyBrief, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage } from "@workspace/db";
 import {
 	AUTO_CONTINUE_MAX,
@@ -219,6 +219,14 @@ export function pushKindForOrigin(origin: string | null | undefined): "reminder"
 }
 
 /** Aviso de rotina que falhou: contexto escopado pelo dono + push `routine-failed` (ausente = sem VAPID). */
+/** Linha de falha do brief "Seu dia" (só run de brief; o `routine-failed` do mesmo fim de run já avisa o celular). */
+export function briefFailureDelivery(run: AgentRun, deps: Pick<AgentRunProcessorDeps, "notify">): Promise<void> {
+	return deliverBriefFailure(run, {
+		findRoutineRunId: async (agentRunId) => (await findRoutineRunByAgentRunId(agentRunId))?.id,
+		delivery: briefDeliveryDeps(deps.notify),
+	});
+}
+
 export function routineRunFailureDeps(deps: Pick<AgentRunProcessorDeps, "notify">): RoutineRunFailureDeps {
 	return {
 		loadContext: (agentRunId, userId) => getRoutineContextForAgentRun(agentRunId, userId),
@@ -1585,7 +1593,8 @@ async function executeLeasedRun(ctx: {
 									}))?.id,
 									userId: runUserId,
 									botId: run.botId,
-									text: result.text,
+									// Orçamento esgotado = sem brief: vai a linha de falha (e o push do brief), nunca o texto de erro.
+									text: result.hitWall ? "" : result.text,
 									notify: routineNotify,
 								},
 								briefDeliveryDeps(deps.notify),
@@ -1683,6 +1692,7 @@ async function executeLeasedRun(ctx: {
 			}
 			if (!autoPlan.schedule) await settleDelivery("budget_exhausted", resultText);
 			await notifyRoutineRunFailure({ origin: run.origin, agentRunId: runId, userId: runUserId, error: error.message }, routineRunFailureDeps(deps));
+			await briefFailureDelivery(run, deps);
 			await chainRunFollowUp(run, runUserId, deps);
 			return { runId, status: "budget_exhausted" };
 		}
@@ -1754,6 +1764,7 @@ async function executeLeasedRun(ctx: {
 		if (kind !== "waiting_user") {
 			await settleDelivery("failed", displayMessage);
 			await notifyRoutineRunFailure({ origin: run.origin, agentRunId: runId, userId: runUserId, error: message }, routineRunFailureDeps(deps));
+			await briefFailureDelivery(run, deps);
 			await chainRunFollowUp(run, runUserId, deps);
 		}
 		if (kind === "waiting_user") {
@@ -1780,6 +1791,8 @@ export type ExhaustedRunIo = {
 	appendAssistant: (conversationId: string, text: string) => Promise<unknown>;
 	/** Push de rotina que falhou de vez (padrão: db + notifier reais). */
 	notifyRoutineFailure?: (input: { origin: string | null | undefined; agentRunId: string; userId: string; error: string }) => Promise<unknown>;
+	/** Linha de falha do brief "Seu dia" (padrão: banco real; só age em run de brief). */
+	briefFailure?: (run: AgentRun) => Promise<unknown>;
 };
 
 const EXHAUSTED_IO: ExhaustedRunIo = {
@@ -1823,6 +1836,7 @@ export async function finalizeExhaustedAgentRun(
 		if (run.userId) {
 			await d.settle({ userId: run.userId, runId, end: "failed", resultText: failureDisplay }).catch((error) => console.error(`settleDelivery failed run=${runId}`, error));
 			await (d.notifyRoutineFailure ?? ((input) => notifyRoutineRunFailure(input, routineRunFailureDeps(deps))))({ origin: run.origin, agentRunId: runId, userId: run.userId, error: technical });
+			await (d.briefFailure ?? ((failed) => briefFailureDelivery(failed, deps)))(run);
 			await d.chain(run, run.userId, deps);
 		}
 		return true;
