@@ -1,5 +1,5 @@
 import type { TranscriptSeed } from "@workspace/shared";
-import { DEFAULT_COMMAND_ALLOWLIST, canGrantMcpTask, PLAN_OUTCOME_ADJUSTED, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
+import { DEFAULT_COMMAND_ALLOWLIST, canGrantMcpTask, hasExternalTargetArgs, PLAN_OUTCOME_ADJUSTED, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
 import type { AgentRun } from "@workspace/shared";
 import {
 	addBotAutonomyException,
@@ -107,9 +107,11 @@ export function isConfirmAlways(text: string): boolean {
 export async function rememberAlwaysAllow(input: {
 	userId: string;
 	botId: string;
-	call: { exposedName: string; actionClass?: "write" | "irreversible" };
+	call: { exposedName: string; actionClass?: "write" | "irreversible"; jevReviewReason?: string };
 }): Promise<boolean> {
 	if (input.call.actionClass !== "write") return false;
+	// Cartão que o Jev levantou por instrução vinda de fora: "sempre" não pode dispensar essa checagem (mesmo se o pedido vier forjado).
+	if (input.call.jevReviewReason === "external_instruction") return false;
 	try {
 		return await addBotAutonomyException({
 			botId: input.botId,
@@ -129,10 +131,13 @@ export async function rememberAlwaysAllow(input: {
 export async function grantAfterApproval(input: {
 	userId: string;
 	conversationId: string;
-	call: { connectionId: string; exposedName: string; actionClass?: "write" | "irreversible"; args: Record<string, unknown> };
+	call: { connectionId: string; exposedName: string; toolName?: string; actionClass?: "write" | "irreversible"; args: Record<string, unknown>; jevReviewReason?: string; untrustedSeen?: boolean };
 	confirmId?: string;
 }): Promise<{ uses: number; maxUses: number } | undefined> {
-	if (!canGrantMcpTask(input.call.actionClass) || collectRefs(input.call.args).length > 0) return undefined;
+	if (!canGrantMcpTask(input.call.actionClass, input.call.toolName ?? input.call.exposedName) || collectRefs(input.call.args).length > 0) return undefined;
+	// Nada que o usuário não escreveu pode abrir a porta para as próximas: cartão levantado depois de e-mail/página/arquivo
+	// lido, por instrução vinda de fora, ou com convidado/destinatário/webhook, é aprovado só para esta chamada.
+	if (input.call.untrustedSeen || input.call.jevReviewReason === "external_instruction" || hasExternalTargetArgs(input.call.args)) return undefined;
 	const granted = await grantMcpTask({
 		userId: input.userId,
 		conversationId: input.conversationId,

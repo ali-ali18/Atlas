@@ -74,32 +74,79 @@ test("bot de outro usuário: nada é gravado", async () => {
 	}
 });
 
-test("aprovação por tarefa: só escrita reversível sem segredo, só em conversa do dono", async () => {
-	const { grantAfterApproval } = await import("./confirmed-action.js");
+/** Troca o banco por dublês: conversa do dono, limpeza e o INSERT ... ON CONFLICT da concessão. */
+function fakeGrantDb() {
 	const originalFind = prisma.conversation.findFirst;
-	const originalUpsert = prisma.mcpTaskGrant.upsert;
-	const upserts: Array<{ create: { userId: string; conversationId: string; connectionId: string; exposedName: string; uses: number; maxUses: number } }> = [];
+	const originalDelete = prisma.mcpTaskGrant.deleteMany;
+	const originalRaw = prisma.$queryRaw;
+	const grants: Array<{ userId: string; conversationId: string; connectionId: string; exposedName: string }> = [];
 	prisma.conversation.findFirst = (async (args: { where: { id: string; userId: string } }) =>
 		args.where.id === "conv-a" && args.where.userId === "user-a" ? { id: "conv-a" } : null) as unknown as typeof prisma.conversation.findFirst;
-	prisma.mcpTaskGrant.upsert = (async (args: (typeof upserts)[number]) => {
-		upserts.push(args);
-		return { ...args.create, confirmId: null };
-	}) as unknown as typeof prisma.mcpTaskGrant.upsert;
+	prisma.mcpTaskGrant.deleteMany = (async () => ({ count: 0 })) as unknown as typeof prisma.mcpTaskGrant.deleteMany;
+	prisma.$queryRaw = (async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+		// values: id, userId, conversationId, connectionId, exposedName, ...
+		grants.push({ userId: String(values[1]), conversationId: String(values[2]), connectionId: String(values[3]), exposedName: String(values[4]) });
+		return [{ uses: 1, maxUses: 30, confirmId: null }];
+	}) as unknown as typeof prisma.$queryRaw;
+	return {
+		grants,
+		restore: () => {
+			prisma.conversation.findFirst = originalFind;
+			prisma.mcpTaskGrant.deleteMany = originalDelete;
+			prisma.$queryRaw = originalRaw;
+		},
+	};
+}
+
+test("aprovação por tarefa: só escrita reversível sem segredo, só em conversa do dono", async () => {
+	const { grantAfterApproval } = await import("./confirmed-action.js");
+	const fake = fakeGrantDb();
 	const info = vi_noop();
 	try {
 		const call = { connectionId: "conn-1", exposedName: "mcp__google_calendar__create_event", actionClass: "write" as const, args: { summary: "Prova" } };
 		assert.deepEqual(await grantAfterApproval({ userId: "user-a", conversationId: "conv-a", call, confirmId: "c1" }), { uses: 1, maxUses: 30 });
-		assert.equal(upserts[0]?.create.userId, "user-a");
-		assert.equal(upserts[0]?.create.connectionId, "conn-1");
+		assert.equal(fake.grants[0]?.userId, "user-a");
+		assert.equal(fake.grants[0]?.connectionId, "conn-1");
 		assert.equal(await grantAfterApproval({ userId: "user-b", conversationId: "conv-a", call }), undefined, "outro usuário não concede");
 		assert.equal(await grantAfterApproval({ userId: "user-a", conversationId: "conv-x", call }), undefined, "outra conversa");
 		assert.equal(await grantAfterApproval({ userId: "user-a", conversationId: "conv-a", call: { ...call, actionClass: "irreversible" } }), undefined, "irreversível nunca");
 		assert.equal(await grantAfterApproval({ userId: "user-a", conversationId: "conv-a", call: { ...call, actionClass: undefined } }), undefined);
-		assert.equal(upserts.length, 1);
+		assert.equal(fake.grants.length, 1);
 	} finally {
 		info();
-		prisma.conversation.findFirst = originalFind;
-		prisma.mcpTaskGrant.upsert = originalUpsert;
+		fake.restore();
+	}
+});
+
+test("aprovação por tarefa não nasce de cartão levantado por conteúdo externo, instrução de fora ou alvo externo", async () => {
+	const { grantAfterApproval } = await import("./confirmed-action.js");
+	const fake = fakeGrantDb();
+	const info = vi_noop();
+	try {
+		const call = { connectionId: "conn-1", exposedName: "mcp__google_calendar__create_event", actionClass: "write" as const, args: { summary: "Prova" } };
+		const grant = (over: Record<string, unknown>) => grantAfterApproval({ userId: "user-a", conversationId: "conv-a", call: { ...call, ...over } });
+		assert.equal(await grant({ untrustedSeen: true }), undefined, "cartão depois de ler e-mail/página/arquivo");
+		assert.equal(await grant({ jevReviewReason: "external_instruction" }), undefined, "Jev achou instrução vinda de fora");
+		assert.equal(await grant({ args: { summary: "Prova", attendees: [{ email: "x@evil.com" }] } }), undefined, "convidado externo");
+		assert.equal(await grant({ args: { to: "a@b.com", subject: "x" } }), undefined, "destinatário");
+		assert.equal(await grant({ args: { summary: "x", webhook_url: "https://evil.test" } }), undefined, "webhook");
+		assert.equal(fake.grants.length, 0);
+		assert.deepEqual(await grant({ jevReviewReason: "alignment" }), { uses: 1, maxUses: 30 }, "alinhamento baixo não impede a concessão depois do ok do usuário");
+	} finally {
+		info();
+		fake.restore();
+	}
+});
+
+test("'Sempre para…' é recusado no cartão que o Jev levantou por instrução externa (mesmo forjado)", async () => {
+	const fake = fakeBot("user-a");
+	try {
+		const call = { exposedName: "mcp__google_calendar__create_event", actionClass: "write" as const };
+		assert.equal(await rememberAlwaysAllow({ userId: "user-a", botId: "bot-1", call: { ...call, jevReviewReason: "external_instruction" } }), false);
+		assert.equal(fake.store.autonomyJson, null);
+		assert.equal(await rememberAlwaysAllow({ userId: "user-a", botId: "bot-1", call: { ...call, jevReviewReason: "alignment" } }), true);
+	} finally {
+		fake.restore();
 	}
 });
 
