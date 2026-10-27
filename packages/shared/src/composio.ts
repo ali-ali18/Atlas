@@ -1,4 +1,5 @@
 import type { McpToolInfo } from "./mcp.js";
+import { composioToolkitOfTool } from "./source-category.js";
 
 /**
  * Composio (opcional, chave própria do usuário): tipos públicos e regras puras.
@@ -43,18 +44,36 @@ const COMPOSIO_READ_VERBS = new Set([
 	"describe",
 ]);
 
+/** Verbos que escrevem ou agem: com qualquer um deles a tool nunca é leitura (na dúvida, não é leitura). */
+const COMPOSIO_WRITE_VERBS = new Set([
+	"create", "send", "delete", "remove", "update", "add", "post", "patch", "put", "insert", "move", "reply", "forward",
+	"archive", "trash", "modify", "set", "write", "upload", "accept", "decline", "cancel", "clear", "import", "run",
+	"execute", "invoke", "batch", "quick", "label", "mark", "star", "share", "invite", "approve", "reject", "merge",
+	"close", "reopen", "assign", "edit", "replace", "rename", "restore", "empty", "unsubscribe", "subscribe", "watch",
+	"stop", "start", "submit", "publish", "schedule", "book", "pay", "transfer", "sync", "disconnect", "revoke",
+]);
+
 /**
- * Heurística para tools do Composio, que não garantem `readOnlyHint`:
- * `GMAIL_FETCH_EMAILS` → o primeiro token depois do toolkit é verbo de
- * leitura. Qualquer outra coisa (inclusive nome fora do padrão) é escrita.
+ * Heurística para tools do Composio, que não garantem `readOnlyHint`: tira o prefixo do toolkit
+ * (`GMAIL_`, `GOOGLECALENDAR_`, `GOOGLE_CALENDAR_`, via `composioToolkitOfTool`) e olha os termos que sobram.
+ * É leitura quando o verbo de leitura abre ou fecha o nome (`GMAIL_FETCH_EMAILS`, `GOOGLECALENDAR_EVENTS_LIST`,
+ * `GOOGLE_CALENDAR_LIST_EVENTS`) e nenhum termo é verbo de escrita. Qualquer outra coisa (inclusive nome fora do
+ * padrão) é escrita.
  */
 export function isComposioReadToolName(name: string): boolean {
-	const tokens = name
+	const parts = name.split("_").filter(Boolean);
+	if (parts.length < 2) return false;
+	const toolkit = composioToolkitOfTool(name);
+	const skip = parts[0]!.toLowerCase().replace(/[^a-z0-9]+/g, "") === toolkit ? 1 : 2;
+	const verbs = parts
+		.slice(skip)
+		.join(" ")
 		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
 		.toLowerCase()
 		.split(/[^a-z0-9]+/)
 		.filter(Boolean);
-	return tokens.length >= 2 && COMPOSIO_READ_VERBS.has(tokens[1] as string);
+	if (verbs.length === 0 || verbs.some((term) => COMPOSIO_WRITE_VERBS.has(term))) return false;
+	return COMPOSIO_READ_VERBS.has(verbs[0]!) || COMPOSIO_READ_VERBS.has(verbs[verbs.length - 1]!);
 }
 
 /** Toolkits internos do Composio (as meta-tools): nunca aparecem como app. */

@@ -451,6 +451,7 @@ export {
 } from "./schedule-cron.js";
 export * from "./proactive.js";
 export * from "./reflection.js";
+export * from "./work-hours.js";
 export * from "./reaction-only.js";
 export * from "./memory-limits.js";
 export * from "./memory-scope.js";
@@ -490,6 +491,33 @@ export {
 	SECURITY_REVIEW_MAX_PRS_PER_RUN,
 	buildGithubSecurityReviewPrompt,
 } from "./routine-security-review.js";
+export {
+	SOURCE_CATEGORIES,
+	SOURCE_CATEGORY_LABELS,
+	categorizeSource,
+	composioToolkitOfTool,
+	isBriefCategory,
+	type BriefSourceKind,
+	type SourceCategory,
+} from "./source-category.js";
+export {
+	BRIEF_FAILURE_LINE,
+	BRIEF_NATIVE_TOOLS,
+	BRIEF_RUN_SUMMARY_FAILED,
+	BRIEF_RUN_SUMMARY_SENT,
+	DAILY_BRIEF_DEFAULT_CRON,
+	DAILY_BRIEF_DEFAULT_FOCUS,
+	DAILY_BRIEF_MAX_EMAILS,
+	DAILY_BRIEF_NAME,
+	DAILY_BRIEF_TEMPLATE,
+	buildDailyBriefInstructions,
+	formatBriefSourcesBlock,
+	formatDailyBriefSummary,
+	isBriefToolAllowed,
+	parseDailyBriefSchedule,
+	type BriefSource,
+	type DailyBriefSchedule,
+} from "./daily-brief.js";
 export {
 	QUESTIONNAIRE_SUBMITTED_EVENT,
 	QUESTIONNAIRE_ANSWERED_EVENT,

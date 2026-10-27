@@ -15,7 +15,7 @@ const URL_OR_DOMAIN = /https?:\/\/|\bwww\.|\b[a-z0-9-]+\.(com|org|net|io|gov|edu
 const PATTERNS: Array<[ContextGroup, RegExp]> = [
 	[
 		"routines",
-		/\b(rotinas?|lembr\w*|agend\w*|cron|webhook|gatilho|trigger\w*|diari\w+|semanal\w*|mensal\w*|todo dia|todos os dias|toda (semana|manha|tarde|noite|hora|segunda|terca|quarta|quinta|sexta|sabado|domingo)|(a )?cada \d+|de \d+ em \d+|remind\w*|schedul\w*|recurr\w*|routines?|alarm\w*|every (day|week|month|hour|\d+)|fica de olho|me avis\w+|avis\w+ (me )?(quando|se))\b/,
+		/\b(rotinas?|lembr\w*|agend\w*|cron|webhook|gatilho|trigger\w*|diari\w+|semanal\w*|mensal\w*|todo dia|todos os dias|toda (semana|manha|tarde|noite|hora|segunda|terca|quarta|quinta|sexta|sabado|domingo)|(a )?cada \d+|de \d+ em \d+|remind\w*|schedul\w*|recurr\w*|routines?|alarm\w*|every (day|week|month|hour|\d+)|fica de olho|me avis\w+|avis\w+ (me )?(quando|se)|prepar\w* (o |meu )?(meu )?dia|(resumo|briefing|brief|panorama) (d[oa] |do meu |da minha )?(meu |minha )?(dia|manha)|seu dia|comec\w+ (o )?(meu )?dia (pra|para) mim)\b/,
 	],
 	[
 		"vault",

@@ -17,6 +17,9 @@ import type {
 	UpdateRoutineInput,
 } from "@workspace/shared";
 import {
+	BRIEF_RUN_SUMMARY_FAILED,
+	BRIEF_RUN_SUMMARY_SENT,
+	DAILY_BRIEF_TEMPLATE,
 	alertSupportsTrigger,
 	applyAlertConfig,
 	parseRoutineAlert,
@@ -288,6 +291,7 @@ function toRoutine(
 		groupId: row.groupId ?? null,
 		group: row.group ? { id: row.group.id, name: row.group.name } : null,
 		pageId: row.pageId ?? null,
+		template: row.template ?? null,
 		name: row.name,
 		prompt: row.prompt,
 		model: row.model,
@@ -826,6 +830,7 @@ export async function createRoutine(
 			conversationId: bot.conversationId,
 			groupId,
 			pageId,
+			template: input.template?.trim() || null,
 			name: input.name.trim(),
 			prompt: input.prompt,
 			model,
@@ -1249,6 +1254,18 @@ export async function getRoutineNotifyModeForAgentRun(agentRunId: string): Promi
 	return parseRoutineNotifyMode(row?.routine?.notify);
 }
 
+/** Modelo da rotina que originou este run (só se a rotina é do usuário; null = rotina comum ou run que não é de rotina). */
+export async function getRoutineTemplateForAgentRun(agentRunId: string, userId: string | undefined): Promise<string | null> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return null;
+	const row = await prisma.routineRun.findFirst({
+		where: { agentRunId, routine: { userId: { in: owners } } },
+		orderBy: { createdAt: "desc" },
+		select: { routine: { select: { template: true } } },
+	});
+	return row?.routine?.template ?? null;
+}
+
 /** Página que a rotina deste run atualiza no lugar (só se a rotina é do usuário; null = nenhuma). */
 export async function getRoutinePageIdForAgentRun(agentRunId: string, userId: string | undefined): Promise<string | null> {
 	const owners = ownerIds(userId);
@@ -1469,18 +1486,21 @@ export async function settleRoutineRunForAgentRun(
 		// PR (state.pendingDelete) depois que o status terminal for persistido.
 		const rows = await prisma.routineRun.findMany({
 			where: { agentRunId, status: { in: ACTIVE_RUN_STATUSES } },
-			select: { id: true, routineId: true },
+			select: { id: true, routineId: true, routine: { select: { template: true } } },
 		});
 		if (rows.length === 0) return;
-		await prisma.routineRun.updateMany({
-			where: { id: { in: rows.map((row) => row.id) } },
-			data: {
-				status: mapped,
-				summary,
-				error: mapped === "failed" ? input.error ?? null : null,
-				finishedAt: now,
-			},
-		});
+		// Brief "Seu dia": o texto é a mensagem do chat e a API devolve `summary`; guarda só um rótulo fixo.
+		const briefSummary = mapped === "succeeded" ? BRIEF_RUN_SUMMARY_SENT : BRIEF_RUN_SUMMARY_FAILED;
+		const isBrief = (row: (typeof rows)[number]) => row.routine?.template === DAILY_BRIEF_TEMPLATE;
+		const briefIds = rows.filter(isBrief).map((row) => row.id);
+		const otherIds = rows.filter((row) => !isBrief(row)).map((row) => row.id);
+		const common = { status: mapped, error: mapped === "failed" ? input.error ?? null : null, finishedAt: now };
+		if (briefIds.length > 0) {
+			await prisma.routineRun.updateMany({ where: { id: { in: briefIds } }, data: { ...common, summary: briefSummary } });
+		}
+		if (otherIds.length > 0) {
+			await prisma.routineRun.updateMany({ where: { id: { in: otherIds } }, data: { ...common, summary } });
+		}
 		// Babá de PR (linha legada com delivery="poll" ou webhook sem execução
 		// ativa no momento do fechamento): a execução final acabou de persistir
 		// status terminal — se não sobrou run ativo, apaga a rotina agora (best-effort).

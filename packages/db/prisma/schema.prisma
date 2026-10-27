@@ -719,6 +719,8 @@ model Routine {
   /// Página que a rotina atualiza no lugar a cada execução (mesmo dono e bot; SetNull se a linha sumir).
   pageId          String?
   page            Page?     @relation(fields: [pageId], references: [id], onDelete: SetNull)
+  /// Modelo de rotina (ex.: "daily_brief" = "Seu dia"). Define travas do run (só leitura, sem adiar por chat ocupado). Null = rotina comum.
+  template        String?
   name            String
   prompt          String
   /// Modelo OpenRouter dedicado a esta rotina (escolhido no painel).
@@ -779,11 +781,18 @@ model RoutineRun {
   error         String?
   summary       String?
   eventJson     Json?
+  /// Entrega do brief "Seu dia" como mensagem: pending | posted | expired; null = run que não é brief.
+  briefStatus   String?
+  /// Texto do brief enquanto pending; limpo ao postar ou expirar (nunca sai pela API).
+  briefText     String?
+  /// Quando o push do brief foi reivindicado/enviado (uma vez só; a varredura nunca repete o push). Null = ainda não.
+  briefPushedAt DateTime?
   createdAt     DateTime  @default(now())
 
   @@index([routineId, createdAt])
   @@index([agentRunId])
   @@index([routineId, status])
+  @@index([briefStatus, createdAt])
   @@map("routine_runs")
 }
 

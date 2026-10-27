@@ -29,6 +29,36 @@ describe("classificação de tools do Composio", () => {
 		}
 	});
 
+	it("tabela: verbo no começo ou no fim, prefixo do toolkit de um ou dois termos", () => {
+		const table: Array<[string, boolean]> = [
+			["GMAIL_FETCH_EMAILS", true],
+			["GITHUB_LIST_REPOSITORY_ISSUES", true],
+			["NOTION_SEARCH_PAGES", true],
+			["GITHUB_GET_A_REPOSITORY", true],
+			["GOOGLECALENDAR_EVENTS_LIST", true],
+			["GOOGLE_CALENDAR_LIST_EVENTS", true],
+			["GOOGLE_CALENDAR_EVENTS_LIST", true],
+			["GOOGLECALENDAR_FIND_EVENT", true],
+			["GOOGLECALENDAR_GET_CALENDAR", true],
+			["OUTLOOK_LIST_MESSAGES", true],
+			["GMAIL_SEND_EMAIL", false],
+			["GMAIL_CREATE_DRAFT", false],
+			["GOOGLECALENDAR_CREATE_EVENT", false],
+			["GOOGLECALENDAR_QUICK_ADD", false],
+			["GOOGLECALENDAR_EVENTS_DELETE", false],
+			["GOOGLECALENDAR_EVENTS_UPDATE", false],
+			["GOOGLE_CALENDAR_DELETE_EVENT", false],
+			["GOOGLECALENDAR_LIST_AND_DELETE_EVENTS", false],
+			["GMAIL_GET_AND_REPLY", false],
+			["GITHUB_CREATE_ISSUE", false],
+			["GOOGLECALENDAR_EVENTS", false],
+			["FETCH", false],
+			["weird", false],
+			["", false],
+		];
+		for (const [name, expected] of table) expect([name, isComposioReadToolName(name)]).toEqual([name, expected]);
+	});
+
 	it("o resto é escrita (inclusive nome fora do padrão)", () => {
 		for (const name of ["GMAIL_SEND_EMAIL", "GITHUB_CREATE_ISSUE", "FETCH", "weird"]) {
 			expect(isComposioReadToolName(name)).toBe(false);

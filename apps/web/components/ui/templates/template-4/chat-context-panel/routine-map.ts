@@ -492,6 +492,8 @@ export function routineCardSummary(triggerType: Routine["triggerKind"] | undefin
 	if (!first) return null;
 	// Alerta por condição: o agente já grava a frase pronta ("Alerta · confere a cada 30 minutos · avisa se …").
 	if ((triggerType === "cron" || triggerType === "interval") && first.startsWith("Alerta · ")) return first;
+	// "Seu dia": o agente grava a frase pronta ("Seu dia · seg–sex às 07:30").
+	if (triggerType === "cron" && first.startsWith("Seu dia · ")) return first;
 	if (triggerType === "cron") {
 		const cron = /^Cron:\s+((?:\S+\s+){4}\S+)/.exec(first)?.[1];
 		return cron ? capitalizeFirst(scheduleLabel(toScheduleState(cronToScheduleInput(cron)))) : null;

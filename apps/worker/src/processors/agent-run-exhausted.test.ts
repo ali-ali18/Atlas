@@ -88,3 +88,10 @@ test("run finalizado por outro caminho não dispara o aviso de rotina", async ()
 	await finalizeExhaustedAgentRun("r1", new Error("x"), 3, {}, { ...fakes, notifyRoutineFailure: async () => void (called += 1) });
 	assert.equal(called, 0);
 });
+
+test("run de brief que esgotou as tentativas: entrega a linha de falha do brief", async () => {
+	const { io: fakes } = io({ origin: "routine" });
+	const failed: string[] = [];
+	await finalizeExhaustedAgentRun("r1", new Error("x"), 3, {}, { ...fakes, notifyRoutineFailure: async () => undefined, briefFailure: async (run) => void failed.push(run.id) });
+	assert.deepEqual(failed, ["r1"]);
+});

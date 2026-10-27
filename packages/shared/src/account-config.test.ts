@@ -192,3 +192,24 @@ describe("coding.verifier (Verificador inteligente)", () => {
 		expect(cleared.coding).toBeUndefined();
 	});
 });
+
+describe("general.workHours", () => {
+	const wh = { start: "09:00", end: "17:00", days: [1, 2, 3] };
+	it("aceita na escrita, na leitura e no merge; null remove", () => {
+		expect(ok({ general: { workHours: wh } })).toEqual({ general: { workHours: wh } });
+		expect(parseAccountConfig({ v: 1, general: { workHours: wh } })).toEqual({ v: 1, general: { workHours: wh } });
+		const merged = mergeAccountConfig({ v: 1, general: { timezone: "America/Sao_Paulo", workHours: wh } }, { general: { workHours: { start: "10:00", end: "18:00", days: [6] } } });
+		expect(merged.general?.workHours).toEqual({ start: "10:00", end: "18:00", days: [6] });
+		expect(mergeAccountConfig(merged, { general: { workHours: null } }).general).toEqual({ timezone: "America/Sao_Paulo" });
+	});
+	it("rejeita valor inválido na escrita e descarta na leitura", () => {
+		for (const bad of [{ start: "18:00", end: "09:00", days: [1] }, { start: "09:00", end: "17:00", days: [] }, { start: "09:00", end: "17:00", days: [8] }, "x"]) {
+			expect(errorsOf({ general: { workHours: bad } })).toEqual(["general.workHours"]);
+			expect(parseAccountConfig({ v: 1, general: { workHours: bad } })).toEqual({ v: 1 });
+		}
+	});
+	it("config antiga sem workHours continua válida (clientes antigos)", () => {
+		expect(ok({ general: { timezone: "America/Sao_Paulo" } })).toEqual({ general: { timezone: "America/Sao_Paulo" } });
+		expect(parseAccountConfig({ v: 1, general: { timezone: "America/Sao_Paulo" } })).toEqual({ v: 1, general: { timezone: "America/Sao_Paulo" } });
+	});
+});

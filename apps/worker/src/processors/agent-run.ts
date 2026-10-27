@@ -108,6 +108,7 @@ import {
 	getRoutineContextForAgentRun,
 	getRoutineNotifyModeForAgentRun,
 	getRoutinePageIdForAgentRun,
+	findRoutineRunByAgentRunId,
 	persistConversationCardFromEvent,
 	recordRoutineAlertState,
 } from "@workspace/db";
@@ -133,7 +134,8 @@ import {
 	runComputerUse,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { briefToolFilter, budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage } from "@workspace/db";
 import {
 	AUTO_CONTINUE_MAX,
@@ -175,6 +177,7 @@ import {
 	resolveRunModelTiers,
 	visionFallbackFromSnapshot,
 	withConfigSnapshot,
+	runTimeZoneFromConfig,
 } from "../run-config.js";
 import { createRunEventCoalescer } from "../coalesce-run-events.js";
 import { createRunControlReader } from "../run-control.js";
@@ -216,6 +219,14 @@ export function pushKindForOrigin(origin: string | null | undefined): "reminder"
 }
 
 /** Aviso de rotina que falhou: contexto escopado pelo dono + push `routine-failed` (ausente = sem VAPID). */
+/** Linha de falha do brief "Seu dia" (só run de brief; o `routine-failed` do mesmo fim de run já avisa o celular). */
+export function briefFailureDelivery(run: AgentRun, deps: Pick<AgentRunProcessorDeps, "notify">): Promise<void> {
+	return deliverBriefFailure(run, {
+		findRoutineRunId: async (agentRunId) => (await findRoutineRunByAgentRunId(agentRunId))?.id,
+		delivery: briefDeliveryDeps(deps.notify),
+	});
+}
+
 export function routineRunFailureDeps(deps: Pick<AgentRunProcessorDeps, "notify">): RoutineRunFailureDeps {
 	return {
 		loadContext: (agentRunId, userId) => getRoutineContextForAgentRun(agentRunId, userId),
@@ -608,7 +619,9 @@ async function executeLeasedRun(ctx: {
 	// Aviso da rotina ("always" = push ao fim, como sempre) e push avulso do bot (rotina "só importante" / chat).
 	const routineNotifyPromise: Promise<RoutineNotifyMode> = run.origin === "routine" ? getRoutineNotifyModeForAgentRun(runId).catch(() => "always" as const) : Promise.resolve("always");
 	// Rotina ligada a uma página: o run só pode atualizar essa página (o runtime trava as outras).
-	const routinePageIdPromise = run.origin === "routine" ? getRoutinePageIdForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
+	// O brief "Seu dia" nunca usa painel: sem pageId, o runtime não registra as tools de painel nem pré-carrega páginas.
+	const routinePageIdPromise = run.origin === "routine" && !isDetachedBriefRun(run) ? getRoutinePageIdForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
+	// Modelo da rotina ("Seu dia"): trava de leitura no run e entrega fora da conversa. Falha ao ler = rotina comum.
 	// Rotina de alerta: o run só verifica a condição; o aviso (com debounce) é decidido depois do veredito.
 	const alertCtxPromise = run.origin === "routine" ? getRoutineAlertForAgentRun(runId, runUserId).catch(() => null) : Promise.resolve(null);
 	// Triagem de mensagens do usuário durante o run: modelo barato de manutenção; falha = modelo do run.
@@ -1143,9 +1156,12 @@ async function executeLeasedRun(ctx: {
 			// `@App` do usuário neste turno: as tools desses conectores já entram no 1º passo.
 			forcedConnectors: forcedConnectors.length > 0 ? forcedConnectors : undefined,
 			// Verificação de pendências da reflexão: só leitura (nativa ou conector que se declara somente leitura).
-			toolFilter: isRecheckObjective(run.origin, run.objective)
-				? (toolName: string) => isRecheckToolAllowed(toolName, mcp?.toolset.entries.get(toolName)?.readOnly)
-				: undefined,
+			// Brief "Seu dia": só leitura, em código (nativa da lista do brief; conector só se declarado de leitura).
+			toolFilter: isDetachedBriefRun(run)
+				? briefToolFilter(mcp)
+				: isRecheckObjective(run.origin, run.objective)
+					? (toolName: string) => isRecheckToolAllowed(toolName, mcp?.toolset.entries.get(toolName)?.readOnly)
+					: undefined,
 			autonomy,
 			skillIndex,
 			...(runLessons.length > 0 && run.botId
@@ -1168,6 +1184,7 @@ async function executeLeasedRun(ctx: {
 			executionDiscipline: runtimeConfig.executionDiscipline,
 			contextEconomy: runtimeConfig.contextEconomy,
 			contextMemory: runtimeConfig.contextMemory,
+			timeZone: runTimeZoneFromConfig(await loadAccountConfig()),
 			maxOutputTokens: runtimeConfig.maxOutputTokens,
 			toolResultMaxChars: runtimeConfig.toolResultMaxChars,
 			modelCallTimeoutMs: runtimeConfig.modelCallTimeoutMs,
@@ -1563,6 +1580,28 @@ async function executeLeasedRun(ctx: {
 			{ name: "follow-up", run: () => chainRunFollowUp(run, runUserId, deps) },
 			{ name: "delivery", run: () => settleDelivery(result.hitWall ? "budget_exhausted" : "completed", noUpdate ? null : result.text) },
 			{
+				// "Seu dia" nasce sem conversa: a frase curta e o push saem daqui, na conversa do bot (ver daily-brief.ts).
+				name: "brief-delivery",
+				run: isDetachedBriefRun(run)
+					? async () => {
+							const delivery = await deliverDailyBrief(
+								{
+									// A consulta falhar não pode perder o brief: tenta de novo e, sem id, nada sai aqui e a recuperação entrega (ver daily-brief.ts).
+									agentRunId: runId,
+									routineRunId: await findRoutineRunIdWithRetry(async () => (await findRoutineRunByAgentRunId(runId))?.id),
+									userId: runUserId,
+									botId: run.botId,
+									// Orçamento esgotado = sem brief: vai a linha de falha (e o push do brief), nunca o texto de erro.
+									text: result.hitWall ? "" : result.text,
+									notify: routineNotify,
+								},
+								briefDeliveryDeps(deps.notify),
+							);
+							console.log(`[brief] run=${runId} posted=${delivery.posted} pushed=${delivery.pushed}${delivery.reason ? ` reason=${JSON.stringify(delivery.reason)}` : ""}`);
+						}
+					: undefined,
+			},
+			{
 				// Push: terminou (ou lembrete/rotina). O notify cuida de switch do bot, "está olhando", protocolo e coalescência.
 				name: "push",
 				run: shouldPushRunEnd(run, result.text, Boolean(deps.notify), routineNotify, Boolean(alertCtx) || noUpdate) ? () => deps.notify!(runUserId, run.conversationId!, pushKindForOrigin(run.origin), result.text) : undefined,
@@ -1651,6 +1690,7 @@ async function executeLeasedRun(ctx: {
 			}
 			if (!autoPlan.schedule) await settleDelivery("budget_exhausted", resultText);
 			await notifyRoutineRunFailure({ origin: run.origin, agentRunId: runId, userId: runUserId, error: error.message }, routineRunFailureDeps(deps));
+			await briefFailureDelivery(run, deps);
 			await chainRunFollowUp(run, runUserId, deps);
 			return { runId, status: "budget_exhausted" };
 		}
@@ -1722,6 +1762,7 @@ async function executeLeasedRun(ctx: {
 		if (kind !== "waiting_user") {
 			await settleDelivery("failed", displayMessage);
 			await notifyRoutineRunFailure({ origin: run.origin, agentRunId: runId, userId: runUserId, error: message }, routineRunFailureDeps(deps));
+			await briefFailureDelivery(run, deps);
 			await chainRunFollowUp(run, runUserId, deps);
 		}
 		if (kind === "waiting_user") {
@@ -1748,6 +1789,8 @@ export type ExhaustedRunIo = {
 	appendAssistant: (conversationId: string, text: string) => Promise<unknown>;
 	/** Push de rotina que falhou de vez (padrão: db + notifier reais). */
 	notifyRoutineFailure?: (input: { origin: string | null | undefined; agentRunId: string; userId: string; error: string }) => Promise<unknown>;
+	/** Linha de falha do brief "Seu dia" (padrão: banco real; só age em run de brief). */
+	briefFailure?: (run: AgentRun) => Promise<unknown>;
 };
 
 const EXHAUSTED_IO: ExhaustedRunIo = {
@@ -1791,6 +1834,7 @@ export async function finalizeExhaustedAgentRun(
 		if (run.userId) {
 			await d.settle({ userId: run.userId, runId, end: "failed", resultText: failureDisplay }).catch((error) => console.error(`settleDelivery failed run=${runId}`, error));
 			await (d.notifyRoutineFailure ?? ((input) => notifyRoutineRunFailure(input, routineRunFailureDeps(deps))))({ origin: run.origin, agentRunId: runId, userId: run.userId, error: technical });
+			await (d.briefFailure ?? ((failed) => briefFailureDelivery(failed, deps)))(run);
 			await d.chain(run, run.userId, deps);
 		}
 		return true;

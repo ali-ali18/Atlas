@@ -26,6 +26,7 @@ import { SkillsSettings } from "./skills";
 import { VaultSettings } from "./vault";
 import { ReflectionSettings } from "./reflection";
 import { TimezoneSettings } from "./timezone";
+import { WorkHoursSettings } from "./work-hours";
 import { DiagnosticsSettings } from "./diagnostics";
 import { UsageSettings } from "./usage";
 import { canDisconnect, providersViewState } from "../providers-state";
@@ -76,6 +77,7 @@ export function GeralPane({ account, isVisible }: { account: Account; isVisible:
 			<PaneStatus account={account} />
 			{anyVisible(isVisible, ["geral.tema", "geral.idioma"]) ? <GeneralSettings account={quiet} isVisible={isVisible} /> : null}
 			<TimezoneSettings account={quiet} isVisible={isVisible} />
+			<WorkHoursSettings account={quiet} isVisible={isVisible} />
 		</SettingsStack>
 	);
 }

@@ -58,9 +58,10 @@ export function applyOptimisticPatch(
 	if (Array.isArray(fallbacks)) set("models", "fallbacks", [...fallbacks]);
 
 	let config = view.config;
-	if (patch.jev || patch.execution || patch.reflection) {
+	if (patch.jev || patch.execution || patch.reflection || patch.general?.workHours !== undefined) {
 		const touched: AccountConfigPatch = {};
 		if (patch.reflection) touched.reflection = patch.reflection;
+		if (patch.general?.workHours !== undefined) touched.general = { workHours: patch.general.workHours };
 		if (patch.jev) touched.jev = patch.jev;
 		if (patch.execution) touched.execution = patch.execution;
 		config = mergeAccountConfig(view.config, touched);

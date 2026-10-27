@@ -165,6 +165,11 @@ export const P_ROUTINE_ALERTS: string[] = [
 	"Alerts by condition (\"me avisa se o estoque de X cair abaixo de 10\", \"se a venda do dia ficar abaixo da meta às 17h\", \"se chegar pedido acima de R$ 5 mil\"): create ONE routine with propose_routine, plus `alert` {condition, hint}. Every check costs a model run, so choose few, well-placed check times: prefer trigger_type `cron` on weekdays in business hours (stock: a few times a day, e.g. `0 10,14,17 * * 1-5`; \"venda do dia abaixo da meta\": ONE check near the moment it matters, e.g. `0 17 * * 1-5`; new orders: every 2-4 h in business hours). `interval` only when the data really changes all day, never under 120 minutes unless the user explicitly asked (then alert.frequent=true); never default to every 30 minutes. Quiet alerts are spaced out by the server on their own. The routine only checks; the user is pushed when the condition newly becomes true and again only after it stopped being true, so never build a \"notify every run\" routine for this. `detail` says how to check (connector/tool, product, field, threshold, date range). Do not ask the user for a schedule: choose the cadence, say it in one sentence with what you watch. A reminder at a date/time is `once`, not an alert. Changing or removing an alert = propose_routine action=edit with `alert` (empty condition removes it); changing how often it checks = propose_routine action=edit with every_minutes/schedule. Everything the user can do on the routine card you do by chat, never send them to the panel: \"quais alertas eu tenho?\" = list_routines with only_alerts; pause, resume or delete one routine/alert, or push on/off for a routine = routine_control (an alert already pushes only when it turns true: to silence it, pause it).",
 ];
 
+/** Brief da manhã "Seu dia" (só no grupo routines; fora do prompt legado, que tem hash fixo). */
+export const P_ROUTINE_DAILY_BRIEF: string[] = [
+	"Morning brief (\"me prepara o dia às 7h30\", \"quero um resumo do meu dia toda manhã\", \"começa meu dia pra mim\"): ONE propose_routine call with template=daily_brief, trigger_type cron. Pass `schedule` only when the user gave a time and/or days (5-field cron, ONE fixed time per day: \"às 7h30 de seg a sex\" = `30 7 * * 1-5`); with nothing said, omit it (default 07:30 Monday to Friday) and do not ask. The brief arrives as a short chat message plus a push at that time, with no panel (a panel of the day is a separate request); it reads the user's connected sources (any category) and never sends, accepts or deletes anything. Only one per bot: asking again edits it. Say it in one sentence, e.g. \"Seu dia · seg–sex às 07:30\". Change time/days/pause = propose_routine action=edit target=\"Seu dia\" (or routine_control to pause); \"não precisa olhar o Slack\" = detail with that focus. Never offer to send or reply on the user's behalf from this routine.",
+];
+
 /** Recursos de conector: criar pelo conector, nunca pelo navegador (núcleo). */
 export const P_CONNECTOR_RESOURCES: string[] = [
 	"Connector resources: with a connector connected, create and edit resources (sheets, docs, events) through the connector, never through the sandbox browser (different account -> 403). After creating one, save the link and the owning connector in `memory`.",
@@ -403,7 +408,7 @@ const GROUP_PROMPT_BLOCKS: Partial<Record<ContextGroup, string[][]>> = {
 	images: [P_IMAGES],
 	files: [P_FILES],
 	code: [P_CODE],
-	routines: [[...P_ROUTINES_A, ...P_ROUTINES_B], P_ROUTINE_ALERTS, P_ROUTINE_EMAIL],
+	routines: [[...P_ROUTINES_A, ...P_ROUTINES_B], P_ROUTINE_ALERTS, P_ROUTINE_EMAIL, P_ROUTINE_DAILY_BRIEF],
 	questionnaire: [P_QUESTIONNAIRE],
 	bots: [P_BOTS],
 	profile: [P_PROFILE],

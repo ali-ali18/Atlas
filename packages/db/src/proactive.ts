@@ -479,12 +479,14 @@ export async function createDetachedProactiveRun(input: {
 	messages: Array<{ role: "user" | "system" | "assistant"; content: string }>;
 	/** Teto de passos do run (padrão do runtime quando ausente). */
 	maxSteps?: number;
+	/** "routine" para rotina que não pode esperar a conversa (o brief "Seu dia"); o padrão é o proativo. */
+	origin?: "proactive" | "routine";
 }) {
 	const bot = await prisma.bot.findFirst({ where: { id: input.botId, ownerId: input.userId }, select: { id: true } });
 	if (!bot) throw new FollowupError("Bot não encontrado");
 	return prisma.agentRun.create({
 		data: buildQueuedRunData({
-			request: { botId: input.botId, origin: "proactive", objective: input.objective, messages: input.messages, silent: true, ...(input.maxSteps ? { maxSteps: input.maxSteps } : {}) },
+			request: { botId: input.botId, origin: input.origin ?? "proactive", objective: input.objective, messages: input.messages, silent: true, ...(input.maxSteps ? { maxSteps: input.maxSteps } : {}) },
 			model: input.model,
 			userId: input.userId,
 			conversationId: null,

@@ -17,6 +17,7 @@ import {
 	resolveRunModelTiers,
 	resolveRunConfigSnapshot,
 	runtimeParamsFromSnapshot,
+	runTimeZoneFromConfig,
 	visionFallbackFromSnapshot,
 	withConfigSnapshot,
 } from "./run-config.js";
@@ -366,4 +367,10 @@ test("níveis por dificuldade: tira modelo de provedor indisponível ou fora do 
 		snapshot: { modelTiers: { easy: ["a/x"] }, chatgptEnabled: false },
 	});
 	assert.equal(noKey, undefined);
+});
+
+test("fuso da conta: vai para a nota de hora; sem conta ou sem fuso, fica indefinido", () => {
+	assert.equal(runTimeZoneFromConfig({ v: 1, general: { timezone: "America/Manaus" } }), "America/Manaus");
+	assert.equal(runTimeZoneFromConfig({ v: 1 }), undefined);
+	assert.equal(runTimeZoneFromConfig(null), undefined);
 });

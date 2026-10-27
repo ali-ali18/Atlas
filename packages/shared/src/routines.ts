@@ -32,6 +32,8 @@ export type RoutineRecord = {
 	group?: { id: string; name: string } | null;
 	/** Página que cada execução reconstrói no lugar (null/ausente = nenhuma). */
 	pageId?: string | null;
+	/** Modelo de rotina (ex.: "daily_brief"); null/ausente = rotina comum. Define travas do run (só leitura). */
+	template?: string | null;
 	name: string;
 	prompt: string;
 	/** Id OpenRouter escolhido no painel para esta rotina. */
@@ -104,6 +106,8 @@ export type CreateRoutineInput = {
 	groupId?: string | null;
 	/** Página do mesmo usuário e bot que a rotina atualiza no lugar. */
 	pageId?: string | null;
+	/** Modelo de rotina (só "daily_brief" hoje). */
+	template?: string | null;
 	name: string;
 	prompt: string;
 	model?: string;

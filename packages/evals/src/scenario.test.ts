@@ -9,7 +9,7 @@ describe("schema do cenário", () => {
 		expect(parsed.ok).toBe(true);
 		if (!parsed.ok) return;
 		expect(parsed.scenario.bot.language).toBe("pt-BR");
-		expect(parsed.scenario.run).toEqual({ maxSteps: 8, origin: "chat" });
+		expect(parsed.scenario.run).toEqual({ maxSteps: 8, origin: "chat", briefReadOnly: false });
 		expect(parsed.scenario.tools).toEqual({ fixtures: [], connectors: [], allowReal: [] });
 		expect(parsed.scenario.source.kind).toBe("seed");
 	});
