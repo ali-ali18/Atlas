@@ -1,6 +1,7 @@
 /** Entrega do brief "Seu dia" no Postgres real: semântica de NULL, concorrência, escopo por dono e expiração. */
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
+import { BRIEF_RUN_SUMMARY_FAILED, BRIEF_RUN_SUMMARY_SENT } from "@workspace/shared";
 import { prisma } from "./client.js";
 import {
 	appendBriefMessage,
@@ -11,6 +12,7 @@ import {
 	markBriefPending,
 	markBriefPosted,
 } from "./brief-delivery.js";
+import { settleRoutineRunForAgentRun } from "./routines.js";
 import { createTestBot, createTestUser, dbSkip } from "./testing/test-db.js";
 
 describe("entrega do brief (Postgres real)", { skip: dbSkip }, () => {
@@ -123,5 +125,23 @@ describe("entrega do brief (Postgres real)", { skip: dbSkip }, () => {
 		await prisma.agentRun.update({ where: { id: run.id }, data: { status: "completed", finishedAt: new Date(now.getTime() - 2_000) } });
 		assert.equal(await isConversationBusyForBrief(conversationId, now), true, "terminou há 2 s");
 		assert.equal(await isConversationBusyForBrief(conversationId, new Date(now.getTime() + 10_000)), false, "terminou há 12 s");
+	});
+
+	test("summary da execução: brief guarda só o rótulo fixo (o texto vai só ao chat); rotina comum guarda o resultado", async () => {
+		const plain = (await prisma.routine.create({ data: { userId: userA, botId: botA, name: "Comum", prompt: "p" } })).id;
+		const settle = async (routineId: string, status: string, resultText: string, error?: string) => {
+			const agentRun = await prisma.agentRun.create({ data: { userId: userA, conversationId: conversationA, objective: "o", model: "m", status } });
+			const run = await prisma.routineRun.create({ data: { routineId, agentRunId: agentRun.id, status: "running" }, select: { id: true } });
+			await settleRoutineRunForAgentRun(agentRun.id, { status, resultText, error });
+			return rowOf(run.id);
+		};
+		const ok = await settle(routineA, "completed", "SEGREDO: reunião com o cliente às 10h");
+		assert.equal(ok.summary, BRIEF_RUN_SUMMARY_SENT);
+		assert.equal(ok.status, "succeeded");
+		const failed = await settle(routineA, "failed", "SEGREDO parcial", "boom");
+		assert.equal(failed.summary, BRIEF_RUN_SUMMARY_FAILED);
+		assert.equal(failed.error, "boom");
+		const common = await settle(plain, "completed", "Resultado da rotina comum");
+		assert.equal(common.summary, "Resultado da rotina comum");
 	});
 });

@@ -175,3 +175,7 @@ export function buildDailyBriefInstructions(input: { focus?: string } = {}): str
 		...(custom ? ["", `User focus (may exclude sources or add what to watch): ${custom}`] : []),
 	].join("\n");
 }
+
+/** Resumo da execução de uma rotina "Seu dia" (campo `summary`, que a API devolve): nunca o texto do brief, que vai só ao chat. */
+export const BRIEF_RUN_SUMMARY_SENT = "Resumo enviado no chat";
+export const BRIEF_RUN_SUMMARY_FAILED = "Não consegui montar o resumo";

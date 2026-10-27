@@ -17,6 +17,9 @@ import type {
 	UpdateRoutineInput,
 } from "@workspace/shared";
 import {
+	BRIEF_RUN_SUMMARY_FAILED,
+	BRIEF_RUN_SUMMARY_SENT,
+	DAILY_BRIEF_TEMPLATE,
 	alertSupportsTrigger,
 	applyAlertConfig,
 	parseRoutineAlert,
@@ -1483,18 +1486,21 @@ export async function settleRoutineRunForAgentRun(
 		// PR (state.pendingDelete) depois que o status terminal for persistido.
 		const rows = await prisma.routineRun.findMany({
 			where: { agentRunId, status: { in: ACTIVE_RUN_STATUSES } },
-			select: { id: true, routineId: true },
+			select: { id: true, routineId: true, routine: { select: { template: true } } },
 		});
 		if (rows.length === 0) return;
-		await prisma.routineRun.updateMany({
-			where: { id: { in: rows.map((row) => row.id) } },
-			data: {
-				status: mapped,
-				summary,
-				error: mapped === "failed" ? input.error ?? null : null,
-				finishedAt: now,
-			},
-		});
+		// Brief "Seu dia": o texto é a mensagem do chat e a API devolve `summary`; guarda só um rótulo fixo.
+		const briefSummary = mapped === "succeeded" ? BRIEF_RUN_SUMMARY_SENT : BRIEF_RUN_SUMMARY_FAILED;
+		const isBrief = (row: (typeof rows)[number]) => row.routine?.template === DAILY_BRIEF_TEMPLATE;
+		const briefIds = rows.filter(isBrief).map((row) => row.id);
+		const otherIds = rows.filter((row) => !isBrief(row)).map((row) => row.id);
+		const common = { status: mapped, error: mapped === "failed" ? input.error ?? null : null, finishedAt: now };
+		if (briefIds.length > 0) {
+			await prisma.routineRun.updateMany({ where: { id: { in: briefIds } }, data: { ...common, summary: briefSummary } });
+		}
+		if (otherIds.length > 0) {
+			await prisma.routineRun.updateMany({ where: { id: { in: otherIds } }, data: { ...common, summary } });
+		}
 		// Babá de PR (linha legada com delivery="poll" ou webhook sem execução
 		// ativa no momento do fechamento): a execução final acabou de persistir
 		// status terminal — se não sobrou run ativo, apaga a rotina agora (best-effort).
