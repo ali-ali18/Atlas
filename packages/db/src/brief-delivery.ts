@@ -26,8 +26,8 @@ const BUSY_STATUSES = ["queued", "running", "retrying"];
 
 /** Run concluído com `briefStatus` NULL só é recuperado depois disto (o caminho normal do worker ainda pode estar gravando). */
 export const BRIEF_RECOVERY_GRACE_MS = 30_000;
-/** Tamanho da página da varredura de pendentes (a varredura percorre todas, com cursor). */
-export const PENDING_PAGE_SIZE = 50;
+/** Quantos pendentes uma varredura lê (os mais antigos primeiro); o resto fica para a próxima. */
+export const PENDING_SWEEP_LIMIT = 200;
 const RECOVERY_BATCH = 200;
 
 export type PendingBrief = {
@@ -133,10 +133,10 @@ export async function isConversationBusyForBrief(conversationId: string, now: Da
 }
 
 /**
- * Briefs pendentes recentes, mais antigos primeiro (consulta indexada por `briefStatus`). Paginado por cursor
- * (`afterId` = último `routineRunId` da página anterior): linhas travadas não escondem as seguintes.
+ * Briefs pendentes recentes, mais antigos primeiro (consulta indexada por `briefStatus`), no máximo `limit`
+ * por varredura. Quem passa do limite entra na próxima (a varredura roda a cada 60 s e a cada fim de run).
  */
-export async function listPendingBriefs(now: Date = new Date(), limit = PENDING_PAGE_SIZE, afterId?: string): Promise<PendingBrief[]> {
+export async function listPendingBriefs(now: Date = new Date(), limit = PENDING_SWEEP_LIMIT): Promise<PendingBrief[]> {
 	const rows = await prisma.routineRun.findMany({
 		where: {
 			briefStatus: "pending",
@@ -145,7 +145,6 @@ export async function listPendingBriefs(now: Date = new Date(), limit = PENDING_
 		},
 		orderBy: [{ createdAt: "asc" }, { id: "asc" }],
 		take: limit,
-		...(afterId ? { cursor: { id: afterId }, skip: 1 } : {}),
 		select: { id: true, briefText: true, briefPushedAt: true, routine: { select: { userId: true, botId: true, notify: true } } },
 	});
 	const pending: PendingBrief[] = [];

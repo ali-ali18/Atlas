@@ -204,23 +204,19 @@ describe("entrega do brief (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal(await markBriefExpired(userA, id), false);
 	});
 
-	test("lista pendentes por cursor: percorre todas as páginas sem repetir nem pular", async () => {
-		const routine = (await prisma.routine.create({ data: { userId: userA, botId: botA, name: "Seu dia (cursor)", prompt: "p", template: "daily_brief" } })).id;
+	test("lista pendentes: mais antigos primeiro e no máximo `limit` por varredura (o resto fica para a próxima)", async () => {
+		const routine = (await prisma.routine.create({ data: { userId: userA, botId: botA, name: "Seu dia (limite)", prompt: "p", template: "daily_brief" } })).id;
 		const ids: string[] = [];
 		for (let i = 0; i < 5; i += 1) {
 			const id = await newRun(new Date(Date.now() - (10 - i) * 60_000), routine);
 			await markBriefPending(userA, id, `Resumo ${i}`);
 			ids.push(id);
 		}
-		const seen: string[] = [];
-		let cursor: string | undefined;
-		for (let guard = 0; guard < 500; guard += 1) {
-			const page = await listPendingBriefs(new Date(), 2, cursor);
-			if (page.length === 0) break;
-			for (const item of page) if (ids.includes(item.routineRunId)) seen.push(item.routineRunId);
-			cursor = page[page.length - 1]!.routineRunId;
-		}
-		assert.deepEqual(seen, ids, "ordem de criação, sem repetir");
+		const mine = (items: Array<{ routineRunId: string }>) => items.map((item) => item.routineRunId).filter((id) => ids.includes(id));
+		assert.deepEqual(mine(await listPendingBriefs()), ids, "ordem de criação");
+		assert.equal((await listPendingBriefs(new Date(), 2)).length, 2, "respeita o limite");
+		for (const id of ids.slice(0, 2)) await markBriefPosted(userA, id);
+		assert.deepEqual(mine(await listPendingBriefs()), ids.slice(2), "o que foi postado sai e os seguintes entram");
 	});
 
 	test("recuperação: run concluído sem estado vira pendente com o resultText; escopo, janela, tolerância e status respeitados", async () => {

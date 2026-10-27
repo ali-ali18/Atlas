@@ -211,25 +211,9 @@ export async function deliverBriefFailure(
 	}
 }
 
-/** Páginas por varredura (50 cada) e briefs processados ao mesmo tempo: limitam o tempo e a carga de uma passada. */
-const SWEEP_MAX_PAGES = 20;
-const SWEEP_CONCURRENCY = 4;
-
-/** Roda `task` em todos os itens, no máximo `limit` por vez. `task` nunca lança. */
-async function forEachLimited<T>(items: T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
-	let next = 0;
-	const worker = async (): Promise<void> => {
-		while (next < items.length) {
-			const item = items[next++]!;
-			await task(item);
-		}
-	};
-	await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-}
-
 export type BriefSweepDeps = BriefDeliveryDeps & {
-	/** Uma página de pendentes (mais antigos primeiro) depois do cursor `afterId`; vazia = acabou. */
-	listPending: (afterId?: string) => Promise<PendingBriefItem[]>;
+	/** Pendentes recentes, mais antigos primeiro, no máximo um lote; o que passar entra na próxima varredura. */
+	listPending: () => Promise<PendingBriefItem[]>;
 	expireStale: () => Promise<number>;
 	recover?: () => Promise<number>;
 	/** Pendente que nunca vai entrar (ex.: bot sem conversa) -> expirado. */
@@ -238,8 +222,8 @@ export type BriefSweepDeps = BriefDeliveryDeps & {
 
 /**
  * Posta os briefs pendentes cuja conversa já está livre e expira os que passaram de 12 h. Chamado quando um
- * run termina e a cada 60 s. Percorre TODAS as páginas por cursor (linhas travadas, como conversa ocupada, não
- * escondem as seguintes), com concorrência limitada. Brief de bot sem conversa expira com log, em vez de ser
+ * run termina e a cada 60 s. Lê um lote só (`listPending`) e o percorre em sequência: conversa ocupada apenas
+ * pula o item, os seguintes seguem. Brief de bot sem conversa expira com log, em vez de ser
  * reprocessado para sempre. Nunca lança; devolve quantos entraram.
  */
 export async function flushPendingBriefs(deps: BriefSweepDeps): Promise<number> {
@@ -269,13 +253,7 @@ export async function flushPendingBriefs(deps: BriefSweepDeps): Promise<number> 
 		if (recovered) console.warn(`[brief] ${recovered} brief(s) recuperado(s) de run concluído sem estado (o worker caiu antes de guardar)`);
 		const expired = await deps.expireStale();
 		if (expired > 0) console.warn(`[brief] ${expired} brief(s) expirado(s) sem entrar no chat (pendentes há mais de 12 h)`);
-		let cursor: string | undefined;
-		for (let page = 0; page < SWEEP_MAX_PAGES; page += 1) {
-			const items = await deps.listPending(cursor);
-			if (items.length === 0) break;
-			await forEachLimited(items, SWEEP_CONCURRENCY, process);
-			cursor = items[items.length - 1]!.routineRunId;
-		}
+		for (const item of await deps.listPending()) await process(item);
 	} catch (error) {
 		console.error(`[brief] varredura falhou (${briefErrorTag(error)})`);
 	}
@@ -331,7 +309,7 @@ export function briefDeliveryDeps(
 		claimPush: (userId, routineRunId) => claimBriefPush(userId, routineRunId),
 		releasePush: releaseBriefPush,
 		markPosted: markBriefPosted,
-		listPending: (afterId) => listPendingBriefs(new Date(), undefined, afterId),
+		listPending: () => listPendingBriefs(),
 		markExpired: markBriefExpired,
 		expireStale: () => expireStaleBriefs(),
 		recover: () => recoverUnstartedBriefs(),

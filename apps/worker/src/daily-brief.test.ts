@@ -22,15 +22,6 @@ type Row = { status: "pending" | "posted" | "expired" | null; text: string | nul
 
 type Item = PendingBriefItem;
 
-/** `listPending` com cursor como o banco: devolve as linhas depois de `afterId`, em páginas de `size`. */
-function onePage(load: () => Promise<Item[]>, size = 50) {
-	return async (afterId?: string): Promise<Item[]> => {
-		const all = await load();
-		const start = afterId ? all.findIndex((item) => item.routineRunId === afterId) + 1 : 0;
-		return all.slice(start, start + size);
-	};
-}
-
 /**
  * Armazém em memória com a mesma semântica do banco: mensagem com id determinístico (repetir = "exists") e
  * transições condicionais por dono. As garantias de SQL ficam em `brief-delivery.db.test.ts` (Postgres real).
@@ -90,11 +81,10 @@ function fixture(overrides: Partial<BriefDeliveryDeps> = {}) {
 				row.text = null;
 				return true;
 			},
-			listPending: onePage(async () =>
+			listPending: async () =>
 				[...rows.entries()]
 					.filter(([, row]) => row.status === "pending")
 					.map(([routineRunId, row]) => ({ routineRunId, userId: row.userId, botId: row.botId, text: row.text ?? "", pushed: row.pushed ?? false, notify: "always" as const })),
-			),
 		});
 	return { calls, deps, rows, messages, flush, setBusy: (value: boolean) => void (busy = value) };
 }
@@ -155,7 +145,7 @@ test("push que falhou devolve a reivindicação: a próxima varredura tenta de n
 	const flaky: BriefDeliveryDeps = { ...f.deps, push: async (...args) => { if (fail) throw new Error("vapid"); return f.deps.push!(...args); } };
 	assert.equal((await deliverDailyBrief(input, flaky)).pushed, false);
 	fail = false;
-	await flushPendingBriefs({ ...flaky, expireStale: async () => 0, listPending: onePage(async () => [{ routineRunId: "rr-1", userId: "user-a", botId: "bot-a", text: TEXT, pushed: false, notify: "always" }]), markExpired: f.deps.markPosted });
+	await flushPendingBriefs({ ...flaky, expireStale: async () => 0, listPending: (async () => [{ routineRunId: "rr-1", userId: "user-a", botId: "bot-a", text: TEXT, pushed: false, notify: "always" }]), markExpired: f.deps.markPosted });
 	assert.equal(f.calls.pushed.length, 1);
 });
 
@@ -167,7 +157,7 @@ test("a varredura não avisa pela linha de falha nem quando a rotina só avisa o
 		...f.deps,
 		expireStale: async () => 0,
 		markExpired: f.deps.markPosted,
-		listPending: onePage(async () => [
+		listPending: (async () => [
 			{ routineRunId: "rr-f", userId: "user-a", botId: "bot-a", text: BRIEF_FAILURE_LINE, pushed: false, notify: "always" },
 			{ routineRunId: "rr-i", userId: "user-a", botId: "bot-a", text: "Resumo", pushed: false, notify: "important" },
 		]),
@@ -198,34 +188,31 @@ test("catch-up da varredura: brief pendente (worker caiu antes de postar) entra 
 	assert.deepEqual(f.calls.appended, [["conv-a", "Resumo"]]);
 });
 
-test("varredura pagina até acabar: linhas travadas (conversa ocupada) não escondem as seguintes", async () => {
+test("varredura: conversa ocupada de um bot só pula o item, os seguintes (de bot livre) entram, em ordem", async () => {
 	const f = fixture();
-	// 4 briefs de um bot cuja conversa está sempre ocupada, depois 3 de outro bot livre; páginas de 2.
-	const busy = new Set(["conv-stuck"]);
 	const deps: BriefDeliveryDeps = {
 		...f.deps,
 		conversationOf: async (botId) => (botId === "bot-stuck" ? "conv-stuck" : "conv-a"),
-		isBusy: async (conversationId) => busy.has(conversationId),
+		isBusy: async (conversationId) => conversationId === "conv-stuck",
 	};
 	const all: Item[] = [
 		...[1, 2, 3, 4].map((n) => ({ routineRunId: `s${n}`, userId: "user-a", botId: "bot-stuck", text: `parado ${n}` })),
 		...[1, 2, 3].map((n) => ({ routineRunId: `f${n}`, userId: "user-a", botId: "bot-a", text: `livre ${n}` })),
 	];
 	for (const item of all) f.rows.set(item.routineRunId, { status: "pending", text: item.text, botId: item.botId, userId: "user-a" });
-	const pages: Array<string | undefined> = [];
-	const base = onePage(async () => all, 2);
+	let lists = 0;
 	const posted = await flushPendingBriefs({
 		...deps,
 		expireStale: async () => 0,
 		markExpired: f.deps.markPosted,
-		listPending: async (after) => (pages.push(after), base(after)),
+		listPending: async () => (lists += 1, all),
 	});
 	assert.equal(posted, 3);
-	assert.deepEqual(f.calls.appended.map(([, text]) => text).sort(), ["livre 1", "livre 2", "livre 3"]);
-	assert.deepEqual(pages, [undefined, "s2", "s4", "f2", "f3"], "cursor avança página a página até a lista vazia");
+	assert.equal(lists, 1, "um lote só por varredura");
+	assert.deepEqual(f.calls.appended.map(([, text]) => text), ["livre 1", "livre 2", "livre 3"]);
 });
 
-test("varredura limita a concorrência", async () => {
+test("varredura processa um brief por vez (sequencial)", async () => {
 	const f = fixture();
 	let active = 0;
 	let peak = 0;
@@ -234,16 +221,16 @@ test("varredura limita a concorrência", async () => {
 		isBusy: async () => {
 			active += 1;
 			peak = Math.max(peak, active);
-			await new Promise((resolve) => setTimeout(resolve, 5));
+			await new Promise((resolve) => setTimeout(resolve, 2));
 			active -= 1;
 			return false;
 		},
 	};
-	const all: Item[] = Array.from({ length: 12 }, (_, n) => ({ routineRunId: `c${n}`, userId: "user-a", botId: "bot-a", text: `t${n}` }));
+	const all: Item[] = Array.from({ length: 6 }, (_, n) => ({ routineRunId: `c${n}`, userId: "user-a", botId: "bot-a", text: `t${n}` }));
 	for (const item of all) f.rows.set(item.routineRunId, { status: "pending", text: item.text, botId: "bot-a", userId: "user-a" });
-	await flushPendingBriefs({ ...deps, expireStale: async () => 0, markExpired: f.deps.markPosted, listPending: onePage(async () => all) });
-	assert.equal(f.calls.appended.length, 12);
-	assert.ok(peak > 1 && peak <= 4, `pico de ${peak}`);
+	await flushPendingBriefs({ ...deps, expireStale: async () => 0, markExpired: f.deps.markPosted, listPending: async () => all });
+	assert.deepEqual(f.calls.appended.map(([, text]) => text), all.map((item) => item.text));
+	assert.equal(peak, 1);
 });
 
 test("bot sem conversa: o brief pendente expira com log (sem texto) em vez de ser reprocessado para sempre", async () => {
@@ -293,7 +280,7 @@ test("gravação da mensagem falhou: segue pendente e a próxima varredura entre
 	assert.equal((await deliverDailyBrief(input, flaky)).posted, false);
 	assert.equal(f.rows.get("rr-1")?.status, "pending");
 	fail = false;
-	assert.equal(await flushPendingBriefs({ ...flaky, expireStale: async () => 0, markExpired: f.deps.markPosted, listPending: onePage(async () => [{ routineRunId: "rr-1", userId: "user-a", botId: "bot-a", text: TEXT }]) }), 1);
+	assert.equal(await flushPendingBriefs({ ...flaky, expireStale: async () => 0, markExpired: f.deps.markPosted, listPending: (async () => [{ routineRunId: "rr-1", userId: "user-a", botId: "bot-a", text: TEXT }]) }), 1);
 	assert.equal(f.calls.appended.length, 1);
 });
 
