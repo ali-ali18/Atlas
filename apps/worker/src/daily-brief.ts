@@ -1,4 +1,5 @@
 import {
+	BRIEF_CALM_MARGIN_MS,
 	appendBriefMessage,
 	claimBriefPush,
 	expireStaleBriefs,
@@ -14,6 +15,7 @@ import {
 	type Notify,
 } from "@workspace/db";
 import { BRIEF_FAILURE_LINE, type RoutineNotifyMode } from "@workspace/shared";
+import { singleFlight } from "./single-flight.js";
 
 /**
  * Entrega do brief "Seu dia". O run nasce SEM conversa (ver `runsDetachedFromChat`), então o fim do run não
@@ -26,7 +28,7 @@ import { BRIEF_FAILURE_LINE, type RoutineNotifyMode } from "@workspace/shared";
  *   determinístico (idempotente). Run que terminou bem mas caiu antes do passo 1 (`briefStatus` NULL) é
  *   recuperado pela varredura a partir do `resultText` do AgentRun. Pendente há mais de 12 h expira.
  * - Conversa ocupada (na fila, rodando, tentando de novo, ou run que acabou há ~5 s) segura o brief; ele entra
- *   quando liberar (fim de run e varredura). `waiting_user` e pausado não seguram.
+ *   quando liberar: varredura agendada ~5,5 s depois do fim de um run, fim de run e ciclo de 60 s. `waiting_user` e pausado não seguram.
  * - Logs só com `name`/`code` do erro: o texto do brief e as mensagens do Prisma (que podem embuti-lo) nunca saem.
  */
 
@@ -296,16 +298,38 @@ export async function flushPendingBriefs(deps: BriefSweepDeps): Promise<number> 
 }
 
 /**
- * Uma varredura de briefs por vez: fim de run, run que falhou e o ciclo de 60 s podem coincidir, e uma só
- * consulta indexada basta. Chamada durante uma varredura em andamento reaproveita a mesma.
+ * Uma varredura de briefs por vez: fim de run, run que falhou e o ciclo de 60 s podem coincidir. Chamada durante
+ * uma varredura em andamento enfileira UMA passada depois dela (o brief que ficou pronto no meio não espera 60 s).
  */
 export function createBriefFlusher(flush: () => Promise<number>): () => Promise<number> {
-	let inflight: Promise<number> | null = null;
+	return singleFlight(flush);
+}
+
+/** Espera depois do fim de um run: a margem de calma da conversa (ver `isConversationBusyForBrief`) mais folga. */
+export const BRIEF_DELAYED_FLUSH_MS = BRIEF_CALM_MARGIN_MS + 500;
+
+/**
+ * Agenda UMA varredura para logo depois da margem de calma de um run que terminou: sem isto, o brief que
+ * esperava a conversa só entraria na varredura de 60 s. Chamadas enquanto há uma agendada se juntam a ela.
+ * O timer não segura o processo (unref). Nunca lança.
+ */
+export function createDelayedBriefFlush(
+	flush: () => Promise<unknown>,
+	opts: { delayMs?: number; setTimer?: (fn: () => void, ms: number) => { unref?: () => unknown } } = {},
+): () => void {
+	const delayMs = opts.delayMs ?? BRIEF_DELAYED_FLUSH_MS;
+	const setTimer = opts.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
+	let scheduled = false;
 	return () => {
-		inflight ??= flush().finally(() => {
-			inflight = null;
-		});
-		return inflight;
+		if (scheduled) return;
+		scheduled = true;
+		const timer = setTimer(() => {
+			scheduled = false;
+			void Promise.resolve()
+				.then(flush)
+				.catch((error) => console.error(`[brief] varredura adiada falhou (${briefErrorTag(error)})`));
+		}, delayMs);
+		timer.unref?.();
 	};
 }
 

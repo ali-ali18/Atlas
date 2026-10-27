@@ -98,7 +98,7 @@ import { startBotMessageSweeper } from "./bot-messages.js";
 import { processDataRetention, scheduleDataRetention } from "./data-retention.js";
 import { createGroupJev, createGroupRouter, startGroupSweeper } from "./bot-groups.js";
 import { startProactiveSweeper } from "./proactive.js";
-import { briefDeliveryDeps, createBriefFlusher, flushPendingBriefs } from "./daily-brief.js";
+import { briefDeliveryDeps, createBriefFlusher, createDelayedBriefFlush, flushPendingBriefs } from "./daily-brief.js";
 import { startReflectionSweeper } from "./reflection.js";
 
 // Observabilidade: Sentry só com SENTRY_DSN; logs do job ganham o request-id da API; variáveis que faltam por recurso.
@@ -494,6 +494,11 @@ const proactiveSweeper = startProactiveSweeper(
 agentWorker.on("completed", () => proactiveSweeper.kick());
 // Run que falhou só libera o brief; o modo proativo (follow-ups, reflexão) não roda por falha, como antes.
 agentWorker.on("failed", () => void flushBriefs());
+// A conversa só fica livre ~5 s depois do fim de um run (margem de calma): uma varredura agendada para logo
+// depois evita que o brief espere o ciclo de 60 s. Juntam-se numa só; o timer não segura o processo.
+const flushBriefsAfterCalm = createDelayedBriefFlush(flushBriefs);
+agentWorker.on("completed", flushBriefsAfterCalm);
+agentWorker.on("failed", flushBriefsAfterCalm);
 
 // Reflexão diária do orquestrador (horário escolhido pelo usuário) e "Refletir agora".
 const reflectionSweeper = startReflectionSweeper({ enqueueRun: enqueueChainedRun, config, notify });

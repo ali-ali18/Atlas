@@ -5,6 +5,7 @@ import {
 	briefErrorTag,
 	briefPushBody,
 	createBriefFlusher,
+	createDelayedBriefFlush,
 	deliverBriefFailure,
 	deliverDailyBrief,
 	findRoutineRunIdWithRetry,
@@ -13,6 +14,8 @@ import {
 	type BriefDeliveryDeps,
 	type PendingBriefItem,
 } from "./daily-brief.js";
+import { BRIEF_CALM_MARGIN_MS } from "@workspace/db";
+import { singleFlight } from "./single-flight.js";
 import { runsDetachedFromChat } from "./processors/routine-defer.js";
 
 type Row = { status: "pending" | "posted" | "expired" | null; text: string | null; botId: string; userId: string; pushed?: boolean };
@@ -430,21 +433,79 @@ test("runsDetachedFromChat: só o modelo daily_brief", () => {
 	assert.equal(runsDetachedFromChat(undefined), false);
 });
 
-test("createBriefFlusher: chamadas simultâneas dividem uma varredura só", async () => {
+test("createBriefFlusher: chamadas durante uma varredura viram UMA passada de acompanhamento, nunca descartadas", async () => {
 	let runs = 0;
 	let release!: () => void;
-	const gate = new Promise<void>((resolve) => (release = resolve));
+	let gate = new Promise<void>((resolve) => (release = resolve));
 	const flusher = createBriefFlusher(async () => {
 		runs += 1;
 		await gate;
 		return 1;
 	});
 	const all = Promise.all([flusher(), flusher(), flusher()]);
-	release();
-	assert.deepEqual(await all, [1, 1, 1]);
 	assert.equal(runs, 1);
+	const first = release;
+	gate = new Promise<void>((resolve) => (release = resolve));
+	first();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(runs, 2, "o brief que ficou pronto no meio ganha uma passada logo depois");
+	release();
+	assert.deepEqual(await all, [2, 2, 2]);
+	assert.equal(runs, 2, "três chamadas simultâneas = uma varredura + um acompanhamento");
+	gate = Promise.resolve();
 	await flusher();
-	assert.equal(runs, 2, "depois de terminar, a próxima chamada varre de novo");
+	assert.equal(runs, 3, "depois de terminar, a próxima chamada varre de novo");
+});
+
+test("varredura agendada após o fim do run: um timer só, com a margem de calma + 500 ms, sem segurar o processo", async () => {
+	const timers: Array<{ fn: () => void; ms: number; unrefed: boolean }> = [];
+	let flushed = 0;
+	const schedule = createDelayedBriefFlush(async () => void (flushed += 1), {
+		setTimer: (fn, ms) => {
+			const timer = { fn, ms, unrefed: false };
+			timers.push(timer);
+			return { unref: () => void (timer.unrefed = true) };
+		},
+	});
+	schedule();
+	schedule();
+	schedule();
+	assert.equal(timers.length, 1, "chamadas juntam-se à agendada");
+	assert.equal(timers[0]!.ms, BRIEF_CALM_MARGIN_MS + 500);
+	assert.equal(timers[0]!.unrefed, true);
+	timers[0]!.fn();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(flushed, 1);
+	schedule();
+	assert.equal(timers.length, 2, "depois de disparar, o próximo fim de run agenda de novo");
+});
+
+test("varredura agendada: erro da varredura não vira rejeição solta", async () => {
+	const timers: Array<() => void> = [];
+	const schedule = createDelayedBriefFlush(async () => { throw new Error("db"); }, { setTimer: (fn) => (timers.push(fn), {}) });
+	schedule();
+	timers[0]!();
+	await new Promise((resolve) => setImmediate(resolve));
+});
+
+test("singleFlight: kick durante a execução enfileira um acompanhamento (proactive sweeper não descarta mais)", async () => {
+	const order: string[] = [];
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => (release = resolve));
+	let n = 0;
+	const run = singleFlight(async () => {
+		const id = ++n;
+		order.push(`início ${id}`);
+		if (id === 1) await gate;
+		order.push(`fim ${id}`);
+		return 0;
+	});
+	void run();
+	void run();
+	void run();
+	release();
+	await run();
+	assert.deepEqual(order, ["início 1", "fim 1", "início 2", "fim 2"]);
 });
 
 test("run sem texto (voltou vazio ou orçamento esgotado): posta e avisa a linha fixa de falha", async () => {
