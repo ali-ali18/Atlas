@@ -135,6 +135,14 @@ export function profileContainerName(profileVolume: string): string {
 /** createContainer recusou o nome (409): outra criação do mesmo perfil ganhou a corrida. */
 class ContainerNameTakenError extends Error {}
 
+/** Janela em que um container recém-criado é tratado como "subindo por outro criador". */
+const STARTING_GRACE_MS = 60_000;
+
+/** `Created` do listContainers vem em segundos; ausente = antigo (não protege). */
+function isRecentlyCreated(item: { Created?: number }, now: number = Date.now()): boolean {
+	return typeof item.Created === "number" && now - item.Created * 1000 < STARTING_GRACE_MS;
+}
+
 /** Volume Docker que guarda o perfil do Chrome de uma conversa (cada bot tem exatamente
  * uma conversa, então é também o perfil do bot). Sobrevive ao stop E à remoção do
  * container — é ele que torna o login durável. */
@@ -849,6 +857,9 @@ export function createSandboxManager(
 			};
 			sessionStore.putSession(record);
 	
+		// Id do container que ESTA chamada criou. A limpeza no catch só mexe nele: o nome é fixo por
+		// perfil e pode ser de outro processo (api/worker), então limpar por nome derrubaria a VM alheia.
+		let createdId: string | null = null;
 		try {
 			if (conversationId) await removeLeftovers(client, conversationId, { includeRunning: opts.replaceExisting });
 			const container = await client.createContainer({
@@ -894,6 +905,7 @@ export function createSandboxManager(
 			}).catch((error: unknown) => {
 				throw errorStatusCode(error) === 409 ? new ContainerNameTakenError("container name in use") : error;
 			});
+			createdId = container.id;
 			if (profileVolume) {
 				console.log(
 					`[sandbox] session ${sessionId} using profile volume ${profileVolume}`,
@@ -936,13 +948,15 @@ export function createSandboxManager(
 				}
 				record.status = "error";
 				sessionStore.putSession(record);
-				try {
-					const c = client.getContainer(name);
-					await recordDeath(c, name);
-					await c.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
-					await c.remove({ force: true }).catch(() => undefined);
-				} catch {
-					// ignore cleanup errors
+				if (createdId) {
+					try {
+						const c = client.getContainer(createdId);
+						await recordDeath(c, name);
+						await c.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
+						await c.remove({ force: true }).catch(() => undefined);
+					} catch {
+						// ignore cleanup errors
+					}
 				}
 				sessionStore.deleteSession(sessionId, userId);
 				if (error instanceof SandboxDockerUnavailableError) {
@@ -973,9 +987,11 @@ export function createSandboxManager(
 	}
 
 	/**
-	 * Remove containers da conversa que impediriam um start limpo: Exited/Dead/Created
+	 * Remove containers da conversa que impediriam um start limpo: Exited/Dead/Created antigos
 	 * (prendem o volume do perfil e confundem a adocao) e, com includeRunning, tambem
-	 * os "rodando" sem saude (a adocao ja falhou). Volumes ficam (v:false).
+	 * os "rodando" sem saude (a adocao ja falhou). Container criado ha menos de
+	 * STARTING_GRACE_MS e de outro criador em andamento: nunca e removido (Created/running).
+	 * Volumes ficam (v:false).
 	 * Tambem solta endpoints de rede orfaos. Best-effort: nunca lanca.
 	 */
 	async function removeLeftovers(
@@ -993,6 +1009,7 @@ export function createSandboxManager(
 				if (item.Labels?.["atlas.sandbox.userId"] !== userId || item.Labels?.["atlas.sandbox.conversationId"] !== conversationId) continue;
 				const live = item.State === "running" || item.State === "restarting" || item.State === "paused";
 				if (live && !options.includeRunning) continue;
+				if ((item.State === "created" || live) && isRecentlyCreated(item)) continue;
 				const ref = client.getContainer(item.Id);
 				const label = (item.Names?.[0] ?? item.Id).replace(/^\//, "");
 				if (!live) await recordDeath(ref, label);
@@ -1271,6 +1288,9 @@ export function createSandboxManager(
 				.filter((item) => item.Labels?.["atlas.sandbox.userId"] === userId && item.Labels?.["atlas.sandbox.conversationId"] === conversationId)
 				.sort((a, b) => (b.Created ?? 0) - (a.Created ?? 0))[0];
 			if (!found) return null;
+			// VM que outro processo ainda está subindo: espera (limitado) em vez de devolver null,
+			// que levaria quem chamou a substituir a VM do outro.
+			if (found.State === "created" && isRecentlyCreated(found)) await waitWhileStarting(client, found.Id);
 			const record: SandboxSessionRecord = {
 				userId,
 				sessionId: found.Labels?.["atlas.sandbox.sessionId"] ?? randomUUID(),
@@ -1288,6 +1308,21 @@ export function createSandboxManager(
 			return await ensureRunning(record, options.readOnly ? { readOnly: true, ...(options.noStart ? { noStart: true } : {}) } : { replaceRunningIfOutdated: true });
 		} catch {
 			return null;
+		}
+	}
+
+	/** Espera o container sair de `created` (outro criador chamando start). Limitado; nunca lança. */
+	async function waitWhileStarting(client: Docker, id: string): Promise<void> {
+		const deadline = Date.now() + envPositiveInt("SANDBOX_ADOPT_WAIT_MS", 30_000);
+		const delay = envPositiveInt("SANDBOX_READY_DELAY_MS", 500);
+		while (Date.now() < deadline) {
+			try {
+				const state = (await client.getContainer(id).inspect()).State;
+				if (state.Running || state.Status !== "created") return;
+			} catch {
+				return;
+			}
+			await new Promise((resolve) => setTimeout(resolve, delay));
 		}
 	}
 

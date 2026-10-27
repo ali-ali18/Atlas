@@ -8,6 +8,8 @@ type FakeContainer = {
 	exitCode?: number;
 	oomKilled?: boolean;
 	startError?: string;
+	/** Epoch em segundos, como o `Created` do listContainers. */
+	created?: number;
 };
 
 const fake = vi.hoisted(() => ({
@@ -35,6 +37,9 @@ vi.mock("dockerode", () => {
 	const handle = (ref: string) => {
 		const find = () => [...fake.containers.values()].find((c) => c.id === ref || c.name === ref);
 		return {
+			get id() {
+				return find()?.id ?? ref;
+			},
 			inspect: async () => {
 				const c = find();
 				if (!c) throw notFound();
@@ -90,7 +95,7 @@ vi.mock("dockerode", () => {
 			const wanted = options.filters.label;
 			return [...fake.containers.values()]
 				.filter((c) => wanted.every((w) => (w.includes("=") ? c.labels[w.split("=")[0]!] === w.split("=")[1] : w in c.labels)))
-				.map((c) => ({ Id: c.id, Names: [`/${c.name}`], Labels: c.labels, State: c.state }));
+				.map((c) => ({ Id: c.id, Names: [`/${c.name}`], Labels: c.labels, State: c.state, Created: c.created }));
 		}
 		async createContainer(opts: { name: string; Labels: Record<string, string> }) {
 			fake.createCount += 1;
@@ -98,7 +103,7 @@ vi.mock("dockerode", () => {
 			if ([...fake.containers.values()].some((c) => c.name === opts.name)) {
 				throw Object.assign(new Error(`name "${opts.name}" is already in use`), { statusCode: 409 });
 			}
-			const c: FakeContainer = { id: `id-${++fake.seq}`, name: opts.name, labels: opts.Labels, state: "created" };
+			const c: FakeContainer = { id: `id-${++fake.seq}`, name: opts.name, labels: opts.Labels, state: "created", created: Math.floor(Date.now() / 1000) };
 			fake.containers.set(c.id, c);
 			return handle(c.id);
 		}
@@ -120,7 +125,7 @@ vi.mock("node:net", () => ({
 	},
 }));
 
-import { SandboxVmDiedError, createSandboxManager } from "./docker-manager.js";
+import { SandboxVmDiedError, createSandboxManager, profileContainerName, profileVolumeName } from "./docker-manager.js";
 import { loadSandboxConfig } from "./config.js";
 import { deleteSession, listAllSessionsForCleanup, putSession } from "./session-store.js";
 
@@ -146,6 +151,7 @@ function seed(partial: Partial<FakeContainer> & { name: string; conversationId: 
 		exitCode: partial.exitCode,
 		oomKilled: partial.oomKilled,
 		startError: partial.startError,
+		created: partial.created,
 	};
 	fake.containers.set(c.id, c);
 	return c;
@@ -326,5 +332,61 @@ describe("docker-manager: recuperação de start após morte", () => {
 		});
 		await expect(manager.execClick(session.sessionId, 1, 1)).rejects.toThrow("fetch failed");
 		expect((await manager.getSession(session.sessionId))?.status).toBe("running");
+	});
+	describe("criação concorrente com nome fixo (processos separados)", () => {
+		const fixedName = (conversationId: string) => profileContainerName(profileVolumeName(conversationId, USER));
+		const nowSec = () => Math.floor(Date.now() / 1000);
+
+		it("container 'created' recente de outro criador não é removido; o segundo adota quando ele sobe", async () => {
+			process.env.SANDBOX_ADOPT_WAIT_MS = "5000";
+			const other = seed({ name: fixedName("conv-race"), conversationId: "conv-race", state: "created", created: nowSec() });
+			setTimeout(() => {
+				other.state = "running";
+			}, 30);
+			const session = await createSandboxManager(config, USER).createSession("conv-race");
+			delete process.env.SANDBOX_ADOPT_WAIT_MS;
+			expect(session.status).toBe("running");
+			expect(fake.containers.has(other.id)).toBe(true);
+			expect(fake.calls.filter((c) => c.startsWith("remove:") || c.startsWith("stop:"))).toEqual([]);
+			expect(fake.containers.size).toBe(1);
+		});
+
+		it("409 sem VM adotável: lança sem limpar o container de quem ganhou a corrida", async () => {
+			// mesmo nome, mas label de outra conversa: não dá para adotar
+			const foreign = seed({ name: fixedName("conv-409"), conversationId: "conv-other", state: "running", created: nowSec() });
+			await expect(createSandboxManager(config, USER).createSession("conv-409")).rejects.toThrow(/in use by another VM/);
+			expect(fake.containers.has(foreign.id)).toBe(true);
+			expect(fake.calls.filter((c) => c.startsWith("remove:") || c.startsWith("stop:"))).toEqual([]);
+		});
+
+		it("dois criadores simultâneos (managers separados) terminam na mesma VM, sem remover nenhuma", async () => {
+			process.env.SANDBOX_ADOPT_WAIT_MS = "5000";
+			// "Outro processo": módulo recarregado = outro startLocks e outro session-store.
+			const a = createSandboxManager(config, USER);
+			vi.resetModules();
+			const other = await import("./docker-manager.js");
+			const b = other.createSandboxManager(config, USER);
+			const [sa, sb] = await Promise.all([a.createSession("conv-two"), b.createSession("conv-two")]);
+			delete process.env.SANDBOX_ADOPT_WAIT_MS;
+			expect(fake.containers.size).toBe(1);
+			expect(sa.status).toBe("running");
+			expect(sb.status).toBe("running");
+			expect(fake.calls.filter((c) => c.startsWith("remove:"))).toEqual([]);
+		});
+
+		it("restos 'created' antigos (mais de 60 s) ainda são varridos", async () => {
+			seed({ name: "atlas-sandbox-stale", conversationId: "conv-stale", state: "created", created: nowSec() - 120 });
+			await createSandboxManager(config, USER).createSession("conv-stale");
+			expect(fake.calls).toContain("remove:atlas-sandbox-stale");
+		});
+
+		it("a falha do próprio start limpa só o container que esta chamada criou", async () => {
+			process.env.SANDBOX_READY_TIMEOUT_MS = "30";
+			fake.healthAlwaysFail = true;
+			const bystander = seed({ name: "atlas-sandbox-bystander", conversationId: "conv-bystander", state: "running", created: nowSec() });
+			await expect(createSandboxManager(config, USER).createSession("conv-own")).rejects.toThrow(/Failed to start/);
+			expect(fake.containers.has(bystander.id)).toBe(true);
+			expect([...fake.containers.values()].filter((c) => c.labels["atlas.sandbox.conversationId"] === "conv-own")).toHaveLength(0);
+		});
 	});
 });
