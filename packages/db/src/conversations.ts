@@ -955,6 +955,49 @@ export async function updateConfirmCardStatus(
 	});
 }
 
+/** Janela do que o Jev vê como "já aprovado nesta conversa". */
+const APPROVED_TOOLS_WINDOW_MS = 30 * 60_000;
+
+/**
+ * Nomes das tools de conector que o usuário aprovou e a API executou com sucesso nesta conversa (mais antigas
+ * primeiro, repetições contam). Escopada pelo dono; o relógio é injetado. Só o nome da tool sai daqui: o título
+ * e os argumentos do cartão podem trazer texto de terceiros e nunca vão ao Jev.
+ */
+export async function listApprovedConfirmTools(userId: string, conversationId: string, now: Date, limit = 20): Promise<string[]> {
+	if (!userId) return [];
+	const rows = await prisma.conversationMessage.findMany({
+		where: { conversationId, role: "confirm", conversation: { userId }, createdAt: { gt: new Date(now.getTime() - APPROVED_TOOLS_WINDOW_MS) } },
+		orderBy: { createdAt: "desc" },
+		take: 50,
+	});
+	const tools: string[] = [];
+	for (const row of rows) {
+		const card = parseConversationCard(row.content);
+		if (card?.kind !== "confirm" || card.status !== "approved" || !card.outcome?.ok || !card.callKey) continue;
+		const name = /executar "([A-Za-z0-9_.-]{1,80})"\?$/.exec(card.title)?.[1];
+		if (!name) continue;
+		tools.push(name);
+		if (tools.length >= limit) break;
+	}
+	return tools.reverse();
+}
+
+/** Contador da aprovação por tarefa no cartão já aprovado ("executado 3 vezes nesta tarefa"). */
+export async function setConfirmCardGrantUses(conversationId: string, confirmId: string, uses: number): Promise<void> {
+	const rows = await prisma.conversationMessage.findMany({
+		where: { conversationId, role: "confirm" },
+		orderBy: { createdAt: "desc" },
+		take: 30,
+	});
+	for (const row of rows) {
+		const card = parseConversationCard(row.content);
+		if (!card || card.kind !== "confirm" || card.confirmId !== confirmId) continue;
+		if (card.status !== "approved" && card.status !== "failed") return;
+		await prisma.conversationMessage.update({ where: { id: row.id }, data: { content: serializeConversationCard({ ...card, grantUses: uses }) } });
+		return;
+	}
+}
+
 /**
  * Chamada de conector (mesma tool + args) que o usuário já confirmou e a API já
  * executou nesta conversa. Evita pedir a mesma confirmação em laço.

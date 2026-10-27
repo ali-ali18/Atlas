@@ -67,11 +67,15 @@ export async function writeCompactedTranscript(input: CompactionWrite): Promise<
 		...(raw as Record<string, unknown>),
 		llmMessages: input.llmMessages,
 		transcriptWatermark: watermark,
+		untrustedSeen: undefined,
 		compaction: { before: input.compaction.before, after: input.compaction.after, at: (input.now ?? new Date()).toISOString() },
 	};
 	const written = await prisma.agentRun.updateMany({
 		where: { id: input.transcript.runId, updatedAt: row.updatedAt },
 		data: { checkpointJson: checkpoint as never },
 	});
-	return written.count === 1;
+	if (written.count !== 1) return false;
+	// A transcrição virou resumo + cauda: o conteúdo externo lido antes deixa de estar no contexto, a marca da conversa cai.
+	await prisma.conversation.updateMany({ where: { id: input.conversationId, userId: { in: ownerIds(input.userId) } }, data: { untrustedAt: null } });
+	return true;
 }

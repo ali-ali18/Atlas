@@ -17,6 +17,10 @@ export type SkillPendingMcpCall = {
 	args: Record<string, unknown>;
 	/** Confirmação exigida pelo avaliador Jev, sem opção de exceção permanente. */
 	jevReview?: boolean;
+	/** Por que o Jev pediu o cartão: `external_instruction` nunca ganha "Sempre para…" nem aprovação por tarefa. */
+	jevReviewReason?: "external_instruction" | "alignment" | "unavailable";
+	/** O run já tinha lido conteúdo que o usuário não escreveu quando o cartão foi criado: aprovar não concede a tarefa. */
+	untrustedSeen?: boolean;
 	/** Run que pediu a aprovação: o run seguinte continua a conversa dele. */
 	runId?: string;
 };

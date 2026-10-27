@@ -205,3 +205,11 @@ test("dock: o cartão do plano fica na conversa (não entra no dock nem vira mar
 	assert.equal(approvalMarkerFor(plan, new Set(["plan-1"])), null);
 	assert.deepEqual(selectDockEntries([cmd("a", "pending"), plan]).map((entry) => entry.id), ["a"]);
 });
+
+test("aprovação por tarefa: o marcador de aprovado mostra quantas vezes a ferramenta já rodou", () => {
+	const base: Extract<Message, { kind: "confirm" }> = { id: "g", kind: "confirm", title: "Google Agenda: executar create_event?", status: "approved", confirmId: "g" };
+	assert.equal(approvalMarkerFor(base, new Set(), [])?.label, "Aprovado · Google Agenda: executar create_event?");
+	assert.equal(approvalMarkerFor({ ...base, grantUses: 1 }, new Set(), [])?.label, "Aprovado · executado 1 vez nesta tarefa · Google Agenda: executar create_event?");
+	assert.equal(approvalMarkerFor({ ...base, grantUses: 3 }, new Set(), [])?.label, "Aprovado · executado 3 vezes nesta tarefa · Google Agenda: executar create_event?");
+	assert.equal(approvalMarkerFor({ ...cmd("r", "rejected", "x"), grantUses: 3 } as Message, new Set(), [])?.label, "Recusado · x");
+});

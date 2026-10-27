@@ -31,7 +31,7 @@ export {
 	type EmbedTextResult,
 } from "./embeddings.js";
 export { askJevViaChat } from "./jev-chat.js";
-export { JEV_MCP_QUESTIONS, mcpDecisionFromAnswers, askJev, evaluateMcpWithJev, type JevAnswers, type JevQuestion, JEV_MCP_MODEL, JEV_MCP_TIMEOUT_MS, type JevMcpDecision, type JevMcpState } from "./jev-decisions.js";
+export { JEV_MCP_QUESTIONS, jevMcpQuestions, mcpDecisionFromAnswers, askJev, evaluateMcpWithJev, type JevAnswers, type JevQuestion, JEV_MCP_MODEL, JEV_MCP_TIMEOUT_MS, type JevMcpDecision, type JevMcpState } from "./jev-decisions.js";
 export {
 	DEFAULT_MODEL_CALL_TIMEOUT_MS,
 	modelCallSignal,

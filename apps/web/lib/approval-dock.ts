@@ -1,4 +1,5 @@
 import type { Message } from "@/components/ui/templates/template-4/data";
+import { describeMcpTaskGrantUses } from "@workspace/shared";
 import { isCardProtocolText } from "@/lib/card-decision";
 
 type ConfirmMessage = Extract<Message, { kind: "confirm" }>;
@@ -115,7 +116,9 @@ export function approvalMarkerFor(message: Message, activeIds: ReadonlySet<strin
 		return null;
 	}
 	const short = approvalShortLabel(message as ConfirmMessage | NeedsUserMessage);
-	return { status, short, label: approvalMarkerText(status, short) };
+	// Aprovação por tarefa: "Aprovado · executado 3 vezes nesta tarefa · <ação>".
+	const uses = status === "approved" && message.kind === "confirm" ? message.grantUses : undefined;
+	return { status, short, label: uses ? approvalMarkerText(status, `${describeMcpTaskGrantUses(uses)} · ${short}`) : approvalMarkerText(status, short) };
 }
 
 /** "confirmado: …", "confirmado sempre: …", "recusado: …", "cancela isso": texto de protocolo, não fala do usuário. */

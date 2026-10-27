@@ -1,6 +1,6 @@
 import { recordMaintenanceResult } from "@workspace/db";
 import {
-	JEV_MCP_QUESTIONS,
+	jevMcpQuestions,
 	JEV_MCP_TIMEOUT_MS,
 	askJev,
 	askJevViaChat,
@@ -158,7 +158,7 @@ export async function createReviewerClient(
 		});
 
 	const evaluateMcp = async (state: JevMcpState, signal?: AbortSignal): Promise<JevMcpDecision> =>
-		mcpDecisionFromAnswers(await ask({ state, questions: JEV_MCP_QUESTIONS, timeoutMs: JEV_MCP_TIMEOUT_MS, signal }));
+		mcpDecisionFromAnswers(await ask({ state, questions: jevMcpQuestions(state.untrustedContentSeen === true), timeoutMs: JEV_MCP_TIMEOUT_MS, signal }));
 
 	return { available, ask, complete, evaluateMcp };
 }

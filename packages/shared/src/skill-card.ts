@@ -91,6 +91,8 @@ export type PersistedConfirmCard = {
 	githubIdentity?: GithubIdentityCardInfo;
 	/** Resultado da chamada depois do "Executar" (a API roda a chamada e devolve ao agente). */
 	outcome?: { ok: boolean; detail: string };
+	/** Aprovação por tarefa: quantas vezes a mesma ferramenta já rodou por este "Aprovado" (contador da UI). */
+	grantUses?: number;
 };
 
 /**
@@ -630,6 +632,7 @@ export function parseConversationCard(content: string): PersistedConversationCar
 			...(isRecordLike(row.outcome) && typeof row.outcome.ok === "boolean" && typeof row.outcome.detail === "string"
 				? { outcome: { ok: row.outcome.ok, detail: row.outcome.detail.slice(0, 2000) } }
 				: {}),
+			...(typeof row.grantUses === "number" && Number.isInteger(row.grantUses) && row.grantUses > 0 && row.grantUses <= 1000 ? { grantUses: row.grantUses } : {}),
 		};
 	}
 	if (row.kind === "login") {

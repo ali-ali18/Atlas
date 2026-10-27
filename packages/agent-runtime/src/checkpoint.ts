@@ -402,6 +402,7 @@ export function buildRuntimeCheckpoint(input: {
 	effectiveHard?: number;
 	progressCursor?: number;
 	loginAsked?: string[];
+	untrustedSeen?: boolean;
 	pendingLogin?: AgentRunCheckpoint["pendingLogin"];
 	executionLedger?: AgentRunCheckpoint["executionLedger"];
 	taskState?: AgentRunCheckpoint["taskState"];
@@ -445,6 +446,7 @@ export function buildRuntimeCheckpoint(input: {
 		effectiveHard: input.effectiveHard,
 		progressCursor: input.progressCursor,
 		loginAsked: input.loginAsked,
+		...(input.untrustedSeen ? { untrustedSeen: true } : {}),
 		pendingLogin: input.pendingLogin,
 		...(input.executionLedger ? { executionLedger: input.executionLedger } : {}),
 		...(input.taskState ? { taskState: input.taskState } : {}),
@@ -532,6 +534,7 @@ export function parseRuntimeCheckpoint(
 		loginAsked: Array.isArray(value.loginAsked)
 			? value.loginAsked.filter((key): key is string => typeof key === "string").slice(0, 50)
 			: undefined,
+		untrustedSeen: value.untrustedSeen === true ? true : undefined,
 		pendingLogin:
 			value.pendingLogin &&
 			typeof value.pendingLogin.loginId === "string" &&
