@@ -914,6 +914,9 @@ export * from "./bot-sla.js";
 export {
 	MCP_TASK_GRANT_TTL_MS,
 	MCP_TASK_GRANT_MAX_USES,
+	MCP_TASK_GRANT_MAX_LIFETIME_MS,
+	hasExternalTargetArgs,
+	isUntrustedContentTool,
 	canGrantMcpTask,
 	mcpTaskGrantExpiry,
 	isMcpTaskGrantUsable,
