@@ -62,6 +62,9 @@ async function run(opts: {
 	pageFor?: (typed: string[]) => { url: string; title: string; text: string };
 	/** Snapshot devolvido depois que o runtime digitou (quantos campos já foram digitados). */
 	snapshotAfterTyping?: (typedCount: number) => ReturnType<typeof wallSnapshot>;
+	/** Tela vista quando o run é retomado por "Terminei" (padrão: já logado). */
+	snapshotOnResume?: () => ReturnType<typeof wallSnapshot>;
+	recentLoginSites?: string[];
 	mcp?: McpRuntime;
 }) {
 	const events: Array<Record<string, unknown>> = [];
@@ -70,8 +73,12 @@ async function run(opts: {
 	const requests: Array<{ tools: string[]; system: string }> = [];
 	const onLoginRequired = vi.fn(async () => undefined);
 	const execBrowserType = vi.fn(async (_s: string, p: { selector: string }) => (opts.typeFails?.(p.selector) ? { ok: false } : { ok: true }));
-	const execBrowserSnapshot = vi.fn(async () => (opts.snapshotAfterTyping && execBrowserType.mock.calls.length > 0 ? opts.snapshotAfterTyping(execBrowserType.mock.calls.length) : wallSnapshot(opts.url ?? "https://chatgpt.com/auth/login")));
+	const execBrowserSnapshot = vi.fn(async () => {
+		if (opts.restored && execBrowserType.mock.calls.length === 0) return (opts.snapshotOnResume ?? homeSnapshot)();
+		return opts.snapshotAfterTyping && execBrowserType.mock.calls.length > 0 ? opts.snapshotAfterTyping(execBrowserType.mock.calls.length) : wallSnapshot(opts.url ?? "https://chatgpt.com/auth/login");
+	});
 	const execBrowserText = vi.fn(async () => (opts.pageFor ? opts.pageFor(execBrowserType.mock.calls.map((c) => (c[1] as unknown as { text: string }).text)) : null) ?? (execBrowserType.mock.calls.length === 0 ? { url: opts.url ?? "https://chatgpt.com/auth/login", title: "Entrar", text: "", totalLength: 0 } : opts.pageAfter) ?? { url: "https://chatgpt.com/", title: "ChatGPT", text: "Como posso ajudar hoje?", totalLength: 24 });
+	let result: Awaited<ReturnType<typeof runComputerUse>> | undefined;
 	const error = await runComputerUse({
 		manager: { execBrowserSnapshot, execBrowserType, execBrowserText } as unknown as SandboxManager,
 		getSessionId: async () => "session-1",
@@ -90,6 +97,7 @@ async function run(opts: {
 		mcp: opts.mcp,
 		restoredCheckpoint: opts.restored ?? null,
 		onLoginRequired,
+		...(opts.recentLoginSites ? { recentLoginSites: async () => opts.recentLoginSites! } : {}),
 		onCheckpoint: async (checkpoint) => {
 			checkpoints.push(checkpoint);
 		},
@@ -104,8 +112,11 @@ async function run(opts: {
 			});
 			return opts.queue.shift() ?? text("fim");
 		},
-	} as Parameters<typeof runComputerUse>[0]).catch((e: unknown) => e);
-	return { error, events, checkpoints, seen, requests, onLoginRequired, execBrowserType };
+	} as Parameters<typeof runComputerUse>[0]).then((value) => {
+		result = value;
+		return undefined;
+	}, (e: unknown) => e);
+	return { error, events, checkpoints, seen, requests, onLoginRequired, execBrowserType, execBrowserSnapshot, result };
 }
 
 const CODE = "482913";
@@ -364,5 +375,50 @@ describe("Cofre primeiro: login salvo e aprovado entra sozinho, antes do card", 
 		const { events, execBrowserType } = await run({ queue: [step("browser_snapshot")] });
 		expect(execBrowserType).not.toHaveBeenCalled();
 		expect(events.find((e) => e.type === "login" && e.status === "pending")?.vault).toBeUndefined();
+	});
+});
+
+describe("Terminei confere a tela e o aviso de login vale por conversa", () => {
+	it("Terminei, mas a tela de login continua: avisa em português e não segue às cegas", async () => {
+		await addChatgpt();
+		const { checkpoint } = await pausedWithOffer();
+		const second = await run({ queue: [text("não deve chegar")], restored: checkpoint, snapshotOnResume: () => wallSnapshot("https://chatgpt.com/auth/login") });
+		expect(second.error).toBeUndefined();
+		expect(second.result?.text).toContain("Ainda vejo a tela de login de chatgpt.com");
+		expect(second.result?.text).not.toMatch(/browser_snapshot|login-complete|runtime/i);
+		expect(second.seen.some((m) => m.includes("[login-complete]"))).toBe(false);
+		expect(second.events.some((e) => e.type === "login" && e.status === "done")).toBe(true);
+		expect(second.requests).toHaveLength(0);
+	});
+
+	it("Terminei com a tela já logada: segue e manda reler a página", async () => {
+		await addChatgpt();
+		const { checkpoint } = await pausedWithOffer();
+		const second = await run({ queue: [text("ok")], restored: checkpoint });
+		expect(second.seen.some((m) => m.includes("[login-complete]"))).toBe(true);
+		expect(second.execBrowserSnapshot).toHaveBeenCalled();
+	});
+
+	it("o site já pediu login nesta conversa (run anterior, 30 min): sem card novo, o modelo recebe a nota", async () => {
+		const { error, events, seen, onLoginRequired } = await run({ queue: [step("browser_snapshot"), text("O site ainda pede login.")], recentLoginSites: ["chatgpt.com"] });
+		expect(error).toBeUndefined();
+		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
+		expect(onLoginRequired).not.toHaveBeenCalled();
+		expect(seen.some((m) => m.includes("LOGIN STILL REQUIRED on chatgpt.com") && m.includes("last 30 minutes"))).toBe(true);
+	});
+
+	it("outro site da conversa não é bloqueado pelo aviso de um site já perguntado", async () => {
+		const { error, events } = await run({ queue: [step("browser_snapshot")], recentLoginSites: ["outro.example.com"] });
+		expect(error).toMatchObject({ name: "AgentRunPausedError" });
+		expect(events.find((e) => e.type === "login" && e.status === "pending")).toMatchObject({ site: "chatgpt.com" });
+	});
+
+	it("login salvo e aprovado continua entrando sozinho mesmo com aviso recente do site", async () => {
+		await addChatgpt();
+		await approveChatgpt();
+		const { error, events, execBrowserType } = await run({ queue: [step("browser_snapshot"), text("ok")], recentLoginSites: ["chatgpt.com"], snapshotAfterTyping: homeSnapshot, pageAfter: { url: "https://chatgpt.com/", title: "ChatGPT", text: "Como posso ajudar hoje?" } });
+		expect(error).toBeUndefined();
+		expect(execBrowserType).toHaveBeenCalled();
+		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
 	});
 });

@@ -3,6 +3,7 @@ import type { CompleteChatWithToolsResult } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import type { AgentRunCheckpoint } from "@workspace/shared";
 import { COMPUTER_USE_TOOLS, SYSTEM_PROMPT, runComputerUse } from "./computer-use.js";
+import { checkLoginWall } from "./tools/computer-refs.js";
 
 vi.mock("@workspace/db", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@workspace/db")>();
@@ -305,21 +306,60 @@ describe("F12/B5 - muro de login: card, pausa e retomada", () => {
 		const first = await runLogin([step([{ id: "s1", name: "browser_snapshot", args: {} }])]);
 		const checkpoint = first.checkpoints[first.checkpoints.length - 1]!;
 
-		// Retomada: o usuário clicou "Terminei"; a página segue pedindo login.
+		// Retomada: o usuário clicou "Terminei" e a página já está logada.
+		const loggedIn = { ...loginSnapshot, url: "https://www.bling.com.br/home", title: "Bling", total: 1, lines: ['[e1] link "Pedidos"'] };
 		const second = await runLogin(
 			[
 				step([{ id: "s2", name: "browser_snapshot", args: {} }]),
-				text("Não consegui entrar no Bling: a página continua pedindo login."),
+				text("Entrei no Bling e vi os pedidos."),
 			],
 			checkpoint,
+			loggedIn,
 		);
 		expect(second.error).not.toBeInstanceOf(Error);
 		expect(second.seenMessages.some((m) => m.includes("[login-complete]"))).toBe(true);
 		expect(second.events.some((e) => e.type === "login" && e.status === "done")).toBe(true);
 		expect(second.events.filter((e) => e.type === "login" && e.status === "pending")).toHaveLength(0);
 		expect(second.onLoginRequired).not.toHaveBeenCalled();
-		expect(second.toolResults[0]?.summary).toContain("LOGIN STILL REQUIRED");
-		expect(second.toolResults[0]?.summary).toContain("Do NOT ask again");
+	});
+
+	it("'Terminei' com a página ainda pedindo login: avisa em português, sem 2º card e sem seguir às cegas", async () => {
+		const first = await runLogin([step([{ id: "s1", name: "browser_snapshot", args: {} }])]);
+		const checkpoint = first.checkpoints[first.checkpoints.length - 1]!;
+		const events: Array<Record<string, unknown>> = [];
+		const onLoginRequired = vi.fn(async () => undefined);
+		const seen: string[] = [];
+		const result = await runComputerUse({
+			manager: { execBrowserSnapshot: vi.fn(async () => loginSnapshot) } as unknown as SandboxManager,
+			getSessionId: async () => "session-1",
+			model: "test-model",
+			apiKey: "test",
+			messages: [{ role: "user", content: "abra o Bling e faça a proposta" }],
+			contextEconomy: false,
+			runId: "run-login",
+			conversationId: "conv-1",
+			maxSteps: 10,
+			restoredCheckpoint: checkpoint,
+			onLoginRequired,
+			onEvent: (event) => void events.push(event as unknown as Record<string, unknown>),
+			streamChat: async (request) => {
+				for (const message of request.messages) if (typeof message.content === "string") seen.push(message.content);
+				return text("não deve chegar");
+			},
+		});
+		expect(result.text).toContain("Ainda vejo a tela de login de bling.com.br");
+		expect(seen.some((m) => m.includes("[login-complete]"))).toBe(false);
+		expect(events.some((e) => e.type === "login" && e.status === "done")).toBe(true);
+		expect(events.filter((e) => e.type === "login" && e.status === "pending")).toHaveLength(0);
+		expect(onLoginRequired).not.toHaveBeenCalled();
+	});
+
+	it("depois do 'Terminei' sem efeito, o mesmo site não reabre o card: o resultado manda não perguntar de novo", async () => {
+		const asked = new Set(["https://www.bling.com.br/login"]);
+		const checked = checkLoginWall({ runId: "r", loginAsked: asked }, { url: "https://www.bling.com.br/login", title: "Entrar", lines: loginSnapshot.lines });
+		expect(checked?.loginEvent).toBeUndefined();
+		expect(checked?.note).toContain("LOGIN STILL REQUIRED");
+		expect(checked?.note).toContain("Do NOT ask again");
 	});
 
 	it("o modelo nunca recebe a senha: o resultado marca o campo e não traz valor", async () => {

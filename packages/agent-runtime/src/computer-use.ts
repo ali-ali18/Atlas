@@ -16,7 +16,7 @@ import { triageUserMessage, type TriageHistoryEntry } from "./loop/message-triag
 import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } from "./loop/interrupt.js";
 import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MAX_ANSWER_REVISIONS_PER_RUN, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
-import { describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
+import { detectLoginWall, describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
 import { alreadyLoadedSummary, findAlreadyLoadedTools } from "./execution/tool-search-guard.js";
 import { runSandboxOperation, type SandboxExecutionContext } from "@workspace/sandbox";
 import {
@@ -3620,6 +3620,15 @@ async function executeTool(
 	}
 }
 
+const LOGIN_ALREADY_ASKED_NOTE = (site: string) =>
+	`\nLOGIN STILL REQUIRED on ${site}: the user was already asked to log in to this site in the last 30 minutes, so no new card was shown. ` +
+	"Do NOT ask again, never type credentials. Tell the user plainly (in their language, no technical terms) that the site still shows the login screen " +
+	"and that they can open the computer, finish signing in and tell you when it is done.";
+
+/** Texto ao usuário (pt-BR) quando "Terminei" volta e a tela de login ainda está lá. */
+export const loginStillShownText = (site: string) =>
+	`Ainda vejo a tela de login de ${site}, então o login não parece ter sido concluído. Abra o computador, termine a entrada nesse site e me diga "pronto" que eu continuo daqui.`;
+
 function vaultToolContext(ctx: Pick<ToolContext, "userId" | "botId" | "conversationId" | "runId" | "origin" | "manager" | "getSessionId">): VaultToolContext {
 	return {
 		userId: ctx.userId,
@@ -4925,6 +4934,11 @@ export async function runComputerUse(params: {
 	vault?: VaultService;
 	/** Espera depois de preencher o login do Cofre antes de conferir a página (padrão 3 s). */
 	vaultLoginSettleMs?: number;
+	/**
+	 * Sites para os quais a conversa já mostrou o card de login nos últimos 30 min (vale entre runs).
+	 * Sem isto o guarda de "já pedi" só vale dentro do run e cada mensagem nova reabria o mesmo card.
+	 */
+	recentLoginSites?: () => Promise<readonly string[]>;
 	/** Prazo da busca do código no e-mail (padrão 60 s). */
 	vaultEmailTimeoutMs?: number;
 	consumeSteerInputs?: () => Promise<
@@ -6166,6 +6180,11 @@ export async function runComputerUse(params: {
 		? createSecretSession({ userId: params.userId, by: () => ({ actor: "bot", botId: params.botId, conversationId: params.conversationId }) })
 		: undefined;
 	let pendingLogin = parsedCheckpoint?.pendingLogin;
+	// "Já pedi login neste site" por conversa (30 min), alimentado pelos cards persistidos; vale por site, não por URL.
+	const recentLoginSites = new Set<string>();
+	if (!isSubagent && userId !== "default" && params.recentLoginSites) {
+		for (const site of await params.recentLoginSites().catch(() => [] as readonly string[])) recentLoginSites.add(site);
+	}
 	// Provedores sem créditos/cota neste run e as tools que existem (para dicas honestas).
 	const providerHealth = params.providerHealth ?? createProviderHealth();
 	const hasToolInRun = (toolName: string) =>
@@ -6447,7 +6466,17 @@ export async function runComputerUse(params: {
 	if (pendingLogin) {
 		const resumed = pendingLogin;
 		pendingLogin = undefined;
-		if (!vaultFollowUp) conversation.push({
+		// "Terminei" não prova nada: confere a tela. Se o login ainda está lá, avisa em vez de seguir às cegas.
+		let loginStillShownSite: string | undefined;
+		if (!isSubagent && !vaultFollowUp && !vaultResumeMessage && sandboxEnabled && !resumed.connector && !resumed.composioToolkit && resumed.reason !== "captcha") {
+			try {
+				const snapshot = await manager.execBrowserSnapshot(await getSessionId(), { area: "viewport" });
+				loginStillShownSite = detectLoginWall({ url: snapshot.url, title: snapshot.title, lines: snapshot.lines })?.site;
+			} catch {
+				// Sem conseguir olhar a tela, segue como antes: o modelo é mandado reler a página.
+			}
+		}
+		if (!vaultFollowUp && !loginStillShownSite) conversation.push({
 			role: "user",
 			content:
 				vaultResumeMessage
@@ -6472,6 +6501,9 @@ export async function runComputerUse(params: {
 		await persistConversationCardFromEvent(conversationId, doneEvent).catch(() => undefined);
 		await onEvent(doneEvent);
 		await persistCheckpoint(nextStepIndex);
+		if (loginStillShownSite) {
+			return { text: loginStillShownText(loginStillShownSite), model: lastModel, hitWall: false, usage: usageTotals };
+		}
 	}
 
 	// F12/B5 — login pedido: o resultado da tool já está na conversa; grava o
@@ -7580,6 +7612,15 @@ export async function runComputerUse(params: {
 							summary = summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "");
 							summary += `\nLOGIN REQUIRED on ${offered.site}: the saved vault login was used but the site still needs the user (code, captcha or confirmation). A card asked the user and this run is pausing until they click "Terminei". Do not type credentials or call more tools; after the run resumes, call browser_snapshot and continue.`;
 							loginEvent = { ...humanEvent, vaultTried: auto.reason, ...(auto.codeField ? { codeField: true } : {}) };
+						}
+					}
+					// Card humano repetido: o mesmo site já pediu login nesta conversa (30 min). Não reabre o card; o modelo recebe a nota.
+					if (loginEvent && !loginEvent.vault && loginEvent.reason !== "captcha" && !loginEvent.connector && !loginEvent.composioToolkit) {
+						if (recentLoginSites.has(loginEvent.site)) {
+							summary = `${summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "")}${LOGIN_ALREADY_ASKED_NOTE(loginEvent.site)}`;
+							loginEvent = undefined;
+						} else {
+							recentLoginSites.add(loginEvent.site);
 						}
 					}
 					stopForLogin = loginEvent;
