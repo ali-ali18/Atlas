@@ -1,6 +1,6 @@
 import Docker from "dockerode";
 import type { SandboxRuntimeConfig } from "./config.js";
-import { createSandboxManager, resolveSandboxEndpoint } from "./docker-manager.js";
+import { createSandboxManager, resolveSandboxEndpoint, SANDBOX_STOP_TIMEOUT_S } from "./docker-manager.js";
 import { listAllSessionsForCleanup as listSessions } from "./session-store.js";
 import { loadCodeRunnerConfig } from "./code-runner/config.js";
 import { reapCodeRunnerContainers } from "./code-runner/executor.js";
@@ -78,7 +78,7 @@ export async function reapOrphanContainers(
 			if (idleMs === null || idleMs < options.ttlMs) continue;
 			try {
 				console.log(`[sandbox-reaper] stopping idle orphan ${name} idleMs=${idleMs}`);
-				await docker.getContainer(container.Id).stop({ t: 5 });
+				await docker.getContainer(container.Id).stop({ t: SANDBOX_STOP_TIMEOUT_S });
 				console.log(`[sandbox-reaper] slept orphan ${name}`);
 			} catch (error) {
 				console.error("[sandbox-reaper] failed to stop orphan", error);

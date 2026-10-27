@@ -20,11 +20,32 @@ fi
 # Sem Chrome nosso rodando (checado acima), esses arquivos são lixo.
 rm -f -- "${USER_DATA_DIR}/SingletonLock" "${USER_DATA_DIR}/SingletonSocket" "${USER_DATA_DIR}/SingletonCookie"
 
+# Chrome que morreu sem fechar deixa exit_type=Crashed no perfil e na volta mostra
+# "Restore pages?". Marca como saída limpa antes de abrir. Tolerante: arquivo
+# ausente, vazio ou JSON inválido não impedem o Chrome de subir.
+PREFS_FILE="${USER_DATA_DIR}/Default/Preferences"
+if [[ -s "$PREFS_FILE" ]]; then
+	node -e '
+const fs = require("fs");
+const file = process.argv[1];
+try {
+	const prefs = JSON.parse(fs.readFileSync(file, "utf8"));
+	if (prefs && typeof prefs === "object") {
+		prefs.profile = prefs.profile && typeof prefs.profile === "object" ? prefs.profile : {};
+		prefs.profile.exit_type = "Normal";
+		prefs.profile.exited_cleanly = true;
+		fs.writeFileSync(file, JSON.stringify(prefs));
+	}
+} catch {}
+' "$PREFS_FILE" 2>/dev/null || true
+fi
+
 # --no-sandbox é obrigatório no container (root, sem userns); --test-type
 # esconde a infobar "unsupported command-line flag: --no-sandbox" (o
 # --disable-infobars foi removido do Chrome moderno e não faz mais nada).
 exec "$CHROME_BIN" \
 	--no-first-run \
+	--hide-crash-restore-bubble \
 	--no-default-browser-check \
 	--no-sandbox \
 	--disable-dev-shm-usage \

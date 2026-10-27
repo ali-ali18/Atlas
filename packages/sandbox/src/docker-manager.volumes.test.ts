@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
 	calls: [] as string[],
-	created: [] as Array<{ HostConfig: { Binds?: string[] } }>,
+	created: [] as Array<{ HostConfig: { Binds?: string[]; Init?: boolean } }>,
 	volumeError: undefined as { statusCode: number } | undefined,
 	execs: [] as Array<Record<string, unknown>>,
 }));
@@ -15,7 +15,10 @@ vi.mock("dockerode", () => {
 	const container = (id: string) => ({
 		inspect: async () => ({ Id: id, Image: "sha256:new", State: { Running: true }, NetworkSettings: { Ports: ports } }),
 		start: async () => undefined,
-		stop: async () => void state.calls.push(`stop:${id}`),
+		stop: async (opts?: unknown) => {
+			state.stopOpts.push(opts);
+			state.calls.push(`stop:${id}`);
+		},
 		remove: async (opts: unknown) => void state.calls.push(`remove:${id}:${JSON.stringify(opts)}`),
 		exec: async (opts: Record<string, unknown>) => {
 			state.execs.push(opts);
@@ -71,7 +74,7 @@ vi.mock("node:net", () => ({
 	},
 }));
 
-import { createSandboxManager, profileVolumeName, sandboxBinds, workVolumeName } from "./docker-manager.js";
+import { createSandboxManager, profileVolumeName, SANDBOX_STOP_TIMEOUT_S, sandboxBinds, workVolumeName } from "./docker-manager.js";
 import { loadSandboxConfig } from "./config.js";
 import { deleteSession, listAllSessionsForCleanup } from "./session-store.js";
 
@@ -83,6 +86,7 @@ describe("sandbox volumes e shell via manager", () => {
 		state.calls = [];
 		state.created = [];
 		state.execs = [];
+		state.stopOpts = [];
 		state.volumeError = undefined;
 		vi.stubGlobal("fetch", async () => ({ ok: true }));
 		vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -107,6 +111,17 @@ describe("sandbox volumes e shell via manager", () => {
 		const off = loadSandboxConfig({ SANDBOX_ENABLED: "true", SANDBOX_PROFILE_VOLUMES: "0" } as NodeJS.ProcessEnv);
 		await createSandboxManager(off, "u1").createSession("conv-y");
 		expect(state.created[2]!.HostConfig.Binds).toBeUndefined();
+	});
+
+	it("createSession usa Init (tini) para o SIGTERM chegar ao entrypoint", async () => {
+		await createSandboxManager(config, "u1").createSession("conv-x");
+		expect(state.created[0]!.HostConfig.Init).toBe(true);
+	});
+
+	it("parar sessão em execução espera 15 s (Chrome fecha direito)", async () => {
+		await createSandboxManager(config, "u1").clearBrowserProfile("conv-x");
+		expect(state.stopOpts).toEqual([{ t: SANDBOX_STOP_TIMEOUT_S }]);
+		expect(SANDBOX_STOP_TIMEOUT_S).toBe(15);
 	});
 
 	it("clearBrowserProfile remove o container (v:false) e só o volume do perfil, depois do container", async () => {

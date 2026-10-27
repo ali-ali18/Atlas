@@ -102,6 +102,11 @@ export function createDockerClient(config: Pick<SandboxRuntimeConfig, "dockerHos
 	return new Docker({ socketPath: config.dockerSocketPath });
 }
 
+/** Segundos que o Docker espera o entrypoint fechar o Chrome antes do SIGKILL.
+ * Com 5 s o Chrome morria no meio da escrita do perfil (login de sessão perdido,
+ * "Restore pages?" na volta). */
+export const SANDBOX_STOP_TIMEOUT_S = 15;
+
 function containerName(sessionId: string): string {
 	return `atlas-sandbox-${sessionId}`;
 }
@@ -555,7 +560,7 @@ export function createSandboxManager(
 				const client = getDocker();
 				const ref = record.containerId || record.containerName;
 				const container = client.getContainer(ref);
-				await container.stop({ t: 5 }).catch(() => undefined);
+				await container.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
 				await container.remove({ force: true }).catch(() => undefined);
 			} catch {
 				// container may already be gone (AutoRemove)
@@ -577,7 +582,7 @@ export function createSandboxManager(
 				const container = client.getContainer(
 					record.containerId || record.containerName,
 				);
-				await container.stop({ t: 5 });
+				await container.stop({ t: SANDBOX_STOP_TIMEOUT_S });
 				record.status = "stopped";
 				sessionStore.putSession(record);
 				return true;
@@ -744,7 +749,7 @@ export function createSandboxManager(
 			for (const item of containers) {
 				if (item.Labels?.["atlas.sandbox.userId"] !== userId || item.Labels?.["atlas.sandbox.conversationId"] !== conversationId) continue;
 				const container = client.getContainer(item.Id);
-				await container.stop({ t: 5 }).catch(() => undefined);
+				await container.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
 				await container.remove({ force: true, v: false });
 				removedContainers += 1;
 			}
@@ -802,6 +807,9 @@ export function createSandboxManager(
 						: {}),
 				},
 				HostConfig: {
+					// tini como PID 1: repassa SIGTERM ao entrypoint (que fecha o Chrome
+					// direito) e colhe processos zumbis.
+					Init: true,
 					Memory: config.memoryBytes,
 					NanoCpus: config.nanoCpus,
 					NetworkMode: config.networkMode,
@@ -865,7 +873,7 @@ export function createSandboxManager(
 				try {
 					const c = client.getContainer(name);
 					await recordDeath(c, name);
-					await c.stop({ t: 2 }).catch(() => undefined);
+					await c.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
 					await c.remove({ force: true }).catch(() => undefined);
 				} catch {
 					// ignore cleanup errors
@@ -923,7 +931,7 @@ export function createSandboxManager(
 				const label = (item.Names?.[0] ?? item.Id).replace(/^\//, "");
 				if (!live) await recordDeath(ref, label);
 				try {
-					if (live) await ref.stop({ t: 2 }).catch(() => undefined);
+					if (live) await ref.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
 					await ref.remove({ force: true, v: false });
 					removed += 1;
 					console.warn(`[sandbox] removed leftover container ${label} state=${item.State ?? "?"}`);
@@ -1117,7 +1125,7 @@ export function createSandboxManager(
 					}
 				}
 				await recordDeath(c, label);
-				await c.stop({ t: 2 }).catch(() => undefined);
+				await c.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
 				await c.remove({ force: true, v: false });
 			} catch {
 				// ja removido ou Docker indisponivel
@@ -1158,7 +1166,7 @@ export function createSandboxManager(
 			`[sandbox] image of ${record.containerName || record.containerId} is outdated; recreating (profile volume kept)`,
 		);
 		try {
-			if (running) await container.stop({ t: 5 }).catch(() => undefined);
+			if (running) await container.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
 			await container.remove({ force: true, v: false });
 		} catch (error) {
 			console.warn(

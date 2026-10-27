@@ -15,6 +15,23 @@ CHROME_BIN="${CHROME_BIN:-/usr/bin/google-chrome-stable}"
 WEBSOCKIFY_BIN="${WEBSOCKIFY_BIN:-/usr/bin/websockify}"
 WALLPAPER="${SANDBOX_WALLPAPER:-/usr/share/backgrounds/atlas-wallpaper.jpg}"
 
+# Desligamento limpo: o Docker manda SIGTERM (via tini, Init: true) e espera o
+# `stop` timeout. Fecha o Chrome primeiro para ele gravar cookies/sessão e marcar
+# a saída como normal; sem isso o login de sessão se perde e aparece "Restore pages?".
+graceful_shutdown() {
+	trap '' TERM INT
+	echo "[entrypoint] SIGTERM: fechando o Chrome"
+	pkill -TERM -x chrome 2>/dev/null || true
+	for _ in $(seq 1 100); do
+		pgrep -x chrome >/dev/null 2>&1 || break
+		sleep 0.1
+	done
+	pkill -KILL -x chrome 2>/dev/null || true
+	kill $(jobs -p) 2>/dev/null || true
+	exit 0
+}
+trap graceful_shutdown TERM INT
+
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 
@@ -164,8 +181,10 @@ for _ in $(seq 1 60); do
 done
 
 # Mantém o container vivo; não usar `wait` com set -e.
+# `sleep & wait` para o trap de SIGTERM rodar na hora, sem esperar o sleep acabar.
 while kill -0 "$CONTROL_PID" 2>/dev/null; do
-	sleep 30
+	sleep 30 &
+	wait $! || true
 done
 
 echo "[entrypoint] Control server exited" >&2
