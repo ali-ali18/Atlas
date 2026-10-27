@@ -19,6 +19,9 @@ describe("domínio", () => {
 	it("casa subdomínios do mesmo site", () => {
 		expect(domainMatches("https://accounts.github.com/login", "https://github.com")).toBe(true);
 		expect(domainMatches("https://app.exemplo.com.br/x", "exemplo.com.br")).toBe(true);
+		expect(domainMatches("https://painel.exemplo.com/login", "exemplo.com")).toBe(true);
+		expect(domainMatches("https://painel.exemplo.com/login", "https://painel.exemplo.com")).toBe(true);
+		expect(domainMatches("https://exemplo.com.evil.io/login", "exemplo.com")).toBe(false);
 	});
 	it("recusa phishing e http", () => {
 		expect(domainMatches("https://github.com.evil.io/login", "https://github.com")).toBe(false);

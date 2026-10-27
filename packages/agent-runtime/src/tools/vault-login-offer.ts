@@ -71,8 +71,10 @@ export type VaultResumeResult = { kind: "filled"; summary: string; emailCode?: b
 
 const NEEDS_CODE_NOTE = "O site pediu o código enviado ao seu e-mail. Digite o código que chegou no seu e-mail aqui no cartão: ele vai direto para a página, sem passar pelo modelo.";
 
-function pageNeedsPerson(page: { url: string; title?: string; text?: string }): boolean {
-	return detectExtraLoginStep(page) || Boolean(detectLoginWall({ url: page.url, title: page.title, text: page.text }));
+type ReadPage = { url: string; title?: string; text?: string; lines?: readonly string[] };
+
+function pageNeedsPerson(page: ReadPage): boolean {
+	return detectExtraLoginStep(page) || Boolean(detectLoginWall({ url: page.url, title: page.title, text: page.text, lines: page.lines ?? page.text?.split("\n") }));
 }
 
 /**
@@ -87,8 +89,10 @@ export async function fillVaultLoginOnResume(input: {
 	conversationId?: string;
 	vault: VaultService;
 	fillContext: VaultToolContext;
-	readPage: () => Promise<{ url: string; title?: string; text?: string }>;
+	readPage: () => Promise<ReadPage>;
 	settle?: () => Promise<void>;
+	/** Login já aprovado (nesta conversa ou "sempre para este bot"): não grava nova aprovação no log. */
+	skipApproval?: boolean;
 	/** Conector de e-mail do usuário: busca o código quando o site o pede. */
 	emailSource?: EmailSource | null;
 	/** Teste: espera/relógio da busca do código. */
@@ -100,7 +104,7 @@ export async function fillVaultLoginOnResume(input: {
 	try {
 		const meta = (await vault.listMeta(userId)).find((item) => item.kind === "login" && item.name === offer.name);
 		if (!meta) return { kind: "needs-human", reason: "Esse login não está mais no Cofre." };
-		await vault.approveLogin(userId, meta.id, { botId: input.botId, conversationId: input.conversationId });
+		if (!input.skipApproval) await vault.approveLogin(userId, meta.id, { botId: input.botId, conversationId: input.conversationId });
 		const ctx: VaultToolContext = { ...input.fillContext, vault, userId, botId: input.botId, conversationId: input.conversationId, unattended: false };
 		try {
 			await executeLoginFill({ login: offer.name, fields: ["username", "password"], submit: true }, ctx);
@@ -124,7 +128,7 @@ export async function fillVaultLoginOnResume(input: {
 			if (pageNeedsPerson(page)) return { kind: "needs-human", reason: detectEmailCodeStep(page) ? `O código do ${input.emailSource.name} não foi aceito. ${NEEDS_CODE_NOTE}` : VAULT_TRIED_NOTE, ...(detectEmailCodeStep(page) ? { codeField: true } : {}) };
 			return { kind: "filled", emailCode: true, summary: `O runtime entrou em ${offer.domain} com o login do Cofre "${offer.name}" e o código de verificação do seu e-mail (você não viu a senha nem o código).` };
 		}
-		if (detectExtraLoginStep(page) || detectLoginWall({ url: page.url, title: page.title, text: page.text })) {
+		if (pageNeedsPerson(page)) {
 			return { kind: "needs-human", reason: VAULT_TRIED_NOTE };
 		}
 		return { kind: "filled", summary: `O runtime entrou em ${offer.domain} com o login do Cofre "${offer.name}" (você não viu a senha).` };
@@ -154,4 +158,55 @@ export async function typeLoginCodeOnResume(input: {
 	} catch {
 		return { kind: "needs-human", reason: `Não achei o campo do código na página. ${NEEDS_CODE_NOTE}`, codeField: true };
 	}
+}
+
+/**
+ * Muro de login com login salvo no Cofre: o runtime entra sozinho ANTES de mostrar o card, desde que o
+ * uso já esteja aprovado (nesta conversa ou "sempre para este bot"). Sem aprovação, `skip`: o card com a
+ * oferta "Entrar com o login do Cofre" é o cartão de aprovação. Depois do preenchimento, confere a tela
+ * (snapshot): se ainda há login, código, captcha ou senha errada, devolve o card humano explicando o que falta.
+ */
+export type AutoVaultLoginResult =
+	| { kind: "skip" }
+	| { kind: "filled"; summary: string }
+	| { kind: "needs-human"; reason: string; codeField?: boolean };
+
+export async function tryAutoVaultLogin(input: {
+	event: { reason?: "login" | "captcha"; vault?: LoginVaultOffer; vaultTried?: string };
+	userId: string;
+	botId?: string;
+	conversationId?: string;
+	vault: VaultService;
+	fillContext: VaultToolContext;
+	readPage: () => Promise<ReadPage>;
+	settle?: () => Promise<void>;
+	emailSource?: EmailSource | null;
+	emailSearch?: Parameters<typeof fillVaultLoginOnResume>[0]["emailSearch"];
+}): Promise<AutoVaultLoginResult> {
+	const { event } = input;
+	if (!event.vault || event.vaultTried || event.reason === "captcha") return { kind: "skip" };
+	let approved = false;
+	try {
+		const meta = (await input.vault.listMeta(input.userId)).find((item) => item.kind === "login" && item.name === event.vault!.name);
+		if (!meta) return { kind: "skip" };
+		approved = await input.vault.isLoginApproved(input.userId, meta, input.botId, input.conversationId);
+	} catch {
+		return { kind: "skip" };
+	}
+	if (!approved) return { kind: "skip" };
+	const result = await fillVaultLoginOnResume({
+		offer: event.vault,
+		userId: input.userId,
+		botId: input.botId,
+		conversationId: input.conversationId,
+		vault: input.vault,
+		fillContext: input.fillContext,
+		readPage: input.readPage,
+		settle: input.settle,
+		skipApproval: true,
+		emailSource: input.emailSource,
+		emailSearch: input.emailSearch,
+	});
+	if (result.kind === "filled") return { kind: "filled", summary: result.summary };
+	return { kind: "needs-human", reason: result.reason, ...(result.codeField ? { codeField: true } : {}) };
 }

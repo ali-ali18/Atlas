@@ -250,7 +250,7 @@ import { isSecretBoxConfigured } from "./secrets/secret-box.js";
 import { getVaultService, type VaultService } from "./secrets/vault-service.js";
 import { findEmailSource } from "./tools/email-code.js";
 import { openSecrets } from "./secrets/secret-box.js";
-import { typeLoginCodeOnResume, fillVaultLoginOnResume, listVaultLoginDomains, vaultLoginsPromptLine, vaultTriedKey, withVaultOffer } from "./tools/vault-login-offer.js";
+import { typeLoginCodeOnResume, fillVaultLoginOnResume, tryAutoVaultLogin, listVaultLoginDomains, vaultLoginsPromptLine, vaultTriedKey, withVaultOffer } from "./tools/vault-login-offer.js";
 import {
 	executeLoginFill,
 	executeRoutineWebhookInfo,
@@ -7552,6 +7552,36 @@ export async function runComputerUse(params: {
 				fileEvent = outcome.fileEvent;
 				if (loginEvent && !isSubagent) {
 					if (vaultUsable) loginEvent = await withVaultOffer(loginEvent, { vault: vaultService, userId, loginAsked, unattended: isUnattendedOrigin(params.origin), emailSourceName: emailSource?.name });
+					// Cofre primeiro: login salvo e já aprovado entra sozinho, sem card. Sem aprovação, o card com a
+					// oferta do Cofre é o de aprovação; só sobra o card "faça você" sem login salvo ou se faltar 2FA/captcha/senha.
+					if (vaultUsable && loginEvent.vault) {
+						const offered = loginEvent;
+						const auto = await tryAutoVaultLogin({
+							event: offered,
+							userId,
+							botId,
+							conversationId,
+							vault: vaultService,
+							fillContext: vaultToolContext({ userId, botId, conversationId, runId, origin: params.origin, manager, getSessionId: () => getSessionId() }),
+							readPage: async () => {
+								const snapshot = await manager.execBrowserSnapshot(await getSessionId(), { area: "viewport" });
+								return { url: snapshot.url, title: snapshot.title, text: snapshot.lines.join("\n"), lines: snapshot.lines };
+							},
+							settle: () => new Promise<void>((resolve) => setTimeout(resolve, params.vaultLoginSettleMs ?? 3000)),
+							emailSource,
+							...(params.vaultEmailTimeoutMs !== undefined ? { emailSearch: { timeoutMs: params.vaultEmailTimeoutMs, intervalMs: 1000 } } : {}),
+						});
+						if (auto.kind !== "skip") loginAsked.add(vaultTriedKey(offered.url));
+						if (auto.kind === "filled") {
+							summary = `${summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "")}\n[login-vault-filled] ${auto.summary} The login screen was gone when checked. Your next action must be browser_snapshot to confirm you are signed in, then continue the task. Never type credentials.`;
+							loginEvent = undefined;
+						} else if (auto.kind === "needs-human") {
+							const { vault: _offer, ...humanEvent } = offered;
+							summary = summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "");
+							summary += `\nLOGIN REQUIRED on ${offered.site}: the saved vault login was used but the site still needs the user (code, captcha or confirmation). A card asked the user and this run is pausing until they click "Terminei". Do not type credentials or call more tools; after the run resumes, call browser_snapshot and continue.`;
+							loginEvent = { ...humanEvent, vaultTried: auto.reason, ...(auto.codeField ? { codeField: true } : {}) };
+						}
+					}
 					stopForLogin = loginEvent;
 				}
 				jevAudit = outcome.jevAudit ?? jevAudit;
