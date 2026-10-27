@@ -35,7 +35,7 @@ import { createConversationRoutes } from "./routes/conversations.js";
 import { createReactionRoutes } from "./routes/reactions.js";
 import { createPushRoutes } from "./routes/push.js";
 import { createAvatarRoutes } from "./routes/avatars.js";
-import { createNotifier, createRedisCoalesce, createRedisPresence, installPushListener } from "@workspace/db";
+import { createNotifier, createRedisCoalesce, createRedisPresence, getProfileBotId, installPushListener } from "@workspace/db";
 import { createWebPushSender } from "@workspace/mail";
 import { ATLAS_JOB_NAMES, formatMissingEnv, readVapidConfig, vapidProblems } from "@workspace/shared";
 import { captureError, currentRequestId, initSentry, installRequestIdLogging } from "@workspace/observability";
@@ -107,6 +107,7 @@ import {
 	createSandboxManager,
 	loadDevSandboxConfig,
 	loadSandboxConfig,
+	setProfileScopeResolver,
 	startDevSessionReaper,
 	startDevEnvCacheSweep,
 	startDevSessionQueue,
@@ -399,6 +400,9 @@ void listGithubRoutineRepoOwners()
 	.catch((error) => {
 		console.error("[github-hook-resync] falhou ao listar rotinas GitHub", error);
 	});
+
+// Perfil do navegador da VM por usuário+bot (e não por conversa): o login vale em todas as conversas do bot.
+setProfileScopeResolver(getProfileBotId);
 
 // Ciclo de vida das VMs de sandbox. A VM guarda o login do navegador, então NÃO é
 // parada por inatividade (SANDBOX_IDLE_STOP=1 reativa o modo antigo, com SANDBOX_TTL_MS).

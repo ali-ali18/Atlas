@@ -51,6 +51,8 @@ export function matches(row: FakeRow, where: Where | undefined): boolean {
 					return (arg as unknown[]).some((item) => sameValue(value, item));
 				case "not":
 					return !sameValue(value, arg);
+				case "isEmpty":
+					return (Array.isArray(value) ? value.length === 0 : value == null) === Boolean(arg);
 				default:
 					throw new Error(`operador não suportado no fake: ${op}`);
 			}

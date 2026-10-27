@@ -3,6 +3,8 @@ export {
 	createSandboxManager,
 	type SandboxManager,
 	profileVolumeName,
+	setProfileScopeResolver,
+	type ProfileScopeResolver,
 	SandboxDockerUnavailableError,
 	SandboxControlError,
 } from "./docker-manager.js";

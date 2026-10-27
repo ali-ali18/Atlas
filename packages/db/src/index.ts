@@ -625,6 +625,7 @@ export {
 	type GithubInstallationRepo,
 } from "./github-app.js";
 export * from "./push.js";
+export { getProfileBotId } from "./sandbox-profile.js";
 export * from "./user-events.js";
 export {
 	planRetention,

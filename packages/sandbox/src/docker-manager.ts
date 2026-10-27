@@ -107,15 +107,52 @@ export function createDockerClient(config: Pick<SandboxRuntimeConfig, "dockerHos
  * "Restore pages?" na volta). */
 export const SANDBOX_STOP_TIMEOUT_S = 15;
 
+/** Desliga (com graça) outras VMs ligadas que montam o mesmo volume de perfil. */
+async function stopOthersSharingProfile(client: Docker, profileVolume: string, selfId: string | undefined): Promise<void> {
+	try {
+		const running = await client.listContainers({ all: false, filters: { label: ["atlas.sandbox=true", `atlas.sandbox.profile=${profileVolume}`] } });
+		for (const item of running) {
+			if (item.Id === selfId || item.Labels?.["atlas.sandbox.profile"] !== profileVolume) continue;
+			console.log(`[sandbox] stopping ${(item.Names?.[0] ?? item.Id).replace(/^\//, "")}: another VM of the same bot is taking the browser profile`);
+			await client.getContainer(item.Id).stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
+		}
+	} catch {
+		// Sem a lista não dá para checar; o start segue (pior caso: perfil compartilhado por instantes).
+	}
+}
+
 function containerName(sessionId: string): string {
 	return `atlas-sandbox-${sessionId}`;
 }
 
-/** Volume Docker que guarda o perfil do Chrome de uma conversa. Sobrevive
- * ao stop E à remoção do container — é ele que torna o login durável. */
-export function profileVolumeName(conversationId: string, userId: string): string {
-	const key = createHash("sha256").update(JSON.stringify([userId, conversationId])).digest("hex");
+/** Volume Docker que guarda o perfil do Chrome. Sobrevive ao stop E à remoção do
+ * container — é ele que torna o login durável. `scopeId` é o id do BOT: o mesmo bot
+ * lembra os logins em todas as conversas dele; bots diferentes ficam separados. Sem
+ * bot resolvível, o chamador passa o id da conversa (perfil por conversa, como antes).
+ * Volumes antigos (chaveados por conversa) não são migrados: o login é refeito uma vez. */
+export function profileVolumeName(scopeId: string, userId: string): string {
+	const key = createHash("sha256").update(JSON.stringify([userId, scopeId])).digest("hex");
 	return `atlas-profile-${key}`;
+}
+
+/** Quem é o dono do perfil de uma conversa: o id do bot, ou null (perfil por conversa). */
+export type ProfileScopeResolver = (userId: string, conversationId: string) => Promise<string | null>;
+let profileScopeResolver: ProfileScopeResolver | null = null;
+
+/** API e worker registram aqui como achar o bot da conversa (o pacote não conhece o banco). */
+export function setProfileScopeResolver(resolver: ProfileScopeResolver | null): void {
+	profileScopeResolver = resolver;
+}
+
+/** Escopo do perfil: bot da conversa; qualquer falha cai no escopo da conversa. */
+export async function resolveProfileScope(userId: string, conversationId: string): Promise<string> {
+	try {
+		const botId = await profileScopeResolver?.(userId, conversationId);
+		if (botId) return botId;
+	} catch (error) {
+		console.warn(`[sandbox] could not resolve bot for conversation ${conversationId}; using per-conversation profile: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	return conversationId;
 }
 
 /** Volume do diretório de trabalho do agente (/home/atlas/work): downloads,
@@ -126,9 +163,9 @@ export function workVolumeName(conversationId: string, userId: string): string {
 }
 
 /** Mounts persistentes da conversa: perfil do Chrome + diretório de trabalho. */
-export function sandboxBinds(conversationId: string, userId: string): string[] {
+export function sandboxBinds(conversationId: string, userId: string, profileScope: string = conversationId): string[] {
 	return [
-		`${profileVolumeName(conversationId, userId)}:/tmp/chrome-data`,
+		`${profileVolumeName(profileScope, userId)}:/tmp/chrome-data`,
 		`${workVolumeName(conversationId, userId)}:${SANDBOX_WORK_DIR}`,
 	];
 }
@@ -773,8 +810,19 @@ export function createSandboxManager(
 				all: true,
 				filters: { label: ["atlas.sandbox=true", `atlas.sandbox.conversationId=${conversationId}`, `atlas.sandbox.userId=${userId}`] },
 			});
-			for (const item of containers) {
-				if (item.Labels?.["atlas.sandbox.userId"] !== userId || item.Labels?.["atlas.sandbox.conversationId"] !== conversationId) continue;
+			// O perfil é do bot: outras conversas dele usam o mesmo volume, que só sai sem container montado.
+			const scope = await resolveProfileScope(userId, conversationId);
+			const volume = profileVolumeName(scope, userId);
+			const sharing = scope === conversationId
+				? []
+				: await client.listContainers({ all: true, filters: { label: ["atlas.sandbox=true", `atlas.sandbox.profile=${volume}`, `atlas.sandbox.userId=${userId}`] } });
+			const seen = new Set<string>();
+			for (const item of [...containers, ...sharing]) {
+				if (item.Labels?.["atlas.sandbox.userId"] !== userId || seen.has(item.Id)) continue;
+				const sameConversation = item.Labels?.["atlas.sandbox.conversationId"] === conversationId;
+				const sameProfile = item.Labels?.["atlas.sandbox.profile"] === volume;
+				if (!sameConversation && !sameProfile) continue;
+				seen.add(item.Id);
 				const container = client.getContainer(item.Id);
 				await container.stop({ t: SANDBOX_STOP_TIMEOUT_S }).catch(() => undefined);
 				await container.remove({ force: true, v: false });
@@ -782,10 +830,13 @@ export function createSandboxManager(
 			}
 			const known = sessionStore.findByConversationId(conversationId, userId);
 			if (known) sessionStore.deleteSession(known.sessionId, userId);
-			try {
-				await client.getVolume(profileVolumeName(conversationId, userId)).remove({ force: true });
-			} catch (error) {
-				if ((error as { statusCode?: number }).statusCode !== 404) throw error;
+			// Volume do bot e o antigo, por conversa (se ainda existir).
+			for (const name of new Set([volume, profileVolumeName(conversationId, userId)])) {
+				try {
+					await client.getVolume(name).remove({ force: true });
+				} catch (error) {
+					if ((error as { statusCode?: number }).statusCode !== 404) throw error;
+				}
 			}
 			return { cleared: true, removedContainers };
 		},
@@ -816,11 +867,12 @@ export function createSandboxManager(
 			sessionStore.putSession(record);
 	
 		try {
-			const profileVolume =
-				config.profileVolumes && conversationId
-					? profileVolumeName(conversationId, userId)
-					: null;
+			const profileScope = config.profileVolumes && conversationId ? await resolveProfileScope(userId, conversationId) : null;
+			const profileVolume = profileScope ? profileVolumeName(profileScope, userId) : null;
 			if (conversationId) await removeLeftovers(client, conversationId, { includeRunning: opts.replaceExisting });
+			// Duas VMs no mesmo perfil corromperiam o Chrome (e o boot apaga o SingletonLock): outra conversa do
+			// mesmo bot ainda ligada é desligada (graciosamente) antes.
+			if (profileVolume) await stopOthersSharingProfile(client, profileVolume, undefined);
 			const container = await client.createContainer({
 				Image: config.image,
 				name,
@@ -832,6 +884,7 @@ export function createSandboxManager(
 					...(conversationId
 						? { "atlas.sandbox.conversationId": conversationId }
 						: {}),
+					...(profileVolume ? { "atlas.sandbox.profile": profileVolume } : {}),
 				},
 				HostConfig: {
 					// tini como PID 1: repassa SIGTERM ao entrypoint (que fecha o Chrome
@@ -853,8 +906,8 @@ export function createSandboxManager(
 					// próximas criações da mesma conversa, o perfil (cookies,
 					// logins, storage) já está lá. O remove do container NÃO
 					// apaga o volume.
-					...(profileVolume && conversationId
-						? { Binds: sandboxBinds(conversationId, userId) }
+					...(profileVolume && conversationId && profileScope
+						? { Binds: sandboxBinds(conversationId, userId, profileScope) }
 						: {}),
 				},
 				ExposedPorts: {
@@ -1117,6 +1170,8 @@ export function createSandboxManager(
 					return null;
 				}
 				if (inspect.State.Status === "exited") logContainerDeath(record.containerName || record.containerId, summarizeContainerDeath(inspect));
+				const sharedProfile = inspect.Config?.Labels?.["atlas.sandbox.profile"];
+				if (sharedProfile) await stopOthersSharingProfile(client, sharedProfile, inspect.Id);
 				await container.start();
 				inspect = await container.inspect();
 			}

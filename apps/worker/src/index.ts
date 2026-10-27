@@ -78,7 +78,8 @@ import {
 import { sendMail } from "@workspace/mail";
 import { sweepDeliveryBacklog } from "./delivery/backlog.js";
 import { loadWorkerConfig } from "./config.js";
-import { createNotifier, createRedisCoalesce, createRedisPresence, installPushListener } from "@workspace/db";
+import { createNotifier, createRedisCoalesce, createRedisPresence, getProfileBotId, installPushListener } from "@workspace/db";
+import { setProfileScopeResolver } from "@workspace/sandbox";
 import { createWebPushSender } from "@workspace/mail";
 import { formatMissingEnv, readVapidConfig, vapidProblems } from "@workspace/shared";
 import { captureError, initSentry, installRequestIdLogging, requestIdForJob, runWithRequestId, startWorkerHeartbeat } from "@workspace/observability";
@@ -100,6 +101,9 @@ import { createGroupJev, createGroupRouter, startGroupSweeper } from "./bot-grou
 import { startProactiveSweeper } from "./proactive.js";
 import { briefDeliveryDeps, createBriefFlusher, createDelayedBriefFlush, flushPendingBriefs } from "./daily-brief.js";
 import { startReflectionSweeper } from "./reflection.js";
+
+// Perfil do navegador da VM por usuário+bot (e não por conversa): o login vale em todas as conversas do bot.
+setProfileScopeResolver(getProfileBotId);
 
 // Observabilidade: Sentry só com SENTRY_DSN; logs do job ganham o request-id da API; variáveis que faltam por recurso.
 initSentry("worker");
