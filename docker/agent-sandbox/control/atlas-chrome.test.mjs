@@ -85,3 +85,17 @@ test("apaga Singleton* herdados do volume sob a trava", () => {
 	assert.equal(run().status, 0);
 	assert.equal(existsSync(join(dir, "profile", "SingletonLock")), false);
 });
+
+test("trava livre mas CDP já responde: só foca a janela, sem segundo Chrome", () => {
+	// curl falso que responde como o CDP (sem pgrep: a checagem é pela porta de depuração)
+	mkdirSync(join(dir, "bin"), { recursive: true });
+	writeFileSync(join(dir, "bin", "curl"), "#!/usr/bin/env bash\nexit 0\n");
+	chmodSync(join(dir, "bin", "curl"), 0o755);
+	const result = run(["about:blank"], { PATH: `${join(dir, "bin")}:${process.env.PATH}` });
+	assert.equal(result.status, 0);
+	assert.equal(launches().length, 0);
+});
+
+test("o script não depende mais de pgrep", () => {
+	assert.doesNotMatch(readFileSync(SCRIPT, "utf8"), /pgrep/);
+});

@@ -41,8 +41,9 @@ if [[ "$acquired" != 1 ]]; then
 	exit 1
 fi
 
-# Chrome sem a trava (versão antiga do script) ainda de pé com nosso perfil: só traz a janela.
-if pgrep -f "chrome.*--user-data-dir=${USER_DATA_DIR}" >/dev/null 2>&1; then
+# Trava livre mas o CDP responde: há Chrome nosso de pé que não segura a trava (subiu por outro caminho,
+# ex.: o entrypoint antigo); só traz a janela em vez de abrir um segundo no mesmo perfil.
+if curl -sf --max-time 1 "$CDP_VERSION_URL" >/dev/null 2>&1; then
 	focus_chrome
 	exit 0
 fi
