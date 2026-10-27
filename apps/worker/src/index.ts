@@ -98,7 +98,7 @@ import { startBotMessageSweeper } from "./bot-messages.js";
 import { processDataRetention, scheduleDataRetention } from "./data-retention.js";
 import { createGroupJev, createGroupRouter, startGroupSweeper } from "./bot-groups.js";
 import { startProactiveSweeper } from "./proactive.js";
-import { briefDeliveryDeps, flushPendingBriefs } from "./daily-brief.js";
+import { briefDeliveryDeps, createBriefFlusher, flushPendingBriefs } from "./daily-brief.js";
 import { startReflectionSweeper } from "./reflection.js";
 
 // Observabilidade: Sentry só com SENTRY_DSN; logs do job ganham o request-id da API; variáveis que faltam por recurso.
@@ -479,17 +479,21 @@ const groupSweeper = startGroupSweeper(
 agentWorker.on("completed", () => groupSweeper.kick());
 agentWorker.on("failed", () => groupSweeper.kick());
 
+// Brief "Seu dia" pendente entra no chat assim que a conversa fica livre (uma consulta indexada por briefStatus).
+const flushBriefs = createBriefFlusher(() => flushPendingBriefs(briefDeliveryDeps(notify)));
+
 // Modo proativo: lembretes vencidos e reflexão diária (o banco guarda tudo; reinício retoma os pendentes).
 const proactiveSweeper = startProactiveSweeper(
 	{
 		enqueueRun: enqueueChainedRun,
 		envDefaultModel: config.openRouterModel,
 	},
-	// Brief "Seu dia" pendente entra no chat assim que a conversa fica livre (fim de run) e a cada 60 s.
-	() => flushPendingBriefs({ ...briefDeliveryDeps(notify) }),
+	// Cada ciclo (fim de run e a cada 60 s) também libera briefs pendentes.
+	flushBriefs,
 );
 agentWorker.on("completed", () => proactiveSweeper.kick());
-agentWorker.on("failed", () => proactiveSweeper.kick());
+// Run que falhou só libera o brief; o modo proativo (follow-ups, reflexão) não roda por falha, como antes.
+agentWorker.on("failed", () => void flushBriefs());
 
 // Reflexão diária do orquestrador (horário escolhido pelo usuário) e "Refletir agora".
 const reflectionSweeper = startReflectionSweeper({ enqueueRun: enqueueChainedRun, config, notify });

@@ -151,6 +151,20 @@ export async function flushPendingBriefs(
 	return posted;
 }
 
+/**
+ * Uma varredura de briefs por vez: fim de run, run que falhou e o ciclo de 60 s podem coincidir, e uma só
+ * consulta indexada basta. Chamada durante uma varredura em andamento reaproveita a mesma.
+ */
+export function createBriefFlusher(flush: () => Promise<number>): () => Promise<number> {
+	let inflight: Promise<number> | null = null;
+	return () => {
+		inflight ??= flush().finally(() => {
+			inflight = null;
+		});
+		return inflight;
+	};
+}
+
 /** Dependências reais (banco) da entrega; `notify` ausente = sem chaves de push. */
 export function briefDeliveryDeps(
 	notify?: Notify,

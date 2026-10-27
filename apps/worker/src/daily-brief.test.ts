@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { briefErrorTag, briefPushBody, deliverDailyBrief, flushPendingBriefs, isDetachedBriefRun, type BriefDeliveryDeps } from "./daily-brief.js";
+import { briefErrorTag, briefPushBody, createBriefFlusher, deliverDailyBrief, flushPendingBriefs, isDetachedBriefRun, type BriefDeliveryDeps } from "./daily-brief.js";
 import { runsDetachedFromChat } from "./processors/routine-defer.js";
 
 type Row = { status: "pending" | "posted" | "expired" | null; text: string | null; botId: string; userId: string };
@@ -225,4 +225,21 @@ test("runsDetachedFromChat: só o modelo daily_brief", () => {
 	assert.equal(runsDetachedFromChat("github_security_review"), false);
 	assert.equal(runsDetachedFromChat(null), false);
 	assert.equal(runsDetachedFromChat(undefined), false);
+});
+
+test("createBriefFlusher: chamadas simultâneas dividem uma varredura só", async () => {
+	let runs = 0;
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => (release = resolve));
+	const flusher = createBriefFlusher(async () => {
+		runs += 1;
+		await gate;
+		return 1;
+	});
+	const all = Promise.all([flusher(), flusher(), flusher()]);
+	release();
+	assert.deepEqual(await all, [1, 1, 1]);
+	assert.equal(runs, 1);
+	await flusher();
+	assert.equal(runs, 2, "depois de terminar, a próxima chamada varre de novo");
 });
