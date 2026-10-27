@@ -781,11 +781,16 @@ model RoutineRun {
   error         String?
   summary       String?
   eventJson     Json?
+  /// Entrega do brief "Seu dia" como mensagem: pending | posted | expired; null = run que não é brief.
+  briefStatus   String?
+  /// Texto do brief enquanto pending; limpo ao postar ou expirar (nunca sai pela API).
+  briefText     String?
   createdAt     DateTime  @default(now())
 
   @@index([routineId, createdAt])
   @@index([agentRunId])
   @@index([routineId, status])
+  @@index([briefStatus, createdAt])
   @@map("routine_runs")
 }
 

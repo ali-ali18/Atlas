@@ -688,4 +688,13 @@ export { chooseDuplicateLosers, pickEvictions, planLessonDeltas, resolveLesson, 
 export { countFailedToolResults } from "./run-inspect.js";
 export { LESSON_REVIEW_EVENT, getLatestLessonReviewEvent, listRunsForLessonReview, runIdsAlreadyReviewed, type LessonReviewRun } from "./lesson-review-data.js";
 
-export { markBriefPending, claimBriefPosting, releaseBriefPosting, listPendingBriefs, type PendingBrief } from "./brief-delivery.js";
+export {
+	appendBriefMessage,
+	briefMessageId,
+	expireStaleBriefs,
+	isConversationBusyForBrief,
+	listPendingBriefs,
+	markBriefPending,
+	markBriefPosted,
+	type PendingBrief,
+} from "./brief-delivery.js";

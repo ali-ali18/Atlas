@@ -193,6 +193,8 @@ export async function appendConversationMessage(
 	origin?: string | null,
 	/** Mensagem entre bots: remetente e vínculo com a cadeia. */
 	bot?: { fromBotId?: string | null; fromBotName?: string | null; botMessageId?: string | null },
+	/** `id` explícito torna a gravação idempotente (id repetido = erro de chave única P2002 para quem chamou tratar). */
+	options?: { id?: string },
 ): Promise<SessionMessage> {
 	if (!CHAT_ROLES.includes(role)) {
 		throw new Error(`Invalid message role: ${role}`);
@@ -208,6 +210,7 @@ export async function appendConversationMessage(
 
 	const row = await prisma.conversationMessage.create({
 		data: {
+			...(options?.id ? { id: options.id } : {}),
 			conversationId,
 			role,
 			content,
