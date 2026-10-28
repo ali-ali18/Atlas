@@ -1,6 +1,7 @@
 import {
 	BRIEF_CALM_MARGIN_MS,
 	appendBriefMessage,
+	claimBriefNotice,
 	claimBriefPush,
 	expireStaleBriefs,
 	getBotConversationId,
@@ -10,11 +11,12 @@ import {
 	markBriefPending,
 	markBriefPosted,
 	recoverUnstartedBriefs,
+	releaseBriefNotice,
 	releaseBriefPush,
 	type MarkPendingMode,
 	type Notify,
 } from "@workspace/db";
-import { BRIEF_FAILURE_LINE, type RoutineNotifyMode } from "@workspace/shared";
+import { BRIEF_FAILURE_LINE, appendAutoBriefNotice, type RoutineNotifyMode } from "@workspace/shared";
 import { singleFlight } from "./single-flight.js";
 
 /**
@@ -59,6 +61,10 @@ export type BriefDeliveryDeps = {
 	releasePush: (userId: string, routineRunId: string) => Promise<void>;
 	/** Pendente -> postado (false = outro caminho já marcou). */
 	markPosted: (userId: string, routineRunId: string) => Promise<boolean>;
+	/** Aviso único do 1º brief que o bot ligou sozinho: true uma vez por bot (ausente = sem aviso). */
+	claimNotice?: (userId: string, routineRunId: string) => Promise<boolean>;
+	/** Devolve o aviso quando o brief não pôde ser guardado. */
+	releaseNotice?: (userId: string, routineRunId: string) => Promise<void>;
 };
 
 export type BriefDeliveryResult = { posted: boolean; pushed: boolean; reason?: string };
@@ -139,7 +145,8 @@ export async function deliverDailyBrief(
 	},
 	deps: BriefDeliveryDeps,
 ): Promise<BriefDeliveryResult> {
-	const text = input.text.trim() || BRIEF_FAILURE_LINE;
+	let text = input.text.trim() || BRIEF_FAILURE_LINE;
+	const isRealBrief = input.text.trim().length > 0 && !input.failure;
 	if (!input.botId) return { posted: false, pushed: false, reason: "sem bot" };
 	const conversationId = await deps.conversationOf(input.botId, input.userId);
 	if (!conversationId) return { posted: false, pushed: false, reason: "bot sem conversa" };
@@ -152,6 +159,16 @@ export async function deliverDailyBrief(
 		console.warn(`[brief] execução da rotina não encontrada${input.agentRunId ? ` run=${input.agentRunId}` : ""}; a varredura de recuperação entrega`);
 		return { posted: false, pushed: false, reason: "execução da rotina não encontrada; fica para a recuperação" };
 	}
+	// Aviso único (pt-BR) no fim do 1º brief que o bot ligou sozinho; reivindicado no banco antes de entrar no texto.
+	let noticeClaimed = false;
+	if (isRealBrief && deps.claimNotice) {
+		try {
+			noticeClaimed = await deps.claimNotice(input.userId, input.routineRunId);
+		} catch (error) {
+			console.error(`[brief] aviso único não reivindicado (${briefErrorTag(error)})`);
+		}
+		if (noticeClaimed) text = appendAutoBriefNotice(text);
+	}
 	// 1) Pendente primeiro: se o worker cair daqui em diante, a varredura ainda entrega o texto.
 	let marked = false;
 	try {
@@ -159,7 +176,11 @@ export async function deliverDailyBrief(
 	} catch (error) {
 		console.error(`[brief] estado pendente não gravado (${briefErrorTag(error)})`);
 	}
-	if (!marked) return { posted: false, pushed: false, reason: "brief já tratado ou não pôde ser guardado" };
+	if (!marked) {
+		// O brief com o aviso não foi guardado: o próximo brief automático o leva.
+		if (noticeClaimed) await deps.releaseNotice?.(input.userId, input.routineRunId).catch(() => undefined);
+		return { posted: false, pushed: false, reason: "brief já tratado ou não pôde ser guardado" };
+	}
 	const item = { routineRunId: input.routineRunId, userId: input.userId, botId: input.botId, text };
 	// 2) Push, uma vez só (reivindicado no banco antes de sair).
 	const pushed = wantsPush ? await sendBriefPush(item, conversationId, text, deps) : false;
@@ -309,6 +330,8 @@ export function briefDeliveryDeps(
 		claimPush: (userId, routineRunId) => claimBriefPush(userId, routineRunId),
 		releasePush: releaseBriefPush,
 		markPosted: markBriefPosted,
+		claimNotice: claimBriefNotice,
+		releaseNotice: releaseBriefNotice,
 		listPending: () => listPendingBriefs(),
 		markExpired: markBriefExpired,
 		expireStale: () => expireStaleBriefs(),

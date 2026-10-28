@@ -16,9 +16,11 @@ test("cartão 'Rotina criada' de alerta mostra a frase do alerta, não o cron", 
 	assert.equal(routineCardSummary("cron", `${sentence}\nVerifica sozinho`), sentence);
 });
 
-test("\"Seu dia\": o cartão da rotina mostra a frase pronta do horário", () => {
-	assert.equal(routineCardSummary("cron", "Seu dia · seg–sex às 07:30\nTe mando um resumo curto no chat"), "Seu dia · seg–sex às 07:30");
-	assert.equal(routineCardSummary("interval", "Seu dia · seg–sex às 07:30"), "Seu dia · seg–sex às 07:30");
+test("\"Seu dia\": o cartão da rotina mostra só o horário (o nome já está no cartão)", () => {
+	assert.equal(routineCardSummary("cron", "Seu dia · seg–sex às 07:30\nTe mando um resumo curto no chat"), "seg–sex às 07:30");
+	assert.equal(routineCardSummary("cron", "Seu dia · todo dia às 06:00"), "todo dia às 06:00");
+	assert.equal(routineCardSummary("cron", "Seu dia · pausado"), "pausado");
+	assert.equal(routineCardSummary("cron", "Seu dia · "), null);
 });
 
 test("rotina de alerta ganha a frase do alerta; rotina comum não", () => {

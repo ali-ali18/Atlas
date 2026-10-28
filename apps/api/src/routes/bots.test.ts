@@ -66,6 +66,11 @@ test("PATCH /v1/bots/:id: outro usuário não altera o modelo dos subagentes (40
 	const bot = prisma.bot as unknown as Record<string, unknown>;
 	const originals = { findUnique: bot.findUnique, findFirst: bot.findFirst, update: bot.update };
 	let updates = 0;
+	// updateBot com policyJson relê a linha sob lock e grava na mesma transação (preserva as chaves do servidor).
+	const client = prisma as unknown as Record<string, unknown>;
+	const originalTransaction = client.$transaction;
+	client.$transaction = async (fn: (tx: unknown) => unknown) =>
+		fn({ $queryRaw: async () => [{ policyJson: null }], bot: { update: (args: unknown) => (bot.update as (a: unknown) => unknown)(args), updateMany: async () => ({ count: 0 }) } });
 	bot.findUnique = async () => row("user-a", null);
 	bot.findFirst = async (args: { where: { ownerId: string } }) => args.where.ownerId === "user-a" ? { id: "bot-1" } : null;
 	bot.update = async (args: { data: { policyJson?: unknown } }) => {
@@ -87,6 +92,7 @@ test("PATCH /v1/bots/:id: outro usuário não altera o modelo dos subagentes (40
    const cleared = await patchPolicy(await subagentModelApp("user-a"), { subagentModel: null });
 		assert.equal(cleared.status, 200);
 	} finally {
+		client.$transaction = originalTransaction;
 		bot.findUnique = originals.findUnique;
 		bot.findFirst = originals.findFirst;
 		bot.update = originals.update;

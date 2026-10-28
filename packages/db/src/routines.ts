@@ -35,6 +35,7 @@ import {
 } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { getMailboxForBot } from "./bot-mailbox.js";
+import { markBriefOptOut } from "./brief-auto.js";
 import { ownerIds } from "./mcp-connections.js";
 import { assertGroupUsable } from "./routine-groups.js";
 import { assertPageUsable } from "./pages.js";
@@ -858,7 +859,7 @@ export async function updateRoutine(
 	if (!userId?.trim() || userId === LEGACY_OWNER_ID) return null;
 	const existing = await prisma.routine.findFirst({
 		where: { id: routineId, botId, userId },
-		select: { id: true, userId: true, triggerType: true, triggerJson: true, schedule: true, alertJson: true },
+		select: { id: true, userId: true, triggerType: true, triggerJson: true, schedule: true, alertJson: true, template: true },
 	});
 	if (!existing) return null;
 	if (!isOwnerAllowed(existing.userId, userId)) return null;
@@ -1022,6 +1023,9 @@ export async function updateRoutine(
 		}
 	}
 
+	// Pausar o "Seu dia" (pelo chat, pela API ou pela tela) é recusar: o bot não o liga de novo sozinho.
+	// Grava antes de pausar: se o opt-out falhar, a pausa falha junto (senão o brief voltaria sozinho).
+	if (existing.template === DAILY_BRIEF_TEMPLATE && input.enabled === false) await markBriefOptOut(userId, botId);
 	const row = await prisma.routine.update({
 		where: { id: routineId, userId, botId },
 		data,
@@ -1108,10 +1112,13 @@ export async function deleteRoutine(
 ): Promise<boolean> {
 	const existing = await prisma.routine.findFirst({
 		where: { id: routineId, botId, userId: { in: ownerIds(userId) } },
-		select: { id: true, userId: true },
+		select: { id: true, userId: true, template: true },
 	});
 	if (!existing) return false;
 	if (!isOwnerAllowed(existing.userId, userId)) return false;
+	// Apagar o "Seu dia" é recusar: o bot não o recria sozinho. Grava antes de apagar: se o opt-out
+	// falhar, nada é apagado e o erro chega ao usuário.
+	if (existing.template === DAILY_BRIEF_TEMPLATE) await markBriefOptOut(existing.userId, botId);
 	const result = await prisma.routine.deleteMany({
 		where: { id: routineId, userId: { in: ownerIds(userId) } },
 	});

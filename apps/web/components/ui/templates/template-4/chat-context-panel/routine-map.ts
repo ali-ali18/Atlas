@@ -492,8 +492,9 @@ export function routineCardSummary(triggerType: Routine["triggerKind"] | undefin
 	if (!first) return null;
 	// Alerta por condição: o agente já grava a frase pronta ("Alerta · confere a cada 30 minutos · avisa se …").
 	if ((triggerType === "cron" || triggerType === "interval") && first.startsWith("Alerta · ")) return first;
-	// "Seu dia": o agente grava a frase pronta ("Seu dia · seg–sex às 07:30").
-	if (triggerType === "cron" && first.startsWith("Seu dia · ")) return first;
+	// "Seu dia": o agente grava a frase pronta ("Seu dia · seg–sex às 07:30"). O nome já aparece no cartão e a
+	// legenda repete "Rotina criada · ", então fica só o horário ("Rotina criada · todo dia às 06:00").
+	if (triggerType === "cron" && first.startsWith("Seu dia · ")) return first.slice("Seu dia · ".length).trim() || null;
 	if (triggerType === "cron") {
 		const cron = /^Cron:\s+((?:\S+\s+){4}\S+)/.exec(first)?.[1];
 		return cron ? capitalizeFirst(scheduleLabel(toScheduleState(cronToScheduleInput(cron)))) : null;

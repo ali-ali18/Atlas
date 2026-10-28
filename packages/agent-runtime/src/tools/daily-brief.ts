@@ -6,6 +6,7 @@ import {
 	DAILY_BRIEF_TEMPLATE,
 	formatDailyBriefSummary,
 	isBriefToolAllowed,
+	isValidTimeZone,
 	parseDailyBriefSchedule,
 	type RoutineNotifyMode,
 	type RoutineRecord,
@@ -17,9 +18,15 @@ const FOCUS_MAX_CHARS = 600;
 export type DailyBriefDeps = {
 	userId: string;
 	botId: string;
+	/** Quem criou a rotina: o bot (ligado por padrão) ou o usuário (pedido por chat). Só vale na criação. */
+	createdBy?: "bot" | "user";
+	/** Só cria: se já existe um "Seu dia" neste bot, devolve-o intacto (sem editar). Usado pelo "ensure" automático. */
+	createOnly?: boolean;
 	listRoutines?: typeof listRoutines;
 	createRoutine?: typeof createRoutine;
 	updateRoutine?: typeof updateRoutine;
+	/** Chamado só quando a rotina foi CRIADA (não na edição): quem cria fora de um run agenda o cron aqui (ex.: `syncRoutineScheduler`). */
+	onCreated?: (routine: RoutineRecord) => Promise<void>;
 	/** Fuso das configurações da conta (padrão do horário do brief); falha ou ausente = São Paulo. */
 	accountTimezone?: (userId: string) => Promise<string | undefined>;
 };
@@ -52,6 +59,9 @@ async function defaultAccountTimezone(userId: string): Promise<string | undefine
 export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDeps): Promise<DailyBriefResult> {
 	const list = deps.listRoutines ?? listRoutines;
 	const existing = (await list(deps.userId, deps.botId)).find((routine) => routine.template === DAILY_BRIEF_TEMPLATE);
+	if (existing && deps.createOnly) {
+		return { routine: existing, created: false, sentence: formatDailyBriefSummary({ schedule: existing.schedule, enabled: existing.enabled }) };
+	}
 
 	const scheduleArg = typeof args.schedule === "string" && args.schedule.trim() ? args.schedule : undefined;
 	const scheduleRaw = scheduleArg ?? existing?.schedule ?? DAILY_BRIEF_DEFAULT_CRON;
@@ -59,7 +69,12 @@ export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDep
 	if (!parsed.ok) throw new Error(parsed.error);
 
 	const timezoneArg = typeof args.timezone === "string" && args.timezone.trim() ? args.timezone.trim() : undefined;
-	const timezone = timezoneArg ?? existing?.timezone ?? (await (deps.accountTimezone ?? defaultAccountTimezone)(deps.userId)) ?? FALLBACK_TIMEZONE;
+	// Fuso salvo na conta que não existe mais (ou lixo) não pode derrubar a criação nem o agendador: cai no padrão.
+	const fromAccount = async () => {
+		const zone = await (deps.accountTimezone ?? defaultAccountTimezone)(deps.userId);
+		return isValidTimeZone(zone) ? zone : FALLBACK_TIMEZONE;
+	};
+	const timezone = timezoneArg ?? existing?.timezone ?? (await fromAccount());
 	const enabled = typeof args.enabled === "boolean" ? args.enabled : (existing?.enabled ?? true);
 	// Sempre "always": o run do brief não tem `notify_user`, então com "important" o brief nunca avisaria ninguém.
 	const notify: RoutineNotifyMode = "always";
@@ -90,7 +105,9 @@ export async function upsertDailyBrief(args: DailyBriefArgs, deps: DailyBriefDep
 		enabled,
 		timezone,
 		notify,
+		...(deps.createdBy ? { createdBy: deps.createdBy } : {}),
 	});
+	await deps.onCreated?.(routine);
 	return { routine, created: true, sentence: formatDailyBriefSummary({ schedule: routine.schedule, enabled: routine.enabled }) };
 }
 
