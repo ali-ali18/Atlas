@@ -31,6 +31,8 @@ const TRANSLATED = [
 	"components/settings/vault-state.ts",
 	"components/settings/sections/vault.tsx",
 	"components/settings/sections/dev-environments.tsx",
+	"components/settings/github-app-state.ts",
+	"components/settings/sections/github-app.tsx",
 ];
 
 const ACCENTED = /[áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]/;

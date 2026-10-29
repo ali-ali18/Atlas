@@ -15,6 +15,7 @@ import { settings } from "./settings";
 import { sharedLabels } from "./sharedLabels";
 import { settingsDev } from "./settingsDev";
 import { settingsExec } from "./settingsExec";
+import { settingsGithub } from "./settingsGithub";
 import { settingsModels } from "./settingsModels";
 import { settingsOps } from "./settingsOps";
 import { settingsProviders } from "./settingsProviders";
@@ -53,6 +54,7 @@ import { share } from "./share";
 	...sharedLabels,
 	...settingsDev,
 	...settingsExec,
+	...settingsGithub,
 	...settingsModels,
 	...settingsOps,
 	...settingsProviders,
