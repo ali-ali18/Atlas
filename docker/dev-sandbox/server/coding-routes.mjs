@@ -83,7 +83,7 @@ export function createCodingRoutes(options = {}) {
 						}
 					}
 					const job = await exec.start(body, { background: true });
-					sendJson(res, 200, { id: job.id });
+					sendJson(res, 200, { id: job.id, cwd: job.cwd });
 					return true;
 				}
 				const controller = new AbortController();

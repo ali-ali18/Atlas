@@ -119,7 +119,7 @@ export function createDevClient(endpoint: DevEndpoint, options: { fetchFn?: type
 
 	return {
 		health: () => call<{ ok: boolean; runningJobs: number }>("GET", "/health", undefined, 5_000),
-		execStart: (input: DevExecStartInput) => call<{ id: string; deduped?: boolean; durationMs?: number }>("POST", "/exec", { ...input, background: true }),
+		execStart: (input: DevExecStartInput) => call<{ id: string; deduped?: boolean; durationMs?: number; cwd?: string }>("POST", "/exec", { ...input, background: true }),
 		execPoll: (id: string, input: { out?: number; err?: number; waitMs?: number; until?: string } = {}) =>
 			call<DevExecSnapshot>("GET", `/exec/${id}${qs(input)}`, undefined, (input.waitMs ?? 0) + 15_000),
 		execStdin: (id: string, input: { data?: string; end?: boolean }) => call<{ ok: boolean }>("POST", `/exec/${id}/stdin`, input),

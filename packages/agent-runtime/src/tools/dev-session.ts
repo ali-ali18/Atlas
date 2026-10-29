@@ -1374,10 +1374,11 @@ export function createDevSessionRuntime(deps: DevSessionRuntimeDeps) {
 	async function runCommand(callId: string, input: { cmd: string; cwd?: string; timeoutMs: number; background: boolean }): Promise<string> {
 		return withClient(async (client, row) => {
 			const env = await execEnv(await envFor(row.repo));
-			const cwd = input.cwd ?? "/workspace";
 			const startedAtMs = now();
 			const started = await client.execStart({ cmd: input.cmd, cwd: input.cwd, env, timeoutMs: DEV_JOB_MAX_MS, dedupe: input.background });
 			const id = started.id;
+			// O servidor devolve o cwd real (o salvo da chamada anterior quando o modelo não passou um).
+			const cwd = started.cwd ?? input.cwd ?? "/workspace";
 			if (started.deduped) {
 				// Já há um comando idêntico rodando (às vezes de um run anterior): devolve o job existente em vez de duplicar.
 				const peek: JobMeta = { sessionId: row.id, callId, cmd: input.cmd, cursor: { out: 0, err: 0 }, emittedBytes: 0, startedAt: startedAtMs, doneEmitted: true };

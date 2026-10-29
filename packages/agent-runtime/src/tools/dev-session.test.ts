@@ -148,7 +148,7 @@ function snapshot(partial: Partial<DevExecSnapshot>): DevExecSnapshot {
 	};
 }
 
-function setup(options: { polls?: DevExecSnapshot[]; queued?: boolean; existing?: Partial<DevSessionRow> | null; token?: string | null; environment?: DevEnvironmentRuntime | null; config?: Partial<ReturnType<typeof loadDevSandboxConfig>>; execResult?: (cmd: string) => Partial<DevExecSnapshot>; autoEnv?: boolean; secretsGate?: boolean; now?: () => number; diagnostics?: boolean | { settleMs?: number; debounceMs?: number } } = {}) {
+function setup(options: { polls?: DevExecSnapshot[]; queued?: boolean; existing?: Partial<DevSessionRow> | null; token?: string | null; environment?: DevEnvironmentRuntime | null; config?: Partial<ReturnType<typeof loadDevSandboxConfig>>; execResult?: (cmd: string) => Partial<DevExecSnapshot>; autoEnv?: boolean; secretsGate?: boolean; now?: () => number; diagnostics?: boolean | { settleMs?: number; debounceMs?: number }; startCwd?: string } = {}) {
 	const egressCalls: Array<{ mode: string; allowlist: string[] }> = [];
 	const events: DevSessionEvent[] = [];
 	const execStarts: Array<{ cmd: string; env?: Record<string, string>; cwd?: string }> = [];
@@ -157,7 +157,7 @@ function setup(options: { polls?: DevExecSnapshot[]; queued?: boolean; existing?
 	const client = {
 		execStart: vi.fn(async (input: { cmd: string; env?: Record<string, string>; cwd?: string }) => {
 			execStarts.push(input);
-			return { id: "0123456789ab" };
+			return { id: "0123456789ab", ...(options.startCwd ? { cwd: options.startCwd } : {}) };
 		}),
 		execPoll: vi.fn(async () => {
 			if (options.execResult) {
@@ -328,6 +328,13 @@ describe("runtime: shell", () => {
 		expect(output.chunk).toContain("ok");
 		expect(done).toMatchObject({ callId: "call-9", exitCode: 0, endedReason: "exit", durationMs: 1200 });
 		expect(JSON.stringify(t.events)).not.toContain(TOKEN);
+	});
+
+	it("shell_started informa o cwd em que o comando realmente começou (o salvo pelo servidor)", async () => {
+		const t = setup({ startCwd: "/workspace/app", polls: [snapshot({ stdout: "ok\n", nextOut: 3, cwd: "/workspace/app" })] });
+		await t.runtime.execute("shell", { cmd: "pnpm test" }, "call-cwd");
+		const started = t.events.find((e) => e.type === "shell_started") as Extract<DevSessionEvent, { type: "shell_started" }>;
+		expect(started.cwd).toBe("/workspace/app");
 	});
 
 	it("background devolve job_id e marca background_running", async () => {
