@@ -4,6 +4,8 @@ import { isReadOnlyMcpTool, type ApiOperation, type McpToolInfo } from "@workspa
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
 import { FlowPanel } from "@/components/ai-elements/login/flow-panel"
+import { useTranslations } from "@/lib/i18n/provider"
+import { defaultTranslator, type MessageKey, type Translator } from "@/lib/i18n/translator"
 
 export type GuideParam = {
   name: string
@@ -30,15 +32,17 @@ export type ToolGuideData = {
   method?: string
 }
 
-const TYPE_LABEL: Record<string, string> = {
-  string: "texto",
-  number: "número",
-  integer: "número inteiro",
-  boolean: "sim ou não",
-  object: "objeto",
-  array: "lista",
-  null: "vazio",
-}
+const TYPE_KEYS = {
+  string: "marketplace.toolGuide.type.string",
+  number: "marketplace.toolGuide.type.number",
+  integer: "marketplace.toolGuide.type.integer",
+  boolean: "marketplace.toolGuide.type.boolean",
+  object: "marketplace.toolGuide.type.object",
+  array: "marketplace.toolGuide.type.array",
+  null: "marketplace.toolGuide.type.null",
+} as const satisfies Record<string, MessageKey>
+
+const typeLabel = (type: string, { t }: Translator) => (Object.hasOwn(TYPE_KEYS, type) ? t(TYPE_KEYS[type as keyof typeof TYPE_KEYS]) : type)
 
 type Schema = Record<string, unknown>
 
@@ -47,29 +51,30 @@ function isSchema(value: unknown): value is Schema {
 }
 
 /** Tipo legível de um trecho de JSON Schema ("texto", "lista de número", "uma de: a, b"). */
-export function schemaTypeLabel(schema: unknown): string {
-  if (!isSchema(schema)) return "valor"
+export function schemaTypeLabel(schema: unknown, translator: Translator = defaultTranslator): string {
+  const { t } = translator
+  if (!isSchema(schema)) return t("marketplace.toolGuide.type.value")
   if (Array.isArray(schema.enum) && schema.enum.length > 0) {
     const values = schema.enum.slice(0, 6).map(String).join(", ")
-    return `uma de: ${values}${schema.enum.length > 6 ? "…" : ""}`
+    return t("marketplace.toolGuide.type.oneOf", { values: `${values}${schema.enum.length > 6 ? "…" : ""}` })
   }
   const raw = schema.type
   const list = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : []
-  const labels = list.filter((item): item is string => typeof item === "string" && item !== "null").map((item) => TYPE_LABEL[item] ?? item)
+  const labels = list.filter((item): item is string => typeof item === "string" && item !== "null").map((item) => typeLabel(item, translator))
   if (labels.length === 0) {
     const alternatives = [schema.anyOf, schema.oneOf].find(Array.isArray) as unknown[] | undefined
     if (alternatives) {
-      const parts = [...new Set(alternatives.map(schemaTypeLabel))]
-      return parts.join(" ou ") || "valor"
+      const parts = [...new Set(alternatives.map((item) => schemaTypeLabel(item, translator)))]
+      return parts.join(t("marketplace.toolGuide.type.or")) || t("marketplace.toolGuide.type.value")
     }
-    return "valor"
+    return t("marketplace.toolGuide.type.value")
   }
-  if (labels[0] === "lista" && isSchema(schema.items)) return `lista de ${schemaTypeLabel(schema.items)}`
-  return labels.join(" ou ")
+  if (labels[0] === t("marketplace.toolGuide.type.array") && isSchema(schema.items)) return t("marketplace.toolGuide.type.listOf", { item: schemaTypeLabel(schema.items, translator) })
+  return labels.join(t("marketplace.toolGuide.type.or"))
 }
 
 /** Guia de uma tool MCP a partir do snapshot do `listTools()`. */
-export function mcpToolGuide(tool: McpToolInfo): ToolGuideData {
+export function mcpToolGuide(tool: McpToolInfo, translator: Translator = defaultTranslator): ToolGuideData {
   const schema = isSchema(tool.inputSchema) ? tool.inputSchema : {}
   const properties = isSchema(schema.properties) ? schema.properties : {}
   const required = new Set(Array.isArray(schema.required) ? schema.required.filter((item): item is string => typeof item === "string") : [])
@@ -78,41 +83,48 @@ export function mcpToolGuide(tool: McpToolInfo): ToolGuideData {
   return {
     title: tool.title || tool.annotations?.title || tool.name,
     code: tool.name,
-    access: readOnly ? "Leitura" : destructive ? "Escrita · pode apagar" : "Escrita",
+    access: readOnly ? translator.t("marketplace.toolGuide.accessRead") : destructive ? translator.t("marketplace.toolGuide.accessWriteDelete") : translator.t("marketplace.toolGuide.accessWrite"),
     accessTone: readOnly ? "read" : "write",
     description: tool.description?.trim() || undefined,
     params: Object.entries(properties).map(([name, value]) => ({
       name,
-      type: schemaTypeLabel(value),
+      type: schemaTypeLabel(value, translator),
       required: required.has(name),
       description: isSchema(value) && typeof value.description === "string" ? value.description.trim() : undefined,
     })),
   }
 }
 
-const PLACE_LABEL: Record<string, string> = { path: "no caminho", query: "na consulta" }
-const API_TYPE_LABEL: Record<string, string> = { string: "texto", number: "número", integer: "número inteiro", boolean: "sim ou não" }
+const PLACE_KEYS = { path: "marketplace.toolGuide.placePath", query: "marketplace.toolGuide.placeQuery" } as const satisfies Record<string, MessageKey>
+const API_TYPE_KEYS = {
+  string: "marketplace.toolGuide.type.string",
+  number: "marketplace.toolGuide.type.number",
+  integer: "marketplace.toolGuide.type.integer",
+  boolean: "marketplace.toolGuide.type.boolean",
+} as const satisfies Record<string, MessageKey>
 
 /** Guia de uma operação do catálogo da API. Só leitura é liberada ao agente nesta etapa. */
-export function apiOperationGuide(operation: ApiOperation): ToolGuideData {
+export function apiOperationGuide(operation: ApiOperation, { t }: Translator = defaultTranslator): ToolGuideData {
   const read = operation.method === "GET" || operation.method === "HEAD"
   return {
     title: operation.summary || operation.id,
     code: `${operation.method} ${operation.path}`,
     method: operation.method,
-    access: read ? "Leitura" : "Escrita",
+    access: read ? t("marketplace.toolGuide.accessRead") : t("marketplace.toolGuide.accessWrite"),
     accessTone: read ? "read" : "write",
     description: undefined,
     params: operation.params.map((param) => ({
       name: param.name,
-      type: param.enum?.length ? `uma de: ${param.enum.slice(0, 6).join(", ")}${param.enum.length > 6 ? "…" : ""}` : (API_TYPE_LABEL[param.type] ?? param.type),
+      type: param.enum?.length
+        ? t("marketplace.toolGuide.type.oneOf", { values: `${param.enum.slice(0, 6).join(", ")}${param.enum.length > 6 ? "…" : ""}` })
+        : Object.hasOwn(API_TYPE_KEYS, param.type)
+          ? t(API_TYPE_KEYS[param.type as keyof typeof API_TYPE_KEYS])
+          : param.type,
       required: param.required,
       description: param.description,
-      place: PLACE_LABEL[param.in] ?? param.in,
+      place: Object.hasOwn(PLACE_KEYS, param.in) ? t(PLACE_KEYS[param.in as keyof typeof PLACE_KEYS]) : param.in,
     })),
-    note: read
-      ? "O agente pode usar esta consulta quando o grupo estiver liberado."
-      : "Ações de escrita chegam em breve: o agente ainda não pode usar esta operação.",
+    note: read ? t("marketplace.toolGuide.noteRead") : t("marketplace.toolGuide.noteWrite"),
   }
 }
 
@@ -124,12 +136,13 @@ const TONE: Record<ToolGuideData["accessTone"], string> = {
 
 /** Guia de uma ferramenta: Sheet no celular, Dialog no computador (mesmo painel do fluxo "Conectar API"). */
 export function ToolGuide({ guide, onClose }: { guide: ToolGuideData | null; onClose: () => void }) {
+  const { t } = useTranslations()
   return (
     <FlowPanel
-      description="Guia da ferramenta: o que ela faz e quais dados recebe"
+      description={t("marketplace.toolGuide.description")}
       onOpenChange={(open) => !open && onClose()}
       open={guide !== null}
-      title={guide?.title ?? "Ferramenta"}
+      title={guide?.title ?? t("marketplace.toolGuide.tool")}
     >
       {guide ? <ToolGuideBody guide={guide} onClose={onClose} /> : null}
     </FlowPanel>
@@ -137,6 +150,7 @@ export function ToolGuide({ guide, onClose }: { guide: ToolGuideData | null; onC
 }
 
 export function ToolGuideBody({ guide, onClose }: { guide: ToolGuideData; onClose: () => void }) {
+  const { t } = useTranslations()
   return (
     <div className="flex min-w-0 flex-col gap-4 p-5">
       <header className="min-w-0 space-y-2">
@@ -148,9 +162,9 @@ export function ToolGuideBody({ guide, onClose }: { guide: ToolGuideData; onClos
         <p className="m-0 max-h-40 overflow-y-auto text-sm leading-6 break-words whitespace-pre-wrap text-muted-foreground">{guide.description}</p>
       ) : null}
       <section className="space-y-2">
-        <h3 className="m-0 text-sm font-semibold">Parâmetros</h3>
+        <h3 className="m-0 text-sm font-semibold">{t("marketplace.toolGuide.params")}</h3>
         {guide.params.length === 0 ? (
-          <p className="m-0 text-sm text-muted-foreground">Não recebe nenhum dado.</p>
+          <p className="m-0 text-sm text-muted-foreground">{t("marketplace.toolGuide.noParams")}</p>
         ) : (
           <ul className="m-0 max-h-[40dvh] list-none divide-y overflow-y-auto rounded-xl border bg-muted/20 p-0">
             {guide.params.map((param) => (
@@ -161,7 +175,7 @@ export function ToolGuideBody({ guide, onClose }: { guide: ToolGuideData; onClos
                     {param.type}
                     {param.place ? ` · ${param.place}` : ""}
                   </span>
-                  {param.required ? <span className="rounded-md bg-muted px-1.5 py-0.5 text-caption text-foreground">obrigatório</span> : null}
+                  {param.required ? <span className="rounded-md bg-muted px-1.5 py-0.5 text-caption text-foreground">{t("marketplace.toolGuide.required")}</span> : null}
                 </div>
                 {param.description ? <p className="m-0 text-xs leading-5 break-words text-muted-foreground">{param.description}</p> : null}
               </li>
@@ -171,7 +185,7 @@ export function ToolGuideBody({ guide, onClose }: { guide: ToolGuideData; onClos
       </section>
       {guide.note ? <p className="m-0 text-xs text-muted-foreground">{guide.note}</p> : null}
       <Button className="w-full" onClick={onClose} type="button" variant="secondary">
-        Fechar
+        {t("common.close")}
       </Button>
     </div>
   )

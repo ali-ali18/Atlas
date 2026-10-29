@@ -17,6 +17,7 @@ import {
 	refreshMcpConnection,
 	updateMcpConnection,
 } from "@/lib/atlas-api";
+import { useTranslations } from "@/lib/i18n/provider";
 
 export function ConnectorDetail({
 	connection,
@@ -33,6 +34,8 @@ export function ConnectorDetail({
 	/** Abre Autonomia já filtrada neste conector. */
 	onManageAutonomy?: (connector: string) => void;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [confirmDelete, setConfirmDelete] = useState(false);
@@ -45,7 +48,7 @@ export function ConnectorDetail({
 		let cancelled = false;
 		getAccountAutonomy()
 			.then((view) => { if (!cancelled) setAutonomy(view); })
-			.catch(() => { if (!cancelled) setError("Não foi possível carregar as permissões das ferramentas."); });
+			.catch(() => { if (!cancelled) setError(t("marketplace.detail.loadPermissionsError")); });
 		return () => { cancelled = true; };
 	}, []);
 
@@ -67,7 +70,7 @@ export function ConnectorDetail({
 			setAutonomy(await updateAccountAutonomy({ exceptions }));
 			if (reopen) onChanged(await updateMcpConnection(connection.id, { disabledTools }));
 		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : "Não foi possível salvar.");
+			setError(cause instanceof Error ? cause.message : t("marketplace.detail.saveError"));
 			setAutonomy(previous);
 			if (reopen) onChanged(previousConnection);
 			getAccountAutonomy().then(setAutonomy).catch(() => undefined);
@@ -82,7 +85,7 @@ export function ConnectorDetail({
 		try {
 			onChanged(await refreshMcpConnection(connection.id));
 		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : "Não foi possível atualizar as tools.");
+			setError(cause instanceof Error ? cause.message : t("marketplace.detail.refreshError"));
 		} finally {
 			setBusy(false);
 		}
@@ -95,7 +98,7 @@ export function ConnectorDetail({
 			await deleteMcpConnection(connection.id);
 			onDeleted(connection.id);
 		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : "Não foi possível desconectar.");
+			setError(cause instanceof Error ? cause.message : t("marketplace.detail.disconnectError"));
 			setBusy(false);
 			setConfirmDelete(false);
 		}
@@ -107,12 +110,12 @@ export function ConnectorDetail({
 				<div>
 					<p className="text-sm font-medium">{connection.name}</p>
 					<p className="text-xs text-muted-foreground">
-						{connection.status === "connected" ? "Conectado" : connection.status === "error" ? "Erro na conexão" : "Desconectado"}
-						{" · "}{activeCount} de {connection.tools.length} tools ativas
+						{connection.status === "connected" ? t("marketplace.detail.connected") : connection.status === "error" ? t("marketplace.detail.connectionError") : t("marketplace.detail.disconnected")}
+						{" · "}{t("marketplace.detail.toolsActive", { active: activeCount, total: connection.tools.length })}
 					</p>
 				</div>
 				<Button disabled={busy} onClick={() => void refresh()} size="sm" variant="outline">
-					{busy ? "Atualizando…" : "Atualizar tools"}
+					{busy ? t("marketplace.detail.refreshing") : t("marketplace.detail.refresh")}
 				</Button>
 			</div>
 			{connection.lastError ? (
@@ -121,8 +124,8 @@ export function ConnectorDetail({
 			{error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
 			<div className="flex items-center justify-between gap-3 rounded-xl border p-3">
 				<div className="min-w-0">
-					<p className="text-sm font-medium">Quando o agente pede sua aprovação</p>
-					<p className="text-xs text-muted-foreground">Nível, validade e exceções deste conector ficam em Autonomia.</p>
+					<p className="text-sm font-medium">{t("marketplace.detail.approvalTitle")}</p>
+					<p className="text-xs text-muted-foreground">{t("marketplace.detail.approvalText")}</p>
 				</div>
 				<Button
 					disabled={!onManageAutonomy}
@@ -131,13 +134,13 @@ export function ConnectorDetail({
 					type="button"
 					variant="outline"
 				>
-					Gerenciar em Autonomia
+					{t("marketplace.detail.manageAutonomy")}
 				</Button>
 			</div>
 			<section className="space-y-2">
-				<h3 className="text-sm font-medium">Tools</h3>
+				<h3 className="text-sm font-medium">{t("marketplace.detail.tools")}</h3>
 				{connection.tools.length === 0 ? (
-					<p className="text-sm text-muted-foreground">Nenhuma tool encontrada neste servidor.</p>
+					<p className="text-sm text-muted-foreground">{t("marketplace.detail.noTools")}</p>
 				) : (
 					<>
 						<ToolPermissionList
@@ -149,27 +152,27 @@ export function ConnectorDetail({
 							policy={policy}
 						/>
 						{hasRiskyAllow(connection, policy) ? (
-							<p className="text-xs text-muted-foreground">Há ações que não dá para desfazer (apagar, enviar) em Permitir sempre. O agente vai executá-las sem pedir sua aprovação.</p>
+							<p className="text-xs text-muted-foreground">{t("marketplace.detail.riskyAllow")}</p>
 						) : null}
 					</>
 				)}
 			</section>
 			{connection.status === "connected" ? <ConnectorGuide connectionId={connection.id} guide={connection.guide} kind="mcp" /> : null}
-			<ToolGuide guide={guideTool ? mcpToolGuide(guideTool) : null} onClose={() => setGuideTool(null)} />
+			<ToolGuide guide={guideTool ? mcpToolGuide(guideTool, translator) : null} onClose={() => setGuideTool(null)} />
 			{confirmDelete ? (
 				<ConfirmAlert
-					cancelLabel="Manter conexão"
-					confirmLabel="Desconectar"
-					description={`As tools de ${connection.name} deixarão de aparecer nos próximos runs.`}
+					cancelLabel={t("marketplace.detail.keepConnection")}
+					confirmLabel={t("marketplace.detail.disconnect")}
+					description={t("marketplace.detail.disconnectDescription", { name: connection.name })}
 					disabled={busy}
 					onCancel={() => setConfirmDelete(false)}
 					onConfirm={() => void disconnect()}
-					title="Desconectar este servidor?"
+					title={t("marketplace.detail.disconnectTitle")}
 				/>
 			) : null}
 			<div className="flex justify-end gap-2">
 				{!confirmDelete && !hideDisconnect ? (
-					<Button disabled={busy} onClick={() => setConfirmDelete(true)} type="button" variant="destructive">Desconectar</Button>
+					<Button disabled={busy} onClick={() => setConfirmDelete(true)} type="button" variant="destructive">{t("marketplace.detail.disconnect")}</Button>
 				) : null}
 			</div>
 		</div>

@@ -1,11 +1,15 @@
 "use client"
 
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
-import {
-  MARKETPLACE_SECTIONS,
-  MARKETPLACE_SECTION_LABELS,
-  type MarketplaceSection,
-} from "@/lib/marketplace-url"
+import { useTranslations } from "@/lib/i18n/provider"
+import { MARKETPLACE_SECTIONS, type MarketplaceSection } from "@/lib/marketplace-url"
+
+const SECTION_KEYS = {
+  conectores: "marketplace.sections.conectores",
+  apps: "marketplace.sections.apps",
+  agentes: "marketplace.sections.agentes",
+  habilidades: "marketplace.sections.habilidades",
+} as const satisfies Record<MarketplaceSection, `marketplace.sections.${MarketplaceSection}`>
 
 /**
  * Seções do Marketplace no topo da página, centradas: Conectores · Apps · Agentes · Habilidades.
@@ -19,13 +23,14 @@ export function MarketplaceSections({
   section: MarketplaceSection
   onChange: (section: MarketplaceSection) => void
 }) {
+  const { t } = useTranslations()
   return (
     <Tabs
       className="items-center"
       onValueChange={(next) => onChange(next as MarketplaceSection)}
       value={section}
     >
-      <TabsList aria-label="Seções do marketplace" className="max-w-full">
+      <TabsList aria-label={t("marketplace.sections.label")} className="max-w-full">
         {MARKETPLACE_SECTIONS.map((id) => (
           <TabsTrigger
             aria-controls={`marketplace-panel-${id}`}
@@ -34,7 +39,7 @@ export function MarketplaceSections({
             key={id}
             value={id}
           >
-            {MARKETPLACE_SECTION_LABELS[id]}
+            {t(SECTION_KEYS[id])}
           </TabsTrigger>
         ))}
       </TabsList>

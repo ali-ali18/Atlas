@@ -24,6 +24,13 @@ import { botSettings } from "./botSettings";
 export const ptBR = {
 	...app,
 	...autonomy,
+import { aiElements } from "./aiElements";
+import { devSession } from "./devSession";
+import { share } from "./share";
+
+	...share,
+	...devSession,
+	...aiElements,
 	...chat,
 	...chatExtras,
 	...common,

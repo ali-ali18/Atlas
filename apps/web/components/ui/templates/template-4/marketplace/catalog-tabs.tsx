@@ -32,6 +32,7 @@ import {
   SkillsListView,
 } from "./catalog-views"
 import { filterCatalogItems } from "./catalog-state"
+import { useTranslations } from "@/lib/i18n/provider"
 
 function errorText(cause: unknown, fallback: string): string {
   return cause instanceof Error && cause.message ? cause.message : fallback
@@ -39,6 +40,7 @@ function errorText(cause: unknown, fallback: string): string {
 
 /** Lista do catálogo (skills e agentes), carregada quando o Marketplace abre. */
 export function useCatalogData(open: boolean) {
+  const { t } = useTranslations()
   const [data, setData] = useState<CatalogListResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -57,7 +59,7 @@ export function useCatalogData(open: boolean) {
       },
       (cause) => {
         if (cancelled) return
-        setError(errorText(cause, "Não foi possível carregar o catálogo."))
+        setError(errorText(cause, t("marketplace.catalog.loadError")))
         setLoading(false)
       }
     )
@@ -73,6 +75,7 @@ export function useCatalogData(open: boolean) {
 type DoneState = { title: string; text: string; openBotId?: string; warnings?: string[] }
 
 function DoneFlow({ done, onClose, onOpenBot }: { done: DoneState; onClose: () => void; onOpenBot?: (botId: string) => void }) {
+  const { t } = useTranslations()
   return (
     <>
       <div className="px-4 pt-4">
@@ -88,11 +91,11 @@ function DoneFlow({ done, onClose, onOpenBot }: { done: DoneState; onClose: () =
       </div>
       <div className="flex flex-col-reverse gap-2 px-4 pt-5 sm:flex-row sm:justify-end">
         <Button onClick={onClose} type="button" variant={done.openBotId ? "outline" : "default"}>
-          Pronto
+          {t("marketplace.catalog.done")}
         </Button>
         {done.openBotId && onOpenBot ? (
           <Button onClick={() => onOpenBot(done.openBotId as string)} type="button">
-            Abrir conversa
+            {t("marketplace.catalog.openChat")}
           </Button>
         ) : null}
       </div>
@@ -132,6 +135,7 @@ type SkillInstallState =
 
 /** Fluxo de instalar/atualizar uma skill: escolher escopo, resolver cópia editada, confirmar. */
 export function useSkillInstaller(onChanged: () => void) {
+  const { t } = useTranslations()
   const [state, setState] = useState<SkillInstallState | null>(null)
 
   async function start(slug: string) {
@@ -147,7 +151,7 @@ export function useSkillInstaller(onChanged: () => void) {
         error: null,
       })
     } catch (cause) {
-      setState({ stage: "done", slug, done: { title: "Não foi possível abrir", text: errorText(cause, "Tente de novo em instantes.") } })
+      setState({ stage: "done", slug, done: { title: t("marketplace.catalog.cantOpen"), text: errorText(cause, t("marketplace.catalog.tryAgainSoon")) } })
     }
   }
 
@@ -159,13 +163,13 @@ export function useSkillInstaller(onChanged: () => void) {
       const result = await installCatalogSkill(slug, { botId, ...(mode ? { mode } : {}) })
       const text =
         result.action === "kept"
-          ? "Mantive a sua versão, sem mudanças."
+          ? t("marketplace.skillInstall.kept")
           : result.action === "unchanged"
-            ? "Você já tem a versão mais recente."
+            ? t("marketplace.skillInstall.unchanged")
             : result.action === "updated"
-              ? "Habilidade atualizada para a versão do catálogo."
-              : "Habilidade instalada. Ela já aparece em Habilidades e o agente pode usá-la."
-      setState({ stage: "done", slug, done: { title: result.action === "installed" ? "Habilidade instalada" : "Tudo certo", text } })
+              ? t("marketplace.skillInstall.updated")
+              : t("marketplace.skillInstall.installedText")
+      setState({ stage: "done", slug, done: { title: result.action === "installed" ? t("marketplace.skillInstall.installedTitle") : t("marketplace.skillInstall.allGood"), text } })
       onChanged()
     } catch (cause) {
       const conflict = catalogEditedConflict(cause)
@@ -173,7 +177,7 @@ export function useSkillInstaller(onChanged: () => void) {
         setState({ stage: "conflict", slug, name, botId, conflict, busy: false, error: null })
         return
       }
-      const message = errorText(cause, "Não consegui instalar.")
+      const message = errorText(cause, t("marketplace.skillInstall.failed"))
       setState((current) => (current && (current.stage === "pick" || current.stage === "conflict") ? { ...current, busy: false, error: message } : current))
     }
   }
@@ -182,12 +186,12 @@ export function useSkillInstaller(onChanged: () => void) {
 
   const panel = (
     <CatalogPanel
-      description="Instalar habilidade do marketplace"
+      description={t("marketplace.skillInstall.panelDescription")}
       onOpenChange={(open) => {
         if (!open) close()
       }}
       open={state !== null}
-      title="Instalar habilidade"
+      title={t("marketplace.skillInstall.panelTitle")}
     >
       {state?.stage === "loading" ? <LoadingFlow /> : null}
       {state?.stage === "pick" ? (
@@ -228,6 +232,7 @@ type BotInstallState =
 
 /** Fluxo de instalar um agente do catálogo (cria o bot, as skills e só as rotinas marcadas). */
 export function useBotInstaller(onChanged: () => void, onInstalled?: (botId: string) => void, onOpenBot?: (botId: string) => void) {
+  const { t, tn } = useTranslations()
   const [state, setState] = useState<BotInstallState | null>(null)
 
   async function start(slug: string) {
@@ -235,7 +240,7 @@ export function useBotInstaller(onChanged: () => void, onInstalled?: (botId: str
     try {
       setState({ stage: "form", slug, detail: await getCatalogBot(slug), busy: false, error: null })
     } catch (cause) {
-      setState({ stage: "done", slug, done: { title: "Não foi possível abrir", text: errorText(cause, "Tente de novo em instantes.") } })
+      setState({ stage: "done", slug, done: { title: t("marketplace.catalog.cantOpen"), text: errorText(cause, t("marketplace.catalog.tryAgainSoon")) } })
     }
   }
 
@@ -252,24 +257,32 @@ export function useBotInstaller(onChanged: () => void, onInstalled?: (botId: str
           await createRoutine(result.botId, { name: routine.name, prompt: routine.prompt, schedule: routine.cron, enabled: true })
           created += 1
         } catch {
-          warnings.push(`Não consegui criar a rotina "${routine.name}". Você pode criá-la depois.`)
+          warnings.push(t("marketplace.botInstall.routineFailed", { name: routine.name }))
         }
       }
       onInstalled?.(result.botId)
       onChanged()
       const skills = result.installedSkills.length
+      const createdText = (name: string, skillCount: number, routineCount: number) => {
+        const skillsText = tn("marketplace.botInstall.skillCount", skillCount)
+        const routinesText = tn("marketplace.botInstall.routineCount", routineCount)
+        if (skillCount && routineCount) return t("marketplace.botInstall.createdWithBoth", { name, skills: skillsText, routines: routinesText })
+        if (skillCount) return t("marketplace.botInstall.createdWithSkills", { name, skills: skillsText })
+        if (routineCount) return t("marketplace.botInstall.createdWithRoutines", { name, routines: routinesText })
+        return t("marketplace.botInstall.createdText", { name })
+      }
       setState({
         stage: "done",
         slug,
         done: {
-          title: "Agente criado",
-          text: `${result.name} já está na sua lista${skills ? ` com ${skills} ${skills === 1 ? "habilidade" : "habilidades"}` : ""}${created ? ` e ${created} ${created === 1 ? "rotina" : "rotinas"}` : ""}. Conecte os serviços recomendados quando quiser.`,
+          title: t("marketplace.botInstall.createdTitle"),
+          text: createdText(result.name, skills, created),
           openBotId: result.botId,
           warnings,
         },
       })
     } catch (cause) {
-      const message = cause instanceof AtlasApiError && cause.status === 422 ? "O conteúdo deste agente foi bloqueado pela varredura de segurança." : errorText(cause, "Não consegui criar o agente.")
+      const message = cause instanceof AtlasApiError && cause.status === 422 ? t("marketplace.botInstall.blocked") : errorText(cause, t("marketplace.botInstall.failed"))
       setState((current) => (current?.stage === "form" ? { ...current, busy: false, error: message } : current))
     }
   }
@@ -278,12 +291,12 @@ export function useBotInstaller(onChanged: () => void, onInstalled?: (botId: str
 
   const panel = (
     <CatalogPanel
-      description="Instalar agente do marketplace"
+      description={t("marketplace.botInstall.panelDescription")}
       onOpenChange={(open) => {
         if (!open) close()
       }}
       open={state !== null}
-      title="Instalar agente"
+      title={t("marketplace.botInstall.panelTitle")}
     >
       {state?.stage === "loading" ? <LoadingFlow /> : null}
       {state?.stage === "form" ? (
@@ -368,6 +381,7 @@ export function CatalogBotsTab({ data, loading, error, query, category, onCatego
 }
 
 export function CatalogSkillPage({ slug, onBack, onChanged }: { slug: string; onBack?: () => void; onChanged: () => void }) {
+  const { t } = useTranslations()
   const [detail, setDetail] = useState<CatalogSkillDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
@@ -383,7 +397,7 @@ export function CatalogSkillPage({ slug, onBack, onChanged }: { slug: string; on
         if (!cancelled) setDetail(result)
       },
       (cause) => {
-        if (!cancelled) setError(errorText(cause, "Não foi possível abrir esta habilidade."))
+        if (!cancelled) setError(errorText(cause, t("marketplace.catalog.openSkillError")))
       }
     )
     return () => {
@@ -412,6 +426,7 @@ export function CatalogBotPage({
   onBotInstalled?: (botId: string) => void
   onOpenBot?: (botId: string) => void
 }) {
+  const { t } = useTranslations()
   const [detail, setDetail] = useState<CatalogBotDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const installer = useBotInstaller(onChanged, onBotInstalled, onOpenBot)
@@ -423,7 +438,7 @@ export function CatalogBotPage({
         if (!cancelled) setDetail(result)
       },
       (cause) => {
-        if (!cancelled) setError(errorText(cause, "Não foi possível abrir este agente."))
+        if (!cancelled) setError(errorText(cause, t("marketplace.catalog.openAgentError")))
       }
     )
     return () => {

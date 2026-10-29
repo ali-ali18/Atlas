@@ -21,17 +21,17 @@ export function categoryLabel(id: string, translator: Translator = defaultTransl
 }
 
 /** Nomes amigáveis das dicas de ferramenta (a skill nunca concede permissão a nenhuma). */
-export const TOOL_LABELS: Record<string, string> = {
-  shell: "Terminal da VM",
-  secret_list: "Nomes do cofre",
-  secret_request: "Pedir segredo",
-  propose_questionnaire: "Fazer perguntas",
-  github: "GitHub",
-  calendar: "Agenda",
-}
+export const TOOL_LABEL_KEYS = {
+  shell: "marketplace.tool.shell",
+  secret_list: "marketplace.tool.secret_list",
+  secret_request: "marketplace.tool.secret_request",
+  propose_questionnaire: "marketplace.tool.propose_questionnaire",
+  github: "marketplace.tool.github",
+  calendar: "marketplace.tool.calendar",
+} as const satisfies Record<string, MessageKey>
 
-export function toolLabel(tool: string): string {
-  return TOOL_LABELS[tool] ?? tool
+export function toolLabel(tool: string, translator: Translator = defaultTranslator): string {
+  return Object.hasOwn(TOOL_LABEL_KEYS, tool) ? translator.t(TOOL_LABEL_KEYS[tool as keyof typeof TOOL_LABEL_KEYS]) : tool
 }
 
 type Searchable = {
@@ -97,26 +97,28 @@ export type ScopeOption = { id: string | null; label: string; hint?: string }
 /** Onde instalar: conta (todos os agentes) ou um agente específico. */
 export function scopeOptions(
   bots: ReadonlyArray<{ id: string; name: string }>,
-  installs: readonly CatalogInstallView[]
+  installs: readonly CatalogInstallView[],
+  { t }: Translator = defaultTranslator
 ): ScopeOption[] {
   const taken = new Set(installs.map((item) => item.botId))
   return [
     {
       id: null,
-      label: "Minha conta",
-      hint: taken.has(null) ? "Já instalada aqui" : "Todos os seus agentes podem usar",
+      label: t("marketplace.scope.account"),
+      hint: taken.has(null) ? t("marketplace.scope.installedHere") : t("marketplace.scope.accountHint"),
     },
     ...bots.map((bot) => ({
       id: bot.id,
       label: bot.name,
-      ...(taken.has(bot.id) ? { hint: "Já instalada aqui" } : {}),
+      ...(taken.has(bot.id) ? { hint: t("marketplace.scope.installedHere") } : {}),
     })),
   ]
 }
 
-export function diffLabel(added: number, removed: number): string {
-  const plus = `${added} ${added === 1 ? "linha nova" : "linhas novas"}`
-  const minus = `${removed} ${removed === 1 ? "removida" : "removidas"}`
+export function diffLabel(added: number, removed: number, { t, tn }: Translator = defaultTranslator): string {
+  // No pt-BR o 0 cai no singular do plural do idioma ("0 linha"): zero tem chave própria.
+  const plus = added === 0 ? t("marketplace.diff.addedNone") : tn("marketplace.diff.added", added)
+  const minus = removed === 0 ? t("marketplace.diff.removedNone") : tn("marketplace.diff.removed", removed)
   return `${plus} · ${minus}`
 }
 
@@ -142,6 +144,6 @@ export function suggestVersion(current: string | null | undefined): string {
 
 export type Connectable = { id: string; reason?: string; connected: boolean }
 
-export function connectorStatusLabel(connected: boolean): string {
-  return connected ? "Conectado" : "Conectar depois"
+export function connectorStatusLabel(connected: boolean, { t }: Translator = defaultTranslator): string {
+  return connected ? t("marketplace.connectorStatus.connected") : t("marketplace.connectorStatus.later")
 }

@@ -40,13 +40,14 @@ import { ToolChips } from "./catalog-views"
 
 /** Cabeçalho comum das folhas (título, subtítulo e fechar). */
 function PanelHeader({ title, subtitle, onClose }: { title: string; subtitle?: string; onClose: () => void }) {
+  const { t } = useTranslations()
   return (
     <div className="flex items-start gap-2 px-4 pt-4">
       <div className="min-w-0 flex-1">
         <h2 className="text-base font-semibold [overflow-wrap:anywhere]">{title}</h2>
         {subtitle ? <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p> : null}
       </div>
-      <Button aria-label="Fechar" onClick={onClose} size="icon-sm" type="button" variant="ghost">
+      <Button aria-label={t("common.close")} onClick={onClose} size="icon-sm" type="button" variant="ghost">
         <XIcon aria-hidden />
       </Button>
     </div>
@@ -90,15 +91,17 @@ export type SkillInstallFlowProps = {
 }
 
 export function SkillInstallFlow({ name, version, tools, bots, installs, busy, error, onClose, onInstall, initialScope = null }: SkillInstallFlowProps) {
+  const translator = useTranslations()
+  const { t } = translator
   const [scope, setScope] = useState<string | null>(initialScope)
-  const options = scopeOptions(bots, installs)
+  const options = scopeOptions(bots, installs, translator)
   const current = installs.find((item) => item.botId === scope)
-  const label = current?.updateAvailable ? "Atualizar" : current ? "Reinstalar" : "Instalar"
+  const label = current?.updateAvailable ? t("marketplace.install.update") : current ? t("marketplace.install.reinstall") : t("marketplace.install.install")
   return (
     <>
-      <PanelHeader onClose={onClose} subtitle={`Versão ${version}. Escolha onde ela fica disponível.`} title={`Instalar ${name}`} />
+      <PanelHeader onClose={onClose} subtitle={t("marketplace.install.subtitle", { version })} title={t("marketplace.install.title", { name })} />
       <PanelBody>
-        <div aria-label="Onde instalar" className="divide-y overflow-hidden rounded-2xl border" role="radiogroup">
+        <div aria-label={t("marketplace.install.where")} className="divide-y overflow-hidden rounded-2xl border" role="radiogroup">
           {options.map((option) => {
             const selected = option.id === scope
             return (
@@ -133,11 +136,11 @@ export function SkillInstallFlow({ name, version, tools, bots, installs, busy, e
         </div>
         {tools.length > 0 ? (
           <div className="space-y-1.5">
-            <p className="text-xs text-muted-foreground">Ela costuma usar (apenas dica):</p>
+            <p className="text-xs text-muted-foreground">{t("marketplace.install.usuallyUses")}</p>
             <ToolChips limit={20} tools={tools} />
           </div>
         ) : null}
-        <p className="text-xs text-muted-foreground">Instalar não libera nenhuma ferramenta nova. Você pode editar ou apagar a habilidade depois.</p>
+        <p className="text-xs text-muted-foreground">{t("marketplace.install.noNewTool")}</p>
         {error ? (
           <p className="text-sm text-destructive" role="alert">
             {error}
@@ -146,10 +149,10 @@ export function SkillInstallFlow({ name, version, tools, bots, installs, busy, e
       </PanelBody>
       <PanelFooter>
         <Button disabled={busy} onClick={onClose} type="button" variant="outline">
-          Cancelar
+          {t("common.cancel")}
         </Button>
         <Button disabled={busy} onClick={() => onInstall(scope)} type="button">
-          {busy ? "Instalando…" : label}
+          {busy ? t("marketplace.install.installing") : label}
         </Button>
       </PanelFooter>
     </>
@@ -170,17 +173,19 @@ export type SkillConflictFlowProps = {
 }
 
 export function SkillConflictFlow({ name, installedVersion, catalogVersion, diff, busy, error, onClose, onChoose }: SkillConflictFlowProps) {
+  const translator = useTranslations()
+  const { t } = translator
   return (
     <>
       <PanelHeader
         onClose={onClose}
-        subtitle={`Você editou sua cópia (base v${installedVersion}). O catálogo está na v${catalogVersion}.`}
-        title={`Atualizar ${name}?`}
+        subtitle={t("marketplace.conflict.subtitle", { installed: installedVersion, catalog: catalogVersion })}
+        title={t("marketplace.conflict.title", { name })}
       />
       <PanelBody>
         <div className="space-y-2 rounded-2xl border bg-muted/20 p-3">
-          <p className="text-sm font-medium">O que muda na sua cópia</p>
-          <p className="text-xs text-muted-foreground">{diffLabel(diff.added, diff.removed)}</p>
+          <p className="text-sm font-medium">{t("marketplace.conflict.whatChanges")}</p>
+          <p className="text-xs text-muted-foreground">{diffLabel(diff.added, diff.removed, translator)}</p>
           {diff.preview.length > 0 ? (
             <pre className="max-h-48 overflow-auto rounded-xl bg-background p-2 font-mono text-xs leading-5" tabIndex={0}>
               {diff.preview.map((line, index) => (
@@ -194,7 +199,7 @@ export function SkillConflictFlow({ name, installedVersion, catalogVersion, diff
             </pre>
           ) : null}
         </div>
-        <p className="text-xs text-muted-foreground">Atualizar troca o texto pelo do catálogo. A sua versão fica no histórico de revisões da habilidade.</p>
+        <p className="text-xs text-muted-foreground">{t("marketplace.conflict.note")}</p>
         {error ? (
           <p className="text-sm text-destructive" role="alert">
             {error}
@@ -203,10 +208,10 @@ export function SkillConflictFlow({ name, installedVersion, catalogVersion, diff
       </PanelBody>
       <PanelFooter>
         <Button disabled={busy} onClick={() => onChoose("keep")} type="button" variant="outline">
-          Manter a minha
+          {t("marketplace.conflict.keep")}
         </Button>
         <Button disabled={busy} onClick={() => onChoose("update")} type="button" variant="destructive">
-          Atualizar e perder minhas mudanças
+          {t("marketplace.conflict.update")}
         </Button>
       </PanelFooter>
     </>
@@ -226,6 +231,8 @@ export type BotInstallFlowProps = {
 }
 
 export function BotInstallFlow({ detail, busy, error, onClose, onInstall, initial }: BotInstallFlowProps) {
+  const translator = useTranslations()
+  const { t } = translator
   const { bot } = detail
   const [name, setName] = useState(initial?.name ?? bot.name)
   const [color, setColor] = useState(bot.color)
@@ -239,12 +246,12 @@ export function BotInstallFlow({ detail, busy, error, onClose, onInstall, initia
     setRoutines((current) => (current.includes(index) ? current.filter((item) => item !== index) : [...current, index].sort((a, b) => a - b)))
   return (
     <>
-      <PanelHeader onClose={onClose} subtitle="Revise antes de criar. Nada é conectado nem agendado sozinho." title={`Instalar ${bot.name}`} />
+      <PanelHeader onClose={onClose} subtitle={t("marketplace.botInstall.subtitle")} title={t("marketplace.install.title", { name: bot.name })} />
       <PanelBody>
         <div className="flex items-center gap-3">
           <AgentAvatar animated={false} bodyColor={color} id={bot.slug} shape={shape} size={56} />
           <div className="min-w-0 flex-1">
-            <FieldBlock htmlFor="catalog-bot-name" label="Nome">
+            <FieldBlock htmlFor="catalog-bot-name" label={t("marketplace.botInstall.name")}>
               <Input
                 aria-invalid={!valid}
                 autoComplete="off"
@@ -258,11 +265,11 @@ export function BotInstallFlow({ detail, busy, error, onClose, onInstall, initia
         </div>
         <div className="space-y-2">
           <Button aria-expanded={customize} className="-ml-2" onClick={() => setCustomize((value) => !value)} size="sm" type="button" variant="ghost">
-            {customize ? "Ocultar aparência" : "Mudar aparência"}
+            {customize ? t("marketplace.botInstall.hideLook") : t("marketplace.botInstall.changeLook")}
           </Button>
           {customize ? (
             <div className="space-y-3 rounded-2xl border p-3">
-              <div aria-label="Cor do agente" className="grid grid-cols-6 gap-2" role="group">
+              <div aria-label={t("marketplace.botInstall.color")} className="grid grid-cols-6 gap-2" role="group">
                 {bodyColors.map((option) => (
                   <button
                     aria-label={option.name}
@@ -278,11 +285,11 @@ export function BotInstallFlow({ detail, busy, error, onClose, onInstall, initia
                   />
                 ))}
               </div>
-              <div aria-label="Formato do agente" className="grid grid-cols-6 gap-1.5" role="radiogroup">
+              <div aria-label={t("marketplace.botInstall.shape")} className="grid grid-cols-6 gap-1.5" role="radiogroup">
                 {SHAPE_IDS.map((item) => (
                   <button
                     aria-checked={shape === item}
-                    aria-label={`Forma ${item}`}
+                    aria-label={t("marketplace.botInstall.shapeOption", { shape: item })}
                     className={cn("grid size-11 place-items-center rounded-2xl transition-colors hover:bg-muted", shape === item && "bg-muted")}
                     key={item}
                     onClick={() => setShape(item)}
@@ -297,21 +304,21 @@ export function BotInstallFlow({ detail, busy, error, onClose, onInstall, initia
           ) : null}
         </div>
 
-        <FieldBlock hint="Sem escolha, o agente usa o modelo padrão da sua conta." label="Modelo">
+        <FieldBlock hint={t("marketplace.botInstall.modelHint")} label={t("marketplace.botInstall.model")}>
           <Select onValueChange={(next) => setSuggested(next === "suggested")} value={suggested ? "suggested" : "default"}>
-            <SelectTrigger aria-label="Modelo do agente" className="w-full">
-              <SelectValue>{(current) => (current === "suggested" ? `Sugerido: ${bot.suggestedModel}` : "Modelo padrão da conta")}</SelectValue>
+            <SelectTrigger aria-label={t("marketplace.botInstall.modelLabel")} className="w-full">
+              <SelectValue>{(current) => (current === "suggested" ? t("marketplace.botInstall.suggested", { model: bot.suggestedModel ?? "" }) : t("marketplace.botInstall.defaultModel"))}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="default">Modelo padrão da conta</SelectItem>
-              {bot.suggestedModel ? <SelectItem value="suggested">Sugerido: {bot.suggestedModel}</SelectItem> : null}
+              <SelectItem value="default">{t("marketplace.botInstall.defaultModel")}</SelectItem>
+              {bot.suggestedModel ? <SelectItem value="suggested">{t("marketplace.botInstall.suggested", { model: bot.suggestedModel })}</SelectItem> : null}
             </SelectContent>
           </Select>
         </FieldBlock>
 
         {detail.skills.length > 0 ? (
           <div className="space-y-1.5">
-            <p className="text-sm font-medium">Habilidades que serão instaladas neste agente</p>
+            <p className="text-sm font-medium">{t("marketplace.botInstall.skillsTitle")}</p>
             <ul className="divide-y rounded-2xl border">
               {detail.skills.map((skill) => (
                 <li className="flex items-center justify-between gap-3 px-3 py-2" key={skill.slug}>
@@ -322,13 +329,13 @@ export function BotInstallFlow({ detail, busy, error, onClose, onInstall, initia
                 </li>
               ))}
             </ul>
-            <p className="text-xs text-muted-foreground">Elas não liberam nenhuma ferramenta nova.</p>
+            <p className="text-xs text-muted-foreground">{t("marketplace.botInstall.skillsNote")}</p>
           </div>
         ) : null}
 
         {detail.connectors.length > 0 ? (
           <div className="space-y-1.5">
-            <p className="text-sm font-medium">Conectores recomendados</p>
+            <p className="text-sm font-medium">{t("marketplace.botInstall.connectors")}</p>
             <ul className="divide-y rounded-2xl border">
               {detail.connectors.map((connector) => (
                 <li className="flex items-center justify-between gap-3 px-3 py-2" key={connector.id}>
@@ -337,12 +344,12 @@ export function BotInstallFlow({ detail, busy, error, onClose, onInstall, initia
                     {connector.reason ? <span className="block text-xs text-muted-foreground">{connector.reason}</span> : null}
                   </span>
                   <Badge className="shrink-0" variant={connector.connected ? "default" : "outline"}>
-                    {connectorStatusLabel(connector.connected)}
+                    {connectorStatusLabel(connector.connected, translator)}
                   </Badge>
                 </li>
               ))}
             </ul>
-            <p className="text-xs text-muted-foreground">Nenhuma credencial vem no modelo. Você conecta as suas depois.</p>
+            <p className="text-xs text-muted-foreground">{t("marketplace.botInstall.connectorsNote")}</p>
           </div>
         ) : null}
 
@@ -356,8 +363,8 @@ export function BotInstallFlow({ detail, busy, error, onClose, onInstall, initia
 
         {bot.starterRoutines.length > 0 ? (
           <fieldset className="space-y-1.5">
-            <legend className="text-sm font-medium">Rotinas sugeridas (opcional)</legend>
-            <p className="text-xs text-muted-foreground">Desmarcadas por padrão. Só as marcadas são criadas, e você pode desligar depois.</p>
+            <legend className="text-sm font-medium">{t("marketplace.botInstall.routines")}</legend>
+            <p className="text-xs text-muted-foreground">{t("marketplace.botInstall.routinesNote")}</p>
             <ul className="divide-y rounded-2xl border">
               {bot.starterRoutines.map((routine, index) => (
                 <li key={routine.name}>
@@ -387,7 +394,7 @@ export function BotInstallFlow({ detail, busy, error, onClose, onInstall, initia
       </PanelBody>
       <PanelFooter>
         <Button disabled={busy} onClick={onClose} type="button" variant="outline">
-          Cancelar
+          {t("common.cancel")}
         </Button>
         <Button
           disabled={busy || !valid}
@@ -402,7 +409,7 @@ export function BotInstallFlow({ detail, busy, error, onClose, onInstall, initia
           }
           type="button"
         >
-          {busy ? "Criando…" : "Criar agente"}
+          {busy ? t("marketplace.botInstall.creating") : t("marketplace.botInstall.create")}
         </Button>
       </PanelFooter>
     </>
@@ -428,6 +435,7 @@ export type PublishFlowProps = {
 
 export function PublishFlow({ name, baseVersion, defaults, findings, busy, error, result, onClose, onSubmit, onDownload }: PublishFlowProps) {
   const translator = useTranslations()
+  const { t } = translator
   const [version, setVersion] = useState(defaults.version)
   const [category, setCategory] = useState(defaults.category)
   const [tags, setTags] = useState(defaults.tags.join(", "))
@@ -440,10 +448,10 @@ export function PublishFlow({ name, baseVersion, defaults, findings, busy, error
   if (result?.mode === "pr") {
     return (
       <>
-        <PanelHeader onClose={onClose} title="Pull request aberto" />
+        <PanelHeader onClose={onClose} title={t("marketplace.publish.prOpened")} />
         <PanelBody>
           <p className="text-sm">
-            Enviei <span className="font-mono">{name}</span> para revisão no catálogo. Quando for aprovada, ela aparece para todo mundo.
+            {t("marketplace.publish.prSent", { name })}
           </p>
           <a
             className="inline-flex items-center gap-1 text-sm underline underline-offset-4"
@@ -451,13 +459,13 @@ export function PublishFlow({ name, baseVersion, defaults, findings, busy, error
             rel="noopener noreferrer"
             target="_blank"
           >
-            Ver o pull request #{result.number}
+            {t("marketplace.publish.viewPr", { number: result.number })}
             <ExternalLinkIcon aria-hidden className="size-3.5" />
           </a>
         </PanelBody>
         <PanelFooter>
           <Button onClick={onClose} type="button">
-            Pronto
+            {t("marketplace.publish.done")}
           </Button>
         </PanelFooter>
       </>
@@ -466,7 +474,7 @@ export function PublishFlow({ name, baseVersion, defaults, findings, busy, error
   if (result?.mode === "package") {
     return (
       <>
-        <PanelHeader onClose={onClose} title="Pacote pronto para enviar" />
+        <PanelHeader onClose={onClose} title={t("marketplace.publish.packageReady")} />
         <PanelBody>
           <p className="text-sm text-muted-foreground">{result.message}</p>
           <ul className="divide-y rounded-2xl border">
@@ -476,7 +484,7 @@ export function PublishFlow({ name, baseVersion, defaults, findings, busy, error
               </li>
             ))}
           </ul>
-          <p className="text-xs text-muted-foreground">Baixe o pacote, copie as pastas para um fork do catálogo e abra o pull request pelo GitHub.</p>
+          <p className="text-xs text-muted-foreground">{t("marketplace.publish.packageNote")}</p>
         </PanelBody>
         <PanelFooter>
           <a
@@ -485,11 +493,11 @@ export function PublishFlow({ name, baseVersion, defaults, findings, busy, error
             rel="noopener noreferrer"
             target="_blank"
           >
-            Abrir página do PR
+            {t("marketplace.publish.openPr")}
             <ExternalLinkIcon aria-hidden className="size-3.5" />
           </a>
           <Button onClick={() => onDownload?.(result.files, result.slug)} type="button">
-            <FileDownIcon aria-hidden /> Baixar pacote (.zip)
+            <FileDownIcon aria-hidden /> {t("marketplace.publish.download")}
           </Button>
         </PanelFooter>
       </>
@@ -500,28 +508,28 @@ export function PublishFlow({ name, baseVersion, defaults, findings, busy, error
     <>
       <PanelHeader
         onClose={onClose}
-        subtitle={baseVersion ? `Atualização da v${baseVersion} do catálogo. O PR leva a diferença.` : "Abre um pull request no catálogo com o texto da habilidade."}
-        title={`Publicar ${name}`}
+        subtitle={baseVersion ? t("marketplace.publish.subtitleUpdate", { version: baseVersion }) : t("marketplace.publish.subtitleNew")}
+        title={t("marketplace.publish.title", { name })}
       />
       <PanelBody>
         {blocked ? (
           <Alert variant="destructive">
-            <AlertTitle>Não dá para publicar</AlertTitle>
-            <AlertDescription>A habilidade tem instruções que o catálogo não aceita (por exemplo, enviar dados para fora, desligar aprovações ou chaves no texto). Ajuste e tente de novo.</AlertDescription>
+            <AlertTitle>{t("marketplace.publish.blockedTitle")}</AlertTitle>
+            <AlertDescription>{t("marketplace.publish.blockedText")}</AlertDescription>
           </Alert>
         ) : review ? (
           <Alert variant="warning">
-            <AlertTitle>Alguns trechos serão revisados à mão</AlertTitle>
-            <AlertDescription>Comandos de rede ou leitura do cofre pedem uma olhada extra de quem revisa o PR.</AlertDescription>
+            <AlertTitle>{t("marketplace.publish.reviewTitle")}</AlertTitle>
+            <AlertDescription>{t("marketplace.publish.reviewText")}</AlertDescription>
           </Alert>
         ) : null}
         <div className="grid grid-cols-2 gap-3">
-          <FieldBlock htmlFor="publish-version" label="Versão">
+          <FieldBlock htmlFor="publish-version" label={t("marketplace.publish.version")}>
             <Input autoComplete="off" className="font-mono" id="publish-version" inputMode="decimal" onChange={(event) => setVersion(event.target.value)} value={version} />
           </FieldBlock>
-          <FieldBlock label="Categoria">
+          <FieldBlock label={t("marketplace.publish.category")}>
             <Select onValueChange={(next) => setCategory(String(next))} value={category}>
-              <SelectTrigger aria-label="Categoria" className="w-full">
+              <SelectTrigger aria-label={t("marketplace.publish.category")} className="w-full">
                 <SelectValue>{(current) => categoryLabel(String(current), translator)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -534,16 +542,16 @@ export function PublishFlow({ name, baseVersion, defaults, findings, busy, error
             </Select>
           </FieldBlock>
         </div>
-        <FieldBlock htmlFor="publish-author" label="Autor">
+        <FieldBlock htmlFor="publish-author" label={t("marketplace.publish.author")}>
           <Input autoComplete="off" id="publish-author" maxLength={80} onChange={(event) => setAuthor(event.target.value)} value={author} />
         </FieldBlock>
-        <FieldBlock hint="Separadas por vírgula. Até 10." htmlFor="publish-tags" label="Tags">
+        <FieldBlock hint={t("marketplace.publish.tagsHint")} htmlFor="publish-tags" label={t("marketplace.publish.tags")}>
           <Input autoComplete="off" id="publish-tags" onChange={(event) => setTags(event.target.value)} placeholder="roblox, luau" value={tags} />
         </FieldBlock>
-        <FieldBlock hint="Vai para o histórico de versões e para o PR." htmlFor="publish-notes" label="O que mudou">
+        <FieldBlock hint={t("marketplace.publish.notesHint")} htmlFor="publish-notes" label={t("marketplace.publish.notes")}>
           <Textarea id="publish-notes" maxLength={500} onChange={(event) => setNotes(event.target.value)} rows={3} value={notes} />
         </FieldBlock>
-        <p className="text-xs text-muted-foreground">Só o texto da habilidade é enviado. Segredos, conversas e dados da conta nunca entram.</p>
+        <p className="text-xs text-muted-foreground">{t("marketplace.publish.privacy")}</p>
         {error ? (
           <p className="text-sm text-destructive" role="alert">
             {error}
@@ -552,14 +560,14 @@ export function PublishFlow({ name, baseVersion, defaults, findings, busy, error
       </PanelBody>
       <PanelFooter>
         <Button disabled={busy} onClick={onClose} type="button" variant="outline">
-          Cancelar
+          {t("common.cancel")}
         </Button>
         <Button
           disabled={busy || !ready}
           onClick={() => onSubmit({ version: version.trim(), category: category.trim(), tags: parseTagInput(tags), notes: notes.trim(), author: author.trim() })}
           type="button"
         >
-          {busy ? "Enviando…" : "Publicar no marketplace"}
+          {busy ? t("marketplace.publish.sending") : t("marketplace.publish.submit")}
         </Button>
       </PanelFooter>
     </>

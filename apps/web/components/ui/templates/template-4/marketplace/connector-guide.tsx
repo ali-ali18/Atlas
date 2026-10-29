@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ChevronDownIcon, PencilIcon, RefreshCwIcon, SparklesIcon } from "lucide-react"
-import { CONNECTOR_GUIDE_MAX_CHARS, GUIDE_GENERATING_STALE_MS, GUIDE_STALE_MESSAGE, type ConnectorGuideView, type ConnectorKind } from "@workspace/shared"
+import { CONNECTOR_GUIDE_MAX_CHARS, GUIDE_GENERATING_STALE_MS, type ConnectorGuideView, type ConnectorKind } from "@workspace/shared"
 import { Button } from "@workspace/ui/components/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible"
 import { ConfirmAlert } from "@workspace/ui/components/confirm-alert"
@@ -15,14 +15,16 @@ import {
   resolveConnectorGuideSuggestion,
   saveConnectorGuide,
 } from "@/lib/atlas-api"
+import { useTranslations } from "@/lib/i18n/provider"
+import type { TFunction } from "@/lib/i18n/translator"
 
 const POLL_MS = 3000
 /** Primeiros ~3 min a cada 3 s; depois a cada 15 s enquanto o painel estiver aberto. */
 const FAST_POLL_WINDOW_MS = 3 * 60_000
 const SLOW_POLL_MS = 15_000
 
-function sourceLabel(guide: ConnectorGuideView): string {
-  return guide.source === "user" ? "Editado por você" : "Gerado automaticamente"
+function sourceLabel(guide: ConnectorGuideView, t: TFunction): string {
+  return guide.source === "user" ? t("marketplace.guide.sourceUser") : t("marketplace.guide.sourceAuto")
 }
 
 function IconAction({ icon: Icon, label, onClick, disabled, spinning = false }: { icon: typeof PencilIcon; label: string; onClick?: () => void; disabled?: boolean; spinning?: boolean }) {
@@ -80,25 +82,26 @@ export function ConnectorGuideBlock({
   onCancelRegenerate,
   onResolve,
 }: ConnectorGuideViewProps) {
+  const { t, tn } = useTranslations()
   const text = guide?.text ?? ""
   const isGenerating = generating || guide?.status === "generating"
-  const failure = !isGenerating && guide?.status === "failed" ? guide.error || "Não foi possível gerar o guia" : null
+  const failure = !isGenerating && guide?.status === "failed" ? guide.error || t("marketplace.guide.failed") : null
   const shownError = error ?? failure
   const hasText = text.trim().length > 0
   const suggestions = guide?.suggestions ?? []
   return (
     <Collapsible className="min-w-0" onOpenChange={onOpenChange} open={open}>
-    <section aria-label="Guia de uso" className="min-w-0 space-y-2" data-slot="connector-guide">
+    <section aria-label={t("marketplace.guide.title")} className="min-w-0 space-y-2" data-slot="connector-guide">
       <CollapsibleTrigger className="flex min-h-9 w-full items-center justify-between gap-3 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
         <span className="min-w-0">
-          <span className="block text-sm font-semibold">Guia de uso</span>
-          {guide && hasText ? <span className="block text-xs text-muted-foreground">{sourceLabel(guide)}</span> : null}
+          <span className="block text-sm font-semibold">{t("marketplace.guide.title")}</span>
+          {guide && hasText ? <span className="block text-xs text-muted-foreground">{sourceLabel(guide, t)}</span> : null}
         </span>
         <span className="flex shrink-0 items-center gap-2">
-          {isGenerating ? <span className="text-xs text-muted-foreground">Gerando o guia…</span> : null}
+          {isGenerating ? <span className="text-xs text-muted-foreground">{t("marketplace.guide.generating")}</span> : null}
           {suggestions.length > 0 ? (
             <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-              {suggestions.length} {suggestions.length === 1 ? "sugestão" : "sugestões"}
+              {tn("marketplace.guide.suggestions", suggestions.length)}
             </span>
           ) : null}
           <ChevronDownIcon aria-hidden className={`size-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
@@ -107,11 +110,11 @@ export function ConnectorGuideBlock({
       <CollapsibleContent className="space-y-2">
       {!editing ? (
         <div className="flex items-center justify-end gap-1">
-          {hasText ? <IconAction disabled={busy || isGenerating} icon={PencilIcon} label="Editar guia" onClick={onEdit} /> : null}
+          {hasText ? <IconAction disabled={busy || isGenerating} icon={PencilIcon} label={t("marketplace.guide.edit")} onClick={onEdit} /> : null}
           <IconAction
             disabled={busy || isGenerating}
             icon={RefreshCwIcon}
-            label={hasText ? "Gerar de novo" : "Gerar guia"}
+            label={hasText ? t("marketplace.guide.regenerate") : t("marketplace.guide.generate")}
             onClick={onRegenerate}
             spinning={isGenerating}
           />
@@ -124,19 +127,19 @@ export function ConnectorGuideBlock({
       ) : null}
       {confirmRegenerate ? (
         <ConfirmAlert
-          cancelLabel="Manter meu texto"
-          confirmLabel="Gerar de novo"
-          description="O guia foi editado por você. Gerar de novo substitui o texto atual."
+          cancelLabel={t("marketplace.guide.keepMine")}
+          confirmLabel={t("marketplace.guide.regenerate")}
+          description={t("marketplace.guide.replaceDescription")}
           disabled={busy}
           onCancel={onCancelRegenerate ?? (() => undefined)}
           onConfirm={onConfirmRegenerate ?? (() => undefined)}
-          title="Substituir o guia editado?"
+          title={t("marketplace.guide.replaceTitle")}
         />
       ) : null}
       {editing ? (
         <div className="space-y-2">
           <Textarea
-            aria-label="Texto do guia"
+            aria-label={t("marketplace.guide.textLabel")}
             className="min-h-40 rounded-xl text-sm"
             maxLength={CONNECTOR_GUIDE_MAX_CHARS}
             onChange={(event) => onDraftChange?.(event.target.value)}
@@ -144,46 +147,46 @@ export function ConnectorGuideBlock({
           />
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs text-muted-foreground">
-              {draft.length} de {CONNECTOR_GUIDE_MAX_CHARS} caracteres
+              {t("marketplace.guide.chars", { count: draft.length, max: CONNECTOR_GUIDE_MAX_CHARS })}
             </span>
             <div className="flex gap-2">
               <Button disabled={busy} onClick={onCancelEdit} size="sm" type="button" variant="ghost">
-                Cancelar
+                {t("common.cancel")}
               </Button>
               <Button disabled={busy || !draft.trim()} onClick={onSave} size="sm" type="button">
-                {busy ? "Salvando…" : "Salvar"}
+                {busy ? t("marketplace.guide.saving") : t("common.save")}
               </Button>
             </div>
           </div>
         </div>
       ) : hasText ? (
         <div className="rounded-xl border bg-muted/20 px-4 py-3">
-          {isGenerating ? <p className="m-0 mb-2 text-xs text-muted-foreground">Gerando o guia…</p> : null}
+          {isGenerating ? <p className="m-0 mb-2 text-xs text-muted-foreground">{t("marketplace.guide.generating")}</p> : null}
           <SkillMarkdownPreview markdown={text} />
         </div>
       ) : (
         <p className="m-0 rounded-xl border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-          {isGenerating ? "Gerando o guia…" : "O guia ainda não foi gerado. Ele diz ao bot como usar as ferramentas deste conector (qual id passar, formatos, filtros)."}
+          {isGenerating ? t("marketplace.guide.generating") : t("marketplace.guide.empty")}
         </p>
       )}
       {suggestions.map((suggestion) => (
         <div className="space-y-2 rounded-xl border bg-muted/20 px-4 py-3" data-slot="guide-suggestion" key={suggestion.id}>
           <p className="m-0 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <SparklesIcon aria-hidden className="size-3.5" />
-            Sugestão do bot
+            {t("marketplace.guide.botSuggestion")}
           </p>
           <p className="m-0 break-words text-sm">{suggestion.text}</p>
           <div className="flex justify-end gap-2">
             <Button disabled={busy} onClick={() => onResolve?.(suggestion.id, "dismiss")} size="sm" type="button" variant="ghost">
-              Descartar
+              {t("marketplace.guide.dismiss")}
             </Button>
             <Button disabled={busy} onClick={() => onResolve?.(suggestion.id, "accept")} size="sm" type="button" variant="secondary">
-              Aceitar
+              {t("marketplace.guide.accept")}
             </Button>
           </div>
         </div>
       ))}
-      <p className="m-0 text-xs text-muted-foreground">O bot lê este guia como dado de apoio; ele não muda as regras nem o que você pede.</p>
+      <p className="m-0 text-xs text-muted-foreground">{t("marketplace.guide.note")}</p>
       </CollapsibleContent>
     </section>
     </Collapsible>
@@ -200,6 +203,7 @@ export function ConnectorGuide({
   connectionId: string
   guide: ConnectorGuideView | null | undefined
 }) {
+  const { t } = useTranslations()
   const [guide, setGuide] = useState<ConnectorGuideView | null>(initial ?? null)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState("")
@@ -243,7 +247,7 @@ export function ConnectorGuide({
           }
           if (elapsed > GUIDE_GENERATING_STALE_MS + POLL_MS) {
             setGenerating(false)
-            setError(GUIDE_STALE_MESSAGE)
+            setError(t("marketplace.guide.stale"))
             return
           }
         } catch {
@@ -257,7 +261,7 @@ export function ConnectorGuide({
       alive = false
       if (timer) clearTimeout(timer)
     }
-  }, [generating, open, kind, connectionId])
+  }, [generating, open, kind, connectionId, t])
 
   const run = useCallback(async (task: () => Promise<void>, fallback: string) => {
     setBusy(true)
@@ -276,7 +280,7 @@ export function ConnectorGuide({
       await regenerateConnectorGuide(kind, connectionId, confirm)
       setConfirming(false)
       setGenerating(true)
-    }, "Não foi possível gerar o guia.")
+    }, t("marketplace.guide.generateError"))
 
   return (
     <ConnectorGuideBlock
@@ -304,7 +308,7 @@ export function ConnectorGuide({
           const next = await resolveConnectorGuideSuggestion(kind, connectionId, id, action)
           setGuide(next)
           if (next) lastUpdated.current = next.updatedAt
-        }, "Não foi possível atualizar a sugestão.")
+        }, t("marketplace.guide.updateSuggestionError"))
       }
       onSave={() =>
         void run(async () => {
@@ -312,7 +316,7 @@ export function ConnectorGuide({
           setGuide(next)
           lastUpdated.current = next.updatedAt
           setEditing(false)
-        }, "Não foi possível salvar o guia.")
+        }, t("marketplace.guide.saveError"))
       }
     />
   )
