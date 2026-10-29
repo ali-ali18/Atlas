@@ -435,7 +435,7 @@ export function VaultFormView({ form, editing, errors, saving, saveError, totpCh
 							<div className="mt-1 flex items-center gap-2" data-slot="vault-strength">
 								<div className="flex flex-1 gap-1" aria-hidden>
 									{[1, 2, 3, 4].map((step) => (
-										<span className={cn("h-1 flex-1 rounded-full bg-muted", strength.score >= step && (strength.score >= 3 ? "bg-emerald-500" : strength.score === 2 ? "bg-amber-500" : "bg-destructive"))} key={step} />
+										<span className={cn("h-1 flex-1 rounded-full bg-muted", strength.score >= step && (strength.score >= 3 ? "bg-success" : strength.score === 2 ? "bg-warning" : "bg-destructive"))} key={step} />
 									))}
 								</div>
 								<span className="w-14 text-right text-caption text-muted-foreground">{strength.label}</span>
@@ -460,7 +460,7 @@ export function VaultFormView({ form, editing, errors, saving, saveError, totpCh
 							</InputGroupAddon>
 						</InputGroup>
 						{totpCheck ? (
-							<p className={cn("m-0 text-xs", totpCheck.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")} role="status">
+							<p className={cn("m-0 text-xs", totpCheck.ok ? "text-success" : "text-destructive")} role="status">
 								{totpCheck.message}
 							</p>
 						) : null}

@@ -105,7 +105,7 @@ export function ExitBadge({ command }: { command: DevCommandView }) {
 		<span
 			className={cn(
 				"inline-flex items-center rounded-full px-1.5 font-mono text-caption",
-				ok ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-destructive/15 text-destructive",
+				ok ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive",
 			)}
 			data-exit-badge
 		>
@@ -246,16 +246,16 @@ export function CommandItem({ command, now, onStop }: { command: DevCommandView;
 export function DiffStat({ added, removed }: { added: number; removed: number }) {
 	return (
 		<span className="shrink-0 font-mono text-caption tabular-nums">
-			<span className="text-emerald-600 dark:text-emerald-400">+{added}</span>{" "}
+			<span className="text-success">+{added}</span>{" "}
 			<span className="text-destructive">−{removed}</span>
 		</span>
 	);
 }
 
 const DIFF_LINE_CLASS = {
-	add: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200",
+	add: "bg-success/15 text-success",
 	remove: "bg-destructive/15 text-destructive",
-	hunk: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+	hunk: "bg-info/10 text-info",
 	meta: "text-muted-foreground",
 	context: "text-foreground/80",
 } as const;
@@ -395,7 +395,7 @@ function PreparationSection({ view, now }: { view: DevSessionView; now: number }
 				))}
 				{view.envNotes.map((note) => (
 					<p className="flex items-center gap-2 rounded-xl bg-muted/40 px-3 py-2 text-xs text-muted-foreground" data-dev-env-note key={note}>
-						<CheckCircle2Icon className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+						<CheckCircle2Icon className="size-3.5 shrink-0 text-success" />
 						{note}
 					</p>
 				))}
@@ -415,7 +415,7 @@ function PreparationItem({ step, now }: { step: DevSetupStepView; now: number })
 			) : step.status === "failed" ? (
 				<XCircleIcon className="size-3.5 shrink-0 text-destructive" />
 			) : (
-				<CheckCircle2Icon className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+				<CheckCircle2Icon className="size-3.5 shrink-0 text-success" />
 			)}
 			<span className="min-w-0 flex-1 truncate">{label}</span>
 			{labelHasTime ? null : <span className="shrink-0 font-mono text-caption text-muted-foreground">{formatElapsed(ms)}</span>}
@@ -460,9 +460,9 @@ function PlanSection({ view }: { view: DevSessionView }) {
 					<li className="flex items-start gap-2 rounded-xl bg-muted/40 px-3 py-2 text-xs" key={todo.id}>
 						<span className="mt-0.5 shrink-0">
 							{todo.status === "completed" ? (
-								<CheckCircle2Icon className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+								<CheckCircle2Icon className="size-3.5 text-success" />
 							) : todo.status === "in_progress" ? (
-								<Loader2Icon className="size-3.5 animate-spin text-sky-600 dark:text-sky-300" />
+								<Loader2Icon className="size-3.5 animate-spin text-info" />
 							) : todo.status === "cancelled" ? (
 								<XCircleIcon className="size-3.5 text-muted-foreground" />
 							) : (

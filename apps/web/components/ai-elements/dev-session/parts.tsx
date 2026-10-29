@@ -10,7 +10,7 @@ import type { DevTone } from "@/lib/dev-session/reducer";
 
 const DOT_CLASS: Record<DevTone, string> = {
 	info: "bg-muted-foreground/60",
-	working: "bg-emerald-500 animate-pulse",
+	working: "bg-success animate-pulse",
 	idle: "bg-muted-foreground/40",
 	done: "bg-muted-foreground/60",
 	error: "bg-destructive",

@@ -14,8 +14,8 @@ import {
 export type RequestTone = "pending" | "success" | "danger" | "muted";
 
 const BADGE_TONE: Record<RequestTone, string> = {
-  pending: "bg-amber-500/10 text-amber-800 dark:bg-amber-400/15 dark:text-amber-300",
-  success: "bg-emerald-500/10 text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-300",
+  pending: "bg-warning/10 text-warning dark:bg-warning/15",
+  success: "bg-success/10 text-success dark:bg-success/15",
   danger: "bg-destructive/10 text-destructive dark:bg-destructive/20",
   muted: "bg-foreground/[0.06] text-muted-foreground",
 };

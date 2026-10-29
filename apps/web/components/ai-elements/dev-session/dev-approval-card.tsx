@@ -40,7 +40,7 @@ function DiffPreview({ text }: { text: string }) {
 		<pre className="m-0 max-h-56 overflow-auto rounded-xl bg-background/70 px-3 py-2 font-mono text-xs leading-5" data-dev-approval-diff>
 			{lines.map((line, index) => (
 				<span
-					className={cn("block whitespace-pre-wrap [overflow-wrap:anywhere]", line.startsWith("+") && "text-emerald-700 dark:text-emerald-400", line.startsWith("-") && "text-destructive")}
+					className={cn("block whitespace-pre-wrap [overflow-wrap:anywhere]", line.startsWith("+") && "text-success", line.startsWith("-") && "text-destructive")}
 					key={`${index}-${line.slice(0, 12)}`}
 				>
 					{line || " "}

@@ -18,8 +18,8 @@ const STATE_LABEL: Record<ActiveWorkRow["state"], string> = {
 };
 
 const DOT: Record<ActiveWorkRow["state"], string> = {
-	working: "bg-emerald-500 animate-pulse",
-	waiting: "bg-amber-500",
+	working: "bg-success animate-pulse",
+	waiting: "bg-warning",
 	done: "bg-muted-foreground/60",
 	error: "bg-destructive",
 };

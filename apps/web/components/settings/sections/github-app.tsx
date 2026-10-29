@@ -166,7 +166,7 @@ function InstallationRows({
 					<p className="flex items-center gap-1.5">
 						<span
 							aria-hidden
-							className={cn("size-1.5 rounded-full", state.tone === "ok" ? "bg-emerald-500" : "bg-amber-500")}
+							className={cn("size-1.5 rounded-full", state.tone === "ok" ? "bg-success" : "bg-warning")}
 						/>
 						<span>
 							{githubRepoCountLabel(inst)} · {state.label}

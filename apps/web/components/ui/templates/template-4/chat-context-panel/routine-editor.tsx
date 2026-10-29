@@ -1080,7 +1080,7 @@ export function RoutineEditor({
 						</div>
 					) : null}
 					{routine?.hook?.urlSecretAt ? (
-						<p className="rounded-xl bg-amber-500/10 p-2 text-xs" data-url-secret-warning>
+						<p className="rounded-xl bg-warning/10 p-2 text-xs" data-url-secret-warning>
 							Esta integração usa o segredo na URL (?secret=). Prefira o cabeçalho X-Atlas-Hook-Secret.
 						</p>
 					) : null}

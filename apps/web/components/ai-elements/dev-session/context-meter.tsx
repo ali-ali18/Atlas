@@ -42,7 +42,7 @@ export function ContextMeter({ usage }: { usage: DevContextUsageView }) {
 				<svg aria-hidden className="-rotate-90" height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} width={SIZE}>
 					<circle className="stroke-muted-foreground/25" cx={SIZE / 2} cy={SIZE / 2} fill="none" r={RADIUS} strokeWidth={STROKE} />
 					<circle
-						className={cn("transition-[stroke-dashoffset] duration-300", model.warn ? "stroke-amber-500" : "stroke-muted-foreground")}
+						className={cn("transition-[stroke-dashoffset] duration-300", model.warn ? "stroke-warning" : "stroke-muted-foreground")}
 						cx={SIZE / 2}
 						cy={SIZE / 2}
 						fill="none"

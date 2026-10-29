@@ -39,7 +39,7 @@ const CHECK_LABEL: Record<CheckVisual, string> = {
 function CheckIcon({ visual }: { visual: CheckVisual }) {
 	switch (visual) {
 		case "passed":
-			return <CheckCircle2Icon className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />;
+			return <CheckCircle2Icon className="size-3.5 shrink-0 text-success" />;
 		case "failed":
 			return <XCircleIcon className="size-3.5 shrink-0 text-destructive" />;
 		case "running":
@@ -52,9 +52,9 @@ function CheckIcon({ visual }: { visual: CheckVisual }) {
 }
 
 const PR_DOT: Record<DevPrState, string> = {
-	open: "bg-emerald-500",
+	open: "bg-success",
 	draft: "bg-muted-foreground/60",
-	merged: "bg-sky-500",
+	merged: "bg-info",
 	closed: "bg-destructive",
 };
 

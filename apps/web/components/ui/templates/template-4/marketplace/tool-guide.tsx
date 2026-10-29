@@ -117,8 +117,8 @@ export function apiOperationGuide(operation: ApiOperation): ToolGuideData {
 }
 
 const TONE: Record<ToolGuideData["accessTone"], string> = {
-  read: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  write: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  read: "bg-success/10 text-success",
+  write: "bg-warning/10 text-warning",
   neutral: "bg-muted text-muted-foreground",
 }
 

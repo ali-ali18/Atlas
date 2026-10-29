@@ -29,7 +29,7 @@ export function SecretPasteNotice({
 			aria-live="polite"
 			className={cn(
 				"mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl border px-3 py-2 text-xs",
-				attention ? "border-amber-500/60 bg-amber-500/10" : "border-border bg-muted/40",
+				attention ? "border-warning/60 bg-warning/10" : "border-border bg-muted/40",
 			)}
 			data-secret-paste-notice
 			role="status"

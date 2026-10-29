@@ -194,7 +194,7 @@ export function ApiConnectionPage({
             <dd
               className={cn(
                 "m-0 min-w-0 text-right",
-                connected ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"
+                connected ? "text-success" : "text-warning"
               )}
             >
               {apiConnectionStatusLabel(item)}

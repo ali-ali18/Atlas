@@ -59,7 +59,7 @@ function StatusIcon({ state }: { state: ProviderCallbackState }) {
 			aria-hidden
 			className={cn(
 				"grid size-9 place-items-center rounded-full",
-				ok ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-destructive/15 text-destructive",
+				ok ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive",
 			)}
 		>
 			{ok ? <CheckIcon className="size-5" strokeWidth={2.5} /> : <XIcon className="size-5" strokeWidth={2.5} />}

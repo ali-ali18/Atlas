@@ -146,7 +146,7 @@ export function WebhookSection({
 				A URL não leva o segredo. Para ligar ao n8n ou similar, peça ao bot: ele usa o segredo por referência, sem você copiar nada.
 			</p>
 			{urlSecretAt ? (
-				<p className="break-words rounded-xl bg-amber-500/10 p-2 text-xs" data-url-secret-warning>
+				<p className="break-words rounded-xl bg-warning/10 p-2 text-xs" data-url-secret-warning>
 					Esta integração usa o segredo na URL (?secret=). Prefira o cabeçalho X-Atlas-Hook-Secret.
 				</p>
 			) : null}
