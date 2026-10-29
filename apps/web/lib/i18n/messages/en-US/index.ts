@@ -1,78 +1,75 @@
 /** Dicionário en-US. Precisa ter toda chave do pt-BR (o typecheck e o teste de paridade garantem). */
 import type { MessageDictionary } from "../../translator";
+import { aiElements } from "./aiElements";
 import { app } from "./app";
 import { autonomy } from "./autonomy";
+import { botSettings } from "./botSettings";
 import { chat } from "./chat";
 import { chatExtras } from "./chatExtras";
 import { common } from "./common";
 import { composer } from "./composer";
+import { contextPanel } from "./contextPanel";
+import { devSession } from "./devSession";
 import { errors } from "./errors";
 import { groups } from "./groups";
 import { library } from "./library";
+import { libraryPanel } from "./libraryPanel";
 import { login } from "./login";
 import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
+import { routines } from "./routines";
 import { settings } from "./settings";
-import { sharedLabels } from "./sharedLabels";
-import { settingsPanes } from "./settingsPanes";
 import { settingsComposio } from "./settingsComposio";
-import { settingsSkills } from "./settingsSkills";
 import { settingsDev } from "./settingsDev";
 import { settingsExec } from "./settingsExec";
 import { settingsGithub } from "./settingsGithub";
 import { settingsModels } from "./settingsModels";
 import { settingsOps } from "./settingsOps";
+import { settingsPanes } from "./settingsPanes";
 import { settingsProviders } from "./settingsProviders";
 import { settingsSearch } from "./settingsSearch";
-import { sharedLabels } from "./sharedLabels";
+import { settingsSkills } from "./settingsSkills";
 import { settingsVault } from "./settingsVault";
+import { share } from "./share";
+import { sharedLabels } from "./sharedLabels";
 import { sidebar } from "./sidebar";
 import { status } from "./status";
 import { ui } from "./ui";
-import { routines } from "./routines";
-import { libraryPanel } from "./libraryPanel";
-import { contextPanel } from "./contextPanel";
-import { botSettings } from "./botSettings";
 
 export const enUS: MessageDictionary = {
+	...aiElements,
 	...app,
 	...autonomy,
-import { aiElements } from "./aiElements";
-import { devSession } from "./devSession";
-import { share } from "./share";
-
-	...share,
-	...devSession,
-	...aiElements,
+	...botSettings,
 	...chat,
 	...chatExtras,
 	...common,
 	...composer,
+	...contextPanel,
+	...devSession,
 	...errors,
 	...groups,
 	...library,
+	...libraryPanel,
 	...login,
 	...marketplace,
 	...mobile,
+	...routines,
 	...settings,
-	...sharedLabels,
-	...settingsPanes,
 	...settingsComposio,
-	...settingsSkills,
 	...settingsDev,
 	...settingsExec,
 	...settingsGithub,
 	...settingsModels,
 	...settingsOps,
+	...settingsPanes,
 	...settingsProviders,
 	...settingsSearch,
-	...sharedLabels,
+	...settingsSkills,
 	...settingsVault,
+	...share,
+	...sharedLabels,
 	...sidebar,
 	...status,
 	...ui,
-	...routines,
-	...libraryPanel,
-	...contextPanel,
-	...botSettings,
 };
