@@ -8,6 +8,7 @@ import {
 } from "@workspace/shared"
 
 import { cn } from "@workspace/ui/lib/utils"
+import { useUiCopy } from "@workspace/ui/components/ui-copy"
 import { AreaChart, Area } from "@workspace/ui/charts/area-chart"
 import { BarChart } from "@workspace/ui/charts/bar-chart"
 import { Bar } from "@workspace/ui/charts/bar"
@@ -689,6 +690,7 @@ function ChartView({ spec }: { spec: ChartSpec }) {
 }
 
 function CopyCsvButton({ spec }: { spec: ChartSpec }) {
+  const copy = useUiCopy()
   const [copied, setCopied] = React.useState(false)
   React.useEffect(() => {
     if (!copied) return
@@ -697,7 +699,7 @@ function CopyCsvButton({ spec }: { spec: ChartSpec }) {
   }, [copied])
   return (
     <button
-      aria-label="Copiar dados (CSV)"
+      aria-label={copy.chartCopyCsv}
       className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-muted-foreground text-xs outline-none transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:bg-foreground/10"
       data-share-ignore
       data-slot="chart-copy-csv"

@@ -2,7 +2,10 @@
 
 import * as React from "react";
 
+import { UiCopyProvider } from "@workspace/ui/components/ui-copy";
+
 import type { UiLocale, UiLocalePreference } from "./locales";
+import { uiCopyFrom } from "./ui-copy";
 import { createTranslator, defaultTranslator, type MessageDictionary, type Translator } from "./translator";
 
 type I18nContextValue = Translator & { preference: UiLocalePreference };
@@ -27,7 +30,13 @@ export function I18nProvider({
 	children: React.ReactNode;
 }) {
 	const value = React.useMemo(() => ({ ...createTranslator(locale, messages), preference }), [locale, messages, preference]);
-	return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+	// Os componentes de packages/ui recebem os textos pelo UiCopyProvider (o pacote não importa o app).
+	const uiCopy = React.useMemo(() => uiCopyFrom(value.t), [value.t]);
+	return (
+		<I18nContext.Provider value={value}>
+			<UiCopyProvider copy={uiCopy}>{children}</UiCopyProvider>
+		</I18nContext.Provider>
+	);
 }
 
 /** `{ t, tn, locale }` do idioma da tela. */

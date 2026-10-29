@@ -2,9 +2,11 @@
 import { common } from "./common";
 import { library } from "./library";
 import { settings } from "./settings";
+import { ui } from "./ui";
 
 export const ptBR = {
 	...common,
 	...library,
 	...settings,
+	...ui,
 } as const;

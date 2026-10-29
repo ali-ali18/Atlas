@@ -3,9 +3,11 @@ import type { MessageDictionary } from "../../translator";
 import { common } from "./common";
 import { library } from "./library";
 import { settings } from "./settings";
+import { ui } from "./ui";
 
 export const enUS: MessageDictionary = {
 	...common,
 	...library,
 	...settings,
+	...ui,
 };
