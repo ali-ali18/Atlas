@@ -1,5 +1,6 @@
 /** Dicionário en-US. Precisa ter toda chave do pt-BR (o typecheck e o teste de paridade garantem). */
 import type { MessageDictionary } from "../../translator";
+import { chat } from "./chat";
 import { common } from "./common";
 import { composer } from "./composer";
 import { library } from "./library";
@@ -9,6 +10,7 @@ import { sidebar } from "./sidebar";
 import { ui } from "./ui";
 
 export const enUS: MessageDictionary = {
+	...chat,
 	...common,
 	...composer,
 	...library,

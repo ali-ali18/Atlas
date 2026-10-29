@@ -3,10 +3,10 @@
 import { CheckIcon, ChevronDownIcon, EllipsisVerticalIcon, ShieldAlertIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@workspace/ui/components/button";
-import { CHAT_CARD_COPY } from "@workspace/ui/lib/chat-card-copy";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
 import { approvalBarLabel, dockEntryPrefixes, type DockEntry } from "@/lib/approval-dock";
 import { devApprovalOptions } from "@/lib/dev-approval-options";
+import { useTranslations } from "@/lib/i18n/provider";
 
 export type ApprovalBarProps = {
 	/** Pedidos pendentes que já saíram da tela, do mais antigo ao mais recente (os visíveis ficam só no cartão da conversa). */
@@ -26,6 +26,7 @@ export type ApprovalBarProps = {
 type RowProps = Pick<ApprovalBarProps, "onApprove" | "onSkip" | "onLocate" | "onAlways"> & { entry: DockEntry; extra?: ReactNode };
 
 function Row({ entry, onApprove, onSkip, onLocate, onAlways, extra }: RowProps) {
+	const { t } = useTranslations();
 	const prefixes = dockEntryPrefixes(entry);
 	const options = devApprovalOptions({ prefixes, canAlways: Boolean(onAlways) });
 	return (
@@ -41,7 +42,7 @@ function Row({ entry, onApprove, onSkip, onLocate, onAlways, extra }: RowProps) 
 			{extra}
 			{options.length > 1 ? (
 				<DropdownMenu>
-					<DropdownMenuTrigger render={<Button aria-label="Mais opções" className="size-9 shrink-0 rounded-full" data-approval-bar-more size="icon-sm" type="button" variant="ghost" />}>
+					<DropdownMenuTrigger render={<Button aria-label={t("chat.approvals.moreOptions")} className="size-9 shrink-0 rounded-full" data-approval-bar-more size="icon-sm" type="button" variant="ghost" />}>
 						<EllipsisVerticalIcon />
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end" className="w-auto max-w-[20rem] min-w-44" side="top">
@@ -56,10 +57,10 @@ function Row({ entry, onApprove, onSkip, onLocate, onAlways, extra }: RowProps) 
 					</DropdownMenuContent>
 				</DropdownMenu>
 			) : null}
-			<Button aria-label="Executar" className="size-9 shrink-0 rounded-full" onClick={() => onApprove(entry)} size="icon-sm" type="button" variant="ghost">
+			<Button aria-label={t("chat.approvals.run")} className="size-9 shrink-0 rounded-full" onClick={() => onApprove(entry)} size="icon-sm" type="button" variant="ghost">
 				<CheckIcon />
 			</Button>
-			<Button aria-label={entry.type === "relayed" ? CHAT_CARD_COPY.deny : CHAT_CARD_COPY.dismiss} className="size-9 shrink-0 rounded-full" onClick={() => onSkip(entry)} size="icon-sm" type="button" variant="ghost">
+			<Button aria-label={entry.type === "relayed" ? t("ui.cardDeny") : t("ui.cardDismiss")} className="size-9 shrink-0 rounded-full" onClick={() => onSkip(entry)} size="icon-sm" type="button" variant="ghost">
 				<XIcon />
 			</Button>
 		</div>
@@ -72,6 +73,7 @@ function Row({ entry, onApprove, onSkip, onLocate, onAlways, extra }: RowProps) 
  * recente na linha com o contador "+N"; tocar abre a lista inteira dentro da mesma seção.
  */
 export function ApprovalBar({ entries: live, onApprove, onSkip, onLocate, onAlways, onHeight, defaultExpanded = false }: ApprovalBarProps) {
+	const { t, tn } = useTranslations();
 	const [expanded, setExpanded] = useState(defaultExpanded);
 	const [shown, setShown] = useState(false);
 	const [kept, setKept] = useState<DockEntry[]>(live);
@@ -129,7 +131,7 @@ export function ApprovalBar({ entries: live, onApprove, onSkip, onLocate, onAlwa
 
 	return (
 		<div
-			aria-label="Aprovações pendentes"
+			aria-label={t("chat.approvals.label")}
 			className={`w-full min-w-0 border-b border-border/60 transition-opacity duration-200 motion-reduce:transition-none ${shown && live.length > 0 ? "opacity-100" : "opacity-0"}`}
 			data-approval-bar
 			data-expanded={expanded || undefined}
@@ -145,8 +147,8 @@ export function ApprovalBar({ entries: live, onApprove, onSkip, onLocate, onAlwa
 				>
 					<div className="min-h-0 overflow-hidden">
 						<div className="flex items-center justify-between px-3 pt-2 text-muted-foreground text-xs">
-							<span>{entries.length} aprovações pendentes</span>
-							<Button aria-label="Recolher" className="size-7 rounded-full" onClick={toggle} size="icon-xs" type="button" variant="ghost">
+							<span>{tn("chat.approvals.count", entries.length)}</span>
+							<Button aria-label={t("chat.approvals.collapse")} className="size-7 rounded-full" onClick={toggle} size="icon-xs" type="button" variant="ghost">
 								<ChevronDownIcon />
 							</Button>
 						</div>
@@ -165,7 +167,7 @@ export function ApprovalBar({ entries: live, onApprove, onSkip, onLocate, onAlwa
 						stacked && !expanded ? (
 							<button
 								aria-expanded={expanded}
-								aria-label={`Mais ${behind.length} ${behind.length === 1 ? "aprovação" : "aprovações"}`}
+								aria-label={tn("chat.approvals.more", behind.length)}
 								className="shrink-0 rounded-full bg-foreground/10 px-2 py-1 text-foreground/80 text-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
 								data-approval-stack-count
 								onClick={toggle}

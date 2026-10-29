@@ -5,11 +5,11 @@ import { Spinner } from "@workspace/ui/components/spinner";
 import { useState } from "react";
 
 import { ChatCard, ChatCardDetails, ChatCardLeading } from "@workspace/ui/components/chat-card";
-import { CHAT_CARD_COPY } from "@workspace/ui/lib/chat-card-copy";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { MarkdownCodeBlock } from "@/components/ai-elements/files/markdown-code-block";
 import { formatCodeRunDuration } from "@/lib/code-run";
+import { useT } from "@/lib/i18n/provider";
 
 const OUTPUT_PREVIEW_LINES = 12;
 const OUTPUT_PREVIEW_CHARS = 1200;
@@ -24,12 +24,13 @@ export type CodeRunCardProps = {
 
 /** Linha recolhível "Executou código · 1,2 s" com o Python e a saída; abre para conferir o que rodou. */
 export function CodeRunCard({ code, status, durationMs, output = "", defaultOpen = false }: CodeRunCardProps) {
+	const t = useT();
 	const [showAll, setShowAll] = useState(false);
 	const lines = output.split("\n");
 	const truncated = !showAll && (lines.length > OUTPUT_PREVIEW_LINES || output.length > OUTPUT_PREVIEW_CHARS);
 	const shown = truncated ? lines.slice(0, OUTPUT_PREVIEW_LINES).join("\n").slice(0, OUTPUT_PREVIEW_CHARS) : output;
 	const duration = durationMs !== undefined ? ` · ${formatCodeRunDuration(durationMs)}` : "";
-	const label = status === "running" ? "Executando código…" : status === "error" ? `Falhou${duration}` : `Executou código${duration}`;
+	const label = status === "running" ? t("chat.code.running") : status === "error" ? t("chat.code.failed", { duration }) : t("chat.code.ran", { duration });
 
 	return (
 		<ChatCard variant="activity" className="my-1 w-full text-xs" data-testid="code-run-card" data-status={status}>
@@ -47,7 +48,7 @@ export function CodeRunCard({ code, status, durationMs, output = "", defaultOpen
 				<MarkdownCodeBlock code={code} language="python" />
 				{output.trim() ? (
 					<div className="min-w-0 overflow-hidden rounded-xl bg-background/60" data-testid="code-run-output">
-					<div className="flex h-8 items-center pl-3 font-mono text-caption text-muted-foreground">saída</div>
+					<div className="flex h-8 items-center pl-3 font-mono text-caption text-muted-foreground">{t("chat.code.output")}</div>
 					<pre className="m-0 max-h-80 overflow-auto p-3 pt-0 font-mono text-xs leading-relaxed whitespace-pre text-foreground/90">{shown}</pre>
 					{truncated ? (
 						<button
@@ -55,7 +56,7 @@ export function CodeRunCard({ code, status, durationMs, output = "", defaultOpen
 							onClick={() => setShowAll(true)}
 							type="button"
 						>
-							{CHAT_CARD_COPY.seeAll}
+							{t("ui.cardSeeAll")}
 						</button>
 					) : null}
 					</div>
