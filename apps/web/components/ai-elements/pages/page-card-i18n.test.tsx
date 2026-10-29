@@ -12,7 +12,7 @@ import { PageCard } from "./page-card";
 Object.assign(globalThis, { React });
 
 test("cartão de painel: rótulos acessíveis e rodapé seguem o idioma da tela", async () => {
-	const parsed = parsePageSpec({ v: 2, title: "Forecast", root: { type: "stack", children: [] } });
+	const parsed = parsePageSpec({ v: 2, title: "Forecast", root: { type: "stack", children: [{ type: "heading", props: { text: "Detalhes" } }] } });
 	if (!parsed.ok) throw new Error(parsed.error);
 	const card = { pageId: "p1", revision: 1, title: "Forecast Q4", action: "created" as const, spec: parsed.spec, sourceCount: 0 };
 	const html = renderToStaticMarkup(
