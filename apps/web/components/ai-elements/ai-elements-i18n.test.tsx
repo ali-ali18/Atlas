@@ -18,6 +18,7 @@ import { proposalErrorMessage } from "./skills/skill-proposal"
 import { subagentsHeadline, subagentsWaitingLabel } from "./subagents/subagents-block"
 import { getProposalTitle } from "./confirm/bot-profile-proposal"
 import { githubIdentityText } from "./confirm/github-identity-card"
+import { RoutineActivityCard } from "./routines/routine-activity"
 
 async function wrap(locale: "en-US" | "es-ES", node: React.ReactNode) {
   return renderToStaticMarkup(<I18nProvider locale={locale} messages={await loadMessages(locale)}>{node}</I18nProvider>)
@@ -97,3 +98,8 @@ test("subagentes, perfil do bot e GitHub no idioma da tela", async () => {
   assert.equal(githubIdentityText({ reason: "no_permission", repo: "o/r", appName: "app" } as never, en).confirmLabel, "Done, I accepted")
 })
 
+
+test("cartão de rotina criada traduz o resumo do agendamento", async () => {
+  const html = await wrap("en-US", <RoutineActivityCard action="created" detail="Cron: 0 8 * * 1 (America/Sao_Paulo)" routineId="r1" title="Weekly" triggerType="cron" />)
+  assert.match(html, /data-routine-summary[^>]*>Routine created · Every Monday at 8:00 AM</)
+})
