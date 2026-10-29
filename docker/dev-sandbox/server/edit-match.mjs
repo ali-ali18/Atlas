@@ -107,3 +107,64 @@ export function listLines(matches) {
 	const lines = matches.slice(0, MAX_LISTED_LINES).map((m) => m.line);
 	return lines.join(", ") + (matches.length > MAX_LISTED_LINES ? ", …" : "");
 }
+
+const SIMILAR_MAX_REGIONS = 3;
+const SIMILAR_CONTEXT = 2;
+const SIMILAR_MIN_SCORE = 0.5;
+export const SIMILAR_MAX_CHARS = 1500;
+
+function bigrams(text) {
+	const grams = new Map();
+	for (let i = 0; i < text.length - 1; i += 1) {
+		const gram = text.slice(i, i + 2);
+		grams.set(gram, (grams.get(gram) ?? 0) + 1);
+	}
+	return grams;
+}
+
+/** Similaridade de Dice por bigramas, 0..1. Barata e boa o bastante para achar a linha "quase igual". */
+function lineSimilarity(a, b) {
+	if (a === b) return 1;
+	if (a.length < 2 || b.length < 2) return 0;
+	const ga = bigrams(a);
+	const gb = bigrams(b);
+	let shared = 0;
+	for (const [gram, n] of ga) shared += Math.min(n, gb.get(gram) ?? 0);
+	return (2 * shared) / (a.length - 1 + (b.length - 1));
+}
+
+/**
+ * Até 3 regiões do arquivo mais parecidas com as primeiras linhas não vazias de `oldText`, com
+ * número de linha e 2 linhas de contexto. Texto pronto para entrar no erro ("" se nada se parece).
+ */
+export function describeSimilarRegions(text, oldText) {
+	const wanted = oldText.replaceAll("\r\n", "\n").split("\n").map((l) => l.trim());
+	while (wanted.length && wanted[0] === "") wanted.shift();
+	const probe = wanted.slice(0, 3);
+	if (!probe.length || probe.every((l) => l === "")) return "";
+	const fileLines = text.replaceAll("\r\n", "\n").split("\n");
+	const scored = [];
+	for (let i = 0; i < fileLines.length; i += 1) {
+		let total = 0;
+		for (let k = 0; k < probe.length; k += 1) total += lineSimilarity(probe[k], (fileLines[i + k] ?? "").trim());
+		scored.push({ i, score: total / probe.length });
+	}
+	scored.sort((a, b) => b.score - a.score || a.i - b.i);
+	const picked = [];
+	for (const candidate of scored) {
+		if (candidate.score < SIMILAR_MIN_SCORE || picked.length >= SIMILAR_MAX_REGIONS) break;
+		if (picked.some((p) => Math.abs(p.i - candidate.i) <= probe.length + SIMILAR_CONTEXT)) continue;
+		picked.push(candidate);
+	}
+	if (!picked.length) return "";
+	picked.sort((a, b) => a.i - b.i);
+	const blocks = picked.map(({ i }) => {
+		const from = Math.max(0, i - SIMILAR_CONTEXT);
+		const to = Math.min(fileLines.length, i + probe.length + SIMILAR_CONTEXT);
+		const body = fileLines.slice(from, to).map((line, k) => `${String(from + k + 1).padStart(5)}| ${line.length > 160 ? `${line.slice(0, 160)}…` : line}`);
+		return `Perto da linha ${i + 1}:\n${body.join("\n")}`;
+	});
+	let out = `Trechos parecidos:\n${blocks.join("\n")}`;
+	if (out.length > SIMILAR_MAX_CHARS) out = `${out.slice(0, SIMILAR_MAX_CHARS)}…`;
+	return out;
+}

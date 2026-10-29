@@ -131,3 +131,24 @@ test("patch: edição já aplicada é explicada", async () => {
 	const c = await patchCase("const x = 2;\n", "const x = 1;", "const x = 2;");
 	await assert.rejects(c.run, (e) => e instanceof FileError && /já (foi )?aplicad/.test(e.message));
 });
+
+test("patch: sem casamento, o erro mostra trechos parecidos com linhas e contexto", async () => {
+	const body = Array.from({ length: 30 }, (_, i) => `const filler${i} = ${i};`);
+	body[19] = "export function computeTotal(items, taxRate) {";
+	body[20] = "  return items.reduce((s, i) => s + i.price, 0) * (1 + taxRate);";
+	const c = await patchCase(`${body.join("\n")}\n`, "export function computeTotals(items, tax) {\n  return items.reduce((a, b) => a + b.price, 0);", "x");
+	await assert.rejects(c.run, (e) => {
+		assert.ok(e instanceof FileError);
+		assert.match(e.message, /Trechos parecidos:/);
+		assert.match(e.message, /20\b/);
+		assert.match(e.message, /computeTotal\(items, taxRate\)/);
+		assert.match(e.message, /filler17/); // 2 linhas de contexto antes
+		assert.ok(e.message.length <= 1700);
+		return true;
+	});
+});
+
+test("patch: sem nada parecido, o erro não inventa trechos", async () => {
+	const c = await patchCase("alpha\nbeta\n", "zzzzzzzz qqqqqq wwwww", "y");
+	await assert.rejects(c.run, (e) => !/Trechos parecidos/.test(e.message) && /não foi encontrado/.test(e.message));
+});

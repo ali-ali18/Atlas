@@ -3,7 +3,7 @@ import posix from "node:path/posix";
 import { applyUnifiedDiff, unifiedDiff } from "./diff.mjs";
 import { confinePath, WORKSPACE } from "./path-guard.mjs";
 import { RETURN_CAP_BYTES } from "./output-buffer.mjs";
-import { applyMatches, findMatches, listLines } from "./edit-match.mjs";
+import { applyMatches, describeSimilarRegions, findMatches, listLines } from "./edit-match.mjs";
 
 export const READ_MAX_BYTES = 2 * 1024 * 1024;
 export const WRITE_MAX_BYTES = 10 * 1024 * 1024;
@@ -160,10 +160,11 @@ export function createFileApi(options = {}) {
 				if (oldText === newText) throw new FileError("old e new são iguais; nada a mudar");
 				const found = findMatches(file.text, oldText, newText);
 				if (found.matches.length === 0) {
-					if (newText.trim() !== "" && file.text.includes(newText)) {
+					if (newText.trim().length >= 8 && file.text.includes(newText)) {
 						throw new FileError("old não foi encontrado, mas new já está no arquivo: a edição parece já aplicada. Leia o trecho atual (read_file) antes de repetir.", 409);
 					}
-					throw new FileError("old não foi encontrado no arquivo. Leia o trecho atual (read_file) e copie o texto, com a indentação.", 409);
+					const similar = describeSimilarRegions(file.text, oldText);
+					throw new FileError(`old não foi encontrado no arquivo. Leia o trecho atual (read_file) e copie o texto, com a indentação.${similar ? `\n${similar}` : ""}`, 409);
 				}
 				if (found.strategy !== "exact" && input.replaceAll === true) {
 					throw new FileError("replace_all só vale quando old casa exatamente (aqui só casou com ajuste de espaço/indentação); copie o texto exato ou edite uma ocorrência por vez", 409);
