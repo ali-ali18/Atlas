@@ -12,6 +12,44 @@ function normalize(text: string): string {
 
 const URL_OR_DOMAIN = /https?:\/\/|\bwww\.|\b[a-z0-9-]+\.(com|org|net|io|gov|edu|app|dev|co|ai)(\.[a-z]{2})?\b/;
 
+/**
+ * Pedido de código ou repositório (grupo `dev`): vocabulário de repo, caminho de arquivo de código,
+ * stack trace e "corrige/cria/renomeia" + alvo de código. Palavra solta de documento ("arquivo",
+ * "erro", "corrige o texto") não casa; o que escapar o modelo carrega por `mcp_tool_search`.
+ */
+const CODE_EXT = "tsx?|jsx?|mjs|cjs|py|go|rs|java|kt|rb|php|cpp|swift|vue|svelte|sql|sh";
+const FIX_VERB = String.raw`(?:corrig\w+|consert\w+|arrum\w+|resolv\w+|debug\w*|depur\w+|fix\w*|troubleshoot\w*)`;
+const EDIT_VERB = String.raw`(?:cri[ae]\w*|adicion\w+|implement\w+|refator\w+|renome\w+|escrev\w+|edit\w+|ajust\w+|add|create|implement|refactor|rename|write|edit|update)`;
+const ART = String.raw`(?:(?:o|a|os|as|um|uma|esse|essa|este|esta|the|this|that|an?|my|meu|minha|novo|nova|new) )*`;
+const CODE_NOUN = String.raw`(?:funcao|metodo|variavel|endpoint|componente|hook|modulo|function|method|variable|component|module)`;
+const NOT_CODE_CODIGO = String.raw`(?! (?:de |do |da )?(?:barras?|postal|verificacao|acesso|rastre\w+|seguranca|confirmacao|promo\w*|desconto|cupom|pix|cep|boleto|banco|area|ibge|cnae)\b)`;
+const DEV_PARTS = [
+	// Vocabulário de repositório e ferramentas.
+	String.raw`repo(?:sitorio)?s?|pull requests?|prs?|branch(?:es)?|commits?|merge|pnpm|npm (?:run|install|test)|yarn|typecheck|lint(?:er)?|compil\w+|refator\w+|refactor\w*|bugs?|unit tests?|testes? (?:unitari\w+|automatizad\w+)|rod(?:a|ar|e) (?:os |a )?(?:testes|suite)|testa(?:r)? (?:o |a |os |as )?(?:ultim\w+|repo\w*|commits?|pr|codigo|projeto)|(?:build|compila\w*) (?:do|da|de|o|a) (?:repo\w*|projeto|codigo)|run (?:the )?tests|source code|implement\w+ (?:a |o |uma? )?(?:feature|funcionalidade|endpoint|funcao|function)`,
+	// "codigo" de código-fonte, não de barras/postal/verificação.
+	String.raw`codigo(?: fonte)?${NOT_CODE_CODIGO}`,
+	// Caminho ou nome de arquivo de código (node.js, next.js etc. são nomes de tecnologia, não arquivo).
+	String.raw`(?!(?:node|next|vue|react|nuxt|three|express|chart|d3|alpine)\.js\b)[\w/-]+\.(?:${CODE_EXT})(?::\d+)?`,
+	String.raw`(?:package|tsconfig)\.json|docker-compose\.ya?ml|dockerfile|pnpm-lock`,
+	// Formato de stack trace e erro de ferramenta.
+	String.raw`at [\w.$<>]+ \([^)]*:\d+(?::\d+)?\)|traceback \(most recent|file "[^"]+", line \d+|stack ?trace|\w+(?:error|exception):|unhandled (?:exception|rejection)|cannot find module|module not found|is not a function|is not defined|undefined is not|null ?pointer|segmentation fault|npm err!|panic:|assertionerror`,
+	// Corrige/resolve + alvo de código (o "erro" só vale perto de código).
+	String.raw`${FIX_VERB}\b[^.!?\n]{0,40}\b(?:bugs?|build|lint|typecheck|crash|codigo|funcao|metodo|exception|compilacao|failing)`,
+	String.raw`${FIX_VERB}\b[^.!?\n]{0,30}\b(?:erros?|errors?|issues?|falhas?)\b[^.!?\n]{0,40}\b(?:funcao|metodo|classe|codigo|endpoint|build|compilacao|teste|test|api|servidor|server|query|script|componente|modulo|function|method|class|code|typescript|javascript|python)`,
+	String.raw`${FIX_VERB} ${ART}(?:testes?|tests?)(?! (?:de|do|da|of) )`,
+	String.raw`(?:build|ci|pipeline|compilacao)\b[^.!?\n]{0,25}\b(?:quebr\w+|falh\w+|fail\w*|broken|vermelh\w+)`,
+	String.raw`testes? (?:que )?(?:quebr\w+|falh\w+|nao passa\w*|fail\w*)|(?:tests?|specs?) (?:is |are )?(?:fail\w*|broken)`,
+	// Cria/edita + função, método, endpoint, variável, classe...
+	String.raw`${EDIT_VERB} ${ART}${CODE_NOUN}`,
+	String.raw`(?:refator\w+|renome\w+|implement\w+|corrig\w+|consert\w+|arrum\w+|ajust\w+|edit\w+|refactor|rename|fix|implement|update) ${ART}(?:classe|class|interface)`,
+	String.raw`(?:adicion\w+|add)\b[^.!?\n]{0,30}\b(?:na|no|em|to|in) ${ART}(?:classe|class|funcao|function|modulo|module)`,
+	// Pergunta sobre o próprio código, git e dependências.
+	String.raw`por ?que ${ART}(?:codigo|funcao|metodo|script|programa|build|teste|query|componente|endpoint)|why (?:does|is|do|are) ${ART}(?:code|function|method|script|program|build|test|query|component|endpoint)`,
+	String.raw`git (?:status|diff|log|stash|rebase|checkout|pull|push|clone|blame|reset|cherry-pick)`,
+	String.raw`(?:instal\w+|install) ${ART}(?:dependencias|dependencies|packages|pacotes)`,
+];
+const DEV_PATTERN = new RegExp(String.raw`(?<![\w-])(?:${DEV_PARTS.join("|")})(?!\w)`);
+
 const PATTERNS: Array<[ContextGroup, RegExp]> = [
 	[
 		"routines",
@@ -66,10 +104,7 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 		"shell",
 		/\b(scripts?|shell|bash|terminal|python|playwright|curl|em lote|bulk|baix(a|ar|e) (todos|todas|os|as)|download (de )?(todos|todas)|todos os (pdfs?|arquivos|cursos|materiais)|todas as (disciplinas|materias|aulas|semanas|paginas)|scrap\w*|extrair (tudo|todos|todas)|ava|moodle|lms|classroom)\b/,
 	],
-	[
-		"dev",
-		/\b(repo(sitorio)?s?|pull requests?|prs?|branch(es)?|commits?|merge|pnpm|npm (run|install|test)|yarn|typecheck|lint(er)?|compil\w+|refator\w+|refactor\w*|bugs?|unit tests?|testes? (unitari\w+|automatizad\w+)|rod(a|ar|e) (os |a )?(testes|suite)|testa(r)? (o |a |os |as )?(ultim\w+|repo\w*|commits?|pr|codigo|projeto)|(build|compila\w*) (do|da|de|o|a) (repo\w*|projeto|codigo)|run (the )?tests|codigo( fonte)?|source code|implement\w+ (a |o |uma? )?(feature|funcionalidade|endpoint|funcao|function))\b/,
-	],
+	["dev", DEV_PATTERN],
 	[
 		"desktop",
 		/\b(desktop|area de trabalho|xdotool|libreoffice|aplicativos? (de )?desktop|janelas? do (sistema|desktop)|arrast\w+|drag(ging)?|coordenadas?|coordinates)\b/,
