@@ -18,6 +18,13 @@ test("idioma do bot vira BCP-47; desconhecido cai em pt-BR", () => {
 	assert.equal(speechLangFor("xx"), "pt-BR");
 });
 
+test("idioma 'auto' usa o idioma do navegador quando suportado; senão pt-BR", () => {
+	assert.equal(speechLangFor("auto", "en-GB"), "en-US");
+	assert.equal(speechLangFor("auto", "es-MX"), "es-ES");
+	assert.equal(speechLangFor("auto", "fr-FR"), "pt-BR");
+	assert.equal(speechLangFor("auto", ""), "pt-BR");
+});
+
 test("mergeDictation anexa com espaço e trata vazios", () => {
 	assert.equal(mergeDictation("", "olá"), "olá");
 	assert.equal(mergeDictation("   ", " olá "), "olá");

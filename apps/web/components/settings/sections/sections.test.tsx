@@ -45,13 +45,19 @@ test("Geral: idioma definido pelo usuário mostra o idioma, não 'Herdar'", () =
 	assert.doesNotMatch(html, /Herdar: padrão/);
 });
 
-test("Geral: opções = Herdar + idiomas dos bots (mesma lista do seletor do bot)", () => {
+test("Geral: opções = Herdar + Automático + idiomas dos bots (mesma lista do seletor do bot)", () => {
 	const options = languageOptions({ value: "pt-BR", source: "env" });
 	assert.deepEqual(
 		options.map((option) => option.value),
-		["inherit", "pt-BR", "en-US", "es-ES"],
+		["inherit", "auto", "pt-BR", "en-US", "es-ES"],
 	);
 	assert.equal(options[0]!.label, "Herdar (pt-BR)");
+	assert.equal(options[1]!.label, "Automático");
+});
+
+test("Geral: padrão herdado 'auto' aparece como Automático, nunca como 'auto'", () => {
+	assert.equal(languageOptions({ value: "auto", source: "env" })[0]!.label, "Herdar (Automático)");
+	assert.match(general({ language: { value: "auto", source: "user" } }), /Automático/);
 });
 
 test("Geral: carregando desabilita o idioma; falha de carga e de salvar aparecem como alerta", () => {

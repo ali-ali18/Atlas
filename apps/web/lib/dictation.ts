@@ -1,4 +1,4 @@
-import type { BotLanguage } from "@workspace/shared";
+import { matchBotLanguage, type BotLanguage } from "@workspace/shared";
 
 /** Teto do ditado: 2 minutos. */
 export const MAX_DICTATION_MS = 120_000;
@@ -15,8 +15,15 @@ const SPEECH_LANGS: Record<BotLanguage, string> = {
 	"es-ES": "es-ES",
 };
 
-/** Idioma do bot -> tag BCP-47 do reconhecimento de fala (padrão pt-BR). */
-export function speechLangFor(language: string | null | undefined): string {
+/**
+ * Idioma do bot -> tag BCP-47 do reconhecimento de fala (padrão pt-BR). Em "auto" não há idioma fixo:
+ * usa o do navegador, se for um dos suportados.
+ */
+export function speechLangFor(
+	language: string | null | undefined,
+	browserLanguage: string | undefined = typeof navigator === "undefined" ? undefined : navigator.language,
+): string {
+	if (language === "auto") return SPEECH_LANGS[matchBotLanguage(browserLanguage) ?? "pt-BR"];
 	return SPEECH_LANGS[language as BotLanguage] ?? "pt-BR";
 }
 

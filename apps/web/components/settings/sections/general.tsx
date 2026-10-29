@@ -8,7 +8,7 @@ import {
 	type SettingsPickerOption,
 	withOptionIcons,
 } from "@/components/ui/templates/template-4/settings-picker";
-import { BOT_LANGUAGE_OPTIONS } from "@/lib/bot-language";
+import { BOT_LANGUAGE_AUTO_LABEL, BOT_LANGUAGE_SETTING_OPTIONS } from "@/lib/bot-language";
 import type { useAccountSettings } from "@/hooks/use-account-settings";
 import { type SaveStatus, inheritLabel } from "../account-settings-state";
 import { SaveIndicator, SettingRow, SettingsGroup } from "../setting-row";
@@ -31,10 +31,10 @@ type LanguageChoice = BotLanguageSetting | typeof INHERIT;
 export function languageOptions(
 	language: Resolved<BotLanguageSetting>,
 ): SettingsPickerOption<LanguageChoice>[] {
-	const inherit = inheritLabel(language.source, language.value) ?? "Herdar do servidor";
+	const inherit = inheritLabel(language.source, language.value === "auto" ? BOT_LANGUAGE_AUTO_LABEL : language.value) ?? "Herdar do servidor";
 	return [
 		{ value: INHERIT, label: inherit },
-		...BOT_LANGUAGE_OPTIONS.map((option) => ({ value: option.id, label: option.label })),
+		...BOT_LANGUAGE_SETTING_OPTIONS.map((option) => ({ value: option.id, label: option.label })),
 	];
 }
 
