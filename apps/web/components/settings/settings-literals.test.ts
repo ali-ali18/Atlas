@@ -30,6 +30,7 @@ const TRANSLATED = [
 	"components/settings/sections/jev.tsx",
 	"components/settings/vault-state.ts",
 	"components/settings/sections/vault.tsx",
+	"components/settings/sections/dev-environments.tsx",
 ];
 
 const ACCENTED = /[áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]/;
