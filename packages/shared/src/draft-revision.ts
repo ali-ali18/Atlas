@@ -22,6 +22,8 @@ export const DRAFT_REVISION_REASONS = [
 	"timeout",
 	/** O rascunho afirmava o que a tela mostra sem ter olhado a tela depois da última ação. */
 	"unverified_screen",
+	/** Run de código: o rascunho dava o trabalho por pronto com edição sem teste, typecheck, lint ou build depois. */
+	"unverified_work",
 ] as const;
 
 export type DraftRevisionReason = (typeof DRAFT_REVISION_REASONS)[number];
@@ -35,6 +37,7 @@ const LABELS: Record<DraftRevisionReason, string> = {
 	exhaustion: "uma fonte ficou sem créditos e o trabalho seguiu por outra via",
 	timeout: "o passo demorou demais e foi refeito",
 	unverified_screen: "eu ainda não tinha conferido a tela",
+	unverified_work: "eu ainda não tinha rodado os testes das mudanças",
 };
 
 /** Motivo curto (pt-BR) mostrado no rascunho recolhido. Motivo desconhecido (evento antigo) → genérico. */

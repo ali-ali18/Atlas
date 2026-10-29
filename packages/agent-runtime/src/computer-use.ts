@@ -14,7 +14,7 @@ import { buildStableSystemPrompt, buildSystemPrompt, swapLanguageInstruction } f
 import { namespaceToolCallId, renameProviderItemCallIds } from "./context/transcript.js";
 import { triageUserMessage, type TriageHistoryEntry } from "./loop/message-triage.js";
 import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } from "./loop/interrupt.js";
-import { createDevVerificationTracker } from "./execution/dev-verification.js";
+import { createDevVerificationTracker, VERIFY_BEFORE_DONE_NOTE } from "./execution/dev-verification.js";
 import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MAX_ANSWER_REVISIONS_PER_RUN, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
 import { detectLoginWall, describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
@@ -8685,6 +8685,16 @@ ${blockHint}`;
 						await persistCheckpoint(step + 1);
 						continue;
 					}
+				}
+				// Run de código que quer terminar com arquivo editado e nenhum teste/typecheck/lint/build que passou depois:
+				// uma cutucada para verificar (ou dizer por que não deu). O texto não é reescrito. Usa a revisão única do run.
+				if (!isSubagent && canReviseAnswer && codingRun && params.origin !== "webhook" && devVerification.hasUnverifiedEdits()) {
+					answerRevisions += 1;
+					await onEvent({ type: "assistant_discard", id: stepId, reason: "unverified_work" });
+					conversation.push({ role: "assistant", content: text });
+					conversation.push({ role: "system", content: VERIFY_BEFORE_DONE_NOTE });
+					await persistCheckpoint(step + 1);
+					continue;
 				}
 				// Afirmou o que a tela mostra ("entrou", "painel logado") sem ter olhado a tela depois da última ação, ou a
 				// última página vista é em branco/login: uma revisão para conferir antes de afirmar.

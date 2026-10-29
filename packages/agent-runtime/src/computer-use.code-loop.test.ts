@@ -68,6 +68,7 @@ type Harness = {
 async function run(queue: CompleteChatWithToolsResult[], h: Harness = {}) {
 	const requests: LlmMessage[][] = [];
 	const toolResults: Array<{ name: string; ok: boolean; summary: string }> = [];
+	const discards: Array<{ reason?: string }> = [];
 	const execStarts: string[] = [];
 	let editCalls = 0;
 	let probes = 0;
@@ -124,6 +125,7 @@ async function run(queue: CompleteChatWithToolsResult[], h: Harness = {}) {
 		devSession,
 		onEvent: (event) => {
 			if (event.type === "tool_result") toolResults.push(event as never);
+			if (event.type === "assistant_discard") discards.push(event as never);
 		},
 		streamChat: async (params) => {
 			requests.push(params.messages.map((m) => ({ ...m })));
@@ -138,7 +140,7 @@ async function run(queue: CompleteChatWithToolsResult[], h: Harness = {}) {
 			return next;
 		},
 	} as Parameters<typeof runComputerUse>[0]);
-	return { result, requests, toolResults, execStarts, client, probes: () => probes };
+	return { result, requests, toolResults, execStarts, client, discards, probes: () => probes };
 }
 
 const edit = (id: string, path = "a.ts", old = "x") => call(id, "edit_file", { path, old, new: "y" });
@@ -150,10 +152,11 @@ describe("edição que não casa não bloqueia a tool no run", () => {
 				...Array.from({ length: 6 }, (_, i) => step(edit(`e${i}`, "a.ts", `anchor ${i}`))),
 				step(edit("e6", "a.ts", "anchor certo")),
 				text("Corrigido."),
+				text("Corrigido, sem rodar teste nesta sessão."),
 			],
 			{ editFails: (n) => n < 7 },
 		);
-		expect(result.text).toBe("Corrigido.");
+		expect(result.text).toBe("Corrigido, sem rodar teste nesta sessão.");
 		expect(client.patchFile).toHaveBeenCalledTimes(7);
 		expect(toolResults.some((r) => /indisponível neste run/.test(r.summary))).toBe(false);
 		expect(toolResults[6]).toMatchObject({ name: "edit_file", ok: true });
@@ -218,7 +221,7 @@ describe("limite brando não encerra run de código com trabalho sem verificar",
 
 	it("verificação que falhou (exit 1) não conta: continua estendendo", async () => {
 		const { probes } = await run(
-			[step(edit("e1")), step(testShell("t1")), step(call("r1", "read_file", { path: "a.ts" })), text("Corrigi o que faltava.")],
+			[step(edit("e1")), step(testShell("t1")), step(call("r1", "read_file", { path: "a.ts" })), text("Corrigi o que faltava."), text("Sem verificar: o teste falha.")],
 			{ budget: SOFT, exec: () => exited(1, "1 failed") },
 		);
 		expect(probes()).toBe(0);
@@ -237,5 +240,52 @@ describe("limite brando não encerra run de código com trabalho sem verificar",
 		const queue = Array.from({ length: 12 }, (_, i) => step(edit(`e${i}`, `f${i}.ts`)));
 		const error = await run(queue, { budget: { softMaxSteps: 3, hardMaxSteps: 6, extensionSteps: 10 } }).catch((e: unknown) => e);
 		expect(String((error as Error).message ?? error)).toMatch(/limite de 6 passos/);
+	});
+});
+
+const NUDGE = /have not run a test, typecheck, lint or build that passed since your last edit/;
+/** Notas de verificação vistas pelo modelo na última chamada (a nota fica na conversa dali em diante). */
+const systemNotes = (requests: LlmMessage[][]) => (requests[requests.length - 1] ?? []).filter((m) => m.role === "system" && NUDGE.test(String(m.content)));
+
+describe("verificar antes de dar o trabalho por pronto", () => {
+	it("resposta final com edição sem verificar volta ao modelo uma vez; depois de verificar ele fecha", async () => {
+		const { result, requests, discards, execStarts } = await run(
+			[step(edit("e1")), text("Pronto, corrigi."), step(testShell("t1")), text("Corrigi e `pnpm test` passou.")],
+			{ exec: () => exited(0, "ok") },
+		);
+		expect(result.text).toBe("Corrigi e `pnpm test` passou.");
+		expect(execStarts).toEqual(["pnpm test"]);
+		// A nota entra uma única vez, depois do rascunho (que fica como está, sem ser reescrito).
+		expect(systemNotes(requests)).toHaveLength(1);
+		const withNote = requests.find((messages) => messages.some((m) => NUDGE.test(String(m.content))))!;
+		const at = withNote.findIndex((m) => NUDGE.test(String(m.content)));
+		expect(withNote[at - 1]).toMatchObject({ role: "assistant", content: "Pronto, corrigi." });
+		expect(discards.map((d) => d.reason)).toEqual(["unverified_work"]);
+	});
+
+	it("no máximo uma vez: se o modelo termina sem verificar, a resposta sai como está", async () => {
+		const { result, requests, discards } = await run([step(edit("e1")), text("Pronto, corrigi."), text("Segue sem testar, não consegui rodar.")]);
+		expect(result.text).toBe("Segue sem testar, não consegui rodar.");
+		expect(systemNotes(requests)).toHaveLength(1);
+		expect(discards).toHaveLength(1);
+	});
+
+	it("com verificação que passou depois da edição não há nota", async () => {
+		const { result, requests, discards } = await run([step(edit("e1")), step(testShell("t1")), text("Corrigi; testes passam.")], { exec: () => exited(0, "ok") });
+		expect(result.text).toBe("Corrigi; testes passam.");
+		expect(systemNotes(requests)).toHaveLength(0);
+		expect(discards).toHaveLength(0);
+	});
+
+	it("teste que falhou não conta como verificado: há nota", async () => {
+		const { requests } = await run([step(edit("e1")), step(testShell("t1")), text("Acho que está bom."), text("Os testes falham: 1 failed.")], { exec: () => exited(1, "1 failed") });
+		expect(systemNotes(requests)).toHaveLength(1);
+	});
+
+	it("sem edição (só leitura) ou sem sessão de código, não há nota", async () => {
+		const readOnly = await run([step(call("r1", "read_file", { path: "a.ts" })), text("O bug está na linha 1.")]);
+		expect(systemNotes(readOnly.requests)).toHaveLength(0);
+		const noSession = await run([text("Olá!")], { active: false });
+		expect(systemNotes(noSession.requests)).toHaveLength(0);
 	});
 });
