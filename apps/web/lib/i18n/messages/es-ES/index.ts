@@ -3,6 +3,7 @@ import type { MessageDictionary } from "../../translator";
 import { aiElements } from "./aiElements";
 import { app } from "./app";
 import { autonomy } from "./autonomy";
+import { botActions } from "./botActions";
 import { botSettings } from "./botSettings";
 import { chat } from "./chat";
 import { chatExtras } from "./chatExtras";
@@ -17,6 +18,8 @@ import { libraryPanel } from "./libraryPanel";
 import { login } from "./login";
 import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
+import { modelPicker } from "./modelPicker";
+import { providerCallback } from "./providerCallback";
 import { routines } from "./routines";
 import { settings } from "./settings";
 import { settingsComposio } from "./settingsComposio";
@@ -40,6 +43,7 @@ export const esES: MessageDictionary = {
 	...aiElements,
 	...app,
 	...autonomy,
+	...botActions,
 	...botSettings,
 	...chat,
 	...chatExtras,
@@ -54,6 +58,8 @@ export const esES: MessageDictionary = {
 	...login,
 	...marketplace,
 	...mobile,
+	...modelPicker,
+	...providerCallback,
 	...routines,
 	...settings,
 	...settingsComposio,

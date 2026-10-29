@@ -1,0 +1,21 @@
+/** Avisos de ações da lista de bots que o servidor recusou (a tela volta ao que estava) e o rótulo do ponto do avatar. Prefixo: `botActions.`. */
+export const botActions = {
+	"botActions.pinFailed": "Não deu para fixar o {name}. Tente de novo.",
+	"botActions.unpinFailed": "Não deu para desafixar o {name}. Tente de novo.",
+	"botActions.reorderFailed": "Não deu para reordenar o {name}. Tente de novo.",
+	"botActions.sectionMoveFailed": "Não deu para mover o {name} de sessão. Tente de novo.",
+	"botActions.modelFailed": "Não deu para trocar o modelo do {name}. Tente de novo.",
+	"botActions.primarySetFailed": "Não deu para definir o {name} como principal. Tente de novo.",
+	"botActions.primaryUnsetFailed": "Não deu para tirar o {name} de principal. Tente de novo.",
+	"botActions.notifyFailed": "Não deu para salvar as notificações do {name}. Tente de novo.",
+	"botActions.markUnreadFailed": "Não deu para marcar a conversa do {name} como não lida.",
+	"botActions.markReadFailed": "Não deu para marcar a conversa do {name} como lida.",
+	"botActions.deleteFailed": "Não deu para apagar o {name}. Tente de novo.",
+	"botActions.section.createFailed": "Não deu para criar a sessão. Tente de novo.",
+	"botActions.section.renameFailed": "Não deu para renomear a sessão. Tente de novo.",
+	"botActions.section.reorderFailed": "Não deu para mudar a ordem das sessões. Tente de novo.",
+	"botActions.section.deleteFailed": "Não deu para apagar a sessão. Tente de novo.",
+	"botActions.avatar.working": "Trabalhando",
+	"botActions.avatar.unread": "Não lida",
+	"botActions.avatar.labeled": "{label}: {status}",
+} as const;

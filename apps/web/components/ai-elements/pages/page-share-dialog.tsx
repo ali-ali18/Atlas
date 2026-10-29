@@ -17,8 +17,6 @@ export type PageShareApi = {
 
 const defaultApi: PageShareApi = { get: getPageShare, create: createPageShare, revoke: revokePageShare };
 
-/** Texto em pt-BR (idioma-fonte); a tela mostra `share.publicLinkWarning`. */
-export const PUBLIC_LINK_WARNING = "Qualquer pessoa com o link vê este painel e as atualizações dele.";
 
 export type ShareState = { kind: "loading" } | { kind: "ready"; active: boolean; url: string | null } | { kind: "error"; message: string };
 

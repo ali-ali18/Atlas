@@ -1,5 +1,6 @@
 import type { OpenRouterModel, ProviderModel } from "@workspace/shared";
 import { recommendedModels } from "@workspace/shared";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 
 /** Provedor pelo prefixo do id (chatgpt/, anthropic-direct/, opencode-go/); o resto é OpenRouter. */
 export function pickerProviderOf(id: string): ProviderModel["provider"] {
@@ -11,9 +12,9 @@ export function pickerProviderOf(id: string): ProviderModel["provider"] {
 /** Nome do grupo no seletor, por provedor de chave própria. */
 export const KEY_GROUP_LABEL = { anthropic: "Anthropic", "opencode-go": "OpenCode Go" } as const;
 /** "via OpenCode Go" / "via Anthropic" para modelos de chave própria; vazio nos demais (o vendor já é o nome). */
-export function pickerViaLabel(id: string): string | null {
+export function pickerViaLabel(id: string, { t }: Translator = defaultTranslator): string | null {
 	const provider = pickerProviderOf(id);
-	return provider === "anthropic" || provider === "opencode-go" ? `via ${KEY_GROUP_LABEL[provider]}` : null;
+	return provider === "anthropic" || provider === "opencode-go" ? t("modelPicker.via", { provider: KEY_GROUP_LABEL[provider] }) : null;
 }
 /** Ícone (marca) do provedor no seletor. */
 export function pickerLogoOf(model: Pick<ProviderModel, "id" | "provider" | "vendor">): string {

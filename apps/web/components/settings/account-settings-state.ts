@@ -12,7 +12,6 @@ import { defaultTranslator, type TFunction } from "@/lib/i18n/translator";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-export const SAVE_ERROR_FALLBACK = "Não foi possível salvar. Tente novamente.";
 
 /**
  * Rótulo curto da opção "Herdar" com o valor herdado ("Herdar (pt-BR)"). A origem

@@ -43,9 +43,6 @@ export function composioDisconnectLabel(noAuth: boolean | undefined, { t }: Tran
 
 export const composioNoAuthBadge = ({ t }: Translator = getActiveTranslator()): string => t("settings.composio.noAuthBadge");
 
-/** Texto fixo em pt-BR, mantido para quem ainda importa a constante (Marketplace); prefira `composioNoAuthBadge()`. */
-export const COMPOSIO_NO_AUTH_BADGE = "Sem login";
-
 export function nativeToolkitNote(toolkit: Pick<ComposioToolkitView, "nativeCatalogId">, { t }: Translator = getActiveTranslator()): string | null {
 	return toolkit.nativeCatalogId ? t("settings.composio.nativeNote") : null;
 }

@@ -72,6 +72,16 @@ test("textos fixos em pt-BR que as prévias pegaram não voltam", () => {
 		"components/ui/templates/template-4/chat-thread/message-reactions.tsx": [/"Reagir"/, /Buscar emoji"/, /Mais emojis/],
 		"components/ui/templates/template-4/new-group.tsx": [/>Criar novo Bot</, /Novo chat em grupo/, /aria-label="Sugestões"/],
 		"components/ui/templates/template-4/autonomy/autonomy-settings.tsx": [/Carregando autonomia/, /Herdar \(/],
+		"components/ui/templates/template-4/optimistic-actions.ts": [/Não deu para/],
+		"components/ui/templates/template-4/avatar-status.tsx": [/"Trabalhando"/, /"Não lida"/],
+		"components/providers/provider-callback.tsx": [/O login não foi concluído/, /providerErrorMessage/],
+		"components/providers/provider-callback-view.tsx": [/Conectando ao ChatGPT/, /Você já pode fechar/, /Voltar ao app\s*</, /Tentar de novo\s*</],
+		"components/model-picker.tsx": [/"Escolher modelo"/, /Buscar entre todos os provedores/],
+		"components/model-picker/provider-picker-options.tsx": [/"Modelo atual"/, /"Seus modelos"/, /Reconecte o ChatGPT nas/],
+		"components/model-picker/provider-model-list.tsx": [/Mostrar modelos de \$/, /"Resultados"/, /"Recomendados"/, /Nenhum outro modelo/, /Nenhum modelo encontrado/, /"ChatGPT \(plano\)"/, /Catálogo temporariamente/],
+		"components/ai-elements/pages/page-share-dialog.tsx": [/PUBLIC_LINK_WARNING/, /Qualquer pessoa com o link/],
+		"components/settings/account-settings-state.ts": [/SAVE_ERROR_FALLBACK/, /Não foi possível salvar/],
+		"components/settings/composio-state.ts": [/COMPOSIO_NO_AUTH_BADGE/],
 	}
 	for (const [file, patterns] of Object.entries(banned)) {
 		const source = readFileSync(join(process.cwd(), file), "utf8")
@@ -105,6 +115,7 @@ test("hooks e lib não escrevem mensagem de erro/estado em pt-BR direto (vem de 
 		"lib/dev-session/live-line.ts": [/return "Lendo arquivos"|: "Lendo arquivos"/, /"Buscando no código"/],
 		"lib/dev-session/reducer.ts": [/IDLE: "Concluída"/, /CREATING: "Preparando"/],
 		"lib/connector-accounts.ts": [/ANOTHER_ACCOUNT_HINT/, /`\$\{count\} contas`/],
+		"lib/provider-model-picker.ts": [/`via \$\{/],
 	}
 	for (const [file, patterns] of Object.entries(banned)) {
 		const source = readFileSync(join(process.cwd(), file), "utf8")

@@ -1,3 +1,5 @@
+import { getActiveTranslator } from "@/lib/i18n/active";
+import type { Translator } from "@/lib/i18n/translator";
 import type { Agent } from "./data";
 
 /**
@@ -5,26 +7,26 @@ import type { Agent } from "./data";
  * a tela muda na hora; se o servidor recusar, volta ao que estava e avisa em português claro.
  */
 
-export function pinFailureMessage(name: string, kind: "pin" | "unpin" | "reorder"): string {
-	if (kind === "pin") return `Não deu para fixar o ${name}. Tente de novo.`;
-	if (kind === "unpin") return `Não deu para desafixar o ${name}. Tente de novo.`;
-	return `Não deu para reordenar o ${name}. Tente de novo.`;
+export function pinFailureMessage(name: string, kind: "pin" | "unpin" | "reorder", { t }: Translator = getActiveTranslator()): string {
+	if (kind === "pin") return t("botActions.pinFailed", { name });
+	if (kind === "unpin") return t("botActions.unpinFailed", { name });
+	return t("botActions.reorderFailed", { name });
 }
 
-export const sectionFailureMessage = (name: string) => `Não deu para mover o ${name} de sessão. Tente de novo.`;
-export const modelFailureMessage = (name: string) => `Não deu para trocar o modelo do ${name}. Tente de novo.`;
-export const primaryFailureMessage = (name: string, value: boolean) =>
-	value ? `Não deu para definir o ${name} como principal. Tente de novo.` : `Não deu para tirar o ${name} de principal. Tente de novo.`;
-export const notifyFailureMessage = (name: string) => `Não deu para salvar as notificações do ${name}. Tente de novo.`;
-export const readFailureMessage = (name: string, unread: boolean) =>
-	unread ? `Não deu para marcar a conversa do ${name} como não lida.` : `Não deu para marcar a conversa do ${name} como lida.`;
-export const deleteBotFailureMessage = (name: string) => `Não deu para apagar o ${name}. Tente de novo.`;
-export const sectionActionFailureMessage = (action: "create" | "rename" | "reorder" | "delete") =>
+export const sectionFailureMessage = (name: string, { t }: Translator = getActiveTranslator()) => t("botActions.sectionMoveFailed", { name });
+export const modelFailureMessage = (name: string, { t }: Translator = getActiveTranslator()) => t("botActions.modelFailed", { name });
+export const primaryFailureMessage = (name: string, value: boolean, { t }: Translator = getActiveTranslator()) =>
+	t(value ? "botActions.primarySetFailed" : "botActions.primaryUnsetFailed", { name });
+export const notifyFailureMessage = (name: string, { t }: Translator = getActiveTranslator()) => t("botActions.notifyFailed", { name });
+export const readFailureMessage = (name: string, unread: boolean, { t }: Translator = getActiveTranslator()) =>
+	t(unread ? "botActions.markUnreadFailed" : "botActions.markReadFailed", { name });
+export const deleteBotFailureMessage = (name: string, { t }: Translator = getActiveTranslator()) => t("botActions.deleteFailed", { name });
+export const sectionActionFailureMessage = (action: "create" | "rename" | "reorder" | "delete", { t }: Translator = getActiveTranslator()) =>
 	({
-		create: "Não deu para criar a sessão. Tente de novo.",
-		rename: "Não deu para renomear a sessão. Tente de novo.",
-		reorder: "Não deu para mudar a ordem das sessões. Tente de novo.",
-		delete: "Não deu para apagar a sessão. Tente de novo.",
+		create: t("botActions.section.createFailed"),
+		rename: t("botActions.section.renameFailed"),
+		reorder: t("botActions.section.reorderFailed"),
+		delete: t("botActions.section.deleteFailed"),
 	})[action];
 
 export function pinChangeKind(before: Pick<Agent, "pinned">, after: Pick<Agent, "pinned">): "pin" | "unpin" | "reorder" {
