@@ -25,6 +25,7 @@ import {
 } from "../models-state";
 import { SaveIndicator, SettingRow, SettingsGroup } from "../setting-row";
 import { useT, useTranslations } from "@/lib/i18n/provider";
+import { modelTierLabel } from "@/lib/shared-labels";
 import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 
 export const TIER_CAPTION = defaultTranslator.t("settings.tiers.caption", { max: MAX_TIER_MODELS });
@@ -36,15 +37,11 @@ export const TIER_ROWS: ReadonlyArray<{ tier: ModelTier; itemId: string; icon: S
 ];
 
 const TIER_TEXT = {
-	easy: { label: "settings.tiers.easy.label", description: "settings.tiers.easy.description" },
-	medium: { label: "settings.tiers.medium.label", description: "settings.tiers.medium.description" },
-	hard: { label: "settings.tiers.hard.label", description: "settings.tiers.hard.description" },
+	easy: { description: "settings.tiers.easy.description" },
+	medium: { description: "settings.tiers.medium.description" },
+	hard: { description: "settings.tiers.hard.description" },
 } as const;
 
-/** Nome do nível (Fácil, Média, Difícil) no idioma da tela; o de `shared` é só pt-BR. */
-export function tierLabel(tier: ModelTier, { t }: Translator = defaultTranslator): string {
-	return t(TIER_TEXT[tier].label);
-}
 
 export const TIER_ITEM_IDS: readonly string[] = [...TIER_ROWS.map((row) => row.itemId), "modelos.classificador"];
 
@@ -145,7 +142,7 @@ export function TierRow({
 				caption={caption ? <p>{caption}</p> : null}
 				description={t(TIER_TEXT[row.tier].description)}
 				icon={row.icon}
-				label={tierLabel(row.tier, translator)}
+				label={modelTierLabel(row.tier, translator)}
 			/>
 			<div className="-mt-1 px-3.5 pb-2.5">{children}</div>
 		</div>
@@ -193,7 +190,7 @@ export function ModelTiersSettingsView({
 					>
 						{effective ? (
 							<TierModelsControl
-								label={tierLabel(row.tier, translator)}
+								label={modelTierLabel(row.tier, translator)}
 								list={userTierModels(effective.models.tiers, row.tier)}
 								models={models}
 								onChange={(list) => onChange(tierPatch(row.tier, list))}

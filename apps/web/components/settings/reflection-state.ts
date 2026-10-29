@@ -2,6 +2,7 @@ import { ORCHESTRATOR_MEMORY_OPTIONS } from "@workspace/shared";
 import type { ReflectionStatusView } from "@/lib/atlas-api";
 import { formatDate, formatNumber, formatTime } from "@/lib/format";
 import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
+import { reflectionFailureLabel } from "@/lib/shared-labels";
 
 type Last = NonNullable<ReflectionStatusView["last"]>;
 
@@ -30,10 +31,11 @@ export function reflectionStatusLabel(view: Pick<ReflectionStatusView, "active" 
 }
 
 /** "falhou · <motivo curto>"; registros antigos guardavam o texto cru do erro, então cortamos. */
-function failureLabel(detail: string | null, { t }: Translator): string {
+function failureLabel(detail: string | null, translator: Translator): string {
+	const { t } = translator;
 	const text = (detail ?? "").replace(/\s+/g, " ").trim();
 	if (!text) return t("settings.reflection.failed");
-	if (/OPENROUTER_API_KEY/i.test(text)) return t("settings.reflection.failedWith", { reason: t("settings.reflection.noApiKey") });
+	if (/OPENROUTER_API_KEY/i.test(text)) return t("settings.reflection.failedWith", { reason: reflectionFailureLabel("no_api_key", translator) });
 	return t("settings.reflection.failedWith", { reason: text.length > 70 ? `${text.slice(0, 69).trimEnd()}…` : text });
 }
 

@@ -97,12 +97,6 @@ export const settingsProviders = {
 	"settings.email.add": "Adicionar",
 
 	"settings.push.group": "Notificações no celular",
-	"settings.push.state.serverOff": "As notificações ainda não foram configuradas no servidor.",
-	"settings.push.state.unsupported": "Este navegador não recebe notificações push.",
-	"settings.push.state.needsInstall": "No iPhone, adicione o app à tela inicial (Compartilhar, Adicionar à Tela de Início) e abra por lá para ativar.",
-	"settings.push.state.denied": "As notificações estão bloqueadas neste navegador. Libere nas configurações do site para ativar.",
-	"settings.push.state.off": "Receba um aviso no celular quando um bot terminar ou precisar de você.",
-	"settings.push.state.on": "Ativadas neste aparelho.",
 	"settings.push.disable": "Desativar",
 	"settings.push.enable": "Ativar",
 	"settings.push.testHint": "Envia uma notificação para os seus aparelhos.",
@@ -112,8 +106,4 @@ export const settingsProviders = {
 	"settings.push.thisDevice": "Este aparelho",
 	"settings.push.failing": "com falhas",
 	"settings.push.removeAria": "Remover {device}",
-	"settings.push.now": "agora",
-	"settings.push.minutesAgo": "há {n} min",
-	"settings.push.hoursAgo": "há {n} h",
-	"settings.push.daysAgo": "há {n} d",
 } as const;

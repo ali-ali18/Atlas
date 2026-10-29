@@ -99,12 +99,6 @@ export const settingsProviders: NamespaceMessages<typeof ptBR> = {
 	"settings.email.add": "Add",
 
 	"settings.push.group": "Phone notifications",
-	"settings.push.state.serverOff": "Notifications have not been set up on the server yet.",
-	"settings.push.state.unsupported": "This browser does not receive push notifications.",
-	"settings.push.state.needsInstall": "On iPhone, add the app to the Home Screen (Share, Add to Home Screen) and open it from there to turn this on.",
-	"settings.push.state.denied": "Notifications are blocked in this browser. Allow them in the site settings to turn this on.",
-	"settings.push.state.off": "Get a phone alert when a bot finishes or needs you.",
-	"settings.push.state.on": "On for this device.",
 	"settings.push.disable": "Turn off",
 	"settings.push.enable": "Turn on",
 	"settings.push.testHint": "Sends a notification to your devices.",
@@ -114,8 +108,4 @@ export const settingsProviders: NamespaceMessages<typeof ptBR> = {
 	"settings.push.thisDevice": "This device",
 	"settings.push.failing": "failing",
 	"settings.push.removeAria": "Remove {device}",
-	"settings.push.now": "now",
-	"settings.push.minutesAgo": "{n} min ago",
-	"settings.push.hoursAgo": "{n} h ago",
-	"settings.push.daysAgo": "{n} d ago",
 };

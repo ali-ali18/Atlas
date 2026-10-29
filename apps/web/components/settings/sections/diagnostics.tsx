@@ -21,7 +21,6 @@ import {
 	checkLabel,
 	commitLabel,
 	failureKindLabel,
-	maintenanceJobLabel,
 	maintenanceSuccessLabel,
 	maintenanceTime,
 	missingFeaturesLabel,
@@ -33,6 +32,7 @@ import {
 	webVersion,
 } from "../diagnostics-state";
 import { formatDateTime, formatTime } from "@/lib/format";
+import { maintenanceJobLabel } from "@/lib/shared-labels";
 import { useTranslations } from "@/lib/i18n/provider";
 
 const statusClass = (ok: boolean) => (ok ? "text-foreground" : "text-destructive");

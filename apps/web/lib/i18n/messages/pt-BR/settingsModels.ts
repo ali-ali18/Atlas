@@ -35,11 +35,8 @@ export const settingsModels = {
 	"settings.models.warn.toolsAgent": "Este modelo não tem ferramentas; o agente não consegue agir com ele.",
 
 	"settings.tiers.caption": "Até {max} modelos por nível; o primeiro é o principal, os outros entram se ele falhar.",
-	"settings.tiers.easy.label": "Fácil",
 	"settings.tiers.easy.description": "Conversa e perguntas curtas.",
-	"settings.tiers.medium.label": "Média",
 	"settings.tiers.medium.description": "Consultas de dados, arquivos, conectores e navegador.",
-	"settings.tiers.hard.label": "Difícil",
 	"settings.tiers.hard.description": "Código, terminal, computador e tarefas longas.",
 	"settings.tiers.usesDefault": "Usa o modelo padrão.",
 	"settings.tiers.moveUpAria": "Subir {label} {n}",

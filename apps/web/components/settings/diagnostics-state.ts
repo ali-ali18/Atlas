@@ -84,18 +84,3 @@ export function maintenanceSuccessLabel(lastSuccessAt: string | null, translator
 	return lastSuccessAt ? translator.t("settings.diag.lastSuccess", { time: maintenanceTime(lastSuccessAt, translator.locale) }) : translator.t("settings.diag.noSuccess");
 }
 
-const JOB_KEYS = {
-	summary: "settings.diag.job.summary",
-	"memory-review": "settings.diag.job.memoryReview",
-	reflection: "settings.diag.job.reflection",
-	"connector-guide": "settings.diag.job.connectorGuide",
-	reviewer: "settings.diag.job.reviewer",
-	"memory-gate": "settings.diag.job.memoryGate",
-	"lesson-review": "settings.diag.job.lessonReview",
-	"skill-review": "settings.diag.job.skillReview",
-} as const;
-
-/** Nome da tarefa em segundo plano no idioma da tela (o rótulo de `shared` é só pt-BR). */
-export function maintenanceJobLabel(kind: keyof typeof JOB_KEYS, { t }: Translator = defaultTranslator): string {
-	return t(JOB_KEYS[kind]);
-}

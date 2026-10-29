@@ -37,11 +37,8 @@ export const settingsModels: NamespaceMessages<typeof ptBR> = {
 	"settings.models.warn.toolsAgent": "This model has no tools; the agent can't act with it.",
 
 	"settings.tiers.caption": "Up to {max} models per level; the first is the main one, the others step in if it fails.",
-	"settings.tiers.easy.label": "Easy",
 	"settings.tiers.easy.description": "Conversation and short questions.",
-	"settings.tiers.medium.label": "Medium",
 	"settings.tiers.medium.description": "Data lookups, files, connectors and browser.",
-	"settings.tiers.hard.label": "Hard",
 	"settings.tiers.hard.description": "Code, terminal, computer and long tasks.",
 	"settings.tiers.usesDefault": "Uses the default model.",
 	"settings.tiers.moveUpAria": "Move {label} {n} up",
