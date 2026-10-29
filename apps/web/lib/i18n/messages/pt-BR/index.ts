@@ -5,6 +5,7 @@ import { common } from "./common";
 import { composer } from "./composer";
 import { library } from "./library";
 import { login } from "./login";
+import { mobile } from "./mobile";
 import { settings } from "./settings";
 import { sidebar } from "./sidebar";
 import { ui } from "./ui";
@@ -16,6 +17,7 @@ export const ptBR = {
 	...composer,
 	...library,
 	...login,
+	...mobile,
 	...settings,
 	...sidebar,
 	...ui,

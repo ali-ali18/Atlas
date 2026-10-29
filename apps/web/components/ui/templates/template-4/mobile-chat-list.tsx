@@ -36,7 +36,7 @@ import {
 	SheetTitle,
 } from "@workspace/ui/components/sheet";
 import { authClient } from "@/lib/auth-client";
-import { useLocale } from "@/lib/i18n/provider";
+import { useLocale, useT, useTranslations } from "@/lib/i18n/provider";
 import { rowTime } from "@/lib/list-time";
 import { useListNow } from "@/lib/use-list-now";
 import { signOutAndRedirect } from "@/lib/sign-out";
@@ -107,6 +107,7 @@ function SectionNameField({
 	onCancel: () => void;
 	onCommit: (name: string) => void;
 }) {
+	const t = useT();
 	const done = useRef(false);
 	function finish(value: string) {
 		if (done.current) return;
@@ -117,7 +118,7 @@ function SectionNameField({
 	}
 	return (
 		<input
-			aria-label="Nome da sessão"
+			aria-label={t("sidebar.section.nameLabel")}
 			autoFocus
 			className="mb-1 h-11 w-full rounded-xl border border-border bg-card px-3 text-base font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
 			defaultValue={initial}
@@ -150,6 +151,7 @@ export function MobileSectionHeader({
 	onCommitRename: (name: string) => void;
 	onCancelRename: () => void;
 }) {
+	const t = useT();
 	const latest = useRef(onMenu);
 	latest.current = onMenu;
 	const press = useMemo(() => createLongPress(() => latest.current()), []);
@@ -181,7 +183,7 @@ export function MobileSectionHeader({
 				{name}
 			</h2>
 			<button
-				aria-label={`Ações da sessão ${name}`}
+				aria-label={t("mobile.sectionActions", { name })}
 				className="grid size-11 shrink-0 place-items-center rounded-full text-muted-foreground active:bg-card/60"
 				onClick={onMenu}
 				type="button"
@@ -194,9 +196,10 @@ export function MobileSectionHeader({
 
 /** Avatar da linha: o do bot, ou os dos membros empilhados quando é um grupo. */
 function RowAvatar({ agent, agents, size }: { agent: Agent; agents: readonly Agent[]; size: number }) {
+	const t = useT();
 	if (agent.members?.length) {
 		return (
-			<AvatarStatus botId={agent.id} label="Grupo" size={size} unread={agent.notifications}>
+			<AvatarStatus botId={agent.id} label={t("sidebar.groupLabel")} size={size} unread={agent.notifications}>
 				<GroupAvatar members={resolveGroupMembers(agent, agents)} ringClassName="ring-background" size={size} />
 			</AvatarStatus>
 		);
@@ -220,6 +223,7 @@ export function MobileBotRow({
 	onOpen: () => void;
 	onMenu: () => void;
 }) {
+	const t = useT();
 	const handlers = useBotPress(onOpen, onMenu);
 	const timeLabel = rowTime(agent, useListNow(), useLocale());
 	return (
@@ -248,7 +252,7 @@ export function MobileBotRow({
 				</span>
 				<span className="mt-1 flex items-center gap-2">
 					<span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-						{agent.lastMessage?.trim() || "Nenhuma mensagem ainda"}
+						{agent.lastMessage?.trim() || t("sidebar.noMessages")}
 					</span>
 				</span>
 			</span>
@@ -317,6 +321,8 @@ export function MobileChatList({
 	menuActions: AgentMenuActions;
 	sectionActions?: SectionActions;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const errorMode = listErrorMode({ loadError, loading, count: agents.length });
 	const [sectionMenuId, setSectionMenuId] = useState<string | null>(null);
 	const [renamingSectionId, setRenamingSectionId] = useState<string | null>(null);
@@ -375,7 +381,7 @@ export function MobileChatList({
 	const [searchOpen, setSearchOpen] = useState(false);
 	const searchInputRef = useRef<HTMLInputElement>(null);
 	const { data: session } = authClient.useSession();
-	const userName = session?.user.name || session?.user.email || "Conta";
+	const userName = session?.user.name || session?.user.email || t("sidebar.account");
 	useEffect(() => {
 		if (searchOpen) searchInputRef.current?.focus();
 	}, [searchOpen]);
@@ -406,7 +412,7 @@ export function MobileChatList({
 		}));
 	groups.push({
 		id: "unassigned",
-		name: "Sem sessão",
+		name: t("sidebar.section.none"),
 		agents: unpinned.filter(
 			(agent) =>
 				!agent.sectionId ||
@@ -420,7 +426,7 @@ export function MobileChatList({
 				<div className="flex min-h-11 items-center gap-3">
 					<DropdownMenu>
 						<DropdownMenuTrigger
-							aria-label={`Menu da conta de ${userName}`}
+							aria-label={t("mobile.accountMenu", { name: userName })}
 							className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
 						>
 							<UserAvatar
@@ -441,7 +447,7 @@ export function MobileChatList({
 							{(["main", "session"] as const).map((group) => (
 								<DropdownMenuGroup key={group}>
 									{group === "session" ? <DropdownMenuSeparator /> : null}
-									{accountMenuItems()
+									{accountMenuItems(translator)
 										.filter((item) => item.group === group)
 										.map((item) => (
 											<DropdownMenuItem
@@ -462,11 +468,11 @@ export function MobileChatList({
 						</DropdownMenuContent>
 					</DropdownMenu>
 					<h1 className="min-w-0 flex-1 truncate text-xl font-semibold">
-						Conversas
+						{t("mobile.conversations")}
 					</h1>
 					<div className="flex shrink-0 gap-2">
 						<Button
-							aria-label="Buscar conversas"
+							aria-label={t("mobile.searchConversations")}
 							className="size-11 rounded-full bg-card hover:bg-card/90"
 							onClick={() => setSearchOpen(true)}
 							size="icon"
@@ -479,7 +485,7 @@ export function MobileChatList({
 							onNewBot={onStartCreate}
 							onNewGroup={onStartCreateGroup}
 							trigger={
-								<Button aria-label="Novo bot ou grupo" className="size-11 rounded-full" size="icon">
+								<Button aria-label={t("sidebar.newBotOrGroup")} className="size-11 rounded-full" size="icon">
 									<PlusIcon className="size-6" />
 								</Button>
 							}
@@ -490,24 +496,24 @@ export function MobileChatList({
 			<main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-2 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
 				{loading ? (
 					<p className="py-10 text-center text-sm text-muted-foreground">
-						Carregando conversas…
+						{t("mobile.loading")}
 					</p>
 				) : null}
 				{errorMode !== "none" ? <ListLoadError mode={errorMode} onRetry={() => onRetryLoad?.()} /> : null}
 				{!loading && !loadError && agents.length === 0 ? (
 					<div className="py-16 text-center">
-						<p className="font-medium">Nenhuma conversa ainda</p>
+						<p className="font-medium">{t("mobile.emptyTitle")}</p>
 						<p className="mt-1 text-sm text-muted-foreground">
-							Crie um agente para começar.
+							{t("mobile.emptyBody")}
 						</p>
 						<Button className="mt-5 min-h-11" onClick={onStartCreate}>
-							<PlusIcon /> Criar agente
+							<PlusIcon /> {t("sidebar.empty.cta")}
 						</Button>
 					</div>
 				) : null}
 				{!loading && onOpenWork ? <ActiveWorkMobileRow onOpenItem={onOpenWork} /> : null}
 				{pinned.length > 0 ? (
-					<section aria-label="Agentes fixados" className="mb-7">
+					<section aria-label={t("mobile.pinned")} className="mb-7">
 						<div className="-mx-5 flex gap-4 overflow-x-auto px-5 pb-2">
 							{pinned.map((agent) => (
 								<MobilePinnedChip
@@ -576,13 +582,13 @@ export function MobileChatList({
 					<SheetTitle className="truncate px-5 pt-5 pb-2 text-base font-semibold">
 						{menuAgent
 							? menuStep === "sections"
-								? "Trocar de sessão"
+								? t("mobile.changeSection")
 								: menuAgent.name
 							: ""}
 					</SheetTitle>
 					{menuAgent && menuStep === "actions" ? (
 						<ul className="max-h-[70dvh] overflow-y-auto px-2 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-							{botActionItems(menuAgent, { canPickPrimary: menuActions.canPickPrimary }).map((item) => (
+							{botActionItems(menuAgent, { canPickPrimary: menuActions.canPickPrimary }, translator).map((item) => (
 								<li key={item.id}>
 									<button
 										className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-base active:bg-muted ${
@@ -609,10 +615,10 @@ export function MobileChatList({
 									}}
 									type="button"
 								>
-									<FolderPlusIcon className="size-5 shrink-0" /> Nova sessão…
+									<FolderPlusIcon className="size-5 shrink-0" /> {t("sidebar.menu.newSection")}
 								</button>
 							</li>
-							{sectionChoices(menuAgent, sections).map((choice) => (
+							{sectionChoices(menuAgent, sections, translator).map((choice) => (
 								<li key={choice.id ?? "none"}>
 									<button
 										className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-base active:bg-muted"
@@ -638,7 +644,7 @@ export function MobileChatList({
 									onClick={() => setMenuStep("actions")}
 									type="button"
 								>
-									<ArrowLeftIcon className="size-5 shrink-0" /> Voltar
+									<ArrowLeftIcon className="size-5 shrink-0" /> {t("common.back")}
 								</button>
 							</li>
 						</ul>
@@ -661,7 +667,7 @@ export function MobileChatList({
 					</SheetTitle>
 					{sectionMenu ? (
 						<ul className="px-2 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-							{sectionActionItems(sectionMenu.id, sections).map((item) => (
+							{sectionActionItems(sectionMenu.id, sections, translator).map((item) => (
 								<li key={item.id}>
 									<button
 										className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-base active:bg-muted disabled:opacity-40 ${
@@ -692,10 +698,10 @@ export function MobileChatList({
 					showCloseButton={false}
 					side="top"
 				>
-					<SheetTitle className="sr-only">Buscar conversas</SheetTitle>
+					<SheetTitle className="sr-only">{t("mobile.searchConversations")}</SheetTitle>
 					<header className="flex shrink-0 items-center gap-2 px-5 pt-[max(1.25rem,env(safe-area-inset-top))] pb-4">
 						<Button
-							aria-label="Voltar às conversas"
+							aria-label={t("mobile.backToConversations")}
 							className="size-11 shrink-0 rounded-full bg-card hover:bg-card/90"
 							onClick={closeSearch}
 							size="icon"
@@ -709,15 +715,15 @@ export function MobileChatList({
 							</InputGroupAddon>
 							<InputGroupInput
 								ref={searchInputRef}
-								aria-label="Buscar conversas"
+								aria-label={t("mobile.searchConversations")}
 								onChange={(event) => setQuery(event.target.value)}
-								placeholder="Buscar conversas"
+								placeholder={t("mobile.searchConversations")}
 								value={query}
 							/>
 						</InputGroup>
 						<DropdownMenu>
 							<DropdownMenuTrigger
-								aria-label="Filtrar busca"
+								aria-label={t("mobile.filterSearch")}
 								render={
 									<Button
 										className="size-11 shrink-0 rounded-full bg-card hover:bg-card/90"
@@ -730,16 +736,16 @@ export function MobileChatList({
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end">
 								<DropdownMenuCheckboxItem checked>
-									Nome
+									{t("mobile.filterName")}
 								</DropdownMenuCheckboxItem>
 								<DropdownMenuCheckboxItem disabled>
-									Mensagens
+									{t("mobile.filterMessages")}
 								</DropdownMenuCheckboxItem>
 								<DropdownMenuCheckboxItem disabled>
-									Arquivos
+									{t("mobile.filterFiles")}
 								</DropdownMenuCheckboxItem>
 								<DropdownMenuCheckboxItem disabled>
-									Rotinas
+									{t("mobile.filterRoutines")}
 								</DropdownMenuCheckboxItem>
 							</DropdownMenuContent>
 						</DropdownMenu>
@@ -747,12 +753,12 @@ export function MobileChatList({
 					<main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
 						{loading ? (
 							<p className="py-10 text-center text-sm text-muted-foreground">
-								Carregando conversas…
+								{t("mobile.loading")}
 							</p>
 						) : null}
 						{!loading && filtered.length === 0 ? (
 							<p className="py-10 text-center text-sm text-muted-foreground">
-								Nenhuma conversa encontrada.
+								{t("mobile.noResults")}
 							</p>
 						) : null}
 						{filtered.map((agent) => (

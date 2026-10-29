@@ -189,3 +189,15 @@ test("renomear troca o título por um campo com o nome atual", () => {
 	assert.match(html, /<input/);
 	assert.match(html, /value="Nova sessão"/);
 });
+
+test("menus da lista no celular saem no idioma da interface", async () => {
+	const { createTranslator } = await import("@/lib/i18n/translator");
+	const { loadMessages } = await import("@/lib/i18n/messages");
+	const en = createTranslator("en-US", await loadMessages("en-US"));
+	assert.deepEqual(accountMenuItems(en).map((item) => item.label), ["General settings", "Marketplace", "Providers", "Autonomy", "Sign out"]);
+	const labels = botActionItems({ pinned: false, notifications: true, isPrimary: false, members: [] }, {}, en).map((item) => item.label);
+	assert.deepEqual(labels, ["Open conversation", "Edit", "Pin", "Mark as read", "Copy conversation ID", "Change section", "Hide from list", "Delete"]);
+	const es = createTranslator("es-ES", await loadMessages("es-ES"));
+	assert.equal(sectionActionItems("a", [{ id: "a", order: 0 }], es)[0]?.label, "Renombrar");
+	assert.equal(sectionChoices({ sectionId: "a" }, [{ id: "a", name: "Trabajo", order: 0, collapsed: false } as never], es).at(-1)?.label, "Quitar de la sección");
+});

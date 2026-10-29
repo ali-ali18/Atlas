@@ -20,6 +20,7 @@ import {
 	type LucideIcon,
 } from "lucide-react";
 import type { Section } from "@workspace/shared";
+import { defaultTranslator } from "@/lib/i18n/translator";
 import type { Agent } from "./data";
 
 export const LONG_PRESS_MS = 500;
@@ -40,13 +41,13 @@ export type AccountMenuItem = {
 };
 
 /** Itens do dropdown do avatar na home mobile (mesmas ações do rodapé desktop). */
-export function accountMenuItems(): AccountMenuItem[] {
+export function accountMenuItems({ t } = defaultTranslator): AccountMenuItem[] {
 	return [
-		{ id: "settings", label: "Configurações gerais", group: "main", icon: SettingsIcon },
-		{ id: "marketplace", label: "Marketplace", group: "main", icon: StoreIcon },
-		{ id: "providers", label: "Provedores", group: "main", icon: KeyRoundIcon },
-		{ id: "autonomy", label: "Autonomia", group: "main", icon: GaugeIcon },
-		{ id: "logout", label: "Sair", group: "session", icon: LogOutIcon },
+		{ id: "settings", label: t("mobile.menu.settings"), group: "main", icon: SettingsIcon },
+		{ id: "marketplace", label: t("sidebar.marketplace"), group: "main", icon: StoreIcon },
+		{ id: "providers", label: t("mobile.menu.providers"), group: "main", icon: KeyRoundIcon },
+		{ id: "autonomy", label: t("sidebar.autonomy"), group: "main", icon: GaugeIcon },
+		{ id: "logout", label: t("sidebar.signOut"), group: "session", icon: LogOutIcon },
 	];
 }
 
@@ -75,27 +76,28 @@ export type BotActionItem = {
 export function botActionItems(
 	agent: Pick<Agent, "pinned" | "notifications" | "isPrimary" | "members">,
 	options: { canPickPrimary?: boolean } = {},
+	{ t } = defaultTranslator,
 ): BotActionItem[] {
 	const isGroup = (agent.members?.length ?? 0) > 0;
 	const primaryItems: BotActionItem[] = isGroup || !options.canPickPrimary
 		? []
 		: agent.isPrimary
-			? [{ id: "replace-primary", label: "Trocar Bot principal", icon: StarIcon }]
-			: [{ id: "set-primary", label: "Definir como Bot principal", icon: StarIcon }];
+			? [{ id: "replace-primary", label: t("sidebar.menu.changePrimary"), icon: StarIcon }]
+			: [{ id: "set-primary", label: t("sidebar.menu.setPrimary"), icon: StarIcon }];
 	return [
-		{ id: "open", label: "Abrir conversa", icon: MessageCircleIcon },
-		{ id: "edit", label: isGroup ? "Informações do grupo" : "Editar", icon: PencilIcon },
+		{ id: "open", label: t("mobile.menu.open"), icon: MessageCircleIcon },
+		{ id: "edit", label: isGroup ? t("sidebar.menu.groupInfo") : t("sidebar.menu.edit"), icon: PencilIcon },
 		...primaryItems,
 		agent.pinned
-			? { id: "unpin", label: "Desafixar", icon: PinOffIcon }
-			: { id: "pin", label: "Fixar", icon: PinIcon },
+			? { id: "unpin", label: t("sidebar.menu.unpin"), icon: PinOffIcon }
+			: { id: "pin", label: t("sidebar.menu.pin"), icon: PinIcon },
 		agent.notifications
-			? { id: "mark-read", label: "Marcar como lido", icon: MailOpenIcon }
-			: { id: "mark-unread", label: "Marcar como não lido", icon: MailIcon },
-		{ id: "copy-id", label: "Copiar ID da conversa", icon: CopyIcon },
-		{ id: "move", label: "Trocar de sessão", icon: FolderInputIcon },
-		{ id: "hide", label: "Ocultar da lista", icon: EyeOffIcon },
-		{ id: "delete", label: isGroup ? "Excluir grupo" : "Excluir", icon: Trash2Icon, destructive: true },
+			? { id: "mark-read", label: t("sidebar.menu.markRead"), icon: MailOpenIcon }
+			: { id: "mark-unread", label: t("sidebar.menu.markUnread"), icon: MailIcon },
+		{ id: "copy-id", label: t("sidebar.menu.copyId"), icon: CopyIcon },
+		{ id: "move", label: t("mobile.changeSection"), icon: FolderInputIcon },
+		{ id: "hide", label: t("mobile.menu.hide"), icon: EyeOffIcon },
+		{ id: "delete", label: isGroup ? t("sidebar.menu.deleteGroup") : t("sidebar.menu.delete"), icon: Trash2Icon, destructive: true },
 	];
 }
 
@@ -113,19 +115,20 @@ export type SectionActionItem = {
 export function sectionActionItems(
 	sectionId: string,
 	sections: Pick<Section, "id" | "order">[],
+	{ t } = defaultTranslator,
 ): SectionActionItem[] {
 	const ordered = [...sections].sort((a, b) => a.order - b.order);
 	const index = ordered.findIndex((section) => section.id === sectionId);
 	return [
-		{ id: "rename", label: "Renomear", icon: PencilIcon },
-		{ id: "move-up", label: "Mover para cima", icon: ArrowUpIcon, disabled: index <= 0 },
+		{ id: "rename", label: t("sidebar.section.rename"), icon: PencilIcon },
+		{ id: "move-up", label: t("sidebar.section.moveUp"), icon: ArrowUpIcon, disabled: index <= 0 },
 		{
 			id: "move-down",
-			label: "Mover para baixo",
+			label: t("sidebar.section.moveDown"),
 			icon: ArrowDownIcon,
 			disabled: index < 0 || index >= ordered.length - 1,
 		},
-		{ id: "delete", label: "Excluir", icon: Trash2Icon, destructive: true },
+		{ id: "delete", label: t("sidebar.section.delete"), icon: Trash2Icon, destructive: true },
 	];
 }
 
@@ -139,6 +142,7 @@ export type SectionChoice = {
 export function sectionChoices(
 	agent: Pick<Agent, "sectionId">,
 	sections: Section[],
+	{ t } = defaultTranslator,
 ): SectionChoice[] {
 	const ordered = [...sections].sort((a, b) => a.order - b.order);
 	const choices: SectionChoice[] = ordered.map((section) => ({
@@ -146,7 +150,7 @@ export function sectionChoices(
 		label: section.name,
 		current: agent.sectionId === section.id,
 	}));
-	if (agent.sectionId) choices.push({ id: null, label: "Remover da sessão", current: false });
+	if (agent.sectionId) choices.push({ id: null, label: t("sidebar.menu.removeFromSection"), current: false });
 	return choices;
 }
 
