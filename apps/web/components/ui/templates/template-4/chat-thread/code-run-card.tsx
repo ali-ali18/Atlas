@@ -9,7 +9,7 @@ import { cn } from "@workspace/ui/lib/utils";
 
 import { MarkdownCodeBlock } from "@/components/ai-elements/files/markdown-code-block";
 import { formatCodeRunDuration } from "@/lib/code-run";
-import { useT } from "@/lib/i18n/provider";
+import { useTranslations } from "@/lib/i18n/provider";
 
 const OUTPUT_PREVIEW_LINES = 12;
 const OUTPUT_PREVIEW_CHARS = 1200;
@@ -24,12 +24,13 @@ export type CodeRunCardProps = {
 
 /** Linha recolhível "Executou código · 1,2 s" com o Python e a saída; abre para conferir o que rodou. */
 export function CodeRunCard({ code, status, durationMs, output = "", defaultOpen = false }: CodeRunCardProps) {
-	const t = useT();
+	const translator = useTranslations();
+	const { t } = translator;
 	const [showAll, setShowAll] = useState(false);
 	const lines = output.split("\n");
 	const truncated = !showAll && (lines.length > OUTPUT_PREVIEW_LINES || output.length > OUTPUT_PREVIEW_CHARS);
 	const shown = truncated ? lines.slice(0, OUTPUT_PREVIEW_LINES).join("\n").slice(0, OUTPUT_PREVIEW_CHARS) : output;
-	const duration = durationMs !== undefined ? ` · ${formatCodeRunDuration(durationMs)}` : "";
+	const duration = durationMs !== undefined ? ` · ${formatCodeRunDuration(durationMs, translator)}` : "";
 	const label = status === "running" ? t("chat.code.running") : status === "error" ? t("chat.code.failed", { duration }) : t("chat.code.ran", { duration });
 
 	return (
