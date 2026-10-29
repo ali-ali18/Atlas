@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, chownSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { createOutputBuffer, RETURN_CAP_BYTES } from "./output-buffer.mjs";
@@ -19,8 +21,11 @@ export const SPILL_THRESHOLD_BYTES = 30_000;
 export const SPILL_MAX_BYTES = 64 * 1024 * 1024;
 export const SPILL_MAX_AGE_MS = 7 * 24 * 3_600_000;
 const SPILL_REL_DIR = join(".agent", "output");
-// Estado do shell entre chamadas (cwd + variáveis exportadas), por workspace/sessão.
-const STATE_REL_DIR = join(".agent", "shell-state");
+// Estado do shell entre chamadas (cwd + variáveis exportadas), por workspace. Fica FORA do workspace, para nunca
+// entrar num `git add -A` (nem depois de um `git init`/clone), e é chaveado pelo caminho do workspace.
+export function defaultStateDir(workspace) {
+	return join(tmpdir(), "atlas-shell-state", createHash("sha256").update(String(workspace)).digest("hex").slice(0, 16));
+}
 const UNTIL_WINDOW_BYTES = 256 * 1024;
 const KEEP_FINISHED_MS = 30 * 60_000;
 const MAX_JOBS = 64;
@@ -39,6 +44,9 @@ export const NETWORK_DEFAULTS = {
 	COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
 };
 const SECRET_KEY = /(TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY|CREDENTIAL)/i;
+// Nomes que nunca vão para o estado persistido do shell (versão ampla: melhor esquecer uma variável do que gravar um segredo).
+// PAT só como palavra (GH_PAT, PAT), para não pegar PATH.
+const STATE_SECRET_NAME = "TOKEN|SECRET|PASSWORD|PASSWD|PASS|KEY|CREDENTIAL|AUTH|BEARER|COOKIE|SESSION|DSN|_URL|URI|CERT|JWT|CONN|(^|_)PAT($|_)";
 
 export class ExecError extends Error {
 	constructor(message, status = 400) {
@@ -130,10 +138,15 @@ function cacheEnv() {
  * ao ambiente com que o shell nasceu, então o que o servidor injeta por comando (ex.: GH_TOKEN) não
  * vira estado; nomes com cara de segredo nunca são gravados, mesmo exportados pelo próprio comando.
  */
-export function shellStatePrefix({ dir, id, save }) {
+export function shellStatePrefix({ dir, id, save, injected = [] }) {
 	const q = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
 	const lines = [`__a_dir=${q(dir)}; __a_id=${q(id)}`];
-	if (save) lines.push("declare -A __a_p; for __a_n in $(compgen -e); do __a_p[$__a_n]=${!__a_n}; done");
+	// Só os NOMES das variáveis injetadas vão no script; os valores vêm do snapshot do ambiente (nada de segredo em argv).
+	const names = injected.filter((n) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(n));
+	if (save) {
+		lines.push("declare -A __a_p; for __a_n in $(compgen -e); do __a_p[$__a_n]=${!__a_n}; done");
+		lines.push(`__a_inj=(${names.join(" ")})`);
+	}
 	lines.push('[ -f "$__a_dir/env" ] && . "$__a_dir/env" 2>/dev/null');
 	if (save) {
 		lines.push(
@@ -142,8 +155,12 @@ export function shellStatePrefix({ dir, id, save }) {
 			'  printf "%s\\n" "$PWD" > "$__a_dir/cwd.$__a_id" 2>/dev/null || return 0',
 			"  { for __a_n in $(compgen -e); do",
 			"      case $__a_n in PWD|OLDPWD|SHLVL|_|PPID|BASH_*|BASHOPTS|SHELLOPTS|LD_PRELOAD|LD_LIBRARY_PATH|LD_AUDIT|ENV|NODE_OPTIONS|__a_*) continue;; esac",
-			"      [[ $__a_n =~ (TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY|CREDENTIAL) ]] && continue",
+			`      [[ $__a_n =~ (${STATE_SECRET_NAME}) ]] && continue`,
 			'      [[ ${__a_p[$__a_n]+x} && ${__a_p[$__a_n]} == "${!__a_n}" ]] && continue',
+			// Valor igual (ou contendo) o de uma variável injetada pelo servidor neste comando: nunca persiste.
+			"      __a_skip=; for __a_i in \"${__a_inj[@]}\"; do __a_v=${__a_p[$__a_i]-}; [[ -z $__a_v ]] && continue",
+			'        if [[ ${!__a_n} == "$__a_v" || ( ${#__a_v} -ge 6 && ${!__a_n} == *"$__a_v"* ) ]]; then __a_skip=1; break; fi; done',
+			'      [[ -n $__a_skip ]] && continue',
 			"      printf 'export %s=%q\\n' \"$__a_n\" \"${!__a_n}\"",
 			'    done; } > "$__a_dir/env.$__a_id" 2>/dev/null',
 			"}",
@@ -165,7 +182,7 @@ export function createExecManager(options = {}) {
 	const spillDir = options.spillDir ?? join(workspace, SPILL_REL_DIR);
 	const spillRoot = join(spillDir, "..");
 	let spillReady = false;
-	const stateDir = options.stateDir ?? join(workspace, STATE_REL_DIR);
+	const stateDir = options.stateDir ?? defaultStateDir(workspace);
 	let stateReady;
 
 	/** Apaga arquivos de saída com mais de 7 dias (ao criar o gerenciador, i.e. no início da sessão/container). */
@@ -232,7 +249,6 @@ export function createExecManager(options = {}) {
 					}
 				}
 			}
-			ensureGitExclude();
 			stateReady = true;
 		} catch {
 			stateReady = false;
@@ -252,19 +268,32 @@ export function createExecManager(options = {}) {
 		}
 	}
 
-	/** Fim do job: lê o cwd final e, se o comando saiu normalmente, promove os arquivos temporários a estado. */
-	function commitState(job) {
+	/**
+	 * Fim do job: lê o cwd final e, se o comando saiu normalmente, promove os arquivos temporários a estado.
+	 * O cwd salvo passa pela mesma regra do `savedCwd` (dentro do workspace); fora dela não é salvo e o `endCwd`
+	 * informado é o que a próxima chamada vai usar de fato.
+	 */
+	async function commitState(job, finalStatus) {
 		if (!job.state) return;
 		const tmpCwd = join(stateDir, `cwd.${job.id}`);
 		const tmpEnv = join(stateDir, `env.${job.id}`);
 		try {
-			if (job.state.save && job.status === "exited" && existsSync(tmpCwd)) {
-				const dir = readFileSync(tmpCwd, "utf8").trim();
-				if (dir.startsWith("/") && statSync(dir).isDirectory()) {
+			if (job.state.save && finalStatus === "exited" && existsSync(tmpCwd)) {
+				const raw = readFileSync(tmpCwd, "utf8").trim();
+				let dir;
+				try {
+					dir = raw.startsWith("/") ? await confine(raw) : undefined;
+					if (dir && !statSync(dir).isDirectory()) dir = undefined;
+				} catch {
+					dir = undefined;
+				}
+				if (dir) {
 					job.endCwd = dir;
 					renameSync(tmpCwd, join(stateDir, "cwd"));
-					if (existsSync(tmpEnv)) renameSync(tmpEnv, join(stateDir, "env"));
+				} else {
+					job.endCwd = (await savedCwd()) ?? workspace;
 				}
+				if (existsSync(tmpEnv)) renameSync(tmpEnv, join(stateDir, "env"));
 			}
 		} catch {
 			// estado é conveniência: nunca derruba o job
@@ -363,7 +392,8 @@ export function createExecManager(options = {}) {
 		};
 		const id = randomBytes(6).toString("hex");
 		const state = prepareState() ? { save: !background } : undefined;
-		const script = state ? shellStatePrefix({ dir: stateDir, id, save: state.save }) + cmd : cmd;
+		const injected = Object.keys({ ...(options.extraEnv ? options.extraEnv() : {}), ...userEnv });
+		const script = state ? shellStatePrefix({ dir: stateDir, id, save: state.save, injected }) + cmd : cmd;
 		const child = spawnFn("bash", ["-lc", script], {
 			cwd,
 			env: { ...baseEnv, ...userEnv },
@@ -417,19 +447,28 @@ export function createExecManager(options = {}) {
 			settled = true;
 			clearTimeout(job.timer);
 			clearTimeout(job.killTimer);
-			job.endedAt = now();
-			job.exitCode = exitCode;
-			job.signal = signal ?? null;
-			if (failure) job.stderr.append(`${failure}\n`);
-			if (job.status === "running") job.status = "exited";
-			commitState(job);
-			wake();
-			if (job.background) {
-				try {
-					options.onEnd?.({ jobId: job.id, status: job.status, exitCode: job.exitCode, durationMs: job.endedAt - job.startedAt, endedAt: job.endedAt });
-				} catch {
-					// o aviso nunca atrapalha o job
+			const endedAt = now();
+			const finalize = () => {
+				job.endedAt = endedAt;
+				job.exitCode = exitCode;
+				job.signal = signal ?? null;
+				if (failure) job.stderr.append(`${failure}\n`);
+				if (job.status === "running") job.status = "exited";
+				wake();
+				if (job.background) {
+					try {
+						options.onEnd?.({ jobId: job.id, status: job.status, exitCode: job.exitCode, durationMs: job.endedAt - job.startedAt, endedAt: job.endedAt });
+					} catch {
+						// o aviso nunca atrapalha o job
+					}
 				}
+			};
+			// endedAt só é publicado depois de gravar o estado: quem espera o job lê o endCwd definitivo.
+			const hasState = job.state && existsSync(join(stateDir, `cwd.${job.id}`));
+			if (hasState) commitState(job, job.status === "running" ? "exited" : job.status).then(finalize, finalize);
+			else {
+				if (job.state) void commitState(job, "killed"); // só limpa temporários
+				finalize();
 			}
 		};
 		child.once("error", (error) => finish(127, null, `Falha ao iniciar: ${error.message}`));

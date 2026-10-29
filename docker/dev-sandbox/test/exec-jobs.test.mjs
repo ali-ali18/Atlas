@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import { spawnSync } from "node:child_process";
-import { createExecManager, ExecError, redact, sanitizeEnv, clampTimeout } from "../server/exec-jobs.mjs";
+import { createExecManager, defaultStateDir, ExecError, redact, sanitizeEnv, clampTimeout } from "../server/exec-jobs.mjs";
 
 const hasBash = spawnSync("bash", ["-c", "true"]).status === 0;
 const skip = (process.platform !== "win32" || process.env.DEV_TEST_FORCE_EXEC) && hasBash ? false : "requer bash/POSIX";
@@ -348,7 +348,7 @@ test("segredos injetados e variáveis com nome de segredo nunca vão para o arqu
 	const { join } = await import("node:path");
 	const { m, ws } = await stateManager();
 	await m.run({ cmd: "export KEEP=1 OTHER_TOKEN=zzzzzz_secret_value; true", env: { GH_TOKEN: "ghp_topsecret_value", PLAIN_INJECTED: "inj" } });
-	const dir = join(ws, ".agent", "shell-state");
+	const dir = defaultStateDir(ws);
 	for (const name of readdirSync(dir)) {
 		const text = readFileSync(join(dir, name), "utf8");
 		assert.ok(!text.includes("ghp_topsecret_value"), name);
@@ -378,4 +378,50 @@ test("job em segundo plano começa no cwd salvo, mas não grava estado ao termin
 	assert.equal(m.snapshot(job).stdout.trim(), `${ws}/bg`);
 	const r = await m.run({ cmd: 'pwd; echo "${BGVAR:-vazio}"' });
 	assert.equal(r.stdout, `${ws}/bg\nvazio\n`);
+});
+
+test("o estado do shell fica fora do workspace (nunca entra num git add -A)", { skip }, async () => {
+	const { existsSync } = await import("node:fs");
+	const { m, ws } = await stateManager();
+	await m.run({ cmd: "export FOO=1; true" });
+	assert.equal(existsSync(`${ws}/.agent`), false);
+	assert.equal(existsSync(defaultStateDir(ws)), true);
+	assert.ok(!defaultStateDir(ws).startsWith(ws));
+});
+
+test("nomes com cara de credencial e valores derivados do que o servidor injetou não persistem; PATH e variáveis comuns sim", { skip }, async () => {
+	const { readFileSync } = await import("node:fs");
+	const { join } = await import("node:path");
+	const { m, ws } = await stateManager();
+	await m.run({
+		cmd: 'export DATABASE_URL=pg://x SESSION_ID=abc123 MY_COOKIE=c1 GH_PAT=zz AUTH_HDR=h CERT_PEM=p; export DERIVED="x-${MY_INJECTED}-y" PATH="$PATH:/opt/x" KEEP=1',
+		env: { MY_INJECTED: "injected-value-123" },
+	});
+	const text = readFileSync(join(defaultStateDir(ws), "env"), "utf8");
+	for (const bad of ["DATABASE_URL", "SESSION_ID", "MY_COOKIE", "GH_PAT", "AUTH_HDR", "CERT_PEM", "DERIVED", "injected-value-123", "MY_INJECTED"]) {
+		assert.ok(!text.includes(bad), bad);
+	}
+	assert.match(text, /export KEEP=1/);
+	assert.match(text, /export PATH=.*:\/opt\/x/);
+});
+
+test("cwd final fora do workspace não é salvo e o endCwd informado é o que a próxima chamada usa", { skip }, async () => {
+	const { mkdtempSync, realpathSync } = await import("node:fs");
+	const { join } = await import("node:path");
+	const ws = realpathSync(mkdtempSync(join(os.tmpdir(), "shellstate-")));
+	const m = createExecManager({
+		workspace: ws,
+		home: ws,
+		confine: async (p) => {
+			const path = typeof p === "string" ? p : ws;
+			if (path !== ws && !path.startsWith(ws + "/")) throw new Error("fora do workspace");
+			return path;
+		},
+	});
+	await m.run({ cmd: "mkdir -p in && cd in" });
+	const out = await m.run({ cmd: "cd /usr" });
+	assert.equal(out.endCwd, `${ws}/in`);
+	const next = await m.run({ cmd: "pwd" });
+	assert.equal(next.stdout.trim(), `${ws}/in`);
+	assert.equal(next.endCwd, out.endCwd);
 });
