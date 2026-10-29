@@ -52,7 +52,8 @@ export function createTranslator(
 	const t = ((key: string, params?: Record<string, string | number>) => interpolate(lookup(key), params)) as TFunction;
 	const rules = new Intl.PluralRules(locale);
 	const tn = ((base: string, count: number, params?: Record<string, string | number>) => {
-		const category = rules.select(count);
+		// Em pt a regra do CLDR põe o 0 em "one" (0 e 1 são singular), mas "0 repositório" soa errado: o 0 usa o plural.
+		const category = count === 0 && locale.startsWith("pt") ? "other" : rules.select(count);
 		const key = has(`${base}.${category}`) ? `${base}.${category}` : `${base}.other`;
 		return interpolate(lookup(key), { ...params, count });
 	}) as TnFunction;

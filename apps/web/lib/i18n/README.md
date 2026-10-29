@@ -64,7 +64,7 @@ componente passa o do `useTranslations()`. Exemplos: `workingStatusLabel`, `mobi
 - Chaves/parâmetros iguais entre idiomas: `translator.test.ts` (automático).
 - Componente em outro idioma: `renderToStaticMarkup(<I18nProvider locale="en-US" messages={await loadMessages("en-US")}>…</I18nProvider>)`;
   veja `chat-thread/composer-i18n.test.tsx`.
-- Plural: chaves `.one`/`.other`; no pt-BR o 0 cai em `.one`, então trate "nenhum" com chave própria antes de chamar `tn`.
+- Plural: chaves `.one`/`.other`; no pt-BR o `tn` já manda o 0 para `.other` ("0 itens"); para dizer "nenhum" use chave própria antes de chamar `tn`.
 - Nome de chave: não termine uma chave normal em `.one`/`.few`/`.many`/`.zero` (o teste de paridade trata como plural).
 
 ## Convenções
