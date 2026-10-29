@@ -5,7 +5,8 @@
 use_default_settings: true
 
 server:
-  # Troque em produção se expor o serviço; interno, só assina sessões/mortar.
+  # Valor de desenvolvimento. A variável SEARXNG_SECRET (docker-compose.yml) tem
+  # precedência sobre este campo: defina-a em produção, nunca use este valor.
   secret_key: "atlas-dev-searxng-secret-change-me"
   limiter: false
   image_proxy: true

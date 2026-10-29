@@ -187,6 +187,8 @@ services:
       - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
       BASE_URL: http://searxng:8080/
+      # Sobrescreve server.secret_key do settings.yml. Defina um valor próprio em produção.
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-atlas-dev-searxng-secret-change-me}
 
   # Fase 0 — proxy de privilégio mínimo para o socket Docker.
   # A sandbox só precisa de containers/imagens/volumes/exec; o resto fica 0
