@@ -14,7 +14,7 @@ import {
 	findExecutedConfirmCall,
 	updateRoutine,
 } from "@workspace/db";
-import { CONNECTOR_ARGS_GUIDANCE } from "./computer-use.js";
+import { budgetStopFallbackText, CONNECTOR_ARGS_GUIDANCE } from "./computer-use.js";
 import { parseRuntimeCheckpoint } from "./checkpoint.js";
 import { buildMcpToolset } from "./mcp/registry.js";
 import type { McpRuntime } from "./mcp/runtime.js";
@@ -516,6 +516,34 @@ describe("runComputerUse resume", () => {
 			}),
 		).rejects.toThrow(/repetindo/);
 		expect(navigate).toHaveBeenCalledTimes(3);
+	});
+
+	it("o teto de passos fala no idioma do run (en-US e es-ES), e o fechamento padrão também", async () => {
+		const run = async (language: "en-US" | "es-ES") => {
+			const navigate = vi.fn(async () => ({ url: "x", title: "y" }));
+			const manager = { execNavigate: navigate } as unknown as SandboxManager;
+			const llmQueue = [toolCall("w1", "navigate", { url: "https://a.com" }), toolCall("w2", "navigate", { url: "https://b.com" }), assistantDone()];
+			return runComputerUse({
+				manager,
+				getSessionId: async () => "session-1",
+				model: "test-model",
+				apiKey: "test",
+				messages: [{ role: "user", content: "open the site" }],
+				language,
+				runId: "run-wall",
+				maxSteps: 2,
+				onEvent: () => undefined,
+				streamChat: async () => {
+					const next = llmQueue.shift();
+					if (!next) throw new Error("LLM extra");
+					return next;
+				},
+			}).catch((error: unknown) => error as Error);
+		};
+		const en = await run("en-US");
+		expect(en.message).toBe("the limit of 2 steps was reached");
+		expect(budgetStopFallbackText(en.message, "en-US")).toBe('I stopped because the limit of 2 steps was reached. What was already done is saved in this conversation. Reply "continue" and I will pick up where I left off.');
+		expect((await run("es-ES")).message).toBe("se alcanzó el límite de 2 pasos");
 	});
 
 	it("sinaliza esgotamento ao bater no teto de passos", async () => {

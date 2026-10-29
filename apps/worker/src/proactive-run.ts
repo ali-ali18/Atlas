@@ -1,4 +1,4 @@
-import { readProactiveSettings, type ProactiveSettings, type RoutineNotifyMode } from "@workspace/shared";
+import { readProactiveSettings, systemMessages, type BotLanguage, type ProactiveSettings, type RoutineNotifyMode } from "@workspace/shared";
 
 /**
  * Modo proativo de UM run: só o bot principal, com o modo ligado, em chat próprio ou
@@ -71,10 +71,9 @@ export function actionsJudgeModel(env: NodeJS.ProcessEnv = process.env): string 
 	return env.JEV_ACTIONS_MODEL?.trim() || ACTIONS_JUDGE_MODEL_DEFAULT;
 }
 
-export const PROACTIVE_FAILURE_MESSAGE =
-	"Não consegui executar o lembrete agendado agora. Vou tentar de novo mais tarde.";
+export const PROACTIVE_FAILURE_MESSAGE = systemMessages("pt-BR").proactiveFailure;
 
 /** Texto que o usuário vê quando um run proativo falha: nunca o erro técnico. */
-export function proactiveFailureDisplay(origin: string, fallback: string): string {
-	return origin === "proactive" ? PROACTIVE_FAILURE_MESSAGE : fallback;
+export function proactiveFailureDisplay(origin: string, fallback: string, language: BotLanguage = "pt-BR"): string {
+	return origin === "proactive" ? systemMessages(language).proactiveFailure : fallback;
 }

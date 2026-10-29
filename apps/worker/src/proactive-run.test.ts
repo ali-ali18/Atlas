@@ -47,6 +47,8 @@ test("falha de run proativo mostra mensagem amigável, nunca o erro técnico", (
 	assert.equal(proactiveFailureDisplay("proactive", raw), PROACTIVE_FAILURE_MESSAGE);
 	assert.ok(!PROACTIVE_FAILURE_MESSAGE.includes("429"));
 	assert.equal(proactiveFailureDisplay("chat", raw), raw);
+	assert.match(proactiveFailureDisplay("proactive", raw, "en-US"), /scheduled reminder/);
+	assert.match(proactiveFailureDisplay("proactive", raw, "es-ES"), /recordatorio programado/);
 });
 
 test("Verificador de ações: ligado por padrão, JEV_ACTIONS_MODE manda e o modelo é trocável", () => {

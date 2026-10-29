@@ -75,3 +75,21 @@ describe("describeRunError", () => {
 		expect(describeRunError(new Error(raw)).kind).toBe("unknown");
 	});
 });
+
+describe("describeRunError por idioma", () => {
+	it("traduz o texto para o idioma resolvido e mantém pt-BR por padrão", () => {
+		const error = withStatus("Provider returned error", 429);
+		expect(describeRunError(error).message).toMatch(/limitando pedidos/);
+		expect(describeRunError(error, "en-US").message).toBe("The model provider is limiting requests right now. Try again in a few minutes or switch models.");
+		expect(describeRunError(error, "es-ES")).toMatchObject({ kind: "rate_limit", message: expect.stringMatching(/limitando las solicitudes/) });
+		expect(describeRunError(new Error("kaboom"), "en-US").message).toMatch(/^Something went wrong/);
+	});
+
+	it("texto de sistema do runtime em qualquer idioma passa como está; inglês técnico continua genérico", () => {
+		const loop = new Error("I got stuck repeating navigate with the same result, without progress.");
+		expect(describeRunError(loop, "en-US")).toMatchObject({ kind: "passthrough", message: loop.message });
+		const es = new Error("Me detuve porque la ejecución no avanzaba (detectado automáticamente).");
+		expect(describeRunError(es, "es-ES").kind).toBe("passthrough");
+		expect(describeRunError(new Error("random internal english failure"), "en-US").kind).toBe("unknown");
+	});
+});

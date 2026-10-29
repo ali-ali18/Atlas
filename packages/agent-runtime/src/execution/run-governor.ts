@@ -1,3 +1,4 @@
+import { formatUsd, systemMessages, type BotLanguage } from "@workspace/shared";
 import { STAGNATION_FINAL_NUDGE_AT } from "./stagnation.js";
 
 /**
@@ -64,9 +65,9 @@ export function costCapReached(costUsd: number | undefined, maxCostUsd: number |
 	return maxCostUsd !== undefined && maxCostUsd > 0 && (costUsd ?? 0) >= maxCostUsd;
 }
 
-/** Texto que o usuário vê (pt-BR). */
-export function costCapMessage(maxCostUsd: number): string {
-	return `custo máximo da execução atingido (US$ ${maxCostUsd.toFixed(2).replace(".", ",")})`;
+/** Texto que o usuário vê, no idioma resolvido do run (pt-BR por padrão). */
+export function costCapMessage(maxCostUsd: number, language: BotLanguage = "pt-BR"): string {
+	return systemMessages(language).costCap(formatUsd(language, maxCostUsd));
 }
 
 export type ReserveDecision = {

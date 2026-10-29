@@ -1,4 +1,4 @@
-import { TOKEN_ESTIMATE_CHARS_PER_TOKEN, estimateTokens } from "@workspace/shared";
+import { TOKEN_ESTIMATE_CHARS_PER_TOKEN, estimateTokens, systemMessages, type BotLanguage } from "@workspace/shared";
 import type { LlmContentPart, LlmMessage } from "@workspace/llm";
 import type { TaskState } from "@workspace/shared";
 import { BudgetExhaustedError } from "./errors.js";
@@ -394,6 +394,8 @@ export function trimHistory(messages: readonly LlmMessage[], keepNonSystem: numb
 export type ToolStatusLookup = (toolCallId: string) => "ok" | "error" | "uncertain" | undefined;
 
 export type HygieneOptions = {
+	/** Idioma do texto de sistema mostrado ao usuário quando o contexto estoura (padrão pt-BR). */
+	language?: BotLanguage;
 	contextLength?: number | null;
 	toolsJsonChars?: number;
 	softRatio?: number;
@@ -515,11 +517,14 @@ export function applyPromptHygiene(
 	}
 	const estimatedTokensAfter = estimate();
 	if (estimatedTokensAfter >= contextLength * hardRatio) {
-		const model = options.model ? ` do modelo ${options.model}` : "";
+		const language = options.language ?? "pt-BR";
 		throw new BudgetExhaustedError(
-			`Contexto estimado em ~${estimatedTokensAfter.toLocaleString("pt-BR")} tokens ` +
-				`(>${Math.round(hardRatio * 100)}% da janela de ${contextLength.toLocaleString("pt-BR")}${model}). ` +
-				`Resuma a conversa ("Resumir agora") ou use um modelo com janela maior e tente de novo.`,
+			systemMessages(language).contextLimit({
+				tokens: estimatedTokensAfter.toLocaleString(language),
+				percent: Math.round(hardRatio * 100),
+				window: contextLength.toLocaleString(language),
+				...(options.model ? { model: options.model } : {}),
+			}),
 			"context",
 		);
 	}

@@ -1,5 +1,8 @@
+import { isSystemMessage, systemMessages, type BotLanguage } from "@workspace/shared";
+
 /**
- * Único tradutor de erro de run -> texto para o usuário (pt-BR, curto, acionável).
+ * Único tradutor de erro de run -> texto para o usuário (curto, acionável; pt-BR, en-US ou es-ES conforme o idioma
+ * resolvido do run, ver `system-messages.ts` em shared).
  * Ordem: classe/código estruturado do erro (ProviderApiError, status HTTP) primeiro;
  * regex só como fallback, ancorada em palavra/código. O detalhe técnico (`technical`)
  * fica para log e Sentry; nunca vai ao balão.
@@ -28,18 +31,6 @@ export type DescribedRunError = {
 	technical: string;
 };
 
-const MESSAGES: Record<MappedKind, string> = {
-	rate_limit: "O provedor do modelo está limitando pedidos agora. Tente em alguns minutos ou troque de modelo.",
-	provider_down: "O provedor do modelo está instável ou fora do ar agora. Tente de novo em alguns minutos ou troque de modelo.",
-	auth: "A chave do provedor do modelo foi recusada. Confira em Configurações › Provedores.",
-	credits: "O saldo ou o limite de uso do provedor do modelo acabou. Recarregue ou confira o plano em Configurações › Provedores.",
-	context_too_long: "A conversa ficou grande demais para este modelo. Comece uma nova conversa ou troque para um modelo com janela maior.",
-	content_filter: "O provedor bloqueou esta resposta por política de conteúdo. Reformule o pedido ou troque de modelo.",
-	timeout: "O modelo demorou demais para responder e foi interrompido. Tente de novo, peça o arquivo em partes menores ou troque de modelo.",
-	network: "Não consegui falar com o provedor do modelo (falha de conexão). Tente de novo em instantes.",
-	bad_request: "O provedor do modelo recusou o pedido. Tente de novo ou troque de modelo.",
-	unknown: "Algo deu errado ao executar esta tarefa. Tente de novo em instantes; se continuar, troque de modelo.",
-};
 
 function statusOf(item: unknown): number | undefined {
 	if (!item || typeof item !== "object") return undefined;
@@ -108,7 +99,8 @@ const TEXT_RULES: ReadonlyArray<readonly [MappedKind, RegExp]> = [
 /** Texto já escrito em pt-BR pelo runtime (limite, loop, etc.): vale mostrar como está. */
 const LOOKS_PORTUGUESE = /[áàâãéêíóôõúç]|\b(?:não|falha|limite|tempo|arquivo|execução|resposta)\b/i;
 
-export function describeRunError(error: unknown): DescribedRunError {
+export function describeRunError(error: unknown, language: BotLanguage = "pt-BR"): DescribedRunError {
+	const MESSAGES = systemMessages(language).runErrors;
 	const technical = error instanceof Error ? error.message : typeof error === "string" ? error : String(error ?? "");
 	const chain = chainOf(error);
 
@@ -139,7 +131,7 @@ export function describeRunError(error: unknown): DescribedRunError {
 
 	// 3) Mensagem curta já em pt-BR vinda do próprio runtime passa; inglês/técnico/longo vira texto genérico.
 	const trimmed = technical.trim();
-	if (trimmed && trimmed.length <= 400 && LOOKS_PORTUGUESE.test(trimmed)) {
+	if (trimmed && trimmed.length <= 400 && (LOOKS_PORTUGUESE.test(trimmed) || isSystemMessage(trimmed))) {
 		return { kind: "passthrough", message: trimmed, technical };
 	}
 	return { kind: "unknown", message: MESSAGES.unknown, technical };

@@ -1,4 +1,4 @@
-import type { AgentRun } from "@workspace/shared";
+import { systemMessages, type AgentRun } from "@workspace/shared";
 import { classifyRunError, type BudgetExhaustedError } from "@workspace/agent-runtime";
 import { chainFollowUp, followUpRequest, type FollowUpOutcome } from "./follow-up.js";
 
@@ -11,7 +11,8 @@ import { chainFollowUp, followUpRequest, type FollowUpOutcome } from "./follow-u
  * progresso ou quando o limite de retomadas do turno acabou.
  */
 export const AUTO_CONTINUE_MAX = 2;
-export const AUTO_CONTINUE_STATUS_TEXT = "Retomando automaticamente…";
+/** Texto de status em pt-BR (padrão); o run usa `systemMessages(idioma).autoContinueStatus`. */
+export const AUTO_CONTINUE_STATUS_TEXT = systemMessages("pt-BR").autoContinueStatus;
 export const AUTO_CONTINUE_INSTRUCTION =
 	"Continue the previous task from where it stopped. Do not repeat steps that are already done and do not ask the user to confirm; use what was already gathered and finish the remaining work.";
 /** Espera antes de cada retomada: teto de passos é imediato; falha transitória ganha folga crescente. */
