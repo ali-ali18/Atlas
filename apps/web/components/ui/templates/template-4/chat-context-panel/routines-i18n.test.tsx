@@ -91,6 +91,17 @@ test("frase do alerta: pt-BR igual ao shared; en traduz a cadência e o formato 
 		{ triggerType: "cron", interval: undefined, schedule: "0 17 * * *" },
 		{ triggerType: "cron", interval: undefined, schedule: "30 8 * * 1" },
 		{ triggerType: "cron", interval: undefined, schedule: "0 8-18/2 * * 1-5" },
+		{ triggerType: "cron", interval: undefined, schedule: "0 9 1 * *" },
+		{ triggerType: "cron", interval: undefined, schedule: "30 9 15 * *" },
+		{ triggerType: "cron", interval: undefined, schedule: "30 * * * *" },
+		{ triggerType: "cron", interval: undefined, schedule: "*/20 * * * *" },
+		{ triggerType: "cron", interval: undefined, schedule: "0 */6 * * *" },
+		{ triggerType: "cron", interval: undefined, schedule: "0 8 * * 6" },
+		{ triggerType: "cron", interval: undefined, schedule: "0 8 * * 0" },
+		{ triggerType: "cron", interval: undefined, schedule: "0 9 1 6 *" },
+		{ triggerType: "cron", interval: undefined, schedule: "isso não é cron" },
+		{ triggerType: "cron", interval: undefined, schedule: null },
+		{ triggerType: "interval", interval: undefined, schedule: null },
 	] as Partial<RoutineRecord>[]) {
 		const record = alertRecord(patch);
 		assert.equal(routineAlertSentence(recordToUiRoutine(record)), describeRoutineAlertSentence(record), JSON.stringify(patch));
@@ -98,6 +109,12 @@ test("frase do alerta: pt-BR igual ao shared; en traduz a cadência e o formato 
 	const record = alertRecord({ triggerType: "cron", interval: undefined, schedule: "0 10,14,17 * * 1-5" } as Partial<RoutineRecord>);
 	assert.equal(routineAlertSentence(recordToUiRoutine(record), await en()), "Alert · checks on weekdays at 10:00 AM, 2:00 PM, and 5:00 PM · warns if o estoque cair abaixo de 10");
 	assert.equal(alertSentenceText({ condition: "x", triggerType: "interval", everyMinutes: 30 }, await en()), "Alert · checks every 30 minutes · warns if x");
+	const sentence = async (schedule: string | null, translator: Translator) =>
+		routineAlertSentence(recordToUiRoutine(alertRecord({ triggerType: "cron", interval: undefined, schedule } as Partial<RoutineRecord>)), translator);
+	assert.equal(await sentence("0 9 1 * *", await en()), "Alert · checks on day 1 of each month at 9:00 AM · warns if o estoque cair abaixo de 10");
+	assert.equal(await sentence("*/20 * * * *", await en()), "Alert · checks every 20 minutes · warns if o estoque cair abaixo de 10");
+	assert.equal(await sentence(null, await en()), "Alert · checks on a recurring schedule · warns if o estoque cair abaixo de 10");
+	assert.equal(await sentence("0 9 1 * *", await es()), "Alerta · revisa el día 1 de cada mes a las 09:00 · avisa si o estoque cair abaixo de 10");
 });
 
 test("histórico de execuções e resumos do cartão no idioma da tela", async () => {

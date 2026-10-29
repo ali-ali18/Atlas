@@ -496,7 +496,7 @@ export function routineTriggerRows(routine: Routine, translator: Translator = de
 /** Frase do alerta da rotina no idioma da tela; `null` quando não é rotina de alerta. */
 export function routineAlertSentence(routine: Routine, translator: Translator = defaultTranslator): string | null {
 	if (!routine.alert) return null;
-	return alertSentenceText(routine.alert, translator, (cron) => scheduleLabel(toScheduleState(cronToScheduleInput(cron)), translator));
+	return alertSentenceText(routine.alert, translator);
 }
 
 /**

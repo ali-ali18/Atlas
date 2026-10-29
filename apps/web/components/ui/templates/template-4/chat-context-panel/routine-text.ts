@@ -5,6 +5,7 @@
  */
 import {
 	alertConditionPhrase,
+	cronToScheduleInput,
 	describeRoutineFailure,
 	type GithubTriggerEvent,
 	type GithubWebhookTrigger,
@@ -217,20 +218,58 @@ function lowerFirst(text: string): string {
 	return text.length > 0 ? text.charAt(0).toLowerCase() + text.slice(1) : text;
 }
 
-/** "Alerta · confere a cada 30 min · avisa se o estoque da canela cair abaixo de 10", no idioma da tela. */
-export function alertSentenceText(
-	alert: RoutineAlertSource,
-	translator: Translator = defaultTranslator,
-	describeSchedule: (cron: string) => string = () => "",
-): string {
-	const { t } = translator;
-	let cadence = "";
-	if (alert.triggerType === "interval" && alert.everyMinutes) cadence = intervalCadence(alert.everyMinutes, translator);
-	else if (alert.triggerType === "cron" && alert.schedule?.trim()) {
-		cadence = alertCronText(alert.schedule, translator) ?? lowerFirst(describeSchedule(alert.schedule));
+const WEEKDAY_INDEX: Record<string, 0 | 1 | 2 | 3 | 4 | 5 | 6> = {
+	domingo: 0,
+	"segunda-feira": 1,
+	"terça-feira": 2,
+	"quarta-feira": 3,
+	"quinta-feira": 4,
+	"sexta-feira": 5,
+	sábado: 6,
+};
+
+/** Cadência de um cron que `alertCronText` não cobre ("todo dia 1 às 9h", "a cada hora"): mesma estrutura de `describeRoutineProposalSchedule`. */
+function proposalScheduleText(schedule: string | null | undefined, translator: Translator): string {
+	const { t, locale } = translator;
+	const cron = schedule?.trim();
+	if (!cron) return t("routines.alert.other");
+	const input = cronToScheduleInput(cron);
+	const clock = () => {
+		const match = input.time.trim().match(/^(\d{1,2}):(\d{2})$/);
+		return match ? clockText(Number(match[1]), Number(match[2]), locale) : input.time;
+	};
+	switch (input.frequency) {
+		case "daily":
+			return t("routines.alert.sched.daily", { time: clock() });
+		case "weekdays":
+			return t("routines.alert.sched.weekdays", { time: clock() });
+		case "weekly": {
+			const index = WEEKDAY_INDEX[input.weekday];
+			return t("routines.alert.sched.weekly", { weekday: index === undefined ? t("routines.alert.wd.any") : t(`routines.alert.wd.${index}`), time: clock() });
+		}
+		case "monthly":
+			return t("routines.alert.sched.monthly", { day: input.monthDay, time: clock() });
+		case "hourly":
+			return t("routines.alert.everyHour");
+		case "interval": {
+			const value = Number.parseInt(input.intervalValue, 10);
+			if (!Number.isFinite(value) || value < 1) return t("routines.alert.other");
+			return intervalCadence(input.intervalUnit === "horas" ? value * 60 : value, translator);
+		}
+		default:
+			return t("routines.alert.other");
 	}
+}
+
+/** "Alerta · confere a cada 30 min · avisa se o estoque da canela cair abaixo de 10", no idioma da tela (pt-BR = `describeRoutineAlertSentence`). */
+export function alertSentenceText(alert: RoutineAlertSource, translator: Translator = defaultTranslator): string {
+	const { t } = translator;
+	let cadence: string;
+	if (alert.triggerType === "interval" && alert.everyMinutes !== undefined) cadence = intervalCadence(alert.everyMinutes, translator);
+	else if (alert.triggerType === "cron") cadence = (alert.schedule ? alertCronText(alert.schedule, translator) : null) ?? proposalScheduleText(alert.schedule, translator);
+	else cadence = proposalScheduleText(alert.schedule, translator);
 	return t("routines.alert.sentence", {
-		cadence: cadence.trim() || t("routines.alert.cadenceFallback"),
+		cadence: lowerFirst(tidy(cadence)) || t("routines.alert.cadenceFallback"),
 		condition: alertConditionPhrase(alert.condition),
 	});
 }
