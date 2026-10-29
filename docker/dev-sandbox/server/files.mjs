@@ -3,7 +3,7 @@ import posix from "node:path/posix";
 import { applyUnifiedDiff, unifiedDiff } from "./diff.mjs";
 import { confinePath, WORKSPACE } from "./path-guard.mjs";
 import { RETURN_CAP_BYTES } from "./output-buffer.mjs";
-import { applyMatches, describeSimilarRegions, findMatches, listLines } from "./edit-match.mjs";
+import { applyMatches, describeSimilarRegions, editedExcerpt, findMatches, listLines } from "./edit-match.mjs";
 
 export const READ_MAX_BYTES = 2 * 1024 * 1024;
 export const WRITE_MAX_BYTES = 10 * 1024 * 1024;
@@ -137,7 +137,8 @@ export function createFileApi(options = {}) {
 			await fs.writeFile(path, input.content);
 			if (created) await fixOwner(path);
 			const { diff, added, removed } = unifiedDiff(before, input.content, { path: posix.relative(workspace, path).startsWith("..") ? path : posix.relative(workspace, path) });
-			return { path, created, bytes: Buffer.byteLength(input.content), diff, added, removed };
+			const excerpt = editedExcerpt(before, input.content);
+			return { path, created, bytes: Buffer.byteLength(input.content), diff, added, removed, ...(excerpt ? { excerpt } : {}) };
 		},
 
 		async patch(input) {
@@ -178,7 +179,8 @@ export function createFileApi(options = {}) {
 			}
 			await fs.writeFile(path, next);
 			const { diff, added, removed } = unifiedDiff(file.text, next, { path: posix.relative(workspace, path).startsWith("..") ? path : posix.relative(workspace, path) });
-			return { path, diff, added, removed, ...(note ? { note } : {}) };
+			const excerpt = editedExcerpt(file.text, next);
+			return { path, diff, added, removed, ...(note ? { note } : {}), ...(excerpt ? { excerpt } : {}) };
 		},
 
 		async list(input) {

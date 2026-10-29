@@ -77,6 +77,7 @@ import { loadRepoInstructions, nestedInstructionDirs, nestedInstructionsBlock, t
 import {
 	capHeadTail,
 	capResultText,
+	formatEditExcerpt,
 	numberLines,
 	isSafeRef,
 	parseCiLogsArgs,
@@ -319,7 +320,7 @@ export const DEV_SESSION_TOOLS: ChatTool[] = [
 		function: {
 			name: "write_file",
 			description:
-				"Create or fully overwrite a file in /workspace (parent folders are created). Prefer edit_file for changes to existing files: it is smaller and safer. Returns a diff summary.",
+				"Create or fully overwrite a file in /workspace (parent folders are created). Prefer edit_file for changes to existing files: it is smaller and safer. Returns a diff summary and the written region (no need to re-read).",
 			parameters: {
 				type: "object",
 				properties: { path: { type: "string" }, content: { type: "string" } },
@@ -332,7 +333,7 @@ export const DEV_SESSION_TOOLS: ChatTool[] = [
 		function: {
 			name: "edit_file",
 			description:
-				"Replace text in an existing file. `old` must match EXACTLY (including indentation) and be unique in the file, otherwise the edit fails: include more surrounding lines, or pass replaceAll:true to replace every occurrence. Read the file first. Make minimal edits.",
+				"Replace text in an existing file. Matching tolerates whitespace/indent/CRLF drift, but `old` must identify ONE place: ambiguous matches are rejected (include more surrounding lines, or pass replaceAll:true, which needs an exact match). The result shows the edited region, so there is no need to re-read. Read the file first. Make minimal edits.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -2245,7 +2246,7 @@ ${TODO_REMINDER}` };
 					const { result, sessionId } = await withClient(async (client, row) => ({ result: await client.writeFile(input), sessionId: row.id }));
 					await emitEdit(sessionId, callId, result);
 					diagnostics?.noteEdit(result.path);
-					return { summary: `${result.created ? "Criado" : "Sobrescrito"} ${result.path} (+${result.added} -${result.removed}, ${result.bytes} bytes).` };
+					return { summary: `${result.created ? "Criado" : "Sobrescrito"} ${result.path} (+${result.added} -${result.removed}, ${result.bytes} bytes).${formatEditExcerpt(result.excerpt, redact)}` };
 				}
 				case "edit_file": {
 					const input = parseEditFileArgs(args);
@@ -2254,7 +2255,7 @@ ${TODO_REMINDER}` };
 					const { result, sessionId } = await withClient(async (client, row) => ({ result: await client.patchFile(input), sessionId: row.id }));
 					await emitEdit(sessionId, callId, result);
 					diagnostics?.noteEdit(result.path);
-					return { summary: `Editado ${result.path} (+${result.added} -${result.removed}).${result.note ? ` Casamento aproximado: ${result.note}.` : ""}` };
+					return { summary: `Editado ${result.path} (+${result.added} -${result.removed}).${result.note ? ` Casamento aproximado: ${result.note}.` : ""}${formatEditExcerpt(result.excerpt, redact)}` };
 				}
 				case "list_files": {
 					const input = parseListFilesArgs(args);

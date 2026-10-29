@@ -1008,3 +1008,18 @@ describe("runtime: cache de dependências do ambiente", () => {
 		expect(r.t.provider.ensureRunning).toHaveBeenCalledWith(expect.objectContaining({ envCacheRepo: "octo/hello" }));
 	});
 });
+
+describe("runtime: janela da região editada no resultado", () => {
+	it("edit_file e write_file mostram o trecho numerado devolvido pelo sandbox, sem segredo", async () => {
+		const t = setup();
+		t.client.patchFile.mockResolvedValueOnce({ path: "/workspace/a.ts", diff: "-a\n+b", added: 1, removed: 1, excerpt: { firstLine: 7, text: `l7\nL8 ${TOKEN}` } });
+		const edit = await t.runtime.execute("edit_file", { path: "a.ts", old: "a", new: "b" }, "cx");
+		expect(edit.summary).toContain("não precisa reler");
+		expect(edit.summary).toContain("     7\tl7");
+		expect(edit.summary).toContain("     8\tL8");
+		expect(edit.summary).not.toContain(TOKEN);
+		t.client.writeFile.mockResolvedValueOnce({ path: "/workspace/n.ts", created: true, bytes: 3, diff: "+x", added: 1, removed: 0, excerpt: { firstLine: 1, text: "x" } });
+		const w = await t.runtime.execute("write_file", { path: "n.ts", content: "x" }, "cy");
+		expect(w.summary).toContain("     1\tx");
+	});
+});

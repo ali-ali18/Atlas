@@ -55,8 +55,10 @@ export type DevReadResult = {
 	note?: string;
 };
 
-export type DevWriteResult = { path: string; created: boolean; bytes: number; diff: string; added: number; removed: number };
-export type DevPatchResult = { path: string; diff: string; added: number; removed: number; note?: string };
+/** Janela da região editada (±3 linhas, até 40); `firstLine` é 1-based. */
+export type DevEditExcerpt = { firstLine: number; text: string };
+export type DevWriteResult = { path: string; created: boolean; bytes: number; diff: string; added: number; removed: number; excerpt?: DevEditExcerpt };
+export type DevPatchResult = { path: string; diff: string; added: number; removed: number; note?: string; excerpt?: DevEditExcerpt };
 export type DevListResult = {
 	path: string;
 	entries: Array<{ path: string; type: "file" | "dir" | "link"; size: number }>;

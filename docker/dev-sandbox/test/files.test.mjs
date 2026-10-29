@@ -152,3 +152,19 @@ test("patch: sem nada parecido, o erro não inventa trechos", async () => {
 	const c = await patchCase("alpha\nbeta\n", "zzzzzzzz qqqqqq wwwww", "y");
 	await assert.rejects(c.run, (e) => !/Trechos parecidos/.test(e.message) && /não foi encontrado/.test(e.message));
 });
+
+test("patch e write devolvem a janela editada (±3 linhas, no máximo 40)", async () => {
+	const lines = Array.from({ length: 20 }, (_, i) => `l${i + 1}`);
+	const c = await patchCase(`${lines.join("\n")}\n`, "l10", "L10");
+	const r = await c.run();
+	assert.deepEqual(r.excerpt, { firstLine: 7, text: "l7\nl8\nl9\nL10\nl11\nl12\nl13" });
+	const { api } = await setup();
+	const big = Array.from({ length: 100 }, (_, i) => `n${i + 1}`).join("\n");
+	const w = await api.write({ path: "big.txt", content: big });
+	assert.equal(w.excerpt.firstLine, 1);
+	assert.equal(w.excerpt.text.split("\n").length, 40);
+	const w2 = await api.write({ path: "big.txt", content: big.replace("n50", "N50") });
+	assert.deepEqual(w2.excerpt, { firstLine: 47, text: "n47\nn48\nn49\nN50\nn51\nn52\nn53" });
+	const bin = await api.write({ path: "b.bin", content: Buffer.from([1, 2, 3]).toString("base64"), encoding: "base64" });
+	assert.equal(bin.excerpt, undefined);
+});

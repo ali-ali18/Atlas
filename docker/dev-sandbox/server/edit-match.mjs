@@ -168,3 +168,31 @@ export function describeSimilarRegions(text, oldText) {
 	if (out.length > SIMILAR_MAX_CHARS) out = `${out.slice(0, SIMILAR_MAX_CHARS)}…`;
 	return out;
 }
+
+export const EXCERPT_CONTEXT = 3;
+export const EXCERPT_MAX_LINES = 40;
+
+function toLines(text) {
+	const lines = text.replaceAll("\r\n", "\n").split("\n");
+	if (lines.length && lines[lines.length - 1] === "") lines.pop();
+	return lines;
+}
+
+/**
+ * Janela do que mudou entre `before` e `after` (±3 linhas, no máximo 40), para o modelo conferir a
+ * edição sem reler o arquivo. `firstLine` é 1-based.
+ */
+export function editedExcerpt(before, after) {
+	const a = toLines(before);
+	const b = toLines(after);
+	if (!b.length) return null;
+	let prefix = 0;
+	while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix += 1;
+	let suffix = 0;
+	while (suffix < a.length - prefix && suffix < b.length - prefix && a[a.length - 1 - suffix] === b[b.length - 1 - suffix]) suffix += 1;
+	const from = Math.max(0, prefix - EXCERPT_CONTEXT);
+	let to = Math.min(b.length, Math.max(prefix, b.length - suffix) + EXCERPT_CONTEXT);
+	if (to - from > EXCERPT_MAX_LINES) to = from + EXCERPT_MAX_LINES;
+	if (to <= from) return null;
+	return { firstLine: from + 1, text: b.slice(from, to).join("\n") };
+}
