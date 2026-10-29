@@ -27,6 +27,17 @@ test("no fio: uma linha 'Tarefas · 5/5 concluídas', recolhida, na casca padrã
 	assert.doesNotMatch(html, /border-border/);
 });
 
+test("lista vazia não renderiza nada", () => {
+	assert.equal(renderToStaticMarkup(<TaskListCard items={[]} />), "");
+	assert.equal(renderToStaticMarkup(<TaskListCard defaultOpen items={[]} />), "");
+});
+
+test("contagem do resumo: parou em 1/3 mostra 'Tarefas · 1/3' e concluída mostra 'concluídas'", () => {
+	assert.match(renderToStaticMarkup(<TaskListCard items={ITEMS} />), /Tarefas · 1\/3</);
+	assert.match(renderToStaticMarkup(<TaskListCard items={DONE} />), /Tarefas · 3\/3 concluídas</);
+	assert.doesNotMatch(renderToStaticMarkup(<TaskListCard items={ITEMS} />), /concluídas/);
+});
+
 test("no fio, run parado no meio: 'Tarefas · 1/3' sem spinner; abrir mostra um ícone por estado", () => {
 	const closed = renderToStaticMarkup(<TaskListCard items={ITEMS} />);
 	assert.match(closed, /data-state="stopped"/);
