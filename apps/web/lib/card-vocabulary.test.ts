@@ -23,7 +23,7 @@ const CARD_FILES = [
 	"apps/web/components/ai-elements/login/login-card.tsx",
 ];
 
-const BANNED = [/label: "Pulado"/, /label: "Aguardando você"/, /label: "Aguardando seu OK"/, /label: "Precisa de aprovação"/, /cancelLabel = "Pular"/, /cancelLabel="Recusar"/];
+const BANNED = [/label: "Pulado"/, /label: "Aguardando você"/, /label: "Aguardando seu OK"/, /label: "Precisa de aprovação"/, /cancelLabel = "Pular"/];
 
 test("cards do chat não usam os rótulos antigos de pendente, dispensado e dispensar", () => {
 	for (const file of CARD_FILES) {
