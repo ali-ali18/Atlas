@@ -129,7 +129,14 @@ test("patch: replaceAll só vale com correspondência exata", async () => {
 
 test("patch: edição já aplicada é explicada", async () => {
 	const c = await patchCase("const x = 2;\n", "const x = 1;", "const x = 2;");
-	await assert.rejects(c.run, (e) => e instanceof FileError && /já (foi )?aplicad/.test(e.message));
+	await assert.rejects(c.run, (e) => e instanceof FileError && /linha 1.*pode já estar aplicada/.test(e.message));
+});
+
+test("patch: new em outro ponto do arquivo não é tratado como edição já aplicada", async () => {
+	const filler = Array.from({ length: 30 }, (_, i) => `const filler${i} = ${i};`);
+	const text = `${filler.join("\n")}\nexport function compute(a) {\n  return a * 2;\n}\n\nfunction other() {\n  return a + 1000;\n}\n`;
+	const c = await patchCase(text, "export function computeAll(a, b) {\n  return a * b;", "function other() {\n  return a + 1000;\n}");
+	await assert.rejects(c.run, (e) => e instanceof FileError && !/já (foi |aparece|está)/.test(e.message) && /Trechos parecidos/.test(e.message));
 });
 
 test("patch: sem casamento, o erro mostra trechos parecidos com linhas e contexto", async () => {

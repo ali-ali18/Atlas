@@ -133,15 +133,12 @@ function lineSimilarity(a, b) {
 	return (2 * shared) / (a.length - 1 + (b.length - 1));
 }
 
-/**
- * Até 3 regiões do arquivo mais parecidas com as primeiras linhas não vazias de `oldText`, com
- * número de linha e 2 linhas de contexto. Texto pronto para entrar no erro ("" se nada se parece).
- */
-export function describeSimilarRegions(text, oldText) {
+/** Regiões (índice 0-based da primeira linha) mais parecidas com o início de `oldText`; `null` se nada se parece. */
+function pickSimilarRegions(text, oldText) {
 	const wanted = oldText.replaceAll("\r\n", "\n").split("\n").map((l) => l.trim());
 	while (wanted.length && wanted[0] === "") wanted.shift();
 	const probe = wanted.slice(0, 3);
-	if (!probe.length || probe.every((l) => l === "")) return "";
+	if (!probe.length || probe.every((l) => l === "")) return null;
 	const fileLines = text.replaceAll("\r\n", "\n").split("\n");
 	const scored = [];
 	for (let i = 0; i < fileLines.length; i += 1) {
@@ -156,6 +153,32 @@ export function describeSimilarRegions(text, oldText) {
 		if (picked.some((p) => Math.abs(p.i - candidate.i) <= probe.length + SIMILAR_CONTEXT)) continue;
 		picked.push(candidate);
 	}
+	return picked.length ? { picked, probe, fileLines } : null;
+}
+
+/**
+ * `newText` já está no arquivo NO LUGAR onde `oldText` estaria (a região parecida com o old cobre o new)?
+ * Devolve a linha (1-based) ou 0. `new` em outro ponto do arquivo não prova nada.
+ */
+export function appliedNearOld(text, oldText, newText) {
+	const idx = text.indexOf(newText);
+	if (idx === -1) return 0;
+	const found = pickSimilarRegions(text, oldText);
+	if (!found) return 0;
+	const normIdx = text.slice(0, idx).replaceAll("\r\n", "\n").split("\n").length - 1;
+	const newLines = newText.replaceAll("\r\n", "\n").split("\n").length;
+	const hit = found.picked.find((p) => p.i + found.probe.length > normIdx && p.i < normIdx + newLines + 1);
+	return hit ? normIdx + 1 : 0;
+}
+
+/**
+ * Até 3 regiões do arquivo mais parecidas com as primeiras linhas não vazias de `oldText`, com
+ * número de linha e 2 linhas de contexto. Texto pronto para entrar no erro ("" se nada se parece).
+ */
+export function describeSimilarRegions(text, oldText) {
+	const found = pickSimilarRegions(text, oldText);
+	if (!found) return "";
+	const { picked, probe, fileLines } = found;
 	if (!picked.length) return "";
 	picked.sort((a, b) => a.i - b.i);
 	const blocks = picked.map(({ i }) => {

@@ -4,7 +4,7 @@ import { applyUnifiedDiff, unifiedDiff } from "./diff.mjs";
 import { confinePath, WORKSPACE } from "./path-guard.mjs";
 import { RETURN_CAP_BYTES } from "./output-buffer.mjs";
 import { newSyntaxError } from "./syntax-check.mjs";
-import { applyMatches, describeSimilarRegions, editedExcerpt, findMatches, listLines } from "./edit-match.mjs";
+import { appliedNearOld, applyMatches, describeSimilarRegions, editedExcerpt, findMatches, listLines } from "./edit-match.mjs";
 
 export const READ_MAX_BYTES = 2 * 1024 * 1024;
 export const WRITE_MAX_BYTES = 10 * 1024 * 1024;
@@ -163,8 +163,9 @@ export function createFileApi(options = {}) {
 				if (oldText === newText) throw new FileError("old e new são iguais; nada a mudar");
 				const found = findMatches(file.text, oldText, newText);
 				if (found.matches.length === 0) {
-					if (newText.trim().length >= 8 && file.text.includes(newText)) {
-						throw new FileError("old não foi encontrado, mas new já está no arquivo: a edição parece já aplicada. Leia o trecho atual (read_file) antes de repetir.", 409);
+					const appliedAt = newText.trim().length >= 8 ? appliedNearOld(file.text, oldText, newText) : 0;
+					if (appliedAt) {
+						throw new FileError(`old não foi encontrado, mas new já aparece na linha ${appliedAt}, onde o old estaria: a edição pode já estar aplicada. Confira o trecho (read_file) antes de repetir.`, 409);
 					}
 					const similar = describeSimilarRegions(file.text, oldText);
 					throw new FileError(`old não foi encontrado no arquivo. Leia o trecho atual (read_file) e copie o texto, com a indentação.${similar ? `\n${similar}` : ""}`, 409);
