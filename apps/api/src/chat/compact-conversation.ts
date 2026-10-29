@@ -21,6 +21,7 @@ import {
 	prisma,
 	writeCompactedTranscript,
 	type CompactionBlocker,
+	resolveStoredReplyLanguage,
 } from "@workspace/db";
 import {
 	COMPACT_CARD_SUMMARY_MAX_CHARS,
@@ -72,7 +73,8 @@ export type CompactDeps = {
 async function defaultLanguage(conversationId: string, userId: string): Promise<BotLanguage> {
 	const row = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { bot: { select: { id: true } } } });
 	if (!row?.bot) return "pt-BR";
-	return ((await getBotProfile(row.bot.id, userId).catch(() => null))?.language ?? "pt-BR") as BotLanguage;
+	const setting = (await getBotProfile(row.bot.id, userId).catch(() => null))?.language;
+	return (await resolveStoredReplyLanguage({ userId, conversationId, setting })).language;
 }
 
 /** Só o tipo e o status do erro do provedor vão ao log: a mensagem pode trazer trechos da conversa ou da chave. */

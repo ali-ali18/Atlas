@@ -5,7 +5,7 @@ import { prisma } from "./client.js";
 import { createBot, getBotProfile } from "./bots.js";
 import { createGroup, postGroupUserMessage } from "./bot-groups.js";
 import { createAgentRun, createRunInput } from "./runs.js";
-import { getLanguageContext, noteBrowserLanguage, readLanguageStates, recordUserLanguage, writeLanguageStates } from "./user-language.js";
+import { getLanguageContext, noteBrowserLanguage, readLanguageStates, recordUserLanguage, resolveStoredReplyLanguage, writeLanguageStates } from "./user-language.js";
 import { createTestUser, dbSkip } from "./testing/test-db.js";
 
 describe("idioma detectado (Postgres real)", { skip: dbSkip }, () => {
@@ -152,5 +152,27 @@ describe("idioma detectado (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal((await getLanguageContext(owner.id, groupConversation)).lastLanguage, "pt-BR");
 		// a conversa de outro bot do mesmo usuário não é afetada
 		assert.equal((await readLanguageStates(owner.id, solo.conversationId)).conversation?.last ?? null, null);
+	});
+
+	test("resolveStoredReplyLanguage: fixo não toca o banco; auto usa a conversa, depois a conta, e nunca a de outro usuário", async () => {
+		const a = await createTestUser("lang-sa");
+		const b = await createTestUser("lang-sb");
+		const botA = await createBot({ name: "A" }, a.id);
+		const fixed = await resolveStoredReplyLanguage({ userId: "ninguém", conversationId: "x", setting: "es-ES" });
+		assert.equal(fixed.language, "es-ES");
+		assert.match(fixed.instruction, /Always reply to the user in European Spanish/);
+		// auto sem nada gravado: pt-BR; com locale do navegador: ele
+		assert.equal((await resolveStoredReplyLanguage({ userId: a.id, conversationId: botA.conversationId, setting: "auto" })).language, "pt-BR");
+		await writeLanguageStates({ userId: a.id, browserLocale: "en-US" });
+		assert.equal((await resolveStoredReplyLanguage({ userId: a.id, conversationId: botA.conversationId, setting: "auto" })).language, "en-US");
+		await writeLanguageStates({ userId: a.id, conversationId: botA.conversationId, conversation: { last: "es-ES", pending: null } });
+		const auto = await resolveStoredReplyLanguage({ userId: a.id, conversationId: botA.conversationId, setting: "auto" });
+		assert.equal(auto.language, "es-ES");
+		assert.equal(auto.followsUser, false);
+		assert.match(auto.instruction, /Always reply to the user in European Spanish/);
+		// B não herda nada de A, nem passando a conversa dela
+		assert.equal((await resolveStoredReplyLanguage({ userId: b.id, conversationId: botA.conversationId, setting: "auto" })).language, "pt-BR");
+		// valor desconhecido no banco vale como o padrão
+		assert.equal((await resolveStoredReplyLanguage({ userId: a.id, setting: "xx" })).language, "pt-BR");
 	});
 });

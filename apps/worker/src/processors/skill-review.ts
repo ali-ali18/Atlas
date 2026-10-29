@@ -3,12 +3,10 @@ import {
 	ATLAS_JOB_NAMES,
 	SKILL_DESCRIPTION_MAX_CHARS,
 	SKILL_REVIEW_DAILY_CAP,
-	languageInstruction,
 	parseSkillReviewDecision,
 	redactSecrets,
 	shouldReviewForSkill,
 	skillProvenanceProblem,
-	type BotLanguage,
 	type InspectRawApproval,
 	type InspectRawStep,
 	type SkillReviewDecision,
@@ -24,6 +22,7 @@ import {
 	loadRecentConversationMessages,
 	persistConversationCardFromEvent,
 	type SkillDocRecord,
+	resolveStoredReplyLanguage,
 } from "@workspace/db";
 import { findBuiltinSkill, findSimilarSkill } from "@workspace/agent-runtime";
 import type { WorkerConfig } from "../config.js";
@@ -172,7 +171,7 @@ export async function processSkillReview(
 	const started = await llm
 		.complete({
 			messages: [
-				{ role: "system", content: `${SKILL_REVIEWER_SYSTEM}\n\n${languageInstruction((profile.language ?? "pt-BR") as BotLanguage)}` },
+				{ role: "system", content: `${SKILL_REVIEWER_SYSTEM}\n\n${(await resolveStoredReplyLanguage({ userId, conversationId, setting: profile.language })).instruction}` },
 				{ role: "user", content: buildSkillReviewMessage({ conversation, outcomes: detected.outcomes, index, read }) },
 			],
 			model: llm.model,

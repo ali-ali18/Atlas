@@ -66,7 +66,7 @@ run (padrão)
   --env-file ARQ        carrega variáveis (OPENROUTER_API_KEY) de um .env
 
 compare DIR_A DIR_B     delta de acerto de B sobre A (summary.json de cada um)
-from-run --inspect ARQ [--events ARQ] [--user TEXTO] [--id ID] [--language en-US] --out ARQ
+from-run --inspect ARQ [--events ARQ] [--user TEXTO] [--id ID] [--language en-US|auto] --out ARQ
 list                    lista os cenários`;
 
 async function loadAll(args: CliArgs) {
@@ -138,7 +138,7 @@ async function commandFromRun(args: CliArgs): Promise<number> {
 		...(eventsPath ? { events: JSON.parse(await readFile(resolve(eventsPath), "utf8")) as unknown } : {}),
 		...(flag(args, "user") ? { user: flag(args, "user")! } : {}),
 		...(flag(args, "id") ? { id: flag(args, "id")! } : {}),
-		...(language === "pt-BR" || language === "en-US" || language === "es-ES" ? { language } : {}),
+		...(language === "pt-BR" || language === "en-US" || language === "es-ES" || language === "auto" ? { language } : {}),
 	});
 	await mkdir(dirname(resolve(out)), { recursive: true });
 	await writeFile(resolve(out), `${JSON.stringify(scenario, null, 2)}\n`);

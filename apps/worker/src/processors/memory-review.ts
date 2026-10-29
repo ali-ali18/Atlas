@@ -3,9 +3,7 @@ import {
 	ATLAS_JOB_NAMES,
 	decideMemoryScope,
 	renderToolNotesBlock,
-	languageInstruction,
 	type MemoryScopeContext,
-	type BotLanguage,
 	type ChatMessage,
 	type MemoryReviewJobPayload,
 	type MemoryReviewJobResult,
@@ -19,6 +17,7 @@ import {
 	memoryRef,
 	removeMemoryEntry,
 	replaceMemoryEntry,
+	resolveStoredReplyLanguage,
 } from "@workspace/db";
 import {
 	type ChatTool,
@@ -306,7 +305,7 @@ export async function processMemoryReview(
 	const botProfile = await (deps.profile ?? getBotProfile)(payload.botId, payload.userId);
 	const llm = deps.llm ?? (await createMaintenanceLlm({ kind: "memory-review", config, userId: payload.userId }, { completeChatWithTools: deps.complete }));
 	const model = llm.model;
-	const language = (botProfile?.language ?? "pt-BR") as BotLanguage;
+	const language = await resolveStoredReplyLanguage({ userId: payload.userId, setting: botProfile?.language });
 	// Contexto da trava: nomes de todos os bots do usuário + perfil deste bot; falha aqui não derruba a revisão.
 	const botNames = await (deps.bots ?? listBots)(payload.userId).then((bots) => bots.map((bot) => bot.name)).catch(() => [] as string[]);
 	const scope: MemoryScopeContext = { botNames, botProfile };
@@ -320,7 +319,7 @@ export async function processMemoryReview(
 	let judge: MemoryJudge | undefined = deps.judge;
 
 	const conversation: LlmMessage[] = [
-		{ role: "system", content: [SYSTEM_PROMPT, current, renderToolNotesBlock(payload.toolNotes), languageInstruction(language)].filter(Boolean).join("\n\n") },
+		{ role: "system", content: [SYSTEM_PROMPT, current, renderToolNotesBlock(payload.toolNotes), language.instruction].filter(Boolean).join("\n\n") },
 		...transcript.map((message) => ({
 			role: message.role,
 			content: message.content,

@@ -108,6 +108,7 @@ export {
 	LANGUAGE_LONG_MESSAGE_LETTERS,
 	LANGUAGE_MIN_LETTERS,
 	detectLanguage,
+	languageForChildRun,
 	nextLanguageMemory,
 	stripForLanguageDetection,
 	toLanguageMemory,

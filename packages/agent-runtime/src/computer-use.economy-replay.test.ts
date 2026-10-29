@@ -4,6 +4,7 @@ import type { ChatTool, CompleteChatWithToolsResult, LlmToolCall } from "@worksp
 import { addMemoryEntry, getBotProfile } from "@workspace/db";
 import { runComputerUse } from "./computer-use.js";
 import { disciplineForModel } from "./context/model-discipline.js";
+import { autoLanguageInstruction, languageInstruction, type BotLanguageSetting } from "@workspace/shared";
 
 vi.mock("@workspace/db", async (original) => ({
 	...(await original<typeof import("@workspace/db")>()),
@@ -35,6 +36,8 @@ async function replay(input: {
 	script?: CompleteChatWithToolsResult[];
 	origin?: "chat" | "routine";
 	objective?: string;
+	language?: BotLanguageSetting;
+	languageContext?: { lastLanguage?: string | null; accountLocale?: string | null };
 }) {
 	const requested: ChatTool[][] = [];
 	const prompts: string[] = [];
@@ -55,6 +58,8 @@ async function replay(input: {
 		botId: "bot-a",
 		origin: input.origin ?? "chat",
 		objective: input.objective,
+		...(input.language ? { language: input.language } : {}),
+		...(input.languageContext ? { languageContext: input.languageContext } : {}),
 		contextEconomy: true,
 		messages: input.messages,
 		maxSteps: 6,
@@ -156,6 +161,22 @@ describe("economia ligada: onboarding do bot", () => {
 });
 
 describe("economia ligada: chat simples", () => {
+	it("'Bom dia' com idioma automático fica do tamanho do idioma fixo e leva a instrução no fim do prompt", async () => {
+		const messages = [{ role: "user" as const, content: "Bom dia" }];
+		const fixed = await replay({ messages, language: "pt-BR" });
+		const auto = await replay({ messages, language: "auto", languageContext: { lastLanguage: "pt-BR" } });
+		// A linha "Language:" da persona sai e a instrução de auto entra no fim: troca de uma linha pela outra.
+		expect(auto.prefixChars() - fixed.prefixChars()).toBeLessThan(100);
+		expect(auto.prefixChars()).toBeLessThan(40_000);
+		const system = auto.system();
+		expect(system).not.toContain("- Language:");
+		expect(system).not.toContain(languageInstruction("pt-BR"));
+		expect(system.split(autoLanguageInstruction("pt-BR"))).toHaveLength(2);
+		expect(system.indexOf(autoLanguageInstruction("pt-BR"))).toBeGreaterThan(system.indexOf("Act, don't ask:"));
+		// Nada de tool nova por causa do idioma: o conjunto de tools é o mesmo do idioma fixo.
+		expect(auto.first).toEqual(fixed.first);
+	});
+
 	it("'Bom dia' mantém o prefixo pequeno: nenhuma tool rara e só o núcleo", async () => {
 		const { first, steps, prefixChars } = await replay({ messages: [{ role: "user", content: "Bom dia" }] });
 		// Prompt de sistema + schemas do passo 1: era ~42,6 mil chars antes da política única de agir primeiro.

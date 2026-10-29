@@ -4,9 +4,7 @@ import {
 	buildConversationTaskNote,
 	buildSummaryPrompt,
 	isAutomatedOrigin,
-	languageInstruction,
 	parseSummaryResponse,
-	type BotLanguage,
 	type SummaryJobPayload,
 	type SummaryJobResult,
 } from "@workspace/shared";
@@ -18,6 +16,7 @@ import {
 	listConversationMessages,
 	prisma,
 	writeConversationSummary,
+	resolveStoredReplyLanguage,
 } from "@workspace/db";
 import type { WorkerConfig } from "../config.js";
 import { createMaintenanceLlm, type MaintenanceLlm } from "../maintenance-llm.js";
@@ -98,7 +97,7 @@ export async function processSummaryJob(
 	const activeTask = ownerId
 		? buildConversationTaskNote(await getConversationTaskContext(ownerId, conversationId).catch(() => null))
 		: null;
-	const language = (botProfile?.language ?? "pt-BR") as BotLanguage;
+	const language = await resolveStoredReplyLanguage({ userId: ownerId, conversationId, setting: botProfile?.language });
 	const prompt = buildSummaryPrompt(
 		[
 			...(botProfile ? [`Contexto: bot "${botProfile.name}".`] : []),
@@ -123,7 +122,7 @@ export async function processSummaryJob(
 	try {
 		const result = await llm.complete({
 			messages: [
-				{ role: "system", content: languageInstruction(language) },
+				{ role: "system", content: language.instruction },
 				{ role: "user", content: prompt },
 			],
 			model: llm.model,

@@ -1,5 +1,5 @@
 import { createRedactor } from "./redact.js";
-import { parseScenario, SCENARIO_VERSION, type ScenarioInput, type ScenarioLanguage } from "./scenario.js";
+import { parseScenario, SCENARIO_VERSION, type ScenarioBotLanguage, type ScenarioInput } from "./scenario.js";
 
 /**
  * Run de produção → cenário. Entrada: o JSON de `GET /v1/runs/:id/inspect` (de preferência com o inspetor completo,
@@ -17,7 +17,7 @@ export type FromRunInput = {
 	/** Texto do pedido quando o inspetor não trouxe o pedido completo. */
 	user?: string;
 	id?: string;
-	language?: ScenarioLanguage;
+	language?: ScenarioBotLanguage;
 	botName?: string;
 };
 

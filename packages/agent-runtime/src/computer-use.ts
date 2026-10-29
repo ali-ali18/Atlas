@@ -80,6 +80,8 @@ import {
 	validateAlertInterval,
 	type RoutineAlertConfig,
 	allLanguageInstructions,
+	languageForChildRun,
+	languageInstruction,
 	resolveReplyLanguage,
 	buildPersonaBlock,
 	BROWSER_CHILD_MAX_CONCURRENCY,
@@ -4905,8 +4907,10 @@ export async function runComputerUse(params: {
 	model: string;
 	apiKey: string;
 	messages: ChatMessage[];
-	/** Idioma do bot: fixo ou "auto" (ver `resolveReplyLanguage`). */
+	/** Idioma do bot: fixo ou "auto" (ver `resolveReplyLanguage`). Subagente recebe o idioma já resolvido do pai. */
 	language?: BotLanguageSetting;
+	/** Só para "auto": último idioma detectado e locale da conta (ver `getLanguageContext`). */
+	languageContext?: { lastLanguage?: string | null; accountLocale?: string | null };
 	botId?: string;
 	userId?: string;
 	conversationId?: string;
@@ -6048,9 +6052,18 @@ export async function runComputerUse(params: {
 		if (slot < 0) return list as unknown as LlmMessage[];
 		return [...(list.slice(0, slot) as unknown as LlmMessage[]), ...priorHistory, ...(list.slice(slot + 1) as unknown as LlmMessage[])];
 	};
-	const replyLanguage = resolveReplyLanguage({ setting: params.language ?? "pt-BR", hasUserMessage: false });
+	// Conversa com mensagem do usuário na vez: no modo "auto" o modelo segue o idioma dela. Rotina, alerta e proativo
+	// não têm mensagem: valem o último idioma detectado, depois o locale da conta, depois pt-BR.
+	const hasUserMessage = params.origin === "chat" && !proactiveRun && !alertRun;
+	const replyLanguage = resolveReplyLanguage({ setting: params.language ?? "pt-BR", ...params.languageContext, hasUserMessage });
 	const language = replyLanguage.language;
 	const currentLanguageInstruction = replyLanguage.instruction;
+	// Texto que o sistema escreve (resumo da compactação) nunca "segue a mensagem": usa o idioma resolvido, fixo.
+	const systemLanguageInstruction = languageInstruction(language);
+	// "auto": a instrução varia por run, então vai no fim do prompt (o prefixo em cache não muda) e não na persona.
+	const languageAtEnd = isSubagent || params.language === "auto";
+	// Subagente herda o idioma do pai já resolvido; na conversa vale o da mensagem atual quando a detecção é segura.
+	const delegateLanguage = languageForChildRun(replyLanguage, lastUserMessageContent);
 	if (parsedCheckpoint?.llmMessages?.length) {
 		conversation = await hydrateLlmMessages(parsedCheckpoint.llmMessages);
 		const systemMessage = conversation.find((message) => message.role === "system");
@@ -6087,7 +6100,7 @@ export async function runComputerUse(params: {
 			: "";
 		const systemContent = buildStableSystemPrompt({
 			// Persona do bot no topo: identidade, estilo e idioma num lugar só (o subagente fala com o pai, sem persona).
-			persona: isSubagent ? undefined : buildPersonaBlock({ name: botProfileForGate?.name, role: botProfileForGate?.description, language }),
+			persona: isSubagent ? undefined : buildPersonaBlock({ name: botProfileForGate?.name, role: botProfileForGate?.description, language: params.language ?? "pt-BR" }),
 			base: isSubagent ? subagentSystemPrompt(params.browserTabId !== undefined) : economyParts ? economyParts.core : SYSTEM_PROMPT,
 			// Disciplina por família do modelo do início do run (fixa: troca de nível no meio não muda o prefixo).
 			discipline: disciplineForModel(model),
@@ -6107,7 +6120,7 @@ export async function runComputerUse(params: {
 		const userPushSection = userPushRun?.mode === "routine" ? USER_PUSH_ROUTINE_NOTE : null;
 		const alertSection = alertRun ? alertRunNote(alertRun) : null;
 		conversation = [
-			{ role: "system", content: buildSystemPrompt({ stable: systemContent, nativeLine: nativeComputerOn ? NATIVE_COMPUTER_PROMPT_LINE : undefined, languageInstruction: isSubagent ? currentLanguageInstruction : undefined }) },
+			{ role: "system", content: buildSystemPrompt({ stable: systemContent, nativeLine: nativeComputerOn ? NATIVE_COMPUTER_PROMPT_LINE : undefined, languageInstruction: languageAtEnd ? currentLanguageInstruction : undefined }) },
 			...(proactiveSection ? [{ role: "system" as const, content: proactiveSection }] : []),
 			...(userPushSection ? [{ role: "system" as const, content: userPushSection }] : []),
 			...(alertSection ? [{ role: "system" as const, content: alertSection }] : []),
@@ -6241,7 +6254,7 @@ export async function runComputerUse(params: {
 			summarize: summarizeContext,
 			taskState,
 			objectiveText: params.objective ?? lastUserMessageContent,
-			languageInstruction: currentLanguageInstruction,
+			languageInstruction: systemLanguageInstruction,
 		});
 		if (result.usage) {
 			usageTotals = addUsage(usageTotals, result.usage);
@@ -7130,7 +7143,7 @@ export async function runComputerUse(params: {
 				model: child.model,
 				apiKey,
 				messages: child.messages,
-				language,
+				language: delegateLanguage,
 				botId,
 				userId,
 				runId: child.runId,

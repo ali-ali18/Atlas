@@ -1,4 +1,4 @@
-import { isBotLanguage, nextLanguageMemory, toLanguageMemory, type BotLanguage } from "@workspace/shared";
+import { BOT_LANGUAGE_AUTO, isBotLanguage, nextLanguageMemory, parseBotLanguageSetting, resolveReplyLanguage, toLanguageMemory, type BotLanguage, type ReplyLanguage } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { ownerIds } from "./mcp-connections.js";
 
@@ -120,4 +120,15 @@ export async function noteBrowserLanguage(userId: string | undefined, language: 
 	} catch (error) {
 		console.error("note browser language failed; ignoring", error);
 	}
+}
+
+/**
+ * Idioma para texto que o sistema escreve sem mensagem do usuário na vez (resumo, compactação, revisão de memória,
+ * lições, skills, reflexão): o do bot se for fixo; em "auto", o último idioma detectado (conversa, depois conta),
+ * depois o locale da conta, depois pt-BR. Bot fixo não toca o banco.
+ */
+export async function resolveStoredReplyLanguage(input: { userId?: string; conversationId?: string | null; setting: unknown }): Promise<ReplyLanguage> {
+	const setting = parseBotLanguageSetting(input.setting);
+	if (setting !== BOT_LANGUAGE_AUTO) return resolveReplyLanguage({ setting, hasUserMessage: false });
+	return resolveReplyLanguage({ setting, ...(await getLanguageContext(input.userId, input.conversationId)), hasUserMessage: false });
 }

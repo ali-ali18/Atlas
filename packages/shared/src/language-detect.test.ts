@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { detectLanguage, LANGUAGE_LONG_MESSAGE_LETTERS, nextLanguageMemory, stripForLanguageDetection, toLanguageMemory, type LanguageMemory } from "./language-detect.js";
+import { resolveReplyLanguage } from "./bot-language.js";
+import { detectLanguage, languageForChildRun, LANGUAGE_LONG_MESSAGE_LETTERS, nextLanguageMemory, stripForLanguageDetection, toLanguageMemory, type LanguageMemory } from "./language-detect.js";
 
 const PT = "Preciso que você me mostre os pedidos de hoje e também o estoque dos produtos mais vendidos";
 const EN = "I need you to show me the orders from today and also the stock of the best selling products";
@@ -106,5 +107,20 @@ describe("toLanguageMemory", () => {
 		expect(toLanguageMemory({ last: "en-US", pending: "fr-FR" })).toEqual({ last: "en-US", pending: null });
 		expect(toLanguageMemory(null)).toEqual({ last: null, pending: null });
 		expect(toLanguageMemory({ last: "auto" })).toEqual({ last: null, pending: null });
+	});
+});
+
+describe("languageForChildRun (subagente herda o idioma resolvido do pai)", () => {
+	const auto = (lastLanguage: string | null, hasUserMessage: boolean) => resolveReplyLanguage({ setting: "auto", lastLanguage, hasUserMessage });
+
+	it("auto com mensagem segura segue a mensagem; ambígua mantém o último idioma", () => {
+		expect(languageForChildRun(auto("pt-BR", true), EN)).toBe("en-US");
+		expect(languageForChildRun(auto("en-US", true), "ok")).toBe("en-US");
+		expect(languageForChildRun(auto(null, true), "👍")).toBe("pt-BR");
+	});
+
+	it("fixo e rodada sem mensagem herdam o resolvido, sem olhar o texto", () => {
+		expect(languageForChildRun(resolveReplyLanguage({ setting: "es-ES", hasUserMessage: true }), EN)).toBe("es-ES");
+		expect(languageForChildRun(auto("en-US", false), PT)).toBe("en-US");
 	});
 });

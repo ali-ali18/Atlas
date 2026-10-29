@@ -1,4 +1,4 @@
-import { BOT_LANGUAGES, isBotLanguage, type BotLanguage } from "./bot-language.js";
+import { BOT_LANGUAGES, isBotLanguage, type BotLanguage, type ReplyLanguage } from "./bot-language.js";
 import { LANGUAGE_SPECS } from "./language-registry.js";
 
 /**
@@ -105,4 +105,12 @@ export function nextLanguageMemory(memory: LanguageMemory, text: string): { memo
 	else if (!memory.last || letters >= LANGUAGE_LONG_MESSAGE_LETTERS || memory.pending === language) next = { last: language, pending: null };
 	else next = { last: memory.last, pending: language };
 	return { memory: next, changed: next.last !== memory.last || next.pending !== memory.pending };
+}
+
+/**
+ * Idioma que o subagente herda do pai. Fixo ou sem mensagem na vez: o já resolvido. "auto" com mensagem: o da
+ * mensagem atual quando a detecção é segura (o último idioma gravado pode ainda não ter virado), senão o resolvido.
+ */
+export function languageForChildRun(parent: ReplyLanguage, userText: string): BotLanguage {
+	return parent.followsUser ? (detectLanguage(userText)?.language ?? parent.language) : parent.language;
 }

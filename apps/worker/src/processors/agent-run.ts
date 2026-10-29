@@ -136,7 +136,7 @@ import {
 } from "@workspace/agent-runtime";
 import { briefToolFilter, budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
-import { appendConversationMessage, listRecentLoginAsks } from "@workspace/db";
+import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
 import {
 	AUTO_CONTINUE_MAX,
 	AUTO_CONTINUE_STATUS_TEXT,
@@ -575,7 +575,11 @@ async function executeLeasedRun(ctx: {
 		onSettingsError: (error) => console.error("load user settings failed; assuming sandboxAutoStart=true", error),
 		getCheckpoint: () => getAgentRunCheckpoint(runId),
 		getBotPolicy: async () => run.botId ? (await prisma.bot.findFirst({ where: { id: run.botId, ownerId: runUserId }, select: { policyJson: true } }))?.policyJson ?? null : null,
-		getLanguage: async () => run.botId ? (await getBotProfile(run.botId, runUserId))?.language ?? "pt-BR" : "pt-BR",
+		// Idioma do bot (fixo ou "auto"); em "auto" também o último idioma detectado e o locale da conta.
+		getLanguage: async () => {
+			const setting = run.botId ? (await getBotProfile(run.botId, runUserId))?.language ?? "pt-BR" : "pt-BR";
+			return { setting, context: setting === "auto" ? await getLanguageContext(runUserId, run.conversationId) : undefined };
+		},
 		// Autonomia (F10): bot > conta > Equilibrado; vencida grava o fallback e avisa no chat.
 		resolveAutonomy: () => resolveRunAutonomy({
 			userId: runUserId,
@@ -590,7 +594,7 @@ async function executeLeasedRun(ctx: {
 		loadMcp: (autonomy) => loadMcpRuntime({ userId: runUserId, autonomy, unattended, botId: run.botId ?? undefined, conversationId: run.conversationId ?? undefined }),
 		onMcpError: (error) => console.error(`load mcp connectors failed run=${runId}`, error),
 	});
-	const { settings, checkpoint, rawBotPolicy, language, autonomy, mcp } = base;
+	const { settings, checkpoint, rawBotPolicy, language: botLanguage, autonomy, mcp } = base;
 	const groupRun = await groupRunPromise;
 	const groupPrompt = groupRun && run.botId ? { name: groupRun.groupName, selfId: run.botId, members: groupRun.members } : undefined;
 	// E-mail próprio do bot (tools adiadas). No run de e-mail o envio segue a política real do dono, o resto é limitado.
@@ -1229,7 +1233,8 @@ async function executeLeasedRun(ctx: {
 			getModelContextLength: providers.contextLength,
 			apiKey,
 			messages,
-			language,
+			language: botLanguage.setting,
+			...(botLanguage.context ? { languageContext: botLanguage.context } : {}),
 			botId: run.botId ?? undefined,
 			userId: runUserId,
 			conversationId: run.conversationId ?? undefined,

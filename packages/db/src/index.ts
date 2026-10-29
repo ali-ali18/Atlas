@@ -141,6 +141,7 @@ export {
 	noteBrowserLanguage,
 	readLanguageStates,
 	recordUserLanguage,
+	resolveStoredReplyLanguage,
 	writeLanguageStates,
 	type LanguageStates,
 	type StoredLanguageState,
