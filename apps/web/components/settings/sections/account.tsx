@@ -7,6 +7,7 @@ import { PROFILE_NAME_MAX } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@workspace/ui/components/sheet";
+import { useT } from "@/lib/i18n/provider";
 import { authClient } from "@/lib/auth-client";
 import { checkPickedFile, prepareProfileImage } from "@/lib/profile-image";
 import { removeProfileImage, saveProfileImage, saveProfileName } from "@/lib/profile-api";
@@ -14,8 +15,6 @@ import { signOutAndRedirect } from "@/lib/sign-out";
 import { nameDraftState } from "../account-profile-state";
 import { UserAvatar } from "@workspace/ui/components/gradient-avatar";
 import { SettingRow, SettingsGroup } from "../setting-row";
-
-const SAVE_FAILED = "Não foi possível salvar. Tente novamente.";
 
 /** Valor somente leitura na ponta direita da linha (o e-mail vem da sessão). */
 function ReadOnlyValue({ id, children }: { id: string; children: string }) {
@@ -45,21 +44,24 @@ export function PhotoActionsList({
 	onReplace,
 	onRemove,
 	onCancel,
+	labels,
 }: {
 	onReplace: () => void;
 	onRemove: () => void;
 	onCancel: () => void;
+	/** Textos já no idioma da tela (o componente fica puro para teste). */
+	labels: { replace: string; remove: string; cancel: string };
 }) {
 	return (
 		<div className="flex flex-col gap-2 px-4 pb-4" data-slot="photo-actions">
 			<Button onClick={onReplace} variant="outline">
-				<CameraIcon aria-hidden data-icon="inline-start" /> Trocar foto
+				<CameraIcon aria-hidden data-icon="inline-start" /> {labels.replace}
 			</Button>
 			<Button onClick={onRemove} variant="destructive">
-				<Trash2Icon aria-hidden data-icon="inline-start" /> Remover foto
+				<Trash2Icon aria-hidden data-icon="inline-start" /> {labels.remove}
 			</Button>
 			<Button onClick={onCancel} variant="ghost">
-				Cancelar
+				{labels.cancel}
 			</Button>
 		</div>
 	);
@@ -77,10 +79,11 @@ export function PhotoAvatarButton({
 	onPress: () => void;
 	children: ReactNode;
 }) {
+	const t = useT();
 	return (
 		<button
 			aria-busy={busy || undefined}
-			aria-label={hasImage ? "Alterar foto de perfil" : "Adicionar foto de perfil"}
+			aria-label={hasImage ? t("settings.account.changePhotoLabel") : t("settings.account.addPhotoLabel")}
 			className="relative size-12 shrink-0 cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait"
 			data-slot="photo-avatar-button"
 			disabled={busy}
@@ -109,6 +112,7 @@ export function PhotoAvatarButton({
 }
 
 function PhotoRow({ editing, name, email }: { editing: ProfileEditing; name: string; email: string }) {
+	const t = useT();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -120,7 +124,7 @@ function PhotoRow({ editing, name, email }: { editing: ProfileEditing; name: str
 		try {
 			await task();
 		} catch (failure) {
-			setError(failure instanceof Error ? failure.message : SAVE_FAILED);
+			setError(failure instanceof Error ? failure.message : t("settings.saveError"));
 		} finally {
 			setBusy(false);
 		}
@@ -136,9 +140,9 @@ function PhotoRow({ editing, name, email }: { editing: ProfileEditing; name: str
 				) : null
 			}
 			control="inline"
-			description="Toque na foto para escolher da galeria ou da câmera."
+			description={t("settings.account.photoHint")}
 			icon={CameraIcon}
-			label="Foto"
+			label={t("settings.account.photo")}
 		>
 			<PhotoAvatarButton
 				busy={busy}
@@ -149,7 +153,7 @@ function PhotoRow({ editing, name, email }: { editing: ProfileEditing; name: str
 			</PhotoAvatarButton>
 			<input
 				accept="image/*"
-				aria-label="Escolher foto de perfil"
+				aria-label={t("settings.account.pickPhotoLabel")}
 				className="sr-only"
 				data-slot="profile-photo-input"
 				onChange={(event) => {
@@ -164,10 +168,11 @@ function PhotoRow({ editing, name, email }: { editing: ProfileEditing; name: str
 			<Sheet onOpenChange={setMenuOpen} open={menuOpen}>
 				<SheetContent className="mx-auto gap-0 sm:max-w-sm sm:rounded-t-2xl" data-slot="photo-actions-sheet" showCloseButton={false} side="bottom">
 					<SheetHeader>
-						<SheetTitle>Foto de perfil</SheetTitle>
-						<SheetDescription>Troque por outra foto ou remova a atual.</SheetDescription>
+						<SheetTitle>{t("settings.account.photoSheetTitle")}</SheetTitle>
+						<SheetDescription>{t("settings.account.photoSheetDescription")}</SheetDescription>
 					</SheetHeader>
 					<PhotoActionsList
+						labels={{ replace: t("settings.account.replacePhoto"), remove: t("settings.account.removePhoto"), cancel: t("common.cancel") }}
 						onCancel={() => setMenuOpen(false)}
 						onRemove={() => {
 							setMenuOpen(false);
@@ -185,6 +190,7 @@ function PhotoRow({ editing, name, email }: { editing: ProfileEditing; name: str
 }
 
 function NameRow({ name, onSave }: { name: string; onSave: (name: string) => Promise<void> }) {
+	const t = useT();
 	const [draft, setDraft] = useState(name);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -207,7 +213,7 @@ function NameRow({ name, onSave }: { name: string; onSave: (name: string) => Pro
 			setDraft(state.value);
 			setSaved(true);
 		} catch (failure) {
-			setError(failure instanceof Error ? failure.message : SAVE_FAILED);
+			setError(failure instanceof Error ? failure.message : t("settings.saveError"));
 		} finally {
 			setBusy(false);
 		}
@@ -222,14 +228,14 @@ function NameRow({ name, onSave }: { name: string; onSave: (name: string) => Pro
 						{message}
 					</p>
 				) : saved && !state.dirty ? (
-					<p className="text-xs text-muted-foreground">Salvo</p>
+					<p className="text-xs text-muted-foreground">{t("settings.saved")}</p>
 				) : null
 			}
 			control="inline"
-			description="Como você aparece no app."
+			description={t("settings.account.nameHint")}
 			htmlFor="settings-account-name"
 			icon={UserIcon}
-			label="Nome"
+			label={t("settings.account.name")}
 		>
 			<Input
 				aria-invalid={message ? true : undefined}
@@ -248,12 +254,12 @@ function NameRow({ name, onSave }: { name: string; onSave: (name: string) => Pro
 						void save();
 					}
 				}}
-				placeholder="Seu nome"
+				placeholder={t("settings.account.namePlaceholder")}
 				value={draft}
 			/>
 			{state.dirty ? (
 				<Button disabled={busy || !state.value} onClick={() => void save()} size="sm">
-					{busy ? "Salvando…" : "Salvar"}
+					{busy ? t("settings.saving") : t("common.save")}
 				</Button>
 			) : null}
 		</SettingRow>
@@ -278,12 +284,13 @@ export function AccountSettingsView({
 	signOutError?: string | null;
 	isVisible?: (itemId: string) => boolean;
 }) {
+	const t = useT();
 	return (
-		<SettingsGroup title="Conta">
+		<SettingsGroup title={t("settings.account.title")}>
 			{isVisible("conta.foto") ? <PhotoRow editing={editing} email={email} name={name} /> : null}
 			{isVisible("conta.nome") ? <NameRow name={name} onSave={editing.onSaveName} /> : null}
 			{isVisible("conta.email") ? (
-				<SettingRow control="inline" htmlFor="settings-account-email" icon={MailIcon} label="E-mail">
+				<SettingRow control="inline" htmlFor="settings-account-email" icon={MailIcon} label={t("settings.account.email")}>
 					<ReadOnlyValue id="settings-account-email">{email}</ReadOnlyValue>
 				</SettingRow>
 			) : null}
@@ -297,12 +304,12 @@ export function AccountSettingsView({
 						) : null
 					}
 					control="inline"
-					description="Encerra a sessão neste navegador."
+					description={t("settings.account.sessionHint")}
 					icon={KeyRoundIcon}
-					label="Sessão"
+					label={t("settings.account.session")}
 				>
 					<Button disabled={signingOut} onClick={onSignOut} size="sm" variant="outline">
-						<LogOutIcon aria-hidden data-icon="inline-start" /> Sair
+						<LogOutIcon aria-hidden data-icon="inline-start" /> {t("settings.account.signOut")}
 					</Button>
 				</SettingRow>
 			) : null}
@@ -311,6 +318,7 @@ export function AccountSettingsView({
 }
 
 export function AccountSettings({ isVisible }: { isVisible: (itemId: string) => boolean }) {
+	const t = useT();
 	const { data: session } = authClient.useSession();
 	const [signingOut, setSigningOut] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -337,7 +345,7 @@ export function AccountSettings({ isVisible }: { isVisible: (itemId: string) => 
 			try {
 				image = await prepareProfileImage(file);
 			} catch {
-				throw new Error("Não foi possível ler essa foto. Tente outra.");
+				throw new Error(t("settings.account.photoReadError"));
 			}
 			await saveProfileImage(image);
 		},

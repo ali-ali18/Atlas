@@ -2,6 +2,7 @@
 
 import { createContext, useContext, type ReactNode } from "react";
 import { cn } from "@workspace/ui/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 import type { SettingsIcon } from "@/components/ui/templates/template-4/settings-picker";
 import type { SaveStatus } from "./account-settings-state";
 
@@ -131,17 +132,18 @@ export function SettingRow({
 
 /** "Salvo" discreto ou o erro do último PATCH; some quando ocioso. */
 export function SaveIndicator({ status, error }: { status: SaveStatus; error?: string | null }) {
+	const t = useT();
 	if (status === "error") {
 		return (
 			<p className="text-xs text-destructive" role="alert">
-				{error || "Não foi possível salvar. Tente novamente."}
+				{error || t("settings.saveError")}
 			</p>
 		);
 	}
 	if (status === "saving" || status === "saved") {
 		return (
 			<p aria-live="polite" className="text-xs text-muted-foreground" role="status">
-				{status === "saving" ? "Salvando…" : "Salvo"}
+				{status === "saving" ? t("settings.saving") : t("settings.saved")}
 			</p>
 		);
 	}

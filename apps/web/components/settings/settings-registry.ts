@@ -9,6 +9,8 @@
  * Conexões, Habilidades, Uso, Revisão automática e Diagnóstico (as últimas). As descrições de cada item só alimentam a busca.
  */
 
+import type { MessageKey, TFunction } from "@/lib/i18n/translator";
+
 export const SETTINGS_URL_PARAM = "settings";
 
 export type SettingsSectionId =
@@ -38,6 +40,40 @@ export const SETTINGS_NAV_GROUPS: Readonly<Record<SettingsNavGroupId, string>> =
 	ambiente: "Ferramentas",
 	controle: "Controle",
 };
+
+const NAV_GROUP_KEYS: Record<SettingsNavGroupId, Extract<MessageKey, `settings.navGroup.${string}`>> = {
+	basico: "settings.navGroup.basico",
+	inteligencia: "settings.navGroup.inteligencia",
+	ambiente: "settings.navGroup.ambiente",
+	controle: "settings.navGroup.controle",
+};
+
+const NAV_LABEL_KEYS: Record<SettingsSectionId, Extract<MessageKey, `settings.nav.${string}`>> = {
+	conta: "settings.nav.conta",
+	geral: "settings.nav.geral",
+	provedores: "settings.nav.provedores",
+	modelos: "settings.nav.modelos",
+	bots: "settings.nav.bots",
+	notificacoes: "settings.nav.notificacoes",
+	computador: "settings.nav.computador",
+	conexoes: "settings.nav.conexoes",
+	cofre: "settings.nav.cofre",
+	habilidades: "settings.nav.habilidades",
+	uso: "settings.nav.uso",
+	execucao: "settings.nav.execucao",
+	revisao: "settings.nav.revisao",
+	diagnostico: "settings.nav.diagnostico",
+};
+
+/** Nome do bloco da nav no idioma da tela. */
+export function navGroupLabel(t: TFunction, group: SettingsNavGroupId): string {
+	return t(NAV_GROUP_KEYS[group]);
+}
+
+/** Nome da seção no idioma da tela (`label` do registro continua o texto pt-BR de origem). */
+export function navSectionLabel(t: TFunction, id: SettingsSectionId): string {
+	return t(NAV_LABEL_KEYS[id]);
+}
 
 export type SettingsNavEntry = {
 	id: SettingsSectionId;
@@ -82,6 +118,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
 	{ id: "conta.email", section: "conta", label: "E-mail", keywords: ["email", "endereço", "conta"] },
 	{ id: "conta.sair", section: "conta", label: "Sair", keywords: ["logout", "encerrar", "sessão", "conta"] },
 	{ id: "geral.tema", section: "geral", label: "Tema", keywords: ["aparência", "claro", "escuro", "sistema"] },
+	{ id: "geral.idioma-interface", section: "geral", label: "Idioma da interface", keywords: ["língua", "idioma", "language", "interface", "tela", "menus", "português", "english", "español", "automático", "traduzir"] },
 	{ id: "geral.idioma", section: "geral", label: "Idioma dos bots novos", keywords: ["língua", "português", "inglês", "espanhol", "idioma", "padrão"] },
 	{ id: "notificacoes.celular", section: "notificacoes", label: "Notificações no celular", keywords: ["push", "aviso", "alerta", "celular", "notificar", "terminou", "precisa de você", "pwa", "testar"] },
 	{ id: "notificacoes.aparelhos", section: "notificacoes", label: "Aparelhos com notificações", keywords: ["push", "celular", "dispositivos", "remover", "notificações"] },
@@ -234,13 +271,16 @@ export function searchSettings(
 	rawQuery: string,
 	/** Itens escondidos por quem a pessoa é (ex.: o plano ChatGPT para quem não é dono). */
 	hidden: ReadonlySet<string> = NO_HIDDEN,
+	/** Nome da seção no idioma da tela: a busca acha por ele além do texto pt-BR. */
+	labelOf?: (id: SettingsSectionId) => string,
 ): SettingsSearchResult {
 	const query = normalizeSearch(rawQuery);
 	const itemFilter: SettingsSearchResult["itemFilter"] = {};
 	const entries: SettingsNavEntry[] = [];
 	for (const entry of SETTINGS_NAV) {
 		const visibleItems = SETTINGS_ITEMS.filter((item) => item.section === entry.id && !hidden.has(item.id));
-		if (matches(query, entry.label, entry.keywords)) {
+		const translated = labelOf ? [labelOf(entry.id)] : [];
+		if (matches(query, entry.label, [...entry.keywords, ...translated])) {
 			entries.push(entry);
 			continue;
 		}

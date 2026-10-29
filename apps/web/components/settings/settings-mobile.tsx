@@ -29,11 +29,11 @@ import { useSkillsCount } from "@/hooks/use-skills-count";
 import { listComposioConnections, listMcpConnections } from "@/lib/atlas-api";
 import { JEV_FEATURES, type EffectiveAccountConfig } from "@workspace/shared";
 import { runUnlessUnsaved } from "@/lib/unsaved-guard";
-import type { SettingsNavId, SettingsSectionId } from "./settings-registry";
-import { MOBILE_TITLES, mobileSettingsGroups, type MobileSettingsSummary } from "./settings-mobile-model";
+import { navSectionLabel, type SettingsNavId, type SettingsSectionId } from "./settings-registry";
+import { mobileSettingsGroups, type MobileSettingsSummary } from "./settings-mobile-model";
 import { modelLabel } from "./models-state";
 import { UserAvatar } from "@workspace/ui/components/gradient-avatar";
-import { useLocale } from "@/lib/i18n/provider";
+import { useTranslations } from "@/lib/i18n/provider";
 
 /** Conexões ativas: apps Composio + conexões MCP conectadas. Falha em uma fonte conta como 0 nela. */
 function useConnectionsCount(): number | undefined {
@@ -74,7 +74,6 @@ const ROW_ICONS: Record<SettingsNavId, LucideIcon> = {
 	diagnostico: ActivityIcon,
 };
 
-const THEME_LABEL: Record<string, string> = { light: "Claro", dark: "Escuro", system: "Sistema" };
 const HISTORY_FLAG = "atlasSettingsPage";
 
 /**
@@ -94,7 +93,13 @@ export function SettingsMobile({
 	onClose: () => void;
 	renderSection: (section: SettingsSectionId) => React.ReactNode;
 }) {
-	const locale = useLocale();
+	const translator = useTranslations();
+	const { t } = translator;
+	const themeLabels: Record<string, string> = {
+		light: t("settings.general.themeLight"),
+		dark: t("settings.general.themeDark"),
+		system: t("settings.general.themeSystem"),
+	};
 	const [page, setPage] = useState<SettingsSectionId | null>(initialPage);
 	const { theme } = useTheme();
 	const { data: session } = authClient.useSession();
@@ -103,7 +108,7 @@ export function SettingsMobile({
 	const environmentsCount = useDevEnvironmentsCount();
 	const skillsCount = useSkillsCount();
 	const usage = useUsage("7d");
-	const name = session?.user.name || "Minha conta";
+	const name = session?.user.name || t("settings.myAccount");
 	const email = session?.user.email ?? "";
 
 	useEffect(() => {
@@ -127,10 +132,10 @@ export function SettingsMobile({
 	}
 
 	if (page) {
-		const title = MOBILE_TITLES[page];
+		const title = navSectionLabel(t, page);
 		return (
 			<SettingsPage
-				backLabel="Voltar às configurações"
+				backLabel={t("settings.back")}
 				onBack={back}
 				title={title}
 				titleSlot={(text) => <DialogTitle className="truncate font-heading text-base font-semibold">{text}</DialogTitle>}
@@ -141,23 +146,22 @@ export function SettingsMobile({
 	}
 
 	const groups = mobileSettingsGroups({
-		locale,
 		defaultModel: summary.defaultModel ? modelLabel(summary.defaultModel, models) : undefined,
 		chatgptEnabled: summary.chatgptEnabled,
-		theme: theme ? THEME_LABEL[theme] : undefined,
+		theme: theme ? themeLabels[theme] : undefined,
 		browserAuto: summary.effective?.sandboxAutoStart.value,
 		connectionsCount,
 		environmentsCount,
 		skillsCount,
 		usageCostUsd: usage.data ? usage.data.totals.costUsd : undefined,
 		reviewMode: reviewModeOf(summary.effective),
-	});
+	}, undefined, translator);
 	return (
 		<SettingsPage
-			backLabel="Fechar configurações"
+			backLabel={t("settings.close")}
 			icon="close"
 			onBack={() => runUnlessUnsaved(onClose)}
-			title="Configurações"
+			title={t("settings.title")}
 			titleSlot={(text) => <DialogTitle className="truncate font-heading text-base font-semibold">{text}</DialogTitle>}
 		>
 			<div className="flex flex-col gap-4">

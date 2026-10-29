@@ -1,14 +1,13 @@
 import { formatNumber } from "@/lib/format";
 import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
-import type { SettingsNavId } from "./settings-registry";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
+import { SETTINGS_NAV, navGroupLabel, navSectionLabel, type SettingsNavId } from "./settings-registry";
 
 /** Modelo puro da lista mobile: grupos de linhas, cada uma levando a uma seção. */
 export type MobileSettingsRow = { id: SettingsNavId; title: string; secondary: string };
 export type MobileSettingsGroup = { id: string; label: string; rows: MobileSettingsRow[] };
 
 export type MobileSettingsSummary = {
-	/** Idioma da tela, para formatar números. */
-	locale?: UiLocale;
 	theme?: string;
 	defaultModel?: string;
 	chatgptEnabled?: boolean;
@@ -26,104 +25,96 @@ export type MobileSettingsSummary = {
 	reviewMode?: "off" | "shadow" | "on";
 };
 
-/** Janela do custo mostrado na lista: a mesma que a seção Uso abre por padrão. */
-export const MOBILE_USAGE_WINDOW_LABEL = "últimos 7 dias";
-
 const brl = (value: number, digits: number, locale: UiLocale) =>
 	formatNumber(value, locale, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
-export function connectionsHint(count: number | undefined): string {
-	return count === undefined ? "Conectores e MCP" : count === 0 ? "Nenhuma conexão" : count === 1 ? "1 conectado" : `${count} conectados`;
+export function connectionsHint(count: number | undefined, { t, tn } = defaultTranslator): string {
+	if (count === undefined) return t("settings.mobile.connectionsUnknown");
+	return count === 0 ? t("settings.mobile.connectionsNone") : tn("settings.mobile.connections", count);
 }
 
-export function skillsHint(count: number | undefined): string {
-	return count === undefined ? "Procedimentos do agente" : count === 0 ? "Nenhuma habilidade" : count === 1 ? "1 habilidade" : `${count} habilidades`;
+export function skillsHint(count: number | undefined, { t, tn } = defaultTranslator): string {
+	if (count === undefined) return t("settings.mobile.skillsUnknown");
+	return count === 0 ? t("settings.mobile.skillsNone") : tn("settings.mobile.skills", count);
 }
 
 /** Computador: navegador do agente e, se houver, quantos ambientes de código. */
-export function computerHint(browserAuto: boolean | undefined, environments: number | undefined): string {
-	const envs = environments ? (environments === 1 ? "1 ambiente" : `${environments} ambientes`) : null;
-	if (!envs) return browserAuto === undefined ? "Navegador e ambientes de código" : browserAuto ? "Navegador: automático" : "Navegador: manual";
-	return `${browserAuto === undefined ? "Navegador" : browserAuto ? "Automático" : "Manual"} · ${envs}`;
+export function computerHint(browserAuto: boolean | undefined, environments: number | undefined, { t, tn } = defaultTranslator): string {
+	const envs = environments ? tn("settings.mobile.environments", environments) : null;
+	if (!envs) {
+		if (browserAuto === undefined) return t("settings.mobile.computerDefault");
+		return browserAuto ? t("settings.mobile.browserAuto") : t("settings.mobile.browserManual");
+	}
+	const browser = browserAuto === undefined ? t("settings.mobile.browser") : browserAuto ? t("settings.mobile.auto") : t("settings.mobile.manual");
+	return `${browser} · ${envs}`;
 }
 
-export function usageHint(cost: number | null | undefined, locale: UiLocale = DEFAULT_UI_LOCALE): string {
-	if (cost === undefined || cost === null) return "Consumo e gastos";
+export function usageHint(cost: number | null | undefined, locale: UiLocale = DEFAULT_UI_LOCALE, { t } = defaultTranslator): string {
+	if (cost === undefined || cost === null) return t("settings.mobile.usageUnknown");
 	const text = cost > 0 && cost < 0.01 ? brl(cost, 4, locale) : brl(cost, 2, locale);
-	return `US$ ${text} nos ${MOBILE_USAGE_WINDOW_LABEL}`;
+	return t("settings.mobile.usageCost", { cost: text });
 }
 
-export function reviewHint(mode: MobileSettingsSummary["reviewMode"]): string {
-	if (mode === "on") return "Revisão JEV ligada";
-	if (mode === "shadow") return "Revisão JEV em teste";
-	if (mode === "off") return "Revisão desligada";
-	return "Revisão das ações dos bots";
+export function reviewHint(mode: MobileSettingsSummary["reviewMode"], { t } = defaultTranslator): string {
+	if (mode === "on") return t("settings.mobile.reviewOn");
+	if (mode === "shadow") return t("settings.mobile.reviewShadow");
+	if (mode === "off") return t("settings.mobile.reviewOff");
+	return t("settings.mobile.reviewDefault");
 }
 
-/** Título de cada página no mobile (pode diferir do rótulo curto da nav do desktop). */
-export const MOBILE_TITLES: Record<SettingsNavId, string> = {
-	conta: "Conta",
-	geral: "Geral",
-	provedores: "Provedores e chaves",
-	modelos: "Modelos e contexto",
-	bots: "Bots",
-	notificacoes: "Notificações",
-	computador: "Computador",
-	conexoes: "Conexões",
-	cofre: "Cofre",
-	habilidades: "Habilidades",
-	uso: "Uso e custos",
-	execucao: "Execução e limites",
-	revisao: "Revisão automática",
-	diagnostico: "Diagnóstico",
-};
+/** Título de cada página no mobile em pt-BR (a tela usa `navSectionLabel` com o idioma ativo). */
+export const MOBILE_TITLES = Object.fromEntries(
+	SETTINGS_NAV.map((entry) => [entry.id, navSectionLabel(defaultTranslator.t, entry.id)]),
+) as Record<SettingsNavId, string>;
 
 /** As mesmas seções do desktop (Conta fica no cartão de perfil do topo); Revisão e Diagnóstico ficam por último. */
 export function mobileSettingsGroups(
 	summary: MobileSettingsSummary,
 	hidden: ReadonlySet<SettingsNavId> = new Set(),
+	translator: Translator = defaultTranslator,
 ): MobileSettingsGroup[] {
+	const { t } = translator;
 	const row = (id: SettingsNavId, secondary: string): MobileSettingsRow => ({
 		id,
-		title: MOBILE_TITLES[id],
+		title: navSectionLabel(t, id),
 		secondary,
 	});
-	const geralHint = summary.theme ? `Tema ${summary.theme.toLowerCase()}` : "Tema, idioma e fuso";
-	const modelosHint = summary.defaultModel ?? "Modelo padrão e contexto";
-	const provedoresHint = summary.chatgptEnabled ? "Plano ChatGPT ligado" : "Plano ChatGPT e chaves de API";
+	const geralHint = summary.theme ? t("settings.mobile.theme", { theme: summary.theme.toLowerCase() }) : t("settings.mobile.generalDefault");
+	const modelosHint = summary.defaultModel ?? t("settings.mobile.modelsDefault");
+	const provedoresHint = summary.chatgptEnabled ? t("settings.mobile.chatgptOn") : t("settings.mobile.providersDefault");
 	const groups: MobileSettingsGroup[] = [
 		{
 			id: "basico",
-			label: "Básico",
-			rows: [row("geral", geralHint), row("notificacoes", "Avisos no celular")],
+			label: navGroupLabel(t, "basico"),
+			rows: [row("geral", geralHint), row("notificacoes", t("settings.mobile.notifications"))],
 		},
 		{
 			id: "inteligencia",
-			label: "Bots e modelos",
+			label: navGroupLabel(t, "inteligencia"),
 			rows: [
-				row("bots", "Autonomia, grupos e reflexão"),
+				row("bots", t("settings.mobile.bots")),
 				row("modelos", modelosHint),
 				row("provedores", provedoresHint),
 			],
 		},
 		{
 			id: "ambiente",
-			label: "Ferramentas",
+			label: navGroupLabel(t, "ambiente"),
 			rows: [
-				row("computador", computerHint(summary.browserAuto, summary.environmentsCount)),
-				row("conexoes", connectionsHint(summary.connectionsCount)),
-				row("cofre", "Senhas, chaves e logins"),
-				row("habilidades", skillsHint(summary.skillsCount)),
+				row("computador", computerHint(summary.browserAuto, summary.environmentsCount, translator)),
+				row("conexoes", connectionsHint(summary.connectionsCount, translator)),
+				row("cofre", t("settings.mobile.vault")),
+				row("habilidades", skillsHint(summary.skillsCount, translator)),
 			],
 		},
 		{
 			id: "controle",
-			label: "Controle",
+			label: navGroupLabel(t, "controle"),
 			rows: [
-				row("uso", usageHint(summary.usageCostUsd, summary.locale)),
-				row("execucao", "Passos, tempo e custo por execução"),
-				row("revisao", reviewHint(summary.reviewMode)),
-				row("diagnostico", "Versões, serviços e falhas"),
+				row("uso", usageHint(summary.usageCostUsd, translator.locale, translator)),
+				row("execucao", t("settings.mobile.execution")),
+				row("revisao", reviewHint(summary.reviewMode, translator)),
+				row("diagnostico", t("settings.mobile.diagnostics")),
 			],
 		},
 	];

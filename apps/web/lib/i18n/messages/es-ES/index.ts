@@ -2,8 +2,10 @@
 import type { MessageDictionary } from "../../translator";
 import { common } from "./common";
 import { library } from "./library";
+import { settings } from "./settings";
 
 export const esES: MessageDictionary = {
 	...common,
 	...library,
+	...settings,
 };

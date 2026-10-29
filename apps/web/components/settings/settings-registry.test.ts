@@ -8,6 +8,8 @@ import {
 	isItemVisible,
 	moveIndex,
 	navEntry,
+	navGroupLabel,
+	navSectionLabel,
 	normalizeSearch,
 	parseSettingsParam,
 	resolveSettingsSection,
@@ -202,4 +204,19 @@ test("moveIndex é circular e tolera lista vazia", () => {
 	assert.equal(moveIndex(1, 3, "first"), 0);
 	assert.equal(moveIndex(1, 3, "last"), 2);
 	assert.equal(moveIndex(0, 0, "next"), -1);
+});
+
+test("a busca também acha a seção pelo nome no idioma da tela", async () => {
+	const { createTranslator } = await import("@/lib/i18n/translator");
+	const { loadMessages } = await import("@/lib/i18n/messages");
+	const { t } = createTranslator("en-US", await loadMessages("en-US"));
+	const labelOf = (id: Parameters<typeof navSectionLabel>[1]) => navSectionLabel(t, id);
+	const found = (query: string) => searchSettings(query, undefined, labelOf).entries.map((entry) => entry.id);
+	assert.deepEqual(found("vault"), ["cofre"]);
+	assert.ok(found("notifications").includes("notificacoes"));
+	// Sem o tradutor, "vault" não é um termo pt-BR: a busca continua só no texto de origem.
+	assert.deepEqual(ids("vault"), []);
+	assert.equal(navSectionLabel(t, "execucao"), "Execution and limits");
+	assert.equal(navGroupLabel(t, "ambiente"), "Tools");
+	assert.ok(ids("language").includes("geral"), "o item Idioma da interface acha por 'language'");
 });

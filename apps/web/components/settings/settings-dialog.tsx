@@ -10,6 +10,7 @@ import {
 	DialogTitle,
 } from "@workspace/ui/components/dialog";
 import { useIsMobile } from "@workspace/ui/hooks/use-mobile";
+import { useT } from "@/lib/i18n/provider";
 import { useAccountSettings } from "@/hooks/use-account-settings";
 import { runUnlessUnsaved } from "@/lib/unsaved-guard";
 import {
@@ -17,7 +18,7 @@ import {
 	DEFAULT_SETTINGS_SECTION,
 	hiddenSettingsItems,
 	isItemVisible,
-	navEntry,
+	navSectionLabel,
 } from "./settings-registry";
 import { SectionContent } from "./sections/panes";
 import { SettingsMobile } from "./settings-mobile";
@@ -29,13 +30,14 @@ import { useSettingsSection } from "./settings-url";
  * (Esc e foco preso vêm do Dialog do ui).
  */
 export function SettingsHeader({ title }: { title: string }) {
+	const t = useT();
 	return (
 		<div className="flex shrink-0 items-center justify-between gap-3 px-8 pt-8 pb-1.5" data-slot="settings-header">
 			<DialogTitle className="px-2 font-heading text-[17px] leading-6 font-medium">{title}</DialogTitle>
 			<DialogClose
 				render={
 					<Button
-						aria-label="Fechar configurações"
+						aria-label={t("settings.close")}
 						className="absolute top-2.5 right-2.5 size-8 rounded-full text-muted-foreground hover:text-foreground"
 						size="icon-sm"
 						variant="ghost"
@@ -54,6 +56,7 @@ export function SettingsHeader({ title }: { title: string }) {
  * `onShortcut` abre as telas que já existem (Marketplace e MCP personalizado).
  */
 export function SettingsDialog({ onShortcut }: { onShortcut: (id: SettingsShortcutId) => void }) {
+	const t = useT();
 	const { section, setSection } = useSettingsSection();
 	const account = useAccountSettings(section !== null);
 	const hidden = hiddenSettingsItems(account.view?.capabilities);
@@ -82,7 +85,7 @@ export function SettingsDialog({ onShortcut }: { onShortcut: (id: SettingsShortc
 			>
 				{section && isMobile ? (
 					<>
-						<DialogDescription className="sr-only">Preferências da sua conta.</DialogDescription>
+						<DialogDescription className="sr-only">{t("settings.description")}</DialogDescription>
 						<SettingsMobile
 							// O menu abre em "geral" por padrão; no mobile isso significa "a lista".
 							initialPage={section === DEFAULT_SETTINGS_SECTION ? null : section}
@@ -104,9 +107,9 @@ export function SettingsDialog({ onShortcut }: { onShortcut: (id: SettingsShortc
 					</>
 				) : section ? (
 					<>
-						<DialogDescription className="sr-only">Preferências da sua conta.</DialogDescription>
+						<DialogDescription className="sr-only">{t("settings.description")}</DialogDescription>
 						<SettingsShell
-							header={<SettingsHeader title={navEntry(section)?.label ?? "Configurações"} />}
+							header={<SettingsHeader title={navSectionLabel(t, section)} />}
 							hiddenItems={hidden}
 							onSectionChange={(next) => runUnlessUnsaved(() => setSection(next))}
 							section={section}

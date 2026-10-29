@@ -1,6 +1,6 @@
 "use client";
 
-import { LanguagesIcon, MonitorIcon, MoonIcon, PaletteIcon, SunIcon } from "lucide-react";
+import { GlobeIcon, LanguagesIcon, MonitorIcon, MoonIcon, PaletteIcon, SunIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 import type { BotLanguageSetting, Resolved } from "@workspace/shared";
 import {
@@ -8,21 +8,35 @@ import {
 	type SettingsPickerOption,
 	withOptionIcons,
 } from "@/components/ui/templates/template-4/settings-picker";
-import { BOT_LANGUAGE_AUTO_LABEL, BOT_LANGUAGE_SETTING_OPTIONS } from "@/lib/bot-language";
+import { botLanguageSettingOptions } from "@/lib/bot-language";
+import { UI_LOCALES, UI_LOCALE_LABELS, type UiLocalePreference } from "@/lib/i18n/locales";
+import { useTranslations, useUiLocalePreference } from "@/lib/i18n/provider";
+import { writeUiLocalePreference } from "@/lib/i18n/preference";
+import { defaultTranslator, type TFunction } from "@/lib/i18n/translator";
 import type { useAccountSettings } from "@/hooks/use-account-settings";
 import { type SaveStatus, inheritLabel } from "../account-settings-state";
 import { SaveIndicator, SettingRow, SettingsGroup } from "../setting-row";
 
 export type ThemeChoice = "light" | "dark" | "system";
 
-const THEME_OPTIONS: readonly SettingsPickerOption<ThemeChoice>[] = withOptionIcons(
-	[
-		{ value: "light", label: "Claro" },
-		{ value: "dark", label: "Escuro" },
-		{ value: "system", label: "Sistema" },
-	],
-	{ light: SunIcon, dark: MoonIcon, system: MonitorIcon },
-);
+function themeOptions(t: TFunction): readonly SettingsPickerOption<ThemeChoice>[] {
+	return withOptionIcons(
+		[
+			{ value: "light", label: t("settings.general.themeLight") },
+			{ value: "dark", label: t("settings.general.themeDark") },
+			{ value: "system", label: t("settings.general.themeSystem") },
+		],
+		{ light: SunIcon, dark: MoonIcon, system: MonitorIcon },
+	);
+}
+
+/** Opções do idioma da interface: "Automático" + cada idioma escrito nele mesmo. */
+export function uiLocaleOptions(t: TFunction = defaultTranslator.t): SettingsPickerOption<UiLocalePreference>[] {
+	return [
+		{ value: "auto", label: t("common.auto") },
+		...UI_LOCALES.map((locale) => ({ value: locale, label: UI_LOCALE_LABELS[locale] })),
+	];
+}
 
 const INHERIT = "inherit";
 type LanguageChoice = BotLanguageSetting | typeof INHERIT;
@@ -30,11 +44,12 @@ type LanguageChoice = BotLanguageSetting | typeof INHERIT;
 /** Opções do idioma: "Herdar" (com a origem do valor) + os idiomas dos bots. */
 export function languageOptions(
 	language: Resolved<BotLanguageSetting>,
+	t: TFunction = defaultTranslator.t,
 ): SettingsPickerOption<LanguageChoice>[] {
-	const inherit = inheritLabel(language.source, language.value === "auto" ? BOT_LANGUAGE_AUTO_LABEL : language.value) ?? "Herdar do servidor";
+	const inherit = inheritLabel(language.source, language.value === "auto" ? t("common.auto") : language.value, t) ?? t("settings.general.inheritServer");
 	return [
 		{ value: INHERIT, label: inherit },
-		...BOT_LANGUAGE_SETTING_OPTIONS.map((option) => ({ value: option.id, label: option.label })),
+		...botLanguageSettingOptions(t("common.auto")).map((option) => ({ value: option.id, label: option.label })),
 	];
 }
 
@@ -48,6 +63,8 @@ export function GeneralSettingsView({
 	saveError,
 	loadError,
 	isVisible = () => true,
+	uiLocale = "auto",
+	onUiLocaleChange = () => {},
 }: {
 	theme: ThemeChoice;
 	onThemeChange: (theme: ThemeChoice) => void;
@@ -59,21 +76,41 @@ export function GeneralSettingsView({
 	saveError?: string | null;
 	loadError?: string | null;
 	isVisible?: (itemId: string) => boolean;
+	/** Escolha do idioma da interface (por navegador, não é da conta). */
+	uiLocale?: UiLocalePreference;
+	onUiLocaleChange?: (preference: UiLocalePreference) => void;
 }) {
+	const { t } = useTranslations();
 	return (
-		<SettingsGroup title="Aparência">
+		<SettingsGroup title={t("settings.general.appearance")}>
 			{isVisible("geral.tema") ? (
 				<SettingRow
-					description="Vale só para este navegador."
+					description={t("settings.general.themeHint")}
 					htmlFor="settings-theme"
 					icon={PaletteIcon}
-					label="Tema"
+					label={t("settings.general.theme")}
 				>
 					<SettingsPicker
 						id="settings-theme"
 						onChange={onThemeChange}
-						options={THEME_OPTIONS}
+						options={themeOptions(t)}
 						value={theme}
+					/>
+				</SettingRow>
+			) : null}
+
+			{isVisible("geral.idioma-interface") ? (
+				<SettingRow
+					description={t("settings.general.uiLanguageHint")}
+					htmlFor="settings-ui-language"
+					icon={GlobeIcon}
+					label={t("settings.general.uiLanguage")}
+				>
+					<SettingsPicker
+						id="settings-ui-language"
+						onChange={onUiLocaleChange}
+						options={uiLocaleOptions(t)}
+						value={uiLocale}
 					/>
 				</SettingRow>
 			) : null}
@@ -89,23 +126,32 @@ export function GeneralSettingsView({
 							<SaveIndicator error={saveError} status={status} />
 						)
 					}
-					description="Idioma que os novos bots usam ao serem criados. Cada bot pode mudar o seu."
+					description={t("settings.general.botLanguageHint")}
 					htmlFor="settings-default-language"
 					icon={LanguagesIcon}
-					label="Idioma dos bots novos"
+					label={t("settings.general.botLanguage")}
 				>
 					<SettingsPicker
 						disabled={!language}
 						id="settings-default-language"
 						onChange={(choice) => onLanguageChange(choice === INHERIT ? null : choice)}
-						options={language ? languageOptions(language) : []}
-						placeholder="Carregando…"
+						options={language ? languageOptions(language, t) : []}
+						placeholder={t("common.loading")}
 						value={language ? (language.source === "user" ? language.value : INHERIT) : ""}
 					/>
 				</SettingRow>
 			) : null}
 		</SettingsGroup>
 	);
+}
+
+/**
+ * Grava a escolha (cookie) e recarrega a página: o idioma vem do servidor (layout) e várias telas guardam
+ * texto já montado no estado, então recarregar é o jeito simples de a interface inteira trocar de uma vez.
+ */
+function changeUiLocale(preference: UiLocalePreference) {
+	writeUiLocalePreference(preference);
+	window.location.reload();
 }
 
 export function GeneralSettings({
@@ -116,6 +162,7 @@ export function GeneralSettings({
 	isVisible: (itemId: string) => boolean;
 }) {
 	const { theme, setTheme } = useTheme();
+	const preference = useUiLocalePreference();
 	const current: ThemeChoice = theme === "light" || theme === "dark" ? theme : "system";
 	return (
 		<GeneralSettingsView
@@ -126,9 +173,11 @@ export function GeneralSettings({
 				void account.save({ general: { defaultBotLanguage: language } })
 			}
 			onThemeChange={setTheme}
+			onUiLocaleChange={changeUiLocale}
 			saveError={account.saveError}
 			status={account.status}
 			theme={current}
+			uiLocale={preference}
 		/>
 	);
 }

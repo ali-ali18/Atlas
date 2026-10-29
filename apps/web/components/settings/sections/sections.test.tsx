@@ -3,7 +3,9 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AccountSettingsView, PhotoActionsList, PhotoAvatarButton, avatarPressAction } from "./account";
-import { GeneralSettingsView, languageOptions } from "./general";
+import { GeneralSettingsView, languageOptions, uiLocaleOptions } from "./general";
+import { I18nProvider } from "@/lib/i18n/provider";
+import { loadMessages } from "@/lib/i18n/messages";
 
 Object.assign(globalThis, { React });
 
@@ -22,13 +24,14 @@ function general(props: Partial<React.ComponentProps<typeof GeneralSettingsView>
 	);
 }
 
-test("Geral: tema e idioma, um dropdown cada, com rótulos acessíveis", () => {
+test("Geral: tema e os dois idiomas, um dropdown cada, com rótulos acessíveis", () => {
 	const html = general();
 	assert.match(html, /for="settings-theme"[^>]*>Tema</);
 	assert.match(html, /id="settings-theme"/);
 	assert.match(html, />Sistema</, "tema atual no gatilho");
 	assert.match(html, /for="settings-default-language"[^>]*>Idioma dos bots novos</);
-	assert.equal((html.match(/aria-haspopup="menu"/g) ?? []).length, 2);
+	assert.match(html, /for="settings-ui-language"[^>]*>Idioma da interface</);
+	assert.equal((html.match(/aria-haspopup="menu"/g) ?? []).length, 3);
 });
 
 test("Geral: idioma herdado mostra a origem do valor (padrão do servidor)", () => {
@@ -117,13 +120,14 @@ test("Foto: sem foto o toque abre o seletor; com foto abre o drawer", () => {
 
 test("Foto: o drawer tem Trocar, Remover (destrutivo) e Cancelar, e cada um chama seu callback", () => {
 	const calls: string[] = [];
-	const tree = PhotoActionsList({ onReplace: () => calls.push("replace"), onRemove: () => calls.push("remove"), onCancel: () => calls.push("cancel") });
+	const labels = { replace: "Trocar foto", remove: "Remover foto", cancel: "Cancelar" };
+	const tree = PhotoActionsList({ labels, onReplace: () => calls.push("replace"), onRemove: () => calls.push("remove"), onCancel: () => calls.push("cancel") });
 	const buttons = (tree.props as { children: Array<{ props: { onClick: () => void; variant: string } }> }).children;
 	assert.equal(buttons.length, 3);
 	assert.deepEqual(buttons.map((b) => b.props.variant), ["outline", "destructive", "ghost"]);
 	for (const b of buttons) b.props.onClick();
 	assert.deepEqual(calls, ["replace", "remove", "cancel"]);
-	const html = renderToStaticMarkup(<PhotoActionsList onCancel={noop} onRemove={noop} onReplace={noop} />);
+	const html = renderToStaticMarkup(<PhotoActionsList labels={labels} onCancel={noop} onRemove={noop} onReplace={noop} />);
 	assert.match(html, /Trocar foto/);
 	assert.match(html, /Remover foto/);
 	assert.match(html, /Cancelar/);
@@ -156,7 +160,7 @@ test("Geral: grupo Aparência no estilo cartão (título pequeno, cantos 12, com
 	assert.match(html, /<h3[^>]*data-slot="settings-group-title"[^>]*>Aparência<\/h3>/);
 	assert.match(html, /rounded-card border border-border\/60 py-2/);
 	assert.doesNotMatch(html, /divide-y/, "sem divisórias entre as linhas");
-	assert.equal((html.match(/data-slot="setting-row-icon"/g) ?? []).length, 2);
+	assert.equal((html.match(/data-slot="setting-row-icon"/g) ?? []).length, 3);
 	assert.match(html, /lucide-moon/, "trigger do tema mostra a lua (opção atual)");
 	assert.doesNotMatch(html, /lucide-sun/);
 });
@@ -167,4 +171,36 @@ test("Conta: ícones nas linhas", () => {
 	);
 	assert.equal((html.match(/data-slot="setting-row-icon"/g) ?? []).length, 4);
 	assert.equal((html.match(/data-slot="setting-row"/g) ?? []).length, 4);
+});
+
+test("Geral: Idioma da interface oferece Automático + os idiomas escritos neles mesmos", () => {
+	assert.deepEqual(
+		uiLocaleOptions().map((option) => [option.value, option.label]),
+		[["auto", "Automático"], ["pt-BR", "Português (Brasil)"], ["en-US", "English (US)"], ["es-ES", "Español (España)"]],
+	);
+	assert.match(general({ uiLocale: "en-US" }), /id="settings-ui-language"[\s\S]*English \(US\)/);
+});
+
+test("Geral e Conta saem no idioma da interface (en-US e es-ES)", async () => {
+	for (const [locale, theme, uiLanguage, account] of [
+		["en-US", "Theme", "Interface language", "Sign out"],
+		["es-ES", "Tema", "Idioma de la interfaz", "Cerrar sesión"],
+	] as const) {
+		const messages = await loadMessages(locale);
+		const html = renderToStaticMarkup(
+			<I18nProvider locale={locale} messages={messages}>
+				<GeneralSettingsView language={null} onLanguageChange={noop} onThemeChange={noop} status="idle" theme="system" />
+				<AccountSettingsView
+					editing={{ image: null, onSaveName: async () => {}, onPickPhoto: async () => {}, onRemovePhoto: async () => {} }}
+					email="a@b.c"
+					name="Ana"
+					onSignOut={noop}
+				/>
+			</I18nProvider>,
+		);
+		assert.match(html, new RegExp(`>${theme}<`));
+		assert.match(html, new RegExp(`>${uiLanguage}<`));
+		assert.ok(html.includes(account), `${locale}: ${account}`);
+		assert.doesNotMatch(html, /Idioma dos bots|Aparência|Encerra a sessão/);
+	}
 });
