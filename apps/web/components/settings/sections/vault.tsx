@@ -59,6 +59,7 @@ import {
 	type VaultForm,
 	type VaultFormErrors,
 } from "../vault-state";
+import { useLocale } from "@/lib/i18n/provider";
 
 // ----- peças visuais -----
 
@@ -115,6 +116,7 @@ const FILTERS: Array<{ id: VaultFilter; label: string }> = [
 ];
 
 export function VaultListView({ items, available, loading, error, query, filter, onQuery, onFilter, onAdd, onOpen }: VaultListViewProps) {
+	const locale = useLocale();
 	const visible = useMemo(() => filterVaultItems(items, query, filter), [items, query, filter]);
 	return (
 		<SettingsStack>
@@ -188,7 +190,7 @@ export function VaultListView({ items, available, loading, error, query, filter,
 											<span className="truncate text-body leading-[18px] font-medium">{itemTitle(item)}</span>
 											<span className="truncate text-xs text-muted-foreground">{itemSubtitle(item)}</span>
 										</span>
-										<span className="hidden shrink-0 text-caption text-muted-foreground sm:block">{item.lastUsedAt ? `Usado ${formatVaultDate(item.lastUsedAt)}` : "Nunca usado"}</span>
+										<span className="hidden shrink-0 text-caption text-muted-foreground sm:block">{item.lastUsedAt ? `Usado ${formatVaultDate(item.lastUsedAt, undefined, locale)}` : "Nunca usado"}</span>
 									</button>
 								</li>
 							))}
@@ -265,6 +267,7 @@ export function spacedCode(code: string): string {
 const MASK = "••••••••••••";
 
 export function VaultDetailView({ item, audit, revealed, totp, copied, busy, error, onReveal, onHide, onCopy, onEdit, onDelete, onClose }: VaultDetailViewProps) {
+	const locale = useLocale();
 	const isLogin = item.kind === "login";
 	const shown = revealed !== null;
 	const secretValue = isLogin ? revealed?.password : revealed?.value;
@@ -339,7 +342,7 @@ export function VaultDetailView({ item, audit, revealed, totp, copied, busy, err
 						{audit.map((entry) => (
 							<li className="flex items-baseline justify-between gap-3 text-xs" key={entry.id}>
 								<span className="min-w-0 [overflow-wrap:anywhere]">{auditLabel(entry)}</span>
-								<span className="shrink-0 text-muted-foreground">{formatVaultDate(entry.createdAt)}</span>
+								<span className="shrink-0 text-muted-foreground">{formatVaultDate(entry.createdAt, undefined, locale)}</span>
 							</li>
 						))}
 					</ul>

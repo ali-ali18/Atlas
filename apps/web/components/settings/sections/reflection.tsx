@@ -12,6 +12,7 @@ import { SettingRow, SettingsGroup } from "../setting-row";
 import { SettingsPicker } from "@/components/ui/templates/template-4/settings-picker";
 import { memoryOptions, reflectionStatusLabel } from "../reflection-state";
 import { timeZoneLabel } from "../timezone-state";
+import { useLocale } from "@/lib/i18n/provider";
 
 /**
  * Reflexão diária do orquestrador (bot principal): uma vez por dia, no horário escolhido (fuso da
@@ -55,8 +56,9 @@ export function ReflectionSettingsView({
 	/** Relógio injetável (testes); padrão: agora. */
 	now?: Date;
 }) {
+	const locale = useLocale();
 	if (!isVisible("geral.reflexao")) return null;
-	const statusLine = statusError ?? reflectionStatusLabel(status, now);
+	const statusLine = statusError ?? reflectionStatusLabel(status, now, locale);
 	return (
 		<SettingsGroup title="Reflexão diária">
 			<SettingRow
@@ -108,7 +110,7 @@ export function ReflectionSettingsView({
 						disabled={disabled}
 						id="settings-reflection-memory"
 						onChange={(value) => onMemoryChars(Number(value))}
-						options={memoryOptions(memoryChars)}
+						options={memoryOptions(memoryChars, locale)}
 						value={String(memoryChars)}
 					/>
 				</SettingRow>

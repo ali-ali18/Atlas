@@ -42,7 +42,7 @@ const GROUP_TIERS: RegExp[][] = [
   [/financ/, /caixa/, /banco/],
 ]
 
-const plainText = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLocaleLowerCase("pt-BR")
+const plainText = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
 
 function groupTier(tag: string) {
   const text = plainText(tag)
@@ -71,7 +71,7 @@ export function summaryGroups(proposal: ApiProposal) {
 export function groupListText(proposal: ApiProposal, max = 3) {
   const top = summaryGroups(proposal)
     .slice(0, max)
-    .map((group) => group.tag.replace(/\s+[-–]\s+/g, " de ").toLocaleLowerCase("pt-BR"))
+    .map((group) => group.tag.replace(/\s+[-–]\s+/g, " de ").toLowerCase())
   const rest = readableGroups(proposal).length - top.length
   if (top.length === 0) return "dados da API"
   if (rest > 0) return `${top.join(", ")} e mais ${rest}`

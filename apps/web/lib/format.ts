@@ -51,10 +51,16 @@ export function formatDate(
 	return date ? dateTime(locale, options).format(date) : "";
 }
 
+/** Idiomas de relógio 12 h (en: "9:05 AM") escrevem a hora sem zero à esquerda; os de 24 h mantêm "09:05". */
+function hourStyle(locale: UiLocale): "numeric" | "2-digit" {
+	const cycle = dateTime(locale, { hour: "numeric" }).resolvedOptions().hourCycle;
+	return cycle === "h12" || cycle === "h11" ? "numeric" : "2-digit";
+}
+
 /** Hora e minuto no formato do idioma (en usa AM/PM). `hourCycle: "h23"` em `options` força 24 h. */
 export function formatTime(value: DateInput, locale: UiLocale = DEFAULT_UI_LOCALE, options: Intl.DateTimeFormatOptions = {}): string {
 	const date = toDate(value);
-	return date ? dateTime(locale, { hour: "2-digit", minute: "2-digit", ...options }).format(date) : "";
+	return date ? dateTime(locale, { hour: hourStyle(locale), minute: "2-digit", ...options }).format(date) : "";
 }
 
 /** Dia e mês + hora e minuto (ex.: histórico de falhas). */

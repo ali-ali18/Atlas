@@ -70,6 +70,7 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@workspace/ui/components/input-group"
+import { useLocale } from "@/lib/i18n/provider";
 
 type View =
   | { kind: "catalog" }
@@ -271,6 +272,7 @@ export function MarketplacePage({
   /** "Abrir conversa" depois de instalar um agente. */
   onOpenBot?: (botId: string) => void
 }) {
+	const locale = useLocale();
   const location = useMarketplaceLocation() ?? { section: "conectores" as const, item: null }
   const { section, item } = location
   const [catalog, setCatalog] = useState<McpCatalogItem[] | null>(null)
@@ -354,14 +356,14 @@ export function MarketplacePage({
   }, [])
 
   const filtered = useMemo(() => {
-    const term = query.trim().toLocaleLowerCase("pt-BR")
+    const term = query.trim().toLowerCase()
     return (
       catalog?.filter(
         (entry) =>
           entry.availability !== "coming_soon" &&
           (!term ||
           `${entry.name} ${entry.description}`
-            .toLocaleLowerCase("pt-BR")
+            .toLowerCase()
             .includes(term))
       ) ?? []
     )
@@ -370,8 +372,8 @@ export function MarketplacePage({
     (connection) =>
       !query.trim() ||
       `${connection.name} ${connection.url}`
-        .toLocaleLowerCase("pt-BR")
-        .includes(query.trim().toLocaleLowerCase("pt-BR"))
+        .toLowerCase()
+        .includes(query.trim().toLowerCase())
   )
   const activeConnections = connections.filter(
     (connection) => connection.status === "connected"
@@ -600,10 +602,10 @@ export function MarketplacePage({
   }
 
   const selectedApi = view.kind === "api" ? apis.items?.find((entry) => entry.id === view.id) : undefined
-  const apiTerm = query.trim().toLocaleLowerCase("pt-BR")
+  const apiTerm = query.trim().toLowerCase()
   const apiGroups = groupAccounts(
     (apis.items ?? []).filter(
-      (entry) => !apiTerm || `${entry.name} ${entry.domain}`.toLocaleLowerCase("pt-BR").includes(apiTerm)
+      (entry) => !apiTerm || `${entry.name} ${entry.domain}`.toLowerCase().includes(apiTerm)
     ),
     (entry) => entry.baseUrl
   )
@@ -706,7 +708,7 @@ export function MarketplacePage({
                 ) : null}
                 {showCategory ? (
                   <CategorySelect
-                    categories={categoriesOf(categoryItems)}
+                    categories={categoriesOf(categoryItems, locale)}
                     category={section === "habilidades" ? skillCategory : botCategory}
                     onCategory={section === "habilidades" ? setSkillCategory : setBotCategory}
                   />

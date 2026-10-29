@@ -7,7 +7,9 @@ import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { AtlasApiError, type AtlasPage, getPage } from "@/lib/atlas-api";
-import { memoryRelativeDate } from "@/components/ui/templates/template-4/chat-context-panel/memory-tab-helpers";
+import { updatedAgo } from "@/components/ui/templates/template-4/chat-context-panel/library-sections";
+import { useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 
 import { ShareMenu } from "@/components/ai-elements/share/share-menu";
 
@@ -43,10 +45,8 @@ const defaultLoadPage: LoadPage = async (pageId) => {
 };
 
 /** "Atualizado há 5 min" (ou "Atualizado agora", "Atualizado ontem"). */
-export function updatedLabel(iso: string | null, now: Date = new Date()): string | null {
-	if (!iso) return null;
-	const relative = memoryRelativeDate(iso, now);
-	return relative ? `Atualizado ${relative}` : null;
+export function updatedLabel(iso: string | null, now: Date = new Date(), translator: Translator = defaultTranslator): string | null {
+	return updatedAgo(iso, now, translator);
 }
 
 /**
@@ -72,8 +72,9 @@ export function PageCard({ card, loadPage = defaultLoadPage, now, botName }: { c
 	}, [card.pageId, card.revision, loadPage]);
 
 	const view: PageViewState | null = reconcilePageSnapshot(card, remote);
-	const count = sourceCountLabel(view?.sourceCount ?? card.sourceCount);
-	const updated = view ? updatedLabel(view.updatedAt, now) : null;
+	const translator = useTranslations();
+	const count = sourceCountLabel(view?.sourceCount ?? card.sourceCount, translator);
+	const updated = view ? updatedLabel(view.updatedAt, now, translator) : null;
 
 	return (
 		<section aria-label={`Painel: ${card.title}`} className="my-1 w-full min-w-0 max-w-[min(68ch,100%)] overflow-hidden rounded-2xl bg-muted/60 text-card-foreground" data-testid="page-card">

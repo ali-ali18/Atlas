@@ -1,4 +1,6 @@
 import { SECRET_NAME_RE, hostOf, suggestLoginName, suggestSecretName } from "@workspace/shared";
+import { formatDate } from "@/lib/format";
+import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
 import type { VaultAuditEntry, VaultExtraField, VaultItemKind, VaultItemView, VaultWriteInput } from "@/lib/atlas-api";
 
 /** Estado puro do Cofre (Configurações): busca, formulário, gerador de senha e histórico. Sem React. */
@@ -178,7 +180,7 @@ export function auditLabel(entry: Pick<VaultAuditEntry, "action" | "actor" | "bo
 	return `${action} por você${entry.detail ? ` (${entry.detail})` : ""}`;
 }
 
-export function formatVaultDate(iso: string | null, now: Date = new Date()): string {
+export function formatVaultDate(iso: string | null, now: Date = new Date(), locale: UiLocale = DEFAULT_UI_LOCALE): string {
 	if (!iso) return "nunca";
 	const date = new Date(iso);
 	if (Number.isNaN(date.getTime())) return "—";
@@ -189,7 +191,7 @@ export function formatVaultDate(iso: string | null, now: Date = new Date()): str
 	if (hours < 24) return `há ${hours} h`;
 	const days = Math.round(hours / 24);
 	if (days < 30) return `há ${days} ${days === 1 ? "dia" : "dias"}`;
-	return date.toLocaleDateString("pt-BR");
+	return formatDate(date, locale);
 }
 
 /** Texto do aviso quando o cofre não está pronto no servidor. */

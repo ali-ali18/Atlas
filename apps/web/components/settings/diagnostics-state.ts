@@ -1,3 +1,5 @@
+import { formatDateTime } from "@/lib/format"
+import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales"
 import type { DiagnosticsCheck, DiagnosticsFailure, DiagnosticsQueue, DiagnosticsView } from "@workspace/shared"
 
 /** "abc1234", ou "" quando o build não achou o commit. */
@@ -68,11 +70,11 @@ export function versionFooter(version: string | null | undefined, commitShort: s
 }
 
 /** Data curta (dia/mês hora:minuto) das tarefas em segundo plano. */
-export function maintenanceTime(iso: string): string {
-	return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+export function maintenanceTime(iso: string, locale: UiLocale = DEFAULT_UI_LOCALE): string {
+	return formatDateTime(iso, locale);
 }
 
 /** Texto do último sucesso de uma tarefa: horário, ou "nunca rodou com sucesso". */
-export function maintenanceSuccessLabel(lastSuccessAt: string | null): string {
-	return lastSuccessAt ? `Último sucesso ${maintenanceTime(lastSuccessAt)}` : "Ainda sem sucesso";
+export function maintenanceSuccessLabel(lastSuccessAt: string | null, locale: UiLocale = DEFAULT_UI_LOCALE): string {
+	return lastSuccessAt ? `Último sucesso ${maintenanceTime(lastSuccessAt, locale)}` : "Ainda sem sucesso";
 }

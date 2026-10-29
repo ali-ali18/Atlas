@@ -62,3 +62,14 @@ test("rowTime: sem campo usa o texto pronto; com campo formata", () => {
 	assert.equal(rowTime({ time: "", lastMessageAt: null }, NOW.getTime()), "");
 	assert.equal(rowTime({ time: "", lastMessageAt: "2026-10-14T18:30:00Z" }, NOW.getTime()), "Ontem");
 });
+
+test("idioma da interface: en-US e es-ES usam as palavras e o formato do Intl", () => {
+	assert.equal(formatListTime("2026-10-15T18:29:30Z", NOW, SP, "en-US"), "now");
+	assert.match(formatListTime("2026-10-15T12:05:00Z", NOW, SP, "en-US"), /^9:05\sAM$/);
+	assert.equal(formatListTime("2026-10-14T18:30:00Z", NOW, SP, "en-US"), "Yesterday");
+	assert.equal(formatListTime("2026-10-13T18:00:00Z", NOW, SP, "en-US"), "Tue");
+	assert.equal(formatListTime("2026-10-08T18:00:00Z", NOW, SP, "en-US"), "10/08/26");
+	assert.equal(formatListTime("2026-10-14T18:30:00Z", NOW, SP, "es-ES"), "Ayer");
+	assert.equal(formatListTime("2026-10-12T18:00:00Z", NOW, SP, "es-ES"), "Lun");
+	assert.equal(formatListTime("2026-10-15T12:05:00Z", NOW, SP, "es-ES"), "09:05");
+});

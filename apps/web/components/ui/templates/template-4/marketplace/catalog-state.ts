@@ -1,4 +1,5 @@
 import type { CatalogInstallView } from "@/lib/atlas-api"
+import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales"
 
 /** Estado puro do marketplace de skills e agentes (lista, filtros, rótulos). Sem React. */
 
@@ -16,7 +17,7 @@ export function categoryLabel(id: string): string {
   const known = CATEGORY_LABELS[id]
   if (known) return known
   const text = id.replace(/-/g, " ")
-  return text.charAt(0).toLocaleUpperCase("pt-BR") + text.slice(1)
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 /** Nomes amigáveis das dicas de ferramenta (a skill nunca concede permissão a nenhuma). */
@@ -42,7 +43,7 @@ type Searchable = {
 }
 
 function plain(text: string): string {
-  return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLocaleLowerCase("pt-BR")
+  return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
 }
 
 export function filterCatalogItems<T extends Searchable>(
@@ -61,13 +62,14 @@ export function filterCatalogItems<T extends Searchable>(
 }
 
 export function categoriesOf(
-  items: readonly Pick<Searchable, "category">[]
+  items: readonly Pick<Searchable, "category">[],
+  locale: UiLocale = DEFAULT_UI_LOCALE
 ): Array<{ id: string; label: string; count: number }> {
   const counts = new Map<string, number>()
   for (const item of items) counts.set(item.category, (counts.get(item.category) ?? 0) + 1)
   return [...counts.entries()]
     .map(([id, count]) => ({ id, label: categoryLabel(id), count }))
-    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"))
+    .sort((a, b) => a.label.localeCompare(b.label, locale))
 }
 
 export type InstallSummary =

@@ -158,6 +158,7 @@ import {
 } from "./chat-context-panel/routine-map";
 import type { TemplateCreateFields } from "./chat-context-panel/routine-create-chooser";
 import type { OpenRoutinePayload } from "@/components/ai-elements/routines";
+import { useLocale } from "@/lib/i18n/provider";
 
 const LAST_ACTIVE_CHAT_COOKIE = "template4_last_active_chat";
 const ANCHOR_WAIT_MS = 2000;
@@ -258,6 +259,7 @@ export function Template4Client({
 }: {
 	initialPanelWidth?: number;
 }) {
+	const locale = useLocale();
 	const [agents, setAgents] = useState<Agent[]>([]);
 	const [sections, setSections] = useState<Section[]>([]);
 	const [activeId, setActiveId] = useState<string>("");
@@ -757,7 +759,7 @@ export function Template4Client({
 					runs.map((run) => ({
 						id: run.id,
 						name: `${run.routineName} · ${routineRunLabel(run)}`,
-						time: formatRoutineRunTime(run.createdAt),
+						time: formatRoutineRunTime(run.createdAt, locale),
 					})),
 				);
 			})
@@ -782,7 +784,7 @@ export function Template4Client({
 					const next = runs.map((run) => ({
 						id: run.id,
 						name: `${run.routineName} · ${routineRunLabel(run)}`,
-						time: formatRoutineRunTime(run.createdAt),
+						time: formatRoutineRunTime(run.createdAt, locale),
 					}));
 					// Mesma lista: devolve a anterior e nada re-renderiza (a consulta roda a cada 15 s).
 					setBotRoutineRuns((previous) => (sameRoutineRuns(previous, next) ? previous : next));
@@ -1391,7 +1393,7 @@ export function Template4Client({
 			runs.map((run) => ({
 				id: run.id,
 				name: `${run.routineName} · ${routineRunLabel(run)}`,
-				time: formatRoutineRunTime(run.createdAt),
+				time: formatRoutineRunTime(run.createdAt, locale),
 			})),
 		);
 		return records;
@@ -1695,7 +1697,7 @@ export function Template4Client({
 					botRuns.map((run) => ({
 						id: run.id,
 						name: `${run.routineName} · ${routineRunLabel(run)}`,
-						time: formatRoutineRunTime(run.createdAt),
+						time: formatRoutineRunTime(run.createdAt, locale),
 					})),
 				);
 				const latest = runs[0];

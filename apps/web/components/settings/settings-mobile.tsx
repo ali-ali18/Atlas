@@ -33,6 +33,7 @@ import type { SettingsNavId, SettingsSectionId } from "./settings-registry";
 import { MOBILE_TITLES, mobileSettingsGroups, type MobileSettingsSummary } from "./settings-mobile-model";
 import { modelLabel } from "./models-state";
 import { UserAvatar } from "@workspace/ui/components/gradient-avatar";
+import { useLocale } from "@/lib/i18n/provider";
 
 /** Conexões ativas: apps Composio + conexões MCP conectadas. Falha em uma fonte conta como 0 nela. */
 function useConnectionsCount(): number | undefined {
@@ -93,6 +94,7 @@ export function SettingsMobile({
 	onClose: () => void;
 	renderSection: (section: SettingsSectionId) => React.ReactNode;
 }) {
+	const locale = useLocale();
 	const [page, setPage] = useState<SettingsSectionId | null>(initialPage);
 	const { theme } = useTheme();
 	const { data: session } = authClient.useSession();
@@ -139,6 +141,7 @@ export function SettingsMobile({
 	}
 
 	const groups = mobileSettingsGroups({
+		locale,
 		defaultModel: summary.defaultModel ? modelLabel(summary.defaultModel, models) : undefined,
 		chatgptEnabled: summary.chatgptEnabled,
 		theme: theme ? THEME_LABEL[theme] : undefined,

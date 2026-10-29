@@ -1,5 +1,8 @@
 import { changeSourceFor, type MemoryChange, type MemoryChangeSource } from "@workspace/shared";
 
+import { formatDate } from "@/lib/format";
+import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
+
 /** Origem de uma memória, pelo `source` gravado nela: "Da conversa", "Revisão da conversa", "Reflexão diária" ou "Você adicionou". */
 export function memoryOriginLabel(source: string | null | undefined): string {
 	const kind = changeSourceFor(source);
@@ -21,17 +24,25 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-/** "agora", "há 5 min", "há 3 h", "ontem", "há 4 dias" e, depois de uma semana, "12 de out.". */
-export function memoryRelativeDate(iso: string, now: Date = new Date(), timeZone?: string): string {
+/**
+ * "agora", "há 5 min", "há 3 h", "ontem", "há 4 dias" e, depois de uma semana, "12 de out." (pt-BR).
+ * Os outros idiomas usam as palavras do próprio `Intl` ("5 min. ago", "yesterday", "hace 3 h").
+ */
+export function memoryRelativeDate(iso: string, now: Date = new Date(), timeZone?: string, locale: UiLocale = DEFAULT_UI_LOCALE): string {
 	const at = new Date(iso).getTime();
 	if (!Number.isFinite(at)) return "";
 	const diff = Math.max(0, now.getTime() - at);
-	if (diff < MINUTE) return "agora";
-	if (diff < HOUR) return `há ${Math.floor(diff / MINUTE)} min`;
-	if (diff < DAY) return `há ${Math.floor(diff / HOUR)} h`;
-	if (diff < 2 * DAY) return "ontem";
-	if (diff < 7 * DAY) return `há ${Math.floor(diff / DAY)} dias`;
-	return new Date(at).toLocaleDateString("pt-BR", { day: "numeric", month: "short", timeZone });
+	// "auto" dá "ontem"/"agora"; de 2 dias em diante "always", senão vira "anteontem".
+	const text = (value: number, unit: Intl.RelativeTimeFormatUnit) =>
+		new Intl.RelativeTimeFormat(locale, { numeric: value >= 2 ? "always" : "auto", style: "short" })
+			.format(-value, unit)
+			// O Intl do pt-BR põe ponto em "há 5 min."; a tela sempre mostrou sem.
+			.replace(/\.$/, "");
+	if (diff < MINUTE) return text(0, "second");
+	if (diff < HOUR) return text(Math.floor(diff / MINUTE), "minute");
+	if (diff < DAY) return text(Math.floor(diff / HOUR), "hour");
+	if (diff < 7 * DAY) return text(Math.floor(diff / DAY), "day");
+	return formatDate(at, locale, { day: "numeric", month: "short", timeZone });
 }
 
 /** "Corrigir no chat": rascunho para o campo de mensagem; termina em " — " para a pessoa continuar a frase. */

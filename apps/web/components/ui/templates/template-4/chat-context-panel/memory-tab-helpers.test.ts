@@ -61,3 +61,14 @@ test("verbo e escopo da mudança", () => {
 	assert.equal(memoryChangeScope({ target: "user" }), "Sobre você");
 	assert.equal(memoryChangeScope({ target: "memory" }), "Deste bot");
 });
+
+test("data relativa no idioma da interface", () => {
+	const now = new Date("2026-10-15T12:00:00.000Z");
+	const ago = (ms: number) => new Date(now.getTime() - ms).toISOString();
+	assert.equal(memoryRelativeDate(ago(10_000), now, undefined, "en-US"), "now");
+	assert.equal(memoryRelativeDate(ago(5 * 60_000), now, undefined, "en-US"), "5 min. ago");
+	assert.equal(memoryRelativeDate(ago(30 * 3_600_000), now, undefined, "en-US"), "yesterday");
+	assert.equal(memoryRelativeDate(ago(2 * 86_400_000), now, undefined, "pt-BR"), "há 2 dias");
+	assert.equal(memoryRelativeDate(ago(4 * 86_400_000), now, undefined, "es-ES"), "hace 4 d");
+	assert.equal(memoryRelativeDate(ago(20 * 86_400_000), now, "UTC", "en-US"), "Sep 25");
+});

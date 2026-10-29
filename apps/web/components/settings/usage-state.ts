@@ -1,5 +1,8 @@
 import { formatCostLabel, type UsagePeriod, type UsageTotals } from "@workspace/shared";
 
+import { formatCompactNumber } from "@/lib/format";
+import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
+
 /** Textos e contas puras da seção Uso (sem React). */
 
 export const USAGE_PERIOD_OPTIONS: readonly { value: UsagePeriod; label: string }[] = [
@@ -17,10 +20,8 @@ export function runsLabel(runs: number): string {
 	return `${runs} ${runs === 1 ? "execução" : "execuções"}`;
 }
 
-const compact = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
-
-export function tokensLabel(tokens: number): string {
-	return compact.format(tokens);
+export function tokensLabel(tokens: number, locale: UiLocale = DEFAULT_UI_LOCALE): string {
+	return formatCompactNumber(tokens, locale);
 }
 
 /**

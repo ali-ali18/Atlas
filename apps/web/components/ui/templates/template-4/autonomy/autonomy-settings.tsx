@@ -15,6 +15,8 @@ import { useAutonomy } from "@/hooks/use-autonomy";
 import { AutonomyExceptions } from "./autonomy-exceptions";
 import { SettingsPicker } from "../settings-picker";
 import { AutonomyValidityButton } from "./autonomy-validity-button";
+import { formatDate } from "@/lib/format";
+import { useLocale } from "@/lib/i18n/provider";
 
 /**
  * Autonomia de um escopo: um select de nível (no bot, com "Herdar da conta"),
@@ -33,6 +35,7 @@ export function AutonomySettings({
 	/** Chave do conector (vem do Marketplace): abre as exceções filtradas nele. */
 	connectorFilter?: string;
 }) {
+	const locale = useLocale();
 	const { view, connections, loading, saving, error, save } = useAutonomy(
 		scope,
 		botId,
@@ -87,7 +90,7 @@ export function AutonomySettings({
 			? "Usa o padrão definido nas configurações da conta."
 			: AUTONOMY_LEVEL_DESCRIPTIONS[selected];
 	const until = activeUntil
-		? ` · até ${new Date(activeUntil).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}`
+		? ` · até ${formatDate(activeUntil, locale, { day: "2-digit", month: "2-digit" })}`
 		: "";
 
 	const levelPicker = (

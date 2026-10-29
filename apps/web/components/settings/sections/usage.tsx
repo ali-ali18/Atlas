@@ -25,6 +25,7 @@ import {
 	tokensLabel,
 	totalCostLabel,
 } from "../usage-state";
+import { useLocale } from "@/lib/i18n/provider";
 
 /** Fornecedor do id (ícone): o plano ChatGPT usa a marca da OpenAI. */
 function vendorOf(modelId: string): string {
@@ -121,6 +122,7 @@ export function UsageSettingsView({
 	onRetry: () => void;
 	models?: readonly OpenRouterModel[];
 }) {
+	const locale = useLocale();
 	const names = new Map(models.map((model) => [model.id, model.name]));
 	const modelRows: BreakdownRow[] = (data?.byModel ?? []).map((row) => ({
 		key: row.key,
@@ -181,8 +183,8 @@ export function UsageSettingsView({
 						<Stat icon={OpenAIIcon} label="Chamadas no plano ChatGPT" value={String(totals.planCalls)} />
 						<Stat
 							icon={ActivityIcon}
-							hint={`${tokensLabel(totals.promptTokens)} de entrada, ${tokensLabel(totals.completionTokens)} de saída${
-								totals.cachedTokens > 0 ? `, ${tokensLabel(totals.cachedTokens)} em cache` : ""
+							hint={`${tokensLabel(totals.promptTokens, locale)} de entrada, ${tokensLabel(totals.completionTokens, locale)} de saída${
+								totals.cachedTokens > 0 ? `, ${tokensLabel(totals.cachedTokens, locale)} em cache` : ""
 							}`}
 							label="Execuções"
 							value={String(totals.runs)}

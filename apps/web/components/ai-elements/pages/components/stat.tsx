@@ -1,6 +1,7 @@
 import type { PageNode } from "@workspace/shared";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { useLocale } from "@/lib/i18n/provider";
 import { formatPageDelta, formatPageValue } from "../page-format";
 import { TONE_TEXT, toneStyle } from "./tone";
 
@@ -15,7 +16,8 @@ const DELTA_TONE = { up: "positive", down: "critical", flat: "neutral" } as cons
  */
 export function StatNode({ node }: { node: StatNode }) {
 	const { label, value, unit, format, delta, size = "md", tone } = node.props;
-	const base = { unit, format };
+	const locale = useLocale();
+	const base = { unit, format, locale };
 	// Texto completo (sem abreviar o rótulo) no title, para quem passa o mouse ou toca.
 	const fullDelta = delta ? [formatPageDelta({ ...delta, label: undefined }, base), delta.label].filter(Boolean).join(" ") : undefined;
 	return (
@@ -24,7 +26,7 @@ export function StatNode({ node }: { node: StatNode }) {
 				{label}
 			</div>
 			<div className={cn("font-heading font-semibold tabular-nums leading-tight [overflow-wrap:anywhere]", VALUE_SIZE[size], tone ? TONE_TEXT : "")} style={tone ? toneStyle(tone) : undefined}>
-				{formatPageValue(value, { unit, format })}
+				{formatPageValue(value, { unit, format, locale })}
 			</div>
 			{delta ? (
 				<div className={cn("truncate text-caption tabular-nums leading-4", TONE_TEXT)} style={toneStyle(DELTA_TONE[delta.direction])} title={fullDelta}>

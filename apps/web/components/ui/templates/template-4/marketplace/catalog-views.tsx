@@ -35,6 +35,7 @@ import {
   installSummary,
   toolLabel,
 } from "./catalog-state"
+import { useLocale } from "@/lib/i18n/provider";
 
 const ALL = "all"
 const MAX_CHIPS = 3
@@ -268,6 +269,7 @@ export function SkillsListView({
   onRetry,
   hideFilter,
 }: SkillsListViewProps) {
+	const locale = useLocale();
   const items = skills ?? []
   return (
     <div className="space-y-4">
@@ -275,7 +277,7 @@ export function SkillsListView({
         <h3 className="text-sm font-medium">Habilidades da comunidade</h3>
         {hideFilter ? null : (
           <CategorySelect
-            categories={categoriesOf(all)}
+            categories={categoriesOf(all, locale)}
             category={category}
             onCategory={onCategory}
           />
@@ -373,12 +375,13 @@ export function BotsListView({
   onRetry,
   hideFilter,
 }: BotsListViewProps) {
+	const locale = useLocale();
   const items = bots ?? []
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-medium">Agentes prontos</h3>
-        {hideFilter ? null : <CategorySelect categories={categoriesOf(all)} category={category} onCategory={onCategory} />}
+        {hideFilter ? null : <CategorySelect categories={categoriesOf(all, locale)} category={category} onCategory={onCategory} />}
       </div>
       <p className="text-xs text-muted-foreground">
         Cada agente nasce com as habilidades dele. Credenciais nunca vêm no modelo: você conecta as suas depois.

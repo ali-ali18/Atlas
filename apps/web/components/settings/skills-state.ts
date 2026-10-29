@@ -8,6 +8,8 @@ import {
 	validateSkillFields,
 } from "@workspace/shared";
 import type { BuiltinSkillView, SkillDocView, SkillWriteInput } from "@/lib/atlas-api";
+import { formatDate } from "@/lib/format";
+import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
 import { normalizeSearch } from "./settings-registry";
 
 export { SKILL_BODY_MAX_BYTES, SKILL_DESCRIPTION_MAX_CHARS };
@@ -67,10 +69,8 @@ export function originLabel(createdBy: SkillDocView["createdBy"]): string {
 }
 
 /** "06/10/2026" no fuso do navegador (ou o informado, nos testes). */
-export function formatSkillDate(iso: string, timeZone?: string): string {
-	const date = new Date(iso);
-	if (Number.isNaN(date.getTime())) return "";
-	return date.toLocaleDateString("pt-BR", { timeZone });
+export function formatSkillDate(iso: string, timeZone?: string, locale: UiLocale = DEFAULT_UI_LOCALE): string {
+	return formatDate(iso, locale, { timeZone, day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 /** Troca uma skill na lista (switch otimista e rollback). */

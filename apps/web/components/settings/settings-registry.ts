@@ -179,7 +179,7 @@ export function normalizeSearch(text: string): string {
 	return text
 		.normalize("NFD")
 		.replace(/[̀-ͯ]/g, "")
-		.toLocaleLowerCase("pt-BR")
+		.toLowerCase()
 		.trim();
 }
 

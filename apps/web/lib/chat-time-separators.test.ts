@@ -90,3 +90,13 @@ test("buildTimeSeparators: marca primeira, gap e dia; ignora sem data", () => {
 	assert.equal(map.get("a"), "17:00");
 	assert.equal(map.get("c"), "18:20");
 });
+
+test("idioma da interface: o rótulo segue a ordem e as palavras do idioma", () => {
+	const hoje = at("2026-10-13T20:13:00Z");
+	assert.match(formatSeparatorLabel(hoje, NOW, TZ, "en-US"), /^5:13\sPM$/);
+	assert.match(formatSeparatorLabel(at("2026-10-12T21:13:00Z"), NOW, TZ, "en-US"), /^yesterday, 6:13\sPM$/);
+	assert.match(formatSeparatorLabel(at("2026-10-09T21:13:00Z"), NOW, TZ, "en-US"), /^Fri, Oct 9 6:13\sPM$/);
+	assert.match(formatSeparatorLabel(at("2025-10-09T21:13:00Z"), NOW, TZ, "en-US"), /^Oct 9, 2025, 6:13\sPM$/);
+	assert.equal(formatSeparatorLabel(at("2026-10-12T21:13:00Z"), NOW, TZ, "es-ES"), "ayer, 18:13");
+	assert.equal(formatSeparatorLabel(at("2026-10-12T21:13:00Z"), NOW, TZ), "ontem, 18:13");
+});

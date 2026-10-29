@@ -65,7 +65,7 @@ export function moreSendersLabel(count: number): string {
 
 /** Filtro da página de remetentes (sem acento e sem caixa). */
 export function filterAllowedSenders(list: readonly string[], query: string): string[] {
-	const fold = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLocaleLowerCase("pt-BR");
+	const fold = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 	const term = fold(query.trim());
 	return term ? list.filter((rule) => fold(rule).includes(term)) : [...list];
 }

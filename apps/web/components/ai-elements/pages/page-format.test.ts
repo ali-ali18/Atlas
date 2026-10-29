@@ -78,3 +78,10 @@ test("reconcilePageSnapshot: o servidor vale só se for mais novo ou igual; apag
 	assert.equal(reconcilePageSnapshot({ revision: 1, sourceCount: 0 }, null), null);
 	assert.equal(reconcilePageSnapshot({ revision: 1, sourceCount: 0 }, remote(1))?.spec.title, "srv1");
 });
+
+test("formatPageNumber segue o idioma da interface", () => {
+	assert.equal(formatPageNumber(1234.5, { unit: "USD", locale: "en-US" }), "$1,234.50");
+	assert.equal(formatPageNumber(1234.5, { locale: "en-US" }), "1,234.5");
+	assert.equal(formatPageNumber(1234.5, { locale: "pt-BR" }), "1.234,5");
+	assert.equal(formatPageDelta({ direction: "up", kind: "percent", value: 12.5 }, { locale: "en-US" }), "▲ 12.5%");
+});

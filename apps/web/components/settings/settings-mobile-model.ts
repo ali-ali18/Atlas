@@ -1,3 +1,5 @@
+import { formatNumber } from "@/lib/format";
+import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
 import type { SettingsNavId } from "./settings-registry";
 
 /** Modelo puro da lista mobile: grupos de linhas, cada uma levando a uma seção. */
@@ -5,6 +7,8 @@ export type MobileSettingsRow = { id: SettingsNavId; title: string; secondary: s
 export type MobileSettingsGroup = { id: string; label: string; rows: MobileSettingsRow[] };
 
 export type MobileSettingsSummary = {
+	/** Idioma da tela, para formatar números. */
+	locale?: UiLocale;
 	theme?: string;
 	defaultModel?: string;
 	chatgptEnabled?: boolean;
@@ -25,8 +29,8 @@ export type MobileSettingsSummary = {
 /** Janela do custo mostrado na lista: a mesma que a seção Uso abre por padrão. */
 export const MOBILE_USAGE_WINDOW_LABEL = "últimos 7 dias";
 
-const brl = (value: number, digits: number) =>
-	value.toLocaleString("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+const brl = (value: number, digits: number, locale: UiLocale) =>
+	formatNumber(value, locale, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
 export function connectionsHint(count: number | undefined): string {
 	return count === undefined ? "Conectores e MCP" : count === 0 ? "Nenhuma conexão" : count === 1 ? "1 conectado" : `${count} conectados`;
@@ -43,9 +47,9 @@ export function computerHint(browserAuto: boolean | undefined, environments: num
 	return `${browserAuto === undefined ? "Navegador" : browserAuto ? "Automático" : "Manual"} · ${envs}`;
 }
 
-export function usageHint(cost: number | null | undefined): string {
+export function usageHint(cost: number | null | undefined, locale: UiLocale = DEFAULT_UI_LOCALE): string {
 	if (cost === undefined || cost === null) return "Consumo e gastos";
-	const text = cost > 0 && cost < 0.01 ? brl(cost, 4) : brl(cost, 2);
+	const text = cost > 0 && cost < 0.01 ? brl(cost, 4, locale) : brl(cost, 2, locale);
 	return `US$ ${text} nos ${MOBILE_USAGE_WINDOW_LABEL}`;
 }
 
@@ -84,7 +88,7 @@ export function mobileSettingsGroups(
 		title: MOBILE_TITLES[id],
 		secondary,
 	});
-	const geralHint = summary.theme ? `Tema ${summary.theme.toLocaleLowerCase("pt-BR")}` : "Tema, idioma e fuso";
+	const geralHint = summary.theme ? `Tema ${summary.theme.toLowerCase()}` : "Tema, idioma e fuso";
 	const modelosHint = summary.defaultModel ?? "Modelo padrão e contexto";
 	const provedoresHint = summary.chatgptEnabled ? "Plano ChatGPT ligado" : "Plano ChatGPT e chaves de API";
 	const groups: MobileSettingsGroup[] = [
@@ -116,7 +120,7 @@ export function mobileSettingsGroups(
 			id: "controle",
 			label: "Controle",
 			rows: [
-				row("uso", usageHint(summary.usageCostUsd)),
+				row("uso", usageHint(summary.usageCostUsd, summary.locale)),
 				row("execucao", "Passos, tempo e custo por execução"),
 				row("revisao", reviewHint(summary.reviewMode)),
 				row("diagnostico", "Versões, serviços e falhas"),

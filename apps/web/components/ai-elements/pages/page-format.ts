@@ -1,19 +1,20 @@
 import type { PageFormat, PageSource, PageSpec, PageStatDelta } from "@workspace/shared";
 
-/** Formatação dos valores do painel em pt-BR (1.234,56 · R$ · % · sufixo da unidade). Pura: sem React nem DOM. */
+import { formatNumber } from "@/lib/format";
+import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
+
+/** Formatação dos valores do painel no idioma da interface (pt 1.234,56 · en 1,234.56 · R$ · % · sufixo da unidade). Pura: sem React nem DOM. */
 
 const CURRENCIES = new Set(["BRL", "USD", "EUR"]);
 
-function intl(options: Intl.NumberFormatOptions): Intl.NumberFormat {
-	return new Intl.NumberFormat("pt-BR", options);
-}
 
 /** Casas decimais de uma moeda para um CONJUNTO de valores: reais inteiros se todos forem inteiros, senão centavos. */
 export function currencyDigits(values: ReadonlyArray<number | null | undefined>): 0 | 2 {
 	return values.every((value) => typeof value !== "number" || !Number.isFinite(value) || Number.isInteger(value)) ? 0 : 2;
 }
 
-export type PageNumberOptions = { unit?: string; format?: PageFormat; digits?: 0 | 2 };
+export type PageNumberOptions = { unit?: string; format?: PageFormat; digits?: 0 | 2; locale?: UiLocale };
 
 /**
  * Texto de um número com `format` e `unit` (moeda BRL/USD/EUR, "%" ou sufixo livre). Moeda usa `digits` (o mesmo para
@@ -23,15 +24,16 @@ export function formatPageNumber(value: number, options: PageNumberOptions = {})
 	const unit = options.unit?.trim();
 	const currency = unit && CURRENCIES.has(unit.toUpperCase()) ? unit.toUpperCase() : options.format === "currency" ? "BRL" : undefined;
 	const compact = options.format === "compact";
+	const locale = options.locale ?? DEFAULT_UI_LOCALE;
 	if (currency) {
 		const digits = options.digits ?? currencyDigits([value]);
-		return intl({
+		return formatNumber(value, locale, {
 			style: "currency",
 			currency,
 			...(compact ? { notation: "compact", maximumFractionDigits: 1, minimumFractionDigits: 0 } : { minimumFractionDigits: digits, maximumFractionDigits: digits }),
-		}).format(value);
+		});
 	}
-	const plain = intl(compact ? { notation: "compact", maximumFractionDigits: 1 } : { maximumFractionDigits: 2 }).format(value);
+	const plain = formatNumber(value, locale, compact ? { notation: "compact", maximumFractionDigits: 1 } : { maximumFractionDigits: 2 });
 	if (unit === "%" || options.format === "percent") return `${plain}%`;
 	return unit ? `${plain} ${unit}` : plain;
 }
@@ -60,14 +62,14 @@ export function shortDeltaLabel(label: string): string {
  * Variação do tile: "▲ 8% vs meta", "▼ R$ 300" (absoluta, na unidade do tile) e "—" quando estável. O sinal e a seta
  * carregam a direção (a cor sozinha não basta). Texto livre no `value` vai como veio.
  */
-export function formatPageDelta(delta: PageStatDelta, base: { unit?: string; format?: PageFormat } = {}): string {
+export function formatPageDelta(delta: PageStatDelta, base: { unit?: string; format?: PageFormat; locale?: UiLocale } = {}): string {
 	if (delta.direction === "flat") return ["—", delta.label ? shortDeltaLabel(delta.label) : undefined].filter(Boolean).join(" ");
 	const arrow = delta.direction === "up" ? "▲" : "▼";
 	const label = delta.label ? shortDeltaLabel(delta.label) : undefined;
 	let value: string;
 	if (typeof delta.value === "string") value = delta.value;
 	else if (delta.kind === "absolute") value = formatPageNumber(Math.abs(delta.value), base);
-	else value = `${formatPageNumber(Math.abs(delta.value))}%`;
+	else value = `${formatPageNumber(Math.abs(delta.value), { locale: base.locale })}%`;
 	return [arrow, value, label].filter(Boolean).join(" ");
 }
 
@@ -78,9 +80,9 @@ export function barPercent(value: number, max: number): number {
 }
 
 /** "1 fonte" / "N fontes"; sem fontes, nada. */
-export function sourceCountLabel(count: number): string | null {
+export function sourceCountLabel(count: number, translator: Translator = defaultTranslator): string | null {
 	if (!(count > 0)) return null;
-	return count === 1 ? "1 fonte" : `${count} fontes`;
+	return translator.tn("library.sources", count);
 }
 
 /** Aba a mostrar: a pedida se existir, senão a primeira. */

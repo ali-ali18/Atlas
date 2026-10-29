@@ -31,6 +31,8 @@ import {
 	webCommitShort,
 	webVersion,
 } from "../diagnostics-state";
+import { formatDateTime, formatTime } from "@/lib/format";
+import { useLocale } from "@/lib/i18n/provider";
 
 const statusClass = (ok: boolean) => (ok ? "text-foreground" : "text-destructive");
 
@@ -52,13 +54,14 @@ export function DiagnosticsSettingsView({
 	webVersion?: string | null;
 	isVisible?: (itemId: string) => boolean;
 }) {
+	const locale = useLocale();
 	if (!isVisible("avancado.diagnostico")) return null;
 	const mismatch = data ? versionMismatch(data, webCommit) : false;
 	return (
 		<>
 			<SettingsGroup title="Servidor">
 				<SettingRow
-					caption={error ? <p className="text-destructive" role="alert">{error}</p> : data ? <p>{`Atualizado às ${new Date(data.generatedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}</p> : null}
+					caption={error ? <p className="text-destructive" role="alert">{error}</p> : data ? <p>{`Atualizado às ${formatTime(data.generatedAt, locale)}`}</p> : null}
 					control="inline"
 					description="Só leitura. Mostra o estado do servidor sem expor valores de chaves."
 					icon={ActivityIcon}
@@ -129,7 +132,7 @@ export function DiagnosticsSettingsView({
 							<SettingRow
 								caption={
 									job.lastError ? (
-										<p className="text-destructive" data-slot="diag-maintenance-error">{`Último erro ${maintenanceTime(job.lastError.at)}: ${job.lastError.message}`}</p>
+										<p className="text-destructive" data-slot="diag-maintenance-error">{`Último erro ${maintenanceTime(job.lastError.at, locale)}: ${job.lastError.message}`}</p>
 									) : null
 								}
 								control="inline"
@@ -138,7 +141,7 @@ export function DiagnosticsSettingsView({
 								label={MAINTENANCE_JOB_LABEL[job.kind]}
 							>
 								<span className={job.lastSuccessAt ? "text-foreground" : "text-muted-foreground"} data-slot="diag-maintenance-success">
-									{maintenanceSuccessLabel(job.lastSuccessAt)}
+									{maintenanceSuccessLabel(job.lastSuccessAt, locale)}
 								</span>
 							</SettingRow>
 						))}
@@ -157,7 +160,7 @@ export function DiagnosticsSettingsView({
 									label={`${FAILURE_KIND_LABEL[failure.kind]} · ${failure.label}`}
 								>
 									<span className="text-xs text-muted-foreground">
-										{new Date(failure.at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+										{formatDateTime(failure.at, locale)}
 									</span>
 								</SettingRow>
 							))

@@ -18,6 +18,7 @@ import {
 import { Marker, MarkerContent } from "@workspace/ui/components/marker";
 import { cn } from "@workspace/ui/lib/utils";
 import { buildTimeSeparators } from "@/lib/chat-time-separators";
+import { useLocale } from "@/lib/i18n/provider";
 import { exchangeFocusKey } from "@/lib/bot-exchange";
 import { readBubbleBotColor } from "@/lib/bot-bubble";
 import { planImageRuns, reuseImageRuns } from "@/lib/image-groups";
@@ -687,9 +688,10 @@ export function ChatThread({
 		() => groupBotMessages(visibleMessages),
 		[visibleMessages],
 	);
+	const locale = useLocale();
 	const timeSeparators = useMemo(
-		() => buildTimeSeparators(threadItems),
-		[threadItems],
+		() => buildTimeSeparators(threadItems, new Date(), undefined, locale),
+		[threadItems, locale],
 	);
 	// Imagens seguidas (ex.: screenshots) viram um só baralho; as demais mensagens da sequência somem.
 	const previousImageRunsRef = useRef<ReturnType<typeof planImageRuns> | null>(null);

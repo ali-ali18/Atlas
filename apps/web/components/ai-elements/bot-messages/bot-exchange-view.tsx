@@ -11,6 +11,9 @@ import { Marker, MarkerContent } from "@workspace/ui/components/marker";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { buildTimeSeparators } from "@/lib/chat-time-separators";
+import { formatTime } from "@/lib/format";
+import type { UiLocale } from "@/lib/i18n/locales";
+import { useLocale } from "@/lib/i18n/provider";
 import type { ExchangeEntry } from "@/lib/bot-exchange";
 import { AgentAvatar } from "@/components/ui/templates/template-4/agent-avatar";
 import { botAccentStyle } from "@/components/ui/templates/template-4/chat-context-panel/bot-accent";
@@ -23,10 +26,8 @@ export type BotExchangeStatus = "loading" | "ready" | "error";
 
 const FLASH_MS = 4000;
 
-function timeLabel(iso: string): string {
-	const date = new Date(iso);
-	if (Number.isNaN(date.getTime())) return "";
-	return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date);
+function timeLabel(iso: string, locale: UiLocale): string {
+	return formatTime(iso, locale);
 }
 
 function positionOf(entries: readonly ExchangeEntry[], index: number, separators: ReadonlyMap<string, string>): GroupPosition {
@@ -76,7 +77,8 @@ export function BotExchangeView({
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const [flash, setFlash] = useState<string | null>(focusKey ?? null);
-	const separators = useMemo(() => buildTimeSeparators(entries.map((entry) => ({ id: entry.key, createdAt: entry.createdAt }))), [entries]);
+	const locale = useLocale();
+	const separators = useMemo(() => buildTimeSeparators(entries.map((entry) => ({ id: entry.key, createdAt: entry.createdAt })), new Date(), undefined, locale), [entries, locale]);
 	const focusedPresent = Boolean(focusKey) && entries.some((entry) => entry.key === focusKey);
 
 	// Sem foco: abre no fim; com foco: leva a fala tocada ao centro e a destaca um instante.
@@ -200,7 +202,7 @@ export function BotExchangeView({
 												</ReactMarkdown>
 											</BubbleContent>
 										</Bubble>
-										{last ? <span className="px-1 text-[10px] text-muted-foreground/80">{timeLabel(entry.createdAt)}</span> : null}
+										{last ? <span className="px-1 text-[10px] text-muted-foreground/80">{timeLabel(entry.createdAt, locale)}</span> : null}
 									</div>
 								</div>
 							</div>

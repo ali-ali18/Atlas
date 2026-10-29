@@ -83,3 +83,14 @@ test("updatedAgo: agora, ontem e data inválida", () => {
 	assert.equal(updatedAgo(null, now), null);
 	assert.equal(updatedAgo("não é data", now), null);
 });
+
+test("updatedAgo e a contagem de fontes usam o tradutor do idioma", async () => {
+	const { createTranslator } = await import("@/lib/i18n/translator");
+	const { loadMessages } = await import("@/lib/i18n/messages");
+	const en = createTranslator("en-US", await loadMessages("en-US"));
+	const now = new Date("2026-10-15T12:00:00.000Z");
+	assert.equal(updatedAgo("2026-10-15T11:55:00.000Z", now, en), "Updated 5 min. ago");
+	assert.equal(updatedAgo("2026-10-15T11:55:00.000Z", now), "Atualizado há 5 min");
+	assert.equal(en.tn("library.sources", 1), "1 source");
+	assert.equal(en.tn("library.sources", 3), "3 sources");
+});

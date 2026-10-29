@@ -17,6 +17,7 @@ import {
 	routineTriggerRows,
 } from "./routine-map";
 import { WebhookSection } from "./webhook-fields";
+import { useLocale } from "@/lib/i18n/provider";
 
 type DialogProps = {
 	routine: Routine | null;
@@ -100,6 +101,7 @@ export function GithubDialog({ routine, onOpenChange }: DialogProps) {
 }
 
 export function HistoryList({ runs }: { runs: RoutineRunRecord[] }) {
+	const locale = useLocale();
 	if (runs.length === 0) {
 		return <p className="text-muted-foreground text-sm">Nenhuma execução ainda</p>;
 	}
@@ -111,7 +113,7 @@ export function HistoryList({ runs }: { runs: RoutineRunRecord[] }) {
 					key={run.id}
 				>
 					<span className="min-w-0 break-words">{routineRunLabel(run)}</span>
-					<span className="shrink-0 whitespace-nowrap text-right">{formatRoutineRunTime(run.createdAt)}</span>
+					<span className="shrink-0 whitespace-nowrap text-right">{formatRoutineRunTime(run.createdAt, locale)}</span>
 				</li>
 			))}
 		</ul>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PageNode } from "@workspace/shared";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { useLocale } from "@/lib/i18n/provider";
 import { currencyDigits, formatPageValue } from "../page-format";
 
 type TableNode = Extract<PageNode, { type: "table" }>;
@@ -52,6 +53,7 @@ function ScrollFade({ children }: { children: React.ReactNode }) {
  */
 export function TableNode({ node }: { node: TableNode }) {
 	const { columns, rows, variant = "default" } = node.props;
+	const locale = useLocale();
 	const digits = new Map(columns.map((column) => [column.key, currencyDigits(rows.map((row) => (typeof row[column.key] === "number" ? (row[column.key] as number) : null)))]));
 	const compact = variant === "compact";
 	// Coluna de texto curto (id, data, status) não quebra; a de texto longo (cliente, produto) ganha largura mínima.
@@ -92,7 +94,7 @@ export function TableNode({ node }: { node: TableNode }) {
 										)}
 										key={column.key}
 									>
-										{formatPageValue(cell, { format: column.format, unit: column.unit, digits: digits.get(column.key) })}
+										{formatPageValue(cell, { format: column.format, unit: column.unit, digits: digits.get(column.key), locale })}
 									</td>
 								);
 							})}

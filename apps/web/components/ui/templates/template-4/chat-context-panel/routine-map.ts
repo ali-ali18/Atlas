@@ -21,6 +21,8 @@ import type {
 	RoutineTrigger,
 	ScheduleState,
 } from "../data";
+import { formatDateTime } from "@/lib/format";
+import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
 import { DEFAULT_SCHEDULE, scheduleLabel } from "./schedule-editor";
 
 function isScheduleState(value: unknown): value is ScheduleState {
@@ -370,16 +372,8 @@ export function diffRoutineUpdatePayload(
 	return patch;
 }
 
-export function formatRoutineRunTime(iso: string | null): string {
-	if (!iso) return "";
-	const date = new Date(iso);
-	if (Number.isNaN(date.getTime())) return "";
-	return date.toLocaleString("pt-BR", {
-		day: "2-digit",
-		month: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-	});
+export function formatRoutineRunTime(iso: string | null, locale: UiLocale = DEFAULT_UI_LOCALE): string {
+	return formatDateTime(iso, locale);
 }
 
 export function routineTriggeredByLabel(

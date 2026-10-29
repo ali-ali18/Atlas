@@ -13,6 +13,7 @@ import {
 	scopeLabel,
 	statusLabel,
 } from "../../skills-state";
+import { useLocale } from "@/lib/i18n/provider";
 
 export type SkillRowActions = {
 	onEdit: (skill: SkillDocView) => void;
@@ -36,6 +37,7 @@ export function SkillRow({
 	onDelete,
 	onPublish,
 }: { skill: SkillDocView; bots: readonly BotRef[] } & SkillRowActions) {
+	const locale = useLocale();
 	const draft = skill.status === "draft";
 	return (
 		<li
@@ -62,7 +64,7 @@ export function SkillRow({
 					{skill.source
 						? `Do marketplace · v${skill.source.version}${skill.source.edited ? " (editada)" : ""}`
 						: originLabel(skill.createdBy)}{" "}
-					· Atualizada em {formatSkillDate(skill.updatedAt)}
+					· Atualizada em {formatSkillDate(skill.updatedAt, undefined, locale)}
 					{draft ? ` · ${DRAFT_SWITCH_HINT}` : ""}
 				</p>
 			</div>

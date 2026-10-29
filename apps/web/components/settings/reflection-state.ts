@@ -1,28 +1,30 @@
 import { ORCHESTRATOR_MEMORY_OPTIONS, REFLECTION_FAILURE_LABELS } from "@workspace/shared";
 import type { ReflectionStatusView } from "@/lib/atlas-api";
+import { formatDate, formatNumber, formatTime } from "@/lib/format";
+import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
 
 type Last = NonNullable<ReflectionStatusView["last"]>;
 
 const MINUTE = 60_000;
 
 /** "hoje 06:02", "ontem 06:02" ou "13/10 06:02", no fuso da conta. */
-export function whenLabel(iso: string, now: Date, timeZone: string): string {
+export function whenLabel(iso: string, now: Date, timeZone: string, locale: UiLocale = DEFAULT_UI_LOCALE): string {
 	const at = new Date(iso);
 	const day = (date: Date) => new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
-	const hour = new Intl.DateTimeFormat("pt-BR", { timeZone, hour: "2-digit", minute: "2-digit", hour12: false }).format(at);
+	const hour = formatTime(at, locale, { timeZone });
 	if (day(at) === day(now)) return `hoje ${hour}`;
 	if (day(at) === day(new Date(now.getTime() - 24 * 60 * MINUTE))) return `ontem ${hour}`;
-	const date = new Intl.DateTimeFormat("pt-BR", { timeZone, day: "2-digit", month: "2-digit" }).format(at);
+	const date = formatDate(at, locale, { timeZone, day: "2-digit", month: "2-digit" });
 	return `${date} ${hour}`;
 }
 
 /** Linha de estado sob "Refletir agora": em andamento, ou como terminou a última. */
-export function reflectionStatusLabel(view: Pick<ReflectionStatusView, "active" | "last" | "timezone"> | null, now: Date = new Date()): string {
+export function reflectionStatusLabel(view: Pick<ReflectionStatusView, "active" | "last" | "timezone"> | null, now: Date = new Date(), locale: UiLocale = DEFAULT_UI_LOCALE): string {
 	if (!view) return "";
 	if (view.active) return "Refletindo agora…";
 	const last = view.last;
 	if (!last) return "Ainda não rodou.";
-	const when = whenLabel(last.finishedAt ?? last.startedAt ?? now.toISOString(), now, view.timezone);
+	const when = whenLabel(last.finishedAt ?? last.startedAt ?? now.toISOString(), now, view.timezone, locale);
 	return `Última: ${when} · ${outcomeLabel(last)}`;
 }
 
@@ -43,8 +45,8 @@ function outcomeLabel(last: Last): string {
 }
 
 /** Opções do seletor de memória do bot principal, com os caracteres; um valor fora da lista aparece como Personalizado. */
-export function memoryOptions(current: number): Array<{ value: string; label: string }> {
-	const fmt = (n: number) => new Intl.NumberFormat("pt-BR").format(n);
+export function memoryOptions(current: number, locale: UiLocale = DEFAULT_UI_LOCALE): Array<{ value: string; label: string }> {
+	const fmt = (n: number) => formatNumber(n, locale);
 	const base = ORCHESTRATOR_MEMORY_OPTIONS.map((option) => ({ value: String(option.value), label: `${option.label} · ${fmt(option.value)}` }));
 	return base.some((option) => option.value === String(current)) ? base : [{ value: String(current), label: `Personalizado · ${fmt(current)}` }, ...base];
 }

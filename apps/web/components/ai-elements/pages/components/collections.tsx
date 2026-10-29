@@ -3,6 +3,7 @@ import { ChevronDownIcon } from "lucide-react";
 import { Badge } from "@workspace/ui/components/badge";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { useLocale } from "@/lib/i18n/provider";
 import { currencyDigits, formatPageValue } from "../page-format";
 import { TONE_FILL, TONE_TEXT, toneStyle } from "./tone";
 
@@ -68,6 +69,7 @@ export function KanbanNode({ node }: { node: Of<"kanban"> }) {
 export function ListNode({ node }: { node: Of<"list"> }) {
 	const { items, unit, format } = node.props;
 	const digits = currencyDigits(items.map((item) => (typeof item.value === "number" ? item.value : null)));
+	const locale = useLocale();
 	return (
 		<ul className="flex flex-col divide-y divide-border/60 rounded-lg border border-border/60" data-page-node="list">
 			{items.map((item, index) => (
@@ -79,7 +81,7 @@ export function ListNode({ node }: { node: Of<"list"> }) {
 						{item.subtitle ? <div className="truncate text-muted-foreground text-xs">{item.subtitle}</div> : null}
 					</div>
 					{item.value !== undefined ? (
-						<div className={cn("shrink-0 font-medium text-sm tabular-nums", item.tone ? TONE_TEXT : "")}>{formatPageValue(item.value, { unit, format, digits })}</div>
+						<div className={cn("shrink-0 font-medium text-sm tabular-nums", item.tone ? TONE_TEXT : "")}>{formatPageValue(item.value, { unit, format, digits, locale })}</div>
 					) : null}
 				</li>
 			))}

@@ -41,6 +41,7 @@ import {
 } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { useLocale } from "@/lib/i18n/provider";
 import { rowTime } from "@/lib/list-time";
 import { useListNow } from "@/lib/use-list-now";
 import type { Agent } from "../data";
@@ -129,7 +130,7 @@ function AgentRow({
 	onSelect: (id: string) => void;
 	onStartDrag: (agent: Agent) => (event: React.DragEvent) => void;
 }) {
-	const timeLabel = rowTime(agent, useListNow());
+	const timeLabel = rowTime(agent, useListNow(), useLocale());
 	return (
 		<SidebarMenuItem key={agent.id}>
 			<AgentContextMenu

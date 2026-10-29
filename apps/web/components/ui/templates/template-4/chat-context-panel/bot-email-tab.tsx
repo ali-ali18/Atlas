@@ -26,6 +26,7 @@ import {
 	parseDailyLimit,
 	previewAllowedSenders,
 } from "./bot-email-helpers";
+import { useLocale } from "@/lib/i18n/provider";
 import { memoryRelativeDate } from "./memory-tab-helpers";
 
 const SECTION_TITLE = "font-medium text-muted-foreground text-xs";
@@ -271,6 +272,7 @@ function DailyLimit({ mailbox, busy, onChange }: { mailbox: BotMailboxDto; busy:
 }
 
 function MessageRowItem({ message, now, onOpen }: { message: EmailMessageDto; now: Date; onOpen?: () => void }) {
+	const locale = useLocale();
 	const badge = emailStatusBadge(message);
 	const inbound = message.direction === "in";
 	const Icon = inbound ? ArrowDownLeftIcon : ArrowUpRightIcon;
@@ -285,7 +287,7 @@ function MessageRowItem({ message, now, onOpen }: { message: EmailMessageDto; no
 			<span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
 				<span className="flex min-w-0 items-baseline gap-2">
 					<span className="min-w-0 flex-1 truncate font-medium text-sm">{emailSubject(message)}</span>
-					<span className="shrink-0 text-muted-foreground text-xs">{memoryRelativeDate(message.createdAt, now)}</span>
+					<span className="shrink-0 text-muted-foreground text-xs">{memoryRelativeDate(message.createdAt, now, undefined, locale)}</span>
 				</span>
 				<span className="truncate text-muted-foreground text-xs">{emailPeer(message)}</span>
 				{badge ? (

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { PageSpec } from "@workspace/shared";
 import { PageView } from "@/components/ai-elements/pages/page-view";
+import { useTranslations } from "@/lib/i18n/provider";
 import { updatedAgo } from "@/components/ui/templates/template-4/chat-context-panel/library-sections";
 
 export type SharedPage = {
@@ -33,6 +34,7 @@ export async function fetchSharedPage(token: string, signal?: AbortSignal): Prom
 
 /** Conteúdo da página pública (apresentação pura, para teste). */
 export function PublicPageContent({ state, now }: { state: PublicPageState; now?: Date }) {
+	const translator = useTranslations();
 	if (state.kind === "loading") {
 		return <div aria-live="polite" className="h-40 animate-pulse rounded-xl bg-muted/40 motion-reduce:animate-none" data-testid="public-page-loading" />;
 	}
@@ -52,7 +54,7 @@ export function PublicPageContent({ state, now }: { state: PublicPageState; now?
 		);
 	}
 	const { page } = state;
-	const updated = updatedAgo(page.updatedAt, now);
+	const updated = updatedAgo(page.updatedAt, now, translator);
 	return (
 		<article className="flex flex-col gap-4" data-testid="public-page">
 			<header className="flex flex-col gap-1">

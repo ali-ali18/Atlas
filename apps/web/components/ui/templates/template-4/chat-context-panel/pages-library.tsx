@@ -29,6 +29,7 @@ import { LIBRARY_REFRESH_EVENT } from "@/components/ai-elements/files/file-attac
 import { cn } from "@workspace/ui/lib/utils";
 import { useLongPress } from "@/hooks/use-long-press";
 import { type AtlasPage, type AtlasPageListItem, deletePage, getPage, listBotPages, listRoutineGroups, movePageToGroup } from "@/lib/atlas-api";
+import { useTranslations } from "@/lib/i18n/provider";
 import { PAGES_REFRESH_EVENT } from "@/lib/pages-refresh";
 import type { Routine } from "../data";
 import { type PageCardModel, pageCardModel, updatedAgo } from "./library-sections";
@@ -180,6 +181,7 @@ export function PagesList({
 	onOpen?: (id: string) => void;
 	onDelete?: (item: AtlasPageListItem) => void;
 }) {
+	const translator = useTranslations();
 	const [revealedId, setRevealedId] = useState<string | null>(initialRevealedId);
 	const listRef = useRef<HTMLUListElement>(null);
 	useEffect(() => {
@@ -210,7 +212,7 @@ export function PagesList({
 			explicitGroupId={item.explicitGroupId ?? null}
 			groups={knownGroups}
 			key={item.id}
-			model={pageCardModel(item, routineByPage?.get(item.id) ?? null, now)}
+			model={pageCardModel(item, routineByPage?.get(item.id) ?? null, now, translator)}
 			onDelete={() => {
 				setRevealedId(null);
 				onDelete?.(item);
@@ -245,6 +247,7 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 	const [openingId, setOpeningId] = useState<string | null>(null);
 	const [pendingDelete, setPendingDelete] = useState<AtlasPageListItem | null>(null);
 	const [groups, setGroups] = useState<PageGroupOption[] | undefined>(undefined);
+	const translator = useTranslations();
 	const routineByPage = routineSummaryByPage(routines);
 
 	const reload = useCallback(() => {
@@ -360,7 +363,7 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 					spec={opened.spec}
 					summary={opened.spec.summary}
 					title={opened.title}
-					updatedLabel={updatedAgo(opened.refreshedAt ?? opened.updatedAt)}
+					updatedLabel={updatedAgo(opened.refreshedAt ?? opened.updatedAt, undefined, translator)}
 				/>
 			) : null}
 			{opened && shareOpen ? <PageShareDialog onOpenChange={setShareOpen} open pageId={opened.id} title={opened.title} /> : null}

@@ -36,6 +36,7 @@ import {
 	SheetTitle,
 } from "@workspace/ui/components/sheet";
 import { authClient } from "@/lib/auth-client";
+import { useLocale } from "@/lib/i18n/provider";
 import { rowTime } from "@/lib/list-time";
 import { useListNow } from "@/lib/use-list-now";
 import { signOutAndRedirect } from "@/lib/sign-out";
@@ -220,7 +221,7 @@ export function MobileBotRow({
 	onMenu: () => void;
 }) {
 	const handlers = useBotPress(onOpen, onMenu);
-	const timeLabel = rowTime(agent, useListNow());
+	const timeLabel = rowTime(agent, useListNow(), useLocale());
 	return (
 		<button
 			className={`flex min-h-[4.5rem] w-full items-center gap-3 rounded-2xl py-3 text-left active:bg-card/60 ${PRESS_CLASS}`}

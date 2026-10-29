@@ -79,8 +79,8 @@ export function ApiConnectionPage({
   const needsKey = item.authKind === "apiKey" || item.authKind === "bearer"
   const readable = useMemo(() => readableApiGroups(item), [item])
   const visible = useMemo(() => {
-    const term = query.trim().toLocaleLowerCase("pt-BR")
-    return term ? readable.filter((group) => group.tag.toLocaleLowerCase("pt-BR").includes(term)) : readable
+    const term = query.trim().toLowerCase()
+    return term ? readable.filter((group) => group.tag.toLowerCase().includes(term)) : readable
   }, [readable, query])
   const toggle = (tag: string, on: boolean) =>
     onSaveGroups(on ? [...item.allowedTags, tag] : item.allowedTags.filter((value) => value !== tag))

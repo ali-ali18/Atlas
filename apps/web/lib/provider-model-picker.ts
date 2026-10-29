@@ -33,8 +33,8 @@ export function normalizePickerModels(models: readonly (OpenRouterModel | Provid
 	});
 }
 export function searchPickerModels(models: readonly ProviderModel[], query: string): ProviderModel[] {
-	const parts = query.trim().toLocaleLowerCase("pt-BR").split(/\s+/).filter(Boolean);
-	return models.filter((model) => parts.every((part) => `${model.name} ${model.id} ${model.provider} ${model.vendor ?? ""}`.toLocaleLowerCase("pt-BR").includes(part)));
+	const parts = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+	return models.filter((model) => parts.every((part) => `${model.name} ${model.id} ${model.provider} ${model.vendor ?? ""}`.toLowerCase().includes(part)));
 }
 export function pickerRecommendations(models: readonly ProviderModel[]): ProviderModel[] {
 	return recommendedModels(models.filter((model) => model.provider === "openrouter"));
