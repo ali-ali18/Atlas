@@ -5,11 +5,8 @@
  */
 import {
 	isUiLocalePreference,
-	matchUiLocale,
-	UI_LOCALE_COOKIE,
 	UI_LOCALE_COOKIE_MAX_AGE,
 	UI_LOCALE_PREF_COOKIE,
-	DEFAULT_UI_LOCALE,
 	type UiLocalePreference,
 } from "./locales";
 
@@ -30,27 +27,17 @@ export function parseLocalePreference(cookieString: string): UiLocalePreference 
 	return "auto";
 }
 
-/** Linhas `Set-Cookie` (sem HttpOnly: o cliente grava) para aplicar a escolha. "auto" apaga a escolha. */
-export function localePreferenceCookies(preference: UiLocalePreference, browserLanguages: readonly string[]): string[] {
+/** Linha `Set-Cookie` (sem HttpOnly: o cliente grava) da escolha. "auto" apaga a escolha; o idioma resolvido não é guardado (o layout o recalcula a cada requisição). */
+export function localePreferenceCookies(preference: UiLocalePreference): string[] {
 	const base = "; Path=/; SameSite=Lax";
-	if (preference === "auto") {
-		const detected = matchUiLocale(browserLanguages) ?? DEFAULT_UI_LOCALE;
-		return [
-			`${UI_LOCALE_PREF_COOKIE}=; Max-Age=0${base}`,
-			`${UI_LOCALE_COOKIE}=${detected}; Max-Age=${UI_LOCALE_COOKIE_MAX_AGE}${base}`,
-		];
-	}
-	return [
-		`${UI_LOCALE_PREF_COOKIE}=${preference}; Max-Age=${UI_LOCALE_COOKIE_MAX_AGE}${base}`,
-		`${UI_LOCALE_COOKIE}=${preference}; Max-Age=${UI_LOCALE_COOKIE_MAX_AGE}${base}`,
-	];
+	if (preference === "auto") return [`${UI_LOCALE_PREF_COOKIE}=; Max-Age=0${base}`];
+	return [`${UI_LOCALE_PREF_COOKIE}=${preference}; Max-Age=${UI_LOCALE_COOKIE_MAX_AGE}${base}`];
 }
 
 /** Grava a escolha no navegador. O chamador recarrega os dados do servidor (`router.refresh()`). */
 export function writeUiLocalePreference(preference: UiLocalePreference): void {
 	if (typeof document === "undefined") return;
-	const languages = typeof navigator === "undefined" ? [] : navigator.languages ?? [navigator.language];
-	for (const line of localePreferenceCookies(preference, languages)) document.cookie = line;
+	for (const line of localePreferenceCookies(preference)) document.cookie = line;
 }
 
 export function readUiLocalePreference(): UiLocalePreference {

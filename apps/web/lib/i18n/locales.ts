@@ -24,8 +24,6 @@ export type UiLocalePreference = UiLocale | "auto";
 
 /** Cookie com a escolha explícita do usuário. Ausente = Automático. */
 export const UI_LOCALE_PREF_COOKIE = "atlas-locale-pref";
-/** Cookie com o idioma resolvido (gravado pelo proxy; só leitura para o cliente). */
-export const UI_LOCALE_COOKIE = "atlas-locale";
 export const UI_LOCALE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
 export function isUiLocale(value: unknown): value is UiLocale {

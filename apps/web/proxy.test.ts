@@ -6,22 +6,17 @@ import { proxy } from "./proxy"
 const request = (path: string, headers: Record<string, string> = {}) =>
 	new NextRequest(`http://localhost:3000${path}`, { headers })
 
-test("primeira visita grava atlas-locale a partir do Accept-Language, inclusive no redirect ao login", () => {
+test("o idioma da interface é resolvido no layout: o proxy não grava cookie de idioma", () => {
 	const redirect = proxy(request("/", { "accept-language": "en-GB,en;q=0.8" }))
 	assert.equal(redirect.status, 307)
-	assert.equal(redirect.cookies.get("atlas-locale")?.value, "en-US")
+	assert.equal(redirect.cookies.get("atlas-locale"), undefined)
 
 	const login = proxy(request("/login", { "accept-language": "es-MX" }))
-	assert.equal(login.cookies.get("atlas-locale")?.value, "es-ES")
+	assert.equal(login.status, 200)
+	assert.equal(login.cookies.get("atlas-locale"), undefined)
 })
 
-test("a escolha do usuário vence o Accept-Language; sem nada suportado cai em pt-BR", () => {
-	const chosen = proxy(request("/login", { "accept-language": "en-US", cookie: "atlas-locale-pref=es-ES" }))
-	assert.equal(chosen.cookies.get("atlas-locale")?.value, "es-ES")
-	assert.equal(proxy(request("/login", { "accept-language": "fr-FR" })).cookies.get("atlas-locale")?.value, "pt-BR")
-})
-
-test("cookie já correto não é regravado", () => {
-	const same = proxy(request("/login", { "accept-language": "en-US", cookie: "atlas-locale=en-US" }))
-	assert.equal(same.cookies.get("atlas-locale"), undefined)
+test("sem sessão vai ao login; rota pública passa", () => {
+	assert.equal(proxy(request("/")).headers.get("location"), "http://localhost:3000/login")
+	assert.equal(proxy(request("/login")).headers.get("location"), null)
 })

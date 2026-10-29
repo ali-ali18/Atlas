@@ -11,7 +11,7 @@ no idioma. Isso cabe em ~150 linhas, com chave inexistente falhando no typecheck
 a troca é local: só `translator.ts` e `provider.tsx` conhecem o formato.
 
 ## Como funciona
-1. `proxy.ts` grava o cookie `atlas-locale` (idioma resolvido) na primeira visita, a partir do `Accept-Language`.
+1. O idioma é resolvido a cada requisição, sem cookie do idioma resolvido (o `proxy.ts` não mexe nele; só a escolha explícita é guardada).
 2. `app/layout.tsx` resolve o idioma (`lib/i18n/server.ts`): escolha do usuário (`atlas-locale-pref`) → `Accept-Language` → pt-BR,
    põe em `<html lang>` e entrega o dicionário ao `I18nProvider`. Ler cookie/header torna as rotas dinâmicas.
 3. Componentes de cliente usam `useT()`/`useTranslations()`; de servidor, `await getTranslations()`.
@@ -72,5 +72,5 @@ componente passa o do `useTranslations()`. Exemplos: `workingStatusLabel`, `mobi
 - Nomes de produto: pt Painéis · Rotina · Alerta · Biblioteca · Habilidades / en Panels · Routines · Alerts · Library · Skills / es Paneles · Rutinas · Alertas · Biblioteca · Habilidades.
 - Sem concatenar frases ("Você tem " + n + " itens"): uma chave com `{n}`, porque a ordem das palavras muda por idioma.
 - Plural sempre por `tn`, nunca `n === 1 ? "item" : "itens"`.
-- Idioma novo: acrescente em `UI_LOCALES`/`UI_LOCALE_LABELS` (`locales.ts`), crie `messages/<id>/` (uma cópia de `en-US/`), a linha em `messages/index.ts`. O seletor e o proxy já o reconhecem.
+- Idioma novo: acrescente em `UI_LOCALES`/`UI_LOCALE_LABELS` (`locales.ts`), crie `messages/<id>/` (uma cópia de `en-US/`), a linha em `messages/index.ts`. O seletor já o reconhece.
 - Idioma da fala (ditado) e do bot ficam em `lib/dictation.ts` e `lib/bot-language.ts`.

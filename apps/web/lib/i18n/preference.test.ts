@@ -14,13 +14,11 @@ test("parseLocalePreference: cookie com escape inválido vira auto (não lança)
 	assert.equal(parseLocalePreference("atlas-locale-pref=en%2DUS"), "en-US")
 })
 
-test("localePreferenceCookies: idioma fixo grava os dois cookies; auto apaga a escolha e segue o navegador", () => {
-	const fixed = localePreferenceCookies("es-ES", ["en-US"])
+test("localePreferenceCookies: idioma fixo grava só a escolha; auto a apaga (sem cookie de idioma resolvido)", () => {
+	const fixed = localePreferenceCookies("es-ES")
+	assert.equal(fixed.length, 1)
 	assert.match(fixed[0]!, /^atlas-locale-pref=es-ES; Max-Age=\d+/)
-	assert.match(fixed[1]!, /^atlas-locale=es-ES;/)
 
-	const auto = localePreferenceCookies("auto", ["fr-FR", "en-GB"])
-	assert.match(auto[0]!, /^atlas-locale-pref=; Max-Age=0/)
-	assert.match(auto[1]!, /^atlas-locale=en-US;/)
-	assert.match(localePreferenceCookies("auto", [])[1]!, /^atlas-locale=pt-BR;/)
+	const auto = localePreferenceCookies("auto")
+	assert.deepEqual(auto, ["atlas-locale-pref=; Max-Age=0; Path=/; SameSite=Lax"])
 })
