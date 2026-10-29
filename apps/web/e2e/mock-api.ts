@@ -107,6 +107,8 @@ export type MockOptions = {
   }
   /** O run chama `generate_image`: `hold` deixa o stream parado após o tool_call (skeleton), `error` falha, `imageIds` entrega as imagens. */
   imageGenInRun?: { count?: 1 | 2; aspectRatio?: string; imageIds?: string[]; hold?: boolean; error?: string }
+  /** O run publica uma lista de tarefas (`update_task_list`); `hold` deixa o run ativo (sem resposta final) para a doca do composer. */
+  taskListInRun?: { items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>; hold?: boolean }
   /** Nome do bot principal (padrão "Atlas"). */
   botName?: string
 }
@@ -121,7 +123,7 @@ export class MockAtlas {
   readonly messages: StoredMessage[] = []
   private runs = new Map<string, RunRecord>()
   private seq = 0
-  private readonly options: Required<Omit<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "runCodeInRun" | "imageGenInRun">> & Pick<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "runCodeInRun" | "imageGenInRun">
+  private readonly options: Required<Omit<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "runCodeInRun" | "imageGenInRun" | "taskListInRun">> & Pick<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "runCodeInRun" | "imageGenInRun" | "taskListInRun">
   /** Requisições `POST /v1/runs/:id/inputs` aceitas (fala do usuário entregue a um run em andamento). */
   readonly inputs: Array<{ runId: string; content: string }> = []
   readonly memoryEntries: MemoryEntryRecord[] = []
@@ -525,10 +527,13 @@ export class MockAtlas {
               ]),
         ]
       : []
+    const tl = this.options.taskListInRun
+    const taskEvents = tl ? [{ type: "task_list", runId: id, items: tl.items }] : []
     const half = Math.ceil(record.reply.length / 2)
-    const events = ig?.hold ? [{ type: "run", runId: id, status: "running" }, ...imageEvents] : [
+    const events = tl?.hold ? [{ type: "run", runId: id, status: "running" }, ...taskEvents] : ig?.hold ? [{ type: "run", runId: id, status: "running" }, ...imageEvents] : [
       { type: "run", runId: id, status: "running" },
       ...memoryEvents,
+      ...taskEvents,
       ...codeEvents,
       ...imageEvents,
       { type: "assistant_delta", id: `a-${id}`, delta: record.reply.slice(0, half) },

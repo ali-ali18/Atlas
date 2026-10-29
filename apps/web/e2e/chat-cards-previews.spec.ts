@@ -189,3 +189,75 @@ for (const size of SIZES) {
     })
   })
 }
+
+/** Doca de tarefas em cima do composer (run ativo) e o resumo que fica no fio depois do run. */
+const TASKS = [
+  { content: "Ler as notas fiscais do Bling", status: "completed" as const },
+  { content: "Gerar a planilha de conciliação", status: "in_progress" as const },
+  { content: "Conferir as divergências", status: "pending" as const },
+  { content: "Enviar o resumo para a Marina", status: "pending" as const },
+  { content: "Arquivar os comprovantes", status: "pending" as const },
+]
+
+const LONG_ASK = Array.from({ length: 28 }, (_, i) => `Linha ${i + 1} do pedido longo para empurrar a conversa`).join("\n")
+
+for (const size of [
+  { name: "desktop-1440", viewport: { width: 1440, height: 900 }, mobile: false },
+  { name: "mobile-390", viewport: { width: 390, height: 844 }, mobile: true },
+] as const) {
+  test.describe(`previews da doca de tarefas (escuro, ${size.name})`, () => {
+    test.skip(!OUT, "defina CHAT_CARDS_PREVIEW_DIR para gerar as capturas")
+    test.use({ viewport: size.viewport, isMobile: size.mobile, hasTouch: size.mobile })
+    test.beforeEach(async ({ context }) => {
+      await context.addInitScript(() => localStorage.setItem("theme", "dark"))
+    })
+    const shot = async (page: Page, name: string) => {
+      await page.addStyleTag({ content: "nextjs-portal{display:none!important}" })
+      await page.waitForTimeout(500)
+      await page.screenshot({ path: `${OUT}/doca-${name}-${size.name}.png` })
+    }
+    const ask = async (page: Page, text: string) => {
+      await page.getByRole("textbox", { name: /Mensagem para/ }).fill(text)
+      await page.getByRole("button", { name: "Enviar mensagem" }).click()
+    }
+
+    test("doca recolhida e aberta", async ({ context, page }) => {
+      test.setTimeout(120_000)
+      const api = new MockAtlas({ history: [], reply: "Pronto.", replyDelayMs: 600_000, taskListInRun: { items: TASKS, hold: true } })
+      api.handler = libraryHandler
+      await api.install(context)
+      await openChat(page)
+      await ask(page, "Faz o fechamento do mês")
+      await page.getByTestId("task-list-dock").waitFor()
+      await shot(page, "01-recolhida")
+      await page.getByTestId("task-list-dock-toggle").click()
+      await page.getByTestId("task-list-dock-items").waitFor()
+      await shot(page, "02-aberta")
+    })
+
+    test("doca com aprovação pendente", async ({ context, page }) => {
+      test.setTimeout(120_000)
+      const api = new MockAtlas({ history: [], reply: "Pronto.", replyDelayMs: 600_000, confirmCard: { confirmId: "cf-dock", title: "Enviar o resumo para a Marina?", description: "Vou mandar um e-mail com o resumo das vendas." }, taskListInRun: { items: TASKS, hold: true } })
+      api.handler = libraryHandler
+      await api.install(context)
+      await openChat(page)
+      await ask(page, LONG_ASK)
+      await page.getByTestId("task-list-dock").waitFor()
+      await page.locator("[data-approval-bar]").waitFor({ timeout: 15_000 }).catch(() => console.log("[doca] barra de aprovação não apareceu"))
+      await shot(page, "03-com-aprovacao")
+    })
+
+    test("resumo no fio depois de terminar", async ({ context, page }) => {
+      test.setTimeout(120_000)
+      const done = TASKS.map((task) => ({ ...task, status: "completed" as const }))
+      const api = new MockAtlas({ history: [], reply: "Fechamento concluído, a planilha está pronta.", taskListInRun: { items: done } })
+      api.handler = libraryHandler
+      await api.install(context)
+      await openChat(page)
+      await ask(page, "Faz o fechamento do mês")
+      await page.getByTestId("task-list-card").waitFor()
+      await page.waitForTimeout(1500)
+      await shot(page, "04-resumo-no-fio")
+    })
+  })
+}
