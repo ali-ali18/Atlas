@@ -1,0 +1,38 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import test from "node:test";
+
+/**
+ * Arquivos de Configurações já traduzidos: nenhum texto em pt-BR escrito direto no código
+ * (tudo vem do dicionário). Comentários podem ter acento; o resto não.
+ */
+const TRANSLATED = [
+	"components/settings/diagnostics-state.ts",
+	"components/settings/usage-state.ts",
+	"components/settings/reflection-state.ts",
+	"components/settings/sections/diagnostics.tsx",
+	"components/settings/sections/usage.tsx",
+	"components/settings/sections/reflection.tsx",
+	"components/settings/sections/timezone.tsx",
+	"components/settings/sections/work-hours.tsx",
+];
+
+const ACCENTED = /[áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]/;
+
+function code(file: string): string {
+	return readFileSync(join(process.cwd(), file), "utf8")
+		.replace(/\/\*[\s\S]*?\*\//g, "")
+		.split("\n")
+		.map((line) => line.replace(/(^|\s)\/\/.*$/, ""))
+		.join("\n");
+}
+
+test("telas de Configurações traduzidas não têm texto pt-BR fixo no código", () => {
+	for (const file of TRANSLATED) {
+		const offending = code(file)
+			.split("\n")
+			.filter((line) => ACCENTED.test(line));
+		assert.deepEqual(offending, [], `${file} tem texto fixo em pt-BR`);
+	}
+});

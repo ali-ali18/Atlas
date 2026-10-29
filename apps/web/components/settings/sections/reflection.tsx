@@ -1,7 +1,7 @@
 "use client";
 
 import { BrainIcon, ClockIcon, PlayIcon, SparklesIcon } from "lucide-react";
-import { formatMemoryUsage, readReflectionSettings, resolveOrchestratorMemoryChars } from "@workspace/shared";
+import { readReflectionSettings, resolveOrchestratorMemoryChars } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Switch } from "@workspace/ui/components/switch";
@@ -10,9 +10,9 @@ import { useReflectionStatus } from "@/hooks/use-reflection-status";
 import type { ReflectionStatusView } from "@/lib/atlas-api";
 import { SettingRow, SettingsGroup } from "../setting-row";
 import { SettingsPicker } from "@/components/ui/templates/template-4/settings-picker";
-import { memoryOptions, reflectionStatusLabel } from "../reflection-state";
+import { memoryOptions, memoryUsageLabel, reflectionStatusLabel } from "../reflection-state";
 import { timeZoneLabel } from "../timezone-state";
-import { useLocale } from "@/lib/i18n/provider";
+import { useTranslations } from "@/lib/i18n/provider";
 
 /**
  * Reflexão diária do orquestrador (bot principal): uma vez por dia, no horário escolhido (fuso da
@@ -56,21 +56,22 @@ export function ReflectionSettingsView({
 	/** Relógio injetável (testes); padrão: agora. */
 	now?: Date;
 }) {
-	const locale = useLocale();
+	const translator = useTranslations();
+	const { t } = translator;
 	if (!isVisible("geral.reflexao")) return null;
-	const statusLine = statusError ?? reflectionStatusLabel(status, now, locale);
+	const statusLine = statusError ?? reflectionStatusLabel(status, now, translator);
 	return (
-		<SettingsGroup title="Reflexão diária">
+		<SettingsGroup title={t("settings.reflection.group")}>
 			<SettingRow
-				caption={<p>{hasPrimary ? "O bot principal revisa a memória e as conversas de todos os bots e avisa só do que importa." : "Defina um bot principal para usar."}</p>}
+				caption={<p>{hasPrimary ? t("settings.reflection.enabledCaption") : t("settings.reflection.noPrimary")}</p>}
 				control="inline"
-				description="Uma vez por dia o bot principal junta memórias repetidas, apaga o que venceu e guarda o que viu nas outras conversas."
+				description={t("settings.reflection.enabledHint")}
 				htmlFor="settings-reflection-enabled"
 				icon={SparklesIcon}
-				label="Refletir todo dia"
+				label={t("settings.reflection.enabled")}
 			>
 				<Switch
-					aria-label="Refletir todo dia"
+					aria-label={t("settings.reflection.enabled")}
 					checked={enabled}
 					disabled={disabled || !hasPrimary}
 					id="settings-reflection-enabled"
@@ -79,15 +80,15 @@ export function ReflectionSettingsView({
 			</SettingRow>
 			{enabled ? (
 				<SettingRow
-					caption={timeZone ? <p>{`No fuso ${timeZoneLabel(timeZone)}.`}</p> : null}
+					caption={timeZone ? <p>{t("settings.reflection.inZone", { zone: timeZoneLabel(timeZone) })}</p> : null}
 					control="inline"
-					description="Horário em que a reflexão roda todos os dias."
+					description={t("settings.reflection.timeHint")}
 					htmlFor="settings-reflection-time"
 					icon={ClockIcon}
-					label="Horário"
+					label={t("settings.reflection.time")}
 				>
 					<Input
-						aria-label="Horário da reflexão"
+						aria-label={t("settings.reflection.timeAria")}
 						className="h-8 w-[9rem] px-2.5 text-body"
 						disabled={disabled}
 						id="settings-reflection-time"
@@ -99,18 +100,18 @@ export function ReflectionSettingsView({
 			) : null}
 			{hasPrimary ? (
 				<SettingRow
-					caption={<p>{memoryUsed === null ? "Quanto o bot principal pode guardar." : `Em uso: ${formatMemoryUsage(memoryUsed, memoryChars)} caracteres.`}</p>}
+					caption={<p>{memoryUsed === null ? t("settings.reflection.memoryCaption") : t("settings.reflection.memoryUsed", { usage: memoryUsageLabel(memoryUsed, memoryChars, translator) })}</p>}
 					control="inline"
-					description="O bot principal acumula pendências e fatos dos outros bots, então pode guardar mais. Os outros bots seguem o limite normal."
+					description={t("settings.reflection.memoryHint")}
 					htmlFor="settings-reflection-memory"
 					icon={BrainIcon}
-					label="Memória do bot principal"
+					label={t("settings.reflection.memory")}
 				>
 					<SettingsPicker
 						disabled={disabled}
 						id="settings-reflection-memory"
 						onChange={(value) => onMemoryChars(Number(value))}
-						options={memoryOptions(memoryChars, locale)}
+						options={memoryOptions(memoryChars, translator)}
 						value={String(memoryChars)}
 					/>
 				</SettingRow>
@@ -119,12 +120,12 @@ export function ReflectionSettingsView({
 				<SettingRow
 					caption={statusLine ? <p role="status">{statusLine}</p> : null}
 					control="inline"
-					description="Roda a reflexão uma vez agora, para testar."
+					description={t("settings.reflection.runNowHint")}
 					icon={PlayIcon}
-					label="Refletir agora"
+					label={t("settings.reflection.runNow")}
 				>
 					<Button disabled={disabled || busy || status?.active === true} onClick={onRunNow} size="sm" variant="outline">
-						Refletir agora
+						{t("settings.reflection.runNow")}
 					</Button>
 				</SettingRow>
 			) : null}

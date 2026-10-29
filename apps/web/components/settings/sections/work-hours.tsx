@@ -7,27 +7,47 @@ import { Button } from "@workspace/ui/components/button";
 import { ButtonGroup } from "@workspace/ui/components/button-group";
 import { Input } from "@workspace/ui/components/input";
 import type { useAccountSettings } from "@/hooks/use-account-settings";
+import { useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import { SaveIndicator, SettingRow, SettingsGroup } from "../setting-row";
 import type { SaveStatus } from "../account-settings-state";
 
 /** Segunda a domingo na tela; o valor salvo usa 0 = domingo. */
-export const WORK_DAY_OPTIONS = [
-	{ day: 1, short: "S", label: "Segunda" },
-	{ day: 2, short: "T", label: "Terça" },
-	{ day: 3, short: "Q", label: "Quarta" },
-	{ day: 4, short: "Q", label: "Quinta" },
-	{ day: 5, short: "S", label: "Sexta" },
-	{ day: 6, short: "S", label: "Sábado" },
-	{ day: 0, short: "D", label: "Domingo" },
-] as const;
+export const WORK_DAYS = [1, 2, 3, 4, 5, 6, 0] as const;
 
-export const WORK_HOURS_ORDER_ERROR = "O início precisa ser antes do fim.";
-export const WORK_HOURS_DAYS_ERROR = "Escolha ao menos um dia.";
+const DAY_LABEL_KEYS = {
+	0: "settings.workHours.day.0",
+	1: "settings.workHours.day.1",
+	2: "settings.workHours.day.2",
+	3: "settings.workHours.day.3",
+	4: "settings.workHours.day.4",
+	5: "settings.workHours.day.5",
+	6: "settings.workHours.day.6",
+} as const;
+
+const DAY_SHORT_KEYS = {
+	0: "settings.workHours.dayShort.0",
+	1: "settings.workHours.dayShort.1",
+	2: "settings.workHours.dayShort.2",
+	3: "settings.workHours.dayShort.3",
+	4: "settings.workHours.dayShort.4",
+	5: "settings.workHours.dayShort.5",
+	6: "settings.workHours.dayShort.6",
+} as const;
+
+/** Nome e inicial de cada dia, no idioma da tela. */
+export function workDayOptions({ t }: Translator = defaultTranslator) {
+	return WORK_DAYS.map((day) => ({ day, short: t(DAY_SHORT_KEYS[day]), label: t(DAY_LABEL_KEYS[day]) }));
+}
+
+export const WORK_HOURS_ORDER_ERROR = defaultTranslator.t("settings.workHours.orderError");
+export const WORK_HOURS_DAYS_ERROR = defaultTranslator.t("settings.workHours.daysError");
 
 /** Próximo valor depois de uma edição, ou o motivo de não salvar. Pura, para testar sem tela. */
 export function nextWorkHours(
 	current: WorkHours,
 	change: { start?: string; end?: string; toggleDay?: number },
+	{ t }: Translator = defaultTranslator,
 ): { ok: true; value: WorkHours } | { ok: false; error: string } {
 	const days =
 		change.toggleDay === undefined
@@ -35,10 +55,10 @@ export function nextWorkHours(
 			: current.days.includes(change.toggleDay)
 				? current.days.filter((d) => d !== change.toggleDay)
 				: [...current.days, change.toggleDay];
-	if (days.length === 0) return { ok: false, error: WORK_HOURS_DAYS_ERROR };
+	if (days.length === 0) return { ok: false, error: t("settings.workHours.daysError") };
 	const candidate = { start: change.start ?? current.start, end: change.end ?? current.end, days };
 	const parsed = parseWorkHours(candidate);
-	return parsed ? { ok: true, value: parsed } : { ok: false, error: WORK_HOURS_ORDER_ERROR };
+	return parsed ? { ok: true, value: parsed } : { ok: false, error: t("settings.workHours.orderError") };
 }
 
 /**
@@ -48,8 +68,9 @@ export function nextWorkHours(
 export function resolveWorkHoursEdit(
 	current: WorkHours,
 	change: { start?: string; end?: string; toggleDay?: number },
+	translator: Translator = defaultTranslator,
 ): { save: WorkHours | null; error: string | null } {
-	const next = nextWorkHours(current, change);
+	const next = nextWorkHours(current, change, translator);
 	return next.ok ? { save: next.value, error: null } : { save: null, error: next.error };
 }
 
@@ -75,19 +96,21 @@ export function WorkHoursSettingsView({
 	disabled?: boolean;
 	isVisible?: (itemId: string) => boolean;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	if (!isVisible("geral.horario")) return null;
 	return (
-		<SettingsGroup title="Expediente">
+		<SettingsGroup title={t("settings.workHours.group")}>
 			<SettingRow
 				caption={localError ? <p role="alert">{localError}</p> : <SaveIndicator error={saveError} status={status} />}
 				control="inline"
-				description="Seu expediente, no fuso da conta. O bot vai usar isso para não te chamar fora dele."
+				description={t("settings.workHours.hint")}
 				icon={BriefcaseIcon}
-				label="Horário de trabalho"
+				label={t("settings.workHours.label")}
 				wrap
 			>
 				<Input
-					aria-label="Início do expediente"
+					aria-label={t("settings.workHours.startAria")}
 					className="h-8 w-[9rem] px-2.5 text-body"
 					disabled={disabled}
 					onChange={(event) => event.target.value && onChange({ start: event.target.value })}
@@ -98,7 +121,7 @@ export function WorkHoursSettingsView({
 					–
 				</span>
 				<Input
-					aria-label="Fim do expediente"
+					aria-label={t("settings.workHours.endAria")}
 					className="h-8 w-[9rem] px-2.5 text-body"
 					disabled={disabled}
 					onChange={(event) => event.target.value && onChange({ end: event.target.value })}
@@ -108,13 +131,13 @@ export function WorkHoursSettingsView({
 			</SettingRow>
 			<SettingRow
 				control="inline"
-				description="Dias da semana em que você trabalha."
+				description={t("settings.workHours.daysHint")}
 				icon={CalendarDaysIcon}
-				label="Dias úteis"
+				label={t("settings.workHours.days")}
 				wrap
 			>
-				<ButtonGroup aria-label="Dias úteis">
-					{WORK_DAY_OPTIONS.map((option) => {
+				<ButtonGroup aria-label={t("settings.workHours.days")}>
+					{workDayOptions(translator).map((option) => {
 						const selected = value.days.includes(option.day);
 						return (
 							<Button
@@ -147,6 +170,7 @@ export function WorkHoursSettings({
 	isVisible?: (itemId: string) => boolean;
 }) {
 	const value = readWorkHours(account.view?.config);
+	const translator = useTranslations();
 	const [localError, setLocalError] = useState<string | null>(null);
 	return (
 		<WorkHoursSettingsView
@@ -154,7 +178,7 @@ export function WorkHoursSettings({
 			isVisible={isVisible}
 			localError={localError}
 			onChange={(change) => {
-				const edit = resolveWorkHoursEdit(value, change);
+				const edit = resolveWorkHoursEdit(value, change, translator);
 				setLocalError(edit.error);
 				if (edit.save) void account.save({ general: { workHours: edit.save } });
 			}}
