@@ -18,5 +18,6 @@ export const login: NamespaceMessages<typeof ptBR> = {
 	"login.avatarLabel": "Avatar de Atlas Agent",
 	"login.tagline": "Tu IA, a tu manera",
 	"login.allInOnePlace": "Todo en un solo lugar",
+	"login.languageAuto": "Automático",
 	"login.language": "Idioma",
 };

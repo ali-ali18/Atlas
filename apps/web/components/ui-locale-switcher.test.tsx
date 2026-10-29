@@ -9,9 +9,9 @@ import { UiLocaleSwitcher } from "./ui-locale-switcher"
 
 Object.assign(globalThis, { React })
 
-test("o seletor da tela de login lista os idiomas pelo nome deles e marca o atual", async () => {
+test("o seletor da tela de login lista os idiomas pelo nome deles e marca a escolha guardada", async () => {
 	const html = renderToStaticMarkup(
-		<I18nProvider locale="en-US" messages={await loadMessages("en-US")}>
+		<I18nProvider locale="en-US" messages={await loadMessages("en-US")} preference="en-US">
 			<UiLocaleSwitcher />
 		</I18nProvider>,
 	)
@@ -19,6 +19,17 @@ test("o seletor da tela de login lista os idiomas pelo nome deles e marca o atua
 	for (const label of ["Português", "English", "Español"]) assert.ok(html.includes(`>${label}<`), label)
 	assert.match(html, /aria-current="true"[^>]*lang="en-US"|lang="en-US"[^>]*aria-current="true"|aria-current="true"[^>]*>English</)
 	assert.equal((html.match(/aria-current/g) ?? []).length, 1)
+	assert.ok(html.includes(">Automatic<"))
+})
+
+test("sem escolha guardada, só o Automático fica marcado (o idioma resolvido não conta como escolha)", async () => {
+	const html = renderToStaticMarkup(
+		<I18nProvider locale="en-US" messages={await loadMessages("en-US")}>
+			<UiLocaleSwitcher />
+		</I18nProvider>,
+	)
+	assert.equal((html.match(/aria-current/g) ?? []).length, 1)
+	assert.match(html, /aria-current="true"[^>]*>Automatic</)
 })
 
 test("a frase da marca tem um único destaque <em> em todos os idiomas", async () => {

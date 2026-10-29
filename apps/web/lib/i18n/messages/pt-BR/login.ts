@@ -16,5 +16,6 @@ export const login = {
 	"login.avatarLabel": "Avatar do Atlas Agent",
 	"login.tagline": "Sua IA, do seu jeito",
 	"login.allInOnePlace": "Tudo num lugar só",
+	"login.languageAuto": "Automático",
 	"login.language": "Idioma",
 } as const;

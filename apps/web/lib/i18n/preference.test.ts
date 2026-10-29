@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { localePreferenceCookies, parseLocalePreference } from "./preference"
+import { localePreferenceCookies, nextLocalePreference, parseLocalePreference } from "./preference"
 
 test("parseLocalePreference lê a escolha e trata ausente/inválido como auto", () => {
 	assert.equal(parseLocalePreference("a=1; atlas-locale-pref=en-US; b=2"), "en-US")
@@ -21,4 +21,12 @@ test("localePreferenceCookies: idioma fixo grava só a escolha; auto a apaga (se
 
 	const auto = localePreferenceCookies("auto")
 	assert.deepEqual(auto, ["atlas-locale-pref=; Max-Age=0; Path=/; SameSite=Lax"])
+})
+
+test("nextLocalePreference compara com a escolha guardada, não com o idioma resolvido", () => {
+	// Accept-Language en-US sem cookie: a escolha guardada é "auto"; clicar em English deve fixar.
+	assert.equal(nextLocalePreference("en-US", "auto"), "en-US")
+	assert.equal(nextLocalePreference("en-US", "en-US"), null)
+	assert.equal(nextLocalePreference("auto", "en-US"), "auto")
+	assert.equal(nextLocalePreference("auto", "auto"), null)
 })

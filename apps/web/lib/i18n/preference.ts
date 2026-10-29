@@ -44,3 +44,11 @@ export function readUiLocalePreference(): UiLocalePreference {
 	if (typeof document === "undefined") return "auto";
 	return parseLocalePreference(document.cookie);
 }
+
+/**
+ * Escolha a gravar ao clicar em `target`, ou `null` se já é a escolha guardada. Compara com a escolha
+ * (cookie), não com o idioma resolvido: com Accept-Language en-US e sem cookie, clicar em English fixa o idioma.
+ */
+export function nextLocalePreference(target: UiLocalePreference, stored: UiLocalePreference): UiLocalePreference | null {
+	return target === stored ? null : target;
+}
