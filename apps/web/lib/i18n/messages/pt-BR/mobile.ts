@@ -20,4 +20,5 @@ export const mobile = {
 	"mobile.menu.hide": "Ocultar da lista",
 	"mobile.menu.settings": "Configurações gerais",
 	"mobile.menu.providers": "Provedores",
+	"mobile.exploreAgents": "Explorar agentes",
 } as const;

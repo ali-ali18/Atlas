@@ -565,7 +565,7 @@ export function MobileChatList({
 					onClick={onOpenMarketplace}
 					variant="ghost"
 				>
-					<StoreIcon /> Explorar agentes
+					<StoreIcon /> {t("mobile.exploreAgents")}
 				</Button>
 			</main>
 			<Sheet

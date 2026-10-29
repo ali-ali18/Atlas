@@ -22,4 +22,5 @@ export const mobile: NamespaceMessages<typeof ptBR> = {
 	"mobile.menu.hide": "Hide from list",
 	"mobile.menu.settings": "General settings",
 	"mobile.menu.providers": "Providers",
+	"mobile.exploreAgents": "Explore agents",
 };
