@@ -88,7 +88,7 @@ export function WorkHoursSettingsView({
 			>
 				<Input
 					aria-label="Início do expediente"
-					className="h-8 w-[7rem] px-2.5 text-body"
+					className="h-8 w-[9rem] px-2.5 text-body"
 					disabled={disabled}
 					onChange={(event) => event.target.value && onChange({ start: event.target.value })}
 					type="time"
@@ -99,7 +99,7 @@ export function WorkHoursSettingsView({
 				</span>
 				<Input
 					aria-label="Fim do expediente"
-					className="h-8 w-[7rem] px-2.5 text-body"
+					className="h-8 w-[9rem] px-2.5 text-body"
 					disabled={disabled}
 					onChange={(event) => event.target.value && onChange({ end: event.target.value })}
 					type="time"

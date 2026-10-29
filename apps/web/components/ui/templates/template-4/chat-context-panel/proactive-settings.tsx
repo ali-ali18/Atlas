@@ -100,7 +100,7 @@ export function ProactiveSettingsSection({
 							<div className="flex items-center gap-2">
 								<Input
 									aria-label="Início do silêncio"
-									className="h-8 w-[7rem] px-2.5 text-body"
+									className="h-8 w-[9rem] px-2.5 text-body"
 									id="proactive-quiet-start"
 									onChange={(event) => change({ type: "quiet", start: event.target.value })}
 									type="time"
@@ -109,7 +109,7 @@ export function ProactiveSettingsSection({
 								<span className="text-muted-foreground text-xs">até</span>
 								<Input
 									aria-label="Fim do silêncio"
-									className="h-8 w-[7rem] px-2.5 text-body"
+									className="h-8 w-[9rem] px-2.5 text-body"
 									id="proactive-quiet-end"
 									onChange={(event) => change({ type: "quiet", end: event.target.value })}
 									type="time"
