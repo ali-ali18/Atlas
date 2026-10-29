@@ -15,8 +15,12 @@ a troca é local: só `translator.ts` e `provider.tsx` conhecem o formato.
 2. `app/layout.tsx` resolve o idioma (`lib/i18n/server.ts`): escolha do usuário (`atlas-locale-pref`) → `Accept-Language` → pt-BR,
    põe em `<html lang>` e entrega o dicionário ao `I18nProvider`. Ler cookie/header torna as rotas dinâmicas.
 3. Componentes de cliente usam `useT()`/`useTranslations()`; de servidor, `await getTranslations()`.
-4. Configurações → Geral → "Idioma da interface" (Automático / Português / English / Español) grava o cookie e faz `router.refresh()`.
+4. Configurações → Geral → "Idioma da interface" (Automático / Português / English / Español) grava o cookie e **recarrega a página**
+   (várias telas guardam texto já montado no estado; recarregar troca tudo de uma vez). Na tela de login há `UiLocaleSwitcher`.
    Ponto de extensão: guardar a escolha na conta (ver `server.ts` e `preference.ts`).
+5. `packages/ui` não importa o app: os textos fixos dele (aprovação, plano, copiar código...) vêm de `UiCopy`/`UiCopyProvider`.
+   Texto novo ali = campo em `packages/ui/src/components/ui-copy.tsx` + chave `ui.*` nos 3 idiomas + linha em `ui-copy.ts` (um teste garante que
+   o pt-BR do app e o padrão do pacote são o mesmo texto).
 
 ## Traduzir um componente
 1. Escolha (ou crie) o arquivo da área em `messages/pt-BR/<area>.ts`. Chaves `area.assunto`, descritivas, em inglês:
@@ -46,6 +50,22 @@ a troca é local: só `translator.ts` e `provider.tsx` conhecem o formato.
 5. Datas e números: nunca `toLocaleString("pt-BR")` nem `Intl` com idioma fixo. Use `lib/format.ts` (`useFormat()` no componente, ou `formatDate(valor, locale)`).
 6. Teste: os testes de paridade (`translator.test.ts`) já cobrem chaves e `{parametros}` iguais entre idiomas. Teste de componente
    sem provider renderiza em pt-BR (o contexto padrão); para outro idioma, envolva em `<I18nProvider locale="en-US" messages={await loadMessages("en-US")}>`.
+
+## Onde achar o que falta
+`rg -n "[áàâãéêíóôõúç]" apps/web --glob "!*.test.*"` lista texto em pt-BR escrito direto. Textos em `packages/shared` (rótulos como
+`AUTONOMY_LEVEL_LABELS`, `DEV_APPROVAL_*`, `formatCompactionLine`) também são pt-BR: traduza no app com chaves próprias (como em
+`chat-thread/permission-copy.ts`) em vez de mexer em `shared`, que também serve prompts.
+
+## Funções puras com texto
+Receba `translator: Translator = defaultTranslator` (ou `t`) como último parâmetro: o padrão pt-BR mantém chamadas e testes antigos iguais, e o
+componente passa o do `useTranslations()`. Exemplos: `workingStatusLabel`, `mobileSettingsGroups`, `botActionItems`, `updatedAgo`.
+
+## Testar
+- Chaves/parâmetros iguais entre idiomas: `translator.test.ts` (automático).
+- Componente em outro idioma: `renderToStaticMarkup(<I18nProvider locale="en-US" messages={await loadMessages("en-US")}>…</I18nProvider>)`;
+  veja `chat-thread/composer-i18n.test.tsx`.
+- Plural: chaves `.one`/`.other`; no pt-BR o 0 cai em `.one`, então trate "nenhum" com chave própria antes de chamar `tn`.
+- Nome de chave: não termine uma chave normal em `.one`/`.few`/`.many`/`.zero` (o teste de paridade trata como plural).
 
 ## Convenções
 - pt-BR é a fonte: escreva ali primeiro. Texto que o usuário vê, nunca internals (ver `70-padroes-produto.md`).
