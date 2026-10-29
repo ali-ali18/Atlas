@@ -2246,7 +2246,7 @@ ${TODO_REMINDER}` };
 					const { result, sessionId } = await withClient(async (client, row) => ({ result: await client.writeFile(input), sessionId: row.id }));
 					await emitEdit(sessionId, callId, result);
 					diagnostics?.noteEdit(result.path);
-					return { summary: `${result.created ? "Criado" : "Sobrescrito"} ${result.path} (+${result.added} -${result.removed}, ${result.bytes} bytes).${formatEditExcerpt(result.excerpt, redact)}` };
+					return { summary: `${result.created ? "Criado" : "Sobrescrito"} ${result.path} (+${result.added} -${result.removed}, ${result.bytes} bytes).${formatEditExcerpt(result.excerpt, redact, result.syntaxError)}` };
 				}
 				case "edit_file": {
 					const input = parseEditFileArgs(args);
@@ -2255,7 +2255,7 @@ ${TODO_REMINDER}` };
 					const { result, sessionId } = await withClient(async (client, row) => ({ result: await client.patchFile(input), sessionId: row.id }));
 					await emitEdit(sessionId, callId, result);
 					diagnostics?.noteEdit(result.path);
-					return { summary: `Editado ${result.path} (+${result.added} -${result.removed}).${result.note ? ` Casamento aproximado: ${result.note}.` : ""}${formatEditExcerpt(result.excerpt, redact)}` };
+					return { summary: `Editado ${result.path} (+${result.added} -${result.removed}).${result.note ? ` Casamento aproximado: ${result.note}.` : ""}${formatEditExcerpt(result.excerpt, redact, result.syntaxError)}` };
 				}
 				case "list_files": {
 					const input = parseListFilesArgs(args);

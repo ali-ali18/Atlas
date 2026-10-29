@@ -1022,4 +1022,14 @@ describe("runtime: janela da região editada no resultado", () => {
 		const w = await t.runtime.execute("write_file", { path: "n.ts", content: "x" }, "cy");
 		expect(w.summary).toContain("     1\tx");
 	});
+
+	it("erro de sintaxe novo vem no resultado (sem bloquear) e não aparece quando ausente", async () => {
+		const t = setup();
+		t.client.patchFile.mockResolvedValueOnce({ path: "/workspace/a.json", diff: "-a\n+b", added: 1, removed: 1, excerpt: { firstLine: 1, text: "{,}" }, syntaxError: "JSON inválido: Unexpected token ','" });
+		const edit = await t.runtime.execute("edit_file", { path: "a.json", old: "a", new: "b" }, "cs");
+		expect(edit.summary).toContain("Editado");
+		expect(edit.summary).toContain("Erro de sintaxe introduzido por esta edição: JSON inválido");
+		const clean = await t.runtime.execute("edit_file", { path: "b.json", old: "a", new: "b" }, "ct");
+		expect(clean.summary).not.toContain("sintaxe");
+	});
 });

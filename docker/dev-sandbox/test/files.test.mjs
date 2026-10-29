@@ -168,3 +168,30 @@ test("patch e write devolvem a janela editada (±3 linhas, no máximo 40)", asyn
 	const bin = await api.write({ path: "b.bin", content: Buffer.from([1, 2, 3]).toString("base64"), encoding: "base64" });
 	assert.equal(bin.excerpt, undefined);
 });
+
+test("sintaxe: .json e .js quebrados pela edição são reportados, sem bloquear a gravação", async () => {
+	const { dir, api } = await setup();
+	const w = await api.write({ path: "c.json", content: '{"a": 1,}' });
+	assert.match(w.syntaxError, /JSON/i);
+	assert.equal(await fsp.readFile(path.posix.join(dir, "c.json"), "utf8"), '{"a": 1,}');
+	await api.write({ path: "ok.mjs", content: "export const a = 1;\n" });
+	const p = await api.patch({ path: "ok.mjs", old: "= 1;", new: "= ;" });
+	assert.match(p.syntaxError, /linha 1.*SyntaxError/s);
+	const ok = await api.write({ path: "fine.cjs", content: "module.exports = 1;\n" });
+	assert.equal(ok.syntaxError, undefined);
+});
+
+test("sintaxe: só erro novo conta (arquivo já quebrado antes não repete) e .ts é ignorado", async () => {
+	const { dir, api } = await setup();
+	await fsp.writeFile(path.posix.join(dir, "bad.json"), '{"a": }');
+	const p = await api.patch({ path: "bad.json", old: '"a"', new: '"b"' });
+	assert.equal(p.syntaxError, undefined);
+	const fixed = await api.write({ path: "bad.json", content: '{"b": 1}' });
+	assert.equal(fixed.syntaxError, undefined);
+	const ts = await api.write({ path: "x.ts", content: "const = ;" });
+	assert.equal(ts.syntaxError, undefined);
+	await fsp.writeFile(path.posix.join(dir, "old.js"), "let = ;\n");
+	const j = await api.patch({ path: "old.js", old: "let = ;", new: "const x = 1 2;" });
+	assert.match(j.syntaxError ?? "", /SyntaxError/); // erro diferente do anterior: é novo
+	assert.deepEqual((await fsp.readdir(dir)).filter((n) => n.includes("atlas-before")), []);
+});

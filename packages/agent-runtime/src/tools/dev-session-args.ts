@@ -205,10 +205,11 @@ export function capHeadTail(text: string, max = SHELL_INLINE_MAX_CHARS): { text:
 }
 
 /** Bloco "região editada" para o resultado de edit_file/write_file (o modelo não precisa reler). */
-export function formatEditExcerpt(excerpt: { firstLine: number; text: string } | undefined, redact: (text: string) => string): string {
-	if (!excerpt?.text) return "";
+export function formatEditExcerpt(excerpt: { firstLine: number; text: string } | undefined, redact: (text: string) => string, syntaxError?: string): string {
+	const syntax = syntaxError ? `\nErro de sintaxe introduzido por esta edição: ${redact(syntaxError).slice(0, 300)}` : "";
+	if (!excerpt?.text) return syntax;
 	const last = excerpt.firstLine + excerpt.text.split("\n").length - 1;
-	return `\nRegião editada (linhas ${excerpt.firstLine}-${last}; não precisa reler):\n${numberLines(redact(excerpt.text), excerpt.firstLine)}`;
+	return `\nRegião editada (linhas ${excerpt.firstLine}-${last}; não precisa reler):\n${numberLines(redact(excerpt.text), excerpt.firstLine)}${syntax}`;
 }
 
 /** Texto numerado (`  12\tlinha`) a partir de `firstLine` (1-based). */
