@@ -10,6 +10,7 @@ import { login } from "./login";
 import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
 import { settings } from "./settings";
+import { sharedLabels } from "./sharedLabels";
 import { sidebar } from "./sidebar";
 import { status } from "./status";
 import { ui } from "./ui";
@@ -25,6 +26,7 @@ export const enUS: MessageDictionary = {
 	...marketplace,
 	...mobile,
 	...settings,
+	...sharedLabels,
 	...sidebar,
 	...status,
 	...ui,
