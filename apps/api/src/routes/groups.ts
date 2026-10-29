@@ -1,9 +1,10 @@
 import { Hono, type Context } from "hono";
 import type { Bot, CreateGroupInput } from "@workspace/shared";
-import { isBotLanguage } from "@workspace/shared";
+import { isBotLanguage, pickLanguageFromAcceptLanguage } from "@workspace/shared";
 import {
 	GroupError,
 	addGroupMember,
+	noteBrowserLanguage,
 	createGroup,
 	getGroupState,
 	postGroupUserMessage,
@@ -121,6 +122,7 @@ export function createGroupRoutes(deps: GroupRouteDeps = {}) {
 		if (!json || typeof json.content !== "string") return c.json({ error: "Invalid body: expected { content }" }, 400);
 		try {
 			const { userId } = scopeFor(c.get("session"));
+			void noteBrowserLanguage(userId, pickLanguageFromAcceptLanguage(c.req.header("accept-language")));
 			return c.json(await post({ userId, groupId: c.req.param("id"), content: json.content }), 202);
 		} catch (error) {
 			return fail(c, error, "post group message");

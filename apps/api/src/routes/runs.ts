@@ -45,6 +45,8 @@ import {
 	resolveUserFileCards,
 	resolveUserImagesCard,
 } from "@workspace/db";
+import { noteBrowserLanguage } from "@workspace/db";
+import { pickLanguageFromAcceptLanguage } from "@workspace/shared";
 import { demoteSteerInputToQueue, getOwnedConversation, markPendingLoginCode, markPendingLoginUseVault, promoteQueuedInputToSteer } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 import { isRunEventsSignalSubscribed, publishRunSignal as defaultPublishRunSignal, subscribeRunEventsSignal, type AgentRunQueue } from "@workspace/queue";
@@ -428,6 +430,8 @@ export function createRunRoutes(
 		let run;
 		try {
 			const { userId } = scopeFor(c.get("session"));
+			// Idioma do navegador: pista para rotinas e alertas de quem ainda não escreveu nada (melhor esforço, não espera).
+			void noteBrowserLanguage(userId, pickLanguageFromAcceptLanguage(c.req.header("accept-language")));
 			run = await createAgentRun({
 				request,
 				model,

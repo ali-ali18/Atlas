@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { prisma } from "./client.js";
 import { createBot, getBotProfile } from "./bots.js";
-import { getLanguageContext, readLanguageStates, writeLanguageStates } from "./user-language.js";
+import { createGroup, postGroupUserMessage } from "./bot-groups.js";
+import { createAgentRun, createRunInput } from "./runs.js";
+import { getLanguageContext, noteBrowserLanguage, readLanguageStates, recordUserLanguage, writeLanguageStates } from "./user-language.js";
 import { createTestUser, dbSkip } from "./testing/test-db.js";
 
 describe("idioma detectado (Postgres real)", { skip: dbSkip }, () => {
@@ -68,5 +70,87 @@ describe("idioma detectado (Postgres real)", { skip: dbSkip }, () => {
 		}
 		assert.deepEqual((await readLanguageStates(a.id, botA.conversationId)).conversation, { last: "en-US", pending: null });
 		assert.equal((await prisma.userSettings.findUnique({ where: { userId: a.id } }))?.lastLanguage, "en-US");
+	});
+
+	const EN = "I need you to show me the orders from today and also the stock of the best selling products";
+	const PT = "Preciso que você me mostre os pedidos de hoje e também o estoque dos produtos mais vendidos";
+
+	test("recordUserLanguage grava por conversa e por conta, com a regra das 2 confirmações", async () => {
+		const owner = await createTestUser("lang-rec");
+		const bot = await createBot({ name: "Bot" }, owner.id);
+		const record = (text: string) => recordUserLanguage({ userId: owner.id, conversationId: bot.conversationId, text });
+		await record("ok");
+		assert.deepEqual(await getLanguageContext(owner.id, bot.conversationId), { lastLanguage: null, accountLocale: null });
+		await record(EN);
+		assert.equal((await getLanguageContext(owner.id, bot.conversationId)).lastLanguage, "en-US");
+		await record(PT);
+		await record("👍");
+		assert.equal((await getLanguageContext(owner.id, bot.conversationId)).lastLanguage, "en-US");
+		await record(PT);
+		const states = await readLanguageStates(owner.id, bot.conversationId);
+		assert.deepEqual(states.conversation, { last: "pt-BR", pending: null });
+		assert.deepEqual(states.user, { last: "pt-BR", pending: null });
+	});
+
+	test("só mensagem digitada no chat grava: rotina, silenciosa e proativa não", async () => {
+		const owner = await createTestUser("lang-run");
+		const bot = await createBot({ name: "Bot" }, owner.id);
+		const base = { conversationId: bot.conversationId!, botId: bot.id, messages: [{ role: "user" as const, content: EN }] };
+		const run = (over: Record<string, unknown>) => createAgentRun({ userId: owner.id, model: "m", request: { ...base, ...over } as never });
+		for (const over of [{ origin: "routine" }, { origin: "chat", silent: true }, { origin: "proactive", silent: true }, { origin: "bot", silent: true }]) {
+			const created = await run(over);
+			await prisma.agentRun.update({ where: { id: created.id }, data: { status: "completed" } });
+		}
+		assert.deepEqual(await getLanguageContext(owner.id, bot.conversationId), { lastLanguage: null, accountLocale: null });
+		const typed = await run({ origin: "chat" });
+		assert.equal((await getLanguageContext(owner.id, bot.conversationId)).lastLanguage, "en-US");
+		// mensagem digitada no meio do run (join) também conta, e o segundo idioma precisa de confirmação
+		await createRunInput(typed.id, { content: PT, mode: "join" }, owner.id);
+		assert.deepEqual((await readLanguageStates(owner.id, bot.conversationId)).conversation, { last: "en-US", pending: "pt-BR" });
+		await createRunInput(typed.id, { content: PT, mode: "join" }, owner.id);
+		assert.equal((await getLanguageContext(owner.id, bot.conversationId)).lastLanguage, "pt-BR");
+	});
+
+	test("usuário B não grava idioma na conversa de A (nem pelo run nem pelo registro)", async () => {
+		const a = await createTestUser("lang-ra");
+		const b = await createTestUser("lang-rb");
+		const botA = await createBot({ name: "A" }, a.id);
+		await recordUserLanguage({ userId: b.id, conversationId: botA.conversationId, text: EN });
+		assert.deepEqual((await readLanguageStates(a.id, botA.conversationId)).conversation, { last: null, pending: null });
+		await assert.rejects(createAgentRun({ userId: b.id, model: "m", request: { conversationId: botA.conversationId!, messages: [{ role: "user", content: EN }], origin: "chat" } as never }));
+		assert.deepEqual((await readLanguageStates(a.id, botA.conversationId)).conversation, { last: null, pending: null });
+		assert.equal((await prisma.userSettings.findUnique({ where: { userId: a.id } }))?.lastLanguage ?? null, null);
+	});
+
+	test("noteBrowserLanguage grava o idioma do navegador só quando muda", async () => {
+		const owner = await createTestUser("lang-br");
+		await noteBrowserLanguage(owner.id, null);
+		assert.equal((await readLanguageStates(owner.id)).browserLocale, null);
+		await noteBrowserLanguage(owner.id, "es-ES");
+		assert.equal((await readLanguageStates(owner.id)).browserLocale, "es-ES");
+		await noteBrowserLanguage("default", "en-US");
+		assert.equal((await readLanguageStates(owner.id)).browserLocale, "es-ES");
+	});
+
+	test("grupo: o idioma é por conversa e segue quem falou por último", async () => {
+		const owner = await createTestUser("lang-grp");
+		const solo = await createBot({ name: "Solo" }, owner.id);
+		const m1 = await createBot({ name: "Bia" }, owner.id);
+		const m2 = await createBot({ name: "Caio" }, owner.id);
+		const group = await createGroup(owner.id, { name: "Time", memberIds: [m1.id, m2.id] });
+		const say = (content: string) => postGroupUserMessage({ userId: owner.id, groupId: group.id, content });
+		await say(EN);
+		const groupConversation = (await prisma.bot.findUnique({ where: { id: group.id }, select: { conversationId: true } }))!.conversationId!;
+		assert.equal((await getLanguageContext(owner.id, groupConversation)).lastLanguage, "en-US");
+		// duas falas seguidas no outro idioma trocam; uma só (ou um "ok") não
+		await prisma.groupTurn.updateMany({ where: { groupId: group.id }, data: { status: "done" } });
+		await say(PT);
+		await say("ok");
+		assert.equal((await getLanguageContext(owner.id, groupConversation)).lastLanguage, "en-US");
+		await prisma.groupTurn.updateMany({ where: { groupId: group.id }, data: { status: "done" } });
+		await say(PT);
+		assert.equal((await getLanguageContext(owner.id, groupConversation)).lastLanguage, "pt-BR");
+		// a conversa de outro bot do mesmo usuário não é afetada
+		assert.equal((await readLanguageStates(owner.id, solo.conversationId)).conversation?.last ?? null, null);
 	});
 });

@@ -1,4 +1,4 @@
-import { isBotLanguage } from "@workspace/shared";
+import { isBotLanguage, nextLanguageMemory, toLanguageMemory, type BotLanguage } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { ownerIds } from "./mcp-connections.js";
 
@@ -82,5 +82,42 @@ export async function writeLanguageStates(input: {
 			where: { id: input.conversationId, userId: owner },
 			data: { lastLanguage: clean(input.conversation.last), pendingLanguage: clean(input.conversation.pending) },
 		});
+	}
+}
+
+/**
+ * Mensagem que o usuário escreveu: atualiza o último idioma da conversa e da conta (regras em
+ * `nextLanguageMemory`: só com confiança alta e confirmação). Melhor esforço: nunca lança nem atrasa o envio por erro.
+ * Só para texto digitado pelo usuário (nunca prompt do sistema, rotina, e-mail ou mensagem de outro bot).
+ */
+export async function recordUserLanguage(input: { userId: string | undefined; conversationId?: string | null; text: string }): Promise<void> {
+	try {
+		const [owner] = ownerIds(input.userId);
+		if (!owner || !input.text.trim()) return;
+		const states = await readLanguageStates(owner, input.conversationId);
+		const user = nextLanguageMemory(toLanguageMemory(states.user), input.text);
+		const conversation = states.conversation ? nextLanguageMemory(toLanguageMemory(states.conversation), input.text) : null;
+		if (!user.changed && !conversation?.changed) return;
+		await writeLanguageStates({
+			userId: owner,
+			conversationId: input.conversationId,
+			...(user.changed ? { user: { last: user.memory.last, pending: user.memory.pending } } : {}),
+			...(conversation?.changed ? { conversation: { last: conversation.memory.last, pending: conversation.memory.pending } } : {}),
+		});
+	} catch (error) {
+		console.error("record user language failed; ignoring", error);
+	}
+}
+
+/** Idioma do navegador (Accept-Language) visto no envio: pista para quem ainda não tem idioma detectado. Grava só se mudou. */
+export async function noteBrowserLanguage(userId: string | undefined, language: BotLanguage | null): Promise<void> {
+	try {
+		const [owner] = ownerIds(userId);
+		if (!owner || !language) return;
+		const current = await prisma.userSettings.findUnique({ where: { userId: owner }, select: { browserLocale: true } });
+		if (current?.browserLocale === language) return;
+		await writeLanguageStates({ userId: owner, browserLocale: language });
+	} catch (error) {
+		console.error("note browser language failed; ignoring", error);
 	}
 }

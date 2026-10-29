@@ -138,7 +138,9 @@ export {
 } from "./settings.js";
 export {
 	getLanguageContext,
+	noteBrowserLanguage,
 	readLanguageStates,
+	recordUserLanguage,
 	writeLanguageStates,
 	type LanguageStates,
 	type StoredLanguageState,

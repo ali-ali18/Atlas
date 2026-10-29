@@ -104,6 +104,16 @@ export {
 	type ReplyLanguageInput,
 } from "./bot-language.js";
 export { LANGUAGE_SPECS, type LanguageSpec } from "./language-registry.js";
+export {
+	LANGUAGE_LONG_MESSAGE_LETTERS,
+	LANGUAGE_MIN_LETTERS,
+	detectLanguage,
+	nextLanguageMemory,
+	stripForLanguageDetection,
+	toLanguageMemory,
+	type DetectedLanguage,
+	type LanguageMemory,
+} from "./language-detect.js";
 export { buildPersonaBlock, PERSONA_ROLE_MAX_CHARS, PERSONA_STYLE_LINE, type PersonaInput } from "./persona.js";
 export type { OpenRouterModel, ListModelsResponse } from "./model.js";
 export { modelSupportsImageInput } from "./model.js";
