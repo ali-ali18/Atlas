@@ -32,6 +32,7 @@ import {
 	type SettingsSectionId,
 	moveIndex,
 	searchSettings,
+	settingsSearchTerms,
 } from "./settings-registry";
 
 /** Ícone por seção: toda entrada visível tem o seu (o texto alinha igual). */
@@ -77,7 +78,7 @@ export function SettingsShell({
 	const t = useT();
 	const [query, setQuery] = useState(initialQuery);
 	const navRef = useRef<HTMLElement>(null);
-	const search = searchSettings(query, hiddenItems, (id) => navSectionLabel(t, id));
+	const search = searchSettings(query, hiddenItems, (id) => navSectionLabel(t, id), settingsSearchTerms(t));
 
 	function navButtons(): HTMLButtonElement[] {
 		return Array.from(

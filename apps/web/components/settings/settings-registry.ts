@@ -266,6 +266,21 @@ export function hiddenSettingsItems(
 	return capabilities?.isOwner === false ? new Set(OWNER_ONLY_ITEMS) : NO_HIDDEN;
 }
 
+/** Termos de busca de uma seção ou item no idioma da tela (nome + palavras-chave). */
+export type SettingsSearchTerms = (kind: "nav" | "item", id: string) => readonly string[];
+
+/**
+ * Termos do idioma da tela, vindos do dicionário (`settings.search.*`, separados por ";").
+ * O texto pt-BR do registro continua valendo em qualquer idioma; estes só somam.
+ */
+export function settingsSearchTerms(t: TFunction): SettingsSearchTerms {
+	return (kind, id) => {
+		const key = `settings.search.${kind}.${id}` as MessageKey;
+		const text = (t as (key: MessageKey) => string)(key);
+		return text === key ? [] : text.split(";").map((term) => term.trim()).filter(Boolean);
+	};
+}
+
 /** Filtra nav e configurações por rótulo/palavra-chave. */
 export function searchSettings(
 	rawQuery: string,
@@ -273,6 +288,8 @@ export function searchSettings(
 	hidden: ReadonlySet<string> = NO_HIDDEN,
 	/** Nome da seção no idioma da tela: a busca acha por ele além do texto pt-BR. */
 	labelOf?: (id: SettingsSectionId) => string,
+	/** Termos de busca no idioma da tela (nome + palavras-chave), somados aos do registro em pt-BR. */
+	termsOf?: SettingsSearchTerms,
 ): SettingsSearchResult {
 	const query = normalizeSearch(rawQuery);
 	const itemFilter: SettingsSearchResult["itemFilter"] = {};
@@ -280,11 +297,11 @@ export function searchSettings(
 	for (const entry of SETTINGS_NAV) {
 		const visibleItems = SETTINGS_ITEMS.filter((item) => item.section === entry.id && !hidden.has(item.id));
 		const translated = labelOf ? [labelOf(entry.id)] : [];
-		if (matches(query, entry.label, [...entry.keywords, ...translated])) {
+		if (matches(query, entry.label, [...entry.keywords, ...translated, ...(termsOf?.("nav", entry.id) ?? [])])) {
 			entries.push(entry);
 			continue;
 		}
-		const hits = visibleItems.filter((item) => matches(query, item.label, item.keywords));
+		const hits = visibleItems.filter((item) => matches(query, item.label, [...item.keywords, ...(termsOf?.("item", item.id) ?? [])]));
 		if (hits.length === 0) continue;
 		entries.push(entry);
 		itemFilter[entry.id] = new Set(hits.map((item) => item.id));

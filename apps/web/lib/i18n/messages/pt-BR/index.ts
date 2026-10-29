@@ -13,6 +13,7 @@ import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
 import { settings } from "./settings";
 import { sharedLabels } from "./sharedLabels";
+import { settingsSearch } from "./settingsSearch";
 import { sidebar } from "./sidebar";
 import { status } from "./status";
 import { ui } from "./ui";
@@ -43,6 +44,7 @@ import { share } from "./share";
 	...mobile,
 	...settings,
 	...sharedLabels,
+	...settingsSearch,
 	...sidebar,
 	...status,
 	...ui,
