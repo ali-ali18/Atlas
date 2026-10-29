@@ -1,6 +1,7 @@
 "use client";
 
-import { CheckCircle2Icon, ClockIcon, ExternalLinkIcon, GitPullRequestIcon, Loader2Icon, MinusCircleIcon, XCircleIcon } from "lucide-react";
+import { CheckCircle2Icon, ClockIcon, ExternalLinkIcon, GitPullRequestIcon, MinusCircleIcon, XCircleIcon } from "lucide-react";
+import { Spinner } from "@workspace/ui/components/spinner";
 import { Badge } from "@workspace/ui/components/badge";
 import { cn } from "@workspace/ui/lib/utils";
 import { ciCheckFailed, ciSummaryText, DEV_PR_STATE_LABEL, type DevCiCheck, type DevPrInfo, type DevPrState } from "@workspace/shared";
@@ -43,7 +44,7 @@ function CheckIcon({ visual }: { visual: CheckVisual }) {
 		case "failed":
 			return <XCircleIcon className="size-3.5 shrink-0 text-destructive" />;
 		case "running":
-			return <Loader2Icon className="size-3.5 shrink-0 animate-spin text-muted-foreground" />;
+			return <Spinner className="size-3.5 shrink-0 text-muted-foreground" />;
 		case "queued":
 			return <ClockIcon className="size-3.5 shrink-0 text-muted-foreground" />;
 		default:
@@ -132,7 +133,7 @@ export function PullRequestBody({ pr, ci }: { pr: DevPrInfo; ci?: DevCiView }) {
 					<span aria-hidden="true">·</span>
 					{!ci ? (
 						<span className="inline-flex items-center gap-1">
-							<Loader2Icon className="size-3 animate-spin" />
+							<Spinner className="size-3" />
 							Verificando…
 						</span>
 					) : ci.checks.length === 0 ? (

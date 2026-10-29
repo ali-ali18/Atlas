@@ -1,6 +1,7 @@
 "use client";
 
-import { CheckCircle2Icon, ChevronDownIcon, CircleIcon, Loader2Icon } from "lucide-react";
+import { CheckCircle2Icon, ChevronDownIcon, CircleIcon } from "lucide-react";
+import { Spinner } from "@workspace/ui/components/spinner";
 import { useId, useState } from "react";
 
 import { cn } from "@workspace/ui/lib/utils";
@@ -37,7 +38,7 @@ export function TaskListCard({ items, defaultOpen }: TaskListCardProps) {
 				onClick={() => setOverride(!open)}
 				type="button"
 			>
-				{allDone ? <CheckCircle2Icon className="size-3.5 shrink-0" /> : <Loader2Icon className="size-3.5 shrink-0 motion-safe:animate-spin" />}
+				{allDone ? <CheckCircle2Icon className="size-3.5 shrink-0" /> : <Spinner className="size-3.5 shrink-0" />}
 				<span className="shrink-0 font-medium text-foreground/90">{allDone ? "Tarefas concluídas" : "Tarefas"}</span>
 				<span className="shrink-0 tabular-nums">{done}/{total}</span>
 				{!open && current ? <span className="min-w-0 truncate">· {current.content}</span> : null}
@@ -57,7 +58,7 @@ export function TaskListCard({ items, defaultOpen }: TaskListCardProps) {
 							{item.status === "completed" ? (
 								<CheckCircle2Icon aria-label="Concluído" className="mt-0.5 size-3.5 shrink-0" />
 							) : item.status === "in_progress" ? (
-								<Loader2Icon aria-label="Em andamento" className="mt-0.5 size-3.5 shrink-0 motion-safe:animate-spin" />
+								<Spinner label="Em andamento" className="mt-0.5 size-3.5 shrink-0" />
 							) : (
 								<CircleIcon aria-label="Pendente" className="mt-0.5 size-3.5 shrink-0" />
 							)}

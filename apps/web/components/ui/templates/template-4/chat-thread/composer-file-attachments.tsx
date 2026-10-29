@@ -1,6 +1,7 @@
 "use client";
 
-import { Loader2Icon, XIcon } from "lucide-react";
+import { XIcon } from "lucide-react";
+import { Spinner } from "@workspace/ui/components/spinner";
 
 import { FileTypeIcon } from "@/components/ai-elements/files/file-icon";
 import type { FileAttachment } from "@/hooks/use-file-attachments";
@@ -55,7 +56,7 @@ export function ComposerFileAttachments({
 									<FileTypeIcon category={fileCategory(item.file.name)} className="rounded-xl" />
 									{item.status === "uploading" ? (
 										<span className="absolute inset-0 grid place-items-center bg-background/70">
-											<Loader2Icon aria-hidden className="size-5 animate-spin" />
+											<Spinner className="size-5" />
 										</span>
 									) : null}
 								</TooltipTrigger>

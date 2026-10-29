@@ -31,7 +31,7 @@ function IconAction({ icon: Icon, label, onClick, disabled, spinning = false }: 
       <TooltipTrigger
         render={
           <Button aria-label={label} disabled={disabled} onClick={onClick} size="icon-sm" type="button" variant="ghost">
-            <Icon aria-hidden className={spinning ? "size-4 animate-spin" : "size-4"} />
+            <Icon aria-hidden className={spinning ? "size-4 motion-safe:animate-spin" : "size-4"} />
           </Button>
         }
       />

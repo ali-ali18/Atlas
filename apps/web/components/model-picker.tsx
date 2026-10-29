@@ -1,5 +1,6 @@
 "use client"
-import { ChevronDownIcon, Loader2Icon } from "lucide-react"
+import { Spinner } from "@workspace/ui/components/spinner";
+import { ChevronDownIcon } from "lucide-react"
 import { type ReactElement, useState } from "react"
 import { getModelCapabilities, modelDisplayName, type OpenRouterModel } from "@workspace/shared"
 import { Button } from "@workspace/ui/components/button"
@@ -132,7 +133,7 @@ export function ModelPicker({
           ) : null}
         </span>
         {loading ? (
-          <Loader2Icon className="size-4 shrink-0 animate-spin opacity-60" />
+          <Spinner className="size-4 shrink-0 opacity-60" />
         ) : (
           <ChevronDownIcon className="size-4 shrink-0 opacity-60" />
         )}

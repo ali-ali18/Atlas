@@ -184,7 +184,7 @@ function InstallationRows({
 							<Button aria-label={`Opções de ${inst.accountLogin}`} disabled={busy !== null} size="icon-sm" type="button" variant="ghost" />
 						}
 					>
-						{busy === inst.id ? <RefreshCwIcon aria-hidden className="animate-spin" /> : <EllipsisVerticalIcon aria-hidden />}
+						{busy === inst.id ? <RefreshCwIcon aria-hidden className="motion-safe:animate-spin" /> : <EllipsisVerticalIcon aria-hidden />}
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end" className="min-w-48">
 						<DropdownMenuItem onClick={() => window.open(inst.manageUrl, "_blank", "noopener,noreferrer")}>

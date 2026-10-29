@@ -1,18 +1,7 @@
 "use client";
 
-import {
-	CheckCircle2Icon,
-	ChevronDownIcon,
-	CircleDashedIcon,
-	CircleIcon,
-	Loader2Icon,
-	PlayIcon,
-	RotateCcwIcon,
-	CircleStopIcon,
-	SquareTerminalIcon,
-	TerminalIcon,
-	XCircleIcon,
-} from "lucide-react";
+import { CheckCircle2Icon, ChevronDownIcon, CircleDashedIcon, CircleIcon, PlayIcon, RotateCcwIcon, CircleStopIcon, SquareTerminalIcon, TerminalIcon, XCircleIcon } from "lucide-react";
+import { Spinner } from "@workspace/ui/components/spinner";
 import { useEffect, useRef, useState } from "react";
 import {
 	AlertDialog,
@@ -411,7 +400,7 @@ function PreparationItem({ step, now }: { step: DevSetupStepView; now: number })
 	const head = (
 		<span className="flex min-w-0 flex-1 items-center gap-2">
 			{step.status === "running" ? (
-				<Loader2Icon className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+				<Spinner className="size-3.5 shrink-0 text-muted-foreground" />
 			) : step.status === "failed" ? (
 				<XCircleIcon className="size-3.5 shrink-0 text-destructive" />
 			) : (
@@ -462,7 +451,7 @@ function PlanSection({ view }: { view: DevSessionView }) {
 							{todo.status === "completed" ? (
 								<CheckCircle2Icon className="size-3.5 text-success" />
 							) : todo.status === "in_progress" ? (
-								<Loader2Icon className="size-3.5 animate-spin text-info" />
+								<Spinner className="size-3.5 text-info" />
 							) : todo.status === "cancelled" ? (
 								<XCircleIcon className="size-3.5 text-muted-foreground" />
 							) : (

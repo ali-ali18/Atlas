@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronDownIcon, CircleAlertIcon, Loader2Icon, SquareTerminalIcon } from "lucide-react";
+import { ChevronDownIcon, CircleAlertIcon, SquareTerminalIcon } from "lucide-react";
+import { Spinner } from "@workspace/ui/components/spinner";
 import { useId, useState } from "react";
 
 import { cn } from "@workspace/ui/lib/utils";
@@ -43,7 +44,7 @@ export function CodeRunCard({ code, status, durationMs, output = "", defaultOpen
 				type="button"
 			>
 				{status === "running" ? (
-					<Loader2Icon className="size-3.5 shrink-0 motion-safe:animate-spin" />
+					<Spinner className="size-3.5 shrink-0" />
 				) : status === "error" ? (
 					<CircleAlertIcon className="size-3.5 shrink-0" />
 				) : (

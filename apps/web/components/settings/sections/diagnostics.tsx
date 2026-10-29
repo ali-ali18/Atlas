@@ -65,7 +65,7 @@ export function DiagnosticsSettingsView({
 					label="Estado do servidor"
 				>
 					<Button disabled={loading} onClick={onRefresh} size="sm" variant="outline">
-						<RefreshCwIcon aria-hidden className={loading ? "animate-spin" : undefined} />
+						<RefreshCwIcon aria-hidden className={loading ? "motion-safe:animate-spin" : undefined} />
 						Atualizar
 					</Button>
 				</SettingRow>

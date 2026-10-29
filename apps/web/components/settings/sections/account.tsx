@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CameraIcon, KeyRoundIcon, Loader2Icon, LogOutIcon, MailIcon, Trash2Icon, UserIcon } from "lucide-react";
+import { CameraIcon, KeyRoundIcon, LogOutIcon, MailIcon, Trash2Icon, UserIcon } from "lucide-react";
+import { Spinner } from "@workspace/ui/components/spinner";
 import { PROFILE_NAME_MAX } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
@@ -92,7 +93,7 @@ export function PhotoAvatarButton({
 					className="absolute inset-0 flex items-center justify-center rounded-full bg-black/55 text-white"
 					data-slot="photo-avatar-loading"
 				>
-					<Loader2Icon aria-hidden className="size-5 animate-spin" />
+					<Spinner className="size-5" />
 				</span>
 			) : (
 				<span
