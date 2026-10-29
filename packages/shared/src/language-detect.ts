@@ -45,11 +45,35 @@ export function stripForLanguageDetection(text: string): string {
 		.trim();
 }
 
+/** Verbo de "faça algo com este texto" no começo da mensagem: o que vem depois do `:` ou da quebra é texto colado. */
+const TRANSFORM_VERB =
+	/^\s*(?:(?:por favor|please|por favor,)\s+)?(?:traduz\p{L}*|translat\p{L}*|resum\p{L}*|summar\p{L}*|explic\p{L}*|explain\p{L}*|corrig\p{L}*|correct\p{L}*|revis\p{L}*|review\p{L}*|reescrev\p{L}*|rewrit\p{L}*|parafrase\p{L}*|paraphras\p{L}*|analis\p{L}*|analy\p{L}*|proofread\p{L}*|leia|lê|read)(?![\p{L}])/iu;
+/** Instrução (antes do `:`/quebra) mais longa que isto não é "instrução curta + bloco". */
+const MAX_INSTRUCTION_CHARS = 120;
+/** Trecho entre aspas só é "texto citado" se tiver este tamanho. */
+const MIN_QUOTED_CHARS = 30;
+
+/**
+ * Só as palavras do próprio usuário: sem citação (`>`), sem trechos entre aspas longos e, em "traduza/resuma/
+ * explique … : <texto colado>", só a instrução (o bloco colado quase sempre está em outro idioma).
+ */
+export function userOwnWords(text: string): string {
+	const withoutQuotes = text
+		.replace(/^[ \t]*>.*$/gm, " ")
+		.replace(new RegExp(`“[^”]{${MIN_QUOTED_CHARS},}”|«[^»]{${MIN_QUOTED_CHARS},}»|"[^"]{${MIN_QUOTED_CHARS},}"`, "g"), " ");
+	const delimiter = withoutQuotes.search(/[:\n]/);
+	if (delimiter > 0 && delimiter <= MAX_INSTRUCTION_CHARS && TRANSFORM_VERB.test(withoutQuotes)) {
+		const rest = withoutQuotes.slice(delimiter + 1).trim();
+		if (rest.length > 0) return withoutQuotes.slice(0, delimiter);
+	}
+	return withoutQuotes;
+}
+
 export type DetectedLanguage = { language: BotLanguage; letters: number };
 
 /** Idioma da mensagem com confiança alta, ou `null` (curta demais, sem maioria clara, só código/URL/emoji). */
 export function detectLanguage(text: string): DetectedLanguage | null {
-	const clean = stripForLanguageDetection(text.normalize("NFC")).replace(/[’‘]/g, "'").toLowerCase();
+	const clean = stripForLanguageDetection(userOwnWords(text.normalize("NFC"))).replace(/[’‘]/g, "'").toLowerCase();
 	const letters = (clean.match(/\p{L}/gu) ?? []).length;
 	if (letters < LANGUAGE_MIN_LETTERS) return null;
 	const words = clean.match(/\p{L}[\p{L}\p{M}']*/gu) ?? [];

@@ -102,6 +102,45 @@ describe("nextLanguageMemory (grava só com confiança alta)", () => {
 	});
 });
 
+describe("texto colado, citado ou traduzido não é o idioma do usuário", () => {
+	const PASTED_EN =
+		"The quarterly report shows that revenue increased across all of the regions, while the costs of the logistics team were reduced because of the new contracts that we signed with the suppliers during the last months of the year";
+
+	it("instrução curta + parágrafo longo em outro idioma não troca o idioma gravado de uma vez", () => {
+		const text = `Traduza este texto para português: ${PASTED_EN}`;
+		expect(PASTED_EN.replace(/[^a-z]/gi, "").length).toBeGreaterThanOrEqual(LANGUAGE_LONG_MESSAGE_LETTERS);
+		const next = nextLanguageMemory({ last: "pt-BR", pending: null }, text);
+		expect(next.memory).toEqual({ last: "pt-BR", pending: null });
+		expect(next.changed).toBe(false);
+	});
+
+	it("instrução curta com bloco curto e memória vazia não grava nada", () => {
+		const text = "Resuma isso: The orders were shipped late and the customer asked for a refund";
+		expect(detectLanguage(text)).toBeNull();
+		expect(nextLanguageMemory({ last: null, pending: null }, text).changed).toBe(false);
+	});
+
+	it("vale para quebra de linha, inglês e espanhol", () => {
+		expect(nextLanguageMemory({ last: "en-US", pending: null }, `Resumen esto\n${PT} ${PT} ${PT}`).memory.last).toBe("en-US");
+		expect(nextLanguageMemory({ last: "pt-BR", pending: null }, `Please translate this:\n${PASTED_EN}`).memory.last).toBe("pt-BR");
+	});
+
+	it("citação (>) e trecho entre aspas longas ficam de fora", () => {
+		expect(detectLanguage(`> ${PASTED_EN}`)).toBeNull();
+		expect(detectLanguage(`Preciso que você veja se isto está certo: “${PASTED_EN}” e me diga o que acha disso tudo`)?.language).toBe("pt-BR");
+	});
+
+	it("mensagem normal com dois-pontos, sem verbo de transformar, segue valendo inteira", () => {
+		const text = `Preciso de ajuda com o seguinte: ${PT}`;
+		expect(detectLanguage(text)?.language).toBe("pt-BR");
+	});
+
+	it("subagente não re-detecta o idioma do texto colado: herda o do pai", () => {
+		const parent = resolveReplyLanguage({ setting: "auto", lastLanguage: "pt-BR", hasUserMessage: true });
+		expect(languageForChildRun(parent, `Traduza este texto para português: ${PASTED_EN}`)).toBe("pt-BR");
+	});
+});
+
 describe("toLanguageMemory", () => {
 	it("ignora valor fora do registro", () => {
 		expect(toLanguageMemory({ last: "en-US", pending: "fr-FR" })).toEqual({ last: "en-US", pending: null });
