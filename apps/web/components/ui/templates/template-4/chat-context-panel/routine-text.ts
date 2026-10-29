@@ -11,7 +11,8 @@ import {
 	type RoutineFailureKind,
 } from "@workspace/shared";
 
-import { formatDate, formatList, formatTime } from "@/lib/format";
+import { formatList, formatTime } from "@/lib/format";
+import { intervalSummaryLabel, onceSummaryLabel } from "@/lib/shared-labels";
 import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
 import { defaultTranslator, type MessageKey, type Translator } from "@/lib/i18n/translator";
 
@@ -20,21 +21,13 @@ function tidy(text: string): string {
 }
 
 /** "Uma vez · 03/10 às 10:00" (data e hora no fuso da rotina, no formato do idioma). */
-export function onceSummaryText(runAtIso: string, timeZone: string, { t, locale }: Translator = defaultTranslator): string {
-	const date = new Date(runAtIso);
-	if (Number.isNaN(date.getTime())) return t("routines.onceUnknown");
-	return t("routines.once", {
-		date: formatDate(date, locale, { day: "2-digit", month: "2-digit", timeZone }),
-		time: formatTime(date, locale, { timeZone }),
-	});
+export function onceSummaryText(runAtIso: string, timeZone: string, translator: Translator = defaultTranslator): string {
+	return onceSummaryLabel(runAtIso, timeZone, translator);
 }
 
 /** "A cada 50 min" / "A cada 2 h" (múltiplos exatos de 60 viram horas). */
-export function intervalSummaryText(everyMinutes: number, { t }: Translator = defaultTranslator): string {
-	if (!Number.isFinite(everyMinutes) || everyMinutes <= 0) return t("routines.everyUnknown");
-	const whole = Math.trunc(everyMinutes);
-	if (whole % 60 === 0) return t("routines.everyHours", { count: whole / 60 });
-	return t("routines.everyMinutes", { count: whole });
+export function intervalSummaryText(everyMinutes: number, translator: Translator = defaultTranslator): string {
+	return intervalSummaryLabel(everyMinutes, translator);
 }
 
 /** "Quando chegar e-mail de fornecedor@… com 'NF' no assunto". */

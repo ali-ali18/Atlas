@@ -1,22 +1,17 @@
 import type { AutonomyDuration, AutonomyExceptionMode, AutonomyLevel } from "@workspace/shared";
 
 import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
+import { autonomyDurationLabel, autonomyLevelDescription, autonomyLevelLabel } from "@/lib/shared-labels";
 
 /**
  * Textos da Autonomia no idioma da tela. `packages/shared` guarda os rótulos em pt-BR (servem também ao
  * prompt e ao card do chat); a interface monta os dela daqui, com as chaves `autonomy.*`.
  */
-export function levelLabel(level: AutonomyLevel, { t }: Translator = defaultTranslator): string {
-	return t(`autonomy.level.${level}`);
-}
+export const levelLabel = (level: AutonomyLevel, translator: Translator = defaultTranslator) => autonomyLevelLabel(level, translator);
 
-export function levelDescription(level: AutonomyLevel, { t }: Translator = defaultTranslator): string {
-	return t(`autonomy.levelDescription.${level}`);
-}
+export const levelDescription = (level: AutonomyLevel, translator: Translator = defaultTranslator) => autonomyLevelDescription(level, translator);
 
-export function durationLabel(duration: AutonomyDuration, { t }: Translator = defaultTranslator): string {
-	return t(`autonomy.duration.${duration}`);
-}
+export const durationLabel = (duration: AutonomyDuration, translator: Translator = defaultTranslator) => autonomyDurationLabel(duration, translator);
 
 export function modeLabel(mode: AutonomyExceptionMode, { t }: Translator = defaultTranslator): string {
 	return t(`autonomy.mode.${mode}`);

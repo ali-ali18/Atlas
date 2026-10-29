@@ -12,7 +12,7 @@ import type {
 	RoutineTrigger,
 	ScheduleState,
 } from "../data";
-import { formatDate, formatDateTime, formatTime } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
 import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import {
@@ -530,10 +530,7 @@ export function routineCardSummary(
 		if (once) {
 			const [, day, month, hour, minute] = once;
 			const when = new Date(Date.UTC(2000, Number(month) - 1, Number(day), Number(hour), Number(minute)));
-			return translator.t("routines.once", {
-				date: formatDate(when, translator.locale, { day: "2-digit", month: "2-digit", timeZone: "UTC" }),
-				time: formatTime(when, translator.locale, { timeZone: "UTC" }),
-			});
+			return onceSummaryText(when.toISOString(), "UTC", translator);
 		}
 		return capitalizeFirst(first);
 	}

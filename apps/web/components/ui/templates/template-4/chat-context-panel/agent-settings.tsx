@@ -12,6 +12,7 @@ import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
 import { readBubbleBotColor, withBubbleBotColor } from "@/lib/bot-bubble";
 import { botLanguageSettingOptions, DEFAULT_BOT_LANGUAGE } from "@/lib/bot-language";
 import { useTranslations } from "@/lib/i18n/provider";
+import { decideForOtherBotsHint, decideForOtherBotsLabel, modelTierLabel } from "@/lib/shared-labels";
 import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import { readProactiveSettings } from "@/lib/proactive-settings";
 import {
@@ -159,7 +160,7 @@ export function AgentSettings({
 							key={row.tier}
 						>
 							<TierModelsControl
-								label={t(`botSettings.tier.${row.tier}`)}
+								label={modelTierLabel(row.tier, translator)}
 								list={botTiers[row.tier] ?? []}
 								models={models}
 								onChange={(list) => onChange({ policyJson: withBotModelTiers(policyJson, { ...botTiers, [row.tier]: list }) })}
@@ -348,11 +349,11 @@ export function AgentSettings({
 					</SettingRow>
 
 					<SettingRow
-						caption={<p>{t("botSettings.decideHelp")}</p>}
+						caption={<p>{decideForOtherBotsHint(translator)}</p>}
 						control="inline"
 						htmlFor="agent-decide-for-others"
 						icon={UserCheckIcon}
-						label={t("botSettings.decide")}
+						label={decideForOtherBotsLabel(translator)}
 					>
 						<Switch
 							checked={readDecideForOtherBots(policyJson)}
