@@ -43,7 +43,8 @@ export const BUDGET_EXTENSION_DEFAULT = 24;
 /**
  * F4 — travas por tool, nunca globais. 3 falhas seguidas da mesma tool a
  * bloqueiam no run (o modelo é avisado e segue com alternativas); o run só
- * aborta com 6 falhas seguidas envolvendo 3+ tools distintas.
+ * aborta com 6 falhas seguidas envolvendo 3+ tools distintas. `edit_file`,
+ * `write_file` e `read_file` ficam fora do bloqueio por tool (ver `tool-failure.ts`).
  */
 export const TOOL_FAILURE_BLOCK_AFTER = 3;
 /** Passos seguidos sem chamar a tool bloqueada depois dos quais o bloqueio expira. */

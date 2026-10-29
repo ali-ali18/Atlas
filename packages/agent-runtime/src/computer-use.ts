@@ -171,6 +171,8 @@ import {
 	isWebPageTool,
 	globalFailureAbort,
 	perToolFailureStreak,
+	isBlockExemptTool,
+	createEditFailureTracker,
 	withArgumentErrorHint,
 	type ToolFailureKind,
 } from "./tool-failure.js";
@@ -5205,6 +5207,7 @@ export async function runComputerUse(params: {
 	// (argsKey|resultKey). Contagem de oks no momento da última falha de
 	// sandbox por argsKey (recuperação no meio diferencia a chave).
 	const blockedTools = new Map<string, string>();
+	const editFailures = createEditFailureTracker();
 	/** Último passo em que a tool bloqueada foi bloqueada/chamada: 3 passos sem chamada e o bloqueio expira. */
 	const blockedToolSteps = new Map<string, number>();
 	/** Passo em que o bloqueio expirou: a contagem de falhas recomeça dali. */
@@ -7846,6 +7849,9 @@ export async function runComputerUse(params: {
 			if (!ok && failureKind === "argument" && !isWebPageTool(name)) {
 				summary = withArgumentErrorHint(summary);
 			}
+			// Edição que não casa: da 3ª falha seguida no mesmo arquivo o erro traz a saída (reler, âncora maior, reescrever).
+			const editHint = editFailures.record(name, args.path, ok);
+			if (editHint) summary = `${summary}\n\n${editHint}`;
 			if (uncertainEffect && !summary.includes(UNCERTAIN_WRITE_NOTE)) summary = `${summary}
 ${UNCERTAIN_WRITE_NOTE}`;
 			// L20: status estruturado, decidido por quem executou (não pelo texto).
@@ -8126,7 +8132,8 @@ ${blockHint}`;
 				if (
 					perToolFailureStreak(toolOutcomes, name, unblockedAtStep.get(name)) >=
 						TOOL_FAILURE_BLOCK_AFTER &&
-					!blockedTools.has(name)
+					!blockedTools.has(name) &&
+					!isBlockExemptTool(name)
 				) {
 					const lastError = truncateSnippet(summary, 200);
 					blockedTools.set(name, lastError);
