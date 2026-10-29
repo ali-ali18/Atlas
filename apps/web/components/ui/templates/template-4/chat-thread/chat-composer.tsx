@@ -53,6 +53,7 @@ import {
 	InputGroupButton,
 	InputGroupTextarea,
 } from "@workspace/ui/components/input-group";
+import { useT } from "@/lib/i18n/provider";
 
 function mergeRefs<T>(
 	...refs: Array<Ref<T> | undefined>
@@ -118,6 +119,7 @@ export function ChatComposer({
 	servedModel?: string | null;
 	textareaRef?: Ref<HTMLTextAreaElement>;
 }) {
+	const t = useT();
 	const [value, setValue] = useState(initialText);
 	const groupMode = Boolean(mentionMembers);
 	const [caret, setCaret] = useState(0);
@@ -211,7 +213,7 @@ export function ChatComposer({
 	});
 	const separateMic = showSeparateMic({ runActive, dictationSupported: dictation.supported });
 	const transcribing = dictation.phase === "transcribing";
-	const previewText = previewLabel(dictation.phase, dictation.preview) || (transcribing ? "Transcrevendo…" : "");
+	const previewText = previewLabel(dictation.phase, dictation.preview) || (transcribing ? t("composer.transcribing") : "");
 	const previewSeparator = value && !/\s$/.test(value) ? " " : "";
 
 	useEffect(() => {
@@ -323,17 +325,17 @@ export function ChatComposer({
 					{dictationError && <p aria-live="polite" className="mb-1 text-muted-foreground text-xs">{dictationError}</p>}
 					{images.error && <p aria-live="polite" className="mb-1 text-destructive text-xs">{images.error}</p>}
 					{files.error && <p aria-live="polite" className="mb-1 text-destructive text-xs">{files.error}</p>}
-					{files.hasError && <p aria-live="polite" className="mb-1 text-destructive text-xs">Falha ao enviar um arquivo. Remova e tente novamente.</p>}
-					{images.items.some((item) => item.status === "error") && <p aria-live="polite" className="mb-1 text-destructive text-xs">Falha ao enviar uma imagem. Remova e tente novamente.</p>}
-					{images.items.length > 0 && !hasVision && <p className="mb-1 text-muted-foreground text-xs">{visionKnown ? "Este modelo não vê imagens; vou descrever com um modelo de apoio se disponível." : "A visão deste modelo é desconhecida; se ele não enxergar, troque para um modelo com visão."}</p>}
-					<div aria-live="polite" className="sr-only">{dragging ? "Solte os arquivos para anexar" : ""}</div>
+					{files.hasError && <p aria-live="polite" className="mb-1 text-destructive text-xs">{t("composer.fileFailed")}</p>}
+					{images.items.some((item) => item.status === "error") && <p aria-live="polite" className="mb-1 text-destructive text-xs">{t("composer.imageFailed")}</p>}
+					{images.items.length > 0 && !hasVision && <p className="mb-1 text-muted-foreground text-xs">{visionKnown ? t("composer.visionNone") : t("composer.visionUnknown")}</p>}
+					<div aria-live="polite" className="sr-only">{dragging ? t("composer.dropFiles") : ""}</div>
 					<div className="relative">
 					{mentionOpen && mention ? (
 						<MentionPopup
 							activeIndex={mentionIndex}
-							ariaLabel={mention.trigger === "@" && !groupMode ? "Mencionar bot ou app" : undefined}
+							ariaLabel={mention.trigger === "@" && !groupMode ? t("composer.mentionBotOrApp") : undefined}
 							candidates={mention.candidates}
-							emptyLabel={mention.trigger === "/" ? (skillsLoading ? "Carregando habilidades…" : undefined) : groupMode ? undefined : "Nenhum bot ou app"}
+							emptyLabel={mention.trigger === "/" ? (skillsLoading ? t("composer.loadingSkills") : undefined) : groupMode ? undefined : t("composer.noBotOrApp")}
 							trigger={mention.trigger}
 							onHover={setMentionIndex}
 							onPick={(candidate) => pickMention(candidate)}
@@ -343,7 +345,7 @@ export function ChatComposer({
 						<ComposerImageAttachments items={images.items} onRemove={images.remove} />
 						<ComposerFileAttachments items={files.items} onRemove={files.remove} />
 						{mentioned.length > 0 ? (
-							<ul aria-label="Menções na mensagem" className="col-span-full flex w-full flex-wrap gap-1.5 px-3 pt-1.5 text-xs" data-slot="composer-mentions">
+							<ul aria-label={t("composer.mentionsLabel")} className="col-span-full flex w-full flex-wrap gap-1.5 px-3 pt-1.5 text-xs" data-slot="composer-mentions">
 								{mentioned.map((item) => (
 									<li key={item.id}>
 										<MentionChip member={{ id: item.id, name: item.name, color: item.color, shape: item.shape, kind: item.kind === "app" ? "app" : "bot", logo: item.logo }} text={`@${item.name}`} />
@@ -357,7 +359,7 @@ export function ChatComposer({
 						<div className={COMPOSER_FIELD_CLASS} data-slot="composer-field">
 							<InputGroupTextarea
 								ref={mergeRefs(textareaRef, localTextareaRef)}
-								aria-label={`Mensagem para ${agentName}`}
+								aria-label={t("composer.messageTo", { name: agentName })}
 								className="field-sizing-content col-start-1 row-start-1 max-h-none min-h-7 self-stretch overflow-hidden py-1.5 text-sm"
 								disabled={disabled}
 								onPaste={(event) => { const pasted = Array.from(event.clipboardData.files); if (pasted.length) { event.preventDefault(); addAny(pasted); } }}
@@ -405,7 +407,7 @@ export function ChatComposer({
 									}
 								}}
 								enterKeyHint={touch ? "enter" : "send"}
-								placeholder={dictating ? "" : `Mensagem para ${agentName}`}
+								placeholder={dictating ? "" : t("composer.messageTo", { name: agentName })}
 								rows={1}
 								value={value}
 							/>
@@ -430,7 +432,7 @@ export function ChatComposer({
 									onPickFile={() => fileInputRef.current?.click()}
 									onPickPhotos={() => imageInputRef.current?.click()}
 									onPickSkill={(skill) => {
-										updateValue(`Use a habilidade "${skill.name}": `);
+										updateValue(t("composer.useSkill", { name: skill.name }));
 										localTextareaRef.current?.focus();
 									}}
 									onTakePhoto={() => cameraInputRef.current?.click()}
@@ -441,15 +443,15 @@ export function ChatComposer({
 								)}
 								{groupMode ? null : (
 								<ModelPicker
-									emptyLabel="Automático"
+									emptyLabel={t("common.auto")}
 									loading={loading}
 									models={models}
 									onChange={(next) => onModelChange?.(next)}
-									suggestedHeading="Dos seus níveis"
+									suggestedHeading={t("composer.modelSuggested")}
 									suggestedIds={tierModelIds}
 									trigger={
 										<InputGroupButton
-											aria-label="Modelo de linguagem"
+											aria-label={t("composer.modelLabel")}
 											className="max-w-[12rem] shrink gap-1.5 px-2 text-xs"
 											disabled={disabled}
 											type="button"
@@ -462,9 +464,9 @@ export function ChatComposer({
 								{servedLabel ? (
 									<span
 										className="max-w-[10rem] truncate text-muted-foreground text-xs"
-										title={model ? `Respondido por ${servedLabel} (o modelo escolhido não atendeu)` : `Respondido por ${servedLabel} (escolhido pela dificuldade)`}
+										title={model ? t("composer.servedChosen", { model: servedLabel }) : t("composer.servedDifficulty", { model: servedLabel })}
 									>
-										via {servedLabel}
+										{t("composer.via", { label: servedLabel })}
 									</span>
 								) : null}
 							</div>
@@ -474,7 +476,7 @@ export function ChatComposer({
 									<TooltipTrigger
 										render={
 											<InputGroupButton
-												aria-label={recording ? "Parar ditado" : "Ditar"}
+												aria-label={recording ? t("composer.stopDictation") : t("composer.dictate")}
 												aria-pressed={recording}
 												disabled={disabled || transcribing}
 												onClick={() => (recording ? dictation.stop() : dictation.start())}
@@ -494,7 +496,7 @@ export function ChatComposer({
 									<TooltipTrigger
 										render={
 											<InputGroupButton
-												aria-label="Parar"
+												aria-label={t("composer.stop")}
 												className="bg-(--bot-accent,var(--primary)) text-(--bot-accent-foreground,var(--primary-foreground)) hover:bg-(--bot-accent,var(--primary))/90"
 												disabled={!onStop}
 												onClick={() => onStop?.()}
@@ -513,7 +515,7 @@ export function ChatComposer({
 									<TooltipTrigger
 										render={
 											<InputGroupButton
-												aria-label={recording ? "Parar ditado" : "Ditar"}
+												aria-label={recording ? t("composer.stopDictation") : t("composer.dictate")}
 												aria-pressed={recording}
 												className="bg-(--bot-accent,var(--primary)) text-(--bot-accent-foreground,var(--primary-foreground)) hover:bg-(--bot-accent,var(--primary))/90"
 												disabled={disabled || transcribing}
@@ -530,11 +532,11 @@ export function ChatComposer({
 								</Tooltip>
 							) : (
 								<InputGroupButton
-									aria-label="Enviar mensagem"
+									aria-label={t("composer.send")}
 									className="bg-(--bot-accent,var(--primary)) text-(--bot-accent-foreground,var(--primary-foreground)) hover:bg-(--bot-accent,var(--primary))/90"
 									disabled={disabled || primaryAction === "send-disabled"}
 									size="icon-sm"
-									title="Enviar mensagem"
+									title={t("composer.send")}
 									type="submit"
 									variant="default"
 								>

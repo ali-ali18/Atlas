@@ -15,13 +15,15 @@ import {
 	type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { DEV_APPROVAL_MODES, DEV_APPROVAL_MODE_HELP, DEV_APPROVAL_MODE_LABEL, type DevApprovalMode } from "@workspace/shared";
+import { DEV_APPROVAL_MODES, type DevApprovalMode } from "@workspace/shared";
 import { useIsMobile } from "@workspace/ui/hooks/use-mobile";
 import { Sheet, SheetContent, SheetTitle } from "@workspace/ui/components/sheet";
 import { InputGroupButton } from "@workspace/ui/components/input-group";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { ChatAddDropdown } from "./chat-add-dropdown";
+import { permissionHelp, permissionLabel, permissionOptionLabel } from "./permission-copy";
+import { useT } from "@/lib/i18n/provider";
 import { listBuiltinSkills, listSkills } from "@/lib/atlas-api";
 
 export type AddMenuSkill = { id: string; name: string; /** Nome em slug (o que `/skill` carrega). */ slug: string; description: string; factory: boolean };
@@ -99,16 +101,17 @@ export type AddMenuPanelProps = {
 };
 
 function Header({ title, onBack, onClose, showClose }: { title: string; onBack?: () => void; onClose: () => void; showClose: boolean }) {
+	const t = useT();
 	return (
 		<div className="flex min-h-10 items-center gap-1 px-1 pb-1">
 			{onBack ? (
-				<button aria-label="Voltar" className="grid size-9 place-items-center rounded-full outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/40" onClick={onBack} type="button">
+				<button aria-label={t("common.back")} className="grid size-9 place-items-center rounded-full outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/40" onClick={onBack} type="button">
 					<ArrowLeftIcon className="size-5" />
 				</button>
 			) : null}
 			<h2 className={cn("min-w-0 flex-1 truncate font-semibold text-base", onBack ? "" : "px-2")}>{title}</h2>
 			{showClose ? (
-				<button aria-label="Fechar" className="grid size-9 place-items-center rounded-full bg-muted/70 outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/40" onClick={onClose} type="button">
+				<button aria-label={t("common.close")} className="grid size-9 place-items-center rounded-full bg-muted/70 outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/40" onClick={onClose} type="button">
 					<XIcon className="size-4" />
 				</button>
 			) : null}
@@ -118,6 +121,7 @@ function Header({ title, onBack, onClose, showClose }: { title: string; onBack?:
 
 /** Conteúdo do "+" do composer: o mesmo na gaveta (celular) e no popover (desktop). */
 export function AddMenuPanel(props: AddMenuPanelProps) {
+	const t = useT();
 	const { step, onStep, onClose, showClose } = props;
 	if (step === "skills") {
 		const mine = props.skills.filter((s) => !s.factory);
@@ -136,12 +140,12 @@ export function AddMenuPanel(props: AddMenuPanelProps) {
 			) : null;
 		return (
 			<div className="flex min-w-0 flex-col" data-add-step="skills">
-				<Header onBack={() => onStep("root")} onClose={onClose} showClose={showClose} title="Habilidade" />
+				<Header onBack={() => onStep("root")} onClose={onClose} showClose={showClose} title={t("composer.skill")} />
 				<div className="max-h-[50dvh] overflow-y-auto">
-					{props.skillsLoading ? <p className="px-3 py-4 text-muted-foreground text-sm">Carregando…</p> : null}
-					{!props.skillsLoading && props.skills.length === 0 ? <p className="px-3 py-4 text-muted-foreground text-sm">Nenhuma habilidade disponível.</p> : null}
-					{group("Minhas habilidades", mine)}
-					{group("De fábrica", factory)}
+					{props.skillsLoading ? <p className="px-3 py-4 text-muted-foreground text-sm">{t("common.loading")}</p> : null}
+					{!props.skillsLoading && props.skills.length === 0 ? <p className="px-3 py-4 text-muted-foreground text-sm">{t("composer.noSkills")}</p> : null}
+					{group(t("composer.mySkills"), mine)}
+					{group(t("composer.factorySkills"), factory)}
 				</div>
 			</div>
 		);
@@ -150,14 +154,14 @@ export function AddMenuPanel(props: AddMenuPanelProps) {
 		const { mode, onChange } = props.permission;
 		return (
 			<div className="flex min-w-0 flex-col" data-add-step="permission">
-				<Header onBack={() => onStep("root")} onClose={onClose} showClose={showClose} title="Permissão" />
+				<Header onBack={() => onStep("root")} onClose={onClose} showClose={showClose} title={t("composer.permission")} />
 				{DEV_APPROVAL_MODES.map((value) => (
 					<button className={cn(ROW_CLASS, "items-start py-2.5")} key={value} onClick={() => onChange(value)} type="button">
 						<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-							<span>{value === "auto" ? `${DEV_APPROVAL_MODE_LABEL[value]} (recomendado)` : DEV_APPROVAL_MODE_LABEL[value]}</span>
-							<span className="whitespace-normal text-muted-foreground text-xs leading-4">{DEV_APPROVAL_MODE_HELP[value]}</span>
+							<span>{permissionOptionLabel(t, value)}</span>
+							<span className="whitespace-normal text-muted-foreground text-xs leading-4">{permissionHelp(t, value)}</span>
 						</span>
-						{mode === value ? <CheckIcon aria-label="Selecionado" className="mt-0.5 size-5 shrink-0" /> : null}
+						{mode === value ? <CheckIcon aria-label={t("composer.selected")} className="mt-0.5 size-5 shrink-0" /> : null}
 					</button>
 				))}
 			</div>
@@ -165,16 +169,16 @@ export function AddMenuPanel(props: AddMenuPanelProps) {
 	}
 	return (
 		<div className="flex min-w-0 flex-col gap-2" data-add-step="root">
-			<Header onClose={onClose} showClose={showClose} title="Adicionar" />
+			<Header onClose={onClose} showClose={showClose} title={t("composer.add")} />
 			<div className="flex gap-2 px-1">
-				{props.onTakePhoto ? <Tile icon={CameraIcon} label="Câmera" onClick={() => { props.onTakePhoto?.(); onClose(); }} /> : null}
-				<Tile icon={ImageIcon} label="Fotos" onClick={() => { props.onPickPhotos(); onClose(); }} />
-				{props.onPickFile ? <Tile icon={PaperclipIcon} label="Arquivo" onClick={() => { props.onPickFile?.(); onClose(); }} /> : null}
+				{props.onTakePhoto ? <Tile icon={CameraIcon} label={t("composer.camera")} onClick={() => { props.onTakePhoto?.(); onClose(); }} /> : null}
+				<Tile icon={ImageIcon} label={t("composer.photos")} onClick={() => { props.onPickPhotos(); onClose(); }} />
+				{props.onPickFile ? <Tile icon={PaperclipIcon} label={t("composer.file")} onClick={() => { props.onPickFile?.(); onClose(); }} /> : null}
 			</div>
 			<div className="flex flex-col">
-				{props.showTestPr ? <Row icon={GitPullRequestIcon} label="Testar uma PR" onClick={() => { props.onTestPr(); onClose(); }} testId="test-pr-item" /> : null}
-				<Row chevron icon={SparklesIcon} label="Habilidade" onClick={() => onStep("skills")} />
-				{props.permission ? <Row chevron icon={ShieldCheckIcon} label="Permissão" onClick={() => onStep("permission")} value={DEV_APPROVAL_MODE_LABEL[props.permission.mode]} /> : null}
+				{props.showTestPr ? <Row icon={GitPullRequestIcon} label={t("composer.testPr")} onClick={() => { props.onTestPr(); onClose(); }} testId="test-pr-item" /> : null}
+				<Row chevron icon={SparklesIcon} label={t("composer.skill")} onClick={() => onStep("skills")} />
+				{props.permission ? <Row chevron icon={ShieldCheckIcon} label={t("composer.permission")} onClick={() => onStep("permission")} value={permissionLabel(t, props.permission.mode)} /> : null}
 			</div>
 		</div>
 	);
@@ -195,6 +199,7 @@ export function addMenuVariant(isMobile: boolean): "drawer" | "dropdown" {
 
 /** "+" do composer: gaveta no celular (alça, cabeçalho com X, passos com voltar) e popover no desktop com o mesmo conteúdo. */
 export function ChatAddMenu({ defaultOpen = false, defaultStep = "root", onTakePhoto, ...rest }: ChatAddMenuProps) {
+	const t = useT();
 	const isMobile = useIsMobile();
 	const [open, setOpen] = useState(defaultOpen);
 	const [step, setStep] = useState<Step>(defaultStep);
@@ -225,7 +230,7 @@ export function ChatAddMenu({ defaultOpen = false, defaultStep = "root", onTakeP
 	if (addMenuVariant(isMobile) === "drawer") {
 		return (
 			<>
-				<InputGroupButton aria-label="Adicionar" onClick={() => changeOpen(true)} size="icon-sm" type="button" variant="secondary">
+				<InputGroupButton aria-label={t("composer.add")} onClick={() => changeOpen(true)} size="icon-sm" type="button" variant="secondary">
 					<PlusIcon />
 				</InputGroupButton>
 				<Sheet onOpenChange={changeOpen} open={open}>
@@ -236,7 +241,7 @@ export function ChatAddMenu({ defaultOpen = false, defaultStep = "root", onTakeP
 						side="bottom"
 						style={drag ? { transform: `translateY(${drag}px)`, transition: "none" } : undefined}
 					>
-						<SheetTitle className="sr-only">Adicionar</SheetTitle>
+						<SheetTitle className="sr-only">{t("composer.add")}</SheetTitle>
 						<div
 							className="flex touch-none justify-center pt-2.5 pb-1"
 							data-add-handle
