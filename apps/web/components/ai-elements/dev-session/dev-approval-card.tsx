@@ -40,7 +40,7 @@ function DiffPreview({ text }: { text: string }) {
 		<pre className="m-0 max-h-56 overflow-auto rounded-xl bg-background/70 px-3 py-2 font-mono text-xs leading-5" data-dev-approval-diff>
 			{lines.map((line, index) => (
 				<span
-					className={cn("block whitespace-pre-wrap [overflow-wrap:anywhere]", line.startsWith("+") && "text-emerald-700 dark:text-emerald-400", line.startsWith("-") && "text-destructive")}
+					className={cn("block whitespace-pre-wrap [overflow-wrap:anywhere]", line.startsWith("+") && "text-success", line.startsWith("-") && "text-destructive")}
 					key={`${index}-${line.slice(0, 12)}`}
 				>
 					{line || " "}
@@ -122,7 +122,7 @@ export function DevApprovalCard({ info, title, status = "pending", confirmLabel,
 			{info.kind === "command" ? (
 				<>
 					<pre
-						className="m-0 flex max-h-56 min-w-0 gap-2 overflow-auto rounded-xl bg-background/70 px-3 py-2 font-mono text-[13px] leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]"
+						className="m-0 flex max-h-56 min-w-0 gap-2 overflow-auto rounded-xl bg-background/70 px-3 py-2 font-mono text-body leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]"
 						data-dev-approval-command
 					>
 						<SquareTerminalIcon aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
@@ -132,7 +132,7 @@ export function DevApprovalCard({ info, title, status = "pending", confirmLabel,
 				</>
 			) : (
 				<>
-					<p className="m-0 flex min-w-0 items-center gap-1.5 font-mono text-[13px] [overflow-wrap:anywhere]" data-dev-approval-path>
+					<p className="m-0 flex min-w-0 items-center gap-1.5 font-mono text-body [overflow-wrap:anywhere]" data-dev-approval-path>
 						<FilePenLineIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
 						<span className="min-w-0">{info.path}</span>
 					</p>

@@ -182,7 +182,7 @@ export function ModelTiersSettingsView({
 								onChange={(list) => onChange(tierPatch(row.tier, list))}
 							/>
 						) : (
-							<p className="text-[13px] text-muted-foreground">Carregando…</p>
+							<p className="text-body text-muted-foreground">Carregando…</p>
 						)}
 					</TierRow>
 				) : null,

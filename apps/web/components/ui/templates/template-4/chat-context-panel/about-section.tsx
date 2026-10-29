@@ -41,7 +41,7 @@ export function AboutSection({
 				<Textarea
 					aria-label="Descrição do bot"
 					autoFocus
-					className="min-h-24 rounded-xl text-[13px]"
+					className="min-h-24 rounded-xl text-body"
 					onBlur={commit}
 					onChange={(event) => setDraft(event.target.value)}
 					onKeyDown={(event) => {
@@ -59,7 +59,7 @@ export function AboutSection({
 					<button
 						aria-label="Editar descrição do bot"
 						className={cn(
-							"w-full whitespace-pre-wrap break-words rounded-md text-left text-[13px] leading-[18px] outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+							"w-full whitespace-pre-wrap break-words rounded-md text-left text-body leading-[18px] outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
 							text ? "" : "text-muted-foreground",
 							long && !expanded && "line-clamp-6",
 						)}

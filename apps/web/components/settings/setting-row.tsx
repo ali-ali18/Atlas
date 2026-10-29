@@ -33,7 +33,7 @@ export function SettingsGroup({
 				</h3>
 			) : null}
 			<div
-				className={cn("flex w-full flex-col overflow-clip rounded-[12px] border border-border/60 py-2", className)}
+				className={cn("flex w-full flex-col overflow-clip rounded-card border border-border/60 py-2", className)}
 				data-slot="settings-group"
 			>
 				<InsideGroup.Provider value>{children}</InsideGroup.Provider>
@@ -51,7 +51,7 @@ export function SettingsStack({ children }: { children: ReactNode }) {
 	);
 }
 
-const TITLE_CLASS = "text-[13px] leading-[18px] font-normal";
+const TITLE_CLASS = "text-body leading-[18px] font-normal";
 
 /**
  * A linha padrão de TODA seção: rótulo à esquerda e um controle à direita. A
@@ -107,7 +107,7 @@ export function SettingRow({
 					)}
 				</div>
 				{description && !hint ? (
-					<div className="text-[13px] leading-[18px] text-muted-foreground">{description}</div>
+					<div className="text-body leading-[18px] text-muted-foreground">{description}</div>
 				) : null}
 				{caption ? (
 					<div className="flex flex-col gap-0.5 text-xs text-muted-foreground empty:hidden">{caption}</div>

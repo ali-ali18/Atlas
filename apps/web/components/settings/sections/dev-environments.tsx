@@ -60,9 +60,9 @@ import {
 	type DevEnvFormErrors,
 } from "../dev-environments-state";
 
-const LABEL_CLASS = "text-[13px] leading-[18px] font-medium";
+const LABEL_CLASS = "text-body leading-[18px] font-medium";
 const HELP_CLASS = "text-xs leading-4 text-muted-foreground";
-const CODE_CLASS = "min-h-[4.5rem] font-mono text-[13px] leading-5";
+const CODE_CLASS = "min-h-[4.5rem] font-mono text-body leading-5";
 
 function Field({ label, htmlFor, help, error, children }: { label: string; htmlFor?: string; help?: ReactNode; error?: string; children: ReactNode }) {
 	return (
@@ -84,7 +84,7 @@ function Field({ label, htmlFor, help, error, children }: { label: string; htmlF
 
 function Chip({ children, onRemove, label }: { children: ReactNode; onRemove?: () => void; label?: string }) {
 	return (
-		<span className="inline-flex h-6 max-w-full items-center gap-1 rounded-full bg-muted px-2.5 font-mono text-[11px] text-foreground">
+		<span className="inline-flex h-6 max-w-full items-center gap-1 rounded-full bg-muted px-2.5 font-mono text-caption text-foreground">
 			<span className="truncate">{children}</span>
 			{onRemove ? (
 				<button
@@ -118,7 +118,7 @@ function DomainsEditor({ domains, onChange }: { domains: string[]; onChange: (do
 				<Input
 					aria-label="Adicionar domínio liberado"
 					autoComplete="off"
-					className="font-mono text-[13px]"
+					className="font-mono text-body"
 					id={id}
 					onChange={(event) => {
 						setText(event.target.value);
@@ -191,7 +191,7 @@ export function MobilePage({ title, onBack, footer, children, level = 1 }: { tit
 /** Selo discreto dos ambientes criados pela detecção automática. */
 export function AutoTag() {
 	return (
-		<span className="ml-2 inline-flex h-5 items-center rounded-full bg-muted px-2 text-[11px] text-muted-foreground" data-slot="dev-env-auto-tag">
+		<span className="ml-2 inline-flex h-5 items-center rounded-full bg-muted px-2 text-caption text-muted-foreground" data-slot="dev-env-auto-tag">
 			detectado automaticamente
 		</span>
 	);
@@ -243,7 +243,7 @@ export function CommandsEditor({ commands, onChange }: { commands: string[]; onC
 				<Input
 					aria-label="Adicionar comando liberado"
 					autoComplete="off"
-					className="font-mono text-[13px]"
+					className="font-mono text-body"
 					onChange={(event) => {
 						setText(event.target.value);
 						setError(null);
@@ -341,7 +341,7 @@ export function SecretsEditor({
 			{existing.length > 0 ? (
 				<ul className="flex flex-col gap-1">
 					{existing.map((secret) => (
-						<li className="flex min-h-9 items-center gap-2 rounded-2xl bg-muted/40 px-3 text-[13px]" key={secret.name}>
+						<li className="flex min-h-9 items-center gap-2 rounded-2xl bg-muted/40 px-3 text-body" key={secret.name}>
 							<span className="min-w-0 flex-1 truncate font-mono">{secret.name}</span>
 							<span className="flex items-center gap-1 text-xs text-muted-foreground">
 								<CheckIcon aria-hidden className="size-3.5" />
@@ -370,7 +370,7 @@ export function SecretsEditor({
 						aria-label="Segredos (CHAVE=valor, um por linha)"
 						autoCapitalize="off"
 						autoComplete="off"
-						className="min-h-[7rem] font-mono text-[13px] leading-5"
+						className="min-h-[7rem] font-mono text-body leading-5"
 						id={textareaId}
 						onChange={(event) => onTextChange(event.target.value)}
 						placeholder={SECRETS_PLACEHOLDER}
@@ -600,7 +600,7 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 				<Input
 					aria-invalid={errors.repo ? true : undefined}
 					autoComplete="off"
-					className="font-mono text-[13px]"
+					className="font-mono text-body"
 					disabled={Boolean(editing)}
 					id={`${ids}-repo`}
 					onBlur={() => setTimeout(() => setSuggestOpen(false), 120)}
@@ -621,7 +621,7 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 						{suggestions.map((name) => (
 							<li key={name} role="option">
 								<button
-									className="flex h-8 w-full items-center rounded-xl px-2.5 text-left font-mono text-[13px] outline-none hover:bg-muted focus-visible:bg-muted"
+									className="flex h-8 w-full items-center rounded-xl px-2.5 text-left font-mono text-body outline-none hover:bg-muted focus-visible:bg-muted"
 									onMouseDown={(event) => {
 										event.preventDefault();
 										setForm({ ...form, repo: name });

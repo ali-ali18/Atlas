@@ -73,7 +73,7 @@ export function ToolPermissionControl({
 							>
 								<Icon className={selected ? "text-foreground" : "text-muted-foreground"} />
 							</TooltipTrigger>
-							<TooltipContent className="px-2 py-1 text-[11px]">{TOOL_PERMISSION_LABELS[mode]}</TooltipContent>
+							<TooltipContent className="px-2 py-1 text-caption">{TOOL_PERMISSION_LABELS[mode]}</TooltipContent>
 						</Tooltip>
 					);
 				})}

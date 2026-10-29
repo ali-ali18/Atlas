@@ -1,8 +1,9 @@
 "use client"
+import { Spinner } from "@workspace/ui/components/spinner";
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import Image from "next/image"
-import { ArrowLeftIcon, BracesIcon, CheckIcon, Loader2Icon, PlugIcon, PlusIcon, SearchIcon } from "lucide-react"
+import { ArrowLeftIcon, BracesIcon, CheckIcon, PlugIcon, PlusIcon, SearchIcon } from "lucide-react"
 import type { McpCatalogEntry, McpConnectionView } from "@workspace/shared"
 import { MCP_MAX_EXPOSED_TOOLS_HINT } from "@workspace/shared"
 import { cn } from "@workspace/ui/lib/utils"
@@ -719,7 +720,7 @@ export function MarketplacePage({
         <div className="mx-auto w-full max-w-[1100px] space-y-5 px-4 py-5 md:px-8 md:py-6">
           {oauthBusy ? (
             <Alert>
-              <Loader2Icon className="animate-spin" />
+              <Spinner />
               <AlertTitle>Aguardando o login…</AlertTitle>
               <AlertDescription>
                 Termine o login na janela que abriu. Assim que você autorizar, o

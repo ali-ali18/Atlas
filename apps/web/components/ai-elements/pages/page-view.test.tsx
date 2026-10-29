@@ -54,7 +54,7 @@ test("stat: grade só de stats tem 2 colunas no celular; tiles com a mesma altur
 	assert.doesNotMatch(html, /▬/);
 	assert.match(html, /text-3xl/);
 	// o rótulo da variação é truncado em uma linha, não quebra
-	assert.match(html, /truncate text-\[11px\]/);
+	assert.match(html, /truncate text-caption/);
 });
 
 test("grid com outros componentes empilha no celular e usa span", () => {

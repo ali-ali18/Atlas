@@ -172,7 +172,7 @@ function AccountText({ account }: { account: AccountRow }) {
   return (
     <>
       <span className="block truncate text-sm font-medium">{account.title}</span>
-      <span className={cn("block truncate text-xs", account.ok ? "text-muted-foreground" : "text-amber-700 dark:text-amber-300")}>{account.status}</span>
+      <span className={cn("block truncate text-xs", account.ok ? "text-muted-foreground" : "text-warning")}>{account.status}</span>
     </>
   )
 }

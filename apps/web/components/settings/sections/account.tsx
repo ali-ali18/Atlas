@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CameraIcon, KeyRoundIcon, Loader2Icon, LogOutIcon, MailIcon, Trash2Icon, UserIcon } from "lucide-react";
+import { CameraIcon, KeyRoundIcon, LogOutIcon, MailIcon, Trash2Icon, UserIcon } from "lucide-react";
+import { Spinner } from "@workspace/ui/components/spinner";
 import { PROFILE_NAME_MAX } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
@@ -19,7 +20,7 @@ const SAVE_FAILED = "Não foi possível salvar. Tente novamente.";
 /** Valor somente leitura na ponta direita da linha (o e-mail vem da sessão). */
 function ReadOnlyValue({ id, children }: { id: string; children: string }) {
 	return (
-		<span className="max-w-full truncate text-[13px] text-muted-foreground" id={id}>
+		<span className="max-w-full truncate text-body text-muted-foreground" id={id}>
 			{children || "—"}
 		</span>
 	);
@@ -92,7 +93,7 @@ export function PhotoAvatarButton({
 					className="absolute inset-0 flex items-center justify-center rounded-full bg-black/55 text-white"
 					data-slot="photo-avatar-loading"
 				>
-					<Loader2Icon aria-hidden className="size-5 animate-spin" />
+					<Spinner className="size-5" />
 				</span>
 			) : (
 				<span
@@ -233,7 +234,7 @@ function NameRow({ name, onSave }: { name: string; onSave: (name: string) => Pro
 			<Input
 				aria-invalid={message ? true : undefined}
 				autoComplete="name"
-				className="h-8 w-44 text-[13px]"
+				className="h-8 w-44 text-body"
 				id="settings-account-name"
 				maxLength={PROFILE_NAME_MAX + 20}
 				onChange={(event) => {

@@ -74,7 +74,7 @@ export function TimezoneSettingsView({
 				>
 					<PopoverTrigger
 						aria-label="Fuso horário"
-						className="flex h-7 max-w-full items-center gap-1 rounded-md px-2 text-[13px] outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/30 disabled:opacity-50"
+						className="flex h-7 max-w-full items-center gap-1 rounded-md px-2 text-body outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/30 disabled:opacity-50"
 						disabled={disabled}
 						type="button"
 					>
@@ -93,7 +93,7 @@ export function TimezoneSettingsView({
 							<input
 								aria-label="Buscar fuso horário"
 								autoFocus
-								className="h-8 w-full rounded-lg bg-input/50 pr-2 pl-8 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-ring/30"
+								className="h-8 w-full rounded-lg bg-input/50 pr-2 pl-8 text-body outline-none placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-ring/30"
 								onChange={(event) => setQuery(event.target.value)}
 								placeholder="Buscar cidade ou região"
 								value={query}
@@ -117,7 +117,7 @@ export function TimezoneSettingsView({
 								/>
 							))}
 							{matches.length === 0 ? (
-								<li className="px-2.5 py-2 text-[13px] text-muted-foreground" role="status">
+								<li className="px-2.5 py-2 text-body text-muted-foreground" role="status">
 									Nenhum fuso encontrado
 								</li>
 							) : null}
@@ -145,7 +145,7 @@ function ZoneOption({
 			<button
 				aria-selected={selected}
 				className={cn(
-					"flex min-h-[30px] w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] outline-none hover:bg-accent focus-visible:bg-accent",
+					"flex min-h-[30px] w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-body outline-none hover:bg-accent focus-visible:bg-accent",
 					selected && "font-medium",
 				)}
 				onClick={onChoose}

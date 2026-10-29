@@ -194,7 +194,7 @@ export function ApiConnectionPage({
             <dd
               className={cn(
                 "m-0 min-w-0 text-right",
-                connected ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"
+                connected ? "text-success" : "text-warning"
               )}
             >
               {apiConnectionStatusLabel(item)}
@@ -307,7 +307,7 @@ export function ApiConnectionPage({
                                 onClick={() => setGuide(operation)}
                                 type="button"
                               >
-                                <span className="w-14 shrink-0 font-mono text-[11px] font-medium text-muted-foreground">{operation.method}</span>
+                                <span className="w-14 shrink-0 font-mono text-caption font-medium text-muted-foreground">{operation.method}</span>
                                 <span className="min-w-0 flex-1">
                                   <span className="block truncate text-sm">{operation.summary || operation.id}</span>
                                   <span className="block truncate font-mono text-xs text-muted-foreground">{operation.path}</span>

@@ -83,7 +83,7 @@ test("linha: 40px de altura mínima, padding 10/14, rótulo 13px, sem divisória
 	);
 	assert.match(html, /min-h-10/);
 	assert.match(html, /px-3\.5 py-2\.5/);
-	assert.match(html, /text-\[13px\]/);
+	assert.match(html, /text-body/);
 	assert.doesNotMatch(html, /border-b|divide-/);
 });
 
@@ -95,7 +95,7 @@ test("grupo: título de 12px com 8px de recuo, 8px até o cartão de raio 12 com
 	);
 	assert.match(html, /<h3 class="px-2 text-xs[^"]*"[^>]*>Aparência<\/h3>/);
 	assert.match(html, /<section class="flex w-full flex-col gap-2"/);
-	assert.match(html, /rounded-\[12px\] border border-border\/60 py-2/);
+	assert.match(html, /rounded-card border border-border\/60 py-2/);
 });
 
 test("grupos aninhados viram só as linhas (um cartão por título)", () => {

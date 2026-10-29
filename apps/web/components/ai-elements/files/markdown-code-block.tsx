@@ -51,7 +51,7 @@ function PlainCodeBlock({ code, language }: { code: string; language?: string })
 	return (
 		<CodeBlock className="my-2 max-w-full bg-muted/60" size="sm">
 			<CodeBlockHeader className="items-center justify-between pt-1.5 pr-1.5">
-				<CodeBlockTitle className="font-mono text-[11px] font-normal text-muted-foreground lowercase">
+				<CodeBlockTitle className="font-mono text-caption font-normal text-muted-foreground lowercase">
 					{lang || "texto"}
 				</CodeBlockTitle>
 				<CodeBlockActions className="m-0">

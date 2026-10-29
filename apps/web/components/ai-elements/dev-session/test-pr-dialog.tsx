@@ -9,7 +9,7 @@ import { Input } from "@workspace/ui/components/input";
 import { suggestRepos } from "@/components/settings/dev-environments-state";
 import { listDevEnvironments, listDevSessions, listGithubPulls, listGithubRepos, type GithubPullOption, type GithubRepoOption } from "@/lib/atlas-api";
 
-const LABEL_CLASS = "text-[13px] leading-[18px] font-medium";
+const LABEL_CLASS = "text-body leading-[18px] font-medium";
 
 export type TestPrDialogProps = {
 	open: boolean;
@@ -136,7 +136,7 @@ export function TestPrDialog({ open, onOpenChange, onSubmit, initialRepo = "", r
 						<div className="relative">
 							<Input
 								autoComplete="off"
-								className="font-mono text-[13px]"
+								className="font-mono text-body"
 								id={`${ids}-repo`}
 								onBlur={() => setTimeout(() => setSuggestOpen(false), 120)}
 								onChange={(event) => {
@@ -158,7 +158,7 @@ export function TestPrDialog({ open, onOpenChange, onSubmit, initialRepo = "", r
 									{suggestions.map((name) => (
 										<li key={name} role="option">
 											<button
-												className="flex h-8 w-full items-center rounded-xl px-2.5 text-left font-mono text-[13px] outline-none hover:bg-muted focus-visible:bg-muted"
+												className="flex h-8 w-full items-center rounded-xl px-2.5 text-left font-mono text-body outline-none hover:bg-muted focus-visible:bg-muted"
 												onMouseDown={(event) => {
 													event.preventDefault();
 													setRepo(name);
@@ -180,7 +180,7 @@ export function TestPrDialog({ open, onOpenChange, onSubmit, initialRepo = "", r
 						</label>
 						<Input
 							autoComplete="off"
-							className="font-mono text-[13px]"
+							className="font-mono text-body"
 							id={`${ids}-pr`}
 							onChange={(event) => {
 								if (applyPaste(event.target.value)) return;

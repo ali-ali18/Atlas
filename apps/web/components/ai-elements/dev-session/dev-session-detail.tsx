@@ -1,18 +1,7 @@
 "use client";
 
-import {
-	CheckCircle2Icon,
-	ChevronDownIcon,
-	CircleDashedIcon,
-	CircleIcon,
-	Loader2Icon,
-	PlayIcon,
-	RotateCcwIcon,
-	CircleStopIcon,
-	SquareTerminalIcon,
-	TerminalIcon,
-	XCircleIcon,
-} from "lucide-react";
+import { CheckCircle2Icon, ChevronDownIcon, CircleDashedIcon, CircleIcon, PlayIcon, RotateCcwIcon, CircleStopIcon, SquareTerminalIcon, TerminalIcon, XCircleIcon } from "lucide-react";
+import { Spinner } from "@workspace/ui/components/spinner";
 import { useEffect, useRef, useState } from "react";
 import {
 	AlertDialog,
@@ -104,8 +93,8 @@ export function ExitBadge({ command }: { command: DevCommandView }) {
 	return (
 		<span
 			className={cn(
-				"inline-flex items-center rounded-full px-1.5 font-mono text-[11px]",
-				ok ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-destructive/15 text-destructive",
+				"inline-flex items-center rounded-full px-1.5 font-mono text-caption",
+				ok ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive",
 			)}
 			data-exit-badge
 		>
@@ -128,7 +117,7 @@ export function TerminalOutput({ command, maxHeight = "max-h-64" }: { command: D
 	}
 	return (
 		<pre
-			className={cn("overflow-auto whitespace-pre px-3 py-2 font-mono text-[11px] leading-relaxed", maxHeight)}
+			className={cn("overflow-auto whitespace-pre px-3 py-2 font-mono text-caption leading-relaxed", maxHeight)}
 			onScroll={(event) => {
 				const el = event.currentTarget;
 				stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
@@ -245,17 +234,17 @@ export function CommandItem({ command, now, onStop }: { command: DevCommandView;
 
 export function DiffStat({ added, removed }: { added: number; removed: number }) {
 	return (
-		<span className="shrink-0 font-mono text-[11px] tabular-nums">
-			<span className="text-emerald-600 dark:text-emerald-400">+{added}</span>{" "}
+		<span className="shrink-0 font-mono text-caption tabular-nums">
+			<span className="text-success">+{added}</span>{" "}
 			<span className="text-destructive">−{removed}</span>
 		</span>
 	);
 }
 
 const DIFF_LINE_CLASS = {
-	add: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200",
+	add: "bg-success/15 text-success",
 	remove: "bg-destructive/15 text-destructive",
-	hunk: "bg-sky-500/10 text-sky-700 dark:text-sky-300",
+	hunk: "bg-info/10 text-info",
 	meta: "text-muted-foreground",
 	context: "text-foreground/80",
 } as const;
@@ -263,7 +252,7 @@ const DIFF_LINE_CLASS = {
 export function DiffView({ diff }: { diff: string }) {
 	const lines = parseDiffLines(diff);
 	return (
-		<div className="overflow-x-auto py-1 font-mono text-[11px] leading-relaxed" data-diff-view>
+		<div className="overflow-x-auto py-1 font-mono text-caption leading-relaxed" data-diff-view>
 			<div className="w-max min-w-full">
 				{lines.map((line, index) => (
 					<div
@@ -395,7 +384,7 @@ function PreparationSection({ view, now }: { view: DevSessionView; now: number }
 				))}
 				{view.envNotes.map((note) => (
 					<p className="flex items-center gap-2 rounded-xl bg-muted/40 px-3 py-2 text-xs text-muted-foreground" data-dev-env-note key={note}>
-						<CheckCircle2Icon className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+						<CheckCircle2Icon className="size-3.5 shrink-0 text-success" />
 						{note}
 					</p>
 				))}
@@ -411,14 +400,14 @@ function PreparationItem({ step, now }: { step: DevSetupStepView; now: number })
 	const head = (
 		<span className="flex min-w-0 flex-1 items-center gap-2">
 			{step.status === "running" ? (
-				<Loader2Icon className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+				<Spinner className="size-3.5 shrink-0 text-muted-foreground" />
 			) : step.status === "failed" ? (
 				<XCircleIcon className="size-3.5 shrink-0 text-destructive" />
 			) : (
-				<CheckCircle2Icon className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+				<CheckCircle2Icon className="size-3.5 shrink-0 text-success" />
 			)}
 			<span className="min-w-0 flex-1 truncate">{label}</span>
-			{labelHasTime ? null : <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{formatElapsed(ms)}</span>}
+			{labelHasTime ? null : <span className="shrink-0 font-mono text-caption text-muted-foreground">{formatElapsed(ms)}</span>}
 		</span>
 	);
 	if (!step.output?.trim()) return <div className="flex items-center rounded-xl bg-muted/40 px-3 py-2 text-xs">{head}</div>;
@@ -429,7 +418,7 @@ function PreparationItem({ step, now }: { step: DevSetupStepView; now: number })
 				<ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/prep:rotate-180" />
 			</CollapsibleTrigger>
 			<CollapsibleContent>
-				<pre className="max-h-48 overflow-auto whitespace-pre border-border/60 border-t px-3 py-2 font-mono text-[11px] leading-relaxed">{stripAnsi(step.output)}</pre>
+				<pre className="max-h-48 overflow-auto whitespace-pre border-border/60 border-t px-3 py-2 font-mono text-caption leading-relaxed">{stripAnsi(step.output)}</pre>
 			</CollapsibleContent>
 		</Collapsible>
 	);
@@ -460,9 +449,9 @@ function PlanSection({ view }: { view: DevSessionView }) {
 					<li className="flex items-start gap-2 rounded-xl bg-muted/40 px-3 py-2 text-xs" key={todo.id}>
 						<span className="mt-0.5 shrink-0">
 							{todo.status === "completed" ? (
-								<CheckCircle2Icon className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+								<CheckCircle2Icon className="size-3.5 text-success" />
 							) : todo.status === "in_progress" ? (
-								<Loader2Icon className="size-3.5 animate-spin text-sky-600 dark:text-sky-300" />
+								<Spinner className="size-3.5 text-info" />
 							) : todo.status === "cancelled" ? (
 								<XCircleIcon className="size-3.5 text-muted-foreground" />
 							) : (

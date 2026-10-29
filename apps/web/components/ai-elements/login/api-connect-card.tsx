@@ -148,8 +148,8 @@ export function ApiConnectCardView({
             </Fact>
             {proposal.crossHost ? (
               <>
-                <dt className="text-amber-700 dark:text-amber-300">Atenção</dt>
-                <dd className="m-0 text-amber-700 dark:text-amber-300">
+                <dt className="text-warning">Atenção</dt>
+                <dd className="m-0 text-warning">
                   A API fica em outro domínio que o da documentação.
                 </dd>
               </>

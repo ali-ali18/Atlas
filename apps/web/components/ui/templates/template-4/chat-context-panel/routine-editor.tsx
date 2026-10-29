@@ -1034,7 +1034,7 @@ export function RoutineEditor({
 					</p>
 					{hookUrl ? (
 						<div className="flex items-center gap-2">
-							<code className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1 text-[11px]">
+							<code className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1 text-caption">
 								{hookUrl}
 							</code>
 							<Button
@@ -1063,7 +1063,7 @@ export function RoutineEditor({
 								Segredo (copie agora — não aparece de novo)
 							</p>
 							<div className="flex items-center gap-2">
-								<code className="min-w-0 flex-1 truncate text-[11px]">
+								<code className="min-w-0 flex-1 truncate text-caption">
 									{oneTimeSecret}
 								</code>
 								<Button
@@ -1080,7 +1080,7 @@ export function RoutineEditor({
 						</div>
 					) : null}
 					{routine?.hook?.urlSecretAt ? (
-						<p className="rounded-xl bg-amber-500/10 p-2 text-xs" data-url-secret-warning>
+						<p className="rounded-xl bg-warning/10 p-2 text-xs" data-url-secret-warning>
 							Esta integração usa o segredo na URL (?secret=). Prefira o cabeçalho X-Atlas-Hook-Secret.
 						</p>
 					) : null}
@@ -1135,7 +1135,7 @@ export function RoutineEditor({
 							if (eventsInGroup.length === 0) return null;
 							return (
 								<div className="space-y-1" key={group}>
-									<p className="text-muted-foreground text-[11px] uppercase tracking-wide">
+									<p className="text-muted-foreground text-caption uppercase tracking-wide">
 										{group}
 									</p>
 									<div className="flex flex-wrap gap-1.5">

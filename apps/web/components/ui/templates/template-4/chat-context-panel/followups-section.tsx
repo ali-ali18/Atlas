@@ -63,8 +63,8 @@ export function ReschedulePicker({
 	const valid = value !== "" && value > min;
 
 	return (
-		<div className="flex flex-col gap-3 rounded-[12px] border border-border/60 px-3.5 py-3" data-reschedule-picker>
-			<p className="text-[13px] leading-[18px]">{title}</p>
+		<div className="flex flex-col gap-3 rounded-card border border-border/60 px-3.5 py-3" data-reschedule-picker>
+			<p className="text-body leading-[18px]">{title}</p>
 			<div className="flex flex-wrap gap-2">
 				{options.map((option) => (
 					<button
@@ -172,7 +172,7 @@ export function FollowupDetail({
 			data-followup-detail={item.id}
 		>
 			<SettingsStack>
-				<div className="rounded-[12px] border border-border/60 px-3.5 py-3 text-[13px] leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]">
+				<div className="rounded-card border border-border/60 px-3.5 py-3 text-body leading-5 whitespace-pre-wrap [overflow-wrap:anywhere]">
 					{item.note}
 				</div>
 				{multi ? (
@@ -183,11 +183,11 @@ export function FollowupDetail({
 								<SettingRow key={stage.at + index} label={`${index + 1}º aviso`}>
 									<span className="flex items-center gap-2" data-stage={isNext ? "next" : stage.firedAt ? "done" : "pending"}>
 										<span className="flex flex-col items-end">
-											<span className={cn("text-[13px] whitespace-nowrap", isNext ? "font-medium text-foreground" : "text-muted-foreground", stage.firedAt && "line-through")}>
+											<span className={cn("text-body whitespace-nowrap", isNext ? "font-medium text-foreground" : "text-muted-foreground", stage.firedAt && "line-through")}>
 												{formatFollowupDue(new Date(stage.at), timeZone)}
 											</span>
-											{isNext ? <span className="text-[11px] text-foreground">Próximo</span> : null}
-											{stage.firedAt ? <span className="text-[11px] text-muted-foreground">Enviado</span> : null}
+											{isNext ? <span className="text-caption text-foreground">Próximo</span> : null}
+											{stage.firedAt ? <span className="text-caption text-muted-foreground">Enviado</span> : null}
 										</span>
 										{!stage.firedAt && onReschedule ? (
 											<Button
@@ -217,14 +217,14 @@ export function FollowupDetail({
 				<SettingsGroup>
 					{multi ? null : (
 						<SettingRow label="Dispara">
-							<span className="text-[13px] text-muted-foreground">{formatFollowupDue(new Date(item.dueAt), timeZone)}</span>
+							<span className="text-body text-muted-foreground">{formatFollowupDue(new Date(item.dueAt), timeZone)}</span>
 						</SettingRow>
 					)}
 					<SettingRow label="Tipo">
-						<span className="text-[13px] text-muted-foreground">{followupKindLabel(item.kind)}</span>
+						<span className="text-body text-muted-foreground">{followupKindLabel(item.kind)}</span>
 					</SettingRow>
 					<SettingRow label="Origem">
-						<span className="text-[13px] text-muted-foreground">{item.source === "reflection" ? "Ideia do bot" : "Você pediu"}</span>
+						<span className="text-body text-muted-foreground">{item.source === "reflection" ? "Ideia do bot" : "Você pediu"}</span>
 					</SettingRow>
 				</SettingsGroup>
 				{notice ? (

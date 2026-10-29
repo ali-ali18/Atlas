@@ -1,4 +1,5 @@
-import { BotIcon, CheckIcon, LoaderCircleIcon, XIcon } from "lucide-react";
+import { BotIcon, CheckIcon, XIcon } from "lucide-react";
+import { Spinner } from "@workspace/ui/components/spinner";
 import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
 import { OpenAIIcon } from "@/components/icons/openai";
@@ -52,14 +53,14 @@ const TITLES: Record<ProviderCallbackState, string> = {
 
 function StatusIcon({ state }: { state: ProviderCallbackState }) {
 	if (state === "working")
-		return <LoaderCircleIcon aria-hidden className="size-5 animate-spin text-muted-foreground" />;
+		return <Spinner className="size-5 text-muted-foreground" />;
 	const ok = state === "success";
 	return (
 		<span
 			aria-hidden
 			className={cn(
 				"grid size-9 place-items-center rounded-full",
-				ok ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-destructive/15 text-destructive",
+				ok ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive",
 			)}
 		>
 			{ok ? <CheckIcon className="size-5" strokeWidth={2.5} /> : <XIcon className="size-5" strokeWidth={2.5} />}

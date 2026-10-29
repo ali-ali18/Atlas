@@ -119,7 +119,7 @@ export function VaultListView({ items, available, loading, error, query, filter,
 	return (
 		<SettingsStack>
 			<section className="flex flex-col gap-3" data-slot="vault-list">
-				<p className="m-0 px-2 text-[13px] leading-5 text-muted-foreground">
+				<p className="m-0 px-2 text-body leading-5 text-muted-foreground">
 					Senhas e chaves ficam criptografadas só para você. O bot vê apenas nomes e sites, e usa os valores sem nunca lê-los.
 				</p>
 				{!available ? (
@@ -167,7 +167,7 @@ export function VaultListView({ items, available, loading, error, query, filter,
 				{!loading && available && items.length === 0 ? (
 					<div className="flex flex-col items-center gap-1 rounded-xl border border-dashed border-border/60 px-4 py-8 text-center">
 						<LockKeyholeIcon aria-hidden className="size-5 text-muted-foreground" />
-						<p className="m-0 text-[13px] font-medium">O cofre está vazio</p>
+						<p className="m-0 text-body font-medium">O cofre está vazio</p>
 						<p className="m-0 max-w-xs text-xs text-muted-foreground">Guarde um login de site ou uma chave de API. Quando o bot precisar de algo, ele pede aqui.</p>
 					</div>
 				) : null}
@@ -185,10 +185,10 @@ export function VaultListView({ items, available, loading, error, query, filter,
 									>
 										<VaultLogo item={item} />
 										<span className="flex min-w-0 flex-1 flex-col">
-											<span className="truncate text-[13px] leading-[18px] font-medium">{itemTitle(item)}</span>
+											<span className="truncate text-body leading-[18px] font-medium">{itemTitle(item)}</span>
 											<span className="truncate text-xs text-muted-foreground">{itemSubtitle(item)}</span>
 										</span>
-										<span className="hidden shrink-0 text-[11px] text-muted-foreground sm:block">{item.lastUsedAt ? `Usado ${formatVaultDate(item.lastUsedAt)}` : "Nunca usado"}</span>
+										<span className="hidden shrink-0 text-caption text-muted-foreground sm:block">{item.lastUsedAt ? `Usado ${formatVaultDate(item.lastUsedAt)}` : "Nunca usado"}</span>
 									</button>
 								</li>
 							))}
@@ -289,7 +289,7 @@ export function VaultDetailView({ item, audit, revealed, totp, copied, busy, err
 				{isLogin && item.siteUrl ? (
 					<div className="flex min-w-0 flex-col gap-1.5">
 						<span className={FIELD_LABEL}>Site</span>
-						<a className="text-[13px] underline-offset-2 [overflow-wrap:anywhere] hover:underline" href={item.siteUrl} rel="noreferrer noopener" target="_blank">
+						<a className="text-body underline-offset-2 [overflow-wrap:anywhere] hover:underline" href={item.siteUrl} rel="noreferrer noopener" target="_blank">
 							{item.siteUrl}
 						</a>
 					</div>
@@ -314,7 +314,7 @@ export function VaultDetailView({ item, audit, revealed, totp, copied, busy, err
 				{shown && revealed?.notes ? (
 					<div className="flex min-w-0 flex-col gap-1.5">
 						<span className={FIELD_LABEL}>Observações</span>
-						<span className="whitespace-pre-wrap text-[13px] [overflow-wrap:anywhere]">{revealed.notes}</span>
+						<span className="whitespace-pre-wrap text-body [overflow-wrap:anywhere]">{revealed.notes}</span>
 					</div>
 				) : null}
 				{shown ? (revealed?.extras ?? []).map((extra) => <ReadonlyField key={extra.name} label={extra.name} mono={extra.secret} value={extra.value} />) : null}
@@ -435,10 +435,10 @@ export function VaultFormView({ form, editing, errors, saving, saveError, totpCh
 							<div className="mt-1 flex items-center gap-2" data-slot="vault-strength">
 								<div className="flex flex-1 gap-1" aria-hidden>
 									{[1, 2, 3, 4].map((step) => (
-										<span className={cn("h-1 flex-1 rounded-full bg-muted", strength.score >= step && (strength.score >= 3 ? "bg-emerald-500" : strength.score === 2 ? "bg-amber-500" : "bg-destructive"))} key={step} />
+										<span className={cn("h-1 flex-1 rounded-full bg-muted", strength.score >= step && (strength.score >= 3 ? "bg-success" : strength.score === 2 ? "bg-warning" : "bg-destructive"))} key={step} />
 									))}
 								</div>
-								<span className="w-14 text-right text-[11px] text-muted-foreground">{strength.label}</span>
+								<span className="w-14 text-right text-caption text-muted-foreground">{strength.label}</span>
 							</div>
 						) : null}
 					</Field>
@@ -460,7 +460,7 @@ export function VaultFormView({ form, editing, errors, saving, saveError, totpCh
 							</InputGroupAddon>
 						</InputGroup>
 						{totpCheck ? (
-							<p className={cn("m-0 text-xs", totpCheck.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive")} role="status">
+							<p className={cn("m-0 text-xs", totpCheck.ok ? "text-success" : "text-destructive")} role="status">
 								{totpCheck.message}
 							</p>
 						) : null}

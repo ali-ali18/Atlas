@@ -49,7 +49,7 @@ export function KanbanNode({ node }: { node: Of<"kanban"> }) {
 						{column.items.map((item, i) => (
 							<div className="flex min-w-0 flex-col gap-1 rounded-lg border border-border/60 bg-card px-2.5 py-2" key={`${item.title}-${i}`}>
 								<div className="text-xs font-medium [overflow-wrap:anywhere]">{item.title}</div>
-								{item.subtitle ? <div className="text-muted-foreground text-[11px] [overflow-wrap:anywhere]">{item.subtitle}</div> : null}
+								{item.subtitle ? <div className="text-muted-foreground text-caption [overflow-wrap:anywhere]">{item.subtitle}</div> : null}
 								{item.badge ? (
 									<Badge className="w-fit max-w-full" variant="secondary">
 										{item.badge}

@@ -27,7 +27,7 @@ export function StatNode({ node }: { node: StatNode }) {
 				{formatPageValue(value, { unit, format })}
 			</div>
 			{delta ? (
-				<div className={cn("truncate text-[11px] tabular-nums leading-4", TONE_TEXT)} style={toneStyle(DELTA_TONE[delta.direction])} title={fullDelta}>
+				<div className={cn("truncate text-caption tabular-nums leading-4", TONE_TEXT)} style={toneStyle(DELTA_TONE[delta.direction])} title={fullDelta}>
 					{formatPageDelta(delta, base)}
 				</div>
 			) : null}

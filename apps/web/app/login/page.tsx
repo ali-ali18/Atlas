@@ -1,6 +1,7 @@
 "use client"
 
-import { AtSignIcon, BotIcon, LoaderCircleIcon, MailCheckIcon } from "lucide-react"
+import { Spinner } from "@workspace/ui/components/spinner"
+import { AtSignIcon, BotIcon, MailCheckIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect, useState, type FormEvent } from "react"
 
@@ -194,7 +195,7 @@ export default function LoginPage() {
                     variant="outline"
                   >
                     {busy === "google" ? (
-                      <LoaderCircleIcon className="animate-spin" data-icon="inline-start" />
+                      <Spinner data-icon="inline-start" />
                     ) : (
                       <GoogleIcon data-icon="inline-start" />
                     )}
@@ -211,7 +212,7 @@ export default function LoginPage() {
                     variant="outline"
                   >
                     {busy === "github" ? (
-                      <LoaderCircleIcon className="animate-spin" data-icon="inline-start" />
+                      <Spinner data-icon="inline-start" />
                     ) : (
                       <GithubIcon data-icon="inline-start" />
                     )}
@@ -240,7 +241,7 @@ export default function LoginPage() {
                 />
               </InputGroup>
               <Button className="w-full" disabled={locked} size="lg" type="submit">
-                {busy === "email" && <LoaderCircleIcon className="animate-spin" data-icon="inline-start" />}
+                {busy === "email" && <Spinner data-icon="inline-start" />}
                 Enviar link de acesso
               </Button>
             </form>

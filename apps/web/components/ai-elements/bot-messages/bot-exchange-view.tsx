@@ -185,7 +185,7 @@ export function BotExchangeView({
 									) : null}
 									<div className={cn("flex min-w-0 max-w-[85%] flex-col gap-0.5", entry.self ? "items-end" : "items-start")}>
 										{entry.title && first ? (
-											<span className="px-1 text-[11px] text-muted-foreground">{entry.title}</span>
+											<span className="px-1 text-caption text-muted-foreground">{entry.title}</span>
 										) : null}
 										<Bubble align={entry.self ? "end" : "start"} variant="muted">
 											<BubbleContent

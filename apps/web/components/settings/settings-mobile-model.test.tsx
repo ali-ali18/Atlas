@@ -81,7 +81,7 @@ test("grupo e linha: blocos de 20px, 2px entre linhas, linha toca e mostra a set
 			<SettingsRow title="Estática" />
 		</SettingsGroup>,
 	);
-	assert.match(html, /rounded-\[20px\]/);
+	assert.match(html, /rounded-panel/);
 	assert.match(html, /gap-0\.5/);
 	assert.match(html, /<button[^>]*data-slot="settings-row"/);
 	assert.match(html, />Sistema</);

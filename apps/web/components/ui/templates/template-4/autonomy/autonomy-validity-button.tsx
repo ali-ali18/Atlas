@@ -68,7 +68,7 @@ export function AutonomyValidityButton({
 						</DropdownMenuTrigger>
 					}
 				/>
-				<TooltipContent className="px-2 py-1 text-[11px]">
+				<TooltipContent className="px-2 py-1 text-caption">
 					{label}
 				</TooltipContent>
 				<DropdownMenuContent align="end">

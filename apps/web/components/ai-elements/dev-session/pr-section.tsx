@@ -1,6 +1,7 @@
 "use client";
 
-import { CheckCircle2Icon, ClockIcon, ExternalLinkIcon, GitPullRequestIcon, Loader2Icon, MinusCircleIcon, XCircleIcon } from "lucide-react";
+import { CheckCircle2Icon, ClockIcon, ExternalLinkIcon, GitPullRequestIcon, MinusCircleIcon, XCircleIcon } from "lucide-react";
+import { Spinner } from "@workspace/ui/components/spinner";
 import { Badge } from "@workspace/ui/components/badge";
 import { cn } from "@workspace/ui/lib/utils";
 import { ciCheckFailed, ciSummaryText, DEV_PR_STATE_LABEL, type DevCiCheck, type DevPrInfo, type DevPrState } from "@workspace/shared";
@@ -39,11 +40,11 @@ const CHECK_LABEL: Record<CheckVisual, string> = {
 function CheckIcon({ visual }: { visual: CheckVisual }) {
 	switch (visual) {
 		case "passed":
-			return <CheckCircle2Icon className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />;
+			return <CheckCircle2Icon className="size-3.5 shrink-0 text-success" />;
 		case "failed":
 			return <XCircleIcon className="size-3.5 shrink-0 text-destructive" />;
 		case "running":
-			return <Loader2Icon className="size-3.5 shrink-0 animate-spin text-muted-foreground" />;
+			return <Spinner className="size-3.5 shrink-0 text-muted-foreground" />;
 		case "queued":
 			return <ClockIcon className="size-3.5 shrink-0 text-muted-foreground" />;
 		default:
@@ -52,9 +53,9 @@ function CheckIcon({ visual }: { visual: CheckVisual }) {
 }
 
 const PR_DOT: Record<DevPrState, string> = {
-	open: "bg-emerald-500",
+	open: "bg-success",
 	draft: "bg-muted-foreground/60",
-	merged: "bg-sky-500",
+	merged: "bg-info",
 	closed: "bg-destructive",
 };
 
@@ -93,7 +94,7 @@ function CheckRow({ check }: { check: DevCiCheck }) {
 			<span className="min-w-0 flex-1 truncate" title={check.name}>
 				{check.name}
 			</span>
-			{check.durationMs !== undefined ? <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">{formatElapsed(check.durationMs)}</span> : null}
+			{check.durationMs !== undefined ? <span className="shrink-0 font-mono text-caption text-muted-foreground tabular-nums">{formatElapsed(check.durationMs)}</span> : null}
 			{href ? (
 				<ExternalLink className="shrink-0 text-muted-foreground" href={href} label={`Abrir ${check.name} no GitHub`}>
 					<ExternalLinkIcon className="size-3.5" />
@@ -116,7 +117,7 @@ export function PullRequestBody({ pr, ci }: { pr: DevPrInfo; ci?: DevCiView }) {
 					</span>
 					<PrStatePill state={pr.state} />
 				</div>
-				<p className="truncate font-mono text-[11px] text-muted-foreground" data-pr-branches title={`${pr.base} ← ${pr.head}`}>
+				<p className="truncate font-mono text-caption text-muted-foreground" data-pr-branches title={`${pr.base} ← ${pr.head}`}>
 					{pr.base} ← {pr.head}
 				</p>
 				{href ? (
@@ -132,7 +133,7 @@ export function PullRequestBody({ pr, ci }: { pr: DevPrInfo; ci?: DevCiView }) {
 					<span aria-hidden="true">·</span>
 					{!ci ? (
 						<span className="inline-flex items-center gap-1">
-							<Loader2Icon className="size-3 animate-spin" />
+							<Spinner className="size-3" />
 							Verificando…
 						</span>
 					) : ci.checks.length === 0 ? (

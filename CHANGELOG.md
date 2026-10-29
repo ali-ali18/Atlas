@@ -16,6 +16,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 - **worker:** retenção diária de `run_events` e execuções de rotina (#104)
 
 ### Alterado
+- **ui, web:** base visual comum: tokens `text-body`/`text-caption`, `rounded-card`/`rounded-panel`, cores de estado `success`/`warning`/`info` (claro e escuro) e escala `z-sticky/overlay/modal/toast`; `Alert` e `Badge` ganham as variantes de estado e o `RequestCard` usa os mesmos tons; novo `Spinner` único (gira só com "reduzir movimento" desligado). Sem mudança de tamanho; os tons de estado ficam num só. Guarda automática `visual-base-guard` impede novos `text-[Npx]`, `rounded-[Npx]` e hex soltos (ver `.agents/rules/35-componentes.md`)
 - **sandbox, api:** a VM não é mais parada por inatividade (`SANDBOX_IDLE_STOP=1` volta ao modo antigo); novas variáveis `SANDBOX_MAX_RUNNING` (3) e `SANDBOX_MIN_FREE_MEM_MB` (512); o stop espera 15 s e o poll do painel não religa VM desligada
 - **infra:** deploy por imagem pronta: o GitHub Actions monta as imagens depois do CI e publica no GHCR; o Dokploy só baixa, com limite de memória por serviço (#106)
 - **agent:** ferramentas carregadas ficam fixas na conversa, melhorando o cache (#103)

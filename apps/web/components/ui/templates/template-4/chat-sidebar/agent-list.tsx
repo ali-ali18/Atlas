@@ -158,7 +158,7 @@ function AgentRow({
 									</span>
 									{agent.members?.length ? (
 										<span
-											className="flex shrink-0 items-center gap-0.5 text-[11px] text-sidebar-foreground/50"
+											className="flex shrink-0 items-center gap-0.5 text-caption text-sidebar-foreground/50"
 											data-testid="group-count"
 											title={`${agent.members.length} bots no grupo`}
 										>
@@ -168,7 +168,7 @@ function AgentRow({
 									) : null}
 								</span>
 								{timeLabel ? (
-									<span className="shrink-0 text-[11px] text-sidebar-foreground/50">
+									<span className="shrink-0 text-caption text-sidebar-foreground/50">
 										{timeLabel}
 									</span>
 								) : null}
@@ -470,7 +470,7 @@ export function AgentList({
 					{rows.length > 0 ? (
 						renderRows(rows)
 					) : (
-						<p className="px-3 py-1 text-[11px] text-sidebar-foreground/40">
+						<p className="px-3 py-1 text-caption text-sidebar-foreground/40">
 							Nenhum bot nesta sessão
 						</p>
 					)}

@@ -22,7 +22,7 @@ test("vista principal: Nome, Rótulo e o cartão Modelo, Autonomia, Idioma e Not
 	assert.match(html, /value="Dev"/);
 	for (const label of ["Modelo", "Idioma", "Notificações"]) assert.match(html, new RegExp(`>${label}<`));
 	assert.match(html, />Autonomia</);
-	assert.match(html, /rounded-\[12px\] border border-border\/60 py-2/, "cartão de cantos 12");
+	assert.match(html, /rounded-card border border-border\/60 py-2/, "cartão de cantos 12");
 	assert.doesNotMatch(html, /divide-y/);
 });
 

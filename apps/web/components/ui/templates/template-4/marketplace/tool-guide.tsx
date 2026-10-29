@@ -117,8 +117,8 @@ export function apiOperationGuide(operation: ApiOperation): ToolGuideData {
 }
 
 const TONE: Record<ToolGuideData["accessTone"], string> = {
-  read: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  write: "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  read: "bg-success/10 text-success",
+  write: "bg-warning/10 text-warning",
   neutral: "bg-muted text-muted-foreground",
 }
 
@@ -140,7 +140,7 @@ export function ToolGuideBody({ guide, onClose }: { guide: ToolGuideData; onClos
   return (
     <div className="flex min-w-0 flex-col gap-4 p-5">
       <header className="min-w-0 space-y-2">
-        <span className={cn("inline-flex h-5 items-center rounded-md px-1.5 text-[11px] font-medium", TONE[guide.accessTone])}>{guide.access}</span>
+        <span className={cn("inline-flex h-5 items-center rounded-md px-1.5 text-caption font-medium", TONE[guide.accessTone])}>{guide.access}</span>
         <h2 className="m-0 text-lg leading-snug font-semibold break-words">{guide.title}</h2>
         <p className="m-0 break-all font-mono text-xs text-muted-foreground">{guide.code}</p>
       </header>
@@ -161,7 +161,7 @@ export function ToolGuideBody({ guide, onClose }: { guide: ToolGuideData; onClos
                     {param.type}
                     {param.place ? ` · ${param.place}` : ""}
                   </span>
-                  {param.required ? <span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-foreground">obrigatório</span> : null}
+                  {param.required ? <span className="rounded-md bg-muted px-1.5 py-0.5 text-caption text-foreground">obrigatório</span> : null}
                 </div>
                 {param.description ? <p className="m-0 text-xs leading-5 break-words text-muted-foreground">{param.description}</p> : null}
               </li>

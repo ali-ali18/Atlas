@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronDownIcon, CircleAlertIcon, Loader2Icon, SquareTerminalIcon } from "lucide-react";
+import { ChevronDownIcon, CircleAlertIcon, SquareTerminalIcon } from "lucide-react";
+import { Spinner } from "@workspace/ui/components/spinner";
 import { useId, useState } from "react";
 
 import { cn } from "@workspace/ui/lib/utils";
@@ -43,7 +44,7 @@ export function CodeRunCard({ code, status, durationMs, output = "", defaultOpen
 				type="button"
 			>
 				{status === "running" ? (
-					<Loader2Icon className="size-3.5 shrink-0 motion-safe:animate-spin" />
+					<Spinner className="size-3.5 shrink-0" />
 				) : status === "error" ? (
 					<CircleAlertIcon className="size-3.5 shrink-0" />
 				) : (
@@ -57,7 +58,7 @@ export function CodeRunCard({ code, status, durationMs, output = "", defaultOpen
 					<MarkdownCodeBlock code={code} language="python" />
 					{output.trim() ? (
 						<div className="mt-2 min-w-0 overflow-hidden rounded-lg border border-border/60 bg-muted/60" data-testid="code-run-output">
-							<div className="flex h-8 items-center border-border/60 border-b bg-muted/80 pl-3 font-mono text-[11px] text-muted-foreground">
+							<div className="flex h-8 items-center border-border/60 border-b bg-muted/80 pl-3 font-mono text-caption text-muted-foreground">
 								saída
 							</div>
 							<pre className="m-0 max-h-80 overflow-auto p-3 font-mono text-xs leading-relaxed whitespace-pre text-foreground/90">{shown}</pre>

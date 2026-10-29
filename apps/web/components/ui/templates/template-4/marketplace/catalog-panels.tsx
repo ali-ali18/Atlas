@@ -184,7 +184,7 @@ export function SkillConflictFlow({ name, installedVersion, catalogVersion, diff
             <pre className="max-h-48 overflow-auto rounded-xl bg-background p-2 font-mono text-xs leading-5" tabIndex={0}>
               {diff.preview.map((line, index) => (
                 <span
-                  className={cn("block whitespace-pre-wrap [overflow-wrap:anywhere]", line.startsWith("+") ? "text-emerald-500" : "text-red-400")}
+                  className={cn("block whitespace-pre-wrap [overflow-wrap:anywhere]", line.startsWith("+") ? "text-success" : "text-red-400")}
                   key={`${index}-${line}`}
                 >
                   {line}

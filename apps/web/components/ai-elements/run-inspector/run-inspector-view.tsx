@@ -196,13 +196,13 @@ function StepCard({ step, scale }: { step: InspectStepView; scale: number }) {
 			{step.toolNames && step.toolNames.length > 0 ? (
 				<details className="text-xs">
 					<summary className="cursor-pointer text-muted-foreground">{step.toolCount ?? step.toolNames.length} ferramentas disponíveis</summary>
-					<p className="mt-1 break-words font-mono text-[11px] leading-relaxed">{step.toolNames.join(", ")}</p>
+					<p className="mt-1 break-words font-mono text-caption leading-relaxed">{step.toolNames.join(", ")}</p>
 				</details>
 			) : null}
 			{step.request ? (
 				<details className="text-xs">
 					<summary className="cursor-pointer text-muted-foreground">Pedido enviado (redigido){step.request.truncated ? ", parcial" : ""}</summary>
-					<pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-2 font-mono text-[11px]">{step.request.text}</pre>
+					<pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-2 font-mono text-caption">{step.request.text}</pre>
 				</details>
 			) : null}
 		</li>
@@ -220,7 +220,7 @@ function ToolRow({ call }: { call: InspectToolCall }) {
 					<Badge variant={status.variant}>{status.label}</Badge>
 				</span>
 			</div>
-			{call.args ? <p className="break-words font-mono text-[11px] text-muted-foreground">{call.args}</p> : null}
+			{call.args ? <p className="break-words font-mono text-caption text-muted-foreground">{call.args}</p> : null}
 			{call.summary ? <p className="break-words text-xs">{call.summary}</p> : null}
 		</li>
 	);

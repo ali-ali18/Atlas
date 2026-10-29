@@ -18,8 +18,8 @@ const STATE_LABEL: Record<ActiveWorkRow["state"], string> = {
 };
 
 const DOT: Record<ActiveWorkRow["state"], string> = {
-	working: "bg-emerald-500 animate-pulse",
-	waiting: "bg-amber-500",
+	working: "bg-success animate-pulse",
+	waiting: "bg-warning",
 	done: "bg-muted-foreground/60",
 	error: "bg-destructive",
 };
@@ -49,7 +49,7 @@ export function ActiveWorkRowView({ row, now, onOpen }: { row: ActiveWorkRow; no
 					<span className="shrink-0 tabular-nums">{time}</span>
 				</span>
 				{row.awaitingApproval ? (
-					<span className="mt-1 inline-block rounded-full bg-muted px-2 py-0.5 font-medium text-[11px] text-foreground/80" data-awaiting-approval>
+					<span className="mt-1 inline-block rounded-full bg-muted px-2 py-0.5 font-medium text-caption text-foreground/80" data-awaiting-approval>
 						Aguardando aprovação
 					</span>
 				) : null}

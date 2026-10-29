@@ -28,7 +28,7 @@ export function BotLinkMarker({
 				<span>{direction === "sent" ? "Enviou mensagem para" : "Mensagem de"}</span>
 				<BotChip bot={bot} />
 				{overdue ? (
-					<span className="text-amber-600 dark:text-amber-400" data-bot-overdue>
+					<span className="text-warning" data-bot-overdue>
 						· {overdue}
 					</span>
 				) : null}

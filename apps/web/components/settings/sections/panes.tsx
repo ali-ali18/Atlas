@@ -322,7 +322,7 @@ function OpenRouterKeyRow({ account }: { account: Account }) {
 			icon={KeyRoundIcon}
 			label="Chave do OpenRouter"
 		>
-			<span className="text-[13px] text-muted-foreground">
+			<span className="text-body text-muted-foreground">
 				{!known ? "Carregando…" : configured ? "Configurada no servidor" : "Não configurada"}
 			</span>
 		</SettingRow>

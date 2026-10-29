@@ -1,6 +1,7 @@
 "use client";
 
-import { Loader2Icon, ShrinkIcon } from "lucide-react";
+import { ShrinkIcon } from "lucide-react";
+import { Spinner } from "@workspace/ui/components/spinner";
 
 import { formatCompactionLine } from "@workspace/shared";
 
@@ -45,7 +46,7 @@ export function CompactionNotice({ state }: { state: CompactionNoticeState }) {
 			data-testid="compaction-notice"
 			role="status"
 		>
-			{state.status === "working" ? <Loader2Icon aria-hidden="true" className="size-3.5 shrink-0 motion-safe:animate-spin" /> : <ShrinkIcon aria-hidden="true" className="size-3.5 shrink-0" />}
+			{state.status === "working" ? <Spinner className="size-3.5 shrink-0" /> : <ShrinkIcon aria-hidden="true" className="size-3.5 shrink-0" />}
 			<span className="min-w-0 break-words">{state.status === "working" ? "Compactando a conversa…" : state.text}</span>
 		</div>
 	);

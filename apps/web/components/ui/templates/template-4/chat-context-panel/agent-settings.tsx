@@ -88,7 +88,7 @@ function ProfileField({
 				{label}
 			</label>
 			<Input
-				className="h-9 text-[13px]"
+				className="h-9 text-body"
 				id={id}
 				onBlur={commit}
 				onChange={(event) => setDraft(event.target.value)}

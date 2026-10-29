@@ -1,6 +1,6 @@
 import { AlertTriangleIcon, EyeIcon, FileTextIcon, WrenchIcon } from "lucide-react"
 import { formatContextTokens, type ModelCapabilities } from "@workspace/shared"
-import { cn } from "cn"
+import { cn } from "../lib/utils"
 
 type Caps = Pick<ModelCapabilities, "vision" | "pdf" | "tools" | "contextTokens">
 
@@ -60,7 +60,7 @@ export function ModelCapabilityWarning({
   if (!message) return null
   return (
     <p
-      className={cn("flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400", className)}
+      className={cn("flex items-start gap-1.5 text-xs text-warning", className)}
       data-slot="model-capability-warning"
       role="note"
     >
