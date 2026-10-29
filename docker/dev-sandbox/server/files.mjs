@@ -139,7 +139,7 @@ export function createFileApi(options = {}) {
 			if (created) await fixOwner(path);
 			const { diff, added, removed } = unifiedDiff(before, input.content, { path: posix.relative(workspace, path).startsWith("..") ? path : posix.relative(workspace, path) });
 			const excerpt = editedExcerpt(before, input.content);
-			const syntaxError = await newSyntaxError({ fs, path, before, after: input.content });
+			const syntaxError = await newSyntaxError({ path, before, after: input.content });
 			return { path, created, bytes: Buffer.byteLength(input.content), diff, added, removed, ...(excerpt ? { excerpt } : {}), ...(syntaxError ? { syntaxError } : {}) };
 		},
 
@@ -182,7 +182,7 @@ export function createFileApi(options = {}) {
 			await fs.writeFile(path, next);
 			const { diff, added, removed } = unifiedDiff(file.text, next, { path: posix.relative(workspace, path).startsWith("..") ? path : posix.relative(workspace, path) });
 			const excerpt = editedExcerpt(file.text, next);
-			const syntaxError = await newSyntaxError({ fs, path, before: file.text, after: next });
+			const syntaxError = await newSyntaxError({ path, before: file.text, after: next });
 			return { path, diff, added, removed, ...(note ? { note } : {}), ...(excerpt ? { excerpt } : {}), ...(syntaxError ? { syntaxError } : {}) };
 		},
 

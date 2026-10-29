@@ -171,9 +171,9 @@ test("patch e write devolvem a janela editada (±3 linhas, no máximo 40)", asyn
 
 test("sintaxe: .json e .js quebrados pela edição são reportados, sem bloquear a gravação", async () => {
 	const { dir, api } = await setup();
-	const w = await api.write({ path: "c.json", content: '{"a": 1,}' });
+	const w = await api.write({ path: "c.json", content: '{"a": }' });
 	assert.match(w.syntaxError, /JSON/i);
-	assert.equal(await fsp.readFile(path.posix.join(dir, "c.json"), "utf8"), '{"a": 1,}');
+	assert.equal(await fsp.readFile(path.posix.join(dir, "c.json"), "utf8"), '{"a": }');
 	await api.write({ path: "ok.mjs", content: "export const a = 1;\n" });
 	const p = await api.patch({ path: "ok.mjs", old: "= 1;", new: "= ;" });
 	assert.match(p.syntaxError, /linha 1.*SyntaxError/s);
@@ -193,5 +193,27 @@ test("sintaxe: só erro novo conta (arquivo já quebrado antes não repete) e .t
 	await fsp.writeFile(path.posix.join(dir, "old.js"), "let = ;\n");
 	const j = await api.patch({ path: "old.js", old: "let = ;", new: "const x = 1 2;" });
 	assert.match(j.syntaxError ?? "", /SyntaxError/); // erro diferente do anterior: é novo
+	assert.deepEqual((await fsp.readdir(dir)).filter((n) => n.includes("atlas-before")), []);
+});
+
+test("sintaxe: JSX em .js e JSONC (tsconfig, comentários, vírgula final) não geram falso erro", async () => {
+	const { api } = await setup();
+	const jsx = await api.write({ path: "App.js", content: "export default function App() {\n  return (<div className=\"a\">oi</div>);\n}\n" });
+	assert.equal(jsx.syntaxError, undefined);
+	const ts = await api.write({ path: "tsconfig.json", content: '{\n  // comentário\n  "compilerOptions": { "strict": true, },\n}\n' });
+	assert.equal(ts.syntaxError, undefined);
+	const other = await api.write({ path: "x.json", content: '{"a": 1, /* c */ "b": 2,}' });
+	assert.equal(other.syntaxError, undefined);
+	const bad = await api.write({ path: "y.json", content: '{"a": }' });
+	assert.match(bad.syntaxError, /JSON/i);
+});
+
+test("sintaxe: o arquivo 'antes' não é criado ao lado do arquivo do usuário e respeita o tipo de módulo", async () => {
+	const { dir, api } = await setup();
+	await fsp.writeFile(path.posix.join(dir, "package.json"), '{"type":"module"}');
+	await fsp.writeFile(path.posix.join(dir, "esm.js"), "import fs from 'node:fs';\nlet = ;\n");
+	// ESM antes e depois quebrados com o MESMO erro: não é novo (só vale se o "antes" for checado como ESM).
+	const same = await api.patch({ path: "esm.js", old: "import fs from 'node:fs';", new: "import os from 'node:os';" });
+	assert.equal(same.syntaxError, undefined);
 	assert.deepEqual((await fsp.readdir(dir)).filter((n) => n.includes("atlas-before")), []);
 });
