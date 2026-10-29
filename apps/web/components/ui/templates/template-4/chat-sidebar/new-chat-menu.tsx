@@ -9,6 +9,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
+import { useT } from "@/lib/i18n/provider";
 
 /** Menu do "+": novo bot ou chat em grupo. O gatilho é quem chama (botão da sidebar, do rail ou do celular). */
 export function NewChatMenu({
@@ -26,15 +27,16 @@ export function NewChatMenu({
 	side?: "top" | "right" | "bottom" | "left";
 	itemClassName?: string;
 }) {
+	const t = useT();
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger render={trigger} />
 			<DropdownMenuContent align={align} className="min-w-44" side={side}>
 				<DropdownMenuItem className={itemClassName} onClick={onNewBot}>
-					<BotIcon /> Criar novo Bot
+					<BotIcon /> {t("sidebar.newBot")}
 				</DropdownMenuItem>
 				<DropdownMenuItem className={itemClassName} onClick={onNewGroup}>
-					<UsersIcon /> Criar chat em grupo
+					<UsersIcon /> {t("sidebar.newGroup")}
 				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>

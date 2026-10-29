@@ -25,3 +25,24 @@ test("sem erro ou ainda carregando: nada de aviso (vazio de verdade continua sen
 	assert.equal(listErrorMode({ loadError: false, loading: false, count: 0 }), "none");
 	assert.equal(listErrorMode({ loadError: true, loading: true, count: 0 }), "none");
 });
+
+test("o erro da lista sai no idioma da interface", async () => {
+	const { I18nProvider } = await import("@/lib/i18n/provider");
+	const { loadMessages } = await import("@/lib/i18n/messages");
+	const en = renderToStaticMarkup(
+		<I18nProvider locale="en-US" messages={await loadMessages("en-US")}>
+			<ListLoadError mode="full" onRetry={() => {}} />
+			<ListLoadError mode="banner" onRetry={() => {}} />
+		</I18nProvider>,
+	);
+	assert.match(en, /Couldn&#x27;t load your conversations\./);
+	assert.match(en, /Showing the last list/);
+	assert.match(en, />\s*Try again/);
+	assert.doesNotMatch(en, /Tentar de novo|conversas/);
+	const es = renderToStaticMarkup(
+		<I18nProvider locale="es-ES" messages={await loadMessages("es-ES")}>
+			<ListLoadError mode="full" onRetry={() => {}} />
+		</I18nProvider>,
+	);
+	assert.match(es, /No se han podido cargar tus conversaciones/);
+});

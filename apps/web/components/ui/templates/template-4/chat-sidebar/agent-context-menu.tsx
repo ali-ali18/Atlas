@@ -30,6 +30,7 @@ import {
 
 import type { Agent } from "../data";
 import { copyText } from "../chat-thread/message-reactions";
+import { useT } from "@/lib/i18n/provider";
 
 export type AgentMenuActions = {
 	onEdit: (id: string) => void;
@@ -59,6 +60,7 @@ export function AgentContextMenu({
 	sections?: Section[];
 	children: React.ReactNode;
 }) {
+	const t = useT();
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger render={<div className="contents" />}>
@@ -67,30 +69,30 @@ export function AgentContextMenu({
 			<ContextMenuContent align="start" side="right" sideOffset={8}>
 				<ContextMenuItem onClick={() => actions.onEdit(agent.id)}>
 					<PencilIcon />
-					{agent.members?.length ? "Informações do grupo" : "Editar"}
+					{agent.members?.length ? t("sidebar.menu.groupInfo") : t("sidebar.menu.edit")}
 				</ContextMenuItem>
 					{actions.canPickPrimary && !agent.members?.length ? (
 						agent.isPrimary ? (
 							<ContextMenuItem onClick={() => actions.onReplacePrimary()}>
 								<StarIcon />
-								Trocar Bot principal
+								{t("sidebar.menu.changePrimary")}
 							</ContextMenuItem>
 						) : (
 							<ContextMenuItem onClick={() => actions.onSetPrimary(agent.id)}>
 								<StarIcon />
-								Definir como Bot principal
+								{t("sidebar.menu.setPrimary")}
 							</ContextMenuItem>
 						)
 					) : null}
 				{agent.pinned ? (
 					<ContextMenuItem onClick={() => actions.onUnpin(agent.id)}>
 						<PinOffIcon />
-						Desafixar
+						{t("sidebar.menu.unpin")}
 					</ContextMenuItem>
 				) : (
 					<ContextMenuItem onClick={() => actions.onPin(agent.id)}>
 						<PinIcon />
-						Fixar
+						{t("sidebar.menu.pin")}
 					</ContextMenuItem>
 				)}
 				{agent.notifications ? (
@@ -98,12 +100,12 @@ export function AgentContextMenu({
 						onClick={() => actions.onMarkUnread(agent.id, false)}
 					>
 						<MailOpenIcon />
-						Marcar como lido
+						{t("sidebar.menu.markRead")}
 					</ContextMenuItem>
 				) : (
 					<ContextMenuItem onClick={() => actions.onMarkUnread(agent.id, true)}>
 						<MailIcon />
-						Marcar como não lido
+						{t("sidebar.menu.markUnread")}
 					</ContextMenuItem>
 				)}
 				<ContextMenuItem
@@ -112,20 +114,20 @@ export function AgentContextMenu({
 					}}
 				>
 					<CopyIcon />
-					Copiar ID da conversa
+					{t("sidebar.menu.copyId")}
 				</ContextMenuItem>
 				{sections.length > 0 ? (
 					<ContextMenuSub>
 						<ContextMenuSubTrigger className="gap-2.5">
 							<FolderInputIcon />
-							Mover para sessão
+							{t("sidebar.menu.moveToSection")}
 						</ContextMenuSubTrigger>
 						<ContextMenuSubContent className="w-52 min-w-0">
 							<ContextMenuItem
 								onClick={() => actions.onCreateSectionFor(agent.id)}
 							>
 								<FolderPlusIcon />
-								Nova sessão…
+								{t("sidebar.menu.newSection")}
 							</ContextMenuItem>
 							<ContextMenuSeparator />
 								{sections.map((section) => (
@@ -150,7 +152,7 @@ export function AgentContextMenu({
 										onClick={() => actions.onMoveToSection(agent.id, null)}
 									>
 										<FolderOutputIcon />
-										Remover da sessão
+										{t("sidebar.menu.removeFromSection")}
 									</ContextMenuItem>
 								</>
 							) : null}
@@ -161,20 +163,20 @@ export function AgentContextMenu({
 						onClick={() => actions.onCreateSectionFor(agent.id)}
 					>
 						<FolderInputIcon />
-						Mover para sessão
+						{t("sidebar.menu.moveToSection")}
 					</ContextMenuItem>
 				)}
 				<ContextMenuSeparator />
 				<ContextMenuItem onClick={() => actions.onHide(agent.id)}>
 					<EyeOffIcon />
-					Ocultar da barra lateral
+					{t("sidebar.menu.hide")}
 				</ContextMenuItem>
 				<ContextMenuItem
 					onClick={() => actions.onDelete(agent.id)}
 					variant="destructive"
 				>
 					<Trash2Icon />
-					{agent.members?.length ? "Excluir grupo" : "Excluir"}
+					{agent.members?.length ? t("sidebar.menu.deleteGroup") : t("sidebar.menu.delete")}
 				</ContextMenuItem>
 			</ContextMenuContent>
 		</ContextMenu>

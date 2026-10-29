@@ -4,6 +4,7 @@ import { common } from "./common";
 import { library } from "./library";
 import { login } from "./login";
 import { settings } from "./settings";
+import { sidebar } from "./sidebar";
 import { ui } from "./ui";
 
 export const esES: MessageDictionary = {
@@ -11,5 +12,6 @@ export const esES: MessageDictionary = {
 	...library,
 	...login,
 	...settings,
+	...sidebar,
 	...ui,
 };

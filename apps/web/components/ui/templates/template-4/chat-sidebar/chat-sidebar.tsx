@@ -2,7 +2,7 @@
 
 import { PlusIcon, RefreshCwIcon } from "lucide-react";
 
-import { LIST_ERROR_RETRY, ListLoadError, listErrorMode } from "../list-load-error";
+import { ListLoadError, listErrorMode } from "../list-load-error";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@workspace/ui/components/button";
@@ -33,6 +33,7 @@ import { PinnedAgentsZone } from "./pinned-agents-zone";
 import { AgentAvatar } from "../agent-avatar";
 import { ActiveWorkSidebarSection } from "@/components/ai-elements/dev-session/active-work";
 import type { ActiveWorkItemResponse } from "@/lib/atlas-api";
+import { useT } from "@/lib/i18n/provider";
 
 export type SidebarDrag = { id: string; pinned: boolean };
 
@@ -104,6 +105,7 @@ export function ChatSidebar({
 	onOpenAutonomy: () => void;
 	onUnpin: (id: string) => void;
 }) {
+	const t = useT();
 	const [query, setQuery] = useState("");
 	const [drag, setDrag] = useState<SidebarDrag>();
 	const dragRef = useRef<SidebarDrag | undefined>(undefined);
@@ -283,17 +285,17 @@ export function ChatSidebar({
 		<Sidebar collapsible="icon">
 			{sidebarOpen ? (
 				<button
-					aria-label="Redimensionar ou minimizar sidebar"
+					aria-label={t("sidebar.resizeOrCollapse")}
 					className="absolute inset-y-0 right-0 z-30 hidden w-1.5 cursor-ew-resize touch-none bg-transparent transition-colors hover:bg-sidebar-border md:block"
 					onPointerDown={handleSidebarResizeStart}
 					type="button"
 				/>
 			) : (
 				<button
-					aria-label="Arrastar para redimensionar a sidebar"
+					aria-label={t("sidebar.dragToResize")}
 					className="group/pull absolute inset-y-0 right-0 z-30 hidden w-4 cursor-ew-resize touch-none bg-transparent md:block"
 					onPointerDown={handleSidebarExpandStart}
-					title="Arrastar para controlar o tamanho da sidebar"
+					title={t("sidebar.dragToControlSize")}
 					type="button"
 				>
 					<span className="absolute inset-y-0 right-0 w-1.5 bg-transparent transition-colors group-hover/pull:bg-sidebar-border/60" />
@@ -317,7 +319,7 @@ export function ChatSidebar({
 					sidebarOpen ? (
 						<ListLoadError className="px-4" mode="full" onRetry={retryLoad} />
 					) : (
-						<Button aria-label={LIST_ERROR_RETRY} className="mx-auto mt-4" onClick={retryLoad} size="icon" variant="ghost">
+						<Button aria-label={t("sidebar.loadError.retry")} className="mx-auto mt-4" onClick={retryLoad} size="icon" variant="ghost">
 							<RefreshCwIcon />
 						</Button>
 					)
@@ -332,15 +334,15 @@ export function ChatSidebar({
 										mood="neutre"
 									/>
 								</EmptyMedia>
-								<EmptyTitle>Nenhum agente ainda</EmptyTitle>
+								<EmptyTitle>{t("sidebar.empty.title")}</EmptyTitle>
 							</EmptyHeader>
 							<EmptyContent>
 								<p className="text-muted-foreground text-sm">
-									Crie seu primeiro agente para começar a conversar.
+									{t("sidebar.empty.body")}
 								</p>
 								<Button onClick={onStartCreate} size="sm">
 									<PlusIcon />
-									Criar agente
+									{t("sidebar.empty.cta")}
 								</Button>
 							</EmptyContent>
 						</Empty>

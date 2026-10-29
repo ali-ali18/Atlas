@@ -3,6 +3,7 @@ import { common } from "./common";
 import { library } from "./library";
 import { login } from "./login";
 import { settings } from "./settings";
+import { sidebar } from "./sidebar";
 import { ui } from "./ui";
 
 export const ptBR = {
@@ -10,5 +11,6 @@ export const ptBR = {
 	...library,
 	...login,
 	...settings,
+	...sidebar,
 	...ui,
 } as const;
