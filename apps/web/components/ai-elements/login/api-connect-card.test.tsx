@@ -69,7 +69,7 @@ test("card compacto: título, chip Só leitura, uma frase e dois botões, nada m
 test("Detalhes revela site, acesso e contagens em palavras simples", () => {
   const html = view(bling, { detailsOpen: true })
   assert.match(html, /api\.bling\.test/)
-  assert.match(html, /OAuth2 \(código de autorização\)/)
+  assert.match(html, /Entrar com a conta/)
   assert.match(html, /6 ações · 4 só para ler/)
   for (const jargon of [/>Domínio</, />Autenticação</, />Operações</]) assert.doesNotMatch(html, jargon)
   assert.doesNotMatch(html, /outro domínio/)
