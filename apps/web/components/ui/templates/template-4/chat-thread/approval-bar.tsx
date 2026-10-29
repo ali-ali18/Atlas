@@ -4,7 +4,7 @@ import { CheckIcon, ChevronDownIcon, EllipsisVerticalIcon, ShieldAlertIcon, XIco
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
-import { approvalBarLabel, APPROVAL_STACK_PEEKS, dockEntryPrefixes, type DockEntry } from "@/lib/approval-dock";
+import { approvalBarLabel, dockEntryPrefixes, type DockEntry } from "@/lib/approval-dock";
 import { devApprovalOptions } from "@/lib/dev-approval-options";
 
 export type ApprovalBarProps = {
@@ -21,9 +21,6 @@ export type ApprovalBarProps = {
 	/** Começa com a lista aberta (testes). */
 	defaultExpanded?: boolean;
 };
-
-const PEEK_PX = 7;
-const PEEK_INSET_PX = 10;
 
 type RowProps = Pick<ApprovalBarProps, "onApprove" | "onSkip" | "onLocate" | "onAlways"> & { entry: DockEntry; extra?: ReactNode };
 
@@ -69,9 +66,9 @@ function Row({ entry, onApprove, onSkip, onLocate, onAlways, extra }: RowProps) 
 }
 
 /**
- * Faixa colada ao topo do campo de texto (sai de trás dele), só com pedidos de aprovação que a conversa já deixou
- * para trás. Um pedido: uma linha (alerta + "Executar · comando", ✓ e ✗). Dois ou mais: pilha, como notificações; o
- * mais recente na frente e os outros espiando por trás, com o contador "+N". Tocar a pilha abre a lista inteira.
+ * Seção do container único do composer (acima do campo de texto, abaixo das tarefas), só com pedidos de aprovação que
+ * a conversa já deixou para trás. Um pedido: uma linha (alerta + "Executar · comando", ✓ e ✗). Dois ou mais: o mais
+ * recente na linha com o contador "+N"; tocar abre a lista inteira dentro da mesma seção.
  */
 export function ApprovalBar({ entries: live, onApprove, onSkip, onLocate, onAlways, onHeight, defaultExpanded = false }: ApprovalBarProps) {
 	const [expanded, setExpanded] = useState(defaultExpanded);
@@ -125,7 +122,6 @@ export function ApprovalBar({ entries: live, onApprove, onSkip, onLocate, onAlwa
 	if (!present) return null;
 	const front = entries[entries.length - 1]!;
 	const behind = entries.slice(0, -1);
-	const peeks = Math.min(behind.length, APPROVAL_STACK_PEEKS);
 	const stacked = behind.length > 0;
 	const handlers = { onApprove, onSkip, onLocate, onAlways };
 	const toggle = () => setExpanded((current) => !current);
@@ -133,7 +129,7 @@ export function ApprovalBar({ entries: live, onApprove, onSkip, onLocate, onAlwa
 	return (
 		<div
 			aria-label="Aprovações pendentes"
-			className={`relative z-0 mx-auto -mb-5 w-[calc(100%-1.5rem)] min-w-0 transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none ${shown && live.length > 0 ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0"}`}
+			className={`w-full min-w-0 border-b border-border/60 transition-opacity duration-200 motion-reduce:transition-none ${shown && live.length > 0 ? "opacity-100" : "opacity-0"}`}
 			data-approval-bar
 			data-expanded={expanded || undefined}
 			data-stacked={stacked || undefined}
@@ -142,34 +138,11 @@ export function ApprovalBar({ entries: live, onApprove, onSkip, onLocate, onAlwa
 		>
 			{stacked ? (
 				<div
-					aria-hidden="true"
-					className="relative transition-[height] duration-200 ease-out motion-reduce:transition-none"
-					data-approval-stack-peeks
-					style={{ height: expanded ? 0 : peeks * PEEK_PX }}
-				>
-					{Array.from({ length: peeks }, (_, index) => {
-						const level = index + 1;
-						return (
-							<button
-								className="absolute h-6 rounded-t-3xl border-t border-foreground/15 bg-muted outline-none transition-opacity duration-200 motion-reduce:transition-none"
-								data-approval-stack-layer={level}
-								key={level}
-								onClick={toggle}
-								style={{ left: level * PEEK_INSET_PX, right: level * PEEK_INSET_PX, top: (peeks - level) * PEEK_PX, opacity: expanded ? 0 : 1 - level * 0.2 }}
-								tabIndex={-1}
-								type="button"
-							/>
-						);
-					})}
-				</div>
-			) : null}
-			{stacked ? (
-				<div
 					className="grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none"
 					data-approval-bar-list
 					style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
 				>
-					<div className="min-h-0 overflow-hidden rounded-t-3xl bg-muted">
+					<div className="min-h-0 overflow-hidden">
 						<div className="flex items-center justify-between px-3 pt-2 text-muted-foreground text-xs">
 							<span>{entries.length} aprovações pendentes</span>
 							<Button aria-label="Recolher" className="size-7 rounded-full" onClick={toggle} size="icon-xs" type="button" variant="ghost">
@@ -184,10 +157,7 @@ export function ApprovalBar({ entries: live, onApprove, onSkip, onLocate, onAlwa
 					</div>
 				</div>
 			) : null}
-			<div
-				className={`relative z-10 border-t border-foreground/15 bg-muted pb-5 ${stacked && expanded ? "" : "rounded-t-3xl"}`}
-				data-approval-bar-front
-			>
+			<div className={stacked && expanded ? "border-t border-foreground/10" : ""} data-approval-bar-front>
 				<Row
 					entry={front}
 					extra={

@@ -85,6 +85,7 @@ export function ChatComposer({
 	mentionBots,
 	onCompact,
 	dock,
+	dockActive = false,
 }: {
 	/** Chat 1:1: `/compact [foco]` resume a conversa em vez de virar mensagem; ausente = o comando não é oferecido. */
 	onCompact?: (focus?: string) => void;
@@ -92,6 +93,8 @@ export function ChatComposer({
 	mentionBots?: readonly MentionCandidate[];
 	/** Aprovação pendente fixada logo acima do campo (ver ApprovalDock). */
 	dock?: import("react").ReactNode;
+	/** Há algo na doca (tarefas e/ou aprovação): o composer vira um container só, com as seções em cima e o campo embaixo. */
+	dockActive?: boolean;
 	/** Grupo: membros que o `@` oferece. Presente = modo grupo (sem modelo nem anexos; as falas são do grupo). */
 	mentionMembers?: readonly MentionCandidate[];
 	agentName: string;
@@ -300,9 +303,9 @@ export function ChatComposer({
 		<div className="absolute inset-x-0 bottom-0">
 			<div className="pointer-events-none h-10 bg-linear-to-t from-background to-transparent" />
 			<div className="bg-background px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-				{dock}
 				<form
-					className={`relative z-10 mx-auto w-full max-w-3xl rounded-3xl bg-background ${dragging ? "rounded-3xl ring-2 ring-primary" : ""}`}
+					className={`relative z-10 mx-auto w-full max-w-3xl rounded-3xl ${dockActive ? "border border-border bg-input" : "bg-background"} ${dragging ? "rounded-3xl ring-2 ring-primary" : ""}`}
+					data-composer-docked={dockActive || undefined}
 					onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
 					onDragOver={(event) => event.preventDefault()}
 					onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }}
@@ -315,6 +318,7 @@ export function ChatComposer({
 					<input accept="image/png,image/jpeg,image/webp,image/gif" aria-label="Selecionar imagens" className="sr-only" multiple onChange={(event) => { if (event.target.files) void images.addFiles(event.target.files); event.target.value = ""; }} ref={imageInputRef} type="file" />
 					<input aria-label="Selecionar arquivos" className="sr-only" multiple onChange={(event) => { if (event.target.files) addAny(event.target.files); event.target.value = ""; }} ref={fileInputRef} type="file" />
 					<input accept="image/*" aria-label="Tirar foto" capture="environment" className="sr-only" onChange={(event) => { if (event.target.files) void images.addFiles(event.target.files, true); event.target.value = ""; }} ref={cameraInputRef} type="file" />
+					{dock}
 					{secretGuard.notice}
 					{dictationError && <p aria-live="polite" className="mb-1 text-muted-foreground text-xs">{dictationError}</p>}
 					{images.error && <p aria-live="polite" className="mb-1 text-destructive text-xs">{images.error}</p>}
@@ -335,7 +339,7 @@ export function ChatComposer({
 							onPick={(candidate) => pickMention(candidate)}
 						/>
 					) : null}
-					<InputGroup className="h-auto rounded-3xl border-border bg-input p-1">
+					<InputGroup className={dockActive ? "h-auto rounded-3xl border-transparent bg-transparent p-1" : "h-auto rounded-3xl border-border bg-input p-1"}>
 						<ComposerImageAttachments items={images.items} onRemove={images.remove} />
 						<ComposerFileAttachments items={files.items} onRemove={files.remove} />
 						{mentioned.length > 0 ? (

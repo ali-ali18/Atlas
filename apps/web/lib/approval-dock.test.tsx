@@ -108,7 +108,8 @@ test("barra: uma linha com alerta, rótulo curto, ✓ Executar e ✗ Agora não;
 	assert.match(html, /Executar · pnpm -r build/);
 	assert.match(html, /aria-label="Executar"/);
 	assert.match(html, /aria-label="Agora não"/);
-	assert.match(html, /rounded-t-3xl/);
+	assert.match(html, /border-b border-border\/60/, "seção do container único, sem aba própria");
+	assert.doesNotMatch(html, /rounded-t-3xl|-mb-5/);
 	assert.doesNotMatch(html, /de 2|Aprovação anterior/);
 	assert.doesNotMatch(html, /Atlas/);
 });
@@ -120,13 +121,13 @@ test("barra: rótulos de escrita, de cartão genérico e de outro bot", () => {
 	assert.equal(approvalBarLabel(selectDockEntries([generic])[0]!), "Enviar e-mail?");
 });
 
-test("barra: com 2 ou mais vira pilha (frente + camadas espiando + contador), lista fechada", () => {
+test("barra: com 2 ou mais vira pilha (frente + contador), lista fechada", () => {
 	const entries = selectDockEntries([relayed("r1", "pending"), relayed("r2", "pending"), relayed("r3", "pending"), relayed("r4", "pending"), relayed("r5", "pending")]);
 	const html = bar(entries);
 	assert.ok(html.includes("data-stacked"));
 	assert.ok(html.includes("data-approval-stack-count"));
 	assert.ok(html.includes(">+4<"), "contador");
-	assert.equal(html.split("data-approval-stack-layer=").length - 1, 2, "no máximo 2 camadas espiando");
+	assert.ok(!html.includes("data-approval-stack-layer"), "sem camadas espiando");
 	assert.ok(!html.includes("data-expanded"));
 	assert.ok(html.includes("grid-template-rows:0fr"), "lista recolhida");
 });
@@ -140,7 +141,6 @@ test("barra: um pedido não vira pilha e não mostra contador", () => {
 
 test("barra: a pilha de 2 tem 1 camada e a lista guarda o outro, ambos com ✓/✗", () => {
 	const html = bar(selectDockEntries([cmd("a", "pending", "make a"), relayed("r1", "pending")]));
-	assert.equal(html.split("data-approval-stack-layer=").length - 1, 1);
 	assert.equal(html.split("data-approval-bar-row").length - 1, 2, "frente + 1 na lista");
 	assert.equal(html.split('aria-label="Executar"').length - 1, 2);
 });

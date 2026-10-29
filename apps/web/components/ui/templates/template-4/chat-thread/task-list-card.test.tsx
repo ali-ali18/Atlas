@@ -51,6 +51,9 @@ test("doca recolhida: spinner, '1/3 · tarefa atual' e botão com aria-label; li
 	assert.match(open, /aria-label="Recolher a lista de tarefas"/);
 	assert.match(open, /Enviar o resumo/);
 	assert.match(open, /max-h-\[40vh\] overflow-y-auto/);
+	// seção do container único do composer: só um divisor fino, sem cartão próprio (sem fundo, raio, borda lateral nem margem)
+	assert.match(closed, /border-b border-border\/60/);
+	assert.doesNotMatch(closed, /bg-muted|rounded-2xl|mb-2|max-w-3xl/);
 });
 
 test("doca com tudo concluído mostra 'Tudo pronto' e lista vazia não renderiza", () => {

@@ -130,3 +130,30 @@ test("gravando sem prévia mostra Ouvindo…; transcrevendo mantém a prévia pu
 test("sem ditado ativo não há overlay de prévia", () => {
 	assert.ok(!render({ dictation: dictationView() }).includes('data-slot="dictation-preview"'));
 });
+
+test("doca ativa: um container só (borda e fundo do campo), tarefas → aprovação → campo, sem gap", () => {
+	const html = render({
+		dockActive: true,
+		dock: (
+			<>
+				<div data-testid="task-list-dock" />
+				<div data-approval-bar />
+			</>
+		),
+	});
+	assert.match(html, /data-composer-docked="true"/);
+	assert.match(html, /rounded-3xl border border-border bg-input/);
+	const task = html.indexOf('data-testid="task-list-dock"');
+	const approval = html.indexOf("data-approval-bar");
+	const field = html.indexOf('data-slot="composer-field"');
+	assert.ok(task > 0 && task < approval && approval < field, "ordem das seções");
+	// o campo perde a própria borda/fundo para não haver dois cartões empilhados
+	assert.match(html, /rounded-3xl border-transparent bg-transparent/);
+	assert.doesNotMatch(html, /mb-2|-mb-5/);
+});
+
+test("sem doca: o campo mantém a própria borda e fundo", () => {
+	const html = render();
+	assert.doesNotMatch(html, /data-composer-docked/);
+	assert.match(html, /rounded-3xl border-border bg-input/);
+});

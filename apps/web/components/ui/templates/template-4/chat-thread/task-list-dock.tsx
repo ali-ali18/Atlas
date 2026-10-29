@@ -2,7 +2,7 @@
 
 import { CheckCircle2Icon, ChevronUpIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { ChatCard, ChatCardLeading } from "@workspace/ui/components/chat-card";
+import { ChatCardLeading } from "@workspace/ui/components/chat-card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
 import { Spinner } from "@workspace/ui/components/spinner";
 
@@ -18,7 +18,8 @@ export type TaskListDockProps = {
 };
 
 /**
- * Lista de tarefas presa em cima do composer enquanto o run está ativo: uma linha com spinner e
+ * Seção de tarefas do container único do composer (mesmo fundo, raio e borda da caixa de digitar; só um divisor
+ * fino embaixo) enquanto o run está ativo: uma linha com spinner e
  * "2/5 · tarefa em andamento"; tocar abre a lista inteira (ao vivo, com rolagem até ~40vh no celular).
  * Quando o run termina a doca some e a conversa fica com o resumo (`TaskListCard`).
  */
@@ -41,25 +42,23 @@ export function TaskListDock({ items, onHeight, defaultOpen = false }: TaskListD
 
 	if (total === 0) return null;
 	return (
-		<div className="mx-auto mb-2 w-full max-w-3xl" data-testid="task-list-dock" ref={rootRef}>
-			<ChatCard aria-label="Tarefas do bot" className="w-full max-w-none gap-0 px-0 py-0" data-state={allDone ? "done" : "active"} variant="activity">
-				<Collapsible onOpenChange={setOpen} open={open}>
-					<CollapsibleTrigger
-						aria-label={open ? "Recolher a lista de tarefas" : "Abrir a lista de tarefas"}
-						className="group/trigger flex min-h-11 w-full min-w-0 items-center gap-2 rounded-2xl px-3 text-left text-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
-						data-testid="task-list-dock-toggle"
-					>
-						<ChatCardLeading>{allDone ? <CheckCircle2Icon /> : <Spinner />}</ChatCardLeading>
-						<span className="min-w-0 flex-1 truncate tabular-nums" data-testid="task-list-dock-line">{taskListDockLine(items)}</span>
-						<ChevronUpIcon aria-hidden className="size-4 shrink-0 text-muted-foreground transition-transform group-aria-expanded/trigger:rotate-180" />
-					</CollapsibleTrigger>
-					<CollapsibleContent>
-						<div className="max-h-[40vh] overflow-y-auto px-3 pb-3" data-testid="task-list-dock-items">
-							<TaskListItems items={items} />
-						</div>
-					</CollapsibleContent>
-				</Collapsible>
-			</ChatCard>
+		<div className="w-full min-w-0 border-b border-border/60" data-state={allDone ? "done" : "active"} data-testid="task-list-dock" ref={rootRef} role="region" aria-label="Tarefas do bot">
+			<Collapsible onOpenChange={setOpen} open={open}>
+				<CollapsibleTrigger
+					aria-label={open ? "Recolher a lista de tarefas" : "Abrir a lista de tarefas"}
+					className="group/trigger flex min-h-11 w-full min-w-0 items-center gap-2 rounded-t-3xl px-4 text-left text-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+					data-testid="task-list-dock-toggle"
+				>
+					<ChatCardLeading>{allDone ? <CheckCircle2Icon /> : <Spinner />}</ChatCardLeading>
+					<span className="min-w-0 flex-1 truncate tabular-nums" data-testid="task-list-dock-line">{taskListDockLine(items)}</span>
+					<ChevronUpIcon aria-hidden className="size-4 shrink-0 text-muted-foreground transition-transform group-aria-expanded/trigger:rotate-180" />
+				</CollapsibleTrigger>
+				<CollapsibleContent>
+					<div className="max-h-[40vh] overflow-y-auto px-4 pb-3" data-testid="task-list-dock-items">
+						<TaskListItems items={items} />
+					</div>
+				</CollapsibleContent>
+			</Collapsible>
 		</div>
 	);
 }

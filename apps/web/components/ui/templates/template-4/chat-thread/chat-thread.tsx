@@ -1523,6 +1523,7 @@ export function ChatThread({
 			<ScrollToBottom newCount={newCount} onJump={() => (stickRef.current = true)} targetRef={scrollRef} />
 
 			<ChatComposer
+				dockActive={Boolean(dockedTasks) || barHeight > 0}
 				dock={
 					<ComposerDock
 					tasks={dockedTasks?.items ?? null}
