@@ -3,6 +3,7 @@
 import { CheckIcon, ChevronDownIcon, EllipsisVerticalIcon, ShieldAlertIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@workspace/ui/components/button";
+import { CHAT_CARD_COPY } from "@workspace/ui/lib/chat-card-copy";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
 import { approvalBarLabel, dockEntryPrefixes, type DockEntry } from "@/lib/approval-dock";
 import { devApprovalOptions } from "@/lib/dev-approval-options";
@@ -58,7 +59,7 @@ function Row({ entry, onApprove, onSkip, onLocate, onAlways, extra }: RowProps) 
 			<Button aria-label="Executar" className="size-9 shrink-0 rounded-full" onClick={() => onApprove(entry)} size="icon-sm" type="button" variant="ghost">
 				<CheckIcon />
 			</Button>
-			<Button aria-label="Agora não" className="size-9 shrink-0 rounded-full" onClick={() => onSkip(entry)} size="icon-sm" type="button" variant="ghost">
+			<Button aria-label={entry.type === "relayed" ? CHAT_CARD_COPY.deny : CHAT_CARD_COPY.dismiss} className="size-9 shrink-0 rounded-full" onClick={() => onSkip(entry)} size="icon-sm" type="button" variant="ghost">
 				<XIcon />
 			</Button>
 		</div>

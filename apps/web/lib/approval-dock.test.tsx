@@ -114,6 +114,13 @@ test("barra: uma linha com alerta, rótulo curto, ✓ Executar e ✗ Agora não;
 	assert.doesNotMatch(html, /Atlas/);
 });
 
+test("barra: ✗ de pedido de outro bot diz Recusar (recusa de verdade); de comando diz Agora não", () => {
+	const relayedHtml = bar(selectDockEntries([relayed("r1", "pending")]));
+	assert.match(relayedHtml, /aria-label="Recusar"/);
+	assert.doesNotMatch(relayedHtml, /aria-label="Agora não"/);
+	assert.match(bar(selectDockEntries([cmd("a", "pending", "make a")])), /aria-label="Agora não"/);
+});
+
 test("barra: rótulos de escrita, de cartão genérico e de outro bot", () => {
 	assert.equal(approvalBarLabel(selectDockEntries([write("w")])[0]!), "Editar · src/x.ts");
 	assert.equal(approvalBarLabel(selectDockEntries([relayed("r", "pending")])[0]!), "Dev: Executar · git push origin main");
