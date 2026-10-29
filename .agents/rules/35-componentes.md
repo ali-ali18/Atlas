@@ -7,8 +7,17 @@ Antes de criar componente, procure aqui. Se existe algo 80% igual, estenda (prop
 - **Sobreposições:** `dialog` (fecha com Esc e prende o foco), `alert-dialog`/`confirm-alert` (confirmação destrutiva), `sheet` (gaveta, padrão no celular), `popover`, `dropdown-menu`, `context-menu`, `hover-card`, `tooltip`, `overlay-dismiss`.
 - **Estrutura:** `collapsible` (seções recolhíveis), `tabs`, `separator`, `sidebar`, `item`, `empty` (estado vazio), `skeleton`, `toaster`.
 - **Identidade:** `avatar`, `gradient-avatar`, `badge`, `marker`, `model-capability-badges`.
-- **Conteúdo de IA:** `bubble` (balão do chat), `attachment`, `code-block`, `plan-card`, `questionnaire`, `request-card`, `chart` (render de `ChartSpec`).
+- **Conteúdo de IA:** `bubble` (balão do chat), `attachment`, `code-block`, `plan-card`, `questionnaire`, `request-card`, `chart` (render de `ChartSpec`), `spinner`.
 - Não recrie botão, modal, menu ou anexo com `div`. Primitivos usam Base UI por baixo: o menu aberto injeta spans (focus guards, `aria-owns`) ao redor do gatilho, então não dependa de `:first-child`/`:last-child` ao estilizar irmãos.
+
+## Base visual (tokens em `packages/ui/src/styles/globals.css`)
+- **Texto:** `text-body` (13px) e `text-caption` (11px). Não escreva `text-[13px]`. Os demais tamanhos vêm da escala do Tailwind.
+- **Raios:** `rounded-card` (12px) e `rounded-panel` (20px), além da escala `rounded-sm…4xl`. Não escreva `rounded-[Npx]`.
+- **Estado:** `success`, `warning`, `info` (+ `-foreground`), já com par claro/escuro: `bg-success/10 text-success`. Nada de `emerald/amber/sky/orange` para sucesso, aviso ou info. Para erro continua `destructive`. `Alert` e `Badge` têm as variantes `success`, `warning` e `info`; `RequestCard` usa os mesmos tons. Cor de categoria (tipo de arquivo, realce de código, gráfico) fica fora disso.
+- **Camadas:** `z-sticky` (10), `z-overlay` (40), `z-modal` (50), `z-toast` (100). Não invente `z-[999]`.
+- **Carregando:** `Spinner` de `@workspace/ui/components/spinner` (tamanho por `className`, `label` opcional). Não use `Loader2Icon` com `animate-spin`; todo giro leva `motion-safe:`.
+- **`cn`:** importe de `@workspace/ui/lib/utils` (nunca de `"cn"`): ele conhece `text-body`/`rounded-card`. Token novo de tamanho ou raio entra também na config de `lib/utils.ts`.
+- **Guarda:** `apps/web/lib/visual-base-guard.test.ts` falha se `text-[Npx]`, `rounded-[Npx]` ou hex em className passar do baseline por arquivo. O número só pode cair; ao migrar um arquivo, baixe o baseline no mesmo commit. Exceção nova só com motivo (fundo fixo do lightbox, cor de marca).
 
 ## `packages/ui/src/charts` — gráficos (Bklit UI, ver `LICENSE-bklit-ui`)
 - Famílias prontas: `line-chart`, `area-chart`, `bar-chart` (vertical/horizontal), `pie-chart`/`ring-chart`, `composed-chart`, `radar-chart`, `funnel-chart`, `gauge`, `scatter-chart`, `heatmap`, `sankey`, `sunburst-chart`, `candlestick-chart`, `live-line-chart`, `choropleth`.
