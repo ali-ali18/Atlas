@@ -148,7 +148,7 @@ test("Conta: erro ao sair aparece como alerta e o botão desabilita enquanto sai
 test("Geral: grupo Aparência no estilo cartão (título pequeno, cantos 12, com ícone nas linhas)", () => {
 	const html = general({ theme: "dark" });
 	assert.match(html, /<h3[^>]*data-slot="settings-group-title"[^>]*>Aparência<\/h3>/);
-	assert.match(html, /rounded-\[12px\] border border-border\/60 py-2/);
+	assert.match(html, /rounded-card border border-border\/60 py-2/);
 	assert.doesNotMatch(html, /divide-y/, "sem divisórias entre as linhas");
 	assert.equal((html.match(/data-slot="setting-row-icon"/g) ?? []).length, 2);
 	assert.match(html, /lucide-moon/, "trigger do tema mostra a lua (opção atual)");
