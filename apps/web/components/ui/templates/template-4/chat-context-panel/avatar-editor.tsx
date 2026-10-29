@@ -19,11 +19,14 @@ import {
 } from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { useTranslations } from "@/lib/i18n/provider";
+import { avatarColorName } from "../avatar-color-name";
 import { bodyColors } from "../data";
 import { usePreviewExpression } from "../use-preview-expression";
 import { AgentAvatar } from "../agent-avatar";
 
-const TABS = ["Bot", "Gerar", "Enviar"] as const;
+const TABS = ["bot", "generate", "upload"] as const;
+const TAB_LABEL = { bot: "groups.avatar.tabBot", generate: "groups.avatar.tabGenerate", upload: "groups.avatar.tabUpload" } as const;
 
 // Ordem do menu: as formas mais simples primeiro (a ordem do catálogo do motor).
 const SHAPE_ORDER = SHAPE_IDS;
@@ -45,7 +48,8 @@ export function AvatarEditor({
 	/** Forma do bot; aceita as antigas ("rond", "goutte"...). Sem valor, sai do id. */
 	shape?: string;
 }) {
-	const [tab, setTab] = useState<(typeof TABS)[number]>("Bot");
+	const { t } = useTranslations();
+	const [tab, setTab] = useState<(typeof TABS)[number]>("bot");
 	const selectedShape = normalizeShape(shape) ?? (botId ? resolveShape(undefined, botId) : undefined);
 	const { expression, surpriseOnHover, releaseHover, surpriseOnTap } = usePreviewExpression();
 
@@ -57,7 +61,7 @@ export function AvatarEditor({
 						<DropdownMenuTrigger
 							render={
 								<Button
-									aria-label="Editar avatar"
+									aria-label={t("groups.avatar.edit")}
 									className="group/avatar relative size-20 rounded-2xl p-0 hover:bg-sidebar-accent/40 dark:hover:bg-sidebar-accent/40"
 									onPointerEnter={surpriseOnHover}
 									onPointerLeave={releaseHover}
@@ -83,7 +87,7 @@ export function AvatarEditor({
 					}
 				/>
 				<TooltipContent className="px-2 py-1 text-caption">
-					Editar avatar
+					{t("groups.avatar.edit")}
 				</TooltipContent>
 				<DropdownMenuContent align="center" className="w-72">
 					<div className="flex items-center justify-between gap-2 px-1 py-1">
@@ -100,7 +104,7 @@ export function AvatarEditor({
 									onClick={() => setTab(item)}
 									type="button"
 								>
-									{item}
+									{t(TAB_LABEL[item])}
 								</button>
 							))}
 						</div>
@@ -109,15 +113,15 @@ export function AvatarEditor({
 							onClick={onReset}
 							type="button"
 						>
-							Redefinir
+							{t("groups.avatar.reset")}
 						</button>
 					</div>
 					<DropdownMenuSeparator />
 					<div className="flex flex-col gap-3 p-2">
-						{tab === "Bot" ? (
+						{tab === "bot" ? (
 							<>
 								<div
-									aria-label="Formato do avatar"
+									aria-label={t("groups.createBot.shapeLegend")}
 									className="grid grid-cols-5 gap-1.5"
 									role="radiogroup"
 								>
@@ -125,7 +129,7 @@ export function AvatarEditor({
 										(item) => (
 											<button
 												aria-checked={selectedShape === item}
-												aria-label={`Forma ${item}`}
+												aria-label={t("groups.createBot.shape", { shape: item })}
 												className={cn(
 													"grid size-12 place-items-center rounded-2xl transition-colors hover:bg-muted",
 													selectedShape === item && "bg-muted",
@@ -150,7 +154,7 @@ export function AvatarEditor({
 								<div className="grid grid-cols-6 gap-2">
 									{bodyColors.map((option) => (
 										<button
-											aria-label={option.name}
+											aria-label={avatarColorName(option.value, t)}
 											aria-pressed={color === option.value}
 											className={cn(
 												"size-7 rounded-full border border-border ring-offset-2 ring-offset-popover transition",
@@ -166,7 +170,7 @@ export function AvatarEditor({
 							</>
 						) : (
 							<p className="py-8 text-center text-muted-foreground text-xs">
-								{tab === "Gerar" ? "Em breve" : "Enviar imagem"}
+								{tab === "generate" ? t("groups.avatar.soon") : t("groups.avatar.uploadImage")}
 							</p>
 						)}
 					</div>

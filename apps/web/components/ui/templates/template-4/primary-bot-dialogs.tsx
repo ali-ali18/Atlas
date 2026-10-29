@@ -15,12 +15,12 @@ import {
 import { Input } from "@workspace/ui/components/input";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { useT } from "@/lib/i18n/provider";
+
 import { AgentAvatar } from "./agent-avatar";
 import type { Agent } from "./data";
 import { pickablePrimaryBots } from "./primary-bot-logic";
 import { PrimaryBotBadge } from "./primary-bot-badge";
-
-const ERROR_TEXT = "Não foi possível definir o Bot principal";
 
 /** Lista de seleção única (radiogroup) com avatar + nome + título. */
 export function PrimaryBotRadioList({
@@ -34,10 +34,11 @@ export function PrimaryBotRadioList({
 	onSelect: (id: string) => void;
 	label: string;
 }) {
+	const t = useT();
 	if (bots.length === 0) {
 		return (
 			<p className="py-6 text-center text-muted-foreground text-sm">
-				Ainda não há outros bots para escolher
+				{t("groups.primary.noOthers")}
 			</p>
 		);
 	}
@@ -93,6 +94,7 @@ export function PrimaryBotIntroDialog({
 	onCreate: () => void;
 	onChoose: (id: string) => Promise<void>;
 }) {
+	const t = useT();
 	const [step, setStep] = useState<"intro" | "choose">("intro");
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -115,7 +117,7 @@ export function PrimaryBotIntroDialog({
 		try {
 			await onChoose(selectedId);
 		} catch {
-			setError(ERROR_TEXT);
+			setError(t("groups.primary.error"));
 		} finally {
 			setBusy(false);
 		}
@@ -133,37 +135,37 @@ export function PrimaryBotIntroDialog({
 								</PrimaryBotBadge>
 							) : null}
 							<DialogHeader className="items-center">
-								<DialogTitle className="text-lg">Conheça o seu Bot principal</DialogTitle>
+								<DialogTitle className="text-lg">{t("groups.primary.introTitle")}</DialogTitle>
 								<DialogDescription>
-									Seu ponto de contato. Ele age por iniciativa própria e coordena o trabalho com os seus outros bots.
+									{t("groups.primary.introBody")}
 								</DialogDescription>
 							</DialogHeader>
 						</div>
 						<DialogFooter className="flex-row gap-2 sm:justify-stretch">
 							<Button className="h-auto min-h-9 min-w-0 flex-1 whitespace-normal px-3 py-2 leading-tight" onClick={onCreate} type="button" variant="secondary">
-								Criar um Bot principal
+								{t("groups.primary.create")}
 							</Button>
 							<Button className="h-auto min-h-9 min-w-0 flex-1 whitespace-normal px-3 py-2 leading-tight" onClick={() => setStep("choose")} type="button">
-								Escolher um Bot existente
+								{t("groups.primary.chooseExisting")}
 							</Button>
 						</DialogFooter>
 					</>
 				) : (
 					<>
 						<DialogHeader>
-							<DialogTitle className="text-lg">Escolher um Bot existente</DialogTitle>
-							<DialogDescription className="sr-only">Selecione o bot que será o seu Bot principal.</DialogDescription>
+							<DialogTitle className="text-lg">{t("groups.primary.chooseExisting")}</DialogTitle>
+							<DialogDescription className="sr-only">{t("groups.primary.chooseDescription")}</DialogDescription>
 						</DialogHeader>
-						<PrimaryBotRadioList bots={bots} label="Bots" onSelect={setSelectedId} selectedId={selectedId} />
+						<PrimaryBotRadioList bots={bots} label={t("groups.primary.botsLabel")} onSelect={setSelectedId} selectedId={selectedId} />
 						{error ? (
 							<p className="text-destructive text-sm" role="alert">{error}</p>
 						) : null}
 						<DialogFooter className="flex-row gap-2 sm:justify-stretch">
 							<Button className="h-auto min-h-9 min-w-0 flex-1 whitespace-normal px-3 py-2 leading-tight" disabled={busy} onClick={() => { setStep("intro"); setError(""); }} type="button" variant="secondary">
-								Voltar
+								{t("common.back")}
 							</Button>
 							<Button className="h-auto min-h-9 min-w-0 flex-1 whitespace-normal px-3 py-2 leading-tight" disabled={!selectedId || busy} onClick={() => void confirm()} type="button">
-								Confirmar
+								{t("groups.primary.confirm")}
 							</Button>
 						</DialogFooter>
 					</>
@@ -185,6 +187,7 @@ export function PrimaryBotPickerDialog({
 	onClose: () => void;
 	onChoose: (id: string) => Promise<void>;
 }) {
+	const t = useT();
 	const [query, setQuery] = useState("");
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -206,7 +209,7 @@ export function PrimaryBotPickerDialog({
 			await onChoose(selectedId);
 			onClose();
 		} catch {
-			setError(ERROR_TEXT);
+			setError(t("groups.primary.error"));
 		} finally {
 			setBusy(false);
 		}
@@ -216,22 +219,22 @@ export function PrimaryBotPickerDialog({
 		<Dialog onOpenChange={(next) => { if (!next) onClose(); }} open={open}>
 			<DialogContent className="gap-4 sm:max-w-[400px]" showCloseButton={false}>
 				<DialogHeader>
-					<DialogTitle className="text-lg">Escolha um Bot principal</DialogTitle>
-					<DialogDescription className="sr-only">Selecione o bot que passa a ser o seu Bot principal.</DialogDescription>
+					<DialogTitle className="text-lg">{t("groups.primary.pickerTitle")}</DialogTitle>
+					<DialogDescription className="sr-only">{t("groups.primary.pickerDescription")}</DialogDescription>
 				</DialogHeader>
 				<div className="relative">
 					<SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
 					<Input
-						aria-label="Buscar"
+						aria-label={t("common.search")}
 						className="pl-9"
 						onChange={(event) => setQuery(event.target.value)}
-						placeholder="Buscar"
+						placeholder={t("common.search")}
 						value={query}
 					/>
 				</div>
 				<PrimaryBotRadioList
 					bots={pickablePrimaryBots(agents, query)}
-					label="Bots"
+					label={t("groups.primary.botsLabel")}
 					onSelect={setSelectedId}
 					selectedId={selectedId}
 				/>
@@ -240,10 +243,10 @@ export function PrimaryBotPickerDialog({
 				) : null}
 				<DialogFooter className="flex-row gap-2 sm:justify-stretch">
 					<Button className="h-auto min-h-9 min-w-0 flex-1 whitespace-normal px-3 py-2 leading-tight" disabled={busy} onClick={onClose} type="button" variant="secondary">
-						Cancelar
+						{t("common.cancel")}
 					</Button>
 					<Button className="h-auto min-h-9 min-w-0 flex-1 whitespace-normal px-3 py-2 leading-tight" disabled={!selectedId || busy} onClick={() => void confirm()} type="button">
-						Confirmar
+						{t("groups.primary.confirm")}
 					</Button>
 				</DialogFooter>
 			</DialogContent>

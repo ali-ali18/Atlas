@@ -4,6 +4,7 @@ import { chat } from "./chat";
 import { common } from "./common";
 import { composer } from "./composer";
 import { errors } from "./errors";
+import { groups } from "./groups";
 import { library } from "./library";
 import { login } from "./login";
 import { marketplace } from "./marketplace";
@@ -20,6 +21,7 @@ export const ptBR = {
 	...common,
 	...composer,
 	...errors,
+	...groups,
 	...library,
 	...login,
 	...marketplace,

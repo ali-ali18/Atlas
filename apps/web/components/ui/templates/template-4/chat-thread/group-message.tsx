@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 
+import { useT } from "@/lib/i18n/provider";
 import type { GroupBubbleLayout } from "@/lib/group-thread";
 
 import { AgentAvatar } from "../agent-avatar";
@@ -34,8 +35,9 @@ export function GroupAssistantRow({
 	members: readonly GroupMessageMember[];
 	live?: boolean;
 }) {
+	const t = useT();
 	const components = useMemo(() => mentionMarkdownComponents(members), [members]);
-	const name = author?.name ?? message.author?.name ?? "Bot";
+	const name = author?.name ?? message.author?.name ?? t("groups.botFallback");
 	const accent = botAccent(author?.color)?.accent;
 	return (
 		<div className="flex items-end gap-2" data-testid="group-message" data-author={layout.authorKey}>
