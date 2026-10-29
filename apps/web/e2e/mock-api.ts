@@ -498,7 +498,7 @@ export class MockAtlas {
     if (this.options.freezeStream) await new Promise(() => undefined)
     // Espera o "servidor" terminar o run e então entrega os eventos de uma vez (SSE completo).
     const ig = this.options.imageGenInRun
-    const waitMs = ig?.hold ? 0 : Math.max(0, record.createdAt + this.options.replyDelayMs - Date.now())
+    const waitMs = ig?.hold || this.options.taskListInRun?.hold ? 0 : Math.max(0, record.createdAt + this.options.replyDelayMs - Date.now())
     await new Promise((resolve) => setTimeout(resolve, waitMs))
     record.streamed = true
     const memoryEvents = this.options.memoryToolInRun
