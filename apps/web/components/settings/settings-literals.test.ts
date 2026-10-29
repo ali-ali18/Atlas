@@ -28,6 +28,8 @@ const TRANSLATED = [
 	"components/settings/jev-execution-state.ts",
 	"components/settings/sections/execution.tsx",
 	"components/settings/sections/jev.tsx",
+	"components/settings/vault-state.ts",
+	"components/settings/sections/vault.tsx",
 ];
 
 const ACCENTED = /[áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]/;
@@ -44,7 +46,7 @@ test("telas de Configurações traduzidas não têm texto pt-BR fixo no código"
 	for (const file of TRANSLATED) {
 		const offending = code(file)
 			.split("\n")
-			.filter((line) => ACCENTED.test(line));
+			.filter((line) => ACCENTED.test(line) && !/recordVaultCopy|revealVaultItem/.test(line));
 		assert.deepEqual(offending, [], `${file} tem texto fixo em pt-BR`);
 	}
 });

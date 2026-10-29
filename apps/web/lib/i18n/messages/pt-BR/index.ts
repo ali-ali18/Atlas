@@ -18,6 +18,8 @@ import { settingsModels } from "./settingsModels";
 import { settingsOps } from "./settingsOps";
 import { settingsProviders } from "./settingsProviders";
 import { settingsSearch } from "./settingsSearch";
+import { sharedLabels } from "./sharedLabels";
+import { settingsVault } from "./settingsVault";
 import { sidebar } from "./sidebar";
 import { status } from "./status";
 import { ui } from "./ui";
@@ -53,6 +55,8 @@ import { share } from "./share";
 	...settingsOps,
 	...settingsProviders,
 	...settingsSearch,
+	...sharedLabels,
+	...settingsVault,
 	...sidebar,
 	...status,
 	...ui,

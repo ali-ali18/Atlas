@@ -40,8 +40,8 @@ import {
 	type VaultPayloadView,
 } from "@/lib/atlas-api";
 import { SettingsGroup, SettingsStack } from "../setting-row";
+import type { MessageKey } from "@/lib/i18n/translator";
 import {
-	VAULT_UNAVAILABLE,
 	auditLabel,
 	emptyVaultForm,
 	filterVaultItems,
@@ -59,7 +59,7 @@ import {
 	type VaultForm,
 	type VaultFormErrors,
 } from "../vault-state";
-import { useLocale } from "@/lib/i18n/provider";
+import { useT, useTranslations } from "@/lib/i18n/provider";
 
 // ----- peças visuais -----
 
@@ -109,38 +109,39 @@ export type VaultListViewProps = {
 	onOpen: (id: string) => void;
 };
 
-const FILTERS: Array<{ id: VaultFilter; label: string }> = [
-	{ id: "all", label: "Tudo" },
-	{ id: "login", label: "Logins" },
-	{ id: "secret", label: "Segredos" },
-];
+const FILTERS = [
+	{ id: "all", label: "settings.vault.filterAll" },
+	{ id: "login", label: "settings.vault.filterLogin" },
+	{ id: "secret", label: "settings.vault.filterSecret" },
+] as const satisfies ReadonlyArray<{ id: VaultFilter; label: MessageKey }>;
 
 export function VaultListView({ items, available, loading, error, query, filter, onQuery, onFilter, onAdd, onOpen }: VaultListViewProps) {
-	const locale = useLocale();
+	const translator = useTranslations();
+	const { t } = translator;
 	const visible = useMemo(() => filterVaultItems(items, query, filter), [items, query, filter]);
 	return (
 		<SettingsStack>
 			<section className="flex flex-col gap-3" data-slot="vault-list">
 				<p className="m-0 px-2 text-body leading-5 text-muted-foreground">
-					Senhas e chaves ficam criptografadas só para você. O bot vê apenas nomes e sites, e usa os valores sem nunca lê-los.
+					{t("settings.vault.intro")}
 				</p>
 				{!available ? (
 					<p className="m-0 rounded-xl border border-border/60 px-3 py-2.5 text-xs text-muted-foreground" role="status">
-						{VAULT_UNAVAILABLE}
+						{t("settings.vault.unavailable")}
 					</p>
 				) : null}
 				<div className="flex flex-wrap items-center gap-2">
 					<div className="relative min-w-[10rem] flex-1">
 						<SearchIcon aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-						<Input aria-label="Buscar no cofre" className="pl-9" onChange={(event) => onQuery(event.target.value)} placeholder="Buscar" value={query} />
+						<Input aria-label={t("settings.vault.searchAria")} className="pl-9" onChange={(event) => onQuery(event.target.value)} placeholder={t("settings.vault.searchPlaceholder")} value={query} />
 					</div>
 					<Button disabled={!available} onClick={() => onAdd("login")} size="sm" type="button">
 						<PlusIcon data-icon="inline-start" />
-						Login de site
+						{t("settings.vault.addLogin")}
 					</Button>
 					<Button disabled={!available} onClick={() => onAdd("secret")} size="sm" type="button" variant="outline">
 						<PlusIcon data-icon="inline-start" />
-						Segredo
+						{t("settings.vault.addSecret")}
 					</Button>
 				</div>
 				<div className="flex gap-1.5" role="tablist">
@@ -156,7 +157,7 @@ export function VaultListView({ items, available, loading, error, query, filter,
 							role="tab"
 							type="button"
 						>
-							{option.label}
+							{t(option.label)}
 						</button>
 					))}
 				</div>
@@ -165,15 +166,15 @@ export function VaultListView({ items, available, loading, error, query, filter,
 						{error}
 					</p>
 				) : null}
-				{loading && items.length === 0 ? <p className="m-0 px-2 text-xs text-muted-foreground">Carregando…</p> : null}
+				{loading && items.length === 0 ? <p className="m-0 px-2 text-xs text-muted-foreground">{t("common.loading")}</p> : null}
 				{!loading && available && items.length === 0 ? (
 					<div className="flex flex-col items-center gap-1 rounded-xl border border-dashed border-border/60 px-4 py-8 text-center">
 						<LockKeyholeIcon aria-hidden className="size-5 text-muted-foreground" />
-						<p className="m-0 text-body font-medium">O cofre está vazio</p>
-						<p className="m-0 max-w-xs text-xs text-muted-foreground">Guarde um login de site ou uma chave de API. Quando o bot precisar de algo, ele pede aqui.</p>
+						<p className="m-0 text-body font-medium">{t("settings.vault.emptyTitle")}</p>
+						<p className="m-0 max-w-xs text-xs text-muted-foreground">{t("settings.vault.emptyBody")}</p>
 					</div>
 				) : null}
-				{items.length > 0 && visible.length === 0 ? <p className="m-0 px-2 text-xs text-muted-foreground">Nada encontrado para "{query}".</p> : null}
+				{items.length > 0 && visible.length === 0 ? <p className="m-0 px-2 text-xs text-muted-foreground">{t("settings.vault.nothingFound", { query })}</p> : null}
 				{visible.length > 0 ? (
 					<SettingsGroup>
 						<ul className="m-0 flex list-none flex-col p-0">
@@ -188,9 +189,9 @@ export function VaultListView({ items, available, loading, error, query, filter,
 										<VaultLogo item={item} />
 										<span className="flex min-w-0 flex-1 flex-col">
 											<span className="truncate text-body leading-[18px] font-medium">{itemTitle(item)}</span>
-											<span className="truncate text-xs text-muted-foreground">{itemSubtitle(item)}</span>
+											<span className="truncate text-xs text-muted-foreground">{itemSubtitle(item, translator)}</span>
 										</span>
-										<span className="hidden shrink-0 text-caption text-muted-foreground sm:block">{item.lastUsedAt ? `Usado ${formatVaultDate(item.lastUsedAt, undefined, locale)}` : "Nunca usado"}</span>
+										<span className="hidden shrink-0 text-caption text-muted-foreground sm:block">{item.lastUsedAt ? t("settings.vault.usedAt", { when: formatVaultDate(item.lastUsedAt, undefined, translator) }) : t("settings.vault.neverUsed")}</span>
 									</button>
 								</li>
 							))}
@@ -223,8 +224,10 @@ export type VaultDetailViewProps = {
 };
 
 function CopyButton({ label, done, onClick }: { label: string; done: boolean; onClick: () => void }) {
+	const t = useT();
+	const text = t("settings.vault.copyAria", { what: label });
 	return (
-		<InputGroupButton aria-label={`Copiar ${label}`} onClick={onClick} size="icon-xs" title={`Copiar ${label}`}>
+		<InputGroupButton aria-label={text} onClick={onClick} size="icon-xs" title={text}>
 			{done ? <CheckIcon /> : <CopyIcon />}
 		</InputGroupButton>
 	);
@@ -245,11 +248,12 @@ function ReadonlyField({ label, value, mono, children, id }: { label: string; va
 
 /** Anel pequeno com os segundos que faltam para o código mudar. */
 export function CountdownRing({ seconds, period = 30 }: { seconds: number; period?: number }) {
+	const t = useT();
 	const r = 9;
 	const c = 2 * Math.PI * r;
 	const fraction = Math.max(0, Math.min(1, seconds / period));
 	return (
-		<span aria-label={`Muda em ${seconds}s`} className="relative grid size-6 shrink-0 place-items-center text-[9px] tabular-nums text-muted-foreground" data-slot="vault-countdown" role="img">
+		<span aria-label={t("settings.vault.countdownAria", { n: seconds })} className="relative grid size-6 shrink-0 place-items-center text-[9px] tabular-nums text-muted-foreground" data-slot="vault-countdown" role="img">
 			<svg aria-hidden className="absolute inset-0 -rotate-90" viewBox="0 0 24 24">
 				<circle cx="12" cy="12" fill="none" r={r} stroke="currentColor" strokeOpacity="0.2" strokeWidth="2" />
 				<circle cx="12" cy="12" fill="none" r={r} stroke="currentColor" strokeDasharray={c} strokeDashoffset={c * (1 - fraction)} strokeLinecap="round" strokeWidth="2" />
@@ -267,7 +271,8 @@ export function spacedCode(code: string): string {
 const MASK = "••••••••••••";
 
 export function VaultDetailView({ item, audit, revealed, totp, copied, busy, error, onReveal, onHide, onCopy, onEdit, onDelete, onClose }: VaultDetailViewProps) {
-	const locale = useLocale();
+	const translator = useTranslations();
+	const { t } = translator;
 	const isLogin = item.kind === "login";
 	const shown = revealed !== null;
 	const secretValue = isLogin ? revealed?.password : revealed?.value;
@@ -278,11 +283,11 @@ export function VaultDetailView({ item, audit, revealed, totp, copied, busy, err
 				<div className="flex min-w-0 flex-1 flex-col">
 					<h3 className="m-0 truncate text-[15px] leading-5 font-semibold">{itemTitle(item)}</h3>
 					<p className="m-0 truncate text-xs text-muted-foreground">
-						{isLogin ? item.domain : item.description || "Segredo"} · <code className="font-mono">{isLogin ? `{{login:${item.name}.password}}` : `{{secret:${item.name}}}`}</code>
+						{isLogin ? item.domain : item.description || t("settings.vault.subtitleSecret")} · <code className="font-mono">{isLogin ? `{{login:${item.name}.password}}` : `{{secret:${item.name}}}`}</code>
 					</p>
 				</div>
 				{onClose ? (
-					<Button aria-label="Fechar" onClick={onClose} size="icon-sm" type="button" variant="ghost">
+					<Button aria-label={t("settings.vault.close")} onClick={onClose} size="icon-sm" type="button" variant="ghost">
 						<XIcon />
 					</Button>
 				) : null}
@@ -291,37 +296,37 @@ export function VaultDetailView({ item, audit, revealed, totp, copied, busy, err
 			<div className="flex flex-col gap-3.5" data-slot="vault-fields">
 				{isLogin && item.siteUrl ? (
 					<div className="flex min-w-0 flex-col gap-1.5">
-						<span className={FIELD_LABEL}>Site</span>
+						<span className={FIELD_LABEL}>{t("settings.vault.site")}</span>
 						<a className="text-body underline-offset-2 [overflow-wrap:anywhere] hover:underline" href={item.siteUrl} rel="noreferrer noopener" target="_blank">
 							{item.siteUrl}
 						</a>
 					</div>
 				) : null}
 				{isLogin ? (
-					<ReadonlyField label="Usuário ou e-mail" value={item.username || "—"}>
-						{item.username ? <CopyButton done={copied === "username"} label="usuário" onClick={() => onCopy("username")} /> : null}
+					<ReadonlyField label={t("settings.vault.userOrEmail")} value={item.username || "—"}>
+						{item.username ? <CopyButton done={copied === "username"} label={t("settings.vault.what.username")} onClick={() => onCopy("username")} /> : null}
 					</ReadonlyField>
 				) : null}
-				<ReadonlyField label={isLogin ? "Senha" : "Valor"} mono value={shown ? (secretValue ?? "—") : MASK}>
-					<InputGroupButton aria-label={shown ? "Ocultar" : "Revelar"} disabled={busy} onClick={shown ? onHide : onReveal} size="icon-xs" title={shown ? "Ocultar" : "Revelar (fica no histórico)"}>
+				<ReadonlyField label={isLogin ? t("settings.vault.password") : t("settings.vault.value")} mono value={shown ? (secretValue ?? "—") : MASK}>
+					<InputGroupButton aria-label={shown ? t("settings.vault.hide") : t("settings.vault.reveal")} disabled={busy} onClick={shown ? onHide : onReveal} size="icon-xs" title={shown ? t("settings.vault.hide") : t("settings.vault.revealTitle")}>
 						{shown ? <EyeOffIcon /> : <EyeIcon />}
 					</InputGroupButton>
-					<CopyButton done={copied === (isLogin ? "password" : "value")} label={isLogin ? "senha" : "valor"} onClick={() => onCopy(isLogin ? "password" : "value")} />
+					<CopyButton done={copied === (isLogin ? "password" : "value")} label={isLogin ? t("settings.vault.what.password") : t("settings.vault.what.value")} onClick={() => onCopy(isLogin ? "password" : "value")} />
 				</ReadonlyField>
 				{isLogin && totp ? (
-					<ReadonlyField label="Código 2FA" mono value={spacedCode(totp.code)}>
+					<ReadonlyField label={t("settings.vault.totp")} mono value={spacedCode(totp.code)}>
 						<CountdownRing seconds={totp.expiresInSec} />
-						<CopyButton done={copied === "totp"} label="código 2FA" onClick={() => onCopy("totp")} />
+						<CopyButton done={copied === "totp"} label={t("settings.vault.what.totp")} onClick={() => onCopy("totp")} />
 					</ReadonlyField>
 				) : null}
 				{shown && revealed?.notes ? (
 					<div className="flex min-w-0 flex-col gap-1.5">
-						<span className={FIELD_LABEL}>Observações</span>
+						<span className={FIELD_LABEL}>{t("settings.vault.notes")}</span>
 						<span className="whitespace-pre-wrap text-body [overflow-wrap:anywhere]">{revealed.notes}</span>
 					</div>
 				) : null}
 				{shown ? (revealed?.extras ?? []).map((extra) => <ReadonlyField key={extra.name} label={extra.name} mono={extra.secret} value={extra.value} />) : null}
-				{!shown && isLogin ? <p className="m-0 text-xs text-muted-foreground">Observações e campos extras aparecem ao revelar.</p> : null}
+				{!shown && isLogin ? <p className="m-0 text-xs text-muted-foreground">{t("settings.vault.revealHint")}</p> : null}
 			</div>
 
 			{error ? (
@@ -333,16 +338,16 @@ export function VaultDetailView({ item, audit, revealed, totp, copied, busy, err
 			<div>
 				<h4 className="m-0 mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
 					<ShieldCheckIcon aria-hidden className="size-3.5" />
-					Histórico
+					{t("settings.vault.history")}
 				</h4>
 				{audit.length === 0 ? (
-					<p className="m-0 text-xs text-muted-foreground">Sem registros ainda.</p>
+					<p className="m-0 text-xs text-muted-foreground">{t("settings.vault.noHistory")}</p>
 				) : (
 					<ul className="m-0 flex max-h-40 list-none flex-col gap-1 overflow-y-auto p-0" data-slot="vault-audit">
 						{audit.map((entry) => (
 							<li className="flex items-baseline justify-between gap-3 text-xs" key={entry.id}>
-								<span className="min-w-0 [overflow-wrap:anywhere]">{auditLabel(entry)}</span>
-								<span className="shrink-0 text-muted-foreground">{formatVaultDate(entry.createdAt, undefined, locale)}</span>
+								<span className="min-w-0 [overflow-wrap:anywhere]">{auditLabel(entry, translator)}</span>
+								<span className="shrink-0 text-muted-foreground">{formatVaultDate(entry.createdAt, undefined, translator)}</span>
 							</li>
 						))}
 					</ul>
@@ -352,11 +357,11 @@ export function VaultDetailView({ item, audit, revealed, totp, copied, busy, err
 			<div className="flex flex-wrap items-center justify-between gap-2">
 				<Button onClick={onDelete} size="sm" type="button" variant="ghost">
 					<Trash2Icon data-icon="inline-start" />
-					Apagar
+					{t("settings.vault.delete")}
 				</Button>
 				<Button onClick={onEdit} size="sm" type="button" variant="outline">
 					<PencilIcon data-icon="inline-start" />
-					Editar
+					{t("settings.vault.edit")}
 				</Button>
 			</div>
 		</div>
@@ -382,11 +387,13 @@ export type VaultFormViewProps = {
 };
 
 export function VaultFormView({ form, editing, errors, saving, saveError, totpCheck, qrSupported, onChange, onGenerate, onCheckTotp, onQr, onSave, onCancel }: VaultFormViewProps) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const id = useId();
 	const [showPassword, setShowPassword] = useState(false);
 	const fileRef = useRef<HTMLInputElement>(null);
 	const isLogin = form.kind === "login";
-	const strength = passwordStrength(isLogin ? form.password : form.value);
+	const strength = passwordStrength(isLogin ? form.password : form.value, translator);
 	return (
 		<div className="flex min-w-0 flex-col gap-3.5" data-slot="vault-form">
 			{isLogin ? (
@@ -394,18 +401,18 @@ export function VaultFormView({ form, editing, errors, saving, saveError, totpCh
 					<div className="flex items-end gap-3">
 						<VaultLogo className="size-10 shrink-0" item={{ kind: "login", label: form.label, name: form.name, siteUrl: form.siteUrl ? normalizeSiteUrl(form.siteUrl) : null }} />
 						<div className="min-w-0 flex-1">
-							<Field error={errors.siteUrl} htmlFor={`${id}-site`} label="Link do site">
+							<Field error={errors.siteUrl} htmlFor={`${id}-site`} label={t("settings.vault.siteLink")}>
 								<Input autoComplete="off" id={`${id}-site`} inputMode="url" onChange={(event) => onChange({ siteUrl: event.target.value })} placeholder="github.com" spellCheck={false} value={form.siteUrl} />
 							</Field>
 						</div>
 					</div>
-					<Field htmlFor={`${id}-label`} label="Nome de exibição">
+					<Field htmlFor={`${id}-label`} label={t("settings.vault.displayName")}>
 						<Input autoComplete="off" id={`${id}-label`} onChange={(event) => onChange({ label: event.target.value })} placeholder="GitHub" value={form.label} />
 					</Field>
-					<Field htmlFor={`${id}-user`} label="Usuário ou e-mail">
+					<Field htmlFor={`${id}-user`} label={t("settings.vault.userOrEmail")}>
 						<Input autoCapitalize="off" autoComplete="off" id={`${id}-user`} onChange={(event) => onChange({ username: event.target.value })} spellCheck={false} value={form.username} />
 					</Field>
-					<Field error={errors.password} hint={editing ? "Deixe em branco para manter a senha atual." : undefined} htmlFor={`${id}-pass`} label="Senha">
+					<Field error={errors.password} hint={editing ? t("settings.vault.keepPassword") : undefined} htmlFor={`${id}-pass`} label={t("settings.vault.password")}>
 						<InputGroup>
 							<InputGroupInput
 								aria-invalid={errors.password ? true : undefined}
@@ -418,7 +425,7 @@ export function VaultFormView({ form, editing, errors, saving, saveError, totpCh
 								value={form.password}
 							/>
 							<InputGroupAddon align="inline-end">
-								<InputGroupButton aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"} onClick={() => setShowPassword((v) => !v)} size="icon-xs">
+								<InputGroupButton aria-label={showPassword ? t("settings.vault.hidePassword") : t("settings.vault.showPassword")} onClick={() => setShowPassword((v) => !v)} size="icon-xs">
 									{showPassword ? <EyeOffIcon /> : <EyeIcon />}
 								</InputGroupButton>
 								<InputGroupButton
@@ -430,7 +437,7 @@ export function VaultFormView({ form, editing, errors, saving, saveError, totpCh
 									variant="outline"
 								>
 									<RefreshCwIcon data-icon="inline-start" />
-									Gerar
+									{t("settings.vault.generate")}
 								</InputGroupButton>
 							</InputGroupAddon>
 						</InputGroup>
@@ -445,17 +452,17 @@ export function VaultFormView({ form, editing, errors, saving, saveError, totpCh
 							</div>
 						) : null}
 					</Field>
-					<Field hint="Cole a chave (base32) ou o link otpauth:// do app autenticador. O código é gerado na hora." htmlFor={`${id}-totp`} label="Código 2FA (opcional)">
+					<Field hint={t("settings.vault.totpHint")} htmlFor={`${id}-totp`} label={t("settings.vault.totpLabel")}>
 						<InputGroup>
-							<InputGroupInput autoComplete="off" className="font-mono" id={`${id}-totp`} onChange={(event) => onChange({ totp: event.target.value })} placeholder={editing ? "Deixe em branco para manter" : "JBSWY3DPEHPK3PXP"} spellCheck={false} type="password" value={form.totp} />
+							<InputGroupInput autoComplete="off" className="font-mono" id={`${id}-totp`} onChange={(event) => onChange({ totp: event.target.value })} placeholder={editing ? t("settings.vault.keepBlank") : "JBSWY3DPEHPK3PXP"} spellCheck={false} type="password" value={form.totp} />
 							<InputGroupAddon align="inline-end">
 								<InputGroupButton disabled={!form.totp.trim()} onClick={onCheckTotp} size="xs" variant="outline">
-									Testar
+									{t("settings.vault.test")}
 								</InputGroupButton>
 								{qrSupported ? (
 									<>
 										<input accept="image/*" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) onQr(file); event.target.value = ""; }} ref={fileRef} tabIndex={-1} type="file" />
-										<InputGroupButton aria-label="Ler QR de uma imagem" onClick={() => fileRef.current?.click()} size="icon-xs" title="Ler QR de uma imagem">
+										<InputGroupButton aria-label={t("settings.vault.readQr")} onClick={() => fileRef.current?.click()} size="icon-xs" title={t("settings.vault.readQr")}>
 											<QrCodeIcon />
 										</InputGroupButton>
 									</>
@@ -468,17 +475,17 @@ export function VaultFormView({ form, editing, errors, saving, saveError, totpCh
 							</p>
 						) : null}
 					</Field>
-					<Field htmlFor={`${id}-notes`} label="Observações">
-						<Textarea id={`${id}-notes`} onChange={(event) => onChange({ notes: event.target.value })} placeholder={editing ? "Deixe em branco para manter" : undefined} rows={2} value={form.notes} />
+					<Field htmlFor={`${id}-notes`} label={t("settings.vault.notes")}>
+						<Textarea id={`${id}-notes`} onChange={(event) => onChange({ notes: event.target.value })} placeholder={editing ? t("settings.vault.keepBlank") : undefined} rows={2} value={form.notes} />
 					</Field>
 					<div className="flex flex-col gap-2">
-						<span className={FIELD_LABEL}>Campos extras</span>
+						<span className={FIELD_LABEL}>{t("settings.vault.extraFields")}</span>
 						{form.extras.map((extra, index) => (
 							<div className="flex items-center gap-1.5" key={index}>
-								<Input aria-label="Nome do campo" className="w-[32%]" onChange={(event) => onChange({ extras: form.extras.map((item, i) => (i === index ? { ...item, name: event.target.value } : item)) })} placeholder="Nome" value={extra.name} />
-								<Input aria-label="Valor do campo" className="min-w-0 flex-1" onChange={(event) => onChange({ extras: form.extras.map((item, i) => (i === index ? { ...item, value: event.target.value } : item)) })} placeholder="Valor" type={extra.secret ? "password" : "text"} value={extra.value} />
-								<Switch aria-label="Campo secreto" checked={extra.secret} onCheckedChange={(checked) => onChange({ extras: form.extras.map((item, i) => (i === index ? { ...item, secret: checked } : item)) })} title="Secreto" />
-								<Button aria-label="Remover campo" onClick={() => onChange({ extras: form.extras.filter((_, i) => i !== index) })} size="icon-sm" type="button" variant="ghost">
+								<Input aria-label={t("settings.vault.fieldNameAria")} className="w-[32%]" onChange={(event) => onChange({ extras: form.extras.map((item, i) => (i === index ? { ...item, name: event.target.value } : item)) })} placeholder={t("settings.vault.fieldName")} value={extra.name} />
+								<Input aria-label={t("settings.vault.fieldValueAria")} className="min-w-0 flex-1" onChange={(event) => onChange({ extras: form.extras.map((item, i) => (i === index ? { ...item, value: event.target.value } : item)) })} placeholder={t("settings.vault.value")} type={extra.secret ? "password" : "text"} value={extra.value} />
+								<Switch aria-label={t("settings.vault.fieldSecretAria")} checked={extra.secret} onCheckedChange={(checked) => onChange({ extras: form.extras.map((item, i) => (i === index ? { ...item, secret: checked } : item)) })} title={t("settings.vault.fieldSecret")} />
+								<Button aria-label={t("settings.vault.removeField")} onClick={() => onChange({ extras: form.extras.filter((_, i) => i !== index) })} size="icon-sm" type="button" variant="ghost">
 									<XIcon />
 								</Button>
 							</div>
@@ -491,29 +498,29 @@ export function VaultFormView({ form, editing, errors, saving, saveError, totpCh
 						<div>
 							<Button onClick={() => onChange({ extras: [...form.extras, { name: "", value: "", secret: false }] })} size="sm" type="button" variant="ghost">
 								<PlusIcon data-icon="inline-start" />
-								Adicionar campo
+								{t("settings.vault.addField")}
 							</Button>
 						</div>
 					</div>
 				</>
 			) : (
 				<>
-					<Field error={errors.value} htmlFor={`${id}-value`} hint={editing ? "Deixe em branco para manter o valor atual." : undefined} label="Valor">
+					<Field error={errors.value} htmlFor={`${id}-value`} hint={editing ? t("settings.vault.keepValue") : undefined} label={t("settings.vault.value")}>
 						<InputGroup>
 							<InputGroupInput aria-invalid={errors.value ? true : undefined} autoComplete="off" className="font-mono" id={`${id}-value`} onChange={(event) => onChange({ value: event.target.value })} spellCheck={false} type={showPassword ? "text" : "password"} value={form.value} />
 							<InputGroupAddon align="inline-end">
-								<InputGroupButton aria-label={showPassword ? "Ocultar valor" : "Mostrar valor"} onClick={() => setShowPassword((v) => !v)} size="icon-xs">
+								<InputGroupButton aria-label={showPassword ? t("settings.vault.hideValue") : t("settings.vault.showValue")} onClick={() => setShowPassword((v) => !v)} size="icon-xs">
 									{showPassword ? <EyeOffIcon /> : <EyeIcon />}
 								</InputGroupButton>
 							</InputGroupAddon>
 						</InputGroup>
 					</Field>
-					<Field htmlFor={`${id}-desc`} label="Descrição">
-						<Input autoComplete="off" id={`${id}-desc`} onChange={(event) => onChange({ description: event.target.value })} placeholder="Para que serve" value={form.description} />
+					<Field htmlFor={`${id}-desc`} label={t("settings.vault.description")}>
+						<Input autoComplete="off" id={`${id}-desc`} onChange={(event) => onChange({ description: event.target.value })} placeholder={t("settings.vault.descriptionPlaceholder")} value={form.description} />
 					</Field>
 				</>
 			)}
-			<Field error={errors.name} hint={`O bot usa ${isLogin ? `{{login:${form.name || "nome"}.password}}` : `{{secret:${form.name || "nome"}}}`}`} htmlFor={`${id}-name`} label="Nome para o bot">
+			<Field error={errors.name} hint={t("settings.vault.botNameHint", { ref: isLogin ? `{{login:${form.name || t("settings.vault.botNameFallback")}.password}}` : `{{secret:${form.name || t("settings.vault.botNameFallback")}}}` })} htmlFor={`${id}-name`} label={t("settings.vault.botName")}>
 				<Input aria-invalid={errors.name ? true : undefined} autoCapitalize="off" autoComplete="off" className="font-mono" id={`${id}-name`} onChange={(event) => onChange({ name: event.target.value })} spellCheck={false} value={form.name} />
 			</Field>
 			{saveError ? (
@@ -523,10 +530,10 @@ export function VaultFormView({ form, editing, errors, saving, saveError, totpCh
 			) : null}
 			<div className="flex justify-end gap-2">
 				<Button disabled={saving} onClick={onCancel} size="sm" type="button" variant="ghost">
-					Cancelar
+					{t("settings.vault.cancel")}
 				</Button>
 				<Button disabled={saving} onClick={onSave} size="sm" type="button">
-					{saving ? "Salvando…" : "Salvar"}
+					{saving ? t("settings.vault.saving") : t("settings.vault.save")}
 				</Button>
 			</div>
 		</div>
@@ -554,11 +561,13 @@ async function copyText(text: string): Promise<boolean> {
 	}
 }
 
-function errorText(cause: unknown): string {
-	return cause instanceof Error && cause.message ? cause.message : "Não foi possível concluir. Tente novamente.";
+function errorText(cause: unknown, fallback: string): string {
+	return cause instanceof Error && cause.message ? cause.message : fallback;
 }
 
 export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => boolean }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const isMobile = useIsMobile();
 	const [items, setItems] = useState<VaultItemView[]>([]);
 	const [available, setAvailable] = useState(true);
@@ -591,7 +600,7 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 			setAvailable(data.available);
 			setError(null);
 		} catch (cause) {
-			setError(errorText(cause));
+			setError(errorText(cause, t("settings.vault.genericError")));
 		} finally {
 			setLoading(false);
 		}
@@ -609,7 +618,7 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 		try {
 			setDetail(await getVaultItem(id));
 		} catch (cause) {
-			setDetailError(errorText(cause));
+			setDetailError(errorText(cause, t("settings.vault.genericError")));
 		}
 	}, []);
 
@@ -658,7 +667,7 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 			setRevealed(await revealVaultItem(detail.item.id));
 			setDetail(await getVaultItem(detail.item.id));
 		} catch (cause) {
-			setDetailError(errorText(cause));
+			setDetailError(errorText(cause, t("settings.vault.genericError")));
 		} finally {
 			setBusy(false);
 		}
@@ -683,10 +692,10 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 				setCopied(what);
 				setTimeout(() => setCopied((current) => (current === what ? null : current)), 1800);
 			} else {
-				setDetailError("Não consegui copiar. Revele e copie à mão.");
+				setDetailError(t("settings.vault.copyFailed"));
 			}
 		} catch (cause) {
-			setDetailError(errorText(cause));
+			setDetailError(errorText(cause, t("settings.vault.genericError")));
 		}
 	}
 
@@ -722,7 +731,7 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 	async function save() {
 		if (!formState) return;
 		const editing = formState.editingId !== null;
-		const checked = validateVaultForm(formState.form, editing);
+		const checked = validateVaultForm(formState.form, editing, translator);
 		setFormErrors(checked.ok ? {} : checked.errors);
 		setSaveError(null);
 		if (!checked.ok) return;
@@ -734,7 +743,7 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 			await reload();
 			if (editing) await openDetail(saved.id);
 		} catch (cause) {
-			setSaveError(errorText(cause));
+			setSaveError(errorText(cause, t("settings.vault.genericError")));
 		} finally {
 			setSaving(false);
 		}
@@ -742,7 +751,7 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 
 	async function checkTotp() {
 		const result = await previewTotp(formState?.form.totp ?? "");
-		setTotpCheck(result.ok ? { ok: true, message: `Funciona. Código agora: ${result.code}` } : { ok: false, message: result.error ?? "Chave inválida." });
+		setTotpCheck(result.ok ? { ok: true, message: t("settings.vault.totpWorks", { code: result.code ?? "" }) } : { ok: false, message: result.error ?? t("settings.vault.totpInvalid") });
 	}
 
 	async function readQr(file: File) {
@@ -753,12 +762,12 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 			const [found] = await detector.detect(bitmap);
 			if (found?.rawValue) {
 				setFormState((state) => (state ? { ...state, form: { ...state.form, totp: found.rawValue } } : state));
-				setTotpCheck({ ok: true, message: "QR lido. Toque em Testar para conferir." });
+				setTotpCheck({ ok: true, message: t("settings.vault.qrRead") });
 			} else {
-				setTotpCheck({ ok: false, message: "Não achei um QR nessa imagem." });
+				setTotpCheck({ ok: false, message: t("settings.vault.qrNotFound") });
 			}
 		} catch {
-			setTotpCheck({ ok: false, message: "Não consegui ler a imagem." });
+			setTotpCheck({ ok: false, message: t("settings.vault.qrFailed") });
 		}
 	}
 
@@ -769,7 +778,7 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 			await deleteVaultItem(detail.item.id);
 			closeDetail();
 		} catch (cause) {
-			setDetailError(errorText(cause));
+			setDetailError(errorText(cause, t("settings.vault.genericError")));
 		}
 	}
 
@@ -793,7 +802,7 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 		/>
 	) : (
 		<p className="m-0 text-xs text-muted-foreground" role={detailError ? "alert" : "status"}>
-			{detailError ?? "Carregando…"}
+			{detailError ?? t("common.loading")}
 		</p>
 	);
 	const formNode = formState ? (
@@ -813,7 +822,7 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 			totpCheck={totpCheck}
 		/>
 	) : null;
-	const formTitle = formState?.editingId ? "Editar" : formState?.form.kind === "login" ? "Novo login de site" : "Novo segredo";
+	const formTitle = formState?.editingId ? t("settings.vault.edit") : formState?.form.kind === "login" ? t("settings.vault.newLogin") : t("settings.vault.newSecret");
 
 	// No celular, detalhe e formulário são páginas internas (← e título como as outras subpáginas), não diálogos.
 	const dialogs = (
@@ -821,12 +830,12 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 			<AlertDialog onOpenChange={setConfirmReveal} open={confirmReveal}>
 				<AlertDialogContent size="sm">
 					<AlertDialogHeader>
-						<AlertDialogTitle>Mostrar o valor?</AlertDialogTitle>
-						<AlertDialogDescription>Fica registrado no histórico do item. Revele só se ninguém estiver olhando a sua tela.</AlertDialogDescription>
+						<AlertDialogTitle>{t("settings.vault.revealTitleDialog")}</AlertDialogTitle>
+						<AlertDialogDescription>{t("settings.vault.revealBody")}</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Cancelar</AlertDialogCancel>
-						<AlertDialogAction onClick={() => void reveal()}>Mostrar</AlertDialogAction>
+						<AlertDialogCancel>{t("settings.vault.cancel")}</AlertDialogCancel>
+						<AlertDialogAction onClick={() => void reveal()}>{t("settings.vault.show")}</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
@@ -834,13 +843,13 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 			<AlertDialog onOpenChange={setConfirmDelete} open={confirmDelete}>
 				<AlertDialogContent size="sm">
 					<AlertDialogHeader>
-						<AlertDialogTitle>Apagar do cofre?</AlertDialogTitle>
-						<AlertDialogDescription>O valor é apagado e não dá para recuperar. Bots que usam {detail ? itemTitle(detail.item) : "este item"} vão precisar pedir de novo.</AlertDialogDescription>
+						<AlertDialogTitle>{t("settings.vault.deleteTitle")}</AlertDialogTitle>
+						<AlertDialogDescription>{t("settings.vault.deleteBody", { item: detail ? itemTitle(detail.item) : t("settings.vault.thisItem") })}</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Cancelar</AlertDialogCancel>
+						<AlertDialogCancel>{t("settings.vault.cancel")}</AlertDialogCancel>
 						<AlertDialogAction onClick={() => void remove()} variant="destructive">
-							Apagar
+							{t("settings.vault.delete")}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
@@ -854,9 +863,9 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 			<>
 				<div className="fixed inset-0 z-50 bg-background" data-slot="vault-page">
 					<SettingsPage
-						backLabel={inForm ? "Voltar" : "Voltar ao cofre"}
+						backLabel={inForm ? t("settings.vault.back") : t("settings.vault.backToVault")}
 						onBack={() => (inForm ? setFormState(null) : closeDetail())}
-						title={inForm ? formTitle : detail ? itemTitle(detail.item) : "Cofre"}
+						title={inForm ? formTitle : detail ? itemTitle(detail.item) : t("settings.vault.title")}
 					>
 						{inForm ? <div className="pb-6">{formNode}</div> : <div className="pb-6">{detailNode}</div>}
 					</SettingsPage>
@@ -885,8 +894,8 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 			<Dialog onOpenChange={(open) => !open && closeDetail()} open={!isMobile && detailId !== null && formState === null}>
 				<DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md" showCloseButton={false}>
 					<DialogHeader className="sr-only">
-						<DialogTitle>Item do cofre</DialogTitle>
-						<DialogDescription>Detalhes, histórico e ações do item.</DialogDescription>
+						<DialogTitle>{t("settings.vault.itemDialogTitle")}</DialogTitle>
+						<DialogDescription>{t("settings.vault.itemDialogBody")}</DialogDescription>
 					</DialogHeader>
 					{detailNode}
 				</DialogContent>
@@ -896,7 +905,7 @@ export function VaultSettings({ isVisible }: { isVisible?: (itemId: string) => b
 				<DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
 					<DialogHeader>
 						<DialogTitle>{formTitle}</DialogTitle>
-						<DialogDescription>Criptografado só para você. O bot nunca vê o valor.</DialogDescription>
+						<DialogDescription>{t("settings.vault.formDialogBody")}</DialogDescription>
 					</DialogHeader>
 					{formNode}
 					<DialogFooter className="sr-only" />
