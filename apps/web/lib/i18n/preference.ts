@@ -18,8 +18,13 @@ export function parseLocalePreference(cookieString: string): UiLocalePreference 
 	for (const part of cookieString.split(";")) {
 		const [name, ...rest] = part.trim().split("=");
 		if (name === UI_LOCALE_PREF_COOKIE) {
-			const value = decodeURIComponent(rest.join("="));
-			return isUiLocalePreference(value) ? value : "auto";
+			try {
+				const value = decodeURIComponent(rest.join("="));
+				return isUiLocalePreference(value) ? value : "auto";
+			} catch {
+				// Cookie malformado (ex.: "%E0%A4%A"): trata como Automático em vez de quebrar a página.
+				return "auto";
+			}
 		}
 	}
 	return "auto";

@@ -9,6 +9,11 @@ test("parseLocalePreference lê a escolha e trata ausente/inválido como auto", 
 	assert.equal(parseLocalePreference(""), "auto")
 })
 
+test("parseLocalePreference: cookie com escape inválido vira auto (não lança)", () => {
+	assert.equal(parseLocalePreference("atlas-locale-pref=%E0%A4%A"), "auto")
+	assert.equal(parseLocalePreference("atlas-locale-pref=en%2DUS"), "en-US")
+})
+
 test("localePreferenceCookies: idioma fixo grava os dois cookies; auto apaga a escolha e segue o navegador", () => {
 	const fixed = localePreferenceCookies("es-ES", ["en-US"])
 	assert.match(fixed[0]!, /^atlas-locale-pref=es-ES; Max-Age=\d+/)
