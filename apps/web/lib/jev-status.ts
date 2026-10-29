@@ -1,3 +1,5 @@
+import { getActiveTranslator } from "@/lib/i18n/active";
+import type { Translator } from "@/lib/i18n/translator";
 export type JevToolReview = {
 	mode: "shadow" | "gate";
 	result: "allow" | "ask" | "unavailable";
@@ -11,25 +13,25 @@ export function isJevToolReview(value: unknown): value is JevToolReview {
 }
 
 /** Texto seguro para o chat: só descreve decisão e resultado da execução. */
-export function jevStatusText(review: JevToolReview, toolOk: boolean): string {
+export function jevStatusText(review: JevToolReview, toolOk: boolean, { t }: Translator = getActiveTranslator()): string {
 	if (review.mode === "gate") {
-		if (review.result === "ask") return "JEV pediu confirmação; a ação ainda não foi executada.";
-		if (review.result === "unavailable") return "JEV indisponível; a ação aguarda confirmação.";
+		if (review.result === "ask") return t("status.jev.gateAsk");
+		if (review.result === "unavailable") return t("status.jev.gateUnavailable");
 		return toolOk
-			? "JEV aprovou esta ação."
-			: "JEV permitiu a ação, mas a ferramenta falhou.";
+			? t("status.jev.gateApproved")
+			: t("status.jev.gateToolFailed");
 	}
 	if (review.result === "unavailable") {
 		return toolOk
-			? "JEV indisponível no modo de observação; a ação foi executada."
-			: "JEV indisponível no modo de observação; a ferramenta falhou.";
+			? t("status.jev.shadowUnavailableOk")
+			: t("status.jev.shadowUnavailableFailed");
 	}
 	if (review.result === "ask") {
 		return toolOk
-			? "JEV recomendaria confirmação no modo de observação; a ação foi executada."
-			: "JEV recomendaria confirmação no modo de observação; a ferramenta falhou.";
+			? t("status.jev.shadowAskOk")
+			: t("status.jev.shadowAskFailed");
 	}
 	return toolOk
-		? "JEV observou esta ação; ela foi executada."
-		: "JEV observou esta ação; a ferramenta falhou.";
+		? t("status.jev.shadowObservedOk")
+		: t("status.jev.shadowObservedFailed");
 }

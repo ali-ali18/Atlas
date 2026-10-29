@@ -1,4 +1,5 @@
 import { PROFILE_IMAGE_MAX_BYTES, PROFILE_IMAGE_SIZE } from "@workspace/shared";
+import { activeT } from "@/lib/i18n/active";
 
 /** Quadrado central da imagem: origem e lado em pixels da imagem original. */
 export function centerSquare(width: number, height: number): { sx: number; sy: number; side: number } {
@@ -14,9 +15,9 @@ export type ProfileImagePick = { ok: true } | { ok: false; error: string };
 /** Valida o arquivo escolhido antes de decodificar: precisa ser imagem raster (SVG não). */
 export function checkPickedFile(file: { type: string; size: number }): ProfileImagePick {
 	if (!/^image\/(jpeg|png|webp|heic|heif|avif|bmp)$/i.test(file.type)) {
-		return { ok: false, error: "Escolha uma foto (JPEG, PNG ou WebP)." };
+		return { ok: false, error: activeT("errors.choosePhoto") };
 	}
-	if (file.size > PROFILE_PICK_MAX_BYTES) return { ok: false, error: "Essa foto é grande demais." };
+	if (file.size > PROFILE_PICK_MAX_BYTES) return { ok: false, error: activeT("errors.photoTooBig") };
 	return { ok: true };
 }
 
@@ -29,7 +30,7 @@ export async function prepareProfileImage(file: Blob): Promise<string> {
 		canvas.width = PROFILE_IMAGE_SIZE;
 		canvas.height = PROFILE_IMAGE_SIZE;
 		const context = canvas.getContext("2d");
-		if (!context) throw new Error("Não foi possível preparar a foto.");
+		if (!context) throw new Error(activeT("errors.preparePhoto"));
 		context.imageSmoothingQuality = "high";
 		context.drawImage(bitmap, sx, sy, side, side, 0, 0, PROFILE_IMAGE_SIZE, PROFILE_IMAGE_SIZE);
 		for (const type of ["image/webp", "image/jpeg"]) {
@@ -39,7 +40,7 @@ export async function prepareProfileImage(file: Blob): Promise<string> {
 				if (dataUrlBytes(url) <= PROFILE_IMAGE_MAX_BYTES) return url;
 			}
 		}
-		throw new Error("Não foi possível reduzir a foto.");
+		throw new Error(activeT("errors.shrinkPhoto"));
 	} finally {
 		bitmap.close();
 	}

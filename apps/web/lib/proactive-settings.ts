@@ -8,10 +8,28 @@ import {
 	type ProactiveRoutineMode,
 	type ProactiveSettings,
 } from "@workspace/shared";
+import { activeT } from "@/lib/i18n/active";
 
 export const ROUTINE_MODE_OPTIONS: ReadonlyArray<{ value: ProactiveRoutineMode; label: string; hint: string }> = [
-	{ value: "suggest", label: "Sugerir", hint: "O bot mostra um card e você escolhe criar a rotina." },
-	{ value: "auto", label: "Automático", hint: "O bot cria a rotina e avisa; você pode desfazer." },
+	// Getters: o texto segue o idioma da tela (lido ao desenhar, não ao importar o módulo).
+	{
+		value: "suggest",
+		get label() {
+			return activeT("status.proactive.suggest");
+		},
+		get hint() {
+			return activeT("status.proactive.suggestHint");
+		},
+	},
+	{
+		value: "auto",
+		get label() {
+			return activeT("status.proactive.auto");
+		},
+		get hint() {
+			return activeT("status.proactive.autoHint");
+		},
+	},
 ];
 
 export const MAX_PER_DAY_OPTIONS: ReadonlyArray<{ value: string; label: string }> = Array.from(

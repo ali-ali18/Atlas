@@ -9,6 +9,7 @@ import {
 	updateBotEmail,
 	type BotEmailPayload,
 } from "@/lib/atlas-api";
+import { activeT } from "@/lib/i18n/active";
 
 function messageOf(cause: unknown, fallback: string): string {
 	return cause instanceof AtlasApiError && cause.message ? cause.message : fallback;
@@ -35,7 +36,7 @@ export function useBotEmail(botId: string, active: boolean) {
 			setLoadError(null);
 		} catch (cause) {
 			if (id !== request.current) return;
-			setLoadError(messageOf(cause, "Não foi possível carregar o e-mail do bot."));
+			setLoadError(messageOf(cause, activeT("errors.loadBotEmail")));
 		} finally {
 			if (id === request.current) setLoading(false);
 		}
@@ -74,9 +75,9 @@ export function useBotEmail(botId: string, active: boolean) {
 		actionError,
 		busy,
 		refresh,
-		enable: (domain?: string) => act(() => enableBotEmail(botId, domain), "Não foi possível ativar o endereço. Tente novamente."),
+		enable: (domain?: string) => act(() => enableBotEmail(botId, domain), activeT("errors.enableAddress")),
 		patch: (patch: { allowedSenders?: string[]; dailySendLimit?: number; enabled?: boolean }) =>
-			act(() => updateBotEmail(botId, patch), "Não foi possível salvar. Tente novamente."),
-		remove: () => act(() => disableBotEmail(botId), "Não foi possível remover o endereço. Tente novamente."),
+			act(() => updateBotEmail(botId, patch), activeT("errors.saveRetry")),
+		remove: () => act(() => disableBotEmail(botId), activeT("errors.removeAddress")),
 	};
 }

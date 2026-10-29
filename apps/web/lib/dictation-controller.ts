@@ -8,6 +8,7 @@ import {
 	type DictationEvent,
 	type DictationPhase,
 } from "./dictation";
+import { activeT } from "@/lib/i18n/active";
 
 /** Subconjunto das APIs de navegador que o ditado usa (injetável nos testes). */
 export type SpeechResultLike = { isFinal: boolean; 0: { transcript: string } };
@@ -173,7 +174,7 @@ export function createDictationController(options: DictationOptions) {
 				if (server) text = server;
 			} catch (error) {
 				if (mine === session && !cancelled) {
-					options.onError?.(error instanceof Error && error.message ? error.message : "Não consegui transcrever o áudio. Usei o texto do navegador.");
+					options.onError?.(error instanceof Error && error.message ? error.message : activeT("errors.dictationFallback"));
 				}
 			}
 		}
@@ -204,7 +205,7 @@ export function createDictationController(options: DictationOptions) {
 			if (mine !== session) return;
 			move("fail");
 			emit();
-			options.onError?.("Não consegui acessar o microfone. Libere a permissão no navegador.");
+			options.onError?.(activeT("errors.microphoneDenied"));
 			return;
 		}
 		if (mine !== session || cancelled || currentPhase() !== "recording") {

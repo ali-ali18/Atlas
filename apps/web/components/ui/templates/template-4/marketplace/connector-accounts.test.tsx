@@ -5,7 +5,7 @@ import { test } from "node:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { ApiConnectionView, ApiProposal, McpConnectionView } from "@workspace/shared"
 import { ApiConnectFlow } from "@/components/ai-elements/login/api-connect-sheet"
-import { ANOTHER_ACCOUNT_HINT, accountCountText, accountDisplayLabel, groupAccounts, primaryAccount } from "@/lib/connector-accounts"
+import { anotherAccountHint, accountCountText, accountDisplayLabel, groupAccounts, primaryAccount } from "@/lib/connector-accounts"
 import { ApiConnectionCard } from "./api-connections-section"
 import { ApiConnectionPage } from "./api-connection-page"
 import { AccountsSection } from "./connector-accounts"
@@ -110,7 +110,7 @@ test("seção Contas: uma linha por conta, contador, botão 'Adicionar outra con
   assert.match(html, /aria-label="Desconectar Conta 2"/)
   assert.match(html, /Reconectar/)
   assert.match(html, /aria-current="true"/)
-  assert.ok(html.includes(ANOTHER_ACCOUNT_HINT))
+  assert.ok(html.includes(anotherAccountHint()))
   assert.doesNotMatch(html, /Atlas/)
 })
 
@@ -118,7 +118,7 @@ test("seção Contas sem login por navegador não mostra o aviso; ocupado troca 
   const html = renderToStaticMarkup(
     <AccountsSection accounts={mcpAccountRows([mcp()], "Notion")} adding onAdd={noop} onDisconnect={noop} onRename={noop} />,
   )
-  assert.ok(!html.includes(ANOTHER_ACCOUNT_HINT))
+  assert.ok(!html.includes(anotherAccountHint()))
   assert.match(html, /Conectando…/)
   assert.match(html, />Notion</)
 })
@@ -186,7 +186,7 @@ test("página da API com 2 contas: Contas com as duas, a aberta destacada, renom
   assert.match(html, /aria-label="Renomear Bling loja"/)
   assert.match(html, /aria-label="Desconectar Bling atacado"/)
   assert.match(html, /Bling atacado · <span/)
-  assert.ok(html.includes(ANOTHER_ACCOUNT_HINT))
+  assert.ok(html.includes(anotherAccountHint()))
   assert.match(html, /aria-current="true"/)
 })
 
@@ -205,13 +205,13 @@ test("fluxo de outra conta por OAuth avisa para sair da conta atual (só no pass
   const authorize = renderToStaticMarkup(
     <ApiConnectFlow anotherAccount busy={false} initial={{ step: 2, clientId: "a", clientSecret: "b" }} onOpenChange={noop} onSubmit={noop} proposal={proposal} />,
   )
-  assert.ok(authorize.includes(ANOTHER_ACCOUNT_HINT))
+  assert.ok(authorize.includes(anotherAccountHint()))
   const credentials = renderToStaticMarkup(<ApiConnectFlow anotherAccount busy={false} onOpenChange={noop} onSubmit={noop} proposal={proposal} />)
-  assert.ok(!credentials.includes(ANOTHER_ACCOUNT_HINT))
+  assert.ok(!credentials.includes(anotherAccountHint()))
   const first = renderToStaticMarkup(
     <ApiConnectFlow busy={false} initial={{ step: 2, clientId: "a", clientSecret: "b" }} onOpenChange={noop} onSubmit={noop} proposal={proposal} />,
   )
-  assert.ok(!first.includes(ANOTHER_ACCOUNT_HINT))
+  assert.ok(!first.includes(anotherAccountHint()))
 })
 
 test("um cartão por serviço: contas agrupadas por catálogo/base, na ordem da primeira ocorrência", () => {

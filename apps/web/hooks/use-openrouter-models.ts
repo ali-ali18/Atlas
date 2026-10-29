@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { activeT } from "@/lib/i18n/active";
 import type { OpenRouterModel } from "@workspace/shared";
 import { listOpenRouterImageModels, listOpenRouterModels } from "@/lib/atlas-api";
 
@@ -27,7 +28,7 @@ export function useOpenRouterModels() {
 			.catch((err) => {
 				if (cancelled) return;
 				setError(
-					err instanceof Error ? err.message : "Falha ao carregar modelos",
+					err instanceof Error ? err.message : activeT("errors.loadModels"),
 				);
 			})
 			.finally(() => {

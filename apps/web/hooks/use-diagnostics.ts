@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { DiagnosticsView } from "@workspace/shared"
 import { getDiagnostics } from "@/lib/diagnostics-api"
+import { activeT } from "@/lib/i18n/active";
 
 /** Carrega o diagnóstico ao abrir e quando o usuário pede para atualizar; ignora respostas antigas. */
 export function useDiagnostics(enabled = true) {
@@ -20,7 +21,7 @@ export function useDiagnostics(enabled = true) {
         if (request === requestRef.current) setData(view)
       })
       .catch((cause: unknown) => {
-        if (request === requestRef.current) setError(cause instanceof Error ? cause.message : "Não foi possível carregar o diagnóstico.")
+        if (request === requestRef.current) setError(cause instanceof Error ? cause.message : activeT("errors.loadDiagnostics"))
       })
       .finally(() => {
         if (request === requestRef.current) setLoading(false)

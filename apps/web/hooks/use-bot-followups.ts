@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { cancelBotFollowup, listBotFollowups, rescheduleBotFollowup, type BotFollowup } from "@/lib/atlas-api";
+import { activeT } from "@/lib/i18n/active";
 
 const REFRESH_MS = 30_000;
 
@@ -55,7 +56,7 @@ export function useBotFollowups(botId: string | undefined, enabled: boolean) {
 
 	const reschedule = useCallback(
 		async (followupId: string, when: string, stage?: number): Promise<{ ok: true; movedForQuietHours: boolean } | { ok: false; error: string }> => {
-			if (!botId) return { ok: false, error: "Bot indisponível." };
+			if (!botId) return { ok: false, error: activeT("errors.botUnavailable") };
 			try {
 				const result = await rescheduleBotFollowup(botId, followupId, when, stage);
 				setFollowups((previous) =>
@@ -64,7 +65,7 @@ export function useBotFollowups(botId: string | undefined, enabled: boolean) {
 				return { ok: true, movedForQuietHours: result.movedForQuietHours };
 			} catch (error) {
 				console.warn("reschedule followup failed", error);
-				return { ok: false, error: error instanceof Error && error.message ? error.message : "Não foi possível reagendar." };
+				return { ok: false, error: error instanceof Error && error.message ? error.message : activeT("errors.reschedule") };
 			}
 		},
 		[botId],

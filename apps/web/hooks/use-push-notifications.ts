@@ -11,6 +11,7 @@ import {
 	type PushDevice,
 } from "@/lib/atlas-api";
 import { pushState, readPushEnv, urlBase64ToUint8Array, type PushState } from "@/lib/push-client";
+import { activeT } from "@/lib/i18n/active";
 
 export type PushNotifications = {
 	loading: boolean;
@@ -58,7 +59,7 @@ export function usePushNotifications(): PushNotifications {
 			setSubscribed(Boolean(mine));
 			setError(null);
 		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : "Não foi possível carregar as notificações.");
+			setError(cause instanceof Error ? cause.message : activeT("errors.loadNotifications"));
 		} finally {
 			setLoading(false);
 		}
@@ -75,7 +76,7 @@ export function usePushNotifications(): PushNotifications {
 		try {
 			setNotice(await action());
 		} catch (cause) {
-			setError(cause instanceof Error && cause.message ? cause.message : "Algo deu errado. Tente de novo.");
+			setError(cause instanceof Error && cause.message ? cause.message : activeT("errors.pushGeneric"));
 		} finally {
 			setPermissionTick((tick) => tick + 1);
 			setBusy(false);
@@ -84,16 +85,16 @@ export function usePushNotifications(): PushNotifications {
 
 	const enable = () =>
 		run(async () => {
-			if (!publicKey) throw new Error("As notificações ainda não foram configuradas no servidor.");
+			if (!publicKey) throw new Error(activeT("errors.pushNotConfigured"));
 			const permission = await Notification.requestPermission();
-			if (permission !== "granted") throw new Error("Permissão negada. Libere as notificações nas configurações do navegador.");
+			if (permission !== "granted") throw new Error(activeT("errors.pushDenied"));
 			const registration = await navigator.serviceWorker.ready;
 			const subscription =
 				(await registration.pushManager.getSubscription()) ??
 				(await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) }));
 			await savePushDevice(subscription.toJSON());
 			await refresh();
-			return "Notificações ativadas neste aparelho.";
+			return activeT("errors.pushEnabled");
 		});
 
 	const disable = () =>
@@ -104,14 +105,14 @@ export function usePushNotifications(): PushNotifications {
 				await subscription.unsubscribe().catch(() => undefined);
 			}
 			await refresh();
-			return "Notificações desativadas neste aparelho.";
+			return activeT("errors.pushDisabled");
 		});
 
 	const test = () =>
 		run(async () => {
 			const result = await sendPushTest();
 			await refresh();
-			return result.sent > 0 ? "Enviamos uma notificação de teste." : "Não foi possível entregar o teste. Tente ativar de novo.";
+			return result.sent > 0 ? activeT("errors.pushTestSent") : activeT("errors.pushTestFailed");
 		});
 
 	const remove = (id: string) =>
@@ -120,7 +121,7 @@ export function usePushNotifications(): PushNotifications {
 			await removePushDevice(id);
 			if (isMine) await (await currentSubscription())?.unsubscribe().catch(() => undefined);
 			await refresh();
-			return "Aparelho removido.";
+			return activeT("errors.deviceRemoved");
 		});
 
 	// `permissionTick` força reler Notification.permission depois de cada ação.

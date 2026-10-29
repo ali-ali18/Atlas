@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { MessageReaction } from "@workspace/shared";
 
-const { createReactionStore, isPersistedMessageId, REACTION_FAILURE_MESSAGE, userEmoji } = await import("./message-reactions.js");
+const { createReactionStore, isPersistedMessageId, reactionFailureMessage, userEmoji } = await import("./message-reactions.js");
 
 const user = (emoji: string): MessageReaction => ({ actor: "user", emoji });
 const bot = (emoji: string): MessageReaction => ({ actor: "bot", emoji });
@@ -50,7 +50,7 @@ test("falha: volta ao último estado confirmado e avisa com toast", async () => 
 	store.seed("m", [bot("❤️")]);
 	await store.toggle("m", "👎");
 	assert.deepEqual(store.get("m"), [bot("❤️")]);
-	assert.deepEqual(toasts, [REACTION_FAILURE_MESSAGE]);
+	assert.deepEqual(toasts, [reactionFailureMessage()]);
 });
 
 test("repetir o emoji tira a reação (DELETE) e a do bot continua", async () => {

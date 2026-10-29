@@ -7,7 +7,7 @@ import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import { cn } from "@workspace/ui/lib/utils"
-import { ANOTHER_ACCOUNT_HINT } from "@/lib/connector-accounts"
+import { anotherAccountHint } from "@/lib/connector-accounts"
 
 export type AccountRow = {
   id: string
@@ -163,7 +163,7 @@ export function AccountsSection({
           {error}
         </p>
       ) : null}
-      {oauthHint ? <p className="m-0 pt-1 text-xs text-muted-foreground">{ANOTHER_ACCOUNT_HINT}</p> : null}
+      {oauthHint ? <p className="m-0 pt-1 text-xs text-muted-foreground">{anotherAccountHint()}</p> : null}
     </section>
   )
 }

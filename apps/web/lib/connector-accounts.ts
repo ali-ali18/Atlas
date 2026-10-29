@@ -1,7 +1,7 @@
+import { activeT, getActiveTranslator } from "@/lib/i18n/active"
 /** Várias contas do mesmo conector: apelido exibido e textos compartilhados. */
 
-export const ANOTHER_ACCOUNT_HINT =
-  "Para usar outra conta, saia da conta atual no site do serviço ou use uma janela anônima antes de autorizar."
+export const anotherAccountHint = () => activeT("status.accounts.hint")
 
 type Account = { id: string; accountLabel: string | null }
 
@@ -14,7 +14,7 @@ export function accountDisplayLabel(account: Account, siblings: readonly Account
   if (label) return label
   if (siblings.length < 2) return null
   const index = siblings.findIndex((item) => item.id === account.id)
-  return `Conta ${(index < 0 ? siblings.length : index) + 1}`
+  return activeT("status.accounts.numbered", { number: (index < 0 ? siblings.length : index) + 1 })
 }
 
 /** Conta que o cartão do catálogo representa: a conectada mais antiga, senão a primeira. */
@@ -35,4 +35,4 @@ export function groupAccounts<T>(items: readonly T[], keyOf: (item: T) => string
 }
 
 /** Subtítulo do cartão de um serviço com várias contas. */
-export const accountCountText = (count: number) => `${count} contas`
+export const accountCountText = (count: number) => getActiveTranslator().tn("status.accounts.count", count)

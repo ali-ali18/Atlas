@@ -1,6 +1,9 @@
 import type { Message } from "@/components/ui/templates/template-4/data";
 import { describeMcpTaskGrantUses } from "@workspace/shared";
 import { isCardProtocolText } from "@/lib/card-decision";
+import { getActiveTranslator } from "@/lib/i18n/active";
+import type { Translator } from "@/lib/i18n/translator";
+import type { MessageKey } from "@/lib/i18n/translator";
 
 type ConfirmMessage = Extract<Message, { kind: "confirm" }>;
 type NeedsUserMessage = Extract<Message, { kind: "needs-user" }>;
@@ -70,24 +73,24 @@ export function selectDockEntries(messages: Message[]): DockEntry[] {
 
 export type ApprovalMarker = { status: ApprovalMarkerStatus; label: string; short: string };
 
-const STATUS_WORD: Record<ApprovalMarkerStatus, string> = {
-	pending: "Aguardando aprovação",
-	approved: "Aprovado",
-	rejected: "Recusado",
-	failed: "Falhou",
-	skipped: "Dispensado",
-	expired: "Expirado",
-	resolved: "Respondido",
-};
+const STATUS_WORD_KEY = {
+	pending: "status.approval.pending",
+	approved: "status.approval.approved",
+	rejected: "status.approval.rejected",
+	failed: "status.approval.failed",
+	skipped: "status.approval.skipped",
+	expired: "status.approval.expired",
+	resolved: "status.approval.resolved",
+} as const satisfies Record<ApprovalMarkerStatus, MessageKey>;
 
 export function approvalMarkerText(status: ApprovalMarkerStatus, short: string): string {
-	return `${STATUS_WORD[status]} · ${short}`;
+	return `${getActiveTranslator().t(STATUS_WORD_KEY[status])} · ${short}`;
 }
 
 /** Detalhe do marcador de uma aprovação que falhou ao executar: o pedido e, abaixo, o erro que voltou. */
-export function failedApprovalDetail(description: string | undefined, failure: string | undefined): string {
+export function failedApprovalDetail(description: string | undefined, failure: string | undefined, { t }: Translator = getActiveTranslator()): string {
 	const reason = failure?.trim();
-	return [description?.trim(), reason ? `Falhou: ${reason}` : "Falhou ao executar."].filter(Boolean).join("\n\n");
+	return [description?.trim(), reason ? t("status.approval.failedDetail", { reason }) : t("status.approval.failedToRun")].filter(Boolean).join("\n\n");
 }
 
 /** Recusa sem comentário ("cancela isso") = pulou; "recusado: …" = recusou. Olha a primeira decisão que vem depois do cartão. */
@@ -140,6 +143,7 @@ export function dockEntryPrefixes(entry: DockEntry): string[] {
 export function approvalBarLabel(entry: DockEntry): string {
 	const info = entry.type === "confirm" ? entry.message.devApproval : entry.message.need.item?.devApproval;
 	const short = approvalShortLabel(entry.message);
-	const text = info ? `${info.kind === "command" ? "Executar" : "Editar"} · ${short}` : short;
+	const { t } = getActiveTranslator();
+	const text = info ? `${info.kind === "command" ? t("status.approval.run") : t("status.approval.edit")} · ${short}` : short;
 	return entry.type === "relayed" ? `${entry.message.botName}: ${text}` : text;
 }

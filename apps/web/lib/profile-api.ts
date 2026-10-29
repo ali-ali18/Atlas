@@ -1,4 +1,5 @@
 import { authClient } from "@/lib/auth-client";
+import { activeT } from "@/lib/i18n/active";
 
 export type ProfileResult = { id: string; name: string; email: string; image: string | null };
 
@@ -6,7 +7,7 @@ async function send(path: string, init: RequestInit): Promise<ProfileResult> {
 	const response = await fetch(path, { ...init, credentials: "same-origin" });
 	if (response.status === 401 && typeof window !== "undefined") window.location.replace("/login");
 	if (!response.ok) {
-		let message = "Não foi possível salvar. Tente novamente.";
+		let message = activeT("errors.saveRetry");
 		try {
 			const body = (await response.json()) as { error?: unknown };
 			if (typeof body.error === "string" && body.error) message = body.error;

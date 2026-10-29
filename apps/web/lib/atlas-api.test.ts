@@ -235,10 +235,10 @@ describe("compactErrorText (/compact)", () => {
 	}
 
 	it("502 do proxy com página HTML (sem statusText, como no HTTP/2): aviso amigável, nunca 'HTTP 502'", async () => {
-		const { compactErrorText, COMPACT_FAILED_TEXT } = await import("./atlas-api");
+		const { compactErrorText, compactFailedText } = await import("./atlas-api");
 		const error = await compactFailure(() => new Response("<html><title>502 Bad Gateway</title></html>", { status: 502 }));
 		const text = compactErrorText(error);
-		assert.strictEqual(text, COMPACT_FAILED_TEXT);
+		assert.strictEqual(text, compactFailedText());
 		assert.doesNotMatch(text, /HTTP|502|Bad Gateway/);
 	});
 
@@ -251,8 +251,8 @@ describe("compactErrorText (/compact)", () => {
 	});
 
 	it("queda de rede: aviso amigável", async () => {
-		const { compactErrorText, COMPACT_FAILED_TEXT } = await import("./atlas-api");
+		const { compactErrorText, compactFailedText } = await import("./atlas-api");
 		const error = await compactFailure(() => Promise.reject(new TypeError("Failed to fetch")));
-		assert.strictEqual(compactErrorText(error), COMPACT_FAILED_TEXT);
+		assert.strictEqual(compactErrorText(error), compactFailedText());
 	});
 });

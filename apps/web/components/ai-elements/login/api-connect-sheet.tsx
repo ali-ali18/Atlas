@@ -10,7 +10,7 @@ import { CopyButton } from "@/components/ai-elements/dev-session/parts"
 import { FlowPanel } from "@/components/ai-elements/login/flow-panel"
 import { ApiGroupsPicker } from "@/components/ai-elements/connectors/api-groups-picker"
 import type { ApiConnectForm } from "@/hooks/use-api-connection"
-import { ANOTHER_ACCOUNT_HINT } from "@/lib/connector-accounts"
+import { anotherAccountHint } from "@/lib/connector-accounts"
 
 /** O que o usuário digitou; vive só no componente até o envio ao servidor. */
 export type ApiConnectValues = {
@@ -327,7 +327,7 @@ export function ApiConnectFlow({ proposal, onOpenChange, busy, error, onSubmit, 
             </div>
           )}
           {anotherAccount && oauth && !(step === 1 && credentials) ? (
-            <p className="m-0 text-xs text-muted-foreground">{ANOTHER_ACCOUNT_HINT}</p>
+            <p className="m-0 text-xs text-muted-foreground">{anotherAccountHint()}</p>
           ) : null}
           {error ? (
             <p className="m-0 text-sm text-destructive" role="alert">

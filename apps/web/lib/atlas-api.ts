@@ -82,6 +82,7 @@ import { getStoredSseCursor, setStoredSseCursor } from "@/lib/active-run";
 import { isJevToolReview, type JevToolReview } from "@/lib/jev-status";
 import { isStreamIdle, subscribeAppResume } from "@/lib/resume-sync";
 import { createSseReplayGuard } from "@/lib/sse-replay";
+import { activeT } from "@/lib/i18n/active";
 
 export function getAtlasApiBaseUrl(): string {
 	return "";
@@ -162,10 +163,10 @@ export function isRetryableDictationStatus(status: number): boolean {
 
 /** Mensagem para o usuário quando a resposta não veio da API (corpo não-JSON de proxy) ou veio de rede. */
 export function dictationGatewayMessage(status: number | null): string {
-	if (status === 413) return "O áudio ficou grande demais. Faça um ditado mais curto.";
-	if (status === 504) return "A transcrição demorou demais. Tente um ditado mais curto.";
-	if (status === null) return "Sem conexão com o servidor. Verifique a internet e tente de novo.";
-	return "O servidor não respondeu a tempo. Tente de novo em instantes.";
+	if (status === 413) return activeT("errors.audioTooBig");
+	if (status === 504) return activeT("errors.transcribeTimeout");
+	if (status === null) return activeT("errors.noConnection");
+	return activeT("errors.serverTimeout");
 }
 
 async function dictationErrorFrom(response: Response): Promise<AtlasApiError> {
@@ -343,7 +344,7 @@ export function waitMcpOAuthPopup(
 		window.addEventListener("message", onMessage);
 		// Fechou sem terminar: o chamador recarrega o status de qualquer jeito.
 		const timer = window.setInterval(() => {
-			if (popup.closed) finish({ ok: false, error: "Login não concluído.", closed: true });
+			if (popup.closed) finish({ ok: false, error: activeT("errors.loginIncomplete"), closed: true });
 		}, 700);
 	});
 }
@@ -544,7 +545,7 @@ export async function compactConversation(conversationId: string, focus?: string
 }
 
 /** Falha do `/compact` sem mensagem do servidor (proxy, rede): nunca o "HTTP 502" cru. */
-export const COMPACT_FAILED_TEXT = "Não consegui resumir a conversa agora; ela segue como estava. Tente de novo em instantes.";
+export const compactFailedText = () => activeT("errors.compactFailed");
 
 /**
  * Texto do aviso quando o `/compact` falha: a mensagem que a API mandou (bloqueio, falha do resumo) ou, sem
@@ -555,7 +556,7 @@ export function compactErrorText(error: unknown): string {
 		const server = (error.details as { error?: unknown } | undefined)?.error;
 		if (typeof server === "string" && server.trim()) return server.trim();
 	}
-	return COMPACT_FAILED_TEXT;
+	return compactFailedText();
 }
 
 /** Abriu a conversa: resultados de runs em background contam como vistos (some o badge). */
@@ -1898,7 +1899,7 @@ async function streamAgentRunLoop(
 		}
 		if (!snapshot && attempt >= 8) {
 			throw new AtlasApiError(
-				"Não consegui acompanhar o run (API/Redis indisponível).",
+				activeT("errors.trackRunFailed"),
 				503,
 			);
 		}
@@ -2677,7 +2678,7 @@ export async function previewTotp(input: string): Promise<{ ok: boolean; code?: 
 	try {
 		return await atlasFetch("/v1/vault/totp/preview", { method: "POST", body: JSON.stringify({ input }) });
 	} catch (error) {
-		return { ok: false, error: error instanceof Error ? error.message : "Chave 2FA inválida" };
+		return { ok: false, error: error instanceof Error ? error.message : activeT("errors.invalid2fa") };
 	}
 }
 

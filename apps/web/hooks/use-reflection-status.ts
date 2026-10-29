@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getReflectionStatus, runReflectionNow, type ReflectionStatusView } from "@/lib/atlas-api";
 import { useHubEvents, useHubPollMode } from "@/hooks/use-event-hub";
+import { activeT } from "@/lib/i18n/active";
 
 const POLL_MS = 4000;
 const DEGRADED_POLL_MS = 60_000;
@@ -46,7 +47,7 @@ export function useReflectionStatus(enabled: boolean) {
 			setView((current) => (current ? { ...current, active: true } : current));
 			void refresh();
 		} catch (cause) {
-			setError(cause instanceof Error && cause.message ? cause.message : "Não foi possível iniciar a reflexão.");
+			setError(cause instanceof Error && cause.message ? cause.message : activeT("errors.startReflection"));
 		} finally {
 			setStarting(false);
 		}

@@ -2,6 +2,7 @@
  * Notificações no celular (lado do navegador): o que o aparelho suporta, em que estado está a
  * permissão e a inscrição, e a chave VAPID no formato que o `PushManager` pede. Funções puras.
  */
+import { activeT } from "@/lib/i18n/active";
 
 export type PushEnv = {
 	hasServiceWorker: boolean;
@@ -34,13 +35,26 @@ export function pushState(env: PushEnv): PushState {
 	return env.subscribed && env.permission === "granted" ? "on" : "off";
 }
 
+/** Getters: o texto segue o idioma da tela (lido na hora de desenhar, não ao importar o módulo). */
 export const PUSH_STATE_TEXT: Record<PushState, string> = {
-	"server-off": "As notificações ainda não foram configuradas no servidor.",
-	unsupported: "Este navegador não recebe notificações push.",
-	"needs-install": "No iPhone, adicione o app à tela inicial (Compartilhar, Adicionar à Tela de Início) e abra por lá para ativar.",
-	denied: "As notificações estão bloqueadas neste navegador. Libere nas configurações do site para ativar.",
-	off: "Receba um aviso no celular quando um bot terminar ou precisar de você.",
-	on: "Ativadas neste aparelho.",
+	get "server-off"() {
+		return activeT("status.push.serverOff");
+	},
+	get unsupported() {
+		return activeT("status.push.unsupported");
+	},
+	get "needs-install"() {
+		return activeT("status.push.needsInstall");
+	},
+	get denied() {
+		return activeT("status.push.denied");
+	},
+	get off() {
+		return activeT("status.push.off");
+	},
+	get on() {
+		return activeT("status.push.on");
+	},
 };
 
 /** Chave pública VAPID (base64url) -> bytes para `pushManager.subscribe`. */
@@ -80,11 +94,11 @@ export function lastUsedLabel(iso: string, now: number = Date.now()): string {
 	const time = new Date(iso).getTime();
 	if (Number.isNaN(time)) return "";
 	const minutes = Math.floor((now - time) / 60_000);
-	if (minutes < 1) return "agora";
-	if (minutes < 60) return `há ${minutes} min`;
+	if (minutes < 1) return activeT("status.lastUsed.now");
+	if (minutes < 60) return activeT("status.lastUsed.minutes", { count: minutes });
 	const hours = Math.floor(minutes / 60);
-	if (hours < 48) return `há ${hours} h`;
-	return `há ${Math.floor(hours / 24)} d`;
+	if (hours < 48) return activeT("status.lastUsed.hours", { count: hours });
+	return activeT("status.lastUsed.days", { count: Math.floor(hours / 24) });
 }
 
 /** Some a notificação da conversa (tag = id da conversa) neste aparelho. Sem service worker, não faz nada. */

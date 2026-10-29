@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProviderModel, ProviderStatus } from "@workspace/shared";
 import { AtlasApiError, listChatgptModels, listProviders } from "@/lib/atlas-api";
+import { activeT } from "@/lib/i18n/active";
 
 export type ChatgptProviderView = {
 	available: boolean;
@@ -49,7 +50,7 @@ export function useChatgptProvider(selected?: string, catalog = true, enabled = 
 			} catch (error) {
 				if (controller.signal.aborted) return;
 				const hidden = error instanceof AtlasApiError && (error.status === 404 || error.status === 403);
-				setState({ ...initial, available: !hidden, loading: false, status: hidden ? null : status, error: hidden ? null : "Não foi possível carregar o ChatGPT. Tente novamente." });
+				setState({ ...initial, available: !hidden, loading: false, status: hidden ? null : status, error: hidden ? null : activeT("errors.loadChatgpt") });
 			}
 		})();
 		return () => controller.abort();

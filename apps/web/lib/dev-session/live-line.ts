@@ -2,6 +2,8 @@ import { redactSecrets } from "@workspace/shared";
 import type { AgentActivity } from "@/lib/working-status";
 
 import { devIsWorking, devSetupLabel, devWorkStart, formatElapsed, type DevSessionView } from "./reducer";
+import { activeLabel, activeT, getActiveTranslator } from "@/lib/i18n/active";
+import type { MessageKey } from "@/lib/i18n/translator";
 
 const MAX_CHARS = 56;
 
@@ -28,17 +30,18 @@ export function toolActivityDetail(name: string, args: unknown): string | undefi
 	return undefined;
 }
 
-const SETUP_PROGRESS: Record<string, string> = {
-	container: "Preparando o ambiente",
-	clone: "Clonando o repositório",
-	checkout: "Trocando de branch",
-	detect: "Detectando o ambiente",
-	install: "Instalando dependências",
-	start: "Iniciando o ambiente",
-};
+const SETUP_PROGRESS_KEY = {
+	container: "status.dev.setup.container",
+	clone: "status.dev.setup.clone",
+	checkout: "status.dev.setup.checkout",
+	detect: "status.dev.setup.detect",
+	install: "status.dev.setup.install",
+	start: "status.dev.setup.start",
+} as const;
 
 function setupProgressLabel(step: string): string {
-	return SETUP_PROGRESS[step] ?? devSetupLabel(step);
+	const key = (SETUP_PROGRESS_KEY as Record<string, MessageKey>)[step];
+	return key ? activeLabel(key) : devSetupLabel(step);
 }
 
 type LiveLineInput = {
@@ -56,49 +59,49 @@ type LiveLineInput = {
  * modelo está gerando. `null` = sem nada melhor que o texto padrão.
  */
 export function devLiveLine({ view, activity, pendingApproval = false, now }: LiveLineInput): string | null {
-	if (pendingApproval) return "Aguardando sua aprovação";
+	if (pendingApproval) return activeT("status.dev.live.awaitingApproval");
 	if (view && (devIsWorking(view) || view.status === "CREATING")) {
 		const running = [...view.commands].reverse().find((command) => command.status === "running");
-		if (running) return `Rodando ${shorten(running.cmd)}… ${formatElapsed(Math.max(0, now - running.startedAt))}`;
+		if (running) return activeT("status.dev.live.running", { cmd: shorten(running.cmd), elapsed: formatElapsed(Math.max(0, now - running.startedAt)) });
 		const setup = view.setup.find((step) => step.status === "running");
-		if (setup) return `${setupProgressLabel(setup.step)}…`;
-		if (view.status === "QUEUED") return "Na fila, aguardando recursos…";
-		if (view.status === "CREATING") return "Preparando o ambiente…";
+		if (setup) return activeT("status.dev.live.step", { step: setupProgressLabel(setup.step) });
+		if (view.status === "QUEUED") return activeT("status.dev.live.queued");
+		if (view.status === "CREATING") return activeT("status.dev.live.preparing");
 	}
 	if (activity.phase === "tool") {
 		const detail = activity.detail ? shorten(activity.detail) : "";
 		switch (activity.tool) {
 			case "read_file":
-				return detail ? `Lendo ${shortPath(detail)}` : "Lendo arquivos";
+				return detail ? activeT("status.dev.live.readingPath", { path: shortPath(detail) }) : activeT("status.dev.live.readingFiles");
 			case "edit_file":
 			case "write_file": {
 				const start = view ? devWorkStart(view) : 0;
 				const paths = new Set((view?.edits ?? []).filter((edit) => edit.at >= start).map((edit) => edit.path));
 				if (detail) paths.add(detail);
-				if (paths.size >= 2) return `Editando ${paths.size} arquivos`;
-				return detail ? `Editando ${shortPath(detail)}` : "Editando um arquivo";
+				if (paths.size >= 2) return activeT("status.dev.live.editingMany", { count: paths.size });
+				return detail ? activeT("status.dev.live.editingPath", { path: shortPath(detail) }) : activeT("status.dev.live.editingOne");
 			}
 			case "grep":
 			case "glob":
-				return "Buscando no código";
+				return activeT("status.dev.live.searching");
 			case "shell":
-				return detail ? `Rodando ${shorten(detail)}…` : "Rodando um comando…";
+				return detail ? activeT("status.dev.live.runningCmd", { cmd: shorten(detail) }) : activeT("status.dev.live.runningACommand");
 			case "shell_output":
 			case "shell_stdin":
 			case "shell_kill":
-				return "Acompanhando o comando…";
+				return activeT("status.dev.live.followingCommand");
 			case "dev_session_start":
-				return "Preparando o ambiente…";
+				return activeT("status.dev.live.preparing");
 			case "dev_pr_create":
-				return "Abrindo o pull request…";
+				return activeT("status.dev.live.openingPr");
 			case "dev_ci_status":
 			case "dev_ci_logs":
-				return "Verificando os checks…";
+				return activeT("status.dev.live.checkingCi");
 			default:
-				return view ? "Trabalhando no código…" : null;
+				return view ? activeT("status.dev.live.working") : null;
 		}
 	}
 	if (!view) return null;
-	if (activity.phase === "revising") return "Revisando a resposta…";
-	return activity.phase === "writing" ? "Escrevendo a resposta…" : "Pensando…";
+	if (activity.phase === "revising") return activeT("status.dev.live.revising");
+	return activity.phase === "writing" ? activeT("status.dev.live.writing") : activeT("status.dev.live.thinking");
 }

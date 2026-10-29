@@ -125,6 +125,7 @@ import {
 	resolveAgentModel,
 	setStoredAgentModel,
 } from "@/lib/openrouter-models";
+import { activeT } from "@/lib/i18n/active";
 
 function stampLocalTime(messages: Message[]): Message[] {
 	if (messages.every((message) => message.createdAt)) return messages;
@@ -1509,7 +1510,7 @@ export function useAtlasChat({
 					onUsage: receiveRunUsage,
 					onCancelled: () => {
 						clearRunRefs(runId);
-						setError("A execução foi cancelada.");
+						setError(activeT("errors.runCancelled"));
 					},
 					onStreamingMessage: setStreamingMessageId,
 					onStatus: (status, detail) => {
@@ -1517,7 +1518,7 @@ export function useAtlasChat({
 						if (status === "stale" || status === "retrying") {
 							setError(
 								detail ??
-									"O worker parou. Confira Redis e se `pnpm --filter worker dev` está no ar.",
+									activeT("errors.workerStopped"),
 							);
 						}
 					},
@@ -1567,10 +1568,10 @@ export function useAtlasChat({
 							streamErr instanceof AtlasApiError && streamErr.status === 429;
 						setError(
 							rateLimited
-								? `Muitas reconexões seguidas; tento de novo em ${Math.ceil(delayMs / 1000)}s.`
+								? activeT("errors.reconnectLimit", { seconds: Math.ceil(delayMs / 1000) })
 								: streamErr instanceof Error
 									? streamErr.message
-									: "A conexão com o run caiu.",
+									: activeT("errors.runConnectionLost"),
 						);
 						return;
 					}
@@ -1631,7 +1632,7 @@ export function useAtlasChat({
 						? err.message
 						: err instanceof Error
 							? err.message
-							: "Falha ao carregar conversa";
+							: activeT("errors.loadConversation");
 				setError(message);
 			} finally {
 				if (!cancelled) {
@@ -2103,7 +2104,7 @@ export function useAtlasChat({
 				return;
 			}
 			console.error("cancel run failed", error);
-			setError("Não foi possível cancelar agora; o run continua ativo.");
+			setError(activeT("errors.cancelFailed"));
 		}
 	}, [clearRunRefs]);
 
@@ -2115,7 +2116,7 @@ export function useAtlasChat({
 			setRunStatus("pausing");
 		} catch (error) {
 			console.error("pause run failed", error);
-			setError("Não foi possível pausar agora; o agente continua trabalhando.");
+			setError(activeT("errors.pauseFailed"));
 		}
 	}, []);
 
@@ -2143,7 +2144,7 @@ export function useAtlasChat({
 				onUsage: receiveRunUsage,
 				onCancelled: () => {
 					clearRunRefs(targetRunId);
-					setError("A execução foi cancelada.");
+					setError(activeT("errors.runCancelled"));
 				},
 				onStreamingMessage: setStreamingMessageId,
 				onStatus: (status, detail) => {
@@ -2151,7 +2152,7 @@ export function useAtlasChat({
 					if (status === "stale" || status === "retrying") {
 						setError(
 							detail ??
-								"O worker parou. Confira Redis e se `pnpm --filter worker dev` está no ar.",
+								activeT("errors.workerStopped"),
 						);
 					}
 				},
@@ -2190,7 +2191,7 @@ export function useAtlasChat({
 			let status = current;
 			if (current !== "queued" && current !== "running" && current !== "retrying") {
 				const { run, enqueued } = await resumeAgentRun(runId, options);
-				if (!enqueued) throw new Error("Não foi possível retomar o agente");
+				if (!enqueued) throw new Error(activeT("errors.resumeAgent"));
 				status = run.status;
 			}
 			followBackoffRef.current = { failures: 0, notBefore: 0 };
@@ -2206,7 +2207,7 @@ export function useAtlasChat({
 		} catch (error) {
 			if (!isAbortLikeError(error)) {
 				console.error("resume run failed", error);
-				setError("Não foi possível retomar agora. Tente novamente em instantes.");
+				setError(activeT("errors.resumeFailedRetry"));
 			}
 		} finally {
 			sendingRef.current = false;
@@ -2222,7 +2223,7 @@ export function useAtlasChat({
 		const convId = conversationIdRef.current;
 		if (compactingRef.current) return;
 		if (!convId || groupId) {
-			setCompactState({ status: "notice", text: groupId ? "Conversas de grupo não podem ser compactadas." : "Ainda não há conversa para compactar." });
+			setCompactState({ status: "notice", text: groupId ? activeT("errors.compactGroup") : activeT("errors.compactEmpty") });
 			return;
 		}
 		compactingRef.current = true;
@@ -2306,7 +2307,7 @@ export function useAtlasChat({
 							? err.message
 							: err instanceof Error
 								? err.message
-								: "Não foi possível enviar para o grupo",
+								: activeT("errors.sendToGroup"),
 					);
 				}
 				return;
@@ -2351,7 +2352,7 @@ export function useAtlasChat({
 									? err.message
 									: err instanceof Error
 										? err.message
-										: "Falha ao enviar input";
+										: activeT("errors.sendInput");
 							setError(message);
 							return;
 						}
@@ -2374,7 +2375,7 @@ export function useAtlasChat({
 										setError(
 											err instanceof Error
 												? err.message
-												: "Não foi possível retomar agora.",
+												: activeT("errors.resumeNow"),
 										);
 									}
 								} finally {
@@ -2446,7 +2447,7 @@ export function useAtlasChat({
 						// Fila fora do ar: responde simples em vez de quebrar.
 						// O modelo decide sem ferramentas; sem run durável.
 						if (err instanceof AtlasApiError && canUseLegacyChat(model, err.status, attachments.length)) {
-							setError("Fila indisponível — respondendo sem ferramentas.");
+							setError(activeT("errors.queueDown"));
 							setMessages((previous) => [
 								...previous,
 								{ id: pendingId, kind: "assistant" as const, text: "" },
@@ -2496,7 +2497,7 @@ export function useAtlasChat({
 					setStoredActiveRunId(conversationId, runId);
 					flushQueuedSends();
 					if (created.enqueued === false) {
-						setError("Pedido salvo. Aguardando a recuperação do serviço para continuar.");
+						setError(activeT("errors.requestSaved"));
 					}
 
 					const handlers = createComputerHandlers({
@@ -2517,7 +2518,7 @@ export function useAtlasChat({
 						onUsage: receiveRunUsage,
 						onCancelled: () => {
 							clearRunRefs(runId);
-							setError("A execução foi cancelada.");
+							setError(activeT("errors.runCancelled"));
 						},
 						onStreamingMessage: setStreamingMessageId,
 						onStatus: (status, detail) => {
@@ -2525,7 +2526,7 @@ export function useAtlasChat({
 							if (status === "stale" || status === "retrying") {
 								setError(
 									detail ??
-										"O worker parou. Confira Redis e se `pnpm --filter worker dev` está no ar.",
+										activeT("errors.workerStopped"),
 								);
 							}
 						},
@@ -2571,7 +2572,7 @@ export function useAtlasChat({
 						? err.message
 						: err instanceof Error
 							? err.message
-							: "Erro ao enviar mensagem";
+							: activeT("errors.sendMessage");
 				setError(message);
 				if (!activeRunIdRef.current) {
 					setMessages((previous) =>

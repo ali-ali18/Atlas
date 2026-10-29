@@ -13,6 +13,7 @@ import {
 	type ApiConnectionStartResult,
 } from "@/lib/atlas-api";
 import { pollMcpOAuthConnection } from "@/lib/mcp-oauth-wait";
+import { activeT } from "@/lib/i18n/active";
 
 function messageOf(error: unknown, fallback: string): string {
 	return error instanceof Error && error.message ? error.message : fallback;
@@ -27,13 +28,13 @@ async function waitConnected(started: ApiConnectionStartResult, popup: Window | 
 	const load = async () => (await listApiConnections()).find((item) => item.id === started.connection.id);
 	if (!started.authorizeUrl) {
 		const fresh = await load();
-		return fresh?.status === "connected" ? { ok: true } : { ok: false, error: fresh?.lastError ?? "Conexão não concluída." };
+		return fresh?.status === "connected" ? { ok: true } : { ok: false, error: fresh?.lastError ?? activeT("errors.connectionIncomplete") };
 	}
 	const result = await pollMcpOAuthConnection({ popup: waitMcpOAuthPopup(popup, started.authorizeUrl), load });
 	popup?.close();
 	if (!result.ok) return { ok: false, error: result.error };
 	const fresh = await load();
-	return fresh?.status === "connected" ? { ok: true } : { ok: false, error: fresh?.lastError ?? "Login não concluído." };
+	return fresh?.status === "connected" ? { ok: true } : { ok: false, error: fresh?.lastError ?? activeT("errors.loginIncomplete") };
 }
 
 export type ApiConnectForm = { clientId?: string; clientSecret?: string; apiKey?: string; allowedTags: string[] };
@@ -103,10 +104,10 @@ export function useApiConnect(proposal: ApiProposal, enabled: boolean, options: 
 					connectedRef.current = true;
 					setJustConnected(true);
 					setExisting({ ...started.connection, status: "connected", lastError: null });
-				} else setError(outcome.error ?? "Não foi possível conectar.");
+				} else setError(outcome.error ?? activeT("errors.connect"));
 			} catch (cause) {
 				popup?.close();
-				setError(messageOf(cause, "Não foi possível conectar."));
+				setError(messageOf(cause, activeT("errors.connect")));
 			} finally {
 				busyRef.current = false;
 				setBusy(false);
@@ -128,7 +129,7 @@ export function useApiConnections(enabled: boolean) {
 		try {
 			setItems(await listApiConnections());
 		} catch (cause) {
-			setError(messageOf(cause, "Não foi possível carregar as APIs."));
+			setError(messageOf(cause, activeT("errors.loadApis")));
 		}
 	}, []);
 
@@ -145,7 +146,7 @@ export function useApiConnections(enabled: boolean) {
 				await reload();
 				return true;
 			} catch (cause) {
-				setError(messageOf(cause, "Não foi possível concluir."));
+				setError(messageOf(cause, activeT("errors.finish")));
 				return false;
 			} finally {
 				setBusyId(null);
@@ -162,7 +163,7 @@ export function useApiConnections(enabled: boolean) {
 				try {
 					const started = await reauthApiConnection(item.id, input);
 					const outcome = await waitConnected(started, popup);
-					if (!outcome.ok) throw new Error(outcome.error ?? "Não foi possível conectar.");
+					if (!outcome.ok) throw new Error(outcome.error ?? activeT("errors.connect"));
 				} catch (cause) {
 					popup?.close();
 					throw cause;

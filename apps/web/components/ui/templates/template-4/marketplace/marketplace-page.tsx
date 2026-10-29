@@ -34,7 +34,7 @@ import {
   type McpOAuthStartResult,
 } from "@/lib/atlas-api"
 import { pollMcpOAuthConnection } from "@/lib/mcp-oauth-wait"
-import { ANOTHER_ACCOUNT_HINT, accountCountText, accountDisplayLabel, groupAccounts, primaryAccount } from "@/lib/connector-accounts"
+import { anotherAccountHint, accountCountText, accountDisplayLabel, groupAccounts, primaryAccount } from "@/lib/connector-accounts"
 import { openSettingsModal } from "@/components/settings/settings-url"
 import { ApiKeyDialog } from "./api-key-dialog"
 import { API_ITEM_PREFIX, ApiConnectionCard, apiItemKey } from "./api-connections-section"
@@ -730,7 +730,7 @@ export function MarketplacePage({
                 este site.
               </AlertDescription>
               {oauthBusy.startsWith("add:") ? (
-                <AlertDescription className="mt-1">{ANOTHER_ACCOUNT_HINT}</AlertDescription>
+                <AlertDescription className="mt-1">{anotherAccountHint()}</AlertDescription>
               ) : null}
               <Button
                 type="button"

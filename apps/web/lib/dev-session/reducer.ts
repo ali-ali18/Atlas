@@ -11,6 +11,8 @@ import type {
 	DevTimingEvent,
 	DevTodoItemValue,
 } from "@workspace/shared";
+import { activeLabel, activeT, getActiveTranslator } from "@/lib/i18n/active";
+import type { MessageKey } from "@/lib/i18n/translator";
 
 /** Saída guardada por comando em memória (o resto é descartado do início). */
 export const DEV_OUTPUT_CAP_CHARS = 200_000;
@@ -97,7 +99,7 @@ export type DevSessionView = {
 	timeline: DevTimelineEntry[];
 	/** Vezes que o contexto do agente foi resumido nesta sessão. */
 	compactions: DevCompactionView[];
-	/** Avisos do ambiente automático ("Ambiente detectado automaticamente", "Recursos aumentados para Médio"). */
+	/** Avisos do ambiente automático (activeT("status.dev.envDetected"), "Recursos aumentados para Médio"). */
 	envNotes: string[];
 	/** Medidor de contexto (ausente até o primeiro passo do modelo). */
 	contextUsage?: DevContextUsageView;
@@ -356,7 +358,7 @@ export function applyDevSessionEventToView(view: DevSessionView, event: DevSessi
 			};
 		}
 		case "dev_environment_updated": {
-			const note = event.note ?? (event.auto ? "Ambiente detectado automaticamente" : null);
+			const note = event.note ?? (event.auto ? activeT("status.dev.envDetected") : null);
 			if (!note || view.envNotes.includes(note)) return view;
 			return { ...view, envNotes: [...view.envNotes, note] };
 		}
@@ -571,21 +573,22 @@ export function devSessionCounters(view: DevSessionView): DevCounters {
 	};
 }
 
-const SETUP_LABEL: Record<string, string> = {
-	container: "Criando o ambiente",
-	clone: "Clonando o repositório",
-	checkout: "Trocando de branch",
-	detect: "Detectando o ambiente",
-	install: "Instalando dependências",
-	start: "Iniciando o ambiente",
-	push: "Enviando a branch",
-};
+const SETUP_LABEL_KEY = {
+	container: "status.dev.setupCreating",
+	clone: "status.dev.setup.clone",
+	checkout: "status.dev.setup.checkout",
+	detect: "status.dev.setup.detect",
+	install: "status.dev.setup.install",
+	start: "status.dev.setup.start",
+	push: "status.dev.setup.push",
+} as const;
 
 export function devSetupLabel(step: string, cache?: DevSetupCacheState, durationMs?: number): string {
-	const base = SETUP_LABEL[step] ?? step;
+	const key = (SETUP_LABEL_KEY as Record<string, MessageKey>)[step];
+	const base = key ? activeLabel(key) : step;
 	if (step !== "install" || !cache || cache === "miss") return base;
-	if (cache === "hit") return durationMs !== undefined ? `${base} · cache (${formatElapsed(durationMs)})` : `${base} · cache`;
-	return `${base} · cache desatualizado, reinstalando`;
+	if (cache === "hit") return durationMs !== undefined ? activeT("status.dev.cacheHit", { label: base, elapsed: formatElapsed(durationMs) }) : activeT("status.dev.cacheHitNoTime", { label: base });
+	return activeT("status.dev.cacheStale", { label: base });
 }
 
 /** Linha "agora: …" do que a sessão está fazendo neste instante. */
@@ -600,15 +603,13 @@ export function devCurrentStep(view: DevSessionView): string | null {
 	return null;
 }
 
-export const DEV_STATUS_LABEL: Record<DevSessionStatusValue, string> = {
-	CREATING: "Preparando",
-	QUEUED: "Na fila · aguardando recursos",
-	RUNNING: "Trabalhando",
-	IDLE: "Concluída",
-	STOPPED: "Parada",
-	EXPIRED: "Expirada",
-	ERROR: "Erro",
-};
+const DEV_STATUS_VALUES = ["CREATING", "QUEUED", "RUNNING", "IDLE", "STOPPED", "EXPIRED", "ERROR"] as const satisfies readonly DevSessionStatusValue[];
+
+/** Getters: o rótulo segue o idioma da tela (lido ao desenhar, não ao importar o módulo). */
+export const DEV_STATUS_LABEL = Object.defineProperties(
+	{} as Record<DevSessionStatusValue, string>,
+	Object.fromEntries(DEV_STATUS_VALUES.map((value) => [value, { enumerable: true, get: () => activeT(`status.dev.state.${value}`) }])),
+);
 
 export type DevTone = "info" | "working" | "idle" | "done" | "error";
 
@@ -624,7 +625,7 @@ export const DEV_STATUS_TONE: Record<DevSessionStatusValue, DevTone> = {
 
 /** Rótulo do estado: RUNNING sem run ativo nem comando = "Pronta". */
 export function devStatusLabel(view: WorkingView): string {
-	if (view.status === "RUNNING" && !devIsWorking(view)) return "Pronta";
+	if (view.status === "RUNNING" && !devIsWorking(view)) return activeT("status.dev.ready");
 	return DEV_STATUS_LABEL[view.status];
 }
 
@@ -640,16 +641,16 @@ const CI_MARK: Record<DevCiSummary, string | null> = { passing: "✓", failing: 
 export function devPrCardText(view: Pick<DevSessionView, "pr" | "ci">): string | null {
 	if (!view.pr) return null;
 	const head = `PR #${view.pr.number}`;
-	if (view.pr.state === "merged") return `${head} · mesclada`;
-	if (view.pr.state === "closed") return `${head} · fechada`;
+	if (view.pr.state === "merged") return activeT("status.dev.prMerged", { number: view.pr.number });
+	if (view.pr.state === "closed") return activeT("status.dev.prClosed", { number: view.pr.number });
 	const mark = view.ci ? CI_MARK[view.ci.summary] : null;
-	return mark ? `${head} · checks ${mark}` : head;
+	return mark ? activeT("status.dev.prChecks", { number: view.pr.number, mark }) : head;
 }
 
 export function devSessionTitle(view: Pick<DevSessionView, "repo" | "branch">): string {
 	const repo = view.repo?.replace(/^https?:\/\/[^/]+\//, "").replace(/\.git$/, "");
 	if (repo && view.branch) return `${repo} · ${view.branch}`;
-	return repo || view.branch || "Sessão de código";
+	return repo || view.branch || activeT("status.dev.codeSession");
 }
 
 type TimedView = WorkingView & Pick<DevSessionView, "startedAt" | "endedAt"> & Partial<Pick<DevSessionView, "workStartedAt" | "runFirstAt" | "runIds">>;
@@ -691,11 +692,11 @@ export function devTimingParts(view: Pick<DevSessionView, "timing">): { label: s
 	const add = (label: string, ms: number) => {
 		if (ms >= 1000) parts.push({ label, ms, text: `${label} ${formatElapsed(ms)}` });
 	};
-	add("Modelo", total.modelMs);
-	add("Comandos", total.shellMs + total.pollWaitMs);
-	add("Esperando aprovação", total.approvalMs);
-	add("Preparação", total.setupMs);
-	if (total.steps > 0) parts.push({ label: "passos", text: `${total.steps} ${total.steps === 1 ? "passo" : "passos"}` });
+	add(activeT("status.dev.timeModel"), total.modelMs);
+	add(activeT("status.dev.timeCommands"), total.shellMs + total.pollWaitMs);
+	add(activeT("status.dev.timeApproval"), total.approvalMs);
+	add(activeT("status.dev.timeSetup"), total.setupMs);
+	if (total.steps > 0) parts.push({ label: activeT("status.dev.stepsLabel"), text: getActiveTranslator().tn("status.dev.steps", total.steps) });
 	return parts.length > 0 ? parts : null;
 }
 
@@ -731,7 +732,7 @@ export function devPillLabel(view: TimedView, now: number): string {
 
 export function devTimerLabel(view: TimedView, now: number): string {
 	const elapsed = formatElapsed(devElapsedMs(view, now));
-	return devIsWorking(view) ? `Trabalhando há ${elapsed}` : `Trabalhou por ${elapsed}`;
+	return devIsWorking(view) ? activeT("status.dev.workingFor", { elapsed }) : activeT("status.dev.workedFor", { elapsed });
 }
 
 /** Remove sequências ANSI (cores, cursor) e retornos de carro de barras de progresso. */

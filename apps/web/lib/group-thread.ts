@@ -1,6 +1,8 @@
 import type { GroupMember } from "@workspace/shared";
 import type { Message, MessageAuthor } from "@/components/ui/templates/template-4/data";
 import type { GroupPosition } from "@/components/ui/templates/template-4/chat-thread/bubble-radius";
+import { getActiveTranslator } from "@/lib/i18n/active";
+import type { Translator } from "@/lib/i18n/translator";
 
 /**
  * Conversa de grupo (puro). Falas seguidas do mesmo membro formam um grupo de
@@ -66,11 +68,11 @@ export function groupBubbleLayouts(
 }
 
 /** Quem está respondendo agora, a partir do estado do servidor. */
-export function typingLabel(names: readonly string[]): string {
+export function typingLabel(names: readonly string[], { t }: Translator = getActiveTranslator()): string {
 	if (names.length === 0) return "";
-	if (names.length === 1) return `${names[0]} está digitando…`;
+	if (names.length === 1) return t("status.group.typingOne", { name: names[0]! });
 	const head = names.slice(0, -1).join(", ");
-	return `${head} e ${names[names.length - 1]} estão digitando…`;
+	return t("status.group.typingMany", { names: head, last: names[names.length - 1]! });
 }
 
 export type GroupReplyLite = { botId: string; status: string };
@@ -93,8 +95,8 @@ export function groupActivity(
 }
 
 /** Mensagem do usuário que o servidor ainda vai rotear: quem vai responder ainda não foi escolhido. */
-export function groupRoutingLabel(state: { routing: boolean; replies: readonly unknown[] } | null | undefined): string {
-	return state?.routing && state.replies.length === 0 ? "Escolhendo quem responde…" : "";
+export function groupRoutingLabel(state: { routing: boolean; replies: readonly unknown[] } | null | undefined, { t }: Translator = getActiveTranslator()): string {
+	return state?.routing && state.replies.length === 0 ? t("status.group.routing") : "";
 }
 
 /** Ordem de exibição dos membros: o bot principal primeiro, depois a ordem de criação do grupo. */
@@ -110,18 +112,19 @@ export function orderMembers<T extends { id: string; isPrimary?: boolean }>(memb
 export function coordinationLabel(
 	state: { replies: readonly { botId: string; status: string; role?: string | null }[]; coordinatorBotId?: string | null } | null | undefined,
 	members: readonly Pick<GroupMember, "id" | "name">[],
+	{ t }: Translator = getActiveTranslator(),
 ): string {
 	if (!state?.coordinatorBotId) return "";
 	const nameOf = (id: string) => members.find((member) => member.id === id)?.name;
 	const coordinator = nameOf(state.coordinatorBotId);
 	if (!coordinator) return "";
 	const open = state.replies.filter((reply) => reply.status === "running" || reply.status === "pending");
-	if (open.some((reply) => reply.role === "summary")) return `${coordinator} está consolidando o resultado…`;
+	if (open.some((reply) => reply.role === "summary")) return t("status.group.consolidating", { name: coordinator });
 	const workers: string[] = [];
 	for (const reply of [...open.filter((item) => item.status === "running"), ...open.filter((item) => item.status === "pending")]) {
 		const name = reply.role === "worker" ? nameOf(reply.botId) : undefined;
 		if (name && !workers.includes(name)) workers.push(name);
 	}
 	if (workers.length === 0) return "";
-	return `${coordinator} está coordenando: ${workers.join(", ")} trabalhando…`;
+	return t("status.group.coordinating", { name: coordinator, workers: workers.join(", ") });
 }
