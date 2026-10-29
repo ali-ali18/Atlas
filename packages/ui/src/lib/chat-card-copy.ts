@@ -11,6 +11,8 @@ export const CHAT_CARD_COPY = {
   details: "Ver detalhes",
   /** Fecha o corpo aberto. */
   less: "Mostrar menos",
+  /** Mostra a saída inteira que estava cortada. */
+  seeAll: "Ver tudo",
   /** Dispensar o pedido sem agir (botão). */
   dismiss: "Agora não",
   /** Selo do pedido dispensado. */

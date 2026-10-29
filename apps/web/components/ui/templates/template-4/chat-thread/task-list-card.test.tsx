@@ -38,3 +38,12 @@ test("defaultOpen força aberto mesmo concluída, e lista vazia não renderiza",
 	assert.match(renderToStaticMarkup(<TaskListCard defaultOpen items={done} />), /Enviar o resumo/);
 	assert.equal(renderToStaticMarkup(<TaskListCard items={[]} />), "");
 });
+
+test("recolhida oferece 'Ver tudo (n)', aberta 'Mostrar menos', na casca padrão", () => {
+	const done = ITEMS.map((item) => ({ ...item, status: "completed" as const }));
+	const closed = renderToStaticMarkup(<TaskListCard items={done} />);
+	assert.match(closed, /Ver tudo \(3\)/);
+	assert.match(closed, /rounded-2xl[^"]*bg-muted\/60|bg-muted\/60[^"]*rounded-2xl/);
+	assert.doesNotMatch(closed, /border-border/);
+	assert.match(renderToStaticMarkup(<TaskListCard items={ITEMS} />), /Mostrar menos/);
+});

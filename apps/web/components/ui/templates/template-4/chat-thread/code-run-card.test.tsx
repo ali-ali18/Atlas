@@ -21,10 +21,10 @@ test("aberto: código Python realçado e saída", () => {
 	assert.match(html, /data-testid="code-run-output"/);
 });
 
-test("saída longa é truncada com mostrar tudo", () => {
+test("saída longa é truncada com Ver tudo", () => {
 	const output = Array.from({ length: 40 }, (_, i) => `linha ${i}`).join("\n");
 	const html = renderToStaticMarkup(<CodeRunCard code="x" defaultOpen output={output} status="ok" />);
-	assert.match(html, /mostrar tudo/);
+	assert.match(html, /Ver tudo/);
 	assert.doesNotMatch(html, /linha 39/);
 });
 

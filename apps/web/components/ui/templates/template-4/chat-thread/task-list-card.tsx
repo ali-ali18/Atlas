@@ -1,9 +1,11 @@
 "use client";
 
-import { CheckCircle2Icon, ChevronDownIcon, CircleIcon } from "lucide-react";
+import { CheckCircle2Icon, CircleIcon } from "lucide-react";
 import { Spinner } from "@workspace/ui/components/spinner";
-import { useId, useState } from "react";
+import { useState } from "react";
 
+import { ChatCard, ChatCardDetails, ChatCardLeading } from "@workspace/ui/components/chat-card";
+import { seeAllLabel } from "@workspace/ui/lib/chat-card-copy";
 import { cn } from "@workspace/ui/lib/utils";
 
 export type TaskListCardItem = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -17,7 +19,6 @@ export type TaskListCardProps = {
 /** Checklist compacta dos passos da tarefa; recolhe sozinha quando todos concluem. O usuário pode abrir/fechar. */
 export function TaskListCard({ items, defaultOpen }: TaskListCardProps) {
 	const [override, setOverride] = useState<boolean | null>(null);
-	const panelId = useId();
 	const total = items.length;
 	const done = items.filter((item) => item.status === "completed").length;
 	const allDone = total > 0 && done === total;
@@ -26,26 +27,21 @@ export function TaskListCard({ items, defaultOpen }: TaskListCardProps) {
 	if (total === 0) return null;
 
 	return (
-		<div
-			className="my-1 w-full min-w-0 max-w-[min(68ch,100%)] rounded-lg border border-border/60 bg-muted/40 text-xs"
-			data-testid="task-list-card"
-			data-state={allDone ? "done" : "active"}
-		>
-			<button
-				aria-controls={panelId}
-				aria-expanded={open}
-				className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-				onClick={() => setOverride(!open)}
-				type="button"
+		<ChatCard variant="activity" className="my-1 w-full text-xs" data-testid="task-list-card" data-state={allDone ? "done" : "active"}>
+			<ChatCardDetails
+				label={seeAllLabel(total)}
+				onOpenChange={setOverride}
+				open={open}
+				summary={
+					<span className="flex min-w-0 items-center gap-2">
+						<ChatCardLeading>{allDone ? <CheckCircle2Icon /> : <Spinner />}</ChatCardLeading>
+						<span className="shrink-0 font-medium text-foreground">{allDone ? "Tarefas concluídas" : "Tarefas"}</span>
+						<span className="shrink-0 text-muted-foreground tabular-nums">{done}/{total}</span>
+						{!open && current ? <span className="min-w-0 truncate text-muted-foreground">· {current.content}</span> : null}
+					</span>
+				}
 			>
-				{allDone ? <CheckCircle2Icon className="size-3.5 shrink-0" /> : <Spinner className="size-3.5 shrink-0" />}
-				<span className="shrink-0 font-medium text-foreground/90">{allDone ? "Tarefas concluídas" : "Tarefas"}</span>
-				<span className="shrink-0 tabular-nums">{done}/{total}</span>
-				{!open && current ? <span className="min-w-0 truncate">· {current.content}</span> : null}
-				<ChevronDownIcon className={cn("ml-auto size-3.5 shrink-0 transition-transform", open ? "rotate-180" : "")} />
-			</button>
-			{open ? (
-				<ol className="m-0 flex list-none flex-col gap-1 px-3 pb-2.5 pl-3" id={panelId}>
+				<ol className="m-0 flex list-none flex-col gap-1 p-0">
 					{items.map((item, index) => (
 						<li
 							key={`${index}-${item.content}`}
@@ -66,7 +62,7 @@ export function TaskListCard({ items, defaultOpen }: TaskListCardProps) {
 						</li>
 					))}
 				</ol>
-			) : null}
-		</div>
+			</ChatCardDetails>
+		</ChatCard>
 	);
 }

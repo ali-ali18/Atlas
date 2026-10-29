@@ -56,6 +56,7 @@ describe("CHAT_CARD_COPY", () => {
     expect(CHAT_CARD_COPY).toEqual({
       details: "Ver detalhes",
       less: "Mostrar menos",
+      seeAll: "Ver tudo",
       dismiss: "Agora não",
       dismissed: "Dispensado",
       needsYou: "Precisa de você",

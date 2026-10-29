@@ -1,9 +1,11 @@
 "use client";
 
-import { ChevronDownIcon, CircleAlertIcon, SquareTerminalIcon } from "lucide-react";
+import { CircleAlertIcon, SquareTerminalIcon } from "lucide-react";
 import { Spinner } from "@workspace/ui/components/spinner";
-import { useId, useState } from "react";
+import { useState } from "react";
 
+import { ChatCard, ChatCardDetails, ChatCardLeading } from "@workspace/ui/components/chat-card";
+import { CHAT_CARD_COPY } from "@workspace/ui/lib/chat-card-copy";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { MarkdownCodeBlock } from "@/components/ai-elements/files/markdown-code-block";
@@ -22,9 +24,7 @@ export type CodeRunCardProps = {
 
 /** Linha recolhível "Executou código · 1,2 s" com o Python e a saída; abre para conferir o que rodou. */
 export function CodeRunCard({ code, status, durationMs, output = "", defaultOpen = false }: CodeRunCardProps) {
-	const [open, setOpen] = useState(defaultOpen);
 	const [showAll, setShowAll] = useState(false);
-	const panelId = useId();
 	const lines = output.split("\n");
 	const truncated = !showAll && (lines.length > OUTPUT_PREVIEW_LINES || output.length > OUTPUT_PREVIEW_CHARS);
 	const shown = truncated ? lines.slice(0, OUTPUT_PREVIEW_LINES).join("\n").slice(0, OUTPUT_PREVIEW_CHARS) : output;
@@ -32,49 +32,35 @@ export function CodeRunCard({ code, status, durationMs, output = "", defaultOpen
 	const label = status === "running" ? "Executando código…" : status === "error" ? `Falhou${duration}` : `Executou código${duration}`;
 
 	return (
-		<div className="my-1 w-full min-w-0 max-w-[min(68ch,100%)] text-xs" data-testid="code-run-card" data-status={status}>
-			<button
-				aria-controls={panelId}
-				aria-expanded={open}
-				className={cn(
-					"inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded-md py-1 pr-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-					status === "error" ? "text-destructive/80 hover:text-destructive" : "text-muted-foreground hover:text-foreground",
-				)}
-				onClick={() => setOpen((value) => !value)}
-				type="button"
+		<ChatCard variant="activity" className="my-1 w-full text-xs" data-testid="code-run-card" data-status={status}>
+			<ChatCardDetails
+				defaultOpen={defaultOpen}
+				summary={
+					<span className={cn("flex min-w-0 items-center gap-2", status === "error" ? "text-destructive" : "text-muted-foreground")}>
+						<ChatCardLeading className="text-current">
+							{status === "running" ? <Spinner /> : status === "error" ? <CircleAlertIcon /> : <SquareTerminalIcon />}
+						</ChatCardLeading>
+						<span className="truncate">{label}</span>
+					</span>
+				}
 			>
-				{status === "running" ? (
-					<Spinner className="size-3.5 shrink-0" />
-				) : status === "error" ? (
-					<CircleAlertIcon className="size-3.5 shrink-0" />
-				) : (
-					<SquareTerminalIcon className="size-3.5 shrink-0" />
-				)}
-				<span className="truncate">{label}</span>
-				<ChevronDownIcon className={cn("size-3.5 shrink-0 transition-transform", open ? "rotate-180" : "")} />
-			</button>
-			{open ? (
-				<div className="mt-1 min-w-0" id={panelId}>
-					<MarkdownCodeBlock code={code} language="python" />
-					{output.trim() ? (
-						<div className="mt-2 min-w-0 overflow-hidden rounded-lg border border-border/60 bg-muted/60" data-testid="code-run-output">
-							<div className="flex h-8 items-center border-border/60 border-b bg-muted/80 pl-3 font-mono text-caption text-muted-foreground">
-								saída
-							</div>
-							<pre className="m-0 max-h-80 overflow-auto p-3 font-mono text-xs leading-relaxed whitespace-pre text-foreground/90">{shown}</pre>
-							{truncated ? (
-								<button
-									className="w-full cursor-pointer border-border/60 border-t px-3 py-1.5 text-left text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-									onClick={() => setShowAll(true)}
-									type="button"
-								>
-									mostrar tudo
-								</button>
-							) : null}
-						</div>
+				<MarkdownCodeBlock code={code} language="python" />
+				{output.trim() ? (
+					<div className="min-w-0 overflow-hidden rounded-xl bg-background/60" data-testid="code-run-output">
+					<div className="flex h-8 items-center pl-3 font-mono text-caption text-muted-foreground">saída</div>
+					<pre className="m-0 max-h-80 overflow-auto p-3 pt-0 font-mono text-xs leading-relaxed whitespace-pre text-foreground/90">{shown}</pre>
+					{truncated ? (
+						<button
+							className="w-full cursor-pointer px-3 py-1.5 text-left text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+							onClick={() => setShowAll(true)}
+							type="button"
+						>
+							{CHAT_CARD_COPY.seeAll}
+						</button>
 					) : null}
-				</div>
-			) : null}
-		</div>
+					</div>
+				) : null}
+			</ChatCardDetails>
+		</ChatCard>
 	);
 }
