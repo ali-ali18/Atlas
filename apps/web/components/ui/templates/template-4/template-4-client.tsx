@@ -158,7 +158,7 @@ import {
 } from "./chat-context-panel/routine-map";
 import type { TemplateCreateFields } from "./chat-context-panel/routine-create-chooser";
 import type { OpenRoutinePayload } from "@/components/ai-elements/routines";
-import { useLocale } from "@/lib/i18n/provider";
+import { useTranslations } from "@/lib/i18n/provider";
 
 const LAST_ACTIVE_CHAT_COOKIE = "template4_last_active_chat";
 const ANCHOR_WAIT_MS = 2000;
@@ -259,7 +259,7 @@ export function Template4Client({
 }: {
 	initialPanelWidth?: number;
 }) {
-	const locale = useLocale();
+	const { t, locale } = useTranslations();
 	const [agents, setAgents] = useState<Agent[]>([]);
 	const [sections, setSections] = useState<Section[]>([]);
 	const [activeId, setActiveId] = useState<string>("");
@@ -992,7 +992,7 @@ export function Template4Client({
 	}
 
 	function groupErrorText(error: unknown): string {
-		return error instanceof AtlasApiError ? error.message : "Não foi possível alterar o grupo. Tente novamente.";
+		return error instanceof AtlasApiError ? error.message : t("app.groupChangeFailed");
 	}
 
 	/** Troca nome/cor do grupo na hora (não passa pelo "fechar a Config" dos bots). */
@@ -1070,7 +1070,7 @@ export function Template4Client({
 		configFlushingRef.current.add(botId);
 		try {
 			await updateBotRequest(botId, plan.patch);
-			showConfigNotice("saved", "Configuração salva");
+			showConfigNotice("saved", t("app.configSaved"));
 			// O que acabou de gravar vira a nova base: mudanças feitas durante o PATCH
 			// (ou depois dele) ainda entram no próximo diff, sem reenviar este.
 			if (configSnapshotRef.current?.botId === botId) {
@@ -1079,7 +1079,7 @@ export function Template4Client({
 		} catch (error) {
 			// Falhou: mantém a base antiga para o próximo salvamento tentar de novo.
 			console.error("config close flush failed", error);
-			showConfigNotice("error", "Não foi possível salvar a configuração");
+			showConfigNotice("error", t("app.configSaveFailed"));
 		} finally {
 			configFlushingRef.current.delete(botId);
 		}
@@ -1353,7 +1353,7 @@ export function Template4Client({
 		enabled: boolean,
 	): Promise<string | null> {
 		if (!activeId || !persistedRoutineIds.current.has(routine.id)) {
-			return "Salve a rotina antes de ativá-la.";
+			return t("app.routineSaveFirst");
 		}
 		try {
 			const botId = activeId;
@@ -1375,7 +1375,7 @@ export function Template4Client({
 			console.error("toggle routine failed", error);
 			return error instanceof AtlasApiError
 				? error.message
-				: "Não foi possível alterar a rotina.";
+				: t("app.routineToggleFailed");
 		}
 	}
 
@@ -1407,43 +1407,43 @@ export function Template4Client({
 	async function createRoutineGroupFor(
 		name: string,
 	): Promise<{ id: string; name: string } | { error: string }> {
-		if (!activeId) return { error: "Selecione um bot." };
+		if (!activeId) return { error: t("app.selectBot") };
 		try {
 			const group = await createRoutineGroupRequest(activeId, { name });
 			setRoutineGroups((previous) => [...previous, group]);
 			return { id: group.id, name: group.name };
 		} catch (error) {
 			console.error("create routine group failed", error);
-			return { error: routineGroupError(error, "Não foi possível criar o grupo.") };
+			return { error: routineGroupError(error, t("app.routineGroupCreateFailed")) };
 		}
 	}
 
 	async function renameRoutineGroupFor(groupId: string, name: string): Promise<string | null> {
-		if (!activeId) return "Selecione um bot.";
+		if (!activeId) return t("app.selectBot");
 		try {
 			const group = await updateRoutineGroupRequest(activeId, groupId, { name });
 			setRoutineGroups((previous) => previous.map((item) => (item.id === group.id ? group : item)));
 			return null;
 		} catch (error) {
 			console.error("rename routine group failed", error);
-			return routineGroupError(error, "Não foi possível renomear o grupo.");
+			return routineGroupError(error, t("app.routineGroupRenameFailed"));
 		}
 	}
 
 	async function setRoutineGroupEnabledFor(groupId: string, enabled: boolean): Promise<string | null> {
-		if (!activeId) return "Selecione um bot.";
+		if (!activeId) return t("app.selectBot");
 		try {
 			await setRoutineGroupEnabledRequest(activeId, groupId, enabled);
 			await reloadBotRoutines(activeId);
 			return null;
 		} catch (error) {
 			console.error("toggle routine group failed", error);
-			return routineGroupError(error, "Não foi possível alterar o grupo.");
+			return routineGroupError(error, t("app.routineGroupChangeFailed"));
 		}
 	}
 
 	async function deleteRoutineGroupFor(groupId: string, deleteRoutines: boolean): Promise<string | null> {
-		if (!activeId) return "Selecione um bot.";
+		if (!activeId) return t("app.selectBot");
 		try {
 			const editingWasSaved = Boolean(editingRoutine && persistedRoutineIds.current.has(editingRoutine.id));
 			await deleteRoutineGroupRequest(activeId, groupId, deleteRoutines);
@@ -1458,7 +1458,7 @@ export function Template4Client({
 			return null;
 		} catch (error) {
 			console.error("delete routine group failed", error);
-			return routineGroupError(error, "Não foi possível apagar o grupo.");
+			return routineGroupError(error, t("app.routineGroupDeleteFailed"));
 		}
 	}
 
@@ -1549,7 +1549,7 @@ export function Template4Client({
 		github: RoutineGithubUiConfig,
 	): Promise<RoutineGithubUiConfig | { error: string }> {
 		if (!activeId || !editingRoutine) {
-			return { error: "Rotina não encontrada" };
+			return { error: t("app.routineNotFound") };
 		}
 		try {
 			const updated = await updateRoutineRequest(activeId, editingRoutine.id, {
@@ -1572,7 +1572,7 @@ export function Template4Client({
 			const message =
 				error instanceof AtlasApiError
 					? error.message
-					: "Não foi possível salvar o gatilho";
+					: t("app.triggerSaveFailed");
 			return { error: message };
 		}
 	}
@@ -1582,7 +1582,7 @@ export function Template4Client({
 		template: GithubRoutineTemplate,
 		fields: TemplateCreateFields,
 	): Promise<string | null> {
-		if (!activeId) return "Selecione um bot primeiro";
+		if (!activeId) return t("app.selectBotFirst");
 		try {
 			const created = await createRoutineRequest(activeId, {
 				name: template.defaultName,
@@ -1613,7 +1613,7 @@ export function Template4Client({
 		} catch (error) {
 			return error instanceof AtlasApiError
 				? error.message
-				: "Não foi possível criar a rotina";
+				: t("app.routineCreateFailed");
 		}
 	}
 
@@ -1803,7 +1803,7 @@ export function Template4Client({
 
 	async function createSectionAndMove(agentId: string) {
 		try {
-			const section = await createSectionRequest({ name: "Nova sessão" });
+			const section = await createSectionRequest({ name: t("sidebar.section.newName") });
 			setSections((previous) =>
 				[...previous, section].sort((a, b) => a.order - b.order),
 			);
@@ -2180,7 +2180,7 @@ export function Template4Client({
 			});
 		} catch (error) {
 			console.error("sandbox stop failed", error);
-			setSandboxStopError("Não consegui desligar agora. Tente de novo em instantes.");
+			setSandboxStopError(t("app.sandboxStopFailed"));
 		} finally {
 			setSandboxStopBusy(false);
 		}
@@ -2210,7 +2210,7 @@ export function Template4Client({
 			setPanelOpen(true);
 		} catch (error) {
 			console.error("sandbox start failed", error);
-			setSandboxError("A VM não quis ligar agora. Já tentei algumas vezes sozinho; tente de novo em instantes.");
+			setSandboxError(t("app.sandboxStartFailed"));
 		} finally {
 			setSandboxRestarting(false);
 			setSandboxBusy(false);
@@ -2636,24 +2636,26 @@ export function Template4Client({
 								<Trash2Icon />
 							</AlertDialogMedia>
 							<AlertDialogTitle>
-								{deleteTarget?.members?.length ? "Excluir grupo" : "Excluir"} “{deleteTarget?.name}”?
+								{deleteTarget?.members?.length
+									? t("app.deleteGroupTitle", { name: deleteTarget.name })
+									: t("app.deleteBotTitle", { name: deleteTarget?.name ?? "" })}
 							</AlertDialogTitle>
 							<AlertDialogDescription>
 								{deleteTarget?.members?.length
-									? "Isso exclui permanentemente o grupo e seu histórico de chat. Os bots que fazem parte dele não são excluídos e continuam disponíveis individualmente. Essa ação não pode ser desfeita."
-									: "O agente e o histórico da conversa serão apagados. Essa ação não pode ser desfeita."}
+									? t("app.deleteGroupBody")
+									: t("app.deleteBotBody")}
 							</AlertDialogDescription>
 						</AlertDialogHeader>
 						<AlertDialogFooter>
 							<AlertDialogCancel disabled={deleting}>
-								Cancelar
+								{t("common.cancel")}
 							</AlertDialogCancel>
 							<AlertDialogAction
 								disabled={deleting}
 								onClick={() => void confirmDeleteAgent()}
 								variant="destructive"
 							>
-								{deleting ? "Excluindo…" : "Excluir"}
+								{deleting ? t("app.deleting") : t("sidebar.menu.delete")}
 							</AlertDialogAction>
 						</AlertDialogFooter>
 					</AlertDialogContent>
