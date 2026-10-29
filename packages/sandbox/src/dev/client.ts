@@ -56,7 +56,7 @@ export type DevReadResult = {
 };
 
 export type DevWriteResult = { path: string; created: boolean; bytes: number; diff: string; added: number; removed: number };
-export type DevPatchResult = { path: string; diff: string; added: number; removed: number };
+export type DevPatchResult = { path: string; diff: string; added: number; removed: number; note?: string };
 export type DevListResult = {
 	path: string;
 	entries: Array<{ path: string; type: "file" | "dir" | "link"; size: number }>;

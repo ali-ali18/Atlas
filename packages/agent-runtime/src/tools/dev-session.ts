@@ -2254,7 +2254,7 @@ ${TODO_REMINDER}` };
 					const { result, sessionId } = await withClient(async (client, row) => ({ result: await client.patchFile(input), sessionId: row.id }));
 					await emitEdit(sessionId, callId, result);
 					diagnostics?.noteEdit(result.path);
-					return { summary: `Editado ${result.path} (+${result.added} -${result.removed}).` };
+					return { summary: `Editado ${result.path} (+${result.added} -${result.removed}).${result.note ? ` Casamento aproximado: ${result.note}.` : ""}` };
 				}
 				case "list_files": {
 					const input = parseListFilesArgs(args);

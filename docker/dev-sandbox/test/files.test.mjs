@@ -80,3 +80,54 @@ test("write com encoding base64 grava os bytes exatos (anexo binário) sem diff"
 	const text = await api.write({ path: "anexos/a.txt", content: "oi\n" });
 	assert.equal(text.added, 1);
 });
+
+async function patchCase(content, old, neu, extra = {}) {
+	const { dir, api } = await setup();
+	const file = path.posix.join(dir, "f.txt");
+	await fsp.writeFile(file, content);
+	const run = () => api.patch({ path: "f.txt", old, new: neu, ...extra });
+	return { api, file, run, read: () => fsp.readFile(file, "utf8") };
+}
+
+test("patch: old com LF casa em arquivo CRLF e preserva CRLF", async () => {
+	const c = await patchCase("a\r\nb\r\nc\r\n", "a\nb", "a\nB");
+	const r = await c.run();
+	assert.equal(await c.read(), "a\r\nB\r\nc\r\n");
+	assert.match(r.note, /CRLF/);
+});
+
+test("patch: ignora espaço em branco no fim das linhas", async () => {
+	const c = await patchCase("foo()  \nbar()\t\nbaz\n", "foo()\nbar()", "foo()\nqux()");
+	const r = await c.run();
+	assert.equal(await c.read(), "foo()\nqux()\nbaz\n");
+	assert.match(r.note, /espaços no fim/);
+});
+
+test("patch: tolera indentação diferente e reindenta new", async () => {
+	const c = await patchCase("function f() {\n    if (x) {\n        go();\n    }\n}\n", "if (x) {\n    go();\n}", "if (x) {\n    go();\n    stop();\n}");
+	const r = await c.run();
+	assert.equal(await c.read(), "function f() {\n    if (x) {\n        go();\n        stop();\n    }\n}\n");
+	assert.match(r.note, /indentação/);
+});
+
+test("patch: correspondência aproximada ambígua lista linhas e é rejeitada", async () => {
+	const c = await patchCase("  a\nx\n    a\n", "a", "b", {});
+	// exato casa 2 vezes ("a" em duas linhas): lista as linhas
+	await assert.rejects(c.run, (e) => e instanceof FileError && /2 vezes/.test(e.message) && /linhas? 1/.test(e.message) && /3/.test(e.message));
+	const d = await patchCase("  a;\n  x\n    a;\n", "a;\nx", "b");
+	const r = await d.run(); // só uma janela de 2 linhas casa
+	assert.equal(await d.read(), "  b\n    a;\n");
+	assert.ok(r.note);
+	const e2 = await patchCase("  a;\n  b;\nx\n    a;\n      b;\n", "a;\nb;", "c;");
+	await assert.rejects(e2.run, (e) => /2 vezes/.test(e.message) && /1/.test(e.message) && /4/.test(e.message));
+});
+
+test("patch: replaceAll só vale com correspondência exata", async () => {
+	const c = await patchCase("  a;\n    a;\n", "a;\na;", "b;", { replaceAll: true });
+	await assert.rejects(c.run, (e) => /replace_all/.test(e.message));
+});
+
+test("patch: edição já aplicada é explicada", async () => {
+	const c = await patchCase("const x = 2;\n", "const x = 1;", "const x = 2;");
+	await assert.rejects(c.run, (e) => e instanceof FileError && /já (foi )?aplicad/.test(e.message));
+});
