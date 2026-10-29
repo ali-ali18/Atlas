@@ -17,6 +17,7 @@ import { sidebar } from "./sidebar";
 import { status } from "./status";
 import { ui } from "./ui";
 import { routines } from "./routines";
+import { libraryPanel } from "./libraryPanel";
 
 export const ptBR = {
 	...app,
@@ -37,4 +38,5 @@ export const ptBR = {
 	...status,
 	...ui,
 	...routines,
+	...libraryPanel,
 } as const;

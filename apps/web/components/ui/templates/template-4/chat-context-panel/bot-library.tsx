@@ -5,12 +5,14 @@ import { type ReactElement, type ReactNode, useCallback, useEffect, useState } f
 import { Button } from "@workspace/ui/components/button";
 import { FileAttachment, LIBRARY_REFRESH_EVENT } from "@/components/ai-elements/files/file-attachment";
 import { listBotArtifacts, type BotLibraryFile } from "@/lib/atlas-api";
+import { useT } from "@/lib/i18n/provider";
+import { defaultTranslator } from "@/lib/i18n/translator";
 import type { Routine } from "../data";
 import { LibrarySection } from "./library-section";
 import { BotPagesSection } from "./pages-library";
 
-export const LIBRARY_EMPTY_TEXT =
-	"Os documentos que este Bot cria (PDF, Word, Excel, PowerPoint e outros arquivos) aparecem aqui";
+/** Texto padrão (pt-BR) do estado vazio; a tela usa `libraryPanel.documentsEmpty` no idioma dela. */
+export const LIBRARY_EMPTY_TEXT = defaultTranslator.t("libraryPanel.documentsEmpty");
 
 /** Lista de arquivos (cartões de arquivo) com estado vazio; pura para teste. */
 export function BotLibraryList({
@@ -24,15 +26,16 @@ export function BotLibraryList({
 	loadingMore?: boolean;
 	onLoadMore?: () => void;
 }) {
+	const t = useT();
 	if (files.length === 0) {
 		return (
 			<p className="px-4 py-10 text-center text-muted-foreground text-xs leading-relaxed">
-				{LIBRARY_EMPTY_TEXT}
+				{t("libraryPanel.documentsEmpty")}
 			</p>
 		);
 	}
 	return (
-		<ul aria-label="Arquivos do Bot" className="m-0 flex list-none flex-col gap-2 p-0">
+		<ul aria-label={t("libraryPanel.botFiles")} className="m-0 flex list-none flex-col gap-2 p-0">
 			{files.map((file) => (
 				<li className="min-w-0" key={file.id}>
 					<FileAttachment
@@ -47,7 +50,7 @@ export function BotLibraryList({
 			{hasMore ? (
 				<li>
 					<Button disabled={loadingMore} onClick={onLoadMore} size="sm" variant="ghost">
-						{loadingMore ? "Carregando..." : "Ver mais"}
+						{loadingMore ? t("libraryPanel.loadingMore") : t("libraryPanel.seeMore")}
 					</Button>
 				</li>
 			) : null}
@@ -140,19 +143,20 @@ export function BotLibrary({
 	/** Monta o botão "+" com o seletor de tipo de rotina; só aparece quando já há rotinas. */
 	createRoutine?: (trigger: ReactElement) => ReactNode;
 }) {
+	const t = useT();
 	return (
 		<div className="flex flex-col gap-1" data-bot-library>
-			<LibrarySection id="pages" title="Painéis">
+			<LibrarySection id="pages" title={t("libraryPanel.sectionPages")}>
 				<BotPagesSection active={active} botId={botId} routines={routines} />
 			</LibrarySection>
-			<LibrarySection id="documents" title="Documentos">
+			<LibrarySection id="documents" title={t("libraryPanel.sectionDocuments")}>
 				<BotDocuments active={active} botId={botId} />
 			</LibrarySection>
 			<LibrarySection
 				action={
 					routines.length > 0 && createRoutine
 						? createRoutine(
-								<Button aria-label="Criar rotina" size="icon-sm" variant="ghost">
+								<Button aria-label={t("libraryPanel.createRoutine")} size="icon-sm" variant="ghost">
 									<PlusIcon />
 								</Button>,
 							)
@@ -160,7 +164,7 @@ export function BotLibrary({
 				}
 				count={routines.length}
 				id="routines"
-				title="Rotinas"
+				title={t("libraryPanel.sectionRoutines")}
 			>
 				{routinesBody}
 			</LibrarySection>

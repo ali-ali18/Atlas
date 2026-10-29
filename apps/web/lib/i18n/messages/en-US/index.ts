@@ -18,6 +18,7 @@ import { sidebar } from "./sidebar";
 import { status } from "./status";
 import { ui } from "./ui";
 import { routines } from "./routines";
+import { libraryPanel } from "./libraryPanel";
 
 export const enUS: MessageDictionary = {
 	...app,
@@ -38,4 +39,5 @@ export const enUS: MessageDictionary = {
 	...status,
 	...ui,
 	...routines,
+	...libraryPanel,
 };
