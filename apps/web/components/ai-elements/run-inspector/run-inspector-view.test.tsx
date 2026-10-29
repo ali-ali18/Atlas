@@ -81,7 +81,7 @@ test("lições do run: injetadas, usadas e a revisão do run anterior aparecem c
 	assert.match(html, /Lições injetadas: 2 \(\[Lab12\] \[Lcd34\]\)/);
 	assert.match(html, /1 entrou ao carregar um conector/);
 	assert.match(html, /\[Lab12\] ajudou/);
-	assert.match(html, /Revisão de lições do run anterior: 1 nova, 2 aposentadas, 1 sugestão de skill \(1 descartada\)\./);
+	assert.match(html, /Revisão de lições do run anterior: 1 nova, 2 aposentadas, 1 sugestão de habilidade \(1 descartada\)\./);
 	assert.doesNotMatch(renderToStaticMarkup(<RunInspectorView inspection={inspection} />), /data-run-lessons/);
 });
 

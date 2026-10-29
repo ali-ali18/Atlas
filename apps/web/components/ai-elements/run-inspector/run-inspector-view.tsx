@@ -241,7 +241,7 @@ export function describeLessonReview(review: NonNullable<NonNullable<RunInspecti
 	if (review.updated) parts.push(`${review.updated} ${review.updated === 1 ? "atualizada" : "atualizadas"}`);
 	if (review.retired) parts.push(`${review.retired} ${review.retired === 1 ? "aposentada" : "aposentadas"}`);
 	if (review.counters) parts.push(`${review.counters} ${review.counters === 1 ? "avaliação" : "avaliações"}`);
-	if (review.skillProposal) parts.push("1 sugestão de skill");
+	if (review.skillProposal) parts.push("1 sugestão de habilidade");
 	const rejected = review.rejected ? ` (${review.rejected} descartada${review.rejected === 1 ? "" : "s"})` : "";
 	return `Revisão de lições do run anterior: ${parts.length > 0 ? parts.join(", ") : "nenhuma mudança"}${rejected}.`;
 }

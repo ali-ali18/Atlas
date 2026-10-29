@@ -19,7 +19,7 @@ test("o / mostra /compact como comando, com a descrição em português e ícone
 			trigger="/"
 		/>,
 	);
-	assert.match(html, /aria-label="Escolher skill"/);
+	assert.match(html, /aria-label="Escolher habilidade"/);
 	assert.match(html, /\/compact/);
 	assert.match(html, /Resume a conversa para liberar contexto/);
 	assert.match(html, /data-kind="command"/);

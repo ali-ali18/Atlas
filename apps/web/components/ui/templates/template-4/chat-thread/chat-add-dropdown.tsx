@@ -37,7 +37,7 @@ export function addDropdownRows(props: Pick<AddDropdownProps, "onPickFile" | "sh
 	const rows = ["Fotos"];
 	if (props.onPickFile) rows.push("Arquivo");
 	if (props.showTestPr) rows.push("Testar uma PR");
-	rows.push("Skill");
+	rows.push("Habilidade");
 	if (props.permission) rows.push(`Permissão: ${DEV_APPROVAL_MODE_LABEL[props.permission.mode]}`);
 	return rows;
 }
@@ -84,8 +84,8 @@ export function AddDropdownItems({ skills, skillsLoading, ...props }: Omit<AddDr
 				</DropdownMenuSubTrigger>
 				<DropdownMenuSubContent className="max-h-72 w-64">
 					{skillsLoading ? <p className="px-3 py-2 text-muted-foreground text-sm">Carregando…</p> : null}
-					{!skillsLoading && skills.length === 0 ? <p className="px-3 py-2 text-muted-foreground text-sm">Nenhuma skill disponível.</p> : null}
-					{group("Minhas skills", mine)}
+					{!skillsLoading && skills.length === 0 ? <p className="px-3 py-2 text-muted-foreground text-sm">Nenhuma habilidade disponível.</p> : null}
+					{group("Minhas habilidades", mine)}
 					{group("De fábrica", factory)}
 				</DropdownMenuSubContent>
 			</DropdownMenuSub>

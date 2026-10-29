@@ -17,7 +17,7 @@ const skills = [
 
 test("popup de skills: linhas com /nome e descrição, destaque no ativo, rolável", () => {
 	const html = renderToStaticMarkup(<MentionPopup activeIndex={1} candidates={skills} onPick={() => {}} trigger="/" />);
-	assert.match(html, /aria-label="Escolher skill"/);
+	assert.match(html, /aria-label="Escolher habilidade"/);
 	assert.match(html, /data-trigger="\//);
 	assert.match(html, /\/pesquisar/);
 	assert.match(html, /Monta planilhas/);
@@ -29,7 +29,7 @@ test("popup de skills: linhas com /nome e descrição, destaque no ativo, roláv
 });
 
 test("popup de skills e de bots mostram o estado vazio", () => {
-	assert.match(renderToStaticMarkup(<MentionPopup activeIndex={0} candidates={[]} onPick={() => {}} trigger="/" />), /Nenhuma skill/);
+	assert.match(renderToStaticMarkup(<MentionPopup activeIndex={0} candidates={[]} onPick={() => {}} trigger="/" />), /Nenhuma habilidade/);
 	const bots = renderToStaticMarkup(<MentionPopup ariaLabel="Mencionar outro bot" activeIndex={0} candidates={[]} onPick={() => {}} trigger="@" />);
 	assert.match(bots, /Nenhum outro bot/);
 	assert.match(bots, /aria-label="Mencionar outro bot"/);

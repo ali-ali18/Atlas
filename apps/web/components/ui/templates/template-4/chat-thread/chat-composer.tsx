@@ -333,7 +333,7 @@ export function ChatComposer({
 							activeIndex={mentionIndex}
 							ariaLabel={mention.trigger === "@" && !groupMode ? "Mencionar bot ou app" : undefined}
 							candidates={mention.candidates}
-							emptyLabel={mention.trigger === "/" ? (skillsLoading ? "Carregando skills…" : undefined) : groupMode ? undefined : "Nenhum bot ou app"}
+							emptyLabel={mention.trigger === "/" ? (skillsLoading ? "Carregando habilidades…" : undefined) : groupMode ? undefined : "Nenhum bot ou app"}
 							trigger={mention.trigger}
 							onHover={setMentionIndex}
 							onPick={(candidate) => pickMention(candidate)}
@@ -430,7 +430,7 @@ export function ChatComposer({
 									onPickFile={() => fileInputRef.current?.click()}
 									onPickPhotos={() => imageInputRef.current?.click()}
 									onPickSkill={(skill) => {
-										updateValue(`Use a skill "${skill.name}": `);
+										updateValue(`Use a habilidade "${skill.name}": `);
 										localTextareaRef.current?.focus();
 									}}
 									onTakePhoto={() => cameraInputRef.current?.click()}

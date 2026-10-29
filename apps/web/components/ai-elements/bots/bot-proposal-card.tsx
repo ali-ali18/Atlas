@@ -134,7 +134,7 @@ export function BotProposalCard({ proposal, isApplying = false, error, defaultEd
 				)}
 				{proposal.skills.length > 0 ? (
 					<div className="flex min-w-0 flex-wrap items-center gap-1.5" data-slot="bot-proposal-skills">
-						<span className="text-xs text-muted-foreground">Skills</span>
+						<span className="text-xs text-muted-foreground">Habilidades</span>
 						{proposal.skills.map((skill) => (
 							<Badge key={skill} variant="secondary">
 								{skill}

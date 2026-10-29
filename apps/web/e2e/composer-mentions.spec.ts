@@ -97,7 +97,7 @@ test("/ abre as skills, filtra, escolhe por teclado e por toque, e Esc fecha", a
   await expect(input).toHaveValue("use a /relatorio-semanal ")
 
   await input.fill("/zzz")
-  await expect(popup).toContainText("Nenhuma skill")
+  await expect(popup).toContainText("Nenhuma habilidade")
   await input.press("Escape")
   await expect(popup).toHaveCount(0)
 

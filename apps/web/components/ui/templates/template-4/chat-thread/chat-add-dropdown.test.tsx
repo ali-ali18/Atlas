@@ -14,8 +14,8 @@ test("dropdown desktop: Fotos, Arquivo, PR, Skill e Permissão com o modo atual"
 		"Fotos",
 		"Arquivo",
 		"Testar uma PR",
-		"Skill",
+		"Habilidade",
 		"Permissão: Lista liberada",
 	]);
-	assert.deepEqual(addDropdownRows({ showTestPr: false }), ["Fotos", "Skill"]);
+	assert.deepEqual(addDropdownRows({ showTestPr: false }), ["Fotos", "Habilidade"]);
 });
