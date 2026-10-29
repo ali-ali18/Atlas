@@ -5,7 +5,7 @@ import type {
 	UpdateBotInput,
 } from "@workspace/shared";
 import {
-	isBotLanguage,
+	isBotLanguageSetting,
 	readCodingModel,
 	readSubagentModel,
 	DELEGATE_MODEL_MAX_CHARS,
@@ -70,7 +70,7 @@ function parseCreateBot(body: unknown): CreateBotInput | null {
 		input.openRouterModel = null;
 	}
 	if (language !== undefined) {
-		if (!isBotLanguage(language)) return null;
+		if (!isBotLanguageSetting(language)) return null;
 		input.language = language;
 	}
 	const members = parseMemberIds(memberIds);
@@ -121,7 +121,7 @@ function parseUpdateBot(body: unknown): UpdateBotInput | null {
 		patch.openRouterModel = raw.openRouterModel;
 	}
 	if ("language" in raw) {
-		if (!isBotLanguage(raw.language)) return null;
+		if (!isBotLanguageSetting(raw.language)) return null;
 		patch.language = raw.language;
 	}
 	if ("sectionId" in raw) {

@@ -277,7 +277,7 @@ export function resolveEffectiveConfig(input: {
 		general: {
 			defaultBotLanguage: cfg.general?.defaultBotLanguage
 				? user(cfg.general.defaultBotLanguage)
-				: dflt("pt-BR"),
+				: dflt("auto"),
 			timezone: cfg.general?.timezone ? user(cfg.general.timezone) : dflt(undefined),
 		},
 	};

@@ -24,6 +24,15 @@ describe("idioma detectado (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal((await getBotProfile(fixed.id, owner.id))?.language, "pt-BR");
 	});
 
+	test("bot novo sem idioma nasce em auto; com idioma explícito mantém o que veio", async () => {
+		const owner = await createTestUser("lang-new");
+		const fresh = await createBot({ name: "Novo" }, owner.id);
+		assert.equal(fresh.language, "auto");
+		assert.equal((await prisma.bot.findUnique({ where: { id: fresh.id } }))?.language, "auto");
+		assert.equal((await createBot({ name: "Fixo", language: "es-ES" }, owner.id)).language, "es-ES");
+		assert.equal((await createBot({ name: "Antigo", language: "pt-BR" }, owner.id)).language, "pt-BR");
+	});
+
 	test("grava e lê por conversa e por conta; a conversa vence a conta; locale vem do navegador", async () => {
 		const owner = await createTestUser("lang-rw");
 		const bot = await createBot({ name: "Bot" }, owner.id);

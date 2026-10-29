@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { BOT_LINK_ROLE, isMessageSourceKind, mergeServerPolicyKeys, parseBotLanguageSetting, type Bot, type BotLanguageSetting, type CreateBotInput, type UpdateBotInput } from "@workspace/shared";
+import { BOT_LANGUAGE_AUTO, BOT_LINK_ROLE, isMessageSourceKind, mergeServerPolicyKeys, parseBotLanguageSetting, type Bot, type BotLanguageSetting, type CreateBotInput, type UpdateBotInput } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { unreadResultsByConversation } from "./deliveries.js";
 import { getUnreadStates } from "./read-state.js";
@@ -253,7 +253,8 @@ export async function createBot(input: CreateBotInput, ownerId: string | undefin
 			shape: input.shape ?? "rond",
 			description: input.description ?? null,
 			openRouterModel: input.openRouterModel ?? null,
-			language: input.language ?? "pt-BR",
+			// Bot novo segue o idioma de quem escreve; os que já existem mantêm o idioma fixo que têm.
+			language: input.language ?? BOT_LANGUAGE_AUTO,
 			memberIds: input.memberIds ?? [],
 			conversationId: conversation.id,
 			ownerId: owner,

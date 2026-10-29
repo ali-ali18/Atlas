@@ -87,6 +87,22 @@ test("PATCH /v1/bots/:id: usuário B recebe 404 no bot de A (e no legado); A edi
 	assert.equal((await patch(appFor("user-a"), "bot-a")).status, 200);
 });
 
+test("PATCH /v1/bots/:id aceita idioma auto e fixo, recusa o desconhecido, e B não troca o idioma do bot de A", async () => {
+	const bots = setup();
+	const patch = (app: ReturnType<typeof appFor>, id: string, language: unknown) =>
+		app.request(`/v1/bots/${id}`, { method: "PATCH", headers: json, body: JSON.stringify({ language }) });
+	assert.equal((await patch(appFor("user-b"), "bot-a", "auto")).status, 404);
+	assert.equal(bots.find((row) => row.id === "bot-a")?.language, "pt-BR");
+	assert.equal((await patch(appFor("user-a"), "bot-a", "fr-FR")).status, 400);
+	assert.equal((await patch(appFor("user-a"), "bot-a", 5)).status, 400);
+	const auto = await patch(appFor("user-a"), "bot-a", "auto");
+	assert.equal(auto.status, 200);
+	assert.equal(((await auto.json()) as { language: string }).language, "auto");
+	assert.equal(bots.find((row) => row.id === "bot-a")?.language, "auto");
+	assert.equal((await patch(appFor("user-a"), "bot-a", "en-US")).status, 200);
+	assert.equal(bots.find((row) => row.id === "bot-a")?.language, "en-US");
+});
+
 test("DELETE /v1/bots/:id: usuário B recebe 404 no bot de A (e no legado); A apaga o seu", async () => {
 	const bots = setup();
 	const del = (app: ReturnType<typeof appFor>, id: string) => app.request(`/v1/bots/${id}`, { method: "DELETE" });

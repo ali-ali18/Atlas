@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import type { Bot, CreateGroupInput } from "@workspace/shared";
-import { isBotLanguage, pickLanguageFromAcceptLanguage } from "@workspace/shared";
+import { isBotLanguageSetting, pickLanguageFromAcceptLanguage } from "@workspace/shared";
 import {
 	GroupError,
 	addGroupMember,
@@ -72,7 +72,7 @@ export function createGroupRoutes(deps: GroupRouteDeps = {}) {
 		const json = await readJson(c);
 		const input = parseCreateGroup(json);
 		if (!input) return c.json({ error: "Invalid body: expected { name, memberIds[] }" }, 400);
-		if (typeof (json as { language?: unknown }).language === "string" && !isBotLanguage((json as { language: string }).language)) {
+		if (typeof (json as { language?: unknown }).language === "string" && !isBotLanguageSetting((json as { language: string }).language)) {
 			return c.json({ error: "Invalid language" }, 400);
 		}
 		try {
