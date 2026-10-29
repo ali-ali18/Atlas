@@ -41,15 +41,15 @@ export function PublicPageContent({ state, now }: { state: PublicPageState; now?
 	if (state.kind === "gone") {
 		return (
 			<div className="flex flex-col gap-2 rounded-xl border border-border/60 p-6 text-center" data-testid="public-page-gone">
-				<h1 className="font-heading font-semibold text-lg">Este link não está mais disponível</h1>
-				<p className="text-muted-foreground text-sm">O painel foi apagado ou quem o compartilhou desativou o link.</p>
+				<h1 className="font-heading font-semibold text-lg">{translator.t("library.public.goneTitle")}</h1>
+				<p className="text-muted-foreground text-sm">{translator.t("library.public.goneBody")}</p>
 			</div>
 		);
 	}
 	if (state.kind === "error") {
 		return (
 			<p className="rounded-xl border border-border/60 p-6 text-center text-muted-foreground text-sm" role="alert">
-				Não consegui carregar o painel agora. Tente de novo em instantes.
+				{translator.t("library.public.error")}
 			</p>
 		);
 	}
@@ -63,7 +63,7 @@ export function PublicPageContent({ state, now }: { state: PublicPageState; now?
 			</header>
 			<PageView spec={page.spec} />
 			<footer className="border-border/60 border-t pt-3 text-muted-foreground text-xs">
-				{[page.botName ? `Painel de ${page.botName}` : "Painel compartilhado", "somente leitura", updated].filter(Boolean).join(" · ")}
+				{[page.botName ? translator.t("library.public.footerOf", { name: page.botName }) : translator.t("library.public.title"), translator.t("library.public.readOnly"), updated].filter(Boolean).join(" · ")}
 			</footer>
 		</article>
 	);
