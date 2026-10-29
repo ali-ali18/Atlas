@@ -9,6 +9,8 @@ import {
   type CatalogSkillDetail,
   type CatalogSkillItem,
 } from "@/lib/atlas-api"
+import { loadMessages } from "@/lib/i18n/messages"
+import { createTranslator } from "@/lib/i18n/translator"
 import { createZip, crc32 } from "@/lib/zip"
 import { MARKETPLACE_SECTIONS } from "@/lib/marketplace-url"
 import {
@@ -19,6 +21,7 @@ import {
 } from "./catalog-panels"
 import {
   categoriesOf,
+  categoryLabel,
   diffLabel,
   filterCatalogItems,
   installSummary,
@@ -339,4 +342,15 @@ test("zip: assinatura, entradas e crc32 conferem", () => {
   const text = new TextDecoder().decode(bytes)
   assert.ok(text.includes("skills/roblox/SKILL.md"))
   assert.ok(text.includes("olá"))
+})
+
+test("categorias traduzidas e ordenadas pelo rótulo traduzido do idioma da tela", async () => {
+  const items = [{ category: "productivity" }, { category: "games" }, { category: "dev" }, { category: "quadrinhos-x" }]
+  const en = createTranslator("en-US", await loadMessages("en-US"))
+  assert.deepEqual(categoriesOf(items, en).map((item) => item.label), ["Development", "Games", "Productivity", "Quadrinhos x"])
+  const es = createTranslator("es-ES", await loadMessages("es-ES"))
+  assert.deepEqual(categoriesOf(items, es).map((item) => item.label), ["Desarrollo", "Juegos", "Productividad", "Quadrinhos x"])
+  assert.equal(categoryLabel("games", en), "Games")
+  assert.equal(categoryLabel("games"), "Jogos")
+  assert.equal(categoryLabel("constructor", en), "Constructor")
 })

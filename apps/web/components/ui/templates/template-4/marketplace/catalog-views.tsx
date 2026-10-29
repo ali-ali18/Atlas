@@ -35,7 +35,7 @@ import {
   installSummary,
   toolLabel,
 } from "./catalog-state"
-import { useLocale } from "@/lib/i18n/provider";
+import { useTranslations } from "@/lib/i18n/provider";
 
 const ALL = "all"
 const MAX_CHIPS = 3
@@ -80,6 +80,7 @@ export function CategorySelect({
   category: string
   onCategory: (category: string) => void
 }) {
+  const translator = useTranslations()
   if (categories.length === 0) return null
   return (
     <Select
@@ -93,7 +94,7 @@ export function CategorySelect({
       >
         <SelectValue>
           {(current) =>
-            current === ALL ? "Todas as categorias" : categoryLabel(String(current))
+            current === ALL ? "Todas as categorias" : categoryLabel(String(current), translator)
           }
         </SelectValue>
       </SelectTrigger>
@@ -204,6 +205,7 @@ function SkillCard({
   onOpen: () => void
   onInstall: () => void
 }) {
+  const translator = useTranslations()
   const action = skillActionLabel(skill.installs)
   return (
     <li className="relative grid min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-3 py-4 md:grid-cols-[3rem_minmax(0,1fr)] md:grid-rows-[1fr_auto] md:rounded-2xl md:border md:bg-card/40 md:p-4 md:transition-colors md:hover:bg-muted/40">
@@ -227,7 +229,7 @@ function SkillCard({
         </div>
         <p className="line-clamp-2 text-xs text-muted-foreground">{skill.description}</p>
         <p className="truncate text-xs text-muted-foreground">
-          por {skill.author} · {categoryLabel(skill.category)}
+          por {skill.author} · {categoryLabel(skill.category, translator)}
         </p>
         <ToolChips tools={skill.tools} />
       </div>
@@ -269,7 +271,7 @@ export function SkillsListView({
   onRetry,
   hideFilter,
 }: SkillsListViewProps) {
-	const locale = useLocale();
+	const translator = useTranslations();
   const items = skills ?? []
   return (
     <div className="space-y-4">
@@ -277,7 +279,7 @@ export function SkillsListView({
         <h3 className="text-sm font-medium">Habilidades da comunidade</h3>
         {hideFilter ? null : (
           <CategorySelect
-            categories={categoriesOf(all, locale)}
+            categories={categoriesOf(all, translator)}
             category={category}
             onCategory={onCategory}
           />
@@ -318,6 +320,7 @@ function BotCard({
   onOpen: () => void
   onInstall: () => void
 }) {
+  const translator = useTranslations()
   return (
     <li className="relative grid min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-3 py-4 md:grid-cols-[3rem_minmax(0,1fr)] md:grid-rows-[1fr_auto] md:rounded-2xl md:border md:bg-card/40 md:p-4 md:transition-colors md:hover:bg-muted/40">
       <button
@@ -338,7 +341,7 @@ function BotCard({
         </div>
         <p className="line-clamp-2 text-xs text-muted-foreground">{bot.description}</p>
         <p className="truncate text-xs text-muted-foreground">
-          por {bot.author} · {categoryLabel(bot.category)}
+          por {bot.author} · {categoryLabel(bot.category, translator)}
           {bot.skills.length > 0
             ? ` · ${bot.skills.length} ${bot.skills.length === 1 ? "habilidade" : "habilidades"}`
             : ""}
@@ -375,13 +378,13 @@ export function BotsListView({
   onRetry,
   hideFilter,
 }: BotsListViewProps) {
-	const locale = useLocale();
+	const translator = useTranslations();
   const items = bots ?? []
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-medium">Agentes prontos</h3>
-        {hideFilter ? null : <CategorySelect categories={categoriesOf(all, locale)} category={category} onCategory={onCategory} />}
+        {hideFilter ? null : <CategorySelect categories={categoriesOf(all, translator)} category={category} onCategory={onCategory} />}
       </div>
       <p className="text-xs text-muted-foreground">
         Cada agente nasce com as habilidades dele. Credenciais nunca vêm no modelo: você conecta as suas depois.
@@ -479,6 +482,7 @@ export type SkillPageViewProps = {
 
 /** Página da skill: instruções, ferramentas sugeridas, histórico e instalar/atualizar. */
 export function SkillPageView({ detail, loading, error, onBack, onInstall }: SkillPageViewProps) {
+  const translator = useTranslations()
   if (!detail) {
     return (
       <div className="min-w-0 space-y-6 pb-2">
@@ -508,7 +512,7 @@ export function SkillPageView({ detail, loading, error, onBack, onInstall }: Ski
         <div className="min-w-0 flex-1">
           <h2 className="text-xl font-semibold [overflow-wrap:anywhere]">{entry.name}</h2>
           <p className="text-xs text-muted-foreground">
-            por {entry.author} · v{entry.version} · {categoryLabel(entry.category)}
+            por {entry.author} · v{entry.version} · {categoryLabel(entry.category, translator)}
           </p>
         </div>
         <Button
@@ -552,7 +556,7 @@ export function SkillPageView({ detail, loading, error, onBack, onInstall }: Ski
       <Section title="Informações">
         <dl className="divide-y rounded-xl border bg-muted/20 px-4">
           <InfoRow label="Autor">{entry.author}</InfoRow>
-          <InfoRow label="Categoria">{categoryLabel(entry.category)}</InfoRow>
+          <InfoRow label="Categoria">{categoryLabel(entry.category, translator)}</InfoRow>
           <InfoRow label="Versão">{entry.version}</InfoRow>
           <InfoRow label="Instalada">
             {detail.installs.length === 0
@@ -575,6 +579,7 @@ export type BotPageViewProps = {
 
 /** Página do agente: papel, skills que ele traz, conectores recomendados e rotinas sugeridas. */
 export function BotPageView({ detail, loading, error, onBack, onInstall }: BotPageViewProps) {
+  const translator = useTranslations()
   if (!detail) {
     return (
       <div className="min-w-0 space-y-6 pb-2">
@@ -598,7 +603,7 @@ export function BotPageView({ detail, loading, error, onBack, onInstall }: BotPa
         <div className="min-w-0 flex-1">
           <h2 className="text-xl font-semibold [overflow-wrap:anywhere]">{bot.name}</h2>
           <p className="text-xs text-muted-foreground">
-            por {entry.author} · v{entry.version} · {categoryLabel(entry.category)}
+            por {entry.author} · v{entry.version} · {categoryLabel(entry.category, translator)}
           </p>
         </div>
         <Button disabled={blocked} onClick={onInstall} type="button">

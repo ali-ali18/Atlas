@@ -6,6 +6,7 @@ import { common } from "./common";
 import { composer } from "./composer";
 import { library } from "./library";
 import { login } from "./login";
+import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
 import { settings } from "./settings";
 import { sidebar } from "./sidebar";
@@ -18,6 +19,7 @@ export const enUS: MessageDictionary = {
 	...composer,
 	...library,
 	...login,
+	...marketplace,
 	...mobile,
 	...settings,
 	...sidebar,

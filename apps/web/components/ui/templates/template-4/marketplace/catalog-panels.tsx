@@ -25,10 +25,11 @@ import type {
   PublishSkillForm,
   PublishSkillResult,
 } from "@/lib/atlas-api"
+import { useTranslations } from "@/lib/i18n/provider"
 import { AgentAvatar } from "../agent-avatar"
 import { bodyColors } from "../data"
 import {
-  CATEGORY_LABELS,
+  CATEGORY_KEYS,
   categoryLabel,
   connectorStatusLabel,
   diffLabel,
@@ -426,6 +427,7 @@ export type PublishFlowProps = {
 }
 
 export function PublishFlow({ name, baseVersion, defaults, findings, busy, error, result, onClose, onSubmit, onDownload }: PublishFlowProps) {
+  const translator = useTranslations()
   const [version, setVersion] = useState(defaults.version)
   const [category, setCategory] = useState(defaults.category)
   const [tags, setTags] = useState(defaults.tags.join(", "))
@@ -520,12 +522,12 @@ export function PublishFlow({ name, baseVersion, defaults, findings, busy, error
           <FieldBlock label="Categoria">
             <Select onValueChange={(next) => setCategory(String(next))} value={category}>
               <SelectTrigger aria-label="Categoria" className="w-full">
-                <SelectValue>{(current) => categoryLabel(String(current))}</SelectValue>
+                <SelectValue>{(current) => categoryLabel(String(current), translator)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {Object.keys(CATEGORY_LABELS).map((id) => (
+                {Object.keys(CATEGORY_KEYS).map((id) => (
                   <SelectItem key={id} value={id}>
-                    {categoryLabel(id)}
+                    {categoryLabel(id, translator)}
                   </SelectItem>
                 ))}
               </SelectContent>

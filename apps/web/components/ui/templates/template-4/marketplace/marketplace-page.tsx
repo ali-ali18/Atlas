@@ -70,7 +70,7 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@workspace/ui/components/input-group"
-import { useLocale } from "@/lib/i18n/provider";
+import { useTranslations } from "@/lib/i18n/provider";
 
 type View =
   | { kind: "catalog" }
@@ -272,7 +272,7 @@ export function MarketplacePage({
   /** "Abrir conversa" depois de instalar um agente. */
   onOpenBot?: (botId: string) => void
 }) {
-	const locale = useLocale();
+	const translator = useTranslations();
   const location = useMarketplaceLocation() ?? { section: "conectores" as const, item: null }
   const { section, item } = location
   const [catalog, setCatalog] = useState<McpCatalogItem[] | null>(null)
@@ -708,7 +708,7 @@ export function MarketplacePage({
                 ) : null}
                 {showCategory ? (
                   <CategorySelect
-                    categories={categoriesOf(categoryItems, locale)}
+                    categories={categoriesOf(categoryItems, translator)}
                     category={section === "habilidades" ? skillCategory : botCategory}
                     onCategory={section === "habilidades" ? setSkillCategory : setBotCategory}
                   />

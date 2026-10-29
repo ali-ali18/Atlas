@@ -1,21 +1,21 @@
 import type { CatalogInstallView } from "@/lib/atlas-api"
-import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales"
+import { defaultTranslator, type MessageKey, type Translator } from "@/lib/i18n/translator"
 
 /** Estado puro do marketplace de skills e agentes (lista, filtros, rótulos). Sem React. */
 
-export const CATEGORY_LABELS: Record<string, string> = {
-  games: "Jogos",
-  dev: "Desenvolvimento",
-  productivity: "Produtividade",
-  research: "Pesquisa",
-  writing: "Escrita",
-  data: "Dados",
-  geral: "Geral",
-}
+/** Categorias conhecidas -> chave do dicionário (o rótulo muda com o idioma da tela). */
+export const CATEGORY_KEYS = {
+  games: "marketplace.category.games",
+  dev: "marketplace.category.dev",
+  productivity: "marketplace.category.productivity",
+  research: "marketplace.category.research",
+  writing: "marketplace.category.writing",
+  data: "marketplace.category.data",
+  geral: "marketplace.category.geral",
+} as const satisfies Record<string, MessageKey>
 
-export function categoryLabel(id: string): string {
-  const known = CATEGORY_LABELS[id]
-  if (known) return known
+export function categoryLabel(id: string, translator: Translator = defaultTranslator): string {
+  if (Object.hasOwn(CATEGORY_KEYS, id)) return translator.t(CATEGORY_KEYS[id as keyof typeof CATEGORY_KEYS])
   const text = id.replace(/-/g, " ")
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
@@ -63,13 +63,13 @@ export function filterCatalogItems<T extends Searchable>(
 
 export function categoriesOf(
   items: readonly Pick<Searchable, "category">[],
-  locale: UiLocale = DEFAULT_UI_LOCALE
+  translator: Translator = defaultTranslator
 ): Array<{ id: string; label: string; count: number }> {
   const counts = new Map<string, number>()
   for (const item of items) counts.set(item.category, (counts.get(item.category) ?? 0) + 1)
   return [...counts.entries()]
-    .map(([id, count]) => ({ id, label: categoryLabel(id), count }))
-    .sort((a, b) => a.label.localeCompare(b.label, locale))
+    .map(([id, count]) => ({ id, label: categoryLabel(id, translator), count }))
+    .sort((a, b) => a.label.localeCompare(b.label, translator.locale))
 }
 
 export type InstallSummary =
