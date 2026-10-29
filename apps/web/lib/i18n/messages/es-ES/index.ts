@@ -19,6 +19,8 @@ import { status } from "./status";
 import { ui } from "./ui";
 import { routines } from "./routines";
 import { libraryPanel } from "./libraryPanel";
+import { contextPanel } from "./contextPanel";
+import { botSettings } from "./botSettings";
 
 export const esES: MessageDictionary = {
 	...app,
@@ -40,4 +42,6 @@ export const esES: MessageDictionary = {
 	...ui,
 	...routines,
 	...libraryPanel,
+	...contextPanel,
+	...botSettings,
 };

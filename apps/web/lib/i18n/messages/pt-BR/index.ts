@@ -18,6 +18,8 @@ import { status } from "./status";
 import { ui } from "./ui";
 import { routines } from "./routines";
 import { libraryPanel } from "./libraryPanel";
+import { contextPanel } from "./contextPanel";
+import { botSettings } from "./botSettings";
 
 export const ptBR = {
 	...app,
@@ -39,4 +41,6 @@ export const ptBR = {
 	...ui,
 	...routines,
 	...libraryPanel,
+	...contextPanel,
+	...botSettings,
 } as const;

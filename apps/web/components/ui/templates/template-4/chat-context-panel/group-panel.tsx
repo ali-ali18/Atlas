@@ -8,6 +8,8 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { useT, useTranslations } from "@/lib/i18n/provider";
+
 import { AgentAvatar } from "../agent-avatar";
 import type { Agent } from "../data";
 import { GroupAvatar } from "../group-avatar";
@@ -27,12 +29,9 @@ export type GroupPanelProps = {
 	error?: string | null;
 };
 
-function membersLabel(count: number): string {
-	return count === 1 ? "1 membro" : `${count} membros`;
-}
-
 /** Nome do grupo editável direto no cabeçalho: grava ao sair do campo ou com Enter; Esc cancela. */
 function GroupNameField({ name, onRename }: { name: string; onRename: (name: string) => void }) {
+	const t = useT();
 	const [draft, setDraft] = useState(name);
 	useEffect(() => setDraft(name), [name]);
 	function commit() {
@@ -45,7 +44,7 @@ function GroupNameField({ name, onRename }: { name: string; onRename: (name: str
 	}
 	return (
 		<Input
-			aria-label="Nome do grupo"
+			aria-label={t("contextPanel.group.nameLabel")}
 			className="h-9 border-transparent bg-transparent text-center font-heading font-semibold text-base shadow-none hover:border-input focus-visible:border-ring"
 			maxLength={80}
 			onBlur={commit}
@@ -57,7 +56,7 @@ function GroupNameField({ name, onRename }: { name: string; onRename: (name: str
 					event.currentTarget.blur();
 				}
 			}}
-			placeholder="Nome"
+			placeholder={t("contextPanel.group.namePlaceholder")}
 			value={draft}
 		/>
 	);
@@ -65,6 +64,7 @@ function GroupNameField({ name, onRename }: { name: string; onRename: (name: str
 
 /** "Adicionar membros": abre a lista de bots com busca ("Buscar", seção "Bots"). */
 function AddMembers({ candidates, onAdd }: { candidates: Agent[]; onAdd: (botId: string) => void | Promise<void> }) {
+	const t = useT();
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const needle = query.trim().toLowerCase();
@@ -73,7 +73,7 @@ function AddMembers({ candidates, onAdd }: { candidates: Agent[]; onAdd: (botId:
 		<li className="flex flex-col gap-1">
 			<button
 				aria-expanded={open}
-				aria-label="Adicionar membros"
+				aria-label={t("contextPanel.group.addMembers")}
 				className="flex min-h-11 w-full items-center gap-3 rounded-2xl px-2 py-1.5 text-left text-sm outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
 				onClick={() => setOpen((value) => !value)}
 				type="button"
@@ -81,16 +81,16 @@ function AddMembers({ candidates, onAdd }: { candidates: Agent[]; onAdd: (botId:
 				<span className="grid size-9 shrink-0 place-items-center rounded-full bg-muted">
 					<PlusIcon className="size-4" />
 				</span>
-				Adicionar membros
+				{t("contextPanel.group.addMembers")}
 			</button>
 			{open ? (
 				<div className="flex flex-col gap-1 rounded-2xl border border-border p-1.5" data-testid="group-add-list">
-					<Input aria-label="Buscar" className="h-9" onChange={(event) => setQuery(event.target.value)} placeholder="Buscar" value={query} />
-					<p className="px-2 pt-1 font-medium text-muted-foreground text-xs">Bots</p>
+					<Input aria-label={t("common.search")} className="h-9" onChange={(event) => setQuery(event.target.value)} placeholder={t("common.search")} value={query} />
+					<p className="px-2 pt-1 font-medium text-muted-foreground text-xs">{t("contextPanel.group.bots")}</p>
 					{candidates.length === 0 ? (
-						<p className="px-2 py-2 text-muted-foreground text-xs">Crie mais Bots para adicioná-los aqui</p>
+						<p className="px-2 py-2 text-muted-foreground text-xs">{t("contextPanel.group.createMore")}</p>
 					) : list.length === 0 ? (
-						<p className="px-2 py-2 text-muted-foreground text-xs">Nenhum bot encontrado</p>
+						<p className="px-2 py-2 text-muted-foreground text-xs">{t("contextPanel.group.noneFound")}</p>
 					) : (
 						<ul className="flex max-h-56 flex-col overflow-y-auto">
 							{list.map((candidate) => (
@@ -119,23 +119,24 @@ function AddMembers({ candidates, onAdd }: { candidates: Agent[]; onAdd: (botId:
 
 /** Painel de um grupo (mesma estrutura do Grok Bot): cabeçalho, "Membros" com Remover, Adicionar membros e Excluir. */
 export function GroupPanelContent({ agent, group }: { agent: Agent; group: GroupPanelProps }) {
+	const { t, tn } = useTranslations();
 	const canRemove = group.members.length > GROUP_MIN_MEMBERS;
 	return (
 		<>
 			<div className="flex flex-col items-center gap-1 pt-2 text-center" data-testid="group-header">
 				<GroupAvatar members={group.members} ringClassName="ring-sidebar" size={64} />
 				<GroupNameField name={agent.name} onRename={group.onRename} />
-				<p className="text-muted-foreground text-xs">{membersLabel(group.members.length)}</p>
+				<p className="text-muted-foreground text-xs">{tn("groups.members", group.members.length)}</p>
 			</div>
 			<section aria-labelledby="group-members-heading" className="flex flex-col gap-2">
 				<h4 className="font-medium text-muted-foreground text-xs" id="group-members-heading">
-					Membros
+					{t("contextPanel.group.members")}
 				</h4>
 				<ul className="flex flex-col gap-0.5" data-testid="group-members">
 					{group.members.map((member) => (
 						<li className="flex items-center gap-1" data-member={member.id} key={member.id}>
 							<button
-								aria-label={`Abrir o chat de ${member.name}`}
+								aria-label={t("contextPanel.group.openChatOf", { name: member.name })}
 								className={cn(
 									"flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
 									group.onOpenMember && "hover:bg-muted",
@@ -147,18 +148,18 @@ export function GroupPanelContent({ agent, group }: { agent: Agent; group: Group
 								<AgentAvatar animated={false} bodyColor={member.color} id={member.id} shape={member.shape} size={36} />
 								<span className="flex min-w-0 items-center gap-1.5">
 									<span className="truncate font-medium text-sm">{member.name}</span>
-									{member.isPrimary ? <StarIcon aria-label="Bot principal" className="size-3 shrink-0 fill-current text-muted-foreground" /> : null}
+									{member.isPrimary ? <StarIcon aria-label={t("groups.primary.badge")} className="size-3 shrink-0 fill-current text-muted-foreground" /> : null}
 								</span>
 							</button>
 							<Button
-								aria-label={`Remover ${member.name}`}
+								aria-label={t("contextPanel.group.removeNamed", { name: member.name })}
 								disabled={!canRemove}
 								onClick={() => void group.onRemoveMember(member.id)}
 								size="sm"
-								title={canRemove ? undefined : "Um grupo precisa de pelo menos 2 bots"}
+								title={canRemove ? undefined : t("contextPanel.group.minimum", { count: GROUP_MIN_MEMBERS })}
 								variant="secondary"
 							>
-								Remover
+								{t("contextPanel.group.remove")}
 							</Button>
 						</li>
 					))}
@@ -174,10 +175,10 @@ export function GroupPanelContent({ agent, group }: { agent: Agent; group: Group
 			</section>
 			<div className="flex flex-col gap-2 border-border border-t pt-4">
 				<p className="text-muted-foreground text-xs leading-relaxed">
-					Isso exclui permanentemente o grupo e seu histórico de chat. Os bots que fazem parte dele não são excluídos e continuam disponíveis individualmente.
+					{t("contextPanel.group.deleteWarning")}
 				</p>
 				<Button className="justify-start" onClick={group.onDelete} size="sm" variant="destructive">
-					<Trash2Icon /> Excluir grupo
+					<Trash2Icon /> {t("contextPanel.group.delete")}
 				</Button>
 			</div>
 		</>

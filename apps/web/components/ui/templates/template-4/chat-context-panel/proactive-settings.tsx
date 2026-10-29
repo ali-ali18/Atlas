@@ -13,6 +13,7 @@ import {
 	readProactiveSettings,
 	type ProactiveChange,
 } from "@/lib/proactive-settings";
+import { useTranslations } from "@/lib/i18n/provider";
 import type { Agent } from "../data";
 import { SettingsPicker } from "../settings-picker";
 
@@ -30,26 +31,29 @@ export function ProactiveSettingsSection({
 	onChange: (patch: { policyJson: unknown }) => void;
 	accountTimezone?: string;
 }) {
+	const { t } = useTranslations();
 	if (!proactiveAvailable(agent)) return null;
 	const policyJson = (agent as { policyJson?: unknown }).policyJson;
 	const settings = readProactiveSettings(policyJson, accountTimezone);
 	const change = (next: ProactiveChange) =>
 		onChange({ policyJson: applyProactiveChange(policyJson, next, accountTimezone) });
-	const routineHint = ROUTINE_MODE_OPTIONS.find((option) => option.value === settings.routineMode)?.hint;
+	const routineHint = ROUTINE_MODE_OPTIONS.find((option) => option.value === settings.routineMode)
+		? t(settings.routineMode === "auto" ? "botSettings.pro.hint.auto" : "botSettings.pro.hint.suggest")
+		: undefined;
 
 	return (
 		<SettingsStack>
 			<SettingsGroup>
 				<SettingRow
-					caption={<p>Cria lembretes e sugere rotinas sozinho. Só fala no chat.</p>}
+					caption={<p>{t("botSettings.pro.enabledCaption")}</p>}
 					control="inline"
-					description="O bot principal pode falar primeiro: lembra de prazos e sugere rotinas."
+					description={t("botSettings.pro.enabledDesc")}
 					htmlFor="proactive-enabled"
 					icon={SparklesIcon}
-					label="Modo proativo"
+					label={t("botSettings.proactive")}
 				>
 					<Switch
-						aria-label="Modo proativo"
+						aria-label={t("botSettings.proactive")}
 						checked={settings.enabled}
 						id="proactive-enabled"
 						onCheckedChange={(checked) => change({ type: "enabled", value: checked })}
@@ -59,27 +63,27 @@ export function ProactiveSettingsSection({
 
 			{settings.enabled ? (
 				<div data-proactive-options>
-					<SettingsGroup title="Opções">
+					<SettingsGroup title={t("botSettings.pro.options")}>
 						<SettingRow
 							caption={routineHint ? <p>{routineHint}</p> : null}
-							description="O que o bot faz quando percebe algo que vale virar rotina."
+							description={t("botSettings.pro.routinesDesc")}
 							htmlFor="proactive-routine-mode"
 							icon={CalendarClockIcon}
-							label="Rotinas"
+							label={t("botSettings.pro.routines")}
 						>
 							<SettingsPicker
 								id="proactive-routine-mode"
 								onChange={(value) => change({ type: "routineMode", value })}
-								options={ROUTINE_MODE_OPTIONS.map(({ value, label }) => ({ value, label }))}
+								options={ROUTINE_MODE_OPTIONS.map(({ value }) => ({ value, label: t(value === "auto" ? "botSettings.pro.mode.auto" : "botSettings.pro.mode.suggest") }))}
 								value={settings.routineMode}
 							/>
 						</SettingRow>
 
 						<SettingRow
-							description="Teto de mensagens que o bot começa sozinho em um dia."
+							description={t("botSettings.pro.maxPerDayDesc")}
 							htmlFor="proactive-max-per-day"
 							icon={MessageSquareIcon}
-							label="Máx. mensagens proativas por dia"
+							label={t("botSettings.pro.maxPerDay")}
 						>
 							<SettingsPicker
 								id="proactive-max-per-day"
@@ -90,25 +94,25 @@ export function ProactiveSettingsSection({
 						</SettingRow>
 
 						<SettingRow
-							caption={<p>O bot não escreve sozinho nesse período.</p>}
+							caption={<p>{t("botSettings.pro.quietHelp")}</p>}
 							control="inline"
 							htmlFor="proactive-quiet-start"
 							icon={MoonIcon}
-							label="Horário de silêncio"
+							label={t("botSettings.pro.quiet")}
 							wrap
 						>
 							<div className="flex items-center gap-2">
 								<Input
-									aria-label="Início do silêncio"
+									aria-label={t("botSettings.pro.quietStart")}
 									className="h-8 w-[9rem] px-2.5 text-body"
 									id="proactive-quiet-start"
 									onChange={(event) => change({ type: "quiet", start: event.target.value })}
 									type="time"
 									value={settings.quietStart.padStart(5, "0")}
 								/>
-								<span className="text-muted-foreground text-xs">até</span>
+								<span className="text-muted-foreground text-xs">{t("botSettings.pro.until")}</span>
 								<Input
-									aria-label="Fim do silêncio"
+									aria-label={t("botSettings.pro.quietEnd")}
 									className="h-8 w-[9rem] px-2.5 text-body"
 									id="proactive-quiet-end"
 									onChange={(event) => change({ type: "quiet", end: event.target.value })}
@@ -121,12 +125,12 @@ export function ProactiveSettingsSection({
 						<SettingRow
 							caption={
 								<p>
-									{accountTimezone ? "Das configurações da conta." : "Do navegador, ao ligar."}
+									{accountTimezone ? t("botSettings.pro.tzAccount") : t("botSettings.pro.tzBrowser")}
 								</p>
 							}
 							control="inline"
 							icon={GlobeIcon}
-							label="Fuso horário"
+							label={t("botSettings.pro.timezone")}
 						>
 							<span className="text-body text-muted-foreground">{timeZoneLabel(settings.timezone)}</span>
 						</SettingRow>

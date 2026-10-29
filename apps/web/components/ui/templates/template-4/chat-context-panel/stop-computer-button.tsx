@@ -3,9 +3,12 @@
 import { PowerIcon } from "lucide-react";
 import { Button } from "@workspace/ui/components/button";
 
+import { useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
+
 /** Texto do botão conforme o estado: o login fica salvo, então desligar não é perda. */
-export function stopComputerLabel(busy: boolean): string {
-	return busy ? "Desligando…" : "Desligar computador";
+export function stopComputerLabel(busy: boolean, { t }: Translator = defaultTranslator): string {
+	return busy ? t("contextPanel.stop.busy") : t("contextPanel.stop.label");
 }
 
 /**
@@ -23,10 +26,11 @@ export function StopComputerButton({
 	error?: string | null;
 	onStop: () => void;
 }) {
+	const translator = useTranslations();
 	return (
 		<div className="flex flex-col items-center gap-1">
 			<Button
-				aria-label={`Desligar o computador de ${agentName}`}
+				aria-label={translator.t("contextPanel.stop.aria", { name: agentName })}
 				disabled={busy}
 				onClick={onStop}
 				size="xs"
@@ -34,7 +38,7 @@ export function StopComputerButton({
 				variant="ghost"
 			>
 				<PowerIcon aria-hidden="true" />
-				{stopComputerLabel(busy)}
+				{stopComputerLabel(busy, translator)}
 			</Button>
 			{error ? (
 				<p className="text-destructive text-xs" role="alert">

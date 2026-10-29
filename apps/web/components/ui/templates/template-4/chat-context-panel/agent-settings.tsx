@@ -10,15 +10,14 @@ import { TIER_ROWS, TierModelsControl, TierRow } from "@/components/settings/sec
 import { ModelPicker } from "@/components/model-picker";
 import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
 import { readBubbleBotColor, withBubbleBotColor } from "@/lib/bot-bubble";
-import { BOT_LANGUAGE_SETTING_OPTIONS, DEFAULT_BOT_LANGUAGE } from "@/lib/bot-language";
+import { botLanguageSettingOptions, DEFAULT_BOT_LANGUAGE } from "@/lib/bot-language";
+import { useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import { readProactiveSettings } from "@/lib/proactive-settings";
 import {
-	MODEL_TIER_LABELS,
 	hasModelTiers,
 	readBotModelTiers,
 	withBotModelTiers,
-	DECIDE_FOR_OTHER_BOTS_HINT,
-	DECIDE_FOR_OTHER_BOTS_LABEL,
 	modelDisplayName,
 	readCodingModel,
 	readDecideForOtherBots,
@@ -42,17 +41,28 @@ import { ProactiveSettingsSection } from "./proactive-settings";
 export type AgentSettingsPage = "main" | "proactive" | "tiers";
 
 /** Título da barra do topo para cada página (a principal é "Configurações"). */
+export function agentSettingsTitle(page: AgentSettingsPage, { t }: Translator = defaultTranslator): string {
+	if (page === "proactive") return t("botSettings.proactive");
+	if (page === "tiers") return t("botSettings.tiers");
+	return t("botSettings.title");
+}
+
+/** Os mesmos títulos no padrão (pt-BR). */
 export const AGENT_SETTINGS_TITLES: Record<AgentSettingsPage, string> = {
-	main: "Configurações",
-	proactive: "Modo proativo",
-	tiers: "Modelos por dificuldade",
+	main: agentSettingsTitle("main"),
+	proactive: agentSettingsTitle("proactive"),
+	tiers: agentSettingsTitle("tiers"),
 };
 
 /** "Herdar (…)" do modelo para código: o da conta, ou o modelo normal do bot quando a conta não define. */
-export function codingInheritLabel(accountModel: string | undefined, models: readonly { id: string; name: string }[]): string {
-	if (!accountModel) return "Igual ao bot";
+export function codingInheritLabel(
+	accountModel: string | undefined,
+	models: readonly { id: string; name: string }[],
+	{ t }: Translator = defaultTranslator,
+): string {
+	if (!accountModel) return t("botSettings.codingSameAsBot");
 	const known = models.find((model) => model.id === accountModel);
-	return `Herdar (${known ? modelDisplayName(known.name, known.id) : accountModel})`;
+	return t("botSettings.codingInherit", { model: known ? modelDisplayName(known.name, known.id) : accountModel });
 }
 
 /** Campo de texto do perfil (Nome, Rótulo): rótulo pequeno em cima; salva ao sair do campo ou com Enter. */
@@ -128,6 +138,8 @@ export function AgentSettings({
 	/** "Modelo para código" da conta (o que este bot herda quando não escolhe um). */
 	accountCodingModel?: string;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const { models, loading } = useOpenRouterModels();
 	// policyJson vive no runtime sem campo tipado em Agent (ver bot-to-agent).
 	const policyJson = (agent as { policyJson?: unknown }).policyJson;
@@ -138,16 +150,16 @@ export function AgentSettings({
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-2 pb-[calc(2rem+env(safe-area-inset-bottom))]" data-agent-settings-page="tiers">
 				<SettingsGroup>
 					<p className="px-3.5 py-1 text-xs text-muted-foreground" role="note">
-						Valem neste bot no modo Automático. Nível vazio usa o da conta.
+						{t("botSettings.tiersNote")}
 					</p>
 					{TIER_ROWS.map((row) => (
 						<TierRow
-							caption={(botTiers[row.tier]?.length ?? 0) === 0 ? "Usa o da conta." : null}
+							caption={(botTiers[row.tier]?.length ?? 0) === 0 ? t("botSettings.tiersUsesAccount") : null}
 							row={row}
 							key={row.tier}
 						>
 							<TierModelsControl
-								label={MODEL_TIER_LABELS[row.tier]}
+								label={t(`botSettings.tier.${row.tier}`)}
 								list={botTiers[row.tier] ?? []}
 								models={models}
 								onChange={(list) => onChange({ policyJson: withBotModelTiers(policyJson, { ...botTiers, [row.tier]: list }) })}
@@ -174,11 +186,11 @@ export function AgentSettings({
 		fallback = null;
 	}
 	const fallbackOptions = [
-		{ value: "__none__", label: "Parar e avisar" },
-		...models.map((model) => ({ value: model.id, label: `Usar ${modelDisplayName(model.name, model.id)}` })),
+		{ value: "__none__", label: t("botSettings.fallbackStop") },
+		...models.map((model) => ({ value: model.id, label: t("botSettings.fallbackUse", { model: modelDisplayName(model.name, model.id) }) })),
 	];
 	if (fallback && !fallbackOptions.some((option) => option.value === fallback)) {
-		fallbackOptions.push({ value: fallback, label: `Usar ${fallback}` });
+		fallbackOptions.push({ value: fallback, label: t("botSettings.fallbackUse", { model: fallback }) });
 	}
 	const proactive = readProactiveSettings(policyJson, accountTimezone);
 
@@ -198,17 +210,17 @@ export function AgentSettings({
 					</div>
 					<ProfileField
 						id="agent-name"
-						label="Nome"
+						label={t("botSettings.nameField")}
 						onCommit={(name) => onChange({ name })}
-						placeholder="Nome do bot"
+						placeholder={t("botSettings.nameFieldPlaceholder")}
 						required
 						value={agent.name}
 					/>
 					<ProfileField
 						id="agent-title"
-						label="Rótulo"
+						label={t("botSettings.tagField")}
 						onCommit={(snippet) => onChange({ snippet })}
-						placeholder="Pesquisa, marketing, admin"
+						placeholder={t("botSettings.tagFieldPlaceholder")}
 						value={agent.snippet}
 					/>
 					<AboutSection description={agent.description} onChange={(description) => onChange({ description })} />
@@ -216,13 +228,13 @@ export function AgentSettings({
 
 				<SettingsGroup>
 					<SettingRow
-						description="Modelo deste bot. Sem escolha, usa o modelo padrão da conta."
+						description={t("botSettings.modelDesc")}
 						htmlFor="agent-model"
 						icon={BotIcon}
-						label="Modelo"
+						label={t("botSettings.model")}
 					>
 						<ModelPicker
-							emptyLabel="Herdar da conta"
+							emptyLabel={t("botSettings.inheritAccount")}
 							id="agent-model"
 							loading={loading}
 							models={models}
@@ -233,10 +245,10 @@ export function AgentSettings({
 
 					{agent.openRouterModel?.startsWith("chatgpt/") ? (
 						<SettingRow
-							description="O que fazer quando a cota do seu plano ChatGPT acaba."
+							description={t("botSettings.planLimitDesc")}
 							htmlFor="agent-chatgpt-fallback"
 							icon={LayersIcon}
-							label="Se o limite do plano acabar"
+							label={t("botSettings.planLimit")}
 						>
 							<SettingsPicker
 								id="agent-chatgpt-fallback"
@@ -255,32 +267,32 @@ export function AgentSettings({
 					) : null}
 
 					<SettingRow
-						caption={<p>Substitui os níveis da conta neste bot.</p>}
+						caption={<p>{t("botSettings.tiersCaption")}</p>}
 						control="inline"
-						description="Modelos por dificuldade deste bot, usados no modo Automático do chat."
+						description={t("botSettings.tiersDesc")}
 						icon={SignalHighIcon}
-						label="Modelos por dificuldade"
+						label={t("botSettings.tiers")}
 					>
 						<Button
-							aria-label="Abrir Modelos por dificuldade"
+							aria-label={t("botSettings.tiersOpen")}
 							className="gap-1"
 							onClick={() => onOpenPage?.("tiers")}
 							size="sm"
 							variant="ghost"
 						>
-							{hasModelTiers(botTiers) ? "Personalizado" : "Da conta"}
+							{hasModelTiers(botTiers) ? t("botSettings.tiersCustom") : t("botSettings.tiersFromAccount")}
 							<ChevronRightIcon aria-hidden className="size-3.5" />
 						</Button>
 					</SettingRow>
 
 					<SettingRow
-						description="Modelo usado pelos subagentes que este bot cria."
+						description={t("botSettings.subagentDesc")}
 						htmlFor="agent-subagent-model"
 						icon={WorkflowIcon}
-						label="Modelo dos subagentes"
+						label={t("botSettings.subagentModel")}
 					>
 						<ModelPicker
-							emptyLabel="Igual ao bot"
+							emptyLabel={t("botSettings.codingSameAsBot")}
 							id="agent-subagent-model"
 							loading={loading}
 							models={models}
@@ -290,13 +302,13 @@ export function AgentSettings({
 					</SettingRow>
 
 					<SettingRow
-						description="Entra sozinho quando este bot trabalha numa sessão de código."
+						description={t("botSettings.codingDesc")}
 						htmlFor="agent-coding-model"
 						icon={CodeIcon}
-						label="Modelo (código)"
+						label={t("botSettings.codingModel")}
 					>
 						<ModelPicker
-							emptyLabel={codingInheritLabel(accountCodingModel, models)}
+							emptyLabel={codingInheritLabel(accountCodingModel, models, translator)}
 							id="agent-coding-model"
 							loading={loading}
 							models={models}
@@ -308,11 +320,11 @@ export function AgentSettings({
 					<AutonomySettings botId={agent.id} scope="bot" variant="row" />
 
 					<SettingRow
-						caption={<p>Em tarefas com vários passos que alteram dados ou enviam algo, o bot mostra o plano e espera o seu OK. Aprovar o plano não aprova as ações: cada alteração continua pedindo confirmação.</p>}
+						caption={<p>{t("botSettings.planModeHelp")}</p>}
 						control="inline"
 						htmlFor="agent-plan-mode"
 						icon={ListChecksIcon}
-						label="Planejar antes de tarefas grandes"
+						label={t("botSettings.planMode")}
 					>
 						<Switch
 							checked={readPlanMode(policyJson)}
@@ -322,11 +334,11 @@ export function AgentSettings({
 					</SettingRow>
 
 					<SettingRow
-						caption={<p>Os seus balões nesta conversa usam a cor deste bot. O texto muda para claro ou escuro sozinho, conforme a cor.</p>}
+						caption={<p>{t("botSettings.bubbleHelp")}</p>}
 						control="inline"
 						htmlFor="agent-bubble-color"
 						icon={PaletteIcon}
-						label="Balão na cor do bot"
+						label={t("botSettings.bubble")}
 					>
 						<Switch
 							checked={readBubbleBotColor(policyJson)}
@@ -336,11 +348,11 @@ export function AgentSettings({
 					</SettingRow>
 
 					<SettingRow
-						caption={<p>{DECIDE_FOR_OTHER_BOTS_HINT}</p>}
+						caption={<p>{t("botSettings.decideHelp")}</p>}
 						control="inline"
 						htmlFor="agent-decide-for-others"
 						icon={UserCheckIcon}
-						label={DECIDE_FOR_OTHER_BOTS_LABEL}
+						label={t("botSettings.decide")}
 					>
 						<Switch
 							checked={readDecideForOtherBots(policyJson)}
@@ -350,25 +362,25 @@ export function AgentSettings({
 					</SettingRow>
 
 					<SettingRow
-						description="Idioma das respostas, cards e lembretes deste bot."
+						description={t("botSettings.languageDesc")}
 						htmlFor="agent-language"
 						icon={LanguagesIcon}
-						label="Idioma"
+						label={t("botSettings.language")}
 					>
 						<SettingsPicker
 							id="agent-language"
 							onChange={(language) => onChange({ language })}
-							options={BOT_LANGUAGE_SETTING_OPTIONS.map((option) => ({ value: option.id, label: option.label }))}
+							options={botLanguageSettingOptions(t("common.auto")).map((option) => ({ value: option.id, label: option.label }))}
 							value={agent.language ?? DEFAULT_BOT_LANGUAGE}
 						/>
 					</SettingRow>
 
 					<SettingRow
-						caption={<p>Receba uma notificação quando este bot terminar ou precisar de você.</p>}
+						caption={<p>{t("botSettings.notificationsHelp")}</p>}
 						control="inline"
 						htmlFor="agent-notifications"
 						icon={BellIcon}
-						label="Notificações"
+						label={t("botSettings.notifications")}
 					>
 						<Switch
 							checked={agent.notify ?? true}
@@ -381,20 +393,20 @@ export function AgentSettings({
 				{agent.isPrimary ? (
 					<SettingsGroup>
 						<SettingRow
-							caption={<p>O bot fala primeiro: lembra de prazos e sugere rotinas.</p>}
+							caption={<p>{t("botSettings.proactiveCaption")}</p>}
 							control="inline"
-							description="Abre as opções do modo proativo."
+							description={t("botSettings.proactiveOpenDesc")}
 							icon={SparklesIcon}
-							label="Modo proativo"
+							label={t("botSettings.proactive")}
 						>
 							<Button
-								aria-label="Abrir Modo proativo"
+								aria-label={t("botSettings.proactiveOpen")}
 								className="gap-1"
 								onClick={() => onOpenPage?.("proactive")}
 								size="sm"
 								variant="ghost"
 							>
-								{proactive.enabled ? "Ligado" : "Desligado"}
+								{proactive.enabled ? t("botSettings.on") : t("botSettings.off")}
 								<ChevronRightIcon aria-hidden className="size-3.5" />
 							</Button>
 						</SettingRow>
