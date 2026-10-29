@@ -11,8 +11,8 @@ import type {
 	DevTimingEvent,
 	DevTodoItemValue,
 } from "@workspace/shared";
-import { activeLabel, activeT, getActiveTranslator } from "@/lib/i18n/active";
-import type { MessageKey } from "@/lib/i18n/translator";
+import { activeT, getActiveTranslator } from "@/lib/i18n/active";
+import type { MessageKey, Translator } from "@/lib/i18n/translator";
 
 /** Saída guardada por comando em memória (o resto é descartado do início). */
 export const DEV_OUTPUT_CAP_CHARS = 200_000;
@@ -583,21 +583,21 @@ const SETUP_LABEL_KEY = {
 	push: "status.dev.setup.push",
 } as const;
 
-export function devSetupLabel(step: string, cache?: DevSetupCacheState, durationMs?: number): string {
+export function devSetupLabel(step: string, cache?: DevSetupCacheState, durationMs?: number, { t }: Translator = getActiveTranslator()): string {
 	const key = (SETUP_LABEL_KEY as Record<string, MessageKey>)[step];
-	const base = key ? activeLabel(key) : step;
+	const base = key ? (t as (key: MessageKey) => string)(key) : step;
 	if (step !== "install" || !cache || cache === "miss") return base;
-	if (cache === "hit") return durationMs !== undefined ? activeT("status.dev.cacheHit", { label: base, elapsed: formatElapsed(durationMs) }) : activeT("status.dev.cacheHitNoTime", { label: base });
-	return activeT("status.dev.cacheStale", { label: base });
+	if (cache === "hit") return durationMs !== undefined ? t("status.dev.cacheHit", { label: base, elapsed: formatElapsed(durationMs) }) : t("status.dev.cacheHitNoTime", { label: base });
+	return t("status.dev.cacheStale", { label: base });
 }
 
 /** Linha "agora: …" do que a sessão está fazendo neste instante. */
-export function devCurrentStep(view: DevSessionView): string | null {
+export function devCurrentStep(view: DevSessionView, translator: Translator = getActiveTranslator()): string | null {
 	if (!devIsWorking(view)) return null;
 	const running = [...view.commands].reverse().find((c) => c.status === "running");
 	if (running) return redactSecrets(running.cmd).split("\n")[0]!.slice(0, 120);
 	const setup = view.setup.find((s) => s.status === "running");
-	if (setup) return devSetupLabel(setup.step);
+	if (setup) return devSetupLabel(setup.step, undefined, undefined, translator);
 	const todo = view.todos.find((t) => t.status === "in_progress");
 	if (todo) return todo.content;
 	return null;
@@ -624,9 +624,9 @@ export const DEV_STATUS_TONE: Record<DevSessionStatusValue, DevTone> = {
 };
 
 /** Rótulo do estado: RUNNING sem run ativo nem comando = "Pronta". */
-export function devStatusLabel(view: WorkingView): string {
-	if (view.status === "RUNNING" && !devIsWorking(view)) return activeT("status.dev.ready");
-	return DEV_STATUS_LABEL[view.status];
+export function devStatusLabel(view: WorkingView, { t }: Translator = getActiveTranslator()): string {
+	if (view.status === "RUNNING" && !devIsWorking(view)) return t("status.dev.ready");
+	return t(`status.dev.state.${view.status}`);
 }
 
 export function devStatusTone(view: WorkingView): DevTone {
@@ -638,19 +638,19 @@ export function devStatusTone(view: WorkingView): DevTone {
 const CI_MARK: Record<DevCiSummary, string | null> = { passing: "✓", failing: "✗", pending: "…", none: null };
 
 /** "PR #42 · checks ✓" / "PR #42 · mesclada" (linha 2 do cartão); `null` sem PR. */
-export function devPrCardText(view: Pick<DevSessionView, "pr" | "ci">): string | null {
+export function devPrCardText(view: Pick<DevSessionView, "pr" | "ci">, { t }: Translator = getActiveTranslator()): string | null {
 	if (!view.pr) return null;
 	const head = `PR #${view.pr.number}`;
-	if (view.pr.state === "merged") return activeT("status.dev.prMerged", { number: view.pr.number });
-	if (view.pr.state === "closed") return activeT("status.dev.prClosed", { number: view.pr.number });
+	if (view.pr.state === "merged") return t("status.dev.prMerged", { number: view.pr.number });
+	if (view.pr.state === "closed") return t("status.dev.prClosed", { number: view.pr.number });
 	const mark = view.ci ? CI_MARK[view.ci.summary] : null;
-	return mark ? activeT("status.dev.prChecks", { number: view.pr.number, mark }) : head;
+	return mark ? t("status.dev.prChecks", { number: view.pr.number, mark }) : head;
 }
 
-export function devSessionTitle(view: Pick<DevSessionView, "repo" | "branch">): string {
+export function devSessionTitle(view: Pick<DevSessionView, "repo" | "branch">, { t }: Translator = getActiveTranslator()): string {
 	const repo = view.repo?.replace(/^https?:\/\/[^/]+\//, "").replace(/\.git$/, "");
 	if (repo && view.branch) return `${repo} · ${view.branch}`;
-	return repo || view.branch || activeT("status.dev.codeSession");
+	return repo || view.branch || t("status.dev.codeSession");
 }
 
 type TimedView = WorkingView & Pick<DevSessionView, "startedAt" | "endedAt"> & Partial<Pick<DevSessionView, "workStartedAt" | "runFirstAt" | "runIds">>;
@@ -684,7 +684,7 @@ export function formatElapsed(ms: number): string {
  * Resumo do painel "Tempo": só o que passou de 1s. "Comandos" soma shell em primeiro plano e esperas de
  * `shell_output`. Sem `dev_timing` (sessão antiga), devolve null e o painel não mostra a seção.
  */
-export function devTimingParts(view: Pick<DevSessionView, "timing">): { label: string; ms?: number; text: string }[] | null {
+export function devTimingParts(view: Pick<DevSessionView, "timing">, { t, tn }: Translator = getActiveTranslator()): { label: string; ms?: number; text: string }[] | null {
 	const runs = Object.values(view.timing ?? {});
 	if (runs.length === 0) return null;
 	const total = sumDevTiming(runs);
@@ -692,11 +692,11 @@ export function devTimingParts(view: Pick<DevSessionView, "timing">): { label: s
 	const add = (label: string, ms: number) => {
 		if (ms >= 1000) parts.push({ label, ms, text: `${label} ${formatElapsed(ms)}` });
 	};
-	add(activeT("status.dev.timeModel"), total.modelMs);
-	add(activeT("status.dev.timeCommands"), total.shellMs + total.pollWaitMs);
-	add(activeT("status.dev.timeApproval"), total.approvalMs);
-	add(activeT("status.dev.timeSetup"), total.setupMs);
-	if (total.steps > 0) parts.push({ label: activeT("status.dev.stepsLabel"), text: getActiveTranslator().tn("status.dev.steps", total.steps) });
+	add(t("status.dev.timeModel"), total.modelMs);
+	add(t("status.dev.timeCommands"), total.shellMs + total.pollWaitMs);
+	add(t("status.dev.timeApproval"), total.approvalMs);
+	add(t("status.dev.timeSetup"), total.setupMs);
+	if (total.steps > 0) parts.push({ label: t("status.dev.stepsLabel"), text: tn("status.dev.steps", total.steps) });
 	return parts.length > 0 ? parts : null;
 }
 
@@ -718,21 +718,21 @@ export function formatElapsedLong(ms: number): string {
 }
 
 /** Status curto: "4m52s" enquanto trabalha; "Concluída · 16s" depois (preparando/na fila levam o rótulo). */
-export function devRowStatus(view: TimedView, now: number): string {
+export function devRowStatus(view: TimedView, now: number, translator: Translator = getActiveTranslator()): string {
 	const time = formatElapsed(devElapsedMs(view, now));
-	if (view.status === "QUEUED") return DEV_STATUS_LABEL.QUEUED;
-	return devIsWorking(view) ? time : `${devStatusLabel(view)} · ${time}`;
+	if (view.status === "QUEUED") return translator.t("status.dev.state.QUEUED");
+	return devIsWorking(view) ? time : `${devStatusLabel(view, translator)} · ${time}`;
 }
 
 /** Texto único do cabeçalho do painel: "Trabalhando · 4m21s" / "Concluída · 6m03s". */
-export function devPillLabel(view: TimedView, now: number): string {
-	if (view.status === "QUEUED") return DEV_STATUS_LABEL.QUEUED;
-	return `${devStatusLabel(view)} · ${formatElapsed(devElapsedMs(view, now))}`;
+export function devPillLabel(view: TimedView, now: number, translator: Translator = getActiveTranslator()): string {
+	if (view.status === "QUEUED") return translator.t("status.dev.state.QUEUED");
+	return `${devStatusLabel(view, translator)} · ${formatElapsed(devElapsedMs(view, now))}`;
 }
 
-export function devTimerLabel(view: TimedView, now: number): string {
+export function devTimerLabel(view: TimedView, now: number, { t }: Translator = getActiveTranslator()): string {
 	const elapsed = formatElapsed(devElapsedMs(view, now));
-	return devIsWorking(view) ? activeT("status.dev.workingFor", { elapsed }) : activeT("status.dev.workedFor", { elapsed });
+	return devIsWorking(view) ? t("status.dev.workingFor", { elapsed }) : t("status.dev.workedFor", { elapsed });
 }
 
 /** Remove sequências ANSI (cores, cursor) e retornos de carro de barras de progresso. */

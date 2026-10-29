@@ -1146,13 +1146,13 @@ export function ChatThread({
 	const runActive = sending || pausedLike;
 	// Grupo, entre um run e outro: quem o servidor diz que está respondendo ou escolhendo.
 	const groupRunning = isGroup && groupState ? groupActivity(groupState.replies, groupMembers) : { running: [], waiting: [] };
-	const routingLabel = isGroup ? groupRoutingLabel(groupState) : "";
+	const routingLabel = isGroup ? groupRoutingLabel(groupState, translator) : "";
 	const typingNames = groupRunning.running.length > 0 ? groupRunning.running : groupRunning.waiting.slice(0, 1);
-	const coordinatingLabel = isGroup ? coordinationLabel(groupState, groupMembers) : "";
+	const coordinatingLabel = isGroup ? coordinationLabel(groupState, groupMembers, translator) : "";
 	const groupTyping = {
 		names: coordinatingLabel ? [coordinatingLabel] : routingLabel && typingNames.length === 0 ? [routingLabel] : typingNames,
 		agent: groupMembers.find((member) => member.name === typingNames[0]),
-		label: coordinatingLabel || (routingLabel && typingNames.length === 0 ? routingLabel : typingLabel(typingNames)),
+		label: coordinatingLabel || (routingLabel && typingNames.length === 0 ? routingLabel : typingLabel(typingNames, translator)),
 	};
 
 	return (
@@ -1364,7 +1364,7 @@ export function ChatThread({
 							// Só cartões de aprovação têm marcador; a thread vai inteira com o índice (sem fatia por linha).
 							const approvalMarker =
 								message.kind === "confirm" || message.kind === "needs-user"
-									? approvalMarkerFor(markerSource, dockIds, messages, (messageIndex.get(message.id) ?? messages.length) + 1)
+									? approvalMarkerFor(markerSource, dockIds, messages, (messageIndex.get(message.id) ?? messages.length) + 1, translator)
 									: null;
 							// Pendente e acionável: o cartão inteiro fica onde nasceu. Só decidido ou expirado vira linha.
 							const approvalCardAttr = dockIds.has(message.id) ? message.id : undefined;
@@ -1376,7 +1376,7 @@ export function ChatThread({
 												? message.devApproval.command
 												: `${message.devApproval.path}\n${message.devApproval.preview}`
 											: message.status === "failed"
-												? failedApprovalDetail(message.description, message.failureDetail)
+												? failedApprovalDetail(message.description, message.failureDetail, translator)
 												: message.description
 										: message.kind === "needs-user"
 											? (message.need.item?.devApproval?.kind === "command" ? message.need.item.devApproval.command : message.need.item?.preview)

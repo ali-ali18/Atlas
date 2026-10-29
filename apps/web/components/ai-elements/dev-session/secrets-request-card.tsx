@@ -42,7 +42,8 @@ export type SecretsRequestCardProps = {
  * daqui direto para a API criptografada; o agente só recebe os nomes salvos.
  */
 export function SecretsRequestCard({ info, title, description, status = "pending", confirmLabel, cancelLabel, onSaved, onSkip, save = setDevEnvironmentSecrets, initialText, initialErrors }: SecretsRequestCardProps) {
-	const { t } = useTranslations();
+	const translator = useTranslations();
+	const { t } = translator;
 	const [text, setText] = useState(initialText ?? secretsRequestTemplate(info.names));
 	const [errors, setErrors] = useState<string[]>(initialErrors ?? []);
 	const [busy, setBusy] = useState(false);
@@ -51,7 +52,7 @@ export function SecretsRequestCard({ info, title, description, status = "pending
 	const resolved = status !== "pending";
 
 	async function submit() {
-		const analysis = analyzeSecretsText(text, []);
+		const analysis = analyzeSecretsText(text, [], translator);
 		if (analysis.errors.length > 0) {
 			setErrors(analysis.errors);
 			return;

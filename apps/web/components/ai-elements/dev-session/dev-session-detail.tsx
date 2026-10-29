@@ -403,8 +403,9 @@ function PreparationSection({ view, now }: { view: DevSessionView; now: number }
 }
 
 function PreparationItem({ step, now }: { step: DevSetupStepView; now: number }) {
+	const translator = useTranslations();
 	const ms = step.durationMs ?? Math.max(0, now - step.startedAt);
-	const label = devSetupLabel(step.step, step.cache, step.status === "done" ? step.durationMs : undefined);
+	const label = devSetupLabel(step.step, step.cache, step.status === "done" ? step.durationMs : undefined, translator);
 	const labelHasTime = step.cache === "hit" && step.status === "done" && step.durationMs !== undefined;
 	const head = (
 		<span className="flex min-w-0 flex-1 items-center gap-2">
@@ -437,7 +438,7 @@ function PreparationItem({ step, now }: { step: DevSetupStepView; now: number })
 function TimingSection({ view }: { view: DevSessionView }) {
 	const translator = useTranslations();
 	const { t, locale } = translator;
-	const parts = devTimingParts(view);
+	const parts = devTimingParts(view, translator);
 	if (!parts) return null;
 	const firstToken = devAverageFirstTokenMs(view);
 	return (
@@ -560,10 +561,10 @@ export function DevSessionDetailView({ view, now, actions }: { view: DevSessionV
 			<div className="flex min-w-0 flex-col gap-2">
 				<div className="flex min-w-0 items-center gap-2">
 					<SquareTerminalIcon className="size-4 shrink-0 text-muted-foreground" />
-					<h3 className="min-w-0 flex-1 truncate font-semibold text-sm">{devSessionTitle(view)}</h3>
+					<h3 className="min-w-0 flex-1 truncate font-semibold text-sm">{devSessionTitle(view, translator)}</h3>
 				</div>
 				<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
-					<StatusPill label={devPillLabel(view, now)} tone={devStatusTone(view)} />
+					<StatusPill label={devPillLabel(view, now, translator)} tone={devStatusTone(view)} />
 					{view.contextUsage ? <ContextMeter usage={view.contextUsage} /> : null}
 					{view.contextUsage?.model ? <DevModelName model={view.contextUsage.model} /> : null}
 				</div>

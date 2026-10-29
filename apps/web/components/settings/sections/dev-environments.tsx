@@ -575,7 +575,7 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 		const secrets = analyzeSecretsText(form.secretsText, (editing?.secrets ?? []).map((secret) => secret.name), translator);
 		setSecretErrors(secrets.errors);
 		setSavedCount(null);
-		const limit = secretLimitError(secrets.entries.map((entry) => entry.name), (editing?.secrets ?? []).map((secret) => secret.name));
+		const limit = secretLimitError(secrets.entries.map((entry) => entry.name), (editing?.secrets ?? []).map((secret) => secret.name), translator);
 		if (limit) {
 			setSaveError(limit);
 			return;

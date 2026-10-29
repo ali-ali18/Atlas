@@ -335,9 +335,10 @@ export type CatalogTabProps = {
 }
 
 export function CatalogSkillsTab({ data, loading, error, query, category, onCategory, onOpen, onReload }: CatalogTabProps) {
+  const translator = useTranslations()
   const installer = useSkillInstaller(onReload)
   const all = data?.skills ?? []
-  const shown = useMemo(() => filterCatalogItems(all, query, category), [all, query, category])
+  const shown = useMemo(() => filterCatalogItems(all, query, category, translator), [all, query, category, translator])
   return (
     <>
       <SkillsListView
@@ -358,9 +359,10 @@ export function CatalogSkillsTab({ data, loading, error, query, category, onCate
 }
 
 export function CatalogBotsTab({ data, loading, error, query, category, onCategory, onOpen, onReload, onBotInstalled, onOpenBot }: CatalogTabProps) {
+  const translator = useTranslations()
   const installer = useBotInstaller(onReload, onBotInstalled, onOpenBot)
   const all = data?.bots ?? []
-  const shown = useMemo(() => filterCatalogItems(all, query, category), [all, query, category])
+  const shown = useMemo(() => filterCatalogItems(all, query, category, translator), [all, query, category, translator])
   return (
     <>
       <BotsListView

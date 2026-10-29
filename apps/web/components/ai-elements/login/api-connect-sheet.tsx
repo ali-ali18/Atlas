@@ -334,7 +334,7 @@ export function ApiConnectFlow({ proposal, onOpenChange, busy, error, onSubmit, 
             </div>
           )}
           {anotherAccount && oauth && !(step === 1 && credentials) ? (
-            <p className="m-0 text-xs text-muted-foreground">{anotherAccountHint()}</p>
+            <p className="m-0 text-xs text-muted-foreground">{anotherAccountHint(translator)}</p>
           ) : null}
           {error ? (
             <p className="m-0 text-sm text-destructive" role="alert">

@@ -77,7 +77,7 @@ export function ApiConnectionPage({
   }, [expanded, operations, item.id, loadOperations])
   const connected = item.status === "connected"
   const siblings = accounts?.items ?? [item]
-  const accountLabel = siblings.length > 1 ? accountDisplayLabel(item, siblings) : item.accountLabel
+  const accountLabel = siblings.length > 1 ? accountDisplayLabel(item, siblings, translator) : item.accountLabel
   const needsKey = item.authKind === "apiKey" || item.authKind === "bearer"
   const readable = useMemo(() => readableApiGroups(item), [item])
   const visible = useMemo(() => {
@@ -157,7 +157,7 @@ export function ApiConnectionPage({
       {accounts ? (
         <AccountsSection
           accounts={siblings.map((account) => {
-            const label = accountDisplayLabel(account, siblings)
+            const label = accountDisplayLabel(account, siblings, translator)
             return {
               id: account.id,
               title: label ?? account.name,
@@ -219,7 +219,7 @@ export function ApiConnectionPage({
           </h3>
           {accounts && siblings.length > 1 ? (
             <AccountTabs
-              accounts={siblings.map((account) => ({ id: account.id, title: accountDisplayLabel(account, siblings) ?? account.name }))}
+              accounts={siblings.map((account) => ({ id: account.id, title: accountDisplayLabel(account, siblings, translator) ?? account.name }))}
               label={t("marketplace.api.accountInSetup")}
               onChange={accounts.onOpen}
               value={item.id}

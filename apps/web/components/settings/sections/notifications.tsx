@@ -4,8 +4,8 @@ import { BellIcon, BellRingIcon, SmartphoneIcon, Trash2Icon } from "lucide-react
 import { Button } from "@workspace/ui/components/button";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import type { PushDevice } from "@/lib/atlas-api";
-import { PUSH_STATE_TEXT, lastUsedLabel, type PushState } from "@/lib/push-client";
-import { useT } from "@/lib/i18n/provider";
+import { lastUsedLabel, pushStateText, type PushState } from "@/lib/push-client";
+import { useT, useTranslations } from "@/lib/i18n/provider";
 import { SettingRow, SettingsGroup } from "../setting-row";
 
 const BLOCKED: readonly PushState[] = ["server-off", "unsupported", "needs-install", "denied"];
@@ -38,7 +38,8 @@ export function NotificationsSettingsView({
 	now?: number;
 	isVisible?: (itemId: string) => boolean;
 }) {
-	const t = useT();
+	const translator = useTranslations();
+	const { t } = translator;
 	const on = state === "on";
 	const blocked = BLOCKED.includes(state);
 	return (
@@ -47,7 +48,7 @@ export function NotificationsSettingsView({
 				<SettingRow
 					caption={
 						<>
-							<p data-slot="push-state">{PUSH_STATE_TEXT[state]}</p>
+							<p data-slot="push-state">{pushStateText(state, translator)}</p>
 							{error ? (
 								<p className="text-destructive" role="alert">
 									{error}
@@ -81,7 +82,7 @@ export function NotificationsSettingsView({
 						<SettingRow
 							caption={
 								<p data-slot="push-device-meta">
-									{[device.id === currentDeviceId ? t("settings.push.thisDevice") : null, lastUsedLabel(device.lastUsedAt, now) || null, device.failing ? t("settings.push.failing") : null]
+									{[device.id === currentDeviceId ? t("settings.push.thisDevice") : null, lastUsedLabel(device.lastUsedAt, now, translator) || null, device.failing ? t("settings.push.failing") : null]
 										.filter(Boolean)
 										.join(" · ")}
 								</p>

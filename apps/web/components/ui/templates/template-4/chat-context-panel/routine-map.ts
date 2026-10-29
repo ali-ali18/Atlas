@@ -23,6 +23,7 @@ import {
 	onceSummaryText,
 	routineFailureReason,
 } from "./routine-text";
+import { getActiveTranslator } from "@/lib/i18n/active";
 import { DEFAULT_SCHEDULE, scheduleLabel } from "./schedule-editor";
 
 function isScheduleState(value: unknown): value is ScheduleState {
@@ -124,7 +125,7 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 		notify: record.notify ?? "always",
 			triggerKind: "once",
 			triggers: runAt
-				? [{ id: "once", text: onceSummaryText(runAt, record.timezone), runAt, timezone: record.timezone }]
+				? [{ id: "once", text: onceSummaryText(runAt, record.timezone, getActiveTranslator()), runAt, timezone: record.timezone }]
 				: [],
 		};
 	}
@@ -140,7 +141,7 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 		notify: record.notify ?? "always",
 			triggerKind: "interval",
 			triggers: everyMinutes
-				? [{ id: "interval", text: intervalSummaryText(everyMinutes), everyMinutes }]
+				? [{ id: "interval", text: intervalSummaryText(everyMinutes, getActiveTranslator()), everyMinutes }]
 				: [],
 		};
 	}
@@ -154,7 +155,7 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 			allowChatgptPlan: record.allowChatgptPlan ?? false,
 			notify: record.notify ?? "always",
 			triggerKind: "event",
-			triggers: [{ id: "email", text: emailTriggerText(record.email) }],
+			triggers: [{ id: "email", text: emailTriggerText(record.email, getActiveTranslator()) }],
 			email: record.email,
 		};
 	}
@@ -199,7 +200,7 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 				{
 					id: "schedule",
 					schedule,
-					text: scheduleLabel(schedule),
+					text: scheduleLabel(schedule, getActiveTranslator()),
 				},
 			]
 		: [];

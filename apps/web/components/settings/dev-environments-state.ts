@@ -12,6 +12,7 @@ import {
 	type DevEnvNetwork,
 	type DevEnvTier,
 } from "@workspace/shared";
+import { getActiveTranslator } from "@/lib/i18n/active";
 import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import { devApprovalModeHelp, devApprovalModeLabel, devEnvNetworkLabel, devEnvTierLabel } from "@/lib/shared-labels";
 import type { DevEnvironmentInput, DevEnvironmentView, DevEnvSuggestionView } from "@/lib/atlas-api";
@@ -283,7 +284,7 @@ export function suggestRepos(
 		.slice(0, limit);
 }
 
-export function envErrorMessage(cause: unknown, { t }: Translator = defaultTranslator): string {
+export function envErrorMessage(cause: unknown, { t }: Translator = getActiveTranslator()): string {
 	return cause instanceof Error && cause.message ? cause.message : t("settings.dev.err.generic");
 }
 

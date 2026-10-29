@@ -725,7 +725,7 @@ export function MarketplacePage({
                 {translator.t("marketplace.page.waitingLoginText")}
               </AlertDescription>
               {oauthBusy.startsWith("add:") ? (
-                <AlertDescription className="mt-1">{anotherAccountHint()}</AlertDescription>
+                <AlertDescription className="mt-1">{anotherAccountHint(translator)}</AlertDescription>
               ) : null}
               <Button
                 type="button"
@@ -969,7 +969,7 @@ export function MarketplacePage({
                           <ConnectorCard
                             accountLabel={
                               group.length > 1
-                                ? accountCountText(group.length)
+                                ? accountCountText(group.length, translator)
                                 : accountDisplayLabel(
                                     connection,
                                     connection.catalogId
@@ -997,7 +997,7 @@ export function MarketplacePage({
                           return (
                           <ApiConnectionCard
                             accountCount={group.length}
-                            accountLabel={accountDisplayLabel(entry, (apis.items ?? []).filter((candidate) => candidate.baseUrl === entry.baseUrl))}
+                            accountLabel={accountDisplayLabel(entry, (apis.items ?? []).filter((candidate) => candidate.baseUrl === entry.baseUrl), translator)}
                             item={entry}
                             key={entry.baseUrl}
                             onOpen={() => setView({ kind: "api", id: entry.id })}

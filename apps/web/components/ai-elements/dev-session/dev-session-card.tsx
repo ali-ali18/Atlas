@@ -35,14 +35,14 @@ export function DevSessionCardView({
 }) {
 	const translator = useTranslations();
 	const { t, tn } = translator;
-	const step = devCurrentStep(view);
+	const step = devCurrentStep(view, translator);
 	const counters = devSessionCounters(view);
 	const parts = [
 		counters.commands > 0 ? tn("devSession.card.command", counters.commands) : null,
 		counters.files > 0 ? tn("devSession.card.file", counters.files) : null,
 		counters.added > 0 || counters.removed > 0 ? `+${counters.added} −${counters.removed}` : null,
 	].filter(Boolean);
-	const pr = devPrCardText(view);
+	const pr = devPrCardText(view, translator);
 	const extra = step ? (
 		<span className="font-mono">{step}</span>
 	) : !devIsWorking(view) && (pr || parts.length > 0) ? (
@@ -53,11 +53,11 @@ export function DevSessionCardView({
 			dataAttr="data-dev-session-card"
 			extra={extra}
 			icon={<SquareTerminalIcon />}
-			label={t("devSession.card.open", { title: devSessionTitle(view) })}
+			label={t("devSession.card.open", { title: devSessionTitle(view, translator) })}
 			onOpen={onOpen}
 			selected={selected}
-			status={devRowStatus(view, now)}
-			title={devSessionTitle(view)}
+			status={devRowStatus(view, now, translator)}
+			title={devSessionTitle(view, translator)}
 			tone={devStatusTone(view)}
 		/>
 	);

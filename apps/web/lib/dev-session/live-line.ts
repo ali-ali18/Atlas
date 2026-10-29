@@ -2,8 +2,8 @@ import { redactSecrets } from "@workspace/shared";
 import type { AgentActivity } from "@/lib/working-status";
 
 import { devIsWorking, devSetupLabel, devWorkStart, formatElapsed, type DevSessionView } from "./reducer";
-import { activeLabel, activeT, getActiveTranslator } from "@/lib/i18n/active";
-import type { MessageKey } from "@/lib/i18n/translator";
+import { getActiveTranslator } from "@/lib/i18n/active";
+import type { MessageKey, Translator } from "@/lib/i18n/translator";
 
 const MAX_CHARS = 56;
 
@@ -39,9 +39,9 @@ const SETUP_PROGRESS_KEY = {
 	start: "status.dev.setup.start",
 } as const;
 
-function setupProgressLabel(step: string): string {
+function setupProgressLabel(step: string, translator: Translator): string {
 	const key = (SETUP_PROGRESS_KEY as Record<string, MessageKey>)[step];
-	return key ? activeLabel(key) : devSetupLabel(step);
+	return key ? (translator.t as (key: MessageKey) => string)(key) : devSetupLabel(step, undefined, undefined, translator);
 }
 
 type LiveLineInput = {
@@ -51,6 +51,8 @@ type LiveLineInput = {
 	/** Há um cartão de aprovação esperando o usuário. */
 	pendingApproval?: boolean;
 	now: number;
+	/** Idioma da linha; sem ele vale o da tela registrado (só confiável fora da renderização). */
+	translator?: Translator;
 };
 
 /**
@@ -58,50 +60,51 @@ type LiveLineInput = {
  * (comando rodando, passo do ambiente, ferramenta em uso) e cai em "Pensando…" quando só o
  * modelo está gerando. `null` = sem nada melhor que o texto padrão.
  */
-export function devLiveLine({ view, activity, pendingApproval = false, now }: LiveLineInput): string | null {
-	if (pendingApproval) return activeT("status.dev.live.awaitingApproval");
+export function devLiveLine({ view, activity, pendingApproval = false, now, translator = getActiveTranslator() }: LiveLineInput): string | null {
+	const { t } = translator;
+	if (pendingApproval) return t("status.dev.live.awaitingApproval");
 	if (view && (devIsWorking(view) || view.status === "CREATING")) {
 		const running = [...view.commands].reverse().find((command) => command.status === "running");
-		if (running) return activeT("status.dev.live.running", { cmd: shorten(running.cmd), elapsed: formatElapsed(Math.max(0, now - running.startedAt)) });
+		if (running) return t("status.dev.live.running", { cmd: shorten(running.cmd), elapsed: formatElapsed(Math.max(0, now - running.startedAt)) });
 		const setup = view.setup.find((step) => step.status === "running");
-		if (setup) return activeT("status.dev.live.step", { step: setupProgressLabel(setup.step) });
-		if (view.status === "QUEUED") return activeT("status.dev.live.queued");
-		if (view.status === "CREATING") return activeT("status.dev.live.preparing");
+		if (setup) return t("status.dev.live.step", { step: setupProgressLabel(setup.step, translator) });
+		if (view.status === "QUEUED") return t("status.dev.live.queued");
+		if (view.status === "CREATING") return t("status.dev.live.preparing");
 	}
 	if (activity.phase === "tool") {
 		const detail = activity.detail ? shorten(activity.detail) : "";
 		switch (activity.tool) {
 			case "read_file":
-				return detail ? activeT("status.dev.live.readingPath", { path: shortPath(detail) }) : activeT("status.dev.live.readingFiles");
+				return detail ? t("status.dev.live.readingPath", { path: shortPath(detail) }) : t("status.dev.live.readingFiles");
 			case "edit_file":
 			case "write_file": {
 				const start = view ? devWorkStart(view) : 0;
 				const paths = new Set((view?.edits ?? []).filter((edit) => edit.at >= start).map((edit) => edit.path));
 				if (detail) paths.add(detail);
-				if (paths.size >= 2) return activeT("status.dev.live.editingMany", { count: paths.size });
-				return detail ? activeT("status.dev.live.editingPath", { path: shortPath(detail) }) : activeT("status.dev.live.editingOne");
+				if (paths.size >= 2) return t("status.dev.live.editingMany", { count: paths.size });
+				return detail ? t("status.dev.live.editingPath", { path: shortPath(detail) }) : t("status.dev.live.editingOne");
 			}
 			case "grep":
 			case "glob":
-				return activeT("status.dev.live.searching");
+				return t("status.dev.live.searching");
 			case "shell":
-				return detail ? activeT("status.dev.live.runningCmd", { cmd: shorten(detail) }) : activeT("status.dev.live.runningACommand");
+				return detail ? t("status.dev.live.runningCmd", { cmd: shorten(detail) }) : t("status.dev.live.runningACommand");
 			case "shell_output":
 			case "shell_stdin":
 			case "shell_kill":
-				return activeT("status.dev.live.followingCommand");
+				return t("status.dev.live.followingCommand");
 			case "dev_session_start":
-				return activeT("status.dev.live.preparing");
+				return t("status.dev.live.preparing");
 			case "dev_pr_create":
-				return activeT("status.dev.live.openingPr");
+				return t("status.dev.live.openingPr");
 			case "dev_ci_status":
 			case "dev_ci_logs":
-				return activeT("status.dev.live.checkingCi");
+				return t("status.dev.live.checkingCi");
 			default:
-				return view ? activeT("status.dev.live.working") : null;
+				return view ? t("status.dev.live.working") : null;
 		}
 	}
 	if (!view) return null;
-	if (activity.phase === "revising") return activeT("status.dev.live.revising");
-	return activity.phase === "writing" ? activeT("status.dev.live.writing") : activeT("status.dev.live.thinking");
+	if (activity.phase === "revising") return t("status.dev.live.revising");
+	return activity.phase === "writing" ? t("status.dev.live.writing") : t("status.dev.live.thinking");
 }

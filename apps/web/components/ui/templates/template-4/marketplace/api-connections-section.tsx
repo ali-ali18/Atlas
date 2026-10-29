@@ -56,7 +56,7 @@ export function ApiConnectionCard({ item, accountLabel, accountCount = 1, onOpen
         <p className="truncate text-xs text-muted-foreground" title={apiConnectionStatusLabel(item, translator)}>
           {connected ? (
             <>
-              {accountCount > 1 ? `${accountCountText(accountCount)} · ` : accountLabel ? `${accountLabel} · ` : "API · "}
+              {accountCount > 1 ? `${accountCountText(accountCount, translator)} · ` : accountLabel ? `${accountLabel} · ` : "API · "}
               <span className="font-mono">{item.domain}</span>
             </>
           ) : (

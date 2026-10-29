@@ -54,7 +54,8 @@ export function AccountsSection({
   onDisconnect: (id: string) => Promise<void> | void
   onAdd: () => void
 }) {
-  const { t } = useTranslations()
+  const translator = useTranslations()
+  const { t } = translator
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
 
@@ -165,7 +166,7 @@ export function AccountsSection({
           {error}
         </p>
       ) : null}
-      {oauthHint ? <p className="m-0 pt-1 text-xs text-muted-foreground">{anotherAccountHint()}</p> : null}
+      {oauthHint ? <p className="m-0 pt-1 text-xs text-muted-foreground">{anotherAccountHint(translator)}</p> : null}
     </section>
   )
 }

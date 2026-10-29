@@ -26,9 +26,10 @@ export type ApprovalBarProps = {
 type RowProps = Pick<ApprovalBarProps, "onApprove" | "onSkip" | "onLocate" | "onAlways"> & { entry: DockEntry; extra?: ReactNode };
 
 function Row({ entry, onApprove, onSkip, onLocate, onAlways, extra }: RowProps) {
-	const { t } = useTranslations();
+	const translator = useTranslations();
+	const { t } = translator;
 	const prefixes = dockEntryPrefixes(entry);
-	const options = devApprovalOptions({ prefixes, canAlways: Boolean(onAlways) });
+	const options = devApprovalOptions({ prefixes, canAlways: Boolean(onAlways) }, translator);
 	return (
 		<div className="flex min-h-11 min-w-0 items-center gap-1 pr-1 pl-3" data-approval-bar-row>
 			<ShieldAlertIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
@@ -37,7 +38,7 @@ function Row({ entry, onApprove, onSkip, onLocate, onAlways, extra }: RowProps) 
 				onClick={() => onLocate(entry.id)}
 				type="button"
 			>
-				{approvalBarLabel(entry)}
+				{approvalBarLabel(entry, translator)}
 			</button>
 			{extra}
 			{options.length > 1 ? (

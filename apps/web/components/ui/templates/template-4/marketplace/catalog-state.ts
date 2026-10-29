@@ -49,14 +49,15 @@ function plain(text: string): string {
 export function filterCatalogItems<T extends Searchable>(
   items: readonly T[],
   query: string,
-  category: string
+  category: string,
+  translator: Translator = defaultTranslator
 ): T[] {
   const term = plain(query.trim())
   return items.filter((item) => {
     if (category && item.category !== category) return false
     if (!term) return true
     return plain(
-      `${item.name} ${item.description} ${item.author} ${item.tags.join(" ")} ${categoryLabel(item.category)}`
+      `${item.name} ${item.description} ${item.author} ${item.tags.join(" ")} ${categoryLabel(item.category)} ${categoryLabel(item.category, translator)}`
     ).includes(term)
   })
 }

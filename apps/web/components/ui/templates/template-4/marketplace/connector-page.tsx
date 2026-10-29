@@ -26,7 +26,7 @@ const statusText = (connection: McpConnectionView, { t }: Translator) =>
 /** Linhas da seção "Contas" de um conector do catálogo (cada conexão é uma conta). */
 export function mcpAccountRows(accounts: readonly McpConnectionView[], serviceName: string, currentId?: string, translator: Translator = defaultTranslator): AccountRow[] {
 	return accounts.map((account) => {
-		const label = accountDisplayLabel(account, accounts)
+		const label = accountDisplayLabel(account, accounts, translator)
 		return {
 			id: account.id,
 			title: label ?? serviceName,
@@ -143,7 +143,7 @@ export function ConnectorPage({
 							{(accounts.length > 0 ? accounts : connection ? [connection] : [undefined]).map((account) => (
 								<div className="flex items-center gap-3 p-4" key={account?.id ?? "entry"}>
 									<PlugIcon className="size-5 shrink-0 text-muted-foreground" />
-									<div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{(account && accounts.length > 1 ? accountDisplayLabel(account, accounts) : null) ?? entry.name}</p><p className="text-xs text-muted-foreground">{t("marketplace.connector.connector")}</p></div>
+									<div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{(account && accounts.length > 1 ? accountDisplayLabel(account, accounts, translator) : null) ?? entry.name}</p><p className="text-xs text-muted-foreground">{t("marketplace.connector.connector")}</p></div>
 									{account && <span className="shrink-0 text-xs text-muted-foreground">{t("marketplace.connector.toolCount", { count: account.tools.length })}</span>}
 								</div>
 							))}
