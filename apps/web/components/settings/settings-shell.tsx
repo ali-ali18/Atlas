@@ -102,7 +102,7 @@ export function SettingsShell({
 					/>
 					<Input
 						aria-label="Buscar nas configurações"
-						className="h-8 pl-8 text-[13px]"
+						className="h-8 pl-8 text-body"
 						onChange={(event) => setQuery(event.target.value)}
 						onKeyDown={(event) => {
 							if (event.key !== "ArrowDown") return;
@@ -144,7 +144,7 @@ export function SettingsShell({
 						<Fragment key={entry.id}>
 							{index === 0 || search.entries[index - 1]?.group !== entry.group ? (
 								<p
-									className={cn("px-[9px] pb-1 text-[11px] font-medium text-muted-foreground", index === 0 ? "pt-0.5" : "pt-3.5")}
+									className={cn("px-[9px] pb-1 text-caption font-medium text-muted-foreground", index === 0 ? "pt-0.5" : "pt-3.5")}
 									data-nav-group=""
 								>
 									{SETTINGS_NAV_GROUPS[entry.group]}
@@ -190,7 +190,7 @@ function NavButton({
 		<button
 			aria-current={active ? "page" : undefined}
 			className={cn(
-				"flex w-full items-center gap-[9px] rounded-lg px-[9px] py-[7px] text-left text-[13px] text-foreground outline-none transition-colors duration-100",
+				"flex w-full items-center gap-[9px] rounded-lg px-[9px] py-[7px] text-left text-body text-foreground outline-none transition-colors duration-100",
 				"hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring/50",
 				active && "bg-accent font-medium",
 			)}

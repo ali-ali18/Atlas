@@ -101,7 +101,7 @@ export function SecretsRequestCard({ info, title, description, status = "pending
 						aria-invalid={errors.length > 0 ? true : undefined}
 						aria-label="Segredos (NOME=valor, um por linha)"
 						autoComplete="off"
-						className="min-h-[5.5rem] font-mono text-[13px] leading-5"
+						className="min-h-[5.5rem] font-mono text-body leading-5"
 						id={id}
 						onChange={(event) => {
 							setText(event.target.value);

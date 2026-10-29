@@ -23,7 +23,7 @@ export function SettingsGroup({
 	return (
 		<section className="flex flex-col gap-2" data-slot="settings-list-group">
 			{label ? <h3 className="px-4 text-xs font-medium text-muted-foreground">{label}</h3> : null}
-			<div className={cn("flex flex-col gap-0.5 overflow-hidden rounded-[20px]", className)}>{children}</div>
+			<div className={cn("flex flex-col gap-0.5 overflow-hidden rounded-panel", className)}>{children}</div>
 		</section>
 	);
 }

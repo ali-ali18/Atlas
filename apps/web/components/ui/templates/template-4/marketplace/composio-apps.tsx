@@ -171,7 +171,7 @@ function ComposioAppRow({
         <p className="flex items-center gap-2 text-sm font-medium">
           <span className="truncate">{app.name}</span>
           {app.noAuth ? (
-            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-normal text-muted-foreground">
+            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-caption font-normal text-muted-foreground">
               {COMPOSIO_NO_AUTH_BADGE}
             </span>
           ) : null}
@@ -198,7 +198,7 @@ function ComposioAppRow({
             : composioDisconnectLabel(app.noAuth)}
         </Button>
       ) : native ? (
-        <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
+        <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-caption text-muted-foreground">
           {NATIVE_WINS_BADGE}
         </span>
       ) : (

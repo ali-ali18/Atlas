@@ -57,7 +57,7 @@ export function CodeRunCard({ code, status, durationMs, output = "", defaultOpen
 					<MarkdownCodeBlock code={code} language="python" />
 					{output.trim() ? (
 						<div className="mt-2 min-w-0 overflow-hidden rounded-lg border border-border/60 bg-muted/60" data-testid="code-run-output">
-							<div className="flex h-8 items-center border-border/60 border-b bg-muted/80 pl-3 font-mono text-[11px] text-muted-foreground">
+							<div className="flex h-8 items-center border-border/60 border-b bg-muted/80 pl-3 font-mono text-caption text-muted-foreground">
 								saída
 							</div>
 							<pre className="m-0 max-h-80 overflow-auto p-3 font-mono text-xs leading-relaxed whitespace-pre text-foreground/90">{shown}</pre>

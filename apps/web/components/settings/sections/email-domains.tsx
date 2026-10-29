@@ -42,8 +42,8 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 function RecordField({ label, text }: { label: "Nome" | "Valor"; text: string }) {
 	return (
 		<div className="flex h-8 min-w-0 items-center gap-2 border-border/60 border-t px-3">
-			<span className="w-10 shrink-0 text-[11px] text-muted-foreground">{label}</span>
-			<span className="min-w-0 flex-1 truncate font-mono text-[11px]" title={text}>
+			<span className="w-10 shrink-0 text-caption text-muted-foreground">{label}</span>
+			<span className="min-w-0 flex-1 truncate font-mono text-caption" title={text}>
 				{text}
 			</span>
 			<CopyButton label={label.toLowerCase()} text={text} />
@@ -60,7 +60,7 @@ function RecordsTable({ records }: { records: EmailDomainRecordDto[] }) {
 					data-dns-record={record.type}
 					key={`${record.type}-${record.name}-${index}`}
 				>
-					<div className="flex h-8 min-w-0 items-center gap-2 px-3 text-[11px]">
+					<div className="flex h-8 min-w-0 items-center gap-2 px-3 text-caption">
 						<span className="text-muted-foreground">Tipo</span>
 						<span className="font-medium">{record.type}</span>
 						{record.priority !== null ? <span className="text-muted-foreground">· prioridade {record.priority}</span> : null}
@@ -81,7 +81,7 @@ function DomainCard({ domain, busy, onVerify, onRemove }: { domain: EmailDomainD
 	return (
 		<div className="flex min-w-0 flex-col gap-2 rounded-xl border border-border/60 p-3" data-email-domain={domain.domain}>
 			<div className="flex min-w-0 flex-wrap items-center gap-2">
-				<p className="min-w-0 flex-1 basis-40 truncate font-medium text-[13px]" title={domain.domain}>
+				<p className="min-w-0 flex-1 basis-40 truncate font-medium text-body" title={domain.domain}>
 					{domain.domain}
 				</p>
 				<span

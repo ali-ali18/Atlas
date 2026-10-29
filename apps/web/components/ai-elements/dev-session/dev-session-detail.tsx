@@ -104,7 +104,7 @@ export function ExitBadge({ command }: { command: DevCommandView }) {
 	return (
 		<span
 			className={cn(
-				"inline-flex items-center rounded-full px-1.5 font-mono text-[11px]",
+				"inline-flex items-center rounded-full px-1.5 font-mono text-caption",
 				ok ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-destructive/15 text-destructive",
 			)}
 			data-exit-badge
@@ -128,7 +128,7 @@ export function TerminalOutput({ command, maxHeight = "max-h-64" }: { command: D
 	}
 	return (
 		<pre
-			className={cn("overflow-auto whitespace-pre px-3 py-2 font-mono text-[11px] leading-relaxed", maxHeight)}
+			className={cn("overflow-auto whitespace-pre px-3 py-2 font-mono text-caption leading-relaxed", maxHeight)}
 			onScroll={(event) => {
 				const el = event.currentTarget;
 				stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
@@ -245,7 +245,7 @@ export function CommandItem({ command, now, onStop }: { command: DevCommandView;
 
 export function DiffStat({ added, removed }: { added: number; removed: number }) {
 	return (
-		<span className="shrink-0 font-mono text-[11px] tabular-nums">
+		<span className="shrink-0 font-mono text-caption tabular-nums">
 			<span className="text-emerald-600 dark:text-emerald-400">+{added}</span>{" "}
 			<span className="text-destructive">−{removed}</span>
 		</span>
@@ -263,7 +263,7 @@ const DIFF_LINE_CLASS = {
 export function DiffView({ diff }: { diff: string }) {
 	const lines = parseDiffLines(diff);
 	return (
-		<div className="overflow-x-auto py-1 font-mono text-[11px] leading-relaxed" data-diff-view>
+		<div className="overflow-x-auto py-1 font-mono text-caption leading-relaxed" data-diff-view>
 			<div className="w-max min-w-full">
 				{lines.map((line, index) => (
 					<div
@@ -418,7 +418,7 @@ function PreparationItem({ step, now }: { step: DevSetupStepView; now: number })
 				<CheckCircle2Icon className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
 			)}
 			<span className="min-w-0 flex-1 truncate">{label}</span>
-			{labelHasTime ? null : <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{formatElapsed(ms)}</span>}
+			{labelHasTime ? null : <span className="shrink-0 font-mono text-caption text-muted-foreground">{formatElapsed(ms)}</span>}
 		</span>
 	);
 	if (!step.output?.trim()) return <div className="flex items-center rounded-xl bg-muted/40 px-3 py-2 text-xs">{head}</div>;
@@ -429,7 +429,7 @@ function PreparationItem({ step, now }: { step: DevSetupStepView; now: number })
 				<ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/prep:rotate-180" />
 			</CollapsibleTrigger>
 			<CollapsibleContent>
-				<pre className="max-h-48 overflow-auto whitespace-pre border-border/60 border-t px-3 py-2 font-mono text-[11px] leading-relaxed">{stripAnsi(step.output)}</pre>
+				<pre className="max-h-48 overflow-auto whitespace-pre border-border/60 border-t px-3 py-2 font-mono text-caption leading-relaxed">{stripAnsi(step.output)}</pre>
 			</CollapsibleContent>
 		</Collapsible>
 	);

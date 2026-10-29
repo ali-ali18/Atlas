@@ -60,7 +60,7 @@ function NoticeRow({ notice, onDismiss }: { notice: GithubNotice; onDismiss?: ()
 	const { icon: Icon, className } = NOTICE_STYLE[notice.tone];
 	return (
 		<div
-			className={cn("flex items-start gap-2 px-3.5 py-2.5 text-[13px] leading-[18px]", className)}
+			className={cn("flex items-start gap-2 px-3.5 py-2.5 text-body leading-[18px]", className)}
 			data-slot="github-notice"
 			role={notice.tone === "error" ? "alert" : "status"}
 		>
@@ -111,7 +111,7 @@ function RepoChips({ inst }: { inst: GithubAppInstallation }) {
 	const more = inst.repos.length - shown.length;
 	return (
 		<Collapsible className="px-3.5 pb-2.5" data-slot="github-repos">
-			<CollapsibleTrigger className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left text-[13px] text-muted-foreground hover:text-foreground">
+			<CollapsibleTrigger className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left text-body text-muted-foreground hover:text-foreground">
 				<ChevronRightIcon aria-hidden className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
 				<span>Repositórios ({total})</span>
 			</CollapsibleTrigger>
@@ -137,7 +137,7 @@ function RepoChips({ inst }: { inst: GithubAppInstallation }) {
 					</Button>
 				) : null}
 				{inst.repoCount !== null && inst.repoCount > inst.repos.length && more === 0 ? (
-					<p className="pt-1.5 text-[11px] text-muted-foreground">
+					<p className="pt-1.5 text-caption text-muted-foreground">
 						+{inst.repoCount - inst.repos.length} no GitHub
 					</p>
 				) : null}
@@ -237,7 +237,7 @@ function WriteIdentityRows({ status, busy, onSave }: { status: GithubAppStatus; 
 		<div data-slot="github-write-as">
 			<SettingRow caption={<p>{githubWriteAsCaption(status)}</p>} icon={GithubMarkIcon} label="Escritas no GitHub" />
 			{status.missingWritePermissions.length > 0 ? (
-				<div className="flex flex-col items-start gap-2 px-3.5 pb-3 text-[13px] leading-[18px]" data-slot="github-permissions-warning" role="alert">
+				<div className="flex flex-col items-start gap-2 px-3.5 pb-3 text-body leading-[18px]" data-slot="github-permissions-warning" role="alert">
 					<div className="flex items-start gap-2 text-destructive">
 						<TriangleAlertIcon aria-hidden className="mt-0.5 size-4 shrink-0" />
 						<p className="min-w-0 flex-1">{githubMissingPermissionsText(status.missingWritePermissions)}</p>

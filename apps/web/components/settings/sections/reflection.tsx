@@ -86,7 +86,7 @@ export function ReflectionSettingsView({
 				>
 					<Input
 						aria-label="Horário da reflexão"
-						className="h-8 w-[7rem] px-2.5 text-[13px]"
+						className="h-8 w-[7rem] px-2.5 text-body"
 						disabled={disabled}
 						id="settings-reflection-time"
 						onChange={(event) => event.target.value && onTime(event.target.value)}

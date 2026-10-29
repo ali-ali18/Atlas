@@ -93,7 +93,7 @@ function CheckRow({ check }: { check: DevCiCheck }) {
 			<span className="min-w-0 flex-1 truncate" title={check.name}>
 				{check.name}
 			</span>
-			{check.durationMs !== undefined ? <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">{formatElapsed(check.durationMs)}</span> : null}
+			{check.durationMs !== undefined ? <span className="shrink-0 font-mono text-caption text-muted-foreground tabular-nums">{formatElapsed(check.durationMs)}</span> : null}
 			{href ? (
 				<ExternalLink className="shrink-0 text-muted-foreground" href={href} label={`Abrir ${check.name} no GitHub`}>
 					<ExternalLinkIcon className="size-3.5" />
@@ -116,7 +116,7 @@ export function PullRequestBody({ pr, ci }: { pr: DevPrInfo; ci?: DevCiView }) {
 					</span>
 					<PrStatePill state={pr.state} />
 				</div>
-				<p className="truncate font-mono text-[11px] text-muted-foreground" data-pr-branches title={`${pr.base} ← ${pr.head}`}>
+				<p className="truncate font-mono text-caption text-muted-foreground" data-pr-branches title={`${pr.base} ← ${pr.head}`}>
 					{pr.base} ← {pr.head}
 				</p>
 				{href ? (

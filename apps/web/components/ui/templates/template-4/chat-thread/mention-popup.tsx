@@ -80,7 +80,7 @@ export function MentionPopup({
 			{candidates.map((candidate, index) => (
 				<Fragment key={candidate.id}>
 				{sectionTitle(candidates, index) ? (
-					<p className="px-2.5 pt-2 pb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide" data-slot="mention-section">
+					<p className="px-2.5 pt-2 pb-1 font-medium text-caption text-muted-foreground uppercase tracking-wide" data-slot="mention-section">
 						{sectionTitle(candidates, index)}
 					</p>
 				) : null}

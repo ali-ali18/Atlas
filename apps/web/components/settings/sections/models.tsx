@@ -172,7 +172,7 @@ export function ModelsSettingsView({
 								value={modelPickerValue(effective.models[row.setting])}
 							/>
 						) : (
-							<p className="text-[13px] text-muted-foreground">Carregando…</p>
+							<p className="text-body text-muted-foreground">Carregando…</p>
 						)}
 					</SettingRow>
 				) : null,
@@ -195,7 +195,7 @@ export function ModelsSettingsView({
 							value={modelPickerValue(effective.models.stt)}
 						/>
 					) : (
-						<p className="text-[13px] text-muted-foreground">Carregando…</p>
+						<p className="text-body text-muted-foreground">Carregando…</p>
 					)}
 				</SettingRow>
 			) : null}

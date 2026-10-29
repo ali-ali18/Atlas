@@ -140,7 +140,7 @@ export function JevSettingsView({
 									value={modelPickerValue(effective.models.reviewer)}
 								/>
 							) : (
-								<p className="text-[13px] text-muted-foreground">Carregando…</p>
+								<p className="text-body text-muted-foreground">Carregando…</p>
 							)}
 						</SettingRow>
 					) : null}
@@ -211,7 +211,7 @@ export function JevSettingsView({
 							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 								<span className="flex items-center gap-2">
 									<SlidersHorizontalIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" data-slot="setting-row-icon" />
-									<span className="text-[13px] leading-[18px]">{featuresTitle}</span>
+									<span className="text-body leading-[18px]">{featuresTitle}</span>
 								</span>
 								<span className="text-xs text-muted-foreground">{visibleFeatures.length} ajustes finos, um por recurso</span>
 							</span>
@@ -246,7 +246,7 @@ export function JevSettingsView({
 				</SettingsGroup>
 			) : null}
 
-			{!ready && !loadError ? <p className="px-2 text-[13px] text-muted-foreground">Carregando…</p> : null}
+			{!ready && !loadError ? <p className="px-2 text-body text-muted-foreground">Carregando…</p> : null}
 		</SettingsStack>
 	);
 }

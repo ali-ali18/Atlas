@@ -90,7 +90,7 @@ function PageRow({
 				type="button"
 			>
 				<span className="flex min-w-0 items-center gap-1.5">
-					<span className="min-w-0 truncate font-medium text-[13px]">{model.title}</span>
+					<span className="min-w-0 truncate font-medium text-body">{model.title}</span>
 					{model.routine ? (
 						<RefreshCwIcon aria-label={`Atualizado por rotina: ${model.routine}`} className="size-3.5 shrink-0 text-muted-foreground" role="img" />
 					) : null}

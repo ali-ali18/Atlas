@@ -82,7 +82,7 @@ export function AvatarEditor({
 						/>
 					}
 				/>
-				<TooltipContent className="px-2 py-1 text-[11px]">
+				<TooltipContent className="px-2 py-1 text-caption">
 					Editar avatar
 				</TooltipContent>
 				<DropdownMenuContent align="center" className="w-72">

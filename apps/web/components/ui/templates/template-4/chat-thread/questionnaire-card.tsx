@@ -132,7 +132,7 @@ export function QuestionnaireCard({
 						);
 						return (
 							<div key={item.name} className="flex min-w-0 flex-col gap-1.5">
-								<p className="m-0 text-[13px] font-medium leading-snug">
+								<p className="m-0 text-body font-medium leading-snug">
 									{item.prompt}
 								</p>
 								<div className="flex items-center gap-2 rounded-xl bg-background/70 px-3 py-2 ring-1 ring-foreground/5">

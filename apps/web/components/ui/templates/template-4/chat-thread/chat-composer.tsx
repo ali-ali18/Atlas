@@ -482,7 +482,7 @@ export function ChatComposer({
 									>
 										{recording ? <AnimatedAudioLines /> : <AudioLinesIcon />}
 									</TooltipTrigger>
-									<TooltipContent className="px-2 py-1 text-[11px]">{recording ? "Parar ditado (Esc cancela)" : "Ditar"}</TooltipContent>
+									<TooltipContent className="px-2 py-1 text-caption">{recording ? "Parar ditado (Esc cancela)" : "Ditar"}</TooltipContent>
 								</Tooltip>
 							)}
 							{primaryAction === "stop" ? (
@@ -502,7 +502,7 @@ export function ChatComposer({
 									>
 										<SquareIcon className="fill-current" />
 									</TooltipTrigger>
-									<TooltipContent className="px-2 py-1 text-[11px]">Parar a tarefa</TooltipContent>
+									<TooltipContent className="px-2 py-1 text-caption">Parar a tarefa</TooltipContent>
 								</Tooltip>
 							) : primaryAction === "dictate" || primaryAction === "dictating" ? (
 								<Tooltip>
@@ -522,7 +522,7 @@ export function ChatComposer({
 									>
 										{recording ? <AnimatedAudioLines /> : <AudioLinesIcon />}
 									</TooltipTrigger>
-									<TooltipContent className="px-2 py-1 text-[11px]">{recording ? "Parar ditado (Esc cancela)" : "Ditar"}</TooltipContent>
+									<TooltipContent className="px-2 py-1 text-caption">{recording ? "Parar ditado (Esc cancela)" : "Ditar"}</TooltipContent>
 								</Tooltip>
 							) : (
 								<InputGroupButton

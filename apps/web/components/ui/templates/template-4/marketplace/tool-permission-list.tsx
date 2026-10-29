@@ -48,7 +48,7 @@ export function ToolPermissionList({
 						>
 							<div className="flex flex-wrap items-center gap-2">
 								<span className="break-words text-sm font-medium">{tool.title || tool.name}</span>
-								<span className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+								<span className="rounded-md bg-muted px-1.5 py-0.5 text-caption text-muted-foreground">
 									{isReadOnlyMcpTool(tool) ? "leitura" : "escreve"}
 								</span>
 							</div>

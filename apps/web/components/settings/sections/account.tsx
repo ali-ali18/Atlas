@@ -19,7 +19,7 @@ const SAVE_FAILED = "Não foi possível salvar. Tente novamente.";
 /** Valor somente leitura na ponta direita da linha (o e-mail vem da sessão). */
 function ReadOnlyValue({ id, children }: { id: string; children: string }) {
 	return (
-		<span className="max-w-full truncate text-[13px] text-muted-foreground" id={id}>
+		<span className="max-w-full truncate text-body text-muted-foreground" id={id}>
 			{children || "—"}
 		</span>
 	);
@@ -233,7 +233,7 @@ function NameRow({ name, onSave }: { name: string; onSave: (name: string) => Pro
 			<Input
 				aria-invalid={message ? true : undefined}
 				autoComplete="name"
-				className="h-8 w-44 text-[13px]"
+				className="h-8 w-44 text-body"
 				id="settings-account-name"
 				maxLength={PROFILE_NAME_MAX + 20}
 				onChange={(event) => {

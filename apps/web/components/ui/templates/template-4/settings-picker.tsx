@@ -104,7 +104,7 @@ export function SettingsPicker<T extends string>({
 				align={card ? "start" : "end"}
 				alignOffset={card ? card.offset : 0}
 				collisionPadding={card ? 0 : 12}
-				className={card ? "max-w-none min-w-0 rounded-[12px]" : "w-auto max-w-[22rem] min-w-[max(var(--anchor-width),18rem)]"}
+				className={card ? "max-w-none min-w-0 rounded-card" : "w-auto max-w-[22rem] min-w-[max(var(--anchor-width),18rem)]"}
 				style={card ? { width: card.width } : undefined}
 				data-slot="settings-picker-content"
 			>

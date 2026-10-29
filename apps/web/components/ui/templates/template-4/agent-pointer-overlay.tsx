@@ -31,7 +31,7 @@ function NameTag({
 	return (
 		<span
 			className={cn(
-				"absolute flex max-w-[16rem] items-baseline gap-1 rounded-full px-2.5 py-1 text-[11px] leading-none whitespace-nowrap shadow-md ring-1 ring-white/70",
+				"absolute flex max-w-[16rem] items-baseline gap-1 rounded-full px-2.5 py-1 text-caption leading-none whitespace-nowrap shadow-md ring-1 ring-white/70",
 				className,
 			)}
 			data-agent-label=""

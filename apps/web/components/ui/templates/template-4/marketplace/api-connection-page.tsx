@@ -307,7 +307,7 @@ export function ApiConnectionPage({
                                 onClick={() => setGuide(operation)}
                                 type="button"
                               >
-                                <span className="w-14 shrink-0 font-mono text-[11px] font-medium text-muted-foreground">{operation.method}</span>
+                                <span className="w-14 shrink-0 font-mono text-caption font-medium text-muted-foreground">{operation.method}</span>
                                 <span className="min-w-0 flex-1">
                                   <span className="block truncate text-sm">{operation.summary || operation.id}</span>
                                   <span className="block truncate font-mono text-xs text-muted-foreground">{operation.path}</span>

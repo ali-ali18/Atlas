@@ -44,7 +44,7 @@ export function AutonomySettings({
 	if (loading) {
 		return variant === "row" ? (
 			<SettingRow control="inline" icon={ShieldQuestionIcon} label={rowLabel}>
-				<span className="text-[13px] text-muted-foreground">Carregando autonomia…</span>
+				<span className="text-body text-muted-foreground">Carregando autonomia…</span>
 			</SettingRow>
 		) : (
 			<p className="text-sm text-muted-foreground">Carregando autonomia…</p>
@@ -54,7 +54,7 @@ export function AutonomySettings({
 		const message = error ?? "Não foi possível carregar a autonomia.";
 		return variant === "row" ? (
 			<SettingRow control="inline" icon={ShieldQuestionIcon} label={rowLabel}>
-				<span className="text-[13px] text-destructive" role="alert">
+				<span className="text-body text-destructive" role="alert">
 					{message}
 				</span>
 			</SettingRow>

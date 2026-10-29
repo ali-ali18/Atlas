@@ -62,7 +62,7 @@ export function CopyField({
 			className="grid min-w-0 grid-cols-[minmax(0,1fr)_3rem] items-center gap-x-2 gap-y-1 sm:grid-cols-[4.5rem_minmax(0,1fr)_3rem]"
 			data-webhook-field={label}
 		>
-			<span className="col-span-2 min-w-0 break-words text-[11px] text-muted-foreground sm:col-span-1">
+			<span className="col-span-2 min-w-0 break-words text-caption text-muted-foreground sm:col-span-1">
 				{labelHint ? (
 					<Tooltip>
 						<TooltipTrigger
@@ -80,7 +80,7 @@ export function CopyField({
 			<button
 				aria-label={value ? `Copiar ${label}` : undefined}
 				className={cn(
-					"w-full min-w-0 rounded-md bg-muted px-2 py-1 text-left text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring",
+					"w-full min-w-0 rounded-md bg-muted px-2 py-1 text-left text-caption outline-none focus-visible:ring-2 focus-visible:ring-ring",
 					value ? "cursor-pointer" : "cursor-default text-muted-foreground",
 				)}
 				disabled={!value}
