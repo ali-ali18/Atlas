@@ -42,6 +42,7 @@ const TRANSLATED = [
 	"components/settings/composio-pager.tsx",
 	"components/settings/composio-key-form.tsx",
 	"components/settings/sections/composio.tsx",
+	"components/settings/sections/panes.tsx",
 ];
 
 const ACCENTED = /[áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]/;

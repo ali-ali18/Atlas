@@ -13,6 +13,7 @@ import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
 import { settings } from "./settings";
 import { sharedLabels } from "./sharedLabels";
+import { settingsPanes } from "./settingsPanes";
 import { settingsComposio } from "./settingsComposio";
 import { settingsSkills } from "./settingsSkills";
 import { settingsDev } from "./settingsDev";
@@ -54,6 +55,7 @@ import { share } from "./share";
 	...mobile,
 	...settings,
 	...sharedLabels,
+	...settingsPanes,
 	...settingsComposio,
 	...settingsSkills,
 	...settingsDev,
