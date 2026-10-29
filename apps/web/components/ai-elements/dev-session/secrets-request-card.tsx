@@ -99,7 +99,7 @@ export function SecretsRequestCard({ info, title, description, status = "pending
 				<div className="flex min-w-0 flex-col gap-2">
 					<Textarea
 						aria-invalid={errors.length > 0 ? true : undefined}
-						aria-label="Segredos (NOME=valor, um por linha)"
+						aria-label="Chaves e senhas, uma por linha"
 						autoComplete="off"
 						className="min-h-[5.5rem] font-mono text-body leading-5"
 						id={id}

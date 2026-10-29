@@ -136,15 +136,15 @@ export function ApiConnectCardView({
         ) : null}
         {details && !dismissed ? (
           <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-            <Fact label="Domínio">
+            <Fact label="Site da API">
               <span className="font-mono">{proposal.domain}</span>
             </Fact>
-            <Fact label="Autenticação">
+            <Fact label="Acesso">
               {API_AUTH_LABEL[proposal.authKind]}
               {proposal.authDetail ? ` · ${proposal.authDetail}` : ""}
             </Fact>
-            <Fact label="Operações">
-              {plural(proposal.operationCount, "operação", "operações")} · {proposal.readCount} de leitura
+            <Fact label="O que faz">
+              {plural(proposal.operationCount, "ação", "ações")} · {proposal.readCount} só para ler
             </Fact>
             {proposal.crossHost ? (
               <>
