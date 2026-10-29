@@ -2,7 +2,8 @@
 
 import { Marker, MarkerContent } from "@workspace/ui/components/marker";
 
-import { botGroupLabel, type BotMessage, type BotPartner } from "@/lib/bot-thread";
+import { type BotMessage, type BotPartner } from "@/lib/bot-thread";
+import { useTranslations } from "@/lib/i18n/provider";
 
 import { BotChip, type BotRef } from "./bot-chip";
 
@@ -23,19 +24,19 @@ export function BotThreadGroup({
 	/** Abre a conversa com o parceiro; sem ele (bot apagado) a linha é só informativa. */
 	onOpen?: () => void;
 }) {
-	const label = botGroupLabel(messages.length, partners);
+	const { t, tn } = useTranslations();
 	// "3 mensagens com " + avatares/nome de cada parceiro (separados por vírgula/e).
-	const prefix = label.slice(0, label.indexOf(" com ") + 5);
+	const prefix = `${tn("aiElements.bots.group", messages.length)} `;
 	const content = (
 		<Marker className="justify-center text-xs">
 			<MarkerContent className="inline-flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5">
 				<span>{prefix}</span>
 				{partners.length === 0 ? (
-					<span>outro bot</span>
+					<span>{t("aiElements.bots.otherBot")}</span>
 				) : (
 					partners.map((partner, index) => (
 						<span className="inline-flex items-center gap-1" key={partner.id ?? partner.name}>
-							{index > 0 ? <span>{index === partners.length - 1 ? "e" : ","}</span> : null}
+							{index > 0 ? <span>{index === partners.length - 1 ? t("aiElements.bots.and") : ","}</span> : null}
 							<BotChip bot={resolveBot(partner)} />
 						</span>
 					))
@@ -43,12 +44,12 @@ export function BotThreadGroup({
 			</MarkerContent>
 		</Marker>
 	);
-	const names = partners.map((partner) => partner.name).join(", ") || "outro bot";
+	const names = partners.map((partner) => partner.name).join(", ") || t("aiElements.bots.otherBot");
 	return (
 		<div className="my-2" data-testid="bot-thread-group">
 			{onOpen ? (
 				<button
-					aria-label={`Ver conversa com ${names}`}
+					aria-label={t("aiElements.bots.viewConversationWith", { names })}
 					className="block w-full cursor-pointer rounded-full py-0.5 outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50"
 					onClick={onOpen}
 					type="button"

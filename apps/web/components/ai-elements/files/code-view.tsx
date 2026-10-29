@@ -17,6 +17,7 @@ import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 
 import { Button } from "@workspace/ui/components/button";
+import { useT } from "@/lib/i18n/provider";
 
 const LANGUAGES = { bash, css, go, java, javascript, json, markdown, python, sql, typescript, xml, yaml };
 for (const [name, definition] of Object.entries(LANGUAGES)) hljs.registerLanguage(name, definition);
@@ -27,6 +28,7 @@ const TOKEN_COLORS =
 
 /** Bloco de código com destaque de sintaxe e botão de copiar. */
 export function CodeView({ text, language }: { text: string; language: string }) {
+	const t = useT();
 	const [copied, setCopied] = useState(false);
 	// highlight.js escapa o texto de entrada: o HTML gerado só tem <span class="hljs-*">.
 	const html = useMemo(() => {
@@ -38,7 +40,7 @@ export function CodeView({ text, language }: { text: string; language: string })
 	return (
 		<div className="relative">
 			<Button
-				aria-label="Copiar conteúdo"
+				aria-label={t("aiElements.files.copyContent")}
 				className="absolute top-2 right-2"
 				onClick={() => {
 					void navigator.clipboard.writeText(text).then(() => {

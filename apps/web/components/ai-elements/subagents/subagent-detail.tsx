@@ -2,7 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { subagentLabel, type SubagentTaskView } from "@workspace/shared";
+import type { SubagentTaskView } from "@workspace/shared";
 import { Badge } from "@workspace/ui/components/badge";
 
 import { markdownComponents } from "@/components/ui/templates/template-4/chat-thread/assistant-message";
@@ -12,12 +12,14 @@ import { useNow, useSubagentTasks, useSubagentTrack } from "@/lib/dev-session/st
 
 import { StatusPill } from "../dev-session/parts";
 import { SubagentAvatar } from "./subagent-avatars";
-import { SUBAGENT_STATUS_LABEL, SUBAGENT_STATUS_TONE, subagentModelLabel } from "./subagent-status";
+import { SUBAGENT_STATUS_TONE, subagentModelLabel, subagentStatusLabel, subagentTitle } from "./subagent-status";
+import { useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 
-export function subagentTimerLabel(track: SubagentTrack | undefined, running: boolean, now: number): string | null {
+export function subagentTimerLabel(track: SubagentTrack | undefined, running: boolean, now: number, { t }: Translator = defaultTranslator): string | null {
 	const elapsed = subagentElapsedMs(track, running, now);
 	if (elapsed === null) return null;
-	return `${running ? "Trabalhando há" : "Trabalhou por"} ${formatElapsed(elapsed)}`;
+	return t(running ? "aiElements.subagents.timer.running" : "aiElements.subagents.timer.done", { elapsed: formatElapsed(elapsed) });
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -40,9 +42,11 @@ export function SubagentDetailView({
 	track?: SubagentTrack;
 	now: number;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const running = task.status === "running";
 	const elapsed = subagentElapsedMs(track, running, now);
-	const pill = [SUBAGENT_STATUS_LABEL[task.status], elapsed === null ? null : formatElapsed(elapsed)].filter(Boolean).join(" · ");
+	const pill = [subagentStatusLabel(task.status, translator), elapsed === null ? null : formatElapsed(elapsed)].filter(Boolean).join(" · ");
 	const tools = track?.tools.length
 		? track.tools
 		: task.toolsUsed.map((name) => ({ name, count: 0, failed: 0 }));
@@ -53,7 +57,7 @@ export function SubagentDetailView({
 					<span aria-hidden="true" className="shrink-0">
 						<SubagentAvatar groupId={groupId} size={32} task={task} />
 					</span>
-					<h3 className="min-w-0 flex-1 truncate font-semibold text-sm">{subagentLabel(task)}</h3>
+					<h3 className="min-w-0 flex-1 truncate font-semibold text-sm">{subagentTitle(task, translator)}</h3>
 				</div>
 				<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
 					<StatusPill label={pill} tone={SUBAGENT_STATUS_TONE[task.status]} />
@@ -65,13 +69,13 @@ export function SubagentDetailView({
 				</div>
 			</div>
 			{task.goal ? (
-				<Section title="Objetivo">
+				<Section title={t("aiElements.subagents.goal")}>
 					<p className="wrap-break-word text-foreground/90 text-xs leading-relaxed">{task.goal}</p>
 				</Section>
 			) : null}
-			<Section title={`Ferramentas usadas${tools.length > 0 ? ` (${tools.length})` : ""}`}>
+			<Section title={tools.length > 0 ? t("aiElements.subagents.toolsUsedCount", { count: tools.length }) : t("aiElements.subagents.toolsUsed")}>
 				{tools.length === 0 ? (
-					<p className="text-muted-foreground text-xs">{running ? "Ainda nenhuma." : "Nenhuma."}</p>
+					<p className="text-muted-foreground text-xs">{running ? t("aiElements.subagents.noneYet") : t("aiElements.subagents.none")}</p>
 				) : (
 					<ul className="flex flex-col gap-1">
 						{tools.map((tool) => (
@@ -81,14 +85,14 @@ export function SubagentDetailView({
 							>
 								<code className="min-w-0 flex-1 truncate font-mono">{tool.name}</code>
 								{tool.count > 1 ? <span className="tabular-nums text-muted-foreground">×{tool.count}</span> : null}
-								{tool.failed > 0 ? <span className="text-destructive">{tool.failed} com erro</span> : null}
+								{tool.failed > 0 ? <span className="text-destructive">{t("aiElements.subagents.toolFailed", { count: tool.failed })}</span> : null}
 							</li>
 						))}
 					</ul>
 				)}
 			</Section>
 			{task.summary ? (
-				<Section title="Resumo">
+				<Section title={t("aiElements.subagents.summary")}>
 					<div className="wrap-break-word text-muted-foreground text-xs [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_table]:text-xs">
 						<ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
 							{task.summary}
@@ -102,12 +106,13 @@ export function SubagentDetailView({
 
 /** Detalhe ligado ao store (coluna 3). */
 export function SubagentDetail({ groupId, taskIndex }: { groupId: string; taskIndex: number }) {
+	const { t } = useTranslations();
 	const tasks = useSubagentTasks(groupId);
 	const track = useSubagentTrack(groupId, taskIndex);
 	const task = tasks.find((item) => item.taskIndex === taskIndex);
 	const now = useNow(task?.status === "running");
 	if (!task) {
-		return <p className="px-6 py-8 text-center text-muted-foreground text-xs">Subagente não encontrado.</p>;
+		return <p className="px-6 py-8 text-center text-muted-foreground text-xs">{t("aiElements.subagents.notFound")}</p>;
 	}
 	return <SubagentDetailView groupId={groupId} now={now} task={task} track={track} />;
 }

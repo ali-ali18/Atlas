@@ -10,14 +10,20 @@ import type { FilePreview } from "@workspace/shared";
 
 import { fetchFilePreview } from "@/lib/atlas-api";
 import { fileCardDescription, fileDownloadPath } from "@/lib/file-card";
+import { useT } from "@/lib/i18n/provider";
 import { SheetView } from "./sheet-view";
 
 // pdf.js usa APIs do navegador: sem SSR.
 const PdfViewer = dynamic(() => import("./pdf-viewer"), { ssr: false });
 // highlight.js (núcleo + linguagens) só é baixado ao abrir a prévia de um arquivo de texto, fora do chat.
+function PreviewLoading() {
+	const t = useT();
+	return <p className="text-muted-foreground text-sm">{t("aiElements.files.loadingPreview")}</p>;
+}
+
 const CodeView = dynamic(() => import("./code-view").then((mod) => mod.CodeView), {
 	ssr: false,
-	loading: () => <p className="text-muted-foreground text-sm">Carregando prévia…</p>,
+	loading: () => <PreviewLoading />,
 });
 
 type State = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; preview: FilePreview };
@@ -37,6 +43,7 @@ export function FilePreviewDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
+	const t = useT();
 	const [state, setState] = useState<State>({ status: "loading" });
 
 	useEffect(() => {
@@ -48,7 +55,7 @@ export function FilePreviewDialog({
 				if (!cancelled) setState({ status: "ready", preview });
 			})
 			.catch(() => {
-				if (!cancelled) setState({ status: "error", message: "Não foi possível carregar a prévia. Você ainda pode baixar o arquivo." });
+				if (!cancelled) setState({ status: "error", message: t("aiElements.files.previewError") });
 			});
 		return () => {
 			cancelled = true;
@@ -65,7 +72,7 @@ export function FilePreviewDialog({
 							<DialogDescription>{fileCardDescription({ filename, size, version })}</DialogDescription>
 						</div>
 						<Button
-							aria-label={`Baixar ${filename}`}
+							aria-label={t("aiElements.files.download", { name: filename })}
 							nativeButton={false}
 							render={<a download={filename} href={fileDownloadPath(artifactId)} />}
 							size="icon-sm"
@@ -76,12 +83,12 @@ export function FilePreviewDialog({
 					</div>
 				</DialogHeader>
 				<div className="flex min-h-0 flex-1 flex-col overflow-auto">
-					{state.status === "loading" ? <p className="text-muted-foreground text-sm">Carregando prévia…</p> : null}
+					{state.status === "loading" ? <PreviewLoading /> : null}
 					{state.status === "error" ? (
 						<div className="flex flex-col items-start gap-3" role="alert">
 							<p className="text-destructive text-sm">{state.message}</p>
 							<Button nativeButton={false} render={<a download={filename} href={fileDownloadPath(artifactId)} />} size="sm" variant="outline">
-								<DownloadIcon /> Baixar
+								<DownloadIcon /> {t("aiElements.files.downloadButton")}
 							</Button>
 						</div>
 					) : null}
@@ -93,10 +100,11 @@ export function FilePreviewDialog({
 }
 
 function PreviewBody({ preview, filename }: { preview: FilePreview; filename: string }) {
+	const t = useT();
 	switch (preview.kind) {
 		case "url":
 			return /\.pdf$/i.test(filename) ? (
-				<PreviewErrorBoundary fallback={<p className="text-destructive text-sm">Não foi possível abrir o PDF aqui. Use o botão de baixar.</p>}>
+				<PreviewErrorBoundary fallback={<p className="text-destructive text-sm">{t("aiElements.files.pdfError")}</p>}>
 					<PdfViewer url={preview.url} />
 				</PreviewErrorBoundary>
 			) : (
@@ -117,7 +125,7 @@ function PreviewBody({ preview, filename }: { preview: FilePreview; filename: st
 				<div className="flex flex-col gap-2">
 					<CodeView language={preview.language} text={preview.text} />
 					{preview.truncated ? (
-						<p className="text-muted-foreground text-xs">Prévia cortada. Baixe o arquivo para ver tudo.</p>
+						<p className="text-muted-foreground text-xs">{t("aiElements.files.truncated")}</p>
 					) : null}
 				</div>
 			);

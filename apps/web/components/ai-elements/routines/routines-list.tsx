@@ -11,6 +11,7 @@ import { CalendarClockIcon, ClockIcon, WebhookIcon } from "lucide-react";
 import type { HTMLAttributes } from "react";
 import type { RoutineListItemData } from "@workspace/shared";
 import { cn } from "@workspace/ui/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 import type { OpenRoutinePayload } from "./routine-activity";
 
 export type RoutinesListProps = HTMLAttributes<HTMLDivElement> & {
@@ -34,10 +35,11 @@ export function RoutinesList({
 	onOpen,
 	...props
 }: RoutinesListProps) {
+	const t = useT();
 	if (items.length === 0) {
 		return (
 			<div className="text-muted-foreground text-xs">
-				Você ainda não tem rotinas…
+				{t("aiElements.routines.empty")}
 			</div>
 		);
 	}
@@ -55,8 +57,8 @@ export function RoutinesList({
 						: item.triggerType === "once"
 							? ClockIcon
 							: CalendarClockIcon;
-				const status = [item.enabled ? "" : "pausada", item.createdBy === "bot" ? "criada pelo bot" : "", item.groupName ? `grupo ${item.groupName}` : ""].filter(Boolean);
-				const label = status.length > 0 ? `${item.name} (${status.join(", ")})` : item.name;
+				const status = [item.enabled ? "" : t("aiElements.routines.paused"), item.createdBy === "bot" ? t("aiElements.routines.byBot") : "", item.groupName ? t("aiElements.routines.group", { name: item.groupName }) : ""].filter(Boolean);
+				const label = status.length > 0 ? t("aiElements.routines.withStatus", { name: item.name, status: status.join(", ") }) : item.name;
 				return (
 					<Attachment
 						key={item.id}

@@ -11,6 +11,8 @@ import { FlowPanel } from "@/components/ai-elements/login/flow-panel"
 import { ApiGroupsPicker } from "@/components/ai-elements/connectors/api-groups-picker"
 import type { ApiConnectForm } from "@/hooks/use-api-connection"
 import { anotherAccountHint } from "@/lib/connector-accounts"
+import { useTranslations } from "@/lib/i18n/provider"
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator"
 
 /** O que o usuário digitou; vive só no componente até o envio ao servidor. */
 export type ApiConnectValues = {
@@ -68,14 +70,14 @@ export function summaryGroups(proposal: ApiProposal) {
 }
 
 /** "A, B, C e mais 2" (grupos de negócio mais conhecidos primeiro). */
-export function groupListText(proposal: ApiProposal, max = 3) {
+export function groupListText(proposal: ApiProposal, max = 3, { t }: Translator = defaultTranslator) {
   const top = summaryGroups(proposal)
     .slice(0, max)
-    .map((group) => group.tag.replace(/\s+[-–]\s+/g, " de ").toLowerCase())
+    .map((group) => group.tag.replace(/\s+[-–]\s+/g, t("aiElements.api.groupOf")).toLowerCase())
   const rest = readableGroups(proposal).length - top.length
-  if (top.length === 0) return "dados da API"
-  if (rest > 0) return `${top.join(", ")} e mais ${rest}`
-  return top.length > 1 ? `${top.slice(0, -1).join(", ")} e ${top.at(-1)}` : top[0]!
+  if (top.length === 0) return t("aiElements.api.groupsNone")
+  if (rest > 0) return t("aiElements.api.groupsMore", { list: top.join(", "), count: rest })
+  return top.length > 1 ? t("aiElements.api.groupsAnd", { list: top.slice(0, -1).join(", "), last: top.at(-1)! }) : top[0]!
 }
 
 /** Precisa digitar credencial? (sem autenticação vai direto ao acesso). */
@@ -104,6 +106,7 @@ export function breakableUrl(url: string) {
 }
 
 export function RedirectUrlPill({ url }: { url: string }) {
+  const { t } = useTranslations()
   return (
     <div className="flex min-w-0 items-center gap-1 rounded-lg bg-foreground/[0.06] py-1 pr-1 pl-2.5">
       <code
@@ -112,7 +115,7 @@ export function RedirectUrlPill({ url }: { url: string }) {
       >
         {breakableUrl(url)}
       </code>
-      <CopyButton label="Copiar URL de redirecionamento" text={url} />
+      <CopyButton label={t("aiElements.api.copyRedirect")} text={url} />
     </div>
   )
 }
@@ -162,6 +165,7 @@ function CredentialsStep({
   helpOpen: boolean
   onHelp: (open: boolean) => void
 }) {
+  const { t } = useTranslations()
   const oauth = proposal.authKind === "oauth2"
   return (
     <div className="flex min-w-0 flex-col gap-3">
@@ -169,7 +173,7 @@ function CredentialsStep({
         <div className="flex min-w-0 flex-col gap-1.5">
           <RedirectUrlPill url={proposal.redirectUrl} />
           <p className="m-0 text-xs text-muted-foreground">
-            Cadastre este endereço no app da API antes de continuar.
+            {t("aiElements.api.registerRedirect")}
           </p>
         </div>
       ) : null}
@@ -181,7 +185,7 @@ function CredentialsStep({
       ) : (
         <Field
           disabled={disabled}
-          label={proposal.authKind === "bearer" ? "Token de acesso" : "Chave"}
+          label={proposal.authKind === "bearer" ? t("aiElements.api.accessToken") : t("aiElements.api.key")}
           onChange={(apiKey) => set({ apiKey })}
           value={values.apiKey}
         />
@@ -193,15 +197,15 @@ function CredentialsStep({
           onClick={() => onHelp(!helpOpen)}
           type="button"
         >
-          Onde encontro isso?
+          {t("aiElements.api.whereFind")}
           <ChevronDownIcon aria-hidden className={cn("size-3.5 transition-transform", helpOpen && "rotate-180")} />
         </button>
         {helpOpen ? (
           <div className="flex min-w-0 flex-col gap-2 text-xs text-muted-foreground">
             <p className="m-0">
               {oauth
-                ? `No portal de desenvolvedores de ${proposal.domain}, crie um aplicativo e copie o Client ID e o Client secret dele.`
-                : `Gere a chave no painel de ${proposal.domain} e cole aqui.`}
+                ? t("aiElements.api.helpOauth", { domain: proposal.domain })
+                : t("aiElements.api.helpKey", { domain: proposal.domain })}
             </p>
           </div>
         ) : null}
@@ -219,12 +223,13 @@ export function ApiConnectSheet({
   onOpenChange,
   ...flow
 }: ApiConnectFlowProps & { open: boolean }) {
+  const { t } = useTranslations()
   return (
     <FlowPanel
-      description="Credenciais e acesso da API"
+      description={t("aiElements.api.sheetDescription")}
       onOpenChange={onOpenChange}
       open={open}
-      title={`Conectar ${apiDisplayName(flow.proposal.name)}`}
+      title={t("aiElements.api.sheetTitle", { name: apiDisplayName(flow.proposal.name) })}
     >
       <ApiConnectFlow onOpenChange={onOpenChange} {...flow} />
     </FlowPanel>
@@ -245,6 +250,8 @@ type ApiConnectFlowProps = {
 
 /** Conteúdo da folha (passos, campos e botões); separado para testar sem portal. */
 export function ApiConnectFlow({ proposal, onOpenChange, busy, error, onSubmit, initial, anotherAccount = false }: ApiConnectFlowProps) {
+  const translator = useTranslations()
+  const { t } = translator
   const credentials = needsCredentials(proposal)
   const total = credentials ? 2 : 1
   const [step, setStep] = useState<1 | 2>(initial?.step ?? (credentials ? 1 : 2))
@@ -269,26 +276,26 @@ export function ApiConnectFlow({ proposal, onOpenChange, busy, error, onSubmit, 
     <>
         <div className="flex items-center gap-2 px-4 pt-4">
           {credentials && step === 2 ? (
-            <Button aria-label="Voltar" disabled={busy} onClick={() => setStep(1)} size="icon-sm" type="button" variant="ghost">
+            <Button aria-label={t("common.back")} disabled={busy} onClick={() => setStep(1)} size="icon-sm" type="button" variant="ghost">
               <ArrowLeftIcon />
             </Button>
           ) : null}
           <p className="m-0 flex-1 text-xs text-muted-foreground">
-            {position} de {total}
+            {t("aiElements.api.stepOf", { position, total })}
           </p>
           <Button disabled={busy} onClick={() => onOpenChange(false)} size="sm" type="button" variant="ghost">
-            Cancelar
+            {t("common.cancel")}
           </Button>
         </div>
         <div className="flex min-w-0 flex-col gap-4 px-4 pt-2 pb-2">
           <div className="flex flex-col gap-1">
             <h2 className="m-0 text-base font-semibold">
-              {step === 1 && credentials ? "Credenciais" : "Acesso"}
+              {step === 1 && credentials ? t("aiElements.api.stepCredentials") : t("aiElements.api.stepAccess")}
             </h2>
             <p className="m-0 text-sm text-muted-foreground">
               {step === 1 && credentials
-                ? `Entre com os dados do app que você criou em ${apiDisplayName(proposal.name)}. Eles vão direto para o cofre; o bot nunca os vê.`
-                : "O que o bot pode consultar."}
+                ? t("aiElements.api.credentialsText", { name: apiDisplayName(proposal.name) })
+                : t("aiElements.api.accessText")}
             </p>
           </div>
           {step === 1 && credentials ? (
@@ -303,7 +310,7 @@ export function ApiConnectFlow({ proposal, onOpenChange, busy, error, onSubmit, 
           ) : (
             <div className="flex min-w-0 flex-col gap-2">
               <p className="m-0 text-sm">
-                Tudo em modo leitura: {groupListText(proposal, 3)}.
+                {t("aiElements.api.allRead", { groups: groupListText(proposal, 3, translator) })}
               </p>
               <button
                 aria-expanded={customize}
@@ -311,7 +318,7 @@ export function ApiConnectFlow({ proposal, onOpenChange, busy, error, onSubmit, 
                 onClick={() => setCustomize((value) => !value)}
                 type="button"
               >
-                Personalizar
+                {t("aiElements.api.customize")}
                 <ChevronDownIcon aria-hidden className={cn("size-3.5 transition-transform", customize && "rotate-180")} />
               </button>
               {customize ? (
@@ -322,7 +329,7 @@ export function ApiConnectFlow({ proposal, onOpenChange, busy, error, onSubmit, 
                   selected={values.allowedTags}
                 />
               ) : (
-                <p className="m-0 text-xs text-muted-foreground">Ações de escrita chegam em breve.</p>
+                <p className="m-0 text-xs text-muted-foreground">{t("aiElements.api.writeSoon")}</p>
               )}
             </div>
           )}
@@ -338,11 +345,11 @@ export function ApiConnectFlow({ proposal, onOpenChange, busy, error, onSubmit, 
         <div className="px-4 pt-2">
           {step === 1 && credentials ? (
             <Button className={cn("w-full", REQUEST_PRIMARY_CLASS)} disabled={!credentialsReady(proposal, values)} onClick={() => setStep(2)} type="button">
-              Continuar
+              {t("aiElements.api.continue")}
             </Button>
           ) : (
             <Button className={cn("w-full", REQUEST_PRIMARY_CLASS)} disabled={busy || !apiConnectReady(proposal, values)} onClick={submit} type="button">
-              {busy ? "Conectando…" : oauth ? `Autorizar no ${apiDisplayName(proposal.name)}` : "Conectar"}
+              {busy ? t("aiElements.api.connecting") : oauth ? t("aiElements.api.authorizeOn", { name: apiDisplayName(proposal.name) }) : t("aiElements.api.connect")}
             </Button>
           )}
         </div>

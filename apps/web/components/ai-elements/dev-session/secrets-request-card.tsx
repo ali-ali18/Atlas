@@ -8,14 +8,15 @@ import { REQUEST_PRIMARY_CLASS, RequestCard } from "@workspace/ui/components/req
 import { Textarea } from "@workspace/ui/components/textarea";
 import { analyzeSecretsText } from "@/components/settings/dev-environments-state";
 import { setDevEnvironmentSecrets } from "@/lib/atlas-api";
+import { useTranslations } from "@/lib/i18n/provider";
 
 type Status = "pending" | "approved" | "rejected" | "failed";
 
 const BADGE = {
-	pending: { tone: "pending", label: "Precisa de você" },
-	approved: { tone: "success", label: "Salvo" },
-	rejected: { tone: "muted", label: "Dispensado" },
-	failed: { tone: "danger", label: "Falhou" },
+	pending: { tone: "pending", label: "devSession.approval.pending" },
+	approved: { tone: "success", label: "devSession.secrets.saved" },
+	rejected: { tone: "muted", label: "devSession.secrets.dismissed" },
+	failed: { tone: "danger", label: "devSession.approval.failed" },
 } as const;
 
 export type SecretsRequestCardProps = {
@@ -40,7 +41,8 @@ export type SecretsRequestCardProps = {
  * Pedido de segredos do agente: textarea com `NOME=` por linha. Os valores vão
  * daqui direto para a API criptografada; o agente só recebe os nomes salvos.
  */
-export function SecretsRequestCard({ info, title, description, status = "pending", confirmLabel = "Salvar", cancelLabel = "Agora não", onSaved, onSkip, save = setDevEnvironmentSecrets, initialText, initialErrors }: SecretsRequestCardProps) {
+export function SecretsRequestCard({ info, title, description, status = "pending", confirmLabel, cancelLabel, onSaved, onSkip, save = setDevEnvironmentSecrets, initialText, initialErrors }: SecretsRequestCardProps) {
+	const { t } = useTranslations();
 	const [text, setText] = useState(initialText ?? secretsRequestTemplate(info.names));
 	const [errors, setErrors] = useState<string[]>(initialErrors ?? []);
 	const [busy, setBusy] = useState(false);
@@ -55,7 +57,7 @@ export function SecretsRequestCard({ info, title, description, status = "pending
 			return;
 		}
 		if (analysis.entries.length === 0) {
-			setErrors(["Preencha ao menos um valor (NOME=valor)."]);
+			setErrors([t("devSession.secrets.fillOne")]);
 			return;
 		}
 		setBusy(true);
@@ -67,7 +69,7 @@ export function SecretsRequestCard({ info, title, description, status = "pending
 			setSavedNames(analysis.entries.map((entry) => entry.name));
 			onSaved?.();
 		} catch (cause) {
-			setErrors([cause instanceof Error && cause.message ? cause.message : "Não foi possível salvar. Tente novamente."]);
+			setErrors([cause instanceof Error && cause.message ? cause.message : t("devSession.secrets.saveError")]);
 		} finally {
 			setBusy(false);
 		}
@@ -78,18 +80,18 @@ export function SecretsRequestCard({ info, title, description, status = "pending
 			actions={
 				<>
 					<Button className={REQUEST_PRIMARY_CLASS} disabled={busy} onClick={() => void submit()} size="sm" type="button">
-						{busy ? "Salvando…" : confirmLabel}
+						{busy ? t("devSession.secrets.saving") : (confirmLabel ?? t("devSession.secrets.save"))}
 					</Button>
 					<Button disabled={busy} onClick={onSkip} size="sm" type="button" variant="ghost">
-						{cancelLabel}
+						{cancelLabel ?? t("devSession.approval.notNow")}
 					</Button>
 				</>
 			}
-			badge={BADGE[status]}
+			badge={{ tone: BADGE[status].tone, label: t(BADGE[status].label) }}
 			data-secrets-request
 			description={description}
-			detailsLabel="Ver nomes"
-			leading={status === "approved" ? <CheckIcon aria-label="Salvo" /> : status === "rejected" ? <XIcon aria-label="Dispensado" /> : <KeyRoundIcon aria-label="Segredos" />}
+			detailsLabel={t("devSession.secrets.viewNames")}
+			leading={status === "approved" ? <CheckIcon aria-label={t("devSession.secrets.saved")} /> : status === "rejected" ? <XIcon aria-label={t("devSession.secrets.dismissed")} /> : <KeyRoundIcon aria-label={t("devSession.secrets.secretsLabel")} />}
 			resolved={resolved}
 			title={title}
 		>
@@ -99,7 +101,7 @@ export function SecretsRequestCard({ info, title, description, status = "pending
 				<div className="flex min-w-0 flex-col gap-2">
 					<Textarea
 						aria-invalid={errors.length > 0 ? true : undefined}
-						aria-label="Chaves e senhas, uma por linha"
+						aria-label={t("devSession.secrets.listLabel")}
 						autoComplete="off"
 						className="min-h-[5.5rem] font-mono text-body leading-5"
 						id={id}
@@ -121,10 +123,10 @@ export function SecretsRequestCard({ info, title, description, status = "pending
 						</div>
 					) : savedNames.length > 0 ? (
 						<p className="m-0 text-muted-foreground text-xs" data-secrets-request-saved role="status">
-							Salvo: {savedNames.join(", ")}
+							{t("devSession.secrets.savedList", { names: savedNames.join(", ") })}
 						</p>
 					) : (
-						<p className="m-0 text-muted-foreground text-xs">Criptografados; o agente só vê os nomes salvos, nunca os valores. Apague as linhas que não quiser preencher.</p>
+						<p className="m-0 text-muted-foreground text-xs">{t("devSession.secrets.note")}</p>
 					)}
 				</div>
 			)}

@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import type { ConfirmStatus } from "@workspace/ui/components/confirm-alert";
 import type { UpdateBotInput } from "@workspace/shared";
 import { updateBot as updateBotRequest } from "@/lib/atlas-api";
+import { useTranslations } from "@/lib/i18n/provider";
 import {
   buildBotProfileProposalFromAnswers,
   buildBotProfileProposalFromPatch,
@@ -26,6 +27,7 @@ export function useBotProfileProposal(options?: {
   updateBot?: UpdateBotFn;
   onEditRequest?: (proposal: BotProfileProposal) => void;
 }) {
+  const { t } = useTranslations();
   const updateFnRef = useRef<UpdateBotFn>(options?.updateBot ?? updateBotRequest);
   updateFnRef.current = options?.updateBot ?? updateBotRequest;
   const onEditRef = useRef(options?.onEditRequest);
@@ -84,17 +86,13 @@ export function useBotProfileProposal(options?: {
     } catch (err) {
       // Erro mantém pendente (permite retry) com mensagem PT-BR visível.
       const detail = err instanceof Error ? err.message.trim() : "";
-      setError(
-        detail
-          ? `Não foi possível aplicar. ${detail} Tente de novo.`
-          : "Não foi possível aplicar. Tente de novo.",
-      );
+      setError(detail ? t("aiElements.profile.applyErrorDetail", { detail }) : t("aiElements.profile.applyError"));
       return false;
     } finally {
       applyingRef.current = false;
       setIsApplying(false);
     }
-  }, [proposal, isApplying, status]);
+  }, [proposal, isApplying, status, t]);
 
   /** Editar = volta ao campo, mantém proposta pendente (sem PATCH). */
   const edit = useCallback(() => {

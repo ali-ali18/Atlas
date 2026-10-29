@@ -3,7 +3,7 @@ import { ChevronDownIcon } from "lucide-react";
 import { Badge } from "@workspace/ui/components/badge";
 import { cn } from "@workspace/ui/lib/utils";
 
-import { useLocale } from "@/lib/i18n/provider";
+import { useLocale, useT } from "@/lib/i18n/provider";
 import { currencyDigits, formatPageValue } from "../page-format";
 import { TONE_FILL, TONE_TEXT, toneStyle } from "./tone";
 
@@ -34,6 +34,7 @@ export function TimelineNode({ node }: { node: Of<"timeline"> }) {
  * fica cortado na borda; a partir de @2xl viram colunas lado a lado (o título deixa de ser clicável).
  */
 export function KanbanNode({ node }: { node: Of<"kanban"> }) {
+	const t = useT();
 	return (
 		<div className="flex max-w-full flex-col gap-2.5 @2xl:flex-row @2xl:gap-3" data-page-node="kanban">
 			{node.props.columns.map((column, index) => (
@@ -46,7 +47,7 @@ export function KanbanNode({ node }: { node: Of<"kanban"> }) {
 						</span>
 					</summary>
 					<div className="mt-2 flex flex-col gap-2">
-						{column.items.length === 0 ? <p className="py-2 text-center text-muted-foreground text-xs">Nada aqui</p> : null}
+						{column.items.length === 0 ? <p className="py-2 text-center text-muted-foreground text-xs">{t("aiElements.pages.nothingHere")}</p> : null}
 						{column.items.map((item, i) => (
 							<div className="flex min-w-0 flex-col gap-1 rounded-lg border border-border/60 bg-card px-2.5 py-2" key={`${item.title}-${i}`}>
 								<div className="text-xs font-medium [overflow-wrap:anywhere]">{item.title}</div>

@@ -4,12 +4,14 @@ import { useState } from "react";
 
 import { cn } from "@workspace/ui/lib/utils";
 import type { SheetPreview } from "@workspace/shared";
+import { useT } from "@/lib/i18n/provider";
 
 /** Tabela com abas (xlsx/csv); a primeira linha é o cabeçalho. */
 export function SheetView({ sheets }: { sheets: SheetPreview[] }) {
+	const t = useT();
 	const [active, setActive] = useState(0);
 	const sheet = sheets[active] ?? sheets[0];
-	if (!sheet) return <p className="text-muted-foreground text-sm">Planilha vazia.</p>;
+	if (!sheet) return <p className="text-muted-foreground text-sm">{t("aiElements.files.sheetEmpty")}</p>;
 	const [header, ...body] = sheet.rows;
 	return (
 		<div className="flex min-h-0 flex-col gap-3">
@@ -55,7 +57,7 @@ export function SheetView({ sheets }: { sheets: SheetPreview[] }) {
 				</table>
 			</div>
 			{sheet.truncated ? (
-				<p className="text-muted-foreground text-xs">Mostrando as primeiras 500 linhas. Baixe o arquivo para ver tudo.</p>
+				<p className="text-muted-foreground text-xs">{t("aiElements.files.sheetTruncated")}</p>
 			) : null}
 		</div>
 	);

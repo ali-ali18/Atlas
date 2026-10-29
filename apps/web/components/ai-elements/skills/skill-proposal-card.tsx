@@ -4,6 +4,7 @@ import { ChevronRightIcon, SparklesIcon } from "lucide-react";
 import { Badge } from "@workspace/ui/components/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
 import { ConfirmCard } from "@/components/ai-elements/confirm/confirm-card";
+import { useTranslations } from "@/lib/i18n/provider";
 import { SkillMarkdownPreview } from "@/components/settings/sections/skills/skill-markdown-preview";
 import {
 	type SkillProposalData,
@@ -46,37 +47,39 @@ export function SkillProposalCard({
 	onReject,
 	onEditFirst,
 }: SkillProposalCardProps) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const isDelete = proposal.action === "delete";
-	const caption = proposalResolvedCaption(proposal);
+	const caption = proposalResolvedCaption(proposal, translator);
 	return (
 		<ConfirmCard
-			cancelLabel="Recusar"
-			confirmLabel={isApplying ? "Aplicando…" : isDelete ? "Apagar" : "Aprovar"}
-			description={proposalSummary(proposal, bots)}
+			cancelLabel={t("aiElements.skills.card.reject")}
+			confirmLabel={isApplying ? t("aiElements.skills.card.applying") : isDelete ? t("aiElements.skills.card.delete") : t("aiElements.skills.card.approve")}
+			description={proposalSummary(proposal, bots, translator)}
 			destructive={isDelete}
-			detailsLabel="Ver a habilidade"
+			detailsLabel={t("aiElements.skills.card.view")}
 			disabled={isApplying}
 			error={error}
 			leading={<SparklesIcon aria-hidden />}
 			note={caption ? <span data-slot="skill-proposal-resolved">{caption}</span> : undefined}
-			editLabel="Editar antes"
+			editLabel={t("aiElements.skills.card.editFirst")}
 			onCancel={onReject}
 			onConfirm={onApprove}
 			onEdit={canEditProposal(proposal) ? onEditFirst : undefined}
 			status={proposal.status}
-			title={proposalTitle(proposal)}
+			title={proposalTitle(proposal, translator)}
 		>
 			<div className="flex min-w-0 flex-col gap-2 rounded-xl bg-background/70 px-3 py-2.5 ring-1 ring-foreground/5" data-slot="skill-proposal">
 				<div className="flex min-w-0 flex-wrap items-center gap-2">
 					<span className="min-w-0 truncate font-mono text-sm font-medium">{proposal.name}</span>
-					<Badge variant="outline">{proposalScopeLabel(proposal, bots)}</Badge>
-					<Badge variant={isDelete ? "destructive" : "secondary"}>{proposalActionBadge(proposal.action)}</Badge>
+					<Badge variant="outline">{proposalScopeLabel(proposal, bots, translator)}</Badge>
+					<Badge variant={isDelete ? "destructive" : "secondary"}>{proposalActionBadge(proposal.action, translator)}</Badge>
 				</div>
 				<p className="text-sm text-muted-foreground">{proposal.description}</p>
 				<Collapsible defaultOpen={defaultOpen}>
 					<CollapsibleTrigger className="group/trigger flex items-center gap-1.5 rounded-sm text-xs font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/30">
 						<ChevronRightIcon aria-hidden className="size-3.5 transition-transform group-aria-expanded/trigger:rotate-90" />
-						{isDelete ? "Ver o conteúdo atual (Markdown)" : "Ver o conteúdo (Markdown)"}
+						{isDelete ? t("aiElements.skills.card.viewCurrent") : t("aiElements.skills.card.viewContent")}
 					</CollapsibleTrigger>
 					<CollapsibleContent>
 						<div className="mt-2 max-h-64 overflow-y-auto rounded-lg bg-muted/50 p-3">

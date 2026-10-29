@@ -31,6 +31,17 @@ const FILES = [
 	"components/ui/templates/template-4/chat-context-panel/group-panel.tsx",
 	"components/ui/templates/template-4/chat-context-panel/avatar-editor.tsx",
 	"components/ui/templates/template-4/chat-context-panel/webhook-fields.tsx",
+	"components/ui/templates/template-4/marketplace/api-connection-page.tsx",
+	"components/ui/templates/template-4/marketplace/connector-guide.tsx",
+	"components/ui/templates/template-4/marketplace/connector-accounts.tsx",
+	"components/ui/templates/template-4/marketplace/tool-permission-control.tsx",
+	"components/ai-elements/login/login-card.tsx",
+	"components/ai-elements/login/api-connect-sheet.tsx",
+	"components/ai-elements/dev-session/dev-session-detail.tsx",
+	"components/ai-elements/dev-session/dev-approval-card.tsx",
+	"components/ai-elements/images/image-lightbox.tsx",
+	"components/ai-elements/files/pdf-viewer.tsx",
+	"components/ai-elements/bot-messages/bot-needs-user-card.tsx",
 ]
 
 test("aria-label das telas traduzidas não tem texto fixo em pt-BR", () => {
@@ -46,6 +57,10 @@ test("textos fixos em pt-BR que as prévias pegaram não voltam", () => {
 		"components/ui/templates/template-4/mobile-chat-list.tsx": [/Explorar agentes/],
 		"components/ui/templates/template-4/chat-thread/questionnaire-card.tsx": [/>\s*Enviar\s*</],
 		"components/ui/templates/template-4/chat-thread/task-list-card.tsx": [/aria-label="(Concluído|Pendente)"/, /seeAllLabel/],
+		"components/ui/templates/template-4/marketplace/catalog-panels.tsx": [/Atualizar e perder minhas mudanças/, />Cancelar</],
+		"components/ai-elements/login/login-card.tsx": [/>\s*Terminei\s*</, /Abrir a VM/],
+		"components/ai-elements/files/file-preview-dialog.tsx": [/Carregando prévia/],
+		"components/ai-elements/dev-session/dev-session-detail.tsx": [/>\s*Parar sessão\s*</, /Nenhuma alteração para exibir/],
 		"components/ui/templates/template-4/chat-thread/task-list-dock.tsx": [/aria-label="Tarefas do bot"/, /"Recolher a lista/],
 		"components/ui/templates/template-4/chat-context-panel/chat-context-panel.tsx": [/Fechar painel/, /Redimensionar painel/, />Biblioteca</, /Configurações do bot/],
 		"components/ui/templates/template-4/chat-context-panel/routine-card.tsx": [/Mais ações de/, /Criada pelo bot/, /Rascunho/],

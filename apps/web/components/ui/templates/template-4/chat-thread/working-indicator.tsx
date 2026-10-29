@@ -55,7 +55,7 @@ export function WorkingIndicator({
 	const now = useNow(trackLive && !paused);
 	const liveLine = trackLive && (!paused || pendingApproval) ? devLiveLine({ view: devView, activity, pendingApproval, now: now || Date.now() }) : null;
 	const label = waitingOnSubagents
-		? subagentsWaitingLabel(subagents.tasks)
+		? subagentsWaitingLabel(subagents.tasks, translator)
 		: (liveLine ?? labelOverride ?? workingStatusLabel(agent.name, activity, { paused, status }, translator));
 
 	return (

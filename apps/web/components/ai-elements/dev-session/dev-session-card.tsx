@@ -17,6 +17,8 @@ import { useQueuedSessionPoll } from "@/lib/dev-session/queue-poll";
 import { useCiPolling } from "@/lib/dev-session/use-ci-polling";
 import { openActivity, useActivitySelection, useDevSession, useNow } from "@/lib/dev-session/store";
 
+import { useTranslations } from "@/lib/i18n/provider";
+
 import { ActivityCard } from "./parts";
 
 /** Linha compacta no chat; o clique abre o detalhe na 3ª coluna. */
@@ -31,11 +33,13 @@ export function DevSessionCardView({
 	selected?: boolean;
 	onOpen?: () => void;
 }) {
+	const translator = useTranslations();
+	const { t, tn } = translator;
 	const step = devCurrentStep(view);
 	const counters = devSessionCounters(view);
 	const parts = [
-		counters.commands > 0 ? `${counters.commands} ${counters.commands === 1 ? "comando" : "comandos"}` : null,
-		counters.files > 0 ? `${counters.files} ${counters.files === 1 ? "arquivo" : "arquivos"}` : null,
+		counters.commands > 0 ? tn("devSession.card.command", counters.commands) : null,
+		counters.files > 0 ? tn("devSession.card.file", counters.files) : null,
 		counters.added > 0 || counters.removed > 0 ? `+${counters.added} −${counters.removed}` : null,
 	].filter(Boolean);
 	const pr = devPrCardText(view);
@@ -49,7 +53,7 @@ export function DevSessionCardView({
 			dataAttr="data-dev-session-card"
 			extra={extra}
 			icon={<SquareTerminalIcon />}
-			label={`Abrir sessão de código: ${devSessionTitle(view)}`}
+			label={t("devSession.card.open", { title: devSessionTitle(view) })}
 			onOpen={onOpen}
 			selected={selected}
 			status={devRowStatus(view, now)}

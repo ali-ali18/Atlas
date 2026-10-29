@@ -138,12 +138,18 @@ test("Editar antes: o editor abre com os campos da proposta e o documento sai em
 
 test("botões disparam os handlers (aprovar, recusar, editar antes)", () => {
 	const calls: string[] = [];
-	const element = SkillProposalCard({
-		proposal,
-		onApprove: () => calls.push("approve"),
-		onReject: () => calls.push("reject"),
-		onEditFirst: () => calls.push("edit"),
-	});
+	// O card usa o hook de idioma: chama o componente dentro de um render para ele valer.
+	let element!: ReturnType<typeof SkillProposalCard>;
+	const Probe = () => {
+		element = SkillProposalCard({
+			proposal,
+			onApprove: () => calls.push("approve"),
+			onReject: () => calls.push("reject"),
+			onEditFirst: () => calls.push("edit"),
+		});
+		return null;
+	};
+	renderToStaticMarkup(<Probe />);
 	const props = element.props as {
 		onConfirm: () => void;
 		onCancel: () => void;

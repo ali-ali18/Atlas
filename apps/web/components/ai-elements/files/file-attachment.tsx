@@ -15,6 +15,7 @@ import {
 	AttachmentTrigger,
 } from "@workspace/ui/components/attachment";
 
+import { useT } from "@/lib/i18n/provider";
 import { fileCardDescription, fileCategory, fileDownloadPath, isPreviewableFile } from "@/lib/file-card";
 import { FileTypeIcon } from "./file-icon";
 import { FilePreviewDialog } from "./file-preview-dialog";
@@ -39,6 +40,7 @@ export type FileAttachmentProps = {
  * e download. Clicar abre a prévia; o download usa a rota autenticada.
  */
 export function FileAttachment({ artifactId, filename, size, version, mime, origin, fullWidth }: FileAttachmentProps) {
+	const t = useT();
 	const [open, setOpen] = useState(false);
 	useEffect(() => {
 		// Anexo do usuário não é da biblioteca do bot.
@@ -59,13 +61,13 @@ export function FileAttachment({ artifactId, filename, size, version, mime, orig
 					<AttachmentDescription>{fileCardDescription({ filename, size, version })}</AttachmentDescription>
 				</AttachmentContent>
 				{previewable ? (
-					<AttachmentTrigger aria-label={`Abrir prévia de ${filename}`} onClick={() => setOpen(true)} />
+					<AttachmentTrigger aria-label={t("aiElements.files.openPreview", { name: filename })} onClick={() => setOpen(true)} />
 				) : (
-					<AttachmentTrigger aria-label={`Baixar ${filename}`} render={<a download={filename} href={fileDownloadPath(artifactId)} />} />
+					<AttachmentTrigger aria-label={t("aiElements.files.download", { name: filename })} render={<a download={filename} href={fileDownloadPath(artifactId)} />} />
 				)}
 				<AttachmentActions>
 					<AttachmentAction
-						aria-label={`Baixar ${filename}`}
+						aria-label={t("aiElements.files.download", { name: filename })}
 						nativeButton={false}
 						render={<a download={filename} href={fileDownloadPath(artifactId)} />}
 					>

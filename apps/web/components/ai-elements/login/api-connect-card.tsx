@@ -1,12 +1,14 @@
 "use client"
 import { useEffect, useRef, useState } from "react"
-import { API_AUTH_LABEL, type ApiProposal, type LoginConnector } from "@workspace/shared"
+import type { ApiProposal, LoginConnector } from "@workspace/shared"
 import { Button } from "@workspace/ui/components/button"
 import { RequestCard, REQUEST_PRIMARY_CLASS } from "@workspace/ui/components/request-card"
 import { CustomMcpIcon } from "@/components/ai-elements/connectors/custom-mcp-icon"
 import { ApiConnectSheet, apiDisplayName, groupListText } from "@/components/ai-elements/login/api-connect-sheet"
 import { useApiConnect } from "@/hooks/use-api-connection"
 import { requestMarketplace } from "@/lib/open-marketplace"
+import { apiAuthLabel } from "@/lib/shared-labels"
+import { useTranslations } from "@/lib/i18n/provider"
 
 function specHost(proposal: ApiProposal) {
   try {
@@ -15,9 +17,6 @@ function specHost(proposal: ApiProposal) {
     return proposal.domain
   }
 }
-
-const plural = (count: number, one: string, many: string) =>
-  `${count} ${count === 1 ? one : many}`
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -59,6 +58,8 @@ export function ApiConnectCardView({
   /** Conectada mas o run ainda espera: mostra "Retomar". */
   canResume?: boolean
 }) {
+  const translator = useTranslations()
+  const { t, tn } = translator
   const proposal = connector.api
   const [details, setDetails] = useState(detailsOpen)
   if (!proposal) return null
@@ -72,25 +73,25 @@ export function ApiConnectCardView({
   if (done) {
     return (
       <RequestCard
-        aria-label={`${label} conectado`}
+        aria-label={t("aiElements.api.connectedLabel", { name: label })}
         className="scroll-mt-20"
         headerAction={
           <>
             {canResume && status !== "done" ? (
               <Button className={REQUEST_PRIMARY_CLASS} onClick={onDone} size="sm" type="button">
-                Retomar
+                {t("aiElements.api.resume")}
               </Button>
             ) : null}
             {onManage ? (
               <Button onClick={onManage} size="sm" type="button" variant="ghost">
-                Gerenciar
+                {t("aiElements.api.manage")}
               </Button>
             ) : null}
           </>
         }
         leading={icon}
         resolved
-        title={`${label} conectado · só leitura`}
+        title={t("aiElements.api.connectedReadOnly", { name: label })}
       />
     )
   }
@@ -100,57 +101,57 @@ export function ApiConnectCardView({
         dismissed ? undefined : (
           <>
             <Button className={REQUEST_PRIMARY_CLASS} onClick={onConnect} size="sm" type="button">
-              Conectar
+              {t("aiElements.api.connect")}
             </Button>
             {onDismiss ? (
               <Button onClick={onDismiss} size="sm" type="button" variant="secondary">
-                Agora não
+                {t("aiElements.connector.notNow")}
               </Button>
             ) : null}
           </>
         )
         }
-        aria-label={`Conectar ${label}`}
-        badge={dismissed ? { tone: "muted", label: "Dispensado" } : { tone: "muted", label: "Só leitura" }}
+        aria-label={t("aiElements.api.connectName", { name: label })}
+        badge={dismissed ? { tone: "muted", label: t("aiElements.connector.dismissed") } : { tone: "muted", label: t("aiElements.api.readOnly") }}
         className="scroll-mt-20"
         description={
           dismissed
-            ? "Sem problemas. Você pode conectar depois em Conectores."
-            : `O bot vai poder consultar ${groupListText(proposal, 3)}. Não pode criar, alterar nem excluir nada.`
+            ? t("aiElements.connector.noProblem")
+            : t("aiElements.api.description", { groups: groupListText(proposal, 3, translator) })
         }
         leading={icon}
         resolved={dismissed}
-        title={dismissed ? `${label} não conectado` : `Conectar ${label}`}
+        title={dismissed ? t("aiElements.api.notConnected", { name: label }) : t("aiElements.api.connectName", { name: label })}
         trailing={
           dismissed ? undefined : (
             <Button aria-expanded={details} onClick={() => setDetails((value) => !value)} size="sm" type="button" variant="ghost">
-              Detalhes
+              {t("aiElements.api.details")}
             </Button>
           )
         }
       >
         {proposal.foundByBot && !dismissed ? (
           <p className="m-0 text-xs text-muted-foreground">
-            Link encontrado pelo bot · <span className="font-medium text-foreground">{specHost(proposal)}</span>
+            {t("aiElements.api.foundByBot")} · <span className="font-medium text-foreground">{specHost(proposal)}</span>
           </p>
         ) : null}
         {details && !dismissed ? (
           <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-            <Fact label="Site da API">
+            <Fact label={t("aiElements.api.factSite")}>
               <span className="font-mono">{proposal.domain}</span>
             </Fact>
-            <Fact label="Acesso">
-              {API_AUTH_LABEL[proposal.authKind]}
+            <Fact label={t("aiElements.api.factAccess")}>
+              {apiAuthLabel(proposal.authKind, translator)}
               {proposal.authDetail ? ` · ${proposal.authDetail}` : ""}
             </Fact>
-            <Fact label="O que faz">
-              {plural(proposal.operationCount, "ação", "ações")} · {proposal.readCount} só para ler
+            <Fact label={t("aiElements.api.factWhat")}>
+              {t("aiElements.api.whatValue", { actions: proposal.operationCount === 0 ? t("aiElements.api.actionCountNone") : tn("aiElements.api.actionCount", proposal.operationCount), read: proposal.readCount })}
             </Fact>
             {proposal.crossHost ? (
               <>
-                <dt className="text-warning">Atenção</dt>
+                <dt className="text-warning">{t("aiElements.api.warning")}</dt>
                 <dd className="m-0 text-warning">
-                  A API fica em outro domínio que o da documentação.
+                  {t("aiElements.api.crossHost")}
                 </dd>
               </>
             ) : null}

@@ -2,6 +2,7 @@
 
 import { UserCogIcon } from "lucide-react";
 import type { ConfirmStatus } from "@workspace/ui/components/confirm-alert";
+import { useTranslations } from "@/lib/i18n/provider";
 import { ConfirmCard } from "./confirm-card";
 import {
   getProposalRows,
@@ -45,27 +46,29 @@ export function BotProfileConfirmCard({
   status = "pending",
   isApplying = false,
   error,
-  confirmLabel = "Aplicar",
-  cancelLabel = "Descartar",
-  editLabel = "Editar",
+  confirmLabel,
+  cancelLabel,
+  editLabel,
   onConfirm,
   onDismiss,
   onEdit,
 }: BotProfileConfirmCardProps) {
-  const rows = getProposalRows(proposal);
+  const translator = useTranslations();
+  const { t } = translator;
+  const rows = getProposalRows(proposal, translator);
   // Sem descrição interna: a explicação vai na mensagem do chat (texto final
   // do run); o card mostra só título + antes/depois + ações.
   return (
     <ConfirmCard
-      title={getProposalTitle(proposal)}
+      title={getProposalTitle(proposal, translator)}
       status={status}
-      confirmLabel={isApplying ? "Aplicando…" : confirmLabel}
-      cancelLabel={cancelLabel}
-      editLabel={editLabel}
+      confirmLabel={isApplying ? t("aiElements.profile.applying") : (confirmLabel ?? t("aiElements.profile.apply"))}
+      cancelLabel={cancelLabel ?? t("aiElements.profile.dismiss")}
+      editLabel={editLabel ?? t("aiElements.profile.edit")}
       disabled={isApplying}
       leading={<UserCogIcon aria-hidden />}
       error={error}
-      detailsLabel="Ver as mudanças"
+      detailsLabel={t("aiElements.profile.viewChanges")}
       onConfirm={onConfirm}
       onCancel={onDismiss}
       onEdit={onEdit}

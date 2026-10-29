@@ -12,12 +12,15 @@ import { getRunInspection } from "@/lib/atlas-api";
 import { hoverRevealClass } from "@/lib/hover-reveal";
 import { copyText } from "@/components/ui/templates/template-4/chat-thread/message-reactions";
 
+import { useTranslations } from "@/lib/i18n/provider";
+
 import { RunInspectorView } from "./run-inspector-view";
 
 type LoadState = { kind: "loading" } | { kind: "error" } | { kind: "ready"; inspection: RunInspection };
 
 /** Painel lateral (tela cheia no celular) com o que o modelo recebeu em cada passo do run. */
 export function RunInspectorSheet({ runId, open, onOpenChange }: { runId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
+	const { t } = useTranslations();
 	const [state, setState] = useState<LoadState>({ kind: "loading" });
 	const [copied, setCopied] = useState(false);
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -56,13 +59,13 @@ export function RunInspectorSheet({ runId, open, onOpenChange }: { runId: string
 		<Sheet onOpenChange={onOpenChange} open={open}>
 			<SheetContent className="data-[side=right]:w-full data-[side=right]:sm:max-w-xl" side="right">
 				<SheetHeader>
-					<SheetTitle>Inspecionar execução</SheetTitle>
-					<SheetDescription>O que o modelo recebeu em cada passo, as ferramentas usadas e as aprovações.</SheetDescription>
+					<SheetTitle>{t("aiElements.inspector.sheet.title")}</SheetTitle>
+					<SheetDescription>{t("aiElements.inspector.sheet.description")}</SheetDescription>
 				</SheetHeader>
 				{state.kind === "ready" ? (
 					<RunInspectorView copied={copied} inspection={state.inspection} onCopy={copy} />
 				) : (
-					<p className="px-4 text-muted-foreground text-sm">{state.kind === "loading" ? "Carregando…" : "Não foi possível carregar esta execução."}</p>
+					<p className="px-4 text-muted-foreground text-sm">{state.kind === "loading" ? t("common.loading") : t("aiElements.inspector.sheet.loadError")}</p>
 				)}
 			</SheetContent>
 		</Sheet>
@@ -71,10 +74,11 @@ export function RunInspectorSheet({ runId, open, onOpenChange }: { runId: string
 
 /** Botão discreto ao lado de copiar/reagir; abre o inspetor da execução que gerou a fala. */
 export function RunInspectButton({ runId, className }: { runId: string; className?: string }) {
+	const { t } = useTranslations();
 	const [open, setOpen] = useState(false);
 	return (
 		<>
-			<Button aria-label="Inspecionar execução" className={cn("shrink-0", hoverRevealClass("message"), className)} onClick={() => setOpen(true)} size="icon-xs" variant="ghost">
+			<Button aria-label={t("aiElements.inspector.sheet.title")} className={cn("shrink-0", hoverRevealClass("message"), className)} onClick={() => setOpen(true)} size="icon-xs" variant="ghost">
 				<ScanSearchIcon />
 			</Button>
 			{open ? <RunInspectorSheet onOpenChange={setOpen} open={open} runId={runId} /> : null}

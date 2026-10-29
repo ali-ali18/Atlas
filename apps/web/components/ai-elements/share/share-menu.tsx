@@ -3,6 +3,7 @@
 import { CopyIcon, DownloadIcon, FileTextIcon, LinkIcon, Share2Icon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
+import { useT } from "@/lib/i18n/provider";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@workspace/ui/components/dropdown-menu";
 import {
 	buildPdfFromJpeg,
@@ -36,6 +37,7 @@ type Status = { kind: "ok" | "error"; text: string } | null;
  * (Firefox, iOS antigo) o PNG é baixado e o aviso diz isso.
  */
 export function ShareMenu({ title, botName, targetSelector, pdf = false, onPublicLink, className }: ShareMenuProps) {
+	const t = useT();
 	const anchor = useRef<HTMLSpanElement>(null);
 	const [busy, setBusy] = useState(false);
 	const [status, setStatus] = useState<Status>(null);
@@ -55,7 +57,7 @@ export function ShareMenu({ title, botName, targetSelector, pdf = false, onPubli
 		try {
 			setStatus(await task(node, new Date()));
 		} catch {
-			setStatus({ kind: "error", text: "Não consegui gerar a imagem agora." });
+			setStatus({ kind: "error", text: t("share.imageError") });
 		} finally {
 			setBusy(false);
 		}
@@ -67,15 +69,15 @@ export function ShareMenu({ title, botName, targetSelector, pdf = false, onPubli
 			const canvas = await renderShareCanvas(node, { botName, now });
 			const outcome = await copyImageOrDownload(canvasToBlob(canvas), fileName);
 			return outcome === "copied"
-				? { kind: "ok", text: "Imagem copiada" }
-				: { kind: "ok", text: "Seu navegador não copia imagem; baixei o PNG" };
+				? { kind: "ok", text: t("share.imageCopied") }
+				: { kind: "ok", text: t("share.imageDownloaded") };
 		});
 
 	const downloadPng = () =>
 		run(async (node, now) => {
 			const canvas = await renderShareCanvas(node, { botName, now });
 			downloadBlob(await canvasToBlob(canvas), shareFileName(title, "png", now));
-			return { kind: "ok", text: "PNG baixado" };
+			return { kind: "ok", text: t("share.pngDownloaded") };
 		});
 
 	const downloadPdf = () =>
@@ -83,7 +85,7 @@ export function ShareMenu({ title, botName, targetSelector, pdf = false, onPubli
 			const canvas = await renderShareCanvas(node, { botName, now });
 			const bytes = buildPdfFromJpeg(dataUrlToBytes(canvas.toDataURL("image/jpeg", 0.92)), canvas.width / 2, canvas.height / 2);
 			downloadBlob(new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" }), shareFileName(title, "pdf", now));
-			return { kind: "ok", text: "PDF baixado" };
+			return { kind: "ok", text: t("share.pdfDownloaded") };
 		});
 
 	return (
@@ -97,7 +99,7 @@ export function ShareMenu({ title, botName, targetSelector, pdf = false, onPubli
 				<DropdownMenuTrigger
 					render={
 						<Button
-							aria-label={`Compartilhar ${title}`}
+							aria-label={t("share.menuLabel", { title })}
 							className={className}
 							disabled={busy}
 							size="icon-sm"
@@ -111,16 +113,16 @@ export function ShareMenu({ title, botName, targetSelector, pdf = false, onPubli
 				<DropdownMenuContent align="end">
 					<DropdownMenuItem onClick={() => void copy()}>
 						<CopyIcon />
-						Copiar imagem
+						{t("share.copyImage")}
 					</DropdownMenuItem>
 					<DropdownMenuItem onClick={() => void downloadPng()}>
 						<DownloadIcon />
-						Baixar PNG
+						{t("share.downloadPng")}
 					</DropdownMenuItem>
 					{pdf ? (
 						<DropdownMenuItem onClick={() => void downloadPdf()}>
 							<FileTextIcon />
-							Baixar PDF
+							{t("share.downloadPdf")}
 						</DropdownMenuItem>
 					) : null}
 					{onPublicLink ? (
@@ -128,7 +130,7 @@ export function ShareMenu({ title, botName, targetSelector, pdf = false, onPubli
 							<DropdownMenuSeparator />
 							<DropdownMenuItem onClick={onPublicLink}>
 								<LinkIcon />
-								Link público…
+								{t("share.publicLinkItem")}
 							</DropdownMenuItem>
 						</>
 					) : null}

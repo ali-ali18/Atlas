@@ -2,6 +2,8 @@
 
 import { Marker, MarkerContent } from "@workspace/ui/components/marker";
 
+import { useTranslations } from "@/lib/i18n/provider";
+
 import { BotChip, type BotRef } from "./bot-chip";
 
 /**
@@ -22,10 +24,11 @@ export function BotLinkMarker({
 	/** Abre a conversa com o bot; sem ele (bot apagado) o marcador é só informativo. */
 	onOpen?: () => void;
 }) {
+	const { t } = useTranslations();
 	const content = (
 		<Marker className="justify-center text-xs">
 			<MarkerContent className="inline-flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5">
-				<span>{direction === "sent" ? "Enviou mensagem para" : "Mensagem de"}</span>
+				<span>{direction === "sent" ? t("aiElements.bots.sent") : t("aiElements.bots.received")}</span>
 				<BotChip bot={bot} />
 				{overdue ? (
 					<span className="text-warning" data-bot-overdue>
@@ -39,7 +42,7 @@ export function BotLinkMarker({
 		<div className="my-2" data-testid="bot-link-marker">
 			{onOpen ? (
 				<button
-					aria-label={`Ver conversa com ${bot.name}`}
+					aria-label={t("aiElements.bots.viewConversationWith", { names: bot.name })}
 					className="block w-full cursor-pointer rounded-full py-0.5 outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50"
 					onClick={onOpen}
 					type="button"

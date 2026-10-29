@@ -9,14 +9,15 @@ import { REQUEST_PRIMARY_CLASS, RequestCard } from "@workspace/ui/components/req
 import { Textarea } from "@workspace/ui/components/textarea";
 import { cn } from "@workspace/ui/lib/utils";
 import { devApprovalOptions } from "@/lib/dev-approval-options";
+import { useTranslations } from "@/lib/i18n/provider";
 
 type Status = "pending" | "approved" | "rejected" | "failed";
 
 const BADGE = {
-	pending: { tone: "pending", label: "Precisa de você" },
-	approved: { tone: "success", label: "Aprovado" },
-	rejected: { tone: "danger", label: "Recusado" },
-	failed: { tone: "danger", label: "Falhou" },
+	pending: { tone: "pending", label: "devSession.approval.pending" },
+	approved: { tone: "success", label: "devSession.approval.approved" },
+	rejected: { tone: "danger", label: "devSession.approval.rejected" },
+	failed: { tone: "danger", label: "devSession.approval.failed" },
 } as const;
 
 export type DevApprovalCardProps = {
@@ -70,13 +71,15 @@ function Meta({ items }: { items: Array<string | undefined> }) {
  * comando inteiro (mono), onde roda e o que fazer — Executar, Sempre permitir,
  * Agora não ou Recusar com comentário. Decidido, só o selo e os detalhes ficam.
  */
-export function DevApprovalCard({ info, title, status = "pending", confirmLabel, cancelLabel = "Agora não", disabled, onConfirm, onAlways, onSkip, onReject }: DevApprovalCardProps) {
+export function DevApprovalCard({ info, title, status = "pending", confirmLabel, cancelLabel, disabled, onConfirm, onAlways, onSkip, onReject }: DevApprovalCardProps) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const [rejecting, setRejecting] = useState(false);
 	const [feedback, setFeedback] = useState("");
 	const resolved = status !== "pending";
 	const isCommand = info.kind === "command";
 	const prefixes = info.kind === "command" ? (info.prefixes ?? []) : [];
-	const options = devApprovalOptions({ prefixes, canAlways: Boolean(onAlways), cancelLabel });
+	const options = devApprovalOptions({ prefixes, canAlways: Boolean(onAlways), cancelLabel: cancelLabel ?? t("devSession.approval.notNow") }, translator);
 	const where = [info.repo, info.branch].filter(Boolean).join(" · ");
 
 	return (
@@ -84,11 +87,11 @@ export function DevApprovalCard({ info, title, status = "pending", confirmLabel,
 			actions={
 				<>
 					<Button className={REQUEST_PRIMARY_CLASS} disabled={disabled} onClick={onConfirm} size="sm" type="button">
-						{confirmLabel ?? (isCommand ? "Executar" : "Aplicar")}
+						{confirmLabel ?? (isCommand ? t("devSession.approval.run") : t("devSession.approval.apply"))}
 					</Button>
 					<DropdownMenu>
 						<DropdownMenuTrigger
-							render={<Button aria-label="Mais opções" data-dev-approval-more disabled={disabled} size="icon-sm" type="button" variant="ghost" />}
+							render={<Button aria-label={t("devSession.approval.moreOptions")} data-dev-approval-more disabled={disabled} size="icon-sm" type="button" variant="ghost" />}
 						>
 							<EllipsisVerticalIcon />
 						</DropdownMenuTrigger>
@@ -106,16 +109,16 @@ export function DevApprovalCard({ info, title, status = "pending", confirmLabel,
 									</span>
 								</DropdownMenuItem>
 							))}
-							{onReject ? <DropdownMenuItem onClick={() => setRejecting(true)}>Recusar com comentário</DropdownMenuItem> : null}
+							{onReject ? <DropdownMenuItem onClick={() => setRejecting(true)}>{t("devSession.approval.rejectWithComment")}</DropdownMenuItem> : null}
 						</DropdownMenuContent>
 					</DropdownMenu>
 				</>
 			}
-			badge={BADGE[status]}
+			badge={{ tone: BADGE[status].tone, label: t(BADGE[status].label) }}
 			data-dev-approval
 			description={info.reason}
-			detailsLabel={isCommand ? "Ver comando" : "Ver alteração"}
-			leading={status === "approved" ? <CheckIcon aria-label="Aprovado" /> : status === "rejected" ? <XIcon aria-label="Recusado" /> : <ShieldAlertIcon aria-label="Atenção" />}
+			detailsLabel={isCommand ? t("devSession.approval.viewCommand") : t("devSession.approval.viewChange")}
+			leading={status === "approved" ? <CheckIcon aria-label={t("devSession.approval.approved")} /> : status === "rejected" ? <XIcon aria-label={t("devSession.approval.rejected")} /> : <ShieldAlertIcon aria-label={t("devSession.approval.attention")} />}
 			resolved={resolved}
 			title={title}
 		>
@@ -128,7 +131,7 @@ export function DevApprovalCard({ info, title, status = "pending", confirmLabel,
 						<SquareTerminalIcon aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
 						<code className="min-w-0 flex-1 font-mono">{info.command}</code>
 					</pre>
-					<Meta items={[`em ${info.cwd}`, where]} />
+					<Meta items={[t("devSession.approval.in", { cwd: info.cwd }), where]} />
 				</>
 			) : (
 				<>
@@ -137,26 +140,26 @@ export function DevApprovalCard({ info, title, status = "pending", confirmLabel,
 						<span className="min-w-0">{info.path}</span>
 					</p>
 					{info.preview ? <DiffPreview text={info.preview} /> : null}
-					<Meta items={[info.created ? "arquivo novo" : undefined, `+${info.added} −${info.removed}`, where]} />
+					<Meta items={[info.created ? t("devSession.approval.newFile") : undefined, `+${info.added} −${info.removed}`, where]} />
 				</>
 			)}
 			{!resolved && rejecting && onReject ? (
 				<div className="flex min-w-0 flex-col gap-2" data-dev-approval-reject>
 					<Textarea
-						aria-label="Comentário para o agente"
+						aria-label={t("devSession.approval.commentLabel")}
 						autoFocus
 						className="min-h-16 text-sm"
 						maxLength={500}
 						onChange={(event) => setFeedback(event.target.value)}
-						placeholder="Diga o que fazer de outro jeito"
+						placeholder={t("devSession.approval.commentPlaceholder")}
 						value={feedback}
 					/>
 					<div className="flex items-center gap-2">
 						<Button disabled={disabled} onClick={() => onReject(feedback)} size="sm" type="button" variant="secondary">
-							Recusar e enviar
+							{t("devSession.approval.rejectSend")}
 						</Button>
 						<Button onClick={() => setRejecting(false)} size="sm" type="button" variant="ghost">
-							Voltar
+							{t("common.back")}
 						</Button>
 					</div>
 				</div>

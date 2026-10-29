@@ -18,6 +18,7 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 import type { ComponentProps, ReactNode } from "react";
 
+import { useT } from "@/lib/i18n/provider";
 import { lobeIconUrl, modelsDevIconUrl } from "@/lib/provider-icons";
 
 export type ModelSelectorProps = ComponentProps<typeof Dialog>;
@@ -40,10 +41,12 @@ export type ModelSelectorContentProps = ComponentProps<typeof DialogContent> & {
 export const ModelSelectorContent = ({
   className,
   children,
-  title = "Model Selector",
+  title,
   commandProps,
   ...props
-}: ModelSelectorContentProps) => (
+}: ModelSelectorContentProps) => {
+  const t = useT();
+  return (
   <DialogContent
     aria-describedby={undefined}
     className={cn(
@@ -53,12 +56,13 @@ export const ModelSelectorContent = ({
     )}
     {...props}
   >
-    <DialogTitle className="sr-only">{title}</DialogTitle>
+    <DialogTitle className="sr-only">{title ?? t("aiElements.modelSelector.title")}</DialogTitle>
     <Command {...commandProps} className="**:data-[slot=command-input-wrapper]:h-auto">
       {children}
     </Command>
   </DialogContent>
-);
+  );
+};
 
 export type ModelSelectorDialogProps = ComponentProps<typeof CommandDialog>;
 

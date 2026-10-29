@@ -7,6 +7,7 @@ import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
 
 import type { DevTone } from "@/lib/dev-session/reducer";
+import { useTranslations } from "@/lib/i18n/provider";
 
 const DOT_CLASS: Record<DevTone, string> = {
 	info: "bg-muted-foreground/60",
@@ -27,7 +28,9 @@ export function StatusPill({ tone, label, className }: { tone: DevTone; label: s
 }
 
 /** Copia `text` para a área de transferência; confirma com um check por 1,5 s. */
-export function CopyButton({ text, label = "Copiar" }: { text: string; label?: string }) {
+export function CopyButton({ text, label }: { text: string; label?: string }) {
+	const { t } = useTranslations();
+	const shownLabel = label ?? t("devSession.parts.copy");
 	const [copied, setCopied] = useState(false);
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	useEffect(
@@ -38,7 +41,7 @@ export function CopyButton({ text, label = "Copiar" }: { text: string; label?: s
 	);
 	return (
 		<Button
-			aria-label={copied ? "Copiado" : label}
+			aria-label={copied ? t("devSession.parts.copied") : shownLabel}
 			onClick={() => {
 				void navigator.clipboard
 					?.writeText(text)
@@ -50,7 +53,7 @@ export function CopyButton({ text, label = "Copiar" }: { text: string; label?: s
 					.catch(() => undefined);
 			}}
 			size="icon-xs"
-			title={label}
+			title={shownLabel}
 			type="button"
 			variant="ghost"
 		>

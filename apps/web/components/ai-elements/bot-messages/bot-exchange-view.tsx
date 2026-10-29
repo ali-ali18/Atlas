@@ -96,7 +96,7 @@ export function BotExchangeView({
 		element.scrollTop = element.scrollHeight;
 	}, [status, focusKey, focusedPresent]);
 
-	const title = `Conversa entre ${self.name} e ${peer.name}`;
+	const title = t("aiElements.bots.exchangeTitle", { self: self.name, peer: peer.name });
 	return (
 		<div
 			className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col bg-background", className)}
@@ -132,7 +132,7 @@ export function BotExchangeView({
 						variant="ghost"
 					>
 						<ExternalLinkIcon className="size-3.5" />
-						Abrir chat de {peer.name}
+						{t("aiElements.bots.openChatOf", { name: peer.name })}
 					</Button>
 				) : null}
 			</header>
@@ -147,18 +147,18 @@ export function BotExchangeView({
 							size="sm"
 							variant="ghost"
 						>
-							{loadingMore ? "Carregando…" : "Carregar mensagens anteriores"}
+							{loadingMore ? t("common.loading") : t("aiElements.bots.loadEarlier")}
 						</Button>
 					) : null}
-					{status === "loading" ? <p className="text-center text-muted-foreground text-sm">Carregando a conversa…</p> : null}
+					{status === "loading" ? <p className="text-center text-muted-foreground text-sm">{t("aiElements.bots.loadingConversation")}</p> : null}
 					{status === "error" ? (
 						<p className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-destructive text-sm" role="alert">
-							{error || "Não foi possível carregar a conversa."}
+							{error || t("aiElements.bots.loadError")}
 						</p>
 					) : null}
 					{status === "ready" && entries.length === 0 ? (
 						<p className="text-center text-muted-foreground text-sm">
-							{self.name} e {peer.name} ainda não trocaram mensagens.
+							{t("aiElements.bots.noMessages", { self: self.name, peer: peer.name })}
 						</p>
 					) : null}
 					{entries.map((entry, index) => {
@@ -214,7 +214,7 @@ export function BotExchangeView({
 
 			<footer className="flex shrink-0 items-center justify-center gap-1.5 border-t bg-background px-4 py-3 text-muted-foreground text-xs">
 				<LockIcon aria-hidden className="size-3" />
-				<span>Somente leitura — conversa entre os bots</span>
+				<span>{t("aiElements.bots.readOnly")}</span>
 			</footer>
 		</div>
 	);

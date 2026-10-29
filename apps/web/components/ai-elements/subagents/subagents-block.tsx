@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { subagentLabel, type SubagentTaskView } from "@workspace/shared";
+import type { SubagentTaskView } from "@workspace/shared";
 
 import { formatElapsed } from "@/lib/dev-session/reducer";
 import { openActivity, registerSubagentTasks, useActivitySelection, useNow, useSubagentTrack } from "@/lib/dev-session/store";
@@ -9,20 +9,21 @@ import { subagentElapsedMs, type SubagentTrack } from "@/lib/dev-session/subagen
 
 import { SubagentAvatar } from "./subagent-avatars";
 import { ActivityCard } from "../dev-session/parts";
-import { SUBAGENT_STATUS_LABEL, SUBAGENT_STATUS_TONE, subagentFailureReason } from "./subagent-status";
+import { SUBAGENT_STATUS_TONE, subagentFailureReason, subagentStatusLabel, subagentTitle } from "./subagent-status";
+import { useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 
 /** Texto do indicador enquanto rodam ("Esperando resposta dos subagentes (2 de 3)"). */
-export function subagentsWaitingLabel(tasks: readonly SubagentTaskView[]): string {
+export function subagentsWaitingLabel(tasks: readonly SubagentTaskView[], { t }: Translator = defaultTranslator): string {
 	const done = tasks.filter((task) => task.status !== "running").length;
-	return `Esperando resposta dos subagentes (${done} de ${tasks.length})`;
+	return t("aiElements.subagents.waiting", { done, total: tasks.length });
 }
 
 /** Linha compacta do grupo já pronto ("3 subagentes · ver detalhes"). */
-export function subagentsHeadline(tasks: readonly SubagentTaskView[]): string {
+export function subagentsHeadline(tasks: readonly SubagentTaskView[], { tn }: Translator = defaultTranslator): string {
 	const failed = tasks.filter((task) => task.status === "failed").length;
-	const noun = tasks.length === 1 ? "subagente" : "subagentes";
-	const parts = [`${tasks.length} ${noun}`];
-	if (failed > 0) parts.push(failed === 1 ? "1 falhou" : `${failed} falharam`);
+	const parts = [tn("aiElements.subagents.headline", tasks.length)];
+	if (failed > 0) parts.push(tn("aiElements.subagents.failed", failed));
 	return parts.join(" · ");
 }
 
@@ -42,10 +43,12 @@ export function SubagentCardView({
 	selected?: boolean;
 	onOpen?: () => void;
 }) {
+	const translator = useTranslations();
+	const { t, tn } = translator;
 	const elapsed = subagentElapsedMs(track, task.status === "running", now);
 	const time = elapsed === null ? null : formatElapsed(elapsed);
 	const running = task.status === "running";
-	const status = running ? (time ?? SUBAGENT_STATUS_LABEL.running) : [SUBAGENT_STATUS_LABEL[task.status], time].filter(Boolean).join(" · ");
+	const status = running ? (time ?? subagentStatusLabel("running", translator)) : [subagentStatusLabel(task.status, translator), time].filter(Boolean).join(" · ");
 	const toolCount = track?.tools.reduce((sum, tool) => sum + tool.count, 0) || task.toolsUsed.length;
 	const reason = subagentFailureReason(task);
 	const extra = running
@@ -55,18 +58,18 @@ export function SubagentCardView({
 		: reason
 			? <span data-subagent-reason title={reason}>{reason}</span>
 			: toolCount > 0
-				? `${toolCount} ${toolCount === 1 ? "ferramenta" : "ferramentas"}`
+				? tn("aiElements.subagents.toolCount", toolCount)
 				: null;
 	return (
 		<ActivityCard
 			extra={extra}
 			dataAttr="data-subagent-card"
 			icon={<SubagentAvatar groupId={groupId} size={20} task={task} />}
-			label={`Abrir subagente: ${subagentLabel(task)}`}
+			label={t("aiElements.subagents.open", { name: subagentTitle(task, translator) })}
 			onOpen={onOpen}
 			selected={selected}
 			status={status}
-			title={subagentLabel(task)}
+			title={subagentTitle(task, translator)}
 			tone={SUBAGENT_STATUS_TONE[task.status]}
 		/>
 	);

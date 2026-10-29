@@ -53,6 +53,8 @@ import { CopyButton, StatusPill } from "./parts";
 import { PullRequestBody } from "./pr-section";
 import { buildTestPrMessage } from "@workspace/shared";
 import { requestChatMessage } from "@/lib/dev-session/chat-send-request";
+import { formatNumber } from "@/lib/format";
+import { useTranslations } from "@/lib/i18n/provider";
 
 /** Ações do painel (ausentes em pré-visualizações e testes de apresentação). */
 export type DevSessionActions = {
@@ -76,20 +78,21 @@ function commandFailed(command: DevCommandView): boolean {
 
 /** Selo de saída do comando: ✓ 0 ou ✗ código. */
 export function ExitBadge({ command }: { command: DevCommandView }) {
+	const { t } = useTranslations();
 	if (command.status === "running") return null;
 	const ok = !commandFailed(command);
 	const label =
 		command.endedReason === "timeout"
-			? "tempo esgotado"
+			? t("devSession.detail.exit.timeout")
 			: command.endedReason === "killed"
-				? "interrompido"
+				? t("devSession.detail.exit.killed")
 				: command.endedReason === "stopped"
-					? "sessão parada"
+					? t("devSession.detail.exit.stopped")
 					: command.endedReason === "lost"
-						? "perdido"
+						? t("devSession.detail.exit.lost")
 						: ok
 					? "✓ 0"
-					: `✗ ${command.exitCode ?? "erro"}`;
+					: `✗ ${command.exitCode ?? t("devSession.detail.exit.error")}`;
 	return (
 		<span
 			className={cn(
@@ -105,6 +108,7 @@ export function ExitBadge({ command }: { command: DevCommandView }) {
 
 /** Saída do terminal (ANSI removido; linhas longas rolam na horizontal), rolando para o fim enquanto roda. */
 export function TerminalOutput({ command, maxHeight = "max-h-64" }: { command: DevCommandView; maxHeight?: string }) {
+	const { t } = useTranslations();
 	const ref = useRef<HTMLPreElement>(null);
 	const stick = useRef(true);
 	const text = stripAnsi(command.output);
@@ -113,7 +117,7 @@ export function TerminalOutput({ command, maxHeight = "max-h-64" }: { command: D
 		if (element && command.status === "running" && stick.current) element.scrollTop = element.scrollHeight;
 	}, [text, command.status]);
 	if (!text.trim() && command.status !== "running") {
-		return <p className="px-3 py-2 text-muted-foreground text-xs">Sem saída.</p>;
+		return <p className="px-3 py-2 text-muted-foreground text-xs">{t("devSession.detail.noOutput")}</p>;
 	}
 	return (
 		<pre
@@ -124,7 +128,7 @@ export function TerminalOutput({ command, maxHeight = "max-h-64" }: { command: D
 			}}
 			ref={ref}
 		>
-			{command.truncated ? <span className="text-muted-foreground">[início da saída omitido]{"\n"}</span> : null}
+			{command.truncated ? <span className="text-muted-foreground">{t("devSession.detail.outputOmitted")}{"\n"}</span> : null}
 			{text}
 		</pre>
 	);
@@ -172,6 +176,7 @@ function SubGroup({ title, count, children }: { title: string; count: number; ch
 
 /** Comando como item de lista: 2 linhas de comando + "Shell · tempo"; expande para saída completa. */
 export function CommandItem({ command, now, onStop }: { command: DevCommandView; now: number; onStop?: (command: DevCommandView) => void }) {
+	const { t } = useTranslations();
 	const running = command.status === "running";
 	const failed = commandFailed(command);
 	const stoppable = running && onStop !== undefined;
@@ -179,12 +184,12 @@ export function CommandItem({ command, now, onStop }: { command: DevCommandView;
 		<li className="relative" data-command-item>
 			{stoppable ? (
 				<Button
-					aria-label="Parar comando"
+					aria-label={t("devSession.detail.stopCommand")}
 					className="absolute top-2 right-9 z-10"
 					data-stop-command
 					onClick={() => onStop(command)}
 					size="icon-xs"
-					title="Parar comando"
+					title={t("devSession.detail.stopCommand")}
 					type="button"
 					variant="ghost"
 				>
@@ -197,12 +202,12 @@ export function CommandItem({ command, now, onStop }: { command: DevCommandView;
 					<span className="min-w-0 flex-1">
 						<span className="line-clamp-2 break-all font-mono text-xs">{command.cmd}</span>
 						<span className="mt-0.5 block text-muted-foreground text-xs tabular-nums">
-							Shell ·{" "}
+							{t("devSession.detail.shell")} ·{" "}
 							{running ? (
 								formatElapsedLong(commandMs(command, now))
 							) : (
 								<>
-									<span className={cn(failed && "text-destructive")}>{failed ? (command.endedReason === "killed" ? "Interrompido" : command.endedReason === "timeout" ? "Tempo esgotado" : "Falhou") : command.endedReason === "stopped" ? "Interrompido (sessão parada)" : command.endedReason === "lost" ? "Perdido (sessão reiniciada)" : "Concluído"}</span>
+									<span className={cn(failed && "text-destructive")}>{failed ? (command.endedReason === "killed" ? t("devSession.detail.cmdInterrupted") : command.endedReason === "timeout" ? t("devSession.detail.cmdTimeout") : t("devSession.detail.cmdFailed")) : command.endedReason === "stopped" ? t("devSession.detail.cmdStopped") : command.endedReason === "lost" ? t("devSession.detail.cmdLost") : t("devSession.detail.cmdDone")}</span>
 									{" · "}
 									{formatElapsedLong(commandMs(command, now))}
 								</>
@@ -218,12 +223,12 @@ export function CommandItem({ command, now, onStop }: { command: DevCommandView;
 								<span className="select-none text-muted-foreground">$ </span>
 								{command.cmd}
 							</code>
-							<CopyButton label="Copiar comando" text={command.cmd} />
+							<CopyButton label={t("devSession.detail.copyCommand")} text={command.cmd} />
 						</div>
 						<TerminalOutput command={command} />
 						<div className="flex items-center justify-between gap-2 px-3 py-1.5 text-muted-foreground text-xs">
 							<ExitBadge command={command} />
-							<CopyButton label="Copiar saída" text={stripAnsi(command.output)} />
+							<CopyButton label={t("devSession.detail.copyOutput")} text={stripAnsi(command.output)} />
 						</div>
 					</div>
 				</CollapsibleContent>
@@ -270,11 +275,12 @@ export function DiffView({ diff }: { diff: string }) {
 }
 
 function ChangesSection({ view }: { view: DevSessionView }) {
+	const { t } = useTranslations();
 	const files = devChangedFiles(view);
 	return (
-		<Section count={files.length > 0 ? files.length : undefined} title="Alterações">
+		<Section count={files.length > 0 ? files.length : undefined} title={t("devSession.detail.changes")}>
 			{files.length === 0 ? (
-				<p className="py-2 text-muted-foreground text-xs">Nenhuma alteração para exibir</p>
+				<p className="py-2 text-muted-foreground text-xs">{t("devSession.detail.noChanges")}</p>
 			) : (
 				<ul className="flex flex-col gap-1.5">
 					{files.map((file) => (
@@ -295,7 +301,7 @@ function ChangesSection({ view }: { view: DevSessionView }) {
 												<DiffView diff={diff} key={index} />
 											))
 										) : (
-											<p className="px-3 py-2 text-muted-foreground text-xs">Diff indisponível após recarregar.</p>
+											<p className="px-3 py-2 text-muted-foreground text-xs">{t("devSession.detail.diffUnavailable")}</p>
 										)}
 									</div>
 								</CollapsibleContent>
@@ -309,15 +315,16 @@ function ChangesSection({ view }: { view: DevSessionView }) {
 }
 
 function PullRequestSection({ view, actions }: { view: DevSessionView; actions?: DevSessionActions }) {
+	const { t } = useTranslations();
 	if (!view.pr) return null;
 	const canRetest = actions?.onRetestPr && (view.pr.state === "open" || view.pr.state === "draft");
 	return (
-		<Section title="Pull request">
+		<Section title={t("devSession.detail.pullRequest")}>
 			<PullRequestBody ci={view.ci} pr={view.pr} />
 			{canRetest ? (
 				<Button className="mt-2 self-start" data-retest-pr onClick={actions.onRetestPr} size="sm" type="button" variant="outline">
 					<RotateCcwIcon />
-					Testar de novo
+					{t("devSession.detail.retest")}
 				</Button>
 			) : null}
 		</Section>
@@ -333,6 +340,7 @@ export function backgroundCommands(commands: readonly DevCommandView[]): DevComm
 }
 
 function CommandsSection({ view, now, actions }: { view: DevSessionView; now: number; actions?: DevSessionActions }) {
+	const { t } = useTranslations();
 	const [showAll, setShowAll] = useState(false);
 	const tasks = backgroundCommands(view.commands);
 	const running = tasks.filter((c) => c.status === "running");
@@ -340,27 +348,27 @@ function CommandsSection({ view, now, actions }: { view: DevSessionView; now: nu
 	const doneNewestFirst = [...done].reverse();
 	const shownDone = showAll ? doneNewestFirst : doneNewestFirst.slice(0, DEV_DONE_VISIBLE);
 	return (
-		<Section count={tasks.length > 0 ? tasks.length : undefined} title="Tarefas em segundo plano">
+		<Section count={tasks.length > 0 ? tasks.length : undefined} title={t("devSession.detail.background")}>
 			{tasks.length === 0 ? (
-				<p className="py-2 text-muted-foreground text-xs">Nenhuma tarefa em segundo plano</p>
+				<p className="py-2 text-muted-foreground text-xs">{t("devSession.detail.noBackground")}</p>
 			) : (
 				<div className="flex flex-col gap-1">
 					{running.length > 0 ? (
-						<SubGroup count={running.length} title="Em execução">
+						<SubGroup count={running.length} title={t("devSession.detail.runningGroup")}>
 							{running.map((command) => (
 								<CommandItem command={command} key={command.callId} now={now} onStop={actions?.onStopCommand} />
 							))}
 						</SubGroup>
 					) : null}
 					{done.length > 0 ? (
-						<SubGroup count={done.length} title="Concluídas">
+						<SubGroup count={done.length} title={t("devSession.detail.doneGroup")}>
 							{shownDone.map((command) => (
 								<CommandItem command={command} key={command.callId} now={now} />
 							))}
 							{done.length > DEV_DONE_VISIBLE ? (
 								<li>
 									<Button className="w-full text-muted-foreground" data-show-all-done onClick={() => setShowAll((value) => !value)} size="sm" type="button" variant="ghost">
-										{showAll ? "Ver menos" : `Ver todas (${done.length})`}
+										{showAll ? t("devSession.detail.showLess") : t("devSession.detail.showAll", { count: done.length })}
 									</Button>
 								</li>
 							) : null}
@@ -374,10 +382,11 @@ function CommandsSection({ view, now, actions }: { view: DevSessionView; now: nu
 
 /** Instalação e inicialização do ambiente do repositório, com o fim da saída de cada passo. */
 function PreparationSection({ view, now }: { view: DevSessionView; now: number }) {
+	const { t } = useTranslations();
 	const steps = view.setup.filter((step) => step.step === "detect" || step.step === "install" || step.step === "start");
 	if (steps.length === 0 && view.envNotes.length === 0) return null;
 	return (
-		<Section title="Preparação do ambiente">
+		<Section title={t("devSession.detail.preparation")}>
 			<div className="flex flex-col gap-1" data-dev-preparation>
 				{steps.map((step) => (
 					<PreparationItem key={step.step} now={now} step={step} />
@@ -426,24 +435,27 @@ function PreparationItem({ step, now }: { step: DevSetupStepView; now: number })
 
 /** "Tempo": onde a sessão gastou o tempo (modelo, comandos, aprovação, preparação). */
 function TimingSection({ view }: { view: DevSessionView }) {
+	const translator = useTranslations();
+	const { t, locale } = translator;
 	const parts = devTimingParts(view);
 	if (!parts) return null;
 	const firstToken = devAverageFirstTokenMs(view);
 	return (
-		<Section title="Tempo">
+		<Section title={t("devSession.detail.timing")}>
 			<p className="rounded-xl bg-muted/40 px-3 py-2 text-xs leading-relaxed" data-dev-timing>
 				{parts.map((part) => part.text).join(" · ")}
 			</p>
-			{firstToken !== null ? <p className="px-3 pt-1 text-muted-foreground text-xs">Primeiro token do modelo em média: {(firstToken / 1000).toFixed(1)}s</p> : null}
+			{firstToken !== null ? <p className="px-3 pt-1 text-muted-foreground text-xs">{t("devSession.detail.firstToken", { seconds: formatNumber(Number((firstToken / 1000).toFixed(1)), locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) })}</p> : null}
 		</Section>
 	);
 }
 
 function PlanSection({ view }: { view: DevSessionView }) {
+	const { t } = useTranslations();
 	if (view.todos.length === 0) return null;
 	const done = view.todos.filter((todo) => todo.status === "completed").length;
 	return (
-		<Section title={`Plano ${done}/${view.todos.length}`}>
+		<Section title={t("devSession.detail.plan", { done, total: view.todos.length })}>
 			<ul className="flex flex-col gap-1.5">
 				{view.todos.map((todo) => (
 					<li className="flex items-start gap-2 rounded-xl bg-muted/40 px-3 py-2 text-xs" key={todo.id}>
@@ -476,6 +488,7 @@ function PlanSection({ view }: { view: DevSessionView }) {
 
 /** "Parar sessão" (com confirmação) e "Retomar", no cabeçalho do painel. */
 function SessionActionsBar({ view, actions }: { view: DevSessionView; actions: DevSessionActions }) {
+	const { t } = useTranslations();
 	const [confirming, setConfirming] = useState(false);
 	if (canStopDevSession(view)) {
 		return (
@@ -490,18 +503,18 @@ function SessionActionsBar({ view, actions }: { view: DevSessionView; actions: D
 					variant="outline"
 				>
 					<CircleStopIcon />
-					Parar sessão
+					{t("devSession.detail.stopSession")}
 				</Button>
 				<AlertDialog onOpenChange={setConfirming} open={confirming}>
 					<AlertDialogContent size="sm">
 						<AlertDialogHeader>
-							<AlertDialogTitle>Parar a sessão de código?</AlertDialogTitle>
+							<AlertDialogTitle>{t("devSession.detail.stopTitle")}</AlertDialogTitle>
 							<AlertDialogDescription>
-								O agente para de trabalhar e o ambiente é pausado. Os arquivos da sessão ficam guardados e você pode retomar depois.
+								{t("devSession.detail.stopText")}
 							</AlertDialogDescription>
 						</AlertDialogHeader>
 						<AlertDialogFooter>
-							<AlertDialogCancel>Cancelar</AlertDialogCancel>
+							<AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
 							<AlertDialogAction
 								onClick={() => {
 									setConfirming(false);
@@ -509,7 +522,7 @@ function SessionActionsBar({ view, actions }: { view: DevSessionView; actions: D
 								}}
 								variant="destructive"
 							>
-								Parar sessão
+								{t("devSession.detail.stopSession")}
 							</AlertDialogAction>
 						</AlertDialogFooter>
 					</AlertDialogContent>
@@ -521,7 +534,7 @@ function SessionActionsBar({ view, actions }: { view: DevSessionView; actions: D
 		return (
 			<Button className="self-start" data-resume-session disabled={actions.busy} onClick={actions.onResume} size="sm" type="button" variant="outline">
 				<PlayIcon />
-				Retomar
+				{t("devSession.detail.resume")}
 			</Button>
 		);
 	}
@@ -539,6 +552,8 @@ function DevModelName({ model }: { model: string }) {
 }
 
 export function DevSessionDetailView({ view, now, actions }: { view: DevSessionView; now: number; actions?: DevSessionActions }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const lastCompaction = view.compactions.at(-1);
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto px-4 pb-4" data-dev-session-detail>
@@ -554,7 +569,11 @@ export function DevSessionDetailView({ view, now, actions }: { view: DevSessionV
 				</div>
 				{lastCompaction ? (
 					<p className="text-muted-foreground text-xs tabular-nums" data-context-summary>
-						Contexto resumido{view.compactions.length > 1 ? ` ${view.compactions.length}×` : ""} · {formatTokens(lastCompaction.before)} → {formatTokens(lastCompaction.after)} tokens
+						{t("devSession.detail.summarySizes", {
+							summary: view.compactions.length > 1 ? t("devSession.detail.summarizedTimes", { count: view.compactions.length }) : t("devSession.detail.summarized"),
+							before: formatTokens(lastCompaction.before),
+							after: formatTokens(lastCompaction.after),
+						})}
 					</p>
 				) : null}
 				{actions ? <SessionActionsBar actions={actions} view={view} /> : null}
@@ -571,6 +590,7 @@ export function DevSessionDetailView({ view, now, actions }: { view: DevSessionV
 
 /** Detalhe ligado ao store (coluna 3). */
 export function DevSessionDetail({ sessionId }: { sessionId: string }) {
+	const { t } = useTranslations();
 	const view = useDevSession(sessionId);
 	const now = useNow(view ? devIsWorking(view) : false);
 	useCiPolling(sessionId, view);
@@ -580,7 +600,7 @@ export function DevSessionDetail({ sessionId }: { sessionId: string }) {
 		return (
 			<div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground text-xs">
 				<CircleDashedIcon className="size-5" />
-				Sessão não encontrada.
+				{t("devSession.detail.notFound")}
 			</div>
 		);
 	}
@@ -597,9 +617,9 @@ export function DevSessionDetail({ sessionId }: { sessionId: string }) {
 	};
 	const actions: DevSessionActions = {
 		busy,
-		onStopCommand: (command) => void run(() => stopDevCommand(sessionId, command), "Não foi possível parar o comando."),
-		onStopSession: () => void run(() => stopDevSessionNow(sessionId), "Não foi possível parar a sessão."),
-		onResume: () => void run(() => resumeDevSessionNow(sessionId), "Não foi possível retomar a sessão agora."),
+		onStopCommand: (command) => void run(() => stopDevCommand(sessionId, command), t("devSession.detail.stopCommandError")),
+		onStopSession: () => void run(() => stopDevSessionNow(sessionId), t("devSession.detail.stopSessionError")),
+		onResume: () => void run(() => resumeDevSessionNow(sessionId), t("devSession.detail.resumeError")),
 		onRetestPr: view.pr && view.repo ? () => requestChatMessage(buildTestPrMessage({ repo: view.repo!, number: view.pr!.number })) : undefined,
 	};
 	return (

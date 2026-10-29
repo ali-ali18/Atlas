@@ -1,12 +1,24 @@
 import type { SubagentTaskView } from "@workspace/shared";
+import { subagentLabel } from "@workspace/shared";
 import type { DevTone } from "@/lib/dev-session/reducer";
+import { defaultTranslator, type MessageKey, type Translator } from "@/lib/i18n/translator";
 
-export const SUBAGENT_STATUS_LABEL: Record<SubagentTaskView["status"], string> = {
-	running: "Trabalhando",
-	ok: "Concluído",
-	partial: "Parcial",
-	failed: "Falhou",
-};
+export const SUBAGENT_STATUS_KEYS = {
+	running: "aiElements.subagents.status.running",
+	ok: "aiElements.subagents.status.ok",
+	partial: "aiElements.subagents.status.partial",
+	failed: "aiElements.subagents.status.failed",
+} as const satisfies Record<SubagentTaskView["status"], MessageKey>;
+
+export function subagentStatusLabel(status: SubagentTaskView["status"], { t }: Translator = defaultTranslator): string {
+	return t(SUBAGENT_STATUS_KEYS[status]);
+}
+
+/** Nome do subagente na tela: o `subagentLabel` do shared, com o "Tarefa N" (sem título nem objetivo) no idioma da tela. */
+export function subagentTitle(task: { title?: string; goal: string; taskIndex: number }, { t }: Translator = defaultTranslator): string {
+	if (!task.title?.trim() && !task.goal.replace(/\s+/g, " ").trim()) return t("aiElements.subagents.taskN", { number: task.taskIndex + 1 });
+	return subagentLabel(task);
+}
 
 export const SUBAGENT_STATUS_TONE: Record<SubagentTaskView["status"], DevTone> = {
 	running: "working",

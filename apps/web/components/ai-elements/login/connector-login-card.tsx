@@ -9,6 +9,8 @@ import {
   useNativeConnector,
 } from "@/hooks/use-native-connector"
 import { requestMarketplace } from "@/lib/open-marketplace"
+import { useTranslations } from "@/lib/i18n/provider"
+import type { TFunction } from "@/lib/i18n/translator"
 import { openSettingsModal } from "@/components/settings/settings-url"
 import { ConnectorIcon } from "@/components/ai-elements/connectors/connector-icon"
 import { CustomMcpIcon } from "@/components/ai-elements/connectors/custom-mcp-icon"
@@ -23,17 +25,14 @@ export type ConnectorCardAction =
   | "marketplace"
   | "loading"
 
-function descriptionOf(connector: LoginConnector, action: ConnectorCardAction) {
+function descriptionOf(connector: LoginConnector, action: ConnectorCardAction, t: TFunction) {
   if (connector.kind === "custom" && action === "connect" && !connector.description)
-    return "Servidor MCP personalizado. Você entra com a sua conta no próprio serviço; a senha não passa pelo agente."
-  if (action === "configure")
-    return "Configure sua chave do Composio para conectar este app. Sua senha não passa pelo agente."
+    return t("aiElements.connector.customDescription")
+  if (action === "configure") return t("aiElements.connector.configureDescription")
   return (
     connector.description ||
-    (connector.noAuth
-      ? "Este app não precisa de login. Ative para o agente usar."
-      : null) ||
-    "Conecte sua conta para o agente usar este app. Sua senha não passa pelo agente nem pela VM."
+    (connector.noAuth ? t("aiElements.connector.noAuthDescription") : null) ||
+    t("aiElements.connector.defaultDescription")
   )
 }
 
@@ -66,17 +65,18 @@ export function ConnectorLoginCardView({
   onDismiss?: () => void
   dismissed?: boolean
 }) {
+  const { t } = useTranslations()
   const done = status === "done"
   const verb = connector.noAuth
-    ? "Ativar"
+    ? t("aiElements.connector.enable")
     : connector.reconnect
-      ? "Reconectar"
-      : "Conectar"
+      ? t("aiElements.connector.reconnect")
+      : t("aiElements.connector.connect")
   const label =
     action === "configure"
-      ? "Configurar Composio"
+      ? t("aiElements.connector.setUpComposio")
       : action === "marketplace"
-        ? "Informar chave no Marketplace"
+        ? t("aiElements.connector.enterKey")
         : verb
   return (
     <RequestCard
@@ -90,12 +90,12 @@ export function ConnectorLoginCardView({
               size="sm"
               type="button"
             >
-              {busy ? (connector.noAuth ? "Ativando…" : "Conectando…") : label}
+              {busy ? (connector.noAuth ? t("aiElements.connector.enabling") : t("aiElements.connector.connecting")) : label}
             </Button>
           )}
           {!connected && onDismiss && (
             <Button disabled={busy} onClick={onDismiss} size="sm" type="button" variant="ghost">
-              Agora não
+              {t("aiElements.connector.notNow")}
             </Button>
           )}
           {(connected || !onDismiss) && (
@@ -107,25 +107,25 @@ export function ConnectorLoginCardView({
             type="button"
             variant={connected ? "default" : "secondary"}
           >
-            Retomar tarefa
+            {t("aiElements.connector.resume")}
           </Button>
           )}
         </>
       }
-      aria-label={`${verb} ${connector.name}`}
+      aria-label={t("aiElements.connector.verbName", { verb, name: connector.name })}
       badge={
         dismissed
-          ? { tone: "muted", label: "Dispensado" }
+          ? { tone: "muted", label: t("aiElements.connector.dismissed") }
           : done
-            ? { tone: "success", label: connector.noAuth ? "Ativado" : "Conectado" }
-            : { tone: "pending", label: "Precisa de você" }
+            ? { tone: "success", label: connector.noAuth ? t("aiElements.connector.enabled") : t("aiElements.connector.connected") }
+            : { tone: "pending", label: t("aiElements.login.needsYou") }
       }
       description={
         dismissed
-          ? "Sem problemas. Você pode conectar depois em Conectores."
+          ? t("aiElements.connector.noProblem")
           : done
-            ? "Retomando de onde parou."
-            : descriptionOf(connector, action)
+            ? t("aiElements.login.resuming")
+            : descriptionOf(connector, action, t)
       }
       error={done ? null : error}
       leading={
@@ -140,10 +140,10 @@ export function ConnectorLoginCardView({
       resolved={done || dismissed}
       title={
         dismissed
-          ? `${connector.name} não conectado`
+          ? t("aiElements.connector.notConnected", { name: connector.name })
           : done
-          ? `${connector.name} ${connector.noAuth ? "ativado" : "conectado"}`
-          : `${verb} ${connector.name}`
+          ? t(connector.noAuth ? "aiElements.connector.titleEnabled" : "aiElements.connector.titleConnected", { name: connector.name })
+          : t("aiElements.connector.verbName", { verb, name: connector.name })
       }
     >
       {connector.kind === "custom" && connector.url ? (
