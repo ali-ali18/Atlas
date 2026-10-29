@@ -1,0 +1,56 @@
+# Internacionalização da interface (i18n)
+
+Dicionário próprio, tipado e sem dependência. Idiomas: `pt-BR` (fonte da verdade), `en-US`, `es-ES`.
+Não confundir com o idioma do **bot** (`lib/bot-language.ts`).
+
+## Por que não `next-intl`
+O app inteiro é uma SPA atrás de login (um `Template4Client` gigante), sem URLs por idioma e sem SEO por
+idioma. Não precisamos de roteamento `/[lang]`, só de: idioma por requisição, texto tipado e datas/números
+no idioma. Isso cabe em ~150 linhas, com chave inexistente falhando no typecheck e sem dependência nova
+(licença, manutenção, tamanho de bundle). Se um dia precisarmos de ICU completo (gênero, select aninhado),
+a troca é local: só `translator.ts` e `provider.tsx` conhecem o formato.
+
+## Como funciona
+1. `proxy.ts` grava o cookie `atlas-locale` (idioma resolvido) na primeira visita, a partir do `Accept-Language`.
+2. `app/layout.tsx` resolve o idioma (`lib/i18n/server.ts`): escolha do usuário (`atlas-locale-pref`) → `Accept-Language` → pt-BR,
+   põe em `<html lang>` e entrega o dicionário ao `I18nProvider`. Ler cookie/header torna as rotas dinâmicas.
+3. Componentes de cliente usam `useT()`/`useTranslations()`; de servidor, `await getTranslations()`.
+4. Configurações → Geral → "Idioma da interface" (Automático / Português / English / Español) grava o cookie e faz `router.refresh()`.
+   Ponto de extensão: guardar a escolha na conta (ver `server.ts` e `preference.ts`).
+
+## Traduzir um componente
+1. Escolha (ou crie) o arquivo da área em `messages/pt-BR/<area>.ts`. Chaves `area.assunto`, descritivas, em inglês:
+   ```ts
+   export const sidebar = {
+     "sidebar.newChat": "Nova conversa",
+     "sidebar.unread": "{count} não lidas",          // {param} vira argumento tipado
+     "sidebar.bots.one": "{count} bot",               // plural: .one / .other (+ .zero/.few/.many se o idioma pedir)
+     "sidebar.bots.other": "{count} bots",
+   } as const;
+   ```
+2. Registre `...sidebar` em `messages/pt-BR/index.ts` e crie o mesmo arquivo em `messages/en-US/` e `messages/es-ES/`:
+   ```ts
+   import type { sidebar as ptBR } from "../pt-BR/sidebar";
+   import type { NamespaceMessages } from "../../translator";
+   export const sidebar: NamespaceMessages<typeof ptBR> = { ... };
+   ```
+   Registre também nos `index.ts` dos outros idiomas. Faltou uma chave: não compila.
+3. No componente:
+   ```tsx
+   const { t, tn } = useTranslations();   // ou const t = useT()
+   <Button aria-label={t("sidebar.newChat")}>{t("sidebar.newChat")}</Button>
+   {tn("sidebar.bots", bots.length)}
+   ```
+   Atributos (`aria-label`, `title`, `placeholder`, `alt`) e toasts também. Texto vindo do servidor/modelo não se traduz aqui.
+4. Função pura que monta texto (ex.: `routine-map.ts`): receba `t` (ou `Translator`) por parâmetro; o componente chama com o `t` do hook. Em teste use `createTranslator("pt-BR")`.
+5. Datas e números: nunca `toLocaleString("pt-BR")` nem `Intl` com idioma fixo. Use `lib/format.ts` (`useFormat()` no componente, ou `formatDate(valor, locale)`).
+6. Teste: os testes de paridade (`translator.test.ts`) já cobrem chaves e `{parametros}` iguais entre idiomas. Teste de componente
+   sem provider renderiza em pt-BR (o contexto padrão); para outro idioma, envolva em `<I18nProvider locale="en-US" messages={await loadMessages("en-US")}>`.
+
+## Convenções
+- pt-BR é a fonte: escreva ali primeiro. Texto que o usuário vê, nunca internals (ver `70-padroes-produto.md`).
+- Nomes de produto: pt Painéis · Rotina · Alerta · Biblioteca · Habilidades / en Panels · Routines · Alerts · Library · Skills / es Paneles · Rutinas · Alertas · Biblioteca · Habilidades.
+- Sem concatenar frases ("Você tem " + n + " itens"): uma chave com `{n}`, porque a ordem das palavras muda por idioma.
+- Plural sempre por `tn`, nunca `n === 1 ? "item" : "itens"`.
+- Idioma novo: acrescente em `UI_LOCALES`/`UI_LOCALE_LABELS` (`locales.ts`), crie `messages/<id>/` (uma cópia de `en-US/`), a linha em `messages/index.ts`. O seletor e o proxy já o reconhecem.
+- Idioma da fala (ditado) e do bot ficam em `lib/dictation.ts` e `lib/bot-language.ts`.

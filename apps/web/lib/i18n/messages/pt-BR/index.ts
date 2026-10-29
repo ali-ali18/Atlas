@@ -1,0 +1,6 @@
+/** Dicionário pt-BR: fonte da verdade das chaves. Um arquivo por área; acrescente o `...area` abaixo. */
+import { common } from "./common";
+
+export const ptBR = {
+	...common,
+} as const;
