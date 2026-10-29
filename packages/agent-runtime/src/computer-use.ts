@@ -14,6 +14,7 @@ import { buildStableSystemPrompt, buildSystemPrompt, swapLanguageInstruction } f
 import { namespaceToolCallId, renameProviderItemCallIds } from "./context/transcript.js";
 import { triageUserMessage, type TriageHistoryEntry } from "./loop/message-triage.js";
 import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } from "./loop/interrupt.js";
+import { createDevVerificationTracker } from "./execution/dev-verification.js";
 import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MAX_ANSWER_REVISIONS_PER_RUN, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
 import { detectLoginWall, describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
@@ -5571,6 +5572,14 @@ export async function runComputerUse(params: {
 	// Sessão de desenvolvimento (container leve por sessão): agente principal com tudo; subagente só leitura.
 	const devConversationId = isSubagent ? params.devConversationId : conversationId;
 	const devDeps = params.devSession === null || userId === "default" || !devConversationId ? null : (params.devSession ?? defaultDevSessionDeps());
+	// Run de código: edição sem verificação (teste/typecheck/lint/build que passou) e verificação em segundo plano.
+	const devVerification = createDevVerificationTracker({
+		getTestCommand: async () => {
+			if (!devDeps || !("getEnvironment" in devDeps) || !devDeps.getEnvironment || !devConversationId) return null;
+			const row = await devDeps.store.findForConversation(devConversationId, userId);
+			return row?.repo ? ((await devDeps.getEnvironment(userId, row.repo.toLowerCase()))?.testCommand ?? null) : null;
+		},
+	});
 	let devRuntime: DevSessionRuntime | undefined;
 	// Arquivos anexados pelo usuário: ler/listar sempre; copiar para o computador só com VM ou sessão de código.
 	if (!isSubagent && params.attachments?.present) {
@@ -7852,6 +7861,7 @@ export async function runComputerUse(params: {
 			// Edição que não casa: da 3ª falha seguida no mesmo arquivo o erro traz a saída (reler, âncora maior, reescrever).
 			const editHint = editFailures.record(name, args.path, ok);
 			if (editHint) summary = `${summary}\n\n${editHint}`;
+			if (isDevSessionTool(name)) await devVerification.note({ name, args, ok, summary });
 			if (uncertainEffect && !summary.includes(UNCERTAIN_WRITE_NOTE)) summary = `${summary}
 ${UNCERTAIN_WRITE_NOTE}`;
 			// L20: status estruturado, decidido por quem executou (não pelo texto).
@@ -8432,7 +8442,9 @@ ${blockHint}`;
 
 		if (step >= workingLimit) {
 			if (workingLimit < hardCap) {
-				const verdict = await softEvaluate();
+				// Run de código com edição sem verificar (ou teste rodando em segundo plano): o limite brando não encerra
+				// o trabalho antes de verificar. Estende sem consultar o modelo; o teto duro e o relógio seguem valendo.
+				const verdict = devVerification.needsMoreWork() ? { action: "extend" as const, summary: "" } : await softEvaluate();
 				if (verdict.action === "conclude") {
 					await settleStepCheckpoint();
 					return {

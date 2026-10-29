@@ -62,7 +62,7 @@ type Harness = {
 	breakOthers?: boolean;
 	origin?: "chat" | "webhook";
 	maxSteps?: number;
-	budgetPolicy?: Record<string, unknown>;
+	budget?: Record<string, unknown>;
 };
 
 async function run(queue: CompleteChatWithToolsResult[], h: Harness = {}) {
@@ -70,6 +70,7 @@ async function run(queue: CompleteChatWithToolsResult[], h: Harness = {}) {
 	const toolResults: Array<{ name: string; ok: boolean; summary: string }> = [];
 	const execStarts: string[] = [];
 	let editCalls = 0;
+	let probes = 0;
 	const client = {
 		execStart: vi.fn(async (input: { cmd: string }) => {
 			execStarts.push(input.cmd);
@@ -119,19 +120,25 @@ async function run(queue: CompleteChatWithToolsResult[], h: Harness = {}) {
 		origin: h.origin ?? "chat",
 		messages: [{ role: "user", content: "corrige o bug em a.ts" }],
 		maxSteps: h.maxSteps ?? 40,
-		...(h.budgetPolicy ? { budgetPolicy: h.budgetPolicy } : {}),
+		...(h.budget ? { budget: h.budget } : {}),
 		devSession,
 		onEvent: (event) => {
 			if (event.type === "tool_result") toolResults.push(event as never);
 		},
 		streamChat: async (params) => {
 			requests.push(params.messages.map((m) => ({ ...m })));
+			// Avaliação brando do limite de passos (probe interno): responde que concluiu.
+			const last = params.messages[params.messages.length - 1];
+			if (last?.role === "system" && String(last.content).startsWith("AVALIAÇÃO DE PROGRESSO")) {
+				probes += 1;
+				return text(JSON.stringify({ concluded: true, summary: "Concluído pelo probe.", continueReason: "" }));
+			}
 			const next = queue.shift();
 			if (!next) throw new Error("LLM extra");
 			return next;
 		},
 	} as Parameters<typeof runComputerUse>[0]);
-	return { result, requests, toolResults, execStarts, client };
+	return { result, requests, toolResults, execStarts, client, probes: () => probes };
 }
 
 const edit = (id: string, path = "a.ts", old = "x") => call(id, "edit_file", { path, old, new: "y" });
@@ -183,5 +190,52 @@ describe("edição que não casa não bloqueia a tool no run", () => {
 			{ editFails: () => true, breakOthers: true },
 		);
 		expect(result.text).toBe("Segui sem conseguir editar.");
+	});
+});
+
+const SOFT = { softMaxSteps: 3, hardMaxSteps: 30, extensionSteps: 10 };
+const testShell = (id: string, cmd = "pnpm test") => call(id, "shell", { cmd });
+
+describe("limite brando não encerra run de código com trabalho sem verificar", () => {
+	it("edições sem verificação: o limite estende em vez de concluir", async () => {
+		const { result, probes, execStarts } = await run(
+			[step(edit("e1")), step(edit("e2", "b.ts")), step(edit("e3", "c.ts")), step(testShell("t1")), text("Tudo verde.")],
+			{ budget: SOFT, exec: () => exited(0, "ok") },
+		);
+		expect(probes()).toBe(0);
+		expect(execStarts).toEqual(["pnpm test"]);
+		expect(result.text).toBe("Tudo verde.");
+	});
+
+	it("depois de uma verificação que passou o limite avalia como antes (pode concluir)", async () => {
+		const { result, probes } = await run(
+			[step(edit("e1")), step(testShell("t1")), step(call("r1", "read_file", { path: "a.ts" })), text("não deve chegar aqui")],
+			{ budget: SOFT, exec: () => exited(0, "ok") },
+		);
+		expect(probes()).toBe(1);
+		expect(result.text).toBe("Concluído pelo probe.");
+	});
+
+	it("verificação que falhou (exit 1) não conta: continua estendendo", async () => {
+		const { probes } = await run(
+			[step(edit("e1")), step(testShell("t1")), step(call("r1", "read_file", { path: "a.ts" })), text("Corrigi o que faltava.")],
+			{ budget: SOFT, exec: () => exited(1, "1 failed") },
+		);
+		expect(probes()).toBe(0);
+	});
+
+	it("sem edição nem job (só leitura) o limite avalia como antes", async () => {
+		const { result, probes } = await run(
+			[step(call("r1", "read_file", { path: "a.ts" })), step(call("r2", "read_file", { path: "b.ts" })), step(call("r3", "grep", { pattern: "x" })), text("não deve chegar aqui")],
+			{ budget: SOFT },
+		);
+		expect(probes()).toBe(1);
+		expect(result.text).toBe("Concluído pelo probe.");
+	});
+
+	it("o teto duro continua valendo: edição sem verificar não passa de hardMaxSteps", async () => {
+		const queue = Array.from({ length: 12 }, (_, i) => step(edit(`e${i}`, `f${i}.ts`)));
+		const error = await run(queue, { budget: { softMaxSteps: 3, hardMaxSteps: 6, extensionSteps: 10 } }).catch((e: unknown) => e);
+		expect(String((error as Error).message ?? error)).toMatch(/limite de 6 passos/);
 	});
 });
