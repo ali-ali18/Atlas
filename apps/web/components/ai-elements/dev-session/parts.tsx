@@ -88,8 +88,8 @@ export function ActivityCard({
 			aria-label={label}
 			aria-pressed={selected}
 			className={cn(
-				"group/row flex w-full max-w-sm min-w-0 flex-col gap-1 self-start rounded-2xl border bg-card px-3 py-2 text-left outline-none transition-colors hover:bg-accent/40 focus-visible:ring-3 focus-visible:ring-ring/50",
-				selected && "bg-accent/40",
+				"group/row flex w-full max-w-[min(68ch,100%)] min-w-0 flex-col gap-1 self-start rounded-2xl bg-muted/60 px-3 py-2 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50",
+				selected && "bg-muted",
 			)}
 			onClick={onOpen}
 			type="button"
