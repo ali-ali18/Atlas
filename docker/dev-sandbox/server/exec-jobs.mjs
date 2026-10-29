@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, chownSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chownSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
@@ -19,6 +19,8 @@ export const SPILL_THRESHOLD_BYTES = 30_000;
 export const SPILL_MAX_BYTES = 64 * 1024 * 1024;
 export const SPILL_MAX_AGE_MS = 7 * 24 * 3_600_000;
 const SPILL_REL_DIR = join(".agent", "output");
+// Estado do shell entre chamadas (cwd + variáveis exportadas), por workspace/sessão.
+const STATE_REL_DIR = join(".agent", "shell-state");
 const UNTIL_WINDOW_BYTES = 256 * 1024;
 const KEEP_FINISHED_MS = 30 * 60_000;
 const MAX_JOBS = 64;
@@ -122,6 +124,35 @@ function cacheEnv() {
 	return out;
 }
 
+/**
+ * Prefixo do `bash -lc`: carrega as variáveis salvas e, no primeiro plano, grava cwd e variáveis
+ * exportadas ao sair (trap EXIT preserva o código de saída). Só grava o que o comando mudou em relação
+ * ao ambiente com que o shell nasceu, então o que o servidor injeta por comando (ex.: GH_TOKEN) não
+ * vira estado; nomes com cara de segredo nunca são gravados, mesmo exportados pelo próprio comando.
+ */
+export function shellStatePrefix({ dir, id, save }) {
+	const q = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
+	const lines = [`__a_dir=${q(dir)}; __a_id=${q(id)}`];
+	if (save) lines.push("declare -A __a_p; for __a_n in $(compgen -e); do __a_p[$__a_n]=${!__a_n}; done");
+	lines.push('[ -f "$__a_dir/env" ] && . "$__a_dir/env" 2>/dev/null');
+	if (save) {
+		lines.push(
+			"__a_save() {",
+			"  shopt -s nocasematch",
+			'  printf "%s\\n" "$PWD" > "$__a_dir/cwd.$__a_id" 2>/dev/null || return 0',
+			"  { for __a_n in $(compgen -e); do",
+			"      case $__a_n in PWD|OLDPWD|SHLVL|_|PPID|BASH_*|BASHOPTS|SHELLOPTS|LD_PRELOAD|LD_LIBRARY_PATH|LD_AUDIT|ENV|NODE_OPTIONS|__a_*) continue;; esac",
+			"      [[ $__a_n =~ (TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY|CREDENTIAL) ]] && continue",
+			'      [[ ${__a_p[$__a_n]+x} && ${__a_p[$__a_n]} == "${!__a_n}" ]] && continue',
+			"      printf 'export %s=%q\\n' \"$__a_n\" \"${!__a_n}\"",
+			'    done; } > "$__a_dir/env.$__a_id" 2>/dev/null',
+			"}",
+			"trap __a_save EXIT",
+		);
+	}
+	return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+}
+
 export function createExecManager(options = {}) {
 	const spawnFn = options.spawn ?? spawn;
 	const now = options.now ?? Date.now;
@@ -134,6 +165,8 @@ export function createExecManager(options = {}) {
 	const spillDir = options.spillDir ?? join(workspace, SPILL_REL_DIR);
 	const spillRoot = join(spillDir, "..");
 	let spillReady = false;
+	const stateDir = options.stateDir ?? join(workspace, STATE_REL_DIR);
+	let stateReady;
 
 	/** Apaga arquivos de saída com mais de 7 dias (ao criar o gerenciador, i.e. no início da sessão/container). */
 	function purgeSpill() {
@@ -152,18 +185,8 @@ export function createExecManager(options = {}) {
 		}
 	}
 
-	/** Cria .agent/output e garante .agent/ em .git/info/exclude (nunca mexe no .gitignore do repositório). */
-	function prepareSpill() {
-		mkdirSync(spillDir, { recursive: true });
-		if (identity.uid !== undefined) {
-			for (const dir of [spillRoot, spillDir]) {
-				try {
-					chownSync(dir, identity.uid, identity.gid);
-				} catch {
-					// sem permissão: o root continua gravando
-				}
-			}
-		}
+	/** Garante .agent/ em .git/info/exclude (nunca mexe no .gitignore do repositório). */
+	function ensureGitExclude() {
 		const info = join(workspace, ".git", "info");
 		if (existsSync(join(workspace, ".git"))) {
 			try {
@@ -177,7 +200,82 @@ export function createExecManager(options = {}) {
 				// sem .git gravável: segue sem o exclude
 			}
 		}
+	}
+
+	/** Cria .agent/output e garante .agent/ fora do git. */
+	function prepareSpill() {
+		mkdirSync(spillDir, { recursive: true });
+		if (identity.uid !== undefined) {
+			for (const dir of [spillRoot, spillDir]) {
+				try {
+					chownSync(dir, identity.uid, identity.gid);
+				} catch {
+					// sem permissão: o root continua gravando
+				}
+			}
+		}
+		ensureGitExclude();
 		spillReady = true;
+	}
+
+	/** Cria o diretório de estado do shell (dono = usuário do agente). false = sem estado, o shell segue sem persistir. */
+	function prepareState() {
+		if (stateReady !== undefined) return stateReady;
+		try {
+			mkdirSync(stateDir, { recursive: true });
+			if (identity.uid !== undefined) {
+				for (const dir of [join(stateDir, ".."), stateDir]) {
+					try {
+						chownSync(dir, identity.uid, identity.gid);
+					} catch {
+						// sem permissão: o root continua gravando
+					}
+				}
+			}
+			ensureGitExclude();
+			stateReady = true;
+		} catch {
+			stateReady = false;
+		}
+		return stateReady;
+	}
+
+	/** cwd salvo pelo último comando, se ainda existe e está dentro do workspace; senão undefined (raiz). */
+	async function savedCwd() {
+		try {
+			const raw = readFileSync(join(stateDir, "cwd"), "utf8").trim();
+			if (!raw) return undefined;
+			const dir = await confine(raw);
+			return statSync(dir).isDirectory() ? dir : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
+	/** Fim do job: lê o cwd final e, se o comando saiu normalmente, promove os arquivos temporários a estado. */
+	function commitState(job) {
+		if (!job.state) return;
+		const tmpCwd = join(stateDir, `cwd.${job.id}`);
+		const tmpEnv = join(stateDir, `env.${job.id}`);
+		try {
+			if (job.state.save && job.status === "exited" && existsSync(tmpCwd)) {
+				const dir = readFileSync(tmpCwd, "utf8").trim();
+				if (dir.startsWith("/") && statSync(dir).isDirectory()) {
+					job.endCwd = dir;
+					renameSync(tmpCwd, join(stateDir, "cwd"));
+					if (existsSync(tmpEnv)) renameSync(tmpEnv, join(stateDir, "env"));
+				}
+			}
+		} catch {
+			// estado é conveniência: nunca derruba o job
+		}
+		for (const file of [tmpCwd, tmpEnv]) {
+			try {
+				unlinkSync(file);
+			} catch {
+				// já promovido ou nunca criado
+			}
+		}
 	}
 
 	/** Acumula a saída (stdout+stderr na ordem de chegada); passado o limiar, grava em arquivo. */
@@ -244,7 +342,7 @@ export function createExecManager(options = {}) {
 		const cmd = input?.cmd;
 		if (typeof cmd !== "string" || !cmd.trim()) throw new ExecError("cmd obrigatório");
 		if (cmd.length > MAX_CMD_CHARS) throw new ExecError("cmd grande demais");
-		const cwd = await confine(input.cwd ?? workspace);
+		const cwd = await confine(input.cwd ?? (await savedCwd()) ?? workspace);
 		const { env: userEnv, secrets } = sanitizeEnv(input.env);
 		// Com auto-background o job só morre no teto máximo; `timeoutMs` explícito ainda vale.
 		const timeoutMs = input.autoBackgroundMs !== undefined && input.timeoutMs === undefined ? MAX_TIMEOUT_MS : clampTimeout(input.timeoutMs);
@@ -264,7 +362,9 @@ export function createExecManager(options = {}) {
 			...(options.extraEnv ? options.extraEnv() : {}),
 		};
 		const id = randomBytes(6).toString("hex");
-		const child = spawnFn("bash", ["-lc", cmd], {
+		const state = prepareState() ? { save: !background } : undefined;
+		const script = state ? shellStatePrefix({ dir: stateDir, id, save: state.save }) + cmd : cmd;
+		const child = spawnFn("bash", ["-lc", script], {
 			cwd,
 			env: { ...baseEnv, ...userEnv },
 			detached: true,
@@ -290,6 +390,8 @@ export function createExecManager(options = {}) {
 			background,
 			spill: { pending: [], bytes: 0, failed: false, capped: false },
 			spillPath: undefined,
+			state,
+			endCwd: undefined,
 		};
 		jobs.set(id, job);
 
@@ -320,6 +422,7 @@ export function createExecManager(options = {}) {
 			job.signal = signal ?? null;
 			if (failure) job.stderr.append(`${failure}\n`);
 			if (job.status === "running") job.status = "exited";
+			commitState(job);
 			wake();
 			if (job.background) {
 				try {
@@ -394,6 +497,7 @@ export function createExecManager(options = {}) {
 			omittedBytes: out.omittedBytes + err.omittedBytes,
 			durationMs: (job.endedAt ?? now()) - job.startedAt,
 			cwd: job.cwd,
+			...(job.endCwd ? { endCwd: job.endCwd } : {}),
 			...(job.spillPath ? { spillPath: job.spillPath } : {}),
 		};
 	}

@@ -239,12 +239,12 @@ export const DEV_SESSION_TOOLS: ChatTool[] = [
 		function: {
 			name: "shell",
 			description:
-				"Run a bash command in the coding session container (cwd /workspace, non-root, internet limited by the repo environment policy). Returns exit code, stdout and stderr. A foreground command is waited for at most 30s (raise it with timeoutMs, up to 600000). When that time passes the command is NOT killed: it becomes a background job and you get still_running, a job_id and the tail of the output so far; then wait with shell_output (optionally with until). For installs, builds, test suites or servers pass background:true: it returns a job_id at once. Jobs are only killed at the 30 minute hard cap or by shell_kill. Never run interactive programs; pipe input or use shell_stdin. Output over 30000 characters is shown as head + tail; the full output is saved in /workspace/.agent/output/<job_id>.txt (the path is in the result): read it with read_file or search it with grep.",
+				"Run a bash command in the coding session container (starts in /workspace, non-root, internet limited by the repo environment policy). The cwd and exported vars persist between calls (cd and export carry over; the result shows the cwd). Returns exit code, stdout and stderr. A foreground command is waited for at most 30s (raise it with timeoutMs, up to 600000). When that time passes the command is NOT killed: it becomes a background job and you get still_running, a job_id and the tail of the output so far; then wait with shell_output (optionally with until). For installs, builds, test suites or servers pass background:true: it returns a job_id at once. Jobs are only killed at the 30 minute hard cap or by shell_kill. Never run interactive programs; pipe input or use shell_stdin. Output over 30000 characters is shown as head + tail; the full output is saved in /workspace/.agent/output/<job_id>.txt (the path is in the result): read it with read_file or search it with grep.",
 			parameters: {
 				type: "object",
 				properties: {
 					cmd: { type: "string", description: "bash command line (run with bash -lc)" },
-					cwd: { type: "string", description: "Working directory (default /workspace; relative paths are inside it)" },
+					cwd: { type: "string", description: "Working directory (default: where the last command left the shell; relative paths are inside /workspace)" },
 					timeoutMs: { type: "number", description: "How long to wait in the foreground before the command moves to the background (default 30000, max 600000). It does not kill the command." },
 					background: { type: "boolean", description: "Return a job_id immediately and poll with shell_output" },
 				},
@@ -1219,6 +1219,8 @@ export function createDevSessionRuntime(deps: DevSessionRuntimeDeps) {
 		matched?: boolean;
 		/** Arquivo (no container) com a saída completa do job, quando passou do limite inline. */
 		spillPath?: string;
+		/** Diretório em que o shell terminou (o `cd` do comando vale para as próximas chamadas). */
+		cwd?: string;
 	};
 
 	/**
@@ -1301,6 +1303,7 @@ export function createDevSessionRuntime(deps: DevSessionRuntimeDeps) {
 			reason: endedReason(snap),
 			...(until ? { matched: snap.matched === true } : {}),
 			...(snap.spillPath ? { spillPath: snap.spillPath } : {}),
+			cwd: snap.endCwd ?? snap.cwd,
 		};
 	}
 
@@ -1397,7 +1400,7 @@ export function createDevSessionRuntime(deps: DevSessionRuntimeDeps) {
 				return formatStillRunning(outcome, id) + reinstall;
 			}
 			const state = outcome.timedOut ? `TEMPO ESGOTADO (${seconds(input.timeoutMs)}): use background:true para trabalho longo` : outcome.killed ? "encerrado" : `exit ${outcome.exitCode}`;
-			return withFailureHints(formatOutcome(outcome, `${state} em ${seconds(outcome.durationMs)} (cwd ${cwd})`), outcome, row) + reinstall;
+			return withFailureHints(formatOutcome(outcome, `${state} em ${seconds(outcome.durationMs)} (cwd ${outcome.cwd ?? cwd})`), outcome, row) + reinstall;
 		});
 	}
 

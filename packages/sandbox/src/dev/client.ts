@@ -36,6 +36,8 @@ export type DevExecSnapshot = {
 	omittedBytes: number;
 	durationMs: number;
 	cwd: string;
+	/** Diretório em que o shell terminou (só com o job encerrado e o estado do shell ativo). */
+	endCwd?: string;
 	/** Com `until` no poll: a saída nova casou com a condição. */
 	matched?: boolean;
 	/** Caminho (dentro do container) com a saída completa do job, quando ela passou do limite inline. */

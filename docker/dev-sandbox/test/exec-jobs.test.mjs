@@ -265,7 +265,7 @@ test("saída acima de 30KB também vai para /workspace/.agent/output/<job>.txt (
 	const small = await m.start({ cmd: "a" });
 	children[0].stdout.emit("data", Buffer.from("a".repeat(1_000)));
 	assert.equal(m.snapshot(small).spillPath, undefined);
-	assert.equal(existsSync(join(ws, ".agent")), false);
+	assert.equal(existsSync(join(ws, ".agent", "output")), false);
 
 	const big = await m.start({ cmd: "b" });
 	children[1].stdout.emit("data", Buffer.from("b".repeat(20_000)));
@@ -311,4 +311,71 @@ test("arquivos de saída com mais de 7 dias são apagados ao iniciar; os recente
 	await fakeManager({ workspace: ws, confine: async () => ws });
 	assert.equal(existsSync(join(dir, "velho.txt")), false);
 	assert.equal(existsSync(join(dir, "novo.txt")), true);
+});
+
+// ----- estado persistente do shell (cwd e variáveis exportadas entre chamadas) -----
+
+async function stateManager() {
+	const { mkdtempSync, realpathSync } = await import("node:fs");
+	const { join } = await import("node:path");
+	const ws = realpathSync(mkdtempSync(join(os.tmpdir(), "shellstate-")));
+	const m = createExecManager({ workspace: ws, home: ws, confine: async (p) => (typeof p === "string" ? p : ws) });
+	return { m, ws };
+}
+
+test("cd persiste entre chamadas de shell e o resultado traz o cwd final", { skip }, async () => {
+	const { m, ws } = await stateManager();
+	const first = await m.run({ cmd: "mkdir -p sub/dir && cd sub/dir" });
+	assert.equal(first.exitCode, 0);
+	assert.equal(first.endCwd, `${ws}/sub/dir`);
+	const second = await m.run({ cmd: "pwd" });
+	assert.equal(second.stdout.trim(), `${ws}/sub/dir`);
+	assert.equal(second.endCwd, `${ws}/sub/dir`);
+});
+
+test("variáveis exportadas persistem, o código de saída é preservado e cwd explícito vence o salvo", { skip }, async () => {
+	const { m, ws } = await stateManager();
+	const first = await m.run({ cmd: "export FOO='a b' ; export MULTI=$'l1\\nl2'; mkdir -p sub && cd sub; exit 7" });
+	assert.equal(first.exitCode, 7);
+	const second = await m.run({ cmd: 'echo "$FOO|$MULTI"; pwd' });
+	assert.equal(second.stdout, `a b|l1\nl2\n${ws}/sub\n`);
+	const third = await m.run({ cmd: "pwd", cwd: ws });
+	assert.equal(third.stdout.trim(), ws);
+});
+
+test("segredos injetados e variáveis com nome de segredo nunca vão para o arquivo de estado", { skip }, async () => {
+	const { readFileSync, readdirSync } = await import("node:fs");
+	const { join } = await import("node:path");
+	const { m, ws } = await stateManager();
+	await m.run({ cmd: "export KEEP=1 OTHER_TOKEN=zzzzzz_secret_value; true", env: { GH_TOKEN: "ghp_topsecret_value", PLAIN_INJECTED: "inj" } });
+	const dir = join(ws, ".agent", "shell-state");
+	for (const name of readdirSync(dir)) {
+		const text = readFileSync(join(dir, name), "utf8");
+		assert.ok(!text.includes("ghp_topsecret_value"), name);
+		assert.ok(!text.includes("zzzzzz_secret_value"), name);
+		assert.ok(!text.includes("PLAIN_INJECTED"), name);
+	}
+	const next = await m.run({ cmd: 'echo "$KEEP|${GH_TOKEN:-vazio}|${OTHER_TOKEN:-vazio}"' });
+	assert.equal(next.stdout.trim(), "1|vazio|vazio");
+});
+
+test("cwd salvo que não existe mais volta para a raiz do workspace", { skip }, async () => {
+	const { rmSync } = await import("node:fs");
+	const { m, ws } = await stateManager();
+	await m.run({ cmd: "mkdir gone && cd gone" });
+	rmSync(`${ws}/gone`, { recursive: true });
+	const r = await m.run({ cmd: "pwd" });
+	assert.equal(r.exitCode, 0);
+	assert.equal(r.stdout.trim(), ws);
+	assert.equal(r.endCwd, ws);
+});
+
+test("job em segundo plano começa no cwd salvo, mas não grava estado ao terminar", { skip }, async () => {
+	const { m, ws } = await stateManager();
+	await m.run({ cmd: "mkdir -p bg && cd bg" });
+	const job = await m.start({ cmd: "pwd; cd /tmp; export BGVAR=1" }, { background: true });
+	await waitEnded(job);
+	assert.equal(m.snapshot(job).stdout.trim(), `${ws}/bg`);
+	const r = await m.run({ cmd: 'pwd; echo "${BGVAR:-vazio}"' });
+	assert.equal(r.stdout, `${ws}/bg\nvazio\n`);
 });

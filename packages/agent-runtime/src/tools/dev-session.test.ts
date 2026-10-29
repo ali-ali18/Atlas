@@ -500,6 +500,17 @@ describe("runtime: shell", () => {
 		expect(summary.length).toBeLessThan(31_000);
 	});
 
+	it("o resultado do shell mostra o cwd em que o comando terminou (o shell lembra o cd)", async () => {
+		const t = setup({ polls: [snapshot({ stdout: "ok\n", nextOut: 3, cwd: "/workspace", endCwd: "/workspace/apps/web" })] });
+		const { summary } = await t.runtime.execute("shell", { cmd: "cd apps/web" }, "c1");
+		expect(summary).toContain("(cwd /workspace/apps/web)");
+	});
+
+	it("a descrição da tool shell diz que cwd e variáveis exportadas persistem entre chamadas", () => {
+		const shell = DEV_SESSION_TOOLS.find((tool) => tool.function.name === "shell");
+		expect(shell?.function.description).toMatch(/cwd and exported (env )?vars persist between calls/i);
+	});
+
 	it("saída pequena não ganha nota de arquivo mesmo com spillPath", async () => {
 		const t = setup({ polls: [snapshot({ stdout: "ok\n", nextOut: 3, spillPath: "/workspace/.agent/output/0123456789ab.txt" })] });
 		const { summary } = await t.runtime.execute("shell", { cmd: "echo ok" }, "c1");
