@@ -4,9 +4,6 @@ import { useState } from "react";
 import { ShieldQuestionIcon } from "lucide-react";
 import {
 	AUTONOMY_LEVELS,
-	AUTONOMY_LEVEL_DESCRIPTIONS,
-	AUTONOMY_LEVEL_LABELS,
-	formatAutonomyRemaining,
 	type AutonomyDuration,
 	type AutonomyLevel,
 } from "@workspace/shared";
@@ -16,7 +13,8 @@ import { AutonomyExceptions } from "./autonomy-exceptions";
 import { SettingsPicker } from "../settings-picker";
 import { AutonomyValidityButton } from "./autonomy-validity-button";
 import { formatDate } from "@/lib/format";
-import { useLocale } from "@/lib/i18n/provider";
+import { useTranslations } from "@/lib/i18n/provider";
+import { levelDescription, levelLabel, remainingLabel } from "./autonomy-copy";
 
 /**
  * Autonomia de um escopo: um select de nível (no bot, com "Herdar da conta"),
@@ -35,7 +33,8 @@ export function AutonomySettings({
 	/** Chave do conector (vem do Marketplace): abre as exceções filtradas nele. */
 	connectorFilter?: string;
 }) {
-	const locale = useLocale();
+	const translator = useTranslations();
+	const { t, locale } = translator;
 	const { view, connections, loading, saving, error, save } = useAutonomy(
 		scope,
 		botId,
@@ -43,18 +42,18 @@ export function AutonomySettings({
 	// Validade escolhida nesta sessão: reaplicada ao trocar de nível.
 	const [duration, setDuration] = useState<AutonomyDuration | null>(null);
 
-	const rowLabel = scope === "account" ? "Autonomia padrão" : "Autonomia";
+	const rowLabel = scope === "account" ? t("autonomy.rowAccount") : t("autonomy.row");
 	if (loading) {
 		return variant === "row" ? (
 			<SettingRow control="inline" icon={ShieldQuestionIcon} label={rowLabel}>
-				<span className="text-body text-muted-foreground">Carregando autonomia…</span>
+				<span className="text-body text-muted-foreground">{t("autonomy.loading")}</span>
 			</SettingRow>
 		) : (
-			<p className="text-sm text-muted-foreground">Carregando autonomia…</p>
+			<p className="text-sm text-muted-foreground">{t("autonomy.loading")}</p>
 		);
 	}
 	if (!view) {
-		const message = error ?? "Não foi possível carregar a autonomia.";
+		const message = error ?? t("autonomy.loadError");
 		return variant === "row" ? (
 			<SettingRow control="inline" icon={ShieldQuestionIcon} label={rowLabel}>
 				<span className="text-body text-destructive" role="alert">
@@ -81,22 +80,25 @@ export function AutonomySettings({
 	const durationValue: AutonomyDuration | "current" =
 		duration ?? (activeUntil ? "current" : "forever");
 	const labels: Record<AutonomyLevel | "inherit", string> = {
-		inherit: `Herdar (${AUTONOMY_LEVEL_LABELS[view.effective.level]})`,
-		...AUTONOMY_LEVEL_LABELS,
+		inherit: t("autonomy.inherit", { level: levelLabel(view.effective.level, translator) }),
+		autonomous: levelLabel("autonomous", translator),
+		balanced: levelLabel("balanced", translator),
+		always_ask: levelLabel("always_ask", translator),
 	};
 	const values = scope === "bot" ? (["inherit", ...AUTONOMY_LEVELS] as const) : AUTONOMY_LEVELS;
 	const helper =
 		selected === "inherit"
-			? "Usa o padrão definido nas configurações da conta."
-			: AUTONOMY_LEVEL_DESCRIPTIONS[selected];
-	const until = activeUntil
-		? ` · até ${formatDate(activeUntil, locale, { day: "2-digit", month: "2-digit" })}`
-		: "";
+			? t("autonomy.inheritHelp")
+			: levelDescription(selected, translator);
+	const withUntil = (text: string) =>
+		activeUntil
+			? t("autonomy.withUntil", { text, date: formatDate(activeUntil, locale, { day: "2-digit", month: "2-digit" }) })
+			: text;
 
 	const levelPicker = (
 		<>
 			<SettingsPicker
-				aria-label="Nível de autonomia"
+				aria-label={t("autonomy.levelLabel")}
 				className={variant === "row" ? undefined : "min-w-0 flex-1"}
 				disabled={saving}
 				id={`autonomy-level-${scope}`}
@@ -112,8 +114,8 @@ export function AutonomySettings({
 					label: labels[value],
 					description:
 						value === "inherit"
-							? "Usa o padrão definido nas configurações da conta."
-							: AUTONOMY_LEVEL_DESCRIPTIONS[value],
+							? t("autonomy.inheritHelp")
+							: levelDescription(value, translator),
 				}))}
 				value={selected}
 			/>
@@ -121,7 +123,7 @@ export function AutonomySettings({
 				<AutonomyValidityButton
 					active={Boolean(activeUntil)}
 					currentLabel={
-						activeUntil ? `Mais ${formatAutonomyRemaining(activeUntil, now)}` : undefined
+						activeUntil ? t("autonomy.moreRemaining", { remaining: remainingLabel(activeUntil, now, translator) }) : undefined
 					}
 					disabled={saving}
 					onChange={(next) => {
@@ -157,7 +159,7 @@ export function AutonomySettings({
 						) : null
 					}
 					control="inline"
-					description={`${helper}${selected !== "inherit" ? until : ""}`}
+					description={selected !== "inherit" ? withUntil(helper) : helper}
 					icon={ShieldQuestionIcon}
 					label={rowLabel}
 				>
@@ -172,8 +174,7 @@ export function AutonomySettings({
 		<div className="space-y-2">
 			<div className="flex items-center gap-2">{levelPicker}</div>
 			<p className="text-xs text-muted-foreground">
-				{helper}
-				{selected !== "inherit" ? until : ""}
+				{selected !== "inherit" ? withUntil(helper) : helper}
 			</p>
 			{error ? (
 				<p className="text-xs text-destructive" role="alert">
