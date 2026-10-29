@@ -1,0 +1,20 @@
+/** Tela de entrada (/login). Prefixo `login.`. */
+export const login = {
+	"login.title": "Entrar no Atlas",
+	"login.subtitle": "Seu agente pessoal no seu servidor.",
+	"login.google": "Continuar com Google",
+	"login.github": "Continuar com GitHub",
+	"login.or": "ou",
+	"login.emailLabel": "E-mail",
+	"login.emailPlaceholder": "voce@exemplo.com",
+	"login.sendLink": "Enviar link de acesso",
+	"login.linkSent": "Confira o link no seu e-mail.",
+	"login.privateInstance": "Instância privada — só o dono tem acesso.",
+	"login.startError": "Não foi possível iniciar o login.",
+	"login.linkError": "Não foi possível enviar o link.",
+	"login.quote": "Um agente de IA <em>feito do seu jeito</em>: bots, rotinas e conectores trabalhando pra você.",
+	"login.avatarLabel": "Avatar do Atlas Agent",
+	"login.tagline": "Sua IA, do seu jeito",
+	"login.allInOnePlace": "Tudo num lugar só",
+	"login.language": "Idioma",
+} as const;
