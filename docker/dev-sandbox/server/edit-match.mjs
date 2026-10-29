@@ -65,7 +65,17 @@ function reindent(newText, oldIndent, foundIndent) {
 export function findMatches(text, oldText, newText) {
 	const exact = exactMatches(text, oldText);
 	if (exact.length) {
-		return { strategy: "exact", note: null, matches: exact.map((m) => ({ ...m, line: lineOf(text, m.start), replacement: newText })) };
+		// Trecho de uma linha só numa linha CRLF, com `new` de várias linhas em LF: as linhas novas seguem o CRLF do arquivo.
+		const growsInCrlf = (m) => {
+			if (oldText.includes("\n") || !/[^\r]\n|^\n/.test(newText)) return false;
+			const nl = text.indexOf("\n", m.end);
+			return nl > 0 && text[nl - 1] === "\r";
+		};
+		return {
+			strategy: "exact",
+			note: null,
+			matches: exact.map((m) => ({ ...m, line: lineOf(text, m.start), replacement: growsInCrlf(m) ? newText.replace(/\r?\n/g, "\r\n") : newText })),
+		};
 	}
 	const oldNorm = oldText.replaceAll("\r\n", "\n");
 	const newNorm = newText.replaceAll("\r\n", "\n");

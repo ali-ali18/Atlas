@@ -89,6 +89,12 @@ async function patchCase(content, old, neu, extra = {}) {
 	return { api, file, run, read: () => fsp.readFile(file, "utf8") };
 }
 
+test("patch: old de uma linha casando exato em arquivo CRLF, com new de várias linhas, mantém CRLF", async () => {
+	const c = await patchCase("a\r\nb\r\nc\r\n", "b", "b1\nb2");
+	await c.run();
+	assert.equal(await c.read(), "a\r\nb1\r\nb2\r\nc\r\n");
+});
+
 test("patch: old com LF casa em arquivo CRLF e preserva CRLF", async () => {
 	const c = await patchCase("a\r\nb\r\nc\r\n", "a\nb", "a\nB");
 	const r = await c.run();
