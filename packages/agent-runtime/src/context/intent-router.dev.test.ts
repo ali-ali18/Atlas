@@ -36,6 +36,8 @@ const CODING = [
 	"rename the variable foo to bar in index.js",
 	"debug this null pointer exception",
 	"Error: Cannot find module './config' in my project",
+	"roda o ./scripts/deploy.sh e me diz se deu erro",
+	"corrige o código do formulário de cadastro",
 ];
 
 const NON_CODING = [
@@ -57,6 +59,14 @@ const NON_CODING = [
 	"write a poem about the sea",
 	"me explica o que é node.js",
 	"o erro de digitação no slide 3",
+	"resolva o problema do código de barras do boleto",
+	"arrume o código postal no cadastro",
+	"edite a função PROCV na planilha",
+	"cria uma variável na planilha",
+	"na planilha de vendas, edite a função SOMA",
+	"o site novo está em nest.js, me explica",
+	"abre meu-site.go.com e vê o preço",
+	"me manda o relatorio.sh por e-mail",
 ];
 
 const hits = (list: string[]) => list.filter((text) => routeContextGroups({ text }).has("dev"));
