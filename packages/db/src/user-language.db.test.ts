@@ -197,4 +197,15 @@ describe("idioma detectado (Postgres real)", { skip: dbSkip }, () => {
 		await patchAccountConfig(a.id, { general: { defaultBotLanguage: "auto" } });
 		assert.equal((await createBot({ name: "Volta" }, a.id)).language, "auto");
 	});
+
+	test("recordUserLanguage: dois envios simultâneos no mesmo idioma contam como duas confirmações", async () => {
+		const owner = await createTestUser("lang-race");
+		const bot = await createBot({ name: "Bot" }, owner.id);
+		const record = (text: string) => recordUserLanguage({ userId: owner.id, conversationId: bot.conversationId, text });
+		await record(PT);
+		await Promise.all([record(EN), record(EN)]);
+		const states = await readLanguageStates(owner.id, bot.conversationId);
+		assert.deepEqual(states.conversation, { last: "en-US", pending: null });
+		assert.deepEqual(states.user, { last: "en-US", pending: null });
+	});
 });

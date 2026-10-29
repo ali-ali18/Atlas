@@ -85,25 +85,61 @@ export async function writeLanguageStates(input: {
 	}
 }
 
+/** Tentativas do compare-and-set: a primeira e uma repetição com o estado recém-lido. */
+const RECORD_ATTEMPTS = 2;
+
+/** Grava o estado do usuário só se a linha ainda tem o valor lido (`null` casa com vazio). `false` = outro envio se adiantou. */
+async function casUserLanguage(owner: string, prev: StoredLanguageState, next: StoredLanguageState): Promise<boolean> {
+	const data = { lastLanguage: clean(next.last), pendingLanguage: clean(next.pending) };
+	const updated = await prisma.userSettings.updateMany({
+		where: { userId: owner, lastLanguage: clean(prev.last), pendingLanguage: clean(prev.pending) },
+		data,
+	});
+	if (updated.count > 0) return true;
+	// Sem linha ainda: cria. Se outro envio criou antes (userId único), conta como disputa perdida.
+	const exists = await prisma.userSettings.findUnique({ where: { userId: owner }, select: { userId: true } });
+	if (exists) return false;
+	try {
+		await prisma.userSettings.create({ data: { userId: owner, ...data } });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function casConversationLanguage(owner: string, conversationId: string, prev: StoredLanguageState, next: StoredLanguageState): Promise<boolean> {
+	const updated = await prisma.conversation.updateMany({
+		where: { id: conversationId, userId: owner, lastLanguage: clean(prev.last), pendingLanguage: clean(prev.pending) },
+		data: { lastLanguage: clean(next.last), pendingLanguage: clean(next.pending) },
+	});
+	return updated.count > 0;
+}
+
 /**
  * Mensagem que o usuário escreveu: atualiza o último idioma da conversa e da conta (regras em
  * `nextLanguageMemory`: só com confiança alta e confirmação). Melhor esforço: nunca lança nem atrasa o envio por erro.
  * Só para texto digitado pelo usuário (nunca prompt do sistema, rotina, e-mail ou mensagem de outro bot).
+ *
+ * Ler-calcular-gravar com compare-and-set: dois envios simultâneos não se atropelam (o segundo relê e recalcula
+ * uma vez). Se perder a disputa de novo, desiste em silêncio: o único custo é a troca de idioma chegar uma
+ * mensagem depois.
  */
 export async function recordUserLanguage(input: { userId: string | undefined; conversationId?: string | null; text: string }): Promise<void> {
 	try {
 		const [owner] = ownerIds(input.userId);
 		if (!owner || !input.text.trim()) return;
-		const states = await readLanguageStates(owner, input.conversationId);
-		const user = nextLanguageMemory(toLanguageMemory(states.user), input.text);
-		const conversation = states.conversation ? nextLanguageMemory(toLanguageMemory(states.conversation), input.text) : null;
-		if (!user.changed && !conversation?.changed) return;
-		await writeLanguageStates({
-			userId: owner,
-			conversationId: input.conversationId,
-			...(user.changed ? { user: { last: user.memory.last, pending: user.memory.pending } } : {}),
-			...(conversation?.changed ? { conversation: { last: conversation.memory.last, pending: conversation.memory.pending } } : {}),
-		});
+		for (let attempt = 0; attempt < RECORD_ATTEMPTS; attempt++) {
+			const states = await readLanguageStates(owner, input.conversationId);
+			const user = nextLanguageMemory(toLanguageMemory(states.user), input.text);
+			const conversation = states.conversation ? nextLanguageMemory(toLanguageMemory(states.conversation), input.text) : null;
+			if (!user.changed && !conversation?.changed) return;
+			let lost = false;
+			if (user.changed) lost = !(await casUserLanguage(owner, toLanguageMemory(states.user), user.memory));
+			if (conversation?.changed && input.conversationId) {
+				lost = !(await casConversationLanguage(owner, input.conversationId, toLanguageMemory(states.conversation!), conversation.memory)) || lost;
+			}
+			if (!lost) return;
+		}
 	} catch (error) {
 		console.error("record user language failed; ignoring", error);
 	}
