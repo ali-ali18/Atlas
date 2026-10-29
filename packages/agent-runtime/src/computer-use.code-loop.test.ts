@@ -236,6 +236,22 @@ describe("limite brando não encerra run de código com trabalho sem verificar",
 		expect(result.text).toBe("Concluído pelo probe.");
 	});
 
+	it("a extensão por edição sem verificar tem teto de 2 por run: depois disso o limite avalia como antes", async () => {
+		const queue = Array.from({ length: 28 }, (_, i) => step(edit(`e${i}`, `f${i}.ts`)));
+		const { result, probes } = await run(queue, { budget: SOFT });
+		expect(probes()).toBe(1);
+		expect(result.text).toBe("Concluído pelo probe.");
+	});
+
+	it("editar só doc/lockfile não conta como edição sem verificar: o limite avalia como antes", async () => {
+		const { result, probes } = await run(
+			[step(edit("e1", "README.md")), step(edit("e2", "pnpm-lock.yaml")), step(edit("e3", "docs/guia.txt")), text("não deve chegar aqui")],
+			{ budget: SOFT },
+		);
+		expect(probes()).toBe(1);
+		expect(result.text).toBe("Concluído pelo probe.");
+	});
+
 	it("o teto duro continua valendo: edição sem verificar não passa de hardMaxSteps", async () => {
 		const queue = Array.from({ length: 12 }, (_, i) => step(edit(`e${i}`, `f${i}.ts`)));
 		const error = await run(queue, { budget: { softMaxSteps: 3, hardMaxSteps: 6, extensionSteps: 10 } }).catch((e: unknown) => e);
@@ -280,6 +296,12 @@ describe("verificar antes de dar o trabalho por pronto", () => {
 	it("teste que falhou não conta como verificado: há nota", async () => {
 		const { requests } = await run([step(edit("e1")), step(testShell("t1")), text("Acho que está bom."), text("Os testes falham: 1 failed.")], { exec: () => exited(1, "1 failed") });
 		expect(systemNotes(requests)).toHaveLength(1);
+	});
+
+	it("edição só de documento não cobra verificação ao terminar", async () => {
+		const { result, requests } = await run([step(edit("e1", "README.md")), text("Atualizei o README.")]);
+		expect(systemNotes(requests)).toHaveLength(0);
+		expect(result.text).toBe("Atualizei o README.");
 	});
 
 	it("sem edição (só leitura) ou sem sessão de código, não há nota", async () => {

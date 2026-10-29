@@ -14,7 +14,7 @@ import { buildStableSystemPrompt, buildSystemPrompt, swapLanguageInstruction } f
 import { namespaceToolCallId, renameProviderItemCallIds } from "./context/transcript.js";
 import { triageUserMessage, type TriageHistoryEntry } from "./loop/message-triage.js";
 import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } from "./loop/interrupt.js";
-import { createDevVerificationTracker, VERIFY_BEFORE_DONE_NOTE } from "./execution/dev-verification.js";
+import { createDevVerificationTracker, MAX_VERIFY_EXTENSIONS, VERIFY_BEFORE_DONE_NOTE } from "./execution/dev-verification.js";
 import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MAX_ANSWER_REVISIONS_PER_RUN, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
 import { detectLoginWall, describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
@@ -5580,6 +5580,8 @@ export async function runComputerUse(params: {
 			return row?.repo ? ((await devDeps.getEnvironment(userId, row.repo.toLowerCase()))?.testCommand ?? null) : null;
 		},
 	});
+	/** Quantas vezes este run já estendeu o limite brando só por trabalho sem verificar. */
+	let verifyExtensions = 0;
 	let devRuntime: DevSessionRuntime | undefined;
 	// Arquivos anexados pelo usuário: ler/listar sempre; copiar para o computador só com VM ou sessão de código.
 	if (!isSubagent && params.attachments?.present) {
@@ -8444,7 +8446,11 @@ ${blockHint}`;
 			if (workingLimit < hardCap) {
 				// Run de código com edição sem verificar (ou teste rodando em segundo plano): o limite brando não encerra
 				// o trabalho antes de verificar. Estende sem consultar o modelo; o teto duro e o relógio seguem valendo.
-				const verdict = devVerification.needsMoreWork() ? { action: "extend" as const, summary: "" } : await softEvaluate();
+				// No máximo MAX_VERIFY_EXTENSIONS vezes por run e só com progresso recente (sem novidade, cai na avaliação normal).
+				const verifyExtend =
+					devVerification.needsMoreWork() && verifyExtensions < MAX_VERIFY_EXTENSIONS && extensionAllowed();
+				if (verifyExtend) verifyExtensions += 1;
+				const verdict = verifyExtend ? { action: "extend" as const, summary: "" } : await softEvaluate();
 				if (verdict.action === "conclude") {
 					await settleStepCheckpoint();
 					return {

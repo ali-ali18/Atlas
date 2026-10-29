@@ -14,6 +14,9 @@ export const VERIFY_BEFORE_DONE_NOTE =
 	"Before finishing, run the project's check that is relevant to what you changed (the environment's test command if you know it) and report its real result. " +
 	"If you cannot run one, say plainly why in your final answer.";
 
+/** Teto de extensões do limite brando só por edição sem verificar (o teto duro e o relógio seguem valendo). */
+export const MAX_VERIFY_EXTENSIONS = 2;
+
 const SCRIPT_NAME = /^(test|tests|typecheck|type-check|tsc|check|lint|build|verify|ci|validate)(:[\w:.-]+)?$/;
 const PACKAGE_MANAGERS = new Set(["pnpm", "npm", "yarn", "bun"]);
 /** Flags de gerenciador de pacote que levam o valor na palavra seguinte. */
@@ -160,6 +163,24 @@ export function isVerificationCommand(cmd: string, testCommand?: string | null):
 	});
 }
 
+/**
+ * Arquivo que pede verificação: código e configuração que pode quebrar build/teste (json, yaml, toml…).
+ * Fora: documentação e texto, imagens e fontes, lockfiles, `.env*` e arquivos de metadado sem código.
+ * Editar só um README não deve estender o run nem cobrar teste.
+ */
+const NON_CODE_EXT = new Set([
+	"md", "mdx", "markdown", "txt", "rst", "adoc", "org", "rtf", "log", "csv", "tsv",
+	"png", "jpg", "jpeg", "gif", "webp", "avif", "ico", "bmp", "svg", "pdf", "mp3", "mp4", "mov", "woff", "woff2", "ttf", "otf", "eot", "lock", "lockb",
+]);
+const NON_CODE_NAME = /^(?:\.env(?:\..*)?|license(?:\..*)?|licence|notice|authors|contributors|changelog(?:\..*)?|readme(?:\..*)?|codeowners|\.gitignore|\.gitattributes|\.dockerignore|\.npmignore|\.editorconfig|\.prettierignore|\.eslintignore|pnpm-lock\.yaml|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|bun\.lockb?|composer\.lock|cargo\.lock|poetry\.lock|gemfile\.lock|go\.sum)$/i;
+
+export function isCodeFile(path: string): boolean {
+	const name = path.split(/[\\/]/).pop() ?? path;
+	if (NON_CODE_NAME.test(name)) return false;
+	const dot = name.lastIndexOf(".");
+	return dot <= 0 ? true : !NON_CODE_EXT.has(name.slice(dot + 1).toLowerCase());
+}
+
 type VerificationJob = { verification: boolean; startSeq: number };
 
 export type DevVerificationInput = {
@@ -209,6 +230,8 @@ export function createDevVerificationTracker(options: { getTestCommand?: () => P
 			if ((name === "edit_file" || name === "write_file") && typeof args.path === "string") {
 				// Escrita que parou no cartão de aprovação não mexeu em nada.
 				if (/^Aprovação pendente/.test(summary)) return;
+				// Doc, imagem, lockfile e .env não pedem teste: não contam como edição sem verificar.
+				if (!isCodeFile(args.path)) return;
 				seq += 1;
 				unverified.set(args.path, seq);
 				return;

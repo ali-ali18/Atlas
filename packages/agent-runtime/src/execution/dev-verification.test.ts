@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDevVerificationTracker, isVerificationCommand } from "./dev-verification.js";
+import { createDevVerificationTracker, isCodeFile, isVerificationCommand } from "./dev-verification.js";
 
 describe("isVerificationCommand", () => {
 	it.each([
@@ -55,6 +55,11 @@ describe("isVerificationCommand", () => {
 	});
 });
 
+describe("isCodeFile", () => {
+	it.each(["src/a.ts", "app.py", "package.json", "tsconfig.json", "config/app.yaml", "Dockerfile", "Makefile", "styles.css", "schema.sql", "src/.eslintrc.js"])("%s pede verificação", (path) => expect(isCodeFile(path)).toBe(true));
+	it.each(["README.md", "docs/guia.txt", "notes.rst", "logo.png", "pnpm-lock.yaml", "package-lock.json", "Cargo.lock", ".env", ".env.local", "LICENSE", "CHANGELOG.md", "data.csv", ".gitignore"])("%s não pede", (path) => expect(isCodeFile(path)).toBe(false));
+});
+
 const edited = (path: string) => ({ name: "edit_file", args: { path }, ok: true, summary: `Editado ${path} (+1 -1).` });
 const shell = (cmd: string, summary: string, ok = true) => ({ name: "shell", args: { cmd }, ok, summary });
 
@@ -72,6 +77,14 @@ describe("createDevVerificationTracker", () => {
 		await tracker.note(shell("pnpm test", "exit 0 em 2.0s (cwd /workspace)\n[stdout]\nok"));
 		expect(tracker.hasUnverifiedEdits()).toBe(false);
 		expect(tracker.needsMoreWork()).toBe(false);
+	});
+
+	it("edição de documento, lockfile ou .env não pede verificação", async () => {
+		const tracker = createDevVerificationTracker();
+		for (const path of ["README.md", "pnpm-lock.yaml", ".env.local", "assets/logo.png"]) await tracker.note(edited(path));
+		expect(tracker.needsMoreWork()).toBe(false);
+		await tracker.note(edited("package.json"));
+		expect(tracker.hasUnverifiedEdits()).toBe(true);
 	});
 
 	it("edição depois da verificação volta a contar; falha e escrita pendente de aprovação não", async () => {
