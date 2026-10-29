@@ -1,6 +1,6 @@
 import { AlertTriangleIcon, EyeIcon, FileTextIcon, WrenchIcon } from "lucide-react"
 import { formatContextTokens, type ModelCapabilities } from "@workspace/shared"
-import { cn } from "cn"
+import { cn } from "../lib/utils"
 
 type Caps = Pick<ModelCapabilities, "vision" | "pdf" | "tools" | "contextTokens">
 

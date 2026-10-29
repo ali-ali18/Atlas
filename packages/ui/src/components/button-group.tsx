@@ -1,4 +1,4 @@
-import { cn } from "cn"
+import { cn } from "../lib/utils"
 
 /**
  * Botões colados lado a lado: só as pontas do grupo ficam arredondadas e a borda do meio é uma só.

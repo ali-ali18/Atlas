@@ -41,6 +41,12 @@
     --destructive: oklch(0.577 0.245 27.325);
     --border: oklch(0.92 0.004 286.32);
     --input: oklch(0.92 0.004 286.32);
+    --success: oklch(0.46 0.11 160);
+    --success-foreground: oklch(0.985 0 0);
+    --warning: oklch(0.5 0.12 65);
+    --warning-foreground: oklch(0.985 0 0);
+    --info: oklch(0.5 0.14 245);
+    --info-foreground: oklch(0.985 0 0);
     --ring: oklch(0.705 0.015 286.067);
     --chart-1: oklch(0.55 0.17 258);
     --chart-2: oklch(0.62 0.15 150);
@@ -112,6 +118,12 @@
     --destructive: oklch(0.704 0.191 22.216);
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
+    --success: oklch(0.8 0.15 160);
+    --success-foreground: oklch(0.2 0.04 160);
+    --warning: oklch(0.84 0.15 85);
+    --warning-foreground: oklch(0.22 0.05 70);
+    --info: oklch(0.8 0.11 235);
+    --info-foreground: oklch(0.2 0.04 245);
     --ring: oklch(0.552 0.016 285.938);
     --chart-1: oklch(0.72 0.14 255);
     --chart-2: oklch(0.75 0.15 150);
@@ -183,6 +195,18 @@
     --color-border: var(--border);
     --color-input: var(--input);
     --color-ring: var(--ring);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-info: var(--info);
+    --color-info-foreground: var(--info-foreground);
+    /* Tipografia: corpo e legenda. Sem line-height de propósito: herda do contêiner, como o antigo text-[13px]/text-[11px] (mantém `leading-*` por classe). */
+    --text-body: 13px;
+    --text-caption: 11px;
+    /* Raios semânticos além da escala do shadcn (12px e 20px, valores já usados em cartões e listas). */
+    --radius-card: 0.75rem;
+    --radius-panel: 1.25rem;
     --color-chart-1: var(--chart-1);
     --color-chart-2: var(--chart-2);
     --color-chart-3: var(--chart-3);
@@ -231,6 +255,18 @@
     --font-heading: var(--font-heading);
 }
 
+/* Escala de camadas: z-sticky (cabeçalhos fixos), z-overlay (fundo de modal), z-modal (conteúdo de modal/popover), z-toast. */
+:root {
+  --z-sticky: 10;
+  --z-overlay: 40;
+  --z-modal: 50;
+  --z-toast: 100;
+}
+@utility z-sticky { z-index: var(--z-sticky); }
+@utility z-overlay { z-index: var(--z-overlay); }
+@utility z-modal { z-index: var(--z-modal); }
+@utility z-toast { z-index: var(--z-toast); }
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -254,11 +290,11 @@
   width: auto;
   max-width: 100%;
   border-color: transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   box-shadow: none;
   padding-inline: 0.5rem;
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 400;
 }
 .settings-ghost-controls [data-slot="settings-picker-trigger"]:hover:not(:disabled),

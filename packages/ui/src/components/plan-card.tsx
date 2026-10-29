@@ -10,7 +10,7 @@ import {
   SearchIcon,
   XIcon,
 } from "lucide-react";
-import { cn } from "cn";
+import { cn } from "../lib/utils";
 
 import { Button } from "./button";
 import { ButtonGroup } from "./button-group";
