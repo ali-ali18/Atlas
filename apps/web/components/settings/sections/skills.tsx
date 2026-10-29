@@ -107,7 +107,7 @@ function SkillEditor({
 				emitSkillProposalResolved({ proposalId: resolve.proposal.proposalId, status: "approved" });
 				onDone(null);
 			} catch (cause) {
-				setSaveError(proposalErrorMessage(cause));
+				setSaveError(proposalErrorMessage(cause, translator));
 			} finally {
 				setSaving(false);
 			}

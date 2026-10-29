@@ -18,7 +18,7 @@ import {
 import { Marker, MarkerContent } from "@workspace/ui/components/marker";
 import { cn } from "@workspace/ui/lib/utils";
 import { buildTimeSeparators } from "@/lib/chat-time-separators";
-import { useLocale, useT } from "@/lib/i18n/provider";
+import { useLocale, useT, useTranslations } from "@/lib/i18n/provider";
 import { exchangeFocusKey } from "@/lib/bot-exchange";
 import { readBubbleBotColor } from "@/lib/bot-bubble";
 import { planImageRuns, reuseImageRuns } from "@/lib/image-groups";
@@ -411,7 +411,7 @@ export function ChatThread({
 			applySkillProposalState(proposalId, decision);
 			emitSkillProposalResolved({ proposalId, status: decision });
 		} catch (cause) {
-			applySkillProposalState(proposalId, { error: proposalErrorMessage(cause) });
+			applySkillProposalState(proposalId, { error: proposalErrorMessage(cause, translator) });
 		}
 	}
 	// Novo agente proposto pelo bot: Criar agente / Agora não. Nada existe antes do OK; aprovar duas vezes devolve o mesmo resultado.
@@ -690,6 +690,7 @@ export function ChatThread({
 	);
 	const locale = useLocale();
 	const t = useT();
+	const translator = useTranslations();
 	const timeSeparators = useMemo(
 		() => buildTimeSeparators(threadItems, new Date(), undefined, locale),
 		[threadItems, locale],
