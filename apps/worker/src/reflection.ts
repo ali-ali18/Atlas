@@ -25,10 +25,10 @@ import {
 	recordMaintenanceResult,
 	type Notify,
 	type ReflectionRow,
+	resolveStoredReplyLanguage,
 } from "@workspace/db";
 import {
 	ReflectionFailure,
-	isBotLanguage,
 	isReflectionScheduleDue,
 	reflectionFailureLogLine,
 	reflectionSlotAt,
@@ -131,7 +131,7 @@ export async function processReflectionRow(row: ReflectionRow, deps: ReflectionS
 		const model = llm.model;
 		const agentModel = async () =>
 			(await getBotModelForUser(primary.id, row.userId)) ?? (await resolveDefaultModelForJob({ userId: row.userId, serverDefault: deps.config.openRouterModel }));
-		const language: BotLanguage = isBotLanguage(primary.language) ? primary.language : "pt-BR";
+		const language: BotLanguage = (await resolveStoredReplyLanguage({ userId: row.userId, conversationId, setting: primary.language })).language;
 		stage = "save";
 		await runReflection(
 			{ userId: row.userId, rowId: row.id, primary: { id: primary.id, name: primary.name, conversationId }, input, now },

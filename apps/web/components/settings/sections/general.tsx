@@ -2,13 +2,13 @@
 
 import { LanguagesIcon, MonitorIcon, MoonIcon, PaletteIcon, SunIcon } from "lucide-react";
 import { useTheme } from "next-themes";
-import type { BotLanguage, Resolved } from "@workspace/shared";
+import type { BotLanguageSetting, Resolved } from "@workspace/shared";
 import {
 	SettingsPicker,
 	type SettingsPickerOption,
 	withOptionIcons,
 } from "@/components/ui/templates/template-4/settings-picker";
-import { BOT_LANGUAGE_OPTIONS } from "@/lib/bot-language";
+import { BOT_LANGUAGE_AUTO_LABEL, BOT_LANGUAGE_SETTING_OPTIONS } from "@/lib/bot-language";
 import type { useAccountSettings } from "@/hooks/use-account-settings";
 import { type SaveStatus, inheritLabel } from "../account-settings-state";
 import { SaveIndicator, SettingRow, SettingsGroup } from "../setting-row";
@@ -25,16 +25,16 @@ const THEME_OPTIONS: readonly SettingsPickerOption<ThemeChoice>[] = withOptionIc
 );
 
 const INHERIT = "inherit";
-type LanguageChoice = BotLanguage | typeof INHERIT;
+type LanguageChoice = BotLanguageSetting | typeof INHERIT;
 
 /** Opções do idioma: "Herdar" (com a origem do valor) + os idiomas dos bots. */
 export function languageOptions(
-	language: Resolved<BotLanguage>,
+	language: Resolved<BotLanguageSetting>,
 ): SettingsPickerOption<LanguageChoice>[] {
-	const inherit = inheritLabel(language.source, language.value) ?? "Herdar do servidor";
+	const inherit = inheritLabel(language.source, language.value === "auto" ? BOT_LANGUAGE_AUTO_LABEL : language.value) ?? "Herdar do servidor";
 	return [
 		{ value: INHERIT, label: inherit },
-		...BOT_LANGUAGE_OPTIONS.map((option) => ({ value: option.id, label: option.label })),
+		...BOT_LANGUAGE_SETTING_OPTIONS.map((option) => ({ value: option.id, label: option.label })),
 	];
 }
 
@@ -52,9 +52,9 @@ export function GeneralSettingsView({
 	theme: ThemeChoice;
 	onThemeChange: (theme: ThemeChoice) => void;
 	/** `null` enquanto carrega. */
-	language: Resolved<BotLanguage> | null;
+	language: Resolved<BotLanguageSetting> | null;
 	/** `null` = voltar a herdar. */
-	onLanguageChange: (language: BotLanguage | null) => void;
+	onLanguageChange: (language: BotLanguageSetting | null) => void;
 	status: SaveStatus;
 	saveError?: string | null;
 	loadError?: string | null;

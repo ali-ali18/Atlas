@@ -1,4 +1,4 @@
-import type { BotLanguage, UpdateBotInput } from "@workspace/shared";
+import type { BotLanguageSetting, UpdateBotInput } from "@workspace/shared";
 
 import { DEFAULT_BOT_LANGUAGE } from "./bot-language";
 
@@ -14,7 +14,7 @@ export type ConfigSource = {
 	snippet: string;
 	description?: string | null;
 	openRouterModel?: string | null;
-	language?: BotLanguage | null;
+	language?: BotLanguageSetting | null;
 	color: string;
 	shape?: string | null;
 	policyJson?: unknown;

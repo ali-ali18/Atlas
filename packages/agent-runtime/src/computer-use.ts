@@ -34,6 +34,7 @@ import {
 import type {
 	AgentRunCheckpoint,
 	BotLanguage,
+	BotLanguageSetting,
 	ChatMessage,
 	ComputerUseEvent,
 	ContextMemory,
@@ -79,7 +80,12 @@ import {
 	parseRoutineAlertInput,
 	validateAlertInterval,
 	type RoutineAlertConfig,
+	allLanguageInstructions,
+	formatLimitDuration,
+	languageForChildRun,
 	languageInstruction,
+	resolveReplyLanguage,
+	systemMessages,
 	buildPersonaBlock,
 	BROWSER_CHILD_MAX_CONCURRENCY,
 	DELEGATE_TOOL_NAME,
@@ -250,7 +256,7 @@ import { classifyDifficultyWithReviewer } from "./jev/difficulty.js";
 import { buildTierPlan, modelsForTier, nextEscalationTier, repeatedWeakResults, type ModelTiersRuntime } from "./model-tiers.js";
 import { looksEmptyResult } from "./mcp/empty-hint.js";
 import type { ModelTier } from "@workspace/shared";
-import { createNarrationMemory, mentionsFileDeliverable, STALL_NUDGE_NOTE, STALL_QUIET_AT, STALL_RESTRICT_NOTE, STALL_ABORT_MESSAGE, stallStage } from "./execution/stall-guard.js";
+import { createNarrationMemory, mentionsFileDeliverable, STALL_NUDGE_NOTE, STALL_QUIET_AT, STALL_RESTRICT_NOTE, stallStage } from "./execution/stall-guard.js";
 import { budgetUsage, canExtendBudget, costCapMessage, costCapReached, decideReserve, EXTENSION_NOVELTY_WINDOW, FILE_RESERVE_TOOLS, isReadOnlyToolName, jevCheckpointKey, onlyReadsRecently, shouldWrapUp, STUCK_ANSWER_NOW_NOTE } from "./execution/run-governor.js";
 import { createRereadGuard, isRereadNotice, type RereadGuard } from "./execution/reread-guard.js";
 import { DELEGATION_HINT, suggestDelegation } from "./jev/delegation.js";
@@ -1497,9 +1503,9 @@ export function isDecisionTimeout(error: unknown): boolean {
 	return false;
 }
 
-/** Fechamento padrão (pt-BR) quando o run parou por teto e o resumo do modelo não saiu. */
-export function budgetStopFallbackText(reason: string): string {
-	return `Parei porque ${reason}. O que já foi feito ficou salvo nesta conversa. Responda "continuar" que eu retomo de onde parei.`;
+/** Fechamento padrão quando o run parou por teto e o resumo do modelo não saiu (pt-BR por padrão). */
+export function budgetStopFallbackText(reason: string, language: BotLanguage = "pt-BR"): string {
+	return systemMessages(language).stopFallback(reason);
 }
 
 function isSandboxTool(name: string): boolean {
@@ -4904,7 +4910,10 @@ export async function runComputerUse(params: {
 	model: string;
 	apiKey: string;
 	messages: ChatMessage[];
-	language?: BotLanguage;
+	/** Idioma do bot: fixo ou "auto" (ver `resolveReplyLanguage`). Subagente recebe o idioma já resolvido do pai. */
+	language?: BotLanguageSetting;
+	/** Só para "auto": último idioma detectado e locale da conta (ver `getLanguageContext`). */
+	languageContext?: { lastLanguage?: string | null; accountLocale?: string | null };
 	botId?: string;
 	userId?: string;
 	conversationId?: string;
@@ -5168,10 +5177,10 @@ export async function runComputerUse(params: {
 	const deadlineAtMs = wall.deadlineAtMs;
 	/** Tempo ativo gasto no run até agora (execuções anteriores + esta). */
 	const activeElapsedMs = () => wall.baseMs + (Date.now() - wall.executionStartMs);
-	const wallLimitMessage = (limitMs: number) => {
-		const seconds = Math.round(limitMs / 1000);
-		return `tempo máximo do run esgotado (${seconds < 60 ? `${seconds}s` : `${Math.round(seconds / 60)} min`})`;
-	};
+	// Idioma dos textos de limite/trava que o usuário vê (os mesmos do idioma resolvido do run).
+	const budgetLanguage = resolveReplyLanguage({ setting: params.language ?? "pt-BR", ...params.languageContext, hasUserMessage: false }).language;
+	const sys = systemMessages(budgetLanguage);
+	const wallLimitMessage = (limitMs: number) => sys.wallLimit(formatLimitDuration(limitMs));
 	// O prazo vira BudgetExhaustedError (determinístico), nunca TimeoutError
 	// (transient → retry que estoura de novo).
 	let wallTimer: ReturnType<typeof setTimeout> | undefined;
@@ -5238,7 +5247,7 @@ export async function runComputerUse(params: {
 		// Teto de custo da conta (só o run pai; o custo dos filhos já soma em usageTotals).
 		// A chamada final de resumo passa: ela é o fechamento honesto do que não deu tempo.
 		if (!isSubagent && !summaryCallActive && costCapReached(usageTotals.costUsd, budget.maxCostUsd)) {
-			throw new BudgetExhaustedError(costCapMessage(budget.maxCostUsd!), "cost");
+			throw new BudgetExhaustedError(costCapMessage(budget.maxCostUsd!, budgetLanguage), "cost");
 		}
 		// A7: o resumo final também passa pelo teto de relógio (tem prazo próprio, ver streamStep).
 		// O run pai para de iniciar passos `wrapUpMs` antes do prazo, reservando a janela do resumo.
@@ -5252,7 +5261,7 @@ export async function runComputerUse(params: {
 			const tokenCap = isSubagent ? childTokenCap(budget.maxTokens)! : budget.maxTokens;
 			if (usageTotals.totalTokens > tokenCap) {
 				throw new BudgetExhaustedError(
-					`limite de ${budget.maxTokens} tokens do run esgotado`,
+					sys.tokenLimit(budget.maxTokens),
 					"tokens",
 				);
 			}
@@ -6046,14 +6055,24 @@ export async function runComputerUse(params: {
 		if (slot < 0) return list as unknown as LlmMessage[];
 		return [...(list.slice(0, slot) as unknown as LlmMessage[]), ...priorHistory, ...(list.slice(slot + 1) as unknown as LlmMessage[])];
 	};
-	const language = params.language ?? "pt-BR";
-	const currentLanguageInstruction = languageInstruction(language);
+	// Conversa com mensagem do usuário na vez: no modo "auto" o modelo segue o idioma dela. Rotina, alerta e proativo
+	// não têm mensagem: valem o último idioma detectado, depois o locale da conta, depois pt-BR.
+	const hasUserMessage = params.origin === "chat" && !proactiveRun && !alertRun;
+	const replyLanguage = resolveReplyLanguage({ setting: params.language ?? "pt-BR", ...params.languageContext, hasUserMessage });
+	const language = replyLanguage.language;
+	const currentLanguageInstruction = replyLanguage.instruction;
+	// Texto que o sistema escreve (resumo da compactação) nunca "segue a mensagem": usa o idioma resolvido, fixo.
+	const systemLanguageInstruction = languageInstruction(language);
+	// "auto": a instrução varia por run, então vai no fim do prompt (o prefixo em cache não muda) e não na persona.
+	const languageAtEnd = isSubagent || params.language === "auto";
+	// Subagente herda o idioma do pai já resolvido; na conversa vale o da mensagem atual quando a detecção é segura.
+	const delegateLanguage = languageForChildRun(replyLanguage, lastUserMessageContent);
 	if (parsedCheckpoint?.llmMessages?.length) {
 		conversation = await hydrateLlmMessages(parsedCheckpoint.llmMessages);
 		const systemMessage = conversation.find((message) => message.role === "system");
 		if (systemMessage) {
 			const content = typeof systemMessage.content === "string" ? systemMessage.content : "";
-			systemMessage.content = swapLanguageInstruction(content, (["pt-BR", "en-US", "es-ES"] as const).map(languageInstruction), currentLanguageInstruction);
+			systemMessage.content = swapLanguageInstruction(content, allLanguageInstructions(), currentLanguageInstruction);
 		} else {
 			conversation.unshift({ role: "system", content: currentLanguageInstruction });
 		}
@@ -6084,7 +6103,7 @@ export async function runComputerUse(params: {
 			: "";
 		const systemContent = buildStableSystemPrompt({
 			// Persona do bot no topo: identidade, estilo e idioma num lugar só (o subagente fala com o pai, sem persona).
-			persona: isSubagent ? undefined : buildPersonaBlock({ name: botProfileForGate?.name, role: botProfileForGate?.description, language }),
+			persona: isSubagent ? undefined : buildPersonaBlock({ name: botProfileForGate?.name, role: botProfileForGate?.description, language: params.language ?? "pt-BR" }),
 			base: isSubagent ? subagentSystemPrompt(params.browserTabId !== undefined) : economyParts ? economyParts.core : SYSTEM_PROMPT,
 			// Disciplina por família do modelo do início do run (fixa: troca de nível no meio não muda o prefixo).
 			discipline: disciplineForModel(model),
@@ -6104,7 +6123,7 @@ export async function runComputerUse(params: {
 		const userPushSection = userPushRun?.mode === "routine" ? USER_PUSH_ROUTINE_NOTE : null;
 		const alertSection = alertRun ? alertRunNote(alertRun) : null;
 		conversation = [
-			{ role: "system", content: buildSystemPrompt({ stable: systemContent, nativeLine: nativeComputerOn ? NATIVE_COMPUTER_PROMPT_LINE : undefined, languageInstruction: isSubagent ? currentLanguageInstruction : undefined }) },
+			{ role: "system", content: buildSystemPrompt({ stable: systemContent, nativeLine: nativeComputerOn ? NATIVE_COMPUTER_PROMPT_LINE : undefined, languageInstruction: languageAtEnd ? currentLanguageInstruction : undefined }) },
 			...(proactiveSection ? [{ role: "system" as const, content: proactiveSection }] : []),
 			...(userPushSection ? [{ role: "system" as const, content: userPushSection }] : []),
 			...(alertSection ? [{ role: "system" as const, content: alertSection }] : []),
@@ -6220,6 +6239,7 @@ export async function runComputerUse(params: {
 		if (estimate(conversation) <= budget.ceilingTokens) return;
 		// O colapso/stub das saídas de ferramenta vem antes: ele sozinho pode resolver.
 		const slimmed = applyPromptHygiene(conversation, {
+		language: budgetLanguage,
 			lastGroupMaxChars: hygieneLastGroupChars,
 			contextLength,
 			toolsJsonChars,
@@ -6238,7 +6258,7 @@ export async function runComputerUse(params: {
 			summarize: summarizeContext,
 			taskState,
 			objectiveText: params.objective ?? lastUserMessageContent,
-			languageInstruction: currentLanguageInstruction,
+			languageInstruction: systemLanguageInstruction,
 		});
 		if (result.usage) {
 			usageTotals = addUsage(usageTotals, result.usage);
@@ -6275,6 +6295,7 @@ export async function runComputerUse(params: {
 	};
 	await summarizeIfNeeded(0);
 	const firstHygiene = applyPromptHygiene(conversation, {
+		language: budgetLanguage,
 			lastGroupMaxChars: hygieneLastGroupChars,
 		contextLength,
 		toolsJsonChars: toolsJsonCharsOf(tools),
@@ -7127,7 +7148,7 @@ export async function runComputerUse(params: {
 				model: child.model,
 				apiKey,
 				messages: child.messages,
-				language,
+				language: delegateLanguage,
 				botId,
 				userId,
 				runId: child.runId,
@@ -7300,7 +7321,7 @@ export async function runComputerUse(params: {
 				const cutOff = stepFinishTruncated && call === toolCalls[toolCalls.length - 1];
 				if (cutOff) {
 					truncatedToolCalls += 1;
-					if (truncatedToolCalls > 4) throw new AgentRunLoopDetectedError("A resposta do modelo foi cortada pelo limite de saída várias vezes ao montar a chamada de ferramenta.");
+					if (truncatedToolCalls > 4) throw new AgentRunLoopDetectedError(sys.truncatedToolCall);
 				}
 				await emitSyntheticToolResult(
 					sub,
@@ -7480,7 +7501,7 @@ export async function runComputerUse(params: {
 				);
 				if (decision === "abort") {
 					throw new AgentRunLoopDetectedError(
-						`Travei repetindo ${name} com o mesmo resultado, sem progresso.`,
+						sys.repeatedWithoutProgress(name),
 					);
 				}
 				if (decision === "warn") {
@@ -8438,7 +8459,7 @@ ${blockHint}`;
 			!(await tryEscalate("stuck", step))
 		) {
 			throw new AgentRunLoopDetectedError(
-				"Parei porque o run não estava avançando (detectado automaticamente).",
+				sys.noProgress,
 			);
 		}
 
@@ -8473,7 +8494,7 @@ ${blockHint}`;
 						await persistCheckpoint(step);
 					} else {
 						throw new BudgetExhaustedError(
-							`limite de ${hardCap} passos esgotado`,
+							sys.stepLimit(hardCap),
 							"steps",
 						);
 					}
@@ -8485,14 +8506,14 @@ ${blockHint}`;
 					await persistCheckpoint(step);
 					if (step >= workingLimit) {
 						throw new BudgetExhaustedError(
-							`limite de ${hardCap} passos esgotado sem evidência para continuar`,
+							sys.stepLimitStalled(hardCap),
 							"stalled",
 						);
 					}
 				}
 			} else {
 				throw new BudgetExhaustedError(
-					`limite de ${hardCap} passos esgotado`,
+					sys.stepLimit(hardCap),
 					"steps",
 				);
 			}
@@ -8541,7 +8562,7 @@ ${blockHint}`;
 			// Enrolação pesquisa -> arquivo: aviso, só tools de arquivo e, por fim, parada honesta.
 			if (stallFileIntent(pending)) {
 				const stage = stallStage(readOnlyStreak);
-				if (stage === "abort") throw new AgentRunLoopDetectedError(STALL_ABORT_MESSAGE);
+				if (stage === "abort") throw new AgentRunLoopDetectedError(sys.readingWithoutFile);
 				if (stage === "restrict" && tools.some((tool) => tool.function.name === CREATE_FILE_TOOL.function.name)) {
 					nativeDeferral?.load(FILE_RESERVE_TOOLS.filter((name) => nativeDeferral.isDeferred(name)));
 					stallRestrict = true;
@@ -8561,8 +8582,8 @@ ${blockHint}`;
 			if (shouldStopForSummary(usage)) {
 				throw new BudgetExhaustedError(
 					budget.maxTokens !== undefined
-						? `limite de ${budget.maxTokens} tokens do run esgotado`
-						: `limite de ${hardCap} passos esgotado`,
+						? sys.tokenLimit(budget.maxTokens)
+						: sys.stepLimit(hardCap),
 					"other",
 				);
 			}
@@ -8574,6 +8595,7 @@ ${blockHint}`;
 		// stub de extracts gigantes vale inclusive para o último grupo.
 		await summarizeIfNeeded(step, taskTracker.snapshot());
 		const stepHygiene = applyPromptHygiene(conversation, {
+		language: budgetLanguage,
 			lastGroupMaxChars: hygieneLastGroupChars,
 			contextLength,
 			toolsJsonChars: toolsJsonCharsOf(tools),

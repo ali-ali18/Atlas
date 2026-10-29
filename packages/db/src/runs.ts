@@ -25,6 +25,7 @@ import type { ComputerUseEvent, ConversationTaskContext, ResearchNote, TaskLedge
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { ownerIds } from "./mcp-connections.js";
+import { recordUserLanguage } from "./user-language.js";
 import { getGroupAuthor, isGroupConversation } from "./group-lookup.js";
 
 export const ACTIVE_STATUSES: AgentRunStatus[] = [
@@ -319,6 +320,8 @@ export async function createAgentRun(input: {
 				request.objective?.trim() || lastUserObjective(request.messages);
 			if (objective && objective !== "Objetivo não informado") {
 				await appendConversationMessage(conversationId, "user", objective, origin);
+				// Só o que o usuário digitou (chat não silencioso); prompt de sistema e rotina nunca entram.
+				if (origin === "chat") await recordUserLanguage({ userId, conversationId, text: objective });
 			}
 			if (imagesCard || fileCards.length) {
 				if (objective === "Objetivo não informado") await appendConversationMessage(conversationId, "user", "");
@@ -1800,6 +1803,10 @@ export async function createRunInput(
 		return input;
 	});
 
+	// Mensagem digitada no meio do run (join/queue): também conta para o último idioma.
+	if (conversationOk && run.conversationId && mode !== "cancel" && request.silent !== true && run.origin === "chat") {
+		await recordUserLanguage({ userId: run.userId, conversationId: run.conversationId, text: content });
+	}
 	return mapRunInput(row);
 }
 

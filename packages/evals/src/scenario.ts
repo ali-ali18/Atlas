@@ -12,6 +12,9 @@ export const SCENARIO_VERSION = 1;
 
 const LANGUAGES = ["pt-BR", "en-US", "es-ES"] as const;
 export type ScenarioLanguage = (typeof LANGUAGES)[number];
+/** Idioma do bot no cenário: um fixo ou "auto" (segue a mensagem; o runtime recebe o idioma da conversa). */
+const BOT_LANGUAGES_WITH_AUTO = [...LANGUAGES, "auto"] as const;
+export type ScenarioBotLanguage = (typeof BOT_LANGUAGES_WITH_AUTO)[number];
 
 /** Predicado sobre um valor de argumento (caminho com pontos: `items.0.sku`). */
 const predicate = z
@@ -103,7 +106,7 @@ export const scenarioSchema = z
 		description: z.string().optional(),
 		tags: z.array(z.string()).default([]),
 		source: z.object({ kind: z.enum(["seed", "production"]), runId: z.string().optional(), note: z.string().optional() }).strict().default({ kind: "seed" }),
-		bot: z.object({ name: z.string().min(1), about: z.string().default(""), language: z.enum(LANGUAGES).default("pt-BR") }).strict(),
+		bot: z.object({ name: z.string().min(1), about: z.string().default(""), language: z.enum(BOT_LANGUAGES_WITH_AUTO).default("pt-BR") }).strict(),
 		history: z.array(historyMessage).default([]),
 		user: z.string().min(1),
 		/** Mensagem do usuário que chega no meio do run, depois de N chamadas ao modelo. */

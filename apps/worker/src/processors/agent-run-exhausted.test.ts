@@ -40,6 +40,20 @@ test("esgotado: resultText amigável, técnico em error, entrega liquidada e pen
 	assert.equal(calls.chain, "r1");
 });
 
+test("esgotado: o texto amigável segue o idioma do run (en-US e es-ES); falha ao ler o idioma vale pt-BR", async () => {
+	const err = Object.assign(new Error("Provider returned error: 429 raw upstream text"), { status: 429, name: "OpenRouterError" });
+	const en = io();
+	await finalizeExhaustedAgentRun("r1", err, 3, {}, { ...en.io, language: async () => "en-US" });
+	assert.equal(en.calls.fail!.resultText, "The model provider is limiting requests right now. Try again in a few minutes or switch models.");
+	const es = io({ origin: "proactive" });
+	await finalizeExhaustedAgentRun("r1", err, 3, {}, { ...es.io, language: async () => "es-ES" });
+	assert.match(es.calls.fail!.resultText, /recordatorio programado/);
+	// o idioma é lido do bot da conversa: sem bot/usuário o padrão é pt-BR e sem tocar o banco
+	const fallback = io();
+	await finalizeExhaustedAgentRun("r1", err, 3, {}, fallback.io);
+	assert.match(fallback.calls.fail!.resultText, /limitando pedidos/);
+});
+
 test("timeout cru vira mensagem de timeout, nunca 'aborted due to timeout'", async () => {
 	const { calls, io: fakes } = io();
 	const err = Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });

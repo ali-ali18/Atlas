@@ -2,13 +2,11 @@ import type { Job } from "bullmq";
 import {
 	ATLAS_JOB_NAMES,
 	addBulletToSkillSection,
-	languageInstruction,
 	lessonProvenanceProblem,
 	parseLessonDeltas,
 	parseSkillNote,
 	redactSecrets,
 	renderSkillMarkdown,
-	type BotLanguage,
 	type InspectRawApproval,
 	type InspectRawStep,
 	type LessonDelta,
@@ -33,6 +31,7 @@ import {
 	readSkillDocByName,
 	runIdsAlreadyReviewed,
 	type LessonReviewRun,
+	resolveStoredReplyLanguage,
 } from "@workspace/db";
 import { createLessonJudge, detectUserFeedback, type LessonGateCandidate, type LessonJudge, type MemoryGateDeps } from "@workspace/agent-runtime";
 import type { WorkerConfig } from "../config.js";
@@ -246,7 +245,7 @@ export async function processLessonReview(
 	const started = await llm
 		.complete({
 			messages: [
-				{ role: "system", content: `${LESSON_REFLECTOR_SYSTEM}\n\n${languageInstruction((profile.language ?? "pt-BR") as BotLanguage)}` },
+				{ role: "system", content: `${LESSON_REFLECTOR_SYSTEM}\n\n${(await resolveStoredReplyLanguage({ userId, conversationId, setting: profile.language })).instruction}` },
 				{ role: "user", content: buildReflectorMessage({ lessons, signals, conversation, outcomes: detected.outcomes, skillsUsed: detected.skillsRead, connectorOf }) },
 			],
 			model: llm.model,

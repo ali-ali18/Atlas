@@ -11,7 +11,7 @@ import {
 	type LlmTimeoutPreset,
 } from "./account-config.js";
 import { hasModelTiers, normalizeModelTiers, type ModelTiers } from "./model-tiers.js";
-import type { BotLanguage } from "./bot-language.js";
+import type { BotLanguageSetting } from "./bot-language.js";
 import { resolveMaintenanceModel } from "./provider-policy.js";
 
 /**
@@ -76,7 +76,7 @@ export type EffectiveAccountConfig = {
 		maxRunCostUsd: Resolved<number | undefined>;
 	};
 	sandboxAutoStart: Resolved<boolean>;
-	general: { defaultBotLanguage: Resolved<BotLanguage>; timezone: Resolved<string | undefined> };
+	general: { defaultBotLanguage: Resolved<BotLanguageSetting>; timezone: Resolved<string | undefined> };
 };
 
 const user = <T>(value: T): Resolved<T> => ({ value, source: "user" });
@@ -277,7 +277,7 @@ export function resolveEffectiveConfig(input: {
 		general: {
 			defaultBotLanguage: cfg.general?.defaultBotLanguage
 				? user(cfg.general.defaultBotLanguage)
-				: dflt("pt-BR"),
+				: dflt("auto"),
 			timezone: cfg.general?.timezone ? user(cfg.general.timezone) : dflt(undefined),
 		},
 	};

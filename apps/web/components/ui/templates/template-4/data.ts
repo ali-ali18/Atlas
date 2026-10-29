@@ -1,5 +1,5 @@
 import { AVATAR_COLORS, eyeColorFor as engineEyeColorFor } from "@workspace/ui/lib/avatar/identity";
-import type { MessageSource, BotLanguage, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec } from "@workspace/shared";
+import type { MessageSource, BotLanguageSetting, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec } from "@workspace/shared";
 import type { BotProfileProposal } from "@/components/ai-elements/confirm";
 
 export type BodyColor = {
@@ -112,7 +112,7 @@ export type Agent = {
 	conversationId?: string;
 	description?: string;
 	id: string;
-	language?: BotLanguage;
+	language?: BotLanguageSetting;
 	lastMessage?: string | null;
 	members?: string[];
 	name: string;

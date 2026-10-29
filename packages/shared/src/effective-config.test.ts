@@ -30,7 +30,8 @@ describe("sem configuração do usuário = valores de hoje", () => {
 		expect(e.execution.maxWallMinutes.value).toBeUndefined();
 		expect(e.execution.maxRunCostUsd).toEqual({ value: 0.25, source: "default" });
 		expect(e.sandboxAutoStart).toEqual({ value: true, source: "default" });
-		expect(e.general.defaultBotLanguage).toEqual({ value: "pt-BR", source: "default" });
+		// Bot novo nasce em "auto" (segue o idioma de quem escreve); quem fixou um idioma na conta mantém o dele.
+		expect(e.general.defaultBotLanguage).toEqual({ value: "auto", source: "default" });
 		expect(e.general.timezone).toEqual({ value: undefined, source: "default" });
 	});
 

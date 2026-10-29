@@ -1,4 +1,4 @@
-import { languageInstruction, type BotLanguage } from "./bot-language.js";
+import { BOT_LANGUAGE_AUTO, languageInstruction, type BotLanguageSetting } from "./bot-language.js";
 
 /**
  * Persona do bot (estilo SOUL do Hermes): um bloco curto, em inglês, no topo do prompt. Diz quem o bot é (nome e
@@ -19,7 +19,8 @@ export type PersonaInput = {
 	name?: string | null;
 	/** Papel do bot (descrição/briefing do perfil). */
 	role?: string | null;
-	language: BotLanguage;
+	/** Idioma fixo entra aqui; "auto" não: a instrução varia por run e vai no fim do prompt (prefixo em cache estável). */
+	language: BotLanguageSetting;
 };
 
 function clean(text: string | null | undefined, max: number): string {
@@ -38,6 +39,6 @@ export function buildPersonaBlock(input: PersonaInput): string {
 		);
 	}
 	lines.push(PERSONA_STYLE_LINE);
-	lines.push(`- Language: ${languageInstruction(input.language)}`);
+	if (input.language !== BOT_LANGUAGE_AUTO) lines.push(`- Language: ${languageInstruction(input.language)}`);
 	return lines.join("\n");
 }

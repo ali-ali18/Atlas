@@ -136,10 +136,11 @@ import {
 } from "@workspace/agent-runtime";
 import { briefToolFilter, budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
-import { appendConversationMessage, listRecentLoginAsks } from "@workspace/db";
+import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
+import { resolveReplyLanguage, systemMessages, type BotLanguage } from "@workspace/shared";
+import { runSystemLanguage } from "../system-language.js";
 import {
 	AUTO_CONTINUE_MAX,
-	AUTO_CONTINUE_STATUS_TEXT,
 	autoContinueCauseOfBudgetStop,
 	autoContinueScheduled,
 	autoContinueCauseOfFailure,
@@ -575,7 +576,11 @@ async function executeLeasedRun(ctx: {
 		onSettingsError: (error) => console.error("load user settings failed; assuming sandboxAutoStart=true", error),
 		getCheckpoint: () => getAgentRunCheckpoint(runId),
 		getBotPolicy: async () => run.botId ? (await prisma.bot.findFirst({ where: { id: run.botId, ownerId: runUserId }, select: { policyJson: true } }))?.policyJson ?? null : null,
-		getLanguage: async () => run.botId ? (await getBotProfile(run.botId, runUserId))?.language ?? "pt-BR" : "pt-BR",
+		// Idioma do bot (fixo ou "auto"); em "auto" também o último idioma detectado e o locale da conta.
+		getLanguage: async () => {
+			const setting = run.botId ? (await getBotProfile(run.botId, runUserId))?.language ?? "pt-BR" : "pt-BR";
+			return { setting, context: setting === "auto" ? await getLanguageContext(runUserId, run.conversationId) : undefined };
+		},
 		// Autonomia (F10): bot > conta > Equilibrado; vencida grava o fallback e avisa no chat.
 		resolveAutonomy: () => resolveRunAutonomy({
 			userId: runUserId,
@@ -590,7 +595,10 @@ async function executeLeasedRun(ctx: {
 		loadMcp: (autonomy) => loadMcpRuntime({ userId: runUserId, autonomy, unattended, botId: run.botId ?? undefined, conversationId: run.conversationId ?? undefined }),
 		onMcpError: (error) => console.error(`load mcp connectors failed run=${runId}`, error),
 	});
-	const { settings, checkpoint, rawBotPolicy, language, autonomy, mcp } = base;
+	const { settings, checkpoint, rawBotPolicy, language: botLanguage, autonomy, mcp } = base;
+	// Idioma dos textos de sistema (limite, erro, retomada) que o usuário vê: o do bot, ou o último da conversa em "auto".
+	const systemLanguage: BotLanguage = resolveReplyLanguage({ setting: botLanguage.setting, ...botLanguage.context, hasUserMessage: false }).language;
+	const systemText = systemMessages(systemLanguage);
 	const groupRun = await groupRunPromise;
 	const groupPrompt = groupRun && run.botId ? { name: groupRun.groupName, selfId: run.botId, members: groupRun.members } : undefined;
 	// E-mail próprio do bot (tools adiadas). No run de e-mail o envio segue a política real do dono, o resto é limitado.
@@ -1229,7 +1237,8 @@ async function executeLeasedRun(ctx: {
 			getModelContextLength: providers.contextLength,
 			apiKey,
 			messages,
-			language,
+			language: botLanguage.setting,
+			...(botLanguage.context ? { languageContext: botLanguage.context } : {}),
 			botId: run.botId ?? undefined,
 			userId: runUserId,
 			conversationId: run.conversationId ?? undefined,
@@ -1669,8 +1678,8 @@ async function executeLeasedRun(ctx: {
 					})
 				: ({ schedule: false, reason: "not_recoverable" } as AutoContinueDecision);
 			// Fechamento adiado pelo runtime e a retomada não vai acontecer: volta ao fechamento padrão.
-			const closingText = error.finalText ?? (error.deferredClosing ? budgetStopFallbackText(error.message) : error.message);
-			const resultText = autoPlan.schedule ? AUTO_CONTINUE_STATUS_TEXT : closingText;
+			const closingText = error.finalText ?? (error.deferredClosing ? budgetStopFallbackText(error.message, systemLanguage) : error.message);
+			const resultText = autoPlan.schedule ? systemText.autoContinueStatus : closingText;
 			if (!autoPlan.schedule) await emit({ type: "error", error: error.message });
 			await coalescer.flush().catch(() => undefined);
 			await emitState.tail;
@@ -1689,7 +1698,7 @@ async function executeLeasedRun(ctx: {
 				const outcome = await scheduleAutoContinue(run, runUserId, autoPlan, autoIo);
 				if (autoContinueScheduled(outcome)) return { runId, status: "budget_exhausted" };
 				// A retomada não saiu do papel: o usuário recebe o fechamento comum em vez de ficar esperando.
-				if (run.conversationId) await appendConversationMessage(run.conversationId, "assistant", budgetStopFallbackText(error.message)).catch(() => undefined);
+				if (run.conversationId) await appendConversationMessage(run.conversationId, "assistant", budgetStopFallbackText(error.message, systemLanguage)).catch(() => undefined);
 			}
 			if (!autoPlan.schedule) await settleDelivery("budget_exhausted", resultText);
 			await notifyRoutineRunFailure({ origin: run.origin, agentRunId: runId, userId: runUserId, error: error.message }, routineRunFailureDeps(deps));
@@ -1737,7 +1746,7 @@ async function executeLeasedRun(ctx: {
 		// Runs proativos (lembrete/reflexão) falham sem usuário olhando: nada técnico
 		// vai pro chat; o detalhe fica no log e em `error` do run.
 		if (run.origin === "proactive") console.error(`proactive run failed run=${runId}`, error);
-		const displayMessage = proactiveFailureDisplay(run.origin, describeRunError(error).message);
+		const displayMessage = proactiveFailureDisplay(run.origin, describeRunError(error, systemLanguage).message, systemLanguage);
 		await emit({ type: "error", error: displayMessage });
 		await coalescer.flush().catch(() => undefined);
 		await emitState.tail;
@@ -1794,6 +1803,8 @@ export type ExhaustedRunIo = {
 	notifyRoutineFailure?: (input: { origin: string | null | undefined; agentRunId: string; userId: string; error: string }) => Promise<unknown>;
 	/** Linha de falha do brief "Seu dia" (padrão: banco real; só age em run de brief). */
 	briefFailure?: (run: AgentRun) => Promise<unknown>;
+	/** Idioma dos textos de sistema do run (padrão: o do bot ou o último da conversa; qualquer falha vale pt-BR). */
+	language?: (run: AgentRun | null) => Promise<BotLanguage>;
 };
 
 const EXHAUSTED_IO: ExhaustedRunIo = {
@@ -1814,15 +1825,16 @@ export async function finalizeExhaustedAgentRun(
 	const d = { ...EXHAUSTED_IO, ...io };
 	try {
 		const run = await d.getRun(runId);
-		const friendly = describeRunError(err).message;
-		const failureDisplay = proactiveFailureDisplay(run?.origin ?? "", friendly);
+		const language = await (d.language ?? runSystemLanguage)(run);
+		const friendly = describeRunError(err, language).message;
+		const failureDisplay = proactiveFailureDisplay(run?.origin ?? "", friendly, language);
 		const technical = `Falha após ${attempts} tentativa${attempts === 1 ? "" : "s"}: ${err.message}`;
 		// Falha transitória do provedor/rede com progresso: uma retomada automática (limitada) antes de desistir.
 		const autoIo = d.autoContinue ?? (deps.enqueueNextRun ? createAutoContinueIo(deps.enqueueNextRun) : undefined);
 		const autoPlan: AutoContinueDecision = autoIo && run?.userId
 			? await planAutoContinue(run, { cause: autoContinueCauseOfFailure(err) }, autoIo).catch((): AutoContinueDecision => ({ schedule: false, reason: "not_recoverable" }))
 			: { schedule: false, reason: "not_recoverable" };
-		const display = autoPlan.schedule ? AUTO_CONTINUE_STATUS_TEXT : failureDisplay;
+		const display = autoPlan.schedule ? systemMessages(language).autoContinueStatus : failureDisplay;
 		const finalized = await d.failRun(runId, technical, { resultText: display });
 		if (!finalized || !run) return finalized;
 		if (autoPlan.schedule && autoIo && run.userId) {

@@ -80,6 +80,7 @@ describe("validateAccountConfigPatch (escrita estrita)", () => {
 		expect(errorsOf({ execution: { maxWallMinutes: 0 } })).toEqual(["execution.maxWallMinutes"]);
 		expect(errorsOf({ execution: { maxRunCostUsd: 0.15 } })).toEqual(["execution.maxRunCostUsd"]);
 		expect(errorsOf({ general: { defaultBotLanguage: "fr-FR" } })).toEqual(["general.defaultBotLanguage"]);
+		expect(errorsOf({ general: { defaultBotLanguage: "auto" } })).toEqual([]);
 		expect(errorsOf({ models: "x" })).toEqual(["models"]);
 	});
 	it("valida ids de modelo: caracteres, tamanho e provedor", () => {

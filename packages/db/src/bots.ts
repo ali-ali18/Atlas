@@ -1,10 +1,11 @@
 import { Prisma } from "@prisma/client";
-import { BOT_LINK_ROLE, isBotLanguage, isMessageSourceKind, mergeServerPolicyKeys, type Bot, type BotLanguage, type CreateBotInput, type UpdateBotInput } from "@workspace/shared";
+import { BOT_LANGUAGE_AUTO, BOT_LINK_ROLE, isMessageSourceKind, mergeServerPolicyKeys, parseBotLanguageSetting, type Bot, type BotLanguageSetting, type CreateBotInput, type UpdateBotInput } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { unreadResultsByConversation } from "./deliveries.js";
 import { getUnreadStates } from "./read-state.js";
 import { listWorkingTargets } from "./runs.js";
 import { ownerIds } from "./mcp-connections.js";
+import { getAccountConfig } from "./settings.js";
 
 /**
  * Colunas que `toBot` usa. Fora: `autonomyJson`, `memoryCleanupJson` (sugestões da limpeza de memória, pode
@@ -51,7 +52,7 @@ function toBot(row: BotRow, lastMessage: Bot["lastMessage"] = null): Bot {
 		shape: row.shape,
 		description: row.description,
 		openRouterModel: row.openRouterModel,
-		language: isBotLanguage(row.language) ? row.language : "pt-BR",
+		language: parseBotLanguageSetting(row.language),
 		pinned: row.pinned,
 		pinOrder: row.pinOrder,
 		notify: row.notify,
@@ -171,7 +172,7 @@ export async function getBotProfile(
 	snippet: string;
 	description: string | null;
 	openRouterModel: string | null;
-	language: BotLanguage;
+	language: BotLanguageSetting;
 } | null> {
 	if (!botId) return null;
 	const row = await prisma.bot.findFirst({
@@ -184,7 +185,7 @@ export async function getBotProfile(
 		snippet: row.snippet,
 		description: row.description,
 		openRouterModel: row.openRouterModel,
-		language: isBotLanguage(row.language) ? row.language : "pt-BR",
+		language: parseBotLanguageSetting(row.language),
 	};
 }
 
@@ -237,6 +238,15 @@ export async function listBots(ownerId: string | undefined): Promise<Bot[]> {
 	);
 }
 
+async function accountDefaultBotLanguage(owner: string): Promise<BotLanguageSetting> {
+	try {
+		return (await getAccountConfig(owner)).general?.defaultBotLanguage ?? BOT_LANGUAGE_AUTO;
+	} catch (error) {
+		console.error("account default bot language load failed; using auto", error);
+		return BOT_LANGUAGE_AUTO;
+	}
+}
+
 export async function createBot(input: CreateBotInput, ownerId: string | undefined): Promise<Bot> {
 	const owner = ownerIds(ownerId)[0];
 	if (!owner) throw new Error("Bot owner required");
@@ -245,6 +255,8 @@ export async function createBot(input: CreateBotInput, ownerId: string | undefin
 		data: { userId: owner },
 	});
 
+	// Sem idioma explícito, bot novo usa o padrão da conta (que sem escolha é "auto"). Falha ao ler não bloqueia.
+	const language = input.language ?? (await accountDefaultBotLanguage(owner));
 	const row = await prisma.bot.create({
 		data: {
 			name: input.name,
@@ -253,7 +265,8 @@ export async function createBot(input: CreateBotInput, ownerId: string | undefin
 			shape: input.shape ?? "rond",
 			description: input.description ?? null,
 			openRouterModel: input.openRouterModel ?? null,
-			language: input.language ?? "pt-BR",
+			// Bot novo segue o padrão da conta; os que já existem mantêm o idioma fixo que têm.
+			language,
 			memberIds: input.memberIds ?? [],
 			conversationId: conversation.id,
 			ownerId: owner,

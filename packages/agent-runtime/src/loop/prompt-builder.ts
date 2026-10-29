@@ -59,8 +59,9 @@ export function buildStableSystemPrompt(parts: StableSystemPromptParts): string 
 }
 
 /**
- * Prompt completo do turno: estável + linha do computador nativo + data de hoje. O idioma vai na persona (topo);
- * `languageInstruction` só para quem não tem persona (subagente), por último.
+ * Prompt completo do turno: estável + linha do computador nativo + data de hoje. Idioma fixo vai na persona (topo);
+ * `languageInstruction` é para quem não tem persona (subagente) e para o bot em "auto" (a instrução muda por
+ * run, então fica por último e o prefixo em cache não varia).
  */
 export function buildSystemPrompt(input: { stable: string; nativeLine?: string; todayLine?: string; languageInstruction?: string }): string {
 	const native = input.nativeLine ? `\n${input.nativeLine}` : "";

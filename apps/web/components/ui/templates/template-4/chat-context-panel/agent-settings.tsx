@@ -10,7 +10,7 @@ import { TIER_ROWS, TierModelsControl, TierRow } from "@/components/settings/sec
 import { ModelPicker } from "@/components/model-picker";
 import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
 import { readBubbleBotColor, withBubbleBotColor } from "@/lib/bot-bubble";
-import { BOT_LANGUAGE_OPTIONS, DEFAULT_BOT_LANGUAGE } from "@/lib/bot-language";
+import { BOT_LANGUAGE_SETTING_OPTIONS, DEFAULT_BOT_LANGUAGE } from "@/lib/bot-language";
 import { readProactiveSettings } from "@/lib/proactive-settings";
 import {
 	MODEL_TIER_LABELS,
@@ -358,7 +358,7 @@ export function AgentSettings({
 						<SettingsPicker
 							id="agent-language"
 							onChange={(language) => onChange({ language })}
-							options={BOT_LANGUAGE_OPTIONS.map((option) => ({ value: option.id, label: option.label }))}
+							options={BOT_LANGUAGE_SETTING_OPTIONS.map((option) => ({ value: option.id, label: option.label }))}
 							value={agent.language ?? DEFAULT_BOT_LANGUAGE}
 						/>
 					</SettingRow>

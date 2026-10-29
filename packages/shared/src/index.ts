@@ -6,6 +6,7 @@ export * from "./routine-email.js";
 export * from "./reply-segments.js";
 export * from "./composer-mentions.js";
 export * from "./bot-group.js";
+export { SYSTEM_MESSAGES, formatLimitDuration, formatUsd, isSystemMessage, systemMessages, type RunErrorKind, type SystemMessages } from "./system-messages.js";
 export * from "./bot-group-jev.js";
 export * from "./bot-needs.js";
 export * from "./bot-pending.js";
@@ -86,10 +87,35 @@ export type {
 export { pickEffectiveModel } from "./effective-model.js";
 export {
 	BOT_LANGUAGES,
+	BOT_LANGUAGE_AUTO,
+	BOT_LANGUAGE_SETTINGS,
+	DEFAULT_BOT_LANGUAGE,
+	allLanguageInstructions,
+	autoLanguageInstruction,
 	isBotLanguage,
+	isBotLanguageSetting,
 	languageInstruction,
+	matchBotLanguage,
+	parseBotLanguageSetting,
+	pickLanguageFromAcceptLanguage,
+	resolveReplyLanguage,
 	type BotLanguage,
+	type BotLanguageSetting,
+	type ReplyLanguage,
+	type ReplyLanguageInput,
 } from "./bot-language.js";
+export { LANGUAGE_SPECS, type LanguageSpec } from "./language-registry.js";
+export {
+	LANGUAGE_LONG_MESSAGE_LETTERS,
+	LANGUAGE_MIN_LETTERS,
+	detectLanguage,
+	languageForChildRun,
+	nextLanguageMemory,
+	stripForLanguageDetection,
+	toLanguageMemory,
+	type DetectedLanguage,
+	type LanguageMemory,
+} from "./language-detect.js";
 export { buildPersonaBlock, PERSONA_ROLE_MAX_CHARS, PERSONA_STYLE_LINE, type PersonaInput } from "./persona.js";
 export type { OpenRouterModel, ListModelsResponse } from "./model.js";
 export { modelSupportsImageInput } from "./model.js";

@@ -28,6 +28,7 @@ import { createBot, updateBot } from "./bots.js";
 import { ensureBotConversation, isTerminal, resolveBotModel } from "./bot-messages.js";
 import { createAgentRun, listActiveRunsForConversation } from "./runs.js";
 import { ownerIds } from "./mcp-connections.js";
+import { recordUserLanguage } from "./user-language.js";
 export { getGroupAuthor, isGroupConversation } from "./group-lookup.js";
 
 /**
@@ -233,6 +234,8 @@ export async function postGroupUserMessage(input: { userId: string; groupId: str
 	if (open >= GROUP_MAX_OPEN_TURNS) throw new GroupError("O grupo ainda está respondendo. Aguarde um instante.", "busy");
 
 	const message = await prisma.conversationMessage.create({ data: { conversationId, role: "user", content } });
+	// Idioma por conversa: o grupo segue quem acabou de falar.
+	await recordUserLanguage({ userId, conversationId, text: content });
 	await prisma.groupReply.updateMany({
 		where: { groupId: input.groupId, status: "pending" },
 		data: { status: "skipped", finishedAt: new Date() },

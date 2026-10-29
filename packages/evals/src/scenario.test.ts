@@ -14,6 +14,14 @@ describe("schema do cenário", () => {
 		expect(parsed.scenario.source.kind).toBe("seed");
 	});
 
+	it("aceita idioma auto no bot (e só idioma fixo na verificação de idioma)", () => {
+		const auto = parseScenario({ ...minimal, bot: { name: "Ada", language: "auto" } });
+		expect(auto.ok).toBe(true);
+		if (auto.ok) expect(auto.scenario.bot.language).toBe("auto");
+		expect(parseScenario({ ...minimal, bot: { name: "Ada", language: "fr-FR" } }).ok).toBe(false);
+		expect(parseScenario({ ...minimal, expect: [{ type: "language", value: "auto" }] }).ok).toBe(false);
+	});
+
 	it("campo desconhecido é erro (na raiz e dentro de uma expectativa)", () => {
 		const root = parseScenario({ ...minimal, expected: [] });
 		expect(root.ok).toBe(false);
