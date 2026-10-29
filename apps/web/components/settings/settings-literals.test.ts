@@ -39,6 +39,9 @@ const TRANSLATED = [
 	"components/settings/sections/skills/skill-editor-view.tsx",
 	"components/settings/sections/skills/builtin-skill-view.tsx",
 	"components/settings/sections/skills/skill-markdown-preview.tsx",
+	"components/settings/composio-pager.tsx",
+	"components/settings/composio-key-form.tsx",
+	"components/settings/sections/composio.tsx",
 ];
 
 const ACCENTED = /[áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]/;

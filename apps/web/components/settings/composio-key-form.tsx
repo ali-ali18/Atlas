@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { cn } from "@workspace/ui/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 
 /**
  * Campo mascarado + "Salvar" da chave do Composio. Compartilhado entre
@@ -23,6 +24,7 @@ export function ComposioKeyForm({
 	onSave: (apiKey: string) => void;
 	className?: string;
 }) {
+	const t = useT();
 	const [value, setValue] = useState("");
 	return (
 		<form
@@ -34,18 +36,18 @@ export function ComposioKeyForm({
 			}}
 		>
 			<Input
-				aria-label="Chave do Composio"
+				aria-label={t("settings.composio.keyAria")}
 				autoComplete="off"
 				disabled={busy || disabled}
 				id={inputId}
 				onChange={(event) => setValue(event.target.value)}
-				placeholder="Cole a chave"
+				placeholder={t("settings.composio.paste")}
 				spellCheck={false}
 				type="password"
 				value={value}
 			/>
 			<Button disabled={busy || disabled || !value.trim()} size="sm" type="submit">
-				{busy ? "Salvando…" : "Salvar"}
+				{busy ? t("settings.composio.saving") : t("settings.composio.save")}
 			</Button>
 		</form>
 	);

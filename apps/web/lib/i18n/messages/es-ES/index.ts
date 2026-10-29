@@ -14,6 +14,7 @@ import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
 import { settings } from "./settings";
 import { sharedLabels } from "./sharedLabels";
+import { settingsComposio } from "./settingsComposio";
 import { settingsSkills } from "./settingsSkills";
 import { settingsDev } from "./settingsDev";
 import { settingsExec } from "./settingsExec";
@@ -54,6 +55,7 @@ import { share } from "./share";
 	...mobile,
 	...settings,
 	...sharedLabels,
+	...settingsComposio,
 	...settingsSkills,
 	...settingsDev,
 	...settingsExec,
