@@ -2,6 +2,7 @@
 import type { MessageDictionary } from "../../translator";
 import { app } from "./app";
 import { chat } from "./chat";
+import { chatExtras } from "./chatExtras";
 import { common } from "./common";
 import { composer } from "./composer";
 import { errors } from "./errors";
@@ -19,6 +20,7 @@ import { ui } from "./ui";
 export const esES: MessageDictionary = {
 	...app,
 	...chat,
+	...chatExtras,
 	...common,
 	...composer,
 	...errors,

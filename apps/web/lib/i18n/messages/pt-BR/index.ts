@@ -1,6 +1,7 @@
 /** Dicionário pt-BR: fonte da verdade das chaves. Um arquivo por área; acrescente o `...area` abaixo. */
 import { app } from "./app";
 import { chat } from "./chat";
+import { chatExtras } from "./chatExtras";
 import { common } from "./common";
 import { composer } from "./composer";
 import { errors } from "./errors";
@@ -18,6 +19,7 @@ import { ui } from "./ui";
 export const ptBR = {
 	...app,
 	...chat,
+	...chatExtras,
 	...common,
 	...composer,
 	...errors,

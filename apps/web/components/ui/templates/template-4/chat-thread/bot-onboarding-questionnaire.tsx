@@ -2,6 +2,8 @@
 
 import * as React from "react";
 
+import { useT } from "@/lib/i18n/provider";
+
 import {
   Questionnaire,
   QuestionnaireActions,
@@ -81,6 +83,7 @@ export function BotOnboardingQuestionnaire({
   /** Hook opcional para o próximo passo (envio ao backend). */
   onSubmitPayload?: (payload: BotOnboardingPayload) => void;
 }) {
+  const t = useT();
   const [payload, setPayload] = React.useState<BotOnboardingPayload | null>(
     null,
   );
@@ -109,81 +112,81 @@ export function BotOnboardingQuestionnaire({
 
         <QuestionnaireItem name="direction" required>
           <QuestionnaireTitle>
-            Como esse bot deve trabalhar?
+            {t("chatExtras.onboarding.directionTitle")}
           </QuestionnaireTitle>
           <QuestionnaireDescription>
-            Escolha um modo ou escreva do seu jeito no campo livre.
+            {t("chatExtras.onboarding.directionHelp")}
           </QuestionnaireDescription>
           <QuestionnaireChoices>
             <QuestionnaireChoice value="delegation">
-              Delegar tarefas
+              {t("chatExtras.onboarding.delegate")}
               <QuestionnaireChoiceDescription>
-                Executa rotinas e ações por você
+                {t("chatExtras.onboarding.delegateHelp")}
               </QuestionnaireChoiceDescription>
             </QuestionnaireChoice>
             <QuestionnaireChoice value="questions">
-              Responder perguntas
+              {t("chatExtras.onboarding.answer")}
               <QuestionnaireChoiceDescription>
-                Tira dúvidas com base no que sabe
+                {t("chatExtras.onboarding.answerHelp")}
               </QuestionnaireChoiceDescription>
             </QuestionnaireChoice>
             <QuestionnaireChoice value="both">
-              Os dois
+              {t("chatExtras.onboarding.both")}
               <QuestionnaireChoiceDescription>
-                Alterna entre executar e responder
+                {t("chatExtras.onboarding.bothHelp")}
               </QuestionnaireChoiceDescription>
             </QuestionnaireChoice>
           </QuestionnaireChoices>
-          <QuestionnaireInput placeholder="Ou descreva do seu jeito…" />
+          <QuestionnaireInput placeholder={t("chatExtras.onboarding.ownWay")} />
           <QuestionnaireError />
           <QuestionnaireActions>
-            <QuestionnairePrevious>Voltar</QuestionnairePrevious>
-            <QuestionnaireSkip>Pular</QuestionnaireSkip>
-            <QuestionnaireNext>Continuar</QuestionnaireNext>
-            <QuestionnaireSubmit>Concluir</QuestionnaireSubmit>
+            <QuestionnairePrevious>{t("chatExtras.onboarding.back")}</QuestionnairePrevious>
+            <QuestionnaireSkip>{t("chatExtras.onboarding.skip")}</QuestionnaireSkip>
+            <QuestionnaireNext>{t("chatExtras.onboarding.next")}</QuestionnaireNext>
+            <QuestionnaireSubmit>{t("chatExtras.onboarding.done")}</QuestionnaireSubmit>
           </QuestionnaireActions>
         </QuestionnaireItem>
 
         <QuestionnaireItem name="detail" required>
-          <QuestionnaireTitle>Qual o nível de detalhe?</QuestionnaireTitle>
+          <QuestionnaireTitle>{t("chatExtras.onboarding.detailTitle")}</QuestionnaireTitle>
           <QuestionnaireDescription>
-            Define o estilo padrão das respostas do bot.
+            {t("chatExtras.onboarding.detailHelp")}
           </QuestionnaireDescription>
           <QuestionnaireChoices>
             <QuestionnaireChoice value="focused">
-              Focado e direto
+              {t("chatExtras.onboarding.focused")}
               <QuestionnaireChoiceDescription>
-                Respostas curtas, só o essencial
+                {t("chatExtras.onboarding.focusedHelp")}
               </QuestionnaireChoiceDescription>
             </QuestionnaireChoice>
             <QuestionnaireChoice value="complete">
-              Completo e detalhado
+              {t("chatExtras.onboarding.complete")}
               <QuestionnaireChoiceDescription>
-                Contexto, exemplos e passo a passo
+                {t("chatExtras.onboarding.completeHelp")}
               </QuestionnaireChoiceDescription>
             </QuestionnaireChoice>
           </QuestionnaireChoices>
           <QuestionnaireError />
           <QuestionnaireActions>
-            <QuestionnairePrevious>Voltar</QuestionnairePrevious>
-            <QuestionnaireSkip>Pular</QuestionnaireSkip>
-            <QuestionnaireNext>Continuar</QuestionnaireNext>
-            <QuestionnaireSubmit>Concluir</QuestionnaireSubmit>
+            <QuestionnairePrevious>{t("chatExtras.onboarding.back")}</QuestionnairePrevious>
+            <QuestionnaireSkip>{t("chatExtras.onboarding.skip")}</QuestionnaireSkip>
+            <QuestionnaireNext>{t("chatExtras.onboarding.next")}</QuestionnaireNext>
+            <QuestionnaireSubmit>{t("chatExtras.onboarding.done")}</QuestionnaireSubmit>
           </QuestionnaireActions>
         </QuestionnaireItem>
 
         <QuestionnaireItem name="purpose" required={false}>
-          <QuestionnaireTitle>Pra que serve?</QuestionnaireTitle>
+          <QuestionnaireTitle>{t("chatExtras.onboarding.purposeTitle")}</QuestionnaireTitle>
           <QuestionnaireDescription>
-            Item livre e opcional — dá para pular sem responder.
+            {t("chatExtras.onboarding.purposeHelp")}
           </QuestionnaireDescription>
-          <QuestionnaireInput placeholder="Ex.: agendar reuniões, resumir e-mails…" />
+          <QuestionnaireInput placeholder={t("chatExtras.onboarding.purposePlaceholder")} />
           <QuestionnaireError />
           <QuestionnaireActions>
-            <QuestionnairePrevious>Voltar</QuestionnairePrevious>
-            <QuestionnaireSkip>Pular</QuestionnaireSkip>
-            <QuestionnaireNext>Continuar</QuestionnaireNext>
-            <QuestionnaireSubmit>Concluir</QuestionnaireSubmit>
+            <QuestionnairePrevious>{t("chatExtras.onboarding.back")}</QuestionnairePrevious>
+            <QuestionnaireSkip>{t("chatExtras.onboarding.skip")}</QuestionnaireSkip>
+            <QuestionnaireNext>{t("chatExtras.onboarding.next")}</QuestionnaireNext>
+            <QuestionnaireSubmit>{t("chatExtras.onboarding.done")}</QuestionnaireSubmit>
           </QuestionnaireActions>
         </QuestionnaireItem>
       </Questionnaire>
@@ -191,8 +194,7 @@ export function BotOnboardingQuestionnaire({
       {payload ? (
         <div className="rounded-xl border bg-muted/40 p-4">
           <p className="text-xs font-medium text-muted-foreground">
-            Payload do submit (FormData coletado — ainda não enviado ao
-            backend):
+            {t("chatExtras.onboarding.payload")}
           </p>
           <pre className="mt-2 overflow-x-auto text-xs leading-relaxed">
             {JSON.stringify(payload, null, 2)}
