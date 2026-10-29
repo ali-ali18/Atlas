@@ -13,6 +13,7 @@ import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
 import { settings } from "./settings";
 import { sharedLabels } from "./sharedLabels";
+import { settingsExec } from "./settingsExec";
 import { settingsModels } from "./settingsModels";
 import { settingsOps } from "./settingsOps";
 import { settingsProviders } from "./settingsProviders";
@@ -47,6 +48,7 @@ import { share } from "./share";
 	...mobile,
 	...settings,
 	...sharedLabels,
+	...settingsExec,
 	...settingsModels,
 	...settingsOps,
 	...settingsProviders,

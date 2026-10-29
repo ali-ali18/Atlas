@@ -14,6 +14,7 @@ import {
 	type LlmTimeouts,
 	type Resolved,
 } from "@workspace/shared";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import { inheritLabel } from "./account-settings-state";
 import type { SettingsPickerOption } from "@/components/ui/templates/template-4/settings-picker";
 
@@ -27,29 +28,18 @@ export type Inherit = typeof INHERIT;
 
 // ---------------------------------------------------------------- Jev
 
-export const JEV_MODE_LABELS: Record<JevMode, string> = {
-	off: "Desligado",
-	shadow: "Observar",
-	on: "Ativo",
-};
+/** Rótulos e descrições no idioma da tela (pt-BR por padrão, para chamadas e testes antigos). */
+export const jevModeLabel = (mode: JevMode, { t }: Translator = defaultTranslator): string =>
+	t(({ off: "settings.jev.mode.off", shadow: "settings.jev.mode.shadow", on: "settings.jev.mode.on" } as const)[mode]);
 
-export const JEV_MCP_MODE_LABELS: Record<JevMcpMode, string> = {
-	off: "Desligado",
-	shadow: "Observar",
-	gate: "Bloquear",
-};
+export const jevMcpModeLabel = (mode: JevMcpMode, { t }: Translator = defaultTranslator): string =>
+	t(({ off: "settings.jev.mode.off", shadow: "settings.jev.mode.shadow", gate: "settings.jev.mode.gate" } as const)[mode]);
 
-export const JEV_MODE_DESCRIPTIONS: Record<JevMode, string> = {
-	off: "Não faz nada.",
-	shadow: "Registra o que faria, sem mudar o resultado.",
-	on: "Age de verdade.",
-};
+export const jevModeDescription = (mode: JevMode, { t }: Translator = defaultTranslator): string =>
+	t(({ off: "settings.jev.mode.offDescription", shadow: "settings.jev.mode.shadowDescription", on: "settings.jev.mode.onDescription" } as const)[mode]);
 
-export const JEV_MCP_MODE_DESCRIPTIONS: Record<JevMcpMode, string> = {
-	off: "Não revisa.",
-	shadow: "Registra a revisão, sem impedir nada.",
-	gate: "Impede a escrita quando a revisão reprova.",
-};
+export const jevMcpModeDescription = (mode: JevMcpMode, { t }: Translator = defaultTranslator): string =>
+	t(({ off: "settings.jev.mcp.offDescription", shadow: "settings.jev.mcp.shadowDescription", gate: "settings.jev.mcp.gateDescription" } as const)[mode]);
 
 export type JevFeatureSpec = {
 	feature: JevFeature;
@@ -60,35 +50,58 @@ export type JevFeatureSpec = {
 	description: string;
 };
 
-export const JEV_FEATURE_SPECS: readonly JevFeatureSpec[] = [
-	{ feature: "intent", itemId: "jev.intencao", label: "Intenção", description: "Entende o que você pediu antes de agir." },
-	{ feature: "tools", itemId: "jev.tools", label: "Seleção de tools", description: "Escolhe quais ferramentas o agente pode usar." },
-	{ feature: "verify", itemId: "jev.verificacao", label: "Verificação da resposta", description: "Confere se a resposta final cumpre o pedido." },
-	{ feature: "blockpage", itemId: "jev.bloqueio", label: "Página de bloqueio", description: "Reconhece páginas bloqueadas, como captcha e login." },
-	{ feature: "delegate", itemId: "jev.delegacao", label: "Delegação", description: "Decide quando passar uma tarefa para um subagente." },
-	{ feature: "stuck", itemId: "jev.travamento", label: "Travamento", description: "Percebe quando o agente está em círculos." },
-	{ feature: "memory", itemId: "jev.memoria", label: "Porteiro da memória", description: "Decide se um fato novo vale ser guardado na memória." },
+const JEV_FEATURE_ITEMS: ReadonlyArray<{ feature: JevFeature; itemId: string }> = [
+	{ feature: "intent", itemId: "jev.intencao" },
+	{ feature: "tools", itemId: "jev.tools" },
+	{ feature: "verify", itemId: "jev.verificacao" },
+	{ feature: "blockpage", itemId: "jev.bloqueio" },
+	{ feature: "delegate", itemId: "jev.delegacao" },
+	{ feature: "stuck", itemId: "jev.travamento" },
+	{ feature: "memory", itemId: "jev.memoria" },
 ];
+
+const JEV_FEATURE_TEXT = {
+	intent: { label: "settings.jev.feature.intent.label", description: "settings.jev.feature.intent.description" },
+	tools: { label: "settings.jev.feature.tools.label", description: "settings.jev.feature.tools.description" },
+	verify: { label: "settings.jev.feature.verify.label", description: "settings.jev.feature.verify.description" },
+	blockpage: { label: "settings.jev.feature.blockpage.label", description: "settings.jev.feature.blockpage.description" },
+	delegate: { label: "settings.jev.feature.delegate.label", description: "settings.jev.feature.delegate.description" },
+	stuck: { label: "settings.jev.feature.stuck.label", description: "settings.jev.feature.stuck.description" },
+	memory: { label: "settings.jev.feature.memory.label", description: "settings.jev.feature.memory.description" },
+} as const;
+
+/** Recursos do revisor, com nome e descrição no idioma da tela. */
+export function jevFeatureSpecs({ t }: Translator = defaultTranslator): readonly JevFeatureSpec[] {
+	return JEV_FEATURE_ITEMS.map(({ feature, itemId }) => ({
+		feature,
+		itemId,
+		label: t(JEV_FEATURE_TEXT[feature].label),
+		description: t(JEV_FEATURE_TEXT[feature].description),
+	}));
+}
+
+export const JEV_FEATURE_SPECS: readonly JevFeatureSpec[] = jevFeatureSpecs();
 
 const JEV_MODE_ORDER: readonly JevMode[] = ["off", "shadow", "on"];
 const JEV_MCP_ORDER: readonly JevMcpMode[] = ["off", "shadow", "gate"];
 
-const jevOptions = (inherit: string): SettingsPickerOption<JevMode | Inherit>[] => [
+const jevOptions = (inherit: string, translator: Translator): SettingsPickerOption<JevMode | Inherit>[] => [
 	{ value: INHERIT, label: inherit },
 	...JEV_MODE_ORDER.map((mode) => ({
 		value: mode,
-		label: JEV_MODE_LABELS[mode],
-		description: JEV_MODE_DESCRIPTIONS[mode],
+		label: jevModeLabel(mode, translator),
+		description: jevModeDescription(mode, translator),
 	})),
 ];
 
-export function jevMcpOptions(mcp: Resolved<JevMcpMode>): SettingsPickerOption<JevMcpMode | Inherit>[] {
+export function jevMcpOptions(mcp: Resolved<JevMcpMode>, translator: Translator = defaultTranslator): SettingsPickerOption<JevMcpMode | Inherit>[] {
+	const { t } = translator;
 	return [
-		{ value: INHERIT, label: inheritLabel(mcp.source, JEV_MCP_MODE_LABELS[mcp.value]) ?? "Herdar" },
+		{ value: INHERIT, label: inheritLabel(mcp.source, jevMcpModeLabel(mcp.value, translator), t) ?? t("settings.exec.inherit") },
 		...JEV_MCP_ORDER.map((mode) => ({
 			value: mode,
-			label: JEV_MCP_MODE_LABELS[mode],
-			description: JEV_MCP_MODE_DESCRIPTIONS[mode],
+			label: jevMcpModeLabel(mode, translator),
+			description: jevMcpModeDescription(mode, translator),
 		})),
 	];
 }
@@ -101,8 +114,8 @@ export function jevMcpPatch(choice: JevMcpMode | Inherit): AccountConfigPatch {
 }
 
 /** Geral: o servidor não tem um valor único para "todos", então herdar é só voltar ao padrão de cada recurso. */
-export function jevGeneralOptions(): SettingsPickerOption<JevMode | Inherit>[] {
-	return jevOptions("Herdar do servidor");
+export function jevGeneralOptions(translator: Translator = defaultTranslator): SettingsPickerOption<JevMode | Inherit>[] {
+	return jevOptions(translator.t("settings.exec.inheritServer"), translator);
 }
 
 export const jevGeneralChoice = (config: AccountConfigV1): JevMode | Inherit => config.jev?.all ?? INHERIT;
@@ -115,12 +128,14 @@ export function jevGeneralPatch(choice: JevMode | Inherit): AccountConfigPatch {
 export function jevFeatureOptions(
 	config: AccountConfigV1,
 	resolved: Resolved<JevMode>,
+	translator: Translator = defaultTranslator,
 ): SettingsPickerOption<JevMode | Inherit>[] {
+	const { t } = translator;
 	const general = config.jev?.all;
 	const label = general
-		? `Herdar (geral: ${JEV_MODE_LABELS[general]})`
-		: (inheritLabel(resolved.source, JEV_MODE_LABELS[resolved.value]) ?? "Herdar");
-	return jevOptions(label);
+		? t("settings.jev.inheritGeneral", { mode: jevModeLabel(general, translator) })
+		: (inheritLabel(resolved.source, jevModeLabel(resolved.value, translator), t) ?? t("settings.exec.inherit"));
+	return jevOptions(label, translator);
 }
 
 export const jevFeatureChoice = (config: AccountConfigV1, feature: JevFeature): JevMode | Inherit =>
@@ -132,17 +147,17 @@ export function jevFeaturePatch(feature: JevFeature, choice: JevMode | Inherit):
 
 // ---------------------------------------------------------------- Execução
 
-export const TIMEOUT_PRESET_LABELS: Record<LlmTimeoutPreset, string> = {
-	short: "Curto",
-	default: "Padrão",
-	extended: "Estendido",
-};
+export const timeoutPresetLabel = (preset: LlmTimeoutPreset, { t }: Translator = defaultTranslator): string =>
+	t(({ short: "settings.exec.timeout.short", default: "settings.exec.timeout.default", extended: "settings.exec.timeout.extended" } as const)[preset]);
 
-const TIMEOUT_PRESET_DESCRIPTIONS: Record<LlmTimeoutPreset, string> = {
-	short: "Desiste cedo de um modelo lento e tenta outro.",
-	default: "Equilibrado, o padrão de fábrica.",
-	extended: "Espera mais, para modelos lentos ou raciocínio longo.",
-};
+const timeoutPresetDescription = (preset: LlmTimeoutPreset, { t }: Translator): string =>
+	t(
+		({
+			short: "settings.exec.timeout.shortDescription",
+			default: "settings.exec.timeout.defaultDescription",
+			extended: "settings.exec.timeout.extendedDescription",
+		} as const)[preset],
+	);
 
 /** Preset que bate com os prazos herdados (para mostrar em "Herdar"); `null` = prazos personalizados no servidor. */
 export function timeoutPresetOf(timeouts: LlmTimeouts): LlmTimeoutPreset | null {
@@ -158,15 +173,19 @@ export function timeoutPresetOf(timeouts: LlmTimeouts): LlmTimeoutPreset | null 
 	);
 }
 
-export function timeoutOptions(timeouts: Resolved<LlmTimeouts>): SettingsPickerOption<LlmTimeoutPreset | Inherit>[] {
+export function timeoutOptions(
+	timeouts: Resolved<LlmTimeouts>,
+	translator: Translator = defaultTranslator,
+): SettingsPickerOption<LlmTimeoutPreset | Inherit>[] {
+	const { t } = translator;
 	const preset = timeoutPresetOf(timeouts.value);
-	const label = preset ? TIMEOUT_PRESET_LABELS[preset].toLowerCase() : "personalizado";
+	const label = preset ? timeoutPresetLabel(preset, translator).toLowerCase() : t("settings.exec.custom");
 	return [
-		{ value: INHERIT, label: inheritLabel(timeouts.source, label) ?? "Herdar" },
+		{ value: INHERIT, label: inheritLabel(timeouts.source, label, t) ?? t("settings.exec.inherit") },
 		...LLM_TIMEOUT_PRESETS.map((value) => ({
 			value,
-			label: TIMEOUT_PRESET_LABELS[value],
-			description: TIMEOUT_PRESET_DESCRIPTIONS[value],
+			label: timeoutPresetLabel(value, translator),
+			description: timeoutPresetDescription(value, translator),
 		})),
 	];
 }
@@ -184,19 +203,19 @@ export const CODE_DEFAULT_WALL_MINUTES = 30;
 export const RUN_COST_PRESETS: readonly number[] = [0.05, 0.10, 0.25, 0.50, 1.00];
 export const CODE_DEFAULT_RUN_COST_USD = 0.25;
 
-export const formatOutputTokens = (tokens: number): string => `${tokens / 1024}k tokens`;
-export const formatSteps = (steps: number): string => `${steps} passos`;
-export function formatMinutes(minutes: number): string {
-	if (minutes < 60) return `${minutes} min`;
-	return minutes % 60 === 0 ? `${minutes / 60} h` : `${minutes} min`;
+export const formatOutputTokens = (tokens: number, { t }: Translator = defaultTranslator): string => t("settings.exec.fmtTokens", { n: tokens / 1024 });
+export const formatSteps = (steps: number, { t }: Translator = defaultTranslator): string => t("settings.exec.fmtSteps", { n: steps });
+export function formatMinutes(minutes: number, { t }: Translator = defaultTranslator): string {
+	if (minutes < 60) return t("settings.exec.fmtMinutes", { n: minutes });
+	return minutes % 60 === 0 ? t("settings.exec.fmtHours", { n: minutes / 60 }) : t("settings.exec.fmtMinutes", { n: minutes });
 }
 export const formatCostUsd = (cost: number): string => `US$ ${cost.toFixed(2)}`;
-export const formatCostUsdNone = "Sem limite";
+export const formatCostUsdNone = (translator: Translator = defaultTranslator): string => translator.t("settings.exec.noLimitCap");
 
 export type NumberSettingSpec = {
 	/** Presets do contrato; um valor salvo fora da lista (via API) continua aparecendo. */
 	presets: readonly number[];
-	format: (value: number) => string;
+	format: (value: number, translator?: Translator) => string;
 	/** Valor do código quando ninguém definiu nada. */
 	codeDefault?: number;
 };
@@ -205,7 +224,7 @@ export const MAX_OUTPUT_SPEC: NumberSettingSpec = {
 	presets: MAX_OUTPUT_TOKEN_PRESETS,
 	format: formatOutputTokens,
 };
-export const formatToolResultChars = (chars: number): string => `${chars / 1000} mil caracteres`;
+export const formatToolResultChars = (chars: number, { t }: Translator = defaultTranslator): string => t("settings.exec.fmtChars", { n: chars / 1000 });
 export const TOOL_RESULT_SPEC: NumberSettingSpec = {
 	presets: TOOL_RESULT_MAX_CHARS_PRESETS,
 	format: formatToolResultChars,
@@ -232,16 +251,18 @@ export function numberOptions(
 	spec: NumberSettingSpec,
 	resolved: Resolved<number | undefined>,
 	noneLabel: string,
+	translator: Translator = defaultTranslator,
 ): SettingsPickerOption<string>[] {
+	const { t } = translator;
 	const inheritedValue = resolved.value ?? spec.codeDefault;
-	const shown = inheritedValue === undefined ? noneLabel : spec.format(inheritedValue);
+	const shown = inheritedValue === undefined ? noneLabel : spec.format(inheritedValue, translator);
 	// Com valor do usuário, o herdado não é conhecido aqui: "Herdar" simples.
-	const inherit = resolved.source === "user" ? "Herdar do servidor" : (inheritLabel(resolved.source, shown) ?? "Herdar");
+	const inherit = resolved.source === "user" ? t("settings.exec.inheritServer") : (inheritLabel(resolved.source, shown, t) ?? t("settings.exec.inherit"));
 	const stored = resolved.source === "user" ? resolved.value : undefined;
 	const values = stored !== undefined && !spec.presets.includes(stored) ? [...spec.presets, stored].sort((a, b) => a - b) : spec.presets;
 	return [
 		{ value: INHERIT, label: inherit },
-		...values.map((value) => ({ value: String(value), label: spec.format(value) })),
+		...values.map((value) => ({ value: String(value), label: spec.format(value, translator) })),
 	];
 }
 
@@ -270,27 +291,21 @@ export function reactionOnlyPatch(enabled: boolean): AccountConfigPatch {
 	return { execution: { reactionOnly: enabled } };
 }
 
-export const CONTEXT_MEMORY_LABELS: Record<ContextMemory, string> = {
-	standard: "Padrão",
-	economy: "Econômico",
-};
+const contextMemoryLabel = (value: ContextMemory, { t }: Translator): string =>
+	t(({ standard: "settings.exec.memory.standard", economy: "settings.exec.memory.economy" } as const)[value]);
 
-export const CONTEXT_MEMORY_DESCRIPTIONS: Record<ContextMemory, string> = {
-	standard: "Mantém a conversa inteira até perto do limite do modelo e resume quando precisa. Melhor qualidade; conversas longas custam mais.",
-	economy: "Enxuga cedo para gastar menos. Pode esquecer detalhes de conversas longas.",
-};
+const contextMemoryDescription = (value: ContextMemory, { t }: Translator): string =>
+	t(({ standard: "settings.exec.memory.standardDescription", economy: "settings.exec.memory.economyDescription" } as const)[value]);
 
 /** Uma linha sob o rótulo; o texto inteiro fica só nos itens do menu. */
-export const CONTEXT_MEMORY_SHORT: Record<ContextMemory, string> = {
-	standard: "Resume perto do limite do modelo",
-	economy: "Enxuga cedo para gastar menos",
-};
+export const contextMemoryShort = (value: ContextMemory, { t }: Translator = defaultTranslator): string =>
+	t(({ standard: "settings.exec.memory.standardShort", economy: "settings.exec.memory.economyShort" } as const)[value]);
 
-export function contextMemoryOptions(): SettingsPickerOption<ContextMemory>[] {
+export function contextMemoryOptions(translator: Translator = defaultTranslator): SettingsPickerOption<ContextMemory>[] {
 	return CONTEXT_MEMORIES.map((value) => ({
 		value,
-		label: CONTEXT_MEMORY_LABELS[value],
-		description: CONTEXT_MEMORY_DESCRIPTIONS[value],
+		label: contextMemoryLabel(value, translator),
+		description: contextMemoryDescription(value, translator),
 	}));
 }
 
@@ -303,8 +318,8 @@ export function timeoutPatch(choice: LlmTimeoutPreset | Inherit): AccountConfigP
 }
 
 /** Estado herdado de um switch ("Padrão do servidor: ligado"); `null` quando o valor é do usuário. */
-export function switchInheritNote(resolved: Resolved<boolean>): string | null {
+export function switchInheritNote(resolved: Resolved<boolean>, { t }: Translator = defaultTranslator): string | null {
 	if (resolved.source === "user") return null;
-	const origin = resolved.source === "env" ? "Padrão do servidor" : "Padrão da conta";
-	return `${origin}: ${resolved.value ? "ligado" : "desligado"}`;
+	const value = resolved.value ? t("settings.exec.on") : t("settings.exec.off");
+	return resolved.source === "env" ? t("settings.exec.noteServer", { value }) : t("settings.exec.noteAccount", { value });
 }

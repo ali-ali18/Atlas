@@ -37,10 +37,9 @@ import {
 	MAX_STEPS_SPEC,
 	TOOL_RESULT_SPEC,
 	MAX_WALL_SPEC,
-	formatCostUsdNone,
 	type ExecutionNumberKey,
 	type NumberSettingSpec,
-	CONTEXT_MEMORY_SHORT,
+	contextMemoryShort,
 	contextEconomyPatch,
 	contextMemoryOptions,
 	contextMemoryPatch,
@@ -55,16 +54,17 @@ import {
 	timeoutPatch,
 } from "../jev-execution-state";
 import { SaveIndicator, SettingRow, SettingsGroup } from "../setting-row";
+import { useT, useTranslations } from "@/lib/i18n/provider";
+import type { Translator } from "@/lib/i18n/translator";
+import { formatCostUsdNone, formatToolResultChars } from "../jev-execution-state";
 
 type NumberRow = {
 	key: ExecutionNumberKey;
 	itemId: string;
-	label: string;
 	icon: SettingsIcon;
-	description: string;
 	spec: NumberSettingSpec;
 	/** Texto de "Herdar" quando nada define o valor. */
-	noneLabel: string;
+	noneLabel: (translator: Translator) => string;
 };
 
 const TIMEOUT_ICONS = {
@@ -74,53 +74,30 @@ const TIMEOUT_ICONS = {
 	extended: TurtleIcon,
 };
 
+const noLimit = ({ t }: Translator) => t("settings.exec.noLimit");
+
+/** Rótulo e descrição de cada linha vêm do dicionário: `settings.exec.<chave>.label|description`. */
 const NUMBER_ROWS: readonly NumberRow[] = [
-	{
-		key: "maxOutputTokens",
-		itemId: "execucao.resposta",
-		label: "Tamanho máximo da resposta",
-		icon: TextCursorIcon,
-		description: "Limite de tokens por resposta do modelo. Menor é mais rápido, mas pode cortar respostas longas.",
-		spec: MAX_OUTPUT_SPEC,
-		noneLabel: "sem limite",
-	},
+	{ key: "maxOutputTokens", itemId: "execucao.resposta", icon: TextCursorIcon, spec: MAX_OUTPUT_SPEC, noneLabel: noLimit },
 	{
 		key: "toolResultMaxChars",
 		itemId: "execucao.resultado",
-		label: "Tamanho máximo do resultado de ferramentas",
 		icon: ScrollTextIcon,
-		description: "Quanto do resultado de uma consulta (Bling, planilhas, listas) vai direto para o contexto do agente. O que passar disso fica guardado e o agente lê o resto sob demanda. Maior evita consultas repetidas, mas gasta mais contexto.",
 		spec: TOOL_RESULT_SPEC,
-		noneLabel: "20 mil caracteres",
+		noneLabel: (translator) => formatToolResultChars(20_000, translator),
 	},
-	{
-		key: "maxSteps",
-		itemId: "execucao.passos",
-		label: "Limite de passos",
-		icon: FootprintsIcon,
-		description: "Máximo de passos por run, quando o bot não define o seu.",
-		spec: MAX_STEPS_SPEC,
-		noneLabel: "sem limite",
-	},
-	{
-		key: "maxWallMinutes",
-		itemId: "execucao.tempo",
-		label: "Limite de tempo",
-		icon: HourglassIcon,
-		description: "Quanto um run pode durar, quando o bot não define o seu.",
-		spec: MAX_WALL_SPEC,
-		noneLabel: "sem limite",
-	},
-	{
-		key: "maxRunCostUsd",
-		itemId: "execucao.custo",
-		label: "Custo máximo por execução",
-		icon: DollarSignIcon,
-		description: "Para a execução quando o custo chegar a este valor. Antes disso, o agente entrega o que tem.",
-		spec: MAX_COST_SPEC,
-		noneLabel: formatCostUsdNone,
-	},
+	{ key: "maxSteps", itemId: "execucao.passos", icon: FootprintsIcon, spec: MAX_STEPS_SPEC, noneLabel: noLimit },
+	{ key: "maxWallMinutes", itemId: "execucao.tempo", icon: HourglassIcon, spec: MAX_WALL_SPEC, noneLabel: noLimit },
+	{ key: "maxRunCostUsd", itemId: "execucao.custo", icon: DollarSignIcon, spec: MAX_COST_SPEC, noneLabel: (translator) => formatCostUsdNone(translator) },
 ];
+
+const NUMBER_TEXT = {
+	maxOutputTokens: { label: "settings.exec.maxOutputTokens.label", description: "settings.exec.maxOutputTokens.description" },
+	toolResultMaxChars: { label: "settings.exec.toolResultMaxChars.label", description: "settings.exec.toolResultMaxChars.description" },
+	maxSteps: { label: "settings.exec.maxSteps.label", description: "settings.exec.maxSteps.description" },
+	maxWallMinutes: { label: "settings.exec.maxWallMinutes.label", description: "settings.exec.maxWallMinutes.description" },
+	maxRunCostUsd: { label: "settings.exec.maxRunCostUsd.label", description: "settings.exec.maxRunCostUsd.description" },
+} as const;
 
 /** Linha com switch: a origem do valor herdado vira legenda à esquerda e, se o usuário mexeu, "Voltar ao padrão" fica ao lado do switch. */
 export function SwitchRow({
@@ -141,7 +118,8 @@ export function SwitchRow({
 	/** Sem `onInherit` (coluna que não aceita limpar), não há "Voltar ao padrão". */
 	onInherit?: () => void;
 }) {
-	const note = resolved ? switchInheritNote(resolved) : null;
+	const translator = useTranslations();
+	const note = resolved ? switchInheritNote(resolved, translator) : null;
 	return (
 		<SettingRow
 			caption={
@@ -159,7 +137,7 @@ export function SwitchRow({
 		>
 			{resolved?.source === "user" && onInherit ? (
 				<Button onClick={onInherit} size="xs" variant="ghost">
-					Voltar ao padrão
+					{translator.t("settings.exec.backToDefault")}
 				</Button>
 			) : null}
 			<Switch
@@ -185,7 +163,7 @@ export function ExecutionSettingsView({
 	onChange,
 	onSandboxChange,
 	isVisible = () => true,
-	title = "Execução",
+	title,
 	showStatus = true,
 }: {
 	title?: string;
@@ -200,14 +178,16 @@ export function ExecutionSettingsView({
 	onSandboxChange: (enabled: boolean) => void;
 	isVisible?: (itemId: string) => boolean;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	return (
-		<SettingsGroup title={title}>
+		<SettingsGroup title={title ?? t("settings.exec.title")}>
 				{isVisible("execucao.disciplina") ? (
 					<SwitchRow
-						description="Acompanha o progresso do agente, percebe quando ele empaca e agrupa chamadas parecidas."
+						description={t("settings.exec.discipline.description")}
 						icon={ListOrderedIcon}
 						id="settings-exec-discipline"
-						label="Disciplina de execução"
+						label={t("settings.exec.discipline.label")}
 						onChange={(checked) => onChange(disciplinePatch(checked))}
 						onInherit={() => onChange({ execution: { discipline: null } })}
 						resolved={effective?.execution.discipline ?? null}
@@ -216,10 +196,10 @@ export function ExecutionSettingsView({
 
 				{isVisible("execucao.economia") ? (
 					<SwitchRow
-						description="Carrega as ferramentas e instruções só quando o pedido precisa delas. Gasta menos contexto e fica mais rápido; desligue se o agente não achar uma ferramenta."
+						description={t("settings.exec.economy.description")}
 						icon={LayersIcon}
 						id="settings-exec-context-economy"
-						label="Economia de contexto"
+						label={t("settings.exec.economy.label")}
 						onChange={(checked) => onChange(contextEconomyPatch(checked))}
 						onInherit={() => onChange({ execution: { contextEconomy: null } })}
 						resolved={effective?.execution.contextEconomy ?? null}
@@ -230,21 +210,21 @@ export function ExecutionSettingsView({
 					<SettingRow
 						caption={
 							<p className="text-xs text-muted-foreground">
-								{CONTEXT_MEMORY_SHORT[effective?.execution.contextMemory?.value ?? "standard"]}
+								{contextMemoryShort(effective?.execution.contextMemory?.value ?? "standard", translator)}
 							</p>
 						}
-						description="Como o agente cuida do histórico de uma conversa longa: manter quase tudo e resumir perto do limite do modelo, ou enxugar cedo."
+						description={t("settings.exec.memory.description")}
 						htmlFor="settings-exec-context-memory"
 						icon={MessagesSquareIcon}
-						label="Memória da conversa"
+						label={t("settings.exec.memory.label")}
 					>
 						<SettingsPicker
 							className="w-full"
 							disabled={!effective}
 							id="settings-exec-context-memory"
 							onChange={(choice) => onChange(contextMemoryPatch(choice))}
-							options={contextMemoryOptions()}
-							placeholder="Carregando…"
+							options={contextMemoryOptions(translator)}
+							placeholder={t("common.loading")}
 							value={effective ? (effective.execution.contextMemory?.value ?? "standard") : ""}
 						/>
 					</SettingRow>
@@ -252,10 +232,10 @@ export function ExecutionSettingsView({
 
 				{isVisible("execucao.reacao") ? (
 					<SwitchRow
-						description="Quando você manda só um “ok”, “valeu” ou um emoji, o bot reage em vez de responder. Gasta menos e evita resposta à toa. Se ele tiver feito uma pergunta ou houver algo esperando você, ele responde normalmente."
+						description={t("settings.exec.reaction.description")}
 						icon={SmilePlusIcon}
 						id="settings-exec-reaction-only"
-						label="Responder só com reação quando não precisa de resposta"
+						label={t("settings.exec.reaction.label")}
 						onChange={(checked) => onChange(reactionOnlyPatch(checked))}
 						onInherit={() => onChange({ execution: { reactionOnly: null } })}
 						resolved={effective?.execution.reactionOnly ?? null}
@@ -264,10 +244,10 @@ export function ExecutionSettingsView({
 
 				{isVisible("execucao.paciencia") ? (
 					<SettingRow
-						description="Quanto esperar por uma resposta do modelo antes de desistir e tentar outro."
+						description={t("settings.exec.patience.description")}
 						htmlFor="settings-exec-timeout"
 						icon={TimerIcon}
-						label="Paciência com o modelo"
+						label={t("settings.exec.patience.label")}
 					>
 						<SettingsPicker
 							className="w-full"
@@ -276,10 +256,10 @@ export function ExecutionSettingsView({
 							onChange={(choice) => onChange(timeoutPatch(choice))}
 							options={
 								effective
-									? withOptionIcons(timeoutOptions(effective.execution.llmTimeouts), TIMEOUT_ICONS)
+									? withOptionIcons(timeoutOptions(effective.execution.llmTimeouts, translator), TIMEOUT_ICONS)
 									: []
 							}
-							placeholder="Carregando…"
+							placeholder={t("common.loading")}
 							value={effective ? timeoutChoice(effective.execution.llmTimeouts) : ""}
 						/>
 					</SettingRow>
@@ -288,19 +268,19 @@ export function ExecutionSettingsView({
 				{NUMBER_ROWS.map((row) =>
 					isVisible(row.itemId) ? (
 						<SettingRow
-							description={row.description}
+							description={t(NUMBER_TEXT[row.key].description)}
 							htmlFor={`settings-exec-${row.key}`}
 							icon={row.icon}
 							key={row.key}
-							label={row.label}
+							label={t(NUMBER_TEXT[row.key].label)}
 						>
 							<SettingsPicker
 								className="w-full"
 								disabled={!effective}
 								id={`settings-exec-${row.key}`}
 								onChange={(choice) => onChange(numberPatch(row.key, choice))}
-								options={effective ? numberOptions(row.spec, effective.execution[row.key], row.noneLabel) : []}
-								placeholder="Carregando…"
+								options={effective ? numberOptions(row.spec, effective.execution[row.key], row.noneLabel(translator), translator) : []}
+								placeholder={t("common.loading")}
 								value={effective ? numberChoice(effective.execution[row.key]) : ""}
 							/>
 						</SettingRow>
@@ -309,10 +289,10 @@ export function ExecutionSettingsView({
 
 				{isVisible("execucao.navegador") ? (
 					<SwitchRow
-						description="Liga o navegador do agente sozinho quando um run precisa dele."
+						description={t("settings.exec.browser.description")}
 						icon={GlobeIcon}
 						id="settings-exec-sandbox"
-						label="Iniciar o navegador automaticamente"
+						label={t("settings.exec.browser.label")}
 						onChange={onSandboxChange}
 						resolved={effective?.sandboxAutoStart ?? null}
 					/>
@@ -333,10 +313,11 @@ export function ExecutionSettingsView({
 }
 
 /** Autonomia da conta: nível padrão (cada bot pode herdar ou ter o seu) e as exceções. */
-export function AccountAutonomyGroup({ title = "Autonomia", isVisible = () => true }: { title?: string; isVisible?: (itemId: string) => boolean }) {
+export function AccountAutonomyGroup({ title, isVisible = () => true }: { title?: string; isVisible?: (itemId: string) => boolean }) {
+	const t = useT();
 	if (!isVisible("execucao.autonomia")) return null;
 	return (
-		<SettingsGroup title={title}>
+		<SettingsGroup title={title ?? t("settings.exec.autonomyTitle")}>
 			<AutonomySettings scope="account" variant="row" />
 		</SettingsGroup>
 	);

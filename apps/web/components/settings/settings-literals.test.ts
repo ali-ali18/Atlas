@@ -25,6 +25,9 @@ const TRANSLATED = [
 	"components/settings/sections/notifications.tsx",
 	"components/settings/sections/models.tsx",
 	"components/settings/sections/model-tiers.tsx",
+	"components/settings/jev-execution-state.ts",
+	"components/settings/sections/execution.tsx",
+	"components/settings/sections/jev.tsx",
 ];
 
 const ACCENTED = /[áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]/;
