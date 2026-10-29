@@ -275,7 +275,7 @@ export type SettingsSearchTerms = (kind: "nav" | "item", id: string) => readonly
  */
 export function settingsSearchTerms(t: TFunction): SettingsSearchTerms {
 	return (kind, id) => {
-		const key = `settings.search.${kind}.${id}` as MessageKey;
+		const key = `settings.search.${kind}.${id.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase())}` as MessageKey;
 		const text = (t as (key: MessageKey) => string)(key);
 		return text === key ? [] : text.split(";").map((term) => term.trim()).filter(Boolean);
 	};

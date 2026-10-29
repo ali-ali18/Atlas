@@ -28,6 +28,7 @@ import {
 	providersViewState,
 } from "../providers-state";
 import { SaveIndicator, SettingRow, SettingsGroup } from "../setting-row";
+import { useT, useTranslations } from "@/lib/i18n/provider";
 
 export { providerConnectionLabel };
 
@@ -73,8 +74,10 @@ export function ProvidersSettingsView({
 	onCancelDevice?: () => void;
 	isVisible?: (itemId: string) => boolean;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	if (state === "hidden") return null;
-	const connectLabel = state === "needs_login" ? "Reconectar ChatGPT" : "Conectar ChatGPT";
+	const connectLabel = state === "needs_login" ? t("settings.providers.reconnectAction") : t("settings.providers.connectAction");
 	const showConnect = (state === "disconnected" || state === "needs_login") && !device;
 	return (
 		<SettingsGroup>
@@ -84,7 +87,7 @@ export function ProvidersSettingsView({
 						<>
 							{enabled ? (
 								<p className="text-xs text-muted-foreground" id="settings-chatgpt-hint">
-									{chatgptSwitchHint(enabled)}
+									{chatgptSwitchHint(enabled, translator)}
 								</p>
 							) : null}
 							{loadError ? (
@@ -97,14 +100,14 @@ export function ProvidersSettingsView({
 						</>
 					}
 					control="inline"
-					description="Uso pessoal: consome a cota do seu plano ChatGPT. Recurso em preview."
+					description={t("settings.providers.planHint")}
 					htmlFor="settings-chatgpt-enabled"
 					icon={OpenAIIcon}
-					label="Usar plano ChatGPT"
+					label={t("settings.providers.planLabel")}
 				>
 					{enabled?.source === "user" ? (
 						<Button onClick={onInherit} size="xs" variant="ghost">
-							Voltar ao padrão
+							{t("settings.providers.backToDefault")}
 						</Button>
 					) : null}
 					<Switch
@@ -123,8 +126,8 @@ export function ProvidersSettingsView({
 						<>
 							<p className="text-xs text-muted-foreground">
 								{state === "off"
-									? "Plano desligado. A conexão e os tokens ficam guardados até você desconectar."
-									: providerConnectionLabel(status, error)}
+									? t("settings.providers.planOffCaption")
+									: providerConnectionLabel(status, error, translator)}
 							</p>
 							{notice ? (
 								<p className="text-xs text-muted-foreground" role="status">
@@ -140,16 +143,16 @@ export function ProvidersSettingsView({
 					}
 					control="inline"
 					icon={LinkIcon}
-					label="Conexão com o ChatGPT"
+					label={t("settings.providers.connectionLabel")}
 				>
 					{showConnect ? (
 						<Button disabled={busy} onClick={onConnect} size="sm" variant="outline">
-							{busy ? "Aguarde…" : connectLabel}
+							{busy ? t("settings.providers.wait") : connectLabel}
 						</Button>
 					) : null}
 					{error ? (
 						<Button disabled={busy} onClick={onReload} size="sm" variant="ghost">
-							Tentar novamente
+							{t("settings.providers.retry")}
 						</Button>
 					) : null}
 				</SettingRow>
@@ -159,9 +162,9 @@ export function ProvidersSettingsView({
 				<div className="flex flex-col gap-3 px-4 py-3" data-testid="chatgpt-device-step">
 					{device ? (
 						<>
-							<p className="text-sm font-medium">Digite este código no ChatGPT</p>
+							<p className="text-sm font-medium">{t("settings.providers.deviceTitle")}</p>
 							<p
-								aria-label={`Código ${device.userCode}`}
+								aria-label={t("settings.providers.deviceCodeAria", { code: device.userCode })}
 								className="select-all font-mono text-3xl font-semibold tracking-widest"
 							>
 								{device.userCode}
@@ -178,33 +181,32 @@ export function ProvidersSettingsView({
 									size="sm"
 									variant="outline"
 								>
-									Copiar código
+									{t("settings.providers.copyCode")}
 								</Button>
 								<Button
 									onClick={() => window.open(device.verificationUrl, "_blank", "noopener,noreferrer")}
 									size="sm"
 								>
-									Abrir página de login
+									{t("settings.providers.openLogin")}
 								</Button>
 								{onCancelDevice ? (
 									<Button onClick={onCancelDevice} size="sm" variant="ghost">
-										Cancelar
+										{t("common.cancel")}
 									</Button>
 								) : null}
 							</div>
 							<p className="text-xs text-muted-foreground" role="status">
-								Aguardando confirmação… O código vale por 15 minutos. Continue só se foi você quem
-								iniciou este login.
+								{t("settings.providers.deviceWaiting")}
 							</p>
 						</>
 					) : (
 						<>
 							<p className="text-sm text-muted-foreground" role="status">
-								O código expirou.
+								{t("settings.providers.codeExpired")}
 							</p>
 							<div>
 								<Button disabled={busy} onClick={onConnect} size="sm" variant="outline">
-									Gerar novo código
+									{t("settings.providers.newCode")}
 								</Button>
 							</div>
 						</>
@@ -215,12 +217,12 @@ export function ProvidersSettingsView({
 			{isVisible("provedores.desconectar") && canDisconnect(state, enabled?.source) ? (
 				<SettingRow
 					control="inline"
-					description="Remove a conexão e apaga os tokens salvos. Para só pausar o uso, desligue o plano acima."
+					description={t("settings.providers.disconnectHint")}
 					icon={UnplugIcon}
-					label="Desconectar da conta"
+					label={t("settings.providers.disconnectLabel")}
 				>
 					<Button disabled={busy} onClick={onDisconnect} size="sm" variant="destructive">
-						Desconectar da conta
+						{t("settings.providers.disconnectLabel")}
 					</Button>
 				</SettingRow>
 			) : null}
@@ -239,20 +241,20 @@ export function DisconnectChatgptDialog({
 	onOpenChange: (open: boolean) => void;
 	onConfirm: () => void;
 }) {
+	const t = useT();
 	return (
 		<AlertDialog onOpenChange={onOpenChange} open={open}>
 			<AlertDialogContent size="sm">
 				<AlertDialogHeader>
-					<AlertDialogTitle>Desconectar o ChatGPT da conta?</AlertDialogTitle>
+					<AlertDialogTitle>{t("settings.providers.dialogTitle")}</AlertDialogTitle>
 					<AlertDialogDescription>
-						Os tokens são apagados e deixamos de usar seu plano. Os bots seguirão o fallback
-						configurado. Para voltar, será preciso conectar de novo.
+						{t("settings.providers.dialogBody")}
 					</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
-					<AlertDialogCancel>Cancelar</AlertDialogCancel>
+					<AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
 					<AlertDialogAction disabled={busy} onClick={onConfirm}>
-						Desconectar
+						{t("settings.providers.dialogConfirm")}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>

@@ -16,6 +16,15 @@ const TRANSLATED = [
 	"components/settings/sections/reflection.tsx",
 	"components/settings/sections/timezone.tsx",
 	"components/settings/sections/work-hours.tsx",
+	"components/settings/providers-state.ts",
+	"components/settings/models-state.ts",
+	"components/settings/sections/providers.tsx",
+	"components/settings/sections/provider-keys.tsx",
+	"components/settings/sections/email-key.tsx",
+	"components/settings/sections/email-domains.tsx",
+	"components/settings/sections/notifications.tsx",
+	"components/settings/sections/models.tsx",
+	"components/settings/sections/model-tiers.tsx",
 ];
 
 const ACCENTED = /[áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]/;

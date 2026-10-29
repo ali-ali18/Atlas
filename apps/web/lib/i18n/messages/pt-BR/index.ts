@@ -13,7 +13,9 @@ import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
 import { settings } from "./settings";
 import { sharedLabels } from "./sharedLabels";
+import { settingsModels } from "./settingsModels";
 import { settingsOps } from "./settingsOps";
+import { settingsProviders } from "./settingsProviders";
 import { settingsSearch } from "./settingsSearch";
 import { sidebar } from "./sidebar";
 import { status } from "./status";
@@ -45,7 +47,9 @@ import { share } from "./share";
 	...mobile,
 	...settings,
 	...sharedLabels,
+	...settingsModels,
 	...settingsOps,
+	...settingsProviders,
 	...settingsSearch,
 	...sidebar,
 	...status,

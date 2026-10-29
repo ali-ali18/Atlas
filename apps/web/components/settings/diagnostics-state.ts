@@ -86,13 +86,13 @@ export function maintenanceSuccessLabel(lastSuccessAt: string | null, translator
 
 const JOB_KEYS = {
 	summary: "settings.diag.job.summary",
-	"memory-review": "settings.diag.job.memory-review",
+	"memory-review": "settings.diag.job.memoryReview",
 	reflection: "settings.diag.job.reflection",
-	"connector-guide": "settings.diag.job.connector-guide",
+	"connector-guide": "settings.diag.job.connectorGuide",
 	reviewer: "settings.diag.job.reviewer",
-	"memory-gate": "settings.diag.job.memory-gate",
-	"lesson-review": "settings.diag.job.lesson-review",
-	"skill-review": "settings.diag.job.skill-review",
+	"memory-gate": "settings.diag.job.memoryGate",
+	"lesson-review": "settings.diag.job.lessonReview",
+	"skill-review": "settings.diag.job.skillReview",
 } as const;
 
 /** Nome da tarefa em segundo plano no idioma da tela (o rótulo de `shared` é só pt-BR). */
