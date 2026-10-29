@@ -1,6 +1,7 @@
 "use client";
 
 import { ShrinkIcon } from "lucide-react";
+import { Marker, MarkerContent, MarkerIcon } from "@workspace/ui/components/marker";
 import { Spinner } from "@workspace/ui/components/spinner";
 
 import { formatCompactionLine } from "@workspace/shared";
@@ -21,16 +22,16 @@ export type CompactionCardProps = {
  */
 export function CompactionCard({ before, after }: CompactionCardProps) {
 	return (
-		<div className="my-2 flex w-full min-w-0 justify-center text-muted-foreground text-xs" data-testid="compaction-card">
-			<span className="inline-flex max-w-full items-center gap-1.5 px-1">
-				<ShrinkIcon aria-hidden="true" className="size-3.5 shrink-0" />
-				<span className="min-w-0 truncate">
-					<span className="max-sm:hidden">Conversa compactada · </span>
-					<span className="sm:hidden">Compactada · </span>
-					<span className="tabular-nums" data-testid="compaction-numbers">{formatCompactionLine(before, after)}</span>
-				</span>
-			</span>
-		</div>
+		<Marker className="my-2 justify-center text-xs" data-testid="compaction-card">
+			<MarkerIcon>
+				<ShrinkIcon />
+			</MarkerIcon>
+			<MarkerContent className="flex-none truncate">
+				<span className="max-sm:hidden">Conversa compactada · </span>
+				<span className="sm:hidden">Compactada · </span>
+				<span className="tabular-nums" data-testid="compaction-numbers">{formatCompactionLine(before, after)}</span>
+			</MarkerContent>
+		</Marker>
 	);
 }
 
@@ -39,15 +40,9 @@ export type CompactionNoticeState = { status: "working" } | { status: "notice"; 
 /** Estado passageiro do `/compact`: "Compactando a conversa…" enquanto roda e, se nada foi feito, o aviso curto. */
 export function CompactionNotice({ state }: { state: CompactionNoticeState }) {
 	return (
-		<div
-			aria-live="polite"
-			className="my-1 flex w-full min-w-0 max-w-[min(68ch,100%)] items-center gap-2 px-3 py-1 text-muted-foreground text-xs"
-			data-state={state.status}
-			data-testid="compaction-notice"
-			role="status"
-		>
-			{state.status === "working" ? <Spinner className="size-3.5 shrink-0" /> : <ShrinkIcon aria-hidden="true" className="size-3.5 shrink-0" />}
-			<span className="min-w-0 break-words">{state.status === "working" ? "Compactando a conversa…" : state.text}</span>
-		</div>
+		<Marker aria-live="polite" className="my-1 text-xs" data-state={state.status} data-testid="compaction-notice" role="status">
+			<MarkerIcon>{state.status === "working" ? <Spinner /> : <ShrinkIcon />}</MarkerIcon>
+			<MarkerContent>{state.status === "working" ? "Compactando a conversa…" : state.text}</MarkerContent>
+		</Marker>
 	);
 }

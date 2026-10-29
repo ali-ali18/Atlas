@@ -47,7 +47,7 @@ const KIND_ICON: Record<PlanCardStepKind, { icon: typeof SearchIcon; label: stri
 };
 
 const BADGE: Record<PlanCardStatus, { tone: RequestTone; label: string }> = {
-  pending: { tone: "pending", label: "Aguardando seu OK" },
+  pending: { tone: "pending", label: "Precisa de você" },
   approved: { tone: "success", label: "Plano aprovado" },
   adjusted: { tone: "muted", label: "Ajuste pedido" },
   cancelled: { tone: "muted", label: "Cancelado" },
@@ -60,7 +60,7 @@ function GroupAction({ icon: Icon, label, onClick, disabled }: { icon: typeof XI
     <Tooltip>
       <TooltipTrigger
         render={
-          <Button aria-label={label} className="max-md:w-8 max-md:px-0" disabled={disabled} onClick={onClick} size="sm" type="button" variant="outline">
+          <Button aria-label={label} className="max-md:w-8 max-md:px-0" disabled={disabled} onClick={onClick} size="sm" type="button" variant="secondary">
             <Icon aria-hidden />
             <span className="max-md:hidden">{label}</span>
           </Button>

@@ -491,10 +491,10 @@ export function describeApiAuth(auth: ApiAuth): string | undefined {
 }
 
 export const API_AUTH_LABEL: Record<ApiAuthKind, string> = {
-	oauth2: "OAuth2 (código de autorização)",
-	apiKey: "Chave de API",
-	bearer: "Token de acesso",
-	none: "Sem autenticação",
+	oauth2: "Entrar com a conta",
+	apiKey: "Chave de acesso",
+	bearer: "Código de acesso",
+	none: "Sem login",
 };
 
 /** Visão da conexão para a UI (sem segredos e sem o catálogo completo). */

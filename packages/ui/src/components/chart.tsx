@@ -720,7 +720,7 @@ function Chart({ spec, className, actions }: { spec: ChartSpec; className?: stri
   return (
     <figure
       className={cn(
-        "my-2 w-[min(68ch,calc(100vw-5rem))] min-w-0 max-w-full overflow-hidden rounded-lg border border-border/60 bg-muted/30 pb-3",
+        "my-2 w-full min-w-0 max-w-[min(68ch,100%)] overflow-hidden rounded-2xl bg-muted/60 pb-3",
         className
       )}
       data-slot="chart"

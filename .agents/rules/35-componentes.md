@@ -7,7 +7,7 @@ Antes de criar componente, procure aqui. Se existe algo 80% igual, estenda (prop
 - **Sobreposições:** `dialog` (fecha com Esc e prende o foco), `alert-dialog`/`confirm-alert` (confirmação destrutiva), `sheet` (gaveta, padrão no celular), `popover`, `dropdown-menu`, `context-menu`, `hover-card`, `tooltip`, `overlay-dismiss`.
 - **Estrutura:** `collapsible` (seções recolhíveis), `tabs`, `separator`, `sidebar`, `item`, `empty` (estado vazio), `skeleton`, `toaster`.
 - **Identidade:** `avatar`, `gradient-avatar`, `badge`, `marker`, `model-capability-badges`.
-- **Conteúdo de IA:** `bubble` (balão do chat), `attachment`, `code-block`, `plan-card`, `questionnaire`, `request-card`, `chart` (render de `ChartSpec`), `spinner`.
+- **Conteúdo de IA:** `bubble` (balão do chat), `attachment`, `code-block`, `chat-card` (casca de todo card do chat), `plan-card`, `questionnaire`, `request-card`, `chart` (render de `ChartSpec`), `spinner`.
 - Não recrie botão, modal, menu ou anexo com `div`. Primitivos usam Base UI por baixo: o menu aberto injeta spans (focus guards, `aria-owns`) ao redor do gatilho, então não dependa de `:first-child`/`:last-child` ao estilizar irmãos.
 
 ## Base visual (tokens em `packages/ui/src/styles/globals.css`)
@@ -36,6 +36,9 @@ Antes de criar componente, procure aqui. Se existe algo 80% igual, estenda (prop
 - Tela com mais de ~250 linhas: extraia subcomponentes na mesma pasta.
 
 ## Cards do chat
+- **Card novo usa `ChatCard`** (`packages/ui/src/components/chat-card.tsx`). Uma pele só: `rounded-2xl`, sem borda, `bg-muted/60`, largura `max-w-[min(68ch,100%)]`. Duas variantes: `card` (cabeçalho ícone `size-4` + título curto + selo, corpo, ações; `RequestCard` já é feito sobre ela) e `activity` (linha compacta para ferramenta, skill, anexo, tarefas, código). Peças: `ChatCardHeader`, `ChatCardLine`, `ChatCardDetails` (recolher com `Collapsible`, nunca `<button>` manual), `ChatCardActions`, `ChatCardError` (erro em caixa padrão). Texto de habilidade para o usuário é "Habilidade" (nunca "skill"). Marcador de uma linha no fio (memória, compactação, limite) usa `Marker`.
+- **Vocabulário dos cards** em `packages/ui/src/lib/chat-card-copy.ts`: dispensar = "Agora não"; selo de dispensado = "Dispensado"; pendente = "Precisa de você"; recolhido = "Ver detalhes" / "Mostrar menos" (lista: "Ver tudo (n)"). "Recusar" só ao negar um comando ou o pedido de outro bot; "Pular" só no questionário. Botão secundário é `variant="secondary"` tamanho `sm` (nunca `xs` nem `outline` num card). Cores de estado pelos tokens `success/warning/info/destructive`.
+- **Lista de tarefas:** durante o run vive na doca em cima do composer (`task-list-dock.tsx`, linha "2/5 · tarefa atual", abre os passos) e não aparece no fio; ao terminar o fio fica com uma linha "Tarefas · 5/5 concluídas" (`TaskListCard`). A doca não é um cartão à parte: é uma seção do container único do composer (mesmo fundo, raio e borda da caixa de digitar, divisor `border-b`), na ordem tarefas → aprovação (`approval-bar`) → campo, todas com a mesma largura. Seção nova da doca segue o mesmo molde (sem fundo nem raio próprios).
 - Cada card é um evento do runtime persistido como mensagem com `role` próprio (chart, page, file, routine, task-list, subagents, revised-draft, compaction…), parseado em `packages/shared` e restaurado por `use-atlas-chat.ts`.
 - Identidade estável entre ao vivo e persistido (`chartId`, `pageId`, `routineId` + run) e dedupe em `apps/web/lib/thread-merge.ts`. Card novo = tipo em shared + persistência no db + chave de dedupe + teste do merge.
 - Card de escrita (rotina, painel, arquivo, perfil) mostra resultado visível; card de leitura não precisa.

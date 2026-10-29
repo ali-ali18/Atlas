@@ -14,7 +14,7 @@ type Status = "pending" | "approved" | "rejected" | "failed";
 const BADGE = {
 	pending: { tone: "pending", label: "Precisa de você" },
 	approved: { tone: "success", label: "Salvo" },
-	rejected: { tone: "muted", label: "Pulado" },
+	rejected: { tone: "muted", label: "Dispensado" },
 	failed: { tone: "danger", label: "Falhou" },
 } as const;
 
@@ -89,7 +89,7 @@ export function SecretsRequestCard({ info, title, description, status = "pending
 			data-secrets-request
 			description={description}
 			detailsLabel="Ver nomes"
-			leading={status === "approved" ? <CheckIcon aria-label="Salvo" /> : status === "rejected" ? <XIcon aria-label="Pulado" /> : <KeyRoundIcon aria-label="Segredos" />}
+			leading={status === "approved" ? <CheckIcon aria-label="Salvo" /> : status === "rejected" ? <XIcon aria-label="Dispensado" /> : <KeyRoundIcon aria-label="Segredos" />}
 			resolved={resolved}
 			title={title}
 		>
@@ -99,7 +99,7 @@ export function SecretsRequestCard({ info, title, description, status = "pending
 				<div className="flex min-w-0 flex-col gap-2">
 					<Textarea
 						aria-invalid={errors.length > 0 ? true : undefined}
-						aria-label="Segredos (NOME=valor, um por linha)"
+						aria-label="Chaves e senhas, uma por linha"
 						autoComplete="off"
 						className="min-h-[5.5rem] font-mono text-body leading-5"
 						id={id}

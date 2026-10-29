@@ -31,7 +31,7 @@ type Step = "root" | "skills" | "permission";
 const ROW_CLASS =
 	"flex min-h-12 w-full items-center gap-3 rounded-2xl px-3 text-left text-[15px] outline-none transition-colors hover:bg-muted/70 focus-visible:bg-muted/70 active:bg-muted";
 
-/** Lista de skills do usuário e as de fábrica, carregadas ao abrir o passo "Skill". */
+/** Lista de skills do usuário e as de fábrica, carregadas ao abrir o passo "Habilidade". */
 export function useAddMenuSkills(active: boolean): { skills: AddMenuSkill[]; loading: boolean } {
 	const [skills, setSkills] = useState<AddMenuSkill[]>([]);
 	const [loading, setLoading] = useState(false);
@@ -136,11 +136,11 @@ export function AddMenuPanel(props: AddMenuPanelProps) {
 			) : null;
 		return (
 			<div className="flex min-w-0 flex-col" data-add-step="skills">
-				<Header onBack={() => onStep("root")} onClose={onClose} showClose={showClose} title="Skill" />
+				<Header onBack={() => onStep("root")} onClose={onClose} showClose={showClose} title="Habilidade" />
 				<div className="max-h-[50dvh] overflow-y-auto">
 					{props.skillsLoading ? <p className="px-3 py-4 text-muted-foreground text-sm">Carregando…</p> : null}
-					{!props.skillsLoading && props.skills.length === 0 ? <p className="px-3 py-4 text-muted-foreground text-sm">Nenhuma skill disponível.</p> : null}
-					{group("Minhas skills", mine)}
+					{!props.skillsLoading && props.skills.length === 0 ? <p className="px-3 py-4 text-muted-foreground text-sm">Nenhuma habilidade disponível.</p> : null}
+					{group("Minhas habilidades", mine)}
 					{group("De fábrica", factory)}
 				</div>
 			</div>
@@ -173,7 +173,7 @@ export function AddMenuPanel(props: AddMenuPanelProps) {
 			</div>
 			<div className="flex flex-col">
 				{props.showTestPr ? <Row icon={GitPullRequestIcon} label="Testar uma PR" onClick={() => { props.onTestPr(); onClose(); }} testId="test-pr-item" /> : null}
-				<Row chevron icon={SparklesIcon} label="Skill" onClick={() => onStep("skills")} />
+				<Row chevron icon={SparklesIcon} label="Habilidade" onClick={() => onStep("skills")} />
 				{props.permission ? <Row chevron icon={ShieldCheckIcon} label="Permissão" onClick={() => onStep("permission")} value={DEV_APPROVAL_MODE_LABEL[props.permission.mode]} /> : null}
 			</div>
 		</div>

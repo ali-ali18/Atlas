@@ -218,7 +218,7 @@ export function useDevSessionFixture(
 					title: mode === "approval" ? "Executar este comando?" : "Aplicar esta alteração?",
 					status: "pending",
 					confirmLabel: mode === "approval" ? "Executar" : "Aplicar",
-					cancelLabel: "Pular",
+					cancelLabel: "Agora não",
 					confirmId: "confirm-fixture",
 					devApproval:
 						mode === "approval"

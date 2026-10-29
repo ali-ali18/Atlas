@@ -25,14 +25,14 @@ const base: AddMenuPanelProps = {
 };
 const html = (props: Partial<AddMenuPanelProps> = {}) => renderToStaticMarkup(<AddMenuPanel {...base} {...props} />);
 
-test("raiz: cabeçalho com X, tiles de anexo e as linhas Testar uma PR, Skill e Permissão com o modo", () => {
+test("raiz: cabeçalho com X, tiles de anexo e as linhas Testar uma PR, Habilidade e Permissão com o modo", () => {
 	const out = html({ onTakePhoto: () => undefined });
 	assert.match(out, />Adicionar</);
 	assert.match(out, /aria-label="Fechar"/);
 	assert.match(out, />Câmera</);
 	assert.match(out, />Fotos</);
 	assert.match(out, />Testar uma PR</);
-	assert.match(out, />Skill</);
+	assert.match(out, />Habilidade</);
 	assert.match(out, />Permissão</);
 	assert.match(out, />Lista liberada</);
 });
@@ -45,16 +45,16 @@ test("sem sessões de código: sem Testar uma PR nem Permissão; sem câmera no 
 	assert.doesNotMatch(out, /aria-label="Fechar"/);
 });
 
-test("passo Skill: voltar, grupo das minhas e De fábrica (lista real, não fixa)", () => {
+test("passo Habilidade: voltar, grupo das minhas e De fábrica (lista real, não fixa)", () => {
 	const out = html({ step: "skills" });
 	assert.match(out, /aria-label="Voltar"/);
-	assert.match(out, /Minhas skills/);
+	assert.match(out, /Minhas habilidades/);
 	assert.match(out, />Resumir texto</);
 	assert.match(out, />De fábrica</);
 	assert.match(out, />Sessões de código</);
 	assert.doesNotMatch(out, /Traduzir|Criar skill/);
 	assert.match(html({ step: "skills", skills: [], skillsLoading: true }), /Carregando/);
-	assert.match(html({ step: "skills", skills: [] }), /Nenhuma skill disponível/);
+	assert.match(html({ step: "skills", skills: [] }), /Nenhuma habilidade disponível/);
 });
 
 test("passo Permissão: os três modos, o atual marcado", () => {

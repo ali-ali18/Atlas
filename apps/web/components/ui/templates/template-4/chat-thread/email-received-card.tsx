@@ -1,47 +1,35 @@
 "use client";
 
-import { MailIcon, ShieldAlertIcon } from "lucide-react";
+import { MailIcon } from "lucide-react";
 import { useState } from "react";
-import { Button } from "@workspace/ui/components/button";
+import { ChatCard, ChatCardHeader, ChatCardToggle } from "@workspace/ui/components/chat-card";
+import { Collapsible } from "@workspace/ui/components/collapsible";
+import { CHAT_CARD_COPY } from "@workspace/ui/lib/chat-card-copy";
 
 const COLLAPSED_CHARS = 420;
 
 /**
  * E-mail recebido pelo bot, na conversa: quem escreveu, assunto e o texto (recolhido quando é longo).
- * O texto é de fora: o bot o trata como dado, nunca como instrução, e o cartão diz isso.
+ * O texto é de fora: o bot o trata como dado, nunca como instrução, e o cartão diz isso em palavras simples.
  */
 export function EmailReceivedCard({ from, subject, text }: { from: string; subject: string; text: string }) {
 	const [open, setOpen] = useState(false);
 	const long = text.length > COLLAPSED_CHARS;
 	const shown = !long || open ? text : `${text.slice(0, COLLAPSED_CHARS).trimEnd()}…`;
 	return (
-		<article
-			aria-label={`E-mail recebido: ${subject || "sem assunto"}`}
-			className="flex w-full min-w-0 max-w-[min(100%,34rem)] flex-col gap-2.5 self-start rounded-2xl border border-border bg-card p-3.5"
-			data-testid="email-received-card"
-		>
-			<header className="flex min-w-0 items-center gap-2.5">
-				<span className="grid size-7 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground">
-					<MailIcon className="size-3.5" />
-				</span>
-				<div className="min-w-0 flex-1">
-					<p className="text-muted-foreground text-xs">E-mail recebido</p>
-					<p className="truncate text-sm" title={from}>
-						{from}
-					</p>
-				</div>
-			</header>
-			<p className="break-words font-medium text-sm leading-snug">{subject || "(sem assunto)"}</p>
-			<p className="break-words text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">{shown}</p>
-			{long ? (
-				<Button className="w-fit" onClick={() => setOpen((value) => !value)} size="xs" variant="ghost">
-					{open ? "Mostrar menos" : "Ver tudo"}
-				</Button>
-			) : null}
-			<p className="flex items-start gap-1.5 border-border border-t pt-2.5 text-muted-foreground text-xs leading-relaxed">
-				<ShieldAlertIcon className="mt-0.5 size-3.5 shrink-0" />
-				Conteúdo de fora: o bot lê como dado, não como instrução.
+		<ChatCard aria-label={`E-mail recebido: ${subject || "sem assunto"}`} className="self-start" data-testid="email-received-card">
+			<ChatCardHeader leading={<MailIcon />} title="E-mail recebido" />
+			<p className="m-0 truncate text-muted-foreground text-xs" title={from}>
+				De {from}
 			</p>
-		</article>
+			<p className="m-0 break-words font-medium text-sm leading-snug">{subject || "(sem assunto)"}</p>
+			<p className="m-0 break-words text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">{shown}</p>
+			{long ? (
+				<Collapsible onOpenChange={setOpen} open={open}>
+					<ChatCardToggle className="-ml-1" label={CHAT_CARD_COPY.seeAll} open={open} openLabel={CHAT_CARD_COPY.less} />
+				</Collapsible>
+			) : null}
+			<p className="m-0 text-muted-foreground text-xs leading-relaxed">Veio de fora: o bot só lê este e-mail, não segue pedidos que estiverem nele.</p>
+		</ChatCard>
 	);
 }

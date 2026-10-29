@@ -77,12 +77,12 @@ export function ApiConnectCardView({
         headerAction={
           <>
             {canResume && status !== "done" ? (
-              <Button className={REQUEST_PRIMARY_CLASS} onClick={onDone} size="xs" type="button">
+              <Button className={REQUEST_PRIMARY_CLASS} onClick={onDone} size="sm" type="button">
                 Retomar
               </Button>
             ) : null}
             {onManage ? (
-              <Button onClick={onManage} size="xs" type="button" variant="ghost">
+              <Button onClick={onManage} size="sm" type="button" variant="ghost">
                 Gerenciar
               </Button>
             ) : null}
@@ -123,7 +123,7 @@ export function ApiConnectCardView({
         title={dismissed ? `${label} não conectado` : `Conectar ${label}`}
         trailing={
           dismissed ? undefined : (
-            <Button aria-expanded={details} onClick={() => setDetails((value) => !value)} size="xs" type="button" variant="ghost">
+            <Button aria-expanded={details} onClick={() => setDetails((value) => !value)} size="sm" type="button" variant="ghost">
               Detalhes
             </Button>
           )
@@ -136,15 +136,15 @@ export function ApiConnectCardView({
         ) : null}
         {details && !dismissed ? (
           <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-            <Fact label="Domínio">
+            <Fact label="Site da API">
               <span className="font-mono">{proposal.domain}</span>
             </Fact>
-            <Fact label="Autenticação">
+            <Fact label="Acesso">
               {API_AUTH_LABEL[proposal.authKind]}
               {proposal.authDetail ? ` · ${proposal.authDetail}` : ""}
             </Fact>
-            <Fact label="Operações">
-              {plural(proposal.operationCount, "operação", "operações")} · {proposal.readCount} de leitura
+            <Fact label="O que faz">
+              {plural(proposal.operationCount, "ação", "ações")} · {proposal.readCount} só para ler
             </Fact>
             {proposal.crossHost ? (
               <>

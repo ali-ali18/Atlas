@@ -13,7 +13,7 @@ export function ChartPlaceholder({ label = "Gerando gráfico…", className }: {
 	return (
 		<div
 			aria-live="polite"
-			className={cn("my-2 flex h-[300px] w-[min(68ch,calc(100vw-5rem))] min-w-0 max-w-full items-center justify-center rounded-lg border border-border/60 bg-muted/30 text-muted-foreground text-xs", className)}
+			className={cn("my-2 flex h-[300px] w-full min-w-0 max-w-[min(68ch,100%)] items-center justify-center rounded-2xl bg-muted/60 text-muted-foreground text-xs", className)}
 			data-testid="chart-placeholder"
 		>
 			<span className="motion-safe:animate-pulse">{label}</span>

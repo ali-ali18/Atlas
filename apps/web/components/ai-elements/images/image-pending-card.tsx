@@ -32,7 +32,7 @@ export function ImagePendingCard({ aspectRatio, count, startedAt, status, error 
 	const elapsed = Math.max(0, Math.floor((now - startedAt) / 1000));
 	const ratio = aspectRatioValue(aspectRatio);
 	const failed = status === "error";
-	return <div className="mr-auto w-full max-w-sm" data-status={status} data-testid="image-pending">
+	return <div className="mr-auto w-full max-w-[min(68ch,100%)]" data-status={status} data-testid="image-pending">
 		<div className={count === 1 ? "w-full" : "grid grid-cols-2 gap-2"}>
 			{Array.from({ length: count }, (_, position) => <div
 				aria-hidden

@@ -28,8 +28,8 @@ export function SecretPasteNotice({
 		<div
 			aria-live="polite"
 			className={cn(
-				"mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl border px-3 py-2 text-xs",
-				attention ? "border-warning/60 bg-warning/10" : "border-border bg-muted/40",
+				"mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl px-3 py-2 text-xs",
+				attention ? "bg-warning/10" : "bg-muted/60",
 			)}
 			data-secret-paste-notice
 			role="status"
@@ -40,10 +40,10 @@ export function SecretPasteNotice({
 				<span className="text-muted-foreground"> O bot não precisa ver o valor: guarde no cofre e eu uso por referência.</span>
 			</span>
 			<span className="flex shrink-0 items-center gap-1">
-				<Button disabled={busy} onClick={onSave} size="xs" type="button">
+				<Button disabled={busy} onClick={onSave} size="sm" type="button">
 					{busy ? "Guardando…" : "Guardar no cofre"}
 				</Button>
-				<Button disabled={busy} onClick={onSendAnyway} size="xs" type="button" variant="ghost">
+				<Button disabled={busy} onClick={onSendAnyway} size="sm" type="button" variant="ghost">
 					Enviar mesmo assim
 				</Button>
 			</span>

@@ -57,7 +57,7 @@ test("textos do Sugerir: pergunta com a agenda, Criar / Agora não, e os estados
 	assert.equal(pending.badge.label, "Sugestão");
 	const created = proposalView({ mode: "suggest", status: "accepted", spec, schedule: "toda segunda às 8h" });
 	assert.deepEqual([created.badge.label, created.resolved, created.note], ["Criada", true, "Roda toda segunda às 8h."]);
-	assert.equal(proposalView({ mode: "suggest", status: "declined", spec, schedule: "x" }).badge.label, "Agora não");
+	assert.equal(proposalView({ mode: "suggest", status: "declined", spec, schedule: "x" }).badge.label, "Dispensado");
 });
 
 test("textos do Automático: 'Criei a rotina … — manter?' com Manter / Desfazer", () => {

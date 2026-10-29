@@ -87,7 +87,7 @@ export function proposalView(input: {
 			: {
 					title: `Sugestão dispensada: ${name}`,
 					description,
-					badge: { tone: "muted", label: "Agora não" },
+					badge: { tone: "muted", label: "Dispensado" },
 					confirmLabel: "Criar",
 					cancelLabel: "Agora não",
 					resolved: true,

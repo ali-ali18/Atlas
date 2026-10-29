@@ -35,6 +35,8 @@ import { approvalMarkerFor, failedApprovalDetail, approvalShortLabel, isHiddenPr
 import { isRevisedDraftMessage } from "@/lib/hidden-revisions";
 import { answerBotPending } from "@/lib/atlas-api";
 import { ApprovalBar } from "./approval-bar";
+import { ComposerDock } from "./task-list-dock";
+import { dockedTaskList } from "@/lib/task-list";
 import { insideNestedScrollerThatCanScrollUp, keyIsUpward, stickAfterScroll, touchIsUpward, wheelIsUpward } from "@/lib/follow-bottom";
 import { shouldKeepBottomOnResize } from "@/lib/keep-bottom-on-resize";
 import { ApprovalMarker } from "./approval-marker";
@@ -212,6 +214,7 @@ export function ChatThread({
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const [barHeight, setBarHeight] = useState(0);
+	const [dockHeight, setDockHeight] = useState(0);
 	// "Ajustar" no cartão do plano: rascunho no composer. Um prefill novo vindo de fora passa na frente.
 	const [adjustPrefill, setAdjustPrefill] = useState<{ text: string; nonce: number } | null>(null);
 	useEffect(() => setAdjustPrefill(null), [prefill?.nonce]);
@@ -644,6 +647,8 @@ export function ChatThread({
 	const stampedAuthors = stampedAuthorsRef.current.map;
 	const liveAuthorId = liveMember?.id;
 	const liveAuthorName = liveMember?.name;
+	// A lista de tarefas do run ativo vive na doca do composer; o fio só recebe o resumo quando o run termina.
+	const dockedTasks = useMemo(() => dockedTaskList(messages, sending || runStatus === "paused" || runStatus === "pausing"), [messages, sending, runStatus]);
 	const visibleMessages = useMemo(
 		() =>
 			(isGroup
@@ -652,11 +657,12 @@ export function ChatThread({
 			).filter(
 				(message) =>
 					message.kind !== "tool" &&
+					message.id !== dockedTasks?.id &&
 					!isHiddenProtocolBubble(message) &&
 					!isRevisedDraftMessage(message) &&
 					!(message.kind === "assistant" && message.text.trim().length === 0),
 			),
-		[messages, isGroup, liveAuthorId, liveAuthorName, stampedAuthors],
+		[messages, isGroup, liveAuthorId, liveAuthorName, stampedAuthors, dockedTasks?.id],
 	);
 	// Conversa entre bots: o texto cru não vira balão (marcador ou linha "N mensagens com X").
 	// Delegou e o outro bot parou esperando o usuário: a linha de status diz isso.
@@ -1238,7 +1244,7 @@ export function ChatThread({
 						/>
 					</div>
 				) : (
-					<div className="mx-auto flex w-full max-w-3xl flex-col gap-1.5 px-4 pt-22 pb-44 md:pt-20" style={hasPendingApproval ? { paddingBottom: transcriptBottomPadding(true, barHeight) } : undefined}>
+					<div className="mx-auto flex w-full max-w-3xl flex-col gap-1.5 px-4 pt-22 pb-44 md:pt-20" style={hasPendingApproval || dockHeight > 0 ? { paddingBottom: transcriptBottomPadding(hasPendingApproval, barHeight, dockHeight) } : undefined}>
 						{loadingOlder ? (
 							<p className="text-center text-xs text-muted-foreground">
 								Carregando mensagens anteriores…
@@ -1517,7 +1523,12 @@ export function ChatThread({
 			<ScrollToBottom newCount={newCount} onJump={() => (stickRef.current = true)} targetRef={scrollRef} />
 
 			<ChatComposer
+				dockActive={Boolean(dockedTasks) || barHeight > 0}
 				dock={
+					<ComposerDock
+					tasks={dockedTasks?.items ?? null}
+					onTasksHeight={setDockHeight}
+					approval={
 					<ApprovalBar
 						entries={barEntries}
 						onApprove={(entry) => (entry.type === "confirm" ? rowHandlers.onConfirm(entry.message) : decideRelayed(entry, "approve"))}
@@ -1525,6 +1536,8 @@ export function ChatThread({
 						onHeight={setBarHeight}
 						onLocate={locateCard}
 						onSkip={(entry) => (entry.type === "confirm" ? rowHandlers.onCancel(entry.message) : decideRelayed(entry, "reject"))}
+					/>
+					}
 					/>
 				}
 				mentionBots={isGroup ? undefined : otherBots}

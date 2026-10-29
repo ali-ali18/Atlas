@@ -19,8 +19,8 @@ test("comando: mostra o comando inteiro em mono, cwd, repo/branch e as quatro a�
 	assert.match(out, />Executar</);
 	assert.match(out, /data-dev-approval-more/);
 	assert.match(out, /aria-label="Mais opções"/);
-	assert.doesNotMatch(out, />Pular</, "as demais ações ficam no menu ⋮");
-	assert.match(out, /Precisa de aprovação/);
+	assert.doesNotMatch(out, />Agora não</, "as demais ações ficam no menu ⋮");
+	assert.match(out, /Precisa de você/);
 	assert.ok(out.indexOf(">Executar<") < out.indexOf("data-dev-approval-more"), "primária antes do menu");
 });
 
@@ -30,7 +30,7 @@ test("bloqueio de segurança mostra o motivo (o menu ⋮ só abre no clique)", (
 	assert.match(none, /Bloqueio de segurança/);
 });
 
-test("escrita de arquivo: caminho, prévia do diff e Aplicar/Pular", () => {
+test("escrita de arquivo: caminho, prévia do diff e Aplicar/Agora não", () => {
 	const out = renderToStaticMarkup(
 		<DevApprovalCard
 			confirmLabel="Aplicar"
@@ -51,17 +51,17 @@ test("escrita de arquivo: caminho, prévia do diff e Aplicar/Pular", () => {
 test("decidido: só o selo, sem barra de ações", () => {
 	const out = renderToStaticMarkup(<DevApprovalCard info={command} status="approved" title="Executar este comando?" />);
 	assert.match(out, /Aprovado/);
-	assert.doesNotMatch(out, /request-card-actions/);
+	assert.doesNotMatch(out, /chat-card-actions/);
 	const skipped = renderToStaticMarkup(<DevApprovalCard info={command} status="rejected" title="Executar este comando?" />);
 	assert.match(skipped, /Recusado/);
 });
 
-test("opções do menu: Permitir uma vez, Sempre neste repositório (com o que libera) e Pular", async () => {
+test("opções do menu: Permitir uma vez, Sempre neste repositório (com o que libera) e Agora não", async () => {
 	const { devApprovalOptions } = await import("@/lib/dev-approval-options");
 	const options = devApprovalOptions({ prefixes: ["git push", "docker ps"], canAlways: true });
 	assert.deepEqual(
 		options.map((option) => option.label),
-		["Permitir uma vez", "Sempre neste repositório", "Pular"],
+		["Permitir uma vez", "Sempre neste repositório", "Agora não"],
 	);
 	assert.equal(options[1]!.detail, "Libera: git push, docker ps");
 	assert.deepEqual(devApprovalOptions({ prefixes: [], canAlways: true }).map((option) => option.id), ["skip"]);
@@ -73,5 +73,5 @@ test("cartão de comando com prefixos monta o menu ⋮ com a opção de sempre; 
 	assert.match(withAlways, /data-dev-approval-more/);
 	assert.doesNotMatch(withAlways, /Atlas/i);
 	const bare = renderToStaticMarkup(<DevApprovalCard info={{ ...command, prefixes: [] }} onAlways={() => undefined} title="Executar este comando?" />);
-	assert.match(bare, /data-dev-approval-more/, "o menu ⋮ segue com Pular");
+	assert.match(bare, /data-dev-approval-more/, "o menu ⋮ segue com Agora não");
 });

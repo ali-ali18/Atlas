@@ -15,6 +15,7 @@ import {
 	BubbleContent,
 } from "@workspace/ui/components/bubble";
 import { Button } from "@workspace/ui/components/button";
+import { ChatCard, ChatCardLine } from "@workspace/ui/components/chat-card";
 import { Marker, MarkerContent, MarkerIcon } from "@workspace/ui/components/marker";
 import { cn } from "@workspace/ui/lib/utils";
 import { CopyButton, ReactionBadges, ReactionTrigger, useMessageReactionControls } from "./message-reactions";
@@ -175,32 +176,28 @@ export const MessageRow = memo(function MessageRow({
 			);
 		case "attachment":
 			return (
-				<div className="flex w-full max-w-sm items-center gap-3 rounded-2xl border bg-card p-3">
-					<span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
-						<FileTextIcon className="size-4" />
-					</span>
-					<span className="min-w-0 flex-1">
-						<span className="block truncate font-medium text-sm">
-							{message.name}
-						</span>
-						<span className="block text-muted-foreground text-xs">
-							{message.meta}
-						</span>
-					</span>
-					<Button aria-label="Baixar" size="icon-sm" variant="ghost">
-						<DownloadIcon />
-					</Button>
-				</div>
+				<ChatCard variant="activity" className="w-full">
+					<ChatCardLine
+						leading={<FileTextIcon />}
+						trailing={
+							<Button aria-label="Baixar" size="icon-sm" variant="ghost">
+								<DownloadIcon />
+							</Button>
+						}
+					>
+						<span className="block truncate font-medium text-sm">{message.name}</span>
+						<span className="block text-muted-foreground text-xs">{message.meta}</span>
+					</ChatCardLine>
+				</ChatCard>
 			);
 		case "tool":
 			return (
-				<div className="flex max-w-full min-w-0 items-center gap-2 self-start rounded-2xl border bg-card px-3 py-2 text-xs">
-					<span className="grid size-5 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
-						<SparklesIcon className="size-3" />
-					</span>
-					<span className="shrink-0 text-muted-foreground">{message.label}</span>
-					<span className="min-w-0 font-medium text-foreground [overflow-wrap:anywhere]">{message.text}</span>
-				</div>
+				<ChatCard variant="activity" className="self-start text-xs">
+					<ChatCardLine leading={<SparklesIcon />}>
+						<span className="text-muted-foreground">{message.label} </span>
+						<span className="font-medium text-foreground">{message.text}</span>
+					</ChatCardLine>
+				</ChatCard>
 			);
 		case "skill":
 			if ((message.action as string) === "creating") return null;
@@ -213,7 +210,7 @@ export const MessageRow = memo(function MessageRow({
 				return (
 					<SkillLearnedCard
 						action={message.action}
-						name={message.title ?? message.capabilityKey ?? "skill"}
+						name={message.title ?? message.capabilityKey ?? "habilidade"}
 					/>
 				);
 			}

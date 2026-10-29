@@ -25,7 +25,7 @@ export type MentionCandidate = {
 
 const LABELS: Record<ComposerTrigger, { aria: string; empty: string }> = {
 	"@": { aria: "Mencionar membro do grupo", empty: "Nenhum outro bot" },
-	"/": { aria: "Escolher skill", empty: "Nenhuma skill" },
+	"/": { aria: "Escolher habilidade", empty: "Nenhuma habilidade" },
 };
 
 /** Título da seção ("Bots"/"Apps") só no 1º item de cada tipo, e só quando há apps na lista. */

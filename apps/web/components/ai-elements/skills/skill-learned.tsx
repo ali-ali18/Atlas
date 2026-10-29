@@ -13,7 +13,7 @@ export type SkillLearnedCardProps = {
 };
 
 export function learnedTitle(action: "created" | "updated", name: string): string {
-	return action === "created" ? `Aprendi: ${name}` : `Atualizei a skill ${name}`;
+	return action === "created" ? `Aprendi: ${name}` : `Atualizei a habilidade ${name}`;
 }
 
 export function SkillLearnedCard({ action, name }: SkillLearnedCardProps) {

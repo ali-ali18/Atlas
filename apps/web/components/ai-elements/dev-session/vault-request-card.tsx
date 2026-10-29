@@ -13,7 +13,7 @@ type Status = "pending" | "approved" | "rejected" | "failed";
 const BADGE = {
 	pending: { tone: "pending", label: "Precisa de você" },
 	approved: { tone: "success", label: "Salvo no cofre" },
-	rejected: { tone: "muted", label: "Pulado" },
+	rejected: { tone: "muted", label: "Dispensado" },
 	failed: { tone: "danger", label: "Falhou" },
 } as const;
 
@@ -79,7 +79,7 @@ export function VaultRequestCard({ info, title, description, status = "pending",
 			data-vault-request
 			description={description}
 			detailsLabel="Ver nomes"
-			leading={status === "approved" ? <CheckIcon aria-label="Salvo" /> : status === "rejected" ? <XIcon aria-label="Pulado" /> : <KeyRoundIcon aria-label="Cofre" />}
+			leading={status === "approved" ? <CheckIcon aria-label="Salvo" /> : status === "rejected" ? <XIcon aria-label="Dispensado" /> : <KeyRoundIcon aria-label="Cofre" />}
 			resolved={resolved}
 			title={title}
 		>

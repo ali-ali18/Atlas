@@ -4,6 +4,7 @@ import {
 	allowedApiOperations,
 	buildApiRequestUrl,
 	extractUrls,
+	API_AUTH_LABEL,
 	isShortConnectConfirmation,
 	parseOpenApiDocument,
 	readableApiTags,
@@ -232,5 +233,12 @@ describe("especificação real do Bling (recorte)", () => {
 		if (!result.ok) throw new Error(result.error);
 		expect(result.spec.baseUrl).toBe("https://api.bling.com.br/Api/v3");
 		expect(result.spec.auth.tokenUrl).toBe("https://bling.com.br/Api/v3/oauth/token");
+	});
+});
+
+describe("API_AUTH_LABEL", () => {
+	it("rótulos em pt-BR simples, sem sigla nem termo técnico, um por tipo", () => {
+		expect(API_AUTH_LABEL).toEqual({ oauth2: "Entrar com a conta", apiKey: "Chave de acesso", bearer: "Código de acesso", none: "Sem login" });
+		for (const label of Object.values(API_AUTH_LABEL)) expect(label).not.toMatch(/OAuth|API|token|autentica/i);
 	});
 });

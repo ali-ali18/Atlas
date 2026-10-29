@@ -76,7 +76,7 @@ export function PageCard({ card, loadPage = defaultLoadPage, now, botName }: { c
 	const updated = view ? updatedLabel(view.updatedAt, now) : null;
 
 	return (
-		<section aria-label={`Painel: ${card.title}`} className="my-1 w-full min-w-0 max-w-[min(68ch,calc(100vw-3rem))] overflow-hidden rounded-xl border border-border/60 bg-card text-card-foreground" data-testid="page-card">
+		<section aria-label={`Painel: ${card.title}`} className="my-1 w-full min-w-0 max-w-[min(68ch,100%)] overflow-hidden rounded-2xl bg-muted/60 text-card-foreground" data-testid="page-card">
 			<div data-share-target>
 			<header className="flex items-start gap-2 px-4 pt-3">
 				<div className="min-w-0 flex-1">
@@ -93,7 +93,7 @@ export function PageCard({ card, loadPage = defaultLoadPage, now, botName }: { c
 				{view ? <PageView spec={view.spec} /> : <div aria-live="polite" className="h-24 animate-pulse rounded-lg bg-muted/40 motion-reduce:animate-none" data-testid="page-loading" />}
 			</div>
 			</div>
-			<footer className="border-border/60 border-t">
+			<footer>
 				<button
 					className={cn("flex w-full items-center gap-1 px-4 py-2 text-left text-muted-foreground text-xs outline-none hover:bg-muted/40 focus-visible:ring-3 focus-visible:ring-ring/30")}
 					onClick={() => setOpen(true)}

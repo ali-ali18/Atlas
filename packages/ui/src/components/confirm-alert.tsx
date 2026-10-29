@@ -38,7 +38,7 @@ function StatusIcon({ status }: { status: ConfirmStatus }) {
 }
 
 const BADGE = {
-  pending: { tone: "pending", label: "Precisa de aprovação" },
+  pending: { tone: "pending", label: "Precisa de você" },
   approved: { tone: "success", label: "Aprovado" },
   rejected: { tone: "danger", label: "Recusado" },
   failed: { tone: "danger", label: "Falhou" },

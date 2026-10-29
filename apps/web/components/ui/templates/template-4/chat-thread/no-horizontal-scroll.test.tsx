@@ -35,16 +35,15 @@ test("cartão de skill quebra título e chave sem espaços", () => {
 	const html = renderToStaticMarkup(
 		<SkillActivityCard action="created" capabilityKey="chave_muito_longa" detail="detalhe" title="Titulo_muito_longo" />,
 	);
-	assert.match(html, /min-w-0 max-w-xl|min-w-0[^"]*max-w-xl/);
-	assert.match(html, /<span class="min-w-0 \[overflow-wrap:anywhere\]">/);
+	assert.match(html, /max-w-\[min\(68ch,100%\)\]/);
+	assert.match(html, /min-w-0 \[overflow-wrap:anywhere\]/);
 	assert.match(html, /<pre class="[^"]*\[overflow-wrap:anywhere\]/);
 });
 
 test("cartão de arquivo e balão de ferramenta ficam limitados à largura", () => {
 	assert.match(read("../../../../ai-elements/files/file-attachment.tsx"), /max-w-\[min\(24rem,100%\)\]/);
 	const row = read("./message-row.tsx");
-	assert.match(row, /flex max-w-full min-w-0 items-center gap-2 self-start[^"]*"/);
-	assert.match(row, /min-w-0 font-medium text-foreground \[overflow-wrap:anywhere\]/);
+	assert.match(row, /<ChatCard variant="activity" className="self-start text-xs">/);
 });
 
 test("título do questionário e fieldset quebram texto longo", () => {

@@ -6,9 +6,9 @@ import { SkillLearnedCard, learnedTitle } from "./skill-learned";
 
 Object.assign(globalThis, { React });
 
-test("título: criada vira 'Aprendi: nome', atualizada vira 'Atualizei a skill nome'", () => {
+test("título: criada vira 'Aprendi: nome', atualizada vira 'Atualizei a habilidade nome'", () => {
 	assert.equal(learnedTitle("created", "pesquisa-de-mercado"), "Aprendi: pesquisa-de-mercado");
-	assert.equal(learnedTitle("updated", "pesquisa-de-mercado"), "Atualizei a skill pesquisa-de-mercado");
+	assert.equal(learnedTitle("updated", "pesquisa-de-mercado"), "Atualizei a habilidade pesquisa-de-mercado");
 });
 
 test("aviso é só um marcador, sem botão nem ação", () => {
