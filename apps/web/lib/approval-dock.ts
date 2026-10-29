@@ -75,7 +75,7 @@ const STATUS_WORD: Record<ApprovalMarkerStatus, string> = {
 	approved: "Aprovado",
 	rejected: "Recusado",
 	failed: "Falhou",
-	skipped: "Pulado",
+	skipped: "Dispensado",
 	expired: "Expirado",
 	resolved: "Respondido",
 };

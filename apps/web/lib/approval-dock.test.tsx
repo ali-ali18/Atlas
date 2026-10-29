@@ -67,7 +67,7 @@ test("marcador: um texto por estado, e expirado para pendente que não é o ativ
 	assert.equal(text(0), "Expirado · make a");
 	assert.equal(text(1), "Aguardando aprovação · make b");
 	assert.equal(text(2), "Aprovado · make c");
-	assert.equal(text(3), "Pulado · make d");
+	assert.equal(text(3), "Dispensado · make d");
 	assert.equal(text(5), "Recusado · make e");
 	assert.equal(approvalMarkerFor(relayed("r", "resolved"), active)?.label, "Respondido · git push origin main");
 	assert.equal(approvalMarkerFor(user("x", "oi"), active), null);
@@ -102,12 +102,12 @@ test("barra: sem pedidos fora da tela não desenha nada", () => {
 	assert.equal(bar([]), "");
 });
 
-test("barra: uma linha com alerta, rótulo curto, ✓ Executar e ✗ Pular; sem 1 de N", () => {
+test("barra: uma linha com alerta, rótulo curto, ✓ Executar e ✗ Agora não; sem 1 de N", () => {
 	const html = bar(selectDockEntries([cmd("a", "pending", "pnpm -r build")]));
 	assert.match(html, /data-approval-bar/);
 	assert.match(html, /Executar · pnpm -r build/);
 	assert.match(html, /aria-label="Executar"/);
-	assert.match(html, /aria-label="Pular"/);
+	assert.match(html, /aria-label="Agora não"/);
 	assert.match(html, /rounded-t-3xl/);
 	assert.doesNotMatch(html, /de 2|Aprovação anterior/);
 	assert.doesNotMatch(html, /Atlas/);
@@ -161,12 +161,12 @@ test("render do marcador: recolhido por padrão (sem o comando completo), sem a 
 	assert.doesNotMatch(html, /--all/, "o comando só aparece ao expandir");
 });
 
-test("cartão substituído por um pedido mais novo aparece como Expirado, não Recusado/Pulado", () => {
+test("cartão substituído por um pedido mais novo aparece como Expirado, não Recusado/Dispensado", () => {
 	const superseded = { ...cmd("old", "rejected", "make old"), superseded: true } as Message;
 	assert.equal(approvalMarkerFor(superseded, new Set(), [])?.label, "Expirado · make old");
 });
 
-test("barra: com prefixos e onAlways a linha ganha o menu ⋮ (Permitir uma vez, Sempre neste repositório, Pular); sem eles não", async () => {
+test("barra: com prefixos e onAlways a linha ganha o menu ⋮ (Permitir uma vez, Sempre neste repositório, Agora não); sem eles não", async () => {
 	const { dockEntryPrefixes } = await import("./approval-dock");
 	const withPrefixes = { ...cmd("p", "pending", "docker compose up"), devApproval: { kind: "command", command: "docker compose up", cwd: "/workspace", prefixes: ["docker compose"] } } as Message;
 	const entries = selectDockEntries([withPrefixes]);

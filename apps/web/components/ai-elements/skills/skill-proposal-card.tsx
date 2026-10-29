@@ -50,7 +50,7 @@ export function SkillProposalCard({
 	const caption = proposalResolvedCaption(proposal);
 	return (
 		<ConfirmCard
-			cancelLabel="Recusar"
+			cancelLabel="Agora não"
 			confirmLabel={isApplying ? "Aplicando…" : isDelete ? "Apagar" : "Aprovar"}
 			description={proposalSummary(proposal, bots)}
 			destructive={isDelete}

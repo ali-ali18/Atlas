@@ -159,7 +159,7 @@ import { BotAutoDecisionNote } from "./bot-auto-decision-note";
 import { BotRelayedCard } from "./bot-relayed-card";
 
 const pendingConfirm = (extra: Record<string, unknown>) =>
-	JSON.stringify({ v: 1, kind: "confirm", confirmId: "c1", title: "Executar este comando?", status: "pending", confirmLabel: "Executar", cancelLabel: "Pular", ...extra });
+	JSON.stringify({ v: 1, kind: "confirm", confirmId: "c1", title: "Executar este comando?", status: "pending", confirmLabel: "Executar", cancelLabel: "Agora não", ...extra });
 
 test("card relayado de comando: mesmo card de aprovação, com o rótulo 'Do bot X' e os mesmos botões", () => {
 	const item = buildBotPendingItem({ rowId: "card1", role: "confirm", content: pendingConfirm({ devApproval: { kind: "command", command: "pnpm test --filter api", cwd: "/workspace", reason: "não está na lista" } }) })!;

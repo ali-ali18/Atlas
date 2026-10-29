@@ -14,7 +14,7 @@ type Status = "pending" | "approved" | "rejected" | "failed";
 const BADGE = {
 	pending: { tone: "pending", label: "Precisa de você" },
 	approved: { tone: "success", label: "Salvo" },
-	rejected: { tone: "muted", label: "Pulado" },
+	rejected: { tone: "muted", label: "Dispensado" },
 	failed: { tone: "danger", label: "Falhou" },
 } as const;
 
@@ -89,7 +89,7 @@ export function SecretsRequestCard({ info, title, description, status = "pending
 			data-secrets-request
 			description={description}
 			detailsLabel="Ver nomes"
-			leading={status === "approved" ? <CheckIcon aria-label="Salvo" /> : status === "rejected" ? <XIcon aria-label="Pulado" /> : <KeyRoundIcon aria-label="Segredos" />}
+			leading={status === "approved" ? <CheckIcon aria-label="Salvo" /> : status === "rejected" ? <XIcon aria-label="Dispensado" /> : <KeyRoundIcon aria-label="Segredos" />}
 			resolved={resolved}
 			title={title}
 		>

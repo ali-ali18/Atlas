@@ -39,7 +39,7 @@ test("card pendente: ação, nome, escopo, descrição e os botões", () => {
 	assert.match(html, />Conta</);
 	assert.match(html, />Monta o relatório da semana</);
 	assert.match(html, />Aprovar</);
-	assert.match(html, />Recusar</);
+	assert.match(html, />Agora não</);
 	assert.doesNotMatch(html, /skill-proposal-resolved/);
 	assert.doesNotMatch(render(), />Editar antes</, "sem handler, não mostra Editar antes");
 	assert.match(render({ onEditFirst: () => {} }), />Editar antes</);
@@ -95,7 +95,7 @@ test("estado resolvido: sem botões e com a legenda de cada ação", () => {
 	for (const [action, status, caption] of cases) {
 		const html = render({ proposal: { ...proposal, action, status, skillId: "s1" }, onEditFirst: () => {} });
 		assert.doesNotMatch(html, />Aprovar</);
-		assert.doesNotMatch(html, />Recusar</);
+		assert.doesNotMatch(html, />Agora não</);
 		assert.doesNotMatch(html, />Editar antes</);
 		assert.match(html, new RegExp(caption.replace(/\./g, "\.")));
 		assert.equal(proposalResolvedCaption({ action, status }), caption);
@@ -156,5 +156,5 @@ test("botões disparam os handlers (aprovar, recusar, editar antes)", () => {
 	props.onCancel();
 	props.onEdit();
 	assert.deepEqual(calls, ["approve", "reject", "edit"]);
-	assert.deepEqual([props.confirmLabel, props.cancelLabel, props.editLabel], ["Aprovar", "Recusar", "Editar antes"]);
+	assert.deepEqual([props.confirmLabel, props.cancelLabel, props.editLabel], ["Aprovar", "Agora não", "Editar antes"]);
 });

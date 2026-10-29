@@ -15,7 +15,7 @@ test("casca: cabeçalho com selo, ações com a primária primeiro e terciária 
 	const out = html(
 		<RequestCard
 			actions={<button type="button">Permitir uma vez</button>}
-			badge={{ tone: "pending", label: "Precisa de aprovação" }}
+			badge={{ tone: "pending", label: "Precisa de você" }}
 			description="Rodar um comando"
 			leading={<span>i</span>}
 			title="Aprovar comando"
@@ -23,7 +23,7 @@ test("casca: cabeçalho com selo, ações com a primária primeiro e terciária 
 		/>,
 	);
 	assert.match(out, /data-slot="request-card"[^>]*data-state="pending"/);
-	assert.match(out, /data-tone="pending"[^>]*>Precisa de aprovação</);
+	assert.match(out, /data-tone="pending"[^>]*>Precisa de você</);
 	assert.ok(out.indexOf("Permitir uma vez") < out.indexOf("Negar"), "primária antes da terciária");
 	assert.match(out, /ml-auto/);
 });
@@ -48,7 +48,7 @@ test("casca resolvida: sem barra de ações e corpo recolhido atrás do detalhe"
 
 test("confirmação pendente: confirmar antes de recusar; decidida só mostra o selo", () => {
 	const pending = html(<ConfirmCard title="Enviar e-mail?" confirmLabel="Enviar" cancelLabel="Cancelar" onAlways={() => {}} alwaysLabel="Sempre" />);
-	assert.match(pending, /Precisa de aprovação/);
+	assert.match(pending, /Precisa de você/);
 	assert.ok(pending.indexOf(">Enviar<") < pending.indexOf(">Sempre<"));
 	assert.ok(pending.indexOf(">Sempre<") < pending.indexOf(">Cancelar<"));
 	const done = html(<ConfirmCard title="Enviar e-mail?" status="approved" />);

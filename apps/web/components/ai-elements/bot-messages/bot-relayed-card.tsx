@@ -16,7 +16,7 @@ export type BotRelayedCardProps = {
 	busy?: boolean;
 	error?: string | null;
 	onApprove?: () => void;
-	/** Pular (sem comentário) ou "Recusar com comentário". */
+	/** Agora não (sem comentário) ou "Recusar com comentário". */
 	onReject?: (feedback: string) => void;
 	onAnswer?: (answers: QuestionnaireAnswersMap) => void;
 };

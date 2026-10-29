@@ -62,7 +62,7 @@ export function BotProposalCard({ proposal, isApplying = false, error, defaultEd
 		proposal.status === "approved"
 			? ({ tone: "success", label: "Criado" } as const)
 			: proposal.status === "rejected"
-				? ({ tone: "muted", label: "Agora não" } as const)
+				? ({ tone: "muted", label: "Dispensado" } as const)
 				: ({ tone: "pending", label: "Novo agente" } as const);
 	const note =
 		proposal.status === "approved"

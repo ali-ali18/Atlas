@@ -61,7 +61,7 @@ function Row({ entry, onApprove, onSkip, onLocate, onAlways, extra }: RowProps) 
 			<Button aria-label="Executar" className="size-9 shrink-0 rounded-full" onClick={() => onApprove(entry)} size="icon-sm" type="button" variant="ghost">
 				<CheckIcon />
 			</Button>
-			<Button aria-label="Pular" className="size-9 shrink-0 rounded-full" onClick={() => onSkip(entry)} size="icon-sm" type="button" variant="ghost">
+			<Button aria-label="Agora não" className="size-9 shrink-0 rounded-full" onClick={() => onSkip(entry)} size="icon-sm" type="button" variant="ghost">
 				<XIcon />
 			</Button>
 		</div>

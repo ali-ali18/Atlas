@@ -94,7 +94,7 @@ export function BotNeedsUserCardView({
 					) : null}
 				</>
 			}
-			badge={{ tone: "pending", label: "Aguardando você" }}
+			badge={{ tone: "pending", label: "Precisa de você" }}
 			data-testid="bot-needs-user-card"
 			description={need.label}
 			error={error}

@@ -13,7 +13,7 @@ type Status = "pending" | "approved" | "rejected" | "failed";
 const BADGE = {
 	pending: { tone: "pending", label: "Precisa de você" },
 	approved: { tone: "success", label: "Chave salva" },
-	rejected: { tone: "muted", label: "Pulado" },
+	rejected: { tone: "muted", label: "Dispensado" },
 	failed: { tone: "danger", label: "Falhou" },
 } as const;
 
@@ -67,7 +67,7 @@ export function EmailKeyRequestCard({ title, description, status = "pending", on
 					<Button className={REQUEST_PRIMARY_CLASS} disabled={busy || !value.trim()} onClick={() => void submit()} size="sm" type="button">
 						{busy ? "Salvando…" : "Salvar chave"}
 					</Button>
-					<Button disabled={busy} onClick={() => openSettingsModal("provedores")} size="sm" type="button" variant="outline">
+					<Button disabled={busy} onClick={() => openSettingsModal("provedores")} size="sm" type="button" variant="secondary">
 						Abrir Configurações
 					</Button>
 				</>
@@ -75,7 +75,7 @@ export function EmailKeyRequestCard({ title, description, status = "pending", on
 			badge={BADGE[status]}
 			data-email-key-request
 			description={description}
-			leading={status === "approved" ? <CheckIcon aria-label="Chave salva" /> : status === "rejected" ? <XIcon aria-label="Pulado" /> : <MailIcon aria-label="E-mail" />}
+			leading={status === "approved" ? <CheckIcon aria-label="Chave salva" /> : status === "rejected" ? <XIcon aria-label="Dispensado" /> : <MailIcon aria-label="E-mail" />}
 			resolved={resolved}
 			title={title}
 			trailing={

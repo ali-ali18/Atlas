@@ -13,7 +13,7 @@ import { devApprovalOptions } from "@/lib/dev-approval-options";
 type Status = "pending" | "approved" | "rejected" | "failed";
 
 const BADGE = {
-	pending: { tone: "pending", label: "Precisa de aprovação" },
+	pending: { tone: "pending", label: "Precisa de você" },
 	approved: { tone: "success", label: "Aprovado" },
 	rejected: { tone: "danger", label: "Recusado" },
 	failed: { tone: "danger", label: "Falhou" },
@@ -68,9 +68,9 @@ function Meta({ items }: { items: Array<string | undefined> }) {
 /**
  * Aprovação de comando ou escrita de arquivo numa sessão de código: mostra o
  * comando inteiro (mono), onde roda e o que fazer — Executar, Sempre permitir,
- * Pular ou Recusar com comentário. Decidido, só o selo e os detalhes ficam.
+ * Agora não ou Recusar com comentário. Decidido, só o selo e os detalhes ficam.
  */
-export function DevApprovalCard({ info, title, status = "pending", confirmLabel, cancelLabel = "Pular", disabled, onConfirm, onAlways, onSkip, onReject }: DevApprovalCardProps) {
+export function DevApprovalCard({ info, title, status = "pending", confirmLabel, cancelLabel = "Agora não", disabled, onConfirm, onAlways, onSkip, onReject }: DevApprovalCardProps) {
 	const [rejecting, setRejecting] = useState(false);
 	const [feedback, setFeedback] = useState("");
 	const resolved = status !== "pending";

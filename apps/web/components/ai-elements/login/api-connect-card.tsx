@@ -77,12 +77,12 @@ export function ApiConnectCardView({
         headerAction={
           <>
             {canResume && status !== "done" ? (
-              <Button className={REQUEST_PRIMARY_CLASS} onClick={onDone} size="xs" type="button">
+              <Button className={REQUEST_PRIMARY_CLASS} onClick={onDone} size="sm" type="button">
                 Retomar
               </Button>
             ) : null}
             {onManage ? (
-              <Button onClick={onManage} size="xs" type="button" variant="ghost">
+              <Button onClick={onManage} size="sm" type="button" variant="ghost">
                 Gerenciar
               </Button>
             ) : null}
@@ -123,7 +123,7 @@ export function ApiConnectCardView({
         title={dismissed ? `${label} não conectado` : `Conectar ${label}`}
         trailing={
           dismissed ? undefined : (
-            <Button aria-expanded={details} onClick={() => setDetails((value) => !value)} size="xs" type="button" variant="ghost">
+            <Button aria-expanded={details} onClick={() => setDetails((value) => !value)} size="sm" type="button" variant="ghost">
               Detalhes
             </Button>
           )
