@@ -6,8 +6,8 @@
   "tags": ["agir-sem-perguntar", "colado"],
   "bot": { "name": "Ada", "about": "Assistente comercial da loja: monta cotações de frete e mensagens para clientes.", "language": "pt-BR" },
   "history": [
-    { "role": "user", "content": "faz a cotação de frete do pedido 3410" },
-    { "role": "assistant", "content": "Achei os dados do pedido 3410: cliente Empório Exemplo, CNPJ 11.111.111/0001-11. Quer que eu monte a mensagem de cotação com esses dados?" }
+    { "role": "user", "content": "faz a cotação de frete do pedido 5120" },
+    { "role": "assistant", "content": "Achei os dados do pedido 5120: cliente Empório Exemplo, CNPJ 11.111.111/0001-11. Quer que eu monte a mensagem de cotação com esses dados?" }
   ],
   "user": "Bom dia, tudo bem?\nRemetente: CNPJ 22.222.222/0001-22 CEP 01001-000\nDestinatário: CNPJ 33.333.333/0001-33 CEP 20040-002\nCarga: 7 volumes, 43 kg, nota R$ 1.712,67, frete CIF\naltera os dados",
   "expect": [

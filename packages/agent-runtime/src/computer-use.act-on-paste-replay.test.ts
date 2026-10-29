@@ -52,11 +52,11 @@ async function replay(messages: Msg[], reply: string) {
 
 /** Caso real: o bot juntou dados e ofereceu montar a mensagem; o usuário colou a mensagem pronta com outros dados. */
 const QUOTE_CONVERSATION: Msg[] = [
-	{ role: "user", content: "faz a cotação de frete do pedido 3410" },
+	{ role: "user", content: "faz a cotação de frete do pedido 5120" },
 	{
 		role: "assistant",
 		content:
-			"Achei os dados do pedido 3410: cliente Loja Exemplo, CNPJ 11.222.333/0001-81, endereço, telefones e e-mails. Quer que eu monte a mensagem de cotação com esses dados e os 42 itens do pedido?",
+			"Achei os dados do pedido 5120: cliente Loja Exemplo, CNPJ 11.222.333/0001-81, endereço, telefones e e-mails. Quer que eu monte a mensagem de cotação com esses dados e os 42 itens do pedido?",
 	},
 	{
 		role: "user",
@@ -100,7 +100,7 @@ describe("dados colados com instrução curta: o bot aplica em vez de perguntar"
 		[
 			"cotação colada + 'altera os dados'",
 			QUOTE_CONVERSATION,
-			"Bom dia, tudo bem?\n🌿 Remetente: CNPJ: 12.345.678/0001-95 CEP: 01001-000\n🏢 Destinatário: CNPJ: 98.765.432/0001-98 CEP: 20040-020\n📦 Carga: Volumes: 7  Peso total: 43Kg  Valor da nota: R$ 1.712,67  Tipo de frete: CIF\n\nConferi: o destinatário bate com o pedido 3406.",
+			"Bom dia, tudo bem?\n🌿 Remetente: CNPJ: 12.345.678/0001-95 CEP: 01001-000\n🏢 Destinatário: CNPJ: 98.765.432/0001-98 CEP: 20040-020\n📦 Carga: Volumes: 7  Peso total: 43Kg  Valor da nota: R$ 1.712,67  Tipo de frete: CIF\n\nConferi: o destinatário bate com o pedido 5116.",
 		],
 		["tabela colada + 'usa isso'", TABLE_CONVERSATION, "As vendas cresceram no trimestre: camisetas 361, canecas 248, bonés 129. Usei os números da tabela."],
 	] as const) {

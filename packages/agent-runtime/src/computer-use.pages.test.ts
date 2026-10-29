@@ -175,7 +175,7 @@ describe("page_* no loop do agente", () => {
 		const { rows, groups, store } = memoryStore();
 		const { events } = await run("monta um painel de vendas da Loja Exemplo", [
 			toolCall("page_create", { ...forecast, group: "Vendas Loja Exemplo" }, "a"),
-			toolCall("page_create", { ...forecast, title: "Funil", group: " vendas  loja-exemplo " }, "b"),
+			toolCall("page_create", { ...forecast, title: "Funil", group: " vendas  loja exemplo " }, "b"),
 			toolCall("page_list", {}, "c"),
 			say("ok"),
 		], store);

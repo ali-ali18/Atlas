@@ -126,9 +126,9 @@ test("ação primária dos cards usa a cor de destaque do bot (var --bot-accent)
 
 test("cartão do GitHub: repositório fora do app oferece só instalar o app e Pronto (nunca a conta do usuário)", async () => {
 	const { GithubIdentityCard } = await import("./github-identity-card");
-	const out = html(<GithubIdentityCard info={{ reason: "not_installed", repo: "ali-ali18/loja-monorepo", installUrl: "/v1/github-app/install", appName: "meu-app" }} />);
+	const out = html(<GithubIdentityCard info={{ reason: "not_installed", repo: "exemplo/loja-monorepo", installUrl: "/v1/github-app/install", appName: "meu-app" }} />);
 	assert.match(out, /O app não está neste repositório/);
-	assert.match(out, /ali-ali18\/loja-monorepo/);
+	assert.match(out, /exemplo\/loja-monorepo/);
 	assert.match(out, /meu-app\[bot\]/);
 	assert.match(out, /href="\/v1\/github-app\/install"[^>]*>Instalar o app neste repositório/);
 	assert.match(out, /Pronto, já instalei/);

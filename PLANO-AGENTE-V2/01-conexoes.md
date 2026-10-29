@@ -4,7 +4,7 @@
 
 ## Diagnóstico
 - A conexão GitHub do usuário (`gYUwIB6mkwj2N5H3SM8OMxiYnDlQdtXl`) está `connected`, mas com `userId = "default"`. O mesmo vale para gmail, calendar, notion, drive e firecrawl; só google_sheets tem o dono real.
-- Run `cmulqxn0i001hlgroaorsdht8`: `github_list_repos({query:"monorepo loja-exemplo"})` devolveu `ok:true` com o texto "Conecte o GitHub no Marketplace".
+- Run `cmulqxn0i001hlgroaorsdht8`: `github_list_repos({query:"loja monorepo"})` devolveu `ok:true` com o texto "Conecte o GitHub no Marketplace".
   - `executeGithubListRepos` (`packages/agent-runtime/src/computer-use.ts:2286-2325`) chama `getGithubConnectionToken(scope.userId)` (`mcp/github-token.ts:115-159`).
   - Essa função chama `getMcpConnectionByCatalogId("github", userId)` (`packages/db/src/mcp-connections.ts:195-211`), que faz um `findUnique` exato **sem fallback `"default"`**.
   - `isOwnedBy` (`:111-114`) aceita `"default"`, mas só é usado em get, update e delete.
@@ -37,7 +37,7 @@ Seguir `apps/api/src/routes/scope.test.ts`:
 3. `fix(agent): github_list_repos acha conexão legada e falha de verdade`
 
 ## Critérios de aceite
-- No `/run`, com o bot Jujuba: "Quero sua ajuda no repo monorepo loja-exemplo…" → `github_list_repos` lista o repo, sem "conecte o GitHub".
+- No `/run`, com o bot Jujuba: "Quero sua ajuda no repo loja monorepo…" → `github_list_repos` lista o repo, sem "conecte o GitHub".
 - Depois do boot: `select "catalogId","userId" from mcp_connections` não tem mais `"default"` (ambiente com 1 usuário).
 - Um segundo usuário de teste não vê nem usa os conectores do dono.
 

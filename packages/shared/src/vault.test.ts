@@ -50,7 +50,7 @@ describe("detector", () => {
 		expect(kinds("commit 0123456789abcdef0123456789abcdef01234567")).toEqual([]);
 		expect(kinds("use ?secret={{secret:rotina:x}} no n8n")).toEqual([]);
 		expect(kinds("senha=xxxxxxxx")).toEqual([]);
-		expect(kinds("C:/Users/alisson/Documents/projeto_final_versao_dois.pdf")).toEqual([]);
+		expect(kinds("C:/Users/ana/Documents/projeto_final_versao_dois.pdf")).toEqual([]);
 	});
 	it("troca pelo marcador", () => {
 		const text = "url ?secret=Zk3jQ9sLpW2mXv fim";

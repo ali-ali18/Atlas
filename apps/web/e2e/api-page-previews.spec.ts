@@ -47,7 +47,7 @@ const MCP_TOOLS = [
   { name: "cancelar_pedido", title: "Cancelar pedido", annotations: { destructiveHint: true }, description: "Cancela um pedido e devolve o estoque.", inputSchema: { type: "object", required: ["id"], properties: { id: { type: "string" } } } },
 ]
 const CUSTOM = [
-  { id: "mcp-1", name: "Loja Exemplo", url: "https://mcp.loja-exemplo.com.br/mcp", status: "connected", authType: "oauth", tools: MCP_TOOLS },
+  { id: "mcp-1", name: "Loja Exemplo", url: "https://mcp.exemplo.com.br/mcp", status: "connected", authType: "oauth", tools: MCP_TOOLS },
   { id: "mcp-2", name: "n8n", url: "https://n8n.exemplo.com.br/mcp-server", status: "connected", authType: "api_key", tools: MCP_TOOLS.slice(0, 1) },
 ]
 

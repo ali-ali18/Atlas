@@ -29,7 +29,7 @@ test("escopo: descrição do bot (já no perfil) é pulada, sem gravar", async (
 test("escopo: tom do bot e o que ele quer deste bot saem do user", async () => {
 	for (const [content, category] of [
 		["Tom amigável; revisões: só corrigir, manter breve e introdutório.", "comunicacao"],
-		["Ali (Alisson Camargo) quer ajuda principalmente com bugs e documentação no bot, por ser desenvolvedor.", "identidade"],
+		["Ana (Ana Souza) quer ajuda principalmente com bugs e documentação no bot, por ser desenvolvedor.", "identidade"],
 	] as const) {
 		const r = await run(content, category);
 		assert.equal(r.out.ok, true, content);
@@ -49,7 +49,7 @@ test("escopo: pedido de rotina não é salvo em nenhuma camada e o erro orienta"
 
 test("escopo: perfil pessoal real continua no user", async () => {
 	for (const [content, category] of [
-		['Nome: Alisson Camargo, apelido "ali"; GitHub: ali-ali18. Fala pt-BR e prefere respostas curtas e claras.', "identidade"],
+		['Nome: Ana Souza, apelido "ana"; GitHub: ana-souza. Fala pt-BR e prefere respostas curtas e claras.', "identidade"],
 		["É estudante da PUCPR; pode pedir ajuda para acessar o AVA.", "identidade"],
 		["Trabalha como desenvolvedor na empresa X", "profissao"],
 		["Prefere respostas curtas", "comunicacao"],

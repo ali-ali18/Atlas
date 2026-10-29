@@ -52,7 +52,7 @@ function fakeIntervalRoutine(everyMinutes = 50) {
 		userId: "user-real",
 		botId: "bot-1",
 		conversationId: null,
-		name: "Monitorar loja-exemplo",
+		name: "Monitorar loja exemplo",
 		prompt: "Revise o repositório.",
 		model: "",
 		enabled: true,
@@ -105,7 +105,7 @@ describe("propose_routine trigger_type=interval", () => {
 		const { toolResults, routines } = await run("revisa o repo a cada 50 minutos", [
 			toolCall("c1", "propose_routine", {
 				action: "create",
-				title: "Monitorar loja-exemplo",
+				title: "Monitorar loja exemplo",
 				detail: "Revise o repositório.",
 				trigger_type: "interval",
 				every_minutes: 50,
@@ -255,7 +255,7 @@ describe("prompt: GitHub aceita intervalo (F3)", () => {
 	});
 });
 
-describe("replay: monitorar o monorepo loja-exemplo a cada 50 minutos com nota de segurança", () => {
+describe("replay: monitorar o loja monorepo a cada 50 minutos com nota de segurança", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		vi.mocked(listRoutines).mockResolvedValue([]);
@@ -270,12 +270,12 @@ describe("replay: monitorar o monorepo loja-exemplo a cada 50 minutos com nota d
 		});
 		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: fakeIntervalRoutine() } as never);
 		const { toolResults, routines } = await run(
-			"monitore todas as entradas do monorepo loja-exemplo (git, PR, merge) e valide se é seguro de 0 a 10, a cada 50 minutos",
+			"monitore todas as entradas do loja monorepo (git, PR, merge) e valide se é seguro de 0 a 10, a cada 50 minutos",
 			[
-				toolCall("c1", "github_list_repos", { query: "loja-exemplo" }),
+				toolCall("c1", "github_list_repos", { query: "loja" }),
 				toolCall("c2", "propose_routine", {
 					action: "create",
-					title: "Segurança loja-exemplo",
+					title: "Segurança loja exemplo",
 					detail: "Revise commits e PRs novos e dê nota de segurança de 0 a 10.",
 					trigger_type: "interval",
 					every_minutes: 50,
@@ -304,7 +304,7 @@ describe("propose_routine template=github_security_review", () => {
 		const { toolResults } = await run("revisão de segurança do monorepo a cada 50 min", [
 			toolCall("c1", "propose_routine", {
 				action: "create",
-				title: "Segurança loja-exemplo",
+				title: "Segurança loja exemplo",
 				template: "github_security_review",
 				repo: "https://github.com/acme/loja-monorepo",
 				trigger_type: "interval",

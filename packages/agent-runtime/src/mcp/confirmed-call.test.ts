@@ -71,11 +71,11 @@ describe("escrita no GitHub: identidade", () => {
 		...call,
 		toolName: "issue_write",
 		exposedName: "mcp__github__issue_write",
-		args: { method: "create", owner: "ali-ali18", repo: "loja-monorepo", title: "Bug", body: "texto" },
+		args: { method: "create", owner: "exemplo", repo: "loja-monorepo", title: "Bug", body: "texto" },
 	};
 	const installed = {
-		id: "row", userId: "user-a", installationId: "555", accountLogin: "ali-ali18", accountType: "User",
-		repositorySelection: "selected", repositories: [{ fullName: "ali-ali18/site", private: true }], suspendedAt: null, createdAt: new Date(),
+		id: "row", userId: "user-a", installationId: "555", accountLogin: "exemplo", accountType: "User",
+		repositorySelection: "selected", repositories: [{ fullName: "exemplo/site", private: true }], suspendedAt: null, createdAt: new Date(),
 	};
 
 	beforeEach(() => {
@@ -94,7 +94,7 @@ describe("escrita no GitHub: identidade", () => {
 	it("repositório fora da instalação: NÃO escreve com a conta do usuário (nada passa pelo OAuth do conector)", async () => {
 		const result = await executeConfirmedMcpCall(issueCall);
 		expect(result.ok).toBe(false);
-		expect(result.githubIdentity).toMatchObject({ reason: "not_installed", repo: "ali-ali18/loja-monorepo" });
+		expect(result.githubIdentity).toMatchObject({ reason: "not_installed", repo: "exemplo/loja-monorepo" });
 		expect(callMcpTool).not.toHaveBeenCalled();
 	});
 

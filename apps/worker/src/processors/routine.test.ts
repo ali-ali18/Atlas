@@ -25,8 +25,8 @@ test("formatEventBlock: NormalizedGithubEvent de comentário vira linhas chave=v
 	const event: NormalizedGithubEvent = {
 		type: "pr_commented",
 		repo: "acme/site",
-		actor: "alisson",
-		pr: { number: 7, title: "fix bug", author: "alisson", head: "fix", base: "main" },
+		actor: "ana",
+		pr: { number: 7, title: "fix bug", author: "ana", head: "fix", base: "main" },
 		comment: { excerpt: "olha isso aqui", path: "src/x.ts", line: 42 },
 	};
 	const block = formatEventBlock(envelope(event));
@@ -61,7 +61,7 @@ test("formatEventBlock: evento de push expõe branch/commits/headSha/compareUrl"
 	const event: NormalizedGithubEvent = {
 		type: "push",
 		repo: "acme/site",
-		actor: "alisson",
+		actor: "ana",
 		push: {
 			branch: "main",
 			commits: 3,

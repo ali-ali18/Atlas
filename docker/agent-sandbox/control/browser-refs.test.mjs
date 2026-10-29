@@ -94,8 +94,8 @@ function setup(dom, opts) {
 }
 
 const proposalDom = () => [
-	{ raw: { label: "Cliente", autocomplete: true, value: "" }, revealsOnType: "Alisson Camargo" },
-	{ raw: { tag: "select", label: "Vendedor", value: "", options: [{ label: "Alisson" }, { label: "Bruno" }] }, options: ["Alisson", "Bruno"] },
+	{ raw: { label: "Cliente", autocomplete: true, value: "" }, revealsOnType: "Ana Souza" },
+	{ raw: { tag: "select", label: "Vendedor", value: "", options: [{ label: "Ana" }, { label: "Bruno" }] }, options: ["Ana", "Bruno"] },
 	{ raw: { tag: "button", text: "Adicionar item" } },
 	{ raw: { tag: "a", text: "Página inicial", href: "/home" }, navigatesTo: "https://erp.test/home" },
 	{ raw: { tag: "button", text: "Oculto" }, hidden: true },
@@ -125,7 +125,7 @@ test("browserSnapshot: lista visíveis com refs, esconde ocultos e não vaza sen
 	assert.equal(snap.total, 5);
 	assert.equal(snap.elements[0].ref, "e1");
 	assert.match(snap.lines[0], /combobox "Cliente" autocomplete/);
-	assert.match(snap.lines[1], /options=\[Alisson\|Bruno\]/);
+	assert.match(snap.lines[1], /options=\[Ana\|Bruno\]/);
 	assert.ok(snap.lines.every((line) => !line.includes("Oculto")));
 	assert.match(snap.lines[4], /nunca preencha/);
 	assert.equal(snap.scrollHeight, 900);
@@ -135,16 +135,16 @@ test("browserAct: preenche por ref, delta traz o autocomplete; não clica no 1º
 	const log = [];
 	const { actions } = setup(proposalDom(), { log });
 	await actions.browserSnapshot({});
-	const typed = await actions.browserAct({ ref: "e1", action: "type", value: "Alisson" });
+	const typed = await actions.browserAct({ ref: "e1", action: "type", value: "Ana" });
 	assert.equal(typed.ok, true);
-	assert.equal(typed.field.value, "Alisson");
+	assert.equal(typed.field.value, "Ana");
 	assert.equal(typed.newTotal, 1);
-	assert.match(typed.newElements[0], /option "Alisson Camargo"/);
+	assert.match(typed.newElements[0], /option "Ana Souza"/);
 	// o ref novo não renumera os antigos
 	assert.match(typed.newElements[0], /\[e6\]/);
-	const selected = await actions.browserAct({ ref: "e2", action: "select", value: "Alisson" });
-	assert.equal(selected.field.value, "Alisson");
-	assert.deepEqual(log, ["fill:e1=Alisson", "select:e2=Alisson"]);
+	const selected = await actions.browserAct({ ref: "e2", action: "select", value: "Ana" });
+	assert.equal(selected.field.value, "Ana");
+	assert.deepEqual(log, ["fill:e1=Ana", "select:e2=Ana"]);
 	await assert.rejects(actions.browserAct({ ref: "e2", action: "select", value: "Zé" }), /não existe nesse select/);
 });
 

@@ -55,7 +55,7 @@ describe("normalizeGithubEvents / normalizeGithubUsers", () => {
 		expect(normalizeGithubEvents("push")).toBeNull();
 	});
 	it("users: trim, tira @, dedup case-insensitive, vazio vira undefined", () => {
-		expect(normalizeGithubUsers([" alisson", "@Alisson", "bot "])).toEqual(["alisson", "bot"]);
+		expect(normalizeGithubUsers([" ana", "@Ana", "bot "])).toEqual(["ana", "bot"]);
 		expect(normalizeGithubUsers([])).toBeUndefined();
 		expect(normalizeGithubUsers(undefined)).toBeUndefined();
 	});
@@ -66,13 +66,13 @@ describe("githubTriggerInputSchema / parseGithubTriggerInput", () => {
 		const result = parseGithubTriggerInput({
 			repo: "acme/site",
 			events: ["pr_opened", "issue_assigned"],
-			users: ["alisson"],
+			users: ["ana"],
 		});
 		expect("value" in result).toBe(true);
 		if ("value" in result) {
 			expect(result.value.repo).toBe("acme/site");
 			expect(result.value.events).toEqual(["pr_opened", "issue_assigned"]);
-			expect(result.value.users).toEqual(["alisson"]);
+			expect(result.value.users).toEqual(["ana"]);
 			expect(result.value.prNumber).toBeUndefined();
 			expect(result.value.ciBranch).toBeUndefined();
 		} else {
@@ -94,10 +94,10 @@ describe("githubTriggerInputSchema / parseGithubTriggerInput", () => {
 		const result = parseGithubTriggerInput({
 			repo: "acme/site",
 			events: ["pr_opened"],
-			users: ["@Alisson", "alisson", "@bot"],
+			users: ["@Ana", "ana", "@bot"],
 		});
 		if ("value" in result) {
-			expect(result.value.users).toEqual(["Alisson", "bot"]);
+			expect(result.value.users).toEqual(["Ana", "bot"]);
 		} else {
 			throw new Error("esperava sucesso");
 		}
@@ -209,12 +209,12 @@ describe("isGithubWebhookTrigger / parseGithubWebhookTrigger (v3)", () => {
 			...base,
 			events: ["ci_failed"],
 			branch: "main",
-			users: ["alisson"],
+			users: ["ana"],
 			prNumber: 9,
 			state: { lastWebhookAt: "2026-01-01T00:00:00.000Z" },
 		});
 		expect(parsed?.branch).toBe("main");
-		expect(parsed?.users).toEqual(["alisson"]);
+		expect(parsed?.users).toEqual(["ana"]);
 		expect(parsed?.prNumber).toBe(9);
 		expect(parsed?.state?.lastWebhookAt).toBe("2026-01-01T00:00:00.000Z");
 	});
@@ -321,14 +321,14 @@ describe("compat v1 → v3", () => {
 
 describe("normalizeGithubWebhook", () => {
 	const repository = { full_name: "acme/site" };
-	const sender = { login: "alisson" };
+	const sender = { login: "ana" };
 
 	it("pull_request: opened/reopened/synchronize/closed(+merged)/closed/review_requested", () => {
 		const pr = {
 			number: 42,
 			title: "Add feature",
 			html_url: "https://github.com/acme/site/pull/42",
-			user: { login: "alisson" },
+			user: { login: "ana" },
 			head: { ref: "feature", sha: "abc123" },
 			base: { ref: "main" },
 		};
@@ -504,11 +504,11 @@ describe("normalizeGithubWebhook", () => {
 	});
 
 	it("issues: só assigned sobrevive (opened saiu do vocabulário)", () => {
-		const issue = { number: 7, title: "Bug", html_url: "https://x/issues/7", assignee: { login: "alisson" } };
+		const issue = { number: 7, title: "Bug", html_url: "https://x/issues/7", assignee: { login: "ana" } };
 		expect(normalizeGithubWebhook("issues", { action: "opened", repository, sender, issue })).toEqual([]);
 		const assigned = normalizeGithubWebhook("issues", { action: "assigned", repository, sender, issue });
 		expect(assigned[0]?.type).toBe("issue_assigned");
-		expect(assigned[0]?.issue?.assignee).toBe("alisson");
+		expect(assigned[0]?.issue?.assignee).toBe("ana");
 	});
 
 	it("check_suite completed: success/failure/timed_out, com pr e failedChecks", () => {
@@ -583,10 +583,10 @@ describe("normalizeGithubWebhook", () => {
 			after: "abcdef1234567890",
 			commits: [{}, {}, {}],
 			compare: "https://github.com/acme/site/compare/abc...def",
-			pusher: { name: "alisson-pusher" },
+			pusher: { name: "ana-pusher" },
 		});
 		expect(normalized[0]?.type).toBe("push");
-		expect(normalized[0]?.actor).toBe("alisson-pusher");
+		expect(normalized[0]?.actor).toBe("ana-pusher");
 		expect(normalized[0]?.push).toEqual({
 			branch: "main",
 			commits: 3,
@@ -624,7 +624,7 @@ describe("normalizeGithubWebhook", () => {
 			ref: "refs/heads/main",
 			after: "abc",
 		});
-		expect(normalized[0]?.actor).toBe("alisson");
+		expect(normalized[0]?.actor).toBe("ana");
 	});
 });
 
@@ -680,14 +680,14 @@ describe("githubEventMatchesTrigger", () => {
 	it("users: filtra por ator case-insensitive", () => {
 		expect(
 			githubEventMatchesTrigger(
-				{ type: "issue_assigned", repo: "acme/site", actor: "Alisson" },
-				{ repo: "acme/site", events: ["issue_assigned"], users: ["alisson"] },
+				{ type: "issue_assigned", repo: "acme/site", actor: "Ana" },
+				{ repo: "acme/site", events: ["issue_assigned"], users: ["ana"] },
 			),
 		).toBe(true);
 		expect(
 			githubEventMatchesTrigger(
 				{ type: "issue_assigned", repo: "acme/site", actor: "outro" },
-				{ repo: "acme/site", events: ["issue_assigned"], users: ["alisson"] },
+				{ repo: "acme/site", events: ["issue_assigned"], users: ["ana"] },
 			),
 		).toBe(false);
 	});
@@ -695,7 +695,7 @@ describe("githubEventMatchesTrigger", () => {
 		expect(
 			githubEventMatchesTrigger(
 				{ type: "ci_failed", repo: "acme/site", actor: "github-actions", ci: { branch: "main" } as never },
-				{ repo: "acme/site", events: ["ci_failed"], users: ["alisson"], branch: "main" },
+				{ repo: "acme/site", events: ["ci_failed"], users: ["ana"], branch: "main" },
 			),
 		).toBe(true);
 	});
@@ -865,7 +865,7 @@ describe("describeGithubTriggerClauses", () => {
 				repo: "acme/site",
 				events: ["ci_failed", "ci_passed"],
 				branch: "main",
-				users: ["alisson"],
+				users: ["ana"],
 			}),
 		).toEqual(["Quando o CI falhar ou passar na branch main em acme/site"]);
 	});

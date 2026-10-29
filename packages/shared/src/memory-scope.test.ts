@@ -10,7 +10,7 @@ describe("decideMemoryScope: os 6 casos reais", () => {
 		expect(decide("Bot Cookie: assistente amigável para tarefas do dia a dia, investimentos e organização financeira.", "identidade")).toMatchObject({ action: "save", target: "memory" });
 	});
 	it("2. nome/apelido/idioma do usuário fica no user", () => {
-		expect(decide('Nome: Alisson Camargo, apelido "ali"; GitHub: ali-ali18. Fala pt-BR e prefere respostas curtas e claras.', "identidade")).toEqual({ action: "save", target: "user" });
+		expect(decide('Nome: Ana Souza, apelido "ana"; GitHub: ana-souza. Fala pt-BR e prefere respostas curtas e claras.', "identidade")).toEqual({ action: "save", target: "user" });
 	});
 	it("3. tom/instruções do bot saem do user", () => {
 		expect(decide("Tom amigável; revisões: só corrigir, manter breve e introdutório.", "comunicacao")).toMatchObject({ action: "save", target: "memory" });
@@ -19,7 +19,7 @@ describe("decideMemoryScope: os 6 casos reais", () => {
 		expect(decide("Quer uma rotina diária para consultar agenda e e-mail às 7h e às 20h.", "preferencia")).toMatchObject({ action: "reject" });
 	});
 	it("5. o que ele quer deste bot vai ao bot", () => {
-		expect(decide("Ali (Alisson Camargo) quer ajuda principalmente com bugs e documentação no bot, por ser desenvolvedor.", "identidade")).toMatchObject({ action: "save", target: "memory" });
+		expect(decide("Ana (Ana Souza) quer ajuda principalmente com bugs e documentação no bot, por ser desenvolvedor.", "identidade")).toMatchObject({ action: "save", target: "memory" });
 	});
 	it("6. fato pessoal estável fica no user", () => {
 		expect(decide("É estudante da PUCPR; pode pedir ajuda para acessar o AVA.", "identidade")).toEqual({ action: "save", target: "user" });

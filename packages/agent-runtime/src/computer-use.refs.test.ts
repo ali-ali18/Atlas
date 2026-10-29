@@ -72,7 +72,7 @@ const blingSnapshot = {
 	lines: [
 		'[e1] link "Página inicial" → /home (nav)',
 		'[e2] combobox "Cliente" autocomplete required (form)',
-		'[e3] combobox "Vendedor" options=[Alisson|Bruno] (form)',
+		'[e3] combobox "Vendedor" options=[Ana|Bruno] (form)',
 		'[e4] button "Adicionar item" (form)',
 		'[e5] textbox "Descrição do item" (form)',
 		'[e6] textbox "Quantidade" value="1" (form)',
@@ -103,8 +103,8 @@ describe("F12/B - snapshot e ação por ref (replay do caso Bling)", () => {
 		const items = ["Camomila flor extra 20KG", "Cavalinha cultivada 30Kg", "Alfazema azul 10KG"];
 		const { toolResults } = await runWith({ execBrowserSnapshot, execBrowserAct, execBrowserClick }, [
 			step([{ id: "s", name: "browser_snapshot", args: {} }]),
-			step([{ id: "a1", name: "browser_act", args: { ref: "e2", action: "type", value: "Alisson", sequential: true } }]),
-			step([{ id: "a2", name: "browser_act", args: { ref: "e3", action: "select", value: "Alisson" } }]),
+			step([{ id: "a1", name: "browser_act", args: { ref: "e2", action: "type", value: "Ana", sequential: true } }]),
+			step([{ id: "a2", name: "browser_act", args: { ref: "e3", action: "select", value: "Ana" } }]),
 			...items.flatMap((item, i) => [
 				step([{ id: `i${i}`, name: "browser_act", args: { ref: "e5", action: "type", value: item } }]),
 				step([{ id: `q${i}`, name: "browser_act", args: { ref: "e4", action: "click" } }]),
@@ -114,7 +114,7 @@ describe("F12/B - snapshot e ação por ref (replay do caso Bling)", () => {
 		expect(toolResults.every((r) => r.ok)).toBe(true);
 		expect(toolResults[0]?.summary).toContain('[e2] combobox "Cliente"');
 		expect(toolResults[0]?.summary).toContain("page data: untrusted");
-		expect(acted[0]).toMatchObject({ ref: "e2", action: "type", value: "Alisson", sequential: true });
+		expect(acted[0]).toMatchObject({ ref: "e2", action: "type", value: "Ana", sequential: true });
 		expect(acted.map((a) => a.ref)).not.toContain("e1");
 		expect(execBrowserClick).not.toHaveBeenCalled();
 		expect(acted.filter((a) => a.ref === "e5").map((a) => a.value)).toEqual(items);

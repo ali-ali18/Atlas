@@ -106,7 +106,7 @@ Arquivos novos: `packages/shared/src/group-turns.ts` (puro) e `apps/worker/src/p
 
 ## Critérios de aceite (`/run`)
 - Na conversa da Jujuba: "pergunta ao Dev se o deploy de hoje passou" → bloco "Jujuba perguntou ao Dev", com a resposta do Dev usando os conectores dele.
-- Grupo "Jujuba + Dev + Pesquisador": "qual o melhor dia para lançar a nova interface do loja-exemplo?" → 1 ou 2 bots respondem, citam uns aos outros com `@` quando precisam, e o grupo **para sozinho** em até 6 falas.
+- Grupo "Jujuba + Dev + Pesquisador": "qual o melhor dia para lançar a nova interface do loja exemplo?" → 1 ou 2 bots respondem, citam uns aos outros com `@` quando precisam, e o grupo **para sozinho** em até 6 falas.
 - Mandar "@Pesquisador e aí?" → só ele responde.
 - Uma rotina do grupo às 9h posta o evento, os membros relevantes comentam e o grupo volta a ficar em pausa.
 

@@ -30,10 +30,10 @@ function inst(over: Partial<GithubInstallationRecord> = {}): GithubInstallationR
 		id: "row",
 		userId: "u1",
 		installationId: "555",
-		accountLogin: "ali-ali18",
+		accountLogin: "exemplo",
 		accountType: "User",
 		repositorySelection: "selected",
-		repositories: [{ fullName: "ali-ali18/site", private: true }],
+		repositories: [{ fullName: "exemplo/site", private: true }],
 		suspendedAt: null,
 		createdAt: new Date(0),
 		...over,
@@ -56,7 +56,7 @@ function setup(
 		const status = over.status ?? 201;
 		let body: Record<string, unknown> = { message: "Resource not accessible by integration" };
 		if (status < 300) {
-			body = { number: 7, html_url: "https://github.com/ali-ali18/site/issues/7", title: "t", sha: "abc123", object: { sha: "headsha" }, tree: { sha: "treesha" } };
+			body = { number: 7, html_url: "https://github.com/exemplo/site/issues/7", title: "t", sha: "abc123", object: { sha: "headsha" }, tree: { sha: "treesha" } };
 		}
 		return new Response(JSON.stringify(body), { status });
 	}) as unknown as typeof fetch;
@@ -71,7 +71,7 @@ function setup(
 	return { calls, deps };
 }
 
-const ISSUE = { method: "create", owner: "ali-ali18", repo: "site", title: "Bug", body: "texto", labels: ["bug"] };
+const ISSUE = { method: "create", owner: "exemplo", repo: "site", title: "Bug", body: "texto", labels: ["bug"] };
 
 describe("escritas no GitHub: sempre pelo app", () => {
 	it("app instalado no repositório: cria a issue com o token de instalação (autor <app>[bot])", async () => {
@@ -80,7 +80,7 @@ describe("escritas no GitHub: sempre pelo app", () => {
 		expect(out.ok).toBe(true);
 		expect(out.text).toContain("meu-app[bot]");
 		expect(calls).toHaveLength(1);
-		expect(calls[0]).toMatchObject({ url: "https://api.github.com/repos/ali-ali18/site/issues", method: "POST", auth: "Bearer ghs_app" });
+		expect(calls[0]).toMatchObject({ url: "https://api.github.com/repos/exemplo/site/issues", method: "POST", auth: "Bearer ghs_app" });
 		expect(calls[0]!.body).toMatchObject({ title: "Bug", labels: ["bug"] });
 	});
 
@@ -88,16 +88,16 @@ describe("escritas no GitHub: sempre pelo app", () => {
 		const { calls, deps } = setup();
 		const out = await gateGithubWrite({ userId: "u1", toolName: "issue_write", args: { ...ISSUE, repo: "loja-monorepo" } }, deps);
 		expect(out.ok).toBe(false);
-		expect(out.githubIdentity).toMatchObject({ reason: "not_installed", repo: "ali-ali18/loja-monorepo", installUrl: "https://github.com/settings/installations/555" });
+		expect(out.githubIdentity).toMatchObject({ reason: "not_installed", repo: "exemplo/loja-monorepo", installUrl: "https://github.com/settings/installations/555" });
 		expect(calls).toHaveLength(0);
 	});
 
 	it("depois que o usuário adiciona o repositório à instalação, a mesma chamada passa (relê a instalação)", async () => {
-		const added = inst({ repositories: [{ fullName: "ali-ali18/site", private: true }, { fullName: "ali-ali18/loja-monorepo", private: true }] });
+		const added = inst({ repositories: [{ fullName: "exemplo/site", private: true }, { fullName: "exemplo/loja-monorepo", private: true }] });
 		const { calls, deps } = setup({ refreshed: added });
 		const out = await gateGithubWrite({ userId: "u1", toolName: "issue_write", args: { ...ISSUE, repo: "loja-monorepo" } }, deps);
 		expect(out.ok).toBe(true);
-		expect(calls[0]!.url).toBe("https://api.github.com/repos/ali-ali18/loja-monorepo/issues");
+		expect(calls[0]!.url).toBe("https://api.github.com/repos/exemplo/loja-monorepo/issues");
 	});
 
 	it("sem instalação do dono do repositório: link do fluxo de instalação do app", async () => {
@@ -136,20 +136,20 @@ describe("escritas no GitHub: sempre pelo app", () => {
 
 	it("fork pelo app: POST /forks com o token de instalação", async () => {
 		const { calls, deps } = setup({ status: 202 });
-		const out = await gateGithubWrite({ userId: "u1", toolName: "fork_repository", args: { owner: "ali-ali18", repo: "site", organization: "acme" } }, deps);
+		const out = await gateGithubWrite({ userId: "u1", toolName: "fork_repository", args: { owner: "exemplo", repo: "site", organization: "acme" } }, deps);
 		expect(out.ok).toBe(true);
-		expect(calls[0]).toMatchObject({ url: "https://api.github.com/repos/ali-ali18/site/forks", method: "POST", auth: "Bearer ghs_app" });
+		expect(calls[0]).toMatchObject({ url: "https://api.github.com/repos/exemplo/site/forks", method: "POST", auth: "Bearer ghs_app" });
 		expect(calls[0]!.body).toEqual({ organization: "acme" });
 	});
 
 	it("push_files pelo app: ref, commit base, árvore, commit e atualização da branch", async () => {
 		const { calls, deps } = setup();
 		const out = await gateGithubWrite(
-			{ userId: "u1", toolName: "push_files", args: { owner: "ali-ali18", repo: "site", branch: "feat/x", message: "msg", files: [{ path: "a/b.txt", content: "oi" }] } },
+			{ userId: "u1", toolName: "push_files", args: { owner: "exemplo", repo: "site", branch: "feat/x", message: "msg", files: [{ path: "a/b.txt", content: "oi" }] } },
 			deps,
 		);
 		expect(out.ok).toBe(true);
-		expect(calls.map((c) => `${c.method} ${c.url.replace("https://api.github.com/repos/ali-ali18/site", "")}`)).toEqual([
+		expect(calls.map((c) => `${c.method} ${c.url.replace("https://api.github.com/repos/exemplo/site", "")}`)).toEqual([
 			"GET /git/ref/heads/feat/x",
 			"GET /git/commits/headsha",
 			"POST /git/trees",
@@ -161,7 +161,7 @@ describe("escritas no GitHub: sempre pelo app", () => {
 	});
 
 	it("assinatura opcional: padrão desligada; ligada acrescenta o rodapé", async () => {
-		const comment = { owner: "ali-ali18", repo: "site", issue_number: 3, body: "oi" };
+		const comment = { owner: "exemplo", repo: "site", issue_number: 3, body: "oi" };
 		const off = setup();
 		await gateGithubWrite({ userId: "u1", toolName: "add_issue_comment", args: comment }, off.deps);
 		expect(off.calls[0]!.body).toEqual({ body: "oi" });

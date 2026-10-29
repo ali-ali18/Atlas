@@ -39,7 +39,7 @@ const blocked = {
 	ok: false,
 	text: "O app nao esta instalado. Nada foi enviado.",
 	truncated: false,
-	githubIdentity: { reason: "not_installed" as const, repo: "ali-ali18/loja-monorepo", installUrl: "/v1/github-app/install", appName: "meu-app", message: "x" },
+	githubIdentity: { reason: "not_installed" as const, repo: "exemplo/loja-monorepo", installUrl: "/v1/github-app/install", appName: "meu-app", message: "x" },
 };
 
 function toolCall(): CompleteChatWithToolsResult {
@@ -52,7 +52,7 @@ function toolCall(): CompleteChatWithToolsResult {
 				{
 					id: "c1",
 					type: "function",
-					function: { name: "mcp__github__issue_write", arguments: JSON.stringify({ owner: "ali-ali18", repo: "loja-monorepo", title: "Bug" }) },
+					function: { name: "mcp__github__issue_write", arguments: JSON.stringify({ owner: "exemplo", repo: "loja-monorepo", title: "Bug" }) },
 				},
 			],
 		},
@@ -102,7 +102,7 @@ describe("cartão de identidade do GitHub no run", () => {
 		const confirm = events.find((e) => e.type === "confirm");
 		expect(confirm).toMatchObject({
 			confirmLabel: "Pronto, já instalei",
-			githubIdentity: { reason: "not_installed", repo: "ali-ali18/loja-monorepo", installUrl: "/v1/github-app/install" },
+			githubIdentity: { reason: "not_installed", repo: "exemplo/loja-monorepo", installUrl: "/v1/github-app/install" },
 		});
 		expect(saveSkillPendingIntent).toHaveBeenCalledWith(
 			expect.objectContaining({

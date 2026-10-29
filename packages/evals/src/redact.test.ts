@@ -26,7 +26,7 @@ describe("redação por padrão", () => {
 
 	it("dinheiro, datas, CEP e números curtos ficam", () => {
 		const redactor = createRedactor();
-		const text = "Nota R$ 1.712,67, 7 volumes, 43 kg, CEP 01001-000, em 2025-10-03 às 10h, pedido 3410.";
+		const text = "Nota R$ 1.712,67, 7 volumes, 43 kg, CEP 01001-000, em 2025-10-03 às 10h, pedido 5120.";
 		expect(redactor.text(text)).toBe(text);
 	});
 

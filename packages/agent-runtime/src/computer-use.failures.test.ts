@@ -92,7 +92,7 @@ async function run(
 	return { result, toolResults };
 }
 
-describe("F4 - caso loja-exemplo: falhas em lote e erro de argumento", () => {
+describe("F4 - caso loja exemplo: falhas em lote e erro de argumento", () => {
 	it("4 get_file_contents paralelos com 'path does not point' nao derrubam o run", async () => {
 		const call = vi.fn(async (_name: string, args: Record<string, unknown>) =>
 			args.path === "docs"

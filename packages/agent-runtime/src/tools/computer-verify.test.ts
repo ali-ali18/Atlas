@@ -28,8 +28,8 @@ describe("verifyActEffect (F12/D1)", () => {
 
 	it("type: valor diferente do pedido avisa; autocomplete que completa não", () => {
 		const type = { ...base, action: "type" as const };
-		expect(verifyActEffect({ ...type, field: { value: "outro" } }, "Alisson")).toContain("the field holds");
-		expect(verifyActEffect({ ...type, field: { value: "Alisson Camargo" } }, "Alisson")).toBeNull();
+		expect(verifyActEffect({ ...type, field: { value: "outro" } }, "Ana")).toContain("the field holds");
+		expect(verifyActEffect({ ...type, field: { value: "Ana Souza" } }, "Ana")).toBeNull();
 		expect(verifyActEffect({ ...type, field: { secret: true } }, "x")).toBeNull();
 	});
 });

@@ -45,7 +45,7 @@ describe("F1 honestidade: github_list_repos", () => {
 		vi.mocked(getComposioGithubContext).mockResolvedValue(null);
 	});
 
-	async function runGithubListRepos(query = "monorepo loja-exemplo") {
+	async function runGithubListRepos(query = "loja monorepo") {
 		const toolResults: Array<{ name: string; ok: boolean; summary: string }> = [];
 		const queue: CompleteChatWithToolsResult[] = [
 			toolCall("c1", "github_list_repos", { query }),
@@ -98,7 +98,7 @@ describe("F1 honestidade: github_list_repos", () => {
 				{ fullName: "acme/loja-monorepo", private: false, defaultBranch: "main", pushedAt: "2026-01-01T00:00:00Z" },
 			],
 		});
-		const toolResults = await runGithubListRepos("loja-exemplo");
+		const toolResults = await runGithubListRepos("loja");
 		expect(toolResults[0]?.ok).toBe(true);
 		expect(toolResults[0]?.summary).toContain("loja-monorepo");
 	});
@@ -120,7 +120,7 @@ describe("F1 honestidade: github_list_repos", () => {
 			data: { details: [{ full_name: "acme/loja-monorepo", private: false, default_branch: "main", pushed_at: "2026-01-01T00:00:00Z" }] },
 		}));
 		composioCtx(executeTool);
-		const toolResults = await runGithubListRepos("loja-exemplo");
+		const toolResults = await runGithubListRepos("loja");
 		expect(toolResults[0]?.ok).toBe(true);
 		expect(toolResults[0]?.summary).toContain("acme/loja-monorepo");
 		expect(executeTool).toHaveBeenCalledWith(expect.objectContaining({ slug: "GITHUB_LIST_REPOSITORIES_FOR_THE_AUTHENTICATED_USER" }));

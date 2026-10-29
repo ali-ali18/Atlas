@@ -15,10 +15,10 @@ export type Scenario = {
 };
 
 const QUOTE = [
-	{ role: "user" as const, content: "faz a cotação de frete do pedido 3410" },
+	{ role: "user" as const, content: "faz a cotação de frete do pedido 5120" },
 	{
 		role: "assistant" as const,
-		content: "Achei os dados do pedido 3410: cliente Loja Exemplo, CNPJ 11.222.333/0001-81. Quer que eu monte a mensagem de cotação com esses dados?",
+		content: "Achei os dados do pedido 5120: cliente Loja Exemplo, CNPJ 11.222.333/0001-81. Quer que eu monte a mensagem de cotação com esses dados?",
 	},
 	{
 		role: "user" as const,

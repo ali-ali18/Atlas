@@ -211,7 +211,7 @@ test("a lista traz o grupo efetivo: o explícito ou o da rotina ligada ao painel
 
 test("resolvePageGroup: por id, por nome (sem caixa), nome novo cria; id de outro dono é recusado", async () => {
 	assert.deepEqual(await resolvePageGroup("user-a", "bot-a", "g-a"), { id: "g-a", name: "Vendas Loja Exemplo", created: false });
-	assert.equal((await resolvePageGroup("user-a", "bot-a", "  vendas   loja-exemplo ")).id, "g-a");
+	assert.equal((await resolvePageGroup("user-a", "bot-a", "  vendas   loja exemplo ")).id, "g-a");
 	const fresh = await resolvePageGroup("user-a", "bot-a", "Logística");
 	assert.equal(fresh.created, true);
 	assert.equal(groups.rows.find((r) => r.id === fresh.id)!.userId, "user-a");

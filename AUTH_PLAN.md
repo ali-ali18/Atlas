@@ -8,7 +8,7 @@
 
 - API sem middleware de auth (`apps/api/src/index.ts:66-86` só registra CORS; rotas montadas sem guarda em `:98-115`).
 - `userId` é constante `"default"` espalhada pelo código: `routes/mcp.ts:46`, `routes/routines.ts:31`, `routes/github.ts:16`, `routes/skills.ts:12`, `routes/memory.ts:118`, `chat/skill-intent.ts:54`, `chat/memory.ts:142`; e defaults `?? "default"` no db (`runs.ts:207`, `mcp-connections.ts:107,118,164,192`, `memory-entries.ts`, `memory-search.ts`).
-- Web sem login, sessão ou cookie; `atlasFetch` (`apps/web/lib/atlas-api.ts:63-83`) só manda `Content-Type`; 3 `fetch` crus fora dele (`:342`, `:647`, `:893`). "Alisson · Plano pessoal" é hardcoded (`chat-sidebar/chat-sidebar-footer.tsx:65,104,111-113`).
+- Web sem login, sessão ou cookie; `atlasFetch` (`apps/web/lib/atlas-api.ts:63-83`) só manda `Content-Type`; 3 `fetch` crus fora dele (`:342`, `:647`, `:893`). "Ana · Plano pessoal" é hardcoded (`chat-sidebar/chat-sidebar-footer.tsx:65,104,111-113`).
 - **Não há modelo `User`.** `userId` é `String` solto (sem FK) em MemoryEntry, AgentRun, Skill*, Routine, McpConnection. **Bot, Section, Conversation e UserSettings (singleton `id="default"`) não têm dono.**
 - Queries sem escopo de usuário (viram IDOR com mais de um usuário): `bots.ts` (list/update/delete/get*), `conversations.ts` (tudo por `conversationId`), `sections.ts`, `runs.ts` (get/cancel/pause/resume/events/inputs), `mcp-connections.ts` (`getMcpConnection`, `update`, `delete` por id), `routines.ts` (`createRoutine` valida o bot só por id; `listRoutineRuns`), `artifacts.ts:38`.
 - Streams (`GET /v1/runs/:id/stream`, `/events`, `/v1/chat/jobs/:id`): basta saber o `runId`; cada conexão faz polling no DB a cada 80 ms.

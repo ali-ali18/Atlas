@@ -40,8 +40,8 @@ Onde está no código:
   - timeout fixo de 30s (`mcp/call.ts:23`), e o timeout não é retentável (`client-pool.ts:76`);
   - resultado `isError` nunca é retentado;
   - `mcp_tool_search` despeja tools já usadas por LRU (`computer-use.ts:3759-3781`).
-- **Caso real, 28/09 (run `cmulub3v70007lg8g4wm5dzh8`, revisão do loja-monorepo):**
-  - O modelo listou a raiz na **branch padrão** (ali existe a pasta `loja-exemplo/`) e buscou `loja-exemplo/...` com `ref: feat/19-web-v2-seletor-conta`, onde a pasta não existe.
+- **Caso real, 28/09 (run `cmrun0example0000000000`, revisão do loja-monorepo):**
+  - O modelo listou a raiz na **branch padrão** (ali existe a pasta `loja exemplo/`) e buscou `loja exemplo/...` com `ref: feat/19-web-v2-seletor-conta`, onde a pasta não existe.
   - 3 `get_file_contents` falharam **no mesmo passo**, e 1 `search_commits` falhou por query inválida. A trava de 4 seguidas matou o run.
   - O run anterior morreu no "limite de 10 chamadas de `get_file_contents`", lendo arquivo a arquivo.
   - Depois disso o usuário mandou "?", e nada foi feito.

@@ -17,7 +17,7 @@ test("toEnvelopeGithub: pull_request opened vira envelope com dados compactos, n
 	const payload = {
 		action: "opened",
 		repository: { full_name: "acme/site" },
-		sender: { login: "alisson" },
+		sender: { login: "ana" },
 		pull_request: { number: 3, title: "Fix bug", html_url: "https://github.com/acme/site/pull/3" },
 	};
 	const envelope = toEnvelopeGithub({
@@ -62,8 +62,8 @@ test("toEnvelopeGithub: push (voltou ao vocabulário v4) vira envelope com branc
 	const payload = {
 		ref: "refs/heads/main",
 		repository: { full_name: "acme/site" },
-		sender: { login: "alisson" },
-		pusher: { name: "alisson" },
+		sender: { login: "ana" },
+		pusher: { name: "ana" },
 		after: "abcdef1234",
 		commits: [{ id: "abcdef1234", message: "fix bug", author: { name: "A" } }],
 	};
@@ -78,7 +78,7 @@ test("toEnvelopeGithub: push (voltou ao vocabulário v4) vira envelope com branc
 	assert.equal(envelope?.refs.repo, "acme/site");
 	const data = envelope?.payload as { type: string; actor?: string; push?: { branch: string; commits: number } };
 	assert.equal(data.type, "push");
-	assert.equal(data.actor, "alisson");
+	assert.equal(data.actor, "ana");
 	assert.equal(data.push?.branch, "main");
 	assert.equal(data.push?.commits, 1);
 });

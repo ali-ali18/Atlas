@@ -5,7 +5,7 @@ import {
 import type { ToolOutcome } from "./progress.js";
 
 /**
- * F4 (caso loja-exemplo) — classificação de falhas de tool.
+ * F4 (caso loja exemplo) — classificação de falhas de tool.
  * "argument": o modelo errou o caminho/id/parâmetro ("chute"); não é quebra
  * da tool, então não conta para a trava global do run (só para a por tool).
  */

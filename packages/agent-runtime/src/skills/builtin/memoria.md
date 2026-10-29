@@ -33,6 +33,6 @@ Cada entrada da memória tem uma ref `[xxxx]` (4 caracteres). Use sempre a ref, 
 
 ## 3. Como escrever
 
-- Entradas curtas e densas, uma ideia por entrada: `Nome: Alisson Camargo (Ali)`, não frases longas.
+- Entradas curtas e densas, uma ideia por entrada: `Nome: Ana Souza (Ana)`, não frases longas.
 - Sem repetir o mesmo fato em duas entradas; ao fundir, mantenha todos os dados distintos e descarte só o que repete.
 - O espaço é limitado (veja o uso no `list`): organizar existe para liberar espaço, não para perder informação.

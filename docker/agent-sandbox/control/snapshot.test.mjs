@@ -35,7 +35,7 @@ test("senha nunca aparece: sem value e com aviso", () => {
 test("formatElementLine: formulário de proposta (select, data, autocomplete, checkbox, link)", () => {
 	const lines = [
 		{ ref: "e1", ...base, label: "Cliente", autocomplete: true, value: "", required: true, landmark: "form" },
-		{ ref: "e2", ...base, tag: "select", label: "Vendedor", value: "Alisson", options: [{ label: "Alisson" }, { label: "Bruno" }], optionCount: 20, landmark: "form" },
+		{ ref: "e2", ...base, tag: "select", label: "Vendedor", value: "Ana", options: [{ label: "Ana" }, { label: "Bruno" }], optionCount: 20, landmark: "form" },
 		{ ref: "e3", ...base, type: "date", label: "Data", value: "2026-09-30" },
 		{ ref: "e4", ...base, type: "checkbox", label: "Enviar e-mail", checked: false },
 		{ ref: "e5", ...base, tag: "a", text: "Incluir item", href: "#add", inViewport: false },
@@ -44,7 +44,7 @@ test("formatElementLine: formulário de proposta (select, data, autocomplete, ch
 		.map(describeElement)
 		.map(formatElementLine);
 	assert.equal(lines[0], '[e1] combobox "Cliente" autocomplete required (form)');
-	assert.equal(lines[1], '[e2] combobox "Vendedor" value="Alisson" options=[Alisson|Bruno|+18] (form)');
+	assert.equal(lines[1], '[e2] combobox "Vendedor" value="Ana" options=[Ana|Bruno|+18] (form)');
 	assert.equal(lines[2], '[e3] textbox "Data" value="2026-09-30"');
 	assert.equal(lines[3], '[e4] checkbox "Enviar e-mail" unchecked');
 	assert.equal(lines[4], "[e5] link \"Incluir item\" → #add ↓fora da janela");

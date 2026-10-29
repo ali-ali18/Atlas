@@ -190,9 +190,9 @@ test("webhook (endpoint fixo, secret compartilhado): evento selecionado enfileir
 	const payload = {
 		action: "submitted",
 		repository: { full_name: "acme/site" },
-		sender: { login: "alisson" },
+		sender: { login: "ana" },
 		review: { state: "approved", html_url: "https://x" },
-		pull_request: { number: 7, title: "fix", user: { login: "alisson" }, head: { ref: "h" }, base: { ref: "main" } },
+		pull_request: { number: 7, title: "fix", user: { login: "ana" }, head: { ref: "h" }, base: { ref: "main" } },
 	};
 	const res = await postWebhook(app, { githubEvent: "pull_request_review", payload, deliveryId: "d1" });
 	assert.equal(res.status, 202);
@@ -326,8 +326,8 @@ test("babá de PR: PR mesclado fora de events e sem run ativo apaga a rotina na 
 	const payload = {
 		action: "closed",
 		repository: { full_name: "acme/site" },
-		sender: { login: "alisson" },
-		pull_request: { number: 7, title: "fix", merged: true, user: { login: "alisson" }, head: { ref: "h" }, base: { ref: "main" } },
+		sender: { login: "ana" },
+		pull_request: { number: 7, title: "fix", merged: true, user: { login: "ana" }, head: { ref: "h" }, base: { ref: "main" } },
 	};
 	const res = await postWebhook(app, { githubEvent: "pull_request", payload, deliveryId: "d2" });
 	assert.equal(res.status, 202);
@@ -418,7 +418,7 @@ test("push numa branch de verdade: casa o trigger (sem branch configurada) e enf
 		after: "deadbeef",
 		commits: [{}, {}],
 		repository: { full_name: "acme/site" },
-		pusher: { name: "alisson" },
+		pusher: { name: "ana" },
 	};
 	const res = await postWebhook(app, { githubEvent: "push", payload, deliveryId: "d7" });
 	assert.equal(res.status, 202);

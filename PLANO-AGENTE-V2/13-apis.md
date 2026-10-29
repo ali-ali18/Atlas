@@ -67,7 +67,7 @@ A confirmar na implementação (não deu para ler a página de referência): URL
 - [ ] Entrada no catálogo como API OAuth2 (`BLING_OAUTH_CLIENT_ID` / `BLING_OAUTH_CLIENT_SECRET` no `.env.example` raiz e da api, sem valor; redirect `${ATLAS_URL}/v1/mcp/oauth/callback` cadastrado no app Bling). Token com Basic no `/token`; refresh de 30 dias.
 - [ ] Tools em módulo próprio (`packages/agent-runtime/src/mcp/builtin/bling.ts`, padrão do Google): `bling_search_contacts`, `bling_create_contact`, `bling_search_products`, `bling_create_proposal`, `bling_list_proposals`, `bling_get_proposal`, `bling_list_orders`, `bling_get_order`. Leitura = `readOnlyHint`; criação = write.
 - [ ] `bling_create_proposal` resolve nomes em ids (contato, vendedor, produtos) por busca antes de criar; se houver ambiguidade (várias "Camomila"), devolve as candidatas para o agente perguntar, em vez de chutar.
-- [ ] Caso real: proposta com **Camomila flor extra 20 kg, Cavalinha cultivada 30 kg, Alfazema azul 10 kg**, cliente e vendedor **Alisson**.
+- [ ] Caso real: proposta com **Camomila flor extra 20 kg, Cavalinha cultivada 30 kg, Alfazema azul 10 kg**, cliente e vendedor **Ana**.
 - [ ] Limites: respeitar 3 req/s (fila por conexão), paginação por `pagina`/`limite`, tetos de itens no resultado, sem filtro de data maior que 1 ano.
 
 ### 6. Prompt (inglês, curto) (Bot B; se a F6 já estiver mergeada, commit pequeno do Bot C)
@@ -83,7 +83,7 @@ A confirmar na implementação (não deu para ler a página de referência): URL
 - [ ] Autonomia: GET `allow` em todos os níveis; POST pergunta ou bloqueia conforme nível e exceção; DELETE pergunta em qualquer nível; rotina só recebe `allow`.
 - [ ] Escopo/IDOR: usuário B não lista, usa, edita nem apaga a conexão `http_api` do usuário A (404), nem via `http_request` com `connection` de A (padrão `scope.test.ts`).
 - [ ] OpenAPI → tools: `operationId` → nome, params/body → schema, `readOnly` por método, `$ref` externo recusado, spec grande só indexada.
-- [ ] Bling com `fetch` mockado (replay): "cria a proposta com Camomila 20 kg, Cavalinha 30 kg, Alfazema 10 kg, cliente e vendedor Alisson" → busca contato, busca 3 produtos, `POST /propostas-comerciais`, resposta com o id; também ambiguidade e `429` com retry.
+- [ ] Bling com `fetch` mockado (replay): "cria a proposta com Camomila 20 kg, Cavalinha 30 kg, Alfazema 10 kg, cliente e vendedor Ana" → busca contato, busca 3 produtos, `POST /propostas-comerciais`, resposta com o id; também ambiguidade e `429` com retry.
 - [ ] Redação de segredos no resultado das tools (token na resposta da API, no corpo de erro e na URL).
 - [ ] OAuth: `state` de uso único, callback só reivindica a conexão do mesmo dono, refresh sem martelar `/token`.
 - [ ] Parser de `configJson`: rejeita `Authorization` em `defaultHeaders`, base URL http, host privado.
@@ -102,7 +102,7 @@ A confirmar na implementação (não deu para ler a página de referência): URL
 11. `feat(web): API personalizada e passo de API na UI`
 
 ## Critérios de aceite
-- `/run` no bot com Bling conectado: "cria a proposta no Bling com Camomila flor extra 20 kg, Cavalinha cultivada 30 kg e Alfazema azul 10 kg para o Alisson, vendedor Alisson" → concluído **pela API em até 5 passos**, sem abrir a VM; `costUsd` do run muito abaixo dos ~US$ 3 da execução pela VM.
+- `/run` no bot com Bling conectado: "cria a proposta no Bling com Camomila flor extra 20 kg, Cavalinha cultivada 30 kg e Alfazema azul 10 kg para o Ana, vendedor Ana" → concluído **pela API em até 5 passos**, sem abrir a VM; `costUsd` do run muito abaixo dos ~US$ 3 da execução pela VM.
 - Consultas (GET: buscar contato/produto, listar propostas) rodam sem confirmação.
 - O POST da proposta respeita a autonomia: Equilibrado e Sempre perguntar mostram card; Autônomo executa e mostra card de resultado. DELETE sempre pergunta.
 - Nenhum token ou header de auth aparece no chat, nos passos nem nos logs.

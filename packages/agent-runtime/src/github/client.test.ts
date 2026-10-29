@@ -55,7 +55,7 @@ describe("cliente REST do GitHub", () => {
 				{
 					number: 42,
 					title: "fix",
-					user: { login: "alisson" },
+					user: { login: "ana" },
 					head: { ref: "fix-branch" },
 					base: { ref: "main" },
 					html_url: "https://github.com/acme/site/pull/42",
@@ -69,7 +69,7 @@ describe("cliente REST do GitHub", () => {
 			{
 				number: 42,
 				title: "fix",
-				author: "alisson",
+				author: "ana",
 				head: "fix-branch",
 				base: "main",
 				url: "https://github.com/acme/site/pull/42",

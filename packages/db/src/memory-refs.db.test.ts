@@ -33,24 +33,24 @@ describe("memory refs (Postgres real)", { skip: dbSkip }, () => {
 		return memoryRef(entry.id);
 	}
 
-	test("cenário da captura: 'Alisson' é ambíguo, devolve candidatas com ref e remove pela ref", async () => {
-		await addMemoryEntry({ userId, target: "user", content: "Nome: Alisson Camargo, apelido ali. Fala pt-BR." });
-		await addMemoryEntry({ userId, target: "user", content: "Nome: Alisson" });
+	test("cenário da captura: 'Ana' é ambíguo, devolve candidatas com ref e remove pela ref", async () => {
+		await addMemoryEntry({ userId, target: "user", content: "Nome: Ana Souza, apelido ana. Fala pt-BR." });
+		await addMemoryEntry({ userId, target: "user", content: "Nome: Ana" });
 		await addMemoryEntry({ userId, target: "user", content: "Fuso: America/Sao_Paulo" });
 
-		const ambiguous = await removeMemoryEntry({ userId, target: "user", oldText: "Alisson" });
+		const ambiguous = await removeMemoryEntry({ userId, target: "user", oldText: "Ana" });
 		assert.equal(ambiguous.ok, false);
 		if (ambiguous.ok) return;
 		assert.match(ambiguous.error, /ambíguo/);
 		assert.equal(ambiguous.currentEntries.length, 2, "só as candidatas, não a camada inteira");
-		assert.ok(ambiguous.currentEntries.every((line) => /^\[[a-z0-9]{4}\] Nome: Alisson/.test(line)));
+		assert.ok(ambiguous.currentEntries.every((line) => /^\[[a-z0-9]{4}\] Nome: Ana/.test(line)));
 
-		const dupRef = memoryRef((await getMemorySnapshot(userId)).user.entries.find((e) => e.content === "Nome: Alisson")!.id);
+		const dupRef = memoryRef((await getMemorySnapshot(userId)).user.entries.find((e) => e.content === "Nome: Ana")!.id);
 		const removed = await removeMemoryEntry({ userId, target: "user", ref: `[${dupRef}]` });
 		assert.equal(removed.ok, true);
 		assert.equal((await getMemorySnapshot(userId)).user.entries.length, 2);
 		const changes = await listMemoryChanges({ userId });
-		assert.ok(changes.changes.some((c) => c.action === "remove" && c.before === "Nome: Alisson" && c.source === "chat"));
+		assert.ok(changes.changes.some((c) => c.action === "remove" && c.before === "Nome: Ana" && c.source === "chat"));
 	});
 
 	test("o prompt traz [ref] antes de cada entrada", async () => {

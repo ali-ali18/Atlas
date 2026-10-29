@@ -6,7 +6,7 @@ const snap = (url: string) => ({ name: "browser_snapshot", ok: true, summary: `P
 describe("claimsBrowserState", () => {
 	it.each([
 		"Entrei no painel, já estou logado.",
-		"Entrei na conta do exemplo.",
+		"Entrei na conta do Exemplo.",
 		"Consegui entrar no site.",
 		"Acessei o painel e vi 3 cursos.",
 		"O login funcionou, estamos dentro.",

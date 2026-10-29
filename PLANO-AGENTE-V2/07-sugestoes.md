@@ -6,7 +6,7 @@ Um commit por sugestão. As prioridades são **7.1** e **7.3**, as que mais devo
 **Status:** a fazer · **Depende de:** nada (roda antes e depois de cada fase)
 - [ ] `packages/agent-runtime/eval/cases/*.json`: casos tirados do banco, com o pedido, o contexto mínimo e as expectativas. Casos:
   - lembrete `once` 10h e 20h;
-  - loja-exemplo a cada 50 min;
+  - loja exemplo a cada 50 min;
   - criar planilha de preços;
   - pesquisar preço em 3 lojas;
   - "muda seu nome para X";
