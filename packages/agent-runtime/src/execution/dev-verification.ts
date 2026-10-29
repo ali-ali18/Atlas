@@ -74,13 +74,90 @@ function segmentIsCheck(rawWords: readonly string[]): boolean {
 
 const collapse = (text: string) => text.trim().replace(/\s+/g, " ");
 
-/** O comando é de verificação (teste, typecheck, lint, build)? `testCommand` é o comando de teste do ambiente, se conhecido. */
+type Piece = { text: string; sepBefore: string; sepAfter: string };
+
+/**
+ * Quebra o comando nos operadores de lista/pipe fora de aspas. `null` = não deu para ter certeza
+ * (subshell, substituição, aspas abertas): quem chama trata como não verificado.
+ */
+function splitTopLevel(cmd: string): Piece[] | null {
+	const pieces: Piece[] = [];
+	let buf = "";
+	let sepBefore = "";
+	let quote: string | null = null;
+	const push = (sepAfter: string) => {
+		pieces.push({ text: buf.trim(), sepBefore, sepAfter });
+		buf = "";
+		sepBefore = sepAfter;
+	};
+	for (let i = 0; i < cmd.length; i++) {
+		const ch = cmd[i]!;
+		if (quote) {
+			if (ch === "\\" && quote === '"') {
+				buf += ch + (cmd[i + 1] ?? "");
+				i++;
+				continue;
+			}
+			if (ch === quote) quote = null;
+			else if (quote === '"' && (ch === "`" || (ch === "$" && cmd[i + 1] === "("))) return null;
+			buf += ch;
+			continue;
+		}
+		if (ch === "\\") {
+			buf += ch + (cmd[i + 1] ?? "");
+			i++;
+			continue;
+		}
+		if (ch === "'" || ch === '"') {
+			quote = ch;
+			buf += ch;
+			continue;
+		}
+		if (ch === "`" || ch === "(" || ch === ")") return null;
+		if (ch === "&" && cmd[i + 1] === "&") {
+			push("&&");
+			i++;
+		} else if (ch === "|" && cmd[i + 1] === "|") {
+			push("||");
+			i++;
+		} else if (ch === "|") {
+			if (cmd[i + 1] === "&") i++;
+			push("|");
+		} else if (ch === "&") {
+			// `2>&1`, `>&2` e `&>arquivo` são redirecionamento, não segundo plano.
+			if (cmd[i - 1] === ">" || cmd[i + 1] === ">") buf += ch;
+			else push("&");
+		} else if (ch === ";" || ch === "\n") push(";");
+		else buf += ch;
+	}
+	if (quote) return null;
+	pieces.push({ text: buf.trim(), sepBefore, sepAfter: "" });
+	return pieces.filter((piece) => piece.text !== "" || piece.sepAfter !== "");
+}
+
+/**
+ * O comando é de verificação (teste, typecheck, lint, build) e o status dele chega ao exit code do comando todo?
+ * `pnpm test | tail`, `pnpm test || true` e `pnpm test; echo ok` saem com 0 mesmo com teste falhando, então não contam.
+ * `testCommand` é o comando de teste do ambiente, se conhecido.
+ */
 export function isVerificationCommand(cmd: string, testCommand?: string | null): boolean {
 	const known = testCommand ? collapse(testCommand) : "";
-	if (known && collapse(cmd).includes(known)) return true;
-	const parsed = parseCommand(cmd);
-	if (!parsed.ok) return false;
-	return parsed.segments.some((segment) => segmentIsCheck(segment.words));
+	const pieces = splitTopLevel(cmd);
+	if (!pieces) return false;
+	const pipefail = pieces.some((piece) => /(^|\s)(pipefail|-[A-Za-z]*o\s+pipefail)(\s|$)/.test(piece.text) && /^set\s/.test(piece.text));
+	const isCheck = (text: string) => {
+		if (known && collapse(text).includes(known)) return true;
+		const parsed = parseCommand(text);
+		return parsed.ok && parsed.segments.some((segment) => segmentIsCheck(segment.words));
+	};
+	if (known && known.search(/&&|\|\||[;|]/) !== -1 && collapse(cmd).endsWith(known)) return true;
+	return pieces.some((piece, index) => {
+		if (piece.text === "" || !isCheck(piece.text)) return false;
+		// Antes: `||` e `&` podem fazer o comando nem rodar (ou rodar solto).
+		if (pieces.slice(0, index + 1).some((p) => p.sepBefore === "||" || p.sepBefore === "&")) return false;
+		// Depois: só `&&` preserva o status; `|` só com pipefail; o resto mascara.
+		return pieces.slice(index).every((p) => p.sepAfter === "" || p.sepAfter === "&&" || (p.sepAfter === "|" && pipefail));
+	});
 }
 
 type VerificationJob = { verification: boolean; startSeq: number };

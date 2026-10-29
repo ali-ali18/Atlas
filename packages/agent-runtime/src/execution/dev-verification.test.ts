@@ -29,6 +29,26 @@ describe("isVerificationCommand", () => {
 		(cmd) => expect(isVerificationCommand(cmd)).toBe(false),
 	);
 
+	it.each([
+		"pnpm test 2>&1 | tail -30",
+		"pnpm test | head",
+		"pnpm test || true",
+		"pnpm test; echo done",
+		"pnpm test & echo x",
+		"false || pnpm test",
+		"pnpm test && echo ok; echo done",
+	])("não conta quando o status é mascarado: %s", (cmd) => expect(isVerificationCommand(cmd)).toBe(false));
+
+	it.each([
+		"cd packages/a && pnpm test",
+		"pnpm test 2>&1",
+		"pnpm test && echo ok",
+		"set -o pipefail; pnpm test | tail -30",
+		"echo x; pnpm test",
+		"pnpm test 2>&1 && pnpm build",
+		'pnpm exec vitest run -t "a || b"',
+	])("conta quando o status chega ao exit code: %s", (cmd) => expect(isVerificationCommand(cmd)).toBe(true));
+
 	it("o comando de teste do ambiente também vale", () => {
 		expect(isVerificationCommand("./scripts/check-all.sh --fast")).toBe(false);
 		expect(isVerificationCommand("./scripts/check-all.sh --fast", "./scripts/check-all.sh")).toBe(true);
