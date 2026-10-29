@@ -36,6 +36,8 @@ export type DevExecSnapshot = {
 	omittedBytes: number;
 	durationMs: number;
 	cwd: string;
+	/** Diretório em que o shell terminou (só com o job encerrado e o estado do shell ativo). */
+	endCwd?: string;
 	/** Com `until` no poll: a saída nova casou com a condição. */
 	matched?: boolean;
 	/** Caminho (dentro do container) com a saída completa do job, quando ela passou do limite inline. */
@@ -55,8 +57,10 @@ export type DevReadResult = {
 	note?: string;
 };
 
-export type DevWriteResult = { path: string; created: boolean; bytes: number; diff: string; added: number; removed: number };
-export type DevPatchResult = { path: string; diff: string; added: number; removed: number };
+/** Janela da região editada (±3 linhas, até 40); `firstLine` é 1-based. */
+export type DevEditExcerpt = { firstLine: number; text: string };
+export type DevWriteResult = { path: string; created: boolean; bytes: number; diff: string; added: number; removed: number; excerpt?: DevEditExcerpt; syntaxError?: string };
+export type DevPatchResult = { path: string; diff: string; added: number; removed: number; note?: string; excerpt?: DevEditExcerpt; syntaxError?: string };
 export type DevListResult = {
 	path: string;
 	entries: Array<{ path: string; type: "file" | "dir" | "link"; size: number }>;
@@ -115,7 +119,7 @@ export function createDevClient(endpoint: DevEndpoint, options: { fetchFn?: type
 
 	return {
 		health: () => call<{ ok: boolean; runningJobs: number }>("GET", "/health", undefined, 5_000),
-		execStart: (input: DevExecStartInput) => call<{ id: string; deduped?: boolean; durationMs?: number }>("POST", "/exec", { ...input, background: true }),
+		execStart: (input: DevExecStartInput) => call<{ id: string; deduped?: boolean; durationMs?: number; cwd?: string }>("POST", "/exec", { ...input, background: true }),
 		execPoll: (id: string, input: { out?: number; err?: number; waitMs?: number; until?: string } = {}) =>
 			call<DevExecSnapshot>("GET", `/exec/${id}${qs(input)}`, undefined, (input.waitMs ?? 0) + 15_000),
 		execStdin: (id: string, input: { data?: string; end?: boolean }) => call<{ ok: boolean }>("POST", `/exec/${id}/stdin`, input),

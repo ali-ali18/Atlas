@@ -89,7 +89,46 @@ export function perToolFailureStreak(
 	return count;
 }
 
-const isCountedFailure = (item: ToolOutcome) => item.kind !== "argument" && !item.synthetic;
+/**
+ * Tools de código em que errar é o ciclo normal do trabalho (o `old` não casa, o caminho estava errado): a trava por
+ * tool não as bloqueia e a trava global não conta a falha delas. Bloquear `edit_file` depois de 3 misses matava o
+ * run de código inteiro; o que o modelo precisa é de uma saída (ver `editEscalationHint`), não de ficar sem a tool.
+ */
+const BLOCK_EXEMPT_TOOLS: ReadonlySet<string> = new Set(["edit_file", "write_file", "read_file"]);
+/** Só estas não entram na trava global: leitura que falha continua contando (caminho errado em 3 tools é chute). */
+const GLOBAL_LOCK_EXEMPT_TOOLS: ReadonlySet<string> = new Set(["edit_file", "write_file"]);
+
+export function isBlockExemptTool(name: string): boolean {
+	return BLOCK_EXEMPT_TOOLS.has(name);
+}
+
+/** Falhas seguidas no mesmo arquivo a partir das quais o erro de edição ganha a dica de escalada. */
+export const EDIT_ESCALATION_AFTER = 3;
+
+/** Dica acionável (texto de modelo: inglês) anexada ao erro de `edit_file`/`write_file` na 3ª falha seguida no mesmo arquivo. */
+export const EDIT_ESCALATION_HINT =
+	"{n} consecutive failures on this file. Stop varying `old` by small tweaks: re-read the region with read_file, " +
+	"use a longer unique anchor copied exactly from that output, or rewrite the whole file with write_file.";
+
+/** Conta falhas seguidas de escrita por arquivo; qualquer sucesso no arquivo zera a contagem dele. */
+export function createEditFailureTracker() {
+	const streaks = new Map<string, number>();
+	return {
+		/** Registra o resultado e devolve a dica de escalada (ou `null`) quando for o caso. */
+		record(name: string, path: unknown, ok: boolean): string | null {
+			if (!GLOBAL_LOCK_EXEMPT_TOOLS.has(name) || typeof path !== "string" || !path) return null;
+			if (ok) {
+				streaks.delete(path);
+				return null;
+			}
+			const count = (streaks.get(path) ?? 0) + 1;
+			streaks.set(path, count);
+			return count >= EDIT_ESCALATION_AFTER ? EDIT_ESCALATION_HINT.replace("{n}", String(count)) : null;
+		},
+	};
+}
+
+const isCountedFailure = (item: ToolOutcome) => item.kind !== "argument" && !item.synthetic && !GLOBAL_LOCK_EXEMPT_TOOLS.has(item.name);
 
 /**
  * Trava global: N passos seguidos falhando, envolvendo M+ tools distintas.

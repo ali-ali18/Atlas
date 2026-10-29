@@ -3,6 +3,8 @@ import type { ToolOutcome } from "./progress.js";
 import {
 	ARGUMENT_ERROR_HINT,
 	classifyToolFailure,
+	createEditFailureTracker,
+	isBlockExemptTool,
 	globalFailureAbort,
 	isWebPageTool,
 	perToolFailureStreak,
@@ -165,5 +167,29 @@ describe("bloqueio por tool só conta falha do tipo other", () => {
 		expect(isWebPageTool("web_extract")).toBe(true);
 		expect(isWebPageTool("mcp__firecrawl__firecrawl_scrape")).toBe(true);
 		expect(isWebPageTool("mcp__github__get_file")).toBe(false);
+	});
+});
+
+describe("tools de código: sem bloqueio e com escalada", () => {
+	it("edit_file, write_file e read_file não são bloqueadas; as demais continuam", () => {
+		for (const name of ["edit_file", "write_file", "read_file"]) expect(isBlockExemptTool(name)).toBe(true);
+		for (const name of ["shell", "grep", "web_search", "mcp__github__get_file_contents"]) expect(isBlockExemptTool(name)).toBe(false);
+	});
+
+	it("a dica de escalada vem na 3ª falha seguida do mesmo arquivo e some com um sucesso", () => {
+		const tracker = createEditFailureTracker();
+		expect(tracker.record("edit_file", "a.ts", false)).toBeNull();
+		expect(tracker.record("edit_file", "b.ts", false)).toBeNull();
+		expect(tracker.record("write_file", "a.ts", false)).toBeNull();
+		expect(tracker.record("edit_file", "a.ts", false)).toMatch(/3 consecutive failures.*read_file.*longer unique anchor.*write_file/);
+		expect(tracker.record("edit_file", "a.ts", false)).toMatch(/^4 consecutive/);
+		expect(tracker.record("edit_file", "a.ts", true)).toBeNull();
+		expect(tracker.record("edit_file", "a.ts", false)).toBeNull();
+		expect(tracker.record("shell", "a.ts", false)).toBeNull();
+	});
+
+	it("falha de edit_file/write_file não entra na trava global", () => {
+		const outcomes = [fail("edit_file", 0), fail("write_file", 1), fail("grep", 2), fail("edit_file", 3), fail("write_file", 4), fail("grep", 5)];
+		expect(globalFailureAbort(outcomes)).toBeNull();
 	});
 });

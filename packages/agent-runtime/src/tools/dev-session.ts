@@ -77,6 +77,7 @@ import { loadRepoInstructions, nestedInstructionDirs, nestedInstructionsBlock, t
 import {
 	capHeadTail,
 	capResultText,
+	formatEditExcerpt,
 	numberLines,
 	isSafeRef,
 	parseCiLogsArgs,
@@ -238,12 +239,12 @@ export const DEV_SESSION_TOOLS: ChatTool[] = [
 		function: {
 			name: "shell",
 			description:
-				"Run a bash command in the coding session container (cwd /workspace, non-root, internet limited by the repo environment policy). Returns exit code, stdout and stderr. A foreground command is waited for at most 30s (raise it with timeoutMs, up to 600000). When that time passes the command is NOT killed: it becomes a background job and you get still_running, a job_id and the tail of the output so far; then wait with shell_output (optionally with until). For installs, builds, test suites or servers pass background:true: it returns a job_id at once. Jobs are only killed at the 30 minute hard cap or by shell_kill. Never run interactive programs; pipe input or use shell_stdin. Output over 30000 characters is shown as head + tail; the full output is saved in /workspace/.agent/output/<job_id>.txt (the path is in the result): read it with read_file or search it with grep.",
+				"Run a bash command in the coding session container (starts in /workspace, non-root, internet limited by the repo environment policy). The cwd and exported vars persist between calls (cd and export carry over; the result shows the cwd). Returns exit code, stdout and stderr. A foreground command is waited for at most 30s (raise it with timeoutMs, up to 600000). When that time passes the command is NOT killed: it becomes a background job and you get still_running, a job_id and the tail of the output so far; then wait with shell_output (optionally with until). For installs, builds, test suites or servers pass background:true: it returns a job_id at once. Jobs are only killed at the 30 minute hard cap or by shell_kill. Never run interactive programs; pipe input or use shell_stdin. Output over 30000 characters is shown as head + tail; the full output is saved in /workspace/.agent/output/<job_id>.txt (the path is in the result): read it with read_file or search it with grep.",
 			parameters: {
 				type: "object",
 				properties: {
 					cmd: { type: "string", description: "bash command line (run with bash -lc)" },
-					cwd: { type: "string", description: "Working directory (default /workspace; relative paths are inside it)" },
+					cwd: { type: "string", description: "Working directory (default: where the last command left the shell; relative paths are inside /workspace)" },
 					timeoutMs: { type: "number", description: "How long to wait in the foreground before the command moves to the background (default 30000, max 600000). It does not kill the command." },
 					background: { type: "boolean", description: "Return a job_id immediately and poll with shell_output" },
 				},
@@ -319,7 +320,7 @@ export const DEV_SESSION_TOOLS: ChatTool[] = [
 		function: {
 			name: "write_file",
 			description:
-				"Create or fully overwrite a file in /workspace (parent folders are created). Prefer edit_file for changes to existing files: it is smaller and safer. Returns a diff summary.",
+				"Create or fully overwrite a file in /workspace (parent folders are created). Prefer edit_file for changes to existing files: it is smaller and safer. Returns a diff summary and the written region (no need to re-read).",
 			parameters: {
 				type: "object",
 				properties: { path: { type: "string" }, content: { type: "string" } },
@@ -332,7 +333,7 @@ export const DEV_SESSION_TOOLS: ChatTool[] = [
 		function: {
 			name: "edit_file",
 			description:
-				"Replace text in an existing file. `old` must match EXACTLY (including indentation) and be unique in the file, otherwise the edit fails: include more surrounding lines, or pass replaceAll:true to replace every occurrence. Read the file first. Make minimal edits.",
+				"Replace text in an existing file. Matching tolerates whitespace/indent/CRLF drift, but `old` must identify ONE place: ambiguous matches are rejected (include more surrounding lines, or pass replaceAll:true, which needs an exact match). The result shows the edited region, so there is no need to re-read. Read the file first. Make minimal edits.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -1218,6 +1219,8 @@ export function createDevSessionRuntime(deps: DevSessionRuntimeDeps) {
 		matched?: boolean;
 		/** Arquivo (no container) com a saída completa do job, quando passou do limite inline. */
 		spillPath?: string;
+		/** Diretório em que o shell terminou (o `cd` do comando vale para as próximas chamadas). */
+		cwd?: string;
 	};
 
 	/**
@@ -1300,6 +1303,7 @@ export function createDevSessionRuntime(deps: DevSessionRuntimeDeps) {
 			reason: endedReason(snap),
 			...(until ? { matched: snap.matched === true } : {}),
 			...(snap.spillPath ? { spillPath: snap.spillPath } : {}),
+			cwd: snap.endCwd ?? snap.cwd,
 		};
 	}
 
@@ -1370,10 +1374,11 @@ export function createDevSessionRuntime(deps: DevSessionRuntimeDeps) {
 	async function runCommand(callId: string, input: { cmd: string; cwd?: string; timeoutMs: number; background: boolean }): Promise<string> {
 		return withClient(async (client, row) => {
 			const env = await execEnv(await envFor(row.repo));
-			const cwd = input.cwd ?? "/workspace";
 			const startedAtMs = now();
 			const started = await client.execStart({ cmd: input.cmd, cwd: input.cwd, env, timeoutMs: DEV_JOB_MAX_MS, dedupe: input.background });
 			const id = started.id;
+			// O servidor devolve o cwd real (o salvo da chamada anterior quando o modelo não passou um).
+			const cwd = started.cwd ?? input.cwd ?? "/workspace";
 			if (started.deduped) {
 				// Já há um comando idêntico rodando (às vezes de um run anterior): devolve o job existente em vez de duplicar.
 				const peek: JobMeta = { sessionId: row.id, callId, cmd: input.cmd, cursor: { out: 0, err: 0 }, emittedBytes: 0, startedAt: startedAtMs, doneEmitted: true };
@@ -1396,7 +1401,7 @@ export function createDevSessionRuntime(deps: DevSessionRuntimeDeps) {
 				return formatStillRunning(outcome, id) + reinstall;
 			}
 			const state = outcome.timedOut ? `TEMPO ESGOTADO (${seconds(input.timeoutMs)}): use background:true para trabalho longo` : outcome.killed ? "encerrado" : `exit ${outcome.exitCode}`;
-			return withFailureHints(formatOutcome(outcome, `${state} em ${seconds(outcome.durationMs)} (cwd ${cwd})`), outcome, row) + reinstall;
+			return withFailureHints(formatOutcome(outcome, `${state} em ${seconds(outcome.durationMs)} (cwd ${outcome.cwd ?? cwd})`), outcome, row) + reinstall;
 		});
 	}
 
@@ -2245,7 +2250,7 @@ ${TODO_REMINDER}` };
 					const { result, sessionId } = await withClient(async (client, row) => ({ result: await client.writeFile(input), sessionId: row.id }));
 					await emitEdit(sessionId, callId, result);
 					diagnostics?.noteEdit(result.path);
-					return { summary: `${result.created ? "Criado" : "Sobrescrito"} ${result.path} (+${result.added} -${result.removed}, ${result.bytes} bytes).` };
+					return { summary: `${result.created ? "Criado" : "Sobrescrito"} ${result.path} (+${result.added} -${result.removed}, ${result.bytes} bytes).${formatEditExcerpt(result.excerpt, redact, result.syntaxError)}` };
 				}
 				case "edit_file": {
 					const input = parseEditFileArgs(args);
@@ -2254,7 +2259,7 @@ ${TODO_REMINDER}` };
 					const { result, sessionId } = await withClient(async (client, row) => ({ result: await client.patchFile(input), sessionId: row.id }));
 					await emitEdit(sessionId, callId, result);
 					diagnostics?.noteEdit(result.path);
-					return { summary: `Editado ${result.path} (+${result.added} -${result.removed}).` };
+					return { summary: `Editado ${result.path} (+${result.added} -${result.removed}).${result.note ? ` Casamento aproximado: ${result.note}.` : ""}${formatEditExcerpt(result.excerpt, redact, result.syntaxError)}` };
 				}
 				case "list_files": {
 					const input = parseListFilesArgs(args);

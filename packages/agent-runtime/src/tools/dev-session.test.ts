@@ -148,7 +148,7 @@ function snapshot(partial: Partial<DevExecSnapshot>): DevExecSnapshot {
 	};
 }
 
-function setup(options: { polls?: DevExecSnapshot[]; queued?: boolean; existing?: Partial<DevSessionRow> | null; token?: string | null; environment?: DevEnvironmentRuntime | null; config?: Partial<ReturnType<typeof loadDevSandboxConfig>>; execResult?: (cmd: string) => Partial<DevExecSnapshot>; autoEnv?: boolean; secretsGate?: boolean; now?: () => number; diagnostics?: boolean | { settleMs?: number; debounceMs?: number } } = {}) {
+function setup(options: { polls?: DevExecSnapshot[]; queued?: boolean; existing?: Partial<DevSessionRow> | null; token?: string | null; environment?: DevEnvironmentRuntime | null; config?: Partial<ReturnType<typeof loadDevSandboxConfig>>; execResult?: (cmd: string) => Partial<DevExecSnapshot>; autoEnv?: boolean; secretsGate?: boolean; now?: () => number; diagnostics?: boolean | { settleMs?: number; debounceMs?: number }; startCwd?: string } = {}) {
 	const egressCalls: Array<{ mode: string; allowlist: string[] }> = [];
 	const events: DevSessionEvent[] = [];
 	const execStarts: Array<{ cmd: string; env?: Record<string, string>; cwd?: string }> = [];
@@ -157,7 +157,7 @@ function setup(options: { polls?: DevExecSnapshot[]; queued?: boolean; existing?
 	const client = {
 		execStart: vi.fn(async (input: { cmd: string; env?: Record<string, string>; cwd?: string }) => {
 			execStarts.push(input);
-			return { id: "0123456789ab" };
+			return { id: "0123456789ab", ...(options.startCwd ? { cwd: options.startCwd } : {}) };
 		}),
 		execPoll: vi.fn(async () => {
 			if (options.execResult) {
@@ -330,6 +330,13 @@ describe("runtime: shell", () => {
 		expect(JSON.stringify(t.events)).not.toContain(TOKEN);
 	});
 
+	it("shell_started informa o cwd em que o comando realmente começou (o salvo pelo servidor)", async () => {
+		const t = setup({ startCwd: "/workspace/app", polls: [snapshot({ stdout: "ok\n", nextOut: 3, cwd: "/workspace/app" })] });
+		await t.runtime.execute("shell", { cmd: "pnpm test" }, "call-cwd");
+		const started = t.events.find((e) => e.type === "shell_started") as Extract<DevSessionEvent, { type: "shell_started" }>;
+		expect(started.cwd).toBe("/workspace/app");
+	});
+
 	it("background devolve job_id e marca background_running", async () => {
 		const t = setup({ polls: [snapshot({ running: true, status: "running", exitCode: null, stdout: "iniciando\n", nextOut: 9 })] });
 		const { summary } = await t.runtime.execute("shell", { cmd: "pnpm install", background: true }, "c1");
@@ -498,6 +505,17 @@ describe("runtime: shell", () => {
 		expect(summary).toMatch(/\[… \d+ caracteres omitidos …\]/);
 		expect(summary).toContain("/workspace/.agent/output/0123456789ab.txt");
 		expect(summary.length).toBeLessThan(31_000);
+	});
+
+	it("o resultado do shell mostra o cwd em que o comando terminou (o shell lembra o cd)", async () => {
+		const t = setup({ polls: [snapshot({ stdout: "ok\n", nextOut: 3, cwd: "/workspace", endCwd: "/workspace/apps/web" })] });
+		const { summary } = await t.runtime.execute("shell", { cmd: "cd apps/web" }, "c1");
+		expect(summary).toContain("(cwd /workspace/apps/web)");
+	});
+
+	it("a descrição da tool shell diz que cwd e variáveis exportadas persistem entre chamadas", () => {
+		const shell = DEV_SESSION_TOOLS.find((tool) => tool.function.name === "shell");
+		expect(shell?.function.description).toMatch(/cwd and exported (env )?vars persist between calls/i);
 	});
 
 	it("saída pequena não ganha nota de arquivo mesmo com spillPath", async () => {
@@ -1006,5 +1024,30 @@ describe("runtime: cache de dependências do ambiente", () => {
 	it("pede o volume de cache do repositório ao provedor", async () => {
 		const r = await run(null);
 		expect(r.t.provider.ensureRunning).toHaveBeenCalledWith(expect.objectContaining({ envCacheRepo: "octo/hello" }));
+	});
+});
+
+describe("runtime: janela da região editada no resultado", () => {
+	it("edit_file e write_file mostram o trecho numerado devolvido pelo sandbox, sem segredo", async () => {
+		const t = setup();
+		t.client.patchFile.mockResolvedValueOnce({ path: "/workspace/a.ts", diff: "-a\n+b", added: 1, removed: 1, excerpt: { firstLine: 7, text: `l7\nL8 ${TOKEN}` } });
+		const edit = await t.runtime.execute("edit_file", { path: "a.ts", old: "a", new: "b" }, "cx");
+		expect(edit.summary).toContain("não precisa reler");
+		expect(edit.summary).toContain("     7\tl7");
+		expect(edit.summary).toContain("     8\tL8");
+		expect(edit.summary).not.toContain(TOKEN);
+		t.client.writeFile.mockResolvedValueOnce({ path: "/workspace/n.ts", created: true, bytes: 3, diff: "+x", added: 1, removed: 0, excerpt: { firstLine: 1, text: "x" } });
+		const w = await t.runtime.execute("write_file", { path: "n.ts", content: "x" }, "cy");
+		expect(w.summary).toContain("     1\tx");
+	});
+
+	it("erro de sintaxe novo vem no resultado (sem bloquear) e não aparece quando ausente", async () => {
+		const t = setup();
+		t.client.patchFile.mockResolvedValueOnce({ path: "/workspace/a.json", diff: "-a\n+b", added: 1, removed: 1, excerpt: { firstLine: 1, text: "{,}" }, syntaxError: "JSON inválido: Unexpected token ','" });
+		const edit = await t.runtime.execute("edit_file", { path: "a.json", old: "a", new: "b" }, "cs");
+		expect(edit.summary).toContain("Editado");
+		expect(edit.summary).toContain("Erro de sintaxe introduzido por esta edição: JSON inválido");
+		const clean = await t.runtime.execute("edit_file", { path: "b.json", old: "a", new: "b" }, "ct");
+		expect(clean.summary).not.toContain("sintaxe");
 	});
 });

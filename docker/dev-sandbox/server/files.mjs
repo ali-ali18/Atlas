@@ -3,6 +3,8 @@ import posix from "node:path/posix";
 import { applyUnifiedDiff, unifiedDiff } from "./diff.mjs";
 import { confinePath, WORKSPACE } from "./path-guard.mjs";
 import { RETURN_CAP_BYTES } from "./output-buffer.mjs";
+import { newSyntaxError } from "./syntax-check.mjs";
+import { appliedNearOld, applyMatches, describeSimilarRegions, editedExcerpt, findMatches, listLines } from "./edit-match.mjs";
 
 export const READ_MAX_BYTES = 2 * 1024 * 1024;
 export const WRITE_MAX_BYTES = 10 * 1024 * 1024;
@@ -136,7 +138,9 @@ export function createFileApi(options = {}) {
 			await fs.writeFile(path, input.content);
 			if (created) await fixOwner(path);
 			const { diff, added, removed } = unifiedDiff(before, input.content, { path: posix.relative(workspace, path).startsWith("..") ? path : posix.relative(workspace, path) });
-			return { path, created, bytes: Buffer.byteLength(input.content), diff, added, removed };
+			const excerpt = editedExcerpt(before, input.content);
+			const syntaxError = await newSyntaxError({ path, before, after: input.content });
+			return { path, created, bytes: Buffer.byteLength(input.content), diff, added, removed, ...(excerpt ? { excerpt } : {}), ...(syntaxError ? { syntaxError } : {}) };
 		},
 
 		async patch(input) {
@@ -144,6 +148,7 @@ export function createFileApi(options = {}) {
 			const file = await readText(path);
 			if (file.binary) throw new FileError("Arquivo binário não pode ser editado", 400);
 			let next;
+			let note = null;
 			if (typeof input.diff === "string" && input.diff.trim()) {
 				try {
 					next = applyUnifiedDiff(file.text, input.diff);
@@ -156,16 +161,30 @@ export function createFileApi(options = {}) {
 				if (typeof oldText !== "string" || typeof newText !== "string") throw new FileError("informe old e new (texto) ou diff");
 				if (oldText === "") throw new FileError("old não pode ser vazio (use write para criar/substituir o arquivo)");
 				if (oldText === newText) throw new FileError("old e new são iguais; nada a mudar");
-				const count = file.text.split(oldText).length - 1;
-				if (count === 0) throw new FileError("old não foi encontrado no arquivo. Leia o trecho atual (read_file) e copie o texto exatamente, com a indentação.", 409);
-				if (count > 1 && input.replaceAll !== true) {
-					throw new FileError(`old aparece ${count} vezes; inclua mais contexto para torná-lo único (ou use replace_all)`, 409);
+				const found = findMatches(file.text, oldText, newText);
+				if (found.matches.length === 0) {
+					const appliedAt = newText.trim().length >= 8 ? appliedNearOld(file.text, oldText, newText) : 0;
+					if (appliedAt) {
+						throw new FileError(`old não foi encontrado, mas new já aparece na linha ${appliedAt}, onde o old estaria: a edição pode já estar aplicada. Confira o trecho (read_file) antes de repetir.`, 409);
+					}
+					const similar = describeSimilarRegions(file.text, oldText);
+					throw new FileError(`old não foi encontrado no arquivo. Leia o trecho atual (read_file) e copie o texto, com a indentação.${similar ? `\n${similar}` : ""}`, 409);
 				}
-				next = input.replaceAll === true ? file.text.split(oldText).join(newText) : file.text.replace(oldText, () => newText);
+				if (found.strategy !== "exact" && input.replaceAll === true) {
+					throw new FileError("replace_all só vale quando old casa exatamente (aqui só casou com ajuste de espaço/indentação); copie o texto exato ou edite uma ocorrência por vez", 409);
+				}
+				if (found.matches.length > 1 && input.replaceAll !== true) {
+					throw new FileError(`old aparece ${found.matches.length} vezes (linhas ${listLines(found.matches)}); inclua mais contexto para torná-lo único (ou use replace_all)`, 409);
+				}
+				const chosen = input.replaceAll === true ? found.matches : found.matches.slice(0, 1);
+				next = applyMatches(file.text, chosen);
+				note = found.note;
 			}
 			await fs.writeFile(path, next);
 			const { diff, added, removed } = unifiedDiff(file.text, next, { path: posix.relative(workspace, path).startsWith("..") ? path : posix.relative(workspace, path) });
-			return { path, diff, added, removed };
+			const excerpt = editedExcerpt(file.text, next);
+			const syntaxError = await newSyntaxError({ path, before: file.text, after: next });
+			return { path, diff, added, removed, ...(note ? { note } : {}), ...(excerpt ? { excerpt } : {}), ...(syntaxError ? { syntaxError } : {}) };
 		},
 
 		async list(input) {
