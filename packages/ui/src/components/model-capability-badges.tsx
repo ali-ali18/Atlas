@@ -1,6 +1,7 @@
 import { AlertTriangleIcon, EyeIcon, FileTextIcon, WrenchIcon } from "lucide-react"
 import { formatContextTokens, type ModelCapabilities } from "@workspace/shared"
 import { cn } from "../lib/utils"
+import { useUiCopy } from "./ui-copy"
 
 type Caps = Pick<ModelCapabilities, "vision" | "pdf" | "tools" | "contextTokens">
 
@@ -15,6 +16,7 @@ export function ModelCapabilityBadges({
   capabilities: Caps
   className?: string
 }) {
+  const copy = useUiCopy()
   const context = formatContextTokens(capabilities.contextTokens)
   if (!capabilities.vision && !capabilities.pdf && !capabilities.tools && !context) return null
   return (
@@ -23,25 +25,25 @@ export function ModelCapabilityBadges({
       data-slot="model-capability-badges"
     >
       {capabilities.vision ? (
-        <span className={chip} title="Lê imagens">
+        <span className={chip} title={copy.capVisionTitle}>
           <EyeIcon aria-hidden />
-          Imagem
+          {copy.capVision}
         </span>
       ) : null}
       {capabilities.pdf ? (
-        <span className={chip} title="Lê PDF nativamente">
+        <span className={chip} title={copy.capPdfTitle}>
           <FileTextIcon aria-hidden />
           PDF
         </span>
       ) : null}
       {capabilities.tools ? (
-        <span className={chip} title="Usa ferramentas">
+        <span className={chip} title={copy.capToolsTitle}>
           <WrenchIcon aria-hidden />
-          Ferramentas
+          {copy.capTools}
         </span>
       ) : null}
       {context ? (
-        <span className={chip} title="Janela de contexto">
+        <span className={chip} title={copy.capContextTitle}>
           {context}
         </span>
       ) : null}

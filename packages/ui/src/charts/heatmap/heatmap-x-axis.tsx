@@ -3,6 +3,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@workspace/ui/lib/utils";
+import { chartDateFormat } from "../chart-formatters";
 import { useHeatmap } from "./heatmap-context";
 import { getHeatmapColumnMonthAnchor } from "./heatmap-utils";
 
@@ -11,7 +12,6 @@ export interface HeatmapXAxisProps {
   className?: string;
 }
 
-const monthFmt = new Intl.DateTimeFormat("pt-BR", { month: "short" });
 
 export const HeatmapXAxis = memo(function HeatmapXAxis({
   className,
@@ -44,7 +44,7 @@ export const HeatmapXAxis = memo(function HeatmapXAxis({
       }
 
       ticks.push({
-        label: monthFmt.format(monthAnchor),
+        label: chartDateFormat({ month: "short" }).format(monthAnchor),
         x: margin.left + xScale(columnIndex),
         key: monthKey,
       });

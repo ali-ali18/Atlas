@@ -8,14 +8,14 @@ import {
 } from "@workspace/shared"
 
 import { cn } from "@workspace/ui/lib/utils"
-import { useUiCopy } from "@workspace/ui/components/ui-copy"
+import { DEFAULT_UI_COPY, useUiCopy, type UiCopy } from "@workspace/ui/components/ui-copy"
 import { AreaChart, Area } from "@workspace/ui/charts/area-chart"
 import { BarChart } from "@workspace/ui/charts/bar-chart"
 import { Bar } from "@workspace/ui/charts/bar"
 import { BarXAxis } from "@workspace/ui/charts/bar-x-axis"
 import { BarYAxis } from "@workspace/ui/charts/bar-y-axis"
 import { chartPaletteCss, resolveChartPalette } from "@workspace/ui/charts/chart-palettes"
-import { XLabelFormatContext } from "@workspace/ui/charts/chart-formatters"
+import { XLabelFormatContext, chartDateFormat, chartNumberFormat } from "@workspace/ui/charts/chart-formatters"
 import { Grid } from "@workspace/ui/charts/grid"
 import { LineChart, Line } from "@workspace/ui/charts/line-chart"
 import { PieChart } from "@workspace/ui/charts/pie-chart"
@@ -42,14 +42,13 @@ import { curveMonotoneX } from "@visx/curve"
 
 /**
  * Gráfico nativo do chat: desenha uma `ChartSpec` (linha, barras, área, pizza, radar, funil, medidor, composto) com os componentes do Bklit UI
- * (MIT, vendorizados em `src/charts`), cores `--chart-1..6`, números e datas em pt-BR.
+ * (MIT, vendorizados em `src/charts`), cores `--chart-1..6`, números e datas no idioma da tela (pt-BR por padrão).
  */
 
-const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
-const MONTHS_LONG = [
-  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-]
+/** "jan", "fev"... no idioma da tela (o `Intl` do pt-BR escreve "jan."; o ponto sai para manter o formato do eixo). */
+function shortMonth(date: Date): string {
+  return chartDateFormat({ month: "short" }).format(date).replace(/\.$/, "")
+}
 const CURRENCY: Record<string, string> = { BRL: "BRL", USD: "USD", EUR: "EUR" }
 
 export function seriesColor(index: number): string {
@@ -65,7 +64,7 @@ function sliceColor(index: number): string {
 
 export type ValueFormatter = (value: number) => string
 
-/** Formata valores do spec em pt-BR (1.234,56 · R$ · % · sufixo da unidade); `axis` encurta para os eixos. */
+/** Formata valores do spec no idioma da tela, pt-BR por padrão (1.234,56 · R$ · % · sufixo da unidade); `axis` encurta para os eixos. */
 export function makeValueFormatter(
   spec: Pick<ChartSpec, "unit" | "format">,
   options: { axis?: boolean; max?: number; whole?: boolean } = {}
@@ -78,7 +77,7 @@ export function makeValueFormatter(
     ? { notation: "compact", maximumFractionDigits: 1 }
     : { maximumFractionDigits: 2 }
   if (currency) {
-    const intl = new Intl.NumberFormat("pt-BR", {
+    const intl = chartNumberFormat({
       style: "currency",
       currency,
       // Moeda herda 2 casas mínimas; no compacto isso vira "R$ 60,0 mil".
@@ -89,7 +88,7 @@ export function makeValueFormatter(
     })
     return (value) => intl.format(value)
   }
-  const intl = new Intl.NumberFormat("pt-BR", numberOptions)
+  const intl = chartNumberFormat(numberOptions)
   if (spec.unit === "%" || spec.format === "percent") {
     return (value) => `${intl.format(value)}%`
   }
@@ -116,7 +115,7 @@ type XLabels = {
 /** Rótulos do eixo X: categorias como vieram; datas mensais "jan/25"; demais datas "dd/mm" (com ano se passar de um ano). */
 export function makeXLabels(spec: ChartSpec): XLabels {
   if (spec.xKind !== "date") {
-    return { axis: (value) => String(value), axisDate: (date) => date.toLocaleDateString("pt-BR"), title: (value) => String(value) }
+    return { axis: (value) => String(value), axisDate: (date) => chartDateFormat({}).format(date), title: (value) => String(value) }
   }
   const dates = spec.data.map((point) => parseChartDate(String(point[spec.x])))
   const monthly = dates.every((date) => date.getDate() === 1)
@@ -124,7 +123,7 @@ export function makeXLabels(spec: ChartSpec): XLabels {
   const spanDays = (Math.max(...times) - Math.min(...times)) / 86_400_000
   const pad = (value: number) => String(value).padStart(2, "0")
   const axisDate = (date: Date) => {
-    if (monthly) return `${MONTHS[date.getMonth()]}/${pad(date.getFullYear() % 100)}`
+    if (monthly) return `${shortMonth(date)}/${pad(date.getFullYear() % 100)}`
     const base = `${pad(date.getDate())}/${pad(date.getMonth() + 1)}`
     return spanDays > 366 ? `${base}/${pad(date.getFullYear() % 100)}` : base
   }
@@ -133,8 +132,8 @@ export function makeXLabels(spec: ChartSpec): XLabels {
     axisDate,
     title: (value) => {
       const date = parseChartDate(String(value))
-      if (monthly) return `${MONTHS_LONG[date.getMonth()]} de ${date.getFullYear()}`
-      return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`
+      if (monthly) return chartDateFormat({ month: "long", year: "numeric" }).format(date)
+      return chartDateFormat({ day: "2-digit", month: "2-digit", year: "numeric" }).format(date)
     },
   }
 }
@@ -267,7 +266,7 @@ function ReferenceLayer({ spec }: { spec: ChartSpec }) {
 }
 
 /** Texto da legenda da meta/faixa, com os valores no formato do gráfico. */
-export function describeReference(spec: ChartSpec): string | null {
+export function describeReference(spec: ChartSpec, copy: Pick<UiCopy, "chartFrom" | "chartUpTo"> = DEFAULT_UI_COPY): string | null {
   const reference = spec.reference
   if (!reference) return null
   const format = makeValueFormatter(spec)
@@ -275,13 +274,13 @@ export function describeReference(spec: ChartSpec): string | null {
     reference.from !== undefined && reference.to !== undefined
       ? `${format(reference.from)} – ${format(reference.to)}`
       : reference.from !== undefined
-        ? `a partir de ${format(reference.from)}`
-        : `até ${format(reference.to!)}`
+        ? copy.chartFrom.replace("{value}", format(reference.from))
+        : copy.chartUpTo.replace("{value}", format(reference.to!))
   return reference.label ? `${reference.label} (${range})` : range
 }
 
 function ReferenceCaption({ spec }: { spec: ChartSpec }) {
-  const text = describeReference(spec)
+  const text = describeReference(spec, useUiCopy())
   if (!text) return null
   return (
     <p className="mt-1 flex items-center gap-1.5 px-1 text-muted-foreground text-xs" data-slot="chart-reference">
@@ -533,7 +532,7 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
   const format = React.useMemo(() => makeValueFormatter(spec, { whole }), [spec, whole])
   const compactFormat = React.useMemo(() => makeValueFormatter({ ...spec, format: "compact" }), [spec])
   const total = slices.reduce((sum, slice) => sum + slice.value, 0)
-  const percent = React.useMemo(() => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }), [])
+  const percent = React.useMemo(() => chartNumberFormat({ maximumFractionDigits: 1 }), [])
   const valueIsPercent = spec.unit === "%" || spec.format === "percent"
 
   return (
@@ -614,7 +613,7 @@ function FunnelPlot({ spec }: { spec: ChartSpec }) {
       <FunnelChart
         color="var(--chart-1)"
         data={stages}
-        formatPercentage={(pct) => `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 }).format(pct)}%`}
+        formatPercentage={(pct) => `${chartNumberFormat({ maximumFractionDigits: 0 }).format(pct)}%`}
         formatValue={format}
         orientation={vertical ? "vertical" : "horizontal"}
       />

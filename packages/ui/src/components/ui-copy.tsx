@@ -2,6 +2,7 @@
 
 import * as React from "react";
 
+import { setChartLocale } from "../charts/chart-formatters";
 import { CHAT_CARD_COPY } from "../lib/chat-card-copy";
 
 /**
@@ -10,6 +11,11 @@ import { CHAT_CARD_COPY } from "../lib/chat-card-copy";
  * Texto passado por prop (ex.: `confirmLabel`) continua mandando sobre o padrão daqui.
  */
 export type UiCopy = {
+  /**
+   * Idioma da tela (BCP 47, ex.: "en-US"). Gráficos e avatar formatam número, data e maiúscula com ele;
+   * `UiCopyProvider` o registra em `setChartLocale`. Padrão: pt-BR.
+   */
+  locale: string;
   codeCopy: string;
   /** Vocabulário comum dos cards (ver `lib/chat-card-copy.ts`). */
   cardDetails: string;
@@ -46,9 +52,20 @@ export type UiCopy = {
   planKindWrite: string;
   planKindAsk: string;
   planKindOther: string;
+  /** Legenda da meta do gráfico: "a partir de {value}" / "até {value}". */
+  chartFrom: string;
+  chartUpTo: string;
+  /** Selos de capacidade do modelo (texto e dica). */
+  capVision: string;
+  capVisionTitle: string;
+  capPdfTitle: string;
+  capTools: string;
+  capToolsTitle: string;
+  capContextTitle: string;
 };
 
 export const DEFAULT_UI_COPY: UiCopy = {
+  locale: "pt-BR",
   codeCopy: "Copiar código",
   cardDetails: CHAT_CARD_COPY.details,
   cardLess: CHAT_CARD_COPY.less,
@@ -83,12 +100,25 @@ export const DEFAULT_UI_COPY: UiCopy = {
   planKindWrite: "Altera dados",
   planKindAsk: "Pergunta",
   planKindOther: "Passo",
+  chartFrom: "a partir de {value}",
+  chartUpTo: "até {value}",
+  capVision: "Imagem",
+  capVisionTitle: "Lê imagens",
+  capPdfTitle: "Lê PDF nativamente",
+  capTools: "Ferramentas",
+  capToolsTitle: "Usa ferramentas",
+  capContextTitle: "Janela de contexto",
 };
 
 const UiCopyContext = React.createContext<UiCopy>(DEFAULT_UI_COPY);
 
 function UiCopyProvider({ copy, children }: { copy: Partial<UiCopy>; children: React.ReactNode }) {
-  const value = React.useMemo(() => ({ ...DEFAULT_UI_COPY, ...copy }), [copy]);
+  const value = React.useMemo(() => {
+    const merged = { ...DEFAULT_UI_COPY, ...copy };
+    // Registra o idioma para os formatadores de gráfico (usados fora de hooks); ver `charts/chart-formatters.ts`.
+    setChartLocale(merged.locale);
+    return merged;
+  }, [copy]);
   return <UiCopyContext.Provider value={value}>{children}</UiCopyContext.Provider>;
 }
 

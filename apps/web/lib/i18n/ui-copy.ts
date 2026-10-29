@@ -1,9 +1,11 @@
 import type { UiCopy } from "@workspace/ui/components/ui-copy";
+import { DEFAULT_UI_LOCALE } from "./locales";
 import type { TFunction } from "./translator";
 
 /** Textos dos componentes de packages/ui no idioma da tela (o pacote não conhece o dicionário do app). */
-export function uiCopyFrom(t: TFunction): UiCopy {
+export function uiCopyFrom(t: TFunction, locale: string = DEFAULT_UI_LOCALE): UiCopy {
 	return {
+		locale,
 		codeCopy: t("ui.codeCopy"),
 		codeCopied: t("ui.codeCopied"),
 		cardDetails: t("ui.cardDetails"),
@@ -39,5 +41,13 @@ export function uiCopyFrom(t: TFunction): UiCopy {
 		planKindWrite: t("ui.planKindWrite"),
 		planKindAsk: t("ui.planKindAsk"),
 		planKindOther: t("ui.planKindOther"),
+		chartFrom: t("ui.chartFrom", { value: "{value}" }),
+		chartUpTo: t("ui.chartUpTo", { value: "{value}" }),
+		capVision: t("ui.capVision"),
+		capVisionTitle: t("ui.capVisionTitle"),
+		capPdfTitle: t("ui.capPdfTitle"),
+		capTools: t("ui.capTools"),
+		capToolsTitle: t("ui.capToolsTitle"),
+		capContextTitle: t("ui.capContextTitle"),
 	};
 }

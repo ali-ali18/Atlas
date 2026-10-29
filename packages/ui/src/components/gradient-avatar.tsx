@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { cn } from "@workspace/ui/lib/utils";
+import { getChartLocale } from "../charts/chart-formatters";
 
 /** Hash FNV-1a de 32 bits: estável entre sessões, máquinas e versões. */
 function hash(seed: string): number {
@@ -56,9 +57,9 @@ export function avatarGradient(seed: string): AvatarGradient {
 }
 
 /** Primeira letra do nome; sem nome, a do e-mail; sem nenhum, "?". */
-export function avatarInitial(name?: string | null, email?: string | null): string {
+export function avatarInitial(name?: string | null, email?: string | null, locale: string = getChartLocale()): string {
 	const first = [...((name ?? "").trim() || (email ?? "").trim())][0];
-	return first ? first.toLocaleUpperCase("pt-BR") : "?";
+	return first ? first.toLocaleUpperCase(locale) : "?";
 }
 
 /** Foto do usuário ou, sem foto, a inicial escura do nome sobre um gradiente mesh derivado de `seed`. */

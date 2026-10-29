@@ -1,3 +1,4 @@
+import { chartDateFormat } from "../chart-formatters";
 import type { HeatmapLevelStyles } from "./heatmap-colors";
 import type { HeatmapBin, HeatmapColumn } from "./heatmap-context";
 
@@ -216,23 +217,15 @@ export function filterHeatmapColumns(
   });
 }
 
-const heatmapTooltipMonthFmt = new Intl.DateTimeFormat("pt-BR", {
-  month: "long",
-});
-
-const heatmapTooltipWeekdayFmt = new Intl.DateTimeFormat("pt-BR", {
-  weekday: "long",
-});
 
 /** Tooltip header date — e.g. `20 de janeiro de 2026`. */
 export function formatHeatmapTooltipDate(date: Date): string {
-  const month = heatmapTooltipMonthFmt.format(date);
-  return `${date.getDate()} de ${month} de ${date.getFullYear()}`;
+  return chartDateFormat({ day: "numeric", month: "long", year: "numeric" }).format(date);
 }
 
 /** Tooltip weekday line — e.g. `segunda-feira`. */
 export function formatHeatmapTooltipWeekday(date: Date): string {
-  return heatmapTooltipWeekdayFmt.format(date);
+  return chartDateFormat({ weekday: "long" }).format(date);
 }
 
 /** Tooltip contribution line — e.g. `3 contributions`. */

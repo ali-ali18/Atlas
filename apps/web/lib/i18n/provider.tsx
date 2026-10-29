@@ -34,7 +34,7 @@ export function I18nProvider({
 	// Código fora de componente (erros de hooks e da API) lê o tradutor daqui; ver `active.ts`.
 	setActiveTranslator(value);
 	// Os componentes de packages/ui recebem os textos pelo UiCopyProvider (o pacote não importa o app).
-	const uiCopy = React.useMemo(() => uiCopyFrom(value.t), [value.t]);
+	const uiCopy = React.useMemo(() => uiCopyFrom(value.t, value.locale), [value.t, value.locale]);
 	return (
 		<I18nContext.Provider value={value}>
 			<UiCopyProvider copy={uiCopy}>{children}</UiCopyProvider>

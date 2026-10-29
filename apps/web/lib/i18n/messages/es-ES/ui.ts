@@ -36,4 +36,12 @@ export const ui: NamespaceMessages<typeof ptBR> = {
 	"ui.planKindWrite": "Modifica datos",
 	"ui.planKindAsk": "Pregunta",
 	"ui.planKindOther": "Paso",
+	"ui.chartFrom": "desde {value}",
+	"ui.chartUpTo": "hasta {value}",
+	"ui.capVision": "Imagen",
+	"ui.capVisionTitle": "Lee imágenes",
+	"ui.capPdfTitle": "Lee PDF de forma nativa",
+	"ui.capTools": "Herramientas",
+	"ui.capToolsTitle": "Usa herramientas",
+	"ui.capContextTitle": "Ventana de contexto",
 };

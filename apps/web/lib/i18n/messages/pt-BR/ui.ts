@@ -34,4 +34,12 @@ export const ui = {
 	"ui.planKindWrite": "Altera dados",
 	"ui.planKindAsk": "Pergunta",
 	"ui.planKindOther": "Passo",
+	"ui.chartFrom": "a partir de {value}",
+	"ui.chartUpTo": "até {value}",
+	"ui.capVision": "Imagem",
+	"ui.capVisionTitle": "Lê imagens",
+	"ui.capPdfTitle": "Lê PDF nativamente",
+	"ui.capTools": "Ferramentas",
+	"ui.capToolsTitle": "Usa ferramentas",
+	"ui.capContextTitle": "Janela de contexto",
 } as const;
