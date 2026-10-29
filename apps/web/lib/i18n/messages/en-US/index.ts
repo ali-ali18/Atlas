@@ -17,6 +17,7 @@ import { sharedLabels } from "./sharedLabels";
 import { sidebar } from "./sidebar";
 import { status } from "./status";
 import { ui } from "./ui";
+import { routines } from "./routines";
 
 export const enUS: MessageDictionary = {
 	...app,
@@ -36,4 +37,5 @@ export const enUS: MessageDictionary = {
 	...sidebar,
 	...status,
 	...ui,
+	...routines,
 };

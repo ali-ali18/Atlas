@@ -80,8 +80,6 @@ import {
 	GITHUB_TRIGGER_EVENT_GROUPS,
 	GITHUB_TRIGGER_EVENT_META,
 	GITHUB_TRIGGER_EVENTS,
-	describeEmailTrigger,
-	describeGithubTriggerClauses,
 	isGithubCiEvent,
 	type RoutineRunRecord,
 } from "@workspace/shared";
@@ -97,6 +95,8 @@ import {
 } from "@/lib/atlas-api";
 import type { Routine, RoutineGithubUiConfig } from "../data";
 import { hoverRevealClass } from "@/lib/hover-reveal";
+import { useT, useTranslations } from "@/lib/i18n/provider";
+import type { TFunction } from "@/lib/i18n/translator";
 import { DEFAULT_OPENROUTER_MODEL } from "@/lib/openrouter-models";
 import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
 import { ModelPicker } from "@/components/model-picker";
@@ -108,8 +108,10 @@ import {
 	ScheduleEditor,
 	type ScheduleState,
 	scheduleLabel,
+	scheduleTimeLabel,
 } from "./schedule-editor";
-import { formatRoutineRunTime, routineRunLabel } from "./routine-map";
+import { routineTriggerText } from "./routine-map";
+import { emailTriggerText, githubEventLabel, githubGroupLabel } from "./routine-text";
 import {
 	canAutosaveRoutine,
 	createDebouncedSaver,
@@ -134,6 +136,7 @@ export function GithubRepoField({
 	onChange: (repo: string) => void;
 	disabled?: boolean;
 }) {
+	const t = useT();
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState(value);
 	const [options, setOptions] = useState<GithubRepoOption[]>([]);
@@ -171,7 +174,7 @@ export function GithubRepoField({
 				className="flex h-9 w-full items-center justify-between gap-2 rounded-3xl border border-transparent bg-input/50 px-3 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50"
 				disabled={disabled}
 			>
-				<span className="truncate">{value || "Buscar repositório…"}</span>
+				<span className="truncate">{value || t("routines.editor.searchRepo")}</span>
 				<SearchIcon className="size-4 shrink-0 opacity-50" />
 			</PopoverTrigger>
 			<PopoverContent align="start" className="w-(--anchor-width) p-0" side="bottom">
@@ -183,7 +186,7 @@ export function GithubRepoField({
 					/>
 					<CommandList>
 						<CommandEmpty>
-							{loading ? "Buscando…" : "Nenhum repositório encontrado."}
+							{loading ? t("routines.editor.searching") : t("routines.editor.noRepo")}
 						</CommandEmpty>
 						<CommandGroup>
 							{options.map((repo) => (
@@ -198,7 +201,7 @@ export function GithubRepoField({
 									<span className="truncate">{repo.fullName}</span>
 									{repo.private ? (
 										<span className="ml-auto shrink-0 text-muted-foreground text-xs">
-											privado
+											{t("routines.editor.private")}
 										</span>
 									) : null}
 								</CommandItem>
@@ -246,12 +249,7 @@ const TIME_OPTIONS = Array.from({ length: 96 }, (_, index) => {
 	return `${hours}:${String(minutes).padStart(2, "0")}`;
 });
 
-const SCHEDULE_TIME_PRESETS = [
-	{ id: "daily", label: "Todos os dias" },
-	{ id: "weekdays", label: "Dias úteis" },
-	{ id: "weekly", label: "Toda semana" },
-	{ id: "monthly", label: "Todos os meses" },
-];
+const SCHEDULE_TIME_PRESETS = ["daily", "weekdays", "weekly", "monthly"] as const;
 
 type SelectedTrigger = {
 	uid: string;
@@ -260,13 +258,13 @@ type SelectedTrigger = {
 	schedule?: ScheduleState;
 };
 
-function triggerPhrase(id: string) {
-	if (id === "schedule") return "chegar o horário agendado";
-	if (id === "webhook") return "receber um webhook";
-	if (id === "github") return "algo acontecer no repositório GitHub";
-	if (id === "email") return "chegar um e-mail na caixa do bot";
-	if (id === "once") return "chegar a data/hora do lembrete";
-	if (id === "interval") return "passar o intervalo configurado";
+function triggerPhrase(id: string, t: TFunction) {
+	if (id === "schedule") return t("routines.editor.phrase.schedule");
+	if (id === "webhook") return t("routines.editor.phrase.webhook");
+	if (id === "github") return t("routines.editor.phrase.github");
+	if (id === "email") return t("routines.editor.phrase.email");
+	if (id === "once") return t("routines.editor.phrase.once");
+	if (id === "interval") return t("routines.editor.phrase.interval");
 	return "";
 }
 
@@ -337,6 +335,8 @@ export function RoutineEditor({
 	/** Cria um grupo novo; devolve o grupo ou a mensagem de erro. */
 	onCreateGroup?: (name: string) => Promise<{ id: string; name: string } | { error: string }>;
 }) {
+	const translator = useTranslations();
+	const { t, locale } = translator;
 	const { models, loading } = useOpenRouterModels();
 	const initialModel =
 		routine?.model?.trim() ||
@@ -378,7 +378,7 @@ export function RoutineEditor({
 			routine?.triggers.map((trigger) => ({
 				uid: crypto.randomUUID(),
 				id: trigger.id,
-				value: trigger.text,
+				value: routineTriggerText(trigger, translator),
 				schedule: trigger.schedule,
 			})) ?? [],
 		dirtyRef,
@@ -492,8 +492,8 @@ export function RoutineEditor({
 				id: trigger.id,
 				schedule: trigger.schedule,
 				text: trigger.schedule
-					? scheduleLabel(trigger.schedule)
-					: trigger.value || triggerPhrase(trigger.id),
+					? scheduleLabel(trigger.schedule, translator)
+					: trigger.value || triggerPhrase(trigger.id, t),
 			})),
 			hook: routine?.hook,
 			github: isGithubTrigger ? githubConfig : routine?.github,
@@ -621,7 +621,7 @@ export function RoutineEditor({
 			routine.triggers.map((trigger) => ({
 				uid: crypto.randomUUID(),
 				id: trigger.id,
-				value: trigger.text,
+				value: routineTriggerText(trigger, translator),
 				schedule: trigger.schedule,
 			})),
 		);
@@ -637,6 +637,7 @@ export function RoutineEditor({
 		setTriggerKindRaw,
 		setTriggersRaw,
 		setGithubConfigRaw,
+		translator,
 	]);
 
 	function addTrigger(trigger: Omit<SelectedTrigger, "uid">) {
@@ -669,7 +670,7 @@ export function RoutineEditor({
 		  }
 		| undefined {
 		if (id === "schedule") {
-			return { label: "Agendado", icon: <ClockIcon />, schedule: true };
+			return { label: t("routines.editor.scheduled"), icon: <ClockIcon />, schedule: true };
 		}
 		if (id === "webhook") {
 			return { label: "Webhook", icon: <WebhookIcon />, schedule: false };
@@ -678,13 +679,13 @@ export function RoutineEditor({
 			return { label: "GitHub", icon: <GithubMarkIcon />, schedule: false };
 		}
 		if (id === "email") {
-			return { label: routine?.email ? describeEmailTrigger(routine.email) : "E-mail recebido", icon: <MailIcon />, schedule: false };
+			return { label: routine?.email ? emailTriggerText(routine.email, translator) : t("routines.trigger.received"), icon: <MailIcon />, schedule: false };
 		}
 		if (id === "once") {
-			return { label: "Uma vez", icon: <ClockIcon />, schedule: false };
+			return { label: t("routines.editor.once"), icon: <ClockIcon />, schedule: false };
 		}
 		if (id === "interval") {
-			return { label: "Intervalo", icon: <ClockIcon />, schedule: false };
+			return { label: t("routines.freq.interval"), icon: <ClockIcon />, schedule: false };
 		}
 		return undefined;
 	}
@@ -733,7 +734,7 @@ export function RoutineEditor({
 					className="text-xs text-muted-foreground"
 					htmlFor="routine-name"
 				>
-					Nome
+					{t("routines.editor.name")}
 				</FieldLabel>
 				<Input
 					id="routine-name"
@@ -742,7 +743,7 @@ export function RoutineEditor({
 					textEditRef.current = true;
 					setName(event.target.value);
 				}}
-					placeholder="Dê um nome a esta rotina"
+					placeholder={t("routines.editor.namePlaceholder")}
 					value={name}
 				/>
 			</Field>
@@ -752,7 +753,7 @@ export function RoutineEditor({
 					className="text-xs text-muted-foreground"
 					htmlFor="routine-model"
 				>
-					Modelo
+					{t("routines.editor.model")}
 				</FieldLabel>
 				<ModelPicker
 					loading={loading}
@@ -764,9 +765,9 @@ export function RoutineEditor({
 
 			{groups.length > 0 || onCreateGroup ? (
 				<Field>
-					<FieldLabel className="text-xs text-muted-foreground">Grupo</FieldLabel>
+					<FieldLabel className="text-xs text-muted-foreground">{t("routines.editor.group")}</FieldLabel>
 					<SettingsPicker
-						aria-label="Grupo da rotina"
+						aria-label={t("routines.editor.groupLabel")}
 						onChange={(value) => {
 							if (value === GROUP_NEW_VALUE) {
 								setNewGroupName("");
@@ -777,9 +778,9 @@ export function RoutineEditor({
 							setGroupId(value === GROUP_NONE_VALUE ? null : value);
 						}}
 						options={[
-							{ value: GROUP_NONE_VALUE, label: "Sem grupo" },
+							{ value: GROUP_NONE_VALUE, label: t("routines.editor.noGroup") },
 							...groups.map((group) => ({ value: group.id, label: group.name })),
-							...(onCreateGroup ? [{ value: GROUP_NEW_VALUE, label: "Novo grupo…" }] : []),
+							...(onCreateGroup ? [{ value: GROUP_NEW_VALUE, label: t("routines.editor.newGroupOption") }] : []),
 						]}
 						value={groupId && groups.some((group) => group.id === groupId) ? groupId : GROUP_NONE_VALUE}
 					/>
@@ -804,11 +805,11 @@ export function RoutineEditor({
 							}}
 						>
 							<Input
-								aria-label="Nome do novo grupo"
+								aria-label={t("routines.editor.newGroupName")}
 								autoFocus
 								maxLength={80}
 								onChange={(event) => setNewGroupName(event.target.value)}
-								placeholder="Nome do novo grupo"
+								placeholder={t("routines.editor.newGroupName")}
 								value={newGroupName}
 							/>
 							{newGroupError ? (
@@ -818,10 +819,10 @@ export function RoutineEditor({
 							) : null}
 							<div className="flex justify-end gap-2">
 								<Button onClick={() => setNewGroupName(null)} size="sm" type="button" variant="outline">
-									Cancelar
+									{t("common.cancel")}
 								</Button>
 								<Button disabled={!newGroupName.trim() || newGroupSaving} size="sm" type="submit">
-									Criar grupo
+									{t("routines.editor.createGroup")}
 								</Button>
 							</div>
 						</form>
@@ -830,24 +831,24 @@ export function RoutineEditor({
 			) : null}
 
 			<Field>
-				<FieldLabel className="text-xs text-muted-foreground">Avisar</FieldLabel>
+				<FieldLabel className="text-xs text-muted-foreground">{t("routines.editor.notify")}</FieldLabel>
 				<SettingsPicker
-					aria-label="Quando avisar"
+					aria-label={t("routines.editor.notifyLabel")}
 					onChange={(value) => setNotify(value === "important" ? "important" : "always")}
 					options={[
-						{ value: "always", label: "Sempre" },
-						{ value: "important", label: "Só quando importante" },
+						{ value: "always", label: t("routines.editor.notifyAlways") },
+						{ value: "important", label: t("routines.editor.notifyImportant") },
 					]}
 					value={notify}
 				/>
-				<p className="text-xs text-muted-foreground">O resultado sempre fica no chat. Em “Só quando importante”, a notificação só sai se o bot achar que vale você saber agora.</p>
+				<p className="text-xs text-muted-foreground">{t("routines.editor.notifyHelp")}</p>
 			</Field>
 
-			{model.startsWith("chatgpt/") ? <Field><FieldLabel className="text-xs text-muted-foreground">Rotinas usam o plano</FieldLabel><SettingsPicker aria-label="Rotinas usam o plano" value={allowChatgptPlan ? "on" : "off"} onChange={(value) => setAllowChatgptPlan(value === "on")} options={[{ value: "off", label: "Não, usar OpenRouter" }, { value: "on", label: "Sim, usar plano ChatGPT" }]} /><p className="text-xs text-muted-foreground">Desligado por padrão. Ao ativar, execuções automáticas consomem sua cota pessoal.</p></Field> : null}
+			{model.startsWith("chatgpt/") ? <Field><FieldLabel className="text-xs text-muted-foreground">{t("routines.editor.plan")}</FieldLabel><SettingsPicker aria-label={t("routines.editor.plan")} value={allowChatgptPlan ? "on" : "off"} onChange={(value) => setAllowChatgptPlan(value === "on")} options={[{ value: "off", label: t("routines.editor.planOff") }, { value: "on", label: t("routines.editor.planOn") }]} /><p className="text-xs text-muted-foreground">{t("routines.editor.planHelp")}</p></Field> : null}
 {!isGithubTrigger ? (
 				<div className="space-y-2">
 					<p className="font-medium text-muted-foreground text-xs">
-						Quando executar
+						{t("routines.editor.when")}
 					</p>
 					<div className="rounded-2xl border p-1">
 						{triggers.map((selected) => {
@@ -871,9 +872,9 @@ export function RoutineEditor({
 													{trigger.icon}
 												</span>
 												<span className="truncate">
-													<span className="text-muted-foreground">Quando </span>
+													<span className="text-muted-foreground">{t("routines.editor.whenPrefix")} </span>
 													{schedule
-														? scheduleLabel(schedule)
+														? scheduleLabel(schedule, translator)
 														: selected.value || "…"}
 												</span>
 											</PopoverTrigger>
@@ -908,7 +909,7 @@ export function RoutineEditor({
 										</div>
 									)}
 									<Button
-										aria-label="Remover gatilho"
+										aria-label={t("routines.editor.removeTrigger")}
 										className={cn("absolute right-1 text-muted-foreground", hoverRevealClass("trigger"))}
 										onClick={() => removeTrigger(selected.uid)}
 										size="icon-sm"
@@ -923,8 +924,8 @@ export function RoutineEditor({
 							<DropdownMenuTrigger className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-muted-foreground text-sm transition-colors hover:text-foreground">
 								<PlusIcon className="size-4" />
 								{triggers.length === 0
-									? "Adicionar gatilho"
-									: "Alterar gatilho"}
+									? t("routines.editor.addTrigger")
+									: t("routines.editor.changeTrigger")}
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="start">
 								<DropdownMenuItem
@@ -946,7 +947,7 @@ export function RoutineEditor({
 										<span className="text-muted-foreground [&_svg]:size-4">
 											<ClockIcon />
 										</span>
-										Agendado
+										{t("routines.editor.scheduled")}
 									</DropdownMenuSubTrigger>
 									<DropdownMenuSubContent>
 										<DropdownMenuItem
@@ -962,12 +963,12 @@ export function RoutineEditor({
 												})
 											}
 										>
-											A cada hora
+											{t("routines.freq.hourly")}
 										</DropdownMenuItem>
 										{SCHEDULE_TIME_PRESETS.map((preset) => (
-											<DropdownMenuSub key={preset.id}>
+											<DropdownMenuSub key={preset}>
 												<DropdownMenuSubTrigger>
-													{preset.label}
+													{t(`routines.freq.${preset}`)}
 												</DropdownMenuSubTrigger>
 												<DropdownMenuSubContent className="max-h-64 overflow-y-auto">
 													{TIME_OPTIONS.map((time) => (
@@ -979,13 +980,13 @@ export function RoutineEditor({
 																	value: "",
 																	schedule: {
 																		...DEFAULT_SCHEDULE,
-																		frequency: preset.id,
+																		frequency: preset,
 																		time,
 																	},
 																})
 															}
 														>
-															{time}
+															{scheduleTimeLabel(time, locale)}
 														</DropdownMenuItem>
 													))}
 												</DropdownMenuSubContent>
@@ -1003,7 +1004,7 @@ export function RoutineEditor({
 												})
 											}
 										>
-											Intervalo
+											{t("routines.freq.interval")}
 										</DropdownMenuItem>
 										<DropdownMenuItem
 											onClick={() =>
@@ -1017,7 +1018,7 @@ export function RoutineEditor({
 												})
 											}
 										>
-											Avançado...
+											{t("routines.editor.advancedEllipsis")}
 										</DropdownMenuItem>
 									</DropdownMenuSubContent>
 								</DropdownMenuSub>
@@ -1046,21 +1047,21 @@ export function RoutineEditor({
 							</Button>
 							{copied === "url" ? (
 								<span className="text-muted-foreground text-xs">
-									Copiado
+									{t("routines.hook.copied")}
 								</span>
 							) : null}
 						</div>
 					) : (
 						<p className="text-muted-foreground text-xs">
 							{persisted
-								? "Gerando URL…"
-								: "A URL e o secret são gerados ao criar a rotina."}
+								? t("routines.editor.hookGenerating")
+								: t("routines.editor.hookOnCreate")}
 						</p>
 					)}
 					{oneTimeSecret ? (
 						<div className="space-y-1 rounded-xl bg-muted/60 p-2">
 							<p className="font-medium text-xs">
-								Segredo (copie agora — não aparece de novo)
+								{t("routines.editor.secretOnce")}
 							</p>
 							<div className="flex items-center gap-2">
 								<code className="min-w-0 flex-1 truncate text-caption">
@@ -1075,18 +1076,18 @@ export function RoutineEditor({
 								</Button>
 							</div>
 							<p className="pt-1 text-muted-foreground text-xs">
-								Envie no cabeçalho <code>X-Atlas-Hook-Secret</code>. Para ligar ao n8n e similares, peça ao bot: ele usa o segredo por referência, sem você copiar nada.
+								{t("routines.editor.secretHelpBefore")} <code>X-Atlas-Hook-Secret</code>. {t("routines.editor.secretHelpAfter")}
 							</p>
 						</div>
 					) : null}
 					{routine?.hook?.urlSecretAt ? (
 						<p className="rounded-xl bg-warning/10 p-2 text-xs" data-url-secret-warning>
-							Esta integração usa o segredo na URL (?secret=). Prefira o cabeçalho X-Atlas-Hook-Secret.
+							{t("routines.hook.urlSecretWarning")}
 						</p>
 					) : null}
 					{persisted ? (
 						<Button onClick={onRotateSecret} size="sm" variant="outline">
-							Gerar novo segredo
+							{t("routines.hook.rotate")}
 						</Button>
 					) : null}
 				</div>
@@ -1098,15 +1099,18 @@ export function RoutineEditor({
 						<p className="font-medium text-muted-foreground text-xs">GitHub</p>
 						{githubStatusLoading ? (
 							<span className="text-muted-foreground text-xs">
-								Verificando conexão…
+								{t("routines.editor.github.checking")}
 							</span>
 						) : githubStatus?.connected ? (
 							<span className="text-muted-foreground text-xs">
-								{githubStatus.login ? `Conectado como @${githubStatus.login}` : "GitHub conectado"}{githubStatus.source === "composio" ? " (via Composio)" : ""}
+								{(() => {
+									const text = githubStatus.login ? t("routines.editor.github.connectedAs", { login: githubStatus.login }) : t("routines.editor.github.connected");
+									return githubStatus.source === "composio" ? t("routines.editor.github.viaComposio", { text }) : text;
+								})()}
 							</span>
 						) : (
 							<Button onClick={onOpenMarketplace} size="sm" variant="outline">
-								Conectar GitHub
+								{t("routines.editor.github.connect")}
 							</Button>
 						)}
 					</div>
@@ -1116,7 +1120,7 @@ export function RoutineEditor({
 							className="text-xs text-muted-foreground"
 							htmlFor="github-repo"
 						>
-							Repositório
+							{t("routines.editor.github.repository")}
 						</FieldLabel>
 						<GithubRepoField
 							onChange={(repo) =>
@@ -1127,7 +1131,7 @@ export function RoutineEditor({
 					</Field>
 
 					<div className="space-y-2">
-						<p className="text-muted-foreground text-xs">Eventos</p>
+						<p className="text-muted-foreground text-xs">{t("routines.editor.github.events")}</p>
 						{GITHUB_TRIGGER_EVENT_GROUPS.map((group) => {
 							const eventsInGroup = GITHUB_TRIGGER_EVENTS.filter(
 								(event) => GITHUB_TRIGGER_EVENT_META[event].group === group,
@@ -1136,13 +1140,13 @@ export function RoutineEditor({
 							return (
 								<div className="space-y-1" key={group}>
 									<p className="text-muted-foreground text-caption uppercase tracking-wide">
-										{group}
+										{githubGroupLabel(group, translator)}
 									</p>
 									<div className="flex flex-wrap gap-1.5">
 										{eventsInGroup.map((event) => (
 											<EventChip
 												key={event}
-												label={GITHUB_TRIGGER_EVENT_META[event].label}
+												label={githubEventLabel(event, translator)}
 												onClick={() =>
 													setGithubConfig((prev) => ({
 														...prev,
@@ -1162,7 +1166,7 @@ export function RoutineEditor({
 
 					<Collapsible>
 						<CollapsibleTrigger className="text-muted-foreground text-xs underline underline-offset-2 hover:text-foreground">
-							Filtros avançados
+							{t("routines.editor.github.advanced")}
 						</CollapsibleTrigger>
 						<CollapsibleContent className="space-y-3 pt-3">
 							<Field>
@@ -1170,7 +1174,7 @@ export function RoutineEditor({
 									className="text-xs text-muted-foreground"
 									htmlFor="github-pr"
 								>
-									PR (opcional)
+									{t("routines.editor.github.pr")}
 								</FieldLabel>
 								<Select
 									onValueChange={(value) =>
@@ -1184,12 +1188,12 @@ export function RoutineEditor({
 									<SelectTrigger id="github-pr">
 										<SelectValue
 											placeholder={
-												githubPullsLoading ? "Carregando…" : "Nenhum (todos os PRs)"
+												githubPullsLoading ? t("common.loading") : t("routines.editor.github.noPr")
 											}
 										/>
 									</SelectTrigger>
 									<SelectContent>
-										<SelectItem value="none">Nenhum (todos os PRs)</SelectItem>
+										<SelectItem value="none">{t("routines.editor.github.noPr")}</SelectItem>
 										{githubPulls.map((pr) => (
 											<SelectItem key={pr.number} value={String(pr.number)}>
 												#{pr.number} {pr.title}
@@ -1198,7 +1202,7 @@ export function RoutineEditor({
 									</SelectContent>
 								</Select>
 								<p className="text-muted-foreground text-xs">
-									A rotina se apaga quando o PR fechar.
+									{t("routines.editor.github.prCloses")}
 								</p>
 							</Field>
 
@@ -1208,7 +1212,7 @@ export function RoutineEditor({
 										className="text-xs text-muted-foreground"
 										htmlFor="github-ci-branch"
 									>
-										Branch de CI (obrigatório)
+										{t("routines.editor.github.ciBranch")}
 									</FieldLabel>
 									<Select
 										onValueChange={(value) =>
@@ -1219,7 +1223,7 @@ export function RoutineEditor({
 										<SelectTrigger id="github-ci-branch">
 											<SelectValue
 												placeholder={
-													githubBranchesLoading ? "Carregando…" : "Escolha a branch"
+													githubBranchesLoading ? t("common.loading") : t("routines.editor.github.chooseBranch")
 												}
 											/>
 										</SelectTrigger>
@@ -1233,7 +1237,7 @@ export function RoutineEditor({
 									</Select>
 									{!githubConfig.ciBranch.trim() ? (
 										<p className="text-destructive text-xs">
-											Selecione a branch de CI ou informe o número do PR.
+											{t("routines.editor.github.ciBranchRequired")}
 										</p>
 									) : null}
 								</Field>
@@ -1244,18 +1248,18 @@ export function RoutineEditor({
 									className="text-xs text-muted-foreground"
 									htmlFor="github-users"
 								>
-									Autores (opcional)
+									{t("routines.editor.github.authors")}
 								</FieldLabel>
 								<Input
 									id="github-users"
 									onChange={(event) =>
 										setGithubConfig((prev) => ({ ...prev, users: event.target.value }))
 									}
-									placeholder="usuario1, usuario2"
+									placeholder={t("routines.editor.github.authorsPlaceholder")}
 									value={githubConfig.users}
 								/>
 								<p className="text-muted-foreground text-xs">
-									CI não passa por esse filtro.
+									{t("routines.editor.github.ciNoFilter")}
 								</p>
 							</Field>
 						</CollapsibleContent>
@@ -1267,7 +1271,7 @@ export function RoutineEditor({
 							onClick={() => void handleSaveGithubTrigger()}
 							size="sm"
 						>
-							{githubSaving ? "Salvando…" : "Salvar gatilho"}
+							{githubSaving ? t("routines.editor.saving") : t("routines.editor.github.save")}
 						</Button>
 						{githubSaveError ? (
 							<Alert variant="destructive">
@@ -1289,7 +1293,7 @@ export function RoutineEditor({
 							className="text-xs text-muted-foreground"
 							htmlFor="routine-instruction"
 						>
-							Instrução
+							{t("routines.editor.instruction")}
 						</FieldLabel>
 						<Textarea
 							className="min-h-24"
@@ -1299,7 +1303,7 @@ export function RoutineEditor({
 								textEditRef.current = true;
 								setInstruction(event.target.value);
 							}}
-							placeholder="O que esta rotina deve fazer a cada execução?"
+							placeholder={t("routines.editor.instructionPlaceholder")}
 							value={instruction}
 						/>
 					</Field>
@@ -1312,7 +1316,7 @@ export function RoutineEditor({
 							className="text-muted-foreground text-xs"
 							data-routine-save-status={saveStatus}
 						>
-							{saveStatus === "saving" ? "Salvando…" : "Salvo"}
+							{saveStatus === "saving" ? t("routines.editor.saving") : t("routines.editor.saved")}
 						</p>
 					) : null
 				) : (
@@ -1321,12 +1325,12 @@ export function RoutineEditor({
 							disabled={!draftValid || creating}
 							onClick={() => void handleCreate()}
 						>
-							{creating ? "Criando…" : "Criar rotina"}
+							{creating ? t("routines.editor.creating") : t("routines.editor.create")}
 						</Button>
 						{createFailed ? (
 							<Alert variant="destructive">
 								<AlertDescription>
-									Não foi possível criar a rotina.
+									{t("routines.editor.createFailed")}
 								</AlertDescription>
 							</Alert>
 						) : null}

@@ -2,6 +2,7 @@
 
 import type { ReactElement, ReactNode } from "react";
 import { Button } from "@workspace/ui/components/button";
+import { useT } from "@/lib/i18n/provider";
 import type { Routine } from "../data";
 import { RoutineCard } from "./routine-card";
 import { groupRoutinesForPanel, RoutineGroupBlock, type RoutineGroupHandlers } from "./routine-group-block";
@@ -24,13 +25,14 @@ const HISTORY_SHOWN = 4;
 
 /** Histórico curto das últimas execuções (dentro da seção Rotinas). */
 export function ExecutionHistory({ executions }: { executions: readonly RoutineExecution[] }) {
+	const t = useT();
 	return (
 		<section aria-labelledby="info-pane-history" className="space-y-2">
 			<h3 className="font-medium text-muted-foreground text-xs" id="info-pane-history">
-				Histórico de execuções
+				{t("routines.section.history")}
 			</h3>
 			{executions.length === 0 ? (
-				<p className="text-muted-foreground text-xs">Nenhuma execução ainda</p>
+				<p className="text-muted-foreground text-xs">{t("routines.history.empty")}</p>
 			) : (
 				<ul className="flex flex-col gap-2 rounded-2xl border border-border bg-card px-3 py-2.5">
 					{executions.slice(-HISTORY_SHOWN).map((run) => (
@@ -66,6 +68,7 @@ export function RoutinesSectionBody({
 	createChooser: (trigger: ReactElement) => ReactNode;
 	extra?: ReactNode;
 }) {
+	const t = useT();
 	const renderCard = (routine: Routine) => (
 		<RoutineCard
 			key={routine.id}
@@ -84,10 +87,10 @@ export function RoutinesSectionBody({
 		<div className="flex flex-col gap-5">
 			{routines.length === 0 ? (
 				<div className="flex flex-col items-center gap-2 py-4 text-center">
-					<p className="text-muted-foreground text-xs leading-relaxed">Rotinas são tarefas recorrentes que este bot executa em um agendamento.</p>
+					<p className="text-muted-foreground text-xs leading-relaxed">{t("routines.section.intro")}</p>
 					{createChooser(
 						<Button size="sm" variant="outline">
-							Criar rotina
+							{t("routines.section.create")}
 						</Button>,
 					)}
 				</div>

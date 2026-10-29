@@ -16,6 +16,7 @@ import { sharedLabels } from "./sharedLabels";
 import { sidebar } from "./sidebar";
 import { status } from "./status";
 import { ui } from "./ui";
+import { routines } from "./routines";
 
 export const ptBR = {
 	...app,
@@ -35,4 +36,5 @@ export const ptBR = {
 	...sidebar,
 	...status,
 	...ui,
+	...routines,
 } as const;

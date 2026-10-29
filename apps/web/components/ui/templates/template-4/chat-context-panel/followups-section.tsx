@@ -5,23 +5,41 @@ import { useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { cn } from "@workspace/ui/lib/utils";
-import { formatFollowupDue, quickRescheduleOptions, toLocalInputValue } from "@workspace/shared";
+import { quickRescheduleOptions, toLocalInputValue } from "@workspace/shared";
 import { SettingRow, SettingsGroup, SettingsStack } from "@/components/settings/setting-row";
 import type { BotFollowup } from "@/lib/atlas-api";
+import { formatDate, formatTime, formatWeekday } from "@/lib/format";
+import { useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
+
+/** "qua, 14/10 às 09:00" no fuso do usuário, no idioma da tela (o `formatFollowupDue` do shared só fala pt-BR). */
+export function followupDueText(dueAt: Date, timeZone: string, { t, locale }: Translator = defaultTranslator): string {
+	return t("routines.followup.due", {
+		weekday: formatWeekday(dueAt, locale, { timeZone }).replace(".", ""),
+		date: formatDate(dueAt, locale, { day: "2-digit", month: "2-digit", timeZone }),
+		time: formatTime(dueAt, locale, { timeZone }),
+	});
+}
 
 /** "Lembrete" ou "Verificação". */
-export function followupKindLabel(kind: BotFollowup["kind"]): string {
-	return kind === "check" ? "Verificação" : "Lembrete";
+export function followupKindLabel(kind: BotFollowup["kind"], { t }: Translator = defaultTranslator): string {
+	return kind === "check" ? t("routines.followup.kind.check") : t("routines.followup.kind.reminder");
 }
 
 /** "Lembrete" ou "Verificação" + de onde veio (você pediu / o bot decidiu). */
-export function followupSubtitle(item: Pick<BotFollowup, "kind" | "source"> & Partial<Pick<BotFollowup, "stages">>, due: string): string {
+export function followupSubtitle(
+	item: Pick<BotFollowup, "kind" | "source"> & Partial<Pick<BotFollowup, "stages">>,
+	due: string,
+	translator: Translator = defaultTranslator,
+): string {
+	const { t } = translator;
+	const idea = item.source === "reflection";
 	const stages = item.stages ?? [];
 	if (stages.length > 1) {
 		const position = Math.min(stages.length, stages.filter((stage) => stage.firedAt).length + 1);
-		return `Próximo aviso: ${due} · ${position} de ${stages.length}${item.source === "reflection" ? " · ideia do bot" : ""}`;
+		return t(idea ? "routines.followup.nextIdea" : "routines.followup.next", { due, position, total: stages.length });
 	}
-	return `${due} · ${followupKindLabel(item.kind)}${item.source === "reflection" ? " · ideia do bot" : ""}`;
+	return t(idea ? "routines.followup.lineIdea" : "routines.followup.line", { due, kind: followupKindLabel(item.kind, translator) });
 }
 
 type Stage = NonNullable<BotFollowup["stages"]>[number];
@@ -45,7 +63,7 @@ export function ReschedulePicker({
 	error,
 	onSave,
 	onBack,
-	title = "Novo horário",
+	title,
 }: {
 	timeZone: string;
 	now: Date;
@@ -57,6 +75,7 @@ export function ReschedulePicker({
 	onSave: (localValue: string) => void;
 	onBack: () => void;
 }) {
+	const { t } = useTranslations();
 	const options = quickRescheduleOptions(now, timeZone);
 	const min = toLocalInputValue(now, timeZone);
 	const [value, setValue] = useState(initialValue ?? "");
@@ -64,7 +83,7 @@ export function ReschedulePicker({
 
 	return (
 		<div className="flex flex-col gap-3 rounded-card border border-border/60 px-3.5 py-3" data-reschedule-picker>
-			<p className="text-body leading-[18px]">{title}</p>
+			<p className="text-body leading-[18px]">{title ?? t("routines.followup.newTime")}</p>
 			<div className="flex flex-wrap gap-2">
 				{options.map((option) => (
 					<button
@@ -80,12 +99,12 @@ export function ReschedulePicker({
 						onClick={() => setValue(option.local)}
 						type="button"
 					>
-						{option.label}
+						{t(`routines.followup.quick.${option.id}`)}
 					</button>
 				))}
 			</div>
 			<Input
-				aria-label="Data e hora do lembrete"
+				aria-label={t("routines.followup.dateLabel")}
 				className="[color-scheme:light] dark:[color-scheme:dark]"
 				min={min}
 				onChange={(event) => setValue(event.target.value)}
@@ -99,10 +118,10 @@ export function ReschedulePicker({
 			) : null}
 			<div className="grid grid-cols-2 gap-2">
 				<Button disabled={busy} onClick={onBack} type="button" variant="ghost">
-					Voltar
+					{t("common.back")}
 				</Button>
 				<Button disabled={busy || !valid} onClick={() => onSave(value)} type="button">
-					Salvar
+					{t("common.save")}
 				</Button>
 			</div>
 		</div>
@@ -129,6 +148,8 @@ export function FollowupDetail({
 	/** Relógio (testes); padrão: agora. */
 	now?: Date;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const [busy, setBusy] = useState(false);
 	const [failed, setFailed] = useState(false);
 	/** Aviso (1 = primeiro) que o seletor vai mover; null = fechado; 0 = o próximo pendente. */
@@ -156,15 +177,15 @@ export function FollowupDetail({
 			return;
 		}
 		setPicking(null);
-		setNotice(result.movedForQuietHours ? "Reagendado. Caiu no horário de silêncio, então foi para o fim dele." : "Lembrete reagendado.");
+		setNotice(result.movedForQuietHours ? t("routines.followup.movedQuiet") : t("routines.followup.rescheduled"));
 	}
 
 	const stages = stagesOf(item);
 	const multi = stages.length > 1;
 	const nextIndex = stages.findIndex((stage) => !stage.firedAt);
 	const pickTitle = !multi
-		? "Novo horário"
-		: `Aviso ${(picking && picking > 0 ? picking : nextIndex + 1) || 1} de ${stages.length}`;
+		? t("routines.followup.newTime")
+		: t("routines.followup.noticeTitle", { position: (picking && picking > 0 ? picking : nextIndex + 1) || 1, total: stages.length });
 
 	return (
 		<div
@@ -176,22 +197,22 @@ export function FollowupDetail({
 					{item.note}
 				</div>
 				{multi ? (
-					<SettingsGroup title="Avisos">
+					<SettingsGroup title={t("routines.followup.notices")}>
 						{stages.map((stage, index) => {
 							const isNext = index === nextIndex;
 							return (
-								<SettingRow key={stage.at + index} label={`${index + 1}º aviso`}>
+								<SettingRow key={stage.at + index} label={t("routines.followup.nth", { position: index + 1 })}>
 									<span className="flex items-center gap-2" data-stage={isNext ? "next" : stage.firedAt ? "done" : "pending"}>
 										<span className="flex flex-col items-end">
 											<span className={cn("text-body whitespace-nowrap", isNext ? "font-medium text-foreground" : "text-muted-foreground", stage.firedAt && "line-through")}>
-												{formatFollowupDue(new Date(stage.at), timeZone)}
+												{followupDueText(new Date(stage.at), timeZone, translator)}
 											</span>
-											{isNext ? <span className="text-caption text-foreground">Próximo</span> : null}
-											{stage.firedAt ? <span className="text-caption text-muted-foreground">Enviado</span> : null}
+											{isNext ? <span className="text-caption text-foreground">{t("routines.followup.nextBadge")}</span> : null}
+											{stage.firedAt ? <span className="text-caption text-muted-foreground">{t("routines.followup.sent")}</span> : null}
 										</span>
 										{!stage.firedAt && onReschedule ? (
 											<Button
-												aria-label={`Reagendar ${index + 1}º aviso`}
+												aria-label={t("routines.followup.rescheduleNth", { position: index + 1 })}
 												className="text-muted-foreground"
 												disabled={busy}
 												onClick={() => {
@@ -216,15 +237,15 @@ export function FollowupDetail({
 				) : null}
 				<SettingsGroup>
 					{multi ? null : (
-						<SettingRow label="Dispara">
-							<span className="text-body text-muted-foreground">{formatFollowupDue(new Date(item.dueAt), timeZone)}</span>
+						<SettingRow label={t("routines.followup.fires")}>
+							<span className="text-body text-muted-foreground">{followupDueText(new Date(item.dueAt), timeZone, translator)}</span>
 						</SettingRow>
 					)}
-					<SettingRow label="Tipo">
-						<span className="text-body text-muted-foreground">{followupKindLabel(item.kind)}</span>
+					<SettingRow label={t("routines.followup.type")}>
+						<span className="text-body text-muted-foreground">{followupKindLabel(item.kind, translator)}</span>
 					</SettingRow>
-					<SettingRow label="Origem">
-						<span className="text-body text-muted-foreground">{item.source === "reflection" ? "Ideia do bot" : "Você pediu"}</span>
+					<SettingRow label={t("routines.followup.origin")}>
+						<span className="text-body text-muted-foreground">{item.source === "reflection" ? t("routines.followup.fromBot") : t("routines.followup.fromUser")}</span>
 					</SettingRow>
 				</SettingsGroup>
 				{notice ? (
@@ -258,7 +279,7 @@ export function FollowupDetail({
 							variant="secondary"
 						>
 							<CalendarClockIcon aria-hidden data-icon="inline-start" />
-							{multi ? "Reagendar próximo aviso" : "Reagendar"}
+							{multi ? t("routines.followup.rescheduleNext") : t("routines.followup.reschedule")}
 						</Button>
 					) : null}
 					<Button
@@ -268,11 +289,11 @@ export function FollowupDetail({
 						type="button"
 						variant="outline"
 					>
-						Cancelar lembrete
+						{t("routines.followup.cancel")}
 					</Button>
 					{failed ? (
 						<p className="text-center text-destructive text-xs" role="alert">
-							Não foi possível cancelar. Tente de novo.
+							{t("routines.followup.cancelFailed")}
 						</p>
 					) : null}
 				</div>
@@ -300,6 +321,8 @@ export function FollowupsSection({
 	/** Abre o detalhe do lembrete no painel. */
 	onOpen?: (followupId: string) => void;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const [busy, setBusy] = useState<string | null>(null);
 	const [failed, setFailed] = useState<string | null>(null);
 
@@ -314,10 +337,10 @@ export function FollowupsSection({
 	return (
 		<section aria-labelledby="info-pane-followups" className="space-y-2">
 			<h3 className="font-medium text-muted-foreground text-xs" id="info-pane-followups">
-				Lembretes agendados
+				{t("routines.followup.sectionTitle")}
 			</h3>
 			{followups.length === 0 ? (
-				<p className="text-muted-foreground text-xs">{loaded ? "Nenhum lembrete agendado" : "Carregando…"}</p>
+				<p className="text-muted-foreground text-xs">{loaded ? t("routines.followup.none") : t("common.loading")}</p>
 			) : (
 				<ul className="flex flex-col gap-2">
 					{followups.map((item) => (
@@ -327,7 +350,7 @@ export function FollowupsSection({
 								data-followup={item.id}
 							>
 								<button
-									aria-label={`Abrir lembrete: ${item.note}`}
+									aria-label={t("routines.followup.openAria", { note: item.note })}
 									className="flex min-w-0 flex-1 items-center gap-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 									onClick={() => onOpen?.(item.id)}
 									type="button"
@@ -337,12 +360,12 @@ export function FollowupsSection({
 											{item.note}
 										</span>
 										<span className="text-muted-foreground text-xs [overflow-wrap:anywhere]">
-											{followupSubtitle(item, formatFollowupDue(new Date(item.dueAt), timeZone))}
+											{followupSubtitle(item, followupDueText(new Date(item.dueAt), timeZone, translator), translator)}
 										</span>
 									</span>
 								</button>
 								<Button
-									aria-label={`Cancelar lembrete: ${item.note}`}
+									aria-label={t("routines.followup.cancelAria", { note: item.note })}
 									className="shrink-0 text-muted-foreground"
 									disabled={busy === item.id}
 									onClick={() => void cancel(item.id)}
@@ -355,7 +378,7 @@ export function FollowupsSection({
 							</div>
 							{failed === item.id ? (
 								<p className="px-3 pt-1 text-destructive text-xs" role="alert">
-									Não foi possível cancelar. Tente de novo.
+									{t("routines.followup.cancelFailed")}
 								</p>
 							) : null}
 						</li>

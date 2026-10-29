@@ -174,7 +174,13 @@ export type ScheduleState = {
 export type RoutineTrigger = {
 	id: string;
 	schedule?: ScheduleState;
+	/** Texto pronto (só para o que não dá para refazer dos dados abaixo). A tela refaz a frase no idioma dela. */
 	text: string;
+	/** Lembrete único: quando roda e o fuso em que a hora é lida. */
+	runAt?: string;
+	timezone?: string;
+	/** Intervalo: de quantos em quantos minutos. */
+	everyMinutes?: number;
 };
 
 import type {
@@ -218,8 +224,8 @@ export type Routine = {
 	/** Id do modelo desta rotina. */
 	model: string;
 	allowChatgptPlan?: boolean;
-	/** Rotina de alerta: frase pronta ("Alerta · confere a cada 30 min · avisa se estoque de canela < 10"). A UI só mostra; o agente configura. */
-	alertSentence?: string;
+	/** Rotina de alerta: o que a UI precisa para montar a frase ("Alerta · confere a cada 30 min · avisa se …") no idioma da tela. O agente configura. */
+	alert?: { condition: string; triggerType: "cron" | "interval" | "once" | "event"; schedule?: string | null; everyMinutes?: number };
 	/** Aviso ao fim da execução: sempre, ou só quando o bot julgar importante. Ausente = sempre. */
 	notify?: "always" | "important";
 	/** cron = agendamento; event = webhook/github; once = lembrete de uma vez só; interval = a cada N min. */

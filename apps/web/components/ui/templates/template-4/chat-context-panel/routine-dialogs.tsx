@@ -17,7 +17,7 @@ import {
 	routineTriggerRows,
 } from "./routine-map";
 import { WebhookSection } from "./webhook-fields";
-import { useLocale } from "@/lib/i18n/provider";
+import { useT, useTranslations } from "@/lib/i18n/provider";
 
 type DialogProps = {
 	routine: Routine | null;
@@ -35,13 +35,14 @@ export function WebhookDialog({
 	canRotate: boolean;
 	onRotate?: (routine: Routine) => void | Promise<void>;
 }) {
+	const t = useT();
 	return (
 		<Dialog onOpenChange={onOpenChange} open={Boolean(routine)}>
 			<DialogContent className="grid-cols-[minmax(0,1fr)] break-words [&>*]:min-w-0">
 				<DialogHeader>
-					<DialogTitle>Webhook · {routine?.name}</DialogTitle>
+					<DialogTitle>{t("routines.webhook.title", { name: routine?.name ?? "" })}</DialogTitle>
 					<DialogDescription>
-						Os remetentes chamam esta URL para disparar a rotina.
+						{t("routines.webhook.description")}
 					</DialogDescription>
 				</DialogHeader>
 				{routine ? (
@@ -59,16 +60,18 @@ export function WebhookDialog({
 }
 
 export function GithubDialog({ routine, onOpenChange }: DialogProps) {
-	const rows = routine ? routineTriggerRows(routine) : [];
+	const translator = useTranslations();
+	const { t } = translator;
+	const rows = routine ? routineTriggerRows(routine, translator) : [];
 	const lastError = routine?.github?.state?.lastError;
 	const setupUrl = routine?.hook?.setupUrl;
 	return (
 		<Dialog onOpenChange={onOpenChange} open={Boolean(routine)}>
 			<DialogContent className="grid-cols-[minmax(0,1fr)] break-words [&>*]:min-w-0">
 				<DialogHeader>
-					<DialogTitle>Gatilho do GitHub · {routine?.name}</DialogTitle>
+					<DialogTitle>{t("routines.github.title", { name: routine?.name ?? "" })}</DialogTitle>
 					<DialogDescription>
-						{routine?.github?.repo || "Repositório não configurado"}
+						{routine?.github?.repo || t("routines.github.noRepo")}
 					</DialogDescription>
 				</DialogHeader>
 				{lastError ? (
@@ -83,7 +86,7 @@ export function GithubDialog({ routine, onOpenChange }: DialogProps) {
 						))}
 					</ul>
 				) : (
-					<p className="text-muted-foreground text-sm">Nenhum gatilho configurado ainda.</p>
+					<p className="text-muted-foreground text-sm">{t("routines.github.none")}</p>
 				)}
 				{setupUrl ? (
 					<a
@@ -92,7 +95,7 @@ export function GithubDialog({ routine, onOpenChange }: DialogProps) {
 						rel="noreferrer"
 						target="_blank"
 					>
-						Configurar webhook no repositório
+						{t("routines.github.setup")}
 					</a>
 				) : null}
 			</DialogContent>
@@ -101,9 +104,10 @@ export function GithubDialog({ routine, onOpenChange }: DialogProps) {
 }
 
 export function HistoryList({ runs }: { runs: RoutineRunRecord[] }) {
-	const locale = useLocale();
+	const translator = useTranslations();
+	const { t, locale } = translator;
 	if (runs.length === 0) {
-		return <p className="text-muted-foreground text-sm">Nenhuma execução ainda</p>;
+		return <p className="text-muted-foreground text-sm">{t("routines.history.empty")}</p>;
 	}
 	return (
 		<ul className="flex max-h-80 min-w-0 flex-col gap-3 overflow-y-auto">
@@ -112,7 +116,7 @@ export function HistoryList({ runs }: { runs: RoutineRunRecord[] }) {
 					className="flex items-start justify-between gap-2 text-muted-foreground text-sm"
 					key={run.id}
 				>
-					<span className="min-w-0 break-words">{routineRunLabel(run)}</span>
+					<span className="min-w-0 break-words">{routineRunLabel(run, translator)}</span>
 					<span className="shrink-0 whitespace-nowrap text-right">{formatRoutineRunTime(run.createdAt, locale)}</span>
 				</li>
 			))}
@@ -125,6 +129,7 @@ export function HistoryDialog({
 	onOpenChange,
 	loadRuns,
 }: DialogProps & { loadRuns: (routineId: string) => Promise<RoutineRunRecord[]> }) {
+	const t = useT();
 	const [runs, setRuns] = useState<RoutineRunRecord[] | null>(null);
 	const [failed, setFailed] = useState(false);
 	const routineId = routine?.id;
@@ -150,13 +155,13 @@ export function HistoryDialog({
 		<Dialog onOpenChange={onOpenChange} open={Boolean(routine)}>
 			<DialogContent className="grid-cols-[minmax(0,1fr)] break-words [&>*]:min-w-0">
 				<DialogHeader>
-					<DialogTitle>Histórico · {routine?.name}</DialogTitle>
-					<DialogDescription>Execuções recentes, com status e motivo.</DialogDescription>
+					<DialogTitle>{t("routines.history.title", { name: routine?.name ?? "" })}</DialogTitle>
+					<DialogDescription>{t("routines.history.description")}</DialogDescription>
 				</DialogHeader>
 				{failed ? (
-					<p className="text-destructive text-sm">Não foi possível carregar o histórico.</p>
+					<p className="text-destructive text-sm">{t("routines.history.error")}</p>
 				) : runs === null ? (
-					<p className="text-muted-foreground text-sm">Carregando…</p>
+					<p className="text-muted-foreground text-sm">{t("common.loading")}</p>
 				) : (
 					<HistoryList runs={runs} />
 				)}

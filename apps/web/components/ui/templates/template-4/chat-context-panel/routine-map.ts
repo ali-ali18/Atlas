@@ -5,24 +5,24 @@ import type {
 	ScheduleCronInput,
 	UpdateRoutineInput,
 } from "@workspace/shared";
-import {
-	describeEmailTrigger,
-	describeGithubTriggerClauses,
-	describeRoutineAlertSentence,
-	formatRoutineRunReason,
-	cronToScheduleInput,
-	formatIntervalSummary,
-	formatOnceSummary,
-	scheduleStateToCron,
-} from "@workspace/shared";
+import { cronToScheduleInput, scheduleStateToCron } from "@workspace/shared";
 import type {
 	Routine,
 	RoutineGithubUiConfig,
 	RoutineTrigger,
 	ScheduleState,
 } from "../data";
-import { formatDateTime } from "@/lib/format";
+import { formatDate, formatDateTime, formatTime } from "@/lib/format";
 import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
+import {
+	alertSentenceText,
+	emailTriggerText,
+	githubTriggerClauses,
+	intervalSummaryText,
+	onceSummaryText,
+	routineFailureReason,
+} from "./routine-text";
 import { DEFAULT_SCHEDULE, scheduleLabel } from "./schedule-editor";
 
 function isScheduleState(value: unknown): value is ScheduleState {
@@ -95,9 +95,20 @@ export function recordToUiRoutine(record: RoutineRecord): Routine {
 	const base = recordToUiRoutineBase(record);
 	const withGroup = record.groupId ? { ...base, groupId: record.groupId } : base;
 	const withPage = record.pageId ? { ...withGroup, pageId: record.pageId } : withGroup;
-	const alertSentence = describeRoutineAlertSentence(record);
-	const routine = alertSentence ? { ...withPage, alertSentence } : withPage;
+	const alert = alertSource(record);
+	const routine = alert ? { ...withPage, alert } : withPage;
 	return record.createdBy === "bot" ? { ...routine, createdBy: "bot" } : routine;
+}
+
+/** Dados da frase de alerta (a frase em si é montada na tela, no idioma dela). */
+function alertSource(record: RoutineRecord): Routine["alert"] | null {
+	if (!record.alert?.condition) return null;
+	return {
+		condition: record.alert.condition,
+		triggerType: record.triggerType,
+		schedule: record.schedule ?? null,
+		...(record.interval ? { everyMinutes: record.interval.everyMinutes } : {}),
+	};
 }
 
 function recordToUiRoutineBase(record: RoutineRecord): Routine {
@@ -113,7 +124,7 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 		notify: record.notify ?? "always",
 			triggerKind: "once",
 			triggers: runAt
-				? [{ id: "once", text: formatOnceSummary(runAt, record.timezone) }]
+				? [{ id: "once", text: onceSummaryText(runAt, record.timezone), runAt, timezone: record.timezone }]
 				: [],
 		};
 	}
@@ -129,7 +140,7 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 		notify: record.notify ?? "always",
 			triggerKind: "interval",
 			triggers: everyMinutes
-				? [{ id: "interval", text: formatIntervalSummary(everyMinutes) }]
+				? [{ id: "interval", text: intervalSummaryText(everyMinutes), everyMinutes }]
 				: [],
 		};
 	}
@@ -143,7 +154,7 @@ function recordToUiRoutineBase(record: RoutineRecord): Routine {
 			allowChatgptPlan: record.allowChatgptPlan ?? false,
 			notify: record.notify ?? "always",
 			triggerKind: "event",
-			triggers: [{ id: "email", text: describeEmailTrigger(record.email) }],
+			triggers: [{ id: "email", text: emailTriggerText(record.email) }],
 			email: record.email,
 		};
 	}
@@ -378,32 +389,33 @@ export function formatRoutineRunTime(iso: string | null, locale: UiLocale = DEFA
 
 export function routineTriggeredByLabel(
 	triggeredBy: RoutineRunRecord["triggeredBy"],
+	{ t }: Translator = defaultTranslator,
 ): string {
-	if (triggeredBy === "event") return "webhook";
-	if (triggeredBy === "manual") return "manual";
-	return "cron";
+	if (triggeredBy === "event") return t("routines.run.via.event");
+	if (triggeredBy === "manual") return t("routines.run.via.manual");
+	return t("routines.run.via.cron");
 }
 
 export function routineRunLabel(
 	run: Pick<RoutineRunRecord, "status" | "error" | "triggeredBy">,
+	translator: Translator = defaultTranslator,
 ): string {
-	const via = routineTriggeredByLabel(run.triggeredBy);
+	const { t } = translator;
+	const via = routineTriggeredByLabel(run.triggeredBy, translator);
+	const line = (status: string, detail?: string | null) =>
+		detail ? t("routines.run.lineDetail", { via, status, detail }) : t("routines.run.line", { via, status });
 	switch (run.status) {
 		case "queued":
-			return `${via} · na fila`;
+			return line(t("routines.run.status.queued"));
 		case "running":
-			return `${via} · executando`;
+			return line(t("routines.run.status.running"));
 		case "succeeded":
-			return `${via} · concluída`;
+			return line(t("routines.run.status.succeeded"));
 		case "skipped":
-			return run.error
-				? `${via} · pulada · ${run.error}`
-				: `${via} · pulada`;
+			return line(t("routines.run.status.skipped"), run.error);
 		default:
-			// O erro guardado é técnico (e em inglês): o histórico mostra o motivo em pt-BR, sem segredo.
-			return run.error
-				? `${via} · falhou · ${formatRoutineRunReason(run.error)}`
-				: `${via} · falhou`;
+			// O erro guardado é técnico (e em inglês): o histórico mostra o motivo no idioma da tela, sem segredo.
+			return line(t("routines.run.status.failed"), run.error ? routineFailureReason(run.error, translator) : null);
 	}
 }
 
@@ -440,8 +452,16 @@ export function routinePrimaryTriggerKind(routine: Routine): RoutineTriggerKind 
 	return "cron";
 }
 
+/** Texto do gatilho no idioma da tela, refeito dos dados guardados (o `text` é só o que sobra). */
+export function routineTriggerText(trigger: RoutineTrigger, translator: Translator = defaultTranslator): string {
+	if (trigger.runAt) return onceSummaryText(trigger.runAt, trigger.timezone ?? "America/Sao_Paulo", translator);
+	if (trigger.everyMinutes) return intervalSummaryText(trigger.everyMinutes, translator);
+	if (trigger.schedule) return scheduleLabel(trigger.schedule, translator);
+	return trigger.text;
+}
+
 /** Uma linha por cláusula de gatilho (seção "Quando executar"). */
-export function routineTriggerRows(routine: Routine): RoutineTriggerRow[] {
+export function routineTriggerRows(routine: Routine, translator: Translator = defaultTranslator): RoutineTriggerRow[] {
 	const kind = routinePrimaryTriggerKind(routine);
 	if (kind === "github") {
 		const github = routine.github;
@@ -450,38 +470,44 @@ export function routineTriggerRows(routine: Routine): RoutineTriggerRow[] {
 			? Number.parseInt(github.prNumber, 10)
 			: undefined;
 		const users = parseUsersInput(github.users);
-		const clauses = describeGithubTriggerClauses({
-			repo: github.repo,
-			events: github.events,
-			prNumber: Number.isFinite(prNumber) && (prNumber ?? 0) > 0 ? prNumber : undefined,
-			users,
-			branch: (github.branch || github.ciBranch).trim() || undefined,
-		});
+		const clauses = githubTriggerClauses(
+			{
+				repo: github.repo,
+				events: github.events,
+				prNumber: Number.isFinite(prNumber) && (prNumber ?? 0) > 0 ? prNumber : undefined,
+				users,
+				branch: (github.branch || github.ciBranch).trim() || undefined,
+			},
+			translator,
+		);
 		return clauses.map((text) => ({ kind, text }));
 	}
 	if (kind === "webhook") {
-		return [{ kind, text: "Quando uma requisição chegar no webhook da rotina" }];
+		return [{ kind, text: translator.t("routines.trigger.webhookRow") }];
 	}
 	if (kind === "email") {
-		return [{ kind, text: describeEmailTrigger(routine.email ?? {}) }];
+		return [{ kind, text: emailTriggerText(routine.email ?? {}, translator) }];
 	}
 	const first = routine.triggers[0];
 	if (!first) return [];
-	return [
-		{
-			kind: "cron",
-			text: capitalizeFirst(
-				first.schedule ? scheduleLabel(first.schedule) : first.text,
-			),
-		},
-	];
+	return [{ kind: "cron", text: capitalizeFirst(routineTriggerText(first, translator)) }];
+}
+
+/** Frase do alerta da rotina no idioma da tela; `null` quando não é rotina de alerta. */
+export function routineAlertSentence(routine: Routine, translator: Translator = defaultTranslator): string | null {
+	if (!routine.alert) return null;
+	return alertSentenceText(routine.alert, translator, (cron) => scheduleLabel(toScheduleState(cronToScheduleInput(cron)), translator));
 }
 
 /**
  * Linha única de agendamento do cartão "Rotina criada" no chat, a partir do `detail` que o agente persistiu
  * ("Cron: 0 8 * * 1 (fuso)", "A cada 50 min…", "Uma vez · …"). Webhook/GitHub e texto desconhecido: nada.
  */
-export function routineCardSummary(triggerType: Routine["triggerKind"] | undefined, detail: string | undefined): string | null {
+export function routineCardSummary(
+	triggerType: Routine["triggerKind"] | undefined,
+	detail: string | undefined,
+	translator: Translator = defaultTranslator,
+): string | null {
 	const first = detail?.split("\n")[0]?.trim();
 	if (!first) return null;
 	// Alerta por condição: o agente já grava a frase pronta ("Alerta · confere a cada 30 minutos · avisa se …").
@@ -491,27 +517,46 @@ export function routineCardSummary(triggerType: Routine["triggerKind"] | undefin
 	if (triggerType === "cron" && first.startsWith("Seu dia · ")) return first.slice("Seu dia · ".length).trim() || null;
 	if (triggerType === "cron") {
 		const cron = /^Cron:\s+((?:\S+\s+){4}\S+)/.exec(first)?.[1];
-		return cron ? capitalizeFirst(scheduleLabel(toScheduleState(cronToScheduleInput(cron)))) : null;
+		return cron ? capitalizeFirst(scheduleLabel(toScheduleState(cronToScheduleInput(cron)), translator)) : null;
 	}
-	if (triggerType === "interval" || triggerType === "once") return capitalizeFirst(first);
-	if (triggerType === "event" && first.startsWith("Quando chegar e-mail")) return first;
+	// O agente grava estas frases em pt-BR ("A cada 50 min", "Uma vez · 03/10 às 10:00"): refaz no idioma da tela.
+	if (triggerType === "interval") {
+		const every = /^A cada (\d+) (min|h)$/.exec(first);
+		if (every) return intervalSummaryText(Number(every[1]) * (every[2] === "h" ? 60 : 1), translator);
+		return capitalizeFirst(first);
+	}
+	if (triggerType === "once") {
+		const once = /^Uma vez · (\d{2})\/(\d{2}) às (\d{2}):(\d{2})$/.exec(first);
+		if (once) {
+			const [, day, month, hour, minute] = once;
+			const when = new Date(Date.UTC(2000, Number(month) - 1, Number(day), Number(hour), Number(minute)));
+			return translator.t("routines.once", {
+				date: formatDate(when, translator.locale, { day: "2-digit", month: "2-digit", timeZone: "UTC" }),
+				time: formatTime(when, translator.locale, { timeZone: "UTC" }),
+			});
+		}
+		return capitalizeFirst(first);
+	}
+	if (triggerType === "event" && first.startsWith("Quando chegar e-mail")) {
+		const email = /^Quando chegar e-mail(?: de (.+?))?(?: com '(.*)' no assunto)?$/.exec(first);
+		if (email) return emailTriggerText({ fromContains: email[1], subjectContains: email[2] }, translator);
+		return first;
+	}
 	return null;
 }
 
 /** Resumo curto de quando a rotina roda ("Dias úteis às 18:02", "Webhook", "GitHub · org/repo"). */
-export function routineScheduleSummary(routine: Routine): string {
+export function routineScheduleSummary(routine: Routine, translator: Translator = defaultTranslator): string {
 	const kind = routinePrimaryTriggerKind(routine);
 	if (kind === "webhook") return "Webhook";
-	if (kind === "email") return describeEmailTrigger(routine.email ?? {});
+	if (kind === "email") return emailTriggerText(routine.email ?? {}, translator);
 	if (kind === "github") {
 		const repo = routine.github?.repo.trim();
 		return repo ? `GitHub · ${repo}` : "GitHub";
 	}
 	const first = routine.triggers[0];
-	if (!first) return "Sem gatilho";
-	return capitalizeFirst(
-		first.schedule ? scheduleLabel(first.schedule) : first.text,
-	);
+	if (!first) return translator.t("routines.trigger.none");
+	return capitalizeFirst(routineTriggerText(first, translator));
 }
 
 /** Valor do cabeçalho de autenticação do webhook. */

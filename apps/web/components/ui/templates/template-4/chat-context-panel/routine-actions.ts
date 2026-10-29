@@ -1,12 +1,19 @@
 import type { RoutineRunRecord } from "@workspace/shared";
 
+import { defaultTranslator, type MessageKey, type Translator } from "@/lib/i18n/translator";
+
 export type RoutineActionError = "pause" | "resume" | "run";
 
-export const ROUTINE_ACTION_ERROR_TEXT: Record<RoutineActionError, string> = {
-	pause: "Não foi possível pausar esta rotina",
-	resume: "Não foi possível retomar esta rotina",
-	run: "Não foi possível iniciar a execução de teste",
-};
+/** Chave da mensagem de cada erro de ação (o texto sai de `t(...)` no idioma da tela). */
+export const ROUTINE_ACTION_ERROR_KEY = {
+	pause: "routines.action.pause",
+	resume: "routines.action.resume",
+	run: "routines.action.run",
+} as const satisfies Record<RoutineActionError, MessageKey>;
+
+export function routineActionErrorText(error: RoutineActionError, { t }: Translator = defaultTranslator): string {
+	return t(ROUTINE_ACTION_ERROR_KEY[error]);
+}
 
 /**
  * Toggle otimista: aplica `next` já, chama o servidor e, se falhar
@@ -101,15 +108,15 @@ export function buildRoutineMenu({
 	persisted: boolean;
 	kind: "webhook" | "github" | "other";
 	running: boolean;
-}): RoutineMenuItem[] {
+}, { t }: Translator = defaultTranslator): RoutineMenuItem[] {
 	const items: RoutineMenuItem[] = [
-		{ id: "toggle", label: active ? "Pausar" : "Retomar", disabled: !persisted },
-		{ id: "edit", label: "Editar" },
-		{ id: "run", label: running ? "Em execução…" : "Testar", disabled: !persisted || running },
-		{ id: "history", label: "Histórico", disabled: !persisted },
+		{ id: "toggle", label: active ? t("routines.menu.pause") : t("routines.menu.resume"), disabled: !persisted },
+		{ id: "edit", label: t("routines.menu.edit") },
+		{ id: "run", label: running ? t("routines.menu.running") : t("routines.menu.run"), disabled: !persisted || running },
+		{ id: "history", label: t("routines.menu.history"), disabled: !persisted },
 	];
-	if (kind === "webhook") items.push({ id: "webhook", label: "Webhook…", disabled: !persisted });
-	if (kind === "github") items.push({ id: "github", label: "Gatilho do GitHub…", disabled: !persisted });
-	items.push({ id: "delete", label: "Excluir", destructive: true, separatorBefore: true, disabled: !persisted });
+	if (kind === "webhook") items.push({ id: "webhook", label: t("routines.menu.webhook"), disabled: !persisted });
+	if (kind === "github") items.push({ id: "github", label: t("routines.menu.github"), disabled: !persisted });
+	items.push({ id: "delete", label: t("routines.menu.delete"), destructive: true, separatorBefore: true, disabled: !persisted });
 	return items;
 }

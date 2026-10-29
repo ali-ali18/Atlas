@@ -259,7 +259,8 @@ export function Template4Client({
 }: {
 	initialPanelWidth?: number;
 }) {
-	const { t, locale } = useTranslations();
+	const translator = useTranslations();
+	const { t, locale } = translator;
 	const [agents, setAgents] = useState<Agent[]>([]);
 	const [sections, setSections] = useState<Section[]>([]);
 	const [activeId, setActiveId] = useState<string>("");
@@ -758,7 +759,7 @@ export function Template4Client({
 				setBotRoutineRuns(
 					runs.map((run) => ({
 						id: run.id,
-						name: `${run.routineName} · ${routineRunLabel(run)}`,
+						name: `${run.routineName} · ${routineRunLabel(run, translator)}`,
 						time: formatRoutineRunTime(run.createdAt, locale),
 					})),
 				);
@@ -783,7 +784,7 @@ export function Template4Client({
 					if (cancelled) return;
 					const next = runs.map((run) => ({
 						id: run.id,
-						name: `${run.routineName} · ${routineRunLabel(run)}`,
+						name: `${run.routineName} · ${routineRunLabel(run, translator)}`,
 						time: formatRoutineRunTime(run.createdAt, locale),
 					}));
 					// Mesma lista: devolve a anterior e nada re-renderiza (a consulta roda a cada 15 s).
@@ -1392,7 +1393,7 @@ export function Template4Client({
 		setBotRoutineRuns(
 			runs.map((run) => ({
 				id: run.id,
-				name: `${run.routineName} · ${routineRunLabel(run)}`,
+				name: `${run.routineName} · ${routineRunLabel(run, translator)}`,
 				time: formatRoutineRunTime(run.createdAt, locale),
 			})),
 		);
@@ -1696,7 +1697,7 @@ export function Template4Client({
 				setBotRoutineRuns(
 					botRuns.map((run) => ({
 						id: run.id,
-						name: `${run.routineName} · ${routineRunLabel(run)}`,
+						name: `${run.routineName} · ${routineRunLabel(run, translator)}`,
 						time: formatRoutineRunTime(run.createdAt, locale),
 					})),
 				);

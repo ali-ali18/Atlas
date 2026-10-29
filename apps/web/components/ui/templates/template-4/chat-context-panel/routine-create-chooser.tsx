@@ -29,7 +29,24 @@ import {
 	type GithubPullOption,
 } from "@/lib/atlas-api";
 import { GithubMarkIcon } from "@/components/icons/github-mark";
+import { useT } from "@/lib/i18n/provider";
 import { GithubRepoField } from "./routine-editor";
+
+/** Nome do atalho no idioma da tela (o `shared` guarda o rótulo em pt-BR). */
+function templateLabel(template: GithubRoutineTemplate, t: ReturnType<typeof useT>): string {
+	switch (template.id) {
+		case "ci_failed":
+			return t("routines.tpl.ci_failed");
+		case "pr_babysit":
+			return t("routines.tpl.pr_babysit");
+		case "pr_activity":
+			return t("routines.tpl.pr_activity");
+		case "branch_watch":
+			return t("routines.tpl.branch_watch");
+		default:
+			return template.label;
+	}
+}
 
 export type TemplateCreateFields = {
 	repo: string;
@@ -44,6 +61,7 @@ function TemplateRow({
 	template: GithubRoutineTemplate;
 	onCreate: (fields: TemplateCreateFields) => Promise<string | null>;
 }) {
+	const t = useT();
 	const [expanded, setExpanded] = useState(false);
 	const [repo, setRepo] = useState("");
 	const [ciBranch, setCiBranch] = useState("");
@@ -119,20 +137,20 @@ function TemplateRow({
 				type="button"
 			>
 				<GithubMarkIcon className="size-4 shrink-0 text-muted-foreground" />
-				<span className="flex-1">{template.label}</span>
+				<span className="flex-1">{templateLabel(template, t)}</span>
 			</button>
 			{expanded ? (
 				<div className="mt-2 space-y-2">
 					<Field>
 						<FieldLabel className="text-xs text-muted-foreground">
-							Repositório
+							{t("routines.chooser.repo")}
 						</FieldLabel>
 						<GithubRepoField onChange={setRepo} value={repo} />
 					</Field>
 					{needsCiBranch ? (
 						<Field>
 							<FieldLabel className="text-xs text-muted-foreground">
-								Branch de CI
+								{t("routines.chooser.ciBranch")}
 							</FieldLabel>
 							<Select
 								onValueChange={(value) => setCiBranch(value ?? "")}
@@ -140,7 +158,7 @@ function TemplateRow({
 							>
 								<SelectTrigger>
 									<SelectValue
-										placeholder={loadingOptions ? "Carregando…" : "Escolha a branch"}
+										placeholder={loadingOptions ? t("common.loading") : t("routines.chooser.chooseBranch")}
 									/>
 								</SelectTrigger>
 								<SelectContent>
@@ -155,14 +173,14 @@ function TemplateRow({
 					) : null}
 					{needsPrNumber ? (
 						<Field>
-							<FieldLabel className="text-xs text-muted-foreground">PR</FieldLabel>
+							<FieldLabel className="text-xs text-muted-foreground">{t("routines.chooser.pr")}</FieldLabel>
 							<Select
 								onValueChange={(value) => setPrNumber(value ?? "")}
 								value={prNumber}
 							>
 								<SelectTrigger>
 									<SelectValue
-										placeholder={loadingOptions ? "Carregando…" : "Escolha o PR"}
+										placeholder={loadingOptions ? t("common.loading") : t("routines.chooser.choosePr")}
 									/>
 								</SelectTrigger>
 								<SelectContent>
@@ -185,7 +203,7 @@ function TemplateRow({
 						onClick={() => void handleCreate()}
 						size="sm"
 					>
-						{creating ? "Criando…" : "Criar rotina"}
+						{creating ? t("routines.chooser.creating") : t("routines.section.create")}
 					</Button>
 				</div>
 			) : null}
@@ -232,6 +250,7 @@ export function RoutineCreateChooser({
 	onDescribeInChat: () => void;
 	trigger: ReactElement;
 }) {
+	const t = useT();
 	const [open, setOpen] = useState(false);
 
 	return (
@@ -243,7 +262,7 @@ export function RoutineCreateChooser({
 				side="bottom"
 			>
 				<PopoverHeader>
-					<PopoverTitle className="text-sm">Nova rotina</PopoverTitle>
+					<PopoverTitle className="text-sm">{t("routines.chooser.title")}</PopoverTitle>
 				</PopoverHeader>
 
 				<Button
@@ -255,11 +274,11 @@ export function RoutineCreateChooser({
 					size="sm"
 				>
 					<SparklesIcon className="size-4" />
-					Descreva no chat
+					{t("routines.chooser.describe")}
 				</Button>
 
 				<div className="space-y-1.5">
-					<p className="text-muted-foreground text-xs">Atalhos do GitHub</p>
+					<p className="text-muted-foreground text-xs">{t("routines.chooser.shortcuts")}</p>
 					<div className="space-y-1.5">
 						{GITHUB_ROUTINE_TEMPLATES.map((template) => (
 							<TemplateRow
@@ -276,11 +295,11 @@ export function RoutineCreateChooser({
 				</div>
 
 				<div className="space-y-1.5">
-					<p className="text-muted-foreground text-xs">Outros gatilhos</p>
+					<p className="text-muted-foreground text-xs">{t("routines.chooser.other")}</p>
 					<div className="space-y-1.5">
 						<ChooserRow
 							icon={<ClockIcon />}
-							label="Agendada"
+							label={t("routines.chooser.scheduled")}
 							onClick={() => {
 								setOpen(false);
 								onCreateScheduled();
@@ -288,7 +307,7 @@ export function RoutineCreateChooser({
 						/>
 						<ChooserRow
 							icon={<WebhookIcon />}
-							label="Webhook"
+							label={t("routines.chooser.webhook")}
 							onClick={() => {
 								setOpen(false);
 								onCreateWebhook();
