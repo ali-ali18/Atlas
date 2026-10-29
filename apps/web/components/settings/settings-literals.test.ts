@@ -33,6 +33,12 @@ const TRANSLATED = [
 	"components/settings/sections/dev-environments.tsx",
 	"components/settings/github-app-state.ts",
 	"components/settings/sections/github-app.tsx",
+	"components/settings/sections/skills.tsx",
+	"components/settings/sections/skills/skills-list-view.tsx",
+	"components/settings/sections/skills/skill-row.tsx",
+	"components/settings/sections/skills/skill-editor-view.tsx",
+	"components/settings/sections/skills/builtin-skill-view.tsx",
+	"components/settings/sections/skills/skill-markdown-preview.tsx",
 ];
 
 const ACCENTED = /[áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]/;

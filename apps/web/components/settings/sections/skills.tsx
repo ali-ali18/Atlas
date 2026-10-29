@@ -27,7 +27,7 @@ import {
 	EMPTY_SKILL_FORM,
 	type SkillForm,
 	type SkillFormErrors,
-	DISCARD_CONFIRM,
+	discardConfirm,
 	SCOPE_ALL,
 	deleteConfirmText,
 	deleteDraftsConfirmText,
@@ -42,6 +42,7 @@ import {
 import { SkillEditorView, type SkillEditorTab } from "./skills/skill-editor-view";
 import { BuiltinSkillDetail } from "./skills/builtin-skill-view";
 import { SkillsListView } from "./skills/skills-list-view";
+import { useTranslations } from "@/lib/i18n/provider";
 import { PublishSkillPanel } from "@/components/ui/templates/template-4/marketplace/publish-skill";
 
 /** Estado do formulário do editor; a tela em si é `SkillEditorView`. */
@@ -63,6 +64,8 @@ function SkillEditor({
 	onDone: (skill: SkillDocView | null) => void;
 	onCancel: () => void;
 }) {
+	const translator = useTranslations();
+	const discard = discardConfirm(translator);
 	const [form, setForm] = useState(initial);
 	const [errors, setErrors] = useState<SkillFormErrors>({});
 	const [tab, setTab] = useState<SkillEditorTab>("edit");
@@ -87,7 +90,7 @@ function SkillEditor({
 	);
 
 	async function onSave() {
-		const checked = validateSkillForm(form);
+		const checked = validateSkillForm(form, translator);
 		setErrors(checked.ok ? {} : checked.errors);
 		setSaveError(null);
 		if (!checked.ok) return;
@@ -135,11 +138,11 @@ function SkillEditor({
 		<AlertDialog onOpenChange={(open) => !open && setAskingDiscard(false)} open={askingDiscard}>
 			<AlertDialogContent size="sm">
 				<AlertDialogHeader>
-					<AlertDialogTitle>{DISCARD_CONFIRM.title}</AlertDialogTitle>
-					<AlertDialogDescription>{DISCARD_CONFIRM.description}</AlertDialogDescription>
+					<AlertDialogTitle>{discard.title}</AlertDialogTitle>
+					<AlertDialogDescription>{discard.description}</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
-					<AlertDialogCancel>{DISCARD_CONFIRM.keep}</AlertDialogCancel>
+					<AlertDialogCancel>{discard.keep}</AlertDialogCancel>
 					<AlertDialogAction
 						onClick={() => {
 							dirtyRef.current = false;
@@ -148,7 +151,7 @@ function SkillEditor({
 							proceed?.();
 						}}
 					>
-						{DISCARD_CONFIRM.discard}
+						{discard.discard}
 					</AlertDialogAction>
 				</AlertDialogFooter>
 			</AlertDialogContent>
@@ -164,6 +167,8 @@ type View =
 
 /** Seção Habilidades: lista com busca/escopo, editor, import/export e apagar com confirmação. */
 export function SkillsSettings() {
+	const translator = useTranslations();
+	const { t } = translator;
 	const data = useSkills();
 	const [view, setView] = useState<View>({ kind: "list" });
 	const [query, setQuery] = useState("");
@@ -189,7 +194,7 @@ export function SkillsSettings() {
 			const full = await data.loadFull(skill.id);
 			setView({ kind: "editor", editing: full, initial: formFromSkill(full) });
 		} catch (cause) {
-			setLocalError(skillErrorMessage(cause));
+			setLocalError(skillErrorMessage(cause, translator));
 		}
 	}
 
@@ -198,7 +203,7 @@ export function SkillsSettings() {
 		try {
 			downloadTextFile(exportFileName(skill), await data.exportText(skill.id));
 		} catch (cause) {
-			setLocalError(skillErrorMessage(cause));
+			setLocalError(skillErrorMessage(cause, translator));
 		}
 	}
 
@@ -261,9 +266,9 @@ export function SkillsSettings() {
 		);
 	}
 
-	const confirm = toDelete ? deleteConfirmText(toDelete) : null;
+	const confirm = toDelete ? deleteConfirmText(toDelete, translator) : null;
 	const draftCount = draftsInScope(data.skills, scope).length;
-	const draftsConfirm = deleteDraftsConfirmText(draftCount);
+	const draftsConfirm = deleteDraftsConfirmText(draftCount, translator);
 	return (
 		<>
 			<SkillsListView
@@ -303,8 +308,8 @@ export function SkillsSettings() {
 						<AlertDialogDescription>{confirm?.description}</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Cancelar</AlertDialogCancel>
-						<AlertDialogAction onClick={() => void confirmDelete()}>Apagar</AlertDialogAction>
+						<AlertDialogCancel>{t("settings.skills.editor.cancel")}</AlertDialogCancel>
+						<AlertDialogAction onClick={() => void confirmDelete()}>{t("settings.skills.delete")}</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
@@ -315,8 +320,8 @@ export function SkillsSettings() {
 						<AlertDialogDescription>{draftsConfirm.description}</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Cancelar</AlertDialogCancel>
-						<AlertDialogAction onClick={() => void confirmDeleteDrafts()}>Apagar rascunhos</AlertDialogAction>
+						<AlertDialogCancel>{t("settings.skills.editor.cancel")}</AlertDialogCancel>
+						<AlertDialogAction onClick={() => void confirmDeleteDrafts()}>{t("settings.skills.deleteDrafts")}</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>

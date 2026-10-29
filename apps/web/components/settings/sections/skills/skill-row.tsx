@@ -9,11 +9,11 @@ import {
 	type BotRef,
 	formatSkillDate,
 	originLabel,
-	DRAFT_SWITCH_HINT,
+	draftSwitchHint,
 	scopeLabel,
 	statusLabel,
 } from "../../skills-state";
-import { useLocale } from "@/lib/i18n/provider";
+import { useTranslations } from "@/lib/i18n/provider";
 
 export type SkillRowActions = {
 	onEdit: (skill: SkillDocView) => void;
@@ -37,7 +37,8 @@ export function SkillRow({
 	onDelete,
 	onPublish,
 }: { skill: SkillDocView; bots: readonly BotRef[] } & SkillRowActions) {
-	const locale = useLocale();
+	const translator = useTranslations();
+	const { t } = translator;
 	const draft = skill.status === "draft";
 	return (
 		<li
@@ -54,41 +55,41 @@ export function SkillRow({
 					>
 						{skill.name}
 					</button>
-					<Badge variant="outline">{scopeLabel(skill, bots)}</Badge>
-					<Badge variant={draft ? "secondary" : "default"}>{statusLabel(skill)}</Badge>
+					<Badge variant="outline">{scopeLabel(skill, bots, translator)}</Badge>
+					<Badge variant={draft ? "secondary" : "default"}>{statusLabel(skill, translator)}</Badge>
 				</div>
 				<p className="truncate text-sm leading-snug text-muted-foreground" title={skill.description}>
 					{skill.description}
 				</p>
 				<p className="text-xs text-muted-foreground">
 					{skill.source
-						? `Do marketplace · v${skill.source.version}${skill.source.edited ? " (editada)" : ""}`
-						: originLabel(skill.createdBy)}{" "}
-					· Atualizada em {formatSkillDate(skill.updatedAt, undefined, locale)}
-					{draft ? ` · ${DRAFT_SWITCH_HINT}` : ""}
+						? t(skill.source.edited ? "settings.skills.fromMarketplaceEdited" : "settings.skills.fromMarketplace", { version: skill.source.version })
+						: originLabel(skill.createdBy, translator)}{" "}
+					· {t("settings.skills.updatedAt", { date: formatSkillDate(skill.updatedAt, undefined, translator) })}
+					{draft ? ` · ${draftSwitchHint(translator)}` : ""}
 				</p>
 			</div>
 			<div className="flex shrink-0 items-center gap-1 sm:ml-auto" data-slot="skill-row-actions">
-				<Button aria-label={`Editar ${skill.name}`} onClick={() => onEdit(skill)} size="icon-sm" variant="ghost">
+				<Button aria-label={t("settings.skills.editAria", { name: skill.name })} onClick={() => onEdit(skill)} size="icon-sm" variant="ghost">
 					<PencilIcon aria-hidden />
 				</Button>
 				{onPublish && !draft ? (
-					<Button aria-label={`Publicar ${skill.name} no marketplace`} onClick={() => onPublish(skill)} size="icon-sm" title="Publicar no marketplace" variant="ghost">
+					<Button aria-label={t("settings.skills.publishAria", { name: skill.name })} onClick={() => onPublish(skill)} size="icon-sm" title={t("settings.skills.publishTitle")} variant="ghost">
 						<StoreIcon aria-hidden />
 					</Button>
 				) : null}
-				<Button aria-label={`Exportar ${skill.name} como .md`} onClick={() => onExport(skill)} size="icon-sm" variant="ghost">
+				<Button aria-label={t("settings.skills.exportAria", { name: skill.name })} onClick={() => onExport(skill)} size="icon-sm" variant="ghost">
 					<DownloadIcon aria-hidden />
 				</Button>
-				<Button aria-label={`Apagar ${skill.name}`} onClick={() => onDelete(skill)} size="icon-sm" variant="ghost">
+				<Button aria-label={t("settings.skills.deleteAria", { name: skill.name })} onClick={() => onDelete(skill)} size="icon-sm" variant="ghost">
 					<Trash2Icon aria-hidden />
 				</Button>
 				<Switch
-					aria-label={`${skill.enabled ? "Desativar" : "Ativar"} ${skill.name}`}
+					aria-label={t(skill.enabled ? "settings.skills.disableAria" : "settings.skills.enableAria", { name: skill.name })}
 					checked={skill.enabled}
 					className="ml-2"
 					onCheckedChange={(checked) => onToggle(skill, checked)}
-					title={draft ? DRAFT_SWITCH_HINT : undefined}
+					title={draft ? draftSwitchHint(translator) : undefined}
 				/>
 			</div>
 		</li>
