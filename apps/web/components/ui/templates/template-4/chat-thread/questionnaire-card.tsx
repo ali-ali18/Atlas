@@ -142,7 +142,7 @@ export function QuestionnaireCard({
 										{labels.join(", ")}
 									</span>
 									<Check
-										aria-label="Respondido"
+										aria-label={t("chat.questionnaire.answered")}
 										className="size-4 shrink-0 text-primary"
 									/>
 								</div>

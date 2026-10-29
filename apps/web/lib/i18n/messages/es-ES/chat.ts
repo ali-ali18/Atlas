@@ -63,4 +63,15 @@ export const chat: NamespaceMessages<typeof ptBR> = {
 	"chat.working.tool.click": "{name} está haciendo clic",
 	"chat.working.tool.scroll": "{name} está desplazando la página",
 	"chat.working.tool.memory": "{name} está consultando la memoria",
+
+	"chat.header.groupInfo": "Información del grupo",
+	"chat.header.botSettings": "Ajustes del bot",
+	"chat.header.togglePanel": "Alternar panel lateral",
+	"chat.exchange.back": "Volver a la conversación",
+	"chat.page.ariaLabel": "Panel: {title}",
+	"chat.page.label": "Panel",
+	"chat.page.deleted": "Panel eliminado",
+	"chat.page.openFullscreen": "Abrir panel a pantalla completa",
+	"chat.page.sources": "Fuentes",
+	"chat.page.updatedByRoutine": "Actualizado por rutina · {label}",
 };

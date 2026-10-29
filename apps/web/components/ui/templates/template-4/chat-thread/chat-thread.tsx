@@ -18,7 +18,7 @@ import {
 import { Marker, MarkerContent } from "@workspace/ui/components/marker";
 import { cn } from "@workspace/ui/lib/utils";
 import { buildTimeSeparators } from "@/lib/chat-time-separators";
-import { useLocale } from "@/lib/i18n/provider";
+import { useLocale, useT } from "@/lib/i18n/provider";
 import { exchangeFocusKey } from "@/lib/bot-exchange";
 import { readBubbleBotColor } from "@/lib/bot-bubble";
 import { planImageRuns, reuseImageRuns } from "@/lib/image-groups";
@@ -689,6 +689,7 @@ export function ChatThread({
 		[visibleMessages],
 	);
 	const locale = useLocale();
+	const t = useT();
 	const timeSeparators = useMemo(
 		() => buildTimeSeparators(threadItems, new Date(), undefined, locale),
 		[threadItems, locale],
@@ -1066,7 +1067,7 @@ export function ChatThread({
 					<header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
 						{onBack ? (
 							<Button
-								aria-label="Voltar para conversas"
+								aria-label={t("mobile.backToConversations")}
 								className="size-10 shrink-0 rounded-full md:hidden"
 								onClick={onBack}
 								size="icon"
@@ -1160,7 +1161,7 @@ export function ChatThread({
 			<header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 items-center gap-2 bg-transparent px-3 md:h-12">
 				{onBack ? (
 					<Button
-						aria-label="Voltar para conversas"
+						aria-label={t("mobile.backToConversations")}
 						className="pointer-events-auto size-11 shrink-0 rounded-full bg-card hover:bg-card/90 md:hidden"
 						onClick={onBack}
 						size="icon"
@@ -1179,7 +1180,7 @@ export function ChatThread({
 				) : agent ? (
 					<>
 						<Button
-							aria-label={isGroup ? "Informações do grupo" : "Configurações do bot"}
+							aria-label={isGroup ? t("chat.header.groupInfo") : t("chat.header.botSettings")}
 							className="pointer-events-auto absolute inset-y-0 left-1/2 my-auto h-11 max-w-[calc(100%-7.5rem)] min-w-0 -translate-x-1/2 gap-2 rounded-full border-border bg-card px-3 transition-opacity duration-200 hover:bg-card/90 md:h-10"
 							onClick={onOpenSettings}
 							variant="ghost"
@@ -1218,7 +1219,7 @@ export function ChatThread({
 						<div className="ml-auto flex items-center gap-0.5">
 							<Button
 								aria-expanded={panelOpen}
-								aria-label="Alternar painel"
+								aria-label={t("chat.header.togglePanel")}
 								className="pointer-events-auto size-11 rounded-full bg-card hover:bg-card/90 md:size-10"
 								onClick={onTogglePanel}
 								size="icon-sm"

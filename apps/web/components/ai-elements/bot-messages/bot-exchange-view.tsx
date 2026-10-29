@@ -13,7 +13,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import { buildTimeSeparators } from "@/lib/chat-time-separators";
 import { formatTime } from "@/lib/format";
 import type { UiLocale } from "@/lib/i18n/locales";
-import { useLocale } from "@/lib/i18n/provider";
+import { useLocale, useT } from "@/lib/i18n/provider";
 import type { ExchangeEntry } from "@/lib/bot-exchange";
 import { AgentAvatar } from "@/components/ui/templates/template-4/agent-avatar";
 import { botAccentStyle } from "@/components/ui/templates/template-4/chat-context-panel/bot-accent";
@@ -78,6 +78,7 @@ export function BotExchangeView({
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const [flash, setFlash] = useState<string | null>(focusKey ?? null);
 	const locale = useLocale();
+	const t = useT();
 	const separators = useMemo(() => buildTimeSeparators(entries.map((entry) => ({ id: entry.key, createdAt: entry.createdAt })), new Date(), undefined, locale), [entries, locale]);
 	const focusedPresent = Boolean(focusKey) && entries.some((entry) => entry.key === focusKey);
 
@@ -104,7 +105,7 @@ export function BotExchangeView({
 		>
 			<header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 items-center gap-2 px-3 md:h-12">
 				<Button
-					aria-label="Voltar para a conversa"
+					aria-label={t("chat.exchange.back")}
 					className="pointer-events-auto size-10 shrink-0 rounded-full bg-card hover:bg-card/90 md:size-9"
 					onClick={onBack}
 					size="icon"

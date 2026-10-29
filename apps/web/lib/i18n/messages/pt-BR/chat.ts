@@ -61,4 +61,15 @@ export const chat = {
 	"chat.working.tool.click": "{name} está clicando",
 	"chat.working.tool.scroll": "{name} está rolando a página",
 	"chat.working.tool.memory": "{name} está consultando a memória",
+
+	"chat.header.groupInfo": "Informações do grupo",
+	"chat.header.botSettings": "Configurações do bot",
+	"chat.header.togglePanel": "Alternar painel",
+	"chat.exchange.back": "Voltar para a conversa",
+	"chat.page.ariaLabel": "Painel: {title}",
+	"chat.page.label": "Painel",
+	"chat.page.deleted": "Painel apagado",
+	"chat.page.openFullscreen": "Abrir painel em tela cheia",
+	"chat.page.sources": "Fontes",
+	"chat.page.updatedByRoutine": "Atualizado por rotina · {label}",
 } as const;

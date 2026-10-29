@@ -77,7 +77,7 @@ export function PageCard({ card, loadPage = defaultLoadPage, now, botName }: { c
 	const updated = view ? updatedLabel(view.updatedAt, now, translator) : null;
 
 	return (
-		<section aria-label={`Painel: ${card.title}`} className="my-1 w-full min-w-0 max-w-[min(68ch,100%)] overflow-hidden rounded-2xl bg-muted/60 text-card-foreground" data-testid="page-card">
+		<section aria-label={translator.t("chat.page.ariaLabel", { title: card.title })} className="my-1 w-full min-w-0 max-w-[min(68ch,100%)] overflow-hidden rounded-2xl bg-muted/60 text-card-foreground" data-testid="page-card">
 			<div data-share-target>
 			<header className="flex items-start gap-2 px-4 pt-3">
 				<div className="min-w-0 flex-1">
@@ -85,7 +85,7 @@ export function PageCard({ card, loadPage = defaultLoadPage, now, botName }: { c
 					{count ? <p className="text-muted-foreground text-xs">{count}</p> : null}
 				</div>
 				{view && !view.removed ? <ShareMenu botName={botName} onPublicLink={() => setShareOpen(true)} pdf targetSelector="[data-share-target]" title={card.title} /> : null}
-				<Button aria-label="Abrir painel em tela cheia" className="shrink-0" data-share-ignore onClick={() => setOpen(true)} size="icon-sm" variant="ghost">
+				<Button aria-label={translator.t("chat.page.openFullscreen")} className="shrink-0" data-share-ignore onClick={() => setOpen(true)} size="icon-sm" variant="ghost">
 					<Maximize2Icon />
 				</Button>
 			</header>
@@ -100,7 +100,7 @@ export function PageCard({ card, loadPage = defaultLoadPage, now, botName }: { c
 					onClick={() => setOpen(true)}
 					type="button"
 				>
-					<span>{view?.removed ? "Painel apagado" : "Painel"}</span>
+					<span>{view?.removed ? translator.t("chat.page.deleted") : translator.t("chat.page.label")}</span>
 					{updated ? <span>· {updated}</span> : null}
 				</button>
 			</footer>
