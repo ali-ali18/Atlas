@@ -270,7 +270,7 @@ export function QuestionnaireCard({
 								<QuestionnairePrevious>{t("chat.questionnaire.back")}</QuestionnairePrevious>
 								<QuestionnaireSkip>{t("chat.questionnaire.skip")}</QuestionnaireSkip>
 								<QuestionnaireNext>{t("chat.questionnaire.next")}</QuestionnaireNext>
-								<QuestionnaireSubmit className={REQUEST_PRIMARY_CLASS}>Enviar</QuestionnaireSubmit>
+								<QuestionnaireSubmit className={REQUEST_PRIMARY_CLASS}>{t("chat.questionnaire.submit")}</QuestionnaireSubmit>
 							</QuestionnaireActions>
 						</QuestionnaireItem>
 					);

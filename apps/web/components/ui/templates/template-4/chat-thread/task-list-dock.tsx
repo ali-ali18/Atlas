@@ -6,6 +6,7 @@ import { ChatCardLeading } from "@workspace/ui/components/chat-card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
 import { Spinner } from "@workspace/ui/components/spinner";
 
+import { useTranslations } from "@/lib/i18n/provider";
 import { taskListDockLine, taskListProgress } from "@/lib/task-list";
 import { TaskListItems, type TaskListCardItem } from "./task-list-card";
 
@@ -26,6 +27,7 @@ export type TaskListDockProps = {
 export function TaskListDock({ items, onHeight, defaultOpen = false }: TaskListDockProps) {
 	const [open, setOpen] = useState(defaultOpen);
 	const rootRef = useRef<HTMLDivElement>(null);
+	const translator = useTranslations();
 	const { total, allDone } = taskListProgress(items);
 
 	useEffect(() => {
@@ -42,15 +44,15 @@ export function TaskListDock({ items, onHeight, defaultOpen = false }: TaskListD
 
 	if (total === 0) return null;
 	return (
-		<div className="w-full min-w-0 border-b border-border/60" data-state={allDone ? "done" : "active"} data-testid="task-list-dock" ref={rootRef} role="region" aria-label="Tarefas do bot">
+		<div className="w-full min-w-0 border-b border-border/60" data-state={allDone ? "done" : "active"} data-testid="task-list-dock" ref={rootRef} role="region" aria-label={translator.t("chat.tasks.region")}>
 			<Collapsible onOpenChange={setOpen} open={open}>
 				<CollapsibleTrigger
-					aria-label={open ? "Recolher a lista de tarefas" : "Abrir a lista de tarefas"}
+					aria-label={open ? translator.t("chat.tasks.collapse") : translator.t("chat.tasks.open")}
 					className="group/trigger flex min-h-11 w-full min-w-0 items-center gap-2 rounded-t-3xl px-4 text-left text-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
 					data-testid="task-list-dock-toggle"
 				>
 					<ChatCardLeading>{allDone ? <CheckCircle2Icon /> : <Spinner />}</ChatCardLeading>
-					<span className="min-w-0 flex-1 truncate tabular-nums" data-testid="task-list-dock-line">{taskListDockLine(items)}</span>
+					<span className="min-w-0 flex-1 truncate tabular-nums" data-testid="task-list-dock-line">{taskListDockLine(items, translator)}</span>
 					<ChevronUpIcon aria-hidden className="size-4 shrink-0 text-muted-foreground transition-transform group-aria-expanded/trigger:rotate-180" />
 				</CollapsibleTrigger>
 				<CollapsibleContent>
