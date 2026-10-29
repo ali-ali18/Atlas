@@ -23,7 +23,7 @@ import {
   resolveLazyChartChild,
 } from "./chart-child-passthrough";
 import { ChartProvider, type LineConfig, type Margin } from "./chart-context";
-import { shortDateFmt } from "./chart-formatters";
+import { shortDateFmt, useChartLocale } from "./chart-formatters";
 import { ParentSize } from "./chart-parent-size";
 import { DEFAULT_CHART_LIFECYCLE } from "./chart-phase";
 import {
@@ -194,9 +194,10 @@ const ChartCore = memo(function ChartCore({
     [data, innerWidth]
   );
 
+  const locale = useChartLocale();
   const dateLabels = useMemo(
-    () => data.map((d) => shortDateFmt.format(xAccessor(d))),
-    [data, xAccessor]
+    () => data.map((d) => shortDateFmt.format(xAccessor(d), locale)),
+    [data, xAccessor, locale]
   );
 
   // Replay the reveal when motion settings change. Adjusted during render

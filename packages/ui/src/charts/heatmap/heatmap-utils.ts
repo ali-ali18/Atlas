@@ -219,13 +219,13 @@ export function filterHeatmapColumns(
 
 
 /** Tooltip header date — e.g. `20 de janeiro de 2026`. */
-export function formatHeatmapTooltipDate(date: Date): string {
-  return chartDateFormat({ day: "numeric", month: "long", year: "numeric" }).format(date);
+export function formatHeatmapTooltipDate(date: Date, locale?: string): string {
+  return chartDateFormat({ day: "numeric", month: "long", year: "numeric" }, locale).format(date);
 }
 
 /** Tooltip weekday line — e.g. `segunda-feira`. */
-export function formatHeatmapTooltipWeekday(date: Date): string {
-  return chartDateFormat({ weekday: "long" }).format(date);
+export function formatHeatmapTooltipWeekday(date: Date, locale?: string): string {
+  return chartDateFormat({ weekday: "long" }, locale).format(date);
 }
 
 /** Tooltip contribution line — e.g. `3 contributions`. */

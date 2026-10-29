@@ -9,7 +9,7 @@ import {
   resolveSharedAreaValueLabelCount,
 } from "./area-value-label-layout";
 import { chartCssVars, useChartStable } from "./chart-context";
-import { valueLabelFmt } from "./chart-formatters";
+import { useChartLocale, valueLabelFmt } from "./chart-formatters";
 import {
   fadeGradientStops,
   resolveFadeSides,
@@ -28,6 +28,7 @@ export function AreaValueLabels({ series }: { series: AreaProps[] }) {
     innerHeight,
     chartPhase,
   } = useChartStable();
+  const locale = useChartLocale();
   const layerRef = useRef<SVGGElement>(null);
   const id = useId();
   const labels = useMemo(() => {
@@ -83,7 +84,7 @@ export function AreaValueLabels({ series }: { series: AreaProps[] }) {
             seriesIndex,
             x,
             y,
-            text: area.valueLabelFormatter?.(value) ?? valueLabelFmt(value),
+            text: area.valueLabelFormatter?.(value) ?? valueLabelFmt(value, locale),
           },
         ];
       });
@@ -97,6 +98,7 @@ export function AreaValueLabels({ series }: { series: AreaProps[] }) {
     yScales,
     innerWidth,
     chartPhase,
+    locale,
   ]);
 
   useLayoutEffect(() => {

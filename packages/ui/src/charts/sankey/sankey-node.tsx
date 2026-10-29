@@ -3,7 +3,7 @@
 import type { SankeyNode as SankeyNodeType } from "d3-sankey";
 import { motion, type Transition } from "motion/react";
 import { type ReactNode, useCallback, useMemo } from "react";
-import { intFmt } from "../chart-formatters";
+import { intFmt, useChartLocale } from "../chart-formatters";
 import { transitionWithDelay } from "../motion-utils";
 import {
   type SankeyLinkDatum,
@@ -233,6 +233,7 @@ function AnimatedNode({
   labelOrientation,
 }: AnimatedNodeProps) {
   const { enterTransition, revealEpoch } = useSankey();
+  const locale = useChartLocale();
 
   const nodeAnimDuration = animationDuration * 0.6;
   const staggerDelaySec =
@@ -296,7 +297,7 @@ function AnimatedNode({
               opacity={valueOpacity}
               transition={valueEnter}
             >
-              {intFmt(value)}
+              {intFmt(value, locale)}
             </NodeLabel>
           ) : null}
         </>

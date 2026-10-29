@@ -17,7 +17,7 @@ import {
   useChartPortalContainer,
   useChartStable,
 } from "../chart-context";
-import { formatBandRange, weekdayDateFmt } from "../chart-formatters";
+import { formatBandRange, useChartLocale, weekdayDateFmt } from "../chart-formatters";
 import type { IndicatorFadeEdges } from "../indicator-fade";
 import { DateTicker } from "./date-ticker";
 import { TooltipBox, type TooltipBoxProps } from "./tooltip-box";
@@ -388,6 +388,7 @@ const ChartTooltipInner = memo(function ChartTooltipInner({
   }, [indicatorColorProp, tooltipData]);
 
   // Title from date or category
+  const locale = useChartLocale();
   const title = useMemo(() => {
     if (!tooltipData) {
       return undefined;
@@ -397,8 +398,8 @@ const ChartTooltipInner = memo(function ChartTooltipInner({
       return barXAccessor(tooltipData.point);
     }
     // For line/area charts, use the date
-    return weekdayDateFmt.format(xAccessor(tooltipData.point));
-  }, [tooltipData, barXAccessor, xAccessor]);
+    return weekdayDateFmt.format(xAccessor(tooltipData.point), locale);
+  }, [tooltipData, barXAccessor, xAccessor, locale]);
 
   const tooltipContent = (
     <>

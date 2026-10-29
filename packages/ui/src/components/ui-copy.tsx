@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { setChartLocale } from "../charts/chart-formatters";
+import { ChartLocaleContext } from "../charts/chart-formatters";
 import { CHAT_CARD_COPY } from "../lib/chat-card-copy";
 
 /**
@@ -13,7 +13,7 @@ import { CHAT_CARD_COPY } from "../lib/chat-card-copy";
 export type UiCopy = {
   /**
    * Idioma da tela (BCP 47, ex.: "en-US"). Gráficos e avatar formatam número, data e maiúscula com ele;
-   * `UiCopyProvider` o registra em `setChartLocale`. Padrão: pt-BR.
+   * `UiCopyProvider` o entrega aos gráficos por contexto. Padrão: pt-BR.
    */
   locale: string;
   codeCopy: string;
@@ -113,13 +113,13 @@ export const DEFAULT_UI_COPY: UiCopy = {
 const UiCopyContext = React.createContext<UiCopy>(DEFAULT_UI_COPY);
 
 function UiCopyProvider({ copy, children }: { copy: Partial<UiCopy>; children: React.ReactNode }) {
-  const value = React.useMemo(() => {
-    const merged = { ...DEFAULT_UI_COPY, ...copy };
-    // Registra o idioma para os formatadores de gráfico (usados fora de hooks); ver `charts/chart-formatters.ts`.
-    setChartLocale(merged.locale);
-    return merged;
-  }, [copy]);
-  return <UiCopyContext.Provider value={value}>{children}</UiCopyContext.Provider>;
+  const value = React.useMemo(() => ({ ...DEFAULT_UI_COPY, ...copy }), [copy]);
+  // O idioma dos gráficos viaja por contexto (não por variável global): ver `charts/chart-formatters.ts`.
+  return (
+    <UiCopyContext.Provider value={value}>
+      <ChartLocaleContext.Provider value={value.locale}>{children}</ChartLocaleContext.Provider>
+    </UiCopyContext.Provider>
+  );
 }
 
 function useUiCopy(): UiCopy {

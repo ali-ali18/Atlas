@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { cn } from "@workspace/ui/lib/utils";
-import { getChartLocale } from "../charts/chart-formatters";
+import { getChartLocale, useChartLocale } from "../charts/chart-formatters";
 
 /** Hash FNV-1a de 32 bits: estável entre sessões, máquinas e versões. */
 function hash(seed: string): number {
@@ -80,6 +80,7 @@ export function UserAvatar({
 	size?: number;
 	className?: string;
 }) {
+	const locale = useChartLocale();
 	const box: CSSProperties = { width: size, height: size };
 	if (image) {
 		return (
@@ -101,7 +102,7 @@ export function UserAvatar({
 				data-slot="user-avatar-swirl"
 				style={{ background: avatarGradient(seed).background, filter: `blur(${Math.max(1, Math.round(size * 0.05))}px)`, transform: "scale(1.3)" }}
 			/>
-			<span className="relative">{avatarInitial(name, email ?? seed)}</span>
+			<span className="relative">{avatarInitial(name, email ?? seed, locale)}</span>
 		</span>
 	)
 }

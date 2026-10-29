@@ -34,7 +34,7 @@ import {
 } from "./chart-child-passthrough";
 import { ChartProvider, type LineConfig, type Margin } from "./chart-context";
 import { isGradientDefComponent, isPatternDefComponent } from "./chart-defs";
-import { shortDateFmt, XLabelFormatContext } from "./chart-formatters";
+import { shortDateFmt, useChartLocale, XLabelFormatContext } from "./chart-formatters";
 import {
   type ChartPhase,
   type ChartStatus,
@@ -399,12 +399,13 @@ const TimeSeriesChartCore = memo(function TimeSeriesChartCore({
 
   // Contexto de fora (gráfico de categorias com datas sintéticas) devolve o nome da categoria no lugar de "dd/mm".
   const xLabelFormat = useContext(XLabelFormatContext);
+  const locale = useChartLocale();
   const dateLabels = useMemo(
     () =>
       visiblePlotData.map((d) =>
-        xLabelFormat ? xLabelFormat(xAccessor(d)) : shortDateFmt.format(xAccessor(d))
+        xLabelFormat ? xLabelFormat(xAccessor(d)) : shortDateFmt.format(xAccessor(d), locale)
       ),
-    [visiblePlotData, xAccessor, xLabelFormat]
+    [visiblePlotData, xAccessor, xLabelFormat, locale]
   );
 
   const canInteract = isLoaded && isChartInteractionPhase(chartPhase);

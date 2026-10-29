@@ -3,7 +3,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@workspace/ui/lib/utils";
-import { chartDateFormat } from "../chart-formatters";
+import { chartDateFormat, useChartLocale } from "../chart-formatters";
 import { useHeatmap } from "./heatmap-context";
 import { getHeatmapColumnMonthAnchor } from "./heatmap-utils";
 
@@ -17,6 +17,7 @@ export const HeatmapXAxis = memo(function HeatmapXAxis({
   className,
 }: HeatmapXAxisProps) {
   const { containerRef, data, margin, xScale } = useHeatmap();
+  const locale = useChartLocale();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -44,7 +45,7 @@ export const HeatmapXAxis = memo(function HeatmapXAxis({
       }
 
       ticks.push({
-        label: chartDateFormat({ month: "short" }).format(monthAnchor),
+        label: chartDateFormat({ month: "short" }, locale).format(monthAnchor),
         x: margin.left + xScale(columnIndex),
         key: monthKey,
       });
@@ -52,7 +53,7 @@ export const HeatmapXAxis = memo(function HeatmapXAxis({
     }
 
     return ticks;
-  }, [data, margin.left, xScale]);
+  }, [data, margin.left, xScale, locale]);
 
   const container = containerRef.current;
   if (!(mounted && container)) {

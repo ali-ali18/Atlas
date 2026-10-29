@@ -16,7 +16,7 @@ import {
   useChartStable,
   useYScale,
 } from "./chart-context";
-import { valueLabelFmt } from "./chart-formatters";
+import { useChartLocale, valueLabelFmt } from "./chart-formatters";
 import { useChartLegendHover } from "./chart-legend-hover";
 import { transitionWithDelay } from "./motion-utils";
 
@@ -245,7 +245,7 @@ const BarInner = memo(function BarInner({
   perspective = false,
   minBarHeight = 0,
   showValue = false,
-  valueLabelFormatter = valueLabelFmt,
+  valueLabelFormatter: valueLabelFormatterProp,
   valueLabelColor = "white",
   valueLabelOrientation = "auto",
   valueLabelPosition = "center",
@@ -254,6 +254,8 @@ const BarInner = memo(function BarInner({
   bandWidth,
   barXAccessor,
 }: BarInnerProps) {
+  const locale = useChartLocale();
+  const valueLabelFormatter = valueLabelFormatterProp ?? ((value: number) => valueLabelFmt(value, locale));
   const {
     data,
     yScale: chartYScale,

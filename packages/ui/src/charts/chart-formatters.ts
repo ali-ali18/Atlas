@@ -1,9 +1,10 @@
-import { createContext } from "react";
+import { createContext, useContext } from "react";
 
 // Adaptado do Bklit UI (MIT): formatadores no idioma da tela (padrão pt-BR) em vez de en-US.
-// O app injeta o idioma por `UiCopyProvider` (`copy.locale`), que chama `setChartLocale`: os formatadores
-// abaixo leem o idioma na hora de formatar, então os usos antigos (`shortDateFmt.format(...)`, `intFmt(...)`)
-// seguem iguais. Trocar de idioma recarrega a página, então o valor nunca fica velho.
+// O idioma vem do `UiCopyProvider` por contexto (`ChartLocaleContext`; `useChartLocale()` nos componentes e o
+// parâmetro `locale` nas funções puras). Nada é gravado em variável global durante a renderização: no servidor
+// uma requisição não pode mudar o idioma da outra. `setChartLocale` só muda o padrão de quem formata FORA de
+// um provider (testes, código solto); o app não o chama.
 let chartLocale = "pt-BR";
 
 export function setChartLocale(locale: string | undefined): void {
@@ -12,6 +13,14 @@ export function setChartLocale(locale: string | undefined): void {
 
 export function getChartLocale(): string {
   return chartLocale;
+}
+
+/** Idioma dos gráficos na árvore; `null` fora de um `UiCopyProvider` (vale o padrão do módulo). */
+export const ChartLocaleContext = createContext<string | null>(null);
+
+/** Idioma dos gráficos para quem desenha (componentes). */
+export function useChartLocale(): string {
+  return useContext(ChartLocaleContext) ?? chartLocale;
 }
 
 const intlCache = new Map<string, Intl.DateTimeFormat | Intl.NumberFormat>();
@@ -41,10 +50,10 @@ export function chartNumberFormat(options?: Intl.NumberFormatOptions, locale: st
   return cachedIntl("nf", locale, options, () => new Intl.NumberFormat(locale, options));
 }
 
-type DateFormatter = { format: (date: Date | number) => string };
+type DateFormatter = { format: (date: Date | number, locale?: string) => string };
 
 function lazyDateFormat(options: Intl.DateTimeFormatOptions): DateFormatter {
-  return { format: (date) => chartDateFormat(options).format(date) };
+  return { format: (date, locale) => chartDateFormat(options, locale).format(date) };
 }
 
 export const shortDateFmt = lazyDateFormat({ day: "2-digit", month: "2-digit" });
@@ -53,7 +62,7 @@ export const weekdayDateFmt = lazyDateFormat({ weekday: "short", day: "2-digit",
 
 export const hmsTimeFmt = lazyDateFormat({ hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
-export const intFmt = (value: number): string => chartNumberFormat().format(value);
+export const intFmt = (value: number, locale?: string): string => chartNumberFormat(undefined, locale).format(value);
 
 /**
  * Formatador do rótulo do eixo X (linha/área) vindo de fora: gráficos de categorias usam datas sintéticas
@@ -61,8 +70,8 @@ export const intFmt = (value: number): string => chartNumberFormat().format(valu
  */
 export const XLabelFormatContext = createContext<((date: Date) => string) | null>(null);
 
-export const valueLabelFmt = (value: number): string =>
-  chartNumberFormat({ maximumFractionDigits: 0 }).format(value);
+export const valueLabelFmt = (value: number, locale?: string): string =>
+  chartNumberFormat({ maximumFractionDigits: 0 }, locale).format(value);
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -77,7 +86,7 @@ export function formatBandRange(
   point: Record<string, unknown>,
   upperKey: string,
   lowerKey: string,
-  format: (value: number) => string = intFmt
+  format: (value: number) => string = (value) => intFmt(value)
 ): string | number | null {
   const upper = point[upperKey];
   const lower = point[lowerKey];

@@ -3,7 +3,7 @@
 import NumberFlow from "@number-flow/react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { cn } from "@workspace/ui/lib/utils";
-import { chartNumberFormat, getChartLocale } from "./chart-formatters";
+import { chartNumberFormat, useChartLocale } from "./chart-formatters";
 
 /** Subset of `Intl.NumberFormatOptions` supported by NumberFlow */
 export interface ChartStatFlowFormat {
@@ -30,9 +30,10 @@ function formatStatValue(
   value: number,
   formatOptions: ChartStatFlowFormat,
   prefix?: string,
-  suffix?: string
+  suffix?: string,
+  locale?: string
 ): string {
-  const formatted = chartNumberFormat(formatOptions).format(value);
+  const formatted = chartNumberFormat(formatOptions, locale).format(value);
   return `${prefix ?? ""}${formatted}${suffix ?? ""}`;
 }
 
@@ -87,9 +88,10 @@ export function ChartStatFlow({
   icon,
 }: ChartStatFlowProps) {
   const numberFlowReady = useNumberFlowElementReady();
+  const locale = useChartLocale();
   const staticValue = useMemo(
-    () => formatStatValue(value, formatOptions, prefix, suffix),
-    [value, formatOptions, prefix, suffix]
+    () => formatStatValue(value, formatOptions, prefix, suffix, locale),
+    [value, formatOptions, prefix, suffix, locale]
   );
 
   return (
@@ -104,7 +106,7 @@ export function ChartStatFlow({
           <NumberFlow
             format={formatOptions}
             isolate
-            locales={getChartLocale()}
+            locales={locale}
             prefix={prefix}
             suffix={suffix}
             value={value}
