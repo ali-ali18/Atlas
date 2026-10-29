@@ -5,9 +5,9 @@ import { ChatCard, ChatCardHeader, ChatCardLine } from "@workspace/ui/components
 
 export type SkillActivityAction = "created" | "updated" | "deleted" | "shown" | "listed" | "cleaned";
 
-/** "Skill “Resumo semanal” criada": sem chave interna e sem número de versão (linguagem com o usuário, regra 70). */
+/** "Habilidade “Resumo semanal” criada": sem chave interna e sem número de versão (linguagem com o usuário, regra 70). */
 export function skillActivityText(action: SkillActivityAction, title?: string, detail?: string): string {
-	const name = title ? `Skill “${title}”` : "Skill";
+	const name = title ? `Habilidade “${title}”` : "Habilidade";
 	switch (action) {
 		case "created":
 			return `${name} criada e ativa`;
@@ -16,9 +16,9 @@ export function skillActivityText(action: SkillActivityAction, title?: string, d
 		case "deleted":
 			return `${name} apagada`;
 		case "shown":
-			return title ?? "Skill exibida";
+			return title ?? "Habilidade exibida";
 		case "listed":
-			return title ?? "Skills listadas";
+			return title ?? "Habilidades listadas";
 		case "cleaned":
 			return detail ?? "Rascunhos apagados";
 	}

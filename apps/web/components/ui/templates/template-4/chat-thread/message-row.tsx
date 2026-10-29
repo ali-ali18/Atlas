@@ -210,7 +210,7 @@ export const MessageRow = memo(function MessageRow({
 				return (
 					<SkillLearnedCard
 						action={message.action}
-						name={message.title ?? message.capabilityKey ?? "skill"}
+						name={message.title ?? message.capabilityKey ?? "habilidade"}
 					/>
 				);
 			}
