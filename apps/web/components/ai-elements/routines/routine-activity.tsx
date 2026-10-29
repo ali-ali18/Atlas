@@ -63,14 +63,14 @@ export function RoutineActivityCard({
 	const summary = action === "created" ? routineCardSummary(triggerType, detail) : null;
 
 	return (
-		<div className="flex w-full max-w-sm flex-col gap-1 self-start">
+		<div className="flex w-full max-w-[min(68ch,100%)] flex-col gap-1 self-start">
 			<Attachments variant="list" className="w-full">
 				<Attachment
 					data={routineAttachmentData(routineId ?? "routine", label)}
 					className={
 						canOpen
-							? "cursor-pointer border-border bg-card shadow-sm"
-							: "border-border bg-card shadow-sm"
+							? "cursor-pointer rounded-2xl border-transparent bg-muted/60"
+							: "rounded-2xl border-transparent bg-muted/60"
 					}
 					role={canOpen ? "button" : undefined}
 					tabIndex={canOpen ? 0 : undefined}
