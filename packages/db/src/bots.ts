@@ -5,6 +5,7 @@ import { unreadResultsByConversation } from "./deliveries.js";
 import { getUnreadStates } from "./read-state.js";
 import { listWorkingTargets } from "./runs.js";
 import { ownerIds } from "./mcp-connections.js";
+import { getAccountConfig } from "./settings.js";
 
 /**
  * Colunas que `toBot` usa. Fora: `autonomyJson`, `memoryCleanupJson` (sugestões da limpeza de memória, pode
@@ -237,6 +238,15 @@ export async function listBots(ownerId: string | undefined): Promise<Bot[]> {
 	);
 }
 
+async function accountDefaultBotLanguage(owner: string): Promise<BotLanguageSetting> {
+	try {
+		return (await getAccountConfig(owner)).general?.defaultBotLanguage ?? BOT_LANGUAGE_AUTO;
+	} catch (error) {
+		console.error("account default bot language load failed; using auto", error);
+		return BOT_LANGUAGE_AUTO;
+	}
+}
+
 export async function createBot(input: CreateBotInput, ownerId: string | undefined): Promise<Bot> {
 	const owner = ownerIds(ownerId)[0];
 	if (!owner) throw new Error("Bot owner required");
@@ -245,6 +255,8 @@ export async function createBot(input: CreateBotInput, ownerId: string | undefin
 		data: { userId: owner },
 	});
 
+	// Sem idioma explícito, bot novo usa o padrão da conta (que sem escolha é "auto"). Falha ao ler não bloqueia.
+	const language = input.language ?? (await accountDefaultBotLanguage(owner));
 	const row = await prisma.bot.create({
 		data: {
 			name: input.name,
@@ -253,8 +265,8 @@ export async function createBot(input: CreateBotInput, ownerId: string | undefin
 			shape: input.shape ?? "rond",
 			description: input.description ?? null,
 			openRouterModel: input.openRouterModel ?? null,
-			// Bot novo segue o idioma de quem escreve; os que já existem mantêm o idioma fixo que têm.
-			language: input.language ?? BOT_LANGUAGE_AUTO,
+			// Bot novo segue o padrão da conta; os que já existem mantêm o idioma fixo que têm.
+			language,
 			memberIds: input.memberIds ?? [],
 			conversationId: conversation.id,
 			ownerId: owner,

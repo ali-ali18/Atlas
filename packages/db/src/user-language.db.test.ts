@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { prisma } from "./client.js";
 import { createBot, getBotProfile } from "./bots.js";
+import { patchAccountConfig } from "./settings.js";
 import { createGroup, postGroupUserMessage } from "./bot-groups.js";
 import { createAgentRun, createRunInput } from "./runs.js";
 import { getLanguageContext, noteBrowserLanguage, readLanguageStates, recordUserLanguage, resolveStoredReplyLanguage, writeLanguageStates } from "./user-language.js";
@@ -183,5 +184,17 @@ describe("idioma detectado (Postgres real)", { skip: dbSkip }, () => {
 		assert.equal((await resolveStoredReplyLanguage({ userId: b.id, conversationId: botA.conversationId, setting: "auto" })).language, "pt-BR");
 		// valor desconhecido no banco vale como o padrão
 		assert.equal((await resolveStoredReplyLanguage({ userId: a.id, setting: "xx" })).language, "pt-BR");
+	});
+
+	test("bot novo sem idioma usa o padrão da conta; outro usuário não é afetado", async () => {
+		const a = await createTestUser("lang-def-a");
+		const b = await createTestUser("lang-def-b");
+		assert.equal((await createBot({ name: "Antes" }, a.id)).language, "auto");
+		await patchAccountConfig(a.id, { general: { defaultBotLanguage: "en-US" } });
+		assert.equal((await createBot({ name: "Depois" }, a.id)).language, "en-US");
+		assert.equal((await createBot({ name: "Explícito", language: "es-ES" }, a.id)).language, "es-ES");
+		assert.equal((await createBot({ name: "Outro" }, b.id)).language, "auto");
+		await patchAccountConfig(a.id, { general: { defaultBotLanguage: "auto" } });
+		assert.equal((await createBot({ name: "Volta" }, a.id)).language, "auto");
 	});
 });
