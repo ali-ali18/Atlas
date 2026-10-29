@@ -33,7 +33,7 @@ import {
 } from "./tool-budget.js";
 import type {
 	AgentRunCheckpoint,
-	BotLanguage,
+	BotLanguageSetting,
 	ChatMessage,
 	ComputerUseEvent,
 	ContextMemory,
@@ -79,7 +79,8 @@ import {
 	parseRoutineAlertInput,
 	validateAlertInterval,
 	type RoutineAlertConfig,
-	languageInstruction,
+	allLanguageInstructions,
+	resolveReplyLanguage,
 	buildPersonaBlock,
 	BROWSER_CHILD_MAX_CONCURRENCY,
 	DELEGATE_TOOL_NAME,
@@ -4904,7 +4905,8 @@ export async function runComputerUse(params: {
 	model: string;
 	apiKey: string;
 	messages: ChatMessage[];
-	language?: BotLanguage;
+	/** Idioma do bot: fixo ou "auto" (ver `resolveReplyLanguage`). */
+	language?: BotLanguageSetting;
 	botId?: string;
 	userId?: string;
 	conversationId?: string;
@@ -6046,14 +6048,15 @@ export async function runComputerUse(params: {
 		if (slot < 0) return list as unknown as LlmMessage[];
 		return [...(list.slice(0, slot) as unknown as LlmMessage[]), ...priorHistory, ...(list.slice(slot + 1) as unknown as LlmMessage[])];
 	};
-	const language = params.language ?? "pt-BR";
-	const currentLanguageInstruction = languageInstruction(language);
+	const replyLanguage = resolveReplyLanguage({ setting: params.language ?? "pt-BR", hasUserMessage: false });
+	const language = replyLanguage.language;
+	const currentLanguageInstruction = replyLanguage.instruction;
 	if (parsedCheckpoint?.llmMessages?.length) {
 		conversation = await hydrateLlmMessages(parsedCheckpoint.llmMessages);
 		const systemMessage = conversation.find((message) => message.role === "system");
 		if (systemMessage) {
 			const content = typeof systemMessage.content === "string" ? systemMessage.content : "";
-			systemMessage.content = swapLanguageInstruction(content, (["pt-BR", "en-US", "es-ES"] as const).map(languageInstruction), currentLanguageInstruction);
+			systemMessage.content = swapLanguageInstruction(content, allLanguageInstructions(), currentLanguageInstruction);
 		} else {
 			conversation.unshift({ role: "system", content: currentLanguageInstruction });
 		}

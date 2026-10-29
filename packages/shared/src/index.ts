@@ -86,10 +86,24 @@ export type {
 export { pickEffectiveModel } from "./effective-model.js";
 export {
 	BOT_LANGUAGES,
+	BOT_LANGUAGE_AUTO,
+	BOT_LANGUAGE_SETTINGS,
+	DEFAULT_BOT_LANGUAGE,
+	allLanguageInstructions,
+	autoLanguageInstruction,
 	isBotLanguage,
+	isBotLanguageSetting,
 	languageInstruction,
+	matchBotLanguage,
+	parseBotLanguageSetting,
+	pickLanguageFromAcceptLanguage,
+	resolveReplyLanguage,
 	type BotLanguage,
+	type BotLanguageSetting,
+	type ReplyLanguage,
+	type ReplyLanguageInput,
 } from "./bot-language.js";
+export { LANGUAGE_SPECS, type LanguageSpec } from "./language-registry.js";
 export { buildPersonaBlock, PERSONA_ROLE_MAX_CHARS, PERSONA_STYLE_LINE, type PersonaInput } from "./persona.js";
 export type { OpenRouterModel, ListModelsResponse } from "./model.js";
 export { modelSupportsImageInput } from "./model.js";

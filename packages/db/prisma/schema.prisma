@@ -115,6 +115,10 @@ model Conversation {
   mcpTaskGrants McpTaskGrant[]
   /// Última vez que a conversa recebeu conteúdo que o usuário não escreveu (e-mail, página, arquivo, conector). Decai em 24 h ou ao compactar.
   untrustedAt DateTime?
+  /// Idioma em que o usuário escreveu por último nesta conversa (ex.: "en-US"), detectado no servidor com confiança alta. Só vale para bot com idioma "auto".
+  lastLanguage    String?
+  /// Idioma visto uma vez e ainda não confirmado (precisa de 2 mensagens seguidas ou uma longa para virar `lastLanguage`).
+  pendingLanguage String?
 
   @@index([userId])
   @@map("conversations")
@@ -391,6 +395,13 @@ model UserSettings {
   /// Rodapé "enviado pelo bot" nas issues/comentários/PRs (padrão desligado).
   githubSignature  Boolean  @default(false)
   githubSignatureText String?
+  /// Último idioma detectado nas mensagens do usuário (qualquer conversa); fallback das conversas sem idioma próprio.
+  lastLanguage     String?
+  pendingLanguage  String?
+  /// Idioma da interface escolhido pela conta (null = automático, segue o navegador).
+  uiLocale         String?
+  /// Idioma do navegador visto no último envio (Accept-Language); só pista para rotinas e alertas sem conversa recente.
+  browserLocale    String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

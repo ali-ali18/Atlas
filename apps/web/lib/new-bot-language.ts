@@ -1,4 +1,4 @@
-import type { AccountSettingsResponse, BotLanguage } from "@workspace/shared";
+import type { AccountSettingsResponse, BotLanguageSetting } from "@workspace/shared";
 import { getAccountSettings } from "@/lib/atlas-api";
 
 /**
@@ -8,7 +8,7 @@ import { getAccountSettings } from "@/lib/atlas-api";
  */
 export async function resolveNewBotLanguage(
 	load: () => Promise<AccountSettingsResponse> = getAccountSettings,
-): Promise<BotLanguage | undefined> {
+): Promise<BotLanguageSetting | undefined> {
 	try {
 		return (await load()).effective.general.defaultBotLanguage.value;
 	} catch {

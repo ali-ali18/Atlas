@@ -32,4 +32,11 @@ describe("persona do bot (bloco único de identidade, estilo e idioma)", () => {
 		expect(long).toContain('"Bia"');
 		expect(long).toContain(`from your profile: ${"x".repeat(PERSONA_ROLE_MAX_CHARS)}\n`);
 	});
+
+	it("bot em auto não leva idioma na persona (a instrução vai no fim do prompt, o prefixo em cache não muda)", () => {
+		const block = buildPersonaBlock({ name: "Ada", language: "auto" });
+		expect(block).not.toContain("- Language:");
+		expect(block).not.toMatch(/Always reply|American English|Portuguese|Spanish/);
+		expect(block).toContain("- Style:");
+	});
 });

@@ -2,7 +2,7 @@
 
 import { LanguagesIcon, MonitorIcon, MoonIcon, PaletteIcon, SunIcon } from "lucide-react";
 import { useTheme } from "next-themes";
-import type { BotLanguage, Resolved } from "@workspace/shared";
+import type { BotLanguageSetting, Resolved } from "@workspace/shared";
 import {
 	SettingsPicker,
 	type SettingsPickerOption,
@@ -25,11 +25,11 @@ const THEME_OPTIONS: readonly SettingsPickerOption<ThemeChoice>[] = withOptionIc
 );
 
 const INHERIT = "inherit";
-type LanguageChoice = BotLanguage | typeof INHERIT;
+type LanguageChoice = BotLanguageSetting | typeof INHERIT;
 
 /** Opções do idioma: "Herdar" (com a origem do valor) + os idiomas dos bots. */
 export function languageOptions(
-	language: Resolved<BotLanguage>,
+	language: Resolved<BotLanguageSetting>,
 ): SettingsPickerOption<LanguageChoice>[] {
 	const inherit = inheritLabel(language.source, language.value) ?? "Herdar do servidor";
 	return [
@@ -52,9 +52,9 @@ export function GeneralSettingsView({
 	theme: ThemeChoice;
 	onThemeChange: (theme: ThemeChoice) => void;
 	/** `null` enquanto carrega. */
-	language: Resolved<BotLanguage> | null;
+	language: Resolved<BotLanguageSetting> | null;
 	/** `null` = voltar a herdar. */
-	onLanguageChange: (language: BotLanguage | null) => void;
+	onLanguageChange: (language: BotLanguageSetting | null) => void;
 	status: SaveStatus;
 	saveError?: string | null;
 	loadError?: string | null;

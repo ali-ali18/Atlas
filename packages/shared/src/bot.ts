@@ -1,5 +1,5 @@
 /** Bot (ou grupo de bots) persistido no Atlas. */
-import type { BotLanguage } from "./bot-language.js";
+import type { BotLanguageSetting } from "./bot-language.js";
 
 export type Bot = {
 	id: string;
@@ -9,7 +9,7 @@ export type Bot = {
 	shape: string;
 	description: string | null;
 	openRouterModel: string | null;
-	language: BotLanguage;
+	language: BotLanguageSetting;
 	pinned: boolean;
 	pinOrder: number | null;
 	/** Notificações push deste bot ligadas (terminou ou precisa do usuário). */
@@ -53,7 +53,7 @@ export type CreateBotInput = {
 	shape?: string;
 	description?: string | null;
 	openRouterModel?: string | null;
-	language?: BotLanguage;
+	language?: BotLanguageSetting;
 	memberIds?: string[];
 };
 
@@ -64,7 +64,7 @@ export type UpdateBotInput = {
 	shape?: string;
 	description?: string | null;
 	openRouterModel?: string | null;
-	language?: BotLanguage;
+	language?: BotLanguageSetting;
 	pinned?: boolean;
 	pinOrder?: number | null;
 	notify?: boolean;

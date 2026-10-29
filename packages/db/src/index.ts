@@ -137,6 +137,13 @@ export {
 	updateUserSettings,
 } from "./settings.js";
 export {
+	getLanguageContext,
+	readLanguageStates,
+	writeLanguageStates,
+	type LanguageStates,
+	type StoredLanguageState,
+} from "./user-language.js";
+export {
 	createSection,
 	deleteSection,
 	listSections,

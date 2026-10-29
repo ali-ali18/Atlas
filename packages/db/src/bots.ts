@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { BOT_LINK_ROLE, isBotLanguage, isMessageSourceKind, mergeServerPolicyKeys, type Bot, type BotLanguage, type CreateBotInput, type UpdateBotInput } from "@workspace/shared";
+import { BOT_LINK_ROLE, isMessageSourceKind, mergeServerPolicyKeys, parseBotLanguageSetting, type Bot, type BotLanguageSetting, type CreateBotInput, type UpdateBotInput } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { unreadResultsByConversation } from "./deliveries.js";
 import { getUnreadStates } from "./read-state.js";
@@ -51,7 +51,7 @@ function toBot(row: BotRow, lastMessage: Bot["lastMessage"] = null): Bot {
 		shape: row.shape,
 		description: row.description,
 		openRouterModel: row.openRouterModel,
-		language: isBotLanguage(row.language) ? row.language : "pt-BR",
+		language: parseBotLanguageSetting(row.language),
 		pinned: row.pinned,
 		pinOrder: row.pinOrder,
 		notify: row.notify,
@@ -171,7 +171,7 @@ export async function getBotProfile(
 	snippet: string;
 	description: string | null;
 	openRouterModel: string | null;
-	language: BotLanguage;
+	language: BotLanguageSetting;
 } | null> {
 	if (!botId) return null;
 	const row = await prisma.bot.findFirst({
@@ -184,7 +184,7 @@ export async function getBotProfile(
 		snippet: row.snippet,
 		description: row.description,
 		openRouterModel: row.openRouterModel,
-		language: isBotLanguage(row.language) ? row.language : "pt-BR",
+		language: parseBotLanguageSetting(row.language),
 	};
 }
 
