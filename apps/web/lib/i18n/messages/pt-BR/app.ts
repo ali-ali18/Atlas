@@ -21,4 +21,5 @@ export const app = {
 	"app.deleteGroupBody": "Isso exclui permanentemente o grupo e seu histórico de chat. Os bots que fazem parte dele não são excluídos e continuam disponíveis individualmente. Essa ação não pode ser desfeita.",
 	"app.deleteBotBody": "O agente e o histórico da conversa serão apagados. Essa ação não pode ser desfeita.",
 	"app.deleting": "Excluindo…",
+	"app.manifestDescription": "Converse com seus bots, de qualquer lugar.",
 } as const;

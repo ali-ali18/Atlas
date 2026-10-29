@@ -23,4 +23,5 @@ export const app: NamespaceMessages<typeof ptBR> = {
 	"app.deleteGroupBody": "This permanently deletes the group and its chat history. The bots in it are not deleted and stay available individually. This can't be undone.",
 	"app.deleteBotBody": "The agent and the conversation history will be erased. This can't be undone.",
 	"app.deleting": "Deleting…",
+	"app.manifestDescription": "Chat with your bots, from anywhere.",
 };

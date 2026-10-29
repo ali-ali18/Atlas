@@ -23,4 +23,5 @@ export const app: NamespaceMessages<typeof ptBR> = {
 	"app.deleteGroupBody": "Esto elimina de forma permanente el grupo y su historial de chat. Los bots que forman parte de él no se eliminan y siguen disponibles de forma individual. Esta acción no se puede deshacer.",
 	"app.deleteBotBody": "Se borrarán el agente y el historial de la conversación. Esta acción no se puede deshacer.",
 	"app.deleting": "Eliminando…",
+	"app.manifestDescription": "Conversa con tus bots, desde cualquier lugar.",
 };
