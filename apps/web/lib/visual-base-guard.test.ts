@@ -52,7 +52,6 @@ const BASELINE: Record<string, Counts> = {
 	"packages/ui/src/charts/markers/chart-markers.tsx": { textPx: 1 },
 	"packages/ui/src/components/chart.tsx": { roundedPx: 1 },
 	"packages/ui/src/components/model-capability-badges.tsx": { textPx: 1 },
-	"packages/ui/src/components/request-card.tsx": { textPx: 1 },
 	"packages/ui/src/components/tooltip.tsx": { roundedPx: 1 },
 };
 

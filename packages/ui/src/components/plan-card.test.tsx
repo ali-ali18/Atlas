@@ -60,7 +60,7 @@ describe("PlanCard", () => {
       expect(html).toContain(label)
       expect(html).toContain(`data-plan-status="${status}"`)
       expect(html).not.toContain("Aprovar plano")
-      expect(html).not.toContain("data-slot=\"request-card-actions\"")
+      expect(html).not.toContain("data-slot=\"chat-card-actions\"")
       expect(html).toContain("Ver plano")
     }
   })

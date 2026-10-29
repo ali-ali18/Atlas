@@ -41,7 +41,7 @@ test("casca resolvida: sem barra de ações e corpo recolhido atrás do detalhe"
 		</RequestCard>,
 	);
 	assert.match(out, /data-state="resolved"/);
-	assert.doesNotMatch(out, /request-card-actions|>Aprovar</);
+	assert.doesNotMatch(out, /chat-card-actions|>Aprovar</);
 	assert.match(out, />Ver as mudanças</);
 	assert.doesNotMatch(out, /antes e depois/);
 });

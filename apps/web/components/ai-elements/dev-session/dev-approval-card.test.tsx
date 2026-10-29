@@ -51,7 +51,7 @@ test("escrita de arquivo: caminho, prévia do diff e Aplicar/Pular", () => {
 test("decidido: só o selo, sem barra de ações", () => {
 	const out = renderToStaticMarkup(<DevApprovalCard info={command} status="approved" title="Executar este comando?" />);
 	assert.match(out, /Aprovado/);
-	assert.doesNotMatch(out, /request-card-actions/);
+	assert.doesNotMatch(out, /chat-card-actions/);
 	const skipped = renderToStaticMarkup(<DevApprovalCard info={command} status="rejected" title="Executar este comando?" />);
 	assert.match(skipped, /Recusado/);
 });
