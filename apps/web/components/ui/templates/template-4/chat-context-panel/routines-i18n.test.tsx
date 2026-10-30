@@ -194,3 +194,17 @@ test("cartão da rotina em en: selo, ações, rascunho e frase do gatilho", asyn
 	assert.match(out, /aria-label="Pause Resumo, Every Monday at 8:00 AM"/);
 	assert.doesNotMatch(out, /Criada pelo bot|Rascunho|Mais ações/);
 });
+
+test("alerta de cotação, câmbio e clima: ativo, leitura, atraso e 'no pregão' nos três idiomas", async () => {
+	const nbsp = (text: string | null) => text?.replace(/ /g, " ");
+	const quote = ruleRecord({ interval: { everyMinutes: 15 }, alert: { condition: "BBAS3 ficar abaixo de R$ 15,00", active: false, rule: { source: { type: "quote", symbol: "BBAS3" }, check: { kind: "value", parse: "money", op: "lt", value: 15, currency: "BRL" } }, ruleState: { lastValue: 21.34 } } as RoutineRecord["alert"] });
+	assert.equal(nbsp(routineAlertSentence(recordToUiRoutine(quote))), "Alerta · BBAS3 < R$ 15,00 · hoje R$ 21,34 · a cada 15 min no pregão");
+	assert.equal(nbsp(routineAlertSentence(recordToUiRoutine(quote), await en())), "Alert · BBAS3 < R$15.00 · now R$21.34 · every 15 min during market hours");
+	assert.equal(nbsp(routineAlertSentence(recordToUiRoutine(quote), await es())), "Alerta · BBAS3 < 15,00 BRL · hoy 21,34 BRL · cada 15 min en horario de bolsa");
+	const delayed = ruleRecord({ interval: { everyMinutes: 15 }, alert: { ...quote.alert!, ruleState: { lastValue: 21.34, delayMinutes: 30 } } as RoutineRecord["alert"] });
+	assert.equal(nbsp(routineAlertSentence(recordToUiRoutine(delayed))), "Alerta · BBAS3 < R$ 15,00 · hoje R$ 21,34 (atraso ~30 min) · a cada 15 min no pregão");
+	const rain = ruleRecord({ interval: { everyMinutes: 360 }, alert: { condition: "x", active: false, rule: { source: { type: "weather", place: "Curitiba", metric: "rain_probability", day: "tomorrow" }, check: { kind: "value", parse: "number", op: "gte", value: 60 }, label: "chuva em Curitiba" }, ruleState: { lastValue: 75 } } as RoutineRecord["alert"] });
+	assert.equal(nbsp(routineAlertSentence(recordToUiRoutine(rain))), "Alerta · chuva em Curitiba ≥ 60% · hoje 75% · a cada 6 h");
+	const fx = ruleRecord({ interval: { everyMinutes: 30 }, alert: { condition: "x", active: false, rule: { source: { type: "fx", pair: "USD-BRL" }, check: { kind: "value", parse: "money", op: "gt", value: 6, currency: "BRL" }, label: "dólar" }, ruleState: { lastValue: 5.97 } } as RoutineRecord["alert"] });
+	assert.equal(nbsp(routineAlertSentence(recordToUiRoutine(fx))), "Alerta · dólar > R$ 6,00 · hoje R$ 5,97 · a cada 30 min");
+});

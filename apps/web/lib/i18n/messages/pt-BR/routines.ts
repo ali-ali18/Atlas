@@ -130,6 +130,8 @@ export const routines = {
 	"routines.alert.ruleSentence": "Alerta · {rule} · {cadence}",
 	"routines.alert.ruleSentenceNow": "Alerta · {rule} · hoje {value} · {cadence}",
 	"routines.alert.newItem": "novidade",
+	"routines.alert.inMarketHours": "{cadence} no pregão",
+	"routines.alert.delayed": "{value} (atraso ~{minutes} min)",
 	"routines.alert.sentence": "Alerta · confere {cadence} · avisa se {condition}",
 	"routines.alert.cadenceFallback": "de tempos em tempos",
 	"routines.alert.everyHour": "a cada hora",

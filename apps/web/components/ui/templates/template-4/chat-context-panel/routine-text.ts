@@ -7,6 +7,8 @@ import {
 	alertConditionPhrase,
 	cronToScheduleInput,
 	type AlertCheck,
+	alertSourceDefaultLabel,
+	alertSourceUnit,
 	type AlertRule,
 	describeRoutineFailure,
 	type GithubTriggerEvent,
@@ -209,7 +211,7 @@ export type RoutineAlertSource = {
 	schedule?: string | null;
 	everyMinutes?: number;
 	rule?: AlertRule;
-	reading?: { value: number | string; at?: string };
+	reading?: { value: number | string; at?: string; delayMinutes?: number };
 };
 
 const DEFAULT_CURRENCY: Record<UiLocale, string> = { "pt-BR": "BRL", "en-US": "USD", "es-ES": "EUR" };
@@ -218,30 +220,34 @@ const OP_SYMBOL = { lt: "<", lte: "≤", gt: ">", gte: "≥", eq: "=", neq: "≠
 type ValueCheck = Extract<AlertCheck, { kind: "value" }>;
 
 /** Valor lido ou limite da regra no formato do idioma da tela (dinheiro, número ou texto entre aspas). */
-function alertValueText(check: Pick<ValueCheck, "parse" | "currency">, value: number | string, locale: UiLocale): string {
+function alertValueText(check: Pick<ValueCheck, "parse" | "currency">, value: number | string, locale: UiLocale, source?: AlertRule["source"]): string {
 	if (typeof value !== "number") return String(value);
+	// Clima: o número leva a unidade da métrica (%, mm, °C, km/h).
+	const unit = source ? alertSourceUnit(source) : "";
 	if (check.parse === "money") return formatCurrency(value, check.currency ?? DEFAULT_CURRENCY[locale], locale);
-	return formatNumber(value, locale, { maximumFractionDigits: 4 });
+	return formatNumber(value, locale, { maximumFractionDigits: 4 }) + unit;
 }
 
 /** "tênis Nike < R$ 400,00" (curto, para o card), com número e moeda no formato do idioma da tela. */
 export function alertRuleText(rule: AlertRule, { t, locale }: Translator = defaultTranslator): string {
-	const label = rule.label ?? "";
+	const label = rule.label ?? alertSourceDefaultLabel(rule.source) ?? "";
 	if (rule.check.kind === "new_item") return [label, t("routines.alert.newItem")].filter(Boolean).join(" · ");
 	const check = rule.check;
-	const limit = typeof check.value === "number" && check.op === "changed_pct" ? formatPercent(check.value / 100, locale, 2) : alertValueText(check, check.value, locale);
+	const limit = typeof check.value === "number" && check.op === "changed_pct" ? formatPercent(check.value / 100, locale, 2) : alertValueText(check, check.value, locale, rule.source);
 	let tail: string;
-	if (check.op === "between") tail = `${limit}–${alertValueText(check, check.value2 ?? check.value, locale)}`;
+	if (check.op === "between") tail = `${limit}–${alertValueText(check, check.value2 ?? check.value, locale, rule.source)}`;
 	else if (check.op === "changed_pct") tail = `${OP_SYMBOL.changed_pct} ≥ ${limit}`;
 	else tail = `${OP_SYMBOL[check.op]} ${check.parse === "text" ? `“${String(check.value)}”` : limit}`;
 	return tidy(`${label} ${tail}`);
 }
 
 /** Última leitura ("R$ 449,90"); itens novos e leitura ausente não mostram nada. */
-export function alertReadingText(rule: AlertRule, reading: { value: number | string } | undefined, { locale }: Translator = defaultTranslator): string | null {
+export function alertReadingText(rule: AlertRule, reading: { value: number | string; delayMinutes?: number } | undefined, { locale, t }: Translator = defaultTranslator): string | null {
 	if (!reading || rule.check.kind !== "value") return null;
-	const text = alertValueText(rule.check, reading.value, locale);
-	return text.length > 40 ? `${text.slice(0, 39)}…` : text;
+	const text = alertValueText(rule.check, reading.value, locale, rule.source);
+	const clipped = text.length > 40 ? `${text.slice(0, 39)}…` : text;
+	// Cotação com atraso do provedor: o cartão diz, para ninguém ler o preço como se fosse deste minuto.
+	return reading.delayMinutes ? t("routines.alert.delayed", { value: clipped, minutes: reading.delayMinutes }) : clipped;
 }
 
 function intervalCadence(everyMinutes: number, { t }: Translator): string {
@@ -308,7 +314,9 @@ export function alertSentenceText(alert: RoutineAlertSource, translator: Transla
 	if (alert.rule) {
 		const rule = alertRuleText(alert.rule, translator);
 		const value = alertReadingText(alert.rule, alert.reading, translator);
-		const when = lowerFirst(tidy(cadence)) || t("routines.alert.cadenceFallback");
+		const base = lowerFirst(tidy(cadence)) || t("routines.alert.cadenceFallback");
+		// Cotação da B3 só é conferida no pregão: o cartão diz isso na cadência ("a cada 15 min no pregão").
+		const when = alert.rule.source.type === "quote" ? t("routines.alert.inMarketHours", { cadence: base }) : base;
 		return value ? t("routines.alert.ruleSentenceNow", { rule, value, cadence: when }) : t("routines.alert.ruleSentence", { rule, cadence: when });
 	}
 	return t("routines.alert.sentence", {

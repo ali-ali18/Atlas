@@ -111,7 +111,7 @@ function alertSource(record: RoutineRecord): Routine["alert"] | null {
 		...(record.interval ? { everyMinutes: record.interval.everyMinutes } : {}),
 		...(record.alert.rule ? { rule: record.alert.rule } : {}),
 		...(record.alert.rule && record.alert.ruleState?.lastValue !== undefined
-			? { reading: { value: record.alert.ruleState.lastValue, ...(record.alert.ruleState.lastReadAt ? { at: record.alert.ruleState.lastReadAt } : {}) } }
+			? { reading: { value: record.alert.ruleState.lastValue, ...(record.alert.ruleState.lastReadAt ? { at: record.alert.ruleState.lastReadAt } : {}), ...(record.alert.ruleState.delayMinutes ? { delayMinutes: record.alert.ruleState.delayMinutes } : {}) } }
 			: {}),
 	};
 }

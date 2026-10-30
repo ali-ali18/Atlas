@@ -232,7 +232,7 @@ export type Routine = {
 		everyMinutes?: number;
 		/** Alerta com regra (conferido pelo servidor): a frase mostra a regra e a última leitura. */
 		rule?: AlertRule;
-		reading?: { value: number | string; at?: string };
+		reading?: { value: number | string; at?: string; delayMinutes?: number };
 	};
 	/** Aviso ao fim da execução: sempre, ou só quando o bot julgar importante. Ausente = sempre. */
 	notify?: "always" | "important";
