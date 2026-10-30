@@ -95,6 +95,15 @@ async function startUpstream(seen: Seen[]) {
 			res.setHeader("Refresh", `0; url=http://localhost:${self}/r`);
 			return void res.end();
 		}
+		if (url.startsWith("/ext-loc")) {
+			res.statusCode = 302;
+			res.setHeader("Location", decodeURIComponent(url.split("?v=")[1] ?? ""));
+			return void res.end();
+		}
+		if (url.startsWith("/ext-refresh")) {
+			res.setHeader("Refresh", `0; url=${decodeURIComponent(url.split("?v=")[1] ?? "")}`);
+			return void res.end("<h1>oi</h1>");
+		}
 		if (url.startsWith("/to-prefixed")) {
 			res.statusCode = 302;
 			res.setHeader("Location", `${PREFIX}dest`);
@@ -200,7 +209,7 @@ test("basico: 502 do projeto fora do ar, 429 do limite e 500 do onError tambem l
 	const app = new Hono();
 	app.onError((_e, c) => c.text("Internal Server Error", 500));
 	app.use("/v1/previews/:id/p/*", basicResponseHeaders);
-	app.use("/v1/previews/:id/p/*", (c) => c.json({ error: "rate_limit_exceeded" }, 429));
+	app.use("/v1/previews/:id/p/*", async (c) => c.json({ error: "rate_limit_exceeded" }, 429));
 	const limited = await app.request(`https://atlas.test${PREFIX}x`);
 	assert.equal(limited.status, 429);
 	assertBasicHeaders(limited, "429");
@@ -443,4 +452,39 @@ test("websocket no modo basico: recusado (403) mesmo com o cap valido e Origin n
 		front.closeAllConnections();
 		h.close();
 	}
+});
+
+test("basico: Location externo (//host, \\host, /\\host, https://externo, javascript:) nunca sai da origem do Atlas: 502 com sandbox; Refresh externo some", async () => {
+	const h = await harness();
+	try {
+		for (const value of ["//evil.test/x", "\\\\evil.test", "/\\evil.test", "https://evil.test/x", "http://evil.test", "javascript:alert(1)", "data:text/html,x"]) {
+			const res = await get(h, `${PREFIX}ext-loc?v=${encodeURIComponent(value)}`);
+			assert.equal(res.status, 502, value);
+			assert.equal(res.headers.get("location"), null, value);
+			assertBasicHeaders(res, value);
+		}
+		for (const value of ["//evil.test/x", "https://evil.test/x", "\\\\evil.test"]) {
+			const res = await get(h, `${PREFIX}ext-refresh?v=${encodeURIComponent(value)}`);
+			assert.equal(res.status, 200, value);
+			assert.equal(res.headers.get("refresh"), null, value);
+		}
+		// Do próprio Atlas ou relativo: segue (dentro do prefixo).
+		const own = await get(h, `${PREFIX}ext-loc?v=${encodeURIComponent("https://atlas.test/login")}`);
+		assert.equal(own.headers.get("location"), `https://atlas.test${PREFIX}login`);
+		const rel = await get(h, `${PREFIX}ext-loc?v=${encodeURIComponent("next/page?x=1")}`);
+		assert.equal(rel.headers.get("location"), "next/page?x=1");
+	} finally {
+		h.close();
+	}
+});
+
+test("rewriteLocationIntoPrefix: bloqueia (null) destinos fora da previa, inclusive com controle/espaco de borda", () => {
+	const r = (v: string) => rewriteLocationIntoPrefix(v, "10.0.0.5", "https://atlas.test", PREFIX);
+	for (const bad of ["//evil", "\\\\evil", "/\\evil", "https://evil.test", "ftp://evil", "javascript:x", "/\t/evil", " //evil", "/x\n", "a\\b"]) assert.equal(r(bad), null, JSON.stringify(bad));
+	assert.equal(r("/a"), `${PREFIX}a`);
+	assert.equal(r("?x=1"), "?x=1");
+	assert.equal(r("#h"), "#h");
+	assert.equal(r("../up"), "../up");
+	assert.equal(r("http://10.0.0.5:3000/a?b#c"), `https://atlas.test${PREFIX}a?b#c`);
+	assert.equal(r("https://atlas.test/a"), `https://atlas.test${PREFIX}a`);
 });

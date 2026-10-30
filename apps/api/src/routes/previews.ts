@@ -265,21 +265,26 @@ function basicText(status: number, body: string): Response {
 }
 
 /**
- * `Location`/`Refresh` do projeto no modo básico: endereço interno ou caminho absoluto (`/x`) entra no prefixo da prévia (que
- * inclui o `cap`); caminho relativo e sites externos ficam como vieram; quem já tem o prefixo (servidor configurado com base) não é duplicado.
+ * `Location`/`Refresh` do projeto no modo básico: endereço interno, da própria origem do Atlas ou caminho absoluto (`/x`) entra no
+ * prefixo da prévia (que inclui o `cap`); caminho relativo e quem já tem o prefixo ficam como estão. Devolve `null` (BLOQUEADO)
+ * para qualquer destino que não seja da prévia: `//host`, `\\host`, `/\host`, URL absoluta externa, esquema que não é http(s) e
+ * valor com controle/espaço de borda (o navegador os remove e `/\t/evil` viraria `//evil`). Sem isso a origem do Atlas serviria de
+ * redirecionamento aberto para um site qualquer.
  */
-export function rewriteLocationIntoPrefix(value: string, upstreamHost: string, atlasOrigin: string, prefix: string): string {
+export function rewriteLocationIntoPrefix(value: string, upstreamHost: string, atlasOrigin: string, prefix: string): string | null {
+	// eslint-disable-next-line no-control-regex
+	if (/[\u0000-\u001f\u007f]/.test(value) || value !== value.trim()) return null;
+	if (/^[\\/]{2}/.test(value) || value.startsWith("/\\")) return null;
 	const under = (path: string) => (path.startsWith(prefix) || path === prefix.slice(0, -1) ? path : `${prefix}${path.slice(1)}`);
-	if (value.startsWith("//")) return value;
 	if (value.startsWith("/")) return under(value);
 	let url: URL;
 	try {
 		url = new URL(value);
 	} catch {
-		return value;
+		return value.includes("\\") ? null : value;
 	}
 	const internal = new Set([upstreamHost, "127.0.0.1", "localhost", "0.0.0.0", "[::1]"]);
-	if (!/^https?:$/.test(url.protocol) || !internal.has(url.hostname)) return value;
+	if (!/^https?:$/.test(url.protocol) || !(internal.has(url.hostname) || url.origin === atlasOrigin)) return null;
 	return `${atlasOrigin}${under(`${url.pathname}${url.search}${url.hash}`)}`;
 }
 
@@ -493,6 +498,7 @@ export function createPreviewService(deps: PreviewDeps) {
 				{ host: target.host, port: target.port, method: request.method, path: upstreamPath, headers, timeout: UPSTREAM_IDLE_MS, agent: false },
 				(res) => {
 					const out = new Headers();
+					let blockedRedirect = false;
 					for (const [key, value] of Object.entries(res.headers)) {
 						if (HOP_BY_HOP.has(key) || value === undefined) continue;
 						for (const v of Array.isArray(value) ? value : [value]) {
@@ -501,8 +507,16 @@ export function createPreviewService(deps: PreviewDeps) {
 							if (key === "set-cookie") {
 								const rewritten = rewriteUpstreamSetCookie(v);
 								if (rewritten) out.append(key, rewritten);
-							} else if (basicPrefix && (key === "location" || key === "content-location")) out.append(key, rewriteLocationIntoPrefix(v, target.host, publicOrigin, basicPrefix));
-							else if (basicPrefix && key === "refresh") out.append(key, v.replace(/(url\s*=\s*)(\S+)/i, (_m, head: string, t: string) => `${head}${rewriteLocationIntoPrefix(t, target.host, publicOrigin, basicPrefix)}`));
+							} else if (basicPrefix && (key === "location" || key === "content-location")) {
+								const rewritten = rewriteLocationIntoPrefix(v, target.host, publicOrigin, basicPrefix);
+								if (rewritten !== null) out.append(key, rewritten);
+								else if (key === "location") blockedRedirect = true;
+							} else if (basicPrefix && key === "refresh") {
+								// Refresh para fora da prévia (ou ilegível) some: a página só não recarrega.
+								const target2 = /url\s*=\s*(\S+)/i.exec(v)?.[1];
+								const rewritten = target2 === undefined ? v : rewriteLocationIntoPrefix(target2, target.host, publicOrigin, basicPrefix);
+								if (rewritten !== null) out.append(key, target2 === undefined ? v : v.replace(target2, rewritten));
+							}
 							else if (key === "location" || key === "content-location") out.append(key, rewriteToPublicOrigin(v, target.host, publicOrigin));
 							else if (key === "refresh") out.append(key, rewriteRefresh(v, target.host, publicOrigin));
 							else if (key === "access-control-allow-origin") out.append(key, rewriteToPublicOrigin(v, target.host, publicOrigin));
@@ -512,6 +526,10 @@ export function createPreviewService(deps: PreviewDeps) {
 					for (const [key, value] of Object.entries(SECURITY_HEADERS)) out.set(key, value);
 					if (basicPrefix) applyBasicHeaders(out, request.headers);
 					if (!out.has("cache-control")) out.set("Cache-Control", "no-store");
+					if (blockedRedirect) {
+						res.resume();
+						return resolve(basicText(502, "Redirecionamento para fora da prévia bloqueado."));
+					}
 					const status = res.statusCode ?? 502;
 					const noBody = request.method === "HEAD" || status === 204 || status === 304;
 					resolve(new Response(noBody ? null : (Readable.toWeb(res) as ReadableStream), { status, headers: out }));
