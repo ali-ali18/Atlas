@@ -24,7 +24,7 @@ import { jsonBodyLimit } from "./middleware/json-body-limit.js";
 import { apiCompress } from "./middleware/compress.js";
 import { auth, authProviders, isOwnerEmail } from "./auth.js";
 import { createViewerUpgradeHandler } from "./routes/sandbox-viewer.js";
-import { basicResponseHeaders, createPreviewBasicRoutes, createPreviewOpenRoutes, createPreviewService, createUpgradeDispatcher, loadPreviewConfig, previewConfigProblem } from "./routes/previews.js";
+import { basicResponseHeaders, createPreviewBasicRoutes, createPreviewOpenRoutes, createPreviewService, createUpgradeDispatcher, loadPreviewConfig, previewBootLog } from "./routes/previews.js";
 import { createChatRoutes } from "./routes/chat.js";
 import { createDevSessionRoutes } from "./routes/dev-sessions.js";
 import { createDevEnvironmentRoutes } from "./routes/dev-environments.js";
@@ -262,8 +262,8 @@ let pushNotify: ReturnType<typeof createNotifier> | null = null;
 app.route("/", createDevSessionRoutes());
 // Prévia privada: o link do chat passa por aqui (login do Atlas) antes de ir ao domínio separado da prévia.
 const previewConfig = loadPreviewConfig();
-const previewProblem = previewConfigProblem();
-if (previewProblem) console.warn(`[preview] prévia completa DESLIGADA, usando o modo básico: ${previewProblem}`);
+const previewBoot = previewBootLog();
+if (previewBoot) console[previewBoot.level](previewBoot.message);
 const previewDevConfig = loadDevSandboxConfig();
 const previewProvider = previewConfig && previewDevConfig.enabled && previewDevConfig.connectMode === "network" ? createDockerDevProvider(previewDevConfig) : null;
 const previewDeps = {

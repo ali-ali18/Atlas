@@ -70,6 +70,13 @@ describe("previewLinkConfigFromEnv / previewOpenUrl", () => {
 		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.com", ATLAS_URL: "https://a.example.com" })?.baseDomain).toBeNull();
 		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.com", ATLAS_URL: "https://a.example.com", ATLAS_PREVIEW_ALLOW_SAME_SITE: "1" })?.baseDomain).toBe("p.example.com");
 	});
+	it("domínio definido mas inútil: cai no básico E guarda o motivo (inválido ou no mesmo site); sem domínio ou válido, sem motivo", () => {
+		const env = { ATLAS_URL: "https://a.example.com" };
+		expect(previewLinkConfigFromEnv({ ...env, ATLAS_PREVIEW_BASE_DOMAIN: "dominio inválido!" })?.fullModeProblem).toMatch(/not a valid domain/);
+		expect(previewLinkConfigFromEnv({ ...env, ATLAS_PREVIEW_BASE_DOMAIN: "p.example.com" })?.fullModeProblem).toMatch(/separate from the Atlas one/);
+		expect(previewLinkConfigFromEnv(env)).toEqual({ baseDomain: null, atlasUrl: "https://a.example.com" });
+		expect(previewLinkConfigFromEnv({ ...env, ATLAS_PREVIEW_BASE_DOMAIN: "p.example.net" })).toEqual({ baseDomain: "p.example.net", atlasUrl: "https://a.example.com" });
+	});
 	it("o link passa pelo Atlas, nunca por endereço interno", () => {
 		expect(previewOpenUrl(link, "cmabc123def456ghi789jkl01")).toBe("https://atlas.example.com/v1/previews/cmabc123def456ghi789jkl01/open");
 	});
@@ -103,6 +110,15 @@ describe("startPreview", () => {
 		expect(summary).toMatch(/base_configured:true/);
 		expect(summary).toMatch(/full preview needs a separate domain/);
 		expect(summary).not.toMatch(/172\.18|127\.0\.0\.1|3090/);
+	});
+
+	it("modo básico com o modo completo mal configurado: o resultado avisa o admin (só quando perguntar ou o projeto precisar); sem problema, não há aviso", async () => {
+		const bad = ctx({ link: { baseDomain: null, atlasUrl: "https://atlas.example.com", fullModeProblem: "ATLAS_PREVIEW_BASE_DOMAIN is not a valid domain name" } });
+		const summary = await startPreview(bad.context, { port: 5173 });
+		expect(summary).toMatch(/Admin note: the full preview is misconfigured.*not a valid domain name/s);
+		expect(summary).toMatch(/only if they ask/);
+		const ok = ctx({ link: { baseDomain: null, atlasUrl: "https://atlas.example.com" } });
+		expect(await startPreview(ok.context, { port: 5173 })).not.toMatch(/Admin note/);
 	});
 
 	it("modo básico: o cap é aleatório de verdade (32 caracteres base64url) e é mantido enquanto a prévia vale (o --base já configurado continua certo)", async () => {

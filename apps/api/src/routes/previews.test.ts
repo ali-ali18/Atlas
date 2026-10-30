@@ -15,6 +15,7 @@ const {
 	createPreviewService,
 	createUpgradeDispatcher,
 	loadPreviewConfig,
+	previewBootLog,
 	previewConfigProblem,
 	rewriteUpstreamSetCookie,
 	signPreviewToken,
@@ -490,4 +491,17 @@ test("upgrade sem viewer e fora do host da previa: 404 limpo, sem calar o socket
 	let viewerCalled = false;
 	createUpgradeDispatcher({ preview: { claimsUpgrade: () => false, handleUpgrade: async () => undefined }, viewer: () => void (viewerCalled = true) })({} as never, socket as never, Buffer.alloc(0));
 	assert.equal(viewerCalled, true);
+});
+
+test("log de boot: diz o modo e o motivo quando o dominio foi definido mas nao serve (cai no basico)", () => {
+	const base = { BETTER_AUTH_SECRET: "s", ATLAS_URL: "https://atlas.example.com" };
+	assert.equal(previewBootLog({ ATLAS_URL: "https://atlas.example.com" }), null, "sem segredo: prévia desligada, nada a dizer aqui");
+	assert.deepEqual(previewBootLog(base), { level: "info", message: "[preview] modo básico (sem ATLAS_PREVIEW_BASE_DOMAIN)" });
+	assert.deepEqual(previewBootLog({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "previews.example.net" }), { level: "info", message: "[preview] modo completo (previews.example.net)" });
+	const invalid = previewBootLog({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "dominio invalido!" });
+	assert.equal(invalid?.level, "warn");
+	assert.match(invalid?.message ?? "", /usando o modo básico: ATLAS_PREVIEW_BASE_DOMAIN inválido/);
+	const sameSite = previewBootLog({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "preview.example.com" });
+	assert.equal(sameSite?.level, "warn");
+	assert.match(sameSite?.message ?? "", /usando o modo básico: .*mesmo site/);
 });

@@ -83,6 +83,15 @@ export function previewConfigProblem(env: NodeJS.ProcessEnv = process.env): stri
 	return conflict ? `${conflict}; use um domínio registrável separado (ou ATLAS_PREVIEW_ALLOW_SAME_SITE=1 por sua conta e risco)` : null;
 }
 
+/** Linha de log do boot: diz o modo e, se `ATLAS_PREVIEW_BASE_DOMAIN` foi definida mas não serve, o motivo do modo completo não ligar. */
+export function previewBootLog(env: NodeJS.ProcessEnv = process.env): { level: "info" | "warn"; message: string } | null {
+	const config = loadPreviewConfig(env);
+	if (!config) return null;
+	const problem = previewConfigProblem(env);
+	if (problem) return { level: "warn", message: `[preview] prévia completa DESLIGADA, usando o modo básico: ${problem}` };
+	return { level: "info", message: `[preview] modo ${previewMode(config) === "full" ? `completo (${config.baseDomain})` : "básico (sem ATLAS_PREVIEW_BASE_DOMAIN)"}` };
+}
+
 // ---- Tokens --------------------------------------------------------------
 
 /** `open`: vai na URL do redirect (60 s). `session`: vai no cookie (até 1 h). Chaves distintas: um não vale como o outro. */

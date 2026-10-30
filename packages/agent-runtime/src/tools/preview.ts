@@ -46,14 +46,21 @@ export const PREVIEW_TOOLS: ChatTool[] = [
  * Onde moram o domínio das prévias e a origem do Atlas (variáveis do worker/api); `null` = prévia desligada.
  * `baseDomain: null` = modo básico (sem domínio: prévia sob o caminho do Atlas, em origem opaca). Mesma regra da API (`loadPreviewConfig`).
  */
-export type PreviewLinkConfig = { baseDomain: string | null; atlasUrl: string };
+export type PreviewLinkConfig = {
+	baseDomain: string | null;
+	atlasUrl: string;
+	/** Só no modo básico: `ATLAS_PREVIEW_BASE_DOMAIN` foi definida mas não serve (inválida ou no mesmo site do Atlas), então o modo completo não liga. */
+	fullModeProblem?: string;
+};
 
 export function previewLinkConfigFromEnv(env: NodeJS.ProcessEnv = process.env): PreviewLinkConfig | null {
 	const atlasUrl = env.ATLAS_URL?.trim().replace(/\/+$/, "");
 	if (!atlasUrl) return null;
 	const baseDomain = normalizePreviewBaseDomain(env.ATLAS_PREVIEW_BASE_DOMAIN);
 	// Domínio inválido ou no mesmo site do Atlas: a API cai no modo básico; a tool segue a mesma regra.
-	if (!baseDomain || (env.ATLAS_PREVIEW_ALLOW_SAME_SITE !== "1" && previewBaseDomainConflict(baseDomain, atlasUrl))) return { baseDomain: null, atlasUrl };
+	if (!baseDomain) return env.ATLAS_PREVIEW_BASE_DOMAIN?.trim() ? { baseDomain: null, atlasUrl, fullModeProblem: "ATLAS_PREVIEW_BASE_DOMAIN is not a valid domain name" } : { baseDomain: null, atlasUrl };
+	const conflict = env.ATLAS_PREVIEW_ALLOW_SAME_SITE !== "1" ? previewBaseDomainConflict(baseDomain, atlasUrl) : null;
+	if (conflict) return { baseDomain: null, atlasUrl, fullModeProblem: `ATLAS_PREVIEW_BASE_DOMAIN must be a registrable domain separate from the Atlas one (${conflict})` };
 	return { baseDomain, atlasUrl };
 }
 
@@ -108,11 +115,12 @@ export type PreviewContext = {
 };
 
 /** Dicas só do modo básico: o projeto roda sob um prefixo, em sandbox, sem cookies/storage nem HMR. Em inglês, para o modelo. */
-function basicModeNotes(prefix: string): string[] {
+function basicModeNotes(prefix: string, fullModeProblem?: string): string[] {
 	return [
 		`Mode: basic. The page is served under the path prefix ${prefix} in a sandbox (no cookies, localStorage or sessionStorage, no WebSocket/HMR: after edits ask the user to reload the page).`,
 		`Relative asset URLs (./style.css, assets/app.js) work with any server, so plain static sites need nothing. Absolute asset URLs (/assets/app.js, Vite/CRA/Next dev servers) only work if the server's base path is ${prefix}: vite \`--base ${prefix}\`, CRA \`PUBLIC_URL=${prefix}\` (or "homepage"). If you restarted the server with that base, call preview_start again with base_configured:true. Redirects are rewritten into the prefix automatically.`,
 		"If the project needs cookies, login, localStorage or live reload to work, say in plain words that the full preview needs a separate domain and offer: tell me to \"set up the full preview\". Do not mention modes, sandboxes or prefixes otherwise.",
+		...(fullModeProblem ? [`Admin note: the full preview is misconfigured and was skipped: ${fullModeProblem}. The user is the server admin: only if they ask for the full preview, or the project needs cookies/login/localStorage, tell them in plain words that the preview domain setting is not valid and must be fixed first.`] : []),
 	];
 }
 
@@ -157,7 +165,7 @@ export async function startPreview(ctx: PreviewContext, args: Record<string, unk
 		basic
 			? "Edits you make show after the user reloads the page. Call preview_start again if you restart the server on another port or change its base path (the prefix stays the same while the preview is active; never show it to the user)."
 			: "Edits you make keep showing in the same link (dev servers reload on their own). Call preview_start again if you restart the server on another port.",
-		...(basic ? basicModeNotes(previewBasicPrefix(ctx.sessionId, cap)) : ["Mode: full."]),
+		...(basic ? basicModeNotes(previewBasicPrefix(ctx.sessionId, cap), ctx.link.fullModeProblem) : ["Mode: full."]),
 	].join("\n");
 }
 
