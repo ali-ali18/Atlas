@@ -10,6 +10,10 @@
  *   dos EUA (março a novembro) o regular é 10h–16h55, leilão até as 17h e after-market 17h30–18h.
  * - Feriados 2026: Ofício Circular 054/2025-VNC da B3 (calendário de feriados em 2026) e errata 041/2026-VNC. Não há
  *   pregão em 24/12 e 31/12; o feriado municipal de SP (09/07) não fecha a B3.
+ * - Outros anos (2027 em diante): a B3 ainda não publicou o ofício (não achei fonte oficial), então o calendário é
+ *   CALCULADO: feriados nacionais fixos que a B3 observa (01/01, 21/04, 01/05, 07/09, 12/10, 02/11, 20/11, 25/12) e as
+ *   duas vésperas sem sessão (24/12 e 31/12), mais os móveis pela Páscoa (Carnaval segunda e terça, Sexta-feira Santa e
+ *   Corpus Christi). Bate com a lista oficial de 2026 (teste). Quando a B3 publicar o ofício do ano, vale conferir.
  *
  * O Brasil não tem horário de verão desde 2019: usa UTC-3 fixo.
  */
@@ -33,6 +37,40 @@ export const B3_HOLIDAYS_2026: readonly string[] = [
 	"2026-12-25", // Natal
 	"2026-12-31", // véspera de Ano Novo (sem sessão)
 ];
+
+/** Domingo de Páscoa (calendário gregoriano, algoritmo de Meeus/Jones/Butcher), como [mês, dia]. */
+function easterSunday(year: number): [number, number] {
+	const a = year % 19;
+	const b = Math.floor(year / 100);
+	const c = year % 100;
+	const d = Math.floor(b / 4);
+	const e = b % 4;
+	const f = Math.floor((b + 8) / 25);
+	const g = Math.floor((b - f + 1) / 3);
+	const h = (19 * a + b - d - g + 15) % 30;
+	const i = Math.floor(c / 4);
+	const k = c % 4;
+	const l = (32 + 2 * e + 2 * i - h - k) % 7;
+	const m = Math.floor((a + 11 * h + 22 * l) / 451);
+	const month = Math.floor((h + l - 7 * m + 114) / 31);
+	return [month, ((h + l - 7 * m + 114) % 31) + 1];
+}
+
+const dateKeyOf = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+/** Dias sem pregão de um ano: 2026 pela lista oficial; os demais calculados (ver o cabeçalho do arquivo). */
+export function b3HolidaysFor(year: number): readonly string[] {
+	return year === 2026 ? B3_HOLIDAYS_2026 : computedB3Holidays(year);
+}
+
+/** Calendário pela regra (fixos + Páscoa). Para 2026 serve de conferência contra a lista oficial. */
+export function computedB3Holidays(year: number): string[] {
+	const fixed = ["01-01", "04-21", "05-01", "09-07", "10-12", "11-02", "11-20", "12-24", "12-25", "12-31"].map((md) => `${year}-${md}`);
+	const [month, day] = easterSunday(year);
+	const easter = Date.UTC(year, month - 1, day);
+	const offset = (days: number) => dateKeyOf(easter + days * 86_400_000);
+	return [...fixed, offset(-48), offset(-47), offset(-2), offset(60)].sort();
+}
 
 /** Grade de horários em minutos desde 00:00 de Brasília. */
 export type B3Schedule = {
@@ -85,10 +123,10 @@ export function b3ScheduleFor(dateKey: string): B3Schedule {
 	return isB3UsDstSchedule(dateKey) ? B3_SCHEDULE_US_DST : B3_SCHEDULE_STANDARD;
 }
 
-/** Dia de pregão: dia útil que não está na lista de feriados. Anos sem lista só excluem fim de semana. */
+/** Dia de pregão: dia útil que não está na lista de feriados do ano. */
 export function isB3TradingDay(dateKey: string, weekday: number): boolean {
 	if (weekday === 0 || weekday === 6) return false;
-	return !B3_HOLIDAYS_2026.includes(dateKey);
+	return !b3HolidaysFor(Number(dateKey.slice(0, 4))).includes(dateKey);
 }
 
 export type B3Phase = "closed" | "pre_open" | "open" | "after_close";

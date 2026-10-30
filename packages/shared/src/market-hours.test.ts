@@ -69,3 +69,23 @@ describe("quoteCheckDecision", () => {
 		expect(quoteCheckDecision(brt("2026-10-15T17:30:00"), undefined)).toMatchObject({ check: true });
 	});
 });
+
+describe("feriados de outros anos (calculados)", () => {
+	it("a regra calculada reproduz a lista oficial de 2026", async () => {
+		const { computedB3Holidays } = await import("./market-hours.js");
+		expect(computedB3Holidays(2026)).toEqual([...B3_HOLIDAYS_2026]);
+	});
+
+	it("2027: Carnaval, Sexta-feira Santa e Corpus Christi vêm da Páscoa (28/03/2027)", async () => {
+		const { b3HolidaysFor } = await import("./market-hours.js");
+		const days = b3HolidaysFor(2027);
+		for (const day of ["2027-01-01", "2027-02-08", "2027-02-09", "2027-03-26", "2027-04-21", "2027-05-27", "2027-09-07", "2027-10-12", "2027-11-02", "2027-12-24", "2027-12-31"]) expect(days, day).toContain(day);
+		expect(days).not.toContain("2027-07-09");
+	});
+
+	it("01/01/2027 e a terça de Carnaval de 2027 não têm pregão; um dia útil comum tem", () => {
+		expect(b3Session(brt("2027-01-01T11:00:00")).tradingDay).toBe(false);
+		expect(isB3Open(brt("2027-02-09T11:00:00"))).toBe(false);
+		expect(isB3Open(brt("2027-03-10T11:00:00"))).toBe(true);
+	});
+});
