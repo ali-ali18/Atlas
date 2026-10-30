@@ -126,6 +126,7 @@ const READ_ONLY_BUILTINS = new Set([
 	"mcp_tool_search",
 	"skill_read",
 	"app_info",
+	"current_time",
 	"list_skills",
 	"list_routines",
 	"list_followups",

@@ -107,7 +107,7 @@ const CLEAN_INTERNAL_TOOLS = new Set([
 	"propose_profile_update", "propose_bot", "propose_plan", "propose_skill", "propose_skill_change", "propose_skill_delete",
 	"suggest_routine", "update_task_list", "todo_write", "track_items",
 	"notify_user", "set_autonomy", "schedule_followup", "cancel_followup", "reschedule_followup",
-	"request_secrets", "secret_request", "email_create_mailbox", "shell_kill", "app_info",
+	"request_secrets", "secret_request", "email_create_mailbox", "shell_kill", "app_info", "current_time",
 ]);
 
 /** Inverso da lista permitida: toda tool marca, salvo as internas limpas. Todo `mcp__*` marca, leitura ou escrita. */

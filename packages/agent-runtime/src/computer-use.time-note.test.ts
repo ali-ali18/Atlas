@@ -125,3 +125,50 @@ describe("replay: a hora local não vira turno de usuário", () => {
 		expect(legacySystemPrompt()).toContain("never answer, acknowledge or mention them");
 	});
 });
+
+describe("tool current_time no runtime", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-10-30T20:37:45Z"));
+	});
+	afterEach(() => vi.useRealTimers());
+
+	const run = async (args: Record<string, unknown>, timeZone?: string) => {
+		const seen: string[][] = [];
+		const results: Array<{ ok: boolean; summary: string }> = [];
+		const queue: CompleteChatWithToolsResult[] = [
+			{ model: "m", message: { role: "assistant", content: null, tool_calls: [{ id: "t1", type: "function", function: { name: "current_time", arguments: JSON.stringify(args) } }] } },
+			done(),
+		];
+		await runComputerUse({
+			...base,
+			timeZone,
+			messages: [{ role: "user", content: "me lembra amanhã às 10h de ligar para o cliente" }],
+			maxSteps: 4,
+			onEvent: (event) => { if (event.type === "tool_result") results.push({ ok: event.ok, summary: String(event.summary) }); },
+			streamChat: async (p) => (seen.push(p.tools.map((t) => t.function.name)), queue.shift()!),
+		});
+		return { seen, results };
+	};
+
+	it("vem com o grupo de rotinas no passo 1, roda sem LLM e usa o fuso da conta", async () => {
+		const { seen, results } = await run({}, "Asia/Tokyo");
+		expect(seen[0]).toContain("current_time");
+		expect(results[0]).toMatchObject({ ok: true });
+		expect(results[0]!.summary).toContain("2026-10-31 05:37 (sábado), timezone Asia/Tokyo");
+	});
+
+	it("fuso inválido volta ok:false", async () => {
+		const { results } = await run({ timezone: "Nope/Zone" });
+		expect(results[0]!.ok).toBe(false);
+		expect(results[0]!.summary).toMatch(/Invalid timezone/);
+	});
+});
+
+describe("current_time fora do pedido que não precisa dele", () => {
+	it("'Bom dia' não carrega a tool (grupo lazy)", async () => {
+		const seen: string[][] = [];
+		await runComputerUse({ ...base, messages: [{ role: "user", content: "Bom dia" }], maxSteps: 2, streamChat: async (p) => (seen.push(p.tools.map((t) => t.function.name)), done("Bom dia!")) });
+		expect(seen[0]).not.toContain("current_time");
+	});
+});
