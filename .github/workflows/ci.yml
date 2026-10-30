@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # release/**: os PRs entram primeiro no ramo da versão; só a versão inteira vai para a main.
+    branches: [main, "release/**"]
   workflow_dispatch:
   workflow_call:
 
