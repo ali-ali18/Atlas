@@ -31,7 +31,10 @@ export type AvatarGovernor = ReturnType<typeof createAvatarGovernor>;
 export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_TUNING) {
 	let base: AvatarDesired = { state: "idle", step: null, progress: null };
 	let lastStep: number | null = null;
+	/** Passo novo esperando a vez de mostrar o anel (a permanência do estado atual pode segurá-lo). */
+	let flashPending = false;
 	let flashUntil = 0;
+	/** Quando o último anel FOI mostrado (o intervalo só conta anel que apareceu). */
 	let lastFlashAt = Number.NEGATIVE_INFINITY;
 	let transient: Transient | null = null;
 	let shown: AvatarState = "idle";
@@ -42,7 +45,7 @@ export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_T
 	function target(now: number): { state: AvatarState; urgent: boolean } {
 		if (transient && now < transient.until) return { state: transient.state, urgent: true };
 		if (transient) transient = null;
-		if (now < flashUntil && base.progress !== null) return { state: "progress", urgent: false };
+		if ((flashPending || now < flashUntil) && base.progress !== null) return { state: "progress", urgent: false };
 		return { state: base.state, urgent: false };
 	}
 
@@ -54,6 +57,11 @@ export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_T
 		if (want.state !== shown && (want.urgent || !holds() || now - shownSince >= tuning.minDwellMs)) {
 			shown = want.state;
 			shownSince = now;
+			if (shown === "progress" && flashPending) {
+				flashPending = false;
+				flashUntil = now + tuning.progressFlashMs;
+				lastFlashAt = now;
+			}
 		}
 		// O anel de progresso mostra a fração do passo; fora do estado `progress` não importa.
 		progress = base.progress;
@@ -64,12 +72,13 @@ export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_T
 		/** O que o bot quer mostrar (a cada mudança de atividade).  */
 		push(desired: AvatarDesired, now: number): void {
 			base = desired;
+			if (desired.progress === null) flashPending = false;
 			if (desired.step === null) {
+				if (desired.state === "idle") flashPending = false;
 				if (desired.state === "idle") lastStep = null;
 			} else {
 				if (desired.step !== lastStep && desired.progress !== null && now - lastFlashAt >= tuning.progressCooldownMs) {
-					flashUntil = now + tuning.progressFlashMs;
-					lastFlashAt = now;
+					flashPending = true;
 				}
 				lastStep = desired.step;
 			}
@@ -77,11 +86,15 @@ export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_T
 		/** Ferramenta falhou / run terminou: reação imediata, depois volta ao que o bot estiver fazendo. */
 		event(kind: "failed" | "finished", now: number): void {
 			transient = { state: kind, until: now + (kind === "failed" ? tuning.failedMs : tuning.finishedMs) };
-			if (kind === "finished") flashUntil = 0;
+			if (kind === "finished") {
+				flashUntil = 0;
+				flashPending = false;
+			}
 		},
 		/** Run novo começando: esquece a comemoração/erro do run anterior e o passo (o anel acende no passo 0). */
 		begin(): void {
 			transient = null;
+			flashPending = false;
 			flashUntil = 0;
 			lastFlashAt = Number.NEGATIVE_INFINITY;
 			lastStep = null;

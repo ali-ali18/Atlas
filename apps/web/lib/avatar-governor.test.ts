@@ -169,3 +169,34 @@ test("determinístico: mesma sequência, mesmo resultado", () => {
 	};
 	assert.deepEqual(run(), run());
 });
+
+test("anel que chega dentro da permanência de outro estado espera a vez em vez de ser perdido", () => {
+	const g = createAvatarGovernor();
+	g.push(desired(tool("read_file", 0, 8)), 0);
+	assert.equal(g.signal(0).state, "progress");
+	g.signal(T.progressFlashMs); // volta para a ferramenta
+	g.push(desired({ phase: "thinking" }), 3900);
+	assert.equal(g.signal(3900).state, "thinking");
+	// passo novo logo depois, ainda dentro da permanência de `thinking`
+	g.push(desired(tool("edit_file", 1, 8)), 4100);
+	assert.equal(g.signal(4100).state, "thinking");
+	// quando a permanência acaba o anel aparece (antes era consumido sem nunca aparecer)
+	const s = g.signal(3900 + T.minDwellMs);
+	assert.equal(s.state, "progress");
+	assert.equal(s.progress, 2 / 8);
+	// o intervalo conta do anel que apareceu, não do que foi pedido
+	g.signal(3900 + T.minDwellMs + T.progressFlashMs);
+	g.push(desired(tool("shell", 2, 8)), 3900 + T.minDwellMs + 1000);
+	assert.equal(g.signal(3900 + T.minDwellMs + 1000).state, "coding");
+});
+
+test("anel pedido que perde o sentido (a ferramenta acabou) não aparece depois", () => {
+	const g = createAvatarGovernor();
+	g.push(desired(tool("read_file", 0, 8)), 0);
+	g.signal(T.progressFlashMs);
+	g.push(desired({ phase: "thinking" }), 3900);
+	g.signal(3900);
+	g.push(desired(tool("edit_file", 1, 8)), 4100);
+	g.push(desired({ phase: "thinking" }), 4300); // sem passo: o pedido expira
+	assert.equal(g.signal(3900 + T.minDwellMs + 50).state, "thinking");
+});
