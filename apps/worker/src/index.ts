@@ -353,6 +353,11 @@ const routineWorker = new Worker<
 			attemptsMade: job.attemptsMade,
 			deferJob: (payload, delayMs) =>
 				enqueueRoutineEventDeferred(routineQueue, payload, delayMs),
+			notify,
+			appendMessage: (conversationId, text, origin) => appendConversationMessage(conversationId, "assistant", text, origin),
+			onRoutineMutated: async (routine) => {
+				await syncRoutineScheduler(routineQueue, routine);
+			},
 			onGaveUp: async ({ reason, routineRunId }) => {
 				await reportRoutineFailure(
 					{ payload: { ...job.data, routineRunId }, reason, at: routineOccurrenceAt(job), openedAfter: new Date(job.timestamp), alreadyClosedRunId: routineRunId },

@@ -1,5 +1,5 @@
 import { AVATAR_COLORS, eyeColorFor as engineEyeColorFor } from "@workspace/ui/lib/avatar/identity";
-import type { MessageSource, BotLanguageSetting, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec } from "@workspace/shared";
+import type { AlertRule, MessageSource, BotLanguageSetting, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec } from "@workspace/shared";
 import type { BotProfileProposal } from "@/components/ai-elements/confirm";
 
 export type BodyColor = {
@@ -225,7 +225,15 @@ export type Routine = {
 	model: string;
 	allowChatgptPlan?: boolean;
 	/** Rotina de alerta: o que a UI precisa para montar a frase ("Alerta · confere a cada 30 min · avisa se …") no idioma da tela. O agente configura. */
-	alert?: { condition: string; triggerType: "cron" | "interval" | "once" | "event"; schedule?: string | null; everyMinutes?: number };
+	alert?: {
+		condition: string;
+		triggerType: "cron" | "interval" | "once" | "event";
+		schedule?: string | null;
+		everyMinutes?: number;
+		/** Alerta com regra (conferido pelo servidor): a frase mostra a regra e a última leitura. */
+		rule?: AlertRule;
+		reading?: { value: number | string; at?: string };
+	};
 	/** Aviso ao fim da execução: sempre, ou só quando o bot julgar importante. Ausente = sempre. */
 	notify?: "always" | "important";
 	/** cron = agendamento; event = webhook/github; once = lembrete de uma vez só; interval = a cada N min. */

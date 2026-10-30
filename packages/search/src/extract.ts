@@ -135,24 +135,84 @@ const BLOCKED_V4: Array<[string, number]> = [
   ["240.0.0.0", 4],
 ];
 
+/** Bytes de um IPv4 ("a.b.c.d" estrito) ou null. */
+function parseV4(text: string): number[] | null {
+  const parts = text.split(".");
+  if (parts.length !== 4) return null;
+  const bytes: number[] = [];
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const value = Number(part);
+    if (value > 255) return null;
+    bytes.push(value);
+  }
+  return bytes;
+}
+
+/** 16 bytes de um IPv6 (aceita "::", cauda IPv4 pontuada e zona "%x"), ou null se não for um IPv6 válido. */
+function parseV6(raw: string): number[] | null {
+  const text = raw.split("%")[0]!.toLowerCase();
+  if (isIP(text) !== 6) return null;
+  let head = text;
+  let tail: number[] = [];
+  const lastColon = text.lastIndexOf(":");
+  if (text.includes(".")) {
+    const v4 = parseV4(text.slice(lastColon + 1));
+    if (!v4) return null;
+    head = `${text.slice(0, lastColon + 1)}${((v4[0]! << 8) | v4[1]!).toString(16)}:${((v4[2]! << 8) | v4[3]!).toString(16)}`;
+  }
+  const halves = head.split("::");
+  if (halves.length > 2) return null;
+  const groups = (part: string) => (part === "" ? [] : part.split(":"));
+  const left = groups(halves[0]!);
+  const right = halves.length === 2 ? groups(halves[1]!) : [];
+  const missing = 8 - left.length - right.length;
+  if ((halves.length === 1 && missing !== 0) || missing < (halves.length === 2 ? 1 : 0)) return null;
+  const all = [...left, ...Array(halves.length === 2 ? missing : 0).fill("0"), ...right];
+  if (all.length !== 8) return null;
+  tail = [];
+  for (const group of all) {
+    if (!/^[0-9a-f]{1,4}$/.test(group)) return null;
+    const value = parseInt(group, 16);
+    tail.push(value >> 8, value & 0xff);
+  }
+  return tail;
+}
+
+function isBlockedV4Bytes(bytes: number[]): boolean {
+  const ip = bytes.join(".");
+  return BLOCKED_V4.some(([base, bits]) => inV4Range(ip, base, bits));
+}
+
+/**
+ * Endereço que o servidor nunca deve buscar. IPv6 é normalizado antes de olhar: IPv4 embutido (mapeado
+ * `::ffff:a.b.c.d` ou `::ffff:7f00:1`, compatível `::a.b.c.d`, SIIT `::ffff:0:a.b.c.d`, NAT64 `64:ff9b::/96`
+ * e 6to4 `2002::/16`) vale como o IPv4 de dentro; ULA, link-local, site-local, Teredo, NAT64 local,
+ * documentação, multicast, `::` e `::1` são bloqueados. Texto que não é IP = bloqueado.
+ */
 export function isPrivateExtractAddress(address: string): boolean {
-  const version = isIP(address);
-  if (version === 4) {
-    return BLOCKED_V4.some(([base, bits]) => inV4Range(address, base, bits));
+  const text = address.replace(/^\[|\]$/g, "");
+  const v4 = isIP(text) === 4 ? parseV4(text) : null;
+  if (v4) return isBlockedV4Bytes(v4);
+  const b = parseV6(text);
+  if (!b) return true;
+  const zeroUntil = (n: number) => b.slice(0, n).every((byte) => byte === 0);
+  // ::/96 (compatível, inclui :: e ::1) e ::ffff:0:0/96 (mapeado): o IPv4 está nos 4 últimos bytes.
+  if (zeroUntil(12)) return true;
+  if (zeroUntil(10) && b[10] === 0xff && b[11] === 0xff) return isBlockedV4Bytes(b.slice(12));
+  // ::ffff:0:a.b.c.d (SIIT)
+  if (zeroUntil(8) && b[8] === 0xff && b[9] === 0xff && b[10] === 0 && b[11] === 0) return isBlockedV4Bytes(b.slice(12));
+  // 64:ff9b::/96 (NAT64): IPv4 nos 4 últimos bytes; 64:ff9b:1::/48 (uso local) sempre bloqueado.
+  if (b[0] === 0 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b) {
+    return b[4] !== 0 || b[5] !== 0 || b.slice(6, 12).some((byte) => byte !== 0) ? true : isBlockedV4Bytes(b.slice(12));
   }
-  if (version === 6) {
-    const lower = address.toLowerCase();
-    const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped?.[1]) return isPrivateExtractAddress(mapped[1]);
-    return (
-      lower === "::" ||
-      lower === "::1" ||
-      /^f[cd][0-9a-f]{2}:/.test(lower) ||
-      /^fe[89ab][0-9a-f]:/.test(lower) ||
-      lower.startsWith("ff")
-    );
-  }
-  return true;
+  // 2002::/16 (6to4): IPv4 nos bytes 2-5.
+  if (b[0] === 0x20 && b[1] === 0x02) return isBlockedV4Bytes(b.slice(2, 6));
+  if ((b[0]! & 0xfe) === 0xfc) return true; // fc00::/7 ULA
+  if (b[0] === 0xfe && (b[1]! & 0xc0) !== 0x00) return true; // fe80::/10 e fec0::/10
+  if (b[0] === 0xff) return true; // multicast
+  if (b[0] === 0x20 && b[1] === 0x01 && ((b[2] === 0x00 && b[3] === 0x00) || (b[2] === 0x0d && b[3] === 0xb8))) return true; // Teredo e documentação
+  return false;
 }
 
 export async function assertPublicExtractUrl(

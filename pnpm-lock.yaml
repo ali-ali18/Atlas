@@ -240,6 +240,9 @@ importers:
       '@workspace/sandbox':
         specifier: workspace:*
         version: link:../../packages/sandbox
+      '@workspace/search':
+        specifier: workspace:*
+        version: link:../../packages/search
       '@workspace/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -567,6 +570,9 @@ importers:
       '@mozilla/readability':
         specifier: ^0.6.0
         version: 0.6.0
+      '@workspace/shared':
+        specifier: workspace:*
+        version: link:../shared
       linkedom:
         specifier: ^0.18.0
         version: 0.18.13

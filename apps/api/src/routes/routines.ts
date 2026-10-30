@@ -16,6 +16,7 @@ import {
 	type UpdateRoutineInput,
 } from "@workspace/shared";
 import {
+	AlertLimitError,
 	createRoutine,
 	createRoutineGroup,
 	deleteRoutine,
@@ -591,6 +592,7 @@ export function createRoutineRoutes(routineQueue: RoutineQueue | null) {
 				error instanceof Error ? error.message : "Failed to create routine";
 			if (message === "Bot não encontrado") return c.json({ error: "Not found" }, 404);
 			if (message === "Grupo não encontrado") return c.json({ error: "Group not found" }, 404);
+			if (error instanceof AlertLimitError) return c.json({ error: message }, 409);
 			console.error("create routine failed", error);
 			return c.json({ error: message }, 400);
 		}
@@ -705,6 +707,7 @@ export function createRoutineRoutes(routineQueue: RoutineQueue | null) {
 			const message =
 				error instanceof Error ? error.message : "Failed to update routine";
 			if (message === "Grupo não encontrado") return c.json({ error: "Group not found" }, 404);
+			if (error instanceof AlertLimitError) return c.json({ error: message }, 409);
 			console.error("update routine failed", error);
 			return c.json({ error: message }, 400);
 		}

@@ -20,6 +20,7 @@
     "@workspace/observability": "workspace:*",
     "@workspace/queue": "workspace:*",
     "@workspace/sandbox": "workspace:*",
+    "@workspace/search": "workspace:*",
     "@workspace/shared": "workspace:*",
     "bullmq": "^5.66.4",
     "dotenv": "^17.2.3"
