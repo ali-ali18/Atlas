@@ -33,7 +33,7 @@ Fase A: atividade real nos estados que já existiam.
 - `states.ts`: Lendo (olhos calmos), Programando (olhos apertados, focados) e Mexendo na tela (olhos curiosos) ganham rosto próprio sobre os mesmos seis clipes de trabalho. Só o cérebro não bastava: a 36 px o giro extra some perto do giro dos clipes (±20°).
 
 Fase B: cérebro (`packages/shared/src/avatar/model/brain.ts`).
-- Rede recorrente fixa, sem treino: 20 nós leaky (tanh), pesos sorteados da semente do bot. Entradas: família de atividade (misturada suavemente), pulsos (`toolStart`, `toolOk`, `toolFail`, `tokens`), tempo desde o último evento e quatro marcapassos (senoides de períodos 7,1 · 4,3 · 2,9 · 1,7 s). Sem os marcapassos a rede convergia para um ponto fixo (medido: desvio ~0,02° em 55 s); com eles ela segue se mexendo e nunca repete. Ganho 2,2 (regime caótico) e tanh: nunca estoura.
+- Rede recorrente fixa, sem treino: 20 nós leaky (tanh), pesos sorteados da semente do bot. Entradas: família de atividade (misturada suavemente), pulsos (`toolStart`, `toolOk`, `toolFail`), tempo desde o último evento e quatro marcapassos (senoides de períodos 7,1 · 4,3 · 2,9 · 1,7 s). Sem os marcapassos a rede convergia para um ponto fixo (medido: desvio ~0,02° em 55 s); com eles ela segue se mexendo e nunca repete. Ganho 2,2 (regime caótico) e tanh: nunca estoura.
 - Saídas pequenas somadas por cima do clipe em `character.ts`: giro da cabeça (yaw/pitch/roll, até 7°/6°/4°), olhar dos olhos, achatar/esticar, respiração e a taxa de piscadas (`behavior.ts`). Peso sobe em ~0,8 s ao trabalhar e volta exatamente a zero ao parar.
 - Cada família tem um perfil (andamento, viés, amplitude): Lendo = cabeça levemente baixa, varredura lenta e larga dos olhos, pisca menos; Programando = cabeça baixa, olhar fixo, tremor rápido e "toques", pisca menos ainda; Pesquisando = varredura rápida; Pensando = olha para cima e inclina; etc.
 - API: `engine.pulse(kind, strength)`, `engine.setActivity(family | null)` (por padrão a família vem do estado). O `ChatThread` gera os pulsos pela mudança de atividade (`bot-activity.ts`), o `LiveAgentAvatar` os repassa ao motor.
@@ -44,7 +44,8 @@ Fase B: cérebro (`packages/shared/src/avatar/model/brain.ts`).
 - Rodar mais tempo no loop: avatares com cérebro não dormem enquanto o bot trabalha (já era assim com os clipes de trabalho); parado, volta a dormir (testado).
 - Flicker: coberto pela permanência mínima e testes do governador.
 - Cancelamento pelo usuário hoje termina como "ok" (comemora brevemente), pois o `ChatThread` só sabe se há erro. Anotado como limitação.
-- Rajada de texto (`tokens`) existe no motor, mas o hook de chat ainda não a publica (o estado Escrevendo já tem o seu próprio andamento).
+- Não há pulso por rajada de texto: o hook de chat não separa os deltas sem custo, e o estado Escrevendo já tem o seu próprio andamento.
+- Bateria: o cérebro só roda em Pesquisando, Lendo, Programando, Executando, Mexendo na tela, Pensando e Escrevendo. Esperando você e trabalho genérico (rotina do servidor) não têm movimento contínuo. Só os avatares do chat aberto (`follow="always"`) têm cérebro, e há um teto global de 3 cérebros ao mesmo tempo (`sharedBrainBudget`).
 
 ## Custo
 Sem custo de infra nem de tokens (tudo no cliente). Desempenho de `engine.advance` por quadro (node, 10 mil quadros, mediana de 7 rodadas, máquina compartilhada, então ±2 µs de ruído; `heart`, 56 px):
@@ -55,7 +56,7 @@ Sem custo de infra nem de tokens (tudo no cliente). Desempenho de `engine.advanc
 | trabalhando / lendo / programando | 3,0–4,8 µs | 2,1–2,5 µs | 4,9–5,4 µs |
 | pesquisando (radar) | 7,6–11,1 µs | n/m | 6,6 µs |
 
-O cérebro custa ~2,5–3 µs por quadro (≈ 0,03% de um quadro de 16,7 ms) e só enquanto o bot trabalha. Para comparação, o quadro inteiro (advance + SVG em texto) custa ~390–470 µs. A rede faz 2 a 8 passos de 1/60 s por quadro (20×(20+15) multiplicações cada). Avatares com menos de 32 px, fora da tela, em aba oculta ou com "reduzir movimento" não gastam nada.
+O cérebro custa ~2,5–3 µs por quadro (≈ 0,03% de um quadro de 16,7 ms) e só enquanto o bot trabalha. Para comparação, o quadro inteiro (advance + SVG em texto) custa ~390–470 µs. A rede faz 2 a 8 passos de 1/60 s por quadro (20×(20+15) multiplicações cada). Avatares com menos de 32 px, fora da tela, em aba oculta ou com "reduzir movimento" não gastam nada, e o teto global limita quantos cérebros ficam ativos.
 
 ## Como testar
 - `pnpm --filter @workspace/shared test` (indicator, brain), `pnpm --filter @workspace/ui test` (ticker, avatar), testes do web: `avatar-activity`, `avatar-governor`, `bot-activity`, `working-status`, `live-agent-avatar`.
