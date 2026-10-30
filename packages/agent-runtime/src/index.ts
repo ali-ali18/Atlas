@@ -517,3 +517,4 @@ export { PREVIEW_SETUP_TOOL, PREVIEW_SETUP_TOOL_NAME, executePreviewSetup, type 
 export { createPreviewSetupContext } from "./tools/preview-setup/runtime.js";
 export { routeContextGroups } from "./context/intent-router.js";
 export { setupConfirmId } from "./tools/preview-setup/runtime.js";
+export { MARKET_KEY_CATALOG_IDS, probeMarketKey, resolveMarketKeys, type MarketKeyDeps } from "./market/keys.js";

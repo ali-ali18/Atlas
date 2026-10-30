@@ -35,8 +35,8 @@ describe("catálogo MCP", () => {
 		expect(publicMcpUrl(entry!)).toBe("https://mcp.higgsfield.ai/mcp");
 	});
 
-	it("oferece metadados e habilidades com identificadores únicos para as dez entradas", () => {
-		expect(MCP_CATALOG).toHaveLength(10);
+	it("oferece metadados e habilidades com identificadores únicos para as onze entradas", () => {
+		expect(MCP_CATALOG).toHaveLength(11);
 		const ids = new Set<string>();
 		const skillKeys = new Set<string>();
 		for (const entry of MCP_CATALOG) {
@@ -56,5 +56,16 @@ describe("catálogo MCP", () => {
 				expect(skill.description).toBeTruthy();
 			}
 		}
+	});
+});
+
+describe("brapi (fonte de dados com chave)", () => {
+	it("é uma fonte de dados sem servidor MCP, com chave em Bearer e sem URL de tools", () => {
+		const entry = getMcpCatalogEntry("brapi");
+		expect(entry).toMatchObject({ kind: "data_source", authType: "api_key", category: "data", availability: "available" });
+		expect(entry?.url).toBeUndefined();
+		expect(applyMcpApiKey(entry!, "k-123456")).toEqual({ url: "" });
+		expect(publicMcpUrl(entry!)).toBe("https://brapi.dev");
+		expect(publicMcpUrl(entry!)).not.toContain("k-123456");
 	});
 });

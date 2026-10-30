@@ -295,6 +295,7 @@ export const marketplace: NamespaceMessages<typeof ptBR> = {
 	"marketplace.connector.category.google": "Google",
 	"marketplace.connector.category.productivity": "Productividad",
 	"marketplace.connector.category.creative": "Creación",
+	"marketplace.connector.category.data": "Fuentes de datos",
 	"marketplace.connector.category.custom": "Personalizado",
 	"marketplace.connector.status.connected": "Conectada",
 	"marketplace.connector.status.error": "Error de conexión",
