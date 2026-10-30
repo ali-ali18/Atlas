@@ -206,7 +206,7 @@ Com isto o bot manda um link que abre o projeto que ele está construindo no nav
 dependem de cookies, `localStorage` ou login não funcionam, e não há recarga ao vivo (a página é recarregada à mão).
 
 **Modo completo (opcional)**: para apps com cookies/login/`localStorage` e recarga ao vivo, configure um domínio separado seguindo os passos
-abaixo; com a variável válida a API passa a usar o modo completo sozinha. **O código não mexe na infraestrutura**: estes passos são seus.
+abaixo; com a variável válida a API passa a usar o modo completo sozinha. **O próprio bot conduz estes passos**: como administrador (`ATLAS_OWNER_EMAIL`), peça "quero a prévia completa" no chat. Ele cria o endereço curinga no DNS (Cloudflare ou deSEC, depois de você aprovar num cartão), explica o certificado, a rota, a variável e o reinício passo a passo, confere cada etapa e termina com "Prévia completa ligada" (`docs/features/previa-completa-pelo-chat.md`). O que o Atlas não escreve (certificado, rota e variável no Dokploy) segue sendo feito por você, e os passos abaixo são a referência manual do mesmo caminho.
 
 1. **Domínio registrável separado.** Use um domínio registrado só para prévias (ex.: `atlas-previews.app`), nunca um subdomínio nem o pai do Atlas.
    Motivo: no mesmo site (mesmo domínio registrável) o código do projeto poderia plantar cookies com `Domain=` amplo que o Atlas receberia
