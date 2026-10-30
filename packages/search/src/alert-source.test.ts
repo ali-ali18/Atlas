@@ -195,3 +195,27 @@ describe("readAlertRule · fontes de mercado", () => {
 		expect(await readAlertRule(rule, { market: { getKeys: () => ({}) } })).toMatchObject({ ok: false, code: "needs_key" });
 	});
 });
+
+describe("readAlertRule · teto de memória do cache", () => {
+	it("passa de 100 MB (padrão) ou do teto dado: os mais antigos saem e o cache nunca estoura", async () => {
+		expect(sourceModule.ALERT_SOURCE_CACHE_MAX_BYTES).toBe(100_000_000);
+		const cache = createAlertSourceCache();
+		const fetchFn = vi.fn(async () => res(`<span class="p">R$ 1,00</span>${"x".repeat(400)}`));
+		const deps = { fetchFn: fetchFn as never, lookupFn: lookupPublic, cache, cacheMaxBytes: 2000 };
+		for (const id of [1, 2, 3, 4]) await readAlertSource({ type: "page", url: `https://loja.example.com/p${id}`, extract: { kind: "css", selector: "span.p" } }, deps);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const total = [...cache.values()].reduce((sum, entry) => sum + (entry.bytes ?? 0), 0);
+		expect(total).toBeLessThanOrEqual(2000);
+		expect(cache.size).toBeLessThan(4);
+		expect(cache.has("https://loja.example.com/p4")).toBe(true);
+		expect(cache.has("https://loja.example.com/p1")).toBe(false);
+	});
+
+	it("página que falha não fica no cache", async () => {
+		const cache = createAlertSourceCache();
+		const fetchFn = vi.fn(async () => res("", { status: 500 }));
+		await readAlertSource({ type: "page", url: "https://loja.example.com/x", extract: { kind: "css", selector: "span" } }, { fetchFn: fetchFn as never, lookupFn: lookupPublic, cache });
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(cache.size).toBe(0);
+	});
+});

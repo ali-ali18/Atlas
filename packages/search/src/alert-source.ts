@@ -53,13 +53,18 @@ export type AlertSourceResult =
 	| { ok: false; code: AlertSourceFailure; reason: string; host: string; ms: number };
 
 type FetchedDocument = { body: string; contentType: string };
-export type AlertSourceCache = Map<string, { expiresAt: number; promise: Promise<FetchedDocument> }>;
+/** `bytes` entra quando a busca termina (memória estimada do corpo guardado). */
+export type AlertSourceCache = Map<string, { expiresAt: number; promise: Promise<FetchedDocument>; bytes?: number }>;
+/** Teto de memória do cache de páginas: com páginas de até 5 MB, 200 entradas poderiam passar de 1 GB. */
+export const ALERT_SOURCE_CACHE_MAX_BYTES = 100_000_000;
 
 export type AlertSourceDeps = {
 	fetchFn?: ExtractFetchFn;
 	lookupFn?: ExtractLookupFn;
 	timeoutMs?: number;
 	maxBytes?: number;
+	/** Teto de memória do cache (bytes); padrão `ALERT_SOURCE_CACHE_MAX_BYTES`. */
+	cacheMaxBytes?: number;
 	/** Fontes de mercado (cotação, câmbio, cripto, clima): chaves do dono e injeções de teste. */
 	market?: MarketDeps;
 	/** Respeita o robots.txt do site (padrão: sim; o resultado fica em cache por origem). */
@@ -195,7 +200,28 @@ function fetchShared(url: string, deps: AlertSourceDeps): Promise<FetchedDocumen
 		if (cache.size >= CACHE_MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
 	}
 	const promise = fetchDocument(url, deps);
-	cache.set(url, { expiresAt: now + ALERT_SOURCE_CACHE_TTL_MS, promise });
+	const entry: { expiresAt: number; promise: Promise<FetchedDocument>; bytes?: number } = { expiresAt: now + ALERT_SOURCE_CACHE_TTL_MS, promise };
+	cache.set(url, entry);
+	const limit = deps.cacheMaxBytes ?? ALERT_SOURCE_CACHE_MAX_BYTES;
+	// Falha não fica guardada; sucesso passa a contar bytes e, se estourar o teto, os mais antigos saem primeiro.
+	promise.then(
+		(doc) => {
+			// String em memória custa até 2 bytes por caractere.
+			entry.bytes = doc.body.length * 2;
+			let total = 0;
+			for (const item of cache.values()) total += item.bytes ?? 0;
+			for (const [key, item] of cache) {
+				if (total <= limit) break;
+				if (item === entry && cache.size === 1) break;
+				if (item.bytes === undefined) continue;
+				cache.delete(key);
+				total -= item.bytes;
+			}
+		},
+		() => {
+			if (cache.get(url) === entry) cache.delete(url);
+		},
+	);
 	return promise;
 }
 
