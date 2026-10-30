@@ -1160,6 +1160,8 @@ model DevSession {
   prHeadSha      String?
   prTitle        String?
   lastError      String?
+  /// Prévia privada do projeto web da sessão ({ port, path, startedAt, expiresAt }); nula = sem prévia.
+  preview        Json?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   lastActiveAt   DateTime  @default(now())

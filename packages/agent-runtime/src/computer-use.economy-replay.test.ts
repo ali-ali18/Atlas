@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SandboxManager } from "@workspace/sandbox";
 import type { ChatTool, CompleteChatWithToolsResult, LlmToolCall } from "@workspace/llm";
 import { addMemoryEntry, getBotProfile } from "@workspace/db";
@@ -38,6 +38,8 @@ async function replay(input: {
 	objective?: string;
 	language?: BotLanguageSetting;
 	languageContext?: { lastLanguage?: string | null; accountLocale?: string | null };
+	/** Liga as sessões de código (precisa de conversationId). */
+	withDev?: boolean;
 }) {
 	const requested: ChatTool[][] = [];
 	const prompts: string[] = [];
@@ -56,6 +58,17 @@ async function replay(input: {
 		runId: "run-economy",
 		userId: "user-a",
 		botId: "bot-a",
+		...(input.withDev
+			? {
+					conversationId: "conv-1",
+					devSession: {
+						config: { enabled: true },
+						store: { findForConversation: async () => null, update: async () => undefined },
+						provider: {},
+						getGithubToken: async () => ({ error: "sem github" }),
+					} as never,
+				}
+			: {}),
 		origin: input.origin ?? "chat",
 		objective: input.objective,
 		...(input.language ? { language: input.language } : {}),
@@ -368,5 +381,26 @@ describe("disciplina de execução por família de modelo (prefixo estável)", (
 		expect(deepseek).not.toContain("\nNow is ");
 		// Mesmo modelo, mesmos bytes (cache).
 		expect(await systemFor("deepseek/deepseek-chat")).toBe(deepseek);
+	});
+});
+
+describe("economia ligada: prévia privada (grupo dev)", () => {
+	beforeEach(() => vi.stubEnv("DEV_SANDBOX_ENABLED", "true"));
+	afterEach(() => vi.unstubAllEnvs());
+	it("'roda aí e me mostra' traz preview_start no passo 1 junto do shell; 'Bom dia' não traz nada de código", async () => {
+		const asked = await replay({ withDev: true, messages: [{ role: "user", content: "roda aí e me mostra" }] });
+		expect(asked.first).toEqual(expect.arrayContaining(["dev_session_start", "shell", "preview_start", "preview_stop"]));
+		const greeting = await replay({ withDev: true, messages: [{ role: "user", content: "Bom dia" }] });
+		for (const name of ["dev_session_start", "shell", "preview_start", "preview_stop"]) expect(greeting.first).not.toContain(name);
+		expect(greeting.prefixChars()).toBeLessThan(asked.prefixChars());
+	});
+
+	it("o procedimento do grupo manda mandar o link, sem endereço interno nem print", async () => {
+		const asked = await replay({ withDev: true, messages: [{ role: "user", content: "roda aí e me mostra" }] });
+		expect(asked.system()).toMatch(/Showing a web project: .*preview_start/);
+		expect(asked.system()).toMatch(/Never show localhost, 127\.0\.0\.1/);
+		const greeting = await replay({ withDev: true, messages: [{ role: "user", content: "Bom dia" }] });
+		// O índice de grupos sempre lista os nomes das tools; o procedimento (texto longo) só entra com o pedido.
+		expect(greeting.system()).not.toMatch(/Showing a web project/);
 	});
 });

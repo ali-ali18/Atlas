@@ -18,6 +18,7 @@ function toRow(record: DevSessionRecord): DevSessionRow {
 		tier: record.tier,
 		containerId: record.containerId,
 		todos: record.todos,
+		preview: record.preview,
 		pr: record.pr
 			? {
 					number: record.pr.number,
@@ -51,9 +52,10 @@ export const prismaDevSessionStore: DevSessionStore = {
 		return record ? toRow(record) : null;
 	},
 	async update(id, patch) {
-		const { pr, ...rest } = patch;
+		const { pr, preview, ...rest } = patch;
 		await updateDevSession(id, {
 			...rest,
+			...(preview === undefined ? {} : { preview }),
 			...(pr === undefined
 				? {}
 				: {
