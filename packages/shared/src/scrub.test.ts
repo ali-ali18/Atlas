@@ -55,3 +55,27 @@ describe("scrubSentryEvent", () => {
 		expect(JSON.stringify(out)).not.toMatch(/a@b\.c|1\.2\.3\.4|hunter|abc123/);
 	});
 });
+
+describe("cap da prévia (modo básico) no Sentry", () => {
+	const ID = "cmabc123def456ghi789jkl01";
+	const CAP = "AbCdEfGhIjKlMnOpQrStUvWxYz012345";
+	it("sai de request.url, transaction, breadcrumbs e mensagens, mantendo o resto do caminho", () => {
+		const event = {
+			request: { url: `https://atlas.test/v1/previews/${ID}/p/${CAP}/assets/app.js?v=1`, method: "GET" },
+			transaction: `GET /v1/previews/${ID}/p/${CAP}/index.html`,
+			breadcrumbs: [{ data: { url: `https://atlas.test/v1/previews/${ID}/p/${CAP}/data.json`, to: `/v1/previews/${ID}/p/${CAP}/x` } }],
+			message: `falhou em /v1/previews/${ID}/p/${CAP}/x e em /v1/previews/${ID}/open`,
+			exception: { values: [{ value: `GET /v1/previews/${ID}/p/${CAP} failed` }] },
+		};
+		const out = JSON.stringify(scrubSentryEvent(event));
+		expect(out).not.toContain(CAP);
+		expect(out).toContain(`/v1/previews/${ID}/p/:cap/assets/app.js`);
+		expect(out).toContain(`/v1/previews/${ID}/open`);
+		const clean = scrubSentryEvent(event);
+		expect(clean.request?.url).toBe(`https://atlas.test/v1/previews/${ID}/p/:cap/assets/app.js?v=1`);
+		expect(clean.transaction).toBe(`GET /v1/previews/${ID}/p/:cap/index.html`);
+	});
+	it("scrubString também mascara", () => {
+		expect(scrubString(`x /v1/previews/${ID}/p/${CAP}/a y`)).toBe(`x /v1/previews/${ID}/p/:cap/a y`);
+	});
+});
