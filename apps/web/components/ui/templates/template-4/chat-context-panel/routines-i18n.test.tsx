@@ -117,6 +117,35 @@ test("frase do alerta: pt-BR igual ao shared; en traduz a cadência e o formato 
 	assert.equal(await sentence("0 9 1 * *", await es()), "Alerta · revisa el día 1 de cada mes a las 09:00 · avisa si o estoque cair abaixo de 10");
 });
 
+const RULE_ALERT = {
+	source: { type: "page", url: "https://loja.example.com/p", extract: { kind: "css", selector: ".price" } },
+	check: { kind: "value", parse: "money", op: "lt", value: 400 },
+	label: "tênis",
+} as const;
+const ruleRecord = (patch: Partial<RoutineRecord> = {}, state: Record<string, unknown> = { lastValue: 449.9, lastReadAt: "2026-10-30T12:00:00.000Z" }) =>
+	alertRecord({ interval: { everyMinutes: 120 }, alert: { condition: "tênis ficar abaixo de R$ 400,00", active: false, rule: RULE_ALERT, ruleState: state } as RoutineRecord["alert"], ...patch });
+
+test("frase do alerta com regra: regra, última leitura e cadência no idioma e no formato da tela", async () => {
+	const nbsp = (text: string | null) => text?.replace(/\u00a0/g, " ");
+	assert.equal(nbsp(routineAlertSentence(recordToUiRoutine(ruleRecord()))), "Alerta · tênis < R$ 400,00 · hoje R$ 449,90 · a cada 2 h");
+	assert.equal(nbsp(routineAlertSentence(recordToUiRoutine(ruleRecord()), await en())), "Alert · tênis < $400.00 · now $449.90 · every 2 h");
+	assert.equal(nbsp(routineAlertSentence(recordToUiRoutine(ruleRecord()), await es())), "Alerta · tênis < 400,00 € · hoy 449,90 € · cada 2 h");
+	// sem leitura ainda: só a regra e a cadência
+	assert.equal(nbsp(routineAlertSentence(recordToUiRoutine(ruleRecord({}, {})))), "Alerta · tênis < R$ 400,00 · a cada 2 h");
+	// horário fixo (cron) com regra
+	const cron = ruleRecord({ triggerType: "cron", interval: undefined, schedule: "0 10,14,17 * * 1-5" } as Partial<RoutineRecord>);
+	assert.equal(nbsp(routineAlertSentence(recordToUiRoutine(cron))), "Alerta · tênis < R$ 400,00 · hoje R$ 449,90 · em dias úteis às 10h, 14h e 17h");
+	// alerta sem regra segue igual
+	assert.equal(routineAlertSentence(recordToUiRoutine(alertRecord({}))), describeRoutineAlertSentence(alertRecord({})));
+});
+
+test("alerta com regra de item novo e de faixa: sem leitura inventada", async () => {
+	const feed = ruleRecord({ alert: { condition: "novo", active: false, rule: { source: { type: "feed", url: "https://blog.example.com/rss" }, check: { kind: "new_item" }, label: "editais" }, ruleState: { seeded: true, seenIds: ["a"] } } as RoutineRecord["alert"] });
+	assert.equal(routineAlertSentence(recordToUiRoutine(feed)), "Alerta · editais · novidade · a cada 2 h");
+	const between = ruleRecord({ alert: { condition: "x", active: false, rule: { ...RULE_ALERT, check: { kind: "value", parse: "number", op: "between", value: 10, value2: 20.5 }, label: "dólar" } } as RoutineRecord["alert"] });
+	assert.equal(routineAlertSentence(recordToUiRoutine(between), await en()), "Alert · dólar 10–20.5 · every 2 h");
+});
+
 test("histórico de execuções e resumos do cartão no idioma da tela", async () => {
 	const translator = await en();
 	assert.equal(routineRunLabel({ status: "failed", triggeredBy: "schedule", error: "402 This request requires more credits" }, translator), "schedule · failed · out of credits with the model provider");

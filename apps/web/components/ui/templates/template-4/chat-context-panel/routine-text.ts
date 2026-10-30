@@ -6,13 +6,15 @@
 import {
 	alertConditionPhrase,
 	cronToScheduleInput,
+	type AlertCheck,
+	type AlertRule,
 	describeRoutineFailure,
 	type GithubTriggerEvent,
 	type GithubWebhookTrigger,
 	type RoutineFailureKind,
 } from "@workspace/shared";
 
-import { formatList, formatTime } from "@/lib/format";
+import { formatCurrency, formatList, formatNumber, formatPercent, formatTime } from "@/lib/format";
 import { intervalSummaryLabel, onceSummaryLabel } from "@/lib/shared-labels";
 import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
 import { defaultTranslator, type MessageKey, type Translator } from "@/lib/i18n/translator";
@@ -206,7 +208,41 @@ export type RoutineAlertSource = {
 	triggerType: "cron" | "interval" | "once" | "event";
 	schedule?: string | null;
 	everyMinutes?: number;
+	rule?: AlertRule;
+	reading?: { value: number | string; at?: string };
 };
+
+const DEFAULT_CURRENCY: Record<UiLocale, string> = { "pt-BR": "BRL", "en-US": "USD", "es-ES": "EUR" };
+const OP_SYMBOL = { lt: "<", lte: "≤", gt: ">", gte: "≥", eq: "=", neq: "≠", between: "", contains: "∋", changed_pct: "Δ" } as const;
+
+type ValueCheck = Extract<AlertCheck, { kind: "value" }>;
+
+/** Valor lido ou limite da regra no formato do idioma da tela (dinheiro, número ou texto entre aspas). */
+function alertValueText(check: Pick<ValueCheck, "parse" | "currency">, value: number | string, locale: UiLocale): string {
+	if (typeof value !== "number") return String(value);
+	if (check.parse === "money") return formatCurrency(value, check.currency ?? DEFAULT_CURRENCY[locale], locale);
+	return formatNumber(value, locale, { maximumFractionDigits: 4 });
+}
+
+/** "tênis Nike < R$ 400,00" (curto, para o card), com número e moeda no formato do idioma da tela. */
+export function alertRuleText(rule: AlertRule, { t, locale }: Translator = defaultTranslator): string {
+	const label = rule.label ?? "";
+	if (rule.check.kind === "new_item") return [label, t("routines.alert.newItem")].filter(Boolean).join(" · ");
+	const check = rule.check;
+	const limit = typeof check.value === "number" && check.op === "changed_pct" ? formatPercent(check.value / 100, locale, 2) : alertValueText(check, check.value, locale);
+	let tail: string;
+	if (check.op === "between") tail = `${limit}–${alertValueText(check, check.value2 ?? check.value, locale)}`;
+	else if (check.op === "changed_pct") tail = `${OP_SYMBOL.changed_pct} ≥ ${limit}`;
+	else tail = `${OP_SYMBOL[check.op]} ${check.parse === "text" ? `“${String(check.value)}”` : limit}`;
+	return tidy(`${label} ${tail}`);
+}
+
+/** Última leitura ("R$ 449,90"); itens novos e leitura ausente não mostram nada. */
+export function alertReadingText(rule: AlertRule, reading: { value: number | string } | undefined, { locale }: Translator = defaultTranslator): string | null {
+	if (!reading || rule.check.kind !== "value") return null;
+	const text = alertValueText(rule.check, reading.value, locale);
+	return text.length > 40 ? `${text.slice(0, 39)}…` : text;
+}
 
 function intervalCadence(everyMinutes: number, { t }: Translator): string {
 	if (everyMinutes === 60) return t("routines.alert.everyHour");
@@ -265,9 +301,16 @@ function proposalScheduleText(schedule: string | null | undefined, translator: T
 export function alertSentenceText(alert: RoutineAlertSource, translator: Translator = defaultTranslator): string {
 	const { t } = translator;
 	let cadence: string;
-	if (alert.triggerType === "interval" && alert.everyMinutes !== undefined) cadence = intervalCadence(alert.everyMinutes, translator);
+	if (alert.rule && alert.triggerType === "interval" && alert.everyMinutes !== undefined) cadence = lowerFirst(intervalSummaryText(alert.everyMinutes, translator));
+	else if (alert.triggerType === "interval" && alert.everyMinutes !== undefined) cadence = intervalCadence(alert.everyMinutes, translator);
 	else if (alert.triggerType === "cron") cadence = (alert.schedule ? alertCronText(alert.schedule, translator) : null) ?? proposalScheduleText(alert.schedule, translator);
 	else cadence = proposalScheduleText(alert.schedule, translator);
+	if (alert.rule) {
+		const rule = alertRuleText(alert.rule, translator);
+		const value = alertReadingText(alert.rule, alert.reading, translator);
+		const when = lowerFirst(tidy(cadence)) || t("routines.alert.cadenceFallback");
+		return value ? t("routines.alert.ruleSentenceNow", { rule, value, cadence: when }) : t("routines.alert.ruleSentence", { rule, cadence: when });
+	}
 	return t("routines.alert.sentence", {
 		cadence: lowerFirst(tidy(cadence)) || t("routines.alert.cadenceFallback"),
 		condition: alertConditionPhrase(alert.condition),
