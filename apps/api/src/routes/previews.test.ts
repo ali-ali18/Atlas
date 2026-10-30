@@ -177,9 +177,10 @@ test("cookies: o nosso nao segue ao projeto e Set-Cookie perde o Domain", () => 
 	assert.equal(rewriteUpstreamSetCookie(`${PREVIEW_COOKIE}=evil; Path=/`), null);
 });
 
-test("config: exige dominio, ATLAS_URL e segredo; esquema segue o ATLAS_URL", () => {
-	assert.equal(loadPreviewConfig({ ATLAS_URL: "https://a.test", BETTER_AUTH_SECRET: "s" }), null);
+test("config: exige ATLAS_URL e segredo (sem dominio = modo basico); esquema segue o ATLAS_URL", () => {
+	assert.deepEqual(loadPreviewConfig({ ATLAS_URL: "https://a.test", BETTER_AUTH_SECRET: "s" }), { baseDomain: null, atlasUrl: "https://a.test", secret: "s", scheme: "https" });
 	assert.equal(loadPreviewConfig({ ATLAS_PREVIEW_BASE_DOMAIN: "p.test", BETTER_AUTH_SECRET: "s" }), null);
+	assert.equal(loadPreviewConfig({ ATLAS_URL: "https://a.test" }), null);
 	assert.deepEqual(loadPreviewConfig({ ATLAS_PREVIEW_BASE_DOMAIN: "*.P.test", ATLAS_URL: "https://a.test/", BETTER_AUTH_SECRET: "s" }), { baseDomain: "p.test", atlasUrl: "https://a.test", secret: "s", scheme: "https" });
 	assert.equal(loadPreviewConfig({ ATLAS_PREVIEW_BASE_DOMAIN: "p.localhost:3001", ATLAS_URL: "http://localhost:3000", BETTER_AUTH_SECRET: "s" })?.scheme, "http");
 });
@@ -393,15 +394,16 @@ test("redirect: destino externo e caminho relativo passam como vieram", async ()
 	assert.equal(rewriteToPublicOrigin("http://172.18.0.9:5173/a?b=1", "172.18.0.9", "https://p.test"), "https://p.test/a?b=1");
 });
 
-test("config: dominio da previa igual, pai ou no mesmo site do Atlas deixa o recurso desligado (com escape hatch)", () => {
+test("config: dominio da previa igual, pai ou no mesmo site do Atlas cai no modo basico (com escape hatch)", () => {
 	const base = { BETTER_AUTH_SECRET: "s", ATLAS_URL: "https://atlas.example.com" };
 	for (const domain of ["atlas.example.com", "example.com", "preview.example.com"]) {
-		assert.equal(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: domain }), null, domain);
+		assert.equal(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: domain })?.baseDomain, null, domain);
 		assert.match(previewConfigProblem({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: domain }) ?? "", /domínio/, domain);
 	}
-	assert.notEqual(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "previews.example.net" }), null);
+	assert.equal(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "previews.example.net" })?.baseDomain, "previews.example.net");
+	assert.equal(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "dominio invalido!" })?.baseDomain, null, "inválido: modo básico");
 	assert.equal(previewConfigProblem({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "previews.example.net" }), null);
-	assert.notEqual(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "preview.example.com", ATLAS_PREVIEW_ALLOW_SAME_SITE: "1" }), null);
+	assert.equal(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "preview.example.com", ATLAS_PREVIEW_ALLOW_SAME_SITE: "1" })?.baseDomain, "preview.example.com");
 	assert.equal(previewConfigProblem({ BETTER_AUTH_SECRET: "s" }), null, "sem variável: nada a avisar");
 });
 

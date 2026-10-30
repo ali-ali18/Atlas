@@ -24,7 +24,7 @@ import { jsonBodyLimit } from "./middleware/json-body-limit.js";
 import { apiCompress } from "./middleware/compress.js";
 import { auth, authProviders, isOwnerEmail } from "./auth.js";
 import { createViewerUpgradeHandler } from "./routes/sandbox-viewer.js";
-import { createPreviewOpenRoutes, createPreviewService, createUpgradeDispatcher, loadPreviewConfig, previewConfigProblem } from "./routes/previews.js";
+import { createPreviewBasicRoutes, createPreviewOpenRoutes, createPreviewService, createUpgradeDispatcher, loadPreviewConfig, previewConfigProblem } from "./routes/previews.js";
 import { createChatRoutes } from "./routes/chat.js";
 import { createDevSessionRoutes } from "./routes/dev-sessions.js";
 import { createDevEnvironmentRoutes } from "./routes/dev-environments.js";
@@ -199,6 +199,8 @@ app.use("/v1/events", rateLimitByIp(60, 60_000));
 app.use("/v1/internal/dev-jobs/*", rateLimitByIp(300, 60_000));
 app.use("/v1/avatars/*", rateLimitByIp(120, 60_000));
 app.use("/v1/public/*", rateLimitByIp(60, 60_000));
+// Prévia no modo básico: sem login do Atlas, então limite por IP (uma página carrega dezenas de arquivos; folga larga).
+app.use("/v1/previews/:id/p/*", rateLimitByIp(1200, 60_000));
 app.use("/v1/*", requireUser);
 app.use("/v1/*", jsonBodyLimit);
 
@@ -257,7 +259,7 @@ app.route("/", createDevSessionRoutes());
 // Prévia privada: o link do chat passa por aqui (login do Atlas) antes de ir ao domínio separado da prévia.
 const previewConfig = loadPreviewConfig();
 const previewProblem = previewConfigProblem();
-if (previewProblem) console.warn(`[preview] prévia privada DESLIGADA: ${previewProblem}`);
+if (previewProblem) console.warn(`[preview] prévia completa DESLIGADA, usando o modo básico: ${previewProblem}`);
 const previewDevConfig = loadDevSandboxConfig();
 const previewProvider = previewConfig && previewDevConfig.enabled && previewDevConfig.connectMode === "network" ? createDockerDevProvider(previewDevConfig) : null;
 const previewDeps = {
@@ -273,6 +275,7 @@ const previewDeps = {
 };
 const previewService = createPreviewService(previewDeps);
 app.route("/", createPreviewOpenRoutes(previewDeps));
+app.route("/", createPreviewBasicRoutes(previewService));
 app.route("/", createDevJobCallbackRoutes());
 app.route("/", createDevEnvironmentRoutes());
 app.route("/", createVaultRoutes());
