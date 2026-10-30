@@ -102,3 +102,33 @@ test("ChatThread chama useAvatarActivity antes do return de 'sem agente'", async
 	assert.ok(hook > 0 && early > 0);
 	assert.ok(hook < early, "o hook precisa vir antes do return antecipado");
 });
+
+test("sair do chat no meio do run (trocar de conversa) encerra sem comemorar nem errar", () => {
+	const { calls, tracker, base } = setup();
+	tracker.sync({ ...base, botIds: ["g", "m1"], running: true });
+	tracker.dispose();
+	assert.deepEqual(calls.filter((c) => c.startsWith("end")), ["end:g:cancel", "end:m1:cancel"]);
+	// depois do dispose um run novo começa do zero
+	tracker.sync({ ...base, botIds: ["g"], running: true });
+	assert.equal(calls.filter((c) => c === "begin:g").length, 2);
+});
+
+test("grupo: trocou o membro que responde no meio do run: o antigo encerra neutro e o novo começa", () => {
+	const { calls, tracker, base } = setup();
+	tracker.sync({ ...base, botIds: ["g", "m1"], running: true });
+	tracker.sync({ ...base, botIds: ["g", "m2"], running: true, activity: { phase: "writing" } });
+	assert.deepEqual(calls.filter((c) => c.startsWith("begin") || c.startsWith("end")), ["begin:g", "begin:m1", "end:m1:cancel", "begin:m2"]);
+	tracker.sync({ ...base, botIds: ["g", "m2"], running: false });
+	assert.deepEqual(calls.filter((c) => c.startsWith("end")).slice(1), ["end:g:ok", "end:m2:ok"]);
+});
+
+// REGRESSÃO: só o LiveAgentAvatar (chat aberto) liga o cérebro; as telas de boot, o editor e a lista não disputam as vagas.
+test("Avatar não liga o cérebro por padrão; só o LiveAgentAvatar do chat aberto (follow=always) liga", async () => {
+	const { readFile } = await import("node:fs/promises");
+	const avatar = await readFile(new URL("../../../packages/ui/src/components/avatar/avatar.tsx", import.meta.url), "utf8");
+	assert.match(avatar, /brain = false/);
+	const live = await readFile(new URL("../components/ui/templates/template-4/live-agent-avatar.tsx", import.meta.url), "utf8");
+	assert.match(live, /brain \?\? props\.follow === "always"/);
+	const header = await readFile(new URL("../components/ui/templates/template-4/chat-thread/chat-thread.tsx", import.meta.url), "utf8");
+	assert.match(header, /<LiveAgentAvatar[\s\S]*?brainPriority=\{2\}/);
+});

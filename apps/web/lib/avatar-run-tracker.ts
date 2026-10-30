@@ -45,6 +45,13 @@ export function createAvatarRunTracker(bus: AvatarRunBus = defaultBus) {
 			if (input.running) {
 				if (!wasRunning) startCancelSeq = input.cancelSeq;
 				const ctx = { status: input.status, paused: input.paused, pendingApproval: input.pendingApproval };
+				// Em grupo, trocou o membro que responde no meio do run: o antigo volta ao repouso, sem reação.
+				for (const id of [...tracked]) {
+					if (!current.includes(id)) {
+						tracked.delete(id);
+						bus.end(id, "cancel");
+					}
+				}
 				for (const id of current) {
 					if (!tracked.has(id)) {
 						tracked.add(id);
@@ -59,6 +66,12 @@ export function createAvatarRunTracker(bus: AvatarRunBus = defaultBus) {
 				tracked.clear();
 			}
 			wasRunning = input.running;
+		},
+		/** O chat saiu da tela com o run em andamento (trocou de conversa): encerra sem comemorar nem errar. */
+		dispose(): void {
+			for (const id of tracked) bus.end(id, "cancel");
+			tracked.clear();
+			wasRunning = false;
 		},
 	};
 }

@@ -71,6 +71,7 @@ export function WorkingIndicator({
 					<LiveAgentAvatar
 						bodyColor={agent.color}
 						botId={agent.id}
+						brainPriority={2}
 						breathe
 						className="pointer-events-auto"
 						follow="always"

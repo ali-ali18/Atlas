@@ -28,7 +28,9 @@ const timers = new Map<string, ReturnType<typeof setTimeout>>();
  * Bots cujo run local acabou enquanto o servidor ainda os lista como trabalhando (a lista só
  * atualiza no próximo poll): o fim local vale até um poll mostrar o bot fora da lista.
  */
-const endedLocally = new Set<string>();
+const endedLocally = new Map<string, number>();
+/** Depois do fim local, o servidor que ainda lista o bot (poll em voo) é ignorado por este tempo (ms). */
+const ENDED_GRACE_MS = 20_000;
 
 const IDLE_SIGNAL: AvatarSignal = { state: "idle", progress: null };
 
@@ -56,7 +58,7 @@ function governorOf(botId: string): AvatarGovernor {
 export function refreshBotAvatar(botId: string, now: number = Date.now()): AvatarSignal {
 	const governor = governorOf(botId);
 	const detail = details.get(botId);
-	const active = isBotWorking(botId);
+	const active = isBotWorking(botId, now);
 	const desired = !active
 		? IDLE_DESIRED
 		: detail
@@ -70,6 +72,12 @@ export function refreshBotAvatar(botId: string, now: number = Date.now()): Avata
 		emit();
 	}
 	const wait = governor.nextChangeMs(now);
+	// Repouso e sem nada agendado: não guarda estado por bot (a lista de bots pode ser grande e longa).
+	if (!active && next.state === "idle" && wait === null) {
+		governors.delete(botId);
+		signals.delete(botId);
+		details.delete(botId);
+	}
 	const pending = timers.get(botId);
 	if (pending) clearTimeout(pending);
 	timers.delete(botId);
@@ -100,14 +108,16 @@ export function setServerWorking(botIds: Iterable<string>) {
 	if (next.size === server.size && [...next].every((id) => server.has(id))) return;
 	const touched = new Set([...server, ...next]);
 	// Um poll sem o bot encerra a supressão: se ele voltar, é um run novo.
-	for (const id of endedLocally) if (!next.has(id)) endedLocally.delete(id);
+	for (const id of [...endedLocally.keys()]) if (!next.has(id)) endedLocally.delete(id);
 	server = next;
 	emit();
 	for (const botId of touched) refreshBotAvatar(botId);
 }
 
-export function isBotWorking(botId: string) {
-	return working.has(botId) || (server.has(botId) && !endedLocally.has(botId));
+export function isBotWorking(botId: string, now: number = Date.now()) {
+	const until = endedLocally.get(botId);
+	const suppressed = until !== undefined && now < until;
+	return working.has(botId) || (server.has(botId) && !suppressed);
 }
 
 /** Gesto do cérebro que a mudança de atividade pede: ferramenta nova começa; depois dela, ok ou falha. */
@@ -150,7 +160,8 @@ export function beginBotRun(botId: string, now: number = Date.now()) {
 export function endBotRun(botId: string, outcome: "ok" | "error" | "cancel", now: number = Date.now()) {
 	if (!botId) return;
 	details.delete(botId);
-	if (server.has(botId)) endedLocally.add(botId);
+	// Sempre: um poll que já estava em voo quando o run acabou ainda pode listar o bot.
+	endedLocally.set(botId, now + ENDED_GRACE_MS);
 	if (outcome !== "cancel") governorOf(botId).event(outcome === "ok" ? "finished" : "failed", now);
 	refreshBotAvatar(botId, now);
 }
@@ -172,6 +183,11 @@ export function subscribeBotPulses(botId: string, listener: PulseListener): () =
 		mine.delete(listener);
 		if (mine.size === 0 && pulseListeners.get(botId) === mine) pulseListeners.delete(botId);
 	};
+}
+
+/** Quantos bots têm estado guardado (diagnóstico e testes: tem de voltar a zero com todos em repouso). */
+export function botActivityStateSize(): { governors: number; signals: number; details: number } {
+	return { governors: governors.size, signals: signals.size, details: details.size };
 }
 
 export function botAvatarSignal(botId: string): AvatarSignal {

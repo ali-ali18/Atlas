@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	beginBotRun,
+	botActivityStateSize,
 	botAvatarSignal,
 	endBotRun,
 	isBotWorking,
@@ -215,4 +216,34 @@ test("avatar: parar o run (cancel) não comemora nem faz cara de erro", () => {
 	}
 	assert.ok(!seen.has("finished") && !seen.has("failed"), [...seen].join(","));
 	assert.equal(botAvatarSignal("c1").state, "idle");
+});
+
+test("avatar: poll que já estava em voo quando o run acabou não traz o 'trabalhando' genérico de volta", () => {
+	const t0 = Date.now();
+	setBotWorking("q1", true);
+	setBotActivity("q1", { phase: "writing" }, {}, t0);
+	setBotWorking("q1", false);
+	// o servidor ainda não listava o bot no instante do fim; um poll em voo o lista logo depois
+	endBotRun("q1", "ok", t0 + 1000);
+	setServerWorking(["q1"]);
+	assert.equal(isBotWorking("q1", t0 + 1100), false);
+	assert.equal(botAvatarSignal("q1").state, "finished");
+	// passada a tolerância, um servidor que ainda lista o bot vale de novo (outro run, outro aparelho)
+	assert.equal(isBotWorking("q1", t0 + 1000 + 21_000), true);
+	setServerWorking([]);
+});
+
+test("avatar: bots em repouso não deixam estado guardado", () => {
+	const t0 = Date.now();
+	const before = botActivityStateSize();
+	for (let i = 0; i < 20; i++) {
+		const id = `prune-${i}`;
+		setBotWorking(id, true);
+		setBotActivity(id, { phase: "thinking" }, {}, t0);
+		setBotWorking(id, false);
+		endBotRun(id, "cancel", t0 + 5000);
+		refreshBotAvatar(id, t0 + 20_000);
+	}
+	const size = botActivityStateSize();
+	assert.ok(size.governors - before.governors < 3 && size.signals - before.signals < 3 && size.details - before.details < 3, `${JSON.stringify(before)} → ${JSON.stringify(size)}`);
 });

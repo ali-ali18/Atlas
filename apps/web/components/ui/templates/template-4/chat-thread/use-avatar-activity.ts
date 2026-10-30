@@ -15,6 +15,11 @@ export function useAvatarActivity(input: AvatarRunInput) {
 	tracker.current ??= createAvatarRunTracker();
 	const { activity, running, status, paused, pendingApproval, error, cancelSeq, cancelledMessage } = input;
 	const key = input.botIds.join("|");
+	// Sair do chat no meio do run (trocar de conversa/bot) encerra o acompanhamento sem comemorar nem errar.
+	useEffect(() => {
+		const current = tracker.current;
+		return () => current?.dispose();
+	}, []);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `key` representa os ids
 	useEffect(() => {
 		tracker.current?.sync({ botIds: key.split("|"), activity, running, status, paused, pendingApproval, error, cancelSeq, cancelledMessage });

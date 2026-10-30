@@ -1209,6 +1209,7 @@ export function ChatThread({
 									<LiveAgentAvatar
 										bodyColor={agent.color}
 										botId={agent.id}
+										brainPriority={2}
 										breathe
 										follow="always"
 										pokeOnClick
