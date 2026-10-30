@@ -208,3 +208,17 @@ test("alerta de cotação, câmbio e clima: ativo, leitura, atraso e 'no pregão
 	const fx = ruleRecord({ interval: { everyMinutes: 30 }, alert: { condition: "x", active: false, rule: { source: { type: "fx", pair: "USD-BRL" }, check: { kind: "value", parse: "money", op: "gt", value: 6, currency: "BRL" }, label: "dólar" }, ruleState: { lastValue: 5.97 } } as RoutineRecord["alert"] });
 	assert.equal(nbsp(routineAlertSentence(recordToUiRoutine(fx))), "Alerta · dólar > R$ 6,00 · hoje R$ 5,97 · a cada 30 min");
 });
+
+test("cartão da cotação: atraso só até ~45 min; acima disso mostra o horário do último negócio (nos três idiomas)", async () => {
+	const nbsp = (text: string | null) => text?.replace(/ /g, " ").replace(/ /g, " ");
+	const rule = { source: { type: "quote", symbol: "HGLG11" }, check: { kind: "value", parse: "money", op: "lt", value: 150, currency: "BRL" } };
+	const record = (ruleState: Record<string, unknown>) => ruleRecord({ interval: { everyMinutes: 15 }, alert: { condition: "x", active: false, rule, ruleState } as RoutineRecord["alert"] });
+	// 17:32Z = 14:32 em Brasília
+	const slow = record({ lastValue: 160.5, lastTradeAt: "2026-10-27T17:32:00Z" });
+	assert.equal(nbsp(routineAlertSentence(recordToUiRoutine(slow))), "Alerta · HGLG11 < R$ 150,00 · hoje R$ 160,50 (último negócio às 14:32) · a cada 15 min no pregão");
+	assert.match(nbsp(routineAlertSentence(recordToUiRoutine(slow), await en())) ?? "", /now R\$160\.50 \(last trade at 2:32 PM\)/);
+	assert.match(nbsp(routineAlertSentence(recordToUiRoutine(slow), await es())) ?? "", /hoy 160,50 BRL \(último negocio a las 14:32\)/);
+	// atraso curto continua 'atraso ~N min' e não mostra horário
+	const fast = record({ lastValue: 160.5, delayMinutes: 30, lastTradeAt: undefined });
+	assert.match(nbsp(routineAlertSentence(recordToUiRoutine(fast))) ?? "", /\(atraso ~30 min\)/);
+});

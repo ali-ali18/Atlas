@@ -211,7 +211,7 @@ export type RoutineAlertSource = {
 	schedule?: string | null;
 	everyMinutes?: number;
 	rule?: AlertRule;
-	reading?: { value: number | string; at?: string; delayMinutes?: number };
+	reading?: { value: number | string; at?: string; delayMinutes?: number; lastTradeAt?: string };
 };
 
 const DEFAULT_CURRENCY: Record<UiLocale, string> = { "pt-BR": "BRL", "en-US": "USD", "es-ES": "EUR" };
@@ -242,12 +242,17 @@ export function alertRuleText(rule: AlertRule, { t, locale }: Translator = defau
 }
 
 /** Última leitura ("R$ 449,90"); itens novos e leitura ausente não mostram nada. */
-export function alertReadingText(rule: AlertRule, reading: { value: number | string; delayMinutes?: number } | undefined, { locale, t }: Translator = defaultTranslator): string | null {
+export function alertReadingText(rule: AlertRule, reading: { value: number | string; delayMinutes?: number; lastTradeAt?: string } | undefined, { locale, t }: Translator = defaultTranslator): string | null {
 	if (!reading || rule.check.kind !== "value") return null;
 	const text = alertValueText(rule.check, reading.value, locale, rule.source);
 	const clipped = text.length > 40 ? `${text.slice(0, 39)}…` : text;
 	// Cotação com atraso do provedor: o cartão diz, para ninguém ler o preço como se fosse deste minuto.
-	return reading.delayMinutes ? t("routines.alert.delayed", { value: clipped, minutes: reading.delayMinutes }) : clipped;
+	if (reading.delayMinutes) return t("routines.alert.delayed", { value: clipped, minutes: reading.delayMinutes });
+	// Ativo pouco negociado (último negócio horas atrás): não é atraso do provedor, é o horário do último negócio.
+	if (reading.lastTradeAt && Number.isFinite(Date.parse(reading.lastTradeAt))) {
+		return t("routines.alert.lastTrade", { value: clipped, time: formatTime(reading.lastTradeAt, locale, { timeZone: "America/Sao_Paulo" }) });
+	}
+	return clipped;
 }
 
 function intervalCadence(everyMinutes: number, { t }: Translator): string {

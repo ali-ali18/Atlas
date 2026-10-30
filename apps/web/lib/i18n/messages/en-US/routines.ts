@@ -134,6 +134,7 @@ export const routines: NamespaceMessages<typeof ptBR> = {
 	"routines.alert.newItem": "new item",
 	"routines.alert.inMarketHours": "{cadence} during market hours",
 	"routines.alert.delayed": "{value} (delayed ~{minutes} min)",
+	"routines.alert.lastTrade": "{value} (last trade at {time})",
 	"routines.alert.sentence": "Alert · checks {cadence} · warns if {condition}",
 	"routines.alert.cadenceFallback": "from time to time",
 	"routines.alert.everyHour": "every hour",
