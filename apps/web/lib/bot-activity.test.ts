@@ -8,6 +8,8 @@ import {
 	setBotActivity,
 	setBotWorking,
 	setServerWorking,
+	subscribeBotPulses,
+	type BotPulseKind,
 } from "./bot-activity";
 import { GOVERNOR_TUNING } from "./avatar-governor";
 
@@ -112,4 +114,42 @@ test("avatar: run novo logo depois do fim não espera a comemoração do anterio
 	setBotActivity("p6", { phase: "thinking" }, {}, t0 + 1600);
 	assert.equal(botAvatarSignal("p6").state, "thinking");
 	setBotWorking("p6", false);
+});
+
+test("pulsos: ferramenta nova começa, termina bem ou falha; repetir o mesmo estado não pulsa de novo", () => {
+	const t0 = Date.now();
+	const got: BotPulseKind[] = [];
+	const off = subscribeBotPulses("p7", (kind) => got.push(kind));
+	setBotWorking("p7", true);
+	setBotActivity("p7", { phase: "thinking" }, {}, t0);
+	assert.deepEqual(got, []);
+	const read = { phase: "tool", tool: "read_file", step: 0, maxSteps: 4 } as const;
+	setBotActivity("p7", read, {}, t0 + 10);
+	setBotActivity("p7", read, { status: "running" }, t0 + 20); // só o contexto mudou
+	assert.deepEqual(got, ["toolStart"]);
+	setBotActivity("p7", { phase: "thinking" }, {}, t0 + 30);
+	setBotActivity("p7", { phase: "thinking" }, { status: "running" }, t0 + 40);
+	assert.deepEqual(got, ["toolStart", "toolOk"]);
+	setBotActivity("p7", { phase: "tool", tool: "shell", step: 1, maxSteps: 4 }, {}, t0 + 50);
+	setBotActivity("p7", { phase: "thinking", toolFailed: true }, {}, t0 + 60);
+	assert.deepEqual(got, ["toolStart", "toolOk", "toolStart", "toolFail"]);
+	off();
+	setBotActivity("p7", { phase: "tool", tool: "navigate" }, {}, t0 + 70);
+	assert.equal(got.length, 4, "sem ouvinte não entrega");
+	setBotWorking("p7", false);
+});
+
+test("pulsos são por bot", () => {
+	const t0 = Date.now();
+	const a: BotPulseKind[] = [];
+	const b: BotPulseKind[] = [];
+	const offA = subscribeBotPulses("pa", (k) => a.push(k));
+	const offB = subscribeBotPulses("pb", (k) => b.push(k));
+	setBotWorking("pa", true);
+	setBotActivity("pa", { phase: "tool", tool: "navigate" }, {}, t0);
+	assert.deepEqual(a, ["toolStart"]);
+	assert.deepEqual(b, []);
+	offA();
+	offB();
+	setBotWorking("pa", false);
 });

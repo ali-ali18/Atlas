@@ -28,6 +28,10 @@ const wasWorking = new Set<string>();
 
 const IDLE_SIGNAL: AvatarSignal = { state: "idle", progress: null };
 
+export type BotPulseKind = "toolStart" | "toolOk" | "toolFail" | "tokens";
+type PulseListener = (kind: BotPulseKind, strength: number) => void;
+const pulseListeners = new Map<string, Set<PulseListener>>();
+
 function emit() {
 	for (const listener of listeners) listener();
 }
@@ -104,11 +108,24 @@ export function isBotWorking(botId: string) {
 	return working.has(botId) || server.has(botId);
 }
 
+/** Gesto do cérebro que a mudança de atividade pede: ferramenta nova começa; depois dela, ok ou falha. */
+function pulseFor(previous: AgentActivity | undefined, next: AgentActivity): BotPulseKind | null {
+	if (next.phase === "tool") {
+		const same = previous?.phase === "tool" && previous.tool === next.tool && previous.step === next.step;
+		return same ? null : "toolStart";
+	}
+	if (next.phase === "thinking" && previous?.phase === "tool") return next.toolFailed ? "toolFail" : "toolOk";
+	return null;
+}
+
 /** O ChatThread publica a atividade do run (ferramenta, escrevendo, pensando…) e o contexto dele. */
 export function setBotActivity(botId: string, activity: AgentActivity, ctx: AvatarRunContext = {}, now: number = Date.now()) {
 	if (!botId) return;
+	const previous = details.get(botId)?.activity;
 	details.set(botId, { activity, ctx });
 	if (activity.phase === "thinking" && activity.toolFailed) governorOf(botId).event("failed", now);
+	const pulse = pulseFor(previous, activity);
+	if (pulse) pulseBot(botId, pulse, 1);
 	refreshBotAvatar(botId, now);
 }
 
@@ -118,6 +135,25 @@ export function endBotRun(botId: string, outcome: "ok" | "error", now: number = 
 	details.delete(botId);
 	governorOf(botId).event(outcome === "ok" ? "finished" : "failed", now);
 	refreshBotAvatar(botId, now);
+}
+
+/** Pulso pontual (ferramenta começou/acabou/falhou, rajada de texto) para o cérebro do avatar. */
+export function pulseBot(botId: string, kind: BotPulseKind, strength = 1) {
+	for (const listener of pulseListeners.get(botId) ?? []) listener(kind, strength);
+}
+
+export function subscribeBotPulses(botId: string, listener: PulseListener): () => void {
+	let set = pulseListeners.get(botId);
+	if (!set) {
+		set = new Set();
+		pulseListeners.set(botId, set);
+	}
+	const mine = set;
+	mine.add(listener);
+	return () => {
+		mine.delete(listener);
+		if (mine.size === 0 && pulseListeners.get(botId) === mine) pulseListeners.delete(botId);
+	};
 }
 
 export function botAvatarSignal(botId: string): AvatarSignal {
