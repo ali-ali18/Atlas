@@ -24,7 +24,7 @@ O modelo não vê abas. Seguir a aba nova no servidor corrige leitura, clique e 
 - O aviso sai no cabeçalho `x-atlas-tab-notice` (texto codificado) da primeira resposta depois do evento, só para a aba do pai (`attachTabNotice`). `/health` e `/idle` nunca o consomem.
 - `POST /browser/tabs` `{action: list|switch|close, index}` (índice a partir de 1; fechar a última aba é recusado).
 - `packages/sandbox`: `controlBrowserTabs`, guarda do aviso por VM (`takeTabNotice`).
-- `packages/agent-runtime`: tool `browser_tabs` (`tools/computer-tabs.ts`, grupo `browser`), e `executeTool` anexa `[aviso]` ao resultado de qualquer ferramenta de VM. Subagentes de navegador não recebem a tool.
+- `packages/agent-runtime`: tool `browser_tabs` (`tools/computer-tabs.ts`) no grupo próprio `tabs`, fora do 1º passo e do índice do prompt. Ela entra (a) no passo seguinte a um aviso de aba, (b) quando o pedido fala de abas (`intent-router`) ou (c) por `mcp_tool_search`/chamada direta. `executeTool` anexa `[aviso]` ao resultado de ferramentas de VM e lê o aviso só da sessão que o run já tem (`peekSessionId`): nunca sobe nem reinicia VM. A dica de uso fica no próprio aviso (sem linha nova no prompt). Subagentes de navegador não recebem a tool.
 
 ## Riscos
 - Imagem antiga da VM com runtime novo: sem cabeçalho nem `/browser/tabs` (a tool devolve o erro 404 do servidor, o resto segue). Runtime antigo com imagem nova: ignora o cabeçalho.
@@ -33,7 +33,7 @@ O modelo não vê abas. Seguir a aba nova no servidor corrige leitura, clique e 
 - Título de página é dado não confiável: limpo (uma linha, 100 caracteres) e a lista leva o aviso padrão de dado não confiável.
 
 ## Custo
-Sem chamada extra de modelo. Tool nova: ~0,6 mil chars no prefixo do passo 1 (teto do teste de "Bom dia" de 40 para 41 mil).
+Sem chamada extra de modelo e sem crescer o prefixo de um chat comum (tool adiada; teto de "Bom dia" de 40 mil chars e 23 tools mantido).
 
 ## Como testar
 - `docker/agent-sandbox/control`: `node --test browser-session.tabs.test.mjs` (falsos + Chromium real com `target=_blank` e `rel=noopener`; use `ATLAS_TEST_CHROMIUM` se o Chromium não for achado).
