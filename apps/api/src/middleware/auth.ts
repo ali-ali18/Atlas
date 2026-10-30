@@ -34,6 +34,30 @@ export function isPublicV1Request(method: string, path: string): boolean {
 	return false;
 }
 
+/**
+ * Link de prévia (`GET /v1/previews/<id>/open`) aberto sem login (outro navegador, celular). Só nesta rota e só para navegação
+ * (Accept com text/html): página estática no lugar do JSON cru. O login do web não tem caminho de retorno (`callbackURL` fixo em
+ * "/"), então a página só leva ao login e a pessoa volta a tocar no link. Independe do id (qualquer um responde igual), então não
+ * revela se a prévia existe.
+ */
+export function isPreviewOpenNavigation(method: string, path: string, accept: string | undefined): boolean {
+	return method === "GET" && /^\/v1\/previews\/[^/]+\/open$/.test(path) && /\btext\/html\b/i.test(accept ?? "");
+}
+
+const PREVIEW_LOGIN_PAGE = `<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark"><meta name="robots" content="noindex"><title>Entre no Atlas</title>
+<style>
+:root{color-scheme:light dark;--bg:#fafafa;--fg:#171717;--muted:#6b6b6b;--btn:#171717;--btn-fg:#fafafa}
+@media(prefers-color-scheme:dark){:root{--bg:#141414;--fg:#f2f2f2;--muted:#9a9a9a;--btn:#f2f2f2;--btn-fg:#141414}}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
+main{max-width:22rem;padding:1.5rem;text-align:center}
+h1{font-size:1.25rem;margin:0 0 .5rem}p{margin:0 0 1.25rem;color:var(--muted)}
+a{display:inline-block;padding:.65rem 1.25rem;border-radius:.75rem;background:var(--btn);color:var(--btn-fg);text-decoration:none;font-weight:600}
+</style></head><body><main><h1>Entre no Atlas para abrir esta prévia</h1>
+<p>Este link só abre para quem está com a conta do Atlas conectada. Depois de entrar, volte a este link.</p>
+<a href="/login">Entrar no Atlas</a></main></body></html>`;
+
 export const requireUser = createMiddleware<AuthEnv>(async (c, next) => {
 	if (isPublicV1Request(c.req.method, c.req.path)) {
 		await next();
@@ -41,7 +65,17 @@ export const requireUser = createMiddleware<AuthEnv>(async (c, next) => {
 	}
 
 	const session = await auth.api.getSession({ headers: c.req.raw.headers });
-	if (!session || !isOwnerEmail(session.user.email)) return c.json({ error: "Unauthorized" }, 401);
+	if (!session || !isOwnerEmail(session.user.email)) {
+		if (isPreviewOpenNavigation(c.req.method, c.req.path, c.req.header("accept"))) {
+			return c.html(PREVIEW_LOGIN_PAGE, 401, {
+				"Cache-Control": "no-store",
+				"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+				"Referrer-Policy": "no-referrer",
+				"X-Content-Type-Options": "nosniff",
+			});
+		}
+		return c.json({ error: "Unauthorized" }, 401);
+	}
 	c.set("session", session);
 	c.set("user", session.user);
 	await next();

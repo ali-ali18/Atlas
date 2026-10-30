@@ -427,6 +427,47 @@ test("requireUser: /p/ passa sem sessao do Atlas (o cap autentica); /open e o re
 	}
 });
 
+test("requireUser: /open sem login responde pagina de entrada para navegador e JSON 401 para o resto; mesma resposta para qualquer id", async () => {
+	const realGetSession = auth.api.getSession;
+	auth.api.getSession = (async () => null) as unknown as typeof auth.api.getSession;
+	try {
+		const app = new Hono<AuthEnv>();
+		app.use("/v1/*", requireUser);
+		app.get("/v1/previews/:id/open", (c) => c.json({ ok: true }));
+		app.get("/v1/bots", (c) => c.json({ ok: true }));
+		const html = { accept: "text/html,application/xhtml+xml,*/*;q=0.8" };
+		const a = await app.request(`https://atlas.test/v1/previews/${ID}/open`, { headers: html });
+		const b = await app.request("https://atlas.test/v1/previews/naoexiste/open", { headers: html });
+		assert.equal(a.status, 401);
+		assert.match(a.headers.get("content-type") ?? "", /text\/html/);
+		assert.equal(a.headers.get("content-security-policy"), "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+		assert.equal(a.headers.get("cache-control"), "no-store");
+		const body = await a.text();
+		assert.match(body, /Entre no Atlas para abrir esta prévia/);
+		assert.match(body, /href="\/login"/, "link relativo ao login: sem URL vinda da requisição (nada de open redirect)");
+		assert.doesNotMatch(body, new RegExp(ID), "não ecoa o id");
+		assert.doesNotMatch(body, /https?:\/\//, "sem recurso externo");
+		assert.equal(await b.text(), body, "id desconhecido responde igual");
+		assert.equal(b.status, 401);
+		// Cliente não-HTML: segue o JSON 401.
+		for (const headers of [{} as Record<string, string>, { accept: "application/json" }, { accept: "*/*" }]) {
+			const r = await app.request(`https://atlas.test/v1/previews/${ID}/open`, { headers });
+			assert.equal(r.status, 401);
+			assert.deepEqual(await r.json(), { error: "Unauthorized" });
+		}
+		// Outras rotas /v1 não mudam, nem com Accept de navegador; nem /open com outro método ou caminho extra.
+		for (const path of ["/v1/bots", `/v1/previews/${ID}`, `/v1/previews/${ID}/open/x`]) {
+			const r = await app.request(`https://atlas.test${path}`, { headers: html });
+			assert.equal(r.status, 401, path);
+			assert.deepEqual(await r.json(), { error: "Unauthorized" }, path);
+		}
+		const post = await app.request(`https://atlas.test/v1/previews/${ID}/open`, { method: "POST", headers: html });
+		assert.deepEqual(await post.json(), { error: "Unauthorized" });
+	} finally {
+		auth.api.getSession = realGetSession;
+	}
+});
+
 test("websocket no modo basico: recusado (403) mesmo com o cap valido e Origin null; nada chega ao projeto", async () => {
 	const h = await harness();
 	const front = http.createServer();
