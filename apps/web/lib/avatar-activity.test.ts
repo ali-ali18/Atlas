@@ -61,10 +61,14 @@ test("Lendo e Programando não são o mesmo estado (era tudo `working`)", () => 
 
 test("esperando você, aprovação, fila e pausa viram waiting, mesmo no meio de uma ferramenta", () => {
 	assert.equal(stateOf(tool("shell"), { status: "waiting_user" }), "waiting");
-	assert.equal(stateOf({ phase: "thinking" }, { status: "waiting_external" }), "waiting");
 	assert.equal(stateOf({ phase: "writing" }, { pendingApproval: true }), "waiting");
 	assert.equal(stateOf(tool("navigate"), { paused: true }), "waiting");
-	assert.equal(stateOf({ phase: "idle" }, { status: "queued" }), "waiting");
+	// fila / nova tentativa / espera externa / pausando NÃO são espera do usuário
+	for (const status of ["queued", "retrying", "waiting_external", "pausing", "running"]) {
+		assert.notEqual(stateOf({ phase: "thinking" }, { status }), "waiting", status);
+		assert.equal(stateOf(tool("read_file"), { status }), "reading", status);
+	}
+	assert.equal(stateOf({ phase: "idle" }, { status: "queued" }), "working");
 	assert.equal(stateOf(tool("navigate"), { status: "running" }), "searching");
 	assert.equal(stateOf(tool("navigate"), { status: null }), "searching");
 });
