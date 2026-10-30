@@ -554,7 +554,7 @@ async function runRoutineJob(
 				log: meta.log,
 			},
 		);
-		return { routineId: routine.id, routineRunId, status: outcome.status === "succeeded" ? "succeeded" : "failed" };
+		return { routineId: routine.id, routineRunId, status: outcome.status };
 	}
 
 	const requestedModel = routine.model?.trim() || bot.openRouterModel?.trim() || "";

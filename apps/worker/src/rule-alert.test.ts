@@ -73,11 +73,11 @@ test("depois de avisar não repete enquanto a condição vale; ao voltar ao norm
 test("fonte fora do ar: sem veredito, 'não consegui verificar' uma vez só, execução falha com o motivo, sem URL no log", async () => {
 	const s = setup({ fail: "o site não respondeu a tempo" });
 	const first = await runRuleAlert(s.input, s.deps);
-	assert.equal(first.status, "failed");
+	assert.equal(first.status, "succeeded", "sem leitura não é falha do sistema (não entra no diagnóstico de falhas)");
 	assert.equal(first.plan.decision.transition, "inconclusive");
 	assert.match(s.calls.post[0]!, /Não consegui verificar o alerta “Tênis”: o site não respondeu a tempo/);
 	assert.equal(s.calls.record[0]!.next.unverified, true);
-	assert.deepEqual(s.calls.settleRun[0]!.input, { status: "failed", summary: first.summary, error: "o site não respondeu a tempo" });
+	assert.deepEqual(s.calls.settleRun[0]!.input, { status: "succeeded", summary: first.summary });
 	assert.match(s.calls.logs[0]!, /outcome=inconclusive:timeout/);
 	// próximo ciclo ainda fora do ar: não repete o aviso
 	const again = setup({ fail: "o site não respondeu a tempo" }, { alert: alertWith({ unverified: true }) });

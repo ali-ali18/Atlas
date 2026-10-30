@@ -24,10 +24,10 @@ export type RuleSourceResult =
 export type RuleAlertDeps = AlertSettleDeps & {
 	read: (rule: AlertRule) => Promise<RuleSourceResult>;
 	/** Fecha a execução da rotina sem modelo (escopado pelo dono). */
-	settleRun: (userId: string, routineRunId: string, input: { status: "succeeded" | "failed"; summary: string; error?: string }) => Promise<boolean>;
+	settleRun: (userId: string, routineRunId: string, input: { status: "succeeded"; summary: string }) => Promise<boolean>;
 };
 
-export type RuleAlertOutcome = { status: "succeeded" | "failed"; summary: string; plan: AlertRunPlan };
+export type RuleAlertOutcome = { status: "succeeded"; summary: string; plan: AlertRunPlan };
 
 /** Folga de relógio: o disparo do agendador pode chegar um pouco antes do piso. */
 const SPACING_TOLERANCE = 0.9;
@@ -95,9 +95,12 @@ export async function runRuleAlert(input: RuleAlertRunInput, deps: RuleAlertDeps
 	log(`[alert-rule] routine=${input.routineId} host=${result.host} outcome=${outcome} notify=${finalPlan.notify} ms=${result.ms}`);
 
 	await settleAlertRun(finalPlan, { userId: input.userId, routineId: input.routineId, conversationId: input.conversationId, expectCheckedAt: alert.checkedAt ?? null }, deps);
-	const status = inconclusive ? "failed" : "succeeded";
+	// Sem leitura (site fora do ar, valor ilegível) também fecha como concluída, com o "não consegui verificar" no
+	// resumo, igual ao caminho do modelo: "failed" alimenta a lista de falhas do diagnóstico a cada ciclo e não é
+	// falha do sistema (o aviso ao usuário já sai uma vez só).
+	const status = "succeeded" as const;
 	await deps
-		.settleRun(input.userId, input.routineRunId, { status, summary: finalPlan.text, ...(inconclusive ? { error: evaluation.reason ?? "sem leitura" } : {}) })
+		.settleRun(input.userId, input.routineRunId, { status, summary: finalPlan.text })
 		.catch((error) => console.error(`[alert-rule] execução não fechada run=${input.routineRunId}`, error instanceof Error ? error.message : "erro"));
 	return { status, summary: finalPlan.text, plan: finalPlan };
 }

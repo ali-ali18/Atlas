@@ -107,16 +107,18 @@ test("alerta com regra avisa na 2ª leitura: aviso na conversa do bot e push", a
 	}
 });
 
-test("fonte que falha fecha a execução como falha, com o motivo, sem derrubar o job", async () => {
+test("fonte que falha fecha a execução como concluída com o 'não consegui verificar' (sem entrar nas falhas do diagnóstico)", async () => {
 	const s = scenario({ alertJson: { condition: "o tênis baixar de R$ 400", active: false, rule } });
 	try {
 		const result = await processExecuteRoutineJob({ routineId: "r", triggeredBy: "schedule" }, config, s.queue, {
 			readAlertRule: async () => ({ ok: false as const, code: "http", reason: "o site recusou ou falhou (HTTP 403)", host: "loja.example.com", ms: 4 }),
 			log: () => undefined,
 		});
-		assert.equal(result.status, "failed");
-		assert.equal(s.seen.runClosed.find((c) => c.data.status === "failed")?.data.status, "failed");
-		assert.match(String(s.seen.runClosed.find((c) => c.data.status === "failed")?.data.error), /HTTP 403/);
+		assert.equal(result.status, "succeeded");
+		const closed = s.seen.runClosed.find((c) => c.data.status === "succeeded");
+		assert.match(String(closed?.data.summary), /Não consegui verificar o alerta “Tênis”: o site recusou ou falhou \(HTTP 403\)/);
+		assert.equal(closed?.data.error, null);
+		assert.equal(s.seen.runClosed.some((c) => c.data.status === "failed"), false);
 	} finally {
 		s.restore();
 	}
