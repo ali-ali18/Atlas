@@ -189,3 +189,31 @@ test("reagendamento que falha não derruba o alerta: o estado segue gravado", as
 	const result = await settleAlertRun(p, target, { ...deps, reschedule: async () => { throw new Error("redis fora"); } });
 	assert.deepEqual(result, { recorded: true, pushed: false });
 });
+
+test("post: o aviso entra na conversa só quando avisa e só depois de gravar o estado; falha do post não derruba o push", async () => {
+	const { deps } = fakeDeps();
+	const posts: string[] = [];
+	const order: string[] = [];
+	const withPost = {
+		...deps,
+		record: async (...args: Parameters<typeof deps.record>) => {
+			order.push("record");
+			return deps.record(...args);
+		},
+		post: async (_conversationId: string, text: string) => {
+			order.push("post");
+			posts.push(text);
+		},
+	};
+	await settleAlertRun(plan(idle, yes), target, withPost);
+	assert.deepEqual(order, ["record", "post"]);
+	assert.deepEqual(posts, ["⚠️ Estoque da canela: 7 un. (mínimo 10)"]);
+	await settleAlertRun(plan(idle, no), target, withPost);
+	assert.equal(posts.length, 1, "sem aviso não posta");
+	const failing = { ...withPost, post: async () => { throw new Error("db fora"); } };
+	assert.deepEqual(await settleAlertRun(plan(idle, yes), target, failing), { recorded: true, pushed: true });
+	const discarded = { ...withPost, record: async () => false };
+	posts.length = 0;
+	await settleAlertRun(plan(idle, yes), target, discarded);
+	assert.equal(posts.length, 0, "estado descartado (condição editada) não avisa");
+});
