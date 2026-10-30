@@ -92,10 +92,7 @@ mod tests {
 
     #[test]
     fn links_externos_abrem_no_navegador() {
-        assert_eq!(
-            decide("https://github.com/ali-ali18/Atlas"),
-            NavDecision::OpenExternal
-        );
+        assert_eq!(decide("https://github.com/ali-ali18/Atlas"), NavDecision::OpenExternal);
         assert_eq!(decide("http://exemplo.com"), NavDecision::OpenExternal);
         assert_eq!(decide("mailto:oi@exemplo.com"), NavDecision::OpenExternal);
         assert_eq!(decide("tel:+5511999999999"), NavDecision::OpenExternal);
