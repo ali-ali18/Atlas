@@ -111,6 +111,9 @@ export type MockOptions = {
   taskListInRun?: { items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>; hold?: boolean }
   /** Nome do bot principal (padrão "Atlas"). */
   botName?: string
+  /** Forma e cor do avatar do bot principal (padrão "rond" e roxo). */
+  botShape?: string
+  botColor?: string
 }
 
 export type MockHandler = (request: { method: string; path: string; body: unknown }) => { status?: number; body: unknown } | undefined
@@ -123,7 +126,7 @@ export class MockAtlas {
   readonly messages: StoredMessage[] = []
   private runs = new Map<string, RunRecord>()
   private seq = 0
-  private readonly options: Required<Omit<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "runCodeInRun" | "imageGenInRun" | "taskListInRun">> & Pick<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "runCodeInRun" | "imageGenInRun" | "taskListInRun">
+  private readonly options: Required<Omit<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "botShape" | "botColor" | "runCodeInRun" | "imageGenInRun" | "taskListInRun">> & Pick<MockOptions, "confirmCard" | "memory" | "memoryToolInRun" | "reflectionMessage" | "history" | "reactionOnly" | "failReactions" | "extraBots" | "skills" | "builtinSkills" | "connectors" | "apiConnections" | "apiProposal" | "loginCard" | "botName" | "botShape" | "botColor" | "runCodeInRun" | "imageGenInRun" | "taskListInRun">
   /** Requisições `POST /v1/runs/:id/inputs` aceitas (fala do usuário entregue a um run em andamento). */
   readonly inputs: Array<{ runId: string; content: string }> = []
   readonly memoryEntries: MemoryEntryRecord[] = []
@@ -202,7 +205,7 @@ export class MockAtlas {
 
   private bot() {
     return {
-      id: "bot-e2e", name: this.options.botName ?? "Atlas", snippet: "Bot de teste", color: "#6d5efc", shape: "rond", description: null, openRouterModel: null,
+      id: "bot-e2e", name: this.options.botName ?? "Atlas", snippet: "Bot de teste", color: this.options.botColor ?? "#6d5efc", shape: this.options.botShape ?? "rond", description: null, openRouterModel: null,
       language: "pt-BR", pinned: true, pinOrder: 0, notify: true, sectionId: null, memberIds: [], conversationId: CONVERSATION_ID,
       lastMessage: null, unreadResults: 0, unreadCount: 0, firstUnreadMessageId: null, manualUnread: false, isPrimary: true,
       createdAt: NOW, updatedAt: NOW,
