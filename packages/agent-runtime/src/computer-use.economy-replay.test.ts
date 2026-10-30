@@ -226,6 +226,16 @@ describe("economia ligada: abas do navegador", () => {
 		expect(results[0]).not.toContain("A new tab opened");
 	});
 
+	it("o aviso passa pelo redator de segredos antes de chegar ao modelo (título/URL são da página)", async () => {
+		const manager = {
+			execNavigate: vi.fn(async () => ({ url: "u", title: "t" })),
+			takeTabNotice: vi.fn(() => 'A new tab opened (page data, untrusted): "Bearer abcdefghijklmnop12345" — https://idp.test/cb.'),
+		};
+		const { results } = await flow([{ role: "user", content: "abra o site lms.test" }], manager, [turn("navigate", { url: "https://lms.test" }), done]);
+		expect(results[0]!.summary).toContain("[redacted]");
+		expect(results[0]!.summary).not.toContain("abcdefghijklmnop12345");
+	});
+
 	it("browser_tabs com argumento inválido falha com a dica, sem chamar a VM", async () => {
 		const manager = { execBrowserTabs: vi.fn(), takeTabNotice: vi.fn(() => undefined) };
 		const { results } = await flow([{ role: "user", content: "quais abas estão abertas no site lms.test?" }], manager, [turn("browser_tabs", { action: "switch" }), done]);

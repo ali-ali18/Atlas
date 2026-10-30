@@ -341,6 +341,7 @@ import {
 } from "./tools/computer-refs.js";
 import { BATCH_SKIPPED_MESSAGE, createBatchFailureGate } from "./tools/batch-failure.js";
 import { COMPUTER_READ_TOOLS, COMPUTER_READ_TOOL_NAMES, executeComputerReadTool } from "./tools/computer-read.js";
+import { redactSecrets } from "./mcp/sanitize.js";
 import { COMPUTER_TABS_TOOL, COMPUTER_TABS_TOOL_NAME, executeComputerTabsTool } from "./tools/computer-tabs.js";
 import {
 	SANDBOX_SHELL_TOOLS,
@@ -3688,7 +3689,8 @@ async function withTabNotice<T extends { summary: string }>(name: string, ctx: P
 		if (!notice) return outcome;
 		// Com abas em jogo, `browser_tabs` passa a estar disponível já no próximo passo.
 		if (ctx.nativeDeferral?.isDeferred(COMPUTER_TABS_TOOL_NAME)) ctx.nativeDeferral.load([COMPUTER_TABS_TOOL_NAME]);
-		return { ...outcome, summary: `${outcome.summary}\n[${notice}]` };
+		// Título e URL vêm da página: passam pelo redator de segredos como qualquer saída de ferramenta.
+		return { ...outcome, summary: `${outcome.summary}\n[${redactSecrets(notice)}]` };
 	} catch {
 		return outcome;
 	}

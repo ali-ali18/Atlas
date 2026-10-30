@@ -52,7 +52,7 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 		// Fora do pedido de um chat comum: entra quando o navegador avisa de aba nova/fechada, o pedido fala de abas ou o modelo a busca.
 		tools: ["browser_tabs"],
 		hint: "list, switch or close the VM browser's tabs",
-		keywords: ["tabs", "abas", "aba", "tab", "guia", "guias"],
+		keywords: ["abas", "aba", "guia", "guias"],
 		hidden: true,
 	},
 	shell: {
