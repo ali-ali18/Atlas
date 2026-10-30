@@ -1,4 +1,5 @@
-import { resolveChatgptFallbackModel, resolveRoutineProviderModel } from "@workspace/shared";
+import { DEFAULT_BOT_LANGUAGE, isBotLanguage, parseRoutineAlert, resolveChatgptFallbackModel, resolveRoutineProviderModel } from "@workspace/shared";
+import type { AlertRule, RoutineTriggerType } from "@workspace/shared";
 import type {
 	EventEnvelope,
 	ExecuteRoutineJobPayload,
@@ -15,6 +16,7 @@ import {
 	findRoutineRunByAgentRunId,
 	getLastCompletedRoutineRunAt,
 	getPageForUser,
+	getRoutine,
 	hasOverlappingRoutineRun,
 	listActiveRunsForConversation,
 	listRoutineRuns,
@@ -22,10 +24,14 @@ import {
 	markRunJobEnqueued,
 	parseRoutineTriggerJson,
 	prisma,
+	recordRoutineAlertState,
+	settleRoutineRunDirect,
 } from "@workspace/db";
+import { createAlertSourceCache, readAlertRule } from "@workspace/search";
 import { listBriefSources } from "@workspace/agent-runtime";
 import type { AgentRunQueue } from "@workspace/queue";
 import type { WorkerConfig } from "../config.js";
+import { ruleAlertSkipReason, runRuleAlert, type RuleSourceResult } from "../rule-alert.js";
 import { formatRoutineLogLine, planBusyHandling, runsDetachedFromChat, type BusyKind } from "./routine-defer.js";
 
 type RoutineJobOutcome = ExecuteRoutineJobResult & { reason?: string };
@@ -37,7 +43,18 @@ type RoutineJobMeta = {
 	deferJob?: DeferJob;
 	/** Disparo agendado que desistiu de esperar o bot: o worker avisa o usuário (uma vez). */
 	onGaveUp?: (info: { reason: string; routineRunId: string }) => Promise<void>;
+	/** Push do alerta (ausente = sem chaves VAPID). */
+	notify?: (userId: string, conversationId: string, kind: "alert", text: string) => Promise<unknown>;
+	/** Grava o aviso do alerta com regra na conversa do bot (esse caminho não tem AgentRun que o grave). */
+	appendMessage?: (conversationId: string, text: string) => Promise<unknown>;
+	/** Sincroniza o agendador depois de o backoff mudar o intervalo. */
+	onRoutineMutated?: (routine: NonNullable<Awaited<ReturnType<typeof getRoutine>>>) => Promise<unknown>;
+	/** Leitor da fonte (teste injeta; padrão = `readAlertRule` com cache compartilhado do ciclo). */
+	readAlertRule?: (rule: AlertRule) => Promise<RuleSourceResult>;
 };
+
+/** Alertas que olham a mesma URL no mesmo ciclo buscam uma vez só (cache anônimo, TTL curto). */
+const alertSourceCache = createAlertSourceCache();
 type DeferJob = (
 	payload: ExecuteRoutineJobPayload & { routineRunId: string },
 	delayMs: number,
@@ -280,7 +297,7 @@ async function runRoutineJob(
 	payload: ExecuteRoutineJobPayload,
 	_config: WorkerConfig,
 	agentRunQueue: AgentRunQueue,
-	meta: RoutineJobMeta = {},
+	meta: RoutineJobMeta & { log?: (line: string) => void } = {},
 ): Promise<RoutineJobOutcome> {
 	const routine = await prisma.routine.findUnique({
 		where: { id: payload.routineId },
@@ -451,10 +468,19 @@ async function runRoutineJob(
 
 	const bot = await prisma.bot.findFirst({
 		where: { id: routine.botId, ownerId: routineUserId },
-		select: { id: true, conversationId: true, openRouterModel: true, policyJson: true },
+		select: { id: true, conversationId: true, openRouterModel: true, policyJson: true, language: true },
 	});
 	if (!bot) {
 		return skip("Bot da rotina não existe mais");
+	}
+	// Alerta com regra: o servidor confere sozinho (sem modelo), então não disputa o chat com o usuário.
+	const ruleAlert = (() => {
+		const alert = parseRoutineAlert(routine.alertJson);
+		return alert?.rule ? { ...alert, rule: alert.rule } : null;
+	})();
+	if (ruleAlert && payload.triggeredBy === "schedule") {
+		const reason = ruleAlertSkipReason({ rule: ruleAlert.rule, alert: ruleAlert, triggerType: routine.triggerType as RoutineTriggerType, now: new Date() });
+		if (reason) return skip(reason);
 	}
 	// Rotina que atualiza um painel: o painel precisa existir para o dono (apagado = pula, sem inventar outro).
 	// "Seu dia" não tem painel (o brief é a mensagem): ignora qualquer pageId herdado.
@@ -466,7 +492,7 @@ async function runRoutineJob(
 	if (pagePlan.kind === "skip") return skip(pagePlan.reason);
 	// "Seu dia" roda sem conversa (ver `runsDetachedFromChat`): chat em andamento não adia nem pula o brief.
 	const detached = runsDetachedFromChat(routine.template);
-	if (bot.conversationId && !detached) {
+	if (bot.conversationId && !detached && !ruleAlert) {
 		const active = await listActiveRunsForConversation(bot.conversationId);
 		if (active.length > 0) {
 			return busy("bot_busy", active.map((run) => run.status));
@@ -498,6 +524,37 @@ async function runRoutineJob(
 			eventJson: payload.event ?? undefined,
 		});
 		routineRunId = created.id;
+	}
+
+	if (ruleAlert) {
+		const trigger = parseRoutineTriggerJson(routine.triggerJson);
+		const outcome = await runRuleAlert(
+			{
+				userId: routineUserId,
+				routineId: routine.id,
+				routineRunId,
+				routineName: routine.name,
+				conversationId: bot.conversationId,
+				alert: ruleAlert,
+				triggerType: routine.triggerType as RoutineTriggerType,
+				interval: trigger && trigger.kind === "interval" ? { everyMinutes: trigger.everyMinutes } : null,
+				locale: isBotLanguage(bot.language) ? bot.language : DEFAULT_BOT_LANGUAGE,
+				now: new Date(),
+			},
+			{
+				read: meta.readAlertRule ?? ((rule) => readAlertRule(rule, { cache: alertSourceCache })),
+				settleRun: (userId, runId, input) => settleRoutineRunDirect(userId, runId, input),
+				record: recordRoutineAlertState,
+				reschedule: async () => {
+					const updated = await getRoutine(routineUserId, routine.botId, routine.id);
+					if (updated) await meta.onRoutineMutated?.(updated);
+				},
+				post: meta.appendMessage,
+				push: meta.notify ? (userId, conversationId, text) => meta.notify!(userId, conversationId, "alert", text) : undefined,
+				log: meta.log,
+			},
+		);
+		return { routineId: routine.id, routineRunId, status: outcome.status === "succeeded" ? "succeeded" : "failed" };
 	}
 
 	const requestedModel = routine.model?.trim() || bot.openRouterModel?.trim() || "";

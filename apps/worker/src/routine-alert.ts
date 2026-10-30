@@ -68,6 +68,8 @@ export type AlertSettleDeps = {
 	record: (userId: string, routineId: string, next: RoutineAlert, everyMinutes?: number) => Promise<boolean>;
 	/** Sincroniza o agendador depois de mudar o intervalo (backoff). Falha não derruba o alerta. */
 	reschedule?: () => Promise<unknown>;
+	/** Grava o aviso na conversa do bot. Só alerta conferido sem modelo: no caminho do modelo o fim do run já grava a resposta. */
+	post?: (conversationId: string, text: string) => Promise<unknown>;
 	/** Push (ausente = sem chaves VAPID). Respeita o switch do bot, quem está olhando e a coalescência. */
 	push?: (userId: string, conversationId: string, text: string) => Promise<unknown>;
 	log?: (line: string) => void;
@@ -96,6 +98,11 @@ export async function settleAlertRun(
 	log(`[alert] routine=${target.routineId} transition=${plan.decision.transition} notify=${plan.notify}${plan.everyMinutes ? ` everyMinutes=${plan.everyMinutes}` : ""}`);
 	if (plan.everyMinutes && deps.reschedule) {
 		await deps.reschedule().catch((error) => console.error(`[alert] agendador não sincronizado routine=${target.routineId}`, error instanceof Error ? error.message : "erro"));
+	}
+	if (plan.notify && deps.post && target.conversationId) {
+		await deps.post(target.conversationId, plan.text).catch((error) => {
+			console.error(`[alert] aviso na conversa falhou routine=${target.routineId}`, error instanceof Error ? error.message : "erro");
+		});
 	}
 	if (!plan.notify || !deps.push || !target.conversationId) return { recorded: true, pushed: false };
 	await deps.push(target.userId, target.conversationId, plan.text).catch((error) => {
