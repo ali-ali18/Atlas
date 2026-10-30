@@ -83,6 +83,15 @@ const easeBack = (e: number) => 1 + 2.70158 * (e - 1) ** 3 + 1.70158 * (e - 1) *
 const easeInOut = (e: number) => (e < 0.5 ? 4 * e * e * e : 1 - (-2 * e + 2) ** 3 / 2);
 const frac = (e: number) => ((e % 1) + 1) % 1;
 
+/** Com o corpo virando indicador, os olhos encolhem até sumir neste ponto do morph (0..1). */
+export const FACE_GONE = 0.4;
+
+/** Escala dos olhos durante o morph: 1 com o corpo normal, 0 a partir de `FACE_GONE` (nunca sobra olho recortando o ponto). */
+export function faceScale(amount: number): number {
+	const k = clamp(1 - amount / FACE_GONE, 0, 1);
+	return k * k * (3 - 2 * k);
+}
+
 /** Frequência (rad/s) da mola do morph: amortecimento crítico. */
 const OMEGA = 14;
 /** O anel de progresso enche em 2,5 s, some e recomeça 1,5 s depois. */
@@ -90,6 +99,8 @@ const PROGRESS_FILL_S = 2.5;
 const PROGRESS_CYCLE_S = 4;
 /** Anel com fração real: sobe até o alvo com esta taxa (1/s) e fica mais grosso para ler a 36 px. */
 const PROGRESS_RATE = 6;
+/** Abaixo disto o indicador antigo já recolheu e o novo pode entrar. */
+const SWITCH_EPS = 0.08;
 const PROGRESS_WIDTH = 10;
 
 const px = (value: number) => CENTER + (value - REF_B) * K;
@@ -101,6 +112,8 @@ export class Indicator {
 	private shown: IndicatorKind | null = null;
 	private amount = 0;
 	private velocity = 0;
+	/** Troca de um indicador para outro: o atual recolhe até quase sumir e só então o novo cresce (sem corte seco). */
+	private pending: IndicatorKind | null = null;
 	private time = 0;
 	/** Fração real (0..1) do anel de progresso; `null` = anel que só gira e recomeça. */
 	private progressTarget: number | null = null;
@@ -123,10 +136,14 @@ export class Indicator {
 	set(kind: IndicatorKind | null): void {
 		if (kind === this.kind) return;
 		this.kind = kind;
-		if (kind) {
-			this.shown = kind;
-			this.time = 0;
+		this.pending = null;
+		if (!kind) return;
+		if (this.shown !== null && this.shown !== kind && this.amount > SWITCH_EPS) {
+			this.pending = kind;
+			return;
 		}
+		this.shown = kind;
+		this.time = 0;
 	}
 
 	get current(): IndicatorKind | null {
@@ -134,7 +151,7 @@ export class Indicator {
 	}
 
 	private targetAmount(): number {
-		if (!this.kind) return 0;
+		if (!this.kind || this.pending) return 0;
 		if (this.kind === "progress" && this.progressTarget !== null) return 1;
 		if (this.kind === "progress" && frac(this.time / PROGRESS_CYCLE_S) * PROGRESS_CYCLE_S >= PROGRESS_FILL_S) return 0;
 		return 1;
@@ -155,6 +172,11 @@ export class Indicator {
 			this.amount += this.velocity * h;
 			this.velocity += (target - this.amount) * OMEGA * OMEGA * h - this.velocity * 2 * OMEGA * h;
 			left -= h;
+		}
+		if (this.pending && this.amount <= SWITCH_EPS) {
+			this.shown = this.pending;
+			this.pending = null;
+			this.time = 0;
 		}
 		if (Math.abs(target - this.amount) < 0.001 && Math.abs(this.velocity) < 0.01) {
 			this.amount = target;
@@ -178,7 +200,7 @@ export class Indicator {
 		return {
 			kind,
 			amount: s,
-			faceVisible: s < 0.5,
+			faceVisible: s < FACE_GONE,
 			core: 1 - s + core * s,
 			round: easeInOut(clamp(s / 0.62, 0, 1)),
 			zoom: 1 + (ZOOM[kind] - 1) * s,

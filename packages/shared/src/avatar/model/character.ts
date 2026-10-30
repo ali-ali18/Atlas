@@ -24,7 +24,7 @@ import {
 } from "../geometry/shapes.js";
 import type { BrainOutput } from "./brain.js";
 import { ClipPlayer, type ClipEvent } from "./clip-player.js";
-import { Indicator, type IndicatorFrame, type IndicatorKind } from "./indicator.js";
+import { Indicator, faceScale, type IndicatorFrame, type IndicatorKind } from "./indicator.js";
 import { DEFAULT_ZOOM, unwrapAngle } from "./clips.js";
 import {
 	EXPRESSION_EYES,
@@ -510,6 +510,9 @@ export class Character {
 			this.blinkT === null
 				? 1
 				: 1 - (1 - T.blinkMin) * Math.sin(Math.PI * (this.blinkT / T.blinkS));
+		const ind = this.indicator.frame();
+		// Corpo virando indicador (ou voltando): os olhos encolhem junto, nunca ficam recortando o ponto.
+		const eyeK = ind ? faceScale(ind.amount) : 1;
 		const gaze = this.gazePose();
 		// Resíduo pequeno nos olhos (o corpo é quem gira).
 		const brain = this.brain;
@@ -519,8 +522,8 @@ export class Character {
 		const eyeAt = (index: 0 | 1): EyeFrame => {
 			const params = pair[index];
 			const side = index === 0 ? -1 : 1;
-			const length = Math.max(0.04, params.length * scales.h * emph * lid);
-			const width = params.width * scales.w * emph;
+			const length = Math.max(0.04, params.length * scales.h * emph * lid * eyeK);
+			const width = params.width * scales.w * emph * eyeK;
 			return {
 				cx:
 					CENTER +
@@ -552,7 +555,6 @@ export class Character {
 		const squashBrain = brain ? brain.squash : 0;
 		const pos = this.position(pose.pos, gaze);
 
-		const ind = this.indicator.frame();
 		const body = ind && ind.round > 0 ? this.roundedBody(ind.round) : this.currentBody();
 		const bodyFit = ind
 			? lerp(this.currentFit(), shapeFit("blob"), ind.round) * ind.core
@@ -563,7 +565,8 @@ export class Character {
 			body,
 			bodyRev: this.bodyRev,
 			eyes: [eyeAt(0), eyeAt(1)],
-			orientation: ind ? { yaw: 0, pitch: 0, roll: 0 } : orientation,
+			// A pose do clipe se desfaz aos poucos com o morph (cortar na hora dava um salto ao sair do indicador).
+			orientation: ind ? scaleOrientation(orientation, 1 - ind.amount) : orientation,
 			fit: bodyFit,
 			indicator: ind,
 			scale: ind ? zoom * ind.zoom : zoom,
@@ -658,3 +661,7 @@ type GazePose = {
 	pushX: number;
 	pushY: number;
 };
+
+function scaleOrientation(o: Orientation, k: number): Orientation {
+	return { yaw: o.yaw * k, pitch: o.pitch * k, roll: o.roll * k };
+}
