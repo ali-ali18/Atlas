@@ -110,10 +110,9 @@ export interface FunnelChartProps {
 
 // ─── Defaults ───────────────────────────────────────────────────────
 
-import { intFmt } from "./chart-formatters";
+import { intFmt, useChartLocale } from "./chart-formatters";
 
 const fmtPct = (p: number) => `${Math.round(p)}%`;
-const fmtVal = intFmt;
 
 // ─── SVG helpers ────────────────────────────────────────────────────
 
@@ -755,7 +754,7 @@ export function FunnelChart({
   hoveredIndex: hoveredIndexProp,
   onHoverChange,
   formatPercentage = fmtPct,
-  formatValue = fmtVal,
+  formatValue: formatValueProp,
   staggerDelay = 0.12,
   enterTransition,
   gap = 4,
@@ -766,6 +765,8 @@ export function FunnelChart({
   labelAlign = "center",
   grid: gridProp = false,
 }: FunnelChartProps) {
+  const locale = useChartLocale();
+  const formatValue = formatValueProp ?? ((value: number) => intFmt(value, locale));
   const ref = useRef<HTMLDivElement>(null);
   const [sz, setSz] = useState({ w: 0, h: 0 });
   const [internalHoveredIndex, setInternalHoveredIndex] = useState<

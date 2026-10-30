@@ -1,6 +1,7 @@
 "use client";
 
 import type { UpdateBotInput } from "@workspace/shared";
+import { defaultTranslator, type MessageKey, type Translator } from "@/lib/i18n/translator";
 
 /** Campos do perfil que a IA pode propor corrigir (nada de memória). */
 export type BotProfileField =
@@ -16,12 +17,20 @@ export const BOT_PROFILE_FIELDS: readonly BotProfileField[] = [
   "name",
 ] as const;
 
-/** Rótulos curtos em PT-BR para o antes/depois. */
+/** Chaves dos rótulos curtos do antes/depois (o texto vem do idioma da tela). */
+export const BOT_PROFILE_FIELD_KEYS = {
+  description: "aiElements.profile.field.description",
+  snippet: "aiElements.profile.field.snippet",
+  openRouterModel: "aiElements.profile.field.openRouterModel",
+  name: "aiElements.profile.field.name",
+} as const satisfies Record<BotProfileField, MessageKey>;
+
+/** Rótulos curtos pt-BR (idioma-fonte) para o antes/depois. */
 export const BOT_PROFILE_FIELD_LABELS: Record<BotProfileField, string> = {
-  description: "Briefing",
-  snippet: "Resumo",
-  openRouterModel: "Modelo",
-  name: "Nome",
+  description: defaultTranslator.t(BOT_PROFILE_FIELD_KEYS.description),
+  snippet: defaultTranslator.t(BOT_PROFILE_FIELD_KEYS.snippet),
+  openRouterModel: defaultTranslator.t(BOT_PROFILE_FIELD_KEYS.openRouterModel),
+  name: defaultTranslator.t(BOT_PROFILE_FIELD_KEYS.name),
 };
 
 const MAX_LEN: Record<BotProfileField, number> = {
@@ -161,9 +170,9 @@ export function getProposalPatch(proposal: BotProfileProposal): UpdateBotInput {
 }
 
 /** Linhas de antes/depois para renderizar no confirm-card. */
-export function getProposalRows(proposal: BotProfileProposal): BotProfileRow[] {
+export function getProposalRows(proposal: BotProfileProposal, { t }: Translator = defaultTranslator): BotProfileRow[] {
   return proposal.fields.map((field) => {
-    const label = BOT_PROFILE_FIELD_LABELS[field];
+    const label = t(BOT_PROFILE_FIELD_KEYS[field]);
     switch (field) {
       case "description":
         return {
@@ -213,10 +222,10 @@ export function getProposalRows(proposal: BotProfileProposal): BotProfileRow[] {
   });
 }
 
-/** Título curto em PT-BR (ex: "Atualizar perfil?"). */
-export function getProposalTitle(proposal: BotProfileProposal): string {
+/** Título curto (ex: "Atualizar perfil?"). */
+export function getProposalTitle(proposal: BotProfileProposal, { t, locale }: Translator = defaultTranslator): string {
   if (proposal.fields.length === 1) {
-    return `Atualizar ${BOT_PROFILE_FIELD_LABELS[proposal.fields[0]!].toLowerCase()}?`;
+    return t("aiElements.profile.titleOne", { field: t(BOT_PROFILE_FIELD_KEYS[proposal.fields[0]!]).toLocaleLowerCase(locale) });
   }
-  return "Atualizar perfil?";
+  return t("aiElements.profile.titleMany");
 }

@@ -3,7 +3,7 @@
 import { Progress } from "@base-ui/react/progress";
 import type { ReactNode } from "react";
 import { cn } from "@workspace/ui/lib/utils";
-import { intFmt } from "./chart-formatters";
+import { intFmt, useChartLocale } from "./chart-formatters";
 
 export interface LegendItem {
   /** Display label */
@@ -172,7 +172,7 @@ export function ChartLegend({
   showMarker = true,
   showValue = true,
   showPercentage,
-  formatValue = intFmt,
+  formatValue: formatValueProp,
   title,
   className = "",
   titleClassName = "text-sm font-semibold",
@@ -181,6 +181,8 @@ export function ChartLegend({
   valueClassName = "text-sm tabular-nums",
   renderItem,
 }: ChartLegendProps) {
+  const locale = useChartLocale();
+  const formatValue = formatValueProp ?? ((value: number) => intFmt(value, locale));
   // Default showPercentage to true when showProgress is true
   const displayPercentage = showPercentage ?? showProgress;
 

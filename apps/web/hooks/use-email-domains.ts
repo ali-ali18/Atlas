@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { EmailDomainDto } from "@workspace/shared";
 import { AtlasApiError, addEmailDomain, listEmailDomains, removeEmailDomain, verifyEmailDomain } from "@/lib/atlas-api";
+import { activeT } from "@/lib/i18n/active";
 
 function messageOf(cause: unknown, fallback: string): string {
 	return cause instanceof AtlasApiError && cause.message ? cause.message : fallback;
@@ -24,7 +25,7 @@ export function useEmailDomains(enabled: boolean) {
 			setDomains(await listEmailDomains());
 			setError(null);
 		} catch (cause) {
-			setError(messageOf(cause, "Não foi possível carregar os domínios."));
+			setError(messageOf(cause, activeT("errors.loadDomains")));
 		} finally {
 			setLoading(false);
 		}
@@ -59,16 +60,16 @@ export function useEmailDomains(enabled: boolean) {
 			run("new", async () => {
 				const created = await addEmailDomain(domain);
 				setDomains((current) => [...(current ?? []).filter((item) => item.id !== created.id), created]);
-			}, "Não foi possível adicionar o domínio. Tente novamente."),
+			}, activeT("errors.addDomain")),
 		verify: (id: string) =>
 			run(id, async () => {
 				const next = await verifyEmailDomain(id);
 				setDomains((current) => (current ?? []).map((item) => (item.id === next.id ? next : item)));
-			}, "Não foi possível verificar agora. Tente novamente."),
+			}, activeT("errors.verifyDomain")),
 		remove: (id: string) =>
 			run(id, async () => {
 				await removeEmailDomain(id);
 				setDomains((current) => (current ?? []).filter((item) => item.id !== id));
-			}, "Não foi possível remover o domínio. Tente novamente."),
+			}, activeT("errors.removeDomain")),
 	};
 }

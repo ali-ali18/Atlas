@@ -23,86 +23,14 @@ import {
 } from "@workspace/ui/components/popover";
 import { BOT_REACTION_EMOJIS, type MessageReaction } from "@workspace/shared";
 import { hoverRevealClass } from "@/lib/hover-reveal";
+import { useT } from "@/lib/i18n/provider";
 import { isPersistedMessageId, messageReactions, useMessageReactions } from "@/lib/message-reactions";
 import { cn } from "@workspace/ui/lib/utils";
+import { EMOJI_INDEX } from "./emoji-index";
 
 /** Mesmo conjunto fixo que o bot usa para reagir; "+" abre o resto. */
 export const REACTION_EMOJIS = BOT_REACTION_EMOJIS;
 
-const EMOJI_INDEX: { char: string; keys: string }[] = [
-	{ char: "😀", keys: "sorriso feliz alegre rosto" },
-	{ char: "😃", keys: "sorriso alegre feliz" },
-	{ char: "😄", keys: "sorriso suor alegre feliz" },
-	{ char: "😁", keys: "sorriso dentes alegre" },
-	{ char: "😆", keys: "risada olhos apertados rir" },
-	{ char: "😅", keys: "suor nervoso alivio" },
-	{ char: "🤣", keys: "rolando rir gargalhada" },
-	{ char: "😂", keys: "chorando rir gargalhada" },
-	{ char: "🙂", keys: "leve sorriso" },
-	{ char: "🙃", keys: "invertido ironia" },
-	{ char: "😉", keys: "piscando" },
-	{ char: "😊", keys: "timido corado vergonha" },
-	{ char: "😇", keys: "anjo halo inocente" },
-	{ char: "🥰", keys: "coracoes apaixonado amor" },
-	{ char: "😍", keys: "apaixonado olhos coracao amor" },
-	{ char: "🤩", keys: "estrela impressionado" },
-	{ char: "😘", keys: "beijo" },
-	{ char: "😗", keys: "beijo" },
-	{ char: "😚", keys: "beijo olhos fechados" },
-	{ char: "😙", keys: "beijo sorriso" },
-	{ char: "😋", keys: "delicia lingua gostoso" },
-	{ char: "😛", keys: "lingua" },
-	{ char: "😜", keys: "lingua piscando" },
-	{ char: "🤪", keys: "maluco doido" },
-	{ char: "😝", keys: "lingua olhos apertados" },
-	{ char: "🤑", keys: "dinheiro ganancia rico" },
-	{ char: "🤗", keys: "abraco" },
-	{ char: "🤭", keys: "cobrindo boca rindo" },
-	{ char: "🤫", keys: "silencio segredo shh" },
-	{ char: "🤔", keys: "pensando duvida" },
-	{ char: "😐", keys: "neutro serio" },
-	{ char: "🙄", keys: "revirando olhos tedio" },
-	{ char: "😏", keys: "ironico ladino" },
-	{ char: "😬", keys: "careta sem jeito" },
-	{ char: "😴", keys: "dormindo sono" },
-	{ char: "🤯", keys: "cabeca explodindo mente" },
-	{ char: "🤠", keys: "cowboy chapeu" },
-	{ char: "🥳", keys: "festa comemoracao aniversario" },
-	{ char: "😎", keys: "oculos sol descolado" },
-	{ char: "🤓", keys: "nerd inteligente" },
-	{ char: "🧐", keys: "monoculo observando" },
-	{ char: "😕", keys: "confuso" },
-	{ char: "😟", keys: "preocupado" },
-	{ char: "🙁", keys: "triste" },
-	{ char: "😮", keys: "surpreso uau" },
-	{ char: "😯", keys: "surpreso" },
-	{ char: "😲", keys: "chocado surpreso" },
-	{ char: "😳", keys: "corado vergonha" },
-	{ char: "🥺", keys: "suplica do pena" },
-	{ char: "😦", keys: "triste boca aberta" },
-	{ char: "😧", keys: "angustiado" },
-	{ char: "😨", keys: "medo assustado" },
-	{ char: "😰", keys: "suor medo ansioso" },
-	{ char: "😥", keys: "alivio triste suor" },
-	{ char: "😢", keys: "choro lagrima triste" },
-	{ char: "😭", keys: "chorando muito lagrima" },
-	{ char: "😱", keys: "gritando medo susto" },
-	{ char: "😖", keys: "confuso frustrado" },
-	{ char: "😣", keys: "perseverante esforco" },
-	{ char: "😞", keys: "decepcionado triste" },
-	{ char: "😓", keys: "suor frio cansado" },
-	{ char: "😩", keys: "cansado exausto" },
-	{ char: "😫", keys: "cansado" },
-	{ char: "🥱", keys: "bocejo sono tedio" },
-	{ char: "👍", keys: "joinha curtir sim positivo" },
-	{ char: "👎", keys: "descurtir nao negativo" },
-	{ char: "👏", keys: "palmas aplaudindo parabens" },
-	{ char: "🙌", keys: "maos festa comemorar" },
-	{ char: "❤️", keys: "coracao amor vermelho" },
-	{ char: "🔥", keys: "fogo quente top" },
-	{ char: "🎉", keys: "festa parabens comemorar" },
-	{ char: "✨", keys: "brilho novo especial" },
-];
 
 function normalize(value: string) {
 	return value
@@ -113,37 +41,38 @@ function normalize(value: string) {
 }
 
 function EmojiGrid({ onSelect }: { onSelect: (emoji: string) => void }) {
+	const t = useT();
 	const [query, setQuery] = useState("");
 	const filtered = useMemo(() => {
 		const q = normalize(query);
 		if (!q) return EMOJI_INDEX;
-		return EMOJI_INDEX.filter((entry) => normalize(entry.keys).includes(q));
+		return EMOJI_INDEX.filter((entry) => normalize(Object.values(entry.keys).join(" ")).includes(q));
 	}, [query]);
 	return (
 		<>
 			<label className="flex items-center gap-2 border-b px-3 py-2.5">
 				<SearchIcon className="size-4 shrink-0 text-muted-foreground" />
 				<input
-					aria-label="Buscar emoji"
+					aria-label={t("chatExtras.searchEmoji")}
 					autoFocus
 					className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
 					onChange={(e) => setQuery(e.target.value)}
-					placeholder="Buscar emoji"
+					placeholder={t("chatExtras.searchEmoji")}
 					value={query}
 				/>
 			</label>
 			<p className="px-3 pt-2.5 pb-1 text-muted-foreground text-xs">
-				Sorrisos e emoção
+				{t("chatExtras.emojiGroup")}
 			</p>
 			<div
-				aria-label="Emojis disponíveis"
+				aria-label={t("chatExtras.emojisAvailable")}
 				className="grid max-h-64 grid-cols-8 gap-0.5 overflow-y-auto px-2 pb-2"
 				role="listbox"
 			>
 				{filtered.length > 0 ? (
 					filtered.map((entry) => (
 						<button
-							aria-label={`Reagir com ${entry.char}`}
+							aria-label={t("chatExtras.reactWith", { emoji: entry.char })}
 							className="grid size-8 place-items-center rounded-lg text-xl transition-colors hover:bg-muted"
 							key={entry.char}
 							onClick={() => onSelect(entry.char)}
@@ -155,7 +84,7 @@ function EmojiGrid({ onSelect }: { onSelect: (emoji: string) => void }) {
 					))
 				) : (
 					<p className="col-span-8 px-2 py-4 text-center text-muted-foreground text-xs">
-						Nenhum emoji encontrado
+						{t("chatExtras.noEmoji")}
 					</p>
 				)}
 			</div>
@@ -172,6 +101,7 @@ export function ReactionTrigger({
 	className?: string;
 	align?: "start" | "end" | "center";
 }) {
+	const t = useT();
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [gridOpen, setGridOpen] = useState(false);
 	const pick = (emoji: string) => {
@@ -192,7 +122,7 @@ export function ReactionTrigger({
 				<DropdownMenuTrigger
 					render={
 						<Button
-							aria-label="Reagir"
+							aria-label={t("chatExtras.react")}
 							className={cn(
 								"shrink-0 data-[popup-open]:opacity-100",
 								hoverRevealClass("message"),
@@ -213,7 +143,7 @@ export function ReactionTrigger({
 				>
 					{REACTION_EMOJIS.map((emoji) => (
 						<button
-							aria-label={`Reagir com ${emoji}`}
+							aria-label={t("chatExtras.reactWith", { emoji })}
 							className="grid size-8 place-items-center rounded-full text-lg transition-colors hover:bg-muted"
 							key={emoji}
 							onClick={() => pick(emoji)}
@@ -223,7 +153,7 @@ export function ReactionTrigger({
 						</button>
 					))}
 					<button
-						aria-label="Mais emojis"
+						aria-label={t("chatExtras.moreEmojis")}
 						className="grid size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 						onClick={openGrid}
 						type="button"
@@ -274,6 +204,7 @@ export async function copyText(text: string): Promise<boolean> {
 }
 
 export function CopyButton({ text }: { text: string }) {
+	const t = useT();
 	const [copied, setCopied] = useState(false);
 	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	useEffect(() => {
@@ -281,9 +212,10 @@ export function CopyButton({ text }: { text: string }) {
 			if (timer.current) clearTimeout(timer.current);
 		};
 	}, []);
+	const copyLabel = copied ? t("chatExtras.copied") : t("common.copy");
 	return (
 		<Button
-			aria-label={copied ? "Copiado" : "Copiar"}
+			aria-label={copyLabel}
 			className={cn("shrink-0", hoverRevealClass("message"))}
 			onClick={() => {
 				void copyText(text).then((ok) => {
@@ -316,10 +248,11 @@ export function useMessageReactionControls(messageId: string | undefined) {
 
 /** Emojis das reações (o usuário e o bot), sem repetir o mesmo emoji. */
 export function ReactionBadges({ reactions }: { reactions: readonly MessageReaction[] }) {
+	const t = useT();
 	if (reactions.length === 0) return null;
 	const emojis = [...new Set(reactions.map((reaction) => reaction.emoji))];
 	return (
-		<BubbleReactions aria-label={`Reação: ${emojis.join(" ")}`} role="img">
+		<BubbleReactions aria-label={t("chatExtras.reactionLabel", { emojis: emojis.join(" ") })} role="img">
 			{emojis.map((emoji) => (
 				<span key={emoji}>{emoji}</span>
 			))}
@@ -328,9 +261,10 @@ export function ReactionBadges({ reactions }: { reactions: readonly MessageReact
 }
 
 export function SelectedReaction({ emoji }: { emoji: string | null }) {
+	const t = useT();
 	if (!emoji) return null;
 	return (
-		<BubbleReactions role="img" aria-label={`Reaction: ${emoji}`}>
+		<BubbleReactions role="img" aria-label={t("chatExtras.reactionLabel", { emojis: emoji })}>
 			<span>{emoji}</span>
 		</BubbleReactions>
 	);

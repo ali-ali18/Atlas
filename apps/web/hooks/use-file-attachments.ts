@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ATTACHMENT_LIMITS } from "@workspace/shared";
 import { uploadFileAttachment } from "@/lib/atlas-api";
+import { activeT } from "@/lib/i18n/active";
 
 export const MAX_FILE_ATTACHMENTS = ATTACHMENT_LIMITS.maxPerMessage;
 export const MAX_FILE_BYTES = ATTACHMENT_LIMITS.maxBytes;
@@ -24,10 +25,10 @@ export function isImageFile(file: File): boolean {
 }
 
 export function validateAttachmentFiles(files: readonly File[], existingCount: number): string | null {
-	if (files.length + existingCount > MAX_FILE_ATTACHMENTS) return `Até ${MAX_FILE_ATTACHMENTS} arquivos por mensagem.`;
+	if (files.length + existingCount > MAX_FILE_ATTACHMENTS) return activeT("errors.maxFiles", { count: MAX_FILE_ATTACHMENTS });
 	for (const file of files) {
-		if (file.size === 0) return `"${file.name}" está vazio.`;
-		if (file.size > MAX_FILE_BYTES) return "Cada arquivo deve ter até 20 MB.";
+		if (file.size === 0) return activeT("errors.fileEmpty", { name: file.name });
+		if (file.size > MAX_FILE_BYTES) return activeT("errors.fileTooBig");
 	}
 	return null;
 }
@@ -76,7 +77,7 @@ export function useFileAttachments() {
 			}).catch((failure: unknown) => {
 				if (controller.signal.aborted) return;
 				setItems((previous) => previous.map((item) => item.localId === localId
-					? { ...item, status: "error", error: failure instanceof Error ? failure.message : "Falha no upload" } : item));
+					? { ...item, status: "error", error: failure instanceof Error ? failure.message : activeT("errors.uploadFailed") } : item));
 			}).finally(() => aborts.current.delete(localId));
 		}
 	}, []);

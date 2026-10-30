@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 
 import { listActiveWork, type ActiveWorkItemResponse } from "@/lib/atlas-api";
 import { currentPollMode, getSharedEventHub, shouldPollTick } from "@/lib/event-hub-client";
+import { activeT, getActiveTranslator } from "@/lib/i18n/active";
 
 /** Sessões de código e subagentes em andamento (todas as conversas), com "visto por último". */
 
@@ -27,7 +28,7 @@ const WORKING: readonly string[] = ["CREATING", "QUEUED", "RUNNING"];
 function repoLabel(repo: string | null, branch: string | null): string {
 	const name = repo?.replace(/^https?:\/\/[^/]+\//, "").replace(/\.git$/, "");
 	if (name && branch) return `${name} · ${branch}`;
-	return name || branch || "Sessão de código";
+	return name || branch || activeT("status.dev.codeSession");
 }
 
 /** Linhas ordenadas: trabalhando primeiro (mais novo antes), depois as terminadas não vistas. */

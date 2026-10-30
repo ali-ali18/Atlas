@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { scanSuspiciousInstructions } from "@workspace/shared"
 import { publishSkill, type PublishSkillForm, type PublishSkillResult, type SkillDocView } from "@/lib/atlas-api"
 import { createZip } from "@/lib/zip"
+import { useTranslations } from "@/lib/i18n/provider"
 import { CatalogPanel, PublishFlow } from "./catalog-panels"
 import { suggestVersion } from "./catalog-state"
 
@@ -50,6 +51,7 @@ export function PublishSkillPanel({
   loadFull: (id: string) => Promise<SkillDocView>
   onClose: () => void
 }) {
+  const { t } = useTranslations()
   const [full, setFull] = useState<SkillDocView | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -67,7 +69,7 @@ export function PublishSkillPanel({
         if (!cancelled) setFull(loaded)
       },
       () => {
-        if (!cancelled) setError("Não consegui abrir a habilidade.")
+        if (!cancelled) setError(t("marketplace.publishSkill.openError"))
       }
     )
     return () => {
@@ -93,7 +95,7 @@ export function PublishSkillPanel({
       saveAuthor(form.author)
       setResult(await publishSkill(skill.id, form))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não consegui publicar.")
+      setError(cause instanceof Error ? cause.message : t("marketplace.publishSkill.failed"))
     } finally {
       setBusy(false)
     }
@@ -101,12 +103,12 @@ export function PublishSkillPanel({
 
   return (
     <CatalogPanel
-      description="Enviar uma habilidade ao catálogo"
+      description={t("marketplace.publishSkill.description")}
       onOpenChange={(open) => {
         if (!open) onClose()
       }}
       open={skill !== null}
-      title="Publicar no marketplace"
+      title={t("marketplace.publishSkill.title")}
     >
       {skill && full ? (
         <PublishFlow
@@ -124,7 +126,7 @@ export function PublishSkillPanel({
         />
       ) : (
         <p className="p-4 text-sm text-muted-foreground" role={error ? "alert" : undefined}>
-          {error ?? "Carregando…"}
+          {error ?? t("common.loading")}
         </p>
       )}
     </CatalogPanel>

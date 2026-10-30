@@ -11,6 +11,9 @@ import { Marker, MarkerContent } from "@workspace/ui/components/marker";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { buildTimeSeparators } from "@/lib/chat-time-separators";
+import { formatTime } from "@/lib/format";
+import type { UiLocale } from "@/lib/i18n/locales";
+import { useLocale, useT } from "@/lib/i18n/provider";
 import type { ExchangeEntry } from "@/lib/bot-exchange";
 import { AgentAvatar } from "@/components/ui/templates/template-4/agent-avatar";
 import { botAccentStyle } from "@/components/ui/templates/template-4/chat-context-panel/bot-accent";
@@ -23,10 +26,8 @@ export type BotExchangeStatus = "loading" | "ready" | "error";
 
 const FLASH_MS = 4000;
 
-function timeLabel(iso: string): string {
-	const date = new Date(iso);
-	if (Number.isNaN(date.getTime())) return "";
-	return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date);
+function timeLabel(iso: string, locale: UiLocale): string {
+	return formatTime(iso, locale);
 }
 
 function positionOf(entries: readonly ExchangeEntry[], index: number, separators: ReadonlyMap<string, string>): GroupPosition {
@@ -76,7 +77,9 @@ export function BotExchangeView({
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const [flash, setFlash] = useState<string | null>(focusKey ?? null);
-	const separators = useMemo(() => buildTimeSeparators(entries.map((entry) => ({ id: entry.key, createdAt: entry.createdAt }))), [entries]);
+	const locale = useLocale();
+	const t = useT();
+	const separators = useMemo(() => buildTimeSeparators(entries.map((entry) => ({ id: entry.key, createdAt: entry.createdAt })), new Date(), undefined, locale), [entries, locale]);
 	const focusedPresent = Boolean(focusKey) && entries.some((entry) => entry.key === focusKey);
 
 	// Sem foco: abre no fim; com foco: leva a fala tocada ao centro e a destaca um instante.
@@ -93,7 +96,7 @@ export function BotExchangeView({
 		element.scrollTop = element.scrollHeight;
 	}, [status, focusKey, focusedPresent]);
 
-	const title = `Conversa entre ${self.name} e ${peer.name}`;
+	const title = t("aiElements.bots.exchangeTitle", { self: self.name, peer: peer.name });
 	return (
 		<div
 			className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col bg-background", className)}
@@ -102,7 +105,7 @@ export function BotExchangeView({
 		>
 			<header className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 items-center gap-2 px-3 md:h-12">
 				<Button
-					aria-label="Voltar para a conversa"
+					aria-label={t("chat.exchange.back")}
 					className="pointer-events-auto size-10 shrink-0 rounded-full bg-card hover:bg-card/90 md:size-9"
 					onClick={onBack}
 					size="icon"
@@ -129,7 +132,7 @@ export function BotExchangeView({
 						variant="ghost"
 					>
 						<ExternalLinkIcon className="size-3.5" />
-						Abrir chat de {peer.name}
+						{t("aiElements.bots.openChatOf", { name: peer.name })}
 					</Button>
 				) : null}
 			</header>
@@ -144,18 +147,18 @@ export function BotExchangeView({
 							size="sm"
 							variant="ghost"
 						>
-							{loadingMore ? "Carregando…" : "Carregar mensagens anteriores"}
+							{loadingMore ? t("common.loading") : t("aiElements.bots.loadEarlier")}
 						</Button>
 					) : null}
-					{status === "loading" ? <p className="text-center text-muted-foreground text-sm">Carregando a conversa…</p> : null}
+					{status === "loading" ? <p className="text-center text-muted-foreground text-sm">{t("aiElements.bots.loadingConversation")}</p> : null}
 					{status === "error" ? (
 						<p className="rounded-2xl border border-destructive/40 bg-destructive/10 px-4 py-2.5 text-destructive text-sm" role="alert">
-							{error || "Não foi possível carregar a conversa."}
+							{error || t("aiElements.bots.loadError")}
 						</p>
 					) : null}
 					{status === "ready" && entries.length === 0 ? (
 						<p className="text-center text-muted-foreground text-sm">
-							{self.name} e {peer.name} ainda não trocaram mensagens.
+							{t("aiElements.bots.noMessages", { self: self.name, peer: peer.name })}
 						</p>
 					) : null}
 					{entries.map((entry, index) => {
@@ -200,7 +203,7 @@ export function BotExchangeView({
 												</ReactMarkdown>
 											</BubbleContent>
 										</Bubble>
-										{last ? <span className="px-1 text-[10px] text-muted-foreground/80">{timeLabel(entry.createdAt)}</span> : null}
+										{last ? <span className="px-1 text-[10px] text-muted-foreground/80">{timeLabel(entry.createdAt, locale)}</span> : null}
 									</div>
 								</div>
 							</div>
@@ -211,7 +214,7 @@ export function BotExchangeView({
 
 			<footer className="flex shrink-0 items-center justify-center gap-1.5 border-t bg-background px-4 py-3 text-muted-foreground text-xs">
 				<LockIcon aria-hidden className="size-3" />
-				<span>Somente leitura — conversa entre os bots</span>
+				<span>{t("aiElements.bots.readOnly")}</span>
 			</footer>
 		</div>
 	);

@@ -39,17 +39,18 @@ import {
 import { GithubMarkIcon } from "@/components/icons/github-mark";
 import { Switch } from "@workspace/ui/components/switch";
 import { cn } from "@workspace/ui/lib/utils";
+import { useTranslations } from "@/lib/i18n/provider";
 import type { Routine } from "../data";
 import {
 	buildRoutineMenu,
-	ROUTINE_ACTION_ERROR_TEXT,
+	routineActionErrorText,
 	type RoutineActionError,
 	type RoutineMenuItem,
 	type RoutineMenuItemId,
 	runOptimisticToggle,
 	runTest,
 } from "./routine-actions";
-import { routinePrimaryTriggerKind, routineScheduleSummary } from "./routine-map";
+import { routineAlertSentence, routinePrimaryTriggerKind, routineScheduleSummary } from "./routine-map";
 
 export type RoutineCardHandlers = {
 	onToggle?: (routine: Routine, enabled: boolean) => Promise<string | null>;
@@ -85,7 +86,10 @@ export function RoutineMenuItems({
 	items,
 	variant,
 	onSelect,
+	resume = false,
 }: {
+	/** A rotina está pausada: o item "alternar" mostra o ícone de retomar. */
+	resume?: boolean;
 	items: RoutineMenuItem[];
 	variant: "context" | "dropdown";
 	onSelect: (id: RoutineMenuItemId) => void;
@@ -102,7 +106,7 @@ export function RoutineMenuItems({
 						onClick={() => onSelect(item.id)}
 						variant={item.destructive ? "destructive" : "default"}
 					>
-						<MenuIcon id={item.id} resume={item.label === "Retomar"} />
+						<MenuIcon id={item.id} resume={item.id === "toggle" && resume} />
 						{item.label}
 					</Item>
 				</span>
@@ -116,6 +120,8 @@ export function RoutineCard({
 	persisted,
 	...handlers
 }: { routine: Routine; persisted: boolean } & RoutineCardHandlers) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const [optimistic, setOptimistic] = useState<boolean | null>(null);
 	const [error, setError] = useState<RoutineActionError | null>(null);
 	const [testPending, setTestPending] = useState(false);
@@ -126,14 +132,19 @@ export function RoutineCard({
 	}, [routine.active, optimistic]);
 
 	const active = optimistic ?? routine.active;
-	const summary = routine.alertSentence ?? routineScheduleSummary(routine);
+	const alertSentence = routineAlertSentence(routine, translator);
+	const summary = alertSentence ?? routineScheduleSummary(routine, translator);
+	const switchKey = active ? "routines.card.pauseNamed" : "routines.card.resumeNamed";
 	const kind = routinePrimaryTriggerKind(routine);
-	const items = buildRoutineMenu({
-		active,
-		persisted,
-		kind: kind === "webhook" || kind === "github" ? kind : "other",
-		running: testPending,
-	});
+	const items = buildRoutineMenu(
+		{
+			active,
+			persisted,
+			kind: kind === "webhook" || kind === "github" ? kind : "other",
+			running: testPending,
+		},
+		translator,
+	);
 
 	async function toggle() {
 		setError(null);
@@ -141,7 +152,7 @@ export function RoutineCard({
 			current: active,
 			apply: setOptimistic,
 			request: async (next) =>
-				handlers.onToggle ? handlers.onToggle(routine, next) : "Indisponível",
+				handlers.onToggle ? handlers.onToggle(routine, next) : t("routines.card.unavailable"),
 		});
 		if (!result.ok) setError(result.error);
 	}
@@ -174,13 +185,12 @@ export function RoutineCard({
 					{routine.name}
 				</span>
 				<span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-muted-foreground text-xs">
-					<span className={routine.alertSentence ? "line-clamp-2 break-words" : "truncate"} data-routine-alert={routine.alertSentence ? "" : undefined} title={routine.alertSentence}>
-						{summary}
-						{persisted ? "" : " · Rascunho"}
+					<span className={alertSentence ? "line-clamp-2 break-words" : "truncate"} data-routine-alert={alertSentence ? "" : undefined} title={alertSentence ?? undefined}>
+						{persisted ? summary : t("routines.card.withDraft", { summary })}
 					</span>
 					{routine.createdBy === "bot" ? (
 						<Badge data-routine-created-by="bot" variant="secondary">
-							Criada pelo bot
+							{t("routines.card.createdByBot")}
 						</Badge>
 					) : null}
 				</span>
@@ -189,7 +199,7 @@ export function RoutineCard({
 				<DropdownMenuTrigger
 					render={
 						<Button
-							aria-label={`Mais ações de ${routine.name}`}
+							aria-label={t("routines.card.moreActions", { name: routine.name })}
 							className={cn(
 								"shrink-0 text-muted-foreground transition-opacity",
 								"opacity-0 group-hover/routine:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100",
@@ -203,11 +213,11 @@ export function RoutineCard({
 					<MoreHorizontalIcon />
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end">
-					<RoutineMenuItems items={items} onSelect={select} variant="dropdown" />
+					<RoutineMenuItems items={items} onSelect={select} resume={!active} variant="dropdown" />
 				</DropdownMenuContent>
 			</DropdownMenu>
 			<Switch
-				aria-label={`${active ? "Pausar" : "Retomar"} ${routine.name}, ${summary}`}
+				aria-label={t(switchKey, { name: routine.name, summary })}
 				checked={active}
 				className="data-checked:border-(--bot-accent,var(--primary)) data-checked:bg-(--bot-accent,var(--primary)) *:data-[slot=switch-thumb]:data-checked:bg-white!"
 				disabled={!handlers.onToggle || !persisted}
@@ -221,22 +231,22 @@ export function RoutineCard({
 			<ContextMenu>
 				<ContextMenuTrigger render={<div />}>{card}</ContextMenuTrigger>
 				<ContextMenuContent>
-					<RoutineMenuItems items={items} onSelect={select} variant="context" />
+					<RoutineMenuItems items={items} onSelect={select} resume={!active} variant="context" />
 				</ContextMenuContent>
 			</ContextMenu>
 			{error ? (
 				<p aria-live="polite" className="px-3 pt-1 text-destructive text-xs" role="alert">
-					{ROUTINE_ACTION_ERROR_TEXT[error]}
+					{routineActionErrorText(error, translator)}
 				</p>
 			) : null}
 			<AlertDialog onOpenChange={setConfirmDelete} open={confirmDelete}>
 				<AlertDialogContent size="sm">
 					<AlertDialogHeader>
-						<AlertDialogTitle>Excluir “{routine.name || "esta rotina"}”?</AlertDialogTitle>
-						<AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription>
+						<AlertDialogTitle>{t("routines.card.deleteTitle", { name: routine.name || t("routines.card.thisRoutine") })}</AlertDialogTitle>
+						<AlertDialogDescription>{t("routines.card.deleteBody")}</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Cancelar</AlertDialogCancel>
+						<AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
 						<AlertDialogAction
 							onClick={() => {
 								setConfirmDelete(false);
@@ -244,7 +254,7 @@ export function RoutineCard({
 							}}
 							variant="destructive"
 						>
-							Excluir
+							{t("routines.menu.delete")}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>

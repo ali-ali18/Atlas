@@ -4,6 +4,7 @@ import { CalendarClockIcon } from "lucide-react";
 import { Button } from "@workspace/ui/components/button";
 import { REQUEST_PRIMARY_CLASS, RequestCard } from "@workspace/ui/components/request-card";
 import { describeRoutineProposalSchedule } from "@workspace/shared";
+import { useTranslations } from "@/lib/i18n/provider";
 import { proposalView } from "@/lib/routine-proposal-message";
 import type { Message } from "@/components/ui/templates/template-4/data";
 
@@ -21,12 +22,16 @@ export type RoutineProposalCardProps = {
  * "Criei a rotina X — manter?" (Manter / Desfazer). Decidido, só o selo e uma linha ficam.
  */
 export function RoutineProposalCard({ message, onAccept, onDecline }: RoutineProposalCardProps) {
-	const view = proposalView({
-		mode: message.mode,
-		status: message.status,
-		spec: message.spec,
-		schedule: describeRoutineProposalSchedule(message.spec),
-	});
+	const translator = useTranslations();
+	const view = proposalView(
+		{
+			mode: message.mode,
+			status: message.status,
+			spec: message.spec,
+			schedule: describeRoutineProposalSchedule(message.spec),
+		},
+		translator,
+	);
 	const busy = message.isApplying ?? false;
 	return (
 		<RequestCard
@@ -38,7 +43,7 @@ export function RoutineProposalCard({ message, onAccept, onDecline }: RoutinePro
 					size="sm"
 					type="button"
 				>
-					{busy ? "Aplicando…" : view.confirmLabel}
+					{busy ? translator.t("aiElements.routines.applying") : view.confirmLabel}
 				</Button>
 			}
 			badge={view.badge}

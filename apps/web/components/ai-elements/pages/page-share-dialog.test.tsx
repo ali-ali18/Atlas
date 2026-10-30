@@ -3,7 +3,7 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { PageShareBody, PUBLIC_LINK_WARNING, type ShareState } from "./page-share-dialog";
+import { PageShareBody, type ShareState } from "./page-share-dialog";
 
 Object.assign(globalThis, { React });
 
@@ -15,7 +15,7 @@ test("link desativado: só o interruptor e a explicação, sem aviso nem endere�
 	assert.match(html, /aria-label="Link público"/);
 	assert.match(html, /Desativado/);
 	assert.doesNotMatch(html, /Desativar link/);
-	assert.doesNotMatch(html, new RegExp(PUBLIC_LINK_WARNING));
+	assert.doesNotMatch(html, /Qualquer pessoa com o link/);
 });
 
 test("link ativo recém-criado: aviso, endereço, copiar e desativar", () => {

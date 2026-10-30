@@ -5,6 +5,7 @@ import { CheckIcon, ShieldAlertIcon, XIcon } from "lucide-react";
 
 import { Button } from "./button";
 import { RequestCard, REQUEST_PRIMARY_CLASS, type RequestCardProps } from "./request-card";
+import { useUiCopy, type UiCopy } from "./ui-copy";
 
 export type ConfirmStatus = "pending" | "approved" | "rejected" | "failed";
 
@@ -30,19 +31,19 @@ export type ConfirmAlertProps = Omit<
   onAlways?: () => void;
 };
 
-function StatusIcon({ status }: { status: ConfirmStatus }) {
-  if (status === "approved") return <CheckIcon aria-label="Aprovado" />;
-  if (status === "rejected") return <XIcon aria-label="Não aprovado" />;
-  if (status === "failed") return <XIcon aria-label="Falhou" />;
-  return <ShieldAlertIcon aria-label="Atenção" />;
+function StatusIcon({ status, copy }: { status: ConfirmStatus; copy: UiCopy }) {
+  if (status === "approved") return <CheckIcon aria-label={copy.confirmApproved} />;
+  if (status === "rejected") return <XIcon aria-label={copy.confirmNotApproved} />;
+  if (status === "failed") return <XIcon aria-label={copy.confirmFailed} />;
+  return <ShieldAlertIcon aria-label={copy.confirmAttention} />;
 }
 
-const BADGE = {
-  pending: { tone: "pending", label: "Precisa de você" },
-  approved: { tone: "success", label: "Aprovado" },
-  rejected: { tone: "danger", label: "Recusado" },
-  failed: { tone: "danger", label: "Falhou" },
-} as const;
+function badgeFor(status: ConfirmStatus, copy: UiCopy) {
+  if (status === "approved") return { tone: "success", label: copy.confirmApproved } as const;
+  if (status === "rejected") return { tone: "danger", label: copy.confirmRejected } as const;
+  if (status === "failed") return { tone: "danger", label: copy.confirmFailed } as const;
+  return { tone: "pending", label: copy.cardNeedsYou } as const;
+}
 
 /**
  * Pedido de confirmação no desenho do Grok Bot: primária primeiro, extras em
@@ -52,10 +53,10 @@ function ConfirmAlert({
   title,
   description,
   status = "pending",
-  confirmLabel = "Confirmar",
-  cancelLabel = "Cancelar",
-  editLabel = "Editar",
-  alwaysLabel = "Não perguntar mais para isto",
+  confirmLabel,
+  cancelLabel,
+  editLabel,
+  alwaysLabel,
   disabled = false,
   destructive = false,
   onConfirm,
@@ -66,13 +67,14 @@ function ConfirmAlert({
   children,
   ...props
 }: ConfirmAlertProps) {
+  const copy = useUiCopy();
   const resolved = status !== "pending";
   return (
     <RequestCard
       {...props}
-      badge={BADGE[status]}
+      badge={badgeFor(status, copy)}
       description={description}
-      leading={leading ?? <StatusIcon status={status} />}
+      leading={leading ?? <StatusIcon copy={copy} status={status} />}
       resolved={resolved}
       title={title}
       actions={
@@ -85,7 +87,7 @@ function ConfirmAlert({
             onClick={onConfirm}
             type="button"
           >
-            {confirmLabel}
+            {confirmLabel ?? copy.confirm}
           </Button>
           {onEdit ? (
             <Button
@@ -95,7 +97,7 @@ function ConfirmAlert({
               onClick={onEdit}
               type="button"
             >
-              {editLabel}
+              {editLabel ?? copy.edit}
             </Button>
           ) : null}
           {onAlways ? (
@@ -106,7 +108,7 @@ function ConfirmAlert({
               onClick={onAlways}
               type="button"
             >
-              {alwaysLabel}
+              {alwaysLabel ?? copy.confirmAlways}
             </Button>
           ) : null}
         </>
@@ -119,7 +121,7 @@ function ConfirmAlert({
           onClick={onCancel}
           type="button"
         >
-          {cancelLabel}
+          {cancelLabel ?? copy.cancel}
         </Button>
       }
     >

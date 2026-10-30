@@ -27,6 +27,7 @@ import {
 	togglePatch,
 	validateSkillForm,
 } from "@/components/settings/skills-state";
+import { activeT } from "@/lib/i18n/active";
 
 export type SaveSkillResult = { ok: true; skill: SkillDocView } | { ok: false; error: string };
 
@@ -55,7 +56,7 @@ export function useSkills(enabled = true) {
 				setBots(nextBots.map((bot) => ({ id: bot.id, name: bot.name })));
 			})
 			.catch(() => {
-				if (request === requestRef.current) setError("Não foi possível carregar as habilidades.");
+				if (request === requestRef.current) setError(activeT("errors.loadSkills"));
 			})
 			.finally(() => {
 				if (request === requestRef.current) setLoading(false);

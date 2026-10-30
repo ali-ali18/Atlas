@@ -29,6 +29,8 @@ import { LIBRARY_REFRESH_EVENT } from "@/components/ai-elements/files/file-attac
 import { cn } from "@workspace/ui/lib/utils";
 import { useLongPress } from "@/hooks/use-long-press";
 import { type AtlasPage, type AtlasPageListItem, deletePage, getPage, listBotPages, listRoutineGroups, movePageToGroup } from "@/lib/atlas-api";
+import { useT, useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import { PAGES_REFRESH_EVENT } from "@/lib/pages-refresh";
 import type { Routine } from "../data";
 import { type PageCardModel, pageCardModel, updatedAgo } from "./library-sections";
@@ -37,16 +39,16 @@ import { routineScheduleSummary } from "./routine-map";
 
 export type PageGroupOption = { id: string; name: string };
 
-export const PAGES_EMPTY_TEXT =
-	"Peça ao bot um painel ou relatório, como “monta um painel das vendas da semana”, e o painel fica guardado aqui para você abrir e atualizar.";
+/** Texto padrão (pt-BR) do estado vazio; a tela usa `libraryPanel.pagesEmpty` no idioma dela. */
+export const PAGES_EMPTY_TEXT = defaultTranslator.t("libraryPanel.pagesEmpty");
 
 /** Resumo da rotina que atualiza cada painel ("Toda segunda às 08:00"; pausada avisa). Pura. */
-export function routineSummaryByPage(routines: readonly Routine[]): Map<string, string> {
+export function routineSummaryByPage(routines: readonly Routine[], translator: Translator = defaultTranslator): Map<string, string> {
 	const byPage = new Map<string, string>();
 	for (const routine of routines) {
 		if (!routine.pageId || byPage.has(routine.pageId)) continue;
-		const summary = routineScheduleSummary(routine);
-		byPage.set(routine.pageId, routine.active ? summary : `${summary} (pausada)`);
+		const summary = routineScheduleSummary(routine, translator);
+		byPage.set(routine.pageId, routine.active ? summary : translator.t("libraryPanel.pausedSuffix", { summary }));
 	}
 	return byPage;
 }
@@ -74,6 +76,7 @@ function PageRow({
 	onDelete: () => void;
 	onReveal: () => void;
 }) {
+	const t = useT();
 	const longPress = useLongPress(onReveal);
 	const meta = [model.sources, model.updated].filter(Boolean).join(" · ");
 	return (
@@ -83,7 +86,7 @@ function PageRow({
 			{...longPress}
 		>
 			<button
-				aria-label={`Abrir painel ${model.title}`}
+				aria-label={t("libraryPanel.openPage", { title: model.title })}
 				className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-xl px-3 py-2.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
 				disabled={busy}
 				onClick={onOpen}
@@ -92,7 +95,7 @@ function PageRow({
 				<span className="flex min-w-0 items-center gap-1.5">
 					<span className="min-w-0 truncate font-medium text-body">{model.title}</span>
 					{model.routine ? (
-						<RefreshCwIcon aria-label={`Atualizado por rotina: ${model.routine}`} className="size-3.5 shrink-0 text-muted-foreground" role="img" />
+						<RefreshCwIcon aria-label={t("libraryPanel.updatedByRoutine", { routine: model.routine })} className="size-3.5 shrink-0 text-muted-foreground" role="img" />
 					) : null}
 				</span>
 				{meta ? <span className="truncate text-muted-foreground text-xs">{meta}</span> : null}
@@ -103,7 +106,7 @@ function PageRow({
 					<DropdownMenuTrigger
 						render={
 							<Button
-								aria-label={`Mais ações do painel ${model.title}`}
+								aria-label={t("libraryPanel.pageMoreActions", { title: model.title })}
 								className="my-1 self-start [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/row:opacity-100 [@media(hover:hover)]:group-focus-within/row:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100"
 								size="icon-sm"
 								type="button"
@@ -117,10 +120,10 @@ function PageRow({
 						<DropdownMenuSub>
 							<DropdownMenuSubTrigger>
 								<FolderIcon aria-hidden />
-								Mover para grupo
+								{t("libraryPanel.moveToGroup")}
 							</DropdownMenuSubTrigger>
 							<DropdownMenuSubContent>
-								{(groups ?? []).length === 0 ? <DropdownMenuItem disabled>Nenhum grupo ainda</DropdownMenuItem> : null}
+								{(groups ?? []).length === 0 ? <DropdownMenuItem disabled>{t("libraryPanel.noGroupsYet")}</DropdownMenuItem> : null}
 								{(groups ?? []).map((group) => (
 									<DropdownMenuItem key={group.id} onClick={() => onMove(group.id)}>
 										{explicitGroupId === group.id ? <CheckIcon aria-hidden /> : null}
@@ -130,7 +133,7 @@ function PageRow({
 								{explicitGroupId ? (
 									<>
 										<DropdownMenuSeparator />
-										<DropdownMenuItem onClick={() => onMove(null)}>Sem grupo</DropdownMenuItem>
+										<DropdownMenuItem onClick={() => onMove(null)}>{t("libraryPanel.noGroup")}</DropdownMenuItem>
 									</>
 								) : null}
 							</DropdownMenuSubContent>
@@ -139,7 +142,7 @@ function PageRow({
 				</DropdownMenu>
 			) : null}
 			<Button
-				aria-label={`Apagar painel ${model.title}`}
+				aria-label={t("libraryPanel.deletePageLabel", { title: model.title })}
 				className={cn(
 					"my-1 mr-1 self-start transition-opacity",
 					// Mouse: some até passar o mouse ou focar dentro do item. Toque: some até a pressão longa.
@@ -180,6 +183,8 @@ export function PagesList({
 	onOpen?: (id: string) => void;
 	onDelete?: (item: AtlasPageListItem) => void;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const [revealedId, setRevealedId] = useState<string | null>(initialRevealedId);
 	const listRef = useRef<HTMLUListElement>(null);
 	useEffect(() => {
@@ -194,7 +199,7 @@ export function PagesList({
 		return () => document.removeEventListener("pointerdown", onPointerDown);
 	}, [revealedId]);
 	if (items.length === 0) {
-		return <p className="px-2 py-6 text-center text-muted-foreground text-xs leading-relaxed">{PAGES_EMPTY_TEXT}</p>;
+		return <p className="px-2 py-6 text-center text-muted-foreground text-xs leading-relaxed">{t("libraryPanel.pagesEmpty")}</p>;
 	}
 	// Sem a lista de grupos (teste, carga falhou) as seções saem dos nomes que a própria listagem traz.
 	const knownGroups: PageGroupOption[] = groups ? [...groups] : [];
@@ -210,7 +215,7 @@ export function PagesList({
 			explicitGroupId={item.explicitGroupId ?? null}
 			groups={knownGroups}
 			key={item.id}
-			model={pageCardModel(item, routineByPage?.get(item.id) ?? null, now)}
+			model={pageCardModel(item, routineByPage?.get(item.id) ?? null, now, translator)}
 			onDelete={() => {
 				setRevealedId(null);
 				onDelete?.(item);
@@ -222,7 +227,7 @@ export function PagesList({
 		/>
 	);
 	return (
-		<ul aria-label="Painéis do Bot" ref={listRef} className="m-0 flex list-none flex-col gap-2 p-0">
+		<ul aria-label={t("libraryPanel.pagesLabel")} ref={listRef} className="m-0 flex list-none flex-col gap-2 p-0">
 			{sections.map((section) => {
 				if (section.groupId === null) return section.items.map(row);
 				const group = knownGroups.find((candidate) => candidate.id === section.groupId);
@@ -245,7 +250,9 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 	const [openingId, setOpeningId] = useState<string | null>(null);
 	const [pendingDelete, setPendingDelete] = useState<AtlasPageListItem | null>(null);
 	const [groups, setGroups] = useState<PageGroupOption[] | undefined>(undefined);
-	const routineByPage = routineSummaryByPage(routines);
+	const translator = useTranslations();
+	const { t } = translator;
+	const routineByPage = routineSummaryByPage(routines, translator);
 
 	const reload = useCallback(() => {
 		let stale = false;
@@ -261,7 +268,7 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 				setError(null);
 			})
 			.catch(() => {
-				if (!stale) setError("Não consegui carregar os painéis agora.");
+				if (!stale) setError(t("libraryPanel.loadPagesError"));
 			});
 		return () => {
 			stale = true;
@@ -302,7 +309,7 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 		try {
 			setOpened(await getPage(id));
 		} catch {
-			setError("Não consegui abrir o painel. Ele pode ter sido apagado.");
+			setError(t("libraryPanel.openPageError"));
 			reload();
 		} finally {
 			setOpeningId(null);
@@ -315,7 +322,7 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 			setError(null);
 			reload();
 		} catch {
-			setError("Não consegui mover o painel agora. Tente de novo.");
+			setError(t("libraryPanel.movePageError"));
 		}
 	}
 
@@ -328,7 +335,7 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 			setItems((current) => current?.filter((item) => item.id !== target.id) ?? current);
 			setError(null);
 		} catch {
-			setError("Não consegui apagar o painel agora. Tente de novo.");
+			setError(t("libraryPanel.deletePageError"));
 		}
 	}
 
@@ -360,24 +367,24 @@ export function BotPagesSection({ botId, active, routines }: { botId: string; ac
 					spec={opened.spec}
 					summary={opened.spec.summary}
 					title={opened.title}
-					updatedLabel={updatedAgo(opened.refreshedAt ?? opened.updatedAt)}
+					updatedLabel={updatedAgo(opened.refreshedAt ?? opened.updatedAt, undefined, translator)}
 				/>
 			) : null}
 			{opened && shareOpen ? <PageShareDialog onOpenChange={setShareOpen} open pageId={opened.id} title={opened.title} /> : null}
 			<AlertDialog onOpenChange={(next) => !next && setPendingDelete(null)} open={pendingDelete !== null}>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Apagar o painel “{pendingDelete?.title}”?</AlertDialogTitle>
+						<AlertDialogTitle>{t("libraryPanel.deletePageTitle", { title: pendingDelete?.title ?? "" })}</AlertDialogTitle>
 						<AlertDialogDescription>
 							{pendingDelete && routineByPage.has(pendingDelete.id)
-								? "Ele some da Biblioteca e a rotina que o atualiza passa a pular as execuções. Isso não pode ser desfeito."
-								: "Ele some da Biblioteca. Isso não pode ser desfeito."}
+								? t("libraryPanel.deletePageWithRoutine")
+								: t("libraryPanel.deletePageBody")}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Cancelar</AlertDialogCancel>
+						<AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
 						<AlertDialogAction onClick={() => void confirmDelete()} variant="destructive">
-							Apagar painel
+							{t("libraryPanel.deletePage")}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>

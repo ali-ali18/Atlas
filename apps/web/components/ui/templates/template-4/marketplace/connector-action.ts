@@ -1,5 +1,6 @@
 import type { McpConnectionView } from "@workspace/shared"
 import type { McpCatalogItem } from "@/lib/atlas-api"
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator"
 
 export type ConnectorAction = {
   label: string
@@ -15,30 +16,32 @@ export function connectorAction({
   connection,
   secretBoxReady,
   busy,
+  translator: { t } = defaultTranslator,
 }: {
   entry?: McpCatalogItem
   connection?: McpConnectionView
   secretBoxReady: boolean
   busy: boolean
+  translator?: Translator
 }): ConnectorAction {
   if (entry?.availability === "coming_soon") {
-    return { label: "Em breve", connected: false, disabled: true }
+    return { label: t("marketplace.action.soon"), connected: false, disabled: true }
   }
-  if (busy) return { label: "Conectando…", connected: false, disabled: true }
+  if (busy) return { label: t("marketplace.action.connecting"), connected: false, disabled: true }
   if (connection?.status === "connected") {
-    return { label: "Adicionado", connected: true, disabled: false }
+    return { label: t("marketplace.action.added"), connected: true, disabled: false }
   }
   const blocked = !secretBoxReady && !connection
   if (entry?.authType === "oauth" && !entry.oauthReady && !entry.apiKey) {
     return {
-      label: "Requer configuração",
+      label: t("marketplace.action.needsSetup"),
       connected: false,
       disabled: true,
-      title: `Defina ${entry.oauthMissingEnv.join(" e ")} no .env da API e do worker`,
+      title: t("marketplace.action.needsSetupHint", { vars: entry.oauthMissingEnv.join(t("marketplace.action.and")) }),
     }
   }
   return {
-    label: connection ? "Reconectar" : "Adicionar",
+    label: connection ? t("marketplace.action.reconnect") : t("marketplace.action.add"),
     connected: false,
     disabled: blocked,
   }

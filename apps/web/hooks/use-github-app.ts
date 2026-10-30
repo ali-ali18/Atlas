@@ -11,6 +11,7 @@ import {
 	type GithubWriteSettingsPatch,
 } from "@/lib/atlas-api";
 import { githubNoticeFromSearch, stripGithubParams, type GithubNotice } from "@/components/settings/github-app-state";
+import { activeT } from "@/lib/i18n/active";
 
 function messageOf(error: unknown, fallback: string): string {
 	return error instanceof Error && error.message ? error.message : fallback;
@@ -31,7 +32,7 @@ export function useGithubApp(enabled: boolean) {
 			setStatus(await getGithubAppStatus());
 			setError(null);
 		} catch (cause) {
-			setError(messageOf(cause, "Não foi possível carregar o GitHub."));
+			setError(messageOf(cause, activeT("errors.loadGithub")));
 		}
 	}, []);
 
@@ -71,9 +72,9 @@ export function useGithubApp(enabled: boolean) {
 		error,
 		notice,
 		dismissNotice: () => setNotice(null),
-		refresh: (id: string) => run(id, async () => void (await refreshGithubAppInstallation(id)), "Não foi possível atualizar."),
-		unlink: (id: string) => run(id, () => removeGithubAppInstallation(id), "Não foi possível desvincular."),
-		saveWriteSettings: (patch: GithubWriteSettingsPatch) => run("write", async () => void (await saveGithubWriteSettings(patch)), "Não foi possível salvar."),
-		removeApp: () => run("app", removeGithubApp, "Não foi possível remover o app."),
+		refresh: (id: string) => run(id, async () => void (await refreshGithubAppInstallation(id)), activeT("errors.githubRefresh")),
+		unlink: (id: string) => run(id, () => removeGithubAppInstallation(id), activeT("errors.githubUnlink")),
+		saveWriteSettings: (patch: GithubWriteSettingsPatch) => run("write", async () => void (await saveGithubWriteSettings(patch)), activeT("errors.save")),
+		removeApp: () => run("app", removeGithubApp, activeT("errors.githubRemoveApp")),
 	};
 }

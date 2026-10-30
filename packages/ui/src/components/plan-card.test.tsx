@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { PlanCard } from "./plan-card"
+import { UiCopyProvider } from "./ui-copy"
 
 const STEPS = [
   { text: "Listar pedidos abertos", kind: "read" as const },
@@ -63,5 +64,24 @@ describe("PlanCard", () => {
       expect(html).not.toContain("data-slot=\"chat-card-actions\"")
       expect(html).toContain("Ver plano")
     }
+  })
+})
+
+describe("PlanCard com textos de outro idioma (UiCopyProvider)", () => {
+  it("usa o UiCopy injetado, e a prop do rótulo continua mandando", () => {
+    const html = renderToStaticMarkup(
+      <UiCopyProvider copy={{ planApprove: "Approve plan", planAdjust: "Adjust", cancel: "Cancel", planNote: "Approving the plan does not approve the actions.", planNeeds: "I need", planKindRead: "Read" }}>
+        <PlanCard needs={["Budget"]} onAdjust={() => undefined} onApprove={() => undefined} onCancel={() => undefined} steps={STEPS} title="Plan" />
+        <PlanCard approveLabel="Go" onApprove={() => undefined} steps={STEPS} title="Plan 2" />
+      </UiCopyProvider>
+    )
+    expect(html).toContain("Approve plan")
+    expect(html).toContain('aria-label="Adjust"')
+    expect(html).toContain('aria-label="Cancel"')
+    expect(html).toContain("does not approve the actions")
+    expect(html).toContain("I need")
+    expect(html).toContain('aria-label="Read"')
+    expect(html).toContain(">Go<")
+    expect(html).not.toContain("Aprovar plano")
   })
 })

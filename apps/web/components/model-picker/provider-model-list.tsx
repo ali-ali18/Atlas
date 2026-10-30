@@ -19,6 +19,8 @@ import {
   ModelSelectorLogo,
   ModelSelectorName,
 } from "@/components/ai-elements/model-selector"
+import { useT, useTranslations } from "@/lib/i18n/provider"
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator"
 import { groupModelsByProvider, providerLabel } from "@/lib/openrouter-models"
 import {
   KEY_GROUP_LABEL,
@@ -38,7 +40,7 @@ export function PickerModelRow({
   const name = model.name.includes(": ")
     ? model.name.slice(model.name.indexOf(": ") + 2)
     : model.name
-  const via = pickerViaLabel(model.id)
+  const via = pickerViaLabel(model.id, useTranslations())
   return (
     <ModelSelectorItem
       value={model.id}
@@ -70,11 +72,12 @@ export function ProviderGroup({
   count: number
   children: React.ReactNode
 }) {
+  const t = useT()
   return (
     <Collapsible defaultOpen={false} className="border-t border-border/60">
       <CollapsibleTrigger
         render={<Button variant="ghost" />}
-        aria-label={`Mostrar modelos de ${name}`}
+        aria-label={t("modelPicker.showModelsOf", { name })}
         className="h-10 w-full justify-between rounded-none px-3 text-sm font-medium"
       >
         <span>
@@ -90,11 +93,12 @@ export function ProviderGroup({
 
 export function chatgptGroupMessage(
   status: ProviderStatus | null,
-  catalogAvailable: boolean
+  catalogAvailable: boolean,
+  { t }: Translator = defaultTranslator
 ): string | null {
-  if (status?.status === "needs_login") return "Reconecte o ChatGPT"
-  if (status?.status !== "connected") return "Conectar ChatGPT"
-  return catalogAvailable ? null : "Catálogo temporariamente indisponível."
+  if (status?.status === "needs_login") return t("settings.providers.reconnect")
+  if (status?.status !== "connected") return t("settings.providers.connectAction")
+  return catalogAvailable ? null : t("modelPicker.catalogUnavailable")
 }
 
 export function ProviderModelList({
@@ -116,6 +120,8 @@ export function ProviderModelList({
   onSelect: (id: string) => void
   onConnect: () => void
 }) {
+  const translator = useTranslations()
+  const { t } = translator
   const others = models.filter(
     (model) =>
       model.id !== currentId &&
@@ -124,14 +130,14 @@ export function ProviderModelList({
   if (query.trim()) {
     const results = searchPickerModels(others, query)
     return (
-      <ModelSelectorGroup heading="Resultados">
+      <ModelSelectorGroup heading={t("modelPicker.results")}>
         {results.length ? (
           results.map((model) => (
             <PickerModelRow key={model.id} model={model} onSelect={onSelect} />
           ))
         ) : (
           <p role="status" className="px-3 py-4 text-sm text-muted-foreground">
-            Nenhum modelo encontrado.
+            {t("modelPicker.noneFound")}
           </p>
         )}
       </ModelSelectorGroup>
@@ -149,7 +155,7 @@ export function ProviderModelList({
     provider,
     items: others.filter((model) => model.provider === provider),
   }))
-  const message = chatgptGroupMessage(status, catalogAvailable)
+  const message = chatgptGroupMessage(status, catalogAvailable, translator)
   return (
     <>
       <ProviderGroup
@@ -157,7 +163,7 @@ export function ProviderModelList({
         count={models.filter((model) => model.provider === "openrouter").length}
       >
         {recommended.length ? (
-          <ModelSelectorGroup heading="Recomendados">
+          <ModelSelectorGroup heading={t("modelPicker.recommended")}>
             {recommended.map((model) => (
               <PickerModelRow
                 key={model.id}
@@ -180,7 +186,7 @@ export function ProviderModelList({
         ))}
         {!openrouter.length ? (
           <p className="px-3 py-3 text-sm text-muted-foreground">
-            Nenhum outro modelo disponível.
+            {t("modelPicker.noOthers")}
           </p>
         ) : null}
       </ProviderGroup>
@@ -199,7 +205,7 @@ export function ProviderModelList({
       )}
       {chatgptAvailable ? (
         <ProviderGroup
-          name="ChatGPT (plano)"
+          name={t("modelPicker.chatgptPlan")}
           count={models.filter((model) => model.provider === "chatgpt").length}
         >
           {message ? (
@@ -222,7 +228,7 @@ export function ProviderModelList({
           ))}
           {!message && !chatgpt.length ? (
             <p className="px-3 py-3 text-sm text-muted-foreground">
-              Nenhum outro modelo disponível.
+              {t("modelPicker.noOthers")}
             </p>
           ) : null}
         </ProviderGroup>

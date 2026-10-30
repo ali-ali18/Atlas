@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { cn } from "@workspace/ui/lib/utils";
+import { getChartLocale, useChartLocale } from "../charts/chart-formatters";
 
 /** Hash FNV-1a de 32 bits: estável entre sessões, máquinas e versões. */
 function hash(seed: string): number {
@@ -56,9 +57,9 @@ export function avatarGradient(seed: string): AvatarGradient {
 }
 
 /** Primeira letra do nome; sem nome, a do e-mail; sem nenhum, "?". */
-export function avatarInitial(name?: string | null, email?: string | null): string {
+export function avatarInitial(name?: string | null, email?: string | null, locale: string = getChartLocale()): string {
 	const first = [...((name ?? "").trim() || (email ?? "").trim())][0];
-	return first ? first.toLocaleUpperCase("pt-BR") : "?";
+	return first ? first.toLocaleUpperCase(locale) : "?";
 }
 
 /** Foto do usuário ou, sem foto, a inicial escura do nome sobre um gradiente mesh derivado de `seed`. */
@@ -79,6 +80,7 @@ export function UserAvatar({
 	size?: number;
 	className?: string;
 }) {
+	const locale = useChartLocale();
 	const box: CSSProperties = { width: size, height: size };
 	if (image) {
 		return (
@@ -100,7 +102,7 @@ export function UserAvatar({
 				data-slot="user-avatar-swirl"
 				style={{ background: avatarGradient(seed).background, filter: `blur(${Math.max(1, Math.round(size * 0.05))}px)`, transform: "scale(1.3)" }}
 			/>
-			<span className="relative">{avatarInitial(name, email ?? seed)}</span>
+			<span className="relative">{avatarInitial(name, email ?? seed, locale)}</span>
 		</span>
 	)
 }

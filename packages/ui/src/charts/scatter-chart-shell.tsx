@@ -27,7 +27,7 @@ import {
   type Margin,
 } from "./chart-context";
 import { isGradientDefComponent, isPatternDefComponent } from "./chart-defs";
-import { shortDateFmt } from "./chart-formatters";
+import { shortDateFmt, useChartLocale } from "./chart-formatters";
 import { type ChartPhase, DEFAULT_CHART_LIFECYCLE } from "./chart-phase";
 import { extractReferenceAreaConfigs } from "./reference-area-config";
 import {
@@ -179,14 +179,15 @@ export function ScatterChartInner({
     scaleLinear<number>().range([innerHeight, 0]).domain([0, 100])
   );
 
+  const locale = useChartLocale();
   const dateLabels = useMemo(
     () =>
       data.map((d) =>
         formatXLabel
           ? formatXLabel(xAccessor(d))
-          : shortDateFmt.format(xAccessor(d))
+          : shortDateFmt.format(xAccessor(d), locale)
       ),
-    [data, xAccessor, formatXLabel]
+    [data, xAccessor, formatXLabel, locale]
   );
 
   // Replay the reveal when motion settings change. Adjusted during render

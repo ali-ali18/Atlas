@@ -4,7 +4,7 @@ import * as React from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../lib/utils";
-import { CHAT_CARD_COPY } from "../lib/chat-card-copy";
+import { useUiCopy } from "./ui-copy";
 
 import {
   Collapsible,
@@ -195,14 +195,17 @@ type ChatCardDetailsProps = {
 /** Seção recolhível do card (mesmo vocabulário em todos: Ver detalhes / Mostrar menos). */
 function ChatCardDetails({
   children,
-  label = CHAT_CARD_COPY.details,
-  openLabel = CHAT_CARD_COPY.less,
+  label: labelProp,
+  openLabel: openLabelProp,
   open,
   defaultOpen = false,
   onOpenChange,
   summary,
   className,
 }: ChatCardDetailsProps) {
+  const copy = useUiCopy();
+  const label = labelProp ?? copy.cardDetails;
+  const openLabel = openLabelProp ?? copy.cardLess;
   const [inner, setInner] = React.useState(defaultOpen);
   const isOpen = open ?? inner;
   return (

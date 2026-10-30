@@ -41,6 +41,7 @@ import {
 } from "@workspace/ui/components/sidebar";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { useLocale, useT, useTranslations } from "@/lib/i18n/provider";
 import { rowTime } from "@/lib/list-time";
 import { useListNow } from "@/lib/use-list-now";
 import type { Agent } from "../data";
@@ -93,6 +94,7 @@ function AgentHoverPreview({
 	agent: Agent;
 	agents: Agent[];
 }) {
+	const { t } = useTranslations();
 	return (
 		<>
 			<span className="flex items-center gap-2.5">
@@ -104,7 +106,7 @@ function AgentHoverPreview({
 			<p className="mt-2 line-clamp-2 text-muted-foreground text-xs leading-relaxed">
 				{agent.lastMessage?.trim()
 					? stripMarkdownPreview(agent.lastMessage)
-					: "Nenhuma mensagem ainda"}
+					: t("sidebar.noMessages")}
 			</p>
 		</>
 	);
@@ -129,7 +131,8 @@ function AgentRow({
 	onSelect: (id: string) => void;
 	onStartDrag: (agent: Agent) => (event: React.DragEvent) => void;
 }) {
-	const timeLabel = rowTime(agent, useListNow());
+	const { t, tn } = useTranslations();
+	const timeLabel = rowTime(agent, useListNow(), useLocale());
 	return (
 		<SidebarMenuItem key={agent.id}>
 			<AgentContextMenu
@@ -160,7 +163,7 @@ function AgentRow({
 										<span
 											className="flex shrink-0 items-center gap-0.5 text-caption text-sidebar-foreground/50"
 											data-testid="group-count"
-											title={`${agent.members.length} bots no grupo`}
+											title={tn("sidebar.groupBots", agent.members.length)}
 										>
 											<UsersIcon className="size-3" />
 											{agent.members.length}
@@ -176,7 +179,7 @@ function AgentRow({
 							<span className="truncate text-sidebar-foreground/60 text-xs">
 								{agent.lastMessage?.trim()
 									? stripMarkdownPreview(agent.lastMessage)
-									: "Nenhuma mensagem ainda"}
+									: t("sidebar.noMessages")}
 							</span>
 						</span>
 					</SidebarMenuButton>
@@ -198,12 +201,13 @@ function SectionNameInput({
 	onCancel: () => void;
 	onCommit: (name: string) => void;
 }) {
+	const t = useT();
 	// O fechamento do menu pode roubar o foco e causar um blur imediato:
 	// só confirma se o texto foi alterado; senão, apenas fecha.
 	const [dirty, setDirty] = useState(false);
 	return (
 		<Input
-			aria-label="Nome da sessão"
+			aria-label={t("sidebar.section.nameLabel")}
 			autoFocus
 			className="h-6 rounded-md border-transparent bg-transparent px-1.5 text-xs shadow-none outline-none focus-visible:border-transparent focus-visible:ring-0"
 			defaultValue={initial}
@@ -251,6 +255,7 @@ function SectionBlock({
 	menu: boolean;
 	children: React.ReactNode;
 }) {
+	const t = useT();
 	const header = (
 		<CollapsibleTrigger className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs font-medium text-sidebar-foreground/60 transition-colors outline-none hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring">
 			<ChevronDownIcon
@@ -284,20 +289,20 @@ function SectionBlock({
 						<ContextMenuContent align="start" side="right" sideOffset={8}>
 							<ContextMenuItem onClick={onStartRename}>
 								<PencilIcon />
-								Renomear
+								{t("sidebar.section.rename")}
 							</ContextMenuItem>
 							<ContextMenuItem disabled={!canMoveUp} onClick={onMoveUp}>
 								<ArrowUpIcon />
-								Mover para cima
+								{t("sidebar.section.moveUp")}
 							</ContextMenuItem>
 							<ContextMenuItem disabled={!canMoveDown} onClick={onMoveDown}>
 								<ArrowDownIcon />
-								Mover para baixo
+								{t("sidebar.section.moveDown")}
 							</ContextMenuItem>
 							<ContextMenuSeparator />
 							<ContextMenuItem onClick={onDelete} variant="destructive">
 								<Trash2Icon />
-								Excluir
+								{t("sidebar.section.delete")}
 							</ContextMenuItem>
 						</ContextMenuContent>
 					</ContextMenu>
@@ -331,6 +336,7 @@ export function AgentList({
 	onSelect: (id: string) => void;
 	onStartDrag: (agent: Agent) => (event: React.DragEvent) => void;
 }) {
+	const t = useT();
 	const { open } = useSidebar();
 	const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 	const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -471,7 +477,7 @@ export function AgentList({
 						renderRows(rows)
 					) : (
 						<p className="px-3 py-1 text-caption text-sidebar-foreground/40">
-							Nenhum bot nesta sessão
+							{t("sidebar.section.empty")}
 						</p>
 					)}
 				</SectionBlock>
@@ -484,7 +490,7 @@ export function AgentList({
 			key: UNCATEGORIZED_KEY,
 			node: (
 				<SectionBlock
-					title="Sem sessão"
+					title={t("sidebar.section.none")}
 					open={isOpen(UNCATEGORIZED_KEY)}
 					onOpenChange={(next) => setSectionOpen(UNCATEGORIZED_KEY, next)}
 					renaming={false}

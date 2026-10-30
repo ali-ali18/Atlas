@@ -5,9 +5,11 @@ import { cn } from "@workspace/ui/lib/utils";
 
 import { formatTokens } from "@/lib/dev-session/actions";
 import type { DevContextUsageView } from "@/lib/dev-session/reducer";
+import { useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 
 /** Percentuais inteiros (0-100) do uso e do ponto em que o contexto é resumido. */
-export function contextMeterModel(usage: Pick<DevContextUsageView, "usedTokens" | "windowTokens" | "compactAtTokens">) {
+export function contextMeterModel(usage: Pick<DevContextUsageView, "usedTokens" | "windowTokens" | "compactAtTokens">, { t }: Translator = defaultTranslator) {
 	const clamp = (value: number) => Math.min(100, Math.max(0, Math.round(value)));
 	const used = clamp((usage.usedTokens / usage.windowTokens) * 100);
 	const compactAt = clamp((usage.compactAtTokens / usage.windowTokens) * 100);
@@ -16,9 +18,9 @@ export function contextMeterModel(usage: Pick<DevContextUsageView, "usedTokens" 
 		compactAt,
 		/** Perto do resumo automático (>= 70% do ponto de resumo): o anel ganha um tom âmbar discreto. */
 		warn: usage.usedTokens >= usage.compactAtTokens * 0.7,
-		title: `Contexto ${used}%`,
-		detail: `${formatTokens(usage.usedTokens)} de ${formatTokens(usage.windowTokens)} tokens`,
-		compactNote: `Resume automaticamente em ${compactAt}%`,
+		title: t("devSession.context.title", { used }),
+		detail: t("devSession.context.detail", { used: formatTokens(usage.usedTokens), window: formatTokens(usage.windowTokens) }),
+		compactNote: t("devSession.context.compactNote", { percent: compactAt }),
 	};
 }
 
@@ -29,7 +31,7 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 /** Anel de progresso neutro (preenche no sentido horário) com popover de detalhes. */
 export function ContextMeter({ usage }: { usage: DevContextUsageView }) {
-	const model = contextMeterModel(usage);
+	const model = contextMeterModel(usage, useTranslations());
 	return (
 		<Popover>
 			<PopoverTrigger

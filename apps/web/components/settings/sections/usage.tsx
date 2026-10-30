@@ -13,18 +13,19 @@ import {
 import { Button } from "@workspace/ui/components/button";
 import { OpenAIIcon } from "@/components/icons/openai";
 import { ModelSelectorLogo } from "@/components/ai-elements/model-selector";
-import { ProviderRunCost } from "@/components/providers/provider-run-cost";
 import { SettingsPicker, type SettingsIcon } from "@/components/ui/templates/template-4/settings-picker";
 import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
 import { useUsage } from "@/hooks/use-usage";
 import { SettingRow, SettingsGroup } from "../setting-row";
 import {
-	USAGE_PERIOD_OPTIONS,
 	barPercent,
+	rowCostLabel,
 	runsLabel,
 	tokensLabel,
 	totalCostLabel,
+	usagePeriodOptions,
 } from "../usage-state";
+import { useTranslations } from "@/lib/i18n/provider";
 
 /** Fornecedor do id (ícone): o plano ChatGPT usa a marca da OpenAI. */
 function vendorOf(modelId: string): string {
@@ -43,6 +44,8 @@ type BreakdownRow = {
 
 /** Lista compacta: nome, custo, execuções e uma barra proporcional simples. */
 function Breakdown({ title, rows }: { title: string; rows: BreakdownRow[] }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	if (rows.length === 0) return null;
 	const all = rows.map((row) => row.totals);
 	return (
@@ -57,14 +60,13 @@ function Breakdown({ title, rows }: { title: string; rows: BreakdownRow[] }) {
 								<span className="truncate">{row.label}</span>
 							</span>
 							<span className="flex shrink-0 items-center gap-2 text-muted-foreground">
-								<ProviderRunCost
-									usage={{
-										costUsd: row.totals.costUsd,
-										costUnknownCalls: row.totals.costUnknownCalls,
-										planCalls: row.totals.planCalls,
-									}}
-								/>
-								<span className="text-xs">{runsLabel(row.totals.runs)}</span>
+								<span
+									className="text-xs text-muted-foreground"
+									title={row.totals.planCalls > 0 ? t("settings.usage.planTooltip") : undefined}
+								>
+									{rowCostLabel(row.totals, translator)}
+								</span>
+								<span className="text-xs">{runsLabel(row.totals.runs, translator)}</span>
 							</span>
 						</div>
 						<div aria-hidden className="h-1.5 overflow-hidden rounded-full bg-muted">
@@ -121,6 +123,8 @@ export function UsageSettingsView({
 	onRetry: () => void;
 	models?: readonly OpenRouterModel[];
 }) {
+	const translator = useTranslations();
+	const { t, locale } = translator;
 	const names = new Map(models.map((model) => [model.id, model.name]));
 	const modelRows: BreakdownRow[] = (data?.byModel ?? []).map((row) => ({
 		key: row.key,
@@ -137,17 +141,17 @@ export function UsageSettingsView({
 
 	return (
 		<div className="flex flex-col gap-6">
-			<SettingsGroup title="Período">
+			<SettingsGroup title={t("settings.usage.periodGroup")}>
 				<SettingRow
-					description="Janela de tempo dos números abaixo."
+					description={t("settings.usage.windowHint")}
 					htmlFor="settings-usage-period"
 					icon={CalendarIcon}
-					label="Janela de tempo"
+					label={t("settings.usage.window")}
 				>
 					<SettingsPicker
 						id="settings-usage-period"
 						onChange={onPeriodChange}
-						options={USAGE_PERIOD_OPTIONS}
+						options={usagePeriodOptions(translator)}
 						value={period}
 					/>
 				</SettingRow>
@@ -159,37 +163,46 @@ export function UsageSettingsView({
 						{error}
 					</p>
 					<Button onClick={onRetry} size="sm" variant="outline">
-						Tentar de novo
+						{t("common.retry")}
 					</Button>
 				</div>
 			) : null}
 
 			{loading && !data ? (
 				<p aria-live="polite" className="text-sm text-muted-foreground" role="status">
-					Carregando…
+					{t("common.loading")}
 				</p>
 			) : null}
 
 			{totals && totals.runs === 0 ? (
-				<p className="text-sm text-muted-foreground">Sem uso neste período</p>
+				<p className="text-sm text-muted-foreground">{t("settings.usage.empty")}</p>
 			) : null}
 
 			{totals && totals.runs > 0 ? (
 				<>
 					<dl aria-busy={loading} className="grid gap-3 sm:grid-cols-3">
-						<Stat icon={DollarSignIcon} label="Custo" value={totalCostLabel(totals)} />
-						<Stat icon={OpenAIIcon} label="Chamadas no plano ChatGPT" value={String(totals.planCalls)} />
+						<Stat icon={DollarSignIcon} label={t("settings.usage.cost")} value={totalCostLabel(totals, translator)} />
+						<Stat icon={OpenAIIcon} label={t("settings.usage.planCalls")} value={String(totals.planCalls)} />
 						<Stat
 							icon={ActivityIcon}
-							hint={`${tokensLabel(totals.promptTokens)} de entrada, ${tokensLabel(totals.completionTokens)} de saída${
-								totals.cachedTokens > 0 ? `, ${tokensLabel(totals.cachedTokens)} em cache` : ""
-							}`}
-							label="Execuções"
+							hint={
+								totals.cachedTokens > 0
+									? t("settings.usage.tokensCached", {
+											input: tokensLabel(totals.promptTokens, locale),
+											output: tokensLabel(totals.completionTokens, locale),
+											cached: tokensLabel(totals.cachedTokens, locale),
+										})
+									: t("settings.usage.tokens", {
+											input: tokensLabel(totals.promptTokens, locale),
+											output: tokensLabel(totals.completionTokens, locale),
+										})
+							}
+							label={t("settings.usage.runsTitle")}
 							value={String(totals.runs)}
 						/>
 					</dl>
-					<Breakdown rows={botRows} title="Por bot" />
-					<Breakdown rows={modelRows} title="Por modelo" />
+					<Breakdown rows={botRows} title={t("settings.usage.byBot")} />
+					<Breakdown rows={modelRows} title={t("settings.usage.byModel")} />
 				</>
 			) : null}
 		</div>

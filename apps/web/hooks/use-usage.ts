@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { UsagePeriod, UsageResponse } from "@workspace/shared";
 import { getUsage } from "@/lib/atlas-api";
+import { activeT } from "@/lib/i18n/active";
 
 /** Fuso do navegador (o "hoje" do usuário); UTC quando o runtime não informa. */
 function browserTimeZone(): string {
@@ -33,7 +34,7 @@ export function useUsage(period: UsagePeriod, enabled = true) {
 				if (request === requestRef.current) setData(next);
 			})
 			.catch(() => {
-				if (request === requestRef.current) setError("Não foi possível carregar o uso.");
+				if (request === requestRef.current) setError(activeT("errors.loadUsage"));
 			})
 			.finally(() => {
 				if (request === requestRef.current) setLoading(false);

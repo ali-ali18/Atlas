@@ -5,6 +5,7 @@ import {
   resolveTooltipBoxMotion,
   type SpringConfig,
 } from "../chart-config-context";
+import { useChartLocale } from "../chart-formatters";
 import { TooltipBox } from "../tooltip/tooltip-box";
 import { TooltipHeader } from "../tooltip/tooltip-content";
 import {
@@ -65,6 +66,7 @@ export const HeatmapTooltip = memo(function HeatmapTooltip({
   springConfig,
 }: HeatmapTooltipProps) {
   const { containerRef, width, height } = useHeatmap();
+  const locale = useChartLocale();
   const { tooltipData } = useHeatmapInteraction();
   const displayData = useDelayedTooltipData(tooltipData, showDelay, hideDelay);
 
@@ -102,9 +104,9 @@ export const HeatmapTooltip = memo(function HeatmapTooltip({
       {displayData && (
         <>
           <TooltipHeader>
-            {formatHeatmapTooltipDate(displayData.date)}
+            {formatHeatmapTooltipDate(displayData.date, locale)}
             <div className="mt-0.5 font-normal text-chart-tooltip-muted text-xs">
-              {formatHeatmapTooltipWeekday(displayData.date)}
+              {formatHeatmapTooltipWeekday(displayData.date, locale)}
             </div>
           </TooltipHeader>
           <div className="px-3.5 py-3 text-left text-chart-tooltip-foreground text-sm">

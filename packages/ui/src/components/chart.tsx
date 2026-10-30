@@ -8,13 +8,14 @@ import {
 } from "@workspace/shared"
 
 import { cn } from "@workspace/ui/lib/utils"
+import { DEFAULT_UI_COPY, useUiCopy, type UiCopy } from "@workspace/ui/components/ui-copy"
 import { AreaChart, Area } from "@workspace/ui/charts/area-chart"
 import { BarChart } from "@workspace/ui/charts/bar-chart"
 import { Bar } from "@workspace/ui/charts/bar"
 import { BarXAxis } from "@workspace/ui/charts/bar-x-axis"
 import { BarYAxis } from "@workspace/ui/charts/bar-y-axis"
 import { chartPaletteCss, resolveChartPalette } from "@workspace/ui/charts/chart-palettes"
-import { XLabelFormatContext } from "@workspace/ui/charts/chart-formatters"
+import { XLabelFormatContext, chartDateFormat, chartNumberFormat, useChartLocale } from "@workspace/ui/charts/chart-formatters"
 import { Grid } from "@workspace/ui/charts/grid"
 import { LineChart, Line } from "@workspace/ui/charts/line-chart"
 import { PieChart } from "@workspace/ui/charts/pie-chart"
@@ -41,14 +42,13 @@ import { curveMonotoneX } from "@visx/curve"
 
 /**
  * Gráfico nativo do chat: desenha uma `ChartSpec` (linha, barras, área, pizza, radar, funil, medidor, composto) com os componentes do Bklit UI
- * (MIT, vendorizados em `src/charts`), cores `--chart-1..6`, números e datas em pt-BR.
+ * (MIT, vendorizados em `src/charts`), cores `--chart-1..6`, números e datas no idioma da tela (pt-BR por padrão).
  */
 
-const MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
-const MONTHS_LONG = [
-  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-]
+/** "jan", "fev"... no idioma da tela (o `Intl` do pt-BR escreve "jan."; o ponto sai para manter o formato do eixo). */
+function shortMonth(date: Date, locale?: string): string {
+  return chartDateFormat({ month: "short" }, locale).format(date).replace(/\.$/, "")
+}
 const CURRENCY: Record<string, string> = { BRL: "BRL", USD: "USD", EUR: "EUR" }
 
 export function seriesColor(index: number): string {
@@ -64,10 +64,10 @@ function sliceColor(index: number): string {
 
 export type ValueFormatter = (value: number) => string
 
-/** Formata valores do spec em pt-BR (1.234,56 · R$ · % · sufixo da unidade); `axis` encurta para os eixos. */
+/** Formata valores do spec no idioma da tela, pt-BR por padrão (1.234,56 · R$ · % · sufixo da unidade); `axis` encurta para os eixos. */
 export function makeValueFormatter(
   spec: Pick<ChartSpec, "unit" | "format">,
-  options: { axis?: boolean; max?: number; whole?: boolean } = {}
+  options: { axis?: boolean; max?: number; whole?: boolean; locale?: string } = {}
 ): ValueFormatter {
   const compact =
     spec.format === "compact" ||
@@ -77,7 +77,7 @@ export function makeValueFormatter(
     ? { notation: "compact", maximumFractionDigits: 1 }
     : { maximumFractionDigits: 2 }
   if (currency) {
-    const intl = new Intl.NumberFormat("pt-BR", {
+    const intl = chartNumberFormat({
       style: "currency",
       currency,
       // Moeda herda 2 casas mínimas; no compacto isso vira "R$ 60,0 mil".
@@ -85,10 +85,10 @@ export function makeValueFormatter(
       ...(!compact && options.axis ? { maximumFractionDigits: 2, minimumFractionDigits: 0 } : {}),
       // Todos os valores do grupo são inteiros: reais cheios ("R$ 28.400"), igual ao formatador das páginas.
       ...(!compact && !options.axis && options.whole ? { maximumFractionDigits: 0, minimumFractionDigits: 0 } : {}),
-    })
+    }, options.locale)
     return (value) => intl.format(value)
   }
-  const intl = new Intl.NumberFormat("pt-BR", numberOptions)
+  const intl = chartNumberFormat(numberOptions, options.locale)
   if (spec.unit === "%" || spec.format === "percent") {
     return (value) => `${intl.format(value)}%`
   }
@@ -113,9 +113,9 @@ type XLabels = {
 }
 
 /** Rótulos do eixo X: categorias como vieram; datas mensais "jan/25"; demais datas "dd/mm" (com ano se passar de um ano). */
-export function makeXLabels(spec: ChartSpec): XLabels {
+export function makeXLabels(spec: ChartSpec, locale?: string): XLabels {
   if (spec.xKind !== "date") {
-    return { axis: (value) => String(value), axisDate: (date) => date.toLocaleDateString("pt-BR"), title: (value) => String(value) }
+    return { axis: (value) => String(value), axisDate: (date) => chartDateFormat({}, locale).format(date), title: (value) => String(value) }
   }
   const dates = spec.data.map((point) => parseChartDate(String(point[spec.x])))
   const monthly = dates.every((date) => date.getDate() === 1)
@@ -123,7 +123,7 @@ export function makeXLabels(spec: ChartSpec): XLabels {
   const spanDays = (Math.max(...times) - Math.min(...times)) / 86_400_000
   const pad = (value: number) => String(value).padStart(2, "0")
   const axisDate = (date: Date) => {
-    if (monthly) return `${MONTHS[date.getMonth()]}/${pad(date.getFullYear() % 100)}`
+    if (monthly) return `${shortMonth(date, locale)}/${pad(date.getFullYear() % 100)}`
     const base = `${pad(date.getDate())}/${pad(date.getMonth() + 1)}`
     return spanDays > 366 ? `${base}/${pad(date.getFullYear() % 100)}` : base
   }
@@ -132,8 +132,8 @@ export function makeXLabels(spec: ChartSpec): XLabels {
     axisDate,
     title: (value) => {
       const date = parseChartDate(String(value))
-      if (monthly) return `${MONTHS_LONG[date.getMonth()]} de ${date.getFullYear()}`
-      return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`
+      if (monthly) return chartDateFormat({ month: "long", year: "numeric" }, locale).format(date)
+      return chartDateFormat({ day: "2-digit", month: "2-digit", year: "numeric" }, locale).format(date)
     },
   }
 }
@@ -266,21 +266,21 @@ function ReferenceLayer({ spec }: { spec: ChartSpec }) {
 }
 
 /** Texto da legenda da meta/faixa, com os valores no formato do gráfico. */
-export function describeReference(spec: ChartSpec): string | null {
+export function describeReference(spec: ChartSpec, copy: Pick<UiCopy, "chartFrom" | "chartUpTo"> & Partial<Pick<UiCopy, "locale">> = DEFAULT_UI_COPY): string | null {
   const reference = spec.reference
   if (!reference) return null
-  const format = makeValueFormatter(spec)
+  const format = makeValueFormatter(spec, { locale: copy.locale })
   const range =
     reference.from !== undefined && reference.to !== undefined
       ? `${format(reference.from)} – ${format(reference.to)}`
       : reference.from !== undefined
-        ? `a partir de ${format(reference.from)}`
-        : `até ${format(reference.to!)}`
+        ? copy.chartFrom.replace("{value}", format(reference.from))
+        : copy.chartUpTo.replace("{value}", format(reference.to!))
   return reference.label ? `${reference.label} (${range})` : range
 }
 
 function ReferenceCaption({ spec }: { spec: ChartSpec }) {
-  const text = describeReference(spec)
+  const text = describeReference(spec, useUiCopy())
   if (!text) return null
   return (
     <p className="mt-1 flex items-center gap-1.5 px-1 text-muted-foreground text-xs" data-slot="chart-reference">
@@ -297,17 +297,18 @@ function seriesKindOf(spec: ChartSpec, index: number): SeriesKind {
 }
 
 function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
+  const locale = useChartLocale()
   const plotWidth = React.useContext(PlotWidthContext)
   const { rows, categoryByTime } = React.useMemo(() => toTimeData(spec), [spec])
-  const labels = React.useMemo(() => makeXLabels(spec), [spec])
+  const labels = React.useMemo(() => makeXLabels(spec, locale), [spec, locale])
   const monthlyX = React.useMemo(
     () => spec.xKind === "date" && spec.data.every((point) => parseChartDate(String(point[spec.x])).getDate() === 1),
     [spec]
   )
-  const tooltipFormat = React.useMemo(() => makeValueFormatter(spec), [spec])
+  const tooltipFormat = React.useMemo(() => makeValueFormatter(spec, { locale }), [spec, locale])
   const axisFormat = React.useMemo(
-    () => makeValueFormatter(spec, { axis: true, max: spec.type === "area" && spec.stacked ? stackedMax(spec) : maxAbs(spec) }),
-    [spec]
+    () => makeValueFormatter(spec, { axis: true, locale, max: spec.type === "area" && spec.stacked ? stackedMax(spec) : maxAbs(spec) }),
+    [spec, locale]
   )
   const margin = React.useMemo(() => {
     const base = chartMargin(axisFormat, spec.type === "area" && spec.stacked ? stackedMax(spec) : maxAbs(spec))
@@ -417,8 +418,9 @@ function TimeSeriesPlot({ spec }: { spec: ChartSpec }) {
 export const BAR_HOVER_MARKER = { dotColor: "var(--foreground)", dotStrokeWidth: 2 } as const
 
 function BarPlot({ spec }: { spec: ChartSpec }) {
+  const locale = useChartLocale()
   const plotWidth = React.useContext(PlotWidthContext)
-  const labels = React.useMemo(() => makeXLabels(spec), [spec])
+  const labels = React.useMemo(() => makeXLabels(spec, locale), [spec, locale])
   const data = React.useMemo(
     () =>
       spec.data.map((point) => {
@@ -428,10 +430,10 @@ function BarPlot({ spec }: { spec: ChartSpec }) {
       }),
     [labels, spec]
   )
-  const tooltipFormat = React.useMemo(() => makeValueFormatter(spec), [spec])
+  const tooltipFormat = React.useMemo(() => makeValueFormatter(spec, { locale }), [spec, locale])
   const axisFormat = React.useMemo(
-    () => makeValueFormatter(spec, { axis: true, max: spec.stacked ? stackedMax(spec) : maxAbs(spec) }),
-    [spec]
+    () => makeValueFormatter(spec, { axis: true, locale, max: spec.stacked ? stackedMax(spec) : maxAbs(spec) }),
+    [spec, locale]
   )
   const margin = React.useMemo(() => chartMargin(axisFormat, spec.stacked ? stackedMax(spec) : maxAbs(spec)), [axisFormat, spec])
   const tooltipContent = React.useCallback(
@@ -517,6 +519,7 @@ function PieCenterText({ format, compact, label }: { format: ValueFormatter; com
 PieCenterText.displayName = "PieCenter"
 
 function PiePlot({ spec }: { spec: ChartSpec }) {
+  const locale = useChartLocale()
   const valueKey = spec.series[0]!.key
   const slices = React.useMemo(
     () =>
@@ -529,10 +532,10 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
   // Rosca e legenda lado a lado só quando o gráfico (não a janela) tem ~500px: em meia coluna a legenda era cortada.
   const sideBySide = React.useContext(PlotWidthContext) >= 500
   const whole = slices.every((slice) => Number.isInteger(slice.value))
-  const format = React.useMemo(() => makeValueFormatter(spec, { whole }), [spec, whole])
-  const compactFormat = React.useMemo(() => makeValueFormatter({ ...spec, format: "compact" }), [spec])
+  const format = React.useMemo(() => makeValueFormatter(spec, { whole, locale }), [spec, whole, locale])
+  const compactFormat = React.useMemo(() => makeValueFormatter({ ...spec, format: "compact" }, { locale }), [spec, locale])
   const total = slices.reduce((sum, slice) => sum + slice.value, 0)
-  const percent = React.useMemo(() => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }), [])
+  const percent = React.useMemo(() => chartNumberFormat({ maximumFractionDigits: 1 }, locale), [locale])
   const valueIsPercent = spec.unit === "%" || spec.format === "percent"
 
   return (
@@ -563,7 +566,8 @@ function PiePlot({ spec }: { spec: ChartSpec }) {
 
 /** Radar: eixos = linhas do spec, uma área por série; escala relativa ao maior valor (a legenda informa). */
 function RadarPlot({ spec }: { spec: ChartSpec }) {
-  const format = React.useMemo(() => makeValueFormatter(spec), [spec])
+  const locale = useChartLocale()
+  const format = React.useMemo(() => makeValueFormatter(spec, { locale }), [spec, locale])
   const peak = Math.max(1e-9, maxAbs(spec))
   const metrics = React.useMemo(() => spec.data.map((point, index) => ({ key: `m${index}`, label: String(point[spec.x]) })), [spec])
   const data = React.useMemo(
@@ -596,8 +600,9 @@ function RadarPlot({ spec }: { spec: ChartSpec }) {
 
 /** Funil: cada linha é uma etapa (primeira = 100%); vertical em largura estreita. */
 function FunnelPlot({ spec }: { spec: ChartSpec }) {
+  const locale = useChartLocale()
   const plotWidth = React.useContext(PlotWidthContext)
-  const format = React.useMemo(() => makeValueFormatter(spec), [spec])
+  const format = React.useMemo(() => makeValueFormatter(spec, { locale }), [spec, locale])
   const valueKey = spec.series[0]!.key
   const stages = React.useMemo(
     () =>
@@ -613,7 +618,7 @@ function FunnelPlot({ spec }: { spec: ChartSpec }) {
       <FunnelChart
         color="var(--chart-1)"
         data={stages}
-        formatPercentage={(pct) => `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 }).format(pct)}%`}
+        formatPercentage={(pct) => `${chartNumberFormat({ maximumFractionDigits: 0 }, locale).format(pct)}%`}
         formatValue={format}
         orientation={vertical ? "vertical" : "horizontal"}
       />
@@ -689,6 +694,7 @@ function ChartView({ spec }: { spec: ChartSpec }) {
 }
 
 function CopyCsvButton({ spec }: { spec: ChartSpec }) {
+  const copy = useUiCopy()
   const [copied, setCopied] = React.useState(false)
   React.useEffect(() => {
     if (!copied) return
@@ -697,7 +703,7 @@ function CopyCsvButton({ spec }: { spec: ChartSpec }) {
   }, [copied])
   return (
     <button
-      aria-label="Copiar dados (CSV)"
+      aria-label={copy.chartCopyCsv}
       className="inline-flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-muted-foreground text-xs outline-none transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 dark:hover:bg-foreground/10"
       data-share-ignore
       data-slot="chart-copy-csv"

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon, DownloadIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { Button } from "@workspace/ui/components/button";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@workspace/ui/components/dialog";
+import { useT } from "@/lib/i18n/provider";
 import type { ImageItem } from "./image-card";
 import { imageFileUrl } from "./image-url";
 import { fitImageSize } from "./image-viewer-size";
@@ -12,11 +13,12 @@ import { fitImageSize } from "./image-viewer-size";
 const viewerButton = "size-8 rounded-full border border-[#fcfcfc1a] bg-[#7777772c] p-0 text-[#fcfcfc99] hover:bg-[#77777752] hover:text-[#fcfcfc99] dark:hover:bg-[#77777752] focus-visible:ring-white/60";
 
 export function ImageLightbox({ items, index, onChange, onClose }: { items: ImageItem[]; index: number | null; onChange: (index: number) => void; onClose: () => void }) {
+	const t = useT();
 	const [zoom, setZoom] = useState(1);
 	const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
 	const [bounds, setBounds] = useState({ width: 0, height: 0 });
 	const item = index === null ? undefined : items[index];
-	const alt = item?.alt?.trim() || "Imagem";
+	const alt = item?.alt?.trim() || t("aiElements.images.image");
 	const caption = [item?.alt?.trim(), items.length > 1 && index !== null ? `${index + 1} / ${items.length}` : ""].filter(Boolean).join(" · ");
 	const fitted = fitImageSize(item?.width || 800, item?.height || 800, bounds.width, bounds.height);
 	const imageWidth = fitted.width * zoom;
@@ -87,10 +89,10 @@ export function ImageLightbox({ items, index, onChange, onClose }: { items: Imag
 			<DialogTitle className="sr-only">{alt}</DialogTitle>
 			{item && <>
 				<div className="absolute top-3 right-3 z-10 flex cursor-default gap-2">
-					<Button aria-label="Diminuir zoom" className={viewerButton} disabled={zoom <= 1} onClick={() => setZoom((value) => Math.max(1, value - 0.25))} size="icon-sm" variant="ghost"><MinusIcon /></Button>
-					<Button aria-label="Aumentar zoom" className={viewerButton} disabled={zoom >= 5} onClick={() => setZoom((value) => Math.min(5, value + 0.25))} size="icon-sm" variant="ghost"><PlusIcon /></Button>
-					<Button aria-label="Baixar imagem" className={viewerButton} nativeButton={false} render={<a download href={imageFileUrl(item.artifactId, true)} />} size="icon-sm" variant="ghost"><DownloadIcon /></Button>
-					<DialogClose render={<Button aria-label="Fechar imagem" className={viewerButton} size="icon-sm" variant="ghost" />}><XIcon /></DialogClose>
+					<Button aria-label={t("aiElements.images.zoomOut")} className={viewerButton} disabled={zoom <= 1} onClick={() => setZoom((value) => Math.max(1, value - 0.25))} size="icon-sm" variant="ghost"><MinusIcon /></Button>
+					<Button aria-label={t("aiElements.images.zoomIn")} className={viewerButton} disabled={zoom >= 5} onClick={() => setZoom((value) => Math.min(5, value + 0.25))} size="icon-sm" variant="ghost"><PlusIcon /></Button>
+					<Button aria-label={t("aiElements.images.download")} className={viewerButton} nativeButton={false} render={<a download href={imageFileUrl(item.artifactId, true)} />} size="icon-sm" variant="ghost"><DownloadIcon /></Button>
+					<DialogClose render={<Button aria-label={t("aiElements.images.close")} className={viewerButton} size="icon-sm" variant="ghost" />}><XIcon /></DialogClose>
 				</div>
 				<div
 					className="relative min-h-0 w-full flex-1 px-4 py-4 sm:px-24 sm:py-9"
@@ -99,7 +101,7 @@ export function ImageLightbox({ items, index, onChange, onClose }: { items: Imag
 					onTouchStart={(event) => { const touch = event.touches[0]; swipeStart.current = touch && event.touches.length === 1 ? { x: touch.clientX, y: touch.clientY } : null; }}
 				>
 					<div
-						aria-label="Área da imagem; use Ctrl e roda do mouse para ampliar e as setas para percorrer quando ampliada"
+						aria-label={t("aiElements.images.area")}
 						className="h-full w-full overflow-auto rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-white/60"
 						ref={setViewport}
 						role="region"
@@ -111,17 +113,17 @@ export function ImageLightbox({ items, index, onChange, onClose }: { items: Imag
 						</div>
 					</div>
 					{items.length > 1 && <>
-						<Button aria-label="Imagem anterior" className={`absolute left-3 top-1/2 z-10 hidden -translate-y-1/2 sm:inline-flex ${viewerButton}`} onClick={() => navigate(-1)} size="icon-sm" variant="ghost"><ChevronLeftIcon /></Button>
-						<Button aria-label="Próxima imagem" className={`absolute right-3 top-1/2 z-10 hidden -translate-y-1/2 sm:inline-flex ${viewerButton}`} onClick={() => navigate(1)} size="icon-sm" variant="ghost"><ChevronRightIcon /></Button>
+						<Button aria-label={t("aiElements.images.previous")} className={`absolute left-3 top-1/2 z-10 hidden -translate-y-1/2 sm:inline-flex ${viewerButton}`} onClick={() => navigate(-1)} size="icon-sm" variant="ghost"><ChevronLeftIcon /></Button>
+						<Button aria-label={t("aiElements.images.next")} className={`absolute right-3 top-1/2 z-10 hidden -translate-y-1/2 sm:inline-flex ${viewerButton}`} onClick={() => navigate(1)} size="icon-sm" variant="ghost"><ChevronRightIcon /></Button>
 					</>}
 				</div>
 				{caption && <p className="mt-[7px] mb-[21px] line-clamp-2 max-w-[min(80vw,720px)] cursor-default px-4 text-center text-sm text-[#fcfcfc8f]">{caption}</p>}
-				{items.length > 1 && <div aria-label="Miniaturas" className="flex w-full max-w-110 cursor-default items-center gap-2 overflow-x-auto px-2 py-0.5 scrollbar-none" role="group">
+				{items.length > 1 && <div aria-label={t("aiElements.images.thumbnails")} className="flex w-full max-w-110 cursor-default items-center gap-2 overflow-x-auto px-2 py-0.5 scrollbar-none" role="group">
 					{items.map((thumb, position) => {
 						const active = position === index;
 						return <button
 							aria-current={active}
-							aria-label={`Ver imagem ${position + 1} de ${items.length}`}
+							aria-label={t("aiElements.images.viewN", { position: position + 1, total: items.length })}
 							className={`box-border size-12 shrink-0 overflow-hidden rounded-lg border outline-none transition-opacity duration-150 ease-out motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-white/60 ${active ? "border-2 border-[#fafafa] p-0.5 opacity-100" : "border-[#fcfcfc26] opacity-50 hover:opacity-85"}`}
 							key={`${thumb.artifactId}-${position}`}
 							onClick={() => onChange(position)}

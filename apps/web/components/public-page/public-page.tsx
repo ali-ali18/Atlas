@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { PageSpec } from "@workspace/shared";
 import { PageView } from "@/components/ai-elements/pages/page-view";
+import { useTranslations } from "@/lib/i18n/provider";
 import { updatedAgo } from "@/components/ui/templates/template-4/chat-context-panel/library-sections";
 
 export type SharedPage = {
@@ -33,26 +34,27 @@ export async function fetchSharedPage(token: string, signal?: AbortSignal): Prom
 
 /** Conteúdo da página pública (apresentação pura, para teste). */
 export function PublicPageContent({ state, now }: { state: PublicPageState; now?: Date }) {
+	const translator = useTranslations();
 	if (state.kind === "loading") {
 		return <div aria-live="polite" className="h-40 animate-pulse rounded-xl bg-muted/40 motion-reduce:animate-none" data-testid="public-page-loading" />;
 	}
 	if (state.kind === "gone") {
 		return (
 			<div className="flex flex-col gap-2 rounded-xl border border-border/60 p-6 text-center" data-testid="public-page-gone">
-				<h1 className="font-heading font-semibold text-lg">Este link não está mais disponível</h1>
-				<p className="text-muted-foreground text-sm">O painel foi apagado ou quem o compartilhou desativou o link.</p>
+				<h1 className="font-heading font-semibold text-lg">{translator.t("library.public.goneTitle")}</h1>
+				<p className="text-muted-foreground text-sm">{translator.t("library.public.goneBody")}</p>
 			</div>
 		);
 	}
 	if (state.kind === "error") {
 		return (
 			<p className="rounded-xl border border-border/60 p-6 text-center text-muted-foreground text-sm" role="alert">
-				Não consegui carregar o painel agora. Tente de novo em instantes.
+				{translator.t("library.public.error")}
 			</p>
 		);
 	}
 	const { page } = state;
-	const updated = updatedAgo(page.updatedAt, now);
+	const updated = updatedAgo(page.updatedAt, now, translator);
 	return (
 		<article className="flex flex-col gap-4" data-testid="public-page">
 			<header className="flex flex-col gap-1">
@@ -61,7 +63,7 @@ export function PublicPageContent({ state, now }: { state: PublicPageState; now?
 			</header>
 			<PageView spec={page.spec} />
 			<footer className="border-border/60 border-t pt-3 text-muted-foreground text-xs">
-				{[page.botName ? `Painel de ${page.botName}` : "Painel compartilhado", "somente leitura", updated].filter(Boolean).join(" · ")}
+				{[page.botName ? translator.t("library.public.footerOf", { name: page.botName }) : translator.t("library.public.title"), translator.t("library.public.readOnly"), updated].filter(Boolean).join(" · ")}
 			</footer>
 		</article>
 	);

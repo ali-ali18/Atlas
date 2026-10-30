@@ -47,7 +47,7 @@ export function detectedTimeZone(): string | undefined {
 /** "GMT-3" no fuso, ou "" se não der para calcular. */
 export function timeZoneOffset(zone: string, now: Date = new Date()): string {
 	try {
-		const part = new Intl.DateTimeFormat("pt-BR", { timeZone: zone, timeZoneName: "shortOffset" })
+		const part = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "shortOffset" })
 			.formatToParts(now)
 			.find((item) => item.type === "timeZoneName");
 		return part?.value ?? "";

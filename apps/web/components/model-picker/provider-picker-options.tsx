@@ -5,6 +5,7 @@ import {
   ModelSelectorItem,
   ModelSelectorName,
 } from "@/components/ai-elements/model-selector"
+import { useT } from "@/lib/i18n/provider"
 import { searchPickerModels } from "@/lib/provider-model-picker"
 import { PickerModelRow, ProviderModelList } from "./provider-model-list"
 export function ProviderPickerOptions({
@@ -16,7 +17,7 @@ export function ProviderPickerOptions({
   catalogAvailable,
   emptyLabel,
   suggestedIds,
-  suggestedHeading = "Seus modelos",
+  suggestedHeading,
   onSelect,
   onConnect,
 }: {
@@ -32,6 +33,7 @@ export function ProviderPickerOptions({
   onSelect: (id: string) => void
   onConnect: () => void
 }) {
+  const t = useT()
   const current = models.find((model) => model.id === value)
   const suggested = (suggestedIds ?? []).map(
     (id) => models.find((model) => model.id === id) ?? null
@@ -44,7 +46,7 @@ export function ProviderPickerOptions({
   return (
     <>
       {value ? (
-        <ModelSelectorGroup heading="Modelo atual">
+        <ModelSelectorGroup heading={t("modelPicker.current")}>
           {current ? (
             <PickerModelRow model={current} onSelect={onSelect} />
           ) : (
@@ -56,8 +58,8 @@ export function ProviderPickerOptions({
           (!available || status?.status !== "connected") ? (
             <p className="px-3 pb-2 text-xs text-muted-foreground">
               {status?.status === "needs_login"
-                ? "Reconecte o ChatGPT nas configurações."
-                : "ChatGPT indisponível. Confira a conexão nas configurações."}
+                ? t("modelPicker.reconnectHint")
+                : t("modelPicker.unavailableHint")}
             </p>
           ) : null}
         </ModelSelectorGroup>
@@ -70,7 +72,7 @@ export function ProviderPickerOptions({
         </ModelSelectorGroup>
       ) : null}
       {suggestedModels.length > 0 ? (
-        <ModelSelectorGroup heading={suggestedHeading}>
+        <ModelSelectorGroup heading={suggestedHeading ?? t("modelPicker.yourModels")}>
           {suggestedModels.map((model) => (
             <PickerModelRow key={model.id} model={model} onSelect={onSelect} />
           ))}

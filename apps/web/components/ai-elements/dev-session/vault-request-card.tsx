@@ -7,14 +7,15 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { REQUEST_PRIMARY_CLASS, RequestCard } from "@workspace/ui/components/request-card";
 import { saveVaultSecrets } from "@/lib/atlas-api";
+import { useTranslations } from "@/lib/i18n/provider";
 
 type Status = "pending" | "approved" | "rejected" | "failed";
 
 const BADGE = {
-	pending: { tone: "pending", label: "Precisa de você" },
-	approved: { tone: "success", label: "Salvo no cofre" },
-	rejected: { tone: "muted", label: "Dispensado" },
-	failed: { tone: "danger", label: "Falhou" },
+	pending: { tone: "pending", label: "devSession.approval.pending" },
+	approved: { tone: "success", label: "devSession.secrets.savedToVault" },
+	rejected: { tone: "muted", label: "devSession.secrets.dismissed" },
+	failed: { tone: "danger", label: "devSession.approval.failed" },
 } as const;
 
 export type VaultRequestCardProps = {
@@ -37,7 +38,8 @@ export type VaultRequestCardProps = {
  * Pedido de segredo do bot para o Cofre: um campo de senha por nome. O valor vai direto
  * do campo para a API do cofre; o texto da conversa nunca o contém.
  */
-export function VaultRequestCard({ info, title, description, status = "pending", confirmLabel = "Salvar no cofre", cancelLabel = "Agora não", onSaved, onSkip, save = (entries) => saveVaultSecrets(entries), initialErrors }: VaultRequestCardProps) {
+export function VaultRequestCard({ info, title, description, status = "pending", confirmLabel, cancelLabel, onSaved, onSkip, save = (entries) => saveVaultSecrets(entries), initialErrors }: VaultRequestCardProps) {
+	const { t } = useTranslations();
 	const [values, setValues] = useState<Record<string, string>>({});
 	const [errors, setErrors] = useState<string[]>(initialErrors ?? []);
 	const [busy, setBusy] = useState(false);
@@ -47,7 +49,7 @@ export function VaultRequestCard({ info, title, description, status = "pending",
 	async function submit() {
 		const entries = info.names.flatMap((name) => (values[name] ? [{ name, value: values[name]! }] : []));
 		if (entries.length === 0) {
-			setErrors(["Preencha ao menos um campo."]);
+			setErrors([t("devSession.vault.fillOne")]);
 			return;
 		}
 		setBusy(true);
@@ -57,7 +59,7 @@ export function VaultRequestCard({ info, title, description, status = "pending",
 			setValues({});
 			onSaved?.();
 		} catch (cause) {
-			setErrors([cause instanceof Error && cause.message ? cause.message : "Não foi possível salvar. Tente novamente."]);
+			setErrors([cause instanceof Error && cause.message ? cause.message : t("devSession.secrets.saveError")]);
 		} finally {
 			setBusy(false);
 		}
@@ -68,18 +70,18 @@ export function VaultRequestCard({ info, title, description, status = "pending",
 			actions={
 				<>
 					<Button className={REQUEST_PRIMARY_CLASS} disabled={busy} onClick={() => void submit()} size="sm" type="button">
-						{busy ? "Salvando…" : confirmLabel}
+						{busy ? t("devSession.secrets.saving") : (confirmLabel ?? t("devSession.vault.saveToVault"))}
 					</Button>
 					<Button disabled={busy} onClick={onSkip} size="sm" type="button" variant="ghost">
-						{cancelLabel}
+						{cancelLabel ?? t("devSession.approval.notNow")}
 					</Button>
 				</>
 			}
-			badge={BADGE[status]}
+			badge={{ tone: BADGE[status].tone, label: t(BADGE[status].label) }}
 			data-vault-request
 			description={description}
-			detailsLabel="Ver nomes"
-			leading={status === "approved" ? <CheckIcon aria-label="Salvo" /> : status === "rejected" ? <XIcon aria-label="Dispensado" /> : <KeyRoundIcon aria-label="Cofre" />}
+			detailsLabel={t("devSession.secrets.viewNames")}
+			leading={status === "approved" ? <CheckIcon aria-label={t("devSession.secrets.saved")} /> : status === "rejected" ? <XIcon aria-label={t("devSession.secrets.dismissed")} /> : <KeyRoundIcon aria-label={t("devSession.vault.vaultLabel")} />}
 			resolved={resolved}
 			title={title}
 		>
@@ -108,7 +110,7 @@ export function VaultRequestCard({ info, title, description, status = "pending",
 									setValues((current) => ({ ...current, [name]: event.target.value }));
 									setErrors([]);
 								}}
-								placeholder="Cole aqui"
+								placeholder={t("devSession.vault.paste")}
 								spellCheck={false}
 								type="password"
 								value={values[name] ?? ""}
@@ -124,7 +126,7 @@ export function VaultRequestCard({ info, title, description, status = "pending",
 							))}
 						</div>
 					) : (
-						<p className="m-0 text-muted-foreground text-xs">Vai direto para o seu cofre, criptografado. O bot usa o segredo sem nunca ler o valor.</p>
+						<p className="m-0 text-muted-foreground text-xs">{t("devSession.vault.note")}</p>
 					)}
 				</form>
 			)}

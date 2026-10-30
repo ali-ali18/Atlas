@@ -43,6 +43,8 @@ import {
 } from "@workspace/ui/components/dropdown-menu";
 import { Input } from "@workspace/ui/components/input";
 import { cn } from "@workspace/ui/lib/utils";
+import { useT, useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import type { Routine } from "../data";
 import { SectionAction } from "./memory-section";
 
@@ -54,8 +56,9 @@ export type RoutineGroupHandlers = {
 };
 
 /** "2 de 3 ativas" / "1 de 1 ativa". */
-export function routineGroupSummary(active: number, total: number): string {
-	return `${active} de ${total} ${total === 1 ? "ativa" : "ativas"}`;
+export function routineGroupSummary(active: number, total: number, { t, tn }: Translator = defaultTranslator): string {
+	// No pt-BR o 0 cai em "um" ("0 ativa"); aqui sempre foi "0 de 0 ativas".
+	return total === 0 ? t("routines.group.summary.other", { active, count: 0 }) : tn("routines.group.summary", total, { active });
 }
 
 /**
@@ -76,12 +79,15 @@ export function RoutineGroupBlock({
 	routines: Routine[];
 	children: ReactNode;
 } & RoutineGroupHandlers) {
+	const translator = useTranslations();
+	const { t, tn } = translator;
 	const [open, setOpen] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [pending, setPending] = useState(false);
 	const [renaming, setRenaming] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 
+	const toggleKey = open ? "routines.group.collapse" : "routines.group.expand";
 	const total = routines.length;
 	const activeCount = routines.filter((routine) => routine.active).length;
 	const allPaused = activeCount === 0;
@@ -103,7 +109,7 @@ export function RoutineGroupBlock({
 			<Collapsible onOpenChange={setOpen} open={open}>
 				<div className="flex min-w-0 items-center gap-2">
 					<CollapsibleTrigger
-						aria-label={`${open ? "Recolher" : "Expandir"} grupo ${name}`}
+						aria-label={t(toggleKey, { name })}
 						className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 					>
 						<ChevronRightIcon
@@ -115,7 +121,7 @@ export function RoutineGroupBlock({
 								{name}
 							</span>
 							<span className="truncate text-muted-foreground text-xs leading-tight">
-								{routineGroupSummary(activeCount, total)}
+								{routineGroupSummary(activeCount, total, translator)}
 							</span>
 						</span>
 					</CollapsibleTrigger>
@@ -123,14 +129,14 @@ export function RoutineGroupBlock({
 						<SectionAction
 							disabled={pending || !onSetEnabled}
 							icon={allPaused ? PlayIcon : PauseIcon}
-							label={allPaused ? "Ativar todas" : "Pausar todas"}
+							label={allPaused ? t("routines.group.activateAll") : t("routines.group.pauseAll")}
 							onClick={() => void run(() => onSetEnabled?.(id, allPaused))}
 						/>
 						<DropdownMenu>
 							<DropdownMenuTrigger
 								render={
 									<Button
-										aria-label={`Mais ações do grupo ${name}`}
+										aria-label={t("routines.group.moreActions", { name })}
 										className="w-8 px-0"
 										size="sm"
 										type="button"
@@ -143,18 +149,18 @@ export function RoutineGroupBlock({
 							<DropdownMenuContent align="end">
 								<DropdownMenuItem onClick={() => setRenaming(true)}>
 									<PencilIcon />
-									Renomear
+									{t("routines.group.rename")}
 								</DropdownMenuItem>
 								{partial ? (
 									<DropdownMenuItem onClick={() => void run(() => onSetEnabled?.(id, true))}>
 										<PlayIcon />
-										Ativar todas
+										{t("routines.group.activateAll")}
 									</DropdownMenuItem>
 								) : null}
 								<DropdownMenuSeparator />
 								<DropdownMenuItem onClick={() => setConfirmDelete(true)} variant="destructive">
 									<Trash2Icon />
-									Apagar grupo
+									{t("routines.group.delete")}
 								</DropdownMenuItem>
 							</DropdownMenuContent>
 						</DropdownMenu>
@@ -173,22 +179,20 @@ export function RoutineGroupBlock({
 			<RenameGroupDialog
 				initialName={name}
 				onClose={() => setRenaming(false)}
-				onSubmit={(next) => onRename?.(id, next) ?? Promise.resolve("Indisponível")}
+				onSubmit={(next) => onRename?.(id, next) ?? Promise.resolve(t("routines.card.unavailable"))}
 				open={renaming}
 			/>
 
 			<AlertDialog onOpenChange={setConfirmDelete} open={confirmDelete}>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Apagar o grupo “{name}”?</AlertDialogTitle>
+						<AlertDialogTitle>{t("routines.group.deleteTitle", { name })}</AlertDialogTitle>
 						<AlertDialogDescription>
-							{total === 0
-								? "O grupo está vazio."
-								: `As ${total} ${total === 1 ? "rotina continua" : "rotinas continuam"}, só ${total === 1 ? "fica" : "ficam"} sem grupo. Ou apague também ${total === 1 ? "a rotina" : "as rotinas"}; isso não pode ser desfeito.`}
+							{total === 0 ? t("routines.group.deleteEmpty") : tn("routines.group.deleteBody", total)}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Cancelar</AlertDialogCancel>
+						<AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
 						<AlertDialogAction
 							onClick={() => {
 								setConfirmDelete(false);
@@ -196,7 +200,7 @@ export function RoutineGroupBlock({
 							}}
 							variant="outline"
 						>
-							Apagar só o grupo
+							{t("routines.group.deleteOnly")}
 						</AlertDialogAction>
 						{total > 0 ? (
 							<AlertDialogAction
@@ -206,7 +210,7 @@ export function RoutineGroupBlock({
 								}}
 								variant="destructive"
 							>
-								Apagar grupo e rotinas
+								{t("routines.group.deleteAll")}
 							</AlertDialogAction>
 						) : null}
 					</AlertDialogFooter>
@@ -227,6 +231,7 @@ function RenameGroupDialog({
 	onClose: () => void;
 	onSubmit: (name: string) => Promise<string | null>;
 }) {
+	const t = useT();
 	const [value, setValue] = useState(initialName);
 	const [error, setError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
@@ -261,8 +266,8 @@ function RenameGroupDialog({
 		>
 			<DialogContent>
 				<DialogHeader>
-					<DialogTitle>Renomear grupo</DialogTitle>
-					<DialogDescription>O novo nome aparece no painel e para o bot.</DialogDescription>
+					<DialogTitle>{t("routines.group.renameTitle")}</DialogTitle>
+					<DialogDescription>{t("routines.group.renameHelp")}</DialogDescription>
 				</DialogHeader>
 				<form
 					className="flex flex-col gap-3"
@@ -272,7 +277,7 @@ function RenameGroupDialog({
 					}}
 				>
 					<Input
-						aria-label="Nome do grupo"
+						aria-label={t("routines.group.nameLabel")}
 						autoFocus
 						maxLength={80}
 						onChange={(event) => setValue(event.target.value)}
@@ -285,10 +290,10 @@ function RenameGroupDialog({
 					) : null}
 					<DialogFooter>
 						<Button onClick={onClose} type="button" variant="outline">
-							Cancelar
+							{t("common.cancel")}
 						</Button>
 						<Button disabled={!trimmed || saving} type="submit">
-							Salvar
+							{t("common.save")}
 						</Button>
 					</DialogFooter>
 				</form>

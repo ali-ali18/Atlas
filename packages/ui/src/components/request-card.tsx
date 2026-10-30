@@ -10,7 +10,6 @@ import {
   ChatCardHeader,
   type ChatCardTone,
 } from "./chat-card";
-import { CHAT_CARD_COPY } from "../lib/chat-card-copy";
 
 /** Estado do selo do cabeçalho: espera (âmbar), sucesso, recusa/erro, neutro. */
 export type RequestTone = ChatCardTone;
@@ -61,7 +60,7 @@ function RequestCard({
   description,
   children,
   resolved = false,
-  detailsLabel = CHAT_CARD_COPY.details,
+  detailsLabel,
   defaultDetailsOpen = false,
   note,
   error,

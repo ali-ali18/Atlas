@@ -4,9 +4,12 @@ import { CheckCircle2Icon, ClockIcon, ExternalLinkIcon, GitPullRequestIcon, Minu
 import { Spinner } from "@workspace/ui/components/spinner";
 import { Badge } from "@workspace/ui/components/badge";
 import { cn } from "@workspace/ui/lib/utils";
-import { ciCheckFailed, ciSummaryText, DEV_PR_STATE_LABEL, type DevCiCheck, type DevPrInfo, type DevPrState } from "@workspace/shared";
+import { ciCheckFailed, type DevCiCheck, type DevPrInfo, type DevPrState } from "@workspace/shared";
 
 import { formatElapsed, type DevCiView } from "@/lib/dev-session/reducer";
+import { useTranslations } from "@/lib/i18n/provider";
+import { devPrStateLabel, ciSummaryLabel } from "@/lib/shared-labels";
+import type { MessageKey } from "@/lib/i18n/translator";
 
 /** Só abrimos links http(s) vindos do GitHub no painel (nunca `javascript:` ou similares). */
 export function safeExternalUrl(url: string | undefined): string | null {
@@ -29,13 +32,14 @@ export function checkVisual(check: Pick<DevCiCheck, "status" | "conclusion">): C
 	return check.conclusion === "skipped" || check.conclusion === "neutral" ? "skipped" : "passed";
 }
 
-const CHECK_LABEL: Record<CheckVisual, string> = {
-	passed: "Passou",
-	failed: "Falhou",
-	skipped: "Ignorada",
-	running: "Em andamento",
-	queued: "Na fila",
-};
+const CHECK_LABEL = {
+	passed: "devSession.pr.check.passed",
+	failed: "devSession.pr.check.failed",
+	skipped: "devSession.pr.check.skipped",
+	running: "devSession.pr.check.running",
+	queued: "devSession.pr.check.queued",
+} as const satisfies Record<CheckVisual, MessageKey>;
+
 
 function CheckIcon({ visual }: { visual: CheckVisual }) {
 	switch (visual) {
@@ -61,10 +65,11 @@ const PR_DOT: Record<DevPrState, string> = {
 
 /** Pílula neutra do estado do PR: só o ponto carrega cor. */
 export function PrStatePill({ state }: { state: DevPrState }) {
+	const translator = useTranslations();
 	return (
 		<Badge className="shrink-0 bg-muted font-medium text-foreground/80" data-pr-state={state} variant="ghost">
 			<span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", PR_DOT[state])} />
-			{DEV_PR_STATE_LABEL[state]}
+			{devPrStateLabel(state, translator)}
 		</Badge>
 	);
 }
@@ -84,11 +89,12 @@ function ExternalLink({ href, label, children, className }: { href: string; labe
 }
 
 function CheckRow({ check }: { check: DevCiCheck }) {
+	const { t } = useTranslations();
 	const visual = checkVisual(check);
 	const href = safeExternalUrl(check.url);
 	return (
 		<li className="flex items-center gap-2 rounded-xl bg-muted/40 px-3 py-2 text-xs" data-ci-check data-ci-state={visual}>
-			<span aria-label={CHECK_LABEL[visual]} className="grid shrink-0 place-items-center" role="img">
+			<span aria-label={t(CHECK_LABEL[visual])} className="grid shrink-0 place-items-center" role="img">
 				<CheckIcon visual={visual} />
 			</span>
 			<span className="min-w-0 flex-1 truncate" title={check.name}>
@@ -96,7 +102,7 @@ function CheckRow({ check }: { check: DevCiCheck }) {
 			</span>
 			{check.durationMs !== undefined ? <span className="shrink-0 font-mono text-caption text-muted-foreground tabular-nums">{formatElapsed(check.durationMs)}</span> : null}
 			{href ? (
-				<ExternalLink className="shrink-0 text-muted-foreground" href={href} label={`Abrir ${check.name} no GitHub`}>
+				<ExternalLink className="shrink-0 text-muted-foreground" href={href} label={t("devSession.pr.openCheck", { name: check.name })}>
 					<ExternalLinkIcon className="size-3.5" />
 				</ExternalLink>
 			) : null}
@@ -106,6 +112,8 @@ function CheckRow({ check }: { check: DevCiCheck }) {
 
 /** Conteúdo da seção "Pull request": cabeçalho do PR, link externo e a lista de checks. */
 export function PullRequestBody({ pr, ci }: { pr: DevPrInfo; ci?: DevCiView }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const href = safeExternalUrl(pr.url);
 	return (
 		<div className="flex flex-col gap-2" data-dev-pr>
@@ -122,24 +130,24 @@ export function PullRequestBody({ pr, ci }: { pr: DevPrInfo; ci?: DevCiView }) {
 				</p>
 				{href ? (
 					<ExternalLink className="self-start text-muted-foreground" href={href}>
-						Abrir no GitHub
+						{t("devSession.pr.openGithub")}
 						<ExternalLinkIcon className="size-3.5" />
 					</ExternalLink>
 				) : null}
 			</div>
 			<div className="flex min-w-0 flex-col gap-1.5" data-dev-ci>
 				<p className="flex items-center gap-1.5 text-muted-foreground text-xs tabular-nums" data-ci-summary>
-					<span>Checks</span>
+					<span>{t("devSession.pr.checksLabel")}</span>
 					<span aria-hidden="true">·</span>
 					{!ci ? (
 						<span className="inline-flex items-center gap-1">
 							<Spinner className="size-3" />
-							Verificando…
+							{t("devSession.pr.checking")}
 						</span>
 					) : ci.checks.length === 0 ? (
-						<span>Sem verificações ainda</span>
+						<span>{t("devSession.pr.noChecks")}</span>
 					) : (
-						<span>{ciSummaryText(ci.checks)}</span>
+						<span>{ciSummaryLabel(ci.checks, translator)}</span>
 					)}
 				</p>
 				{ci && ci.checks.length > 0 ? (

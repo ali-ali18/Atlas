@@ -31,3 +31,9 @@ describe("comando /compact", () => {
 		expect(parseConversationCard(JSON.stringify({ ...card, summary: "a".repeat(20_000) })) && (parseConversationCard(JSON.stringify({ ...card, summary: "a".repeat(20_000) })) as { summary: string }).summary.length).toBe(12_000);
 	});
 });
+
+describe("formatCompactionLine com formatador próprio", () => {
+	it("usa o formatador dado nos dois números", () => {
+		expect(formatCompactionLine(84_200, 9_100, (tokens) => `${(tokens / 1000).toFixed(1)}k`)).toBe("84.2k → 9.1k tokens (−89%)");
+	});
+});

@@ -4,7 +4,7 @@ import {
 	modelDisplayName,
 	getModelCapabilities,
 	modelSupportsImageInput,
-	roleCapabilityWarning,
+	missingForRole,
 	type ModelRole,
 	type ModelTier,
 	type ModelTiers,
@@ -13,6 +13,7 @@ import {
 	type Resolved,
 	type TranscriptionModel,
 } from "@workspace/shared";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import { inheritLabel } from "./account-settings-state";
 
 /** Cada modelo configurável da conta (as chaves de `config.models`). */
@@ -45,10 +46,17 @@ export function modelSettingWarning(
 	setting: ModelSetting,
 	id: string,
 	models: readonly OpenRouterModel[],
+	{ t }: Translator = defaultTranslator,
 ): string | null {
 	const role = SETTING_ROLE[setting];
 	if (!role || !id) return null;
-	return roleCapabilityWarning(role, getModelCapabilities(id, models.find((model) => model.id === id)));
+	const caps = getModelCapabilities(id, models.find((model) => model.id === id));
+	const missing = missingForRole(role, caps);
+	if (!missing.length) return null;
+	if (missing.includes("vision")) {
+		return caps.source === "unknown" ? t("settings.models.warn.visionUnknown") : t("settings.models.warn.visionNo");
+	}
+	return role === "maintenance" ? t("settings.models.warn.toolsMaintenance") : t("settings.models.warn.toolsAgent");
 }
 
 /** Modelos de ditado no formato do seletor (o id já traz o vendor, ou é da lista fixa da OpenAI). */
@@ -62,8 +70,8 @@ export function transcriptionPickerModels(models: readonly TranscriptionModel[])
 }
 
 /** "Padrão (Whisper Large V3)": o modelo que vale quando a conta não escolhe. */
-export function dictationDefaultLabel(defaultModel: string, models: readonly OpenRouterModel[]): string {
-	return `Padrão (${modelLabel(defaultModel, models)})`;
+export function dictationDefaultLabel(defaultModel: string, models: readonly OpenRouterModel[], { t }: Translator = defaultTranslator): string {
+	return t("settings.models.dictationDefault", { model: modelLabel(defaultModel, models) });
 }
 
 /**
@@ -102,8 +110,9 @@ export function modelInheritLabel(
 	resolved: Resolved<string | undefined>,
 	models: readonly OpenRouterModel[],
 	emptyText: string,
+	{ t }: Translator = defaultTranslator,
 ): string | null {
-	return inheritLabel(resolved.source, resolved.value ? modelLabel(resolved.value, models) : emptyText);
+	return inheritLabel(resolved.source, resolved.value ? modelLabel(resolved.value, models) : emptyText, t);
 }
 
 /** Valor do seletor: o id escolhido pelo usuário, ou "" (= "Herdar") enquanto herda. */
@@ -116,12 +125,14 @@ export function maintenanceInheritLabel(
 	accountDefault: Resolved<string | undefined>,
 	models: readonly OpenRouterModel[],
 	openrouterKey: boolean,
+	translator: Translator = defaultTranslator,
 ): string | null {
+	const { t } = translator;
 	if (maintenance.source === "user") return null;
-	if (openrouterKey) return modelInheritLabel(maintenance, models, "nenhum");
+	if (openrouterKey) return modelInheritLabel(maintenance, models, t("settings.models.inheritNone"), translator);
 	const fallback = accountDefault.value;
-	if (!fallback || fallback.startsWith("chatgpt/")) return inheritLabel(maintenance.source, "conecte uma chave de provedor");
-	return inheritLabel(maintenance.source, modelLabel(fallback, models));
+	if (!fallback || fallback.startsWith("chatgpt/")) return inheritLabel(maintenance.source, t("settings.models.inheritConnectKey"), t);
+	return inheritLabel(maintenance.source, modelLabel(fallback, models), t);
 }
 
 /** "Herdar (…)" do revisor: o Jev fixo no OpenRouter, ou (sem a chave dele) o modelo da manutenção. */
@@ -129,10 +140,11 @@ export function reviewerInheritLabel(
 	effective: { models: { reviewer: Resolved<string | undefined>; maintenance: Resolved<string | undefined>; default: Resolved<string | undefined> } },
 	models: readonly OpenRouterModel[],
 	openrouterKey: boolean,
+	translator: Translator = defaultTranslator,
 ): string | null {
 	if (effective.models.reviewer.source === "user") return null;
-	if (openrouterKey) return inheritLabel(effective.models.reviewer.source, "Jev no OpenRouter");
-	return maintenanceInheritLabel(effective.models.maintenance, effective.models.default, models, false);
+	if (openrouterKey) return inheritLabel(effective.models.reviewer.source, translator.t("settings.models.inheritJev"), translator.t);
+	return maintenanceInheritLabel(effective.models.maintenance, effective.models.default, models, false, translator);
 }
 
 export function modelPickerValue(resolved: Resolved<string | undefined>): string {
@@ -147,9 +159,10 @@ export function modelPatch(setting: ModelSetting, id: string): AccountConfigPatc
 export function fallbacksInheritLabel(
 	resolved: Resolved<string[]>,
 	models: readonly OpenRouterModel[],
+	{ t }: Translator = defaultTranslator,
 ): string | null {
-	const text = resolved.value.length > 0 ? resolved.value.map((id) => modelLabel(id, models)).join(", ") : "nenhum";
-	return inheritLabel(resolved.source, text);
+	const text = resolved.value.length > 0 ? resolved.value.map((id) => modelLabel(id, models)).join(", ") : t("settings.models.inheritNone");
+	return inheritLabel(resolved.source, text, t);
 }
 
 /** Lista de reserva do usuário (herdada não conta: some a lista editável até ele adicionar). */

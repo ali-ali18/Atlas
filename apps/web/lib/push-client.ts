@@ -2,6 +2,8 @@
  * Notificações no celular (lado do navegador): o que o aparelho suporta, em que estado está a
  * permissão e a inscrição, e a chave VAPID no formato que o `PushManager` pede. Funções puras.
  */
+import { getActiveTranslator } from "@/lib/i18n/active";
+import type { MessageKey, Translator } from "@/lib/i18n/translator";
 
 export type PushEnv = {
 	hasServiceWorker: boolean;
@@ -34,14 +36,19 @@ export function pushState(env: PushEnv): PushState {
 	return env.subscribed && env.permission === "granted" ? "on" : "off";
 }
 
-export const PUSH_STATE_TEXT: Record<PushState, string> = {
-	"server-off": "As notificações ainda não foram configuradas no servidor.",
-	unsupported: "Este navegador não recebe notificações push.",
-	"needs-install": "No iPhone, adicione o app à tela inicial (Compartilhar, Adicionar à Tela de Início) e abra por lá para ativar.",
-	denied: "As notificações estão bloqueadas neste navegador. Libere nas configurações do site para ativar.",
-	off: "Receba um aviso no celular quando um bot terminar ou precisar de você.",
-	on: "Ativadas neste aparelho.",
-};
+const PUSH_STATE_KEYS = {
+	"server-off": "status.push.serverOff",
+	unsupported: "status.push.unsupported",
+	"needs-install": "status.push.needsInstall",
+	denied: "status.push.denied",
+	off: "status.push.off",
+	on: "status.push.on",
+} as const satisfies Record<PushState, MessageKey>;
+
+/** Texto do estado das notificações no idioma pedido (na tela, o do `useTranslations()`). */
+export function pushStateText(state: PushState, { t }: Translator = getActiveTranslator()): string {
+	return t(PUSH_STATE_KEYS[state]);
+}
 
 /** Chave pública VAPID (base64url) -> bytes para `pushManager.subscribe`. */
 export function urlBase64ToUint8Array(value: string): Uint8Array<ArrayBuffer> {
@@ -76,15 +83,15 @@ export function readPushEnv(input: { serverEnabled: boolean; subscribed: boolean
 }
 
 /** "agora", "há 5 min", "há 3 h", "há 2 d": último uso do aparelho. */
-export function lastUsedLabel(iso: string, now: number = Date.now()): string {
+export function lastUsedLabel(iso: string, now: number = Date.now(), { t }: Translator = getActiveTranslator()): string {
 	const time = new Date(iso).getTime();
 	if (Number.isNaN(time)) return "";
 	const minutes = Math.floor((now - time) / 60_000);
-	if (minutes < 1) return "agora";
-	if (minutes < 60) return `há ${minutes} min`;
+	if (minutes < 1) return t("status.lastUsed.now");
+	if (minutes < 60) return t("status.lastUsed.minutes", { count: minutes });
 	const hours = Math.floor(minutes / 60);
-	if (hours < 48) return `há ${hours} h`;
-	return `há ${Math.floor(hours / 24)} d`;
+	if (hours < 48) return t("status.lastUsed.hours", { count: hours });
+	return t("status.lastUsed.days", { count: Math.floor(hours / 24) });
 }
 
 /** Some a notificação da conversa (tag = id da conversa) neste aparelho. Sem service worker, não faz nada. */

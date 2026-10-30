@@ -5,6 +5,7 @@ import { Button, buttonVariants } from "@workspace/ui/components/button"
 import { GithubMarkIcon } from "@/components/icons/github-mark"
 import { githubAppViewState } from "@/components/settings/github-app-state"
 import { openSettingsModal } from "@/components/settings/settings-url"
+import { useTranslations } from "@/lib/i18n/provider"
 import { GITHUB_APP_INSTALL_PATH, getGithubAppStatus, type GithubAppStatus } from "@/lib/atlas-api"
 
 /**
@@ -13,6 +14,7 @@ import { GITHUB_APP_INSTALL_PATH, getGithubAppStatus, type GithubAppStatus } fro
  * não é o dono (nada para fazer).
  */
 export function GithubAppCallout({ onOpenSettings }: { onOpenSettings?: () => void }) {
+  const { t } = useTranslations()
   const [status, setStatus] = useState<GithubAppStatus | null>(null)
 
   useEffect(() => {
@@ -37,19 +39,19 @@ export function GithubAppCallout({ onOpenSettings }: { onOpenSettings?: () => vo
       <GithubMarkIcon className="size-5 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1 basis-48">
         <p className="text-sm font-medium">
-          {state === "installed" ? `App instalado em ${installedOn}` : "Instalar o app do GitHub"}
+          {state === "installed" ? t("marketplace.github.installedOn", { account: installedOn ?? "" }) : t("marketplace.github.install")}
         </p>
         <p className="text-xs text-muted-foreground">
           {state === "owner-create"
-            ? "Crie o app uma vez nas Configurações; depois é só instalar."
+            ? t("marketplace.github.ownerCreate")
             : state === "installed"
-              ? "Gerencie as contas e os repositórios nas Configurações."
-              : "Escolha os repositórios e autorize, sem token pessoal."}
+              ? t("marketplace.github.manage")
+              : t("marketplace.github.choose")}
         </p>
       </div>
       {state === "install" ? (
         <a className={buttonVariants({ size: "sm" })} href={GITHUB_APP_INSTALL_PATH}>
-          Instalar no GitHub
+          {t("marketplace.github.installButton")}
         </a>
       ) : (
         <Button
@@ -60,7 +62,7 @@ export function GithubAppCallout({ onOpenSettings }: { onOpenSettings?: () => vo
           size="sm"
           variant="outline"
         >
-          {state === "owner-create" ? "Criar GitHub App" : "Gerenciar"}
+          {state === "owner-create" ? t("marketplace.github.createApp") : t("marketplace.github.manageButton")}
         </Button>
       )}
     </div>

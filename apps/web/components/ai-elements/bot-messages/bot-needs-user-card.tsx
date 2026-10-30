@@ -11,6 +11,7 @@ import { RequestCard, REQUEST_PRIMARY_CLASS } from "@workspace/ui/components/req
 import { AgentAvatar } from "@/components/ui/templates/template-4/agent-avatar";
 import { botAccentStyle } from "@/components/ui/templates/template-4/chat-context-panel/bot-accent";
 import { beginCardDecision, endCardDecision } from "@/lib/card-decision";
+import { useTranslations } from "@/lib/i18n/provider";
 import { answerBotPending, createAgentRun, getActiveSandboxSession, resolveBotProfileProposal, resumeAgentRun } from "@/lib/atlas-api";
 
 import type { BotRef } from "./bot-chip";
@@ -50,6 +51,7 @@ export function BotNeedsUserCardView({
 	onReject,
 	onOpenConversation,
 }: BotNeedsUserCardViewProps) {
+	const { t } = useTranslations();
 	if (status === "resolved") {
 		return (
 			<div className="my-2" data-testid="bot-needs-user-resolved">
@@ -57,7 +59,7 @@ export function BotNeedsUserCardView({
 					<MarkerContent className="inline-flex flex-wrap items-center justify-center gap-x-1 gap-y-0.5">
 						<CheckIcon aria-hidden className="size-3.5" />
 						<span className="max-w-[10rem] truncate font-medium text-foreground/80">{bot.name}:</span>
-						<span>{need.label} · resolvido</span>
+						<span>{t("aiElements.bots.resolvedLine", { label: need.label })}</span>
 					</MarkerContent>
 				</Marker>
 			</div>
@@ -72,7 +74,7 @@ export function BotNeedsUserCardView({
 				<>
 					{isLogin && need.type !== "connector" ? (
 						<Button className={accentButton} disabled={busy || !onOpenVm} onClick={onOpenVm} size="sm" type="button">
-							Abrir a VM
+							{t("aiElements.bots.openVm")}
 						</Button>
 					) : null}
 					{isLogin && onDone ? (
@@ -84,28 +86,28 @@ export function BotNeedsUserCardView({
 							type="button"
 							variant={need.type === "connector" ? "default" : "secondary"}
 						>
-							Terminei
+							{t("aiElements.bots.finished")}
 						</Button>
 					) : null}
 					{!isLogin && onApprove ? (
 						<Button className={accentButton} disabled={busy} onClick={onApprove} size="sm" type="button">
-							{need.confirmLabel ?? "Aprovar"}
+							{need.confirmLabel ?? t("aiElements.bots.approve")}
 						</Button>
 					) : null}
 				</>
 			}
-			badge={{ tone: "pending", label: "Precisa de você" }}
+			badge={{ tone: "pending", label: t("aiElements.login.needsYou") }}
 			data-testid="bot-needs-user-card"
 			description={need.label}
 			error={error}
 			leading={<AgentAvatar animated={false} bodyColor={bot.color} id={bot.id} shape={bot.shape} size={20} />}
 			style={botAccentStyle(bot.color) as CSSProperties}
-			title={`${bot.name} precisa de você`}
+			title={t("aiElements.bots.needsYou", { name: bot.name })}
 			trailing={
 				<>
 					{!isLogin && onReject ? (
 						<Button disabled={busy} onClick={onReject} size="sm" type="button" variant="ghost">
-							{need.cancelLabel ?? "Recusar"}
+							{need.cancelLabel ?? t("aiElements.bots.reject")}
 						</Button>
 					) : null}
 					{onOpenConversation ? (
@@ -117,7 +119,7 @@ export function BotNeedsUserCardView({
 							type="button"
 							variant="ghost"
 						>
-							Abrir conversa de {bot.name}
+							{t("aiElements.bots.openConversation", { name: bot.name })}
 						</Button>
 					) : null}
 				</>
@@ -139,6 +141,7 @@ export function BotNeedsUserCard({
 	/** Decidido daqui: quem hospeda o cartão (o dock) o tira da vista. */
 	onResolved?: () => void;
 }) {
+	const { t } = useTranslations();
 	const { need } = card;
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -192,9 +195,9 @@ export function BotNeedsUserCard({
 				busy={busy}
 				error={error}
 				item={item}
-				onAnswer={(answers) => respond({ decision: "answer", answers }, "Não foi possível enviar as respostas agora. Tente de novo.")}
-				onApprove={() => respond({ decision: "approve" }, "Não foi possível aprovar agora. Tente de novo.")}
-				onReject={(feedback) => respond({ decision: "reject", ...(feedback.trim() ? { feedback: feedback.trim() } : {}) }, "Não foi possível recusar agora. Tente de novo.")}
+				onAnswer={(answers) => respond({ decision: "answer", answers }, t("aiElements.bots.sendAnswersError"))}
+				onApprove={() => respond({ decision: "approve" }, t("aiElements.bots.approveError"))}
+				onReject={(feedback) => respond({ decision: "reject", ...(feedback.trim() ? { feedback: feedback.trim() } : {}) }, t("aiElements.bots.rejectError"))}
 			/>
 		);
 	}
@@ -206,13 +209,13 @@ export function BotNeedsUserCard({
 			need={need}
 			onApprove={
 				need.type === "confirm" && need.confirmTitle
-					? () => void decide(`confirmado: ${need.confirmTitle}`, "Não foi possível aprovar agora. Tente de novo.")
+					? () => void decide(t("aiElements.bots.confirmed", { title: need.confirmTitle ?? "" }), t("aiElements.bots.approveError"))
 					: need.type === "profile" && need.proposalId
 						? () =>
 								void run(
 									() =>
 										resolveBotProfileProposal({ conversationId: need.conversationId, proposalId: need.proposalId!, decision: "approved" }).then(() => undefined),
-									"Não foi possível aprovar agora. Tente de novo.",
+									t("aiElements.bots.approveError"),
 								)
 						: undefined
 			}
@@ -222,7 +225,7 @@ export function BotNeedsUserCard({
 							void run(async () => {
 								const { enqueued } = await resumeAgentRun(need.runId!);
 								if (!enqueued) throw new Error("not enqueued");
-							}, "Não foi possível retomar agora. Tente de novo.")
+							}, t("aiElements.bots.resumeError"))
 					: undefined
 			}
 			onOpenConversation={onOpenConversation}
@@ -235,20 +238,20 @@ export function BotNeedsUserCard({
 									if (!session?.viewerUrl) throw new Error("no session");
 									window.open(session.viewerUrl, "_blank", "noopener,noreferrer");
 								},
-								`A VM de ${bot.name} não está ativa. Abra a conversa dele.`,
+								t("aiElements.bots.vmInactive", { name: bot.name }),
 								false,
 							)
 					: undefined
 			}
 			onReject={
 				need.type === "confirm" && need.confirmTitle
-					? () => void decide("cancela isso", "Não foi possível recusar agora. Tente de novo.")
+					? () => void decide(t("aiElements.bots.cancelThis"), t("aiElements.bots.rejectError"))
 					: need.type === "profile" && need.proposalId
 						? () =>
 								void run(
 									() =>
 										resolveBotProfileProposal({ conversationId: need.conversationId, proposalId: need.proposalId!, decision: "rejected" }).then(() => undefined),
-									"Não foi possível recusar agora. Tente de novo.",
+									t("aiElements.bots.rejectError"),
 								)
 						: undefined
 			}

@@ -8,7 +8,7 @@ import {
   useChartPortalContainer,
   useChartStable,
 } from "./chart-context";
-import { hmsTimeFmt } from "./chart-formatters";
+import { hmsTimeFmt, useChartLocale } from "./chart-formatters";
 
 const TICKER_HALF_WIDTH = 50;
 const FADE_BUFFER = 20;
@@ -40,8 +40,6 @@ export interface LiveXAxisProps {
   formatTime?: (t: number) => string;
 }
 
-const defaultFormatTime = (t: number) => hmsTimeFmt.format(new Date(t));
-
 export function LiveXAxis(props: LiveXAxisProps) {
   const { containerRef } = useChartStable();
 
@@ -55,9 +53,14 @@ export function LiveXAxis(props: LiveXAxisProps) {
 
 const LiveXAxisInner = memo(function LiveXAxisInner({
   numTicks = 5,
-  formatTime = defaultFormatTime,
+  formatTime: formatTimeProp,
   container,
 }: LiveXAxisProps & { container: HTMLDivElement }) {
+  const locale = useChartLocale();
+  const formatTime = useMemo(
+    () => formatTimeProp ?? ((t: number) => hmsTimeFmt.format(new Date(t), locale)),
+    [formatTimeProp, locale]
+  );
   const { xScale, margin, tooltipData } = useChart();
 
   const domain = xScale.domain();

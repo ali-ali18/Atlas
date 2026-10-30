@@ -35,6 +35,8 @@ import {
   installSummary,
   toolLabel,
 } from "./catalog-state"
+import { useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 
 const ALL = "all"
 const MAX_CHIPS = 3
@@ -47,15 +49,16 @@ export function ToolChips({
   tools: readonly string[]
   limit?: number
 }) {
+  const translator = useTranslations()
   if (tools.length === 0) return null
   const shown = tools.slice(0, limit)
   const extra = tools.length - shown.length
   return (
-    <ul aria-label="Ferramentas sugeridas" className="flex flex-wrap gap-1">
+    <ul aria-label={translator.t("marketplace.suggestedTools")} className="flex flex-wrap gap-1">
       {shown.map((tool) => (
         <li key={tool}>
           <Badge className="font-normal" variant="outline">
-            {toolLabel(tool)}
+            {toolLabel(tool, translator)}
           </Badge>
         </li>
       ))}
@@ -79,6 +82,8 @@ export function CategorySelect({
   category: string
   onCategory: (category: string) => void
 }) {
+  const translator = useTranslations()
+  const { t } = translator
   if (categories.length === 0) return null
   return (
     <Select
@@ -86,18 +91,18 @@ export function CategorySelect({
       value={category || ALL}
     >
       <SelectTrigger
-        aria-label="Filtrar por categoria"
+        aria-label={t("marketplace.filterCategory")}
         className="h-8 w-fit min-w-40 text-xs"
         size="sm"
       >
         <SelectValue>
           {(current) =>
-            current === ALL ? "Todas as categorias" : categoryLabel(String(current))
+            current === ALL ? t("marketplace.allCategories") : categoryLabel(String(current), translator)
           }
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={ALL}>Todas as categorias</SelectItem>
+        <SelectItem value={ALL}>{t("marketplace.allCategories")}</SelectItem>
         {categories.map((item) => (
           <SelectItem key={item.id} value={item.id}>
             {item.label} ({item.count})
@@ -129,6 +134,7 @@ function ListState({
   emptyText: string
   onRetry?: () => void
 }) {
+  const { t } = useTranslations()
   if (loading) {
     return (
       <div className="grid gap-3 sm:grid-cols-2">
@@ -141,11 +147,11 @@ function ListState({
   if (error) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Não foi possível carregar</AlertTitle>
+        <AlertTitle>{t("marketplace.loadFailedTitle")}</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
         {onRetry ? (
           <Button className="mt-2" onClick={onRetry} size="sm" type="button" variant="outline">
-            Tentar de novo
+            {t("common.retry")}
           </Button>
         ) : null}
       </Alert>
@@ -183,15 +189,15 @@ function InstallButton({
   )
 }
 
-export function skillActionLabel(installs: readonly CatalogInstallView[]): {
+export function skillActionLabel(installs: readonly CatalogInstallView[], { t }: Translator = defaultTranslator): {
   label: string
   done: boolean
   update: boolean
 } {
   const summary = installSummary(installs)
-  if (summary.kind === "update") return { label: "Atualizar", done: false, update: true }
-  if (summary.kind === "installed") return { label: "Instalada", done: true, update: false }
-  return { label: "Instalar", done: false, update: false }
+  if (summary.kind === "update") return { label: t("marketplace.skill.update"), done: false, update: true }
+  if (summary.kind === "installed") return { label: t("marketplace.skill.installed"), done: true, update: false }
+  return { label: t("marketplace.skill.install"), done: false, update: false }
 }
 
 function SkillCard({
@@ -203,11 +209,13 @@ function SkillCard({
   onOpen: () => void
   onInstall: () => void
 }) {
-  const action = skillActionLabel(skill.installs)
+  const translator = useTranslations()
+  const { t } = translator
+  const action = skillActionLabel(skill.installs, translator)
   return (
     <li className="relative grid min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-3 py-4 md:grid-cols-[3rem_minmax(0,1fr)] md:grid-rows-[1fr_auto] md:rounded-2xl md:border md:bg-card/40 md:p-4 md:transition-colors md:hover:bg-muted/40">
       <button
-        aria-label={`Ver detalhes de ${skill.name}`}
+        aria-label={t("marketplace.viewDetails", { name: skill.name })}
         className="absolute inset-0 md:rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         onClick={onOpen}
         type="button"
@@ -226,7 +234,7 @@ function SkillCard({
         </div>
         <p className="line-clamp-2 text-xs text-muted-foreground">{skill.description}</p>
         <p className="truncate text-xs text-muted-foreground">
-          por {skill.author} · {categoryLabel(skill.category)}
+          {t("marketplace.byAuthor", { author: skill.author })} · {categoryLabel(skill.category, translator)}
         </p>
         <ToolChips tools={skill.tools} />
       </div>
@@ -268,25 +276,27 @@ export function SkillsListView({
   onRetry,
   hideFilter,
 }: SkillsListViewProps) {
+	const translator = useTranslations();
+  const { t } = translator
   const items = skills ?? []
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-medium">Habilidades da comunidade</h3>
+        <h3 className="text-sm font-medium">{t("marketplace.skillsTitle")}</h3>
         {hideFilter ? null : (
           <CategorySelect
-            categories={categoriesOf(all)}
+            categories={categoriesOf(all, translator)}
             category={category}
             onCategory={onCategory}
           />
         )}
       </div>
       <p className="text-xs text-muted-foreground">
-        Habilidades são instruções em texto. Instalar não libera nenhuma ferramenta nova.
+        {t("marketplace.skillsNote")}
       </p>
       <ListState
         empty={!loading && !error && items.length === 0}
-        emptyText="Nenhuma habilidade encontrada."
+        emptyText={t("marketplace.skillsEmpty")}
         error={error}
         loading={loading}
         onRetry={onRetry}
@@ -316,10 +326,12 @@ function BotCard({
   onOpen: () => void
   onInstall: () => void
 }) {
+  const translator = useTranslations()
+  const { t, tn } = translator
   return (
     <li className="relative grid min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-3 py-4 md:grid-cols-[3rem_minmax(0,1fr)] md:grid-rows-[1fr_auto] md:rounded-2xl md:border md:bg-card/40 md:p-4 md:transition-colors md:hover:bg-muted/40">
       <button
-        aria-label={`Ver detalhes de ${bot.name}`}
+        aria-label={t("marketplace.viewDetails", { name: bot.name })}
         className="absolute inset-0 md:rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         onClick={onOpen}
         type="button"
@@ -336,13 +348,11 @@ function BotCard({
         </div>
         <p className="line-clamp-2 text-xs text-muted-foreground">{bot.description}</p>
         <p className="truncate text-xs text-muted-foreground">
-          por {bot.author} · {categoryLabel(bot.category)}
-          {bot.skills.length > 0
-            ? ` · ${bot.skills.length} ${bot.skills.length === 1 ? "habilidade" : "habilidades"}`
-            : ""}
+          {t("marketplace.byAuthor", { author: bot.author })} · {categoryLabel(bot.category, translator)}
+          {bot.skills.length > 0 ? ` · ${tn("marketplace.botSkillCount", bot.skills.length)}` : ""}
         </p>
       </div>
-      <InstallButton label="Instalar" name={bot.name} onClick={onInstall} />
+      <InstallButton label={t("marketplace.skill.install")} name={bot.name} onClick={onInstall} />
     </li>
   )
 }
@@ -373,19 +383,21 @@ export function BotsListView({
   onRetry,
   hideFilter,
 }: BotsListViewProps) {
+	const translator = useTranslations();
+  const { t } = translator
   const items = bots ?? []
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-medium">Agentes prontos</h3>
-        {hideFilter ? null : <CategorySelect categories={categoriesOf(all)} category={category} onCategory={onCategory} />}
+        <h3 className="text-sm font-medium">{t("marketplace.botsTitle")}</h3>
+        {hideFilter ? null : <CategorySelect categories={categoriesOf(all, translator)} category={category} onCategory={onCategory} />}
       </div>
       <p className="text-xs text-muted-foreground">
-        Cada agente nasce com as habilidades dele. Credenciais nunca vêm no modelo: você conecta as suas depois.
+        {t("marketplace.botsNote")}
       </p>
       <ListState
         empty={!loading && !error && items.length === 0}
-        emptyText="Nenhum agente encontrado."
+        emptyText={t("marketplace.botsEmpty")}
         error={error}
         loading={loading}
         onRetry={onRetry}
@@ -441,26 +453,28 @@ function ChangelogList({ items }: { items: readonly CatalogChangelogEntry[] }) {
 }
 
 function FindingsAlert({ findings }: { findings: CatalogSkillDetail["findings"] }) {
+  const { t } = useTranslations()
   const blocked = findings.some((item) => item.severity === "block")
   if (findings.length === 0) return null
   return (
     <Alert variant={blocked ? "destructive" : "warning"}>
       <AlertTriangleIcon />
-      <AlertTitle>{blocked ? "Conteúdo bloqueado" : "Revise antes de instalar"}</AlertTitle>
+      <AlertTitle>{blocked ? t("marketplace.findings.blockedTitle") : t("marketplace.findings.reviewTitle")}</AlertTitle>
       <AlertDescription>
         {blocked
-          ? "Este item tem instruções que o app não instala."
-          : "Alguns trechos pedem atenção (por exemplo, comandos de rede). Leia o conteúdo abaixo."}
+          ? t("marketplace.findings.blockedText")
+          : t("marketplace.findings.reviewText")}
       </AlertDescription>
     </Alert>
   )
 }
 
 function BackButton({ onBack }: { onBack?: () => void }) {
+  const { t } = useTranslations()
   if (!onBack) return null
   return (
     <Button className="-ml-2" onClick={onBack} size="sm" type="button" variant="ghost">
-      <ArrowLeftIcon className="size-4" /> Voltar ao Marketplace
+      <ArrowLeftIcon className="size-4" /> {t("marketplace.backToMarketplace")}
     </Button>
   )
 }
@@ -476,6 +490,8 @@ export type SkillPageViewProps = {
 
 /** Página da skill: instruções, ferramentas sugeridas, histórico e instalar/atualizar. */
 export function SkillPageView({ detail, loading, error, onBack, onInstall }: SkillPageViewProps) {
+  const translator = useTranslations()
+  const { t } = translator
   if (!detail) {
     return (
       <div className="min-w-0 space-y-6 pb-2">
@@ -492,7 +508,7 @@ export function SkillPageView({ detail, loading, error, onBack, onInstall }: Ski
   const { entry } = detail
   const summary = installSummary(detail.installs)
   const blocked = detail.findings.some((item) => item.severity === "block")
-  const action = skillActionLabel(detail.installs)
+  const action = skillActionLabel(detail.installs, translator)
   return (
     <div className="min-w-0 space-y-6 pb-2">
       <BackButton onBack={onBack} />
@@ -505,7 +521,7 @@ export function SkillPageView({ detail, loading, error, onBack, onInstall }: Ski
         <div className="min-w-0 flex-1">
           <h2 className="text-xl font-semibold [overflow-wrap:anywhere]">{entry.name}</h2>
           <p className="text-xs text-muted-foreground">
-            por {entry.author} · v{entry.version} · {categoryLabel(entry.category)}
+            {t("marketplace.byAuthor", { author: entry.author })} · v{entry.version} · {categoryLabel(entry.category, translator)}
           </p>
         </div>
         <Button
@@ -515,46 +531,44 @@ export function SkillPageView({ detail, loading, error, onBack, onInstall }: Ski
           variant={action.done ? "secondary" : "default"}
         >
           {action.done ? <CheckIcon className="size-4" /> : null}
-          {action.update ? "Atualizar" : action.done ? "Instalada · reinstalar" : "Instalar"}
+          {action.update ? t("marketplace.skill.update") : action.done ? t("marketplace.skill.installedReinstall") : t("marketplace.skill.install")}
         </Button>
       </div>
       <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{entry.description}</p>
       {summary.kind === "update" ? (
         <Alert>
           <RefreshCwIcon />
-          <AlertTitle>Atualização disponível</AlertTitle>
+          <AlertTitle>{t("marketplace.skill.updateAvailable")}</AlertTitle>
           <AlertDescription>
-            Você tem a v{summary.installed}; o catálogo está na v{entry.version}.
-            {summary.edited ? " Você editou sua cópia: antes de sobrescrever eu mostro o que muda." : ""}
+            {t("marketplace.skill.updateText", { installed: summary.installed, catalog: entry.version })}
+            {summary.edited ? t("marketplace.skill.updateEdited") : ""}
           </AlertDescription>
         </Alert>
       ) : null}
       <FindingsAlert findings={detail.findings} />
-      <Section title="Ferramentas que ela costuma usar">
+      <Section title={t("marketplace.skill.toolsTitle")}>
         {detail.tools.length > 0 ? <ToolChips limit={20} tools={detail.tools} /> : (
-          <p className="text-sm text-muted-foreground">Nenhuma sugestão de ferramenta.</p>
+          <p className="text-sm text-muted-foreground">{t("marketplace.skill.noTools")}</p>
         )}
         <p className="text-xs text-muted-foreground">
-          São apenas dicas. Instalar a habilidade não libera nenhuma ferramenta, conector ou segredo: o que o agente pode usar continua sendo decidido por você.
+          {t("marketplace.skill.toolsNote")}
         </p>
       </Section>
-      <Section title="Instruções">
+      <Section title={t("marketplace.skill.instructions")}>
         <div className="max-h-96 overflow-y-auto rounded-xl border bg-muted/20 p-4">
           <SkillMarkdownPreview markdown={detail.body} />
         </div>
       </Section>
-      <Section title="Histórico de versões">
+      <Section title={t("marketplace.versionHistory")}>
         <ChangelogList items={detail.changelog} />
       </Section>
-      <Section title="Informações">
+      <Section title={t("marketplace.info")}>
         <dl className="divide-y rounded-xl border bg-muted/20 px-4">
-          <InfoRow label="Autor">{entry.author}</InfoRow>
-          <InfoRow label="Categoria">{categoryLabel(entry.category)}</InfoRow>
-          <InfoRow label="Versão">{entry.version}</InfoRow>
-          <InfoRow label="Instalada">
-            {detail.installs.length === 0
-              ? "Ainda não"
-              : `${detail.installs.length} ${detail.installs.length === 1 ? "lugar" : "lugares"}`}
+          <InfoRow label={t("marketplace.author")}>{entry.author}</InfoRow>
+          <InfoRow label={t("marketplace.category")}>{categoryLabel(entry.category, translator)}</InfoRow>
+          <InfoRow label={t("marketplace.version")}>{entry.version}</InfoRow>
+          <InfoRow label={t("marketplace.skill.installedLabel")}>
+            {detail.installs.length === 0 ? t("marketplace.skill.notYet") : translator.tn("marketplace.skill.places", detail.installs.length)}
           </InfoRow>
         </dl>
       </Section>
@@ -572,6 +586,8 @@ export type BotPageViewProps = {
 
 /** Página do agente: papel, skills que ele traz, conectores recomendados e rotinas sugeridas. */
 export function BotPageView({ detail, loading, error, onBack, onInstall }: BotPageViewProps) {
+  const translator = useTranslations()
+  const { t } = translator
   if (!detail) {
     return (
       <div className="min-w-0 space-y-6 pb-2">
@@ -595,17 +611,17 @@ export function BotPageView({ detail, loading, error, onBack, onInstall }: BotPa
         <div className="min-w-0 flex-1">
           <h2 className="text-xl font-semibold [overflow-wrap:anywhere]">{bot.name}</h2>
           <p className="text-xs text-muted-foreground">
-            por {entry.author} · v{entry.version} · {categoryLabel(entry.category)}
+            {t("marketplace.byAuthor", { author: entry.author })} · v{entry.version} · {categoryLabel(entry.category, translator)}
           </p>
         </div>
         <Button disabled={blocked} onClick={onInstall} type="button">
-          Instalar
+          {t("marketplace.skill.install")}
         </Button>
       </div>
       <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{bot.description}</p>
       <FindingsAlert findings={detail.findings} />
       {detail.skills.length > 0 ? (
-        <Section title={`Habilidades que ele traz (${detail.skills.length})`}>
+        <Section title={t("marketplace.bot.skillsTitle", { count: detail.skills.length })}>
           <ul className="divide-y rounded-xl border bg-muted/20">
             {detail.skills.map((skill) => (
               <li className="space-y-1 p-3" key={skill.slug}>
@@ -620,7 +636,7 @@ export function BotPageView({ detail, loading, error, onBack, onInstall }: BotPa
         </Section>
       ) : null}
       {detail.connectors.length > 0 ? (
-        <Section title="Conectores recomendados">
+        <Section title={t("marketplace.bot.connectors")}>
           <ul className="divide-y rounded-xl border bg-muted/20">
             {detail.connectors.map((connector) => (
               <li className="flex items-center justify-between gap-3 p-3" key={connector.id}>
@@ -629,7 +645,7 @@ export function BotPageView({ detail, loading, error, onBack, onInstall }: BotPa
                   {connector.reason ? <p className="text-xs text-muted-foreground">{connector.reason}</p> : null}
                 </div>
                 <Badge variant={connector.connected ? "default" : "outline"}>
-                  {connectorStatusLabel(connector.connected)}
+                  {connectorStatusLabel(connector.connected, translator)}
                 </Badge>
               </li>
             ))}
@@ -637,7 +653,7 @@ export function BotPageView({ detail, loading, error, onBack, onInstall }: BotPa
         </Section>
       ) : null}
       {bot.setupNotes.length > 0 ? (
-        <Section title="Para começar">
+        <Section title={t("marketplace.bot.getStarted")}>
           <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
             {bot.setupNotes.map((note) => (
               <li key={note}>{note}</li>
@@ -646,8 +662,8 @@ export function BotPageView({ detail, loading, error, onBack, onInstall }: BotPa
         </Section>
       ) : null}
       {bot.starterRoutines.length > 0 ? (
-        <Section title="Rotinas sugeridas">
-          <p className="text-xs text-muted-foreground">Nada é criado sozinho: você marca as que quiser ao instalar.</p>
+        <Section title={t("marketplace.bot.routines")}>
+          <p className="text-xs text-muted-foreground">{t("marketplace.bot.routinesNote")}</p>
           <ul className="divide-y rounded-xl border bg-muted/20">
             {bot.starterRoutines.map((routine) => (
               <li className="space-y-0.5 p-3" key={routine.name}>
@@ -658,7 +674,7 @@ export function BotPageView({ detail, loading, error, onBack, onInstall }: BotPa
           </ul>
         </Section>
       ) : null}
-      <Section title="Histórico de versões">
+      <Section title={t("marketplace.versionHistory")}>
         <ChangelogList items={bot.changelog} />
       </Section>
     </div>

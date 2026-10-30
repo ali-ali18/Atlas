@@ -3,14 +3,14 @@ import test from "node:test";
 import type { SkillDocView } from "@/lib/atlas-api";
 import { setPendingSkillDraft, takePendingSkillDraft } from "@/lib/skill-draft-handoff";
 import {
-	DISCARD_CONFIRM,
-	DRAFT_SWITCH_HINT,
+	discardConfirm,
+	draftSwitchHint,
 	EMPTY_SKILL_FORM,
 	deleteDraftsConfirmText,
 	draftScopeParams,
 	draftsInScope,
 	isSkillFormDirty,
-	IMPORT_NOTICE,
+	importNotice,
 	bodyCounterLabel,
 	deleteConfirmText,
 	emptyListText,
@@ -149,7 +149,7 @@ test("erros da API viram mensagens em pt-BR", () => {
 
 test("textos de apagar, importar e lista vazia", () => {
 	assert.match(deleteConfirmText(skill()).title, /relatorio-semanal/);
-	assert.match(IMPORT_NOTICE, /revise o conteúdo antes de ativar/);
+	assert.match(importNotice(), /revise o conteúdo antes de ativar/);
 	assert.match(emptyListText(0, false), /Nenhuma habilidade ainda/);
 	assert.match(emptyListText(3, true), /filtro/);
 	assert.equal(emptyListText(3, false), "");
@@ -169,7 +169,7 @@ test("guarda do editor: só há alterações a perder quando o formulário mudou
 	assert.equal(isSkillFormDirty(initial, { ...initial, body: "x" }), true);
 	assert.equal(isSkillFormDirty(initial, { ...initial, description: "d" }), true);
 	assert.equal(isSkillFormDirty(initial, { ...initial, botId: "b1" }), true);
-	assert.equal(DISCARD_CONFIRM.title, "Descartar alterações?");
+	assert.equal(discardConfirm().title, "Descartar alterações?");
 });
 
 test("apagar rascunhos: conta o escopo, ignora ativas e mapeia para a rota", () => {
@@ -183,7 +183,7 @@ test("apagar rascunhos: conta o escopo, ignora ativas e mapeia para a rota", () 
 	assert.deepEqual(draftScopeParams("bot:b1"), { botId: "b1" });
 	assert.equal(deleteDraftsConfirmText(1).title, "Apagar 1 rascunho?");
 	assert.equal(deleteDraftsConfirmText(3).title, "Apagar 3 rascunhos?");
-	assert.equal(DRAFT_SWITCH_HINT, "Ativar publica este rascunho");
+	assert.equal(draftSwitchHint(), "Ativar publica este rascunho");
 });
 
 import { builtinsVisibleForScope, duplicateErrorMessage, filterBuiltins } from "./skills-state";

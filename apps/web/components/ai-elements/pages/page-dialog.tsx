@@ -6,6 +6,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 
 import { ShareMenu } from "@/components/ai-elements/share/share-menu";
 
+import { useT } from "@/lib/i18n/provider";
+
 import { PageView } from "./page-view";
 
 /** Segurança: só http(s) vira link (o servidor já valida; aqui é a segunda trava antes do `href`). */
@@ -40,6 +42,7 @@ export function PageDialog({
 	/** Quando uma rotina atualiza o painel ("Toda segunda às 08:00"). */
 	routineLabel?: string | null;
 }) {
+	const t = useT();
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
@@ -54,7 +57,7 @@ export function PageDialog({
 					{routineLabel ? (
 						<p className="flex items-center gap-1.5 text-muted-foreground text-xs" data-page-routine>
 							<RefreshCwIcon aria-hidden className="size-3.5 shrink-0" />
-							<span>Atualizado por rotina · {routineLabel}</span>
+							<span>{t("chat.page.updatedByRoutine", { label: routineLabel })}</span>
 						</p>
 					) : null}
 				</DialogHeader>
@@ -62,8 +65,8 @@ export function PageDialog({
 				</div>
 				<PageView spec={spec} />
 				{sources && sources.length > 0 ? (
-					<section aria-label="Fontes" className="border-border/60 border-t pt-3">
-						<h4 className="mb-1.5 font-medium text-muted-foreground text-xs">Fontes</h4>
+					<section aria-label={t("chat.page.sources")} className="border-border/60 border-t pt-3">
+						<h4 className="mb-1.5 font-medium text-muted-foreground text-xs">{t("chat.page.sources")}</h4>
 						<ul className="flex flex-col gap-1 text-xs">
 							{sources.map((source, index) => {
 								const href = safeSourceHref(source.url);

@@ -98,3 +98,19 @@ test("página: título centralizado e botão de voltar acessível", () => {
 	assert.match(html, /text-center[^>]*>Conta</);
 	assert.match(html, /safe-area-inset-top/);
 });
+
+test("a lista mobile no idioma da interface (en-US)", async () => {
+	const { createTranslator } = await import("@/lib/i18n/translator");
+	const { loadMessages } = await import("@/lib/i18n/messages");
+	const translator = createTranslator("en-US", await loadMessages("en-US"));
+	const groups = mobileSettingsGroups({ theme: "Dark", connectionsCount: 1, skillsCount: 3, usageCostUsd: 3.2, environmentsCount: 2, browserAuto: true }, undefined, translator);
+	assert.deepEqual(groups.map((group) => group.label), ["Basics", "Bots and models", "Tools", "Control"]);
+	const rows = groups.flatMap((group) => group.rows);
+	const text = (id: string) => rows.find((row) => row.id === id)?.secondary;
+	assert.equal(text("geral"), "dark theme");
+	assert.equal(text("conexoes"), "1 connected");
+	assert.equal(text("habilidades"), "3 skills");
+	assert.equal(text("computador"), "Automatic · 2 environments");
+	assert.equal(text("uso"), "US$ 3.20 in the last 7 days");
+	assert.equal(rows.find((row) => row.id === "cofre")?.title, "Vault");
+});

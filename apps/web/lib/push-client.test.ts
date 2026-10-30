@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { PUSH_STATE_TEXT, detectIos, lastUsedLabel, pushState, urlBase64ToUint8Array, type PushEnv } from "./push-client";
+import { detectIos, lastUsedLabel, pushState, pushStateText, urlBase64ToUint8Array, type PushEnv } from "./push-client";
 
 const base: PushEnv = {
 	hasServiceWorker: true,
@@ -25,8 +25,9 @@ test("estado: servidor sem VAPID, sem suporte, iPhone fora da tela inicial, bloq
 });
 
 test("todo estado tem texto em português", () => {
-	for (const text of Object.values(PUSH_STATE_TEXT)) assert.ok(text.length > 10);
-	assert.ok(!Object.values(PUSH_STATE_TEXT).join(" ").includes("Atlas"));
+	const texts = (["server-off", "unsupported", "needs-install", "denied", "off", "on"] as const).map((state) => pushStateText(state));
+	for (const text of texts) assert.ok(text.length > 10);
+	assert.ok(!texts.join(" ").includes("Atlas"));
 });
 
 test("chave VAPID base64url vira bytes", () => {

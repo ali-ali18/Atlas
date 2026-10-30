@@ -11,6 +11,7 @@ import {
 	type McpConnectionView,
 	type McpToolInfo,
 } from "@workspace/shared";
+import { defaultTranslator, type MessageKey, type Translator } from "@/lib/i18n/translator";
 
 /** Estado de uma tool na tela: as três exceções de Autonomia. */
 export type ToolPermission = AutonomyExceptionMode;
@@ -18,13 +19,15 @@ export type ToolPermissionValue = ToolPermission | "mixed";
 
 export const TOOL_PERMISSION_ORDER: readonly ToolPermission[] = ["never_ask", "always_ask", "blocked"];
 
-export const TOOL_PERMISSION_LABELS: Record<ToolPermission, string> = {
-	never_ask: "Permitir sempre",
-	always_ask: "Perguntar",
-	blocked: "Bloquear",
-};
+export const TOOL_PERMISSION_LABEL_KEYS = {
+	never_ask: "marketplace.perm.never_ask",
+	always_ask: "marketplace.perm.always_ask",
+	blocked: "marketplace.perm.blocked",
+} as const satisfies Record<ToolPermission, MessageKey>;
 
-export const MIXED_PERMISSION_LABEL = "Personalizado";
+export function toolPermissionLabel(mode: ToolPermission, { t }: Translator = defaultTranslator): string {
+	return t(TOOL_PERMISSION_LABEL_KEYS[mode]);
+}
 
 export const DEFAULT_POLICY: EffectiveAutonomy = { level: DEFAULT_AUTONOMY_LEVEL, exceptions: [] };
 

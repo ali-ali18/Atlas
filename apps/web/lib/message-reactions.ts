@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { MessageReaction } from "@workspace/shared";
 import { toast } from "@workspace/ui/lib/toast-store";
 import { clearMessageReaction, getMessageReactions, setMessageReaction } from "@/lib/atlas-api";
+import { activeT } from "@/lib/i18n/active";
 
 /**
  * Reações das falas no cliente. A verdade é o servidor: a lista da conversa semeia o estado (`seed`),
@@ -11,7 +12,7 @@ import { clearMessageReaction, getMessageReactions, setMessageReaction } from "@
  */
 
 const EMPTY: readonly MessageReaction[] = Object.freeze([]);
-export const REACTION_FAILURE_MESSAGE = "Não foi possível salvar a reação. Tente de novo.";
+export const reactionFailureMessage = () => activeT("errors.reactionFailed");
 
 /** Id de mensagem já gravada no servidor. As locais (otimistas `msg-…`, ao vivo `cu-…`, demos `live-…`) ainda não reagem. */
 export function isPersistedMessageId(id: string): boolean {
@@ -78,7 +79,7 @@ export function createReactionStore(api: ReactionApi, notify: (message: string) 
 		} catch {
 			// Volta ao último estado confirmado (descartando também o desejo que ficou na fila).
 			put(id, { shown: entry.confirmed, confirmed: entry.confirmed, pending: false });
-			notify(REACTION_FAILURE_MESSAGE);
+			notify(reactionFailureMessage());
 		}
 	}
 

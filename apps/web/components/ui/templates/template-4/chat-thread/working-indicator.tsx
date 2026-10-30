@@ -8,6 +8,7 @@ import {
 	SubagentAvatars,
 	subagentsWaitingLabel,
 } from "@/components/ai-elements/subagents";
+import { useTranslations } from "@/lib/i18n/provider";
 import { devLiveLine } from "@/lib/dev-session/live-line";
 import { useDevSession, useNow } from "@/lib/dev-session/store";
 import {
@@ -42,6 +43,7 @@ export function WorkingIndicator({
 	/** Grupo de subagentes rodando: troca o avatar do bot pelos mini avatares. */
 	subagents?: { groupId: string; tasks: readonly SubagentTaskView[] } | null;
 }) {
+	const translator = useTranslations();
 	const { expression } = usePreviewExpression({
 		enabled: !paused,
 		mode: "working",
@@ -51,10 +53,10 @@ export function WorkingIndicator({
 	const devView = useDevSession(devSessionId ?? "");
 	const trackLive = devSessionId !== null || pendingApproval;
 	const now = useNow(trackLive && !paused);
-	const liveLine = trackLive && (!paused || pendingApproval) ? devLiveLine({ view: devView, activity, pendingApproval, now: now || Date.now() }) : null;
+	const liveLine = trackLive && (!paused || pendingApproval) ? devLiveLine({ view: devView, activity, pendingApproval, now: now || Date.now(), translator }) : null;
 	const label = waitingOnSubagents
-		? subagentsWaitingLabel(subagents.tasks)
-		: (liveLine ?? labelOverride ?? workingStatusLabel(agent.name, activity, { paused, status }));
+		? subagentsWaitingLabel(subagents.tasks, translator)
+		: (liveLine ?? labelOverride ?? workingStatusLabel(agent.name, activity, { paused, status }, translator));
 
 	return (
 		<div

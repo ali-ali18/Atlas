@@ -9,6 +9,7 @@ import {
 	InputGroupAddon,
 	InputGroupInput,
 } from "@workspace/ui/components/input-group";
+import { useT } from "@/lib/i18n/provider";
 
 export function ChatSidebarHeader({
 	onQueryChange,
@@ -21,6 +22,7 @@ export function ChatSidebarHeader({
 	onStartCreateGroup: () => void;
 	query: string;
 }) {
+	const t = useT();
 	return (
 		<div className="flex items-center gap-1">
 			<InputGroup className="h-8 flex-1">
@@ -28,9 +30,9 @@ export function ChatSidebarHeader({
 					<SearchIcon />
 				</InputGroupAddon>
 				<InputGroupInput
-					aria-label="Buscar bots"
+					aria-label={t("sidebar.search")}
 					onChange={(event) => onQueryChange(event.target.value)}
-					placeholder="Buscar"
+					placeholder={t("sidebar.searchPlaceholder")}
 					value={query}
 				/>
 			</InputGroup>
@@ -38,7 +40,7 @@ export function ChatSidebarHeader({
 				onNewBot={onStartCreate}
 				onNewGroup={onStartCreateGroup}
 				trigger={
-					<Button aria-label="Novo bot ou grupo" size="icon-sm" variant="ghost">
+					<Button aria-label={t("sidebar.newBotOrGroup")} size="icon-sm" variant="ghost">
 						<PlusIcon />
 					</Button>
 				}

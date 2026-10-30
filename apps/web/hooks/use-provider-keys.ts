@@ -11,6 +11,7 @@ import {
 	testProviderKey,
 } from "@/lib/atlas-api";
 import { notifyProvidersChanged } from "@/lib/provider-connect";
+import { activeT } from "@/lib/i18n/active";
 
 /** Mensagem curta para a UI; nunca ecoa a chave. */
 function message(error: unknown, fallback: string): string {
@@ -61,9 +62,9 @@ export function useProviderKeys() {
 		loading,
 		busy,
 		errors,
-		save: (provider: ApiKeyProvider, apiKey: string) => run(provider, async () => void (await saveProviderKey(provider, apiKey)), "Não foi possível conectar. Tente novamente."),
-		test: (provider: ApiKeyProvider) => run(provider, async () => void (await testProviderKey(provider)), "Não foi possível testar a conexão."),
-		remove: (provider: ApiKeyProvider) => run(provider, async () => void (await removeProviderKey(provider)), "Não foi possível remover a chave."),
+		save: (provider: ApiKeyProvider, apiKey: string) => run(provider, async () => void (await saveProviderKey(provider, apiKey)), activeT("errors.connectRetry")),
+		test: (provider: ApiKeyProvider) => run(provider, async () => void (await testProviderKey(provider)), activeT("errors.testConnection")),
+		remove: (provider: ApiKeyProvider) => run(provider, async () => void (await removeProviderKey(provider)), activeT("errors.removeKey")),
 		reload,
 	};
 }

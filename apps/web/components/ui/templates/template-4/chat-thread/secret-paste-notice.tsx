@@ -3,6 +3,7 @@
 import { KeyRoundIcon } from "lucide-react";
 import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 
 /**
  * Aviso discreto acima do campo de mensagem quando o texto parece conter uma senha/chave.
@@ -24,6 +25,7 @@ export function SecretPasteNotice({
 	onSave: () => void;
 	onSendAnyway: () => void;
 }) {
+	const t = useT();
 	return (
 		<div
 			aria-live="polite"
@@ -36,15 +38,15 @@ export function SecretPasteNotice({
 		>
 			<KeyRoundIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
 			<span className="min-w-0 flex-1 basis-40 text-foreground">
-				{count > 1 ? "Isso parece conter senhas/chaves." : "Isso parece uma senha/chave."}
-				<span className="text-muted-foreground"> O bot não precisa ver o valor: guarde no cofre e eu uso por referência.</span>
+				{count > 1 ? t("composer.secret.multiple") : t("composer.secret.single")}
+				<span className="text-muted-foreground"> {t("composer.secret.note")}</span>
 			</span>
 			<span className="flex shrink-0 items-center gap-1">
 				<Button disabled={busy} onClick={onSave} size="sm" type="button">
-					{busy ? "Guardando…" : "Guardar no cofre"}
+					{busy ? t("composer.secret.saving") : t("composer.secret.save")}
 				</Button>
 				<Button disabled={busy} onClick={onSendAnyway} size="sm" type="button" variant="ghost">
-					Enviar mesmo assim
+					{t("composer.secret.sendAnyway")}
 				</Button>
 			</span>
 			{error ? (

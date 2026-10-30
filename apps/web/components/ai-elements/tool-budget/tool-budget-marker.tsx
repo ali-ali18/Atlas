@@ -5,6 +5,7 @@ import {
 	MarkerContent,
 	MarkerIcon,
 } from "@workspace/ui/components/marker";
+import { useT } from "@/lib/i18n/provider";
 
 /** Nome do conector a partir do nome exposto (`mcp__github__tool` -> `github`). */
 function connectorFromTool(tool: string): string | undefined {
@@ -22,6 +23,7 @@ export function ToolBudgetMarker({
 	connectorName?: string;
 	to: number;
 }) {
+	const t = useT();
 	const connector = connectorName ?? connectorFromTool(tool);
 	return (
 		<Marker variant="separator" className="my-1">
@@ -29,9 +31,7 @@ export function ToolBudgetMarker({
 				<TrendingUpIcon />
 			</MarkerIcon>
 			<MarkerContent>
-				{connector
-					? `Limite de leituras do ${connector} ampliado para ${to}`
-					: `Limite de leituras ampliado para ${to}`}
+				{connector ? t("aiElements.toolBudget.connector", { connector, to }) : t("aiElements.toolBudget.generic", { to })}
 			</MarkerContent>
 		</Marker>
 	);

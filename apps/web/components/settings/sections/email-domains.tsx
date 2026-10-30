@@ -7,18 +7,19 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { cn } from "@workspace/ui/lib/utils";
 import { useEmailDomains } from "@/hooks/use-email-domains";
+import { useT, useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import { SettingRow } from "../setting-row";
 
-export const EMAIL_DOMAINS_NOTE = "Use endereços como atendimento@suaempresa.com.br. Exige um plano pago do OpenMail.";
-
-export function domainStatusLabel(domain: Pick<EmailDomainDto, "status" | "verified">): string {
-	if (domain.verified) return "Verificado";
-	if (domain.status === "failed") return "Falhou";
-	if (domain.status === "under_review") return "Em análise";
-	return "Pendente";
+export function domainStatusLabel(domain: Pick<EmailDomainDto, "status" | "verified">, { t }: Translator = defaultTranslator): string {
+	if (domain.verified) return t("settings.email.domainVerified");
+	if (domain.status === "failed") return t("settings.email.domainFailed");
+	if (domain.status === "under_review") return t("settings.email.domainReview");
+	return t("settings.email.domainPending");
 }
 
 function CopyButton({ text, label }: { text: string; label: string }) {
+	const t = useT();
 	const [copied, setCopied] = useState(false);
 	useEffect(() => {
 		if (!copied) return;
@@ -27,7 +28,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 	}, [copied]);
 	return (
 		<Button
-			aria-label={copied ? `${label} copiado` : `Copiar ${label}`}
+			aria-label={copied ? t("settings.email.copied", { label }) : t("settings.email.copy", { label })}
 			className="shrink-0 text-muted-foreground"
 			onClick={() => void navigator.clipboard?.writeText(text).then(() => setCopied(true), () => undefined)}
 			size="icon-xs"
@@ -39,19 +40,22 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 	);
 }
 
-function RecordField({ label, text }: { label: "Nome" | "Valor"; text: string }) {
+function RecordField({ field, text }: { field: "name" | "value"; text: string }) {
+	const t = useT();
+	const label = field === "name" ? t("settings.email.fieldName") : t("settings.email.fieldValue");
 	return (
 		<div className="flex h-8 min-w-0 items-center gap-2 border-border/60 border-t px-3">
 			<span className="w-10 shrink-0 text-caption text-muted-foreground">{label}</span>
 			<span className="min-w-0 flex-1 truncate font-mono text-caption" title={text}>
 				{text}
 			</span>
-			<CopyButton label={label.toLowerCase()} text={text} />
+			<CopyButton label={field === "name" ? t("settings.email.fieldNameLower") : t("settings.email.fieldValueLower")} text={text} />
 		</div>
 	);
 }
 
 function RecordsTable({ records }: { records: EmailDomainRecordDto[] }) {
+	const t = useT();
 	return (
 		<ul className="m-0 flex min-w-0 list-none flex-col gap-2 p-0" data-testid="dns-records">
 			{records.map((record, index) => (
@@ -61,16 +65,16 @@ function RecordsTable({ records }: { records: EmailDomainRecordDto[] }) {
 					key={`${record.type}-${record.name}-${index}`}
 				>
 					<div className="flex h-8 min-w-0 items-center gap-2 px-3 text-caption">
-						<span className="text-muted-foreground">Tipo</span>
+						<span className="text-muted-foreground">{t("settings.email.recordType")}</span>
 						<span className="font-medium">{record.type}</span>
-						{record.priority !== null ? <span className="text-muted-foreground">· prioridade {record.priority}</span> : null}
+						{record.priority !== null ? <span className="text-muted-foreground">{t("settings.email.recordPriority", { priority: record.priority })}</span> : null}
 						<span className={cn("ml-auto flex items-center gap-1", record.valid ? "text-foreground" : "text-muted-foreground")}>
 							{record.valid ? <CheckIcon aria-hidden className="size-3" /> : null}
-							{record.valid ? "Correto" : "Falta publicar"}
+							{record.valid ? t("settings.email.recordOk") : t("settings.email.recordMissing")}
 						</span>
 					</div>
-					<RecordField label="Nome" text={record.name} />
-					<RecordField label="Valor" text={record.value} />
+					<RecordField field="name" text={record.name} />
+					<RecordField field="value" text={record.value} />
 				</li>
 			))}
 		</ul>
@@ -78,6 +82,8 @@ function RecordsTable({ records }: { records: EmailDomainRecordDto[] }) {
 }
 
 function DomainCard({ domain, busy, onVerify, onRemove }: { domain: EmailDomainDto; busy: boolean; onVerify: () => void; onRemove: () => void }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	return (
 		<div className="flex min-w-0 flex-col gap-2 rounded-xl border border-border/60 p-3" data-email-domain={domain.domain}>
 			<div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -88,22 +94,22 @@ function DomainCard({ domain, busy, onVerify, onRemove }: { domain: EmailDomainD
 					className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs", domain.verified ? "bg-muted text-foreground" : "border border-border text-muted-foreground")}
 					data-testid="domain-status"
 				>
-					{domainStatusLabel(domain)}
+					{domainStatusLabel(domain, translator)}
 				</span>
 				{domain.verified ? null : (
 					<Button className="shrink-0" disabled={busy} onClick={onVerify} size="sm" type="button" variant="outline">
-						{busy ? "Verificando…" : "Verificar"}
+						{busy ? t("settings.email.verifying") : t("settings.email.verify")}
 					</Button>
 				)}
-				<Button aria-label={`Remover ${domain.domain}`} className="shrink-0 text-muted-foreground" disabled={busy} onClick={onRemove} size="icon-sm" type="button" variant="ghost">
+				<Button aria-label={t("settings.email.removeDomainAria", { domain: domain.domain })} className="shrink-0 text-muted-foreground" disabled={busy} onClick={onRemove} size="icon-sm" type="button" variant="ghost">
 					<Trash2Icon />
 				</Button>
 			</div>
 			{domain.verified ? (
-				<p className="text-muted-foreground text-xs">Pronto: já dá para criar endereços neste domínio na aba E-mail do bot.</p>
+				<p className="text-muted-foreground text-xs">{t("settings.email.domainReady")}</p>
 			) : (
 				<>
-					<p className="text-muted-foreground text-xs leading-relaxed">Publique estes registros no DNS do domínio e toque em Verificar. A checagem costuma levar alguns minutos.</p>
+					<p className="text-muted-foreground text-xs leading-relaxed">{t("settings.email.domainDns")}</p>
 					{domain.records.length > 0 ? <RecordsTable records={domain.records} /> : null}
 				</>
 			)}
@@ -129,6 +135,7 @@ export function EmailDomainsPanel({
 	onVerify: (id: string) => void;
 	onRemove: (id: string) => void;
 }) {
+	const t = useT();
 	const [value, setValue] = useState("");
 	const adding = busyId === "new";
 	return (
@@ -136,7 +143,7 @@ export function EmailDomainsPanel({
 			<SettingRow
 				caption={
 					<>
-						<p className="text-muted-foreground text-xs">{EMAIL_DOMAINS_NOTE}</p>
+						<p className="text-muted-foreground text-xs">{t("settings.email.domainsNote")}</p>
 						{error ? (
 							<p className="text-destructive text-xs" role="alert">
 								{error}
@@ -146,7 +153,7 @@ export function EmailDomainsPanel({
 				}
 				control="inline"
 				icon={GlobeIcon}
-				label="Domínio próprio"
+				label={t("settings.email.ownDomain")}
 			/>
 			<div className="flex min-w-0 flex-col gap-2 px-3.5 pb-2" data-testid="email-domains">
 				<form
@@ -157,20 +164,20 @@ export function EmailDomainsPanel({
 					}}
 				>
 					<Input
-						aria-label="Adicionar domínio"
+						aria-label={t("settings.email.addDomainAria")}
 						autoComplete="off"
 						className="min-w-0 flex-1"
 						disabled={adding}
 						onChange={(event) => setValue(event.target.value)}
-						placeholder="suaempresa.com.br"
+						placeholder={t("settings.email.domainPlaceholder")}
 						spellCheck={false}
 						value={value}
 					/>
 					<Button disabled={adding || !value.trim()} size="sm" type="submit" variant="outline">
-						{adding ? "Adicionando…" : "Adicionar"}
+						{adding ? t("settings.email.adding") : t("settings.email.add")}
 					</Button>
 				</form>
-				{loading && !domains ? <p className="text-muted-foreground text-xs">Carregando…</p> : null}
+				{loading && !domains ? <p className="text-muted-foreground text-xs">{t("common.loading")}</p> : null}
 				{domains?.map((domain) => (
 					<DomainCard busy={busyId === domain.id} domain={domain} key={domain.id} onRemove={() => onRemove(domain.id)} onVerify={() => onVerify(domain.id)} />
 				))}

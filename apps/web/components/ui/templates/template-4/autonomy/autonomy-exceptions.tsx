@@ -19,16 +19,11 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@workspace/ui/components/collapsible";
+import { useTranslations } from "@/lib/i18n/provider";
 import { SettingsPicker } from "../settings-picker";
+import { hostToolLabel, modeLabel } from "./autonomy-copy";
 
-const MODE_LABELS: Record<AutonomyExceptionMode, string> = {
-	always_ask: "Sempre perguntar",
-	never_ask: "Nunca perguntar",
-	blocked: "Bloquear",
-};
-const MODE_OPTIONS = (
-	Object.keys(MODE_LABELS) as AutonomyExceptionMode[]
-).map((value) => ({ value, label: MODE_LABELS[value] }));
+const MODES: readonly AutonomyExceptionMode[] = ["always_ask", "never_ask", "blocked"];
 
 const CONNECTOR_PREFIX = "connector:";
 const TOOL_PREFIX = "tool:";
@@ -51,12 +46,12 @@ function targetsConnection(
 }
 
 function IrreversibleWarning() {
+	const { t } = useTranslations();
 	return (
 		<Alert variant="destructive">
 			<TriangleAlertIcon />
 			<AlertDescription>
-				Inclui ações que não dá para desfazer (apagar, enviar, mesclar). O
-				agente vai executar sem pedir sua aprovação.
+				{t("autonomy.irreversible")}
 			</AlertDescription>
 		</Alert>
 	);
@@ -80,6 +75,9 @@ export function AutonomyExceptions({
 	connectorFilter?: string;
 	onChange: (next: AutonomyException[]) => void;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
+	const modeOptions = MODES.map((value) => ({ value, label: modeLabel(value, translator) }));
 	const filterConnection = connectorFilter
 		? connections.find(
 				(connection) => autonomyConnectorKey(connection) === connectorFilter,
@@ -100,11 +98,11 @@ export function AutonomyExceptions({
 	const targets = [
 		...scoped.map((connection) => ({
 			value: `${CONNECTOR_PREFIX}${autonomyConnectorKey(connection)}`,
-			label: `${connection.name} (todas as ações)`,
+			label: t("autonomy.allActions", { name: connection.name }),
 		})),
 		...autonomyToolOptions(scoped).map((option) => ({
 			value: `${TOOL_PREFIX}${option.value}`,
-			label: option.label,
+			label: hostToolLabel(option.value, translator) ?? option.label,
 		})),
 	];
 	const draft: AutonomyException | null = target
@@ -116,7 +114,7 @@ export function AutonomyExceptions({
 
 	function labelOf(item: AutonomyException): string {
 		return item.tool
-			? autonomyToolLabel(item.tool, labeler)
+			? (hostToolLabel(item.tool, translator) ?? autonomyToolLabel(item.tool, labeler))
 			: (labeler(item.connector ?? "") ?? item.connector ?? "");
 	}
 
@@ -133,7 +131,7 @@ export function AutonomyExceptions({
 	return (
 		<Collapsible onOpenChange={setOpen} open={open}>
 			<CollapsibleTrigger className="flex w-full items-center justify-between py-1 text-xs text-muted-foreground hover:text-foreground">
-				<span>Exceções ({exceptions.length})</span>
+				<span>{t("autonomy.exceptions", { count: exceptions.length })}</span>
 				<ChevronDownIcon
 					className={open ? "size-4 rotate-180" : "size-4"}
 				/>
@@ -141,7 +139,7 @@ export function AutonomyExceptions({
 			<CollapsibleContent className="mt-2 space-y-3">
 				{visible.length === 0 ? (
 					<p className="text-xs text-muted-foreground">
-						Nenhuma exceção. Uma exceção vence o nível escolhido.
+						{t("autonomy.noExceptions")}
 					</p>
 				) : (
 					<ul className="space-y-2">
@@ -152,7 +150,7 @@ export function AutonomyExceptions({
 										{labelOf(item)}
 									</span>
 									<SettingsPicker
-										aria-label={`Modo de ${labelOf(item)}`}
+										aria-label={t("autonomy.modeOf", { name: labelOf(item) })}
 										className="w-44"
 										disabled={disabled}
 										onChange={(value) =>
@@ -164,12 +162,12 @@ export function AutonomyExceptions({
 												),
 											)
 										}
-										options={MODE_OPTIONS}
+										options={modeOptions}
 										size="sm"
 										value={item.mode}
 									/>
 									<Button
-										aria-label={`Remover exceção de ${labelOf(item)}`}
+										aria-label={t("autonomy.removeException", { name: labelOf(item) })}
 										disabled={disabled}
 										onClick={() =>
 											onChange(
@@ -194,20 +192,20 @@ export function AutonomyExceptions({
 				)}
 				<div className="space-y-2">
 					<SettingsPicker
-						aria-label="Conector ou ação"
+						aria-label={t("autonomy.targetLabel")}
 						className="w-full"
 						onChange={setTarget}
 						options={targets}
-						placeholder="Escolha um conector ou ação"
+						placeholder={t("autonomy.targetPlaceholder")}
 						size="sm"
 						value={target}
 					/>
 					<div className="flex items-center gap-2">
 						<SettingsPicker
-							aria-label="Modo da exceção"
+							aria-label={t("autonomy.exceptionMode")}
 							className="flex-1"
 							onChange={setMode}
-							options={MODE_OPTIONS}
+							options={modeOptions}
 							size="sm"
 							value={mode}
 						/>
@@ -217,7 +215,7 @@ export function AutonomyExceptions({
 							size="sm"
 							type="button"
 						>
-							Adicionar
+							{t("autonomy.add")}
 						</Button>
 					</div>
 					{draftRisky ? <IrreversibleWarning /> : null}

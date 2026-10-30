@@ -5,6 +5,7 @@ import { CheckIcon, ChevronDownIcon, GlobeIcon, SearchIcon } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@workspace/ui/components/popover";
 import { cn } from "@workspace/ui/lib/utils";
 import type { useAccountSettings } from "@/hooks/use-account-settings";
+import { useT } from "@/lib/i18n/provider";
 import { SaveIndicator, SettingRow, SettingsGroup } from "../setting-row";
 import type { SaveStatus } from "../account-settings-state";
 import {
@@ -43,6 +44,7 @@ export function TimezoneSettingsView({
 	zones?: readonly string[];
 	isVisible?: (itemId: string) => boolean;
 }) {
+	const t = useT();
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const all = useMemo(() => zones ?? listTimeZones(), [zones]);
@@ -57,13 +59,13 @@ export function TimezoneSettingsView({
 	}
 
 	return (
-		<SettingsGroup title="Agendamentos">
+		<SettingsGroup title={t("settings.timezone.group")}>
 			<SettingRow
 				caption={<SaveIndicator error={saveError} status={status} />}
 				control="inline"
-				description="Fuso usado por rotinas, lembretes e pelo modo proativo (horário de silêncio)."
+				description={t("settings.timezone.hint")}
 				icon={GlobeIcon}
-				label="Fuso horário"
+				label={t("settings.timezone.label")}
 			>
 				<Popover
 					onOpenChange={(next) => {
@@ -73,14 +75,14 @@ export function TimezoneSettingsView({
 					open={open}
 				>
 					<PopoverTrigger
-						aria-label="Fuso horário"
+						aria-label={t("settings.timezone.label")}
 						className="flex h-7 max-w-full items-center gap-1 rounded-md px-2 text-body outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/30 disabled:opacity-50"
 						disabled={disabled}
 						type="button"
 					>
 						<span className="truncate">
 							{timeZoneLabel(shown.zone)}
-							{shown.auto ? " · automático" : ""}
+							{shown.auto ? ` · ${t("settings.timezone.automatic")}` : ""}
 						</span>
 						<ChevronDownIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
 					</PopoverTrigger>
@@ -91,18 +93,18 @@ export function TimezoneSettingsView({
 								className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
 							/>
 							<input
-								aria-label="Buscar fuso horário"
+								aria-label={t("settings.timezone.searchAria")}
 								autoFocus
 								className="h-8 w-full rounded-lg bg-input/50 pr-2 pl-8 text-body outline-none placeholder:text-muted-foreground focus-visible:ring-3 focus-visible:ring-ring/30"
 								onChange={(event) => setQuery(event.target.value)}
-								placeholder="Buscar cidade ou região"
+								placeholder={t("settings.timezone.searchPlaceholder")}
 								value={query}
 							/>
 						</div>
 						<ul className="flex max-h-64 flex-col gap-0.5 overflow-y-auto" role="listbox">
 							{!query.trim() ? (
 								<ZoneOption
-									label={`Detectar automaticamente${detected ? ` (${timeZoneCity(detected)})` : ""}`}
+									label={detected ? t("settings.timezone.detectCity", { city: timeZoneCity(detected) }) : t("settings.timezone.detect")}
 									onChoose={() => choose(null)}
 									selected={shown.auto}
 								/>
@@ -118,7 +120,7 @@ export function TimezoneSettingsView({
 							))}
 							{matches.length === 0 ? (
 								<li className="px-2.5 py-2 text-body text-muted-foreground" role="status">
-									Nenhum fuso encontrado
+									{t("settings.timezone.none")}
 								</li>
 							) : null}
 						</ul>

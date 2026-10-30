@@ -1,3 +1,5 @@
+import { getActiveTranslator } from "@/lib/i18n/active";
+import type { Translator } from "@/lib/i18n/translator";
 import type { ComposioConnectedAppView, ComposioStatusView, ComposioToolkitView } from "@workspace/shared";
 
 /** Estado puro da seção Composio (sem React), testável em unidade. */
@@ -31,27 +33,24 @@ export function availableToolkits(
 }
 
 /** App sem login: o botão ativa/desativa em vez de conectar/desconectar. */
-export function composioConnectLabel(noAuth: boolean | undefined): "Ativar" | "Conectar" {
-	return noAuth ? "Ativar" : "Conectar";
+export function composioConnectLabel(noAuth: boolean | undefined, { t }: Translator = getActiveTranslator()): string {
+	return noAuth ? t("settings.composio.activate") : t("settings.composio.connect");
 }
 
-export function composioDisconnectLabel(noAuth: boolean | undefined): "Desativar" | "Desconectar" {
-	return noAuth ? "Desativar" : "Desconectar";
+export function composioDisconnectLabel(noAuth: boolean | undefined, { t }: Translator = getActiveTranslator()): string {
+	return noAuth ? t("settings.composio.deactivate") : t("settings.composio.disconnect");
 }
 
-export const COMPOSIO_NO_AUTH_BADGE = "Sem login";
+export const composioNoAuthBadge = ({ t }: Translator = getActiveTranslator()): string => t("settings.composio.noAuthBadge");
 
-export function nativeToolkitNote(toolkit: Pick<ComposioToolkitView, "nativeCatalogId">): string | null {
-	return toolkit.nativeCatalogId
-		? "Já existe um conector nativo deste app. Se os dois estiverem conectados, o nativo é usado."
-		: null;
+export function nativeToolkitNote(toolkit: Pick<ComposioToolkitView, "nativeCatalogId">, { t }: Translator = getActiveTranslator()): string | null {
+	return toolkit.nativeCatalogId ? t("settings.composio.nativeNote") : null;
 }
 
-export function composioKeyCaption(status: ComposioStatusView): string {
+export function composioKeyCaption(status: ComposioStatusView, { t, tn }: Translator = getActiveTranslator()): string {
 	const hint = status.keyHint ?? "••••";
-	if (status.toolCount === 0) return `Chave salva (${hint}). Conecte um app para liberar ferramentas.`;
-	const tools = status.toolCount === 1 ? "1 ferramenta" : `${status.toolCount} ferramentas`;
-	return `Chave salva (${hint}). ${tools} disponíveis para o agente.`;
+	if (status.toolCount === 0) return t("settings.composio.keyCaptionNoTools", { hint });
+	return tn("settings.composio.keyCaptionTools", status.toolCount, { hint });
 }
 
 /**
@@ -95,9 +94,9 @@ export function composioPagerForFilter(
 }
 
 /** "Página 2 de 14" quando o total é conhecido; senão só "Página 2". */
-export function composioPageLabel(pager: ComposioPager, totalItems: number | null, pageSize: number): string {
+export function composioPageLabel(pager: ComposioPager, totalItems: number | null, pageSize: number, { t }: Translator = getActiveTranslator()): string {
 	const page = composioPageNumber(pager);
-	if (!totalItems || totalItems <= 0 || pageSize <= 0) return `Página ${page}`;
-	return `Página ${page} de ${Math.max(page, Math.ceil(totalItems / pageSize))}`;
+	if (!totalItems || totalItems <= 0 || pageSize <= 0) return t("settings.composio.page", { page });
+	return t("settings.composio.pageOf", { page, total: Math.max(page, Math.ceil(totalItems / pageSize)) });
 }
 

@@ -17,6 +17,7 @@ import {
 	SKILL_BODY_MAX_BYTES,
 } from "../../skills-state";
 import { SkillMarkdownPreview } from "./skill-markdown-preview";
+import { useTranslations } from "@/lib/i18n/provider";
 
 export type SkillEditorTab = "edit" | "preview";
 
@@ -37,10 +38,10 @@ export type SkillEditorViewProps = {
 	review?: boolean;
 };
 
-const TABS: { id: SkillEditorTab; label: string }[] = [
-	{ id: "edit", label: "Editar" },
-	{ id: "preview", label: "Prévia" },
-];
+const TABS = [
+	{ id: "edit", label: "settings.skills.editor.tabEdit" },
+	{ id: "preview", label: "settings.skills.editor.tabPreview" },
+] as const;
 
 function FieldError({ id, message }: { id: string; message?: string }) {
 	if (!message) return null;
@@ -90,8 +91,10 @@ export function SkillEditorView({
 	onCancel,
 	review = false,
 }: SkillEditorViewProps) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const scopeOptions = [
-		{ value: "account", label: "Conta" },
+		{ value: "account", label: t("settings.skills.scopeAccount") },
 		...bots.map((bot) => ({ value: `bot:${bot.id}`, label: bot.name })),
 	];
 	const overBody = bodyBytes(form.body) > SKILL_BODY_MAX_BYTES;
@@ -113,13 +116,13 @@ export function SkillEditorView({
 			}}
 		>
 			<div className="flex items-center gap-2">
-				<Button aria-label="Voltar para a lista de habilidades" onClick={onCancel} size="icon-sm" type="button" variant="ghost">
+				<Button aria-label={t("settings.skills.backAria")} onClick={onCancel} size="icon-sm" type="button" variant="ghost">
 					<ArrowLeftIcon aria-hidden />
 				</Button>
-				<h3 className="text-sm font-medium">{review ? "Revisar habilidade proposta" : mode === "create" ? "Nova habilidade" : "Editar habilidade"}</h3>
+				<h3 className="text-sm font-medium">{review ? t("settings.skills.editor.review") : mode === "create" ? t("settings.skills.editor.create") : t("settings.skills.editor.edit")}</h3>
 			</div>
 
-			<Field htmlFor="skill-name" label="Nome">
+			<Field htmlFor="skill-name" label={t("settings.skills.editor.name")}>
 				<Input
 					aria-describedby={errors.name ? "skill-name-error" : "skill-name-help"}
 					aria-invalid={errors.name ? true : undefined}
@@ -128,11 +131,11 @@ export function SkillEditorView({
 					disabled={review && mode === "edit"}
 					id="skill-name"
 					onChange={(event) => onChange({ name: event.target.value })}
-					placeholder="relatorio-semanal"
+					placeholder={t("settings.skills.editor.namePlaceholder")}
 					value={form.name}
 				/>
 				<p className="text-xs text-muted-foreground" id="skill-name-help">
-					Identificador curto: letras minúsculas, números e hífens.
+					{t("settings.skills.editor.nameHelp")}
 				</p>
 				<FieldError id="skill-name-error" message={errors.name} />
 			</Field>
@@ -140,18 +143,18 @@ export function SkillEditorView({
 			<Field
 				hint={`${form.description.length}/${SKILL_DESCRIPTION_MAX_CHARS}`}
 				htmlFor="skill-description"
-				label="Descrição"
+				label={t("settings.skills.editor.description")}
 			>
 				<Input
 					aria-describedby={errors.description ? "skill-description-error" : "skill-description-help"}
 					aria-invalid={errors.description ? true : undefined}
 					id="skill-description"
 					onChange={(event) => onChange({ description: event.target.value })}
-					placeholder="Quando o agente deve usar esta habilidade"
+					placeholder={t("settings.skills.editor.descriptionPlaceholder")}
 					value={form.description}
 				/>
 				<p className="text-xs text-muted-foreground" id="skill-description-help">
-					O agente só enxerga esta linha até decidir ler a habilidade inteira.
+					{t("settings.skills.editor.descriptionHelp")}
 				</p>
 				<FieldError id="skill-description-error" message={errors.description} />
 			</Field>
@@ -159,14 +162,14 @@ export function SkillEditorView({
 			<div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
 				<div className="flex min-w-0 max-w-prose flex-col gap-1">
 					<p className="text-sm leading-snug font-medium" id="skill-scope-label">
-						Escopo
+						{t("settings.skills.editor.scope")}
 					</p>
 					<p className="text-sm leading-snug text-muted-foreground">
 						{mode === "edit" || review
 							? review
-								? "O escopo vem da proposta do agente."
-								: "O escopo não muda depois de criada."
-							: "Conta vale para todos os bots; um bot restringe a habilidade a ele."}
+								? t("settings.skills.editor.scopeReview")
+								: t("settings.skills.editor.scopeFixed")
+							: t("settings.skills.editor.scopeCreate")}
 					</p>
 				</div>
 				<SettingsPicker
@@ -179,17 +182,17 @@ export function SkillEditorView({
 				/>
 			</div>
 
-			<Field htmlFor="skill-tools" label="Ferramentas sugeridas (opcional)">
+			<Field htmlFor="skill-tools" label={t("settings.skills.editor.tools")}>
 				<Input
 					aria-describedby={errors.tools ? "skill-tools-error" : "skill-tools-help"}
 					aria-invalid={errors.tools ? true : undefined}
 					id="skill-tools"
 					onChange={(event) => onChange({ toolsText: event.target.value })}
-					placeholder="github, calendar"
+					placeholder={t("settings.skills.editor.toolsPlaceholder")}
 					value={form.toolsText}
 				/>
 				<p className="text-xs text-muted-foreground" id="skill-tools-help">
-					Separe por vírgula. É só uma dica para o agente: não libera nenhuma ferramenta.
+					{t("settings.skills.editor.toolsHelp")}
 				</p>
 				<FieldError id="skill-tools-error" message={errors.tools} />
 			</Field>
@@ -197,7 +200,7 @@ export function SkillEditorView({
 			<div className="flex flex-col gap-1.5">
 				<div className="flex items-end justify-between gap-3">
 					<div
-						aria-label="Corpo da habilidade"
+						aria-label={t("settings.skills.editor.bodyAria")}
 						className="flex gap-1 rounded-3xl bg-input/50 p-0.5"
 						onKeyDown={onTabKeyDown}
 						role="tablist"
@@ -218,12 +221,12 @@ export function SkillEditorView({
 								tabIndex={tab === item.id ? 0 : -1}
 								type="button"
 							>
-								{item.label}
+								{t(item.label)}
 							</button>
 						))}
 					</div>
 					<span className={cn("text-xs text-muted-foreground", overBody && "text-destructive")}>
-						{bodyCounterLabel(form.body)}
+						{bodyCounterLabel(form.body, translator)}
 					</span>
 				</div>
 				{tab === "edit" ? (
@@ -231,10 +234,10 @@ export function SkillEditorView({
 						<Textarea
 							aria-describedby={errors.body ? "skill-body-error" : undefined}
 							aria-invalid={errors.body ? true : undefined}
-							aria-label="Corpo da habilidade em Markdown"
+							aria-label={t("settings.skills.editor.bodyTextAria")}
 							className="min-h-64 font-mono text-xs leading-relaxed"
 							onChange={(event) => onChange({ body: event.target.value })}
-							placeholder={"# Passos\n\n1. Faça isto\n2. Depois isto"}
+							placeholder={t("settings.skills.editor.bodyPlaceholder")}
 							spellCheck={false}
 							value={form.body}
 						/>
@@ -260,10 +263,10 @@ export function SkillEditorView({
 
 			<div className="flex justify-end gap-2">
 				<Button onClick={onCancel} type="button" variant="outline">
-					Cancelar
+					{t("settings.skills.editor.cancel")}
 				</Button>
 				<Button disabled={saving} type="submit">
-					{saving ? "Salvando…" : review ? "Aprovar e salvar" : "Salvar"}
+					{saving ? t("settings.skills.editor.saving") : review ? t("settings.skills.editor.approve") : t("settings.skills.editor.save")}
 				</Button>
 			</div>
 		</form>

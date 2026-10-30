@@ -27,7 +27,7 @@ import {
   type Margin,
   type TooltipData,
 } from "./chart-context";
-import { hmsTimeFmt } from "./chart-formatters";
+import { hmsTimeFmt, useChartLocale } from "./chart-formatters";
 import { ParentSize } from "./chart-parent-size";
 import { DEFAULT_CHART_LIFECYCLE } from "./chart-phase";
 import type { LiveLineProps } from "./live-line";
@@ -523,9 +523,10 @@ const LiveLineChartCore = memo(function LiveLineChartCore({
   }, []);
 
   // Date labels (for ChartTooltip's DateTicker — not used in live but needed for context)
+  const locale = useChartLocale();
   const dateLabels = useMemo(
-    () => contextData.map((d) => hmsTimeFmt.format(xAccessor(d))),
-    [contextData, xAccessor]
+    () => contextData.map((d) => hmsTimeFmt.format(xAccessor(d), locale)),
+    [contextData, xAccessor, locale]
   );
 
   const columnWidth = useMemo(() => {

@@ -22,7 +22,7 @@ import { useComposio } from "@/hooks/use-composio";
 import {
 	COMPOSIO_SITE_URL,
 	availableToolkits,
-	COMPOSIO_NO_AUTH_BADGE,
+	composioNoAuthBadge,
 	composioConnectLabel,
 	composioDisconnectLabel,
 	composioKeyCaption,
@@ -31,6 +31,7 @@ import {
 	type ComposioPager,
 } from "../composio-state";
 import { SettingRow, SettingsGroup } from "../setting-row";
+import { useTranslations } from "@/lib/i18n/provider";
 
 export type ComposioSettingsViewProps = {
 	status: ComposioStatusView | null;
@@ -60,6 +61,8 @@ export type ComposioSettingsViewProps = {
 };
 
 function KeyRow(props: ComposioSettingsViewProps) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const { status, busy, onSaveKey, onRemoveKey } = props;
 	const [confirm, setConfirm] = useState(false);
 	const on = status?.configured === true;
@@ -68,10 +71,10 @@ function KeyRow(props: ComposioSettingsViewProps) {
 			<SettingRow
 				caption={
 					<>
-						{on && status ? <p className="text-xs text-muted-foreground">{composioKeyCaption(status)}</p> : null}
+						{on && status ? <p className="text-xs text-muted-foreground">{composioKeyCaption(status, translator)}</p> : null}
 						{status && !status.secretBoxReady ? (
 							<p className="text-xs text-destructive" role="alert">
-								Defina CONNECTOR_ENCRYPTION_KEY no .env da API e do worker para guardar a chave.
+								{t("settings.composio.vaultMissing")}
 							</p>
 						) : null}
 						{props.error ? (
@@ -85,18 +88,17 @@ function KeyRow(props: ComposioSettingsViewProps) {
 				wrap={!on}
 				description={
 					on ? (
-						"Remover apaga a chave e desconecta todos os apps do Composio. Os conectores nativos continuam funcionando."
+						t("settings.composio.removeHint")
 					) : (
 						<>
-							Opcional. Com a sua chave do Composio o agente alcança centenas de apps além dos conectores nativos. Sem
-							chave, nada muda.{" "}
+							{t("settings.composio.optionalHint")}{" "}
 							<a
 								className="inline-flex items-center gap-1 underline underline-offset-2"
 								href={COMPOSIO_SITE_URL}
 								rel="noopener noreferrer"
 								target="_blank"
 							>
-								Criar chave em composio.dev
+								{t("settings.composio.createKey")}
 								<ExternalLinkIcon aria-hidden className="size-3" />
 							</a>
 						</>
@@ -104,11 +106,11 @@ function KeyRow(props: ComposioSettingsViewProps) {
 				}
 				htmlFor={on ? undefined : "settings-composio-key"}
 				icon={KeyRoundIcon}
-				label="Chave do Composio"
+				label={t("settings.composio.keyLabel")}
 			>
 				{on ? (
 					<Button disabled={busy === "key"} onClick={() => setConfirm(true)} size="sm" variant="destructive">
-						Remover chave
+						{t("settings.composio.removeKey")}
 					</Button>
 				) : status ? (
 					<ComposioKeyForm
@@ -122,21 +124,18 @@ function KeyRow(props: ComposioSettingsViewProps) {
 			<AlertDialog onOpenChange={setConfirm} open={confirm}>
 				<AlertDialogContent size="sm">
 					<AlertDialogHeader>
-						<AlertDialogTitle>Remover a chave do Composio?</AlertDialogTitle>
-						<AlertDialogDescription>
-							Os apps conectados pelo Composio são desconectados e o agente deixa de usá-los. Para voltar, será preciso
-							salvar a chave e conectar de novo.
-						</AlertDialogDescription>
+						<AlertDialogTitle>{t("settings.composio.removeTitle")}</AlertDialogTitle>
+						<AlertDialogDescription>{t("settings.composio.removeBody")}</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Cancelar</AlertDialogCancel>
+						<AlertDialogCancel>{t("settings.composio.cancel")}</AlertDialogCancel>
 						<AlertDialogAction
 							onClick={() => {
 								setConfirm(false);
 								onRemoveKey();
 							}}
 						>
-							Remover
+							{t("settings.composio.remove")}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
@@ -147,6 +146,8 @@ function KeyRow(props: ComposioSettingsViewProps) {
 
 /** Tela pura da seção (renderiza em teste estático): sem chave, só a linha da chave. */
 export function ComposioSettingsView(props: ComposioSettingsViewProps) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const { status, toolkits, connections, search, busy, listError, onSearch, onConnect, onDisconnect } = props;
 	const state = composioViewState(status);
 	if (state === "loading") return null;
@@ -159,36 +160,36 @@ export function ComposioSettingsView(props: ComposioSettingsViewProps) {
 					{connections.map((app) => (
 						<SettingRow
 							control="inline"
-							description={`${app.noAuth ? "Ativado" : "Conectado"}. As ferramentas de leitura rodam direto; as de escrita seguem a autonomia do bot.`}
+							description={t("settings.composio.appDescription", { state: app.noAuth ? t("settings.composio.appStateOn") : t("settings.composio.appStateConnected") })}
 							icon={({ className }) => <ComposioAppIcon className={className} logo={toolkits.find((item) => item.slug === app.toolkit)?.logo} />}
 							key={app.id}
 							label={app.toolkitName}
 						>
-							<span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{app.noAuth ? "Ativado" : "Conectado"}</span>
+							<span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{app.noAuth ? t("settings.composio.appStateOn") : t("settings.composio.appStateConnected")}</span>
 							<Button
-								aria-label={`${composioDisconnectLabel(app.noAuth)} ${app.toolkitName}`}
+								aria-label={`${composioDisconnectLabel(app.noAuth, translator)} ${app.toolkitName}`}
 								disabled={busy !== null}
 								onClick={() => onDisconnect(app.id)}
 								size="sm"
 								variant="outline"
 							>
 								<UnplugIcon aria-hidden />
-								{busy === app.id ? "Aguarde…" : composioDisconnectLabel(app.noAuth)}
+								{busy === app.id ? t("settings.composio.wait") : composioDisconnectLabel(app.noAuth, translator)}
 							</Button>
 						</SettingRow>
 					))}
 					<SettingRow
 						control="field"
 						wrap
-						description="Busque um app e conecte. O login abre numa janela do Composio."
+						description={t("settings.composio.addAppHint")}
 						htmlFor="settings-composio-search"
 						icon={SearchIcon}
-						label="Adicionar app"
+						label={t("settings.composio.addApp")}
 					>
 						<Input
 							id="settings-composio-search"
 							onChange={(event) => onSearch(event.target.value)}
-							placeholder="Buscar apps"
+							placeholder={t("settings.composio.searchApps")}
 							type="search"
 							value={search}
 						/>
@@ -201,8 +202,8 @@ export function ComposioSettingsView(props: ComposioSettingsViewProps) {
 					{available.map((toolkit) => (
 						<SettingRow
 							caption={
-								nativeToolkitNote(toolkit) ? (
-									<p className="text-xs text-muted-foreground">{nativeToolkitNote(toolkit)}</p>
+								nativeToolkitNote(toolkit, translator) ? (
+									<p className="text-xs text-muted-foreground">{nativeToolkitNote(toolkit, translator)}</p>
 								) : null
 							}
 							control="inline"
@@ -212,21 +213,21 @@ export function ComposioSettingsView(props: ComposioSettingsViewProps) {
 							label={toolkit.name}
 						>
 							{toolkit.noAuth ? (
-								<span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{COMPOSIO_NO_AUTH_BADGE}</span>
+								<span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{composioNoAuthBadge(translator)}</span>
 							) : null}
 							<Button
-								aria-label={`${composioConnectLabel(toolkit.noAuth)} ${toolkit.name}`}
+								aria-label={`${composioConnectLabel(toolkit.noAuth, translator)} ${toolkit.name}`}
 								disabled={busy !== null}
 								onClick={() => onConnect(toolkit.slug, toolkit.noAuth)}
 								size="sm"
 								variant="secondary"
 							>
-								{busy === toolkit.slug ? "Aguarde…" : composioConnectLabel(toolkit.noAuth)}
+								{busy === toolkit.slug ? t("settings.composio.wait") : composioConnectLabel(toolkit.noAuth, translator)}
 							</Button>
 						</SettingRow>
 					))}
 					{!listError && available.length === 0 ? (
-						<p className="py-3 text-sm text-muted-foreground">Nenhum app encontrado.</p>
+						<p className="py-3 text-sm text-muted-foreground">{t("settings.composio.none")}</p>
 					) : null}
 					{props.paging ? (
 						<ComposioPagerBar

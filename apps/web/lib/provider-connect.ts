@@ -1,3 +1,5 @@
+import { activeT } from "@/lib/i18n/active";
+
 export type ProviderPopup = {
 	closed: boolean;
 	location: { href: string; search: string; pathname?: string; origin?: string };
@@ -12,15 +14,15 @@ export const PROVIDER_RETRY_MESSAGE = "atlas:provider-retry";
 
 /** A janela é criada pelo clique, antes de esperar a API (evita popup bloqueado). */
 export async function navigateProviderPopup(popup: ProviderPopup | null, connect: () => Promise<{ authorizeUrl: string }>): Promise<void> {
-	if (!popup) throw new Error("Permita popups para conectar o ChatGPT.");
+	if (!popup) throw new Error(activeT("errors.allowPopups"));
 	try {
 		const { authorizeUrl } = await connect();
 		const url = new URL(authorizeUrl);
-		if (url.origin !== "https://auth.openai.com") throw new Error("Não foi possível abrir o login do ChatGPT.");
+		if (url.origin !== "https://auth.openai.com") throw new Error(activeT("errors.openChatgptLogin"));
 		popup.location.href = url.href;
 	} catch {
 		popup.close();
-		throw new Error("Não foi possível iniciar o login do ChatGPT. Tente novamente.");
+		throw new Error(activeT("errors.startChatgptLogin"));
 	}
 }
 /** Com `pathname`, só vale na página de retorno (ou na home, de callbacks antigos). */

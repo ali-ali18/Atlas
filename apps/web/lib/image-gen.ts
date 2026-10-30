@@ -1,5 +1,6 @@
 /** Placeholder ao vivo do `generate_image`: leitura da chamada e troca/limpeza do cartão. */
 import type { Message } from "@/components/ui/templates/template-4/data";
+import { activeT } from "@/lib/i18n/active";
 
 export type ImageGenMessage = Extract<Message, { kind: "image-gen" }>;
 
@@ -63,5 +64,5 @@ export function clearRunningImageGen(previous: Message[]): Message[] {
 
 function friendlyImageError(summary: string): string {
 	const text = summary.replace(/^Error:\s*/i, "").trim();
-	return text ? text.slice(0, 200) : "Não foi possível gerar a imagem.";
+	return text ? text.slice(0, 200) : activeT("errors.generateImage");
 }

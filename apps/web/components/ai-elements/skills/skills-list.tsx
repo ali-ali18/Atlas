@@ -6,6 +6,7 @@ import { PencilLineIcon, SparklesIcon } from "lucide-react";
 import type { HTMLAttributes, ReactNode } from "react";
 import { createContext, useContext, useMemo } from "react";
 import type { SkillListItemData } from "@workspace/shared";
+import { useTranslations } from "@/lib/i18n/provider";
 
 // ============================================================================
 // Types
@@ -149,13 +150,14 @@ export const SkillInfo = ({
   ...props
 }: SkillInfoProps) => {
   const { data } = useSkillContext();
+  const { t } = useTranslations();
 
   return (
     <div className={cn("min-w-0 flex-1", className)} {...props}>
       <span className="block truncate font-medium text-sm">{data.title}</span>
       <span className="block truncate text-muted-foreground text-xs">
         {data.capabilityKey} (v{data.versionNumber})
-        {data.status === "draft" ? " • rascunho" : ""}
+        {data.status === "draft" ? t("aiElements.skills.list.draft") : ""}
       </span>
       {showDescription && data.description ? (
         <span className="block truncate text-muted-foreground text-xs">
@@ -178,13 +180,16 @@ export const SkillsDraftSeparator = ({
   children,
   className,
   ...props
-}: SkillsDraftSeparatorProps) => (
-  <Marker variant="separator" className={className} {...props}>
-    <MarkerContent className="text-muted-foreground text-xs">
-      {children ?? "Rascunhos"}
-    </MarkerContent>
-  </Marker>
-);
+}: SkillsDraftSeparatorProps) => {
+  const { t } = useTranslations();
+  return (
+    <Marker variant="separator" className={className} {...props}>
+      <MarkerContent className="text-muted-foreground text-xs">
+        {children ?? t("aiElements.skills.list.drafts")}
+      </MarkerContent>
+    </Marker>
+  );
+};
 
 // ============================================================================
 // SkillsList - composição pronta (ativas + separador + rascunhos)
@@ -201,6 +206,7 @@ export const SkillsList = ({
   className,
   ...props
 }: SkillsListProps) => {
+  const { t } = useTranslations();
   const actives = items.filter((item) => item.status === "active");
   const drafts = items.filter((item) => item.status === "draft");
   const extraDrafts =
@@ -211,7 +217,7 @@ export const SkillsList = ({
   if (items.length === 0) {
     return (
       <div className="text-muted-foreground text-xs">
-        Você ainda não tem skills ativas...
+        {t("aiElements.skills.list.empty")}
       </div>
     );
   }
@@ -240,7 +246,7 @@ export const SkillsList = ({
       ) : null}
       {extraDrafts > 0 ? (
         <span className="px-2 text-muted-foreground text-xs">
-          + {extraDrafts} rascunho(s) aguardando repetição.
+          {t("aiElements.skills.list.extraDrafts", { count: extraDrafts })}
         </span>
       ) : null}
     </Skills>

@@ -8,6 +8,8 @@ import { DevApprovalCard } from "@/components/ai-elements/dev-session/dev-approv
 import { QuestionnaireCard, type QuestionnaireAnswersMap, type QuestionnaireCardMessage } from "@/components/ui/templates/template-4/chat-thread/questionnaire-card";
 import type { QuestionnaireItemData } from "@/components/ui/templates/template-4/data";
 
+import { useTranslations } from "@/lib/i18n/provider";
+
 import type { BotRef } from "./bot-chip";
 
 export type BotRelayedCardProps = {
@@ -27,6 +29,7 @@ export type BotRelayedCardProps = {
  * rótulo "Do bot X". Cada botão responde o card original (ver `answerBotPending`).
  */
 export function BotRelayedCard({ bot, item, busy = false, error, onApprove, onReject, onAnswer }: BotRelayedCardProps) {
+	const { t } = useTranslations();
 	// Estável entre renders: o card de questionário reage à identidade da mensagem.
 	const questionnaireMessage = useMemo<QuestionnaireCardMessage | null>(
 		() =>
@@ -77,7 +80,7 @@ export function BotRelayedCard({ bot, item, busy = false, error, onApprove, onRe
 		<div className="flex min-w-0 flex-col gap-1.5" data-testid="bot-relayed-card">
 			<p className="m-0 flex items-center gap-1.5 px-1 text-muted-foreground text-xs" data-testid="bot-relayed-label">
 				<AgentAvatar animated={false} bodyColor={bot.color} id={bot.id} shape={bot.shape} size={14} />
-				<span className="min-w-0 truncate">Do bot {bot.name}</span>
+				<span className="min-w-0 truncate">{t("aiElements.bots.relayedFrom", { name: bot.name })}</span>
 			</p>
 			{card}
 			{error && !(item.kind === "mcp" || item.kind === "other") ? (

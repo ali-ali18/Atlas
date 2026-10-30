@@ -10,6 +10,7 @@ import {
 	updateAccountAutonomy,
 	updateBotAutonomy,
 } from "@/lib/atlas-api";
+import { activeT } from "@/lib/i18n/active";
 
 /**
  * Autonomia de um escopo (conta ou bot) + conectores para nomear as
@@ -39,7 +40,7 @@ export function useAutonomy(scope: "account" | "bot", botId?: string) {
 				setError(
 					cause instanceof Error
 						? cause.message
-						: "Não foi possível carregar a autonomia.",
+						: activeT("errors.loadAutonomy"),
 				);
 			})
 			.finally(() => {
@@ -64,7 +65,7 @@ export function useAutonomy(scope: "account" | "bot", botId?: string) {
 				setError(
 					cause instanceof Error
 						? cause.message
-						: "Não foi possível salvar a autonomia.",
+						: activeT("errors.saveAutonomy"),
 				);
 			} finally {
 				setSaving(false);

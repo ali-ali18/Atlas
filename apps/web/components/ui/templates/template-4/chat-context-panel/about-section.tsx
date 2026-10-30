@@ -4,6 +4,8 @@ import { useRef, useState } from "react";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { useT } from "@/lib/i18n/provider";
+
 const CLAMP_FROM = 240;
 
 /**
@@ -17,6 +19,7 @@ export function AboutSection({
 	description: string | undefined;
 	onChange: (description: string) => void;
 }) {
+	const t = useT();
 	const text = description ?? "";
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState(text);
@@ -35,11 +38,11 @@ export function AboutSection({
 	return (
 		<section aria-labelledby="info-pane-about" className="space-y-2" data-about>
 			<h3 className="font-medium text-muted-foreground text-xs" id="info-pane-about">
-				Sobre
+				{t("botSettings.about.title")}
 			</h3>
 			{editing ? (
 				<Textarea
-					aria-label="Descrição do bot"
+					aria-label={t("botSettings.about.label")}
 					autoFocus
 					className="min-h-24 rounded-xl text-body"
 					onBlur={commit}
@@ -51,13 +54,13 @@ export function AboutSection({
 							setEditing(false);
 						}
 					}}
-					placeholder="Descreva o que este bot faz"
+					placeholder={t("botSettings.about.placeholder")}
 					value={draft}
 				/>
 			) : (
 				<div className="rounded-xl border border-border/60 px-3 py-2.5">
 					<button
-						aria-label="Editar descrição do bot"
+						aria-label={t("botSettings.about.edit")}
 						className={cn(
 							"w-full whitespace-pre-wrap break-words rounded-md text-left text-body leading-[18px] outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
 							text ? "" : "text-muted-foreground",
@@ -70,7 +73,7 @@ export function AboutSection({
 						}}
 						type="button"
 					>
-						{text || "Adicionar uma descrição"}
+						{text || t("botSettings.about.add")}
 					</button>
 					{long ? (
 						<button
@@ -78,7 +81,7 @@ export function AboutSection({
 							onClick={() => setExpanded((value) => !value)}
 							type="button"
 						>
-							{expanded ? "Mostrar menos" : "Mostrar mais"}
+							{expanded ? t("botSettings.about.less") : t("botSettings.about.more")}
 						</button>
 					) : null}
 				</div>

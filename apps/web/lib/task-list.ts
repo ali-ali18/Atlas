@@ -1,3 +1,4 @@
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import type { Message } from "@/components/ui/templates/template-4/data";
 
 export type TaskItem = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -12,15 +13,15 @@ export function taskListProgress(items: readonly TaskItem[]) {
 }
 
 /** Linha recolhida da doca: "2/5 · Montar a planilha" (concluída: "5/5 · Tudo pronto"). */
-export function taskListDockLine(items: readonly TaskItem[]): string {
+export function taskListDockLine(items: readonly TaskItem[], translator: Translator = defaultTranslator): string {
 	const { total, done, allDone, current } = taskListProgress(items);
-	return `${done}/${total} · ${allDone ? "Tudo pronto" : (current?.content ?? "")}`.replace(/ · $/, "");
+	return `${done}/${total} · ${allDone ? translator.t("chat.tasks.allDone") : (current?.content ?? "")}`.replace(/ · $/, "");
 }
 
 /** Linha que fica na conversa depois do run: "Tarefas · 5/5 concluídas" (parou no meio: "Tarefas · 3/5"). */
-export function taskListSettledLabel(items: readonly TaskItem[]): string {
+export function taskListSettledLabel(items: readonly TaskItem[], translator: Translator = defaultTranslator): string {
 	const { total, done, allDone } = taskListProgress(items);
-	return allDone ? `Tarefas · ${done}/${total} concluídas` : `Tarefas · ${done}/${total}`;
+	return translator.t(allDone ? "chat.tasks.settledDone" : "chat.tasks.settled", { done, total });
 }
 
 /**

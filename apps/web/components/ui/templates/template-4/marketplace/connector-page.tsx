@@ -6,29 +6,31 @@ import type { McpConnectionView } from "@workspace/shared"
 import { Button } from "@workspace/ui/components/button"
 import type { McpCatalogItem } from "@/lib/atlas-api"
 import { accountDisplayLabel } from "@/lib/connector-accounts"
+import { useTranslations } from "@/lib/i18n/provider"
+import { defaultTranslator, type MessageKey, type Translator } from "@/lib/i18n/translator"
 import { connectorAction } from "./connector-action"
 import { AccountTabs, AccountsSection, type AccountRow } from "./connector-accounts"
 import { ConnectorDetail } from "./connector-detail"
 
-const categoryLabels = {
-	search: "Pesquisa web",
-	google: "Google",
-	productivity: "Produtividade",
-	creative: "Criação",
-	custom: "Personalizado",
-} as const
+const CATEGORY_KEYS = {
+	search: "marketplace.connector.category.search",
+	google: "marketplace.connector.category.google",
+	productivity: "marketplace.connector.category.productivity",
+	creative: "marketplace.connector.category.creative",
+	custom: "marketplace.connector.category.custom",
+} as const satisfies Record<string, MessageKey>
 
-const statusText = (connection: McpConnectionView) =>
-	connection.status === "connected" ? "Conectada" : connection.status === "error" ? "Erro na conexão" : "Login pendente"
+const statusText = (connection: McpConnectionView, { t }: Translator) =>
+	connection.status === "connected" ? t("marketplace.connector.status.connected") : connection.status === "error" ? t("marketplace.connector.status.error") : t("marketplace.connector.status.pending")
 
 /** Linhas da seção "Contas" de um conector do catálogo (cada conexão é uma conta). */
-export function mcpAccountRows(accounts: readonly McpConnectionView[], serviceName: string, currentId?: string): AccountRow[] {
+export function mcpAccountRows(accounts: readonly McpConnectionView[], serviceName: string, currentId?: string, translator: Translator = defaultTranslator): AccountRow[] {
 	return accounts.map((account) => {
-		const label = accountDisplayLabel(account, accounts)
+		const label = accountDisplayLabel(account, accounts, translator)
 		return {
 			id: account.id,
 			title: label ?? serviceName,
-			status: statusText(account),
+			status: statusText(account, translator),
 			ok: account.status === "connected",
 			needsReconnect: account.status !== "connected" && account.authType === "oauth",
 			current: account.id === currentId,
@@ -81,7 +83,9 @@ export function ConnectorPage({
 	onDeleted: (id: string) => void
 	onManageAutonomy?: (connector: string) => void
 }) {
-	const action = connectorAction({ entry, connection, secretBoxReady, busy })
+	const translator = useTranslations()
+	const { t, tn } = translator
+	const action = connectorAction({ entry, connection, secretBoxReady, busy, translator })
 	// Personalizado com OAuth expirado também ganha "Reconectar".
 	const showAction = !!entry || (connection?.authType === "oauth" && connection.status !== "connected")
 	const skills = entry?.skills ?? []
@@ -92,7 +96,7 @@ export function ConnectorPage({
 		<div className="min-w-0 space-y-6 pb-2">
 			{onBack ? (
 				<Button className="-ml-2" onClick={onBack} size="sm" type="button" variant="ghost">
-					<ArrowLeftIcon className="size-4" /> Voltar ao Marketplace
+					<ArrowLeftIcon className="size-4" /> {t("marketplace.backToMarketplace")}
 				</Button>
 			) : null}
 			<div className="flex flex-wrap items-center gap-4">
@@ -100,10 +104,10 @@ export function ConnectorPage({
 					{icon}
 				</div>
 				<div className="min-w-0 flex-1">
-					<h2 className="text-xl font-semibold">{entry?.name ?? connection?.name ?? "MCP personalizado"}</h2>
+					<h2 className="text-xl font-semibold">{entry?.name ?? connection?.name ?? t("marketplace.connector.customName")}</h2>
 					{entry ? (
 						<a className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" href={entry.sourceUrl} rel="noopener noreferrer" target="_blank">
-							Ver origem <ExternalLinkIcon className="size-3" />
+							{t("marketplace.connector.viewSource")} <ExternalLinkIcon className="size-3" />
 						</a>
 					) : (
 						<p className="break-all text-xs text-muted-foreground">{connection?.url}</p>
@@ -119,7 +123,7 @@ export function ConnectorPage({
 			{entry?.longDescription && <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{entry.longDescription}</p>}
 			{showAccounts && entry ? (
 				<AccountsSection
-					accounts={mcpAccountRows(accounts, entry.name, connection?.id)}
+					accounts={mcpAccountRows(accounts, entry.name, connection?.id, translator)}
 					adding={adding}
 					busyId={accountBusyId}
 					error={accountError}
@@ -134,20 +138,20 @@ export function ConnectorPage({
 			{entry && (
 				<>
 					<section className="space-y-2">
-						<h3 className="text-sm font-semibold">Aplicativos {appCount}</h3>
+						<h3 className="text-sm font-semibold">{t("marketplace.connector.apps", { count: appCount })}</h3>
 						<div className="divide-y rounded-xl border bg-muted/20">
 							{(accounts.length > 0 ? accounts : connection ? [connection] : [undefined]).map((account) => (
 								<div className="flex items-center gap-3 p-4" key={account?.id ?? "entry"}>
 									<PlugIcon className="size-5 shrink-0 text-muted-foreground" />
-									<div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{(account && accounts.length > 1 ? accountDisplayLabel(account, accounts) : null) ?? entry.name}</p><p className="text-xs text-muted-foreground">Conector</p></div>
-									{account && <span className="shrink-0 text-xs text-muted-foreground">{account.tools.length} ferramentas</span>}
+									<div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{(account && accounts.length > 1 ? accountDisplayLabel(account, accounts, translator) : null) ?? entry.name}</p><p className="text-xs text-muted-foreground">{t("marketplace.connector.connector")}</p></div>
+									{account && <span className="shrink-0 text-xs text-muted-foreground">{t("marketplace.connector.toolCount", { count: account.tools.length })}</span>}
 								</div>
 							))}
 						</div>
 					</section>
 					{skills.length > 0 && (
 						<section className="space-y-2">
-							<h3 className="text-sm font-semibold">Habilidades {skills.length}</h3>
+							<h3 className="text-sm font-semibold">{t("marketplace.connector.skills", { count: skills.length })}</h3>
 							<div className="divide-y rounded-xl border bg-muted/20">
 								{skills.map((skill) => (
 									<div className="flex min-w-0 items-center gap-3 p-4" key={skill.key}>
@@ -159,12 +163,12 @@ export function ConnectorPage({
 						</section>
 					)}
 					<section className="space-y-2">
-						<h3 className="text-sm font-semibold">Informações</h3>
+						<h3 className="text-sm font-semibold">{t("marketplace.info")}</h3>
 						<dl className="divide-y rounded-xl border bg-muted/20 px-4">
-							<div className="flex justify-between gap-4 py-3 text-sm"><dt className="text-muted-foreground">Recursos</dt><dd>{appCount} {appCount === 1 ? "aplicativo" : "aplicativos"}, {skills.length} {skills.length === 1 ? "habilidade" : "habilidades"}</dd></div>
-							<div className="flex justify-between gap-4 py-3 text-sm"><dt className="text-muted-foreground">Desenvolvedor</dt><dd>{entry.developer}</dd></div>
-							<div className="flex justify-between gap-4 py-3 text-sm"><dt className="text-muted-foreground">Categoria</dt><dd>{categoryLabels[entry.category]}</dd></div>
-							<div className="flex justify-between gap-4 py-3 text-sm"><dt className="text-muted-foreground">Site</dt><dd><a className="hover:underline" href={`https://${entry.website}`} rel="noopener noreferrer" target="_blank">{entry.website} ↗</a></dd></div>
+							<div className="flex justify-between gap-4 py-3 text-sm"><dt className="text-muted-foreground">{t("marketplace.connector.resources")}</dt><dd>{t("marketplace.connector.resourcesValue", { apps: tn("marketplace.connector.appCount", appCount), skills: skills.length === 0 ? t("marketplace.connector.skillCountNone") : tn("marketplace.connector.skillCount", skills.length) })}</dd></div>
+							<div className="flex justify-between gap-4 py-3 text-sm"><dt className="text-muted-foreground">{t("marketplace.connector.developer")}</dt><dd>{entry.developer}</dd></div>
+							<div className="flex justify-between gap-4 py-3 text-sm"><dt className="text-muted-foreground">{t("marketplace.category")}</dt><dd>{CATEGORY_KEYS[entry.category] ? t(CATEGORY_KEYS[entry.category]) : entry.category}</dd></div>
+							<div className="flex justify-between gap-4 py-3 text-sm"><dt className="text-muted-foreground">{t("marketplace.connector.website")}</dt><dd><a className="hover:underline" href={`https://${entry.website}`} rel="noopener noreferrer" target="_blank">{entry.website} ↗</a></dd></div>
 						</dl>
 					</section>
 				</>
@@ -172,11 +176,11 @@ export function ConnectorPage({
 			{connection && (
 				<section className="space-y-3">
 					<div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-						<h3 className="text-sm font-semibold">Configuração</h3>
+						<h3 className="text-sm font-semibold">{t("marketplace.connector.configuration")}</h3>
 						{showAccounts && accounts.length > 1 && onSelectAccount ? (
 							<AccountTabs
-								accounts={mcpAccountRows(accounts, entry?.name ?? "", connection.id).map(({ id, title }) => ({ id, title }))}
-								label="Conta em configuração"
+								accounts={mcpAccountRows(accounts, entry?.name ?? "", connection.id, translator).map(({ id, title }) => ({ id, title }))}
+								label={t("marketplace.api.accountInSetup")}
 								onChange={onSelectAccount}
 								value={connection.id}
 							/>

@@ -3,6 +3,7 @@ import { Spinner } from "@workspace/ui/components/spinner";
 import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
 import { OpenAIIcon } from "@/components/icons/openai";
+import { useT } from "@/lib/i18n/provider";
 
 export type ProviderCallbackState = "working" | "success" | "error";
 
@@ -10,7 +11,7 @@ export type ProviderCallbackViewProps = {
 	state: ProviderCallbackState;
 	/** E-mail da conta conectada, quando a API devolve. */
 	email?: string | null;
-	/** Mensagem pt-BR do erro (já mapeada do código). */
+	/** Mensagem do erro, já no idioma da tela (mapeada do código). */
 	message?: string | null;
 	/** `true` quando a janela foi aberta pelo Atlas (dá para tentar de novo e fechar sozinha). */
 	hasOpener: boolean;
@@ -45,11 +46,11 @@ function LinkDots({ animated }: { animated: boolean }) {
 	);
 }
 
-const TITLES: Record<ProviderCallbackState, string> = {
-	working: "Conectando ao ChatGPT…",
-	success: "ChatGPT conectado",
-	error: "Não foi possível conectar",
-};
+const TITLE_KEYS = {
+	working: "providerCallback.working",
+	success: "providerCallback.success",
+	error: "providerCallback.error",
+} as const satisfies Record<ProviderCallbackState, string>;
 
 function StatusIcon({ state }: { state: ProviderCallbackState }) {
 	if (state === "working")
@@ -77,6 +78,7 @@ export function ProviderCallbackView({
 	onRetry,
 	onClose,
 }: ProviderCallbackViewProps) {
+	const t = useT();
 	return (
 		<main className="grid min-h-svh place-items-center bg-background p-6 text-foreground">
 			<section className="flex w-full max-w-sm flex-col items-center gap-6 rounded-3xl border bg-card p-8 text-center shadow-sm">
@@ -85,17 +87,17 @@ export function ProviderCallbackView({
 						<OpenAIIcon className="size-7" />
 					</AppTile>
 					<LinkDots animated={state === "working"} />
-					<AppTile label="App">
+					<AppTile label={t("providerCallback.appTile")}>
 						<BotIcon className="size-7" />
 					</AppTile>
 				</div>
 
 				<div role="status" aria-live="polite" className="flex flex-col items-center gap-3">
 					<StatusIcon state={state} />
-					<h1 className="font-heading text-lg font-semibold tracking-tight">{TITLES[state]}</h1>
+					<h1 className="font-heading text-lg font-semibold tracking-tight">{t(TITLE_KEYS[state])}</h1>
 					{state === "success" && email ? <p className="text-sm text-muted-foreground">{email}</p> : null}
 					{state === "success" ? (
-						<p className="text-sm text-muted-foreground">Você já pode fechar esta janela.</p>
+						<p className="text-sm text-muted-foreground">{t("providerCallback.canClose")}</p>
 					) : null}
 					{state === "error" ? (
 						<p className="rounded-xl bg-destructive/10 px-3 py-2 text-sm">{message}</p>
@@ -106,11 +108,11 @@ export function ProviderCallbackView({
 					<div className="flex gap-2">
 						{hasOpener ? (
 							<Button type="button" onClick={onRetry}>
-								Tentar de novo
+								{t("providerCallback.retry")}
 							</Button>
 						) : null}
 						<Button type="button" variant="outline" onClick={onClose}>
-							Fechar
+							{t("providerCallback.close")}
 						</Button>
 					</div>
 				) : null}
@@ -120,7 +122,7 @@ export function ProviderCallbackView({
 						href="/?settings=provedores"
 						className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
 					>
-						Voltar ao app
+						{t("providerCallback.backToApp")}
 					</a>
 				) : null}
 			</section>

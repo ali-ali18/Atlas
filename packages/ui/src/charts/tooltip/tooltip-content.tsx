@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { cn } from "@workspace/ui/lib/utils";
-import { intFmt } from "../chart-formatters";
+import { intFmt, useChartLocale } from "../chart-formatters";
 
 export interface TooltipRow {
   color: string;
@@ -42,6 +42,7 @@ export function TooltipHeader({ children, className }: TooltipHeaderProps) {
 TooltipHeader.displayName = "TooltipHeader";
 
 export function TooltipContent({ title, rows, children }: TooltipContentProps) {
+  const locale = useChartLocale();
   const hasBody = rows.length > 0 || Boolean(children);
   return (
     <div>
@@ -66,7 +67,7 @@ export function TooltipContent({ title, rows, children }: TooltipContentProps) {
                   </div>
                   <span className="text-right font-medium text-chart-tooltip-foreground text-sm tabular-nums">
                     {typeof row.value === "number"
-                      ? intFmt(row.value)
+                      ? intFmt(row.value, locale)
                       : row.value}
                   </span>
                 </div>

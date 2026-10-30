@@ -9,15 +9,17 @@ import { fileCardDescription, fileCategory } from "@/lib/file-card";
 import { InputGroupAddon } from "@workspace/ui/components/input-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
+import { useT } from "@/lib/i18n/provider";
+import type { TFunction } from "@/lib/i18n/translator";
 
 /** Linha horizontal (com rolagem) de chips de 44px dos anexos do composer. */
 export const CHIP_ROW_CLASS = "flex w-full min-w-0 gap-2 overflow-x-auto overscroll-x-contain py-1 [scrollbar-width:none]";
 export const CHIP_REMOVE_CLASS =
 	"touch-hit absolute -top-1 -right-1 z-10 grid size-5 place-items-center rounded-full bg-foreground text-background shadow outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring md:opacity-0 md:group-hover/chip:opacity-100 [@media(hover:none)]:opacity-100";
 
-function statusText(item: FileAttachment): string {
-	if (item.status === "uploading") return "Enviando…";
-	if (item.status === "error") return item.error ?? "Falha no envio";
+function statusText(item: FileAttachment, t: TFunction): string {
+	if (item.status === "uploading") return t("composer.uploading");
+	if (item.status === "error") return item.error ?? t("composer.uploadFailed");
 	return fileCardDescription({ filename: item.file.name, size: item.file.size });
 }
 
@@ -32,12 +34,13 @@ export function ComposerFileAttachments({
 	items: readonly FileAttachment[];
 	onRemove: (localId: string) => void;
 }) {
+	const t = useT();
 	if (items.length === 0) return null;
 	return (
 		<InputGroupAddon align="block-start" className="px-3 pt-3 pb-1">
-			<ul aria-label="Arquivos anexados" className={CHIP_ROW_CLASS}>
+			<ul aria-label={t("composer.filesAttached")} className={CHIP_ROW_CLASS}>
 				{items.map((item) => {
-					const label = `${item.file.name}, ${statusText(item)}`;
+					const label = `${item.file.name}, ${statusText(item, t)}`;
 					return (
 						<li className="group/chip relative shrink-0" data-testid="composer-file" data-state={item.status} key={item.localId}>
 							<Tooltip>
@@ -62,10 +65,10 @@ export function ComposerFileAttachments({
 								</TooltipTrigger>
 								<TooltipContent className="flex-col items-start gap-0.5" side="top">
 									<span className="max-w-60 break-all font-medium">{item.file.name}</span>
-									<span className="opacity-80">{statusText(item)}</span>
+									<span className="opacity-80">{statusText(item, t)}</span>
 								</TooltipContent>
 							</Tooltip>
-							<button aria-label={`Remover ${item.file.name}`} className={CHIP_REMOVE_CLASS} onClick={() => onRemove(item.localId)} type="button">
+							<button aria-label={t("composer.remove", { name: item.file.name })} className={CHIP_REMOVE_CLASS} onClick={() => onRemove(item.localId)} type="button">
 								<XIcon aria-hidden className="size-3" />
 							</button>
 						</li>

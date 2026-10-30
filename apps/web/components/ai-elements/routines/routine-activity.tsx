@@ -8,6 +8,7 @@ import {
 } from "@/components/ai-elements/attachments";
 import type { AttachmentData } from "@/components/ai-elements/attachments";
 import { CalendarClockIcon, ClockIcon, MailIcon, WebhookIcon } from "lucide-react";
+import { useTranslations } from "@/lib/i18n/provider";
 import { routineCardSummary } from "@/components/ui/templates/template-4/chat-context-panel/routine-map";
 
 export type RoutineActivityAction = "created" | "listed" | "updated";
@@ -57,10 +58,12 @@ export function RoutineActivityCard({
 	hookSecret?: string;
 	onOpen?: (payload: OpenRoutinePayload) => void;
 }) {
-	const label = title ?? (action === "updated" ? "Rotina atualizada" : "Rotina");
+	const translator = useTranslations();
+	const { t } = translator;
+	const label = title ?? (action === "updated" ? t("aiElements.routines.updated") : t("aiElements.routines.routine"));
 	const Icon = routineTriggerIcon(triggerType, detail);
 	const canOpen = Boolean(routineId && onOpen);
-	const summary = action === "created" ? routineCardSummary(triggerType, detail) : null;
+	const summary = action === "created" ? routineCardSummary(triggerType, detail, translator) : null;
 
 	return (
 		<div className="flex w-full max-w-[min(68ch,100%)] flex-col gap-1 self-start">
@@ -107,7 +110,7 @@ export function RoutineActivityCard({
 			</Attachments>
 			{summary ? (
 				<p className="px-1 text-muted-foreground text-xs" data-routine-summary>
-					Rotina criada · {summary}
+					{t("aiElements.routines.createdSummary", { summary })}
 				</p>
 			) : null}
 		</div>

@@ -8,6 +8,8 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { REQUEST_PRIMARY_CLASS, RequestCard } from "@workspace/ui/components/request-card";
 import { Textarea } from "@workspace/ui/components/textarea";
+import { useTranslations } from "@/lib/i18n/provider";
+import type { Translator } from "@/lib/i18n/translator";
 import { AgentAvatar } from "@/components/ui/templates/template-4/agent-avatar";
 
 export type BotProposalEdits = { name?: string; description?: string };
@@ -25,8 +27,8 @@ export type BotProposalCardProps = {
 	onReject?: () => void;
 };
 
-function modelLabel(model: string | null): string {
-	if (!model) return "Modelo padrão";
+function modelLabel(model: string | null, { t }: Translator): string {
+	if (!model) return t("aiElements.botProposal.defaultModel");
 	const last = model.split("/").pop() ?? model;
 	return last;
 }
@@ -37,6 +39,8 @@ function modelLabel(model: string | null): string {
  * Decidido, só o selo e uma linha ficam (os detalhes recolhem).
  */
 export function BotProposalCard({ proposal, isApplying = false, error, defaultEditing = false, onApprove, onReject }: BotProposalCardProps) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const [editing, setEditing] = useState(defaultEditing);
 	const [name, setName] = useState(proposal.name);
 	const [description, setDescription] = useState(proposal.description);
@@ -54,21 +58,21 @@ export function BotProposalCard({ proposal, isApplying = false, error, defaultEd
 
 	const title =
 		proposal.status === "approved"
-			? `Agente criado: “${proposal.name}”`
+			? t("aiElements.botProposal.titleCreated", { name: proposal.name })
 			: proposal.status === "rejected"
-				? `Proposta dispensada: “${proposal.name}”`
-				: `Criar o agente “${shownName}”?`;
+				? t("aiElements.botProposal.titleDismissed", { name: proposal.name })
+				: t("aiElements.botProposal.titlePending", { name: shownName });
 	const badge =
 		proposal.status === "approved"
-			? ({ tone: "success", label: "Criado" } as const)
+			? ({ tone: "success", label: t("aiElements.botProposal.badgeCreated") } as const)
 			: proposal.status === "rejected"
-				? ({ tone: "muted", label: "Dispensado" } as const)
-				: ({ tone: "pending", label: "Novo agente" } as const);
+				? ({ tone: "muted", label: t("aiElements.botProposal.badgeDismissed") } as const)
+				: ({ tone: "pending", label: t("aiElements.botProposal.badgeNew") } as const);
 	const note =
 		proposal.status === "approved"
 			? proposal.firstTask
-				? "Primeira tarefa enviada."
-				: "Já está na sua lista de conversas."
+				? t("aiElements.botProposal.noteFirstTask")
+				: t("aiElements.botProposal.noteInList")
 			: undefined;
 
 	return (
@@ -76,16 +80,16 @@ export function BotProposalCard({ proposal, isApplying = false, error, defaultEd
 			actions={
 				<>
 					<Button className={REQUEST_PRIMARY_CLASS} disabled={isApplying || !canSubmit} onClick={approve} size="sm" type="button">
-						{isApplying ? "Criando…" : "Criar agente"}
+						{isApplying ? t("aiElements.botProposal.creating") : t("aiElements.botProposal.create")}
 					</Button>
 					<Button disabled={isApplying} onClick={() => setEditing((value) => !value)} size="sm" type="button" variant="secondary">
-						{editing ? "Pronto" : "Editar"}
+						{editing ? t("aiElements.botProposal.done") : t("aiElements.botProposal.edit")}
 					</Button>
 				</>
 			}
 			badge={badge}
 			data-kind="bot-proposal"
-			detailsLabel="Ver o agente"
+			detailsLabel={t("aiElements.botProposal.viewAgent")}
 			error={error}
 			leading={<UserRoundPlusIcon aria-hidden />}
 			note={note}
@@ -93,7 +97,7 @@ export function BotProposalCard({ proposal, isApplying = false, error, defaultEd
 			title={title}
 			trailing={
 				<Button disabled={isApplying} onClick={onReject} size="sm" type="button" variant="ghost">
-					Agora não
+					{t("aiElements.botProposal.notNow")}
 				</Button>
 			}
 		>
@@ -105,21 +109,21 @@ export function BotProposalCard({ proposal, isApplying = false, error, defaultEd
 							{shownName}
 						</span>
 						<span className="text-xs text-muted-foreground" data-slot="bot-proposal-model">
-							{modelLabel(proposal.model)}
+							{modelLabel(proposal.model, translator)}
 						</span>
 					</div>
 				</div>
 				{editing && !resolved ? (
 					<div className="flex min-w-0 flex-col gap-2" data-slot="bot-proposal-edit">
 						<Input
-							aria-label="Nome do agente"
+							aria-label={t("aiElements.botProposal.nameLabel")}
 							disabled={isApplying}
 							maxLength={BOT_PROPOSAL_NAME_MAX}
 							onChange={(event) => setName(event.target.value)}
 							value={name}
 						/>
 						<Textarea
-							aria-label="O que o agente faz"
+							aria-label={t("aiElements.botProposal.roleLabel")}
 							className="min-h-24"
 							disabled={isApplying}
 							maxLength={BOT_PROPOSAL_DESCRIPTION_MAX}
@@ -134,7 +138,7 @@ export function BotProposalCard({ proposal, isApplying = false, error, defaultEd
 				)}
 				{proposal.skills.length > 0 ? (
 					<div className="flex min-w-0 flex-wrap items-center gap-1.5" data-slot="bot-proposal-skills">
-						<span className="text-xs text-muted-foreground">Habilidades</span>
+						<span className="text-xs text-muted-foreground">{t("aiElements.botProposal.skills")}</span>
 						{proposal.skills.map((skill) => (
 							<Badge key={skill} variant="secondary">
 								{skill}
@@ -144,7 +148,7 @@ export function BotProposalCard({ proposal, isApplying = false, error, defaultEd
 				) : null}
 				{proposal.firstTask ? (
 					<p className="m-0 line-clamp-3 text-xs text-muted-foreground [overflow-wrap:anywhere]" data-slot="bot-proposal-task">
-						<span className="font-medium text-foreground">Primeira tarefa: </span>
+						<span className="font-medium text-foreground">{t("aiElements.botProposal.firstTask")}</span>
 						{proposal.firstTask}
 					</p>
 				) : null}

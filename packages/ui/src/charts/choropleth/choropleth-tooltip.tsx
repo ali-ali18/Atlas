@@ -1,6 +1,6 @@
 "use client";
 
-import { intFmt } from "../chart-formatters";
+import { intFmt, useChartLocale } from "../chart-formatters";
 import { TooltipBox } from "../tooltip/tooltip-box";
 import { TooltipContent, type TooltipRow } from "../tooltip/tooltip-content";
 import {
@@ -52,7 +52,7 @@ export interface ChoroplethTooltipProps {
 
 export function ChoroplethTooltip({
   content,
-  formatValue = intFmt,
+  formatValue: formatValueProp,
   getFeatureName,
   getFeatureValue,
   valueLabel = "Valor",
@@ -62,6 +62,8 @@ export function ChoroplethTooltip({
   exit = true,
   hideDelay = TOOLTIP_HIDE_DELAY_MS,
 }: ChoroplethTooltipProps) {
+  const locale = useChartLocale();
+  const formatValue = formatValueProp ?? ((value: number) => intFmt(value, locale));
   const { containerRef, width, height, features } = useChoroplethStable();
   const { tooltipData: hoverData } = useChoroplethInteraction();
   const tooltipData = useDelayedTooltipData(hoverData, 0, hideDelay);

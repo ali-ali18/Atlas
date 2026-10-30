@@ -8,18 +8,19 @@ import {
 	type UpdateAccountSettingsInput,
 } from "@workspace/shared";
 
+import { defaultTranslator, type TFunction } from "@/lib/i18n/translator";
+
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-export const SAVE_ERROR_FALLBACK = "Não foi possível salvar. Tente novamente.";
 
 /**
  * Rótulo curto da opção "Herdar" com o valor herdado ("Herdar (pt-BR)"). A origem
  * (servidor ou conta) não entra: o texto tem de caber em painéis estreitos.
  * Origem `user` não herda nada: devolve `null`.
  */
-export function inheritLabel(source: ConfigSource, valueLabel: string): string | null {
+export function inheritLabel(source: ConfigSource, valueLabel: string, t: TFunction = defaultTranslator.t): string | null {
 	if (source === "user") return null;
-	return `Herdar (${valueLabel})`;
+	return t("settings.general.inheritValue", { value: valueLabel });
 }
 
 /**
@@ -115,12 +116,12 @@ function applyJevAndExecution(
 }
 
 /** Mensagem pt-BR para o usuário; erro do servidor só quando é de validação (400). */
-export function saveErrorMessage(error: unknown): string {
+export function saveErrorMessage(error: unknown, t: TFunction = defaultTranslator.t): string {
 	if (error && typeof error === "object" && "status" in error && "message" in error) {
 		const { status, message } = error as { status: unknown; message: unknown };
 		if (status === 400 && typeof message === "string" && message.trim()) return message;
 	}
-	return SAVE_ERROR_FALLBACK;
+	return t("settings.saveError");
 }
 
 export type CommitResult =
@@ -139,6 +140,8 @@ export async function commitSettingsChange(input: {
 	extra?: { sandboxAutoStart?: boolean };
 	send: (input: UpdateAccountSettingsInput) => Promise<AccountSettingsResponse>;
 	onOptimistic?: (view: AccountSettingsResponse) => void;
+	/** Tradutor do idioma da tela, para a mensagem de erro. */
+	t?: TFunction;
 }): Promise<CommitResult> {
 	input.onOptimistic?.(applyOptimisticPatch(input.view, input.patch, input.extra));
 	try {
@@ -147,6 +150,6 @@ export async function commitSettingsChange(input: {
 		if (input.extra?.sandboxAutoStart !== undefined) body.sandboxAutoStart = input.extra.sandboxAutoStart;
 		return { ok: true, view: await input.send(body) };
 	} catch (error) {
-		return { ok: false, view: input.view, error: saveErrorMessage(error) };
+		return { ok: false, view: input.view, error: saveErrorMessage(error, input.t) };
 	}
 }

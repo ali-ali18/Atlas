@@ -7,6 +7,7 @@ import type { LoginVaultOffer } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { RequestCard, REQUEST_PRIMARY_CLASS } from "@workspace/ui/components/request-card";
+import { useTranslations } from "@/lib/i18n/provider";
 
 export type LoginCardProps = {
   site: string;
@@ -50,6 +51,7 @@ export function LoginCard({
   codeField,
   onSubmitCode,
 }: LoginCardProps) {
+  const { t } = useTranslations();
   const [manual, setManual] = useState(false);
   const [code, setCode] = useState("");
   const done = status === "done";
@@ -62,29 +64,29 @@ export function LoginCard({
         actions={
           <>
             <Button className={REQUEST_PRIMARY_CLASS} onClick={onUseVault} size="sm" type="button">
-              Entrar
+              {t("aiElements.login.enter")}
             </Button>
             <Button onClick={() => setManual(true)} size="sm" type="button" variant="secondary">
-              Eu faço
+              {t("aiElements.login.iDoIt")}
             </Button>
           </>
         }
-        badge={done ? { tone: "success", label: "Concluído" } : { tone: "pending", label: "Precisa de você" }}
+        badge={done ? { tone: "success", label: t("aiElements.login.done") } : { tone: "pending", label: t("aiElements.login.needsYou") }}
         description={
           done
-            ? "Retomando de onde parou."
+            ? t("aiElements.login.resuming")
             : vault.emailCode
-              ? `Eu preencho usuário e senha pelo Cofre e, se o site pedir, busco o código no seu e-mail (${vault.emailCode}). Nada disso passa pelo modelo.`
-              : "Eu preencho usuário e senha pelo Cofre. A senha nunca passa pelo modelo."
+              ? t("aiElements.login.vaultEmailCode", { email: vault.emailCode })
+              : t("aiElements.login.vaultDescription")
         }
-        leading={done ? <CheckIcon aria-label="Login concluído" /> : <KeyRoundIcon aria-label="Login do Cofre" />}
+        leading={done ? <CheckIcon aria-label={t("aiElements.login.completedLabel")} /> : <KeyRoundIcon aria-label={t("aiElements.login.vaultLabel")} />}
         resolved={done}
         title={
           done
-            ? `Login em ${site} concluído`
+            ? t("aiElements.login.doneTitle", { site })
             : vault.emailCode
-              ? `Entrar em ${site} com o login do Cofre${who} e, se pedir, buscar o código no seu e-mail (${vault.emailCode})?`
-              : `Entrar em ${site} com o login do Cofre${who}?`
+              ? t("aiElements.login.vaultTitleEmail", { site, who, email: vault.emailCode })
+              : t("aiElements.login.vaultTitle", { site, who })
         }
       />
     );
@@ -93,11 +95,11 @@ export function LoginCard({
   const Icon = done ? CheckIcon : captcha ? ShieldQuestionIcon : LogInIcon;
   const iconLabel = done
     ? captcha
-      ? "Verificação concluída"
-      : "Login concluído"
+      ? t("aiElements.login.captchaDone")
+      : t("aiElements.login.completedLabel")
     : captcha
-      ? "Verificação necessária"
-      : "Login necessário";
+      ? t("aiElements.login.captchaNeeded")
+      : t("aiElements.login.loginNeeded");
   const askCode = codeField && !done && !captcha;
   const canSave = !done && !captcha && !vault && !vaultTried && Boolean(onSaveToVault);
   return (
@@ -112,7 +114,7 @@ export function LoginCard({
               size="sm"
               type="button"
             >
-              Enviar código
+              {t("aiElements.login.sendCode")}
             </Button>
           ) : null}
           <Button
@@ -123,42 +125,42 @@ export function LoginCard({
             size="sm"
             type="button"
           >
-            Abrir a VM
+            {t("aiElements.login.openVm")}
           </Button>
           <Button onClick={onDone} size="sm" type="button" variant="secondary">
-            Terminei
+            {t("aiElements.login.finished")}
           </Button>
         </>
       }
       badge={
         done
-          ? { tone: "success", label: "Concluído" }
-          : { tone: "pending", label: "Precisa de você" }
+          ? { tone: "success", label: t("aiElements.login.done") }
+          : { tone: "pending", label: t("aiElements.login.needsYou") }
       }
       description={
         done
-          ? "Retomando de onde parou."
+          ? t("aiElements.login.resuming")
           : captcha
-            ? "Abra a VM, resolva o captcha e clique em Terminei. Eu continuo daqui."
+            ? t("aiElements.login.captchaHelp")
             : vaultTried
-              ? `${vaultTried} Abra a VM, resolva o que falta e clique em Terminei. Eu continuo daqui.`
-              : "Abra a VM, entre na sua conta e clique em Terminei. Eu continuo daqui; sua senha nunca passa por mim."
+              ? t("aiElements.login.triedHelp", { tried: vaultTried })
+              : t("aiElements.login.loginHelp")
       }
       leading={<Icon aria-label={iconLabel} />}
       resolved={done}
       title={
         done
           ? captcha
-            ? `Verificação em ${site} concluída`
-            : `Login em ${site} concluído`
+            ? t("aiElements.login.captchaDoneTitle", { site })
+            : t("aiElements.login.doneTitle", { site })
           : captcha
-            ? `${site} pediu uma verificação (captcha)`
-            : `Preciso que você faça login em ${site}`
+            ? t("aiElements.login.captchaTitle", { site })
+            : t("aiElements.login.loginTitle", { site })
       }
       children={
         askCode ? (
           <Input
-            aria-label="Código de verificação"
+            aria-label={t("aiElements.login.codeLabel")}
             autoComplete="one-time-code"
             className="max-w-48 font-mono tracking-widest"
             data-slot="login-code-input"
@@ -168,7 +170,7 @@ export function LoginCard({
             onKeyDown={(event) => {
               if (event.key === "Enter" && code.trim().length >= 3) onSubmitCode?.(code.trim());
             }}
-            placeholder="Código"
+            placeholder={t("aiElements.login.codePlaceholder")}
             spellCheck={false}
             value={code}
           />
@@ -177,7 +179,7 @@ export function LoginCard({
       trailing={
         canSave ? (
           <Button data-slot="login-save-to-vault" onClick={onSaveToVault} size="sm" type="button" variant="ghost">
-            <KeyRoundIcon aria-hidden="true" /> Salvar um login no Cofre para a próxima vez
+            <KeyRoundIcon aria-hidden="true" /> {t("aiElements.login.saveToVault")}
           </Button>
         ) : undefined
       }

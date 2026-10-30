@@ -10,9 +10,7 @@ import { FlowPanel } from "@/components/ai-elements/login/flow-panel"
 import { ApiConnectFlow } from "@/components/ai-elements/login/api-connect-sheet"
 import { useApiConnect } from "@/hooks/use-api-connection"
 import { discoverApi } from "@/lib/atlas-api"
-
-const NOT_FOUND =
-  "Não encontrei a especificação da API nesse link. Tente o link do arquivo OpenAPI (.json ou .yaml)."
+import { useTranslations } from "@/lib/i18n/provider"
 
 /** Primeiro passo do caminho manual: o link; o servidor lê a especificação ao continuar. */
 export function ApiLinkStep({
@@ -30,6 +28,7 @@ export function ApiLinkStep({
   onCancel: () => void
   onSubmit: () => void
 }) {
+  const { t } = useTranslations()
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (!busy && value.trim()) onSubmit()
@@ -38,18 +37,18 @@ export function ApiLinkStep({
     <form onSubmit={submit}>
       <div className="flex items-center justify-end px-4 pt-4">
         <Button disabled={busy} onClick={onCancel} size="sm" type="button" variant="ghost">
-          Cancelar
+          {t("common.cancel")}
         </Button>
       </div>
       <div className="flex min-w-0 flex-col gap-4 px-4 pt-2 pb-2">
         <div className="flex flex-col gap-1">
-          <h2 className="m-0 text-base font-semibold">Link da API</h2>
+          <h2 className="m-0 text-base font-semibold">{t("marketplace.manual.linkTitle")}</h2>
           <p className="m-0 text-sm text-muted-foreground">
-            Cole o link da documentação ou do arquivo OpenAPI.
+            {t("marketplace.manual.linkHint")}
           </p>
         </div>
         <Input
-          aria-label="Link da API"
+          aria-label={t("marketplace.manual.linkTitle")}
           autoCapitalize="off"
           autoComplete="off"
           autoCorrect="off"
@@ -73,7 +72,7 @@ export function ApiLinkStep({
           disabled={busy || !value.trim()}
           type="submit"
         >
-          {busy ? "Lendo…" : "Continuar"}
+          {busy ? t("marketplace.manual.reading") : t("marketplace.manual.continue")}
         </Button>
       </div>
     </form>
@@ -116,12 +115,13 @@ export function ApiAddAccount({
   onClose: () => void
   onConnected: () => void
 }) {
+  const { t } = useTranslations()
   return (
     <FlowPanel
-      description="Credenciais e acesso da nova conta"
+      description={t("marketplace.manual.addAccountDescription")}
       onOpenChange={(next) => !next && onClose()}
       open={!!proposal}
-      title="Adicionar outra conta"
+      title={t("marketplace.manual.addAccountTitle")}
     >
       {proposal ? (
         <ManualFlow
@@ -145,6 +145,7 @@ export function ApiManualConnect({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const { t } = useTranslations()
   const [url, setUrl] = useState("")
   const [proposal, setProposal] = useState<ApiProposal | null>(null)
   const [busy, setBusy] = useState(false)
@@ -161,17 +162,17 @@ export function ApiManualConnect({
     try {
       setProposal(await discoverApi(url.trim()))
     } catch (cause) {
-      setError(cause instanceof Error && cause.message ? cause.message : NOT_FOUND)
+      setError(cause instanceof Error && cause.message ? cause.message : t("marketplace.manual.notFound"))
     } finally {
       setBusy(false)
     }
   }
   return (
     <FlowPanel
-      description="Link, credenciais e acesso da API"
+      description={t("marketplace.manual.connectDescription")}
       onOpenChange={(next) => !next && !busy && close()}
       open={open}
-      title="Conectar API"
+      title={t("marketplace.manual.connectTitle")}
     >
       {proposal ? (
         <ManualFlow onClose={close} proposal={proposal} />

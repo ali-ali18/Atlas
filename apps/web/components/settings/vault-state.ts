@@ -1,4 +1,6 @@
 import { SECRET_NAME_RE, hostOf, suggestLoginName, suggestSecretName } from "@workspace/shared";
+import { formatDate } from "@/lib/format";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import type { VaultAuditEntry, VaultExtraField, VaultItemKind, VaultItemView, VaultWriteInput } from "@/lib/atlas-api";
 
 /** Estado puro do Cofre (Configurações): busca, formulário, gerador de senha e histórico. Sem React. */
@@ -36,7 +38,7 @@ export function generatePassword(options: { length?: number; symbols?: boolean; 
 
 export type PasswordStrength = { score: 0 | 1 | 2 | 3 | 4; label: string };
 
-export function passwordStrength(password: string): PasswordStrength {
+export function passwordStrength(password: string, { t }: Translator = defaultTranslator): PasswordStrength {
 	if (!password) return { score: 0, label: "" };
 	let variety = 0;
 	if (/[a-z]/.test(password)) variety += 1;
@@ -48,7 +50,7 @@ export function passwordStrength(password: string): PasswordStrength {
 	if (password.length >= 12 && variety >= 2) score += 1;
 	if (password.length >= 14 && variety >= 3) score += 1;
 	if (password.length >= 18 && variety >= 4) score += 1;
-	const labels = ["Fraca", "Fraca", "Razoável", "Boa", "Forte"] as const;
+	const labels = [t("settings.vault.strength.weak"), t("settings.vault.strength.weak"), t("settings.vault.strength.fair"), t("settings.vault.strength.good"), t("settings.vault.strength.strong")] as const;
 	return { score: score as PasswordStrength["score"], label: labels[score]! };
 }
 
@@ -73,9 +75,9 @@ export function itemTitle(item: Pick<VaultItemView, "label" | "name">): string {
 	return item.label || item.name;
 }
 
-export function itemSubtitle(item: VaultItemView): string {
-	if (item.kind === "login") return [item.username, item.domain].filter(Boolean).join(" · ") || "Login de site";
-	return item.description || "Segredo";
+export function itemSubtitle(item: VaultItemView, { t }: Translator = defaultTranslator): string {
+	if (item.kind === "login") return [item.username, item.domain].filter(Boolean).join(" · ") || t("settings.vault.subtitleLogin");
+	return item.description || t("settings.vault.subtitleSecret");
 }
 
 // ----- formulário -----
@@ -125,14 +127,14 @@ export function normalizeSiteUrl(raw: string): string {
 	return /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`;
 }
 
-export function validateVaultForm(form: VaultForm, editing: boolean): { ok: true } | { ok: false; errors: VaultFormErrors } {
+export function validateVaultForm(form: VaultForm, editing: boolean, { t }: Translator = defaultTranslator): { ok: true } | { ok: false; errors: VaultFormErrors } {
 	const errors: VaultFormErrors = {};
-	if (!SECRET_NAME_RE.test(form.name.trim())) errors.name = "Use letras, números, - e _ (até 64), sem espaços.";
-	if (form.kind === "secret" && !editing && !form.value) errors.value = "Cole o valor do segredo.";
+	if (!SECRET_NAME_RE.test(form.name.trim())) errors.name = t("settings.vault.err.name");
+	if (form.kind === "secret" && !editing && !form.value) errors.value = t("settings.vault.err.value");
 	if (form.kind === "login") {
-		if (!hostOf(normalizeSiteUrl(form.siteUrl))) errors.siteUrl = "Informe o endereço do site (ex.: github.com).";
-		if (!editing && !form.password) errors.password = "Informe a senha (ou gere uma).";
-		if (form.extras.some((extra) => !extra.name.trim())) errors.extras = "Todo campo extra precisa de nome.";
+		if (!hostOf(normalizeSiteUrl(form.siteUrl))) errors.siteUrl = t("settings.vault.err.siteUrl");
+		if (!editing && !form.password) errors.password = t("settings.vault.err.password");
+		if (form.extras.some((extra) => !extra.name.trim())) errors.extras = t("settings.vault.err.extras");
 	}
 	return Object.keys(errors).length === 0 ? { ok: true } : { ok: false, errors };
 }
@@ -159,38 +161,39 @@ export function formToInput(form: VaultForm, editing: boolean): VaultWriteInput 
 
 // ----- histórico -----
 
-const ACTION_LABEL: Record<string, string> = {
-	created: "Criado",
-	updated: "Editado",
-	revealed: "Revelado",
-	copied: "Copiado",
-	used: "Usado",
-	rotated: "Trocado",
-	approved: "Uso autorizado",
-};
+const ACTION_KEYS = {
+	created: "settings.vault.audit.created",
+	updated: "settings.vault.audit.updated",
+	revealed: "settings.vault.audit.revealed",
+	copied: "settings.vault.audit.copied",
+	used: "settings.vault.audit.used",
+	rotated: "settings.vault.audit.rotated",
+	approved: "settings.vault.audit.approved",
+} as const;
 
-export function auditLabel(entry: Pick<VaultAuditEntry, "action" | "actor" | "botName" | "detail">): string {
-	const action = ACTION_LABEL[entry.action] ?? entry.action;
+export function auditLabel(entry: Pick<VaultAuditEntry, "action" | "actor" | "botName" | "detail">, { t }: Translator = defaultTranslator): string {
+	const key = (ACTION_KEYS as Record<string, (typeof ACTION_KEYS)[keyof typeof ACTION_KEYS]>)[entry.action];
+	const action = key ? t(key) : entry.action;
+	const detail = entry.detail ? ` (${entry.detail})` : "";
 	if (entry.actor === "bot") {
-		const who = entry.botName ? `pelo bot ${entry.botName}` : "por um bot";
-		return `${action} ${who}${entry.detail ? ` (${entry.detail})` : ""}`;
+		return (entry.botName ? t("settings.vault.audit.byBot", { action, bot: entry.botName }) : t("settings.vault.audit.byUnknownBot", { action })) + detail;
 	}
-	return `${action} por você${entry.detail ? ` (${entry.detail})` : ""}`;
+	return t("settings.vault.audit.byYou", { action }) + detail;
 }
 
-export function formatVaultDate(iso: string | null, now: Date = new Date()): string {
-	if (!iso) return "nunca";
+export function formatVaultDate(iso: string | null, now: Date = new Date(), { t, tn, locale }: Translator = defaultTranslator): string {
+	if (!iso) return t("settings.vault.dateNever");
 	const date = new Date(iso);
 	if (Number.isNaN(date.getTime())) return "—";
 	const diffMin = Math.round((now.getTime() - date.getTime()) / 60_000);
-	if (diffMin < 1) return "agora";
-	if (diffMin < 60) return `há ${diffMin} min`;
+	if (diffMin < 1) return t("settings.vault.dateNow");
+	if (diffMin < 60) return t("settings.vault.dateMinutes", { n: diffMin });
 	const hours = Math.round(diffMin / 60);
-	if (hours < 24) return `há ${hours} h`;
+	if (hours < 24) return t("settings.vault.dateHours", { n: hours });
 	const days = Math.round(hours / 24);
-	if (days < 30) return `há ${days} ${days === 1 ? "dia" : "dias"}`;
-	return date.toLocaleDateString("pt-BR");
+	if (days < 30) return tn("settings.vault.dateDays", days);
+	return formatDate(date, locale);
 }
 
 /** Texto do aviso quando o cofre não está pronto no servidor. */
-export const VAULT_UNAVAILABLE = "O cofre precisa da chave de criptografia do servidor (CONNECTOR_ENCRYPTION_KEY).";
+export const VAULT_UNAVAILABLE = defaultTranslator.t("settings.vault.unavailable");

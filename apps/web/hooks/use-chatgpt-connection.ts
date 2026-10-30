@@ -8,6 +8,7 @@ import {
 	type ChatgptDeviceStart,
 } from "@/lib/atlas-api";
 import { notifyProvidersChanged } from "@/lib/provider-connect";
+import { activeT } from "@/lib/i18n/active";
 
 export type DeviceCodeState = Pick<ChatgptDeviceStart, "userCode" | "verificationUrl" | "expiresAt">;
 
@@ -53,7 +54,7 @@ export function useChatgptConnection() {
 					if (run !== runRef.current) return;
 					stop();
 					setDevice(null);
-					setError("O login não foi concluído. Gere um novo código e tente de novo.");
+					setError(activeT("errors.chatgptLoginIncomplete"));
 				}
 			}, seconds * 1000);
 		}
@@ -63,7 +64,7 @@ export function useChatgptConnection() {
 			setDevice({ userCode: started.userCode, verificationUrl: started.verificationUrl, expiresAt: started.expiresAt });
 			schedule(started.intervalSeconds);
 		} catch (failure) {
-			setError(failure instanceof Error ? failure.message : "Não foi possível conectar o ChatGPT.");
+			setError(failure instanceof Error ? failure.message : activeT("errors.connectChatgpt"));
 		} finally {
 			setBusy(false);
 		}
@@ -85,11 +86,11 @@ export function useChatgptConnection() {
 			const response = await disconnectChatgptProvider();
 			if (!response.revocationConfirmed)
 				setNotice(
-					"Desconectado do Atlas. A revogação na OpenAI não foi confirmada; confira os acessos nas configurações do ChatGPT.",
+					activeT("errors.chatgptRevokeUnconfirmed"),
 				);
 			notifyProvidersChanged();
 		} catch {
-			setError("Não foi possível desconectar o ChatGPT. Tente novamente.");
+			setError(activeT("errors.disconnectChatgpt"));
 		} finally {
 			setBusy(false);
 		}

@@ -7,6 +7,8 @@ import {
   HoverCardTrigger,
 } from "@workspace/ui/components/hover-card";
 import { hoverRevealClass } from "@/lib/hover-reveal";
+import { useT, useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import { cn } from "@workspace/ui/lib/utils";
 import type { FileUIPart, SourceDocumentUIPart } from "ai";
 import {
@@ -77,23 +79,24 @@ export const getMediaCategory = (
   return "unknown";
 };
 
-export const getAttachmentLabel = (data: AttachmentData): string => {
+export const getAttachmentLabel = (data: AttachmentData, { t }: Translator = defaultTranslator): string => {
   if (data.type === "source-document") {
-    return data.title || data.filename || "Source";
+    return data.title || data.filename || t("aiElements.attachments.source");
   }
 
   const category = getMediaCategory(data);
-  return data.filename || (category === "image" ? "Image" : "Attachment");
+  return data.filename || (category === "image" ? t("aiElements.attachments.image") : t("aiElements.attachments.attachment"));
 };
 
 const renderAttachmentImage = (
   url: string,
   filename: string | undefined,
-  isGrid: boolean
+  isGrid: boolean,
+  imageLabel: string
 ) =>
   isGrid ? (
     <img
-      alt={filename || "Image"}
+      alt={filename || imageLabel}
       className="size-full object-cover"
       height={96}
       src={url}
@@ -101,7 +104,7 @@ const renderAttachmentImage = (
     />
   ) : (
     <img
-      alt={filename || "Image"}
+      alt={filename || imageLabel}
       className="size-full rounded object-cover"
       height={20}
       src={url}
@@ -240,6 +243,7 @@ export const AttachmentPreview = ({
   ...props
 }: AttachmentPreviewProps) => {
   const { data, mediaCategory, variant } = useAttachmentContext();
+  const t = useT();
 
   const iconSize = variant === "inline" ? "size-3" : "size-4";
 
@@ -249,7 +253,7 @@ export const AttachmentPreview = ({
 
   const renderContent = () => {
     if (mediaCategory === "image" && data.type === "file" && data.url) {
-      return renderAttachmentImage(data.url, data.filename, variant === "grid");
+      return renderAttachmentImage(data.url, data.filename, variant === "grid", t("aiElements.attachments.image"));
     }
 
     if (mediaCategory === "video" && data.type === "file" && data.url) {
@@ -290,7 +294,8 @@ export const AttachmentInfo = ({
   ...props
 }: AttachmentInfoProps) => {
   const { data, variant } = useAttachmentContext();
-  const label = getAttachmentLabel(data);
+  const translator = useTranslations();
+  const label = getAttachmentLabel(data, translator);
 
   if (variant === "grid") {
     return null;
@@ -317,12 +322,13 @@ export type AttachmentRemoveProps = ComponentProps<typeof Button> & {
 };
 
 export const AttachmentRemove = ({
-  label = "Remove",
+  label,
   className,
   children,
   ...props
 }: AttachmentRemoveProps) => {
   const { onRemove, variant } = useAttachmentContext();
+  const t = useT();
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -338,7 +344,7 @@ export const AttachmentRemove = ({
 
   return (
     <Button
-      aria-label={label}
+      aria-label={label ?? t("aiElements.attachments.remove")}
       className={cn(
         variant === "grid" && [
           "touch-hit absolute top-2 right-2 size-6 rounded-full p-0",
@@ -410,14 +416,17 @@ export const AttachmentEmpty = ({
   className,
   children,
   ...props
-}: AttachmentEmptyProps) => (
-  <div
-    className={cn(
-      "flex items-center justify-center p-4 text-muted-foreground text-sm",
-      className
-    )}
-    {...props}
-  >
-    {children ?? "No attachments"}
-  </div>
-);
+}: AttachmentEmptyProps) => {
+  const t = useT();
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-center p-4 text-muted-foreground text-sm",
+        className
+      )}
+      {...props}
+    >
+      {children ?? t("aiElements.attachments.empty")}
+    </div>
+  );
+};

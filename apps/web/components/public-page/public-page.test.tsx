@@ -46,3 +46,22 @@ test("fetchSharedPage: sem credenciais, 404 vira gone, falha de rede vira error"
 		globalThis.fetch = original;
 	}
 });
+
+test("painel público no idioma de quem abre o link (en-US e es-ES)", async () => {
+	const { I18nProvider } = await import("@/lib/i18n/provider");
+	const { loadMessages } = await import("@/lib/i18n/messages");
+	const en = renderToStaticMarkup(
+		<I18nProvider locale="en-US" messages={await loadMessages("en-US")}>
+			<PublicPageContent now={now} state={{ kind: "ready", page }} />
+			<PublicPageContent state={{ kind: "gone" }} />
+		</I18nProvider>,
+	);
+	assert.match(en, /Panel by Atlas Vendas · read-only · Updated 2 hr\. ago/);
+	assert.match(en, /This link is no longer available/);
+	const es = renderToStaticMarkup(
+		<I18nProvider locale="es-ES" messages={await loadMessages("es-ES")}>
+			<PublicPageContent state={{ kind: "error" }} />
+		</I18nProvider>,
+	);
+	assert.match(es, /No he podido cargar el panel ahora/);
+});

@@ -29,6 +29,7 @@ import {
 	isComposioConnectUrl,
 	type ComposioPager,
 } from "@/components/settings/composio-state";
+import { activeT } from "@/lib/i18n/active";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -85,7 +86,7 @@ export function useComposio(enabled: boolean) {
 			setConnections(apps);
 			setListError(null);
 		} catch (cause) {
-			if (id === requestRef.current && enabledRef.current) setListError(messageOf(cause, "Não foi possível listar os apps."));
+			if (id === requestRef.current && enabledRef.current) setListError(messageOf(cause, activeT("errors.listApps")));
 		} finally {
 			if (id === requestRef.current) setLoading(false);
 		}
@@ -98,7 +99,7 @@ export function useComposio(enabled: boolean) {
 			setStatus(result);
 			setError(null);
 		} catch (cause) {
-			if (enabledRef.current) setError(messageOf(cause, "Não foi possível carregar o Composio."));
+			if (enabledRef.current) setError(messageOf(cause, activeT("errors.loadComposio")));
 		}
 	}, []);
 
@@ -164,7 +165,7 @@ export function useComposio(enabled: boolean) {
 		try {
 			setStatus(await saveComposioKey(apiKey));
 		} catch (cause) {
-			setError(messageOf(cause, "Não foi possível salvar a chave."));
+			setError(messageOf(cause, activeT("errors.saveKey")));
 		} finally {
 			setBusy(null);
 		}
@@ -185,7 +186,7 @@ export function useComposio(enabled: boolean) {
 			setPager(COMPOSIO_FIRST_PAGE);
 			await reloadStatus();
 		} catch (cause) {
-			setError(messageOf(cause, "Não foi possível remover a chave."));
+			setError(messageOf(cause, activeT("errors.removeKey")));
 		} finally {
 			setBusy(null);
 		}
@@ -208,13 +209,13 @@ export function useComposio(enabled: boolean) {
 					return;
 				}
 				const { redirectUrl } = started;
-				if (!isComposioConnectUrl(redirectUrl)) throw new Error("Link de conexão inesperado.");
+				if (!isComposioConnectUrl(redirectUrl)) throw new Error(activeT("errors.unexpectedLink"));
 				const result = await waitMcpOAuthPopup(popup, redirectUrl);
 				if (!result.ok && result.error) setError(result.error);
 				await Promise.all([reloadApps(), reloadStatus()]);
 			} catch (cause) {
 				popup?.close();
-				setError(messageOf(cause, "Não foi possível conectar o app."));
+				setError(messageOf(cause, activeT("errors.connectApp")));
 			} finally {
 				setBusy(null);
 			}
@@ -230,7 +231,7 @@ export function useComposio(enabled: boolean) {
 				await disconnectComposioApp(accountId);
 				await Promise.all([reloadApps(), reloadStatus()]);
 			} catch (cause) {
-				setError(messageOf(cause, "Não foi possível desativar ou desconectar o app."));
+				setError(messageOf(cause, activeT("errors.disconnectApp")));
 			} finally {
 				setBusy(null);
 			}

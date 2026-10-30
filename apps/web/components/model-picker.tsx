@@ -13,6 +13,7 @@ import {
   ModelSelectorLogo,
   ModelSelectorTrigger,
 } from "@/components/ai-elements/model-selector"
+import { useTranslations } from "@/lib/i18n/provider"
 import { requestProviderSettings } from "@/components/settings/settings-url"
 import { useChatgptProvider } from "@/hooks/use-chatgpt-provider"
 import { useKeyProviderModels } from "@/hooks/use-provider-keys"
@@ -56,6 +57,8 @@ export function ModelPicker({
   suggestedIds?: string[]
   suggestedHeading?: string
 }) {
+  const translator = useTranslations()
+  const { t } = translator
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const provider = useChatgptProvider(
@@ -87,8 +90,8 @@ export function ModelPicker({
     ? emptyLabel
     : current
       ? modelDisplayName(current.name, current.id)
-      : value || "Escolher modelo"
-  const via = isEmpty ? null : pickerViaLabel(current?.id ?? value)
+      : value || t("modelPicker.choose")
+  const via = isEmpty ? null : pickerViaLabel(current?.id ?? value, translator)
   const select = (id: string) => {
     onChange(id)
     setOpen(false)
@@ -140,13 +143,13 @@ export function ModelPicker({
       </ModelSelectorTrigger>
       <ModelSelectorContent
         className="sm:max-w-lg"
-        title="Escolher modelo"
+        title={t("modelPicker.choose")}
         commandProps={{ shouldFilter: false }}
       >
         <ModelSelectorInput
           value={query}
           onValueChange={setQuery}
-          placeholder="Buscar entre todos os provedores…"
+          placeholder={t("modelPicker.searchAll")}
         />
         <ModelSelectorList>
           <ProviderPickerOptions

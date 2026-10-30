@@ -1,5 +1,8 @@
 /** Leitura do `tool_call`/`tool_result` do `run_code` para o cartão "Executou código". */
 
+import { formatNumber } from "@/lib/format";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
+
 export type CodeRunOutcome = { ok: boolean; durationMs?: number; output: string };
 
 export function parseRunCodeCallArgs(args: string): string | null {
@@ -35,6 +38,7 @@ export function parseRunCodeResult(result: { ok: boolean; summary: string }): Co
 	return { ok: result.ok && exitOk, ...(durationMs !== undefined ? { durationMs } : {}), output };
 }
 
-export function formatCodeRunDuration(ms: number): string {
-	return `${(ms / 1000).toFixed(1).replace(".", ",")} s`;
+export function formatCodeRunDuration(ms: number, translator: Translator = defaultTranslator): string {
+	const value = formatNumber(ms / 1000, translator.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+	return translator.t("chat.codeSeconds", { value });
 }

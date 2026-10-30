@@ -7,6 +7,7 @@ import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { aspectRatioValue } from "@/lib/image-gen";
+import { useT } from "@/lib/i18n/provider";
 
 /** Altura máxima igual à da imagem final (`max-h-80` do ImageCard): a troca não muda o tamanho. */
 const MAX_HEIGHT_REM = 20;
@@ -23,6 +24,7 @@ export function ImagePendingCard({ aspectRatio, count, startedAt, status, error 
 	status: "running" | "error";
 	error?: string;
 }) {
+	const t = useT();
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
 		if (status !== "running") return;
@@ -48,7 +50,7 @@ export function ImagePendingCard({ aspectRatio, count, startedAt, status, error 
 			</div>)}
 		</div>
 		<p aria-live="polite" className={cn("mt-1.5 text-xs", failed ? "text-destructive/80" : "text-muted-foreground")} role={failed ? "alert" : "status"}>
-			{failed ? (error || "Não foi possível gerar a imagem.") : `${count === 2 ? "Gerando imagens…" : "Gerando imagem…"} ${formatElapsed(elapsed)}`}
+			{failed ? (error || t("aiElements.images.generateError")) : t(count === 2 ? "aiElements.images.generatingMany" : "aiElements.images.generatingOne", { elapsed: formatElapsed(elapsed) })}
 		</p>
 	</div>;
 }

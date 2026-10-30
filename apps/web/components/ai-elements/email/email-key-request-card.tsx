@@ -7,14 +7,15 @@ import { Input } from "@workspace/ui/components/input";
 import { REQUEST_PRIMARY_CLASS, RequestCard } from "@workspace/ui/components/request-card";
 import { openSettingsModal } from "@/components/settings/settings-url";
 import { saveEmailAccountKey } from "@/lib/atlas-api";
+import { useTranslations } from "@/lib/i18n/provider";
 
 type Status = "pending" | "approved" | "rejected" | "failed";
 
 const BADGE = {
-	pending: { tone: "pending", label: "Precisa de você" },
-	approved: { tone: "success", label: "Chave salva" },
-	rejected: { tone: "muted", label: "Dispensado" },
-	failed: { tone: "danger", label: "Falhou" },
+	pending: { tone: "pending", label: "aiElements.login.needsYou" },
+	approved: { tone: "success", label: "aiElements.email.saved" },
+	rejected: { tone: "muted", label: "aiElements.email.dismissed" },
+	failed: { tone: "danger", label: "devSession.approval.failed" },
 } as const;
 
 export type EmailKeyRequestCardProps = {
@@ -35,6 +36,7 @@ export type EmailKeyRequestCardProps = {
  * depois de salvar o cartão só mostra "Chave salva".
  */
 export function EmailKeyRequestCard({ title, description, status = "pending", onSaved, onSkip, save = (apiKey) => saveEmailAccountKey(apiKey), initialError }: EmailKeyRequestCardProps) {
+	const { t } = useTranslations();
 	const [value, setValue] = useState("");
 	const [error, setError] = useState<string | null>(initialError ?? null);
 	const [busy, setBusy] = useState(false);
@@ -44,7 +46,7 @@ export function EmailKeyRequestCard({ title, description, status = "pending", on
 	async function submit() {
 		const key = value.trim();
 		if (!key) {
-			setError("Cole a chave do OpenMail.");
+			setError(t("aiElements.email.pasteKey"));
 			return;
 		}
 		setBusy(true);
@@ -54,7 +56,7 @@ export function EmailKeyRequestCard({ title, description, status = "pending", on
 			setValue("");
 			onSaved?.();
 		} catch (cause) {
-			setError(cause instanceof Error && cause.message ? cause.message : "Não foi possível salvar a chave. Tente novamente.");
+			setError(cause instanceof Error && cause.message ? cause.message : t("aiElements.email.saveError"));
 		} finally {
 			setBusy(false);
 		}
@@ -65,27 +67,27 @@ export function EmailKeyRequestCard({ title, description, status = "pending", on
 			actions={
 				<>
 					<Button className={REQUEST_PRIMARY_CLASS} disabled={busy || !value.trim()} onClick={() => void submit()} size="sm" type="button">
-						{busy ? "Salvando…" : "Salvar chave"}
+						{busy ? t("aiElements.email.saving") : t("aiElements.email.saveKey")}
 					</Button>
 					<Button disabled={busy} onClick={() => openSettingsModal("provedores")} size="sm" type="button" variant="secondary">
-						Abrir Configurações
+						{t("aiElements.email.openSettings")}
 					</Button>
 				</>
 			}
-			badge={BADGE[status]}
+			badge={{ tone: BADGE[status].tone, label: t(BADGE[status].label) }}
 			data-email-key-request
 			description={description}
-			leading={status === "approved" ? <CheckIcon aria-label="Chave salva" /> : status === "rejected" ? <XIcon aria-label="Dispensado" /> : <MailIcon aria-label="E-mail" />}
+			leading={status === "approved" ? <CheckIcon aria-label={t("aiElements.email.saved")} /> : status === "rejected" ? <XIcon aria-label={t("aiElements.email.dismissed")} /> : <MailIcon aria-label={t("aiElements.email.mail")} />}
 			resolved={resolved}
 			title={title}
 			trailing={
 				<Button disabled={busy} onClick={onSkip} size="sm" type="button" variant="ghost">
-					Agora não
+					{t("aiElements.email.notNow")}
 				</Button>
 			}
 		>
 			{resolved ? (
-				<p className="m-0 text-muted-foreground text-xs">{status === "approved" ? "Chave salva. O bot já pode criar o e-mail." : "Sem a chave o bot não pode ter e-mail."}</p>
+				<p className="m-0 text-muted-foreground text-xs">{status === "approved" ? t("aiElements.email.savedNote") : t("aiElements.email.skippedNote")}</p>
 			) : (
 				<form
 					className="flex min-w-0 flex-col gap-2"
@@ -95,7 +97,7 @@ export function EmailKeyRequestCard({ title, description, status = "pending", on
 					}}
 				>
 					<label className="text-muted-foreground text-xs" htmlFor={`${id}-key`}>
-						Chave da API do OpenMail
+						{t("aiElements.email.keyLabel")}
 					</label>
 					<Input
 						aria-invalid={error ? true : undefined}
@@ -107,7 +109,7 @@ export function EmailKeyRequestCard({ title, description, status = "pending", on
 							setValue(event.target.value);
 							setError(null);
 						}}
-						placeholder="Cole aqui"
+						placeholder={t("aiElements.email.paste")}
 						spellCheck={false}
 						type="password"
 						value={value}
@@ -117,7 +119,7 @@ export function EmailKeyRequestCard({ title, description, status = "pending", on
 							{error}
 						</p>
 					) : (
-						<p className="m-0 text-muted-foreground text-xs">Vai direto do campo para o servidor, criptografada. O bot nunca vê a chave.</p>
+						<p className="m-0 text-muted-foreground text-xs">{t("aiElements.email.note")}</p>
 					)}
 				</form>
 			)}

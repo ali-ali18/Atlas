@@ -1,4 +1,5 @@
 export type McpOAuthPopupOutcome = { ok: boolean; error?: string; closed?: boolean };
+import { activeT } from "@/lib/i18n/active";
 export type McpOAuthWaitResult = { ok: boolean; error?: string; cancelled?: boolean };
 
 type LoadedConnection = { status: string; lastError?: string | null } | undefined | null;
@@ -69,10 +70,10 @@ export async function pollMcpOAuthConnection(options: PollMcpOAuthOptions): Prom
 		const known = outcome as McpOAuthPopupOutcome | null;
 		// Erro explícito vindo da página de callback é terminal.
 		if (known && !known.closed && !known.ok) {
-			return { ok: false, error: last?.lastError ?? known.error ?? "Login não concluído." };
+			return { ok: false, error: last?.lastError ?? known.error ?? activeT("errors.loginIncomplete") };
 		}
 		if (Date.now() >= deadline) {
-			return { ok: false, error: last?.lastError ?? known?.error ?? "Login não concluído." };
+			return { ok: false, error: last?.lastError ?? known?.error ?? activeT("errors.loginIncomplete") };
 		}
 		await nap(intervalMs, signal);
 	}

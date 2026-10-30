@@ -1,6 +1,9 @@
 import type { Message } from "@/components/ui/templates/template-4/data";
 import { describeMcpTaskGrantUses } from "@workspace/shared";
 import { isCardProtocolText } from "@/lib/card-decision";
+import { getActiveTranslator } from "@/lib/i18n/active";
+import type { Translator } from "@/lib/i18n/translator";
+import type { MessageKey } from "@/lib/i18n/translator";
 
 type ConfirmMessage = Extract<Message, { kind: "confirm" }>;
 type NeedsUserMessage = Extract<Message, { kind: "needs-user" }>;
@@ -70,24 +73,24 @@ export function selectDockEntries(messages: Message[]): DockEntry[] {
 
 export type ApprovalMarker = { status: ApprovalMarkerStatus; label: string; short: string };
 
-const STATUS_WORD: Record<ApprovalMarkerStatus, string> = {
-	pending: "Aguardando aprovação",
-	approved: "Aprovado",
-	rejected: "Recusado",
-	failed: "Falhou",
-	skipped: "Dispensado",
-	expired: "Expirado",
-	resolved: "Respondido",
-};
+const STATUS_WORD_KEY = {
+	pending: "status.approval.pending",
+	approved: "status.approval.approved",
+	rejected: "status.approval.rejected",
+	failed: "status.approval.failed",
+	skipped: "status.approval.skipped",
+	expired: "status.approval.expired",
+	resolved: "status.approval.resolved",
+} as const satisfies Record<ApprovalMarkerStatus, MessageKey>;
 
-export function approvalMarkerText(status: ApprovalMarkerStatus, short: string): string {
-	return `${STATUS_WORD[status]} · ${short}`;
+export function approvalMarkerText(status: ApprovalMarkerStatus, short: string, { t }: Translator = getActiveTranslator()): string {
+	return `${t(STATUS_WORD_KEY[status])} · ${short}`;
 }
 
 /** Detalhe do marcador de uma aprovação que falhou ao executar: o pedido e, abaixo, o erro que voltou. */
-export function failedApprovalDetail(description: string | undefined, failure: string | undefined): string {
+export function failedApprovalDetail(description: string | undefined, failure: string | undefined, { t }: Translator = getActiveTranslator()): string {
 	const reason = failure?.trim();
-	return [description?.trim(), reason ? `Falhou: ${reason}` : "Falhou ao executar."].filter(Boolean).join("\n\n");
+	return [description?.trim(), reason ? t("status.approval.failedDetail", { reason }) : t("status.approval.failedToRun")].filter(Boolean).join("\n\n");
 }
 
 /** Recusa sem comentário ("cancela isso") = pulou; "recusado: …" = recusou. Olha a primeira decisão que vem depois do cartão. */
@@ -105,7 +108,7 @@ function skippedBy(following: readonly Message[], from: number): boolean {
  * `following` são as mensagens depois do cartão a partir de `from` (a thread inteira + índice evita copiar
  * um pedaço da lista para cada linha).
  */
-export function approvalMarkerFor(message: Message, activeIds: ReadonlySet<string>, following: readonly Message[] = [], from = 0): ApprovalMarker | null {
+export function approvalMarkerFor(message: Message, activeIds: ReadonlySet<string>, following: readonly Message[] = [], from = 0, translator: Translator = getActiveTranslator()): ApprovalMarker | null {
 	let status: ApprovalMarkerStatus;
 	if (isDockConfirm(message)) {
 		const base = message.status ?? "pending";
@@ -118,7 +121,7 @@ export function approvalMarkerFor(message: Message, activeIds: ReadonlySet<strin
 	const short = approvalShortLabel(message as ConfirmMessage | NeedsUserMessage);
 	// Aprovação por tarefa: "Aprovado · executado 3 vezes nesta tarefa · <ação>".
 	const uses = status === "approved" && message.kind === "confirm" ? message.grantUses : undefined;
-	return { status, short, label: uses ? approvalMarkerText(status, `${describeMcpTaskGrantUses(uses)} · ${short}`) : approvalMarkerText(status, short) };
+	return { status, short, label: uses ? approvalMarkerText(status, `${describeMcpTaskGrantUses(uses)} · ${short}`, translator) : approvalMarkerText(status, short, translator) };
 }
 
 /** "confirmado: …", "confirmado sempre: …", "recusado: …", "cancela isso": texto de protocolo, não fala do usuário. */
@@ -137,9 +140,9 @@ export function dockEntryPrefixes(entry: DockEntry): string[] {
 }
 
 /** Texto da linha da barra: "Executar · pnpm test", "Editar · src/x.ts", "Dev: Executar · …" (cartão de outro bot). */
-export function approvalBarLabel(entry: DockEntry): string {
+export function approvalBarLabel(entry: DockEntry, { t }: Translator = getActiveTranslator()): string {
 	const info = entry.type === "confirm" ? entry.message.devApproval : entry.message.need.item?.devApproval;
 	const short = approvalShortLabel(entry.message);
-	const text = info ? `${info.kind === "command" ? "Executar" : "Editar"} · ${short}` : short;
+	const text = info ? `${info.kind === "command" ? t("status.approval.run") : t("status.approval.edit")} · ${short}` : short;
 	return entry.type === "relayed" ? `${entry.message.botName}: ${text}` : text;
 }

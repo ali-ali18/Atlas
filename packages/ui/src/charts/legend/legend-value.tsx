@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@workspace/ui/lib/utils";
-import { intFmt } from "../chart-formatters";
+import { intFmt, useChartLocale } from "../chart-formatters";
 import { useLegendItem } from "./legend-context";
 
 export interface LegendValueProps {
@@ -21,9 +21,11 @@ export function LegendValue({
   className = "text-sm tabular-nums",
   showPercentage = false,
   percentageClassName = "text-xs tabular-nums",
-  formatValue = intFmt,
+  formatValue: formatValueProp,
   formatPercentage = (p) => `${p.toFixed(0)}%`,
 }: LegendValueProps) {
+  const locale = useChartLocale();
+  const formatValue = formatValueProp ?? ((value: number) => intFmt(value, locale));
   const { item, percentage } = useLegendItem();
 
   return (

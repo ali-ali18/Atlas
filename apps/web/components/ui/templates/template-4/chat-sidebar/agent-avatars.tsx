@@ -2,6 +2,7 @@ import { AvatarStatus } from "../avatar-status";
 import type { Agent } from "../data";
 import { GroupAvatar, resolveGroupMembers } from "../group-avatar";
 import { LiveAgentAvatar } from "../live-agent-avatar";
+import { useT } from "@/lib/i18n/provider";
 
 export function AgentAvatars({
 	agent,
@@ -12,6 +13,7 @@ export function AgentAvatars({
 	agents: Agent[];
 	size?: number;
 }) {
+	const t = useT();
 	// Sidebar (lista, rail, fixados): avatar vivo. Respira só no painel grande;
 	// aqui ele pisca de vez em quando, olha o mouse no hover, reage ao toque e
 	// balança enquanto o bot trabalha (o loop dorme quando tudo assenta). Não lida e
@@ -33,7 +35,7 @@ export function AgentAvatars({
 
 	// Grupo: 2 ou 3 avatares dos membros no mesmo quadrado do avatar de um bot.
 	return (
-		<AvatarStatus botId={agent.id} label="Grupo" size={size} unread={agent.notifications}>
+		<AvatarStatus botId={agent.id} label={t("sidebar.groupLabel")} size={size} unread={agent.notifications}>
 			<GroupAvatar members={resolveGroupMembers(agent, agents)} size={size} />
 		</AvatarStatus>
 	);

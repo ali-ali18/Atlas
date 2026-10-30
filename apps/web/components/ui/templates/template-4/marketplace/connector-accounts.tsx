@@ -7,7 +7,8 @@ import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import { cn } from "@workspace/ui/lib/utils"
-import { ANOTHER_ACCOUNT_HINT } from "@/lib/connector-accounts"
+import { anotherAccountHint } from "@/lib/connector-accounts"
+import { useTranslations } from "@/lib/i18n/provider"
 
 export type AccountRow = {
   id: string
@@ -53,6 +54,8 @@ export function AccountsSection({
   onDisconnect: (id: string) => Promise<void> | void
   onAdd: () => void
 }) {
+  const translator = useTranslations()
+  const { t } = translator
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
 
@@ -65,14 +68,14 @@ export function AccountsSection({
   }
 
   return (
-    <section aria-label="Contas" className="space-y-2">
+    <section aria-label={t("marketplace.accounts.section")} className="space-y-2">
       <div className="flex min-h-7 flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <h3 className="text-sm font-semibold">
-          Contas <span className="font-normal text-muted-foreground">{accounts.length}</span>
+          {t("marketplace.accounts.section")} <span className="font-normal text-muted-foreground">{accounts.length}</span>
         </h3>
         <Button className="h-7 rounded-full px-3 text-xs" disabled={adding} onClick={onAdd} size="sm" type="button" variant="secondary">
           <PlusIcon aria-hidden className="size-3.5" />
-          {adding ? "Conectando…" : "Adicionar outra conta"}
+          {adding ? t("marketplace.accounts.connecting") : t("marketplace.accounts.addAnother")}
         </Button>
       </div>
       <ul className="m-0 list-none divide-y rounded-xl border bg-muted/20 p-0">
@@ -84,7 +87,7 @@ export function AccountsSection({
               {isEditing ? (
                 <form className="flex min-h-14 min-w-0 items-center gap-2 px-4 py-2.5" onSubmit={(event) => void save(event)}>
                   <Input
-                    aria-label="Apelido da conta"
+                    aria-label={t("marketplace.accounts.nickname")}
                     autoFocus
                     className="h-8 min-w-0 flex-1"
                     maxLength={ACCOUNT_LABEL_MAX_CHARS}
@@ -92,13 +95,13 @@ export function AccountsSection({
                     onKeyDown={(event) => {
                       if (event.key === "Escape") setEditing(null)
                     }}
-                    placeholder="Ex.: Conta pessoal"
+                    placeholder={t("marketplace.accounts.nicknamePlaceholder")}
                     value={editing.value}
                   />
-                  <Button aria-label="Salvar apelido" className="shrink-0" size="icon-sm" type="submit" variant="ghost">
+                  <Button aria-label={t("marketplace.accounts.saveNickname")} className="shrink-0" size="icon-sm" type="submit" variant="ghost">
                     <CheckIcon />
                   </Button>
-                  <Button aria-label="Cancelar" className="shrink-0" onClick={() => setEditing(null)} size="icon-sm" type="button" variant="ghost">
+                  <Button aria-label={t("common.cancel")} className="shrink-0" onClick={() => setEditing(null)} size="icon-sm" type="button" variant="ghost">
                     <XIcon />
                   </Button>
                 </form>
@@ -120,7 +123,7 @@ export function AccountsSection({
                   )}
                   <div className="ml-auto flex shrink-0 items-center gap-1">
                     <Button
-                      aria-label={`Renomear ${account.title}`}
+                      aria-label={t("marketplace.accounts.rename", { name: account.title })}
                       disabled={busy}
                       onClick={() => setEditing({ id: account.id, value: account.label })}
                       size="icon-sm"
@@ -131,11 +134,11 @@ export function AccountsSection({
                     </Button>
                     {account.needsReconnect && onReconnect ? (
                       <Button className="h-7 rounded-full px-3 text-xs" disabled={busy} onClick={() => onReconnect(account.id)} size="sm" type="button" variant="secondary">
-                        Reconectar
+                        {t("marketplace.accounts.reconnect")}
                       </Button>
                     ) : null}
                     <Button
-                      aria-label={`Desconectar ${account.title}`}
+                      aria-label={t("marketplace.accounts.disconnectNamed", { name: account.title })}
                       className="h-7 rounded-full px-3 text-xs"
                       disabled={busy}
                       onBlur={() => setConfirming((current) => (current === account.id ? null : current))}
@@ -149,7 +152,7 @@ export function AccountsSection({
                       type="button"
                       variant={confirming === account.id ? "destructive" : "ghost"}
                     >
-                      {confirming === account.id ? "Confirmar" : "Desconectar"}
+                      {confirming === account.id ? t("marketplace.accounts.confirm") : t("marketplace.accounts.disconnect")}
                     </Button>
                   </div>
                 </div>
@@ -163,7 +166,7 @@ export function AccountsSection({
           {error}
         </p>
       ) : null}
-      {oauthHint ? <p className="m-0 pt-1 text-xs text-muted-foreground">{ANOTHER_ACCOUNT_HINT}</p> : null}
+      {oauthHint ? <p className="m-0 pt-1 text-xs text-muted-foreground">{anotherAccountHint(translator)}</p> : null}
     </section>
   )
 }
@@ -182,16 +185,17 @@ export function AccountTabs({
   accounts,
   value,
   onChange,
-  label = "Conta",
+  label,
 }: {
   accounts: { id: string; title: string }[]
   value: string | undefined
   onChange: (id: string) => void
   label?: string
 }) {
+  const { t } = useTranslations()
   return (
     <Tabs onValueChange={onChange} value={value}>
-      <TabsList aria-label={label} className="max-w-full">
+      <TabsList aria-label={label ?? t("marketplace.accounts.tabsLabel")} className="max-w-full">
         {accounts.map((account) => (
           <TabsTrigger className="min-w-0 max-w-40 px-3" key={account.id} value={account.id}>
             <span className="truncate">{account.title}</span>

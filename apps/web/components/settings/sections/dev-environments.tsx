@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ArrowLeftIcon, BoxesIcon, CheckIcon, PlusIcon, ShieldCheckIcon, XIcon } from "lucide-react";
-import { DEFAULT_COMMAND_ALLOWLIST, DEFAULT_DEV_APPROVAL_MODE, DEFAULT_EGRESS_ALLOWLIST, DEV_VERIFIER_HINT, DEV_VERIFIER_LABEL, normalizeEnvRepo, parseEnvPaste, type DevApprovalMode } from "@workspace/shared";
+import { DEFAULT_COMMAND_ALLOWLIST, DEFAULT_DEV_APPROVAL_MODE, DEFAULT_EGRESS_ALLOWLIST, normalizeEnvRepo, parseEnvPaste, type DevApprovalMode } from "@workspace/shared";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -32,18 +32,21 @@ import { SettingsPicker } from "@/components/ui/templates/template-4/settings-pi
 import { useDevEnvironments } from "@/hooks/use-dev-environments";
 import { detectDevEnvironmentFromRepo, listGithubRepos, type DevEnvironmentView, type GithubRepoOption } from "@/lib/atlas-api";
 import { SettingRow, SettingsGroup } from "../setting-row";
+import { useT, useTranslations } from "@/lib/i18n/provider";
+import { devVerifierHint, devVerifierLabel } from "@/lib/shared-labels";
 import {
-	ACCOUNT_APPROVAL_OPTIONS,
+	accountApprovalOptions,
 	EMPTY_DEV_ENV_FORM,
 	addCommandPrefixes,
 	approvalHelp,
 	approvalOptions,
 	showsCommandAllowlist,
-	NETWORK_HELP,
-	NETWORK_OPTIONS,
-	SECRETS_HELP,
-	TEST_COMMAND_HELP,
-	TIER_OPTIONS,
+	networkHelp,
+	networkOptions,
+	secretsHelp,
+	testCommandHelp,
+	tierOptions,
+	translateCommandError,
 	addDomains,
 	applySuggestion,
 	analyzeSecretsText,
@@ -101,13 +104,15 @@ function Chip({ children, onRemove, label }: { children: ReactNode; onRemove?: (
 }
 
 function DomainsEditor({ domains, onChange }: { domains: string[]; onChange: (domains: string[]) => void }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const [text, setText] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [showDefaults, setShowDefaults] = useState(false);
 	const id = useId();
 	function add() {
 		if (!text.trim()) return;
-		const result = addDomains(domains, text);
+		const result = addDomains(domains, text, translator);
 		onChange(result.domains);
 		setError(result.error);
 		if (!result.error) setText("");
@@ -116,7 +121,7 @@ function DomainsEditor({ domains, onChange }: { domains: string[]; onChange: (do
 		<div className="flex min-w-0 flex-col gap-2" data-slot="dev-env-domains">
 			<div className="flex items-center gap-2">
 				<Input
-					aria-label="Adicionar domínio liberado"
+					aria-label={t("settings.dev.addDomainAria")}
 					autoComplete="off"
 					className="font-mono text-body"
 					id={id}
@@ -130,12 +135,12 @@ function DomainsEditor({ domains, onChange }: { domains: string[]; onChange: (do
 							add();
 						}
 					}}
-					placeholder="registro.empresa.com"
+					placeholder={t("settings.dev.domainPlaceholder")}
 					spellCheck={false}
 					value={text}
 				/>
 				<Button disabled={!text.trim()} onClick={add} size="sm" type="button" variant="outline">
-					Adicionar
+					{t("settings.dev.add")}
 				</Button>
 			</div>
 			{error ? (
@@ -146,7 +151,7 @@ function DomainsEditor({ domains, onChange }: { domains: string[]; onChange: (do
 			{domains.length > 0 ? (
 				<div className="flex flex-wrap gap-1.5">
 					{domains.map((domain) => (
-						<Chip key={domain} label={`Remover ${domain}`} onRemove={() => onChange(domains.filter((item) => item !== domain))}>
+						<Chip key={domain} label={t("settings.dev.removeAria", { item: domain })} onRemove={() => onChange(domains.filter((item) => item !== domain))}>
 							{domain}
 						</Chip>
 					))}
@@ -158,7 +163,7 @@ function DomainsEditor({ domains, onChange }: { domains: string[]; onChange: (do
 				onClick={() => setShowDefaults((open) => !open)}
 				type="button"
 			>
-				{showDefaults ? "Ocultar" : "Ver"} os {DEFAULT_EGRESS_ALLOWLIST.length} domínios padrão
+				{showDefaults ? t("settings.dev.hideDefaults", { count: DEFAULT_EGRESS_ALLOWLIST.length }) : t("settings.dev.showDefaults", { count: DEFAULT_EGRESS_ALLOWLIST.length })}
 			</button>
 			{showDefaults ? (
 				<div className="flex flex-wrap gap-1.5 opacity-80">
@@ -173,10 +178,11 @@ function DomainsEditor({ domains, onChange }: { domains: string[]; onChange: (do
 
 /** Página cheia do celular (cabeçalho com voltar, conteúdo rolável, ação principal embaixo com área segura). */
 export function MobilePage({ title, onBack, footer, children, level = 1 }: { title: string; onBack: () => void; footer?: ReactNode; children: ReactNode; level?: number }) {
+	const t = useT();
 	return (
 		<div className="fixed inset-0 flex flex-col bg-background" data-level={level} data-slot="dev-env-mobile-page" style={{ zIndex: 50 + level }}>
 			<header className="grid shrink-0 grid-cols-[3rem_1fr_3rem] items-center px-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
-				<button aria-label="Voltar" className="flex size-11 items-center justify-center rounded-full text-foreground outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/30" onClick={onBack} type="button">
+				<button aria-label={t("settings.dev.back")} className="flex size-11 items-center justify-center rounded-full text-foreground outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/30" onClick={onBack} type="button">
 					<ArrowLeftIcon aria-hidden className="size-6" />
 				</button>
 				<h2 className="m-0 truncate text-center font-heading text-base font-semibold">{title}</h2>
@@ -190,15 +196,17 @@ export function MobilePage({ title, onBack, footer, children, level = 1 }: { tit
 
 /** Selo discreto dos ambientes criados pela detecção automática. */
 export function AutoTag() {
+	const t = useT();
 	return (
 		<span className="ml-2 inline-flex h-5 items-center rounded-full bg-muted px-2 text-caption text-muted-foreground" data-slot="dev-env-auto-tag">
-			detectado automaticamente
+			{t("settings.dev.autoTag")}
 		</span>
 	);
 }
 
 /** Linha compacta de uma lista longa: rótulo, resumo e "Editar" (a lista completa abre numa folha). */
 export function ListSummaryRow({ label, summary, onEdit }: { label: string; summary: string; onEdit: () => void }) {
+	const t = useT();
 	return (
 		<div className="flex min-h-9 items-center gap-2 rounded-3xl bg-input/50 pr-1 pl-3 text-sm" data-slot="dev-env-list-row">
 			<span className="min-w-0 flex-1 truncate">
@@ -206,7 +214,7 @@ export function ListSummaryRow({ label, summary, onEdit }: { label: string; summ
 				<span className="text-muted-foreground"> · {summary}</span>
 			</span>
 			<Button onClick={onEdit} size="sm" type="button" variant="ghost">
-				Editar
+				{t("settings.dev.edit")}
 			</Button>
 		</div>
 	);
@@ -227,13 +235,15 @@ function ListSheet({ open, onOpenChange, title, description, children }: { open:
 }
 
 export function CommandsEditor({ commands, onChange }: { commands: string[]; onChange: (commands: string[]) => void }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const [text, setText] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	function add() {
 		if (!text.trim()) return;
 		const result = addCommandPrefixes(commands, text);
 		onChange(result.list);
-		setError(result.error);
+		setError(translateCommandError(result.error, translator));
 		if (!result.error) setText("");
 	}
 	const isDefault = commands.length === DEFAULT_COMMAND_ALLOWLIST.length && DEFAULT_COMMAND_ALLOWLIST.every((item) => commands.includes(item));
@@ -241,7 +251,7 @@ export function CommandsEditor({ commands, onChange }: { commands: string[]; onC
 		<div className="flex min-w-0 flex-col gap-2" data-slot="dev-env-commands">
 			<div className="flex items-center gap-2">
 				<Input
-					aria-label="Adicionar comando liberado"
+					aria-label={t("settings.dev.addCommandAria")}
 					autoComplete="off"
 					className="font-mono text-body"
 					onChange={(event) => {
@@ -259,7 +269,7 @@ export function CommandsEditor({ commands, onChange }: { commands: string[]; onC
 					value={text}
 				/>
 				<Button disabled={!text.trim()} onClick={add} size="sm" type="button" variant="outline">
-					Adicionar
+					{t("settings.dev.add")}
 				</Button>
 			</div>
 			{error ? (
@@ -270,7 +280,7 @@ export function CommandsEditor({ commands, onChange }: { commands: string[]; onC
 			{commands.length > 0 ? (
 				<div className="flex flex-wrap gap-1.5">
 					{commands.map((command) => (
-						<Chip key={command} label={`Remover ${command}`} onRemove={() => onChange(commands.filter((item) => item !== command))}>
+						<Chip key={command} label={t("settings.dev.removeAria", { item: command })} onRemove={() => onChange(commands.filter((item) => item !== command))}>
 							{command}
 						</Chip>
 					))}
@@ -282,7 +292,7 @@ export function CommandsEditor({ commands, onChange }: { commands: string[]; onC
 					onClick={() => onChange([...DEFAULT_COMMAND_ALLOWLIST])}
 					type="button"
 				>
-					Restaurar os padrões
+					{t("settings.dev.restoreDefaults")}
 				</button>
 			) : null}
 		</div>
@@ -317,17 +327,19 @@ export function SecretsEditor({
 	onRemoveExisting?: (name: string) => void;
 	busyName: string | null;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const [importError, setImportError] = useState<string | null>(null);
 	const fileRef = useRef<HTMLInputElement | null>(null);
 	const existingNames = existing.map((secret) => secret.name);
-	const overwrites = [...new Set(analyzeSecretsText(text, existingNames).overwrites)];
+	const overwrites = [...new Set(analyzeSecretsText(text, existingNames, translator).overwrites)];
 	const textareaId = useId();
 
 	function importFile(file: File | undefined) {
 		if (!file) return;
 		setImportError(null);
 		if (file.size > MAX_IMPORT_BYTES) {
-			setImportError("O arquivo é grande demais para um .env (máximo 64 KB).");
+			setImportError(t("settings.dev.fileTooBig"));
 			return;
 		}
 		void file.text().then((content) => {
@@ -345,11 +357,11 @@ export function SecretsEditor({
 							<span className="min-w-0 flex-1 truncate font-mono">{secret.name}</span>
 							<span className="flex items-center gap-1 text-xs text-muted-foreground">
 								<CheckIcon aria-hidden className="size-3.5" />
-								definido
+								{t("settings.dev.secretDefined")}
 							</span>
 							{onRemoveExisting ? (
 								<Button
-									aria-label={`Apagar o segredo ${secret.name}`}
+									aria-label={t("settings.dev.deleteSecretAria", { name: secret.name })}
 									disabled={busyName === secret.name}
 									onClick={() => onRemoveExisting(secret.name)}
 									size="icon-xs"
@@ -367,7 +379,7 @@ export function SecretsEditor({
 				<>
 					<Textarea
 						aria-invalid={errors.length > 0 ? true : undefined}
-						aria-label="Segredos (CHAVE=valor, um por linha)"
+						aria-label={t("settings.dev.secretsAria")}
 						autoCapitalize="off"
 						autoComplete="off"
 						className="min-h-[7rem] font-mono text-body leading-5"
@@ -384,11 +396,11 @@ export function SecretsEditor({
 							onClick={() => fileRef.current?.click()}
 							type="button"
 						>
-							Importar .env
+							{t("settings.dev.importEnv")}
 						</button>
 						<input
 							accept=".env,text/plain,application/octet-stream"
-							aria-label="Arquivo .env"
+							aria-label={t("settings.dev.envFileAria")}
 							className="hidden"
 							onChange={(event) => {
 								importFile(event.target.files?.[0]);
@@ -409,19 +421,19 @@ export function SecretsEditor({
 					) : null}
 					{overwrites.length > 0 ? (
 						<p className={HELP_CLASS} data-slot="dev-env-secrets-overwrite">
-							{overwrites.join(", ")} {overwrites.length === 1 ? "substitui" : "substituem"} o valor já definido.
+							{translator.tn("settings.dev.overwrites", overwrites.length, { names: overwrites.join(", ") })}
 						</p>
 					) : null}
 					{savedCount !== null ? (
 						<p className="flex items-center gap-1 text-xs text-muted-foreground" data-slot="dev-env-secrets-saved" role="status">
 							<CheckIcon aria-hidden className="size-3.5" />
-							{savedSecretsLabel(savedCount)}
+							{savedSecretsLabel(savedCount, translator)}
 						</p>
 					) : null}
 				</>
 			) : (
 				<p className="text-xs text-destructive" role="alert">
-					Defina CONNECTOR_ENCRYPTION_KEY no .env da API e do worker para guardar segredos.
+					{t("settings.dev.vaultMissing")}
 				</p>
 			)}
 		</div>
@@ -445,6 +457,8 @@ export type EnvironmentDialogProps = {
 
 /** Formulário de um ambiente: repositório, comandos, recursos, internet e segredos. */
 export function EnvironmentDialog({ open, editing, others, secretsAvailable, accountApproval, onClose, onSave, onDelete, onClearCache, onRemoveSecret }: EnvironmentDialogProps) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const initial = editing ? formFromEnvironment(editing) : EMPTY_DEV_ENV_FORM;
 	const [form, setForm] = useState<DevEnvForm>(initial);
 	const [secretErrors, setSecretErrors] = useState<string[]>([]);
@@ -554,14 +568,14 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 	const suggestions = editing ? [] : suggestRepos(repoOptions, form.repo, taken);
 
 	async function submit() {
-		const checked = validateEnvForm(form, others, editing?.id ?? null);
+		const checked = validateEnvForm(form, others, editing?.id ?? null, translator);
 		setErrors(checked.ok ? {} : checked.errors);
 		setSaveError(null);
 		setJustSaved(false);
-		const secrets = analyzeSecretsText(form.secretsText, (editing?.secrets ?? []).map((secret) => secret.name));
+		const secrets = analyzeSecretsText(form.secretsText, (editing?.secrets ?? []).map((secret) => secret.name), translator);
 		setSecretErrors(secrets.errors);
 		setSavedCount(null);
-		const limit = secretLimitError(secrets.entries.map((entry) => entry.name), (editing?.secrets ?? []).map((secret) => secret.name));
+		const limit = secretLimitError(secrets.entries.map((entry) => entry.name), (editing?.secrets ?? []).map((secret) => secret.name), translator);
 		if (limit) {
 			setSaveError(limit);
 			return;
@@ -569,11 +583,11 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 		if (!checked.ok) return;
 		if (secrets.errors.length > 0) {
 			// No celular os segredos ficam numa subpágina: o motivo também aparece aqui, não só lá.
-			setSaveError(`Os segredos têm erros: ${secrets.errors[0]}${secrets.errors.length > 1 ? ` (+${secrets.errors.length - 1})` : ""}`);
+			setSaveError(secrets.errors.length > 1 ? t("settings.dev.err.secretsHaveErrorsMore", { first: secrets.errors[0]!, more: secrets.errors.length - 1 }) : t("settings.dev.err.secretsHaveErrors", { first: secrets.errors[0]! }));
 			return;
 		}
 		setSaving(true);
-		const error = await onSave(form).catch((cause: unknown) => envErrorMessage(cause));
+		const error = await onSave(form).catch((cause: unknown) => envErrorMessage(cause, translator));
 		setSaving(false);
 		if (error) setSaveError(error);
 		else setJustSaved(true);
@@ -585,7 +599,7 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 	}
 
 	const existingSecrets = editing?.secrets ?? [];
-	const secretsSummary = [existingSecrets.length ? `${existingSecrets.length} definido${existingSecrets.length === 1 ? "" : "s"}` : null, form.secretsText.trim() ? "novos para salvar" : null].filter(Boolean).join(" · ") || "nenhum";
+	const secretsSummary = [existingSecrets.length ? translator.tn("settings.dev.definedCount", existingSecrets.length) : null, form.secretsText.trim() ? t("settings.dev.newToSave") : null].filter(Boolean).join(" · ") || t("settings.dev.none");
 	const formNode = (
 	<form
 		className="flex min-w-0 flex-col gap-4"
@@ -595,7 +609,7 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 			void submit();
 		}}
 	>
-		<Field error={errors.repo} help={editing ? undefined : prefilled ? "Preenchido a partir do repositório. Edite o que quiser." : "Escolha da sua conta do GitHub ou digite dono/nome."} htmlFor={`${ids}-repo`} label="Repositório">
+		<Field error={errors.repo} help={editing ? undefined : prefilled ? t("settings.dev.repoPrefilled") : t("settings.dev.repoHelp")} htmlFor={`${ids}-repo`} label={t("settings.dev.repo")}>
 			<div className="relative">
 				<Input
 					aria-invalid={errors.repo ? true : undefined}
@@ -612,7 +626,7 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 						loadRepos();
 						setSuggestOpen(true);
 					}}
-					placeholder="acme/site"
+					placeholder={t("settings.dev.repoPlaceholder")}
 					spellCheck={false}
 					value={form.repo}
 				/>
@@ -638,7 +652,7 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 			</div>
 		</Field>
 
-		<Field help="Roda depois do clone e quando o comando mudar." htmlFor={`${ids}-install`} label="Instalação">
+		<Field help={t("settings.dev.installHelp")} htmlFor={`${ids}-install`} label={t("settings.dev.install")}>
 			<Textarea
 				className={CODE_CLASS}
 				id={`${ids}-install`}
@@ -653,7 +667,7 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 			/>
 		</Field>
 
-		<Field help="Sobe em segundo plano ao iniciar a sessão." htmlFor={`${ids}-start`} label="Inicialização">
+		<Field help={t("settings.dev.startHelp")} htmlFor={`${ids}-start`} label={t("settings.dev.start")}>
 			<Textarea
 				className={CODE_CLASS}
 				id={`${ids}-start`}
@@ -668,7 +682,7 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 			/>
 		</Field>
 
-		<Field help={TEST_COMMAND_HELP} htmlFor={`${ids}-test`} label="Comando de teste rápido">
+		<Field help={testCommandHelp(translator)} htmlFor={`${ids}-test`} label={t("settings.dev.testCommand")}>
 			<Textarea
 				className={CODE_CLASS}
 				id={`${ids}-test`}
@@ -684,52 +698,52 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 		</Field>
 
 		<div className="grid gap-4 sm:grid-cols-2">
-			<Field label="Recursos">
+			<Field label={t("settings.dev.resources")}>
 				<SettingsPicker
-					aria-label="Recursos"
+					aria-label={t("settings.dev.resources")}
 					className="w-full"
 					onChange={(tier) => {
 						touch("tier");
 						setForm({ ...form, tier });
 					}}
-					options={TIER_OPTIONS}
+					options={tierOptions(translator)}
 					value={form.tier}
 				/>
 			</Field>
-			<Field label="Internet">
+			<Field label={t("settings.dev.internet")}>
 				<SettingsPicker
-					aria-label="Internet"
+					aria-label={t("settings.dev.internet")}
 					className="w-full"
 					onChange={(network) => setForm({ ...form, network })}
-					options={NETWORK_OPTIONS}
+					options={networkOptions(translator)}
 					value={form.network}
 				/>
 			</Field>
 		</div>
-		<p className={cn(HELP_CLASS, "-mt-2")}>{NETWORK_HELP[form.network]}</p>
+		<p className={cn(HELP_CLASS, "-mt-2")}>{networkHelp(form.network, translator)}</p>
 
 		{form.network !== "full" ? (
-			<ListSummaryRow label="Domínios liberados" onEdit={() => openList("domains")} summary={`${DEFAULT_EGRESS_ALLOWLIST.length} padrão${form.domains.length ? ` + ${form.domains.length}` : ""}`} />
+			<ListSummaryRow label={t("settings.dev.allowedDomains")} onEdit={() => openList("domains")} summary={form.domains.length ? t("settings.dev.domainsSummaryExtra", { count: DEFAULT_EGRESS_ALLOWLIST.length, extra: form.domains.length }) : t("settings.dev.domainsSummary", { count: DEFAULT_EGRESS_ALLOWLIST.length })} />
 		) : null}
 
-		<Field help={approvalHelp(form.approvalMode, accountApproval)} label="Aprovação de comandos">
+		<Field help={approvalHelp(form.approvalMode, accountApproval, translator)} label={t("settings.dev.approval")}>
 			<SettingsPicker
-				aria-label="Aprovação de comandos"
+				aria-label={t("settings.dev.approval")}
 				className="w-full"
 				onChange={(approvalMode) => setForm({ ...form, approvalMode })}
-				options={approvalOptions(accountApproval)}
+				options={approvalOptions(accountApproval, translator)}
 				value={form.approvalMode}
 			/>
 		</Field>
 
 		{showsCommandAllowlist(form.approvalMode, accountApproval) ? (
-			<ListSummaryRow label="Comandos liberados" onEdit={() => openList("commands")} summary={String(form.commandAllowlist.length)} />
+			<ListSummaryRow label={t("settings.dev.allowedCommands")} onEdit={() => openList("commands")} summary={String(form.commandAllowlist.length)} />
 		) : null}
 
 		{isMobile ? (
-			<ListSummaryRow label="Segredos" onEdit={() => openMobilePage("secrets")} summary={secretsSummary} />
+			<ListSummaryRow label={t("settings.dev.secrets")} onEdit={() => openMobilePage("secrets")} summary={secretsSummary} />
 		) : (
-		<Field help={SECRETS_HELP} label="Segredos">
+		<Field help={secretsHelp(translator)} label={t("settings.dev.secrets")}>
 			<SecretsEditor
 				available={secretsAvailable}
 				busyName={busySecret}
@@ -765,7 +779,7 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 		{justSaved && !saveError && dirty === false ? (
 			<p className="flex items-center gap-1 text-xs text-muted-foreground" data-slot="dev-env-saved" role="status">
 				<CheckIcon aria-hidden className="size-3.5" />
-				Salvo
+				{t("settings.dev.saved")}
 			</p>
 		) : null}
 
@@ -774,11 +788,11 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 			{editing && onDelete ? (
 				<div className="flex gap-1 sm:mr-auto">
 					<Button onClick={onDelete} type="button" variant="ghost">
-						Excluir ambiente
+						{t("settings.dev.deleteEnv")}
 					</Button>
 					{onClearCache ? (
 						<Button data-slot="dev-env-clear-cache" onClick={onClearCache} type="button" variant="ghost">
-							Limpar cache do ambiente
+							{t("settings.dev.clearCache")}
 						</Button>
 					) : null}
 				</div>
@@ -787,10 +801,10 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 			)}
 			<div className="flex flex-col-reverse gap-2 sm:flex-row">
 				<Button onClick={onClose} type="button" variant="outline">
-					Cancelar
+					{t("settings.dev.cancel")}
 				</Button>
 				<Button disabled={saving || (Boolean(editing) && !dirty)} type="submit">
-					{saving ? "Salvando…" : "Salvar"}
+					{saving ? t("settings.dev.saving") : t("settings.dev.save")}
 				</Button>
 			</div>
 		</DialogFooter>
@@ -800,33 +814,33 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 
 	if (isMobile) {
 		if (!open) return null;
-		const subTitle = mobilePage === "domains" ? "Domínios liberados" : mobilePage === "commands" ? "Comandos liberados" : "Segredos";
+		const subTitle = mobilePage === "domains" ? t("settings.dev.allowedDomains") : mobilePage === "commands" ? t("settings.dev.allowedCommands") : t("settings.dev.secrets");
 		return (
 			<>
 				<MobilePage
 					footer={
 						<Button className="w-full" disabled={saving || (Boolean(editing) && !dirty)} form={formId} type="submit">
-							{saving ? "Salvando…" : "Salvar"}
+							{saving ? t("settings.dev.saving") : t("settings.dev.save")}
 						</Button>
 					}
 					onBack={backMobile}
-					title={editing ? "Editar ambiente" : "Novo ambiente"}
+					title={editing ? t("settings.dev.editEnv") : t("settings.dev.newEnv")}
 				>
-					{editing?.source === "auto" ? <p className={cn(HELP_CLASS, "mb-3")}>Detectado automaticamente a partir do repositório. O que você mudar aqui o agente mantém.</p> : null}
+					{editing?.source === "auto" ? <p className={cn(HELP_CLASS, "mb-3")}>{t("settings.dev.autoDetectedNote")}</p> : null}
 					{formNode}
 					{editing && onClearCache ? (
 						<Button className="mt-4 w-full" data-slot="dev-env-clear-cache" onClick={onClearCache} type="button" variant="ghost">
-							Limpar cache do ambiente
+							{t("settings.dev.clearCache")}
 						</Button>
 					) : null}
 					{editing && onDelete ? (
 						<Button className="mt-2 w-full" onClick={onDelete} type="button" variant="ghost">
-							Excluir ambiente
+							{t("settings.dev.deleteEnv")}
 						</Button>
 					) : null}
 				</MobilePage>
 				{mobilePage ? (
-					<MobilePage footer={<Button className="w-full" onClick={backMobile} type="button">Pronto</Button>} level={2} onBack={backMobile} title={subTitle}>
+					<MobilePage footer={<Button className="w-full" onClick={backMobile} type="button">{t("settings.dev.done")}</Button>} level={2} onBack={backMobile} title={subTitle}>
 						{mobilePage === "domains" ? <DomainsEditor domains={form.domains} onChange={(domains) => setForm({ ...form, domains })} /> : null}
 						{mobilePage === "commands" ? (
 							<CommandsEditor
@@ -839,7 +853,7 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 						) : null}
 						{mobilePage === "secrets" ? (
 							<>
-								<p className={cn(HELP_CLASS, "mb-3")}>{SECRETS_HELP}</p>
+								<p className={cn(HELP_CLASS, "mb-3")}>{secretsHelp(translator)}</p>
 								<SecretsEditor
 				available={secretsAvailable}
 				busyName={busySecret}
@@ -876,14 +890,14 @@ export function EnvironmentDialog({ open, editing, others, secretsAvailable, acc
 		<Dialog onOpenChange={(next) => !next && !saving && onClose()} open={open}>
 			<DialogContent className="max-h-[calc(100dvh-2rem)] gap-5 overflow-y-auto p-5 sm:max-w-xl sm:p-6" data-slot="dev-env-dialog">
 				<DialogHeader>
-					<DialogTitle className="text-base font-semibold">{editing ? "Editar ambiente" : "Novo ambiente"}</DialogTitle>
-					<DialogDescription>{editing?.source === "auto" ? "Detectado automaticamente a partir do repositório. O que você mudar aqui o agente mantém." : "Vale para as sessões de código deste repositório."}</DialogDescription>
+					<DialogTitle className="text-base font-semibold">{editing ? t("settings.dev.editEnv") : t("settings.dev.newEnv")}</DialogTitle>
+					<DialogDescription>{editing?.source === "auto" ? t("settings.dev.autoDetectedNote") : t("settings.dev.appliesToRepo")}</DialogDescription>
 				</DialogHeader>
 				{formNode}
-				<ListSheet description="Só esses domínios saem pelo proxy, além dos padrão." onOpenChange={(open) => !open && setListSheet(null)} open={listSheet === "domains"} title="Domínios liberados">
+				<ListSheet description={t("settings.dev.domainsSheetBody")} onOpenChange={(open) => !open && setListSheet(null)} open={listSheet === "domains"} title={t("settings.dev.allowedDomains")}>
 					<DomainsEditor domains={form.domains} onChange={(domains) => setForm({ ...form, domains })} />
 				</ListSheet>
-				<ListSheet description="Comandos que começam assim rodam sem perguntar (também no modo Automático). Aqui entram os de “Sempre neste repositório”; remova para voltar a perguntar. Leituras já são liberadas." onOpenChange={(open) => !open && setListSheet(null)} open={listSheet === "commands"} title="Comandos liberados">
+				<ListSheet description={t("settings.dev.commandsSheetBody")} onOpenChange={(open) => !open && setListSheet(null)} open={listSheet === "commands"} title={t("settings.dev.allowedCommands")}>
 					<CommandsEditor
 						commands={form.commandAllowlist}
 						onChange={(commandAllowlist) => {
@@ -915,64 +929,66 @@ export type DevEnvironmentsListProps = {
 
 /** Linhas do grupo "Ambientes de código" (só apresentação). */
 export function DevEnvironmentsListView({ environments, loading, error, onAdd, onEdit, defaultApprovalMode, onChangeDefaultApproval, verifierEnabled = true, onChangeVerifier, notice }: DevEnvironmentsListProps) {
+	const translator = useTranslations();
+	const { t } = translator;
 	return (
-		<SettingsGroup title="Ambientes de código">
+		<SettingsGroup title={t("settings.dev.group")}>
 			{onChangeDefaultApproval ? (
 				<SettingRow
-					description="Vale para os repositórios que não definem o próprio modo."
+					description={t("settings.dev.defaultApprovalHint")}
 					icon={ShieldCheckIcon}
-					label="Aprovação de comandos"
+					label={t("settings.dev.approval")}
 				>
 					<SettingsPicker
-						aria-label="Aprovação de comandos (padrão da conta)"
+						aria-label={t("settings.dev.defaultApprovalAria")}
 						onChange={onChangeDefaultApproval}
-						options={ACCOUNT_APPROVAL_OPTIONS}
+						options={accountApprovalOptions(translator)}
 						value={defaultApprovalMode ?? DEFAULT_DEV_APPROVAL_MODE}
 					/>
 				</SettingRow>
 			) : null}
 			{onChangeVerifier ? (
-				<SettingRow control="inline" description={DEV_VERIFIER_HINT} htmlFor="dev-verifier" icon={ShieldCheckIcon} label={DEV_VERIFIER_LABEL}>
-					<Switch aria-label={DEV_VERIFIER_LABEL} checked={verifierEnabled} id="dev-verifier" onCheckedChange={onChangeVerifier} />
+				<SettingRow control="inline" description={devVerifierHint(translator)} htmlFor="dev-verifier" icon={ShieldCheckIcon} label={devVerifierLabel(translator)}>
+					<Switch aria-label={devVerifierLabel(translator)} checked={verifierEnabled} id="dev-verifier" onCheckedChange={onChangeVerifier} />
 				</SettingRow>
 			) : null}
 			{notice ? (
-				<SettingRow caption={<p data-slot="dev-env-notice" role="status">Alterações do ambiente salvas.</p>} control="inline" icon={CheckIcon} label={notice} />
+				<SettingRow caption={<p data-slot="dev-env-notice" role="status">{t("settings.dev.noticeSaved")}</p>} control="inline" icon={CheckIcon} label={notice} />
 			) : null}
 			{error ? (
-				<SettingRow caption={<p className="text-destructive">{error}</p>} control="inline" icon={BoxesIcon} label="Não foi possível carregar" />
+				<SettingRow caption={<p className="text-destructive">{error}</p>} control="inline" icon={BoxesIcon} label={t("settings.dev.loadError")} />
 			) : loading && environments.length === 0 ? (
-				<SettingRow caption="Carregando…" icon={BoxesIcon} label="Ambientes de código" />
+				<SettingRow caption={t("common.loading")} icon={BoxesIcon} label={t("settings.dev.group")} />
 			) : null}
 			{environments.map((env) => (
 				<SettingRow
 					caption={
 						<>
-							{envSummary(env)}
+							{envSummary(env, translator)}
 							{env.source === "auto" ? <AutoTag /> : null}
 						</>
 					}
 					control="inline"
-					description="Instalação, internet e segredos das sessões de código deste repositório."
+					description={t("settings.dev.rowHint")}
 					icon={BoxesIcon}
 					key={env.id}
 					label={env.repo}
 				>
 					<Button onClick={() => onEdit(env)} size="sm" variant="ghost">
-						Editar
+						{t("settings.dev.edit")}
 					</Button>
 				</SettingRow>
 			))}
 			{!loading && !error && environments.length === 0 ? (
 				<SettingRow
-					caption="Quando o agente trabalha num repositório, o ambiente é detectado e aparece aqui. Edite só se quiser mudar algo."
+					caption={t("settings.dev.autoCreatedBody")}
 					icon={BoxesIcon}
-					label="Criados automaticamente"
+					label={t("settings.dev.autoCreated")}
 				/>
 			) : null}
-			<SettingRow control="inline" description="Opcional: configure um repositório antes de usá-lo." icon={PlusIcon} label="Adicionar manualmente">
+			<SettingRow control="inline" description={t("settings.dev.addManuallyHint")} icon={PlusIcon} label={t("settings.dev.addManually")}>
 				<Button onClick={onAdd} size="sm" variant="ghost">
-					Adicionar
+					{t("settings.dev.add")}
 				</Button>
 			</SettingRow>
 		</SettingsGroup>
@@ -981,6 +997,7 @@ export function DevEnvironmentsListView({ environments, loading, error, onAdd, o
 
 /** Ambientes de código por repositório: lista + diálogo de edição. */
 export function DevEnvironmentsSettings() {
+	const t = useT();
 	const data = useDevEnvironments();
 	const [dialog, setDialog] = useState<{ editing: DevEnvironmentView | null } | null>(null);
 	const [confirmDelete, setConfirmDelete] = useState<DevEnvironmentView | null>(null);
@@ -1033,7 +1050,7 @@ export function DevEnvironmentsSettings() {
 						setNotice(null);
 						return result.error;
 					}
-					setNotice("Salvo");
+					setNotice(t("settings.dev.saved"));
 					// Com segredos salvos, o diálogo fica aberto (já no ambiente salvo) para mostrar "N segredos salvos".
 					setDialog(parseEnvPaste(form.secretsText).entries.length > 0 ? { editing: result.environment } : null);
 					return null;
@@ -1045,13 +1062,13 @@ export function DevEnvironmentsSettings() {
 			<AlertDialog onOpenChange={(open) => !open && setConfirmClear(null)} open={confirmClear !== null}>
 				<AlertDialogContent size="sm">
 					<AlertDialogHeader>
-						<AlertDialogTitle>Limpar o cache do ambiente de {confirmClear?.repo}?</AlertDialogTitle>
+						<AlertDialogTitle>{t("settings.dev.clearTitle", { repo: confirmClear?.repo ?? "" })}</AlertDialogTitle>
 						<AlertDialogDescription>
-							As dependências guardadas serão apagadas. A próxima sessão de código deste repositório instala tudo do zero, o que leva mais tempo. Comandos e segredos não mudam.
+							{t("settings.dev.clearBody")}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Cancelar</AlertDialogCancel>
+						<AlertDialogCancel>{t("settings.dev.cancel")}</AlertDialogCancel>
 						<AlertDialogAction
 							onClick={() => {
 								const target = confirmClear;
@@ -1059,11 +1076,11 @@ export function DevEnvironmentsSettings() {
 								if (!target) return;
 								void data.clearCache(target.id).then((result) => {
 									setDeleteError(result.error ?? null);
-									if (!result.error) setNotice(result.cleared ? "Cache do ambiente limpo" : "Não havia cache para limpar");
+									if (!result.error) setNotice(result.cleared ? t("settings.dev.cacheCleared") : t("settings.dev.cacheNone"));
 								});
 							}}
 						>
-							Limpar cache
+							{t("settings.dev.clearConfirm")}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
@@ -1071,13 +1088,13 @@ export function DevEnvironmentsSettings() {
 			<AlertDialog onOpenChange={(open) => !open && setConfirmDelete(null)} open={confirmDelete !== null}>
 				<AlertDialogContent size="sm">
 					<AlertDialogHeader>
-						<AlertDialogTitle>Excluir o ambiente de {confirmDelete?.repo}?</AlertDialogTitle>
+						<AlertDialogTitle>{t("settings.dev.deleteTitle", { repo: confirmDelete?.repo ?? "" })}</AlertDialogTitle>
 						<AlertDialogDescription>
-							Os comandos e os segredos salvos serão apagados. As sessões de código deste repositório continuam funcionando, só sem este ambiente.
+							{t("settings.dev.deleteBody")}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Cancelar</AlertDialogCancel>
+						<AlertDialogCancel>{t("settings.dev.cancel")}</AlertDialogCancel>
 						<AlertDialogAction
 							onClick={() => {
 								const target = confirmDelete;
@@ -1089,7 +1106,7 @@ export function DevEnvironmentsSettings() {
 								});
 							}}
 						>
-							Excluir
+							{t("settings.dev.deleteConfirm")}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>

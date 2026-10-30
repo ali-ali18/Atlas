@@ -30,13 +30,14 @@ import { FollowupDetail, FollowupsSection, followupKindLabel } from "./followups
 import { DevSessionDetail } from "@/components/ai-elements/dev-session/dev-session-detail";
 import { SubagentDetail } from "@/components/ai-elements/subagents";
 import { useActivitySelection } from "@/lib/dev-session/store";
+import { useT, useTranslations } from "@/lib/i18n/provider";
 
 import {
 	type Agent,
 	type Routine,
 	type RoutineGithubUiConfig,
 } from "../data";
-import { AGENT_SETTINGS_TITLES, AgentSettings, type AgentSettingsPage } from "./agent-settings";
+import { AgentSettings, type AgentSettingsPage, agentSettingsTitle } from "./agent-settings";
 import { botAccentStyle } from "./bot-accent";
 import { GroupPanelContent, type GroupPanelProps } from "./group-panel";
 import { BotLibrary } from "./bot-library";
@@ -156,6 +157,7 @@ export function BotHeader({
 	agent: Agent;
 	onUpdate: (patch: Partial<Agent>) => void;
 }) {
+	const t = useT();
 	return (
 		<div className="flex flex-col items-center gap-1 pt-2" data-bot-header>
 			<AgentAvatar
@@ -165,20 +167,20 @@ export function BotHeader({
 				size={98}
 			/>
 			<InlineText
-				ariaLabel="Nome do bot"
+				ariaLabel={t("contextPanel.botNameLabel")}
 				className="max-w-full truncate rounded-md px-1 font-bold text-[17px] outline-none hover:bg-accent/60 focus-visible:ring-3 focus-visible:ring-ring/50"
 				inputClassName="h-8 max-w-56 text-center font-bold text-[17px]"
 				onCommit={(name) => onUpdate({ name })}
 				required
-				title="Clique para editar o nome"
+				title={t("contextPanel.botNameTitle")}
 				value={agent.name}
 			/>
 			<InlineText
-				ariaLabel="Rótulo do bot"
+				ariaLabel={t("contextPanel.botTagLabel")}
 				className="max-w-full truncate rounded-md px-1 text-muted-foreground text-xs outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
 				inputClassName="h-7 max-w-56 text-center text-xs"
 				onCommit={(snippet) => onUpdate({ snippet })}
-				placeholder="Adicionar um rótulo"
+				placeholder={t("contextPanel.botTagPlaceholder")}
 				value={agent.snippet}
 			/>
 		</div>
@@ -201,6 +203,7 @@ export function SleepingComputer({
 	/** A primeira subida falhou e o sistema está refazendo sozinho. */
 	restarting?: boolean;
 }) {
+	const t = useT();
 	return (
 		<div
 			className="flex h-full min-h-56 flex-col items-center justify-center gap-4 px-6 py-8 text-center"
@@ -218,7 +221,7 @@ export function SleepingComputer({
 					z z
 				</span>
 			</div>
-			<p className="font-bold text-sm">{error && !busy ? "Não consegui ligar o computador" : "O computador está dormindo"}</p>
+			<p className="font-bold text-sm">{error && !busy ? t("contextPanel.sleepingFailed") : t("contextPanel.sleeping")}</p>
 			{error && !busy ? (
 				<p className="max-w-64 text-muted-foreground text-xs" role="alert">
 					{error}
@@ -230,7 +233,7 @@ export function SleepingComputer({
 				onClick={onWake}
 				size="sm"
 			>
-				{busy ? (restarting ? "Reiniciando a VM…" : "Acordando…") : error ? "Tentar de novo" : "Acordar"}
+				{busy ? (restarting ? t("contextPanel.restarting") : t("contextPanel.waking")) : error ? t("common.retry") : t("contextPanel.wake")}
 			</Button>
 		</div>
 	);
@@ -358,6 +361,8 @@ export function ChatContextPanel({
 	view?: "default" | "settings" | "routine" | "activity";
 	initialTab?: "library" | "computer" | "email";
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const [width, setWidth] = useState(initialWidth ?? DEFAULT_WIDTH);
 	const [resizing, setResizing] = useState(false);
 	const [mounted, setMounted] = useState(false);
@@ -563,13 +568,13 @@ export function ChatContextPanel({
 	const inSettingsSubpage = view === "settings" && settingsPage !== "main";
 	const subviewTitle = isActivityView
 		? activitySelection.kind === "dev"
-			? "Sessão de código"
-			: "Subagente"
+			? t("contextPanel.devSession")
+			: t("contextPanel.subagent")
 		: followupView && openFollowup
-			? followupKindLabel(openFollowup.kind)
+			? followupKindLabel(openFollowup.kind, translator)
 			: view === "settings"
-				? AGENT_SETTINGS_TITLES[settingsPage]
-				: editingRoutine?.name.trim() || "Nova rotina";
+				? agentSettingsTitle(settingsPage, translator)
+				: editingRoutine?.name.trim() || t("contextPanel.newRoutine");
 	const fullscreen = open && subview;
 	const webhookSecret =
 		webhookFor &&
@@ -582,11 +587,11 @@ export function ChatContextPanel({
 		<>
 			{open ? null : (
 				<button
-					aria-label="Abrir painel lateral"
+					aria-label={t("contextPanel.openPanel")}
 					className="group/pull absolute inset-y-0 right-0 z-30 hidden w-4 cursor-ew-resize touch-none bg-transparent lg:block"
 					onClick={() => onOpenPanel?.()}
 					onPointerDown={handleReopenDragStart}
-					title="Arrastar para abrir o painel"
+					title={t("contextPanel.dragToOpen")}
 					type="button"
 				>
 					<span className="absolute inset-y-0 right-0 w-1.5 bg-transparent transition-colors group-hover/pull:bg-sidebar-border/60" />
@@ -594,7 +599,7 @@ export function ChatContextPanel({
 			)}
 			{open && !subview ? (
 				<button
-					aria-label="Fechar ao tocar fora"
+					aria-label={t("contextPanel.closeOutside")}
 					className="fixed inset-0 z-40 cursor-default bg-black/50 supports-backdrop-filter:bg-black/40 supports-backdrop-filter:backdrop-blur-sm lg:hidden"
 					data-slot="info-pane-backdrop"
 					onClick={() => onClosePanel?.()}
@@ -632,7 +637,7 @@ export function ChatContextPanel({
 						<div className="flex w-8 shrink-0 justify-start">
 							{subview ? (
 								<Button
-									aria-label="Voltar"
+									aria-label={t("common.back")}
 									onClick={() =>
 										followupView
 											? setFollowupId(null)
@@ -653,7 +658,7 @@ export function ChatContextPanel({
 						<div className="flex shrink-0 items-center justify-end gap-0.5">
 							{!subview && !group && onOpenSettings ? (
 								<Button
-									aria-label="Configurações do bot"
+									aria-label={t("contextPanel.botSettings")}
 									data-info-row="settings"
 									onClick={() => {
 										setSettingsPage("main");
@@ -666,7 +671,7 @@ export function ChatContextPanel({
 								</Button>
 							) : null}
 							<Button
-								aria-label="Fechar painel"
+								aria-label={t("contextPanel.closePanel")}
 								onClick={() => {
 									if (view !== "default") onCloseView?.();
 									onClosePanel?.();
@@ -735,10 +740,10 @@ export function ChatContextPanel({
 						<div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto px-4 pb-[calc(2rem+env(safe-area-inset-bottom))]">
 							<BotHeader agent={agent} onUpdate={onUpdate} />
 							<Tabs onValueChange={setTab} value={tab}>
-								<TabsList aria-label="Seções do painel" className="w-full">
-									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="library">Biblioteca</TabsTrigger>
-									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="computer">Computador</TabsTrigger>
-									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="email">E-mail</TabsTrigger>
+								<TabsList aria-label={t("contextPanel.sections")} className="w-full">
+									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="library">{t("contextPanel.tabLibrary")}</TabsTrigger>
+									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="computer">{t("contextPanel.tabComputer")}</TabsTrigger>
+									<TabsTrigger className="min-w-0 flex-1 basis-0 px-1.5" value="email">{t("contextPanel.tabEmail")}</TabsTrigger>
 								</TabsList>
 
 								<TabsContent value="library">
@@ -838,7 +843,7 @@ export function ChatContextPanel({
 													</div>
 												)}
 												<button
-													aria-label="Abrir tela do sandbox"
+													aria-label={t("contextPanel.openScreen")}
 													className="absolute inset-0 grid place-items-center bg-background/10 transition-colors hover:bg-background/45 focus-visible:bg-background/45 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
 													onClick={onOpenSandboxViewer}
 													type="button"
@@ -860,8 +865,8 @@ export function ChatContextPanel({
 									</div>
 									<p className="text-center text-muted-foreground text-xs">
 										{sandboxViewerUrl && snapshotFailed
-											? `Prévia indisponível — ${agent.name}`
-											: `Tela de ${agent.name}`}
+											? t("contextPanel.previewUnavailable", { name: agent.name })
+											: t("contextPanel.screenOf", { name: agent.name })}
 									</p>
 									{sandboxViewerUrl && onStopSandbox ? (
 										<StopComputerButton
@@ -877,7 +882,7 @@ export function ChatContextPanel({
 					)}
 
 					<button
-						aria-label="Redimensionar painel"
+						aria-label={t("contextPanel.resize")}
 						className="group/resize absolute inset-y-0 left-0 z-30 hidden w-2 cursor-col-resize touch-none bg-transparent lg:block"
 						onPointerDown={handleResizeStart}
 						type="button"

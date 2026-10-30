@@ -8,10 +8,8 @@ import {
 	TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 import { copyFieldText } from "./routine-actions";
-
-export const KEY_TOOLTIP =
-	'Os remetentes se autenticam com este segredo: inclua o cabeçalho "X-Atlas-Hook-Secret: <segredo>" na solicitação do webhook';
 
 /** Cabeçalho que o remetente envia (o segredo vai no cabeçalho, nunca na URL). */
 export function hookSecretHeader(secret: string): string {
@@ -30,6 +28,7 @@ export function CopyField({
 	placeholder: string;
 	labelHint?: string;
 }) {
+	const t = useT();
 	const [copied, setCopied] = useState(false);
 	const codeRef = useRef<HTMLElement | null>(null);
 	const timer = useRef<number | null>(null);
@@ -78,7 +77,7 @@ export function CopyField({
 				)}
 			</span>
 			<button
-				aria-label={value ? `Copiar ${label}` : undefined}
+				aria-label={value ? t("routines.hook.copyField", { label }) : undefined}
 				className={cn(
 					"w-full min-w-0 rounded-md bg-muted px-2 py-1 text-left text-caption outline-none focus-visible:ring-2 focus-visible:ring-ring",
 					value ? "cursor-pointer" : "cursor-default text-muted-foreground",
@@ -92,7 +91,7 @@ export function CopyField({
 				</code>
 			</button>
 			<span aria-live="polite" className="w-12 min-w-0 truncate text-muted-foreground text-xs">
-				{copied ? "Copiado" : ""}
+				{copied ? t("routines.hook.copied") : ""}
 			</span>
 		</div>
 	);
@@ -112,6 +111,7 @@ export function WebhookSection({
 	canRotate: boolean;
 	onRotate?: () => void | Promise<void>;
 }) {
+	const t = useT();
 	const [rotating, setRotating] = useState(false);
 	useEffect(() => {
 		if (secret) setRotating(false);
@@ -127,32 +127,32 @@ export function WebhookSection({
 		}
 	}
 
-	const keyPlaceholder = rotating ? "Gerando…" : "Segredo oculto — gere um novo";
+	const keyPlaceholder = rotating ? t("routines.hook.generating") : t("routines.hook.hiddenSecret");
 	return (
 		<div className="flex min-w-0 flex-col gap-3 sm:gap-2">
-			<CopyField label="POST para" placeholder="Carregando…" value={url} />
+			<CopyField label={t("routines.hook.postTo")} placeholder={t("common.loading")} value={url} />
 			<CopyField
-				label="segredo"
-				labelHint={KEY_TOOLTIP}
+				label={t("routines.hook.secret")}
+				labelHint={t("routines.hook.secretHint")}
 				placeholder={keyPlaceholder}
 				value={secret}
 			/>
 			<CopyField
-				label="cabeçalho"
-				placeholder="X-Atlas-Hook-Secret: <segredo>"
+				label={t("routines.hook.header")}
+				placeholder={t("routines.hook.headerPlaceholder")}
 				value={secret ? hookSecretHeader(secret) : null}
 			/>
 			<p className="break-words text-muted-foreground text-xs">
-				A URL não leva o segredo. Para ligar ao n8n ou similar, peça ao bot: ele usa o segredo por referência, sem você copiar nada.
+				{t("routines.hook.urlNoSecret")}
 			</p>
 			{urlSecretAt ? (
 				<p className="break-words rounded-xl bg-warning/10 p-2 text-xs" data-url-secret-warning>
-					Esta integração usa o segredo na URL (?secret=). Prefira o cabeçalho X-Atlas-Hook-Secret.
+					{t("routines.hook.urlSecretWarning")}
 				</p>
 			) : null}
 			{secret ? (
 				<p className="break-words font-medium text-xs">
-					Copie agora — não aparece de novo.
+					{t("routines.hook.copyNow")}
 				</p>
 			) : null}
 			{canRotate && onRotate ? (
@@ -163,10 +163,10 @@ export function WebhookSection({
 						size="sm"
 						variant="outline"
 					>
-						{rotating ? "Gerando…" : "Gerar novo segredo"}
+						{rotating ? t("routines.hook.generating") : t("routines.hook.rotate")}
 					</Button>
 					<p className="break-words text-muted-foreground text-xs">
-						O segredo anterior deixa de funcionar.
+						{t("routines.hook.rotateHelp")}
 					</p>
 				</div>
 			) : null}

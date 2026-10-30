@@ -5,6 +5,8 @@ import { Marker, MarkerContent, MarkerIcon } from "@workspace/ui/components/mark
 import { Spinner } from "@workspace/ui/components/spinner";
 
 import { formatCompactionLine } from "@workspace/shared";
+import { formatNumber } from "@/lib/format";
+import { useT, useTranslations } from "@/lib/i18n/provider";
 
 export type CompactionCardProps = {
 	/** Tokens estimados da conversa levada, antes e depois do resumo. */
@@ -21,15 +23,22 @@ export type CompactionCardProps = {
  * laterais e sem abrir o resumo (o resumo é para o assistente, não para ler no meio do chat).
  */
 export function CompactionCard({ before, after }: CompactionCardProps) {
+	const translator = useTranslations();
+	const { t, locale } = translator;
+	const formatTokens = (tokens: number) => {
+		const value = Math.max(0, Math.round(tokens));
+		if (value < 1000) return formatNumber(value, locale);
+		return t("chat.tokensThousand", { value: formatNumber(value / 1000, locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) });
+	};
 	return (
 		<Marker className="my-2 justify-center text-xs" data-testid="compaction-card">
 			<MarkerIcon>
 				<ShrinkIcon />
 			</MarkerIcon>
 			<MarkerContent className="flex-none truncate">
-				<span className="max-sm:hidden">Conversa compactada · </span>
-				<span className="sm:hidden">Compactada · </span>
-				<span className="tabular-nums" data-testid="compaction-numbers">{formatCompactionLine(before, after)}</span>
+				<span className="max-sm:hidden">{t("chat.compacted")}</span>
+				<span className="sm:hidden">{t("chat.compactedShort")}</span>
+				<span className="tabular-nums" data-testid="compaction-numbers">{formatCompactionLine(before, after, formatTokens)}</span>
 			</MarkerContent>
 		</Marker>
 	);
@@ -39,10 +48,11 @@ export type CompactionNoticeState = { status: "working" } | { status: "notice"; 
 
 /** Estado passageiro do `/compact`: "Compactando a conversa…" enquanto roda e, se nada foi feito, o aviso curto. */
 export function CompactionNotice({ state }: { state: CompactionNoticeState }) {
+	const t = useT();
 	return (
 		<Marker aria-live="polite" className="my-1 text-xs" data-state={state.status} data-testid="compaction-notice" role="status">
 			<MarkerIcon>{state.status === "working" ? <Spinner /> : <ShrinkIcon />}</MarkerIcon>
-			<MarkerContent>{state.status === "working" ? "Compactando a conversa…" : state.text}</MarkerContent>
+			<MarkerContent>{state.status === "working" ? t("chat.compacting") : state.text}</MarkerContent>
 		</Marker>
 	);
 }

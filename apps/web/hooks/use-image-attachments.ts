@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uploadImage } from "@/lib/atlas-api";
+import { activeT } from "@/lib/i18n/active";
 
 export const MAX_IMAGE_ATTACHMENTS = 4;
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -17,10 +18,10 @@ export type ImageAttachment = {
 };
 
 export function validateImageFiles(files: readonly File[], existingCount: number): string | null {
-	if (files.length + existingCount > MAX_IMAGE_ATTACHMENTS) return "Até 4 imagens por mensagem.";
+	if (files.length + existingCount > MAX_IMAGE_ATTACHMENTS) return activeT("errors.maxImages");
 	for (const file of files) {
-		if (!IMAGE_TYPES.has(file.type)) return "Use PNG, JPEG, WebP ou GIF.";
-		if (file.size > MAX_IMAGE_BYTES) return "Cada imagem deve ter até 10 MB.";
+		if (!IMAGE_TYPES.has(file.type)) return activeT("errors.imageFormat");
+		if (file.size > MAX_IMAGE_BYTES) return activeT("errors.imageTooBig");
 	}
 	return null;
 }
@@ -107,7 +108,7 @@ export function useImageAttachments() {
 			}).catch((failure: unknown) => {
 				if (controller.signal.aborted) return;
 				setItems((previous) => previous.map((item) => item.localId === localId
-					? { ...item, status: "error", error: failure instanceof Error ? failure.message : "Falha no upload" } : item));
+					? { ...item, status: "error", error: failure instanceof Error ? failure.message : activeT("errors.uploadFailed") } : item));
 			}).finally(() => aborts.current.delete(localId));
 		}
 		} finally { setProcessing((count) => count - 1); }

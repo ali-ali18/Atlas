@@ -7,7 +7,6 @@ import {
 	type UpdateAccountSettingsInput,
 } from "@workspace/shared";
 import {
-	SAVE_ERROR_FALLBACK,
 	applyOptimisticPatch,
 	commitSettingsChange,
 	inheritLabel,
@@ -44,9 +43,9 @@ test("otimista: idioma novo vira valor do usuário; null (herdar) não inventa v
 
 test("saveErrorMessage só repassa erro de validação (400); o resto vira mensagem genérica", () => {
 	assert.equal(saveErrorMessage({ status: 400, message: "Use pt-BR, en-US ou es-ES." }), "Use pt-BR, en-US ou es-ES.");
-	assert.equal(saveErrorMessage({ status: 503, message: "Failed to update settings" }), SAVE_ERROR_FALLBACK);
-	assert.equal(saveErrorMessage(new Error("boom")), SAVE_ERROR_FALLBACK);
-	assert.equal(saveErrorMessage(undefined), SAVE_ERROR_FALLBACK);
+	assert.equal(saveErrorMessage({ status: 503, message: "Failed to update settings" }), "Não foi possível salvar. Tente novamente.");
+	assert.equal(saveErrorMessage(new Error("boom")), "Não foi possível salvar. Tente novamente.");
+	assert.equal(saveErrorMessage(undefined), "Não foi possível salvar. Tente novamente.");
 });
 
 test("commit com sucesso: PATCH leva só o patch, tela vê o otimista e fica com a resposta do servidor", async () => {
@@ -82,7 +81,7 @@ test("commit com erro: faz rollback para a visão anterior e devolve o erro em p
 	assert.equal(language(seen[0]!).value, "en-US", "mostrou a escolha antes de falhar");
 	assert.equal(result.ok, false);
 	assert.equal(result.view, before, "volta ao valor anterior");
-	assert.equal(result.ok === false && result.error, SAVE_ERROR_FALLBACK);
+	assert.equal(result.ok === false && result.error, "Não foi possível salvar. Tente novamente.");
 });
 
 test("voltar a herdar manda null no PATCH", async () => {

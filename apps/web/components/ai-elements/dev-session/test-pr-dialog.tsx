@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@workspace/ui/components/input";
 
 import { suggestRepos } from "@/components/settings/dev-environments-state";
+import { useTranslations } from "@/lib/i18n/provider";
 import { listDevEnvironments, listDevSessions, listGithubPulls, listGithubRepos, type GithubPullOption, type GithubRepoOption } from "@/lib/atlas-api";
 
 const LABEL_CLASS = "text-body leading-[18px] font-medium";
@@ -42,6 +43,7 @@ export async function defaultTestPrRepo(conversationId: string | undefined): Pro
  * da PR. Colar o link em qualquer campo preenche os dois. Envia a mensagem pronta.
  */
 export function TestPrDialog({ open, onOpenChange, onSubmit, initialRepo = "", repoOptions, conversationId, pullOptions }: TestPrDialogProps) {
+	const { t } = useTranslations();
 	const [repo, setRepo] = useState(initialRepo);
 	const [pr, setPr] = useState("");
 	const [error, setError] = useState<string | null>(null);
@@ -118,8 +120,8 @@ export function TestPrDialog({ open, onOpenChange, onSubmit, initialRepo = "", r
 		<Dialog onOpenChange={onOpenChange} open={open}>
 			<DialogContent className="gap-5 p-5 sm:max-w-md sm:p-6" data-slot="test-pr-dialog">
 				<DialogHeader>
-					<DialogTitle className="text-base font-semibold">Testar uma PR</DialogTitle>
-					<DialogDescription>O agente faz checkout, instala, roda testes, typecheck, lint e build, confere o CI e diz se pode dar merge.</DialogDescription>
+					<DialogTitle className="text-base font-semibold">{t("devSession.testPr.title")}</DialogTitle>
+					<DialogDescription>{t("devSession.testPr.description")}</DialogDescription>
 				</DialogHeader>
 				<form
 					className="flex min-w-0 flex-col gap-4"
@@ -131,7 +133,7 @@ export function TestPrDialog({ open, onOpenChange, onSubmit, initialRepo = "", r
 				>
 					<div className="flex min-w-0 flex-col gap-1.5">
 						<label className={LABEL_CLASS} htmlFor={`${ids}-repo`}>
-							Repositório
+							{t("devSession.testPr.repo")}
 						</label>
 						<div className="relative">
 							<Input
@@ -176,7 +178,7 @@ export function TestPrDialog({ open, onOpenChange, onSubmit, initialRepo = "", r
 					</div>
 					<div className="flex min-w-0 flex-col gap-1.5">
 						<label className={LABEL_CLASS} htmlFor={`${ids}-pr`}>
-							Número ou link da PR
+							{t("devSession.testPr.number")}
 						</label>
 						<Input
 							autoComplete="off"
@@ -192,7 +194,7 @@ export function TestPrDialog({ open, onOpenChange, onSubmit, initialRepo = "", r
 							value={pr}
 						/>
 						{pulls.length > 0 ? (
-							<ul aria-label="PRs abertas" className="flex max-h-32 flex-col gap-0.5 overflow-y-auto" data-slot="test-pr-quick-picks">
+							<ul aria-label={t("devSession.testPr.openPulls")} className="flex max-h-32 flex-col gap-0.5 overflow-y-auto" data-slot="test-pr-quick-picks">
 								{pulls.map((pull) => (
 									<li key={pull.number}>
 										<button
@@ -218,10 +220,10 @@ export function TestPrDialog({ open, onOpenChange, onSubmit, initialRepo = "", r
 					</div>
 					<DialogFooter>
 						<Button onClick={() => onOpenChange(false)} type="button" variant="outline">
-							Cancelar
+							{t("common.cancel")}
 						</Button>
 						<Button disabled={!pr.trim()} type="submit">
-							Testar
+							{t("devSession.testPr.submit")}
 						</Button>
 					</DialogFooter>
 				</form>

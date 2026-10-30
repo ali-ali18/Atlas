@@ -7,6 +7,10 @@ import { GROUP_MAX_MEMBERS, GROUP_MIN_MEMBERS } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { formatList } from "@/lib/format";
+import { useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
+
 import { AgentAvatar } from "./agent-avatar";
 import { bodyColors, type Agent, type NewGroupInput } from "./data";
 
@@ -20,10 +24,9 @@ export function canCreateGroup(memberIds: readonly string[]): boolean {
 }
 
 /** Nome padrão do grupo: os nomes dos membros ("Ana e Bia", "Ana, Bia e Caio"), como o Grok Bot. */
-export function defaultGroupName(names: readonly string[]): string {
+export function defaultGroupName(names: readonly string[], translator: Translator = defaultTranslator): string {
 	const clean = names.map((name) => name.trim()).filter(Boolean);
-	const joined =
-		clean.length <= 1 ? (clean[0] ?? "Grupo") : `${clean.slice(0, -1).join(", ")} e ${clean[clean.length - 1]}`;
+	const joined = clean.length <= 1 ? (clean[0] ?? translator.t("groups.defaultName")) : formatList(clean, translator.locale);
 	return joined.length <= 80 ? joined : `${joined.slice(0, 79).trimEnd()}…`;
 }
 
@@ -41,14 +44,15 @@ export function recipientRows(
 	chips: readonly string[],
 	query: string,
 	groupMode: boolean,
+	translator: Translator = defaultTranslator,
 ): Row[] {
 	const compose = groupMode || chips.length > 0;
 	const needle = query.trim().toLowerCase();
 	const pool = compose ? groupCandidates(agents) : agents;
 	const rows: Row[] = [];
 	if (!compose) {
-		if (!needle || "criar novo bot".includes(needle)) rows.push({ kind: "new-bot" });
-		if (!needle || "criar chat em grupo".includes(needle)) rows.push({ kind: "new-group" });
+		if (!needle || translator.t("groups.newBotRow").toLowerCase().includes(needle)) rows.push({ kind: "new-bot" });
+		if (!needle || translator.t("groups.newGroupRow").toLowerCase().includes(needle)) rows.push({ kind: "new-group" });
 	}
 	for (const agent of pool) {
 		if (chips.includes(agent.id)) continue;
@@ -58,8 +62,10 @@ export function recipientRows(
 	return rows;
 }
 
-function placeholderFor(names: readonly string[]): string {
-	return names.length === 0 ? "Mensagem para o grupo" : `Mensagem para ${defaultGroupName(names)}`;
+function placeholderFor(names: readonly string[], translator: Translator): string {
+	return names.length === 0
+		? translator.t("groups.messageToGroup")
+		: translator.t("groups.messageTo", { name: defaultGroupName(names, translator) });
 }
 
 /**
@@ -84,6 +90,8 @@ export function NewChatTo({
 	onSend: (input: NewGroupInput, text: string) => Promise<boolean>;
 	className?: string;
 }) {
+	const translator = useTranslations();
+	const { t, tn } = translator;
 	const [groupMode, setGroupMode] = useState(initialGroupMode);
 	const [chips, setChips] = useState<string[]>([]);
 	const [query, setQuery] = useState("");
@@ -95,10 +103,10 @@ export function NewChatTo({
 
 	const compose = groupMode || chips.length > 0;
 	const chipAgents = chips.flatMap((id) => agents.find((agent) => agent.id === id) ?? []);
-	const rows = useMemo(() => recipientRows(agents, chips, query, groupMode), [agents, chips, query, groupMode]);
+	const rows = useMemo(() => recipientRows(agents, chips, query, groupMode, translator), [agents, chips, query, groupMode, translator]);
 	const full = chips.length >= GROUP_MAX_MEMBERS;
 	const canSend = canCreateGroup(chips) && text.trim().length > 0 && !sending;
-	const placeholder = placeholderFor(chipAgents.map((member) => member.name));
+	const placeholder = placeholderFor(chipAgents.map((member) => member.name), translator);
 
 	function addChip(id: string) {
 		if (full) return;
@@ -132,10 +140,10 @@ export function NewChatTo({
 		try {
 			const color = defaultGroupColor(chipAgents);
 			const ok = await onSend(
-				{ name: defaultGroupName(chipAgents.map((member) => member.name)), memberIds: chips, ...(color ? { color } : {}) },
+				{ name: defaultGroupName(chipAgents.map((member) => member.name), translator), memberIds: chips, ...(color ? { color } : {}) },
 				text.trim(),
 			);
-			if (!ok) setError("Não foi possível criar o grupo. Tente novamente.");
+			if (!ok) setError(t("groups.createError"));
 		} finally {
 			setSending(false);
 		}
@@ -144,23 +152,23 @@ export function NewChatTo({
 	return (
 		<section className={cn("flex min-h-0 min-w-0 flex-1 flex-col bg-background", className)} data-testid="new-chat-to">
 			<header className="flex shrink-0 items-center gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-2 md:px-6 md:pt-4">
-				<Button aria-label="Cancelar" className="size-10 rounded-full" onClick={onCancel} size="icon" type="button" variant="ghost">
+				<Button aria-label={t("common.cancel")} className="size-10 rounded-full" onClick={onCancel} size="icon" type="button" variant="ghost">
 					<ArrowLeftIcon className="size-5" />
 				</Button>
-				<h1 className="font-semibold text-base">{compose ? "Novo chat em grupo" : "Novo chat"}</h1>
+				<h1 className="font-semibold text-base">{compose ? t("groups.newGroupChat") : t("groups.newChat")}</h1>
 			</header>
 
 			<div className="relative mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col px-4 md:px-6">
 				<div className="flex min-h-12 flex-wrap items-center gap-1.5 border-border border-b py-2">
 					<label className="shrink-0 text-muted-foreground text-sm" htmlFor="new-chat-to-input">
-						Para:
+						{t("groups.to")}
 					</label>
 					{chipAgents.map((member) => (
 						<span className="inline-flex items-center gap-1.5 rounded-full bg-muted py-0.5 pr-1 pl-1 text-sm" data-chip={member.id} key={member.id}>
 							<AgentAvatar animated={false} bodyColor={member.color} id={member.id} shape={member.shape} size={20} />
 							<span className="max-w-32 truncate">{member.name}</span>
 							<button
-								aria-label={`Remover ${member.name}`}
+								aria-label={t("groups.remove", { name: member.name })}
 								className="grid size-5 place-items-center rounded-full text-muted-foreground outline-none hover:bg-background focus-visible:ring-2 focus-visible:ring-ring"
 								onClick={() => removeChip(member.id)}
 								type="button"
@@ -190,7 +198,7 @@ export function NewChatTo({
 							}
 							if (event.key === "Escape") setOpen(false);
 						}}
-						placeholder={chips.length > 0 ? "Adicionar…" : compose ? "Adicionar ao chat em grupo" : "Nome do bot"}
+						placeholder={chips.length > 0 ? t("groups.addPlaceholder") : compose ? t("groups.addToGroup") : t("groups.botNamePlaceholder")}
 						ref={queryRef}
 						role="combobox"
 						value={query}
@@ -199,14 +207,14 @@ export function NewChatTo({
 
 				{open ? (
 					<ul
-						aria-label="Sugestões"
+						aria-label={t("groups.suggestions")}
 						className="mt-1 flex max-h-[min(22rem,50dvh)] flex-col gap-0.5 overflow-y-auto rounded-2xl border border-border bg-popover p-1.5 shadow-md"
 						id="new-chat-to-list"
 						role="listbox"
 					>
 						{rows.length === 0 ? (
 							<li className="px-3 py-4 text-center text-muted-foreground text-sm">
-								{compose ? "Nenhum bot para adicionar" : "Nenhum bot encontrado"}
+								{compose ? t("groups.noneToAdd") : t("groups.noneFound")}
 							</li>
 						) : null}
 						{rows.map((row) => {
@@ -236,15 +244,15 @@ export function NewChatTo({
 										)}
 										<span className="flex min-w-0 flex-1 flex-col">
 											<span className="truncate font-medium text-sm">
-												{row.kind === "new-bot" ? "Criar novo Bot" : row.kind === "new-group" ? "Criar chat em grupo" : row.agent.name}
+												{row.kind === "new-bot" ? t("groups.newBotRow") : row.kind === "new-group" ? t("groups.newGroupRow") : row.agent.name}
 											</span>
 											{row.kind === "agent" ? (
 												<span className="truncate text-muted-foreground text-xs">
 													{compose
-														? "Adicionar ao chat em grupo"
+														? t("groups.addToGroup")
 														: row.agent.members?.length
-															? `${row.agent.members.length} membros`
-															: row.agent.description?.trim() || row.agent.snippet || "Bot"}
+															? tn("groups.members", row.agent.members.length)
+															: row.agent.description?.trim() || row.agent.snippet || t("groups.botFallback")}
 												</span>
 											) : null}
 										</span>
@@ -258,9 +266,9 @@ export function NewChatTo({
 				<div className="flex flex-1 items-center justify-center px-6 text-center text-muted-foreground text-sm">
 					{compose
 						? chips.length < GROUP_MIN_MEMBERS
-							? `Adicione pelo menos ${GROUP_MIN_MEMBERS} bots. O grupo é criado quando você envia a primeira mensagem.`
-							: "O grupo é criado quando você envia a primeira mensagem."
-						: "Escolha um bot ou crie um chat em grupo."}
+							? t("groups.hintMinimum", { count: GROUP_MIN_MEMBERS })
+							: t("groups.hintCreatedOnSend")
+						: t("groups.hintPick")}
 				</div>
 			</div>
 
@@ -295,7 +303,7 @@ export function NewChatTo({
 							value={text}
 						/>
 						<div className="flex justify-end p-1">
-							<Button aria-label="Enviar" className="size-9 rounded-full" disabled={!canSend} size="icon" type="submit">
+							<Button aria-label={t("groups.send")} className="size-9 rounded-full" disabled={!canSend} size="icon" type="submit">
 								<ArrowUpIcon className="size-4" />
 							</Button>
 						</div>

@@ -1,11 +1,7 @@
 "use client";
 
 import { ClockIcon } from "lucide-react";
-import {
-	AUTONOMY_DURATIONS,
-	AUTONOMY_DURATION_LABELS,
-	type AutonomyDuration,
-} from "@workspace/shared";
+import { AUTONOMY_DURATIONS, type AutonomyDuration } from "@workspace/shared";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -21,6 +17,9 @@ import {
 	TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
+
+import { useTranslations } from "@/lib/i18n/provider";
+import { durationLabel } from "./autonomy-copy";
 
 /**
  * Botão de relógio ao lado do nível: abre a validade da autonomia.
@@ -40,17 +39,18 @@ export function AutonomyValidityButton({
 	disabled?: boolean;
 	onChange: (value: AutonomyDuration) => void;
 }) {
+	const translator = useTranslations();
 	const label =
 		value === "current" && currentLabel
 			? currentLabel
-			: AUTONOMY_DURATION_LABELS[value as AutonomyDuration];
+			: durationLabel(value as AutonomyDuration, translator);
 	return (
 		<Tooltip>
 			<DropdownMenu>
 				<TooltipTrigger
 					render={
 						<DropdownMenuTrigger
-							aria-label="Por quanto tempo"
+							aria-label={translator.t("autonomy.howLong")}
 							className={cn(
 								"relative grid size-9 shrink-0 place-items-center rounded-full border border-transparent bg-input/50 text-muted-foreground transition-[color,box-shadow,background-color] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50",
 								active && "text-primary",
@@ -73,14 +73,14 @@ export function AutonomyValidityButton({
 				</TooltipContent>
 				<DropdownMenuContent align="end">
 					<DropdownMenuGroup>
-						<DropdownMenuLabel>Por quanto tempo</DropdownMenuLabel>
+						<DropdownMenuLabel>{translator.t("autonomy.howLong")}</DropdownMenuLabel>
 						<DropdownMenuRadioGroup
 							onValueChange={(next) => onChange(next as AutonomyDuration)}
 							value={value === "current" ? "" : value}
 						>
 							{AUTONOMY_DURATIONS.map((duration) => (
 								<DropdownMenuRadioItem key={duration} value={duration}>
-									{AUTONOMY_DURATION_LABELS[duration]}
+									{durationLabel(duration, translator)}
 								</DropdownMenuRadioItem>
 							))}
 						</DropdownMenuRadioGroup>

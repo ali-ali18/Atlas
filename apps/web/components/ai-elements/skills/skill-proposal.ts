@@ -10,41 +10,43 @@ import {
 	type SkillProposalStatus,
 } from "@workspace/shared";
 import { parseToolsText, type SkillForm } from "@/components/settings/skills-state";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 
 export type { SkillProposalAction, SkillProposalData, SkillProposalStatus };
 
 type BotRefs = readonly { id: string; name: string }[];
 
-export function proposalTitle(proposal: Pick<SkillProposalData, "action">): string {
-	if (proposal.action === "delete") return "Apagar habilidade";
-	return proposal.action === "edit" ? "Editar habilidade" : "Criar habilidade";
+export function proposalTitle(proposal: Pick<SkillProposalData, "action">, { t }: Translator = defaultTranslator): string {
+	if (proposal.action === "delete") return t("aiElements.skills.title.delete");
+	return proposal.action === "edit" ? t("aiElements.skills.title.edit") : t("aiElements.skills.title.create");
 }
 
-export function proposalActionBadge(action: SkillProposalAction): string {
-	if (action === "delete") return "Exclusão";
-	return action === "edit" ? "Edição" : "Nova";
+export function proposalActionBadge(action: SkillProposalAction, { t }: Translator = defaultTranslator): string {
+	if (action === "delete") return t("aiElements.skills.badge.delete");
+	return action === "edit" ? t("aiElements.skills.badge.edit") : t("aiElements.skills.badge.create");
 }
 
-export function proposalScopeLabel(proposal: Pick<SkillProposalData, "botId">, bots: BotRefs = []): string {
-	if (!proposal.botId) return "Conta";
-	return bots.find((bot) => bot.id === proposal.botId)?.name ?? "Bot específico";
+export function proposalScopeLabel(proposal: Pick<SkillProposalData, "botId">, bots: BotRefs = [], { t }: Translator = defaultTranslator): string {
+	if (!proposal.botId) return t("aiElements.skills.scope.account");
+	return bots.find((bot) => bot.id === proposal.botId)?.name ?? t("aiElements.skills.scope.specificBot");
 }
 
 /** Resumo em uma frase: o que vai acontecer se o usuário aprovar. */
-export function proposalSummary(proposal: SkillProposalData, bots: BotRefs = []): string {
-	const verb = proposal.action === "delete" ? "Apagar" : proposal.action === "edit" ? "Atualizar" : "Criar";
-	const scope = proposal.botId ? `do bot ${proposalScopeLabel(proposal, bots)}` : "da sua conta";
-	if (proposal.action === "delete") return `${verb} a habilidade "${proposal.name}" ${scope}. Não dá para desfazer.`;
-	const target = proposal.botId ? `para o bot ${proposalScopeLabel(proposal, bots)}` : "para a sua conta";
-	return `${verb} a habilidade "${proposal.name}" ${target}.`;
+export function proposalSummary(proposal: SkillProposalData, bots: BotRefs = [], translator: Translator = defaultTranslator): string {
+	const { t } = translator;
+	const bot = proposalScopeLabel(proposal, bots, translator);
+	const { name } = proposal;
+	if (proposal.action === "delete") return proposal.botId ? t("aiElements.skills.summary.deleteBot", { name, bot }) : t("aiElements.skills.summary.deleteAccount", { name });
+	if (proposal.action === "edit") return proposal.botId ? t("aiElements.skills.summary.editBot", { name, bot }) : t("aiElements.skills.summary.editAccount", { name });
+	return proposal.botId ? t("aiElements.skills.summary.createBot", { name, bot }) : t("aiElements.skills.summary.createAccount", { name });
 }
 
 /** Texto do estado final (depois de aprovar ou recusar). `null` enquanto pendente. */
-export function proposalResolvedCaption(proposal: Pick<SkillProposalData, "action" | "status">): string | null {
+export function proposalResolvedCaption(proposal: Pick<SkillProposalData, "action" | "status">, { t }: Translator = defaultTranslator): string | null {
 	if (proposal.status === "pending") return null;
-	if (proposal.status === "rejected") return "Proposta recusada. Nada foi alterado.";
-	if (proposal.action === "delete") return "Habilidade apagada.";
-	return proposal.action === "edit" ? "Habilidade atualizada." : "Habilidade criada.";
+	if (proposal.status === "rejected") return t("aiElements.skills.caption.rejected");
+	if (proposal.action === "delete") return t("aiElements.skills.caption.deleted");
+	return proposal.action === "edit" ? t("aiElements.skills.caption.updated") : t("aiElements.skills.caption.created");
 }
 
 /** "Editar antes" só existe quando há documento para editar (não na exclusão). */
@@ -73,22 +75,20 @@ export function formToProposalMarkdown(form: SkillForm): string {
 	});
 }
 
-/** Mensagem pt-BR para o erro do resolve (404/409/422/400). */
-export function proposalErrorMessage(error: unknown): string {
+/** Mensagem (no idioma da tela) para o erro do resolve (404/409/422/400). */
+export function proposalErrorMessage(error: unknown, { t }: Translator = defaultTranslator): string {
 	const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : 0;
 	const message = error instanceof Error ? error.message.trim() : "";
 	switch (status) {
 		case 404:
-			return "Esta proposta não existe mais ou já foi resolvida.";
+			return t("aiElements.skills.error.404");
 		case 409:
-			return message
-				? `${message} Peça ao agente para propor de novo.`
-				: "A habilidade mudou ou já existe uma com esse nome. Peça ao agente para propor de novo.";
+			return message ? t("aiElements.skills.error.409Message", { message }) : t("aiElements.skills.error.409");
 		case 422:
-			return message || "Limite de habilidades atingido. Apague alguma antes de aprovar.";
+			return message || t("aiElements.skills.error.422");
 		case 400:
-			return message || "O documento da habilidade é inválido.";
+			return message || t("aiElements.skills.error.400");
 		default:
-			return "Não foi possível aplicar a proposta. Tente novamente.";
+			return t("aiElements.skills.error.default");
 	}
 }

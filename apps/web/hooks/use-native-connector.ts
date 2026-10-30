@@ -10,6 +10,7 @@ import {
 	type McpCatalogItem,
 } from "@/lib/atlas-api";
 import { pollMcpOAuthConnection } from "@/lib/mcp-oauth-wait";
+import { activeT } from "@/lib/i18n/active";
 
 /** Ação do botão do card: login de um clique ou, quando falta app OAuth/chave, o Marketplace. */
 export function nativeConnectorAction(entry: McpCatalogItem | null): "connect" | "marketplace" | "loading" {
@@ -53,7 +54,7 @@ export function useNativeConnector(catalogId: string, enabled: boolean) {
 					setConnected(nowConnected);
 				})
 				.catch((cause) => {
-					if (alive && initial) setError(messageOf(cause, "Não foi possível carregar o conector."));
+					if (alive && initial) setError(messageOf(cause, activeT("errors.loadConnector")));
 				});
 		void load(true);
 		// Ao voltar para a aba (depois de conectar no Marketplace), recarrega o estado.
@@ -93,11 +94,11 @@ export function useNativeConnector(catalogId: string, enabled: boolean) {
 				setConnected(true);
 				setJustConnected(true);
 			} else {
-				setError(fresh?.lastError ?? failure ?? "Login não concluído.");
+				setError(fresh?.lastError ?? failure ?? activeT("errors.loginIncomplete"));
 			}
 		} catch (cause) {
 			popup?.close();
-			setError(messageOf(cause, "Não foi possível iniciar o login."));
+			setError(messageOf(cause, activeT("errors.startLogin")));
 		} finally {
 			busyRef.current = false;
 			setBusy(false);

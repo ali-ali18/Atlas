@@ -16,6 +16,7 @@ import {
 } from "@/lib/atlas-api";
 import { normalizeEnvRepo, parseEnvPaste, type DevApprovalMode } from "@workspace/shared";
 import { envErrorMessage, inputFromForm, type DevEnvForm } from "@/components/settings/dev-environments-state";
+import { activeT } from "@/lib/i18n/active";
 
 export type SaveEnvironmentResult = { ok: true; environment: DevEnvironmentView } | { ok: false; error: string };
 
@@ -80,7 +81,7 @@ export function useDevEnvironments(enabled = true) {
 					env = await setDevEnvironmentSecrets(env.id, entries);
 					replace(env);
 				} catch (cause) {
-					return { ok: false, error: `O ambiente foi salvo, mas os segredos não: ${envErrorMessage(cause)}` };
+					return { ok: false, error: activeT("errors.envSavedSecretsFailed", { detail: envErrorMessage(cause) }) };
 				}
 			}
 			return { ok: true, environment: env };

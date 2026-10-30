@@ -37,6 +37,7 @@ import {
 	type GithubNotice,
 } from "../github-app-state";
 import { SettingRow, SettingsGroup } from "../setting-row";
+import { useTranslations } from "@/lib/i18n/provider";
 
 export type GithubAppSettingsViewProps = {
 	status: GithubAppStatus | null;
@@ -57,6 +58,7 @@ const NOTICE_STYLE: Record<GithubNotice["tone"], { icon: typeof InfoIcon; classN
 };
 
 function NoticeRow({ notice, onDismiss }: { notice: GithubNotice; onDismiss?: () => void }) {
+	const t = useTranslations().t;
 	const { icon: Icon, className } = NOTICE_STYLE[notice.tone];
 	return (
 		<div
@@ -67,7 +69,7 @@ function NoticeRow({ notice, onDismiss }: { notice: GithubNotice; onDismiss?: ()
 			<Icon aria-hidden className="mt-0.5 size-4 shrink-0" />
 			<p className="min-w-0 flex-1">{notice.text}</p>
 			{onDismiss ? (
-				<button aria-label="Fechar aviso" className="rounded-sm text-muted-foreground hover:text-foreground" onClick={onDismiss} type="button">
+				<button aria-label={t("settings.github.closeNotice")} className="rounded-sm text-muted-foreground hover:text-foreground" onClick={onDismiss} type="button">
 					<XIcon aria-hidden className="size-4" />
 				</button>
 			) : null}
@@ -104,6 +106,7 @@ const REPO_PAGE = 8;
 
 /** Repositórios da instalação: recolhido por padrão, um por linha, de 8 em 8. */
 function RepoChips({ inst }: { inst: GithubAppInstallation }) {
+	const t = useTranslations().t;
 	const [visible, setVisible] = useState(REPO_PAGE);
 	if (inst.repos.length === 0) return null;
 	const total = inst.repoCount ?? inst.repos.length;
@@ -113,7 +116,7 @@ function RepoChips({ inst }: { inst: GithubAppInstallation }) {
 		<Collapsible className="px-3.5 pb-2.5" data-slot="github-repos">
 			<CollapsibleTrigger className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left text-body text-muted-foreground hover:text-foreground">
 				<ChevronRightIcon aria-hidden className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
-				<span>Repositórios ({total})</span>
+				<span>{t("settings.github.repos", { total })}</span>
 			</CollapsibleTrigger>
 			<CollapsibleContent>
 				<ul className="mt-1 flex flex-col">
@@ -126,19 +129,19 @@ function RepoChips({ inst }: { inst: GithubAppInstallation }) {
 								{repo.fullName}
 							</span>
 							{repo.private ? (
-								<LockIcon aria-label="Privado" className="size-3.5 shrink-0 text-muted-foreground" />
+								<LockIcon aria-label={t("settings.github.private")} className="size-3.5 shrink-0 text-muted-foreground" />
 							) : null}
 						</li>
 					))}
 				</ul>
 				{more > 0 ? (
 					<Button className="mt-1.5 w-full" onClick={() => setVisible((n) => n + REPO_PAGE)} size="sm" type="button" variant="ghost">
-						Carregar mais ({more})
+						{t("settings.github.loadMore", { more })}
 					</Button>
 				) : null}
 				{inst.repoCount !== null && inst.repoCount > inst.repos.length && more === 0 ? (
 					<p className="pt-1.5 text-caption text-muted-foreground">
-						+{inst.repoCount - inst.repos.length} no GitHub
+						{t("settings.github.moreOnGithub", { count: inst.repoCount - inst.repos.length })}
 					</p>
 				) : null}
 			</CollapsibleContent>
@@ -157,7 +160,9 @@ function InstallationRows({
 	onRefresh: (id: string) => void;
 	onUnlink: (id: string) => void;
 }) {
-	const state = githubInstallationStatus(inst);
+	const translator = useTranslations();
+	const { t } = translator;
+	const state = githubInstallationStatus(inst, translator);
 	const [confirm, setConfirm] = useState(false);
 	return (
 		<>
@@ -169,19 +174,19 @@ function InstallationRows({
 							className={cn("size-1.5 rounded-full", state.tone === "ok" ? "bg-success" : "bg-warning")}
 						/>
 						<span>
-							{githubRepoCountLabel(inst)} · {state.label}
+							{githubRepoCountLabel(inst, translator)} · {state.label}
 						</span>
 					</p>
 				}
 				control="inline"
 				icon={GithubMarkIcon}
-				label={githubAccountLabel(inst)}
+				label={githubAccountLabel(inst, translator)}
 				wrap
 			>
 				<DropdownMenu>
 					<DropdownMenuTrigger
 						render={
-							<Button aria-label={`Opções de ${inst.accountLogin}`} disabled={busy !== null} size="icon-sm" type="button" variant="ghost" />
+							<Button aria-label={t("settings.github.optionsOf", { login: inst.accountLogin })} disabled={busy !== null} size="icon-sm" type="button" variant="ghost" />
 						}
 					>
 						{busy === inst.id ? <RefreshCwIcon aria-hidden className="motion-safe:animate-spin" /> : <EllipsisVerticalIcon aria-hidden />}
@@ -189,15 +194,15 @@ function InstallationRows({
 					<DropdownMenuContent align="end" className="min-w-48">
 						<DropdownMenuItem onClick={() => window.open(inst.manageUrl, "_blank", "noopener,noreferrer")}>
 							<ExternalLinkIcon aria-hidden />
-							Gerenciar no GitHub
+							{t("settings.github.manage")}
 						</DropdownMenuItem>
 						<DropdownMenuItem onClick={() => onRefresh(inst.id)}>
 							<RefreshCwIcon aria-hidden />
-							Atualizar repositórios
+							{t("settings.github.refreshRepos")}
 						</DropdownMenuItem>
 						<DropdownMenuItem onClick={() => setConfirm(true)} variant="destructive">
 							<UnplugIcon aria-hidden />
-							Desvincular
+							{t("settings.github.unlink")}
 						</DropdownMenuItem>
 					</DropdownMenuContent>
 				</DropdownMenu>
@@ -206,21 +211,18 @@ function InstallationRows({
 			<AlertDialog onOpenChange={setConfirm} open={confirm}>
 				<AlertDialogContent size="sm">
 					<AlertDialogHeader>
-						<AlertDialogTitle>Desvincular {inst.accountLogin}?</AlertDialogTitle>
-						<AlertDialogDescription>
-							O agente deixa de receber eventos e de usar o app nesses repositórios. Para desinstalar de vez, use
-							&quot;Gerenciar no GitHub&quot;.
-						</AlertDialogDescription>
+						<AlertDialogTitle>{t("settings.github.unlinkTitle", { login: inst.accountLogin })}</AlertDialogTitle>
+						<AlertDialogDescription>{t("settings.github.unlinkBody")}</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Cancelar</AlertDialogCancel>
+						<AlertDialogCancel>{t("settings.github.cancel")}</AlertDialogCancel>
 						<AlertDialogAction
 							onClick={() => {
 								setConfirm(false);
 								onUnlink(inst.id);
 							}}
 						>
-							Desvincular
+							{t("settings.github.unlink")}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
@@ -231,31 +233,33 @@ function InstallationRows({
 
 /** Tudo no GitHub sai como o app (bot): aviso de permissões e assinatura opcional no rodapé. */
 function WriteIdentityRows({ status, busy, onSave }: { status: GithubAppStatus; busy: string | null; onSave?: (patch: GithubWriteSettingsPatch) => void }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const [text, setText] = useState(status.signatureText ?? "");
 	const manage = status.installations[0]?.manageUrl ?? status.permissionsUrl;
 	return (
 		<div data-slot="github-write-as">
-			<SettingRow caption={<p>{githubWriteAsCaption(status)}</p>} icon={GithubMarkIcon} label="Escritas no GitHub" />
+			<SettingRow caption={<p>{githubWriteAsCaption(status, translator)}</p>} icon={GithubMarkIcon} label={t("settings.github.writes")} />
 			{status.missingWritePermissions.length > 0 ? (
 				<div className="flex flex-col items-start gap-2 px-3.5 pb-3 text-body leading-[18px]" data-slot="github-permissions-warning" role="alert">
 					<div className="flex items-start gap-2 text-destructive">
 						<TriangleAlertIcon aria-hidden className="mt-0.5 size-4 shrink-0" />
-						<p className="min-w-0 flex-1">{githubMissingPermissionsText(status.missingWritePermissions)}</p>
+						<p className="min-w-0 flex-1">{githubMissingPermissionsText(status.missingWritePermissions, translator)}</p>
 					</div>
-					{manage ? <LinkButton external href={manage} variant="outline">Aceitar permissões no GitHub</LinkButton> : null}
+					{manage ? <LinkButton external href={manage} variant="outline">{t("settings.github.acceptPermissions")}</LinkButton> : null}
 				</div>
 			) : null}
-			<SettingRow caption={<p>Acrescenta uma linha discreta no fim do texto enviado. Desligado por padrão.</p>} control="inline" label="Assinar no rodapé">
-				<Switch aria-label="Assinar no rodapé" checked={status.signature} disabled={busy !== null} onCheckedChange={(checked) => onSave?.({ signature: checked })} />
+			<SettingRow caption={<p>{t("settings.github.signatureHint")}</p>} control="inline" label={t("settings.github.signature")}>
+				<Switch aria-label={t("settings.github.signature")} checked={status.signature} disabled={busy !== null} onCheckedChange={(checked) => onSave?.({ signature: checked })} />
 			</SettingRow>
 			{status.signature ? (
 				<div className="px-3.5 pb-3">
 					<Input
-						aria-label="Texto da assinatura"
+						aria-label={t("settings.github.signatureAria")}
 						maxLength={120}
 						onBlur={() => (text.trim() || null) !== status.signatureText && onSave?.({ signatureText: text.trim() || null })}
 						onChange={(event) => setText(event.target.value)}
-						placeholder="enviado pelo bot (nome do bot)"
+						placeholder={t("settings.github.signaturePlaceholder")}
 						value={text}
 					/>
 				</div>
@@ -265,6 +269,7 @@ function WriteIdentityRows({ status, busy, onSave }: { status: GithubAppStatus; 
 }
 
 function OwnerAppRows({ status, busy, onRemoveApp }: { status: GithubAppStatus; busy: string | null; onRemoveApp: () => void }) {
+	const t = useTranslations().t;
 	const [confirm, setConfirm] = useState(false);
 	return (
 		<>
@@ -276,15 +281,15 @@ function OwnerAppRows({ status, busy, onRemoveApp }: { status: GithubAppStatus; 
 					</>
 				}
 				control="inline"
-				description="Dono: o app é da instância inteira. Cada pessoa só precisa instalar."
+				description={t("settings.github.appHint")}
 				icon={GithubMarkIcon}
-				label="App do GitHub"
+				label={t("settings.github.appLabel")}
 				wrap
 			>
 				{status.appUrl || status.source === "db" ? (
 					<DropdownMenu>
 						<DropdownMenuTrigger
-							render={<Button aria-label="Opções do app do GitHub" disabled={busy !== null} size="icon-sm" type="button" variant="ghost" />}
+							render={<Button aria-label={t("settings.github.appOptionsAria")} disabled={busy !== null} size="icon-sm" type="button" variant="ghost" />}
 						>
 							<EllipsisVerticalIcon aria-hidden />
 						</DropdownMenuTrigger>
@@ -292,13 +297,13 @@ function OwnerAppRows({ status, busy, onRemoveApp }: { status: GithubAppStatus; 
 							{status.appUrl ? (
 								<DropdownMenuItem onClick={() => window.open(status.appUrl ?? "", "_blank", "noopener,noreferrer")}>
 									<ExternalLinkIcon aria-hidden />
-									Abrir no GitHub
+									{t("settings.github.openOnGithub")}
 								</DropdownMenuItem>
 							) : null}
 							{status.source === "db" ? (
 								<DropdownMenuItem onClick={() => setConfirm(true)} variant="destructive">
 									<XIcon aria-hidden />
-									Remover app
+									{t("settings.github.removeApp")}
 								</DropdownMenuItem>
 							) : null}
 						</DropdownMenuContent>
@@ -308,21 +313,18 @@ function OwnerAppRows({ status, busy, onRemoveApp }: { status: GithubAppStatus; 
 			<AlertDialog onOpenChange={setConfirm} open={confirm}>
 				<AlertDialogContent size="sm">
 					<AlertDialogHeader>
-						<AlertDialogTitle>Remover o app do GitHub?</AlertDialogTitle>
-						<AlertDialogDescription>
-							Aqui só some o registro guardado: as instalações deixam de funcionar até criar o app de novo. Apague o
-							app também em github.com/settings/apps.
-						</AlertDialogDescription>
+						<AlertDialogTitle>{t("settings.github.removeTitle")}</AlertDialogTitle>
+						<AlertDialogDescription>{t("settings.github.removeBody")}</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>Cancelar</AlertDialogCancel>
+						<AlertDialogCancel>{t("settings.github.cancel")}</AlertDialogCancel>
 						<AlertDialogAction
 							onClick={() => {
 								setConfirm(false);
 								onRemoveApp();
 							}}
 						>
-							Remover
+							{t("settings.github.remove")}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
@@ -333,24 +335,25 @@ function OwnerAppRows({ status, busy, onRemoveApp }: { status: GithubAppStatus; 
 
 /** Tela pura da seção "GitHub" (renderiza em teste estático). */
 export function GithubAppSettingsView(props: GithubAppSettingsViewProps) {
+	const t = useTranslations().t;
 	const { status, busy, error, notice } = props;
 	const state = githubAppViewState(status);
 	if (state === "loading" && !notice && !error) return null;
 	return (
-		<SettingsGroup title="GitHub">
+		<SettingsGroup title={t("settings.github.title")}>
 			{notice ? <NoticeRow notice={notice} onDismiss={props.onDismissNotice} /> : null}
 			{error ? <NoticeRow notice={{ tone: "error", text: error }} /> : null}
 			{state === "owner-create" && status ? (
 				<form action={GITHUB_APP_MANIFEST_START_PATH} data-slot="github-create-form" method="get">
 					<SettingRow
-						caption={<p>Faça isto uma única vez. Depois, cada pessoa só clica em instalar.</p>}
-						description="Cria o app do GitHub da instância com as permissões e os eventos certos, sem copiar chave nenhuma."
+						caption={<p>{t("settings.github.createOnce")}</p>}
+						description={t("settings.github.createHint")}
 						icon={GithubMarkIcon}
-						label="Criar GitHub App"
+						label={t("settings.github.create")}
 					/>
 					<div className="flex flex-wrap items-center gap-2 px-3.5 pb-3">
 						<Input
-							aria-label="Nome do app no GitHub"
+							aria-label={t("settings.github.appNameAria")}
 							className="min-w-44 flex-1"
 							defaultValue={status.defaultName}
 							maxLength={34}
@@ -358,37 +361,37 @@ export function GithubAppSettingsView(props: GithubAppSettingsViewProps) {
 							required
 						/>
 						<Input
-							aria-label="Organização (opcional)"
+							aria-label={t("settings.github.orgAria")}
 							className="w-full sm:w-44"
 							maxLength={39}
 							name="org"
-							placeholder="Organização (opcional)"
+							placeholder={t("settings.github.orgAria")}
 						/>
 						<Button className="w-full sm:w-auto" type="submit">
-							Criar GitHub App
+							{t("settings.github.create")}
 						</Button>
 					</div>
 				</form>
 			) : null}
 			{state === "waiting-owner" ? (
 				<SettingRow
-					caption={<p>O dono da instância ainda não criou o app do GitHub.</p>}
+					caption={<p>{t("settings.github.waitingOwner")}</p>}
 					control="inline"
 					icon={GithubMarkIcon}
-					label="Instalar no GitHub"
+					label={t("settings.github.install")}
 				/>
 			) : null}
 			{state === "install" ? (
 				<SettingRow
-					caption={<p>Escolha os repositórios e autorize. Sem token pessoal e sem webhook manual.</p>}
+					caption={<p>{t("settings.github.installCaption")}</p>}
 					control="inline"
-					description="O agente lê e age só nos repositórios que você escolher, e os eventos chegam sozinhos."
+					description={t("settings.github.installHint")}
 					icon={GithubMarkIcon}
-					label="GitHub"
+					label={t("settings.github.title")}
 					wrap
 				>
 					<LinkButton href={GITHUB_APP_INSTALL_PATH} variant="default">
-						Instalar no GitHub
+						{t("settings.github.install")}
 					</LinkButton>
 				</SettingRow>
 			) : null}
@@ -397,9 +400,9 @@ export function GithubAppSettingsView(props: GithubAppSettingsViewProps) {
 					{status.installations.map((inst) => (
 						<InstallationRows busy={busy} inst={inst} key={inst.id} onRefresh={props.onRefresh} onUnlink={props.onUnlink} />
 					))}
-					<SettingRow control="inline" icon={PlusIcon} label="Outra conta ou organização">
+					<SettingRow control="inline" icon={PlusIcon} label={t("settings.github.otherAccount")}>
 						<LinkButton href={GITHUB_APP_INSTALL_PATH} variant="ghost">
-							Instalar no GitHub
+							{t("settings.github.install")}
 						</LinkButton>
 					</SettingRow>
 					<WriteIdentityRows busy={busy} onSave={props.onSaveWrite} status={status} />

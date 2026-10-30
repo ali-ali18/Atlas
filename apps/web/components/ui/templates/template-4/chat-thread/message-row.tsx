@@ -61,6 +61,7 @@ import {
 import { bubbleRadius, type GroupPosition } from "./bubble-radius";
 import { bubbleColors } from "@/lib/bot-bubble";
 import { renderMentions, type MentionMember } from "./mention-text";
+import { useT } from "@/lib/i18n/provider";
 
 /**
  * Uma linha da conversa. Memoizada: durante o stream só a linha do balão ao vivo recebe props novas
@@ -154,6 +155,7 @@ export const MessageRow = memo(function MessageRow({
 	onBotProposalApprove?: (message: Extract<Message, { kind: "bot-proposal" }>, edits?: BotProposalEdits) => void;
 	onBotProposalReject?: (message: Extract<Message, { kind: "bot-proposal" }>) => void;
 }) {
+	const t = useT();
 	switch (message.kind) {
 		case "images":
 			return <ImageGallery items={imageItems ?? message.items} source={message.source} />;
@@ -180,7 +182,7 @@ export const MessageRow = memo(function MessageRow({
 					<ChatCardLine
 						leading={<FileTextIcon />}
 						trailing={
-							<Button aria-label="Baixar" size="icon-sm" variant="ghost">
+							<Button aria-label={t("chat.download")} size="icon-sm" variant="ghost">
 								<DownloadIcon />
 							</Button>
 						}
@@ -229,7 +231,7 @@ export const MessageRow = memo(function MessageRow({
 		case "context-summary":
 			return (
 				<Marker className="my-1 text-xs" data-testid="context-summary" variant="separator">
-					<MarkerContent>{message.mergedIds && message.mergedIds.length > 1 ? `Contexto resumido ×${message.mergedIds.length}` : "Contexto resumido"}</MarkerContent>
+					<MarkerContent>{message.mergedIds && message.mergedIds.length > 1 ? t("chat.contextSummaryMany", { count: message.mergedIds.length }) : t("chat.contextSummary")}</MarkerContent>
 				</Marker>
 			);
 		case "subagents":
@@ -296,7 +298,7 @@ export const MessageRow = memo(function MessageRow({
 				const status: PlanCardStatus = message.status === "approved" ? "approved" : message.status === "failed" ? "failed" : message.status === "rejected" ? (message.planOutcome === "ajuste pedido" ? "adjusted" : "cancelled") : "pending";
 				return (
 					<PlanCard
-						adjustLabel="Ajustar"
+						adjustLabel={t("ui.planAdjust")}
 						approveLabel={message.confirmLabel}
 						cancelLabel={message.cancelLabel}
 						needs={message.plan.needs}

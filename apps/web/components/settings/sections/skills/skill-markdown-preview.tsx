@@ -3,6 +3,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@workspace/ui/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 import { markdownComponents } from "@/components/ui/templates/template-4/chat-thread/assistant-message";
 
 /**
@@ -10,8 +11,9 @@ import { markdownComponents } from "@/components/ui/templates/template-4/chat-th
  * cru no markdown aparece como texto, nunca é injetado (sem `dangerouslySetInnerHTML`).
  */
 export function SkillMarkdownPreview({ markdown, className }: { markdown: string; className?: string }) {
+	const t = useT();
 	if (!markdown.trim()) {
-		return <p className={cn("text-sm text-muted-foreground", className)}>Nada para visualizar ainda.</p>;
+		return <p className={cn("text-sm text-muted-foreground", className)}>{t("settings.skills.previewEmpty")}</p>;
 	}
 	return (
 		<div className={cn("text-sm break-words", className)} data-slot="skill-markdown-preview">

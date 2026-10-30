@@ -1,3 +1,4 @@
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import { memoryRelativeDate } from "./memory-tab-helpers";
 
 /** Seções recolhíveis da aba Biblioteca. Cada pessoa lembra, no próprio navegador, quais deixou abertas. */
@@ -65,20 +66,20 @@ export type PageCardModel = {
 };
 
 /** "Atualizado há 5 min" (ou "Atualizado agora", "Atualizado ontem"). */
-export function updatedAgo(iso: string | null | undefined, now: Date = new Date()): string | null {
+export function updatedAgo(iso: string | null | undefined, now: Date = new Date(), { t, locale }: Translator = defaultTranslator): string | null {
 	if (!iso) return null;
-	const relative = memoryRelativeDate(iso, now);
-	return relative ? `Atualizado ${relative}` : null;
+	const relative = memoryRelativeDate(iso, now, undefined, locale);
+	return relative ? t("library.updatedAgo", { when: relative }) : null;
 }
 
 /** O que o cartão do painel mostra na Biblioteca. Puro: o relógio entra por `now`. */
-export function pageCardModel(item: PageListFields, routineSummary: string | null, now: Date = new Date()): PageCardModel {
+export function pageCardModel(item: PageListFields, routineSummary: string | null, now: Date = new Date(), translator: Translator = defaultTranslator): PageCardModel {
 	const count = item.sourceCount;
 	return {
 		id: item.id,
 		title: item.title,
-		sources: count > 0 ? (count === 1 ? "1 fonte" : `${count} fontes`) : null,
-		updated: updatedAgo(item.refreshedAt ?? item.updatedAt, now),
+		sources: count > 0 ? translator.tn("library.sources", count) : null,
+		updated: updatedAgo(item.refreshedAt ?? item.updatedAt, now, translator),
 		routine: routineSummary,
 	};
 }

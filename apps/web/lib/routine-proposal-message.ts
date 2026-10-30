@@ -6,6 +6,8 @@ import {
 	type RoutineProposalStatus,
 } from "@workspace/shared";
 import type { Message } from "@/components/ui/templates/template-4/data";
+import { getActiveTranslator } from "@/lib/i18n/active";
+import type { Translator } from "@/lib/i18n/translator";
 
 export type RoutineProposalMessage = Extract<Message, { kind: "routine-proposal" }>;
 
@@ -60,67 +62,67 @@ export function proposalView(input: {
 	status: RoutineProposalStatus;
 	spec: Pick<RoutineProposalSpec, "name" | "prompt">;
 	schedule: string;
-}): ProposalView {
+}, { t }: Translator = getActiveTranslator()): ProposalView {
 	const name = `“${input.spec.name}”`;
 	const description = clip(input.spec.prompt, 160);
 	if (input.mode === "suggest") {
 		if (input.status === "pending") {
 			return {
-				title: `Quer que eu faça ${name} ${input.schedule}?`,
+				title: t("status.proposal.suggestTitle", { name, schedule: input.schedule }),
 				description,
-				badge: { tone: "pending", label: "Sugestão" },
-				confirmLabel: "Criar",
-				cancelLabel: "Agora não",
+				badge: { tone: "pending", label: t("status.proposal.suggestBadge") },
+				confirmLabel: t("status.proposal.create"),
+				cancelLabel: t("status.proposal.notNow"),
 				resolved: false,
 			};
 		}
 		return input.status === "accepted"
 			? {
-					title: `Rotina criada: ${name}`,
+					title: t("status.proposal.createdTitle", { name }),
 					description,
-					badge: { tone: "success", label: "Criada" },
-					confirmLabel: "Criar",
-					cancelLabel: "Agora não",
+					badge: { tone: "success", label: t("status.proposal.createdBadge") },
+					confirmLabel: t("status.proposal.create"),
+					cancelLabel: t("status.proposal.notNow"),
 					resolved: true,
-					note: `Roda ${input.schedule}.`,
+					note: t("status.proposal.runs", { schedule: input.schedule }),
 				}
 			: {
-					title: `Sugestão dispensada: ${name}`,
+					title: t("status.proposal.dismissedTitle", { name }),
 					description,
-					badge: { tone: "muted", label: "Dispensado" },
-					confirmLabel: "Criar",
-					cancelLabel: "Agora não",
+					badge: { tone: "muted", label: t("status.proposal.dismissedBadge") },
+					confirmLabel: t("status.proposal.create"),
+					cancelLabel: t("status.proposal.notNow"),
 					resolved: true,
 				};
 	}
 	if (input.status === "pending") {
 		return {
-			title: `Criei a rotina ${name} — manter?`,
-			description: `Roda ${input.schedule}. ${description}`,
-			badge: { tone: "pending", label: "Nova rotina" },
-			confirmLabel: "Manter",
-			cancelLabel: "Desfazer",
+			title: t("status.proposal.autoTitle", { name }),
+			description: `${t("status.proposal.runs", { schedule: input.schedule })} ${description}`,
+			badge: { tone: "pending", label: t("status.proposal.autoBadge") },
+			confirmLabel: t("status.proposal.keep"),
+			cancelLabel: t("status.proposal.undo"),
 			resolved: false,
 		};
 	}
 	return input.status === "accepted"
 		? {
-				title: `Rotina mantida: ${name}`,
+				title: t("status.proposal.keptTitle", { name }),
 				description,
-				badge: { tone: "success", label: "Mantida" },
-				confirmLabel: "Manter",
-				cancelLabel: "Desfazer",
+				badge: { tone: "success", label: t("status.proposal.keptBadge") },
+				confirmLabel: t("status.proposal.keep"),
+				cancelLabel: t("status.proposal.undo"),
 				resolved: true,
-				note: `Roda ${input.schedule}.`,
+				note: t("status.proposal.runs", { schedule: input.schedule }),
 			}
 		: {
-				title: `Rotina desfeita: ${name}`,
+				title: t("status.proposal.undoneTitle", { name }),
 				description,
-				badge: { tone: "muted", label: "Desfeita" },
-				confirmLabel: "Manter",
-				cancelLabel: "Desfazer",
+				badge: { tone: "muted", label: t("status.proposal.undoneBadge") },
+				confirmLabel: t("status.proposal.keep"),
+				cancelLabel: t("status.proposal.undo"),
 				resolved: true,
-				note: "A rotina foi removida.",
+				note: t("status.proposal.removedNote"),
 			};
 }
 

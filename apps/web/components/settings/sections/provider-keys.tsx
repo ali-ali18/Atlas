@@ -6,6 +6,8 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { AnthropicIcon, OpencodeIcon } from "@/components/icons/ai-providers";
 import { useProviderKeys } from "@/hooks/use-provider-keys";
+import { useTranslations } from "@/lib/i18n/provider";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import { SettingRow } from "../setting-row";
 
 export type KeyProviderCopy = {
@@ -17,27 +19,35 @@ export type KeyProviderCopy = {
 	itemId: string;
 };
 
-export const KEY_PROVIDER_COPY: Record<ApiKeyProvider, KeyProviderCopy> = {
-	anthropic: {
-		label: "Anthropic (API)",
-		note: "Chave da sua conta da API da Anthropic (console.anthropic.com).",
-		hint: "Usa a API da Anthropic diretamente, cobrando na sua conta. Os modelos aparecem nos seletores de modelo.",
-		itemId: "provedores.anthropic",
-	},
-	"opencode-go": {
-		label: "OpenCode Go",
-		note: "Assinatura do OpenCode Go: modelos com limite de uso por janela.",
-		hint: "Cole a chave do console do OpenCode. Ao atingir o limite, o bot segue com o modelo padrão.",
+/** Textos de cada provedor de chave no idioma da tela (os nomes de marca não mudam). */
+export function keyProviderCopy(provider: ApiKeyProvider, { t }: Translator = defaultTranslator): KeyProviderCopy {
+	if (provider === "anthropic") {
+		return {
+			label: "Anthropic (API)",
+			note: t("settings.keys.anthropicNote"),
+			hint: t("settings.keys.anthropicHint"),
+			itemId: "provedores.anthropic",
+		};
+	}
+	return {
+		label: t("settings.keys.opencodeLabel"),
+		note: t("settings.keys.opencodeNote"),
+		hint: t("settings.keys.opencodeHint"),
 		itemId: "provedores.opencode-go",
-	},
+	};
+}
+
+export const KEY_PROVIDER_ITEM_IDS: Record<ApiKeyProvider, string> = {
+	anthropic: "provedores.anthropic",
+	"opencode-go": "provedores.opencode-go",
 };
 
 /** Texto de estado da linha (status, quantidade de modelos ou erro do último teste). */
-export function keyProviderCaption(status: ApiKeyProviderStatus | undefined): string {
-	if (!status || status.status === "disconnected") return "Não conectado";
-	if (status.status === "error" || status.lastError === "auth_failed") return "Chave recusada. Cole uma nova chave.";
+export function keyProviderCaption(status: ApiKeyProviderStatus | undefined, { t, tn }: Translator = defaultTranslator): string {
+	if (!status || status.status === "disconnected") return t("settings.keys.notConnected");
+	if (status.status === "error" || status.lastError === "auth_failed") return t("settings.keys.refused");
 	const count = status.modelCount;
-	return count === null ? "Conectado" : `Conectado · ${count} ${count === 1 ? "modelo" : "modelos"}`;
+	return count === null ? t("settings.providers.connected") : tn("settings.keys.connectedWith", count);
 }
 
 /** Uma linha: rótulo à esquerda; à direita, colar+conectar ou testar+remover. A chave nunca é exibida. */
@@ -60,7 +70,9 @@ export function ProviderKeyRow({
 	onTest: () => void;
 	onRemove: () => void;
 }) {
-	const copy = KEY_PROVIDER_COPY[provider];
+	const translator = useTranslations();
+	const { t } = translator;
+	const copy = keyProviderCopy(provider, translator);
 	const [value, setValue] = useState("");
 	const connected = status?.status === "connected";
 	const inputId = `settings-key-${provider}`;
@@ -69,12 +81,12 @@ export function ProviderKeyRow({
 			caption={
 				<>
 					<p className="text-xs text-muted-foreground" data-testid={`${provider}-status`}>
-						{keyProviderCaption(status)}
+						{keyProviderCaption(status, translator)}
 					</p>
 					<p className="text-xs text-muted-foreground">{copy.note}</p>
 					{!vaultReady ? (
 						<p className="text-xs text-destructive" role="alert">
-							Defina CONNECTOR_ENCRYPTION_KEY no .env da API e do worker para guardar a chave.
+							{t("settings.keys.vaultMissing")}
 						</p>
 					) : null}
 					{error ? (
@@ -94,10 +106,10 @@ export function ProviderKeyRow({
 			{connected ? (
 				<>
 					<Button disabled={busy} onClick={onTest} size="sm" variant="outline">
-						{busy ? "Aguarde…" : "Testar conexão"}
+						{busy ? t("settings.providers.wait") : t("settings.keys.test")}
 					</Button>
 					<Button disabled={busy} onClick={onRemove} size="sm" variant="destructive">
-						Remover
+						{t("settings.keys.remove")}
 					</Button>
 				</>
 			) : (
@@ -110,18 +122,18 @@ export function ProviderKeyRow({
 					}}
 				>
 					<Input
-						aria-label={`Chave de API: ${copy.label}`}
+						aria-label={t("settings.keys.apiKeyAria", { provider: copy.label })}
 						autoComplete="off"
 						disabled={busy || !vaultReady}
 						id={inputId}
 						onChange={(event) => setValue(event.target.value)}
-						placeholder="Cole a chave"
+						placeholder={t("settings.keys.paste")}
 						spellCheck={false}
 						type="password"
 						value={value}
 					/>
 					<Button disabled={busy || !vaultReady || !value.trim()} size="sm" type="submit">
-						{busy ? "Testando…" : "Conectar"}
+						{busy ? t("settings.keys.testing") : t("settings.keys.connect")}
 					</Button>
 				</form>
 			)}
@@ -136,7 +148,7 @@ export function ProviderKeysRows({ isVisible = () => true }: { isVisible?: (item
 	return (
 		<>
 			{providers
-				.filter((provider) => isVisible(KEY_PROVIDER_COPY[provider].itemId))
+				.filter((provider) => isVisible(KEY_PROVIDER_ITEM_IDS[provider]))
 				.map((provider) => (
 					<ProviderKeyRow
 						busy={keys.busy === provider}

@@ -4,7 +4,8 @@ import { BellIcon, BellRingIcon, SmartphoneIcon, Trash2Icon } from "lucide-react
 import { Button } from "@workspace/ui/components/button";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import type { PushDevice } from "@/lib/atlas-api";
-import { PUSH_STATE_TEXT, lastUsedLabel, type PushState } from "@/lib/push-client";
+import { lastUsedLabel, pushStateText, type PushState } from "@/lib/push-client";
+import { useT, useTranslations } from "@/lib/i18n/provider";
 import { SettingRow, SettingsGroup } from "../setting-row";
 
 const BLOCKED: readonly PushState[] = ["server-off", "unsupported", "needs-install", "denied"];
@@ -37,15 +38,17 @@ export function NotificationsSettingsView({
 	now?: number;
 	isVisible?: (itemId: string) => boolean;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const on = state === "on";
 	const blocked = BLOCKED.includes(state);
 	return (
-		<SettingsGroup title="Notificações no celular">
+		<SettingsGroup title={t("settings.push.group")}>
 			{isVisible("notificacoes.celular") ? (
 				<SettingRow
 					caption={
 						<>
-							<p data-slot="push-state">{PUSH_STATE_TEXT[state]}</p>
+							<p data-slot="push-state">{pushStateText(state, translator)}</p>
 							{error ? (
 								<p className="text-destructive" role="alert">
 									{error}
@@ -57,29 +60,29 @@ export function NotificationsSettingsView({
 					}
 					control="inline"
 					icon={BellIcon}
-					label="Notificações no celular"
+					label={t("settings.push.group")}
 				>
 					<Button disabled={busy || blocked} onClick={on ? onDisable : onEnable} size="sm" variant={on ? "outline" : "default"}>
-						{on ? "Desativar" : "Ativar"}
+						{on ? t("settings.push.disable") : t("settings.push.enable")}
 					</Button>
 				</SettingRow>
 			) : null}
 			{isVisible("notificacoes.celular") && on ? (
-				<SettingRow control="inline" description="Envia uma notificação para os seus aparelhos." icon={BellRingIcon} label="Testar">
+				<SettingRow control="inline" description={t("settings.push.testHint")} icon={BellRingIcon} label={t("settings.push.test")}>
 					<Button disabled={busy} onClick={onTest} size="sm" variant="outline">
-						Testar
+						{t("settings.push.test")}
 					</Button>
 				</SettingRow>
 			) : null}
 			{isVisible("notificacoes.aparelhos") ? (
 				devices.length === 0 ? (
-					<SettingRow caption={<p>Nenhum aparelho ativado ainda.</p>} icon={SmartphoneIcon} label="Aparelhos" />
+					<SettingRow caption={<p>{t("settings.push.noDevices")}</p>} icon={SmartphoneIcon} label={t("settings.push.devices")} />
 				) : (
 					devices.map((device) => (
 						<SettingRow
 							caption={
 								<p data-slot="push-device-meta">
-									{[device.id === currentDeviceId ? "Este aparelho" : null, lastUsedLabel(device.lastUsedAt, now) || null, device.failing ? "com falhas" : null]
+									{[device.id === currentDeviceId ? t("settings.push.thisDevice") : null, lastUsedLabel(device.lastUsedAt, now, translator) || null, device.failing ? t("settings.push.failing") : null]
 										.filter(Boolean)
 										.join(" · ")}
 								</p>
@@ -89,7 +92,7 @@ export function NotificationsSettingsView({
 							key={device.id}
 							label={device.label}
 						>
-							<Button aria-label={`Remover ${device.label}`} disabled={busy} onClick={() => onRemove(device.id)} size="icon-sm" variant="ghost">
+							<Button aria-label={t("settings.push.removeAria", { device: device.label })} disabled={busy} onClick={() => onRemove(device.id)} size="icon-sm" variant="ghost">
 								<Trash2Icon aria-hidden />
 							</Button>
 						</SettingRow>

@@ -30,6 +30,7 @@ import { WorkHoursSettings } from "./work-hours";
 import { DiagnosticsSettings } from "./diagnostics";
 import { UsageSettings } from "./usage";
 import { canDisconnect, providersViewState } from "../providers-state";
+import { useT } from "@/lib/i18n/provider";
 
 type Account = ReturnType<typeof useAccountSettings>;
 
@@ -84,6 +85,7 @@ export function GeralPane({ account, isVisible }: { account: Account; isVisible:
 
 /** Modelos e contexto: modelo padrão/código, modelos auxiliares e como o agente lida com contexto e tamanho de resposta. */
 export function ModelosPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
+	const t = useT();
 	const quiet = quietAccount(account);
 	const main = ["modelos.padrao", "modelos.codigo"];
 	const tiers = TIER_ITEM_IDS;
@@ -98,7 +100,7 @@ export function ModelosPane({ account, isVisible }: { account: Account; isVisibl
 					isVisible={(id) => main.includes(id) && isVisible(id)}
 					showKeyNote={false}
 					showStatus={false}
-					title="Modelos principais"
+					title={t("settings.panes.mainModels")}
 				/>
 			) : null}
 			{anyVisible(isVisible, tiers) ? (
@@ -106,7 +108,7 @@ export function ModelosPane({ account, isVisible }: { account: Account; isVisibl
 					account={quiet}
 					isVisible={(id) => tiers.includes(id) && isVisible(id)}
 					showStatus={false}
-					title="Modelos por dificuldade"
+					title={t("settings.panes.modelsByDifficulty")}
 				/>
 			) : null}
 			{anyVisible(isVisible, auxModels) ? (
@@ -115,7 +117,7 @@ export function ModelosPane({ account, isVisible }: { account: Account; isVisibl
 					isVisible={(id) => auxModels.includes(id) && isVisible(id)}
 					showKeyNote={false}
 					showStatus={false}
-					title="Modelos auxiliares"
+					title={t("settings.panes.auxModels")}
 				/>
 			) : null}
 			{anyVisible(isVisible, context) ? (
@@ -123,7 +125,7 @@ export function ModelosPane({ account, isVisible }: { account: Account; isVisibl
 					account={quiet}
 					isVisible={(id) => context.includes(id) && isVisible(id)}
 					showStatus={false}
-					title="Contexto e respostas"
+					title={t("settings.panes.contextAndReplies")}
 				/>
 			) : null}
 		</SettingsStack>
@@ -132,18 +134,19 @@ export function ModelosPane({ account, isVisible }: { account: Account; isVisibl
 
 /** Provedores e chaves: plano ChatGPT, chaves de API e e-mail dos bots. */
 export function ProvedoresPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
+	const t = useT();
 	const quiet = quietAccount(account);
 	const plan = ["provedores.chatgpt", "provedores.conexao"];
 	return (
 		<SettingsStack>
 			<PaneStatus account={account} />
 			{anyVisible(isVisible, plan) ? (
-				<SettingsGroup title="Plano ChatGPT">
+				<SettingsGroup title={t("settings.panes.planChatgpt")}>
 					<ProvidersSettings account={quiet} isVisible={(id) => id !== "provedores.desconectar" && isVisible(id)} />
 				</SettingsGroup>
 			) : null}
 			{anyVisible(isVisible, ["provedores.openrouter", "provedores.anthropic", "provedores.opencode-go", "provedores.openmail", "provedores.desconectar"]) ? (
-				<SettingsGroup title="Chaves e contas">
+				<SettingsGroup title={t("settings.panes.keysAndAccounts")}>
 					{isVisible("provedores.openrouter") ? <OpenRouterKeyRow account={account} /> : null}
 					<ProviderKeysRows isVisible={isVisible} />
 					{isVisible("provedores.openmail") ? <EmailKeyRowConnected /> : null}
@@ -165,13 +168,14 @@ export function NotificacoesPane({ isVisible }: { isVisible: (itemId: string) =>
 
 /** Bots: como os bots se comportam (autonomia, grupos, reação) e a reflexão diária do bot principal. */
 export function BotsPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
+	const t = useT();
 	const quiet = quietAccount(account);
 	return (
 		<SettingsStack>
 			<PaneStatus account={account} />
-			<AccountAutonomyGroup isVisible={isVisible} title="Autonomia" />
+			<AccountAutonomyGroup isVisible={isVisible} />
 			{isVisible("jev.grupos") ? (
-				<SettingsGroup title="Grupos de bots">
+				<SettingsGroup title={t("settings.panes.botGroups")}>
 					<GroupsCoordinationRow account={quiet} isVisible={isVisible} />
 				</SettingsGroup>
 			) : null}
@@ -180,7 +184,7 @@ export function BotsPane({ account, isVisible }: { account: Account; isVisible: 
 					account={quiet}
 					isVisible={(id) => id === "execucao.reacao" && isVisible(id)}
 					showStatus={false}
-					title="Conversa"
+					title={t("settings.panes.conversation")}
 				/>
 			) : null}
 			<ReflectionSettings account={quiet} isVisible={isVisible} />
@@ -190,6 +194,7 @@ export function BotsPane({ account, isVisible }: { account: Account; isVisible: 
 
 /** Computador: o navegador do agente e os ambientes de código. */
 export function ComputadorPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
+	const t = useT();
 	return (
 		<SettingsStack>
 			<PaneStatus account={account} />
@@ -197,7 +202,7 @@ export function ComputadorPane({ account, isVisible }: { account: Account; isVis
 				account={quietAccount(account)}
 				isVisible={(id) => id === "execucao.navegador" && isVisible(id)}
 				showStatus={false}
-				title="Navegador"
+				title={t("settings.panes.browser")}
 			/>
 			{isVisible("ambientes.lista") ? <DevEnvironmentsSettings /> : null}
 		</SettingsStack>
@@ -235,49 +240,50 @@ export function ConexoesPane({
 	isVisible: (itemId: string) => boolean;
 	onShortcut: (id: SettingsShortcutId) => void;
 }) {
+	const t = useT();
 	return (
 		<SettingsStack>
 			{isVisible("github.app") ? <GithubAppSettings /> : null}
 			{anyVisible(isVisible, ["conectores.marketplace", "conectores.mcp", "conectores.guia"]) ? (
-				<SettingsGroup title="Conectores">
+				<SettingsGroup title={t("settings.panes.connectors")}>
 					{isVisible("conectores.marketplace") ? (
 						<OpenRow
-							action="Abrir"
+							action={t("settings.panes.open")}
 							icon={StoreIcon}
-							description="Conectores nativos, MCP e APIs: GitHub, Slack, Google e outros."
-							label="Marketplace de conectores"
+							description={t("settings.panes.marketplaceHint")}
+							label={t("settings.panes.marketplace")}
 							onOpen={() => onShortcut("conectores")}
 						/>
 					) : null}
 					{isVisible("conectores.mcp") ? (
 						<OpenRow
-							action="Adicionar"
+							action={t("settings.panes.add")}
 							icon={PlugIcon}
-							description="Conecte um servidor MCP seu, por URL."
-							label="MCP personalizado"
+							description={t("settings.panes.customMcpHint")}
+							label={t("settings.panes.customMcp")}
 							onOpen={() => onShortcut("mcp")}
 						/>
 					) : null}
 					{isVisible("conectores.guia") ? (
 						<OpenRow
-							action="Abrir"
+							action={t("settings.panes.open")}
 							icon={StoreIcon}
-							description="Abra um conector conectado para ver, editar ou gerar de novo o guia de uso do bot."
-							label="Guia de uso do conector"
+							description={t("settings.panes.connectorGuideHint")}
+							label={t("settings.panes.connectorGuide")}
 							onOpen={() => onShortcut("conectores")}
 						/>
 					) : null}
 				</SettingsGroup>
 			) : null}
 			{anyVisible(isVisible, ["composio.chave", "composio.apps"]) ? (
-				<SettingsGroup title="Composio">
+				<SettingsGroup title={t("settings.panes.composio")}>
 					<ComposioSettings hideApps />
 					{isVisible("composio.apps") ? (
 						<OpenRow
-							action="Abrir"
+							action={t("settings.panes.open")}
 							icon={StoreIcon}
-							description="Busque e conecte apps do Composio na aba Apps do Marketplace."
-							label="Apps do Composio"
+							description={t("settings.panes.composioAppsHint")}
+							label={t("settings.panes.composioApps")}
 							onOpen={() => onShortcut("apps")}
 						/>
 					) : null}
@@ -294,11 +300,12 @@ export function CofrePane({ isVisible }: { isVisible: (itemId: string) => boolea
 
 /** Habilidades: os procedimentos que o agente segue (lista, edição, importar e exportar). */
 export function HabilidadesPane({ isVisible }: { isVisible: (itemId: string) => boolean }) {
+	const t = useT();
 	return (
 		<SettingsStack>
 			{isVisible("habilidades.lista") ? (
 				<section className="flex flex-col gap-2" data-slot="settings-skills">
-					<h3 className="px-2 text-xs leading-4 text-muted-foreground">Habilidades</h3>
+					<h3 className="px-2 text-xs leading-4 text-muted-foreground">{t("settings.panes.skills")}</h3>
 					<SkillsSettings />
 				</section>
 			) : null}
@@ -313,17 +320,18 @@ export function UsoPane() {
 
 /** Linha de leitura: de onde vem a chave do OpenRouter. */
 function OpenRouterKeyRow({ account }: { account: Account }) {
+	const t = useT();
 	const known = account.view !== null;
 	const configured = account.view?.capabilities.openrouterKey ?? true;
 	return (
 		<SettingRow
 			control="inline"
-			description="A chave do OpenRouter fica no servidor; ela dá acesso aos modelos gratuitos e pagos."
+			description={t("settings.keys.openrouterHint")}
 			icon={KeyRoundIcon}
-			label="Chave do OpenRouter"
+			label={t("settings.keys.openrouterLabel")}
 		>
 			<span className="text-body text-muted-foreground">
-				{!known ? "Carregando…" : configured ? "Configurada no servidor" : "Não configurada"}
+				{!known ? t("common.loading") : configured ? t("settings.keys.openrouterOk") : t("settings.keys.openrouterMissing")}
 			</span>
 		</SettingRow>
 	);
@@ -331,6 +339,7 @@ function OpenRouterKeyRow({ account }: { account: Account }) {
 
 /** Desconectar o ChatGPT (dono): confirma antes de apagar os tokens. */
 function DisconnectChatgptRow({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
+	const t = useT();
 	const enabled = account.view?.effective.providers.chatgptEnabled ?? null;
 	const isOwner = account.view ? account.view.capabilities.isOwner : null;
 	const provider = useChatgptProvider(undefined, false, enabled?.value === true && isOwner === true);
@@ -344,9 +353,9 @@ function DisconnectChatgptRow({ account, isVisible }: { account: Account; isVisi
 			<SettingRow
 				caption={error ? <p className="text-destructive">{error}</p> : null}
 				control="inline"
-				description="Remove a conexão e apaga os tokens salvos. Para só pausar o uso, desligue o plano acima, em Plano ChatGPT."
+				description={t("settings.keys.connectedAccountHint")}
 				icon={UnplugIcon}
-				label="Conta ChatGPT conectada"
+				label={t("settings.keys.connectedAccountLabel")}
 			>
 				<Button
 					disabled={connection.busy}
@@ -354,7 +363,7 @@ function DisconnectChatgptRow({ account, isVisible }: { account: Account; isVisi
 					size="sm"
 					variant="destructive"
 				>
-					Desconectar
+					{t("settings.providers.dialogConfirm")}
 				</Button>
 			</SettingRow>
 			<DisconnectChatgptDialog
@@ -372,6 +381,7 @@ function DisconnectChatgptRow({ account, isVisible }: { account: Account; isVisi
 
 /** Execução e limites: ritmo do agente e tetos por execução. */
 export function ExecucaoPane({ account, isVisible }: { account: Account; isVisible: (itemId: string) => boolean }) {
+	const t = useT();
 	const quiet = quietAccount(account);
 	const pace = ["execucao.disciplina", "execucao.paciencia"];
 	const limits = ["execucao.passos", "execucao.tempo", "execucao.custo"];
@@ -383,7 +393,7 @@ export function ExecucaoPane({ account, isVisible }: { account: Account; isVisib
 					account={quiet}
 					isVisible={(id) => pace.includes(id) && isVisible(id)}
 					showStatus={false}
-					title="Ritmo do agente"
+					title={t("settings.panes.pace")}
 				/>
 			) : null}
 			{anyVisible(isVisible, limits) ? (
@@ -391,7 +401,7 @@ export function ExecucaoPane({ account, isVisible }: { account: Account; isVisib
 					account={quiet}
 					isVisible={(id) => limits.includes(id) && isVisible(id)}
 					showStatus={false}
-					title="Limites por execução"
+					title={t("settings.panes.limits")}
 				/>
 			) : null}
 		</SettingsStack>

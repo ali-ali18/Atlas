@@ -6,6 +6,8 @@ import { Fragment, useEffect, useRef } from "react";
 import type { ComposerTrigger } from "@workspace/shared";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { useT } from "@/lib/i18n/provider";
+import type { TFunction } from "@/lib/i18n/translator";
 import { AppLogo } from "@/components/ai-elements/connectors/app-logo";
 import { AgentAvatar } from "../agent-avatar";
 
@@ -23,18 +25,19 @@ export type MentionCandidate = {
 	connected?: boolean;
 };
 
-const LABELS: Record<ComposerTrigger, { aria: string; empty: string }> = {
-	"@": { aria: "Mencionar membro do grupo", empty: "Nenhum outro bot" },
-	"/": { aria: "Escolher habilidade", empty: "Nenhuma habilidade" },
-};
+function triggerLabels(t: TFunction, trigger: ComposerTrigger): { aria: string; empty: string } {
+	return trigger === "@"
+		? { aria: t("composer.mention.groupAria"), empty: t("composer.mention.groupEmpty") }
+		: { aria: t("composer.mention.skillAria"), empty: t("composer.mention.skillEmpty") };
+}
 
 /** Título da seção ("Bots"/"Apps") só no 1º item de cada tipo, e só quando há apps na lista. */
-function sectionTitle(candidates: readonly MentionCandidate[], index: number): string | null {
+function sectionTitle(candidates: readonly MentionCandidate[], index: number, t: TFunction): string | null {
 	if (!candidates.some((candidate) => candidate.kind === "app")) return null;
 	const kind = candidates[index]!.kind === "app" ? "app" : "bot";
 	const previous = index > 0 ? (candidates[index - 1]!.kind === "app" ? "app" : "bot") : null;
 	if (previous === kind) return null;
-	return kind === "app" ? "Apps" : "Bots";
+	return kind === "app" ? t("composer.mention.sectionApps") : t("composer.mention.sectionBots");
 }
 
 /**
@@ -58,12 +61,13 @@ export function MentionPopup({
 	ariaLabel?: string;
 	emptyLabel?: string;
 }) {
+	const t = useT();
 	const activeRef = useRef<HTMLButtonElement | null>(null);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: segue o destaque do teclado dentro da lista rolável.
 	useEffect(() => {
 		activeRef.current?.scrollIntoView?.({ block: "nearest" });
 	}, [activeIndex]);
-	const labels = LABELS[trigger];
+	const labels = triggerLabels(t, trigger);
 	return (
 		<div
 			aria-label={ariaLabel ?? labels.aria}
@@ -79,9 +83,9 @@ export function MentionPopup({
 			) : null}
 			{candidates.map((candidate, index) => (
 				<Fragment key={candidate.id}>
-				{sectionTitle(candidates, index) ? (
+				{sectionTitle(candidates, index, t) ? (
 					<p className="px-2.5 pt-2 pb-1 font-medium text-caption text-muted-foreground uppercase tracking-wide" data-slot="mention-section">
-						{sectionTitle(candidates, index)}
+						{sectionTitle(candidates, index, t)}
 					</p>
 				) : null}
 				<button
@@ -112,7 +116,7 @@ export function MentionPopup({
 					<span className="min-w-0 flex-1">
 						<span className="flex items-center gap-1.5">
 							<span className="truncate font-medium text-sm">{trigger === "/" ? `/${candidate.name}` : candidate.name}</span>
-							{candidate.isPrimary ? <span className="shrink-0 text-[10px] text-muted-foreground uppercase">principal</span> : null}
+							{candidate.isPrimary ? <span className="shrink-0 text-[10px] text-muted-foreground uppercase">{t("composer.mention.primary")}</span> : null}
 						</span>
 						{candidate.description?.trim() ? (
 							<span className="block truncate text-muted-foreground text-xs">{candidate.description.trim()}</span>
@@ -120,7 +124,7 @@ export function MentionPopup({
 					</span>
 					{candidate.kind === "app" ? (
 						<span className={cn("shrink-0 text-xs", candidate.connected ? "text-muted-foreground" : "font-medium text-foreground")} data-slot="mention-app-status">
-							{candidate.connected ? "Conectado" : "Entrar"}
+							{candidate.connected ? t("composer.mention.connected") : t("composer.mention.connect")}
 						</span>
 					) : null}
 				</button>

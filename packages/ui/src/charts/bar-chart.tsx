@@ -33,7 +33,7 @@ import {
   type TooltipData,
 } from "./chart-context";
 import { isGradientDefComponent, isPatternDefComponent } from "./chart-defs";
-import { shortDateFmt } from "./chart-formatters";
+import { shortDateFmt, useChartLocale } from "./chart-formatters";
 import { ParentSize } from "./chart-parent-size";
 import {
   type ChartPhase,
@@ -224,6 +224,7 @@ const ChartCore = memo(function ChartCore({
 
   const isHorizontal = orientation === "horizontal";
 
+  const locale = useChartLocale();
   // Extract bar configs synchronously from children
   const lines = useMemo(() => extractBarConfigs(children), [children]);
   const effectiveLoadingFill =
@@ -237,11 +238,11 @@ const ChartCore = memo(function ChartCore({
     (d: Record<string, unknown>): string => {
       const value = d[xDataKey];
       if (value instanceof Date) {
-        return shortDateFmt.format(value);
+        return shortDateFmt.format(value, locale);
       }
       return String(value ?? "");
     },
-    [xDataKey]
+    [xDataKey, locale]
   );
 
   // For compatibility with ChartContext, provide a Date-based xAccessor

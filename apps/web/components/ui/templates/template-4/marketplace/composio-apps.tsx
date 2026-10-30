@@ -23,14 +23,10 @@ import { ComposioAppIcon } from "@/components/ai-elements/connectors/composio-ap
 import { ComposioKeyForm } from "@/components/settings/composio-key-form"
 import { ComposioPagerBar } from "@/components/settings/composio-pager"
 import { useComposio } from "@/hooks/use-composio"
-import {
-  COMPOSIO_NO_AUTH_BADGE,
-  COMPOSIO_SITE_URL,
-  composioConnectLabel,
-  composioDisconnectLabel,
-  type ComposioPager,
-} from "@/components/settings/composio-state"
+import { COMPOSIO_SITE_URL, type ComposioPager } from "@/components/settings/composio-state"
+import { useTranslations } from "@/lib/i18n/provider"
 
+/** Texto em pt-BR (idioma-fonte); a tela mostra `marketplace.composio.nativeWins`. */
 export const NATIVE_WINS_BADGE = "Já conectado nativamente"
 const ALL_CATEGORIES = "all"
 
@@ -67,20 +63,20 @@ function ComposioKeyPanel({
 }: Pick<ComposioAppsViewProps, "busy" | "error" | "onSaveKey"> & {
   status: ComposioStatusView
 }) {
+  const { t } = useTranslations()
   return (
     <div className="space-y-3 rounded-2xl border p-4">
       <div className="space-y-1">
-        <h4 className="text-sm font-medium">Conecte a sua chave do Composio</h4>
+        <h4 className="text-sm font-medium">{t("marketplace.composio.keyTitle")}</h4>
         <p className="text-xs text-muted-foreground">
-          Opcional. Com a sua chave o agente alcança centenas de apps além dos
-          conectores nativos. Sem chave, nada muda.{" "}
+          {t("marketplace.composio.keyText")}{" "}
           <a
             className="inline-flex items-center gap-1 underline underline-offset-2"
             href={COMPOSIO_SITE_URL}
             rel="noopener noreferrer"
             target="_blank"
           >
-            Criar chave em composio.dev
+            {t("marketplace.composio.createKey")}
             <ExternalLinkIcon aria-hidden className="size-3" />
           </a>
         </p>
@@ -94,8 +90,7 @@ function ComposioKeyPanel({
       />
       {!status.secretBoxReady ? (
         <p className="text-xs text-destructive" role="alert">
-          Defina CONNECTOR_ENCRYPTION_KEY no .env da API e do worker para
-          guardar a chave.
+          {t("marketplace.composio.needsEncryptionKey")}
         </p>
       ) : null}
       {error ? (
@@ -112,6 +107,7 @@ function CategoryFilter({
   category,
   onCategory,
 }: Pick<ComposioAppsViewProps, "categories" | "category" | "onCategory">) {
+  const { t } = useTranslations()
   if (categories.length === 0) return null
   return (
     <Select
@@ -121,21 +117,21 @@ function CategoryFilter({
       value={category || ALL_CATEGORIES}
     >
       <SelectTrigger
-        aria-label="Filtrar por categoria"
+        aria-label={t("marketplace.filterCategory")}
         className="h-8 w-fit min-w-40 text-xs"
         size="sm"
       >
         <SelectValue>
           {(current) =>
             current === ALL_CATEGORIES
-              ? "Todas as categorias"
+              ? t("marketplace.allCategories")
               : (categories.find((item) => item.id === current)?.name ??
                 current)
           }
         </SelectValue>
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={ALL_CATEGORIES}>Todas as categorias</SelectItem>
+        <SelectItem value={ALL_CATEGORIES}>{t("marketplace.allCategories")}</SelectItem>
         {categories.map((item) => (
           <SelectItem key={item.id} value={item.id}>
             {item.name}
@@ -161,6 +157,9 @@ function ComposioAppRow({
   onConnect: ComposioAppsViewProps["onConnect"]
   onDisconnect: ComposioAppsViewProps["onDisconnect"]
 }) {
+  const { t } = useTranslations()
+  const connectLabel = app.noAuth ? t("marketplace.composio.enable") : t("marketplace.composio.connect")
+  const disconnectLabel = app.noAuth ? t("marketplace.composio.disable") : t("marketplace.composio.disconnect")
   const connected = app.connected || accountId !== null
   return (
     <div className="flex min-w-0 items-center gap-3 rounded-xl px-2 py-2.5">
@@ -172,45 +171,43 @@ function ComposioAppRow({
           <span className="truncate">{app.name}</span>
           {app.noAuth ? (
             <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-caption font-normal text-muted-foreground">
-              {COMPOSIO_NO_AUTH_BADGE}
+              {t("marketplace.composio.noAuth")}
             </span>
           ) : null}
         </p>
         <p className="line-clamp-2 text-xs text-muted-foreground">
           {connected
             ? app.noAuth
-              ? "Ativado pelo Composio"
-              : "Conectado pelo Composio"
+              ? t("marketplace.composio.enabledBy")
+              : t("marketplace.composio.connectedBy")
             : (app.description ?? "")}
         </p>
       </div>
       {connected ? (
         <Button
-          aria-label={`${composioDisconnectLabel(app.noAuth)} ${app.name}`}
+          aria-label={`${disconnectLabel} ${app.name}`}
           disabled={busy !== null || !accountId}
           onClick={() => accountId && onDisconnect(accountId)}
           size="sm"
           type="button"
           variant="outline"
         >
-          {busy === accountId
-            ? "Aguarde…"
-            : composioDisconnectLabel(app.noAuth)}
+          {busy === accountId ? t("marketplace.composio.wait") : disconnectLabel}
         </Button>
       ) : native ? (
         <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-caption text-muted-foreground">
-          {NATIVE_WINS_BADGE}
+          {t("marketplace.composio.nativeWins")}
         </span>
       ) : (
         <Button
-          aria-label={`${composioConnectLabel(app.noAuth)} ${app.name}`}
+          aria-label={`${connectLabel} ${app.name}`}
           disabled={busy !== null}
           onClick={() => onConnect(app.slug, app.noAuth)}
           size="sm"
           type="button"
           variant="secondary"
         >
-          {busy === app.slug ? "Aguarde…" : composioConnectLabel(app.noAuth)}
+          {busy === app.slug ? t("marketplace.composio.wait") : connectLabel}
         </Button>
       )}
     </div>
@@ -231,11 +228,12 @@ export function ComposioAppsView(props: ComposioAppsViewProps) {
     pager,
     totalItems,
   } = props
+  const { t } = useTranslations()
   const configured = status?.configured === true
   return (
-    <section aria-label="Apps do Composio" className="space-y-3">
+    <section aria-label={t("marketplace.composio.appsLabel")} className="space-y-3">
       {!status && !error ? (
-        <div aria-label="Carregando apps do Composio">
+        <div aria-label={t("marketplace.composio.loadingApps")}>
           <Skeleton className="h-18 rounded-xl" />
         </div>
       ) : null}
@@ -263,7 +261,7 @@ export function ComposioAppsView(props: ComposioAppsViewProps) {
               />
               {totalItems ? (
                 <span className="text-xs text-muted-foreground">
-                  {totalItems} apps
+                  {t("marketplace.composio.appsCount", { count: totalItems })}
                 </span>
               ) : null}
             </div>
@@ -272,7 +270,7 @@ export function ComposioAppsView(props: ComposioAppsViewProps) {
               onClick={props.onManageKey}
               type="button"
             >
-              Chave salva ({status.keyHint ?? "••••"}) · Gerenciar
+              {t("marketplace.composio.manageKey", { hint: status.keyHint ?? "••••" })}
             </button>
           </div>
           {error ? (
@@ -282,7 +280,7 @@ export function ComposioAppsView(props: ComposioAppsViewProps) {
           ) : null}
           {loading && toolkits.length === 0 ? (
             <div
-              aria-label="Carregando apps do Composio"
+              aria-label={t("marketplace.composio.loadingApps")}
               className="grid gap-3 sm:grid-cols-2"
             >
               {Array.from({ length: 6 }, (_, index) => (
@@ -324,7 +322,7 @@ export function ComposioAppsView(props: ComposioAppsViewProps) {
           )}
           {!loading && !error && toolkits.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Nenhum app encontrado no Composio.
+              {t("marketplace.composio.empty")}
             </p>
           ) : null}
           <ComposioPagerBar

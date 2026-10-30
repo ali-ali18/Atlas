@@ -20,16 +20,19 @@ import {
 	type LucideIcon,
 } from "lucide-react";
 import { cn } from "@workspace/ui/lib/utils";
+import { useT } from "@/lib/i18n/provider";
 import { Input } from "@workspace/ui/components/input";
 import { SettingsPicker } from "@/components/ui/templates/template-4/settings-picker";
 import {
-	SETTINGS_NAV_GROUPS,
+	navGroupLabel,
+	navSectionLabel,
 	type SettingsNavEntry,
 	type SettingsNavId,
 	type SettingsSearchResult,
 	type SettingsSectionId,
 	moveIndex,
 	searchSettings,
+	settingsSearchTerms,
 } from "./settings-registry";
 
 /** Ícone por seção: toda entrada visível tem o seu (o texto alinha igual). */
@@ -72,9 +75,10 @@ export function SettingsShell({
 	hiddenItems?: ReadonlySet<string>;
 	children: (context: { search: SettingsSearchResult }) => ReactNode;
 }) {
+	const t = useT();
 	const [query, setQuery] = useState(initialQuery);
 	const navRef = useRef<HTMLElement>(null);
-	const search = searchSettings(query, hiddenItems);
+	const search = searchSettings(query, hiddenItems, (id) => navSectionLabel(t, id), settingsSearchTerms(t));
 
 	function navButtons(): HTMLButtonElement[] {
 		return Array.from(
@@ -101,7 +105,7 @@ export function SettingsShell({
 						className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
 					/>
 					<Input
-						aria-label="Buscar nas configurações"
+						aria-label={t("settings.searchLabel")}
 						className="h-8 pl-8 text-body"
 						onChange={(event) => setQuery(event.target.value)}
 						onKeyDown={(event) => {
@@ -109,7 +113,7 @@ export function SettingsShell({
 							event.preventDefault();
 							navButtons()[0]?.focus();
 						}}
-						placeholder="Buscar"
+						placeholder={t("settings.searchPlaceholder")}
 						type="search"
 						value={query}
 					/>
@@ -118,15 +122,15 @@ export function SettingsShell({
 				<div className="md:hidden">
 					{search.entries.length > 0 ? (
 						<SettingsPicker
-							aria-label="Seção das configurações"
+							aria-label={t("settings.sectionPickerLabel")}
 							className="w-full"
 							onChange={(id) => {
 								const entry = search.entries.find((item) => item.id === id);
 								if (entry) onSectionChange(entry.id);
 							}}
-							options={search.entries.map((entry) => ({ value: entry.id, label: entry.label }))}
+							options={search.entries.map((entry) => ({ value: entry.id, label: navSectionLabel(t, entry.id) }))}
 							value={search.entries.some((entry) => entry.id === section) ? section : ""}
-							placeholder="Escolha uma seção"
+							placeholder={t("settings.sectionPickerPlaceholder")}
 						/>
 					) : (
 						<NothingFound />
@@ -134,7 +138,7 @@ export function SettingsShell({
 				</div>
 
 				<nav
-					aria-label="Seções das configurações"
+					aria-label={t("settings.navLabel")}
 					className="hidden min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto md:flex"
 					onKeyDown={onNavKeyDown}
 					ref={navRef}
@@ -147,7 +151,7 @@ export function SettingsShell({
 									className={cn("px-[9px] pb-1 text-caption font-medium text-muted-foreground", index === 0 ? "pt-0.5" : "pt-3.5")}
 									data-nav-group=""
 								>
-									{SETTINGS_NAV_GROUPS[entry.group]}
+									{navGroupLabel(t, entry.group)}
 								</p>
 							) : null}
 							<NavButton
@@ -169,9 +173,10 @@ export function SettingsShell({
 }
 
 function NothingFound() {
+	const t = useT();
 	return (
 		<p className="px-3 py-2 text-sm text-muted-foreground" role="status">
-			Nada encontrado
+			{t("settings.nothingFound")}
 		</p>
 	);
 }
@@ -185,6 +190,7 @@ function NavButton({
 	active: boolean;
 	onChoose: (entry: SettingsNavEntry) => void;
 }) {
+	const t = useT();
 	const Icon = NAV_ICONS[entry.id];
 	return (
 		<button
@@ -199,7 +205,7 @@ function NavButton({
 			type="button"
 		>
 			<Icon aria-hidden className="size-[15px] shrink-0" data-nav-icon="" />
-			<span className="truncate">{entry.label}</span>
+			<span className="truncate">{navSectionLabel(t, entry.id)}</span>
 		</button>
 	);
 }

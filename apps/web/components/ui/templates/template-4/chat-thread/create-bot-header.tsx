@@ -8,6 +8,7 @@ import {
 	InputGroupInput,
 } from "@workspace/ui/components/input-group";
 
+import { useTranslations } from "@/lib/i18n/provider";
 import { defaultBodyColor, type NewBotInput } from "../data";
 import { usePreviewExpression } from "../use-preview-expression";
 import { AgentAvatar } from "../agent-avatar";
@@ -20,6 +21,7 @@ export function CreateBotHeader({
 	onCancel: () => void;
 	onCreate: (input: NewBotInput) => void;
 }) {
+	const { t } = useTranslations();
 	const [name, setName] = useState("");
 	const { expression, surpriseOnHover, releaseHover, surpriseOnTap } = usePreviewExpression();
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -35,7 +37,7 @@ export function CreateBotHeader({
 			data-create-bot
 			onSubmit={(event) => {
 				event.preventDefault();
-				onCreate({ name: name.trim() || "Meu bot" });
+				onCreate({ name: name.trim() || t("groups.createBot.defaultName") });
 			}}
 		>
 			{/* Fundo opaco: o padrão (bg-input/50) é translúcido e, no cabeçalho flutuante do desktop, a conversa aparecia por trás. */}
@@ -44,10 +46,10 @@ export function CreateBotHeader({
 					<AgentAvatar bodyColor={defaultBodyColor} size={18} mood={expression} />
 				</InputGroupAddon>
 				<InputGroupInput
-					aria-label="Nome do bot"
+					aria-label={t("groups.createBot.nameLabel")}
 					onBlur={onCancel}
 					onChange={(event) => setName(event.target.value)}
-					placeholder="Nome do bot"
+					placeholder={t("groups.createBot.nameLabel")}
 					ref={inputRef}
 					value={name}
 				/>

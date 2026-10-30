@@ -5,6 +5,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { useBotWorking } from "@/lib/bot-activity";
+import { useTranslations } from "@/lib/i18n/provider";
 
 import { PrimaryBotBadge } from "./primary-bot-badge";
 
@@ -73,6 +74,7 @@ export function AvatarStatus({
 	className?: string;
 	children: ReactNode;
 }) {
+	const { t, locale } = useTranslations();
 	const live = useBotWorking(botId);
 	const kind = resolveAvatarStatus({ working: working ?? live, unread, primary });
 	if (kind === "primary") {
@@ -84,14 +86,14 @@ export function AvatarStatus({
 	}
 	if (kind === "none") return <>{children}</>;
 	const { dot } = avatarDotMetrics(size);
-	const text = kind === "working" ? "Trabalhando" : "Não lida";
+	const text = t(kind === "working" ? "botActions.avatar.working" : "botActions.avatar.unread");
 	return (
 		<span className={cn("relative inline-flex shrink-0", className)} data-avatar-status={kind}>
 			<span className="inline-flex" style={avatarDotMask(size)}>
 				{children}
 			</span>
 			<span
-				aria-label={label ? `${label}: ${text.toLowerCase()}` : text}
+				aria-label={label ? t("botActions.avatar.labeled", { label, status: text.toLocaleLowerCase(locale) }) : text}
 				className="absolute right-0 bottom-0 rounded-full motion-safe:animate-in motion-safe:duration-200 motion-safe:ease-out motion-safe:zoom-in-0"
 				data-avatar-dot={kind}
 				role="img"

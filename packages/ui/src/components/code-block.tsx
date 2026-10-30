@@ -5,6 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@workspace/ui/lib/utils"
 
 import { Button } from "@workspace/ui/components/button"
+import { useUiCopy } from "@workspace/ui/components/ui-copy"
 import { CheckIcon, CopyIcon } from "lucide-react"
 
 const codeBlockVariants = cva(
@@ -92,6 +93,7 @@ function CodeBlockCopyButton({
   onClick,
   ...props
 }: React.ComponentProps<typeof Button> & { value: string }) {
+  const copy = useUiCopy()
   const [copied, setCopied] = React.useState(false)
 
   React.useEffect(() => {
@@ -110,7 +112,7 @@ function CodeBlockCopyButton({
         data-copied={copied || undefined}
         variant={variant}
         size={size}
-        aria-label={copied ? "Código copiado" : "Copiar código"}
+        aria-label={copied ? copy.codeCopied : copy.codeCopy}
         className={cn(
           "hover:bg-foreground/5 dark:hover:bg-foreground/10",
           className
@@ -133,7 +135,7 @@ function CodeBlockCopyButton({
         )}
       </Button>
       <span aria-live="polite" className="sr-only">
-        {copied ? "Código copiado" : ""}
+        {copied ? copy.codeCopied : ""}
       </span>
     </>
   )

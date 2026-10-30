@@ -31,9 +31,9 @@ export function formatTokensPt(tokens: number): string {
 	return `${(value / 1000).toFixed(1).replace(".", ",")} mil`;
 }
 
-/** "48,2 mil → 6,1 mil tokens (−87%)". */
-export function formatCompactionLine(before: number, after: number): string {
-	return `${formatTokensPt(before)} → ${formatTokensPt(after)} tokens (\u2212${compactionPercent(before, after)}%)`;
+/** "48,2 mil → 6,1 mil tokens (−87%)". `formatTokens` troca o formato dos números (padrão pt-BR). */
+export function formatCompactionLine(before: number, after: number, formatTokens: (tokens: number) => string = formatTokensPt): string {
+	return `${formatTokens(before)} → ${formatTokens(after)} tokens (\u2212${compactionPercent(before, after)}%)`;
 }
 
 /** Cartão persistido na conversa depois de um `/compact`. */

@@ -8,6 +8,9 @@ import { BootScreen } from "@/components/boot-screen"
 import { ServiceWorkerRegister } from "@/components/providers/service-worker-register"
 import { EventHubProvider } from "@/components/providers/event-hub-provider"
 import { appViewport } from "@/lib/viewport-config"
+import { I18nProvider } from "@/lib/i18n/provider"
+import { DEFAULT_UI_LOCALE } from "@/lib/i18n/locales"
+import { getUiLocaleState, getUiMessages } from "@/lib/i18n/server"
 import { Toaster } from "@workspace/ui/components/toaster"
 import { cn } from "@workspace/ui/lib/utils"
 
@@ -51,22 +54,27 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = appViewport
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  // Idioma por requisição (cookie/Accept-Language): a rota passa a ser dinâmica, ver lib/i18n/README.md.
+  const { locale, preference } = await getUiLocaleState()
+  const messages = locale === DEFAULT_UI_LOCALE ? null : await getUiMessages(locale)
   return (
-    <html lang="pt-BR"
+    <html lang={locale}
       suppressHydrationWarning
       className={cn("antialiased", fontMono.variable, "font-sans", geist.variable, outfitHeading.variable)}
     >
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
-        <BootScreen />
-        <Toaster />
-        <ServiceWorkerRegister />
-        <EventHubProvider />
+        <I18nProvider locale={locale} messages={messages} preference={preference}>
+          <ThemeProvider>{children}</ThemeProvider>
+          <BootScreen />
+          <Toaster />
+          <ServiceWorkerRegister />
+          <EventHubProvider />
+        </I18nProvider>
       </body>
     </html>
   )

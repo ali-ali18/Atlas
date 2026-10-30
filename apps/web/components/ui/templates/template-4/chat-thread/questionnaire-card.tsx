@@ -25,6 +25,7 @@ import {
 import { RequestCard, REQUEST_PRIMARY_CLASS } from "@workspace/ui/components/request-card";
 
 import type { Message } from "../data";
+import { useT } from "@/lib/i18n/provider";
 
 export type QuestionnaireAnswersMap = Record<string, string | string[]>;
 
@@ -90,6 +91,7 @@ export function QuestionnaireCard({
 	) => void;
 	onDismiss?: (message: QuestionnaireCardMessage) => void;
 }) {
+	const t = useT();
 	const status = message.status ?? "pending";
 
 	if (status === "submitted") {
@@ -105,16 +107,16 @@ export function QuestionnaireCard({
 		});
 		return (
 			<RequestCard
-				badge={{ tone: "success", label: "Respondido" }}
+				badge={{ tone: "success", label: t("chat.questionnaire.answered") }}
 				className="max-w-xl"
-				detailsLabel="Ver respostas"
+				detailsLabel={t("chat.questionnaire.viewAnswers")}
 				leading={<Check aria-hidden />}
 				resolved
 				title={message.title}
 			>
 				{answered.length === 0 ? (
 					<p className="m-0 text-muted-foreground text-sm">
-						Respostas enviadas — o bot está consolidando.
+						{t("chat.questionnaire.sent")}
 					</p>
 				) : (
 					answered.map((item) => {
@@ -140,7 +142,7 @@ export function QuestionnaireCard({
 										{labels.join(", ")}
 									</span>
 									<Check
-										aria-label="Respondido"
+										aria-label={t("chat.questionnaire.answered")}
 										className="size-4 shrink-0 text-primary"
 									/>
 								</div>
@@ -155,9 +157,9 @@ export function QuestionnaireCard({
 	if (status === "dismissed") {
 		return (
 			<RequestCard
-				badge={{ tone: "muted", label: "Dispensado" }}
+				badge={{ tone: "muted", label: t("chat.questionnaire.dismissed") }}
 				className="max-w-xl"
-				description="Questionário dispensado sem enviar respostas."
+				description={t("chat.questionnaire.dismissedBody")}
 				leading={<X aria-hidden />}
 				resolved
 				title={message.title}
@@ -193,12 +195,12 @@ export function QuestionnaireCard({
 
 	return (
 		<RequestCard
-			badge={{ tone: "pending", label: "Precisa de você" }}
+			badge={{ tone: "pending", label: t("chat.questionnaire.needsYou") }}
 			className="max-w-xl"
 			headerAction={
 				onDismiss ? (
 					<button
-						aria-label="Dispensar questionário"
+						aria-label={t("chat.questionnaire.dismiss")}
 						className="-my-0.5 -mr-1 shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
 						onClick={() => onDismiss(message)}
 						type="button"
@@ -253,7 +255,7 @@ export function QuestionnaireCard({
 							<QuestionnaireInput
 								aria-label={item.input?.label ?? item.prompt}
 								placeholder={
-									item.input?.placeholder ?? "Digite sua própria resposta"
+									item.input?.placeholder ?? t("chat.questionnaire.ownAnswer")
 								}
 								value={freeText[item.name] ?? ""}
 								onChange={(event) =>
@@ -265,10 +267,10 @@ export function QuestionnaireCard({
 							/>
 							<QuestionnaireError />
 							<QuestionnaireActions>
-								<QuestionnairePrevious>Voltar</QuestionnairePrevious>
-								<QuestionnaireSkip>Pular</QuestionnaireSkip>
-								<QuestionnaireNext>Próximo</QuestionnaireNext>
-								<QuestionnaireSubmit className={REQUEST_PRIMARY_CLASS}>Enviar</QuestionnaireSubmit>
+								<QuestionnairePrevious>{t("chat.questionnaire.back")}</QuestionnairePrevious>
+								<QuestionnaireSkip>{t("chat.questionnaire.skip")}</QuestionnaireSkip>
+								<QuestionnaireNext>{t("chat.questionnaire.next")}</QuestionnaireNext>
+								<QuestionnaireSubmit className={REQUEST_PRIMARY_CLASS}>{t("chat.questionnaire.submit")}</QuestionnaireSubmit>
 							</QuestionnaireActions>
 						</QuestionnaireItem>
 					);

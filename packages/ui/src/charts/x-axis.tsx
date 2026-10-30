@@ -8,7 +8,7 @@ import {
   useChartPortalContainer,
   useChartStable,
 } from "./chart-context";
-import { shortDateFmt, XLabelFormatContext } from "./chart-formatters";
+import { shortDateFmt, useChartLocale, XLabelFormatContext } from "./chart-formatters";
 import { DEFAULT_Y_DOMAIN_TWEEN_MS } from "./chart-phase";
 import { LINE_LOADING_PULSE_EASE } from "./line-loading-timing";
 import {
@@ -192,7 +192,8 @@ function dedupeIndicesByLabel(
   indices: number[],
   data: Record<string, unknown>[],
   dateLabels: string[],
-  xAccessor: (d: Record<string, unknown>) => Date
+  xAccessor: (d: Record<string, unknown>) => Date,
+  locale?: string
 ): number[] {
   const seenLabels = new Set<string>();
   const deduped: number[] = [];
@@ -202,7 +203,7 @@ function dedupeIndicesByLabel(
     if (!point) {
       continue;
     }
-    const label = dateLabels[index] ?? shortDateFmt.format(xAccessor(point));
+    const label = dateLabels[index] ?? shortDateFmt.format(xAccessor(point), locale);
     if (seenLabels.has(label)) {
       continue;
     }
@@ -341,6 +342,7 @@ export function selectEvenlySpacedIndices(
     dateLabels?: string[];
     xAccessor?: (d: Record<string, unknown>) => Date;
     resolveXPx?: (index: number) => number;
+    locale?: string;
   }
 ): number[] {
   if (length <= 0) {
@@ -370,7 +372,8 @@ export function selectEvenlySpacedIndices(
               rawIndices,
               options.data,
               options.dateLabels,
-              options.xAccessor
+              options.xAccessor,
+              options.locale
             )
           : rawIndices;
 
@@ -406,6 +409,7 @@ function buildDataAlignedTicks({
   targetTickCount,
   xAccessor,
   xScale,
+  locale,
 }: {
   data: Record<string, unknown>[];
   dateLabels: string[];
@@ -413,6 +417,7 @@ function buildDataAlignedTicks({
   targetTickCount: number;
   xAccessor: (d: Record<string, unknown>) => Date;
   xScale: (date: Date) => number | undefined;
+  locale?: string;
 }): AxisTick[] {
   const seenLabels = new Set<string>();
   const ticks: AxisTick[] = [];
@@ -430,13 +435,14 @@ function buildDataAlignedTicks({
     dateLabels,
     resolveXPx,
     xAccessor,
+    locale,
   })) {
     const point = data[index];
     if (!point) {
       continue;
     }
     const date = xAccessor(point);
-    const label = dateLabels[index] ?? shortDateFmt.format(date);
+    const label = dateLabels[index] ?? shortDateFmt.format(date, locale);
     if (seenLabels.has(label)) {
       continue;
     }
@@ -458,13 +464,15 @@ type TickDateFormatter = (date: Date) => string;
  * em série mensal) e não de "dd/mm" fixo; rótulos repetidos (dois ticks no mesmo mês) são descartados.
  */
 export function buildDomainTicks({
-  formatDate = (date) => shortDateFmt.format(date),
+  locale,
+  formatDate = (date) => shortDateFmt.format(date, locale),
   marginLeft,
   numTicks,
   snapToMonth = false,
   xScale,
 }: {
   formatDate?: TickDateFormatter;
+  locale?: string;
   snapToMonth?: boolean;
   marginLeft: number;
   numTicks: number;
@@ -621,9 +629,10 @@ const XAxisInner = memo(function XAxisInner({
   } = useChart();
   const dateLabels = labelsProp ?? contextDateLabels;
   const externalFormat = useContext(XLabelFormatContext);
+  const locale = useChartLocale();
   const formatDate = useMemo<TickDateFormatter>(
-    () => externalFormat ?? ((date) => shortDateFmt.format(date)),
-    [externalFormat]
+    () => externalFormat ?? ((date) => shortDateFmt.format(date, locale)),
+    [externalFormat, locale]
   );
   const resolvedNumTicks = useMemo(
     () => resolveResponsiveChartLabelCount(numTicks, width, 5),
@@ -662,6 +671,7 @@ const XAxisInner = memo(function XAxisInner({
       targetTickCount: resolvedNumTicks,
       xAccessor,
       xScale,
+      locale,
     });
 
     // Brush: keep data-aligned ticks, add labels only in the projection tail.
@@ -684,6 +694,7 @@ const XAxisInner = memo(function XAxisInner({
     data,
     dateLabels,
     formatDate,
+    locale,
     snapToMonth,
     xAccessor,
     xScale,
@@ -696,7 +707,7 @@ const XAxisInner = memo(function XAxisInner({
   const hoveredLabel =
     isHovering && tooltipData
       ? (dateLabels[tooltipData.index] ??
-        shortDateFmt.format(xAccessor(tooltipData.point)))
+        shortDateFmt.format(xAccessor(tooltipData.point), locale))
       : null;
 
   return createPortal(

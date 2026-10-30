@@ -1,13 +1,17 @@
-/** Separadores de horário da conversa (estilo Grok): puro, em pt-BR e no fuso do usuário. */
+/** Separadores de horário da conversa (estilo Grok): puro, no idioma da interface e no fuso do usuário. */
+
+import { formatDate, formatTime } from "./format";
+import { DEFAULT_UI_LOCALE, type UiLocale } from "./i18n/locales";
 
 export const SEPARATOR_GAP_MS = 60 * 60 * 1000;
 
-const LOCALE = "pt-BR";
+/** Só para ler números das partes (não aparece na tela). */
+const PARTS_LOCALE = "en-US";
 
 type Parts = { year: number; month: number; day: number; hour: number; minute: number };
 
 function partsOf(date: Date, timeZone?: string): Parts {
-	const formatter = new Intl.DateTimeFormat(LOCALE, {
+	const formatter = new Intl.DateTimeFormat(PARTS_LOCALE, {
 		timeZone,
 		year: "numeric",
 		month: "numeric",
@@ -51,33 +55,23 @@ export function needsSeparator(
 	return dayNumber(partsOf(previous, timeZone)) !== dayNumber(partsOf(current, timeZone));
 }
 
-const pad = (n: number) => String(n).padStart(2, "0");
-
-function monthShort(date: Date, timeZone?: string): string {
-	return new Intl.DateTimeFormat(LOCALE, { timeZone, month: "short" }).format(date);
-}
-
-function weekdayShort(date: Date, timeZone?: string): string {
-	return new Intl.DateTimeFormat(LOCALE, { timeZone, weekday: "short" }).format(date);
-}
-
 /**
- * "18:13" (hoje) · "ontem, 18:13" · "sex., 9 de out. 18:13" (últimos 7 dias)
+ * pt-BR: "18:13" (hoje) · "ontem, 18:13" · "sex., 9 de out. 18:13" (últimos 7 dias)
  * · "9 de out. 18:13" (mesmo ano) · "9 de out. de 2025, 18:13" (outro ano).
+ * Os outros idiomas seguem a mesma regra com o formato e as palavras do próprio `Intl`.
  */
-export function formatSeparatorLabel(date: Date, now: Date, timeZone?: string): string {
+export function formatSeparatorLabel(date: Date, now: Date, timeZone?: string, locale: UiLocale = DEFAULT_UI_LOCALE): string {
 	const p = partsOf(date, timeZone);
 	const n = partsOf(now, timeZone);
-	const time = `${pad(p.hour)}:${pad(p.minute)}`;
+	const time = formatTime(date, locale, { timeZone });
 	const diff = dayNumber(n) - dayNumber(p);
 	if (diff === 0) return time;
-	if (diff === 1) return `ontem, ${time}`;
-	const month = monthShort(date, timeZone);
+	if (diff === 1) return `${new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-1, "day")}, ${time}`;
 	if (diff > 1 && diff < 7) {
-		return `${weekdayShort(date, timeZone)}, ${p.day} de ${month} ${time}`;
+		return `${formatDate(date, locale, { timeZone, weekday: "short", day: "numeric", month: "short" })} ${time}`;
 	}
-	if (p.year !== n.year) return `${p.day} de ${month} de ${p.year}, ${time}`;
-	return `${p.day} de ${month} ${time}`;
+	if (p.year !== n.year) return `${formatDate(date, locale, { timeZone, day: "numeric", month: "short", year: "numeric" })}, ${time}`;
+	return `${formatDate(date, locale, { timeZone, day: "numeric", month: "short" })} ${time}`;
 }
 
 /**
@@ -88,6 +82,7 @@ export function buildTimeSeparators(
 	items: ReadonlyArray<{ id: string; createdAt?: string | null }>,
 	now: Date = new Date(),
 	timeZone?: string,
+	locale: UiLocale = DEFAULT_UI_LOCALE,
 ): Map<string, string> {
 	const result = new Map<string, string>();
 	let previous: Date | null = null;
@@ -95,7 +90,7 @@ export function buildTimeSeparators(
 		const date = parseTimestamp(item.createdAt);
 		if (!date) continue;
 		if (needsSeparator(previous, date, timeZone)) {
-			result.set(item.id, formatSeparatorLabel(date, now, timeZone));
+			result.set(item.id, formatSeparatorLabel(date, now, timeZone, locale));
 		}
 		previous = date;
 	}

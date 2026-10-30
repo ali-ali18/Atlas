@@ -34,7 +34,7 @@ import {
   type McpOAuthStartResult,
 } from "@/lib/atlas-api"
 import { pollMcpOAuthConnection } from "@/lib/mcp-oauth-wait"
-import { ANOTHER_ACCOUNT_HINT, accountCountText, accountDisplayLabel, groupAccounts, primaryAccount } from "@/lib/connector-accounts"
+import { anotherAccountHint, accountCountText, accountDisplayLabel, groupAccounts, primaryAccount } from "@/lib/connector-accounts"
 import { openSettingsModal } from "@/components/settings/settings-url"
 import { ApiKeyDialog } from "./api-key-dialog"
 import { API_ITEM_PREFIX, ApiConnectionCard, apiItemKey } from "./api-connections-section"
@@ -70,6 +70,7 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@workspace/ui/components/input-group"
+import { useTranslations } from "@/lib/i18n/provider";
 
 type View =
   | { kind: "catalog" }
@@ -81,10 +82,10 @@ type View =
   | { kind: "bot"; slug: string }
 
 const sections = [
-  { category: "search", title: "Pesquisa web" },
-  { category: "google", title: "Google" },
-  { category: "productivity", title: "Produtividade" },
-  { category: "creative", title: "Criação" },
+  { category: "search", titleKey: "marketplace.connector.category.search" },
+  { category: "google", titleKey: "marketplace.connector.category.google" },
+  { category: "productivity", titleKey: "marketplace.connector.category.productivity" },
+  { category: "creative", titleKey: "marketplace.connector.category.creative" },
 ] as const
 
 const connectorBackgrounds: Record<string, string> = {
@@ -176,10 +177,11 @@ function FeaturedCard({
   onOpen: () => void
   onAction: () => void
 }) {
-  const action = connectorAction({ entry, connection, secretBoxReady, busy })
+  const translator = useTranslations()
+  const action = connectorAction({ entry, connection, secretBoxReady, busy, translator })
   return (
     <div className="relative flex min-w-0 flex-col items-center justify-between gap-3 rounded-xl border bg-card/50 px-3 py-5 text-center transition-colors hover:bg-muted/45">
-      <button aria-label={`Ver detalhes de ${entry.name}`} className="absolute inset-0 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onClick={onOpen} type="button" />
+      <button aria-label={translator.t("marketplace.viewDetails", { name: entry.name })} className="absolute inset-0 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onClick={onOpen} type="button" />
       <div className="pointer-events-none flex flex-col items-center gap-3">
         <ConnectorIcon entry={entry} />
         <div className="min-w-0">
@@ -223,19 +225,22 @@ function ConnectorCard({
   onOpen: () => void
   onAction: () => void
 }) {
-  const action = connectorAction({ entry, connection, secretBoxReady, busy })
+  const translator = useTranslations()
+  const { t } = translator
+  const action = connectorAction({ entry, connection, secretBoxReady, busy, translator })
+  const displayName = entry?.name ?? connection?.name ?? t("marketplace.connector.customName")
   return (
     <div className="relative flex min-w-0 items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-muted/45">
-      <button aria-label={`Ver detalhes de ${entry?.name ?? connection?.name ?? "MCP personalizado"}${accountLabel ? ` — ${accountLabel}` : ""}`} className="absolute inset-0 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onClick={onOpen} type="button" />
+      <button aria-label={accountLabel ? t("marketplace.api.viewDetailsAccount", { name: displayName, account: accountLabel }) : t("marketplace.viewDetails", { name: displayName })} className="absolute inset-0 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" onClick={onOpen} type="button" />
       <div className="pointer-events-none">
         <ConnectorIcon custom={!entry && connection ? { name: connection.name, url: connection.url } : undefined} entry={entry} />
       </div>
       <div className="pointer-events-none min-w-0 flex-1">
         <p className="truncate text-sm font-medium">
-          {entry?.name ?? connection?.name ?? "MCP personalizado"}
+          {displayName}
         </p>
         <p className="truncate text-xs text-muted-foreground">
-          {accountLabel ?? entry?.description ?? connection?.url ?? "Conecte um servidor MCP por URL."}
+          {accountLabel ?? entry?.description ?? connection?.url ?? t("marketplace.page.defaultDescription")}
         </p>
       </div>
       <Button
@@ -271,6 +276,7 @@ export function MarketplacePage({
   /** "Abrir conversa" depois de instalar um agente. */
   onOpenBot?: (botId: string) => void
 }) {
+	const translator = useTranslations();
   const location = useMarketplaceLocation() ?? { section: "conectores" as const, item: null }
   const { section, item } = location
   const [catalog, setCatalog] = useState<McpCatalogItem[] | null>(null)
@@ -304,14 +310,7 @@ export function MarketplacePage({
   const primaryOf = (catalogId: string) =>
     primaryAccount(connections.filter((candidate) => candidate.catalogId === catalogId))
 
-  const searchPlaceholder =
-    section === "habilidades"
-      ? "Buscar habilidades"
-      : section === "agentes"
-        ? "Buscar agentes"
-        : section === "apps"
-          ? "Buscar apps do Composio"
-          : "Buscar conectores"
+  const searchPlaceholder = translator.t(`marketplace.page.search.${section}`)
 
   function changeSection(next: MarketplaceSection) {
     setQuery("")
@@ -344,7 +343,7 @@ export function MarketplacePage({
           setError(
             cause instanceof Error
               ? cause.message
-              : "Não foi possível carregar o marketplace."
+              : translator.t("marketplace.page.loadError")
           )
       }
     )
@@ -354,14 +353,14 @@ export function MarketplacePage({
   }, [])
 
   const filtered = useMemo(() => {
-    const term = query.trim().toLocaleLowerCase("pt-BR")
+    const term = query.trim().toLowerCase()
     return (
       catalog?.filter(
         (entry) =>
           entry.availability !== "coming_soon" &&
           (!term ||
           `${entry.name} ${entry.description}`
-            .toLocaleLowerCase("pt-BR")
+            .toLowerCase()
             .includes(term))
       ) ?? []
     )
@@ -370,8 +369,8 @@ export function MarketplacePage({
     (connection) =>
       !query.trim() ||
       `${connection.name} ${connection.url}`
-        .toLocaleLowerCase("pt-BR")
-        .includes(query.trim().toLocaleLowerCase("pt-BR"))
+        .toLowerCase()
+        .includes(query.trim().toLowerCase())
   )
   const activeConnections = connections.filter(
     (connection) => connection.status === "connected"
@@ -504,7 +503,7 @@ export function MarketplacePage({
         popup?.close()
         if (result.cancelled) return
         if (!result.ok) {
-          setActionError(result.error ?? "Login não concluído.")
+          setActionError(result.error ?? translator.t("marketplace.page.loginIncomplete"))
           return
         }
       } else {
@@ -516,11 +515,11 @@ export function MarketplacePage({
         setActiveAccountId(fresh.id)
         setView({ kind: "page", catalogId: fresh.catalogId ?? undefined, connectionId: fresh.id })
       } else {
-        setActionError(fresh?.lastError ?? "Login não concluído.")
+        setActionError(fresh?.lastError ?? translator.t("marketplace.page.loginIncomplete"))
       }
     } catch (cause) {
       popup?.close()
-      setActionError(cause instanceof Error ? cause.message : "Não foi possível iniciar o login.")
+      setActionError(cause instanceof Error ? cause.message : translator.t("marketplace.page.loginStartError"))
     } finally {
       setOauthBusy(null)
     }
@@ -557,7 +556,7 @@ export function MarketplacePage({
     try {
       await action()
     } catch (cause) {
-      setAccountError(cause instanceof Error ? cause.message : "Não foi possível concluir.")
+      setAccountError(cause instanceof Error ? cause.message : translator.t("marketplace.page.finishError"))
     } finally {
       setAccountBusyId(null)
     }
@@ -581,7 +580,7 @@ export function MarketplacePage({
     try {
       setApiAdd(await getApiAccountProposal(id))
     } catch (cause) {
-      setApiAddError(cause instanceof Error ? cause.message : "Não foi possível iniciar.")
+      setApiAddError(cause instanceof Error ? cause.message : translator.t("marketplace.page.startError"))
     } finally {
       setApiAddBusy(false)
     }
@@ -600,10 +599,10 @@ export function MarketplacePage({
   }
 
   const selectedApi = view.kind === "api" ? apis.items?.find((entry) => entry.id === view.id) : undefined
-  const apiTerm = query.trim().toLocaleLowerCase("pt-BR")
+  const apiTerm = query.trim().toLowerCase()
   const apiGroups = groupAccounts(
     (apis.items ?? []).filter(
-      (entry) => !apiTerm || `${entry.name} ${entry.domain}`.toLocaleLowerCase("pt-BR").includes(apiTerm)
+      (entry) => !apiTerm || `${entry.name} ${entry.domain}`.toLowerCase().includes(apiTerm)
     ),
     (entry) => entry.baseUrl
   )
@@ -611,18 +610,18 @@ export function MarketplacePage({
   const detail = view.kind !== "catalog"
   const title =
     view.kind === "key"
-      ? `Conectar ${view.entry.name}`
+      ? translator.t("marketplace.page.connectTitle", { name: view.entry.name })
       : view.kind === "api"
-        ? (selectedApi?.name ?? "API")
+        ? (selectedApi?.name ?? translator.t("marketplace.page.apiFallback"))
       : view.kind === "custom"
-        ? "MCP personalizado"
+        ? translator.t("marketplace.connector.customName")
         : view.kind === "skill"
-          ? "Habilidade"
+          ? translator.t("marketplace.page.skillTitle")
           : view.kind === "bot"
-            ? "Agente"
+            ? translator.t("marketplace.page.agentTitle")
             : view.kind === "page"
-              ? (selectedEntry?.name ?? selectedConnection?.name ?? "Conector")
-              : "Marketplace"
+              ? (selectedEntry?.name ?? selectedConnection?.name ?? translator.t("marketplace.page.connectorFallback"))
+              : translator.t("marketplace.page.title")
   const showCategory = !detail && (section === "habilidades" || section === "agentes")
   const categoryItems = section === "habilidades" ? (catalogData.data?.skills ?? []) : (catalogData.data?.bots ?? [])
   const goBack = () => {
@@ -635,14 +634,14 @@ export function MarketplacePage({
 
   return (
     <main
-      aria-label="Marketplace"
+      aria-label={translator.t("marketplace.page.title")}
       className="flex h-dvh min-h-0 min-w-0 flex-1 flex-col bg-background"
       data-slot="marketplace-page"
     >
       <header className="z-20 shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-3 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 md:px-8 md:pt-6">
           <div className="flex min-h-9 items-center gap-2">
-            <Button aria-label="Voltar" className="-ml-2 shrink-0" onClick={goBack} size="icon" type="button" variant="ghost">
+            <Button aria-label={translator.t("common.back")} className="-ml-2 shrink-0" onClick={goBack} size="icon" type="button" variant="ghost">
               <ArrowLeftIcon aria-hidden />
             </Button>
             <h1 className="min-w-0 flex-1 truncate text-lg font-semibold md:text-xl">{title}</h1>
@@ -671,7 +670,7 @@ export function MarketplacePage({
                   )}
                 </div>
                 <p className="hidden text-sm text-muted-foreground md:block">
-                  Instalados: {installed.length}
+                  {translator.t("marketplace.page.installed", { count: installed.length })}
                 </p>
               </div>
             ) : null}
@@ -692,21 +691,21 @@ export function MarketplacePage({
                 {section === "conectores" ? (
                   <DropdownMenu>
                     <DropdownMenuTrigger render={<Button className="h-auto shrink-0 self-stretch" type="button" variant="secondary" />}>
-                      <PlusIcon aria-hidden /> Personalizado
+                      <PlusIcon aria-hidden /> {translator.t("marketplace.page.customMenu")}
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="min-w-52">
                       <DropdownMenuItem onClick={() => setView({ kind: "custom" })}>
-                        <PlugIcon /> MCP personalizado
+                        <PlugIcon /> {translator.t("marketplace.connector.customName")}
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => setApiSheet(true)}>
-                        <BracesIcon /> Conectar API
+                        <BracesIcon /> {translator.t("marketplace.page.connectApi")}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 ) : null}
                 {showCategory ? (
                   <CategorySelect
-                    categories={categoriesOf(categoryItems)}
+                    categories={categoriesOf(categoryItems, translator)}
                     category={section === "habilidades" ? skillCategory : botCategory}
                     onCategory={section === "habilidades" ? setSkillCategory : setBotCategory}
                   />
@@ -721,14 +720,12 @@ export function MarketplacePage({
           {oauthBusy ? (
             <Alert>
               <Spinner />
-              <AlertTitle>Aguardando o login…</AlertTitle>
+              <AlertTitle>{translator.t("marketplace.page.waitingLogin")}</AlertTitle>
               <AlertDescription>
-                Termine o login na janela que abriu. Assim que você autorizar, o
-                conector aparece aqui. Se a janela não abriu, permita popups para
-                este site.
+                {translator.t("marketplace.page.waitingLoginText")}
               </AlertDescription>
               {oauthBusy.startsWith("add:") ? (
-                <AlertDescription className="mt-1">{ANOTHER_ACCOUNT_HINT}</AlertDescription>
+                <AlertDescription className="mt-1">{anotherAccountHint(translator)}</AlertDescription>
               ) : null}
               <Button
                 type="button"
@@ -737,13 +734,13 @@ export function MarketplacePage({
                 className="mt-2"
                 onClick={() => oauthAbortRef.current?.abort()}
               >
-                Cancelar
+                {translator.t("common.cancel")}
               </Button>
             </Alert>
           ) : null}
           {actionError ? (
             <Alert variant="destructive">
-              <AlertTitle>Não foi possível conectar</AlertTitle>
+              <AlertTitle>{translator.t("marketplace.page.cantConnect")}</AlertTitle>
               <AlertDescription>{actionError}</AlertDescription>
             </Alert>
           ) : null}
@@ -794,7 +791,7 @@ export function MarketplacePage({
                   onSaveGroups={(tags) => void apis.saveGroups(selectedApi.id, tags)}
                 />
               ) : apis.items ? (
-                <p className="m-0 text-sm text-muted-foreground">Conexão de API não encontrada.</p>
+                <p className="m-0 text-sm text-muted-foreground">{translator.t("marketplace.page.apiNotFound")}</p>
               ) : (
                 <Skeleton className="h-40 rounded-2xl" />
               )}
@@ -921,17 +918,15 @@ export function MarketplacePage({
                   ) : null}
                   {!secretBoxReady && catalog ? (
                     <Alert variant="warning">
-                      <AlertTitle>Cofre de conectores indisponível</AlertTitle>
+                      <AlertTitle>{translator.t("marketplace.page.vaultTitle")}</AlertTitle>
                       <AlertDescription>
-                        Defina CONNECTOR_ENCRYPTION_KEY no .env da API e do worker
-                        para adicionar conectores.
+                        {translator.t("marketplace.page.vaultText")}
                       </AlertDescription>
                     </Alert>
                   ) : null}
                   {activeTools > MCP_MAX_EXPOSED_TOOLS_HINT ? (
                     <p className="text-xs text-muted-foreground">
-                      O agente usa no máximo {MCP_MAX_EXPOSED_TOOLS_HINT} tools de
-                      conectores por vez.
+                      {translator.t("marketplace.page.toolsLimit", { max: MCP_MAX_EXPOSED_TOOLS_HINT })}
                     </p>
                   ) : null}
                   {!catalog && !error ? (
@@ -943,7 +938,7 @@ export function MarketplacePage({
                   ) : null}
                   {!query.trim() && featured.length > 0 ? (
                     <section className="space-y-3">
-                      <h3 className="text-sm font-semibold">Em destaque</h3>
+                      <h3 className="text-sm font-semibold">{translator.t("marketplace.page.featured")}</h3>
                       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
                         {featured.map((entry) => (
                           <FeaturedCard
@@ -966,7 +961,7 @@ export function MarketplacePage({
                   ) : null}
                   {connected.length > 0 || apiGroups.length > 0 ? (
                     <section className="space-y-2">
-                      <h3 className="text-sm font-medium">Conectados</h3>
+                      <h3 className="text-sm font-medium">{translator.t("marketplace.page.connected")}</h3>
                       <div className={connectorGrid}>
                         {connectedGroups.map((group) => {
                           const connection = primaryAccount(group)!
@@ -974,7 +969,7 @@ export function MarketplacePage({
                           <ConnectorCard
                             accountLabel={
                               group.length > 1
-                                ? accountCountText(group.length)
+                                ? accountCountText(group.length, translator)
                                 : accountDisplayLabel(
                                     connection,
                                     connection.catalogId
@@ -1002,7 +997,7 @@ export function MarketplacePage({
                           return (
                           <ApiConnectionCard
                             accountCount={group.length}
-                            accountLabel={accountDisplayLabel(entry, (apis.items ?? []).filter((candidate) => candidate.baseUrl === entry.baseUrl))}
+                            accountLabel={accountDisplayLabel(entry, (apis.items ?? []).filter((candidate) => candidate.baseUrl === entry.baseUrl), translator)}
                             item={entry}
                             key={entry.baseUrl}
                             onOpen={() => setView({ kind: "api", id: entry.id })}
@@ -1012,14 +1007,14 @@ export function MarketplacePage({
                       </div>
                     </section>
                   ) : null}
-                  {sections.map(({ category, title: sectionTitle }) => {
+                  {sections.map(({ category, titleKey }) => {
                     const entries = filtered.filter(
                       (entry) => entry.category === category
                     )
                     if (entries.length === 0) return null
                     return (
                       <section className="space-y-2" key={category}>
-                        <h3 className="text-sm font-medium">{sectionTitle}</h3>
+                        <h3 className="text-sm font-medium">{translator.t(titleKey)}</h3>
                         <div className={connectorGrid}>
                           {entries.map((entry) => (
                             <ConnectorCard

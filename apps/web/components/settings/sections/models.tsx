@@ -36,59 +36,30 @@ import {
 	userFallbacks,
 } from "../models-state";
 import { SaveIndicator, SettingRow, SettingsGroup } from "../setting-row";
+import { useT, useTranslations } from "@/lib/i18n/provider";
 
 type ModelRowSpec = {
-	setting: ModelSetting;
+	setting: Exclude<ModelSetting, "reviewer" | "stt">;
 	itemId: string;
-	label: string;
 	icon: SettingsIcon;
-	description: string;
-	/** O que mostrar em "Herdar" quando não há valor herdado. */
-	emptyText: string;
 };
 
+/** Os textos de cada linha (rótulo, descrição, "Herdar (…)" vazio) vêm do dicionário: `settings.models.<setting>.*`. */
 const MODEL_ROWS: readonly ModelRowSpec[] = [
-	{
-		setting: "default",
-		itemId: "modelos.padrao",
-		label: "Modelo padrão",
-		icon: BotIcon,
-		description: "Usado por bots novos e por conversas sem bot.",
-		emptyText: "nenhum",
-	},
-	{
-		setting: "coding",
-		itemId: "modelos.codigo",
-		label: "Modelo para código",
-		icon: CodeIcon,
-		description: "Entra sozinho quando um bot trabalha numa sessão de código. Cada bot pode escolher o seu.",
-		emptyText: "modelo do bot",
-	},
-	{
-		setting: "maintenance",
-		itemId: "modelos.manutencao",
-		label: "Modelo de manutenção",
-		icon: WrenchIcon,
-		description: "Resume conversas, revisa a memória e gera guias de conectores. Usa a chave de qualquer provedor conectado (OpenRouter, Anthropic, OpenCode Go); o plano ChatGPT não vale.",
-		emptyText: "nenhum",
-	},
-	{
-		setting: "vision",
-		itemId: "modelos.visao",
-		label: "Modelo para ler imagens",
-		icon: EyeIcon,
-		description: "Entra quando o modelo do bot não enxerga imagens. Aceita modelos com visão do OpenRouter, da Anthropic e do OpenCode Go.",
-		emptyText: "sem reserva",
-	},
-	{
-		setting: "image",
-		itemId: "modelos.imagem",
-		label: "Modelo para gerar imagens",
-		icon: ImageIcon,
-		description: "Usado para criar imagens. Só modelos do OpenRouter.",
-		emptyText: "desligado",
-	},
+	{ setting: "default", itemId: "modelos.padrao", icon: BotIcon },
+	{ setting: "coding", itemId: "modelos.codigo", icon: CodeIcon },
+	{ setting: "maintenance", itemId: "modelos.manutencao", icon: WrenchIcon },
+	{ setting: "vision", itemId: "modelos.visao", icon: EyeIcon },
+	{ setting: "image", itemId: "modelos.imagem", icon: ImageIcon },
 ];
+
+const ROW_TEXT = {
+	default: { label: "settings.models.default.label", description: "settings.models.default.description", empty: "settings.models.default.empty" },
+	coding: { label: "settings.models.coding.label", description: "settings.models.coding.description", empty: "settings.models.coding.empty" },
+	maintenance: { label: "settings.models.maintenance.label", description: "settings.models.maintenance.description", empty: "settings.models.maintenance.empty" },
+	vision: { label: "settings.models.vision.label", description: "settings.models.vision.description", empty: "settings.models.vision.empty" },
+	image: { label: "settings.models.image.label", description: "settings.models.image.description", empty: "settings.models.image.empty" },
+} as const;
 
 export function ModelsSettingsView({
 	effective,
@@ -128,14 +99,16 @@ export function ModelsSettingsView({
 	onChange: (patch: AccountConfigPatch) => void;
 	isVisible?: (itemId: string) => boolean;
 }) {
+	const translator = useTranslations();
+	const { t } = translator;
 	const fallbackList = effective ? userFallbacks(effective.models.fallbacks) : [];
 	const dictationModels = dictation ? transcriptionPickerModels(dictation.models) : [];
-	const fallbackInherit = effective ? fallbacksInheritLabel(effective.models.fallbacks, models) : null;
+	const fallbackInherit = effective ? fallbacksInheritLabel(effective.models.fallbacks, models, translator) : null;
 	return (
 		<SettingsGroup title={title}>
 			{!openrouterKey && effective && showKeyNote ? (
 				<p className="px-3.5 py-1 text-xs text-muted-foreground" role="note">
-					Chave do OpenRouter não configurada no servidor: use o plano ChatGPT (dono) ou uma chave própria (Anthropic, OpenCode Go) em Provedores e chaves.
+					{t("settings.models.keyNote")}
 				</p>
 			) : null}
 
@@ -145,22 +118,22 @@ export function ModelsSettingsView({
 						caption={
 							effective ? (
 								<ModelCapabilityWarning
-									message={modelSettingWarning(row.setting, modelPickerValue(effective.models[row.setting]), models)}
+									message={modelSettingWarning(row.setting, modelPickerValue(effective.models[row.setting]), models, translator)}
 								/>
 							) : null
 						}
-						description={row.description}
+						description={t(ROW_TEXT[row.setting].description)}
 						htmlFor={`settings-model-${row.setting}`}
 						icon={row.icon}
 						key={row.setting}
-						label={row.label}
+						label={t(ROW_TEXT[row.setting].label)}
 					>
 						{effective ? (
 							<ModelPicker
 								emptyLabel={
 									(row.setting === "maintenance"
-										? maintenanceInheritLabel(effective.models.maintenance, effective.models.default, models, openrouterKey)
-										: modelInheritLabel(effective.models[row.setting], models, row.emptyText)) ?? "Herdar"
+										? maintenanceInheritLabel(effective.models.maintenance, effective.models.default, models, openrouterKey, translator)
+										: modelInheritLabel(effective.models[row.setting], models, t(ROW_TEXT[row.setting].empty), translator)) ?? t("settings.models.inherit")
 								}
 								id={`settings-model-${row.setting}`}
 								loading={modelsLoading}
@@ -172,21 +145,21 @@ export function ModelsSettingsView({
 								value={modelPickerValue(effective.models[row.setting])}
 							/>
 						) : (
-							<p className="text-body text-muted-foreground">Carregando…</p>
+							<p className="text-body text-muted-foreground">{t("common.loading")}</p>
 						)}
 					</SettingRow>
 				) : null,
 			)}
 			{dictation && isVisible("modelos.ditado") ? (
 				<SettingRow
-					description="Transcreve o que você fala no microfone do chat."
+					description={t("settings.models.stt.description")}
 					htmlFor="settings-model-stt"
 					icon={MicIcon}
-					label="Modelo de ditado"
+					label={t("settings.models.stt.label")}
 				>
 					{effective ? (
 						<ModelPicker
-							emptyLabel={dictationDefaultLabel(dictation.defaultModel, dictationModels)}
+							emptyLabel={dictationDefaultLabel(dictation.defaultModel, dictationModels, translator)}
 							id="settings-model-stt"
 							loading={dictationLoading}
 							models={dictationModels}
@@ -195,7 +168,7 @@ export function ModelsSettingsView({
 							value={modelPickerValue(effective.models.stt)}
 						/>
 					) : (
-						<p className="text-body text-muted-foreground">Carregando…</p>
+						<p className="text-body text-muted-foreground">{t("common.loading")}</p>
 					)}
 				</SettingRow>
 			) : null}
@@ -205,9 +178,9 @@ export function ModelsSettingsView({
 					caption={
 						fallbackList.length === 0 && fallbackInherit ? <p>{fallbackInherit}</p> : null
 					}
-					description={`Tentados na ordem quando o modelo principal falha (até ${MAX_FALLBACK_MODELS}). Aceita modelos de qualquer provedor com chave; o plano ChatGPT não vale.`}
+					description={t("settings.models.fallbacks.description", { max: MAX_FALLBACK_MODELS })}
 					icon={LayersIcon}
-					label="Modelos de reserva"
+					label={t("settings.models.fallbacks.label")}
 				>
 					<FallbacksControl
 						list={fallbackList}
@@ -242,6 +215,7 @@ function FallbacksControl({
 	models: readonly OpenRouterModel[];
 	onChange: (list: string[]) => void;
 }) {
+	const t = useT();
 	const [adding, setAdding] = useState(false);
 	const showNew = adding && list.length < MAX_FALLBACK_MODELS;
 	return (
@@ -255,7 +229,7 @@ function FallbacksControl({
 						value={id}
 					/>
 					<Button
-						aria-label={`Remover modelo de reserva ${index + 1}`}
+						aria-label={t("settings.models.fallbacks.removeAria", { n: index + 1 })}
 						onClick={() => onChange(removeFallbackAt(list, index))}
 						size="icon-sm"
 						variant="ghost"
@@ -276,7 +250,7 @@ function FallbacksControl({
 						value=""
 					/>
 					<Button
-						aria-label="Cancelar novo modelo de reserva"
+						aria-label={t("settings.models.fallbacks.cancelAria")}
 						onClick={() => setAdding(false)}
 						size="icon-sm"
 						variant="ghost"
@@ -289,12 +263,12 @@ function FallbacksControl({
 				{list.length < MAX_FALLBACK_MODELS && !showNew ? (
 					<Button onClick={() => setAdding(true)} size="sm" variant="outline">
 						<PlusIcon aria-hidden data-icon="inline-start" />
-						Adicionar
+						{t("settings.models.add")}
 					</Button>
 				) : null}
 				{list.length > 0 ? (
 					<Button onClick={() => onChange([])} size="sm" variant="ghost">
-						Voltar ao padrão
+						{t("settings.models.backToDefault")}
 					</Button>
 				) : null}
 			</div>

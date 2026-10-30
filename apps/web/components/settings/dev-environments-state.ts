@@ -2,12 +2,8 @@ import {
 	DEFAULT_COMMAND_ALLOWLIST,
 	DEFAULT_DEV_APPROVAL_MODE,
 	DEV_APPROVAL_MODES,
-	DEV_APPROVAL_MODE_HELP,
-	DEV_APPROVAL_MODE_LABEL,
 	addCommandPrefixes,
 	DEFAULT_EGRESS_ALLOWLIST,
-	DEV_ENV_NETWORK_LABEL,
-	DEV_ENV_TIER_LABEL,
 	normalizeDomainPattern,
 	normalizeEnvRepo,
 	parseEnvPaste,
@@ -16,6 +12,9 @@ import {
 	type DevEnvNetwork,
 	type DevEnvTier,
 } from "@workspace/shared";
+import { getActiveTranslator } from "@/lib/i18n/active";
+import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
+import { devApprovalModeHelp, devApprovalModeLabel, devEnvNetworkLabel, devEnvTierLabel } from "@/lib/shared-labels";
 import type { DevEnvironmentInput, DevEnvironmentView, DevEnvSuggestionView } from "@/lib/atlas-api";
 
 /** Modelo puro do editor de ambientes de código (Configurações > Conexões). */
@@ -52,38 +51,43 @@ export const EMPTY_DEV_ENV_FORM: DevEnvForm = {
 	secretsText: "",
 };
 
-export const TIER_OPTIONS: ReadonlyArray<{ value: DevEnvTier; label: string }> = [
-	{ value: "small", label: DEV_ENV_TIER_LABEL.small },
-	{ value: "medium", label: DEV_ENV_TIER_LABEL.medium },
-	{ value: "large", label: DEV_ENV_TIER_LABEL.large },
-];
+export function tierOptions(translator: Translator = defaultTranslator): ReadonlyArray<{ value: DevEnvTier; label: string }> {
+	return (["small", "medium", "large"] as const).map((value) => ({ value, label: devEnvTierLabel(value, translator) }));
+}
 
-export const NETWORK_OPTIONS: ReadonlyArray<{ value: DevEnvNetwork; label: string }> = [
-	{ value: "allowlist", label: `${DEV_ENV_NETWORK_LABEL.allowlist} (padrão)` },
-	{ value: "full", label: DEV_ENV_NETWORK_LABEL.full },
-	{ value: "off", label: DEV_ENV_NETWORK_LABEL.off },
-];
-
-export const NETWORK_HELP: Record<DevEnvNetwork, string> = {
-	allowlist:
-		"Só os domínios padrão e os seus (proteção de melhor esforço).",
-	full: "Sem restrição de saída para a internet.",
-	off: "Lista liberada só na preparação; depois, sem internet.",
-};
-
-/** Opções do seletor de aprovação de comandos de um ambiente (a primeira herda a conta). */
-export function approvalOptions(accountDefault: DevApprovalMode | null | undefined): ReadonlyArray<{ value: DevApprovalMode | "inherit"; label: string }> {
-	const account = accountDefault ?? DEFAULT_DEV_APPROVAL_MODE;
+export function networkOptions(translator: Translator = defaultTranslator): ReadonlyArray<{ value: DevEnvNetwork; label: string }> {
 	return [
-		{ value: "inherit", label: `Padrão da conta (${DEV_APPROVAL_MODE_LABEL[account]})` },
-		...ACCOUNT_APPROVAL_OPTIONS,
+		{ value: "allowlist", label: translator.t("settings.dev.networkDefault", { label: devEnvNetworkLabel("allowlist", translator) }) },
+		{ value: "full", label: devEnvNetworkLabel("full", translator) },
+		{ value: "off", label: devEnvNetworkLabel("off", translator) },
 	];
 }
 
-export const ACCOUNT_APPROVAL_OPTIONS: ReadonlyArray<{ value: DevApprovalMode; label: string }> = DEV_APPROVAL_MODES.map((value) => ({ value, label: value === "auto" ? `${DEV_APPROVAL_MODE_LABEL[value]} (recomendado)` : DEV_APPROVAL_MODE_LABEL[value] }));
+export function networkHelp(network: DevEnvNetwork, { t }: Translator = defaultTranslator): string {
+	return t(({ allowlist: "settings.dev.netHelp.allowlist", full: "settings.dev.netHelp.full", off: "settings.dev.netHelp.off" } as const)[network]);
+}
 
-export function approvalHelp(mode: DevApprovalMode | "inherit", accountDefault: DevApprovalMode | null | undefined): string {
-	return DEV_APPROVAL_MODE_HELP[mode === "inherit" ? (accountDefault ?? DEFAULT_DEV_APPROVAL_MODE) : mode];
+/** Opções do seletor de aprovação de comandos de um ambiente (a primeira herda a conta). */
+export function approvalOptions(
+	accountDefault: DevApprovalMode | null | undefined,
+	translator: Translator = defaultTranslator,
+): ReadonlyArray<{ value: DevApprovalMode | "inherit"; label: string }> {
+	const account = accountDefault ?? DEFAULT_DEV_APPROVAL_MODE;
+	return [
+		{ value: "inherit", label: translator.t("settings.dev.approvalInherit", { mode: devApprovalModeLabel(account, translator) }) },
+		...accountApprovalOptions(translator),
+	];
+}
+
+export function accountApprovalOptions(translator: Translator = defaultTranslator): ReadonlyArray<{ value: DevApprovalMode; label: string }> {
+	return DEV_APPROVAL_MODES.map((value) => ({
+		value,
+		label: value === "auto" ? translator.t("settings.dev.recommended", { label: devApprovalModeLabel(value, translator) }) : devApprovalModeLabel(value, translator),
+	}));
+}
+
+export function approvalHelp(mode: DevApprovalMode | "inherit", accountDefault: DevApprovalMode | null | undefined, translator: Translator = defaultTranslator): string {
+	return devApprovalModeHelp(mode === "inherit" ? (accountDefault ?? DEFAULT_DEV_APPROVAL_MODE) : mode, translator);
 }
 
 /** A lista de comandos liberados só vale no modo "Lista liberada" (próprio ou herdado da conta). */
@@ -94,9 +98,9 @@ export function showsCommandAllowlist(mode: DevApprovalMode | "inherit", account
 
 export { addCommandPrefixes };
 
-export const TEST_COMMAND_HELP = "O bot usa este comando para testar. Ex.: pnpm --filter @app/api test";
+export const testCommandHelp = ({ t }: Translator = defaultTranslator): string => t("settings.dev.testCommandHelp");
 
-export const SECRETS_HELP = "Cole o conteúdo de um .env (CHAVE=valor, um por linha). Criptografados; nunca voltam para a tela.";
+export const secretsHelp = ({ t }: Translator = defaultTranslator): string => t("settings.dev.secretsHelp");
 
 export function formFromEnvironment(env: DevEnvironmentView): DevEnvForm {
 	return {
@@ -131,11 +135,12 @@ export function validateEnvForm(
 	form: DevEnvForm,
 	others: readonly DevEnvironmentView[],
 	editingId: string | null,
+	{ t }: Translator = defaultTranslator,
 ): { ok: true } | { ok: false; errors: DevEnvFormErrors } {
 	const repo = normalizeEnvRepo(form.repo);
-	if (!repo) return { ok: false, errors: { repo: "Use o formato dono/nome, como acme/site." } };
+	if (!repo) return { ok: false, errors: { repo: t("settings.dev.err.repoFormat") } };
 	if (others.some((env) => env.repo === repo && env.id !== editingId)) {
-		return { ok: false, errors: { repo: "Já existe um ambiente para este repositório." } };
+		return { ok: false, errors: { repo: t("settings.dev.err.repoDuplicate") } };
 	}
 	return { ok: true };
 }
@@ -159,13 +164,13 @@ export function parseDomainInput(text: string): { valid: string[]; invalid: stri
 	return { valid, invalid };
 }
 
-export function addDomains(current: readonly string[], text: string): { domains: string[]; error: string | null } {
+export function addDomains(current: readonly string[], text: string, { t }: Translator = defaultTranslator): { domains: string[]; error: string | null } {
 	const { valid, invalid } = parseDomainInput(text);
 	const domains = [...current];
 	for (const domain of valid) {
 		if (!domains.includes(domain) && !DEFAULT_EGRESS_ALLOWLIST.includes(domain)) domains.push(domain);
 	}
-	return { domains, error: invalid.length ? `Domínio inválido: ${invalid[0]}` : null };
+	return { domains, error: invalid.length ? t("settings.dev.err.invalidDomain", { domain: invalid[0]! }) : null };
 }
 
 // ----- segredos (texto estilo .env) -----
@@ -178,20 +183,45 @@ export type SecretsTextAnalysis = {
 	overwrites: string[];
 };
 
-export function analyzeSecretsText(text: string, existingNames: readonly string[]): SecretsTextAnalysis {
+/** As mensagens do parser de `.env` vêm de `shared` em pt-BR: reconhece cada uma e devolve no idioma da tela. */
+export function translateSecretError(message: string, { t }: Translator = defaultTranslator): string {
+	const patterns: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
+		[/^linha (\d+): falta '='$/, (m) => t("settings.dev.paste.missingEquals", { line: m[1]! })],
+		[/^linha (\d+): falta o nome antes do '='$/, (m) => t("settings.dev.paste.missingName", { line: m[1]! })],
+		[/^linha (\d+): o nome (.*)\.\.\. passa de 64 caracteres$/, (m) => t("settings.dev.paste.nameTooLong", { line: m[1]!, name: m[2]! })],
+		[/^linha (\d+): o nome (.*) não pode começar com número$/, (m) => t("settings.dev.paste.nameDigit", { line: m[1]!, name: m[2]! })],
+		[/^linha (\d+): o nome (.*) tem caractere inválido \(use A-Z, 0-9 e _\)$/, (m) => t("settings.dev.paste.nameInvalid", { line: m[1]!, name: m[2]! })],
+		[/^linha (\d+): o nome (.*) é reservado$/, (m) => t("settings.dev.paste.nameReserved", { line: m[1]!, name: m[2]! })],
+		[/^linha (\d+): faltou fechar as aspas de (.*)$/, (m) => t("settings.dev.paste.quote", { line: m[1]!, name: m[2]! })],
+		[/^linha (\d+): o valor de (.*) é grande demais$/, (m) => t("settings.dev.paste.tooBig", { line: m[1]!, name: m[2]! })],
+	];
+	for (const [pattern, render] of patterns) {
+		const match = message.match(pattern);
+		if (match) return render(match);
+	}
+	return message;
+}
+
+/** Erro de `addCommandPrefixes` (shared, pt-BR) no idioma da tela. */
+export function translateCommandError(message: string | null, { t }: Translator = defaultTranslator): string | null {
+	const match = message?.match(/^Comando inválido: (.*)$/s);
+	return match ? t("settings.dev.err.invalidCommand", { command: match[1]! }) : message;
+}
+
+export function analyzeSecretsText(text: string, existingNames: readonly string[], translator: Translator = defaultTranslator): SecretsTextAnalysis {
 	const parsed = parseEnvPaste(text);
 	const entries = parsed.entries.map(({ name, value }) => ({ name, value }));
-	return { entries, errors: parsed.errors.map((error) => error.message), overwrites: entries.map((entry) => entry.name).filter((name) => existingNames.includes(name)) };
+	return { entries, errors: parsed.errors.map((error) => translateSecretError(error.message, translator)), overwrites: entries.map((entry) => entry.name).filter((name) => existingNames.includes(name)) };
 }
 
 /** Erro de limite: segredos novos + já salvos (sem contar os que serão sobrescritos). */
-export function secretLimitError(entryNames: readonly string[], existingNames: readonly string[]): string | null {
+export function secretLimitError(entryNames: readonly string[], existingNames: readonly string[], { t }: Translator = defaultTranslator): string | null {
 	const total = new Set([...existingNames, ...entryNames]).size;
-	return total > DEV_ENV_MAX_SECRETS ? `No máximo ${DEV_ENV_MAX_SECRETS} segredos por ambiente` : null;
+	return total > DEV_ENV_MAX_SECRETS ? t("settings.dev.err.secretLimit", { max: DEV_ENV_MAX_SECRETS }) : null;
 }
 
-export function savedSecretsLabel(count: number): string {
-	return count === 1 ? "1 segredo salvo" : `${count} segredos salvos`;
+export function savedSecretsLabel(count: number, { tn }: Translator = defaultTranslator): string {
+	return tn("settings.dev.secretsSaved", count);
 }
 
 // ----- preenchimento a partir do repositório -----
@@ -228,16 +258,16 @@ export function applySuggestion(form: DevEnvForm, suggestion: DevEnvSuggestionVi
 }
 
 /** "Pequeno · 1 GB · Lista liberada" */
-export function envSummary(env: Pick<DevEnvironmentView, "tier" | "network" | "secrets"> & { approvalMode?: DevApprovalMode | null }): string {
-	const parts: string[] = [DEV_ENV_TIER_LABEL[env.tier], DEV_ENV_NETWORK_LABEL[env.network]];
-	if (env.approvalMode) parts.push(`Comandos: ${DEV_APPROVAL_MODE_LABEL[env.approvalMode]}`);
-	if (env.secrets.length > 0) parts.push(env.secrets.length === 1 ? "1 segredo" : `${env.secrets.length} segredos`);
+export function envSummary(env: Pick<DevEnvironmentView, "tier" | "network" | "secrets"> & { approvalMode?: DevApprovalMode | null }, translator: Translator = defaultTranslator): string {
+	const parts: string[] = [devEnvTierLabel(env.tier, translator), devEnvNetworkLabel(env.network, translator)];
+	if (env.approvalMode) parts.push(translator.t("settings.dev.summaryCommands", { mode: devApprovalModeLabel(env.approvalMode, translator) }));
+	if (env.secrets.length > 0) parts.push(translator.tn("settings.dev.summarySecrets", env.secrets.length));
 	return parts.join(" · ");
 }
 
-export function environmentsHint(count: number | undefined): string | null {
+export function environmentsHint(count: number | undefined, { tn }: Translator = defaultTranslator): string | null {
 	if (!count) return null;
-	return count === 1 ? "1 ambiente de código" : `${count} ambientes de código`;
+	return tn("settings.dev.hint", count);
 }
 
 /** Sugestões de repositório da conexão GitHub, sem os que já têm ambiente. */
@@ -254,7 +284,7 @@ export function suggestRepos(
 		.slice(0, limit);
 }
 
-export function envErrorMessage(cause: unknown): string {
-	return cause instanceof Error && cause.message ? cause.message : "Não foi possível concluir. Tente novamente.";
+export function envErrorMessage(cause: unknown, { t }: Translator = getActiveTranslator()): string {
+	return cause instanceof Error && cause.message ? cause.message : t("settings.dev.err.generic");
 }
 

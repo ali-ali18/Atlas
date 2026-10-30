@@ -7,6 +7,7 @@ import { Button } from "@workspace/ui/components/button";
 import { Field, FieldLabel } from "@workspace/ui/components/field";
 import { Input } from "@workspace/ui/components/input";
 import { createMcpConnection } from "@/lib/atlas-api";
+import { useTranslations } from "@/lib/i18n/provider";
 
 export function ApiKeyDialog({
 	entry,
@@ -20,6 +21,7 @@ export function ApiKeyDialog({
 	onBack: () => void;
 	onConnected: (connection: McpConnectionView) => void;
 }) {
+	const { t } = useTranslations();
 	const [key, setKey] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -38,7 +40,7 @@ export function ApiKeyDialog({
 			setKey("");
 			onConnected(connection);
 		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : "Não foi possível conectar.");
+			setError(cause instanceof Error ? cause.message : t("marketplace.apiKey.connectError"));
 		} finally {
 			setBusy(false);
 		}
@@ -48,7 +50,7 @@ export function ApiKeyDialog({
 		<form className="space-y-5" onSubmit={(event) => void submit(event)}>
 			<p className="text-sm text-muted-foreground">{entry.description}</p>
 			<Field>
-				<FieldLabel htmlFor="mcp-api-key">{entry.apiKey?.label ?? "Chave de API"}</FieldLabel>
+				<FieldLabel htmlFor="mcp-api-key">{entry.apiKey?.label ?? t("marketplace.apiKey.label")}</FieldLabel>
 				<Input
 					autoComplete="off"
 					id="mcp-api-key"
@@ -65,14 +67,14 @@ export function ApiKeyDialog({
 					rel="noopener noreferrer"
 					target="_blank"
 				>
-					Onde consigo? <ExternalLinkIcon className="size-3.5" />
+					{t("marketplace.apiKey.where")} <ExternalLinkIcon className="size-3.5" />
 				</a>
 			) : null}
 			{error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
 			<div className="flex justify-end gap-2">
-				<Button disabled={busy} onClick={onBack} type="button" variant="outline">Voltar</Button>
+				<Button disabled={busy} onClick={onBack} type="button" variant="outline">{t("common.back")}</Button>
 				<Button disabled={busy || !key.trim()} type="submit">
-					{busy ? "Conectando…" : "Conectar"}
+					{busy ? t("marketplace.action.connecting") : t("marketplace.apiKey.connect")}
 				</Button>
 			</div>
 		</form>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AccountConfigPatch, AccountSettingsResponse } from "@workspace/shared";
+import { useT } from "@/lib/i18n/provider";
 import { getAccountSettings, patchAccountSettings } from "@/lib/atlas-api";
 import {
 	type SaveStatus,
@@ -17,6 +18,7 @@ const SAVED_VISIBLE_MS = 2000;
  * Só carrega com `enabled` (modal aberto).
  */
 export function useAccountSettings(enabled: boolean) {
+	const t = useT();
 	const [view, setView] = useState<AccountSettingsResponse | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [status, setStatus] = useState<SaveStatus>("idle");
@@ -39,12 +41,12 @@ export function useAccountSettings(enabled: boolean) {
 				if (!cancelled) apply(next);
 			})
 			.catch(() => {
-				if (!cancelled) setLoadError("Não foi possível carregar as configurações.");
+				if (!cancelled) setLoadError(t("settings.loadError"));
 			});
 		return () => {
 			cancelled = true;
 		};
-	}, [enabled, apply]);
+	}, [enabled, apply, t]);
 
 	useEffect(
 		() => () => {
@@ -67,6 +69,7 @@ export function useAccountSettings(enabled: boolean) {
 				extra,
 				send: patchAccountSettings,
 				onOptimistic: apply,
+				t,
 			});
 			// Resposta de um PATCH antigo não sobrescreve uma escolha mais nova.
 			if (request !== requestRef.current) return;
@@ -79,7 +82,7 @@ export function useAccountSettings(enabled: boolean) {
 				setSaveError(result.error);
 			}
 		},
-		[apply],
+		[apply, t],
 	);
 
 	return { view, loadError, status, saveError, save };

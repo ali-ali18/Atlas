@@ -3,7 +3,7 @@
 import { ConnectorGuide } from "./connector-guide"
 import { useEffect, useMemo, useState } from "react"
 import { ChevronRightIcon, SearchIcon } from "lucide-react"
-import { API_AUTH_LABEL, type ApiConnectionView, type ApiOperation } from "@workspace/shared"
+import type { ApiConnectionView, ApiOperation } from "@workspace/shared"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@workspace/ui/components/input-group"
@@ -15,8 +15,8 @@ import { accountDisplayLabel } from "@/lib/connector-accounts"
 import { AccountTabs, AccountsSection } from "./connector-accounts"
 import { apiOperationGuide, ToolGuide } from "./tool-guide"
 import { apiAccessSummary, apiConnectionStatusLabel, readableApiGroups } from "./api-connections-section"
-
-const consultas = (count: number) => `${count} ${count === 1 ? "consulta" : "consultas"}`
+import { apiAuthLabel } from "@/lib/shared-labels"
+import { useTranslations } from "@/lib/i18n/provider"
 
 /** Detalhe de uma API conectada (subpágina do Marketplace): resumo, reconectar/desconectar e grupos liberados. */
 /** Contas da mesma API (mesma base): a seção "Contas" da página. */
@@ -54,6 +54,8 @@ export function ApiConnectionPage({
   /** Operações do catálogo (guia de cada consulta); carregadas ao abrir o primeiro grupo. */
   loadOperations?: (id: string) => Promise<ApiOperation[]>
 }) {
+  const translator = useTranslations()
+  const { t, tn } = translator
   const [keyOpen, setKeyOpen] = useState(false)
   const [apiKey, setApiKey] = useState("")
   // Desconectar apaga a conexão e as credenciais: pede um segundo toque.
@@ -75,12 +77,12 @@ export function ApiConnectionPage({
   }, [expanded, operations, item.id, loadOperations])
   const connected = item.status === "connected"
   const siblings = accounts?.items ?? [item]
-  const accountLabel = siblings.length > 1 ? accountDisplayLabel(item, siblings) : item.accountLabel
+  const accountLabel = siblings.length > 1 ? accountDisplayLabel(item, siblings, translator) : item.accountLabel
   const needsKey = item.authKind === "apiKey" || item.authKind === "bearer"
   const readable = useMemo(() => readableApiGroups(item), [item])
   const visible = useMemo(() => {
-    const term = query.trim().toLocaleLowerCase("pt-BR")
-    return term ? readable.filter((group) => group.tag.toLocaleLowerCase("pt-BR").includes(term)) : readable
+    const term = query.trim().toLowerCase()
+    return term ? readable.filter((group) => group.tag.toLowerCase().includes(term)) : readable
   }, [readable, query])
   const toggle = (tag: string, on: boolean) =>
     onSaveGroups(on ? [...item.allowedTags, tag] : item.allowedTags.filter((value) => value !== tag))
@@ -105,7 +107,7 @@ export function ApiConnectionPage({
               onClick={() => (needsKey ? setKeyOpen((value) => !value) : onReconnect())}
               type="button"
             >
-              {busy ? "Conectando…" : "Reconectar"}
+              {busy ? t("marketplace.action.connecting") : t("marketplace.action.reconnect")}
             </Button>
           ) : null}
           {accounts ? null : (
@@ -116,7 +118,7 @@ export function ApiConnectionPage({
               type="button"
               variant={confirming ? "destructive" : "secondary"}
             >
-              {confirming ? "Confirmar" : "Desconectar"}
+              {confirming ? t("marketplace.api.confirm") : t("marketplace.api.disconnect")}
             </Button>
           )}
         </div>
@@ -138,16 +140,16 @@ export function ApiConnectionPage({
           }}
         >
           <Input
-            aria-label={item.authKind === "bearer" ? "Novo token de acesso" : "Nova chave de API"}
+            aria-label={item.authKind === "bearer" ? t("marketplace.api.newToken") : t("marketplace.api.newKey")}
             autoComplete="off"
             onChange={(event) => setApiKey(event.target.value)}
-            placeholder={item.authKind === "bearer" ? "Novo token" : "Nova chave"}
+            placeholder={item.authKind === "bearer" ? t("marketplace.api.newTokenPlaceholder") : t("marketplace.api.newKeyPlaceholder")}
             spellCheck={false}
             type="password"
             value={apiKey}
           />
           <Button disabled={busy || !apiKey.trim()} type="submit">
-            Salvar
+            {t("common.save")}
           </Button>
         </form>
       ) : null}
@@ -155,11 +157,11 @@ export function ApiConnectionPage({
       {accounts ? (
         <AccountsSection
           accounts={siblings.map((account) => {
-            const label = accountDisplayLabel(account, siblings)
+            const label = accountDisplayLabel(account, siblings, translator)
             return {
               id: account.id,
               title: label ?? account.name,
-              status: apiConnectionStatusLabel(account),
+              status: apiConnectionStatusLabel(account, translator),
               ok: account.status === "connected",
               needsReconnect: account.status !== "connected",
               current: account.id === item.id,
@@ -179,30 +181,30 @@ export function ApiConnectionPage({
       ) : null}
 
       <section className="space-y-2">
-        <h3 className="text-sm font-semibold">Resumo</h3>
+        <h3 className="text-sm font-semibold">{t("marketplace.api.summary")}</h3>
         <dl className="m-0 divide-y rounded-xl border bg-muted/20 px-4">
           <div className="flex justify-between gap-4 py-3 text-sm">
-            <dt className="shrink-0 text-muted-foreground">Endereço</dt>
+            <dt className="shrink-0 text-muted-foreground">{t("marketplace.api.address")}</dt>
             <dd className="m-0 min-w-0 break-all text-right font-mono text-xs leading-5">{item.baseUrl}</dd>
           </div>
           <div className="flex justify-between gap-4 py-3 text-sm">
-            <dt className="text-muted-foreground">Autenticação</dt>
-            <dd className="m-0">{API_AUTH_LABEL[item.authKind]}</dd>
+            <dt className="text-muted-foreground">{t("marketplace.api.authentication")}</dt>
+            <dd className="m-0">{apiAuthLabel(item.authKind, translator)}</dd>
           </div>
           <div className="flex justify-between gap-4 py-3 text-sm">
-            <dt className="shrink-0 text-muted-foreground">Estado</dt>
+            <dt className="shrink-0 text-muted-foreground">{t("marketplace.api.state")}</dt>
             <dd
               className={cn(
                 "m-0 min-w-0 text-right",
                 connected ? "text-success" : "text-warning"
               )}
             >
-              {apiConnectionStatusLabel(item)}
+              {apiConnectionStatusLabel(item, translator)}
             </dd>
           </div>
           <div className="flex justify-between gap-4 py-3 text-sm">
-            <dt className="text-muted-foreground">Acesso</dt>
-            <dd className="m-0">{apiAccessSummary(item)}</dd>
+            <dt className="text-muted-foreground">{t("marketplace.api.access")}</dt>
+            <dd className="m-0">{apiAccessSummary(item, translator)}</dd>
           </div>
         </dl>
       </section>
@@ -210,21 +212,21 @@ export function ApiConnectionPage({
       <section className="space-y-3">
         <div className="flex min-h-7 flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <h3 className="text-sm font-semibold">
-            Grupos{" "}
+            {t("marketplace.api.groups")}{" "}
             <span className="font-normal text-muted-foreground">
-              {item.allowedTags.length} de {readable.length}
+              {t("marketplace.api.groupsCount", { allowed: item.allowedTags.length, total: readable.length })}
             </span>
           </h3>
           {accounts && siblings.length > 1 ? (
             <AccountTabs
-              accounts={siblings.map((account) => ({ id: account.id, title: accountDisplayLabel(account, siblings) ?? account.name }))}
-              label="Conta em configuração"
+              accounts={siblings.map((account) => ({ id: account.id, title: accountDisplayLabel(account, siblings, translator) ?? account.name }))}
+              label={t("marketplace.api.accountInSetup")}
               onChange={accounts.onOpen}
               value={item.id}
             />
           ) : null}
           <div aria-live="polite" className="flex items-center gap-1 text-xs text-muted-foreground">
-            {busy ? <span className="mr-1">Salvando…</span> : null}
+            {busy ? <span className="mr-1">{t("marketplace.api.saving")}</span> : null}
             <Button
               className="h-7 rounded-full px-3 text-xs"
               disabled={busy || item.allowedTags.length === readable.length}
@@ -233,7 +235,7 @@ export function ApiConnectionPage({
               type="button"
               variant="ghost"
             >
-              Liberar todos
+              {t("marketplace.api.allowAll")}
             </Button>
             <Button
               className="-mr-3 h-7 rounded-full px-3 text-xs"
@@ -243,7 +245,7 @@ export function ApiConnectionPage({
               type="button"
               variant="ghost"
             >
-              Nenhum
+              {t("marketplace.api.allowNone")}
             </Button>
           </div>
         </div>
@@ -252,14 +254,14 @@ export function ApiConnectionPage({
             <SearchIcon />
           </InputGroupAddon>
           <InputGroupInput
-            aria-label="Buscar grupo"
+            aria-label={t("marketplace.api.searchGroup")}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar grupo"
+            placeholder={t("marketplace.api.searchGroup")}
             value={query}
           />
         </InputGroup>
         {visible.length > 0 ? (
-          <ul aria-label="Grupos liberados" className="m-0 list-none divide-y rounded-xl border bg-muted/20 p-0">
+          <ul aria-label={t("marketplace.api.allowedGroups")} className="m-0 list-none divide-y rounded-xl border bg-muted/20 p-0">
             {visible.map((group) => {
               const id = `api-group-${item.id}-${group.tag}`
               const open = expanded === group.tag
@@ -278,7 +280,7 @@ export function ApiConnectionPage({
                         <span className="block truncate text-sm font-medium" id={`${id}-nome`}>
                           {group.tag}
                         </span>
-                        <span className="block text-xs text-muted-foreground">{consultas(group.read)}</span>
+                        <span className="block text-xs text-muted-foreground">{tn("marketplace.api.queries", group.read)}</span>
                       </span>
                     </button>
                     <Switch
@@ -293,13 +295,13 @@ export function ApiConnectionPage({
                   {open ? (
                     <div className="border-t bg-background/40">
                       {operations === null ? (
-                        <p className="m-0 px-4 py-3 pl-10 text-xs text-muted-foreground">Carregando…</p>
+                        <p className="m-0 px-4 py-3 pl-10 text-xs text-muted-foreground">{t("common.loading")}</p>
                       ) : operations === "error" ? (
                         <p className="m-0 px-4 py-3 pl-10 text-xs text-destructive" role="alert">
-                          Não foi possível carregar as consultas.
+                          {t("marketplace.api.queriesError")}
                         </p>
                       ) : (
-                        <ul aria-label={`Consultas de ${group.tag}`} className="m-0 list-none divide-y p-0">
+                        <ul aria-label={t("marketplace.api.queriesOf", { group: group.tag })} className="m-0 list-none divide-y p-0">
                           {ops.map((operation) => (
                             <li key={operation.id}>
                               <button
@@ -325,13 +327,13 @@ export function ApiConnectionPage({
           </ul>
         ) : (
           <p className="m-0 rounded-xl border bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">
-            {readable.length === 0 ? "Esta API não tem grupos de leitura." : "Nenhum grupo encontrado."}
+            {readable.length === 0 ? t("marketplace.api.noReadGroups") : t("marketplace.api.noGroupFound")}
           </p>
         )}
-        <p className="m-0 text-xs text-muted-foreground">Ações de escrita chegam em breve.</p>
+        <p className="m-0 text-xs text-muted-foreground">{t("marketplace.api.writeSoon")}</p>
       </section>
       {connected ? <ConnectorGuide connectionId={item.id} guide={item.guide} kind="api" /> : null}
-      <ToolGuide guide={guide ? apiOperationGuide(guide) : null} onClose={() => setGuide(null)} />
+      <ToolGuide guide={guide ? apiOperationGuide(guide, translator) : null} onClose={() => setGuide(null)} />
     </div>
   )
 }

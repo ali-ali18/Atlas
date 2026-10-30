@@ -6,6 +6,7 @@ import { Button } from "@workspace/ui/components/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@workspace/ui/components/dialog";
 import { Switch } from "@workspace/ui/components/switch";
 
+import { useT } from "@/lib/i18n/provider";
 import { type AtlasPageShare, createPageShare, getPageShare, revokePageShare } from "@/lib/atlas-api";
 
 export type PageShareApi = {
@@ -16,7 +17,6 @@ export type PageShareApi = {
 
 const defaultApi: PageShareApi = { get: getPageShare, create: createPageShare, revoke: revokePageShare };
 
-export const PUBLIC_LINK_WARNING = "Qualquer pessoa com o link vê este painel e as atualizações dele.";
 
 export type ShareState = { kind: "loading" } | { kind: "ready"; active: boolean; url: string | null } | { kind: "error"; message: string };
 
@@ -36,6 +36,7 @@ export function PageShareBody({
 	onCopy: () => void;
 	onRotate: () => void;
 }) {
+	const t = useT();
 	if (state.kind === "loading") return <div aria-live="polite" className="h-16 animate-pulse rounded-lg bg-muted/40 motion-reduce:animate-none" data-testid="share-loading" />;
 	if (state.kind === "error") {
 		return (
@@ -48,19 +49,19 @@ export function PageShareBody({
 		<div className="flex flex-col gap-3">
 			<div className="flex items-center justify-between gap-3">
 				<label className="font-medium text-sm" htmlFor="page-public-link">
-					Link público
+					{t("share.publicLink")}
 				</label>
-				<Switch aria-label="Link público" checked={state.active} disabled={busy} id="page-public-link" onCheckedChange={onToggle} />
+				<Switch aria-label={t("share.publicLink")} checked={state.active} disabled={busy} id="page-public-link" onCheckedChange={onToggle} />
 			</div>
 			{state.active ? (
 				<>
 					<p className="m-0 text-muted-foreground text-sm" data-testid="share-warning">
-						{PUBLIC_LINK_WARNING}
+						{t("share.publicLinkWarning")}
 					</p>
 					{state.url ? (
 						<div className="flex items-center gap-2">
 							<input
-								aria-label="Endereço do link público"
+								aria-label={t("share.linkAddress")}
 								className="h-9 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
 								onFocus={(event) => event.currentTarget.select()}
 								readOnly
@@ -68,23 +69,23 @@ export function PageShareBody({
 							/>
 							<Button onClick={onCopy} size="sm" type="button" variant="outline">
 								{copied ? <CheckIcon /> : <CopyIcon />}
-								{copied ? "Copiado" : "Copiar"}
+								{copied ? t("share.copied") : t("share.copy")}
 							</Button>
 						</div>
 					) : (
-						<p className="m-0 text-muted-foreground text-xs">Por segurança o endereço só aparece ao ser criado. Gere um novo link para copiá-lo (o anterior deixa de valer).</p>
+						<p className="m-0 text-muted-foreground text-xs">{t("share.linkHidden")}</p>
 					)}
 					<div className="flex flex-wrap gap-2">
 						<Button disabled={busy} onClick={onRotate} size="sm" type="button" variant="outline">
-							Gerar novo link
+							{t("share.newLink")}
 						</Button>
 						<Button disabled={busy} onClick={() => onToggle(false)} size="sm" type="button" variant="ghost">
-							Desativar link
+							{t("share.disableLink")}
 						</Button>
 					</div>
 				</>
 			) : (
-				<p className="m-0 text-muted-foreground text-sm">Desativado. Ative para gerar um link só de leitura que se atualiza com o painel.</p>
+				<p className="m-0 text-muted-foreground text-sm">{t("share.disabled")}</p>
 			)}
 		</div>
 	);
@@ -104,6 +105,7 @@ export function PageShareDialog({
 	title: string;
 	api?: PageShareApi;
 }) {
+	const t = useT();
 	const [state, setState] = useState<ShareState>({ kind: "loading" });
 	const [busy, setBusy] = useState(false);
 	const [copied, setCopied] = useState(false);
@@ -116,7 +118,7 @@ export function PageShareDialog({
 		api
 			.get(pageId)
 			.then((share) => !cancelled && setState({ kind: "ready", active: share.active, url: null }))
-			.catch(() => !cancelled && setState({ kind: "error", message: "Não consegui ler o link agora. Tente de novo." }));
+			.catch(() => !cancelled && setState({ kind: "error", message: t("share.readError") }));
 		return () => {
 			cancelled = true;
 		};
@@ -130,7 +132,7 @@ export function PageShareDialog({
 			const share = await task();
 			setState({ kind: "ready", active: share.active, url: share.url ?? null });
 		} catch {
-			setState({ kind: "error", message: "Não consegui atualizar o link. Tente de novo." });
+			setState({ kind: "error", message: t("share.updateError") });
 		} finally {
 			setBusy(false);
 		}
@@ -151,8 +153,8 @@ export function PageShareDialog({
 		<Dialog onOpenChange={onOpenChange} open={open}>
 			<DialogContent className="sm:max-w-md" data-testid="page-share-dialog">
 				<DialogHeader>
-					<DialogTitle>Compartilhar “{title}”</DialogTitle>
-					<DialogDescription>Link só de leitura para quem não tem conta.</DialogDescription>
+					<DialogTitle>{t("share.title", { title })}</DialogTitle>
+					<DialogDescription>{t("share.description")}</DialogDescription>
 				</DialogHeader>
 				<PageShareBody
 					busy={busy}

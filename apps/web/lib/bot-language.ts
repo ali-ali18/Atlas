@@ -21,6 +21,11 @@ export const BOT_LANGUAGE_SETTING_OPTIONS: { id: BotLanguageSetting; label: stri
 	...BOT_LANGUAGE_OPTIONS,
 ];
 
+/** Mesmas opções com o rótulo de "Automático" traduzido (nomes dos idiomas seguem autônimos). */
+export function botLanguageSettingOptions(autoLabel: string = BOT_LANGUAGE_AUTO_LABEL): { id: BotLanguageSetting; label: string }[] {
+	return [{ id: BOT_LANGUAGE_AUTO, label: autoLabel }, ...BOT_LANGUAGE_OPTIONS];
+}
+
 /** Nome de exibição de um idioma ou de "auto". */
 export function botLanguageLabel(setting: BotLanguageSetting): string {
 	return setting === BOT_LANGUAGE_AUTO ? BOT_LANGUAGE_AUTO_LABEL : BOT_LANGUAGE_LABELS[setting];

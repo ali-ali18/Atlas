@@ -120,7 +120,7 @@ test("estado puro da seção", () => {
 	assert.equal(composioViewState(off), "off");
 	assert.equal(composioViewState(on), "on");
 	assert.equal(composioKeyCaption({ ...on, toolCount: 0 }), "Chave salva (••••9999). Conecte um app para liberar ferramentas.");
-	assert.match(composioKeyCaption({ ...on, toolCount: 1 }), /1 ferramenta disponíveis/);
+	assert.match(composioKeyCaption({ ...on, toolCount: 1 }), /1 ferramenta disponível para o agente/);
 	assert.deepEqual(availableToolkits([trello, gmailConnected, github], [gmailApp]).map((t) => t.slug), ["trello", "github"]);
 	assert.equal(nativeToolkitNote(trello), null);
 	assert.ok(nativeToolkitNote(github));

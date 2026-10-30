@@ -1,19 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { providerErrorMessage } from "@workspace/shared";
 import { listProviders } from "@/lib/atlas-api";
+import { useTranslations } from "@/lib/i18n/provider";
 import {
 	PROVIDER_CONNECTED_MESSAGE,
 	PROVIDER_RETRY_MESSAGE,
 	notifyProvidersChanged,
 	type ProviderCallbackParams,
 } from "@/lib/provider-connect";
+import { providerLoginError } from "@/components/settings/providers-state";
 import { ProviderCallbackView, type ProviderCallbackState } from "./provider-callback-view";
 
 /** Tempo mostrando o sucesso antes de a janela fechar sozinha. */
 const AUTO_CLOSE_MS = 1500;
-const GENERIC_ERROR = "O login não foi concluído. Tente novamente.";
 
 /** Avisa o Atlas que abriu o popup; o `window.opener` só recebe na mesma origem. */
 function postToOpener(type: string) {
@@ -37,7 +37,8 @@ export function ProviderCallback({ params }: { params: ProviderCallbackParams })
 	const [state, setState] = useState<ProviderCallbackState>(params.status === "ok" ? "working" : "error");
 	const [email, setEmail] = useState<string | null>(null);
 	const [hasOpener, setHasOpener] = useState(false);
-	const message = providerErrorMessage(params.code) ?? GENERIC_ERROR;
+	const translator = useTranslations();
+	const message = providerLoginError(params.code, translator) ?? translator.t("providerCallback.genericError");
 
 	useEffect(() => {
 		setHasOpener(openerAlive());
