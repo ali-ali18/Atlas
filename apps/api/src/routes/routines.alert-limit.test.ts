@@ -38,6 +38,8 @@ test("religar um alerta com 30 já ativos responde 409 com a mensagem amigável;
 		return pausedAlert("user-a");
 	});
 	Reflect.set(prisma.routineRun, "findFirst", async () => null);
+	const tx = { $transaction: prisma.$transaction, $executeRaw: prisma.$executeRaw };
+	Object.assign(prisma, { $transaction: async (fn: (db: unknown) => Promise<unknown>) => fn(prisma), $executeRaw: async () => 1 });
 	try {
 		const request = (userId: string) =>
 			appFor(userId).then((app) => app.request("/v1/bots/bot-a/routines/r1", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: true }) }));
@@ -48,6 +50,7 @@ test("religar um alerta com 30 já ativos responde 409 com a mensagem amigável;
 		assert.equal(wrote, false);
 		assert.equal((await request("user-b")).status, 404, "recurso de outro dono é 404");
 	} finally {
+		Object.assign(prisma, tx);
 		prisma.routine.findFirst = originals.findFirst;
 		prisma.routine.count = originals.count;
 		prisma.routine.update = originals.update;

@@ -713,8 +713,21 @@ export async function countActiveAlerts(userId: string | undefined): Promise<num
 	return prisma.routine.count({ where: { userId: { in: owners }, enabled: true, alertJson: { not: Prisma.DbNull } } });
 }
 
-async function assertAlertSlot(userId: string): Promise<void> {
-	if ((await countActiveAlerts(userId)) >= ALERT_ACTIVE_LIMIT) throw new AlertLimitError();
+type RoutineDb = Pick<typeof prisma, "routine">;
+
+/**
+ * Grava um alerta ativo sem estourar o limite, mesmo com chamadas em paralelo: a contagem e a gravação rodam na
+ * mesma transação, serializadas por usuário com um advisory lock (liberado no fim da transação). Sem `needsSlot`
+ * (rotina comum, alerta pausado, alerta que já contava) grava direto, sem lock.
+ */
+async function withAlertSlot<T>(userId: string, needsSlot: boolean, write: (db: RoutineDb) => Promise<T>): Promise<T> {
+	if (!needsSlot) return write(prisma);
+	return prisma.$transaction(async (tx) => {
+		await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`alert-slot:${userId}`}))`;
+		const active = await tx.routine.count({ where: { userId: { in: ownerIds(userId) }, enabled: true, alertJson: { not: Prisma.DbNull } } });
+		if (active >= ALERT_ACTIVE_LIMIT) throw new AlertLimitError();
+		return write(tx);
+	});
 }
 
 const ALERT_TRIGGER_ERROR = "Alerta só funciona em rotina por horário ou por intervalo (a cada N minutos)";
@@ -844,9 +857,7 @@ export async function createRoutine(
 	}
 
 	const alertJson = input.alert ? alertJsonForCreate(input.alert, triggerType) : undefined;
-	if (alertJson && (input.enabled ?? true)) await assertAlertSlot(userId);
-
-	const row = await prisma.routine.create({
+	const row = await withAlertSlot(userId, Boolean(alertJson) && (input.enabled ?? true), (db) => db.routine.create({
 		data: {
 			userId: userId?.trim() ? userId.trim() : LEGACY_OWNER_ID,
 			botId: input.botId,
@@ -868,7 +879,7 @@ export async function createRoutine(
 			...(alertJson ? { alertJson } : {}),
 		},
 		include: { group: { select: { id: true, name: true } } },
-	});
+	}));
 	return { routine: toRoutine(row), hookSecret };
 }
 
@@ -906,7 +917,7 @@ export async function updateRoutine(
 	// Só passa pelo limite quem passa a contar como alerta ativo (criar alerta, religar ou ligar a condição).
 	const countedBefore = existing.enabled && previousAlert !== null;
 	const countsAfter = (input.enabled ?? existing.enabled) && alertPatch !== Prisma.DbNull && (alertPatch !== undefined || previousAlert !== null);
-	if (countsAfter && !countedBefore) await assertAlertSlot(userId);
+	const needsSlot = Boolean(countsAfter) && !countedBefore;
 
 	const data: Prisma.RoutineUpdateInput = {
 		...(alertPatch !== undefined ? { alertJson: alertPatch } : {}),
@@ -1052,11 +1063,13 @@ export async function updateRoutine(
 	// Pausar o "Seu dia" (pelo chat, pela API ou pela tela) é recusar: o bot não o liga de novo sozinho.
 	// Grava antes de pausar: se o opt-out falhar, a pausa falha junto (senão o brief voltaria sozinho).
 	if (existing.template === DAILY_BRIEF_TEMPLATE && input.enabled === false) await markBriefOptOut(userId, botId);
-	const row = await prisma.routine.update({
-		where: { id: routineId, userId, botId },
-		data,
-		include: { group: { select: { id: true, name: true } } },
-	});
+	const row = await withAlertSlot(userId, needsSlot, (db) =>
+		db.routine.update({
+			where: { id: routineId, userId, botId },
+			data,
+			include: { group: { select: { id: true, name: true } } },
+		}),
+	);
 	return toRoutine(row, await lastRunFor(row.id));
 }
 

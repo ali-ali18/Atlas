@@ -27,6 +27,9 @@ beforeEach(() => {
 	installed = installFakes({ bot: new FakeTable([{ id: "bot-a", ownerId: "user-a", conversationId: null, openRouterModel: "m" }, { id: "bot-b", ownerId: "user-b", conversationId: null, openRouterModel: "m" }]) });
 	const client = prisma as unknown as Record<string, Record<string, unknown>>;
 	originals.routine = client.routine;
+	// A gravação do alerta ativo roda numa transação com advisory lock (Postgres real nos testes .db): aqui a transação é só repasse.
+	originals.$transaction = (prisma as unknown as Record<string, unknown>).$transaction;
+	Object.assign(prisma, { $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma), $executeRaw: async () => 1 });
 	originals.routineRun = client.routineRun;
 	const owned = (where: { userId?: { in: string[] }; id?: string }) => (row: Row) => (!where.userId || where.userId.in.includes(row.userId)) && (!where.id || where.id === row.id);
 	const full = (row: Row) => ({ ...row, botId: "bot-a", createdAt: new Date(), updatedAt: new Date(), lastRunAt: null, timezone: "America/Sao_Paulo", model: "m", notify: "always", createdBy: "user", triggerJson: { kind: "interval", everyMinutes: 120 }, triggerType: row.triggerType ?? "interval", name: "Alerta", prompt: "x", schedule: null });
@@ -62,6 +65,7 @@ beforeEach(() => {
 afterEach(() => {
 	installed.restore();
 	(prisma as unknown as Record<string, unknown>).routine = originals.routine;
+	(prisma as unknown as Record<string, unknown>).$transaction = originals.$transaction;
 	(prisma as unknown as Record<string, unknown>).routineRun = originals.routineRun;
 });
 
