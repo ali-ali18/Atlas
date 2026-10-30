@@ -12,7 +12,9 @@ import type { AddressInfo } from "node:net";
 import { createRequire } from "node:module";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { basicResponseHeaders, createPreviewBasicRoutes, createPreviewOpenRoutes, createPreviewService } from "../src/routes/previews.js";
+import { auth } from "../src/auth.js";
+import { registerEdgeMiddleware } from "../src/middleware/edge.js";
+import { createPreviewBasicRoutes, createPreviewOpenRoutes, createPreviewService } from "../src/routes/previews.js";
 
 const { chromium } = createRequire(import.meta.url)("playwright") as typeof import("playwright");
 
@@ -24,6 +26,15 @@ const seenAtlas: Array<{ path: string; cookie: string | undefined }> = [];
 // Projeto "do usuário", no estilo de um build do Vite: caminhos relativos, módulo crossorigin, modulepreload, fonte e fetch.
 const upstream = http.createServer((req, res) => {
 	res.setHeader("Set-Cookie", "sid=1; Path=/");
+	if (req.method === "POST") {
+		let body = "";
+		req.on("data", (chunk) => (body += chunk));
+		req.on("end", () => {
+			res.setHeader("Content-Type", "application/json");
+			res.end(JSON.stringify({ echo: JSON.parse(body || "null") }));
+		});
+		return;
+	}
 	const path = (req.url ?? "/").split("?")[0]!;
 	const send = (type: string, body: string | Buffer) => {
 		res.setHeader("Content-Type", type);
@@ -49,10 +60,13 @@ Promise.allSettled([
   fetch('/v1/me?same-host', { mode: 'no-cors' }).then(() => 'enviada'),
   fetch('/v1/me?cors').then((x) => x.text()),
   fetch('/v1/me?cors-creds', { credentials: 'include' }).then((x) => x.text()),
+  // JSON + POST + cabeçalho próprio: o navegador faz preflight (OPTIONS) antes.
+  fetch('./api/echo', { method: 'POST', headers: { 'content-type': 'application/json', 'x-custom': '1' }, body: JSON.stringify({ a: 1 }) }).then((x) => x.json()),
 ]).then((all) => {
   r.dataJson = all[0].status === 'fulfilled' ? JSON.stringify(all[0].value) : 'FALHOU ' + all[0].reason;
   r.fetchNoCors = all[1].status;
   r.fetchCors = all[2].status === 'rejected' ? 'bloqueada pelo CORS' : 'LEU: ' + all[2].value;
+  r.postJson = all[4].status === 'fulfilled' ? JSON.stringify(all[4].value) : 'FALHOU ' + all[4].reason;
   r.fetchCorsCreds = all[3].status === 'rejected' ? 'bloqueada pelo CORS' : 'LEU: ' + all[3].value;
   window.__r = r; document.title = 'pronto';
 });
@@ -62,7 +76,8 @@ await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
 const upstreamPort = (upstream.address() as AddressInfo).port;
 
 const atlas = new Hono();
-const record = { id: ID, userId: "dono", conversationId: "c", repo: null, branch: null, baseBranch: null, status: "RUNNING", tier: "small", containerId: "x", todos: [], pr: null, lastError: null, createdAt: new Date(), updatedAt: new Date(), lastActiveAt: new Date(), preview: { port: upstreamPort, path: "/", startedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString(), cap: CAP } } as never;
+const preflights: string[] = [];
+const record = { id: ID, userId: "dono", conversationId: "c", repo: null, branch: null, baseBranch: null, status: "RUNNING", tier: "small", containerId: "x", todos: [], pr: null, lastError: null, createdAt: new Date(), updatedAt: new Date(), lastActiveAt: new Date(), preview: { port: upstreamPort, path: "/", startedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString(), cap: CAP, capIssuedAt: new Date().toISOString() } } as never;
 const deps = {
 	config: { baseDomain: null, scheme: "http" as const, atlasUrl: "", secret: "segredo-e2e" },
 	getSessionById: async () => record,
@@ -71,22 +86,27 @@ const deps = {
 	touch: async () => undefined,
 };
 const service = createPreviewService(deps);
+// Login mínimo no lugar do Better Auth: o cookie do Atlas vale como sessão do dono.
+auth.api.getSession = (async ({ headers }: { headers: Headers }) => {
+	if (!headers.get("cookie")?.includes("atlas_session=SEGREDO-DO-ATLAS")) return null;
+	const date = new Date();
+	return { user: { id: "dono", email: process.env.ATLAS_OWNER_EMAIL, name: "d", emailVerified: true, createdAt: date, updatedAt: date }, session: { id: "t", userId: "dono", token: "t", expiresAt: date, createdAt: date, updatedAt: date } };
+}) as unknown as typeof auth.api.getSession;
 atlas.get("/login", (c) => {
 	c.header("Set-Cookie", "atlas_session=SEGREDO-DO-ATLAS; Path=/; HttpOnly; SameSite=Lax");
 	return c.text("logado");
 });
-atlas.get("/v1/me", (c) => {
+atlas.use("/v1/me", async (c, next) => {
 	seenAtlas.push({ path: new URL(c.req.url).pathname + new URL(c.req.url).search, cookie: c.req.header("cookie") });
-	return c.json({ user: "dono", secret: "SEGREDO-DO-ATLAS" });
-});
-atlas.use("/v1/previews/:id/open", async (c, next) => {
-	// Login mínimo: só o dono com o cookie do Atlas chega ao /open.
-	if (!c.req.header("cookie")?.includes("atlas_session=SEGREDO-DO-ATLAS")) return c.json({ error: "Unauthorized" }, 401);
-	const date = new Date();
-	c.set("session" as never, { user: { id: "dono", email: "d@t", name: "d", emailVerified: true, createdAt: date, updatedAt: date }, session: { id: "t", userId: "dono", token: "t", expiresAt: date, createdAt: date, updatedAt: date } } as never);
 	await next();
 });
-atlas.use("/v1/previews/:id/p/*", basicResponseHeaders);
+atlas.use("/v1/previews/:id/p/*", async (c, next) => {
+	if (c.req.method === "OPTIONS") preflights.push(new URL(c.req.url).pathname.replace(CAP, "<cap>"));
+	await next();
+});
+// A MESMA borda do index.ts (cors global, limites, requireUser, corpo): o preflight da prévia não pode ser engolido pelo cors.
+registerEdgeMiddleware(atlas, { corsOrigins: ["http://localhost:3000"] });
+atlas.get("/v1/me", (c) => c.json({ user: "dono", secret: "SEGREDO-DO-ATLAS" }));
 atlas.route("/", createPreviewOpenRoutes(deps) as never);
 atlas.route("/", createPreviewBasicRoutes(service) as never);
 const server = serve({ fetch: atlas.fetch, port: 0, hostname: "127.0.0.1" }) as http.Server;
@@ -114,7 +134,7 @@ try {
 	const csp = response?.headers()["content-security-policy"];
 	const cookies = await context.cookies();
 	const flags = await page.evaluate(() => ({ mod: (window as never as Record<string, string>).__mod, dep: (window as never as Record<string, string>).__m2 }));
-	console.log(JSON.stringify({ url: page.url().replace(CAP, "<cap>"), csp, result: r, flags, statuses, failedRequests, cookies: cookies.map((c) => ({ name: c.name, path: c.path })), atlasRequests: seenAtlas }, null, 2));
+	console.log(JSON.stringify({ url: page.url().replace(CAP, "<cap>"), csp, result: r, flags, statuses, preflights, failedRequests, cookies: cookies.map((c) => ({ name: c.name, path: c.path })), atlasRequests: seenAtlas }, null, 2));
 
 	assert.equal(page.url(), `${atlasUrl}${PREFIX}`, "terminou dentro do prefixo");
 	assert.equal(csp, "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads");
@@ -127,6 +147,8 @@ try {
 	for (const file of ["m.js", "m2.js", "s.css", "f.woff2", "data.json"]) assert.equal(statuses[file], 200, `${file} respondeu 200`);
 	assert.deepEqual(failedRequests.filter((f) => f.includes(PREFIX)), [], "nenhuma requisição da prévia falhou (CORS)");
 	assert.ok(failedRequests.filter((f) => f.includes("/v1/me")).length >= 2, "as leituras CORS de /v1/me (Atlas) falham, como deve ser");
+	assert.equal(r.postJson, '{"echo":{"a":1}}', "POST JSON com cabeçalho próprio (preflight) funciona");
+	assert.ok(preflights.length >= 1, "o navegador fez preflight (OPTIONS) na prévia");
 	assert.equal(r.dataJson, '{"ok":true}', "fetch('./data.json') com CORS lê a resposta");
 	// Atlas: o pedido para o mesmo host chega SEM o cookie de login e a resposta não é legível.
 	assert.ok(seenAtlas.length >= 1, "a requisição para o mesmo host foi enviada");
