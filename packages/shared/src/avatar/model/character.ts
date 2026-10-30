@@ -214,6 +214,11 @@ export class Character {
 		this.indicator.set(kind);
 	}
 
+	/** Fração real do anel de progresso (`null` = anel em ciclo). */
+	setProgress(fraction: number | null): void {
+		this.indicator.setProgress(fraction);
+	}
+
 	get currentIndicator(): IndicatorKind | null {
 		return this.indicator.current;
 	}

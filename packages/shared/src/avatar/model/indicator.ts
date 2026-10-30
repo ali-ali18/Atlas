@@ -88,6 +88,9 @@ const OMEGA = 14;
 /** O anel de progresso enche em 2,5 s, some e recomeça 1,5 s depois. */
 const PROGRESS_FILL_S = 2.5;
 const PROGRESS_CYCLE_S = 4;
+/** Anel com fração real: sobe até o alvo com esta taxa (1/s) e fica mais grosso para ler a 36 px. */
+const PROGRESS_RATE = 6;
+const PROGRESS_WIDTH = 10;
 
 const px = (value: number) => CENTER + (value - REF_B) * K;
 const len = (value: number) => value * K;
@@ -99,6 +102,22 @@ export class Indicator {
 	private amount = 0;
 	private velocity = 0;
 	private time = 0;
+	/** Fração real (0..1) do anel de progresso; `null` = anel que só gira e recomeça. */
+	private progressTarget: number | null = null;
+	private progressShown = 0;
+
+	/**
+	 * Fração real do anel de progresso (ex.: passo 3 de 8). O anel anima até o
+	 * valor e fica cheio, sem o ciclo de enche/some. `null` volta ao ciclo.
+	 */
+	setProgress(fraction: number | null): void {
+		this.progressTarget = fraction === null || !Number.isFinite(fraction) ? null : clamp(fraction, 0, 1);
+	}
+
+	/** Fração que o anel mostra agora (nula sem fração real). */
+	get progress(): number | null {
+		return this.progressTarget === null ? null : this.progressShown;
+	}
 
 	/** Muda o indicador (ou `null`, volta ao corpo). Reinicia o relógio dele. */
 	set(kind: IndicatorKind | null): void {
@@ -116,6 +135,7 @@ export class Indicator {
 
 	private targetAmount(): number {
 		if (!this.kind) return 0;
+		if (this.kind === "progress" && this.progressTarget !== null) return 1;
 		if (this.kind === "progress" && frac(this.time / PROGRESS_CYCLE_S) * PROGRESS_CYCLE_S >= PROGRESS_FILL_S) return 0;
 		return 1;
 	}
@@ -124,6 +144,10 @@ export class Indicator {
 	advance(dt: number): void {
 		if (!(dt > 0)) return;
 		if (this.kind) this.time += dt;
+		if (this.progressTarget !== null) {
+			const gap = this.progressTarget - this.progressShown;
+			this.progressShown = Math.abs(gap) < 0.002 ? this.progressTarget : this.progressShown + gap * (1 - Math.exp(-PROGRESS_RATE * dt));
+		}
 		const target = this.targetAmount();
 		let left = dt;
 		while (left > 1e-9) {
@@ -159,7 +183,7 @@ export class Indicator {
 			round: easeInOut(clamp(s / 0.62, 0, 1)),
 			zoom: 1 + (ZOOM[kind] - 1) * s,
 			lift: bounce ? -bounce.lift * s * K : 0,
-			parts: partsOf(kind, s, t),
+			parts: partsOf(kind, s, t, this.progressTarget === null ? null : this.progressShown),
 		};
 	}
 }
@@ -175,7 +199,7 @@ function dotsBounce(t: number, index = 1): { lift: number; pop: number; tone: nu
 	return { lift: a * 9, pop: 1 + (0.84 + 0.22 * a - 1), tone: 1 - 0.5 * (1 - a) };
 }
 
-function partsOf(kind: IndicatorKind, s: number, t: number): Part[] {
+function partsOf(kind: IndicatorKind, s: number, t: number, progress: number | null): Part[] {
 	switch (kind) {
 		case "dots":
 			return dotsParts(s, t);
@@ -184,7 +208,7 @@ function partsOf(kind: IndicatorKind, s: number, t: number): Part[] {
 		case "radar":
 			return radarParts(s, t);
 		case "progress":
-			return progressParts(s, t);
+			return progressParts(s, t, progress);
 	}
 }
 
@@ -242,9 +266,15 @@ function radarParts(s: number, t: number): Part[] {
 	});
 }
 
-function progressParts(s: number, t: number): Part[] {
+function progressParts(s: number, t: number, determinate: number | null): Part[] {
 	const n = easeOut(s);
 	const r = len(62 * easeBack(s));
+	if (determinate !== null) {
+		const width = len(PROGRESS_WIDTH);
+		const track: Part = { type: "ring", cx: CENTER, cy: CENTER, r, width, opacity: n * 0.22 };
+		if (determinate <= 0.004) return [track];
+		return [track, { type: "ring", cx: CENTER, cy: CENTER, r, width, opacity: n, arc: { fraction: determinate, startDeg: -90 } }];
+	}
 	const shot = (frac(t / PROGRESS_CYCLE_S) * PROGRESS_CYCLE_S) / PROGRESS_FILL_S;
 	const fill = clamp(shot / 0.85, 0, 1);
 	const track: Part = { type: "ring", cx: CENTER, cy: CENTER, r, width: len(5), opacity: n * 0.16 };

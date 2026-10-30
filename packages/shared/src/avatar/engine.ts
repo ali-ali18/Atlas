@@ -129,6 +129,11 @@ export function createAvatarEngine(opts: EngineOptions) {
 			character.setIndicator(indicatorFor(morph));
 			touch();
 		},
+		/** Fração real (0..1) do anel de progresso, ex.: passo 3 de 8; `null` volta ao anel em ciclo. */
+		setProgress(fraction: number | null): void {
+			character.setProgress(fraction);
+			touch();
+		},
 		setEmphasis(on: boolean): void {
 			behavior.setEmphasis(on);
 			touch();
