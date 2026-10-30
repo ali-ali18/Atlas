@@ -28,7 +28,7 @@ Tool `preview_setup` (grupo lazy `preview_setup`, `packages/agent-runtime/src/to
 | Certificado | usuário (curinga por DNS-01 no proxy, ou certificado de origem da Cloudflare) | handshake: validade, emissor, SAN `*.<domínio>`, confiável |
 | Rota até a API | usuário (Dokploy: domínio `*.<domínio>` no serviço `api`, porta 3001, ou labels Traefik; ou Caddyfile) | sonda HTTPS: o 404 do proxy = rota faltando |
 | Variável `ATLAS_PREVIEW_BASE_DOMAIN` e reinício | usuário (aval dele; o teste final é a prova) | teste final + o worker enxerga a variável |
-| Teste final | Atlas | `GET https://atlasprobe…<domínio>/__atlas_preview_auth` → 401 "Link expirado" vindo da API |
+| Teste final | Atlas | `GET https://atlasprobe…<domínio>/__atlas_preview_auth` → 401 com o cabeçalho `X-Atlas-Preview: 1` (só a API de prévias o envia). 52x/526 da Cloudflare, 404/HTML de outro servidor e 5xx viram dicas próprias e reabrem só rota ou certificado |
 
 - **Estado:** tabela `preview_setups` (um registro por dono, sem segredo). Cada chamada grava antes de responder, então o setup retoma depois do reinício ("status"). O reinício derruba a conversa; a retomada é na próxima fala do admin (não há follow-up automático: ficou fora para não criar rotina escondida).
 - **Idempotência:** registro curinga igual já existente não escreve nem pede aprovação; com outro IP o setup para sem sobrescrever.
@@ -42,7 +42,9 @@ Tool `preview_setup` (grupo lazy `preview_setup`, `packages/agent-runtime/src/to
 - **Cloudflare com proxy + certificado de origem:** o certificado de borda gratuito cobre só `*.<zona>`; por isso `origin-cert` exige o domínio ser a própria zona (senão o setup recusa e sugere DNS-01 sem proxy).
 - **Nomes de variáveis do ACME** (`CF_DNS_API_TOKEN`, `DESEC_TOKEN`) seguem o lego; o texto manda conferir no painel.
 - **Aval do usuário em variável/reinício:** o modelo poderia marcar "feito" sem o usuário; o teste final reabre os passos se a API ou o worker não enxergarem o domínio.
-- **Sonda:** depende do texto 401 "Link expirado" da API de prévias; mudar a mensagem em `previews.ts` quebra a sonda (teste cobre o lado do setup).
+- **Sonda:** depende do cabeçalho `X-Atlas-Preview: 1` em `SECURITY_HEADERS` de `apps/api/src/routes/previews.ts` (uma linha; teste em `previews.test.ts`). Se o ramo da prévia básica reescrever essa constante, a linha precisa continuar lá.
+- **Aprovação:** vale uma vez (a chave inclui certificado/proxy e uma sequência que começa no relógio); um setup novo, mesmo depois de desfazer, pede cartão novo. Estado corrompido recusa configurar até `reset`.
+- **`user_confirms`:** o aval de variável/reinício vem do modelo; não há como provar aqui que veio de uma fala do usuário depois da instrução. O teste final reabre os passos se a API não mostrar o domínio.
 - **Deploy com versões mistas:** tabela nova independente; api/worker antigos a ignoram. A ação `infra-setup` só existe na api nova (cartão antigo cai no "Não entendi o que confirmar").
 - **Custo de contexto:** a tool e o procedimento só entram com o pedido (replay "Bom dia" segue pequeno) e só para o administrador.
 
