@@ -272,6 +272,7 @@ export function ChatThread({
 		applyRoutineProposalState,
 		applyBotProposalState,
 		cancelRun,
+		cancelSeq,
 		resumeRun,
 		model,
 		setModel,
@@ -1155,6 +1156,8 @@ export function ChatThread({
 		paused: pausedLike,
 		pendingApproval: hasPendingApproval,
 		error,
+		cancelSeq,
+		cancelledMessage: translator.t("errors.runCancelled"),
 	});
 	// Grupo, entre um run e outro: quem o servidor diz que está respondendo ou escolhendo.
 	const groupRunning = isGroup && groupState ? groupActivity(groupState.replies, groupMembers) : { running: [], waiting: [] };

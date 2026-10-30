@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+	beginBotRun,
 	botAvatarSignal,
 	endBotRun,
 	isBotWorking,
@@ -110,6 +111,7 @@ test("avatar: run novo logo depois do fim não espera a comemoração do anterio
 	setBotWorking("p6", false);
 	endBotRun("p6", "ok", t0 + 1500);
 	assert.equal(botAvatarSignal("p6").state, "finished");
+	beginBotRun("p6", t0 + 1600);
 	setBotWorking("p6", true);
 	setBotActivity("p6", { phase: "thinking" }, {}, t0 + 1600);
 	assert.equal(botAvatarSignal("p6").state, "thinking");
@@ -152,4 +154,65 @@ test("pulsos são por bot", () => {
 	offA();
 	offB();
 	setBotWorking("pa", false);
+});
+
+test("avatar: poll do servidor que ainda lista o bot depois do fim local não vira trabalho genérico nem cobre o run novo", () => {
+	const t0 = Date.now();
+	setServerWorking(["o1"]);
+	beginBotRun("o1", t0);
+	setBotWorking("o1", true);
+	setBotActivity("o1", { phase: "writing" }, {}, t0);
+	assert.equal(botAvatarSignal("o1").state, "streaming");
+	setBotWorking("o1", false);
+	endBotRun("o1", "ok", t0 + 3000);
+	assert.equal(isBotWorking("o1"), false, "o fim local vale sobre o servidor");
+	assert.equal(botAvatarSignal("o1").state, "finished");
+	// run novo logo em seguida: não espera a comemoração e o servidor não atrapalha
+	beginBotRun("o1", t0 + 3500);
+	setBotWorking("o1", true);
+	setBotActivity("o1", { phase: "thinking" }, {}, t0 + 3500);
+	assert.equal(botAvatarSignal("o1").state, "thinking");
+	setBotWorking("o1", false);
+	endBotRun("o1", "cancel", t0 + 9000);
+	// o poll seguinte já não lista o bot: a supressão acaba; se ele voltar, é run novo (de outro aparelho)
+	setServerWorking([]);
+	setServerWorking(["o1"]);
+	assert.equal(isBotWorking("o1"), true);
+	setServerWorking([]);
+});
+
+test("avatar: falha de ferramenta é um evento só; mudar o contexto com o mesmo objeto não repete", () => {
+	const t0 = Date.now();
+	setBotWorking("f1", true);
+	setBotActivity("f1", { phase: "tool", tool: "shell" }, {}, t0);
+	const failed = { phase: "thinking", toolFailed: true } as const;
+	setBotActivity("f1", failed, {}, t0 + 100);
+	assert.equal(botAvatarSignal("f1").state, "failed");
+	const later = t0 + 100 + GOVERNOR_TUNING.failedMs + 10;
+	refreshBotAvatar("f1", later);
+	assert.equal(botAvatarSignal("f1").state, "thinking");
+	// o contexto mudou (aprovação pendente some, status muda) com o mesmo objeto de atividade
+	setBotActivity("f1", failed, { status: "running" }, later + 100);
+	setBotActivity("f1", failed, { status: "running", paused: false }, later + 200);
+	assert.notEqual(botAvatarSignal("f1").state, "failed");
+	// uma segunda falha de verdade (objeto novo) reage de novo
+	setBotActivity("f1", { phase: "tool", tool: "shell" }, {}, later + 300);
+	setBotActivity("f1", { phase: "thinking", toolFailed: true }, {}, later + 400);
+	assert.equal(botAvatarSignal("f1").state, "failed");
+	setBotWorking("f1", false);
+});
+
+test("avatar: parar o run (cancel) não comemora nem faz cara de erro", () => {
+	const t0 = Date.now();
+	setBotWorking("c1", true);
+	setBotActivity("c1", { phase: "tool", tool: "read_file" }, {}, t0);
+	setBotWorking("c1", false);
+	endBotRun("c1", "cancel", t0 + 2000);
+	const seen = new Set<string>([botAvatarSignal("c1").state]);
+	for (const dt of [2100, 3000, 6000]) {
+		refreshBotAvatar("c1", t0 + dt);
+		seen.add(botAvatarSignal("c1").state);
+	}
+	assert.ok(!seen.has("finished") && !seen.has("failed"), [...seen].join(","));
+	assert.equal(botAvatarSignal("c1").state, "idle");
 });

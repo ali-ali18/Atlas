@@ -24,11 +24,15 @@ const details = new Map<string, Detail>();
 const governors = new Map<string, AvatarGovernor>();
 const signals = new Map<string, AvatarSignal>();
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
-const wasWorking = new Set<string>();
+/**
+ * Bots cujo run local acabou enquanto o servidor ainda os lista como trabalhando (a lista só
+ * atualiza no próximo poll): o fim local vale até um poll mostrar o bot fora da lista.
+ */
+const endedLocally = new Set<string>();
 
 const IDLE_SIGNAL: AvatarSignal = { state: "idle", progress: null };
 
-export type BotPulseKind = "toolStart" | "toolOk" | "toolFail" | "tokens";
+export type BotPulseKind = "toolStart" | "toolOk" | "toolFail";
 type PulseListener = (kind: BotPulseKind, strength: number) => void;
 const pulseListeners = new Map<string, Set<PulseListener>>();
 
@@ -53,10 +57,6 @@ export function refreshBotAvatar(botId: string, now: number = Date.now()): Avata
 	const governor = governorOf(botId);
 	const detail = details.get(botId);
 	const active = isBotWorking(botId);
-	// Run novo: some a comemoração/erro do anterior (senão o avatar demora a mostrar o que o bot faz).
-	if (active && !wasWorking.has(botId)) governor.begin();
-	if (active) wasWorking.add(botId);
-	else wasWorking.delete(botId);
 	const desired = !active
 		? IDLE_DESIRED
 		: detail
@@ -99,13 +99,15 @@ export function setServerWorking(botIds: Iterable<string>) {
 	const next = new Set([...botIds].filter(Boolean));
 	if (next.size === server.size && [...next].every((id) => server.has(id))) return;
 	const touched = new Set([...server, ...next]);
+	// Um poll sem o bot encerra a supressão: se ele voltar, é um run novo.
+	for (const id of endedLocally) if (!next.has(id)) endedLocally.delete(id);
 	server = next;
 	emit();
 	for (const botId of touched) refreshBotAvatar(botId);
 }
 
 export function isBotWorking(botId: string) {
-	return working.has(botId) || server.has(botId);
+	return working.has(botId) || (server.has(botId) && !endedLocally.has(botId));
 }
 
 /** Gesto do cérebro que a mudança de atividade pede: ferramenta nova começa; depois dela, ok ou falha. */
@@ -123,17 +125,33 @@ export function setBotActivity(botId: string, activity: AgentActivity, ctx: Avat
 	if (!botId) return;
 	const previous = details.get(botId)?.activity;
 	details.set(botId, { activity, ctx });
-	if (activity.phase === "thinking" && activity.toolFailed) governorOf(botId).event("failed", now);
-	const pulse = pulseFor(previous, activity);
-	if (pulse) pulseBot(botId, pulse, 1);
+	// Mesmo objeto = só o contexto mudou (status, aprovação): não é um evento novo (não repete o erro).
+	if (previous !== activity) {
+		if (activity.phase === "thinking" && activity.toolFailed) governorOf(botId).event("failed", now);
+		const pulse = pulseFor(previous, activity);
+		if (pulse) pulseBot(botId, pulse, 1);
+	}
 	refreshBotAvatar(botId, now);
 }
 
-/** O run acabou: comemora (`ok`) ou faz cara de erro; depois o avatar volta ao repouso. */
-export function endBotRun(botId: string, outcome: "ok" | "error", now: number = Date.now()) {
+/** Run local começando: esquece a comemoração/erro do anterior e deixa o servidor voltar a valer. */
+export function beginBotRun(botId: string, now: number = Date.now()) {
+	if (!botId) return;
+	endedLocally.delete(botId);
+	governorOf(botId).begin();
+	refreshBotAvatar(botId, now);
+}
+
+/**
+ * O run acabou: comemora (`ok`), faz cara de erro (`error`) ou volta ao repouso sem reação
+ * (`cancel`: foi o usuário que parou). O fim local vale mesmo que o poll do servidor ainda
+ * liste o bot por mais um instante.
+ */
+export function endBotRun(botId: string, outcome: "ok" | "error" | "cancel", now: number = Date.now()) {
 	if (!botId) return;
 	details.delete(botId);
-	governorOf(botId).event(outcome === "ok" ? "finished" : "failed", now);
+	if (server.has(botId)) endedLocally.add(botId);
+	if (outcome !== "cancel") governorOf(botId).event(outcome === "ok" ? "finished" : "failed", now);
 	refreshBotAvatar(botId, now);
 }
 
