@@ -1,5 +1,6 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { isPrivateExtractAddress } from "@workspace/search";
 import {
   extractWebPage,
   searchSearxng,
@@ -60,48 +61,8 @@ const defaultLookup: NativeLookupFn = async (hostname) =>
 
 // ---------------------------------------------------------------- SSRF guard
 
-function ipv4ToInt(ip: string): number {
-	return ip.split(".").reduce((acc, part) => (acc << 8) + Number(part), 0) >>> 0;
-}
-
-function inV4Range(ip: string, base: string, bits: number): boolean {
-	const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
-	return (ipv4ToInt(ip) & mask) === (ipv4ToInt(base) & mask);
-}
-
-const BLOCKED_V4: Array<[string, number]> = [
-	["0.0.0.0", 8],
-	["10.0.0.0", 8],
-	["100.64.0.0", 10],
-	["127.0.0.0", 8],
-	["169.254.0.0", 16],
-	["172.16.0.0", 12],
-	["192.0.0.0", 24],
-	["192.168.0.0", 16],
-	["198.18.0.0", 15],
-	["224.0.0.0", 4],
-	["240.0.0.0", 4],
-];
-
-export function isPrivateAddress(address: string): boolean {
-	const version = isIP(address);
-	if (version === 4) {
-		return BLOCKED_V4.some(([base, bits]) => inV4Range(address, base, bits));
-	}
-	if (version === 6) {
-		const lower = address.toLowerCase();
-		const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-		if (mapped?.[1]) return isPrivateAddress(mapped[1]);
-		return (
-			lower === "::" ||
-			lower === "::1" ||
-			/^f[cd][0-9a-f]{2}:/.test(lower) ||
-			/^fe[89ab][0-9a-f]:/.test(lower) ||
-			lower.startsWith("ff")
-		);
-	}
-	return true;
-}
+/** Uma só implementação do guard SSRF (IPv6 normalizado, IPv4 embutido, NAT64, 6to4): a de `@workspace/search`. */
+export const isPrivateAddress = isPrivateExtractAddress;
 
 export async function assertPublicUrl(
 	raw: string,
