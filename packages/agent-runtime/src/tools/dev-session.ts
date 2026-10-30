@@ -2328,7 +2328,7 @@ ${TODO_REMINDER}` };
 				}
 				case "preview_stop": {
 					const row = await requireSession();
-					return { summary: await stopPreview({ save: (preview) => deps.store.update(row.id, { preview, touch: true }) }, Boolean(row.preview)) };
+					return { summary: await stopPreview({ save: (preview) => deps.store.update(row.id, { preview }) }, Boolean(row.preview)) };
 				}
 				case "todo_write": {
 					const items = parseTodoItems(args.items);

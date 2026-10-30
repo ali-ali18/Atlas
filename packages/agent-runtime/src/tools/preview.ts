@@ -1,7 +1,7 @@
 import net from "node:net";
 import type { ChatTool } from "@workspace/llm";
 import type { DevClient, DevEndpoint } from "@workspace/sandbox";
-import { isPreviewPort, normalizePreviewBaseDomain, normalizePreviewPath, PREVIEW_MAX_PORT, PREVIEW_MIN_PORT, PREVIEW_TTL_MS, type DevSessionPreview } from "@workspace/shared";
+import { isPreviewPort, normalizePreviewBaseDomain, previewBaseDomainConflict, normalizePreviewPath, PREVIEW_MAX_PORT, PREVIEW_MIN_PORT, PREVIEW_TTL_MS, type DevSessionPreview } from "@workspace/shared";
 
 /**
  * Prévia privada: `preview_start` registra a porta de um servidor web que roda no container da sessão de
@@ -46,7 +46,10 @@ export type PreviewLinkConfig = { baseDomain: string; atlasUrl: string };
 export function previewLinkConfigFromEnv(env: NodeJS.ProcessEnv = process.env): PreviewLinkConfig | null {
 	const baseDomain = normalizePreviewBaseDomain(env.ATLAS_PREVIEW_BASE_DOMAIN);
 	const atlasUrl = env.ATLAS_URL?.trim().replace(/\/+$/, "");
-	return baseDomain && atlasUrl ? { baseDomain, atlasUrl } : null;
+	if (!baseDomain || !atlasUrl) return null;
+	// Mesmo site do Atlas: a API recusa (feature desligada); a tool não pode prometer um link que não abre.
+	if (env.ATLAS_PREVIEW_ALLOW_SAME_SITE !== "1" && previewBaseDomainConflict(baseDomain, atlasUrl)) return null;
+	return { baseDomain, atlasUrl };
 }
 
 /** Link que o usuário abre: passa pelo login do Atlas e só depois vai ao domínio separado. */

@@ -62,8 +62,11 @@ describe("parsePreviewStartArgs", () => {
 describe("previewLinkConfigFromEnv / previewOpenUrl", () => {
 	it("exige domínio e ATLAS_URL", () => {
 		expect(previewLinkConfigFromEnv({})).toBeNull();
-		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.com" })).toBeNull();
-		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.com", ATLAS_URL: "https://a.example.com/" })).toEqual({ baseDomain: "p.example.com", atlasUrl: "https://a.example.com" });
+		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.net" })).toBeNull();
+		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.net", ATLAS_URL: "https://a.example.com/" })).toEqual({ baseDomain: "p.example.net", atlasUrl: "https://a.example.com" });
+		// Mesmo site do Atlas: desligada, salvo o escape hatch.
+		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.com", ATLAS_URL: "https://a.example.com" })).toBeNull();
+		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.com", ATLAS_URL: "https://a.example.com", ATLAS_PREVIEW_ALLOW_SAME_SITE: "1" })).not.toBeNull();
 	});
 	it("o link passa pelo Atlas, nunca por endereço interno", () => {
 		expect(previewOpenUrl(link, "cmabc123def456ghi789jkl01")).toBe("https://atlas.example.com/v1/previews/cmabc123def456ghi789jkl01/open");

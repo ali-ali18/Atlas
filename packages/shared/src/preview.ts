@@ -61,3 +61,36 @@ export function previewIdFromHost(host: string | undefined | null, baseDomain: s
 export function previewOrigin(input: { scheme: "http" | "https"; baseDomain: string; id: string }): string {
 	return `${input.scheme}://${input.id}.${input.baseDomain}`;
 }
+
+/** Sufixos de dois níveis comuns (heurística simples; não é a lista pública de sufixos completa). */
+const TWO_LEVEL_SUFFIXES = new Set([
+	"com.br", "net.br", "org.br", "gov.br", "edu.br", "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au",
+	"co.jp", "co.nz", "co.za", "com.mx", "com.ar", "com.co", "com.pt", "com.cn", "co.in", "com.tr", "com.sg",
+]);
+
+/** Domínio registrável aproximado (últimos 2 rótulos, ou 3 em sufixos de dois níveis conhecidos). Sem porta. */
+export function approxRegistrableDomain(host: string): string {
+	const labels = host.trim().toLowerCase().replace(/:\d+$/, "").split(".").filter(Boolean);
+	if (labels.length <= 2) return labels.join(".");
+	const lastTwo = labels.slice(-2).join(".");
+	return labels.slice(TWO_LEVEL_SUFFIXES.has(lastTwo) ? -3 : -2).join(".");
+}
+
+/**
+ * Motivo para recusar o domínio-base da prévia: igual ao host do Atlas, pai dele ou no mesmo site
+ * (mesmo domínio registrável). Mesmo site permite cookie com `Domain` amplo e CSRF same-site entre o
+ * projeto e o Atlas. `null` = ok. Limitação: heurística sem a lista pública de sufixos; para um sufixo de
+ * dois níveis desconhecido use `ATLAS_PREVIEW_ALLOW_SAME_SITE=1` por sua conta e risco (ou o inverso, um domínio separado).
+ */
+export function previewBaseDomainConflict(baseDomain: string, atlasUrl: string): string | null {
+	let atlasHost: string;
+	try {
+		atlasHost = new URL(atlasUrl).hostname.toLowerCase();
+	} catch {
+		return null;
+	}
+	const base = baseDomain.toLowerCase().replace(/:\d+$/, "");
+	if (base === atlasHost || atlasHost.endsWith(`.${base}`)) return "o domínio da prévia é o do Atlas ou um domínio pai dele";
+	if (approxRegistrableDomain(base) === approxRegistrableDomain(atlasHost)) return "o domínio da prévia está no mesmo site (domínio registrável) do Atlas";
+	return null;
+}

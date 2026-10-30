@@ -36,12 +36,15 @@ Decisões de segurança:
 
 Dados: só uma coluna nula `dev_sessions.preview JSONB` (migration `20261206000000_dev_session_preview`). Aditiva e compatível nos dois sentidos: api/worker antigos ignoram a coluna; novos tratam `null` como "sem prévia". A prévia vence sozinha; não há limpeza.
 
-Variáveis: `ATLAS_PREVIEW_BASE_DOMAIN` (api e worker). Vazia = recurso desligado (a tool responde "prévia indisponível neste servidor" e a rota `open` devolve 404). Exige `DEV_SANDBOX_CONNECT_MODE=network`. Passos de DNS curinga, certificado e Traefik: `docs/deploy-dokploy.md` §6.
+Variáveis: `ATLAS_PREVIEW_BASE_DOMAIN` (api e worker). Vazia = recurso desligado (a tool responde "prévia indisponível neste servidor" e a rota `open` devolve 404). Exige `DEV_SANDBOX_CONNECT_MODE=network`. Passos de DNS curinga, certificado e Traefik: `docs/deploy-dokploy.md` §7.
 
 Linguagem com o usuário: o bot manda só o link do Atlas, em uma linha, no idioma dele; nunca porta, `localhost` ou endereço de container (prompt do grupo `dev` e descrição das tools). Print só se o usuário pedir.
 
 ## Riscos
-- **Domínio na mesma raiz do Atlas**: se o domínio das prévias for subdomínio do Atlas, um cookie com `Domain` amplo no login do Atlas vazaria para as prévias. O cookie do Better Auth é host-only; ainda assim recomendamos domínio próprio. Documentado.
+- **Domínio no mesmo site do Atlas**: permitiria cookie com `Domain` amplo e CSRF same-site. A API recusa domínio igual, pai ou no mesmo domínio registrável (heurística, sem lista pública de sufixos; limitação documentada); escape hatch `ATLAS_PREVIEW_ALLOW_SAME_SITE=1`.
+- **WebSocket aberto:** a autenticação é no handshake; a API revalida o banco a cada 30 s e fecha na expiração (prévia ou cookie), em `preview_stop`/ambiente parado. `preview_stop` roda no worker, então o corte do socket pode levar até 30 s.
+- **Token de entrada:** uso único, 30 s; o controle de reuso é em memória do processo (com várias instâncias da api, uma vez por instância dentro dos 30 s).
+- **`preview_start` renova a janela de 1 h** (intencional: é como o bot estende a prévia).
 - **Frameworks que checam `Origin`/`Host`** (server actions do Next, por exemplo) podem recusar a requisição proxied. Limitação conhecida; o uso principal é Vite, páginas estáticas e dev servers comuns.
 - **Dois ambientes de código ao mesmo tempo (limite atual):** uma prévia aberta mantém o container acordado até 1 h. Mitigação: vencimento duro de 1 h e `preview_stop`.
 - **Deploy com versões mistas:** a coluna é aditiva e opcional (ver acima); a rota nova só existe na api nova.
@@ -55,4 +58,4 @@ Infra: nenhum serviço novo; um proxy na API (memória desprezível) e o contain
 - `packages/shared/src/preview.test.ts` (porta, caminho, host).
 - `apps/api/src/routes/previews.test.ts`: caminho feliz, outro usuário (404), token/cookie ausente, vencido ou adulterado (401), allowlist de porta, `Host` fora do padrão cai nas rotas normais, SSRF, cabeçalhos removidos/adicionados, WebSocket.
 - `packages/agent-runtime/src/tools/preview.test.ts` e `dev-session.test.ts` (tools), `intent-router.dev.test.ts` (roteador) e `computer-use.economy-replay.test.ts` (economia de contexto).
-- Manual: `docs/deploy-dokploy.md` §6, "Verificar".
+- Manual: `docs/deploy-dokploy.md` §7, "Verificar".

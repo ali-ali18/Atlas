@@ -1094,6 +1094,7 @@ describe("runtime: preview_start e preview_stop", () => {
 		const { summary } = await t.runtime.execute("preview_stop", {}, "p8");
 		expect(summary).toMatch(/closed/);
 		expect(t.updates.at(-1)).toMatchObject({ preview: null });
+		expect(t.updates.at(-1)).not.toHaveProperty("touch");
 		const none = setup({ preview: link, existing: null });
 		await expect(none.runtime.execute("preview_stop", {}, "p9")).rejects.toThrow(/Nenhuma sessão/);
 	});

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+	approxRegistrableDomain,
+	previewBaseDomainConflict,
 	isPreviewPort,
 	normalizePreviewBaseDomain,
 	normalizePreviewPath,
@@ -70,5 +72,23 @@ describe("previewIdFromHost", () => {
 describe("previewOrigin", () => {
 	it("monta a origem", () => {
 		expect(previewOrigin({ scheme: "https", baseDomain: "p.example.com", id: ID })).toBe(`https://${ID}.p.example.com`);
+	});
+});
+
+describe("previewBaseDomainConflict", () => {
+	it("recusa o mesmo host, domínio pai e mesmo site", () => {
+		expect(previewBaseDomainConflict("atlas.example.com", "https://atlas.example.com")).toMatch(/pai|Atlas/);
+		expect(previewBaseDomainConflict("example.com", "https://atlas.example.com")).not.toBeNull();
+		expect(previewBaseDomainConflict("preview.example.com", "https://atlas.example.com")).toMatch(/mesmo site/);
+		expect(previewBaseDomainConflict("p.meusite.com.br", "https://atlas.meusite.com.br")).toMatch(/mesmo site/);
+	});
+	it("aceita domínio registrável separado, inclusive com sufixo de dois níveis", () => {
+		expect(previewBaseDomainConflict("atlas-previews.app", "https://atlas.example.com")).toBeNull();
+		expect(previewBaseDomainConflict("p.outro.com.br", "https://atlas.meusite.com.br")).toBeNull();
+		expect(previewBaseDomainConflict("preview.localhost:3001", "http://localhost:3000")).toBeNull();
+	});
+	it("domínio registrável aproximado", () => {
+		expect(approxRegistrableDomain("a.b.example.com")).toBe("example.com");
+		expect(approxRegistrableDomain("a.b.example.com.br")).toBe("example.com.br");
 	});
 });

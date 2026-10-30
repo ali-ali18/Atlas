@@ -201,9 +201,12 @@ Com isto o bot manda um link que abre o projeto que ele está construindo no nav
 (`docs/features/previa-privada.md`). Sem a variável, tudo continua como antes e o bot avisa que o link não existe.
 **O código não mexe na infraestrutura**: estes passos são seus.
 
-1. **Domínio separado.** Escolha um domínio-base só para prévias. O mais seguro é um domínio registrado à parte
-   (ex.: `atlas-previews.app`). Um subdomínio do domínio do Atlas (`preview.seudominio.com`) funciona, mas
-   nunca deixe cookie com `Domain=.seudominio.com` no login do Atlas (o cookie do Better Auth é "host-only"; confira).
+1. **Domínio registrável separado.** Use um domínio registrado só para prévias (ex.: `atlas-previews.app`), nunca um subdomínio nem o pai do Atlas.
+   Motivo: no mesmo site (mesmo domínio registrável) o código do projeto poderia plantar cookies com `Domain=` amplo que o Atlas receberia
+   (cookie tossing) e fazer requisições same-site (CSRF com `SameSite=Lax`/`Strict` liberado) contra o Atlas. A API **recusa** (recurso desligado e aviso
+   `[preview] prévia privada DESLIGADA` no boot) um domínio igual, pai ou no mesmo domínio registrável do `ATLAS_URL`. A checagem é uma heurística (últimos
+   2 rótulos, ou 3 em sufixos como `com.br`, sem a lista pública de sufixos): num sufixo de dois níveis que ela não conhece pode errar para os dois lados.
+   Escape hatch, por sua conta e risco: `ATLAS_PREVIEW_ALLOW_SAME_SITE=1`.
 2. **DNS curinga.** Registro `*.<domínio-base>` (tipo A/AAAA para o IP do servidor, ou CNAME para o host do Atlas).
    Na Cloudflare, deixe **sem proxy** (nuvem cinza) se não tiver certificado curinga pago, ou use o proxy se o
    plano suportar WebSocket em subdomínio curinga.
@@ -231,4 +234,4 @@ Verificar: peça ao bot "cria uma página simples e me mostra". O link deve ser 
 - Serviço do tipo Compose (não Stack/Swarm).
 - Dokploy, Environment: `ATLAS_IMAGE_TAG` (e as variáveis que já existem).
 - Volume `atlas-artifacts` montado em api **e** worker, com o mesmo `ATLAS_ARTIFACT_DIR` (ver seção 6).
-- Dokploy, Environment (opcional, prévia privada): `ATLAS_PREVIEW_BASE_DOMAIN` (ver §7).
+- Dokploy, Environment (opcional, prévia privada): `ATLAS_PREVIEW_BASE_DOMAIN` (ver §7); `ATLAS_PREVIEW_ALLOW_SAME_SITE` só se souber o que faz.
