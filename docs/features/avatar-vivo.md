@@ -39,6 +39,12 @@ Fase B: cérebro (`packages/shared/src/avatar/model/brain.ts`).
 - API: `engine.pulse(kind, strength)`, `engine.setActivity(family | null)` (por padrão a família vem do estado). O `ChatThread` gera os pulsos pela mudança de atividade (`bot-activity.ts`), o `LiveAgentAvatar` os repassa ao motor.
 - Ticker: `engine.isSettled()` é falso enquanto o cérebro está ativo; fora da tela e aba oculta continuam pausando como antes. Com "reduzir movimento" o avatar segue o quadro estático (nem cria o motor). Avatar com menos de 32 px não tem cérebro.
 
+Transições (achados na prévia do dono):
+- O corpo virando indicador (pontos do Pensando, radar, órbita, anel) deixava os olhos desenhados por cima do núcleo até a metade do morph: o olho recortava o ponto ("mordida"). Agora os olhos encolhem com o morph e somem em 40% dele, e voltam do mesmo jeito.
+- Ao sair de um indicador a pose do clipe era aplicada de uma vez (pitch/roll de 20–30° em um quadro); agora ela entra junto com o morph.
+- Trocar de um indicador para outro (ex.: Pensando → Pesquisando) trocava o desenho num quadro só; agora o atual recolhe e o novo cresce.
+- Teste `transitions.test.ts`: 156 trocas × 4 formas, sem salto maior que 45% da variação total em um quadro, sem troca de indicador com o corpo já virado e sem olho sobre o indicador.
+
 ## Riscos
 - Tabela de estados/tipos: `AgentActivity` ganhou `toolFailed` no ramo `thinking` (opcional; quem não conhece ignora). Sem mudança de API, banco, eventos SSE ou migration.
 - Rodar mais tempo no loop: avatares com cérebro não dormem enquanto o bot trabalha (já era assim com os clipes de trabalho); parado, volta a dormir (testado).
