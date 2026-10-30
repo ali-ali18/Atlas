@@ -449,4 +449,72 @@ describe("cérebro no motor", () => {
 		e.skip(100);
 		expect(e.activityFamily()).toBe("idle");
 	});
+
+	it("quem perdeu a disputa tenta de novo a cada quadro quando a vaga libera (sem trocar de família)", () => {
+		const budget = createBrainBudget(1);
+		const a = createAvatarEngine({ shape: "blob", seed: "a", breathe: false, budget });
+		const b = createAvatarEngine({ shape: "blob", seed: "b", breathe: false, budget });
+		a.setActivity("read");
+		b.setActivity("read");
+		play(a, 1);
+		play(b, 1);
+		expect(b.brainWeight()).toBe(0);
+		a.setActivity(null);
+		for (let t = 0; t < 30_000 && !a.isSettled(); t += 16) a.advance(16);
+		expect(budget.size).toBe(0);
+		// a família de b continua "read": só o quadro seguinte basta
+		play(b, 1);
+		expect(b.brainWeight()).toBeGreaterThan(0);
+	});
+
+	it("prioridade: o avatar do chat aberto toma a vaga de um da lista", () => {
+		const budget = createBrainBudget(1);
+		const low = createAvatarEngine({ shape: "blob", seed: "low", breathe: false, budget });
+		const high = createAvatarEngine({ shape: "blob", seed: "high", breathe: false, budget, brainPriority: 2 });
+		low.setActivity("code");
+		play(low, 1);
+		expect(low.brainWeight()).toBeGreaterThan(0);
+		high.setActivity("code");
+		play(high, 1);
+		expect(high.brainWeight()).toBeGreaterThan(0);
+		expect(low.brainWeight()).toBe(0);
+		// o de prioridade menor não volta a tomar a vaga do maior
+		play(low, 1);
+		expect(low.brainWeight()).toBe(0);
+		expect(budget.size).toBe(1);
+	});
+
+	it("avatar parado (suspend: fora da tela ou aba oculta) não segura vaga e reassume ao voltar", () => {
+		const budget = createBrainBudget(1);
+		const a = createAvatarEngine({ shape: "blob", seed: "a", breathe: false, budget });
+		const b = createAvatarEngine({ shape: "blob", seed: "b", breathe: false, budget });
+		a.setActivity("search");
+		play(a, 1);
+		b.setActivity("search");
+		play(b, 1);
+		expect(b.brainWeight()).toBe(0);
+		a.suspend();
+		expect(budget.size).toBe(0);
+		play(b, 1);
+		expect(b.brainWeight()).toBeGreaterThan(0);
+		// a volta à tela: a vaga está com b (mesma prioridade), então espera
+		play(a, 1);
+		expect(a.brainWeight()).toBe(0);
+	});
+
+	it("o primeiro pulso do run não se perde: chega antes do estado e vale quando o cérebro liga", () => {
+		const frameAfter = (pulse: boolean, waitMs: number) => {
+			const budget = createBrainBudget(3);
+			const e = createAvatarEngine({ shape: "blob", seed: "pulso", breathe: false, budget });
+			play(e, 0.5);
+			if (pulse) e.pulse("toolFail", 1);
+			for (let t = 0; t < waitMs; t += 16) e.advance(16);
+			e.setState("reading");
+			for (let t = 0; t < 120; t += 16) e.advance(16);
+			return JSON.stringify(e.snapshot().orientation);
+		};
+		expect(frameAfter(true, 0)).not.toBe(frameAfter(false, 0));
+		// pulso velho (mais de 1,5 s antes) não vale
+		expect(frameAfter(true, 2500)).toBe(frameAfter(false, 2500));
+	});
 });

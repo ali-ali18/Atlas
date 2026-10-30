@@ -25,6 +25,8 @@ export type EngineOptions = {
 	brain?: boolean;
 	/** Vagas de cérebro compartilhadas entre avatares; sem ele, sem limite. */
 	budget?: BrainBudget;
+	/** Prioridade na disputa por vagas de cérebro (maior toma de menor). */
+	brainPriority?: number;
 };
 
 /** Depois de uma interação o motor roda a 60 fps; fora disso, 30. */
@@ -61,15 +63,36 @@ export function createAvatarEngine(opts: EngineOptions) {
 	// Família de atividade: vem do estado (lendo, programando…) ou de `setActivity`.
 	let familyOverride: ActivityFamily | null = null;
 	let family: ActivityFamily = "idle";
+	/** Pulso que chegou antes de o cérebro ligar (o estado ainda não tinha chegado ao motor): vale por 1,5 s. */
+	let pendingPulse: { kind: PulseKind; strength: number; until: number } | null = null;
+	let clockMs = 0;
+	const brainOn = () => brainAllowed && sizeAllows && (!budget || holding);
+	/** Pede vaga a cada quadro enquanto quiser e não tiver (quem perdeu a disputa tenta de novo; quem voltou de pausa reassume). */
+	const tryAcquire = () => {
+		if (!budget || holding || !brainAllowed || !sizeAllows || brainLevel(family) <= 0) return;
+		holding = budget.acquire(slot, {
+			priority: opts.brainPriority,
+			onEvict: () => {
+				holding = false;
+				updateBrain();
+			},
+		});
+		if (holding) updateBrain();
+	};
+	const flushPulse = () => {
+		if (!pendingPulse || !brainOn()) return;
+		const pulse = pendingPulse;
+		pendingPulse = null;
+		if (clockMs <= pulse.until) brain.pulse(pulse.kind, pulse.strength);
+	};
 	const syncFamily = () => {
 		const next = familyOverride ?? familyOfState(behavior.currentState);
-		if (next === family) return;
-		family = next;
-		if (budget && !holding && brainLevel(next) > 0 && brainAllowed && sizeAllows) {
-			holding = budget.acquire(slot);
-			updateBrain();
+		if (next !== family) {
+			family = next;
+			brain.setFamily(next);
 		}
-		brain.setFamily(next);
+		tryAcquire();
+		flushPulse();
 	};
 	const applySize = (size: number) => {
 		sizeAllows = size >= BEHAVIOR_TUNING.compactBelowPx;
@@ -93,6 +116,7 @@ export function createAvatarEngine(opts: EngineOptions) {
 		/** Avança `dtMs` milissegundos e devolve o quadro. */
 		advance(dtMs: number): Frame {
 			if (dtMs > 0) {
+				clockMs += dtMs;
 				const seconds = dtMs / 1000;
 				// O comportamento consome o tempo todo (inclusive o dormido); a
 				// física anda em passos de no máximo 0,1 s.
@@ -114,6 +138,7 @@ export function createAvatarEngine(opts: EngineOptions) {
 		 */
 		skip(dtMs: number): Frame {
 			if (dtMs > 0) {
+				clockMs += dtMs;
 				behavior.advance(dtMs / 1000);
 				syncFamily();
 				activeLeft = Math.max(0, activeLeft - dtMs);
@@ -123,6 +148,16 @@ export function createAvatarEngine(opts: EngineOptions) {
 		/** Devolve a vaga de cérebro (ao desmontar o avatar). */
 		dispose(): void {
 			familyOverride = null;
+			pendingPulse = null;
+			releaseSlot();
+		},
+		/** Voltou à tela / aba visível: pede a vaga de novo (o loop está dormindo e não faria isso sozinho). */
+		resume(): void {
+			syncFamily();
+		},
+		/** Avatar parado (fora da tela, aba oculta): devolve a vaga; o próximo quadro pede de novo. */
+		suspend(): void {
+			pendingPulse = null;
 			releaseSlot();
 		},
 		snapshot(): Frame {
@@ -180,7 +215,8 @@ export function createAvatarEngine(opts: EngineOptions) {
 		},
 		/** Evento pontual (ferramenta começou/acabou/falhou, rajada de texto): um gesto curto do cérebro. */
 		pulse(kind: PulseKind, strength = 1): void {
-			brain.pulse(kind, strength);
+			if (brainOn()) brain.pulse(kind, strength);
+			else if (brainAllowed && sizeAllows) pendingPulse = { kind, strength, until: clockMs + 1500 };
 			touch();
 		},
 		/** Família de atividade em uso (diagnóstico e testes). */
