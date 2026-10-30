@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseAlertRule, type AlertRule, type AlertSource } from "@workspace/shared";
 import { clearExtractRobotsCache } from "./extract.js";
 import * as sourceModule from "./alert-source.js";
-import { createAlertSourceCache, ALERT_SOURCE_UA, type AlertSourceDeps } from "./alert-source.js";
+import { createAlertSourceCache, ALERT_SOURCE_UA, ALERT_SOURCE_MAX_BYTES, type AlertSourceDeps } from "./alert-source.js";
 
 // Os testes de segurança e leitura não dependem do robots.txt (ele tem os seus testes abaixo).
 const readAlertSource = (source: Parameters<typeof sourceModule.readAlertSource>[0], deps: AlertSourceDeps = {}, wantList?: boolean) => sourceModule.readAlertSource(source, { respectRobots: false, ...deps }, wantList);
@@ -89,8 +89,15 @@ describe("readAlertSource · segurança (SSRF)", () => {
 });
 
 describe("readAlertSource · limites", () => {
+	it("aceita página de 2,2 MB (limite de 5 MB) e mantém o teto", async () => {
+		expect(ALERT_SOURCE_MAX_BYTES).toBe(5_000_000);
+		const big = `<html><body><span class="p">R$ 21,34</span>${"x".repeat(2_220_000)}</body></html>`;
+		const ok = vi.fn(async () => res(big));
+		expect(await readAlertSource(css, { fetchFn: ok as never, lookupFn: lookupPublic })).toMatchObject({ ok: true });
+	});
+
 	it("recusa corpo acima do limite (declarado e em stream)", async () => {
-		const declared = vi.fn(async () => res("x", { headers: { "content-length": "5000000" } }));
+		const declared = vi.fn(async () => res("x", { headers: { "content-length": "5000001" } }));
 		expect(await readAlertSource(css, { fetchFn: declared as never, lookupFn: lookupPublic })).toMatchObject({ ok: false, code: "too_large" });
 		const streamed = vi.fn(async () => res("a".repeat(3000)));
 		expect(await readAlertSource(css, { fetchFn: streamed as never, lookupFn: lookupPublic, maxBytes: 1000 })).toMatchObject({ ok: false, code: "too_large" });

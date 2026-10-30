@@ -5,7 +5,7 @@
  * Segurança (a fonte é uma URL escolhida pelo agente a pedido do usuário, então é entrada não confiável):
  * - só http(s); bloqueia loopback, rede privada, link-local e metadados de nuvem, inclusive depois do DNS e
  *   em cada redirect (no máximo 3); o `connect` real também recusa IP privado (DNS rebinding);
- * - timeout total de 10 s e no máximo 2 MB por resposta (acima disso é erro, nunca leitura parcial);
+ * - timeout total de 10 s e no máximo 5 MB por resposta (acima disso é erro, nunca leitura parcial);
  * - o conteúdo lido é só dado: vira texto/valor, nunca instrução.
  *
  * Cache por ciclo: alertas que olham a mesma URL compartilham uma única busca (TTL curto, em memória). Não há
@@ -38,7 +38,7 @@ import {
 
 export const ALERT_SOURCE_UA = "atlas-agent/0.1 (+https://github.com/ali-ali18/Atlas)";
 export const ALERT_SOURCE_TIMEOUT_MS = 10_000;
-export const ALERT_SOURCE_MAX_BYTES = 2_000_000;
+export const ALERT_SOURCE_MAX_BYTES = 5_000_000;
 export const ALERT_SOURCE_MAX_REDIRECTS = 3;
 export const ALERT_SOURCE_CACHE_TTL_MS = 60_000;
 const CACHE_MAX_ENTRIES = 200;

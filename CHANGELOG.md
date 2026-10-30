@@ -4,6 +4,9 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Alterado
+- **search:** o leitor de alertas aceita páginas de até 5 MB (antes 2 MB): páginas de cotação e fundos como a do Investidor10 (2,2 MB) eram recusadas. Timeout de 10 s, recusa acima do teto (declarado ou em stream) e janela de 64 KB da regex continuam iguais
+
 ## [0.3.1-beta] - 2026-10-30
 
 ### Adicionado

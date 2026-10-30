@@ -180,7 +180,7 @@ function decodeXmlText(raw: string): string {
 		.trim();
 }
 
-// O XML do feed vem de fora (até 2 MB): tudo aqui é varredura linear com indexOf. Regex com `[\s\S]*?` até
+// O XML do feed vem de fora (até 5 MB): tudo aqui é varredura linear com indexOf. Regex com `[\s\S]*?` até
 // um fechamento ficava quadrática em entradas com muitas aberturas sem fechamento (`<item ` repetido, CDATA aberto).
 function stripCdata(raw: string): string {
 	let out = "";
