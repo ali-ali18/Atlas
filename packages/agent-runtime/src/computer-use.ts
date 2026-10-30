@@ -265,6 +265,8 @@ import { DELEGATION_HINT, suggestDelegation } from "./jev/delegation.js";
 import { detectBlockPage } from "./jev/block-page.js";
 import { preselectMcpTools } from "./jev/tool-preselect.js";
 import { APP_INFO_TOOL, executeAppInfo } from "./tools/app-info.js";
+import { createPreviewSetupContext } from "./tools/preview-setup/runtime.js";
+import { PREVIEW_SETUP_TOOL, PREVIEW_SETUP_TOOL_NAME, executePreviewSetup, type PreviewSetupToolContext } from "./tools/preview-setup/tool.js";
 import { canGrantMcpTask, autonomyExceptionMode, hasExternalTargetArgs, isUntrustedContentTool } from "@workspace/shared";
 import { collectRefs, createSecretSession, type SecretSession } from "./secrets/session.js";
 import { isSecretBoxConfigured } from "./secrets/secret-box.js";
@@ -1129,6 +1131,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	// Lições do bot: só entra no pedido quando o run tem lições (ver `lessonFeedbackEnabled`).
 	LESSON_FEEDBACK_TOOL,
 	APP_INFO_TOOL,
+	PREVIEW_SETUP_TOOL,
 	SECRET_LIST_TOOL,
 	ROUTINE_WEBHOOK_INFO_TOOL,
 	SECRET_REQUEST_TOOL,
@@ -2034,6 +2037,8 @@ function routineDetailText(
 
 type ToolContext = {
 	manager: SandboxManager;
+	/** Configuração da prévia completa (só administrador; ausente = a tool não existe neste run). */
+	previewSetup?: PreviewSetupToolContext;
 	/** Runtime das tools de sessão de desenvolvimento (ausente = desligado). */
 	devSession?: DevSessionRuntime;
 	/** Id da chamada de tool (liga os eventos de shell e edição ao card). */
@@ -4149,6 +4154,9 @@ async function executeToolInner(
 		}
 		case "app_info":
 			return executeAppInfo(args);
+		case "preview_setup":
+			if (!ctx.previewSetup) throw new Error("This tool is not available in this run.");
+			return (await executePreviewSetup(args, ctx.previewSetup)) as Awaited<ReturnType<typeof executeToolInner>>;
 		case "secret_list":
 			return executeSecretList(vaultToolContext(ctx));
 		case "routine_webhook_info":
@@ -4923,6 +4931,8 @@ export async function runComputerUse(params: {
 	browserTabId?: string;
 	/** Sessão de desenvolvimento: dependências injetáveis (teste); omitido = Docker + banco, só com DEV_SANDBOX_ENABLED. */
 	devSession?: Pick<DevSessionRuntimeDeps, "provider" | "config" | "store" | "getGithubToken" | "makeClient"> | null;
+	/** Configuração da prévia completa (injetável em teste; omitido = banco, só para o administrador; `null` = desligada). */
+	previewSetup?: PreviewSetupToolContext | null;
 	/** Filho de leitura: conversa cuja sessão de desenvolvimento ele pode ler (read_file/list_files/grep). */
 	devConversationId?: string;
 	/** Orçamento operacional de contexto (alvo/teto em tokens). Omitido = env (`ATLAS_CONTEXT_BUDGET_*`) ou 12k/20k. Só vale com a economia ligada. */
@@ -5502,6 +5512,12 @@ export async function runComputerUse(params: {
 	// nativo). Contagem/idempotência seguem no checkpoint.
 	// `lesson_feedback` só existe quando o run tem lições (senão o pedido ao modelo fica idêntico ao de antes).
 	const lessonFeedbackEnabled = !isSubagent && (params.lessons?.items.length ?? 0) > 0;
+	// Só o administrador, em conversa com humano: a tool nem aparece para os outros (e o executor confere de novo).
+	const previewSetupCtx: PreviewSetupToolContext | undefined =
+		!isSubagent && !isUnattendedOrigin(params.origin) && conversationId && userId !== "default" && params.previewSetup !== null
+			? (params.previewSetup ?? createPreviewSetupContext({ userId, conversationId, botId: params.botId, runId }))
+			: undefined;
+	const previewSetupEnabled = previewSetupCtx ? await previewSetupCtx.isAdmin().catch(() => false) : false;
 	const baseTools: ChatTool[] = (
 		sandboxEnabled
 			? COMPUTER_USE_TOOLS
@@ -5522,6 +5538,7 @@ export async function runComputerUse(params: {
 		.filter((tool) => !hostToolBlocked(tool.function.name))
 		.filter((tool) => tool.function.name !== LESSON_FEEDBACK_TOOL_NAME || lessonFeedbackEnabled)
 		.filter((tool) => tool.function.name !== "login_fill" || sandboxEnabled)
+		.filter((tool) => tool.function.name !== PREVIEW_SETUP_TOOL_NAME || previewSetupEnabled)
 		// Rotina/webhook não desliga a VM que o usuário pode estar usando; quem libera memória é o guarda.
 		.filter((tool) => tool.function.name !== SANDBOX_RELEASE_TOOL_NAME || !isUnattendedOrigin(params.origin))
 		// Shell/arquivos da VM: exceção "bloqueado" do usuário tira a tool; webhook/subagente só leem.
@@ -7732,6 +7749,7 @@ export async function runComputerUse(params: {
 				abortSignal: signal,
 				getSessionId: () => getSessionId({ ...executionContext, signal }),
 				toolCallId: call.id,
+				...(previewSetupEnabled && previewSetupCtx && name === PREVIEW_SETUP_TOOL_NAME ? { previewSetup: previewSetupCtx } : {}),
 				...(devDeps?.config.enabled && (isDevSessionTool(name) || (name === "attachment_to_computer" && codingRun)) ? { devSession: ((codingRun = !isSubagent || codingRun), getDevRuntime()), callId: call.id } : {}),
 				botId,
 				userId,

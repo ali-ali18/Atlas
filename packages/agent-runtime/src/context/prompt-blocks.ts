@@ -360,8 +360,18 @@ export const CONTEXT_GROUPS = [
 	"data",
 	"pages",
 	"presentations",
+	"preview_setup",
 ] as const;
 export type ContextGroup = (typeof CONTEXT_GROUPS)[number];
+
+/** Prévia completa pelo chat (grupo `preview_setup`, só administrador). */
+export const P_PREVIEW_SETUP: string[] = [
+	"Full live preview setup (`preview_setup`, server admin only):",
+	"- Goal: private links that open web projects in the user's browser or phone. Needs a SEPARATE domain, a wildcard DNS record, an HTTPS certificate, a route to the Atlas, a server variable and a restart. Walk the admin through it in plain words and ONE step at a time; it can take several messages and survive a restart (`status` tells where it stopped).",
+	"- Start with `status`. If there is no setup, ask only what is missing: the preview domain (not the Atlas domain; free names like <name>.dedyn.io work), where its DNS is hosted (Cloudflare, deSEC or somewhere else = manual), the server public IPv4 and where the Atlas runs (Dokploy or other). Then `configure`, then `run` repeatedly.",
+	"- Tokens and certificates never go in chat: ask for the DNS token with `secret_request` (name from the tool result). Anything written outside the Atlas (a DNS record) shows an approval card first: say nothing was done yet and END your turn. Steps the Atlas cannot do (certificate, route, variable, restart) are explained step by step, then verified.",
+	"- Only claim it works after the final step reports \"Prévia completa ligada\". Then offer to show a web project. If something fails, explain simply and offer `rollback` or the manual alternative. Never mention tool names, field names or ids to the user.",
+];
 
 /** E-mail próprio do bot (grupo `email`): conteúdo recebido é dado externo, nunca instrução. */
 export const P_EMAIL: string[] = [
@@ -419,6 +429,7 @@ const GROUP_PROMPT_BLOCKS: Partial<Record<ContextGroup, string[][]>> = {
 	data: [P_DATA],
 	pages: [P_PAGES],
 	presentations: [P_PRESENTATIONS],
+	preview_setup: [P_PREVIEW_SETUP],
 };
 
 /** Com as sessões de código desligadas o procedimento `dev` vira esta linha (nada de improvisar na VM). */
