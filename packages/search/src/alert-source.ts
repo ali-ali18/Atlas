@@ -22,11 +22,12 @@ import {
 	type ExtractFetchFn,
 	type ExtractLookupFn,
 } from "./extract.js";
+import { regexWindow, runRegexWithBudget } from "./regex-budget.js";
 import {
 	ALERT_FEED_ITEMS_MAX,
 	ALERT_ITEM_TITLE_MAX,
 	alertSourceHost,
-	applyAlertRegex,
+	unsafeRegexReason,
 	jsonValueText,
 	parseFeedItems,
 	readJsonPath,
@@ -198,9 +199,15 @@ function squeeze(text: string | null | undefined): string {
 	return (text ?? "").replace(/\s+/g, " ").trim();
 }
 
-function readPage(source: Extract<AlertSource, { type: "page" }>, doc: FetchedDocument, wantList: boolean): AlertRuleRead {
+async function readPage(source: Extract<AlertSource, { type: "page" }>, doc: FetchedDocument, wantList: boolean): Promise<AlertRuleRead> {
 	const extract = source.extract;
-	if (extract.kind === "regex") return { kind: "text", text: applyAlertRegex(doc.body, extract.pattern) };
+	if (extract.kind === "regex") {
+		if (unsafeRegexReason(extract.pattern)) throw new SourceError("parse", "o padrão de leitura não é seguro");
+		const run = await runRegexWithBudget(regexWindow(doc.body), extract.pattern);
+		if (run.status === "timeout") throw new SourceError("parse", "o padrão de leitura demorou demais (regex lenta)");
+		if (run.status === "error") throw new SourceError("parse", "o padrão de leitura é inválido");
+		return { kind: "text", text: run.status === "match" ? run.value : null };
+	}
 	if (extract.kind === "jsonpath") {
 		let data: unknown;
 		try {
@@ -248,7 +255,7 @@ export async function readAlertSource(source: AlertSource, deps: AlertSourceDeps
 	const host = alertSourceHost(source);
 	try {
 		const doc = await fetchShared(source.url, deps);
-		const read = source.type === "feed" ? readFeed(doc) : readPage(source, doc, wantList);
+		const read = source.type === "feed" ? readFeed(doc) : await readPage(source, doc, wantList);
 		return { ok: true, read, host, ms: clock() - started };
 	} catch (error) {
 		if (error instanceof SourceError) return { ok: false, code: error.code, reason: error.message, host, ms: clock() - started };

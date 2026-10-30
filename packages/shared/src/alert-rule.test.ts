@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
 	applyAlertConfig,
-	applyAlertRegex,
 	clampAlertRuleInterval,
 	defaultAlertRuleInterval,
 	describeAlertRuleCompact,
@@ -139,10 +138,13 @@ describe("regex, json path e feed", () => {
 		}
 	});
 
-	it("aplica o primeiro grupo de captura e ignora padrão inseguro", () => {
-		expect(applyAlertRegex("Preço: R$ 1.299,00 hoje", "R\\$\\s*([\\d.,]+)")).toBe("1.299,00");
-		expect(applyAlertRegex("nada", "R\\$\\s*([\\d.,]+)")).toBeNull();
-		expect(applyAlertRegex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!", "(a+)+$")).toBeNull();
+	it("recusa sequência de repetições ilimitadas (explosão polinomial) mas aceita padrões de preço comuns", () => {
+		for (const bad of ["\\d*\\d*\\d*\\d*x", "(\\d+)(\\d+)(\\d+)(\\d+)y", "a+b+c+d+e", "\\d{1,}\\d{1,}\\d{1,}\\d{1,}z"]) {
+			expect(unsafeRegexReason(bad), bad).toMatch(/unbounded repetitions/);
+		}
+		for (const ok of ["R\\$\\s*([\\d.,]+)", '"price":\\s*"?([\\d.]+)', "(\\d{1,3}(?:\\.\\d{3})*,\\d{2})"]) {
+			expect(unsafeRegexReason(ok), ok).toBeNull();
+		}
 	});
 
 	it("lê JSON path sem tocar no protótipo", () => {

@@ -3,9 +3,9 @@
  * `packages/search` (precisa de DOM); aqui moram número localizado, JSON path, regex segura e feed.
  */
 
-/** Teto do texto que entra em regex: limita o custo de um padrão ruim mesmo depois da checagem estática. */
-export const ALERT_REGEX_INPUT_MAX = 300_000;
 export const ALERT_REGEX_MAX = 200;
+/** Repetições ilimitadas (`*`, `+`, `{n,}`) permitidas num padrão. */
+export const ALERT_REGEX_UNBOUNDED_MAX = 3;
 export const ALERT_JSONPATH_MAX = 200;
 export const ALERT_FEED_ITEMS_MAX = 100;
 export const ALERT_ITEM_TITLE_MAX = 160;
@@ -106,6 +106,9 @@ export function unsafeRegexReason(pattern: string): string | null {
 	if (/\\[1-9]|\\k</.test(pattern)) return "backreferences are not allowed";
 	if (/\(\?(?:=|!|<=|<!)/.test(pattern)) return "lookahead/lookbehind is not allowed";
 	const stack: Array<{ quantified: boolean; alternation: boolean }> = [];
+	// Repetições ilimitadas em sequência (\d*\d*\d*x) explodem em tempo polinomial: poucas por padrão. O teto de
+	// tempo na execução (worker com orçamento, em packages/search) cobre o que a checagem estática não vê.
+	let unbounded = 0;
 	let escaped = false;
 	let inClass = false;
 	for (let i = 0; i < pattern.length; i += 1) {
@@ -133,6 +136,10 @@ export function unsafeRegexReason(pattern: string): string | null {
 			if (group && repeats && stack.length > 0) stack[stack.length - 1]!.quantified = true;
 			if (group?.quantified && stack.length > 0) stack[stack.length - 1]!.quantified = true;
 		} else if (ch === "*" || ch === "+" || ch === "{") {
+			if (ch !== "{" || /^\{\d+,\}/.test(pattern.slice(i))) {
+				unbounded += 1;
+				if (unbounded > ALERT_REGEX_UNBOUNDED_MAX) return `more than ${ALERT_REGEX_UNBOUNDED_MAX} unbounded repetitions (* + {n,})`;
+			}
 			if (ch === "{") {
 				const range = /^\{(\d+)(?:,(\d*))?\}/.exec(pattern.slice(i));
 				if (!range) continue;
@@ -144,14 +151,6 @@ export function unsafeRegexReason(pattern: string): string | null {
 		}
 	}
 	return null;
-}
-
-/** Primeiro grupo de captura (ou o trecho todo) do primeiro casamento. Padrão inseguro ou sem casamento = null. */
-export function applyAlertRegex(text: string, pattern: string): string | null {
-	if (unsafeRegexReason(pattern)) return null;
-	const match = new RegExp(pattern, "i").exec(text.slice(0, ALERT_REGEX_INPUT_MAX));
-	if (!match) return null;
-	return (match[1] ?? match[0]).trim() || null;
 }
 
 export type AlertFeedItem = { id: string; title: string; link?: string };
