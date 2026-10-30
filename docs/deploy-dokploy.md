@@ -195,16 +195,23 @@ Por isso **api e worker precisam montar o mesmo volume `atlas-artifacts` e usar 
 - Sem `ATLAS_ARTIFACT_DIR`, o código cai em `os.tmpdir()`: a api e o worker passam a ter pastas diferentes (e perdem tudo a cada redeploy). Em produção isso é erro de configuração.
 - Na subida, api e worker logam `[artifacts] ATLAS_ARTIFACT_DIR=<caminho>`. Em produção sem a variável sai um `warn` começando com `[artifacts] ATENÇÃO`; confira os dois serviços depois de cada mudança de compose.
 - Quando uma imagem anexada não carrega, o worker loga `[image-vision] imagem anexada indisponível artifact=<id> reason=<motivo> [errno=<código>]` (`not_found_for_owner`, `empty_uri` ou `read_failed` com o errno, ex.: `ENOENT`). `read_failed` + `ENOENT` quase sempre é volume não compartilhado ou deploy no meio da troca de versão. O bot tenta de novo uma vez e, se falhar, pede ao usuário que envie a imagem de novo.
-## 7. Prévia privada de projetos web (opcional, passo do operador)
+## 7. Prévia privada de projetos web (modo básico por padrão; completo opcional)
 
 Com isto o bot manda um link que abre o projeto que ele está construindo no navegador/celular do dono
-(`docs/features/previa-privada.md`). Sem a variável, tudo continua como antes e o bot avisa que o link não existe.
-**O código não mexe na infraestrutura**: estes passos são seus.
+(`docs/features/previa-privada.md`).
+
+**Modo básico (padrão): não há nada para configurar.** Sem `ATLAS_PREVIEW_BASE_DOMAIN` a prévia já funciona na própria origem do Atlas
+(`${ATLAS_URL}/v1/previews/<id>/p/...`), isolada por sandbox (origem opaca, sem acesso ao login do Atlas). Só precisa de
+`DEV_SANDBOX_CONNECT_MODE=network` (padrão do compose) e de `ATLAS_URL`/`BETTER_AUTH_SECRET`, que já são obrigatórios. Limitações: apps que
+dependem de cookies, `localStorage` ou login não funcionam, e não há recarga ao vivo (a página é recarregada à mão).
+
+**Modo completo (opcional)**: para apps com cookies/login/`localStorage` e recarga ao vivo, configure um domínio separado seguindo os passos
+abaixo; com a variável válida a API passa a usar o modo completo sozinha. **O código não mexe na infraestrutura**: estes passos são seus.
 
 1. **Domínio registrável separado.** Use um domínio registrado só para prévias (ex.: `atlas-previews.app`), nunca um subdomínio nem o pai do Atlas.
    Motivo: no mesmo site (mesmo domínio registrável) o código do projeto poderia plantar cookies com `Domain=` amplo que o Atlas receberia
-   (cookie tossing) e fazer requisições same-site (CSRF com `SameSite=Lax`/`Strict` liberado) contra o Atlas. A API **recusa** (recurso desligado e aviso
-   `[preview] prévia privada DESLIGADA` no boot) um domínio igual, pai ou no mesmo domínio registrável do `ATLAS_URL`. A checagem é uma heurística (últimos
+   (cookie tossing) e fazer requisições same-site (CSRF com `SameSite=Lax`/`Strict` liberado) contra o Atlas. A API **recusa** (cai no modo básico, com o aviso
+   `[preview] prévia completa DESLIGADA, usando o modo básico` no boot) um domínio igual, pai ou no mesmo domínio registrável do `ATLAS_URL`. A checagem é uma heurística (últimos
    2 rótulos, ou 3 em sufixos como `com.br`, sem a lista pública de sufixos): num sufixo de dois níveis que ela não conhece pode errar para os dois lados.
    Escape hatch, por sua conta e risco: `ATLAS_PREVIEW_ALLOW_SAME_SITE=1`.
 2. **Escolha do domínio** (os dois caminhos isolam a prévia do Atlas):
@@ -229,9 +236,9 @@ Com isto o bot manda um link que abre o projeto que ele está construindo no nav
 5. **Variável.** No Environment do Dokploy: `ATLAS_PREVIEW_BASE_DOMAIN=<domínio-base>` (sem `https://`, sem curinga). Vale para `api` e `worker`
    (o compose já repassa). Redeploy.
 6. **Pré-requisito do ambiente de código:** `DEV_SANDBOX_CONNECT_MODE=network` (padrão do compose). Com portas publicadas só a porta de controle é
-   alcançável e o bot responde que a prévia não está disponível.
+   alcançável e o bot responde que a prévia não está disponível (vale para os dois modos).
 
-Verificar: peça ao bot "cria uma página simples e me mostra". O link deve ser `${ATLAS_URL}/v1/previews/<id>/open` e, ao tocar, cair em
+Verificar (modo básico: o link cai em `${ATLAS_URL}/v1/previews/<id>/p/`; completo: em `https://<id>.<domínio-base>/`): peça ao bot "cria uma página simples e me mostra". O link deve ser `${ATLAS_URL}/v1/previews/<id>/open` e, ao tocar, cair em
 `https://<id>.<domínio-base>/` com a página. Outro usuário ou uma aba anônima sem passar pelo link recebe 401/404.
 
 ## 8. Checklist de nomes (só nomes, sem valores aqui)
@@ -242,4 +249,4 @@ Verificar: peça ao bot "cria uma página simples e me mostra". O link deve ser 
 - Serviço do tipo Compose (não Stack/Swarm).
 - Dokploy, Environment: `ATLAS_IMAGE_TAG` (e as variáveis que já existem).
 - Volume `atlas-artifacts` montado em api **e** worker, com o mesmo `ATLAS_ARTIFACT_DIR` (ver seção 6).
-- Dokploy, Environment (opcional, prévia privada): `ATLAS_PREVIEW_BASE_DOMAIN` (ver §7); `ATLAS_PREVIEW_ALLOW_SAME_SITE` só se souber o que faz.
+- Dokploy, Environment (opcional, só para a prévia completa; a básica não precisa de nada): `ATLAS_PREVIEW_BASE_DOMAIN` (ver §7); `ATLAS_PREVIEW_ALLOW_SAME_SITE` só se souber o que faz.
