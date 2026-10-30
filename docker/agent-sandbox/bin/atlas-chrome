@@ -95,6 +95,7 @@ exec "$CHROME_BIN" \
 	--restore-last-session \
 	--no-default-browser-check \
 	--no-sandbox \
+	--test-type \
 	--disable-dev-shm-usage \
 	--disable-gpu \
 	--user-data-dir="${USER_DATA_DIR}" \
