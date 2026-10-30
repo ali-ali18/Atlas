@@ -31,6 +31,9 @@ export type {
 	ControlSnapshotResult,
 	ControlWaitParams,
 	ControlWaitResult,
+	ControlTabInfo,
+	ControlTabsParams,
+	ControlTabsResult,
 	SandboxSessionRecord,
 } from "./types.js";
 

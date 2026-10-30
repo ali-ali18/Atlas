@@ -317,3 +317,16 @@ export type SandboxDownloadResult = {
 	usedBrowserSession: boolean;
 	note?: string;
 };
+
+/** `browser_tabs`: lista, troca ou fecha uma aba do navegador do pai (índice a partir de 1). */
+export type ControlTabsParams =
+	| { action: "list" }
+	| { action: "switch"; index: number }
+	| { action: "close"; index: number };
+
+export type ControlTabInfo = { index: number; title: string; url: string; active: boolean };
+
+export type ControlTabsResult =
+	| { action: "list"; tabs: ControlTabInfo[] }
+	| { action: "switch"; active: { index: number; title: string; url: string } }
+	| { action: "close"; closed: { index: number; title: string; url: string }; active?: string };

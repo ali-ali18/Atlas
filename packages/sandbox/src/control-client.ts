@@ -21,6 +21,8 @@ import type {
 	ControlNavigateResult,
 	ControlScreenResult,
 	ControlScrollResult,
+	ControlTabsParams,
+	ControlTabsResult,
 } from "./types.js";
 
 export class SandboxControlError extends Error {
@@ -55,6 +57,33 @@ function controlBaseUrl(host: string, port: number): string {
 	return `http://${host}:${port}`;
 }
 
+// O control server avisa (cabeçalho) quando uma aba nova abriu ou a ativa fechou. O aviso
+// espera aqui até o runtime anexá-lo ao resultado da ferramenta; só a aba do pai o consome.
+const TAB_NOTICE_HEADER = "x-atlas-tab-notice";
+const tabNotices = new Map<string, string>();
+
+function captureTabNotice(host: string, port: number, context: SandboxExecutionContext, response: Response): void {
+	const raw = response.headers?.get(TAB_NOTICE_HEADER);
+	if (!raw || context.tabId) return;
+	let text: string;
+	try {
+		text = decodeURIComponent(raw);
+	} catch {
+		return;
+	}
+	const key = `${host}:${port}`;
+	const previous = tabNotices.get(key);
+	tabNotices.set(key, previous ? `${previous} ${text}` : text);
+}
+
+/** Lê e limpa o aviso de aba pendente da VM (undefined se não há). */
+export function takeTabNotice(host: string, port: number): string | undefined {
+	const key = `${host}:${port}`;
+	const text = tabNotices.get(key);
+	tabNotices.delete(key);
+	return text;
+}
+
 async function controlPost(
 	host: string,
 	port: number,
@@ -70,6 +99,7 @@ async function controlPost(
 			body: JSON.stringify(body),
 			signal: signal,
 		});
+		captureTabNotice(host, port, context, response);
 		if (!response.ok) {
 			const text = await response.text().catch(() => "");
 			throw new SandboxControlError(
@@ -95,6 +125,7 @@ async function controlPostJson<T>(
 			body: JSON.stringify(body),
 			signal: signal,
 		});
+		captureTabNotice(host, port, context, response);
 		if (!response.ok) {
 			const text = await response.text().catch(() => "");
 			throw new SandboxControlError(
@@ -119,6 +150,7 @@ async function controlGetJson<T>(
 			headers: controlHeaders(context),
 			signal: signal,
 		});
+		captureTabNotice(host, port, context, response);
 		if (!response.ok) {
 			const text = await response.text().catch(() => "");
 			throw new SandboxControlError(
@@ -143,6 +175,7 @@ export async function controlNavigate(
 			body: JSON.stringify({ url }),
 			signal: signal,
 		});
+		captureTabNotice(host, port, context, response);
 		if (!response.ok) {
 			const text = await response.text().catch(() => "");
 			throw new SandboxControlError(
@@ -194,6 +227,7 @@ export async function controlScreenshot(
 				signal: signal,
 			},
 		);
+		captureTabNotice(host, port, context, response);
 		if (!response.ok) {
 			const text = await response.text().catch(() => "");
 			throw new SandboxControlError(
@@ -216,6 +250,7 @@ export async function controlScreen(
 			method: "GET",
 			signal: signal,
 		});
+		captureTabNotice(host, port, context, response);
 		if (!response.ok) {
 			const text = await response.text().catch(() => "");
 			throw new SandboxControlError(
@@ -494,4 +529,14 @@ export async function controlTabClose(
 		15_000,
 		{ ...context, tabId: undefined },
 	);
+}
+
+/** Abas do navegador do pai: lista, troca ou fecha (índice a partir de 1, o da lista). */
+export async function controlBrowserTabs(
+	host: string,
+	port: number,
+	params: ControlTabsParams,
+	context: SandboxExecutionContext = {},
+): Promise<ControlTabsResult> {
+	return controlPostJson<ControlTabsResult>(host, port, "/browser/tabs", params, 20_000, context);
 }
