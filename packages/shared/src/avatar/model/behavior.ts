@@ -66,6 +66,8 @@ export class StateMachine {
 
 	private clock = 0;
 	private blinkIn: number;
+	/** Multiplicador da taxa de piscadas (o cérebro sobe/baixa conforme a atividade). */
+	private blinkRate = 1;
 	private lookIn: number;
 	private pokeLeft = 0;
 	private pokeExpression: Expression = "neutral";
@@ -147,6 +149,11 @@ export class StateMachine {
 		this.looks = on;
 	}
 
+	/** Taxa de piscadas (1 = normal): quem trabalha lendo pisca menos, quem procura pisca mais. */
+	setBlinkRate(rate: number): void {
+		this.blinkRate = rate > 0 ? rate : 1;
+	}
+
 	/** Dispara um giro de 360° (ex.: quando `spinSignal` muda). */
 	spin(): void {
 		this.character.spin();
@@ -175,7 +182,7 @@ export class StateMachine {
 		this.stateTime += dt;
 		let dirty = false;
 
-		this.blinkIn -= dt;
+		this.blinkIn -= dt * this.blinkRate;
 		if (this.blinkIn <= 0) {
 			const awake = resolveState(this.state) !== "sleeping";
 			if (awake) this.character.blink();
@@ -221,7 +228,7 @@ export class StateMachine {
 		const consider = (left: number) => {
 			if (left > 0) soonest = Math.min(soonest, left);
 		};
-		if (resolveState(this.state) !== "sleeping") consider(this.blinkIn);
+		if (resolveState(this.state) !== "sleeping") consider(this.blinkIn / this.blinkRate);
 		if (this.looksEnabled()) consider(this.lookIn);
 		consider(this.pokeLeft);
 		consider(this.angryLeft);

@@ -454,3 +454,46 @@ describe("REGRESSÃO do pisca-pisca (tremor com o mouse em movimento)", () => {
 		expect(JSON.stringify(a)).toBe(JSON.stringify(b));
 	});
 });
+
+describe("ticker: cérebro do avatar", () => {
+	it("enquanto o cérebro está ativo o loop não dorme, mesmo sem clipe nem olhar; ao parar, dorme de novo", () => {
+		const { fake, ticker, engine, handle } = setup({ seed: "cerebro", breathe: false });
+		expect(ticker.stats().looping).toBe(false);
+		handle.interact((e) => {
+			e.setActivity("code");
+			e.pulse("toolStart", 1);
+		});
+		fake.frames(60 * 10);
+		expect(ticker.stats().looping).toBe(true);
+		expect(engine.isSettled()).toBe(false);
+		handle.interact((e) => e.setActivity(null));
+		let frames = 0;
+		while (ticker.stats().looping && frames < 60 * 30) {
+			fake.frame();
+			frames++;
+		}
+		expect(ticker.stats().looping).toBe(false);
+		expect(ticker.stats().sleepTimer).toBe(true);
+		expect(engine.isSettled()).toBe(true);
+	});
+
+	it("fora da tela ou com a aba oculta o cérebro não consome quadros", () => {
+		const element = {} as Element;
+		const { fake, ticker, handle, advances } = setup({ seed: "cerebro-2", breathe: false, element });
+		handle.interact((e) => e.setActivity("search"));
+		fake.frames(30);
+		const running = advances.length;
+		expect(running).toBeGreaterThan(10);
+		fake.setVisible(element, false);
+		fake.frames(60);
+		expect(advances.length).toBe(running);
+		fake.setVisible(element, true);
+		fake.setHidden(true);
+		expect(ticker.stats().looping).toBe(false);
+		fake.frames(60);
+		expect(advances.length).toBe(running);
+		fake.setHidden(false);
+		fake.frames(10);
+		expect(advances.length).toBeGreaterThan(running);
+	});
+});

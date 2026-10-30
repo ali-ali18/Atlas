@@ -2,6 +2,7 @@
 // API em milissegundos que o ticker usa. Pura: o relógio é de quem chama.
 import { clamp, hash } from "./geometry/math.js";
 import { isShape, type Shape } from "./geometry/shapes.js";
+import { Brain, familyOfState, type ActivityFamily, type PulseKind } from "./model/brain.js";
 import { Character, type Frame } from "./model/character.js";
 import {
 	BEHAVIOR_TUNING,
@@ -19,6 +20,8 @@ export type EngineOptions = {
 	breathe?: boolean;
 	/** Tamanho em px; abaixo de 32 vira compacto e abaixo de 64 não olha em volta. */
 	size?: number;
+	/** Cérebro (movimento contínuo enquanto o bot trabalha). Desligue para comparar ou medir. */
+	brain?: boolean;
 };
 
 /** Depois de uma interação o motor roda a 60 fps; fora disso, 30. */
@@ -33,12 +36,26 @@ export function createAvatarEngine(opts: EngineOptions) {
 	const shape: Shape = isShape(opts.shape) ? opts.shape : "blob";
 	const character = new Character({ body: shape, seed, breathe: opts.breathe });
 	const behavior = new StateMachine(character, { seed, breathe: opts.breathe });
+	const brain = new Brain(seed ^ 0x51ed270b);
+	const brainAllowed = opts.brain !== false;
+	character.setBrain(brain.output);
+	// Família de atividade: vem do estado (lendo, programando…) ou de `setActivity`.
+	let familyOverride: ActivityFamily | null = null;
+	let family: ActivityFamily = "idle";
+	const syncFamily = () => {
+		const next = familyOverride ?? familyOfState(behavior.currentState);
+		if (next === family) return;
+		family = next;
+		brain.setFamily(next);
+	};
 	const applySize = (size: number) => {
+		brain.setEnabled(brainAllowed && size >= BEHAVIOR_TUNING.compactBelowPx);
 		behavior.setCompact(size < BEHAVIOR_TUNING.compactBelowPx);
 		behavior.setCompactClips(size < BEHAVIOR_TUNING.compactClipsBelowPx);
 		behavior.setLooks(size >= BEHAVIOR_TUNING.looksFromPx);
 	};
 	if (opts.size !== undefined) applySize(opts.size);
+	else brain.setEnabled(brainAllowed);
 	let activeLeft = 0;
 
 	const touch = () => {
@@ -56,6 +73,11 @@ export function createAvatarEngine(opts: EngineOptions) {
 				// O comportamento consome o tempo todo (inclusive o dormido); a
 				// física anda em passos de no máximo 0,1 s.
 				behavior.advance(seconds);
+				syncFamily();
+				if (brain.isActive) {
+					brain.advance(seconds);
+					behavior.setBlinkRate(brain.output.blinkRate);
+				}
 				character.advance(clamp(seconds, 0, 0.1));
 				activeLeft = Math.max(0, activeLeft - dtMs);
 			}
@@ -77,10 +99,11 @@ export function createAvatarEngine(opts: EngineOptions) {
 			return character.frame();
 		},
 		isSettled(): boolean {
-			return character.isSettled;
+			return character.isSettled && !brain.isActive;
 		},
 		/** ms até o próximo evento agendado quando assentado (Infinity = nenhum). */
 		nextWakeMs(): number {
+			if (brain.isActive) return 0;
 			return behavior.nextWakeS() * 1000;
 		},
 		frameIntervalMs(): number {
@@ -116,12 +139,29 @@ export function createAvatarEngine(opts: EngineOptions) {
 		},
 		setState(state: AvatarState): void {
 			behavior.setState(state);
+			syncFamily();
 			touch();
+		},
+		/** Família de atividade do cérebro por cima do estado (ex.: `read`); `null` volta a derivar do estado. */
+		setActivity(next: ActivityFamily | null): void {
+			familyOverride = next;
+			syncFamily();
+			touch();
+		},
+		/** Evento pontual (ferramenta começou/acabou/falhou, rajada de texto): um gesto curto do cérebro. */
+		pulse(kind: PulseKind, strength = 1): void {
+			brain.pulse(kind, strength);
+			touch();
+		},
+		/** Peso atual do cérebro (0..1), para diagnóstico e testes. */
+		brainWeight(): number {
+			return brain.output.weight;
 		},
 		/** O bot está rodando: faz os gestos de trabalho. Volta a `idle` ao terminar. */
 		setWorking(working: boolean): void {
 			if (working) behavior.setState("working");
 			else if (behavior.currentState === "working") behavior.setState("idle");
+			syncFamily();
 			touch();
 		},
 		/** O corpo vira um indicador (radar, órbita, progress, thinking…); `null` volta ao corpo. */

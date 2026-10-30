@@ -22,6 +22,7 @@ import {
 	type Outline,
 	type Shape,
 } from "../geometry/shapes.js";
+import type { BrainOutput } from "./brain.js";
 import { ClipPlayer, type ClipEvent } from "./clip-player.js";
 import { Indicator, type IndicatorFrame, type IndicatorKind } from "./indicator.js";
 import { DEFAULT_ZOOM, unwrapAngle } from "./clips.js";
@@ -110,6 +111,8 @@ export const CHARACTER_TUNING = {
 	shakeUnits: 1.6,
 	shakeHz: 9,
 	emphasisEyes: 1.12,
+	/** Olhar extra do cérebro: px do viewBox com gazeX/Y = 1. */
+	brainEyePx: 3.4,
 	maxStepS: 0.1,
 } as const;
 
@@ -172,6 +175,8 @@ export class Character {
 
 	// clipes de animação (keyframes do app de referência)
 	private readonly player = new ClipPlayer((event) => this.handleClipEvent(event));
+	/** Deslocamentos do cérebro (rede recorrente), somados por cima do clipe; `null` = nenhum. */
+	private brain: Readonly<BrainOutput> | null = null;
 	/** Quem manda nos clipes ouve o fim de cada um e as trocas de expressão. */
 	onClipEvent: ((event: ClipEvent) => void) | null = null;
 	private clipExpr: Expression = "neutral";
@@ -207,6 +212,11 @@ export class Character {
 	stopClip(): void {
 		this.player.rest();
 		this.clipExpr = "neutral";
+	}
+
+	/** Cérebro do avatar: o objeto é lido a cada quadro (o dono o atualiza no lugar). */
+	setBrain(output: Readonly<BrainOutput> | null): void {
+		this.brain = output;
 	}
 
 	/** O corpo vira o indicador (ou volta, com `null`). */
@@ -502,8 +512,9 @@ export class Character {
 				: 1 - (1 - T.blinkMin) * Math.sin(Math.PI * (this.blinkT / T.blinkS));
 		const gaze = this.gazePose();
 		// Resíduo pequeno nos olhos (o corpo é quem gira).
-		const residualX = gaze.hold * this.gazeX * T.eyeResidualPx;
-		const residualY = gaze.hold * this.gazeY * T.eyeResidualPx;
+		const brain = this.brain;
+		const residualX = gaze.hold * this.gazeX * T.eyeResidualPx + (brain ? brain.gazeX * T.brainEyePx : 0);
+		const residualY = gaze.hold * this.gazeY * T.eyeResidualPx + (brain ? brain.gazeY * T.brainEyePx : 0);
 
 		const eyeAt = (index: 0 | 1): EyeFrame => {
 			const params = pair[index];
@@ -526,13 +537,19 @@ export class Character {
 
 		const pose = this.player.pose;
 		const unit = BODY_RADIUS_PX * this.currentFit();
-		const zoom = pose.zoom / DEFAULT_ZOOM;
+		const zoom = (pose.zoom / DEFAULT_ZOOM) * (1 + (brain ? brain.breath : 0));
 		const shake = this.shake.value;
 		const shakeX = shake * T.shakeUnits * Math.sin(TAU * T.shakeHz * this.time);
 		// Giro de comemoração (poke "spin" da referência): yaw += 180 · (1 − cos πa).
 		const spin =
 			this.spinT === null ? 0 : 180 * (1 - Math.cos(Math.PI * (this.spinT / T.spinS)));
 		const orientation = this.orientation(pose.rot, gaze, spin);
+		if (brain) {
+			orientation.yaw += brain.yaw;
+			orientation.pitch += brain.pitch;
+			orientation.roll += brain.roll;
+		}
+		const squashBrain = brain ? brain.squash : 0;
 		const pos = this.position(pose.pos, gaze);
 
 		const ind = this.indicator.frame();
@@ -550,8 +567,8 @@ export class Character {
 			fit: bodyFit,
 			indicator: ind,
 			scale: ind ? zoom * ind.zoom : zoom,
-			scaleX: pose.squash[0] * (1 + this.squash.value),
-			scaleY: pose.squash[1] * (1 - this.squash.value * 0.9),
+			scaleX: pose.squash[0] * (1 + this.squash.value) * (1 + squashBrain),
+			scaleY: pose.squash[1] * (1 - this.squash.value * 0.9) * (1 - squashBrain * 0.9),
 			squashAnchor: this.player.anchor,
 			offsetX: this.pushX.value + pos[0] * unit * zoom + shakeX,
 			offsetY: this.pushY.value - pos[1] * unit * zoom + (ind ? ind.lift : 0),
