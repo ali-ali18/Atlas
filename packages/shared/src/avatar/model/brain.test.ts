@@ -282,6 +282,18 @@ describe("cérebro no motor", () => {
 		expect(Math.abs(mean(a) - mean(b))).toBeGreaterThan(1);
 	});
 
+	it("Lendo, Programando e Mexendo na tela têm rosto próprio sobre os mesmos clipes de trabalho", () => {
+		const eyesOf = (state: "reading" | "coding" | "controlling" | "working") => {
+			const e = make({ brain: false });
+			e.setState(state);
+			play(e, 1.5);
+			const f = e.snapshot();
+			return `${f.eyes[0].length.toFixed(3)}|${f.eyes[1].length.toFixed(3)}|${f.eyes[0].width.toFixed(3)}`;
+		};
+		const faces = new Set([eyesOf("reading"), eyesOf("coding"), eyesOf("controlling")]);
+		expect(faces.size).toBe(3);
+	});
+
 	it("o ticker pode dormir: assenta ao voltar para idle e não assenta enquanto o cérebro está ativo", () => {
 		// sem respiração (breathe: false) o repouso assenta; com ela o clipe de repouso gira para sempre
 		const e = createAvatarEngine({ shape: "heart", seed: "motor", breathe: false });

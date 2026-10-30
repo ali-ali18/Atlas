@@ -105,9 +105,9 @@ export type BrainOutput = {
 
 /** Teto de cada saída: mesmo num caso extremo, o movimento extra é pequeno ("vivo", não tremido). */
 export const BRAIN_LIMITS = {
-	yaw: 7,
-	pitch: 6,
-	roll: 4,
+	yaw: 9,
+	pitch: 8,
+	roll: 5,
 	gaze: 1,
 	squash: 0.06,
 	breath: 0.04,
@@ -150,19 +150,19 @@ type Profile = {
 const PROFILES: Record<ActivityFamily, Profile> = {
 	idle: { amp: [0, 0, 0, 0, 0, 0, 0], bias: [0, 0, 0, 0, 0, 0, 0], tempo: 0.6, blink: 1, level: 0 },
 	// olha para cima e inclina a cabeça: "pensando", lento
-	think: { amp: [3, 2.5, 3, 0.5, 0.4, 0.01, 0.012], bias: [0, -1.5, 1.8, 0, -0.3, 0, 0], tempo: 0.7, blink: 0.8, level: 0.85 },
+	think: { amp: [3, 2.5, 3, 0.5, 0.4, 0.01, 0.012], bias: [0, -3, 3, 0, -0.3, -0.02, 0], tempo: 0.7, blink: 0.8, level: 0.85 },
 	// varre os lados rápido, olhos bem abertos
-	search: { amp: [7, 2, 1, 1, 0.3, 0.012, 0.01], bias: [0, 0, 0, 0, 0, 0, 0], tempo: 1, blink: 1.3, level: 1 },
+	search: { amp: [8, 2, 1, 1, 0.3, 0.012, 0.01], bias: [0, 0, 0, 0, 0, 0, 0], tempo: 1, blink: 1.3, level: 1 },
 	// cabeça levemente baixa e varredura lenta e larga dos olhos, como linhas de texto
-	read: { amp: [3.5, 1, 0.8, 0.95, 0.12, 0.006, 0.01], bias: [0, 1.2, 0, 0, 0.3, 0, 0], tempo: 0.5, blink: 0.7, level: 1 },
+	read: { amp: [4, 1, 0.8, 0.95, 0.12, 0.006, 0.01], bias: [0, 2.5, 0, 0, 0.4, -0.02, 0], tempo: 0.5, blink: 0.7, level: 1 },
 	// cabeça baixa, olhar fixo na tela, tremor curto e rápido, "toques" de teclado
-	code: { amp: [1, 1.6, 1.5, 0.3, 0.12, 0.024, 0.008], bias: [0, 4, 0, 0, 0.5, 0, 0], tempo: 2.4, blink: 0.5, level: 1 },
+	code: { amp: [1.2, 1.6, 1.5, 0.3, 0.12, 0.024, 0.008], bias: [0, 7, 0, 0, 0.7, 0.025, 0], tempo: 2.4, blink: 0.5, level: 1 },
 	// respira mais fundo, balanço sutil: "processando"
-	run: { amp: [1.4, 1.2, 1, 0.3, 0.2, 0.03, 0.03], bias: [0, 1, 0, 0, 0.1, 0, 0.01], tempo: 1, blink: 0.9, level: 1 },
+	run: { amp: [1.4, 1.2, 1, 0.3, 0.2, 0.03, 0.03], bias: [0, 2, 0, 0, 0.15, 0, 0.012], tempo: 1, blink: 0.9, level: 1 },
 	// movimentos de cabeça e olhos rápidos e curtos: "mexendo na tela"
 	control: { amp: [3, 3, 3, 0.7, 0.8, 0.03, 0.008], bias: [0, 0, 0, 0, 0, 0, 0], tempo: 2.2, blink: 1.1, level: 1 },
 	// acena de leve no ritmo do texto
-	write: { amp: [2, 2.2, 1.2, 0.4, 0.2, 0.025, 0.015], bias: [0, 1.5, 0, 0, 0.15, 0, 0], tempo: 1.2, blink: 1, level: 1 },
+	write: { amp: [2, 2.2, 1.2, 0.4, 0.2, 0.025, 0.015], bias: [0, 2.5, 0, 0, 0.15, 0, 0], tempo: 1.2, blink: 1, level: 1 },
 	// quase parado, respira devagar
 	wait: { amp: [1, 0.8, 1, 0.2, 0.15, 0.005, 0.02], bias: [0, 0, 0, 0, 0, 0, 0], tempo: 0.4, blink: 1, level: 0.7 },
 	work: { amp: [3, 2, 1.5, 0.6, 0.3, 0.015, 0.012], bias: [0, 0, 0, 0, 0, 0, 0], tempo: 1, blink: 1, level: 1 },

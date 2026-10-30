@@ -112,7 +112,7 @@ export const CHARACTER_TUNING = {
 	shakeHz: 9,
 	emphasisEyes: 1.12,
 	/** Olhar extra do cérebro: px do viewBox com gazeX/Y = 1. */
-	brainEyePx: 3.4,
+	brainEyePx: 5.5,
 	maxStepS: 0.1,
 } as const;
 
