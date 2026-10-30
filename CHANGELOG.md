@@ -30,6 +30,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ### Corrigido
 - **sandbox:** a faixa amarela "You are using an unsupported command-line flag: --no-sandbox" não aparece mais nos prints do navegador da VM: o `atlas-chrome` passa `--test-type`, que o comentário já prometia mas faltava na linha de comando
+- **agent, worker, db, api, shared:** imagem anexada que não carrega não vira mais "chegaram indisponíveis" sem explicação: o sistema avisa na conversa, no idioma do bot ("Não consegui carregar a imagem que você enviou. Pode mandar de novo?"), o modelo recebe uma nota curta para não inventar o conteúdo e a leitura é repetida uma única vez antes de desistir (corrida de deploy). O worker passa a logar uma linha por falha com id e motivo (`not_found_for_owner`, `empty_uri`, `read_failed:<errno>`), sem caminho nem conteúdo. Api e worker logam o `ATLAS_ARTIFACT_DIR` na subida e avisam alto se, em produção, ele cair no `tmpdir` (fora do volume compartilhado); `docs/deploy-dokploy.md` ganhou a seção do volume `atlas-artifacts`
 - **web:** a compactação aparece só como marcador, e o rascunho revisado não aparece mais na conversa (#108)
 - **worker, agent:** um soluço do banco não derruba o run (retoma do checkpoint), e uma gravação de evento que falha não trava as seguintes (#108)
 - **db:** um run que derruba o worker é interrompido depois de 3 recuperações sem progresso (#108)

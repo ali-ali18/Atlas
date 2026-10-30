@@ -177,6 +177,14 @@ export function createMediaMemo(): MediaMemo {
  * artefato sumiu). O array canônico NÃO é mutado. As partes são resolvidas
  * em paralelo, na mesma ordem.
  */
+/** Nota ao modelo quando a imagem não carregou: curta, sem chutar o conteúdo e sem repetir o pedido que o sistema já fez. */
+function imageUnavailableNote(failure: { current: boolean; notified: boolean } | undefined): string {
+	if (!failure?.current) return "[an image attached earlier in this conversation could not be loaded; do not guess or invent what it shows]";
+	return failure.notified
+		? "[the user attached an image, but it could not be loaded. The system already told the user and asked them to send it again; do not guess or invent what it shows, and do not ask again]"
+		: "[the user attached an image, but it could not be loaded; do not guess or invent what it shows. Tell the user in your own words and ask them to send it again]";
+}
+
 export async function resolveLlmMessagesForModel(
 	messages: LlmMessage[],
 	loadScreenshot?: (artifactId: string) => Promise<string | null>,
@@ -185,6 +193,11 @@ export async function resolveLlmMessagesForModel(
 		canSeeScreenshots?: boolean;
 		loadUserImage?: (artifactId: string) => Promise<string | null>;
 		describeUserImage?: (artifactId: string) => Promise<string | null>;
+		/**
+		 * Imagem que o run deu por perdida (leitura falhou). `current` = anexo deste turno; `notified` = o sistema já
+		 * avisou o usuário (o modelo não repete o pedido). Ausente = nunca falhou (ou falha de histórico não rastreada).
+		 */
+		imageFailure?: (artifactId: string) => { current: boolean; notified: boolean } | undefined;
 		/** O provedor lê PDF como documento; sem isso o PDF vira um aviso para usar attachment_read. */
 		canReadNativePdf?: boolean;
 		loadUserPdf?: (artifactId: string) => Promise<string | null>;
@@ -216,12 +229,14 @@ export async function resolveLlmMessagesForModel(
 	};
 	const resolvePart = async (part: LlmContentPart): Promise<LlmContentPart> => {
 		if (part.type === "image_ref") {
+			const unavailable = (): LlmContentPart => ({ type: "text", text: imageUnavailableNote(options?.imageFailure?.(part.artifactId)) });
 			if (options?.canSeeUserImages) {
 				const dataUrl = await load(`image:${part.artifactId}`, options.loadUserImage, part.artifactId);
-				return dataUrl ? { type: "image_url", image_url: { url: dataUrl } } : { type: "text", text: "[the user attached an image, but it is unavailable]" };
+				return dataUrl ? { type: "image_url", image_url: { url: dataUrl } } : unavailable();
 			}
 			const description = await load(`describe:${part.artifactId}`, options?.describeUserImage, part.artifactId);
-			return { type: "text", text: description ? `[image attached by the user; description by a vision helper: ${description}]` : "[the user attached an image, but this model cannot see images]" };
+			if (description) return { type: "text", text: `[image attached by the user; description by a vision helper: ${description}]` };
+			return options?.imageFailure?.(part.artifactId) ? unavailable() : { type: "text", text: "[the user attached an image, but this model cannot see images]" };
 		}
 		if (part.type === "file_ref") {
 			const dataUrl = options?.canReadNativePdf ? await load(`pdf:${part.artifactId}`, options.loadUserPdf, part.artifactId) : null;

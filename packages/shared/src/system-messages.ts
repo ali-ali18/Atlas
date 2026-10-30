@@ -23,6 +23,8 @@ export type SystemMessages = {
 	autoContinueStatus: string;
 	/** Falha de um lembrete/run proativo: nunca o erro técnico. */
 	proactiveFailure: string;
+	/** Imagem anexada que não carregou do armazenamento (depois de uma nova tentativa): o sistema avisa, não o modelo. */
+	imageUnavailable: string;
 	/** Erro de run traduzido para o usuário (ver `describeRunError`). */
 	runErrors: Record<RunErrorKind, string>;
 };
@@ -56,6 +58,7 @@ export const SYSTEM_MESSAGES: Record<BotLanguage, SystemMessages> = {
 		truncatedToolCall: "A resposta do modelo foi cortada pelo limite de saída várias vezes ao montar a chamada de ferramenta.",
 		autoContinueStatus: "Retomando automaticamente…",
 		proactiveFailure: "Não consegui executar o lembrete agendado agora. Vou tentar de novo mais tarde.",
+		imageUnavailable: "Não consegui carregar a imagem que você enviou. Pode mandar de novo?",
 		runErrors: {
 			rate_limit: "O provedor do modelo está limitando pedidos agora. Tente em alguns minutos ou troque de modelo.",
 			provider_down: "O provedor do modelo está instável ou fora do ar agora. Tente de novo em alguns minutos ou troque de modelo.",
@@ -84,6 +87,7 @@ export const SYSTEM_MESSAGES: Record<BotLanguage, SystemMessages> = {
 		truncatedToolCall: "The model's reply was cut off by the output limit several times while building the tool call.",
 		autoContinueStatus: "Resuming automatically…",
 		proactiveFailure: "I could not run the scheduled reminder right now. I will try again later.",
+		imageUnavailable: "I couldn't load the image you sent. Can you send it again?",
 		runErrors: {
 			rate_limit: "The model provider is limiting requests right now. Try again in a few minutes or switch models.",
 			provider_down: "The model provider is unstable or down right now. Try again in a few minutes or switch models.",
@@ -112,6 +116,7 @@ export const SYSTEM_MESSAGES: Record<BotLanguage, SystemMessages> = {
 		truncatedToolCall: "La respuesta del modelo se cortó varias veces por el límite de salida al montar la llamada a la herramienta.",
 		autoContinueStatus: "Retomando automáticamente…",
 		proactiveFailure: "No he podido ejecutar el recordatorio programado ahora. Lo intentaré de nuevo más tarde.",
+		imageUnavailable: "No pude cargar la imagen que enviaste. ¿Puedes mandarla de nuevo?",
 		runErrors: {
 			rate_limit: "El proveedor del modelo está limitando las solicitudes ahora. Inténtalo en unos minutos o cambia de modelo.",
 			provider_down: "El proveedor del modelo está inestable o caído ahora. Inténtalo de nuevo en unos minutos o cambia de modelo.",

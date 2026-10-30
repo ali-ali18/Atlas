@@ -5040,8 +5040,10 @@ export async function runComputerUse(params: {
 	/** Notas de turno que seguem valendo; vão em todo checkpoint do run para o turno seguinte. */
 	carriedNotes?: import("@workspace/shared").CarriedNote[];
 	canSeeUserImages?: boolean;
-	loadUserImage?: (artifactId: string) => Promise<string | null>;
-	describeUserImage?: (artifactId: string) => Promise<{ description: string | null; costUsd?: number; costUnknown?: boolean }>;
+	/** `retryTransient`: anexo do turno atual, pode repetir a leitura uma vez em falha transitória (o worker decide); histórico não repete. */
+	loadUserImage?: (artifactId: string, options?: { retryTransient?: boolean }) => Promise<string | null>;
+	/** `loadFailed`: a leitura da imagem falhou (≠ sem descrição porque não há modelo de apoio). */
+	describeUserImage?: (artifactId: string, options?: { retryTransient?: boolean }) => Promise<{ description: string | null; costUsd?: number; costUnknown?: boolean; loadFailed?: boolean }>;
 	/** Arquivos que o usuário anexou (PDF, Office, planilha, texto, zip...). */
 	attachments?: AttachmentRuntime;
 	persistScreenshot?: (pngBase64: string) => Promise<string>;
@@ -5139,8 +5141,19 @@ export async function runComputerUse(params: {
 	 */
 	backgroundObserveChecks?: boolean;
 }): Promise<RunComputerUseResult> {
-	const { apiKey, messages, botId, onEvent } =
+	const { apiKey, messages, botId, onEvent: emitEvent } =
 		params;
+	// Aviso de imagem anexada que não carregou (ver `loadUserImageOnce`): fica aqui para o `onEvent` existir desde o começo.
+	let imageNoticePending = false;
+	let imageNoticeStepId: string | undefined;
+	// Se o passo que levou o aviso virou rascunho descartado (portão de revisão), o aviso vai de novo no passo seguinte.
+	const onEvent = (event: ComputerUseEvent): void | Promise<void> => {
+		if (event.type === "assistant_discard" && imageNoticeStepId !== undefined && event.id === imageNoticeStepId) {
+			imageNoticePending = true;
+			imageNoticeStepId = undefined;
+		}
+		return emitEvent(event);
+	};
 	// `let`: o modelo para código troca o modelo do run entre passos (ver `applyCodingModel`).
 	let model = params.model;
 	// `let`: o nível de dificuldade troca modelo e reservas (ver `applyTier`).
@@ -6727,6 +6740,29 @@ export async function runComputerUse(params: {
 	// (Sem fatiar por parágrafo: N balões simultâneos embaralhavam a leitura.)
 	// Mídia do histórico (screenshots, imagens, PDFs) carregada uma vez por run, não a cada passo.
 	const mediaMemo = createMediaMemo();
+	// Imagem anexada que não carrega. Anexo do turno atual: o loader repete a leitura uma vez se a falha for transitória
+	// (api e worker trocando de versão) e, se perder, o run desiste dela e o sistema avisa o usuário uma vez, no idioma
+	// dele (ver `streamStep`). Imagem de turno antigo que sumiu do disco: só null (o worker loga), sem espera nem aviso.
+	const currentImageIds = new Set(params.userImageArtifactIds ?? parsedCheckpoint?.userImageArtifactIds ?? []);
+	const failedCurrentImages = new Set<string>();
+	const failedHistoryImages = new Set<string>();
+	const imageFailed = (artifactId: string) => failedCurrentImages.has(artifactId) || failedHistoryImages.has(artifactId);
+	const recordImageFailure = (artifactId: string) => {
+		if (!currentImageIds.has(artifactId)) {
+			failedHistoryImages.add(artifactId);
+			return;
+		}
+		if (!failedCurrentImages.has(artifactId)) imageNoticePending = true;
+		failedCurrentImages.add(artifactId);
+	};
+	const loadUserImageOnce = params.loadUserImage
+		? async (artifactId: string): Promise<string | null> => {
+			if (imageFailed(artifactId)) return null;
+			const dataUrl = await params.loadUserImage!(artifactId, { retryTransient: currentImageIds.has(artifactId) });
+			if (!dataUrl) recordImageFailure(artifactId);
+			return dataUrl;
+		}
+		: undefined;
 	const streamStep = async (
 		history: LlmMessage[],
 		toolChoice: "auto" | "none",
@@ -6774,11 +6810,18 @@ export async function runComputerUse(params: {
 			{
 				canSeeUserImages: params.canSeeUserImages,
 				canSeeScreenshots: canSeeImages,
-				loadUserImage: params.loadUserImage,
+				loadUserImage: loadUserImageOnce,
 				canReadNativePdf: params.attachments?.canReadNativePdf === true,
 				loadUserPdf: params.attachments?.loadPdfDataUrl,
+				imageFailure: (artifactId) => {
+					if (!imageFailed(artifactId)) return undefined;
+					const current = failedCurrentImages.has(artifactId);
+					return { current, notified: current && ((emitPublic && !options?.closing) || !imageNoticePending) };
+				},
 				describeUserImage: params.describeUserImage ? async (artifactId) => {
-					const result = await params.describeUserImage!(artifactId);
+					if (imageFailed(artifactId)) return null;
+					const result = await params.describeUserImage!(artifactId, { retryTransient: currentImageIds.has(artifactId) });
+					if (result.loadFailed) recordImageFailure(artifactId);
 					if (result.costUsd !== undefined) usageTotals = addUsage(usageTotals, { costUsd: result.costUsd });
 					else if (result.costUnknown) usageTotals = addUsage(usageTotals, { costUnknownCalls: 1 });
 					return result.description;
@@ -6786,6 +6829,15 @@ export async function runComputerUse(params: {
 				memo: mediaMemo,
 			},
 		);
+		// Aviso honesto de imagem que não carregou: texto do sistema (dicionário por idioma) no começo da fala do passo,
+		// ao vivo e na resposta gravada, uma vez por run. Sem card novo: o chat já mostra o texto do assistente.
+		let imageNotice = "";
+		if (imageNoticePending && emitPublic && !options?.closing) {
+			imageNoticePending = false;
+			imageNoticeStepId = messageId;
+			imageNotice = `${systemMessages(language).imageUnavailable}\n\n`;
+			emitSegment(imageNotice);
+		}
 		const effectiveTools = reserveRestrict ? tools.filter((tool) => FILE_RESERVE_TOOLS.includes(tool.function.name)) : tools;
 		lastStepInspect = stepInspector.step({ messages: withNotes, tools: effectiveTools, contextLength: contextLength ?? undefined });
 		const callStartedAt = performance.now();
@@ -6855,7 +6907,7 @@ export async function runComputerUse(params: {
 		usageTotals = addUsage(usageTotals, stepUsage);
 		lastStepTokens = stepUsage.totalTokens;
 		return {
-			content: result.message.content ?? collected,
+			content: `${imageNotice}${result.message.content ?? collected}`,
 			// Ids prefixados com o run ao nascer: o que vai ao modelo nos passos e turnos seguintes é byte a byte o que fica gravado (prefixo de cache estável).
 			toolCalls: (result.message.tool_calls ?? []).map((call) => ({ ...call, id: namespaceToolCallId(call.id, runId) })),
 			providerItems: renameProviderItemCallIds(result.message.providerItems, (id) => namespaceToolCallId(id, runId)),
