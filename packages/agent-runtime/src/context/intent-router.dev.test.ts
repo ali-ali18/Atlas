@@ -86,3 +86,32 @@ describe("grupo dev (pedidos de código)", () => {
 		expect(falsePositives).toEqual([]);
 	});
 });
+
+/** Prévia privada: pedido de ver o projeto web rodando carrega o grupo `dev` (preview_start) no passo 1. */
+describe("grupo dev: ver o projeto rodando", () => {
+	it.each([
+		"roda aí e me mostra",
+		"roda isso e me mostra como ficou",
+		"quero ver o site rodando",
+		"quero ver ele funcionando",
+		"me mostra o app rodando",
+		"abre o site que você fez",
+		"preview do site",
+		"me manda o link pra eu ver",
+		"quero ver isso no celular",
+		"run it and show me",
+	])("ativa para: %s", (text) => {
+		expect(routeContextGroups({ text }).has("dev")).toBe(true);
+	});
+	it.each([
+		"Bom dia",
+		"abre o site da prefeitura",
+		"quero ver o extrato do mês",
+		"me mostra o relatório de vendas",
+		"roda o relatório e me manda por e-mail",
+		"mostra o preview do e-mail antes de enviar",
+		"qual o link do artigo?",
+	])("não ativa para: %s", (text) => {
+		expect(routeContextGroups({ text }).has("dev")).toBe(false);
+	});
+});

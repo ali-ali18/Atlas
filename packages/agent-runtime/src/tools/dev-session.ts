@@ -13,9 +13,10 @@ import {
 	type EnvCacheAction,
 	type EnvCacheDecision,
 } from "@workspace/sandbox";
+import { PREVIEW_TOOLS, previewLinkConfigFromEnv, startPreview, stopPreview, type PreviewLinkConfig } from "./preview.js";
 import { CACHE_PROBE_SCRIPT, CACHE_RESTORE_SCRIPT, CACHE_SAVE_SCRIPT, CACHE_WIPE_SCRIPT, cacheNote, cacheStateOf, parseCacheProbe } from "./dev-env-cache.js";
 import { egressPolicyFor, formatEnvironment, INSTALL_SCRIPT, parseEnvironmentGetArgs, START_RUNNING_CHECK, START_SCRIPT, type DevEnvironmentRuntime } from "./dev-environment.js";
-import type { DevApprovalCardInfo, DevApprovalMode, DevSetupCacheState } from "@workspace/shared";
+import type { DevApprovalCardInfo, DevApprovalMode, DevSessionPreview, DevSetupCacheState } from "@workspace/shared";
 import type { AutonomyToolMeta, ComputerUseEvent, DevCiCheck, DevPrInfo, DevSessionEvent, DevShellEndedReason, DevTodoItemValue, EffectiveAutonomy } from "@workspace/shared";
 import { createHash } from "node:crypto";
 import {
@@ -135,6 +136,8 @@ export const DEV_SESSION_TOOL_NAMES = [
 	"dev_pr_checkout",
 	"dev_ci_status",
 	"dev_ci_logs",
+	"preview_start",
+	"preview_stop",
 ] as const;
 export type DevSessionToolName = (typeof DEV_SESSION_TOOL_NAMES)[number];
 
@@ -162,6 +165,8 @@ const TOOL_CLASS: Record<DevSessionToolName, AutonomyToolMeta["actionClass"]> = 
 	dev_pr_checkout: "write",
 	dev_ci_status: "read",
 	dev_ci_logs: "read",
+	preview_start: "write",
+	preview_stop: "write",
 };
 
 /** Somente leitura: o que um subagente pode receber (se o pai pedir). */
@@ -514,6 +519,7 @@ export const DEV_SESSION_TOOLS: ChatTool[] = [
 			},
 		},
 	},
+	...PREVIEW_TOOLS,
 ];
 
 // ---------------------------------------------------------------------------
@@ -533,12 +539,14 @@ export type DevSessionRow = {
 	todos: DevTodoItemValue[];
 	/** Pull request atual da sessão (aberto pelo agente ou obtido com dev_pr_checkout). */
 	pr?: (DevPrInfo & { headSha?: string }) | null;
+	/** Prévia privada ativa (link para o dono abrir o projeto web da sessão). */
+	preview?: DevSessionPreview | null;
 };
 
 export interface DevSessionStore {
 	create(input: { userId: string; conversationId: string; tier: DevTier; repo?: string; branch?: string; baseBranch?: string }): Promise<DevSessionRow>;
 	findForConversation(conversationId: string, userId: string): Promise<DevSessionRow | null>;
-	update(id: string, patch: Partial<Pick<DevSessionRow, "status" | "tier" | "repo" | "branch" | "baseBranch" | "containerId" | "todos" | "pr">> & { lastError?: string | null; touch?: boolean }): Promise<void>;
+	update(id: string, patch: Partial<Pick<DevSessionRow, "status" | "tier" | "repo" | "branch" | "baseBranch" | "containerId" | "todos" | "pr" | "preview">> & { lastError?: string | null; touch?: boolean }): Promise<void>;
 }
 
 /** Pedido de segredos ao usuário: devolve o cartão (confirm) e guarda a intenção pendente. */
@@ -638,6 +646,10 @@ export type DevSessionRuntimeDeps = {
 	/** Injetável em teste: fetch usado nas chamadas à API do GitHub. */
 	githubFetch?: PullCiFetch;
 	signal?: AbortSignal;
+	/** Domínio das prévias e origem do Atlas; ausente = lê do ambiente; `null` = prévia desligada. */
+	preview?: PreviewLinkConfig | null;
+	/** Injetável em teste: a porta responde de fora do container? */
+	previewReachable?: (host: string, port: number) => Promise<boolean>;
 	/** Injetáveis em teste. */
 	makeClient?: (endpoint: DevEndpoint) => DevClient;
 	now?: () => number;
@@ -2294,6 +2306,30 @@ ${TODO_REMINDER}` };
 					return { summary: await ciStatus(args) };
 				case "dev_ci_logs":
 					return { summary: await ciLogs(args) };
+				case "preview_start": {
+					const { row, client } = await active();
+					const endpoint = cached?.endpoint;
+					if (!endpoint) throw new Error("O ambiente de código não está pronto. Chame dev_session_start e tente de novo.");
+					return {
+						summary: await startPreview(
+							{
+								link: deps.preview === undefined ? previewLinkConfigFromEnv() : deps.preview,
+								connectMode: deps.config.connectMode,
+								sessionId: row.id,
+								endpoint,
+								client,
+								now,
+								...(deps.previewReachable ? { reachable: deps.previewReachable } : {}),
+								save: (preview) => deps.store.update(row.id, { preview, touch: true }),
+							},
+							args,
+						),
+					};
+				}
+				case "preview_stop": {
+					const row = await requireSession();
+					return { summary: await stopPreview({ save: (preview) => deps.store.update(row.id, { preview, touch: true }) }, Boolean(row.preview)) };
+				}
 				case "todo_write": {
 					const items = parseTodoItems(args.items);
 					const merge = args.merge === true;

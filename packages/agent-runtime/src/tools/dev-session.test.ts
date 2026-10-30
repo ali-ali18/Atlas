@@ -148,7 +148,7 @@ function snapshot(partial: Partial<DevExecSnapshot>): DevExecSnapshot {
 	};
 }
 
-function setup(options: { polls?: DevExecSnapshot[]; queued?: boolean; existing?: Partial<DevSessionRow> | null; token?: string | null; environment?: DevEnvironmentRuntime | null; config?: Partial<ReturnType<typeof loadDevSandboxConfig>>; execResult?: (cmd: string) => Partial<DevExecSnapshot>; autoEnv?: boolean; secretsGate?: boolean; now?: () => number; diagnostics?: boolean | { settleMs?: number; debounceMs?: number }; startCwd?: string } = {}) {
+function setup(options: { polls?: DevExecSnapshot[]; queued?: boolean; existing?: Partial<DevSessionRow> | null; token?: string | null; environment?: DevEnvironmentRuntime | null; config?: Partial<ReturnType<typeof loadDevSandboxConfig>>; execResult?: (cmd: string) => Partial<DevExecSnapshot>; autoEnv?: boolean; secretsGate?: boolean; now?: () => number; diagnostics?: boolean | { settleMs?: number; debounceMs?: number }; startCwd?: string; preview?: { baseDomain: string; atlasUrl: string } | null; reachable?: boolean } = {}) {
 	const egressCalls: Array<{ mode: string; allowlist: string[] }> = [];
 	const events: DevSessionEvent[] = [];
 	const execStarts: Array<{ cmd: string; env?: Record<string, string>; cwd?: string }> = [];
@@ -221,7 +221,7 @@ function setup(options: { polls?: DevExecSnapshot[]; queued?: boolean; existing?
 		userId: "u1",
 		conversationId: "c1",
 		provider,
-		config: { ...loadDevSandboxConfig({ DEV_SANDBOX_ENABLED: "true" }), cacheEnabled: false, ...options.config },
+		config: { ...loadDevSandboxConfig({ DEV_SANDBOX_ENABLED: "true", DEV_SANDBOX_CONNECT_MODE: "network" }), cacheEnabled: false, ...options.config },
 		getEnvironment: async (_u: string, repo: string) => options.environment ?? savedEnvs.get(repo) ?? null,
 		...(options.autoEnv
 			? {
@@ -258,6 +258,8 @@ function setup(options: { polls?: DevExecSnapshot[]; queued?: boolean; existing?
 		sleep: async () => undefined,
 		queueWaitMs: 0,
 		...(options.now ? { now: options.now } : {}),
+		...(options.preview !== undefined ? { preview: options.preview } : {}),
+		...(options.reachable !== undefined ? { previewReachable: async () => options.reachable! } : {}),
 		...(options.diagnostics !== undefined ? { afterEditDiagnostics: options.diagnostics } : {}),
 	});
 	return { runtime, events, client, provider, store, execStarts, updates, egressCalls, savedEnvs, gateCalls, getRow: () => row };
@@ -1049,5 +1051,56 @@ describe("runtime: janela da região editada no resultado", () => {
 		expect(edit.summary).toContain("Erro de sintaxe introduzido por esta edição: JSON inválido");
 		const clean = await t.runtime.execute("edit_file", { path: "b.json", old: "a", new: "b" }, "ct");
 		expect(clean.summary).not.toContain("sintaxe");
+	});
+});
+
+describe("runtime: preview_start e preview_stop", () => {
+	const link = { baseDomain: "preview.example.com", atlasUrl: "https://atlas.example.com" };
+
+	it("registra a prévia na sessão e devolve o link do Atlas (sem endereço interno)", async () => {
+		const t = setup({ preview: link, reachable: true, now: () => Date.UTC(2026, 9, 30, 12) });
+		const { summary } = await t.runtime.execute("preview_start", { port: 5173 }, "p1");
+		expect(summary).toContain("https://atlas.example.com/v1/previews/s1/open");
+		expect(summary).not.toMatch(/x:3090|127\.0\.0\.1|localhost:/);
+		expect(t.updates.at(-1)).toMatchObject({ preview: { port: 5173, path: "/" }, touch: true });
+		expect(t.getRow()?.preview?.expiresAt).toBe(new Date(Date.UTC(2026, 9, 30, 13)).toISOString());
+	});
+
+	it("porta fora da faixa e porta de controle falham antes de gravar", async () => {
+		const t = setup({ preview: link, reachable: true });
+		await expect(t.runtime.execute("preview_start", { port: 3090 }, "p2")).rejects.toThrow(/port must be/);
+		await expect(t.runtime.execute("preview_start", { port: 22 }, "p3")).rejects.toThrow(/port must be/);
+		expect(t.updates.some((u) => "preview" in u)).toBe(false);
+	});
+
+	it("sem domínio configurado ou com portas publicadas: erro honesto, nada gravado", async () => {
+		const off = setup({ preview: null, reachable: true });
+		await expect(off.runtime.execute("preview_start", { port: 5173 }, "p4")).rejects.toThrow(/not available on this server/);
+		const published = setup({ preview: link, reachable: true, config: { connectMode: "published" } });
+		await expect(published.runtime.execute("preview_start", { port: 5173 }, "p5")).rejects.toThrow(/not available on this server/);
+		expect(off.updates.some((u) => "preview" in u)).toBe(false);
+		expect(published.updates.some((u) => "preview" in u)).toBe(false);
+	});
+
+	it("servidor só no loopback: a dica manda ligar em 0.0.0.0", async () => {
+		const t = setup({ preview: link, reachable: false, execResult: () => ({ stdout: "LOOPBACK_UP\n" }) });
+		await expect(t.runtime.execute("preview_start", { port: 5173 }, "p6")).rejects.toThrow(/0\.0\.0\.0/);
+		expect(t.execStarts.at(-1)?.cmd).toContain("/dev/tcp/127.0.0.1/5173");
+	});
+
+	it("preview_stop limpa; sem sessão ativa a tool falha como as demais", async () => {
+		const t = setup({ preview: link, reachable: true });
+		await t.runtime.execute("preview_start", { port: 5173 }, "p7");
+		const { summary } = await t.runtime.execute("preview_stop", {}, "p8");
+		expect(summary).toMatch(/closed/);
+		expect(t.updates.at(-1)).toMatchObject({ preview: null });
+		const none = setup({ preview: link, existing: null });
+		await expect(none.runtime.execute("preview_stop", {}, "p9")).rejects.toThrow(/Nenhuma sessão/);
+	});
+
+	it("são tools de escrita (autonomia) e ficam fora de webhook/subagente", () => {
+		expect(devSessionAutonomyMeta("preview_start")).toEqual({ actionClass: "write", tool: "preview_start", host: true });
+		expect(devSessionAllowedForOrigin("preview_start", "webhook")).toBe(false);
+		expect(devSessionAllowedForOrigin("preview_stop", "subagent")).toBe(false);
 	});
 });
