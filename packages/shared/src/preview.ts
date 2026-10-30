@@ -60,7 +60,9 @@ export function normalizePreviewPath(raw: unknown): string | null {
 
 /** Domínio-base da prévia (`preview.example.com`, aceita `:porta`); `null` se vazio ou inválido. */
 export function normalizePreviewBaseDomain(raw: string | undefined | null): string | null {
-	const text = raw?.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/^\*\./, "");
+	let text = raw?.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^\*\./, "") ?? "";
+	// Barras finais sem regex (`/\/+$/` é polinomial em "////…x"; o valor vem do ambiente, mas o custo é nulo).
+	while (text.endsWith("/")) text = text.slice(0, -1);
 	if (!text) return null;
 	return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?::\d{1,5})?$/.test(text) ? text : null;
 }
