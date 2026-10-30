@@ -12,8 +12,10 @@ import type { AvatarDesired } from "./avatar-activity";
 export const GOVERNOR_TUNING = {
 	/** Tempo mínimo em cada estado (ms) antes de trocar por outro. */
 	minDwellMs: 1200,
-	/** Anel de progresso depois de cada passo novo (ms). Maior que `minDwellMs`, para o estado seguinte entrar sem espera extra. */
-	progressFlashMs: 1300,
+	/** Anel de progresso depois de um passo novo (ms). O corpo vira anel e volta, então não pode ser curto demais. */
+	progressFlashMs: 1000,
+	/** Intervalo mínimo entre dois anéis (ms): sem isso, run com passos rápidos viraria só anel e esconderia Lendo/Programando. */
+	progressCooldownMs: 4000,
 	/** Cara de erro depois de uma ferramenta que falhou (ms). */
 	failedMs: 1800,
 	/** Comemoração ao terminar o run (ms). */
@@ -30,6 +32,7 @@ export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_T
 	let base: AvatarDesired = { state: "idle", step: null, progress: null };
 	let lastStep: number | null = null;
 	let flashUntil = 0;
+	let lastFlashAt = Number.NEGATIVE_INFINITY;
 	let transient: Transient | null = null;
 	let shown: AvatarState = "idle";
 	let shownSince = Number.NEGATIVE_INFINITY;
@@ -43,8 +46,8 @@ export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_T
 		return { state: base.state, urgent: false };
 	}
 
-	/** Só estados de atividade específica (pesquisando, lendo…) seguram a troca. */
-	const holds = () => shown !== "idle" && shown !== "working";
+	/** Só estados de atividade específica (pesquisando, lendo…) seguram a troca; o anel já tem tempo próprio. */
+	const holds = () => shown !== "idle" && shown !== "working" && shown !== "progress";
 
 	function settle(now: number): AvatarSignal {
 		const want = target(now);
@@ -58,13 +61,16 @@ export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_T
 	}
 
 	return {
-		/** O que o bot quer mostrar (a cada mudança de atividade). Passo novo acende o anel de progresso. */
+		/** O que o bot quer mostrar (a cada mudança de atividade).  */
 		push(desired: AvatarDesired, now: number): void {
 			base = desired;
 			if (desired.step === null) {
 				if (desired.state === "idle") lastStep = null;
 			} else {
-				if (desired.step !== lastStep && desired.progress !== null) flashUntil = now + tuning.progressFlashMs;
+				if (desired.step !== lastStep && desired.progress !== null && now - lastFlashAt >= tuning.progressCooldownMs) {
+					flashUntil = now + tuning.progressFlashMs;
+					lastFlashAt = now;
+				}
 				lastStep = desired.step;
 			}
 		},
@@ -77,6 +83,7 @@ export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_T
 		begin(): void {
 			transient = null;
 			flashUntil = 0;
+			lastFlashAt = Number.NEGATIVE_INFINITY;
 			lastStep = null;
 			// O que estava na tela era do run anterior: não segura o primeiro estado do novo.
 			shownSince = Number.NEGATIVE_INFINITY;

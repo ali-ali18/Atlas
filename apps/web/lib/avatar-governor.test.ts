@@ -86,12 +86,28 @@ test("passo novo acende o anel de progresso com a fração e depois volta à fer
 	// mesmo passo de novo (outro render): sem novo brilho
 	g.push(desired(tool("read_file", 0, 8)), 4000);
 	assert.equal(g.signal(4000).state, "reading");
-	// passo 3 de 8
+	// passo 3 de 8 (depois do intervalo entre anéis)
 	g.push(desired(tool("edit_file", 2, 8)), 6000);
 	const s = g.signal(6000);
 	assert.equal(s.state, "progress");
 	assert.equal(s.progress, 3 / 8);
 	assert.equal(g.signal(6000 + T.progressFlashMs).state, "coding");
+});
+
+test("passos rápidos não viram só anel: no máximo um anel por intervalo, com a fração do passo mais recente", () => {
+	const g = createAvatarGovernor();
+	g.push(desired(tool("navigate", 0, 8)), 0);
+	assert.equal(g.signal(0).state, "progress");
+	assert.equal(g.signal(T.progressFlashMs).state, "searching");
+	g.push(desired(tool("read_file", 1, 8)), 1500);
+	g.push(desired(tool("edit_file", 2, 8)), 3000);
+	assert.equal(g.signal(3000).state, "coding", "dentro do intervalo não acende o anel");
+	// passou o intervalo entre anéis e a permanência do estado atual
+	const later = T.progressCooldownMs + 200;
+	g.push(desired(tool("shell", 3, 8)), later);
+	const s = g.signal(later);
+	assert.equal(s.state, "progress");
+	assert.equal(s.progress, 4 / 8);
 });
 
 test("sem total de passos não há anel", () => {
