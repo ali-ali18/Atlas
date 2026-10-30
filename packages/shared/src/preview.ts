@@ -6,6 +6,8 @@
 
 /** Vida máxima de uma prévia desde o início (ou desde o último `preview_start`). */
 export const PREVIEW_TTL_MS = 60 * 60_000;
+/** Cabeçalho que só a API de prévias envia (em toda resposta dela): a configuração da prévia o usa para reconhecer o Atlas. */
+export const PREVIEW_PROBE_HEADER = "x-atlas-preview";
 export const PREVIEW_MIN_PORT = 1024;
 export const PREVIEW_MAX_PORT = 65535;
 /** Portas de controle do container (servidor da sessão e proxy/gateway de saída): nunca expostas. */
@@ -18,7 +20,23 @@ export type DevSessionPreview = {
 	path: string;
 	startedAt: string;
 	expiresAt: string;
+	/**
+	 * Só no modo básico: o servidor do projeto já serve sob `/v1/previews/<id>/p/` (ex.: `vite --base`), então o proxy
+	 * repassa o caminho com o prefixo. Sem isso o prefixo é tirado antes de repassar (servidor estático, caminhos relativos).
+	 */
+	basePrefixed?: boolean;
+	/**
+	 * Só no modo básico: segredo aleatório que vai no CAMINHO (`/v1/previews/<id>/p/<cap>/...`) e autentica a prévia sem cookie
+	 * (a origem opaca do sandbox é cross-origin ao Atlas: scripts `type=module`/`crossorigin`, fontes e `fetch` saem sem credenciais).
+	 * Gerado a cada `preview_start`, vence com a prévia e some com `preview_stop`.
+	 */
+	cap?: string;
+	/** Quando o `cap` foi emitido (ISO). O `cap` morre `PREVIEW_CAP_MAX_LIFETIME_MS` depois, mesmo que a prévia seja renovada. */
+	capIssuedAt?: string;
 };
+
+/** Vida máxima de um `cap` desde a emissão: renovar a prévia (`preview_start`) não o estende além disso; passado o prazo nasce um novo. */
+export const PREVIEW_CAP_MAX_LIFETIME_MS = 4 * 60 * 60_000;
 
 export function isPreviewPort(port: unknown): port is number {
 	return (
@@ -62,10 +80,57 @@ export function previewOrigin(input: { scheme: "http" | "https"; baseDomain: str
 	return `${input.scheme}://${input.id}.${input.baseDomain}`;
 }
 
+/**
+ * Modo básico (sem domínio de prévia): a prévia vive na origem do Atlas sob este prefixo, mas o documento roda numa
+ * origem opaca (CSP `sandbox` sem `allow-same-origin`), então não alcança o cookie de login. O `cap` (segredo da prévia) faz
+ * parte do caminho: URLs relativas o mantêm sozinhas e nenhum cookie é necessário.
+ */
+export function previewBasicPrefix(id: string, cap?: string): string {
+	return cap ? `/v1/previews/${id}/p/${cap}/` : `/v1/previews/${id}/p/`;
+}
+
+/** O `cap` vale por `PREVIEW_CAP_MAX_LIFETIME_MS` desde a emissão, mesmo que a prévia seja renovada; sem data de emissão não vale. */
+export function previewCapIsLive(issuedAt: string | undefined, now: number): boolean {
+	const issued = issuedAt ? Date.parse(issuedAt) : Number.NaN;
+	return Number.isFinite(issued) && issued <= now + 60_000 && now - issued < PREVIEW_CAP_MAX_LIFETIME_MS;
+}
+
+/** Forma do `cap`: 24 bytes aleatórios em base64url. */
+export const PREVIEW_CAP_PATTERN = /^[A-Za-z0-9_-]{32}$/;
+
+const PREVIEW_BASIC_PATH = /^\/v1\/previews\/([a-z0-9]{20,40})\/p(?:\/([^/]*)(\/.*)?)?$/;
+
+/** `/v1/previews/<id>/p/<cap>[/resto]` → id, cap (`""` se faltar) e resto (sempre começa com `/`); `null` se o caminho não é do modo básico. */
+export function parsePreviewBasicPath(pathname: string): { id: string; cap: string; rest: string } | null {
+	const match = PREVIEW_BASIC_PATH.exec(pathname);
+	return match ? { id: match[1]!, cap: match[2] ?? "", rest: match[3] ?? "/" } : null;
+}
+
+/** O resto repassado ao projeto não pode escapar do prefixo nem conter separadores ambíguos (`//`, `\`, `%2f`, `%5c`, `..`/`%2e`, NUL/controle). */
+export function isSafePreviewRest(rest: string): boolean {
+	// eslint-disable-next-line no-control-regex
+	if (rest.includes("//") || rest.includes("\\") || /%(?:2f|5c|00|0a|0d)/i.test(rest) || /[\u0000-\u001f\u007f]/.test(rest)) return false;
+	return !rest.split("/").some((segment) => /^(?:\.|%2e){1,2}$/i.test(segment));
+}
+
+const PREVIEW_CAP_IN_TEXT = /(\/v1\/previews\/[a-z0-9]{20,40}\/p\/)[^/\s?#"'`<>\\]+/g;
+
+/** Mascara o `cap` em qualquer texto (URL de evento do Sentry, saída de comando, log): `/p/<cap>/x` → `/p/:cap/x`. */
+export function redactPreviewUrls(text: string): string {
+	return text.replace(PREVIEW_CAP_IN_TEXT, "$1:cap");
+}
+
+/** Tira o `cap` do caminho para log/telemetria (`/p/<cap>/x` → `/p/:cap/x`). */
+export function redactPreviewPath(path: string): string {
+	return path.replace(/^(\/v1\/previews\/[a-z0-9]{20,40}\/p\/)[^/]+/, "$1:cap");
+}
+
 /** Sufixos de dois níveis comuns (heurística simples; não é a lista pública de sufixos completa). */
 const TWO_LEVEL_SUFFIXES = new Set([
 	"com.br", "net.br", "org.br", "gov.br", "edu.br", "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au",
 	"co.jp", "co.nz", "co.za", "com.mx", "com.ar", "com.co", "com.pt", "com.cn", "co.in", "com.tr", "com.sg",
+	// Sufixos privados da Public Suffix List (cada `<nome>.dedyn.io` é um site separado para o navegador).
+	"dedyn.io", "duckdns.org", "github.io", "pages.dev", "workers.dev", "vercel.app", "netlify.app", "herokuapp.com", "web.app", "firebaseapp.com",
 ]);
 
 /** Domínio registrável aproximado (últimos 2 rótulos, ou 3 em sufixos de dois níveis conhecidos). Sem porta. */

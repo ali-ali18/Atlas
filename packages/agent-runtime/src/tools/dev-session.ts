@@ -65,6 +65,7 @@ import {
 	parseEnvUpdateArgs,
 	parseLocalProbeOutput,
 	parseRequestSecretsArgs,
+	redactPreviewUrls,
 	planEnvironmentUpdate,
 	secretsRequestTitle,
 	tierChangeNote,
@@ -713,7 +714,13 @@ export function createDevSessionRuntime(deps: DevSessionRuntimeDeps) {
 	let activeSessionId: string | undefined;
 	let callsSinceTodo = 0;
 
-	const redact = (text: string) => redactSecrets(text, secrets);
+	/** Segredos de caminho da prévia (modo básico) desta sessão: saem de toda saída que o modelo vê e que vai para a conversa. */
+	const previewCaps = new Set<string>();
+	const redact = (text: string) => {
+		let out = redactPreviewUrls(redactSecrets(text, secrets));
+		for (const cap of previewCaps) out = out.split(cap).join("<preview-cap>");
+		return out;
+	};
 
 	/** Repo da sessão em uso (owner/nome): o token do GitHub App é escopado por repositório. */
 	let currentRepo: string | undefined;
@@ -2310,17 +2317,22 @@ ${TODO_REMINDER}` };
 					const { row, client } = await active();
 					const endpoint = cached?.endpoint;
 					if (!endpoint) throw new Error("O ambiente de código não está pronto. Chame dev_session_start e tente de novo.");
+					if (row.preview?.cap) previewCaps.add(row.preview.cap);
 					return {
 						summary: await startPreview(
 							{
 								link: deps.preview === undefined ? previewLinkConfigFromEnv() : deps.preview,
 								connectMode: deps.config.connectMode,
 								sessionId: row.id,
+								current: row.preview ?? null,
 								endpoint,
 								client,
 								now,
 								...(deps.previewReachable ? { reachable: deps.previewReachable } : {}),
-								save: (preview) => deps.store.update(row.id, { preview, touch: true }),
+								save: (preview) => {
+									if (preview?.cap) previewCaps.add(preview.cap);
+									return deps.store.update(row.id, { preview, touch: true });
+								},
 							},
 							args,
 						),

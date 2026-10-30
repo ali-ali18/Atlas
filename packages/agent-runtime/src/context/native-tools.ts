@@ -56,6 +56,12 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 		hint: "start a coding session (separate Linux container with git, node, python): clone a repo, read and edit code, run tests and builds, test pull requests, and give the user a private link to see a web project running",
 		keywords: ["code", "codigo", "coding", "repo", "repositorio", "repository", "git", "github", "branch", "commit", "pull request", "pr", "test", "testes", "build", "compile", "pnpm", "npm", "bug", "refactor", "refatorar", "implement", "implementar", "typecheck", "lint"],
 	},
+	preview_setup: {
+		tools: ["preview_setup"],
+		hint: "(server admin only) set up the full live preview: separate domain, wildcard DNS, HTTPS certificate, route, variable and restart, step by step",
+		// Só termos do assunto prévia: "dns", "https" ou "certificado" soltos são conversa comum e carregariam o grupo à toa.
+		keywords: ["preview_setup", "previa completa", "full preview", "dominio da previa", "preview domain", "configurar previa"],
+	},
 	desktop: {
 		tools: ["click", "type", "key", "scroll"],
 		hint: "act by screen coordinates or keyboard shortcuts, only for apps outside the browser, canvas or drag",

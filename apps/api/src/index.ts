@@ -4,7 +4,6 @@
 import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { accountChatgptGate, ensureGithubRepoHook } from "@workspace/agent-runtime";
 import {
 	closeRunSignals,
@@ -18,13 +17,10 @@ import {
 	createRoutineQueue,
 } from "@workspace/queue";
 import { loadConfig } from "./config.js";
-import { rateLimitByIp } from "./middleware/rate-limit.js";
-import { requireUser } from "./middleware/auth.js";
-import { jsonBodyLimit } from "./middleware/json-body-limit.js";
-import { apiCompress } from "./middleware/compress.js";
+import { registerEdgeMiddleware } from "./middleware/edge.js";
 import { auth, authProviders, isOwnerEmail } from "./auth.js";
 import { createViewerUpgradeHandler } from "./routes/sandbox-viewer.js";
-import { createPreviewOpenRoutes, createPreviewService, createUpgradeDispatcher, loadPreviewConfig, previewConfigProblem } from "./routes/previews.js";
+import { createPreviewBasicRoutes, createPreviewOpenRoutes, createPreviewService, createUpgradeDispatcher, loadPreviewConfig, previewBootLog } from "./routes/previews.js";
 import { createChatRoutes } from "./routes/chat.js";
 import { createDevSessionRoutes } from "./routes/dev-sessions.js";
 import { createDevEnvironmentRoutes } from "./routes/dev-environments.js";
@@ -39,7 +35,7 @@ import { createAvatarRoutes } from "./routes/avatars.js";
 import { appendConversationMessage, conversationHoldsVm, logArtifactDir, createNotifier, createRedisCoalesce, createRedisPresence, getStrictOwnedConversation, installPushListener } from "@workspace/db";
 import { isVmProtectedFromGuard, noticeVmStopped, type VmGuardDeps } from "./sandbox-guard-notice.js";
 import { createWebPushSender } from "@workspace/mail";
-import { ATLAS_JOB_NAMES, formatMissingEnv, readVapidConfig, vapidProblems } from "@workspace/shared";
+import { ATLAS_JOB_NAMES, formatMissingEnv, readVapidConfig, redactPreviewPath, vapidProblems } from "@workspace/shared";
 import { captureError, currentRequestId, initSentry, installRequestIdLogging } from "@workspace/observability";
 import { requestIdMiddleware } from "./middleware/request-id.js";
 import { createDiagnosticsRoutes } from "./routes/diagnostics.js";
@@ -159,8 +155,10 @@ const app = new Hono();
 
 app.use("/*", requestIdMiddleware);
 app.onError((error, c) => {
-	console.error(`${c.req.method} ${c.req.path} failed`, error);
-	captureError(error, { route: c.req.path, method: c.req.method, request_id: currentRequestId() });
+	// O `cap` da prévia (modo básico) é credencial: nunca vai a log nem a telemetria.
+	const safePath = redactPreviewPath(c.req.path);
+	console.error(`${c.req.method} ${safePath} failed`, error);
+	captureError(error, { route: safePath, method: c.req.method, request_id: currentRequestId() });
 	return c.text("Internal Server Error", 500);
 });
 
@@ -169,38 +167,8 @@ const corsOrigins =
 		.map((origin) => origin.trim())
 		.filter(Boolean) ?? ["http://localhost:3000", "http://127.0.0.1:3000"];
 
-app.use(
-	"/*",
-	cors({
-		origin: corsOrigins,
-		allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-		allowHeaders: [
-			"Content-Type",
-			"Last-Event-ID",
-			"Authorization",
-			"X-Atlas-Hook-Secret",
-			"X-Atlas-Idempotency-Key",
-			"Idempotency-Key",
-			"X-Request-Id",
-		],
-		exposeHeaders: ["X-Atlas-Run-Id", "X-Request-Id"],
-	}),
-);
-
-// gzip/deflate em JSON e texto (listas, conversas); SSE fica de fora (ver middleware/compress.ts).
-// O login (/api/auth/*) fica fora: redirects e cookies do Better Auth passam sem transformação.
-app.use("/v1/*", apiCompress());
-
-app.use("/v1/hooks/*", rateLimitByIp(60, 60_000));
-app.use("/v1/email/inbound/*", rateLimitByIp(120, 60_000));
-app.use("/v1/runs/:id/stream", rateLimitByIp(30, 60_000));
-app.use("/v1/chat/stream", rateLimitByIp(30, 60_000));
-app.use("/v1/events", rateLimitByIp(60, 60_000));
-app.use("/v1/internal/dev-jobs/*", rateLimitByIp(300, 60_000));
-app.use("/v1/avatars/*", rateLimitByIp(120, 60_000));
-app.use("/v1/public/*", rateLimitByIp(60, 60_000));
-app.use("/v1/*", requireUser);
-app.use("/v1/*", jsonBodyLimit);
+// CORS, compressão, limites por IP, login e limite de corpo, nesta ordem (middleware/edge.ts; o teste usa a mesma função).
+registerEdgeMiddleware(app, { corsOrigins });
 
 // Acorda os streams SSE quando o run ganha evento (o worker faz o mesmo no processo dele).
 setRunEventAppendedHook((runId) => void publishRunEventsSignal(runId));
@@ -256,8 +224,8 @@ let pushNotify: ReturnType<typeof createNotifier> | null = null;
 app.route("/", createDevSessionRoutes());
 // Prévia privada: o link do chat passa por aqui (login do Atlas) antes de ir ao domínio separado da prévia.
 const previewConfig = loadPreviewConfig();
-const previewProblem = previewConfigProblem();
-if (previewProblem) console.warn(`[preview] prévia privada DESLIGADA: ${previewProblem}`);
+const previewBoot = previewBootLog();
+if (previewBoot) console[previewBoot.level](previewBoot.message);
 const previewDevConfig = loadDevSandboxConfig();
 const previewProvider = previewConfig && previewDevConfig.enabled && previewDevConfig.connectMode === "network" ? createDockerDevProvider(previewDevConfig) : null;
 const previewDeps = {
@@ -273,6 +241,7 @@ const previewDeps = {
 };
 const previewService = createPreviewService(previewDeps);
 app.route("/", createPreviewOpenRoutes(previewDeps));
+app.route("/", createPreviewBasicRoutes(previewService));
 app.route("/", createDevJobCallbackRoutes());
 app.route("/", createDevEnvironmentRoutes());
 app.route("/", createVaultRoutes());

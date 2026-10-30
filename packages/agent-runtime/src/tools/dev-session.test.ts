@@ -1088,6 +1088,26 @@ describe("runtime: preview_start e preview_stop", () => {
 		expect(t.execStarts.at(-1)?.cmd).toContain("/dev/tcp/127.0.0.1/5173");
 	});
 
+	it("modo básico: o cap fica fora do resumo da tool e some de qualquer saída de comando que o modelo vê (arquivo no ambiente, redação por valor e por URL)", async () => {
+		let cap = "";
+		const t = setup({
+			preview: { baseDomain: null, atlasUrl: "https://atlas.example.com" },
+			reachable: true,
+			execResult: (cmd) => (cmd.includes("preview-base") ? { stdout: "BASE_FILE_OK\n" } : { stdout: `Local: http://x/v1/previews/cmabc123def456ghi789jkl01/p/${cap}/\nsó o valor: ${cap}\n` }),
+		});
+		const { summary } = await t.runtime.execute("preview_start", { port: 5173 }, "b1");
+		cap = t.getRow()!.preview!.cap!;
+		expect(cap).toMatch(/^[A-Za-z0-9_-]{32}$/);
+		expect(summary).not.toContain(cap);
+		expect(summary).toContain("$HOME/.atlas/preview-base");
+		const write = t.execStarts.find((e) => e.cmd.includes("preview-base"))!;
+		expect(write.cmd).toContain(`/v1/previews/s1/p/${cap}/`);
+		const shell = await t.runtime.execute("shell", { cmd: "pnpm test" }, "b2");
+		expect(shell.summary).not.toContain(cap);
+		expect(shell.summary).toContain("<preview-cap>");
+		expect(JSON.stringify(t.events)).not.toContain(cap);
+	});
+
 	it("preview_stop limpa; sem sessão ativa a tool falha como as demais", async () => {
 		const t = setup({ preview: link, reachable: true });
 		await t.runtime.execute("preview_start", { port: 5173 }, "p7");

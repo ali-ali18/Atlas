@@ -934,6 +934,7 @@ export {
 } from "./chart-spec.js";
 export * from "./page-spec.js";
 export * from "./preview.js";
+export * from "./preview-setup.js";
 export * from "./page-groups.js";
 export * from "./model-tiers.js";
 

@@ -15,6 +15,7 @@ const {
 	createPreviewService,
 	createUpgradeDispatcher,
 	loadPreviewConfig,
+	previewBootLog,
 	previewConfigProblem,
 	rewriteUpstreamSetCookie,
 	signPreviewToken,
@@ -177,9 +178,10 @@ test("cookies: o nosso nao segue ao projeto e Set-Cookie perde o Domain", () => 
 	assert.equal(rewriteUpstreamSetCookie(`${PREVIEW_COOKIE}=evil; Path=/`), null);
 });
 
-test("config: exige dominio, ATLAS_URL e segredo; esquema segue o ATLAS_URL", () => {
-	assert.equal(loadPreviewConfig({ ATLAS_URL: "https://a.test", BETTER_AUTH_SECRET: "s" }), null);
+test("config: exige ATLAS_URL e segredo (sem dominio = modo basico); esquema segue o ATLAS_URL", () => {
+	assert.deepEqual(loadPreviewConfig({ ATLAS_URL: "https://a.test", BETTER_AUTH_SECRET: "s" }), { baseDomain: null, atlasUrl: "https://a.test", secret: "s", scheme: "https" });
 	assert.equal(loadPreviewConfig({ ATLAS_PREVIEW_BASE_DOMAIN: "p.test", BETTER_AUTH_SECRET: "s" }), null);
+	assert.equal(loadPreviewConfig({ ATLAS_URL: "https://a.test" }), null);
 	assert.deepEqual(loadPreviewConfig({ ATLAS_PREVIEW_BASE_DOMAIN: "*.P.test", ATLAS_URL: "https://a.test/", BETTER_AUTH_SECRET: "s" }), { baseDomain: "p.test", atlasUrl: "https://a.test", secret: "s", scheme: "https" });
 	assert.equal(loadPreviewConfig({ ATLAS_PREVIEW_BASE_DOMAIN: "p.localhost:3001", ATLAS_URL: "http://localhost:3000", BETTER_AUTH_SECRET: "s" })?.scheme, "http");
 });
@@ -240,6 +242,7 @@ test("auth: token ausente, vencido, de outro usuario ou de outro tipo nao entra"
 	const h = await harness();
 	try {
 		assert.equal((await h.get(PREVIEW_AUTH_PATH)).status, 401);
+		assert.equal((await h.get(PREVIEW_AUTH_PATH)).headers["x-atlas-preview"], "1", "assinatura que a configuração da prévia procura na sonda");
 		const expired = signPreviewToken("open", { previewId: ID, userId: "user-a" }, SECRET, 1, NOW - 10_000);
 		assert.equal((await h.get(`${PREVIEW_AUTH_PATH}?t=${expired}`)).status, 401);
 		const session = signPreviewToken("session", { previewId: ID, userId: "user-a" }, SECRET, 60_000, NOW);
@@ -393,15 +396,16 @@ test("redirect: destino externo e caminho relativo passam como vieram", async ()
 	assert.equal(rewriteToPublicOrigin("http://172.18.0.9:5173/a?b=1", "172.18.0.9", "https://p.test"), "https://p.test/a?b=1");
 });
 
-test("config: dominio da previa igual, pai ou no mesmo site do Atlas deixa o recurso desligado (com escape hatch)", () => {
+test("config: dominio da previa igual, pai ou no mesmo site do Atlas cai no modo basico (com escape hatch)", () => {
 	const base = { BETTER_AUTH_SECRET: "s", ATLAS_URL: "https://atlas.example.com" };
 	for (const domain of ["atlas.example.com", "example.com", "preview.example.com"]) {
-		assert.equal(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: domain }), null, domain);
+		assert.equal(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: domain })?.baseDomain, null, domain);
 		assert.match(previewConfigProblem({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: domain }) ?? "", /domínio/, domain);
 	}
-	assert.notEqual(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "previews.example.net" }), null);
+	assert.equal(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "previews.example.net" })?.baseDomain, "previews.example.net");
+	assert.equal(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "dominio invalido!" })?.baseDomain, null, "inválido: modo básico");
 	assert.equal(previewConfigProblem({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "previews.example.net" }), null);
-	assert.notEqual(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "preview.example.com", ATLAS_PREVIEW_ALLOW_SAME_SITE: "1" }), null);
+	assert.equal(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "preview.example.com", ATLAS_PREVIEW_ALLOW_SAME_SITE: "1" })?.baseDomain, "preview.example.com");
 	assert.equal(previewConfigProblem({ BETTER_AUTH_SECRET: "s" }), null, "sem variável: nada a avisar");
 });
 
@@ -488,4 +492,17 @@ test("upgrade sem viewer e fora do host da previa: 404 limpo, sem calar o socket
 	let viewerCalled = false;
 	createUpgradeDispatcher({ preview: { claimsUpgrade: () => false, handleUpgrade: async () => undefined }, viewer: () => void (viewerCalled = true) })({} as never, socket as never, Buffer.alloc(0));
 	assert.equal(viewerCalled, true);
+});
+
+test("log de boot: diz o modo e o motivo quando o dominio foi definido mas nao serve (cai no basico)", () => {
+	const base = { BETTER_AUTH_SECRET: "s", ATLAS_URL: "https://atlas.example.com" };
+	assert.equal(previewBootLog({ ATLAS_URL: "https://atlas.example.com" }), null, "sem segredo: prévia desligada, nada a dizer aqui");
+	assert.deepEqual(previewBootLog(base), { level: "info", message: "[preview] modo básico (sem ATLAS_PREVIEW_BASE_DOMAIN)" });
+	assert.deepEqual(previewBootLog({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "previews.example.net" }), { level: "info", message: "[preview] modo completo (previews.example.net)" });
+	const invalid = previewBootLog({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "dominio invalido!" });
+	assert.equal(invalid?.level, "warn");
+	assert.match(invalid?.message ?? "", /usando o modo básico: ATLAS_PREVIEW_BASE_DOMAIN inválido/);
+	const sameSite = previewBootLog({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "preview.example.com" });
+	assert.equal(sameSite?.level, "warn");
+	assert.match(sameSite?.message ?? "", /usando o modo básico: .*mesmo site/);
 });
