@@ -207,17 +207,25 @@ Com isto o bot manda um link que abre o projeto que ele está construindo no nav
    `[preview] prévia privada DESLIGADA` no boot) um domínio igual, pai ou no mesmo domínio registrável do `ATLAS_URL`. A checagem é uma heurística (últimos
    2 rótulos, ou 3 em sufixos como `com.br`, sem a lista pública de sufixos): num sufixo de dois níveis que ela não conhece pode errar para os dois lados.
    Escape hatch, por sua conta e risco: `ATLAS_PREVIEW_ALLOW_SAME_SITE=1`.
-2. **DNS curinga.** Registro `*.<domínio-base>` (tipo A/AAAA para o IP do servidor, ou CNAME para o host do Atlas).
-   Na Cloudflare, deixe **sem proxy** (nuvem cinza) se não tiver certificado curinga pago, ou use o proxy se o
-   plano suportar WebSocket em subdomínio curinga.
-3. **Certificado curinga.** O Let's Encrypt só emite `*.<domínio-base>` por DNS-01. No Traefik do Dokploy, configure um
-   `certResolver` com DNS challenge (Cloudflare: variável `CF_DNS_API_TOKEN` com permissão Zone.DNS:Edit só nessa zona) e use-o na rota abaixo.
-   **(confirmar no painel real)**
-4. **Rota no Traefik/Dokploy.** No serviço `api`, adicione um domínio/regra `HostRegexp` para
-   `^[a-z0-9]+\.<domínio-base com pontos escapados>$`, porta `3001`, HTTPS, **sem** prefixo de path. Exemplo de label:
-   `traefik.http.routers.atlas-preview.rule=HostRegexp(`^[a-z0-9]+\.atlas-previews\.app$`)`,
-   `traefik.http.routers.atlas-preview.entrypoints=websecure`, `traefik.http.routers.atlas-preview.tls.certresolver=<resolver>`,
-   `traefik.http.services.atlas-preview.loadbalancer.server.port=3001`. O Traefik repassa WebSocket sozinho (HMR do Vite).
+2. **Escolha do domínio** (os dois caminhos isolam a prévia do Atlas):
+   - **A. Domínio próprio na Cloudflare (recomendado, é o que o Atlas oficial usa).** Compre o domínio na Cloudflare (ex.: `atlas-previa.app`).
+     - DNS: registro `A`, nome `*`, IP da VPS, **proxy ligado** (nuvem laranja). O plano grátis faz proxy de curinga, cobre `*.<domínio>` no
+       certificado de borda e repassa WebSocket.
+     - SSL/TLS → Origin Server → *Create Certificate* (padrão: `*.<domínio>` e `<domínio>`, 15 anos). Cole o certificado e a chave no Dokploy
+       (Settings → Certificates). **Nunca** cole esse conteúdo em chat, issue ou commit.
+     - SSL/TLS → Overview: **Full (strict)** nesta zona.
+   - **B. Grátis, sem comprar domínio: deSEC (`<nome>.dedyn.io`) ou DuckDNS (`<nome>.duckdns.org`).** Os dois estão na Public Suffix List, então
+     `<nome>.dedyn.io` conta como site separado do Atlas para o navegador (a checagem da API aceita). Crie a conta, aponte `*.<nome>.dedyn.io`
+     para o IP da VPS (deSEC: registro `A` curinga; DuckDNS: subdomínios já resolvem para o IP) e emita o certificado curinga no Traefik por DNS-01
+     (provedores `desec` / `duckdns` do Let's Encrypt; token do serviço só no Environment do Traefik). DuckDNS às vezes fica instável; prefira deSEC.
+     Também na Public Suffix List, mas **não** servem: Quick Tunnel (`trycloudflare.com`, só para teste, um endereço aleatório por túnel) e o
+     túnel normal da Cloudflare (só publica dentro de um domínio seu, ou seja, mesmo site do Atlas).
+3. **Rota até a API.** No Dokploy, adicione ao serviço `api` o domínio `*.<domínio-base>`, porta `3001`, HTTPS, **sem** path
+   (no caminho A, com o certificado de origem; no B, com o `certResolver` DNS-01). Se o painel não aceitar curinga, use labels no serviço `api`:
+   `traefik.http.routers.atlas-preview.rule=HostRegexp(`^[a-z0-9]+\.atlas-previa\.app$`)`, `traefik.http.routers.atlas-preview.entrypoints=websecure`,
+   `traefik.http.routers.atlas-preview.tls=true` (caminho B: `...tls.certresolver=<resolver>`),
+   `traefik.http.services.atlas-preview.loadbalancer.server.port=3001` e a rede do Traefik do Dokploy. **(confirmar no painel real)**
+4. O Traefik repassa WebSocket sozinho (HMR do Vite).
 5. **Variável.** No Environment do Dokploy: `ATLAS_PREVIEW_BASE_DOMAIN=<domínio-base>` (sem `https://`, sem curinga). Vale para `api` e `worker`
    (o compose já repassa). Redeploy.
 6. **Pré-requisito do ambiente de código:** `DEV_SANDBOX_CONNECT_MODE=network` (padrão do compose). Com portas publicadas só a porta de controle é
