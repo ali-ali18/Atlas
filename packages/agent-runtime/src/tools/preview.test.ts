@@ -60,13 +60,15 @@ describe("parsePreviewStartArgs", () => {
 });
 
 describe("previewLinkConfigFromEnv / previewOpenUrl", () => {
-	it("exige domínio e ATLAS_URL", () => {
+	it("exige ATLAS_URL; sem domínio (ou inválido/no mesmo site) é o modo básico, igual à API", () => {
 		expect(previewLinkConfigFromEnv({})).toBeNull();
 		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.net" })).toBeNull();
+		expect(previewLinkConfigFromEnv({ ATLAS_URL: "https://a.example.com/" })).toEqual({ baseDomain: null, atlasUrl: "https://a.example.com" });
 		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.net", ATLAS_URL: "https://a.example.com/" })).toEqual({ baseDomain: "p.example.net", atlasUrl: "https://a.example.com" });
-		// Mesmo site do Atlas: desligada, salvo o escape hatch.
-		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.com", ATLAS_URL: "https://a.example.com" })).toBeNull();
-		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.com", ATLAS_URL: "https://a.example.com", ATLAS_PREVIEW_ALLOW_SAME_SITE: "1" })).not.toBeNull();
+		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "dominio inválido!", ATLAS_URL: "https://a.example.com" })?.baseDomain).toBeNull();
+		// Mesmo site do Atlas: modo básico, salvo o escape hatch.
+		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.com", ATLAS_URL: "https://a.example.com" })?.baseDomain).toBeNull();
+		expect(previewLinkConfigFromEnv({ ATLAS_PREVIEW_BASE_DOMAIN: "p.example.com", ATLAS_URL: "https://a.example.com", ATLAS_PREVIEW_ALLOW_SAME_SITE: "1" })?.baseDomain).toBe("p.example.com");
 	});
 	it("o link passa pelo Atlas, nunca por endereço interno", () => {
 		expect(previewOpenUrl(link, "cmabc123def456ghi789jkl01")).toBe("https://atlas.example.com/v1/previews/cmabc123def456ghi789jkl01/open");
@@ -82,10 +84,34 @@ describe("startPreview", () => {
 		expect(summary).not.toMatch(/172\.18|127\.0\.0\.1|localhost:|3090/);
 	});
 
-	it("sem domínio configurado falha com mensagem honesta e não grava nada", async () => {
+	it("sem ATLAS_URL falha com mensagem honesta e não grava nada", async () => {
 		const { context, saved } = ctx({ link: null });
 		await expect(startPreview(context, { port: 5173 })).rejects.toThrow(/not available on this server/);
 		expect(saved).toEqual([]);
+	});
+
+	it("modo básico: link igual, devolve o prefixo, as dicas de base/sandbox e o caminho para a prévia completa; sem base_configured não marca a prévia", async () => {
+		const { context, saved } = ctx({ link: { baseDomain: null, atlasUrl: "https://atlas.example.com" } });
+		const summary = await startPreview(context, { port: 5173 });
+		expect(saved).toEqual([{ port: 5173, path: "/", startedAt: new Date(NOW).toISOString(), expiresAt: new Date(NOW + 3_600_000).toISOString() }]);
+		expect(summary).toContain("Preview ready: https://atlas.example.com/v1/previews/cmabc123def456ghi789jkl01/open");
+		expect(summary).toContain("Mode: basic");
+		expect(summary).toContain("/v1/previews/cmabc123def456ghi789jkl01/p/");
+		expect(summary).toMatch(/vite `--base \/v1\/previews\/cmabc123def456ghi789jkl01\/p\/`/);
+		expect(summary).toMatch(/base_configured:true/);
+		expect(summary).toMatch(/full preview needs a separate domain/);
+		expect(summary).not.toMatch(/172\.18|127\.0\.0\.1|3090/);
+	});
+
+	it("modo básico com base_configured:true grava basePrefixed; no modo completo a opção é ignorada", async () => {
+		const basic = ctx({ link: { baseDomain: null, atlasUrl: "https://atlas.example.com" } });
+		await startPreview(basic.context, { port: 5173, base_configured: true });
+		expect(basic.saved[0]).toMatchObject({ basePrefixed: true });
+		const full = ctx();
+		const summary = await startPreview(full.context, { port: 5173, base_configured: true });
+		expect(full.saved[0]).not.toHaveProperty("basePrefixed");
+		expect(summary).toContain("Mode: full.");
+		expect(summary).not.toMatch(/--base/);
 	});
 
 	it("sem rede compartilhada (portas publicadas) também recusa, sem plano B", async () => {

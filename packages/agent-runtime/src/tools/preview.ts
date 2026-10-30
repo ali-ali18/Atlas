@@ -1,7 +1,7 @@
 import net from "node:net";
 import type { ChatTool } from "@workspace/llm";
 import type { DevClient, DevEndpoint } from "@workspace/sandbox";
-import { isPreviewPort, normalizePreviewBaseDomain, previewBaseDomainConflict, normalizePreviewPath, PREVIEW_MAX_PORT, PREVIEW_MIN_PORT, PREVIEW_TTL_MS, type DevSessionPreview } from "@workspace/shared";
+import { isPreviewPort, normalizePreviewBaseDomain, previewBaseDomainConflict, previewBasicPrefix, normalizePreviewPath, PREVIEW_MAX_PORT, PREVIEW_MIN_PORT, PREVIEW_TTL_MS, type DevSessionPreview } from "@workspace/shared";
 
 /**
  * Prévia privada: `preview_start` registra a porta de um servidor web que roda no container da sessão de
@@ -25,6 +25,7 @@ export const PREVIEW_TOOLS: ChatTool[] = [
 				properties: {
 					port: { type: "number", description: `Port the server listens on (${PREVIEW_MIN_PORT}-${PREVIEW_MAX_PORT}; not 3090, 3128 or 3129)` },
 					path: { type: "string", description: "Page to open first, starting with / (default /)" },
+					base_configured: { type: "boolean", description: "Basic mode only: true when you started the server with its base path set to the prefix this tool returned (e.g. vite --base). Default false." },
 				},
 				required: ["port"],
 			},
@@ -40,15 +41,18 @@ export const PREVIEW_TOOLS: ChatTool[] = [
 	},
 ];
 
-/** Onde moram o domínio das prévias e a origem do Atlas (variáveis do worker/api); `null` = prévia desligada. */
-export type PreviewLinkConfig = { baseDomain: string; atlasUrl: string };
+/**
+ * Onde moram o domínio das prévias e a origem do Atlas (variáveis do worker/api); `null` = prévia desligada.
+ * `baseDomain: null` = modo básico (sem domínio: prévia sob o caminho do Atlas, em origem opaca). Mesma regra da API (`loadPreviewConfig`).
+ */
+export type PreviewLinkConfig = { baseDomain: string | null; atlasUrl: string };
 
 export function previewLinkConfigFromEnv(env: NodeJS.ProcessEnv = process.env): PreviewLinkConfig | null {
-	const baseDomain = normalizePreviewBaseDomain(env.ATLAS_PREVIEW_BASE_DOMAIN);
 	const atlasUrl = env.ATLAS_URL?.trim().replace(/\/+$/, "");
-	if (!baseDomain || !atlasUrl) return null;
-	// Mesmo site do Atlas: a API recusa (feature desligada); a tool não pode prometer um link que não abre.
-	if (env.ATLAS_PREVIEW_ALLOW_SAME_SITE !== "1" && previewBaseDomainConflict(baseDomain, atlasUrl)) return null;
+	if (!atlasUrl) return null;
+	const baseDomain = normalizePreviewBaseDomain(env.ATLAS_PREVIEW_BASE_DOMAIN);
+	// Domínio inválido ou no mesmo site do Atlas: a API cai no modo básico; a tool segue a mesma regra.
+	if (!baseDomain || (env.ATLAS_PREVIEW_ALLOW_SAME_SITE !== "1" && previewBaseDomainConflict(baseDomain, atlasUrl))) return { baseDomain: null, atlasUrl };
 	return { baseDomain, atlasUrl };
 }
 
@@ -98,8 +102,17 @@ export type PreviewContext = {
 	save: (preview: DevSessionPreview | null) => Promise<void>;
 };
 
+/** Dicas só do modo básico: o projeto roda sob um prefixo, em sandbox, sem cookies/storage nem HMR. Em inglês, para o modelo. */
+function basicModeNotes(prefix: string): string[] {
+	return [
+		`Mode: basic. The page is served under the path prefix ${prefix} in a sandbox (no cookies, localStorage or sessionStorage, no WebSocket/HMR: after edits ask the user to reload the page).`,
+		`Relative asset URLs (./style.css, assets/app.js) work with any server, so plain static sites need nothing. Absolute asset URLs (/assets/app.js, Vite/CRA/Next dev servers) only work if the server's base path is ${prefix}: vite \`--base ${prefix}\`, CRA \`PUBLIC_URL=${prefix}\` (or "homepage"). If you restarted the server with that base, call preview_start again with base_configured:true. Redirects are rewritten into the prefix automatically.`,
+		"If the project needs cookies, login, localStorage or live reload to work, say in plain words that the full preview needs a separate domain and offer: tell me to \"set up the full preview\". Do not mention modes, sandboxes or prefixes otherwise.",
+	];
+}
+
 const NOT_CONFIGURED =
-	"Live preview is not available on this server (the preview domain is not configured). Tell the user in plain words that the live link is not available here, and offer screenshots of the project instead.";
+	"Live preview is not available on this server. Tell the user in plain words that the live link is not available here, and offer screenshots of the project instead.";
 
 function serverHint(port: number): string {
 	return `Restart the server bound to 0.0.0.0: vite \`--host 0.0.0.0\`, next \`-H 0.0.0.0\`, python \`-m http.server ${port} --bind 0.0.0.0\`, serve \`-l tcp://0.0.0.0:${port}\`, or HOST=0.0.0.0 for other tools. Run it with background:true, wait for it to be ready, then call preview_start again.`;
@@ -108,6 +121,8 @@ function serverHint(port: number): string {
 export async function startPreview(ctx: PreviewContext, args: Record<string, unknown>): Promise<string> {
 	if (!ctx.link || ctx.connectMode !== "network") throw new Error(NOT_CONFIGURED);
 	const { port, path } = parsePreviewStartArgs(args);
+	const basic = !ctx.link.baseDomain;
+	const basePrefixed = basic && args.base_configured === true;
 	const now = ctx.now ?? Date.now;
 	const host = new URL(ctx.endpoint.baseUrl).hostname;
 	const reachable = ctx.reachable ?? tcpReachable;
@@ -127,12 +142,15 @@ export async function startPreview(ctx: PreviewContext, args: Record<string, unk
 		);
 	}
 	const startedAt = now();
-	await ctx.save({ port, path, startedAt: new Date(startedAt).toISOString(), expiresAt: new Date(startedAt + PREVIEW_TTL_MS).toISOString() });
+	await ctx.save({ port, path, startedAt: new Date(startedAt).toISOString(), expiresAt: new Date(startedAt + PREVIEW_TTL_MS).toISOString(), ...(basePrefixed ? { basePrefixed: true } : {}) });
 	return [
 		`Preview ready: ${previewOpenUrl(ctx.link, ctx.sessionId)}`,
 		`Send this exact link to the user: it opens the project (port ${port}, ${path}) in their own browser or phone, only for them while logged in, for about 1 hour while the session runs.`,
 		"Reply in the user's language with a short line and the link. Do not mention ports, localhost or container addresses. Do not send screenshots unless the user asks.",
-		"Edits you make keep showing in the same link (dev servers reload on their own). Call preview_start again if you restart the server on another port.",
+		basic
+			? "Edits you make show after the user reloads the page. Call preview_start again if you restart the server on another port or change its base path."
+			: "Edits you make keep showing in the same link (dev servers reload on their own). Call preview_start again if you restart the server on another port.",
+		...(basic ? basicModeNotes(previewBasicPrefix(ctx.sessionId)) : ["Mode: full."]),
 	].join("\n");
 }
 
