@@ -4,6 +4,9 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Corrigido
+- **sandbox, agent:** o bot acompanha link que abre em aba nova (ex.: "Acessar" de um LMS, `target=_blank`): antes ele continuava na aba antiga, achava que o clique não fez nada, repetia e tirava print da aba errada. Agora a VM passa para a aba nova, traz para a frente e o resultado da próxima ferramenta avisa em inglês ("A new tab opened: ... You are now on it"); se a aba ativa se fecha sozinha (login ou pagamento em popup) volta para quem a abriu e avisa. Tool nova `browser_tabs` (list, switch, close; nunca a última aba) no grupo do navegador, endpoint `POST /browser/tabs` e cabeçalho `x-atlas-tab-notice` no control server (compatível com versões mistas: imagem antiga não manda o cabeçalho e o cliente novo ignora). Abas de subagente seguem isoladas. O teto do prefixo de "Bom dia" nos testes subiu de 40 para 41 mil chars. Ver `docs/features/navegador-abas.md`
+
 ## [0.3.0-beta] - 2026-10-30
 
 ### Adicionado
