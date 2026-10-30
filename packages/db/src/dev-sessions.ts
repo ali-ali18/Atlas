@@ -65,7 +65,7 @@ export function parsePreview(value: unknown): DevSessionPreview | null {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
 	const v = value as Record<string, unknown>;
 	if (typeof v.port !== "number" || typeof v.path !== "string" || typeof v.startedAt !== "string" || typeof v.expiresAt !== "string") return null;
-	return { port: v.port, path: v.path, startedAt: v.startedAt, expiresAt: v.expiresAt, ...(v.basePrefixed === true ? { basePrefixed: true } : {}), ...(typeof v.cap === "string" && v.cap ? { cap: v.cap } : {}) };
+	return { port: v.port, path: v.path, startedAt: v.startedAt, expiresAt: v.expiresAt, ...(v.basePrefixed === true ? { basePrefixed: true } : {}), ...(typeof v.cap === "string" && v.cap ? { cap: v.cap } : {}), ...(typeof v.capIssuedAt === "string" ? { capIssuedAt: v.capIssuedAt } : {}) };
 }
 
 function toRecord(row: Row): DevSessionRecord {

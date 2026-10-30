@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import net from "node:net";
 import type { ChatTool } from "@workspace/llm";
 import type { DevClient, DevEndpoint } from "@workspace/sandbox";
-import { isPreviewPort, normalizePreviewBaseDomain, previewBaseDomainConflict, previewBasicPrefix, normalizePreviewPath, PREVIEW_MAX_PORT, PREVIEW_MIN_PORT, PREVIEW_TTL_MS, type DevSessionPreview } from "@workspace/shared";
+import { isPreviewPort, normalizePreviewBaseDomain, previewBaseDomainConflict, previewBasicPrefix, previewCapIsLive, normalizePreviewPath, PREVIEW_MAX_PORT, PREVIEW_MIN_PORT, PREVIEW_TTL_MS, type DevSessionPreview } from "@workspace/shared";
 
 /**
  * Prévia privada: `preview_start` registra a porta de um servidor web que roda no container da sessão de
@@ -115,10 +115,12 @@ export type PreviewContext = {
 };
 
 /** Dicas só do modo básico: o projeto roda sob um prefixo, em sandbox, sem cookies/storage nem HMR. Em inglês, para o modelo. */
-function basicModeNotes(prefix: string, fullModeProblem?: string): string[] {
+function basicModeNotes(fullModeProblem?: string, baseFile?: { written: boolean; rotated: boolean }): string[] {
 	return [
-		`Mode: basic. The page is served under the path prefix ${prefix} in a sandbox (no cookies, localStorage or sessionStorage, no WebSocket/HMR: after edits ask the user to reload the page).`,
-		`Relative asset URLs (./style.css, assets/app.js) work with any server, so plain static sites need nothing. Absolute asset URLs (/assets/app.js, Vite/CRA/Next dev servers) only work if the server's base path is ${prefix}: vite \`--base ${prefix}\`, CRA \`PUBLIC_URL=${prefix}\` (or "homepage"). If you restarted the server with that base, call preview_start again with base_configured:true. Redirects are rewritten into the prefix automatically.`,
+		"Mode: basic. The page is served under a private path prefix in a sandbox (no cookies, localStorage or sessionStorage, no WebSocket/HMR: after edits ask the user to reload the page).",
+		baseFile?.written
+			? `The prefix is a secret: it is saved in the file ${BASE_FILE} inside the session. Never print, echo or paste its contents; refer to it only through the file. Relative asset URLs (./style.css, assets/app.js) work with any server, so plain static sites need nothing. Absolute asset URLs (/assets/app.js, Vite/CRA/Next dev servers) only work if the server's base path is that prefix: vite \`--base "$(cat ${BASE_FILE})"\`, CRA \`PUBLIC_URL="$(cat ${BASE_FILE})"\` (or "homepage"). If you restarted the server that way, call preview_start again with base_configured:true. Redirects are rewritten into the prefix automatically.${baseFile.rotated ? " The prefix was renewed (it lasts at most 4 hours): restart the server with the new base before relying on it." : ""}`
+			: `Use relative asset URLs (./style.css, assets/app.js): the base path file could not be written in the session, so servers that need a base path cannot be configured now.`,
 		"If the project needs cookies, login, localStorage or live reload to work, say in plain words that the full preview needs a separate domain and offer: tell me to \"set up the full preview\". Do not mention modes, sandboxes or prefixes otherwise.",
 		...(fullModeProblem ? [`Admin note: the full preview is misconfigured and was skipped: ${fullModeProblem}. The user is the server admin: only if they ask for the full preview, or the project needs cookies/login/localStorage, tell them in plain words that the preview domain setting is not valid and must be fixed first.`] : []),
 	];
@@ -126,6 +128,8 @@ function basicModeNotes(prefix: string, fullModeProblem?: string): string[] {
 
 const NOT_CONFIGURED =
 	"Live preview is not available on this server. Tell the user in plain words that the live link is not available here, and offer screenshots of the project instead.";
+
+const BASE_FILE = "$HOME/.atlas/preview-base";
 
 function serverHint(port: number): string {
 	return `Restart the server bound to 0.0.0.0: vite \`--host 0.0.0.0\`, next \`-H 0.0.0.0\`, python \`-m http.server ${port} --bind 0.0.0.0\`, serve \`-l tcp://0.0.0.0:${port}\`, or HOST=0.0.0.0 for other tools. Run it with background:true, wait for it to be ready, then call preview_start again.`;
@@ -136,9 +140,12 @@ export async function startPreview(ctx: PreviewContext, args: Record<string, unk
 	const { port, path } = parsePreviewStartArgs(args);
 	const now = ctx.now ?? Date.now;
 	const basic = !ctx.link.baseDomain;
-	const basePrefixed = basic && args.base_configured === true;
+	let basePrefixed = basic && args.base_configured === true;
 	// Modo básico: o segredo vai no caminho (a origem opaca não leva cookie); novo a cada prévia (mantido enquanto ela vale).
-	const cap = basic ? (ctx.current?.cap && Date.parse(ctx.current.expiresAt) > now() ? ctx.current.cap : (ctx.randomCap ?? (() => randomBytes(24).toString("base64url")))()) : undefined;
+	// Reaproveitado enquanto a prévia vale E até 4 h da emissão (o `--base` já configurado continua certo); depois nasce outro.
+	const reuseCap = basic && !!ctx.current?.cap && Date.parse(ctx.current.expiresAt) > now() && previewCapIsLive(ctx.current.capIssuedAt, now());
+	const cap = basic ? (reuseCap ? ctx.current!.cap : (ctx.randomCap ?? (() => randomBytes(24).toString("base64url")))()) : undefined;
+	const rotated = basic && !reuseCap && !!ctx.current?.cap && !!ctx.current.basePrefixed;
 	const host = new URL(ctx.endpoint.baseUrl).hostname;
 	const reachable = ctx.reachable ?? tcpReachable;
 	if (!(await reachable(host, port))) {
@@ -157,16 +164,31 @@ export async function startPreview(ctx: PreviewContext, args: Record<string, unk
 		);
 	}
 	const startedAt = now();
-	await ctx.save({ port, path, startedAt: new Date(startedAt).toISOString(), expiresAt: new Date(startedAt + PREVIEW_TTL_MS).toISOString(), ...(basePrefixed ? { basePrefixed: true } : {}), ...(cap ? { cap } : {}) });
+	if (rotated) basePrefixed = false;
+	const capIssuedAt = cap ? (reuseCap ? ctx.current!.capIssuedAt! : new Date(startedAt).toISOString()) : undefined;
+	await ctx.save({ port, path, startedAt: new Date(startedAt).toISOString(), expiresAt: new Date(startedAt + PREVIEW_TTL_MS).toISOString(), ...(basePrefixed ? { basePrefixed: true } : {}), ...(cap ? { cap, capIssuedAt } : {}) });
+	// O segredo fica fora do texto que o modelo vê (e do que é gravado na conversa): vai para um arquivo no ambiente de código.
+	const baseFileWritten = cap ? await writeBaseFile(ctx, previewBasicPrefix(ctx.sessionId, cap)) : false;
 	return [
 		`Preview ready: ${previewOpenUrl(ctx.link, ctx.sessionId)}`,
 		`Send this exact link to the user: it opens the project (port ${port}, ${path}) in their own browser or phone, only for them while logged in, for about 1 hour while the session runs.`,
 		"Reply in the user's language with a short line and the link. Do not mention ports, localhost or container addresses. Do not send screenshots unless the user asks.",
 		basic
-			? "Edits you make show after the user reloads the page. Call preview_start again if you restart the server on another port or change its base path (the prefix stays the same while the preview is active; never show it to the user)."
+			? "Edits you make show after the user reloads the page. Call preview_start again if you restart the server on another port or change its base path (the prefix stays the same for up to 4 hours; never show it to the user)."
 			: "Edits you make keep showing in the same link (dev servers reload on their own). Call preview_start again if you restart the server on another port.",
-		...(basic ? basicModeNotes(previewBasicPrefix(ctx.sessionId, cap), ctx.link.fullModeProblem) : ["Mode: full."]),
+		...(basic ? basicModeNotes(ctx.link.fullModeProblem, { written: baseFileWritten, rotated }) : ["Mode: full."]),
 	].join("\n");
+}
+
+/** Grava o prefixo secreto em `~/.atlas/preview-base` no ambiente de código (valor só com [a-z0-9/_-]: sem aspas nem escape). */
+async function writeBaseFile(ctx: PreviewContext, prefix: string): Promise<boolean> {
+	try {
+		const job = await ctx.client.execStart({ cmd: `mkdir -p "$HOME/.atlas" && printf '%s' '${prefix}' > "${BASE_FILE}" && echo BASE_FILE_OK`, timeoutMs: 10_000 });
+		const snap = await ctx.client.execPoll(job.id, { waitMs: 5_000 });
+		return snap.stdout.includes("BASE_FILE_OK");
+	} catch {
+		return false;
+	}
 }
 
 export async function stopPreview(ctx: Pick<PreviewContext, "save">, hadPreview: boolean): Promise<string> {
