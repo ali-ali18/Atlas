@@ -61,6 +61,14 @@ export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
 	const tabs = new Map();
 	const tabOpenedAt = new Map();
 	let tabSeq = 0;
+	// Abas da pessoa/do pai (não de subagente): o bot segue links que abrem em aba nova.
+	// Popups abertos por abas de subagente ficam fora da lista e do fallback (são do subagente).
+	const childPopups = new WeakSet();
+	const popupsOfTab = new WeakMap();
+	const openerOf = new WeakMap();
+	const tracked = new WeakSet();
+	// Avisos para o modelo (inglês), entregues junto do próximo resultado de ferramenta.
+	let notices = [];
 
 	async function isHealthy(candidate) {
 		if (now() - lastHealthyAt < HEALTH_EVERY_MS) return true;
@@ -85,6 +93,7 @@ export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
 		browser = undefined;
 		page = undefined;
 		tabs.clear();
+		notices = [];
 		lastHealthyAt = 0;
 		await old?.close?.().catch(() => undefined);
 		await kill();
@@ -121,9 +130,69 @@ export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
 		}
 		const context = browser.contexts()[0];
 		if (!context) throw new Error("Perfil do Chrome indisponível na VM");
-		const owned = new Set(tabs.values());
-		page = context.pages().find((candidate) => !candidate.isClosed() && !owned.has(candidate)) ?? await context.newPage();
+		const chosen = mainCandidates(context).at(-1) ?? await context.newPage();
+		setMain(chosen);
 		return page;
+	}
+
+	/** Abas do pai/da pessoa abertas, na ordem de criação (sem as de subagente nem popups delas). */
+	function mainCandidates(context = browser?.contexts()[0]) {
+		if (!context) return [];
+		const owned = new Set(tabs.values());
+		return context.pages().filter((candidate) => !candidate.isClosed() && !owned.has(candidate) && !childPopups.has(candidate));
+	}
+
+	const clean = (text, max) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+	async function describe(target) {
+		let title = "";
+		try {
+			title = clean(await Promise.race([target.title(), new Promise((resolve) => setTimeout(resolve, 1500, ""))]), 100);
+		} catch {
+			// aba fechando: segue sem título
+		}
+		const url = clean(target.url?.(), 300);
+		return `${title ? `"${title}" — ` : ""}${url || "about:blank"}`;
+	}
+
+	/** A aba principal da sessão passa a ser `target`; ouve popup (nova aba) e fechamento dela. */
+	function setMain(target) {
+		page = target;
+		lastHealthyAt = 0;
+		if (tracked.has(target) || typeof target.on !== "function") return;
+		tracked.add(target);
+		target.on("popup", (popup) => onPopup(target, popup));
+		target.on("close", () => onMainClosed(target));
+	}
+
+	function onPopup(opener, popup) {
+		// Só segue o popup da aba em uso; o de uma aba de segundo plano vira aba comum na lista.
+		if (opener !== page) return;
+		openerOf.set(popup, opener);
+		setMain(popup);
+		popup.bringToFront?.().catch?.(() => undefined);
+		// O aviso espera o DOM (título final) por pouco tempo; a troca de aba já valeu.
+		const settled = typeof popup.waitForLoadState === "function"
+			? popup.waitForLoadState("domcontentloaded", { timeout: 4000 }).catch(() => undefined)
+			: Promise.resolve();
+		settled.then(() => describe(popup)).then((what) => {
+			notices.push(`A new tab opened: ${what}. You are now on it. The previous tab is still open (use browser_tabs to switch back).`);
+		});
+	}
+
+	function onMainClosed(closed) {
+		if (page !== closed) return;
+		// Volta para quem abriu a aba (pagamento/OAuth que se fecha sozinho); senão, a mais recente.
+		const opener = openerOf.get(closed);
+		const next = opener && !opener.isClosed() && mainCandidates().includes(opener) ? opener : mainCandidates().at(-1);
+		if (!next) {
+			page = undefined;
+			return;
+		}
+		setMain(next);
+		next.bringToFront?.().catch?.(() => undefined);
+		describe(next).then((what) => {
+			notices.push(`The tab you were on was closed. You are now on: ${what}.`);
+		});
 	}
 
 	function tabPage(tabId) {
@@ -161,6 +230,11 @@ export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
 			const tabId = `t${tabSeq}`;
 			tabs.set(tabId, tab);
 			tabOpenedAt.set(tabId, now());
+			popupsOfTab.set(tab, []);
+			tab.on?.("popup", (popup) => {
+				childPopups.add(popup);
+				popupsOfTab.get(tab)?.push(popup);
+			});
 			// newPage ativa a aba nova: devolve o foco para a do pai.
 			await parent.bringToFront().catch(() => undefined);
 			if (url) {
@@ -178,6 +252,7 @@ export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
 			const tab = tabs.get(tabId);
 			tabs.delete(tabId);
 			tabOpenedAt.delete(tabId);
+			if (tab) for (const popup of popupsOfTab.get(tab) ?? []) if (!popup.isClosed()) await popup.close().catch(() => undefined);
 			if (tab && !tab.isClosed()) await tab.close().catch(() => undefined);
 			return { closed: Boolean(tab) };
 		},
@@ -189,6 +264,54 @@ export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
 		},
 		tabCount() {
 			return tabs.size;
+		},
+		/** Avisos pendentes (nova aba, aba fechada) para o próximo resultado; lê e limpa. */
+		takeNotice() {
+			if (notices.length === 0) return undefined;
+			const text = notices.join(" ");
+			notices = [];
+			return text;
+		},
+		/** Abas do pai/da pessoa (índice a partir de 1) e qual está ativa. */
+		async listTabs() {
+			await api.getPage();
+			const list = mainCandidates();
+			return Promise.all(list.map(async (candidate, i) => ({
+				index: i + 1,
+				title: clean(await Promise.race([candidate.title(), new Promise((resolve) => setTimeout(resolve, 1500, ""))]).catch(() => ""), 100),
+				url: clean(candidate.url(), 300),
+				active: candidate === page,
+			})));
+		},
+		/** Passa a operar na aba `index` (da lista de `listTabs`) e a traz para a frente. */
+		async switchTab(index) {
+			await api.getPage();
+			const list = mainCandidates();
+			const target = list[index - 1];
+			if (!target) throw new Error(`No tab ${index}: there ${list.length === 1 ? "is 1 tab" : `are ${list.length} tabs`} open. Call browser_tabs with action "list" first.`);
+			setMain(target);
+			await target.bringToFront().catch(() => undefined);
+			return { index, title: clean(await target.title().catch(() => ""), 100), url: clean(target.url(), 300) };
+		},
+		/** Fecha a aba `index`; nunca a última. Se era a ativa, `onMainClosed` escolhe a próxima. */
+		async closeMainTab(index) {
+			await api.getPage();
+			const list = mainCandidates();
+			const target = list[index - 1];
+			if (!target) throw new Error(`No tab ${index}: there ${list.length === 1 ? "is 1 tab" : `are ${list.length} tabs`} open. Call browser_tabs with action "list" first.`);
+			if (list.length === 1) throw new Error("This is the only open tab; it cannot be closed. Use navigate to open another page in it.");
+			const wasActive = target === page;
+			const title = clean(await target.title().catch(() => ""), 100);
+			const url = clean(target.url(), 300);
+			if (wasActive) {
+				// Escolhe aqui (sem aviso duplicado do evento de fechamento) a aba que assume.
+				const opener = openerOf.get(target);
+				const next = opener && opener !== target && list.includes(opener) && !opener.isClosed() ? opener : list.filter((c) => c !== target).at(-1);
+				setMain(next);
+				await next.bringToFront().catch(() => undefined);
+			}
+			await target.close().catch(() => undefined);
+			return { closed: { index, title, url }, ...(wasActive ? { active: await describe(page) } : {}) };
 		},
 		getPage(tabId) {
 			if (tabId) {
