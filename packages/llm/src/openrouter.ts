@@ -65,7 +65,7 @@ export async function streamChat(
 		headers: {
 			Authorization: `Bearer ${params.apiKey}`,
 			"Content-Type": "application/json",
-			"HTTP-Referer": "https://github.com/ali-ali18/agent-bot",
+			"HTTP-Referer": "https://github.com/ali-ali18/Atlas",
 			"X-Title": "Atlas",
 		},
 		body: JSON.stringify({
@@ -158,7 +158,7 @@ export async function completeChat(
 		headers: {
 			Authorization: `Bearer ${params.apiKey}`,
 			"Content-Type": "application/json",
-			"HTTP-Referer": "https://github.com/ali-ali18/agent-bot",
+			"HTTP-Referer": "https://github.com/ali-ali18/Atlas",
 			"X-Title": "Atlas",
 		},
 		body: JSON.stringify({

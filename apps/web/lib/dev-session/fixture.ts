@@ -27,7 +27,7 @@ export const FIXTURE_GROUP_ID = "fixture-group";
 
 export const FIXTURE_PR = {
 	number: 42,
-	url: "https://github.com/ali-ali18/agent-bot/pull/42",
+	url: "https://github.com/acme/painel-app/pull/42",
 	state: "open" as const,
 	title: "Tratar título vazio no Panel",
 	base: "main",
@@ -36,11 +36,11 @@ export const FIXTURE_PR = {
 };
 
 export const FIXTURE_CHECKS: DevCiCheck[] = [
-	{ name: "build", status: "completed", conclusion: "success", url: "https://github.com/ali-ali18/agent-bot/actions/runs/1/job/11", durationMs: 72_000, jobId: 11 },
-	{ name: "typecheck", status: "completed", conclusion: "success", url: "https://github.com/ali-ali18/agent-bot/actions/runs/1/job/12", durationMs: 48_000, jobId: 12 },
-	{ name: "test (node 22)", status: "completed", conclusion: "failure", url: "https://github.com/ali-ali18/agent-bot/actions/runs/1/job/13", durationMs: 151_000, jobId: 13 },
-	{ name: "lint", status: "in_progress", conclusion: null, url: "https://github.com/ali-ali18/agent-bot/actions/runs/1/job/14", jobId: 14 },
-	{ name: "e2e", status: "completed", conclusion: "skipped", url: "https://github.com/ali-ali18/agent-bot/actions/runs/1/job/15", jobId: 15 },
+	{ name: "build", status: "completed", conclusion: "success", url: "https://github.com/acme/painel-app/actions/runs/1/job/11", durationMs: 72_000, jobId: 11 },
+	{ name: "typecheck", status: "completed", conclusion: "success", url: "https://github.com/acme/painel-app/actions/runs/1/job/12", durationMs: 48_000, jobId: 12 },
+	{ name: "test (node 22)", status: "completed", conclusion: "failure", url: "https://github.com/acme/painel-app/actions/runs/1/job/13", durationMs: 151_000, jobId: 13 },
+	{ name: "lint", status: "in_progress", conclusion: null, url: "https://github.com/acme/painel-app/actions/runs/1/job/14", jobId: 14 },
+	{ name: "e2e", status: "completed", conclusion: "skipped", url: "https://github.com/acme/painel-app/actions/runs/1/job/15", jobId: 15 },
 ];
 
 const DIFF_PANEL = [
@@ -76,11 +76,11 @@ export function devSessionFixtureEvents(now: number, mode: DevFixtureMode, sessi
 	const sessionId = FIXTURE_SESSION_ID;
 	const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString();
 	const events: DevSessionEvent[] = [
-		{ type: "dev_session_status", sessionId, status: "CREATING", tier: "small", repo: "ali-ali18/agent-bot", branch: "feat/painel" },
+		{ type: "dev_session_status", sessionId, status: "CREATING", tier: "small", repo: "acme/painel-app", branch: "feat/painel" },
 		{ type: "dev_setup_step", sessionId, step: "container", status: "done", durationMs: 4100 },
 		{ type: "dev_setup_step", sessionId, step: "clone", status: "done", durationMs: 9300 },
 		{ type: "dev_setup_step", sessionId, step: "install", status: "done", durationMs: 41800 },
-		{ type: "dev_session_status", sessionId, status: "RUNNING", tier: "small", repo: "ali-ali18/agent-bot", branch: "feat/painel" },
+		{ type: "dev_session_status", sessionId, status: "RUNNING", tier: "small", repo: "acme/painel-app", branch: "feat/painel" },
 		{
 			type: "todo_updated",
 			sessionId,
@@ -146,7 +146,7 @@ export function devSessionFixtureEvents(now: number, mode: DevFixtureMode, sessi
 					{ id: "4", content: "Abrir o pull request", status: "completed" },
 				],
 			},
-			{ type: "dev_session_status", sessionId, status: "STOPPED", tier: "small", repo: "ali-ali18/agent-bot", branch: "feat/painel" },
+			{ type: "dev_session_status", sessionId, status: "STOPPED", tier: "small", repo: "acme/painel-app", branch: "feat/painel" },
 		);
 	}
 	return events;
@@ -175,7 +175,7 @@ function fixtureSubagents(now: number): { message: Message; apply: () => void } 
 function fixtureActiveWork(now: number) {
 	const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString();
 	return [
-		{ kind: "dev" as const, id: FIXTURE_SESSION_ID, conversationId: "c1", conversationTitle: "Bia", botId: "fixture-bot", status: "RUNNING" as const, repo: "ali-ali18/agent-bot", branch: "feat/painel", startedAt: iso(-252_000), lastActiveAt: iso(-1000), awaitingApproval: false },
+		{ kind: "dev" as const, id: FIXTURE_SESSION_ID, conversationId: "c1", conversationTitle: "Bia", botId: "fixture-bot", status: "RUNNING" as const, repo: "acme/painel-app", branch: "feat/painel", startedAt: iso(-252_000), lastActiveAt: iso(-1000), awaitingApproval: false },
 		{ kind: "dev" as const, id: "fixture-2", conversationId: "c2", conversationTitle: "Revisor", botId: "fixture-bot-2", status: "RUNNING" as const, repo: "ali-ali18/site", branch: "fix/login", startedAt: iso(-95_000), lastActiveAt: iso(-2000), awaitingApproval: true },
 		{ kind: "subagent" as const, id: "fixture-sub", conversationId: "c3", conversationTitle: "Pesquisa", botId: "fixture-bot-3", title: "Mapear usos do Panel", startedAt: iso(-40_000), awaitingApproval: false },
 		{ kind: "dev" as const, id: "fixture-3", conversationId: "c4", conversationTitle: "Docs", botId: "fixture-bot-4", status: "STOPPED" as const, repo: "ali-ali18/docs", branch: "main", startedAt: iso(-900_000), lastActiveAt: iso(-60_000), awaitingApproval: false },
@@ -208,7 +208,7 @@ export function useDevSessionFixture(
 						confirmLabel: "Salvar",
 						cancelLabel: "Agora não",
 						confirmId: "confirm-fixture-secrets",
-						secretsRequest: { environmentId: "fixture-env", repo: "ali-ali18/agent-bot", names: ["DATABASE_URL", "STRIPE_KEY"], reason: "Os testes de integração abrem o banco e criam uma sessão de pagamento de teste." },
+						secretsRequest: { environmentId: "fixture-env", repo: "acme/painel-app", names: ["DATABASE_URL", "STRIPE_KEY"], reason: "Os testes de integração abrem o banco e criam uma sessão de pagamento de teste." },
 					}
 				: null;
 		const confirm: Message | null = approval
@@ -222,8 +222,8 @@ export function useDevSessionFixture(
 					confirmId: "confirm-fixture",
 					devApproval:
 						mode === "approval"
-							? { kind: "command", command: "pnpm exec playwright test --project=chromium && docker compose up -d --build", cwd: "/workspace/agent-bot", repo: "ali-ali18/agent-bot", branch: "feat/painel", reason: "Este comando não está na lista liberada.", prefixes: ["pnpm exec playwright", "docker compose"] }
-							: { kind: "write", path: "src/components/panel.tsx", preview: "-const title = props.title;\n+const title = props.title?.trim() || \"Sem título\";\n return <h2>{title}</h2>;", added: 2, removed: 1, repo: "ali-ali18/agent-bot", branch: "feat/painel" },
+							? { kind: "command", command: "pnpm exec playwright test --project=chromium && docker compose up -d --build", cwd: "/workspace/painel-app", repo: "acme/painel-app", branch: "feat/painel", reason: "Este comando não está na lista liberada.", prefixes: ["pnpm exec playwright", "docker compose"] }
+							: { kind: "write", path: "src/components/panel.tsx", preview: "-const title = props.title;\n+const title = props.title?.trim() || \"Sem título\";\n return <h2>{title}</h2>;", added: 2, removed: 1, repo: "acme/painel-app", branch: "feat/painel" },
 				}
 			: mode === "pr"
 				? {
@@ -240,8 +240,8 @@ export function useDevSessionFixture(
 		devSessionFixtureEvents(now - sessionAge, approval || mode === "secrets" ? "done" : mode, sessionAge).forEach((event, index) => {
 			ingestDevSessionEvent(event, { at: now - sessionAge + index * 500, seq: index + 1, runId: "fixture" });
 		});
-		ingestDevSessionEvent({ type: "dev_environment_updated", sessionId: FIXTURE_SESSION_ID, repo: "ali-ali18/agent-bot", auto: true, applied: ["installCommand", "tier"], note: "Ambiente detectado automaticamente" }, { at: now - sessionAge + 400, seq: 90, runId: "fixture" });
-		ingestDevSessionEvent({ type: "dev_environment_updated", sessionId: FIXTURE_SESSION_ID, repo: "ali-ali18/agent-bot", applied: ["tier"], note: "Recursos aumentados para Médio" }, { at: now - 30_000, seq: 91, runId: "fixture" });
+		ingestDevSessionEvent({ type: "dev_environment_updated", sessionId: FIXTURE_SESSION_ID, repo: "acme/painel-app", auto: true, applied: ["installCommand", "tier"], note: "Ambiente detectado automaticamente" }, { at: now - sessionAge + 400, seq: 90, runId: "fixture" });
+		ingestDevSessionEvent({ type: "dev_environment_updated", sessionId: FIXTURE_SESSION_ID, repo: "acme/painel-app", applied: ["tier"], note: "Recursos aumentados para Médio" }, { at: now - 30_000, seq: 91, runId: "fixture" });
 		const subagents = fixtureSubagents(now);
 		subagents.apply();
 		ingestContextCompacted({ sessionId: FIXTURE_SESSION_ID, before: 118_000, after: 42_000 }, { at: now - 60_000, seq: 500, runId: "fixture" });

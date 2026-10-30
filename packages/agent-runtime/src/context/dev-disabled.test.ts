@@ -28,7 +28,7 @@ describe("sessões de código desligadas", () => {
 describe("roteador: grupo dev", () => {
 	const has = (text: string) => routeContextGroups({ text }).has("dev");
 	it("pega pedidos de código", () => {
-		expect(has("testa o último commit do repo agent-bot")).toBe(true);
+		expect(has("testa o último commit do repo atlas")).toBe(true);
 		expect(has("testa o ultimo commit")).toBe(true);
 		expect(has("roda os testes")).toBe(true);
 		expect(has("faz o build do projeto")).toBe(true);

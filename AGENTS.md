@@ -59,7 +59,7 @@ Task(explore: "onde o status é persistido via @workspace/db?")
 
 ### Issue tracker
 
-Issues no GitHub Issues de `ali-ali18/agent-bot`, via CLI `gh`. Ver `docs/agents/issue-tracker.md`.
+Issues no GitHub Issues de `ali-ali18/Atlas`, via CLI `gh`. Ver `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 

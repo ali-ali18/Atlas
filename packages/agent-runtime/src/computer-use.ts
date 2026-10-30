@@ -1181,7 +1181,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "github_list_repos",
 			description:
-				"Lista os repositórios GitHub do usuário conectado no Marketplace (mais recentes primeiro). Use pra resolver um nome informado de forma vaga (ex.: 'agent-bot') em 'owner/name' ANTES de chamar propose_routine com trigger_type=github, quando o usuário não deu o owner/repo completo. Se a conexão falhar, explique que precisa conectar o GitHub no Marketplace.",
+				"Lista os repositórios GitHub do usuário conectado no Marketplace (mais recentes primeiro). Use pra resolver um nome informado de forma vaga (ex.: 'meu-app') em 'owner/name' ANTES de chamar propose_routine com trigger_type=github, quando o usuário não deu o owner/repo completo. Se a conexão falhar, explique que precisa conectar o GitHub no Marketplace.",
 			parameters: {
 				type: "object",
 				properties: {

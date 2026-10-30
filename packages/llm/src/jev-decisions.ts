@@ -69,7 +69,7 @@ export async function askJev(input: {
 		headers: {
 			Authorization: `Bearer ${input.apiKey}`,
 			"Content-Type": "application/json",
-			"HTTP-Referer": "https://github.com/ali-ali18/agent-bot",
+			"HTTP-Referer": "https://github.com/ali-ali18/Atlas",
 			"X-Title": "Atlas",
 		},
 		body: JSON.stringify({

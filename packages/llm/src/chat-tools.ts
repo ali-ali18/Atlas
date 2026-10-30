@@ -352,7 +352,7 @@ export type StreamChatWithToolsHandlers = {
 const OPENROUTER_TOOL_HEADERS = (apiKey: string) => ({
 	Authorization: `Bearer ${apiKey}`,
 	"Content-Type": "application/json",
-	"HTTP-Referer": "https://github.com/ali-ali18/agent-bot",
+	"HTTP-Referer": "https://github.com/ali-ali18/Atlas",
 	"X-Title": "Atlas",
 });
 

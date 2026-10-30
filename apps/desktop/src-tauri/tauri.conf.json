@@ -45,7 +45,7 @@
     "updater": {
       "pubkey": "SUBSTITUA_PELA_CHAVE_PUBLICA (ver apps/desktop/README.md, seção Atualizações)",
       "endpoints": [
-        "https://github.com/ali-ali18/agent-bot/releases/download/desktop-latest/latest.json"
+        "https://github.com/ali-ali18/Atlas/releases/download/desktop-latest/latest.json"
       ],
       "windows": {
         "installMode": "passive"

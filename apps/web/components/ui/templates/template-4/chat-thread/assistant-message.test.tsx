@@ -8,7 +8,7 @@ import { markdownComponents } from "./assistant-message";
 
 Object.assign(globalThis, { React });
 
-const md = "- **Commit:** `fd59716` em `next.config.ts`\n- https://github.com/ali-ali18/agent-bot/commit/fd597168e1b979701c7636040a62350e\n\n```\nconst muitoLongo = 1\n```\n";
+const md = "- **Commit:** `fd59716` em `next.config.ts`\n- https://github.com/acme/painel-app/commit/fd597168e1b979701c7636040a62350e\n\n```\nconst muitoLongo = 1\n```\n";
 
 test("links, código inline e itens quebram em qualquer ponto; bloco de código rola", () => {
 	const html = renderToStaticMarkup(
