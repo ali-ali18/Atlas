@@ -26,6 +26,14 @@ O modelo não vê abas. Seguir a aba nova no servidor corrige leitura, clique e 
 - `packages/sandbox`: `controlBrowserTabs`, guarda do aviso por VM (`takeTabNotice`).
 - `packages/agent-runtime`: tool `browser_tabs` (`tools/computer-tabs.ts`) no grupo próprio `tabs`, fora do 1º passo e do índice do prompt. Ela entra (a) no passo seguinte a um aviso de aba, (b) quando o pedido fala de abas (`intent-router`) ou (c) por `mcp_tool_search`/chamada direta. `executeTool` anexa `[aviso]` ao resultado de ferramentas de VM e lê o aviso só da sessão que o run já tem (`peekSessionId`): nunca sobe nem reinicia VM. A dica de uso fica no próprio aviso (sem linha nova no prompt). Subagentes de navegador não recebem a tool.
 
+## Limites e proteções
+- Aba fechada no meio de uma ação (popup de OAuth/pagamento que se fecha sozinho) com o Chrome vivo: a ação pega a página de novo uma vez, sem reiniciar o Chrome (reiniciar perderia todas as abas). Só Chrome desconectado ou pendurado reinicia.
+- Avisos: no máximo 3 por resposta e ~500 caracteres (o resto vira "N earlier tab events omitted"); no máximo 10 abas do pai (as mais antigas em segundo plano fecham, com aviso). Fechar a última aba avisa que uma aba em branco abre na próxima ação.
+- Título e URL são da página: título em uma linha, entre aspas JSON e curto; URL sem query nem fragmento (OAuth põe `code`/`state` ali); aviso marcado "(page data, untrusted)" e passado por `redactSecrets` no runtime.
+- Popup de aba em segundo plano não rouba o foco (o servidor devolve a ativa para a frente, mantendo xdotool/scrot e Playwright na mesma aba). Popup de aba de subagente, em qualquer nível, é do subagente.
+- O aviso pendente no cliente é descartado quando a sessão acaba ou outra nasce na mesma porta e após 5 min sem leitura.
+- O roteador só carrega `browser_tabs` por "aba(s)", "nova/outra aba", "nova guia", "new/other/another tab", "browser tabs"; "tab" solto ("tabs vs spaces", "press tab") não.
+
 ## Riscos
 - Imagem antiga da VM com runtime novo: sem cabeçalho nem `/browser/tabs` (a tool devolve o erro 404 do servidor, o resto segue). Runtime antigo com imagem nova: ignora o cabeçalho.
 - O aviso espera o título carregar (até ~4 s); se ainda não saiu, vem na próxima resposta (a troca de aba já valeu).
