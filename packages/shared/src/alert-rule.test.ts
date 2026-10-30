@@ -229,3 +229,12 @@ describe("alerta com regra em parseRoutineAlertInput", () => {
 		expect(row?.ruleState).toEqual({ lastValue: 449.9, consecutive: 2, seenIds: ["a"] });
 	});
 });
+
+describe("frase do alerta com regra (agente)", () => {
+	it("mostra a regra e a cadência, sem o 'avisa se'", async () => {
+		const { describeRoutineAlertSentence } = await import("./index.js");
+		const parsed = parseRoutineAlertInput({ rule: pageRule });
+		if (!parsed.ok) throw new Error("x");
+		expect(describeRoutineAlertSentence({ alert: parsed.alert, triggerType: "interval", interval: { everyMinutes: 120 } })).toMatch(/^Alerta · tênis Nike < R\$\s400,00 · a cada 2 horas$/);
+	});
+});

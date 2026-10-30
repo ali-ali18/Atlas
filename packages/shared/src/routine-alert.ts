@@ -7,7 +7,7 @@
  * novo; só volta a avisar depois que ela deixou de valer pelo menos uma vez.
  */
 import type { AlertRuleState } from "./alert-rule-eval.js";
-import { describeAlertRuleCondition, parseAlertRule, sameAlertRule, type AlertRule } from "./alert-rule.js";
+import { describeAlertRuleCompact, describeAlertRuleCondition, parseAlertRule, sameAlertRule, type AlertRule } from "./alert-rule.js";
 import { DEFAULT_BOT_LANGUAGE, type BotLanguage } from "./bot-language.js";
 import { describeRoutineProposalSchedule } from "./routine-proposal.js";
 import { describeAlertCron } from "./routine-alert-schedule.js";
@@ -223,7 +223,7 @@ export function formatRoutineAlertSentence(alert: Pick<RoutineAlertConfig, "cond
 
 /** Frase do alerta de uma rotina (card, lista e detalhe), com a cadência lida do gatilho. null = não é rotina de alerta. */
 export function describeRoutineAlertSentence(routine: {
-	alert?: Pick<RoutineAlertConfig, "condition"> | null;
+	alert?: Pick<RoutineAlertConfig, "condition" | "rule"> | null;
 	triggerType: RoutineTriggerType;
 	schedule?: string | null;
 	interval?: { everyMinutes: number } | null;
@@ -234,5 +234,7 @@ export function describeRoutineAlertSentence(routine: {
 		describeRoutineProposalSchedule(
 			routine.triggerType === "interval" && routine.interval ? { everyMinutes: routine.interval.everyMinutes } : { schedule: routine.schedule ?? undefined },
 		);
+	// Alerta com regra: a frase mostra a regra ("tênis < R$ 400,00"), não o "avisa se …" em texto livre.
+	if (routine.alert.rule) return `Alerta · ${describeAlertRuleCompact(routine.alert.rule, DEFAULT_BOT_LANGUAGE)} · ${lowerFirst(cleanLine(cadence))}`;
 	return formatRoutineAlertSentence(routine.alert, cadence);
 }
