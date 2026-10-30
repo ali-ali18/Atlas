@@ -5041,6 +5041,8 @@ export async function runComputerUse(params: {
 	carriedNotes?: import("@workspace/shared").CarriedNote[];
 	canSeeUserImages?: boolean;
 	loadUserImage?: (artifactId: string) => Promise<string | null>;
+	/** Espera antes da única nova tentativa de carregar uma imagem anexada (corrida de deploy). Padrão 1,5 s; 0 nos testes. */
+	imageLoadRetryDelayMs?: number;
 	describeUserImage?: (artifactId: string) => Promise<{ description: string | null; costUsd?: number; costUnknown?: boolean }>;
 	/** Arquivos que o usuário anexou (PDF, Office, planilha, texto, zip...). */
 	attachments?: AttachmentRuntime;
@@ -6727,6 +6729,25 @@ export async function runComputerUse(params: {
 	// (Sem fatiar por parágrafo: N balões simultâneos embaralhavam a leitura.)
 	// Mídia do histórico (screenshots, imagens, PDFs) carregada uma vez por run, não a cada passo.
 	const mediaMemo = createMediaMemo();
+	// Imagem anexada que não carrega: uma nova tentativa depois de uma pausa curta (api e worker trocando de versão) e,
+	// se falhar de novo, desiste pelo resto do run. O aviso ao usuário sai uma vez, no idioma dele (ver `streamStep`).
+	const failedUserImages = new Set<string>();
+	let imageNoticePending = false;
+	const loadUserImageOnce = params.loadUserImage
+		? async (artifactId: string): Promise<string | null> => {
+			if (failedUserImages.has(artifactId)) return null;
+			let dataUrl = await params.loadUserImage!(artifactId);
+			if (!dataUrl) {
+				await new Promise((resolve) => setTimeout(resolve, params.imageLoadRetryDelayMs ?? 1_500));
+				dataUrl = await params.loadUserImage!(artifactId);
+			}
+			if (!dataUrl) {
+				failedUserImages.add(artifactId);
+				imageNoticePending = true;
+			}
+			return dataUrl;
+		}
+		: undefined;
 	const streamStep = async (
 		history: LlmMessage[],
 		toolChoice: "auto" | "none",
@@ -6774,7 +6795,7 @@ export async function runComputerUse(params: {
 			{
 				canSeeUserImages: params.canSeeUserImages,
 				canSeeScreenshots: canSeeImages,
-				loadUserImage: params.loadUserImage,
+				loadUserImage: loadUserImageOnce,
 				canReadNativePdf: params.attachments?.canReadNativePdf === true,
 				loadUserPdf: params.attachments?.loadPdfDataUrl,
 				describeUserImage: params.describeUserImage ? async (artifactId) => {
@@ -6786,6 +6807,14 @@ export async function runComputerUse(params: {
 				memo: mediaMemo,
 			},
 		);
+		// Aviso honesto de imagem que não carregou: texto do sistema (dicionário por idioma) no começo da fala do passo,
+		// ao vivo e na resposta gravada, uma vez por run. Sem card novo: o chat já mostra o texto do assistente.
+		let imageNotice = "";
+		if (imageNoticePending && emitPublic && !options?.closing) {
+			imageNoticePending = false;
+			imageNotice = `${systemMessages(language).imageUnavailable}\n\n`;
+			emitSegment(imageNotice);
+		}
 		const effectiveTools = reserveRestrict ? tools.filter((tool) => FILE_RESERVE_TOOLS.includes(tool.function.name)) : tools;
 		lastStepInspect = stepInspector.step({ messages: withNotes, tools: effectiveTools, contextLength: contextLength ?? undefined });
 		const callStartedAt = performance.now();
@@ -6855,7 +6884,7 @@ export async function runComputerUse(params: {
 		usageTotals = addUsage(usageTotals, stepUsage);
 		lastStepTokens = stepUsage.totalTokens;
 		return {
-			content: result.message.content ?? collected,
+			content: `${imageNotice}${result.message.content ?? collected}`,
 			// Ids prefixados com o run ao nascer: o que vai ao modelo nos passos e turnos seguintes é byte a byte o que fica gravado (prefixo de cache estável).
 			toolCalls: (result.message.tool_calls ?? []).map((call) => ({ ...call, id: namespaceToolCallId(call.id, runId) })),
 			providerItems: renameProviderItemCallIds(result.message.providerItems, (id) => namespaceToolCallId(id, runId)),

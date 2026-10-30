@@ -218,7 +218,7 @@ export async function resolveLlmMessagesForModel(
 		if (part.type === "image_ref") {
 			if (options?.canSeeUserImages) {
 				const dataUrl = await load(`image:${part.artifactId}`, options.loadUserImage, part.artifactId);
-				return dataUrl ? { type: "image_url", image_url: { url: dataUrl } } : { type: "text", text: "[the user attached an image, but it is unavailable]" };
+				return dataUrl ? { type: "image_url", image_url: { url: dataUrl } } : { type: "text", text: "[the user attached an image, but it could not be loaded (storage error). The user was already told; do not guess or invent what it shows, and ask them to send it again]" };
 			}
 			const description = await load(`describe:${part.artifactId}`, options?.describeUserImage, part.artifactId);
 			return { type: "text", text: description ? `[image attached by the user; description by a vision helper: ${description}]` : "[the user attached an image, but this model cannot see images]" };
