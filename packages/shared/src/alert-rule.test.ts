@@ -170,6 +170,26 @@ describe("regex, json path e feed", () => {
 		expect(parseFeedItems("<html>nada</html>")).toEqual([]);
 		expect(parseFeedItems(`${"<item><title>a</title><guid>1</guid></item>".repeat(300)}`).length).toBe(100);
 	});
+
+	it("feed malicioso não trava: muitas aberturas sem fechamento e CDATA aberto rodam em tempo linear", () => {
+		const cases = [
+			"<item ".repeat(200_000),
+			"<item>".repeat(200_000),
+			`<item><title><![CDATA[${"<![CDATA[a".repeat(100_000)}</title></item>`,
+			`<rss>${"<entry x='1'>".repeat(100_000)}</rss>`,
+		];
+		for (const xml of cases) {
+			const started = performance.now();
+			parseFeedItems(xml);
+			expect(performance.now() - started).toBeLessThan(1_000);
+		}
+		// casos normais continuam iguais (CDATA, self-closing, maiúsculas)
+		const rss = "<RSS><Item><Title><![CDATA[Edital <b>2026</b>]]></Title><guid>g1</guid></Item><item/><item><title>b</title><link>https://x.test/b</link></item></RSS>";
+		expect(parseFeedItems(rss)).toEqual([
+			{ id: "g1", title: "Edital 2026" },
+			{ id: "https://x.test/b", title: "b", link: "https://x.test/b" },
+		]);
+	});
 });
 
 describe("frases da regra", () => {

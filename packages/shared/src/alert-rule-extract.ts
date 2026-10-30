@@ -168,9 +168,7 @@ export function hashAlertText(text: string): string {
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
 
 function decodeXmlText(raw: string): string {
-	return raw
-		.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-		.replace(/<[^>]*>/g, " ")
+	return stripTags(stripCdata(raw))
 		.replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (whole, name: string) => {
 			if (name[0] === "#") {
 				const code = name[1]?.toLowerCase() === "x" ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10);
@@ -182,18 +180,80 @@ function decodeXmlText(raw: string): string {
 		.trim();
 }
 
+// O XML do feed vem de fora (até 2 MB): tudo aqui é varredura linear com indexOf. Regex com `[\s\S]*?` até
+// um fechamento ficava quadrática em entradas com muitas aberturas sem fechamento (`<item ` repetido, CDATA aberto).
+function stripCdata(raw: string): string {
+	let out = "";
+	let from = 0;
+	for (;;) {
+		const start = raw.indexOf("<![CDATA[", from);
+		if (start < 0) return out + raw.slice(from);
+		const end = raw.indexOf("]]>", start + 9);
+		if (end < 0) return out + raw.slice(from);
+		out += raw.slice(from, start) + raw.slice(start + 9, end);
+		from = end + 3;
+	}
+}
+
+/** Troca `<...>` por espaço; um `<` sem `>` depois fica como texto (linear, sem regex). */
+function stripTags(raw: string): string {
+	let out = "";
+	let from = 0;
+	for (;;) {
+		const open = raw.indexOf("<", from);
+		if (open < 0) return out + raw.slice(from);
+		const close = raw.indexOf(">", open + 1);
+		if (close < 0) return out + raw.slice(from);
+		out += raw.slice(from, open) + " ";
+		from = close + 1;
+	}
+}
+
+/** Posição do fim da tag de abertura `<name ...>` / `<name>` a partir de `at` (ou -1). */
+function openTagEnd(lower: string, at: number, name: string): number {
+	const after = lower[at + 1 + name.length];
+	if (after !== ">" && after !== " " && after !== "\t" && after !== "\n" && after !== "\r" && after !== "/") return -1;
+	const close = lower.indexOf(">", at);
+	if (close < 0) return -2; // nenhum ">" daqui pra frente: não existe mais tag completa
+	if (lower[close - 1] === "/") return -1;
+	return close + 1;
+}
+
+/** Primeiro trecho `<name ...>conteúdo</name>` em `text` (sem diferenciar maiúsculas), a partir de `from`. */
+function findElement(text: string, lower: string, names: readonly string[], from: number): { start: number; contentStart: number; contentEnd: number; end: number } | null {
+	let cursor = from;
+	for (;;) {
+		let best = -1;
+		let bestName = "";
+		for (const name of names) {
+			const at = lower.indexOf(`<${name}`, cursor);
+			if (at >= 0 && (best < 0 || at < best)) { best = at; bestName = name; }
+		}
+		if (best < 0) return null;
+		const contentStart = openTagEnd(lower, best, bestName);
+		if (contentStart === -2) return null;
+		if (contentStart < 0) { cursor = best + 1; continue; }
+		const closing = lower.indexOf(`</${bestName}>`, contentStart);
+		if (closing < 0) return null;
+		return { start: best, contentStart, contentEnd: closing, end: closing + bestName.length + 3 };
+	}
+}
+
 function tagText(block: string, tag: string): string | null {
-	const match = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`, "i").exec(block);
-	return match ? decodeXmlText(match[1]!) : null;
+	const found = findElement(block, block.toLowerCase(), [tag], 0);
+	return found ? decodeXmlText(block.slice(found.contentStart, found.contentEnd)) : null;
 }
 
 /** RSS 2.0 e Atom, tolerante: id = guid/id, senão link, senão hash do título. Até 100 itens, na ordem do feed. */
 export function parseFeedItems(xml: string): AlertFeedItem[] {
 	const items: AlertFeedItem[] = [];
-	const blocks = /<(item|entry)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi;
-	let match: RegExpExecArray | null;
-	while ((match = blocks.exec(xml)) && items.length < ALERT_FEED_ITEMS_MAX) {
-		const block = match[0];
+	const lower = xml.toLowerCase();
+	let from = 0;
+	while (items.length < ALERT_FEED_ITEMS_MAX) {
+		const found = findElement(xml, lower, ["item", "entry"], from);
+		if (!found) break;
+		from = found.end;
+		const block = xml.slice(found.start, found.end);
 		const title = (tagText(block, "title") ?? "").slice(0, ALERT_ITEM_TITLE_MAX);
 		const atomHref = /<link\b[^>]*\bhref=["']([^"']+)["']/i.exec(block)?.[1];
 		const link = decodeXmlText(atomHref ?? tagText(block, "link") ?? "") || undefined;
