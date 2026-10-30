@@ -20,7 +20,7 @@ export {
 	type CompleteChatWithToolsResult,
 	type StreamChatWithToolsHandlers,
 } from "./chat-tools.js";
-export { demoteSystemNotes, remapStableIndex, SYSTEM_NOTE_OPEN, SYSTEM_NOTE_CLOSE } from "./system-notes.js";
+export { demoteSystemNotes, remapStableIndex, EPHEMERAL_CONTEXT_MARK, SYSTEM_NOTE_OPEN, SYSTEM_NOTE_CLOSE } from "./system-notes.js";
 export { responsesRequestBody } from "./responses/request.js";
 export { fetchGenerationCost, type GenerationCostResult } from "./generation-cost.js";
 export {

@@ -1,5 +1,5 @@
 import type { LlmContentPart, LlmMessage } from "./chat-tools.js";
-import { SYSTEM_NOTE_OPEN } from "./system-notes.js";
+import { EPHEMERAL_CONTEXT_MARK, SYSTEM_NOTE_OPEN } from "./system-notes.js";
 
 /**
  * Cache de prompt via OpenRouter. Modelos Anthropic exigem breakpoints
@@ -44,7 +44,7 @@ function withBreakpoint(message: LlmMessage, ttl?: PromptCacheTtl): LlmMessage |
 		const part = content[i];
 		if (part?.type !== "text" || part.text.length === 0) continue;
 		// Nota efêmera (hora, lembretes) muda a cada passo: o breakpoint fica no texto estável antes dela.
-		if (part.text.startsWith(SYSTEM_NOTE_OPEN)) continue;
+		if (part.text.startsWith(`${SYSTEM_NOTE_OPEN}\n${EPHEMERAL_CONTEXT_MARK}`)) continue;
 		const parts = content.slice();
 		parts[i] = { ...part, cache_control: ephemeral(ttl) };
 		return { ...message, content: parts };

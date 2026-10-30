@@ -18,6 +18,12 @@ describe("current_time", () => {
 		expect(executeCurrentTime({ timezone: "UTC" }, { now }).summary).toContain("ISO: 2026-10-30T20:37:45+00:00");
 	});
 
+	it("offset de meia hora (Asia/Kolkata) e UTC saem certos no ISO", () => {
+		expect(executeCurrentTime({ timezone: "Asia/Kolkata" }, { now }).summary).toBe("2026-10-31 02:07 (sábado), timezone Asia/Kolkata. ISO: 2026-10-31T02:07:45+05:30");
+		expect(executeCurrentTime({ timezone: "Etc/UTC" }, { now }).summary).toContain("ISO: 2026-10-30T20:37:45+00:00");
+		expect(executeCurrentTime({ timezone: "America/St_Johns" }, { now }).summary).toContain("-02:30");
+	});
+
 	it("fuso inválido falha com dica acionável (ok:false no runtime)", () => {
 		expect(() => executeCurrentTime({ timezone: "Mars/Olympus" }, { now })).toThrow(/Invalid timezone "Mars\/Olympus".*America\/Sao_Paulo/);
 		expect(() => executeCurrentTime({ timezone: 42 }, { now })).toThrow(/Invalid timezone/);

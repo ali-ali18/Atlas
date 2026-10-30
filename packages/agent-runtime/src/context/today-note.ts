@@ -1,3 +1,4 @@
+import { EPHEMERAL_CONTEXT_MARK } from "@workspace/llm";
 import { isValidTimeZone } from "@workspace/shared";
 
 /**
@@ -22,5 +23,5 @@ export function localClock(now: Date, timeZone: string) {
 
 export function todayNote(now: Date, requestedTimeZone?: string | null): string {
 	const clock = localClock(now, resolveNoteTimeZone(requestedTimeZone));
-	return `Automatic context, not a user message: do not reply to it, thank for it or mention it unless it matters to the request (dates, scheduling, reminders). Now is ${clock.date} ${clock.time} (${clock.weekday}), timezone ${clock.timeZone}. Resolve relative dates and times (hoje, ontem, mês anterior, até agora, esta semana, daqui a N minutos) against it.`;
+	return `${EPHEMERAL_CONTEXT_MARK} do not reply to it, thank for it or mention it unless it matters to the request (dates, scheduling, reminders). Now is ${clock.date} ${clock.time} (${clock.weekday}), timezone ${clock.timeZone}. Resolve relative dates and times (hoje, ontem, mês anterior, até agora, esta semana, daqui a N minutos) against it.`;
 }
