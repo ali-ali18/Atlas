@@ -60,7 +60,10 @@ function controlBaseUrl(host: string, port: number): string {
 // O control server avisa (cabeçalho) quando uma aba nova abriu ou a ativa fechou. O aviso
 // espera aqui até o runtime anexá-lo ao resultado da ferramenta; só a aba do pai o consome.
 const TAB_NOTICE_HEADER = "x-atlas-tab-notice";
-const tabNotices = new Map<string, string>();
+const tabNotices = new Map<string, { text: string; at: number }>();
+/** Aviso que ninguém leu em 5 min é de outra época: descarta. */
+const TAB_NOTICE_TTL_MS = 5 * 60_000;
+const TAB_NOTICE_MAX_CHARS = 1200;
 
 function captureTabNotice(host: string, port: number, context: SandboxExecutionContext, response: Response): void {
 	const raw = response.headers?.get(TAB_NOTICE_HEADER);
@@ -73,15 +76,22 @@ function captureTabNotice(host: string, port: number, context: SandboxExecutionC
 	}
 	const key = `${host}:${port}`;
 	const previous = tabNotices.get(key);
-	tabNotices.set(key, previous ? `${previous} ${text}` : text);
+	const fresh = previous && Date.now() - previous.at < TAB_NOTICE_TTL_MS ? previous.text : "";
+	// Fica o fim (o mais novo) quando ninguém leu por muitas chamadas.
+	tabNotices.set(key, { text: (fresh ? `${fresh} ${text}` : text).slice(-TAB_NOTICE_MAX_CHARS), at: Date.now() });
 }
 
 /** Lê e limpa o aviso de aba pendente da VM (undefined se não há). */
 export function takeTabNotice(host: string, port: number): string | undefined {
 	const key = `${host}:${port}`;
-	const text = tabNotices.get(key);
+	const entry = tabNotices.get(key);
 	tabNotices.delete(key);
-	return text;
+	return entry && Date.now() - entry.at < TAB_NOTICE_TTL_MS ? entry.text : undefined;
+}
+
+/** A VM que usava essa porta acabou ou outra nasceu nela: o aviso pendente não é desta VM. */
+export function clearTabNoticesForPort(port: number): void {
+	for (const key of tabNotices.keys()) if (key.endsWith(`:${port}`)) tabNotices.delete(key);
 }
 
 async function controlPost(

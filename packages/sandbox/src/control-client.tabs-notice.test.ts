@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { putSession, deleteSession } from "./session-store.js";
 import { controlBrowserTabs, controlBrowserClick, controlScreenshot, takeTabNotice } from "./control-client.js";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -45,4 +46,46 @@ it("cabeçalho malformado é ignorado sem derrubar a chamada", async () => {
 	stubFetch({ ok: true }, { "x-atlas-tab-notice": "%E0%A4%A" });
 	await expect(controlBrowserClick("sandbox", 7104, { text: "x" })).resolves.toBeTruthy();
 	expect(takeTabNotice("sandbox", 7104)).toBeUndefined();
+});
+
+const record = (sessionId: string, controlPort: number) => ({
+	userId: "user-a", sessionId, containerId: "c", containerName: "n", status: "running" as const,
+	viewerPort: 1, controlPort, createdAt: new Date(), lastUsedAt: new Date(),
+});
+
+it("aviso pendente não vaza para a VM que reusa a porta: apagar a sessão e criar outra limpam", async () => {
+	putSession(record("old", 7200));
+	stubFetch({ ok: true }, { "x-atlas-tab-notice": encodeURIComponent("da VM antiga.") });
+	await controlBrowserClick("sandbox", 7200, { text: "x" });
+	deleteSession("old", "user-a");
+	expect(takeTabNotice("sandbox", 7200)).toBeUndefined();
+
+	await controlBrowserClick("sandbox", 7200, { text: "x" });
+	putSession(record("new", 7200));
+	expect(takeTabNotice("sandbox", 7200)).toBeUndefined();
+	deleteSession("new", "user-a");
+});
+
+it("regravar a mesma sessão (atualizar o registro) não apaga o aviso dela", async () => {
+	putSession(record("same", 7201));
+	stubFetch({ ok: true }, { "x-atlas-tab-notice": encodeURIComponent("da mesma VM.") });
+	await controlBrowserClick("sandbox", 7201, { text: "x" });
+	putSession(record("same", 7201));
+	expect(takeTabNotice("sandbox", 7201)).toBe("da mesma VM.");
+	deleteSession("same", "user-a");
+});
+
+it("aviso que ninguém leu há mais de 5 min é descartado e o acumulado tem teto", async () => {
+	vi.useFakeTimers();
+	try {
+		stubFetch({ ok: true }, { "x-atlas-tab-notice": encodeURIComponent("velho.") });
+		await controlBrowserClick("sandbox", 7202, { text: "x" });
+		vi.advanceTimersByTime(6 * 60_000);
+		expect(takeTabNotice("sandbox", 7202)).toBeUndefined();
+	} finally {
+		vi.useRealTimers();
+	}
+	stubFetch({ ok: true }, { "x-atlas-tab-notice": encodeURIComponent("y".repeat(600)) });
+	for (let i = 0; i < 6; i += 1) await controlBrowserClick("sandbox", 7203, { text: "x" });
+	expect(takeTabNotice("sandbox", 7203)!.length).toBeLessThanOrEqual(1200);
 });
