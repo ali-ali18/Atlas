@@ -224,3 +224,36 @@ describe("evaluateAlertRule · fontes de mercado", () => {
 		expect(step(fx, undefined, false, num(-1)).verdict).toBeNull();
 	});
 });
+
+describe("evaluateAlertRule · atraso x último negócio", () => {
+	const q = (parseAlertRule({ source: { type: "quote", symbol: "BBAS3" }, check: { kind: "value", parse: "money", op: "lt", value: 15 } }) as { ok: true; rule: AlertRule }).rule;
+	const read = (delayMinutes: number, asOf = "2026-10-27T17:32:00Z"): AlertRuleRead => ({ kind: "number", value: 14.9, delayMinutes, asOf });
+	const twice = (r: AlertRuleRead, locale: "pt-BR" | "en-US" | "es-ES" = "pt-BR") => {
+		const a = evaluateAlertRule({ rule: q, wasActive: false, read: r, now, locale });
+		return evaluateAlertRule({ rule: q, state: a.state, wasActive: false, read: r, now, locale });
+	};
+
+	it("até 45 min diz 'atraso'; guarda só o atraso no estado", () => {
+		const b = twice(read(45));
+		expect(b.note).toBe("cotação com atraso de ~45 min");
+		expect(b.state.delayMinutes).toBe(45);
+		expect(b.state.lastTradeAt).toBeUndefined();
+	});
+
+	it("acima de 45 min deixa de afirmar atraso e diz o horário do último negócio (Brasília) nos três idiomas", () => {
+		const pt = twice(read(180));
+		expect(pt.note).toBe("último negócio às 14:32");
+		expect(pt.verdict?.summary).toBe("BBAS3 está em R$ 14,90 (último negócio às 14:32)");
+		expect(pt.state).toMatchObject({ lastTradeAt: "2026-10-27T17:32:00Z" });
+		expect(pt.state.delayMinutes).toBeUndefined();
+		expect(twice(read(180), "en-US").note).toBe("last trade at 14:32");
+		expect(twice(read(180), "es-ES").note).toBe("último negocio a las 14:32");
+	});
+
+	it("leitura em dia limpa os dois campos do estado", () => {
+		const late = twice(read(180));
+		const fresh = evaluateAlertRule({ rule: q, state: late.state, wasActive: false, read: { kind: "number", value: 14.9, delayMinutes: 2 }, now });
+		expect(fresh.state.lastTradeAt).toBeUndefined();
+		expect(fresh.state.delayMinutes).toBeUndefined();
+	});
+});

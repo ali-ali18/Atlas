@@ -124,7 +124,8 @@ function parseRuleState(value: unknown): { ruleState?: AlertRuleState } {
 	if (typeof row.baseline === "number") state.baseline = row.baseline;
 	if (Array.isArray(row.seenIds)) state.seenIds = row.seenIds.filter((id): id is string => typeof id === "string").slice(-200);
 	if (row.seeded === true) state.seeded = true;
-	if (typeof row.delayMinutes === "number" && row.delayMinutes > 0) state.delayMinutes = Math.min(240, Math.round(row.delayMinutes));
+	if (typeof row.delayMinutes === "number" && row.delayMinutes > 0) state.delayMinutes = Math.min(45, Math.round(row.delayMinutes));
+	if (typeof row.lastTradeAt === "string" && Number.isFinite(Date.parse(row.lastTradeAt))) state.lastTradeAt = row.lastTradeAt.slice(0, 40);
 	return Object.keys(state).length > 0 ? { ruleState: state } : {};
 }
 

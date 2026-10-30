@@ -39,8 +39,10 @@ export type AlertRuleState = {
 	/** Itens já vistos (novo item), limitado. */
 	seenIds?: string[];
 	seeded?: boolean;
-	/** Atraso medido da última cotação (min), quando relevante: o cartão mostra "atraso ~30 min". */
+	/** Atraso medido da última cotação (10 a 45 min): o cartão mostra "atraso ~30 min". */
 	delayMinutes?: number;
+	/** Horário (ISO) do último negócio quando o atraso passa de ~45 min (ativo pouco negociado): "último negócio às 14:32". */
+	lastTradeAt?: string;
 };
 
 /** O que a fonte devolveu. */
@@ -171,8 +173,12 @@ export function evaluateAlertRule(input: {
 	if (value === null) return inconclusive(state, "o valor lido não é um número");
 	if (!Number.isFinite(value) || Math.abs(value) > ABSURD_MAX || (check.parse === "money" && value <= 0)) return inconclusive(state, "o valor lido não faz sentido");
 	const display = formatAlertNumber(value, check.parse, locale, check.currency) + alertSourceUnit(rule.source);
-	const delay = read.kind === "number" && read.delayMinutes !== undefined && read.delayMinutes >= DELAY_MIN_MINUTES ? Math.round(read.delayMinutes) : undefined;
-	const note = delayNote(delay, locale);
+	const measured = read.kind === "number" && read.delayMinutes !== undefined && read.delayMinutes >= DELAY_MIN_MINUTES ? Math.round(read.delayMinutes) : undefined;
+	// Até ~45 min é o atraso do plano do provedor ("atraso ~30 min"); acima disso o preço é de um ativo pouco negociado
+	// e afirmar "atraso de 3 h" engana: o aviso diz a hora do último negócio.
+	const delay = measured !== undefined && measured <= DELAY_MAX_MINUTES ? measured : undefined;
+	const lastTradeAt = measured !== undefined && delay === undefined && read.kind === "number" && read.asOf ? read.asOf : undefined;
+	const note = delay !== undefined ? delayNote(delay, locale) : lastTradeAt ? lastTradeNote(lastTradeAt, locale) : undefined;
 
 	const previous = typeof state.lastValue === "number" ? state.lastValue : undefined;
 	// Previsão do tempo muda de um dia para o outro por natureza (10% → 80% de chuva): o filtro de salto não vale.
@@ -199,7 +205,7 @@ export function evaluateAlertRule(input: {
 		if (baseline === undefined) {
 			return {
 				verdict: { triggered: false, summary: renderAlertMessage(rule, display, locale) },
-				state: { lastValue: value, lastReadAt: stamp, consecutive: 0, baseline: value, ...(delay ? { delayMinutes: delay } : {}) },
+				state: { lastValue: value, lastReadAt: stamp, consecutive: 0, baseline: value, ...(delay ? { delayMinutes: delay } : {}), ...(lastTradeAt ? { lastTradeAt } : {}) },
 				display,
 				...(note ? { note } : {}),
 			};
@@ -216,8 +222,8 @@ export function evaluateAlertRule(input: {
 	if (check.op === "changed_pct" && result.verdict?.triggered && !wasActive) baseline = value;
 	// A cotação com atraso diz isso no próprio aviso: quem decide sabe que o preço não é o desta hora.
 	const verdict = result.verdict && note && result.verdict.triggered ? { ...result.verdict, summary: `${result.verdict.summary} (${note})`.slice(0, 340) } : result.verdict;
-	const { delayMinutes: _previousDelay, ...cleanState } = result.state;
-	return { ...result, verdict, ...(note ? { note } : {}), state: { ...cleanState, ...(delay ? { delayMinutes: delay } : {}), ...(baseline !== undefined ? { baseline } : {}) } };
+	const { delayMinutes: _previousDelay, lastTradeAt: _previousTrade, ...cleanState } = result.state;
+	return { ...result, verdict, ...(note ? { note } : {}), state: { ...cleanState, ...(delay ? { delayMinutes: delay } : {}), ...(lastTradeAt ? { lastTradeAt } : {}), ...(baseline !== undefined ? { baseline } : {}) } };
 }
 
 const DELAY_NOTE: Record<string, string> = {
@@ -228,6 +234,26 @@ const DELAY_NOTE: Record<string, string> = {
 
 /** Atraso só vale a menção a partir de 10 min (abaixo disso é ruído de relógio). */
 const DELAY_MIN_MINUTES = 10;
+/** Acima disso não se fala em "atraso": fala-se do horário do último negócio. */
+export const ALERT_DELAY_MAX_MINUTES = 45;
+const DELAY_MAX_MINUTES = ALERT_DELAY_MAX_MINUTES;
+
+const TRADE_NOTE: Record<string, string> = {
+	"pt-BR": "último negócio às {time}",
+	"en-US": "last trade at {time}",
+	"es-ES": "último negocio a las {time}",
+};
+
+/** HH:MM de Brasília (a B3 opera em UTC-3 fixo) do último negócio. */
+export function brasiliaClock(iso: string): string {
+	const shifted = new Date(Date.parse(iso) - 3 * 3_600_000);
+	return `${String(shifted.getUTCHours()).padStart(2, "0")}:${String(shifted.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+function lastTradeNote(iso: string, locale: BotLanguage): string | undefined {
+	if (!Number.isFinite(Date.parse(iso))) return undefined;
+	return (TRADE_NOTE[locale] ?? TRADE_NOTE["pt-BR"]!).replace("{time}", brasiliaClock(iso));
+}
 function delayNote(minutes: number | undefined, locale: BotLanguage): string | undefined {
 	if (minutes === undefined || !Number.isFinite(minutes) || minutes < DELAY_MIN_MINUTES) return undefined;
 	return (DELAY_NOTE[locale] ?? DELAY_NOTE["pt-BR"]!).replace("{n}", String(Math.round(minutes)));
