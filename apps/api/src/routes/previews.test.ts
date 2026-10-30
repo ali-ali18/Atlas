@@ -13,7 +13,9 @@ const {
 	PREVIEW_COOKIE,
 	createPreviewOpenRoutes,
 	createPreviewService,
+	createUpgradeDispatcher,
 	loadPreviewConfig,
+	previewConfigProblem,
 	rewriteUpstreamSetCookie,
 	signPreviewToken,
 	stripPreviewCookie,
@@ -64,6 +66,16 @@ async function startUpstream(seen: Seen[]) {
 		req.on("data", (chunk) => (body += chunk));
 		req.on("end", () => {
 			seen.push({ headers: req.headers, url: req.url ?? "", body });
+			if (req.url === "/redirect") {
+				const self = (server.address() as AddressInfo).port;
+				res.statusCode = 302;
+				res.setHeader("Location", `http://127.0.0.1:${self}/dest?x=1#h`);
+				res.setHeader("Content-Location", `http://localhost:${self}/c`);
+				res.setHeader("Refresh", `0; url=http://0.0.0.0:${self}/r`);
+				res.setHeader("Access-Control-Allow-Origin", `http://127.0.0.1:${self}`);
+				res.end();
+				return;
+			}
 			res.setHeader("Set-Cookie", ["theme=dark; Domain=preview.test; Path=/", `${PREVIEW_COOKIE}=evil; Path=/`]);
 			res.setHeader("Content-Type", "text/plain");
 			res.end(`ok ${req.method} ${req.url}`);
@@ -80,14 +92,14 @@ async function harness(options: { sessionFor?: (port: number) => DevSessionRecor
 	const seen: Seen[] = [];
 	const upstream = await startUpstream(seen);
 	const touches: string[] = [];
-	const session = options.sessionFor ? options.sessionFor(upstream.port) : record({ port: upstream.port });
+	const state = { now: NOW, session: options.sessionFor ? options.sessionFor(upstream.port) : record({ port: upstream.port }) };
 	const service = createPreviewService({
 		config,
-		getSessionById: async (id) => (session && id === session.id ? session : null),
-		getOwnedSession: async (id, userId) => (session && id === session.id && userId === session.userId ? session : null),
+		getSessionById: async (id) => (state.session && id === state.session.id ? state.session : null),
+		getOwnedSession: async (id, userId) => (state.session && id === state.session.id && userId === state.session.userId ? state.session : null),
 		resolveContainerHost: async () => (options.host === undefined ? "127.0.0.1" : options.host),
 		touch: async (id) => void touches.push(id),
-		now: () => NOW,
+		now: () => state.now,
 	});
 	const front = serve({ fetch: async (request) => (await service.handleRequest(request)) ?? new Response("fell-through", { status: 418 }), port: 0, hostname: "127.0.0.1" }) as http.Server;
 	front.on("upgrade", (req, socket, head) => {
@@ -99,6 +111,18 @@ async function harness(options: { sessionFor?: (port: number) => DevSessionRecor
 	return {
 		seen,
 		touches,
+		state,
+		service,
+		/** WebSocket que fica aberto; `closed` resolve quando o proxy o derruba. */
+		openSocket: (headers: Record<string, string>) =>
+			new Promise<{ socket: net.Socket; closed: Promise<void> }>((resolve) => {
+				const socket = net.connect(frontPort, "127.0.0.1", () => {
+					const lines = ["GET /hmr HTTP/1.1", `Host: ${HOST}`, "Connection: Upgrade", "Upgrade: websocket", "Sec-WebSocket-Key: abc", "Sec-WebSocket-Version: 13", ...Object.entries(headers).map(([k, v]) => `${k}: ${v}`)];
+					socket.write(`${lines.join("\r\n")}\r\n\r\n`);
+				});
+				const closed = new Promise<void>((done) => socket.on("close", () => done()));
+				socket.once("data", () => resolve({ socket, closed }));
+			}),
 		upstreamPort: upstream.port,
 		get: (path: string, headers: Record<string, string> = {}, host = HOST) =>
 			new Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }>((resolve, reject) => {
@@ -318,7 +342,9 @@ test("proxy: o destino nao muda por Host/headers da requisicao (SSRF)", async ()
 	try {
 		await h.get("/", { cookie: sessionCookie(), "x-forwarded-host": "169.254.169.254", "x-forwarded-port": "80" });
 		assert.equal(h.seen.length, 1);
-		assert.equal(h.seen[0]!.headers["x-forwarded-host"], undefined);
+		// Só os nossos cabeçalhos seguem ao projeto: o host público, nunca o que o cliente mandou.
+		assert.equal(h.seen[0]!.headers["x-forwarded-host"], HOST);
+		assert.equal(h.seen[0]!.headers["x-forwarded-proto"], "https");
 	} finally {
 		h.close();
 	}
@@ -344,3 +370,122 @@ test("websocket: com cookie valido encaminha ao projeto; sem cookie 401; origem 
 	}
 });
 
+
+test("redirect: Location, Content-Location, Refresh e ACAO internos viram a origem publica", async () => {
+	const h = await harness();
+	try {
+		const res = await h.get("/redirect", { cookie: sessionCookie() });
+		assert.equal(res.status, 302);
+		assert.equal(res.headers.location, `https://${HOST}/dest?x=1#h`);
+		assert.equal(res.headers["content-location"], `https://${HOST}/c`);
+		assert.equal(res.headers.refresh, `0; url=https://${HOST}/r`);
+		assert.equal(res.headers["access-control-allow-origin"], `https://${HOST}`);
+		assert.doesNotMatch(JSON.stringify(res.headers), /127\.0\.0\.1|localhost|0\.0\.0\.0/);
+	} finally {
+		h.close();
+	}
+});
+
+test("redirect: destino externo e caminho relativo passam como vieram", async () => {
+	const { rewriteToPublicOrigin } = await import("./previews.js");
+	assert.equal(rewriteToPublicOrigin("https://example.org/x", "172.18.0.9", "https://p.test"), "https://example.org/x");
+	assert.equal(rewriteToPublicOrigin("/local", "172.18.0.9", "https://p.test"), "/local");
+	assert.equal(rewriteToPublicOrigin("http://172.18.0.9:5173/a?b=1", "172.18.0.9", "https://p.test"), "https://p.test/a?b=1");
+});
+
+test("config: dominio da previa igual, pai ou no mesmo site do Atlas deixa o recurso desligado (com escape hatch)", () => {
+	const base = { BETTER_AUTH_SECRET: "s", ATLAS_URL: "https://atlas.example.com" };
+	for (const domain of ["atlas.example.com", "example.com", "preview.example.com"]) {
+		assert.equal(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: domain }), null, domain);
+		assert.match(previewConfigProblem({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: domain }) ?? "", /domínio/, domain);
+	}
+	assert.notEqual(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "previews.example.net" }), null);
+	assert.equal(previewConfigProblem({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "previews.example.net" }), null);
+	assert.notEqual(loadPreviewConfig({ ...base, ATLAS_PREVIEW_BASE_DOMAIN: "preview.example.com", ATLAS_PREVIEW_ALLOW_SAME_SITE: "1" }), null);
+	assert.equal(previewConfigProblem({ BETTER_AUTH_SECRET: "s" }), null, "sem variável: nada a avisar");
+});
+
+test("token de entrada e de uso unico: a segunda troca e recusada", async () => {
+	const h = await harness();
+	try {
+		const open = signPreviewToken("open", { previewId: ID, userId: "user-a" }, SECRET, 30_000, NOW);
+		assert.equal((await h.get(`${PREVIEW_AUTH_PATH}?t=${open}`)).status, 302);
+		assert.equal((await h.get(`${PREVIEW_AUTH_PATH}?t=${open}`)).status, 401);
+	} finally {
+		h.close();
+	}
+});
+
+test("cookie plantado com o mesmo nome (cookie tossing) nao esconde o legitimo", async () => {
+	const h = await harness();
+	try {
+		const good = sessionCookie();
+		const junk = `${PREVIEW_COOKIE}=lixo.lixo`;
+		assert.equal((await h.get("/", { cookie: `${junk}; ${good}` })).status, 200);
+		assert.equal((await h.get("/", { cookie: `${good}; ${junk}` })).status, 200);
+		assert.equal((await h.get("/", { cookie: `${junk}; ${junk}` })).status, 401);
+	} finally {
+		h.close();
+	}
+});
+
+test("cache de destino: vencimento conferido a cada requisicao, invalidate vale na hora e 404 nao fica em cache", async () => {
+	const h = await harness({ sessionFor: (port) => record({ port, expiresAt: NOW + 1000 }) });
+	try {
+		const cookie = { cookie: sessionCookie() };
+		assert.equal((await h.get("/", cookie)).status, 200);
+		h.state.now = NOW + 2000; // dentro dos 5 s do cache, mas a prévia já venceu
+		assert.equal((await h.get("/", cookie)).status, 404);
+		h.state.now = NOW;
+		assert.equal((await h.get("/", cookie)).status, 200, "sem cache negativo");
+		const stopped = h.state.session;
+		h.state.session = record({ port: stopped!.preview!.port, preview: null });
+		assert.equal((await h.get("/", cookie)).status, 200, "ainda no cache de 5 s");
+		h.service.invalidate(ID);
+		assert.equal((await h.get("/", cookie)).status, 404);
+	} finally {
+		h.close();
+	}
+});
+
+test("websocket aberto: cai ao vencer a previa e quando ela e encerrada", async () => {
+	for (const how of ["expiry", "stop"] as const) {
+		const h = await harness();
+		try {
+			const ws = await h.openSocket({ Cookie: sessionCookie(), Origin: `https://${HOST}` });
+			if (how === "expiry") h.state.now = NOW + 3_600_001;
+			else h.state.session = record({ port: h.state.session!.preview!.port, preview: null });
+			await h.service.sweep();
+			await Promise.race([ws.closed, new Promise((_, reject) => setTimeout(() => reject(new Error(`websocket não fechou (${how})`)), 3000))]);
+		} finally {
+			h.close();
+		}
+	}
+});
+
+test("websocket aberto: cookie vencido tambem derruba na revalidacao", async () => {
+	const h = await harness();
+	try {
+		const short = `${PREVIEW_COOKIE}=${signPreviewToken("session", { previewId: ID, userId: "user-a" }, SECRET, 1000, NOW)}`;
+		const ws = await h.openSocket({ Cookie: short });
+		h.state.now = NOW + 1500;
+		await h.service.sweep();
+		await Promise.race([ws.closed, new Promise((_, reject) => setTimeout(() => reject(new Error("não fechou")), 3000))]);
+	} finally {
+		h.close();
+	}
+});
+
+test("upgrade sem viewer e fora do host da previa: 404 limpo, sem calar o socket", () => {
+	const written: string[] = [];
+	let destroyed = false;
+	const socket = { writable: true, write: (chunk: string) => void written.push(chunk), destroy: () => void (destroyed = true) };
+	const dispatch = createUpgradeDispatcher({ preview: { claimsUpgrade: () => false, handleUpgrade: async () => undefined } });
+	dispatch({ headers: { host: "atlas.test" } } as never, socket as never, Buffer.alloc(0));
+	assert.match(written.join(""), /^HTTP\/1\.1 404/);
+	assert.equal(destroyed, true);
+	// Com viewer, quem trata é o viewer.
+	let viewerCalled = false;
+	createUpgradeDispatcher({ preview: { claimsUpgrade: () => false, handleUpgrade: async () => undefined }, viewer: () => void (viewerCalled = true) })({} as never, socket as never, Buffer.alloc(0));
+	assert.equal(viewerCalled, true);
+});

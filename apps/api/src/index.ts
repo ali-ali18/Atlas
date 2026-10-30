@@ -24,7 +24,7 @@ import { jsonBodyLimit } from "./middleware/json-body-limit.js";
 import { apiCompress } from "./middleware/compress.js";
 import { auth, authProviders, isOwnerEmail } from "./auth.js";
 import { createViewerUpgradeHandler } from "./routes/sandbox-viewer.js";
-import { createPreviewOpenRoutes, createPreviewService, loadPreviewConfig } from "./routes/previews.js";
+import { createPreviewOpenRoutes, createPreviewService, createUpgradeDispatcher, loadPreviewConfig, previewConfigProblem } from "./routes/previews.js";
 import { createChatRoutes } from "./routes/chat.js";
 import { createDevSessionRoutes } from "./routes/dev-sessions.js";
 import { createDevEnvironmentRoutes } from "./routes/dev-environments.js";
@@ -256,6 +256,8 @@ let pushNotify: ReturnType<typeof createNotifier> | null = null;
 app.route("/", createDevSessionRoutes());
 // Prévia privada: o link do chat passa por aqui (login do Atlas) antes de ir ao domínio separado da prévia.
 const previewConfig = loadPreviewConfig();
+const previewProblem = previewConfigProblem();
+if (previewProblem) console.warn(`[preview] prévia privada DESLIGADA: ${previewProblem}`);
 const previewDevConfig = loadDevSandboxConfig();
 const previewProvider = previewConfig && previewDevConfig.enabled && previewDevConfig.connectMode === "network" ? createDockerDevProvider(previewDevConfig) : null;
 const previewDeps = {
@@ -370,11 +372,10 @@ const server = serve(
 	const viewerProxy = sandboxConfig.enabled && sandboxConfig.viewerMode === "proxy";
 	// Um só ouvinte: Host de prévia vai ao proxy da prévia (HMR); o resto segue o fluxo do viewer.
 	if (viewerProxy || previewConfig) {
-		(server as import("node:http").Server).on("upgrade", (req, socket, head) => {
-			if (previewService.claimsUpgrade(req)) void previewService.handleUpgrade(req, socket, head);
-			else if (viewerProxy) void handleViewerUpgrade(req, socket, head);
-			else socket.destroy();
-		});
+		(server as import("node:http").Server).on(
+			"upgrade",
+			createUpgradeDispatcher({ preview: previewService, ...(viewerProxy ? { viewer: handleViewerUpgrade } : {}) }),
+		);
 	}
 }
 
