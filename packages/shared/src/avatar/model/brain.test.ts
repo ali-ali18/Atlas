@@ -88,26 +88,30 @@ describe("cérebro do avatar", () => {
 		const kinds: PulseKind[] = ["toolStart", "toolOk", "toolFail"];
 		const L = BRAIN_LIMITS;
 		let frames = 0;
+		const violations: string[] = [];
 		for (let t = 0; t < 300; t += DT) {
 			if (random() < 0.01) brain.setFamily(ACTIVITY_FAMILIES[Math.floor(random() * ACTIVITY_FAMILIES.length)] as ActivityFamily);
 			if (random() < 0.03) brain.pulse(kinds[Math.floor(random() * kinds.length)] as PulseKind, random() * 1.5);
 			// quadros irregulares, inclusive longos
 			brain.advance(random() < 0.02 ? 0.1 + random() * 0.4 : DT * (0.5 + random() * 2));
+			// Checagem em JS puro e um expect só no fim: ~18 mil quadros × 12 expects
+			// estouravam o timeout de 5 s no runner do CI.
 			const o = brain.output;
-			for (const v of Object.values(o)) expect(Number.isFinite(v)).toBe(true);
-			expect(Math.abs(o.yaw)).toBeLessThanOrEqual(L.yaw);
-			expect(Math.abs(o.pitch)).toBeLessThanOrEqual(L.pitch);
-			expect(Math.abs(o.roll)).toBeLessThanOrEqual(L.roll);
-			expect(Math.abs(o.gazeX)).toBeLessThanOrEqual(L.gaze);
-			expect(Math.abs(o.gazeY)).toBeLessThanOrEqual(L.gaze);
-			expect(Math.abs(o.squash)).toBeLessThanOrEqual(L.squash);
-			expect(Math.abs(o.breath)).toBeLessThanOrEqual(L.breath);
-			expect(o.blinkRate).toBeGreaterThanOrEqual(L.blinkMin);
-			expect(o.blinkRate).toBeLessThanOrEqual(L.blinkMax);
-			expect(o.weight).toBeGreaterThanOrEqual(0);
-			expect(o.weight).toBeLessThanOrEqual(1);
+			const bad: string[] = [];
+			for (const [k, v] of Object.entries(o)) if (!Number.isFinite(v)) bad.push(`${k} não é finito`);
+			if (Math.abs(o.yaw) > L.yaw) bad.push("yaw");
+			if (Math.abs(o.pitch) > L.pitch) bad.push("pitch");
+			if (Math.abs(o.roll) > L.roll) bad.push("roll");
+			if (Math.abs(o.gazeX) > L.gaze) bad.push("gazeX");
+			if (Math.abs(o.gazeY) > L.gaze) bad.push("gazeY");
+			if (Math.abs(o.squash) > L.squash) bad.push("squash");
+			if (Math.abs(o.breath) > L.breath) bad.push("breath");
+			if (o.blinkRate < L.blinkMin || o.blinkRate > L.blinkMax) bad.push("blinkRate");
+			if (o.weight < 0 || o.weight > 1) bad.push("weight");
+			if (bad.length > 0) violations.push(`t=${t.toFixed(2)}: ${bad.join(", ")}`);
 			frames += 1;
 		}
+		expect(violations).toEqual([]);
 		expect(frames).toBeGreaterThan(10_000);
 	});
 
