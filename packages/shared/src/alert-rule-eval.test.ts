@@ -172,3 +172,55 @@ describe("texto de fora na mensagem do bot", () => {
 		expect(result.verdict?.summary).toBe("Tênis está em R$ 389,90");
 	});
 });
+
+describe("evaluateAlertRule · fontes de mercado", () => {
+	const q = (parseAlertRule({ source: { type: "quote", symbol: "BBAS3" }, check: { kind: "value", parse: "money", op: "lt", value: 15 } }) as { ok: true; rule: AlertRule }).rule;
+	const num = (value: number, delayMinutes?: number): AlertRuleRead => ({ kind: "number", value, ...(delayMinutes !== undefined ? { delayMinutes } : {}) });
+
+	it("lê o número direto (sem interpretar texto) e formata em reais", () => {
+		const first = step(q, undefined, false, num(21.34));
+		expect(first.display).toBe("R$ 21,34");
+		expect(first.verdict).toMatchObject({ triggered: false });
+	});
+
+	it("mantém debounce de 2 leituras e aviso único", () => {
+		const a = step(q, undefined, false, num(14.9));
+		expect(a.verdict?.triggered).toBe(false);
+		const b = step(q, a.state, false, num(14.9));
+		expect(b.verdict).toMatchObject({ triggered: true, summary: "BBAS3 está em R$ 14,90" });
+		// já avisou: valor um pouco acima do limite, dentro da folga, segue em alerta sem reavisar
+		const c = step(q, b.state, true, num(15.05));
+		expect(c.verdict?.triggered).toBe(true);
+	});
+
+	it("cotação com atraso diz isso no aviso e na nota; atraso pequeno não", () => {
+		const a = step(q, undefined, false, num(14.9, 30));
+		const b = step(q, a.state, false, num(14.9, 30));
+		expect(b.note).toBe("cotação com atraso de ~30 min");
+		expect(b.verdict?.summary).toBe("BBAS3 está em R$ 14,90 (cotação com atraso de ~30 min)");
+		expect(step(q, undefined, false, num(14.9, 3)).note).toBeUndefined();
+	});
+
+	it("salto brusco de cotação é suspeito até confirmar", () => {
+		const a = step(q, undefined, false, num(20));
+		const jump = step(q, a.state, false, num(5));
+		expect(jump.suspect).toBe(true);
+		expect(jump.verdict?.triggered).toBe(false);
+	});
+
+	it("clima mostra unidade e não trata salto de um dia para o outro como suspeito", () => {
+		const w = (parseAlertRule({ source: { type: "weather", place: "Curitiba", metric: "rain_probability" }, check: { kind: "value", parse: "number", op: "gte", value: 60 }, label: "chuva em Curitiba" }) as { ok: true; rule: AlertRule }).rule;
+		const a = step(w, undefined, false, num(10));
+		expect(a.display).toBe("10%");
+		const b = step(w, a.state, false, num(80));
+		expect(b.suspect).toBeUndefined();
+		const c = step(w, b.state, false, num(80));
+		expect(c.verdict).toMatchObject({ triggered: true, summary: "Chuva em Curitiba está em 80%" });
+	});
+
+	it("câmbio: leitura não numérica ou absurda não dá veredito", () => {
+		const fx = (parseAlertRule({ source: { type: "fx", pair: "USD-BRL" }, check: { kind: "value", parse: "money", op: "gt", value: 6 } }) as { ok: true; rule: AlertRule }).rule;
+		expect(step(fx, undefined, false, num(Number.NaN)).verdict).toBeNull();
+		expect(step(fx, undefined, false, num(-1)).verdict).toBeNull();
+	});
+});

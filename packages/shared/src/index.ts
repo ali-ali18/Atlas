@@ -487,6 +487,7 @@ export * from "./routine-proposal.js";
 export * from "./alert-rule.js";
 export * from "./alert-rule-eval.js";
 export * from "./alert-rule-extract.js";
+export * from "./market-hours.js";
 export * from "./routine-alert.js";
 export * from "./routine-alert-schedule.js";
 export * from "./routine-failure-text.js";

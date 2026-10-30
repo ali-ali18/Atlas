@@ -11,7 +11,7 @@
  */
 import type { BotLanguage } from "./bot-language.js";
 import { alertItemKey, quoteAlertExternalText, sanitizeAlertExternalText, type AlertFeedItem, parseLocalizedNumber } from "./alert-rule-extract.js";
-import { formatAlertNumber, renderAlertMessage, type AlertCheck, type AlertRule } from "./alert-rule.js";
+import { alertSourceUnit, formatAlertNumber, renderAlertMessage, type AlertCheck, type AlertRule } from "./alert-rule.js";
 import type { AlertVerdict } from "./routine-alert.js";
 
 /** Leituras seguidas com a condição valendo antes do primeiro aviso. */
@@ -44,6 +44,8 @@ export type AlertRuleState = {
 /** O que a fonte devolveu. */
 export type AlertRuleRead =
 	| { kind: "text"; text: string | null }
+	/** Número já lido por um provedor de mercado (sem texto para interpretar). `delayMinutes` = atraso medido da cotação. */
+	| { kind: "number"; value: number; asOf?: string; delayMinutes?: number }
 	| { kind: "items"; items: Array<Pick<AlertFeedItem, "title" | "link"> & { id?: string }> }
 	| { kind: "error"; reason: string };
 
@@ -55,6 +57,8 @@ export type AlertRuleEvaluation = {
 	reason?: string;
 	/** Leitura formatada, para o card ("R$ 449,90"). */
 	display?: string;
+	/** Aviso sobre a leitura (pt-BR/idioma do bot), ex.: "cotação com atraso de ~30 min". */
+	note?: string;
 	suspect?: boolean;
 };
 
@@ -147,12 +151,13 @@ export function evaluateAlertRule(input: {
 	if (rule.check.kind === "new_item") return evaluateNewItems(rule, state, read, now, locale);
 	const check = rule.check;
 	if (read.kind === "error") return inconclusive(state, read.reason);
-	if (read.kind !== "text") return inconclusive(state, "a fonte devolveu outro tipo de dado");
-	const text = read.text?.replace(/\s+/g, " ").trim() ?? "";
-	if (!text) return inconclusive(state, "não encontrei o valor na página");
+	if (read.kind !== "text" && read.kind !== "number") return inconclusive(state, "a fonte devolveu outro tipo de dado");
+	const text = read.kind === "text" ? (read.text?.replace(/\s+/g, " ").trim() ?? "") : "";
+	if (read.kind === "text" && !text) return inconclusive(state, "não encontrei o valor na página");
 	const stamp = now.toISOString();
 
 	if (check.parse === "text") {
+		if (read.kind !== "text") return inconclusive(state, "a fonte devolveu outro tipo de dado");
 		const compared = text.slice(0, 200);
 		const matches = textHolds(check, compared);
 		// O texto lido é de terceiros: o que fica no estado e vai à mensagem é a citação saneada.
@@ -160,13 +165,16 @@ export function evaluateAlertRule(input: {
 		return settle({ rule, check, state, wasActive, matches, stillHolds: matches, value: shown, display: quoteAlertExternalText(compared), stamp, locale });
 	}
 
-	const value = parseLocalizedNumber(text);
+	const value = read.kind === "number" ? read.value : parseLocalizedNumber(text);
 	if (value === null) return inconclusive(state, "o valor lido não é um número");
 	if (!Number.isFinite(value) || Math.abs(value) > ABSURD_MAX || (check.parse === "money" && value <= 0)) return inconclusive(state, "o valor lido não faz sentido");
-	const display = formatAlertNumber(value, check.parse, locale, check.currency);
+	const display = formatAlertNumber(value, check.parse, locale, check.currency) + alertSourceUnit(rule.source);
+	const note = read.kind === "number" ? delayNote(read.delayMinutes, locale) : undefined;
 
 	const previous = typeof state.lastValue === "number" ? state.lastValue : undefined;
-	if (previous !== undefined && previous !== 0 && Math.abs(value - previous) / Math.abs(previous) > ALERT_SUSPECT_JUMP) {
+	// Previsão do tempo muda de um dia para o outro por natureza (10% → 80% de chuva): o filtro de salto não vale.
+	const volatile = rule.source.type === "weather";
+	if (!volatile && previous !== undefined && previous !== 0 && Math.abs(value - previous) / Math.abs(previous) > ALERT_SUSPECT_JUMP) {
 		const pending = state.suspect?.value;
 		const confirmed = pending !== undefined && pending !== 0 && Math.abs(value - pending) / Math.abs(pending) <= ALERT_SUSPECT_CONFIRM;
 		if (!confirmed) {
@@ -175,6 +183,7 @@ export function evaluateAlertRule(input: {
 				verdict: { triggered: wasActive, summary: renderAlertMessage(rule, display, locale) },
 				state: { ...state, lastReadAt: stamp, suspect: { value } },
 				display,
+				...(note ? { note } : {}),
 				suspect: true,
 			};
 		}
@@ -189,6 +198,7 @@ export function evaluateAlertRule(input: {
 				verdict: { triggered: false, summary: renderAlertMessage(rule, display, locale) },
 				state: { lastValue: value, lastReadAt: stamp, consecutive: 0, baseline: value },
 				display,
+				...(note ? { note } : {}),
 			};
 		}
 		const pct = baseline === 0 ? (value === 0 ? 0 : 100) : (Math.abs(value - baseline) / Math.abs(baseline)) * 100;
@@ -201,7 +211,21 @@ export function evaluateAlertRule(input: {
 	const result = settle({ rule, check, state: { ...state, suspect: undefined }, wasActive, matches, stillHolds, value, display, stamp, locale });
 	// Avisou agora: a base do "variou X%" passa a ser o valor que avisou.
 	if (check.op === "changed_pct" && result.verdict?.triggered && !wasActive) baseline = value;
-	return { ...result, state: { ...result.state, ...(baseline !== undefined ? { baseline } : {}) } };
+	// A cotação com atraso diz isso no próprio aviso: quem decide sabe que o preço não é o desta hora.
+	const verdict = result.verdict && note && result.verdict.triggered ? { ...result.verdict, summary: `${result.verdict.summary} (${note})`.slice(0, 340) } : result.verdict;
+	return { ...result, verdict, ...(note ? { note } : {}), state: { ...result.state, ...(baseline !== undefined ? { baseline } : {}) } };
+}
+
+const DELAY_NOTE: Record<string, string> = {
+	"pt-BR": "cotação com atraso de ~{n} min",
+	"en-US": "quote delayed by ~{n} min",
+	"es-ES": "cotización con retraso de ~{n} min",
+};
+
+/** Atraso só vale a menção a partir de 10 min (abaixo disso é ruído de relógio). */
+function delayNote(minutes: number | undefined, locale: BotLanguage): string | undefined {
+	if (minutes === undefined || !Number.isFinite(minutes) || minutes < 10) return undefined;
+	return (DELAY_NOTE[locale] ?? DELAY_NOTE["pt-BR"]!).replace("{n}", String(Math.round(minutes)));
 }
 
 function settle(input: {

@@ -27,6 +27,7 @@ import {
 	ALERT_FEED_ITEMS_MAX,
 	ALERT_ITEM_TITLE_MAX,
 	alertSourceHost,
+	isMarketAlertSource,
 	unsafeRegexReason,
 	jsonValueText,
 	parseFeedItems,
@@ -253,6 +254,8 @@ export async function readAlertSource(source: AlertSource, deps: AlertSourceDeps
 	const clock = deps.now ?? Date.now;
 	const started = clock();
 	const host = alertSourceHost(source);
+	// Fontes de mercado (sem URL) são lidas pelos provedores de `market-data.ts`, não por este leitor de páginas.
+	if (isMarketAlertSource(source)) return { ok: false, code: "network", reason: "fonte de mercado fora do leitor de páginas", host, ms: 0 };
 	try {
 		const doc = await fetchShared(source.url, deps);
 		const read = source.type === "feed" ? readFeed(doc) : await readPage(source, doc, wantList);
