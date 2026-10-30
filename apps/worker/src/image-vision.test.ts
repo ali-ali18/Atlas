@@ -43,7 +43,7 @@ test("imagem fora do escopo e fallback desligado não chamam provedor", async ()
 		loadArtifact: async () => null,
 	});
 	assert.equal(await vision.loadUserImage("image-a"), null);
-	assert.deepEqual(await vision.describeUserImage("image-a"), { description: null });
+	assert.deepEqual(await vision.describeUserImage("image-a"), { description: null, loadFailed: true });
 });
 
 test("describeUserImage sem usage.cost marca costUnknown (chamada feita, custo desconhecido)", async () => {
@@ -100,7 +100,7 @@ test("falha de leitura loga uma linha com id e motivo, sem caminho nem conteúdo
 		loadArtifactDetailed: async () => ({ ok: false, reason: "read_failed:ENOENT" }),
 	});
 	assert.equal(await vision.loadUserImage("image-a"), null);
-	assert.deepEqual(lines, ["[image-vision] imagem anexada indisponível artifact=image-a reason=read_failed errno=ENOENT"]);
+	assert.deepEqual(lines, ["[image-vision] imagem anexada indisponível artifact=image-a reason=read_failed errno=ENOENT attempt=1"]);
 });
 
 test("outro dono e artefato que não é imagem também são logados; sucesso não loga", async () => {
@@ -122,4 +122,46 @@ test("outro dono e artefato que não é imagem também são logados; sucesso nã
 	assert.match(lines[0]!, /reason=not_found_for_owner/);
 	assert.match(lines[1]!, /reason=not_an_image/);
 	assert.ok(lines.every((line) => !line.includes("user-b")));
+});
+
+test("anexo do turno: falha transitória repete a leitura uma vez e marca attempt=2 no log", async () => {
+	const lines: string[] = [];
+	let calls = 0;
+	const vision = imageVisionForRun({
+		userId: "user-a", apiKey: "test-key", retryDelayMs: 0,
+		makeModelCopy: async () => "data:image/png;base64,dGVzdA==",
+		logFailure: (line) => lines.push(line),
+		loadArtifactDetailed: async () => {
+			calls++;
+			return calls === 1 ? { ok: false, reason: "read_failed:ENOENT" } : { ok: true, artifact: { id: "image-a", kind: "image", runId: null, conversationId: null, createdAt: new Date(0), bytes: png, meta: { mime: "image/png" } } };
+		},
+	});
+	assert.match(await vision.loadUserImage("image-a", { retryTransient: true }) ?? "", /^data:image\//);
+	assert.equal(calls, 2);
+	assert.equal(lines.length, 1);
+	assert.match(lines[0]!, /attempt=1/);
+	// Persistindo, o segundo log leva attempt=2.
+	calls = -10;
+	const failing = imageVisionForRun({ userId: "user-a", apiKey: "k", retryDelayMs: 0, logFailure: (line) => lines.push(line), loadArtifactDetailed: async () => ({ ok: false, reason: "read_failed:EIO" }) });
+	assert.equal(await failing.loadUserImage("image-a", { retryTransient: true }), null);
+	assert.deepEqual(lines.slice(1).map((line) => line.match(/attempt=\d/)?.[0]), ["attempt=1", "attempt=2"]);
+});
+
+test("sem retryTransient (histórico) ou com motivo permanente não repete a leitura", async () => {
+	for (const [reason, retry] of [["read_failed:ENOENT", false], ["not_found_for_owner", true], ["empty_uri", true]] as const) {
+		let calls = 0;
+		const vision = imageVisionForRun({ userId: "user-a", apiKey: "k", retryDelayMs: 0, logFailure: () => undefined, loadArtifactDetailed: async () => { calls++; return { ok: false, reason }; } });
+		assert.equal(await vision.loadUserImage("image-a", { retryTransient: retry }), null);
+		assert.equal(calls, 1, `${reason} retry=${retry}`);
+	}
+});
+
+test("describeUserImage sinaliza loadFailed quando a leitura falha (≠ sem modelo de apoio)", async () => {
+	const failing = imageVisionForRun({ userId: "user-a", apiKey: "k", retryDelayMs: 0, logFailure: () => undefined, loadArtifactDetailed: async () => ({ ok: false, reason: "read_failed:ENOENT" }) });
+	assert.deepEqual(await failing.describeUserImage("image-a", { retryTransient: true }), { description: null, loadFailed: true });
+	const noHelper = imageVisionForRun({
+		userId: "user-a", apiKey: "k",
+		loadArtifact: async (id) => ({ id, kind: "image", runId: null, conversationId: null, createdAt: new Date(0), bytes: png, meta: { mime: "image/png" } }),
+	});
+	assert.deepEqual(await noHelper.describeUserImage("image-a"), { description: null });
 });
