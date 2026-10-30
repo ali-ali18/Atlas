@@ -142,7 +142,7 @@ const tabScope = createTabScope(browserSession);
 const { getPage, peekPage } = tabScope;
 
 // --- Ferramentas de browser via Playwright/CDP (DOM, não pixel) ---
-const actions = createBrowserActions({ getPage, restart });
+const actions = createBrowserActions({ getPage, restart, browserAlive: () => browserSession.isConnected() });
 const { withPageRetry, browserClick, browserType, navigate } = actions;
 const refActions = createRefActions({
 	withPageRetry,
