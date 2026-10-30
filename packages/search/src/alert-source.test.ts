@@ -1,6 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseAlertRule, type AlertRule, type AlertSource } from "@workspace/shared";
-import { createAlertSourceCache, readAlertRule, readAlertSource, ALERT_SOURCE_UA } from "./alert-source.js";
+import { clearExtractRobotsCache } from "./extract.js";
+import * as sourceModule from "./alert-source.js";
+import { createAlertSourceCache, ALERT_SOURCE_UA, type AlertSourceDeps } from "./alert-source.js";
+
+// Os testes de segurança e leitura não dependem do robots.txt (ele tem os seus testes abaixo).
+const readAlertSource = (source: Parameters<typeof sourceModule.readAlertSource>[0], deps: AlertSourceDeps = {}, wantList?: boolean) => sourceModule.readAlertSource(source, { respectRobots: false, ...deps }, wantList);
+const readAlertRule = (rule: Parameters<typeof sourceModule.readAlertRule>[0], deps: AlertSourceDeps = {}) => sourceModule.readAlertRule(rule, { respectRobots: false, ...deps });
 
 const PUBLIC_IP = ["93.184.216.34"];
 const lookupPublic = async () => PUBLIC_IP;
@@ -10,6 +16,8 @@ function res(body: string, init: { status?: number; headers?: Record<string, str
 }
 const page = (extract: object): AlertSource => ({ type: "page", url: "https://loja.example.com/p?token=segredo", extract: extract as never });
 const css = page({ kind: "css", selector: "span.price" });
+
+beforeEach(() => clearExtractRobotsCache());
 
 describe("readAlertSource · segurança (SSRF)", () => {
 	const blocked = async (url: string, lookupFn = lookupPublic) => {
@@ -146,5 +154,23 @@ describe("cache por ciclo", () => {
 		now += 61_000;
 		await readAlertSource(css, deps);
 		expect(fetchFn).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe("robots.txt", () => {
+	const robotsFor = (txt: string, status = 200) =>
+		vi.fn(async (url: string) => (url.endsWith("/robots.txt") ? res(txt, { status, headers: { "content-type": "text/plain" } }) : res('<span class="price">R$ 10,00</span>')));
+
+	it("respeita Disallow e nem baixa a página", async () => {
+		const fetchFn = robotsFor("User-agent: *\nDisallow: /p");
+		const result = await sourceModule.readAlertSource(css, { fetchFn: fetchFn as never, lookupFn: lookupPublic });
+		expect(result).toMatchObject({ ok: false, code: "blocked", reason: expect.stringContaining("robots.txt") });
+		expect(fetchFn.mock.calls.map((call) => call[0])).toEqual(["https://loja.example.com/robots.txt"]);
+	});
+
+	it("sem robots.txt (404) ou com caminho liberado a leitura segue", async () => {
+		expect(await sourceModule.readAlertSource(css, { fetchFn: robotsFor("", 404) as never, lookupFn: lookupPublic })).toMatchObject({ ok: true });
+		clearExtractRobotsCache();
+		expect(await sourceModule.readAlertSource(css, { fetchFn: robotsFor("User-agent: *\nDisallow: /admin") as never, lookupFn: lookupPublic })).toMatchObject({ ok: true });
 	});
 });

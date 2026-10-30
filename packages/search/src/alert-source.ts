@@ -17,6 +17,7 @@ import { Agent, fetch as undiciFetch } from "undici";
 import {
 	ExtractError,
 	assertPublicExtractUrl,
+	isAllowedByRobots,
 	isPrivateExtractAddress,
 	type ExtractFetchFn,
 	type ExtractLookupFn,
@@ -56,6 +57,8 @@ export type AlertSourceDeps = {
 	lookupFn?: ExtractLookupFn;
 	timeoutMs?: number;
 	maxBytes?: number;
+	/** Respeita o robots.txt do site (padrão: sim; o resultado fica em cache por origem). */
+	respectRobots?: boolean;
 	/** Busca única por URL entre alertas do mesmo ciclo. Ausente = sem cache (ex.: teste da regra na criação). */
 	cache?: AlertSourceCache;
 	now?: () => number;
@@ -143,6 +146,9 @@ async function fetchDocument(rawUrl: string, deps: AlertSourceDeps): Promise<Fet
 			} catch (error) {
 				if (error instanceof ExtractError) throw new SourceError("blocked", error.code === "blocked" ? "endereço não permitido (só sites públicos)" : "não consegui resolver o endereço");
 				throw error;
+			}
+			if (deps.respectRobots !== false && !(await isAllowedByRobots(url, fetchFn, signal))) {
+				throw new SourceError("blocked", "o site pede para não ser lido por programas (robots.txt)");
 			}
 			const response = await fetchFn(url.toString(), {
 				method: "GET",
