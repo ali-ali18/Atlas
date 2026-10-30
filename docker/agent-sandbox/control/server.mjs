@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { createBrowserSession } from "./browser-session.mjs";
-import { createTabScope, parseTabHeader } from "./browser-tabs.mjs";
+import { attachTabNotice, createTabScope, parseTabHeader, parseTabsRequest, runTabsAction } from "./browser-tabs.mjs";
 import { createBrowserActions } from "./browser-actions.mjs";
 import { collectPageText, normalizeText, paginateText } from "./text-page.mjs";
 import { settleAfterAction } from "./stability.mjs";
@@ -142,7 +142,7 @@ const tabScope = createTabScope(browserSession);
 const { getPage, peekPage } = tabScope;
 
 // --- Ferramentas de browser via Playwright/CDP (DOM, não pixel) ---
-const actions = createBrowserActions({ getPage, restart });
+const actions = createBrowserActions({ getPage, restart, browserAlive: () => browserSession.isConnected() });
 const { withPageRetry, browserClick, browserType, navigate } = actions;
 const refActions = createRefActions({
 	withPageRetry,
@@ -237,6 +237,7 @@ const activity = createActivityTracker({ viewers: countViewerClients, shellProce
 const handleRequest = async (req, res) => {
 	if (req.url === "/health" || req.url === "/idle") return handleControlRequest(req, res);
 	const token = activity.begin();
+	attachTabNotice(browserSession, req, res);
 	// Cliente que desconecta com o handler preso também encerra a chamada (end é idempotente por token).
 	res.once("close", () => activity.end(token));
 	try {
@@ -321,6 +322,23 @@ const handleControlRequest = async (req, res) => {
 				return;
 			}
 			sendJson(res, 200, await tabScope.closeTab(tabId));
+			return;
+		}
+
+		if (req.method === "POST" && req.url === "/browser/tabs") {
+			// Abas do pai: o subagente tem a própria aba isolada e não troca de aba.
+			if (tabScope.currentTabId()) {
+				sendJson(res, 400, { error: "browser_tabs is not available inside a subagent tab" });
+				return;
+			}
+			let request;
+			try {
+				request = parseTabsRequest(await readJsonBody(req));
+			} catch (error) {
+				sendJson(res, 400, { error: error instanceof Error ? error.message : "invalid request" });
+				return;
+			}
+			sendJson(res, 200, await runTabsAction(browserSession, request));
 			return;
 		}
 

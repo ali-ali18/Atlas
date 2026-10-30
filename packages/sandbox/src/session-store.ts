@@ -1,3 +1,4 @@
+import { clearTabNoticesForPort } from "./control-client.js";
 import type { SandboxSessionRecord } from "./types.js";
 
 const sessions = new Map<string, SandboxSessionRecord>();
@@ -6,6 +7,8 @@ export function putSession(record: SandboxSessionRecord): void {
 	if (!record.userId?.trim() || record.userId === "default") throw new Error("Sandbox owner required");
 	const existing = sessions.get(record.sessionId);
 	if (existing && existing.userId !== record.userId) throw new Error("Sandbox owner mismatch");
+	// VM nova numa porta (re)usada não herda o aviso de aba da anterior.
+	if (!existing && record.controlPort) clearTabNoticesForPort(record.controlPort);
 	sessions.set(record.sessionId, record);
 }
 
@@ -15,7 +18,10 @@ export function getSession(sessionId: string, userId: string): SandboxSessionRec
 }
 
 export function deleteSession(sessionId: string, userId: string): boolean {
-	return getSession(sessionId, userId) ? sessions.delete(sessionId) : false;
+	const record = getSession(sessionId, userId);
+	if (!record) return false;
+	if (record.controlPort) clearTabNoticesForPort(record.controlPort);
+	return sessions.delete(sessionId);
 }
 
 export function listSessions(userId: string): SandboxSessionRecord[] {

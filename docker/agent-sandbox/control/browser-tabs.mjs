@@ -24,6 +24,8 @@ export function createTabScope(session) {
 	const storage = new AsyncLocalStorage();
 	return {
 		run: (tabId, fn) => storage.run({ tabId }, fn),
+		/** Aba de subagente da requisição em curso (undefined = aba do pai). */
+		currentTabId: () => storage.getStore()?.tabId,
 		getPage: () => session.getPage(storage.getStore()?.tabId),
 		peekPage: () => session.peekPage(storage.getStore()?.tabId),
 		async openTab(url) {
@@ -32,5 +34,41 @@ export function createTabScope(session) {
 			return { tabId: await session.openTab(url) };
 		},
 		closeTab: (tabId) => session.closeTab(tabId),
+	};
+}
+
+const TABS_ACTIONS = ["list", "switch", "close"];
+
+/** Valida o corpo de `POST /browser/tabs`; inválido vira erro (HTTP 400). */
+export function parseTabsRequest(body) {
+	const action = body?.action;
+	if (!TABS_ACTIONS.includes(action)) throw new Error(`action must be one of: ${TABS_ACTIONS.join(", ")}`);
+	if (action === "list") return { action };
+	const index = body?.index;
+	if (!Number.isInteger(index) || index < 1 || index > 99) throw new Error(`${action} needs "index": the tab number from the list (1 or more)`);
+	return { action, index };
+}
+
+/** Executa a ação nas abas do pai (nunca nas de subagente). */
+export async function runTabsAction(session, request) {
+	if (request.action === "switch") return { action: "switch", active: await session.switchTab(request.index) };
+	if (request.action === "close") return { action: "close", ...(await session.closeMainTab(request.index)) };
+	return { action: "list", tabs: await session.listTabs() };
+}
+
+/** Cabeçalho que leva o aviso de aba nova/fechada junto de qualquer resposta (texto codificado). */
+export const TAB_NOTICE_HEADER = "x-atlas-tab-notice";
+
+/**
+ * Aviso de aba nova/fechada (só da aba do pai) vai no cabeçalho da primeira
+ * resposta depois do evento, qualquer que seja o endpoint (inclusive imagem).
+ */
+export function attachTabNotice(session, req, res) {
+	if (req.headers["x-atlas-tab"]) return;
+	const writeHead = res.writeHead.bind(res);
+	res.writeHead = (...args) => {
+		const notice = session.takeNotice();
+		if (notice) res.setHeader(TAB_NOTICE_HEADER, encodeURIComponent(notice));
+		return writeHead(...args);
 	};
 }

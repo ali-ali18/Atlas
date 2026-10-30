@@ -339,6 +339,7 @@ export const P_TAIL: string[] = [
 /** Grupos de contexto: ferramentas e procedimentos que entram juntos, por intenção ou origem. */
 export const CONTEXT_GROUPS = [
 	"browser",
+	"tabs",
 	"shell",
 	"desktop",
 	"web",

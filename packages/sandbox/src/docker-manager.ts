@@ -27,6 +27,8 @@ import {
 	type ControlActivity,
 	controlTabOpen,
 	controlTabClose,
+	controlBrowserTabs,
+	takeTabNotice,
 	SandboxControlError,
 } from "./control-client.js";
 import { shouldRecreateForImage } from "./image-staleness.js";
@@ -55,6 +57,8 @@ import type {
 	ControlSnapshotResult,
 	ControlWaitParams,
 	ControlWaitResult,
+	ControlTabsParams,
+	ControlTabsResult,
 	ControlActionResult,
 	ControlBrowserLinksResult,
 	ControlBrowserClickResult,
@@ -492,6 +496,10 @@ export type SandboxManager = {
 	/** V8: abre uma aba própria (mesmo perfil/login) e devolve o id; use `withExecutionContext({ tabId })` para agir nela. */
 	execTabOpen: (sessionId: string, url?: string) => Promise<{ tabId: string }>;
 	execTabClose: (sessionId: string, tabId: string) => Promise<{ closed: boolean }>;
+	/** Abas do navegador do pai (um link pode abrir em aba nova): lista, troca ou fecha. Índice a partir de 1. */
+	execBrowserTabs: (sessionId: string, params: ControlTabsParams) => Promise<ControlTabsResult>;
+	/** Aviso (inglês) de aba nova/fechada desde a última ferramenta; lê e limpa. Subagente nunca recebe. */
+	takeTabNotice: (sessionId: string) => string | undefined;
 	/** Shell DENTRO do container (usuário não-root `atlas`), nunca no host. */
 	execShell: (
 		sessionId: string,
@@ -777,6 +785,17 @@ export function createSandboxManager(
 		async execTabClose(sessionId, tabId) {
 			const record = getRecord(sessionId);
 			return controlTabClose(record.host ?? config.controlHost, record.controlPort, tabId, context);
+		},
+
+		async execBrowserTabs(sessionId, params) {
+			const record = getRecord(sessionId);
+			return controlBrowserTabs(record.host ?? config.controlHost, record.controlPort, params, context);
+		},
+
+		takeTabNotice(sessionId) {
+			if (context.tabId) return undefined;
+			const record = sessionStore.getSession(sessionId, userId);
+			return record ? takeTabNotice(record.host ?? config.controlHost, record.controlPort) : undefined;
 		},
 
 		async execShell(sessionId, params) {
@@ -1369,7 +1388,7 @@ export function createSandboxManager(
 	return new Proxy(manager, {
 		get(target, key) {
 			const method = Reflect.get(target, key);
-			if (typeof method !== "function" || key === "getViewerUrl" || key === "withExecutionContext") return method;
+			if (typeof method !== "function" || key === "getViewerUrl" || key === "withExecutionContext" || key === "takeTabNotice") return method;
 			const timeoutMs = typeof key === "string" && LONG_RUNNING_METHODS.has(key) ? 700_000 : 180_000;
 			const isExec = typeof key === "string" && key.startsWith("exec");
 			return (...args: unknown[]) =>
