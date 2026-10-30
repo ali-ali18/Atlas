@@ -207,6 +207,7 @@ const SECURITY_HEADERS: Record<string, string> = {
 	"Referrer-Policy": "no-referrer",
 	"X-Robots-Tag": "noindex, nofollow",
 	"X-Content-Type-Options": "nosniff",
+	"X-Atlas-Preview": "1",
 };
 
 /**

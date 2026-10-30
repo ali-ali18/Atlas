@@ -6,7 +6,8 @@ process.env.BETTER_AUTH_SECRET ||= "test-secret-long-enough-for-better-auth-midd
 process.env.ATLAS_HOOK_PEPPER ||= "test-pepper";
 
 const { prisma } = await import("@workspace/db");
-const { maybeHandleConfirmedAction } = await import("./confirmed-action.js");
+const { maybeHandleConfirmedAction, askingRunId, seedField, infraSetupFollowUpContent } = await import("./confirmed-action.js");
+const { setupConfirmId, routeContextGroups } = await import("@workspace/agent-runtime");
 
 const USER = "user-a";
 const CONV = "conv-1";
@@ -63,4 +64,19 @@ test("usuário B não aprova a intenção do usuário A", async () => {
 		assert.equal((result as { followUp?: unknown }).followUp, undefined);
 		assert.equal(db.state.status, "pending");
 	} finally { db.restore(); }
+});
+
+test("o id do cartão da prévia devolve o run que pediu (a semente liga o desfecho à chamada que parou)", () => {
+	const confirmId = setupConfirmId("cmrun0123456789abcdef", "0123456789abcdef0123456789abcdef");
+	assert.equal(askingRunId(confirmId), "cmrun0123456789abcdef");
+	const seed = seedField({ confirmId }, "preview_setup", infraSetupFollowUpContent("", { label: "criar" }, "approved"), "confirmado: Criar?");
+	assert.equal(seed.transcript?.fromRunId, "cmrun0123456789abcdef");
+	assert.equal(seed.transcript?.toolName, "preview_setup");
+});
+
+test("o turno depois da aprovação ou da recusa carrega o grupo da tool (mesmo depois de a conversa esfriar)", () => {
+	for (const decision of ["approved", "declined"] as const) {
+		const text = infraSetupFollowUpContent("confirmado: Criar o endereço curinga das prévias?", { label: "criar o endereço curinga" }, decision);
+		assert.equal(routeContextGroups({ text }).has("preview_setup"), true, decision);
+	}
 });

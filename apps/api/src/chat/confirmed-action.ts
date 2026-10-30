@@ -470,7 +470,7 @@ export function infraSetupFollowUpContent(userText: string, infra: { label: stri
 		"",
 		decision === "approved"
 			? `[O usuário APROVOU: ${infra.label}.] Chame preview_setup de novo com a mesma action para executar agora (o sistema só escreve depois da aprovação). Depois conte o resultado em 1-2 frases simples.`
-			: `[O usuário NÃO aprovou: ${infra.label}.] Nada foi alterado. Diga isso em uma frase e pergunte se prefere fazer o passo à mão (você dá o passo a passo) ou deixar para depois.`,
+			: `[O usuário NÃO aprovou: ${infra.label}.] Nada foi alterado. Diga isso em uma frase e pergunte se prefere fazer o passo à mão (você dá o passo a passo com preview_setup) ou deixar para depois.`,
 		NO_RENARRATION,
 	].join("\n");
 }

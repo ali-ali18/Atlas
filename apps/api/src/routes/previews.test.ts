@@ -242,6 +242,7 @@ test("auth: token ausente, vencido, de outro usuario ou de outro tipo nao entra"
 	const h = await harness();
 	try {
 		assert.equal((await h.get(PREVIEW_AUTH_PATH)).status, 401);
+		assert.equal((await h.get(PREVIEW_AUTH_PATH)).headers["x-atlas-preview"], "1", "assinatura que a configuração da prévia procura na sonda");
 		const expired = signPreviewToken("open", { previewId: ID, userId: "user-a" }, SECRET, 1, NOW - 10_000);
 		assert.equal((await h.get(`${PREVIEW_AUTH_PATH}?t=${expired}`)).status, 401);
 		const session = signPreviewToken("session", { previewId: ID, userId: "user-a" }, SECRET, 60_000, NOW);
