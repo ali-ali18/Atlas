@@ -13,5 +13,5 @@ export function todayNote(now: Date, requestedTimeZone?: string | null): string 
 	const parts = (options: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("pt-BR", { timeZone, ...options }).format(now);
 	const [day, month, year] = parts({ day: "2-digit", month: "2-digit", year: "numeric" }).split("/");
 	const time = parts({ hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-	return `Now is ${year}-${month}-${day} ${time} (${parts({ weekday: "long" })}), timezone ${timeZone}. Resolve relative dates and times (hoje, ontem, mês anterior, até agora, esta semana, daqui a N minutos) against it.`;
+	return `Automatic context, not a user message: do not reply to it, thank for it or mention it unless it matters to the request (dates, scheduling, reminders). Now is ${year}-${month}-${day} ${time} (${parts({ weekday: "long" })}), timezone ${timeZone}. Resolve relative dates and times (hoje, ontem, mês anterior, até agora, esta semana, daqui a N minutos) against it.`;
 }

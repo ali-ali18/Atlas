@@ -23,12 +23,14 @@ describe("notas de sistema no meio da conversa", () => {
 
 	it("só o system do começo continua system; as notas viram texto delimitado e a de meio de rodada espera o fim dela", () => {
 		const { messages, positions } = demoteSystemNotes(conversation);
-		expect(messages.map((m) => m.role)).toEqual(["system", "system", "user", "user", "assistant", "tool", "tool", "user"]);
-		expect(texts(messages)[3]).toContain("<system-reminder>");
-		expect(texts(messages)[3]).toContain("nota do turno");
-		expect(texts(messages)[7]).toContain("aviso no meio da rodada");
-		expect(positions).toEqual([0, 1, 2, 3, 4, 5, 7, 6]);
-		expect(remapStableIndex(6, positions)).toBe(7);
+		expect(messages.map((m) => m.role)).toEqual(["system", "system", "user", "assistant", "tool", "tool", "user"]);
+		// A nota do turno cola na fala do usuário; a de meio de rodada espera o fim dela e fica depois do último resultado.
+		expect(texts(messages)[2]).toContain("pedido");
+		expect(texts(messages)[2]).toContain("<system-reminder>");
+		expect(texts(messages)[2]).toContain("nota do turno");
+		expect(texts(messages)[6]).toContain("aviso no meio da rodada");
+		expect(positions).toEqual([0, 1, 2, 2, 3, 4, 6, 5]);
+		expect(remapStableIndex(6, positions)).toBe(6);
 		expect(remapStableIndex(99, positions)).toBeUndefined();
 	});
 
@@ -77,5 +79,27 @@ describe("breakpoint no fim do histórico com camadas efêmeras", () => {
 		// teto 3 (Anthropic com tools): sistema, última e o fim do histórico (4), não o 1 antes do assistant
 		expect(marked(applyCacheBreakpoints(messages, 3, { stableIndex: 4 }))).toEqual([0, 4, 5]);
 		expect(marked(applyCacheBreakpoints(messages, 3))).toEqual([0, 1, 5]);
+	});
+
+	it("nota no fim cola na última fala do usuário (nunca turno só de contexto) e o prefixo cacheado não muda", () => {
+		const history: LlmMessage[] = [{ role: "system", content: "prompt" }, { role: "user", content: "oi" }];
+		const at = (time: string) => [...history, { role: "system" as const, content: `Now is ${time}` }];
+		const a = demoteSystemNotes(at("17:37")).messages;
+		expect(a.map((m) => m.role)).toEqual(["system", "user"]);
+		expect(texts(a)[1]).toContain("oi");
+		expect(texts(a)[1]).toContain("Now is 17:37");
+		// Depois de uma resposta do assistente sem fala nova, a nota vai para a última fala do usuário.
+		const cont = demoteSystemNotes([...history, { role: "assistant", content: "feito" }, { role: "system", content: "Now is 17:40" }]).messages;
+		expect(cont.map((m) => m.role)).toEqual(["system", "user", "assistant"]);
+		// Cache: o breakpoint fica no texto estável, antes da nota, e os bytes do prefixo são idênticos entre minutos.
+		const prefix = (time: string) => {
+			const d = demoteSystemNotes(at(time));
+			const marked = applyCacheBreakpoints(d.messages, 4, { stableIndex: remapStableIndex(1, d.positions) });
+			const parts = marked[1]!.content as Array<{ text: string; cache_control?: unknown }>;
+			expect(parts[0]!.cache_control).toBeDefined();
+			expect(parts[1]!.cache_control).toBeUndefined();
+			return JSON.stringify([marked[0], parts[0]]);
+		};
+		expect(prefix("17:37")).toBe(prefix("17:41"));
 	});
 });

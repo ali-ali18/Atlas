@@ -149,7 +149,8 @@ describe("prefixo de cache estável entre turnos", () => {
 		const next = body(two.requests[0]!).messages as Message[];
 		const a = plain(prev) as Message[];
 		const b = plain(next) as Message[];
-		expect(prev.length).toBeGreaterThan(5);
+		// As notas do turno vão coladas na fala do usuário (um turno só), por isso o pedido tem menos mensagens.
+		expect(prev.length).toBeGreaterThan(3);
 		expect(b.slice(0, a.length)).toEqual(a);
 		expect(JSON.stringify(b).startsWith(JSON.stringify(a).slice(0, -1))).toBe(true);
 		// o que é novo no turno 2 vem depois do prefixo: resposta do turno 1, fala nova e notas novas

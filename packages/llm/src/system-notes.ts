@@ -33,11 +33,27 @@ export function demoteSystemNotes(messages: readonly LlmMessage[]): DemotedSyste
 	const held: Array<{ index: number; message: LlmMessage }> = [];
 	const open = new Set<string>();
 	let leading = true;
-	const flush = () => {
-		for (const item of held.splice(0)) {
-			positions[item.index] = out.length;
-			out.push(item.message);
+	// Nota nunca vira turno de usuário só com contexto: o modelo responderia a ela ("Entendi, agora são 17h37").
+	// Cola como bloco delimitado no fim da última fala real do usuário (o mesmo turno); só fica solta logo
+	// depois de um resultado de ferramenta (rodada em andamento) ou quando ainda não há fala do usuário.
+	const place = (index: number, note: LlmMessage) => {
+		const part = (note.content as LlmContentPart[])[0]!;
+		let target = out.length - 1;
+		if (out[target]?.role === "assistant") {
+			while (target >= 0 && out[target]?.role !== "user") target -= 1;
 		}
+		const host = target >= 0 && out[target]?.role === "user" ? out[target]! : null;
+		if (!host) {
+			positions[index] = out.length;
+			out.push(note);
+			return;
+		}
+		const current: LlmContentPart[] = typeof host.content === "string" ? (host.content ? [{ type: "text", text: host.content }] : []) : (host.content ?? []);
+		out[target] = { ...host, content: [...current, part] };
+		positions[index] = target;
+	};
+	const flush = () => {
+		for (const item of held.splice(0)) place(item.index, item.message);
 	};
 	messages.forEach((message, index) => {
 		if (message.role === "system") {
@@ -54,10 +70,7 @@ export function demoteSystemNotes(messages: readonly LlmMessage[]): DemotedSyste
 			const part: LlmContentPart = { type: "text", text: wrapSystemNote(text) };
 			const note: LlmMessage = { role: "user", content: [part] };
 			if (open.size > 0) held.push({ index, message: note });
-			else {
-				positions[index] = out.length;
-				out.push(note);
-			}
+			else place(index, note);
 			return;
 		}
 		leading = false;
