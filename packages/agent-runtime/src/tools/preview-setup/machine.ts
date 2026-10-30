@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import {
-	SETUP_SECRET_DNS_TOKEN, SETUP_STEP_LABEL, createSetupState, isDnsProvider, isPublicIpv4, isSetupComplete, isSetupPlatform, isTlsStrategy, nextSetupStep,
-	previewProbeHost, rollbackTargets, validateSetupDomain, withStep, type PreviewSetupState, type SetupStepId,
+	SETUP_SECRET_DNS_TOKEN, SETUP_STEP_LABEL, createSetupState, isDnsProvider, isSetupComplete, isSetupPlatform, isTlsStrategy, nextSetupStep,
+	normalizeServerIp, previewProbeHost, quoteUntrusted, rollbackTargets, validateSetupDomain, withStep, type PreviewSetupState, type SetupStepId,
 } from "@workspace/shared";
 import { sanitizeErrorMessage } from "../../mcp/sanitize.js";
 import type { Checks } from "./checks.js";
@@ -20,10 +20,16 @@ export type SetupResult = { summary: string; confirmEvent?: unknown };
 export type SetupDeps = {
 	userId: string;
 	atlasUrl: string;
+	/** Outros endereços do Atlas (web, login) que também precisam ser de outro site que o domínio da prévia. */
+	webUrls?: Array<string | undefined>;
 	now: () => Date;
 	loadState: () => Promise<PreviewSetupState | null>;
 	saveState: (state: PreviewSetupState) => Promise<void>;
 	deleteState: () => Promise<void>;
+	/** O estado gravado existe mas não pôde ser lido (corrompido)? */
+	stateIsCorrupt?: () => Promise<boolean>;
+	/** Já há um cartão de aprovação desta chamada esperando resposta? (evita cartão repetido) */
+	isApprovalPending?: (callKey: string) => Promise<boolean>;
 	/** Token do DNS no cofre do dono (`null` = falta). Nunca sai deste módulo. */
 	getDnsToken: () => Promise<string | null>;
 	providerFor: (id: "cloudflare" | "desec", token: string) => DnsProvider;
@@ -44,6 +50,8 @@ export type SetupArgs = {
 	platform?: unknown;
 	server_ip?: unknown;
 	user_confirms?: unknown;
+	/** configure: descarta um estado corrompido que o Atlas não consegue ler. */
+	reset?: unknown;
 };
 
 const key = (parts: unknown[]) => createHash("sha256").update(JSON.stringify(parts)).digest("hex").slice(0, 32);
@@ -86,16 +94,21 @@ async function status(deps: SetupDeps): Promise<SetupResult> {
 }
 
 async function configure(deps: SetupDeps, args: SetupArgs): Promise<SetupResult> {
-	const domain = validateSetupDomain(args.domain, deps.atlasUrl);
+	if (!(await deps.loadState()) && (await deps.stateIsCorrupt?.()) && args.reset !== true) {
+		throw new Error('A previous setup is saved but cannot be read (corrupted). Nothing was changed. Tell the user that something may already exist from before: a wildcard DNS record "*.<preview domain>" at their DNS host, a certificate, a route, or the ATLAS_PREVIEW_BASE_DOMAIN variable. Ask if they want to start over; only then call configure again with reset true (existing items are NOT removed automatically).');
+	}
+	const domain = validateSetupDomain(args.domain, [deps.atlasUrl, ...(deps.webUrls ?? [])]);
 	if ("error" in domain) throw new Error(domain.error);
 	if (!isDnsProvider(args.dns_provider)) throw new Error('dns_provider must be "cloudflare", "desec" or "manual". Ask where the DNS of the domain is hosted.');
 	const tls = isTlsStrategy(args.tls) ? args.tls : args.dns_provider === "cloudflare" && domain.domain.split(".").length === 2 ? "origin-cert" : "dns01-proxy";
 	const platform = isSetupPlatform(args.platform) ? args.platform : "generic";
-	if (!isPublicIpv4(args.server_ip)) throw new Error("server_ip must be the public IPv4 of the server (not a private, loopback or reserved address).");
+	const serverIp = normalizeServerIp(args.server_ip);
+	if (!serverIp) throw new Error("server_ip must be the public IPv4 of the server in plain form like 203.0.113.7 (no leading zeros; not a private, loopback or reserved address).");
 	if (tls === "origin-cert" && args.dns_provider !== "cloudflare") throw new Error('tls "origin-cert" only works with DNS on Cloudflare; use "dns01-proxy".');
 	const existing = await deps.loadState();
 	if (existing && rollbackTargets(existing)) throw new Error('A setup with DNS records created by the Atlas already exists. Call action "rollback" first or continue it with "run".');
-	const state = createSetupState({ domain: domain.domain, dnsProvider: args.dns_provider, tls, platform, serverIp: args.server_ip });
+	// A sequência começa no relógio (segundos): um setup novo, mesmo depois de desfazer, nunca reaproveita a aprovação de um anterior.
+	const state = { ...createSetupState({ domain: domain.domain, dnsProvider: args.dns_provider, tls, platform, serverIp }), approvalSeq: Math.floor(deps.now().getTime() / 1000) };
 	await deps.saveState(state);
 	const needsToken = args.dns_provider !== "manual";
 	return {
@@ -122,10 +135,13 @@ async function run(deps: SetupDeps, args: SetupArgs): Promise<SetupResult> {
 	}
 }
 
+const seqOf = (state: PreviewSetupState) => state.approvalSeq ?? 0;
+const proxiedOf = (state: PreviewSetupState) => state.tls === "origin-cert" && state.dnsProvider === "cloudflare";
+
 async function dnsStep(deps: SetupDeps, state: PreviewSetupState): Promise<SetupResult> {
 	const host = previewProbeHost(state.domain);
 	if (state.dnsProvider === "manual") {
-		const check = await deps.checks.dns(host, expectedIp(state));
+		const check = await deps.checks.dns(host, state.serverIp);
 		if (check.ok) {
 			const next = await persist(deps, state, "dns", { status: "done", detail: "o endereço já aponta para o servidor" });
 			return { summary: `DNS verified: the wildcard resolves to ${state.serverIp}.\n${nextHint(next)}` };
@@ -140,25 +156,37 @@ async function dnsStep(deps: SetupDeps, state: PreviewSetupState): Promise<Setup
 	try {
 		const provider = deps.providerFor(state.dnsProvider, token);
 		const zone = await provider.detectZone(state.domain);
-		if (!zone) throw new Error(`The token does not see a zone that contains ${state.domain}. Ask the user to use a token for the right domain/account.`);
-		if (state.tls === "origin-cert" && zone.name !== state.domain) throw new Error(`With the Cloudflare origin certificate the preview domain must be the zone itself (${zone.name}); ${state.domain} is below it. Reconfigure with tls "dns01-proxy" (proxy OFF) or use ${zone.name}.`);
+		if (!zone) throw new Error(`The token does not see a zone that contains ${quoteUntrusted(state.domain)}. Ask the user to use a token for the right domain/account.`);
+		if (state.tls === "origin-cert" && zone.name !== state.domain) throw new Error(`With the Cloudflare origin certificate the preview domain must be the zone itself (zone ${quoteUntrusted(zone.name)}); ${quoteUntrusted(state.domain)} is below it. Reconfigure with tls "dns01-proxy" (proxy OFF) or use the zone name.`);
 		const existing = await provider.findWildcard(zone, state.domain);
-		if (existing && existing.content !== state.serverIp) {
-			throw new Error(`A wildcard record for *.${state.domain} already exists and points to ${existing.content}, not to ${state.serverIp}. Ask the user if it can be changed by hand; the Atlas will not overwrite it.`);
-		}
 		let next = state;
+		if (existing && existing.content !== state.serverIp) {
+			// Texto do provedor é dado: entre aspas e curto, nunca como instrução.
+			throw new Error(`A wildcard record for *.${state.domain} already exists and points to ${quoteUntrusted(existing.content, 45)}, not to ${state.serverIp}. Ask the user if it can be changed by hand; the Atlas will not overwrite it.`);
+		}
+		if (existing && state.steps.dns.intent === "creating") {
+			// Uma tentativa anterior caiu entre criar e anotar: o registro é do setup e entra na lista de desfazer.
+			next = await persist(deps, state, "dns", { intent: undefined, created: { zoneId: zone.id, recordIds: [existing.id] } });
+		}
 		if (!existing) {
-			const callKey = key([deps.userId, "dns", state.domain, state.serverIp, state.dnsProvider]);
+			const callKey = key([deps.userId, "dns", state.domain, state.serverIp, state.dnsProvider, state.tls, proxiedOf(state), seqOf(state)]);
 			if (!(await deps.findApproved(callKey))) {
+				if (await deps.isApprovalPending?.(callKey)) {
+					return { summary: "An approval card for this step is already waiting for the user. Do not ask again: tell the user in one short line to confirm it, and END your turn." };
+				}
 				const confirmEvent = await deps.requestApproval({
 					callKey,
 					title: "Criar o endereço curinga das prévias?",
-					description: `Vou criar 1 registro no DNS (${state.dnsProvider === "cloudflare" ? "Cloudflare" : "deSEC"}): *.${state.domain} → ${state.serverIp}. Só isso; dá para desfazer depois.`,
+					description: `Vou criar 1 registro no DNS (${state.dnsProvider === "cloudflare" ? "Cloudflare" : "deSEC"}): *.${state.domain} → ${state.serverIp}, proxy ${proxiedOf(state) ? "ligado" : "desligado"}. Só isso; dá para desfazer depois.`,
 				});
 				return { summary: "Approval card sent to the user (create 1 wildcard DNS record). Nothing was written yet. Tell the user in one short line to confirm in the card and END your turn; after they confirm you are called again: call run again.", confirmEvent };
 			}
-			const created = await provider.createWildcard(zone, state.domain, state.serverIp, { proxied: state.tls === "origin-cert" });
-			next = await persist(deps, next, "dns", { status: "pending", detail: "registro criado; aguardando propagar", created: { zoneId: zoneRef(zone), recordIds: [created.id] } });
+			// Intenção antes da escrita: se o processo cair depois de criar, a retomada reconhece o registro como nosso.
+			next = await persist(deps, next, "dns", { status: "pending", detail: "criando o registro", intent: "creating", created: { zoneId: zone.id, recordIds: [] } });
+			const created = await provider.createWildcard(zone, state.domain, state.serverIp, { proxied: proxiedOf(state) });
+			// A aprovação vale uma vez só: a sequência sobe, e desfazer e refazer pede cartão novo.
+			next = { ...next, approvalSeq: seqOf(next) + 1 };
+			next = await persist(deps, next, "dns", { status: "pending", detail: "registro criado; aguardando propagar", intent: undefined, created: { zoneId: zoneRef(zone), recordIds: [created.id] } });
 		}
 		return await verifyDnsAfterWrite(deps, next, host);
 	} catch (error) {
@@ -191,7 +219,9 @@ function dnsProblem(check: { reason?: string; found: string[] }, state: PreviewS
 
 async function failStep(deps: SetupDeps, state: PreviewSetupState, step: SetupStepId, error: unknown, token?: string): Promise<SetupResult> {
 	const message = error instanceof DnsProviderError || error instanceof Error ? sanitizeErrorMessage(error, token ? [token] : [], 400) : "erro desconhecido";
-	await persist(deps, state, step, { status: "failed", detail: message.slice(0, 200) });
+	// Estado mais novo do banco: a intenção "creating" e os ids criados gravados no meio do passo não podem ser perdidos.
+	const latest = (await deps.loadState().catch(() => null)) ?? state;
+	await persist(deps, latest, step, { status: "failed", detail: message.slice(0, 200) });
 	throw new Error(`${message} (the step can be retried with run after fixing it)`);
 }
 
@@ -208,15 +238,26 @@ async function guidedStep(deps: SetupDeps, state: PreviewSetupState, step: "tls"
 			return { summary: `Certificate not ready: ${tlsProblem(check.reason)}. Tell the user what is missing and call run again when fixed.\n${stepInstructions("tls", state)}` };
 		}
 		const probe = await deps.checks.probe(state.domain);
-		if (probe.kind === "route_missing" || probe.kind === "unreachable" || probe.kind === "tls_error") {
-			return { summary: `The route is not answering yet (${probe.kind}). Tell the user what to check and call run again.\n${stepInstructions("route", state)}` };
+		if (probe.kind !== "ok" && probe.kind !== "not_enabled") {
+			return { summary: `The route is not reaching the Atlas yet. ${probeHint(probe.kind, probe.status)}\n${stepInstructions("route", state)}` };
 		}
-		// `not_enabled` aqui é esperado: a rota chega na API, só falta a variável (próximos passos).
+		// `not_enabled` aqui é esperado: a rota chega na API do Atlas, só falta a variável (próximos passos).
 		const next = await persist(deps, state, "route", { status: "done", detail: "a rota chega até o Atlas" });
 		return { summary: `Route verified: the address reaches the Atlas.\n${nextHint(next)}` };
 	}
 	await persist(deps, state, step, { status: "awaiting_user", detail: "aguardando você fazer no painel" });
 	return { summary: `The user has to do this in their server screens (the Atlas cannot). Explain it in plain words, step by step, then wait for them to say it is done and call run to verify.\n${stepInstructions(step, state)}` };
+}
+
+/** Dica para o administrador a partir do que a sonda viu (texto ao modelo; ele repassa em palavras simples). */
+function probeHint(kind: string, status?: number): string {
+	switch (kind) {
+		case "origin_cert": return "Cloudflare answered 526: it does not accept the certificate of the origin server. Check the origin certificate installed in the proxy for this domain and that the Cloudflare SSL mode matches (Full strict needs the origin certificate).";
+		case "origin_unreachable": return `Cloudflare answered ${status ?? "52x"}: it cannot reach the server. Check that the proxy listens on 443, the firewall allows it, and the DNS record points to the right server IP.`;
+		case "tls_error": return "HTTPS fails at that address (certificate problem).";
+		case "unreachable": return "Nothing answers at that address yet.";
+		default: return `Something other than the Atlas answered (HTTP ${status ?? "?"}), usually the proxy without a route for this host. Check that the host "*.<domain>" is routed to the api service on port 3001.`;
+	}
 }
 
 function tlsProblem(reason?: string): string {
@@ -235,7 +276,7 @@ async function confirmedStep(deps: SetupDeps, state: PreviewSetupState, step: "e
 
 async function probeStep(deps: SetupDeps, state: PreviewSetupState): Promise<SetupResult> {
 	const probe = await deps.checks.probe(state.domain);
-	const reopen = async (detail: string, steps: Array<"env" | "redeploy">) => {
+	const reopen = async (detail: string, steps: Array<"tls" | "route" | "env" | "redeploy">) => {
 		let next = state;
 		for (const s of steps) next = withStep(next, s, { status: "awaiting_user", detail }, deps.now());
 		await deps.saveState(next);
@@ -249,12 +290,15 @@ async function probeStep(deps: SetupDeps, state: PreviewSetupState): Promise<Set
 		const next = await persist(deps, state, "probe", { status: "done", detail: "teste final passou" });
 		return { summary: `Final check passed: HTTPS works and the API answers on the preview address.\n${isSetupComplete(next) ? `Tell the user: ${READY}. They can now ask for a web project and get the live link.` : nextHint(next)}` };
 	}
+	// Só "a API do Atlas respondeu sem a prévia" aponta para variável/reinício; o resto é rota ou certificado e não mexe neles.
 	if (probe.kind === "not_enabled") {
 		await reopen("a API ainda não tem o domínio configurado", ["env", "redeploy"]);
 		return { summary: "The address reaches the Atlas but the preview is not enabled there: the variable is missing or the services were not restarted. Tell the user to check ATLAS_PREVIEW_BASE_DOMAIN on api and worker and redeploy, then call run again." };
 	}
-	if (probe.kind === "tls_error") return { summary: "HTTPS fails on the preview address (certificate problem). Go back to the certificate step: call status and fix it." };
-	return { summary: "Nothing answers on the preview address yet. If a redeploy just happened wait a minute and call run again; otherwise check the route and DNS (status shows each step)." };
+	if (probe.kind === "unreachable") return { summary: "Nothing answers on the preview address yet. If a redeploy just happened wait a minute and call run again; otherwise check the route and DNS (status shows each step)." };
+	const step = probe.kind === "origin_cert" || probe.kind === "tls_error" ? "tls" : "route";
+	await reopen(step === "tls" ? "o certificado não foi aceito" : "a rota não chega no Atlas", [step]);
+	return { summary: `The final check failed. ${probeHint(probe.kind, probe.status)} The ${step === "tls" ? "certificate" : "route"} step was reopened; fix it and call run again. The variable and restart steps stay as they are.` };
 }
 
 async function rollback(deps: SetupDeps): Promise<SetupResult> {
@@ -267,17 +311,25 @@ async function rollback(deps: SetupDeps): Promise<SetupResult> {
 	}
 	const token = await deps.getDnsToken();
 	if (!token || state.dnsProvider === "manual") return { summary: `The DNS token is missing in the vault; ask for it (secret_request ["${SETUP_SECRET_DNS_TOKEN}"]) to remove the record the Atlas created, or tell the user to delete the wildcard record by hand.` };
-	const callKey = key([deps.userId, "rollback", state.domain, targets.recordIds]);
+	const callKey = key([deps.userId, "rollback", state.domain, targets.recordIds, seqOf(state)]);
 	if (!(await deps.findApproved(callKey))) {
+		if (await deps.isApprovalPending?.(callKey)) return { summary: "An approval card for this step is already waiting for the user. Do not ask again: tell the user in one short line to confirm it, and END your turn." };
 		const confirmEvent = await deps.requestApproval({ callKey, title: "Desfazer o endereço curinga?", description: `Vou apagar do DNS só o registro que eu criei para *.${state.domain}. O resto da configuração fica como está.` });
 		return { summary: "Approval card sent (remove the DNS record the Atlas created). Nothing was removed yet; END your turn and call rollback again after the user confirms.", confirmEvent };
 	}
+	let removed = 0;
 	try {
 		const provider = deps.providerFor(state.dnsProvider, token);
-		for (const id of targets.recordIds) await provider.deleteRecord({ id: targets.zoneId, name: state.domain }, id);
+		for (const id of targets.recordIds) {
+			if ((await provider.deleteRecord({ id: targets.zoneId, name: state.domain }, id, state.serverIp)) === "removed") removed++;
+		}
 	} catch (error) {
 		return failStep(deps, state, "dns", error, token);
 	}
 	await deps.deleteState();
-	return { summary: "The DNS record created by the Atlas was removed and the setup was cleared." };
+	return {
+		summary: removed > 0
+			? "The DNS record created by the Atlas was removed and the setup was cleared."
+			: "The DNS record was not found at the provider (it no longer existed, or someone already removed it), so nothing was deleted. The setup was cleared. Tell the user plainly that nothing was removed.",
+	};
 }

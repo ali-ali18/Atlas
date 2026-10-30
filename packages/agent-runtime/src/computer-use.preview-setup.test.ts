@@ -47,6 +47,8 @@ function makeWorld() {
 		loadState: async () => w.state,
 		saveState: async (s) => { w.state = s; },
 		deleteState: async () => { w.state = null; },
+		stateIsCorrupt: async () => false,
+		isApprovalPending: async () => false,
 		getDnsToken: async () => TOKEN,
 		providerFor: () => ({
 			id: "cloudflare", automated: true,

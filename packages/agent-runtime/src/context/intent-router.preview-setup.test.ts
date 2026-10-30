@@ -12,9 +12,10 @@ describe("roteador: grupo preview_setup", () => {
 		"set up the full preview",
 		"habilita a previa pra mim",
 		"qual domínio das prévias eu uso?",
+		"[O usuário APROVOU: criar o endereço curinga das prévias.] Chame preview_setup de novo com a mesma action",
 	])("carrega para %s", (text) => expect(has(text)).toBe(true));
 
-	it.each(["Bom dia", "roda aí e me mostra", "me mostra o site que você fez", "faz um preview do texto", "qual a previsão do tempo?"])("não carrega para %s", (text) =>
+	it.each(["Bom dia", "roda aí e me mostra", "me mostra o site que você fez", "faz um preview do texto", "qual a previsão do tempo?", "meu certificado do site expirou", "como configuro o dns do meu domínio no https?", "o https do meu site caiu", "quero um certificado novo para o domínio"])("não carrega para %s", (text) =>
 		expect(has(text)).toBe(false));
 
 	it("o grupo tem uma tool só, protegida pelo executor (catálogo)", () => {

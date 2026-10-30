@@ -21,7 +21,8 @@ export interface DnsProvider {
 	findWildcard(zone: DnsZone, domain: string): Promise<DnsRecordRef | null>;
 	/** Cria `*.<domain>` A → ip; devolve o id para poder desfazer. */
 	createWildcard(zone: DnsZone, domain: string, ip: string, opts: { proxied: boolean }): Promise<DnsRecordRef>;
-	deleteRecord(zone: DnsZone, recordId: string): Promise<void>;
+	/** `not_found` = já não existia (nada foi apagado). `ip`: valor que o setup criou (deSEC remove só ele do conjunto). */
+	deleteRecord(zone: DnsZone, recordId: string, ip: string): Promise<"removed" | "not_found">;
 }
 
 export class DnsProviderError extends Error {
@@ -103,7 +104,9 @@ export function cloudflareProvider(token: string, fetchFn: FetchFn): DnsProvider
 		},
 		async deleteRecord(zone, recordId) {
 			const { status } = await cf(`/zones/${encodeURIComponent(zone.id)}/dns_records/${encodeURIComponent(recordId)}`, "DELETE");
-			if (status >= 300 && status !== 404) throw new DnsProviderError("A Cloudflare não apagou o registro.");
+			if (status === 404) return "not_found";
+			if (status >= 300) throw new DnsProviderError("A Cloudflare não apagou o registro.");
+			return "removed";
 		},
 	};
 }
@@ -138,20 +141,29 @@ export function desecProvider(token: string, fetchFn: FetchFn): DnsProvider {
 			const rr = status < 300 && Array.isArray(json) ? json[0] : null;
 			if (!rr || typeof rr !== "object") return null;
 			const records = (rr as { records?: unknown }).records;
-			return { id: `${sub}|A`, content: Array.isArray(records) ? String(records[0] ?? "") : "" };
+			return { id: `${sub}|A|`, content: Array.isArray(records) ? String(records[0] ?? "") : "" };
 		},
 		async createWildcard(zone, domain, ip) {
 			const sub = subname(zone, domain);
 			const { status } = await de(`/domains/${encodeURIComponent(zone.id)}/rrsets/`, "POST", { subname: sub, type: "A", ttl: 3600, records: [ip] });
 			if (status === 409) throw new DnsProviderError("Já existe um registro neste endereço no deSEC.", "conflict");
 			if (status >= 300) throw new DnsProviderError("O deSEC não criou o registro (confira o token).");
-			return { id: `${sub}|A`, content: ip };
+			return { id: `${sub}|A|${ip}`, content: ip };
 		},
-		async deleteRecord(zone, recordId) {
+		async deleteRecord(zone, recordId, ip) {
 			const [sub, type] = recordId.split("|");
 			if (!sub || type !== "A") throw new DnsProviderError("Registro desconhecido.");
-			const { status } = await de(`/domains/${encodeURIComponent(zone.id)}/rrsets/${encodeURIComponent(sub)}/A/`, "DELETE");
-			if (status >= 300 && status !== 404) throw new DnsProviderError("O deSEC não apagou o registro.");
+			const path = `/domains/${encodeURIComponent(zone.id)}/rrsets/${encodeURIComponent(sub)}/A/`;
+			const current = await de(path);
+			if (current.status === 404) return "not_found";
+			const records = current.json && typeof current.json === "object" ? (current.json as { records?: unknown }).records : null;
+			if (current.status >= 300 || !Array.isArray(records)) throw new DnsProviderError("O deSEC não mostrou o registro.");
+			// Só o valor que o setup criou: se o usuário juntou outros IPs ao mesmo conjunto, eles ficam.
+			const remaining = records.filter((r) => r !== ip);
+			if (remaining.length === records.length) return "not_found";
+			const res = remaining.length === 0 ? await de(path, "DELETE") : await de(path, "PATCH", { records: remaining });
+			if (res.status >= 300 && res.status !== 404) throw new DnsProviderError("O deSEC não atualizou o registro.");
+			return "removed";
 		},
 	};
 }

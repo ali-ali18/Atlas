@@ -59,7 +59,8 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 	preview_setup: {
 		tools: ["preview_setup"],
 		hint: "(server admin only) set up the full live preview: separate domain, wildcard DNS, HTTPS certificate, route, variable and restart, step by step",
-		keywords: ["preview", "previa", "previas", "dominio da previa", "preview domain", "wildcard", "curinga", "dominio", "dns", "certificado", "https"],
+		// Só termos do assunto prévia: "dns", "https" ou "certificado" soltos são conversa comum e carregariam o grupo à toa.
+		keywords: ["preview_setup", "previa completa", "full preview", "dominio da previa", "preview domain", "configurar previa"],
 	},
 	desktop: {
 		tools: ["click", "type", "key", "scroll"],

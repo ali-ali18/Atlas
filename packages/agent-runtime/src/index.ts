@@ -515,3 +515,5 @@ export { createMaintenanceLlm, resolveMaintenanceCandidates, createKeyProviderSt
 export { createReviewerClient, REVIEWER_JUDGE_MODEL_DEFAULT, type ReviewerClient, type ReviewerLlmDeps } from "./reviewer-llm.js";
 export { PREVIEW_SETUP_TOOL, PREVIEW_SETUP_TOOL_NAME, executePreviewSetup, type PreviewSetupToolContext } from "./tools/preview-setup/tool.js";
 export { createPreviewSetupContext } from "./tools/preview-setup/runtime.js";
+export { routeContextGroups } from "./context/intent-router.js";
+export { setupConfirmId } from "./tools/preview-setup/runtime.js";

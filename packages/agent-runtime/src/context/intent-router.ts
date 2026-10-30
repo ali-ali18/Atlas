@@ -119,7 +119,7 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 	],
 	["dev", DEV_PATTERN],
 	// Prévia completa (admin): o pedido de configurar o domínio/links, não o de ver um projeto (isso é `dev`).
-	["preview_setup", /\b(previa completa|(full|complete) preview|preview domain|dominio d[aoe]s? previas?|(configur\w+|ativ\w+|liga\w*|habilit\w+|instal\w+|set ?up|enable|turn on)\b[^.!?\n]{0,30}\b(previas?|previews?)\b)/],
+	["preview_setup", /\b(preview_setup|previa completa|(full|complete) preview|preview domain|dominio d[aoe]s? previas?|(configur\w+|ativ\w+|liga\w*|habilit\w+|instal\w+|set ?up|enable|turn on)\b[^.!?\n]{0,30}\b(previas?|previews?)\b)/],
 	[
 		"desktop",
 		/\b(desktop|area de trabalho|xdotool|libreoffice|aplicativos? (de )?desktop|janelas? do (sistema|desktop)|arrast\w+|drag(ging)?|coordenadas?|coordinates)\b/,

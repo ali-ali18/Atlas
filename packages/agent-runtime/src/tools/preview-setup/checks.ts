@@ -1,6 +1,6 @@
 import { Resolver } from "node:dns/promises";
 import tls from "node:tls";
-import { previewProbeHost } from "@workspace/shared";
+import { PREVIEW_PROBE_HEADER, previewProbeHost } from "@workspace/shared";
 
 /**
  * Verificações reais de cada passo (DNS, certificado, resposta da API). Tudo injetável em teste; nenhuma
@@ -9,7 +9,12 @@ import { previewProbeHost } from "@workspace/shared";
 
 export type DnsCheck = { ok: boolean; reason?: "no_record" | "wrong_ip" | "error"; found: string[] };
 export type TlsCheck = { ok: boolean; reason?: "unreachable" | "untrusted" | "expired" | "san_mismatch"; issuer?: string; validTo?: string };
-export type ProbeCheck = { kind: "ok" | "route_missing" | "not_enabled" | "unreachable" | "tls_error"; status?: number };
+/**
+ * ok = a API de prévias do Atlas respondeu (401 com o cabeçalho dela); not_enabled = a API do Atlas respondeu mas sem a
+ * prévia ligada ("404 Not Found" do Hono); route_missing = outra coisa respondeu (404 do proxy/nginx/Caddy/HTML, 5xx);
+ * origin_cert = 526 da Cloudflare (certificado de origem recusado); origin_unreachable = 521-525 (Cloudflare não alcança o servidor).
+ */
+export type ProbeCheck = { kind: "ok" | "route_missing" | "not_enabled" | "origin_cert" | "origin_unreachable" | "unreachable" | "tls_error"; status?: number };
 
 export type Checks = {
 	dns(host: string, expectedIp: string | null): Promise<DnsCheck>;
@@ -76,11 +81,14 @@ export async function probeApi(baseDomain: string, fetchFn: typeof fetch = fetch
 	const url = `https://${previewProbeHost(baseDomain)}/__atlas_preview_auth`;
 	try {
 		const res = await fetchFn(url, { redirect: "manual", signal: AbortSignal.timeout(10_000), headers: { accept: "text/plain" } });
-		const body = (await res.text()).slice(0, 2_000);
-		if (res.status === 401 && body.includes("Link expirado")) return { kind: "ok", status: 401 };
-		if (res.status === 404 && /^404 page not found/i.test(body.trim())) return { kind: "route_missing", status: 404 };
-		if (res.status === 502 || res.status === 503 || res.status === 504) return { kind: "route_missing", status: res.status };
-		return { kind: "not_enabled", status: res.status };
+		const body = (await res.text()).slice(0, 2_000).trim();
+		// Só a assinatura exata da API de prévias do Atlas vale: 401 + cabeçalho próprio (texto/HTML de outro servidor não).
+		if (res.status === 401 && res.headers.get(PREVIEW_PROBE_HEADER) === "1") return { kind: "ok", status: 401 };
+		if (res.status === 526) return { kind: "origin_cert", status: 526 };
+		if (res.status >= 520 && res.status <= 525) return { kind: "origin_unreachable", status: res.status };
+		// A API do Atlas sem a prévia ligada cai no 404 padrão do Hono (texto simples), sem o cabeçalho.
+		if (res.status === 404 && body === "404 Not Found" && !/html/i.test(res.headers.get("content-type") ?? "")) return { kind: "not_enabled", status: 404 };
+		return { kind: "route_missing", status: res.status };
 	} catch (error) {
 		const code = String((error as { cause?: { code?: string } }).cause?.code ?? "");
 		return { kind: /CERT|SSL|TLS|ALTNAME/i.test(code) ? "tls_error" : "unreachable" };
