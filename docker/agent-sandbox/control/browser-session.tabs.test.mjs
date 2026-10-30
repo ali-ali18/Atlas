@@ -110,7 +110,7 @@ test("fechar a aba ativa volta para quem a abriu e avisa (OAuth/pagamento que se
 	await tick();
 	assert.equal(await session.getPage(), main);
 	assert.equal(main.frontCount(), 1);
-	assert.equal(session.takeNotice(), 'The tab you were on was closed. You are now on: "Curso" — https://lms.test/curso.');
+	assert.equal(session.takeNotice(), 'The tab you were on was closed. You are now on: "Curso" — https://lms.test/curso. Use browser_tabs to list the other tabs.');
 });
 
 test("fechar a aba ativa sem opener cai na aba restante mais recente; sem nenhuma, abre uma nova", async () => {

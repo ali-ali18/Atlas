@@ -27,6 +27,8 @@ type GroupSpec = {
 	 * de tools de conector.
 	 */
 	keywords: readonly string[];
+	/** Não aparece no índice do prompt (a tool entra por aviso do navegador, intenção ou busca). */
+	hidden?: boolean;
 };
 
 export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
@@ -40,12 +42,18 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 			"browser_snapshot",
 			"browser_act",
 			"browser_wait",
-			"browser_tabs",
 			"screenshot",
 			"sandbox_release",
 		],
-		hint: "open pages, read them, find, click, type and scroll in the VM browser, switch between its tabs, take screenshots, and turn the VM off when the work is done",
+		hint: "open pages, read them, find, click, type and scroll in the VM browser, take screenshots, and turn the VM off when the work is done",
 		keywords: ["browser", "navegador", "page", "pagina", "click", "clique", "screenshot", "navigate", "screen", "tela", "website"],
+	},
+	tabs: {
+		// Fora do pedido de um chat comum: entra quando o navegador avisa de aba nova/fechada, o pedido fala de abas ou o modelo a busca.
+		tools: ["browser_tabs"],
+		hint: "list, switch or close the VM browser's tabs",
+		keywords: ["tabs", "abas", "aba", "tab", "guia", "guias"],
+		hidden: true,
 	},
 	shell: {
 		tools: ["sandbox_shell", "sandbox_shell_wait", "sandbox_read", "sandbox_list", "sandbox_download"],
@@ -201,6 +209,7 @@ export function deferredToolsIndex(eligible: readonly ChatTool[], preloaded: Rea
 	for (const group of GROUP_ORDER) {
 		// Grupo já no pedido (ex.: navegador com sandbox): listar de novo só gasta contexto.
 		if (preloaded.has(group)) continue;
+		if (NATIVE_TOOL_GROUPS[group].hidden) continue;
 		const names = NATIVE_TOOL_GROUPS[group].tools.filter((name) => present.has(name));
 		if (names.length === 0) continue;
 		lines.push(`- ${group}: ${names.join(", ")}. ${NATIVE_TOOL_GROUPS[group].hint}.`);

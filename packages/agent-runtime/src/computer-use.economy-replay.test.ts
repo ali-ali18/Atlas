@@ -149,53 +149,87 @@ describe("economia ligada: tarefa de navegador", () => {
 });
 
 describe("economia ligada: abas do navegador", () => {
-	it("browser_tabs mora só no grupo do navegador (que já vai no 1º passo) e a linha do prompt vem junto", async () => {
-		const owners = Object.entries(NATIVE_TOOL_GROUPS).filter(([, group]) => group.tools.includes("browser_tabs")).map(([name]) => name);
-		expect(owners).toEqual(["browser"]);
+	const flow = async (messages: Array<{ role: "user"; content: string }>, manager: Record<string, unknown>, script: CompleteChatWithToolsResult[], peek: () => string | null = () => "session-1") => {
+		const toolsPerStep: string[][] = [];
+		const results: Array<{ name: string; ok: boolean; summary: string }> = [];
+		await runComputerUse({
+			manager: manager as unknown as SandboxManager, getSessionId: async () => "session-1", peekSessionId: peek, apiKey: "test", model: "m",
+			runId: "run-tabs", userId: "user-a", botId: "bot-a", origin: "chat", contextEconomy: true, maxSteps: 6, messages,
+			onEvent: (event) => { if (event.type === "tool_result") results.push({ name: event.name, ok: event.ok, summary: event.summary }); },
+			streamChat: async (params) => { toolsPerStep.push(params.tools.map((tool) => tool.function.name)); return script.shift() ?? done; },
+		});
+		return { toolsPerStep, results };
+	};
+
+	it("browser_tabs fica fora do 1º passo (mesmo no navegador) e do índice; só o grupo tabs a traz", async () => {
+		expect(NATIVE_TOOL_GROUPS.browser.tools).not.toContain("browser_tabs");
+		expect(Object.entries(NATIVE_TOOL_GROUPS).filter(([, g]) => g.tools.includes("browser_tabs")).map(([n]) => n)).toEqual(["tabs"]);
 		const site = await replay({ messages: [{ role: "user", content: "abra o site loja.exemplo.com.br e clique em Entrar" }] });
-		expect(site.first).toContain("browser_tabs");
-		expect(site.system()).toContain("A link may open a new tab");
+		expect(site.first).not.toContain("browser_tabs");
+		expect(site.system()).not.toContain("browser_tabs");
 		// Subagentes de navegador têm a própria aba isolada: não trocam de aba.
 		expect(BROWSER_CHILD_TOOL_NAMES).not.toContain("browser_tabs");
 	});
 
-	it("link que abre em aba nova: o aviso da VM vai junto do resultado da ferramenta, uma vez só", async () => {
+	it("pedido que fala de aba (pt/en) já traz browser_tabs no 1º passo", async () => {
+		for (const text of ["abra o site lms.test e depois volte para a outra aba", "open lms.test and switch to the other tab", "quais abas estão abertas no navegador?"]) {
+			const { first } = await replay({ messages: [{ role: "user", content: text }] });
+			expect(first, text).toContain("browser_tabs");
+		}
+	});
+
+	it("clique que abre aba nova: o aviso sai no resultado e browser_tabs já está disponível no passo seguinte", async () => {
 		const notices = ['A new tab opened: "Aula 1" — https://lms.test/aula. You are now on it. The previous tab is still open (use browser_tabs to switch back).'];
-		const takeTabNotice = vi.fn(() => notices.shift());
 		const manager = {
 			execNavigate: vi.fn(async () => ({ url: "https://lms.test", title: "Curso" })),
 			execBrowserTabs: vi.fn(async () => ({ action: "list" as const, tabs: [{ index: 1, title: "Curso", url: "https://lms.test", active: false }, { index: 2, title: "Aula 1", url: "https://lms.test/aula", active: true }] })),
-			takeTabNotice,
-		} as unknown as SandboxManager;
-		const results: Array<{ name: string; ok: boolean; summary: string }> = [];
-		const script = [turn("navigate", { url: "https://lms.test" }), turn("browser_tabs", { action: "list" }, "c2"), done];
-		await runComputerUse({
-			manager, getSessionId: async () => "session-1", apiKey: "test", model: "m", runId: "run-tabs", userId: "user-a", botId: "bot-a",
-			origin: "chat", contextEconomy: true, maxSteps: 6,
-			messages: [{ role: "user", content: "abra o site lms.test e clique em Acessar" }],
-			onEvent: (event) => { if (event.type === "tool_result") results.push({ name: event.name, ok: event.ok, summary: event.summary }); },
-			streamChat: async () => script.shift() ?? done,
-		});
+			takeTabNotice: vi.fn(() => notices.shift()),
+		};
+		const { toolsPerStep, results } = await flow(
+			[{ role: "user", content: "abra o site lms.test e clique em Acessar" }], manager,
+			[turn("navigate", { url: "https://lms.test" }), turn("browser_tabs", { action: "list" }, "c2"), done],
+		);
+		expect(toolsPerStep[0]).not.toContain("browser_tabs");
+		expect(toolsPerStep[1]).toContain("browser_tabs");
 		expect(results.map((r) => r.name)).toEqual(["navigate", "browser_tabs"]);
 		expect(results[0]!.summary).toContain('[A new tab opened: "Aula 1" — https://lms.test/aula. You are now on it.');
-		expect(results[1]!.ok).toBe(true);
+		expect(results[1]).toMatchObject({ ok: true });
 		expect(results[1]!.summary).toContain("2. [active]");
 		expect(results[1]!.summary).not.toContain("A new tab opened");
+		expect(manager.takeTabNotice).toHaveBeenCalledWith("session-1");
+	});
+
+	it("sem aviso, browser_tabs segue fora; chamada direta a ela carrega o grupo e pede para repetir", async () => {
+		const manager = { execNavigate: vi.fn(async () => ({ url: "u", title: "t" })), takeTabNotice: vi.fn(() => undefined), execBrowserTabs: vi.fn() };
+		const { toolsPerStep, results } = await flow([{ role: "user", content: "abra o site lms.test" }], manager, [turn("navigate", { url: "https://lms.test" }), turn("browser_tabs", { action: "list" }, "c2"), done]);
+		expect(toolsPerStep[1]).not.toContain("browser_tabs");
+		expect(results[1]!.summary).toMatch(/not loaded/i);
+		expect(manager.execBrowserTabs).not.toHaveBeenCalled();
+		expect(toolsPerStep[2]).toContain("browser_tabs");
+	});
+
+	it("o aviso nunca sobe nem reinicia a VM: sem sessão no run, só olha e não chama getSessionId", async () => {
+		const getSessionId = vi.fn(async () => "session-1");
+		const takeTabNotice = vi.fn(() => "A new tab opened: x");
+		const manager = { execNavigate: vi.fn(async () => ({ url: "u", title: "t" })), takeTabNotice };
+		const script = [turn("navigate", { url: "https://lms.test" }), done];
+		const results: string[] = [];
+		await runComputerUse({
+			manager: manager as unknown as SandboxManager, getSessionId, peekSessionId: () => null, apiKey: "test", model: "m", runId: "run-tabs-down", userId: "user-a", botId: "bot-a",
+			origin: "chat", contextEconomy: true, maxSteps: 4, messages: [{ role: "user", content: "abra o site lms.test" }],
+			onEvent: (event) => { if (event.type === "tool_result") results.push(event.summary); },
+			streamChat: async () => script.shift() ?? done,
+		});
+		// A própria navegação pede a sessão (uma vez); a leitura do aviso não pede outra.
+		expect(getSessionId).toHaveBeenCalledTimes(1);
+		expect(takeTabNotice).not.toHaveBeenCalled();
+		expect(results[0]).not.toContain("A new tab opened");
 	});
 
 	it("browser_tabs com argumento inválido falha com a dica, sem chamar a VM", async () => {
-		const execBrowserTabs = vi.fn();
-		const manager = { execBrowserTabs } as unknown as SandboxManager;
-		const results: Array<{ name: string; ok: boolean; summary: string }> = [];
-		const script = [turn("browser_tabs", { action: "switch" }), done];
-		await runComputerUse({
-			manager, getSessionId: async () => "session-1", apiKey: "test", model: "m", runId: "run-tabs2", userId: "user-a", botId: "bot-a",
-			origin: "chat", contextEconomy: true, maxSteps: 6,
-			messages: [{ role: "user", content: "abra o site lms.test" }],
-			onEvent: (event) => { if (event.type === "tool_result") results.push({ name: event.name, ok: event.ok, summary: event.summary }); },
-			streamChat: async () => script.shift() ?? done,
-		});
-		expect(execBrowserTabs).not.toHaveBeenCalled();
+		const manager = { execBrowserTabs: vi.fn(), takeTabNotice: vi.fn(() => undefined) };
+		const { results } = await flow([{ role: "user", content: "quais abas estão abertas no site lms.test?" }], manager, [turn("browser_tabs", { action: "switch" }), done]);
+		expect(manager.execBrowserTabs).not.toHaveBeenCalled();
 		expect(results[0]).toMatchObject({ name: "browser_tabs", ok: false });
 		expect(results[0]!.summary).toMatch(/needs "index"/);
 	});
@@ -235,7 +269,7 @@ describe("economia ligada: chat simples", () => {
 		const auto = await replay({ messages, language: "auto", languageContext: { lastLanguage: "pt-BR" } });
 		// A linha "Language:" da persona sai e a instrução de auto entra no fim: troca de uma linha pela outra.
 		expect(auto.prefixChars() - fixed.prefixChars()).toBeLessThan(100);
-		expect(auto.prefixChars()).toBeLessThan(41_000);
+		expect(auto.prefixChars()).toBeLessThan(40_000);
 		const system = auto.system();
 		expect(system).not.toContain("- Language:");
 		expect(system).not.toContain(languageInstruction("pt-BR"));
@@ -248,7 +282,7 @@ describe("economia ligada: chat simples", () => {
 	it("'Bom dia' mantém o prefixo pequeno: nenhuma tool rara e só o núcleo", async () => {
 		const { first, steps, prefixChars } = await replay({ messages: [{ role: "user", content: "Bom dia" }] });
 		// Prompt de sistema + schemas do passo 1: era ~42,6 mil chars antes da política única de agir primeiro.
-		expect(prefixChars()).toBeLessThan(41_000);
+		expect(prefixChars()).toBeLessThan(40_000);
 		for (const rare of [
 			"propose_routine",
 			"create_file",
@@ -267,8 +301,7 @@ describe("economia ligada: chat simples", () => {
 		expect(first).toContain("memory");
 		expect(first).not.toContain("memory_search");
 		// +1: `sandbox_release` (desligar a VM) entra com o grupo browser; o prefixo continua abaixo de 40 mil chars.
-		// +1: `browser_tabs` (grupo browser); o prefixo subiu ~0,6 mil chars e o teto passou de 40 para 41 mil.
-		expect(first.length).toBeLessThanOrEqual(24);
+		expect(first.length).toBeLessThanOrEqual(23);
 		expect(steps).toBe(1);
 	});
 

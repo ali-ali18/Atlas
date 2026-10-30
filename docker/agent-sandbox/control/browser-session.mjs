@@ -191,7 +191,7 @@ export function createBrowserSession({ chromium, cdpUrl, launch = launchChrome,
 		setMain(next);
 		next.bringToFront?.().catch?.(() => undefined);
 		describe(next).then((what) => {
-			notices.push(`The tab you were on was closed. You are now on: ${what}.`);
+			notices.push(`The tab you were on was closed. You are now on: ${what}. Use browser_tabs to list the other tabs.`);
 		});
 	}
 
