@@ -45,6 +45,7 @@ beforeEach(() => {
 		...extra,
 	});
 	client.routine = {
+		count: async () => 0,
 		create: async ({ data }: { data: Record<string, unknown> }) => {
 			writes.push(data);
 			return row(data);

@@ -20,6 +20,8 @@ import {
 	BRIEF_RUN_SUMMARY_FAILED,
 	BRIEF_RUN_SUMMARY_SENT,
 	DAILY_BRIEF_TEMPLATE,
+	ALERT_ACTIVE_LIMIT,
+	alertLimitMessage,
 	alertSupportsTrigger,
 	applyAlertConfig,
 	parseRoutineAlert,
@@ -696,6 +698,25 @@ export async function getRoutineGithubTrigger(
 	return trigger && trigger.kind === "github" ? trigger : null;
 }
 
+/** Limite de alertas ativos por pessoa estourado (a API responde 409; a tool devolve o texto ao modelo). */
+export class AlertLimitError extends Error {
+	constructor() {
+		super(alertLimitMessage());
+		this.name = "AlertLimitError";
+	}
+}
+
+/** Alertas ativos do dono (rotina ligada com alerta). Só as dele: o de outro usuário nunca conta. */
+export async function countActiveAlerts(userId: string | undefined): Promise<number> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return 0;
+	return prisma.routine.count({ where: { userId: { in: owners }, enabled: true, alertJson: { not: Prisma.DbNull } } });
+}
+
+async function assertAlertSlot(userId: string): Promise<void> {
+	if ((await countActiveAlerts(userId)) >= ALERT_ACTIVE_LIMIT) throw new AlertLimitError();
+}
+
 const ALERT_TRIGGER_ERROR = "Alerta só funciona em rotina por horário ou por intervalo (a cada N minutos)";
 
 function alertJsonForCreate(raw: unknown, triggerType: RoutineTriggerType): Prisma.InputJsonValue {
@@ -823,6 +844,7 @@ export async function createRoutine(
 	}
 
 	const alertJson = input.alert ? alertJsonForCreate(input.alert, triggerType) : undefined;
+	if (alertJson && (input.enabled ?? true)) await assertAlertSlot(userId);
 
 	const row = await prisma.routine.create({
 		data: {
@@ -859,7 +881,7 @@ export async function updateRoutine(
 	if (!userId?.trim() || userId === LEGACY_OWNER_ID) return null;
 	const existing = await prisma.routine.findFirst({
 		where: { id: routineId, botId, userId },
-		select: { id: true, userId: true, triggerType: true, triggerJson: true, schedule: true, alertJson: true, template: true },
+		select: { id: true, userId: true, triggerType: true, triggerJson: true, schedule: true, alertJson: true, template: true, enabled: true },
 	});
 	if (!existing) return null;
 	if (!isOwnerAllowed(existing.userId, userId)) return null;
@@ -881,6 +903,10 @@ export async function updateRoutine(
 	if (alertPatch !== Prisma.DbNull && (alertPatch !== undefined || previousAlert) && !alertSupportsTrigger(nextType)) {
 		throw new Error(ALERT_TRIGGER_ERROR);
 	}
+	// Só passa pelo limite quem passa a contar como alerta ativo (criar alerta, religar ou ligar a condição).
+	const countedBefore = existing.enabled && previousAlert !== null;
+	const countsAfter = (input.enabled ?? existing.enabled) && alertPatch !== Prisma.DbNull && (alertPatch !== undefined || previousAlert !== null);
+	if (countsAfter && !countedBefore) await assertAlertSlot(userId);
 
 	const data: Prisma.RoutineUpdateInput = {
 		...(alertPatch !== undefined ? { alertJson: alertPatch } : {}),
@@ -1322,6 +1348,8 @@ export async function recordRoutineAlertState(
 			id: routineId,
 			userId: { in: owners },
 			alertJson: { path: ["condition"], equals: next.condition },
+			// Regra editada no meio da conferência: o resultado velho não sobrescreve a regra nova.
+			...(next.rule ? { AND: [{ alertJson: { path: ["rule"], equals: jsonValue(next.rule) as Prisma.InputJsonValue } }] } : {}),
 			...(widen ? { triggerType: "interval" } : {}),
 		},
 		data: { alertJson: jsonValue(next), ...(widen ? { triggerJson: jsonValue({ kind: "interval", everyMinutes }) } : {}) },
@@ -1522,6 +1550,34 @@ export async function settleRoutineRunForAgentRun(
 			error,
 		);
 	}
+}
+
+/**
+ * Fecha direto uma execução que não usou modelo (alerta com regra conferido pelo servidor). Só do dono da
+ * rotina e só se a execução ainda está ativa (queued/running): false = nada gravado (outro dono, já fechada).
+ */
+export async function settleRoutineRunDirect(
+	userId: string | undefined,
+	routineRunId: string,
+	input: { status: "succeeded" | "failed"; summary?: string | null; error?: string | null; startedAt?: Date },
+): Promise<boolean> {
+	const owners = ownerIds(userId);
+	if (owners.length === 0) return false;
+	const now = new Date();
+	const { count } = await prisma.routineRun.updateMany({
+		where: { id: routineRunId, status: { in: ACTIVE_RUN_STATUSES }, routine: { userId: { in: owners } } },
+		data: {
+			status: input.status,
+			summary: input.summary?.trim() || null,
+			error: input.status === "failed" ? (input.error ?? null) : null,
+			startedAt: input.startedAt ?? now,
+			finishedAt: now,
+		},
+	});
+	if (count !== 1) return false;
+	const run = await prisma.routineRun.findFirst({ where: { id: routineRunId, routine: { userId: { in: owners } } }, select: { routineId: true } });
+	if (run) await prisma.routine.updateMany({ where: { id: run.routineId, userId: { in: owners } }, data: { lastRunAt: now } });
+	return true;
 }
 
 function mapAgentRunStatus(status: string): "succeeded" | "failed" | null {

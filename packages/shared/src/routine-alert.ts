@@ -17,6 +17,13 @@ export const ALERT_CONDITION_MIN = 3;
 export const ALERT_CONDITION_MAX = 300;
 export const ALERT_HINT_MAX = 300;
 export const ALERT_SUMMARY_MAX = 300;
+/** Alertas ativos (rotina ligada com alerta) por pessoa: protege fontes de terceiros e a fila do worker. */
+export const ALERT_ACTIVE_LIMIT = 30;
+
+/** Texto (pt-BR, visto pelo usuário) quando a pessoa já tem o máximo de alertas ativos. */
+export function alertLimitMessage(limit: number = ALERT_ACTIVE_LIMIT): string {
+	return `Você já tem ${limit} alertas ativos, que é o máximo. Pause ou apague um alerta para criar outro.`;
+}
 
 /** Só rotinas que rodam por tempo conseguem "verificar de tempos em tempos". */
 export function alertSupportsTrigger(triggerType: RoutineTriggerType): boolean {
