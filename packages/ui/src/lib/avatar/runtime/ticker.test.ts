@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createAvatarEngine } from "../engine";
 import { SHAPE_IDS } from "../geometry/shapes";
 import type { Frame } from "../model/character";
+import { createBrainBudget } from "../model/brain-budget";
 import { gazeVector, createTicker, type FollowMode, type TickerEnv } from "./ticker";
 
 const FRAME_MS = 1000 / 60;
@@ -452,5 +453,70 @@ describe("REGRESSÃO do pisca-pisca (tremor com o mouse em movimento)", () => {
 		const a = engine.snapshot();
 		const b = engine.snapshot();
 		expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+	});
+});
+
+describe("ticker: cérebro do avatar", () => {
+	it("enquanto o cérebro está ativo o loop não dorme, mesmo sem clipe nem olhar; ao parar, dorme de novo", () => {
+		const { fake, ticker, engine, handle } = setup({ seed: "cerebro", breathe: false });
+		expect(ticker.stats().looping).toBe(false);
+		handle.interact((e) => {
+			e.setActivity("code");
+			e.pulse("toolStart", 1);
+		});
+		fake.frames(60 * 10);
+		expect(ticker.stats().looping).toBe(true);
+		expect(engine.isSettled()).toBe(false);
+		handle.interact((e) => e.setActivity(null));
+		let frames = 0;
+		while (ticker.stats().looping && frames < 60 * 30) {
+			fake.frame();
+			frames++;
+		}
+		expect(ticker.stats().looping).toBe(false);
+		expect(ticker.stats().sleepTimer).toBe(true);
+		expect(engine.isSettled()).toBe(true);
+	});
+
+	it("fora da tela ou com a aba oculta o cérebro não consome quadros", () => {
+		const element = {} as Element;
+		const { fake, ticker, handle, advances } = setup({ seed: "cerebro-2", breathe: false, element });
+		handle.interact((e) => e.setActivity("search"));
+		fake.frames(30);
+		const running = advances.length;
+		expect(running).toBeGreaterThan(10);
+		fake.setVisible(element, false);
+		fake.frames(60);
+		expect(advances.length).toBe(running);
+		fake.setVisible(element, true);
+		fake.setHidden(true);
+		expect(ticker.stats().looping).toBe(false);
+		fake.frames(60);
+		expect(advances.length).toBe(running);
+		fake.setHidden(false);
+		fake.frames(10);
+		expect(advances.length).toBeGreaterThan(running);
+	});
+
+	it("aba oculta e fora da tela devolvem a vaga de cérebro; ao voltar, pede de novo", () => {
+		const budget = createBrainBudget(1);
+		const element = {} as Element;
+		const fake = fakeEnv();
+		const ticker = createTicker(fake.env);
+		const engine = createAvatarEngine({ shape: "hex", seed: "vaga", breathe: false, budget });
+		const handle = ticker.register({ engine, apply: () => undefined, follow: "off", getCenter: () => ({ x: 0, y: 0 }), element });
+		handle.interact((e) => e.setActivity("code"));
+		fake.frames(10);
+		expect(budget.size).toBe(1);
+		fake.setHidden(true);
+		expect(budget.size).toBe(0);
+		fake.setHidden(false);
+		fake.frames(10);
+		expect(budget.size).toBe(1);
+		fake.setVisible(element, false);
+		expect(budget.size).toBe(0);
+		fake.setVisible(element, true);
+		fake.frames(10);
+		expect(budget.size).toBe(1);
 	});
 });

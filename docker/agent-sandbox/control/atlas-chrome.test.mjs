@@ -99,3 +99,10 @@ test("trava livre mas CDP já responde: só foca a janela, sem segundo Chrome", 
 test("o script não depende mais de pgrep", () => {
 	assert.doesNotMatch(readFileSync(SCRIPT, "utf8"), /pgrep/);
 });
+
+test("passa --no-sandbox com --test-type (esconde a faixa 'unsupported command-line flag' nos prints)", () => {
+	assert.equal(run().status, 0);
+	const flags = launches()[0].split(" ");
+	assert.ok(flags.includes("--no-sandbox"));
+	assert.ok(flags.includes("--test-type"), "sem --test-type a faixa amarela aparece na VM");
+});

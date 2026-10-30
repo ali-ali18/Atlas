@@ -76,6 +76,8 @@ import {
 	type RoutineNotifyMode,
 	GITHUB_SECURITY_REVIEW_TEMPLATE,
 	formatIntervalSummary,
+	clampAlertRuleInterval,
+	defaultAlertRuleInterval,
 	describeRoutineAlertSentence,
 	parseRoutineAlertInput,
 	validateAlertInterval,
@@ -263,6 +265,8 @@ import { DELEGATION_HINT, suggestDelegation } from "./jev/delegation.js";
 import { detectBlockPage } from "./jev/block-page.js";
 import { preselectMcpTools } from "./jev/tool-preselect.js";
 import { APP_INFO_TOOL, executeAppInfo } from "./tools/app-info.js";
+import { createPreviewSetupContext } from "./tools/preview-setup/runtime.js";
+import { PREVIEW_SETUP_TOOL, PREVIEW_SETUP_TOOL_NAME, executePreviewSetup, type PreviewSetupToolContext } from "./tools/preview-setup/tool.js";
 import { canGrantMcpTask, autonomyExceptionMode, hasExternalTargetArgs, isUntrustedContentTool } from "@workspace/shared";
 import { collectRefs, createSecretSession, type SecretSession } from "./secrets/session.js";
 import { isSecretBoxConfigured } from "./secrets/secret-box.js";
@@ -390,6 +394,7 @@ import { executeInspectPresentation, INSPECT_PRESENTATION_TOOL } from "./tools/i
 import { RUN_CODE_TOOL, executeRunCode, type RunCodeDeps } from "./tools/run-code.js";
 import { ROUTINE_CONTROL_TOOL, ROUTINE_CONTROL_TOOL_NAME, executeRoutineControl } from "./tools/routine-control.js";
 import { REPORT_ALERT_TOOL, REPORT_ALERT_TOOL_NAME, alertRunNote, executeReportAlert, type AlertRunState } from "./tools/report-alert.js";
+import { ALERT_RULE_SCHEMA, alertRuleReadingNote, testAlertRule, type AlertRuleReader } from "./tools/alert-rule.js";
 import { upsertDailyBrief } from "./tools/daily-brief.js";
 import { listBriefSources } from "./tools/daily-brief-sources.js";
 import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME, dbPagesStore, executePageTool, isPageTool, type PageShareStore, type PagesStore } from "./tools/pages.js";
@@ -1126,6 +1131,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	// Lições do bot: só entra no pedido quando o run tem lições (ver `lessonFeedbackEnabled`).
 	LESSON_FEEDBACK_TOOL,
 	APP_INFO_TOOL,
+	PREVIEW_SETUP_TOOL,
 	SECRET_LIST_TOOL,
 	ROUTINE_WEBHOOK_INFO_TOOL,
 	SECRET_REQUEST_TOOL,
@@ -1216,7 +1222,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "propose_routine",
 			description:
-				"Create (action create) or edit (action edit) a routine. Card only on create. Create: title=name, detail=prompt to run on each trigger, trigger_type cron|interval|once|event|github. cron: needs schedule (5 fields), fixed clock times. interval: needs every_minutes (5-1440), exact \"every N minutes/hours\" counted from the last run (use for \"every 50 min\", including GitHub monitoring). once (\"remind me on 03/10 at 10h\"): needs run_at (ISO 8601; no offset = America/Sao_Paulo) for a clock time, or in_minutes for \"in N minutes/hours\" (the server adds it to the current time); never both; fires once and deletes itself; several times = one call per time. event: generic webhook (URL+secret). email: runs when an e-mail arrives in the bot's own inbox (\"toda vez que chegar e-mail de X\", \"quando o fornecedor mandar a NF\"); optional `email` filters from_contains / subject_contains; needs the bot's mailbox to be active (email_create_mailbox) and only allowed senders trigger it; the e-mail text reaches the run as untrusted data, and the e-mail is handled by the routine instead of a normal chat reply; the routine only replies or sends e-mail if `detail` explicitly says so. github: instant webhook, needs the `github` object (repo, events; use github_list_repos if the repo is not owner/name). The github trigger creates and manages the repository webhook AUTOMATICALLY (URL and secret are internal, using the user's GitHub from the Marketplace or Composio). NEVER create, edit or delete GitHub webhooks yourself via Composio or any other tool (e.g. GITHUB_CREATE_A_REPOSITORY_WEBHOOK): deliveries signed with any other secret are rejected. Never show secret or URL to assemble by hand. Webhook and interval can coexist for the same repo as two routines. Security review of a GitHub repo: set template=github_security_review and repo=owner/name (detail may be empty or hold an extra focus); combine with interval for periodic reviews. Morning brief (\"me prepara o dia às 7h30\", \"quero um resumo do meu dia toda manhã\"): set template=daily_brief (trigger_type cron; schedule only if the user gave a time/days, as a 5-field cron with ONE fixed time per day, e.g. \"30 7 * * 1-5\"; omit it for the default 07:30 Monday to Friday). It sends a short message in the chat (plus a push) at that time, no panel, only one per bot (asking again edits it), read-only on the user's sources, only the connected ones (state exactly the sources the tool result lists; never promise a portal, site or app that is not a connected source); detail is optional extra focus (\"não olhe o Slack\"). Change its time/days or pause it with action=edit target=\"Seu dia\". Edit: target=name or id (use the id if the message has '(id ...)'; never confuse with editing the bot profile); no card; trigger_type may change (switching to github needs repo+events, to once needs run_at, to interval needs every_minutes); enabled omitted keeps the current state. Use only when the user's latest message asks to schedule, monitor or change a recurring or timed job. Do not use when the user only thanks, praises or acknowledges (answer in one sentence instead), inside a routine run, or for a one-off task to do now. If a routine with the same name exists, edit instead of duplicating. Alert by condition (\"avisa se o estoque do produto X cair abaixo de 10\", \"se a venda do dia ficar abaixo da meta às 17h\", \"se chegar pedido acima de R$ 5 mil\"): create a routine with trigger_type interval (every N minutes) or cron (fixed times) plus the alert object. Each run only checks the condition with read tools and the user is notified only when it newly becomes true, so do not ask for a notification schedule. detail = how to check it (which connector/tool, product, field, threshold, and the date range: \"today\" for daily totals); alert.condition = the user's condition as a short phrase in their language that completes \"avisa se ...\"; alert.hint = optional pointer on where to look. Each check costs a model run, so pick few, well-placed check times instead of a short interval: business data only changes in business hours, so use trigger_type cron on weekdays (stock: a few times a day, e.g. \"0 10,14,17 * * 1-5\"; end-of-day target such as \"venda do dia abaixo da meta\": one check near the moment it matters, e.g. \"0 17 * * 1-5\"; new orders: every 2-4 hours in business hours, e.g. \"0 9-18/3 * * 1-5\"). An interval alert (every_minutes) must be at least 120 minutes unless the user explicitly asked for a more frequent check (then pass alert.frequent=true); the server widens a quiet alert's interval by itself. Never pick every 30 minutes on your own. Tell the user in one sentence what you will watch and when. Only with trigger_type cron or interval; not for one-off reminders (use once) or instant events (use github/event). Edit: pass alert to change the condition, or alert.condition empty to turn it back into a normal routine. To keep a page up to date, pass page_id (from page_create or page_list) and write in detail how to rebuild it with fresh data (which sources to query, which sections to refresh); each run then updates that page in place instead of posting a new message.",
+				"Create (action create) or edit (action edit) a routine. Card only on create. Create: title=name, detail=prompt to run on each trigger, trigger_type cron|interval|once|event|github. cron: needs schedule (5 fields), fixed clock times. interval: needs every_minutes (5-1440), exact \"every N minutes/hours\" counted from the last run (use for \"every 50 min\", including GitHub monitoring). once (\"remind me on 03/10 at 10h\"): needs run_at (ISO 8601; no offset = America/Sao_Paulo) for a clock time, or in_minutes for \"in N minutes/hours\" (the server adds it to the current time); never both; fires once and deletes itself; several times = one call per time. event: generic webhook (URL+secret). email: runs when an e-mail arrives in the bot's own inbox (\"toda vez que chegar e-mail de X\", \"quando o fornecedor mandar a NF\"); optional `email` filters from_contains / subject_contains; needs the bot's mailbox to be active (email_create_mailbox) and only allowed senders trigger it; the e-mail text reaches the run as untrusted data, and the e-mail is handled by the routine instead of a normal chat reply; the routine only replies or sends e-mail if `detail` explicitly says so. github: instant webhook, needs the `github` object (repo, events; use github_list_repos if the repo is not owner/name). The github trigger creates and manages the repository webhook AUTOMATICALLY (URL and secret are internal, using the user's GitHub from the Marketplace or Composio). NEVER create, edit or delete GitHub webhooks yourself via Composio or any other tool (e.g. GITHUB_CREATE_A_REPOSITORY_WEBHOOK): deliveries signed with any other secret are rejected. Never show secret or URL to assemble by hand. Webhook and interval can coexist for the same repo as two routines. Security review of a GitHub repo: set template=github_security_review and repo=owner/name (detail may be empty or hold an extra focus); combine with interval for periodic reviews. Morning brief (\"me prepara o dia às 7h30\", \"quero um resumo do meu dia toda manhã\"): set template=daily_brief (trigger_type cron; schedule only if the user gave a time/days, as a 5-field cron with ONE fixed time per day, e.g. \"30 7 * * 1-5\"; omit it for the default 07:30 Monday to Friday). It sends a short message in the chat (plus a push) at that time, no panel, only one per bot (asking again edits it), read-only on the user's sources, only the connected ones (state exactly the sources the tool result lists; never promise a portal, site or app that is not a connected source); detail is optional extra focus (\"não olhe o Slack\"). Change its time/days or pause it with action=edit target=\"Seu dia\". Edit: target=name or id (use the id if the message has '(id ...)'; never confuse with editing the bot profile); no card; trigger_type may change (switching to github needs repo+events, to once needs run_at, to interval needs every_minutes); enabled omitted keeps the current state. Use only when the user's latest message asks to schedule, monitor or change a recurring or timed job. Do not use when the user only thanks, praises or acknowledges (answer in one sentence instead), inside a routine run, or for a one-off task to do now. If a routine with the same name exists, edit instead of duplicating. Alert by condition (\"avisa se o estoque do produto X cair abaixo de 10\", \"se a venda do dia ficar abaixo da meta às 17h\", \"se chegar pedido acima de R$ 5 mil\"): create a routine with trigger_type interval (every N minutes) or cron (fixed times) plus the alert object. Each run only checks the condition with read tools and the user is notified only when it newly becomes true, so do not ask for a notification schedule. detail = how to check it (which connector/tool, product, field, threshold, and the date range: \"today\" for daily totals); alert.condition = the user's condition as a short phrase in their language that completes \"avisa se ...\"; alert.hint = optional pointer on where to look. Each check costs a model run, so pick few, well-placed check times instead of a short interval: business data only changes in business hours, so use trigger_type cron on weekdays (stock: a few times a day, e.g. \"0 10,14,17 * * 1-5\"; end-of-day target such as \"venda do dia abaixo da meta\": one check near the moment it matters, e.g. \"0 17 * * 1-5\"; new orders: every 2-4 hours in business hours, e.g. \"0 9-18/3 * * 1-5\"). An interval alert (every_minutes) must be at least 120 minutes unless the user explicitly asked for a more frequent check (then pass alert.frequent=true); the server widens a quiet alert's interval by itself. Never pick every 30 minutes on your own. Tell the user in one sentence what you will watch and when. Alert with `alert.rule` (exact value or new item on a public page or feed, no model cost): you choose the frequency (alert.rule.intervalMinutes, or every_minutes for interval) and the 120-minute minimum above does not apply; the rule is tested live on creation and the tool fails if it cannot read it. Only with trigger_type cron or interval; not for one-off reminders (use once) or instant events (use github/event). Edit: pass alert to change the condition, or alert.condition empty to turn it back into a normal routine. To keep a page up to date, pass page_id (from page_create or page_list) and write in detail how to rebuild it with fresh data (which sources to query, which sections to refresh); each run then updates that page in place instead of posting a new message.",
 			parameters: {
 				type: "object",
 				properties: {
@@ -1296,7 +1302,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 					alert: {
 						type: "object",
 						description:
-							"Turns the routine into an alert by condition (only trigger_type cron or interval): the routine checks on its schedule and the user is notified only when the condition becomes true (and again only after it stopped being true). In edit, an empty condition removes the alert; omit to keep.",
+							"Turns the routine into an alert by condition (only trigger_type cron or interval): the routine checks on its schedule and the user is notified only when the condition becomes true (and again only after it stopped being true). `condition` is required unless `rule` is given (then it is generated from the rule). In edit, an empty condition removes the alert; omit to keep.",
 						properties: {
 							condition: {
 								type: "string",
@@ -1310,8 +1316,8 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 								type: "string",
 								description: "Optional pointer for the checker: connector/tool to use, product, field, threshold, date range.",
 							},
+							rule: ALERT_RULE_SCHEMA,
 						},
-						required: ["condition"],
 					},
 					page_id: {
 						type: "string",
@@ -2031,6 +2037,8 @@ function routineDetailText(
 
 type ToolContext = {
 	manager: SandboxManager;
+	/** Configuração da prévia completa (só administrador; ausente = a tool não existe neste run). */
+	previewSetup?: PreviewSetupToolContext;
 	/** Runtime das tools de sessão de desenvolvimento (ausente = desligado). */
 	devSession?: DevSessionRuntime;
 	/** Id da chamada de tool (liga os eventos de shell e edição ao card). */
@@ -2166,6 +2174,10 @@ type ToolContext = {
 	userPush?: UserPushContext;
 	/** Run de rotina de alerta: `report_alert` guarda o veredito aqui (o worker decide avisar). */
 	alertRun?: AlertRunState;
+	/** Idioma da resposta (gera a condição e o formato dos valores de um alerta com regra). */
+	replyLanguage?: BotLanguage;
+	/** Leitor da fonte do teste da regra na criação (teste injeta; padrão lê a fonte com o guard SSRF). */
+	alertRuleReader?: AlertRuleReader;
 	/** Após create/update de rotina: sync BullMQ scheduler (cron-only). */
 	onRoutineMutated?: (
 		routine: Pick<
@@ -2699,19 +2711,36 @@ async function executeProposeRoutine(
 	let notify: RoutineNotifyMode | undefined = args.notify === "important" || args.notify === "always" ? args.notify : undefined;
 	// `alert`: undefined = não informado (edit mantém); null = condição vazia (edit remove o alerta); objeto = liga/troca.
 	let alertInput: RoutineAlertConfig | null | undefined;
+	let alertReading: { display: string; note: string } | undefined;
 	if (args.alert !== undefined && args.alert !== null) {
 		const rawAlert = args.alert as Record<string, unknown>;
-		if (typeof rawAlert === "object" && typeof rawAlert.condition === "string" && !rawAlert.condition.trim()) {
+		const hasRule = typeof rawAlert === "object" && rawAlert.rule !== undefined && rawAlert.rule !== null;
+		if (typeof rawAlert === "object" && typeof rawAlert.condition === "string" && !rawAlert.condition.trim() && !hasRule) {
 			alertInput = null;
 		} else {
-			const parsedAlert = parseRoutineAlertInput(args.alert);
+			const ruleLocale = ctx.replyLanguage ?? "pt-BR";
+			const parsedAlert = parseRoutineAlertInput(args.alert, { locale: ruleLocale });
 			if (!parsedAlert.ok) throw new Error(parsedAlert.error);
 			if (triggerType !== "cron" && triggerType !== "interval") {
 				throw new Error("alert only works with trigger_type cron or interval (a routine that checks on a schedule). For a one-off reminder use once; for instant events use github/event.");
 			}
 			alertInput = parsedAlert.alert;
+			if (alertInput.rule) {
+				// Só grava a regra se ela lê agora (falha com motivo e dica; nada é criado).
+				const tested = await testAlertRule(alertInput.rule, ruleLocale, ctx.alertRuleReader);
+				alertReading = { display: tested.display, note: alertRuleReadingNote(alertInput.rule, tested.display) };
+			}
 		}
 	}
+	// Alerta com regra: o agente escolhe a frequência (every_minutes ou rule.intervalMinutes); só vale o piso técnico da fonte.
+	const ruleEveryMinutes = (): number | undefined => {
+		const rule = alertInput?.rule;
+		if (!rule) return undefined;
+		const explicit = Number(args.every_minutes);
+		const wanted = Number.isFinite(explicit) && explicit > 0 ? explicit : (rule.intervalMinutes ?? defaultAlertRuleInterval(rule.source));
+		return clampAlertRuleInterval(wanted, rule.source);
+	};
+	const alertSummaryTail = alertReading ? ` ${alertReading.note}` : "";
 	const alertCreateFields = (): { alert?: RoutineAlertConfig } => (alertInput ? { alert: alertInput } : {});
 	const alertEditFields = (): { alert?: RoutineAlertConfig | null } => (alertInput !== undefined ? { alert: alertInput } : {});
 	const scheduleRaw =
@@ -2783,15 +2812,16 @@ async function executeProposeRoutine(
 			});
 			return {
 				summary: routine.alert
-					? `Alerta "${routine.name}" criado (${describeRoutineAlertSentence(routine)}). Card emitido só nesta criação. Responda em texto, em uma frase: o que você vai vigiar e com que frequência.`
+					? `Alerta "${routine.name}" criado (${describeRoutineAlertSentence(routine)}). Card emitido só nesta criação. Responda em texto, em uma frase: o que você vai vigiar e com que frequência.${alertSummaryTail}`
 					: `Rotina cron "${routine.name}" criada (${routine.schedule ?? "sem schedule"}). Card emitido só nesta criação. Responda em texto.`,
 				routineEvent,
 			};
 		}
 		if (action === "create" && triggerType === "interval") {
-			const parsedEvery = parseIntervalEveryMinutes({ everyMinutes: args.every_minutes });
+			const ruleEvery = ruleEveryMinutes();
+			const parsedEvery = ruleEvery !== undefined ? { ok: true as const, everyMinutes: ruleEvery } : parseIntervalEveryMinutes({ everyMinutes: args.every_minutes });
 			if (!parsedEvery.ok) throw new Error(parsedEvery.error);
-			if (alertInput) assertAlertIntervalAllowed(parsedEvery.everyMinutes, args.alert);
+			if (alertInput && !alertInput.rule) assertAlertIntervalAllowed(parsedEvery.everyMinutes, args.alert);
 			const { routine } = await createRoutine(scope.userId, {
 				botId: scope.botId,
 				...(await groupFields()),
@@ -2817,7 +2847,7 @@ async function executeProposeRoutine(
 			});
 			return {
 				summary: routine.alert
-					? `Alerta "${routine.name}" criado (${describeRoutineAlertSentence(routine)}). Card emitido só nesta criação. Responda em texto, em uma frase: o que você vai vigiar e com que frequência.`
+					? `Alerta "${routine.name}" criado (${describeRoutineAlertSentence(routine)}). Card emitido só nesta criação. Responda em texto, em uma frase: o que você vai vigiar e com que frequência.${alertSummaryTail}`
 					: `Rotina "${routine.name}" criada (${formatIntervalSummary(parsedEvery.everyMinutes)}). Card emitido só nesta criação. Responda em texto.`,
 				routineEvent,
 			};
@@ -3053,10 +3083,14 @@ async function executeProposeRoutine(
 
 	if (triggerType === "interval") {
 		let everyMinutes: number;
-		if (args.every_minutes !== undefined) {
+		const ruleEvery = args.every_minutes !== undefined || alertInput?.rule?.intervalMinutes !== undefined ? ruleEveryMinutes() : undefined;
+		if (ruleEvery !== undefined) {
+			everyMinutes = ruleEvery;
+		} else if (args.every_minutes !== undefined) {
 			const parsedEvery = parseIntervalEveryMinutes({ everyMinutes: args.every_minutes });
 			if (!parsedEvery.ok) throw new Error(parsedEvery.error);
-			if (alertInput || (alertInput === undefined && previous.alert)) assertAlertIntervalAllowed(parsedEvery.everyMinutes, args.alert);
+			const modelChecked = alertInput ? !alertInput.rule : alertInput === undefined && previous.alert && !previous.alert.rule;
+			if (modelChecked) assertAlertIntervalAllowed(parsedEvery.everyMinutes, args.alert);
 			everyMinutes = parsedEvery.everyMinutes;
 		} else if (previous.interval?.everyMinutes) {
 			everyMinutes = previous.interval.everyMinutes;
@@ -3087,7 +3121,7 @@ async function executeProposeRoutine(
 		await ctx.onRoutineMutated?.(updated).catch(() => undefined);
 		return {
 			summary: updated.alert
-				? `Alerta "${updated.name}" atualizado (sem card): ${describeRoutineAlertSentence(updated)}.`
+				? `Alerta "${updated.name}" atualizado (sem card): ${describeRoutineAlertSentence(updated)}.${alertSummaryTail}`
 				: `Rotina "${updated.name}" atualizada (sem card): ${formatIntervalSummary(everyMinutes)}.`,
 			routineEvent: routineUpdatedEvent(updated),
 		};
@@ -3292,7 +3326,7 @@ async function executeProposeRoutine(
 	await ctx.onRoutineMutated?.(updated).catch(() => undefined);
 	return {
 		summary: updated.alert
-			? `Alerta "${updated.name}" atualizado (sem card): ${describeRoutineAlertSentence(updated)}. Responda em texto.`
+			? `Alerta "${updated.name}" atualizado (sem card): ${describeRoutineAlertSentence(updated)}. Responda em texto.${alertSummaryTail}`
 			: `Rotina "${updated.name}" atualizada (sem card). Responda em texto.`,
 		routineEvent: routineUpdatedEvent(updated),
 	};
@@ -4120,6 +4154,9 @@ async function executeToolInner(
 		}
 		case "app_info":
 			return executeAppInfo(args);
+		case "preview_setup":
+			if (!ctx.previewSetup) throw new Error("This tool is not available in this run.");
+			return (await executePreviewSetup(args, ctx.previewSetup)) as Awaited<ReturnType<typeof executeToolInner>>;
 		case "secret_list":
 			return executeSecretList(vaultToolContext(ctx));
 		case "routine_webhook_info":
@@ -4894,6 +4931,8 @@ export async function runComputerUse(params: {
 	browserTabId?: string;
 	/** Sessão de desenvolvimento: dependências injetáveis (teste); omitido = Docker + banco, só com DEV_SANDBOX_ENABLED. */
 	devSession?: Pick<DevSessionRuntimeDeps, "provider" | "config" | "store" | "getGithubToken" | "makeClient"> | null;
+	/** Configuração da prévia completa (injetável em teste; omitido = banco, só para o administrador; `null` = desligada). */
+	previewSetup?: PreviewSetupToolContext | null;
 	/** Filho de leitura: conversa cuja sessão de desenvolvimento ele pode ler (read_file/list_files/grep). */
 	devConversationId?: string;
 	/** Orçamento operacional de contexto (alvo/teto em tokens). Omitido = env (`ATLAS_CONTEXT_BUDGET_*`) ou 12k/20k. Só vale com a economia ligada. */
@@ -5040,8 +5079,10 @@ export async function runComputerUse(params: {
 	/** Notas de turno que seguem valendo; vão em todo checkpoint do run para o turno seguinte. */
 	carriedNotes?: import("@workspace/shared").CarriedNote[];
 	canSeeUserImages?: boolean;
-	loadUserImage?: (artifactId: string) => Promise<string | null>;
-	describeUserImage?: (artifactId: string) => Promise<{ description: string | null; costUsd?: number; costUnknown?: boolean }>;
+	/** `retryTransient`: anexo do turno atual, pode repetir a leitura uma vez em falha transitória (o worker decide); histórico não repete. */
+	loadUserImage?: (artifactId: string, options?: { retryTransient?: boolean }) => Promise<string | null>;
+	/** `loadFailed`: a leitura da imagem falhou (≠ sem descrição porque não há modelo de apoio). */
+	describeUserImage?: (artifactId: string, options?: { retryTransient?: boolean }) => Promise<{ description: string | null; costUsd?: number; costUnknown?: boolean; loadFailed?: boolean }>;
 	/** Arquivos que o usuário anexou (PDF, Office, planilha, texto, zip...). */
 	attachments?: AttachmentRuntime;
 	persistScreenshot?: (pngBase64: string) => Promise<string>;
@@ -5119,6 +5160,8 @@ export async function runComputerUse(params: {
 	 * O worker passa o `report` vazio e lê o veredito depois do loop; quem avisa (com debounce) é ele.
 	 */
 	alertRun?: AlertRunState;
+	/** Leitor da fonte do teste da regra de alerta (padrão: leitura real com guard SSRF; teste injeta). */
+	alertRuleReader?: AlertRuleReader;
 	/** Persiste checkpoint após cada passo confirmado. */
 	onCheckpoint?: (checkpoint: AgentRunCheckpoint) => Promise<void>;
 	/** Sync BullMQ scheduler após create/update de rotina (cron). */
@@ -5139,8 +5182,19 @@ export async function runComputerUse(params: {
 	 */
 	backgroundObserveChecks?: boolean;
 }): Promise<RunComputerUseResult> {
-	const { apiKey, messages, botId, onEvent } =
+	const { apiKey, messages, botId, onEvent: emitEvent } =
 		params;
+	// Aviso de imagem anexada que não carregou (ver `loadUserImageOnce`): fica aqui para o `onEvent` existir desde o começo.
+	let imageNoticePending = false;
+	let imageNoticeStepId: string | undefined;
+	// Se o passo que levou o aviso virou rascunho descartado (portão de revisão), o aviso vai de novo no passo seguinte.
+	const onEvent = (event: ComputerUseEvent): void | Promise<void> => {
+		if (event.type === "assistant_discard" && imageNoticeStepId !== undefined && event.id === imageNoticeStepId) {
+			imageNoticePending = true;
+			imageNoticeStepId = undefined;
+		}
+		return emitEvent(event);
+	};
 	// `let`: o modelo para código troca o modelo do run entre passos (ver `applyCodingModel`).
 	let model = params.model;
 	// `let`: o nível de dificuldade troca modelo e reservas (ver `applyTier`).
@@ -5458,6 +5512,12 @@ export async function runComputerUse(params: {
 	// nativo). Contagem/idempotência seguem no checkpoint.
 	// `lesson_feedback` só existe quando o run tem lições (senão o pedido ao modelo fica idêntico ao de antes).
 	const lessonFeedbackEnabled = !isSubagent && (params.lessons?.items.length ?? 0) > 0;
+	// Só o administrador, em conversa com humano: a tool nem aparece para os outros (e o executor confere de novo).
+	const previewSetupCtx: PreviewSetupToolContext | undefined =
+		!isSubagent && !isUnattendedOrigin(params.origin) && conversationId && userId !== "default" && params.previewSetup !== null
+			? (params.previewSetup ?? createPreviewSetupContext({ userId, conversationId, botId: params.botId, runId }))
+			: undefined;
+	const previewSetupEnabled = previewSetupCtx ? await previewSetupCtx.isAdmin().catch(() => false) : false;
 	const baseTools: ChatTool[] = (
 		sandboxEnabled
 			? COMPUTER_USE_TOOLS
@@ -5478,6 +5538,7 @@ export async function runComputerUse(params: {
 		.filter((tool) => !hostToolBlocked(tool.function.name))
 		.filter((tool) => tool.function.name !== LESSON_FEEDBACK_TOOL_NAME || lessonFeedbackEnabled)
 		.filter((tool) => tool.function.name !== "login_fill" || sandboxEnabled)
+		.filter((tool) => tool.function.name !== PREVIEW_SETUP_TOOL_NAME || previewSetupEnabled)
 		// Rotina/webhook não desliga a VM que o usuário pode estar usando; quem libera memória é o guarda.
 		.filter((tool) => tool.function.name !== SANDBOX_RELEASE_TOOL_NAME || !isUnattendedOrigin(params.origin))
 		// Shell/arquivos da VM: exceção "bloqueado" do usuário tira a tool; webhook/subagente só leem.
@@ -6727,6 +6788,29 @@ export async function runComputerUse(params: {
 	// (Sem fatiar por parágrafo: N balões simultâneos embaralhavam a leitura.)
 	// Mídia do histórico (screenshots, imagens, PDFs) carregada uma vez por run, não a cada passo.
 	const mediaMemo = createMediaMemo();
+	// Imagem anexada que não carrega. Anexo do turno atual: o loader repete a leitura uma vez se a falha for transitória
+	// (api e worker trocando de versão) e, se perder, o run desiste dela e o sistema avisa o usuário uma vez, no idioma
+	// dele (ver `streamStep`). Imagem de turno antigo que sumiu do disco: só null (o worker loga), sem espera nem aviso.
+	const currentImageIds = new Set(params.userImageArtifactIds ?? parsedCheckpoint?.userImageArtifactIds ?? []);
+	const failedCurrentImages = new Set<string>();
+	const failedHistoryImages = new Set<string>();
+	const imageFailed = (artifactId: string) => failedCurrentImages.has(artifactId) || failedHistoryImages.has(artifactId);
+	const recordImageFailure = (artifactId: string) => {
+		if (!currentImageIds.has(artifactId)) {
+			failedHistoryImages.add(artifactId);
+			return;
+		}
+		if (!failedCurrentImages.has(artifactId)) imageNoticePending = true;
+		failedCurrentImages.add(artifactId);
+	};
+	const loadUserImageOnce = params.loadUserImage
+		? async (artifactId: string): Promise<string | null> => {
+			if (imageFailed(artifactId)) return null;
+			const dataUrl = await params.loadUserImage!(artifactId, { retryTransient: currentImageIds.has(artifactId) });
+			if (!dataUrl) recordImageFailure(artifactId);
+			return dataUrl;
+		}
+		: undefined;
 	const streamStep = async (
 		history: LlmMessage[],
 		toolChoice: "auto" | "none",
@@ -6774,11 +6858,18 @@ export async function runComputerUse(params: {
 			{
 				canSeeUserImages: params.canSeeUserImages,
 				canSeeScreenshots: canSeeImages,
-				loadUserImage: params.loadUserImage,
+				loadUserImage: loadUserImageOnce,
 				canReadNativePdf: params.attachments?.canReadNativePdf === true,
 				loadUserPdf: params.attachments?.loadPdfDataUrl,
+				imageFailure: (artifactId) => {
+					if (!imageFailed(artifactId)) return undefined;
+					const current = failedCurrentImages.has(artifactId);
+					return { current, notified: current && ((emitPublic && !options?.closing) || !imageNoticePending) };
+				},
 				describeUserImage: params.describeUserImage ? async (artifactId) => {
-					const result = await params.describeUserImage!(artifactId);
+					if (imageFailed(artifactId)) return null;
+					const result = await params.describeUserImage!(artifactId, { retryTransient: currentImageIds.has(artifactId) });
+					if (result.loadFailed) recordImageFailure(artifactId);
 					if (result.costUsd !== undefined) usageTotals = addUsage(usageTotals, { costUsd: result.costUsd });
 					else if (result.costUnknown) usageTotals = addUsage(usageTotals, { costUnknownCalls: 1 });
 					return result.description;
@@ -6786,6 +6877,15 @@ export async function runComputerUse(params: {
 				memo: mediaMemo,
 			},
 		);
+		// Aviso honesto de imagem que não carregou: texto do sistema (dicionário por idioma) no começo da fala do passo,
+		// ao vivo e na resposta gravada, uma vez por run. Sem card novo: o chat já mostra o texto do assistente.
+		let imageNotice = "";
+		if (imageNoticePending && emitPublic && !options?.closing) {
+			imageNoticePending = false;
+			imageNoticeStepId = messageId;
+			imageNotice = `${systemMessages(language).imageUnavailable}\n\n`;
+			emitSegment(imageNotice);
+		}
 		const effectiveTools = reserveRestrict ? tools.filter((tool) => FILE_RESERVE_TOOLS.includes(tool.function.name)) : tools;
 		lastStepInspect = stepInspector.step({ messages: withNotes, tools: effectiveTools, contextLength: contextLength ?? undefined });
 		const callStartedAt = performance.now();
@@ -6855,7 +6955,7 @@ export async function runComputerUse(params: {
 		usageTotals = addUsage(usageTotals, stepUsage);
 		lastStepTokens = stepUsage.totalTokens;
 		return {
-			content: result.message.content ?? collected,
+			content: `${imageNotice}${result.message.content ?? collected}`,
 			// Ids prefixados com o run ao nascer: o que vai ao modelo nos passos e turnos seguintes é byte a byte o que fica gravado (prefixo de cache estável).
 			toolCalls: (result.message.tool_calls ?? []).map((call) => ({ ...call, id: namespaceToolCallId(call.id, runId) })),
 			providerItems: renameProviderItemCallIds(result.message.providerItems, (id) => namespaceToolCallId(id, runId)),
@@ -7649,6 +7749,7 @@ export async function runComputerUse(params: {
 				abortSignal: signal,
 				getSessionId: () => getSessionId({ ...executionContext, signal }),
 				toolCallId: call.id,
+				...(previewSetupEnabled && previewSetupCtx && name === PREVIEW_SETUP_TOOL_NAME ? { previewSetup: previewSetupCtx } : {}),
 				...(devDeps?.config.enabled && (isDevSessionTool(name) || (name === "attachment_to_computer" && codingRun)) ? { devSession: ((codingRun = !isSubagent || codingRun), getDevRuntime()), callId: call.id } : {}),
 				botId,
 				userId,
@@ -7680,6 +7781,8 @@ export async function runComputerUse(params: {
 				recentAssistantTexts: recentAssistantPlainTexts(conversation),
 				onRoutineMutated: params.onRoutineMutated,
 				...(alertRun ? { alertRun } : {}),
+				replyLanguage: language,
+				...(params.alertRuleReader ? { alertRuleReader: params.alertRuleReader } : {}),
 				...(userPushRun
 					? { userPush: { mode: userPushRun.mode, send: userPushRun.send, quiet: userPushRun.quiet, sent: userPushSent, log: (line: string) => console.log(`[push] ${line}`) } }
 					: {}),

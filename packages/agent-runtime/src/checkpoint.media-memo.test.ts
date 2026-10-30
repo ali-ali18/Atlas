@@ -124,3 +124,29 @@ describe("resolveLlmMessagesForModel: paralelo e memo do run", () => {
 		expect(loads).toBe(2);
 	});
 });
+
+describe("resolveLlmMessagesForModel: nota de imagem que não carregou", () => {
+	const messages = (): LlmMessage[] => [{ role: "user", content: [{ type: "image_ref", artifactId: "img1" }] }];
+	const note = async (imageFailure: Parameters<typeof resolveLlmMessagesForModel>[2] extends infer O ? (O extends { imageFailure?: infer F } ? F : never) : never, canSeeUserImages = true) => {
+		const [message] = await resolveLlmMessagesForModel(messages(), undefined, { canSeeUserImages, loadUserImage: async () => null, describeUserImage: async () => null, imageFailure });
+		return JSON.stringify(message?.content);
+	};
+
+	it("anexo atual com aviso já dado: não manda o modelo pedir de novo", async () => {
+		const text = await note(() => ({ current: true, notified: true }));
+		expect(text).toContain("already told the user");
+		expect(text).toContain("do not ask again");
+	});
+
+	it("anexo atual sem aviso do sistema (passo de fechamento ou sem canal): o modelo avisa com as próprias palavras", async () => {
+		const text = await note(() => ({ current: true, notified: false }));
+		expect(text).toContain("Tell the user in your own words");
+		expect(text).not.toContain("already told");
+	});
+
+	it("imagem de histórico: nota neutra; sem visão e sem falha registrada segue 'cannot see images'", async () => {
+		expect(await note(() => ({ current: false, notified: false }))).toContain("attached earlier");
+		expect(await note(() => undefined, false)).toContain("cannot see images");
+		expect(await note(() => ({ current: true, notified: true }), false)).toContain("could not be loaded");
+	});
+});

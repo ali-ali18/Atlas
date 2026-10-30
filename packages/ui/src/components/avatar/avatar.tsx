@@ -21,6 +21,8 @@ import { createAvatarEngine } from "@workspace/ui/lib/avatar/engine";
 import { resolveColor, resolveShape } from "@workspace/ui/lib/avatar/identity";
 import type { Frame } from "@workspace/ui/lib/avatar/model/character";
 import type { AvatarState } from "@workspace/ui/lib/avatar/model/behavior";
+import type { ActivityFamily, PulseKind } from "@workspace/ui/lib/avatar/model/brain";
+import { sharedBrainBudget } from "@workspace/ui/lib/avatar/model/brain-budget";
 import {
 	normalizeExpression,
 	type Expression,
@@ -48,6 +50,8 @@ export type AvatarController = {
 	look(dir: { x: number; y: number }): void;
 	poke(x?: number, y?: number): void;
 	setExpression(expression: Expression | string): void;
+	/** Gesto curto do cérebro (ferramenta começou/acabou/falhou, rajada de texto). Sem efeito se o avatar está estático. */
+	pulse(kind: PulseKind, strength?: number): void;
 	restart(): void;
 };
 
@@ -81,6 +85,17 @@ export type AvatarProps = {
 	ref?: Ref<AvatarController>;
 	shape?: string;
 	size?: number;
+	/** Fração real (0..1) do anel de progresso do estado `progress`; sem ela o anel só gira em ciclo. */
+	progress?: number | null;
+	/**
+	 * Movimento contínuo do cérebro enquanto o bot trabalha. Desligado por padrão: só o avatar do chat aberto (LiveAgentAvatar)
+	 * liga, e ainda disputa as poucas vagas globais (`sharedBrainBudget`).
+	 */
+	brain?: boolean;
+	/** Quem importa mais toma a vaga de cérebro de quem importa menos (cabeçalho e indicador do chat aberto). */
+	brainPriority?: number;
+	/** Família de atividade do cérebro (movimento contínuo); sem ela vem do `state` (lendo, programando…). */
+	activity?: ActivityFamily | null;
 	/** Quando o número muda, o avatar dá um giro de 360°. */
 	spinSignal?: number;
 	state?: AvatarState;
@@ -112,6 +127,8 @@ function markupOf(frame: Frame): Markup {
 export function Avatar({
 	animated = true,
 	ariaLabel,
+	brain = false,
+	brainPriority = 0,
 	breathe = true, // era false: sem isso o idle nunca gira e o 3D não aparece
 	className,
 	color,
@@ -127,6 +144,8 @@ export function Avatar({
 	ref,
 	shape,
 	size = 56,
+	progress = null,
+	activity = null,
 	spinSignal,
 	state = "idle",
 }: AvatarProps) {
@@ -186,8 +205,8 @@ export function Avatar({
 	}, []);
 
 	// Valores mais recentes, lidos pelo efeito de montagem sem virarem dependência.
-	const latest = useRef({ shape: resolvedShape, exprName, state, isEmphasized, size });
-	latest.current = { shape: resolvedShape, exprName, state, isEmphasized, size };
+	const latest = useRef({ shape: resolvedShape, exprName, state, isEmphasized, size, progress, activity });
+	latest.current = { shape: resolvedShape, exprName, state, isEmphasized, size, progress, activity };
 
 	useEffect(() => {
 		if (reduced) return;
@@ -197,9 +216,14 @@ export function Avatar({
 			seed: id,
 			breathe,
 			size: cur.size,
+			brain,
+			brainPriority,
+			budget: sharedBrainBudget,
 		});
 		engine.setExpression(cur.exprName ?? null);
 		engine.setState(cur.state);
+		engine.setProgress(cur.progress);
+		engine.setActivity(cur.activity);
 		engine.setEmphasis(cur.isEmphasized);
 		written.current = {};
 		projector.current = createProjector();
@@ -218,9 +242,10 @@ export function Avatar({
 		handleRef.current = handle;
 		return () => {
 			handle.unregister();
+			engine.dispose();
 			handleRef.current = null;
 		};
-	}, [reduced, id, breathe, follow, apply]);
+	}, [reduced, id, breathe, brain, brainPriority, follow, apply]);
 
 	// Trocar recorte ↔ pintura remonta os elementos: o cache de escritas vale
 	// para os antigos, então zera e pede um quadro para repintar os novos.
@@ -240,6 +265,14 @@ export function Avatar({
 	useEffect(() => {
 		handleRef.current?.interact((engine) => engine.setState(state));
 	}, [state]);
+
+	useEffect(() => {
+		handleRef.current?.interact((engine) => engine.setProgress(progress));
+	}, [progress]);
+
+	useEffect(() => {
+		handleRef.current?.interact((engine) => engine.setActivity(activity));
+	}, [activity]);
 
 	useEffect(() => {
 		handleRef.current?.interact((engine) => engine.setEmphasis(isEmphasized));
@@ -273,6 +306,8 @@ export function Avatar({
 			blink: () => handleRef.current?.interact((engine) => engine.blink()),
 			look: (dir) => handleRef.current?.interact((engine) => engine.look(dir)),
 			poke: pokeAt,
+			pulse: (kind, strength) =>
+				handleRef.current?.interact((engine) => engine.pulse(kind, strength)),
 			setExpression: (next) =>
 				handleRef.current?.interact((engine) => engine.setExpression(next)),
 			restart: () =>

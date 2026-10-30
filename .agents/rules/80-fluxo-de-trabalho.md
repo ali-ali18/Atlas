@@ -45,7 +45,8 @@ Ao finalizar, antes das prévias e do merge:
 - **Relato honesto:** nunca diga "passou" sem ter rodado. Mostre a saída real e diga o que ficou de fora e por quê.
 - **Comunicação com o dono:** resumo em pt-BR simples, sem despejo técnico.
 - Mudança visível só é dada como pronta com **prévias**: desktop e celular, tema escuro, no máximo 3 blocos por imagem (MockAtlas + Chromium).
-- Cada assunto vai para a `main` no seu próprio PR. **Merge só com o ok do dono**, depois de ele aprovar as prévias.
+- Cada assunto tem o seu próprio PR, aberto contra o **ramo da versão** (`release/<versão>`, ex.: `release/0.3.0-beta`), não contra a `main`. **Merge só com o ok do dono**, depois de ele aprovar as prévias.
+- **Versão:** quando o pacote está pronto, um PR `release/<versão>` → `main` (CHANGELOG com a seção `[<versão>] - <data>`, `version` do `package.json` da raiz) e, depois do merge, o CI verde na `main` cria sozinho a tag `v<versão>` e o GitHub Release (`tag-release.yml`, lendo a `version` da raiz). Um merge na `main` = um deploy. Numeração semver com `-beta` enquanto o produto for beta.
 - **Limpeza:** remova o worktree do agente após o merge e apague os branches de agente antigos.
 
 ## Agentes: custo e recursos

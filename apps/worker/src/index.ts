@@ -78,7 +78,7 @@ import {
 import { sendMail } from "@workspace/mail";
 import { sweepDeliveryBacklog } from "./delivery/backlog.js";
 import { loadWorkerConfig } from "./config.js";
-import { createNotifier, createRedisCoalesce, createRedisPresence, installPushListener } from "@workspace/db";
+import { createNotifier, createRedisCoalesce, createRedisPresence, installPushListener, logArtifactDir } from "@workspace/db";
 import { createWebPushSender } from "@workspace/mail";
 import { formatMissingEnv, readVapidConfig, vapidProblems } from "@workspace/shared";
 import { captureError, initSentry, installRequestIdLogging, requestIdForJob, runWithRequestId, startWorkerHeartbeat } from "@workspace/observability";
@@ -106,6 +106,7 @@ import { startReflectionSweeper } from "./reflection.js";
 initSentry("worker");
 installRequestIdLogging();
 for (const line of formatMissingEnv(process.env, "worker")) console.warn(line);
+logArtifactDir();
 
 const config = loadWorkerConfig();
 const connection = createRedisConnection(config.redisUrl);
@@ -352,6 +353,11 @@ const routineWorker = new Worker<
 			attemptsMade: job.attemptsMade,
 			deferJob: (payload, delayMs) =>
 				enqueueRoutineEventDeferred(routineQueue, payload, delayMs),
+			notify,
+			appendMessage: (conversationId, text, origin) => appendConversationMessage(conversationId, "assistant", text, origin),
+			onRoutineMutated: async (routine) => {
+				await syncRoutineScheduler(routineQueue, routine);
+			},
 			onGaveUp: async ({ reason, routineRunId }) => {
 				await reportRoutineFailure(
 					{ payload: { ...job.data, routineRunId }, reason, at: routineOccurrenceAt(job), openedAfter: new Date(job.timestamp), alreadyClosedRunId: routineRunId },

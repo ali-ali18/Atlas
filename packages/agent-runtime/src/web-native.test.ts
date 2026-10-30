@@ -30,6 +30,14 @@ describe("SSRF guard", () => {
 		}
 	});
 
+	it("bloqueia IPv4 interno embutido em IPv6, em hexadecimal e pontuado (mesmo guard do leitor de alertas)", async () => {
+		for (const ip of ["::ffff:7f00:1", "::ffff:a9fe:a9fe", "::127.0.0.1", "64:ff9b::7f00:1", "2002:a9fe:a9fe::1"]) {
+			expect(isPrivateAddress(ip), ip).toBe(true);
+		}
+		await expect(assertPublicUrl("http://[::ffff:127.0.0.1]/", publicLookup)).rejects.toMatchObject({ code: "blocked" });
+		await expect(assertPublicUrl("http://[::ffff:169.254.169.254]/", publicLookup)).rejects.toMatchObject({ code: "blocked" });
+	});
+
 	it("recusa localhost, IP privado, DNS privado e protocolo não-http", async () => {
 		await expect(assertPublicUrl("http://localhost:3001/v1/settings", publicLookup)).rejects.toMatchObject({ code: "blocked" });
 		await expect(assertPublicUrl("http://169.254.169.254/latest", publicLookup)).rejects.toMatchObject({ code: "blocked" });

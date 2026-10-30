@@ -1,0 +1,68 @@
+name: Tag da versão
+
+# Depois que o CI passa num push na main, cria a tag `v<version>` do package.json da raiz (se ainda
+# não existir) e o GitHub Release com o changelog desde a tag anterior. Um merge de `release/<versão>`
+# na main = uma tag. Pushes na main sem troca de versão não criam nada.
+# Tag criada com GITHUB_TOKEN não dispara outros workflows (por isso o release é criado aqui mesmo).
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Criar tag e release
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Versão do package.json
+        id: v
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "Versão inválida: $version" >&2; exit 1
+          fi
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Criar a tag
+        if: steps.v.outputs.exists == 'false'
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" "$SHA" -m "$TAG"
+          git push origin "refs/tags/$TAG"
+      - name: Criar o release
+        if: steps.v.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          node scripts/changelog.mjs --to "$TAG" > release-notes.md
+          flags=""
+          case "$TAG" in *-*) flags="--prerelease" ;; esac
+          gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --verify-tag $flags

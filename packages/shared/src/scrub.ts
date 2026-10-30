@@ -4,6 +4,8 @@
  * `?secret=`, `Bearer ...`, chaves `sk-...` e blocos PEM mascarados; PII do usuário é removida.
  */
 
+import { redactPreviewUrls } from "./preview.js";
+
 export const FILTERED = "[Filtered]";
 
 /** Nome de campo/cabeçalho que nunca deve sair com valor. */
@@ -24,6 +26,8 @@ export function isSensitiveKey(key: string): boolean {
 /** Mascara segredos dentro de um texto (URLs, mensagens de erro, logs). */
 export function scrubString(text: string): string {
 	let out = text.length > MAX_STRING ? `${text.slice(0, MAX_STRING)}…` : text;
+	// O `cap` da prévia (modo básico) é credencial no caminho: não sai em `request.url`, `transaction`, breadcrumbs nem mensagens.
+	out = redactPreviewUrls(out);
 	out = out.replace(PEM, FILTERED);
 	out = out.replace(QUERY_SECRET, `$1${FILTERED}`);
 	out = out.replace(BEARER, `$1 ${FILTERED}`);

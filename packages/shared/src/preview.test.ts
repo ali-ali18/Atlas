@@ -1,0 +1,123 @@
+import { describe, expect, it } from "vitest";
+import {
+	approxRegistrableDomain,
+	previewBaseDomainConflict,
+	isPreviewPort,
+	normalizePreviewBaseDomain,
+	normalizePreviewPath,
+	isSafePreviewRest,
+	parsePreviewBasicPath,
+	redactPreviewPath,
+	previewBasicPrefix,
+	previewIdFromHost,
+	previewOrigin,
+} from "./preview.js";
+
+const ID = "cmabc123def456ghi789jkl01";
+
+describe("isPreviewPort", () => {
+	it.each([1024, 3000, 5173, 8080, 65535])("aceita %i", (port) => expect(isPreviewPort(port)).toBe(true));
+	it.each([0, 22, 80, 1023, 65536, 3090, 3128, 3129, 3000.5, -1, NaN])("recusa %s", (port) => expect(isPreviewPort(port)).toBe(false));
+	it("recusa o que não é número", () => {
+		expect(isPreviewPort("3000")).toBe(false);
+		expect(isPreviewPort(undefined)).toBe(false);
+	});
+});
+
+describe("normalizePreviewPath", () => {
+	it("vazio vira raiz e acrescenta a barra", () => {
+		expect(normalizePreviewPath(undefined)).toBe("/");
+		expect(normalizePreviewPath("")).toBe("/");
+		expect(normalizePreviewPath("sobre?x=1")).toBe("/sobre?x=1");
+	});
+	it("recusa open redirect, controle e tamanho", () => {
+		expect(normalizePreviewPath("//evil.com")).toBeNull();
+		expect(normalizePreviewPath("/\\evil.com")).toBeNull();
+		expect(normalizePreviewPath("/a\nb")).toBeNull();
+		expect(normalizePreviewPath(`/${"a".repeat(250)}`)).toBeNull();
+		expect(normalizePreviewPath(42)).toBeNull();
+	});
+});
+
+describe("normalizePreviewBaseDomain", () => {
+	it("limpa esquema, curinga e barra", () => {
+		expect(normalizePreviewBaseDomain("https://*.Preview.Example.com/")).toBe("preview.example.com");
+		expect(normalizePreviewBaseDomain("preview.localhost:3001")).toBe("preview.localhost:3001");
+	});
+	it("recusa vazio e inválido", () => {
+		expect(normalizePreviewBaseDomain(undefined)).toBeNull();
+		expect(normalizePreviewBaseDomain("  ")).toBeNull();
+		expect(normalizePreviewBaseDomain("a b.com")).toBeNull();
+		expect(normalizePreviewBaseDomain("evil.com/path")).toBeNull();
+	});
+});
+
+describe("previewIdFromHost", () => {
+	const base = "preview.example.com";
+	it("extrai o id do subdomínio", () => {
+		expect(previewIdFromHost(`${ID}.${base}`, base)).toBe(ID);
+		expect(previewIdFromHost(`${ID.toUpperCase()}.${base}`, base)).toBe(ID);
+	});
+	it("não casa: apex, outro domínio, subnível, id curto, sem base", () => {
+		expect(previewIdFromHost(base, base)).toBeNull();
+		expect(previewIdFromHost(`${ID}.other.com`, base)).toBeNull();
+		expect(previewIdFromHost(`x.${ID}.${base}`, base)).toBeNull();
+		expect(previewIdFromHost(`abc.${base}`, base)).toBeNull();
+		expect(previewIdFromHost(`${ID}.${base}`, null)).toBeNull();
+		expect(previewIdFromHost(undefined, base)).toBeNull();
+		expect(previewIdFromHost(`${ID}.${base}.evil.com`, base)).toBeNull();
+	});
+	it("respeita a porta do domínio-base", () => {
+		expect(previewIdFromHost(`${ID}.preview.localhost:3001`, "preview.localhost:3001")).toBe(ID);
+		expect(previewIdFromHost(`${ID}.preview.localhost`, "preview.localhost:3001")).toBeNull();
+	});
+});
+
+describe("previewOrigin", () => {
+	it("monta a origem", () => {
+		expect(previewOrigin({ scheme: "https", baseDomain: "p.example.com", id: ID })).toBe(`https://${ID}.p.example.com`);
+	});
+});
+
+describe("previewBaseDomainConflict", () => {
+	it("recusa o mesmo host, domínio pai e mesmo site", () => {
+		expect(previewBaseDomainConflict("atlas.example.com", "https://atlas.example.com")).toMatch(/pai|Atlas/);
+		expect(previewBaseDomainConflict("example.com", "https://atlas.example.com")).not.toBeNull();
+		expect(previewBaseDomainConflict("preview.example.com", "https://atlas.example.com")).toMatch(/mesmo site/);
+		expect(previewBaseDomainConflict("p.meusite.com.br", "https://atlas.meusite.com.br")).toMatch(/mesmo site/);
+	});
+	it("aceita domínio registrável separado, inclusive com sufixo de dois níveis", () => {
+		expect(previewBaseDomainConflict("atlas-previews.app", "https://atlas.example.com")).toBeNull();
+		expect(previewBaseDomainConflict("p.outro.com.br", "https://atlas.meusite.com.br")).toBeNull();
+		expect(previewBaseDomainConflict("preview.localhost:3001", "http://localhost:3000")).toBeNull();
+	});
+	it("domínio registrável aproximado", () => {
+		expect(approxRegistrableDomain("a.b.example.com")).toBe("example.com");
+		expect(approxRegistrableDomain("a.b.example.com.br")).toBe("example.com.br");
+	});
+});
+
+describe("modo básico: caminho da prévia na origem do Atlas", () => {
+	const CAP = "AbCdEfGhIjKlMnOpQrStUvWxYz012345";
+	it("prefixo (com cap) e parse do caminho", () => {
+		expect(previewBasicPrefix(ID, CAP)).toBe(`/v1/previews/${ID}/p/${CAP}/`);
+		expect(parsePreviewBasicPath(`/v1/previews/${ID}/p`)).toEqual({ id: ID, cap: "", rest: "/" });
+		expect(parsePreviewBasicPath(`/v1/previews/${ID}/p/`)).toEqual({ id: ID, cap: "", rest: "/" });
+		expect(parsePreviewBasicPath(`/v1/previews/${ID}/p/${CAP}`)).toEqual({ id: ID, cap: CAP, rest: "/" });
+		expect(parsePreviewBasicPath(`/v1/previews/${ID}/p/${CAP}/assets/a.js`)).toEqual({ id: ID, cap: CAP, rest: "/assets/a.js" });
+	});
+	it("recusa o que não é do modo básico (open, id inválido, prefixo parecido, maiúsculas)", () => {
+		for (const path of [`/v1/previews/${ID}/open`, `/v1/previews/${ID}/px`, `/v1/previews/${ID}/pp/a`, "/v1/previews/curto/p/a", `/v1/previews/${ID.toUpperCase()}/p/a`, `/x/v1/previews/${ID}/p/a`, "/"]) {
+			expect(parsePreviewBasicPath(path)).toBeNull();
+		}
+	});
+	it("caminho repassado ao projeto: recusa //, \\, %2f, %5c, NUL, controle e segmentos . ou .. (também codificados)", () => {
+		for (const ok of ["/", "/assets/app.js", "/a-b/c_d.e", "/a%20b", "/.well-known/x", "/..."]) expect(isSafePreviewRest(ok), ok).toBe(true);
+		for (const bad of ["//x", "/a//b", "/a\\b", "/a%2fb", "/a%2Fb", "/a%5cb", "/a%00b", "/a%0ab", "/a\u0000b", "/../x", "/a/..", "/a/%2e%2e/b", "/a/%2E/b", "/./x"]) expect(isSafePreviewRest(bad), bad).toBe(false);
+	});
+	it("redactPreviewPath esconde o cap em log e telemetria", () => {
+		expect(redactPreviewPath(`/v1/previews/${ID}/p/${CAP}/assets/a.js`)).toBe(`/v1/previews/${ID}/p/:cap/assets/a.js`);
+		expect(redactPreviewPath(`/v1/previews/${ID}/open`)).toBe(`/v1/previews/${ID}/open`);
+		expect(redactPreviewPath("/v1/bots")).toBe("/v1/bots");
+	});
+});

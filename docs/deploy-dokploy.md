@@ -186,10 +186,67 @@ As **sandboxes criadas pelo app** entram por cima: o compose agora usa `SANDBOX_
 (por execução). O limite de cada uma é aplicado por `packages/sandbox` na criação do container, não no compose; o próprio
 gerenciador também respeita `DEV_SANDBOX_MIN_FREE_MB`. Com 1 VM + código ativos o total encosta nos 5 GB; mantenha poucas sessões simultâneas.
 
-## 6. Checklist de nomes (só nomes, sem valores aqui)
+## 6. Volume de arquivos (`atlas-artifacts`)
+
+Anexos, imagens e arquivos gerados ficam em disco, não no banco: a api grava em `<ATLAS_ARTIFACT_DIR>/<dono>/<id>.<ext>` e o worker lê o mesmo caminho (guardado na coluna `uri`).
+Por isso **api e worker precisam montar o mesmo volume `atlas-artifacts` e usar o mesmo `ATLAS_ARTIFACT_DIR`** (no compose: `/data/artifacts`). Se um dos dois não enxerga o arquivo, o bot responde que a imagem "chegou indisponível" mesmo com a miniatura aparecendo no chat.
+
+- Não troque o caminho nem o nome do volume em só um serviço; mudou em um, mude nos dois.
+- Sem `ATLAS_ARTIFACT_DIR`, o código cai em `os.tmpdir()`: a api e o worker passam a ter pastas diferentes (e perdem tudo a cada redeploy). Em produção isso é erro de configuração.
+- Na subida, api e worker logam `[artifacts] ATLAS_ARTIFACT_DIR=<caminho>`. Em produção sem a variável sai um `warn` começando com `[artifacts] ATENÇÃO`; confira os dois serviços depois de cada mudança de compose.
+- Quando uma imagem anexada não carrega, o worker loga `[image-vision] imagem anexada indisponível artifact=<id> reason=<motivo> [errno=<código>]` (`not_found_for_owner`, `empty_uri` ou `read_failed` com o errno, ex.: `ENOENT`). `read_failed` + `ENOENT` quase sempre é volume não compartilhado ou deploy no meio da troca de versão. O bot tenta de novo uma vez e, se falhar, pede ao usuário que envie a imagem de novo.
+## 7. Prévia privada de projetos web (modo básico por padrão; completo opcional)
+
+Com isto o bot manda um link que abre o projeto que ele está construindo no navegador/celular do dono
+(`docs/features/previa-privada.md`).
+
+**Modo básico (padrão): não há nada para configurar.** Sem `ATLAS_PREVIEW_BASE_DOMAIN` a prévia já funciona na própria origem do Atlas
+(`${ATLAS_URL}/v1/previews/<id>/p/...`), isolada por sandbox (origem opaca, sem acesso ao login do Atlas). Só precisa de
+`DEV_SANDBOX_CONNECT_MODE=network` (padrão do compose) e de `ATLAS_URL`/`BETTER_AUTH_SECRET`, que já são obrigatórios. Limitações: apps que
+dependem de cookies, `localStorage` ou login não funcionam, e não há recarga ao vivo (a página é recarregada à mão).
+
+**Modo completo (opcional)**: para apps com cookies/login/`localStorage` e recarga ao vivo, configure um domínio separado seguindo os passos
+abaixo; com a variável válida a API passa a usar o modo completo sozinha. **O próprio bot conduz estes passos**: como administrador (`ATLAS_OWNER_EMAIL`), peça "quero a prévia completa" no chat. Ele cria o endereço curinga no DNS (Cloudflare ou deSEC, depois de você aprovar num cartão), explica o certificado, a rota, a variável e o reinício passo a passo, confere cada etapa e termina com "Prévia completa ligada" (`docs/features/previa-completa-pelo-chat.md`). O que o Atlas não escreve (certificado, rota e variável no Dokploy) segue sendo feito por você, e os passos abaixo são a referência manual do mesmo caminho.
+
+1. **Domínio registrável separado.** Use um domínio registrado só para prévias (ex.: `atlas-previews.app`), nunca um subdomínio nem o pai do Atlas.
+   Motivo: no mesmo site (mesmo domínio registrável) o código do projeto poderia plantar cookies com `Domain=` amplo que o Atlas receberia
+   (cookie tossing) e fazer requisições same-site (CSRF com `SameSite=Lax`/`Strict` liberado) contra o Atlas. A API **recusa** (cai no modo básico, com o aviso
+   `[preview] prévia completa DESLIGADA, usando o modo básico` no boot) um domínio igual, pai ou no mesmo domínio registrável do `ATLAS_URL`. A checagem é uma heurística (últimos
+   2 rótulos, ou 3 em sufixos como `com.br`, sem a lista pública de sufixos): num sufixo de dois níveis que ela não conhece pode errar para os dois lados.
+   Escape hatch, por sua conta e risco: `ATLAS_PREVIEW_ALLOW_SAME_SITE=1`.
+2. **Escolha do domínio** (os dois caminhos isolam a prévia do Atlas):
+   - **A. Domínio próprio na Cloudflare (recomendado, é o que o Atlas oficial usa).** Compre o domínio na Cloudflare (ex.: `atlas-previa.app`).
+     - DNS: registro `A`, nome `*`, IP da VPS, **proxy ligado** (nuvem laranja). O plano grátis faz proxy de curinga, cobre `*.<domínio>` no
+       certificado de borda e repassa WebSocket.
+     - SSL/TLS → Origin Server → *Create Certificate* (padrão: `*.<domínio>` e `<domínio>`, 15 anos). Cole o certificado e a chave no Dokploy
+       (Settings → Certificates). **Nunca** cole esse conteúdo em chat, issue ou commit.
+     - SSL/TLS → Overview: **Full (strict)** nesta zona.
+   - **B. Grátis, sem comprar domínio: deSEC (`<nome>.dedyn.io`) ou DuckDNS (`<nome>.duckdns.org`).** Os dois estão na Public Suffix List, então
+     `<nome>.dedyn.io` conta como site separado do Atlas para o navegador (a checagem da API aceita). Crie a conta, aponte `*.<nome>.dedyn.io`
+     para o IP da VPS (deSEC: registro `A` curinga; DuckDNS: subdomínios já resolvem para o IP) e emita o certificado curinga no Traefik por DNS-01
+     (provedores `desec` / `duckdns` do Let's Encrypt; token do serviço só no Environment do Traefik). DuckDNS às vezes fica instável; prefira deSEC.
+     Também na Public Suffix List, mas **não** servem: Quick Tunnel (`trycloudflare.com`, só para teste, um endereço aleatório por túnel) e o
+     túnel normal da Cloudflare (só publica dentro de um domínio seu, ou seja, mesmo site do Atlas).
+3. **Rota até a API.** No Dokploy, adicione ao serviço `api` o domínio `*.<domínio-base>`, porta `3001`, HTTPS, **sem** path
+   (no caminho A, com o certificado de origem; no B, com o `certResolver` DNS-01). Se o painel não aceitar curinga, use labels no serviço `api`:
+   `traefik.http.routers.atlas-preview.rule=HostRegexp(`^[a-z0-9]+\.atlas-previa\.app$`)`, `traefik.http.routers.atlas-preview.entrypoints=websecure`,
+   `traefik.http.routers.atlas-preview.tls=true` (caminho B: `...tls.certresolver=<resolver>`),
+   `traefik.http.services.atlas-preview.loadbalancer.server.port=3001` e a rede do Traefik do Dokploy. **(confirmar no painel real)**
+4. O Traefik repassa WebSocket sozinho (HMR do Vite).
+5. **Variável.** No Environment do Dokploy: `ATLAS_PREVIEW_BASE_DOMAIN=<domínio-base>` (sem `https://`, sem curinga). Vale para `api` e `worker`
+   (o compose já repassa). Redeploy.
+6. **Pré-requisito do ambiente de código:** `DEV_SANDBOX_CONNECT_MODE=network` (padrão do compose). Com portas publicadas só a porta de controle é
+   alcançável e o bot responde que a prévia não está disponível (vale para os dois modos).
+
+Verificar (modo básico: o link cai em `${ATLAS_URL}/v1/previews/<id>/p/`; completo: em `https://<id>.<domínio-base>/`): peça ao bot "cria uma página simples e me mostra". O link deve ser `${ATLAS_URL}/v1/previews/<id>/open` e, ao tocar, cair em
+`https://<id>.<domínio-base>/` com a página. Outro usuário ou uma aba anônima sem passar pelo link recebe 401/404.
+
+## 8. Checklist de nomes (só nomes, sem valores aqui)
 
 - GitHub, Variables: `SENTRY_DSN` (opcional), `ATLAS_API_INTERNAL_URL` (opcional).
 - GitHub, Secrets (opcionais; sem nenhum, o deploy é manual): `DOKPLOY_URL`, `DOKPLOY_API_KEY`, `DOKPLOY_COMPOSE_ID` (preferido) ou `DOKPLOY_DEPLOY_WEBHOOK`.
 - Dokploy, Registry e `docker login` no contexto do Dokploy: usuário `ali-ali18` + token `read:packages` (só no painel/terminal).
 - Serviço do tipo Compose (não Stack/Swarm).
 - Dokploy, Environment: `ATLAS_IMAGE_TAG` (e as variáveis que já existem).
+- Volume `atlas-artifacts` montado em api **e** worker, com o mesmo `ATLAS_ARTIFACT_DIR` (ver seção 6).
+- Dokploy, Environment (opcional, só para a prévia completa; a básica não precisa de nada): `ATLAS_PREVIEW_BASE_DOMAIN` (ver §7); `ATLAS_PREVIEW_ALLOW_SAME_SITE` só se souber o que faz.

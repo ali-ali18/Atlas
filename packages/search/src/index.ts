@@ -68,3 +68,20 @@ export type {
   ExtractWebPageOptions,
   ExtractedPage,
 } from "./extract.js";
+
+export {
+  ALERT_SOURCE_CACHE_TTL_MS,
+  ALERT_SOURCE_MAX_BYTES,
+  ALERT_SOURCE_MAX_REDIRECTS,
+  ALERT_SOURCE_TIMEOUT_MS,
+  ALERT_SOURCE_UA,
+  createAlertSourceCache,
+  readAlertRule,
+  readAlertSource,
+} from "./alert-source.js";
+export type {
+  AlertSourceCache,
+  AlertSourceDeps,
+  AlertSourceFailure,
+  AlertSourceResult,
+} from "./alert-source.js";

@@ -23,6 +23,9 @@ beforeEach(() => {
 	});
 	const client = prisma as unknown as Record<string, Record<string, unknown>>;
 	originals.routine = client.routine;
+	// A gravação do alerta ativo roda numa transação com advisory lock (Postgres real nos testes .db): aqui a transação é só repasse.
+	originals.$transaction = (prisma as unknown as Record<string, unknown>).$transaction;
+	Object.assign(prisma, { $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma), $executeRaw: async () => 1 });
 	originals.routineRun = client.routineRun;
 	const row = (extra: Record<string, unknown> = {}) => ({
 		id: "r1",
@@ -45,6 +48,7 @@ beforeEach(() => {
 		...extra,
 	});
 	client.routine = {
+		count: async () => 0,
 		create: async ({ data }: { data: Record<string, unknown> }) => {
 			writes.push(data);
 			return row(data);
@@ -68,6 +72,7 @@ beforeEach(() => {
 afterEach(() => {
 	installed.restore();
 	(prisma as unknown as Record<string, unknown>).routine = originals.routine;
+	(prisma as unknown as Record<string, unknown>).$transaction = originals.$transaction;
 	(prisma as unknown as Record<string, unknown>).routineRun = originals.routineRun;
 });
 

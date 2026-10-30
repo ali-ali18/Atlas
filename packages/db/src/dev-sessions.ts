@@ -1,5 +1,6 @@
 import { emitCodingFailed } from "./user-needed.js";
 import { Prisma } from "@prisma/client";
+import type { DevSessionPreview } from "@workspace/shared";
 import { prisma } from "./client.js";
 
 export const DEV_SESSION_STATUSES = ["CREATING", "QUEUED", "RUNNING", "IDLE", "STOPPED", "EXPIRED", "ERROR"] as const;
@@ -36,6 +37,8 @@ export type DevSessionRecord = {
 	containerId: string | null;
 	todos: DevTodoItem[];
 	lastError: string | null;
+	/** Prévia privada ativa (ver `previews` na API); `null` = nenhuma. */
+	preview: DevSessionPreview | null;
 	createdAt: Date;
 	updatedAt: Date;
 	lastActiveAt: Date;
@@ -58,6 +61,13 @@ function toPr(row: Row): DevSessionPr | null {
 	};
 }
 
+export function parsePreview(value: unknown): DevSessionPreview | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const v = value as Record<string, unknown>;
+	if (typeof v.port !== "number" || typeof v.path !== "string" || typeof v.startedAt !== "string" || typeof v.expiresAt !== "string") return null;
+	return { port: v.port, path: v.path, startedAt: v.startedAt, expiresAt: v.expiresAt, ...(v.basePrefixed === true ? { basePrefixed: true } : {}), ...(typeof v.cap === "string" && v.cap ? { cap: v.cap } : {}), ...(typeof v.capIssuedAt === "string" ? { capIssuedAt: v.capIssuedAt } : {}) };
+}
+
 function toRecord(row: Row): DevSessionRecord {
 	return {
 		pr: toPr(row),
@@ -72,6 +82,7 @@ function toRecord(row: Row): DevSessionRecord {
 		containerId: row.containerId,
 		todos: Array.isArray(row.todos) ? (row.todos as DevTodoItem[]) : [],
 		lastError: row.lastError,
+		preview: parsePreview(row.preview),
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 		lastActiveAt: row.lastActiveAt,
@@ -137,10 +148,12 @@ export async function updateDevSession(
 		todos: DevTodoItem[];
 		/** `null` limpa o PR da sessão. */
 		pr: DevSessionPr | null;
+		/** `null` encerra a prévia. */
+		preview: DevSessionPreview | null;
 		touch: boolean;
 	}>,
 ): Promise<void> {
-	const { touch, todos, pr, ...rest } = patch;
+	const { touch, todos, pr, preview, ...rest } = patch;
 	const row = await prisma.devSession.update({
 		where: { id },
 		data: {
@@ -150,6 +163,7 @@ export async function updateDevSession(
 				: pr === null
 					? { prNumber: null, prUrl: null, prState: null, prBase: null, prHead: null, prHeadSha: null, prTitle: null }
 					: { prNumber: pr.number, prUrl: pr.url, prState: pr.state, prBase: pr.base, prHead: pr.head, prHeadSha: pr.headSha, prTitle: pr.title }),
+			...(preview === undefined ? {} : { preview: preview === null ? Prisma.DbNull : (preview as unknown as Prisma.InputJsonValue) }),
 			...(todos ? { todos: todos as unknown as Prisma.InputJsonValue } : {}),
 			...(touch ? { lastActiveAt: new Date() } : {}),
 		},

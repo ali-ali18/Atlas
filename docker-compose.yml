@@ -17,6 +17,8 @@ x-api-environment: &api-environment
   ATLAS_HOOK_PEPPER: ${ATLAS_HOOK_PEPPER:-}
   ATLAS_URL: ${ATLAS_URL:-http://localhost:3000}
   ATLAS_PUBLIC_URL: ${ATLAS_PUBLIC_URL:-}
+  # Prévia privada de projetos web (domínio SEPARADO do Atlas; vazio = recurso desligado). Ver docs/deploy-dokploy.md §6.
+  ATLAS_PREVIEW_BASE_DOMAIN: ${ATLAS_PREVIEW_BASE_DOMAIN:-}
   ATLAS_OWNER_EMAIL: ${ATLAS_OWNER_EMAIL:-}
   BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
   MAIL_URL: ${MAIL_URL:-log://}

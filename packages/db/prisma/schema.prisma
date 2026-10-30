@@ -1160,6 +1160,8 @@ model DevSession {
   prHeadSha      String?
   prTitle        String?
   lastError      String?
+  /// Prévia privada do projeto web da sessão ({ port, path, startedAt, expiresAt }); nula = sem prévia.
+  preview        Json?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   lastActiveAt   DateTime  @default(now())
@@ -1168,6 +1170,19 @@ model DevSession {
   @@index([conversationId])
   @@index([status, lastActiveAt])
   @@map("dev_sessions")
+}
+
+/// Configuração da prévia completa feita pelo bot (admin): um registro por dono, com o estado dos passos
+/// (domínio, DNS, certificado, rota, variável, reinício, teste). Sem segredos: tokens ficam no cofre.
+model PreviewSetup {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  /// Estado serializado de `PreviewSetupState` (packages/shared/src/preview-setup.ts).
+  state     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("preview_setups")
 }
 
 /// Ambiente de código por repositório (como o environment.json do Cursor): comandos de preparo,

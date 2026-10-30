@@ -52,6 +52,14 @@ const DEV_PARTS = [
 	String.raw`por ?que ${ART}(?:codigo|funcao|metodo|script|programa|build|teste|query|componente|endpoint)|why (?:does|is|do|are) ${ART}(?:code|function|method|script|program|build|test|query|component|endpoint)`,
 	String.raw`git (?:status|diff|log|stash|rebase|checkout|pull|push|clone|blame|reset|cherry-pick)`,
 	String.raw`(?:instal\w+|install) ${ART}(?:dependencias|dependencies|packages|pacotes)`,
+	// Ver o projeto web rodando (prévia privada): precisa de verbo + "mostra/ver" ou do projeto que o bot fez.
+	String.raw`(?:roda|rode|rodar|executa|execute|sobe|suba|subir|run|start|launch)(?: ai| isso| ele| ela| it| o (?:projeto|site|app)| a pagina)?,? (?:e |and )?(?:me )?(?:mostra\w*|show\b|let me see)`,
+	String.raw`quero ver ${ART}(?:ele |ela |isso )?(?:rodando|funcionando|no ar|ao vivo|(?:site|app|projeto|resultado|pagina|landing)\b)`,
+	String.raw`me mostra\w* ${ART}(?:site|app|projeto|pagina|landing|resultado)\b[^.!?\n]{0,15}\b(?:rodando|funcionando|no ar|ao vivo)`,
+	String.raw`(?:abre|abra|abrir|open) ${ART}(?:site|app|projeto|pagina|landing|page|project)\b[^.!?\n]{0,10}\b(?:que )?(?:voce |vc )?(?:fez|criou|construiu|built|made|created)`,
+	String.raw`(?:preview|previa) (?:d[oae]s?|of|for) ${ART}(?:site|app|projeto|pagina|landing|page|project)`,
+	String.raw`(?:link|url) (?:pra|para|to) (?:eu )?(?:ver|abrir|open|see|view)\b`,
+	String.raw`(?:ver|abrir|open|see|view) (?:isso |ele |ela |it )?(?:no|pelo|on my|in my) (?:meu )?(?:celular|telefone|phone|mobile)`,
 ];
 const DEV_PATTERN = new RegExp(String.raw`(?<![\w-])(?:${DEV_PARTS.join("|")})(?!\w)`);
 
@@ -110,6 +118,8 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 		/\b(scripts?|shell|bash|terminal|python|playwright|curl|em lote|bulk|baix(a|ar|e) (todos|todas|os|as)|download (de )?(todos|todas)|todos os (pdfs?|arquivos|cursos|materiais)|todas as (disciplinas|materias|aulas|semanas|paginas)|scrap\w*|extrair (tudo|todos|todas)|ava|moodle|lms|classroom)\b/,
 	],
 	["dev", DEV_PATTERN],
+	// Prévia completa (admin): o pedido de configurar o domínio/links, não o de ver um projeto (isso é `dev`).
+	["preview_setup", /\b(preview_setup|previa completa|(full|complete) preview|preview domain|dominio d[aoe]s? previas?|(configur\w+|ativ\w+|liga\w*|habilit\w+|instal\w+|set ?up|enable|turn on)\b[^.!?\n]{0,30}\b(previas?|previews?)\b)/],
 	[
 		"desktop",
 		/\b(desktop|area de trabalho|xdotool|libreoffice|aplicativos? (de )?desktop|janelas? do (sistema|desktop)|arrast\w+|drag(ging)?|coordenadas?|coordinates)\b/,

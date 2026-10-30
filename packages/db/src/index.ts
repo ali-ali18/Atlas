@@ -244,6 +244,11 @@ export {
 	loadScreenshotArtifactForUser,
 	persistUserArtifact,
 	loadArtifactForUser,
+	loadArtifactForUserDetailed,
+	describeArtifactDir,
+	logArtifactDir,
+	type ArtifactLoadFailure,
+	type ArtifactLoadResult,
 	loadArtifactFromConversation,
 	listConversationArtifacts,
 	listGeneratedImageIds,
@@ -348,6 +353,9 @@ export {
 	findOpenRoutineRunSince,
 	attachAgentRunToRoutineRun,
 	settleRoutineRunForAgentRun,
+	settleRoutineRunDirect,
+	AlertLimitError,
+	countActiveAlerts,
 	hashHookSecret,
 	verifyHookSecret,
 	generateHookSecret,
@@ -577,6 +585,7 @@ export {
 	type DevSessionTier,
 	type DevTodoItem,
 } from "./dev-sessions.js";
+export { getPreviewSetup, loadPreviewSetup, savePreviewSetup, deletePreviewSetup, isOwnerUserId, type PreviewSetupLoad } from "./preview-setup.js";
 export {
 	aggregateDevSessionEvents,
 	findDevSessionJob,

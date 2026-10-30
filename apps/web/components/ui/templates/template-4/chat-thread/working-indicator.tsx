@@ -1,7 +1,6 @@
 "use client";
 
 import type { SubagentTaskView } from "@workspace/shared";
-import { expressionForLegacyState } from "@workspace/ui/lib/avatar/model/expressions";
 import { Marker, MarkerContent, MarkerIcon } from "@workspace/ui/components/marker";
 
 import {
@@ -18,7 +17,6 @@ import {
 
 import { type Agent } from "../data";
 import { LiveAgentAvatar } from "../live-agent-avatar";
-import { usePreviewExpression } from "../use-preview-expression";
 
 export function WorkingIndicator({
 	activity,
@@ -44,10 +42,8 @@ export function WorkingIndicator({
 	subagents?: { groupId: string; tasks: readonly SubagentTaskView[] } | null;
 }) {
 	const translator = useTranslations();
-	const { expression } = usePreviewExpression({
-		enabled: !paused,
-		mode: "working",
-	});
+	// Sem `expression` fixa: um rosto sorteado (atento/curioso) por cima ganhava do rosto do
+	// estado e do clipe, e o avatar parecia sempre igual. Quem manda é o estado (lib/avatar-activity).
 
 	const waitingOnSubagents = !paused && subagents !== null && subagents.tasks.length > 0;
 	const devView = useDevSession(devSessionId ?? "");
@@ -75,9 +71,9 @@ export function WorkingIndicator({
 					<LiveAgentAvatar
 						bodyColor={agent.color}
 						botId={agent.id}
+						brainPriority={2}
 						breathe
 						className="pointer-events-auto"
-						expression={expressionForLegacyState(expression)}
 						follow="always"
 						pokeOnClick
 						shape={agent.shape}

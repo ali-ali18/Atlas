@@ -83,6 +83,7 @@ import { openSkillProposalInEditor, proposalErrorMessage } from "@/components/ai
 import { useDevFixtureWorking } from "@/lib/dev-session/fixture";
 import { onChatMessageRequest } from "@/lib/dev-session/chat-send-request";
 import { setBotWorking } from "@/lib/bot-activity";
+import { useAvatarActivity } from "./use-avatar-activity";
 import { emitSkillProposalResolved } from "@/lib/skill-draft-handoff";
 import { ThreadSkeleton } from "./thread-skeleton";
 import { useStableHandlers, useStructuralMemo } from "./stable-handlers";
@@ -271,6 +272,7 @@ export function ChatThread({
 		applyRoutineProposalState,
 		applyBotProposalState,
 		cancelRun,
+		cancelSeq,
 		resumeRun,
 		model,
 		setModel,
@@ -1056,6 +1058,19 @@ export function ChatThread({
 	const dockIds = useMemo(() => new Set(dockEntries.map((entry) => entry.id)), [dockEntries]);
 	const messageIndex = useMemo(() => new Map(messages.map((entry, position) => [entry.id, position] as const)), [messages]);
 
+	// Hook: tem de ficar ANTES do `return` de "sem agente" abaixo (a ordem dos hooks não pode mudar entre renders).
+	// O que o bot faz agora (e como o run terminou) para a expressão dos avatares vivos.
+	useAvatarActivity({
+		botIds: [botId, liveMemberId],
+		activity,
+		running: runningForAvatar,
+		status: runStatus,
+		paused: runStatus === "paused" || runStatus === "pausing",
+		pendingApproval: dockEntries.length > 0,
+		error,
+		cancelSeq,
+		cancelledMessage: translator.t("errors.runCancelled"),
+	});
 	if (!agent) {
 		return (
 			<div
@@ -1144,6 +1159,7 @@ export function ChatThread({
 	};
 	const working = sending || pausedLike || devFixtureWorking;
 	const runActive = sending || pausedLike;
+
 	// Grupo, entre um run e outro: quem o servidor diz que está respondendo ou escolhendo.
 	const groupRunning = isGroup && groupState ? groupActivity(groupState.replies, groupMembers) : { running: [], waiting: [] };
 	const routingLabel = isGroup ? groupRoutingLabel(groupState, translator) : "";
@@ -1193,6 +1209,7 @@ export function ChatThread({
 									<LiveAgentAvatar
 										bodyColor={agent.color}
 										botId={agent.id}
+										brainPriority={2}
 										breathe
 										follow="always"
 										pokeOnClick
