@@ -10,6 +10,37 @@ function artifactRoot(): string {
 	return process.env.ATLAS_ARTIFACT_DIR?.trim() || join(tmpdir(), "atlas-artifacts");
 }
 
+/**
+ * Linha de log de inicialização (api e worker) com o diretório de artefatos em uso. Em produção, cair no `tmpdir`
+ * significa arquivos fora do volume compartilhado: o worker não lê o que a api gravou (e a imagem some do run).
+ */
+export function describeArtifactDir(env: Record<string, string | undefined> = process.env): {
+	level: "info" | "warn";
+	dir: string;
+	fallback: boolean;
+	message: string;
+} {
+	const configured = env.ATLAS_ARTIFACT_DIR?.trim();
+	const dir = configured || join(tmpdir(), "atlas-artifacts");
+	if (configured) return { level: "info", dir, fallback: false, message: `[artifacts] ATLAS_ARTIFACT_DIR=${dir}` };
+	if (env.NODE_ENV === "production") {
+		return {
+			level: "warn",
+			dir,
+			fallback: true,
+			message: `[artifacts] ATENÇÃO: ATLAS_ARTIFACT_DIR não definido em produção; usando ${dir} (tmpdir). Api e worker NÃO compartilham esse caminho: anexos e imagens ficam ilegíveis para o worker e somem num redeploy. Monte o volume atlas-artifacts nos dois serviços e defina o mesmo ATLAS_ARTIFACT_DIR.`,
+		};
+	}
+	return { level: "info", dir, fallback: true, message: `[artifacts] ATLAS_ARTIFACT_DIR não definido; usando ${dir} (tmpdir, só para desenvolvimento)` };
+}
+
+/** Escreve a linha de `describeArtifactDir` no console (`warn` quando o fallback é perigoso). */
+export function logArtifactDir(env: Record<string, string | undefined> = process.env): void {
+	const { level, message } = describeArtifactDir(env);
+	if (level === "warn") console.warn(message);
+	else console.info(message);
+}
+
 /** Tipos de artefato com dono direto; cada um com o seu teto de bytes. */
 export type UserArtifactKind = "file" | "image" | "tool_result";
 

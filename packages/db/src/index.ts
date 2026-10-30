@@ -245,6 +245,8 @@ export {
 	persistUserArtifact,
 	loadArtifactForUser,
 	loadArtifactForUserDetailed,
+	describeArtifactDir,
+	logArtifactDir,
 	type ArtifactLoadFailure,
 	type ArtifactLoadResult,
 	loadArtifactFromConversation,

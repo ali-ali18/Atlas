@@ -35,7 +35,7 @@ import { createConversationRoutes } from "./routes/conversations.js";
 import { createReactionRoutes } from "./routes/reactions.js";
 import { createPushRoutes } from "./routes/push.js";
 import { createAvatarRoutes } from "./routes/avatars.js";
-import { appendConversationMessage, conversationHoldsVm, createNotifier, createRedisCoalesce, createRedisPresence, getStrictOwnedConversation, installPushListener } from "@workspace/db";
+import { appendConversationMessage, conversationHoldsVm, logArtifactDir, createNotifier, createRedisCoalesce, createRedisPresence, getStrictOwnedConversation, installPushListener } from "@workspace/db";
 import { isVmProtectedFromGuard, noticeVmStopped, type VmGuardDeps } from "./sandbox-guard-notice.js";
 import { createWebPushSender } from "@workspace/mail";
 import { ATLAS_JOB_NAMES, formatMissingEnv, readVapidConfig, vapidProblems } from "@workspace/shared";
@@ -121,6 +121,7 @@ import { createDevJobCallbackRoutes } from "./routes/dev-job-callback.js";
 initSentry("api");
 installRequestIdLogging();
 for (const line of formatMissingEnv(process.env, "api")) console.warn(line);
+logArtifactDir();
 
 const baseConfig = loadConfig();
 let chatQueue: ReturnType<typeof createChatCompletionQueue> | null = null;

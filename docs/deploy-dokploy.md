@@ -186,10 +186,21 @@ As **sandboxes criadas pelo app** entram por cima: o compose agora usa `SANDBOX_
 (por execução). O limite de cada uma é aplicado por `packages/sandbox` na criação do container, não no compose; o próprio
 gerenciador também respeita `DEV_SANDBOX_MIN_FREE_MB`. Com 1 VM + código ativos o total encosta nos 5 GB; mantenha poucas sessões simultâneas.
 
-## 6. Checklist de nomes (só nomes, sem valores aqui)
+## 6. Volume de arquivos (`atlas-artifacts`)
+
+Anexos, imagens e arquivos gerados ficam em disco, não no banco: a api grava em `<ATLAS_ARTIFACT_DIR>/<dono>/<id>.<ext>` e o worker lê o mesmo caminho (guardado na coluna `uri`).
+Por isso **api e worker precisam montar o mesmo volume `atlas-artifacts` e usar o mesmo `ATLAS_ARTIFACT_DIR`** (no compose: `/data/artifacts`). Se um dos dois não enxerga o arquivo, o bot responde que a imagem "chegou indisponível" mesmo com a miniatura aparecendo no chat.
+
+- Não troque o caminho nem o nome do volume em só um serviço; mudou em um, mude nos dois.
+- Sem `ATLAS_ARTIFACT_DIR`, o código cai em `os.tmpdir()`: a api e o worker passam a ter pastas diferentes (e perdem tudo a cada redeploy). Em produção isso é erro de configuração.
+- Na subida, api e worker logam `[artifacts] ATLAS_ARTIFACT_DIR=<caminho>`. Em produção sem a variável sai um `warn` começando com `[artifacts] ATENÇÃO`; confira os dois serviços depois de cada mudança de compose.
+- Quando uma imagem anexada não carrega, o worker loga `[image-vision] imagem anexada indisponível artifact=<id> reason=<motivo> [errno=<código>]` (`not_found_for_owner`, `empty_uri` ou `read_failed` com o errno, ex.: `ENOENT`). `read_failed` + `ENOENT` quase sempre é volume não compartilhado ou deploy no meio da troca de versão. O bot tenta de novo uma vez e, se falhar, pede ao usuário que envie a imagem de novo.
+
+## 7. Checklist de nomes (só nomes, sem valores aqui)
 
 - GitHub, Variables: `SENTRY_DSN` (opcional), `ATLAS_API_INTERNAL_URL` (opcional).
 - GitHub, Secrets (opcionais; sem nenhum, o deploy é manual): `DOKPLOY_URL`, `DOKPLOY_API_KEY`, `DOKPLOY_COMPOSE_ID` (preferido) ou `DOKPLOY_DEPLOY_WEBHOOK`.
 - Dokploy, Registry e `docker login` no contexto do Dokploy: usuário `ali-ali18` + token `read:packages` (só no painel/terminal).
 - Serviço do tipo Compose (não Stack/Swarm).
 - Dokploy, Environment: `ATLAS_IMAGE_TAG` (e as variáveis que já existem).
+- Volume `atlas-artifacts` montado em api **e** worker, com o mesmo `ATLAS_ARTIFACT_DIR` (ver seção 6).
