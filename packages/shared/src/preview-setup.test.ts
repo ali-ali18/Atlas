@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-	createSetupState, isPublicIpv4, nextSetupStep, parsePreviewSetupState, previewProbeHost, rollbackTargets, validateSetupDomain, withStep,
+	createSetupState, isPublicIpv4, nextSetupStep, normalizeServerIp, quoteUntrusted, parsePreviewSetupState, previewProbeHost, rollbackTargets, validateSetupDomain, withStep,
 } from "./preview-setup.js";
 import { previewBaseDomainConflict, previewIdFromHost } from "./preview.js";
 
@@ -57,5 +57,26 @@ describe("estado do setup", () => {
 		expect(parsePreviewSetupState(JSON.parse(JSON.stringify(state)))).toEqual(state);
 		const broken = { ...state, steps: { dns: { status: "???" } } };
 		expect(parsePreviewSetupState(broken)?.steps.dns.status).toBe("pending");
+	});
+});
+
+describe("entradas endurecidas", () => {
+	it("normalizeServerIp: tira espaços e recusa forma não canônica", () => {
+		expect(normalizeServerIp(" 203.0.113.7\n")).toBe("203.0.113.7");
+		for (const bad of ["203.0.113.07", "0203.0.113.7", "203.0.113.7/24", "203.0.113.7:80", "203.0.113", "0x7f.0.0.1", "２０３.0.113.7"]) expect(normalizeServerIp(bad), bad).toBeNull();
+		expect(isPublicIpv4(" 203.0.113.7")).toBe(false);
+	});
+	it("domínio: falha fechada sem endereço do Atlas válido, confere todos os endereços e limita 253", () => {
+		for (const url of ["", "   ", "não é url", undefined]) expect("error" in validateSetupDomain("previas.exemplo.com", url ?? "")).toBe(true);
+		expect("error" in validateSetupDomain("previas.exemplo.com", [])).toBe(true);
+		expect(validateSetupDomain("previas.exemplo.com", ["https://atlas.meusite.com", undefined, "https://app.outro.com"])).toEqual({ domain: "previas.exemplo.com" });
+		expect("error" in validateSetupDomain("previas.exemplo.com", ["https://atlas.meusite.com", "https://app.exemplo.com"])).toBe(true);
+		expect("error" in validateSetupDomain("previas.exemplo.com", ["https://atlas.meusite.com", "lixo"])).toBe(true);
+		const long = `${"a".repeat(63)}.${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(63)}.com`;
+		expect("error" in validateSetupDomain(long, "https://atlas.meusite.com")).toBe(true);
+	});
+	it("quoteUntrusted: aspas, sem controle e com limite", () => {
+		expect(quoteUntrusted("a\nb\u0000c")).toBe('"a b c"');
+		expect(quoteUntrusted("x".repeat(500), 10)).toBe(`"${"x".repeat(10)}"`);
 	});
 });

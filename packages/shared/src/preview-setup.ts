@@ -30,6 +30,8 @@ export type SetupStepState = {
 	updatedAt?: string;
 	/** Ids criados por este passo (para desfazer só o que o setup criou). */
 	created?: { zoneId?: string; recordIds?: string[] };
+	/** Gravado ANTES de escrever fora: se o processo cair no meio, a retomada reconhece o registro como nosso. */
+	intent?: "creating";
 };
 
 export type PreviewSetupState = {
@@ -40,6 +42,8 @@ export type PreviewSetupState = {
 	platform: SetupPlatformId;
 	/** IP público do servidor (registro A do curinga). */
 	serverIp: string;
+	/** Sobe a cada escrita executada: a aprovação (callKey) vale uma vez; desfazer e refazer pede cartão novo. */
+	approvalSeq?: number;
 	steps: Record<SetupStepId, SetupStepState>;
 };
 
@@ -66,7 +70,8 @@ export function isSetupPlatform(value: unknown): value is SetupPlatformId {
 /** IPv4 público (recusa privado, loopback, link-local, CGNAT e reservado). */
 export function isPublicIpv4(value: unknown): value is string {
 	if (typeof value !== "string") return false;
-	const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(value.trim());
+	// Forma canônica: sem espaço e sem zero à esquerda ("010.0.0.1" pode ser lido como octal por outros programas).
+	const m = /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/.exec(value);
 	if (!m) return false;
 	const o = m.slice(1).map(Number) as [number, number, number, number];
 	if (o.some((n) => n > 255)) return false;
@@ -79,14 +84,50 @@ export function isPublicIpv4(value: unknown): value is string {
 	return true;
 }
 
+/** IPv4 público informado pelo usuário: tira espaços das pontas e exige a forma canônica; `null` se inválido. */
+export function normalizeServerIp(raw: unknown): string | null {
+	if (typeof raw !== "string") return null;
+	const ip = raw.trim();
+	return isPublicIpv4(ip) ? ip : null;
+}
+
+/** Texto de terceiros (provedor, página) entre aspas e sem controle/quebra de linha, para entrar em mensagem ao modelo como dado. */
+export function quoteUntrusted(value: unknown, max = 80): string {
+	// eslint-disable-next-line no-control-regex
+	const clean = String(value ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max);
+	return JSON.stringify(clean);
+}
+
 /** Domínio-base da prévia: forma válida, sem porta, não é IP/localhost e não cai no mesmo site do Atlas. `error` em pt-BR. */
-export function validateSetupDomain(raw: unknown, atlasUrl: string): { domain: string } | { error: string } {
+export function validateSetupDomain(raw: unknown, atlasUrls: string | ReadonlyArray<string | undefined>): { domain: string } | { error: string } {
 	if (typeof raw !== "string") return { error: "Informe o domínio das prévias (ex.: previas.exemplo.com)." };
+	// Falha fechada: sem o endereço do Atlas não dá para provar que o domínio é um site separado.
+	const urls = (typeof atlasUrls === "string" ? [atlasUrls] : [...atlasUrls]).map((u) => u?.trim()).filter((u): u is string => Boolean(u));
+	const primary = urls[0];
+	let primaryOk = false;
+	try {
+		primaryOk = Boolean(primary && new URL(primary).hostname);
+	} catch {
+		primaryOk = false;
+	}
+	if (!primaryOk) return { error: "Não consigo conferir se o domínio é separado do Atlas porque o endereço do Atlas (ATLAS_URL) não está configurado neste servidor. Configure-o e tente de novo." };
 	const domain = normalizePreviewBaseDomain(raw);
+	if (domain && domain.length > 253) return { error: "Esse domínio é longo demais (máximo de 253 caracteres)." };
 	if (!domain || domain.includes(":") || !domain.includes(".") || /^\d+(\.\d+){3}$/.test(domain) || domain === "localhost") {
 		return { error: "Esse domínio não parece válido. Use algo como previas.exemplo.com (sem https:// e sem porta)." };
 	}
-	const conflict = previewBaseDomainConflict(domain, atlasUrl);
+	// O Atlas pode ter mais de um endereço (api, web, login): todos precisam ser de outro site.
+	let conflict: string | null = null;
+	for (const url of urls) {
+		let valid = true;
+		try {
+			new URL(url);
+		} catch {
+			valid = false;
+		}
+		if (!valid) return { error: `Um dos endereços do Atlas configurados no servidor é inválido (${quoteUntrusted(url, 60)}); corrija-o antes de configurar a prévia.` };
+		conflict ??= previewBaseDomainConflict(domain, url);
+	}
 	if (conflict) return { error: `Não dá para usar esse domínio: ${conflict}. Use um domínio separado do Atlas (por exemplo outro domínio, ou um grátis como seunome.dedyn.io).` };
 	return { domain };
 }
@@ -140,6 +181,7 @@ export function parsePreviewSetupState(raw: unknown): PreviewSetupState | null {
 		const created = o.created && typeof o.created === "object" ? (o.created as Record<string, unknown>) : undefined;
 		steps[id] = {
 			status,
+			...(o.intent === "creating" ? { intent: "creating" as const } : {}),
 			...(typeof o.detail === "string" ? { detail: o.detail.slice(0, 300) } : {}),
 			...(typeof o.updatedAt === "string" ? { updatedAt: o.updatedAt } : {}),
 			...(created
@@ -147,5 +189,6 @@ export function parsePreviewSetupState(raw: unknown): PreviewSetupState | null {
 				: {}),
 		};
 	}
-	return { v: 1, domain: r.domain, dnsProvider: r.dnsProvider, tls: r.tls, platform: r.platform, serverIp: r.serverIp, steps };
+	const approvalSeq = typeof r.approvalSeq === "number" && Number.isInteger(r.approvalSeq) && r.approvalSeq >= 0 ? r.approvalSeq : undefined;
+	return { v: 1, domain: r.domain, dnsProvider: r.dnsProvider, tls: r.tls, platform: r.platform, serverIp: r.serverIp, ...(approvalSeq ? { approvalSeq } : {}), steps };
 }

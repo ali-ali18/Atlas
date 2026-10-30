@@ -6,6 +6,8 @@
 
 /** Vida máxima de uma prévia desde o início (ou desde o último `preview_start`). */
 export const PREVIEW_TTL_MS = 60 * 60_000;
+/** Cabeçalho que só a API de prévias envia (em toda resposta dela): a configuração da prévia o usa para reconhecer o Atlas. */
+export const PREVIEW_PROBE_HEADER = "x-atlas-preview";
 export const PREVIEW_MIN_PORT = 1024;
 export const PREVIEW_MAX_PORT = 65535;
 /** Portas de controle do container (servidor da sessão e proxy/gateway de saída): nunca expostas. */
