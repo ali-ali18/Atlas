@@ -38,8 +38,9 @@ export type MarketKeys = { brapi?: string };
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
-export type MarketHealth = Map<string, { failures: number; until: number }>;
-export type MarketCache = Map<string, { expiresAt: number; promise: Promise<Fetched> }>;
+export type MarketHealth = Map<string, { failures: number; until: number; error?: { code: MarketFailure; message: string } }>;
+/** `fp` = impressão digital da chave que iniciou a busca (falha de chave não vale para outro dono). */
+export type MarketCache = Map<string, { expiresAt: number; promise: Promise<Fetched>; fp: string }>;
 
 export type MarketDeps = {
 	fetchFn?: FetchFn;
@@ -61,6 +62,8 @@ class MarketError extends Error {
 		readonly code: MarketFailure,
 		message: string,
 		readonly retryAfterMs?: number,
+		/** HTTP status quando a falha veio de uma resposta (4xx de um símbolo não é saúde da chave). */
+		readonly status?: number,
 	) {
 		super(message);
 	}
@@ -154,7 +157,7 @@ function makeGet(deps: MarketDeps, clock: () => number): ProviderCtx["get"] {
 		}
 		if (response.status < 200 || response.status >= 300) {
 			await response.body?.cancel().catch(() => undefined);
-			throw new MarketError("http", `a fonte falhou (HTTP ${response.status})`);
+			throw new MarketError("http", `a fonte falhou (HTTP ${response.status})`, undefined, response.status);
 		}
 		return readJsonCapped(response);
 	};
@@ -325,11 +328,21 @@ function inBackoff(health: MarketHealth, id: string, now: number): boolean {
 	return Boolean(entry && entry.until > now);
 }
 
+/**
+ * Só falha que fala da saúde do serviço ou da chave entra em backoff. 400/402/404/422 de UM símbolo é problema do
+ * pedido (ativo fora do plano, ticker inexistente): não pode silenciar os outros ativos do mesmo dono.
+ */
+function countsAsUnhealthy(error: MarketError): boolean {
+	if (error.code === "not_found" || error.code === "parse") return false;
+	if (error.code === "http" && error.status !== undefined && error.status >= 400 && error.status < 500) return false;
+	return true;
+}
+
 function recordFailure(health: MarketHealth, id: string, error: MarketError, now: number): void {
 	const failures = (health.get(id)?.failures ?? 0) + 1;
 	// Chave recusada não melhora sozinha: espera mais. 429 respeita o Retry-After do provedor.
 	const base = error.code === "auth" ? BACKOFF_MAX_MS : error.retryAfterMs ?? Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * 2 ** (failures - 1));
-	health.set(id, { failures, until: now + Math.max(base, 1000) });
+	health.set(id, { failures, until: now + Math.max(base, 1000), error: { code: error.code, message: error.message } });
 }
 
 // ---------------------------------------------------------------- cache + leitura
@@ -364,7 +377,9 @@ async function fetchFrom(source: AlertMarketSource, deps: MarketDeps, now: numbe
 		const key = provider.needsKey ? keys[provider.needsKey] : undefined;
 		const id = healthKey(provider, key);
 		if (inBackoff(health, id, clock())) {
-			last ??= new MarketError("network", "a fonte está indisponível no momento; tentarei de novo em instantes");
+			// Relança o último erro de verdade (chave recusada continua "reconecte a brapi", não vira "rede").
+			const previous = health.get(id)?.error;
+			last ??= previous ? new MarketError(previous.code, previous.message) : new MarketError("network", "a fonte está indisponível no momento; tentarei de novo em instantes");
 			continue;
 		}
 		try {
@@ -375,7 +390,7 @@ async function fetchFrom(source: AlertMarketSource, deps: MarketDeps, now: numbe
 			let typed = error instanceof MarketError ? error : new MarketError("network", "não consegui acessar a fonte");
 			if (typed.code === "auth" && provider.needsKey === "brapi") typed = new MarketError("auth", "a brapi recusou a chave: reconecte a brapi no Marketplace");
 			// Chave recusada e ativo desconhecido dependem do pedido, não da saúde do serviço: só a chave entra no backoff.
-			if (typed.code !== "not_found" && typed.code !== "parse") recordFailure(health, id, typed, clock());
+			if (countsAsUnhealthy(typed)) recordFailure(health, id, typed, clock());
 			last = typed;
 			// Ativo que o provedor desconhece não melhora trocando de provedor em outra fonte de dados (cripto tem reserva).
 			if (typed.code === "not_found" && eligible.length === 1) break;
@@ -384,17 +399,27 @@ async function fetchFrom(source: AlertMarketSource, deps: MarketDeps, now: numbe
 	throw last ?? new MarketError("network", "não consegui acessar a fonte");
 }
 
-function shared(source: AlertMarketSource, deps: MarketDeps, now: number): Promise<Fetched> {
+/** Falhas que dependem da CHAVE de quem buscou: não valem para outro dono que pegou carona na mesma busca. */
+const keySpecific = (error: unknown): boolean => error instanceof MarketError && (error.code === "auth" || error.code === "rate_limit" || error.code === "needs_key");
+
+function shared(source: AlertMarketSource, deps: MarketDeps, now: number, fp: string): Promise<Fetched> {
 	const cache = deps.cache ?? sharedCache;
 	const key = cacheKey(source);
 	const hit = cache.get(key);
-	if (hit && hit.expiresAt > now) return hit.promise;
+	if (hit && hit.expiresAt > now) {
+		if (hit.fp === fp) return hit.promise;
+		// Valor de mercado é de todos; a falha de chave do outro dono não é. Se a busca dele falhar por chave, refaz com a minha.
+		return hit.promise.catch((error) => {
+			if (keySpecific(error)) return fetchFrom(source, deps, now);
+			throw error;
+		});
+	}
 	if (cache.size >= CACHE_MAX_ENTRIES) {
 		for (const [entryKey, entry] of cache) if (entry.expiresAt <= now) cache.delete(entryKey);
 		if (cache.size >= CACHE_MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
 	}
 	const promise = fetchFrom(source, deps, now);
-	cache.set(key, { expiresAt: now + MARKET_CACHE_TTL_MS, promise });
+	cache.set(key, { expiresAt: now + MARKET_CACHE_TTL_MS, promise, fp });
 	// Falha não fica no cache: a próxima leitura tenta de novo (o backoff do provedor é quem segura o excesso).
 	promise.catch(() => {
 		if (cache.get(key)?.promise === promise) cache.delete(key);
@@ -418,11 +443,13 @@ export async function readMarketSource(source: AlertMarketSource, deps: MarketDe
 		// A elegibilidade (chave do dono) é conferida antes do cache: o valor do cache é de todos, o direito de usar o provedor não.
 		let resolved: Promise<MarketKeys> | undefined;
 		const getKeys = deps.getKeys ? () => (resolved ??= Promise.resolve(deps.getKeys!())) : undefined;
+		let fp = "-";
 		if (source.type === "quote") {
 			const keys = getKeys ? ((await getKeys()) ?? {}) : {};
 			if (!keys.brapi) throw new MarketError("needs_key", HINT_NEEDS_KEY);
+			fp = fingerprint(keys.brapi);
 		}
-		fetched = await shared(source, { ...deps, ...(getKeys ? { getKeys } : {}) }, started);
+		fetched = await shared(source, { ...deps, ...(getKeys ? { getKeys } : {}) }, started, fp);
 	} catch (error) {
 		return fail(error instanceof MarketError ? error : new MarketError("network", "não consegui acessar a fonte"));
 	}
@@ -444,8 +471,11 @@ function interpret(source: AlertMarketSource, fetched: Fetched, now: number): { 
 		const sinceOpen = new Date(now).getTime() - Date.parse(`${session.dateKey}T00:00:00-03:00`) - session.schedule.open * 60_000;
 		if (sinceOpen > 3_600_000 && brtDay(asOf) !== session.dateKey) return { error: new MarketError("market_closed", "o mercado parece fechado hoje (a cotação é de outro dia)") };
 		const minutes = Math.round((now - asOf) / 60_000);
-		// Só conta como atraso do provedor o que é plausível (até 2 h); mais que isso é ativo sem negócio recente.
-		return { read: { ...base, ...(minutes > 0 && minutes <= 120 ? { delayMinutes: minutes } : {}) } };
+		// Atraso medido (agora − horário do último negócio); quem mostra decide: até ~45 min vira "atraso", acima disso
+		// é ativo pouco negociado e o aviso diz "último negócio às HH:MM".
+		return { read: { ...base, ...(minutes > 0 ? { delayMinutes: Math.min(minutes, 1440) } : {}) } };
 	}
+	// Depois do fechamento o preço tem de ser do dia: de outro dia = feriado fora da lista (ou dia sem pregão).
+	if (session.phase === "after_close" && brtDay(asOf) !== session.dateKey) return { error: new MarketError("market_closed", "o mercado parece fechado hoje (o preço é de outro dia)") };
 	return { read: base };
 }

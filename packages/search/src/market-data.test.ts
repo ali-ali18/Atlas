@@ -214,3 +214,81 @@ describe("clima (Open-Meteo)", () => {
 		expect(await readMarketSource({ ...rain, place: "Curitiba" }, deps)).toMatchObject({ ok: false, code: "parse" });
 	});
 });
+
+describe("auditoria: backoff, cache e dia do preço", () => {
+	const KEY_B = "outra-chave-654321";
+	const petr: AlertMarketSource = { type: "quote", symbol: "PETR4" };
+	const byKey = (init: Record<string, "401" | "ok">) => async (url: string, req: RequestInit) => {
+		const auth = String((req.headers as Record<string, string>).Authorization);
+		const mode = Object.entries(init).find(([key]) => auth.includes(key))?.[1];
+		if (mode === "401") return json({}, { status: 401 });
+		return json({ results: [{ symbol: url.split("/").pop(), regularMarketPrice: 10, regularMarketTime: "2026-10-27T11:59:00-03:00" }] });
+	};
+
+	it("4xx de UM símbolo (400, 402, 422) não põe a chave inteira em backoff", async () => {
+		for (const status of [400, 402, 422]) {
+			deps.health!.clear();
+			deps.cache!.clear();
+			fetchFn.mockReset();
+			fetchFn.mockImplementation(async (url: string) => (url.endsWith("/BBAS3") ? json({ error: "plano" }, { status }) : json({ results: [{ symbol: "PETR4", regularMarketPrice: 38, regularMarketTime: "2026-10-27T11:59:00-03:00" }] })));
+			expect(await readMarketSource(quote, deps)).toMatchObject({ ok: false, code: "http" });
+			expect(await readMarketSource(petr, deps), `status ${status}`).toMatchObject({ ok: true, read: { value: 38 } });
+			// e o próprio símbolo volta a ser tentado na hora (sem backoff)
+			await readMarketSource(quote, deps);
+			expect(fetchFn.mock.calls.filter((call) => String(call[0]).endsWith("/BBAS3")).length).toBe(2);
+		}
+	});
+
+	it("5xx e timeout continuam em backoff (saúde do serviço)", async () => {
+		fetchFn.mockImplementation(async () => json({}, { status: 503 }));
+		await readMarketSource(quote, deps);
+		await readMarketSource(petr, deps);
+		expect(fetchFn).toHaveBeenCalledTimes(1);
+	});
+
+	it("durante o backoff relança o último erro de verdade: chave recusada segue 'reconecte a brapi'", async () => {
+		fetchFn.mockImplementation(async () => json({}, { status: 401 }));
+		await readMarketSource(quote, deps);
+		const again = await readMarketSource(petr, deps);
+		expect(again).toMatchObject({ ok: false, code: "auth", reason: expect.stringContaining("reconecte a brapi") });
+		expect(fetchFn).toHaveBeenCalledTimes(1);
+		deps.health!.clear();
+		fetchFn.mockReset();
+		fetchFn.mockImplementation(async () => json({}, { status: 429, headers: { "retry-after": "300" } }));
+		await readMarketSource(quote, deps);
+		expect(await readMarketSource(petr, deps)).toMatchObject({ ok: false, code: "rate_limit" });
+	});
+
+	it("busca em andamento com a chave ruim do dono A não entrega a falha ao dono B (que tem chave boa)", async () => {
+		fetchFn.mockImplementation(byKey({ [KEY]: "401", [KEY_B]: "ok" }));
+		const [a, b] = await Promise.all([
+			readMarketSource(quote, { ...deps, getKeys: () => ({ brapi: KEY }) }),
+			readMarketSource(quote, { ...deps, getKeys: () => ({ brapi: KEY_B }) }),
+		]);
+		expect(a).toMatchObject({ ok: false, code: "auth" });
+		expect(b).toMatchObject({ ok: true, read: { value: 10 } });
+		// o inverso: B (boa) primeiro e A (ruim) em seguida não faz B falhar
+		deps.cache!.clear();
+		deps.health!.clear();
+		const [b2, a2] = await Promise.all([
+			readMarketSource(quote, { ...deps, getKeys: () => ({ brapi: KEY_B }) }),
+			readMarketSource(quote, { ...deps, getKeys: () => ({ brapi: KEY }) }),
+		]);
+		expect(b2).toMatchObject({ ok: true });
+		expect(a2.ok === true || (a2.ok === false && a2.code === "auth")).toBe(true);
+	});
+
+	it("depois do fechamento, preço de outro dia (feriado fora da lista) = mercado fechado", async () => {
+		clock = Date.parse("2027-01-04T18:30:00-03:00"); // segunda, depois do leilão (18h)
+		fetchFn.mockImplementation(async () => json(brapiBody(21, "2027-01-01T17:55:00-03:00")));
+		expect(await readMarketSource(quote, deps)).toMatchObject({ ok: false, code: "market_closed" });
+		deps.cache!.clear();
+		fetchFn.mockImplementation(async () => json(brapiBody(21, "2027-01-04T17:55:00-03:00")));
+		expect(await readMarketSource(quote, deps)).toMatchObject({ ok: true });
+	});
+
+	it("atraso medido sobe inteiro ao avaliador (que decide 'atraso' ou 'último negócio')", async () => {
+		fetchFn.mockImplementation(async () => json(brapiBody(21, "2026-10-27T09:30:00-03:00")));
+		expect(await readMarketSource(quote, deps)).toMatchObject({ ok: true, read: { delayMinutes: 150 } });
+	});
+});
