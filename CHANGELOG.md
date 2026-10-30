@@ -29,6 +29,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 - **agent, worker, api, db, web, auth:** pacote de desempenho: início do run sem esperas em série, buscas nativas em paralelo, `/v1/events` por LISTEN/NOTIFY, respostas comprimidas, sessão em cookie por 5 min, listas sem colunas JSON grandes, chat sem re-render por token (#104)
 
 ### Corrigido
+- **sandbox:** a faixa amarela "You are using an unsupported command-line flag: --no-sandbox" não aparece mais nos prints do navegador da VM: o `atlas-chrome` passa `--test-type`, que o comentário já prometia mas faltava na linha de comando
 - **web:** a compactação aparece só como marcador, e o rascunho revisado não aparece mais na conversa (#108)
 - **worker, agent:** um soluço do banco não derruba o run (retoma do checkpoint), e uma gravação de evento que falha não trava as seguintes (#108)
 - **db:** um run que derruba o worker é interrompido depois de 3 recuperações sem progresso (#108)
