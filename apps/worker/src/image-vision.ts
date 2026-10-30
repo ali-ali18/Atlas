@@ -1,11 +1,18 @@
 import { isMaintenanceModel, parseModelRef } from "@workspace/shared";
-import { loadArtifactForUser, setArtifactDescriptionForUser } from "@workspace/db";
+import { loadArtifactForUser, loadArtifactForUserDetailed, setArtifactDescriptionForUser, type ArtifactLoadFailure } from "@workspace/db";
 import { createKeyProviderStreams, makeModelCopy } from "@workspace/agent-runtime";
 import { completeChatWithTools, type ProviderStreamChat } from "@workspace/llm";
 
 type VisionCompletion = typeof completeChatWithTools;
 type ImageLoader = typeof loadArtifactForUser;
 type DescriptionSaver = typeof setArtifactDescriptionForUser;
+type DetailedImageLoader = typeof loadArtifactForUserDetailed;
+
+/** Uma linha de log por falha de leitura: só id do artefato e motivo/errno, nunca caminho, conteúdo nem dado do usuário. */
+export function formatImageLoadFailure(artifactId: string, reason: ArtifactLoadFailure | "not_an_image"): string {
+	const [code, errno] = reason.split(":");
+	return `[image-vision] imagem anexada indisponível artifact=${artifactId.slice(0, 40)} reason=${code}${errno ? ` errno=${errno}` : ""}`;
+}
 
 /** Bytes de fotos ficam no servidor até a chamada explícita ao modelo de visão. */
 export function imageVisionForRun(input: {
@@ -14,6 +21,10 @@ export function imageVisionForRun(input: {
 	fallbackModel?: string;
 	complete?: VisionCompletion;
 	loadArtifact?: ImageLoader;
+	/** Leitura com motivo (padrão do worker); `loadArtifact` injetado tem prioridade (testes). */
+	loadArtifactDetailed?: DetailedImageLoader;
+	/** Destino do log de falha de leitura; omitido = `console.warn`. */
+	logFailure?: (line: string) => void;
 	saveDescription?: DescriptionSaver;
 	makeModelCopy?: typeof makeModelCopy;
 	/** Streams de chave própria (Anthropic, OpenCode Go) do dono; omitido = os mesmos adaptadores dos runs. */
@@ -27,12 +38,25 @@ export function imageVisionForRun(input: {
 		const streams = (input.streams ?? (() => createKeyProviderStreams({ userId: input.userId })))();
 		return (provider === "anthropic" ? streams.anthropic : streams.opencodeGo)({ ...params, apiKey: "" }, {});
 	};
-	const loadArtifact = input.loadArtifact ?? loadArtifactForUser;
+	const loadDetailed = input.loadArtifactDetailed ?? loadArtifactForUserDetailed;
+	const logFailure = input.logFailure ?? ((line: string) => console.warn(line));
 	const saveDescription = input.saveDescription ?? setArtifactDescriptionForUser;
 	const modelCopy = input.makeModelCopy ?? makeModelCopy;
 	const load = async (artifactId: string) => {
-		const artifact = await loadArtifact(artifactId, input.userId);
-		return artifact?.kind === "image" ? artifact : null;
+		if (input.loadArtifact) {
+			const artifact = await input.loadArtifact(artifactId, input.userId);
+			return artifact?.kind === "image" ? artifact : null;
+		}
+		const result = await loadDetailed(artifactId, input.userId);
+		if (!result.ok) {
+			logFailure(formatImageLoadFailure(artifactId, result.reason));
+			return null;
+		}
+		if (result.artifact.kind !== "image") {
+			logFailure(formatImageLoadFailure(artifactId, "not_an_image"));
+			return null;
+		}
+		return result.artifact;
 	};
 	return {
 		loadUserImage: async (artifactId: string): Promise<string | null> => {

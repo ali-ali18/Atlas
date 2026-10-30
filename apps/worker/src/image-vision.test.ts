@@ -91,3 +91,35 @@ test("visão: modelo de reserva Anthropic/OpenCode Go usa o adaptador da chave (
 	assert.equal(result.description, "um gato");
 	assert.deepEqual(viaCalls, ["anthropic-direct/claude-x"]);
 });
+
+test("falha de leitura loga uma linha com id e motivo, sem caminho nem conteúdo", async () => {
+	const lines: string[] = [];
+	const vision = imageVisionForRun({
+		userId: "user-a", apiKey: "test-key",
+		logFailure: (line) => lines.push(line),
+		loadArtifactDetailed: async () => ({ ok: false, reason: "read_failed:ENOENT" }),
+	});
+	assert.equal(await vision.loadUserImage("image-a"), null);
+	assert.deepEqual(lines, ["[image-vision] imagem anexada indisponível artifact=image-a reason=read_failed errno=ENOENT"]);
+});
+
+test("outro dono e artefato que não é imagem também são logados; sucesso não loga", async () => {
+	const lines: string[] = [];
+	const base = { runId: null, conversationId: null, createdAt: new Date(0), bytes: png, meta: { mime: "image/png" } };
+	let next: Awaited<ReturnType<NonNullable<Parameters<typeof imageVisionForRun>[0]["loadArtifactDetailed"]>>> = { ok: false, reason: "not_found_for_owner" };
+	const vision = imageVisionForRun({
+		userId: "user-b", apiKey: "test-key",
+		makeModelCopy: async () => "data:image/png;base64,dGVzdA==",
+		logFailure: (line) => lines.push(line),
+		loadArtifactDetailed: async () => next,
+	});
+	assert.equal(await vision.loadUserImage("image-a"), null);
+	next = { ok: true, artifact: { ...base, id: "doc", kind: "file" } };
+	assert.equal(await vision.loadUserImage("doc"), null);
+	next = { ok: true, artifact: { ...base, id: "image-a", kind: "image" } };
+	assert.match(await vision.loadUserImage("image-a") ?? "", /^data:image\//);
+	assert.equal(lines.length, 2);
+	assert.match(lines[0]!, /reason=not_found_for_owner/);
+	assert.match(lines[1]!, /reason=not_an_image/);
+	assert.ok(lines.every((line) => !line.includes("user-b")));
+});

@@ -112,16 +112,19 @@ export async function persistUserArtifact(input: PersistUserArtifactInput): Prom
 	};
 }
 
+/** Por que a leitura falhou: só o motivo e o errno, nunca conteúdo nem dado do usuário (vai para o log). */
+export type ArtifactLoadFailure = "not_found_for_owner" | "empty_uri" | `read_failed:${string}`;
+
+export type ArtifactLoadResult =
+	| { ok: true; artifact: UserArtifact & { bytes: Buffer } }
+	| { ok: false; reason: ArtifactLoadFailure };
+
 /**
- * Lê um artefato do dono. Dono = `userId` da linha ou, na falta dele, o dono do
- * run (screenshots antigos). Outro usuário, id inexistente ou arquivo sumido
- * viram `null` (a rota responde 404 sem revelar existência).
+ * Lê um artefato do dono e, se falhar, diz o motivo (para o worker logar). Dono = `userId` da linha ou, na falta
+ * dele, o dono do run (screenshots antigos). Outro usuário e id inexistente dão o mesmo `not_found_for_owner`.
  */
-export async function loadArtifactForUser(
-	artifactId: string,
-	userId: string,
-): Promise<(UserArtifact & { bytes: Buffer }) | null> {
-	if (!artifactId || !userId) return null;
+export async function loadArtifactForUserDetailed(artifactId: string, userId: string): Promise<ArtifactLoadResult> {
+	if (!artifactId || !userId) return { ok: false, reason: "not_found_for_owner" };
 	const owners = ownerIds(userId);
 	const row = await prisma.artifact.findFirst({
 		where: {
@@ -129,26 +132,43 @@ export async function loadArtifactForUser(
 			OR: [{ userId: { in: owners } }, { userId: null, run: { userId: { in: owners } } }],
 		},
 	});
-	if (!row?.uri) return null;
+	if (!row) return { ok: false, reason: "not_found_for_owner" };
+	if (!row.uri) return { ok: false, reason: "empty_uri" };
 	let bytes: Buffer;
 	try {
 		bytes = await readFile(row.uri);
-	} catch {
-		return null;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException | undefined)?.code;
+		return { ok: false, reason: `read_failed:${typeof code === "string" && code ? code : "UNKNOWN"}` };
 	}
 	const stored = (row.metaJson && typeof row.metaJson === "object" && !Array.isArray(row.metaJson)
 		? row.metaJson
 		: {}) as Record<string, unknown>;
 	const mime = typeof stored.mime === "string" ? stored.mime : "application/octet-stream";
 	return {
-		id: row.id,
-		kind: row.kind,
-		meta: { ...stored, mime },
-		runId: row.runId,
-		conversationId: row.conversationId,
-		createdAt: row.createdAt,
-		bytes,
+		ok: true,
+		artifact: {
+			id: row.id,
+			kind: row.kind,
+			meta: { ...stored, mime },
+			runId: row.runId,
+			conversationId: row.conversationId,
+			createdAt: row.createdAt,
+			bytes,
+		},
 	};
+}
+
+/**
+ * Lê um artefato do dono. Outro usuário, id inexistente ou arquivo sumido viram `null` (a rota responde 404 sem
+ * revelar existência). Quem precisa do motivo usa `loadArtifactForUserDetailed`.
+ */
+export async function loadArtifactForUser(
+	artifactId: string,
+	userId: string,
+): Promise<(UserArtifact & { bytes: Buffer }) | null> {
+	const result = await loadArtifactForUserDetailed(artifactId, userId);
+	return result.ok ? result.artifact : null;
 }
 
 /** Atualiza a descrição (usada pelo fallback de visão). Só do dono; false = não achou. */
