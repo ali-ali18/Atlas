@@ -2,6 +2,10 @@
 
 Assistente pessoal completo (chat, ferramentas, memória, rotinas), com suporte a múltiplos agentes. Este repositório é um monorepo **pnpm** + **Turborepo**.
 
+> **English:** Atlas is an open-source personal AI assistant (chat, tools, memory, routines, multiple agents) built as a pnpm + Turborepo monorepo.
+
+**Licença:** [MIT](LICENSE). **Contribuir:** leia as regras em [`.agents/rules/`](.agents/rules/) (índice no [`AGENTS.md`](AGENTS.md)): commits em pt-BR no formato Conventional Commits, testes junto da mudança e um PR por assunto. Ideias e bugs entram como issues em [ali-ali18/Atlas](https://github.com/ali-ali18/Atlas/issues).
+
 ## Estrutura
 
 | Caminho | Descrição |
