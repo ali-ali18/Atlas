@@ -18,6 +18,11 @@ export type DevSessionPreview = {
 	path: string;
 	startedAt: string;
 	expiresAt: string;
+	/**
+	 * Só no modo básico: o servidor do projeto já serve sob `/v1/previews/<id>/p/` (ex.: `vite --base`), então o proxy
+	 * repassa o caminho com o prefixo. Sem isso o prefixo é tirado antes de repassar (servidor estático, caminhos relativos).
+	 */
+	basePrefixed?: boolean;
 };
 
 export function isPreviewPort(port: unknown): port is number {
@@ -60,6 +65,22 @@ export function previewIdFromHost(host: string | undefined | null, baseDomain: s
 /** Origem da prévia: `https://<id>.<base>` (o esquema segue o do Atlas). */
 export function previewOrigin(input: { scheme: "http" | "https"; baseDomain: string; id: string }): string {
 	return `${input.scheme}://${input.id}.${input.baseDomain}`;
+}
+
+/**
+ * Modo básico (sem domínio de prévia): a prévia vive na origem do Atlas sob este prefixo, mas o documento roda numa
+ * origem opaca (CSP `sandbox` sem `allow-same-origin`), então não alcança o cookie de login.
+ */
+export function previewBasicPrefix(id: string): string {
+	return `/v1/previews/${id}/p/`;
+}
+
+const PREVIEW_BASIC_PATH = /^\/v1\/previews\/([a-z0-9]{20,40})\/p(\/.*)?$/;
+
+/** `/v1/previews/<id>/p[/resto]` → id e resto (sempre começa com `/`); `null` se o caminho não é do modo básico. */
+export function parsePreviewBasicPath(pathname: string): { id: string; rest: string } | null {
+	const match = PREVIEW_BASIC_PATH.exec(pathname);
+	return match ? { id: match[1]!, rest: match[2] ?? "/" } : null;
 }
 
 /** Sufixos de dois níveis comuns (heurística simples; não é a lista pública de sufixos completa). */

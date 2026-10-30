@@ -5,6 +5,8 @@ import {
 	isPreviewPort,
 	normalizePreviewBaseDomain,
 	normalizePreviewPath,
+	parsePreviewBasicPath,
+	previewBasicPrefix,
 	previewIdFromHost,
 	previewOrigin,
 } from "./preview.js";
@@ -90,5 +92,19 @@ describe("previewBaseDomainConflict", () => {
 	it("domínio registrável aproximado", () => {
 		expect(approxRegistrableDomain("a.b.example.com")).toBe("example.com");
 		expect(approxRegistrableDomain("a.b.example.com.br")).toBe("example.com.br");
+	});
+});
+
+describe("modo básico: caminho da prévia na origem do Atlas", () => {
+	it("prefixo e parse do caminho", () => {
+		expect(previewBasicPrefix(ID)).toBe(`/v1/previews/${ID}/p/`);
+		expect(parsePreviewBasicPath(`/v1/previews/${ID}/p`)).toEqual({ id: ID, rest: "/" });
+		expect(parsePreviewBasicPath(`/v1/previews/${ID}/p/`)).toEqual({ id: ID, rest: "/" });
+		expect(parsePreviewBasicPath(`/v1/previews/${ID}/p/assets/a.js`)).toEqual({ id: ID, rest: "/assets/a.js" });
+	});
+	it("recusa o que não é do modo básico (open, id inválido, prefixo parecido, maiúsculas)", () => {
+		for (const path of [`/v1/previews/${ID}/open`, `/v1/previews/${ID}/px`, `/v1/previews/${ID}/pp/a`, "/v1/previews/curto/p/a", `/v1/previews/${ID.toUpperCase()}/p/a`, `/x/v1/previews/${ID}/p/a`, "/"]) {
+			expect(parsePreviewBasicPath(path)).toBeNull();
+		}
 	});
 });
