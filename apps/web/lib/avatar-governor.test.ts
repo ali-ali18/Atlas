@@ -200,3 +200,11 @@ test("anel pedido que perde o sentido (a ferramenta acabou) não aparece depois"
 	g.push(desired({ phase: "thinking" }), 4300); // sem passo: o pedido expira
 	assert.equal(g.signal(3900 + T.minDwellMs + 50).state, "thinking");
 });
+
+test("pedir o usuário (waiting) entra na hora, mesmo dentro da permanência do estado anterior", () => {
+	const g = createAvatarGovernor();
+	g.push(desired(tool("read_file")), 0);
+	g.signal(0);
+	g.push({ state: "waiting", step: null, progress: null }, 200);
+	assert.equal(g.signal(200).state, "waiting");
+});

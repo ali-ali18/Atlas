@@ -38,7 +38,7 @@ import {
 	decideStreamFailure,
 	runFollowBackoffMs,
 } from "@workspace/shared";
-import { activityForAssistantEvent, type AgentActivity } from "@/lib/working-status";
+import { activityForAssistantEvent, runStatusOnProgress, type AgentActivity } from "@/lib/working-status";
 import { jevStatusText } from "@/lib/jev-status";
 import { applyPageEvent, dedupeCards, reconcilePersistedThread } from "@/lib/thread-merge";
 import { isMemoryUpdateResult, memoryChipId } from "@/lib/memory-chip";
@@ -579,6 +579,8 @@ export function createComputerHandlers(params: {
 	onStatus?: (status: string, detail?: string) => void;
 	onActivity?: () => void;
 	onAgentActivity?: (activity: AgentActivity) => void;
+	/** Chegou o primeiro sinal de vida do run (evento `run`, texto ou ferramenta): sai de "na fila". Idempotente. */
+	onRunStarted?: () => void;
 	onStreamingMessage?: (id: string | null) => void;
 	onSkill?: (event: {
 		action: string;
@@ -625,12 +627,16 @@ export function createComputerHandlers(params: {
 	// Argumentos das chamadas em curso (o resultado de send_to_bot não repete o título).
 	const toolArgs = new Map<string, string>();
 	return {
-		onRunId: params.onRunId,
+		onRunId: (id) => {
+			params.onRunId?.(id);
+			params.onRunStarted?.();
+		},
   onProviderFallback: (event) => {
    const id = `provider-fallback-${params.runId ?? "local"}-${event.from}-${event.to}`;
    params.setMessages((previous) => previous.some((message) => message.id === id) ? previous : dedupeCards(insertCardAfterCurrentTurn(previous, { id, kind: "provider-fallback", text: event.message, from: event.from, to: event.to })));
   },
 		onDelta: (id, delta) => {
+			params.onRunStarted?.();
 			params.onActivity?.();
 			params.onStreamingMessage?.(id);
 			params.onAgentActivity?.(activityForAssistantEvent("assistant_delta"));
@@ -650,6 +656,7 @@ export function createComputerHandlers(params: {
 		onSession: params.onSandboxSession,
 		onAgentPointer: params.onAgentPointer,
 		onToolCall: (call) => {
+			params.onRunStarted?.();
 			toolArgs.set(call.id, call.args);
 			if (call.name === "run_code") {
 				const code = parseRunCodeCallArgs(call.args);
@@ -1226,6 +1233,8 @@ export function useAtlasChat({
 	/** Grupo: quem está roteando/respondendo/na fila, segundo o servidor. */
 	const [groupState, setGroupState] = useState<GroupStateResponse | null>(null);
 	const [runStatus, setRunStatus] = useState<string | null>(null);
+	// "queued" só vale até o primeiro sinal de vida: o servidor não manda "running" num run normal.
+	const markRunStarted = useCallback(() => setRunStatus((current) => runStatusOnProgress(current)), []);
 	// Sessões de código só "trabalham" enquanto há run do agente ativo (run pausado não conta).
 	const liveDevRunId = activeRunId && runStatus !== "paused" ? activeRunId : null;
 	useEffect(() => {
@@ -1496,6 +1505,7 @@ export function useAtlasChat({
 				}
 
 				const handlers = createComputerHandlers({
+					onRunStarted: markRunStarted,
 					runId,
 					liveState,
 					onSandboxSession: (session) => {
@@ -2133,6 +2143,7 @@ export function useAtlasChat({
 			signal: AbortSignal,
 		): Promise<void> => {
 			const handlers = createComputerHandlers({
+					onRunStarted: markRunStarted,
 				runId: targetRunId,
 				liveState: liveStateRef.current,
 				onSandboxSession: (session) => onSandboxSessionRef.current?.(session),
@@ -2505,6 +2516,7 @@ export function useAtlasChat({
 					}
 
 					const handlers = createComputerHandlers({
+					onRunStarted: markRunStarted,
 						runId,
 						liveState: liveStateRef.current,
 						onSandboxSession: (session) => {
