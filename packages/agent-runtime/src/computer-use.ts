@@ -265,6 +265,7 @@ import { DELEGATION_HINT, suggestDelegation } from "./jev/delegation.js";
 import { detectBlockPage } from "./jev/block-page.js";
 import { preselectMcpTools } from "./jev/tool-preselect.js";
 import { APP_INFO_TOOL, executeAppInfo } from "./tools/app-info.js";
+import { CURRENT_TIME_TOOL, executeCurrentTime } from "./tools/current-time.js";
 import { createPreviewSetupContext } from "./tools/preview-setup/runtime.js";
 import { PREVIEW_SETUP_TOOL, PREVIEW_SETUP_TOOL_NAME, executePreviewSetup, type PreviewSetupToolContext } from "./tools/preview-setup/tool.js";
 import { canGrantMcpTask, autonomyExceptionMode, hasExternalTargetArgs, isUntrustedContentTool } from "@workspace/shared";
@@ -1135,6 +1136,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	// Lições do bot: só entra no pedido quando o run tem lições (ver `lessonFeedbackEnabled`).
 	LESSON_FEEDBACK_TOOL,
 	APP_INFO_TOOL,
+	CURRENT_TIME_TOOL,
 	PREVIEW_SETUP_TOOL,
 	SECRET_LIST_TOOL,
 	ROUTINE_WEBHOOK_INFO_TOOL,
@@ -2041,6 +2043,8 @@ function routineDetailText(
 
 type ToolContext = {
 	manager: SandboxManager;
+	/** Fuso IANA da conta (tool `current_time`). */
+	timeZone?: string;
 	/** Configuração da prévia completa (só administrador; ausente = a tool não existe neste run). */
 	previewSetup?: PreviewSetupToolContext;
 	/** Runtime das tools de sessão de desenvolvimento (ausente = desligado). */
@@ -4183,6 +4187,8 @@ async function executeToolInner(
 		}
 		case "app_info":
 			return executeAppInfo(args);
+		case "current_time":
+			return executeCurrentTime(args, { now: new Date(), timeZone: ctx.timeZone });
 		case "preview_setup":
 			if (!ctx.previewSetup) throw new Error("This tool is not available in this run.");
 			return (await executePreviewSetup(args, ctx.previewSetup)) as Awaited<ReturnType<typeof executeToolInner>>;
@@ -7753,6 +7759,7 @@ export async function runComputerUse(params: {
 				secrets: secretSession,
 				health: providerHealth,
 				hasTool: hasToolInRun,
+				timeZone: params.timeZone,
 				manager: manager.withExecutionContext?.({ ...executionContext, signal }) ?? manager,
 				...(params.attachments?.present && !isSubagent ? { attachments: { runtime: params.attachments, vmAvailable: sandboxEnabled } } : {}),
 				showImages: {

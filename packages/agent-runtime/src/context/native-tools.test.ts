@@ -38,7 +38,7 @@ describe("catálogo das tools nativas raras", () => {
 	it("o plano separa núcleo, pré-carregadas (ordem do catálogo) e adiadas", () => {
 		const plan = planNativeTools(all, new Set<ContextGroup>(["routines"]));
 		expect(names(plan.core)).toEqual(["web_search", "web_extract", "delegate_task", "read_cached_result", "set_autonomy"]);
-		expect(names(plan.preloaded)).toEqual(["list_routines", "propose_routine", "routine_group", "routine_control", "github_list_repos"]);
+		expect(names(plan.preloaded)).toEqual(["list_routines", "propose_routine", "routine_group", "routine_control", "github_list_repos", "current_time"]);
 		// Política de agir primeiro: os cards de pergunta e de plano saíram do núcleo (entram por intenção ou busca).
 		expect(plan.deferred.get("propose_questionnaire")?.group).toBe("questionnaire");
 		expect(plan.deferred.get("propose_plan")?.group).toBe("plan");
@@ -199,7 +199,7 @@ describe("carregamento sob demanda", () => {
 	it("nome exato carrega só a tool; palavra distintiva carrega o grupo; palavra genérica não casa", () => {
 		const { deferral } = setup();
 		expect(deferral.match("propose_routine", 6)).toEqual({ names: ["propose_routine"], strong: true });
-		expect(deferral.match("set a reminder", 6).names).toEqual(["list_routines", "propose_routine", "routine_group", "routine_control", "github_list_repos"]);
+		expect(deferral.match("set a reminder", 6).names).toEqual(["list_routines", "propose_routine", "routine_group", "routine_control", "github_list_repos", "current_time"]);
 		expect(deferral.match("lista os itens", 6).names).toEqual([]);
 		expect(deferral.match("routines", 6).strong).toBe(true);
 	});
@@ -214,7 +214,7 @@ describe("carregamento sob demanda", () => {
 		expect(prompted.has("routines")).toBe(true);
 		expect(deferral.isDeferred("propose_routine")).toBe(false);
 		const second = deferral.loadGroupOf("list_routines");
-		expect(second.loaded).toEqual(["list_routines", "routine_group", "routine_control", "github_list_repos"]);
+		expect(second.loaded).toEqual(["list_routines", "routine_group", "routine_control", "github_list_repos", "current_time"]);
 		expect(second.notes).toBe("");
 		expect(deferral.load(["propose_routine"]).loaded).toEqual([]);
 	});
