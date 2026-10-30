@@ -680,7 +680,8 @@ export function createComputerHandlers(params: {
 		onToolResult: (result) => {
 			params.onActivity?.();
 			params.onStreamingMessage?.(null);
-			params.onAgentActivity?.({ phase: "thinking" });
+			// Falha da ferramenta: o texto do indicador não muda, mas o avatar faz cara de erro.
+			params.onAgentActivity?.(result.ok === false ? { phase: "thinking", toolFailed: true } : { phase: "thinking" });
 			if (result.name === "generate_image") {
 				params.setMessages((previous) => settleImageGen(previous, result.id, result));
 			}

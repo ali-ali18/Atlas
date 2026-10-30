@@ -2,26 +2,20 @@
 
 import { Avatar, type AvatarProps } from "@workspace/ui/components/avatar/avatar";
 
-import { useBotWorking } from "@/lib/bot-activity";
+import { useBotAvatar } from "@/lib/bot-activity";
 
-// Avatar vivo do bot: "trabalhando" vem do run ativo (ChatThread publica em
-// lib/bot-activity) e vira o estado `working` do motor (gestos de trabalho). Forma e cor
-// continuam vindo do AvatarEditor; sem elas, saem do id do bot.
+// Avatar vivo do bot: o que ele faz agora (pensando, pesquisando, lendo, programando,
+// escrevendo, esperando você…) vem do run ativo (ChatThread publica em lib/bot-activity) e
+// vira o estado do motor. Run só do servidor (rotina) = gestos genéricos de trabalho.
+// Forma e cor continuam vindo do AvatarEditor; sem elas, saem do id do bot.
 export function LiveAgentAvatar({
 	botId,
 	bodyColor,
 	...props
-}: Omit<AvatarProps, "color" | "id" | "state"> & {
+}: Omit<AvatarProps, "color" | "id" | "state" | "progress"> & {
 	botId: string;
 	bodyColor?: string;
 }) {
-	const working = useBotWorking(botId);
-	return (
-		<Avatar
-			{...props}
-			color={bodyColor}
-			id={botId}
-			state={working ? "working" : "idle"}
-		/>
-	);
+	const { state, progress } = useBotAvatar(botId);
+	return <Avatar {...props} color={bodyColor} id={botId} progress={progress} state={state} />;
 }

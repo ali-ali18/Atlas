@@ -1,0 +1,101 @@
+// Governador do avatar: decide O QUE mostrar agora a partir do que o bot quer
+// mostrar (avatar-activity.ts) e dos eventos pontuais (falha, fim, passo novo).
+// Evita pisca-pisca: cada estado de atividade fica no mínimo `minDwellMs` e, se o bot
+// trocar de ferramenta várias vezes dentro disso, só a última vale (as do meio somem).
+// Repouso e "trabalhando" genérico não seguram ninguém: sair deles é imediato.
+// Pura: o relógio é de quem chama (`now` em ms), sem timers aqui. Quem usa agenda
+// o próximo `signal()` com `nextChangeMs()`.
+import type { AvatarState } from "@workspace/ui/lib/avatar/model/behavior";
+
+import type { AvatarDesired } from "./avatar-activity";
+
+export const GOVERNOR_TUNING = {
+	/** Tempo mínimo em cada estado (ms) antes de trocar por outro. */
+	minDwellMs: 1200,
+	/** Anel de progresso depois de cada passo novo (ms). Maior que `minDwellMs`, para o estado seguinte entrar sem espera extra. */
+	progressFlashMs: 1300,
+	/** Cara de erro depois de uma ferramenta que falhou (ms). */
+	failedMs: 1800,
+	/** Comemoração ao terminar o run (ms). */
+	finishedMs: 2600,
+} as const;
+
+export type AvatarSignal = { state: AvatarState; progress: number | null };
+
+type Transient = { state: "failed" | "finished"; until: number };
+
+export type AvatarGovernor = ReturnType<typeof createAvatarGovernor>;
+
+export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_TUNING) {
+	let base: AvatarDesired = { state: "idle", step: null, progress: null };
+	let lastStep: number | null = null;
+	let flashUntil = 0;
+	let transient: Transient | null = null;
+	let shown: AvatarState = "idle";
+	let shownSince = Number.NEGATIVE_INFINITY;
+	let progress: number | null = null;
+
+	/** O que deveria aparecer agora, sem a trava de permanência. */
+	function target(now: number): { state: AvatarState; urgent: boolean } {
+		if (transient && now < transient.until) return { state: transient.state, urgent: true };
+		if (transient) transient = null;
+		if (now < flashUntil && base.progress !== null) return { state: "progress", urgent: false };
+		return { state: base.state, urgent: false };
+	}
+
+	/** Só estados de atividade específica (pesquisando, lendo…) seguram a troca. */
+	const holds = () => shown !== "idle" && shown !== "working";
+
+	function settle(now: number): AvatarSignal {
+		const want = target(now);
+		if (want.state !== shown && (want.urgent || !holds() || now - shownSince >= tuning.minDwellMs)) {
+			shown = want.state;
+			shownSince = now;
+		}
+		// O anel de progresso mostra a fração do passo; fora do estado `progress` não importa.
+		progress = base.progress;
+		return { state: shown, progress };
+	}
+
+	return {
+		/** O que o bot quer mostrar (a cada mudança de atividade). Passo novo acende o anel de progresso. */
+		push(desired: AvatarDesired, now: number): void {
+			base = desired;
+			if (desired.step === null) {
+				if (desired.state === "idle") lastStep = null;
+			} else {
+				if (desired.step !== lastStep && desired.progress !== null) flashUntil = now + tuning.progressFlashMs;
+				lastStep = desired.step;
+			}
+		},
+		/** Ferramenta falhou / run terminou: reação imediata, depois volta ao que o bot estiver fazendo. */
+		event(kind: "failed" | "finished", now: number): void {
+			transient = { state: kind, until: now + (kind === "failed" ? tuning.failedMs : tuning.finishedMs) };
+			if (kind === "finished") flashUntil = 0;
+		},
+		/** Run novo começando: esquece a comemoração/erro do run anterior e o passo (o anel acende no passo 0). */
+		begin(): void {
+			transient = null;
+			flashUntil = 0;
+			lastStep = null;
+			// O que estava na tela era do run anterior: não segura o primeiro estado do novo.
+			shownSince = Number.NEGATIVE_INFINITY;
+		},
+		/** Estado e fração para mostrar agora (pode mudar sem novo `push`, só pelo tempo). */
+		signal(now: number): AvatarSignal {
+			return settle(now);
+		},
+		/** ms até o sinal poder mudar só pelo tempo; `null` = nada agendado. */
+		nextChangeMs(now: number): number | null {
+			const want = target(now);
+			let soonest: number | null = null;
+			const consider = (ms: number) => {
+				if (ms > 0 && (soonest === null || ms < soonest)) soonest = ms;
+			};
+			if (want.state !== shown && holds()) consider(shownSince + tuning.minDwellMs - now);
+			if (transient) consider(transient.until - now);
+			if (now < flashUntil) consider(flashUntil - now);
+			return soonest;
+		},
+	};
+}

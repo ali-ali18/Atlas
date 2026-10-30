@@ -81,6 +81,8 @@ export type AvatarProps = {
 	ref?: Ref<AvatarController>;
 	shape?: string;
 	size?: number;
+	/** Fração real (0..1) do anel de progresso do estado `progress`; sem ela o anel só gira em ciclo. */
+	progress?: number | null;
 	/** Quando o número muda, o avatar dá um giro de 360°. */
 	spinSignal?: number;
 	state?: AvatarState;
@@ -127,6 +129,7 @@ export function Avatar({
 	ref,
 	shape,
 	size = 56,
+	progress = null,
 	spinSignal,
 	state = "idle",
 }: AvatarProps) {
@@ -186,8 +189,8 @@ export function Avatar({
 	}, []);
 
 	// Valores mais recentes, lidos pelo efeito de montagem sem virarem dependência.
-	const latest = useRef({ shape: resolvedShape, exprName, state, isEmphasized, size });
-	latest.current = { shape: resolvedShape, exprName, state, isEmphasized, size };
+	const latest = useRef({ shape: resolvedShape, exprName, state, isEmphasized, size, progress });
+	latest.current = { shape: resolvedShape, exprName, state, isEmphasized, size, progress };
 
 	useEffect(() => {
 		if (reduced) return;
@@ -200,6 +203,7 @@ export function Avatar({
 		});
 		engine.setExpression(cur.exprName ?? null);
 		engine.setState(cur.state);
+		engine.setProgress(cur.progress);
 		engine.setEmphasis(cur.isEmphasized);
 		written.current = {};
 		projector.current = createProjector();
@@ -240,6 +244,10 @@ export function Avatar({
 	useEffect(() => {
 		handleRef.current?.interact((engine) => engine.setState(state));
 	}, [state]);
+
+	useEffect(() => {
+		handleRef.current?.interact((engine) => engine.setProgress(progress));
+	}, [progress]);
 
 	useEffect(() => {
 		handleRef.current?.interact((engine) => engine.setEmphasis(isEmphasized));

@@ -83,6 +83,7 @@ import { openSkillProposalInEditor, proposalErrorMessage } from "@/components/ai
 import { useDevFixtureWorking } from "@/lib/dev-session/fixture";
 import { onChatMessageRequest } from "@/lib/dev-session/chat-send-request";
 import { setBotWorking } from "@/lib/bot-activity";
+import { useAvatarActivity } from "./use-avatar-activity";
 import { emitSkillProposalResolved } from "@/lib/skill-draft-handoff";
 import { ThreadSkeleton } from "./thread-skeleton";
 import { useStableHandlers, useStructuralMemo } from "./stable-handlers";
@@ -1144,6 +1145,17 @@ export function ChatThread({
 	};
 	const working = sending || pausedLike || devFixtureWorking;
 	const runActive = sending || pausedLike;
+
+	// O que o bot faz agora (e como o run terminou) para a expressão dos avatares vivos.
+	useAvatarActivity({
+		botIds: [botId, liveMemberId],
+		activity,
+		running: runningForAvatar,
+		status: runStatus,
+		paused: pausedLike,
+		pendingApproval: hasPendingApproval,
+		error,
+	});
 	// Grupo, entre um run e outro: quem o servidor diz que está respondendo ou escolhendo.
 	const groupRunning = isGroup && groupState ? groupActivity(groupState.replies, groupMembers) : { running: [], waiting: [] };
 	const routingLabel = isGroup ? groupRoutingLabel(groupState, translator) : "";
