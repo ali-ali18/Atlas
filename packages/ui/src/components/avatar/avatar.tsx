@@ -88,10 +88,12 @@ export type AvatarProps = {
 	/** Fração real (0..1) do anel de progresso do estado `progress`; sem ela o anel só gira em ciclo. */
 	progress?: number | null;
 	/**
-	 * Movimento contínuo do cérebro enquanto o bot trabalha. Ligado, ainda disputa as poucas
-	 * vagas globais (`sharedBrainBudget`); desligue em listas (sidebar) para ficar só com os clipes.
+	 * Movimento contínuo do cérebro enquanto o bot trabalha. Desligado por padrão: só o avatar do chat aberto (LiveAgentAvatar)
+	 * liga, e ainda disputa as poucas vagas globais (`sharedBrainBudget`).
 	 */
 	brain?: boolean;
+	/** Quem importa mais toma a vaga de cérebro de quem importa menos (cabeçalho e indicador do chat aberto). */
+	brainPriority?: number;
 	/** Família de atividade do cérebro (movimento contínuo); sem ela vem do `state` (lendo, programando…). */
 	activity?: ActivityFamily | null;
 	/** Quando o número muda, o avatar dá um giro de 360°. */
@@ -125,7 +127,8 @@ function markupOf(frame: Frame): Markup {
 export function Avatar({
 	animated = true,
 	ariaLabel,
-	brain = true,
+	brain = false,
+	brainPriority = 0,
 	breathe = true, // era false: sem isso o idle nunca gira e o 3D não aparece
 	className,
 	color,
@@ -214,6 +217,7 @@ export function Avatar({
 			breathe,
 			size: cur.size,
 			brain,
+			brainPriority,
 			budget: sharedBrainBudget,
 		});
 		engine.setExpression(cur.exprName ?? null);
@@ -241,7 +245,7 @@ export function Avatar({
 			engine.dispose();
 			handleRef.current = null;
 		};
-	}, [reduced, id, breathe, brain, follow, apply]);
+	}, [reduced, id, breathe, brain, brainPriority, follow, apply]);
 
 	// Trocar recorte ↔ pintura remonta os elementos: o cache de escritas vale
 	// para os antigos, então zera e pede um quadro para repintar os novos.

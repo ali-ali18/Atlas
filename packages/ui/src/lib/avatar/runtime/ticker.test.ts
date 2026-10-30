@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createAvatarEngine } from "../engine";
 import { SHAPE_IDS } from "../geometry/shapes";
 import type { Frame } from "../model/character";
+import { createBrainBudget } from "../model/brain-budget";
 import { gazeVector, createTicker, type FollowMode, type TickerEnv } from "./ticker";
 
 const FRAME_MS = 1000 / 60;
@@ -495,5 +496,27 @@ describe("ticker: cérebro do avatar", () => {
 		fake.setHidden(false);
 		fake.frames(10);
 		expect(advances.length).toBeGreaterThan(running);
+	});
+
+	it("aba oculta e fora da tela devolvem a vaga de cérebro; ao voltar, pede de novo", () => {
+		const budget = createBrainBudget(1);
+		const element = {} as Element;
+		const fake = fakeEnv();
+		const ticker = createTicker(fake.env);
+		const engine = createAvatarEngine({ shape: "hex", seed: "vaga", breathe: false, budget });
+		const handle = ticker.register({ engine, apply: () => undefined, follow: "off", getCenter: () => ({ x: 0, y: 0 }), element });
+		handle.interact((e) => e.setActivity("code"));
+		fake.frames(10);
+		expect(budget.size).toBe(1);
+		fake.setHidden(true);
+		expect(budget.size).toBe(0);
+		fake.setHidden(false);
+		fake.frames(10);
+		expect(budget.size).toBe(1);
+		fake.setVisible(element, false);
+		expect(budget.size).toBe(0);
+		fake.setVisible(element, true);
+		fake.frames(10);
+		expect(budget.size).toBe(1);
 	});
 });

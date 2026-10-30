@@ -246,6 +246,7 @@ export function createTicker(env: TickerEnv) {
 
 	function onVisibility() {
 		if (env.isHidden()) {
+			for (const entry of entries) entry.engine.suspend();
 			if (rafId !== null) env.caf(rafId);
 			rafId = null;
 			clearTimerIfAny();
@@ -255,6 +256,7 @@ export function createTicker(env: TickerEnv) {
 		for (const entry of entries) {
 			entry.lastTs = null;
 			entry.sleptAt = null;
+			if (entry.visible) entry.engine.resume();
 		}
 		ensureRunning();
 	}
@@ -293,6 +295,9 @@ export function createTicker(env: TickerEnv) {
 				entry.stopObserving = env.observeVisible(input.element, (visible) => {
 					if (visible === entry.visible) return;
 					entry.visible = visible;
+					// Parado fora da tela não segura vaga de cérebro (o quadro seguinte pede de novo).
+					if (!visible) entry.engine.suspend();
+					else entry.engine.resume();
 					entry.lastTs = null;
 					entry.sleptAt = null;
 					ensureRunning();
