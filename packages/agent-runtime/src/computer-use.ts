@@ -3756,6 +3756,16 @@ function vaultToolContext(ctx: Pick<ToolContext, "userId" | "botId" | "conversat
 	};
 }
 
+/** Executa uma tool da sessão de código (todas de `DEV_SESSION_TOOL_NAMES`, sem lista paralela). */
+export function executeDevSessionTool(
+	name: DevSessionToolName,
+	args: Record<string, unknown>,
+	ctx: Pick<ToolContext, "devSession" | "callId">,
+): ReturnType<DevSessionRuntime["execute"]> {
+	if (!ctx.devSession) throw new Error("Sessões de desenvolvimento não estão habilitadas neste run.");
+	return ctx.devSession.execute(name, args, ctx.callId ?? `${name}-${Date.now()}`);
+}
+
 async function executeToolInner(
 	name: string,
 	args: Record<string, unknown>,
@@ -3778,6 +3788,9 @@ async function executeToolInner(
 	visionArtifactIds?: string[];
 	jevAudit?: JevMcpAudit;
 }> {
+	// Toda tool da sessão de código vai para o runtime dela. Uma lista de `case` à mão deixou a prévia,
+	// o PR e o CI de fora: o modelo via a tool e a execução respondia "Ferramenta desconhecida".
+	if (isDevSessionTool(name)) return executeDevSessionTool(name, args, ctx);
 	switch (name) {
 		case "propose_connector":
 			return proposeConnector(args, { userId: ctx.userId, runId: ctx.runId, origin: ctx.origin, loginAsked: ctx.loginAsked ?? new Set<string>() });
@@ -3883,23 +3896,6 @@ async function executeToolInner(
 			return executeSandboxShellTool(name, args, { manager: ctx.manager, getSessionId: ctx.getSessionId });
 		case SANDBOX_RELEASE_TOOL_NAME:
 			return executeSandboxRelease({ manager: ctx.manager, conversationId: ctx.conversationId });
-		case "dev_session_start":
-		case "shell":
-		case "shell_output":
-		case "shell_stdin":
-		case "shell_kill":
-		case "read_file":
-		case "write_file":
-		case "edit_file":
-		case "list_files":
-		case "grep":
-		case "dev_environment_get":
-		case "dev_environment_update":
-		case "request_secrets":
-		case "todo_write": {
-			if (!ctx.devSession) throw new Error("Sessões de desenvolvimento não estão habilitadas neste run.");
-			return ctx.devSession.execute(name, args, ctx.callId ?? `${name}-${Date.now()}`);
-		}
 		case NATIVE_COMPUTER_TOOL_NAME: {
 			// F12/C4: traduz a ação nativa para as tools de coordenada e roda em sequência.
 			const steps = translateNativeComputerAction(args);
