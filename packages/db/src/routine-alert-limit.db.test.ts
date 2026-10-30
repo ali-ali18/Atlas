@@ -76,4 +76,26 @@ describe("limite de alertas e regra no Postgres real", { skip: dbSkip }, () => {
 		assert.equal(await recordRoutineAlertState(owner, routine.id, { ...next, rule: { ...parsed.rule, label: "outro" } }), false);
 		assert.equal(await recordRoutineAlertState("alguem-else", routine.id, next), false);
 	});
+
+	test("compare-and-set por checkedAt: de duas execuções concorrentes só uma grava (a outra não avisa)", async () => {
+		const owner = (await createTestUser("alert-cas")).id;
+		const bot = (await createTestBot(owner)).id;
+		const { routine } = await createRoutine(owner, input(bot, "cas"));
+		const base = { condition: "alerta cas", active: false };
+		// nunca verificado (checkedAt ausente): duas gravações com expectativa null, uma ganha
+		const first = await Promise.all([
+			recordRoutineAlertState(owner, routine.id, { ...base, active: true, checkedAt: "2026-10-30T12:00:00.000Z" }, undefined, null),
+			recordRoutineAlertState(owner, routine.id, { ...base, active: true, checkedAt: "2026-10-30T12:00:01.000Z" }, undefined, null),
+		]);
+		assert.deepEqual(first.filter(Boolean).length, 1);
+		const winner = parseRoutineAlert((await prisma.routine.findUniqueOrThrow({ where: { id: routine.id }, select: { alertJson: true } })).alertJson)!.checkedAt!;
+		// já verificado: a expectativa precisa ser o checkedAt gravado
+		const second = await Promise.all([
+			recordRoutineAlertState(owner, routine.id, { ...base, checkedAt: "2026-10-30T13:00:00.000Z" }, undefined, winner),
+			recordRoutineAlertState(owner, routine.id, { ...base, checkedAt: "2026-10-30T13:00:01.000Z" }, undefined, winner),
+		]);
+		assert.deepEqual(second.filter(Boolean).length, 1);
+		assert.equal(await recordRoutineAlertState(owner, routine.id, { ...base, checkedAt: "x" }, undefined, winner), false, "expectativa velha");
+		assert.equal(await recordRoutineAlertState(owner, routine.id, { ...base, checkedAt: "y" }, undefined, null), false, "null só vale se nunca verificou");
+	});
 });

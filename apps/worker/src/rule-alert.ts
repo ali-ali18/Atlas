@@ -94,7 +94,7 @@ export async function runRuleAlert(input: RuleAlertRunInput, deps: RuleAlertDeps
 	const outcome = inconclusive ? `inconclusive:${result.ok ? "valor" : result.code}` : finalPlan.decision.transition;
 	log(`[alert-rule] routine=${input.routineId} host=${result.host} outcome=${outcome} notify=${finalPlan.notify} ms=${result.ms}`);
 
-	await settleAlertRun(finalPlan, { userId: input.userId, routineId: input.routineId, conversationId: input.conversationId }, deps);
+	await settleAlertRun(finalPlan, { userId: input.userId, routineId: input.routineId, conversationId: input.conversationId, expectCheckedAt: alert.checkedAt ?? null }, deps);
 	const status = inconclusive ? "failed" : "succeeded";
 	await deps
 		.settleRun(input.userId, input.routineRunId, { status, summary: finalPlan.text, ...(inconclusive ? { error: evaluation.reason ?? "sem leitura" } : {}) })

@@ -1352,17 +1352,27 @@ export async function recordRoutineAlertState(
 	next: RoutineAlert,
 	/** Novo intervalo (backoff): só vale em rotina `interval`, na mesma gravação do estado. */
 	everyMinutes?: number,
+	/**
+	 * Compare-and-set: o `checkedAt` que esta verificação leu ao começar (`null` = nunca verificado). Se outra execução
+	 * (agendada + manual em paralelo) gravou no meio, nada é gravado e quem perdeu não avisa. Omitido = sem checagem.
+	 */
+	expectCheckedAt?: string | null,
 ): Promise<boolean> {
 	const owners = ownerIds(userId);
 	if (owners.length === 0) return false;
 	const widen = everyMinutes !== undefined && Number.isInteger(everyMinutes) && everyMinutes >= 1;
+	const guards: Prisma.RoutineWhereInput[] = [];
+	if (next.rule) guards.push({ alertJson: { path: ["rule"], equals: jsonValue(next.rule) as Prisma.InputJsonValue } });
+	if (expectCheckedAt === null) guards.push({ NOT: { alertJson: { path: ["checkedAt"], not: Prisma.DbNull } } });
+	else if (expectCheckedAt !== undefined) guards.push({ alertJson: { path: ["checkedAt"], equals: expectCheckedAt } });
 	const { count } = await prisma.routine.updateMany({
 		where: {
 			id: routineId,
 			userId: { in: owners },
 			alertJson: { path: ["condition"], equals: next.condition },
-			// Regra editada no meio da conferência: o resultado velho não sobrescreve a regra nova.
-			...(next.rule ? { AND: [{ alertJson: { path: ["rule"], equals: jsonValue(next.rule) as Prisma.InputJsonValue } }] } : {}),
+			// Regra editada no meio da conferência: o resultado velho não sobrescreve a regra nova. E, com `expectCheckedAt`,
+			// só uma das execuções concorrentes grava (a outra não avisa).
+			...(guards.length > 0 ? { AND: guards } : {}),
 			...(widen ? { triggerType: "interval" } : {}),
 		},
 		data: { alertJson: jsonValue(next), ...(widen ? { triggerJson: jsonValue({ kind: "interval", everyMinutes }) } : {}) },

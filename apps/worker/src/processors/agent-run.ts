@@ -1399,7 +1399,7 @@ async function executeLeasedRun(ctx: {
 		if (alertPlan && alertCtx) {
 			await settleAlertRun(
 				alertPlan,
-				{ userId: runUserId, routineId: alertCtx.routineId, conversationId: run.conversationId },
+				{ userId: runUserId, routineId: alertCtx.routineId, conversationId: run.conversationId, expectCheckedAt: alertCtx.alert.checkedAt ?? null },
 				{
 					record: recordRoutineAlertState,
 					reschedule: async () => {

@@ -123,3 +123,23 @@ test("espaçamento: nunca confere abaixo do piso da fonte; cron respeita o espa�
 	assert.equal(ruleAlertSkipReason({ rule: page, alert: { checkedAt: at(120), backoff: { base: 30, to: 240 } }, triggerType: "cron", now }), "Espaçado: esta fonte só é conferida a cada 240 min");
 	assert.equal(ruleAlertSkipReason({ rule: page, alert: {}, triggerType: "cron", now }), null);
 });
+
+test("execuções concorrentes (agendada + manual) com o mesmo estado: só a que grava avisa", async () => {
+	const alert = alertWith({ ruleState: { lastValue: 389.9, consecutive: 1 }, checkedAt: "2026-10-30T10:00:00.000Z" });
+	const stored = { checkedAt: alert.checkedAt as string | undefined };
+	const run = () => {
+		const s = setup([price("R$ 389,90")], { alert });
+		// compare-and-set como o db: grava só se o checkedAt ainda é o que a execução leu ao começar
+		s.deps.record = async (_u, _r, next, _e, expect) => {
+			if (expect !== undefined && (stored.checkedAt ?? null) !== expect) return false;
+			stored.checkedAt = next.checkedAt;
+			return true;
+		};
+		return s;
+	};
+	const a = run();
+	const b = run();
+	await Promise.all([runRuleAlert({ ...a.input, now: new Date("2026-10-30T12:00:00Z") }, a.deps), runRuleAlert({ ...b.input, now: new Date("2026-10-30T12:00:01Z") }, b.deps)]);
+	assert.equal(a.calls.post.length + b.calls.post.length, 1);
+	assert.equal(a.calls.push.length + b.calls.push.length, 1);
+});

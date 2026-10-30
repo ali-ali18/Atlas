@@ -65,7 +65,7 @@ export function planAlertRun(input: {
 
 export type AlertSettleDeps = {
 	/** Grava o estado só se a condição ainda é a avaliada (db escopado pelo dono). */
-	record: (userId: string, routineId: string, next: RoutineAlert, everyMinutes?: number) => Promise<boolean>;
+	record: (userId: string, routineId: string, next: RoutineAlert, everyMinutes?: number, expectCheckedAt?: string | null) => Promise<boolean>;
 	/** Sincroniza o agendador depois de mudar o intervalo (backoff). Falha não derruba o alerta. */
 	reschedule?: () => Promise<unknown>;
 	/** Grava o aviso na conversa do bot. Só alerta conferido sem modelo: no caminho do modelo o fim do run já grava a resposta. */
@@ -81,18 +81,18 @@ export type AlertSettleDeps = {
  */
 export async function settleAlertRun(
 	plan: AlertRunPlan,
-	target: { userId: string; routineId: string; conversationId: string | null },
+	target: { userId: string; routineId: string; conversationId: string | null; expectCheckedAt?: string | null },
 	deps: AlertSettleDeps,
 ): Promise<{ recorded: boolean; pushed: boolean }> {
 	const log = deps.log ?? ((line: string) => console.log(line));
 	let recorded = true;
 	try {
-		recorded = await deps.record(target.userId, target.routineId, plan.next, plan.everyMinutes);
+		recorded = await deps.record(target.userId, target.routineId, plan.next, plan.everyMinutes, target.expectCheckedAt);
 	} catch (error) {
 		console.error(`[alert] estado não gravado routine=${target.routineId}`, error);
 	}
 	if (!recorded) {
-		log(`[alert] routine=${target.routineId} resultado descartado (condição mudou durante a verificação)`);
+		log(`[alert] routine=${target.routineId} resultado descartado (condição ou regra mudou, ou outra execução gravou antes)`);
 		return { recorded: false, pushed: false };
 	}
 	log(`[alert] routine=${target.routineId} transition=${plan.decision.transition} notify=${plan.notify}${plan.everyMinutes ? ` everyMinutes=${plan.everyMinutes}` : ""}`);
