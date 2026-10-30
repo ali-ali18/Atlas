@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import net from "node:net";
 import type { ChatTool } from "@workspace/llm";
 import type { DevClient, DevEndpoint } from "@workspace/sandbox";
@@ -100,6 +101,10 @@ export type PreviewContext = {
 	reachable?: (host: string, port: number) => Promise<boolean>;
 	now?: () => number;
 	save: (preview: DevSessionPreview | null) => Promise<void>;
+	/** Injetável em teste: segredo de caminho do modo básico. */
+	randomCap?: () => string;
+	/** Prévia atual da sessão: o segredo é mantido enquanto ela vale (o servidor pode já estar configurado com ele em `--base`). */
+	current?: DevSessionPreview | null;
 };
 
 /** Dicas só do modo básico: o projeto roda sob um prefixo, em sandbox, sem cookies/storage nem HMR. Em inglês, para o modelo. */
@@ -121,9 +126,11 @@ function serverHint(port: number): string {
 export async function startPreview(ctx: PreviewContext, args: Record<string, unknown>): Promise<string> {
 	if (!ctx.link || ctx.connectMode !== "network") throw new Error(NOT_CONFIGURED);
 	const { port, path } = parsePreviewStartArgs(args);
+	const now = ctx.now ?? Date.now;
 	const basic = !ctx.link.baseDomain;
 	const basePrefixed = basic && args.base_configured === true;
-	const now = ctx.now ?? Date.now;
+	// Modo básico: o segredo vai no caminho (a origem opaca não leva cookie); novo a cada prévia (mantido enquanto ela vale).
+	const cap = basic ? (ctx.current?.cap && Date.parse(ctx.current.expiresAt) > now() ? ctx.current.cap : (ctx.randomCap ?? (() => randomBytes(24).toString("base64url")))()) : undefined;
 	const host = new URL(ctx.endpoint.baseUrl).hostname;
 	const reachable = ctx.reachable ?? tcpReachable;
 	if (!(await reachable(host, port))) {
@@ -142,15 +149,15 @@ export async function startPreview(ctx: PreviewContext, args: Record<string, unk
 		);
 	}
 	const startedAt = now();
-	await ctx.save({ port, path, startedAt: new Date(startedAt).toISOString(), expiresAt: new Date(startedAt + PREVIEW_TTL_MS).toISOString(), ...(basePrefixed ? { basePrefixed: true } : {}) });
+	await ctx.save({ port, path, startedAt: new Date(startedAt).toISOString(), expiresAt: new Date(startedAt + PREVIEW_TTL_MS).toISOString(), ...(basePrefixed ? { basePrefixed: true } : {}), ...(cap ? { cap } : {}) });
 	return [
 		`Preview ready: ${previewOpenUrl(ctx.link, ctx.sessionId)}`,
 		`Send this exact link to the user: it opens the project (port ${port}, ${path}) in their own browser or phone, only for them while logged in, for about 1 hour while the session runs.`,
 		"Reply in the user's language with a short line and the link. Do not mention ports, localhost or container addresses. Do not send screenshots unless the user asks.",
 		basic
-			? "Edits you make show after the user reloads the page. Call preview_start again if you restart the server on another port or change its base path."
+			? "Edits you make show after the user reloads the page. Call preview_start again if you restart the server on another port or change its base path (the prefix stays the same while the preview is active; never show it to the user)."
 			: "Edits you make keep showing in the same link (dev servers reload on their own). Call preview_start again if you restart the server on another port.",
-		...(basic ? basicModeNotes(previewBasicPrefix(ctx.sessionId)) : ["Mode: full."]),
+		...(basic ? basicModeNotes(previewBasicPrefix(ctx.sessionId, cap)) : ["Mode: full."]),
 	].join("\n");
 }
 

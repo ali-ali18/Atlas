@@ -4,10 +4,12 @@ import net from "node:net";
 import { Readable } from "node:stream";
 import type { Duplex } from "node:stream";
 import { Hono } from "hono";
+import type { MiddlewareHandler } from "hono";
 import type { DevSessionRecord } from "@workspace/db";
 import {
 	isPreviewPort,
 	normalizePreviewBaseDomain,
+	isSafePreviewRest,
 	normalizePreviewPath,
 	parsePreviewBasicPath,
 	previewBaseDomainConflict,
@@ -186,7 +188,7 @@ export type PreviewDeps = {
 	sweepEveryMs?: number;
 };
 
-type Target = { host: string; port: number; path: string; userId: string; expiresAt: number; basePrefixed: boolean };
+type Target = { host: string; port: number; path: string; userId: string; expiresAt: number; basePrefixed: boolean; cap: string | undefined };
 
 const HOP_BY_HOP = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "content-length"]);
 const REQUEST_STRIP = new Set([...HOP_BY_HOP, "authorization", "host", "origin", "referer", "forwarded", "x-real-ip", "cookie"]);
@@ -201,13 +203,55 @@ const SECURITY_HEADERS: Record<string, string> = {
  * Modo básico: o documento fica na origem do Atlas, então o sandbox (sem `allow-same-origin`, sem `allow-top-navigation`) é o que
  * o isola. COOP corta o vínculo com a janela que abriu o link; CORP `cross-origin` é necessário porque os subrecursos são pedidos
  * pela origem opaca (cross-origin para o Atlas) e com `same-origin` a própria página quebraria.
+ *
+ * CORS: a origem opaca é cross-origin ao Atlas, então `<script type="module">`, `crossorigin`, fontes e `fetch` são pedidos
+ * CORS sem credenciais. `Access-Control-Allow-Origin: *` (nunca com credenciais) os libera; a autenticação é o `cap` no caminho.
  */
 export const PREVIEW_SANDBOX_CSP = "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads";
-const BASIC_HEADERS: Record<string, string> = {
+export const BASIC_HEADERS: Record<string, string> = {
 	"Content-Security-Policy": PREVIEW_SANDBOX_CSP,
 	"Cross-Origin-Opener-Policy": "same-origin",
 	"Cross-Origin-Resource-Policy": "cross-origin",
 	"X-Frame-Options": "SAMEORIGIN",
+	// Cache compartilhado (CDN/proxy) nunca guarda: a URL já é a credencial, e `public`/`s-maxage` do projeto não valem.
+	"Cache-Control": "private, no-store",
+	"Access-Control-Allow-Origin": "*",
+	"Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
+	"Access-Control-Max-Age": "600",
+	"Referrer-Policy": "no-referrer",
+	"X-Robots-Tag": "noindex, nofollow",
+	"X-Content-Type-Options": "nosniff",
+};
+
+/**
+ * Cabeçalhos do projeto que não podem valer na origem do Atlas: política de segurança/CORS/cache que competem com a nossa e
+ * os que afetam o Atlas inteiro (HSTS, Clear-Site-Data, Service-Worker-Allowed, NEL/Report-To, Alt-Svc, Client Hints). `Link`
+ * sai porque pode pré-carregar/conectar a hosts externos com a identidade da página.
+ */
+const BASIC_DROP = new Set([
+	"content-security-policy", "content-security-policy-report-only", "cross-origin-opener-policy", "cross-origin-resource-policy",
+	"cross-origin-embedder-policy", "x-frame-options", "cache-control", "expires", "pragma", "set-cookie", "service-worker-allowed",
+	"clear-site-data", "strict-transport-security", "public-key-pins", "expect-ct", "alt-svc", "report-to", "reporting-endpoints", "nel",
+	"accept-ch", "critical-ch", "origin-agent-cluster", "link", "permissions-policy", "document-policy", "timing-allow-origin",
+]);
+
+/** Põe os cabeçalhos do modo básico (sobrepondo qualquer um parecido) em qualquer resposta de `/p/`. */
+export function applyBasicHeaders(headers: Headers, requestHeaders?: Headers): void {
+	for (const key of [...headers.keys()]) if (BASIC_DROP.has(key.toLowerCase()) || key.toLowerCase().startsWith("access-control-")) headers.delete(key);
+	for (const [key, value] of Object.entries(BASIC_HEADERS)) headers.set(key, value);
+	const asked = requestHeaders?.get("access-control-request-headers");
+	headers.set("Access-Control-Allow-Headers", asked && /^[\w\-, ]{1,500}$/.test(asked) ? asked : "*");
+}
+
+/**
+ * Middleware de `/v1/previews/:id/p/*`: garante os cabeçalhos do modo básico em TODA resposta, inclusive as que não passam
+ * pelo proxy (429 do limite por IP, 413 do limite de corpo, 500 do `onError`). Registrar antes do limite e do `requireUser`.
+ */
+export const basicResponseHeaders: MiddlewareHandler = async (c, next) => {
+	await next();
+	const res = new Response(c.res.body, c.res);
+	applyBasicHeaders(res.headers, c.req.raw.headers);
+	c.res = res;
 };
 
 function text(status: number, body: string, extra: Record<string, string> = {}): Response {
@@ -215,25 +259,16 @@ function text(status: number, body: string, extra: Record<string, string> = {}):
 }
 
 function basicText(status: number, body: string): Response {
-	return text(status, body, BASIC_HEADERS);
-}
-
-/** Cookie da prévia no modo básico: só neste caminho. `None; Secure` porque os subrecursos vêm de origem opaca (cross-site); em http fora de localhost o navegador recusaria `None`, então cai em `Lax` (a página abre, os subrecursos não autenticam). */
-export function basicCookieAttrs(config: Pick<PreviewConfig, "atlasUrl" | "scheme">, id: string, maxAge: number): string {
-	let loopback = false;
-	try {
-		loopback = ["localhost", "127.0.0.1", "[::1]"].includes(new URL(config.atlasUrl).hostname);
-	} catch { /* ATLAS_URL inválida */ }
-	const secure = config.scheme === "https" || loopback;
-	return `Path=/v1/previews/${id}/; HttpOnly; SameSite=${secure ? "None; Secure" : "Lax"}; Max-Age=${maxAge}`;
+	const res = text(status, body, BASIC_HEADERS);
+	applyBasicHeaders(res.headers);
+	return res;
 }
 
 /**
- * `Location`/`Refresh` do projeto no modo básico: endereço interno ou caminho absoluto (`/x`) entra no prefixo da prévia; caminho
- * relativo e sites externos ficam como vieram; quem já tem o prefixo (servidor configurado com base) não é duplicado.
+ * `Location`/`Refresh` do projeto no modo básico: endereço interno ou caminho absoluto (`/x`) entra no prefixo da prévia (que
+ * inclui o `cap`); caminho relativo e sites externos ficam como vieram; quem já tem o prefixo (servidor configurado com base) não é duplicado.
  */
-export function rewriteLocationIntoPrefix(value: string, upstreamHost: string, atlasOrigin: string, id: string): string {
-	const prefix = previewBasicPrefix(id);
+export function rewriteLocationIntoPrefix(value: string, upstreamHost: string, atlasOrigin: string, prefix: string): string {
 	const under = (path: string) => (path.startsWith(prefix) || path === prefix.slice(0, -1) ? path : `${prefix}${path.slice(1)}`);
 	if (value.startsWith("//")) return value;
 	if (value.startsWith("/")) return under(value);
@@ -333,7 +368,7 @@ export function createPreviewService(deps: PreviewDeps) {
 		if (!Number.isFinite(expiresAt) || expiresAt <= now()) return null;
 		if (!isPreviewPort(preview.port)) return null;
 		const host = await deps.resolveContainerHost(row.id);
-		return host ? { host, port: preview.port, path: normalizePreviewPath(preview.path) ?? "/", userId: row.userId, expiresAt, basePrefixed: preview.basePrefixed === true } : null;
+		return host ? { host, port: preview.port, path: normalizePreviewPath(preview.path) ?? "/", userId: row.userId, expiresAt, basePrefixed: preview.basePrefixed === true, cap: preview.cap } : null;
 	}
 
 	function noteActivity(id: string): void {
@@ -355,14 +390,14 @@ export function createPreviewService(deps: PreviewDeps) {
 		return null;
 	}
 
-	async function authenticate(id: string, cookieHeader: string | null | undefined, reply: typeof text = text): Promise<{ target: Target; cookieExpiresAt: number; basePrefixed: boolean } | { response: Response }> {
+	async function authenticate(id: string, cookieHeader: string | null | undefined): Promise<{ target: Target; cookieExpiresAt: number } | { response: Response }> {
 		const claims = cookieClaims(id, cookieHeader);
-		if (!claims) return { response: reply(401, "Abra a prévia pelo link enviado no chat.") };
+		if (!claims) return { response: text(401, "Abra a prévia pelo link enviado no chat.") };
 		const userId = claims.userId;
 		const target = await resolveTarget(id);
 		// Prévia inexistente, vencida, parada ou de outro dono: mesma resposta (não revela que existe).
-		if (!target || target.userId !== userId) return { response: reply(404, "Prévia indisponível.") };
-		return { target, cookieExpiresAt: claims.expiresAt, basePrefixed: target.basePrefixed };
+		if (!target || target.userId !== userId) return { response: text(404, "Prévia indisponível.") };
+		return { target, cookieExpiresAt: claims.expiresAt };
 	}
 
 	function baseUrlHost(request: { headers: { get(name: string): string | null } }): string | null {
@@ -384,20 +419,40 @@ export function createPreviewService(deps: PreviewDeps) {
 		return proxyHttp(request, auth.target, `${url.pathname}${url.search}`, previewOrigin({ scheme: config.scheme, baseDomain: config.baseDomain, id }), request.headers.get("host") ?? "");
 	}
 
-	/** Prévia do modo básico (`/v1/previews/:id/p/*`): o cookie é conferido aqui (a rota é pública no `requireUser`). */
+	/** `cap` do caminho confere com o gravado na prévia (tempo constante). */
+	function capMatches(expected: string | undefined, given: string): boolean {
+		if (!expected || !given) return false;
+		const a = Buffer.from(expected);
+		const b = Buffer.from(given);
+		return a.length === b.length && timingSafeEqual(a, b);
+	}
+
+	/**
+	 * Prévia do modo básico (`/v1/previews/:id/p/<cap>/*`): rota pública no `requireUser`; a autenticação é o `cap` do caminho
+	 * (segredo aleatório da prévia, vence com ela). Sem cookie: a origem opaca do sandbox não os leva em pedidos CORS.
+	 * Falha de qualquer tipo (id, cap, vencida, parada) responde igual: 401 "Link expirado".
+	 */
 	async function handleBasicRequest(request: Request): Promise<Response> {
 		const config = deps.config;
 		const url = new URL(request.url);
 		const parsed = parsePreviewBasicPath(url.pathname);
 		// Modo completo (ou desligado): o caminho não existe na origem do Atlas.
 		if (!config || previewMode(config) !== "basic" || !parsed) return basicText(404, "Prévia indisponível.");
-		const { id, rest } = parsed;
-		const auth = await authenticate(id, request.headers.get("cookie"), basicText);
-		if ("response" in auth) return auth.response;
+		const { id, cap, rest } = parsed;
+		const target = await resolveTarget(id);
+		if (!target || !capMatches(target.cap, cap)) return basicText(401, "Link expirado. Peça o link da prévia de novo no chat.");
+		// Nada de `..`, `//`, `\`, `%2f` ou NUL no que segue ao projeto: o prefixo não se escapa e o caminho não é ambíguo.
+		if (!isSafePreviewRest(rest)) return basicText(404, "Prévia indisponível.");
 		noteActivity(id);
+		if (request.method === "OPTIONS") {
+			const res = new Response(null, { status: 204 });
+			applyBasicHeaders(res.headers, request.headers);
+			return res;
+		}
+		const prefix = previewBasicPrefix(id, cap);
 		// Servidor configurado com a base: ele espera o prefixo; senão o prefixo é tirado (servidor estático, caminhos relativos).
-		const upstreamPath = `${auth.basePrefixed ? url.pathname : rest}${url.search}`;
-		return proxyHttp(request, auth.target, upstreamPath, config.atlasUrl, new URL(config.atlasUrl).host, id);
+		const upstreamPath = `${target.basePrefixed ? url.pathname : rest}${url.search}`;
+		return proxyHttp(request, target, upstreamPath, config.atlasUrl, new URL(config.atlasUrl).host, prefix);
 	}
 
 	/** Troca o token curto do redirect pelo cookie da prévia e segue para o caminho registrado. */
@@ -420,14 +475,14 @@ export function createPreviewService(deps: PreviewDeps) {
 		});
 	}
 
-	/** `basicId`: modo básico (ver topo do arquivo): nenhum cookie vai ao projeto, `Set-Cookie` dele é descartado e os cabeçalhos de sandbox entram em toda resposta. */
-	function proxyHttp(request: Request, target: Target, upstreamPath: string, publicOrigin: string, publicHost: string, basicId?: string): Promise<Response> {
+	/** `basicPrefix`: modo básico (ver topo do arquivo): nenhum cookie vai ao projeto, `Set-Cookie` dele é descartado e os cabeçalhos de sandbox entram em toda resposta. */
+	function proxyHttp(request: Request, target: Target, upstreamPath: string, publicOrigin: string, publicHost: string, basicPrefix?: string): Promise<Response> {
 		const headers: Record<string, string> = {};
 		request.headers.forEach((value, key) => {
 			if (!REQUEST_STRIP.has(key) && !key.startsWith("x-forwarded-")) headers[key] = value;
 		});
 		// Modo básico: o cookie de sessão do Atlas nunca segue (nem o da prévia nem qualquer outro); o app não tem cookies próprios (Set-Cookie é descartado).
-		const cookies = basicId ? undefined : stripPreviewCookie(request.headers.get("cookie"));
+		const cookies = basicPrefix ? undefined : stripPreviewCookie(request.headers.get("cookie"));
 		if (cookies) headers.cookie = cookies;
 		// Nossos (não os do cliente): o projeto sabe o endereço público, embora o Host seja o IP do container.
 		headers["x-forwarded-host"] = publicHost;
@@ -441,15 +496,13 @@ export function createPreviewService(deps: PreviewDeps) {
 					for (const [key, value] of Object.entries(res.headers)) {
 						if (HOP_BY_HOP.has(key) || value === undefined) continue;
 						for (const v of Array.isArray(value) ? value : [value]) {
+							// Modo básico: o que o projeto manda e compete com a nossa política (ou afeta o Atlas inteiro) é descartado; o resto passa.
+							if (basicPrefix && (BASIC_DROP.has(key) || key.startsWith("access-control-"))) continue;
 							if (key === "set-cookie") {
-								// Modo básico: um cookie do projeto na origem do Atlas poderia ter Path=/ e chegar nas rotas do Atlas.
-								if (basicId) continue;
 								const rewritten = rewriteUpstreamSetCookie(v);
 								if (rewritten) out.append(key, rewritten);
-							} else if (basicId && (key === "location" || key === "content-location")) out.append(key, rewriteLocationIntoPrefix(v, target.host, publicOrigin, basicId));
-							else if (basicId && key === "refresh") out.append(key, v.replace(/(url\s*=\s*)(\S+)/i, (_m, head: string, t: string) => `${head}${rewriteLocationIntoPrefix(t, target.host, publicOrigin, basicId)}`));
-							// A política do projeto não compete com a nossa: o sandbox é inegociável e vale sozinho.
-							else if (basicId && (key === "content-security-policy" || key === "content-security-policy-report-only" || key === "cross-origin-opener-policy" || key === "cross-origin-resource-policy" || key === "x-frame-options")) continue;
+							} else if (basicPrefix && (key === "location" || key === "content-location")) out.append(key, rewriteLocationIntoPrefix(v, target.host, publicOrigin, basicPrefix));
+							else if (basicPrefix && key === "refresh") out.append(key, v.replace(/(url\s*=\s*)(\S+)/i, (_m, head: string, t: string) => `${head}${rewriteLocationIntoPrefix(t, target.host, publicOrigin, basicPrefix)}`));
 							else if (key === "location" || key === "content-location") out.append(key, rewriteToPublicOrigin(v, target.host, publicOrigin));
 							else if (key === "refresh") out.append(key, rewriteRefresh(v, target.host, publicOrigin));
 							else if (key === "access-control-allow-origin") out.append(key, rewriteToPublicOrigin(v, target.host, publicOrigin));
@@ -457,7 +510,7 @@ export function createPreviewService(deps: PreviewDeps) {
 						}
 					}
 					for (const [key, value] of Object.entries(SECURITY_HEADERS)) out.set(key, value);
-					if (basicId) for (const [key, value] of Object.entries(BASIC_HEADERS)) out.set(key, value);
+					if (basicPrefix) applyBasicHeaders(out, request.headers);
 					if (!out.has("cache-control")) out.set("Cache-Control", "no-store");
 					const status = res.statusCode ?? 502;
 					const noBody = request.method === "HEAD" || status === 204 || status === 304;
@@ -466,7 +519,7 @@ export function createPreviewService(deps: PreviewDeps) {
 				},
 			);
 			upstream.on("timeout", () => upstream.destroy(new Error("preview upstream timeout")));
-			upstream.on("error", () => resolve(text(502, "O projeto não respondeu. Peça ao assistente para conferir se o servidor está rodando.")));
+			upstream.on("error", () => resolve((basicPrefix ? basicText : text)(502, "O projeto não respondeu. Peça ao assistente para conferir se o servidor está rodando.")));
 			request.signal.addEventListener("abort", () => upstream.destroy(), { once: true });
 			if (request.body && request.method !== "GET" && request.method !== "HEAD") Readable.fromWeb(request.body as never).pipe(upstream);
 			else upstream.end();
@@ -566,12 +619,11 @@ export function createPreviewOpenRoutes(deps: Pick<PreviewDeps, "config" | "getO
 		c.header("Cache-Control", "no-store");
 		c.header("Referrer-Policy", "no-referrer");
 		if (!config.baseDomain) {
-			// Modo básico, mesma origem: o login do Atlas já provou o dono, então o cookie (só deste caminho) sai direto, sem token intermediário.
-			const maxAge = Math.max(1, Math.floor(Math.min(PREVIEW_COOKIE_TTL_MS, Date.parse(preview.expiresAt) - now) / 1000));
-			const cookie = signPreviewToken("session", { previewId: row.id, userId }, config.secret, maxAge * 1000, now);
-			c.header("Set-Cookie", `${PREVIEW_COOKIE}=${cookie}; ${basicCookieAttrs(config, row.id, maxAge)}`);
+			// Modo básico: o login do Atlas já provou o dono; o segredo da prévia (`cap`, só no banco e aqui) vai no caminho.
+			// Prévia sem `cap` (de antes do modo básico, ou de outro modo) não abre: 404 igual.
+			if (!preview.cap) return c.json({ error: "Not found" }, 404);
 			const entry = normalizePreviewPath(preview.path) ?? "/";
-			return c.redirect(`${previewBasicPrefix(row.id)}${entry.slice(1)}`, 302);
+			return c.redirect(`${previewBasicPrefix(row.id, preview.cap)}${entry.slice(1)}`, 302);
 		}
 		const token = signPreviewToken("open", { previewId: row.id, userId }, config.secret, PREVIEW_OPEN_TOKEN_TTL_MS, now);
 		const origin = previewOrigin({ scheme: config.scheme, baseDomain: config.baseDomain, id: row.id });
@@ -581,12 +633,12 @@ export function createPreviewOpenRoutes(deps: Pick<PreviewDeps, "config" | "getO
 }
 
 /**
- * Modo básico: `/v1/previews/:id/p/*`. Pública no `requireUser` (allowlist `isPublicV1Request`) porque a autenticação é o cookie da
- * prévia, conferido no serviço; o cookie de login do Atlas nunca é exigido nem repassado. Sem o modo básico responde 404.
+ * Modo básico: `/v1/previews/:id/p/*`. Pública no `requireUser` (allowlist `isPublicV1Request`) porque a autenticação é o `cap` no
+ * caminho, conferido no serviço; o cookie de login do Atlas nunca é exigido nem repassado. Sem o modo básico responde 404.
  */
 export function createPreviewBasicRoutes(service: Pick<ReturnType<typeof createPreviewService>, "handleBasicRequest">) {
 	const app = new Hono<AuthEnv>();
-	app.all("/v1/previews/:id/p", (c) => c.redirect(`${new URL(c.req.url).pathname}/`, 302));
+	app.all("/v1/previews/:id/p", (c) => service.handleBasicRequest(c.req.raw));
 	app.all("/v1/previews/:id/p/*", (c) => service.handleBasicRequest(c.req.raw));
 	return app;
 }

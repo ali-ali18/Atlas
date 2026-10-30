@@ -2316,6 +2316,7 @@ ${TODO_REMINDER}` };
 								link: deps.preview === undefined ? previewLinkConfigFromEnv() : deps.preview,
 								connectMode: deps.config.connectMode,
 								sessionId: row.id,
+								current: row.preview ?? null,
 								endpoint,
 								client,
 								now,

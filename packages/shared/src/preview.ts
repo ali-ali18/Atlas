@@ -23,6 +23,12 @@ export type DevSessionPreview = {
 	 * repassa o caminho com o prefixo. Sem isso o prefixo é tirado antes de repassar (servidor estático, caminhos relativos).
 	 */
 	basePrefixed?: boolean;
+	/**
+	 * Só no modo básico: segredo aleatório que vai no CAMINHO (`/v1/previews/<id>/p/<cap>/...`) e autentica a prévia sem cookie
+	 * (a origem opaca do sandbox é cross-origin ao Atlas: scripts `type=module`/`crossorigin`, fontes e `fetch` saem sem credenciais).
+	 * Gerado a cada `preview_start`, vence com a prévia e some com `preview_stop`.
+	 */
+	cap?: string;
 };
 
 export function isPreviewPort(port: unknown): port is number {
@@ -69,18 +75,34 @@ export function previewOrigin(input: { scheme: "http" | "https"; baseDomain: str
 
 /**
  * Modo básico (sem domínio de prévia): a prévia vive na origem do Atlas sob este prefixo, mas o documento roda numa
- * origem opaca (CSP `sandbox` sem `allow-same-origin`), então não alcança o cookie de login.
+ * origem opaca (CSP `sandbox` sem `allow-same-origin`), então não alcança o cookie de login. O `cap` (segredo da prévia) faz
+ * parte do caminho: URLs relativas o mantêm sozinhas e nenhum cookie é necessário.
  */
-export function previewBasicPrefix(id: string): string {
-	return `/v1/previews/${id}/p/`;
+export function previewBasicPrefix(id: string, cap?: string): string {
+	return cap ? `/v1/previews/${id}/p/${cap}/` : `/v1/previews/${id}/p/`;
 }
 
-const PREVIEW_BASIC_PATH = /^\/v1\/previews\/([a-z0-9]{20,40})\/p(\/.*)?$/;
+/** Forma do `cap`: 24 bytes aleatórios em base64url. */
+export const PREVIEW_CAP_PATTERN = /^[A-Za-z0-9_-]{32}$/;
 
-/** `/v1/previews/<id>/p[/resto]` → id e resto (sempre começa com `/`); `null` se o caminho não é do modo básico. */
-export function parsePreviewBasicPath(pathname: string): { id: string; rest: string } | null {
+const PREVIEW_BASIC_PATH = /^\/v1\/previews\/([a-z0-9]{20,40})\/p(?:\/([^/]*)(\/.*)?)?$/;
+
+/** `/v1/previews/<id>/p/<cap>[/resto]` → id, cap (`""` se faltar) e resto (sempre começa com `/`); `null` se o caminho não é do modo básico. */
+export function parsePreviewBasicPath(pathname: string): { id: string; cap: string; rest: string } | null {
 	const match = PREVIEW_BASIC_PATH.exec(pathname);
-	return match ? { id: match[1]!, rest: match[2] ?? "/" } : null;
+	return match ? { id: match[1]!, cap: match[2] ?? "", rest: match[3] ?? "/" } : null;
+}
+
+/** O resto repassado ao projeto não pode escapar do prefixo nem conter separadores ambíguos (`//`, `\`, `%2f`, `%5c`, `..`/`%2e`, NUL/controle). */
+export function isSafePreviewRest(rest: string): boolean {
+	// eslint-disable-next-line no-control-regex
+	if (rest.includes("//") || rest.includes("\\") || /%(?:2f|5c|00|0a|0d)/i.test(rest) || /[\u0000-\u001f\u007f]/.test(rest)) return false;
+	return !rest.split("/").some((segment) => /^(?:\.|%2e){1,2}$/i.test(segment));
+}
+
+/** Tira o `cap` do caminho para log/telemetria (`/p/<cap>/x` → `/p/:cap/x`). */
+export function redactPreviewPath(path: string): string {
+	return path.replace(/^(\/v1\/previews\/[a-z0-9]{20,40}\/p\/)[^/]+/, "$1:cap");
 }
 
 /** Sufixos de dois níveis comuns (heurística simples; não é a lista pública de sufixos completa). */

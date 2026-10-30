@@ -90,26 +90,47 @@ describe("startPreview", () => {
 		expect(saved).toEqual([]);
 	});
 
-	it("modo básico: link igual, devolve o prefixo, as dicas de base/sandbox e o caminho para a prévia completa; sem base_configured não marca a prévia", async () => {
-		const { context, saved } = ctx({ link: { baseDomain: null, atlasUrl: "https://atlas.example.com" } });
+	it("modo básico: link igual, segredo no caminho (cap) gravado na prévia, prefixo exato e dicas de base/sandbox; sem base_configured não marca a prévia", async () => {
+		const CAP = "AbCdEfGhIjKlMnOpQrStUvWxYz012345";
+		const { context, saved } = ctx({ link: { baseDomain: null, atlasUrl: "https://atlas.example.com" }, randomCap: () => CAP });
 		const summary = await startPreview(context, { port: 5173 });
-		expect(saved).toEqual([{ port: 5173, path: "/", startedAt: new Date(NOW).toISOString(), expiresAt: new Date(NOW + 3_600_000).toISOString() }]);
+		expect(saved).toEqual([{ port: 5173, path: "/", startedAt: new Date(NOW).toISOString(), expiresAt: new Date(NOW + 3_600_000).toISOString(), cap: CAP }]);
 		expect(summary).toContain("Preview ready: https://atlas.example.com/v1/previews/cmabc123def456ghi789jkl01/open");
+		expect(summary).not.toContain("/open/");
 		expect(summary).toContain("Mode: basic");
-		expect(summary).toContain("/v1/previews/cmabc123def456ghi789jkl01/p/");
-		expect(summary).toMatch(/vite `--base \/v1\/previews\/cmabc123def456ghi789jkl01\/p\/`/);
+		expect(summary).toContain(`/v1/previews/cmabc123def456ghi789jkl01/p/${CAP}/`);
+		expect(summary).toContain(`vite \`--base /v1/previews/cmabc123def456ghi789jkl01/p/${CAP}/\``);
 		expect(summary).toMatch(/base_configured:true/);
 		expect(summary).toMatch(/full preview needs a separate domain/);
 		expect(summary).not.toMatch(/172\.18|127\.0\.0\.1|3090/);
 	});
 
-	it("modo básico com base_configured:true grava basePrefixed; no modo completo a opção é ignorada", async () => {
+	it("modo básico: o cap é aleatório de verdade (32 caracteres base64url) e é mantido enquanto a prévia vale (o --base já configurado continua certo)", async () => {
+		const link = { baseDomain: null, atlasUrl: "https://atlas.example.com" };
+		const first = ctx({ link });
+		await startPreview(first.context, { port: 5173 });
+		const cap = first.saved[0]!.cap!;
+		expect(cap).toMatch(/^[A-Za-z0-9_-]{32}$/);
+		const other = ctx({ link });
+		await startPreview(other.context, { port: 5173 });
+		expect(other.saved[0]!.cap).not.toBe(cap);
+		const again = ctx({ link, current: first.saved[0]! });
+		const summary = await startPreview(again.context, { port: 5173, base_configured: true });
+		expect(again.saved[0]).toMatchObject({ cap, basePrefixed: true });
+		expect(summary).toContain(`/p/${cap}/`);
+		const expired = ctx({ link, current: { ...first.saved[0]!, expiresAt: new Date(NOW - 1).toISOString() } });
+		await startPreview(expired.context, { port: 5173 });
+		expect(expired.saved[0]!.cap).not.toBe(cap);
+	});
+
+	it("modo básico com base_configured:true grava basePrefixed; no modo completo a opção e o cap não existem", async () => {
 		const basic = ctx({ link: { baseDomain: null, atlasUrl: "https://atlas.example.com" } });
 		await startPreview(basic.context, { port: 5173, base_configured: true });
 		expect(basic.saved[0]).toMatchObject({ basePrefixed: true });
 		const full = ctx();
 		const summary = await startPreview(full.context, { port: 5173, base_configured: true });
 		expect(full.saved[0]).not.toHaveProperty("basePrefixed");
+		expect(full.saved[0]).not.toHaveProperty("cap");
 		expect(summary).toContain("Mode: full.");
 		expect(summary).not.toMatch(/--base/);
 	});

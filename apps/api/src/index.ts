@@ -24,7 +24,7 @@ import { jsonBodyLimit } from "./middleware/json-body-limit.js";
 import { apiCompress } from "./middleware/compress.js";
 import { auth, authProviders, isOwnerEmail } from "./auth.js";
 import { createViewerUpgradeHandler } from "./routes/sandbox-viewer.js";
-import { createPreviewBasicRoutes, createPreviewOpenRoutes, createPreviewService, createUpgradeDispatcher, loadPreviewConfig, previewConfigProblem } from "./routes/previews.js";
+import { basicResponseHeaders, createPreviewBasicRoutes, createPreviewOpenRoutes, createPreviewService, createUpgradeDispatcher, loadPreviewConfig, previewConfigProblem } from "./routes/previews.js";
 import { createChatRoutes } from "./routes/chat.js";
 import { createDevSessionRoutes } from "./routes/dev-sessions.js";
 import { createDevEnvironmentRoutes } from "./routes/dev-environments.js";
@@ -39,7 +39,7 @@ import { createAvatarRoutes } from "./routes/avatars.js";
 import { appendConversationMessage, conversationHoldsVm, logArtifactDir, createNotifier, createRedisCoalesce, createRedisPresence, getStrictOwnedConversation, installPushListener } from "@workspace/db";
 import { isVmProtectedFromGuard, noticeVmStopped, type VmGuardDeps } from "./sandbox-guard-notice.js";
 import { createWebPushSender } from "@workspace/mail";
-import { ATLAS_JOB_NAMES, formatMissingEnv, readVapidConfig, vapidProblems } from "@workspace/shared";
+import { ATLAS_JOB_NAMES, formatMissingEnv, readVapidConfig, redactPreviewPath, vapidProblems } from "@workspace/shared";
 import { captureError, currentRequestId, initSentry, installRequestIdLogging } from "@workspace/observability";
 import { requestIdMiddleware } from "./middleware/request-id.js";
 import { createDiagnosticsRoutes } from "./routes/diagnostics.js";
@@ -159,8 +159,10 @@ const app = new Hono();
 
 app.use("/*", requestIdMiddleware);
 app.onError((error, c) => {
-	console.error(`${c.req.method} ${c.req.path} failed`, error);
-	captureError(error, { route: c.req.path, method: c.req.method, request_id: currentRequestId() });
+	// O `cap` da prévia (modo básico) é credencial: nunca vai a log nem a telemetria.
+	const safePath = redactPreviewPath(c.req.path);
+	console.error(`${c.req.method} ${safePath} failed`, error);
+	captureError(error, { route: safePath, method: c.req.method, request_id: currentRequestId() });
 	return c.text("Internal Server Error", 500);
 });
 
@@ -200,6 +202,8 @@ app.use("/v1/internal/dev-jobs/*", rateLimitByIp(300, 60_000));
 app.use("/v1/avatars/*", rateLimitByIp(120, 60_000));
 app.use("/v1/public/*", rateLimitByIp(60, 60_000));
 // Prévia no modo básico: sem login do Atlas, então limite por IP (uma página carrega dezenas de arquivos; folga larga).
+app.use("/v1/previews/:id/p", basicResponseHeaders);
+app.use("/v1/previews/:id/p/*", basicResponseHeaders);
 app.use("/v1/previews/:id/p/*", rateLimitByIp(1200, 60_000));
 app.use("/v1/*", requireUser);
 app.use("/v1/*", jsonBodyLimit);
