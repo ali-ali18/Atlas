@@ -148,3 +148,13 @@ export function workingStatusLabel(
 			return t("chat.working.default", { name });
 	}
 }
+
+/**
+ * Status do run depois de chegar o primeiro sinal de vida (evento `run`, texto ou ferramenta): "queued" vira
+ * "running". O app grava "queued" ao criar o run e o servidor não manda "running" num run normal, então sem isto o
+ * indicador ficava em "está começando" o run inteiro. Qualquer outro status (retrying, waiting_*, paused, pausing…)
+ * continua como está.
+ */
+export function runStatusOnProgress(status: string | null): string | null {
+	return status === "queued" ? "running" : status;
+}
