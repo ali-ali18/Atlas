@@ -1,4 +1,4 @@
-import { getMcpConnectionByCatalogId, type McpConnectionRecord } from "@workspace/db";
+import { getMcpConnectionByCatalogId, updateMcpConnection, type McpConnectionRecord } from "@workspace/db";
 import { probeBrapiKey, type MarketKeys } from "@workspace/search";
 import { isSecretBoxConfigured, openSecrets } from "../mcp/secret-box.js";
 
@@ -46,4 +46,51 @@ export async function probeMarketKey(catalogId: string, key: string, probe: (key
 		if (code === "rate_limit") throw new Error("A chave da brapi chegou ao limite do plano. Tente de novo mais tarde.");
 		throw new Error("Não consegui validar a chave na brapi agora. Tente de novo em instantes.");
 	}
+}
+
+const REJECTED_MESSAGE = "A brapi recusou a chave. Reconecte a brapi no Marketplace com uma chave válida.";
+
+export type RejectedKeyDeps = {
+	getConnection?: (catalogId: string, userId: string) => Promise<Pick<McpConnectionRecord, "id" | "status" | "secretsEnc"> | null>;
+	update?: (id: string, patch: { status: "error"; lastError: string }, userId: string) => Promise<unknown>;
+	open?: (sealed: string | null | undefined) => { apiKey?: string };
+};
+
+/**
+ * A brapi recusou a chave (401/403, ex.: revogada): marca a conexão do DONO como erro. Assim o `propose_connector`
+ * oferece o cartão de reconexão (conexão fora de "connected" = reconectar) e `resolveMarketKeys` deixa de entregar a
+ * chave morta (sem beco sem saída: o alerta não fica pedindo uma chave que o usuário nunca vê como quebrada).
+ * Escopado pelo dono (`ownerIds` no db) e só se a chave guardada ainda é a que foi recusada: se o usuário já
+ * reconectou com outra enquanto a leitura rodava, não derruba a nova.
+ */
+export async function reportRejectedMarketKey(userId: string | undefined, rejectedKey: string, deps: RejectedKeyDeps = {}): Promise<boolean> {
+	if (!userId || userId === "default" || !rejectedKey) return false;
+	const getConnection = deps.getConnection ?? ((catalogId, owner) => getMcpConnectionByCatalogId(catalogId, owner));
+	const connection = await getConnection(MARKET_KEY_CATALOG_IDS.brapi, userId).catch(() => null);
+	if (!connection || connection.status !== "connected") return false;
+	try {
+		if ((deps.open ?? openSecrets)(connection.secretsEnc).apiKey?.trim() !== rejectedKey) return false;
+	} catch {
+		return false;
+	}
+	const update = deps.update ?? ((id, patch, owner) => updateMcpConnection(id, patch, owner));
+	await update(connection.id, { status: "error", lastError: REJECTED_MESSAGE }, userId).catch(() => undefined);
+	return true;
+}
+
+/**
+ * Acesso às chaves de mercado do DONO durante uma leitura: entrega as chaves e, se a brapi recusar a usada, marca a
+ * conexão do dono como erro. Usado pelo worker e pelo teste da criação.
+ */
+export function ownerMarketAccess(userId: string | undefined, deps: { resolveKeys?: (userId: string | undefined) => Promise<MarketKeys>; onRejected?: (userId: string | undefined, key: string) => Promise<unknown> } = {}) {
+	let used: MarketKeys = {};
+	return {
+		getKeys: async (): Promise<MarketKeys> => {
+			used = await (deps.resolveKeys ?? resolveMarketKeys)(userId);
+			return used;
+		},
+		afterRead: async (result: { ok: boolean; code?: string }): Promise<void> => {
+			if (!result.ok && result.code === "auth" && used.brapi) await (deps.onRejected ?? reportRejectedMarketKey)(userId, used.brapi).catch(() => undefined);
+		},
+	};
 }

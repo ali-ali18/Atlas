@@ -1,6 +1,6 @@
 import { readAlertRule } from "@workspace/search";
 import { evaluateAlertRule, type AlertRule, type AlertRuleRead, type BotLanguage } from "@workspace/shared";
-import { resolveMarketKeys } from "../market/keys.js";
+import { ownerMarketAccess } from "../market/keys.js";
 
 /**
  * Regra de alerta determinística (`propose_routine.alert.rule`): o servidor confere a fonte sozinho, sem modelo.
@@ -104,7 +104,13 @@ export async function testAlertRule(
  * Marketplace), nunca de ambiente nem de outro usuário.
  */
 export function ownerAlertRuleReader(userId: string | undefined): AlertRuleReader {
-	return (rule) => readAlertRule(rule, { market: { getKeys: () => resolveMarketKeys(userId) } });
+	return async (rule) => {
+		const access = ownerMarketAccess(userId);
+		const result = await readAlertRule(rule, { market: { getKeys: access.getKeys } });
+		// Chave da brapi recusada (revogada): a conexão do dono vira erro e o cartão de reconexão passa a aparecer.
+		await access.afterRead(result);
+		return result;
+	};
 }
 
 /** Frase para o modelo contar ao usuário o que leu (o valor só vem de uma leitura real). */

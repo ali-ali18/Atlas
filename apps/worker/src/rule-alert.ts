@@ -38,10 +38,25 @@ export function ruleSourceReader(
 	deps: {
 		readAlertRule: (rule: AlertRule, deps: AlertSourceDeps) => Promise<RuleSourceResult>;
 		resolveKeys: (userId: string) => Promise<MarketKeys>;
+		/** A brapi recusou a chave usada: marca a conexão do DONO como erro (reconexão no Marketplace). */
+		onKeyRejected?: (userId: string, key: string) => Promise<unknown>;
 		cache?: AlertSourceCache;
 	},
 ): (rule: AlertRule) => Promise<RuleSourceResult> {
-	return (rule) => deps.readAlertRule(rule, { ...(deps.cache ? { cache: deps.cache } : {}), market: { getKeys: () => deps.resolveKeys(userId) } });
+	return async (rule) => {
+		let used: MarketKeys = {};
+		const result = await deps.readAlertRule(rule, {
+			...(deps.cache ? { cache: deps.cache } : {}),
+			market: {
+				getKeys: async () => {
+					used = await deps.resolveKeys(userId);
+					return used;
+				},
+			},
+		});
+		if (!result.ok && result.code === "auth" && used.brapi && deps.onKeyRejected) await deps.onKeyRejected(userId, used.brapi).catch(() => undefined);
+		return result;
+	};
 }
 
 export type RuleAlertOutcome = { status: "succeeded"; summary: string; plan: AlertRunPlan };

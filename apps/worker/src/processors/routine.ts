@@ -28,7 +28,7 @@ import {
 	settleRoutineRunDirect,
 } from "@workspace/db";
 import { createAlertSourceCache, readAlertRule } from "@workspace/search";
-import { listBriefSources, resolveMarketKeys } from "@workspace/agent-runtime";
+import { listBriefSources, reportRejectedMarketKey, resolveMarketKeys } from "@workspace/agent-runtime";
 import type { AgentRunQueue } from "@workspace/queue";
 import type { WorkerConfig } from "../config.js";
 import { ruleAlertMarketClosedReason, ruleAlertSkipReason, ruleSourceReader, runRuleAlert, type RuleSourceResult } from "../rule-alert.js";
@@ -548,7 +548,7 @@ async function runRoutineJob(
 			},
 			{
 				// A chave das cotações é a do DONO da rotina (cofre do Marketplace), aberta só durante esta leitura.
-				read: meta.readAlertRule ?? ruleSourceReader(routineUserId, { readAlertRule, resolveKeys: resolveMarketKeys, cache: alertSourceCache }),
+				read: meta.readAlertRule ?? ruleSourceReader(routineUserId, { readAlertRule, resolveKeys: resolveMarketKeys, onKeyRejected: reportRejectedMarketKey, cache: alertSourceCache }),
 				settleRun: (userId, runId, input) => settleRoutineRunDirect(userId, runId, input),
 				record: recordRoutineAlertState,
 				reschedule: async () => {

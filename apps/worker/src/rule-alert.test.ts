@@ -224,3 +224,22 @@ test("a chave é resolvida para o dono da rotina, só quando a fonte pede, e o l
 	assert.deepEqual(seenKeys, { brapi: "brapi-key-user-a-123456" });
 	assert.ok(!JSON.stringify(result).includes("brapi-key-user-a"));
 });
+
+test("brapi recusa a chave do dono: o worker marca a conexão DELE como erro (só com 'auth' e com a chave usada)", async () => {
+	const rejected: Array<[string, string]> = [];
+	const make = (code: string) =>
+		ruleSourceReader("user-a", {
+			resolveKeys: async () => ({ brapi: "brapi-key-user-a-123456" }),
+			onKeyRejected: async (userId, key) => void rejected.push([userId, key]),
+			readAlertRule: async (_rule, deps) => {
+				await deps.market?.getKeys?.();
+				return { ok: false, code, reason: "x", host: "brapi.dev", ms: 1 };
+			},
+		});
+	await make("http")(quoteRule);
+	await make("rate_limit")(quoteRule);
+	assert.deepEqual(rejected, []);
+	const result = await make("auth")(quoteRule);
+	assert.equal(result.ok, false);
+	assert.deepEqual(rejected, [["user-a", "brapi-key-user-a-123456"]]);
+});

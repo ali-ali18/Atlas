@@ -15,7 +15,7 @@ process.env.CONNECTOR_ENCRYPTION_KEY ||= randomBytes(32).toString("base64");
 
 const { prisma } = await import("@workspace/db");
 const { createMcpRoutes } = await import("./mcp.js");
-const { openSecrets, resolveMarketKeys } = await import("@workspace/agent-runtime");
+const { openSecrets, resolveMarketKeys, reportRejectedMarketKey } = await import("@workspace/agent-runtime");
 
 type Row = Record<string, any>;
 
@@ -143,4 +143,19 @@ test("atualizar a conexão confere a chave de novo e marca erro se não vale mai
 	assert.equal(rows[0]!.status, "error");
 	const other = await appFor(B, async () => undefined).request(`/v1/mcp/connections/${id}/refresh`, { method: "POST" });
 	assert.equal(other.status, 404, "outro dono não atualiza nem vê a conexão");
+}));
+
+test("chave revogada: a conexão do dono vira erro no banco, resolveMarketKeys devolve sem chave e o outro usuário segue conectado", { skip: SKIP }, withMemoryDb(async (rows) => {
+	await post(appFor(A, async () => undefined), { catalogId: "brapi", apiKey: KEY_A });
+	await post(appFor(B, async () => undefined), { catalogId: "brapi", apiKey: "brapi-token-do-usuario-B-222222" });
+	assert.equal(await reportRejectedMarketKey(A, KEY_A), true);
+	assert.equal(rows.find((row) => row.userId === A)!.status, "error");
+	assert.equal(rows.find((row) => row.userId === B)!.status, "connected");
+	assert.deepEqual(await resolveMarketKeys(A), {});
+	assert.deepEqual(await resolveMarketKeys(B), { brapi: "brapi-token-do-usuario-B-222222" });
+	// o próprio usuário reconecta com a chave nova pelo mesmo caminho do Marketplace e volta a funcionar
+	const again = await post(appFor(A, async () => undefined), { catalogId: "brapi", apiKey: "brapi-token-novo-do-A-333333" });
+	assert.equal(again.status, 201);
+	assert.deepEqual(await resolveMarketKeys(A), { brapi: "brapi-token-novo-do-A-333333" });
+	assert.equal(rows.filter((row) => row.userId === A).length, 1, "reconectar atualiza a mesma conexão");
 }));
