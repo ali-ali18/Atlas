@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseAlertRule, type AlertRule, type AlertRuleRead, type RoutineAlert } from "@workspace/shared";
-import { ruleAlertSkipReason, ruleAlertSpacingMinutes, runRuleAlert, type RuleAlertDeps, type RuleAlertRunInput } from "./rule-alert.js";
+import { ruleAlertMarketClosedReason, ruleAlertSkipReason, ruleAlertSpacingMinutes, ruleSourceReader, runRuleAlert, type RuleAlertDeps, type RuleAlertRunInput } from "./rule-alert.js";
 
 function rule(source: object = { type: "page", url: "https://loja.example.com/p", extract: { kind: "css", selector: ".price" } }, check: object = { kind: "value", parse: "money", op: "lt", value: 400 }): AlertRule {
 	const parsed = parseAlertRule({ source, check, label: "tênis" });
@@ -142,4 +142,85 @@ test("execuções concorrentes (agendada + manual) com o mesmo estado: só a que
 	await Promise.all([runRuleAlert({ ...a.input, now: new Date("2026-10-30T12:00:00Z") }, a.deps), runRuleAlert({ ...b.input, now: new Date("2026-10-30T12:00:01Z") }, b.deps)]);
 	assert.equal(a.calls.post.length + b.calls.post.length, 1);
 	assert.equal(a.calls.push.length + b.calls.push.length, 1);
+});
+
+// ---------------------------------------------------------------- fontes de mercado (etapa 2)
+
+const quoteRule = rule({ type: "quote", symbol: "BBAS3" }, { kind: "value", parse: "money", op: "lt", value: 15 });
+const num = (value: number, delayMinutes?: number): AlertRuleRead => ({ kind: "number", value, ...(delayMinutes !== undefined ? { delayMinutes } : {}) });
+/** Terça 27/10/2026 às 12h em Brasília (pregão aberto). */
+const open = new Date("2026-10-27T15:00:00Z");
+
+test("cotação fora do pregão não confere (noite, fim de semana, feriado); depois do fechamento confere uma vez", () => {
+	const alert = alertWith({}, quoteRule);
+	assert.equal(ruleAlertMarketClosedReason({ rule: quoteRule, alert, now: open }), null);
+	assert.match(ruleAlertMarketClosedReason({ rule: quoteRule, alert, now: new Date("2026-10-28T01:00:00Z") }) ?? "", /Mercado fechado/);
+	assert.match(ruleAlertMarketClosedReason({ rule: quoteRule, alert, now: new Date("2026-10-31T15:00:00Z") }) ?? "", /Mercado fechado/);
+	assert.match(ruleAlertMarketClosedReason({ rule: quoteRule, alert, now: new Date("2026-11-02T15:00:00Z") }) ?? "", /Mercado fechado/);
+	const afterClose = new Date("2026-10-27T20:05:00Z"); // 17h05 em Brasília, depois do leilão (17h)
+	assert.equal(ruleAlertMarketClosedReason({ rule: quoteRule, alert: alertWith({ checkedAt: "2026-10-27T19:45:00Z" }, quoteRule), now: afterClose }), null);
+	assert.match(ruleAlertMarketClosedReason({ rule: quoteRule, alert: alertWith({ checkedAt: "2026-10-27T20:01:00Z" }, quoteRule), now: new Date("2026-10-27T20:20:00Z") }) ?? "", /Mercado fechado/);
+});
+
+test("outras fontes não dependem do pregão", () => {
+	const fx = rule({ type: "fx", pair: "USD-BRL" }, { kind: "value", parse: "money", op: "gt", value: 6 });
+	assert.equal(ruleAlertMarketClosedReason({ rule: fx, alert: alertWith({}, fx), now: new Date("2026-10-31T03:00:00Z") }), null);
+	assert.equal(ruleAlertMarketClosedReason({ rule: rule(), alert: alertWith(), now: new Date("2026-10-31T03:00:00Z") }), null);
+});
+
+test("pisos: cotação 15 min, cripto 5 min, clima 3 h", () => {
+	const crypto = rule({ type: "crypto", symbol: "BTC", quote: "BRL" }, { kind: "value", parse: "money", op: "lt", value: 300000 });
+	const weather = rule({ type: "weather", place: "Curitiba", metric: "rain_probability" }, { kind: "value", parse: "number", op: "gt", value: 60 });
+	assert.equal(ruleAlertSpacingMinutes(quoteRule, {}, "interval"), 15);
+	assert.equal(ruleAlertSpacingMinutes(crypto, {}, "interval"), 5);
+	assert.equal(ruleAlertSpacingMinutes(weather, {}, "interval"), 180);
+});
+
+test("cotação: avisa na segunda leitura com a nota de atraso e guarda o atraso no estado", async () => {
+	const first = setup([num(14.9, 30)], { alert: alertWith({}, quoteRule), interval: { everyMinutes: 30 }, now: open });
+	await runRuleAlert(first.input, first.deps);
+	const state = first.calls.record[0]!.next;
+	assert.equal(state.ruleState?.delayMinutes, 30);
+	const second = setup([num(14.9, 30)], { alert: alertWith({ ruleState: state.ruleState }, quoteRule), interval: { everyMinutes: 30 }, now: open });
+	const outcome = await runRuleAlert(second.input, second.deps);
+	assert.equal(outcome.plan.decision.transition, "triggered");
+	assert.deepEqual(second.calls.post, ["⚠️ Tênis está em R$ 14,90 (cotação com atraso de ~30 min)"]);
+	assert.match(second.calls.logs.join("\n"), /host=loja\.example\.com outcome=triggered/);
+});
+
+test("mercado fechado informado pelo provedor: silêncio total (sem aviso, sem estado, sem 'não consegui verificar')", async () => {
+	const s = setup([num(1)], { alert: alertWith({}, quoteRule), interval: { everyMinutes: 30 }, now: open });
+	s.deps.read = async () => ({ ok: false, code: "market_closed", reason: "o mercado parece fechado hoje (a cotação é de outro dia)", host: "brapi.dev", ms: 9 });
+	const outcome = await runRuleAlert(s.input, s.deps);
+	assert.equal(outcome.status, "succeeded");
+	assert.equal(s.calls.record.length, 0, "não grava estado do alerta");
+	assert.equal(s.calls.post.length + s.calls.push.length, 0);
+	assert.equal(s.calls.settleRun[0]!.input.summary, "Mercado fechado hoje: sem conferência");
+});
+
+test("cotação sem chave: 'não consegui verificar' uma vez, com a dica do Marketplace", async () => {
+	const s = setup({ fail: "x" }, { alert: alertWith({}, quoteRule), interval: { everyMinutes: 30 }, now: open });
+	s.deps.read = async () => ({ ok: false, code: "needs_key", reason: "conecte a brapi no Marketplace (é grátis) para acompanhar cotações", host: "market:quote", ms: 1 });
+	const outcome = await runRuleAlert(s.input, s.deps);
+	assert.equal(outcome.plan.decision.transition, "inconclusive");
+	assert.match(s.calls.post.join("\n"), /Marketplace/);
+});
+
+test("a chave é resolvida para o dono da rotina, só quando a fonte pede, e o leitor não vaza a chave", async () => {
+	const asked: string[] = [];
+	let seenKeys: unknown;
+	const reader = ruleSourceReader("user-a", {
+		resolveKeys: async (userId) => {
+			asked.push(userId);
+			return { brapi: "brapi-key-user-a-123456" };
+		},
+		readAlertRule: async (_rule, deps) => {
+			seenKeys = await deps.market?.getKeys?.();
+			return { ok: true, read: { kind: "number", value: 20 }, host: "brapi.dev", ms: 3 };
+		},
+	});
+	const result = await reader(quoteRule);
+	assert.deepEqual(asked, ["user-a"]);
+	assert.deepEqual(seenKeys, { brapi: "brapi-key-user-a-123456" });
+	assert.ok(!JSON.stringify(result).includes("brapi-key-user-a"));
 });

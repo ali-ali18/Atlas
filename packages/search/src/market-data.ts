@@ -372,7 +372,8 @@ async function fetchFrom(source: AlertMarketSource, deps: MarketDeps, now: numbe
 			health.delete(id);
 			return result;
 		} catch (error) {
-			const typed = error instanceof MarketError ? error : new MarketError("network", "não consegui acessar a fonte");
+			let typed = error instanceof MarketError ? error : new MarketError("network", "não consegui acessar a fonte");
+			if (typed.code === "auth" && provider.needsKey === "brapi") typed = new MarketError("auth", "a brapi recusou a chave: reconecte a brapi no Marketplace");
 			// Chave recusada e ativo desconhecido dependem do pedido, não da saúde do serviço: só a chave entra no backoff.
 			if (typed.code !== "not_found" && typed.code !== "parse") recordFailure(health, id, typed, clock());
 			last = typed;

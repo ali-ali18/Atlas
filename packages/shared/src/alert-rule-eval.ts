@@ -39,6 +39,8 @@ export type AlertRuleState = {
 	/** Itens já vistos (novo item), limitado. */
 	seenIds?: string[];
 	seeded?: boolean;
+	/** Atraso medido da última cotação (min), quando relevante: o cartão mostra "atraso ~30 min". */
+	delayMinutes?: number;
 };
 
 /** O que a fonte devolveu. */
@@ -169,7 +171,8 @@ export function evaluateAlertRule(input: {
 	if (value === null) return inconclusive(state, "o valor lido não é um número");
 	if (!Number.isFinite(value) || Math.abs(value) > ABSURD_MAX || (check.parse === "money" && value <= 0)) return inconclusive(state, "o valor lido não faz sentido");
 	const display = formatAlertNumber(value, check.parse, locale, check.currency) + alertSourceUnit(rule.source);
-	const note = read.kind === "number" ? delayNote(read.delayMinutes, locale) : undefined;
+	const delay = read.kind === "number" && read.delayMinutes !== undefined && read.delayMinutes >= DELAY_MIN_MINUTES ? Math.round(read.delayMinutes) : undefined;
+	const note = delayNote(delay, locale);
 
 	const previous = typeof state.lastValue === "number" ? state.lastValue : undefined;
 	// Previsão do tempo muda de um dia para o outro por natureza (10% → 80% de chuva): o filtro de salto não vale.
@@ -196,7 +199,7 @@ export function evaluateAlertRule(input: {
 		if (baseline === undefined) {
 			return {
 				verdict: { triggered: false, summary: renderAlertMessage(rule, display, locale) },
-				state: { lastValue: value, lastReadAt: stamp, consecutive: 0, baseline: value },
+				state: { lastValue: value, lastReadAt: stamp, consecutive: 0, baseline: value, ...(delay ? { delayMinutes: delay } : {}) },
 				display,
 				...(note ? { note } : {}),
 			};
@@ -213,7 +216,8 @@ export function evaluateAlertRule(input: {
 	if (check.op === "changed_pct" && result.verdict?.triggered && !wasActive) baseline = value;
 	// A cotação com atraso diz isso no próprio aviso: quem decide sabe que o preço não é o desta hora.
 	const verdict = result.verdict && note && result.verdict.triggered ? { ...result.verdict, summary: `${result.verdict.summary} (${note})`.slice(0, 340) } : result.verdict;
-	return { ...result, verdict, ...(note ? { note } : {}), state: { ...result.state, ...(baseline !== undefined ? { baseline } : {}) } };
+	const { delayMinutes: _previousDelay, ...cleanState } = result.state;
+	return { ...result, verdict, ...(note ? { note } : {}), state: { ...cleanState, ...(delay ? { delayMinutes: delay } : {}), ...(baseline !== undefined ? { baseline } : {}) } };
 }
 
 const DELAY_NOTE: Record<string, string> = {
@@ -223,8 +227,9 @@ const DELAY_NOTE: Record<string, string> = {
 };
 
 /** Atraso só vale a menção a partir de 10 min (abaixo disso é ruído de relógio). */
+const DELAY_MIN_MINUTES = 10;
 function delayNote(minutes: number | undefined, locale: BotLanguage): string | undefined {
-	if (minutes === undefined || !Number.isFinite(minutes) || minutes < 10) return undefined;
+	if (minutes === undefined || !Number.isFinite(minutes) || minutes < DELAY_MIN_MINUTES) return undefined;
 	return (DELAY_NOTE[locale] ?? DELAY_NOTE["pt-BR"]!).replace("{n}", String(Math.round(minutes)));
 }
 

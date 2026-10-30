@@ -1,7 +1,9 @@
+import type { AlertSourceCache, AlertSourceDeps, MarketKeys } from "@workspace/search";
 import {
 	alertSourceFloorMinutes,
 	alertWasActiveForRule,
 	evaluateAlertRule,
+	quoteCheckDecision,
 	type AlertRule,
 	type AlertRuleRead,
 	type BotLanguage,
@@ -27,6 +29,21 @@ export type RuleAlertDeps = AlertSettleDeps & {
 	settleRun: (userId: string, routineRunId: string, input: { status: "succeeded"; summary: string }) => Promise<boolean>;
 };
 
+/**
+ * Leitor da fonte de UM alerta. A chave das cotações vem do cofre do DONO da rotina (`userId` do job), aberta só
+ * quando a fonte precisa dela; nunca de ambiente do operador nem de outro usuário.
+ */
+export function ruleSourceReader(
+	userId: string,
+	deps: {
+		readAlertRule: (rule: AlertRule, deps: AlertSourceDeps) => Promise<RuleSourceResult>;
+		resolveKeys: (userId: string) => Promise<MarketKeys>;
+		cache?: AlertSourceCache;
+	},
+): (rule: AlertRule) => Promise<RuleSourceResult> {
+	return (rule) => deps.readAlertRule(rule, { ...(deps.cache ? { cache: deps.cache } : {}), market: { getKeys: () => deps.resolveKeys(userId) } });
+}
+
 export type RuleAlertOutcome = { status: "succeeded"; summary: string; plan: AlertRunPlan };
 
 /** Folga de relógio: o disparo do agendador pode chegar um pouco antes do piso. */
@@ -51,6 +68,16 @@ export function ruleAlertSkipReason(input: { rule: AlertRule; alert: Pick<Routin
 	return `Espaçado: esta fonte só é conferida a cada ${minutes} min`;
 }
 
+/**
+ * Cotação da B3 só é conferida no pregão e uma vez depois do fechamento. Fora disso (noite, fim de semana,
+ * feriado) o disparo é descartado sem gerar linha de execução nem chamada ao provedor. null = pode conferir.
+ */
+export function ruleAlertMarketClosedReason(input: { rule: AlertRule; alert: Pick<RoutineAlert, "checkedAt">; now: Date }): string | null {
+	if (input.rule.source.type !== "quote") return null;
+	const decision = quoteCheckDecision(input.now, input.alert.checkedAt);
+	return decision.check ? null : decision.reason;
+}
+
 export type RuleAlertRunInput = {
 	userId: string;
 	routineId: string;
@@ -72,6 +99,17 @@ export async function runRuleAlert(input: RuleAlertRunInput, deps: RuleAlertDeps
 	const result = await deps.read(rule).catch((): RuleSourceResult => ({ ok: false, code: "network", reason: "não consegui ler a fonte", host: "?", ms: 0 }));
 	const read: AlertRuleRead = result.ok ? result.read : { kind: "error", reason: result.reason };
 	const wasActive = alertWasActiveForRule(rule, alert.active);
+	if (!result.ok && result.code === "market_closed") {
+		// O provedor mostra a cotação de outro dia em pleno pregão: feriado fora da lista. Silêncio total: não vira
+		// "não consegui verificar", não conta como leitura e não mexe no estado nem no intervalo.
+		const text = "Mercado fechado hoje: sem conferência";
+		log(`[alert-rule] routine=${input.routineId} host=${result.host} outcome=market_closed notify=false ms=${result.ms}`);
+		await deps
+			.settleRun(input.userId, input.routineRunId, { status: "succeeded", summary: text })
+			.catch((error) => console.error(`[alert-rule] execução não fechada run=${input.routineRunId}`, error instanceof Error ? error.message : "erro"));
+		const quiet = planAlertRun({ alert: { ...alert, active: wasActive }, routineName: input.routineName, verdict: null, modelText: result.reason, interval: input.interval, now });
+		return { status: "succeeded", summary: text, plan: { ...quiet, notify: false } };
+	}
 	const evaluation = evaluateAlertRule({ rule, ...(alert.ruleState ? { state: alert.ruleState } : {}), wasActive, read, now, locale: input.locale });
 
 	// Alerta por horário (cron) não tem intervalo para alargar: o espaçamento fica só no estado (`backoff`).
