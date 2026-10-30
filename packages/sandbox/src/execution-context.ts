@@ -18,6 +18,14 @@ export class SandboxExecutionAbortedError extends Error {
 	}
 }
 
+/** Teto próprio de uma chamada estourou. Não é o prazo do run: quem chama pode tentar de novo. */
+export class SandboxOperationTimeoutError extends Error {
+	constructor(readonly timeoutMs: number) {
+		super(`Sandbox operation timed out after ${timeoutMs}ms`);
+		this.name = "SandboxOperationTimeoutError";
+	}
+}
+
 export function assertSandboxExecution(
 	context: SandboxExecutionContext = {},
 ): void {
@@ -39,17 +47,21 @@ export async function runSandboxOperation<T>(
 ): Promise<T> {
 	assertSandboxExecution(context);
 	const controller = new AbortController();
-	const remaining = Math.min(
-		timeoutMs ?? Infinity,
+	const deadlineRemaining =
 		context.deadlineAtMs === undefined
 			? Infinity
-			: context.deadlineAtMs - Date.now(),
-	);
+			: context.deadlineAtMs - Date.now();
+	const remaining = Math.min(timeoutMs ?? Infinity, deadlineRemaining);
+	// Só o prazo do contexto vira "deadline"; o teto da própria chamada é outro erro.
+	const selfTimeout = timeoutMs !== undefined && timeoutMs < deadlineRemaining;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let abortListener: (() => void) | undefined;
 	const interrupted = new Promise<never>((_, reject) => {
-		const abort = (reason: "cancel" | "deadline") => {
-			const error = new SandboxExecutionAbortedError(reason);
+		const abort = (reason: "cancel" | "deadline" | "timeout") => {
+			const error =
+				reason === "timeout"
+					? new SandboxOperationTimeoutError(timeoutMs ?? 0)
+					: new SandboxExecutionAbortedError(reason);
 			controller.abort(
 				reason === "cancel" ? (context.signal?.reason ?? error) : error,
 			);
@@ -58,7 +70,10 @@ export async function runSandboxOperation<T>(
 		abortListener = () => abort("cancel");
 		context.signal?.addEventListener("abort", abortListener, { once: true });
 		if (Number.isFinite(remaining))
-			timer = setTimeout(() => abort("deadline"), Math.max(0, remaining));
+			timer = setTimeout(
+				() => abort(selfTimeout ? "timeout" : "deadline"),
+				Math.max(0, remaining),
+			);
 	});
 	try {
 		return await Promise.race([interrupted, operation(controller.signal)]);
@@ -75,7 +90,8 @@ export async function sleepSandbox(
 ): Promise<void> {
 	await runSandboxOperation(
 		context,
-		delayMs + 1,
+		// Sem teto próprio: só cancelamento/prazo do contexto interrompem a espera.
+		undefined,
 		(signal) =>
 			new Promise<void>((resolve, reject) => {
 				const timer = setTimeout(() => {

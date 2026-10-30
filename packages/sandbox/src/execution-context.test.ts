@@ -1,6 +1,8 @@
 import { afterEach, expect, it, vi } from "vitest";
 import {
 	runSandboxOperation,
+	sleepSandbox,
+	SandboxOperationTimeoutError,
 	SandboxExecutionAbortedError,
 } from "./execution-context.js";
 import { controlNavigate } from "./control-client.js";
@@ -54,4 +56,35 @@ it("sem teto por categoria, operação longa obedece apenas ao prazo do run", as
 	);
 	await vi.advanceTimersByTimeAsync(200_001);
 	expect(await work).toBe("done");
+});
+
+it("espera interna nunca vira deadline sem prazo no contexto, mesmo com o event loop travado", async () => {
+	// Sem teto próprio, a espera de 1ms não compete com um timer de abort. Antes do fix,
+	// ~1% das esperas sob loop bloqueado rejeitavam com SandboxExecutionAbortedError("deadline").
+	let aborted = 0;
+	for (let i = 0; i < 600; i++) {
+		const work = sleepSandbox({}, 1).then(
+			() => 0,
+			() => 1,
+		);
+		if (i % 3 === 0) {
+			const end = performance.now() + 3;
+			while (performance.now() < end);
+		}
+		aborted += await work;
+	}
+	expect(aborted).toBe(0);
+}, 30_000);
+
+it("teto próprio da chamada não se passa pelo prazo do run", async () => {
+	vi.useFakeTimers();
+	const work = runSandboxOperation(
+		{ deadlineAtMs: Date.now() + 60_000 },
+		10,
+		() => new Promise<void>(() => undefined),
+	).catch((e: Error) => e);
+	await vi.advanceTimersByTimeAsync(11);
+	const result = await work;
+	expect(result).toBeInstanceOf(SandboxOperationTimeoutError);
+	expect(result).not.toBeInstanceOf(SandboxExecutionAbortedError);
 });
