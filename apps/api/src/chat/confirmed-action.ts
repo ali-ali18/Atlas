@@ -464,6 +464,17 @@ export function devPrFollowUpContent(userText: string, pr: { title: string; base
 	].join("\n");
 }
 
+export function infraSetupFollowUpContent(userText: string, infra: { label: string }, decision: "approved" | "declined"): string {
+	return [
+		userText,
+		"",
+		decision === "approved"
+			? `[O usuário APROVOU: ${infra.label}.] Chame preview_setup de novo com a mesma action para executar agora (o sistema só escreve depois da aprovação). Depois conte o resultado em 1-2 frases simples.`
+			: `[O usuário NÃO aprovou: ${infra.label}.] Nada foi alterado. Diga isso em uma frase e pergunte se prefere fazer o passo à mão (você dá o passo a passo) ou deixar para depois.`,
+		NO_RENARRATION,
+	].join("\n");
+}
+
 /** Nomes (nunca valores) que já estão salvos no ambiente, entre os pedidos. */
 export async function savedRequestedSecretNames(userId: string, request: { environmentId: string; names: string[] }): Promise<string[]> {
 	if (request.environmentId === VAULT_ENVIRONMENT_ID) {
@@ -678,6 +689,13 @@ export async function maybeHandleConfirmedAction(input: {
 			const outcome: DevCommandOutcome = devReject ? { kind: "rejected", feedback } : { kind: "skipped" };
 			return { handled: false, followUp: { objective: userText, content: devCommandFollowUpContent(userText, devCmd, outcome), ...seedField(pending.payload, undefined, devCommandFollowUpContent("", devCmd, outcome), userText) } };
 		}
+		const infraDeclined = pending.payload.action === "infra-setup" ? pending.payload.infraSetup : undefined;
+		if (input.continueInAgent && infraDeclined) {
+			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
+			await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: "não aprovado pelo usuário" }).catch(() => undefined);
+			const userText = input.text.trim();
+			return { handled: false, followUp: { objective: userText, content: infraSetupFollowUpContent(userText, infraDeclined, "declined"), ...seedField(pending.payload, "preview_setup", infraSetupFollowUpContent("", infraDeclined, "declined"), userText) } };
+		}
 		const vaultUseDeclined = pending.payload.action === "vault-use" ? pending.payload.vaultUse : undefined;
 		if (input.continueInAgent && vaultUseDeclined) {
 			await updateConfirmCardStatus(input.conversationId, "rejected", pending.payload.confirmId, undefined, { ok: false, detail: "não autorizado pelo usuário" }).catch(() => undefined);
@@ -766,6 +784,14 @@ export async function maybeHandleConfirmedAction(input: {
 			await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 			const userText = input.text.trim();
 			return { handled: false, followUp: { objective: userText, content: vaultUseFollowUpContent(userText, vaultUse, approved ? "approved" : "declined"), ...seedField(pending.payload, "login_fill", vaultUseFollowUpContent("", vaultUse, approved ? "approved" : "declined"), userText) } };
+		}
+		const infraApproved = pending.payload.action === "infra-setup" ? pending.payload.infraSetup : undefined;
+		if (input.continueInAgent && infraApproved) {
+			// O aval fica no cartão (resultado ok): o executor só escreve quando acha a chave da chamada aprovada.
+			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
+			await updateConfirmCardStatus(input.conversationId, "approved", pending.payload.confirmId, undefined, { ok: true, detail: "aprovado pelo usuário" }).catch(() => undefined);
+			const userText = input.text.trim();
+			return { handled: false, followUp: { objective: userText, content: infraSetupFollowUpContent(userText, infraApproved, "approved"), ...seedField(pending.payload, "preview_setup", infraSetupFollowUpContent("", infraApproved, "approved"), userText) } };
 		}
 		const prCreate = pending.payload.action === "dev-pr-create" ? pending.payload.devPrCreate : undefined;
 		if (input.continueInAgent && prCreate) {
