@@ -154,6 +154,11 @@ export class StateMachine {
 		this.blinkRate = rate > 0 ? rate : 1;
 	}
 
+	/** Taxa de piscadas atual (diagnóstico e testes). */
+	get blinkRateNow(): number {
+		return this.blinkRate;
+	}
+
 	/** Dispara um giro de 360° (ex.: quando `spinSignal` muda). */
 	spin(): void {
 		this.character.spin();

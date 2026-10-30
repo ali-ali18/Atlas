@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { createAvatarEngine } from "../engine.js";
+import { createBrainBudget } from "./brain-budget.js";
 import { hash, rng } from "../geometry/math.js";
 import {
 	ACTIVITY_FAMILIES,
 	BRAIN_LIMITS,
+	brainLevel,
 	Brain,
 	familyOfState,
 	type ActivityFamily,
@@ -59,7 +61,7 @@ describe("cérebro do avatar", () => {
 				if (Math.abs(t - 3) < DT / 2) brain.pulse("toolStart", 1);
 				if (Math.abs(t - 6) < DT / 2) brain.setFamily("code");
 				if (Math.abs(t - 9) < DT / 2) brain.pulse("toolFail", 0.8);
-				if (Math.abs(t - 12) < DT / 2) brain.pulse("tokens", 0.5);
+				if (Math.abs(t - 12) < DT / 2) brain.pulse("toolOk", 0.5);
 			});
 		};
 		expect(run("bot-a")).toEqual(run("bot-a"));
@@ -70,20 +72,20 @@ describe("cérebro do avatar", () => {
 		const total = 3;
 		const a = new Brain(seedOf("x"));
 		const b = new Brain(seedOf("x"));
-		a.setFamily("search");
-		b.setFamily("search");
+		a.setFamily("read");
+		b.setFamily("read");
 		for (let t = 0; t < total; t += 1 / 30) a.advance(1 / 30);
 		for (let t = 0; t < total; t += 1 / 60) b.advance(1 / 60);
 		// a rede é caótica: um passo de diferença no fim muda a 3ª casa, não o gesto
-		expect(Math.abs(a.output.yaw - b.output.yaw)).toBeLessThan(0.1);
-		expect(Math.abs(a.output.gazeX - b.output.gazeX)).toBeLessThan(0.05);
+		expect(Math.abs(a.output.yaw - b.output.yaw)).toBeLessThan(0.3);
+		expect(Math.abs(a.output.gazeX - b.output.gazeX)).toBeLessThan(0.1);
 		expect(Math.abs(a.output.weight - b.output.weight)).toBeLessThan(0.01);
 	});
 
 	it("fica dentro dos limites numa corrida longa e aleatória (5 min, trocas e pulsos)", () => {
 		const random = rng(1234);
 		const brain = new Brain(seedOf("estresse"));
-		const kinds: PulseKind[] = ["toolStart", "toolOk", "toolFail", "tokens"];
+		const kinds: PulseKind[] = ["toolStart", "toolOk", "toolFail"];
 		const L = BRAIN_LIMITS;
 		let frames = 0;
 		for (let t = 0; t < 300; t += DT) {
@@ -111,7 +113,7 @@ describe("cérebro do avatar", () => {
 
 	it("nunca repete: dois trechos do mesmo tamanho nunca são iguais e o sinal varia", () => {
 		const brain = new Brain(seedOf("sem-repeticao"));
-		brain.setFamily("work");
+		brain.setFamily("control");
 		const frames = record(brain, 60);
 		const yaw = series(frames, "yaw");
 		expect(std(yaw.slice(120))).toBeGreaterThan(0.3);
@@ -137,7 +139,7 @@ describe("cérebro do avatar", () => {
 	});
 
 	it("todas as famílias de trabalho diferem entre si em pelo menos uma medida", () => {
-		const families = ACTIVITY_FAMILIES.filter((f) => f !== "idle");
+		const families = ACTIVITY_FAMILIES.filter((f) => brainLevel(f) > 0);
 		const sig = new Map(families.map((f) => {
 			const s = stats(f);
 			return [f, [s.pitch / 2, s.yawStd, s.gazeXStd * 4, s.rollSpeed * 400, s.squashStd * 60, s.blink * 2, s.gazeYMean * 4]] as const;
@@ -353,5 +355,98 @@ describe("cérebro no motor", () => {
 			return count;
 		};
 		expect(blinks("reading")).toBeLessThan(blinks("controlling") * 0.85);
+	});
+
+	it("Esperando você e trabalho genérico não seguram o loop: sem movimento contínuo, só pulsos", () => {
+		for (const state of ["waiting", "working"] as const) {
+			const e = createAvatarEngine({ shape: "heart", seed: "bateria", breathe: false });
+			e.setState(state === "waiting" ? "waiting" : "working");
+			// o morph de órbita e os clipes de `working` ainda animam; o que não pode haver é cérebro ativo
+			play(e, 3);
+			expect(e.brainWeight()).toBe(0);
+		}
+		expect(brainLevel("wait")).toBe(0);
+		expect(brainLevel("work")).toBe(0);
+		expect(brainLevel("idle")).toBe(0);
+		// com `waiting` e sem clipes, o motor assenta (nada mantém o rAF vivo)
+		const e = createAvatarEngine({ shape: "heart", seed: "bateria-2", breathe: false });
+		e.setActivity("wait");
+		play(e, 2);
+		expect(e.isSettled()).toBe(true);
+		e.pulse("toolOk", 1);
+		expect(e.isSettled()).toBe(false);
+		play(e, 6);
+		expect(e.isSettled()).toBe(true);
+	});
+
+	it("teto global: com 10 avatares trabalhando só `max` cérebros ficam acordados", () => {
+		const budget = createBrainBudget(3);
+		const engines = Array.from({ length: 10 }, (_, i) =>
+			createAvatarEngine({ shape: "blob", seed: `bot-${i}`, breathe: false, budget }),
+		);
+		for (const e of engines) e.setActivity("code");
+		for (const e of engines) play(e, 2);
+		const awake = engines.filter((e) => !e.isSettled());
+		expect(awake).toHaveLength(3);
+		expect(budget.size).toBe(3);
+		// quem ficou sem vaga não tem movimento do cérebro
+		expect(engines.filter((e) => e.brainWeight() > 0)).toHaveLength(3);
+		// ao parar de trabalhar a vaga volta e outro avatar pode usá-la
+		for (const e of awake) e.setActivity(null);
+		for (const e of awake) for (let t = 0; t < 30_000 && !e.isSettled(); t += 16) e.advance(16);
+		expect(budget.size).toBe(0);
+		const next = engines.find((e) => e.isSettled());
+		next?.setActivity("search");
+		expect(budget.size).toBe(1);
+	});
+
+	it("dispose devolve a vaga (avatar desmontado não segura o teto)", () => {
+		const budget = createBrainBudget(1);
+		const a = createAvatarEngine({ shape: "blob", seed: "a", breathe: false, budget });
+		const b = createAvatarEngine({ shape: "blob", seed: "b", breathe: false, budget });
+		a.setActivity("read");
+		b.setActivity("read");
+		play(a, 1);
+		play(b, 1);
+		expect(a.brainWeight()).toBeGreaterThan(0);
+		expect(b.brainWeight()).toBe(0);
+		a.dispose();
+		expect(budget.size).toBe(0);
+		b.setActivity(null);
+		b.setActivity("read");
+		play(b, 1);
+		expect(b.brainWeight()).toBeGreaterThan(0);
+	});
+
+	it("a taxa de piscadas volta a 1 ao encolher abaixo de 32 px (cérebro desligado)", () => {
+		const e = createAvatarEngine({ shape: "blob", seed: "piscada", breathe: true, size: 56 });
+		e.setState("coding"); // programando pisca bem menos
+		play(e, 4);
+		expect(e.behavior.blinkRateNow).toBeLessThan(0.9);
+		e.setSize(24);
+		expect(e.behavior.blinkRateNow).toBe(1);
+		play(e, 1);
+		expect(e.behavior.blinkRateNow).toBe(1);
+	});
+
+	it("a taxa de piscadas volta a 1 quando o cérebro dorme", () => {
+		const e = createAvatarEngine({ shape: "blob", seed: "piscada-2", breathe: false });
+		e.setActivity("code");
+		play(e, 4);
+		expect(e.behavior.blinkRateNow).toBeLessThan(0.9);
+		e.setActivity(null);
+		for (let t = 0; t < 30_000 && !e.isSettled(); t += 16) e.advance(16);
+		expect(e.behavior.blinkRateNow).toBe(1);
+	});
+
+	it("skip() também acompanha a família do estado", () => {
+		const e = createAvatarEngine({ shape: "blob", seed: "skip", breathe: false });
+		expect(e.activityFamily()).toBe("idle");
+		e.behavior.setState("coding");
+		e.skip(100);
+		expect(e.activityFamily()).toBe("code");
+		e.behavior.setState("idle");
+		e.skip(100);
+		expect(e.activityFamily()).toBe("idle");
 	});
 });

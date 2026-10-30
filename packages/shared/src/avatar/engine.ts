@@ -2,7 +2,8 @@
 // API em milissegundos que o ticker usa. Pura: o relógio é de quem chama.
 import { clamp, hash } from "./geometry/math.js";
 import { isShape, type Shape } from "./geometry/shapes.js";
-import { Brain, familyOfState, type ActivityFamily, type PulseKind } from "./model/brain.js";
+import { Brain, brainLevel, familyOfState, type ActivityFamily, type PulseKind } from "./model/brain.js";
+import type { BrainBudget } from "./model/brain-budget.js";
 import { Character, type Frame } from "./model/character.js";
 import {
 	BEHAVIOR_TUNING,
@@ -22,6 +23,8 @@ export type EngineOptions = {
 	size?: number;
 	/** Cérebro (movimento contínuo enquanto o bot trabalha). Desligue para comparar ou medir. */
 	brain?: boolean;
+	/** Vagas de cérebro compartilhadas entre avatares; sem ele, sem limite. */
+	budget?: BrainBudget;
 };
 
 /** Depois de uma interação o motor roda a 60 fps; fora disso, 30. */
@@ -39,6 +42,22 @@ export function createAvatarEngine(opts: EngineOptions) {
 	const brain = new Brain(seed ^ 0x51ed270b);
 	const brainAllowed = opts.brain !== false;
 	character.setBrain(brain.output);
+	const budget = opts.budget;
+	const slot = {};
+	let holding = false;
+	let sizeAllows = true;
+	/** Liga o cérebro só se o avatar o quer, tem tamanho para isso e (com orçamento) tem vaga. */
+	const updateBrain = () => {
+		const on = brainAllowed && sizeAllows && (!budget || holding);
+		brain.setEnabled(on);
+		if (!on) behavior.setBlinkRate(1);
+	};
+	const releaseSlot = () => {
+		if (!holding || !budget) return;
+		budget.release(slot);
+		holding = false;
+		updateBrain();
+	};
 	// Família de atividade: vem do estado (lendo, programando…) ou de `setActivity`.
 	let familyOverride: ActivityFamily | null = null;
 	let family: ActivityFamily = "idle";
@@ -46,16 +65,21 @@ export function createAvatarEngine(opts: EngineOptions) {
 		const next = familyOverride ?? familyOfState(behavior.currentState);
 		if (next === family) return;
 		family = next;
+		if (budget && !holding && brainLevel(next) > 0 && brainAllowed && sizeAllows) {
+			holding = budget.acquire(slot);
+			updateBrain();
+		}
 		brain.setFamily(next);
 	};
 	const applySize = (size: number) => {
-		brain.setEnabled(brainAllowed && size >= BEHAVIOR_TUNING.compactBelowPx);
+		sizeAllows = size >= BEHAVIOR_TUNING.compactBelowPx;
+		updateBrain();
 		behavior.setCompact(size < BEHAVIOR_TUNING.compactBelowPx);
 		behavior.setCompactClips(size < BEHAVIOR_TUNING.compactClipsBelowPx);
 		behavior.setLooks(size >= BEHAVIOR_TUNING.looksFromPx);
 	};
 	if (opts.size !== undefined) applySize(opts.size);
-	else brain.setEnabled(brainAllowed);
+	else updateBrain();
 	let activeLeft = 0;
 
 	const touch = () => {
@@ -74,10 +98,10 @@ export function createAvatarEngine(opts: EngineOptions) {
 				// física anda em passos de no máximo 0,1 s.
 				behavior.advance(seconds);
 				syncFamily();
-				if (brain.isActive) {
-					brain.advance(seconds);
-					behavior.setBlinkRate(brain.output.blinkRate);
-				}
+				if (brain.isActive) brain.advance(seconds);
+				// Sempre sincroniza: com o cérebro desligado ou dormindo a taxa volta a 1.
+				behavior.setBlinkRate(brain.output.blinkRate);
+				if (holding && !brain.isActive) releaseSlot();
 				character.advance(clamp(seconds, 0, 0.1));
 				activeLeft = Math.max(0, activeLeft - dtMs);
 			}
@@ -91,9 +115,15 @@ export function createAvatarEngine(opts: EngineOptions) {
 		skip(dtMs: number): Frame {
 			if (dtMs > 0) {
 				behavior.advance(dtMs / 1000);
+				syncFamily();
 				activeLeft = Math.max(0, activeLeft - dtMs);
 			}
 			return character.frame();
+		},
+		/** Devolve a vaga de cérebro (ao desmontar o avatar). */
+		dispose(): void {
+			familyOverride = null;
+			releaseSlot();
 		},
 		snapshot(): Frame {
 			return character.frame();
@@ -152,6 +182,10 @@ export function createAvatarEngine(opts: EngineOptions) {
 		pulse(kind: PulseKind, strength = 1): void {
 			brain.pulse(kind, strength);
 			touch();
+		},
+		/** Família de atividade em uso (diagnóstico e testes). */
+		activityFamily(): ActivityFamily {
+			return family;
 		},
 		/** Peso atual do cérebro (0..1), para diagnóstico e testes. */
 		brainWeight(): number {

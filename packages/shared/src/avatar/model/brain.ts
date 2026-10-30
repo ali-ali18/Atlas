@@ -43,8 +43,8 @@ export const ACTIVITY_FAMILIES: readonly ActivityFamily[] = [
 	"work",
 ];
 
-export type PulseKind = "toolStart" | "toolOk" | "toolFail" | "tokens";
-const PULSES: readonly PulseKind[] = ["toolStart", "toolOk", "toolFail", "tokens"];
+export type PulseKind = "toolStart" | "toolOk" | "toolFail";
+const PULSES: readonly PulseKind[] = ["toolStart", "toolOk", "toolFail"];
 
 /** Família de atividade de um estado do avatar (o que o cérebro "sente"). */
 export function familyOfState(state: AvatarState): ActivityFamily {
@@ -164,8 +164,8 @@ const PROFILES: Record<ActivityFamily, Profile> = {
 	// acena de leve no ritmo do texto
 	write: { amp: [2, 2.2, 1.2, 0.4, 0.2, 0.025, 0.015], bias: [0, 2.5, 0, 0, 0.15, 0, 0], tempo: 1.2, blink: 1, level: 1 },
 	// quase parado, respira devagar
-	wait: { amp: [1, 0.8, 1, 0.2, 0.15, 0.005, 0.02], bias: [0, 0, 0, 0, 0, 0, 0], tempo: 0.4, blink: 1, level: 0.7 },
-	work: { amp: [3, 2, 1.5, 0.6, 0.3, 0.015, 0.012], bias: [0, 0, 0, 0, 0, 0, 0], tempo: 1, blink: 1, level: 1 },
+	wait: { amp: [1, 0.8, 1, 0.2, 0.15, 0.005, 0.02], bias: [0, 0, 0, 0, 0, 0, 0], tempo: 0.4, blink: 1, level: 0 },
+	work: { amp: [3, 2, 1.5, 0.6, 0.3, 0.015, 0.012], bias: [0, 0, 0, 0, 0, 0, 0], tempo: 1, blink: 1, level: 0 },
 };
 
 /** Efeito direto de cada pulso nas 7 saídas (decai em `pulseS`); a rede também o recebe como entrada. */
@@ -174,8 +174,16 @@ const KICKS: Record<PulseKind, readonly [number, number, number, number, number,
 	toolOk: [0, 1.4, 0, 0, 0.2, -0.02, 0.004],
 	// balançar a cabeça: o yaw oscila (abaixo) e o corpo se encolhe
 	toolFail: [3.2, 0.6, 2.4, 0, 0, 0.035, 0],
-	tokens: [0, 0.9, 0, 0, 0.1, 0.012, 0],
 };
+
+/**
+ * `level` 0 = família sem movimento contínuo (só os pulsos de evento, que decaem e dormem):
+ * repouso, esperando você e trabalho genérico (rotina do servidor). Um loop a ~30 fps parado
+ * esperando aprovação gasta bateria à toa.
+ */
+export function brainLevel(family: ActivityFamily): number {
+	return PROFILES[family].level;
+}
 
 const OUTPUTS = 7;
 /** Marcapassos: 4 senoides de períodos sem relação (7,1 · 4,3 · 2,9 · 1,7 s). Mantêm a rede se mexendo mesmo se o caos amortecer. */
@@ -275,7 +283,7 @@ export class Brain {
 	/** O cérebro tem algo a animar (o loop não pode dormir). */
 	get isActive(): boolean {
 		if (!this.enabled) return false;
-		return this.family !== "idle" || this.weight > T.sleepEps || this.hasPulse();
+		return brainLevel(this.family) > 0 || this.weight > T.sleepEps || this.hasPulse();
 	}
 
 	private hasPulse(): boolean {
@@ -292,7 +300,7 @@ export class Brain {
 	/** Anda `dt` segundos em passos fixos; o que sobra fica para a próxima chamada. */
 	advance(dt: number): void {
 		if (!this.enabled || !(dt > 0)) return;
-		const wantsOn = this.family !== "idle" || this.hasPulse();
+		const wantsOn = brainLevel(this.family) > 0 || this.hasPulse();
 		if (!wantsOn && this.weight <= T.sleepEps) {
 			// Dormindo: nada a calcular (a rede congela e retoma de onde parou); a saída fica em zero exato.
 			this.reset();
