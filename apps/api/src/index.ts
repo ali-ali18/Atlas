@@ -24,6 +24,7 @@ import { jsonBodyLimit } from "./middleware/json-body-limit.js";
 import { apiCompress } from "./middleware/compress.js";
 import { auth, authProviders, isOwnerEmail } from "./auth.js";
 import { createViewerUpgradeHandler } from "./routes/sandbox-viewer.js";
+import { createPreviewOpenRoutes, createPreviewService, loadPreviewConfig } from "./routes/previews.js";
 import { createChatRoutes } from "./routes/chat.js";
 import { createDevSessionRoutes } from "./routes/dev-sessions.js";
 import { createDevEnvironmentRoutes } from "./routes/dev-environments.js";
@@ -89,6 +90,8 @@ import { createReflectionRoutes } from "./routes/reflection.js";
 import { createUploadRoutes } from "./routes/uploads.js";
 import { createTranscriptionRoutes } from "./routes/transcriptions.js";
 import {
+	getDevSession,
+	getDevSessionById,
 	getOwnedConversation,
 	listIdleDevSessions,
 	listActiveMainRunIds,
@@ -251,6 +254,23 @@ let pushNotify: ReturnType<typeof createNotifier> | null = null;
 	}
 }
 app.route("/", createDevSessionRoutes());
+// Prévia privada: o link do chat passa por aqui (login do Atlas) antes de ir ao domínio separado da prévia.
+const previewConfig = loadPreviewConfig();
+const previewDevConfig = loadDevSandboxConfig();
+const previewProvider = previewConfig && previewDevConfig.enabled && previewDevConfig.connectMode === "network" ? createDockerDevProvider(previewDevConfig) : null;
+const previewDeps = {
+	config: previewConfig,
+	getSessionById: getDevSessionById,
+	getOwnedSession: getDevSession,
+	// Só no modo de rede compartilhada: com portas publicadas só o 3090 de controle é alcançável.
+	resolveContainerHost: async (sessionId: string) => {
+		const endpoint = previewProvider ? await previewProvider.endpoint(sessionId).catch(() => null) : null;
+		return endpoint ? new URL(endpoint.baseUrl).hostname : null;
+	},
+	touch: (sessionId: string) => updateDevSession(sessionId, { touch: true }),
+};
+const previewService = createPreviewService(previewDeps);
+app.route("/", createPreviewOpenRoutes(previewDeps));
 app.route("/", createDevJobCallbackRoutes());
 app.route("/", createDevEnvironmentRoutes());
 app.route("/", createVaultRoutes());
@@ -316,7 +336,8 @@ app.route(
 
 const server = serve(
 	{
-		fetch: app.fetch,
+		// Host `<id>.<ATLAS_PREVIEW_BASE_DOMAIN>` vai ao proxy da prévia (origem separada); o resto, às rotas do Atlas.
+		fetch: async (request, env) => (await previewService.handleRequest(request)) ?? app.fetch(request, env),
 		port: config.port,
 		hostname: config.hostname,
 	},
@@ -346,9 +367,13 @@ const server = serve(
 			return session && isOwnerEmail(session.user.email) ? session.user.id : null;
 		},
 	});
-	if (sandboxConfig.enabled && sandboxConfig.viewerMode === "proxy") {
+	const viewerProxy = sandboxConfig.enabled && sandboxConfig.viewerMode === "proxy";
+	// Um só ouvinte: Host de prévia vai ao proxy da prévia (HMR); o resto segue o fluxo do viewer.
+	if (viewerProxy || previewConfig) {
 		(server as import("node:http").Server).on("upgrade", (req, socket, head) => {
-			void handleViewerUpgrade(req, socket, head);
+			if (previewService.claimsUpgrade(req)) void previewService.handleUpgrade(req, socket, head);
+			else if (viewerProxy) void handleViewerUpgrade(req, socket, head);
+			else socket.destroy();
 		});
 	}
 }
