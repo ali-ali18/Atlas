@@ -181,3 +181,17 @@ describe("robots.txt", () => {
 		expect(await sourceModule.readAlertSource(css, { fetchFn: robotsFor("User-agent: *\nDisallow: /admin") as never, lookupFn: lookupPublic })).toMatchObject({ ok: true });
 	});
 });
+
+describe("readAlertRule · fontes de mercado", () => {
+	it("câmbio passa pelo provedor de host fixo, sem tocar no guard de URL", async () => {
+		const fetchFn = vi.fn(async () => new Response(JSON.stringify({ USDBRL: { bid: "5.97", timestamp: "1793116800" } }), { status: 200 }));
+		const rule = { source: { type: "fx", pair: "USD-BRL" }, check: { kind: "value", parse: "money", op: "gt", value: 6, currency: "BRL" } } as AlertRule;
+		const result = await readAlertRule(rule, { market: { fetchFn: fetchFn as never } });
+		expect(result).toMatchObject({ ok: true, host: "economia.awesomeapi.com.br", read: { kind: "number", value: 5.97 } });
+		expect(fetchFn).toHaveBeenCalledTimes(1);
+	});
+	it("cotação sem chave do dono falha com a dica do Marketplace", async () => {
+		const rule = { source: { type: "quote", symbol: "BBAS3" }, check: { kind: "value", parse: "money", op: "lt", value: 15, currency: "BRL" } } as AlertRule;
+		expect(await readAlertRule(rule, { market: { getKeys: () => ({}) } })).toMatchObject({ ok: false, code: "needs_key" });
+	});
+});

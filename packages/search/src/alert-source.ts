@@ -22,6 +22,7 @@ import {
 	type ExtractFetchFn,
 	type ExtractLookupFn,
 } from "./extract.js";
+import { readMarketSource, type MarketDeps, type MarketFailure } from "./market-data.js";
 import { regexWindow, runRegexWithBudget } from "./regex-budget.js";
 import {
 	ALERT_FEED_ITEMS_MAX,
@@ -45,7 +46,7 @@ export const ALERT_SOURCE_CACHE_TTL_MS = 60_000;
 const CACHE_MAX_ENTRIES = 200;
 const LIST_ITEMS_MAX = ALERT_FEED_ITEMS_MAX;
 
-export type AlertSourceFailure = "blocked" | "timeout" | "http" | "too_large" | "network" | "parse" | "empty";
+export type AlertSourceFailure = "blocked" | "timeout" | "http" | "too_large" | "network" | "parse" | "empty" | MarketFailure;
 
 export type AlertSourceResult =
 	| { ok: true; read: AlertRuleRead; host: string; ms: number }
@@ -59,6 +60,8 @@ export type AlertSourceDeps = {
 	lookupFn?: ExtractLookupFn;
 	timeoutMs?: number;
 	maxBytes?: number;
+	/** Fontes de mercado (cotação, câmbio, cripto, clima): chaves do dono e injeções de teste. */
+	market?: MarketDeps;
 	/** Respeita o robots.txt do site (padrão: sim; o resultado fica em cache por origem). */
 	respectRobots?: boolean;
 	/** Busca única por URL entre alertas do mesmo ciclo. Ausente = sem cache (ex.: teste da regra na criação). */
@@ -255,7 +258,10 @@ export async function readAlertSource(source: AlertSource, deps: AlertSourceDeps
 	const started = clock();
 	const host = alertSourceHost(source);
 	// Fontes de mercado (sem URL) são lidas pelos provedores de `market-data.ts`, não por este leitor de páginas.
-	if (isMarketAlertSource(source)) return { ok: false, code: "network", reason: "fonte de mercado fora do leitor de páginas", host, ms: 0 };
+	if (isMarketAlertSource(source)) {
+		const result = await readMarketSource(source, { ...deps.market, ...(deps.now ? { now: deps.now } : {}) });
+		return result.ok ? { ok: true, read: result.read, host: result.host, ms: result.ms } : { ok: false, code: result.code, reason: result.reason, host: result.host, ms: result.ms };
+	}
 	try {
 		const doc = await fetchShared(source.url, deps);
 		const read = source.type === "feed" ? readFeed(doc) : await readPage(source, doc, wantList);
