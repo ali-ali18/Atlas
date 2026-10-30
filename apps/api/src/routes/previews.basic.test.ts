@@ -43,7 +43,7 @@ function record(port: number, overrides: Partial<DevSessionRecord> = {}, preview
 		todos: [],
 		pr: null,
 		lastError: null,
-		preview: preview === null ? null : { port, path: "/index.html?tab=1", startedAt: new Date(NOW).toISOString(), expiresAt: new Date(NOW + 3_600_000).toISOString(), cap: CAP, ...preview },
+		preview: preview === null ? null : { port, path: "/index.html?tab=1", startedAt: new Date(NOW).toISOString(), expiresAt: new Date(NOW + 3_600_000).toISOString(), cap: CAP, capIssuedAt: new Date(NOW).toISOString(), ...preview },
 		createdAt: new Date(0),
 		updatedAt: new Date(0),
 		lastActiveAt: new Date(0),
@@ -484,7 +484,54 @@ test("rewriteLocationIntoPrefix: bloqueia (null) destinos fora da previa, inclus
 	assert.equal(r("/a"), `${PREFIX}a`);
 	assert.equal(r("?x=1"), "?x=1");
 	assert.equal(r("#h"), "#h");
-	assert.equal(r("../up"), "../up");
+	assert.equal(r("../up"), null, "de /p/<cap>/ um .. já sai da prévia");
+	assert.equal(r("up/x"), "up/x");
+	// Relativo é resolvido contra o endereço do pedido e tem de continuar dentro da prévia.
+	const inside = (v: string, at = `${PREFIX}a/b/`) => rewriteLocationIntoPrefix(v, "10.0.0.5", "https://atlas.test", PREFIX, at);
+	assert.equal(inside("../x"), "../x");
+	assert.equal(inside("../../x"), "../../x");
+	assert.equal(inside("../../../x"), null, "sai do prefixo (para /v1/previews/<id>/p/x): bloqueia");
+	assert.equal(inside("../../../../../../open"), null);
+	assert.equal(inside("../../../../x"), null);
+	assert.equal(inside("./y"), "./y");
+	assert.equal(inside("../../"), "../../");
 	assert.equal(r("http://10.0.0.5:3000/a?b#c"), `https://atlas.test${PREFIX}a?b#c`);
 	assert.equal(r("https://atlas.test/a"), `https://atlas.test${PREFIX}a`);
+});
+
+test("basico: Location relativo que sai do prefixo (../../../x) vira 502; dentro dele passa", async () => {
+	const h = await harness();
+	try {
+		const out = await get(h, `${PREFIX}ext-loc/a/b?v=${encodeURIComponent("../../../x")}`);
+		assert.equal(out.status, 502);
+		assert.equal(out.headers.get("location"), null);
+		assertBasicHeaders(out, "relativo fora");
+		const ok = await get(h, `${PREFIX}ext-loc?v=${encodeURIComponent("../x")}`);
+		assert.equal(ok.status, 502, "de /p/<cap>/ um .. já sai do prefixo");
+		const inside = await get(h, `${PREFIX}ext-loc/a/b?v=${encodeURIComponent("../c")}`);
+		assert.equal(inside.status, 302);
+		assert.equal(inside.headers.get("location"), "../c");
+	} finally {
+		h.close();
+	}
+});
+
+test("cap: vale ate 4 h da emissao mesmo com a previa renovada; sem capIssuedAt nao vale", async () => {
+	const h = await harness({ session: (port) => record(port, {}, { expiresAt: new Date(NOW + 5 * 3_600_000).toISOString() }) });
+	try {
+		assert.equal((await get(h, PREFIX)).status, 200);
+		h.state.now = NOW + 4 * 3_600_000 - 1000;
+		h.service.invalidate(ID);
+		assert.equal((await get(h, PREFIX)).status, 200, "ainda dentro das 4 h");
+		h.state.now = NOW + 4 * 3_600_000 + 1000;
+		h.service.invalidate(ID);
+		assert.equal((await get(h, PREFIX)).status, 401, "passou das 4 h: só um cap novo abre");
+		assert.equal((await h.open("user-a").request(`/v1/previews/${ID}/open`)).status, 404, "/open também recusa o cap vencido");
+		h.state.now = NOW;
+		h.service.invalidate(ID);
+		h.state.session = record(h.upstreamPort, {}, { capIssuedAt: undefined });
+		assert.equal((await get(h, PREFIX)).status, 401, "sem emissão registrada");
+	} finally {
+		h.close();
+	}
 });

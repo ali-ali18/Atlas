@@ -12,6 +12,7 @@ import {
 	isSafePreviewRest,
 	normalizePreviewPath,
 	parsePreviewBasicPath,
+	previewCapIsLive,
 	previewBaseDomainConflict,
 	previewBasicPrefix,
 	previewIdFromHost,
@@ -275,12 +276,13 @@ function basicText(status: number, body: string): Response {
 
 /**
  * `Location`/`Refresh` do projeto no modo básico: endereço interno, da própria origem do Atlas ou caminho absoluto (`/x`) entra no
- * prefixo da prévia (que inclui o `cap`); caminho relativo e quem já tem o prefixo ficam como estão. Devolve `null` (BLOQUEADO)
+ * prefixo da prévia (que inclui o `cap`); caminho relativo que continua dentro do prefixo e quem já tem o prefixo ficam como estão (relativo que
+ * resolve para fora, como `../../../x`, é bloqueado). Devolve `null` (BLOQUEADO)
  * para qualquer destino que não seja da prévia: `//host`, `\\host`, `/\host`, URL absoluta externa, esquema que não é http(s) e
  * valor com controle/espaço de borda (o navegador os remove e `/\t/evil` viraria `//evil`). Sem isso a origem do Atlas serviria de
  * redirecionamento aberto para um site qualquer.
  */
-export function rewriteLocationIntoPrefix(value: string, upstreamHost: string, atlasOrigin: string, prefix: string): string | null {
+export function rewriteLocationIntoPrefix(value: string, upstreamHost: string, atlasOrigin: string, prefix: string, requestPath = prefix): string | null {
 	// eslint-disable-next-line no-control-regex
 	if (/[\u0000-\u001f\u007f]/.test(value) || value !== value.trim()) return null;
 	if (/^[\\/]{2}/.test(value) || value.startsWith("/\\")) return null;
@@ -290,7 +292,14 @@ export function rewriteLocationIntoPrefix(value: string, upstreamHost: string, a
 	try {
 		url = new URL(value);
 	} catch {
-		return value.includes("\\") ? null : value;
+		// Relativo: resolve contra o endereço do pedido (no Atlas) e só fica se continuar DENTRO da prévia (`../../../x` sai: bloqueia).
+		if (value.includes("\\")) return null;
+		try {
+			const resolved = new URL(value, `${atlasOrigin}${requestPath}`);
+			return resolved.origin === atlasOrigin && (resolved.pathname.startsWith(prefix) || resolved.pathname === prefix.slice(0, -1)) ? value : null;
+		} catch {
+			return null;
+		}
 	}
 	const internal = new Set([upstreamHost, "127.0.0.1", "localhost", "0.0.0.0", "[::1]"]);
 	if (!/^https?:$/.test(url.protocol) || !(internal.has(url.hostname) || url.origin === atlasOrigin)) return null;
@@ -382,7 +391,7 @@ export function createPreviewService(deps: PreviewDeps) {
 		if (!Number.isFinite(expiresAt) || expiresAt <= now()) return null;
 		if (!isPreviewPort(preview.port)) return null;
 		const host = await deps.resolveContainerHost(row.id);
-		return host ? { host, port: preview.port, path: normalizePreviewPath(preview.path) ?? "/", userId: row.userId, expiresAt, basePrefixed: preview.basePrefixed === true, cap: preview.cap } : null;
+		return host ? { host, port: preview.port, path: normalizePreviewPath(preview.path) ?? "/", userId: row.userId, expiresAt, basePrefixed: preview.basePrefixed === true, cap: previewCapIsLive(preview.capIssuedAt, now()) ? preview.cap : undefined } : null;
 	}
 
 	function noteActivity(id: string): void {
@@ -466,7 +475,7 @@ export function createPreviewService(deps: PreviewDeps) {
 		const prefix = previewBasicPrefix(id, cap);
 		// Servidor configurado com a base: ele espera o prefixo; senão o prefixo é tirado (servidor estático, caminhos relativos).
 		const upstreamPath = `${target.basePrefixed ? url.pathname : rest}${url.search}`;
-		return proxyHttp(request, target, upstreamPath, config.atlasUrl, new URL(config.atlasUrl).host, prefix);
+		return proxyHttp(request, target, upstreamPath, config.atlasUrl, new URL(config.atlasUrl).host, prefix, url.pathname);
 	}
 
 	/** Troca o token curto do redirect pelo cookie da prévia e segue para o caminho registrado. */
@@ -490,7 +499,7 @@ export function createPreviewService(deps: PreviewDeps) {
 	}
 
 	/** `basicPrefix`: modo básico (ver topo do arquivo): nenhum cookie vai ao projeto, `Set-Cookie` dele é descartado e os cabeçalhos de sandbox entram em toda resposta. */
-	function proxyHttp(request: Request, target: Target, upstreamPath: string, publicOrigin: string, publicHost: string, basicPrefix?: string): Promise<Response> {
+	function proxyHttp(request: Request, target: Target, upstreamPath: string, publicOrigin: string, publicHost: string, basicPrefix?: string, basicPath?: string): Promise<Response> {
 		const headers: Record<string, string> = {};
 		request.headers.forEach((value, key) => {
 			if (!REQUEST_STRIP.has(key) && !key.startsWith("x-forwarded-")) headers[key] = value;
@@ -517,13 +526,13 @@ export function createPreviewService(deps: PreviewDeps) {
 								const rewritten = rewriteUpstreamSetCookie(v);
 								if (rewritten) out.append(key, rewritten);
 							} else if (basicPrefix && (key === "location" || key === "content-location")) {
-								const rewritten = rewriteLocationIntoPrefix(v, target.host, publicOrigin, basicPrefix);
+								const rewritten = rewriteLocationIntoPrefix(v, target.host, publicOrigin, basicPrefix, basicPath);
 								if (rewritten !== null) out.append(key, rewritten);
 								else if (key === "location") blockedRedirect = true;
 							} else if (basicPrefix && key === "refresh") {
 								// Refresh para fora da prévia (ou ilegível) some: a página só não recarrega.
 								const target2 = /url\s*=\s*(\S+)/i.exec(v)?.[1];
-								const rewritten = target2 === undefined ? v : rewriteLocationIntoPrefix(target2, target.host, publicOrigin, basicPrefix);
+								const rewritten = target2 === undefined ? v : rewriteLocationIntoPrefix(target2, target.host, publicOrigin, basicPrefix, basicPath);
 								if (rewritten !== null) out.append(key, target2 === undefined ? v : v.replace(target2, rewritten));
 							}
 							else if (key === "location" || key === "content-location") out.append(key, rewriteToPublicOrigin(v, target.host, publicOrigin));
@@ -648,7 +657,7 @@ export function createPreviewOpenRoutes(deps: Pick<PreviewDeps, "config" | "getO
 		if (!config.baseDomain) {
 			// Modo básico: o login do Atlas já provou o dono; o segredo da prévia (`cap`, só no banco e aqui) vai no caminho.
 			// Prévia sem `cap` (de antes do modo básico, ou de outro modo) não abre: 404 igual.
-			if (!preview.cap) return c.json({ error: "Not found" }, 404);
+			if (!preview.cap || !previewCapIsLive(preview.capIssuedAt, now)) return c.json({ error: "Not found" }, 404);
 			const entry = normalizePreviewPath(preview.path) ?? "/";
 			return c.redirect(`${previewBasicPrefix(row.id, preview.cap)}${entry.slice(1)}`, 302);
 		}
