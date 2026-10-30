@@ -240,8 +240,15 @@ export async function loadStore(
 
 /** Referência curta e estável de uma entrada para o agente (final do id: o início do cuid é quase igual entre linhas). */
 export const MEMORY_REF_LENGTH = 4;
+// A ref precisa ter pelo menos uma letra: `[2024]` só de dígitos é texto do usuário (ano) e não é
+// removida do começo do conteúdo. Se o final do id for só dígitos, a ref cresce até ter uma letra.
+const MEMORY_REF_MAX = 8;
 export function memoryRef(id: string): string {
-	return id.slice(-MEMORY_REF_LENGTH);
+	for (let size = MEMORY_REF_LENGTH; size <= MEMORY_REF_MAX; size += 1) {
+		const ref = id.slice(-size);
+		if (/[a-z]/i.test(ref)) return ref;
+	}
+	return id;
 }
 
 /** Entradas da camada que batem com a ref (aceita `[x7k2]`, sem diferenciar maiúsculas; id completo também vale). */
@@ -252,7 +259,7 @@ function rowsByRef(rows: MemoryRow[], ref: string): MemoryRow[] {
 }
 
 /** Remove ref(s) `[xxxx]` (ou id completo) coladas no início do conteúdo, com marcador de lista/§ antes; colchetes no meio do texto ficam. */
-const LEADING_REF = /^(?:[\s§*•-]*\[(?=[a-z0-9]*[a-z])(?:[a-z0-9]{4}|c[a-z0-9]{20,30})\])+[\s§*•-]*/i;
+const LEADING_REF = /^(?:[\s§*•-]*\[(?=[a-z0-9]*[a-z])(?:[a-z0-9]{4}|(?=[a-z0-9]*\d)[a-z0-9]{5,8}|c[a-z0-9]{20,30})\])+[\s§*•-]*/i;
 export function stripMemoryRefPrefix(content: string): string {
 	return content.replace(LEADING_REF, "").trim();
 }
