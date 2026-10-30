@@ -341,6 +341,7 @@ import {
 } from "./tools/computer-refs.js";
 import { BATCH_SKIPPED_MESSAGE, createBatchFailureGate } from "./tools/batch-failure.js";
 import { COMPUTER_READ_TOOLS, COMPUTER_READ_TOOL_NAMES, executeComputerReadTool } from "./tools/computer-read.js";
+import { COMPUTER_TABS_TOOL, COMPUTER_TABS_TOOL_NAME, executeComputerTabsTool } from "./tools/computer-tabs.js";
 import {
 	SANDBOX_SHELL_TOOLS,
 	SANDBOX_SHELL_TOOL_NAMES,
@@ -495,6 +496,7 @@ const SANDBOX_TOOL_NAMES = new Set([
 	...LEGACY_BROWSER_TOOL_NAMES,
 	...COMPUTER_REF_TOOL_NAMES,
 	...COMPUTER_READ_TOOL_NAMES,
+	COMPUTER_TABS_TOOL_NAME,
 	...SANDBOX_SHELL_TOOL_NAMES,
 	SANDBOX_RELEASE_TOOL_NAME,
 	NATIVE_COMPUTER_TOOL_NAME,
@@ -942,6 +944,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 	},
 	...COMPUTER_REF_TOOLS,
 	...COMPUTER_READ_TOOLS,
+	COMPUTER_TABS_TOOL,
 	...SANDBOX_SHELL_TOOLS,
 	SANDBOX_RELEASE_TOOL,
 	{
@@ -3670,6 +3673,21 @@ async function executeProposeProfileUpdate(
 }
 
 /**
+ * Um link pode abrir em aba nova (ou a aba ativa fechar): a VM já passou para a aba certa e o
+ * aviso curto vai junto do resultado da próxima ferramenta, para o modelo não agir às cegas.
+ */
+async function withTabNotice<T extends { summary: string }>(name: string, ctx: Pick<ToolContext, "manager" | "getSessionId">, outcome: T): Promise<T> {
+	if (!isSandboxTool(name) || name === SANDBOX_RELEASE_TOOL_NAME || !ctx.manager.takeTabNotice) return outcome;
+	try {
+		// A VM já subiu para esta ferramenta: o id vem do cache, sem iniciar nada.
+		const notice = ctx.manager.takeTabNotice(await ctx.getSessionId());
+		return notice ? { ...outcome, summary: `${outcome.summary}\n[${notice}]` } : outcome;
+	} catch {
+		return outcome;
+	}
+}
+
+/**
  * Ponto único de execução de ferramentas. Cofre: o modelo só escreve marcadores; aqui o valor
  * entra (só em ferramentas de saída confiáveis; as demais com referência são recusadas) e é
  * redigido de volta em resultado, eventos e erros antes de voltar ao modelo, ao banco ou aos logs.
@@ -3680,10 +3698,10 @@ async function executeTool(
 	ctx: ToolContext,
 ): ReturnType<typeof executeToolInner> {
 	const session = ctx.secrets;
-	if (!session) return executeToolInner(name, args, ctx);
+	if (!session) return await withTabNotice(name, ctx, await executeToolInner(name, args, ctx));
 	const prepared = await session.prepare(name, args);
 	try {
-		const outcome = await executeToolInner(name, prepared.args, ctx);
+		const outcome = await withTabNotice(name, ctx, await executeToolInner(name, prepared.args, ctx));
 		return await session.redact(outcome);
 	} catch (error) {
 		if (error instanceof Error && session.redactor.size > 0) {
@@ -3823,6 +3841,8 @@ async function executeToolInner(
 				runId: ctx.runId,
 				loginAsked: ctx.loginAsked ?? new Set<string>(),
 			});
+		case COMPUTER_TABS_TOOL_NAME:
+			return executeComputerTabsTool(args, { manager: ctx.manager, getSessionId: ctx.getSessionId });
 		case "browser_read":
 		case "browser_find":
 			return executeComputerReadTool(name, args, {

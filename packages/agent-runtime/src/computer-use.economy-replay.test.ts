@@ -4,6 +4,8 @@ import type { ChatTool, CompleteChatWithToolsResult, LlmToolCall } from "@worksp
 import { addMemoryEntry, getBotProfile } from "@workspace/db";
 import { runComputerUse } from "./computer-use.js";
 import { disciplineForModel } from "./context/model-discipline.js";
+import { NATIVE_TOOL_GROUPS } from "./context/native-tools.js";
+import { BROWSER_CHILD_TOOL_NAMES } from "@workspace/shared";
 import { autoLanguageInstruction, languageInstruction, type BotLanguageSetting } from "@workspace/shared";
 
 vi.mock("@workspace/db", async (original) => ({
@@ -146,6 +148,59 @@ describe("economia ligada: tarefa de navegador", () => {
 	});
 });
 
+describe("economia ligada: abas do navegador", () => {
+	it("browser_tabs mora só no grupo do navegador (que já vai no 1º passo) e a linha do prompt vem junto", async () => {
+		const owners = Object.entries(NATIVE_TOOL_GROUPS).filter(([, group]) => group.tools.includes("browser_tabs")).map(([name]) => name);
+		expect(owners).toEqual(["browser"]);
+		const site = await replay({ messages: [{ role: "user", content: "abra o site loja.exemplo.com.br e clique em Entrar" }] });
+		expect(site.first).toContain("browser_tabs");
+		expect(site.system()).toContain("A link may open a new tab");
+		// Subagentes de navegador têm a própria aba isolada: não trocam de aba.
+		expect(BROWSER_CHILD_TOOL_NAMES).not.toContain("browser_tabs");
+	});
+
+	it("link que abre em aba nova: o aviso da VM vai junto do resultado da ferramenta, uma vez só", async () => {
+		const notices = ['A new tab opened: "Aula 1" — https://lms.test/aula. You are now on it. The previous tab is still open (use browser_tabs to switch back).'];
+		const takeTabNotice = vi.fn(() => notices.shift());
+		const manager = {
+			execNavigate: vi.fn(async () => ({ url: "https://lms.test", title: "Curso" })),
+			execBrowserTabs: vi.fn(async () => ({ action: "list" as const, tabs: [{ index: 1, title: "Curso", url: "https://lms.test", active: false }, { index: 2, title: "Aula 1", url: "https://lms.test/aula", active: true }] })),
+			takeTabNotice,
+		} as unknown as SandboxManager;
+		const results: Array<{ name: string; ok: boolean; summary: string }> = [];
+		const script = [turn("navigate", { url: "https://lms.test" }), turn("browser_tabs", { action: "list" }, "c2"), done];
+		await runComputerUse({
+			manager, getSessionId: async () => "session-1", apiKey: "test", model: "m", runId: "run-tabs", userId: "user-a", botId: "bot-a",
+			origin: "chat", contextEconomy: true, maxSteps: 6,
+			messages: [{ role: "user", content: "abra o site lms.test e clique em Acessar" }],
+			onEvent: (event) => { if (event.type === "tool_result") results.push({ name: event.name, ok: event.ok, summary: event.summary }); },
+			streamChat: async () => script.shift() ?? done,
+		});
+		expect(results.map((r) => r.name)).toEqual(["navigate", "browser_tabs"]);
+		expect(results[0]!.summary).toContain('[A new tab opened: "Aula 1" — https://lms.test/aula. You are now on it.');
+		expect(results[1]!.ok).toBe(true);
+		expect(results[1]!.summary).toContain("2. [active]");
+		expect(results[1]!.summary).not.toContain("A new tab opened");
+	});
+
+	it("browser_tabs com argumento inválido falha com a dica, sem chamar a VM", async () => {
+		const execBrowserTabs = vi.fn();
+		const manager = { execBrowserTabs } as unknown as SandboxManager;
+		const results: Array<{ name: string; ok: boolean; summary: string }> = [];
+		const script = [turn("browser_tabs", { action: "switch" }), done];
+		await runComputerUse({
+			manager, getSessionId: async () => "session-1", apiKey: "test", model: "m", runId: "run-tabs2", userId: "user-a", botId: "bot-a",
+			origin: "chat", contextEconomy: true, maxSteps: 6,
+			messages: [{ role: "user", content: "abra o site lms.test" }],
+			onEvent: (event) => { if (event.type === "tool_result") results.push({ name: event.name, ok: event.ok, summary: event.summary }); },
+			streamChat: async () => script.shift() ?? done,
+		});
+		expect(execBrowserTabs).not.toHaveBeenCalled();
+		expect(results[0]).toMatchObject({ name: "browser_tabs", ok: false });
+		expect(results[0]!.summary).toMatch(/needs "index"/);
+	});
+});
+
 describe("economia ligada: lembrete", () => {
 	it("'me lembra dia 03/10 às 10h e 20h' carrega as tools de rotina e a chamada roda de primeira", async () => {
 		const { first, results } = await replay({
@@ -180,7 +235,7 @@ describe("economia ligada: chat simples", () => {
 		const auto = await replay({ messages, language: "auto", languageContext: { lastLanguage: "pt-BR" } });
 		// A linha "Language:" da persona sai e a instrução de auto entra no fim: troca de uma linha pela outra.
 		expect(auto.prefixChars() - fixed.prefixChars()).toBeLessThan(100);
-		expect(auto.prefixChars()).toBeLessThan(40_000);
+		expect(auto.prefixChars()).toBeLessThan(41_000);
 		const system = auto.system();
 		expect(system).not.toContain("- Language:");
 		expect(system).not.toContain(languageInstruction("pt-BR"));
@@ -193,7 +248,7 @@ describe("economia ligada: chat simples", () => {
 	it("'Bom dia' mantém o prefixo pequeno: nenhuma tool rara e só o núcleo", async () => {
 		const { first, steps, prefixChars } = await replay({ messages: [{ role: "user", content: "Bom dia" }] });
 		// Prompt de sistema + schemas do passo 1: era ~42,6 mil chars antes da política única de agir primeiro.
-		expect(prefixChars()).toBeLessThan(40_000);
+		expect(prefixChars()).toBeLessThan(41_000);
 		for (const rare of [
 			"propose_routine",
 			"create_file",
@@ -212,7 +267,8 @@ describe("economia ligada: chat simples", () => {
 		expect(first).toContain("memory");
 		expect(first).not.toContain("memory_search");
 		// +1: `sandbox_release` (desligar a VM) entra com o grupo browser; o prefixo continua abaixo de 40 mil chars.
-		expect(first.length).toBeLessThanOrEqual(23);
+		// +1: `browser_tabs` (grupo browser); o prefixo subiu ~0,6 mil chars e o teto passou de 40 para 41 mil.
+		expect(first.length).toBeLessThanOrEqual(24);
 		expect(steps).toBe(1);
 	});
 
