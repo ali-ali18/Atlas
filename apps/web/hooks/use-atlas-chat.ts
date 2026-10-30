@@ -680,7 +680,8 @@ export function createComputerHandlers(params: {
 		onToolResult: (result) => {
 			params.onActivity?.();
 			params.onStreamingMessage?.(null);
-			params.onAgentActivity?.({ phase: "thinking" });
+			// Falha da ferramenta: o texto do indicador não muda, mas o avatar faz cara de erro.
+			params.onAgentActivity?.(result.ok === false ? { phase: "thinking", toolFailed: true } : { phase: "thinking" });
 			if (result.name === "generate_image") {
 				params.setMessages((previous) => settleImageGen(previous, result.id, result));
 			}
@@ -1237,6 +1238,8 @@ export function useAtlasChat({
 	const [runUsage, setRunUsage] = useState<ReturnType<typeof readProviderRunUsage>>(null);
 	const receiveRunUsage = useCallback((raw: unknown) => setRunUsage(readProviderRunUsage(raw)), []);
 	const [activity, setActivity] = useState<AgentActivity>({ phase: "idle" });
+	/** Sobe a cada "Parar" do usuário (o avatar não trata como erro nem como fim bom). */
+	const [cancelSeq, setCancelSeq] = useState(0);
 	const [streamingMessageId, setStreamingMessageId] = useState<string | null>(
 		null,
 	);
@@ -2064,6 +2067,7 @@ export function useAtlasChat({
 	}, []);
 
 	const cancelRun = useCallback(async () => {
+		setCancelSeq((n) => n + 1);
 		const runId = activeRunIdRef.current;
 		sendAbortRef.current?.abort();
 		reconnectAbortRef.current?.abort();
@@ -2714,6 +2718,7 @@ export function useAtlasChat({
 		applyRoutineProposalState,
 		applyBotProposalState,
 		cancelRun,
+		cancelSeq,
 		pauseRun,
 		resumeRun,
 		model,

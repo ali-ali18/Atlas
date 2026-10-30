@@ -46,12 +46,13 @@ export const STATE_TABLE = {
 	streaming: { clips: ["Streaming_A", "Streaming_B", "Streaming_C"] },
 	// trabalho
 	searching: { clips: ["Idle_B"], morph: "radar" },
-	reading: WORKING,
+	// mesmos clipes de trabalho; cada atividade tem rosto próprio (olhos) e o cérebro dá o movimento (brain.ts)
+	reading: { ...WORKING, face: "calm" },
 	working: WORKING,
-	coding: WORKING,
+	coding: { ...WORKING, face: "squinted" },
 	running: WORKING,
 	computing: WORKING,
-	controlling: WORKING,
+	controlling: { ...WORKING, face: "inspecting" },
 	waiting: { clips: ["Idle_B"], morph: "orbit" },
 	// resultado
 	blocked: { clips: ["Blocked_A"], next: "drowsy", holdSeconds: BLOCKED_HOLD_S },

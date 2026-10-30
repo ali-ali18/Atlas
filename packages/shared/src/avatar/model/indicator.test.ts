@@ -70,7 +70,7 @@ describe("morph de indicador", () => {
 		expect(radii.size).toBe(3);
 	});
 
-	it("órbita: 5 discos numa elipse (0,42 de achatamento) girando ao redor do núcleo", () => {
+	it("órbita: 5 discos num anel deitado (0,5 de achatamento) girando em volta do núcleo, frente embaixo e todos visíveis", () => {
 		const ind = new Indicator();
 		ind.set("orbit");
 		run(ind, 1);
@@ -81,7 +81,10 @@ describe("morph de indicador", () => {
 			if (p.type === "disc") {
 				const dx = (p.cx - CENTER) / 0.77;
 				const dy = (p.cy - CENTER) / 0.77;
-				expect((dx / 52) ** 2 + (dy / (52 * 0.42)) ** 2).toBeCloseTo(1, 1);
+				expect((dx / 58) ** 2 + (dy / (58 * 0.5)) ** 2).toBeCloseTo(1, 1);
+				// a frente (embaixo) é maior; nenhuma some atrás do núcleo
+				expect(p.opacity).toBeGreaterThan(0.4);
+				expect(Math.hypot(dx, dy)).toBeGreaterThan(19 + 6);
 			}
 		}
 		const before = parts.map((p) => (p.type === "disc" ? p.cx : 0));
@@ -108,6 +111,70 @@ describe("morph de indicador", () => {
 		expect(ind.frame()?.amount ?? 0).toBeLessThan(0.2);
 		run(ind, 1.6);
 		expect(ind.frame()?.amount ?? 0).toBeGreaterThan(0.5);
+	});
+
+	it("progress com fração real: o arco sobe até o valor e fica, sem o ciclo de some/recomeça", () => {
+		const arcOf = (ind: Indicator) => {
+			const arc = ind.frame()?.parts.find((p) => p.type === "ring" && p.arc);
+			return arc && arc.type === "ring" ? (arc.arc?.fraction ?? 0) : 0;
+		};
+		const ind = new Indicator();
+		ind.set("progress");
+		ind.setProgress(3 / 8);
+		run(ind, 0.1);
+		expect(arcOf(ind)).toBeGreaterThan(0);
+		expect(arcOf(ind)).toBeLessThan(3 / 8);
+		run(ind, 1.5);
+		expect(arcOf(ind)).toBeCloseTo(3 / 8, 2);
+		// passa do fim do ciclo antigo (2,5 s) e continua cheio e no mesmo valor
+		run(ind, 6);
+		expect(ind.frame()?.amount).toBeGreaterThan(0.99);
+		expect(arcOf(ind)).toBeCloseTo(3 / 8, 2);
+		// novo passo: anima do valor anterior ao novo, sem voltar a zero
+		ind.setProgress(4 / 8);
+		run(ind, 0.05);
+		expect(arcOf(ind)).toBeGreaterThan(3 / 8);
+		run(ind, 1);
+		expect(arcOf(ind)).toBeCloseTo(0.5, 2);
+		expect(ind.progress).toBeCloseTo(0.5, 2);
+	});
+
+	it("progress com fração: limites (0 só trilha; >1 e NaN tratados) e null volta ao ciclo", () => {
+		const parts = (ind: Indicator) => ind.frame()?.parts ?? [];
+		const ind = new Indicator();
+		ind.set("progress");
+		ind.setProgress(0);
+		run(ind, 1);
+		expect(parts(ind)).toHaveLength(1);
+		ind.setProgress(7);
+		run(ind, 2);
+		expect(ind.progress).toBe(1);
+		ind.setProgress(Number.NaN);
+		expect(ind.progress).toBeNull();
+		ind.setProgress(0.5);
+		ind.setProgress(null);
+		expect(ind.progress).toBeNull();
+		// sem fração: volta o ciclo (o anel some no fim de cada volta de 4 s)
+		let minAmount = 1;
+		for (let t = 0; t < 4.5; t += 0.016) {
+			ind.advance(0.016);
+			minAmount = Math.min(minAmount, ind.frame()?.amount ?? 0);
+		}
+		expect(minAmount).toBeLessThan(0.2);
+	});
+
+	it("progress com fração fica legível a 36 px: traço mais grosso que o anel em ciclo", () => {
+		const widthOf = (determinate: boolean) => {
+			const ind = new Indicator();
+			ind.set("progress");
+			if (determinate) ind.setProgress(0.5);
+			run(ind, 1);
+			const ring = ind.frame()?.parts.find((p) => p.type === "ring" && p.arc);
+			return ring && ring.type === "ring" ? ring.width : 0;
+		};
+		// 250 unidades de viewBox em 36 px: o traço precisa passar de ~1 px
+		expect(widthOf(true) * (36 / 250)).toBeGreaterThan(1);
+		expect(widthOf(true)).toBeGreaterThan(widthOf(false));
 	});
 
 	it("reticências (thinking): núcleo + 2 discos que pulam em ondas", () => {
@@ -168,6 +235,16 @@ describe("estados com indicador no motor", () => {
 		expect(f.indicator).toBeNull();
 		expect(f.shape).toBe("heart");
 		expect(projectEyes(f)).not.toBe("");
+	});
+
+	it("engine.setProgress: o estado progress mostra a fração do passo e segura", () => {
+		const e = engine();
+		e.setState("progress");
+		e.setProgress(3 / 8);
+		play(e, 8);
+		const arc = e.snapshot().indicator?.parts.find((p) => p.type === "ring" && p.arc);
+		expect(arc && arc.type === "ring" ? arc.arc?.fraction : 0).toBeCloseTo(3 / 8, 2);
+		expect(e.snapshot().indicator?.amount).toBeGreaterThan(0.99);
 	});
 
 	it("setMorph pela API do motor", () => {

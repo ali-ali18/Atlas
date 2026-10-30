@@ -22,8 +22,9 @@ import {
 	type Outline,
 	type Shape,
 } from "../geometry/shapes.js";
+import type { BrainOutput } from "./brain.js";
 import { ClipPlayer, type ClipEvent } from "./clip-player.js";
-import { Indicator, type IndicatorFrame, type IndicatorKind } from "./indicator.js";
+import { Indicator, faceScale, type IndicatorFrame, type IndicatorKind } from "./indicator.js";
 import { DEFAULT_ZOOM, unwrapAngle } from "./clips.js";
 import {
 	EXPRESSION_EYES,
@@ -110,6 +111,8 @@ export const CHARACTER_TUNING = {
 	shakeUnits: 1.6,
 	shakeHz: 9,
 	emphasisEyes: 1.12,
+	/** Olhar extra do cérebro: px do viewBox com gazeX/Y = 1. */
+	brainEyePx: 5.5,
 	maxStepS: 0.1,
 } as const;
 
@@ -172,6 +175,8 @@ export class Character {
 
 	// clipes de animação (keyframes do app de referência)
 	private readonly player = new ClipPlayer((event) => this.handleClipEvent(event));
+	/** Deslocamentos do cérebro (rede recorrente), somados por cima do clipe; `null` = nenhum. */
+	private brain: Readonly<BrainOutput> | null = null;
 	/** Quem manda nos clipes ouve o fim de cada um e as trocas de expressão. */
 	onClipEvent: ((event: ClipEvent) => void) | null = null;
 	private clipExpr: Expression = "neutral";
@@ -209,9 +214,19 @@ export class Character {
 		this.clipExpr = "neutral";
 	}
 
+	/** Cérebro do avatar: o objeto é lido a cada quadro (o dono o atualiza no lugar). */
+	setBrain(output: Readonly<BrainOutput> | null): void {
+		this.brain = output;
+	}
+
 	/** O corpo vira o indicador (ou volta, com `null`). */
 	setIndicator(kind: IndicatorKind | null): void {
 		this.indicator.set(kind);
+	}
+
+	/** Fração real do anel de progresso (`null` = anel em ciclo). */
+	setProgress(fraction: number | null): void {
+		this.indicator.setProgress(fraction);
 	}
 
 	get currentIndicator(): IndicatorKind | null {
@@ -495,16 +510,20 @@ export class Character {
 			this.blinkT === null
 				? 1
 				: 1 - (1 - T.blinkMin) * Math.sin(Math.PI * (this.blinkT / T.blinkS));
+		const ind = this.indicator.frame();
+		// Corpo virando indicador (ou voltando): os olhos encolhem junto, nunca ficam recortando o ponto.
+		const eyeK = ind ? faceScale(ind.amount) : 1;
 		const gaze = this.gazePose();
 		// Resíduo pequeno nos olhos (o corpo é quem gira).
-		const residualX = gaze.hold * this.gazeX * T.eyeResidualPx;
-		const residualY = gaze.hold * this.gazeY * T.eyeResidualPx;
+		const brain = this.brain;
+		const residualX = gaze.hold * this.gazeX * T.eyeResidualPx + (brain ? brain.gazeX * T.brainEyePx : 0);
+		const residualY = gaze.hold * this.gazeY * T.eyeResidualPx + (brain ? brain.gazeY * T.brainEyePx : 0);
 
 		const eyeAt = (index: 0 | 1): EyeFrame => {
 			const params = pair[index];
 			const side = index === 0 ? -1 : 1;
-			const length = Math.max(0.04, params.length * scales.h * emph * lid);
-			const width = params.width * scales.w * emph;
+			const length = Math.max(0.04, params.length * scales.h * emph * lid * eyeK);
+			const width = params.width * scales.w * emph * eyeK;
 			return {
 				cx:
 					CENTER +
@@ -521,16 +540,21 @@ export class Character {
 
 		const pose = this.player.pose;
 		const unit = BODY_RADIUS_PX * this.currentFit();
-		const zoom = pose.zoom / DEFAULT_ZOOM;
+		const zoom = (pose.zoom / DEFAULT_ZOOM) * (1 + (brain ? brain.breath : 0));
 		const shake = this.shake.value;
 		const shakeX = shake * T.shakeUnits * Math.sin(TAU * T.shakeHz * this.time);
 		// Giro de comemoração (poke "spin" da referência): yaw += 180 · (1 − cos πa).
 		const spin =
 			this.spinT === null ? 0 : 180 * (1 - Math.cos(Math.PI * (this.spinT / T.spinS)));
 		const orientation = this.orientation(pose.rot, gaze, spin);
+		if (brain) {
+			orientation.yaw += brain.yaw;
+			orientation.pitch += brain.pitch;
+			orientation.roll += brain.roll;
+		}
+		const squashBrain = brain ? brain.squash : 0;
 		const pos = this.position(pose.pos, gaze);
 
-		const ind = this.indicator.frame();
 		const body = ind && ind.round > 0 ? this.roundedBody(ind.round) : this.currentBody();
 		const bodyFit = ind
 			? lerp(this.currentFit(), shapeFit("blob"), ind.round) * ind.core
@@ -541,12 +565,13 @@ export class Character {
 			body,
 			bodyRev: this.bodyRev,
 			eyes: [eyeAt(0), eyeAt(1)],
-			orientation: ind ? { yaw: 0, pitch: 0, roll: 0 } : orientation,
+			// A pose do clipe se desfaz aos poucos com o morph (cortar na hora dava um salto ao sair do indicador).
+			orientation: ind ? scaleOrientation(orientation, 1 - ind.amount) : orientation,
 			fit: bodyFit,
 			indicator: ind,
 			scale: ind ? zoom * ind.zoom : zoom,
-			scaleX: pose.squash[0] * (1 + this.squash.value),
-			scaleY: pose.squash[1] * (1 - this.squash.value * 0.9),
+			scaleX: pose.squash[0] * (1 + this.squash.value) * (1 + squashBrain),
+			scaleY: pose.squash[1] * (1 - this.squash.value * 0.9) * (1 - squashBrain * 0.9),
 			squashAnchor: this.player.anchor,
 			offsetX: this.pushX.value + pos[0] * unit * zoom + shakeX,
 			offsetY: this.pushY.value - pos[1] * unit * zoom + (ind ? ind.lift : 0),
@@ -636,3 +661,7 @@ type GazePose = {
 	pushX: number;
 	pushY: number;
 };
+
+function scaleOrientation(o: Orientation, k: number): Orientation {
+	return { yaw: o.yaw * k, pitch: o.pitch * k, roll: o.roll * k };
+}

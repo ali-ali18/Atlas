@@ -83,11 +83,25 @@ const easeBack = (e: number) => 1 + 2.70158 * (e - 1) ** 3 + 1.70158 * (e - 1) *
 const easeInOut = (e: number) => (e < 0.5 ? 4 * e * e * e : 1 - (-2 * e + 2) ** 3 / 2);
 const frac = (e: number) => ((e % 1) + 1) % 1;
 
+/** Com o corpo virando indicador, os olhos encolhem até sumir neste ponto do morph (0..1). */
+export const FACE_GONE = 0.4;
+
+/** Escala dos olhos durante o morph: 1 com o corpo normal, 0 a partir de `FACE_GONE` (nunca sobra olho recortando o ponto). */
+export function faceScale(amount: number): number {
+	const k = clamp(1 - amount / FACE_GONE, 0, 1);
+	return k * k * (3 - 2 * k);
+}
+
 /** Frequência (rad/s) da mola do morph: amortecimento crítico. */
 const OMEGA = 14;
 /** O anel de progresso enche em 2,5 s, some e recomeça 1,5 s depois. */
 const PROGRESS_FILL_S = 2.5;
 const PROGRESS_CYCLE_S = 4;
+/** Anel com fração real: sobe até o alvo com esta taxa (1/s) e fica mais grosso para ler a 36 px. */
+const PROGRESS_RATE = 6;
+/** Abaixo disto o indicador antigo já recolheu e o novo pode entrar. */
+const SWITCH_EPS = 0.08;
+const PROGRESS_WIDTH = 10;
 
 const px = (value: number) => CENTER + (value - REF_B) * K;
 const len = (value: number) => value * K;
@@ -98,16 +112,38 @@ export class Indicator {
 	private shown: IndicatorKind | null = null;
 	private amount = 0;
 	private velocity = 0;
+	/** Troca de um indicador para outro: o atual recolhe até quase sumir e só então o novo cresce (sem corte seco). */
+	private pending: IndicatorKind | null = null;
 	private time = 0;
+	/** Fração real (0..1) do anel de progresso; `null` = anel que só gira e recomeça. */
+	private progressTarget: number | null = null;
+	private progressShown = 0;
+
+	/**
+	 * Fração real do anel de progresso (ex.: passo 3 de 8). O anel anima até o
+	 * valor e fica cheio, sem o ciclo de enche/some. `null` volta ao ciclo.
+	 */
+	setProgress(fraction: number | null): void {
+		this.progressTarget = fraction === null || !Number.isFinite(fraction) ? null : clamp(fraction, 0, 1);
+	}
+
+	/** Fração que o anel mostra agora (nula sem fração real). */
+	get progress(): number | null {
+		return this.progressTarget === null ? null : this.progressShown;
+	}
 
 	/** Muda o indicador (ou `null`, volta ao corpo). Reinicia o relógio dele. */
 	set(kind: IndicatorKind | null): void {
 		if (kind === this.kind) return;
 		this.kind = kind;
-		if (kind) {
-			this.shown = kind;
-			this.time = 0;
+		this.pending = null;
+		if (!kind) return;
+		if (this.shown !== null && this.shown !== kind && this.amount > SWITCH_EPS) {
+			this.pending = kind;
+			return;
 		}
+		this.shown = kind;
+		this.time = 0;
 	}
 
 	get current(): IndicatorKind | null {
@@ -115,7 +151,8 @@ export class Indicator {
 	}
 
 	private targetAmount(): number {
-		if (!this.kind) return 0;
+		if (!this.kind || this.pending) return 0;
+		if (this.kind === "progress" && this.progressTarget !== null) return 1;
 		if (this.kind === "progress" && frac(this.time / PROGRESS_CYCLE_S) * PROGRESS_CYCLE_S >= PROGRESS_FILL_S) return 0;
 		return 1;
 	}
@@ -124,6 +161,10 @@ export class Indicator {
 	advance(dt: number): void {
 		if (!(dt > 0)) return;
 		if (this.kind) this.time += dt;
+		if (this.progressTarget !== null) {
+			const gap = this.progressTarget - this.progressShown;
+			this.progressShown = Math.abs(gap) < 0.002 ? this.progressTarget : this.progressShown + gap * (1 - Math.exp(-PROGRESS_RATE * dt));
+		}
 		const target = this.targetAmount();
 		let left = dt;
 		while (left > 1e-9) {
@@ -131,6 +172,11 @@ export class Indicator {
 			this.amount += this.velocity * h;
 			this.velocity += (target - this.amount) * OMEGA * OMEGA * h - this.velocity * 2 * OMEGA * h;
 			left -= h;
+		}
+		if (this.pending && this.amount <= SWITCH_EPS) {
+			this.shown = this.pending;
+			this.pending = null;
+			this.time = 0;
 		}
 		if (Math.abs(target - this.amount) < 0.001 && Math.abs(this.velocity) < 0.01) {
 			this.amount = target;
@@ -154,12 +200,12 @@ export class Indicator {
 		return {
 			kind,
 			amount: s,
-			faceVisible: s < 0.5,
+			faceVisible: s < FACE_GONE,
 			core: 1 - s + core * s,
 			round: easeInOut(clamp(s / 0.62, 0, 1)),
 			zoom: 1 + (ZOOM[kind] - 1) * s,
 			lift: bounce ? -bounce.lift * s * K : 0,
-			parts: partsOf(kind, s, t),
+			parts: partsOf(kind, s, t, this.progressTarget === null ? null : this.progressShown),
 		};
 	}
 }
@@ -175,7 +221,7 @@ function dotsBounce(t: number, index = 1): { lift: number; pop: number; tone: nu
 	return { lift: a * 9, pop: 1 + (0.84 + 0.22 * a - 1), tone: 1 - 0.5 * (1 - a) };
 }
 
-function partsOf(kind: IndicatorKind, s: number, t: number): Part[] {
+function partsOf(kind: IndicatorKind, s: number, t: number, progress: number | null): Part[] {
 	switch (kind) {
 		case "dots":
 			return dotsParts(s, t);
@@ -184,7 +230,7 @@ function partsOf(kind: IndicatorKind, s: number, t: number): Part[] {
 		case "radar":
 			return radarParts(s, t);
 		case "progress":
-			return progressParts(s, t);
+			return progressParts(s, t, progress);
 	}
 }
 
@@ -210,18 +256,19 @@ function dotsParts(s: number, t: number): Part[] {
 
 function orbitParts(s: number, t: number): Part[] {
 	const n = easeOut(s);
-	const radius = 52 * easeBack(s);
+	const radius = 58 * easeBack(s);
 	const base = t * 1000 * 0.0017;
+	// Anel deitado visto de cima: a frente fica embaixo e o anel é mais largo que o
+	// núcleo, então as bolinhas giram em volta dele e nenhuma some atrás.
 	return Array.from({ length: 5 }, (_, i) => {
 		const c = base + (i * Math.PI * 2) / 5;
-		const u = Math.cos(c);
-		const l = 0.5 + 0.5 * clamp(u, 0, 1);
+		const depth = 0.5 + 0.5 * Math.cos(c); // 1 na frente, 0 atrás
 		return {
 			type: "disc" as const,
 			cx: px(REF_B + radius * Math.sin(c)),
-			cy: px(REF_B - radius * 0.42 * u),
-			r: len(Math.max(12 * l * n, 0.3)),
-			opacity: clamp((u + 0.4) / 0.6, 0.18, 1) * n,
+			cy: px(REF_B + radius * 0.5 * Math.cos(c)),
+			r: len(Math.max((6.5 + 4.5 * depth) * n, 0.3)),
+			opacity: (0.45 + 0.55 * depth) * n,
 		};
 	});
 }
@@ -242,9 +289,15 @@ function radarParts(s: number, t: number): Part[] {
 	});
 }
 
-function progressParts(s: number, t: number): Part[] {
+function progressParts(s: number, t: number, determinate: number | null): Part[] {
 	const n = easeOut(s);
 	const r = len(62 * easeBack(s));
+	if (determinate !== null) {
+		const width = len(PROGRESS_WIDTH);
+		const track: Part = { type: "ring", cx: CENTER, cy: CENTER, r, width, opacity: n * 0.22 };
+		if (determinate <= 0.004) return [track];
+		return [track, { type: "ring", cx: CENTER, cy: CENTER, r, width, opacity: n, arc: { fraction: determinate, startDeg: -90 } }];
+	}
 	const shot = (frac(t / PROGRESS_CYCLE_S) * PROGRESS_CYCLE_S) / PROGRESS_FILL_S;
 	const fill = clamp(shot / 0.85, 0, 1);
 	const track: Part = { type: "ring", cx: CENTER, cy: CENTER, r, width: len(5), opacity: n * 0.16 };
