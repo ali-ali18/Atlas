@@ -22,6 +22,7 @@ import { resolveColor, resolveShape } from "@workspace/ui/lib/avatar/identity";
 import type { Frame } from "@workspace/ui/lib/avatar/model/character";
 import type { AvatarState } from "@workspace/ui/lib/avatar/model/behavior";
 import type { ActivityFamily, PulseKind } from "@workspace/ui/lib/avatar/model/brain";
+import { sharedBrainBudget } from "@workspace/ui/lib/avatar/model/brain-budget";
 import {
 	normalizeExpression,
 	type Expression,
@@ -86,6 +87,11 @@ export type AvatarProps = {
 	size?: number;
 	/** Fração real (0..1) do anel de progresso do estado `progress`; sem ela o anel só gira em ciclo. */
 	progress?: number | null;
+	/**
+	 * Movimento contínuo do cérebro enquanto o bot trabalha. Ligado, ainda disputa as poucas
+	 * vagas globais (`sharedBrainBudget`); desligue em listas (sidebar) para ficar só com os clipes.
+	 */
+	brain?: boolean;
 	/** Família de atividade do cérebro (movimento contínuo); sem ela vem do `state` (lendo, programando…). */
 	activity?: ActivityFamily | null;
 	/** Quando o número muda, o avatar dá um giro de 360°. */
@@ -119,6 +125,7 @@ function markupOf(frame: Frame): Markup {
 export function Avatar({
 	animated = true,
 	ariaLabel,
+	brain = true,
 	breathe = true, // era false: sem isso o idle nunca gira e o 3D não aparece
 	className,
 	color,
@@ -206,6 +213,8 @@ export function Avatar({
 			seed: id,
 			breathe,
 			size: cur.size,
+			brain,
+			budget: sharedBrainBudget,
 		});
 		engine.setExpression(cur.exprName ?? null);
 		engine.setState(cur.state);
@@ -229,9 +238,10 @@ export function Avatar({
 		handleRef.current = handle;
 		return () => {
 			handle.unregister();
+			engine.dispose();
 			handleRef.current = null;
 		};
-	}, [reduced, id, breathe, follow, apply]);
+	}, [reduced, id, breathe, brain, follow, apply]);
 
 	// Trocar recorte ↔ pintura remonta os elementos: o cache de escritas vale
 	// para os antigos, então zera e pede um quadro para repintar os novos.
