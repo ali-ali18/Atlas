@@ -70,7 +70,7 @@ describe("morph de indicador", () => {
 		expect(radii.size).toBe(3);
 	});
 
-	it("órbita: 5 discos numa elipse (0,42 de achatamento) girando ao redor do núcleo", () => {
+	it("órbita: 5 discos num anel deitado (0,5 de achatamento) girando em volta do núcleo, frente embaixo e todos visíveis", () => {
 		const ind = new Indicator();
 		ind.set("orbit");
 		run(ind, 1);
@@ -81,7 +81,10 @@ describe("morph de indicador", () => {
 			if (p.type === "disc") {
 				const dx = (p.cx - CENTER) / 0.77;
 				const dy = (p.cy - CENTER) / 0.77;
-				expect((dx / 52) ** 2 + (dy / (52 * 0.42)) ** 2).toBeCloseTo(1, 1);
+				expect((dx / 58) ** 2 + (dy / (58 * 0.5)) ** 2).toBeCloseTo(1, 1);
+				// a frente (embaixo) é maior; nenhuma some atrás do núcleo
+				expect(p.opacity).toBeGreaterThan(0.4);
+				expect(Math.hypot(dx, dy)).toBeGreaterThan(19 + 6);
 			}
 		}
 		const before = parts.map((p) => (p.type === "disc" ? p.cx : 0));

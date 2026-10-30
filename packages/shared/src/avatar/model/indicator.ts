@@ -256,18 +256,19 @@ function dotsParts(s: number, t: number): Part[] {
 
 function orbitParts(s: number, t: number): Part[] {
 	const n = easeOut(s);
-	const radius = 52 * easeBack(s);
+	const radius = 58 * easeBack(s);
 	const base = t * 1000 * 0.0017;
+	// Anel deitado visto de cima: a frente fica embaixo e o anel é mais largo que o
+	// núcleo, então as bolinhas giram em volta dele e nenhuma some atrás.
 	return Array.from({ length: 5 }, (_, i) => {
 		const c = base + (i * Math.PI * 2) / 5;
-		const u = Math.cos(c);
-		const l = 0.5 + 0.5 * clamp(u, 0, 1);
+		const depth = 0.5 + 0.5 * Math.cos(c); // 1 na frente, 0 atrás
 		return {
 			type: "disc" as const,
 			cx: px(REF_B + radius * Math.sin(c)),
-			cy: px(REF_B - radius * 0.42 * u),
-			r: len(Math.max(12 * l * n, 0.3)),
-			opacity: clamp((u + 0.4) / 0.6, 0.18, 1) * n,
+			cy: px(REF_B + radius * 0.5 * Math.cos(c)),
+			r: len(Math.max((6.5 + 4.5 * depth) * n, 0.3)),
+			opacity: (0.45 + 0.55 * depth) * n,
 		};
 	});
 }
