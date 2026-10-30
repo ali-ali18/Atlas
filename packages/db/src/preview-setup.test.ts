@@ -5,7 +5,7 @@ import { createSetupState } from "@workspace/shared";
 
 process.env.ATLAS_HOOK_PEPPER ||= "test-pepper";
 const { prisma } = await import("./client.js");
-const { getPreviewSetup, savePreviewSetup, deletePreviewSetup, isOwnerUserId } = await import("./preview-setup.js");
+const { getPreviewSetup, loadPreviewSetup, savePreviewSetup, deletePreviewSetup, isOwnerUserId } = await import("./preview-setup.js");
 
 type Row = { userId: string; state: unknown };
 const rows = new Map<string, Row>();
@@ -41,6 +41,9 @@ test("usuário B não lê nem apaga o setup do usuário A", async () => {
 test("estado corrompido no banco vira null", async () => {
 	rows.set("admin", { userId: "admin", state: { v: 9 } });
 	assert.equal(await getPreviewSetup("admin"), null);
+	// Distingue "não há" de "há mas não lê": quem configura não pode sobrescrever às cegas.
+	assert.deepEqual(await loadPreviewSetup("admin"), { kind: "corrupt" });
+	assert.deepEqual(await loadPreviewSetup("b"), { kind: "none" });
 });
 
 test("só o e-mail de ATLAS_OWNER_EMAIL é administrador (sem diferenciar caixa)", async () => {

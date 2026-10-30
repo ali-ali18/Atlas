@@ -6,9 +6,19 @@ import { prisma } from "./client.js";
  * da sessão do run; o estado não guarda segredo (tokens ficam no cofre).
  */
 
-export async function getPreviewSetup(userId: string): Promise<PreviewSetupState | null> {
+export type PreviewSetupLoad = { kind: "none" } | { kind: "ok"; state: PreviewSetupState } | { kind: "corrupt" };
+
+/** Distingue "não há setup" de "há um registro que não dá para ler" (não sobrescrever às cegas). */
+export async function loadPreviewSetup(userId: string): Promise<PreviewSetupLoad> {
 	const row = await prisma.previewSetup.findUnique({ where: { userId } });
-	return row ? parsePreviewSetupState(row.state) : null;
+	if (!row) return { kind: "none" };
+	const state = parsePreviewSetupState(row.state);
+	return state ? { kind: "ok", state } : { kind: "corrupt" };
+}
+
+export async function getPreviewSetup(userId: string): Promise<PreviewSetupState | null> {
+	const loaded = await loadPreviewSetup(userId);
+	return loaded.kind === "ok" ? loaded.state : null;
 }
 
 export async function savePreviewSetup(userId: string, state: PreviewSetupState): Promise<void> {
