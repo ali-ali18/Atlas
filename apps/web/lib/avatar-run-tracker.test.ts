@@ -91,3 +91,14 @@ test("mudar o contexto (status, aprovação) republica a atividade sem recomeça
 	assert.equal(calls.filter((c) => c.startsWith("begin")).length, 1);
 	assert.equal(calls.filter((c) => c.startsWith("end")).length, 0);
 });
+
+// REGRESSÃO (achada na prévia no app real): o hook ficava depois do `return` de "sem agente" do
+// ChatThread e a ordem dos hooks mudava entre renders ("React has detected a change in the order of Hooks").
+test("ChatThread chama useAvatarActivity antes do return de 'sem agente'", async () => {
+	const { readFile } = await import("node:fs/promises");
+	const src = await readFile(new URL("../components/ui/templates/template-4/chat-thread/chat-thread.tsx", import.meta.url), "utf8");
+	const hook = src.indexOf("useAvatarActivity({");
+	const early = src.indexOf("if (!agent) {");
+	assert.ok(hook > 0 && early > 0);
+	assert.ok(hook < early, "o hook precisa vir antes do return antecipado");
+});

@@ -1058,6 +1058,19 @@ export function ChatThread({
 	const dockIds = useMemo(() => new Set(dockEntries.map((entry) => entry.id)), [dockEntries]);
 	const messageIndex = useMemo(() => new Map(messages.map((entry, position) => [entry.id, position] as const)), [messages]);
 
+	// Hook: tem de ficar ANTES do `return` de "sem agente" abaixo (a ordem dos hooks não pode mudar entre renders).
+	// O que o bot faz agora (e como o run terminou) para a expressão dos avatares vivos.
+	useAvatarActivity({
+		botIds: [botId, liveMemberId],
+		activity,
+		running: runningForAvatar,
+		status: runStatus,
+		paused: runStatus === "paused" || runStatus === "pausing",
+		pendingApproval: dockEntries.length > 0,
+		error,
+		cancelSeq,
+		cancelledMessage: translator.t("errors.runCancelled"),
+	});
 	if (!agent) {
 		return (
 			<div
@@ -1147,18 +1160,6 @@ export function ChatThread({
 	const working = sending || pausedLike || devFixtureWorking;
 	const runActive = sending || pausedLike;
 
-	// O que o bot faz agora (e como o run terminou) para a expressão dos avatares vivos.
-	useAvatarActivity({
-		botIds: [botId, liveMemberId],
-		activity,
-		running: runningForAvatar,
-		status: runStatus,
-		paused: pausedLike,
-		pendingApproval: hasPendingApproval,
-		error,
-		cancelSeq,
-		cancelledMessage: translator.t("errors.runCancelled"),
-	});
 	// Grupo, entre um run e outro: quem o servidor diz que está respondendo ou escolhendo.
 	const groupRunning = isGroup && groupState ? groupActivity(groupState.replies, groupMembers) : { running: [], waiting: [] };
 	const routingLabel = isGroup ? groupRoutingLabel(groupState, translator) : "";
