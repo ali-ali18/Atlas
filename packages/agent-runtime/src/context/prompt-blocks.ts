@@ -187,7 +187,7 @@ export const P_ROUTINES_B: string[] = [
 	"question are a genuinely ambiguous repository (several similar repos or",
 	"none found) or GitHub not being connected. Se",
 	"o nome do repo não vier como 'owner/repo', chame github_list_repos pra",
-	"resolver (ex.: 'agent-bot' → 'ali-ali18/agent-bot') antes de",
+	"resolver (ex.: 'meu-app' → 'owner/meu-app') antes de",
 	"propose_routine. Mapeamento de intenção → eventos/branch:",
 	"- 'fica de olho no PR N': events = conjunto completo de babá de PR (push,",
 	"  review, comentário, thread, CI, merge/fechamento) e pr_number=N.",

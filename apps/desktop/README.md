@@ -161,8 +161,8 @@ instalador como artefato do run por 7 dias.
 
 Use sempre o release fixo, que não muda de endereço entre versões:
 
-- Instalador: `https://github.com/ali-ali18/agent-bot/releases/download/desktop-latest/Atlas_x64-setup.exe`
-- Página com notas e versões anteriores: `https://github.com/ali-ali18/agent-bot/releases/tag/desktop-latest`
+- Instalador: `https://github.com/ali-ali18/Atlas/releases/download/desktop-latest/Atlas_x64-setup.exe`
+- Página com notas e versões anteriores: `https://github.com/ali-ali18/Atlas/releases/tag/desktop-latest`
 
 Por que não `releases/latest/download/<arquivo>`? O "latest" do GitHub é o release mais recente do
 **repositório inteiro**, e as tags `v*` do Atlas web também criam releases: o link quebraria a cada

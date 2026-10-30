@@ -763,10 +763,10 @@ describe("describeGithubTrigger", () => {
 	it("repo-wide: eventos de PR combinam numa frase natural", () => {
 		expect(
 			describeGithubTrigger({
-				repo: "ali-ali18/agent-bot",
+				repo: "ali-ali18/Atlas",
 				events: ["pr_opened", "pr_merged"],
 			}),
-		).toBe("um PR é aberto ou mergeado em `ali-ali18/agent-bot`");
+		).toBe("um PR é aberto ou mergeado em `ali-ali18/Atlas`");
 	});
 	it("repo-wide: CI-only referencia a branch", () => {
 		expect(
@@ -839,23 +839,23 @@ describe("describeGithubTriggerClauses", () => {
 	it("lifecycle de PR: uma cláusula 'Quando ...' juntando os eventos", () => {
 		expect(
 			describeGithubTriggerClauses({
-				repo: "ali-ali18/agent-bot",
+				repo: "ali-ali18/Atlas",
 				events: ["pr_opened", "pr_merged"],
 			}),
 		).toEqual([
-			"Quando um PR for aberto ou um PR for mesclado em ali-ali18/agent-bot",
+			"Quando um PR for aberto ou um PR for mesclado em ali-ali18/Atlas",
 		]);
 	});
 
 	it("CI: cláusula com a branch", () => {
 		expect(
 			describeGithubTriggerClauses({
-				repo: "ali-ali18/agent-bot",
+				repo: "ali-ali18/Atlas",
 				events: ["ci_failed"],
 				branch: "checkpoint/agentic-baseline",
 			}),
 		).toEqual([
-			"Quando o CI falhar na branch checkpoint/agentic-baseline em ali-ali18/agent-bot",
+			"Quando o CI falhar na branch checkpoint/agentic-baseline em ali-ali18/Atlas",
 		]);
 	});
 

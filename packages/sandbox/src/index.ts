@@ -34,7 +34,7 @@ export type {
 	SandboxSessionRecord,
 } from "./types.js";
 
-export { runSandboxOperation, assertSandboxExecution, SandboxExecutionAbortedError, type SandboxExecutionContext } from "./execution-context.js";
+export { runSandboxOperation, assertSandboxExecution, SandboxExecutionAbortedError, SandboxOperationTimeoutError, type SandboxExecutionContext } from "./execution-context.js";
 
 export { workVolumeName, sandboxBinds } from "./docker-manager.js";
 export {

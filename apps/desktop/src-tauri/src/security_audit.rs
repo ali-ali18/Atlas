@@ -88,10 +88,7 @@ mod tests {
         assert!(!endpoints.is_empty());
         for e in endpoints {
             let url = e.as_str().unwrap();
-            assert!(
-                url.starts_with("https://github.com/ali-ali18/agent-bot/releases/"),
-                "{url}"
-            );
+            assert!(url.starts_with("https://github.com/ali-ali18/Atlas/releases/"), "{url}");
         }
         assert!(conf["plugins"]["updater"]["dangerousInsecureTransportProtocol"].is_null());
     }

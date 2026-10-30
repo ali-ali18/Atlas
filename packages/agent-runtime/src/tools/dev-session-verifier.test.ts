@@ -104,8 +104,8 @@ describe("Verificador: caminho rápido e bloqueio fixo", () => {
 		const t = setup({ reply: () => ask });
 		const bs = String.fromCharCode(92);
 		const cmds = [
-			"cd /workspace/agent-bot && echo \"=== a ===\" && grep -rn \"createDevJobCallbackRoutes" + bs + "|CALLBACK_PATH\" apps/api/src --include=*.ts | grep -v test && sed -n '1,70p' apps/api/src/middleware/auth.ts",
-			"cd /workspace/agent-bot/packages/db && cat package.json | sed -n '1,40p'",
+			"cd /workspace/atlas && echo \"=== a ===\" && grep -rn \"createDevJobCallbackRoutes" + bs + "|CALLBACK_PATH\" apps/api/src --include=*.ts | grep -v test && sed -n '1,70p' apps/api/src/middleware/auth.ts",
+			"cd /workspace/atlas/packages/db && cat package.json | sed -n '1,40p'",
 		];
 		for (const cmd of cmds) {
 			const r = await t.runtime.execute("shell", { cmd }, "c-" + cmd.length);

@@ -9,7 +9,7 @@
 - **Texto para o modelo:** inglês neutro e genérico (sem exemplos de nicho). **Texto para o usuário:** pt-BR.
 - **Dono da execução:** Sonnet (um agente por fase). Revisão, **backup do banco e aplicação das migrations: o orquestrador** (agentes só geram a migration).
 - **Next.js:** o `apps/web` usa uma versão com breaking changes. Antes de mexer em APIs do Next, ler `node_modules/next/dist/docs/`.
-- **Issues (ali-ali18/agent-bot, privado):** mapa #38; K0 #39, K1 #40, K2 #41, K3 #42, K4 #43. Dependências nativas: K0 bloqueia K1, K2 e K3; K1 e K2 bloqueiam K4.
+- **Issues (ali-ali18/Atlas, agora público; antes ali-ali18/agent-bot):** mapa #38; K0 #39, K1 #40, K2 #41, K3 #42, K4 #43. Dependências nativas: K0 bloqueia K1, K2 e K3; K1 e K2 bloqueiam K4.
 
 ---
 

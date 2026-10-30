@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { describeRowsShape, extractHookRows } from "./hook-ops.js";
 
-const repos = [{ full_name: "ali-ali18/agent-bot" }];
+const repos = [{ full_name: "ali-ali18/Atlas" }];
 
 describe("extractHookRows: lista em qualquer embrulho do Composio", () => {
 	it("chaves conhecidas, chaves do próprio app e string JSON", () => {

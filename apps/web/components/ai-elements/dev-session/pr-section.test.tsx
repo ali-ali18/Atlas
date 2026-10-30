@@ -28,7 +28,7 @@ test("painel: seção Pull request com número, título, estado, ramos, link ext
 	assert.match(html, /#42<\/span> Tratar título vazio no Panel/);
 	assert.match(html, /data-pr-state="open"[^>]*>.*Aberta/);
 	assert.match(html, /main ← feat\/painel/);
-	assert.match(html, /href="https:\/\/github\.com\/ali-ali18\/agent-bot\/pull\/42"/);
+	assert.match(html, /href="https:\/\/github\.com\/acme\/painel-app\/pull\/42"/);
 	assert.match(html, /target="_blank"/);
 	assert.match(html, /Abrir no GitHub/);
 	assert.match(html, /1 falhou · 3 de 5 passaram/);

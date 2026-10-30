@@ -28,7 +28,7 @@ test("linha da sessão em andamento: uma linha com título, status e tempo, sem 
 	const view = fixtureView("running");
 	const html = renderToStaticMarkup(<DevSessionCardView now={view.startedAt + 252_000} view={view} />);
 	assert.match(html, /<button/);
-	assert.match(html, /ali-ali18\/agent-bot · feat\/painel/);
+	assert.match(html, /acme\/painel-app · feat\/painel/);
 	assert.match(html, /data-dev-timer="true">4m12s</);
 	assert.match(html, /data-dev-extra="true"><span class="font-mono">pnpm test</);
 	assert.doesNotMatch(html, /agora:|Trabalhando|emerald-500\/40|text-primary/);

@@ -1437,7 +1437,7 @@ describe("propose_routine trigger_type=github", () => {
 			title: "CI quebrou",
 			detail: "Leia os logs e diga o que quebrou.",
 			trigger_type: "github",
-			github: { repo: "ali-ali18/agent-bot", events: ["ci_failed"], ci_branch: "main" },
+			github: { repo: "ali-ali18/Atlas", events: ["ci_failed"], ci_branch: "main" },
 		});
 
 		expect(createRoutine).toHaveBeenCalledTimes(1);
@@ -1460,7 +1460,7 @@ describe("propose_routine trigger_type=github", () => {
 			title: "CI quebrou",
 			detail: "Leia os logs e diga o que quebrou.",
 			trigger_type: "github",
-			github: { repo: "ali-ali18/agent-bot", events: ["ci_failed"], ci_branch: "main" },
+			github: { repo: "ali-ali18/Atlas", events: ["ci_failed"], ci_branch: "main" },
 		});
 
 		expect(deleteRoutine).toHaveBeenCalledWith("default", "bot-1", "routine-gh-2");
@@ -1474,7 +1474,7 @@ describe("propose_routine trigger_type=github", () => {
 			title: "CI quebrou",
 			detail: "Leia os logs e diga o que quebrou.",
 			trigger_type: "github",
-			github: { repo: "ali-ali18/agent-bot", events: ["ci_failed"] },
+			github: { repo: "ali-ali18/Atlas", events: ["ci_failed"] },
 		});
 
 		expect(createRoutine).not.toHaveBeenCalled();
@@ -1493,7 +1493,7 @@ describe("propose_routine trigger_type=github", () => {
 			title: "CI quebrou",
 			detail: "Leia os logs e diga o que quebrou.",
 			trigger_type: "github",
-			github: { repo: "ali-ali18/agent-bot", events: ["ci_failed"], branch: "main" },
+			github: { repo: "ali-ali18/Atlas", events: ["ci_failed"], branch: "main" },
 		});
 
 		expect(createRoutine).toHaveBeenCalledTimes(1);
@@ -1529,21 +1529,21 @@ describe("propose_routine trigger_type=github", () => {
 			...cronRoutine,
 			triggerType: "event",
 			schedule: null,
-			github: { kind: "github", repo: "ali-ali18/agent-bot", events: ["ci_failed"], branch: "main" },
+			github: { kind: "github", repo: "ali-ali18/Atlas", events: ["ci_failed"], branch: "main" },
 		} as never);
 		const { routines } = await runProposeRoutine({
 			action: "create",
 			title: "CI quebrou",
 			detail: "Leia os logs",
 			trigger_type: "github",
-			github: { repo: "ali-ali18/agent-bot", events: ["ci_failed"], branch: "main" },
+			github: { repo: "ali-ali18/Atlas", events: ["ci_failed"], branch: "main" },
 		});
 		expect(createRoutine).not.toHaveBeenCalled();
 		expect(updateRoutine).toHaveBeenCalledWith("default", "bot-1", cronRoutine.id, expect.objectContaining({
 			triggerType: "event",
-			githubTrigger: expect.objectContaining({ repo: "ali-ali18/agent-bot", events: ["ci_failed"] }),
+			githubTrigger: expect.objectContaining({ repo: "ali-ali18/Atlas", events: ["ci_failed"] }),
 		}));
-		expect(ensureGithubRepoHook).toHaveBeenCalledWith({ userId: "default", repo: "ali-ali18/agent-bot" });
+		expect(ensureGithubRepoHook).toHaveBeenCalledWith({ userId: "default", repo: "ali-ali18/Atlas" });
 		expect(routines).toContainEqual(expect.objectContaining({ action: "updated" }));
 	});
 
@@ -1586,7 +1586,7 @@ describe("propose_routine trigger_type=github", () => {
 			enabled: false,
 			github: {
 				kind: "github",
-				repo: "ali-ali18/agent-bot",
+				repo: "ali-ali18/Atlas",
 				events: ["push", "pr_opened", "pr_merged"],
 				branch: "checkpoint/agentic-baseline",
 			},
@@ -1599,7 +1599,7 @@ describe("propose_routine trigger_type=github", () => {
 			detail: "instrução nova de leitura do evento",
 			trigger_type: "github",
 			github: {
-				repo: "ali-ali18/agent-bot",
+				repo: "ali-ali18/Atlas",
 				events: ["push", "pr_opened", "pr_merged"],
 				branch: "checkpoint/agentic-baseline",
 			},
@@ -1612,14 +1612,14 @@ describe("propose_routine trigger_type=github", () => {
 			schedule: null,
 			enabled: false,
 			githubTrigger: {
-				repo: "ali-ali18/agent-bot",
+				repo: "ali-ali18/Atlas",
 				events: ["push", "pr_opened", "pr_merged"],
 				branch: "checkpoint/agentic-baseline",
 			},
 		});
 		expect(ensureGithubRepoHook).toHaveBeenCalledWith({
 			userId: "default",
-			repo: "ali-ali18/agent-bot",
+			repo: "ali-ali18/Atlas",
 		});
 		expect(toolResults[0]?.ok).toBe(true);
 	});
@@ -1632,7 +1632,7 @@ describe("propose_routine trigger_type=github", () => {
 				...cronRoutine,
 				triggerType: "event",
 				schedule: null,
-				github: { kind: "github", repo: "ali-ali18/agent-bot", events: ["push"], branch: "main" },
+				github: { kind: "github", repo: "ali-ali18/Atlas", events: ["push"], branch: "main" },
 			} as never)
 			.mockResolvedValueOnce({ ...cronRoutine } as never);
 		vi.mocked(ensureGithubRepoHook).mockResolvedValueOnce({
@@ -1644,7 +1644,7 @@ describe("propose_routine trigger_type=github", () => {
 			target: "routine-cron-1",
 			detail: "instrução nova",
 			trigger_type: "github",
-			github: { repo: "ali-ali18/agent-bot", events: ["push"], branch: "main" },
+			github: { repo: "ali-ali18/Atlas", events: ["push"], branch: "main" },
 		});
 
 		expect(updateRoutine).toHaveBeenCalledTimes(2);
@@ -1659,7 +1659,7 @@ describe("propose_routine trigger_type=github", () => {
 			enabled: true,
 			github: {
 				kind: "github" as const,
-				repo: "ali-ali18/agent-bot",
+				repo: "ali-ali18/Atlas",
 				events: ["ci_failed"] as const,
 				branch: "main",
 			},

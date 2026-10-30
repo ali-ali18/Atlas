@@ -198,8 +198,8 @@ describe("caminho rápido do Verificador", () => {
 describe("caminho rápido: inspeção inofensiva", () => {
 	const bs = String.fromCharCode(92);
 	it("os dois comandos reais de produção", () => {
-		const first = "cd /workspace/agent-bot && echo \"=== mount callback route ===\" && grep -rn \"createDevJobCallbackRoutes" + bs + "|CALLBACK_PATH\" apps/api/src --include=*.ts | grep -v test && echo \"=== x ===\" && sed -n '1,70p' apps/api/src/middleware/auth.ts";
-		const second = "cd /workspace/agent-bot/packages/db && cat package.json | sed -n '1,40p'";
+		const first = "cd /workspace/atlas && echo \"=== mount callback route ===\" && grep -rn \"createDevJobCallbackRoutes" + bs + "|CALLBACK_PATH\" apps/api/src --include=*.ts | grep -v test && echo \"=== x ===\" && sed -n '1,70p' apps/api/src/middleware/auth.ts";
+		const second = "cd /workspace/atlas/packages/db && cat package.json | sed -n '1,40p'";
 		for (const cmd of [first, second]) {
 			expect(auto(cmd).action, cmd).toBe("run");
 			expect(riskyReason(cmd), cmd).toBeNull();
