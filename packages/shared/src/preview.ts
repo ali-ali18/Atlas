@@ -127,6 +127,8 @@ export function redactPreviewPath(path: string): string {
 const TWO_LEVEL_SUFFIXES = new Set([
 	"com.br", "net.br", "org.br", "gov.br", "edu.br", "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au",
 	"co.jp", "co.nz", "co.za", "com.mx", "com.ar", "com.co", "com.pt", "com.cn", "co.in", "com.tr", "com.sg",
+	// Sufixos privados da Public Suffix List (cada `<nome>.dedyn.io` é um site separado para o navegador).
+	"dedyn.io", "duckdns.org", "github.io", "pages.dev", "workers.dev", "vercel.app", "netlify.app", "herokuapp.com", "web.app", "firebaseapp.com",
 ]);
 
 /** Domínio registrável aproximado (últimos 2 rótulos, ou 3 em sufixos de dois níveis conhecidos). Sem porta. */
