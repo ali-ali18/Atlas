@@ -6,6 +6,9 @@
  * O estado (`active`) mora na própria rotina: enquanto a condição continua verdadeira não avisa de
  * novo; só volta a avisar depois que ela deixou de valer pelo menos uma vez.
  */
+import type { AlertRuleState } from "./alert-rule-eval.js";
+import { describeAlertRuleCondition, parseAlertRule, sameAlertRule, type AlertRule } from "./alert-rule.js";
+import { DEFAULT_BOT_LANGUAGE, type BotLanguage } from "./bot-language.js";
 import { describeRoutineProposalSchedule } from "./routine-proposal.js";
 import { describeAlertCron } from "./routine-alert-schedule.js";
 import type { RoutineTriggerType } from "./routines.js";
@@ -26,6 +29,11 @@ export type RoutineAlertConfig = {
 	condition: string;
 	/** Dica para quem verifica (qual ferramenta, produto, campo, limite). Não aparece no card. */
 	hint?: string;
+	/**
+	 * Regra determinística (fonte + condição): o servidor confere sozinho, sem modelo. Ausente = o jeito de
+	 * sempre (o modelo verifica a `condition`); linha antiga e versão antiga seguem funcionando assim.
+	 */
+	rule?: AlertRule;
 };
 
 /** Config + estado do último ciclo (guardado em `Routine.alertJson`). */
@@ -41,6 +49,8 @@ export type RoutineAlert = RoutineAlertConfig & {
 	quietStreak?: number;
 	/** Intervalo original e o atual depois de espaçar as conferências (ver `planAlertBackoff`). */
 	backoff?: { base: number; to: number };
+	/** Estado da leitura quando há `rule` (último valor, debounce, itens vistos). */
+	ruleState?: AlertRuleState;
 };
 
 export type ParseRoutineAlertResult = { ok: true; alert: RoutineAlertConfig } | { ok: false; error: string };
@@ -49,29 +59,41 @@ function cleanLine(value: string): string {
 	return value.replace(/\s+/g, " ").trim();
 }
 
-/** Valida o objeto `alert` vindo da tool do agente ou da API. Mensagens em pt-BR (viram erro acionável). */
-export function parseRoutineAlertInput(raw: unknown): ParseRoutineAlertResult {
+/**
+ * Valida o objeto `alert` vindo da tool do agente ou da API. Mensagens em pt-BR (viram erro acionável).
+ * Com `rule`, a `condition` é gerada da regra (no idioma pedido) quando não vem.
+ */
+export function parseRoutineAlertInput(raw: unknown, options: { locale?: BotLanguage } = {}): ParseRoutineAlertResult {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
 		return { ok: false, error: "alert deve ser um objeto com a condição (ex.: { condition: \"o estoque da canela cair abaixo de 10\" })" };
 	}
 	const row = raw as Record<string, unknown>;
-	const condition = typeof row.condition === "string" ? cleanLine(row.condition) : "";
+	let rule: AlertRule | undefined;
+	if (row.rule !== undefined && row.rule !== null) {
+		const parsedRule = parseAlertRule(row.rule);
+		if (!parsedRule.ok) return { ok: false, error: `alert.rule inválida: ${parsedRule.error}` };
+		rule = parsedRule.rule;
+	}
+	let condition = typeof row.condition === "string" ? cleanLine(row.condition) : "";
+	if (!condition && rule) condition = describeAlertRuleCondition(rule, options.locale ?? DEFAULT_BOT_LANGUAGE);
 	if (condition.length < ALERT_CONDITION_MIN) return { ok: false, error: "alert.condition vazia: descreva quando avisar" };
 	if (condition.length > ALERT_CONDITION_MAX) return { ok: false, error: `alert.condition longa demais (máximo ${ALERT_CONDITION_MAX} caracteres)` };
 	if (row.hint !== undefined && row.hint !== null && typeof row.hint !== "string") return { ok: false, error: "alert.hint deve ser texto" };
 	const hint = typeof row.hint === "string" ? cleanLine(row.hint) : "";
 	if (hint.length > ALERT_HINT_MAX) return { ok: false, error: `alert.hint longa demais (máximo ${ALERT_HINT_MAX} caracteres)` };
-	return { ok: true, alert: { condition, ...(hint ? { hint } : {}) } };
+	return { ok: true, alert: { condition, ...(hint ? { hint } : {}), ...(rule ? { rule } : {}) } };
 }
 
 /** Lê `alertJson` do banco com tolerância (linha antiga, lixo → null). */
 export function parseRoutineAlert(value: unknown): RoutineAlert | null {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
 	const row = value as Record<string, unknown>;
+	// Regra ilegível (versão futura, lixo): vale como alerta comum, conferido pelo modelo.
 	const parsed = parseRoutineAlertInput(row);
-	if (!parsed.ok) return null;
+	const tolerant = parsed.ok ? parsed : parseRoutineAlertInput({ ...row, rule: undefined });
+	if (!tolerant.ok) return null;
 	return {
-		...parsed.alert,
+		...tolerant.alert,
 		active: row.active === true,
 		...(typeof row.checkedAt === "string" ? { checkedAt: row.checkedAt } : {}),
 		...(typeof row.triggeredAt === "string" ? { triggeredAt: row.triggeredAt } : {}),
@@ -79,7 +101,23 @@ export function parseRoutineAlert(value: unknown): RoutineAlert | null {
 		...(row.unverified === true ? { unverified: true } : {}),
 		...(typeof row.quietStreak === "number" && row.quietStreak > 0 ? { quietStreak: Math.trunc(row.quietStreak) } : {}),
 		...parseBackoff(row.backoff),
+		...(tolerant.alert.rule ? parseRuleState(row.ruleState) : {}),
 	};
+}
+
+function parseRuleState(value: unknown): { ruleState?: AlertRuleState } {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	const row = value as Record<string, unknown>;
+	const state: AlertRuleState = {};
+	if (typeof row.lastValue === "number" || typeof row.lastValue === "string") state.lastValue = typeof row.lastValue === "string" ? row.lastValue.slice(0, 200) : row.lastValue;
+	if (typeof row.lastReadAt === "string") state.lastReadAt = row.lastReadAt;
+	if (typeof row.consecutive === "number" && row.consecutive > 0) state.consecutive = Math.min(1000, Math.trunc(row.consecutive));
+	const suspect = row.suspect as { value?: unknown } | null | undefined;
+	if (suspect && typeof suspect.value === "number") state.suspect = { value: suspect.value };
+	if (typeof row.baseline === "number") state.baseline = row.baseline;
+	if (Array.isArray(row.seenIds)) state.seenIds = row.seenIds.filter((id): id is string => typeof id === "string").slice(-200);
+	if (row.seeded === true) state.seeded = true;
+	return Object.keys(state).length > 0 ? { ruleState: state } : {};
 }
 
 function parseBackoff(value: unknown): { backoff?: { base: number; to: number } } {
@@ -88,14 +126,15 @@ function parseBackoff(value: unknown): { backoff?: { base: number; to: number } 
 	return typeof base === "number" && typeof to === "number" && base > 0 && to > base ? { backoff: { base, to } } : {};
 }
 
-/** Config nova mantendo o estado quando a condição não mudou; condição nova começa "de fora" (pode avisar na hora). */
+/** Config nova mantendo o estado quando a condição e a regra não mudaram; senão começa "de fora" (pode avisar na hora). */
 export function applyAlertConfig(previous: RoutineAlert | null, next: RoutineAlertConfig): RoutineAlert {
 	const hint = next.hint ? { hint: next.hint } : {};
-	if (previous && previous.condition === next.condition) {
-		const { hint: _old, ...kept } = previous;
-		return { ...kept, ...hint };
+	const rule = next.rule ? { rule: next.rule } : {};
+	if (previous && previous.condition === next.condition && sameAlertRule(previous.rule, next.rule)) {
+		const { hint: _old, rule: _rule, ...kept } = previous;
+		return { ...kept, ...hint, ...rule };
 	}
-	return { condition: next.condition, ...hint, active: false };
+	return { condition: next.condition, ...hint, ...rule, active: false };
 }
 
 export type AlertVerdict = { triggered: boolean; summary: string };
