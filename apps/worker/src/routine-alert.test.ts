@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { RoutineAlert } from "@workspace/shared";
+import { foldAutomatedMessages, type RoutineAlert } from "@workspace/shared";
 import { planAlertRun, settleAlertRun } from "./routine-alert.js";
 import { notifyRoutineRunFailure } from "./routine-run-failure.js";
 
@@ -194,20 +194,26 @@ test("post: o aviso entra na conversa só quando avisa e só depois de gravar o 
 	const { deps } = fakeDeps();
 	const posts: string[] = [];
 	const order: string[] = [];
+	const origins: string[] = [];
 	const withPost = {
 		...deps,
 		record: async (...args: Parameters<typeof deps.record>) => {
 			order.push("record");
 			return deps.record(...args);
 		},
-		post: async (_conversationId: string, text: string) => {
+		post: async (_conversationId: string, text: string, origin: "routine") => {
 			order.push("post");
 			posts.push(text);
+			origins.push(origin);
 		},
 	};
 	await settleAlertRun(plan(idle, yes), target, withPost);
 	assert.deepEqual(order, ["record", "post"]);
 	assert.deepEqual(posts, ["⚠️ Estoque da canela: 7 un. (mínimo 10)"]);
+	// Gravada como saída automatizada: no histórico do modelo ganha o rótulo e não passa por fala do bot.
+	assert.deepEqual(origins, ["routine"]);
+	const history = foldAutomatedMessages([{ role: "assistant", content: posts[0]!, origin: origins[0] }]);
+	assert.match(history[0]!.content, /^\[Automated run - not a user request\]\n/);
 	await settleAlertRun(plan(idle, no), target, withPost);
 	assert.equal(posts.length, 1, "sem aviso não posta");
 	const failing = { ...withPost, post: async () => { throw new Error("db fora"); } };

@@ -46,7 +46,7 @@ type RoutineJobMeta = {
 	/** Push do alerta (ausente = sem chaves VAPID). */
 	notify?: (userId: string, conversationId: string, kind: "alert", text: string) => Promise<unknown>;
 	/** Grava o aviso do alerta com regra na conversa do bot (esse caminho não tem AgentRun que o grave). */
-	appendMessage?: (conversationId: string, text: string) => Promise<unknown>;
+	appendMessage?: (conversationId: string, text: string, origin: "routine") => Promise<unknown>;
 	/** Sincroniza o agendador depois de o backoff mudar o intervalo. */
 	onRoutineMutated?: (routine: NonNullable<Awaited<ReturnType<typeof getRoutine>>>) => Promise<unknown>;
 	/** Leitor da fonte (teste injeta; padrão = `readAlertRule` com cache compartilhado do ciclo). */

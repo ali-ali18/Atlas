@@ -69,7 +69,7 @@ export type AlertSettleDeps = {
 	/** Sincroniza o agendador depois de mudar o intervalo (backoff). Falha não derruba o alerta. */
 	reschedule?: () => Promise<unknown>;
 	/** Grava o aviso na conversa do bot. Só alerta conferido sem modelo: no caminho do modelo o fim do run já grava a resposta. */
-	post?: (conversationId: string, text: string) => Promise<unknown>;
+	post?: (conversationId: string, text: string, origin: "routine") => Promise<unknown>;
 	/** Push (ausente = sem chaves VAPID). Respeita o switch do bot, quem está olhando e a coalescência. */
 	push?: (userId: string, conversationId: string, text: string) => Promise<unknown>;
 	log?: (line: string) => void;
@@ -100,7 +100,8 @@ export async function settleAlertRun(
 		await deps.reschedule().catch((error) => console.error(`[alert] agendador não sincronizado routine=${target.routineId}`, error instanceof Error ? error.message : "erro"));
 	}
 	if (plan.notify && deps.post && target.conversationId) {
-		await deps.post(target.conversationId, plan.text).catch((error) => {
+		// Origem "routine": no histórico do modelo a mensagem vira "[Automated run - not a user request]" (não é fala do bot nem pedido do usuário).
+		await deps.post(target.conversationId, plan.text, "routine").catch((error) => {
 			console.error(`[alert] aviso na conversa falhou routine=${target.routineId}`, error instanceof Error ? error.message : "erro");
 		});
 	}

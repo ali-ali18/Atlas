@@ -209,3 +209,25 @@ export function parseFeedItems(xml: string): AlertFeedItem[] {
 export function alertItemKey(item: { id?: string; link?: string; title: string }): string {
 	return (item.id || item.link || `t:${hashAlertText(item.title)}`).slice(0, 300);
 }
+
+export const ALERT_EXTERNAL_TEXT_MAX = 80;
+
+/**
+ * Texto que veio de fora (página, feed) e vai aparecer numa mensagem do bot: sem caracteres de controle, de
+ * direção ou invisíveis, sem marcação (`<>[]{}\`` e aspas) e sem quebra de linha, em no máximo 80 caracteres.
+ * Não impede que uma frase estranha apareça, mas ela não vira formatação nem ordem em linha própria.
+ */
+export function sanitizeAlertExternalText(text: string, max = ALERT_EXTERNAL_TEXT_MAX): string {
+	const clean = text
+		.normalize("NFKC")
+		.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ")
+		.replace(/[<>\[\]{}`"“”'‘’\\|*_#~]/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
+}
+
+/** O valor externo entre aspas: na mensagem fica claro que é citação do site, não fala do bot. */
+export function quoteAlertExternalText(text: string): string {
+	return `“${sanitizeAlertExternalText(text)}”`;
+}

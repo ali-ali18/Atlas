@@ -95,7 +95,7 @@ test("item novo: avisa a cada item novo mesmo com o alerta anterior ativo, sem m
 	const next = setup([items("3", "1", "2")], { alert: alertWith({ ruleState: seed.calls.record[0]!.next.ruleState, active: true }, feed) });
 	const result = await runRuleAlert(next.input, next.deps);
 	assert.equal(result.plan.decision.transition, "triggered");
-	assert.match(next.calls.post[0]!, /Edital 3/);
+	assert.match(next.calls.post[0]!, /“Edital 3”/, "o título do feed entra citado, não como fala do bot");
 });
 
 test("intervalo: espaça quando nada muda e grava o novo intervalo; cron não mexe no gatilho, só no estado", async () => {

@@ -10,7 +10,7 @@
  * - item novo por identidade estável (guid/link/hash do título) com conjunto de vistos limitado.
  */
 import type { BotLanguage } from "./bot-language.js";
-import { alertItemKey, type AlertFeedItem, parseLocalizedNumber } from "./alert-rule-extract.js";
+import { alertItemKey, quoteAlertExternalText, sanitizeAlertExternalText, type AlertFeedItem, parseLocalizedNumber } from "./alert-rule-extract.js";
 import { formatAlertNumber, renderAlertMessage, type AlertCheck, type AlertRule } from "./alert-rule.js";
 import type { AlertVerdict } from "./routine-alert.js";
 
@@ -123,8 +123,11 @@ function evaluateNewItems(rule: AlertRule, state: AlertRuleState, read: AlertRul
 		return { verdict: { triggered: false, summary: renderAlertMessage(rule, `${items.length}`, locale) }, state: { ...base, seenIds: pushSeen([], ids) }, suspect: true };
 	}
 	const nextSeen = pushSeen(seen, ids);
-	if (fresh.length === 0) return { verdict: { triggered: false, summary: renderAlertMessage(rule, items[0]!.title, locale) }, state: { ...base, seenIds: nextSeen }, display: items[0]!.title };
-	const first = fresh[0]!.title;
+	if (fresh.length === 0) {
+		const latest = quoteAlertExternalText(items[0]!.title);
+		return { verdict: { triggered: false, summary: renderAlertMessage(rule, latest, locale) }, state: { ...base, seenIds: nextSeen }, display: latest };
+	}
+	const first = quoteAlertExternalText(fresh[0]!.title);
 	const display = fresh.length > 1 ? `${first} (+${fresh.length - 1})` : first;
 	return { verdict: { triggered: true, summary: renderAlertMessage(rule, display, locale) }, state: { ...base, seenIds: nextSeen }, display };
 }
@@ -150,9 +153,11 @@ export function evaluateAlertRule(input: {
 	const stamp = now.toISOString();
 
 	if (check.parse === "text") {
-		const shown = text.slice(0, 200);
-		const matches = textHolds(check, shown);
-		return settle({ rule, check, state, wasActive, matches, stillHolds: matches, value: shown, display: shown, stamp, locale });
+		const compared = text.slice(0, 200);
+		const matches = textHolds(check, compared);
+		// O texto lido é de terceiros: o que fica no estado e vai à mensagem é a citação saneada.
+		const shown = sanitizeAlertExternalText(compared);
+		return settle({ rule, check, state, wasActive, matches, stillHolds: matches, value: shown, display: quoteAlertExternalText(compared), stamp, locale });
 	}
 
 	const value = parseLocalizedNumber(text);

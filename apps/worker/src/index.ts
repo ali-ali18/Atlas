@@ -354,7 +354,7 @@ const routineWorker = new Worker<
 			deferJob: (payload, delayMs) =>
 				enqueueRoutineEventDeferred(routineQueue, payload, delayMs),
 			notify,
-			appendMessage: (conversationId, text) => appendConversationMessage(conversationId, "assistant", text),
+			appendMessage: (conversationId, text, origin) => appendConversationMessage(conversationId, "assistant", text, origin),
 			onRoutineMutated: async (routine) => {
 				await syncRoutineScheduler(routineQueue, routine);
 			},
