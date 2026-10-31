@@ -28,6 +28,8 @@ export function ToolMarksSection({ connection, onChanged, defaultOpen = false }:
 	);
 	const suggestions = useMemo(() => pendingToolMarkSuggestions(connection.tools, confirmed, connection.disabledTools), [connection.tools, confirmed, connection.disabledTools]);
 	const pendingNames = Object.keys(suggestions);
+	// Só as sugeridas como leitura contam como "sugestão"; o resto fica como escrita até o dono mudar.
+	const suggestedRead = pendingNames.filter((name) => suggestions[name] === "read");
 	// Rascunho só das pendentes (pré-marcadas com a sugestão); as já confirmadas salvam na hora.
 	const [draft, setDraft] = useState<Record<string, ToolMark>>({});
 	if (editable.length === 0) return null;
@@ -59,8 +61,8 @@ export function ToolMarksSection({ connection, onChanged, defaultOpen = false }:
 				<CollapsibleTrigger className="flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
 					<ChevronDownIcon aria-hidden className={cn("size-4 shrink-0 text-muted-foreground transition-transform", !open && "-rotate-90")} />
 					<span className="min-w-0 flex-1 text-body font-medium">{t("marketplace.marks.title")}</span>
-					{pendingNames.length > 0 ? (
-						<span className="shrink-0 rounded-full bg-info/10 px-2 py-0.5 text-caption text-info">{tn("marketplace.marks.pending", pendingNames.length)}</span>
+					{suggestedRead.length > 0 ? (
+						<span className="shrink-0 rounded-full bg-info/10 px-2 py-0.5 text-caption text-info">{tn("marketplace.marks.pending", suggestedRead.length)}</span>
 					) : null}
 				</CollapsibleTrigger>
 				<CollapsibleContent className="space-y-2 border-t p-3">
@@ -87,9 +89,10 @@ export function ToolMarksSection({ connection, onChanged, defaultOpen = false }:
 									<ItemContent>
 										<ItemTitle className="break-words">
 											{label}
-											{pendingNames.includes(tool.name) ? <span className="text-caption font-normal text-muted-foreground">· {t("marketplace.marks.suggested")}</span> : null}
+											{suggestedRead.includes(tool.name) ? <span className="text-caption font-normal text-muted-foreground">· {t("marketplace.marks.suggested")}</span> : null}
 										</ItemTitle>
 										{tool.description ? <ItemDescription className="line-clamp-2">{tool.description}</ItemDescription> : null}
+										{toolMarkRefusal(tool) !== null ? <p className="text-caption text-warning">{t("marketplace.marks.alwaysAsks")}</p> : null}
 									</ItemContent>
 									<ItemActions>
 										<span className="text-caption text-muted-foreground">{t("marketplace.marks.readOnly")}</span>

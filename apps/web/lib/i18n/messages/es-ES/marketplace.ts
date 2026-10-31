@@ -361,6 +361,7 @@ export const marketplace: NamespaceMessages<typeof ptBR> = {
 	"marketplace.marks.readOnly": "Solo lectura",
 	"marketplace.marks.readOnlyOf": "Solo lectura: {name}",
 	"marketplace.marks.suggested": "sugerido",
+	"marketplace.marks.alwaysAsks": "Siempre pide aprobación: acción que no se puede deshacer.",
 	"marketplace.marks.byServer": "lo informa el conector",
 	"marketplace.marks.empty": "Las herramientas de este conector ya informan si solo leen.",
 	"marketplace.marks.saveError": "No se pudo guardar la marcación.",

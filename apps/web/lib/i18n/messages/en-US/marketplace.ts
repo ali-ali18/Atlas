@@ -361,6 +361,7 @@ export const marketplace: NamespaceMessages<typeof ptBR> = {
 	"marketplace.marks.readOnly": "Read-only",
 	"marketplace.marks.readOnlyOf": "Read-only: {name}",
 	"marketplace.marks.suggested": "suggested",
+	"marketplace.marks.alwaysAsks": "Always asks for approval: this action cannot be undone.",
 	"marketplace.marks.byServer": "declared by the connector",
 	"marketplace.marks.empty": "This connector's tools already say whether they only read.",
 	"marketplace.marks.saveError": "Could not save the marking.",

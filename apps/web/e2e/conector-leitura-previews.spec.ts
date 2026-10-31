@@ -7,12 +7,15 @@ import { MockAtlas } from "./mock-api"
  * Só roda com CONECTOR_LEITURA_PREVIEW_DIR definido (pasta de saída).
  */
 const OUT = process.env.CONECTOR_LEITURA_PREVIEW_DIR
+const CHROMIUM = process.env.CONECTOR_LEITURA_CHROMIUM ?? process.env.CHAT_CARDS_CHROMIUM_PATH
+if (CHROMIUM) test.use({ launchOptions: { executablePath: CHROMIUM } })
 
 const schema = { type: "object", properties: { pagina: { type: "number" } } }
 const TOOLS = [
   { name: "avisos_ativos", description: "Consulta somente leitura dos avisos ativos.", inputSchema: schema },
   { name: "listar_pedidos", description: "Consulta somente leitura dos pedidos, por página.", inputSchema: schema },
   { name: "listar_propostas", description: "Consulta somente leitura das propostas, por página.", inputSchema: schema },
+  { name: "enviar_nfe", description: "Consulta e envia a nota fiscal.", inputSchema: schema },
   { name: "criar_pedido", description: "Cria um pedido de venda.", inputSchema: schema },
   { name: "status_servidor", description: "Estado do servidor.", annotations: { readOnlyHint: true }, inputSchema: schema },
 ]
@@ -26,7 +29,7 @@ const SIZES = [
 for (const size of SIZES) {
   test.describe(`previews da marcação de leitura (escuro, ${size.name}px)`, () => {
     test.skip(!OUT, "defina CONECTOR_LEITURA_PREVIEW_DIR para gerar as capturas")
-    test.use({ viewport: size.viewport, isMobile: size.mobile, hasTouch: size.mobile })
+    test.use({ locale: "pt-BR", viewport: size.viewport, isMobile: size.mobile, hasTouch: size.mobile })
     test.beforeEach(async ({ context }) => {
       await context.addInitScript(() => localStorage.setItem("theme", "dark"))
     })
@@ -39,9 +42,13 @@ for (const size of SIZES) {
     test("recolhida, aberta com sugestões e confirmada", async ({ context, page }) => {
       const api = new MockAtlas({ botName: "Assistente", connectors: { catalog: [], custom: [agroervas] } })
       await api.install(context)
+      // O mock ainda não cobre a lista de painéis da Biblioteca; sem isso o painel lateral quebra ao montar.
+      await context.route("**/v1/bots/*/pages**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) }))
       await page.goto("/")
       await page.getByRole("textbox").first().or(page.getByRole("button", { name: /Bot principal/ })).first().waitFor()
-      await page.evaluate(() => window.dispatchEvent(new Event("atlas:open-marketplace")))
+      const sidebarLink = page.getByRole("button", { name: "Marketplace" })
+      if (await sidebarLink.isVisible()) await sidebarLink.click()
+      else await page.evaluate(() => window.dispatchEvent(new Event("atlas:open-marketplace")))
       await page.getByRole("tablist", { name: "Seções do marketplace" }).waitFor()
       await page.getByRole("button", { name: /Ver detalhes de Agroervas/ }).click()
       const section = page.locator("[data-tool-marks]")

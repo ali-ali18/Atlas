@@ -359,6 +359,7 @@ export const marketplace = {
 	"marketplace.marks.readOnly": "Só leitura",
 	"marketplace.marks.readOnlyOf": "Só leitura: {name}",
 	"marketplace.marks.suggested": "sugerido",
+	"marketplace.marks.alwaysAsks": "Sempre pede aprovação: ação que não dá para desfazer.",
 	"marketplace.marks.byServer": "o conector informa",
 	"marketplace.marks.empty": "As ferramentas deste conector já informam se só leem.",
 	"marketplace.marks.saveError": "Não foi possível salvar a marcação.",

@@ -21,7 +21,7 @@ const erp = {
 test("recolhida por padrão: só o gatilho com o selo de sugestões pendentes", () => {
   const html = renderToStaticMarkup(<ToolMarksSection connection={erp} onChanged={() => undefined} />)
   assert.match(html, /Consultas sem aprovação/)
-  assert.match(html, /2 sugestões/)
+  assert.match(html, /1 sugestão/)
   assert.doesNotMatch(html, /role="switch"/)
 })
 
@@ -51,4 +51,12 @@ test("a lista de permissões mostra 'leitura' só para anotada ou confirmada pel
   assert.equal(toolIsRead(erp, erp.tools[0]!), false)
   assert.equal(toolIsRead({ ...erp, toolMarks: { listar_pedidos: "read" } }, erp.tools[0]!), true)
   assert.equal(toolIsRead(erp, erp.tools[2]!), true)
+})
+
+test("ferramenta irreversível: switch desabilitado e motivo visível; não conta como sugestão", () => {
+  const withSend = { ...erp, tools: [...erp.tools, { name: "enviar_nfe", description: "Consulta e envia a nota", inputSchema: schema }] } as unknown as McpConnectionView
+  const html = renderToStaticMarkup(<ToolMarksSection connection={withSend} defaultOpen onChanged={() => undefined} />)
+  assert.match(html, /Sempre pede aprovação: ação que não dá para desfazer/)
+  assert.match(html, /1 sugestão/)
+  assert.match(html, /aria-label="Só leitura: Enviar nfe"[^>]*disabled|disabled[^>]*aria-label="Só leitura: Enviar nfe"/)
 })
