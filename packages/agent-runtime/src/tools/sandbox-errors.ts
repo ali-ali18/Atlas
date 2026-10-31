@@ -52,7 +52,7 @@ export const ERROR_DETAIL_MAX = 300;
  * O servidor da VM já compacta; isto protege contra imagens antigas do sandbox.
  */
 export function compactErrorDetail(message: string, max = ERROR_DETAIL_MAX): string {
-	const head = message.split(/\r?\n\s*Call log:/i)[0] ?? message;
+	const head = message.split(/\r?\n[^\S\n]*Call log:/i)[0] ?? message;
 	const line = head
 		.split(/\r?\n/)
 		.map((part) => part.trim())

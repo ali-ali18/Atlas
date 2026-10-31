@@ -28,7 +28,8 @@ export type RunLessonsParam = {
 
 export type LessonScopeRef = { key: string; label: string };
 
-const KEY_IN_HEADER = /^════ LIÇÕES APRENDIDAS .*\[([^\]\n]+)\] ════$/;
+// Limites no título e na chave: sem eles `.*` + `[^\]\n]+` retrocedem de forma quadrática numa linha enorme.
+const KEY_IN_HEADER = /^════ LIÇÕES APRENDIDAS .{0,400}\[([^\]\n]{1,200})\] ════$/;
 
 export function createLessonInjector(items: readonly RunLesson[]) {
 	const scoped = items.filter((item) => item.scope !== "bot" && item.scopeKey);
