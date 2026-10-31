@@ -105,6 +105,7 @@ import {
 import {
 	type ChatTool,
 	type CompleteChatWithToolsParams,
+	type StreamChatWithToolsHandlers,
 	type CompleteChatWithToolsResult,
 	type LlmContentPart,
 	type LlmMessage,
@@ -5175,7 +5176,7 @@ export async function runComputerUse(params: {
 	onRunSignal?: RunSignalSubscribe;
 	streamChat?: (
 		params: CompleteChatWithToolsParams,
-		handlers?: { onDelta?: (delta: string) => void },
+		handlers?: StreamChatWithToolsHandlers,
 	) => Promise<CompleteChatWithToolsResult>;
 	jevMcpMode?: JevMcpMode;
 	evaluateMcpWithJev?: JevMcpEvaluator;
@@ -6926,6 +6927,9 @@ export async function runComputerUse(params: {
 		// A7: o resumo de encerramento roda com sinal e prazo próprios (o do run já expirou/abortou).
 		const closing = options?.closing === true;
 		const closingSignal = closing ? AbortSignal.any([summaryBaseSignal, AbortSignal.timeout(CLOSING_CALL_TIMEOUT_MS)]) : undefined;
+		const effectiveToolNames = new Set(effectiveTools.map((tool) => tool.function.name));
+		const intentSeen = new Set<number>();
+		const liveIntents = !isSubagent && !isUnattendedOrigin(params.origin);
 		const callModel = (signal: AbortSignal | undefined) => streamChat(
 			{
 				messages: transport,
@@ -6957,6 +6961,15 @@ export async function runComputerUse(params: {
 					collected += delta;
 					if (emitPublic) emitSegment(delta);
 				},
+				// A UI mostra a ação já pelo nome da tool, enquanto os argumentos ainda são gerados.
+				// Só tool que o run expõe (fora disso o `tool_call` também não aparece) e só com front ao vivo.
+				onToolIntent: emitPublic && !options?.closing && liveIntents
+					? (intent) => {
+						if (intentSeen.has(intent.index) || !effectiveToolNames.has(intent.name)) return;
+						intentSeen.add(intent.index);
+						queueEvent({ type: "tool_intent", name: intent.name, ...(intent.id ? { callId: intent.id } : {}) });
+					}
+					: undefined,
 			},
 		);
 		// `interrupt`: aborta a chamada em voo e descarta a resposta parcial (nada vai ao histórico).

@@ -345,8 +345,16 @@ type OpenRouterStreamChunk = {
 	usage?: OpenRouterToolResponse["usage"];
 };
 
+/** Uma chamada de ferramenta cujo NOME já chegou no stream (os argumentos ainda estão sendo gerados). */
+export type ToolIntent = { index: number; id?: string; name: string };
+
 export type StreamChatWithToolsHandlers = {
 	onDelta?: (text: string) => void;
+	/**
+	 * Disparado UMA vez por chamada de ferramenta, assim que o nome fica conhecido, antes dos argumentos
+	 * completos. Nunca carrega argumentos (podem ter segredo ou caminho). Não conta como conteúdo entregue.
+	 */
+	onToolIntent?: (intent: ToolIntent) => void;
 };
 
 const OPENROUTER_TOOL_HEADERS = (apiKey: string) => ({
@@ -467,6 +475,7 @@ export async function streamChatWithTools(
 						number,
 						{ id: string; name: string; args: string }
 					>();
+					const announcedTools = new Set<number>();
 
 					await readOpenRouterSse(
 						response.body,
@@ -510,6 +519,10 @@ export async function streamChatWithTools(
 									current.args += part.function.arguments;
 								}
 								toolCallParts.set(index, current);
+								if (current.name && !announcedTools.has(index)) {
+									announcedTools.add(index);
+									handlers.onToolIntent?.({ index, ...(current.id ? { id: current.id } : {}), name: current.name });
+								}
 							}
 						},
 						{ signal: attempt.signal, requireDone: true },
