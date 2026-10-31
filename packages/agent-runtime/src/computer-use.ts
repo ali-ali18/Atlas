@@ -2193,6 +2193,8 @@ type ToolContext = {
 	alertRuleReader?: AlertRuleReader;
 	/** Buscador do `find_page_value` (teste injeta; padrão lê a página com o guard SSRF). */
 	pageValueFinder?: PageValueFinder;
+	/** Quantas buscas do `find_page_value` este run já fez (teto por run). */
+	pageValueUse?: { calls: number };
 	/** Após create/update de rotina: sync BullMQ scheduler (cron-only). */
 	onRoutineMutated?: (
 		routine: Pick<
@@ -2746,7 +2748,7 @@ async function executeProposeRoutine(
 				if (quoteSite) throw new Error(`Rule rejected: ${quoteSite}`);
 				// Só grava a regra se ela lê agora (falha com motivo e dica; nada é criado). `expect` = o que a IA viu na página.
 				const tested = await testAlertRule(alertInput.rule, ruleLocale, ctx.alertRuleReader ?? ownerAlertRuleReader(scope.userId), parsedAlert.expect);
-				alertReading = { display: tested.display, note: alertRuleReadingNote(alertInput.rule, tested.display, tested.note, parsedAlert.expect !== undefined) };
+				alertReading = { display: tested.display, note: alertRuleReadingNote(alertInput.rule, tested.display, tested.note) };
 				if (tested.anchor) alertInput = { ...alertInput, rule: { ...alertInput.rule, anchor: tested.anchor } };
 			}
 		}
@@ -4225,7 +4227,7 @@ async function executeToolInner(
 			return executeRoutineControlTool(args, ctx);
 		}
 		case FIND_PAGE_VALUE_TOOL_NAME: {
-			return executeFindPageValue(args, ctx.pageValueFinder);
+			return executeFindPageValue(args, ctx.pageValueFinder, ctx.pageValueUse);
 		}
 		case "github_list_repos": {
 			return executeGithubListRepos(args, ctx);
@@ -5861,6 +5863,8 @@ export async function runComputerUse(params: {
 	if (userPushRun && (params.toolFilter?.("notify_user") ?? true)) baseTools.push(notifyUserPushTool(userPushRun.mode));
 	// Rotina de alerta: o veredito estruturado é o fim da verificação (nunca em chat nem subagente).
 	const alertRun = !isSubagent && params.origin === "routine" ? params.alertRun : undefined;
+	/** Buscas do `find_page_value` deste run (o teto vale para o run inteiro, não por passo). */
+	const pageValueUse = { calls: 0 };
 	if (alertRun && (params.toolFilter?.(REPORT_ALERT_TOOL_NAME) ?? true)) baseTools.push(REPORT_ALERT_TOOL);
 	const imageModel = params.imageModel ?? process.env.ATLAS_IMAGE_MODEL?.trim();
 	// Sem modelo configurado a tool continua visível: a chamada devolve o aviso "Configure um modelo de imagem…"
@@ -7849,6 +7853,7 @@ export async function runComputerUse(params: {
 				replyLanguage: language,
 				...(params.alertRuleReader ? { alertRuleReader: params.alertRuleReader } : {}),
 				...(params.pageValueFinder ? { pageValueFinder: params.pageValueFinder } : {}),
+				pageValueUse,
 				...(userPushRun
 					? { userPush: { mode: userPushRun.mode, send: userPushRun.send, quiet: userPushRun.quiet, sent: userPushSent, log: (line: string) => console.log(`[push] ${line}`) } }
 					: {}),

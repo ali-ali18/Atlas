@@ -1,5 +1,6 @@
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
+import { createAlertSourceCache } from "./alert-source.js";
 import { findPageValue, locatePageValue } from "./page-value.js";
 
 /** Caso real reduzido: a página do BBAS3 no Investidor10 tem uma faixa de commodities com "Cotação: R$ ..." antes do preço da ação. */
@@ -331,6 +332,19 @@ describe("findPageValue: busca segura e falhas honestas", () => {
 		const result = await findPageValue("https://loja.example.com/galaxy-x", { value: "3.299,00", near: "256 GB" }, { fetchFn: pageFetch(STORE), lookupFn: lookupPublic });
 		expect(result).toMatchObject({ ok: true, host: "loja.example.com" });
 		if (result.ok) expect(result.candidates.length).toBeGreaterThan(1);
+	});
+
+	it("com cache compartilhado, a mesma página lida em seguida não é buscada de novo (60 s)", async () => {
+		const cache = createAlertSourceCache();
+		const calls: string[] = [];
+		const fetchFn = (async (input: string | URL | Request) => {
+			calls.push(String(input));
+			return String(input).endsWith("/robots.txt") ? new Response("", { status: 404 }) : new Response(STORE, { headers: { "content-type": "text/html" } });
+		}) as never;
+		const deps = { fetchFn, lookupFn: lookupPublic, cache };
+		await findPageValue("https://loja.example.com/cache-me", { value: "3.299,00" }, deps);
+		await findPageValue("https://loja.example.com/cache-me", { value: "2.799,00" }, deps);
+		expect(calls.filter((url) => !url.endsWith("/robots.txt"))).toHaveLength(1);
 	});
 
 	it("SSRF: endereço interno é bloqueado antes de qualquer busca", async () => {

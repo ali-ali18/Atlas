@@ -102,6 +102,11 @@ export async function testAlertRule(
 	if (expected !== undefined) {
 		const problem = expectedValueProblem(rule);
 		if (problem) throw new Error(`Rule test failed: ${problem}`);
+	} else if (rule.source.type === "page" && rule.check.kind === "value") {
+		// Sem o valor que a IA viu não há como saber se o seletor/regex lê o número certo: não grava.
+		throw new Error(
+			`Rule test failed: a page rule needs rule.expect, the value you saw on the page (e.g. "16,47"). Locate it first with find_page_value (read the page, pass the value as seen and \`near\` when it lists several options), use its css extract and pass expect = that value; this check catches a selector or regex that reads another number. Do not create the alert with this rule.`,
+		);
 	}
 	const result = await reader(rule).catch(() => null);
 	if (!result) throw new Error(`Rule test failed: could not read the source. ${ALERT_RULE_HINTS.network}`);
@@ -137,11 +142,8 @@ export function ownerAlertRuleReader(userId: string | undefined): AlertRuleReade
 	};
 }
 
-/** Regex em página sem `expect`: lê o primeiro trecho que casa e pode pegar o número errado quando o layout muda. */
-const REGEX_PAGE_TIP = " Tip: this rule reads the page with a regex, which can pick the wrong number; next time locate the value with find_page_value and use its css selector plus expect.";
-
 /** Frase para o modelo contar ao usuário o que leu (o valor só vem de uma leitura real). */
-export function alertRuleReadingNote(rule: AlertRule, display: string, delayNote?: string, verified = false): string {
+export function alertRuleReadingNote(rule: AlertRule, display: string, delayNote?: string): string {
 	if (rule.check.kind === "new_item") return `The source lists ${display} items right now; only items that appear from now on will notify.`;
 	const tail = "Tell the user in one short sentence what it is now and how often you check (no technical terms).";
 	const delay = delayNote ? ` The quote is delayed (${delayNote}): say so.` : "";
@@ -152,9 +154,7 @@ export function alertRuleReadingNote(rule: AlertRule, display: string, delayNote
 			return `Current reading: 1 ${rule.source.pair.split("-")[0]} = ${display} right now. ${tail}`;
 		case "weather":
 			return `Current forecast: ${display}. The forecast is re-read every few hours. ${tail}`;
-		default: {
-			const tip = rule.source.type === "page" && rule.source.extract.kind === "regex" && !verified ? REGEX_PAGE_TIP : "";
-			return `Current reading: ${display}.${delay} ${tail}${tip}`;
-		}
+		default:
+			return `Current reading: ${display}.${delay} ${tail}`;
 	}
 }

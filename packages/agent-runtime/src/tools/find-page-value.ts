@@ -1,5 +1,5 @@
 import type { ChatTool } from "@workspace/llm";
-import { findPageValue, type FindPageValueResult, type PageValueCandidate } from "@workspace/search";
+import { createAlertSourceCache, findPageValue, type FindPageValueResult, type PageValueCandidate } from "@workspace/search";
 import { ALERT_RULE_URL_MAX, PAGE_VALUE_MAX, b3QuotePageReason } from "@workspace/shared";
 import { redactSecrets } from "../mcp/sanitize.js";
 import { ALERT_RULE_HINTS } from "./alert-rule.js";
@@ -28,6 +28,12 @@ export const FIND_PAGE_VALUE_TOOL: ChatTool = {
 		},
 	},
 };
+
+/** Teto de buscas por run: cada uma lê até 5 MB e roda o localizador (CPU). */
+export const FIND_PAGE_VALUE_MAX_CALLS_PER_RUN = 3;
+
+/** Páginas lidas pela tool nos últimos 60 s, compartilhadas entre runs (a mesma loja sendo guiada em várias conversas; sem dado de usuário). */
+const sharedPageCache = createAlertSourceCache();
 
 /** Buscador injetável (teste e harness); produção usa o leitor seguro de `@workspace/search`. */
 export type PageValueFinder = (input: { url: string; value: string; near?: string }) => Promise<FindPageValueResult>;
@@ -74,18 +80,26 @@ function describe(candidate: PageValueCandidate, index: number): string {
  */
 export async function executeFindPageValue(
 	args: Record<string, unknown>,
-	finder: PageValueFinder = ({ url, value, near }) => findPageValue(url, { value, ...(near ? { near } : {}) }),
+	finder: PageValueFinder = ({ url, value, near }) => findPageValue(url, { value, ...(near ? { near } : {}) }, { cache: sharedPageCache }),
+	usage?: { calls: number },
 ): Promise<{ summary: string }> {
 	const input = validate(args);
 	const quoteSite = b3QuotePageReason(input.url, [input.value, input.near]);
 	if (quoteSite) throw new Error(quoteSite);
+	if (usage) {
+		if (usage.calls >= FIND_PAGE_VALUE_MAX_CALLS_PER_RUN) {
+			throw new Error(
+				`find_page_value limit reached (${FIND_PAGE_VALUE_MAX_CALLS_PER_RUN} per run). Choose among the results you already have, or use a plain condition checked by the model and tell the user plainly if you cannot watch this value.`,
+			);
+		}
+		usage.calls += 1;
+	}
 	const result = await finder(input).catch(() => null);
 	if (!result) throw new Error(`Could not read the page. ${ALERT_RULE_HINTS.network}`);
 	if (!result.ok) {
 		if (result.code === "not_found") {
-			throw new Error(
-				`${result.reason === "valor não encontrado na página" ? "value not found on the page" : result.reason}: the page may render with JavaScript or need login; use a plain condition (checked by the model) or a connector, or check the value you typed against what the page shows.`,
-			);
+			const why = result.detail === "not_first_number" ? "the value is on the page but never as the first number of its element, so a rule would read another number" : "value not found on the page";
+			throw new Error(`${why}: the page may render with JavaScript or need login; use a plain condition (checked by the model) or a connector, or check the value you typed against what the page shows.`);
 		}
 		throw new Error(`${result.reason}. ${ALERT_RULE_HINTS[result.code] ?? ALERT_RULE_HINTS.network}`);
 	}

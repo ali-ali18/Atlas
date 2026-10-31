@@ -164,6 +164,22 @@ describe("find_page_value: a tool", () => {
 		}
 	});
 
+	it("teto de 3 buscas por run: a 4ª falha honesta com a saída (escolher entre os resultados ou condição simples)", async () => {
+		const finder = vi.fn(storeFinder);
+		const call = (id: string) => toolCall(id, "find_page_value", { url: STORE_URL, value: "3.299,00", near: `variante ${id}` });
+		const { toolResults } = await run({ message: "me avisa quando o Galaxy X de 256 GB baixar de R$ 3.000", finder, calls: [call("c1"), call("c2"), call("c3"), call("c4"), closing] });
+		expect(toolResults.map((result) => result.ok)).toEqual([true, true, true, false]);
+		expect(toolResults[3]!.summary).toMatch(/limit reached \(3 per run\).*plain condition/);
+		expect(finder).toHaveBeenCalledTimes(3);
+	});
+
+	it("valor que só aparece depois de outro número no elemento: a mensagem diz isso (por flag, não por texto)", async () => {
+		const finder: PageValueFinder = async () => ({ ok: false, code: "not_found", reason: "qualquer texto", host: "loja.example.com", ms: 1, detail: "not_first_number" });
+		await expect(executeFindPageValue({ url: STORE_URL, value: "16,47" }, finder)).rejects.toThrow(/never as the first number of its element/);
+		const absent: PageValueFinder = async () => ({ ok: false, code: "not_found", reason: "qualquer texto", host: "loja.example.com", ms: 1, detail: "absent" });
+		await expect(executeFindPageValue({ url: STORE_URL, value: "16,47" }, absent)).rejects.toThrow(/value not found on the page/);
+	});
+
 	it("ticker da B3 em site de cotação: nem busca a página (a fonte é quote)", async () => {
 		const finder = vi.fn() as unknown as PageValueFinder;
 		await expect(executeFindPageValue({ url: "https://investidor10.com.br/acoes/bbas3/", value: "16,47", near: "BBAS3" }, finder)).rejects.toThrow(/source quote \(brapi\).*propose_connector/);
@@ -210,13 +226,33 @@ describe("propose_routine: expect confere o que a regra lê", () => {
 		expect(toolResults[0]!.summary).toMatch(/the rule read "R\$ 3\.299,01" but you expected "3\.299,00"/);
 	});
 
-	it("regex em página sem expect: cria, mas a mensagem recomenda o seletor do find_page_value", async () => {
+	it("página sem expect FALHA na criação (css, jsonpath e regex), mandando usar find_page_value; nada é lido nem criado", async () => {
+		const reader = reads("R$ 3.299,00");
+		const extracts = [
+			{ kind: "css", selector: "span.price" },
+			{ kind: "jsonpath", path: "$.data.price" },
+			{ kind: "regex", pattern: "R\\$\\s*([\\d.,]+)" },
+		];
+		for (const extract of extracts) {
+			const noExpect = { source: { type: "page", url: STORE_URL, extract }, check: { kind: "value", parse: "money", op: "lt", value: 3000 } };
+			const { toolResults } = await run({ message: "me avisa", calls: [toolCall("c1", "propose_routine", create("Galaxy X", noExpect)), closing], reader });
+			expect(toolResults[0], extract.kind).toMatchObject({ ok: false });
+			expect(toolResults[0]!.summary, extract.kind).toMatch(/a page rule needs rule\.expect.*find_page_value/);
+		}
+		expect(createRoutine).not.toHaveBeenCalled();
+		// com expect, o regex que lê o valor certo é aceito (último recurso)
 		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: row({ condition: "x", active: false }) } as never);
-		const regexRule = rule("x", { source: { type: "page", url: STORE_URL, extract: { kind: "regex", pattern: "R\\$\\s*([\\d.,]+)" } } });
-		const { toolResults } = await run({ message: "me avisa", calls: [toolCall("c1", "propose_routine", create("Galaxy X", regexRule)), closing], reader: reads("R$ 3.299,00") });
+		const regexRule = { source: { type: "page", url: STORE_URL, extract: extracts[2] }, check: { kind: "value", parse: "money", op: "lt", value: 3000 }, expect: "3.299,00" };
+		const ok = await run({ message: "me avisa", calls: [toolCall("c1", "propose_routine", create("Galaxy X", regexRule)), closing], reader });
+		expect(ok.toolResults[0]).toMatchObject({ ok: true });
+	});
+
+	it("feed e item novo não pedem expect (não há valor visto)", async () => {
+		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: row({ condition: "x", active: false }) } as never);
+		const feed = { source: { type: "page", url: STORE_URL, extract: { kind: "css", selector: "li.edital" } }, check: { kind: "new_item" } };
+		const itemReader: AlertRuleReader = vi.fn(async () => ({ ok: true as const, read: { kind: "items" as const, items: [{ title: "Edital 1" }] }, host: "loja.example.com", ms: 1 }));
+		const { toolResults } = await run({ message: "me avisa", calls: [toolCall("c1", "propose_routine", create("Editais", feed)), closing], reader: itemReader });
 		expect(toolResults[0]).toMatchObject({ ok: true });
-		expect(toolResults[0]!.summary).toContain("Tip: this rule reads the page with a regex");
-		expect(toolResults[0]!.summary).toContain("find_page_value");
 	});
 
 	it("expect em fonte que não é página (cotação, feed) falha com a explicação", async () => {
@@ -297,7 +333,7 @@ describe("ação da B3: sempre a fonte quote, nunca página de site de cotação
 		const onlyRequest = await run({ message: "me avisa", calls: [toolCall("c1", "propose_routine", create("Banco do Brasil", { ...bbas("https://br.investing.com/equities/banco-do-brasil-on"), label: "Banco do Brasil" }, "Watch PETR4 on this page.")), closing], reader });
 		expect(onlyRequest.toolResults[0]).toMatchObject({ ok: false });
 		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: row({ condition: "x", active: false }) } as never);
-		const commodity = await run({ message: "me avisa", calls: [toolCall("c1", "propose_routine", create("Ouro", { ...bbas("https://br.investing.com/commodities/gold"), label: "ouro" }, "Watch the gold price.")), closing], reader });
+		const commodity = await run({ message: "me avisa", calls: [toolCall("c1", "propose_routine", create("Ouro", { ...bbas("https://br.investing.com/commodities/gold"), label: "ouro", expect: "16,47" }, "Watch the gold price.")), closing], reader });
 		expect(commodity.toolResults[0]).toMatchObject({ ok: true });
 	});
 
