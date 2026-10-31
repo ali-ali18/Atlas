@@ -96,3 +96,17 @@ describe("RUN_STOP_REASONS", () => {
 		expect(isRunStopReason(null)).toBe(false);
 	});
 });
+
+describe("run-stop-reason em tempo linear (CodeQL)", () => {
+	it("sanitizeStopDetail e inferStopReasonFromLegacy respondem rápido com entrada hostil", () => {
+		const started = performance.now();
+		sanitizeStopDetail(`${"_".repeat(50_000)}x`);
+		inferStopReasonFromLegacy({ status: "failed", error: `recupera ${"recupera ".repeat(20_000)}` });
+		inferStopReasonFromLegacy({ status: "failed", error: `falhou ${"falhas ".repeat(20_000)}` });
+		inferStopReasonFromLegacy({ status: "failed", error: "ferramenta".repeat(20_000) });
+		expect(performance.now() - started).toBeLessThan(200);
+		expect(sanitizeStopDetail("__Waiting User__")).toBe("waiting_user");
+		expect(inferStopReasonFromLegacy({ status: "failed", error: "Worker recuperou 3 vezes" })).toBe("crash_recoveries");
+		expect(inferStopReasonFromLegacy({ status: "failed", error: "falhou 6 ferramentas seguidas" })).toBe("tool_failures");
+	});
+});

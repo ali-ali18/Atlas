@@ -131,7 +131,13 @@ export const STOP_DETAIL_MAX = 80;
  */
 export function sanitizeStopDetail(detail: string | null | undefined): string | undefined {
 	if (!detail) return undefined;
-	const clean = detail.toLowerCase().replace(/[^a-z0-9_.:-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, STOP_DETAIL_MAX);
+	// Corta antes do regex e apara "_" das pontas com laço: `^_+|_+$` fica quadrático em "____…x" (CodeQL).
+	const squeezed = detail.slice(0, STOP_DETAIL_MAX * 4).toLowerCase().replace(/[^a-z0-9_.:-]+/g, "_");
+	let start = 0;
+	let end = squeezed.length;
+	while (start < end && squeezed[start] === "_") start += 1;
+	while (end > start && squeezed[end - 1] === "_") end -= 1;
+	const clean = squeezed.slice(start, end).slice(0, STOP_DETAIL_MAX);
 	return clean || undefined;
 }
 
@@ -140,12 +146,13 @@ export function sanitizeStopDetail(detail: string | null | undefined): string | 
  * consulta de medição retroativa; os nomes batem com os de `docs/ops/por-que-runs-terminam.sql`.
  */
 export function inferStopReasonFromLegacy(input: { status: string; error?: string | null }): RunStopReason {
-	const error = (input.error ?? "").toLowerCase();
+	// Só o começo do texto importa para classificar; o corte e os `.{0,120}` limitados mantêm os regex lineares.
+	const error = (input.error ?? "").slice(0, 500).toLowerCase();
 	if (input.status === "completed") return "answered";
 	if (input.status === "cancelled") return "cancelled";
 	if (input.status === "paused") return "paused_login";
 	if (input.status === "waiting_user") return "awaiting_confirmation";
-	if (/sem heartbeat|recuper(a|ou) .*vezes|recoveries/.test(error)) return "crash_recoveries";
+	if (/sem heartbeat|recuper(?:a|ou) .{0,120}vezes|recoveries/.test(error)) return "crash_recoveries";
 	if (/falha ap[oó]s \d+ tentativa/.test(error)) return "retries_exhausted";
 	if (input.status === "budget_exhausted" || /limite|teto|or[cç]amento|esgotad/.test(error)) {
 		if (/custo|cost|\$/.test(error)) return "budget_cost";
@@ -158,7 +165,7 @@ export function inferStopReasonFromLegacy(input: { status: string; error?: strin
 	}
 	if (/repet|loop|mesm[ao]/.test(error)) return "loop_repeat";
 	if (/cortada|truncad/.test(error)) return "truncated";
-	if (/falh(ou|as) .*(seguid|ferrament)|ferramenta.*falh/.test(error)) return "tool_failures";
+	if (/falh(?:ou|as) .{0,120}(?:seguid|ferrament)|ferramenta.{0,120}falh/.test(error)) return "tool_failures";
 	if (/sem progresso|nenhum arquivo/.test(error)) return "no_progress";
 	return input.status === "failed" ? "error" : "other";
 }
