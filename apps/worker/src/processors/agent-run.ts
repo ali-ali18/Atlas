@@ -94,6 +94,7 @@ import {
 	persistScreenshotArtifact,
 	readRunContextLength,
 	readRunModelAuto,
+	readRunHumanTurn,
 	releaseRunLease,
 	releasePausedRunLease,
 	renewRunLease,
@@ -1245,6 +1246,8 @@ async function executeLeasedRun(ctx: {
 			conversationId: run.conversationId ?? undefined,
 			runId,
 			origin: run.origin,
+			// Só a API grava (mensagem digitada pelo dono); run sem o campo (versões diferentes no deploy) = falso.
+			humanTurn: readRunHumanTurn(run),
 			...(routinePageId ? { routinePageId } : {}),
 			objective: run.objective,
 			maxSteps: run.maxSteps,

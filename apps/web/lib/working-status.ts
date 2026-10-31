@@ -7,7 +7,16 @@ export type AgentActivity =
 	| { phase: "writing" }
 	/** O rascunho foi retirado e a resposta está sendo refeita. */
 	| { phase: "revising" }
-	| { phase: "tool"; tool: string; step?: number; maxSteps?: number; /** Alvo da chamada (arquivo, comando), curto. */ detail?: string };
+	| {
+			phase: "tool";
+			tool: string;
+			step?: number;
+			maxSteps?: number;
+			/** Alvo da chamada (arquivo, comando), curto. */
+			detail?: string;
+			/** Só o nome chegou: o modelo ainda gera os argumentos (o `tool_call` com passo vem depois). */
+			arriving?: true;
+	  };
 
 /** Fase do indicador quando chega texto (`writing`) ou quando o rascunho é retirado (`revising`). */
 // Objetos fixos: o stream chama isto a cada token e o mesmo valor não dispara outro render do estado.
@@ -16,6 +25,15 @@ const REVISING: AgentActivity = { phase: "revising" };
 
 export function activityForAssistantEvent(type: "assistant_delta" | "assistant_discard"): AgentActivity {
 	return type === "assistant_discard" ? REVISING : WRITING;
+}
+
+/**
+ * Atividade do aviso `tool_intent`: a ferramenta já foi escolhida, mas ainda não começou. `null` quando o aviso
+ * não muda nada (ferramenta de raciocínio: o avatar segue "pensando").
+ */
+export function activityForToolIntent(tool: string): AgentActivity | null {
+	if (!tool || toolKind(tool) === "think") return null;
+	return { phase: "tool", tool, arriving: true };
 }
 
 /**

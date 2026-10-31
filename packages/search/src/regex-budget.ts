@@ -6,6 +6,8 @@
 import { Worker } from "node:worker_threads";
 
 export const REGEX_BUDGET_MS = 100;
+/** Teto para a thread subir. O orçamento do regex só começa quando ela está no ar: subir a thread num servidor ocupado já passava dos 100 ms e recusava regex simples como "lento demais". */
+export const REGEX_BOOT_LIMIT_MS = 3_000;
 /** Texto maior que isso não entra no regex de página inteira (ver `regexWindow`). */
 export const REGEX_WINDOW_BYTES = 64 * 1024;
 
@@ -32,7 +34,11 @@ export function runRegexWithBudget(text: string, pattern: string, budgetMs = REG
 			void worker.terminate();
 			resolve(result);
 		};
-		const timer = setTimeout(() => finish({ status: "timeout" }), budgetMs);
+		let timer = setTimeout(() => finish({ status: "timeout" }), REGEX_BOOT_LIMIT_MS);
+		worker.once("online", () => {
+			clearTimeout(timer);
+			timer = setTimeout(() => finish({ status: "timeout" }), budgetMs);
+		});
 		worker.once("message", (message: { ok: boolean; value?: string | null }) => {
 			if (!message.ok) return finish({ status: "error" });
 			const value = typeof message.value === "string" ? message.value.trim() : "";

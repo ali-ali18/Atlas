@@ -123,6 +123,8 @@ export function isBotWorking(botId: string, now: number = Date.now()) {
 /** Gesto do cérebro que a mudança de atividade pede: ferramenta nova começa; depois dela, ok ou falha. */
 function pulseFor(previous: AgentActivity | undefined, next: AgentActivity): BotPulseKind | null {
 	if (next.phase === "tool") {
+		// O aviso de intenção já fez o gesto de início: o `tool_call` da mesma ferramenta não repete.
+		if (previous?.phase === "tool" && previous.arriving && previous.tool === next.tool) return null;
 		const same = previous?.phase === "tool" && previous.tool === next.tool && previous.step === next.step;
 		return same ? null : "toolStart";
 	}

@@ -17,7 +17,7 @@ import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } fr
 import { createDevVerificationTracker, MAX_VERIFY_EXTENSIONS, VERIFY_BEFORE_DONE_NOTE } from "./execution/dev-verification.js";
 import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MAX_ANSWER_REVISIONS_PER_RUN, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
-import { detectLoginWall, isLoginConfirmationText, describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
+import { b3QuotePageReason, detectLoginWall, isLoginConfirmationText, describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
 import { alreadyLoadedSummary, findAlreadyLoadedTools } from "./execution/tool-search-guard.js";
 import { runSandboxOperation, type SandboxExecutionContext } from "@workspace/sandbox";
 import {
@@ -105,6 +105,7 @@ import {
 import {
 	type ChatTool,
 	type CompleteChatWithToolsParams,
+	type StreamChatWithToolsHandlers,
 	type CompleteChatWithToolsResult,
 	type LlmContentPart,
 	type LlmMessage,
@@ -159,6 +160,7 @@ import {
 	markMcpTaskGrantsUntrusted,
 	markConversationUntrusted,
 	getConversationUntrustedAt,
+	getConversationRequesterBotId,
 	persistJevStatusCard,
 	updateBot,
 	updateRoutine,
@@ -268,7 +270,7 @@ import { APP_INFO_TOOL, executeAppInfo } from "./tools/app-info.js";
 import { CURRENT_TIME_TOOL, executeCurrentTime } from "./tools/current-time.js";
 import { createPreviewSetupContext } from "./tools/preview-setup/runtime.js";
 import { PREVIEW_SETUP_TOOL, PREVIEW_SETUP_TOOL_NAME, executePreviewSetup, type PreviewSetupToolContext } from "./tools/preview-setup/tool.js";
-import { canGrantMcpTask, autonomyExceptionMode, hasExternalTargetArgs, isUntrustedContentTool } from "@workspace/shared";
+import { canGrantMcpTask, mcpTaskGrantName, autonomyExceptionMode, hasExternalTargetArgs, isUntrustedContentTool } from "@workspace/shared";
 import { collectRefs, createSecretSession, type SecretSession } from "./secrets/session.js";
 import { isSecretBoxConfigured } from "./secrets/secret-box.js";
 import { getVaultService, type VaultService } from "./secrets/vault-service.js";
@@ -398,6 +400,7 @@ import { RUN_CODE_TOOL, executeRunCode, type RunCodeDeps } from "./tools/run-cod
 import { ROUTINE_CONTROL_TOOL, ROUTINE_CONTROL_TOOL_NAME, executeRoutineControl } from "./tools/routine-control.js";
 import { REPORT_ALERT_TOOL, REPORT_ALERT_TOOL_NAME, alertRunNote, executeReportAlert, type AlertRunState } from "./tools/report-alert.js";
 import { ALERT_RULE_SCHEMA, alertRuleReadingNote, ownerAlertRuleReader, testAlertRule, type AlertRuleReader } from "./tools/alert-rule.js";
+import { FIND_PAGE_VALUE_TOOL, FIND_PAGE_VALUE_TOOL_NAME, executeFindPageValue, type PageValueFinder } from "./tools/find-page-value.js";
 import { upsertDailyBrief } from "./tools/daily-brief.js";
 import { listBriefSources } from "./tools/daily-brief-sources.js";
 import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME, dbPagesStore, executePageTool, isPageTool, type PageShareStore, type PagesStore } from "./tools/pages.js";
@@ -417,7 +420,7 @@ import {
 } from "./tools/provider-health.js";
 import { createResearchNotes, executeResearchNote, RESEARCH_NOTE_TOOL, type ResearchNotes } from "./tools/research-note.js";
 import { executeTrackItems, TRACK_ITEMS_TOOL, TRACK_ITEMS_TOOL_NAME, type LedgerStore } from "./tools/track-items.js";
-import { executeUpdateTaskList, UPDATE_TASK_LIST_TOOL, UPDATE_TASK_LIST_TOOL_NAME, type TaskListStore } from "./tools/task-list.js";
+import { devTodosToTaskList, executeUpdateTaskList, shouldExposeTaskList, UPDATE_TASK_LIST_TOOL, UPDATE_TASK_LIST_TOOL_NAME, type TaskListStore } from "./tools/task-list.js";
 import { executeProposePlan, PROPOSE_PLAN_TOOL, PROPOSE_PLAN_TOOL_NAME } from "./tools/propose-plan.js";
 import { isNativeWriteTool, runPreToolHooks, type HookLesson, type PreToolHit } from "./hooks/pre-tool.js";
 import { createTaskOrchestrator, isBookkeepingOnly, MULTI_ITEM_START_NOTE } from "./execution/task-orchestrator.js";
@@ -449,6 +452,12 @@ import {
 	executeSetAutonomy,
 	shouldExposeSetAutonomy,
 } from "./tools/set-autonomy.js";
+import {
+	SET_CONNECTOR_TOOL_MARKS_TOOL,
+	SET_CONNECTOR_TOOL_MARKS_TOOL_NAME,
+	executeSetConnectorToolMarks,
+	shouldExposeSetConnectorToolMarks,
+} from "./tools/connector-tool-marks.js";
 import {
 	MCP_MAX_EXPOSED_TOOLS,
 	MCP_MAX_TOOLS_JSON_CHARS,
@@ -1164,6 +1173,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		},
 	},
 	ROUTINE_CONTROL_TOOL,
+	FIND_PAGE_VALUE_TOOL,
 	{
 		type: "function",
 		function: {
@@ -2124,6 +2134,8 @@ type ToolContext = {
 	recentAssistantTexts?: string[];
 	/** Origem do AgentRun (chat | routine | …). */
 	origin?: string;
+	/** A fala que abriu o run foi digitada pelo dono (ver `ComputerUseParams.humanTurn`). */
+	humanTurn?: boolean;
 	/** Propostas de novo agente neste run (teto de uma por turno). */
 	botProposals?: { count: number };
 	/** Política de autonomia em vigor (`set_autonomy` troca no meio do run). */
@@ -2188,6 +2200,10 @@ type ToolContext = {
 	replyLanguage?: BotLanguage;
 	/** Leitor da fonte do teste da regra na criação (teste injeta; padrão lê a fonte com o guard SSRF). */
 	alertRuleReader?: AlertRuleReader;
+	/** Buscador do `find_page_value` (teste injeta; padrão lê a página com o guard SSRF). */
+	pageValueFinder?: PageValueFinder;
+	/** Quantas buscas do `find_page_value` este run já fez (teto por run). */
+	pageValueUse?: { calls: number };
 	/** Após create/update de rotina: sync BullMQ scheduler (cron-only). */
 	onRoutineMutated?: (
 		routine: Pick<
@@ -2736,9 +2752,13 @@ async function executeProposeRoutine(
 			}
 			alertInput = parsedAlert.alert;
 			if (alertInput.rule) {
-				// Só grava a regra se ela lê agora (falha com motivo e dica; nada é criado).
-				const tested = await testAlertRule(alertInput.rule, ruleLocale, ctx.alertRuleReader ?? ownerAlertRuleReader(scope.userId));
+				// Ticker da B3 em página de site de cotação: a fonte é sempre `quote` (brapi), nunca a página.
+				const quoteSite = alertInput.rule.source.type === "page" ? b3QuotePageReason(alertInput.rule.source.url, [String(args.title ?? ""), detail, alertInput.condition, alertInput.hint, alertInput.rule.label, ctx.lastUserText]) : null;
+				if (quoteSite) throw new Error(`Rule rejected: ${quoteSite}`);
+				// Só grava a regra se ela lê agora (falha com motivo e dica; nada é criado). `expect` = o que a IA viu na página.
+				const tested = await testAlertRule(alertInput.rule, ruleLocale, ctx.alertRuleReader ?? ownerAlertRuleReader(scope.userId), parsedAlert.expect);
 				alertReading = { display: tested.display, note: alertRuleReadingNote(alertInput.rule, tested.display, tested.note) };
+				if (tested.anchor) alertInput = { ...alertInput, rule: { ...alertInput.rule, anchor: tested.anchor } };
 			}
 		}
 	}
@@ -4223,6 +4243,9 @@ async function executeToolInner(
 		case ROUTINE_CONTROL_TOOL_NAME: {
 			return executeRoutineControlTool(args, ctx);
 		}
+		case FIND_PAGE_VALUE_TOOL_NAME: {
+			return executeFindPageValue(args, ctx.pageValueFinder, ctx.pageValueUse);
+		}
 		case "github_list_repos": {
 			return executeGithubListRepos(args, ctx);
 		}
@@ -4256,6 +4279,9 @@ async function executeToolInner(
 		}
 		case "set_autonomy": {
 			return executeSetAutonomyTool(args, ctx);
+		}
+		case SET_CONNECTOR_TOOL_MARKS_TOOL_NAME: {
+			return executeSetConnectorToolMarksTool(args, ctx);
 		}
 		case REPORT_ALERT_TOOL_NAME: {
 			if (!ctx.alertRun) throw new Error("report_alert só existe em execução de rotina de alerta.");
@@ -4395,6 +4421,28 @@ async function executeToolInner(
 	}
 }
 
+/** `set_connector_tool_marks`: o dono marca o que só lê; mostra um card com o resultado (já decidido). */
+async function executeSetConnectorToolMarksTool(
+	args: Record<string, unknown>,
+	ctx: ToolContext,
+): Promise<{ summary: string; confirmEvent: ConfirmEvent }> {
+	const outcome = await executeSetConnectorToolMarks(args, {
+		userId: ctx.userId,
+		origin: ctx.origin,
+		humanTurn: ctx.humanTurn,
+		userRequestText: ctx.userRequestText ?? "",
+	});
+	const card: ConfirmEvent = {
+		type: "confirm",
+		confirmId: `tool-marks-${ctx.runId ?? "local"}-${Date.now().toString(36)}`,
+		title: outcome.card.title,
+		description: outcome.card.description,
+		status: "approved",
+	};
+	await persistConversationCardFromEvent(ctx.conversationId, card).catch(() => undefined);
+	return { summary: outcome.summary, confirmEvent: card };
+}
+
 /** `set_autonomy`: muda a política e mostra um card de resumo (já decidido). */
 async function executeSetAutonomyTool(
 	args: Record<string, unknown>,
@@ -4493,6 +4541,10 @@ async function executeMcpTool(
 	// Cofre: enviar um segredo a um conector sempre passa pelo cartão (diz o que será gravado e onde).
 	const secretRefs = collectRefs(args);
 	const jevEligible = (entry.actionClass === "write" || entry.actionClass === "irreversible") && ctx.origin === "chat" && !!ctx.conversationId && !!ctx.jevMcpMode && ctx.jevMcpMode !== "off";
+	// Tarefa pedida por outro bot (run `bot`) tem humano na cadeia como o chat: a concessão vale ali também, com a mesma
+	// checagem do Jev por uso. Só a revisão de concessão abre para `bot`; a revisão geral de escrita segue só no chat.
+	const grantOrigin = ctx.origin === "chat" || ctx.origin === "bot";
+	const jevGrantEligible = (entry.actionClass === "write" || entry.actionClass === "irreversible") && grantOrigin && !!ctx.conversationId && !!ctx.jevMcpMode && ctx.jevMcpMode !== "off";
 	// Conteúdo que o usuário não escreveu (e-mail, página, arquivo, subagente, conector) já passou por este run ou por um anterior da conversa.
 	const untrustedSeen = ctx.mcpRun?.untrustedSeen === true || (await ctx.mcpRun?.conversationUntrusted?.()) === true;
 	const neverAsk = policy ? autonomyExceptionMode(policy, entry.autonomyMeta) === "never_ask" : false;
@@ -4505,12 +4557,16 @@ async function executeMcpTool(
 	let grantUse: McpTaskGrantUse | null = null;
 	let jevReviewReason: JevReviewReason | undefined;
 	const alwaysAsk = policy ? autonomyExceptionMode(policy, entry.autonomyMeta) === "always_ask" : false;
-	const grantKey = ctx.conversationId && ctx.userId ? { userId: ctx.userId, conversationId: ctx.conversationId, connectionId: entry.connectionId, exposedName: name } : undefined;
-	if (grantKey && !ctx.forceConfirm && !alwaysAsk && canGrantMcpTask(entry.actionClass, entry.toolName) && !entry.readOnly && ctx.origin === "chat" && secretRefs.length === 0 && !hasExternalTargetArgs(args) && (decision === "ask" || (decision === "allow" && jevEligible))) {
+	const grantBase = ctx.conversationId && ctx.userId ? { userId: ctx.userId, conversationId: ctx.conversationId, connectionId: entry.connectionId } : undefined;
+	const grantCandidate = !!grantBase && !ctx.forceConfirm && !alwaysAsk && canGrantMcpTask(entry.actionClass, entry.toolName) && !entry.readOnly && grantOrigin && secretRefs.length === 0 && !hasExternalTargetArgs(args) && (decision === "ask" || (decision === "allow" && jevEligible));
+	// A concessão é do bot que pediu a tarefa: outro bot (ou o dono no chat) na mesma conversa não a consome. Sem resolver quem pediu, pergunta.
+	const requester = grantCandidate ? await getConversationRequesterBotId({ userId: grantBase!.userId, conversationId: grantBase!.conversationId }).then((id) => ({ id }), () => null) : null;
+	const grantKey = grantBase && requester ? { ...grantBase, exposedName: mcpTaskGrantName(name, requester.id) } : undefined;
+	if (grantKey) {
 		grantUse = await consumeMcpTaskGrant(grantKey).catch(() => null);
 		const untrustedForGrant = untrustedSeen || (grantUse?.untrustedAt ?? null) !== null;
 		if (grantUse && untrustedForGrant) {
-			if (!jevEligible || ctx.jevMcpMode !== "gate") {
+			if (!jevGrantEligible || ctx.jevMcpMode !== "gate") {
 				// Sem Jev que possa barrar: nada de escrita silenciosa depois de conteúdo externo.
 				await releaseMcpTaskGrant(grantKey).catch(() => undefined);
 				grantUse = null;
@@ -5001,6 +5057,11 @@ export async function runComputerUse(params: {
 	/** Origem do AgentRun (chat | routine | subagent | …). */
 	origin?: string;
 	/**
+	 * A mensagem que abriu o run foi DIGITADA pelo dono no chat (gravada pela API, lida pelo worker). Run `chat`
+	 * sintético (worker de grupo, proativo, questionário, retomada) vem sem ela: ausente = falso.
+	 */
+	humanTurn?: boolean;
+	/**
 	 * Filtro final de tools (F5): aplicado DEPOIS dos filtros de origem/autonomia
 	 * sobre as tools nativas e as MCP (inclusive as ativadas por
 	 * `mcp_tool_search`). Só restringe, nunca acrescenta.
@@ -5183,7 +5244,7 @@ export async function runComputerUse(params: {
 	onRunSignal?: RunSignalSubscribe;
 	streamChat?: (
 		params: CompleteChatWithToolsParams,
-		handlers?: { onDelta?: (delta: string) => void },
+		handlers?: StreamChatWithToolsHandlers,
 	) => Promise<CompleteChatWithToolsResult>;
 	jevMcpMode?: JevMcpMode;
 	evaluateMcpWithJev?: JevMcpEvaluator;
@@ -5203,6 +5264,8 @@ export async function runComputerUse(params: {
 	alertRun?: AlertRunState;
 	/** Leitor da fonte do teste da regra de alerta (padrão: leitura real com guard SSRF; teste injeta). */
 	alertRuleReader?: AlertRuleReader;
+	/** Buscador do `find_page_value` (padrão: leitura real com guard SSRF; teste injeta). */
+	pageValueFinder?: PageValueFinder;
 	/** Persiste checkpoint após cada passo confirmado. */
 	onCheckpoint?: (checkpoint: AgentRunCheckpoint) => Promise<void>;
 	/** Sync BullMQ scheduler após create/update de rotina (cron). */
@@ -5432,6 +5495,7 @@ export async function runComputerUse(params: {
 		"propose_routine",
 		"routine_group",
 		ROUTINE_CONTROL_TOOL_NAME,
+		FIND_PAGE_VALUE_TOOL_NAME,
 		"github_list_repos",
 	]);
 	// Fase 1: pesquisa web NÃO entra em rotina (execução só executa a instrução).
@@ -5456,6 +5520,12 @@ export async function runComputerUse(params: {
 	const lastUserMessageContent =
 		[...params.messages].reverse().find((message) => message.role === "user")
 			?.content ?? "";
+	// Segunda linha de defesa do sinal da API: evento de config do bot e resposta de questionário são texto do sistema.
+	const humanTurn =
+		params.humanTurn === true &&
+		!isBotConfigEventObjective(params.objective ?? "") &&
+		!isBotConfigEventObjective(lastUserMessageContent) &&
+		!parseQuestionnaireAnsweredContent(lastUserMessageContent);
 	// Leituras do início do run são independentes entre si: começam todas aqui e cada uma é aguardada
 	// onde é usada (antes iam em série até a 1ª chamada ao modelo). Intenção e dificuldade leem só a
 	// última fala do usuário. As que podem rejeitar (abort) ganham um `.catch` vazio para não virar
@@ -5654,6 +5724,8 @@ export async function runComputerUse(params: {
 		baseTools.push(NATIVE_COMPUTER_TOOL);
 	}
 	if (exposeSetAutonomy) baseTools.push(SET_AUTONOMY_TOOL);
+	// Só quando a última fala do USUÁRIO pede para marcar o que o conector só lê (tira cartões: nunca por resultado de tool).
+	if (shouldExposeSetConnectorToolMarks({ origin: params.origin, humanTurn, lastUserMessage: lastUserMessageContent, hasConnectors: (params.mcp?.toolset.entries.size ?? 0) > 0 })) baseTools.push(SET_CONNECTOR_TOOL_MARKS_TOOL);
 	// Conversa entre bots: só com 2+ bots do usuário; falha ao listar nunca derruba o run.
 	if (botRosterPromise) {
 		const roster = await botRosterPromise;
@@ -5713,7 +5785,9 @@ export async function runComputerUse(params: {
 			conversationId: devConversationId,
 			emit: (event) => {
 				if (event.type === "dev_setup_step" && event.status !== "running" && event.durationMs) devTiming?.setup(event.durationMs);
-				return onEvent(event);
+				const forwarded = onEvent(event);
+				if (event.type === "todo_updated") return Promise.resolve(forwarded).then(() => mirrorDevTodos(event.items)).catch(() => undefined);
+				return forwarded;
 			},
 			signal: params.abortSignal,
 			commandGate: createDevCommandGate({ userId, conversationId: devConversationId!, botId, runId, unattended: isUnattendedOrigin(params.origin) }),
@@ -5831,12 +5905,17 @@ export async function runComputerUse(params: {
 		const sessionId = devRuntime?.compactionContext().sessionId;
 		await onEvent({ type: "context_compacted", ...(sessionId ? { sessionId } : {}), before: report.compaction.before, after: report.compaction.after });
 	};
+	// Um dono só para a lista: com as tools de código oferecidas, quem escreve é o `todo_write` (espelhado na doca).
+	let devToolsOffered = false;
 	if (devDeps?.config.enabled) {
 		for (const tool of DEV_SESSION_TOOLS) {
 			const devTool = tool.function.name as DevSessionToolName;
 			if (isSubagent && !(DEV_SESSION_READONLY_TOOL_NAMES as readonly string[]).includes(devTool)) continue;
 			if (!devSessionAllowedForOrigin(devTool, params.origin) || devSessionBlocked(autonomyPolicy, devTool)) continue;
-			if (params.toolFilter?.(devTool) ?? true) baseTools.push(tool);
+			if (params.toolFilter?.(devTool) ?? true) {
+				baseTools.push(tool);
+				devToolsOffered = true;
+			}
 		}
 	}
 	// Modo proativo: lembretes, ideias de rotina e, na reflexão diária, a mensagem ao usuário.
@@ -5853,6 +5932,8 @@ export async function runComputerUse(params: {
 	if (userPushRun && (params.toolFilter?.("notify_user") ?? true)) baseTools.push(notifyUserPushTool(userPushRun.mode));
 	// Rotina de alerta: o veredito estruturado é o fim da verificação (nunca em chat nem subagente).
 	const alertRun = !isSubagent && params.origin === "routine" ? params.alertRun : undefined;
+	/** Buscas do `find_page_value` deste run (o teto vale para o run inteiro, não por passo). */
+	const pageValueUse = { calls: 0 };
 	if (alertRun && (params.toolFilter?.(REPORT_ALERT_TOOL_NAME) ?? true)) baseTools.push(REPORT_ALERT_TOOL);
 	const imageModel = params.imageModel ?? process.env.ATLAS_IMAGE_MODEL?.trim();
 	// Sem modelo configurado a tool continua visível: a chamada devolve o aviso "Configure um modelo de imagem…"
@@ -5909,8 +5990,8 @@ export async function runComputerUse(params: {
 	if (!isSubagent && params.origin === "chat" && params.planMode !== false && (params.toolFilter?.(PROPOSE_PLAN_TOOL_NAME) ?? true)) {
 		baseTools.push(PROPOSE_PLAN_TOOL);
 	}
-	// `update_task_list`: checklist visível de tarefas de vários passos; só o agente principal, em chat com humano.
-	if (!isSubagent && params.origin === "chat" && (params.toolFilter?.(UPDATE_TASK_LIST_TOOL_NAME) ?? true)) {
+	// `update_task_list`: checklist visível de tarefas de vários passos; só o agente principal, em chat ou em bot atendendo outro bot (conversa do próprio bot, visível ao dono); sem tools de código (lá o `todo_write` é o dono da lista).
+	if (!devToolsOffered && shouldExposeTaskList({ origin: params.origin, isSubagent }) && (params.toolFilter?.(UPDATE_TASK_LIST_TOOL_NAME) ?? true)) {
 		baseTools.push(UPDATE_TASK_LIST_TOOL);
 	}
 	// `delegate_task`: só em chat com humano; filho e rotina não delegam.
@@ -6526,6 +6607,17 @@ export async function runComputerUse(params: {
 	// Lista de passos da conversa: o primeiro checkpoint do run herda a do run anterior (retomada não ressuscita lista encerrada).
 	if (!isSubagent && !parsedCheckpoint?.taskState) taskTracker.setTaskList(parseTaskList(params.priorTaskList));
 	const taskListStore: TaskListStore = { get: () => taskTracker.taskList(), set: (next) => taskTracker.setTaskList(next) };
+	const emitTaskListEvent = async (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>) => {
+		await upsertTaskListCard(conversationId, runId, items).catch(() => undefined);
+		await onEvent({ type: "task_list", items, ...(runId ? { runId } : {}) });
+	};
+	// Sessão de código: o `todo_write` alimenta a mesma lista/doca do chat (um sistema só, sem segunda lista).
+	const mirrorDevTodos = async (todos: ReadonlyArray<{ content: string; status: string }>) => {
+		if (!shouldExposeTaskList({ origin: params.origin, isSubagent }) || params.toolFilter?.(UPDATE_TASK_LIST_TOOL_NAME) === false) return;
+		const items = devTodosToTaskList(todos);
+		executeUpdateTaskList({ items }, { taskListStore });
+		await emitTaskListEvent(items);
+	};
 	// F1: revisões do objetivo só por redirect/interrupt, sempre versionadas no checkpoint.
 	const objectiveRevisions = [...(parsedCheckpoint?.objectiveRevisions ?? [])];
 	// Triagem de mensagens: pedidos "para depois" ficam no checkpoint (e na fila do run).
@@ -6915,7 +7007,8 @@ export async function runComputerUse(params: {
 		const notesLayer = researchNotes.layer({ deliver: notesDeliver });
 		// V3: itens da tarefa e o item pai atual, reinjetados compactos a cada passo (volátil, fora do prefixo cacheado).
 		const itemsLayer = isSubagent ? null : taskOrchestrator.layer();
-		const taskListLayer = isSubagent ? null : renderTaskListNote(taskTracker.taskList());
+		// Com tools de código, a lista já vai na nota do código (todos): sem segunda nota.
+		const taskListLayer = isSubagent || devToolsOffered ? null : renderTaskListNote(taskTracker.taskList());
 		// Data e hora de agora: camada efêmera (muda a cada minuto; no sistema invalidaria o cache do histórico inteiro).
 		// `ATLAS_NOW_NOTE=off` só nas suítes que fixam o formato exato do pedido (ver vitest.config.ts).
 		const nowLayer = isSubagent || process.env.ATLAS_NOW_NOTE === "off" ? null : todayNote(new Date(), params.timeZone);
@@ -6962,6 +7055,10 @@ export async function runComputerUse(params: {
 		// A7: o resumo de encerramento roda com sinal e prazo próprios (o do run já expirou/abortou).
 		const closing = options?.closing === true;
 		const closingSignal = closing ? AbortSignal.any([summaryBaseSignal, AbortSignal.timeout(CLOSING_CALL_TIMEOUT_MS)]) : undefined;
+		const effectiveToolNames = new Set(effectiveTools.map((tool) => tool.function.name));
+		// Chave index+nome: numa nova tentativa do provedor o mesmo index pode trazer outra tool.
+		const intentSeen = new Set<string>();
+		const liveIntents = !isSubagent && !isUnattendedOrigin(params.origin);
 		const callModel = (signal: AbortSignal | undefined) => streamChat(
 			{
 				messages: transport,
@@ -6993,6 +7090,17 @@ export async function runComputerUse(params: {
 					collected += delta;
 					if (emitPublic) emitSegment(delta);
 				},
+				// A UI mostra a ação já pelo nome da tool, enquanto os argumentos ainda são gerados.
+				// Só tool que o run expõe (fora disso o `tool_call` também não aparece) e só com front ao vivo.
+				onToolIntent: emitPublic && !options?.closing && liveIntents
+					? (intent) => {
+						const key = `${intent.index}:${intent.name}`;
+						if (intentSeen.has(key) || !effectiveToolNames.has(intent.name)) return;
+						intentSeen.add(key);
+						// Sem callId: o id cru do provedor não é o do tool_call (que leva namespace).
+						queueEvent({ type: "tool_intent", name: intent.name });
+					}
+					: undefined,
 			},
 		);
 		// `interrupt`: aborta a chamada em voo e descarta a resposta parcial (nada vai ao histórico).
@@ -7840,6 +7948,7 @@ export async function runComputerUse(params: {
 							jevSubagentModelRequest: jevIntents.subagentModel,
 						},
 				userRequestText: lastUserMessageContent,
+				humanTurn,
 				jevIntents,
 				jev: params.jev,
 				lessonFeedback: params.lessons?.recordFeedback,
@@ -7854,6 +7963,8 @@ export async function runComputerUse(params: {
 				...(alertRun ? { alertRun } : {}),
 				replyLanguage: language,
 				...(params.alertRuleReader ? { alertRuleReader: params.alertRuleReader } : {}),
+				...(params.pageValueFinder ? { pageValueFinder: params.pageValueFinder } : {}),
+				pageValueUse,
 				...(userPushRun
 					? { userPush: { mode: userPushRun.mode, send: userPushRun.send, quiet: userPushRun.quiet, sent: userPushSent, log: (line: string) => console.log(`[push] ${line}`) } }
 					: {}),
@@ -7885,10 +7996,7 @@ export async function runComputerUse(params: {
 					deliverableVerifier,
 					ledgerStore: isSubagent ? undefined : taskOrchestrator.store,
 					taskListStore: isSubagent ? undefined : taskListStore,
-					emitTaskList: isSubagent ? undefined : async (items) => {
-						await upsertTaskListCard(conversationId, runId, items).catch(() => undefined);
-						await onEvent({ type: "task_list", items, ...(runId ? { runId } : {}) });
-					},
+					emitTaskList: isSubagent ? undefined : emitTaskListEvent,
 					deliveryGate,
 					createFileDeps: params.createFileDeps,
 					runCodeDeps: params.runCodeDeps,
@@ -7926,7 +8034,9 @@ export async function runComputerUse(params: {
 					},
 				}));
 				// Ponto único: todo resultado que volta ao modelo com conteúdo que o usuário não escreveu invalida a aprovação por tarefa.
-				if (isUntrustedContentTool(name)) await markUntrusted();
+				// Exceção: o cartão de confirmação de um conector só ecoa o que o próprio modelo pediu (nada foi lido ainda). Marcar aqui
+				// fazia a concessão nascer "de fora" no primeiro cartão e o Jev passar a conferir (ou o cartão voltar) em todo uso.
+				if (isUntrustedContentTool(name) && !(isMcpToolName(name) && outcome.confirmEvent)) await markUntrusted();
 				summary = outcome.summary;
 				image = outcome.image;
 				visionArtifactIds = outcome.visionArtifactIds ?? [];

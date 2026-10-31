@@ -858,6 +858,8 @@ model McpConnection {
   /// Último listTools(): [{name, title?, description?, inputSchema, annotations?}].
   toolsCacheJson Json?
   disabledTools  String[] @default([])
+  /// Marcação confirmada pelo dono por tool: {"<tool>": "read" | "write"}. Nulo = nenhuma (padrão: sem anotação = escrita). Aditivo: api/worker antigos ignoram.
+  toolMarksJson  Json?
   /// OBSOLETO (F10): a autonomia decide. Lido só pela migração `autonomy`.
   confirmWrites  Boolean  @default(true)
   lastError      String?

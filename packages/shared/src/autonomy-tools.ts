@@ -2,6 +2,7 @@ import { COMPOSIO_CATALOG_ID, isComposioReadToolName } from "./composio.js";
 import { getMcpCatalogEntry } from "./mcp-catalog.js";
 import type { McpToolInfo } from "./mcp.js";
 import type { ActionClass, AutonomyToolMeta } from "./autonomy.js";
+import type { ToolMark } from "./tool-marks.js";
 
 /**
  * Classe de ação de uma tool de conector (F10). Ordem de decisão:
@@ -24,9 +25,90 @@ const IRREVERSIBLE_VERBS = [
 	"merge",
 	"publish",
 	"transfer",
+	// pt/es: mesmo critério do inglês (nunca viram leitura, nem por marcação do dono).
+	"enviar",
+	"excluir",
+	"apagar",
+	"deletar",
+	"remover",
+	"emitir",
+	"cancelar",
+	"transmitir",
+	"pagar",
+	"transferir",
+	"publicar",
+	"mesclar",
+	"descartar",
+	"eliminar",
+	"borrar",
+	// emissão fiscal em substantivo (emissaoNfe, emissao_nota): o prefixo pega emissao/emissoes.
+	"emiss",
 ] as const;
-/** Só casam o token inteiro (evita `payload`, `posture`). */
-const IRREVERSIBLE_EXACT = new Set(["post", "pay", "drop"]);
+/**
+ * Só casam o token inteiro (evita `payload`, `posture`, `listRefunds`, `signal`). Verbos de efeito fiscal, financeiro
+ * ou externo que o prefixo pegaria em substantivos de consulta: autorizar/faturar/estornar/reembolsar/cobrar/baixar/
+ * aprovar/assinar (pt/es), authorize/refund/charge/approve/sign/void/capture/settle/submit/dispatch/transmit/revoke.
+ * `baixar` também pega "baixar arquivo" (download): o erro é para o lado seguro (pede cartão). `close`/`fechar` ficam
+ * de fora de propósito: continuam escrita (cartão) mas fechar uma tela/lista seria falso positivo comum.
+ */
+const IRREVERSIBLE_EXACT = new Set([
+	"post",
+	"pay",
+	"drop",
+	"authorize",
+	"authorise",
+	"autorizar",
+	"submit",
+	"submeter",
+	"dispatch",
+	"despachar",
+	"refund",
+	"estornar",
+	"reembolsar",
+	"reembolsa",
+	"charge",
+	"cobrar",
+	"baixar",
+	"faturar",
+	"facturar",
+	"approve",
+	"aprovar",
+	"aprobar",
+	"sign",
+	"assinar",
+	"firmar",
+	"void",
+	"anular",
+	"capture",
+	"settle",
+	"liquidar",
+	"transmit",
+	"revoke",
+	"revogar",
+	// Execução, disparo e movimentação de dinheiro/estado que a lista de verbos acima não pegava (nome em inglês ou pt).
+	"cancel",
+	"emit",
+	"execute",
+	"run",
+	"trigger",
+	"fire",
+	"invoke",
+	"payout",
+	"withdraw",
+	"debit",
+	"reverse",
+	"process",
+	"lancar",
+	"confirm",
+	"confirmar",
+	"book",
+	"notify",
+]);
+/**
+ * "issue" é verbo (emitir) em `issueInvoice`/`issue_refund`, mas substantivo no GitHub (`issue_write`, `issue_read`,
+ * `create_issue`). Só conta como irreversível na PRIMEIRA palavra e junto de um objeto fiscal/financeiro.
+ */
+const ISSUE_OBJECTS = new Set(["invoice", "invoices", "nfe", "nfce", "nota", "fatura", "boleto", "refund", "receipt", "payment", "credit", "bill", "check", "cheque"]);
 /** Só contam como irreversíveis com `openWorldHint: true` explícito. */
 const OUTWARD_VERBS = new Set([
 	"comment",
@@ -45,7 +127,11 @@ const OUTWARD_VERBS = new Set([
 
 /** `githubMergePR` / `merge-pull_request` → ["github", "merge", "pr", …]. */
 export function toolNameTokens(name: string): string[] {
+	// NFKD: largura total (ｅnviar) vira ASCII e acento (excluír) separa da letra; depois some o acento e o
+	// caractere invisível. Sem isso `excluír_pedido` escapava do detector de verbo irreversível.
 	return name
+		.normalize("NFKD")
+		.replace(/[\u0300-\u036f\u200b-\u200f\u2060\ufeff\u00ad]/g, "")
 		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
 		.toLowerCase()
 		.split(/[^a-z0-9]+/)
@@ -53,11 +139,17 @@ export function toolNameTokens(name: string): string[] {
 }
 
 function hasIrreversibleVerb(tokens: readonly string[]): boolean {
+	if (tokens[0] === "issue" && tokens.some((token) => ISSUE_OBJECTS.has(token))) return true;
 	return tokens.some(
 		(token) =>
 			IRREVERSIBLE_EXACT.has(token) ||
 			IRREVERSIBLE_VERBS.some((verb) => token === verb || token.startsWith(verb)),
 	);
+}
+
+/** O nome da tool tem verbo irreversível (en/pt/es): nunca pode ser marcada como leitura. */
+export function hasIrreversibleToolName(name: string): boolean {
+	return hasIrreversibleVerb(toolNameTokens(name));
 }
 
 /** O nome tem verbo que atinge terceiros (responder, convidar, compartilhar…), mesmo sem `openWorldHint`. */
@@ -72,6 +164,8 @@ export function classifyMcpTool(input: {
 	catalogReadOnly?: boolean;
 	/** Servidor sem anotações confiáveis (Composio): verbo de leitura no nome conta como leitura. */
 	readByName?: boolean;
+	/** Marcação confirmada pelo dono. Só vale sem anotação do servidor e nunca desfaz verbo irreversível no nome. */
+	ownerMark?: ToolMark;
 }): ActionClass {
 	const hints = input.annotations;
 	if (input.catalogReadOnly) return "read";
@@ -84,6 +178,7 @@ export function classifyMcpTool(input: {
 	if (hints?.openWorldHint === true && tokens.some((token) => OUTWARD_VERBS.has(token))) {
 		return "irreversible";
 	}
+	if (unannotated && input.ownerMark === "read") return "read";
 	return "write";
 }
 
@@ -93,6 +188,7 @@ export function mcpAutonomyMeta(input: {
 	exposedName: string;
 	slug: string;
 	catalogId?: string | null;
+	ownerMark?: ToolMark;
 }): AutonomyToolMeta {
 	const catalogReadOnly = input.catalogId
 		? (getMcpCatalogEntry(input.catalogId)?.readOnlyTools ?? []).includes(input.tool.name)
@@ -103,6 +199,7 @@ export function mcpAutonomyMeta(input: {
 			annotations: input.tool.annotations,
 			catalogReadOnly,
 			readByName: input.catalogId === COMPOSIO_CATALOG_ID,
+			ownerMark: input.ownerMark,
 		}),
 		tool: input.exposedName,
 		connectors: [input.slug, ...(input.catalogId ? [input.catalogId] : [])],

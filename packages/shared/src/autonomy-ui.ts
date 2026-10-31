@@ -7,7 +7,7 @@ import { mcpToolName, type McpConnectionView } from "./mcp.js";
  * aviso de `never_ask` em ação irreversível. Puro (sem I/O).
  */
 
-type ConnectionRef = Pick<McpConnectionView, "catalogId" | "slug" | "name" | "tools">;
+type ConnectionRef = Pick<McpConnectionView, "catalogId" | "slug" | "name" | "tools"> & Partial<Pick<McpConnectionView, "toolMarks">>;
 
 export type AutonomyToolOption = {
 	/** Nome exposto ao modelo (chave da exceção). */
@@ -46,6 +46,7 @@ export function autonomyToolOptions(connections: readonly ConnectionRef[]): Auto
 				exposedName: mcpToolName(connection.slug, tool.name),
 				slug: connection.slug,
 				catalogId: connection.catalogId,
+				ownerMark: connection.toolMarks?.[tool.name],
 			});
 			if (meta.actionClass === "read") continue;
 			options.push({

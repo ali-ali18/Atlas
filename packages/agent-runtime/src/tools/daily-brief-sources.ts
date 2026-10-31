@@ -34,7 +34,7 @@ function readToolNames(record: McpRecord, tools: readonly McpToolInfo[]): string
 	for (const tool of tools) {
 		if (disabled.has(tool.name)) continue;
 		const exposedName = mcpToolName(record.slug, tool.name);
-		const meta = mcpAutonomyMeta({ tool, exposedName, slug: record.slug, catalogId: record.catalogId });
+		const meta = mcpAutonomyMeta({ tool, exposedName, slug: record.slug, catalogId: record.catalogId, ownerMark: record.toolMarks?.[tool.name] });
 		if (meta.actionClass === "read" && !names.includes(exposedName)) names.push(exposedName);
 	}
 	return names;

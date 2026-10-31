@@ -6,9 +6,14 @@ import {
 	getMcpCatalogEntry,
 	isBuiltinMcpUrl,
 	publicMcpUrl,
+	toolMarkRefusal,
+	isToolMark,
+	mergeToolMarks,
 	normalizeAccountLabel,
 	slugifyConnectorName,
+	TOOL_MARKS_MAX,
 	type McpCatalogEntry,
+	type ToolMark,
 	type McpToolInfo,
 } from "@workspace/shared";
 import {
@@ -61,7 +66,7 @@ const SECRET_BOX_ERROR = "Defina CONNECTOR_ENCRYPTION_KEY no .env da API e do wo
 type CreateMcpBody =
 	| { catalogId: string; apiKey?: string; newAccount?: boolean; accountLabel?: string }
 	| { custom: { name: string; url: string; headerName?: string; headerValue?: string; oauth?: boolean; accountLabel?: string } };
-type PatchMcpBody = { disabledTools?: string[]; confirmWrites?: boolean; name?: string; accountLabel?: string | null };
+type PatchMcpBody = { disabledTools?: string[]; toolMarks?: Record<string, ToolMark>; confirmWrites?: boolean; name?: string; accountLabel?: string | null };
 type ParseResult<T> = { value: T; error?: never } | { value?: never; error: string };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -131,6 +136,21 @@ export function parseCreateMcpBody(body: unknown): ParseResult<CreateMcpBody> {
 	};
 }
 
+/** Marcação pedida × tools do conector: as que sumiram são ignoradas (sem derrubar o lote); as recusadas falham com o motivo. */
+export function triageToolMarkPatch(
+	tools: readonly Pick<McpToolInfo, "name" | "annotations">[],
+	requested: Record<string, ToolMark>,
+): { ignoredTools: string[]; rejected: string[] } {
+	const byName = new Map(tools.map((tool) => [tool.name, tool]));
+	const ignoredTools = Object.keys(requested).filter((name) => !byName.has(name));
+	const rejected = Object.entries(requested).flatMap(([name, mark]) => {
+		const tool = byName.get(name);
+		const why = tool ? toolMarkRefusal(tool, mark) : null;
+		return why ? [`${name}: ${why}`] : [];
+	});
+	return { ignoredTools, rejected };
+}
+
 export function parsePatchMcpBody(body: unknown): ParseResult<PatchMcpBody> {
 	if (!isObject(body)) return { error: "Corpo inválido" };
 	const value: PatchMcpBody = {};
@@ -140,6 +160,16 @@ export function parsePatchMcpBody(body: unknown): ParseResult<PatchMcpBody> {
 			return { error: "disabledTools deve conter no máximo 200 nomes" };
 		}
 		value.disabledTools = body.disabledTools;
+	}
+	if ("toolMarks" in body) {
+		const raw = body.toolMarks;
+		if (!isObject(raw) || Object.keys(raw).length > TOOL_MARKS_MAX) return { error: `toolMarks deve ser um objeto com no máximo ${TOOL_MARKS_MAX} ferramentas` };
+		const marks: Record<string, ToolMark> = {};
+		for (const [name, mark] of Object.entries(raw)) {
+			if (!isToolMark(mark)) return { error: 'Cada marcação deve ser "read" ou "write"' };
+			marks[name] = mark;
+		}
+		value.toolMarks = marks;
 	}
 	if ("confirmWrites" in body) {
 		if (typeof body.confirmWrites !== "boolean") return { error: "confirmWrites inválido" };
@@ -592,10 +622,19 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 			// O Composio tem rotas próprias (/v1/composio/*); aqui ele não existe.
 			if (!existing || existing.catalogId === COMPOSIO_CATALOG_ID) return c.json({ error: "Conexão não encontrada" }, 404);
 			const known = new Set(existing.tools.map((tool) => tool.name));
-			const patch = { ...parsed.value, disabledTools: parsed.value.disabledTools?.filter((name) => known.has(name)) };
+			const { toolMarks: requestedMarks, ...rest } = parsed.value;
+			// Tool que sumiu do conector (tela desatualizada, servidor mudou) é ignorada e devolvida em `ignoredTools`,
+			// sem derrubar o lote. Tool que existe mas o servidor anota (ou verbo irreversível) continua falhando com a lista.
+			const { ignoredTools, rejected } = triageToolMarkPatch(existing.tools, requestedMarks ?? {});
+			if (rejected.length > 0) return c.json({ error: `Marcação recusada. ${rejected.slice(0, 20).join("; ")}` }, 400);
+			const patch = {
+				...rest,
+				disabledTools: rest.disabledTools?.filter((name) => known.has(name)),
+				...(requestedMarks ? { toolMarks: mergeToolMarks(existing.toolMarks ?? {}, requestedMarks, existing.tools) } : {}),
+			};
 			const connection = await updateMcpConnection(existing.id, patch, userId);
 			if (!connection) return c.json({ error: "Conexão não encontrada" }, 404);
-			return c.json({ connection: toMcpConnectionView(connection) });
+			return c.json({ connection: toMcpConnectionView(connection), ...(ignoredTools.length > 0 ? { ignoredTools } : {}) });
 		} catch {
 			return c.json({ error: "Não foi possível atualizar a conexão" }, 503);
 		}

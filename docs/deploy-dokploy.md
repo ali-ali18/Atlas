@@ -144,6 +144,12 @@ ficar verde e clique **Deploy** no Dokploy.
 Atenção: migrations de banco já aplicadas **não** voltam com o rollback da imagem. Se a versão ruim rodou uma
 migration destrutiva, restaure o banco. Sandboxes não têm `sha` para todo commit (só quando mudam); no rollback elas ficam em `latest`.
 
+Ordem do deploy com coluna nova: a migration roda **antes** da api e do worker novos (o serviço `migrate` vem antes no
+`depends_on`). Isso importa porque o Prisma seleciona todas as colunas do modelo: api ou worker novo subindo antes da
+migration `20261208000000_mcp_tool_marks` (coluna `mcp_connections.toolMarksJson`) falharia em toda leitura de conector.
+O código antigo, ao contrário, ignora a coluna nova, então a janela de versões mistas depois da migration é segura. Se o
+`migrate` falhar, não force a subida da api: corrija a migration primeiro.
+
 ## 4. Limpeza diária de imagens (cron no servidor)
 
 Com `pull` a cada deploy, ficam imagens antigas no disco. Desligue a limpeza diária de cache do Dokploy

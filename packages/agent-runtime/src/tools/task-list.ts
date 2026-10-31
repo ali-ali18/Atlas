@@ -39,6 +39,31 @@ export const UPDATE_TASK_LIST_TOOL: ChatTool = {
 	},
 };
 
+/**
+ * Quem recebe `update_task_list`: o agente principal em runs com humano acompanhando a conversa.
+ * `chat` é o usuário falando; `bot` é um bot atendendo outro bot na conversa do próprio bot,
+ * visível ao dono (a doca e o cartão aparecem ali). Rotina, webhook, proativo e subagente não têm onde mostrar.
+ */
+export function shouldExposeTaskList(input: { origin?: string; isSubagent: boolean }): boolean {
+	return !input.isSubagent && (input.origin === "chat" || input.origin === "bot");
+}
+
+/** Itens do `todo_write` (sessão de código) como lista do chat: cancelados saem; só um in_progress. */
+export function devTodosToTaskList(items: ReadonlyArray<{ content: string; status: string }>): TaskListItem[] {
+	const out: TaskListItem[] = [];
+	let hasActive = false;
+	for (const item of items) {
+		if (item.status === "cancelled") continue;
+		let status: TaskListItem["status"] = item.status === "completed" ? "completed" : item.status === "in_progress" ? "in_progress" : "pending";
+		if (status === "in_progress") {
+			if (hasActive) status = "pending";
+			hasActive = true;
+		}
+		out.push({ content: item.content, status });
+	}
+	return out.slice(0, MAX_TASK_LIST_ITEMS);
+}
+
 /** Onde a lista mora: o `TaskTracker` do run. */
 export type TaskListStore = {
 	get(): TaskListItem[] | undefined;

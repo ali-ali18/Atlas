@@ -81,6 +81,12 @@ export type ComputerUseEvent =
 	| ContextUsageEvent
 	| DevTimingEvent
 	| { type: "session"; sessionId: string; viewerUrl: string }
+	/**
+	 * A ferramenta `name` acabou de ser escolhida e o modelo ainda gera os argumentos (antes do `tool_call`).
+	 * Só a UI ao vivo usa (o avatar mostra a ação cedo); nunca leva argumentos, não vira mensagem do chat
+	 * e some do log do run na retenção. Cliente antigo ignora o tipo desconhecido.
+	 */
+	| { type: "tool_intent"; name: string }
 	| { type: "tool_call"; id: string; name: string; args: string; step?: number; maxSteps?: number }
 	| {
 			type: "tool_result";

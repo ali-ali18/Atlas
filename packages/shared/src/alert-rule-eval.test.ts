@@ -256,4 +256,35 @@ describe("evaluateAlertRule · atraso x último negócio", () => {
 		expect(fresh.state.lastTradeAt).toBeUndefined();
 		expect(fresh.state.delayMinutes).toBeUndefined();
 	});
+
+describe("evaluateAlertRule · âncora do valor", () => {
+	const anchored = { ...lt400, anchor: "cotacao" } as AlertRule;
+	const read = (value: string, context?: string): AlertRuleRead => ({ kind: "text", text: value, ...(context !== undefined ? { context } : {}) });
+
+	it("o seletor passou a ler outro card (sem o rótulo no contexto): sem veredito, nada de aviso nem de estado novo", () => {
+		const state = { lastValue: 389.9, consecutive: 1 };
+		const drifted = step(anchored, state, false, read("R$ 350,00", "Dividend Yield R$ 350,00 Margem"));
+		expect(drifted.verdict).toBeNull();
+		expect(drifted.reason).toMatch(/não está mais junto de “cotacao”/);
+		expect(drifted.state).toEqual(state);
+		// mesmo dentro da faixa do filtro de salto (ex.: outro card com valor parecido), a âncora pega
+		expect(step(anchored, state, false, read("R$ 390,10", "Variação (12M) R$ 390,10")).verdict).toBeNull();
+	});
+
+	it("contexto com o rótulo (ou leitor sem contexto) segue o fluxo normal", () => {
+		expect(step(anchored, undefined, false, read("R$ 389,90", "Cotação R$ 389,90 0,06%")).verdict).toMatchObject({ triggered: false });
+		expect(step(anchored, undefined, false, read("R$ 389,90")).verdict).not.toBeNull();
+		expect(step(lt400, undefined, false, read("R$ 389,90", "qualquer coisa")).verdict).not.toBeNull();
+	});
+
+	it("o salto brusco sozinho NÃO pega o card errado quando a 2ª leitura confirma: por isso a âncora existe", () => {
+		const state = { lastValue: 16.47 };
+		const jump = { ...lt400, check: { kind: "value", parse: "money", op: "lt", value: 15 } } as AlertRule;
+		const first = step(jump, state, false, text("R$ 4,14"));
+		expect(first.suspect).toBe(true);
+		const second = step(jump, first.state, false, text("R$ 4,14"));
+		expect(second.suspect).not.toBe(true);
+		expect(second.state.lastValue).toBe(4.14);
+	});
+});
 });
