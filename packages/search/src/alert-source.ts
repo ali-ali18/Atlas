@@ -22,6 +22,7 @@ import {
 	type ExtractFetchFn,
 	type ExtractLookupFn,
 } from "./extract.js";
+import { contextAround, tagOf } from "./page-context.js";
 import { readMarketSource, type MarketDeps, type MarketFailure } from "./market-data.js";
 import { regexWindow, runRegexWithBudget } from "./regex-budget.js";
 import {
@@ -259,7 +260,10 @@ async function readPage(source: Extract<AlertSource, { type: "page" }>, doc: Fet
 		const items = nodes.map((node) => ({ title: textOf(node).slice(0, ALERT_ITEM_TITLE_MAX), link: squeeze(node.querySelector("a")?.getAttribute("href") ?? node.getAttribute("href")) || undefined })).filter((item) => item.title);
 		return { kind: "items", items: items.map((item) => ({ title: item.title, ...(item.link ? { link: toAbsolute(item.link, source.url) } : {}) })) };
 	}
-	return { kind: "text", text: nodes[0] ? textOf(nodes[0]) || null : null };
+	const first = nodes[0];
+	const text = first ? textOf(first) || null : null;
+	// Contexto em volta do elemento (rótulo do card, nome da variante): a regra guarda o rótulo na criação e confere depois.
+	return { kind: "text", text, ...(first && text && tagOf(first) !== "meta" ? { context: contextAround(first, text) } : {}) };
 }
 
 function toAbsolute(href: string, base: string): string {

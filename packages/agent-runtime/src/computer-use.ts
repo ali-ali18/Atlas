@@ -2747,6 +2747,7 @@ async function executeProposeRoutine(
 				// Só grava a regra se ela lê agora (falha com motivo e dica; nada é criado). `expect` = o que a IA viu na página.
 				const tested = await testAlertRule(alertInput.rule, ruleLocale, ctx.alertRuleReader ?? ownerAlertRuleReader(scope.userId), parsedAlert.expect);
 				alertReading = { display: tested.display, note: alertRuleReadingNote(alertInput.rule, tested.display, tested.note, parsedAlert.expect !== undefined) };
+				if (tested.anchor) alertInput = { ...alertInput, rule: { ...alertInput.rule, anchor: tested.anchor } };
 			}
 		}
 	}

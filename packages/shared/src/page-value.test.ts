@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseLocalizedNumber } from "./alert-rule-extract.js";
-import { b3QuotePageReason, isNumericPageValue, isStableClass, isStableId, mentionsB3Ticker, pageNumbers, pageTextHasValue, pageValuesMatch } from "./page-value.js";
+import { anchorStillNear, b3QuotePageReason, deriveAlertAnchor, isNumericPageValue, isStableClass, isStableId, mentionsB3Ticker, pageNumbers, pageTextHasValue, pageValuesMatch } from "./page-value.js";
 
 describe("valor numérico visto na página", () => {
 	it("reconhece número com moeda, milhar e decimal em BR e US", () => {
@@ -128,5 +128,13 @@ describe("ticker da B3 e sites de cotação", () => {
 		expect(parseLocalizedNumber("R$ \u22121.234,56")).toBe(-1234.56);
 		expect(isNumericPageValue("\u22123,5%")).toBe(true);
 		expect(pageValuesMatch("\u221222,08%", "-22,08")).toBe(true);
+	});
+
+	it("âncora: rótulo derivado do contexto (sem o valor, números nem moeda) e conferido depois", () => {
+		expect(deriveAlertAnchor("Cotação R$ 16,47 0,06%", "R$ 16,47")).toBe("cotacao");
+		expect(deriveAlertAnchor("Preço atual R$ 16,47 Preço Justo R$ 0,00", "R$ 16,47")).toBe("preco atual");
+		expect(deriveAlertAnchor("R$ 16,47 0,06%", "R$ 16,47")).toBeUndefined();
+		expect(anchorStillNear("Cotação R$ 16,02 0,10%", "cotacao")).toBe(true);
+		expect(anchorStillNear("Dividend Yield 4,14%", "cotacao")).toBe(false);
 	});
 });

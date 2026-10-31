@@ -1,5 +1,5 @@
 import { readAlertRule } from "@workspace/search";
-import { evaluateAlertRule, pageValuesMatch, sanitizeAlertExternalText, type AlertRule, type AlertRuleRead, type BotLanguage } from "@workspace/shared";
+import { deriveAlertAnchor, evaluateAlertRule, pageValuesMatch, sanitizeAlertExternalText, type AlertRule, type AlertRuleRead, type BotLanguage } from "@workspace/shared";
 import { ownerMarketAccess } from "../market/keys.js";
 
 /**
@@ -98,7 +98,7 @@ export async function testAlertRule(
 	locale: BotLanguage,
 	reader: AlertRuleReader = (r) => readAlertRule(r),
 	expected?: string,
-): Promise<{ display: string; host: string; note?: string }> {
+): Promise<{ display: string; host: string; note?: string; anchor?: string }> {
 	if (expected !== undefined) {
 		const problem = expectedValueProblem(rule);
 		if (problem) throw new Error(`Rule test failed: ${problem}`);
@@ -115,7 +115,12 @@ export async function testAlertRule(
 	if (!evaluation.verdict || evaluation.display === undefined) {
 		throw new Error(`Rule test failed: ${evaluation.reason ?? "no value"}. ${NOT_FOUND_HINT} Do not create the alert with this rule.`);
 	}
-	return { display: evaluation.display, host: result.host, ...(evaluation.note ? { note: evaluation.note } : {}) };
+	// Página com seletor CSS: guarda o rótulo que está junto do valor agora, para o worker detectar se o seletor passar a ler outro lugar.
+	const anchor =
+		rule.source.type === "page" && rule.source.extract.kind === "css" && rule.check.kind === "value" && result.read.kind === "text" && result.read.context && result.read.text
+			? deriveAlertAnchor(result.read.context, result.read.text)
+			: undefined;
+	return { display: evaluation.display, host: result.host, ...(evaluation.note ? { note: evaluation.note } : {}), ...(anchor ? { anchor } : {}) };
 }
 
 /**

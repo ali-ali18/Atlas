@@ -6,6 +6,7 @@
 import { parseLocalizedNumber } from "./alert-rule-extract.js";
 
 export const PAGE_VALUE_MAX = 80;
+export const ALERT_ANCHOR_MAX = 40;
 
 const NUMERIC_VALUE = /^\s*(?:(?:R\$|US\$|U\$S|\$|€|£)\s*)?[-\u2212\u2013\u2012]?\s*\d[\d.,\s  ]*\s*(?:%|reais)?\s*$/i;
 
@@ -61,6 +62,27 @@ export function pageValuesMatch(read: string, expected: string): boolean {
 	}
 	const wanted = normalizePageText(expected);
 	return wanted.length > 0 && normalizePageText(read).includes(wanted);
+}
+
+/**
+ * Rótulo que acompanha o valor na página, para saber depois se o seletor ainda aponta para o mesmo lugar: as
+ * primeiras palavras de texto do contexto ("Cotação R$ 16,47 0,06%" -> "cotacao"; "Preço atual R$ 16,47" -> "preco atual"),
+ * sem o valor, números, moeda e %. undefined = o contexto não tem rótulo (só números): a guarda de salto cobre.
+ */
+export function deriveAlertAnchor(context: string, reading: string): string | undefined {
+	const withoutValue = normalizePageText(context).replace(normalizePageText(reading), " ");
+	const words = (withoutValue.match(/[a-z]{3,}/g) ?? []).filter((word) => !["real", "reais", "usd", "brl"].includes(word));
+	let anchor = "";
+	for (const word of words.slice(0, 2)) {
+		if (`${anchor} ${word}`.trim().length > ALERT_ANCHOR_MAX) break;
+		anchor = `${anchor} ${word}`.trim();
+	}
+	return anchor || undefined;
+}
+
+/** O rótulo guardado na criação continua no contexto do valor lido agora. */
+export function anchorStillNear(context: string, anchor: string): boolean {
+	return normalizePageText(context).includes(normalizePageText(anchor));
 }
 
 const GENERATED_CLASS_PREFIX = /^(?:css|sc|jsx|svelte|emotion|styled|ng-tns|ng-star|ember)-/i;

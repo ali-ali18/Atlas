@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	applyAlertConfig,
+	sameAlertRule,
 	alertSourceHost,
 	clampAlertRuleInterval,
 	defaultAlertRuleInterval,
@@ -336,5 +337,13 @@ describe("fontes de mercado (etapa 2)", () => {
 			const result = parseAlertRule({ ...pageRule, expect: bad });
 			expect(result, String(bad)).toMatchObject({ ok: false, error: expect.stringContaining("rule.expect") });
 		}
+	});
+
+	it("anchor (rótulo do valor, definido pelo servidor) só vale em regra de página e é validado", () => {
+		const ok = parseAlertRule({ ...pageRule, anchor: "cotacao" });
+		expect(ok).toMatchObject({ ok: true, rule: { anchor: "cotacao" } });
+		for (const bad of ["", "x".repeat(41), "{value}", 5]) expect(parseAlertRule({ ...pageRule, anchor: bad }), String(bad)).toMatchObject({ ok: false, error: expect.stringContaining("rule.anchor") });
+		expect(parseAlertRule({ source: { type: "quote", symbol: "BBAS3" }, check: { kind: "value", parse: "money", op: "lt", value: 15 }, anchor: "cotacao" }).ok).toBe(false);
+		expect(sameAlertRule((ok as { rule: AlertRule }).rule, (parseAlertRule(pageRule) as { rule: AlertRule }).rule)).toBe(false);
 	});
 });

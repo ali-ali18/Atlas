@@ -239,6 +239,23 @@ describe("propose_routine: expect confere o que a regra lê", () => {
 	});
 });
 
+describe("propose_routine: âncora do valor (contra deriva do seletor)", () => {
+	const withContext = (text: string, context?: string): AlertRuleReader =>
+		vi.fn(async () => ({ ok: true as const, read: { kind: "text" as const, text, ...(context ? { context } : {}) }, host: "invest.example.com", ms: 5 }));
+
+	it("a criação guarda o rótulo que está junto do valor ('cotacao') na regra gravada; sem expect/contexto nada é guardado", async () => {
+		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: row({ condition: "x", active: false }) } as never);
+		const { toolResults } = await run({ message: "me avisa", calls: [toolCall("c1", "propose_routine", create("Ação", rule("div._card-body span.value", { expect: "16,47" }))), closing], reader: withContext("R$ 16,47", "Cotação R$ 16,47 0,06%") });
+		expect(toolResults[0]).toMatchObject({ ok: true });
+		const created = vi.mocked(createRoutine).mock.calls[0]![1] as { alert: { rule: { anchor?: string } } };
+		expect(created.alert.rule.anchor).toBe("cotacao");
+		vi.mocked(createRoutine).mockClear();
+		vi.mocked(createRoutine).mockResolvedValueOnce({ routine: row({ condition: "x", active: false }) } as never);
+		await run({ message: "me avisa", calls: [toolCall("c1", "propose_routine", create("Ação", rule("div._card-body span.value", { expect: "16,47" }))), closing], reader: withContext("R$ 16,47") });
+		expect((vi.mocked(createRoutine).mock.calls[0]![1] as { alert: { rule: { anchor?: string } } }).alert.rule.anchor).toBeUndefined();
+	});
+});
+
 // ---------------------------------------------------------------- B3: brapi primeiro
 
 describe("ação da B3: sempre a fonte quote, nunca página de site de cotação", () => {
