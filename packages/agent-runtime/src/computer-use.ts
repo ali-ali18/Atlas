@@ -259,7 +259,8 @@ import { classifyDifficulty } from "./context/difficulty.js";
 import { classifyDifficultyWithReviewer } from "./jev/difficulty.js";
 import { buildTierPlan, modelsForTier, nextEscalationTier, repeatedWeakResults, type ModelTiersRuntime } from "./model-tiers.js";
 import { looksEmptyResult } from "./mcp/empty-hint.js";
-import type { ModelTier } from "@workspace/shared";
+import type { ModelTier, RunEndSignals, RunStop } from "@workspace/shared";
+import { stopOfCompletion } from "@workspace/shared";
 import { createNarrationMemory, mentionsFileDeliverable, STALL_NUDGE_NOTE, STALL_QUIET_AT, STALL_RESTRICT_NOTE, stallStage } from "./execution/stall-guard.js";
 import { budgetUsage, canExtendBudget, costCapMessage, costCapReached, decideReserve, EXTENSION_NOVELTY_WINDOW, FILE_RESERVE_TOOLS, isReadOnlyToolName, jevCheckpointKey, onlyReadsRecently, shouldWrapUp, STUCK_ANSWER_NOW_NOTE } from "./execution/run-governor.js";
 import { createRereadGuard, isRereadNotice, type RereadGuard } from "./execution/reread-guard.js";
@@ -4988,9 +4989,21 @@ export type RunComputerUseResult = {
 	usage: TokenUsage;
 	/** Só com `backgroundObserveChecks`: termina quando as checagens de observação terminam; uso delas (ou `null`). */
 	observeChecks?: Promise<TokenUsage | null>;
+	/** Por que o run terminou sem erro (medição, F0 do ADR 0002). Não muda nada do loop. */
+	stop?: RunStop;
 };
 
-export async function runComputerUse(params: {
+/**
+ * Entrada pública. Só embrulha o laço: preenche o motivo de término a partir dos sinais que o laço
+ * levanta (`signals`) sem mexer em nenhum dos pontos de retorno.
+ */
+export async function runComputerUse(params: Parameters<typeof runComputerUseCore>[0]): Promise<RunComputerUseResult> {
+	const signals: RunEndSignals = {};
+	const result = await runComputerUseCore(params, signals);
+	return { ...result, stop: stopOfCompletion(signals, { hitWall: result.hitWall }) };
+}
+
+async function runComputerUseCore(params: {
 	/** Provedores sem créditos do run pai: o subagente herda (não repete a falha em cada filho). */
 	providerHealth?: ProviderHealth;
 	/** Modelo dos subagentes do bot (null/ausente = igual ao do pai). */
@@ -5285,7 +5298,7 @@ export async function runComputerUse(params: {
 	 * o chamador somar (nunca rejeita). Sem isto elas são aguardadas antes de devolver (como antes).
 	 */
 	backgroundObserveChecks?: boolean;
-}): Promise<RunComputerUseResult> {
+}, signals: RunEndSignals): Promise<RunComputerUseResult> {
 	const { apiKey, messages, botId, onEvent: emitEvent } =
 		params;
 	// Aviso de imagem anexada que não carregou (ver `loadUserImageOnce`): fica aqui para o `onEvent` existir desde o começo.
@@ -7578,7 +7591,7 @@ export async function runComputerUse(params: {
 		const checkGlobalFailureLock = () => {
 			const abortReason = globalFailureAbort(toolOutcomes);
 			if (abortReason) {
-				throw new AgentRunLoopDetectedError(abortReason);
+				throw new AgentRunLoopDetectedError(abortReason, "tool_failures");
 			}
 		};
 		const processCall = async (call: LlmToolCall, sub: number) => {
@@ -7598,7 +7611,7 @@ export async function runComputerUse(params: {
 				const cutOff = stepFinishTruncated && call === toolCalls[toolCalls.length - 1];
 				if (cutOff) {
 					truncatedToolCalls += 1;
-					if (truncatedToolCalls > 4) throw new AgentRunLoopDetectedError(sys.truncatedToolCall);
+					if (truncatedToolCalls > 4) throw new AgentRunLoopDetectedError(sys.truncatedToolCall, "truncated");
 				}
 				await emitSyntheticToolResult(
 					sub,
@@ -7779,6 +7792,7 @@ export async function runComputerUse(params: {
 				if (decision === "abort") {
 					throw new AgentRunLoopDetectedError(
 						sys.repeatedWithoutProgress(name),
+						"repeat",
 					);
 				}
 				if (decision === "warn") {
@@ -8045,10 +8059,16 @@ export async function runComputerUse(params: {
 				skillEvent = outcome.skillEvent;
 				skillProposalEvent = outcome.skillProposalEvent;
 				// Proposta de skill pendente: o card é a resposta; o run para até o usuário decidir.
-				if (skillProposalEvent && (skillProposalEvent.status ?? "pending") === "pending") stopForSkillCard = true;
+				if (skillProposalEvent && (skillProposalEvent.status ?? "pending") === "pending") {
+					stopForSkillCard = true;
+					signals.awaiting ??= "skill_card";
+				}
 				// Proposta de novo agente: o card é a resposta; o run para até o usuário decidir.
 				botProposalEvent = outcome.botProposalEvent;
-				if (botProposalEvent) stopForSkillCard = true;
+				if (botProposalEvent) {
+					stopForSkillCard = true;
+					signals.awaiting ??= "skill_card";
+				}
 				routineEvent = outcome.routineEvent;
 				questionnaireEvent = outcome.questionnaireEvent;
 				profileEvent = outcome.profileEvent;
@@ -8126,14 +8146,19 @@ export async function runComputerUse(params: {
 				// Card já decidido (resumo de autonomia) não para o run.
 				if (confirmEvent && (confirmEvent.status ?? "pending") === "pending") {
 					stopForConfirm = true;
+					signals.awaiting = "confirm";
 				}
 				// Questionário segue o padrão dos cards (sem early return no lote):
 				// nova proposta no mesmo run substitui a pendente anterior
 				// (mesmo questionnaireId, upsert na persistência) — nunca empilha.
-				if (questionnaireEvent) stopForQuestionnaire = true;
+				if (questionnaireEvent) {
+					stopForQuestionnaire = true;
+					signals.awaiting ??= "questionnaire";
+				}
 				// Proposta de perfil: mesmo padrão (mesmo proposalId substitui).
 				if (profileEvent && (profileEvent.status ?? "pending") === "pending") {
 					stopForProfile = true;
+					signals.awaiting ??= "profile";
 				}
 				// Skill gravada sozinha ("Aprendi"): o run segue, porque o modelo ainda precisa responder ao pedido (o card só avisa).
 				if (
@@ -8146,6 +8171,7 @@ export async function runComputerUse(params: {
 						skillEvent.action === "deleted" ||
 						skillEvent.action === "shown")
 				) {
+					// Cartão só informativo (lista, "aprendi", detalhe): o run para, mas não espera o usuário decidir.
 					stopForSkillCard = true;
 				}
 			} catch (error) {
@@ -8456,13 +8482,13 @@ ${blockHint}`;
 			if (tierPlan && !pendingEscalationReason && repeatedWeakResults(toolOutcomes, name, tierEscalateSince)) pendingEscalationReason = "tool_failures";
 			const loopCheck = isNoProgressLoop(toolOutcomes, loopWarned);
 			if (loopCheck.result === "abort") {
-				throw new AgentRunLoopDetectedError(loopCheck.reason || "loop detectado");
+				throw new AgentRunLoopDetectedError(loopCheck.reason || "loop detectado", "repeat");
 			} else if (loopCheck.result === "warn" && loopCheck.reason && loopCheck.loopKey) {
 				// First time seeing this loop: collect warning to push after batch
 				loopWarned.add(loopCheck.loopKey);
 				batchLoopWarnings.push(loopCheck.reason);
 			}
-			if (stallAbort) throw new AgentRunLoopDetectedError(stallAbort);
+			if (stallAbort) throw new AgentRunLoopDetectedError(stallAbort, "stall_guard");
 			if (!ok) {
 				if (failureKind !== "argument") consecutiveToolFailures += 1;
 				// F4 — 3 falhas seguidas da mesma tool a bloqueiam no run
@@ -8765,6 +8791,7 @@ ${blockHint}`;
 		) {
 			throw new AgentRunLoopDetectedError(
 				sys.noProgress,
+				"no_progress",
 			);
 		}
 
@@ -8778,6 +8805,7 @@ ${blockHint}`;
 				if (verifyExtend) verifyExtensions += 1;
 				const verdict = verifyExtend ? { action: "extend" as const, summary: "" } : await softEvaluate();
 				if (verdict.action === "conclude") {
+					signals.softConcluded = true;
 					await settleStepCheckpoint();
 					return {
 						text: verdict.summary,
@@ -8862,12 +8890,16 @@ ${blockHint}`;
 			reserveRestrict = reserve.restrictTools && tools.some((tool) => tool.function.name === CREATE_FILE_TOOL.function.name);
 			// Fechamento sem arquivo pendente: sem tools, o modelo responde com o que tem.
 			forceFinalAnswer = wrapUp && !pending;
+			if (forceFinalAnswer && !signals.forcedWrap) {
+				signals.forcedWrap = true;
+				signals.forcedWrapCause = forcedWrapUp ? "stuck" : taskOrchestrator.stopRequested() ? "orchestrator" : "stagnation";
+			}
 			const note = reserve.note ?? (forcedWrapUp && !pending ? STUCK_ANSWER_NOW_NOTE : null);
 			if (note) stepNotices.push(note, NOTICE_PRIORITY.budget, { once: true });
 			// Enrolação pesquisa -> arquivo: aviso, só tools de arquivo e, por fim, parada honesta.
 			if (stallFileIntent(pending)) {
 				const stage = stallStage(readOnlyStreak);
-				if (stage === "abort") throw new AgentRunLoopDetectedError(sys.readingWithoutFile);
+				if (stage === "abort") throw new AgentRunLoopDetectedError(sys.readingWithoutFile, "stall_guard");
 				if (stage === "restrict" && tools.some((tool) => tool.function.name === CREATE_FILE_TOOL.function.name)) {
 					nativeDeferral?.load(FILE_RESERVE_TOOLS.filter((name) => nativeDeferral.isDeferred(name)));
 					stallRestrict = true;
@@ -8998,7 +9030,7 @@ ${blockHint}`;
 				// Sem finish_reason depois da nova tentativa: o stream chegou ao [DONE], então o
 				// texto vale (o motivo fica no passo do modelo). Só corte por limite não conclui.
 				if (text.length > 0 && finishClass === "truncated") {
-					throw new AgentRunLoopDetectedError("A resposta do modelo foi cortada antes do fim e não foi concluída.");
+					throw new AgentRunLoopDetectedError("A resposta do modelo foi cortada antes do fim e não foi concluída.", "truncated");
 				}
 			}
 			if (text.length > 0) {
@@ -9095,7 +9127,7 @@ ${blockHint}`;
 						if (promise?.promisesFile) {
 							taskTracker.addBlocker("promised file was never created");
 							await persistCheckpoint(step + 1);
-							throw new AgentRunLoopDetectedError("A resposta anunciou um arquivo, mas nenhum arquivo foi criado.");
+							throw new AgentRunLoopDetectedError("A resposta anunciou um arquivo, mas nenhum arquivo foi criado.", "no_progress");
 						}
 					}
 					taskTracker.waiveFile(artifactNudged ? "file was not produced; the reply was accepted after one reminder" : "file was not produced; the answer was already revised once");

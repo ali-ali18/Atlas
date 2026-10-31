@@ -11,13 +11,13 @@ import { finalizeExhaustedAgentRun } from "./agent-run.js";
 const run = { id: "r1", userId: "u1", origin: "chat", conversationId: "c1" } as unknown as AgentRun;
 
 function io(overrides: { finalized?: boolean; origin?: string } = {}) {
-	const calls: { fail?: { error: string; resultText: string }; settle?: unknown; chain?: string } = {};
+	const calls: { fail?: { error: string; resultText: string; stop?: unknown }; settle?: unknown; chain?: string } = {};
 	return {
 		calls,
 		io: {
 			getRun: async () => ({ ...run, origin: overrides.origin ?? "chat" }) as AgentRun,
-			failRun: async (_id: string, error: string, display: { resultText: string }) => {
-				calls.fail = { error, resultText: display.resultText };
+			failRun: async (_id: string, error: string, display: { resultText: string }, stop?: unknown) => {
+				calls.fail = { error, resultText: display.resultText, stop };
 				return overrides.finalized ?? true;
 			},
 			settle: async (input: unknown) => {
@@ -108,4 +108,10 @@ test("run de brief que esgotou as tentativas: entrega a linha de falha do brief"
 	const failed: string[] = [];
 	await finalizeExhaustedAgentRun("r1", new Error("x"), 3, {}, { ...fakes, notifyRoutineFailure: async () => undefined, briefFailure: async (run) => void failed.push(run.id) });
 	assert.deepEqual(failed, ["r1"]);
+});
+
+test("esgotado: o motivo de término é retries_exhausted", async () => {
+	const { calls, io: fakes } = io();
+	await finalizeExhaustedAgentRun("r1", new Error("boom"), 3, {}, fakes);
+	assert.deepEqual(calls.fail!.stop, { reason: "retries_exhausted" });
 });
