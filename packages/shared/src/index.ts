@@ -637,6 +637,7 @@ export {
 	HOST_TOOL_CLASSES,
 	classifyMcpTool,
 	hasIrreversibleToolName,
+	hasOutwardVerb,
 	hostAutonomyMeta,
 	mcpAutonomyMeta,
 	toolNameTokens,

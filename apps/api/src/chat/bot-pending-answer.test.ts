@@ -187,3 +187,100 @@ test("sem fila: indisponível, nada é aplicado", async () => {
 		fake.restore();
 	}
 });
+
+/** Conversa de grupo: o bot dono da conversa é o grupo; o cartão pertence ao membro `radar` (intenção guarda o botId dele). */
+function asGroupChat(fake: ReturnType<typeof fakeTargetChat>, memberOfGroup: string[], intentBotId: string) {
+	const botFind = prisma.bot.findFirst;
+	const intentFind = prisma.skillPendingIntent.findUnique;
+	prisma.bot.findFirst = (async (args: { where: { ownerId?: string; id?: string; memberIds?: { has: string } } }) => {
+		if (args.where.memberIds) return args.where.id === "team" && memberOfGroup.includes(args.where.memberIds.has) ? { id: "team" } : null;
+		return { id: "team" };
+	}) as unknown as typeof prisma.bot.findFirst;
+	prisma.skillPendingIntent.findUnique = (async (args: unknown) => {
+		const row = (await (intentFind as unknown as (a: unknown) => Promise<{ payload: Record<string, unknown> } | null>)(args)) as { payload: Record<string, unknown> } | null;
+		return row && !fake.state.intentCleared ? { ...row, payload: { ...row.payload, botId: intentBotId } } : null;
+	}) as unknown as typeof prisma.skillPendingIntent.findUnique;
+	return () => {
+		prisma.bot.findFirst = botFind;
+		prisma.skillPendingIntent.findUnique = intentFind;
+	};
+}
+
+test("grupo: o aceite do principal retoma o MEMBRO dono do cartão (nunca o grupo)", async () => {
+	const fake = fakeTargetChat("command");
+	const undo = asGroupChat(fake, ["cookie", "radar"], "radar");
+	try {
+		const result = await answerBotPending({ ...input({ type: "approve" }), groupMemberBotId: "radar" }, fake.deps);
+		assert.equal(result.status, "applied");
+		assert.equal(fake.state.status, "approved");
+		assert.equal(fake.state.runs[0]!.request.botId, "radar");
+		assert.equal(fake.state.runs[0]!.request.conversationId, CONV);
+	} finally {
+		undo();
+		fake.restore();
+	}
+});
+
+test("grupo: membro fora do grupo, ou cartão de outro membro, não é aceito", async () => {
+	const outsider = fakeTargetChat("command");
+	let undo = asGroupChat(outsider, ["cookie", "radar"], "zed");
+	try {
+		const result = await answerBotPending({ ...input({ type: "approve" }), groupMemberBotId: "zed" }, outsider.deps);
+		assert.equal(result.status, "invalid");
+		assert.equal(outsider.state.status, "pending");
+		assert.equal(outsider.state.runs.length, 0);
+	} finally {
+		undo();
+		outsider.restore();
+	}
+	const other = fakeTargetChat("command");
+	undo = asGroupChat(other, ["cookie", "radar", "inspetor"], "inspetor");
+	try {
+		const result = await answerBotPending({ ...input({ type: "approve" }), groupMemberBotId: "radar" }, other.deps);
+		assert.equal(result.status, "invalid");
+		assert.equal(other.state.status, "pending");
+		assert.equal(other.state.runs.length, 0);
+	} finally {
+		undo();
+		other.restore();
+	}
+});
+
+test("grupo: sem groupMemberBotId (rota do usuário) o caminho antigo segue igual", async () => {
+	const fake = fakeTargetChat("command");
+	try {
+		const result = await answerBotPending(input({ type: "approve" }), fake.deps);
+		assert.equal(result.status, "applied");
+		assert.equal(fake.state.runs[0]!.request.botId, "dev");
+	} finally {
+		fake.restore();
+	}
+});
+
+test("grupo: aceite do principal espera o grupo ficar sem run ativo (não vira o run de outro membro)", async () => {
+	const { applyQueuedBotDecisions } = await import("./bot-pending-answer.js");
+	const note = JSON.stringify({
+		v: 1, kind: "auto-decision", botMessageId: "turn1", botId: "radar", botName: "Radar", deciderName: "Cookie", decision: "approved", subject: "git status", reason: "comando de leitura",
+		withJev: false, viaGroup: true, status: "queued", need: { type: "confirm", label: "Aprovar: git status", cardId: "card1", conversationId: CONV },
+	});
+	const originals = { many: prisma.conversationMessage.findMany, find: prisma.conversationMessage.findUnique, runs: prisma.agentRun.findMany };
+	let activeRuns = 1;
+	let claimed = 0;
+	prisma.conversationMessage.findMany = (async () => [{ id: "note1", conversationId: CONV, role: "bot-link", content: note, conversation: { userId: USER } }]) as unknown as typeof prisma.conversationMessage.findMany;
+	prisma.conversationMessage.findUnique = (async () => {
+		claimed += 1;
+		return null;
+	}) as unknown as typeof prisma.conversationMessage.findUnique;
+	prisma.agentRun.findMany = (async () => (activeRuns > 0 ? [{ id: "outro" }] : [])) as unknown as typeof prisma.agentRun.findMany;
+	try {
+		await applyQueuedBotDecisions({ queue: null, openRouterModel: "m/x" }).catch(() => undefined);
+		assert.equal(claimed, 0, "com run ativo na conversa do grupo a nota continua na fila");
+		activeRuns = 0;
+		await applyQueuedBotDecisions({ queue: null, openRouterModel: "m/x" }).catch(() => undefined);
+		assert.equal(claimed, 1, "livre: a nota é reivindicada");
+	} finally {
+		prisma.conversationMessage.findMany = originals.many;
+		prisma.conversationMessage.findUnique = originals.find;
+		prisma.agentRun.findMany = originals.runs;
+	}
+});

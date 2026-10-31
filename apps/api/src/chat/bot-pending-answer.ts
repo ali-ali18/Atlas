@@ -16,6 +16,8 @@ import {
 	failAutoDecision,
 	getAccountConfig,
 	getSkillPendingIntent,
+	isGroupMember,
+	listActiveRunsForConversation,
 	listQueuedAutoDecisions,
 	prisma,
 	submitQuestionnaireCard,
@@ -58,8 +60,14 @@ export type AnswerPendingDeps = {
 /** Uma resposta por vez por card neste processo (a checagem de "já resolvido" não é atômica no banco). */
 const inFlight = new Set<string>();
 
+/**
+ * `groupMemberBotId`: só a decisão automática do bot principal do grupo passa (a rota do usuário não). A conversa
+ * é a do grupo e quem retoma é o MEMBRO dono do cartão, que tem de ser membro de um grupo do mesmo dono.
+ */
+type AnswerInput = { userId: string; conversationId: string; cardId: string; answer: PendingAnswer; groupMemberBotId?: string };
+
 export async function answerBotPending(
-	input: { userId: string; conversationId: string; cardId: string; answer: PendingAnswer },
+	input: AnswerInput,
 	deps: AnswerPendingDeps,
 ): Promise<AnswerPendingResult> {
 	if (!deps.queue) return { status: "unavailable", error: "Agent run queue unavailable" };
@@ -73,13 +81,16 @@ export async function answerBotPending(
 }
 
 async function apply(
-	input: { userId: string; conversationId: string; cardId: string; answer: PendingAnswer },
+	input: AnswerInput,
 	deps: AnswerPendingDeps,
 	queue: RunQueue,
 ): Promise<AnswerPendingResult> {
 	const { userId, conversationId } = input;
-	const bot = await prisma.bot.findFirst({ where: { ownerId: userId, conversationId }, select: { id: true } });
-	if (!bot) return { status: "invalid", error: "Bot not found" };
+	const owner = await prisma.bot.findFirst({ where: { ownerId: userId, conversationId }, select: { id: true } });
+	if (!owner) return { status: "invalid", error: "Bot not found" };
+	// Conversa de grupo: quem retoma é o membro (nunca o grupo), e só se ele é membro deste grupo do mesmo dono.
+	if (input.groupMemberBotId && !(await isGroupMember(userId, owner.id, input.groupMemberBotId))) return { status: "invalid", error: "Bot not found" };
+	const bot = input.groupMemberBotId ? { id: input.groupMemberBotId } : owner;
 	const row = await prisma.conversationMessage.findUnique({ where: { id: input.cardId } });
 	if (!row || row.conversationId !== conversationId) return { status: "invalid", error: "Card not found" };
 	const intent = await getSkillPendingIntent(userId, conversationId).catch(() => null);
@@ -122,6 +133,8 @@ async function apply(
 	if (card?.kind !== "confirm" || input.answer.type === "answer") return { status: "invalid", error: "Card cannot be answered here" };
 	// A intenção pendente expira (10 min) ou é trocada por um card mais novo: sem ela o clique não resolve este card.
 	if (!hint || hint.confirmId !== card.confirmId) return { status: "already" };
+	// A intenção do grupo guarda o membro que pediu: aceitar o cartão de outro membro não vale.
+	if (input.groupMemberBotId && hint.botId !== input.groupMemberBotId) return { status: "invalid", error: "Card not found" };
 	const text = input.answer.type === "approve"
 			? `confirmado: ${card.title}`
 			: input.answer.feedback && hint.action === "dev-command"
@@ -151,6 +164,8 @@ export async function applyQueuedBotDecisions(deps: AnswerPendingDeps): Promise<
 	const queued = await listQueuedAutoDecisions();
 	let applied = 0;
 	for (const item of queued) {
+		// Grupo: a conversa só comporta um run ativo e o createRun devolveria o de outro membro; espera o grupo ficar livre.
+		if (item.card.viaGroup && (await listActiveRunsForConversation(item.card.need.conversationId)).length > 0) continue;
 		const card = await claimAutoDecision(item.rowId);
 		if (!card) continue;
 		const userId = item.userId ?? undefined;
@@ -165,7 +180,7 @@ export async function applyQueuedBotDecisions(deps: AnswerPendingDeps): Promise<
 					: card.decision === "rejected"
 						? { type: "reject", feedback: card.feedback || card.reason }
 						: { type: "answer", answers: card.answers ?? {} };
-			const result = await answerBotPending({ userId, conversationId: card.need.conversationId, cardId: card.need.cardId, answer }, deps);
+			const result = await answerBotPending({ userId, conversationId: card.need.conversationId, cardId: card.need.cardId, answer, ...(card.viaGroup ? { groupMemberBotId: card.botId } : {}) }, deps);
 			if (result.status === "unavailable") {
 				// Fila fora do ar: volta para a fila e tenta no próximo ciclo.
 				await prisma.conversationMessage.update({ where: { id: item.rowId }, data: { content: serializeBotLinkCard({ ...card, status: "queued" }) } });

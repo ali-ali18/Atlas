@@ -1,4 +1,4 @@
-import { getAccountConfig, onGroupTurnCreated, processGroupTurns, type GroupDispatchDeps, type GroupDispatchResult } from "@workspace/db";
+import { autoDecideGroupPending, getAccountConfig, onGroupTurnCreated, processGroupTurns, type GroupDispatchDeps, type GroupDispatchResult } from "@workspace/db";
 import { buildGroupRouterPrompt, parseGroupRouterReply, resolveEffectiveConfig } from "@workspace/shared";
 import { createReviewerClient, type ReviewerLlmDeps } from "@workspace/agent-runtime";
 import type { askJev } from "@workspace/llm";
@@ -75,6 +75,16 @@ export function createGroupJev(
 }
 
 /**
+ * Um passo do grupo + o aceite do bot principal para os pedidos seguros dos membros (regra pura, sem LLM).
+ * Falha no aceite nunca derruba o despacho: o cartão só continua esperando o usuário.
+ */
+export async function processGroupTurnsAndPending(deps: GroupDispatchDeps): Promise<GroupDispatchResult> {
+	const result = await processGroupTurns(deps);
+	await autoDecideGroupPending(deps.now?.()).catch((error) => console.error("[bot-groups] group pending failed", error instanceof Error ? error.name : "error"));
+	return result;
+}
+
+/**
  * Despacho de grupos de bots: roteia a fala do usuário, enfileira as respostas dos
  * membros e inicia uma por vez. Um passo por vez (sem sobreposição); pedido de passo
  * durante outro roda de novo ao terminar. Nunca lança.
@@ -88,7 +98,7 @@ export function startGroupSweeper(
 		idleMs?: number;
 	} = {},
 ): AdaptiveSweeper {
-	const step = options.step ?? processGroupTurns;
+	const step = options.step ?? processGroupTurnsAndPending;
 	return startAdaptiveSweeper({
 		name: "bot-groups",
 		step: () => step(deps),

@@ -102,6 +102,7 @@ export {
 	type BotMessageSweepResult,
 	type SendBotMessageResult,
 } from "./bot-messages.js";
+export { autoDecideGroupPending, type GroupPendingSweepResult } from "./group-pending.js";
 export {
 	botDecidesForOthers,
 	chainUserRequest,
