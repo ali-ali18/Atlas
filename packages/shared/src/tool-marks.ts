@@ -180,13 +180,24 @@ export function suggestToolMark(tool: Pick<McpToolInfo, "name" | "description">)
 	return "read";
 }
 
+/** O nome tem verbo de leitura e nenhum verbo de escrita ou irreversível (a única forma de o NOME promover a leitura). */
+export function nameIndicatesReadOnly(name: string): boolean {
+	if (hasIrreversibleToolName(name)) return false;
+	const tokens = tokensOf(name);
+	return tokens.some((token) => READ_VERBS.has(token)) && !tokens.some((token) => WRITE_VERBS.has(token));
+}
+
 /**
  * Por que esta tool NÃO aceita ser marcada como leitura (texto para o usuário, pt-BR), ou `null` se aceita.
- * Servidor que anota vence; verbo irreversível no nome (enviar, excluir, emitir, pagar…) nunca vira leitura.
+ * Servidor que anota vence. Para "read" vale uma ALLOWLIST pelo nome: precisa ter verbo de leitura (listar, get,
+ * buscar…) e nenhum verbo de escrita/irreversível; nome sem verbo reconhecível (`emitNfe`, `setStatus`, `runJob`)
+ * continua pedindo aprovação, porque lista negra de verbos sempre deixa passar algum.
  */
 export function toolMarkRefusal(tool: Pick<McpToolInfo, "name" | "annotations">, mark: ToolMark = "read"): string | null {
 	if (hasServerToolAnnotation(tool)) return "o próprio conector já informa se ela só lê";
-	if (mark === "read" && hasIrreversibleToolName(tool.name)) return "o nome indica uma ação que não dá para desfazer (enviar, excluir, emitir, pagar…), então ela sempre pede aprovação";
+	if (mark !== "read") return null;
+	if (hasIrreversibleToolName(tool.name)) return "o nome indica uma ação que não dá para desfazer (enviar, excluir, emitir, pagar…), então ela sempre pede aprovação";
+	if (!nameIndicatesReadOnly(tool.name)) return "o nome desta ferramenta não indica só leitura, então ela continua pedindo aprovação";
 	return null;
 }
 

@@ -59,6 +59,54 @@ describe("sugestão de marcação", () => {
 	});
 });
 
+describe("bateria: ação com efeito não aceita marcação de leitura (lista negra + allowlist)", () => {
+	const effects = [
+		"emitNfe", "nfeEmit", "emissaoNfe", "cancelNFe", "cancelOrder", "processPayment", "executeOrder", "runJob", "trigger_webhook", "fireWebhook",
+		"invokeFunction", "reverseTransaction", "withdraw", "payout", "debit_account", "issueInvoice", "confirmOrder", "bookShipment", "notifyCustomer",
+		"lancarNota", "generateSalesOrderNfe", "manageSalesOrderStock", "updateSalesOrderStatus", "markAsPaid", "setStatus",
+	];
+	it("toda ação com efeito é recusada como leitura, com motivo claro, e a mescla descarta", () => {
+		for (const name of effects) {
+			expect(toolMarkRefusal(tool(name)), name).toMatch(/não dá para desfazer|não indica só leitura/);
+			expect(mergeToolMarks({}, { [name]: "read" }, [tool(name)]), name).toEqual({});
+			expect(suggestToolMark(tool(name, "Returns status")), name).toBe("write");
+		}
+	});
+	it("verbo de execução/disparo/dinheiro é irreversível (nunca vira leitura nem por marcação do dono)", () => {
+		for (const name of ["emitNfe", "nfeEmit", "emissaoNfe", "cancelNFe", "cancelOrder", "processPayment", "executeOrder", "runJob", "trigger_webhook", "fireWebhook", "invokeFunction", "reverseTransaction", "withdraw", "payout", "debit_account", "issueInvoice", "lancarNota"]) {
+			expect(hasIrreversibleToolName(name), name).toBe(true);
+			expect(classifyMcpTool({ name, ownerMark: "read" }), name).toBe("irreversible");
+		}
+	});
+	it("'issue' é verbo só no começo do nome e com objeto fiscal (issueInvoice); issue do GitHub não é irreversível", () => {
+		expect(hasIrreversibleToolName("issue_refund")).toBe(true);
+		for (const name of ["create_issue", "get_issue", "list_issues", "issue_write", "issue_read"]) expect(hasIrreversibleToolName(name), name).toBe(false);
+	});
+	it("sem verbo de leitura no nome: o nome sozinho não promove a leitura (mensagem clara)", () => {
+		for (const name of ["setStatus", "markAsPaid", "manageSalesOrderStock", "updateSalesOrderStatus", "generateSalesOrderNfe", "avisos_ativos"]) {
+			expect(toolMarkRefusal(tool(name)), name).toBe("o nome desta ferramenta não indica só leitura, então ela continua pedindo aprovação");
+		}
+	});
+	it("verbo de leitura MAIS verbo de escrita no nome também é recusado", () => {
+		for (const name of ["get_and_update_order", "listar_e_cancelar", "fetchAndDelete", "buscar_e_atualizar"]) expect(toolMarkRefusal(tool(name)), name).not.toBeNull();
+	});
+	it("consultas legítimas continuam aceitando leitura", () => {
+		const reads = [
+			"listRefunds", "getSignature", "listar_autorizacoes", "get_invoice", "buscar_pedidos", "listNfes", "getNfe", "list_charges", "consultar_estornos",
+			"list_approvals", "getApprovalStatus", "searchCharges", "listSubmissions", "getVoidedOrders", "listSigners", "get_payment_status",
+		];
+		for (const name of reads) {
+			expect(hasIrreversibleToolName(name), name).toBe(false);
+			expect(toolMarkRefusal(tool(name)), name).toBeNull();
+			expect(suggestToolMark(tool(name)), name).toBe("read");
+		}
+	});
+	it("marcar como escrita continua permitido para qualquer nome", () => {
+		expect(toolMarkRefusal(tool("emitNfe"), "write")).toBeNull();
+		expect(toolMarkRefusal(tool("setStatus"), "write")).toBeNull();
+	});
+});
+
 describe("pendências e mescla", () => {
 	const tools = [tool("listar_pedidos"), tool("criar_pedido"), tool("com_dica", "", { readOnlyHint: true }), tool("off")];
 	it("só pendem as sem anotação do servidor, sem marcação confirmada e habilitadas", () => {

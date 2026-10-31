@@ -41,6 +41,8 @@ const IRREVERSIBLE_VERBS = [
 	"descartar",
 	"eliminar",
 	"borrar",
+	// emissão fiscal em substantivo (emissaoNfe, emissao_nota): o prefixo pega emissao/emissoes.
+	"emiss",
 ] as const;
 /**
  * Só casam o token inteiro (evita `payload`, `posture`, `listRefunds`, `signal`). Verbos de efeito fiscal, financeiro
@@ -83,7 +85,30 @@ const IRREVERSIBLE_EXACT = new Set([
 	"transmit",
 	"revoke",
 	"revogar",
+	// Execução, disparo e movimentação de dinheiro/estado que a lista de verbos acima não pegava (nome em inglês ou pt).
+	"cancel",
+	"emit",
+	"execute",
+	"run",
+	"trigger",
+	"fire",
+	"invoke",
+	"payout",
+	"withdraw",
+	"debit",
+	"reverse",
+	"process",
+	"lancar",
+	"confirm",
+	"confirmar",
+	"book",
+	"notify",
 ]);
+/**
+ * "issue" é verbo (emitir) em `issueInvoice`/`issue_refund`, mas substantivo no GitHub (`issue_write`, `issue_read`,
+ * `create_issue`). Só conta como irreversível na PRIMEIRA palavra e junto de um objeto fiscal/financeiro.
+ */
+const ISSUE_OBJECTS = new Set(["invoice", "invoices", "nfe", "nfce", "nota", "fatura", "boleto", "refund", "receipt", "payment", "credit", "bill", "check", "cheque"]);
 /** Só contam como irreversíveis com `openWorldHint: true` explícito. */
 const OUTWARD_VERBS = new Set([
 	"comment",
@@ -114,6 +139,7 @@ export function toolNameTokens(name: string): string[] {
 }
 
 function hasIrreversibleVerb(tokens: readonly string[]): boolean {
+	if (tokens[0] === "issue" && tokens.some((token) => ISSUE_OBJECTS.has(token))) return true;
 	return tokens.some(
 		(token) =>
 			IRREVERSIBLE_EXACT.has(token) ||

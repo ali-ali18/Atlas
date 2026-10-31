@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDownIcon } from "lucide-react";
 import type { McpConnectionView } from "@workspace/shared";
-import { hasServerToolAnnotation, pendingToolMarkSuggestions, toolDisplayLabel, toolMarkRefusal, type ToolMark } from "@workspace/shared";
+import { hasIrreversibleToolName, hasServerToolAnnotation, pendingToolMarkSuggestions, toolDisplayLabel, toolMarkRefusal, type ToolMark } from "@workspace/shared";
 import { Button } from "@workspace/ui/components/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@workspace/ui/components/collapsible";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemTitle } from "@workspace/ui/components/item";
@@ -94,7 +94,7 @@ export function ToolMarksSection({ connection, onChanged, defaultOpen = false }:
 											{suggestedRead.includes(tool.name) ? <span className="text-caption font-normal text-muted-foreground">· {t("marketplace.marks.suggested")}</span> : null}
 										</ItemTitle>
 										{tool.description ? <ItemDescription className="line-clamp-2">{tool.description}</ItemDescription> : null}
-										{toolMarkRefusal(tool) !== null ? <p className="text-caption text-warning">{t("marketplace.marks.alwaysAsks")}</p> : null}
+										{toolMarkRefusal(tool) !== null ? <p className="text-caption text-warning">{t(hasIrreversibleToolName(tool.name) ? "marketplace.marks.alwaysAsks" : "marketplace.marks.notReadName")}</p> : null}
 										{stale.includes(tool.name) ? <p className="text-caption text-warning" data-tool-mark-changed>{t("marketplace.marks.changed")}</p> : null}
 									</ItemContent>
 									<ItemActions>

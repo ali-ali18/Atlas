@@ -362,6 +362,7 @@ export const marketplace: NamespaceMessages<typeof ptBR> = {
 	"marketplace.marks.readOnlyOf": "Solo lectura: {name}",
 	"marketplace.marks.suggested": "sugerido",
 	"marketplace.marks.alwaysAsks": "Siempre pide aprobación: acción que no se puede deshacer.",
+	"marketplace.marks.notReadName": "El nombre de esta herramienta no indica que solo lee: sigue pidiendo aprobación.",
 	"marketplace.marks.changed": "El conector cambió esta herramienta: confirma de nuevo.",
 	"marketplace.marks.byServer": "lo informa el conector",
 	"marketplace.marks.empty": "Las herramientas de este conector ya informan si solo leen.",

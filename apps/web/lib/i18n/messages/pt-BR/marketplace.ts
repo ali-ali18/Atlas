@@ -360,6 +360,7 @@ export const marketplace = {
 	"marketplace.marks.readOnlyOf": "Só leitura: {name}",
 	"marketplace.marks.suggested": "sugerido",
 	"marketplace.marks.alwaysAsks": "Sempre pede aprovação: ação que não dá para desfazer.",
+	"marketplace.marks.notReadName": "O nome desta ferramenta não indica só leitura: ela continua pedindo aprovação.",
 	"marketplace.marks.changed": "O conector mudou esta ferramenta: confirme de novo.",
 	"marketplace.marks.byServer": "o conector informa",
 	"marketplace.marks.empty": "As ferramentas deste conector já informam se só leem.",
