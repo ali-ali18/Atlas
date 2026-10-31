@@ -10,6 +10,7 @@ export { SYSTEM_MESSAGES, formatLimitDuration, formatUsd, isSystemMessage, syste
 export * from "./bot-group-jev.js";
 export * from "./bot-needs.js";
 export * from "./bot-pending.js";
+export * from "./group-pending.js";
 export { ATLAS_JOB_NAMES, type AtlasJobName, type DataRetentionJobPayload, type DataRetentionJobResult } from "./jobs.js";
 export type {
 	MemoryTarget,

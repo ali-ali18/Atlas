@@ -252,6 +252,7 @@ export function parseBotAutoDecisionCard(content: string): BotAutoDecisionCard |
 			withJev: raw.withJev === true,
 			need,
 			status,
+			...(raw.viaGroup === true ? { viaGroup: true } : {}),
 			...(typeof raw.feedback === "string" && raw.feedback ? { feedback: raw.feedback } : {}),
 			...(answers && Object.keys(answers).length > 0 ? { answers } : {}),
 		};
