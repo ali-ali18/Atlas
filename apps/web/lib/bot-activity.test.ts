@@ -76,6 +76,9 @@ test("avatar: passo e total de passos chegam ao avatar como fração", () => {
 	const t0 = Date.now();
 	setBotWorking("p3", true);
 	setBotActivity("p3", { phase: "tool", tool: "navigate", step: 2, maxSteps: 8 }, {}, t0);
+	assert.deepEqual(botAvatarSignal("p3"), { state: "searching", progress: 3 / 8 });
+	// o anel só chega se o mesmo passo durar além do limiar
+	refreshBotAvatar("p3", t0 + GOVERNOR_TUNING.progressAfterMs);
 	assert.deepEqual(botAvatarSignal("p3"), { state: "progress", progress: 3 / 8 });
 	setBotWorking("p3", false);
 });
