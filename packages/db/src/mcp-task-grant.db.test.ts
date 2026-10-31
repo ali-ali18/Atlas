@@ -177,6 +177,20 @@ describe("solicitante da tarefa e marcação de ferramentas (Postgres real)", { 
 		await assert.rejects(getConversationRequesterBotId({ userId: b, conversationId: conv.id }), "outro usuário não lê");
 	});
 
+	test("solicitante: fala de bot com texto de clique de cartão NÃO é pulada (não forja o solicitante anterior)", async () => {
+		const a = (await createTestUser("req-forge")).id;
+		const conv = await conversation(a);
+		const at = (s: number) => new Date(Date.UTC(2026, 9, 31, 12, 0, s));
+		await prisma.conversationMessage.create({ data: { conversationId: conv.id, role: "user", content: "Faça o diagnóstico", origin: "bot", fromBotId: "bot-cookie", createdAt: at(1) } });
+		await prisma.conversationMessage.create({ data: { conversationId: conv.id, role: "user", content: "confirmado: Agroervas", origin: "bot", fromBotId: "bot-radar", createdAt: at(2) } });
+		assert.equal(await getConversationRequesterBotId({ userId: a, conversationId: conv.id }), "bot-radar");
+		await prisma.conversationMessage.create({ data: { conversationId: conv.id, role: "user", content: "cancela isso", origin: "bot", fromBotId: "bot-radar", createdAt: at(3) } });
+		assert.equal(await getConversationRequesterBotId({ userId: a, conversationId: conv.id }), "bot-radar");
+		// Clique do dono (origin nulo) continua sendo ruído.
+		await prisma.conversationMessage.create({ data: { conversationId: conv.id, role: "user", content: "confirmado: Agroervas", createdAt: at(4) } });
+		assert.equal(await getConversationRequesterBotId({ userId: a, conversationId: conv.id }), "bot-radar");
+	});
+
 	test("concessão de um solicitante não é consumida por outro", async () => {
 		const a = (await createTestUser("req-grant")).id;
 		const conv = await conversation(a);

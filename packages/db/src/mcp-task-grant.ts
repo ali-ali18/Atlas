@@ -120,7 +120,9 @@ export async function getConversationRequesterBotId(input: { userId: string; con
 	});
 	for (const row of rows) {
 		const text = row.content.trim();
-		if (isCardConfirmToken(text) || /^cancela isso\b/i.test(text)) continue;
+		// Só o clique do DONO num cartão é "ruído": fala de bot (origin "bot") com o mesmo texto não pula a linha, senão
+		// um bot forjaria o texto do clique para fazer a concessão valer para o solicitante anterior.
+		if (row.origin !== "bot" && (isCardConfirmToken(text) || /^cancela isso\b/i.test(text))) continue;
 		return row.origin === "bot" && row.fromBotId ? row.fromBotId : null;
 	}
 	return null;
