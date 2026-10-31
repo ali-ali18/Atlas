@@ -66,9 +66,9 @@ describe("não repergunta: o que já foi respondido e as escolhas reversíveis",
 
 	it("cotação com várias opções de SKU: a política manda escolher, dizer a escolha e oferecer refazer", async () => {
 		const { system } = await firstPrompt([{ role: "user", content: "cota 10 sacos de adubo; há 3 SKUs parecidos, faz a cotação" }]);
-		expect(system).toContain("Low-stakes choices (format, wording, order, defaults, which of two similar options) are yours: decide and say so in one line. Also which SKU, size, period or source (offer to redo it)");
-		expect(system).toContain("never ask \"do you want me to...?\" for work already requested.");
-		expect(system).toContain("Connector tools too (`cotar_itens` -> \"the quote\").");
+		expect(system).toContain("Low-stakes choices (format, wording, order, defaults, which of two similar options) are yours: decide and say so in one line. So are SKU, size, period or source (offer to redo)");
+		expect(system).toContain("Never ask \"do you want me to...?\" for work already requested.");
+		expect(system).toContain("Connector tools too (`list_orders` -> \"orders\").");
 		expect(system).toContain("then bring the diagnosis, a fix and one yes/no question.");
 	});
 });
