@@ -45,6 +45,12 @@ Transições (achados na prévia do dono):
 - Trocar de um indicador para outro (ex.: Pensando → Pesquisando) trocava o desenho num quadro só; agora o atual recolhe e o novo cresce.
 - Teste `transitions.test.ts`: 156 trocas × 4 formas, sem salto maior que 45% da variação total em um quadro, sem troca de indicador com o corpo já virado e sem olho sobre o indicador.
 
+Fase C (0.3.3): intenção da ferramenta.
+- O stream do modelo traz o nome da ferramenta no primeiro pedaço, antes dos argumentos. `packages/llm` chama o `onToolIntent({ index, id?, name })` uma vez por chamada (OpenRouter e Anthropic direto; o ChatGPT/Responses ainda não) e o runtime emite `{ type: "tool_intent", name }` (só o nome, nunca argumentos parciais: podem ter segredo ou caminho). Só sai para tool que o run expõe e em run com tela (nem subagente nem rotina).
+- Web: `activityForToolIntent` (em `working-status.ts`) vira `{ phase: "tool", tool, arriving: true }` e o avatar já mostra a família (Programando ao gerar `write_file`). O `tool_call` seguinte troca para a atividade com passo e anel; o gesto de início não se repete. Ferramenta de raciocínio puro (`todo_write`, `current_time`) não muda nada. O texto do indicador usa a frase da família, sem nome interno.
+- Evento efêmero: não vira mensagem do chat, passa pelo log do run (como o `tool_call`) e some na retenção de 30 dias. Sem `tool_call` nem texto em 60 s (`TOOL_INTENT_EXPIRY_MS`) o avatar volta a "pensando". Cliente antigo ignora o tipo desconhecido; cliente novo sem o evento fica como antes.
+- Simulação (replay com tempos sintéticos, geração de 3,5 a 14 s por ferramenta; não é medição em produção): "pensando" cai de 57% para 4% do run; com pausa de 3,5 s entre ferramentas, de 30% para 11%.
+
 ## Riscos
 - Tabela de estados/tipos: `AgentActivity` ganhou `toolFailed` no ramo `thinking` (opcional; quem não conhece ignora). Sem mudança de API, banco, eventos SSE ou migration.
 - Rodar mais tempo no loop: avatares com cérebro não dormem enquanto o bot trabalha (já era assim com os clipes de trabalho); parado, volta a dormir (testado).
