@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectSecretsInText, domainMatches, findSecretRefs, registrableDomain, replaceDetected, replaceSecretRefs, suggestSecretName } from "./vault.js";
+import { detectSecretsInText, domainMatches, findSecretRefs, nameMatchesSite, pickVaultLoginForPage, registrableDomain, replaceDetected, replaceSecretRefs, suggestSecretName } from "./vault.js";
 
 describe("refs", () => {
 	it("acha secret, rotina e login", () => {
@@ -56,5 +56,28 @@ describe("detector", () => {
 		const text = "url ?secret=Zk3jQ9sLpW2mXv fim";
 		const d = detectSecretsInText(text);
 		expect(replaceDetected(text, d, ["hook"])).toBe("url ?secret={{secret:hook}} fim");
+	});
+});
+
+describe("casamento nome ↔ domínio", () => {
+	it("palavra do nome igual ao domínio registrável casa", () => {
+		expect(nameMatchesSite(["Painel - Kodea"], "https://panel.kodea.com.br/login")).toBe(true);
+		expect(nameMatchesSite(["Painel - Kodea"], "https://kodea.com.br")).toBe(true);
+	});
+	it("é conservador: outro domínio, subdomínio de terceiro, http e palavra genérica não casam", () => {
+		expect(nameMatchesSite(["Painel - Kodea"], "https://kodea.evil.com/login")).toBe(false);
+		expect(nameMatchesSite(["Painel - Kodea"], "https://panel.outra.com.br")).toBe(false);
+		expect(nameMatchesSite(["Painel - Kodea"], "http://panel.kodea.com.br")).toBe(false);
+		expect(nameMatchesSite(["Painel"], "https://painel.com.br")).toBe(true);
+		expect(nameMatchesSite(["Painel - Kodea"], "https://painel.outra.com")).toBe(false);
+	});
+	it("pickVaultLoginForPage: URL salva primeiro, nome só para item sem URL, ambíguo não chuta", () => {
+		const url = { kind: "login", name: "github", siteUrl: "https://github.com" };
+		const noUrl = { kind: "login", name: "Painel - Kodea", label: "Painel - Kodea", siteUrl: null };
+		const other = { kind: "login", name: "kodea-admin", siteUrl: null };
+		expect(pickVaultLoginForPage([url, noUrl], "https://panel.kodea.com.br")).toMatchObject({ kind: "match", byName: true });
+		expect(pickVaultLoginForPage([url, noUrl], "https://gist.github.com")).toMatchObject({ kind: "match", byName: false });
+		expect(pickVaultLoginForPage([noUrl, other], "https://panel.kodea.com.br").kind).toBe("ambiguous");
+		expect(pickVaultLoginForPage([url, noUrl], "https://example.org").kind).toBe("none");
 	});
 });

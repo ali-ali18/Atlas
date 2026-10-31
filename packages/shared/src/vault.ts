@@ -128,6 +128,53 @@ export function suggestLoginName(url: string): string {
 	return registrableDomain(host.replace(/^www\./, "")).split(".")[0] ?? "";
 }
 
+/** Palavras do nome/rótulo do item (minúsculas, sem acento, 4+ letras) para casar com o domínio. */
+function nameTokens(text: string): string[] {
+	return text
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter((token) => token.length >= 4);
+}
+
+/**
+ * Item sem URL salva: o nome/rótulo casa com o domínio da página? Conservador: alguma palavra do nome é
+ * IGUAL ao nome do domínio registrável (`Painel - Kodea` ↔ `panel.kodea.com.br`, via "kodea"). Só https.
+ * `kodea.evil.com` não casa (o registrável é `evil.com`); "painel" não casa com "panel".
+ */
+export function nameMatchesSite(names: readonly string[], pageUrl: string): boolean {
+	const page = parseUrl(pageUrl);
+	if (!page) return false;
+	const host = page.hostname.toLowerCase().replace(/\.$/, "");
+	const local = host === "localhost" || host === "127.0.0.1";
+	if (page.protocol !== "https:" || local) return false;
+	const label = registrableDomain(host).split(".")[0] ?? "";
+	if (label.length < 4) return false;
+	return names.some((name) => nameTokens(name).includes(label));
+}
+
+export type VaultLoginCandidate = { kind: string; name: string; label?: string; siteUrl?: string | null };
+export type VaultLoginPick<T extends VaultLoginCandidate> =
+	| { kind: "match"; item: T; byName: boolean }
+	| { kind: "ambiguous"; items: T[] }
+	| { kind: "none" };
+
+/**
+ * Qual login do cofre serve a página atual? Primeiro pelo site salvo (mesmo domínio registrável); sem isso,
+ * pelo nome (itens sem URL). Mais de um candidato = ambíguo: o modelo pergunta qual item usar, o runtime não chuta.
+ */
+export function pickVaultLoginForPage<T extends VaultLoginCandidate>(items: readonly T[], pageUrl: string): VaultLoginPick<T> {
+	const logins = items.filter((item) => item.kind === "login");
+	const byUrl = logins.filter((item) => item.siteUrl && domainMatches(pageUrl, item.siteUrl));
+	if (byUrl.length === 1) return { kind: "match", item: byUrl[0]!, byName: false };
+	if (byUrl.length > 1) return { kind: "ambiguous", items: byUrl };
+	const byName = logins.filter((item) => !item.siteUrl && nameMatchesSite([item.name, item.label ?? ""], pageUrl));
+	if (byName.length === 1) return { kind: "match", item: byName[0]!, byName: true };
+	if (byName.length > 1) return { kind: "ambiguous", items: byName };
+	return { kind: "none" };
+}
+
 // ----- detector de segredo em texto -----
 
 export type DetectedSecret = {
