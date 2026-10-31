@@ -4,6 +4,11 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+## [0.3.2-beta.1] - 2026-10-31
+
+### Corrigido
+- **agent, shared, web:** login pendente de rotina não sequestra mais o chat, e o login do Cofre passa a ser usado sem aprovação. Antes, depois que uma rotina parava na tela de login (caso real: `panel.kodea.com.br`), cada mensagem do dono era tratada como "Terminei": saía um cartão falso de "Login concluído" e a frase fixa "Ainda vejo a tela de login…", e o modelo nunca rodava. Agora a mensagem do dono sempre chega ao modelo (só o botão do cartão ou uma confirmação curta como "pronto"/"terminei"/"done"/"listo" conta como "terminei"), o cartão só vira concluído quando a tela de login sumiu, e a frase fixa sai no máximo uma vez. O login salvo no Cofre do dono entra sozinho no chat e em rotinas, sem cartão de aprovação (fica só a linha "Entrei em <site> com o login do Cofre <item>"), apenas na página cujo domínio casa com o item; item sem site casa pelo nome (`Painel - Kodea` ↔ `panel.kodea.com.br`) e, se mais de um item serve, o bot pergunta qual usar. Rotina sem item no Cofre termina com um aviso claro, sem login pendente. A senha continua sem passar pelo modelo, log, SSE ou resultado de ferramenta. Ver `docs/features/cofre-login-sem-aprovacao.md`
+
 ## [0.3.2-beta] - 2026-10-31
 
 ### Adicionado
