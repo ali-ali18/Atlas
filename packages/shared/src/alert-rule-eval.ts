@@ -12,6 +12,7 @@
 import type { BotLanguage } from "./bot-language.js";
 import { alertItemKey, quoteAlertExternalText, sanitizeAlertExternalText, type AlertFeedItem, parseLocalizedNumber } from "./alert-rule-extract.js";
 import { alertSourceUnit, formatAlertNumber, renderAlertMessage, type AlertCheck, type AlertRule } from "./alert-rule.js";
+import { anchorStillNear } from "./page-value.js";
 import type { AlertVerdict } from "./routine-alert.js";
 
 /** Leituras seguidas com a condição valendo antes do primeiro aviso. */
@@ -47,7 +48,8 @@ export type AlertRuleState = {
 
 /** O que a fonte devolveu. */
 export type AlertRuleRead =
-	| { kind: "text"; text: string | null }
+	/** `context` = texto visível em volta do elemento lido (só página com seletor CSS): confere a âncora da regra. */
+	| { kind: "text"; text: string | null; context?: string }
 	/** Número já lido por um provedor de mercado (sem texto para interpretar). `delayMinutes` = atraso medido da cotação. */
 	| { kind: "number"; value: number; asOf?: string; delayMinutes?: number }
 	| { kind: "items"; items: Array<Pick<AlertFeedItem, "title" | "link"> & { id?: string }> }
@@ -158,6 +160,10 @@ export function evaluateAlertRule(input: {
 	if (read.kind !== "text" && read.kind !== "number") return inconclusive(state, "a fonte devolveu outro tipo de dado");
 	const text = read.kind === "text" ? (read.text?.replace(/\s+/g, " ").trim() ?? "") : "";
 	if (read.kind === "text" && !text) return inconclusive(state, "não encontrei o valor na página");
+	// O seletor passou a ler outro lugar da página (outro card, outra variante): nunca avisa com o número errado.
+	if (rule.anchor && read.kind === "text" && read.context !== undefined && !anchorStillNear(read.context, rule.anchor)) {
+		return inconclusive(state, "o valor lido não está mais junto de “" + rule.anchor + "” (a página mudou)");
+	}
 	const stamp = now.toISOString();
 
 	if (check.parse === "text") {

@@ -34,6 +34,7 @@ const RULE = {
 	check: { kind: "value", parse: "money", op: "lt", value: 400 },
 	label: "tênis Nike Pegasus",
 	intervalMinutes: 120,
+	expect: "R$ 449,90",
 };
 const SNEAKER = { action: "create", title: "Tênis Pegasus", detail: "Server-checked price alert.", trigger_type: "interval", alert: { rule: RULE } };
 
@@ -122,7 +123,8 @@ describe("propose_routine com alert.rule", () => {
 	});
 
 	it("valor lido que não é número também falha (nada de regra que lê lixo)", async () => {
-		const { toolResults } = await run({ message: "me avisa", calls: [toolCall("c1", "propose_routine", SNEAKER), closing], reader: reads("Esgotado") });
+		const esgotado = { ...SNEAKER, alert: { rule: { ...RULE, expect: "Esgotado" } } };
+		const { toolResults } = await run({ message: "me avisa", calls: [toolCall("c1", "propose_routine", esgotado), closing], reader: reads("Esgotado") });
 		expect(toolResults[0]).toMatchObject({ ok: false });
 		expect(toolResults[0]!.summary).toMatch(/não é um número/);
 		expect(createRoutine).not.toHaveBeenCalled();
