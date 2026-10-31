@@ -86,6 +86,27 @@ test("fonte fora do ar: sem veredito, 'não consegui verificar' uma vez só, exe
 	assert.equal(again.calls.push.length, 0);
 });
 
+test("seletor que deixa de casar (layout mudou): 'não consegui verificar' uma vez, sem aviso de valor e sem mexer no último valor lido", async () => {
+	const before = { lastValue: 389.9, consecutive: 1, lastReadAt: "2026-10-30T10:00:00.000Z" };
+	const s = setup([{ kind: "text", text: null }], { alert: alertWith({ ruleState: before }) });
+	const outcome = await runRuleAlert(s.input, s.deps);
+	assert.equal(outcome.plan.decision.transition, "inconclusive");
+	assert.match(s.calls.post[0]!, /Não consegui verificar o alerta “Tênis”: não encontrei o valor na página/);
+	assert.doesNotMatch(s.calls.post.join("\n"), /R\$|está em/, "nenhum valor é anunciado");
+	assert.doesNotMatch(s.calls.push.join("\n"), /R\$|está em/, "o push também não anuncia valor");
+	assert.equal(s.calls.record[0]!.next.unverified, true);
+	assert.equal(s.calls.record[0]!.next.active, false, "não vira alerta ativo por causa de leitura vazia");
+	assert.deepEqual(s.calls.record[0]!.next.ruleState?.lastValue, 389.9, "o último valor bom continua o mesmo");
+	// ciclo seguinte ainda sem casar: não repete o aviso
+	const again = setup([{ kind: "text", text: null }], { alert: alertWith({ unverified: true, ruleState: before }) });
+	await runRuleAlert(again.input, again.deps);
+	assert.equal(again.calls.post.length + again.calls.push.length, 0);
+	// o seletor volta a casar com o mesmo valor: o alerta retoma normalmente
+	const back = setup([price("R$ 389,90")], { alert: alertWith({ unverified: true, ruleState: before }) });
+	const resumed = await runRuleAlert(back.input, back.deps);
+	assert.equal(resumed.plan.decision.transition, "triggered");
+});
+
 test("item novo: avisa a cada item novo mesmo com o alerta anterior ativo, sem modelo", async () => {
 	const feed = rule({ type: "feed", url: "https://blog.example.com/rss" }, { kind: "new_item" });
 	const items = (...ids: string[]): AlertRuleRead => ({ kind: "items", items: ids.map((id) => ({ id, title: `Edital ${id}` })) });
