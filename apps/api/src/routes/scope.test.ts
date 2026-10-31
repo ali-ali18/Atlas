@@ -15,6 +15,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { toolDefinitionHash } from "@workspace/shared";
 
 process.env.ATLAS_OWNER_EMAIL ||= "owner@example.com";
 process.env.BETTER_AUTH_SECRET ||= "test-secret-long-enough-for-better-auth-middleware";
@@ -172,15 +173,16 @@ test("mcp connections: B nao le A nem default sem claim", { skip: SKIP_WITHOUT_D
 });
 
 test("mcp tool marks: B não lê nem altera a marcação de A (404 / null) e A grava", { skip: SKIP_WITHOUT_DB }, async () => {
-	const row = { id: "conn-a", userId: USER_A, catalogId: null, slug: "erp", name: "ERP", url: "https://erp.example/mcp", authType: "none", status: "connected", toolsCacheJson: [{ name: "listar_pedidos", inputSchema: { type: "object" } }], disabledTools: [], toolMarksJson: { listar_pedidos: "read" }, confirmWrites: true, lastError: null, accountLabel: null, createdAt: now(), updatedAt: now(), secretsEnc: null, oauthStateHash: null };
+	const row = { id: "conn-a", userId: USER_A, catalogId: null, slug: "erp", name: "ERP", url: "https://erp.example/mcp", authType: "none", status: "connected", toolsCacheJson: [{ name: "listar_pedidos", inputSchema: { type: "object" } }], disabledTools: [], toolMarksJson: { listar_pedidos: { mark: "read", hash: toolDefinitionHash({ inputSchema: { type: "object" } }) } }, confirmWrites: true, lastError: null, accountLabel: null, createdAt: now(), updatedAt: now(), secretsEnc: null, oauthStateHash: null };
 	const originalUpdate = stub(prisma.mcpConnection, "update", (async (args: unknown) => {
 		const { where, data } = args as { where: { id: string; userId?: string }; data: { toolMarksJson?: unknown } };
 		if (where.id !== row.id || (where.userId !== undefined && where.userId !== row.userId)) throw Object.assign(new Error("not found"), { code: "P2025" });
 		return { ...row, toolMarksJson: data.toolMarksJson ?? row.toolMarksJson };
 	}) as unknown as typeof prisma.mcpConnection.update);
 	const originalFind = stub(prisma.mcpConnection, "findFirst", (async (args: unknown) => {
-		const where = (args as { where: { id: string; userId: { in: string[] } } }).where;
-		return where.id === row.id && where.userId.in.includes(row.userId) ? row : null;
+		const where = (args as { where: { id: string; userId: string | { in: string[] } } }).where;
+		const owners = typeof where.userId === "string" ? [where.userId] : where.userId.in;
+		return where.id === row.id && owners.includes(row.userId) ? row : null;
 	}) as typeof prisma.mcpConnection.findFirst);
 	try {
 		assert.equal(await updateMcpConnection("conn-a", { toolMarks: { listar_pedidos: "write" } }, USER_B), null);

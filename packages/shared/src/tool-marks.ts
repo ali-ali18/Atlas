@@ -30,6 +30,119 @@ export function parseToolMarks(raw: unknown): ToolMarks {
 	return out;
 }
 
+/** SHA-256 puro e síncrono (o `shared` roda também no navegador, sem `node:crypto`). */
+function sha256Hex(text: string): string {
+	const bytes = new TextEncoder().encode(text);
+	const K = new Uint32Array(64);
+	let n = 2;
+	for (let i = 0; i < 64; ) {
+		let prime = true;
+		for (let d = 2; d * d <= n; d++) if (n % d === 0) { prime = false; break; }
+		if (prime) { K[i++] = Math.floor((n ** (1 / 3) % 1) * 2 ** 32); }
+		n++;
+	}
+	const H = new Uint32Array(8);
+	for (let i = 0, m = 2; i < 8; m++) {
+		let prime = true;
+		for (let d = 2; d * d <= m; d++) if (m % d === 0) { prime = false; break; }
+		if (prime) { H[i++] = Math.floor((m ** 0.5 % 1) * 2 ** 32); }
+	}
+	const total = Math.ceil((bytes.length + 9) / 64) * 64;
+	const buf = new Uint8Array(total);
+	buf.set(bytes);
+	buf[bytes.length] = 0x80;
+	const view = new DataView(buf.buffer);
+	view.setUint32(total - 8, Math.floor((bytes.length * 8) / 2 ** 32));
+	view.setUint32(total - 4, (bytes.length * 8) >>> 0);
+	const w = new Uint32Array(64);
+	const rotr = (x: number, r: number) => (x >>> r) | (x << (32 - r));
+	for (let off = 0; off < total; off += 64) {
+		for (let i = 0; i < 16; i++) w[i] = view.getUint32(off + i * 4);
+		for (let i = 16; i < 64; i++) {
+			const s0 = rotr(w[i - 15]!, 7) ^ rotr(w[i - 15]!, 18) ^ (w[i - 15]! >>> 3);
+			const s1 = rotr(w[i - 2]!, 17) ^ rotr(w[i - 2]!, 19) ^ (w[i - 2]! >>> 10);
+			w[i] = (w[i - 16]! + s0 + w[i - 7]! + s1) >>> 0;
+		}
+		let [a, b, c, d, e, f, g, h] = Array.from(H) as [number, number, number, number, number, number, number, number];
+		for (let i = 0; i < 64; i++) {
+			const t1 = (h + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i]! + w[i]!) >>> 0;
+			const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
+			h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+		}
+		[a, b, c, d, e, f, g, h].forEach((v, i) => { H[i] = (H[i]! + v) >>> 0; });
+	}
+	return Array.from(H, (v) => v.toString(16).padStart(8, "0")).join("");
+}
+
+function stableJson(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+	if (value && typeof value === "object") {
+		return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`).join(",")}}`;
+	}
+	return JSON.stringify(value) ?? "null";
+}
+
+/**
+ * Hash curto da DEFINIÇÃO da tool (descrição + schema de entrada). A marcação do dono vale para essa definição:
+ * servidor que muda o que a tool faz ou aceita invalida a marca (volta a pedir confirmação).
+ */
+export function toolDefinitionHash(tool: Pick<McpToolInfo, "description" | "inputSchema">): string {
+	return sha256Hex(stableJson({ d: tool.description ?? "", s: tool.inputSchema ?? {} })).slice(0, 16);
+}
+
+/** Como a marcação é guardada: a marca + o hash da definição que o dono confirmou (ausente = legado: pede de novo). */
+export type StoredToolMark = { mark: ToolMark; hash?: string };
+export type StoredToolMarks = Record<string, StoredToolMark>;
+
+/** Lê o JSON do banco (aceita o formato antigo `"read"`, sem hash). */
+export function parseStoredToolMarks(raw: unknown): StoredToolMarks {
+	const out: StoredToolMarks = {};
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+	for (const [name, value] of Object.entries(raw as Record<string, unknown>).slice(0, TOOL_MARKS_MAX)) {
+		if (!name || name.length > TOOL_NAME_MAX_CHARS) continue;
+		if (isToolMark(value)) out[name] = { mark: value };
+		else if (value && typeof value === "object" && isToolMark((value as { mark?: unknown }).mark)) {
+			const hash = (value as { hash?: unknown }).hash;
+			out[name] = { mark: (value as { mark: ToolMark }).mark, ...(typeof hash === "string" && hash.length <= 64 ? { hash } : {}) };
+		}
+	}
+	return out;
+}
+
+/**
+ * Marcas que valem agora (hash igual ao da definição atual) e as que o servidor mudou (`stale`). Com a lista de
+ * tools vazia (cache ainda não carregado) nada vale nem fica obsoleto: a marca espera, sem ser apagada.
+ */
+export function resolveToolMarks(
+	stored: StoredToolMarks,
+	tools: readonly Pick<McpToolInfo, "name" | "description" | "inputSchema">[],
+): { marks: ToolMarks; stale: string[] } {
+	const marks: ToolMarks = {};
+	const stale: string[] = [];
+	for (const tool of tools) {
+		const entry = stored[tool.name];
+		if (!entry) continue;
+		if (entry.hash !== undefined && entry.hash === toolDefinitionHash(tool)) marks[tool.name] = entry.mark;
+		else stale.push(tool.name);
+	}
+	return { marks, stale };
+}
+
+/** Grava `next` (marcas efetivas) com o hash atual; marca obsoleta que o dono não tocou continua guardada (a UI avisa). */
+export function buildStoredToolMarks(
+	next: ToolMarks,
+	stored: StoredToolMarks,
+	tools: readonly Pick<McpToolInfo, "name" | "description" | "inputSchema">[],
+): StoredToolMarks {
+	const out: StoredToolMarks = {};
+	for (const tool of tools) {
+		const mark = next[tool.name];
+		if (mark) out[tool.name] = { mark, hash: toolDefinitionHash(tool) };
+		else if (stored[tool.name] && stored[tool.name]!.hash !== toolDefinitionHash(tool)) out[tool.name] = stored[tool.name]!;
+	}
+	return out;
+}
+
 /** O servidor MCP disse algo sobre leitura/destruição desta tool: a anotação vale mais que a marcação. */
 export function hasServerToolAnnotation(tool: Pick<McpToolInfo, "annotations">): boolean {
 	const hints = tool.annotations;
@@ -97,6 +210,8 @@ export function mergeToolMarks(
 	patch: ToolMarks,
 	tools: readonly Pick<McpToolInfo, "name" | "annotations">[],
 ): ToolMarks {
+	// Cache de ferramentas vazio (conector ainda sem lista): não há como validar nada, então nada muda.
+	if (tools.length === 0) return { ...current };
 	const known = new Map(tools.map((tool) => [tool.name, tool]));
 	const next: ToolMarks = {};
 	for (const [name, mark] of Object.entries(current)) if (known.has(name)) next[name] = mark;

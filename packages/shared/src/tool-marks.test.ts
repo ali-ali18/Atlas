@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { classifyMcpTool, hasIrreversibleToolName } from "./autonomy-tools.js";
 import {
@@ -7,10 +8,15 @@ import {
 	mergeToolMarks,
 	parseToolMarks,
 	pendingToolMarkSuggestions,
+	buildStoredToolMarks,
+	parseStoredToolMarks,
+	resolveToolMarks,
+	toolDefinitionHash,
 	suggestToolMark,
 	toolDisplayLabel,
 } from "./tool-marks.js";
 
+const stable = (v: unknown): string => Array.isArray(v) ? `[${v.map(stable).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v) ?? "null";
 const tool = (name: string, description = "", annotations?: Record<string, boolean>) => ({ name, description, inputSchema: { type: "object" }, annotations });
 
 describe("sugestão de marcação", () => {
@@ -124,5 +130,44 @@ describe("pedido de marcação pelo chat", () => {
 		expect(looksLikeToolMarkRequest("O ERP está em modo somente leitura para as ferramentas de consulta")).toBe(false);
 		expect(looksLikeToolMarkRequest("As ferramentas são somente leitura")).toBe(false);
 		expect(looksLikeToolMarkRequest("A API do ERP é read-only tools only")).toBe(false);
+	});
+});
+
+describe("marca amarrada à definição da tool (hash)", () => {
+	const listar = { name: "listar_pedidos", description: "Lista pedidos", inputSchema: { type: "object", properties: { page: { type: "number" } } } };
+	it("hash é estável (ordem das chaves) e muda com descrição ou schema", () => {
+		const reordered = { ...listar, inputSchema: { properties: { page: { type: "number" } }, type: "object" } };
+		expect(toolDefinitionHash(listar)).toBe(toolDefinitionHash(reordered));
+		expect(toolDefinitionHash(listar)).toMatch(/^[0-9a-f]{16}$/);
+		expect(toolDefinitionHash({ ...listar, description: "Lista e apaga pedidos" })).not.toBe(toolDefinitionHash(listar));
+		expect(toolDefinitionHash({ ...listar, inputSchema: { type: "object", properties: { id: { type: "string" } } } })).not.toBe(toolDefinitionHash(listar));
+	});
+	it("a implementação de SHA-256 confere com node:crypto", () => {
+		const cases = [{ inputSchema: {} }, { description: "x".repeat(200), inputSchema: { a: [1, 2, { b: null }] } }, { description: "ção ✓", inputSchema: { type: "object" } }];
+		for (const c of cases) {
+			const json = `{"d":${JSON.stringify(c.description ?? "")},"s":${stable(c.inputSchema)}}`;
+			expect(toolDefinitionHash(c)).toBe(createHash("sha256").update(json).digest("hex").slice(0, 16));
+		}
+	});
+	it("a marca vale com a definição confirmada; se o servidor muda, vira obsoleta e volta a pendente", () => {
+		const stored = buildStoredToolMarks({ listar_pedidos: "read" }, {}, [listar]);
+		expect(resolveToolMarks(stored, [listar])).toEqual({ marks: { listar_pedidos: "read" }, stale: [] });
+		const changed = { ...listar, description: "Lista pedidos e também cancela" };
+		expect(resolveToolMarks(stored, [changed])).toEqual({ marks: {}, stale: ["listar_pedidos"] });
+		expect(pendingToolMarkSuggestions([changed], resolveToolMarks(stored, [changed]).marks)).toHaveProperty("listar_pedidos");
+	});
+	it("obsoleta que o dono não tocou continua guardada; reconfirmar grava o hash novo", () => {
+		const stored = buildStoredToolMarks({ listar_pedidos: "read" }, {}, [listar]);
+		const changed = { ...listar, description: "mudou" };
+		expect(buildStoredToolMarks({}, stored, [changed])).toEqual(stored);
+		const again = buildStoredToolMarks({ listar_pedidos: "read" }, stored, [changed]);
+		expect(resolveToolMarks(again, [changed]).marks).toEqual({ listar_pedidos: "read" });
+	});
+	it("formato antigo (sem hash) pede confirmação de novo; lista vazia não apaga nem invalida", () => {
+		const legacy = parseStoredToolMarks({ listar_pedidos: "read", x: { mark: "write", hash: "abc" }, y: { mark: "bad" } });
+		expect(legacy).toEqual({ listar_pedidos: { mark: "read" }, x: { mark: "write", hash: "abc" } });
+		expect(resolveToolMarks(legacy, [listar]).stale).toEqual(["listar_pedidos"]);
+		expect(resolveToolMarks(legacy, [])).toEqual({ marks: {}, stale: [] });
+		expect(mergeToolMarks({ listar_pedidos: "read" }, { listar_pedidos: "write" }, [])).toEqual({ listar_pedidos: "read" });
 	});
 });

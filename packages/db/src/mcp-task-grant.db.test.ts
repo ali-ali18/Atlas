@@ -207,11 +207,40 @@ describe("solicitante da tarefa e marcação de ferramentas (Postgres real)", { 
 		const b = (await createTestUser("mark-b")).id;
 		const conn = await createMcpConnection({ userId: a, catalogId: null, slug: "erp", name: "ERP", url: "https://erp.example/mcp", authType: "none", status: "connected" });
 		assert.deepEqual(conn.toolMarks, {});
+		const tools = [{ name: "listar_pedidos", description: "Lista pedidos", inputSchema: { type: "object" } }];
+		await updateMcpConnection(conn.id, { tools }, a);
 		assert.equal(await updateMcpConnection(conn.id, { toolMarks: { listar_pedidos: "read" } }, b), null);
 		assert.deepEqual((await getMcpConnection(conn.id, a))?.toolMarks, {});
 		assert.equal(await getMcpConnection(conn.id, b), null);
 		assert.deepEqual((await updateMcpConnection(conn.id, { toolMarks: { listar_pedidos: "read" } }, a))?.toolMarks, { listar_pedidos: "read" });
 		await prisma.mcpConnection.update({ where: { id: conn.id }, data: { toolMarksJson: { a: "read", b: "lixo" } } });
-		assert.deepEqual((await getMcpConnection(conn.id, a))?.toolMarks, { a: "read" }, "valor inválido é descartado");
+		assert.deepEqual((await getMcpConnection(conn.id, a))?.toolMarks, {}, "formato antigo (sem hash) e valor inválido não valem");
+	});
+
+	test("marca herdada: se o servidor muda descrição ou schema, a marca deixa de valer e volta a pendente; reconfirmar vale de novo", async () => {
+		const a = (await createTestUser("mark-hash")).id;
+		const conn = await createMcpConnection({ userId: a, catalogId: null, slug: "erp", name: "ERP", url: "https://erp.example/mcp", authType: "none", status: "connected" });
+		const v1 = [{ name: "listar_pedidos", description: "Lista pedidos", inputSchema: { type: "object" } }, { name: "ver_saldo", description: "Saldo", inputSchema: { type: "object" } }];
+		await updateMcpConnection(conn.id, { tools: v1 }, a);
+		await updateMcpConnection(conn.id, { toolMarks: { listar_pedidos: "read", ver_saldo: "read" } }, a);
+		assert.deepEqual((await getMcpConnection(conn.id, a))?.toolMarks, { listar_pedidos: "read", ver_saldo: "read" });
+		// Servidor passa a apagar pedidos na mesma tool: a marca antiga não vale mais.
+		const v2 = [{ ...v1[0]!, description: "Lista e apaga pedidos" }, v1[1]!];
+		await updateMcpConnection(conn.id, { tools: v2 }, a);
+		const after = await getMcpConnection(conn.id, a);
+		assert.deepEqual(after?.toolMarks, { ver_saldo: "read" });
+		assert.deepEqual(after?.staleToolMarks, ["listar_pedidos"]);
+		// Mexer em outra tool não apaga o aviso da obsoleta.
+		await updateMcpConnection(conn.id, { toolMarks: { ver_saldo: "write" } }, a);
+		assert.deepEqual((await getMcpConnection(conn.id, a))?.staleToolMarks, ["listar_pedidos"]);
+		// O dono confirma de novo: vale com o hash novo.
+		const again = await updateMcpConnection(conn.id, { toolMarks: { listar_pedidos: "read", ver_saldo: "write" } }, a);
+		assert.deepEqual(again?.toolMarks, { listar_pedidos: "read", ver_saldo: "write" });
+		assert.deepEqual(again?.staleToolMarks, []);
+		// Cache de ferramentas vazio (refresh falhou): nada é apagado e nada é gravado.
+		await updateMcpConnection(conn.id, { tools: [] }, a);
+		await updateMcpConnection(conn.id, { toolMarks: {} }, a);
+		await updateMcpConnection(conn.id, { tools: v2 }, a);
+		assert.deepEqual((await getMcpConnection(conn.id, a))?.toolMarks, { listar_pedidos: "read", ver_saldo: "write" });
 	});
 });

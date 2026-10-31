@@ -60,3 +60,13 @@ test("ferramenta irreversível: switch desabilitado e motivo visível; não cont
   assert.match(html, /1 sugestão/)
   assert.match(html, /aria-label="Só leitura: Enviar nfe"[^>]*disabled|disabled[^>]*aria-label="Só leitura: Enviar nfe"/)
 })
+
+test("marca que o servidor invalidou mostra 'mudou, confirme de novo' e volta a ser sugestão pendente", () => {
+  const changed = { ...erp, toolMarks: {}, staleToolMarks: ["listar_pedidos"] } as McpConnectionView
+  const html = renderToStaticMarkup(<ToolMarksSection connection={changed} defaultOpen onChanged={() => undefined} />)
+  assert.match(html, /O conector mudou esta ferramenta: confirme de novo/)
+  assert.equal((html.match(/data-tool-mark-changed/g) ?? []).length, 1)
+  assert.match(html, />Confirmar</)
+  const fresh = renderToStaticMarkup(<ToolMarksSection connection={erp} defaultOpen onChanged={() => undefined} />)
+  assert.doesNotMatch(fresh, /mudou esta ferramenta/)
+})

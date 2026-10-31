@@ -45,6 +45,8 @@ export type McpConnectionView = {
 	disabledTools: string[];
 	/** Marcação confirmada pelo dono ("leitura" | "escreve") por tool; ausente = padrão (sem anotação = escrita). */
 	toolMarks?: Record<string, "read" | "write">;
+	/** Tools cuja marcação deixou de valer porque o servidor mudou a descrição ou o schema: o dono confirma de novo. */
+	staleToolMarks?: string[];
 	confirmWrites: boolean;
 	lastError: string | null;
 	/** Apelido da conta (várias contas do mesmo conector); null = sem apelido. */

@@ -22,6 +22,8 @@ export function ToolMarksSection({ connection, onChanged, defaultOpen = false }:
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const confirmed = connection.toolMarks ?? {};
+	// Servidor mudou a descrição ou o schema da tool: a marca antiga não vale e o dono confirma de novo.
+	const stale = connection.staleToolMarks ?? [];
 	const editable = useMemo(
 		() => connection.tools.filter((tool) => !hasServerToolAnnotation(tool) && !connection.disabledTools.includes(tool.name)),
 		[connection.tools, connection.disabledTools],
@@ -93,6 +95,7 @@ export function ToolMarksSection({ connection, onChanged, defaultOpen = false }:
 										</ItemTitle>
 										{tool.description ? <ItemDescription className="line-clamp-2">{tool.description}</ItemDescription> : null}
 										{toolMarkRefusal(tool) !== null ? <p className="text-caption text-warning">{t("marketplace.marks.alwaysAsks")}</p> : null}
+										{stale.includes(tool.name) ? <p className="text-caption text-warning" data-tool-mark-changed>{t("marketplace.marks.changed")}</p> : null}
 									</ItemContent>
 									<ItemActions>
 										<span className="text-caption text-muted-foreground">{t("marketplace.marks.readOnly")}</span>
