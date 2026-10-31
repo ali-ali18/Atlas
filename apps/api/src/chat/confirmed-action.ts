@@ -1,5 +1,6 @@
 import type { TranscriptSeed } from "@workspace/shared";
-import { DEFAULT_COMMAND_ALLOWLIST, canGrantMcpTask, hasExternalTargetArgs, PLAN_OUTCOME_ADJUSTED, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
+import type { VaultService } from "@workspace/agent-runtime";
+import { DEFAULT_COMMAND_ALLOWLIST, canGrantMcpTask, hasExternalTargetArgs, PLAN_OUTCOME_ADJUSTED, hostOf, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
 import type { AgentRun } from "@workspace/shared";
 import {
 	addBotAutonomyException,
@@ -493,10 +494,34 @@ export async function savedRequestedSecretNames(userId: string, request: { envir
 }
 
 /** Aprovação do uso de um login do Cofre pelo bot (por conversa; "sempre" por bot). Nenhum valor passa por aqui. */
-export function vaultUseFollowUpContent(userText: string, use: { label: string; domain: string }, outcome: "approved" | "declined"): string {
+export function vaultUseFollowUpContent(userText: string, use: { label: string; domain: string; linkHost?: string }, outcome: "approved" | "declined"): string {
 	return outcome === "approved"
-		? [userText, "", `[O usuário autorizou usar o login de ${use.label} (${use.domain}) nesta conversa.]`, "Chame login_fill de novo agora para preencher a página. Você nunca vê a senha."].join("\n")
+		? [userText, "", use.linkHost ? `[O usuário confirmou usar o login de ${use.label} em ${use.linkHost}; o site ficou salvo nesse login para as próximas vezes.]` : `[O usuário autorizou usar o login de ${use.label} (${use.domain}) nesta conversa.]`, "Chame login_fill de novo agora para preencher a página. Você nunca vê a senha."].join("\n")
 		: [userText, "", `[O usuário não autorizou usar o login de ${use.label} agora.]`, "Não tente entrar nesse site com esse login; explique o que ficou de fora ou peça outra forma."].join("\n");
+}
+
+/**
+ * "Sim" no cartão do Cofre. Com `linkHost` (item sem site): grava o hostname exato no item do dono; nunca sobrescreve um
+ * site já salvo. Sem `linkHost` (cartão antigo): só registra a aprovação. Escopado por `userId`; nenhum valor passa aqui.
+ */
+export async function applyVaultUseApproval(
+	vault: Pick<VaultService, "update" | "listMeta" | "approveLogin">,
+	userId: string,
+	use: { secretId: string; linkHost?: string },
+	ctx: { botId?: string; conversationId?: string; always?: boolean },
+): Promise<boolean> {
+	if (!use.linkHost) return vault.approveLogin(userId, use.secretId, ctx).then(() => true, () => false);
+	const host = hostOf(`https://${use.linkHost}`);
+	if (!host || host !== use.linkHost.toLowerCase()) return false;
+	try {
+		const meta = (await vault.listMeta(userId)).find((item) => item.id === use.secretId && item.kind === "login");
+		if (!meta) return false;
+		if (meta.siteUrl) return true;
+		await vault.update(userId, use.secretId, { siteUrl: `https://${host}` }, { actor: "user", botId: ctx.botId, conversationId: ctx.conversationId, detail: "site vinculado pelo cartão" });
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /** O agente só recebe os NOMES salvos (os valores foram do cartão direto para o armazenamento criptografado). */
@@ -779,7 +804,7 @@ export async function maybeHandleConfirmedAction(input: {
 			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
 			const always = isConfirmAlways(commandText);
 			// A aprovação fica no histórico do item (conversa) e, se pedido, vira "sempre para este bot".
-			const approved = await getVaultService().approveLogin(userId, vaultUse.secretId, { botId: input.botId, conversationId: input.conversationId, always }).then(() => true, () => false);
+			const approved = await applyVaultUseApproval(getVaultService(), userId, vaultUse, { botId: input.botId, conversationId: input.conversationId, always });
 			await updateConfirmCardStatus(input.conversationId, approved ? "approved" : "failed", pending.payload.confirmId, undefined, { ok: approved, detail: approved ? (always ? "aprovado: sempre para este bot" : "aprovado nesta conversa") : "login não encontrado" }).catch(() => undefined);
 			await clearSkillPendingIntent(userId, input.conversationId).catch(() => undefined);
 			const userText = input.text.trim();
