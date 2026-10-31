@@ -1,4 +1,4 @@
-import { detectEmailCodeStep, detectExtraLoginStep, detectLoginWall, domainMatches, type LoginVaultOffer } from "@workspace/shared";
+import { detectEmailCodeStep, detectExtraLoginStep, detectLoginWall, domainMatches, pickVaultLoginForPage, type LoginVaultOffer } from "@workspace/shared";
 import { fetchLoginEmailCode, type EmailSource } from "./email-code.js";
 import type { VaultService } from "../secrets/vault-service.js";
 import { executeLoginFill, LOGIN_CODE_SELECTOR, type VaultToolContext } from "./vault-tools.js";
@@ -16,10 +16,36 @@ export function vaultTriedKey(url: string): string {
 }
 
 export async function findVaultLoginOffer(vault: Pick<VaultService, "listMeta">, userId: string, pageUrl: string, emailCode?: string): Promise<LoginVaultOffer | null> {
-	const items = await vault.listMeta(userId);
-	const meta = items.find((item) => item.kind === "login" && item.siteUrl && domainMatches(pageUrl, item.siteUrl));
-	if (!meta?.domain) return null;
-	return { name: meta.name, label: meta.label || meta.domain, ...(meta.username ? { username: meta.username } : {}), domain: meta.domain, ...(emailCode ? { emailCode } : {}) };
+	const pick = pickVaultLoginForPage(await vault.listMeta(userId), pageUrl);
+	// Só o site SALVO autoriza o login automático. Casar pelo nome nunca digita (vira dica ao modelo) e ambíguo
+	// (duas contas para o mesmo site) o runtime não chuta: o modelo pergunta qual item usar.
+	if (pick.kind !== "match" || pick.byName) return null;
+	const meta = pick.item;
+	const domain = meta.domain ?? new URL(pageUrl).hostname.replace(/^www\./, "");
+	return { name: meta.name, label: meta.label || domain, ...(meta.username ? { username: meta.username } : {}), domain, ...(emailCode ? { emailCode } : {}) };
+}
+
+/**
+ * Nota ao modelo (só nomes, nunca valores) quando o runtime NÃO entra sozinho mas há item do cofre que serve:
+ * mais de um item para a página (pergunta qual usar) ou um item sem site salvo que parece ser deste site
+ * (login_fill pede ao dono, uma vez, para vincular o host). Em rotina ninguém responde: o run termina avisando o dono.
+ */
+export async function vaultHintNote(vault: Pick<VaultService, "listMeta">, userId: string, pageUrl: string, unattended = false): Promise<string | null> {
+	try {
+		const pick = pickVaultLoginForPage(await vault.listMeta(userId), pageUrl);
+		if (pick.kind === "none" || (pick.kind === "match" && !pick.byName)) return null;
+		const names = pick.kind === "ambiguous" ? pick.items.map((item) => `"${item.name}"`).join(", ") : `"${pick.item.name}"`;
+		if (unattended) {
+			return pick.kind === "ambiguous"
+				? `The vault has several logins that could fit this page: ${names}. This is an unattended routine, so do NOT type anything. Finish with ONE short message to the owner (their language, plain words): the routine needs to sign in here and they should say which vault login to use.`
+				: `The vault login ${names} may be for this site but has no site saved, so a routine never types it. Do NOT type anything. Finish with ONE short message to the owner (their language, plain words): the routine needs to sign in here with that vault login; they should open the conversation and confirm the site once (or save the site in Settings > Vault), then the routine will use it by itself.`;
+		}
+		return pick.kind === "ambiguous"
+			? `The vault has several logins that could fit this page: ${names}. Ask the user which one to use (in their language), then call login_fill with that name.`
+			: `The vault login ${names} may be for this site but has no site saved. Call login_fill with it: the user will be asked once to confirm using it on this host, and after that it works by itself. Never type credentials any other way.`;
+	} catch {
+		return null;
+	}
 }
 
 /** Domínios dos logins salvos (nunca usuário nem senha), sem repetição, em ordem estável. */
@@ -54,9 +80,9 @@ const VAULT_TRIED_NOTE = "Usei o login do Cofre, mas o site pediu mais um passo 
  */
 export async function withVaultOffer<T extends OfferableEvent>(
 	event: T,
-	deps: { vault: Pick<VaultService, "listMeta">; userId: string; loginAsked: Set<string>; unattended?: boolean; emailSourceName?: string },
+	deps: { vault: Pick<VaultService, "listMeta">; userId: string; loginAsked: Set<string>; emailSourceName?: string },
 ): Promise<T> {
-	if (event.reason === "captcha" || event.connector || event.composioToolkit || deps.unattended) return event;
+	if (event.reason === "captcha" || event.connector || event.composioToolkit) return event;
 	if (deps.userId === "default") return event;
 	if (deps.loginAsked.has(vaultTriedKey(event.url))) return { ...event, vaultTried: event.vaultTried ?? VAULT_TRIED_NOTE };
 	try {
@@ -91,8 +117,6 @@ export async function fillVaultLoginOnResume(input: {
 	fillContext: VaultToolContext;
 	readPage: () => Promise<ReadPage>;
 	settle?: () => Promise<void>;
-	/** Login já aprovado (nesta conversa ou "sempre para este bot"): não grava nova aprovação no log. */
-	skipApproval?: boolean;
 	/** Conector de e-mail do usuário: busca o código quando o site o pede. */
 	emailSource?: EmailSource | null;
 	/** Teste: espera/relógio da busca do código. */
@@ -104,7 +128,6 @@ export async function fillVaultLoginOnResume(input: {
 	try {
 		const meta = (await vault.listMeta(userId)).find((item) => item.kind === "login" && item.name === offer.name);
 		if (!meta) return { kind: "needs-human", reason: "Esse login não está mais no Cofre." };
-		if (!input.skipApproval) await vault.approveLogin(userId, meta.id, { botId: input.botId, conversationId: input.conversationId });
 		const ctx: VaultToolContext = { ...input.fillContext, vault, userId, botId: input.botId, conversationId: input.conversationId, unattended: false };
 		try {
 			await executeLoginFill({ login: offer.name, fields: ["username", "password"], submit: true }, ctx);
@@ -122,7 +145,14 @@ export async function fillVaultLoginOnResume(input: {
 			if (!input.emailSource) return { kind: "needs-human", reason: NEEDS_CODE_NOTE, codeField: true };
 			const code = await fetchLoginEmailCode({ source: input.emailSource, siteHost: offer.domain, startedAtMs, ...input.emailSearch });
 			if (!code) return { kind: "needs-human", reason: `Não encontrei o código no seu ${input.emailSource.name} a tempo. ${NEEDS_CODE_NOTE}`, codeField: true };
-			await input.fillContext.browser!.type(LOGIN_CODE_SELECTOR, code, true);
+			// O código só entra na página do site do item (a aba pode ter ido para outro lugar depois do login) e o
+			// control server reconfere campo e origem antes de digitar, como na senha.
+			const browser = input.fillContext.browser!;
+			const current = await browser.currentUrl();
+			if (!meta.siteUrl || !domainMatches(current, meta.siteUrl)) {
+				return { kind: "needs-human", reason: `A página mudou de site; não digitei o código. ${NEEDS_CODE_NOTE}`, codeField: true };
+			}
+			await browser.type(LOGIN_CODE_SELECTOR, code, true, { kind: "code", origin: new URL(current).origin });
 			await settle();
 			page = await input.readPage();
 			if (pageNeedsPerson(page)) return { kind: "needs-human", reason: detectEmailCodeStep(page) ? `O código do ${input.emailSource.name} não foi aceito. ${NEEDS_CODE_NOTE}` : VAULT_TRIED_NOTE, ...(detectEmailCodeStep(page) ? { codeField: true } : {}) };
@@ -161,9 +191,8 @@ export async function typeLoginCodeOnResume(input: {
 }
 
 /**
- * Muro de login com login salvo no Cofre: o runtime entra sozinho ANTES de mostrar o card, desde que o
- * uso já esteja aprovado (nesta conversa ou "sempre para este bot"). Sem aprovação, `skip`: o card com a
- * oferta "Entrar com o login do Cofre" é o cartão de aprovação. Depois do preenchimento, confere a tela
+ * Muro de login com login salvo no Cofre: o runtime entra sozinho ANTES de mostrar o card (sem aprovação:
+ * o item é do dono do run e a senha só é digitada na página do site do item). Depois do preenchimento, confere a tela
  * (snapshot): se ainda há login, código, captcha ou senha errada, devolve o card humano explicando o que falta.
  */
 export type AutoVaultLoginResult =
@@ -185,15 +214,13 @@ export async function tryAutoVaultLogin(input: {
 }): Promise<AutoVaultLoginResult> {
 	const { event } = input;
 	if (!event.vault || event.vaultTried || event.reason === "captcha") return { kind: "skip" };
-	let approved = false;
 	try {
+		// O item é do dono do run (listMeta é escopado por userId); sem aprovação por uso.
 		const meta = (await input.vault.listMeta(input.userId)).find((item) => item.kind === "login" && item.name === event.vault!.name);
 		if (!meta) return { kind: "skip" };
-		approved = await input.vault.isLoginApproved(input.userId, meta, input.botId, input.conversationId);
 	} catch {
 		return { kind: "skip" };
 	}
-	if (!approved) return { kind: "skip" };
 	const result = await fillVaultLoginOnResume({
 		offer: event.vault,
 		userId: input.userId,
@@ -203,7 +230,6 @@ export async function tryAutoVaultLogin(input: {
 		fillContext: input.fillContext,
 		readPage: input.readPage,
 		settle: input.settle,
-		skipApproval: true,
 		emailSource: input.emailSource,
 		emailSearch: input.emailSearch,
 	});

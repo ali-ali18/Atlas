@@ -349,7 +349,8 @@ describe("F12/B5 - muro de login: card, pausa e retomada", () => {
 		});
 		expect(result.text).toContain("Ainda vejo a tela de login de bling.com.br");
 		expect(seen.some((m) => m.includes("[login-complete]"))).toBe(false);
-		expect(events.some((e) => e.type === "login" && e.status === "done")).toBe(true);
+		// o cartão só vira "concluído" quando a tela de login sumiu; com o login ainda lá não há "concluído" falso
+		expect(events.some((e) => e.type === "login" && e.status === "done")).toBe(false);
 		expect(events.filter((e) => e.type === "login" && e.status === "pending")).toHaveLength(0);
 		expect(onLoginRequired).not.toHaveBeenCalled();
 	});

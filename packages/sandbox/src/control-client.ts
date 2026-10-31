@@ -360,11 +360,17 @@ export async function controlBrowserClick(
 	);
 }
 
+/**
+ * Login do Cofre: o control server confere o campo (senha = input[type=password] do documento principal;
+ * usuário = texto/e-mail/telefone do mesmo formulário da senha; código = campo de código visível) e a origem da aba antes de digitar.
+ */
+export type BrowserTypeGuard = { kind: "password" | "username" | "code"; origin?: string };
+
 /** Preenche um campo do DOM (ou digita no foco) via Playwright. */
 export async function controlBrowserType(
 	host: string,
 	port: number,
-	params: { selector?: string; text: string; submit?: boolean },
+	params: { selector?: string; text: string; submit?: boolean; guard?: BrowserTypeGuard },
 	context: SandboxExecutionContext = {},
 ): Promise<ControlActionResult> {
 	return controlPostJson<ControlActionResult>(

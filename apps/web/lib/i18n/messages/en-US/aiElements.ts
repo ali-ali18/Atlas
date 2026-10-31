@@ -11,6 +11,7 @@ export const aiElements: NamespaceMessages<typeof ptBR> = {
 	"aiElements.login.vaultDescription": "I fill in the username and password from the Vault. The password never goes through the model.",
 	"aiElements.login.completedLabel": "Sign-in completed",
 	"aiElements.login.vaultLabel": "Vault sign-in",
+	"aiElements.login.vaultUsed": "Signed in to {site} with the Vault login {item}",
 	"aiElements.login.doneTitle": "Signed in to {site}",
 	"aiElements.login.vaultTitleEmail": "Sign in to {site} with the Vault login{who} and, if asked, fetch the code from your email ({email})?",
 	"aiElements.login.vaultTitle": "Sign in to {site} with the Vault login{who}?",

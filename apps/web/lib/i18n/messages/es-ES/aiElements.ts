@@ -11,6 +11,7 @@ export const aiElements: NamespaceMessages<typeof ptBR> = {
 	"aiElements.login.vaultDescription": "Relleno usuario y contraseña desde la Caja fuerte. La contraseña nunca pasa por el modelo.",
 	"aiElements.login.completedLabel": "Inicio de sesión completado",
 	"aiElements.login.vaultLabel": "Inicio de sesión de la Caja fuerte",
+	"aiElements.login.vaultUsed": "Entré en {site} con el inicio de sesión de la Caja fuerte {item}",
 	"aiElements.login.doneTitle": "Sesión iniciada en {site}",
 	"aiElements.login.vaultTitleEmail": "¿Entrar en {site} con el inicio de sesión de la Caja fuerte{who} y, si lo pide, buscar el código en tu correo ({email})?",
 	"aiElements.login.vaultTitle": "¿Entrar en {site} con el inicio de sesión de la Caja fuerte{who}?",
