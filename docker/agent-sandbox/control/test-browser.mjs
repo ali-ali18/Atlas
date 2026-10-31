@@ -33,6 +33,11 @@ async function loadChromium() {
 /** Chromium da versão do playwright, ou qualquer chromium-* baixado antes, ou ATLAS_TEST_CHROMIUM. */
 function findChromium(chromium) {
 	const candidates = [process.env.ATLAS_TEST_CHROMIUM, chromium.executablePath()];
+	// Imagem de CI/dev com os navegadores em PLAYWRIGHT_BROWSERS_PATH numa revisão diferente da do playwright-core.
+	const shared = process.env.PLAYWRIGHT_BROWSERS_PATH;
+	if (shared && existsSync(shared)) {
+		for (const dir of readdirSync(shared).filter((d) => /^chromium-\d+$/.test(d)).sort().reverse()) candidates.push(join(shared, dir, "chrome-linux", "chrome"));
+	}
 	const cache = join(process.env.LOCALAPPDATA ?? join(process.env.HOME ?? "", ".cache"), "ms-playwright");
 	if (existsSync(cache)) {
 		for (const dir of readdirSync(cache).filter((d) => d.startsWith("chromium-")).sort().reverse()) {
