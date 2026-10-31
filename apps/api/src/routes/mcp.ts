@@ -136,6 +136,21 @@ export function parseCreateMcpBody(body: unknown): ParseResult<CreateMcpBody> {
 	};
 }
 
+/** Marcação pedida × tools do conector: as que sumiram são ignoradas (sem derrubar o lote); as recusadas falham com o motivo. */
+export function triageToolMarkPatch(
+	tools: readonly Pick<McpToolInfo, "name" | "annotations">[],
+	requested: Record<string, ToolMark>,
+): { ignoredTools: string[]; rejected: string[] } {
+	const byName = new Map(tools.map((tool) => [tool.name, tool]));
+	const ignoredTools = Object.keys(requested).filter((name) => !byName.has(name));
+	const rejected = Object.entries(requested).flatMap(([name, mark]) => {
+		const tool = byName.get(name);
+		const why = tool ? toolMarkRefusal(tool, mark) : null;
+		return why ? [`${name}: ${why}`] : [];
+	});
+	return { ignoredTools, rejected };
+}
+
 export function parsePatchMcpBody(body: unknown): ParseResult<PatchMcpBody> {
 	if (!isObject(body)) return { error: "Corpo inválido" };
 	const value: PatchMcpBody = {};
@@ -608,17 +623,10 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 			if (!existing || existing.catalogId === COMPOSIO_CATALOG_ID) return c.json({ error: "Conexão não encontrada" }, 404);
 			const known = new Set(existing.tools.map((tool) => tool.name));
 			const { toolMarks: requestedMarks, ...rest } = parsed.value;
-			// Marcação honesta: tool que não existe ou que o servidor já anota falha com a lista, nunca é descartada em silêncio.
-			if (requestedMarks) {
-				const byName = new Map(existing.tools.map((tool) => [tool.name, tool]));
-				const rejected = Object.entries(requestedMarks).flatMap(([name, mark]) => {
-					const tool = byName.get(name);
-					if (!tool) return [`${name}: não existe neste conector`];
-					const why = toolMarkRefusal(tool, mark);
-					return why ? [`${name}: ${why}`] : [];
-				});
-				if (rejected.length > 0) return c.json({ error: `Marcação recusada. ${rejected.slice(0, 20).join("; ")}` }, 400);
-			}
+			// Tool que sumiu do conector (tela desatualizada, servidor mudou) é ignorada e devolvida em `ignoredTools`,
+			// sem derrubar o lote. Tool que existe mas o servidor anota (ou verbo irreversível) continua falhando com a lista.
+			const { ignoredTools, rejected } = triageToolMarkPatch(existing.tools, requestedMarks ?? {});
+			if (rejected.length > 0) return c.json({ error: `Marcação recusada. ${rejected.slice(0, 20).join("; ")}` }, 400);
 			const patch = {
 				...rest,
 				disabledTools: rest.disabledTools?.filter((name) => known.has(name)),
@@ -626,7 +634,7 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 			};
 			const connection = await updateMcpConnection(existing.id, patch, userId);
 			if (!connection) return c.json({ error: "Conexão não encontrada" }, 404);
-			return c.json({ connection: toMcpConnectionView(connection) });
+			return c.json({ connection: toMcpConnectionView(connection), ...(ignoredTools.length > 0 ? { ignoredTools } : {}) });
 		} catch {
 			return c.json({ error: "Não foi possível atualizar a conexão" }, 503);
 		}

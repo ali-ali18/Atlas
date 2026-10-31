@@ -171,3 +171,17 @@ describe("marca amarrada à definição da tool (hash)", () => {
 		expect(mergeToolMarks({ listar_pedidos: "read" }, { listar_pedidos: "write" }, [])).toEqual({ listar_pedidos: "read" });
 	});
 });
+
+describe("regressão: tools pt/es sem anotação passam de escrita a irreversível (CHANGELOG 0.3.3-beta)", () => {
+	const names = ["excluir_pedido", "enviar_nfe", "cancelar_pedido", "emitir_nota", "pagar_boleto", "transmitir_nfe", "apagar_cliente", "eliminar_registro", "borrar_cliente", "autorizar_nfe", "estornar_pagamento", "faturar_pedido", "cobrar_cliente", "baixar_conta"];
+	it("sem anotação: irreversível (sempre pede cartão, nunca 'Sempre para…', nunca leitura), e não mais 'write'", () => {
+		for (const name of names) {
+			expect(classifyMcpTool({ name }), name).toBe("irreversible");
+			expect(classifyMcpTool({ name, ownerMark: "read" }), name).toBe("irreversible");
+			expect(hasIrreversibleToolName(name), name).toBe(true);
+		}
+	});
+	it("o contraste: nome neutro sem anotação continua escrita reversível", () => {
+		for (const name of ["criar_pedido", "atualizar_estoque", "orderStatusChange"]) expect(classifyMcpTool({ name }), name).toBe("write");
+	});
+});

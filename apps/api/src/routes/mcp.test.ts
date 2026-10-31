@@ -12,6 +12,7 @@ const {
 	parsePatchMcpBody,
 	publicCatalogEntry,
 	sanitizeMcpTools,
+	triageToolMarkPatch,
 } = await import("./mcp.js");
 const { toMcpConnectionView } = await import("@workspace/db");
 
@@ -92,4 +93,19 @@ test("GET /v1/mcp/oauth/callback sem sessão nunca reivindica o state (guarda de
 	assert.equal(res.status, 400);
 	const html = await res.text();
 	assert.ok(html.includes("Entre no Atlas e tente de novo"));
+});
+
+test("PATCH de marcação: tool que sumiu é ignorada e devolvida; anotada pelo servidor ou irreversível continua recusada", () => {
+	const tools = [
+		{ name: "listar_pedidos" },
+		{ name: "ping", annotations: { readOnlyHint: true } },
+		{ name: "enviar_nfe" },
+	];
+	const ok = triageToolMarkPatch(tools, { listar_pedidos: "read", antiga: "read", velha: "write" });
+	assert.deepEqual(ok, { ignoredTools: ["antiga", "velha"], rejected: [] });
+	const bad = triageToolMarkPatch(tools, { listar_pedidos: "read", ping: "write", enviar_nfe: "read", antiga: "read" });
+	assert.deepEqual(bad.ignoredTools, ["antiga"]);
+	assert.equal(bad.rejected.length, 2);
+	assert.match(bad.rejected.join(" "), /ping.*conector já informa/);
+	assert.match(bad.rejected.join(" "), /enviar_nfe.*não dá para desfazer/);
 });
