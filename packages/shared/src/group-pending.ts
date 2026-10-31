@@ -6,7 +6,7 @@
  */
 import type { BotNeed } from "./bot-messaging.js";
 import type { BotPendingItem } from "./bot-pending.js";
-import { hasIrreversibleToolName, hasOutwardVerb } from "./autonomy-tools.js";
+import { hasIrreversibleToolName, hasOutwardVerb, toolNameTokens } from "./autonomy-tools.js";
 import { decideCommand, riskyReason, sensitiveReadReason } from "./dev-command-approval.js";
 import { hasExternalTargetArgs } from "./mcp-task-grant.js";
 import { redactSecrets } from "./redact-secrets.js";
@@ -98,11 +98,36 @@ function containsSensitive(value: unknown): boolean {
 	return findSecretRefs(text).length > 0 || redactSecrets(text) !== text;
 }
 
+/** Verbos de gasto/compra/cobrança: o aceite automático nunca cobre (lista própria, a global não muda). */
+const SPEND_TOKEN = /^(purchas|buy|bought|subscri|checkout|upgrad|renew|pay(s|ing|ment|ments|out)?$|charg|refund|transfer|spend|bill|invoic)/;
+
+function hasSpendVerb(toolName: string): boolean {
+	const tokens = toolNameTokens(toolName);
+	if (tokens.some((token) => SPEND_TOKEN.test(token))) return true;
+	// create_order / place_order / submit_order…: compromete dinheiro ou estoque.
+	return tokens.includes("order") && tokens.some((token) => token === "create" || token === "place" || token === "new" || token === "submit");
+}
+
+const ENV_DUMPERS = /(^|[\s;&|()`])(env|printenv|set|export|declare|typeset|compgen)(\s|$|[;&|)])/;
+const CREDENTIAL_PATH = /(\.ssh|\.aws|\.netrc|\.npmrc|\.git-credentials|\.pgpass|\.docker\/config\.json|\.gnupg|\.kube|id_rsa|id_ed25519|id_ecdsa|id_dsa|credentials|secrets?\b|\.pem\b|\.key\b|\.p12\b|\.pfx\b|(^|[/\s'"=])\.env)/i;
+/** Caminho absoluto fora do workspace (`/workspace` e abaixo é o único lugar que o aceite automático lê). */
+const OUTSIDE_ABSOLUTE = /(^|[\s'"=:<>(])\/(?!workspace(\/|\s|$|['"]))/;
+
+/**
+ * Comando que pode expor segredo mesmo "só lendo": expansão de variável, despejo de ambiente, `~`, `/proc`,
+ * caminho fora do workspace, `..` e arquivos de credencial. Na dúvida, escala.
+ */
+function commandMaySeeSecrets(cmd: string): boolean {
+	if (/[$`]/.test(cmd) || cmd.includes("~") || /\.\.(\/|$|\s)/.test(cmd)) return true;
+	if (/environ|\/proc\b/i.test(cmd)) return true;
+	return ENV_DUMPERS.test(cmd) || OUTSIDE_ABSOLUTE.test(cmd) || CREDENTIAL_PATH.test(cmd);
+}
+
 function decideCommandCard(item: BotPendingItem): GroupPendingDecision {
 	if (item.hardDeny) return escalate("hard-deny");
 	const command = item.devApproval?.kind === "command" ? item.devApproval.command : "";
 	if (!command.trim()) return escalate("unknown");
-	if (sensitiveReadReason(command) || containsSensitive(command)) return escalate("sensitive");
+	if (sensitiveReadReason(command) || containsSensitive(command) || commandMaySeeSecrets(command)) return escalate("sensitive");
 	if (riskyReason(command)) return escalate("irreversible");
 	// Lista vazia de propósito: a padrão libera `pnpm install`/`git commit`, que executam código do repositório.
 	// Aqui todo trecho precisa ser só leitura (modo "allowlist" sem prefixos extras).
@@ -115,6 +140,7 @@ function decideMcpCard(item: BotPendingItem, mcp: GroupPendingMcp | undefined): 
 	if (item.irreversible) return escalate("irreversible");
 	if (!mcp || !mcp.actionClass) return escalate("unknown");
 	if (mcp.actionClass === "irreversible" || hasIrreversibleToolName(mcp.toolName)) return escalate("irreversible");
+	if (mcp.actionClass !== "read" && hasSpendVerb(mcp.toolName)) return escalate("irreversible");
 	if (hasOutwardVerb(mcp.toolName) || hasExternalTargetArgs(mcp.args)) return escalate("outward");
 	if (containsSensitive(mcp.args)) return escalate("sensitive");
 	if (mcp.jevReview) return escalate("external-instruction");
