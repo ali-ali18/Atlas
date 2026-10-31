@@ -1,5 +1,5 @@
 import type { TranscriptSeed } from "@workspace/shared";
-import { DEFAULT_COMMAND_ALLOWLIST, canGrantMcpTask, hasExternalTargetArgs, PLAN_OUTCOME_ADJUSTED, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
+import { DEFAULT_COMMAND_ALLOWLIST, canGrantMcpTask, mcpTaskGrantName, hasExternalTargetArgs, PLAN_OUTCOME_ADJUSTED, PLAN_OUTCOME_APPROVED, PLAN_OUTCOME_CANCELLED, SUPERSEDED_CARD_DETAIL, planAdjustResult, planApprovedResult, planToTaskList, VAULT_ENVIRONMENT_ID, isCardConfirmToken, labelCardProtocolMessage, parseDevApprovalReject, stripCommandSofteners } from "@workspace/shared";
 import type { AgentRun } from "@workspace/shared";
 import {
 	addBotAutonomyException,
@@ -9,6 +9,7 @@ import {
 	claimSkillPendingIntent,
 	completeAgentRunAtomically,
 	createAgentRun,
+	getConversationRequesterBotId,
 	grantMcpTask,
 	setConfirmCardGrantUses,
 	getDevEnvironment,
@@ -138,11 +139,14 @@ export async function grantAfterApproval(input: {
 	// Cartão levantado por instrução vinda de fora, ou com convidado/destinatário/webhook, é aprovado só para esta chamada.
 	// Conteúdo externo lido antes NÃO impede a concessão: cada uso dela passa pelo Jev (ver executeMcpTool).
 	if (input.call.jevReviewReason === "external_instruction" || hasExternalTargetArgs(input.call.args)) return undefined;
+	// A concessão é do bot que pediu a tarefa (a conversa do bot-alvo é compartilhada); sem saber quem pediu, não concede.
+	const requester = await getConversationRequesterBotId({ userId: input.userId, conversationId: input.conversationId }).then((id) => ({ id }), () => null);
+	if (!requester) return undefined;
 	const granted = await grantMcpTask({
 		userId: input.userId,
 		conversationId: input.conversationId,
 		connectionId: input.call.connectionId,
-		exposedName: input.call.exposedName,
+		exposedName: mcpTaskGrantName(input.call.exposedName, requester.id),
 		...(input.confirmId ? { confirmId: input.confirmId } : {}),
 		...(input.call.untrustedSeen ? { untrusted: true } : {}),
 	}).catch(() => null);

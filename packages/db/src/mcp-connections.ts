@@ -5,6 +5,7 @@ import type {
 	McpConnectionView,
 	McpToolInfo,
 } from "@workspace/shared";
+import { buildStoredToolMarks, parseStoredToolMarks, resolveToolMarks, type ToolMarks } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { ResourceOwnershipError } from "./conversations.js";
 import { guideFromRow } from "./connector-guides.js";
@@ -39,6 +40,8 @@ export type UpdateMcpConnectionInput = {
 	oauthStateHash?: string | null;
 	tools?: McpToolInfo[];
 	disabledTools?: string[];
+	/** Substitui a marcação confirmada pelo dono (o caller mescla com `mergeToolMarks`). */
+	toolMarks?: ToolMarks;
 	confirmWrites?: boolean;
 	lastError?: string | null;
 	accountLabel?: string | null;
@@ -78,6 +81,9 @@ function parseTools(raw: Prisma.JsonValue | null): McpToolInfo[] {
 }
 
 function toRecord(row: McpConnectionRow): McpConnectionRecord {
+	const tools = parseTools(row.toolsCacheJson);
+	// Só vale a marca cuja definição (descrição + schema) é a que o dono confirmou; o resto volta a pedir confirmação.
+	const resolved = resolveToolMarks(parseStoredToolMarks(row.toolMarksJson), tools);
 	return {
 		id: row.id,
 		catalogId: row.catalogId,
@@ -90,8 +96,10 @@ function toRecord(row: McpConnectionRow): McpConnectionRecord {
 		status: STATUSES.has(row.status as McpConnectionStatus)
 			? (row.status as McpConnectionStatus)
 			: "error",
-		tools: parseTools(row.toolsCacheJson),
+		tools,
 		disabledTools: row.disabledTools,
+		toolMarks: resolved.marks,
+		staleToolMarks: resolved.stale,
 		confirmWrites: row.confirmWrites,
 		lastError: row.lastError,
 		accountLabel: row.accountLabel,
@@ -289,6 +297,19 @@ export async function updateMcpConnection(
 		data.toolsCacheJson = patch.tools as unknown as Prisma.InputJsonValue;
 	}
 	if (patch.disabledTools !== undefined) data.disabledTools = patch.disabledTools;
+	if (patch.toolMarks !== undefined) {
+		// A marca é gravada com o hash da definição atual. Relê pelo dono (escopo) para pegar tools e marcas guardadas.
+		const current = await prisma.mcpConnection.findFirst({
+			where: { id, ...(userId !== undefined ? { userId } : {}) },
+			select: { toolsCacheJson: true, toolMarksJson: true },
+		});
+		if (!current) return null;
+		const tools = patch.tools ?? parseTools(current.toolsCacheJson);
+		// Sem lista de ferramentas não há o que validar: nada é gravado (e nada é apagado).
+		if (tools.length > 0) {
+			data.toolMarksJson = buildStoredToolMarks(patch.toolMarks, parseStoredToolMarks(current.toolMarksJson), tools) as unknown as Prisma.InputJsonValue;
+		}
+	}
 	if (patch.confirmWrites !== undefined) data.confirmWrites = patch.confirmWrites;
 	if (patch.lastError !== undefined) data.lastError = patch.lastError;
 	if (patch.accountLabel !== undefined) data.accountLabel = patch.accountLabel;

@@ -56,7 +56,7 @@ export type PreToolResult = {
 };
 
 /** Ferramentas nativas que mudam algo fora do chat (as de conector vêm do `readOnlyHint`). */
-const NATIVE_WRITE_TOOLS: ReadonlySet<string> = new Set(["email_send", "email_reply", "email_create_mailbox", "send_to_bot", "decide_bot_pending", "set_primary_bot", "set_autonomy"]);
+const NATIVE_WRITE_TOOLS: ReadonlySet<string> = new Set(["email_send", "email_reply", "email_create_mailbox", "send_to_bot", "decide_bot_pending", "set_primary_bot", "set_autonomy", "set_connector_tool_marks"]);
 
 export function isNativeWriteTool(name: string): boolean {
 	return NATIVE_WRITE_TOOLS.has(name);

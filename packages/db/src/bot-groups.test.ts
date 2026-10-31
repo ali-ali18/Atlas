@@ -226,6 +226,26 @@ test("roteamento sem principal e sem sinal chama o roteador LLM; sem LLM cai no 
 	assert.deepEqual(world2.replies.rows.map((r) => r.botId), ["ana"]);
 });
 
+test("run do worker de grupo é chat silencioso e NUNCA turno humano (a subtask é texto do coordenador)", async () => {
+	const world = install(roster());
+	const seen: Array<Record<string, unknown>> = [];
+	await postGroupUserMessage({ userId: "u1", groupId: "team", content: "@Ana olhe isto" });
+	await processGroupTurns(deps(world, {
+		createRun: (async (input: Record<string, unknown> & { request: { botId?: string; conversationId?: string; objective?: string } }) => {
+			seen.push(input);
+			const runId = `run-${seen.length}`;
+			world.started.push({ botId: input.request.botId!, conversationId: input.request.conversationId!, objective: input.request.objective ?? "", runId });
+			world.runs.set(runId, { status: "running", resultText: null, error: null });
+			world.active.add(input.request.conversationId!);
+			return { id: runId, botId: input.request.botId, createdAt: new Date().toISOString() } as never;
+		}) as never,
+	}));
+	assert.equal(seen.length, 1);
+	assert.equal((seen[0]!.request as { origin: string; silent: boolean }).origin, "chat");
+	assert.equal((seen[0]!.request as { silent: boolean }).silent, true);
+	assert.equal(seen[0]!.humanTurn, undefined);
+});
+
 test("fila sequencial: uma resposta por vez no grupo; a próxima só depois que o run termina", async () => {
 	const world = install(roster());
 	await postGroupUserMessage({ userId: "u1", groupId: "team", content: "@Ana e @Bia, olhem isto" });

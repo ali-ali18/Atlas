@@ -160,6 +160,7 @@ import {
 	markMcpTaskGrantsUntrusted,
 	markConversationUntrusted,
 	getConversationUntrustedAt,
+	getConversationRequesterBotId,
 	persistJevStatusCard,
 	updateBot,
 	updateRoutine,
@@ -269,7 +270,7 @@ import { APP_INFO_TOOL, executeAppInfo } from "./tools/app-info.js";
 import { CURRENT_TIME_TOOL, executeCurrentTime } from "./tools/current-time.js";
 import { createPreviewSetupContext } from "./tools/preview-setup/runtime.js";
 import { PREVIEW_SETUP_TOOL, PREVIEW_SETUP_TOOL_NAME, executePreviewSetup, type PreviewSetupToolContext } from "./tools/preview-setup/tool.js";
-import { canGrantMcpTask, autonomyExceptionMode, hasExternalTargetArgs, isUntrustedContentTool } from "@workspace/shared";
+import { canGrantMcpTask, mcpTaskGrantName, autonomyExceptionMode, hasExternalTargetArgs, isUntrustedContentTool } from "@workspace/shared";
 import { collectRefs, createSecretSession, type SecretSession } from "./secrets/session.js";
 import { isSecretBoxConfigured } from "./secrets/secret-box.js";
 import { getVaultService, type VaultService } from "./secrets/vault-service.js";
@@ -451,6 +452,12 @@ import {
 	executeSetAutonomy,
 	shouldExposeSetAutonomy,
 } from "./tools/set-autonomy.js";
+import {
+	SET_CONNECTOR_TOOL_MARKS_TOOL,
+	SET_CONNECTOR_TOOL_MARKS_TOOL_NAME,
+	executeSetConnectorToolMarks,
+	shouldExposeSetConnectorToolMarks,
+} from "./tools/connector-tool-marks.js";
 import {
 	MCP_MAX_EXPOSED_TOOLS,
 	MCP_MAX_TOOLS_JSON_CHARS,
@@ -2127,6 +2134,8 @@ type ToolContext = {
 	recentAssistantTexts?: string[];
 	/** Origem do AgentRun (chat | routine | …). */
 	origin?: string;
+	/** A fala que abriu o run foi digitada pelo dono (ver `ComputerUseParams.humanTurn`). */
+	humanTurn?: boolean;
 	/** Propostas de novo agente neste run (teto de uma por turno). */
 	botProposals?: { count: number };
 	/** Política de autonomia em vigor (`set_autonomy` troca no meio do run). */
@@ -4263,6 +4272,9 @@ async function executeToolInner(
 		case "set_autonomy": {
 			return executeSetAutonomyTool(args, ctx);
 		}
+		case SET_CONNECTOR_TOOL_MARKS_TOOL_NAME: {
+			return executeSetConnectorToolMarksTool(args, ctx);
+		}
 		case REPORT_ALERT_TOOL_NAME: {
 			if (!ctx.alertRun) throw new Error("report_alert só existe em execução de rotina de alerta.");
 			return executeReportAlert(args, ctx.alertRun);
@@ -4401,6 +4413,28 @@ async function executeToolInner(
 	}
 }
 
+/** `set_connector_tool_marks`: o dono marca o que só lê; mostra um card com o resultado (já decidido). */
+async function executeSetConnectorToolMarksTool(
+	args: Record<string, unknown>,
+	ctx: ToolContext,
+): Promise<{ summary: string; confirmEvent: ConfirmEvent }> {
+	const outcome = await executeSetConnectorToolMarks(args, {
+		userId: ctx.userId,
+		origin: ctx.origin,
+		humanTurn: ctx.humanTurn,
+		userRequestText: ctx.userRequestText ?? "",
+	});
+	const card: ConfirmEvent = {
+		type: "confirm",
+		confirmId: `tool-marks-${ctx.runId ?? "local"}-${Date.now().toString(36)}`,
+		title: outcome.card.title,
+		description: outcome.card.description,
+		status: "approved",
+	};
+	await persistConversationCardFromEvent(ctx.conversationId, card).catch(() => undefined);
+	return { summary: outcome.summary, confirmEvent: card };
+}
+
 /** `set_autonomy`: muda a política e mostra um card de resumo (já decidido). */
 async function executeSetAutonomyTool(
 	args: Record<string, unknown>,
@@ -4499,6 +4533,10 @@ async function executeMcpTool(
 	// Cofre: enviar um segredo a um conector sempre passa pelo cartão (diz o que será gravado e onde).
 	const secretRefs = collectRefs(args);
 	const jevEligible = (entry.actionClass === "write" || entry.actionClass === "irreversible") && ctx.origin === "chat" && !!ctx.conversationId && !!ctx.jevMcpMode && ctx.jevMcpMode !== "off";
+	// Tarefa pedida por outro bot (run `bot`) tem humano na cadeia como o chat: a concessão vale ali também, com a mesma
+	// checagem do Jev por uso. Só a revisão de concessão abre para `bot`; a revisão geral de escrita segue só no chat.
+	const grantOrigin = ctx.origin === "chat" || ctx.origin === "bot";
+	const jevGrantEligible = (entry.actionClass === "write" || entry.actionClass === "irreversible") && grantOrigin && !!ctx.conversationId && !!ctx.jevMcpMode && ctx.jevMcpMode !== "off";
 	// Conteúdo que o usuário não escreveu (e-mail, página, arquivo, subagente, conector) já passou por este run ou por um anterior da conversa.
 	const untrustedSeen = ctx.mcpRun?.untrustedSeen === true || (await ctx.mcpRun?.conversationUntrusted?.()) === true;
 	const neverAsk = policy ? autonomyExceptionMode(policy, entry.autonomyMeta) === "never_ask" : false;
@@ -4511,12 +4549,16 @@ async function executeMcpTool(
 	let grantUse: McpTaskGrantUse | null = null;
 	let jevReviewReason: JevReviewReason | undefined;
 	const alwaysAsk = policy ? autonomyExceptionMode(policy, entry.autonomyMeta) === "always_ask" : false;
-	const grantKey = ctx.conversationId && ctx.userId ? { userId: ctx.userId, conversationId: ctx.conversationId, connectionId: entry.connectionId, exposedName: name } : undefined;
-	if (grantKey && !ctx.forceConfirm && !alwaysAsk && canGrantMcpTask(entry.actionClass, entry.toolName) && !entry.readOnly && ctx.origin === "chat" && secretRefs.length === 0 && !hasExternalTargetArgs(args) && (decision === "ask" || (decision === "allow" && jevEligible))) {
+	const grantBase = ctx.conversationId && ctx.userId ? { userId: ctx.userId, conversationId: ctx.conversationId, connectionId: entry.connectionId } : undefined;
+	const grantCandidate = !!grantBase && !ctx.forceConfirm && !alwaysAsk && canGrantMcpTask(entry.actionClass, entry.toolName) && !entry.readOnly && grantOrigin && secretRefs.length === 0 && !hasExternalTargetArgs(args) && (decision === "ask" || (decision === "allow" && jevEligible));
+	// A concessão é do bot que pediu a tarefa: outro bot (ou o dono no chat) na mesma conversa não a consome. Sem resolver quem pediu, pergunta.
+	const requester = grantCandidate ? await getConversationRequesterBotId({ userId: grantBase!.userId, conversationId: grantBase!.conversationId }).then((id) => ({ id }), () => null) : null;
+	const grantKey = grantBase && requester ? { ...grantBase, exposedName: mcpTaskGrantName(name, requester.id) } : undefined;
+	if (grantKey) {
 		grantUse = await consumeMcpTaskGrant(grantKey).catch(() => null);
 		const untrustedForGrant = untrustedSeen || (grantUse?.untrustedAt ?? null) !== null;
 		if (grantUse && untrustedForGrant) {
-			if (!jevEligible || ctx.jevMcpMode !== "gate") {
+			if (!jevGrantEligible || ctx.jevMcpMode !== "gate") {
 				// Sem Jev que possa barrar: nada de escrita silenciosa depois de conteúdo externo.
 				await releaseMcpTaskGrant(grantKey).catch(() => undefined);
 				grantUse = null;
@@ -5007,6 +5049,11 @@ export async function runComputerUse(params: {
 	/** Origem do AgentRun (chat | routine | subagent | …). */
 	origin?: string;
 	/**
+	 * A mensagem que abriu o run foi DIGITADA pelo dono no chat (gravada pela API, lida pelo worker). Run `chat`
+	 * sintético (worker de grupo, proativo, questionário, retomada) vem sem ela: ausente = falso.
+	 */
+	humanTurn?: boolean;
+	/**
 	 * Filtro final de tools (F5): aplicado DEPOIS dos filtros de origem/autonomia
 	 * sobre as tools nativas e as MCP (inclusive as ativadas por
 	 * `mcp_tool_search`). Só restringe, nunca acrescenta.
@@ -5466,6 +5513,12 @@ export async function runComputerUse(params: {
 	const lastUserMessageContent =
 		[...params.messages].reverse().find((message) => message.role === "user")
 			?.content ?? "";
+	// Segunda linha de defesa do sinal da API: evento de config do bot e resposta de questionário são texto do sistema.
+	const humanTurn =
+		params.humanTurn === true &&
+		!isBotConfigEventObjective(params.objective ?? "") &&
+		!isBotConfigEventObjective(lastUserMessageContent) &&
+		!parseQuestionnaireAnsweredContent(lastUserMessageContent);
 	// Leituras do início do run são independentes entre si: começam todas aqui e cada uma é aguardada
 	// onde é usada (antes iam em série até a 1ª chamada ao modelo). Intenção e dificuldade leem só a
 	// última fala do usuário. As que podem rejeitar (abort) ganham um `.catch` vazio para não virar
@@ -5664,6 +5717,8 @@ export async function runComputerUse(params: {
 		baseTools.push(NATIVE_COMPUTER_TOOL);
 	}
 	if (exposeSetAutonomy) baseTools.push(SET_AUTONOMY_TOOL);
+	// Só quando a última fala do USUÁRIO pede para marcar o que o conector só lê (tira cartões: nunca por resultado de tool).
+	if (shouldExposeSetConnectorToolMarks({ origin: params.origin, humanTurn, lastUserMessage: lastUserMessageContent, hasConnectors: (params.mcp?.toolset.entries.size ?? 0) > 0 })) baseTools.push(SET_CONNECTOR_TOOL_MARKS_TOOL);
 	// Conversa entre bots: só com 2+ bots do usuário; falha ao listar nunca derruba o run.
 	if (botRosterPromise) {
 		const roster = await botRosterPromise;
@@ -7857,6 +7912,7 @@ export async function runComputerUse(params: {
 							jevSubagentModelRequest: jevIntents.subagentModel,
 						},
 				userRequestText: lastUserMessageContent,
+				humanTurn,
 				jevIntents,
 				jev: params.jev,
 				lessonFeedback: params.lessons?.recordFeedback,
@@ -7942,7 +7998,9 @@ export async function runComputerUse(params: {
 					},
 				}));
 				// Ponto único: todo resultado que volta ao modelo com conteúdo que o usuário não escreveu invalida a aprovação por tarefa.
-				if (isUntrustedContentTool(name)) await markUntrusted();
+				// Exceção: o cartão de confirmação de um conector só ecoa o que o próprio modelo pediu (nada foi lido ainda). Marcar aqui
+				// fazia a concessão nascer "de fora" no primeiro cartão e o Jev passar a conferir (ou o cartão voltar) em todo uso.
+				if (isUntrustedContentTool(name) && !(isMcpToolName(name) && outcome.confirmEvent)) await markUntrusted();
 				summary = outcome.summary;
 				image = outcome.image;
 				visionArtifactIds = outcome.visionArtifactIds ?? [];
