@@ -4,6 +4,8 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+## [0.3.2-beta] - 2026-10-31
+
 ### Adicionado
 - **shared, search, connectors, worker, agent, web:** alertas inteligentes, etapa 2: "me avisa quando BBAS3 cair abaixo de R$ 15", "dólar acima de 6", "bitcoin abaixo de 300 mil" e a previsão de chuva em uma cidade funcionam sem link e sem gastar IA a cada conferência. Cotação da B3 usa a **chave grátis da brapi de cada usuário, conectada pelo Marketplace** (categoria "Fontes de dados", guardada cifrada no cofre do dono; nunca em variável de ambiente), câmbio usa a AwesomeAPI, cripto o Mercado Bitcoin com a Binance de reserva e clima a Open-Meteo, todos sem chave. Cotação só é conferida no pregão (grade da B3 com a mudança de 03/11/2026: regular até 17h55 e sem after-market; feriados de 2026) e uma vez após o fechamento; cotação com atraso diz isso no aviso e no cartão. Pisos: cotação e câmbio 15 min, cripto 5 min, clima 3 h; cache de 60 s por símbolo e backoff por provedor e por chave. Sem a chave da brapi o bot abre o cartão de conexão do Marketplace (sem pedir a chave no chat). Cartão: "Alerta · BBAS3 < R$ 15,00 · hoje R$ 21,34 · a cada 15 min no pregão". Chave revogada vira conexão com erro e o bot oferece reconectar; feriados de 2027 em diante calculados; cotação de ativo pouco negociado mostra "último negócio às HH:MM". Bolsai ficou de fora (sem documentação pública; vaga de provedor reservada) e Yahoo é proibido pelo robots.txt (ver `docs/features/alertas-inteligentes.md`)
 
