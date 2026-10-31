@@ -10,7 +10,8 @@ const TOKEN_PATTERNS: RegExp[] = [
 	/\bfc-[A-Za-z0-9]{16,}/g,
 	/\bya29\.[A-Za-z0-9._-]{20,}/g,
 	/\bxox[abpr]-[A-Za-z0-9-]{10,}/g,
-	/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+	// Corpo temperado: não atravessa outro "-----BEGIN/END", então a varredura é linear mesmo com muitos BEGIN sem END (e aceita cabeçalhos "Proc-Type" de PEM antigo).
+	/-----BEGIN [A-Z ]*PRIVATE KEY-----(?:[^-]|-(?!-{4}(?:BEGIN|END)))*-----END [A-Z ]*PRIVATE KEY-----/g,
 ];
 
 export function redactSecrets(text: string, secrets: readonly string[] = []): string {
