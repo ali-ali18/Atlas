@@ -4,6 +4,9 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Corrigido
+- **web, ui, shared:** o avatar fica mais leve e mais fiel ao que o bot faz. (1) Só o avatar do chat aberto (cabeçalho e indicador de trabalho) respira; lista, barra lateral e painel ficam parados (`breathe` passa a ser desligado por padrão e não acorda o loop de quadros). (2) Fora de um gesto de verdade (toque, pulso, giro, troca de estado) o motor roda a 30 fps: progresso, atividade e olhar do mouse não ligam mais os 60 fps; o `d` do corpo usa uma casa decimal, então a respiração lenta repete a string e não reescreve o DOM. (3) Depois do resultado de uma ferramenta, a família dela (pesquisando, lendo, programando…) fica ~2,5 s antes de voltar a "pensando"; antes o avatar passava ~66% do run pensando. (4) O anel de progresso só aparece se o mesmo passo durar mais de ~3 s, nunca antes nem por cima da ferramenta. (5) Dezenas de ferramentas que caíam no gesto genérico (`browser_snapshot`/`find`/`read`, `dev_*`, `preview_*`, `lint`, `api_*`, `email_*`, `github_*`, `generate_image`, conectores `mcp__*` pelo verbo) agora têm gesto próprio. Sem mudança de contrato SSE nem de servidor
+
 ## [0.3.1-beta] - 2026-10-30
 
 ### Adicionado
