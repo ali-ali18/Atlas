@@ -79,6 +79,9 @@ function fakeGrantDb() {
 	const originalFind = prisma.conversation.findFirst;
 	const originalDelete = prisma.mcpTaskGrant.deleteMany;
 	const originalRaw = prisma.$queryRaw;
+	const originalMessages = prisma.conversationMessage.findMany;
+	const messages: Array<{ content: string; origin: string | null; fromBotId: string | null }> = [];
+	prisma.conversationMessage.findMany = (async () => messages) as unknown as typeof prisma.conversationMessage.findMany;
 	const grants: Array<{ userId: string; conversationId: string; connectionId: string; exposedName: string; untrustedAt: unknown }> = [];
 	prisma.conversation.findFirst = (async (args: { where: { id: string; userId: string } }) =>
 		args.where.id === "conv-a" && args.where.userId === "user-a" ? { id: "conv-a" } : null) as unknown as typeof prisma.conversation.findFirst;
@@ -90,7 +93,9 @@ function fakeGrantDb() {
 	}) as unknown as typeof prisma.$queryRaw;
 	return {
 		grants,
+		messages,
 		restore: () => {
+			prisma.conversationMessage.findMany = originalMessages;
 			prisma.conversation.findFirst = originalFind;
 			prisma.mcpTaskGrant.deleteMany = originalDelete;
 			prisma.$queryRaw = originalRaw;
@@ -112,6 +117,26 @@ test("aprovação por tarefa: só escrita reversível sem segredo, só em conver
 		assert.equal(await grantAfterApproval({ userId: "user-a", conversationId: "conv-a", call: { ...call, actionClass: "irreversible" } }), undefined, "irreversível nunca");
 		assert.equal(await grantAfterApproval({ userId: "user-a", conversationId: "conv-a", call: { ...call, actionClass: undefined } }), undefined);
 		assert.equal(fake.grants.length, 1);
+	} finally {
+		info();
+		fake.restore();
+	}
+});
+
+test("aprovação por tarefa é do bot que pediu a tarefa: pedido de outro bot grava a chave com o solicitante; clique de cartão não muda o solicitante", async () => {
+	const { grantAfterApproval } = await import("./confirmed-action.js");
+	const fake = fakeGrantDb();
+	const info = vi_noop();
+	try {
+		const call = { connectionId: "conn-1", exposedName: "mcp__agroervas__listar_pedidos", actionClass: "write" as const, args: { pagina: 2 } };
+		fake.messages.push({ content: "confirmado: Agroervas: executar", origin: null, fromBotId: null }, { content: "Faça o diagnóstico", origin: "bot", fromBotId: "bot-cookie" });
+		assert.ok(await grantAfterApproval({ userId: "user-a", conversationId: "conv-a", call }));
+		assert.equal(fake.grants[0]?.exposedName, "mcp__agroervas__listar_pedidos#from:bot-cookie");
+		// Última fala é do próprio dono: chave simples (outro bot não a consome, e ela não vale para o Cookie).
+		fake.messages.length = 0;
+		fake.messages.push({ content: "lista os pedidos", origin: null, fromBotId: null });
+		assert.ok(await grantAfterApproval({ userId: "user-a", conversationId: "conv-a", call }));
+		assert.equal(fake.grants[1]?.exposedName, "mcp__agroervas__listar_pedidos");
 	} finally {
 		info();
 		fake.restore();

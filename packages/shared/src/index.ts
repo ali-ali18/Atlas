@@ -953,8 +953,23 @@ export {
 	CONVERSATION_UNTRUSTED_TTL_MS,
 	isConversationUntrusted,
 	canGrantMcpTask,
+	mcpTaskGrantName,
 	mcpTaskGrantExpiry,
 	isMcpTaskGrantUsable,
 	describeMcpTaskGrantUses,
 	type McpTaskGrantState,
 } from "./mcp-task-grant.js";
+export {
+	TOOL_MARKS_MAX,
+	hasServerToolAnnotation,
+	toolMarkRefusal,
+	isToolMark,
+	looksLikeToolMarkRequest,
+	mergeToolMarks,
+	parseToolMarks,
+	pendingToolMarkSuggestions,
+	suggestToolMark,
+	toolDisplayLabel,
+	type ToolMark,
+	type ToolMarks,
+} from "./tool-marks.js";

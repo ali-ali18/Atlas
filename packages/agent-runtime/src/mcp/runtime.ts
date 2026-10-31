@@ -295,7 +295,7 @@ export async function executeConfirmedMcpCall(input: {
 	const tool = record.tools.find((item) => item.name === input.toolName);
 	if (!tool) return { ok: false, text: "ferramenta não está disponível", truncated: false };
 	const autonomy = await loadEffectiveAutonomy({ userId: input.userId, botId: input.botId, now: new Date(), applyExpiry: false });
-	const meta = mcpAutonomyMeta({ tool, exposedName: input.exposedName, slug: record.slug, catalogId: record.catalogId });
+	const meta = mcpAutonomyMeta({ tool, exposedName: input.exposedName, slug: record.slug, catalogId: record.catalogId, ownerMark: record.toolMarks?.[tool.name] });
 	if (decideAction(autonomy.policy, meta) === "block") {
 		return { ok: false, text: "ferramenta bloqueada pela autonomia atual", truncated: false };
 	}

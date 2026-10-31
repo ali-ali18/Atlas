@@ -31,7 +31,7 @@ export function toolPermissionLabel(mode: ToolPermission, { t }: Translator = de
 
 export const DEFAULT_POLICY: EffectiveAutonomy = { level: DEFAULT_AUTONOMY_LEVEL, exceptions: [] };
 
-type ConnectionRef = Pick<McpConnectionView, "catalogId" | "slug" | "tools" | "disabledTools">;
+type ConnectionRef = Pick<McpConnectionView, "catalogId" | "slug" | "tools" | "disabledTools" | "toolMarks">;
 
 function toolMeta(connection: ConnectionRef, tool: McpToolInfo) {
 	return mcpAutonomyMeta({
@@ -39,7 +39,13 @@ function toolMeta(connection: ConnectionRef, tool: McpToolInfo) {
 		exposedName: mcpToolName(connection.slug, tool.name),
 		slug: connection.slug,
 		catalogId: connection.catalogId,
+		ownerMark: connection.toolMarks?.[tool.name],
 	});
+}
+
+/** A tool só lê? Anotação do servidor > marcação confirmada do dono > padrão (sem anotação = escrita). */
+export function toolIsRead(connection: ConnectionRef, tool: McpToolInfo): boolean {
+	return toolMeta(connection, tool).actionClass === "read";
 }
 
 /**

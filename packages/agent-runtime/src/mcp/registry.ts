@@ -37,6 +37,8 @@ export type McpToolsetConnection = {
 	name: string;
 	tools: McpToolInfo[];
 	disabledTools: string[];
+	/** Marcação confirmada pelo dono por tool (ver `tool-marks.ts` em shared). */
+	toolMarks?: Record<string, "read" | "write">;
 	/** OBSOLETO (F10): a política de autonomia decide. Ignorado. */
 	confirmWrites?: boolean;
 	catalogId?: string | null;
@@ -167,6 +169,7 @@ export function buildMcpToolset(
 				exposedName: name,
 				slug: connection.slug,
 				catalogId: connection.catalogId,
+				ownerMark: connection.toolMarks?.[tool.name],
 			});
 			const decision = decideAction(autonomy, autonomyMeta);
 			if (decision === "block") continue;

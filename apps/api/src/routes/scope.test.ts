@@ -24,6 +24,7 @@ const {
 	getAgentRunForUser,
 	getOwnedConversation,
 	getMcpConnection,
+	updateMcpConnection,
 	claimMcpConnectionByStateHash,
 	createRoutine,
 	getRoutine,
@@ -167,6 +168,28 @@ test("mcp connections: B nao le A nem default sem claim", { skip: SKIP_WITHOUT_D
 		assert.equal(await getMcpConnection("conn-missing", USER_A), null);
 	} finally {
 		prisma.mcpConnection.findFirst = original;
+	}
+});
+
+test("mcp tool marks: B não lê nem altera a marcação de A (404 / null) e A grava", { skip: SKIP_WITHOUT_DB }, async () => {
+	const row = { id: "conn-a", userId: USER_A, catalogId: null, slug: "erp", name: "ERP", url: "https://erp.example/mcp", authType: "none", status: "connected", toolsCacheJson: [{ name: "listar_pedidos", inputSchema: { type: "object" } }], disabledTools: [], toolMarksJson: { listar_pedidos: "read" }, confirmWrites: true, lastError: null, accountLabel: null, createdAt: now(), updatedAt: now(), secretsEnc: null, oauthStateHash: null };
+	const originalUpdate = stub(prisma.mcpConnection, "update", (async (args: unknown) => {
+		const { where, data } = args as { where: { id: string; userId?: string }; data: { toolMarksJson?: unknown } };
+		if (where.id !== row.id || (where.userId !== undefined && where.userId !== row.userId)) throw Object.assign(new Error("not found"), { code: "P2025" });
+		return { ...row, toolMarksJson: data.toolMarksJson ?? row.toolMarksJson };
+	}) as unknown as typeof prisma.mcpConnection.update);
+	const originalFind = stub(prisma.mcpConnection, "findFirst", (async (args: unknown) => {
+		const where = (args as { where: { id: string; userId: { in: string[] } } }).where;
+		return where.id === row.id && where.userId.in.includes(row.userId) ? row : null;
+	}) as typeof prisma.mcpConnection.findFirst);
+	try {
+		assert.equal(await updateMcpConnection("conn-a", { toolMarks: { listar_pedidos: "write" } }, USER_B), null);
+		assert.equal(await getMcpConnection("conn-a", USER_B), null);
+		assert.deepEqual((await getMcpConnection("conn-a", USER_A))?.toolMarks, { listar_pedidos: "read" });
+		assert.deepEqual((await updateMcpConnection("conn-a", { toolMarks: { listar_pedidos: "write" } }, USER_A))?.toolMarks, { listar_pedidos: "write" });
+	} finally {
+		prisma.mcpConnection.update = originalUpdate;
+		prisma.mcpConnection.findFirst = originalFind;
 	}
 });
 
