@@ -564,7 +564,7 @@ async function loadRunEventPayloads(runId: string): Promise<{
 }
 
 /** Sem tool_call nem texto depois do `tool_intent`, o avatar volta a "pensando" (o passo foi descartado ou refeito). */
-export const TOOL_INTENT_EXPIRY_MS = 15_000;
+export const TOOL_INTENT_EXPIRY_MS = 60_000;
 
 export function createComputerHandlers(params: {
 	/** Prazo (ms) do estado "chegando" sem tool_call nem texto; só para teste. */

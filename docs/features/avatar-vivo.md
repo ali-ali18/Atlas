@@ -48,7 +48,7 @@ Transições (achados na prévia do dono):
 Fase C (0.3.3): intenção da ferramenta.
 - O stream do modelo traz o nome da ferramenta no primeiro pedaço, antes dos argumentos. `packages/llm` chama o `onToolIntent({ index, id?, name })` uma vez por chamada (OpenRouter e Anthropic direto; o ChatGPT/Responses ainda não) e o runtime emite `{ type: "tool_intent", name }` (só o nome, nunca argumentos parciais: podem ter segredo ou caminho). Só sai para tool que o run expõe e em run com tela (nem subagente nem rotina).
 - Web: `activityForToolIntent` (em `working-status.ts`) vira `{ phase: "tool", tool, arriving: true }` e o avatar já mostra a família (Programando ao gerar `write_file`). O `tool_call` seguinte troca para a atividade com passo e anel; o gesto de início não se repete. Ferramenta de raciocínio puro (`todo_write`, `current_time`) não muda nada. O texto do indicador usa a frase da família, sem nome interno.
-- Evento efêmero: não vira mensagem do chat, passa pelo log do run (como o `tool_call`) e some na retenção de 30 dias. Sem `tool_call` nem texto em 15 s (`TOOL_INTENT_EXPIRY_MS`) o avatar volta a "pensando". Cliente antigo ignora o tipo desconhecido; cliente novo sem o evento fica como antes.
+- Evento efêmero: não vira mensagem do chat, passa pelo log do run (como o `tool_call`) e some na retenção de 30 dias. Sem `tool_call` nem texto em 60 s (`TOOL_INTENT_EXPIRY_MS`) o avatar volta a "pensando". Cliente antigo ignora o tipo desconhecido; cliente novo sem o evento fica como antes.
 - Simulação (replay com tempos sintéticos, geração de 3,5 a 14 s por ferramenta; não é medição em produção): "pensando" cai de 57% para 4% do run; com pausa de 3,5 s entre ferramentas, de 30% para 11%.
 
 ## Riscos
