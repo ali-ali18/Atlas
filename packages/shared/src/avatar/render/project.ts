@@ -7,7 +7,7 @@ import {
 	IDENTITY,
 	applyMat,
 	rotationMatrix,
-	round2,
+	round1,
 	type Mat3,
 } from "../geometry/math.js";
 import { BODY_RADIUS_PX, CENTER } from "../geometry/shapes.js";
@@ -85,7 +85,7 @@ function flatPath(points: ArrayLike<number>, m: Mat3, fit: number): string {
 	let d = "";
 	for (let i = 0; i < points.length; i += 2) {
 		const [x, y] = applyMat(m, (points[i] as number) - CENTER, CENTER - (points[i + 1] as number), 0);
-		d += `${i === 0 ? "M" : "L"}${round2(CENTER + fit * x)} ${round2(CENTER - fit * y)}`;
+		d += `${i === 0 ? "M" : "L"}${round1(CENTER + fit * x)} ${round1(CENTER - fit * y)}`;
 	}
 	return `${d}Z`;
 }
@@ -181,7 +181,7 @@ function unitPath(points: readonly number[], fit: number): string {
 	const radius = BODY_RADIUS_PX * fit;
 	let d = "";
 	for (let i = 0; i < points.length; i += 2) {
-		d += `${i === 0 ? "M" : "L"}${round2(CENTER + radius * (points[i] as number))} ${round2(CENTER - radius * (points[i + 1] as number))}`;
+		d += `${i === 0 ? "M" : "L"}${round1(CENTER + radius * (points[i] as number))} ${round1(CENTER - radius * (points[i + 1] as number))}`;
 	}
 	return `${d}Z`;
 }

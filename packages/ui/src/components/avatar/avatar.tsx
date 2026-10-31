@@ -76,7 +76,10 @@ export type AvatarProps = {
 	/** Mais vivo: olhos maiores e respiração maior. */
 	isEmphasized?: boolean;
 	onPoke?: () => void;
-	/** Repouso vivo (clipes Idle com giro 3D). Desligue só em listas enormes. */
+	/**
+	 * Repouso vivo (clipes Idle com giro 3D, mantém o loop de quadros acordado). Desligado por padrão: lista,
+	 * sidebar e painel ficam parados (só piscam por timer). Só o avatar do chat aberto liga.
+	 */
 	breathe?: boolean;
 	/** Cutuca ao clicar sem virar botão (quando o pai já é clicável). */
 	pokeOnClick?: boolean;
@@ -100,6 +103,9 @@ export type AvatarProps = {
 	spinSignal?: number;
 	state?: AvatarState;
 };
+
+/** Padrões que decidem se um avatar solto acorda o loop de quadros (testados: lista não pode animar sozinha). */
+export const AVATAR_DEFAULTS = { breathe: false } as const;
 
 const REDUCED_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -129,7 +135,7 @@ export function Avatar({
 	ariaLabel,
 	brain = false,
 	brainPriority = 0,
-	breathe = true, // era false: sem isso o idle nunca gira e o 3D não aparece
+	breathe = AVATAR_DEFAULTS.breathe,
 	className,
 	color,
 	expression,

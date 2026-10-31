@@ -21,6 +21,14 @@ export function round2(value: number): number {
 	return Math.round(value * 100) / 100;
 }
 
+/**
+ * Arredonda para 1 casa: coordenadas de `d`. No viewBox de 250 uma casa é ~0,04 px num avatar de 100 px,
+ * invisível, e faz a respiração lenta repetir a string (o ticker então não escreve o `d` de novo).
+ */
+export function round1(value: number): number {
+	return Math.round(value * 10) / 10;
+}
+
 /** FNV-1a de 32 bits. */
 export function hash(text: string): number {
 	let h = 2166136261;
