@@ -419,7 +419,7 @@ import {
 } from "./tools/provider-health.js";
 import { createResearchNotes, executeResearchNote, RESEARCH_NOTE_TOOL, type ResearchNotes } from "./tools/research-note.js";
 import { executeTrackItems, TRACK_ITEMS_TOOL, TRACK_ITEMS_TOOL_NAME, type LedgerStore } from "./tools/track-items.js";
-import { executeUpdateTaskList, UPDATE_TASK_LIST_TOOL, UPDATE_TASK_LIST_TOOL_NAME, type TaskListStore } from "./tools/task-list.js";
+import { devTodosToTaskList, executeUpdateTaskList, shouldExposeTaskList, UPDATE_TASK_LIST_TOOL, UPDATE_TASK_LIST_TOOL_NAME, type TaskListStore } from "./tools/task-list.js";
 import { executeProposePlan, PROPOSE_PLAN_TOOL, PROPOSE_PLAN_TOOL_NAME } from "./tools/propose-plan.js";
 import { isNativeWriteTool, runPreToolHooks, type HookLesson, type PreToolHit } from "./hooks/pre-tool.js";
 import { createTaskOrchestrator, isBookkeepingOnly, MULTI_ITEM_START_NOTE } from "./execution/task-orchestrator.js";
@@ -5748,7 +5748,9 @@ export async function runComputerUse(params: {
 			conversationId: devConversationId,
 			emit: (event) => {
 				if (event.type === "dev_setup_step" && event.status !== "running" && event.durationMs) devTiming?.setup(event.durationMs);
-				return onEvent(event);
+				const forwarded = onEvent(event);
+				if (event.type === "todo_updated") return Promise.resolve(forwarded).then(() => mirrorDevTodos(event.items)).catch(() => undefined);
+				return forwarded;
 			},
 			signal: params.abortSignal,
 			commandGate: createDevCommandGate({ userId, conversationId: devConversationId!, botId, runId, unattended: isUnattendedOrigin(params.origin) }),
@@ -5866,12 +5868,17 @@ export async function runComputerUse(params: {
 		const sessionId = devRuntime?.compactionContext().sessionId;
 		await onEvent({ type: "context_compacted", ...(sessionId ? { sessionId } : {}), before: report.compaction.before, after: report.compaction.after });
 	};
+	// Um dono só para a lista: com as tools de código oferecidas, quem escreve é o `todo_write` (espelhado na doca).
+	let devToolsOffered = false;
 	if (devDeps?.config.enabled) {
 		for (const tool of DEV_SESSION_TOOLS) {
 			const devTool = tool.function.name as DevSessionToolName;
 			if (isSubagent && !(DEV_SESSION_READONLY_TOOL_NAMES as readonly string[]).includes(devTool)) continue;
 			if (!devSessionAllowedForOrigin(devTool, params.origin) || devSessionBlocked(autonomyPolicy, devTool)) continue;
-			if (params.toolFilter?.(devTool) ?? true) baseTools.push(tool);
+			if (params.toolFilter?.(devTool) ?? true) {
+				baseTools.push(tool);
+				devToolsOffered = true;
+			}
 		}
 	}
 	// Modo proativo: lembretes, ideias de rotina e, na reflexão diária, a mensagem ao usuário.
@@ -5944,8 +5951,8 @@ export async function runComputerUse(params: {
 	if (!isSubagent && params.origin === "chat" && params.planMode !== false && (params.toolFilter?.(PROPOSE_PLAN_TOOL_NAME) ?? true)) {
 		baseTools.push(PROPOSE_PLAN_TOOL);
 	}
-	// `update_task_list`: checklist visível de tarefas de vários passos; só o agente principal, em chat com humano.
-	if (!isSubagent && params.origin === "chat" && (params.toolFilter?.(UPDATE_TASK_LIST_TOOL_NAME) ?? true)) {
+	// `update_task_list`: checklist visível de tarefas de vários passos; só o agente principal, em chat ou em bot atendendo outro bot (conversa do próprio bot, visível ao dono); sem tools de código (lá o `todo_write` é o dono da lista).
+	if (!devToolsOffered && shouldExposeTaskList({ origin: params.origin, isSubagent }) && (params.toolFilter?.(UPDATE_TASK_LIST_TOOL_NAME) ?? true)) {
 		baseTools.push(UPDATE_TASK_LIST_TOOL);
 	}
 	// `delegate_task`: só em chat com humano; filho e rotina não delegam.
@@ -6561,6 +6568,17 @@ export async function runComputerUse(params: {
 	// Lista de passos da conversa: o primeiro checkpoint do run herda a do run anterior (retomada não ressuscita lista encerrada).
 	if (!isSubagent && !parsedCheckpoint?.taskState) taskTracker.setTaskList(parseTaskList(params.priorTaskList));
 	const taskListStore: TaskListStore = { get: () => taskTracker.taskList(), set: (next) => taskTracker.setTaskList(next) };
+	const emitTaskListEvent = async (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>) => {
+		await upsertTaskListCard(conversationId, runId, items).catch(() => undefined);
+		await onEvent({ type: "task_list", items, ...(runId ? { runId } : {}) });
+	};
+	// Sessão de código: o `todo_write` alimenta a mesma lista/doca do chat (um sistema só, sem segunda lista).
+	const mirrorDevTodos = async (todos: ReadonlyArray<{ content: string; status: string }>) => {
+		if (!shouldExposeTaskList({ origin: params.origin, isSubagent }) || params.toolFilter?.(UPDATE_TASK_LIST_TOOL_NAME) === false) return;
+		const items = devTodosToTaskList(todos);
+		executeUpdateTaskList({ items }, { taskListStore });
+		await emitTaskListEvent(items);
+	};
 	// F1: revisões do objetivo só por redirect/interrupt, sempre versionadas no checkpoint.
 	const objectiveRevisions = [...(parsedCheckpoint?.objectiveRevisions ?? [])];
 	// Triagem de mensagens: pedidos "para depois" ficam no checkpoint (e na fila do run).
@@ -6921,7 +6939,8 @@ export async function runComputerUse(params: {
 		const notesLayer = researchNotes.layer({ deliver: notesDeliver });
 		// V3: itens da tarefa e o item pai atual, reinjetados compactos a cada passo (volátil, fora do prefixo cacheado).
 		const itemsLayer = isSubagent ? null : taskOrchestrator.layer();
-		const taskListLayer = isSubagent ? null : renderTaskListNote(taskTracker.taskList());
+		// Com tools de código, a lista já vai na nota do código (todos): sem segunda nota.
+		const taskListLayer = isSubagent || devToolsOffered ? null : renderTaskListNote(taskTracker.taskList());
 		// Data e hora de agora: camada efêmera (muda a cada minuto; no sistema invalidaria o cache do histórico inteiro).
 		// `ATLAS_NOW_NOTE=off` só nas suítes que fixam o formato exato do pedido (ver vitest.config.ts).
 		const nowLayer = isSubagent || process.env.ATLAS_NOW_NOTE === "off" ? null : todayNote(new Date(), params.timeZone);
@@ -7906,10 +7925,7 @@ export async function runComputerUse(params: {
 					deliverableVerifier,
 					ledgerStore: isSubagent ? undefined : taskOrchestrator.store,
 					taskListStore: isSubagent ? undefined : taskListStore,
-					emitTaskList: isSubagent ? undefined : async (items) => {
-						await upsertTaskListCard(conversationId, runId, items).catch(() => undefined);
-						await onEvent({ type: "task_list", items, ...(runId ? { runId } : {}) });
-					},
+					emitTaskList: isSubagent ? undefined : emitTaskListEvent,
 					deliveryGate,
 					createFileDeps: params.createFileDeps,
 					runCodeDeps: params.runCodeDeps,
