@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	applyAlertConfig,
+	alertSourceHost,
 	clampAlertRuleInterval,
 	defaultAlertRuleInterval,
 	describeAlertRuleCompact,
@@ -73,7 +74,7 @@ describe("parseAlertRule", () => {
 	});
 
 	it("recusa tipo de fonte futuro, esquema não http e credenciais na URL", () => {
-		expect(parseAlertRule({ ...pageRule, source: { type: "quote", symbol: "BBAS3" } }).ok).toBe(false);
+		expect(parseAlertRule({ ...pageRule, source: { type: "connector", id: "gmail" } }).ok).toBe(false);
 		expect(parseAlertRule({ ...pageRule, source: { ...pageRule.source, url: "file:///etc/passwd" } }).ok).toBe(false);
 		expect(parseAlertRule({ ...pageRule, source: { ...pageRule.source, url: "ftp://x.example.com/a" } }).ok).toBe(false);
 		expect(parseAlertRule({ ...pageRule, source: { ...pageRule.source, url: "https://u:p@x.example.com/" } }).ok).toBe(false);
@@ -258,5 +259,70 @@ describe("frase do alerta com regra (agente)", () => {
 		const parsed = parseRoutineAlertInput({ rule: pageRule });
 		if (!parsed.ok) throw new Error("x");
 		expect(describeRoutineAlertSentence({ alert: parsed.alert, triggerType: "interval", interval: { everyMinutes: 120 } })).toMatch(/^Alerta · tênis Nike < R\$\s400,00 · a cada 2 horas$/);
+	});
+});
+
+describe("fontes de mercado (etapa 2)", () => {
+	const quote = (extra: object = {}, check: object = { kind: "value", parse: "money", op: "lt", value: 15 }) =>
+		parseAlertRule({ source: { type: "quote", symbol: "bbas3" }, check, ...extra });
+
+	it("cotação: ticker em maiúsculas, moeda BRL por padrão e piso de 15 min", () => {
+		const parsed = quote({ intervalMinutes: 1 });
+		expect(parsed).toMatchObject({ ok: true, rule: { source: { type: "quote", symbol: "BBAS3" }, check: { currency: "BRL" }, intervalMinutes: 15 } });
+		expect(defaultAlertRuleInterval({ type: "quote" })).toBe(30);
+	});
+
+	it("pisos por fonte: câmbio 15, cripto 5, clima 180 min", () => {
+		expect(clampAlertRuleInterval(1, { type: "fx" })).toBe(15);
+		expect(clampAlertRuleInterval(1, { type: "crypto" })).toBe(5);
+		expect(clampAlertRuleInterval(30, { type: "weather" })).toBe(180);
+	});
+
+	it("recusa ticker inválido, campo desconhecido e URL (nada de URL do modelo)", () => {
+		expect(quote().ok).toBe(true);
+		expect(parseAlertRule({ source: { type: "quote", symbol: "../../etc" }, check: { kind: "value", parse: "money", op: "lt", value: 1 } })).toMatchObject({ ok: false });
+		expect(parseAlertRule({ source: { type: "quote", symbol: "BBAS3", url: "http://169.254.169.254" }, check: { kind: "value", parse: "money", op: "lt", value: 1 } })).toMatchObject({ ok: false, error: expect.stringContaining('unknown field "url"') });
+		expect(parseAlertRule({ source: { type: "quote", symbol: "AAPL" }, check: { kind: "value", parse: "money", op: "lt", value: 1 } })).toMatchObject({ ok: false });
+	});
+
+	it("câmbio: par com moedas conhecidas; moeda do dinheiro é a da cotação", () => {
+		const ok = parseAlertRule({ source: { type: "fx", pair: "usd/brl" }, check: { kind: "value", parse: "money", op: "gt", value: 6 } });
+		expect(ok).toMatchObject({ ok: true, rule: { source: { type: "fx", pair: "USD-BRL" }, check: { currency: "BRL" } } });
+		expect(parseAlertRule({ source: { type: "fx", pair: "USD-XXX" }, check: { kind: "value", parse: "number", op: "gt", value: 6 } }).ok).toBe(false);
+		expect(parseAlertRule({ source: { type: "fx", pair: "USD-USD" }, check: { kind: "value", parse: "number", op: "gt", value: 6 } }).ok).toBe(false);
+		expect(parseAlertRule({ source: { type: "fx", pair: "USD-BRL" }, check: { kind: "value", parse: "money", op: "gt", value: 6, currency: "USD" } }).ok).toBe(false);
+		// iene não está entre as moedas de dinheiro formatável: tem de usar number
+		expect(parseAlertRule({ source: { type: "fx", pair: "USD-JPY" }, check: { kind: "value", parse: "money", op: "gt", value: 150 } }).ok).toBe(false);
+		expect(parseAlertRule({ source: { type: "fx", pair: "USD-JPY" }, check: { kind: "value", parse: "number", op: "gt", value: 150 } }).ok).toBe(true);
+	});
+
+	it("cripto: símbolo + moeda de cotação (padrão BRL)", () => {
+		const ok = parseAlertRule({ source: { type: "crypto", symbol: "btc" }, check: { kind: "value", parse: "money", op: "lt", value: 300000 } });
+		expect(ok).toMatchObject({ ok: true, rule: { source: { type: "crypto", symbol: "BTC", quote: "BRL" }, check: { currency: "BRL" } } });
+		expect(parseAlertRule({ source: { type: "crypto", symbol: "BTC", quote: "EUR" }, check: { kind: "value", parse: "number", op: "lt", value: 1 } }).ok).toBe(false);
+	});
+
+	it("clima: cidade ou coordenadas, métrica e dia fechados", () => {
+		const ok = parseAlertRule({ source: { type: "weather", place: "Curitiba", metric: "rain_probability" }, check: { kind: "value", parse: "number", op: "gte", value: 60 }, label: "chuva em Curitiba" });
+		expect(ok).toMatchObject({ ok: true, rule: { source: { type: "weather", place: "Curitiba", metric: "rain_probability", day: "tomorrow" } } });
+		expect(parseAlertRule({ source: { type: "weather", lat: -25.43, lon: -49.27, metric: "temp_max" }, check: { kind: "value", parse: "number", op: "gt", value: 30 } }).ok).toBe(true);
+		expect(parseAlertRule({ source: { type: "weather", metric: "temp_max" }, check: { kind: "value", parse: "number", op: "gt", value: 30 } }).ok).toBe(false);
+		expect(parseAlertRule({ source: { type: "weather", place: "Curitiba", metric: "humidity" }, check: { kind: "value", parse: "number", op: "gt", value: 30 } }).ok).toBe(false);
+		expect(parseAlertRule({ source: { type: "weather", lat: 99, lon: 0, metric: "temp_max" }, check: { kind: "value", parse: "number", op: "gt", value: 30 } }).ok).toBe(false);
+		expect(parseAlertRule({ source: { type: "weather", place: "Curitiba", metric: "temp_max" }, check: { kind: "value", parse: "money", op: "gt", value: 30 } }).ok).toBe(false);
+	});
+
+	it("fonte de mercado não aceita new_item nem texto", () => {
+		expect(parseAlertRule({ source: { type: "quote", symbol: "BBAS3" }, check: { kind: "new_item" } }).ok).toBe(false);
+		expect(parseAlertRule({ source: { type: "quote", symbol: "BBAS3" }, check: { kind: "value", parse: "text", op: "eq", value: "x" } }).ok).toBe(false);
+	});
+
+	it("frases usam o código do ativo e a unidade do clima", () => {
+		const q = (quote() as { ok: true; rule: AlertRule }).rule;
+		expect(describeAlertRuleCompact(q, "pt-BR")).toBe("BBAS3 < R$ 15,00");
+		expect(describeAlertRuleCondition(q, "pt-BR")).toBe("BBAS3 ficar abaixo de R$ 15,00");
+		const w = (parseAlertRule({ source: { type: "weather", place: "Curitiba", metric: "rain_probability" }, check: { kind: "value", parse: "number", op: "gt", value: 60 }, label: "chuva em Curitiba amanhã" }) as { ok: true; rule: AlertRule }).rule;
+		expect(describeAlertRuleCompact(w, "pt-BR")).toBe("chuva em Curitiba amanhã > 60%");
+		expect(alertSourceHost(q.source)).toBe("market:quote");
 	});
 });

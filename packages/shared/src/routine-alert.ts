@@ -124,6 +124,8 @@ function parseRuleState(value: unknown): { ruleState?: AlertRuleState } {
 	if (typeof row.baseline === "number") state.baseline = row.baseline;
 	if (Array.isArray(row.seenIds)) state.seenIds = row.seenIds.filter((id): id is string => typeof id === "string").slice(-200);
 	if (row.seeded === true) state.seeded = true;
+	if (typeof row.delayMinutes === "number" && row.delayMinutes > 0) state.delayMinutes = Math.min(45, Math.round(row.delayMinutes));
+	if (typeof row.lastTradeAt === "string" && Number.isFinite(Date.parse(row.lastTradeAt))) state.lastTradeAt = row.lastTradeAt.slice(0, 40);
 	return Object.keys(state).length > 0 ? { ruleState: state } : {};
 }
 
@@ -235,6 +237,6 @@ export function describeRoutineAlertSentence(routine: {
 			routine.triggerType === "interval" && routine.interval ? { everyMinutes: routine.interval.everyMinutes } : { schedule: routine.schedule ?? undefined },
 		);
 	// Alerta com regra: a frase mostra a regra ("tênis < R$ 400,00"), não o "avisa se …" em texto livre.
-	if (routine.alert.rule) return `Alerta · ${describeAlertRuleCompact(routine.alert.rule, DEFAULT_BOT_LANGUAGE)} · ${lowerFirst(cleanLine(cadence))}`;
+	if (routine.alert.rule) return `Alerta · ${describeAlertRuleCompact(routine.alert.rule, DEFAULT_BOT_LANGUAGE)} · ${lowerFirst(cleanLine(cadence))}${routine.alert.rule.source.type === "quote" ? " no pregão" : ""}`;
 	return formatRoutineAlertSentence(routine.alert, cadence);
 }

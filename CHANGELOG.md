@@ -4,6 +4,14 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+## [0.3.2-beta] - 2026-10-31
+
+### Adicionado
+- **shared, search, connectors, worker, agent, web:** alertas inteligentes, etapa 2: "me avisa quando BBAS3 cair abaixo de R$ 15", "dólar acima de 6", "bitcoin abaixo de 300 mil" e a previsão de chuva em uma cidade funcionam sem link e sem gastar IA a cada conferência. Cotação da B3 usa a **chave grátis da brapi de cada usuário, conectada pelo Marketplace** (categoria "Fontes de dados", guardada cifrada no cofre do dono; nunca em variável de ambiente), câmbio usa a AwesomeAPI, cripto o Mercado Bitcoin com a Binance de reserva e clima a Open-Meteo, todos sem chave. Cotação só é conferida no pregão (grade da B3 com a mudança de 03/11/2026: regular até 17h55 e sem after-market; feriados de 2026) e uma vez após o fechamento; cotação com atraso diz isso no aviso e no cartão. Pisos: cotação e câmbio 15 min, cripto 5 min, clima 3 h; cache de 60 s por símbolo e backoff por provedor e por chave. Sem a chave da brapi o bot abre o cartão de conexão do Marketplace (sem pedir a chave no chat). Cartão: "Alerta · BBAS3 < R$ 15,00 · hoje R$ 21,34 · a cada 15 min no pregão". Chave revogada vira conexão com erro e o bot oferece reconectar; feriados de 2027 em diante calculados; cotação de ativo pouco negociado mostra "último negócio às HH:MM". Bolsai ficou de fora (sem documentação pública; vaga de provedor reservada) e Yahoo é proibido pelo robots.txt (ver `docs/features/alertas-inteligentes.md`)
+
+### Alterado
+- **search:** o leitor de alertas aceita páginas de até 5 MB (antes 2 MB): páginas de cotação e fundos como a do Investidor10 (2,2 MB) eram recusadas. Timeout de 10 s, recusa acima do teto (declarado ou em stream) e janela de 64 KB da regex continuam iguais
+
 ### Corrigido
 - **web, ui, shared:** o avatar fica mais leve e mais fiel ao que o bot faz. (1) Só o avatar do chat aberto (cabeçalho e indicador de trabalho) respira; lista, barra lateral e painel ficam parados (`breathe` passa a ser desligado por padrão e não acorda o loop de quadros). (2) Fora de um gesto de verdade (toque, pulso, giro, troca de estado) o motor roda a 30 fps: progresso, atividade e olhar do mouse não ligam mais os 60 fps; o `d` do corpo usa uma casa decimal, então a respiração lenta repete a string e não reescreve o DOM. (3) Depois do resultado de uma ferramenta, a família dela (pesquisando, lendo, programando…) fica ~2,5 s antes de voltar a "pensando"; antes o avatar passava ~66% do run pensando. (4) O anel de progresso só aparece se o mesmo passo durar mais de ~3 s, nunca antes nem por cima da ferramenta. (5) Dezenas de ferramentas que caíam no gesto genérico (`browser_snapshot`/`find`/`read`, `dev_*`, `preview_*`, `lint`, `api_*`, `email_*`, `github_*`, `generate_image`, conectores `mcp__*` pelo verbo) agora têm gesto próprio. Sem mudança de contrato SSE nem de servidor
 

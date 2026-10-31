@@ -161,3 +161,42 @@ test("alerta sem regra segue o caminho do modelo (controle): não lê a fonte ne
 		s.restore();
 	}
 });
+
+const quoteRule = { source: { type: "quote", symbol: "BBAS3" }, check: { kind: "value", parse: "money", op: "lt", value: 15, currency: "BRL" }, label: "BBAS3" };
+
+test("cotação fora do pregão: o disparo agendado é descartado sem ler, sem criar execução e sem avisar", async () => {
+	const s = scenario({ alertJson: { condition: "BBAS3 abaixo de R$ 15", active: false, rule: quoteRule } });
+	let reads = 0;
+	try {
+		const result = await processExecuteRoutineJob({ routineId: "r", triggeredBy: "schedule" }, config, s.queue, {
+			now: () => new Date("2026-10-31T15:00:00Z"), // sábado
+			readAlertRule: async () => {
+				reads += 1;
+				return { ok: true as const, read: { kind: "number" as const, value: 14 }, host: "brapi.dev", ms: 1 };
+			},
+			log: () => undefined,
+		});
+		assert.equal(result.status, "skipped");
+		assert.equal(reads, 0, "não gasta chamada do provedor");
+		assert.equal(s.seen.runCreates.length, 0, "não cria linha de execução");
+		assert.equal(s.seen.alertWrites.length, 0);
+	} finally {
+		s.restore();
+	}
+});
+
+test("cotação no pregão: lê, avalia e guarda o valor", async () => {
+	const s = scenario({ alertJson: { condition: "BBAS3 abaixo de R$ 15", active: false, rule: quoteRule } });
+	try {
+		const result = await processExecuteRoutineJob({ routineId: "r", triggeredBy: "schedule" }, config, s.queue, {
+			now: () => new Date("2026-10-27T15:00:00Z"),
+			readAlertRule: async () => ({ ok: true as const, read: { kind: "number" as const, value: 21.34 }, host: "brapi.dev", ms: 1 }),
+			log: () => undefined,
+		});
+		assert.equal(result.status, "succeeded");
+		const state = s.seen.alertWrites[0] as { ruleState?: { lastValue?: number } };
+		assert.equal(state.ruleState?.lastValue, 21.34);
+	} finally {
+		s.restore();
+	}
+});

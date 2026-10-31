@@ -28,10 +28,10 @@ import {
 	settleRoutineRunDirect,
 } from "@workspace/db";
 import { createAlertSourceCache, readAlertRule } from "@workspace/search";
-import { listBriefSources } from "@workspace/agent-runtime";
+import { listBriefSources, reportRejectedMarketKey, resolveMarketKeys } from "@workspace/agent-runtime";
 import type { AgentRunQueue } from "@workspace/queue";
 import type { WorkerConfig } from "../config.js";
-import { ruleAlertSkipReason, runRuleAlert, type RuleSourceResult } from "../rule-alert.js";
+import { ruleAlertMarketClosedReason, ruleAlertSkipReason, ruleSourceReader, runRuleAlert, type RuleSourceResult } from "../rule-alert.js";
 import { formatRoutineLogLine, planBusyHandling, runsDetachedFromChat, type BusyKind } from "./routine-defer.js";
 
 type RoutineJobOutcome = ExecuteRoutineJobResult & { reason?: string };
@@ -49,6 +49,8 @@ type RoutineJobMeta = {
 	appendMessage?: (conversationId: string, text: string, origin: "routine") => Promise<unknown>;
 	/** Sincroniza o agendador depois de o backoff mudar o intervalo. */
 	onRoutineMutated?: (routine: NonNullable<Awaited<ReturnType<typeof getRoutine>>>) => Promise<unknown>;
+	/** Relógio do alerta com regra (teste injeta; padrão = agora). */
+	now?: () => Date;
 	/** Leitor da fonte (teste injeta; padrão = `readAlertRule` com cache compartilhado do ciclo). */
 	readAlertRule?: (rule: AlertRule) => Promise<RuleSourceResult>;
 };
@@ -479,7 +481,10 @@ async function runRoutineJob(
 		return alert?.rule ? { ...alert, rule: alert.rule } : null;
 	})();
 	if (ruleAlert && payload.triggeredBy === "schedule") {
-		const reason = ruleAlertSkipReason({ rule: ruleAlert.rule, alert: ruleAlert, triggerType: routine.triggerType as RoutineTriggerType, now: new Date() });
+		// Cotação fora do pregão: descarta sem criar linha de execução (seriam ~96 por dia por alerta).
+		const closed = ruleAlertMarketClosedReason({ rule: ruleAlert.rule, alert: ruleAlert, now: (meta.now ?? (() => new Date()))() });
+		if (closed) return { routineId: routine.id, routineRunId: "", status: "skipped", reason: closed };
+		const reason = ruleAlertSkipReason({ rule: ruleAlert.rule, alert: ruleAlert, triggerType: routine.triggerType as RoutineTriggerType, now: (meta.now ?? (() => new Date()))() });
 		if (reason) return skip(reason);
 	}
 	// Rotina que atualiza um painel: o painel precisa existir para o dono (apagado = pula, sem inventar outro).
@@ -539,10 +544,11 @@ async function runRoutineJob(
 				triggerType: routine.triggerType as RoutineTriggerType,
 				interval: trigger && trigger.kind === "interval" ? { everyMinutes: trigger.everyMinutes } : null,
 				locale: isBotLanguage(bot.language) ? bot.language : DEFAULT_BOT_LANGUAGE,
-				now: new Date(),
+				now: (meta.now ?? (() => new Date()))(),
 			},
 			{
-				read: meta.readAlertRule ?? ((rule) => readAlertRule(rule, { cache: alertSourceCache })),
+				// A chave das cotações é a do DONO da rotina (cofre do Marketplace), aberta só durante esta leitura.
+				read: meta.readAlertRule ?? ruleSourceReader(routineUserId, { readAlertRule, resolveKeys: resolveMarketKeys, onKeyRejected: reportRejectedMarketKey, cache: alertSourceCache }),
 				settleRun: (userId, runId, input) => settleRoutineRunDirect(userId, runId, input),
 				record: recordRoutineAlertState,
 				reschedule: async () => {

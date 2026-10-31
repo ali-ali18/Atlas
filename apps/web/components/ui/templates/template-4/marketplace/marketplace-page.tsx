@@ -86,6 +86,7 @@ const sections = [
   { category: "google", titleKey: "marketplace.connector.category.google" },
   { category: "productivity", titleKey: "marketplace.connector.category.productivity" },
   { category: "creative", titleKey: "marketplace.connector.category.creative" },
+  { category: "data", titleKey: "marketplace.connector.category.data" },
 ] as const
 
 const connectorBackgrounds: Record<string, string> = {

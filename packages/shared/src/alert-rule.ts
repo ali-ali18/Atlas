@@ -3,8 +3,9 @@
  * o servidor confere a regra sozinho, sem modelo. Este módulo é o formato (tipos, validação, frase e aviso).
  * A leitura da fonte (I/O) mora em `packages/search`; a avaliação das leituras em `alert-rule-eval.ts`.
  *
- * A união de fontes (`source.type`) é extensível: cotação, câmbio e clima (etapa 2) e conector (etapas 3/5)
- * entram como novos discriminantes. Hoje só `page` e `feed` são implementados.
+ * A união de fontes (`source.type`) é extensível. Páginas e feeds trazem uma URL; as fontes de mercado (etapa 2:
+ * cotação, câmbio, cripto e clima) NÃO têm URL: o servidor monta a chamada a partir de campos fechados e de
+ * provedores com host fixo (nunca uma URL vinda do modelo). Conector entra nas etapas 3/5.
  */
 import type { BotLanguage } from "./bot-language.js";
 import { ALERT_JSONPATH_MAX, ALERT_REGEX_MAX, parseJsonPath, unsafeRegexReason } from "./alert-rule-extract.js";
@@ -22,9 +23,35 @@ export type AlertExtract =
 	| { kind: "jsonpath"; path: string }
 	| { kind: "regex"; pattern: string };
 
-/** Fontes implementadas hoje. Futuras: quote, fx, weather (etapa 2), connector (etapas 3/5). */
-export type AlertSource = { type: "page"; url: string; extract: AlertExtract } | { type: "feed"; url: string };
-export const ALERT_SOURCE_TYPES = ["page", "feed"] as const;
+export const ALERT_WEATHER_METRICS = ["rain_probability", "rain_mm", "temp_max", "temp_min", "wind_max"] as const;
+export type AlertWeatherMetric = (typeof ALERT_WEATHER_METRICS)[number];
+export const ALERT_WEATHER_DAYS = ["today", "tomorrow"] as const;
+export type AlertWeatherDay = (typeof ALERT_WEATHER_DAYS)[number];
+export const ALERT_CRYPTO_QUOTES = ["BRL", "USD"] as const;
+export type AlertCryptoQuote = (typeof ALERT_CRYPTO_QUOTES)[number];
+/** Moedas aceitas no par de câmbio (códigos ISO). */
+export const ALERT_FX_CURRENCIES = ["USD", "EUR", "GBP", "BRL", "ARS", "JPY", "CAD", "AUD", "CHF", "CNY", "MXN", "CLP", "COP", "UYU", "PYG"] as const;
+export const ALERT_PLACE_MAX = 80;
+
+/** Fontes implementadas hoje. Futura: connector (etapas 3/5). */
+export type AlertSource =
+	| { type: "page"; url: string; extract: AlertExtract }
+	| { type: "feed"; url: string }
+	/** Ação, FII, ETF ou BDR da B3 pelo código ("BBAS3"). */
+	| { type: "quote"; symbol: string }
+	/** Par de moedas "USD-BRL" (1 USD vale quantos BRL). */
+	| { type: "fx"; pair: string }
+	/** Cripto: símbolo ("BTC") cotado em BRL ou USD. */
+	| { type: "crypto"; symbol: string; quote: AlertCryptoQuote }
+	/** Previsão por cidade (ou coordenadas) para hoje ou amanhã, relativo a cada conferência. */
+	| { type: "weather"; place?: string; lat?: number; lon?: number; metric: AlertWeatherMetric; day: AlertWeatherDay };
+export type AlertSourceType = AlertSource["type"];
+export const ALERT_SOURCE_TYPES = ["page", "feed", "quote", "fx", "crypto", "weather"] as const;
+/** Fonte sem URL: o servidor monta a chamada a provedores de host fixo. */
+export type AlertMarketSource = Exclude<AlertSource, { type: "page" } | { type: "feed" }>;
+export function isMarketAlertSource(source: AlertSource): source is AlertMarketSource {
+	return source.type !== "page" && source.type !== "feed";
+}
 
 export const ALERT_VALUE_OPS = ["lt", "lte", "gt", "gte", "eq", "neq", "between", "contains", "changed_pct"] as const;
 export type AlertValueOp = (typeof ALERT_VALUE_OPS)[number];
@@ -51,8 +78,8 @@ export type AlertRule = {
 export type ParseAlertRuleResult = { ok: true; rule: AlertRule } | { ok: false; error: string };
 
 /** Piso técnico por fonte: protege sites de terceiros e cotas de API. Não é um mínimo de produto. */
-const SOURCE_FLOOR_MINUTES: Record<AlertSource["type"], number> = { page: 30, feed: 15 };
-const SOURCE_DEFAULT_MINUTES: Record<AlertSource["type"], number> = { page: 120, feed: 60 };
+const SOURCE_FLOOR_MINUTES: Record<AlertSource["type"], number> = { page: 30, feed: 15, quote: 15, fx: 15, crypto: 5, weather: 180 };
+const SOURCE_DEFAULT_MINUTES: Record<AlertSource["type"], number> = { page: 120, feed: 60, quote: 30, fx: 30, crypto: 15, weather: 360 };
 
 export function alertSourceFloorMinutes(source: Pick<AlertSource, "type">): number {
 	return SOURCE_FLOOR_MINUTES[source.type];
@@ -74,6 +101,10 @@ const FEED_FIELDS = ["type", "url"] as const;
 const EXTRACT_FIELDS = { css: ["kind", "selector", "attribute"], jsonpath: ["kind", "path"], regex: ["kind", "pattern"] } as const;
 const VALUE_FIELDS = ["kind", "parse", "op", "value", "value2", "currency"] as const;
 const NEW_ITEM_FIELDS = ["kind"] as const;
+const QUOTE_FIELDS = ["type", "symbol"] as const;
+const FX_FIELDS = ["type", "pair"] as const;
+const CRYPTO_FIELDS = ["type", "symbol", "quote"] as const;
+const WEATHER_FIELDS = ["type", "place", "lat", "lon", "metric", "day"] as const;
 
 type Rec = Record<string, unknown>;
 
@@ -134,9 +165,54 @@ function parseExtract(raw: unknown): { extract: AlertExtract } | { error: string
 	return { extract: { kind, pattern } };
 }
 
+function parseMarketSource(raw: Rec, type: "quote" | "fx" | "crypto" | "weather"): { source: AlertSource } | { error: string } {
+	if (type === "quote") {
+		const unknown = unknownField(raw, QUOTE_FIELDS, "rule.source (quote)");
+		if (unknown) return { error: unknown };
+		const symbol = oneLine(raw.symbol).toUpperCase();
+		if (!/^[A-Z]{4}\d{1,2}$/.test(symbol)) return { error: 'rule.source.symbol must be a B3 ticker such as BBAS3, PETR4, HGLG11, BOVA11 or AAPL34 (stocks, FIIs, ETFs and BDRs only)' };
+		return { source: { type, symbol } };
+	}
+	if (type === "fx") {
+		const unknown = unknownField(raw, FX_FIELDS, "rule.source (fx)");
+		if (unknown) return { error: unknown };
+		const pair = oneLine(raw.pair).toUpperCase().replace("/", "-");
+		const [from, to] = pair.split("-");
+		const known = (code: string | undefined) => ALERT_FX_CURRENCIES.includes(code as (typeof ALERT_FX_CURRENCIES)[number]);
+		if (pair.split("-").length !== 2 || !known(from) || !known(to) || from === to) return { error: `rule.source.pair must be two different currencies like USD-BRL (accepted: ${ALERT_FX_CURRENCIES.join(", ")})` };
+		return { source: { type, pair } };
+	}
+	if (type === "crypto") {
+		const unknown = unknownField(raw, CRYPTO_FIELDS, "rule.source (crypto)");
+		if (unknown) return { error: unknown };
+		const symbol = oneLine(raw.symbol).toUpperCase();
+		if (!/^[A-Z0-9]{2,10}$/.test(symbol)) return { error: "rule.source.symbol must be a crypto symbol such as BTC, ETH or SOL" };
+		const quote = raw.quote === undefined ? "BRL" : raw.quote;
+		if (!ALERT_CRYPTO_QUOTES.includes(quote as AlertCryptoQuote)) return { error: `rule.source.quote must be one of: ${ALERT_CRYPTO_QUOTES.join(", ")}` };
+		return { source: { type, symbol, quote: quote as AlertCryptoQuote } };
+	}
+	const unknown = unknownField(raw, WEATHER_FIELDS, "rule.source (weather)");
+	if (unknown) return { error: unknown };
+	if (!ALERT_WEATHER_METRICS.includes(raw.metric as AlertWeatherMetric)) return { error: `rule.source.metric must be one of: ${ALERT_WEATHER_METRICS.join(", ")}` };
+	const day = raw.day === undefined ? "tomorrow" : raw.day;
+	if (!ALERT_WEATHER_DAYS.includes(day as AlertWeatherDay)) return { error: `rule.source.day must be one of: ${ALERT_WEATHER_DAYS.join(", ")}` };
+	const place = oneLine(raw.place);
+	const hasCoords = raw.lat !== undefined || raw.lon !== undefined;
+	if (hasCoords) {
+		const lat = raw.lat;
+		const lon = raw.lon;
+		if (typeof lat !== "number" || typeof lon !== "number" || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return { error: "rule.source.lat and lon must both be valid coordinates" };
+		if (place.length > ALERT_PLACE_MAX) return { error: `rule.source.place is longer than ${ALERT_PLACE_MAX} characters` };
+		return { source: { type, ...(place ? { place } : {}), lat: Math.round(lat * 1e4) / 1e4, lon: Math.round(lon * 1e4) / 1e4, metric: raw.metric as AlertWeatherMetric, day: day as AlertWeatherDay } };
+	}
+	if (!place || place.length > ALERT_PLACE_MAX || /[<>{}]/.test(place)) return { error: `rule.source.place is required (a city name, up to ${ALERT_PLACE_MAX} characters) unless lat and lon are given` };
+	return { source: { type, place, metric: raw.metric as AlertWeatherMetric, day: day as AlertWeatherDay } };
+}
+
 function parseSource(raw: unknown): { source: AlertSource } | { error: string } {
 	if (!isRecord(raw)) return { error: `rule.source must be an object (type: ${ALERT_SOURCE_TYPES.join(" | ")})` };
 	const type = raw.type;
+	if (type === "quote" || type === "fx" || type === "crypto" || type === "weather") return parseMarketSource(raw, type);
 	if (type !== "page" && type !== "feed") return { error: `rule.source.type must be one of: ${ALERT_SOURCE_TYPES.join(", ")}` };
 	const unknown = unknownField(raw, type === "page" ? PAGE_FIELDS : FEED_FIELDS, `rule.source (${type})`);
 	if (unknown) return { error: unknown };
@@ -160,6 +236,7 @@ function parseCheck(raw: unknown, source: AlertSource): { check: AlertCheck } | 
 	if (raw.kind === "new_item") {
 		const unknown = unknownField(raw, NEW_ITEM_FIELDS, "rule.check (new_item)");
 		if (unknown) return { error: unknown };
+		if (isMarketAlertSource(source)) return { error: `a ${source.type} source only supports check value (compare the number)` };
 		const listable = source.type === "feed" || (source.type === "page" && source.extract.kind === "css");
 		if (!listable) return { error: "check new_item needs a feed source, or a page source with a css extract that matches the list of items" };
 		return { check: { kind: "new_item" } };
@@ -170,6 +247,11 @@ function parseCheck(raw: unknown, source: AlertSource): { check: AlertCheck } | 
 	if (source.type === "feed") return { error: "a feed source only supports check new_item" };
 	const parse = raw.parse;
 	if (parse !== "number" && parse !== "money" && parse !== "text") return { error: `rule.check.parse must be one of: ${ALERT_PARSE_KINDS.join(", ")}` };
+	if (isMarketAlertSource(source)) {
+		if (parse === "text") return { error: `a ${source.type} source gives a number: use parse ${source.type === "weather" ? "number" : "money"}` };
+		if (source.type === "weather" && parse === "money") return { error: "a weather source gives a number (percent, mm, °C or km/h): use parse number" };
+		if (raw.currency !== undefined && marketSourceCurrency(source) !== raw.currency) return { error: `rule.check.currency for this source must be ${marketSourceCurrency(source) ?? "omitted"} (the currency the value is quoted in)` };
+	}
 	const op = raw.op;
 	const allowedOps = parse === "text" ? TEXT_OPS : NUMERIC_OPS;
 	if (typeof op !== "string" || !allowedOps.includes(op as AlertValueOp)) return { error: `rule.check.op for parse ${parse} must be one of: ${allowedOps.join(", ")}` };
@@ -198,7 +280,50 @@ function parseCheck(raw: unknown, source: AlertSource): { check: AlertCheck } | 
 		if (!ALERT_CURRENCIES.includes(raw.currency as AlertCurrency)) return { error: `rule.check.currency must be one of: ${ALERT_CURRENCIES.join(", ")}` };
 		currency = raw.currency as AlertCurrency;
 	}
+	// Fonte de mercado: o dinheiro vem na moeda da própria cotação (R$ para BBAS3, US$ para EUR-USD…).
+	if (isMarketAlertSource(source) && parse === "money" && !currency) currency = marketSourceCurrency(source);
+	if (isMarketAlertSource(source) && parse === "money" && !currency) return { error: "this pair is not quoted in BRL, USD, EUR or GBP: use parse number" };
 	return { check: { kind: "value", parse, op: typedOp, value, ...(value2 !== undefined ? { value2 } : {}), ...(currency ? { currency } : {}) } };
+}
+
+/** Moeda em que a fonte de mercado cota o valor (undefined = não é dinheiro conhecido). */
+export function marketSourceCurrency(source: AlertSource): AlertCurrency | undefined {
+	let code: string | undefined;
+	if (source.type === "quote") code = "BRL";
+	else if (source.type === "fx") code = source.pair.split("-")[1];
+	else if (source.type === "crypto") code = source.quote;
+	return ALERT_CURRENCIES.find((item) => item === code);
+}
+
+/** Unidade do número de uma fonte de clima ("%", "mm", "°C", "km/h"); vazio nas demais. */
+export function alertSourceUnit(source: AlertSource): string {
+	if (source.type !== "weather") return "";
+	switch (source.metric) {
+		case "rain_probability":
+			return "%";
+		case "rain_mm":
+			return "mm";
+		case "wind_max":
+			return "km/h";
+		default:
+			return "°C";
+	}
+}
+
+/** Nome curto padrão quando o agente não deu `label`: "BBAS3", "USD/BRL", "BTC", "Curitiba". */
+export function alertSourceDefaultLabel(source: AlertSource): string | undefined {
+	switch (source.type) {
+		case "quote":
+			return source.symbol;
+		case "fx":
+			return source.pair.replace("-", "/");
+		case "crypto":
+			return source.symbol;
+		case "weather":
+			return source.place;
+		default:
+			return undefined;
+	}
 }
 
 /** Só `{value}` é substituído; qualquer outra chave é recusada (nada de interpolação). */
@@ -249,6 +374,7 @@ export function sameAlertRule(a: AlertRule | undefined, b: AlertRule | undefined
 
 /** Host da fonte, para log: nunca a URL inteira (pode carregar chave na query). */
 export function alertSourceHost(source: AlertSource): string {
+	if (isMarketAlertSource(source)) return `market:${source.type}`;
 	try {
 		return new URL(source.url).hostname;
 	} catch {
@@ -269,22 +395,27 @@ export function formatAlertNumber(value: number, parse: AlertParseKind, locale: 
 	return format.format(value).replace(/[\u00a0\u202f]/g, " ");
 }
 
-function formatCheckValue(check: Extract<AlertCheck, { kind: "value" }>, which: "value" | "value2", locale: BotLanguage): string {
+function formatCheckValue(check: Extract<AlertCheck, { kind: "value" }>, which: "value" | "value2", locale: BotLanguage, source?: AlertSource): string {
 	const raw = which === "value" ? check.value : check.value2;
 	if (typeof raw !== "number") return `“${String(raw ?? "")}”`;
 	if (check.op === "changed_pct") return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(raw)}%`;
-	return formatAlertNumber(raw, check.parse, locale, check.currency);
+	return formatAlertNumber(raw, check.parse, locale, check.currency) + (source ? alertSourceUnit(source) : "");
+}
+
+/** Rótulo mostrado ao usuário: o do agente ou, nas fontes de mercado, o código do ativo. */
+function ruleLabel(rule: AlertRule): string | undefined {
+	return rule.label ?? alertSourceDefaultLabel(rule.source);
 }
 
 const OP_SYMBOL: Record<AlertValueOp, string> = { lt: "<", lte: "≤", gt: ">", gte: "≥", eq: "=", neq: "≠", between: "", contains: "∋", changed_pct: "Δ" };
 
 /** "tênis < R$ 400" (curto, para o card). Novo item: "novidade". */
 export function describeAlertRuleCompact(rule: AlertRule, locale: BotLanguage): string {
-	const label = rule.label ?? "";
+	const label = ruleLabel(rule) ?? "";
 	if (rule.check.kind === "new_item") return [label, NEW_ITEM_WORD[locale]].filter(Boolean).join(" · ");
 	const check = rule.check;
-	const a = formatCheckValue(check, "value", locale);
-	const tail = check.op === "between" ? `${a}–${formatCheckValue(check, "value2", locale)}` : check.op === "changed_pct" ? `${OP_SYMBOL.changed_pct} ≥ ${a}` : `${OP_SYMBOL[check.op]} ${a}`;
+	const a = formatCheckValue(check, "value", locale, rule.source);
+	const tail = check.op === "between" ? `${a}–${formatCheckValue(check, "value2", locale, rule.source)}` : check.op === "changed_pct" ? `${OP_SYMBOL.changed_pct} ≥ ${a}` : `${OP_SYMBOL[check.op]} ${a}`;
 	return `${label ? `${label} ` : ""}${tail}`.trim();
 }
 
@@ -309,9 +440,9 @@ export function describeAlertRuleCondition(rule: AlertRule, locale: BotLanguage)
 	} else {
 		const check = rule.check;
 		const phrase = PHRASES[lang]![check.op]
-			.replace("{a}", formatCheckValue(check, "value", locale))
-			.replace("{b}", check.op === "between" ? formatCheckValue(check, "value2", locale) : "");
-		text = `${rule.label ?? DEFAULT_LABEL[locale] ?? "o valor"} ${phrase}`;
+			.replace("{a}", formatCheckValue(check, "value", locale, rule.source))
+			.replace("{b}", check.op === "between" ? formatCheckValue(check, "value2", locale, rule.source) : "");
+		text = `${ruleLabel(rule) ?? DEFAULT_LABEL[locale] ?? "o valor"} ${phrase}`;
 	}
 	return text.length > 300 ? `${text.slice(0, 299).trimEnd()}…` : text;
 }
@@ -326,8 +457,8 @@ function capitalize(text: string): string {
 /** Modelo padrão do aviso, por idioma, já com o rótulo; o marcador {value} fica para `renderAlertMessage`. */
 export function defaultAlertMessage(rule: AlertRule, locale: BotLanguage): string {
 	const lang = STATUS_TEMPLATE[locale] ? locale : "pt-BR";
-	if (rule.check.kind === "new_item") return NEW_ITEM_TEMPLATE[lang]!.replace("{label}", rule.label ?? DEFAULT_SOURCE_LABEL[locale] ?? "a fonte");
-	return STATUS_TEMPLATE[lang]!.replace("{Label}", capitalize(rule.label ?? DEFAULT_LABEL[locale] ?? "o valor"));
+	if (rule.check.kind === "new_item") return NEW_ITEM_TEMPLATE[lang]!.replace("{label}", ruleLabel(rule) ?? DEFAULT_SOURCE_LABEL[locale] ?? "a fonte");
+	return STATUS_TEMPLATE[lang]!.replace("{Label}", capitalize(ruleLabel(rule) ?? DEFAULT_LABEL[locale] ?? "o valor"));
 }
 
 /** Aviso final: o modelo da regra (ou o padrão do idioma) com {value} trocado pela leitura. Nenhuma outra interpolação. */

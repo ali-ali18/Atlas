@@ -44,6 +44,7 @@ import {
 	type McpOAuthClient,
 	openSecrets,
 	parseIconHostname,
+	probeMarketKey,
 	probeMcpServer,
 	resolveSiteIcon,
 	redactSecrets,
@@ -383,10 +384,13 @@ export type McpRouteOptions = {
 	onApiConnected?: (userId: string, slug: string) => Promise<unknown>;
 	/** Só testes: dependências do fechamento do OAuth de API. */
 	apiOAuthDeps?: Partial<ApiConnectionRouteDeps>;
+	/** Testa a chave de uma fonte de dados (brapi) antes de guardar. Padrão: uma cotação de verdade. Só testes trocam. */
+	probeDataSource?: (catalogId: string, key: string) => Promise<void>;
 };
 
 export function createMcpRoutes(options: McpRouteOptions = {}) {
 	const app = new Hono<AuthEnv>();
+	const probeDataSource = options.probeDataSource ?? ((catalogId: string, key: string) => probeMarketKey(catalogId, key));
 	const apiOAuthDeps: ApiConnectionRouteDeps = { ...defaultApiConnectionRouteDeps, ...options.apiOAuthDeps, onConnected: options.onApiConnected ?? options.apiOAuthDeps?.onConnected };
 	const notifyConnected = (userId: string | undefined, catalogId: string | null | undefined) => {
 		if (!options.onConnected || !userId || userId === "default" || !catalogId) return;
@@ -500,7 +504,13 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 				const accountLabel = existing ? input.accountLabel : await newAccountLabel(userId, entry.id, input.accountLabel);
 				let tools: McpToolInfo[];
 				try {
-					tools = sanitizeMcpTools(await probeMcpServer(applied), secretList);
+					// Fonte de dados (brapi) não é servidor MCP: testa a chave com uma cotação e fica sem tools.
+					if (entry.kind === "data_source") {
+						await probeDataSource(entry.id, key ?? "");
+						tools = [];
+					} else {
+						tools = sanitizeMcpTools(await probeMcpServer(applied), secretList);
+					}
 				} catch (error) {
 					const message = sanitizeErrorMessage(error, secretList);
 					if (existing) await updateMcpConnection(existing.id, { status: "error", lastError: message }, userId);
@@ -686,6 +696,19 @@ export function createMcpRoutes(options: McpRouteOptions = {}) {
 			let secrets;
 			try { secrets = openSecrets(existing.secretsEnc); }
 			catch { return c.json({ error: "Credenciais ilegíveis: reconecte o conector" }, 422); }
+			const dataSource = existing.catalogId ? getMcpCatalogEntry(existing.catalogId) : undefined;
+			if (dataSource?.kind === "data_source") {
+				// Sem servidor MCP: "atualizar" é conferir de novo se a chave ainda vale.
+				const key = secrets.apiKey ?? "";
+				try {
+					await probeDataSource(dataSource.id, key);
+					const connection = await updateMcpConnection(existing.id, { status: "connected", lastError: null }, userId);
+					return connection ? c.json({ connection: toMcpConnectionView(connection) }) : c.json({ error: "Conexão não encontrada" }, 404);
+				} catch (error) {
+					const connection = await updateMcpConnection(existing.id, { status: "error", lastError: sanitizeErrorMessage(error, [key, encodeURIComponent(key)]) }, userId);
+					return connection ? c.json({ connection: toMcpConnectionView(connection) }) : c.json({ error: "Conexão não encontrada" }, 404);
+				}
+			}
 			const config = buildMcpClientConfig(existing, secrets);
 			const secretList = [
 				...secretValues(secrets), secrets.apiKey,

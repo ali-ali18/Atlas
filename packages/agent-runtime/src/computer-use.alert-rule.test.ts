@@ -169,3 +169,91 @@ describe("propose_routine com alert.rule", () => {
 		expect(toolResults[0]!.summary).toMatch(/Pause ou apague/);
 	});
 });
+
+/** Etapa 2: fontes de mercado, sem link e sem modelo por conferência. Provedores simulados (nada de rede). */
+describe("propose_routine com fontes de mercado", () => {
+	const numberReader = (value: number, host: string, delayMinutes?: number): AlertRuleReader =>
+		vi.fn(async () => ({ ok: true as const, read: { kind: "number" as const, value, ...(delayMinutes !== undefined ? { delayMinutes } : {}) }, host, ms: 4 }));
+	const alertRow = (rule: Record<string, unknown>, condition: string, every = 30) => ({ routine: row({ condition, active: false, rule }, every) }) as never;
+	const mkRule = (source: Record<string, unknown>, check: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ source, check, ...extra });
+	const create = (title: string, rule: Record<string, unknown>) => ({ action: "create", title, detail: "Server-checked market alert.", trigger_type: "interval", alert: { rule } });
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		vi.mocked(listRoutines).mockResolvedValue([]);
+	});
+
+	it("o esquema ensina as fontes prontas e continua pequeno", () => {
+		const tool = COMPUTER_USE_TOOLS.find((item) => item.function.name === "propose_routine")!;
+		const schema = JSON.stringify(tool.function.parameters);
+		for (const word of ["quote", "fx", "crypto", "weather", "rain_probability", "brapi"]) expect(schema).toContain(word);
+		expect(JSON.stringify(tool).length).toBeLessThan(26_000);
+		expect(groupProcedureText(new Set(["routines"]))).toContain("Ready sources need NO link");
+	});
+
+	it("replay: 'me avisa quando BBAS3 cair abaixo de R$ 15' lê a cotação agora e diz o valor e o atraso", async () => {
+		const rule = mkRule({ type: "quote", symbol: "BBAS3" }, { kind: "value", parse: "money", op: "lt", value: 15 }, { intervalMinutes: 15 });
+		vi.mocked(createRoutine).mockResolvedValueOnce(alertRow({ ...rule, check: { ...rule.check, currency: "BRL" } }, "BBAS3 ficar abaixo de R$ 15,00", 15));
+		const reader = numberReader(21.34, "brapi.dev", 30);
+		const { toolResults } = await run({ message: "me avisa quando BBAS3 cair abaixo de R$ 15", calls: [toolCall("c1", "propose_routine", create("BBAS3", rule)), closing], reader });
+		expect(reader).toHaveBeenCalledTimes(1);
+		const created = vi.mocked(createRoutine).mock.calls[0]![1] as { alert: { condition: string; rule: { source: object; check: object } }; trigger: object };
+		expect(created.alert.rule.source).toEqual({ type: "quote", symbol: "BBAS3" });
+		expect(created.alert.rule.check).toMatchObject({ op: "lt", value: 15, currency: "BRL" });
+		expect(created.alert.condition).toBe("BBAS3 ficar abaixo de R$ 15,00");
+		expect(created.trigger).toEqual({ kind: "interval", everyMinutes: 15 });
+		expect(toolResults[0]).toMatchObject({ ok: true });
+		expect(toolResults[0]!.summary).toContain("R$ 21,34 today");
+		expect(toolResults[0]!.summary).toContain("delayed (cotação com atraso de ~30 min)");
+	});
+
+	it("replay: 'dólar acima de 6' usa câmbio sem chave e diz 1 USD = valor", async () => {
+		const rule = mkRule({ type: "fx", pair: "USD-BRL" }, { kind: "value", parse: "money", op: "gt", value: 6 }, { label: "dólar" });
+		vi.mocked(createRoutine).mockResolvedValueOnce(alertRow(rule, "dólar passar de R$ 6,00"));
+		const { toolResults } = await run({ message: "me avisa se o dólar passar de 6", calls: [toolCall("c1", "propose_routine", create("Dólar", rule)), closing], reader: numberReader(5.97, "economia.awesomeapi.com.br") });
+		const created = vi.mocked(createRoutine).mock.calls[0]![1] as { alert: { rule: { check: { currency: string } } }; trigger: { everyMinutes: number } };
+		expect(created.alert.rule.check.currency).toBe("BRL");
+		expect(created.trigger.everyMinutes).toBe(30);
+		expect(toolResults[0]!.summary).toContain("1 USD = R$ 5,97");
+	});
+
+	it("replay: 'bitcoin abaixo de 300 mil' usa cripto em BRL com piso de 5 min", async () => {
+		const rule = mkRule({ type: "crypto", symbol: "BTC" }, { kind: "value", parse: "money", op: "lt", value: 300000 }, { label: "bitcoin", intervalMinutes: 1 });
+		vi.mocked(createRoutine).mockResolvedValueOnce(alertRow({ ...rule, source: { type: "crypto", symbol: "BTC", quote: "BRL" } }, "bitcoin ficar abaixo de R$ 300.000,00", 5));
+		const { toolResults } = await run({ message: "avisa se o bitcoin cair abaixo de 300 mil", calls: [toolCall("c1", "propose_routine", create("Bitcoin", rule)), closing], reader: numberReader(351234.5, "api.mercadobitcoin.net") });
+		const created = vi.mocked(createRoutine).mock.calls[0]![1] as { alert: { rule: { source: object } }; trigger: { everyMinutes: number } };
+		expect(created.alert.rule.source).toEqual({ type: "crypto", symbol: "BTC", quote: "BRL" });
+		expect(created.trigger.everyMinutes).toBe(5);
+		expect(toolResults[0]).toMatchObject({ ok: true });
+	});
+
+	it("replay: 'vai chover amanhã em Curitiba?' vira alerta de previsão com unidade e piso de 3 h", async () => {
+		const rule = mkRule({ type: "weather", place: "Curitiba", metric: "rain_probability" }, { kind: "value", parse: "number", op: "gte", value: 60 }, { label: "chuva em Curitiba amanhã", intervalMinutes: 30 });
+		vi.mocked(createRoutine).mockResolvedValueOnce(alertRow(rule, "chuva em Curitiba amanhã chegar a 60% ou mais", 180));
+		const { toolResults } = await run({ message: "me avisa se for chover amanhã em Curitiba", calls: [toolCall("c1", "propose_routine", create("Chuva em Curitiba", rule)), closing], reader: numberReader(75, "api.open-meteo.com") });
+		const created = vi.mocked(createRoutine).mock.calls[0]![1] as { alert: { rule: { source: object } }; trigger: { everyMinutes: number } };
+		expect(created.alert.rule.source).toMatchObject({ type: "weather", place: "Curitiba", metric: "rain_probability", day: "tomorrow" });
+		expect(created.trigger.everyMinutes).toBe(180);
+		expect(toolResults[0]!.summary).toContain("Current forecast: 75%");
+	});
+
+	it("cotação sem a chave da brapi falha com a dica de abrir o Marketplace (propose_connector), sem pedir a chave no chat", async () => {
+		const reader: AlertRuleReader = async () => ({ ok: false, code: "needs_key", reason: "conecte a brapi no Marketplace (é grátis) para acompanhar cotações", host: "market:quote", ms: 1 });
+		const rule = mkRule({ type: "quote", symbol: "BBAS3" }, { kind: "value", parse: "money", op: "lt", value: 15 });
+		const { toolResults } = await run({ message: "me avisa se BBAS3 cair", calls: [toolCall("c1", "propose_routine", create("BBAS3", rule)), closing], reader });
+		expect(toolResults[0]).toMatchObject({ ok: false });
+		expect(toolResults[0]!.summary).toContain("propose_connector");
+		expect(toolResults[0]!.summary).toContain("never ask for the key in chat");
+		expect(createRoutine).not.toHaveBeenCalled();
+	});
+
+	it("ticker inválido, cidade desconhecida e campo extra (URL do modelo) falham antes de ler", async () => {
+		const reader = numberReader(1, "x");
+		for (const source of [{ type: "quote", symbol: "AAPL" }, { type: "quote", symbol: "BBAS3", url: "http://169.254.169.254/" }, { type: "weather", metric: "rain_probability" }]) {
+			const { toolResults } = await run({ message: "me avisa", calls: [toolCall("c1", "propose_routine", create("X", mkRule(source, { kind: "value", parse: "number", op: "lt", value: 1 }))), closing], reader });
+			expect(toolResults[0]).toMatchObject({ ok: false });
+		}
+		expect(reader).not.toHaveBeenCalled();
+		expect(createRoutine).not.toHaveBeenCalled();
+	});
+});
