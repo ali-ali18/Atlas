@@ -4,12 +4,18 @@ import {
 	GROUP_JEV_THRESHOLD,
 	GROUP_JEV_TURN_MAX_REPLIES,
 	GROUP_MAX_MEMBERS,
+	GROUP_MAX_NUDGES_PER_MEMBER,
 	GROUP_MIN_MEMBERS,
+	GROUP_REPLY_NO_PROGRESS_MS,
+	GROUP_SUMMARY_HOLD_MS,
 	buildGroupRolePrompt,
 	buildGroupTurnPrompt,
 	buildJevRoutingQuestions,
 	buildJevVerifyQuestions,
 	decideJevRoute,
+	decideSummaryHold,
+	describeMissingDeliveries,
+	detectUndelivered,
 	jevRoutingState,
 	jevVerifyState,
 	parseCoordinatorAssignments,
@@ -17,6 +23,7 @@ import {
 	normalizeGroupMemberIds,
 	planGroupFollowUps,
 	routeGroupMessage,
+	undeliveredError,
 	type Bot,
 	type GroupMember,
 	type GroupReplyReason,
@@ -26,7 +33,7 @@ import {
 import { prisma } from "./client.js";
 import { createBot, updateBot } from "./bots.js";
 import { ensureBotConversation, isTerminal, resolveBotModel } from "./bot-messages.js";
-import { createAgentRun, listActiveRunsForConversation } from "./runs.js";
+import { createAgentRun, listActiveRunsForConversation, requestCancelAgentRun } from "./runs.js";
 import { ownerIds } from "./mcp-connections.js";
 import { recordUserLanguage } from "./user-language.js";
 export { getGroupAuthor, isGroupConversation } from "./group-lookup.js";
@@ -310,6 +317,8 @@ export type GroupDispatchDeps = {
 	activeRuns?: typeof listActiveRunsForConversation;
 	resolveModel?: (botId: string, userId: string, envDefault: string) => Promise<string>;
 	ensureConversation?: typeof ensureBotConversation;
+	/** Pede o cancelamento do run parado sem progresso (libera a fila do grupo). */
+	cancelRun?: (runId: string) => Promise<unknown>;
 };
 
 export type GroupDispatchResult = {
@@ -407,6 +416,13 @@ async function routeTurns(deps: GroupDispatchDeps): Promise<number> {
 	return routed;
 }
 
+/** Último sinal de vida do run (ou, sem ele, o início da resposta) mais velho que o prazo? Sem nenhum sinal, não encerra. */
+function isRunStalled(runUpdatedAt: Date | null | undefined, startedAt: Date | null | undefined, now: Date): boolean {
+	const lastSignal = runUpdatedAt ?? startedAt;
+	if (!(lastSignal instanceof Date)) return false;
+	return now.getTime() - lastSignal.getTime() >= GROUP_REPLY_NO_PROGRESS_MS;
+}
+
 function replyTextOf(run: { status: string; resultText: string | null }): string | null {
 	if (run.status !== "completed" && run.status !== "budget_exhausted") return null;
 	const text = run.resultText?.trim();
@@ -419,13 +435,19 @@ async function settleReplies(deps: GroupDispatchDeps): Promise<{ settled: number
 	let settled = 0;
 	let followUps = 0;
 	for (const reply of rows) {
-		const run = await prisma.agentRun.findUnique({ where: { id: reply.runId! }, select: { status: true, resultText: true, error: true } });
-		if (run && !isTerminal(run.status)) continue;
-		const text = run ? replyTextOf(run) : null;
-		const finalStatus = run && (run.status === "completed" || run.status === "budget_exhausted") ? "done" : "failed";
+		const run = await prisma.agentRun.findUnique({ where: { id: reply.runId! }, select: { status: true, resultText: true, error: true, updatedAt: true } });
+		let stalled = false;
+		if (run && !isTerminal(run.status)) {
+			// Sem progresso além do prazo: encerra como "sem entrega" para o resumo não ficar pendurado.
+			if (!isRunStalled(run.updatedAt, reply.startedAt, (deps.now ?? (() => new Date()))())) continue;
+			stalled = true;
+			await (deps.cancelRun ?? requestCancelAgentRun)(reply.runId!).catch((error) => console.error(`[bot-groups] cancel stalled run failed reply=${reply.id}`, error instanceof Error ? error.name : "error"));
+		}
+		const text = run && !stalled ? replyTextOf(run) : null;
+		const finalStatus = !stalled && run && (run.status === "completed" || run.status === "budget_exhausted") ? "done" : "failed";
 		const claimed = await prisma.groupReply.updateMany({
 			where: { id: reply.id, status: "running" },
-			data: { status: finalStatus, finishedAt: new Date(), error: finalStatus === "failed" ? (run?.error ?? run?.status ?? "run_missing") : null },
+			data: { status: finalStatus, finishedAt: new Date(), error: stalled ? "no_progress" : finalStatus === "failed" ? (run?.error ?? run?.status ?? "run_missing") : null },
 		});
 		if (claimed.count !== 1) continue;
 		settled += 1;
@@ -533,6 +555,36 @@ async function advanceCoordination(reply: SettledReply, text: string | null, dep
 		return;
 	}
 	if (reply.role !== "worker") return;
+	// Devolveu pergunta/"aguardando" em vez de entregar: UMA cobrança por membro no turno; sem ela, o resumo marca a falta.
+	const undelivered = text ? detectUndelivered(text) : null;
+	if (undelivered) {
+		await prisma.groupReply.update({ where: { id: reply.id }, data: { error: undeliveredError(undelivered) } });
+		const nudges = await prisma.groupReply.count({ where: { turnId: reply.turnId, botId: reply.botId, reason: "nudge" } });
+		const room = total < GROUP_JEV_TURN_MAX_REPLIES - 1;
+		console.log(`[group-jev] undelivered turn=${reply.turnId} reply=${reply.id} reason=${undelivered} nudge=${nudges < GROUP_MAX_NUDGES_PER_MEMBER && room}`);
+		if (nudges < GROUP_MAX_NUDGES_PER_MEMBER && room) {
+			const last = await prisma.groupReply.findFirst({ where: { turnId: reply.turnId }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+			await prisma.groupReply.create({
+				data: {
+					turnId: reply.turnId,
+					userId: reply.userId,
+					groupId: reply.groupId,
+					conversationId: reply.conversationId,
+					botId: reply.botId,
+					depth: reply.depth,
+					reason: "nudge" satisfies GroupReplyReason,
+					role: "worker",
+					subtask: reply.subtask,
+					attempt: reply.attempt + 1,
+					triggerBotId: reply.triggerBotId ?? null,
+					createdAt: new Date(Math.max(base, (last?.createdAt.getTime() ?? 0) + 1)),
+				},
+			});
+			return;
+		}
+		await maybeQueueSummary(reply.turnId, deps);
+		return;
+	}
 	if (text && deps.jev && reply.subtask) {
 		const name = found.members.find((member) => member.id === reply.botId)?.name ?? "Membro";
 		let score: number | null = null;
@@ -574,19 +626,57 @@ async function advanceCoordination(reply: SettledReply, text: string | null, dep
 			}
 		}
 	}
-	await maybeQueueSummary(reply.turnId);
+	await maybeQueueSummary(reply.turnId, deps);
 }
 
-/** Quando nenhum membro está em aberto no turno, chama o coordenador uma única vez para o resumo. */
-async function maybeQueueSummary(turnId: string): Promise<boolean> {
+type SummaryOutcome = "queued" | "hold" | "none";
+
+/** Membros do turno que ainda têm cartão decidível (intenção do dono, não expirada) na conversa do grupo. */
+async function pendingCardBotIds(userId: string, conversationId: string, now: Date): Promise<Set<string>> {
+	const intent = await prisma.skillPendingIntent.findFirst({ where: { userId, conversationId, kind: "confirm", expiresAt: { gt: now } } });
+	const payload: unknown = intent?.payload;
+	const botId = payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as { botId?: unknown }).botId : null;
+	return new Set(typeof botId === "string" ? [botId] : []);
+}
+
+/**
+ * Quando nenhum membro está em aberto no turno, chama o coordenador uma única vez para o resumo.
+ * Segura o resumo (`hold`) enquanto um membro tem aprovação ainda decidível ou continuação ativa, até
+ * `GROUP_SUMMARY_HOLD_MS`; depois segue sem ele, marcando a parte que faltou.
+ */
+async function maybeQueueSummary(turnId: string, deps: Pick<GroupDispatchDeps, "activeRuns" | "now"> = {}): Promise<SummaryOutcome> {
+	const now = (deps.now ?? (() => new Date()))();
+	const peek = await prisma.groupReply.findMany({ where: { turnId, role: { in: ["coordinator", "worker", "summary"] } }, orderBy: { createdAt: "asc" } });
+	const first = peek[0];
+	if (!first || peek.some((row) => row.role === "summary" || row.status === "pending" || row.status === "running")) return "none";
+	// Leituras fora da transação (curtas): o que ainda pode mudar o resultado de um membro.
+	const [pendingBotIds, activeRuns] = await Promise.all([
+		pendingCardBotIds(first.userId, first.conversationId, now).catch(() => new Set<string>()),
+		(deps.activeRuns ?? listActiveRunsForConversation)(first.conversationId).catch(() => []),
+	]);
+	const activeBotIds = new Set(activeRuns.map((run) => (run as { botId?: string | null }).botId).filter((id): id is string => Boolean(id)));
 	return prisma.$transaction(async (tx) => {
 		await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`group-summary:${turnId}`}))`;
 		const replies = await tx.groupReply.findMany({ where: { turnId, role: { in: ["coordinator", "worker", "summary"] } }, orderBy: { createdAt: "asc" } });
-		if (replies.some((row) => row.role === "summary")) return false;
-		if (replies.some((row) => row.status === "pending" || row.status === "running")) return false;
+		if (replies.some((row) => row.role === "summary")) return "none";
+		if (replies.some((row) => row.status === "pending" || row.status === "running")) return "none";
 		const coordinator = replies.find((row) => row.role === "coordinator");
 		const workers = replies.filter((row) => row.role === "worker" && (row.status === "done" || row.status === "failed"));
-		if (!coordinator || workers.length === 0) return false;
+		if (!coordinator || workers.length === 0) return "none";
+		const latest = new Map<string, (typeof workers)[number]>();
+		for (const row of workers) latest.set(row.botId, row);
+		const decision = decideSummaryHold({
+			workers: [...latest.values()].map((row) => ({ botId: row.botId, finishedAt: row.finishedAt })),
+			pendingBotIds,
+			activeBotIds,
+			now,
+			holdMs: GROUP_SUMMARY_HOLD_MS,
+		});
+		if (decision.hold) return "hold";
+		for (const botId of decision.timedOut) {
+			const row = latest.get(botId)!;
+			await tx.groupReply.update({ where: { id: row.id }, data: { error: undeliveredError("pending_approval") } });
+		}
 		await tx.groupReply.create({
 			data: {
 				turnId,
@@ -600,18 +690,19 @@ async function maybeQueueSummary(turnId: string): Promise<boolean> {
 				createdAt: new Date(),
 			},
 		});
-		console.log(`[group-jev] summary turn=${turnId} workers=${workers.length}`);
-		return true;
+		console.log(`[group-jev] summary turn=${turnId} workers=${workers.length} timedOut=${decision.timedOut.length}`);
+		return "queued";
 	});
 }
 
-async function closeFinishedTurns(): Promise<void> {
+async function closeFinishedTurns(deps: GroupDispatchDeps): Promise<void> {
 	const turns = await prisma.groupTurn.findMany({ where: { status: "active" }, take: SWEEP_BATCH, select: { id: true } });
 	for (const turn of turns) {
 		const open = await prisma.groupReply.count({ where: { turnId: turn.id, status: { in: ["pending", "running"] } } });
 		if (open > 0) continue;
-		// Membro pulado (saiu do grupo) não deixa o turno sem resumo.
-		if (await maybeQueueSummary(turn.id).catch(() => false)) continue;
+		// Membro pulado (saiu do grupo) não deixa o turno sem resumo; membro com aprovação pendente segura o turno aberto.
+		const outcome = await maybeQueueSummary(turn.id, deps).catch((): SummaryOutcome => "none");
+		if (outcome !== "none") continue;
 		await prisma.groupTurn.updateMany({ where: { id: turn.id, status: "active" }, data: { status: "done" } });
 	}
 }
@@ -657,12 +748,14 @@ async function startReply(replyId: string, deps: GroupDispatchDeps): Promise<"st
 		const triggerName = reply.triggerBotId ? found.members.find((item) => item.id === reply.triggerBotId)?.name : null;
 		let prompt = buildGroupTurnPrompt({ groupName: found.group.name, reason: reply.reason as GroupReplyReason, fromName: triggerName });
 		if (reply.role === "coordinator" || reply.role === "worker" || reply.role === "summary") {
-			const workerNames =
-				reply.role === "summary"
-					? (await prisma.groupReply.findMany({ where: { turnId: reply.turnId, role: "worker" }, orderBy: { createdAt: "asc" } }))
-							.map((row) => found.members.find((item) => item.id === row.botId)?.name)
-							.filter((name, index, list): name is string => Boolean(name) && list.indexOf(name) === index)
-					: [];
+			const workerRows = reply.role === "summary" ? await prisma.groupReply.findMany({ where: { turnId: reply.turnId, role: "worker" }, orderBy: { createdAt: "asc" } }) : [];
+			const workerNames = workerRows
+				.map((row) => found.members.find((item) => item.id === row.botId)?.name)
+				.filter((name, index, list): name is string => Boolean(name) && list.indexOf(name) === index);
+			const missing = describeMissingDeliveries(workerRows).flatMap((item) => {
+				const name = found.members.find((member) => member.id === item.botId)?.name;
+				return name ? [{ name, reason: item.reason }] : [];
+			});
 			prompt = buildGroupRolePrompt({
 				role: reply.role,
 				groupName: found.group.name,
@@ -672,6 +765,8 @@ async function startReply(replyId: string, deps: GroupDispatchDeps): Promise<"st
 				subtask: reply.subtask,
 				attempt: reply.attempt,
 				workerNames,
+				nudge: reply.reason === "nudge",
+				missing,
 			});
 		}
 		const model = await (deps.resolveModel ?? resolveBotModel)(member.id, reply.userId, deps.envDefaultModel);
@@ -732,7 +827,7 @@ export async function processGroupTurns(deps: GroupDispatchDeps): Promise<GroupD
 	const settle = await settleReplies(deps).catch((error) => (console.error("[bot-groups] settle failed", error), { settled: 0, followUps: 0 }));
 	const routed = await routeTurns(deps).catch((error) => (console.error("[bot-groups] routing failed", error), 0));
 	const dispatch = await dispatchReplies(deps).catch((error) => (console.error("[bot-groups] dispatch failed", error), { started: 0, busy: 0 }));
-	await closeFinishedTurns().catch((error) => console.error("[bot-groups] close failed", error));
+	await closeFinishedTurns(deps).catch((error) => console.error("[bot-groups] close failed", error));
 	// Erro na leitura conta como "em andamento": melhor varrer de novo logo do que dormir com trabalho aberto.
 	const open = await prisma.groupTurn
 		.findFirst({ where: { status: { in: ["routing", "active"] } }, select: { id: true } })
