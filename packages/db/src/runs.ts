@@ -172,19 +172,30 @@ function buildStoredBudget(
 	budget: CreateAgentRunRequest["budget"],
 	contextLength: number | null | undefined,
 	modelAuto?: boolean,
+	humanTurn?: boolean,
 ): Prisma.InputJsonValue | undefined {
 	const window = normalizeContextLength(contextLength);
-	if (budget === undefined && window === null && !modelAuto) return undefined;
+	if (budget === undefined && window === null && !modelAuto && !humanTurn) return undefined;
 	return {
 		...(budget as Record<string, unknown> | undefined),
 		...(window !== null ? { contextLength: window } : {}),
 		...(modelAuto ? { modelAuto: true } : {}),
+		...(humanTurn ? { humanTurn: true } : {}),
 	} as Prisma.InputJsonValue;
 }
 
 /** O run foi criado no modo Automático (modelos por dificuldade)? */
 export function readRunModelAuto(run: { budgetJson?: unknown }): boolean {
 	return (run.budgetJson as { modelAuto?: unknown } | null | undefined)?.modelAuto === true;
+}
+
+/**
+ * O run nasceu de uma mensagem DIGITADA pelo dono no chat? Só a API grava `humanTurn` (caminho do POST de mensagem do
+ * usuário); worker de grupo, proativo, resposta de questionário, retomada e cartão de confirmação criam runs
+ * `origin: "chat"` com texto que o dono não escreveu. Ausente (run antigo, api/worker em versões diferentes) = falso.
+ */
+export function readRunHumanTurn(run: { budgetJson?: unknown }): boolean {
+	return (run.budgetJson as { humanTurn?: unknown } | null | undefined)?.humanTurn === true;
 }
 
 /** Lê a janela gravada na criação; fallback 128k (nunca explode). */
@@ -240,6 +251,8 @@ export function buildQueuedRunData(input: {
 	modelAuto?: boolean;
 	/** Arquivos anexados (não imagens): o worker põe o conteúdo no contexto do primeiro passo. */
 	fileArtifactIds?: string[];
+	/** Mensagem digitada pelo dono (só o POST do chat passa). Ver `readRunHumanTurn`. */
+	humanTurn?: boolean;
 }) {
 	const { request, model, userId, conversationId } = input;
 	const maxSteps =
@@ -268,7 +281,7 @@ export function buildQueuedRunData(input: {
 		maxSteps,
 		sandboxSessionId: request.sandboxSessionId ?? null,
 		checkpointJson: checkpoint as unknown as Prisma.InputJsonValue,
-		budgetJson: buildStoredBudget(request.budget, input.contextLength, input.modelAuto),
+		budgetJson: buildStoredBudget(request.budget, input.contextLength, input.modelAuto, input.humanTurn),
 	};
 }
 
@@ -280,6 +293,8 @@ export async function createAgentRun(input: {
 	contextLength?: number | null;
 	/** Modo Automático do composer (gravado no budgetJson; o worker lê). */
 	modelAuto?: boolean;
+	/** Mensagem digitada pelo dono no chat (gravado no budgetJson; libera a marcação de ferramentas). */
+	humanTurn?: boolean;
 	/**
 	 * A conversa já tinha run ativo e a mensagem virou entrada `join` nele (em vez de run novo).
 	 * O chamador acorda o worker (sinal de run); o db não conhece Redis.
@@ -311,7 +326,7 @@ export async function createAgentRun(input: {
 		const row = await prisma.agentRun.create({
 			data: buildQueuedRunData({
 				request: fileCards.length ? { ...request, attachments: await imageAttachmentsOf(request.attachments ?? [], userId) } : request,
-				model, userId, conversationId, contextLength: input.contextLength, modelAuto: input.modelAuto,
+				model, userId, conversationId, contextLength: input.contextLength, modelAuto: input.modelAuto, humanTurn: input.humanTurn,
 				fileArtifactIds: fileCards.map((card) => card.artifactId),
 			}),
 		});

@@ -145,6 +145,14 @@ function parseCreateBody(
 	};
 }
 
+/**
+ * A última fala deste run foi digitada pelo dono? Chat, não silencioso, sem clique de cartão (a continuação de uma
+ * ação confirmada é texto do sistema) e sem compactação. Quem decide é o servidor: o corpo não traz esse campo.
+ */
+export function isHumanTypedTurn(request: Pick<CreateAgentRunRequest, "origin" | "silent" | "compact" | "decisionConfirmId">, followUpFromConfirm: boolean): boolean {
+	return request.origin === "chat" && request.silent !== true && request.compact !== true && !request.decisionConfirmId && !followUpFromConfirm;
+}
+
 function positiveBudgetNumber(value: unknown): number | undefined {
 	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
 		return undefined;
@@ -385,6 +393,7 @@ export function createRunRoutes(
 		// Só o clique do card de confirmação é resolvido aqui; o resto vai ao agente.
 		const lastUser =
 			[...request.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+		let followUpFromConfirm = false;
 		try {
 			const confirmedAction = await maybeHandleConfirmedAction({
 				jevIntent: await buildJevIntentFor(scopeFor(c.get("session")).userId, config.openRouterApiKey, process.env, dependencies.getAccountConfig),
@@ -398,6 +407,7 @@ export function createRunRoutes(
 			});
 			if (!confirmedAction.handled && confirmedAction.followUp) {
 				// Ação MCP confirmada já rodou: o agente continua com o resultado.
+				followUpFromConfirm = true;
 				request = {
 					...request,
 					messages: applyConfirmedFollowUp(request.messages, confirmedAction.followUp),
@@ -437,6 +447,8 @@ export function createRunRoutes(
 				model,
 				userId,
 				modelAuto,
+				// Sinal explícito de "o dono digitou isto" (nunca vem do corpo): libera a marcação de ferramentas só aqui.
+				humanTurn: isHumanTypedTurn(request, followUpFromConfirm),
 				contextLength: peekModelContextLength(model),
 				onMergedIntoActiveRun: (runId) => notifyRunSignal(publish, runId, "input"),
 			});

@@ -2134,6 +2134,8 @@ type ToolContext = {
 	recentAssistantTexts?: string[];
 	/** Origem do AgentRun (chat | routine | …). */
 	origin?: string;
+	/** A fala que abriu o run foi digitada pelo dono (ver `ComputerUseParams.humanTurn`). */
+	humanTurn?: boolean;
 	/** Propostas de novo agente neste run (teto de uma por turno). */
 	botProposals?: { count: number };
 	/** Política de autonomia em vigor (`set_autonomy` troca no meio do run). */
@@ -4419,6 +4421,7 @@ async function executeSetConnectorToolMarksTool(
 	const outcome = await executeSetConnectorToolMarks(args, {
 		userId: ctx.userId,
 		origin: ctx.origin,
+		humanTurn: ctx.humanTurn,
 		userRequestText: ctx.userRequestText ?? "",
 	});
 	const card: ConfirmEvent = {
@@ -5046,6 +5049,11 @@ export async function runComputerUse(params: {
 	/** Origem do AgentRun (chat | routine | subagent | …). */
 	origin?: string;
 	/**
+	 * A mensagem que abriu o run foi DIGITADA pelo dono no chat (gravada pela API, lida pelo worker). Run `chat`
+	 * sintético (worker de grupo, proativo, questionário, retomada) vem sem ela: ausente = falso.
+	 */
+	humanTurn?: boolean;
+	/**
 	 * Filtro final de tools (F5): aplicado DEPOIS dos filtros de origem/autonomia
 	 * sobre as tools nativas e as MCP (inclusive as ativadas por
 	 * `mcp_tool_search`). Só restringe, nunca acrescenta.
@@ -5505,6 +5513,12 @@ export async function runComputerUse(params: {
 	const lastUserMessageContent =
 		[...params.messages].reverse().find((message) => message.role === "user")
 			?.content ?? "";
+	// Segunda linha de defesa do sinal da API: evento de config do bot e resposta de questionário são texto do sistema.
+	const humanTurn =
+		params.humanTurn === true &&
+		!isBotConfigEventObjective(params.objective ?? "") &&
+		!isBotConfigEventObjective(lastUserMessageContent) &&
+		!parseQuestionnaireAnsweredContent(lastUserMessageContent);
 	// Leituras do início do run são independentes entre si: começam todas aqui e cada uma é aguardada
 	// onde é usada (antes iam em série até a 1ª chamada ao modelo). Intenção e dificuldade leem só a
 	// última fala do usuário. As que podem rejeitar (abort) ganham um `.catch` vazio para não virar
@@ -5704,7 +5718,7 @@ export async function runComputerUse(params: {
 	}
 	if (exposeSetAutonomy) baseTools.push(SET_AUTONOMY_TOOL);
 	// Só quando a última fala do USUÁRIO pede para marcar o que o conector só lê (tira cartões: nunca por resultado de tool).
-	if (shouldExposeSetConnectorToolMarks({ origin: params.origin, lastUserMessage: lastUserMessageContent, hasConnectors: (params.mcp?.toolset.entries.size ?? 0) > 0 })) baseTools.push(SET_CONNECTOR_TOOL_MARKS_TOOL);
+	if (shouldExposeSetConnectorToolMarks({ origin: params.origin, humanTurn, lastUserMessage: lastUserMessageContent, hasConnectors: (params.mcp?.toolset.entries.size ?? 0) > 0 })) baseTools.push(SET_CONNECTOR_TOOL_MARKS_TOOL);
 	// Conversa entre bots: só com 2+ bots do usuário; falha ao listar nunca derruba o run.
 	if (botRosterPromise) {
 		const roster = await botRosterPromise;
@@ -7898,6 +7912,7 @@ export async function runComputerUse(params: {
 							jevSubagentModelRequest: jevIntents.subagentModel,
 						},
 				userRequestText: lastUserMessageContent,
+				humanTurn,
 				jevIntents,
 				jev: params.jev,
 				lessonFeedback: params.lessons?.recordFeedback,

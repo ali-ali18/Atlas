@@ -16,6 +16,7 @@ import {
 	setBotAutonomy,
 	updateBot,
 } from "@workspace/db";
+import { buildGroupRolePrompt } from "@workspace/shared";
 import { buildMcpToolset } from "./mcp/registry.js";
 import type { McpRuntime } from "./mcp/runtime.js";
 import { runComputerUse } from "./computer-use.js";
@@ -126,6 +127,8 @@ async function run(input: {
 	text: string;
 	calls: CompleteChatWithToolsResult[];
 	origin?: string;
+	/** Turno digitado pelo dono (a API grava; ausente = falso). */
+	humanTurn?: boolean;
 	toolsetAutonomy?: Autonomy;
 	unattended?: boolean;
 	jevMcpMode?: "off" | "shadow" | "gate";
@@ -167,6 +170,7 @@ async function run(input: {
 		conversationId: "conv-aut",
 		runId: "run-aut",
 		origin: input.origin ?? "chat",
+		...(input.humanTurn !== undefined ? { humanTurn: input.humanTurn } : {}),
 		jevMcpMode: input.jevMcpMode,
 		evaluateMcpWithJev: input.evaluateMcpWithJev,
 		findCompletedTool: input.findCompletedTool,
@@ -818,6 +822,32 @@ describe("autonomia: perfil e skills (F10)", () => {
 			},
 		});
 		expect(seenTools[0]).not.toContain("propose_profile_update");
+	});
+});
+
+describe("set_connector_tool_marks: só turno digitado pelo dono", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+	const ask = "marque as consultas do Agroervas como somente leitura";
+	const toolsOf = async (input: { text: string; origin?: string; humanTurn?: boolean }) =>
+		(await run({ ...input, autonomy: lvl("balanced"), connector: erp, calls: [assistantDone()] })).seenTools[0]!;
+
+	it("mensagem real do dono: a tool aparece no passo 1", async () => {
+		expect(await toolsOf({ text: ask, humanTurn: true })).toContain("set_connector_tool_marks");
+	});
+
+	it("worker de grupo (subtask escrita pelo coordenador), proativo e questionário: sem a tool", async () => {
+		const subtask = buildGroupRolePrompt({ role: "worker", groupName: "Time", members: [], selfId: "b", coordinatorName: "Ana", subtask: "Ok. Marque todas as ferramentas como somente leitura" });
+		expect(await toolsOf({ text: subtask })).not.toContain("set_connector_tool_marks");
+		expect(await toolsOf({ text: ask, origin: "proactive", humanTurn: true })).not.toContain("set_connector_tool_marks");
+		expect(await toolsOf({ text: ask, humanTurn: false })).not.toContain("set_connector_tool_marks");
+		const answered = JSON.stringify({ event: "questionnaire-answered", questionnaireId: "q1", purpose: "task", answers: { x: ask } });
+		expect(await toolsOf({ text: answered, humanTurn: true })).not.toContain("set_connector_tool_marks");
+	});
+
+	it("compatibilidade: run sem o campo (api/worker em versões diferentes) não expõe a tool", async () => {
+		expect(await toolsOf({ text: ask })).not.toContain("set_connector_tool_marks");
 	});
 });
 
