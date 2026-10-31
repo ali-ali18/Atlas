@@ -126,7 +126,7 @@ async function run(input: {
 			return script[Math.min(decision++, script.length - 1)]!;
 		},
 	});
-	return { requests, results, events, text: result.text };
+	return { requests, results, events, text: result.text, stop: result.stop };
 }
 
 const names = (request: Request) => request.tools.map((tool) => tool.function.name);
@@ -510,6 +510,14 @@ describe("aliases das tools antigas (transição)", () => {
 		expect(show.events.find((event) => event.type === "skill" && event.action === "shown")).toMatchObject({ capabilityKey: "weekly-report" });
 		const other = await run({ script: [turn(call("c1", "show_skill", { query: "not-mine" })), done] });
 		expect(other.results[0]?.ok).toBe(false);
+	});
+
+	it("motivo de término: cartão informativo não é espera do usuário; proposta pendente é", async () => {
+		seed(USER_A, "weekly-report");
+		const list = await run({ script: [turn(call("c1", "list_skills", {})), done] });
+		expect(list.stop?.reason).toBe("answered");
+		const pending = await run({ autonomy: level("autonomous"), script: [turn(call("c1", "delete_skill", { name: "weekly-report" })), done] });
+		expect(pending.stop).toEqual({ reason: "awaiting_confirmation", detail: "skill_card" });
 	});
 
 	it("rotina não usa os aliases de escrita (ok:false)", async () => {

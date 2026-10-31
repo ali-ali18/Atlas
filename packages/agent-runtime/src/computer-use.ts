@@ -8171,8 +8171,8 @@ async function runComputerUseCore(params: {
 						skillEvent.action === "deleted" ||
 						skillEvent.action === "shown")
 				) {
+					// Cartão só informativo (lista, "aprendi", detalhe): o run para, mas não espera o usuário decidir.
 					stopForSkillCard = true;
-					signals.awaiting ??= "skill_card";
 				}
 			} catch (error) {
 				if (params.abortSignal?.aborted) throw errorFromAbortSignal(params.abortSignal);
