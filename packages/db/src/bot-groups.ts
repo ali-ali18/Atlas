@@ -416,11 +416,23 @@ async function routeTurns(deps: GroupDispatchDeps): Promise<number> {
 	return routed;
 }
 
-/** Último sinal de vida do run (ou, sem ele, o início da resposta) mais velho que o prazo? Sem nenhum sinal, não encerra. */
-function isRunStalled(runUpdatedAt: Date | null | undefined, startedAt: Date | null | undefined, now: Date): boolean {
-	const lastSignal = runUpdatedAt ?? startedAt;
-	if (!(lastSignal instanceof Date)) return false;
-	return now.getTime() - lastSignal.getTime() >= GROUP_REPLY_NO_PROGRESS_MS;
+const WAITING_RUN_STATUSES = new Set(["waiting_user", "waiting_external", "paused"]);
+
+/**
+ * Sem sinal de vida além do prazo? `dead` = run que deveria andar (running/retrying/queued) e parou: cancela.
+ * `waiting` = run esperando aprovação/externo/pausa: NUNCA é cancelado (o dono ainda pode aprovar), só sai do caminho do resumo.
+ * Lease no futuro conta como vivo. Sem nenhum sinal de tempo, não encerra.
+ */
+function runStall(
+	run: { status: string; updatedAt?: Date | null; leaseUntil?: Date | null },
+	startedAt: Date | null | undefined,
+	now: Date,
+): "dead" | "waiting" | null {
+	if (run.leaseUntil instanceof Date && run.leaseUntil.getTime() > now.getTime()) return null;
+	const lastSignal = run.updatedAt ?? startedAt;
+	if (!(lastSignal instanceof Date)) return null;
+	if (now.getTime() - lastSignal.getTime() < GROUP_REPLY_NO_PROGRESS_MS) return null;
+	return WAITING_RUN_STATUSES.has(run.status) ? "waiting" : "dead";
 }
 
 function replyTextOf(run: { status: string; resultText: string | null }): string | null {
@@ -435,19 +447,20 @@ async function settleReplies(deps: GroupDispatchDeps): Promise<{ settled: number
 	let settled = 0;
 	let followUps = 0;
 	for (const reply of rows) {
-		const run = await prisma.agentRun.findUnique({ where: { id: reply.runId! }, select: { status: true, resultText: true, error: true, updatedAt: true } });
-		let stalled = false;
+		const run = await prisma.agentRun.findUnique({ where: { id: reply.runId! }, select: { status: true, resultText: true, error: true, updatedAt: true, leaseUntil: true } });
+		let stalled: "dead" | "waiting" | null = null;
 		if (run && !isTerminal(run.status)) {
 			// Sem progresso além do prazo: encerra como "sem entrega" para o resumo não ficar pendurado.
-			if (!isRunStalled(run.updatedAt, reply.startedAt, (deps.now ?? (() => new Date()))())) continue;
-			stalled = true;
-			await (deps.cancelRun ?? requestCancelAgentRun)(reply.runId!).catch((error) => console.error(`[bot-groups] cancel stalled run failed reply=${reply.id}`, error instanceof Error ? error.name : "error"));
+			stalled = runStall(run, reply.startedAt, (deps.now ?? (() => new Date()))());
+			if (!stalled) continue;
+			// Run esperando aprovação continua vivo (o dono ainda pode aprovar); só o que parou de andar é cancelado.
+			if (stalled === "dead") await (deps.cancelRun ?? requestCancelAgentRun)(reply.runId!).catch((error) => console.error(`[bot-groups] cancel stalled run failed reply=${reply.id}`, error instanceof Error ? error.name : "error"));
 		}
 		const text = run && !stalled ? replyTextOf(run) : null;
 		const finalStatus = !stalled && run && (run.status === "completed" || run.status === "budget_exhausted") ? "done" : "failed";
 		const claimed = await prisma.groupReply.updateMany({
 			where: { id: reply.id, status: "running" },
-			data: { status: finalStatus, finishedAt: new Date(), error: stalled ? "no_progress" : finalStatus === "failed" ? (run?.error ?? run?.status ?? "run_missing") : null },
+			data: { status: finalStatus, finishedAt: new Date(), error: stalled === "dead" ? "no_progress" : stalled === "waiting" ? undeliveredError("pending_approval") : finalStatus === "failed" ? (run?.error ?? run?.status ?? "run_missing") : null },
 		});
 		if (claimed.count !== 1) continue;
 		settled += 1;
@@ -675,7 +688,9 @@ async function maybeQueueSummary(turnId: string, deps: Pick<GroupDispatchDeps, "
 		if (decision.hold) return "hold";
 		for (const botId of decision.timedOut) {
 			const row = latest.get(botId)!;
-			await tx.groupReply.update({ where: { id: row.id }, data: { error: undeliveredError("pending_approval") } });
+			// Entrega válida (done) nunca vira falta; erro já específico não é sobrescrito.
+			if (row.status === "done" || row.error?.startsWith("undelivered:") || row.error === "no_progress") continue;
+			await tx.groupReply.update({ where: { id: row.id }, data: { error: undeliveredError(pendingBotIds.has(botId) ? "pending_approval" : "still_running") } });
 		}
 		await tx.groupReply.create({
 			data: {

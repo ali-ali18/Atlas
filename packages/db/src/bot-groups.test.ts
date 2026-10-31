@@ -96,7 +96,7 @@ type World = {
 	turns: ReturnType<typeof table>;
 	replies: ReturnType<typeof table>;
 	messages: ReturnType<typeof table>;
-	runs: Map<string, { status: string; resultText: string | null; error: string | null; updatedAt?: Date }>;
+	runs: Map<string, { status: string; resultText: string | null; error: string | null; updatedAt?: Date; leaseUntil?: Date }>;
 	intents: ReturnType<typeof table>;
 	started: Array<{ botId: string; conversationId: string; objective: string; runId: string }>;
 	active: Set<string>;
@@ -687,7 +687,69 @@ test("resumo espera a continuação ativa e, passado o prazo, segue sem o membro
 	await step();
 	const prompt = world.started.at(-1)!.objective;
 	assert.equal(world.started.at(-1)!.botId, "ana");
-	assert.match(prompt, /Inspetor did not deliver: its approval request was not answered in time/);
+	// Ele entregou de verdade: continuar pendente não vira falta.
+	assert.doesNotMatch(prompt, /Inspetor did not deliver|Not delivered/);
+	assert.equal(world.replies.rows.find((r) => r.runId === "run-3")!.error, null);
+});
+
+test("prazo do resumo: cartão pendente e run ainda ativo têm motivos diferentes; erro específico não é sobrescrito", async () => {
+	const scenario = async (kind: "card" | "running" | "specific") => {
+		const world = install(research());
+		const continuation = { on: false };
+		const activeRuns = async (conversationId: string) => [
+			...(world.active.has(conversationId) ? [{ id: "active" } as never] : []),
+			...(continuation.on ? [{ id: "cont", botId: "caio" } as never] : []),
+		];
+		const step = await startResearch(world, { activeRuns });
+		finish(world, "run-2", REPORT);
+		await step();
+		if (kind === "card") world.intents.rows.push({ id: "i1", userId: "u1", conversationId: "c-team", kind: "confirm", payload: { botId: "caio" }, expiresAt: new Date(Date.now() + 6 * 3_600_000) });
+		else continuation.on = true;
+		// O Inspetor falhou (sem entrega).
+		finish(world, "run-3", "", "failed");
+		if (kind === "specific") world.replies.rows.find((r) => r.runId === "run-3")!.error = "undelivered:waiting";
+		await step();
+		await step(new Date(Date.now() + GROUP_SUMMARY_HOLD_MS + 60_000));
+		continuation.on = false;
+		world.intents.rows.length = 0;
+		await step();
+		return { world, prompt: world.started.at(-1)!.objective, error: world.replies.rows.find((r) => r.runId === "run-3")!.error };
+	};
+	const card = await scenario("card");
+	assert.match(card.prompt, /Inspetor did not deliver: its approval request was not answered in time/);
+	const running = await scenario("running");
+	assert.match(running.prompt, /Inspetor did not deliver: was still running when the deadline came/);
+	assert.equal(running.error, "undelivered:still_running");
+});
+
+test("run esperando aprovação (waiting_user) por mais que o prazo NÃO é cancelado; só sai do caminho do resumo", async () => {
+	const world = install(research());
+	const cancelled: string[] = [];
+	const step = await startResearch(world, { cancelRun: async (runId: string) => void cancelled.push(runId) });
+	finish(world, "run-2", REPORT);
+	await step();
+	const run = world.runs.get("run-3")!;
+	run.status = "waiting_user";
+	run.updatedAt = new Date(Date.now() - 20 * 60_000);
+	world.active.delete("c-team");
+	await step();
+	assert.deepEqual(cancelled, [], "o run segue vivo para quando o dono aprovar");
+	assert.equal(run.status, "waiting_user");
+	const reply = world.replies.rows.find((r) => r.runId === "run-3")!;
+	assert.deepEqual([reply.status, reply.error], ["failed", "undelivered:pending_approval"]);
+	assert.equal(world.replies.rows.filter((r) => r.role === "summary").length, 1);
+
+	// Lease no futuro conta como vivo mesmo sem updatedAt recente.
+	const other = install(research());
+	const cancelledB: string[] = [];
+	const stepB = await startResearch(other, { cancelRun: async (runId: string) => void cancelledB.push(runId) });
+	finish(other, "run-2", REPORT);
+	await stepB();
+	other.runs.get("run-3")!.updatedAt = new Date(Date.now() - 30 * 60_000);
+	(other.runs.get("run-3") as Record<string, unknown>).leaseUntil = new Date(Date.now() + 60_000);
+	await stepB();
+	assert.equal(other.replies.rows.find((r) => r.runId === "run-3")!.status, "running");
+	assert.deepEqual(cancelledB, []);
 });
 
 test("run parado sem progresso além do prazo vira 'sem entrega' e libera o resumo", async () => {
