@@ -786,6 +786,7 @@ export async function requestCancelAgentRun(runId: string): Promise<AgentRun | n
 			cancelRequested: true,
 			status: finalizeNow ? "cancelled" : existing.status,
 			finishedAt: finalizeNow ? new Date() : existing.finishedAt,
+			...(finalizeNow ? stopColumns({ reason: "cancelled", detail: existing.status === "queued" ? "before_start" : "parked" }) : {}),
 			...(parked ? { leaseOwner: null, leaseUntil: null, leaseToken: null } : {}),
 		},
 		select: AGENT_RUN_SELECT,
@@ -1046,7 +1047,8 @@ export async function releasePausedRunLease(
 			status: "paused",
 			...ownedLeaseWhere(lease),
 		},
-		data: { leaseOwner: null, leaseUntil: null, leaseToken: null },
+		// O run segue vivo (espera o login); o motivo da pausa fica registrado até o término sobrescrevê-lo.
+		data: { leaseOwner: null, leaseUntil: null, leaseToken: null, ...stopColumns({ reason: "paused_login" }) },
 	});
 	if (result.count !== 1) throw new Error("lease_lost");
 }
