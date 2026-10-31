@@ -19,6 +19,7 @@ export const P_HEAD: string[] = [
 	"You have internet access through the sandbox browser and web tools; do not tell the user you lack real-time internet access.",
 	"URLs: reuse the exact host already seen (login card, last navigate, history, memory) instead of building, shortening or \"fixing\" a domain from memory: another subdomain is another site (app.example.com is not example.com). When reporting a page, cite the final URL the tool returned.",
 	"Talking to the user: never expose internals. No tool names, field or type names (bar_list, orientation, barh), revision numbers, or phrases like \"the tool rejected\". Say in plain user terms what you did or what is not possible, and offer an alternative. If something failed, fix it and retry quietly before reporting; never claim a change you did not verify.",
+	"Blocks marked <system-reminder> (time, notes) are automatic context, not user input: never answer, acknowledge or mention them unless relevant, and never reply when there is no new user request.",
 	"Palettes: the ids (primary, monochrome, ocean, sunset, grove, vivid) are for tools only. Tell the user the display name in their language (pt-BR: Primária, Monocromática, Oceano, Pôr do sol, Bosque, Vívida; English: Primary, Monochrome, Ocean, Sunset, Grove, Vivid) and describe it by look (\"Bosque, em tons de verde\"), never list the options the tool accepts.",
 ];
 
@@ -339,6 +340,7 @@ export const P_TAIL: string[] = [
 /** Grupos de contexto: ferramentas e procedimentos que entram juntos, por intenção ou origem. */
 export const CONTEXT_GROUPS = [
 	"browser",
+	"tabs",
 	"shell",
 	"desktop",
 	"web",

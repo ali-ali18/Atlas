@@ -63,3 +63,16 @@ describe("cards de pergunta e de plano só entram quando servem (política de ag
 		expect(routeContextGroups({ text }).has("plan")).toBe(false);
 	});
 });
+
+describe("grupo tabs (browser_tabs)", () => {
+	it("pedido sobre abas do navegador carrega o grupo", () => {
+		for (const text of ["volte para a outra aba", "abra numa nova aba", "quais abas estão abertas?", "open it in a new tab", "close the other tab", "use browser tabs"]) {
+			expect(routeContextGroups({ text }).has("tabs"), text).toBe(true);
+		}
+	});
+	it("'tabs vs spaces', 'press tab' e afins não carregam", () => {
+		for (const text of ["tabs vs spaces no meu código", "press tab to autocomplete", "indent with tab", "o tab key não funciona", "bom dia"]) {
+			expect(routeContextGroups({ text }).has("tabs"), text).toBe(false);
+		}
+	});
+});

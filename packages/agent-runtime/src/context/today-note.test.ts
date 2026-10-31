@@ -5,7 +5,7 @@ describe("todayNote", () => {
 	it("usa a data local do fuso, não a UTC", () => {
 		// 01:30 UTC de 20/10 ainda é 19/10 (segunda) em São Paulo.
 		expect(todayNote(new Date("2026-10-20T01:30:00Z"))).toBe(
-			"Now is 2026-10-19 22:30 (segunda-feira), timezone America/Sao_Paulo. Resolve relative dates and times (hoje, ontem, mês anterior, até agora, esta semana, daqui a N minutos) against it.",
+			"Automatic context, not a user message: do not reply to it, thank for it or mention it unless it matters to the request (dates, scheduling, reminders). Now is 2026-10-19 22:30 (segunda-feira), timezone America/Sao_Paulo. Resolve relative dates and times (hoje, ontem, mês anterior, até agora, esta semana, daqui a N minutos) against it.",
 		);
 	});
 

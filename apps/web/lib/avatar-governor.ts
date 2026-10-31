@@ -46,7 +46,8 @@ export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_T
 		if (transient && now < transient.until) return { state: transient.state, urgent: true };
 		if (transient) transient = null;
 		if ((flashPending || now < flashUntil) && base.progress !== null) return { state: "progress", urgent: false };
-		return { state: base.state, urgent: false };
+		// Esperar o usuário não pode atrasar: o pedido de aprovação aparece na hora, sem esperar a permanência do estado anterior.
+		return { state: base.state, urgent: base.state === "waiting" };
 	}
 
 	/** Só estados de atividade específica (pesquisando, lendo…) seguram a troca; o anel já tem tempo próprio. */

@@ -7,6 +7,7 @@ import { SUBAGENT_SYSTEM_PROMPT } from "./tools/subagent-prompt.js";
 import { buildMcpToolset } from "./mcp/registry.js";
 import type { McpRuntime } from "./mcp/runtime.js";
 import { AgentRunCancelledError } from "./errors.js";
+import { nativeWebSearch } from "./web-native.js";
 import { OFFERED_TOOLS_SUB_INDEX, SYSTEM_PROMPT, runComputerUse, type RuntimeStepRecord } from "./computer-use.js";
 
 /**
@@ -25,6 +26,16 @@ vi.mock("@workspace/db", async (importOriginal) => {
 		finishSubagentRun: vi.fn(async () => true),
 		failOrphanSubagentRuns: vi.fn(async () => 0),
 		appendAgentStep: vi.fn(async () => undefined),
+	};
+});
+
+// Filhos que chamam web_search caíam na busca nativa de verdade (DuckDuckGo): no CI a rede
+// respondia devagar e "orçamento do filho estoura" passava dos 5 s.
+vi.mock("./web-native.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./web-native.js")>();
+	return {
+		...actual,
+		nativeWebSearch: vi.fn(async () => [{ title: "Amazon", url: "https://example.test/macbook", snippet: "R$ 20.000", source: "test" }]),
 	};
 });
 
@@ -413,6 +424,7 @@ describe("delegate_task (F5)", () => {
 		expect(String(toolResult?.summary)).toContain("Parcial: Amazon R$ 20.000");
 		expect(String(toolResult?.summary)).toContain("stopped early");
 		expect(vi.mocked(finishSubagentRun).mock.calls[0]?.[0].status).toBe("budget_exhausted");
+		expect(vi.mocked(nativeWebSearch)).toHaveBeenCalled();
 	});
 
 	it("resume do pai não reexecuta o delegate_task já concluído", async () => {

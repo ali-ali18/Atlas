@@ -113,6 +113,8 @@ const PATTERNS: Array<[ContextGroup, RegExp]> = [
 		"browser",
 		/\b(navegador|browser|sites?|paginas?|abr(a|ir|e)|acess(a|e|ar)|login|logar|entrar no|clic(a|ar|k)|cliq\w+|digit(a|e|ar)|role (a|para|ate)|captura de tela|tela|preench\w+|baix(a|ar)|download|web ?pages?|websites?|open (the )?(page|site|url)|navigate|click)\b/,
 	],
+	// Abas do navegador: a tool só entra quando o pedido fala de aba (ou o navegador avisa de aba nova).
+	["tabs", /\b(abas?|aba nova|nova aba|outra aba|nova guia|browser tabs?|new tab|other tab|another tab)\b/],
 	[
 		"shell",
 		/\b(scripts?|shell|bash|terminal|python|playwright|curl|em lote|bulk|baix(a|ar|e) (todos|todas|os|as)|download (de )?(todos|todas)|todos os (pdfs?|arquivos|cursos|materiais)|todas as (disciplinas|materias|aulas|semanas|paginas)|scrap\w*|extrair (tudo|todos|todas)|ava|moodle|lms|classroom)\b/,

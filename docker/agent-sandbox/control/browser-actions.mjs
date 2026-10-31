@@ -20,6 +20,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export function createBrowserActions({
 	getPage,
 	restart,
+	/** O Chrome segue conectado? Erro de "aba fechada" com Chrome vivo não justifica reiniciar (perderia todas as abas). */
+	browserAlive,
 	wait = sleep,
 	stabilize = settleAfterAction,
 	ready = waitForPageReady,
@@ -57,6 +59,7 @@ export function createBrowserActions({
 
 	async function withPageRetry(action, { tries = 3, retryOn } = {}) {
 		let lastError;
+		let softRetried = false;
 		for (let attempt = 1; attempt <= tries; attempt += 1) {
 			try {
 				const page = await getPage();
@@ -66,6 +69,13 @@ export function createBrowserActions({
 				lastError = error;
 				const message = error instanceof Error ? error.message : String(error);
 				if (attempt >= tries) throw error;
+				// Popup (OAuth/pagamento) que se fecha no meio da ação: a sessão já passou para outra aba;
+				// com o Chrome vivo basta pegar a página de novo, uma vez, sem reiniciar.
+				if (isChromeDeadError(message) && !softRetried && browserAlive?.() === true) {
+					softRetried = true;
+					await wait(200);
+					continue;
+				}
 				if (isChromeDeadError(message) && restart) {
 					// F12/A5 — Chrome morto: reinicia (mesmo perfil) e tenta de novo.
 					await restart();

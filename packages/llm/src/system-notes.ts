@@ -11,6 +11,9 @@ import type { LlmContentPart, LlmMessage } from "./chat-tools.js";
 export const SYSTEM_NOTE_OPEN = "<system-reminder>";
 export const SYSTEM_NOTE_CLOSE = "</system-reminder>";
 
+/** Começo do texto da camada efêmera de contexto (hora): `demoteSystemNotes` a trata à parte das notas persistidas. */
+export const EPHEMERAL_CONTEXT_MARK = "Automatic context, not a user message:";
+
 function noteText(message: LlmMessage): string {
 	if (typeof message.content === "string") return message.content;
 	if (!Array.isArray(message.content)) return "";
@@ -39,6 +42,19 @@ export function demoteSystemNotes(messages: readonly LlmMessage[]): DemotedSyste
 			out.push(item.message);
 		}
 	};
+	// Camada efêmera de contexto (hora): nunca vira turno de usuário só com ela, o modelo responderia a ela
+	// ("Entendi, agora são 17h37"). Cola na última mensagem SÓ se for do usuário; depois de assistant (rascunho com
+	// nota de revisão antes dela) ou de resultado de ferramenta, ou no meio de uma rodada, é omitida neste passo:
+	// a hora já foi no primeiro passo do run e `current_time` cobre run longo. Colar em resultado de ferramenta
+	// mudaria o bloco cacheado a cada minuto (e no Anthropic iria para dentro do `tool_result`).
+	const attachEphemeral = (index: number, part: LlmContentPart) => {
+		const target = out.length - 1;
+		const host = open.size === 0 ? out[target] : undefined;
+		if (!host || host.role !== "user") return;
+		const current: LlmContentPart[] = typeof host.content === "string" ? (host.content ? [{ type: "text", text: host.content }] : []) : (host.content ?? []);
+		out[target] = { ...host, content: [...current, part] };
+		positions[index] = target;
+	};
 	messages.forEach((message, index) => {
 		if (message.role === "system") {
 			if (leading) {
@@ -52,6 +68,10 @@ export function demoteSystemNotes(messages: readonly LlmMessage[]): DemotedSyste
 				return;
 			}
 			const part: LlmContentPart = { type: "text", text: wrapSystemNote(text) };
+			if (text.startsWith(EPHEMERAL_CONTEXT_MARK)) {
+				attachEphemeral(index, part);
+				return;
+			}
 			const note: LlmMessage = { role: "user", content: [part] };
 			if (open.size > 0) held.push({ index, message: note });
 			else {

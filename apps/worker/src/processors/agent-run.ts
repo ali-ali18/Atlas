@@ -1212,6 +1212,7 @@ async function executeLeasedRun(ctx: {
 					}
 				: undefined,
 			getSessionId,
+			peekSessionId: () => cachedSessionId,
 			sandboxEnabled: runtimeConfig.sandboxEnabled,
 			model: run.model,
 			streamChat: providers.streamChat,

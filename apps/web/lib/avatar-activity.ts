@@ -26,7 +26,13 @@ export type AvatarDesired = {
 export const GENERIC_WORKING: AvatarDesired = { state: "working", step: null, progress: null };
 export const IDLE_DESIRED: AvatarDesired = { state: "idle", step: null, progress: null };
 
-const WAITING_STATUSES = new Set(["waiting_user", "waiting_external", "queued"]);
+/**
+ * Só espera de verdade pelo USUÁRIO vira `waiting` (órbita). "Na fila" (`queued`), `retrying`,
+ * `waiting_external` e `pausing` não são espera do usuário. Em especial `queued`: o app o grava ao criar
+ * o run e o servidor não emite "running" num run normal, então ele dura o run inteiro; tratá-lo como
+ * espera deixava o avatar em órbita quase o tempo todo.
+ */
+const WAITING_STATUSES = new Set(["waiting_user", "paused"]);
 
 function toolState(tool: string): AvatarState {
 	switch (toolKind(tool)) {
@@ -61,13 +67,14 @@ export function stepProgress(step: number | undefined, maxSteps: number | undefi
 
 /**
  * Estado do avatar para a atividade atual.
- * - Esperando o usuário/aprovação/fila/pausa → `waiting` (órbita), tem prioridade.
+ * - Esperando o usuário (aprovação pendente, `waiting_user`, pausa) → `waiting` (órbita), tem prioridade.
+ *   Fila, nova tentativa e espera externa NÃO são espera: a atividade (pensando, ferramenta, escrevendo) manda.
  * - `revising` → `thinking`: o rascunho foi retirado e o chat não mostra texto, então
  *   o gesto de digitar (`streaming`) mentiria; as reticências dizem "pensando de novo".
  * - Ferramenta → família (pesquisa, leitura, código…); resultado com falha é tratado no governor.
  */
 export function avatarStateForActivity(activity: AgentActivity, ctx: AvatarRunContext = {}): AvatarDesired {
-	if (ctx.paused || ctx.pendingApproval || (ctx.status && (ctx.status === "paused" || WAITING_STATUSES.has(ctx.status)))) {
+	if (ctx.paused || ctx.pendingApproval || (ctx.status && WAITING_STATUSES.has(ctx.status))) {
 		return { state: "waiting", step: null, progress: null };
 	}
 	switch (activity.phase) {
