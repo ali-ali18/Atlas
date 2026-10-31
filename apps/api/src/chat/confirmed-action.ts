@@ -801,6 +801,9 @@ export async function maybeHandleConfirmedAction(input: {
 		}
 		const vaultUse = pending.payload.action === "vault-use" ? pending.payload.vaultUse : undefined;
 		if (input.continueInAgent && vaultUse) {
+			// Vínculo de site (grava o host no item) só vale pelo BOTÃO do cartão, que carrega o id dele. "Sim" digitado
+			// (ou entendido pelo Jev) não vincula: vai ao modelo como fala comum e a intenção segue pendente.
+			if (vaultUse.linkHost && (!input.confirmId || input.confirmId !== pending.payload.confirmId)) return { handled: false };
 			if (!(await claimSkillPendingIntent(pending.id, userId, input.conversationId))) return { handled: false, duplicate: true };
 			const always = isConfirmAlways(commandText);
 			// A aprovação fica no histórico do item (conversa) e, se pedido, vira "sempre para este bot".

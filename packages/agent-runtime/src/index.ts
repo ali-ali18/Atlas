@@ -482,7 +482,7 @@ export type { ExtractedAttachment, ExtractFailure, Extractor } from "./attachmen
 export { EXTRACT_CACHE_VERSION } from "./attachments/extract.js";
 export { ExtractPool, previewInThread, sharedExtractor, shutdownSharedExtractor, type ExtractPoolOptions } from "./attachments/extract-pool.js";
 export { executeAttachmentTool, ATTACHMENT_TOOL_NAMES } from "./tools/attachment-tools.js";
-export { VaultService, VaultError, getVaultService, routineSlug, registerHookSecretSealer, type VaultMeta, type VaultPayload, type VaultExtraField, type VaultStore, type CreateVaultItemInput } from "./secrets/vault-service.js";
+export { VaultService, VaultError, getVaultService, setVaultServiceForTests, routineSlug, registerHookSecretSealer, type VaultMeta, type VaultPayload, type VaultExtraField, type VaultStore, type CreateVaultItemInput } from "./secrets/vault-service.js";
 export { createRedactor, type Redactor, type SecretEntry } from "./secrets/redact.js";
 export { collectRefs } from "./secrets/session.js";
 export { createSecretSession, injectSecretRefs, secretToolPolicy, SecretRefError, type SecretSession } from "./secrets/session.js";
