@@ -5,6 +5,7 @@ import {
 	GROUP_ROUTED_MAX_REPLIES,
 	GROUP_TURN_MAX_BOT_REPLIES,
 	activeMentionQuery,
+	buildGroupAnswersNote,
 	buildGroupSection,
 	buildGroupTurnPrompt,
 	filterMentionCandidates,
@@ -215,5 +216,42 @@ describe("normalizeGroupMemberIds", () => {
 		expect(normalizeGroupMemberIds(["a", "b", "a"])).toEqual(["a", "b"]);
 		expect(normalizeGroupMemberIds(["a", 3])).toBeNull();
 		expect(normalizeGroupMemberIds(Array.from({ length: 9 }, (_, i) => `m${i}`))).toBeNull();
+	});
+});
+
+describe("buildGroupAnswersNote", () => {
+	const rows = (...users: string[]) => users.map((content) => ({ role: "user", content }));
+
+	it("junta só as falas do usuário, não as dos bots", () => {
+		const note = buildGroupAnswersNote([
+			{ role: "user", content: "Período: janeiro a março" },
+			{ role: "assistant", content: "Qual período?", fromBotId: "b1", fromBotName: "Ada" },
+			{ role: "user", content: "Pode usar o SKU 123" },
+		])!;
+		expect(note).toContain("Answers the user already gave in this group");
+		expect(note).toContain("- Período: janeiro a março");
+		expect(note).toContain("- Pode usar o SKU 123");
+		expect(note).not.toContain("Qual período?");
+	});
+
+	it("sem fala do usuário não gera bloco", () => {
+		expect(buildGroupAnswersNote([])).toBeNull();
+		expect(buildGroupAnswersNote([{ role: "assistant", content: "oi", fromBotId: "b1" }, ...rows("   ")])).toBeNull();
+	});
+
+	it("limita a 8 falas e 1500 caracteres, mantendo as mais recentes", () => {
+		const many = buildGroupAnswersNote(rows(...Array.from({ length: 12 }, (_, i) => `resposta ${i + 1}`)))!;
+		expect(many).not.toContain("resposta 4\n");
+		expect(many).toContain("resposta 5");
+		expect(many).toContain("resposta 12");
+		const long = buildGroupAnswersNote(rows("a".repeat(3_000), "ultima fala"))!;
+		expect(long.length).toBeLessThanOrEqual(1_500);
+		expect(long).toContain("ultima fala");
+	});
+
+	it("passa pelo redator de segredos", () => {
+		const note = buildGroupAnswersNote(rows("meu token é segredo123"), (text) => text.replace("segredo123", "[redacted]"))!;
+		expect(note).toContain("[redacted]");
+		expect(note).not.toContain("segredo123");
 	});
 });

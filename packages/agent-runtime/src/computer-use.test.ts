@@ -2273,7 +2273,7 @@ describe("SYSTEM_PROMPT: regras de lembrete e honestidade", () => {
 
 	it("política única de agir primeiro: ações reversíveis não esperam pergunta", () => {
 		expect(SYSTEM_PROMPT).toMatch(/Never ask for something the user already said or a tool can find/);
-		expect(SYSTEM_PROMPT).toMatch(/When you must ask: one short question, then wait\./);
+		expect(SYSTEM_PROMPT).toMatch(/When you must ask: one batched round, then wait\./);
 		expect(SYSTEM_PROMPT).toMatch(/Reversible writes the user asked for \(routines, reminders, skills, drafts\) show a card or result they can adjust: do them directly\./);
 	});
 });

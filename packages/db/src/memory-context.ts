@@ -5,10 +5,13 @@ import {
 	buildGroupSection,
 	composeTieredMessages,
 	groupTranscriptForBot,
+	buildGroupAnswersNote,
+	redactSecrets,
 	isLlmChatRole,
 	placeVolatileBeforeTurn,
 	GROUP_TRANSCRIPT_LIMIT,
 	type GroupMember,
+	type GroupTranscriptRow,
 } from "@workspace/shared";
 import {
 	appendConversationMessage,
@@ -208,7 +211,17 @@ export async function buildMemoryAugmentedMessages(
 		incoming: turnMessages,
 		...(options.volatileAfterTurn ? { volatileAfterTurn: true } : {}),
 	});
-	return augmented.length > 0 ? augmented : incoming;
+	const withAnswers = withGroupAnswers(augmented, options.group && groupRows ? groupRows : null);
+	return withAnswers.length > 0 ? withAnswers : incoming;
+}
+
+/**
+ * Grupo: as respostas que o usuário já deu vão logo depois do turno (não no prefixo, que fica estável), para o
+ * membro não repetir pergunta. Fora de grupo (`groupRows` nulo) devolve as mensagens como vieram.
+ */
+export function withGroupAnswers(messages: ChatMessage[], groupRows: readonly GroupTranscriptRow[] | null): ChatMessage[] {
+	const note = groupRows ? buildGroupAnswersNote(groupRows, (text) => redactSecrets(text)) : null;
+	return note ? [...messages, { role: "system", content: note }] : messages;
 }
 
 /**

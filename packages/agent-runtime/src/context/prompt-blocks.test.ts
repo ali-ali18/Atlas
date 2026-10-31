@@ -18,9 +18,9 @@ const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 describe("prompt em blocos (L5)", () => {
 	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador e a política única de agir primeiro (com leitura por intenção), sem identidade nem idioma no núcleo e sem as frases cobertas pela disciplina do modelo (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(25_375);
+		expect(legacy.length).toBe(25_561);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"693e29588039ff3c1fd50e21619678aa0d0af46a97ce4c88d33a398f508b5964",
+			"845f41a5666c7cd16418fd584841c0a45d68b06d773fd2719e3a4ca88463d407",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
 	});
@@ -119,8 +119,8 @@ describe("prompt em blocos (L5)", () => {
 		expect(ask.startsWith("Act, don't ask:")).toBe(true);
 		expect(ask).toContain("Ask only when the missing information cannot be obtained with tools AND the plausible readings lead to materially different, costly or irreversible actions");
 		expect(ask).toContain("Low-stakes choices (format, wording, order, defaults, which of two similar options) are yours: decide and say so in one line.");
-		expect(ask).toContain("When you must ask: one short question, then wait.");
-		expect(ask.length).toBeLessThan(1_900);
+		expect(ask).toContain("When you must ask: one batched round, then wait.");
+		expect(ask.length).toBeLessThan(2_400);
 		expect(ask).not.toMatch(/NUNCA|EXCETO|questionnaire/);
 		expect(ask).not.toContain("Atlas");
 		// Nada de regra de pergunta duplicada ou conflitante no núcleo.
@@ -135,6 +135,17 @@ describe("prompt em blocos (L5)", () => {
 		const questionnaire = groupProcedureText(new Set<ContextGroup>(["questionnaire"]));
 		expect(questionnaire).toContain("when the ask policy says you must ask and the answer is one of 2-4 clear options");
 		expect(questionnaire).not.toMatch(/NUNCA lista em texto|qualquer pergunta com escolhas fixas/);
+	});
+
+	it("não repergunta: escolha reversível é do bot, uma rodada de perguntas com padrão, falha vira diagnóstico + proposta", () => {
+		const ask = P_ASK.join("\n");
+		expect(ask).toContain("Never ask for something the user already said or a tool can find");
+		expect(ask).toContain("So are SKU, size, period or source (offer to redo). Never ask \"do you want me to...?\" for work already requested.");
+		expect(ask).toContain("One batched round of questions per task, at the start, each with a default");
+		expect(ask).toContain("Mid-task, stop only for irreversible, outward, money or sensitive actions, or when blocked.");
+		expect(ask).toContain("On failure try another route first; then bring the diagnosis, a fix and one yes/no question.");
+		// Nome de tool de conector não aparece para o usuário.
+		expect(assembleSystemPrompt(none)).toContain("Connector tools too (`list_orders` -> \"orders\").");
 	});
 
 	it("resposta curta ou informal vale pela intenção; rejeição sem pedir substituto desfaz (sem gíria nem frase de nicho no núcleo)", () => {
