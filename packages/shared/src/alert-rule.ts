@@ -9,6 +9,7 @@
  */
 import type { BotLanguage } from "./bot-language.js";
 import { ALERT_JSONPATH_MAX, ALERT_REGEX_MAX, parseJsonPath, unsafeRegexReason } from "./alert-rule-extract.js";
+import { PAGE_VALUE_MAX } from "./page-value.js";
 
 export const ALERT_RULE_URL_MAX = 2000;
 export const ALERT_SELECTOR_MAX = 200;
@@ -75,7 +76,11 @@ export type AlertRule = {
 	intervalMinutes?: number;
 };
 
-export type ParseAlertRuleResult = { ok: true; rule: AlertRule } | { ok: false; error: string };
+/**
+ * `expect` (só na criação, nunca gravado na regra): o valor que a IA viu na página. O teste ao vivo confere que a
+ * regra lê exatamente isso (`pageValuesMatch`, tolerância zero), senão a criação falha.
+ */
+export type ParseAlertRuleResult = { ok: true; rule: AlertRule; expect?: string } | { ok: false; error: string };
 
 /** Piso técnico por fonte: protege sites de terceiros e cotas de API. Não é um mínimo de produto. */
 const SOURCE_FLOOR_MINUTES: Record<AlertSource["type"], number> = { page: 30, feed: 15, quote: 15, fx: 15, crypto: 5, weather: 180 };
@@ -95,7 +100,7 @@ export function clampAlertRuleInterval(minutes: number, source: Pick<AlertSource
 	return Math.min(ALERT_RULE_INTERVAL_MAX, Math.max(alertSourceFloorMinutes(source), value));
 }
 
-const RULE_FIELDS = ["source", "check", "label", "message", "intervalMinutes"] as const;
+const RULE_FIELDS = ["source", "check", "label", "message", "intervalMinutes", "expect"] as const;
 const PAGE_FIELDS = ["type", "url", "extract"] as const;
 const FEED_FIELDS = ["type", "url"] as const;
 const EXTRACT_FIELDS = { css: ["kind", "selector", "attribute"], jsonpath: ["kind", "path"], regex: ["kind", "pattern"] } as const;
@@ -355,6 +360,12 @@ export function parseAlertRule(raw: unknown): ParseAlertRuleResult {
 		if (typeof raw.intervalMinutes !== "number" || !Number.isFinite(raw.intervalMinutes) || raw.intervalMinutes < 1) return { ok: false, error: "rule.intervalMinutes must be a positive number of minutes" };
 		intervalMinutes = clampAlertRuleInterval(raw.intervalMinutes, source.source);
 	}
+	let expectedValue: string | undefined;
+	if (raw.expect !== undefined && raw.expect !== null) {
+		const text = typeof raw.expect === "number" && Number.isFinite(raw.expect) ? String(raw.expect) : typeof raw.expect === "string" ? oneLine(raw.expect) : "";
+		if (!text || text.length > PAGE_VALUE_MAX) return { ok: false, error: `rule.expect must be the value you saw on the page, as text or number (up to ${PAGE_VALUE_MAX} characters), e.g. "16,47" or "R$ 3.299"` };
+		expectedValue = text;
+	}
 	return {
 		ok: true,
 		rule: {
@@ -364,6 +375,7 @@ export function parseAlertRule(raw: unknown): ParseAlertRuleResult {
 			...(message ? { message } : {}),
 			...(intervalMinutes !== undefined ? { intervalMinutes } : {}),
 		},
+		...(expectedValue !== undefined ? { expect: expectedValue } : {}),
 	};
 }
 

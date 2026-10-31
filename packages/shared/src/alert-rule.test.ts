@@ -325,4 +325,16 @@ describe("fontes de mercado (etapa 2)", () => {
 		expect(describeAlertRuleCompact(w, "pt-BR")).toBe("chuva em Curitiba amanhã > 60%");
 		expect(alertSourceHost(q.source)).toBe("market:quote");
 	});
+	it("expect (o valor que a IA viu) é aceito na criação, nunca vira parte da regra e é validado", () => {
+		for (const [given, kept] of [["16,47", "16,47"], [16.47, "16.47"], ["  R$   3.299 ", "R$ 3.299"]] as const) {
+			const result = parseAlertRule({ ...pageRule, expect: given });
+			expect(result, String(given)).toMatchObject({ ok: true, expect: kept });
+			if (result.ok) expect(JSON.stringify(result.rule)).not.toContain("expect");
+		}
+		expect(parseAlertRule({ ...pageRule }).ok && "expect" in (parseAlertRule({ ...pageRule }) as object)).toBe(false);
+		for (const bad of ["", "   ", "x".repeat(81), { v: 1 }, true, Number.NaN]) {
+			const result = parseAlertRule({ ...pageRule, expect: bad });
+			expect(result, String(bad)).toMatchObject({ ok: false, error: expect.stringContaining("rule.expect") });
+		}
+	});
 });
