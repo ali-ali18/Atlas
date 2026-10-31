@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseBotAutoDecisionCard, toolDefinitionHash } from "@workspace/shared";
+import { BOT_LINK_ROLE, buildAutoDecisionCard, parseBotAutoDecisionCard, serializeBotLinkCard, toolDefinitionHash } from "@workspace/shared";
 
 process.env.ATLAS_HOOK_PEPPER ||= "test-pepper";
 const { prisma } = await import("./client.js");
@@ -199,4 +199,17 @@ test("run de outro bot ou de outro dono não vale como origem do cartão", async
 	(prisma.agentRun as unknown as { findUnique: unknown }).findUnique = async () => ({ userId: "u2", botId: "radar", origin: "chat" });
 	assert.equal((await autoDecideGroupPending()).escalated, 1);
 	assert.equal(decisions(world).length, 0);
+});
+
+test("depois de uma nota de grupo failed para o cartão, não cria outra 'Aceito por X' (sem laço)", async () => {
+	const world_ = install([{ botId: "radar", confirmId: "c1", ...command("git status") }]);
+	const cardId = `card${world}-0`;
+	const failed = buildAutoDecisionCard({
+		botMessageId: "turn1", botId: "radar", botName: "Radar de Mercado", deciderName: "Cookie", decision: "approved", subject: "git status", reason: "comando de leitura", withJev: false, viaGroup: true,
+		need: { type: "confirm", label: "Aprovar", cardId, conversationId: "c-team" },
+	});
+	world_.messages.rows.push({ id: "nota-falha", conversationId: "c-team", role: BOT_LINK_ROLE, createdAt: new Date(), content: serializeBotLinkCard({ ...failed, status: "failed" }) });
+	assert.deepEqual(await autoDecideGroupPending(), { scanned: 1, approved: 0, escalated: 0 });
+	assert.equal(decisions(world_).length, 1, "só a nota falha de antes; nenhuma nova");
+	assert.equal(decisions(world_)[0]!.status, "failed");
 });

@@ -11,7 +11,7 @@ import {
 } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { getGroupWithMembers } from "./bot-groups.js";
-import { countAutoDecisions, hasAutoDecision, queueAutoDecision } from "./bot-pending.js";
+import { countAutoDecisions, hasGroupAutoDecision, queueAutoDecision } from "./bot-pending.js";
 import { getStrictMcpConnection, ownerIds } from "./mcp-connections.js";
 import type { SkillPendingPayload } from "./skill-pending.js";
 
@@ -89,7 +89,7 @@ async function evaluate(intent: Intent, group: { id: string; conversationId: str
 	if (!requester || !primary || primary.id === requester.id) return "skipped";
 	const row = await findPendingCardRow(group.conversationId, confirmId);
 	if (!row || escalated.has(row.id)) return "skipped";
-	if (await hasAutoDecision(group.conversationId, row.id)) return "skipped";
+	if (await hasGroupAutoDecision(group.conversationId, row.id)) return "skipped";
 
 	// O cartão tem de ser de um run do próprio membro, do mesmo dono, para a origem valer.
 	const run = row.runId ? await prisma.agentRun.findUnique({ where: { id: row.runId }, select: { userId: true, botId: true, origin: true } }) : null;

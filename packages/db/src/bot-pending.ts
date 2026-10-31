@@ -127,16 +127,33 @@ export async function hasAutoDecision(conversationId: string, cardId: string): P
 	});
 }
 
+/**
+ * Já houve nota de aceite do principal do grupo para este card, em QUALQUER estado (inclusive `failed`)?
+ * Depois de uma falha não se cria outra: o card segue esperando o usuário, sem "Aceito por X" repetido.
+ */
+export async function hasGroupAutoDecision(conversationId: string, cardId: string): Promise<boolean> {
+	const rows = await prisma.conversationMessage.findMany({
+		where: { conversationId, role: BOT_LINK_ROLE, content: { contains: '"kind":"auto-decision"' } },
+		orderBy: { createdAt: "desc" },
+		take: AUTO_DECISION_SCAN,
+		select: { content: true },
+	});
+	return rows.some((row: { content: string }) => {
+		const card = parseBotAutoDecisionCard(row.content);
+		return card !== null && card.viaGroup === true && card.need.cardId === cardId;
+	});
+}
+
 /** Grava a nota de decisão automática (uma por card). `false` = já existia. */
 export async function queueAutoDecision(conversationId: string, card: BotAutoDecisionCard): Promise<boolean> {
-	if (await hasAutoDecision(conversationId, card.need.cardId)) return false;
+	if (await (card.viaGroup ? hasGroupAutoDecision : hasAutoDecision)(conversationId, card.need.cardId)) return false;
 	await prisma.conversationMessage.create({
 		data: { conversationId, role: BOT_LINK_ROLE, content: serializeBotLinkCard(card) },
 	});
 	return true;
 }
 
-export type QueuedAutoDecision = { rowId: string; conversationId: string; userId: string | null; card: BotAutoDecisionCard };
+export type QueuedAutoDecision = { rowId: string; conversationId: string; userId: string | null; createdAt: Date; card: BotAutoDecisionCard };
 
 /** Decisões automáticas esperando a API responder o card do destino. */
 export async function listQueuedAutoDecisions(limit = 20): Promise<QueuedAutoDecision[]> {
@@ -149,7 +166,7 @@ export async function listQueuedAutoDecisions(limit = 20): Promise<QueuedAutoDec
 	const out: QueuedAutoDecision[] = [];
 	for (const row of rows) {
 		const card = parseBotAutoDecisionCard(row.content);
-		if (card && card.status === "queued") out.push({ rowId: row.id, conversationId: row.conversationId, userId: row.conversation?.userId ?? null, card });
+		if (card && card.status === "queued") out.push({ rowId: row.id, conversationId: row.conversationId, userId: row.conversation?.userId ?? null, createdAt: row.createdAt, card });
 	}
 	return out;
 }
@@ -167,12 +184,12 @@ export async function claimAutoDecision(rowId: string): Promise<BotAutoDecisionC
 	return claimed.count === 1 ? card : null;
 }
 
-export async function failAutoDecision(rowId: string): Promise<void> {
+export async function failAutoDecision(rowId: string, reason?: string): Promise<void> {
 	const row = await prisma.conversationMessage.findUnique({ where: { id: rowId } });
 	if (!row) return;
 	const card = parseBotAutoDecisionCard(row.content);
 	if (!card || card.status === "failed") return;
-	await prisma.conversationMessage.update({ where: { id: rowId }, data: { content: serializeBotLinkCard({ ...card, status: "failed" }) } });
+	await prisma.conversationMessage.update({ where: { id: rowId }, data: { content: serializeBotLinkCard({ ...card, status: "failed", ...(reason ? { reason: reason.slice(0, 300) } : {}) }) } });
 }
 
 /** Decisões automáticas já tomadas num pedido (teto contra laço de aprovações). */

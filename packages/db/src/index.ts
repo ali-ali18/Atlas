@@ -111,6 +111,7 @@ export {
 	failAutoDecision,
 	findPendingForOrchestrator,
 	hasAutoDecision,
+	hasGroupAutoDecision,
 	isChainAttended,
 	listPendingNeeds,
 	listQueuedAutoDecisions,
