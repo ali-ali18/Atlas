@@ -160,6 +160,7 @@ import {
 	markMcpTaskGrantsUntrusted,
 	markConversationUntrusted,
 	getConversationUntrustedAt,
+	getConversationRequesterBotId,
 	persistJevStatusCard,
 	updateBot,
 	updateRoutine,
@@ -269,7 +270,7 @@ import { APP_INFO_TOOL, executeAppInfo } from "./tools/app-info.js";
 import { CURRENT_TIME_TOOL, executeCurrentTime } from "./tools/current-time.js";
 import { createPreviewSetupContext } from "./tools/preview-setup/runtime.js";
 import { PREVIEW_SETUP_TOOL, PREVIEW_SETUP_TOOL_NAME, executePreviewSetup, type PreviewSetupToolContext } from "./tools/preview-setup/tool.js";
-import { canGrantMcpTask, autonomyExceptionMode, hasExternalTargetArgs, isUntrustedContentTool } from "@workspace/shared";
+import { canGrantMcpTask, mcpTaskGrantName, autonomyExceptionMode, hasExternalTargetArgs, isUntrustedContentTool } from "@workspace/shared";
 import { collectRefs, createSecretSession, type SecretSession } from "./secrets/session.js";
 import { isSecretBoxConfigured } from "./secrets/secret-box.js";
 import { getVaultService, type VaultService } from "./secrets/vault-service.js";
@@ -4532,8 +4533,12 @@ async function executeMcpTool(
 	let grantUse: McpTaskGrantUse | null = null;
 	let jevReviewReason: JevReviewReason | undefined;
 	const alwaysAsk = policy ? autonomyExceptionMode(policy, entry.autonomyMeta) === "always_ask" : false;
-	const grantKey = ctx.conversationId && ctx.userId ? { userId: ctx.userId, conversationId: ctx.conversationId, connectionId: entry.connectionId, exposedName: name } : undefined;
-	if (grantKey && !ctx.forceConfirm && !alwaysAsk && canGrantMcpTask(entry.actionClass, entry.toolName) && !entry.readOnly && grantOrigin && secretRefs.length === 0 && !hasExternalTargetArgs(args) && (decision === "ask" || (decision === "allow" && jevEligible))) {
+	const grantBase = ctx.conversationId && ctx.userId ? { userId: ctx.userId, conversationId: ctx.conversationId, connectionId: entry.connectionId } : undefined;
+	const grantCandidate = !!grantBase && !ctx.forceConfirm && !alwaysAsk && canGrantMcpTask(entry.actionClass, entry.toolName) && !entry.readOnly && grantOrigin && secretRefs.length === 0 && !hasExternalTargetArgs(args) && (decision === "ask" || (decision === "allow" && jevEligible));
+	// A concessão é do bot que pediu a tarefa: outro bot (ou o dono no chat) na mesma conversa não a consome. Sem resolver quem pediu, pergunta.
+	const requester = grantCandidate ? await getConversationRequesterBotId({ userId: grantBase!.userId, conversationId: grantBase!.conversationId }).then((id) => ({ id }), () => null) : null;
+	const grantKey = grantBase && requester ? { ...grantBase, exposedName: mcpTaskGrantName(name, requester.id) } : undefined;
+	if (grantKey) {
 		grantUse = await consumeMcpTaskGrant(grantKey).catch(() => null);
 		const untrustedForGrant = untrustedSeen || (grantUse?.untrustedAt ?? null) !== null;
 		if (grantUse && untrustedForGrant) {

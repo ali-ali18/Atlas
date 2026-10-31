@@ -953,6 +953,7 @@ export {
 	CONVERSATION_UNTRUSTED_TTL_MS,
 	isConversationUntrusted,
 	canGrantMcpTask,
+	mcpTaskGrantName,
 	mcpTaskGrantExpiry,
 	isMcpTaskGrantUsable,
 	describeMcpTaskGrantUses,

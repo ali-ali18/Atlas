@@ -3,6 +3,7 @@ import type { CompleteChatWithToolsResult } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import {
 	getBotProfile,
+	getConversationRequesterBotId,
 	consumeMcpTaskGrant,
 	listApprovedConfirmTools,
 	markMcpTaskGrantsUntrusted,
@@ -38,6 +39,7 @@ vi.mock("@workspace/db", async (importOriginal) => {
 		markMcpTaskGrantsUntrusted: vi.fn(async () => 0),
 		markConversationUntrusted: vi.fn(async () => true),
 		getConversationUntrustedAt: vi.fn(async () => null),
+		getConversationRequesterBotId: vi.fn(async () => null),
 		persistConversationCardFromEvent: vi.fn(async () => undefined),
 		updateBot: vi.fn(async () => ({})),
 		loadAutonomyContext: vi.fn(async () => ({ accountRaw: null, botRaw: null, botName: "Taldo" })),
@@ -507,6 +509,7 @@ describe("aprovação por tarefa em run de outro bot (caso Radar de Mercado pedi
 	beforeEach(() => {
 		vi.clearAllMocks();
 		vi.mocked(consumeMcpTaskGrant).mockResolvedValue(null);
+		vi.mocked(getConversationRequesterBotId).mockResolvedValue(null);
 	});
 	afterEach(() => {
 		vi.mocked(consumeMcpTaskGrant).mockResolvedValue(null);
@@ -584,6 +587,20 @@ describe("aprovação por tarefa em run de outro bot (caso Radar de Mercado pedi
 		const result = await run({ connector: erpMarked, origin: "bot", autonomy: lvl("balanced", [{ connector: "agroervas", mode: "always_ask" }]), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 })] });
 		expect(result.call).not.toHaveBeenCalled();
 		expect(result.confirms).toHaveLength(1);
+	});
+
+	it("a concessão de escrita é do solicitante: a chave leva o bot que pediu; sem saber quem pediu, pergunta", async () => {
+		vi.mocked(getConversationRequesterBotId).mockResolvedValue("bot-cookie");
+		vi.mocked(consumeMcpTaskGrant).mockResolvedValue(null);
+		const asked = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 })] });
+		expect(asked.confirms).toHaveLength(1);
+		expect(consumeMcpTaskGrant).toHaveBeenCalledWith({ userId: "user-1", conversationId: "conv-aut", connectionId: "conn-erp", exposedName: `${pedidos}#from:bot-cookie` });
+		vi.mocked(consumeMcpTaskGrant).mockClear();
+		vi.mocked(getConversationRequesterBotId).mockRejectedValue(new Error("db fora"));
+		const unknown = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 })] });
+		expect(unknown.confirms).toHaveLength(1);
+		expect(consumeMcpTaskGrant).not.toHaveBeenCalled();
+		vi.mocked(getConversationRequesterBotId).mockResolvedValue(null);
 	});
 
 	it("rotina e webhook continuam sem concessão (ninguém para responder)", async () => {
