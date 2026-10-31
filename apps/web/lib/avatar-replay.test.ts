@@ -8,20 +8,28 @@ import type { AgentActivity } from "./working-status";
 
 const tool = (name: string, step: number): AgentActivity => ({ phase: "tool", tool: name, step, maxSteps: 8 });
 
+/**
+ * Run realista: o modelo leva ~3,5 s para decidir entre uma ferramenta e outra e as ferramentas
+ * duram de 80 a 500 ms (leitura, edição, shell curto). É onde o avatar vivia "pensando".
+ */
+const LLM_PAUSE_MS = 3500;
+const TOOLS: Array<[string, number]> = [["navigate", 400], ["read_file", 150], ["edit_file", 200], ["shell", 500], ["web_search", 300], ["read_file", 80]];
+
 /** [instante (ms), atividade] — o que o use-atlas-chat publica num run com várias ferramentas. */
-const TIMELINE: Array<[number, AgentActivity]> = [
-	[0, { phase: "thinking" }],
-	[1500, tool("navigate", 0)],
-	[4200, { phase: "thinking" }],
-	[4400, tool("read_file", 1)],
-	[7000, { phase: "thinking" }],
-	[7200, tool("edit_file", 2)],
-	[10000, { phase: "thinking" }],
-	[10200, tool("shell", 3)],
-	[12500, { phase: "thinking" }],
-	[13500, { phase: "writing" }],
-];
-const END = 17000;
+function buildTimeline(pause: number): { timeline: Array<[number, AgentActivity]>; end: number } {
+	const timeline: Array<[number, AgentActivity]> = [[0, { phase: "thinking" }]];
+	let t = 0;
+	TOOLS.forEach(([name, duration], step) => {
+		t += pause;
+		timeline.push([t, tool(name, step)]);
+		t += duration;
+		timeline.push([t, { phase: "thinking" }]);
+	});
+	t += pause;
+	timeline.push([t, { phase: "writing" }]);
+	return { timeline, end: t + 3500 };
+}
+const { timeline: TIMELINE, end: END } = buildTimeline(LLM_PAUSE_MS);
 
 function replay(id: string, base: number, approval?: [number, number]) {
 	const time = new Map<string, number>();
@@ -48,7 +56,11 @@ test("run normal com status 'queued' o tempo todo: o avatar nunca fica em espera
 	assert.equal(time.get("waiting") ?? 0, 0, JSON.stringify([...time]));
 	for (const state of ["thinking", "searching", "reading", "coding", "running", "streaming"]) assert.ok((time.get(state) ?? 0) > 0, `${state} nunca apareceu: ${JSON.stringify([...time])}`);
 	const total = [...time.values()].reduce((a, b) => a + b, 0);
-	assert.ok((time.get("thinking") ?? 0) + (time.get("working") ?? 0) < total * 0.5, "estados de atividade devem dominar");
+	// antes: ~66% do run em "pensando", mesmo com ferramenta rodando de verdade
+	assert.ok((time.get("thinking") ?? 0) + (time.get("working") ?? 0) < total * 0.6, `pensando/trabalhando demais: ${JSON.stringify([...time])}`);
+	assert.ok((time.get("thinking") ?? 0) <= total * 0.5, `pensando demais: ${JSON.stringify([...time])}`);
+	// ferramentas curtas (< 3 s) nunca acendem o anel de progresso
+	assert.equal(time.get("progress") ?? 0, 0, JSON.stringify([...time]));
 });
 
 test("espera só enquanto há aprovação pendente (3 s de 17 s) e entra na hora", () => {

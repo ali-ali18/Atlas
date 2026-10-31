@@ -29,7 +29,10 @@ export type EngineOptions = {
 	brainPriority?: number;
 };
 
-/** Depois de uma interação o motor roda a 60 fps; fora disso, 30. */
+/**
+ * Depois de um gesto de verdade (toque, pulso, giro, troca de corpo/expressão/estado) o motor roda a 60 fps
+ * por este tempo; fora disso (progresso, atividade, olhar do mouse, ênfase), 30 fps.
+ */
 const ACTIVE_MS = 1500;
 const FRAME_ACTIVE_MS = 16;
 const FRAME_AMBIENT_MS = 33;
@@ -177,8 +180,8 @@ export function createAvatarEngine(opts: EngineOptions) {
 
 		/** `additive`: soma ao clipe (painel que sempre segue); senão o olhar assume o corpo. */
 		setGaze(vector: { x: number; y: number } | null, additive = false): void {
+			// Olhar do mouse é movimento contínuo e suave: 30 fps bastam (60 fps a cada mexida custava CPU em celular).
 			character.setGaze(vector, additive);
-			if (vector) touch();
 		},
 		poke(x = 0, y = 0): void {
 			behavior.poke(x, y);
@@ -211,7 +214,6 @@ export function createAvatarEngine(opts: EngineOptions) {
 		setActivity(next: ActivityFamily | null): void {
 			familyOverride = next;
 			syncFamily();
-			touch();
 		},
 		/** Evento pontual (ferramenta começou/acabou/falhou, rajada de texto): um gesto curto do cérebro. */
 		pulse(kind: PulseKind, strength = 1): void {
@@ -232,21 +234,17 @@ export function createAvatarEngine(opts: EngineOptions) {
 			if (working) behavior.setState("working");
 			else if (behavior.currentState === "working") behavior.setState("idle");
 			syncFamily();
-			touch();
 		},
 		/** O corpo vira um indicador (radar, órbita, progress, thinking…); `null` volta ao corpo. */
 		setMorph(morph: MorphName | null): void {
 			character.setIndicator(indicatorFor(morph));
-			touch();
 		},
 		/** Fração real (0..1) do anel de progresso, ex.: passo 3 de 8; `null` volta ao anel em ciclo. */
 		setProgress(fraction: number | null): void {
 			character.setProgress(fraction);
-			touch();
 		},
 		setEmphasis(on: boolean): void {
 			behavior.setEmphasis(on);
-			touch();
 		},
 		/** Tamanho em px: pequeno vira compacto (menos movimento) e só pisca. */
 		setSize(size: number): void {

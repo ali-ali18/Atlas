@@ -52,6 +52,8 @@ function toolState(tool: string): AvatarState {
 		case "scroll":
 		case "act":
 			return "controlling";
+		case "think":
+			return "thinking";
 		case "delegate":
 		case "other":
 			return "working";
