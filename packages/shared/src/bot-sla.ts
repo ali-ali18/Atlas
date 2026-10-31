@@ -60,3 +60,8 @@ export function formatOpenBotRequests(requests: readonly OpenBotRequest[], now: 
 		"Their answer arrives later in this conversation. Do not present their result as done; if the user asks, say it is still pending (and overdue when marked).",
 	].join("\n");
 }
+
+/** Resposta de grupo `running` sem o run andar além disso é encerrada como "sem entrega" (o resumo não fica pendurado). */
+export const GROUP_REPLY_NO_PROGRESS_MS = 15 * 60_000;
+/** O resumo do grupo espera um membro com aprovação pendente ou continuação ativa por até isso (TTL da intenção). */
+export const GROUP_SUMMARY_HOLD_MS = 10 * 60_000;

@@ -27,7 +27,7 @@ export type GroupMember = {
 	isPrimary?: boolean;
 };
 
-export type GroupReplyReason = "user_mention" | "named" | "router" | "primary" | "bot_mention" | "jev" | "coordinator" | "assigned" | "summary";
+export type GroupReplyReason = "user_mention" | "named" | "router" | "primary" | "bot_mention" | "jev" | "coordinator" | "assigned" | "summary" | "nudge";
 
 export type GroupMention = { botId: string; name: string; start: number; end: number };
 
@@ -388,6 +388,10 @@ export function buildGroupSection(input: { groupName: string; selfId: string; me
 	return lines.join("\n");
 }
 
+/** Regra (para o modelo) contra "fico aguardando X": vale para coordenador e membros. */
+export const GROUP_NO_WAIT_RULE =
+	"Never end with 'waiting for X' or ask the user/another bot for things already in the conversation. If a dependency is missing, make the most reasonable assumption, deliver, and list assumptions.";
+
 /** Última mensagem do turno: diz ao membro por que é a vez dele. */
 export function buildGroupTurnPrompt(input: { groupName: string; reason: GroupReplyReason; fromName?: string | null }): string {
 	const group = `"${oneLine(input.groupName, 80)}"`;
@@ -397,7 +401,7 @@ export function buildGroupTurnPrompt(input: { groupName: string; reason: GroupRe
 		case "named":
 			return `[Grupo ${group}] O usuário se dirigiu a você pelo nome. Responda ao grupo.`;
 		case "bot_mention":
-			return `[Grupo ${group}] ${input.fromName ? oneLine(input.fromName, 60) : "Outro membro"} mencionou você. Responda ao grupo, ao que foi pedido a você.`;
+			return `[Grupo ${group}] ${input.fromName ? oneLine(input.fromName, 60) : "Outro membro"} mencionou você. Responda ao grupo, ao que foi pedido a você. ${GROUP_NO_WAIT_RULE}`;
 		default:
 			return `[Grupo ${group}] A mensagem do usuário foi encaminhada a você por ser da sua área. Responda ao grupo.`;
 	}
