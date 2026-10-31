@@ -57,6 +57,10 @@ export type AnswerPendingDeps = {
 	resolveModel?: (botId: string, userId: string) => Promise<string>;
 };
 
+/** Vida da intenção pendente comum (10 min): nota de grupo parada além disso falha em vez de ficar na fila para sempre. */
+const GROUP_NOTE_TTL_MS = 10 * 60_000;
+const GROUP_QUEUE_SCAN = 100;
+
 /** Uma resposta por vez por card neste processo (a checagem de "já resolvido" não é atômica no banco). */
 const inFlight = new Set<string>();
 
@@ -127,7 +131,7 @@ async function apply(
 			silent: true,
 			clientKey: questionnaireAnswerClientKey(card.questionnaireId, answers).slice(0, 128),
 		};
-		return startRun(request, model, userId, queue, deps);
+		return startRun(request, model, userId, queue, deps, Boolean(input.groupMemberBotId));
 	}
 
 	if (card?.kind !== "confirm" || input.answer.type === "answer") return { status: "invalid", error: "Card cannot be answered here" };
@@ -141,16 +145,22 @@ async function apply(
 				? devApprovalRejectText(input.answer.feedback)
 				: "cancela isso";
 	let request: CreateAgentRunRequest = { messages: [{ role: "user", content: labelCardProtocolMessage(text) }], botId: bot.id, conversationId, origin: "chat" };
+	// Grupo: última checagem antes de consumir a intenção (a aprovação não pode se perder num run de outro membro).
+	if (input.groupMemberBotId && (await listActiveRunsForConversation(conversationId)).length > 0) return { status: "unavailable", error: "Conversation busy" };
 	const handled = await maybeHandleConfirmedAction({ text, userId, botId: bot.id, conversationId, model, continueInAgent: true, confirmId: card.confirmId });
 	if (handled.handled) return { status: "applied", runId: handled.run.id };
 	if (handled.followUp) {
 		request = { ...request, messages: applyConfirmedFollowUp(request.messages, handled.followUp), objective: handled.followUp.objective, ...(handled.followUp.transcript ? { transcriptSeed: handled.followUp.transcript } : {}) };
 	}
-	return startRun(request, model, userId, queue, deps);
+	return startRun(request, model, userId, queue, deps, Boolean(input.groupMemberBotId));
 }
 
-async function startRun(request: CreateAgentRunRequest, model: string, userId: string, queue: RunQueue, deps: AnswerPendingDeps): Promise<AnswerPendingResult> {
+async function startRun(request: CreateAgentRunRequest, model: string, userId: string, queue: RunQueue, deps: AnswerPendingDeps, guardOwner = false): Promise<AnswerPendingResult> {
+	const startedAt = Date.now();
 	const run = await (deps.createRun ?? createAgentRun)({ request, model, userId, contextLength: peekModelContextLength(model) });
+	// Grupo: um run ativo entrou na conversa entre a checagem e o create (o create devolve o existente, de outro membro).
+	// Não enfileira nem conta como aplicado; a próxima varredura tenta de novo (mesmo critério do worker em startReply).
+	if (guardOwner && (run.botId !== request.botId || new Date(run.createdAt).getTime() < startedAt - 1_000)) return { status: "unavailable", error: "Conversation busy" };
 	await (deps.enqueue ?? enqueueAgentRunJob)(queue, run.id);
 	return { status: "applied", runId: run.id };
 }
@@ -160,12 +170,20 @@ async function startRun(request: CreateAgentRunRequest, model: string, userId: s
  * aplicar, reabre o pedido original para o resultado do destino voltar ao orquestrador
  * pela mesma entrega de respostas.
  */
-export async function applyQueuedBotDecisions(deps: AnswerPendingDeps): Promise<number> {
-	const queued = await listQueuedAutoDecisions();
+export async function applyQueuedBotDecisions(deps: AnswerPendingDeps, now: Date = new Date()): Promise<number> {
+	// Decisões do orquestrador primeiro: nota de grupo adiada (conversa ocupada) nunca fica na frente delas.
+	const queued = (await listQueuedAutoDecisions(GROUP_QUEUE_SCAN)).sort((a, b) => Number(Boolean(a.card.viaGroup)) - Number(Boolean(b.card.viaGroup)));
 	let applied = 0;
 	for (const item of queued) {
-		// Grupo: a conversa só comporta um run ativo e o createRun devolveria o de outro membro; espera o grupo ficar livre.
-		if (item.card.viaGroup && (await listActiveRunsForConversation(item.card.need.conversationId)).length > 0) continue;
+		if (item.card.viaGroup) {
+			// Passou o prazo da intenção pendente: não dá mais para aplicar; marca como falha (com motivo) e libera a fila.
+			if (now.getTime() - item.createdAt.getTime() > GROUP_NOTE_TTL_MS) {
+				await failAutoDecision(item.rowId, "Não deu para aplicar a tempo; o pedido segue esperando você.");
+				continue;
+			}
+			// A conversa só comporta um run ativo e o createRun devolveria o de outro membro; espera o grupo ficar livre.
+			if ((await listActiveRunsForConversation(item.card.need.conversationId)).length > 0) continue;
+		}
 		const card = await claimAutoDecision(item.rowId);
 		if (!card) continue;
 		const userId = item.userId ?? undefined;

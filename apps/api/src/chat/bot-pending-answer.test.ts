@@ -67,9 +67,9 @@ function fakeTargetChat(kind: "command" | "questionnaire", options: { ownsBot?: 
 		queue: { add: async () => ({}) } as unknown as Deps["queue"],
 		openRouterModel: "m/x",
 		resolveModel: async () => "m/x",
-		createRun: (async (input: { request: { messages: Array<{ content: string }> }; userId: string }) => {
+		createRun: (async (input: { request: { messages: Array<{ content: string }>; botId?: string }; userId: string }) => {
 			state.runs.push(input as never);
-			return { id: `run-${state.runs.length}`, status: "queued" };
+			return { id: `run-${state.runs.length}`, status: "queued", botId: input.request.botId, createdAt: new Date().toISOString() };
 		}) as unknown as Deps["createRun"],
 		enqueue: async () => true,
 	};
@@ -86,6 +86,9 @@ function fakeTargetChat(kind: "command" | "questionnaire", options: { ownsBot?: 
 		},
 	};
 }
+
+/** Linha completa de run ativo (o mapRun do db lê todos os campos). */
+const runRow = (id: string) => ({ id, userId: USER, botId: "inspetor", conversationId: CONV, origin: "chat", objective: "x", status: "running", model: "m", maxSteps: 1, sandboxSessionId: null, error: null, resultText: null, cancelRequested: false, createdAt: new Date(), updatedAt: new Date(), startedAt: null, finishedAt: null });
 
 const input = (answer: Parameters<typeof answerBotPending>[0]["answer"]) => ({ userId: USER, conversationId: CONV, cardId: "card1", answer });
 
@@ -189,8 +192,10 @@ test("sem fila: indisponível, nada é aplicado", async () => {
 });
 
 /** Conversa de grupo: o bot dono da conversa é o grupo; o cartão pertence ao membro `radar` (intenção guarda o botId dele). */
-function asGroupChat(fake: ReturnType<typeof fakeTargetChat>, memberOfGroup: string[], intentBotId: string) {
+function asGroupChat(fake: ReturnType<typeof fakeTargetChat>, memberOfGroup: string[], intentBotId: string, activeRuns = 0) {
 	const botFind = prisma.bot.findFirst;
+	const runsMany = prisma.agentRun.findMany;
+	prisma.agentRun.findMany = (async () => Array.from({ length: activeRuns }, (_, i) => runRow(`ativo-${i}`))) as unknown as typeof prisma.agentRun.findMany;
 	const intentFind = prisma.skillPendingIntent.findUnique;
 	prisma.bot.findFirst = (async (args: { where: { ownerId?: string; id?: string; memberIds?: { has: string } } }) => {
 		if (args.where.memberIds) return args.where.id === "team" && memberOfGroup.includes(args.where.memberIds.has) ? { id: "team" } : null;
@@ -202,6 +207,7 @@ function asGroupChat(fake: ReturnType<typeof fakeTargetChat>, memberOfGroup: str
 	}) as unknown as typeof prisma.skillPendingIntent.findUnique;
 	return () => {
 		prisma.bot.findFirst = botFind;
+		prisma.agentRun.findMany = runsMany;
 		prisma.skillPendingIntent.findUnique = intentFind;
 	};
 }
@@ -246,6 +252,43 @@ test("grupo: membro fora do grupo, ou cartão de outro membro, não é aceito", 
 	}
 });
 
+test("grupo: run ativo na conversa -> indisponível sem consumir a intenção (a aprovação não se perde)", async () => {
+	const fake = fakeTargetChat("command");
+	const undo = asGroupChat(fake, ["cookie", "radar"], "radar", 1);
+	try {
+		const result = await answerBotPending({ ...input({ type: "approve" }), groupMemberBotId: "radar" }, fake.deps);
+		assert.equal(result.status, "unavailable");
+		assert.equal(fake.state.status, "pending");
+		assert.equal(fake.state.intentCleared, false);
+		assert.equal(fake.state.runs.length, 0);
+	} finally {
+		undo();
+		fake.restore();
+	}
+});
+
+test("grupo: createRun devolve o run de OUTRO membro (corrida) -> não enfileira nem conta como aplicado", async () => {
+	const fake = fakeTargetChat("command");
+	const undo = asGroupChat(fake, ["cookie", "radar", "inspetor"], "radar");
+	let enqueued = 0;
+	const deps: Deps = {
+		...fake.deps,
+		createRun: (async () => ({ id: "run-do-inspetor", botId: "inspetor", createdAt: new Date().toISOString() })) as unknown as Deps["createRun"],
+		enqueue: async () => {
+			enqueued += 1;
+			return true;
+		},
+	};
+	try {
+		const result = await answerBotPending({ ...input({ type: "approve" }), groupMemberBotId: "radar" }, deps);
+		assert.equal(result.status, "unavailable");
+		assert.equal(enqueued, 0);
+	} finally {
+		undo();
+		fake.restore();
+	}
+});
+
 test("grupo: sem groupMemberBotId (rota do usuário) o caminho antigo segue igual", async () => {
 	const fake = fakeTargetChat("command");
 	try {
@@ -266,18 +309,75 @@ test("grupo: aceite do principal espera o grupo ficar sem run ativo (não vira o
 	const originals = { many: prisma.conversationMessage.findMany, find: prisma.conversationMessage.findUnique, runs: prisma.agentRun.findMany };
 	let activeRuns = 1;
 	let claimed = 0;
-	prisma.conversationMessage.findMany = (async () => [{ id: "note1", conversationId: CONV, role: "bot-link", content: note, conversation: { userId: USER } }]) as unknown as typeof prisma.conversationMessage.findMany;
+	prisma.conversationMessage.findMany = (async () => [{ id: "note1", conversationId: CONV, role: "bot-link", content: note, createdAt: new Date(), conversation: { userId: USER } }]) as unknown as typeof prisma.conversationMessage.findMany;
 	prisma.conversationMessage.findUnique = (async () => {
 		claimed += 1;
 		return null;
 	}) as unknown as typeof prisma.conversationMessage.findUnique;
-	prisma.agentRun.findMany = (async () => (activeRuns > 0 ? [{ id: "outro" }] : [])) as unknown as typeof prisma.agentRun.findMany;
+	prisma.agentRun.findMany = (async () => (activeRuns > 0 ? [runRow("outro")] : [])) as unknown as typeof prisma.agentRun.findMany;
 	try {
 		await applyQueuedBotDecisions({ queue: null, openRouterModel: "m/x" }).catch(() => undefined);
 		assert.equal(claimed, 0, "com run ativo na conversa do grupo a nota continua na fila");
 		activeRuns = 0;
 		await applyQueuedBotDecisions({ queue: null, openRouterModel: "m/x" }).catch(() => undefined);
 		assert.equal(claimed, 1, "livre: a nota é reivindicada");
+	} finally {
+		prisma.conversationMessage.findMany = originals.many;
+		prisma.conversationMessage.findUnique = originals.find;
+		prisma.agentRun.findMany = originals.runs;
+	}
+});
+
+
+const groupNote = (cardId: string, viaGroup: boolean) =>
+	JSON.stringify({
+		v: 1, kind: "auto-decision", botMessageId: "turn1", botId: "radar", botName: "Radar", deciderName: "Cookie", decision: "approved", subject: "git status", reason: "comando de leitura",
+		withJev: !viaGroup, ...(viaGroup ? { viaGroup: true } : {}), status: "queued", need: { type: "confirm", label: "Aprovar", cardId, conversationId: CONV },
+	});
+
+test("grupo: nota parada além do prazo da intenção vira failed (com motivo) em vez de travar a fila", async () => {
+	const { applyQueuedBotDecisions } = await import("./bot-pending-answer.js");
+	const now = new Date("2026-10-31T12:00:00Z");
+	const content = groupNote("cardX", true);
+	const originals = { many: prisma.conversationMessage.findMany, find: prisma.conversationMessage.findUnique, update: prisma.conversationMessage.update, runs: prisma.agentRun.findMany };
+	const updates: string[] = [];
+	prisma.conversationMessage.findMany = (async () => [{ id: "velha", conversationId: CONV, role: "bot-link", content, createdAt: new Date(now.getTime() - 11 * 60_000), conversation: { userId: USER } }]) as unknown as typeof prisma.conversationMessage.findMany;
+	prisma.conversationMessage.findUnique = (async () => ({ id: "velha", conversationId: CONV, role: "bot-link", content })) as unknown as typeof prisma.conversationMessage.findUnique;
+	prisma.conversationMessage.update = (async (args: { data: { content: string } }) => {
+		updates.push(args.data.content);
+		return {};
+	}) as unknown as typeof prisma.conversationMessage.update;
+	prisma.agentRun.findMany = (async () => [runRow("ativo")]) as unknown as typeof prisma.agentRun.findMany;
+	try {
+		await applyQueuedBotDecisions({ queue: null, openRouterModel: "m/x" }, now);
+		assert.equal(updates.length, 1);
+		const failed = JSON.parse(updates[0]!) as { status: string; reason: string };
+		assert.equal(failed.status, "failed");
+		assert.match(failed.reason, /a tempo/);
+	} finally {
+		prisma.conversationMessage.findMany = originals.many;
+		prisma.conversationMessage.findUnique = originals.find;
+		prisma.conversationMessage.update = originals.update;
+		prisma.agentRun.findMany = originals.runs;
+	}
+});
+
+test("grupo: nota de grupo adiada não impede aplicar a decisão do orquestrador que vem depois", async () => {
+	const { applyQueuedBotDecisions } = await import("./bot-pending-answer.js");
+	const originals = { many: prisma.conversationMessage.findMany, find: prisma.conversationMessage.findUnique, runs: prisma.agentRun.findMany };
+	const claimedIds: string[] = [];
+	prisma.conversationMessage.findMany = (async () => [
+		{ id: "grupo", conversationId: CONV, role: "bot-link", content: groupNote("c1", true), createdAt: new Date(), conversation: { userId: USER } },
+		{ id: "orq", conversationId: "conv-outra", role: "bot-link", content: groupNote("c2", false), createdAt: new Date(), conversation: { userId: USER } },
+	]) as unknown as typeof prisma.conversationMessage.findMany;
+	prisma.conversationMessage.findUnique = (async (args: { where: { id: string } }) => {
+		claimedIds.push(args.where.id);
+		return null;
+	}) as unknown as typeof prisma.conversationMessage.findUnique;
+	prisma.agentRun.findMany = (async () => [runRow("ativo")]) as unknown as typeof prisma.agentRun.findMany;
+	try {
+		await applyQueuedBotDecisions({ queue: null, openRouterModel: "m/x" }).catch(() => undefined);
+		assert.deepEqual(claimedIds, ["orq"], "só a do orquestrador é reivindicada; a de grupo espera a conversa ficar livre");
 	} finally {
 		prisma.conversationMessage.findMany = originals.many;
 		prisma.conversationMessage.findUnique = originals.find;
