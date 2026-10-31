@@ -3,16 +3,19 @@
  * O localizador que roda no HTML mora em `packages/search/src/page-value.ts`; aqui ficam as peças que a tool e
  * a criação da regra (`expect`) também usam, para o "16,47" da IA e o "R$ 16,47" da página serem o mesmo valor.
  */
-import { parseLocalizedNumber } from "./alert-rule-extract.js";
+import { parseLocalizedNumber, stripTrailingSeparators } from "./alert-rule-extract.js";
 
 export const PAGE_VALUE_MAX = 80;
 export const ALERT_ANCHOR_MAX = 40;
 
-const NUMERIC_VALUE = /^\s*(?:(?:R\$|US\$|U\$S|\$|€|£)\s*)?[-\u2212\u2013\u2012]?\s*\d[\d.,\s  ]*\s*(?:%|reais)?\s*$/i;
+// Sem `\s*` encostado em classe que já aceita espaço: a entrada chega aparada (ver isNumericPageValue), assim o
+// regex fica linear mesmo com milhares de espaços (CodeQL, regex polinomial).
+const NUMERIC_VALUE = /^(?:(?:R\$|US\$|U\$S|\$|€|£)\s*)?[-\u2212\u2013\u2012]?\s*\d[\d.,\s  ]*(?:%|reais)?$/i;
 
 /** O texto é um número (com ou sem moeda/%): "16,47", "R$ 3.299,00", "1,234.56". */
 export function isNumericPageValue(text: string): boolean {
-	return NUMERIC_VALUE.test(text);
+	const trimmed = text.trim();
+	return trimmed.length > 0 && trimmed.length <= PAGE_VALUE_MAX && NUMERIC_VALUE.test(trimmed);
 }
 
 /** Minúsculas, sem acento, espaços colapsados: base da comparação de texto. */
@@ -28,7 +31,7 @@ export function normalizePageText(text: string): string {
 function tokensOf(text: string): number[] {
 	const out: number[] = [];
 	for (const match of text.matchAll(/\d[\d.,]*/g)) {
-		const value = parseLocalizedNumber(match[0].replace(/[.,]+$/, ""));
+		const value = parseLocalizedNumber(stripTrailingSeparators(match[0]));
 		if (value !== null) out.push(value);
 	}
 	return out;

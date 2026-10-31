@@ -138,3 +138,25 @@ describe("ticker da B3 e sites de cotação", () => {
 		expect(anchorStillNear("Dividend Yield 4,14%", "cotacao")).toBe(false);
 	});
 });
+
+describe("page-value em tempo linear (CodeQL)", () => {
+	it("isNumericPageValue com milhares de espaços ou tabs responde rápido e sem falso positivo", () => {
+		const started = performance.now();
+		expect(isNumericPageValue(`R$${" ".repeat(50_000)}x`)).toBe(false);
+		expect(isNumericPageValue(`0${"\t".repeat(50_000)}x`)).toBe(false);
+		expect(performance.now() - started).toBeLessThan(200);
+	});
+
+	it("isNumericPageValue apara antes de testar: espaço nas pontas continua valendo", () => {
+		expect(isNumericPageValue("  R$ 16,47  ")).toBe(true);
+		expect(isNumericPageValue(" 16,47 % ")).toBe(true);
+		expect(isNumericPageValue("   ")).toBe(false);
+	});
+
+	it("pageNumbers com vírgulas repetidas no meio de um número responde rápido", () => {
+		const started = performance.now();
+		pageNumbers(`1${",".repeat(50_000)}1`);
+		expect(performance.now() - started).toBeLessThan(200);
+		expect(pageNumbers("R$ 16,47.")).toContain(16.47);
+	});
+});
