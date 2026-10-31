@@ -9,6 +9,7 @@
  */
 import type { BotLanguage } from "./bot-language.js";
 import { ALERT_JSONPATH_MAX, ALERT_REGEX_MAX, parseJsonPath, unsafeRegexReason } from "./alert-rule-extract.js";
+import { ALERT_ANCHOR_MAX, PAGE_VALUE_MAX } from "./page-value.js";
 
 export const ALERT_RULE_URL_MAX = 2000;
 export const ALERT_SELECTOR_MAX = 200;
@@ -73,9 +74,19 @@ export type AlertRule = {
 	message?: string;
 	/** Frequência escolhida pelo agente (minutos), já ajustada ao piso técnico da fonte. */
 	intervalMinutes?: number;
+	/**
+	 * Só página com seletor CSS: o rótulo que ficava junto do valor quando a regra foi criada ("cotacao"), derivado
+	 * pelo servidor da leitura real. Se o seletor passar a ler um valor cujo contexto não tem mais esse rótulo (o
+	 * seletor casou outro card), a leitura é descartada como "não consegui ler" em vez de avisar com o número errado.
+	 */
+	anchor?: string;
 };
 
-export type ParseAlertRuleResult = { ok: true; rule: AlertRule } | { ok: false; error: string };
+/**
+ * `expect` (só na criação, nunca gravado na regra): o valor que a IA viu na página. O teste ao vivo confere que a
+ * regra lê exatamente isso (`pageValuesMatch`, tolerância zero), senão a criação falha.
+ */
+export type ParseAlertRuleResult = { ok: true; rule: AlertRule; expect?: string } | { ok: false; error: string };
 
 /** Piso técnico por fonte: protege sites de terceiros e cotas de API. Não é um mínimo de produto. */
 const SOURCE_FLOOR_MINUTES: Record<AlertSource["type"], number> = { page: 30, feed: 15, quote: 15, fx: 15, crypto: 5, weather: 180 };
@@ -95,7 +106,7 @@ export function clampAlertRuleInterval(minutes: number, source: Pick<AlertSource
 	return Math.min(ALERT_RULE_INTERVAL_MAX, Math.max(alertSourceFloorMinutes(source), value));
 }
 
-const RULE_FIELDS = ["source", "check", "label", "message", "intervalMinutes"] as const;
+const RULE_FIELDS = ["source", "check", "label", "message", "intervalMinutes", "expect", "anchor"] as const;
 const PAGE_FIELDS = ["type", "url", "extract"] as const;
 const FEED_FIELDS = ["type", "url"] as const;
 const EXTRACT_FIELDS = { css: ["kind", "selector", "attribute"], jsonpath: ["kind", "path"], regex: ["kind", "pattern"] } as const;
@@ -355,6 +366,17 @@ export function parseAlertRule(raw: unknown): ParseAlertRuleResult {
 		if (typeof raw.intervalMinutes !== "number" || !Number.isFinite(raw.intervalMinutes) || raw.intervalMinutes < 1) return { ok: false, error: "rule.intervalMinutes must be a positive number of minutes" };
 		intervalMinutes = clampAlertRuleInterval(raw.intervalMinutes, source.source);
 	}
+	let anchor: string | undefined;
+	if (raw.anchor !== undefined && raw.anchor !== null) {
+		anchor = typeof raw.anchor === "string" ? oneLine(raw.anchor) : "";
+		if (!anchor || anchor.length > ALERT_ANCHOR_MAX || /[{}]/.test(anchor) || source.source.type !== "page") return { ok: false, error: `rule.anchor is set by the server on page rules (plain text up to ${ALERT_ANCHOR_MAX} characters); omit it` };
+	}
+	let expectedValue: string | undefined;
+	if (raw.expect !== undefined && raw.expect !== null) {
+		const text = typeof raw.expect === "number" && Number.isFinite(raw.expect) ? String(raw.expect) : typeof raw.expect === "string" ? oneLine(raw.expect) : "";
+		if (!text || text.length > PAGE_VALUE_MAX) return { ok: false, error: `rule.expect must be the value you saw on the page, as text or number (up to ${PAGE_VALUE_MAX} characters), e.g. "16,47" or "R$ 3.299"` };
+		expectedValue = text;
+	}
 	return {
 		ok: true,
 		rule: {
@@ -363,7 +385,9 @@ export function parseAlertRule(raw: unknown): ParseAlertRuleResult {
 			...(label ? { label } : {}),
 			...(message ? { message } : {}),
 			...(intervalMinutes !== undefined ? { intervalMinutes } : {}),
+			...(anchor ? { anchor } : {}),
 		},
+		...(expectedValue !== undefined ? { expect: expectedValue } : {}),
 	};
 }
 

@@ -1,6 +1,6 @@
 # Alertas inteligentes (regra conferida pelo servidor)
 
-- **Status:** em andamento (etapas 1 e 2 de 6: base da regra, página pública e feed; fontes prontas de cotação, câmbio, cripto e clima)
+- **Status:** em andamento (etapas 1 e 2 de 6: base da regra, página pública e feed; fontes prontas de cotação, câmbio, cripto e clima; mais o modo guiado e o "brapi primeiro" da versão 0.3.3, descritos no fim)
 - **Data:** 2026-10-30
 - **Plano:** "Plano dos alertas inteligentes" (aprovado pelo dono em 30/10/2026; as etapas seguintes vêm cada uma em seu PR)
 - **Issues/PRs:** #
@@ -123,3 +123,44 @@ Valor e item novo: zero de IA por conferência; só uma requisição HTTP, compa
 
 ## Como testar
 - `pnpm --filter @workspace/shared test` (fontes, pregão com `now` injetado, avaliação), `pnpm --filter @workspace/search test` (provedores com `fetch` simulado: ok, 401, 429, malformado, timeout, redirect, rotação, cache), `pnpm --filter @workspace/agent-runtime test` (replays dos quatro pedidos e economia), worker e api (`tsx --test`: `rule-alert.test.ts`, `routine.rule-alert.test.ts`, `mcp-data-source.test.ts` com acesso de outro usuário), web (cartão nos três idiomas).
+
+---
+
+# Modo guiado e "brapi primeiro" (0.3.3-beta)
+
+## O que é
+Duas melhorias aprovadas pelo dono depois do caso real do BBAS3: o bot chutou uma regex "Cotação R$" para a página do Investidor10 (2,2 MB, ~50 KB de texto visível) e ela pegaria o **ouro**, porque a faixa de commodities no topo tem dezenas de "Cotação: R$ ..." antes do preço da ação.
+1. **Modo guiado:** a IA guia a criação (acha o valor, escolhe a ocorrência certa pelo contexto) e o servidor passa a conferir sem IA, com um seletor CSS estável que ele mesmo validou.
+2. **Brapi primeiro:** preço de ação, FII, ETF ou BDR da B3 é sempre a fonte `quote`, nunca a página de um site de cotação.
+
+## Problema
+- Regex e seletor chutados leem o número errado, e o teste da criação só dizia "leu um número", não "leu o número certo".
+- Em loja com várias variantes (128 GB, 256 GB) o seletor da primeira ocorrência lê o preço do modelo errado.
+- Páginas de cotação são frágeis (layout, JavaScript, bloqueio) e a brapi já resolve o caso com dado limpo.
+
+## Como funciona
+- **`find_page_value`** (`packages/agent-runtime/src/tools/find-page-value.ts`, grupo lazy das rotinas; não entra no "Bom dia"). Args: `url`, `value` (como a IA viu: "16,47", "R$ 3.299"), `near` opcional (texto que identifica o item: "256 GB"). O servidor busca a página com o **mesmo leitor seguro dos alertas** (`fetchAlertPage`: SSRF em cada salto, 5 MB, 10 s, robots.txt) e devolve até 10 ocorrências: dados estruturados primeiro (`meta[itemprop=price]`, `meta[property=product:price:amount]`, `[itemprop=price]`, JSON-LD), depois as que têm `near` no elemento ou num ancestral próximo, depois o resto. Cada uma traz o `extract` pronto para a regra, o tipo (`structured`/`css`), a leitura e ~120 caracteres de contexto. O resultado vai ao modelo como **dado não confiável** (marcado, saneado, sem HTML cru) e a tool falha (`ok:false`) com dica quando não acha.
+- **Localizador** (`packages/search/src/page-value.ts`; comparação e heurísticas puras em `packages/shared/src/page-value.ts`). Acha o menor elemento visível que contém o número (token a token: "16,47" não casa "116,47"; "16,47" = "R$ 16,47" = 16.47) e só aceita a ocorrência se a regra **leria o mesmo valor** (a regra lê o primeiro número do elemento: o "3" de "BBAS3 cotação R$ 16,47" descarta a ocorrência). Seletor: prefere `id`, `itemprop`/`data-*` e classes com significado, ancora em ancestrais quando preciso, recusa classe gerada (CSS-in-JS, CSS modules), utilitária e de estado, nunca usa `nth-child`, e só vale se casar **exatamente 1 elemento** no documento. Sem jeito estável, a ocorrência vem com `extract: null` e nota. JSON-LD é evidência (`extract: null`): a regra ainda não lê JSON-LD.
+- **`expect`** em `alert.rule`: o valor que a IA viu. O teste ao vivo da criação exige que a leitura bata (mesma normalização, tolerância zero); senão falha com `the rule read "X" but you expected "Y"; use find_page_value to get the right selector` e nada é criado. `expect` nunca é gravado na regra. **`expect` é obrigatório** para regra de valor em página criada pela tool (css, jsonpath e regex); sem ele a criação falha mandando usar o `find_page_value` (feed e item novo não pedem). Campo desconhecido continua falhando com a lista do aceito.
+- **Âncora contra deriva:** o salto brusco só segura uma leitura até a seguinte confirmar, então um seletor que passa a casar outro card (outro número) seria aceito na 2ª leitura. Por isso a criação guarda na regra o `anchor`, o rótulo que estava junto do valor ("cotacao", derivado pelo servidor do contexto lido, nunca do modelo), o leitor devolve o contexto do elemento e a avaliação descarta a leitura quando o rótulo sumiu ("não consegui verificar" uma vez, sem aviso de valor, sem sobrescrever o último valor bom). Regra sem âncora (contexto só com números) segue só com o filtro de salto.
+- **Ranking e custo do localizador:** estruturado primeiro; prosa (valor dentro de `<p>` ou de bloco com mais de ~60 caracteres) depois do elemento que mostra só o valor; então `near`; então ancestral com nome de preço/cotação. Orçamento de 800 ms depois do parse (estourou: devolve o que tem, sem montar seletor), cache de 60 s por URL e no máximo 3 buscas por run (a 4ª falha com a saída). Valor de atributo no seletor só com `[\w-]`.
+- **Salto brusco e seletor que some:** já existiam e foram conferidos. Seletor que deixa de casar lê `null`, vira "não consegui verificar" uma vez, sem anunciar valor e sem mexer no último valor lido; o salto >60% só vale confirmado (teste novo em `apps/worker/src/rule-alert.test.ts`).
+- **Brapi primeiro:** prompt e descrição do esquema mandam usar `quote` para ticker da B3 (ou nome de empresa listada); sem a chave (ou recusada) o bot chama `propose_connector` com app `brapi` (aparece o cartão), não insiste em páginas e oferece o alerta simples conferido pelo modelo. **Guarda no executor** (`b3QuotePageReason`, `packages/shared`): regra de página de investidor10, statusinvest, fundamentus, tradingview, investing.com (qualquer subdomínio), advfn, maisretorno, finance.yahoo.com, google.*/finance (qualquer domínio) ou infomoney.com.br/cotacoes cuja URL, título, detalhe, condição, rótulo ou a última fala do usuário citam ticker da B3 (4 caracteres com 3 letras no mínimo + sufixo 3-6, 11-13 ou 31-39 + `F` opcional: B3SA3, BBAS3F; "Fire7" não casa) **e pedem o preço** é recusada com "Use source quote (brapi) for B3 tickers; if the key is missing call propose_connector app brapi". O `find_page_value` aplica a mesma guarda e nem busca a página.
+
+## Alternativas descartadas
+- Pedir ao modelo para "revisar" o seletor depois: custa IA e ainda erra; o servidor valida sem modelo (seletor único + `expect`).
+- Aceitar `nth-child` quando não há atributo estável: funciona hoje e quebra quando a loja reordena as variantes; prefere-se dizer que não dá e cair na condição simples.
+- Ler JSON-LD na regra: exigiria um novo tipo de extração (`jsonld`) em `shared`, `search`, worker e UI. Fica como sugestão; hoje JSON-LD só confirma o valor e ajuda o `near`.
+- Regex gerada pelo servidor sobre o HTML: o leitor roda a regex numa janela de 64 KB de texto visível (sem script), então não alcança o JSON-LD de páginas grandes.
+- Bloquear só no prompt: o modelo ignora; por isso a guarda está no executor, com teste.
+
+## Riscos
+- **Seletor com classe que parece estável mas muda** (marca nova, redesign): vira "não consegui verificar" (nunca um valor errado); o conserto automático é a etapa 5.
+- **Variantes sem atributo que as distinga:** a ocorrência volta sem seletor; o bot diz que não dá para vigiar só aquele modelo com regra e oferece a condição simples.
+- **Falso positivo da guarda da B3:** exige site de cotação **e** ticker no endereço ou no pedido **e** pedido de preço; DY, P/VP, dividendos e data com passam (a fonte `quote` não os cobre), assim como página de commodity no mesmo site sem ticker.
+- **Texto da página no resultado da tool:** contexto saneado (sem marcação, aspas, controle), 160 caracteres, marcado como não confiável; o modelo não segue ordem encontrada nele.
+- **Custo:** `find_page_value` não usa modelo (uma busca HTTP, no máximo 5 MB, ~1 s para 2 MB). O grupo das rotinas ganhou uma tool, mas só carrega por intenção; o "Bom dia" segue abaixo de 40 mil caracteres de prefixo (a dica do índice do grupo foi encurtada para compensar).
+- **Deploy com versões mistas:** sem migration e sem contrato novo no banco; `expect` é só da criação. Agent-runtime novo com worker antigo funciona (a regra gravada é a mesma de antes).
+
+## Como testar
+- `pnpm --filter @workspace/shared test` (comparação de valor, classes estáveis, guarda da B3, `expect` no parse), `pnpm --filter @workspace/search test` (localizador com fixtures reduzidas do Investidor10 e de uma loja com variantes, SSRF, JSON, página grande), `pnpm --filter @workspace/agent-runtime test` (`computer-use.alert-guided.test.ts`: tool, `expect`, guarda e os replays "me avisa se a BBAS3 cair abaixo de R$ 15" e "Galaxy X de 256 GB"; `computer-use.economy-replay.test.ts`: "Bom dia" pequeno e o pedido de alerta carregando o grupo no passo 1), worker (`rule-alert.test.ts`).

@@ -248,6 +248,21 @@ describe("economia ligada: abas do navegador", () => {
 	});
 });
 
+describe("economia ligada: alerta guiado", () => {
+	it("'Bom dia' não carrega o find_page_value nem o prompt do modo guiado; o pedido de alerta carrega o grupo no passo 1", async () => {
+		const hello = await replay({ messages: [{ role: "user", content: "Bom dia" }] });
+		expect(hello.first).not.toContain("find_page_value");
+		// O índice só nomeia a tool; o procedimento do modo guiado (prompt do grupo) só vem com o pedido de alerta.
+		expect(hello.system()).not.toContain("Guided mode for a value on a page");
+		for (const text of ["me avisa quando o Galaxy X de 256 GB baixar de R$ 3.000 neste link https://loja.example.com/galaxy-x", "me avisa se a BBAS3 cair abaixo de R$ 15"]) {
+			const alert = await replay({ messages: [{ role: "user", content: text }] });
+			expect(alert.first, text).toEqual(expect.arrayContaining(["find_page_value", "propose_routine", "propose_connector"]));
+			expect(alert.system(), text).toContain("Guided mode for a value on a page");
+			expect(alert.system(), text).toContain("ALWAYS, for a ticker like BBAS3");
+		}
+	});
+});
+
 describe("economia ligada: lembrete", () => {
 	it("'me lembra dia 03/10 às 10h e 20h' carrega as tools de rotina e a chamada roda de primeira", async () => {
 		const { first, results } = await replay({
@@ -334,6 +349,7 @@ describe("economia ligada: chat simples", () => {
 			"create_file",
 			"click",
 			"propose_profile_update",
+			"find_page_value",
 		]) {
 			expect(first).not.toContain(rare);
 		}

@@ -60,7 +60,8 @@ export type RoutineAlert = RoutineAlertConfig & {
 	ruleState?: AlertRuleState;
 };
 
-export type ParseRoutineAlertResult = { ok: true; alert: RoutineAlertConfig } | { ok: false; error: string };
+/** `expect` = valor que a IA viu na página (só confere na criação; não faz parte do alerta gravado). */
+export type ParseRoutineAlertResult = { ok: true; alert: RoutineAlertConfig; expect?: string } | { ok: false; error: string };
 
 function cleanLine(value: string): string {
 	return value.replace(/\s+/g, " ").trim();
@@ -76,10 +77,12 @@ export function parseRoutineAlertInput(raw: unknown, options: { locale?: BotLang
 	}
 	const row = raw as Record<string, unknown>;
 	let rule: AlertRule | undefined;
+	let expect: string | undefined;
 	if (row.rule !== undefined && row.rule !== null) {
 		const parsedRule = parseAlertRule(row.rule);
 		if (!parsedRule.ok) return { ok: false, error: `alert.rule inválida: ${parsedRule.error}` };
 		rule = parsedRule.rule;
+		expect = parsedRule.expect;
 	}
 	let condition = typeof row.condition === "string" ? cleanLine(row.condition) : "";
 	if (!condition && rule) condition = describeAlertRuleCondition(rule, options.locale ?? DEFAULT_BOT_LANGUAGE);
@@ -88,7 +91,7 @@ export function parseRoutineAlertInput(raw: unknown, options: { locale?: BotLang
 	if (row.hint !== undefined && row.hint !== null && typeof row.hint !== "string") return { ok: false, error: "alert.hint deve ser texto" };
 	const hint = typeof row.hint === "string" ? cleanLine(row.hint) : "";
 	if (hint.length > ALERT_HINT_MAX) return { ok: false, error: `alert.hint longa demais (máximo ${ALERT_HINT_MAX} caracteres)` };
-	return { ok: true, alert: { condition, ...(hint ? { hint } : {}), ...(rule ? { rule } : {}) } };
+	return { ok: true, alert: { condition, ...(hint ? { hint } : {}), ...(rule ? { rule } : {}) }, ...(expect !== undefined ? { expect } : {}) };
 }
 
 /** Lê `alertJson` do banco com tolerância (linha antiga, lixo → null). */

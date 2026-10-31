@@ -129,6 +129,7 @@ const READ_ONLY_BUILTINS = new Set([
 	"current_time",
 	"list_skills",
 	"list_routines",
+	"find_page_value",
 	"list_followups",
 	"github_list_repos",
 	"github_compare",

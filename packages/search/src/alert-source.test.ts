@@ -218,4 +218,18 @@ describe("readAlertRule · teto de memória do cache", () => {
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(cache.size).toBe(0);
 	});
+
+	it("seletor CSS devolve também o contexto em volta (o rótulo do card), para a âncora da regra", async () => {
+		const html = '<div class="_card cotacao"><div class="_card-header"><span>Cotação</span></div><div class="_card-body"><span class="value">R$ 16,47</span></div></div><div class="_card dy"><span>Dividend Yield</span><span class="value">4,14%</span></div>';
+		const fetchFn = vi.fn(async () => res(html));
+		const result = await readAlertSource({ type: "page", url: "https://loja.example.com/p", extract: { kind: "css", selector: "div.cotacao span.value" } }, { fetchFn: fetchFn as never, lookupFn: lookupPublic });
+		expect(result).toMatchObject({ ok: true, read: { kind: "text", text: "R$ 16,47" } });
+		const read = (result as { read: { context?: string } }).read;
+		expect(read.context).toContain("Cotação");
+		expect(read.context).not.toContain("Dividend");
+		// seletor que deixa de casar: sem texto e sem contexto
+		const none = await readAlertSource({ type: "page", url: "https://loja.example.com/p", extract: { kind: "css", selector: "div.cotacao span.nada" } }, { fetchFn: fetchFn as never, lookupFn: lookupPublic });
+		expect(none).toMatchObject({ ok: true, read: { kind: "text", text: null } });
+		expect((none as { read: { context?: string } }).read.context).toBeUndefined();
+	});
 });
