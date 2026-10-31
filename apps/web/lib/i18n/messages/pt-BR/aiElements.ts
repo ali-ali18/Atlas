@@ -9,6 +9,7 @@ export const aiElements = {
 	"aiElements.login.vaultDescription": "Eu preencho usuário e senha pelo Cofre. A senha nunca passa pelo modelo.",
 	"aiElements.login.completedLabel": "Login concluído",
 	"aiElements.login.vaultLabel": "Login do Cofre",
+	"aiElements.login.vaultUsed": "Entrei em {site} com o login do Cofre {item}",
 	"aiElements.login.doneTitle": "Login em {site} concluído",
 	"aiElements.login.vaultTitleEmail": "Entrar em {site} com o login do Cofre{who} e, se pedir, buscar o código no seu e-mail ({email})?",
 	"aiElements.login.vaultTitle": "Entrar em {site} com o login do Cofre{who}?",

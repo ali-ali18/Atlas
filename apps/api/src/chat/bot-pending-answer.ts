@@ -128,7 +128,7 @@ async function apply(
 				? devApprovalRejectText(input.answer.feedback)
 				: "cancela isso";
 	let request: CreateAgentRunRequest = { messages: [{ role: "user", content: labelCardProtocolMessage(text) }], botId: bot.id, conversationId, origin: "chat" };
-	const handled = await maybeHandleConfirmedAction({ text, userId, botId: bot.id, conversationId, model, continueInAgent: true });
+	const handled = await maybeHandleConfirmedAction({ text, userId, botId: bot.id, conversationId, model, continueInAgent: true, confirmId: card.confirmId });
 	if (handled.handled) return { status: "applied", runId: handled.run.id };
 	if (handled.followUp) {
 		request = { ...request, messages: applyConfirmedFollowUp(request.messages, handled.followUp), objective: handled.followUp.objective, ...(handled.followUp.transcript ? { transcriptSeed: handled.followUp.transcript } : {}) };

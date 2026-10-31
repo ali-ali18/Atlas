@@ -98,6 +98,15 @@ test("login: com e-mail conectado o cartão do cofre avisa; campo de código no 
 	assert.doesNotMatch(html(<LoginCard site="chatgpt.com" codeField status="done" />), /login-code-input/);
 });
 
+test("login do Cofre usado pelo runtime: só uma linha discreta, sem cartão nem botões", () => {
+	const vault = { name: "painel-kodea", label: "Painel - Kodea", domain: "kodea.com.br" };
+	const out = html(<LoginCard site="panel.kodea.com.br" status="done" vault={vault} />);
+	assert.match(out, /data-testid="vault-login-used"/);
+	assert.match(out, /Entrei em panel\.kodea\.com\.br com o login do Cofre Painel - Kodea/);
+	assert.doesNotMatch(out, /data-slot="request-card"|<button/);
+	assert.doesNotMatch(out, /Retomando de onde parou/);
+});
+
 test("questionário: pendente tem selo e dispensar; respondido recolhe as respostas", () => {
 	const base = {
 		id: "q",

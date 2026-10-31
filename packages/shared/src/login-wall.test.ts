@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectEmailCodeStep, detectExtraLoginStep, detectLoginWall, hasPasswordField, loginKey, parseLoginVaultOffer, siteOf } from "./login-wall.js";
+import { detectEmailCodeStep, detectExtraLoginStep, detectLoginWall, hasPasswordField, isLoginConfirmationText, loginKey, parseLoginVaultOffer, siteOf } from "./login-wall.js";
 
 describe("detectLoginWall", () => {
 	it("campo de senha no snapshot é muro de login", () => {
@@ -105,5 +105,18 @@ describe("detectEmailCodeStep", () => {
 		expect(detectEmailCodeStep({ text: "Use sua chave de acesso (passkey)" })).toBe(false);
 		expect(detectEmailCodeStep({ text: "Verification code sent by SMS text message" })).toBe(false);
 		expect(detectEmailCodeStep({ text: "Como posso ajudar hoje?" })).toBe(false);
+	});
+});
+
+describe("isLoginConfirmationText", () => {
+	it("aceita confirmações curtas em pt/en/es", () => {
+		for (const text of ["pronto", "Pronto!", "terminei", "feito.", "loguei", "ok", "done", "I'm logged in", "listo", "ya terminé", " Concluído "]) {
+			expect(isLoginConfirmationText(text), text).toBe(true);
+		}
+	});
+	it("conversa de verdade não é confirmação", () => {
+		for (const text of ["o cofre está como: Painel - Kodea", "to te falando que o login está no cofre", "Pq vc n pediu o cofre?", "pronto, agora me diga o consumo", "", "ok mas e o cofre?"]) {
+			expect(isLoginConfirmationText(text), text).toBe(false);
+		}
 	});
 });

@@ -54,8 +54,8 @@ export type SkillPendingPayload = {
 	infraSetup?: { callKey: string; label: string };
 	/** Plano proposto (`propose_plan`) aguardando "Aprovar plano"; aprovar não aprova escritas. */
 	plan?: PlanInfo;
-	/** Uso de um login do Cofre pelo bot (aprovação por conversa); nenhum valor aqui. */
-	vaultUse?: { secretId: string; name: string; label: string; domain: string };
+	/** Vínculo de um login do Cofre sem site a um host (a primeira vez); nenhum valor aqui. `linkHost` = hostname exato que o "Sim" grava no item. */
+	vaultUse?: { secretId: string; name: string; label: string; domain: string; linkHost?: string };
 };
 
 export type SkillPendingIntent = {

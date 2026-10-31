@@ -1,3 +1,5 @@
+import { parse as parseTld } from "tldts";
+
 /**
  * Cofre do usuário: referências de segredo (`{{secret:nome}}`), domínio de site
  * e detector de segredo em texto. Lógica pura (roda no navegador e no servidor).
@@ -83,7 +85,6 @@ export function replaceSecretRefs(text: string, replacer: (ref: SecretRef) => st
 
 // ----- domínio -----
 
-const SECOND_LEVEL = new Set(["co", "com", "org", "net", "gov", "edu", "ac", "ne", "or"]);
 
 function parseUrl(value: string): URL | null {
 	const text = value.trim();
@@ -100,25 +101,45 @@ export function hostOf(url: string): string | null {
 	return parsed ? parsed.hostname.toLowerCase().replace(/\.$/, "") || null : null;
 }
 
-/** Domínio registrável aproximado (`app.exemplo.com.br` -> `exemplo.com.br`). */
-export function registrableDomain(host: string): string {
-	if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":") || !host.includes(".")) return host;
-	const labels = host.split(".");
-	const tld = labels[labels.length - 1]!;
-	const second = labels[labels.length - 2]!;
-	const take = tld.length === 2 && SECOND_LEVEL.has(second) && labels.length >= 3 ? 3 : 2;
-	return labels.slice(-take).join(".");
+/** Resultado da Public Suffix List (ICANN + sufixos privados de plataforma: vercel.app, github.io, pages.dev…). */
+function psl(host: string) {
+	return parseTld(host, { allowPrivateDomains: true });
 }
 
-/** A página atual pertence ao site cadastrado? Mesmo domínio registrável (subdomínios ok); http só em localhost. */
+/**
+ * Domínio registrável pela Public Suffix List, incluindo os sufixos privados de plataforma
+ * (`atacante.vercel.app` é um domínio registrável por si; `vercel.app` é sufixo). IP, localhost
+ * e o próprio sufixo voltam como vieram.
+ */
+export function registrableDomain(host: string): string {
+	return psl(host).domain ?? host;
+}
+
+/** Host sem ponto final e sem `www.` (`www.x.com` ≡ `x.com`). */
+function canonicalHost(host: string): string {
+	return host.toLowerCase().replace(/\.$/, "").replace(/^www\./, "");
+}
+
+function isLocalHost(host: string): boolean {
+	return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+}
+
+/**
+ * A página atual é o site cadastrado? SÓ o host exato (`www.` e o domínio sem `www.` são o mesmo site). Qualquer outro
+ * subdomínio é outro site (salvo `google.com`, `sites.google.com` NÃO casa: lá qualquer pessoa publica página) e cai
+ * no cartão de vínculo. Em localhost e IP a porta também conta (`localhost:3000` ≠ `localhost:9999`). https sempre;
+ * http só em localhost.
+ */
 export function domainMatches(pageUrl: string, siteUrl: string): boolean {
 	const page = parseUrl(pageUrl);
-	const site = hostOf(siteUrl);
+	const site = parseUrl(siteUrl);
 	if (!page || !site) return false;
 	const pageHost = page.hostname.toLowerCase().replace(/\.$/, "");
-	const local = pageHost === "localhost" || pageHost === "127.0.0.1";
+	const local = isLocalHost(pageHost);
 	if (page.protocol !== "https:" && !local) return false;
-	return registrableDomain(pageHost) === registrableDomain(site);
+	if (canonicalHost(pageHost) !== canonicalHost(site.hostname)) return false;
+	const exactPort = local || psl(pageHost).isIp === true;
+	return !exactPort || page.port === site.port;
 }
 
 /** Nome sugerido a partir do domínio (`www.github.com` -> `github`). */
@@ -126,6 +147,53 @@ export function suggestLoginName(url: string): string {
 	const host = hostOf(url);
 	if (!host) return "";
 	return registrableDomain(host.replace(/^www\./, "")).split(".")[0] ?? "";
+}
+
+/** Palavras do nome/rótulo do item (minúsculas, sem acento, 4+ letras) para casar com o domínio. */
+function nameTokens(text: string): string[] {
+	return text
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter((token) => token.length >= 4);
+}
+
+/**
+ * Item sem URL salva: o nome/rótulo casa com o domínio da página? Conservador: alguma palavra do nome é
+ * IGUAL ao nome do domínio registrável (`Painel - Kodea` ↔ `panel.kodea.com.br`, via "kodea"). Só https.
+ * `kodea.evil.com` não casa (o registrável é `evil.com`); "painel" não casa com "panel".
+ */
+export function nameMatchesSite(names: readonly string[], pageUrl: string): boolean {
+	const page = parseUrl(pageUrl);
+	if (!page) return false;
+	const host = page.hostname.toLowerCase().replace(/\.$/, "");
+	const local = host === "localhost" || host === "127.0.0.1";
+	if (page.protocol !== "https:" || local) return false;
+	const label = registrableDomain(host).split(".")[0] ?? "";
+	if (label.length < 4) return false;
+	return names.some((name) => nameTokens(name).includes(label));
+}
+
+export type VaultLoginCandidate = { kind: string; name: string; label?: string; siteUrl?: string | null };
+export type VaultLoginPick<T extends VaultLoginCandidate> =
+	| { kind: "match"; item: T; byName: boolean }
+	| { kind: "ambiguous"; items: T[] }
+	| { kind: "none" };
+
+/**
+ * Qual login do cofre serve a página atual? Primeiro pelo site salvo (host exato); sem isso,
+ * pelo nome (itens sem URL). Mais de um candidato = ambíguo: o modelo pergunta qual item usar, o runtime não chuta.
+ */
+export function pickVaultLoginForPage<T extends VaultLoginCandidate>(items: readonly T[], pageUrl: string): VaultLoginPick<T> {
+	const logins = items.filter((item) => item.kind === "login");
+	const byUrl = logins.filter((item) => item.siteUrl && domainMatches(pageUrl, item.siteUrl));
+	if (byUrl.length === 1) return { kind: "match", item: byUrl[0]!, byName: false };
+	if (byUrl.length > 1) return { kind: "ambiguous", items: byUrl };
+	const byName = logins.filter((item) => !item.siteUrl && nameMatchesSite([item.name, item.label ?? ""], pageUrl));
+	if (byName.length === 1) return { kind: "match", item: byName[0]!, byName: true };
+	if (byName.length > 1) return { kind: "ambiguous", items: byName };
+	return { kind: "none" };
 }
 
 // ----- detector de segredo em texto -----
