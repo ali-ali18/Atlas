@@ -1,4 +1,4 @@
-import { detectEmailCodeStep, detectExtraLoginStep, detectLoginWall, domainMatches, type LoginVaultOffer } from "@workspace/shared";
+import { detectEmailCodeStep, detectExtraLoginStep, detectLoginWall, pickVaultLoginForPage, type LoginVaultOffer } from "@workspace/shared";
 import { fetchLoginEmailCode, type EmailSource } from "./email-code.js";
 import type { VaultService } from "../secrets/vault-service.js";
 import { executeLoginFill, LOGIN_CODE_SELECTOR, type VaultToolContext } from "./vault-tools.js";
@@ -16,10 +16,23 @@ export function vaultTriedKey(url: string): string {
 }
 
 export async function findVaultLoginOffer(vault: Pick<VaultService, "listMeta">, userId: string, pageUrl: string, emailCode?: string): Promise<LoginVaultOffer | null> {
-	const items = await vault.listMeta(userId);
-	const meta = items.find((item) => item.kind === "login" && item.siteUrl && domainMatches(pageUrl, item.siteUrl));
-	if (!meta?.domain) return null;
-	return { name: meta.name, label: meta.label || meta.domain, ...(meta.username ? { username: meta.username } : {}), domain: meta.domain, ...(emailCode ? { emailCode } : {}) };
+	const pick = pickVaultLoginForPage(await vault.listMeta(userId), pageUrl);
+	// Ambíguo (duas contas para o mesmo site): o runtime não chuta; o modelo pergunta qual item usar.
+	if (pick.kind !== "match") return null;
+	const meta = pick.item;
+	const domain = meta.domain ?? new URL(pageUrl).hostname.replace(/^www\./, "");
+	return { name: meta.name, label: meta.label || domain, ...(meta.username ? { username: meta.username } : {}), domain, ...(emailCode ? { emailCode } : {}) };
+}
+
+/** Nota ao modelo quando mais de um item do cofre serve a página: ele pergunta qual usar (só nomes, nunca valores). */
+export async function vaultAmbiguityNote(vault: Pick<VaultService, "listMeta">, userId: string, pageUrl: string): Promise<string | null> {
+	try {
+		const pick = pickVaultLoginForPage(await vault.listMeta(userId), pageUrl);
+		if (pick.kind !== "ambiguous") return null;
+		return `The vault has several logins that could fit this page: ${pick.items.map((item) => `"${item.name}"`).join(", ")}. Ask the user which one to use (in their language), then call login_fill with that name.`;
+	} catch {
+		return null;
+	}
 }
 
 /** Domínios dos logins salvos (nunca usuário nem senha), sem repetição, em ordem estável. */
@@ -54,9 +67,9 @@ const VAULT_TRIED_NOTE = "Usei o login do Cofre, mas o site pediu mais um passo 
  */
 export async function withVaultOffer<T extends OfferableEvent>(
 	event: T,
-	deps: { vault: Pick<VaultService, "listMeta">; userId: string; loginAsked: Set<string>; unattended?: boolean; emailSourceName?: string },
+	deps: { vault: Pick<VaultService, "listMeta">; userId: string; loginAsked: Set<string>; emailSourceName?: string },
 ): Promise<T> {
-	if (event.reason === "captcha" || event.connector || event.composioToolkit || deps.unattended) return event;
+	if (event.reason === "captcha" || event.connector || event.composioToolkit) return event;
 	if (deps.userId === "default") return event;
 	if (deps.loginAsked.has(vaultTriedKey(event.url))) return { ...event, vaultTried: event.vaultTried ?? VAULT_TRIED_NOTE };
 	try {
@@ -91,8 +104,6 @@ export async function fillVaultLoginOnResume(input: {
 	fillContext: VaultToolContext;
 	readPage: () => Promise<ReadPage>;
 	settle?: () => Promise<void>;
-	/** Login já aprovado (nesta conversa ou "sempre para este bot"): não grava nova aprovação no log. */
-	skipApproval?: boolean;
 	/** Conector de e-mail do usuário: busca o código quando o site o pede. */
 	emailSource?: EmailSource | null;
 	/** Teste: espera/relógio da busca do código. */
@@ -104,7 +115,6 @@ export async function fillVaultLoginOnResume(input: {
 	try {
 		const meta = (await vault.listMeta(userId)).find((item) => item.kind === "login" && item.name === offer.name);
 		if (!meta) return { kind: "needs-human", reason: "Esse login não está mais no Cofre." };
-		if (!input.skipApproval) await vault.approveLogin(userId, meta.id, { botId: input.botId, conversationId: input.conversationId });
 		const ctx: VaultToolContext = { ...input.fillContext, vault, userId, botId: input.botId, conversationId: input.conversationId, unattended: false };
 		try {
 			await executeLoginFill({ login: offer.name, fields: ["username", "password"], submit: true }, ctx);
@@ -161,9 +171,8 @@ export async function typeLoginCodeOnResume(input: {
 }
 
 /**
- * Muro de login com login salvo no Cofre: o runtime entra sozinho ANTES de mostrar o card, desde que o
- * uso já esteja aprovado (nesta conversa ou "sempre para este bot"). Sem aprovação, `skip`: o card com a
- * oferta "Entrar com o login do Cofre" é o cartão de aprovação. Depois do preenchimento, confere a tela
+ * Muro de login com login salvo no Cofre: o runtime entra sozinho ANTES de mostrar o card (sem aprovação:
+ * o item é do dono do run e a senha só é digitada na página do site do item). Depois do preenchimento, confere a tela
  * (snapshot): se ainda há login, código, captcha ou senha errada, devolve o card humano explicando o que falta.
  */
 export type AutoVaultLoginResult =
@@ -185,15 +194,13 @@ export async function tryAutoVaultLogin(input: {
 }): Promise<AutoVaultLoginResult> {
 	const { event } = input;
 	if (!event.vault || event.vaultTried || event.reason === "captcha") return { kind: "skip" };
-	let approved = false;
 	try {
+		// O item é do dono do run (listMeta é escopado por userId); sem aprovação por uso.
 		const meta = (await input.vault.listMeta(input.userId)).find((item) => item.kind === "login" && item.name === event.vault!.name);
 		if (!meta) return { kind: "skip" };
-		approved = await input.vault.isLoginApproved(input.userId, meta, input.botId, input.conversationId);
 	} catch {
 		return { kind: "skip" };
 	}
-	if (!approved) return { kind: "skip" };
 	const result = await fillVaultLoginOnResume({
 		offer: event.vault,
 		userId: input.userId,
@@ -203,7 +210,6 @@ export async function tryAutoVaultLogin(input: {
 		fillContext: input.fillContext,
 		readPage: input.readPage,
 		settle: input.settle,
-		skipApproval: true,
 		emailSource: input.emailSource,
 		emailSearch: input.emailSearch,
 	});

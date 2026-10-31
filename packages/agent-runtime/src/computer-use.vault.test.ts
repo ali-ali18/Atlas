@@ -111,7 +111,6 @@ describe("cofre no loop do agente", () => {
 	});
 
 	it("login_fill: preenche sem o valor passar pelo modelo, após aprovação, só no domínio certo", async () => {
-		await vault.approveLogin("user-a", store.rows.find((r) => r.name === "github")!.id, { botId: "bot-1", conversationId: "conv-1" });
 		const typed: Array<{ selector?: string; text: string }> = [];
 		const manager = asManager({
 			execBrowserText: vi.fn(async () => ({ url: "https://accounts.github.com/login?x=1", title: "Sign in", text: `Entrar. valor digitado: ${PASSWORD}` })),
@@ -130,7 +129,6 @@ describe("cofre no loop do agente", () => {
 	});
 
 	it("login_fill com submit devolve a URL e o título lidos depois de enviar e manda conferir a tela", async () => {
-		await vault.approveLogin("user-a", store.rows.find((r) => r.name === "github")!.id, { botId: "bot-1", conversationId: "conv-1" });
 		const manager = asManager({
 			execBrowserText: vi.fn(async () => ({ url: "https://github.com/login?x=1", title: "Sign in", text: "" })),
 			execBrowserType: vi.fn(async () => ({ ok: true })),
@@ -145,7 +143,6 @@ describe("cofre no loop do agente", () => {
 	});
 
 	it("login_fill recusa domínio diferente (phishing) e não digita nada", async () => {
-		await vault.approveLogin("user-a", store.rows.find((r) => r.name === "github")!.id, { botId: "bot-1", conversationId: "conv-1" });
 		const execBrowserType = vi.fn(async () => ({ ok: true }));
 		const manager = asManager({ execBrowserText: vi.fn(async () => ({ url: "https://github.com.evil.io/login", title: "", text: "" })), execBrowserType });
 		const { seen } = await run([[call("t1", "login_fill", { login: "github" })]], manager);
@@ -153,14 +150,62 @@ describe("cofre no loop do agente", () => {
 		expect(seen.join("\n")).toContain("não é do site deste login");
 	});
 
-	it("login_fill sem aprovação na conversa gera o cartão e não digita", async () => {
+	it("login_fill sem aprovação prévia: usa o login do dono direto, sem cartão (chat)", async () => {
+		const typed: string[] = [];
+		const manager = asManager({
+			execBrowserText: vi.fn(async () => ({ url: "https://github.com/login", title: "", text: "" })),
+			execBrowserType: vi.fn(async (_s: string, p: { text: string }) => (typed.push(p.text), { ok: true })),
+		});
+		const { events, seen } = await run([[call("t1", "login_fill", { login: "github" })]], manager);
+		expect(typed).toEqual(["alice@x.com", PASSWORD]);
+		expect((events as Array<{ type?: string }>).some((e) => e.type === "confirm")).toBe(false);
+		expect(seen.join("\n") + JSON.stringify(events)).not.toContain(PASSWORD);
+	});
+
+	it("login_fill em rotina (unattended) também entra sem cartão, no domínio certo", async () => {
+		const typed: string[] = [];
+		const manager = asManager({
+			execBrowserText: vi.fn(async () => ({ url: "https://github.com/login", title: "", text: "" })),
+			execBrowserType: vi.fn(async (_s: string, p: { text: string }) => (typed.push(p.text), { ok: true })),
+		});
+		const { events } = await run([[call("t1", "login_fill", { login: "github" })]], manager, { origin: "routine" });
+		expect(typed).toEqual(["alice@x.com", PASSWORD]);
+		expect((events as Array<{ type?: string }>).some((e) => e.type === "confirm")).toBe(false);
+	});
+
+	it("login_fill numa rotina em domínio diferente recusa e não digita", async () => {
 		const execBrowserType = vi.fn(async () => ({ ok: true }));
-		const manager = asManager({ execBrowserText: vi.fn(async () => ({ url: "https://github.com/login", title: "", text: "" })), execBrowserType });
-		const { events } = await run([[call("t1", "login_fill", { login: "github" })]], manager);
+		const manager = asManager({ execBrowserText: vi.fn(async () => ({ url: "https://github.com.evil.io/login", title: "", text: "" })), execBrowserType });
+		const { seen } = await run([[call("t1", "login_fill", { login: "github" })]], manager, { origin: "routine" });
 		expect(execBrowserType).not.toHaveBeenCalled();
-		const card = (events as Array<{ type?: string; title?: string; alwaysLabel?: string }>).find((e) => e.type === "confirm");
-		expect(card?.title).toBe("Usar o login de GitHub agora?");
-		expect(card?.alwaysLabel).toBe("Sempre para este bot");
+		expect(seen.join("\n")).toContain("não é do site deste login");
+	});
+
+	it("login de outro dono nunca é usado (login_fill só enxerga o cofre do dono do run)", async () => {
+		await vault.create("user-b", { kind: "login", name: "banco-b", label: "Banco B", siteUrl: "https://banco.example", username: "b@x.com", payload: { password: "SenhaDoB!123" } });
+		const execBrowserType = vi.fn(async () => ({ ok: true }));
+		const manager = asManager({ execBrowserText: vi.fn(async () => ({ url: "https://banco.example/login", title: "", text: "" })), execBrowserType });
+		const { seen } = await run([[call("t1", "login_fill", { login: "banco-b" })]], manager);
+		expect(execBrowserType).not.toHaveBeenCalled();
+		expect(seen.join("\n")).toContain("não encontrado no cofre");
+		expect(seen.join("\n")).not.toContain("SenhaDoB!123");
+	});
+
+	it("item só com nome (Painel - Kodea) entra em panel.kodea.com.br; em outro domínio recusa", async () => {
+		await vault.create("user-a", { kind: "login", name: "painel-kodea", label: "Painel - Kodea", username: "dono@kodea.com.br", payload: { password: "KodeaPass!99" } });
+		const typed: string[] = [];
+		const ok = asManager({
+			execBrowserText: vi.fn(async () => ({ url: "https://panel.kodea.com.br/login", title: "", text: "" })),
+			execBrowserType: vi.fn(async (_s: string, p: { text: string }) => (typed.push(p.text), { ok: true })),
+		});
+		const first = await run([[call("t1", "login_fill", { login: "Painel - Kodea" })]], ok, { origin: "routine" });
+		expect(typed).toEqual(["dono@kodea.com.br", "KodeaPass!99"]);
+		expect(first.seen.join("\n")).not.toContain("KodeaPass!99");
+		const bad = vi.fn(async () => ({ ok: true }));
+		const evil = asManager({ execBrowserText: vi.fn(async () => ({ url: "https://kodea.evil.example/login", title: "", text: "" })), execBrowserType: bad });
+		const second = await run([[call("t1", "login_fill", { login: "Painel - Kodea" })]], evil);
+		expect(bad).not.toHaveBeenCalled();
+		expect(second.seen.join("\n")).toContain("Recusado");
 	});
 });
 

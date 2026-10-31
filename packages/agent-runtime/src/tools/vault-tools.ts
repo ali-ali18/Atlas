@@ -1,6 +1,6 @@
 import type { ChatTool } from "@workspace/llm";
 import { hookPublicUrl, listUserRoutineWebhooks, saveSkillPendingIntent, persistConversationCardFromEvent } from "@workspace/db";
-import { domainMatches, hostOf, isValidSecretName, loginMarker, routineSecretMarker, secretMarker, VAULT_ENVIRONMENT_ID } from "@workspace/shared";
+import { domainMatches, hostOf, isValidSecretName, nameMatchesSite, registrableDomain, loginMarker, routineSecretMarker, secretMarker, VAULT_ENVIRONMENT_ID } from "@workspace/shared";
 import { getVaultService, routineSlug, VaultError, type VaultService } from "../secrets/vault-service.js";
 
 /**
@@ -56,7 +56,7 @@ export const LOGIN_FILL_TOOL: ChatTool = {
 	function: {
 		name: LOGIN_FILL_TOOL_NAME,
 		description:
-			"Fill a saved site login (username, password, optional 2FA code) into the CURRENT page of the VM browser without the values passing through you. It only works when the page domain matches the login's registered site (otherwise nothing is typed). The user approves the first use of each login in a conversation. Open the login page first (navigate), then call this; afterwards click the sign-in button or pass submit:true.",
+			"Fill a saved site login (username, password, optional 2FA code) into the CURRENT page of the VM browser without the values passing through you. It only works when the page domain matches the login's registered site (otherwise nothing is typed). It needs no approval: the logins are the user's own, and it works in chats and routines. Open the login page first (navigate), then call this; afterwards click the sign-in button or pass submit:true.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -219,37 +219,19 @@ export async function executeLoginFill(
 	const logins = (await vault.listMeta(userId)).filter((item) => item.kind === "login");
 	const meta = logins.find((item) => item.name === wanted) ?? logins.find((item) => item.name.toLowerCase() === wanted.toLowerCase() || item.label.toLowerCase() === wanted.toLowerCase());
 	if (!meta) throw new Error(`Login "${wanted.slice(0, 60)}" não encontrado no cofre. Logins: ${logins.map((item) => item.name).join(", ") || "(nenhum)"}. Peça ao usuário para cadastrar em Configurações → Cofre.`);
-	if (!meta.siteUrl) throw new Error(`O login "${meta.name}" não tem o endereço do site cadastrado; peça ao usuário para completar no cofre.`);
-
-	// Anti-phishing: o domínio da página atual precisa ser o do login cadastrado.
+	// Anti-phishing: a senha só é digitada na página do site do item. Com URL salva vale o domínio registrável;
+	// item só com nome vale o casamento conservador nome↔domínio. Sem aprovação por uso: o item é do próprio dono
+	// (a lista acima já é escopada por `userId`), vale no chat e em rotina.
 	const pageUrl = await browser.currentUrl();
-	if (!domainMatches(pageUrl, meta.siteUrl)) {
-		const host = hostOf(pageUrl) ?? "desconhecido";
-		throw new Error(`Recusado: a página atual (${host}) não é do site deste login (${meta.domain}). Nada foi preenchido. Abra a página de entrada do site certo (https) e tente de novo.`);
-	}
-
-	if (!(await vault.isLoginApproved(userId, meta, ctx.botId, ctx.conversationId))) {
-		if (ctx.unattended) throw new Error(`Usar o login de ${meta.domain} precisa de aprovação do usuário e rotinas não têm quem aprove.`);
-		const conversationId = need(ctx.conversationId, "login_fill só funciona dentro de uma conversa.");
-		const confirmId = `confirm-${ctx.runId ?? "local"}`;
-		const site = meta.label || meta.domain || meta.name;
-		await (ctx.saveIntent ?? saveSkillPendingIntent)({
-			userId,
-			conversationId,
-			payload: { kind: "confirm", action: "vault-use", confirmId, botId: ctx.botId, vaultUse: { secretId: meta.id, name: meta.name, label: site, domain: meta.domain ?? "" } },
-			ttlMs: 60 * 60_000,
-		});
-		const card: VaultCard = {
-			type: "confirm",
-			confirmId,
-			title: `Usar o login de ${site} agora?`,
-			description: `O bot vai preencher usuário e senha em ${meta.domain}. Ele não vê a senha.`,
-			confirmLabel: "Usar login",
-			cancelLabel: "Agora não",
-			alwaysLabel: "Sempre para este bot",
-		};
-		await persist(ctx, conversationId, card);
-		return { summary: `Card de aprovação enviado: "Usar o login de ${site} agora?". Nada foi preenchido; aguarde a decisão do usuário e chame login_fill de novo.`, confirmEvent: card };
+	const host = hostOf(pageUrl) ?? "desconhecido";
+	const siteDomain = meta.domain ?? (meta.siteUrl ? hostOf(meta.siteUrl) : null) ?? registrableDomain(host);
+	const sameSite = meta.siteUrl ? domainMatches(pageUrl, meta.siteUrl) : nameMatchesSite([meta.name, meta.label], pageUrl);
+	if (!sameSite) {
+		throw new Error(
+			meta.siteUrl
+				? `Recusado: a página atual (${host}) não é do site deste login (${meta.domain}). Nada foi preenchido. Abra a página de entrada do site certo (https) e tente de novo.`
+				: `Recusado: o login "${meta.name}" não tem site cadastrado e o nome não corresponde à página atual (${host}). Nada foi preenchido. Peça ao usuário para cadastrar o site no cofre ou abra a página certa (https).`,
+		);
 	}
 
 	const fields = (Array.isArray(args.fields) ? args.fields : ["username", "password"]).filter((f): f is "username" | "password" | "totp" => f === "username" || f === "password" || f === "totp");
@@ -281,7 +263,7 @@ export async function executeLoginFill(
 			landed = " Não consegui ler a página depois de enviar; confira com browser_snapshot antes de dizer que entrou.";
 		}
 	}
-	return { summary: `Preenchi ${done.join(", ")} em ${meta.domain}${submit ? " e enviei" : ""} sem passar os valores por você. ${submit ? "Veja o resultado da página." : "Clique no botão de entrar (ou chame de novo com submit:true)."}${landed}` };
+	return { summary: `Preenchi ${done.join(", ")} em ${siteDomain}${submit ? " e enviei" : ""} sem passar os valores por você. ${submit ? "Veja o resultado da página." : "Clique no botão de entrar (ou chame de novo com submit:true)."}${landed}` };
 }
 
 export { VaultError };

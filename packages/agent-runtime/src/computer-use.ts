@@ -17,7 +17,7 @@ import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } fr
 import { createDevVerificationTracker, MAX_VERIFY_EXTENSIONS, VERIFY_BEFORE_DONE_NOTE } from "./execution/dev-verification.js";
 import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MAX_ANSWER_REVISIONS_PER_RUN, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
-import { detectLoginWall, describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
+import { detectLoginWall, isLoginConfirmationText, describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
 import { alreadyLoadedSummary, findAlreadyLoadedTools } from "./execution/tool-search-guard.js";
 import { runSandboxOperation, type SandboxExecutionContext } from "@workspace/sandbox";
 import {
@@ -274,7 +274,7 @@ import { isSecretBoxConfigured } from "./secrets/secret-box.js";
 import { getVaultService, type VaultService } from "./secrets/vault-service.js";
 import { findEmailSource } from "./tools/email-code.js";
 import { openSecrets } from "./secrets/secret-box.js";
-import { typeLoginCodeOnResume, fillVaultLoginOnResume, tryAutoVaultLogin, listVaultLoginDomains, vaultLoginsPromptLine, vaultTriedKey, withVaultOffer } from "./tools/vault-login-offer.js";
+import { typeLoginCodeOnResume, fillVaultLoginOnResume, tryAutoVaultLogin, vaultAmbiguityNote, listVaultLoginDomains, vaultLoginsPromptLine, vaultTriedKey, withVaultOffer } from "./tools/vault-login-offer.js";
 import {
 	executeLoginFill,
 	executeRoutineWebhookInfo,
@@ -3734,6 +3734,14 @@ const LOGIN_ALREADY_ASKED_NOTE = (site: string) =>
 	"Do NOT ask again, never type credentials. Tell the user plainly (in their language, no technical terms) that the site still shows the login screen " +
 	"and that they can open the computer, finish signing in and tell you when it is done.";
 
+const UNATTENDED_LOGIN_NOTE = (site: string, tried?: string) =>
+	`\nLOGIN NOT POSSIBLE on ${site}: this is an unattended routine run, nobody can sign in by hand. Do NOT retry, do NOT call more browser tools, never type credentials. ` +
+	(tried
+		? "The saved vault login was used but the site still asks for an extra step only the person can do (code, captcha or confirmation). "
+		: "No saved vault login matched this site. ") +
+	"Finish now with ONE short message to the owner (in their language, plain words, no tool names): say the routine needs to sign in to " + site +
+	(tried ? " and that the site asked for an extra step, so they should open the conversation and finish it." : ", that no login for it is saved in the vault, and that they can save it in Settings > Vault (or ask you in the chat) and run the routine again.");
+
 /** Texto ao usuário (pt-BR) quando "Terminei" volta e a tela de login ainda está lá. */
 export const loginStillShownText = (site: string) =>
 	`Ainda vejo a tela de login de ${site}, então o login não parece ter sido concluído. Abra o computador, termine a entrada nesse site e me diga "pronto" que eu continuo daqui.`;
@@ -5433,9 +5441,8 @@ export async function runComputerUse(params: {
 		"web_extract",
 		// `memory` é núcleo no chat; rotina não escreve memória (a revisão pós-run decide o que guardar).
 		"memory",
-		// Pedem uma pessoa (cartão de senha / aprovação de login).
+		// Pede uma pessoa (cartão de senha). `login_fill` fica: o login salvo do dono entra sem aprovação, também em rotina.
 		"secret_request",
-		"login_fill",
 	]);
 	// Gate de `propose_profile_update` (bug original: toda resposta de
 	// questionário virava proposta de perfil). Só expõe a tool ao modelo
@@ -5482,7 +5489,7 @@ export async function runComputerUse(params: {
 	// Sem chave do servidor não existe item no cofre: nem consulta o banco.
 	const vaultUsable = Boolean(params.vault) || isSecretBoxConfigured();
 	const vaultLoginDomainsPromise: Promise<string[]> =
-		vaultUsable && !isSubagent && sandboxEnabled && userId !== "default" && !isUnattendedOrigin(params.origin)
+		vaultUsable && !isSubagent && sandboxEnabled && userId !== "default"
 			? listVaultLoginDomains(vaultService, userId).catch(() => [])
 			: Promise.resolve([]);
 	const [botProfileForGate, jevIntents] = await Promise.all([botProfilePromise, jevIntentsPromise]);
@@ -6744,44 +6751,72 @@ export async function runComputerUse(params: {
 	if (pendingLogin) {
 		const resumed = pendingLogin;
 		pendingLogin = undefined;
-		// "Terminei" não prova nada: confere a tela. Se o login ainda está lá, avisa em vez de seguir às cegas.
-		let loginStillShownSite: string | undefined;
-		if (!isSubagent && !vaultFollowUp && !vaultResumeMessage && sandboxEnabled && !resumed.connector && !resumed.composioToolkit && resumed.reason !== "captcha") {
-			try {
-				const snapshot = await manager.execBrowserSnapshot(await getSessionId(), { area: "viewport" });
-				loginStillShownSite = detectLoginWall({ url: snapshot.url, title: snapshot.title, lines: snapshot.lines })?.site;
-				if (!loginStillShownSite) browserWatch.observe(snapshot.url);
-			} catch {
-				// Sem conseguir olhar a tela, segue como antes: o modelo é mandado reler a página.
+		const plainLogin = !resumed.connector && !resumed.composioToolkit && resumed.reason !== "captcha";
+		// Quem acordou o run: o clique no cartão (sem fala) ou uma mensagem. Só "pronto"/"terminei" curto conta como
+		// "terminei o login"; qualquer outra fala é conversa e SEMPRE chega ao modelo (antes era engolida pela frase fixa).
+		// Run de rotina nunca herda login pendente como se o dono tivesse clicado: a fala dele é do chat.
+		let userTalked = false;
+		if (plainLogin && !isSubagent && !vaultFollowUp && !vaultResumeMessage) {
+			if (isUnattendedOrigin(params.origin)) {
+				userTalked = true;
+			} else if (params.consumeSteerInputs) {
+				const waiting = await params.consumeSteerInputs().catch(() => []);
+				userTalked = waiting.some((input) => !consumedInputIds.has(input.id) && input.mode !== "cancel" && !isLoginConfirmationText(input.content));
 			}
 		}
-		if (!vaultFollowUp && !loginStillShownSite) conversation.push({
-			role: "user",
-			content:
-				vaultResumeMessage
-					? vaultResumeMessage
-					: resumed.composioToolkit || resumed.connector
-					? connectorResumeMessage(resumed)
-					: resumed.reason === "captcha"
-					? `[captcha-complete] The user says they solved the verification on ${resumed.site}. Your next action must be browser_snapshot to re-read the page, then continue the task from where you stopped. If the captcha is still there, do not ask again: use another source or report it.`
-					: `[login-complete] The user says they finished logging in to ${resumed.site}. Your next action must be browser_snapshot to re-read the page, then continue the task from where you stopped. Never type credentials.`,
-		});
-		const doneEvent: LoginEvent = {
-			type: "login",
-			loginId: resumed.loginId,
-			site: resumed.site,
-			url: resumed.url,
-			runId,
-			status: "done",
-			...(resumed.reason ? { reason: resumed.reason } : {}),
-			...(resumed.composioToolkit ? { composioToolkit: resumed.composioToolkit } : {}),
-			...(resumed.connector ? { connector: resumed.connector } : {}),
-		};
-		await persistConversationCardFromEvent(conversationId, doneEvent).catch(() => undefined);
-		await onEvent(doneEvent);
-		await persistCheckpoint(nextStepIndex);
-		if (loginStillShownSite) {
-			return { text: loginStillShownText(loginStillShownSite), model: lastModel, hitWall: false, usage: usageTotals };
+		if (userTalked) {
+			conversation.push({
+				role: "user",
+				content:
+					`[auto-context, not written by the user] The login screen of ${resumed.site} may still be showing: the user did not confirm that they finished logging in. ` +
+					"Answer the user's latest message normally. If the vault has a saved login for this site (secret_list; login_fill fills it on the current page without showing you the password), use it instead of asking the user to log in by hand. " +
+					"If several vault items could fit, ask which one to use. Never type credentials yourself.",
+			});
+			await persistCheckpoint(nextStepIndex);
+		} else {
+			// "Terminei" não prova nada: confere a tela. Se o login ainda está lá, avisa em vez de seguir às cegas.
+			let loginStillShownSite: string | undefined;
+			if (!isSubagent && !vaultFollowUp && !vaultResumeMessage && sandboxEnabled && plainLogin) {
+				try {
+					const snapshot = await manager.execBrowserSnapshot(await getSessionId(), { area: "viewport" });
+					loginStillShownSite = detectLoginWall({ url: snapshot.url, title: snapshot.title, lines: snapshot.lines })?.site;
+					if (!loginStillShownSite) browserWatch.observe(snapshot.url);
+				} catch {
+					// Sem conseguir olhar a tela, segue como antes: o modelo é mandado reler a página.
+				}
+			}
+			if (!vaultFollowUp && !loginStillShownSite) conversation.push({
+				role: "user",
+				content:
+					vaultResumeMessage
+						? vaultResumeMessage
+						: resumed.composioToolkit || resumed.connector
+						? connectorResumeMessage(resumed)
+						: resumed.reason === "captcha"
+						? `[captcha-complete] The user says they solved the verification on ${resumed.site}. Your next action must be browser_snapshot to re-read the page, then continue the task from where you stopped. If the captcha is still there, do not ask again: use another source or report it.`
+						: `[login-complete] The user says they finished logging in to ${resumed.site}. Your next action must be browser_snapshot to re-read the page, then continue the task from where you stopped. Never type credentials.`,
+			});
+			// O cartão só vira "concluído" quando a tela de login realmente sumiu; com o login ainda lá ele segue pendente.
+			if (!loginStillShownSite) {
+				const doneEvent: LoginEvent = {
+					type: "login",
+					loginId: resumed.loginId,
+					site: resumed.site,
+					url: resumed.url,
+					runId,
+					status: "done",
+					...(resumed.reason ? { reason: resumed.reason } : {}),
+					...(resumed.composioToolkit ? { composioToolkit: resumed.composioToolkit } : {}),
+					...(resumed.connector ? { connector: resumed.connector } : {}),
+				};
+				await persistConversationCardFromEvent(conversationId, doneEvent).catch(() => undefined);
+				await onEvent(doneEvent);
+			}
+			await persistCheckpoint(nextStepIndex);
+			// A frase fixa sai uma vez por pendência: o pendingLogin já foi consumido acima, então a próxima fala segue para o modelo.
+			if (loginStillShownSite) {
+				return { text: loginStillShownText(loginStillShownSite), model: lastModel, hitWall: false, usage: usageTotals };
+			}
 		}
 	}
 
@@ -7912,9 +7947,9 @@ export async function runComputerUse(params: {
 					const recentAsks = await loadRecentLoginAsks();
 					// O Cofre já falhou neste site na conversa (30 min): nada de digitar a senha de novo; vai o card humano.
 					if (recentAsks.vaultTried.has(loginEvent.site)) loginAsked.add(vaultTriedKey(loginEvent.url));
-					if (vaultUsable) loginEvent = await withVaultOffer(loginEvent, { vault: vaultService, userId, loginAsked, unattended: isUnattendedOrigin(params.origin), emailSourceName: emailSource?.name });
-					// Cofre primeiro: login salvo e já aprovado entra sozinho, sem card. Sem aprovação, o card com a
-					// oferta do Cofre é o de aprovação; só sobra o card "faça você" sem login salvo ou se faltar 2FA/captcha/senha.
+					if (vaultUsable) loginEvent = await withVaultOffer(loginEvent, { vault: vaultService, userId, loginAsked, emailSourceName: emailSource?.name });
+					// Cofre primeiro: login salvo do dono entra sozinho, sem card e sem aprovação (chat e rotina), só na página
+					// do site do item. Só sobra o card "faça você" sem login salvo ou se faltar 2FA/captcha/senha.
 					if (vaultUsable && loginEvent.vault) {
 						const offered = loginEvent;
 						const auto = await tryAutoVaultLogin({
@@ -7936,12 +7971,31 @@ export async function runComputerUse(params: {
 						if (auto.kind === "filled") {
 							summary = `${summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "")}\n[login-vault-filled] ${auto.summary} The login screen was gone when checked. Your next action must be browser_snapshot to confirm you are signed in, then continue the task. Never type credentials.`;
 							loginEvent = undefined;
+							// Registro discreto (linha compacta no chat): entrou pelo cofre; o evento não leva segredo, só o item.
+							const usedEvent: LoginEvent = { type: "login", loginId: `${offered.loginId}-v`, site: offered.site, url: offered.url, runId, status: "done", vault: offered.vault };
+							await persistConversationCardFromEvent(conversationId, usedEvent).catch(() => undefined);
+							await onEvent(usedEvent);
 						} else if (auto.kind === "needs-human") {
 							const { vault: _offer, ...humanEvent } = offered;
 							summary = summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "");
 							summary += `\nLOGIN REQUIRED on ${offered.site}: the saved vault login was used but the site still needs the user (code, captcha or confirmation). A card asked the user and this run is pausing until they click "Terminei". Do not type credentials or call more tools; after the run resumes, call browser_snapshot and continue.`;
 							loginEvent = { ...humanEvent, vaultTried: auto.reason, ...(auto.codeField ? { codeField: true } : {}) };
 						}
+					}
+					// Mais de um item do cofre serve a página: não chuta nem mostra card; o modelo pergunta qual usar.
+					if (loginEvent && !loginEvent.vault && !loginEvent.connector && !loginEvent.composioToolkit && loginEvent.reason !== "captcha" && vaultUsable && userId !== "default") {
+						const ambiguity = await vaultAmbiguityNote(vaultService, userId, loginEvent.url);
+						if (ambiguity) {
+							summary = `${summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "")}\n${ambiguity}`;
+							loginEvent = undefined;
+						}
+					}
+					// Rotina não tem quem faça login: sem card e sem pausa (um login pendente sequestraria o próximo chat).
+					// O run termina com uma mensagem clara ao dono.
+					if (loginEvent && isUnattendedOrigin(params.origin) && loginEvent.reason !== "captcha" && !loginEvent.connector && !loginEvent.composioToolkit) {
+						const tried = loginEvent.vaultTried;
+						summary = `${summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "")}${UNATTENDED_LOGIN_NOTE(loginEvent.site, tried)}`;
+						loginEvent = undefined;
 					}
 					// Card repetido (humano ou aprovação do Cofre): o mesmo site já tem um card pendente nesta conversa
 					// (30 min). Não reabre; o modelo recebe a nota. Login concluído depois disso libera um card novo.

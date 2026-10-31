@@ -27,13 +27,12 @@ describe("oferta do Cofre", () => {
 		expect(vaultLoginsPromptLine([])).toBe("");
 	});
 
-	it("withVaultOffer: captcha, conector e rotina nunca recebem oferta; cofre indisponível cai no humano", async () => {
+	it("withVaultOffer: captcha e conector nunca recebem oferta; cofre indisponível cai no humano", async () => {
 		const base = { url: "https://chatgpt.com/login" };
 		const deps = { vault, userId: "u", loginAsked: new Set<string>() };
 		expect((await withVaultOffer(base, deps)).vault?.name).toBe("chatgpt");
 		expect((await withVaultOffer({ ...base, reason: "captcha" as const }, deps)).vault).toBeUndefined();
 		expect((await withVaultOffer({ ...base, composioToolkit: "linear" }, deps)).vault).toBeUndefined();
-		expect((await withVaultOffer(base, { ...deps, unattended: true })).vault).toBeUndefined();
 		const broken = { listMeta: async () => { throw new Error("sem chave"); } };
 		expect(await withVaultOffer(base, { ...deps, vault: broken })).toEqual(base);
 	});

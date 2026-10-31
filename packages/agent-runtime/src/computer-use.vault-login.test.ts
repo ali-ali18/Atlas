@@ -67,11 +67,16 @@ async function run(opts: {
 	recentLoginAsks?: { asked?: string[]; vaultTried?: string[] };
 	recentLoginAsksSpy?: ReturnType<typeof vi.fn>;
 	mcp?: McpRuntime;
+	origin?: string;
+	userId?: string;
+	/** Mensagens do dono esperando no run (inputs ainda não consumidos). */
+	steer?: Array<{ id: string; content: string; mode?: string }>;
+	messages?: Array<{ role: "user" | "assistant"; content: string }>;
 }) {
 	const events: Array<Record<string, unknown>> = [];
 	const checkpoints: AgentRunCheckpoint[] = [];
 	const seen: string[] = [];
-	const requests: Array<{ tools: string[]; system: string }> = [];
+	const requests: Array<{ tools: string[]; system: string; last?: string[] }> = [];
 	const onLoginRequired = vi.fn(async () => undefined);
 	const execBrowserType = vi.fn(async (_s: string, p: { selector: string }) => (opts.typeFails?.(p.selector) ? { ok: false } : { ok: true }));
 	const execBrowserSnapshot = vi.fn(async () => {
@@ -86,10 +91,11 @@ async function run(opts: {
 		sandboxEnabled: true,
 		model: "m",
 		apiKey: "test",
-		userId: "user-a",
+		userId: opts.userId ?? "user-a",
 		botId: "bot-1",
-		origin: "chat",
-		messages: [{ role: "user", content: "Faz login no chatgpt pra mim pfv" }],
+		origin: (opts.origin ?? "chat") as "chat",
+		messages: opts.messages ?? [{ role: "user", content: "Faz login no chatgpt pra mim pfv" }],
+		...(opts.steer ? { consumeSteerInputs: async () => opts.steer! } : {}),
 		runId: "run-vl",
 		conversationId: "conv-1",
 		maxSteps: 10,
@@ -108,6 +114,7 @@ async function run(opts: {
 		streamChat: async (request) => {
 			for (const message of request.messages) if (typeof message.content === "string") seen.push(message.content);
 			requests.push({
+				last: request.messages.slice(-4).map((m) => `${m.role}:${typeof m.content === "string" ? m.content.slice(0, 160) : JSON.stringify(m.content).slice(0, 160)}${m.tool_calls ? "TC" + m.tool_calls.map((c) => c.function.name).join(",") : ""}`),
 				tools: (request.tools ?? []).map((tool) => tool.function.name),
 				system: typeof request.messages[0]?.content === "string" ? request.messages[0].content : "",
 			});
@@ -146,28 +153,31 @@ function gmailMcp(messages: Array<{ from: string; subject: string; ageMs: number
 
 const homeSnapshot = () => ({ url: "https://chatgpt.com/", title: "ChatGPT", total: 1, offset: 0, limit: 80, nextOffset: null, lines: ['[e1] textbox "Pergunte qualquer coisa"'] });
 
-async function approveChatgpt() {
-	const item = (await vault.listMeta("user-a"))[0]!;
-	await vault.approveLogin("user-a", item.id, { botId: "bot-1", conversationId: "conv-1" });
-}
-
+/** Run parado num cartão de login (sem cofre casando) com a oferta do Cofre injetada no checkpoint: caminho "Entrar". */
 async function pausedWithOffer(mcp?: McpRuntime) {
-	const first = await run({ queue: [step("browser_snapshot")], mcp });
+	const first = await run({ queue: [step("browser_snapshot")], mcp, userId: "user-sem-cofre" });
 	const checkpoint = structuredClone(first.checkpoints.at(-1)!);
+	checkpoint.pendingLogin!.vault = { name: "chatgpt", label: "ChatGPT", username: "alice@x.com", domain: "chatgpt.com" };
 	return { first, checkpoint };
 }
 
 describe("Cofre automático no muro de login", () => {
-	it("com login casando no cofre: o card oferece o Cofre e o checkpoint guarda a oferta (sem segredo)", async () => {
+	it("com login casando no cofre: entra sozinho, sem cartão de aprovação, e deixa só a linha discreta", async () => {
 		await addChatgpt();
-		const { error, events, checkpoints } = await run({ queue: [step("browser_snapshot")] });
-		expect(error).toMatchObject({ name: "AgentRunPausedError" });
-		const card = events.find((e) => e.type === "login" && e.status === "pending");
-		expect(card).toMatchObject({ site: "chatgpt.com", vault: { name: "chatgpt", domain: "chatgpt.com", username: "alice@x.com" } });
-		expect(JSON.stringify(events)).not.toContain(PASSWORD);
-		const pending = checkpoints.at(-1)?.pendingLogin;
-		expect(pending?.vault?.name).toBe("chatgpt");
-		expect(pending?.useVault).toBeUndefined();
+		const { error, events, seen, execBrowserType, onLoginRequired, checkpoints } = await run({
+			queue: [step("browser_snapshot"), text("Pronto, entrei.")],
+			snapshotAfterTyping: homeSnapshot,
+			pageAfter: homePage,
+		});
+		expect(error).not.toBeInstanceOf(Error);
+		expect(execBrowserType.mock.calls.map((c) => (c[1] as unknown as { text: string }).text)).toEqual(["alice@x.com", PASSWORD]);
+		expect(events.filter((e) => e.type === "login" && e.status === "pending")).toHaveLength(0);
+		expect(events.filter((e) => e.type === "confirm")).toHaveLength(0);
+		expect(onLoginRequired).not.toHaveBeenCalled();
+		expect(events.find((e) => e.type === "login" && e.status === "done")).toMatchObject({ site: "chatgpt.com", vault: { name: "chatgpt", domain: "chatgpt.com" } });
+		expect(seen.some((m) => m.includes("[login-vault-filled]"))).toBe(true);
+		expect(JSON.stringify([events, seen, checkpoints])).not.toContain(PASSWORD);
+		expect(checkpoints.at(-1)?.pendingLogin).toBeUndefined();
 	});
 
 	it("'Entrar': o runtime preenche usuário e senha (login_fill) e o fluxo segue sem 2º card", async () => {
@@ -182,9 +192,6 @@ describe("Cofre automático no muro de login", () => {
 		expect(JSON.stringify(second.seen)).not.toContain(PASSWORD);
 		expect(second.events.some((e) => e.type === "login" && e.status === "done")).toBe(true);
 		expect(second.events.filter((e) => e.type === "login" && e.status === "pending")).toHaveLength(0);
-		// o clique foi a aprovação: ficou registrado para esta conversa
-		const item = (await vault.listMeta("user-a"))[0]!;
-		expect(await vault.isLoginApproved("user-a", item, "bot-1", "conv-1")).toBe(true);
 	});
 
 	it("sem 'Entrar' (Terminei / Eu faço): nada é digitado pelo runtime", async () => {
@@ -261,12 +268,6 @@ describe("Cofre automático no muro de login", () => {
 describe("código de login enviado por e-mail", () => {
 	const typedOf = (r: { execBrowserType: { mock: { calls: unknown[][] } } }) => r.execBrowserType.mock.calls.map((c) => (c[1] as { text: string }).text);
 
-	it("com Gmail conectado: o cartão do cofre avisa que também busca o código", async () => {
-		await addChatgpt();
-		const { first } = await pausedWithOffer(gmailMcp([]).mcp);
-		expect(first.events.find((e) => e.type === "login")).toMatchObject({ vault: { emailCode: "Gmail" } });
-	});
-
 	it("código achado no e-mail e digitado pelo runtime; o modelo e o transcript nunca o veem", async () => {
 		await addChatgpt();
 		const gmail = gmailMcp([{ from: "ChatGPT <noreply@tm.openai.com>", subject: `Your ChatGPT code is ${CODE}`, ageMs: 2000 }]);
@@ -321,10 +322,9 @@ describe("código de login enviado por e-mail", () => {
 	});
 });
 
-describe("Cofre primeiro: login salvo e aprovado entra sozinho, antes do card", () => {
-	it("aprovado + tela some depois de preencher: sem card, o modelo recebe a confirmação e a senha nunca aparece", async () => {
+describe("Cofre primeiro: login salvo do dono entra sozinho, antes do card", () => {
+	it("tela some depois de preencher: sem card, o modelo recebe a confirmação e a senha nunca aparece", async () => {
 		await addChatgpt();
-		await approveChatgpt();
 		const { error, events, seen, execBrowserType, onLoginRequired } = await run({
 			queue: [step("browser_snapshot"), text("Pronto, entrei.")],
 			snapshotAfterTyping: homeSnapshot,
@@ -332,16 +332,15 @@ describe("Cofre primeiro: login salvo e aprovado entra sozinho, antes do card", 
 		});
 		expect(error).not.toBeInstanceOf(Error);
 		expect(execBrowserType.mock.calls.map((c) => (c[1] as unknown as { text: string }).text)).toEqual(["alice@x.com", PASSWORD]);
-		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
+		expect(events.filter((e) => e.type === "login" && e.status !== "done")).toHaveLength(0);
 		expect(onLoginRequired).not.toHaveBeenCalled();
 		expect(seen.some((m) => m.includes("[login-vault-filled]") && m.includes("browser_snapshot"))).toBe(true);
 		expect(seen.some((m) => m.includes("LOGIN REQUIRED"))).toBe(false);
 		expect(JSON.stringify([events, seen])).not.toContain(PASSWORD);
 	});
 
-	it("aprovado, mas a tela de login continua (senha errada/2FA): card humano explicando, sem a oferta do Cofre", async () => {
+	it("a tela de login continua (senha errada/2FA): card humano explicando, sem a oferta do Cofre", async () => {
 		await addChatgpt();
-		await approveChatgpt();
 		const { error, events, onLoginRequired, checkpoints } = await run({ queue: [step("browser_snapshot")] });
 		expect(error).toMatchObject({ name: "AgentRunPausedError" });
 		const card = events.find((e) => e.type === "login" && e.status === "pending");
@@ -352,16 +351,8 @@ describe("Cofre primeiro: login salvo e aprovado entra sozinho, antes do card", 
 		expect(checkpoints.at(-1)?.pendingLogin?.vaultTried).toBeTruthy();
 	});
 
-	it("sem aprovação ainda: nada é digitado e o card é o de aprovação (oferta do Cofre)", async () => {
-		await addChatgpt();
-		const { events, execBrowserType } = await run({ queue: [step("browser_snapshot")], snapshotAfterTyping: homeSnapshot });
-		expect(execBrowserType).not.toHaveBeenCalled();
-		expect(events.find((e) => e.type === "login" && e.status === "pending")).toMatchObject({ vault: { name: "chatgpt" } });
-	});
-
 	it("subdomínio do site salvo casa pelo domínio registrável (painel.chatgpt.com usa o login de chatgpt.com)", async () => {
 		await addChatgpt();
-		await approveChatgpt();
 		const { events, execBrowserType } = await run({
 			queue: [step("browser_snapshot"), text("ok")],
 			url: "https://painel.chatgpt.com/entrar",
@@ -369,7 +360,7 @@ describe("Cofre primeiro: login salvo e aprovado entra sozinho, antes do card", 
 			pageAfter: { url: "https://painel.chatgpt.com/", title: "Painel", text: "Bem-vindo" },
 		});
 		expect(execBrowserType).toHaveBeenCalled();
-		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
+		expect(events.filter((e) => e.type === "login" && e.status !== "done")).toHaveLength(0);
 	});
 
 	it("sem login salvo para o site: card comum 'faça você mesmo', nada digitado", async () => {
@@ -388,7 +379,8 @@ describe("Terminei confere a tela e o aviso de login vale por conversa", () => {
 		expect(second.result?.text).toContain("Ainda vejo a tela de login de chatgpt.com");
 		expect(second.result?.text).not.toMatch(/browser_snapshot|login-complete|runtime/i);
 		expect(second.seen.some((m) => m.includes("[login-complete]"))).toBe(false);
-		expect(second.events.some((e) => e.type === "login" && e.status === "done")).toBe(true);
+		// o cartão só vira "concluído" quando a tela de login sumiu
+		expect(second.events.some((e) => e.type === "login" && e.status === "done")).toBe(false);
 		expect(second.requests).toHaveLength(0);
 	});
 
@@ -403,7 +395,7 @@ describe("Terminei confere a tela e o aviso de login vale por conversa", () => {
 	it("o site já pediu login nesta conversa (run anterior, 30 min): sem card novo, o modelo recebe a nota", async () => {
 		const { error, events, seen, onLoginRequired } = await run({ queue: [step("browser_snapshot"), text("O site ainda pede login.")], recentLoginAsks: { asked: ["chatgpt.com"] } });
 		expect(error).toBeUndefined();
-		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
+		expect(events.filter((e) => e.type === "login" && e.status !== "done")).toHaveLength(0);
 		expect(onLoginRequired).not.toHaveBeenCalled();
 		expect(seen.some((m) => m.includes("LOGIN STILL REQUIRED on chatgpt.com") && m.includes("last 30 minutes"))).toBe(true);
 	});
@@ -414,18 +406,16 @@ describe("Terminei confere a tela e o aviso de login vale por conversa", () => {
 		expect(events.find((e) => e.type === "login" && e.status === "pending")).toMatchObject({ site: "chatgpt.com" });
 	});
 
-	it("login salvo e aprovado continua entrando sozinho mesmo com aviso recente do site", async () => {
+	it("login salvo continua entrando sozinho mesmo com aviso recente do site", async () => {
 		await addChatgpt();
-		await approveChatgpt();
 		const { error, events, execBrowserType } = await run({ queue: [step("browser_snapshot"), text("ok")], recentLoginAsks: { asked: ["chatgpt.com"] }, snapshotAfterTyping: homeSnapshot, pageAfter: { url: "https://chatgpt.com/", title: "ChatGPT", text: "Como posso ajudar hoje?" } });
 		expect(error).toBeUndefined();
 		expect(execBrowserType).toHaveBeenCalled();
-		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
+		expect(events.filter((e) => e.type === "login" && e.status !== "done")).toHaveLength(0);
 	});
 
 	it("o Cofre já falhou neste site na conversa (30 min): não digita a senha de novo e mostra o card humano", async () => {
 		await addChatgpt();
-		await approveChatgpt();
 		const { error, events, execBrowserType } = await run({ queue: [step("browser_snapshot")], recentLoginAsks: { vaultTried: ["chatgpt.com"] } });
 		expect(error).toMatchObject({ name: "AgentRunPausedError" });
 		expect(execBrowserType).not.toHaveBeenCalled();
@@ -435,10 +425,10 @@ describe("Terminei confere a tela e o aviso de login vale por conversa", () => {
 		expect(card).not.toHaveProperty("vault");
 	});
 
-	it("card de aprovação do Cofre também não se repete na conversa enquanto o anterior está pendente", async () => {
+	it("login do cofre que não resolveu sozinho não reabre cartão na conversa enquanto o anterior está pendente", async () => {
 		await addChatgpt();
 		const { events, onLoginRequired, seen } = await run({ queue: [step("browser_snapshot"), text("Preciso da sua aprovação.")], recentLoginAsks: { asked: ["chatgpt.com"] } });
-		expect(events.filter((e) => e.type === "login")).toHaveLength(0);
+		expect(events.filter((e) => e.type === "login" && e.status !== "done")).toHaveLength(0);
 		expect(onLoginRequired).not.toHaveBeenCalled();
 		expect(seen.some((m) => m.includes("LOGIN STILL REQUIRED on chatgpt.com"))).toBe(true);
 	});
@@ -449,5 +439,141 @@ describe("Terminei confere a tela e o aviso de login vale por conversa", () => {
 		expect(spy).not.toHaveBeenCalled();
 		await run({ queue: [step("browser_snapshot")], recentLoginAsksSpy: spy });
 		expect(spy).toHaveBeenCalledTimes(1);
+	});
+});
+
+// ----- caso real: Adolfinho / Dokploy (panel.kodea.com.br, item "Painel - Kodea") -----
+
+const KODEA = "https://panel.kodea.com.br/login";
+const KODEA_PASSWORD = "KodeaPass!99";
+const kodeaHome = () => ({ url: "https://panel.kodea.com.br/", title: "Dokploy", total: 1, offset: 0, limit: 80, nextOffset: null, lines: ['[e1] heading "Projetos"'] });
+const typedOf2 = (r: { execBrowserType: { mock: { calls: unknown[][] } } }) => r.execBrowserType.mock.calls.map((c) => (c[1] as { text: string }).text);
+
+async function addKodea(userId = "user-a", name = "painel-kodea", label = "Painel - Kodea") {
+	// Sem URL salva: só o nome/rótulo liga o item ao domínio.
+	await vault.create(userId, { kind: "login", name, label, username: "dono@kodea.com.br", payload: { password: KODEA_PASSWORD } });
+}
+
+/** Run parado num cartão de login da rotina (checkpoint como o do caso real). */
+async function pausedOnKodea() {
+	const first = await run({ queue: [step("browser_snapshot")], userId: "user-sem-cofre", url: KODEA });
+	return structuredClone(first.checkpoints.at(-1)!);
+}
+
+describe("login pendente não engole a fala do dono (caso real)", () => {
+	it("'o cofre está como: Painel - Kodea' chega ao modelo, que usa o cofre; sem frase fixa nem 'concluído' falso", async () => {
+		await addKodea();
+		const checkpoint = await pausedOnKodea();
+		const second = await run({
+			restored: checkpoint,
+			url: KODEA,
+			steer: [{ id: "in-1", content: "o cofre está como: Painel - Kodea", mode: "steer" }],
+			snapshotOnResume: () => wallSnapshot(KODEA),
+			// a 1ª chamada é a triagem da mensagem recebida durante o run (resposta vazia = padrão)
+			queue: [text("{}"), step("login_fill", { login: "Painel - Kodea", submit: true }), text("Entrei no painel.")],
+		});
+		expect(second.error).toBeUndefined();
+		expect(second.requests.length).toBeGreaterThan(0);
+		const seenAll = second.seen.join("\n");
+		expect(seenAll).toContain("o cofre está como: Painel - Kodea");
+		expect(seenAll).toContain("[auto-context");
+		expect(seenAll).not.toContain("Ainda vejo a tela de login");
+		expect(typedOf2(second)).toEqual(["dono@kodea.com.br", KODEA_PASSWORD]);
+		expect(second.events.some((e) => e.type === "login" && e.status === "done")).toBe(false);
+		expect(JSON.stringify([second.seen, second.events, second.checkpoints])).not.toContain(KODEA_PASSWORD);
+		expect(second.checkpoints.at(-1)?.pendingLogin).toBeUndefined();
+	});
+
+	it("cada fala seguinte também chega ao modelo (nenhuma frase fixa repetida)", async () => {
+		const checkpoint = await pausedOnKodea();
+		for (const content of ["to te falando que o login está no cofre", "Pq vc n pediu a porra do cofre?"]) {
+			const r = await run({ restored: checkpoint, url: KODEA, steer: [{ id: content, content, mode: "steer" }], queue: [text("Vou olhar o cofre.")] });
+			expect(r.requests.length).toBeGreaterThan(0);
+			expect(r.result?.text ?? "").not.toContain("Ainda vejo a tela de login");
+			expect(r.events.some((e) => e.type === "login" && e.status === "done")).toBe(false);
+		}
+	});
+
+	it("'pronto' com o login ainda na tela: a frase sai uma vez, o cartão segue pendente e a fala seguinte vai ao modelo", async () => {
+		const checkpoint = await pausedOnKodea();
+		const first = await run({ restored: checkpoint, url: KODEA, steer: [{ id: "in-1", content: "pronto" }], snapshotOnResume: () => wallSnapshot(KODEA), queue: [text("não deve chegar")] });
+		expect(first.result?.text).toContain("Ainda vejo a tela de login de panel.kodea.com.br");
+		expect(first.requests).toHaveLength(0);
+		expect(first.events.some((e) => e.type === "login" && e.status === "done")).toBe(false);
+		// o pendingLogin foi consumido: a próxima fala já não tem frase fixa
+		expect(first.checkpoints.at(-1)?.pendingLogin).toBeUndefined();
+		const next = await run({ restored: first.checkpoints.at(-1)!, url: KODEA, steer: [{ id: "in-2", content: "o item do cofre é Painel - Kodea", mode: "steer" }], queue: [text("Certo.")] });
+		expect(next.requests.length).toBeGreaterThan(0);
+		expect(next.result?.text ?? "").not.toContain("Ainda vejo a tela de login");
+	});
+
+	it("'pronto' com o login que sumiu: cartão concluído e o modelo retoma", async () => {
+		const checkpoint = await pausedOnKodea();
+		const r = await run({ restored: checkpoint, url: KODEA, steer: [{ id: "in-1", content: "Pronto!" }], snapshotOnResume: kodeaHome, queue: [text("Continuando.")] });
+		expect(r.seen.some((m) => m.includes("[login-complete]"))).toBe(true);
+		expect(r.events.some((e) => e.type === "login" && e.status === "done")).toBe(true);
+		expect(r.requests.length).toBeGreaterThan(0);
+	});
+
+	it("login pendente de uma ROTINA não é tratado como 'terminei' por uma fala do chat", async () => {
+		const checkpoint = await pausedOnKodea();
+		const r = await run({ restored: checkpoint, origin: "routine", url: KODEA, snapshotOnResume: () => wallSnapshot(KODEA), queue: [text("ok")] });
+		expect(r.result?.text).not.toContain("Ainda vejo a tela de login");
+		expect(r.events.some((e) => e.type === "login" && e.status === "done")).toBe(false);
+		expect(r.requests.length).toBeGreaterThan(0);
+		expect(r.checkpoints.at(-1)?.pendingLogin).toBeUndefined();
+	});
+});
+
+describe("rotina e chat entram pelo cofre sem cartão", () => {
+	it("rotina: item sem URL casa pelo nome com panel.kodea.com.br, entra sozinho e não deixa login pendente", async () => {
+		await addKodea();
+		const r = await run({ origin: "routine", url: KODEA, queue: [step("browser_snapshot"), text("Consumo: ok")], snapshotAfterTyping: kodeaHome, pageAfter: { url: "https://panel.kodea.com.br/", title: "Dokploy", text: "Projetos" } });
+		expect(r.error).toBeUndefined();
+		expect(typedOf2(r)).toEqual(["dono@kodea.com.br", KODEA_PASSWORD]);
+		expect(r.events.filter((e) => e.type === "login" && e.status === "pending")).toHaveLength(0);
+		expect(r.onLoginRequired).not.toHaveBeenCalled();
+		expect(r.checkpoints.at(-1)?.pendingLogin).toBeUndefined();
+		expect(r.events.find((e) => e.type === "login" && e.status === "done")).toMatchObject({ vault: { name: "painel-kodea" } });
+		expect(JSON.stringify([r.seen, r.events, r.checkpoints])).not.toContain(KODEA_PASSWORD);
+	});
+
+	it("chat: o mesmo item entra sozinho, sem cartão de aprovação", async () => {
+		await addKodea();
+		const r = await run({ url: KODEA, queue: [step("browser_snapshot"), text("Entrei.")], snapshotAfterTyping: kodeaHome, pageAfter: { url: "https://panel.kodea.com.br/", title: "Dokploy", text: "Projetos" } });
+		expect(typedOf2(r)).toEqual(["dono@kodea.com.br", KODEA_PASSWORD]);
+		expect(r.events.filter((e) => e.type === "confirm" || (e.type === "login" && e.status === "pending"))).toHaveLength(0);
+	});
+
+	it("rotina sem item no cofre: termina com aviso claro, sem cartão, sem pausa e sem login pendente", async () => {
+		const r = await run({ origin: "routine", url: KODEA, queue: [step("browser_snapshot"), text("Preciso entrar no painel.")] });
+		expect(r.error).toBeUndefined();
+		expect(r.events.filter((e) => e.type === "login")).toHaveLength(0);
+		expect(r.onLoginRequired).not.toHaveBeenCalled();
+		expect(r.checkpoints.at(-1)?.pendingLogin).toBeUndefined();
+		expect(r.seen.some((m) => m.includes("LOGIN NOT POSSIBLE on panel.kodea.com.br") && m.includes("unattended routine"))).toBe(true);
+		expect(typedOf2(r)).toEqual([]);
+	});
+
+	it("dois itens servem à mesma página: o runtime não chuta, o modelo recebe os nomes e pergunta", async () => {
+		await addKodea();
+		await addKodea("user-a", "kodea-admin", "Kodea Admin");
+		const r = await run({ url: KODEA, queue: [step("browser_snapshot"), text("Qual item uso?")] });
+		expect(typedOf2(r)).toEqual([]);
+		expect(r.events.filter((e) => e.type === "login")).toHaveLength(0);
+		expect(r.seen.some((m) => m.includes("several logins") && m.includes("painel-kodea") && m.includes("kodea-admin"))).toBe(true);
+	});
+
+	it("item de OUTRO dono nunca é usado", async () => {
+		await addKodea("user-b");
+		const r = await run({ origin: "routine", url: KODEA, queue: [step("browser_snapshot"), text("sem login")] });
+		expect(typedOf2(r)).toEqual([]);
+		expect(JSON.stringify([r.seen, r.events])).not.toContain(KODEA_PASSWORD);
+	});
+
+	it("página de outro domínio (phishing) não recebe a senha de um item só com nome", async () => {
+		await addKodea();
+		const r = await run({ url: "https://kodea.evil.example/login", queue: [step("browser_snapshot"), text("x")] });
+		expect(typedOf2(r)).toEqual([]);
 	});
 });
