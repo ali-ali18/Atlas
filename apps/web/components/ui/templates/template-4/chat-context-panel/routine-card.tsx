@@ -187,7 +187,7 @@ export function RoutineCard({
 					{routine.name}
 				</span>
 				<span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-muted-foreground text-xs">
-					<span className={alertSentence ? "line-clamp-2 break-words" : "truncate"} data-routine-alert={alertSentence ? "" : undefined} title={alertTitle}>
+					<span className={alertSentence ? "line-clamp-3 break-words" : "truncate"} data-routine-alert={alertSentence ? "" : undefined} title={alertTitle}>
 						{persisted ? summary : t("routines.card.withDraft", { summary })}
 					</span>
 					{routine.createdBy === "bot" ? (

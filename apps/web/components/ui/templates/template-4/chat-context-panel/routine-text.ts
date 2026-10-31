@@ -268,8 +268,8 @@ function marketMoneyText(value: number, currency: string, locale: UiLocale): str
 	const number = formatNumber(scaled, locale, { maximumFractionDigits: million ? 1 : 0 });
 	const suffix = COMPACT_SUFFIX[locale][million ? "million" : "thousand"];
 	const symbol = new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: 0 }).formatToParts(0).find((part) => part.type === "currency")?.value ?? currency;
-	if (locale === "pt-BR") return `${symbol} ${number}${suffix}`;
-	if (locale === "es-ES") return `${number}${suffix} ${symbol}`;
+	if (locale === "pt-BR") return `${symbol}\u00a0${number}${suffix}`;
+	if (locale === "es-ES") return `${number}${suffix}\u00a0${symbol}`;
 	return `${symbol}${number}${suffix}`;
 }
 
