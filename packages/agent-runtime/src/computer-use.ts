@@ -274,7 +274,7 @@ import { isSecretBoxConfigured } from "./secrets/secret-box.js";
 import { getVaultService, type VaultService } from "./secrets/vault-service.js";
 import { findEmailSource } from "./tools/email-code.js";
 import { openSecrets } from "./secrets/secret-box.js";
-import { typeLoginCodeOnResume, fillVaultLoginOnResume, tryAutoVaultLogin, vaultAmbiguityNote, listVaultLoginDomains, vaultLoginsPromptLine, vaultTriedKey, withVaultOffer } from "./tools/vault-login-offer.js";
+import { typeLoginCodeOnResume, fillVaultLoginOnResume, tryAutoVaultLogin, vaultHintNote, listVaultLoginDomains, vaultLoginsPromptLine, vaultTriedKey, withVaultOffer } from "./tools/vault-login-offer.js";
 import {
 	executeLoginFill,
 	executeRoutineWebhookInfo,
@@ -3760,8 +3760,8 @@ function vaultToolContext(ctx: Pick<ToolContext, "userId" | "botId" | "conversat
 				const page = await ctx.manager.execBrowserText(await ctx.getSessionId(), { mode: "viewport", limit: 1 });
 				return { url: page.url, title: page.title };
 			},
-			type: async (selector, text, submit) => {
-				const result = await ctx.manager.execBrowserType(await ctx.getSessionId(), { selector, text, submit });
+			type: async (selector, text, submit, guard) => {
+				const result = await ctx.manager.execBrowserType(await ctx.getSessionId(), { selector, text, submit, ...(guard ? { guard } : {}) });
 				if (result.ok === false) throw new Error("campo não encontrado");
 			},
 		},
@@ -6761,7 +6761,8 @@ export async function runComputerUse(params: {
 				userTalked = true;
 			} else if (params.consumeSteerInputs) {
 				const waiting = await params.consumeSteerInputs().catch(() => []);
-				userTalked = waiting.some((input) => !consumedInputIds.has(input.id) && input.mode !== "cancel" && !isLoginConfirmationText(input.content));
+				// Fala já consumida (id no checkpoint) também conta: ela já está na conversa, e a frase fixa não pode engoli-la.
+				userTalked = waiting.some((input) => input.mode !== "cancel" && !isLoginConfirmationText(input.content));
 			}
 		}
 		if (userTalked) {
@@ -7972,7 +7973,9 @@ export async function runComputerUse(params: {
 							summary = `${summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "")}\n[login-vault-filled] ${auto.summary} The login screen was gone when checked. Your next action must be browser_snapshot to confirm you are signed in, then continue the task. Never type credentials.`;
 							loginEvent = undefined;
 							// Registro discreto (linha compacta no chat): entrou pelo cofre; o evento não leva segredo, só o item.
-							const usedEvent: LoginEvent = { type: "login", loginId: `${offered.loginId}-v`, site: offered.site, url: offered.url, runId, status: "done", vault: offered.vault };
+							// Só o item (nome, rótulo e domínio): nada de usuário nem e-mail do código no evento.
+							const usedVault = offered.vault!;
+							const usedEvent: LoginEvent = { type: "login", loginId: `${offered.loginId}-v`, site: offered.site, url: offered.url, runId, status: "done", vault: { name: usedVault.name, label: usedVault.label, domain: usedVault.domain } };
 							await persistConversationCardFromEvent(conversationId, usedEvent).catch(() => undefined);
 							await onEvent(usedEvent);
 						} else if (auto.kind === "needs-human") {
@@ -7984,9 +7987,9 @@ export async function runComputerUse(params: {
 					}
 					// Mais de um item do cofre serve a página: não chuta nem mostra card; o modelo pergunta qual usar.
 					if (loginEvent && !loginEvent.vault && !loginEvent.connector && !loginEvent.composioToolkit && loginEvent.reason !== "captcha" && vaultUsable && userId !== "default") {
-						const ambiguity = await vaultAmbiguityNote(vaultService, userId, loginEvent.url);
-						if (ambiguity) {
-							summary = `${summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "")}\n${ambiguity}`;
+						const hint = await vaultHintNote(vaultService, userId, loginEvent.url, isUnattendedOrigin(params.origin));
+						if (hint) {
+							summary = `${summary.replace(/\nLOGIN REQUIRED on[\s\S]*$/, "")}\n${hint}`;
 							loginEvent = undefined;
 						}
 					}

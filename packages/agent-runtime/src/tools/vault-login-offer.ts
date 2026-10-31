@@ -17,19 +17,32 @@ export function vaultTriedKey(url: string): string {
 
 export async function findVaultLoginOffer(vault: Pick<VaultService, "listMeta">, userId: string, pageUrl: string, emailCode?: string): Promise<LoginVaultOffer | null> {
 	const pick = pickVaultLoginForPage(await vault.listMeta(userId), pageUrl);
-	// Ambíguo (duas contas para o mesmo site): o runtime não chuta; o modelo pergunta qual item usar.
-	if (pick.kind !== "match") return null;
+	// Só o site SALVO autoriza o login automático. Casar pelo nome nunca digita (vira dica ao modelo) e ambíguo
+	// (duas contas para o mesmo site) o runtime não chuta: o modelo pergunta qual item usar.
+	if (pick.kind !== "match" || pick.byName) return null;
 	const meta = pick.item;
 	const domain = meta.domain ?? new URL(pageUrl).hostname.replace(/^www\./, "");
 	return { name: meta.name, label: meta.label || domain, ...(meta.username ? { username: meta.username } : {}), domain, ...(emailCode ? { emailCode } : {}) };
 }
 
-/** Nota ao modelo quando mais de um item do cofre serve a página: ele pergunta qual usar (só nomes, nunca valores). */
-export async function vaultAmbiguityNote(vault: Pick<VaultService, "listMeta">, userId: string, pageUrl: string): Promise<string | null> {
+/**
+ * Nota ao modelo (só nomes, nunca valores) quando o runtime NÃO entra sozinho mas há item do cofre que serve:
+ * mais de um item para a página (pergunta qual usar) ou um item sem site salvo que parece ser deste site
+ * (login_fill pede ao dono, uma vez, para vincular o host). Em rotina ninguém responde: o run termina avisando o dono.
+ */
+export async function vaultHintNote(vault: Pick<VaultService, "listMeta">, userId: string, pageUrl: string, unattended = false): Promise<string | null> {
 	try {
 		const pick = pickVaultLoginForPage(await vault.listMeta(userId), pageUrl);
-		if (pick.kind !== "ambiguous") return null;
-		return `The vault has several logins that could fit this page: ${pick.items.map((item) => `"${item.name}"`).join(", ")}. Ask the user which one to use (in their language), then call login_fill with that name.`;
+		if (pick.kind === "none" || (pick.kind === "match" && !pick.byName)) return null;
+		const names = pick.kind === "ambiguous" ? pick.items.map((item) => `"${item.name}"`).join(", ") : `"${pick.item.name}"`;
+		if (unattended) {
+			return pick.kind === "ambiguous"
+				? `The vault has several logins that could fit this page: ${names}. This is an unattended routine, so do NOT type anything. Finish with ONE short message to the owner (their language, plain words): the routine needs to sign in here and they should say which vault login to use.`
+				: `The vault login ${names} may be for this site but has no site saved, so a routine never types it. Do NOT type anything. Finish with ONE short message to the owner (their language, plain words): the routine needs to sign in here with that vault login; they should open the conversation and confirm the site once (or save the site in Settings > Vault), then the routine will use it by itself.`;
+		}
+		return pick.kind === "ambiguous"
+			? `The vault has several logins that could fit this page: ${names}. Ask the user which one to use (in their language), then call login_fill with that name.`
+			: `The vault login ${names} may be for this site but has no site saved. Call login_fill with it: the user will be asked once to confirm using it on this host, and after that it works by itself. Never type credentials any other way.`;
 	} catch {
 		return null;
 	}

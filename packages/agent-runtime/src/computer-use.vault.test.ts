@@ -191,21 +191,100 @@ describe("cofre no loop do agente", () => {
 		expect(seen.join("\n")).not.toContain("SenhaDoB!123");
 	});
 
-	it("item só com nome (Painel - Kodea) entra em panel.kodea.com.br; em outro domínio recusa", async () => {
+	it("item SEM site: casar pelo nome nunca digita. Chat pergunta uma vez (cartão com o host); rotina recusa", async () => {
 		await vault.create("user-a", { kind: "login", name: "painel-kodea", label: "Painel - Kodea", username: "dono@kodea.com.br", payload: { password: "KodeaPass!99" } });
+		const execBrowserType = vi.fn(async () => ({ ok: true }));
+		const manager = asManager({ execBrowserText: vi.fn(async () => ({ url: "https://panel.kodea.com.br/login", title: "", text: "" })), execBrowserType });
+		const chat = await run([[call("t1", "login_fill", { login: "Painel - Kodea" })]], manager);
+		const cards = (chat.events as Array<{ type?: string; title?: string; confirmLabel?: string }>).filter((e) => e.type === "confirm");
+		expect(cards).toHaveLength(1);
+		expect(cards[0]!.title).toBe("Usar o login do Cofre Painel - Kodea em panel.kodea.com.br?");
+		expect(cards[0]!.confirmLabel).toBe("Sim, usar");
+		expect(execBrowserType).not.toHaveBeenCalled();
+		expect(chat.seen.join("\n") + JSON.stringify(chat.events)).not.toContain("KodeaPass!99");
+		const routine = await run([[call("t1", "login_fill", { login: "Painel - Kodea" })]], manager, { origin: "routine" });
+		expect((routine.events as Array<{ type?: string }>).some((e) => e.type === "confirm")).toBe(false);
+		expect(execBrowserType).not.toHaveBeenCalled();
+		expect(routine.seen.join("\n")).toContain("não tem site cadastrado");
+	});
+
+	it("domínios parecidos ou de plataforma NÃO recebem a senha (kodea.xyz, github.xyz, atacante.vercel.app, x.github.io)", async () => {
+		await vault.create("user-a", { kind: "login", name: "kodea", label: "Kodea", siteUrl: "https://panel.kodea.com.br", username: "k@x.com", payload: { password: "KodeaPass!99" } });
+		await vault.create("user-a", { kind: "login", name: "meuapp", label: "Meu app", siteUrl: "https://meuapp.vercel.app", username: "m@x.com", payload: { password: "MeuApp!99" } });
+		await vault.create("user-a", { kind: "login", name: "meupages", label: "Pages", siteUrl: "https://dono.github.io", username: "p@x.com", payload: { password: "Pages!99" } });
+		const cases: Array<[string, string]> = [
+			["kodea", "https://kodea.xyz/login"],
+			["kodea", "https://admin.kodea.com.br/login"],
+			["kodea", "https://kodea.com.br/login"],
+			["github", "https://github.xyz/login"],
+			["meuapp", "https://atacante.vercel.app/login"],
+			["meupages", "https://x.github.io/login"],
+		];
+		for (const [login, url] of cases) {
+			const execBrowserType = vi.fn(async () => ({ ok: true }));
+			const manager = asManager({ execBrowserText: vi.fn(async () => ({ url, title: "", text: "" })), execBrowserType });
+			const r = await run([[call("t1", "login_fill", { login })]], manager);
+			expect(execBrowserType, `${login} @ ${url}`).not.toHaveBeenCalled();
+			expect(r.seen.join("\n")).toContain("Recusado");
+		}
+	});
+
+	it("item com site panel.kodea.com.br digita só em panel.kodea.com.br (e filhos dele), em chat e rotina", async () => {
+		await vault.create("user-a", { kind: "login", name: "kodea", label: "Kodea", siteUrl: "https://panel.kodea.com.br", username: "k@x.com", payload: { password: "KodeaPass!99" } });
+		for (const origin of ["chat", "routine"]) {
+			const typed: string[] = [];
+			const manager = asManager({
+				execBrowserText: vi.fn(async () => ({ url: "https://panel.kodea.com.br/login", title: "", text: "" })),
+				execBrowserType: vi.fn(async (_s: string, p: { text: string }) => (typed.push(p.text), { ok: true })),
+			});
+			await run([[call("t1", "login_fill", { login: "kodea" })]], manager, { origin });
+			expect(typed, origin).toEqual(["k@x.com", "KodeaPass!99"]);
+		}
+	});
+
+	it("o 2FA (totp) nunca é digitado pelo bot, nem no chat nem em rotina", async () => {
+		for (const origin of ["chat", "routine"]) {
+			const execBrowserType = vi.fn(async () => ({ ok: true }));
+			const manager = asManager({ execBrowserText: vi.fn(async () => ({ url: "https://github.com/login", title: "", text: "" })), execBrowserType });
+			const r = await run([[call("t1", "login_fill", { login: "github", fields: ["totp"] })]], manager, { origin });
+			expect(execBrowserType, origin).not.toHaveBeenCalled();
+			expect(r.seen.join("\n")).toContain("2FA não é digitado pelo bot");
+		}
+	});
+
+	it("password_selector (e totp_selector) é recusado: a senha só vai ao campo de senha achado pelo runtime", async () => {
+		const execBrowserType = vi.fn(async () => ({ ok: true }));
+		const manager = asManager({ execBrowserText: vi.fn(async () => ({ url: "https://github.com/login", title: "", text: "" })), execBrowserType });
+		const r = await run([[call("t1", "login_fill", { login: "github", password_selector: "input[type=text]" })]], manager);
+		expect(execBrowserType).not.toHaveBeenCalled();
+		expect(r.seen.join("\n")).toContain("não aceito seletor para ele");
+	});
+
+	it("a digitação leva a trava do control server (senha = campo de senha; usuário = mesmo formulário) e a origem validada", async () => {
+		const calls: Array<{ selector?: string; guard?: { kind: string; origin?: string } }> = [];
+		const manager = asManager({
+			execBrowserText: vi.fn(async () => ({ url: "https://github.com/login", title: "", text: "" })),
+			execBrowserType: vi.fn(async (_s: string, p: { selector?: string; guard?: { kind: string; origin?: string } }) => (calls.push(p), { ok: true })),
+		});
+		await run([[call("t1", "login_fill", { login: "github", username_selector: "#login_field" })]], manager);
+		expect(calls.map((c) => [c.selector, c.guard])).toEqual([
+			["#login_field", { kind: "username", origin: "https://github.com" }],
+			['input[type="password"]', { kind: "password", origin: "https://github.com" }],
+		]);
+	});
+
+	it("troca de domínio entre o usuário e a senha: aborta sem digitar a senha", async () => {
 		const typed: string[] = [];
-		const ok = asManager({
-			execBrowserText: vi.fn(async () => ({ url: "https://panel.kodea.com.br/login", title: "", text: "" })),
+		let reads = 0;
+		const manager = asManager({
+			// 1ª leitura: validação inicial; 2ª: antes do usuário; 3ª: antes da senha (já em outro site)
+			execBrowserText: vi.fn(async () => ({ url: ++reads >= 3 ? "https://github.com.evil.io/login" : "https://github.com/login", title: "", text: "" })),
 			execBrowserType: vi.fn(async (_s: string, p: { text: string }) => (typed.push(p.text), { ok: true })),
 		});
-		const first = await run([[call("t1", "login_fill", { login: "Painel - Kodea" })]], ok, { origin: "routine" });
-		expect(typed).toEqual(["dono@kodea.com.br", "KodeaPass!99"]);
-		expect(first.seen.join("\n")).not.toContain("KodeaPass!99");
-		const bad = vi.fn(async () => ({ ok: true }));
-		const evil = asManager({ execBrowserText: vi.fn(async () => ({ url: "https://kodea.evil.example/login", title: "", text: "" })), execBrowserType: bad });
-		const second = await run([[call("t1", "login_fill", { login: "Painel - Kodea" })]], evil);
-		expect(bad).not.toHaveBeenCalled();
-		expect(second.seen.join("\n")).toContain("Recusado");
+		const r = await run([[call("t1", "login_fill", { login: "github" })]], manager);
+		expect(typed).toEqual(["alice@x.com"]);
+		expect(r.seen.join("\n")).toContain("A página mudou de site");
+		expect(r.seen.join("\n")).not.toContain(PASSWORD);
 	});
 });
 

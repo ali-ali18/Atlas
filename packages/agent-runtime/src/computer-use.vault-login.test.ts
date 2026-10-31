@@ -214,7 +214,7 @@ describe("Cofre automático no muro de login", () => {
 		expect(second.error).toMatchObject({ name: "AgentRunPausedError" });
 		const human = second.events.find((e) => e.type === "login" && e.status === "pending");
 		expect(human).toMatchObject({ site: "chatgpt.com", loginId: expect.stringMatching(/-h$/) });
-		expect(String(human?.vaultTried)).toContain("mais um passo");
+		expect(String(human?.vaultTried)).toMatch(/mais um passo|mudou de site/);
 		expect(human?.vault).toBeUndefined();
 		expect(second.onLoginRequired).toHaveBeenCalledTimes(1);
 		expect(second.checkpoints.at(-1)?.pendingLogin?.vaultTried).toBeTruthy();
@@ -449,10 +449,14 @@ const KODEA_PASSWORD = "KodeaPass!99";
 const kodeaHome = () => ({ url: "https://panel.kodea.com.br/", title: "Dokploy", total: 1, offset: 0, limit: 80, nextOffset: null, lines: ['[e1] heading "Projetos"'] });
 const typedOf2 = (r: { execBrowserType: { mock: { calls: unknown[][] } } }) => r.execBrowserType.mock.calls.map((c) => (c[1] as { text: string }).text);
 
-async function addKodea(userId = "user-a", name = "painel-kodea", label = "Painel - Kodea") {
-	// Sem URL salva: só o nome/rótulo liga o item ao domínio.
-	await vault.create(userId, { kind: "login", name, label, username: "dono@kodea.com.br", payload: { password: KODEA_PASSWORD } });
+async function addKodea(userId = "user-a", name = "painel-kodea", label = "Painel - Kodea", siteUrl?: string) {
+	// Sem siteUrl: o item só tem nome/rótulo, e nome NUNCA autoriza digitar (o dono vincula o host uma vez).
+	await vault.create(userId, { kind: "login", name, label, username: "dono@kodea.com.br", payload: { password: KODEA_PASSWORD }, ...(siteUrl ? { siteUrl } : {}) });
 }
+const linkKodea = async () => {
+	const item = (await vault.listMeta("user-a")).find((i) => i.name === "painel-kodea")!;
+	await vault.update("user-a", item.id, { siteUrl: "https://panel.kodea.com.br" });
+};
 
 /** Run parado num cartão de login da rotina (checkpoint como o do caso real). */
 async function pausedOnKodea() {
@@ -461,7 +465,7 @@ async function pausedOnKodea() {
 }
 
 describe("login pendente não engole a fala do dono (caso real)", () => {
-	it("'o cofre está como: Painel - Kodea' chega ao modelo, que usa o cofre; sem frase fixa nem 'concluído' falso", async () => {
+	it("'o cofre está como: Painel - Kodea' chega ao modelo; item sem site: 1 cartão de vínculo, nada digitado, sem frase fixa nem 'concluído' falso", async () => {
 		await addKodea();
 		const checkpoint = await pausedOnKodea();
 		const second = await run({
@@ -470,18 +474,29 @@ describe("login pendente não engole a fala do dono (caso real)", () => {
 			steer: [{ id: "in-1", content: "o cofre está como: Painel - Kodea", mode: "steer" }],
 			snapshotOnResume: () => wallSnapshot(KODEA),
 			// a 1ª chamada é a triagem da mensagem recebida durante o run (resposta vazia = padrão)
-			queue: [text("{}"), step("login_fill", { login: "Painel - Kodea", submit: true }), text("Entrei no painel.")],
+			queue: [text("{}"), step("login_fill", { login: "Painel - Kodea", submit: true }), text("Pedi a confirmação.")],
 		});
-		expect(second.error).toBeUndefined();
 		expect(second.requests.length).toBeGreaterThan(0);
 		const seenAll = second.seen.join("\n");
 		expect(seenAll).toContain("o cofre está como: Painel - Kodea");
 		expect(seenAll).toContain("[auto-context");
 		expect(seenAll).not.toContain("Ainda vejo a tela de login");
-		expect(typedOf2(second)).toEqual(["dono@kodea.com.br", KODEA_PASSWORD]);
+		const cards = second.events.filter((e) => e.type === "confirm");
+		expect(cards).toHaveLength(1);
+		expect(cards[0]).toMatchObject({ title: "Usar o login do Cofre Painel - Kodea em panel.kodea.com.br?" });
+		expect(typedOf2(second)).toEqual([]);
 		expect(second.events.some((e) => e.type === "login" && e.status === "done")).toBe(false);
 		expect(JSON.stringify([second.seen, second.events, second.checkpoints])).not.toContain(KODEA_PASSWORD);
 		expect(second.checkpoints.at(-1)?.pendingLogin).toBeUndefined();
+	});
+
+	it("fala já consumida (id no checkpoint) não é engolida pela frase fixa: o modelo roda", async () => {
+		const checkpoint = await pausedOnKodea();
+		checkpoint.consumedInputIds = ["in-9"];
+		const r = await run({ restored: checkpoint, url: KODEA, steer: [{ id: "in-9", content: "to te falando que o login está no cofre", mode: "steer" }], snapshotOnResume: () => wallSnapshot(KODEA), queue: [text("Vou olhar o cofre.")] });
+		expect(r.requests.length).toBeGreaterThan(0);
+		expect(r.result?.text ?? "").not.toContain("Ainda vejo a tela de login");
+		expect(r.events.some((e) => e.type === "login" && e.status === "done")).toBe(false);
 	});
 
 	it("cada fala seguinte também chega ao modelo (nenhuma frase fixa repetida)", async () => {
@@ -526,23 +541,55 @@ describe("login pendente não engole a fala do dono (caso real)", () => {
 });
 
 describe("rotina e chat entram pelo cofre sem cartão", () => {
-	it("rotina: item sem URL casa pelo nome com panel.kodea.com.br, entra sozinho e não deixa login pendente", async () => {
-		await addKodea();
+	it("rotina: item COM o site salvo (panel.kodea.com.br) entra sozinho e não deixa login pendente", async () => {
+		await addKodea("user-a", "painel-kodea", "Painel - Kodea", "https://panel.kodea.com.br");
 		const r = await run({ origin: "routine", url: KODEA, queue: [step("browser_snapshot"), text("Consumo: ok")], snapshotAfterTyping: kodeaHome, pageAfter: { url: "https://panel.kodea.com.br/", title: "Dokploy", text: "Projetos" } });
 		expect(r.error).toBeUndefined();
 		expect(typedOf2(r)).toEqual(["dono@kodea.com.br", KODEA_PASSWORD]);
 		expect(r.events.filter((e) => e.type === "login" && e.status === "pending")).toHaveLength(0);
 		expect(r.onLoginRequired).not.toHaveBeenCalled();
 		expect(r.checkpoints.at(-1)?.pendingLogin).toBeUndefined();
-		expect(r.events.find((e) => e.type === "login" && e.status === "done")).toMatchObject({ vault: { name: "painel-kodea" } });
+		const done = r.events.find((e) => e.type === "login" && e.status === "done");
+		expect(done).toMatchObject({ vault: { name: "painel-kodea", domain: "panel.kodea.com.br" } });
+		// o registro discreto leva só o item: nada de usuário
+		expect(JSON.stringify(done)).not.toContain("dono@kodea.com.br");
 		expect(JSON.stringify([r.seen, r.events, r.checkpoints])).not.toContain(KODEA_PASSWORD);
 	});
 
-	it("chat: o mesmo item entra sozinho, sem cartão de aprovação", async () => {
-		await addKodea();
+	it("chat: o mesmo item (com site) entra sozinho, sem cartão de aprovação", async () => {
+		await addKodea("user-a", "painel-kodea", "Painel - Kodea", "https://panel.kodea.com.br");
 		const r = await run({ url: KODEA, queue: [step("browser_snapshot"), text("Entrei.")], snapshotAfterTyping: kodeaHome, pageAfter: { url: "https://panel.kodea.com.br/", title: "Dokploy", text: "Projetos" } });
 		expect(typedOf2(r)).toEqual(["dono@kodea.com.br", KODEA_PASSWORD]);
 		expect(r.events.filter((e) => e.type === "confirm" || (e.type === "login" && e.status === "pending"))).toHaveLength(0);
+	});
+
+	it("replay completo: 1ª vez no chat pede o vínculo (1 cartão); depois entra sozinho no chat e a rotina seguinte entra sozinha", async () => {
+		await addKodea();
+		// 1ª vez (chat): o muro de login vira dica ao modelo, que chama login_fill e o dono vê UM cartão com o host
+		const first = await run({ url: KODEA, queue: [step("browser_snapshot"), step("login_fill", { login: "painel-kodea" }), text("Confirma o site para eu entrar?")] });
+		expect(first.events.filter((e) => e.type === "confirm")).toHaveLength(1);
+		expect(first.events.filter((e) => e.type === "login" && e.status === "pending")).toHaveLength(0);
+		expect(first.seen.some((m) => m.includes("may be for this site but has no site saved"))).toBe(true);
+		expect(typedOf2(first)).toEqual([]);
+		// "Sim" no cartão: grava o host exato no item do dono
+		await linkKodea();
+		const chat = await run({ url: KODEA, queue: [step("browser_snapshot"), text("Entrei.")], snapshotAfterTyping: kodeaHome, pageAfter: { url: "https://panel.kodea.com.br/", title: "Dokploy", text: "Projetos" } });
+		expect(typedOf2(chat)).toEqual(["dono@kodea.com.br", KODEA_PASSWORD]);
+		expect(chat.events.filter((e) => e.type === "confirm" || (e.type === "login" && e.status === "pending"))).toHaveLength(0);
+		const routine = await run({ origin: "routine", url: KODEA, queue: [step("browser_snapshot"), text("Consumo: ok")], snapshotAfterTyping: kodeaHome, pageAfter: { url: "https://panel.kodea.com.br/", title: "Dokploy", text: "Projetos" } });
+		expect(typedOf2(routine)).toEqual(["dono@kodea.com.br", KODEA_PASSWORD]);
+		expect(routine.checkpoints.at(-1)?.pendingLogin).toBeUndefined();
+		expect(JSON.stringify([first, chat, routine].map((r) => [r.seen, r.events, r.checkpoints]))).not.toContain(KODEA_PASSWORD);
+	});
+
+	it("rotina com item SEM site: não digita, termina avisando o vínculo e não deixa pendência", async () => {
+		await addKodea();
+		const r = await run({ origin: "routine", url: KODEA, queue: [step("browser_snapshot"), text("Preciso que você vincule o site.")] });
+		expect(typedOf2(r)).toEqual([]);
+		expect(r.events.filter((e) => e.type === "login" || e.type === "confirm")).toHaveLength(0);
+		expect(r.onLoginRequired).not.toHaveBeenCalled();
+		expect(r.checkpoints.at(-1)?.pendingLogin).toBeUndefined();
+		expect(r.seen.some((m) => m.includes("a routine never types it") && m.includes("painel-kodea"))).toBe(true);
 	});
 
 	it("rotina sem item no cofre: termina com aviso claro, sem cartão, sem pausa e sem login pendente", async () => {
@@ -571,9 +618,19 @@ describe("rotina e chat entram pelo cofre sem cartão", () => {
 		expect(JSON.stringify([r.seen, r.events])).not.toContain(KODEA_PASSWORD);
 	});
 
+	it("kodea.xyz, admin.kodea.com.br e atacante.vercel.app não recebem a senha de um item com site salvo", async () => {
+		await addKodea("user-a", "painel-kodea", "Painel - Kodea", "https://panel.kodea.com.br");
+		await vault.create("user-a", { kind: "login", name: "meuapp", label: "Meu app", siteUrl: "https://meuapp.vercel.app", username: "m@x.com", payload: { password: "MeuApp!99" } });
+		for (const url of ["https://kodea.xyz/login", "https://admin.kodea.com.br/login", "https://atacante.vercel.app/login", "https://x.github.io/login"]) {
+			const r = await run({ url, queue: [step("browser_snapshot"), text("x")] });
+			expect(typedOf2(r), url).toEqual([]);
+		}
+	});
+
 	it("página de outro domínio (phishing) não recebe a senha de um item só com nome", async () => {
 		await addKodea();
-		const r = await run({ url: "https://kodea.evil.example/login", queue: [step("browser_snapshot"), text("x")] });
+		const r = await run({ url: "https://kodea.xyz/login", queue: [step("browser_snapshot"), text("x")] });
 		expect(typedOf2(r)).toEqual([]);
+		expect(r.events.filter((e) => e.type === "confirm")).toHaveLength(0);
 	});
 });
