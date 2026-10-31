@@ -19,6 +19,8 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
+import { sanitizeStopDetail } from "@workspace/shared";
+import type { RunStop } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
 import type { ToolCacheState, ToolResultStatus } from "@workspace/shared";
 import type { ComputerUseEvent, ConversationTaskContext, ResearchNote, TaskLedger, TaskListItem } from "@workspace/shared";
@@ -60,6 +62,12 @@ function asOrigin(value: string): AgentRunOrigin {
 
 function toIso(value: Date | null | undefined): string | null {
 	return value ? value.toISOString() : null;
+}
+
+/** Motivo de término (F0 do ADR 0002). Colunas `stopReason`/`stopDetail` para um UPDATE de término. `undefined` não mexe nas colunas. */
+export function stopColumns(stop: RunStop | undefined): { stopReason?: string; stopDetail?: string | null } {
+	if (!stop) return {};
+	return { stopReason: stop.reason, stopDetail: sanitizeStopDetail(stop.detail) ?? null };
 }
 
 function mapRun(row: {
@@ -1053,9 +1061,12 @@ export async function finishAgentRun(
 		lease?: RunLease | null;
 		/** Uso (tokens e `computer`) quando o run termina por parada, sem passar por `completeAgentRun`. */
 		usage?: RunUsage;
+		/** Por que o run terminou (medição; não muda o comportamento). */
+		stop?: RunStop;
 	},
 ): Promise<AgentRun> {
 	const data = {
+		...stopColumns(input.stop),
 		status: input.status,
 		usageJson:
 			input.usage === undefined ? undefined : (input.usage as unknown as Prisma.InputJsonValue),
@@ -1169,6 +1180,7 @@ export async function failAgentRunAfterRetries(
 	error: string,
 	/** `resultText`: mensagem amigável ao usuário (vai ao chat e ao evento de erro); `error` fica técnico. */
 	display?: { resultText?: string },
+	stop: RunStop = { reason: "retries_exhausted" },
 ): Promise<boolean> {
 	return prisma.$transaction(
 		async (tx) => {
@@ -1179,6 +1191,7 @@ export async function failAgentRunAfterRetries(
 					status: { in: ["queued", "running", "retrying"] },
 				},
 				data: {
+					...stopColumns(stop),
 					status: "failed",
 					error,
 					...(display?.resultText ? { resultText: display.resultText } : {}),
@@ -2011,7 +2024,7 @@ export async function recoverStaleRunningRuns(
 			},
 			data: {
 				...(exceeded
-					? { status: "failed", error: RUN_RECOVERY_LIMIT_MESSAGE, finishedAt: new Date() }
+					? { status: "failed", error: RUN_RECOVERY_LIMIT_MESSAGE, finishedAt: new Date(), ...stopColumns({ reason: "crash_recoveries", detail: "recovery_limit" }) }
 					: { status: "queued", jobEnqueuedAt: null }),
 				...(checkpointJson ? { checkpointJson } : {}),
 				leaseOwner: null,
@@ -2072,6 +2085,7 @@ export async function failStaleRunningRuns(
 			},
 			data: {
 				status: "failed",
+				...stopColumns({ reason: "crash_recoveries", detail: "no_heartbeat" }),
 				error:
 					"O worker parou de responder no meio da execução (sem heartbeat). Tente de novo.",
 				finishedAt: new Date(),
@@ -2132,6 +2146,7 @@ export async function cancelStaleCancelledRuns(
 			},
 			data: {
 				status: "cancelled",
+				...stopColumns({ reason: "cancelled", detail: "orphan_cancel" }),
 				finishedAt: new Date(),
 				leaseOwner: null,
 				leaseUntil: null,
@@ -2192,6 +2207,8 @@ export async function completeAgentRunAtomically(input: {
 	/** Permite finalizar como budget_exhausted mantendo texto e transcript. */
 	status?: AgentRunStatus;
 	usage?: RunUsage;
+	/** Por que o run terminou (medição; não muda o comportamento). */
+	stop?: RunStop;
 }): Promise<void> {
 	const terminalStatus = input.status ?? "completed";
 	// Saída de rotina/webhook é marcada: o histórico do chat não a toma por fala do usuário.
@@ -2217,6 +2234,7 @@ export async function completeAgentRunAtomically(input: {
 					...ownedLeaseWhere(input.lease),
 				},
 				data: {
+					...stopColumns(input.stop),
 					status: terminalStatus,
 					resultText: input.assistantText,
 					sandboxSessionId: input.sandboxSessionId ?? undefined,
@@ -2234,6 +2252,7 @@ export async function completeAgentRunAtomically(input: {
 			await tx.agentRun.update({
 				where: { id: input.runId },
 				data: {
+					...stopColumns(input.stop),
 					status: terminalStatus,
 					resultText: input.assistantText,
 					sandboxSessionId: input.sandboxSessionId ?? undefined,
