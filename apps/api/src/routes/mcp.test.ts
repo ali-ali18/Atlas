@@ -30,6 +30,13 @@ test("URL e header com credenciais são validados", () => {
 	assert.ok(parseCreateMcpBody({ custom: { name: "X", url: "https://example.com/mcp", headerName: "Bad Header", headerValue: "abc" } }).error);
 });
 
+test("PATCH aceita marcação de leitura só com read/write e no máximo 200 tools", () => {
+	assert.deepEqual(parsePatchMcpBody({ toolMarks: { listar_pedidos: "read", criar_pedido: "write" } }).value, { toolMarks: { listar_pedidos: "read", criar_pedido: "write" } });
+	assert.ok(parsePatchMcpBody({ toolMarks: { a: "readonly" } }).error);
+	assert.ok(parsePatchMcpBody({ toolMarks: ["read"] }).error);
+	assert.ok(parsePatchMcpBody({ toolMarks: Object.fromEntries(Array.from({ length: 201 }, (_, i) => [`t${i}`, "read"])) }).error);
+});
+
 test("PATCH limita nomes de tools e tipos", () => {
 	assert.ok(parsePatchMcpBody({ disabledTools: Array(201).fill("tool") }).error);
 	assert.ok(parsePatchMcpBody({ disabledTools: ["tool", 1] }).error);

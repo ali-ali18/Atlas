@@ -730,6 +730,7 @@ export {
 export {
 	grantMcpTask,
 	markConversationUntrusted,
+	getConversationRequesterBotId,
 	getConversationUntrustedAt,
 	consumeMcpTaskGrant,
 	releaseMcpTaskGrant,

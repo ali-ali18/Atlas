@@ -43,6 +43,8 @@ export type McpConnectionView = {
 	status: McpConnectionStatus;
 	tools: McpToolInfo[];
 	disabledTools: string[];
+	/** Marcação confirmada pelo dono ("leitura" | "escreve") por tool; ausente = padrão (sem anotação = escrita). */
+	toolMarks?: Record<string, "read" | "write">;
 	confirmWrites: boolean;
 	lastError: string | null;
 	/** Apelido da conta (várias contas do mesmo conector); null = sem apelido. */

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { MCP_TASK_GRANT_MAX_LIFETIME_MS, isConversationUntrusted, MCP_TASK_GRANT_MAX_USES, MCP_TASK_GRANT_TTL_MS } from "@workspace/shared";
+import { MCP_TASK_GRANT_MAX_LIFETIME_MS, isCardConfirmToken, isConversationUntrusted, MCP_TASK_GRANT_MAX_USES, MCP_TASK_GRANT_TTL_MS } from "@workspace/shared";
 import { prisma } from "./client.js";
 
 export type McpTaskGrantKey = { userId: string; conversationId: string; connectionId: string; exposedName: string };
@@ -102,6 +102,28 @@ export async function markConversationUntrusted(input: { userId: string; convers
 export async function getConversationUntrustedAt(input: { userId: string; conversationId: string; now?: Date }): Promise<Date | null> {
 	const row = await prisma.conversation.findFirst({ where: { id: input.conversationId, userId: input.userId }, select: { untrustedAt: true } });
 	return isConversationUntrusted(row?.untrustedAt, input.now ?? new Date()) ? row!.untrustedAt : null;
+}
+
+/**
+ * Quem pediu a tarefa em curso nesta conversa: o bot remetente da última fala de entrada que não é clique de cartão
+ * (`null` = o próprio dono). A API (ao conceder) e o runtime (ao consumir) usam esta mesma função, então o escopo da
+ * concessão coincide mesmo no run de continuação. Só lê conversa do dono.
+ */
+export async function getConversationRequesterBotId(input: { userId: string; conversationId: string }): Promise<string | null> {
+	const owned = await prisma.conversation.findFirst({ where: { id: input.conversationId, userId: input.userId }, select: { id: true } });
+	if (!owned) throw new Error("conversa não pertence ao usuário");
+	const rows = await prisma.conversationMessage.findMany({
+		where: { conversationId: owned.id, role: "user" },
+		orderBy: { createdAt: "desc" },
+		take: 12,
+		select: { content: true, origin: true, fromBotId: true },
+	});
+	for (const row of rows) {
+		const text = row.content.trim();
+		if (isCardConfirmToken(text) || /^cancela isso\b/i.test(text)) continue;
+		return row.origin === "bot" && row.fromBotId ? row.fromBotId : null;
+	}
+	return null;
 }
 
 /** Limpeza de concessões vencidas (chamada oportunista; a tabela é minúscula). */

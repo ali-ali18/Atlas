@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import { prisma } from "./client.js";
 import { serializeConversationCard } from "@workspace/shared";
 import { listApprovedConfirmTools } from "./conversations.js";
+import { createMcpConnection, getMcpConnection, updateMcpConnection } from "./mcp-connections.js";
 import { consumeMcpTaskGrant, deleteExpiredMcpTaskGrants, getConversationUntrustedAt, grantMcpTask, markConversationUntrusted, markMcpTaskGrantsUntrusted, releaseMcpTaskGrant } from "./mcp-task-grant.js";
 import { createTestUser, dbSkip } from "./testing/test-db.js";
 
@@ -157,5 +158,20 @@ describe("aprovação por tarefa (Postgres real)", { skip: dbSkip }, () => {
 		assert.deepEqual(await listApprovedConfirmTools(a, conv.id, now), ["create_event", "create_event"]);
 		assert.deepEqual(await listApprovedConfirmTools(b, conv.id, now), [], "outro usuário não lê");
 		assert.deepEqual(await listApprovedConfirmTools(a, conv.id, new Date(now.getTime() + 31 * 60_000)), [], "fora da janela");
+	});
+});
+
+describe("solicitante da tarefa e marcação de ferramentas (Postgres real)", { skip: dbSkip }, () => {
+	test("marcação por tool: grava só do dono (outro usuário recebe null), coluna nula = sem marcação", async () => {
+		const a = (await createTestUser("mark-a")).id;
+		const b = (await createTestUser("mark-b")).id;
+		const conn = await createMcpConnection({ userId: a, catalogId: null, slug: "erp", name: "ERP", url: "https://erp.example/mcp", authType: "none", status: "connected" });
+		assert.deepEqual(conn.toolMarks, {});
+		assert.equal(await updateMcpConnection(conn.id, { toolMarks: { listar_pedidos: "read" } }, b), null);
+		assert.deepEqual((await getMcpConnection(conn.id, a))?.toolMarks, {});
+		assert.equal(await getMcpConnection(conn.id, b), null);
+		assert.deepEqual((await updateMcpConnection(conn.id, { toolMarks: { listar_pedidos: "read" } }, a))?.toolMarks, { listar_pedidos: "read" });
+		await prisma.mcpConnection.update({ where: { id: conn.id }, data: { toolMarksJson: { a: "read", b: "lixo" } } });
+		assert.deepEqual((await getMcpConnection(conn.id, a))?.toolMarks, { a: "read" }, "valor inválido é descartado");
 	});
 });

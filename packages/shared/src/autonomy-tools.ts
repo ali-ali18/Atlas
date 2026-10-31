@@ -2,6 +2,7 @@ import { COMPOSIO_CATALOG_ID, isComposioReadToolName } from "./composio.js";
 import { getMcpCatalogEntry } from "./mcp-catalog.js";
 import type { McpToolInfo } from "./mcp.js";
 import type { ActionClass, AutonomyToolMeta } from "./autonomy.js";
+import type { ToolMark } from "./tool-marks.js";
 
 /**
  * Classe de ação de uma tool de conector (F10). Ordem de decisão:
@@ -24,6 +25,22 @@ const IRREVERSIBLE_VERBS = [
 	"merge",
 	"publish",
 	"transfer",
+	// pt/es: mesmo critério do inglês (nunca viram leitura, nem por marcação do dono).
+	"enviar",
+	"excluir",
+	"apagar",
+	"deletar",
+	"remover",
+	"emitir",
+	"cancelar",
+	"transmitir",
+	"pagar",
+	"transferir",
+	"publicar",
+	"mesclar",
+	"descartar",
+	"eliminar",
+	"borrar",
 ] as const;
 /** Só casam o token inteiro (evita `payload`, `posture`). */
 const IRREVERSIBLE_EXACT = new Set(["post", "pay", "drop"]);
@@ -60,6 +77,11 @@ function hasIrreversibleVerb(tokens: readonly string[]): boolean {
 	);
 }
 
+/** O nome da tool tem verbo irreversível (en/pt/es): nunca pode ser marcada como leitura. */
+export function hasIrreversibleToolName(name: string): boolean {
+	return hasIrreversibleVerb(toolNameTokens(name));
+}
+
 /** O nome tem verbo que atinge terceiros (responder, convidar, compartilhar…), mesmo sem `openWorldHint`. */
 export function hasOutwardVerb(name: string): boolean {
 	return toolNameTokens(name).some((token) => OUTWARD_VERBS.has(token));
@@ -72,6 +94,8 @@ export function classifyMcpTool(input: {
 	catalogReadOnly?: boolean;
 	/** Servidor sem anotações confiáveis (Composio): verbo de leitura no nome conta como leitura. */
 	readByName?: boolean;
+	/** Marcação confirmada pelo dono. Só vale sem anotação do servidor e nunca desfaz verbo irreversível no nome. */
+	ownerMark?: ToolMark;
 }): ActionClass {
 	const hints = input.annotations;
 	if (input.catalogReadOnly) return "read";
@@ -84,6 +108,7 @@ export function classifyMcpTool(input: {
 	if (hints?.openWorldHint === true && tokens.some((token) => OUTWARD_VERBS.has(token))) {
 		return "irreversible";
 	}
+	if (unannotated && input.ownerMark === "read") return "read";
 	return "write";
 }
 
@@ -93,6 +118,7 @@ export function mcpAutonomyMeta(input: {
 	exposedName: string;
 	slug: string;
 	catalogId?: string | null;
+	ownerMark?: ToolMark;
 }): AutonomyToolMeta {
 	const catalogReadOnly = input.catalogId
 		? (getMcpCatalogEntry(input.catalogId)?.readOnlyTools ?? []).includes(input.tool.name)
@@ -103,6 +129,7 @@ export function mcpAutonomyMeta(input: {
 			annotations: input.tool.annotations,
 			catalogReadOnly,
 			readByName: input.catalogId === COMPOSIO_CATALOG_ID,
+			ownerMark: input.ownerMark,
 		}),
 		tool: input.exposedName,
 		connectors: [input.slug, ...(input.catalogId ? [input.catalogId] : [])],

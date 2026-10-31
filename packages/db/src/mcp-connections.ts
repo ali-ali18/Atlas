@@ -5,6 +5,7 @@ import type {
 	McpConnectionView,
 	McpToolInfo,
 } from "@workspace/shared";
+import { parseToolMarks, type ToolMarks } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { ResourceOwnershipError } from "./conversations.js";
 import { guideFromRow } from "./connector-guides.js";
@@ -39,6 +40,8 @@ export type UpdateMcpConnectionInput = {
 	oauthStateHash?: string | null;
 	tools?: McpToolInfo[];
 	disabledTools?: string[];
+	/** Substitui a marcação confirmada pelo dono (o caller mescla com `mergeToolMarks`). */
+	toolMarks?: ToolMarks;
 	confirmWrites?: boolean;
 	lastError?: string | null;
 	accountLabel?: string | null;
@@ -92,6 +95,7 @@ function toRecord(row: McpConnectionRow): McpConnectionRecord {
 			: "error",
 		tools: parseTools(row.toolsCacheJson),
 		disabledTools: row.disabledTools,
+		toolMarks: parseToolMarks(row.toolMarksJson),
 		confirmWrites: row.confirmWrites,
 		lastError: row.lastError,
 		accountLabel: row.accountLabel,
@@ -289,6 +293,7 @@ export async function updateMcpConnection(
 		data.toolsCacheJson = patch.tools as unknown as Prisma.InputJsonValue;
 	}
 	if (patch.disabledTools !== undefined) data.disabledTools = patch.disabledTools;
+	if (patch.toolMarks !== undefined) data.toolMarksJson = patch.toolMarks as Prisma.InputJsonValue;
 	if (patch.confirmWrites !== undefined) data.confirmWrites = patch.confirmWrites;
 	if (patch.lastError !== undefined) data.lastError = patch.lastError;
 	if (patch.accountLabel !== undefined) data.accountLabel = patch.accountLabel;
