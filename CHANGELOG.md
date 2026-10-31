@@ -4,6 +4,9 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Segurança
+- **agent, shared:** 9 alertas do CodeQL "Polynomial regular expression used on uncontrolled data" (ReDoS) fechados. Texto vindo de fora (resultado de ferramenta, erro do sandbox, fala do usuário, erro de rotina) com dezenas de milhares de repetições (`\n`, `\t`, `!`, `(about:`, `-----BEGIN PRIVATE KEY-----`) travava o processo por segundos ou minutos (medido: 50 mil `\n` em 2,4 s; marcador de resultado repetido, mais de 100 s). Os regex agora são lineares e dão o mesmo resultado em entradas normais: `difficulty` (passos numerados), `result-store` (aviso de resultado guardado, tamanho limitado), `lessons` (cabeçalho de lições), `empty-hint` (rodapés `[..]`, laço no lugar do regex), `browser-claims` (URL entre parênteses; agora uma URL com `(` dentro não é lida entre parênteses), `sandbox-errors` ("Call log:"), `extractUrls` (pontuação final), `redactSecrets` (bloco de chave privada PEM continua sendo redigido, inclusive com `Proc-Type`) e `describeRoutineFailure` (primeira linha). Testes em `regex-linear.test.ts` de cada pacote. Sem migration.
+
 ## [0.3.4-beta] - 2026-10-31
 
 ### Documentação

@@ -20,7 +20,8 @@ export type BrowserWatch = {
 
 /** "Título (https://site/pagina)" ou "(about:blank)": a URL que o resultado de uma tool mostra. */
 export function extractShownUrl(summary: string): string | null {
-	const paren = /\((about:[^)\s]*|chrome:\/\/[^)\s]*|https?:\/\/[^)\s]+)\)/.exec(summary);
+	// `(` fora da classe: cada varredura para no próximo `(`, então o total é linear (antes, "(about:" repetido era quadrático).
+	const paren = /\((about:[^()\s]*|chrome:\/\/[^()\s]*|https?:\/\/[^()\s]+)\)/.exec(summary);
 	if (paren) return paren[1]!;
 	const labeled = /\burl:\s*(about:\S+|https?:\/\/\S+)/i.exec(summary);
 	return labeled ? labeled[1]! : null;

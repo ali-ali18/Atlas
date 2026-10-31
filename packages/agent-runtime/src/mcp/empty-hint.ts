@@ -43,7 +43,17 @@ const EMPTY_HINT_PREFIX = "Empty result with filters";
 export function looksEmptyResult(text: string): boolean {
 	if (text.includes(EMPTY_HINT_PREFIX)) return true;
 	// O resultado chega com rodapés entre colchetes (origem do dado, aviso de dado externo): só o corpo conta.
-	return isEmptyMcpResult(text.replace(/(\n\[[^\n]*\])+\s*$/, ""));
+	return isEmptyMcpResult(stripTrailingFooters(text));
+}
+
+/** Remove as linhas finais "[...]" (laço linear; a regex `(\n\[[^\n]*\])+\s*$` era quadrática). */
+function stripTrailingFooters(text: string): string {
+	let end = text.trimEnd().length;
+	for (;;) {
+		const lineStart = text.lastIndexOf("\n", end - 1) + 1;
+		if (lineStart === 0 || text[lineStart] !== "[" || text[end - 1] !== "]") return text.slice(0, end);
+		end = lineStart - 1;
+	}
 }
 
 export function emptyResultHint(text: string, filterKeys: readonly string[]): string | null {
