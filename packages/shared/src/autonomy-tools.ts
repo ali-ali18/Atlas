@@ -42,8 +42,48 @@ const IRREVERSIBLE_VERBS = [
 	"eliminar",
 	"borrar",
 ] as const;
-/** Só casam o token inteiro (evita `payload`, `posture`). */
-const IRREVERSIBLE_EXACT = new Set(["post", "pay", "drop"]);
+/**
+ * Só casam o token inteiro (evita `payload`, `posture`, `listRefunds`, `signal`). Verbos de efeito fiscal, financeiro
+ * ou externo que o prefixo pegaria em substantivos de consulta: autorizar/faturar/estornar/reembolsar/cobrar/baixar/
+ * aprovar/assinar (pt/es), authorize/refund/charge/approve/sign/void/capture/settle/submit/dispatch/transmit/revoke.
+ * `baixar` também pega "baixar arquivo" (download): o erro é para o lado seguro (pede cartão). `close`/`fechar` ficam
+ * de fora de propósito: continuam escrita (cartão) mas fechar uma tela/lista seria falso positivo comum.
+ */
+const IRREVERSIBLE_EXACT = new Set([
+	"post",
+	"pay",
+	"drop",
+	"authorize",
+	"authorise",
+	"autorizar",
+	"submit",
+	"submeter",
+	"dispatch",
+	"despachar",
+	"refund",
+	"estornar",
+	"reembolsar",
+	"reembolsa",
+	"charge",
+	"cobrar",
+	"baixar",
+	"faturar",
+	"facturar",
+	"approve",
+	"aprovar",
+	"aprobar",
+	"sign",
+	"assinar",
+	"firmar",
+	"void",
+	"anular",
+	"capture",
+	"settle",
+	"liquidar",
+	"transmit",
+	"revoke",
+	"revogar",
+]);
 /** Só contam como irreversíveis com `openWorldHint: true` explícito. */
 const OUTWARD_VERBS = new Set([
 	"comment",
@@ -62,7 +102,11 @@ const OUTWARD_VERBS = new Set([
 
 /** `githubMergePR` / `merge-pull_request` → ["github", "merge", "pr", …]. */
 export function toolNameTokens(name: string): string[] {
+	// NFKD: largura total (ｅnviar) vira ASCII e acento (excluír) separa da letra; depois some o acento e o
+	// caractere invisível. Sem isso `excluír_pedido` escapava do detector de verbo irreversível.
 	return name
+		.normalize("NFKD")
+		.replace(/[\u0300-\u036f\u200b-\u200f\u2060\ufeff\u00ad]/g, "")
 		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
 		.toLowerCase()
 		.split(/[^a-z0-9]+/)

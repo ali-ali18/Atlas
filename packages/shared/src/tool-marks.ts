@@ -36,31 +36,35 @@ export function hasServerToolAnnotation(tool: Pick<McpToolInfo, "annotations">):
 	return hints?.readOnlyHint !== undefined || hints?.destructiveHint !== undefined;
 }
 
+/** Verbos de leitura no NOME. Só o nome promove a leitura: "status" e "check" ficam fora (também são substantivo/escrita). */
 const READ_VERBS = new Set([
-	"list", "get", "read", "search", "find", "fetch", "query", "view", "show", "describe", "lookup", "count", "check", "status", "retrieve", "browse",
-	"listar", "obter", "buscar", "consultar", "consulta", "ver", "pesquisar", "mostrar", "exibir", "detalhar", "ler", "leitura", "procurar", "contar", "verificar",
+	"list", "get", "read", "search", "find", "fetch", "query", "view", "show", "describe", "lookup", "count", "retrieve", "browse",
+	"listar", "obter", "buscar", "consultar", "consulta", "ver", "pesquisar", "mostrar", "exibir", "detalhar", "ler", "procurar", "contar",
 ]);
 const WRITE_VERBS = new Set([
 	"create", "update", "delete", "remove", "send", "set", "add", "edit", "post", "put", "patch", "write", "run", "execute", "approve", "cancel", "close", "emit", "generate", "merge", "publish", "pay", "transfer", "upload", "import",
+	"change", "modify", "toggle", "reset", "apply", "assign", "move", "rename", "enable", "disable", "activate", "deactivate", "mark", "start", "stop", "retry", "sync", "save", "insert", "register", "open", "reopen",
 	"criar", "alterar", "atualizar", "excluir", "apagar", "enviar", "emitir", "gerar", "aprovar", "cancelar", "registrar", "adicionar", "editar", "inserir", "salvar", "incluir", "remover", "pagar", "importar", "executar", "fechar",
+	"mudar", "modificar", "ativar", "desativar", "mover", "renomear", "reiniciar", "aplicar", "marcar", "abrir", "reabrir", "iniciar", "parar", "sincronizar",
 ]);
 
 function tokensOf(text: string): string[] {
-	return toolNameTokens(text.normalize("NFD").replace(/[̀-ͯ]/g, ""));
+	return toolNameTokens(text);
 }
 
 /**
- * Sugestão a partir do nome e da descrição. Verbo de escrita no nome vence; sem verbo no nome, a descrição decide
- * (escrita em qualquer parte vence); na dúvida, escreve.
+ * Sugestão a partir do nome e da descrição. A sugestão `read` SÓ sai do NOME (verbo de leitura, sem verbo de
+ * escrita ou irreversível); a descrição só pode rebaixar para escrita, nunca promover (texto do servidor é dado
+ * não confiável). Nome sem verbo reconhecível = escrita.
  */
 export function suggestToolMark(tool: Pick<McpToolInfo, "name" | "description">): ToolMark {
 	const name = tokensOf(tool.name);
 	if (hasIrreversibleToolName(tool.name)) return "write";
 	if (name.some((token) => WRITE_VERBS.has(token))) return "write";
-	if (name.some((token) => READ_VERBS.has(token))) return "read";
-	const description = tokensOf((tool.description ?? "").slice(0, 400));
-	if (description.some((token) => WRITE_VERBS.has(token))) return "write";
-	return description.some((token) => READ_VERBS.has(token)) ? "read" : "write";
+	if (!name.some((token) => READ_VERBS.has(token))) return "write";
+	const description = (tool.description ?? "").slice(0, 400);
+	if (tokensOf(description).some((token) => WRITE_VERBS.has(token)) || hasIrreversibleToolName(description)) return "write";
+	return "read";
 }
 
 /**
@@ -111,18 +115,24 @@ export function toolDisplayLabel(tool: Pick<McpToolInfo, "name" | "title">): str
 	return words ? words.charAt(0).toUpperCase() + words.slice(1) : tool.name;
 }
 
+/**
+ * Pedido é IMPERATIVO: o verbo abre a frase ou vem depois de "pode/por favor/quero que". Frase descritiva ("o ERP
+ * está em modo somente leitura para as ferramentas de consulta") não conta. Entrada já sem acento e em minúsculas.
+ */
+const REQUEST_LEAD = String.raw`(?:^|[.!?\n]\s*)(?:(?:por favor|pf|please|entao|agora|e|tambem)[, ]+)*(?:(?:voce |vc |tu |could you |can you |would you |pode |podia |poderia |consegue |quero que |preciso que |gostaria que |i want you to |please )+)?`;
 const MARK_REQUEST_PATTERNS: RegExp[] = [
-	/\b(marca|marque|marcar|defina|define|configura|configure|deixa|deixe|trate|trata)\b[^.!?\n]{0,60}\b(so|somente|apenas) (de )?(leitura|consulta)\b/,
-	/\b(so|somente|apenas) (de )?(leitura|consulta)\b[^.!?\n]{0,60}\b(ferramentas?|consultas?|conector|erp)\b/,
-	/\b(ferramentas?|consultas?)\b[^.!?\n]{0,60}\b(so|somente|apenas) (de )?(leitura|consulta)\b/,
-	/\bread[- ]?only\b[^.!?\n]{0,60}\b(tools?|connector)\b/,
-	/\b(confirm[ao]r?|confirme|aceit[ao]r?|aceite)\b[^.!?\n]{0,40}\bsugest/,
-	/\bnao (precisa|precisa mais) (de )?(perguntar|aprovacao|confirmacao)\b[^.!?\n]{0,60}\b(consultas?|leituras?)\b/,
+	new RegExp(`${REQUEST_LEAD}(?:marca|marque|marcar|defina|define|definir|configura|configure|configurar|deixa|deixe|deixar|trate|trata|tratar|mark|set|treat|make|flag)\\b[^.!?\\n]{0,80}\\b(?:so|somente|apenas|only) (?:de )?(?:leitura|consulta)\\b`),
+	new RegExp(`${REQUEST_LEAD}(?:marca|marque|marcar|defina|define|definir|configura|configure|configurar|deixa|deixe|deixar|trate|trata|tratar|mark|set|treat|make|flag)\\b[^.!?\\n]{0,80}\\bread[- ]?only\\b`),
+	new RegExp(`${REQUEST_LEAD}(?:confirma|confirme|confirmar|aceita|aceite|aceitar|confirm|accept)\\b[^.!?\\n]{0,40}\\bsugest`),
+	new RegExp(`${REQUEST_LEAD}nao precisa (?:mais )?(?:de )?(?:perguntar|aprovacao|confirmacao)\\b[^.!?\\n]{0,60}\\b(?:consultas?|leituras?)\\b`),
 ];
 
-/** Pedido explícito do dono de marcar ferramentas como leitura. Só a fala dele conta (o caller passa a última fala). */
+/**
+ * Pedido explícito do dono de marcar ferramentas como leitura. Só a fala HUMANA conta: o caller passa a última fala
+ * de um run `origin: "chat"` (fala de outro bot chega como role "user" em run `origin: "bot"` e não vale).
+ */
 export function looksLikeToolMarkRequest(text: string): boolean {
 	const clipped = text.slice(0, 400);
-	const normalized = clipped.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+	const normalized = clipped.normalize("NFKD").replace(/[\u0300-\u036f\u200b-\u200f\u2060\ufeff]/g, "").toLowerCase();
 	return MARK_REQUEST_PATTERNS.some((pattern) => pattern.test(normalized));
 }

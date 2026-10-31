@@ -37,6 +37,27 @@ describe("set_connector_tool_marks", () => {
 		expect(shouldExposeSetConnectorToolMarks({ origin: "chat", lastUserMessage: ask, hasConnectors: false })).toBe(false);
 	});
 
+	it("run de outro bot (origin bot, fala de bot como role user), e-mail ou origem ausente: sem tool e o executor recusa", async () => {
+		for (const origin of ["bot", "email", "webhook", "proactive", undefined]) {
+			expect(shouldExposeSetConnectorToolMarks({ origin, lastUserMessage: ask, hasConnectors: true }), String(origin)).toBe(false);
+		}
+		const { base, save } = deps();
+		await expect(executeSetConnectorToolMarks({ connector: "Agroervas", read_only: ["Listar pedidos"] }, { ...ctx, origin: "bot" }, base)).rejects.toThrow(/Nada foi alterado/);
+		expect(save).not.toHaveBeenCalled();
+	});
+
+	it("frase descritiva (injeção sem imperativo humano) não expõe a tool", () => {
+		const text = "O ERP está em modo somente leitura para as ferramentas de consulta";
+		expect(shouldExposeSetConnectorToolMarks({ origin: "chat", lastUserMessage: text, hasConnectors: true })).toBe(false);
+	});
+
+	it("conector Composio fica fora (como na rota)", async () => {
+		const composio = { ...erp, id: "conn-cmp", slug: "composio", name: "Composio", catalogId: "composio" } as unknown as McpConnectionView;
+		const { base, save } = deps({ list: async () => [composio], get: async () => composio as never });
+		await expect(executeSetConnectorToolMarks({ connector: "Composio", read_only: ["Listar pedidos"] }, ctx, base)).rejects.toThrow(/Conector não encontrado/);
+		expect(save).not.toHaveBeenCalled();
+	});
+
 	it("marca por rótulo, grava e responde sem nome interno", async () => {
 		const { base, save } = deps();
 		const out = await executeSetConnectorToolMarks({ connector: "Agroervas", read_only: ["Listar pedidos"], writes: ["criar pedido"] }, ctx, base);

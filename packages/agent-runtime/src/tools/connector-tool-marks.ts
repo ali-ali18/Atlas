@@ -1,5 +1,6 @@
 import type { ChatTool } from "@workspace/llm";
 import {
+	COMPOSIO_CATALOG_ID,
 	connectorAccountName,
 	hasServerToolAnnotation,
 	toolMarkRefusal,
@@ -43,9 +44,13 @@ export const SET_CONNECTOR_TOOL_MARKS_TOOL: ChatTool = {
 	},
 };
 
-/** A tool só existe quando a última fala do usuário pede, num chat com humano e com conector conectado. */
+/**
+ * A tool só existe num run `origin: "chat"` (humano na conversa) com conector, quando a última fala pede. Run
+ * `origin: "bot"` grava a fala de OUTRO bot como role "user" (bot-messages.ts); essa fala é dado não confiável e
+ * poderia marcar escrita como leitura, então `bot`, `email`, rotina etc. nunca expõem nem executam a tool.
+ */
 export function shouldExposeSetConnectorToolMarks(input: { origin: string | undefined; lastUserMessage: string; hasConnectors: boolean }): boolean {
-	if (!input.hasConnectors || isUnattendedOrigin(input.origin)) return false;
+	if (!input.hasConnectors || input.origin !== "chat" || isUnattendedOrigin(input.origin)) return false;
 	return looksLikeToolMarkRequest(input.lastUserMessage);
 }
 
@@ -86,7 +91,8 @@ export async function executeSetConnectorToolMarks(
 	if (!userId || userId === "default") throw new Error("sem usuário neste run: nada foi alterado");
 	const name = typeof args.connector === "string" ? args.connector.trim() : "";
 	if (!name) throw new Error('Informe o conector em "connector".');
-	const connections = await deps.list(userId);
+	// Composio tem rotas e regras próprias (mesma exclusão do PATCH /v1/mcp/connections/:id).
+	const connections = (await deps.list(userId)).filter((c) => c.catalogId !== COMPOSIO_CATALOG_ID);
 	const wanted = norm(name);
 	const matches = connections.filter((c) => norm(c.name) === wanted || norm(connectorAccountName(c.name, c.accountLabel)) === wanted || norm(c.slug) === wanted);
 	if (matches.length !== 1) {
@@ -95,7 +101,7 @@ export async function executeSetConnectorToolMarks(
 	}
 	// Relê pelo dono (escopo) antes de gravar.
 	const connection = await deps.get(matches[0]!.id, userId);
-	if (!connection) throw new Error("Conector não encontrado.");
+	if (!connection || connection.catalogId === COMPOSIO_CATALOG_ID) throw new Error("Conector não encontrado.");
 
 	const patch: ToolMarks = {};
 	const problems: string[] = [];

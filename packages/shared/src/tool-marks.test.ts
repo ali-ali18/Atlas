@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyMcpTool } from "./autonomy-tools.js";
+import { classifyMcpTool, hasIrreversibleToolName } from "./autonomy-tools.js";
 import {
 	toolMarkRefusal,
 	hasServerToolAnnotation,
@@ -24,10 +24,32 @@ describe("sugestão de marcação", () => {
 			expect(suggestToolMark(tool(name, "consulta somente leitura"))).toBe("write");
 		}
 	});
-	it("sem verbo no nome a descrição decide; na dúvida, escreve", () => {
-		expect(suggestToolMark(tool("avisos_ativos", "Consulta somente leitura dos avisos"))).toBe("read");
-		expect(suggestToolMark(tool("avisos_ativos", "Cria avisos para o cliente"))).toBe("write");
-		expect(suggestToolMark(tool("processar", "Faz o que precisa"))).toBe("write");
+	it("a descrição nunca promove a leitura: nome sem verbo de leitura escreve; descrição só rebaixa", () => {
+		expect(suggestToolMark(tool("avisos_ativos", "Consulta somente leitura dos avisos"))).toBe("write");
+		expect(suggestToolMark(tool("processar", "Returns status"))).toBe("write");
+		expect(suggestToolMark(tool("orderStatusChange", "Returns status"))).toBe("write");
+		expect(suggestToolMark(tool("listar_avisos", "Lista avisos e permite atualizar o contador"))).toBe("write");
+		expect(suggestToolMark(tool("listar_avisos", "Returns status"))).toBe("read");
+	});
+	it("bateria: ações com efeito (fiscal, financeiro, externo) nunca são sugeridas como leitura", () => {
+		const names = [
+			"authorizeNfe", "autorizarNfe", "submitOrder", "dispatchOrder", "refundPayment", "estornarPagamento", "baixarConta", "faturarPedido",
+			"chargeCard", "cobrar", "orderStatusChange", "excluír_pedido", "ｅnviar_nfe", "approve_invoice", "aprovar_pedido", "sign_document", "assinar_contrato",
+			"void_invoice", "capture_payment", "settle_account", "transmit_nfe", "revoke_token", "reembolsar_cliente",
+		];
+		for (const name of names) {
+			expect(suggestToolMark(tool(name, "Returns status")), name).toBe("write");
+			expect(toolMarkRefusal(tool(name)) !== null || !hasIrreversibleToolName(name), name).toBe(true);
+		}
+		for (const name of ["authorizeNfe", "autorizarNfe", "submitOrder", "refundPayment", "baixarConta", "faturarPedido", "chargeCard", "excluír_pedido", "ｅnviar_nfe"]) {
+			expect(toolMarkRefusal(tool(name)), name).toMatch(/não dá para desfazer/);
+			expect(classifyMcpTool({ name, ownerMark: "read" }), name).toBe("irreversible");
+		}
+	});
+	it("consultas com substantivos parecidos continuam aceitando leitura", () => {
+		for (const name of ["listRefunds", "get_signature", "list_charges", "listar_autorizacoes", "get_signal"]) {
+			expect(hasIrreversibleToolName(name), name).toBe(false);
+		}
 	});
 });
 
@@ -94,5 +116,13 @@ describe("pedido de marcação pelo chat", () => {
 		expect(looksLikeToolMarkRequest("pode confirmar as sugestões do conector")).toBe(true);
 		expect(looksLikeToolMarkRequest("bom dia")).toBe(false);
 		expect(looksLikeToolMarkRequest("lista os pedidos")).toBe(false);
+		expect(looksLikeToolMarkRequest("Pode marcar as ferramentas de consulta como somente leitura?")).toBe(true);
+		expect(looksLikeToolMarkRequest("Por favor, deixe só leitura as consultas do ERP")).toBe(true);
+		expect(looksLikeToolMarkRequest("Mark the ERP tools as read-only")).toBe(true);
+	});
+	it("frase descritiva (sem pedido) não conta", () => {
+		expect(looksLikeToolMarkRequest("O ERP está em modo somente leitura para as ferramentas de consulta")).toBe(false);
+		expect(looksLikeToolMarkRequest("As ferramentas são somente leitura")).toBe(false);
+		expect(looksLikeToolMarkRequest("A API do ERP é read-only tools only")).toBe(false);
 	});
 });
