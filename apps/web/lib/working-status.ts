@@ -132,12 +132,16 @@ export function toolKind(tool: string): ToolKind {
 		default:
 			break;
 	}
-	const mcp = /^mcp__.+?__([a-z0-9]+)/.exec(tool);
+	const mcp = /^mcp__(.+?)__(.+)$/.exec(tool);
 	if (mcp) {
-		// Pelo verbo da operação do conector: ler/listar → read, buscar → web, o resto (escrever…) → other.
-		const verb = mcp[1] ?? "";
-		if (/^(search|query)$/.test(verb)) return "web";
-		if (/^(read|get|list|fetch|view|show|find|lookup|describe|validate)$/.test(verb)) return "read";
+		// Pelo verbo da operação do conector, no começo ou no fim do nome (search_files, issue_read, actions_list):
+		// ler/listar → read, buscar → web, o resto (escrever…) → other.
+		const [server = "", op = ""] = [mcp[1], mcp[2]];
+		if (server === "firecrawl" && /^(firecrawl_)?(scrape|crawl|extract|map|search)/.test(op)) return "web";
+		const words = op.split("_");
+		const has = (re: RegExp) => re.test(words[0] ?? "") || re.test(words[words.length - 1] ?? "");
+		if (has(/^(search|query)$/)) return "web";
+		if (has(/^(read|get|list|fetch|view|show|find|lookup|describe|validate)$/)) return "read";
 		return "other";
 	}
 	if (/^(web_|firecrawl_|fetch_page|search|session_search|mcp_tool_search)/.test(tool)) return "web";

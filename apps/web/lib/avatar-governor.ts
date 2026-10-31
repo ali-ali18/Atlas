@@ -61,7 +61,7 @@ export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_T
 
 	/** O anel só entra com a ferramenta já na tela e o mesmo passo durando além de `progressAfterMs`. */
 	const ringDue = (now: number) =>
-		flashPending && isToolDesired(base) && shown === base.state && now - stepSince >= tuning.progressAfterMs;
+		flashPending && isToolDesired(base) && shown === base.state && now - stepSince >= tuning.progressAfterMs && now - lastFlashAt >= tuning.progressCooldownMs;
 
 	/** O que deveria aparecer agora, sem a trava de permanência. */
 	function target(now: number): { state: AvatarState; urgent: boolean } {
@@ -105,7 +105,7 @@ export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_T
 				if (desired.state === "idle") flashPending = false;
 				if (desired.state === "idle") lastStep = null;
 			} else {
-				if (desired.step !== lastStep && desired.progress !== null && now - lastFlashAt >= tuning.progressCooldownMs) {
+				if (desired.step !== lastStep && desired.progress !== null) {
 					flashPending = true;
 				}
 				if (desired.step !== lastStep) stepSince = now;
@@ -149,7 +149,7 @@ export function createAvatarGovernor(tuning: typeof GOVERNOR_TUNING = GOVERNOR_T
 			if (transient) consider(transient.until - now);
 			if (now < flashUntil) consider(flashUntil - now);
 			if (linger) consider(linger.until - now);
-			if (flashPending && isToolDesired(base) && shown === base.state) consider(stepSince + tuning.progressAfterMs - now);
+			if (flashPending && isToolDesired(base) && shown === base.state) consider(Math.max(stepSince + tuning.progressAfterMs, lastFlashAt + tuning.progressCooldownMs) - now);
 			return soonest;
 		},
 	};

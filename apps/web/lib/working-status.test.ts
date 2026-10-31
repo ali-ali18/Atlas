@@ -82,6 +82,9 @@ test("toolKind: tabela com as ferramentas reais do runtime", () => {
 		mcp__google_drive__list_recent_files: "read", mcp__n8n__get_workflow_sdk_reference: "read", mcp__n8n__validate_workflow: "read",
 		mcp__drive__search_files: "web", mcp__gmail__search_messages: "web", mcp__gmail__search_threads: "web", mcp__notion__search: "web", mcp__data__search: "web",
 		mcp__notion__create_page: "other", mcp__gmail__send_email: "other", mcp__data__update: "other", mcp__github__issue_write: "other",
+		mcp__github__issue_read: "read", mcp__github__pull_request_read: "read", mcp__github__actions_get: "read", mcp__github__actions_list: "read",
+		mcp__github__search_code: "web", mcp__x__issues_query: "web",
+		mcp__firecrawl__firecrawl_scrape: "web", mcp__firecrawl__scrape: "web", mcp__firecrawl__crawl: "web", mcp__firecrawl__map: "web", mcp__firecrawl__extract: "web", mcp__firecrawl__search: "web",
 		// sem gesto próprio
 		propose_routine: "other", schedule_followup: "other", set_autonomy: "other", delete_event: "other", sandbox_release: "other",
 	};

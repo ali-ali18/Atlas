@@ -57,6 +57,7 @@ test("run normal com status 'queued' o tempo todo: o avatar nunca fica em espera
 	for (const state of ["thinking", "searching", "reading", "coding", "running", "streaming"]) assert.ok((time.get(state) ?? 0) > 0, `${state} nunca apareceu: ${JSON.stringify([...time])}`);
 	const total = [...time.values()].reduce((a, b) => a + b, 0);
 	// antes: ~66% do run em "pensando", mesmo com ferramenta rodando de verdade
+	assert.ok((time.get("thinking") ?? 0) + (time.get("working") ?? 0) < total * 0.6, `pensando/trabalhando demais: ${JSON.stringify([...time])}`);
 	assert.ok((time.get("thinking") ?? 0) <= total * 0.5, `pensando demais: ${JSON.stringify([...time])}`);
 	// ferramentas curtas (< 3 s) nunca acendem o anel de progresso
 	assert.equal(time.get("progress") ?? 0, 0, JSON.stringify([...time]));

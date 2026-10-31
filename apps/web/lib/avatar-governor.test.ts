@@ -107,14 +107,16 @@ test("passo longo seguido de outro passo longo: um anel por intervalo, com a fra
 	g.signal(0);
 	assert.equal(g.signal(T.progressAfterMs).state, "progress");
 	assert.equal(g.signal(T.progressAfterMs + T.progressFlashMs).state, "searching");
-	// passo 1 e 2 chegam logo depois do anel: dentro do intervalo entre anéis, nenhum acende
+	// passos 1 e 2 chegam logo depois do anel; o 1 é curto e o 2 dura: o anel do 2 espera o intervalo e aparece
 	g.push(desired(tool("read_file", 1, 8)), 4200);
 	g.signal(4200);
 	g.push(desired(tool("edit_file", 2, 8)), 5600);
-	g.signal(5600);
-	assert.equal(g.signal(5600 + T.progressAfterMs).state, "coding", "dentro do intervalo não acende o anel");
+	let ringAt = -1;
+	for (let t = 5600; t < 12_000 && ringAt < 0; t += 50) if (g.signal(t).state === "progress") ringAt = t;
+	assert.equal(ringAt, 5600 + T.progressAfterMs, "anel do passo longo, depois do limiar e do intervalo");
+	for (let t = ringAt; t <= ringAt + T.progressFlashMs; t += 50) g.signal(t);
 	// passo seguinte começa depois do intervalo e dura mais que o limiar
-	const start = T.progressAfterMs + T.progressFlashMs + T.progressCooldownMs + 500;
+	const start = ringAt + T.progressFlashMs + T.progressCooldownMs + 500;
 	g.push(desired(tool("shell", 3, 8)), start);
 	assert.equal(g.signal(start).state, "running");
 	const s = g.signal(start + T.progressAfterMs);
@@ -250,4 +252,17 @@ test("pedir o usuário (waiting) entra na hora, mesmo dentro da permanência do 
 	g.signal(0);
 	g.push({ state: "waiting", step: null, progress: null }, 200);
 	assert.equal(g.signal(200).state, "waiting");
+});
+
+test("passo longo que começa logo depois de um anel ainda ganha o anel (cooldown vale na hora de mostrar)", () => {
+	const g = createAvatarGovernor();
+	g.push(desired(tool("navigate", 0, 8)), 0);
+	g.signal(0);
+	assert.equal(g.signal(3500).state, "progress"); // passo A de 3,5 s
+	g.push(desired(tool("read_file", 1, 8)), 3600); // passo B começa dentro do cooldown
+	g.signal(4600); // o anel de A acabou
+	assert.equal(g.signal(3600 + T.progressAfterMs).state, "reading", "cooldown ainda não passou");
+	assert.ok(g.nextChangeMs(7000)! > 0);
+	assert.equal(g.signal(3500 + T.progressCooldownMs).state, "progress");
+	assert.equal(g.signal(60_000).state, "reading");
 });
