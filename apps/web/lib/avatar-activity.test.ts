@@ -49,7 +49,7 @@ test("ferramentas por família: pesquisa, leitura, código, execução, controle
 		["scroll", "controlling"],
 		["browser_act", "controlling"],
 		["delegate_task", "working"],
-		["generate_image", "working"],
+		["generate_image", "coding"],
 		["ferramenta_desconhecida", "working"],
 	];
 	for (const [name, expected] of cases) assert.equal(stateOf(tool(name)), expected, name);
@@ -96,4 +96,17 @@ test("a classificação é a mesma do texto: toolKind é a fonte única", () => 
 	assert.equal(toolKind("browser_act"), "act");
 	assert.equal(toolKind("delegate_task"), "delegate");
 	assert.equal(toolKind("mcp__gmail__search_messages"), "web");
+});
+
+test("ferramentas de leitura e de raciocínio ganham gesto próprio em vez de 'trabalhando'", () => {
+	const state = (tool: string) => avatarStateForActivity({ phase: "tool", tool, step: 0, maxSteps: 4 }).state;
+	assert.equal(state("browser_snapshot"), "reading");
+	assert.equal(state("browser_find"), "reading");
+	assert.equal(state("mcp__github__read_things"), "reading");
+	assert.equal(state("mcp__notion__search"), "searching");
+	assert.equal(state("dev_ci_logs"), "reading");
+	assert.equal(state("lint"), "running");
+	assert.equal(state("generate_image"), "coding");
+	assert.equal(state("todo_write"), "thinking");
+	assert.equal(state("mcp__notion__create_page"), "working");
 });

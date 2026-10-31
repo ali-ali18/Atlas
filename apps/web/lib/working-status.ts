@@ -20,7 +20,7 @@ export function activityForAssistantEvent(type: "assistant_delta" | "assistant_d
 
 /**
  * Família da ferramenta: uma só classificação para o texto do indicador e para o
- * avatar (`avatar-activity.ts`). `act`, `web`, `read`, `code`, `run` e `delegate` não têm
+ * avatar (`avatar-activity.ts`). `act`, `web`, `read`, `code`, `run`, `think` e `delegate` não têm
  * frase própria (usam a padrão); só o avatar os distingue.
  */
 export type ToolKind =
@@ -36,6 +36,8 @@ export type ToolKind =
 	| "code"
 	| "run"
 	| "delegate"
+	/** Ferramenta de raciocínio, sem efeito fora (plano, hora, resumo de contexto): o avatar segue "pensando". */
+	| "think"
 	| "other";
 
 export function toolKind(tool: string): ToolKind {
@@ -58,7 +60,55 @@ export function toolKind(tool: string): ToolKind {
 		case "scroll":
 			return "scroll";
 		case "memory":
+		case "memory_search":
 			return "memory";
+		case "todo_write":
+		case "current_time":
+		case "context_summary":
+			return "think";
+		case "browser_snapshot":
+		case "browser_read":
+		case "browser_find":
+		case "browser_extract":
+		case "browser_tabs":
+		case "browser_wait":
+		case "checkpoint_read":
+		case "sandbox_download":
+		case "attachment_list":
+		case "find":
+			return "read";
+		case "api_search":
+			return "web";
+		case "api_call":
+		case "lint":
+		case "preview_start":
+		case "preview_stop":
+		case "dev_session_start":
+		case "dev_pr_checkout":
+			return "run";
+		case "dev_ci_logs":
+		case "dev_ci_status":
+		case "dev_environment_get":
+			return "read";
+		case "dev_environment_update":
+		case "dev_pr_create":
+		case "generate_image":
+		case "create_event":
+		case "create_draft":
+		case "create_issue":
+		case "create_repository":
+		case "create_order":
+		case "email_send":
+		case "email_reply":
+		case "email_create_mailbox":
+		case "send_message":
+		case "send_whatsapp":
+			return "code";
+		case "email_list":
+		case "email_read":
+		case "github_compare":
+		case "github_list_repos":
+			return "read";
 		case "delegate_task":
 		case "send_to_bot":
 			return "delegate";
@@ -82,7 +132,15 @@ export function toolKind(tool: string): ToolKind {
 		default:
 			break;
 	}
-	if (/^(web_|firecrawl_|fetch_page|search|session_search|mcp_tool_search)/.test(tool) || tool.includes("__search")) return "web";
+	const mcp = /^mcp__.+?__([a-z0-9]+)/.exec(tool);
+	if (mcp) {
+		// Pelo verbo da operação do conector: ler/listar → read, buscar → web, o resto (escrever…) → other.
+		const verb = mcp[1] ?? "";
+		if (/^(search|query)$/.test(verb)) return "web";
+		if (/^(read|get|list|fetch|view|show|find|lookup|describe|validate)$/.test(verb)) return "read";
+		return "other";
+	}
+	if (/^(web_|firecrawl_|fetch_page|search|session_search|mcp_tool_search)/.test(tool)) return "web";
 	if (/^(read|get_|list_|attachment_read|artifact_read|skill_read|sandbox_read|sandbox_list|show_image|grep)/.test(tool)) return "read";
 	return "other";
 }
