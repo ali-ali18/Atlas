@@ -81,3 +81,34 @@ describe("casamento nome ↔ domínio", () => {
 		expect(pickVaultLoginForPage([url, noUrl], "https://example.org").kind).toBe("none");
 	});
 });
+
+describe("Public Suffix List: sufixo de plataforma exige host exato", () => {
+	it("atacante.vercel.app não casa com item de meuapp.vercel.app; x.github.io não casa com outro github.io", () => {
+		expect(domainMatches("https://atacante.vercel.app/login", "https://meuapp.vercel.app")).toBe(false);
+		expect(domainMatches("https://meuapp.vercel.app/login", "https://meuapp.vercel.app")).toBe(true);
+		expect(domainMatches("https://x.github.io", "https://y.github.io")).toBe(false);
+		expect(domainMatches("https://x.github.io", "https://github.io")).toBe(false);
+		expect(domainMatches("https://x.netlify.app", "https://netlify.app")).toBe(false);
+		expect(domainMatches("https://a.pages.dev", "https://b.pages.dev")).toBe(false);
+		expect(domainMatches("https://a.web.app", "https://b.web.app")).toBe(false);
+		expect(domainMatches("https://a.herokuapp.com", "https://b.herokuapp.com")).toBe(false);
+		expect(domainMatches("https://a.blogspot.com", "https://b.blogspot.com")).toBe(false);
+		expect(domainMatches("https://a.onrender.com", "https://b.onrender.com")).toBe(false);
+		// subdomínio de um tenant de plataforma também é outro host: exato
+		expect(domainMatches("https://sub.meuapp.vercel.app", "https://meuapp.vercel.app")).toBe(false);
+	});
+	it("registrableDomain usa a PSL (inclui sufixos privados)", () => {
+		expect(registrableDomain("panel.kodea.com.br")).toBe("kodea.com.br");
+		expect(registrableDomain("atacante.vercel.app")).toBe("atacante.vercel.app");
+		expect(registrableDomain("a.b.github.io")).toBe("b.github.io");
+		expect(registrableDomain("localhost")).toBe("localhost");
+	});
+	it("site salvo com subdomínio vale só para ele e seus filhos, nunca para irmãos nem para o domínio raiz", () => {
+		expect(domainMatches("https://panel.kodea.com.br/login", "https://panel.kodea.com.br")).toBe(true);
+		expect(domainMatches("https://x.panel.kodea.com.br/login", "https://panel.kodea.com.br")).toBe(true);
+		expect(domainMatches("https://admin.kodea.com.br/login", "https://panel.kodea.com.br")).toBe(false);
+		expect(domainMatches("https://kodea.com.br/login", "https://panel.kodea.com.br")).toBe(false);
+		expect(domainMatches("https://kodea.xyz/login", "https://panel.kodea.com.br")).toBe(false);
+		expect(domainMatches("https://github.xyz/login", "https://github.com")).toBe(false);
+	});
+});

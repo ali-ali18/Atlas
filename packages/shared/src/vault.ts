@@ -1,3 +1,5 @@
+import { parse as parseTld } from "tldts";
+
 /**
  * Cofre do usuário: referências de segredo (`{{secret:nome}}`), domínio de site
  * e detector de segredo em texto. Lógica pura (roda no navegador e no servidor).
@@ -83,7 +85,6 @@ export function replaceSecretRefs(text: string, replacer: (ref: SecretRef) => st
 
 // ----- domínio -----
 
-const SECOND_LEVEL = new Set(["co", "com", "org", "net", "gov", "edu", "ac", "ne", "or"]);
 
 function parseUrl(value: string): URL | null {
 	const text = value.trim();
@@ -100,17 +101,31 @@ export function hostOf(url: string): string | null {
 	return parsed ? parsed.hostname.toLowerCase().replace(/\.$/, "") || null : null;
 }
 
-/** Domínio registrável aproximado (`app.exemplo.com.br` -> `exemplo.com.br`). */
-export function registrableDomain(host: string): string {
-	if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":") || !host.includes(".")) return host;
-	const labels = host.split(".");
-	const tld = labels[labels.length - 1]!;
-	const second = labels[labels.length - 2]!;
-	const take = tld.length === 2 && SECOND_LEVEL.has(second) && labels.length >= 3 ? 3 : 2;
-	return labels.slice(-take).join(".");
+/** Resultado da Public Suffix List (ICANN + sufixos privados de plataforma: vercel.app, github.io, pages.dev…). */
+function psl(host: string) {
+	return parseTld(host, { allowPrivateDomains: true });
 }
 
-/** A página atual pertence ao site cadastrado? Mesmo domínio registrável (subdomínios ok); http só em localhost. */
+/**
+ * Domínio registrável pela Public Suffix List, incluindo os sufixos privados de plataforma
+ * (`atacante.vercel.app` é um domínio registrável por si; `vercel.app` é sufixo). IP, localhost
+ * e o próprio sufixo voltam como vieram.
+ */
+export function registrableDomain(host: string): string {
+	return psl(host).domain ?? host;
+}
+
+/** O host é de plataforma (sufixo privado: `*.vercel.app`, `*.github.io`…) ou é ele mesmo um sufixo? Aí só vale o host exato. */
+function exactOnly(host: string): boolean {
+	const parsed = psl(host);
+	return parsed.isIp === true || parsed.domain === null || parsed.isPrivate === true;
+}
+
+/**
+ * A página atual pertence ao site cadastrado? Mesmo host ou subdomínio dele (nunca um irmão: salvo
+ * `panel.kodea.com.br`, `admin.kodea.com.br` não casa; salvo `kodea.com.br`, `panel.kodea.com.br` casa).
+ * Em sufixo de plataforma (`*.vercel.app`, `*.github.io`…), IP e localhost: host exato. http só em localhost.
+ */
 export function domainMatches(pageUrl: string, siteUrl: string): boolean {
 	const page = parseUrl(pageUrl);
 	const site = hostOf(siteUrl);
@@ -118,7 +133,9 @@ export function domainMatches(pageUrl: string, siteUrl: string): boolean {
 	const pageHost = page.hostname.toLowerCase().replace(/\.$/, "");
 	const local = pageHost === "localhost" || pageHost === "127.0.0.1";
 	if (page.protocol !== "https:" && !local) return false;
-	return registrableDomain(pageHost) === registrableDomain(site);
+	if (pageHost === site) return true;
+	if (exactOnly(site) || exactOnly(pageHost)) return false;
+	return pageHost.endsWith(`.${site}`);
 }
 
 /** Nome sugerido a partir do domínio (`www.github.com` -> `github`). */
