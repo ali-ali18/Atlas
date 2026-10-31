@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import type { ChatTool } from "@workspace/llm";
-import { hookPublicUrl, listUserRoutineWebhooks, saveSkillPendingIntent, persistConversationCardFromEvent } from "@workspace/db";
-import { domainMatches, hostOf, isValidSecretName, loginMarker, routineSecretMarker, secretMarker, VAULT_ENVIRONMENT_ID } from "@workspace/shared";
+import { getSkillPendingIntent, hookPublicUrl, listUserRoutineWebhooks, saveSkillPendingIntent, persistConversationCardFromEvent } from "@workspace/db";
+import { domainMatches, hostOf, isValidSecretName, loginMarker, nameMatchesSite, routineSecretMarker, secretMarker, VAULT_ENVIRONMENT_ID } from "@workspace/shared";
 import { getVaultService, routineSlug, VaultError, type VaultService } from "../secrets/vault-service.js";
 
 /**
@@ -92,12 +93,14 @@ export type VaultToolContext = {
 	/** Navegador da VM (login_fill). */
 	browser?: {
 		currentUrl: () => Promise<string>;
-		type: (selector: string, text: string, submit: boolean, guard?: { kind: "password" | "username"; origin?: string }) => Promise<void>;
+		type: (selector: string, text: string, submit: boolean, guard?: { kind: "password" | "username" | "code"; origin?: string }) => Promise<void>;
 		/** URL e título da página agora (lidos depois de enviar o login). */
 		readPage?: () => Promise<{ url: string; title?: string }>;
 	};
 	/** Injetáveis em testes. */
 	saveIntent?: typeof saveSkillPendingIntent;
+	/** Intenção pendente da conversa (o cartão de vínculo não sobrescreve outro ainda aberto). */
+	loadIntent?: (userId: string, conversationId: string) => Promise<{ payload: { action?: string; vaultUse?: { domain?: string; linkHost?: string } } } | null>;
 	persistCard?: (conversationId: string, card: VaultCard) => Promise<unknown>;
 	unattended?: boolean;
 };
@@ -203,6 +206,16 @@ const DEFAULT_SELECTORS = {
 	totp: 'input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="code" i], input[name*="token" i], input[id*="otp" i], input[id*="code" i], input[inputmode="numeric"]',
 } as const;
 
+/**
+ * Id do cartão de vínculo: `confirm-vault-<hash do item+host>-<runId>`. O último trecho TEM de ser o run que pediu
+ * (`askingRunId` em apps/api). O hash faz cada (item, host) ter o seu cartão: um segundo `login_fill` no mesmo run
+ * nunca reaproveita nem substitui o id do primeiro.
+ */
+export function vaultLinkConfirmId(runId: string | undefined, secretId: string, host: string): string {
+	const nonce = createHash("sha256").update(`${secretId}\n${host}`).digest("hex").slice(0, 10);
+	return `confirm-vault-${nonce}-${runId ?? "local"}`;
+}
+
 /** Seletor do campo de código (2FA/e-mail/SMS) usado também pelo runtime ao digitar o código do e-mail. */
 export const LOGIN_CODE_SELECTOR = DEFAULT_SELECTORS.totp;
 
@@ -237,7 +250,13 @@ export async function executeLoginFill(
 		}
 		if (!/^https:\/\//i.test(pageUrl) || host === "desconhecido") throw new Error(`A página atual (${host}) não é https; não vinculo o login "${meta.name}" a ela. Nada foi preenchido.`);
 		const conversationId = need(ctx.conversationId, "login_fill só funciona dentro de uma conversa.");
-		const confirmId = `confirm-${ctx.runId ?? "local"}`;
+		// Só UM pedido de vínculo por vez: a intenção pendente é uma só por conversa e o "Sim" grava o host dela. Um segundo
+		// pedido (outro host, outro item) não pode trocar o host que o dono está vendo no cartão.
+		const open = await (ctx.loadIntent ?? getSkillPendingIntent)(userId, conversationId).catch(() => null);
+		if (open?.payload.action === "vault-use") {
+			throw new Error(`Já há um cartão do Cofre aguardando a resposta do dono${open.payload.vaultUse?.linkHost ? ` (para ${open.payload.vaultUse.linkHost})` : ""}. Nada foi preenchido. Espere a decisão dele antes de pedir outro login; não repita o pedido.`);
+		}
+		const confirmId = vaultLinkConfirmId(ctx.runId, meta.id, host);
 		const site = meta.label || meta.name;
 		await (ctx.saveIntent ?? saveSkillPendingIntent)({
 			userId,
@@ -249,7 +268,11 @@ export async function executeLoginFill(
 			type: "confirm",
 			confirmId,
 			title: `Usar o login do Cofre ${site} em ${host}?`,
-			description: `O bot vai preencher usuário e senha em ${host} e lembrar desse site para as próximas vezes, inclusive nas rotinas. Ele não vê a senha.`,
+			description: [
+				// O nome do item não tem relação com o domínio da página: o dono precisa ver isso antes de clicar.
+				...(nameMatchesSite([meta.name, meta.label ?? ""], pageUrl) ? [] : [`Atenção: este site (${host}) não parece ser o de "${site}".`]),
+				`O bot vai preencher usuário e senha em ${host} e lembrar desse site para as próximas vezes, inclusive nas rotinas. Ele não vê a senha.`,
+			].join(" "),
 			confirmLabel: "Sim, usar",
 			cancelLabel: "Agora não",
 		};
@@ -282,7 +305,8 @@ export async function executeLoginFill(
 			done.push(field === "username" ? "usuário" : "senha");
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "";
-			if (/^Recusado|mudou de site|nada foi digitado/i.test(message)) throw new Error(message);
+			// Só recusa e troca de site relançam como estão. "Não achei o campo…" é campo ausente (login em duas telas).
+			if (/^Recusado|mudou de site/i.test(message)) throw new Error(message);
 			throw new Error(`Não consegui achar o campo de ${field} nesta página. Use browser_snapshot${field === "username" ? " e passe username_selector" : ""}.`);
 		}
 	}

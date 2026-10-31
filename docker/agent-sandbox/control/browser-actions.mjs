@@ -83,6 +83,13 @@ export function loginFieldVerdict(el, arg) {
 		if (type !== "password") return "not-password";
 		return visible(el) ? "ok" : "hidden";
 	}
+	if (kind === "code") {
+		// Código de verificação (e-mail/SMS) que o runtime digita depois do login: campo de código visível, nunca de senha.
+		if (type !== "text" && type !== "tel" && type !== "number") return "bad-type";
+		if (!visible(el)) return "hidden";
+		const named = `${attr(el, "name") || ""} ${attr(el, "id") || ""} ${attr(el, "autocomplete") || ""} ${attr(el, "inputmode") || ""}`;
+		return /code|otp|token|verif|pin|codigo|código|one-time|numeric/i.test(named) ? "ok" : "not-code";
+	}
 	if (type !== "text" && type !== "email" && type !== "tel") return "bad-type";
 	if (!visible(el)) return "hidden";
 	const passwords = Array.from(document.querySelectorAll('input[type="password"]')).filter(visible);
@@ -96,7 +103,7 @@ export function loginFieldVerdict(el, arg) {
 	return type === "email" || /(^|\s)(username|email)(\s|$)/.test(auto) || /user|login|email/i.test(named) ? "ok" : "not-username";
 }
 
-const LOGIN_FIELD_NAME = { password: "senha", username: "usuário" };
+const LOGIN_FIELD_NAME = { password: "senha", username: "usuário", code: "código" };
 const LOGIN_GUARD_WAIT_MS = 3000;
 const LOGIN_GUARD_MAX_CANDIDATES = 20;
 
@@ -109,6 +116,7 @@ function loginRefusalMessage(kind, verdict) {
 	if (verdict === "other-origin") return "A página mudou de site antes de digitar; nada foi digitado.";
 	if (verdict === "cross-origin-action") return "Recusado: o formulário deste campo envia os dados para outro site. Nada foi digitado.";
 	if (verdict === "hidden") return "Recusado: o campo está oculto ou fora da tela. Nada foi digitado.";
+	if (kind === "code") return "Recusado: o código só pode ser digitado em um campo de código visível da página principal. Nada foi digitado.";
 	if (kind === "password") return "Recusado: a senha só pode ser digitada em um campo de senha visível da página principal. Nada foi digitado.";
 	return "Recusado: o usuário só pode ser digitado em um campo de texto visível do mesmo formulário da senha (ou, antes de existir o campo de senha, em um campo de usuário ou e-mail). Nada foi digitado.";
 }
@@ -289,7 +297,7 @@ export function createBrowserActions({
 	}
 
 	async function browserType({ selector, text, submit, guard }) {
-		if (guard && (guard.kind !== "password" && guard.kind !== "username")) throw new Error("guard inválido");
+		if (guard && !["password", "username", "code"].includes(guard.kind)) throw new Error("guard inválido");
 		if (guard && (typeof selector !== "string" || !selector.trim())) throw new Error("O login do Cofre exige um seletor de campo; nada foi digitado.");
 		const plan = planTypeTarget({ selector });
 		return withPageRetry(async (page) => {

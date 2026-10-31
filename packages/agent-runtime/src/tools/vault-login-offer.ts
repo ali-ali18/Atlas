@@ -1,4 +1,4 @@
-import { detectEmailCodeStep, detectExtraLoginStep, detectLoginWall, pickVaultLoginForPage, type LoginVaultOffer } from "@workspace/shared";
+import { detectEmailCodeStep, detectExtraLoginStep, detectLoginWall, domainMatches, pickVaultLoginForPage, type LoginVaultOffer } from "@workspace/shared";
 import { fetchLoginEmailCode, type EmailSource } from "./email-code.js";
 import type { VaultService } from "../secrets/vault-service.js";
 import { executeLoginFill, LOGIN_CODE_SELECTOR, type VaultToolContext } from "./vault-tools.js";
@@ -145,7 +145,14 @@ export async function fillVaultLoginOnResume(input: {
 			if (!input.emailSource) return { kind: "needs-human", reason: NEEDS_CODE_NOTE, codeField: true };
 			const code = await fetchLoginEmailCode({ source: input.emailSource, siteHost: offer.domain, startedAtMs, ...input.emailSearch });
 			if (!code) return { kind: "needs-human", reason: `Não encontrei o código no seu ${input.emailSource.name} a tempo. ${NEEDS_CODE_NOTE}`, codeField: true };
-			await input.fillContext.browser!.type(LOGIN_CODE_SELECTOR, code, true);
+			// O código só entra na página do site do item (a aba pode ter ido para outro lugar depois do login) e o
+			// control server reconfere campo e origem antes de digitar, como na senha.
+			const browser = input.fillContext.browser!;
+			const current = await browser.currentUrl();
+			if (!meta.siteUrl || !domainMatches(current, meta.siteUrl)) {
+				return { kind: "needs-human", reason: `A página mudou de site; não digitei o código. ${NEEDS_CODE_NOTE}`, codeField: true };
+			}
+			await browser.type(LOGIN_CODE_SELECTOR, code, true, { kind: "code", origin: new URL(current).origin });
 			await settle();
 			page = await input.readPage();
 			if (pageNeedsPerson(page)) return { kind: "needs-human", reason: detectEmailCodeStep(page) ? `O código do ${input.emailSource.name} não foi aceito. ${NEEDS_CODE_NOTE}` : VAULT_TRIED_NOTE, ...(detectEmailCodeStep(page) ? { codeField: true } : {}) };
