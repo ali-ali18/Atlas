@@ -9,6 +9,8 @@ SELECT
   coalesce(r."stopReason", '(sem motivo)')                                   AS stop_reason,
   r.origin,
   count(*)                                                                    AS runs,
+  -- `auto_continue`: o worker retomou o run sozinho (budget_steps com continuação); não foi um fim de verdade.
+  count(*) FILTER (WHERE r."stopDetail" = 'auto_continue')                    AS continuados,
   round(100.0 * count(*) / sum(count(*)) OVER (), 1)                          AS pct_do_total,
   round(avg((r."usageJson"->>'costUsd')::numeric), 4)                         AS custo_medio_usd,
   round(sum((r."usageJson"->>'costUsd')::numeric), 2)                         AS custo_total_usd,
@@ -38,7 +40,7 @@ GROUP BY 1, 2
 ORDER BY runs DESC
 LIMIT 100;
 
--- 3) Qual trava mais encerra runs? Só o que NÃO é fim normal (answered / cancelado pelo usuário).
+-- 3) Qual trava mais encerra runs? Só o que NÃO é fim normal (answered / cancelado pelo usuário) nem retomada automática.
 SELECT
   r."stopReason"                                                              AS stop_reason,
   r."stopDetail"                                                              AS detalhe,
@@ -52,6 +54,8 @@ WHERE r."createdAt" >= now() - interval '7 days'
   AND r."parentRunId" IS NULL
   AND r."stopReason" IS NOT NULL
   AND r."stopReason" NOT IN ('answered', 'cancelled')
+  -- Retomado sozinho pelo worker: o run continuou em outro run, então não conta como trava que encerrou.
+  AND coalesce(r."stopDetail", '') <> 'auto_continue'
 GROUP BY 1, 2
 ORDER BY runs DESC;
 
