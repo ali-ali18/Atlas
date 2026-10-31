@@ -362,6 +362,7 @@ const handleControlRequest = async (req, res) => {
 					selector: body?.selector,
 					text,
 					submit: Boolean(body?.submit),
+					...(body?.guard && typeof body.guard === "object" ? { guard: body.guard } : {}),
 				}),
 			);
 			return;

@@ -2,8 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createBrowserActions } from "./browser-actions.mjs";
 
-function fakePage({ candidates = [], log = [], fillError } = {}) {
-	let href = "https://erp.test/home";
+function fakePage({ candidates = [], log = [], fillError, verdict = "ok", url = "https://erp.test/home" } = {}) {
+	let href = url;
 	// Folha do locator: o que a escada de cliques usa (evaluate/locator/click).
 	const leaf = (name, onClick) => {
 		const node = {
@@ -12,7 +12,9 @@ function fakePage({ candidates = [], log = [], fillError } = {}) {
 			first: () => node,
 			locator: () => node,
 			evaluate: async (fn) =>
-				fn.name === "readPointer"
+				fn.name === "loginFieldVerdict"
+					? verdict
+					: fn.name === "readPointer"
 					? null
 					: { visible: true, interactive: true, covered: false, cx: 5, cy: 5, target: { tag: "a" } },
 		};
@@ -128,4 +130,47 @@ test("navigate repete em ERR_ABORTED e devolve url final", async () => {
 	const result = await actions.navigate("https://x");
 	assert.equal(attempts, 2);
 	assert.equal(result.url, "https://erp.test/home");
+});
+
+test("browserType com guard: senha só em campo de senha; veredito ruim aborta sem digitar", async () => {
+	const log = [];
+	const ok = createBrowserActions({ getPage: async () => fakePage({ log, verdict: "ok" }) });
+	await ok.browserType({ selector: 'input[type="password"]', text: "segredo", guard: { kind: "password", origin: "https://erp.test" } });
+	assert.deepEqual(log, ['fill:input[type="password"]=segredo']);
+	for (const verdict of ["not-password", "not-input", "other-document"]) {
+		const bad = [];
+		const actions = createBrowserActions({ getPage: async () => fakePage({ log: bad, verdict }) });
+		await assert.rejects(actions.browserType({ selector: "#senha", text: "segredo", guard: { kind: "password" } }), /nada foi digitado/i);
+		assert.deepEqual(bad, []);
+	}
+});
+
+test("browserType com guard: usuário só em texto do mesmo formulário da senha", async () => {
+	for (const verdict of ["bad-type", "other-form"]) {
+		const log = [];
+		const actions = createBrowserActions({ getPage: async () => fakePage({ log, verdict }) });
+		await assert.rejects(actions.browserType({ selector: "#u", text: "ana", guard: { kind: "username" } }), /mesmo formulário/);
+		assert.deepEqual(log, []);
+	}
+});
+
+test("browserType com guard: origem diferente da validada aborta; sem seletor também", async () => {
+	const log = [];
+	const actions = createBrowserActions({ getPage: async () => fakePage({ log, url: "https://evil.example/login" }) });
+	await assert.rejects(actions.browserType({ selector: 'input[type="password"]', text: "s", guard: { kind: "password", origin: "https://erp.test" } }), /mudou de site/);
+	await assert.rejects(actions.browserType({ text: "s", guard: { kind: "password" } }), /exige um seletor/);
+	assert.deepEqual(log, []);
+});
+
+test("browserType com guard: só o frame principal é alcançado (iframe de outro domínio nunca recebe)", async () => {
+	const log = [];
+	const page = fakePage({ log, verdict: "ok" });
+	const touched = [];
+	const iframe = new Proxy({}, { get: (_t, key) => { touched.push(String(key)); return () => { throw new Error("iframe tocado"); }; } });
+	page.frames = () => [page, iframe];
+	page.mainFrame = () => page;
+	const actions = createBrowserActions({ getPage: async () => page });
+	await actions.browserType({ selector: 'input[type="password"]', text: "segredo", guard: { kind: "password", origin: "https://erp.test" } });
+	assert.deepEqual(log, ['fill:input[type="password"]=segredo']);
+	assert.deepEqual(touched, []);
 });

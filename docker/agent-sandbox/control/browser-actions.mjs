@@ -17,6 +17,18 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * Ações de browser (Playwright) com o `getPage` injetado — testáveis com
  * uma página falsa. O server HTTP só roteia para cá.
  */
+/** Roda DENTRO da página (evaluate): vale o campo? Mantida autônoma, sem fechamento. */
+function loginFieldVerdict(el, kind) {
+	if (!(el instanceof HTMLInputElement)) return "not-input";
+	if (el.ownerDocument !== window.document) return "other-document";
+	const type = (el.getAttribute("type") || "text").toLowerCase();
+	if (kind === "password") return type === "password" ? "ok" : "not-password";
+	if (type !== "text" && type !== "email" && type !== "tel") return "bad-type";
+	const password = document.querySelector('input[type="password"]');
+	if (password && password.form !== el.form) return "other-form";
+	return "ok";
+}
+
 export function createBrowserActions({
 	getPage,
 	restart,
@@ -140,9 +152,36 @@ export function createBrowserActions({
 		}, { tries: 2 });
 	}
 
-	async function browserType({ selector, text, submit }) {
+	// Login do Cofre: a senha só entra em input[type=password] do documento principal; o usuário só em input de
+	// texto/e-mail/telefone do mesmo <form> do campo de senha. O frame principal é o único alcançado (page.locator
+	// e page.fill nunca entram em iframe). `origin` é o do site já validado pelo runtime: se a aba mudou de origem
+	// entre a validação e a digitação, aborta sem digitar.
+	async function guardLoginField(page, selector, guard) {
+		if (guard.origin) {
+			let current = "";
+			try { current = new URL(page.url()).origin; } catch { current = ""; }
+			if (current !== guard.origin) throw new Error("A página mudou de site antes de digitar; nada foi digitado.");
+		}
+		let verdict;
+		try {
+			verdict = await page.locator(selector).first().evaluate(loginFieldVerdict, guard.kind);
+		} catch {
+			throw new Error("Não achei o campo na página principal; nada foi digitado.");
+		}
+		if (verdict === "ok") return;
+		throw new Error(
+			guard.kind === "password"
+				? "Recusado: a senha só pode ser digitada em um campo de senha da página principal. Nada foi digitado."
+				: "Recusado: o usuário só pode ser digitado em um campo de texto do mesmo formulário da senha. Nada foi digitado.",
+		);
+	}
+
+	async function browserType({ selector, text, submit, guard }) {
+		if (guard && (guard.kind !== "password" && guard.kind !== "username")) throw new Error("guard inválido");
+		if (guard && (typeof selector !== "string" || !selector.trim())) throw new Error("O login do Cofre exige um seletor de campo; nada foi digitado.");
 		const plan = planTypeTarget({ selector });
 		return withPageRetry(async (page) => {
+			if (guard) await guardLoginField(page, plan.selector, guard);
 			const urlBefore = page.url();
 			let pointer;
 			const observed = await observe(
