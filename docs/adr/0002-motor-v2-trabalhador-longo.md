@@ -1,6 +1,6 @@
 # ADR 0002: motor v2 do agente, um "trabalhador longo" ao lado do atual
 
-- **Status:** proposto, aguardando o ok do dono
+- **Status:** aceito (ok do dono em 31/10, com as sugestões abaixo)
 - **Data:** 2026-10-31
 
 ## Contexto
@@ -30,30 +30,43 @@ A 0.3.4 conserta sintomas: aceite em grupo, espera sem trava, não reperguntar. 
 
 Construir um **motor v2 ao lado do atual**, ligado **por bot**. O v1 continua rodando para todo o resto até o v2 provar que entrega mais pelo mesmo custo.
 
+### Decisões do dono (31/10)
+
+- **Orçamento padrão de "trabalho longo":** US$ 0,50 e 20 min por tarefa, ajustável por bot.
+- **Bot piloto:** Radar de Mercado.
+- **Modelo do piloto: opção configurável, não fixa.** O padrão é o mais barato. O piloto mede o custo real de três combinações antes de escolher:
+  - Haiku sozinho;
+  - Sonnet coordenando com Haiku nos ajudantes;
+  - Sonnet em raciocínio baixo.
+  Sonnet só vira padrão se a diferença de custo for pequena para o ganho de entrega.
+
 ### Princípios do v2
 
+0. **Duas portas.** Conversa curta é respondida na hora, sem trabalho pesado. Tarefa com ação vira trabalho em segundo plano: o bot responde "já vejo isso" em uma linha, o trabalho roda à parte e o resultado chega depois na conversa. Se falhar, ele avisa também. Quem escolhe a porta é o próprio modelo, com uma regra de segurança: pedido com ação nunca fica sem tools.
 1. **Laço simples.** O modelo chama tools até decidir que terminou. Não há teto de passos "soft" nem tools removidas por heurística no meio do trabalho.
 2. **Um árbitro só (Supervisor), com uma unidade só: dinheiro e tempo.**
    - Cada tarefa tem um orçamento em US$ e minutos, vindo do perfil: *conversa* (barato e curto) ou *trabalho longo* (maior).
    - Perto do fim do orçamento, o árbitro avisa uma vez e reserva o necessário para **entregar**. Ele não aborta.
    - Repetição real (mesma tool, mesmos args, mesmo resultado) vira um aviso ao modelo, não uma morte do run.
 3. **Lista de tarefas obrigatória em trabalho longo,** no estilo TodoWrite e persistida. Só se termina com **todos os itens feitos ou explicitamente descartados com motivo**. É a "lista de aceitação" que hoje não existe.
-4. **Ajudantes de verdade.**
+4. **O forte coordena, os baratos trabalham.** O modelo do bot coordena: planeja, decide e escreve a entrega. Os ajudantes podem usar um modelo mais barato para o trabalho braçal (ler páginas, extrair dados). O modelo não é trocado no meio do laço principal, porque isso quebra o cache e faz o coordenador perder detalhe.
+5. **Ajudantes de verdade.**
    - Ajudantes paralelos com orçamento próprio, disparados pelo modelo quando o trabalho se divide; não por regex.
    - Escrevem num **caderno da tarefa** (notas e artefatos com referência), em vez de devolver um texto que o pai precisa reverificar.
    - Leitura por padrão; escrita só nas classes que a política já permite.
-5. **Catálogo de tools sempre visível e curto.** O índice das famílias fica no prompt, e o modelo carrega o grupo com `tool_search`. O regex atual vira só uma *dica* de pré-carga, nunca um portão.
-6. **Contexto sem amnésia.**
+6. **Catálogo de tools sempre visível e curto.** O índice das famílias fica no prompt, e o modelo carrega o grupo com `tool_search`. O regex atual vira só uma *dica* de pré-carga, nunca um portão.
+7. **Contexto sem amnésia.**
    - O caderno da tarefa e a lista sobrevivem à compactação.
    - Resultados grandes viram referência relível; nada é descartado em silêncio.
    - A memória ganha mais espaço.
-7. **Perguntas pela política, não pelo humor do modelo.**
+   - Quatro memórias separadas: trabalho (janela atual), caderno da tarefa (notas e fontes do trabalho em andamento), plano (lista de tarefas) e longo prazo (preferências e histórico, consultados por busca).
+8. **Perguntas pela política, não pelo humor do modelo.**
    - Uma rodada no começo, agrupada e com padrão sugerido.
    - No meio do trabalho, só para irreversível, saída para fora, dinheiro ou dado sensível; a mesma matriz da 0.3.4.
    - Ao falhar, tenta outro caminho e volta com diagnóstico, solução e uma pergunta sim/não.
-8. **Entrega única.** Trabalho longo termina num documento (ou painel) com fontes, suposições e "o que não deu para confirmar". O chat recebe só um resumo e o link.
-9. **Raciocínio controlável** por bot e por chat (desligado, baixo, médio, alto), para usar um modelo mais forte em nível baixo.
-10. **Observável desde o dia 1.**
+9. **Entrega única.** Trabalho longo termina num documento (ou painel) com fontes, suposições e "o que não deu para confirmar". O chat recebe só um resumo e o link.
+10. **Raciocínio controlável** por bot e por chat (desligado, baixo, médio, alto), para usar um modelo mais forte em nível baixo.
+11. **Observável desde o dia 1.**
     - `stopReason` estruturado por run (enum) e evento próprio.
     - Custo, passos, perguntas feitas e itens da lista entregues ou descartados.
 
@@ -94,7 +107,4 @@ Cada fase é um PR (ou poucos) contra o ramo da versão, com auditoria independe
   - O orçamento padrão de "trabalho longo" é decisão do dono (sugestão inicial: até US$ 0,50 e 20 min por tarefa, ajustável por bot).
 - **Dois motores convivendo** por algumas semanas: mais código para manter e testes dos dois. Mitigação: as tools são compartilhadas desde a F1.
 - **Checkpoint v1 × v2:** run em andamento continua no motor em que começou (o motor é gravado no `budgetJson` na criação).
-- **Abertos para o dono:**
-  - orçamento padrão do perfil "trabalho longo";
-  - modelo do piloto (ex.: Sonnet em raciocínio baixo);
-  - qual bot vira piloto.
+- **Decidido:** ver "Decisões do dono".
