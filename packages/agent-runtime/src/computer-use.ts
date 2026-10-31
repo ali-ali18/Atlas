@@ -4486,6 +4486,10 @@ async function executeMcpTool(
 	// Cofre: enviar um segredo a um conector sempre passa pelo cartão (diz o que será gravado e onde).
 	const secretRefs = collectRefs(args);
 	const jevEligible = (entry.actionClass === "write" || entry.actionClass === "irreversible") && ctx.origin === "chat" && !!ctx.conversationId && !!ctx.jevMcpMode && ctx.jevMcpMode !== "off";
+	// Tarefa pedida por outro bot (run `bot`) tem humano na cadeia como o chat: a concessão vale ali também, com a mesma
+	// checagem do Jev por uso. Só a revisão de concessão abre para `bot`; a revisão geral de escrita segue só no chat.
+	const grantOrigin = ctx.origin === "chat" || ctx.origin === "bot";
+	const jevGrantEligible = (entry.actionClass === "write" || entry.actionClass === "irreversible") && grantOrigin && !!ctx.conversationId && !!ctx.jevMcpMode && ctx.jevMcpMode !== "off";
 	// Conteúdo que o usuário não escreveu (e-mail, página, arquivo, subagente, conector) já passou por este run ou por um anterior da conversa.
 	const untrustedSeen = ctx.mcpRun?.untrustedSeen === true || (await ctx.mcpRun?.conversationUntrusted?.()) === true;
 	const neverAsk = policy ? autonomyExceptionMode(policy, entry.autonomyMeta) === "never_ask" : false;
@@ -4499,11 +4503,11 @@ async function executeMcpTool(
 	let jevReviewReason: JevReviewReason | undefined;
 	const alwaysAsk = policy ? autonomyExceptionMode(policy, entry.autonomyMeta) === "always_ask" : false;
 	const grantKey = ctx.conversationId && ctx.userId ? { userId: ctx.userId, conversationId: ctx.conversationId, connectionId: entry.connectionId, exposedName: name } : undefined;
-	if (grantKey && !ctx.forceConfirm && !alwaysAsk && canGrantMcpTask(entry.actionClass, entry.toolName) && !entry.readOnly && ctx.origin === "chat" && secretRefs.length === 0 && !hasExternalTargetArgs(args) && (decision === "ask" || (decision === "allow" && jevEligible))) {
+	if (grantKey && !ctx.forceConfirm && !alwaysAsk && canGrantMcpTask(entry.actionClass, entry.toolName) && !entry.readOnly && grantOrigin && secretRefs.length === 0 && !hasExternalTargetArgs(args) && (decision === "ask" || (decision === "allow" && jevEligible))) {
 		grantUse = await consumeMcpTaskGrant(grantKey).catch(() => null);
 		const untrustedForGrant = untrustedSeen || (grantUse?.untrustedAt ?? null) !== null;
 		if (grantUse && untrustedForGrant) {
-			if (!jevEligible || ctx.jevMcpMode !== "gate") {
+			if (!jevGrantEligible || ctx.jevMcpMode !== "gate") {
 				// Sem Jev que possa barrar: nada de escrita silenciosa depois de conteúdo externo.
 				await releaseMcpTaskGrant(grantKey).catch(() => undefined);
 				grantUse = null;
@@ -7906,7 +7910,9 @@ export async function runComputerUse(params: {
 					},
 				}));
 				// Ponto único: todo resultado que volta ao modelo com conteúdo que o usuário não escreveu invalida a aprovação por tarefa.
-				if (isUntrustedContentTool(name)) await markUntrusted();
+				// Exceção: o cartão de confirmação de um conector só ecoa o que o próprio modelo pediu (nada foi lido ainda). Marcar aqui
+				// fazia a concessão nascer "de fora" no primeiro cartão e o Jev passar a conferir (ou o cartão voltar) em todo uso.
+				if (isUntrustedContentTool(name) && !(isMcpToolName(name) && outcome.confirmEvent)) await markUntrusted();
 				summary = outcome.summary;
 				image = outcome.image;
 				visionArtifactIds = outcome.visionArtifactIds ?? [];

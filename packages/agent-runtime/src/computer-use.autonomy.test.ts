@@ -94,6 +94,20 @@ const calendar = {
 	],
 };
 
+/** Conector de ERP personalizado: tools em pt-BR e sem `readOnlyHint` (o servidor não anota), logo a classe é escrita reversível. */
+const erp = {
+	id: "conn-erp",
+	slug: "agroervas",
+	name: "Agroervas",
+	disabledTools: [],
+	tools: [
+		{ name: "avisos_ativos", description: "Consulta somente leitura dos avisos", inputSchema: { type: "object", properties: {} } },
+		{ name: "listar_pedidos", description: "Consulta somente leitura dos pedidos", inputSchema: { type: "object", properties: { pagina: { type: "number" } } } },
+		{ name: "listar_propostas", description: "Consulta somente leitura das propostas", inputSchema: { type: "object", properties: { pagina: { type: "number" } } } },
+		{ name: "criar_pedido", description: "Cria pedido", inputSchema: { type: "object", properties: { cliente: { type: "string" } } } },
+	],
+};
+
 type Autonomy = NonNullable<Parameters<typeof runComputerUse>[0]["autonomy"]>;
 const lvl = (level: Autonomy["level"], exceptions: Autonomy["exceptions"] = []): Autonomy => ({
 	level,
@@ -117,10 +131,12 @@ async function run(input: {
 	readText?: string;
 	/** Run retomado de um checkpoint que já tinha lido conteúdo externo. */
 	resumeUntrusted?: boolean;
+	/** Conector do run (padrão: Google Agenda). */
+	connector?: typeof calendar | typeof erp;
 }) {
 	const call = vi.fn(async (name: string) => ({ ok: true, text: name.endsWith("list_events") && input.readText ? input.readText : "feito", truncated: false }));
 	const mcp: McpRuntime = {
-		toolset: buildMcpToolset([calendar], {
+		toolset: buildMcpToolset([input.connector ?? calendar], {
 			autonomy: input.toolsetAutonomy ?? input.autonomy,
 			unattended: input.unattended,
 		}),
@@ -477,6 +493,62 @@ describe("aprovação por tarefa: conteúdo que o usuário não escreveu passa p
 		expect(first.checkpoints.at(-1)?.untrustedSeen).toBe(true);
 		const clean = await run({ autonomy: lvl("balanced"), text: "oi", calls: [assistantDone()] });
 		expect(clean.checkpoints.at(-1)?.untrustedSeen).toBeUndefined();
+	});
+});
+
+describe("aprovação por tarefa em run de outro bot (caso Radar de Mercado pedido pelo Cookie)", () => {
+	const avisos = "mcp__agroervas__avisos_ativos";
+	const pedidos = "mcp__agroervas__listar_pedidos";
+	const criar = "mcp__agroervas__criar_pedido";
+	const clean = async () => ({ model: "jev", alignment: 1, externalInstruction: 0, durationMs: 1 });
+	beforeEach(() => {
+		vi.clearAllMocks();
+		vi.mocked(consumeMcpTaskGrant).mockResolvedValue(null);
+	});
+	afterEach(() => {
+		vi.mocked(consumeMcpTaskGrant).mockResolvedValue(null);
+	});
+
+	it("o cartão de aprovação do conector não marca a conversa nem as concessões como conteúdo de fora (nada foi lido ainda)", async () => {
+		const first = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico do Cookie", jevMcpMode: "gate", evaluateMcpWithJev: clean, calls: [toolCall("c1", avisos, {})] });
+		expect(first.confirms).toHaveLength(1);
+		expect(markConversationUntrusted).not.toHaveBeenCalled();
+		expect(markMcpTaskGrantsUntrusted).not.toHaveBeenCalled();
+	});
+
+	it("depois da 1ª aprovação, listar_pedidos página 2 e 3 executam sem novo cartão no run do bot (Jev confere o conteúdo lido)", async () => {
+		let uses = 1;
+		vi.mocked(consumeMcpTaskGrant).mockImplementation(async (key) => (key.connectionId === "conn-erp" && key.exposedName === pedidos ? { uses: (uses += 1), maxUses: 30, confirmId: "confirm-x", untrustedAt: null } : null));
+		const evaluator = vi.fn(clean);
+		const result = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico do Cookie", jevMcpMode: "gate", evaluateMcpWithJev: evaluator, maxSteps: 8, calls: [toolCall("p2", pedidos, { pagina: 2 }), toolCall("p3", pedidos, { pagina: 3 }), assistantDone()] });
+		expect(result.call).toHaveBeenCalledTimes(2);
+		expect(result.confirms).toHaveLength(0);
+		// 1º uso: nada lido antes, sem Jev; 2º: o resultado do conector já conta como conteúdo de fora.
+		expect(evaluator).toHaveBeenCalledTimes(1);
+		expect(consumeMcpTaskGrant).toHaveBeenCalledWith({ userId: "user-1", conversationId: "conv-aut", connectionId: "conn-erp", exposedName: pedidos });
+	});
+
+	it("run de bot sem Jev em modo gate: depois de ler conteúdo de fora a concessão não vale e volta o cartão (devolvendo o uso)", async () => {
+		vi.mocked(consumeMcpTaskGrant).mockResolvedValue({ uses: 2, maxUses: 30, confirmId: "x", untrustedAt: null });
+		const result = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", jevMcpMode: "shadow", maxSteps: 8, calls: [toolCall("p2", pedidos, { pagina: 2 }), toolCall("p3", pedidos, { pagina: 3 })] });
+		expect(result.call).toHaveBeenCalledTimes(1);
+		expect(result.confirms).toHaveLength(1);
+		expect(releaseMcpTaskGrant).toHaveBeenCalledTimes(1);
+	});
+
+	it("escrita no mesmo conector, outra conversa ou outro dono (sem concessão) continuam pedindo; irreversível nem consulta a concessão", async () => {
+		const write = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", jevMcpMode: "gate", evaluateMcpWithJev: clean, calls: [toolCall("w1", criar, { cliente: "A" })] });
+		expect(write.confirms).toHaveLength(1);
+		expect(write.call).not.toHaveBeenCalled();
+	});
+
+	it("rotina e webhook continuam sem concessão (ninguém para responder)", async () => {
+		vi.mocked(consumeMcpTaskGrant).mockResolvedValue({ uses: 2, maxUses: 30, confirmId: "x", untrustedAt: null });
+		for (const origin of ["routine", "webhook", "proactive"]) {
+			const result = await run({ connector: erp, origin, autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 }), assistantDone()] });
+			expect(result.call).not.toHaveBeenCalled();
+		}
+		expect(consumeMcpTaskGrant).not.toHaveBeenCalled();
 	});
 });
 
