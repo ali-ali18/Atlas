@@ -18,11 +18,23 @@ const all = new Set<ContextGroup>(CONTEXT_GROUPS);
 describe("prompt em blocos (L5)", () => {
 	it("o prompt legado (todos os blocos, ordem original) é é o prompt legado com a regra de skills em inglês e o vocabulário V6 do navegador e a política única de agir primeiro (com leitura por intenção), sem identidade nem idioma no núcleo e sem as frases cobertas pela disciplina do modelo (hash fixa o texto)", () => {
 		const legacy = legacySystemPrompt();
-		expect(legacy.length).toBe(24_955);
+		expect(legacy.length).toBe(25_340);
 		expect(createHash("sha256").update(legacy).digest("hex")).toBe(
-			"010bc2ab8f232c90b6580644abe6effe5e786b3fb499defd841c0dfb768df20c",
+			"7d2f431fd3bfe810e0f0159c8abea2eb928634f063dc266c1f0c8696e55f5bc7",
 		);
 		expect(SYSTEM_PROMPT).toBe(legacy);
+	});
+
+	it("a regra de planejar tarefa longa está no núcleo estável, sem depender de grupo nem de minuto", () => {
+		const core = assembleSystemPrompt(none);
+		expect(core).toContain("Planning: for any request needing 3+ distinct steps");
+		expect(core).toContain("call `update_task_list` FIRST with the plan, then keep it updated (one in_progress, mark completed as you go)");
+		expect(core).toContain("Never for a simple question, a greeting or a single lookup");
+		expect(assembleSystemPrompt(all)).toContain("Planning: for any request needing 3+ distinct steps");
+		expect(legacySystemPrompt()).toContain("Planning: for any request needing 3+ distinct steps");
+		// Estável: nada de data/hora no bloco (o cache do prefixo não quebra).
+		const rule = core.slice(core.indexOf("Planning:"), core.indexOf("Never for a simple question") + 80);
+		expect(rule).not.toMatch(/\d{2}:\d{2}|\d{4}-\d{2}-\d{2}/);
 	});
 
 	it("regras de consulta de dados ficam no grupo data, não no núcleo; o núcleo só tem 2 linhas genéricas", () => {

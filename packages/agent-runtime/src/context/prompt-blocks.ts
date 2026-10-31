@@ -221,6 +221,12 @@ export const P_DELEGATION: string[] = [
 	"- Sub-agents have web search/scrape (a web connector when connected, otherwise native web tools) and read-only connectors. In task goals say \"search the web\" or \"use the available search/scrape tools (prefer a connected web connector)\"; do not name web_search/web_extract and do not pass `tools` for web work. They cannot use the browser: use it yourself only as a fallback, after their reports.",
 ];
 
+/** Planejar antes de executar tarefa longa: regra fixa do núcleo (a tool `update_task_list` só existe com humano acompanhando). */
+export const P_PLANNING: string[] = [
+	"Planning: for any request needing 3+ distinct steps (research and compare, several lookups or pages, creating several things, multi-turn work, a delegated diagnosis), call `update_task_list` FIRST with the plan, then keep it updated (one in_progress, mark completed as you go).",
+	"Never for a simple question, a greeting or a single lookup. In a coding session use `todo_write` instead.",
+];
+
 /** Criação de arquivos. */
 export const P_FILES: string[] = [
 	"Files:",
@@ -465,7 +471,7 @@ export function groupProcedureText(requested: ReadonlySet<ContextGroup>, devEnab
  */
 export function assembleSystemPromptParts(groups: ReadonlySet<ContextGroup>): { core: string; procedures: string } {
 	return {
-		core: join(P_HEAD, P_CONNECTOR_RESOURCES, P_DELEGATION, P_ASK, P_MEMORY, P_SKILLS, P_APP_INFO, P_TAIL),
+		core: join(P_HEAD, P_CONNECTOR_RESOURCES, P_PLANNING, P_DELEGATION, P_ASK, P_MEMORY, P_SKILLS, P_APP_INFO, P_TAIL),
 		procedures: groupProcedureText(groups),
 	};
 }
@@ -493,6 +499,8 @@ export function legacySystemPrompt(): string {
 		...P_ROUTINES_A,
 		...P_CONNECTOR_RESOURCES,
 		...P_ROUTINES_B,
+		"",
+		...P_PLANNING,
 		"",
 		...P_DELEGATION,
 		"",

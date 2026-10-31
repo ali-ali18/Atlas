@@ -4,7 +4,7 @@ import type { CompleteChatWithToolsResult, LlmMessage } from "@workspace/llm";
 import { renderTaskListNote } from "@workspace/shared";
 import { upsertTaskListCard } from "@workspace/db";
 import { runComputerUse } from "./computer-use.js";
-import { executeUpdateTaskList } from "./tools/task-list.js";
+import { devTodosToTaskList, executeUpdateTaskList, shouldExposeTaskList } from "./tools/task-list.js";
 
 vi.mock("@workspace/db", async (original) => ({
 	...(await original<typeof import("@workspace/db")>()),
@@ -111,6 +111,21 @@ describe("update_task_list no loop", () => {
 		expect(routine.requests[0]!.tools).not.toContain("update_task_list");
 	});
 
+	it("fica por origem: chat e bot atendendo outro bot (com humano na conversa) recebem; rotina, webhook, proativo e subagente não", async () => {
+		for (const origin of ["chat", "bot"]) {
+			expect((await run({ calls: [say("ok")], origin })).requests[0]!.tools, origin).toContain("update_task_list");
+		}
+		for (const origin of ["routine", "webhook", "proactive", "subagent"]) {
+			expect((await run({ calls: [say("ok")], origin })).requests[0]!.tools, origin).not.toContain("update_task_list");
+		}
+	});
+
+	it("bot atendendo outro bot persiste o cartão na conversa dele e emite o evento da doca", async () => {
+		const { events } = await run({ origin: "bot", calls: [toolCall("update_task_list", { items: LIST }), say("feito")] });
+		expect(events.filter((e) => e.type === "task_list")).toHaveLength(1);
+		expect(upsertTaskListCard).toHaveBeenLastCalledWith("conv-tl", "run-tl", LIST);
+	});
+
 	it("salva no checkpoint e reinjeta a nota no passo seguinte", async () => {
 		const { requests, checkpoints, systemTexts } = await run({ calls: [toolCall("update_task_list", { items: LIST }), say("feito")] });
 		expect(systemTexts(0).some((t) => t.includes("Current task list"))).toBe(false);
@@ -149,5 +164,78 @@ describe("update_task_list no loop", () => {
 		expect(result?.ok).toBe(false);
 		expect(events.some((e) => e.type === "task_list")).toBe(false);
 		expect(checkpoints.at(-1)?.taskState?.taskList).toEqual(LIST);
+	});
+});
+
+describe("quem recebe a lista (função pura)", () => {
+	it("só o agente principal em chat ou bot", () => {
+		expect(shouldExposeTaskList({ origin: "chat", isSubagent: false })).toBe(true);
+		expect(shouldExposeTaskList({ origin: "bot", isSubagent: false })).toBe(true);
+		expect(shouldExposeTaskList({ origin: "bot", isSubagent: true })).toBe(false);
+		for (const origin of ["routine", "webhook", "proactive", "subagent", "email", undefined]) {
+			expect(shouldExposeTaskList({ origin, isSubagent: false })).toBe(false);
+		}
+	});
+});
+
+describe("todo_write da sessão de código alimenta a mesma lista", () => {
+	it("converte: cancelados saem e só um item fica em andamento", () => {
+		expect(
+			devTodosToTaskList([
+				{ content: "a", status: "completed" },
+				{ content: "b", status: "in_progress" },
+				{ content: "c", status: "in_progress" },
+				{ content: "d", status: "cancelled" },
+				{ content: "e", status: "pending" },
+			]),
+		).toEqual([
+			{ content: "a", status: "completed" },
+			{ content: "b", status: "in_progress" },
+			{ content: "c", status: "pending" },
+			{ content: "e", status: "pending" },
+		]);
+		expect(devTodosToTaskList([])).toEqual([]);
+	});
+});
+
+describe("todo_write dentro do run de chat", () => {
+	it("a lista do todo_write chega à doca (evento task_list + cartão) e fica no estado do run", async () => {
+		const updates: unknown[] = [];
+		const session = { id: "sess-1", todos: [] as unknown[], status: "ready", tier: "small", containerId: "c1" };
+		const events: Array<Record<string, unknown>> = [];
+		const queue = [
+			toolCall("todo_write", { items: [
+				{ id: "1", content: "Ler o codigo", status: "completed" },
+				{ id: "2", content: "Corrigir o teste", status: "in_progress" },
+				{ id: "3", content: "Descartado", status: "cancelled" },
+			] }),
+			say("feito"),
+		];
+		await runComputerUse({
+			manager: {} as SandboxManager,
+			getSessionId: async () => "unused",
+			sandboxEnabled: false,
+			apiKey: "test",
+			model: "m",
+			runId: "run-dev-tl",
+			userId: "user-a",
+			conversationId: "conv-dev",
+			origin: "chat",
+			messages: [{ role: "user", content: "corrige o teste que esta falhando no repo" }],
+			devSession: {
+				config: { enabled: true },
+				store: { findForConversation: async () => session, get: async () => session, update: async (_id: string, patch: unknown) => { updates.push(patch); } },
+				provider: {},
+				getGithubToken: async () => ({ ok: false }),
+			} as never,
+			onEvent: (event) => { events.push(event as never); },
+			streamChat: async () => queue.shift() ?? say("fim"),
+		});
+		const todoEvent = events.find((e) => e.type === "todo_updated");
+		expect(todoEvent).toBeDefined();
+		const lists = events.filter((e) => e.type === "task_list") as Array<{ items: unknown; runId?: string }>;
+		expect(lists).toHaveLength(1);
+		expect(lists[0]).toMatchObject({ runId: "run-dev-tl", items: [{ content: "Ler o codigo", status: "completed" }, { content: "Corrigir o teste", status: "in_progress" }] });
+		expect(upsertTaskListCard).toHaveBeenLastCalledWith("conv-dev", "run-dev-tl", lists[0]!.items);
 	});
 });
