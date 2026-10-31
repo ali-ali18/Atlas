@@ -4,6 +4,11 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+## [0.3.3-beta] - 2026-10-31
+
+### Adicionado
+- **llm, shared, agent, web:** o avatar mostra a ação antes de a ferramenta começar. O stream do modelo já traz o nome da ferramenta no primeiro pedaço, mas o app só sabia depois do turno inteiro; ao gerar um arquivo ou código grande (`write_file`, `edit_file`, `run_code`) o avatar passava segundos ou dezenas de segundos em "pensando". Agora o runtime emite o evento novo `tool_intent` (`{ name, callId? }`, só o nome, nunca argumentos) assim que o nome chega, e o avatar já vira Programando, Rodando, Pesquisando etc. Em um replay com geração longa de argumentos, "pensando" cai de 57% para 4% do run; com pausa de 3,5 s entre ferramentas, de 30% para 11% (gap de 6 s: 53% para 14%). O evento é só para a tela ao vivo: não vira mensagem do chat (passa pelo log do run como o `tool_call` e some na retenção), só sai para ferramenta que o run expõe e só em run com tela (nem subagente nem rotina). Callback opcional `onToolIntent` no stream (OpenRouter e Anthropic direto; o ChatGPT/Responses ainda não avisa e segue como antes). Compatível com versões mistas: web antigo ignora o tipo desconhecido e web novo sem o evento se comporta como antes. Ferramenta de raciocínio puro (lista de tarefas, hora) não muda o avatar. Sem migration
+
 ## [0.3.2-beta] - 2026-10-31
 
 ### Adicionado
