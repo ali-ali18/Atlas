@@ -17,7 +17,7 @@ import { InterruptedByInputError, runInterruptible, type RunSignalSubscribe } fr
 import { createDevVerificationTracker, MAX_VERIFY_EXTENSIONS, VERIFY_BEFORE_DONE_NOTE } from "./execution/dev-verification.js";
 import { createTaskTracker, EMPTY_REPLY_FALLBACK_TEXT, EMPTY_REPLY_NOTE, FILE_CRITERION_ID, MAX_ANSWER_REVISIONS_PER_RUN, MISSING_ARTIFACT_NOTE, TRUNCATED_REPLY_NOTE, withWithdrawnReply } from "./execution/task-state.js";
 import { MCP_RESULT_MAX_CHARS, UNCERTAIN_WRITE_NOTE } from "./mcp/call.js";
-import { detectLoginWall, describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
+import { b3QuotePageReason, detectLoginWall, describeRoutineProposalSchedule, parseTaskList, renderTaskListNote, attachHistoryImages, TRANSCRIPT_SLOT, type SerializedLlmMessage, type HistoryImageGroup, buildToolResultStatus, classifyFinish, createCapabilitySnapshot, type FinishReason, type ToolResultStatus } from "@workspace/shared";
 import { alreadyLoadedSummary, findAlreadyLoadedTools } from "./execution/tool-search-guard.js";
 import { runSandboxOperation, type SandboxExecutionContext } from "@workspace/sandbox";
 import {
@@ -399,6 +399,7 @@ import { RUN_CODE_TOOL, executeRunCode, type RunCodeDeps } from "./tools/run-cod
 import { ROUTINE_CONTROL_TOOL, ROUTINE_CONTROL_TOOL_NAME, executeRoutineControl } from "./tools/routine-control.js";
 import { REPORT_ALERT_TOOL, REPORT_ALERT_TOOL_NAME, alertRunNote, executeReportAlert, type AlertRunState } from "./tools/report-alert.js";
 import { ALERT_RULE_SCHEMA, alertRuleReadingNote, ownerAlertRuleReader, testAlertRule, type AlertRuleReader } from "./tools/alert-rule.js";
+import { FIND_PAGE_VALUE_TOOL, FIND_PAGE_VALUE_TOOL_NAME, executeFindPageValue, type PageValueFinder } from "./tools/find-page-value.js";
 import { upsertDailyBrief } from "./tools/daily-brief.js";
 import { listBriefSources } from "./tools/daily-brief-sources.js";
 import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME, dbPagesStore, executePageTool, isPageTool, type PageShareStore, type PagesStore } from "./tools/pages.js";
@@ -1165,6 +1166,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		},
 	},
 	ROUTINE_CONTROL_TOOL,
+	FIND_PAGE_VALUE_TOOL,
 	{
 		type: "function",
 		function: {
@@ -2189,6 +2191,8 @@ type ToolContext = {
 	replyLanguage?: BotLanguage;
 	/** Leitor da fonte do teste da regra na criação (teste injeta; padrão lê a fonte com o guard SSRF). */
 	alertRuleReader?: AlertRuleReader;
+	/** Buscador do `find_page_value` (teste injeta; padrão lê a página com o guard SSRF). */
+	pageValueFinder?: PageValueFinder;
 	/** Após create/update de rotina: sync BullMQ scheduler (cron-only). */
 	onRoutineMutated?: (
 		routine: Pick<
@@ -2737,9 +2741,12 @@ async function executeProposeRoutine(
 			}
 			alertInput = parsedAlert.alert;
 			if (alertInput.rule) {
-				// Só grava a regra se ela lê agora (falha com motivo e dica; nada é criado).
-				const tested = await testAlertRule(alertInput.rule, ruleLocale, ctx.alertRuleReader ?? ownerAlertRuleReader(scope.userId));
-				alertReading = { display: tested.display, note: alertRuleReadingNote(alertInput.rule, tested.display, tested.note) };
+				// Ticker da B3 em página de site de cotação: a fonte é sempre `quote` (brapi), nunca a página.
+				const quoteSite = alertInput.rule.source.type === "page" ? b3QuotePageReason(alertInput.rule.source.url, [String(args.title ?? ""), detail, alertInput.condition, alertInput.hint, alertInput.rule.label, ctx.lastUserText]) : null;
+				if (quoteSite) throw new Error(`Rule rejected: ${quoteSite}`);
+				// Só grava a regra se ela lê agora (falha com motivo e dica; nada é criado). `expect` = o que a IA viu na página.
+				const tested = await testAlertRule(alertInput.rule, ruleLocale, ctx.alertRuleReader ?? ownerAlertRuleReader(scope.userId), parsedAlert.expect);
+				alertReading = { display: tested.display, note: alertRuleReadingNote(alertInput.rule, tested.display, tested.note, parsedAlert.expect !== undefined) };
 			}
 		}
 	}
@@ -4216,6 +4223,9 @@ async function executeToolInner(
 		case ROUTINE_CONTROL_TOOL_NAME: {
 			return executeRoutineControlTool(args, ctx);
 		}
+		case FIND_PAGE_VALUE_TOOL_NAME: {
+			return executeFindPageValue(args, ctx.pageValueFinder);
+		}
 		case "github_list_repos": {
 			return executeGithubListRepos(args, ctx);
 		}
@@ -5196,6 +5206,8 @@ export async function runComputerUse(params: {
 	alertRun?: AlertRunState;
 	/** Leitor da fonte do teste da regra de alerta (padrão: leitura real com guard SSRF; teste injeta). */
 	alertRuleReader?: AlertRuleReader;
+	/** Buscador do `find_page_value` (padrão: leitura real com guard SSRF; teste injeta). */
+	pageValueFinder?: PageValueFinder;
 	/** Persiste checkpoint após cada passo confirmado. */
 	onCheckpoint?: (checkpoint: AgentRunCheckpoint) => Promise<void>;
 	/** Sync BullMQ scheduler após create/update de rotina (cron). */
@@ -5425,6 +5437,7 @@ export async function runComputerUse(params: {
 		"propose_routine",
 		"routine_group",
 		ROUTINE_CONTROL_TOOL_NAME,
+		FIND_PAGE_VALUE_TOOL_NAME,
 		"github_list_repos",
 	]);
 	// Fase 1: pesquisa web NÃO entra em rotina (execução só executa a instrução).
@@ -7834,6 +7847,7 @@ export async function runComputerUse(params: {
 				...(alertRun ? { alertRun } : {}),
 				replyLanguage: language,
 				...(params.alertRuleReader ? { alertRuleReader: params.alertRuleReader } : {}),
+				...(params.pageValueFinder ? { pageValueFinder: params.pageValueFinder } : {}),
 				...(userPushRun
 					? { userPush: { mode: userPushRun.mode, send: userPushRun.send, quiet: userPushRun.quiet, sent: userPushSent, log: (line: string) => console.log(`[push] ${line}`) } }
 					: {}),
