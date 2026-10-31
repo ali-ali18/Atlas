@@ -276,6 +276,23 @@ function readFeed(doc: FetchedDocument): AlertRuleRead {
 }
 
 /**
+ * Busca uma página com o MESMO leitor seguro dos alertas (SSRF em cada salto, 5 MB, timeout, robots.txt). Nunca
+ * lança: falha vira `{ ok: false, code, reason }`. Usado pelo modo guiado (`find_page_value`) para achar o seletor.
+ */
+export async function fetchAlertPage(
+	url: string,
+	deps: AlertSourceDeps = {},
+): Promise<{ ok: true; body: string; contentType: string } | { ok: false; code: AlertSourceFailure; reason: string }> {
+	try {
+		const doc = await fetchShared(url, deps);
+		return { ok: true, body: doc.body, contentType: doc.contentType };
+	} catch (error) {
+		if (error instanceof SourceError) return { ok: false, code: error.code, reason: error.message };
+		return { ok: false, code: "network", reason: "não consegui acessar o site" };
+	}
+}
+
+/**
  * Lê a fonte de uma regra. Nunca lança: falha vira `{ ok: false, code, reason }` com texto simples (pt-BR) que
  * pode ir ao usuário e ao modelo, sem URL completa (a query pode ter chave).
  */
