@@ -10,7 +10,8 @@ export const GROUP_MAX_NUDGES_PER_MEMBER = 1;
 /** Resposta a partir deste tamanho já traz conteúdo útil: pergunta no fim não conta como "sem entrega". */
 const SUBSTANTIAL_CHARS = 600;
 const SUBSTANTIAL_LINES = 6;
-const SHORTEST_DELIVERY = 12;
+/** Letras/dígitos fora das frases de pedido a partir dos quais a resposta já traz conteúdo (a pergunta no fim é só cortesia). */
+const SUBSTANCE_CHARS = 20;
 
 export type UndeliveredReason = "empty" | "waiting" | "asks_input";
 
@@ -20,43 +21,44 @@ const WAITING = [
 	/\bpreciso (que|d[oae]s?|de)\b/i,
 	/\bpreciso\s+(primeiro|antes)\b/i,
 	/\bi need (you|the|a|an)\b/i,
-	/\bme (envie|envia|mande|manda|passe|passa|forne[cç]a|informe|diga)\b/i,
+	/\bme (envie|envia|mande|manda|passe|passa|forne[cç]a)\b/i,
 	/\bse (voc[eê]|vc|tu) (me )?(enviar|mandar|passar|fornecer|informar|der)\b/i,
 	/\bsend me\b/i,
 	/\bassim que (voc[eê]|vc|eu receber|receber|tiver)\b/i,
 	/\bn[aã]o (consigo|tenho como|d[aá] para) .{0,60}\bsem (o|a|os|as|um|uma)\b/i,
 ];
 
-const lastLine = (text: string): string =>
-	text
-		.trim()
-		.split("\n")
-		.filter((line) => line.trim())
-		.pop() ?? "";
+const letters = (text: string): number => (text.match(/[\p{L}\p{N}]/gu) ?? []).length;
+const isAsk = (sentence: string): boolean => WAITING.some((pattern) => pattern.test(sentence)) || /\?["')\]*_\s]*$/.test(sentence.trim());
 
 /**
  * A resposta do membro devolve o problema em vez de entregar? `null` = entregou (ou há conteúdo útil).
- * Heurística conservadora: resposta longa/estruturada nunca conta como "sem entrega".
+ * Conservadora: resposta longa/estruturada, ou com conteúdo antes do pedido ("A, B, C. Quer que eu aprofunde?"), é entrega.
+ * `empty` só para vazio ou só marcador; entrega curta ("Feito.") passa.
  */
 export function detectUndelivered(text: string | null | undefined): UndeliveredReason | null {
 	const body = (text ?? "").trim();
-	if (body.length < SHORTEST_DELIVERY) return "empty";
+	if (letters(body) === 0) return "empty";
 	const lines = body.split("\n").filter((line) => line.trim()).length;
 	if (body.length >= SUBSTANTIAL_CHARS || lines >= SUBSTANTIAL_LINES) return null;
-	if (WAITING.some((pattern) => pattern.test(body))) return "waiting";
-	if (/\?["')\]*_\s]*$/.test(lastLine(body))) return "asks_input";
-	return null;
+	const sentences = body.split(/(?<=[.!?])\s+|\n+/).filter((sentence) => sentence.trim());
+	const asks = sentences.filter(isAsk);
+	if (asks.length === 0) return null;
+	const substance = letters(sentences.filter((sentence) => !isAsk(sentence)).join(" "));
+	if (substance >= SUBSTANCE_CHARS) return null;
+	return asks.some((sentence) => WAITING.some((pattern) => pattern.test(sentence))) ? "waiting" : "asks_input";
 }
 
 /** Código gravado em `GroupReply.error` quando a resposta terminou mas não entregou. */
 export const UNDELIVERED_ERROR_PREFIX = "undelivered:";
-export const undeliveredError = (reason: UndeliveredReason | "pending_approval"): string => `${UNDELIVERED_ERROR_PREFIX}${reason}`;
+export const undeliveredError = (reason: UndeliveredReason | "pending_approval" | "still_running"): string => `${UNDELIVERED_ERROR_PREFIX}${reason}`;
 
 const REASON_TEXT: Record<string, string> = {
 	empty: "replied with nothing useful",
 	waiting: "replied that it is waiting for something instead of delivering",
 	asks_input: "replied with a question instead of delivering",
 	pending_approval: "its approval request was not answered in time",
+	still_running: "was still running when the deadline came",
 	no_progress: "did not finish in time",
 };
 

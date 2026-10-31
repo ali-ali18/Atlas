@@ -17,7 +17,17 @@ describe("detectUndelivered", () => {
 		expect(detectUndelivered("Pode me dizer o prazo?\n")).toBe("asks_input");
 		expect(detectUndelivered("")).toBe("empty");
 		expect(detectUndelivered(null)).toBe("empty");
-		expect(detectUndelivered("ok")).toBe("empty");
+		expect(detectUndelivered("  \n ")).toBe("empty");
+		expect(detectUndelivered("- ...")).toBe("empty");
+	});
+
+	it("não pega falso positivo: entrega curta, ou com pergunta de cortesia depois do conteúdo", () => {
+		expect(detectUndelivered("Feito.")).toBeNull();
+		expect(detectUndelivered("ok")).toBeNull();
+		expect(detectUndelivered("Concorrentes: A, B, C (resumo curto). Quer que eu aprofunde algum?")).toBeNull();
+		expect(detectUndelivered("Concorrentes: Alfa, Beta, Gama. Se precisar de mais, me envie o escopo.")).toBeNull();
+		expect(detectUndelivered("Pode me dizer o prazo, por favor?")).toBe("asks_input");
+		expect(detectUndelivered("Me diga o que você quer que eu faça.")).toBeNull();
 	});
 
 	it("entrega de verdade passa, mesmo curta ou com pergunta de cortesia no fim", () => {
@@ -72,6 +82,7 @@ describe("describeMissingDeliveries", () => {
 			{ botId: "b", reason: "replied with a question instead of delivering" },
 			{ botId: "c", reason: "did not finish in time" },
 		]);
+		expect(describeMissingDeliveries([{ botId: "e", createdAt: at(1), status: "failed", error: undeliveredError("still_running") }])[0]!.reason).toBe("was still running when the deadline came");
 	});
 });
 
