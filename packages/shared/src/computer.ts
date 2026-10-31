@@ -86,7 +86,7 @@ export type ComputerUseEvent =
 	 * Só a UI ao vivo usa (o avatar mostra a ação cedo); nunca leva argumentos, não vira mensagem do chat
 	 * e some do log do run na retenção. Cliente antigo ignora o tipo desconhecido.
 	 */
-	| { type: "tool_intent"; name: string; callId?: string }
+	| { type: "tool_intent"; name: string }
 	| { type: "tool_call"; id: string; name: string; args: string; step?: number; maxSteps?: number }
 	| {
 			type: "tool_result";

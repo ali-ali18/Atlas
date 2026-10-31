@@ -1187,7 +1187,7 @@ export type ComputerUseHandlers = {
 	onDiscard?: () => void;
 	onSession?: (session: { sessionId: string; viewerUrl: string }) => void;
 	/** O modelo escolheu a ferramenta e ainda gera os argumentos (só o nome; o `onToolCall` vem depois). */
-	onToolIntent?: (intent: { name: string; callId?: string }) => void;
+	onToolIntent?: (intent: { name: string }) => void;
 	onToolCall?: (call: {
 		id: string;
 		name: string;
@@ -1334,7 +1334,7 @@ export function dispatchComputerUseEvent(
 			break;
 		case "tool_intent":
 			if (typeof event.name !== "string" || !event.name) break;
-			handlers.onToolIntent?.({ name: event.name, ...(event.callId ? { callId: event.callId } : {}) });
+			handlers.onToolIntent?.({ name: event.name });
 			break;
 		case "tool_call":
 			handlers.onToolCall?.({

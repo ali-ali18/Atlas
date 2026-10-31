@@ -6928,7 +6928,8 @@ export async function runComputerUse(params: {
 		const closing = options?.closing === true;
 		const closingSignal = closing ? AbortSignal.any([summaryBaseSignal, AbortSignal.timeout(CLOSING_CALL_TIMEOUT_MS)]) : undefined;
 		const effectiveToolNames = new Set(effectiveTools.map((tool) => tool.function.name));
-		const intentSeen = new Set<number>();
+		// Chave index+nome: numa nova tentativa do provedor o mesmo index pode trazer outra tool.
+		const intentSeen = new Set<string>();
 		const liveIntents = !isSubagent && !isUnattendedOrigin(params.origin);
 		const callModel = (signal: AbortSignal | undefined) => streamChat(
 			{
@@ -6965,9 +6966,11 @@ export async function runComputerUse(params: {
 				// Só tool que o run expõe (fora disso o `tool_call` também não aparece) e só com front ao vivo.
 				onToolIntent: emitPublic && !options?.closing && liveIntents
 					? (intent) => {
-						if (intentSeen.has(intent.index) || !effectiveToolNames.has(intent.name)) return;
-						intentSeen.add(intent.index);
-						queueEvent({ type: "tool_intent", name: intent.name, ...(intent.id ? { callId: intent.id } : {}) });
+						const key = `${intent.index}:${intent.name}`;
+						if (intentSeen.has(key) || !effectiveToolNames.has(intent.name)) return;
+						intentSeen.add(key);
+						// Sem callId: o id cru do provedor não é o do tool_call (que leva namespace).
+						queueEvent({ type: "tool_intent", name: intent.name });
 					}
 					: undefined,
 			},

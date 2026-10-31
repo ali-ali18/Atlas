@@ -95,6 +95,15 @@ describe("onToolIntent no stream de tools", () => {
 		expect(intents.every((i) => i.name === "write_file")).toBe(true);
 	});
 
+	it("callback que lança não derruba o stream nem perde a chamada", async () => {
+		stub([call(0, { id: "c1", name: "write_file", arguments: '{"a":1}' }), "data: [DONE]\n\n"]);
+		const result = await streamChatWithTools(
+			{ messages: [{ role: "user", content: "oi" }], model: "t", apiKey: "k", tools: [] },
+			{ onToolIntent: () => { throw new Error("boom"); } },
+		);
+		expect(result.message.tool_calls?.[0]?.function).toEqual({ name: "write_file", arguments: '{"a":1}' });
+	});
+
 	it("cancelado pelo usuário: propaga o abort", async () => {
 		const controller = new AbortController();
 		vi.stubGlobal("fetch", vi.fn(async () => {

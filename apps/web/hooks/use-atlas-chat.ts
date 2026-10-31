@@ -563,7 +563,12 @@ async function loadRunEventPayloads(runId: string): Promise<{
 	return { events, lastSeq: after };
 }
 
+/** Sem tool_call nem texto depois do `tool_intent`, o avatar volta a "pensando" (o passo foi descartado ou refeito). */
+export const TOOL_INTENT_EXPIRY_MS = 15_000;
+
 export function createComputerHandlers(params: {
+	/** Prazo (ms) do estado "chegando" sem tool_call nem texto; só para teste. */
+	intentExpiryMs?: number;
 	onAgentPointer?: (event: AgentPointerEvent) => void;
 	onSandboxSession?: (session: {
 		sessionId: string;
@@ -626,6 +631,12 @@ export function createComputerHandlers(params: {
 	const liveState = params.liveState ?? createLiveBubbleState();
 	// Argumentos das chamadas em curso (o resultado de send_to_bot não repete o título).
 	const toolArgs = new Map<string, string>();
+	// Validade do aviso `tool_intent`: qualquer evento seguinte do run assume o estado e cancela o prazo.
+	let intentTimer: ReturnType<typeof setTimeout> | undefined;
+	const clearIntentExpiry = () => {
+		if (intentTimer) clearTimeout(intentTimer);
+		intentTimer = undefined;
+	};
 	return {
 		onRunId: (id) => {
 			params.onRunId?.(id);
@@ -636,6 +647,7 @@ export function createComputerHandlers(params: {
    params.setMessages((previous) => previous.some((message) => message.id === id) ? previous : dedupeCards(insertCardAfterCurrentTurn(previous, { id, kind: "provider-fallback", text: event.message, from: event.from, to: event.to })));
   },
 		onDelta: (id, delta) => {
+			clearIntentExpiry();
 			params.onRunStarted?.();
 			params.onActivity?.();
 			params.onStreamingMessage?.(id);
@@ -645,6 +657,7 @@ export function createComputerHandlers(params: {
 			);
 		},
 		onDiscard: () => {
+			clearIntentExpiry();
 			params.onActivity?.();
 			params.onStreamingMessage?.(null);
 			// Sem balão e sem texto descartado: o indicador avisa que a resposta está sendo revisada.
@@ -660,10 +673,17 @@ export function createComputerHandlers(params: {
 			if (!activity) return;
 			params.onRunStarted?.();
 			params.onActivity?.();
-			params.onStreamingMessage?.(null);
+			// Não mexe no balão em streaming (quem fecha é o tool_call, como antes): sem piscar.
 			params.onAgentActivity?.(activity);
+			// Passo que não chega ao tool_call (interrompido, tentativa refeita, conexão caída): volta a "pensando".
+			clearIntentExpiry();
+			intentTimer = setTimeout(() => {
+				intentTimer = undefined;
+				params.onAgentActivity?.({ phase: "thinking" });
+			}, params.intentExpiryMs ?? TOOL_INTENT_EXPIRY_MS);
 		},
 		onToolCall: (call) => {
+			clearIntentExpiry();
 			params.onRunStarted?.();
 			toolArgs.set(call.id, call.args);
 			if (call.name === "run_code") {
@@ -693,6 +713,7 @@ export function createComputerHandlers(params: {
 			});
 		},
 		onToolResult: (result) => {
+			clearIntentExpiry();
 			params.onActivity?.();
 			params.onStreamingMessage?.(null);
 			// Falha da ferramenta: o texto do indicador não muda, mas o avatar faz cara de erro.
@@ -733,16 +754,19 @@ export function createComputerHandlers(params: {
 			}
 		},
 		onPaused: () => {
+			clearIntentExpiry();
 			params.onStreamingMessage?.(null);
 			params.onPaused?.();
 		},
 		onCancelled: (reason) => {
+			clearIntentExpiry();
 			params.setMessages((previous) => clearRunningImageGen(previous));
 			params.onStreamingMessage?.(null);
 			params.onCancelled?.(reason);
 		},
 		onStatus: params.onStatus,
 		onError: (error) => {
+			clearIntentExpiry();
 			params.setMessages((previous) => clearRunningImageGen(previous));
 			params.onStreamingMessage?.(null);
 			params.onAgentActivity?.({ phase: "idle" });
@@ -1040,6 +1064,7 @@ export function createComputerHandlers(params: {
 			});
 		},
 		onDone: (result) => {
+			clearIntentExpiry();
 			params.setMessages((previous) => clearRunningImageGen(previous));
 			if (result?.model) params.onServedModel?.(result.model);
 			if (result?.usage) params.onUsage?.(result.usage);

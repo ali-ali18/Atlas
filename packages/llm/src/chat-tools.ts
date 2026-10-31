@@ -521,7 +521,12 @@ export async function streamChatWithTools(
 								toolCallParts.set(index, current);
 								if (current.name && !announcedTools.has(index)) {
 									announcedTools.add(index);
-									handlers.onToolIntent?.({ index, ...(current.id ? { id: current.id } : {}), name: current.name });
+									// Aviso de UI: um callback que lança nunca derruba o stream do modelo.
+									try {
+										handlers.onToolIntent?.({ index, ...(current.id ? { id: current.id } : {}), name: current.name });
+									} catch {
+										// ignorado de propósito
+									}
 								}
 							}
 						},

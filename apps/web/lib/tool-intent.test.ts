@@ -38,7 +38,7 @@ test("o texto do indicador usa a frase da família, sem nome interno da ferramen
 
 test("handler: tool_intent publica a ferramenta; tool_call e tool_result seguem o fluxo de sempre", () => {
 	const h = harness();
-	dispatchComputerUseEvent({ type: "tool_intent", name: "write_file", callId: "c1" }, h.handlers);
+	dispatchComputerUseEvent({ type: "tool_intent", name: "write_file" }, h.handlers);
 	dispatchComputerUseEvent({ type: "tool_call", id: "c1", name: "write_file", args: '{"path":"a.ts"}', step: 2, maxSteps: 12 }, h.handlers);
 	dispatchComputerUseEvent({ type: "tool_result", id: "c1", name: "write_file", ok: true, summary: "ok" }, h.handlers);
 	assert.deepEqual(h.seen.map((a) => a.phase), ["tool", "tool", "thinking"]);
@@ -104,4 +104,62 @@ test("avatar: modelo desistiu (aviso sem tool_call, depois texto) volta ao norma
 	endBotRun(id, "error", t0 + 4_000);
 	refreshBotAvatar(id, t0 + 30_000);
 	assert.equal(botAvatarSignal(id).state, "idle");
+});
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function timedHarness(expiry: number) {
+	const seen: AgentActivity[] = [];
+	const calls = { streaming: 0 };
+	const handlers = createComputerHandlers({
+		runId: "run-1",
+		intentExpiryMs: expiry,
+		onAgentActivity: (activity: AgentActivity) => seen.push(activity),
+		onStreamingMessage: () => { calls.streaming += 1; },
+		setMessages: () => undefined,
+	} as never);
+	return { handlers, seen, calls };
+}
+
+test("aviso sem tool_call (interrupção, tentativa refeita, conexão caída): expira e volta a 'pensando'", async () => {
+	const h = timedHarness(20);
+	dispatchComputerUseEvent({ type: "tool_intent", name: "write_file" }, h.handlers);
+	assert.equal(h.seen.at(-1)?.phase, "tool");
+	await wait(60);
+	assert.deepEqual(h.seen.at(-1), { phase: "thinking" });
+});
+
+test("o prazo não dispara depois de tool_call, texto ou erro (nada de 'pensando' por cima)", async () => {
+	for (const next of [
+		{ type: "tool_call", id: "c1", name: "write_file", args: "{}", step: 0, maxSteps: 4 },
+		{ type: "assistant_delta", id: "a", delta: "oi" },
+		{ type: "error", error: "falhou" },
+		{ type: "done", message: { role: "assistant", content: "x" }, model: "m" },
+	] as ComputerUseEvent[]) {
+		const h = timedHarness(20);
+		dispatchComputerUseEvent({ type: "tool_intent", name: "write_file" }, h.handlers);
+		dispatchComputerUseEvent(next, h.handlers);
+		const count = h.seen.length;
+		await wait(60);
+		assert.equal(h.seen.length, count, `evento ${next.type} deveria cancelar o prazo`);
+	}
+});
+
+test("novo aviso reinicia o prazo (retry com outra tool)", async () => {
+	const h = timedHarness(40);
+	dispatchComputerUseEvent({ type: "tool_intent", name: "write_file" }, h.handlers);
+	await wait(25);
+	dispatchComputerUseEvent({ type: "tool_intent", name: "run_code" }, h.handlers);
+	await wait(25);
+	assert.equal((h.seen.at(-1) as { tool?: string }).tool, "run_code", "ainda dentro do prazo do segundo aviso");
+	await wait(50);
+	assert.deepEqual(h.seen.at(-1), { phase: "thinking" });
+});
+
+test("o aviso não mexe no balão em streaming (quem fecha é o tool_call)", () => {
+	const h = timedHarness(10_000);
+	dispatchComputerUseEvent({ type: "tool_intent", name: "write_file" }, h.handlers);
+	assert.equal(h.calls.streaming, 0);
+	dispatchComputerUseEvent({ type: "tool_call", id: "c1", name: "write_file", args: "{}", step: 0, maxSteps: 4 }, h.handlers);
+	assert.equal(h.calls.streaming, 1);
 });

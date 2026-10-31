@@ -56,7 +56,7 @@ describe("tool_intent", () => {
 		expect(types.filter((t) => t === "tool_intent")).toHaveLength(1);
 		expect(types.indexOf("tool_intent")).toBeLessThan(types.indexOf("tool_call"));
 		const intent = events.find((e) => e.type === "tool_intent");
-		expect(intent).toEqual({ type: "tool_intent", name: "navigate", callId: "c1" });
+		expect(intent).toEqual({ type: "tool_intent", name: "navigate" });
 		expect(JSON.stringify(intent)).not.toContain("segredo");
 	});
 
@@ -104,4 +104,34 @@ describe("tool_intent", () => {
 		});
 		expect(events.filter((e) => e.type === "tool_intent")).toHaveLength(1);
 	});
+
+	it("nova tentativa do provedor com outra tool no mesmo index: as duas são avisadas", async () => {
+		const events: ComputerUseEvent[] = [];
+		const script = [turn(call("screenshot", {})), done];
+		await runComputerUse({
+			manager: { execScreenshot: vi.fn(async () => ({ base64: "", width: 1, height: 1 })) } as unknown as SandboxManager,
+			getSessionId: async () => "session-1",
+			apiKey: "test",
+			model: "m",
+			runId: "run-intent-3",
+			userId: "user-a",
+			botId: "bot-a",
+			origin: "chat",
+			contextEconomy: true,
+			messages: [{ role: "user", content: "abra o site loja.exemplo.com.br" }],
+			maxSteps: 6,
+			onEvent: (event) => void events.push(event),
+			streamChat: async (_p, handlers) => {
+				const reply = script.shift() ?? done;
+				if (reply.message.tool_calls) {
+					// tentativa 1 anunciou "navigate" no index 0 e caiu; a tentativa 2 traz outra tool no mesmo index.
+					handlers?.onToolIntent?.({ index: 0, name: "navigate" });
+					handlers?.onToolIntent?.({ index: 0, name: "screenshot" });
+				}
+				return reply;
+			},
+		});
+		expect(events.filter((e) => e.type === "tool_intent").map((e) => (e as { name: string }).name)).toEqual(["navigate", "screenshot"]);
+	});
+
 });
