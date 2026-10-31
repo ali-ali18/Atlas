@@ -363,6 +363,34 @@ export function groupTranscriptForBot(rows: readonly GroupTranscriptRow[], selfI
 	return out;
 }
 
+/** Limites do bloco "o que o usuário já respondeu no grupo": poucas falas e curtas, para não pesar no prompt. */
+export const GROUP_ANSWERS_MAX_MESSAGES = 8;
+export const GROUP_ANSWERS_MAX_CHARS = 1_500;
+
+/**
+ * Bloco (para o modelo) com as últimas falas do HUMANO no grupo, para o membro não repetir pergunta que o
+ * usuário já respondeu (o histórico do grupo é longo e cheio de falas de bots). Só `role: user` (falas de outros
+ * bots chegam como `assistant` com autor); a mais recente fica inteira, as antigas cortam primeiro quando
+ * passa do limite. Segredos conhecidos saem por `redact`. Sem fala do usuário devolve `null`.
+ */
+export function buildGroupAnswersNote(rows: readonly GroupTranscriptRow[], redact: (text: string) => string = (text) => text): string | null {
+	const said = rows
+		.filter((row) => row.role === "user")
+		.map((row) => redact(row.content).replace(/\s+/g, " ").trim())
+		.filter((text) => text.length > 0)
+		.slice(-GROUP_ANSWERS_MAX_MESSAGES);
+	if (said.length === 0) return null;
+	const header = "Answers the user already gave in this group (do not ask for these again; use them):";
+	let room = GROUP_ANSWERS_MAX_CHARS - header.length;
+	const kept: string[] = [];
+	for (let i = said.length - 1; i >= 0 && room > 12; i--) {
+		const line = `- ${said[i]!.length > room - 3 ? `${said[i]!.slice(0, Math.max(0, room - 6))}…` : said[i]}`;
+		kept.unshift(line);
+		room -= line.length + 1;
+	}
+	return `${header}\n${kept.join("\n")}`;
+}
+
 const oneLine = (value: string, max: number): string => value.replace(/\s+/g, " ").trim().slice(0, max);
 
 /** Bloco do prompt de um membro dentro do grupo (substitui o roster do `send_to_bot`). */
