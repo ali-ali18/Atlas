@@ -20,6 +20,7 @@ import {
 	pageValuesMatch,
 	sanitizeAlertExternalText,
 } from "@workspace/shared";
+import { CONTEXT_CHARS, contextAround, isPageRoot, isSkipped, squeeze, tagOf, visibleText } from "./page-context.js";
 import { fetchAlertPage, type AlertSourceDeps, type AlertSourceFailure } from "./alert-source.js";
 
 export const PAGE_VALUE_MAX_CANDIDATES = 10;
@@ -29,7 +30,9 @@ const TEXT_CAP = 400;
 const DIRECT_TEXT_MAX = 2000;
 const SPAN_TEXT_MAX = 160;
 const SELECTOR_ATTEMPTS = 80;
-const CONTEXT_CHARS = 160;
+const PROSE_CHARS = 60;
+/** Tempo máximo do localizador por página (depois do parse): passou, devolve o que já tem. */
+export const LOCATE_BUDGET_MS = 800;
 
 export type PageValueExtract = { kind: "css"; selector: string; attribute?: string };
 
@@ -55,7 +58,6 @@ export type LocatePageValueResult = {
 	skipped: number;
 };
 
-const SKIP_TAGS = new Set(["script", "style", "noscript", "template", "svg", "head", "iframe", "object", "canvas", "title"]);
 const STRUCTURED_META = [
 	'meta[itemprop="price"]',
 	'meta[itemprop="lowPrice"]',
@@ -68,44 +70,6 @@ const ATTR_STEP = ["itemprop", "property", "data-testid", "data-test", "data-tes
 const PRICE_ATTR = /^data-[a-z-]*(?:price|preco|valor|value|amount|cost)[a-z-]*$/i;
 
 type Hit = { el: Element; order: number; attribute?: string; structured: boolean };
-
-function squeeze(text: string | null | undefined): string {
-	return (text ?? "").replace(/\s+/g, " ").trim();
-}
-
-function tagOf(el: Element): string {
-	return (el.localName || el.tagName).toLowerCase();
-}
-
-function isSkipped(el: Element): boolean {
-	if (SKIP_TAGS.has(tagOf(el))) return true;
-	if (el.hasAttribute("hidden")) return true;
-	return /display\s*:\s*none/i.test(el.getAttribute("style") ?? "");
-}
-
-/**
- * Texto visível de um elemento para contexto e proximidade: sem script/estilo/escondido, com espaço entre elementos
- * (para ler "Galaxy X 256 GB R$ 3.299,00") e parando em `cap` caracteres, então nunca lê o documento inteiro.
- * Com `mark`, devolve também onde o elemento marcado começa e termina no texto.
- */
-function visibleText(el: Element, cap: number, mark?: Element): { text: string; start: number; end: number } {
-	const state = { text: "", start: -1, end: -1 };
-	const collect = (node: Node, depth: number): void => {
-		if (state.text.length >= cap || depth > 80) return;
-		if (node === mark) state.start = state.text.length;
-		if (node.nodeType === 3) {
-			state.text += node.nodeValue ?? "";
-			return;
-		}
-		if (node.nodeType !== 1 || isSkipped(node as Element)) return;
-		state.text += " ";
-		for (let child = node.firstChild; child; child = child.nextSibling) collect(child, depth + 1);
-		state.text += " ";
-		if (node === mark) state.end = state.text.length;
-	};
-	collect(el, 0);
-	return state;
-}
 
 /** Percorre o DOM uma vez e junta as ocorrências visíveis do valor (o menor elemento que o contém). */
 function collectVisibleHits(root: Element, value: string): { hits: Hit[]; capped: boolean } {
@@ -160,8 +124,9 @@ function collectVisibleHits(root: Element, value: string): { hits: Hit[]; capped
 // ---------------------------------------------------------------- seletor
 
 /** Valor de atributo que identifica o elemento (sku, papel, variante), sem ser o preço procurado nem um id numérico comprido. */
-function identityAttrValue(value: string, searched: string): boolean {
-	return /^[A-Za-z][\w .:-]{0,39}$/.test(value) && !/\d{6,}/.test(value) && !pageTextHasValue(value, searched);
+function identityAttrValue(value: string, searched: string, allowColon = false): boolean {
+	const shape = allowColon ? /^[A-Za-z][\w:-]{0,39}$/ : /^[A-Za-z][\w-]{0,39}$/;
+	return shape.test(value) && !/\d{6,}/.test(value) && !pageTextHasValue(value, searched);
 }
 /** Atributos de runtime/framework que mudam a cada render: nunca entram no seletor. */
 const VOLATILE_ATTR = /react|key|index|idx|uid|guid|session|token|nonce|csrf|time|hash|rand/i;
@@ -174,7 +139,7 @@ function ownVariants(el: Element, searched: string): string[] {
 	if (id && isStableId(id)) out.push(`#${id}`);
 	for (const name of ATTR_STEP) {
 		const attr = el.getAttribute(name);
-		if (attr !== null && identityAttrValue(attr, searched)) out.push(`${tag}[${name}="${attr}"]`);
+		if (attr !== null && identityAttrValue(attr, searched, name === "property" || name === "itemprop")) out.push(`${tag}[${name}="${attr}"]`);
 	}
 	for (const attr of Array.from(el.attributes)) {
 		if (!/^data-[a-z][a-z-]{2,38}$/.test(attr.name) || (ATTR_STEP as readonly string[]).includes(attr.name) || VOLATILE_ATTR.test(attr.name)) continue;
@@ -190,7 +155,7 @@ function ownVariants(el: Element, searched: string): string[] {
 	return out;
 }
 
-function proposeSelector(document: Document, el: Element, searched: string): string | null {
+function proposeSelector(document: Document, el: Element, searched: string, overBudget: () => boolean): string | null {
 	const isOnly = (selector: string): boolean => {
 		try {
 			const found = document.querySelectorAll(selector);
@@ -210,7 +175,7 @@ function proposeSelector(document: Document, el: Element, searched: string): str
 	}
 	const targets = [...own.slice(0, 3), tagOf(el)];
 	let attempts = 0;
-	const tryIt = (selector: string): boolean => attempts++ < SELECTOR_ATTEMPTS && isOnly(selector);
+	const tryIt = (selector: string): boolean => attempts++ < SELECTOR_ATTEMPTS && !overBudget() && isOnly(selector);
 	for (const target of targets) {
 		for (const anchor of anchors) for (const variant of anchor) if (tryIt(`${variant} ${target}`)) return `${variant} ${target}`;
 	}
@@ -239,22 +204,6 @@ function readExtract(document: Document, extract: PageValueExtract): string {
 
 // ---------------------------------------------------------------- contexto e proximidade
 
-const isPageRoot = (el: Element | null): boolean => !el || tagOf(el) === "body" || tagOf(el) === "html";
-
-/** ~120 caracteres de texto visível em volta: o que vem antes do elemento, o valor e o que vem depois. */
-function contextAround(el: Element, reading: string): string {
-	let anchor: Element = el;
-	for (let level = 0; level < 3 && !isPageRoot(anchor.parentElement); level += 1) {
-		if (squeeze(visibleText(anchor, 600).text).length >= reading.length + 15) break;
-		anchor = anchor.parentElement as Element;
-	}
-	const { text, start, end } = visibleText(anchor, 1500, el);
-	if (start < 0 || end < start) return sanitizeAlertExternalText(squeeze(text), CONTEXT_CHARS);
-	const before = squeeze(text.slice(0, start)).slice(-60);
-	const after = squeeze(text.slice(end)).slice(0, 50);
-	return sanitizeAlertExternalText(`${before} ${squeeze(text.slice(start, end))} ${after}`, CONTEXT_CHARS);
-}
-
 /** O texto de contexto (`near`) está no elemento ou num ancestral estreito (até 6 níveis e 800 caracteres, sem chegar ao body). */
 function containsNear(el: Element, near: string): boolean {
 	if (tagOf(el) === "meta") return false;
@@ -265,6 +214,30 @@ function containsNear(el: Element, near: string): boolean {
 		if (text.length >= 800) return false;
 	}
 	return false;
+}
+
+/** O valor está dentro de prosa (um parágrafo, ou um bloco com mais de ~60 caracteres de texto em volta): frágil e menos provável de ser "o" preço. */
+function isProse(el: Element): boolean {
+	for (let node: Element | null = el, level = 0; node && level < 4 && !isPageRoot(node); node = node.parentElement, level += 1) {
+		if (tagOf(node) === "p") return true;
+	}
+	const parent = el.parentElement;
+	return parent !== null && !isPageRoot(parent) && squeeze(visibleText(parent, 200).text).length > PROSE_CHARS;
+}
+
+const SEMANTIC_ANCESTOR = /cota|price|preco|quote|valor|current|atual/i;
+/** Pontos de relevância: o elemento mostra só o valor (+2) e um ancestral próximo tem classe/id com nome de preço (+1, ex.: `.cotacao`). */
+function valueRank(hit: Hit, reading: string, value: string): number {
+	const tight = hit.attribute || reading.length <= value.length + 8 ? 2 : 0;
+	let semantic = 0;
+	let node = hit.el.parentElement;
+	for (let level = 0; node && level < 5 && !isPageRoot(node); node = node.parentElement, level += 1) {
+		if (SEMANTIC_ANCESTOR.test(`${node.getAttribute("class") ?? ""} ${node.getAttribute("id") ?? ""}`)) {
+			semantic = 1;
+			break;
+		}
+	}
+	return tight + semantic;
 }
 
 // ---------------------------------------------------------------- JSON-LD
@@ -309,9 +282,11 @@ function collectJsonLdPrices(document: Document, value: string): JsonLdPrice[] {
  * Procura `value` no HTML e devolve até 10 ocorrências: dados estruturados primeiro, depois as que têm `near` por
  * perto, depois o resto na ordem da página. Não lança.
  */
-export function locatePageValue(html: string, value: string, near?: string): LocatePageValueResult {
+export function locatePageValue(html: string, value: string, near?: string, options: { budgetMs?: number } = {}): LocatePageValueResult {
 	if (!html.trim()) return { candidates: [], total: 0, skipped: 0 };
 	const { document } = parseHTML(html);
+	const deadline = Date.now() + (options.budgetMs ?? LOCATE_BUDGET_MS);
+	const overBudget = (): boolean => Date.now() >= deadline;
 	const wantedNear = near ? normalizePageText(near) : "";
 	const numeric = isNumericPageValue(value);
 	const hits: Hit[] = [];
@@ -325,7 +300,7 @@ export function locatePageValue(html: string, value: string, near?: string): Loc
 	const body = (document.body ?? document.documentElement) as Element | null;
 	if (body) hits.push(...collectVisibleHits(body, value).hits);
 
-	type Ranked = { hit: Hit; reading: string; near: boolean };
+	type Ranked = { hit: Hit; reading: string; near: boolean; prose: boolean; score: number };
 	const ranked: Ranked[] = [];
 	let skipped = 0;
 	for (const hit of hits) {
@@ -335,16 +310,25 @@ export function locatePageValue(html: string, value: string, near?: string): Loc
 			skipped += 1;
 			continue;
 		}
-		ranked.push({ hit, reading, near: wantedNear ? containsNear(hit.el, wantedNear) : false });
+		const over = overBudget();
+		ranked.push({
+			hit,
+			reading,
+			near: wantedNear && !over ? containsNear(hit.el, wantedNear) : false,
+			prose: over ? false : isProse(hit.el),
+			score: valueRank(hit, reading, value),
+		});
 	}
-	ranked.sort((a, b) => Number(b.hit.structured) - Number(a.hit.structured) || Number(b.near) - Number(a.near) || a.hit.order - b.hit.order);
+	// Estruturado primeiro; prosa (o preço citado dentro de um parágrafo) depois do elemento que mostra só o valor;
+	// então quem tem `near` por perto; então o valor sozinho sob um ancestral com nome de preço/cotação; então a ordem da página.
+	ranked.sort((a, b) => Number(b.hit.structured) - Number(a.hit.structured) || Number(a.prose) - Number(b.prose) || Number(b.near) - Number(a.near) || b.score - a.score || a.hit.order - b.hit.order);
 
 	const candidates: PageValueCandidate[] = [];
 	const seen = new Set<string>();
 	let total = 0;
 	for (const item of ranked) {
 		const { hit, reading } = item;
-		const selector = candidates.length < PAGE_VALUE_MAX_CANDIDATES ? proposeSelector(document, hit.el, value) : null;
+		const selector = candidates.length < PAGE_VALUE_MAX_CANDIDATES && !overBudget() ? proposeSelector(document, hit.el, value, overBudget) : null;
 		const extract: PageValueExtract | null = selector ? { kind: "css", selector, ...(hit.attribute ? { attribute: hit.attribute } : {}) } : null;
 		const verified = extract && pageValuesMatch(readExtract(document, extract), value) ? extract : null;
 		const key = verified ? `${verified.selector}|${verified.attribute ?? ""}` : "";
@@ -360,7 +344,7 @@ export function locatePageValue(html: string, value: string, near?: string): Loc
 			context: isMeta ? sanitizeAlertExternalText(`structured data ${hit.el.getAttribute("property") ?? hit.el.getAttribute("itemprop") ?? "price"}`, CONTEXT_CHARS) : contextAround(hit.el, reading),
 			nearMatch: item.near,
 			...(!verified
-				? { note: "no stable selector for this element (only generated classes or positions); prefer another occurrence" }
+				? { note: overBudget() ? "time budget reached before a selector was built for this element; ask again with `near` to narrow it" : "no stable selector for this element (only generated classes or positions); prefer another occurrence" }
 				: hit.structured && !item.near
 					? { note: wantedNear ? "the text around it does not mention what you asked for (it may be the default option): check the context" : "page-level price (usually the default option): check it is the item the user asked for" }
 					: {}),
@@ -389,7 +373,7 @@ export function locatePageValue(html: string, value: string, near?: string): Loc
 
 export type FindPageValueResult =
 	| ({ ok: true; host: string; ms: number } & LocatePageValueResult)
-	| { ok: false; code: AlertSourceFailure | "not_found"; reason: string; host: string; ms: number };
+	| { ok: false; code: AlertSourceFailure | "not_found"; reason: string; host: string; ms: number; /** not_found: o valor não está na página (absent) ou só aparece depois de outro número no elemento (not_first_number). */ detail?: "absent" | "not_first_number" };
 
 /**
  * Busca a página com o leitor seguro dos alertas (SSRF, 5 MB, timeout, robots.txt) e localiza o valor.
@@ -417,7 +401,7 @@ export async function findPageValue(url: string, input: { value: string; near?: 
 	}
 	if (located.candidates.length === 0) {
 		const reason = located.skipped > 0 ? "o valor aparece na página, mas nunca como primeiro número do elemento (a regra leria outro número)" : "valor não encontrado na página";
-		return { ok: false, code: "not_found", reason, host, ms: ms() };
+		return { ok: false, code: "not_found", reason, host, ms: ms(), detail: located.skipped > 0 ? "not_first_number" : "absent" };
 	}
 	return { ok: true, host, ms: ms(), ...located };
 }

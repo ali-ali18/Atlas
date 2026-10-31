@@ -159,6 +159,136 @@ describe("localizar o valor na página: loja com vários modelos", () => {
 	});
 });
 
+/** Trecho REAL da página do BBAS3 no Investidor10 (ícones SVG removidos): faixa de commodities, card "cotacao", caixa de preço atual e o parágrafo do FAQ com .livePrice. */
+const INVESTIDOR10_REAL = `<!DOCTYPE html><html lang="pt-br"><head><title>BBAS3: Cotação</title>
+<script type="application/ld+json">{
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+        {
+            "@type": "Question",
+            "name": "Qual a cotação de Banco do Brasil (BBAS3) hoje?",
+            "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "A cotação de Banco do Brasil (BBAS3) hoje está em R$ 16,47, com uma variação de -22,08% em relação aos últimos 12 meses. A cotação de Banco do Brasil (BBAS3) iniciou o ano negociando na casa dos R$ 21,92 e hoje está em R$ 16,47. Acompanhe o gráfico de cotação em tempo real, a cotação histórica de Banco do Brasil (BBAS3) e dados de ações do Ibovespa e mercados internacionais."
+            }
+        },
+        {
+            "@type": "Question",
+            "name": "Quando Banco do Brasil (BBAS3) paga dividendos?",
+            "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Banco do Brasil (BBAS3) distribuiu dividendos no último ano, nos meses de março, junho e dezembro totalizando R$ 1,18. O Dividend Yield referente aos últimos 12 meses é de 4,14%."
+            }
+        },
+        {
+            "@type": "Question",
+            "name": "Banco do Brasil (BBAS3) vale a pena?",
+            "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Atualmente, Banco do Brasil (BBAS3) está cotada a R$ 16,47. No último ano, a ação apresentou uma variação de -22,08% em sua cotação e distribuiu R$ 1,18 em dividendos, resultando em um Dividend Yield de 4,14%. O retorno total ao acionista foi de -22,08%.É importante lembrar que rentabilidade passada não garante resultados futuros. Isso não deve ser visto como uma recomendação de investimento."
+            }
+        },
+        {
+            "@type": "Question",
+            "name": "Como comprar ações de Banco do Brasil (BBAS3)?",
+            "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Investir em ações de Banco do Brasil (BBAS3) é simples. Abra uma conta em uma corretora de valores, transfira dinheiro e acesse o home broker. Procure pelo ticker BBAS3, defina a quantidade de ações e envie a ordem de compra. Após a liquidação, as ações farão parte do seu portfólio."
+            }
+        },
+        {
+            "@type": "Question",
+            "name": "Quanto rende 100 ações de Banco do Brasil (BBAS3) hoje?",
+            "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "A rentabilidade de Banco do Brasil (BBAS3) foi de -28,61% no último mês, -22,08% no último ano, 61,01% nos últimos cinco anos e 101,61% ao longo da última década (já considerando valorização e dividendos).Nos últimos 12 meses, a empresa pagou um total de R$ 1,18 em dividendos, resultando em um Dividend Yield de 4,14%.Se você quisesse comprar 100 ações de Banco do Brasil hoje, o investimento total seria de R$ 1.647,00, com base na cotação atual de R$ 16,47.Caso o desempenho passado de Banco do Brasil se repetisse, o retorno do seu investimento seria de: Em 5 anos: 61,01% (ou, R$ 2.651,83)Em 10 anos: 101,61% (ou, R$ 3.320,52) É importante lembrar que rentabilidade passada não garante resultados futuros. Isso não deve ser visto como uma recomendação de investimento."
+            }
+        }
+    ]
+}</script>
+</head><body>
+<a href="https://investidor10.com.br/commodities/boi-gordo/" class="menu-v2__card card-ranking-menu" data-type="commodities">
+  <div class="menu-v2__card-header"><span class="menu-v2__card-title">Boi Gordo</span></div>
+  <div class="menu-v2__commodities-cotacao"><span class="menu-v2__commodities-cotacao-label">Cotação:</span>
+    <span class="menu-v2__commodities-cotacao-value">R$ 669,66</span></div></a>
+<a href="https://investidor10.com.br/commodities/ouro/" class="menu-v2__card card-ranking-menu" data-type="commodities">
+  <div class="menu-v2__card-header"><span class="menu-v2__card-title">Ouro</span></div>
+  <div class="menu-v2__commodities-cotacao"><span class="menu-v2__commodities-cotacao-label">Cotação:</span>
+    <span class="menu-v2__commodities-cotacao-value">R$ 612,30</span></div></a>
+<section class="section-sectors ticker-content-section"><div class="container">
+<section id="cards-ticker" class="cards-ticker--stock">
+    <div class="_card cotacao">
+        <div class="_card-header"><div><span title="Cotação">Cotação</span></div></div>
+        <div class="_card-body"><div>
+            <span class="value">R$ 16,47</span>
+            <span class="daily-variation-badge daily-variation-badge--positive">0,06%</span>
+        </div></div>
+    </div>
+    <div class="_card val">
+        <div class="_card-header"><div><span title="Variação (12M)">Variação (12M)</span></div></div>
+        <div class="_card-body"><div><span class="value">-22,08%</span></div></div>
+    </div>
+</section>
+<div id="graham-component"><div class="presentation"><div class="presentation-box">
+    <div class="box current-price"><p class="title">Preço atual</p><span class="value">R$ 16,47</span></div>
+    <div class="box fair-price"><p class="title">Preço Justo</p><span class="value">R$ 0,00</span></div>
+</div></div></div>
+<div class="container-answer-question active" rel="1">
+    <p>A cotação de <strong>Banco do Brasil (BBAS3)</strong> hoje está em <strong><span class='livePrice'>R$ 16,47</span></strong>, com uma variação de <strong>-22,08%</strong> em relação aos últimos 12 meses.</p>
+</div>
+<div class="container-answer-question" rel="3">
+    <p>Atualmente, <strong>Banco do Brasil (BBAS3)</strong> está cotada a <span class='livePrice'><strong>R$ 16,47</strong></span>. No último ano, a ação apresentou uma variação de -22,08%.</p>
+</div>
+</div></section></body></html>`;
+
+describe("regressão: trecho real do Investidor10 (BBAS3)", () => {
+	const result = locatePageValue(INVESTIDOR10_REAL, "16,47", "BBAS3");
+
+	it("a fixture tem cerca de 5 KB", () => {
+		expect(INVESTIDOR10_REAL.length).toBeGreaterThan(3500);
+		expect(INVESTIDOR10_REAL.length).toBeLessThan(6500);
+	});
+
+	it("o 1º candidato é o card de cotação (não o parágrafo com .livePrice, que tem BBAS3 por perto)", () => {
+		const first = result.candidates[0]!;
+		expect(first.reading).toBe("R$ 16,47");
+		expect(first.context).toContain("Cotação");
+		expect(first.extract!.selector).toMatch(/span\.value$/);
+		expect(readLikeTheRule(INVESTIDOR10_REAL, first.extract!)).toBe("R$ 16,47");
+		const { document } = parseHTML(INVESTIDOR10_REAL);
+		expect(document.querySelector(first.extract!.selector)?.closest("._card")?.className).toContain("cotacao");
+	});
+
+	it("as ocorrências em prosa (.livePrice dentro de <p>) ficam depois das de elemento só com o valor", () => {
+		const selectors = result.candidates.map((candidate) => candidate.extract?.selector ?? "");
+		const firstProse = selectors.findIndex((selector) => selector.includes("livePrice"));
+		const lastTight = selectors.map((selector) => selector.endsWith("span.value")).lastIndexOf(true);
+		expect(firstProse === -1 || firstProse > lastTight).toBe(true);
+	});
+
+	it("a faixa de commodities nunca vira candidata (são outros números)", () => {
+		expect(result.candidates.every((candidate) => !/commodit|669|612/.test(`${candidate.context} ${candidate.extract?.selector ?? ""}`))).toBe(true);
+	});
+});
+
+describe("localizar: orçamento de tempo e seletor com atributo", () => {
+	it("estourou o orçamento: devolve o que tem, sem lançar e sem montar seletor", () => {
+		const result = locatePageValue(INVESTIDOR10_REAL, "16,47", "BBAS3", { budgetMs: 0 });
+		expect(result.candidates.length).toBeGreaterThan(0);
+		expect(result.candidates.every((candidate) => candidate.extract === null)).toBe(true);
+		expect(result.candidates[0]!.note).toMatch(/time budget/);
+	});
+
+	it("valor de atributo com espaço não entra no seletor (só [\\w-]); sem espaço entra", () => {
+		const spaced = `<html><body><ul><li class="v" data-variant="plano 256"><span class="price">R$ 3.299,00</span></li><li class="v" data-variant="plano 128"><span class="price">R$ 2.799,00</span></li></ul></body></html>`;
+		const noSpace = spaced.replace("plano 256", "plano-256").replace("plano 128", "plano-128");
+		const withSpace = locatePageValue(spaced, "3.299,00").candidates[0]!;
+		expect(withSpace.extract).toBeNull();
+		expect(locatePageValue(noSpace, "3.299,00").candidates[0]!.extract!.selector).toBe('li[data-variant="plano-256"] span.price');
+	});
+});
+
 describe("localizar o valor: limites", () => {
 	it("no máximo 10 candidatas, e diz quantas ocorrências a página tem", () => {
 		const html = `<html><body>${Array.from({ length: 25 }, (_, i) => `<div class="row-${["a", "b", "c", "d", "e"][i % 5]}"><span class="p${["x", "y", "z"][i % 3]}">R$ 9,90</span></div>`).join("")}</body></html>`;
