@@ -11,7 +11,9 @@ export const ALERT_FEED_ITEMS_MAX = 100;
 export const ALERT_ITEM_TITLE_MAX = 160;
 
 /** Valor numérico em texto de loja ou API: "R$ 1.234,56", "$1,234.56", "1 234,5", "-3,5%", "449.90". null = sem número. */
-export function parseLocalizedNumber(text: string): number | null {
+export function parseLocalizedNumber(rawText: string): number | null {
+	// Menos tipográfico (U+2212) e travessões (U+2013/2012) são o "-" de números negativos em sites e feeds.
+	const text = rawText.replace(/[\u2212\u2013\u2012]/g, "-");
 	const squeezed = text.replace(/(\d)[\s\u00a0\u202f](?=\d{3}(?!\d))/g, "$1");
 	const match = /-?\s*\d[\d.,]*/.exec(squeezed);
 	if (!match) return null;

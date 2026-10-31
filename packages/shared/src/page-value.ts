@@ -7,7 +7,7 @@ import { parseLocalizedNumber } from "./alert-rule-extract.js";
 
 export const PAGE_VALUE_MAX = 80;
 
-const NUMERIC_VALUE = /^\s*(?:(?:R\$|US\$|U\$S|\$|€|£)\s*)?-?\s*\d[\d.,\s  ]*\s*(?:%|reais)?\s*$/i;
+const NUMERIC_VALUE = /^\s*(?:(?:R\$|US\$|U\$S|\$|€|£)\s*)?[-\u2212\u2013\u2012]?\s*\d[\d.,\s  ]*\s*(?:%|reais)?\s*$/i;
 
 /** O texto é um número (com ou sem moeda/%): "16,47", "R$ 3.299,00", "1,234.56". */
 export function isNumericPageValue(text: string): boolean {
@@ -94,23 +94,35 @@ export function isStableId(id: string): boolean {
 
 // ------------------------------------------------------------- sites de cotação da B3
 
-/** Sites que mostram cotação de ação/FII/ETF/BDR: para ticker da B3 a fonte é sempre `quote` (brapi), nunca a página. */
-export const B3_QUOTE_SITES: ReadonlyArray<{ host: string; path?: RegExp }> = [
+type QuoteSite = { host: string; path?: RegExp };
+
+/** Sites que mostram cotação de ação/FII/ETF/BDR: para o PREÇO de ticker da B3 a fonte é sempre `quote` (brapi), nunca a página. */
+export const B3_QUOTE_SITES: ReadonlyArray<QuoteSite> = [
 	{ host: "investidor10.com.br" },
 	{ host: "statusinvest.com.br" },
-	{ host: "br.investing.com" },
-	{ host: "br.advfn.com" },
+	{ host: "fundamentus.com.br" },
+	{ host: "tradingview.com" },
+	{ host: "investing.com" },
+	{ host: "advfn.com" },
 	{ host: "maisretorno.com" },
+	{ host: "finance.yahoo.com" },
 	{ host: "infomoney.com.br", path: /^\/cotacoes(?:\/|$)/i },
-	{ host: "google.com", path: /^\/finance(?:\/|$)/i },
-	{ host: "google.com.br", path: /^\/finance(?:\/|$)/i },
 ];
 
-/** Ticker de ação/FII/ETF/BDR da B3 em texto livre ou URL: BBAS3, PETR4, HGLG11, AAPL34 (4 letras + 3..8, 11..13, 31..39). */
-const B3_TICKER = /(?<![A-Za-z0-9])[A-Za-z]{4}(?:3|4|5|6|7|8|11|12|13|3[1-9])(?![A-Za-z0-9])/;
+/** Google em qualquer domínio (google.com, google.com.br, google.de...) com o caminho /finance. */
+const GOOGLE_HOST = /^(?:[a-z0-9-]+\.)*google\.(?:com?\.)?[a-z]{2,3}$/;
+
+/**
+ * Ticker de ação/FII/ETF/BDR da B3 em texto livre ou URL: 4 caracteres (3 letras no mínimo, ex.: BBAS, B3SA) + sufixo
+ * 3..6, 11..13 ou 31..39 + "F" opcional (fracionário: BBAS3F). Não casa palavra comum ("Fire7").
+ */
+const B3_TICKER = /(?<![A-Za-z0-9])([A-Za-z0-9]{4})(?:3|4|5|6|11|12|13|3[1-9])F?(?![A-Za-z0-9])/gi;
 
 export function mentionsB3Ticker(text: string): boolean {
-	return B3_TICKER.test(text);
+	for (const match of text.matchAll(B3_TICKER)) {
+		if ((match[1]!.match(/[A-Za-z]/g) ?? []).length >= 3) return true;
+	}
+	return false;
 }
 
 function isQuoteSiteUrl(rawUrl: string): boolean {
@@ -121,24 +133,34 @@ function isQuoteSiteUrl(rawUrl: string): boolean {
 		return false;
 	}
 	const host = url.hostname.toLowerCase().replace(/^www\./, "");
+	if (GOOGLE_HOST.test(host)) return /^\/finance(?:\/|$)/i.test(url.pathname);
 	return B3_QUOTE_SITES.some((site) => (host === site.host || host.endsWith(`.${site.host}`)) && (!site.path || site.path.test(url.pathname)));
 }
+
+/** Pedido sobre o preço da ação (a fonte `quote` cobre só isso). */
+const PRICE_WORDS = /pre[cç]o|cota[cç][aã]o|cotad|price|quote|fechamento|\b(?:cair|cai|caia|subir|sobe|suba|baixar|baixa|drop|fall|rise|reach|atingir|chegar)\b/i;
+/** Indicador que a fonte `quote` NÃO cobre: DY, P/VP, dividendos, data com... */
+const OTHER_METRIC = /\b(?:dy|dividend\w*|yield|p\/?vp|p\/?l|ev\/?ebitda|roe|roic|payout|provento\w*|jcp|data[ -]com|lucro|receita|margem|liquidez|vpa|lpa)\b/i;
 
 export const B3_QUOTE_PAGE_HINT =
 	"Use source quote (brapi) for B3 tickers, never a quote site page. If the brapi key is missing or refused, call propose_connector with app \"brapi\" (the connect card appears) and do not insist on pages; meanwhile offer a plain condition checked by the model.";
 
 /**
- * Página de site de cotação para ativo da B3 (a URL ou o pedido citam o ticker): o motivo da recusa, ou null.
+ * Página de site de cotação para o PREÇO de ativo da B3 (a URL ou o pedido citam o ticker): o motivo da recusa, ou null.
+ * Pedido de outro indicador (DY, P/VP, dividendos, data com) passa: a fonte `quote` não o cobre.
  * `texts` = título, condição, rótulo, detalhe e dica do que o usuário pediu.
  */
 export function b3QuotePageReason(url: string, texts: readonly (string | undefined)[]): string | null {
 	if (!isQuoteSiteUrl(url)) return null;
 	let path = "";
 	try {
-		path = decodeURIComponent(new URL(url).pathname + new URL(url).search);
+		const parsed = new URL(url);
+		path = decodeURIComponent(parsed.pathname + parsed.search);
 	} catch {
 		path = url;
 	}
-	if (!mentionsB3Ticker(path) && !texts.some((text) => text && mentionsB3Ticker(text))) return null;
+	const joined = texts.filter(Boolean).join(" \n ");
+	if (!mentionsB3Ticker(path) && !mentionsB3Ticker(joined)) return null;
+	if (OTHER_METRIC.test(`${joined} ${path}`) && !PRICE_WORDS.test(joined)) return null;
 	return `This is a B3 stock/FII/ETF/BDR quote site page. ${B3_QUOTE_PAGE_HINT}`;
 }

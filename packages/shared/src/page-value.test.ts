@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseLocalizedNumber } from "./alert-rule-extract.js";
 import { b3QuotePageReason, isNumericPageValue, isStableClass, isStableId, mentionsB3Ticker, pageNumbers, pageTextHasValue, pageValuesMatch } from "./page-value.js";
 
 describe("valor numérico visto na página", () => {
@@ -88,5 +89,44 @@ describe("ticker da B3 e sites de cotação", () => {
 		expect(b3QuotePageReason("https://investidor10.com.br/commodities/ouro/", ["me avisa se o ouro passar de 700"])).toBeNull();
 		expect(b3QuotePageReason("https://www.google.com/search?q=bbas3", [])).toBeNull();
 		expect(b3QuotePageReason("não é url", ["BBAS3"])).toBeNull();
+	});
+
+	it("amplia a lista: Yahoo, Google em qualquer domínio, Fundamentus, TradingView e Investing em qualquer subdomínio", () => {
+		for (const url of [
+			"https://finance.yahoo.com/quote/BBAS3.SA",
+			"https://www.google.com.br/finance/quote/BBAS3:BVMF",
+			"https://www.google.de/finance/quote/PETR4:BVMF",
+			"https://www.fundamentus.com.br/detalhes.php?papel=BBAS3",
+			"https://br.tradingview.com/symbols/BMFBOVESPA-BBAS3/",
+			"https://www.investing.com/equities/banco-do-brasil-sa",
+			"https://uk.investing.com/equities/petrobras-pn",
+			"https://br.investing.com/equities/banco-do-brasil-on",
+		]) {
+			expect(b3QuotePageReason(url, ["me avisa se a BBAS3 cair abaixo de R$ 15"]), url).not.toBeNull();
+		}
+		expect(b3QuotePageReason("https://www.google.com/search?q=bbas3", ["BBAS3 cair"])).toBeNull();
+	});
+
+	it("ticker: B3SA3 e BBAS3F (fracionário) casam; 'Fire7', 'Kindle4' sem 3 letras ou sufixo fora da lista não", () => {
+		for (const text of ["B3SA3", "BBAS3F", "avisa se b3sa3 cair", "https://x/acoes/bbas3f"]) expect(mentionsB3Ticker(text), text).toBe(true);
+		for (const text of ["Fire7", "tablet Fire7 da Amazon", "1234 5", "A1B27", "Mate9"]) expect(mentionsB3Ticker(text), text).toBe(false);
+	});
+
+	it("só bloqueia o PREÇO: DY, P/VP, dividendos e data com passam (a fonte quote não cobre); misturado com preço bloqueia", () => {
+		const url = "https://investidor10.com.br/acoes/bbas3/";
+		for (const text of ["me avisa se o DY de BBAS3 passar de 8%", "P/VP de BBAS3 abaixo de 0,8", "avisa quando BBAS3 anunciar dividendos", "data com de BBAS3", "Dividend Yield da BBAS3"]) {
+			expect(b3QuotePageReason(url, [text]), text).toBeNull();
+		}
+		for (const text of ["me avisa se a BBAS3 cair abaixo de R$ 15", "preço da BBAS3", "cotação do Banco do Brasil BBAS3", "BBAS3 e o dividendo: avisa se o preço cair"]) {
+			expect(b3QuotePageReason(url, [text]), text).not.toBeNull();
+		}
+	});
+
+	it("números com sinal de menos tipográfico (U+2212) ou travessão (U+2013) são negativos", () => {
+		expect(parseLocalizedNumber("\u22123,5%")).toBe(-3.5);
+		expect(parseLocalizedNumber("\u201322,08%")).toBe(-22.08);
+		expect(parseLocalizedNumber("R$ \u22121.234,56")).toBe(-1234.56);
+		expect(isNumericPageValue("\u22123,5%")).toBe(true);
+		expect(pageValuesMatch("\u221222,08%", "-22,08")).toBe(true);
 	});
 });
