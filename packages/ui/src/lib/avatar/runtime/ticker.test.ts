@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { AVATAR_DEFAULTS } from "../../../components/avatar/avatar";
 import { createAvatarEngine } from "../engine";
 import { SHAPE_IDS } from "../geometry/shapes";
 import type { Frame } from "../model/character";
@@ -194,6 +195,41 @@ describe("ticker: dorme quando assentado", () => {
 		fake.elapse(1000);
 		expect(applied.length).toBe(settledCount);
 		expect(fake.pendingRafs).toBe(0);
+	});
+});
+
+describe("avatares de lista (padrão do componente) não iniciam o ticker", () => {
+	const listEngine = (i: number) =>
+		createAvatarEngine({ shape: SHAPE_IDS[i % SHAPE_IDS.length] as string, seed: `bot-${i}`, breathe: AVATAR_DEFAULTS.breathe, brain: false, size: 40 });
+
+	it("o padrão do Avatar é repouso parado", () => {
+		expect(AVATAR_DEFAULTS.breathe).toBe(false);
+	});
+
+	it("40 avatares de lista com o padrão: nenhum rAF, mesmo recebendo estado, progresso e atividade", () => {
+		const fake = fakeEnv();
+		const ticker = createTicker(fake.env);
+		const handles = Array.from({ length: 40 }, (_, i) =>
+			ticker.register({ engine: listEngine(i), apply: () => undefined, follow: "off", getCenter: () => null }),
+		);
+		expect(ticker.stats().looping).toBe(false);
+		expect(fake.rafRequests).toBe(0);
+		// o bot da lista trabalha: o sidebar só recebe estado/progresso/atividade (sem cérebro, sem 60 fps)
+		for (const handle of handles) {
+			handle.interact((engine) => {
+				engine.setProgress(0.5);
+				engine.setActivity("read");
+			});
+		}
+		fake.elapse(1500);
+		expect(fake.pendingRafs).toBe(0);
+		for (const handle of handles) handle.unregister();
+	});
+
+	it("uma pulsação só (setProgress) em repouso não liga o ritmo de 60 fps", () => {
+		const { handle, engine } = setup();
+		handle.interact((e) => e.setProgress(0.3));
+		expect(engine.frameIntervalMs()).toBe(33);
 	});
 });
 
@@ -414,7 +450,8 @@ describe("REGRESSÃO do pisca-pisca (tremor com o mouse em movimento)", () => {
 	// ~6 ms menor, caía abaixo do intervalo mínimo e o quadro era PULADO:
 	// o avatar atualizava em quadros alternados (16 ms / 33 ms). Agora o dt só
 	// usa o ts do rAF.
-	it("com o mouse mexendo todo quadro, avança TODO quadro, com dt regular", () => {
+	// O olhar do mouse não liga os 60 fps (custava CPU em celular): avança a cada 2 quadros, sempre no mesmo ritmo.
+	it("com o mouse mexendo todo quadro, avança a 30 fps sem pular nem alternar o dt", () => {
 		const { fake, advances, applied } = setup({ follow: "always", drift: 6 });
 		fake.frames(2);
 		advances.length = 0;
@@ -425,13 +462,14 @@ describe("REGRESSÃO do pisca-pisca (tremor com o mouse em movimento)", () => {
 			fake.frame();
 		}
 		
-		// nenhum quadro pulado (tolera 2 de ancoragem)
-		expect(advances.length).toBeGreaterThanOrEqual(FRAMES - 2);
-		expect(applied.length - appliedBefore).toBeGreaterThanOrEqual(FRAMES - 3);
-		// dt sempre ≈ 16,7 ms: nada de 8 ms / 25 ms alternados nem negativo
+		// um quadro a cada dois (tolera 2 de ancoragem)
+		expect(advances.length).toBeGreaterThanOrEqual(FRAMES / 2 - 2);
+		expect(advances.length).toBeLessThanOrEqual(FRAMES / 2 + 2);
+		expect(applied.length - appliedBefore).toBeGreaterThanOrEqual(FRAMES / 2 - 3);
+		// dt sempre ≈ 33,3 ms: nada de 16 ms / 50 ms alternados nem negativo
 		for (const dt of advances) {
-			expect(dt).toBeGreaterThan(FRAME_MS - 1);
-			expect(dt).toBeLessThan(FRAME_MS + 1);
+			expect(dt).toBeGreaterThan(2 * FRAME_MS - 1);
+			expect(dt).toBeLessThan(2 * FRAME_MS + 1);
 		}
 	});
 
@@ -443,7 +481,7 @@ describe("REGRESSÃO do pisca-pisca (tremor com o mouse em movimento)", () => {
 			fake.movePointer(150 + ((i * 11) % 180), 120);
 			fake.frame();
 		}
-		expect(advances.length).toBeGreaterThanOrEqual(58);
+		expect(advances.length).toBeGreaterThanOrEqual(28);
 		for (const dt of advances) expect(dt).toBeGreaterThan(0);
 	});
 

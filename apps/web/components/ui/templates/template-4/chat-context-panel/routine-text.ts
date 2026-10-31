@@ -7,6 +7,8 @@ import {
 	alertConditionPhrase,
 	cronToScheduleInput,
 	type AlertCheck,
+	alertSourceDefaultLabel,
+	alertSourceUnit,
 	type AlertRule,
 	describeRoutineFailure,
 	type GithubTriggerEvent,
@@ -209,7 +211,7 @@ export type RoutineAlertSource = {
 	schedule?: string | null;
 	everyMinutes?: number;
 	rule?: AlertRule;
-	reading?: { value: number | string; at?: string };
+	reading?: { value: number | string; at?: string; delayMinutes?: number; lastTradeAt?: string };
 };
 
 const DEFAULT_CURRENCY: Record<UiLocale, string> = { "pt-BR": "BRL", "en-US": "USD", "es-ES": "EUR" };
@@ -218,20 +220,22 @@ const OP_SYMBOL = { lt: "<", lte: "≤", gt: ">", gte: "≥", eq: "=", neq: "≠
 type ValueCheck = Extract<AlertCheck, { kind: "value" }>;
 
 /** Valor lido ou limite da regra no formato do idioma da tela (dinheiro, número ou texto entre aspas). */
-function alertValueText(check: Pick<ValueCheck, "parse" | "currency">, value: number | string, locale: UiLocale): string {
+function alertValueText(check: Pick<ValueCheck, "parse" | "currency">, value: number | string, locale: UiLocale, source?: AlertRule["source"]): string {
 	if (typeof value !== "number") return String(value);
+	// Clima: o número leva a unidade da métrica (%, mm, °C, km/h).
+	const unit = source ? alertSourceUnit(source) : "";
 	if (check.parse === "money") return formatCurrency(value, check.currency ?? DEFAULT_CURRENCY[locale], locale);
-	return formatNumber(value, locale, { maximumFractionDigits: 4 });
+	return formatNumber(value, locale, { maximumFractionDigits: 4 }) + unit;
 }
 
 /** "tênis Nike < R$ 400,00" (curto, para o card), com número e moeda no formato do idioma da tela. */
 export function alertRuleText(rule: AlertRule, { t, locale }: Translator = defaultTranslator): string {
-	const label = rule.label ?? "";
+	const label = rule.label ?? alertSourceDefaultLabel(rule.source) ?? "";
 	if (rule.check.kind === "new_item") return [label, t("routines.alert.newItem")].filter(Boolean).join(" · ");
 	const check = rule.check;
-	const limit = typeof check.value === "number" && check.op === "changed_pct" ? formatPercent(check.value / 100, locale, 2) : alertValueText(check, check.value, locale);
+	const limit = typeof check.value === "number" && check.op === "changed_pct" ? formatPercent(check.value / 100, locale, 2) : alertValueText(check, check.value, locale, rule.source);
 	let tail: string;
-	if (check.op === "between") tail = `${limit}–${alertValueText(check, check.value2 ?? check.value, locale)}`;
+	if (check.op === "between") tail = `${limit}–${alertValueText(check, check.value2 ?? check.value, locale, rule.source)}`;
 	else if (check.op === "changed_pct") tail = `${OP_SYMBOL.changed_pct} ≥ ${limit}`;
 	else tail = `${OP_SYMBOL[check.op]} ${check.parse === "text" ? `“${String(check.value)}”` : limit}`;
 	return tidy(`${label} ${tail}`);
@@ -240,8 +244,91 @@ export function alertRuleText(rule: AlertRule, { t, locale }: Translator = defau
 /** Última leitura ("R$ 449,90"); itens novos e leitura ausente não mostram nada. */
 export function alertReadingText(rule: AlertRule, reading: { value: number | string } | undefined, { locale }: Translator = defaultTranslator): string | null {
 	if (!reading || rule.check.kind !== "value") return null;
-	const text = alertValueText(rule.check, reading.value, locale);
+	const text = alertValueText(rule.check, reading.value, locale, rule.source);
 	return text.length > 40 ? `${text.slice(0, 39)}…` : text;
+}
+
+/** Fonte de mercado (cotação, câmbio, cripto, clima): o cartão usa a frase curta, sem o prefixo "Alerta · nome". */
+function isMarketRule(rule: AlertRule | undefined): rule is AlertRule & { source: { type: "quote" | "fx" | "crypto" | "weather" } } {
+	return Boolean(rule) && (rule!.source.type === "quote" || rule!.source.type === "fx" || rule!.source.type === "crypto" || rule!.source.type === "weather");
+}
+
+const COMPACT_FROM = 100_000;
+const COMPACT_SUFFIX: Record<UiLocale, { thousand: string; million: string }> = {
+	"pt-BR": { thousand: " mil", million: " mi" },
+	"en-US": { thousand: "K", million: "M" },
+	"es-ES": { thousand: " mil", million: " M" },
+};
+
+/** Dinheiro: a partir de 100 mil vira "R$ 500 mil" / "R$ 1,2 mi" (sem centavos); abaixo disso, o valor exato. */
+function marketMoneyText(value: number, currency: string, locale: UiLocale): string {
+	if (Math.abs(value) < COMPACT_FROM) return formatCurrency(value, currency, locale);
+	const million = Math.abs(value) >= 1_000_000;
+	const scaled = million ? value / 1_000_000 : Math.round(value / 1000);
+	const number = formatNumber(scaled, locale, { maximumFractionDigits: million ? 1 : 0 });
+	const suffix = COMPACT_SUFFIX[locale][million ? "million" : "thousand"];
+	const symbol = new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: 0 }).formatToParts(0).find((part) => part.type === "currency")?.value ?? currency;
+	if (locale === "pt-BR") return `${symbol}\u00a0${number}${suffix}`;
+	if (locale === "es-ES") return `${number}${suffix}\u00a0${symbol}`;
+	return `${symbol}${number}${suffix}`;
+}
+
+function marketValueText(check: Pick<ValueCheck, "parse" | "currency">, value: number | string, locale: UiLocale, source: AlertRule["source"]): string {
+	if (typeof value === "number" && check.parse === "money") return marketMoneyText(value, check.currency ?? DEFAULT_CURRENCY[locale], locale);
+	return alertValueText(check, value, locale, source);
+}
+
+const MKT_OP_KEYS = {
+	lt: "routines.alert.mkt.op.lt",
+	lte: "routines.alert.mkt.op.lte",
+	gt: "routines.alert.mkt.op.gt",
+	gte: "routines.alert.mkt.op.gte",
+	eq: "routines.alert.mkt.op.eq",
+	neq: "routines.alert.mkt.op.neq",
+	between: "routines.alert.mkt.op.between",
+	contains: "routines.alert.mkt.op.contains",
+	changed_pct: "routines.alert.mkt.op.changed_pct",
+} as const satisfies Record<ValueCheck["op"], MessageKey>;
+const MKT_METRIC_KEYS = {
+	rain_probability: "routines.alert.mkt.metric.rain_probability",
+	rain_mm: "routines.alert.mkt.metric.rain_mm",
+	temp_max: "routines.alert.mkt.metric.temp_max",
+	temp_min: "routines.alert.mkt.metric.temp_min",
+	wind_max: "routines.alert.mkt.metric.wind_max",
+} as const satisfies Record<string, MessageKey>;
+const MKT_DAY_KEYS = { today: "routines.alert.mkt.day.today", tomorrow: "routines.alert.mkt.day.tomorrow" } as const satisfies Record<string, MessageKey>;
+
+/** "abaixo de R$ 15,00" · "chance de chuva acima de 70%": o que o alerta vigia, sem repetir o nome do cartão. */
+function marketRuleText(rule: AlertRule, { t, locale }: Translator): string {
+	if (rule.check.kind !== "value") return "";
+	const check = rule.check;
+	const a = check.op === "changed_pct" ? formatPercent((check.value as number) / 100, locale, 2) : marketValueText(check, check.value, locale, rule.source);
+	const b = check.op === "between" ? marketValueText(check, check.value2 ?? check.value, locale, rule.source) : "";
+	const op = t(MKT_OP_KEYS[check.op], { a, b });
+	const metric = rule.source.type === "weather" ? `${t(MKT_METRIC_KEYS[rule.source.metric])} ` : "";
+	return `${metric}${op}`;
+}
+
+function marketReadingText(rule: AlertRule, reading: RoutineAlertSource["reading"], translator: Translator): string | null {
+	if (!reading || rule.check.kind !== "value") return null;
+	const { t, locale } = translator;
+	const text = marketValueText(rule.check, reading.value, locale, rule.source);
+	const when = rule.source.type === "weather" ? t(MKT_DAY_KEYS[rule.source.day]) : t("routines.alert.mkt.now");
+	return `${when} ${text.length > 40 ? `${text.slice(0, 39)}…` : text}`;
+}
+
+/**
+ * Detalhe do alerta de cotação (não cabe na linha do cartão): "cotação com atraso de ~30 min" ou, em ativo pouco
+ * negociado, "último negócio às 14:32". Vai no `title` do cartão. null quando não há o que dizer.
+ */
+export function alertDetailText(alert: Pick<RoutineAlertSource, "rule" | "reading">, { t, locale }: Translator = defaultTranslator): string | null {
+	const reading = alert.reading;
+	if (!reading || !isMarketRule(alert.rule)) return null;
+	if (reading.delayMinutes) return t("routines.alert.mkt.delayNote", { minutes: reading.delayMinutes });
+	if (reading.lastTradeAt && Number.isFinite(Date.parse(reading.lastTradeAt))) {
+		return t("routines.alert.mkt.lastTradeNote", { time: formatTime(reading.lastTradeAt, locale, { timeZone: "America/Sao_Paulo" }) });
+	}
+	return null;
 }
 
 function intervalCadence(everyMinutes: number, { t }: Translator): string {
@@ -305,10 +392,20 @@ export function alertSentenceText(alert: RoutineAlertSource, translator: Transla
 	else if (alert.triggerType === "interval" && alert.everyMinutes !== undefined) cadence = intervalCadence(alert.everyMinutes, translator);
 	else if (alert.triggerType === "cron") cadence = (alert.schedule ? alertCronText(alert.schedule, translator) : null) ?? proposalScheduleText(alert.schedule, translator);
 	else cadence = proposalScheduleText(alert.schedule, translator);
+	if (isMarketRule(alert.rule)) {
+		// Frase curta: o nome já é o título do cartão e a linha cortava a cadência ("a cada 15 min no pregão").
+		const rule = marketRuleText(alert.rule, translator);
+		const base = lowerFirst(tidy(cadence)) || t("routines.alert.cadenceFallback");
+		const when = alert.rule.source.type === "quote" ? t("routines.alert.inMarketHours", { cadence: base }) : base;
+		const value = marketReadingText(alert.rule, alert.reading, translator);
+		return value ? `${rule} · ${value} · ${when}` : `${rule} · ${when}`;
+	}
 	if (alert.rule) {
 		const rule = alertRuleText(alert.rule, translator);
 		const value = alertReadingText(alert.rule, alert.reading, translator);
-		const when = lowerFirst(tidy(cadence)) || t("routines.alert.cadenceFallback");
+		const base = lowerFirst(tidy(cadence)) || t("routines.alert.cadenceFallback");
+		// Cotação da B3 só é conferida no pregão: o cartão diz isso na cadência ("a cada 15 min no pregão").
+		const when = alert.rule.source.type === "quote" ? t("routines.alert.inMarketHours", { cadence: base }) : base;
 		return value ? t("routines.alert.ruleSentenceNow", { rule, value, cadence: when }) : t("routines.alert.ruleSentence", { rule, cadence: when });
 	}
 	return t("routines.alert.sentence", {

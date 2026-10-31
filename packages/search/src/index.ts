@@ -73,6 +73,7 @@ export {
   ALERT_SOURCE_CACHE_TTL_MS,
   ALERT_SOURCE_MAX_BYTES,
   ALERT_SOURCE_MAX_REDIRECTS,
+  ALERT_SOURCE_CACHE_MAX_BYTES,
   ALERT_SOURCE_TIMEOUT_MS,
   ALERT_SOURCE_UA,
   createAlertSourceCache,
@@ -85,3 +86,13 @@ export type {
   AlertSourceFailure,
   AlertSourceResult,
 } from "./alert-source.js";
+export {
+  MARKET_CACHE_TTL_MS,
+  MARKET_MAX_BYTES,
+  MARKET_TIMEOUT_MS,
+  createMarketCache,
+  createMarketHealth,
+  probeBrapiKey,
+  readMarketSource,
+} from "./market-data.js";
+export type { MarketCache, MarketDeps, MarketFailure, MarketHealth, MarketKeys, MarketResult } from "./market-data.js";

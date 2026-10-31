@@ -11,7 +11,7 @@
  */
 import type { BotLanguage } from "./bot-language.js";
 import { alertItemKey, quoteAlertExternalText, sanitizeAlertExternalText, type AlertFeedItem, parseLocalizedNumber } from "./alert-rule-extract.js";
-import { formatAlertNumber, renderAlertMessage, type AlertCheck, type AlertRule } from "./alert-rule.js";
+import { alertSourceUnit, formatAlertNumber, renderAlertMessage, type AlertCheck, type AlertRule } from "./alert-rule.js";
 import type { AlertVerdict } from "./routine-alert.js";
 
 /** Leituras seguidas com a condição valendo antes do primeiro aviso. */
@@ -39,11 +39,17 @@ export type AlertRuleState = {
 	/** Itens já vistos (novo item), limitado. */
 	seenIds?: string[];
 	seeded?: boolean;
+	/** Atraso medido da última cotação (10 a 45 min): o cartão mostra "atraso ~30 min". */
+	delayMinutes?: number;
+	/** Horário (ISO) do último negócio quando o atraso passa de ~45 min (ativo pouco negociado): "último negócio às 14:32". */
+	lastTradeAt?: string;
 };
 
 /** O que a fonte devolveu. */
 export type AlertRuleRead =
 	| { kind: "text"; text: string | null }
+	/** Número já lido por um provedor de mercado (sem texto para interpretar). `delayMinutes` = atraso medido da cotação. */
+	| { kind: "number"; value: number; asOf?: string; delayMinutes?: number }
 	| { kind: "items"; items: Array<Pick<AlertFeedItem, "title" | "link"> & { id?: string }> }
 	| { kind: "error"; reason: string };
 
@@ -55,6 +61,8 @@ export type AlertRuleEvaluation = {
 	reason?: string;
 	/** Leitura formatada, para o card ("R$ 449,90"). */
 	display?: string;
+	/** Aviso sobre a leitura (pt-BR/idioma do bot), ex.: "cotação com atraso de ~30 min". */
+	note?: string;
 	suspect?: boolean;
 };
 
@@ -147,12 +155,13 @@ export function evaluateAlertRule(input: {
 	if (rule.check.kind === "new_item") return evaluateNewItems(rule, state, read, now, locale);
 	const check = rule.check;
 	if (read.kind === "error") return inconclusive(state, read.reason);
-	if (read.kind !== "text") return inconclusive(state, "a fonte devolveu outro tipo de dado");
-	const text = read.text?.replace(/\s+/g, " ").trim() ?? "";
-	if (!text) return inconclusive(state, "não encontrei o valor na página");
+	if (read.kind !== "text" && read.kind !== "number") return inconclusive(state, "a fonte devolveu outro tipo de dado");
+	const text = read.kind === "text" ? (read.text?.replace(/\s+/g, " ").trim() ?? "") : "";
+	if (read.kind === "text" && !text) return inconclusive(state, "não encontrei o valor na página");
 	const stamp = now.toISOString();
 
 	if (check.parse === "text") {
+		if (read.kind !== "text") return inconclusive(state, "a fonte devolveu outro tipo de dado");
 		const compared = text.slice(0, 200);
 		const matches = textHolds(check, compared);
 		// O texto lido é de terceiros: o que fica no estado e vai à mensagem é a citação saneada.
@@ -160,13 +169,21 @@ export function evaluateAlertRule(input: {
 		return settle({ rule, check, state, wasActive, matches, stillHolds: matches, value: shown, display: quoteAlertExternalText(compared), stamp, locale });
 	}
 
-	const value = parseLocalizedNumber(text);
+	const value = read.kind === "number" ? read.value : parseLocalizedNumber(text);
 	if (value === null) return inconclusive(state, "o valor lido não é um número");
 	if (!Number.isFinite(value) || Math.abs(value) > ABSURD_MAX || (check.parse === "money" && value <= 0)) return inconclusive(state, "o valor lido não faz sentido");
-	const display = formatAlertNumber(value, check.parse, locale, check.currency);
+	const display = formatAlertNumber(value, check.parse, locale, check.currency) + alertSourceUnit(rule.source);
+	const measured = read.kind === "number" && read.delayMinutes !== undefined && read.delayMinutes >= DELAY_MIN_MINUTES ? Math.round(read.delayMinutes) : undefined;
+	// Até ~45 min é o atraso do plano do provedor ("atraso ~30 min"); acima disso o preço é de um ativo pouco negociado
+	// e afirmar "atraso de 3 h" engana: o aviso diz a hora do último negócio.
+	const delay = measured !== undefined && measured <= DELAY_MAX_MINUTES ? measured : undefined;
+	const lastTradeAt = measured !== undefined && delay === undefined && read.kind === "number" && read.asOf ? read.asOf : undefined;
+	const note = delay !== undefined ? delayNote(delay, locale) : lastTradeAt ? lastTradeNote(lastTradeAt, locale) : undefined;
 
 	const previous = typeof state.lastValue === "number" ? state.lastValue : undefined;
-	if (previous !== undefined && previous !== 0 && Math.abs(value - previous) / Math.abs(previous) > ALERT_SUSPECT_JUMP) {
+	// Previsão do tempo muda de um dia para o outro por natureza (10% → 80% de chuva): o filtro de salto não vale.
+	const volatile = rule.source.type === "weather";
+	if (!volatile && previous !== undefined && previous !== 0 && Math.abs(value - previous) / Math.abs(previous) > ALERT_SUSPECT_JUMP) {
 		const pending = state.suspect?.value;
 		const confirmed = pending !== undefined && pending !== 0 && Math.abs(value - pending) / Math.abs(pending) <= ALERT_SUSPECT_CONFIRM;
 		if (!confirmed) {
@@ -175,6 +192,7 @@ export function evaluateAlertRule(input: {
 				verdict: { triggered: wasActive, summary: renderAlertMessage(rule, display, locale) },
 				state: { ...state, lastReadAt: stamp, suspect: { value } },
 				display,
+				...(note ? { note } : {}),
 				suspect: true,
 			};
 		}
@@ -187,8 +205,9 @@ export function evaluateAlertRule(input: {
 		if (baseline === undefined) {
 			return {
 				verdict: { triggered: false, summary: renderAlertMessage(rule, display, locale) },
-				state: { lastValue: value, lastReadAt: stamp, consecutive: 0, baseline: value },
+				state: { lastValue: value, lastReadAt: stamp, consecutive: 0, baseline: value, ...(delay ? { delayMinutes: delay } : {}), ...(lastTradeAt ? { lastTradeAt } : {}) },
 				display,
+				...(note ? { note } : {}),
 			};
 		}
 		const pct = baseline === 0 ? (value === 0 ? 0 : 100) : (Math.abs(value - baseline) / Math.abs(baseline)) * 100;
@@ -201,7 +220,43 @@ export function evaluateAlertRule(input: {
 	const result = settle({ rule, check, state: { ...state, suspect: undefined }, wasActive, matches, stillHolds, value, display, stamp, locale });
 	// Avisou agora: a base do "variou X%" passa a ser o valor que avisou.
 	if (check.op === "changed_pct" && result.verdict?.triggered && !wasActive) baseline = value;
-	return { ...result, state: { ...result.state, ...(baseline !== undefined ? { baseline } : {}) } };
+	// A cotação com atraso diz isso no próprio aviso: quem decide sabe que o preço não é o desta hora.
+	const verdict = result.verdict && note && result.verdict.triggered ? { ...result.verdict, summary: `${result.verdict.summary} (${note})`.slice(0, 340) } : result.verdict;
+	const { delayMinutes: _previousDelay, lastTradeAt: _previousTrade, ...cleanState } = result.state;
+	return { ...result, verdict, ...(note ? { note } : {}), state: { ...cleanState, ...(delay ? { delayMinutes: delay } : {}), ...(lastTradeAt ? { lastTradeAt } : {}), ...(baseline !== undefined ? { baseline } : {}) } };
+}
+
+const DELAY_NOTE: Record<string, string> = {
+	"pt-BR": "cotação com atraso de ~{n} min",
+	"en-US": "quote delayed by ~{n} min",
+	"es-ES": "cotización con retraso de ~{n} min",
+};
+
+/** Atraso só vale a menção a partir de 10 min (abaixo disso é ruído de relógio). */
+const DELAY_MIN_MINUTES = 10;
+/** Acima disso não se fala em "atraso": fala-se do horário do último negócio. */
+export const ALERT_DELAY_MAX_MINUTES = 45;
+const DELAY_MAX_MINUTES = ALERT_DELAY_MAX_MINUTES;
+
+const TRADE_NOTE: Record<string, string> = {
+	"pt-BR": "último negócio às {time}",
+	"en-US": "last trade at {time}",
+	"es-ES": "último negocio a las {time}",
+};
+
+/** HH:MM de Brasília (a B3 opera em UTC-3 fixo) do último negócio. */
+export function brasiliaClock(iso: string): string {
+	const shifted = new Date(Date.parse(iso) - 3 * 3_600_000);
+	return `${String(shifted.getUTCHours()).padStart(2, "0")}:${String(shifted.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+function lastTradeNote(iso: string, locale: BotLanguage): string | undefined {
+	if (!Number.isFinite(Date.parse(iso))) return undefined;
+	return (TRADE_NOTE[locale] ?? TRADE_NOTE["pt-BR"]!).replace("{time}", brasiliaClock(iso));
+}
+function delayNote(minutes: number | undefined, locale: BotLanguage): string | undefined {
+	if (minutes === undefined || !Number.isFinite(minutes) || minutes < DELAY_MIN_MINUTES) return undefined;
+	return (DELAY_NOTE[locale] ?? DELAY_NOTE["pt-BR"]!).replace("{n}", String(Math.round(minutes)));
 }
 
 function settle(input: {

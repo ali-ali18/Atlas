@@ -186,3 +186,13 @@ describe("formatRoutineAlertSentence", () => {
 		expect(formatRoutineAlertSentence({ condition: "chegar pedido acima de R$ 5 mil" }, "")).toContain("confere de tempos em tempos");
 	});
 });
+
+describe("describeRoutineAlertSentence · cotação (etapa 2)", () => {
+	it("diz 'no pregão' na cadência da cotação e não nas outras fontes", async () => {
+		const { describeRoutineAlertSentence, parseAlertRule } = await import("./index.js");
+		const make = (source: object) => (parseAlertRule({ source, check: { kind: "value", parse: "money", op: "lt", value: 15 } }) as { ok: true; rule: import("./index.js").AlertRule }).rule;
+		const sentence = (source: object) => describeRoutineAlertSentence({ alert: { condition: "x", rule: make(source) }, triggerType: "interval", interval: { everyMinutes: 15 } })?.replace(/ /g, " ");
+		expect(sentence({ type: "quote", symbol: "BBAS3" })).toMatch(/^Alerta · BBAS3 < R\$ 15,00 · a cada 15 minutos no pregão$/);
+		expect(sentence({ type: "crypto", symbol: "BTC" })).not.toContain("pregão");
+	});
+});

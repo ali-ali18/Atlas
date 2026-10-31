@@ -1,16 +1,16 @@
 // Construtores de path (strings) do corpo e dos olhos, sem orientação 3D.
-import { round2 } from "../geometry/math.js";
+import { round1 } from "../geometry/math.js";
 import type { EyeFrame } from "../model/character.js";
 
 /** Pontos por ponta arredondada (meia-volta) e por lado reto do olho. */
 const CAP_POINTS = 12;
 const SIDE_POINTS = 10;
 
-/** Corpo: `M x y L x y … Z`, 2 casas decimais. */
+/** Corpo: `M x y L x y … Z`, 1 casa decimal. */
 export function bodyPath(body: readonly number[]): string {
 	let d = "";
 	for (let i = 0; i < body.length; i += 2) {
-		d += `${i === 0 ? "M" : "L"}${round2(body[i] as number)} ${round2(body[i + 1] as number)}`;
+		d += `${i === 0 ? "M" : "L"}${round1(body[i] as number)} ${round1(body[i + 1] as number)}`;
 	}
 	return `${d}Z`;
 }
@@ -66,7 +66,7 @@ export function eyePath(eye: EyeFrame): string {
 	const pts = eyePoints(eye);
 	let d = "";
 	for (let i = 0; i < pts.length; i += 2) {
-		d += `${i === 0 ? "M" : "L"}${round2(pts[i] as number)} ${round2(pts[i + 1] as number)}`;
+		d += `${i === 0 ? "M" : "L"}${round1(pts[i] as number)} ${round1(pts[i + 1] as number)}`;
 	}
 	return `${d}Z`;
 }

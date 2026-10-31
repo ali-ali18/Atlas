@@ -17,6 +17,7 @@ const CATEGORY_KEYS = {
 	google: "marketplace.connector.category.google",
 	productivity: "marketplace.connector.category.productivity",
 	creative: "marketplace.connector.category.creative",
+	data: "marketplace.connector.category.data",
 	custom: "marketplace.connector.category.custom",
 } as const satisfies Record<string, MessageKey>
 
