@@ -451,6 +451,12 @@ import {
 	shouldExposeSetAutonomy,
 } from "./tools/set-autonomy.js";
 import {
+	SET_CONNECTOR_TOOL_MARKS_TOOL,
+	SET_CONNECTOR_TOOL_MARKS_TOOL_NAME,
+	executeSetConnectorToolMarks,
+	shouldExposeSetConnectorToolMarks,
+} from "./tools/connector-tool-marks.js";
+import {
 	MCP_MAX_EXPOSED_TOOLS,
 	MCP_MAX_TOOLS_JSON_CHARS,
 	type McpToolset,
@@ -4250,6 +4256,9 @@ async function executeToolInner(
 		case "set_autonomy": {
 			return executeSetAutonomyTool(args, ctx);
 		}
+		case SET_CONNECTOR_TOOL_MARKS_TOOL_NAME: {
+			return executeSetConnectorToolMarksTool(args, ctx);
+		}
 		case REPORT_ALERT_TOOL_NAME: {
 			if (!ctx.alertRun) throw new Error("report_alert só existe em execução de rotina de alerta.");
 			return executeReportAlert(args, ctx.alertRun);
@@ -4386,6 +4395,27 @@ async function executeToolInner(
 			if (isMcpToolName(name)) return executeMcpTool(name, args, ctx);
 			throw new Error(`Ferramenta desconhecida: ${name}`);
 	}
+}
+
+/** `set_connector_tool_marks`: o dono marca o que só lê; mostra um card com o resultado (já decidido). */
+async function executeSetConnectorToolMarksTool(
+	args: Record<string, unknown>,
+	ctx: ToolContext,
+): Promise<{ summary: string; confirmEvent: ConfirmEvent }> {
+	const outcome = await executeSetConnectorToolMarks(args, {
+		userId: ctx.userId,
+		origin: ctx.origin,
+		userRequestText: ctx.userRequestText ?? "",
+	});
+	const card: ConfirmEvent = {
+		type: "confirm",
+		confirmId: `tool-marks-${ctx.runId ?? "local"}-${Date.now().toString(36)}`,
+		title: outcome.card.title,
+		description: outcome.card.description,
+		status: "approved",
+	};
+	await persistConversationCardFromEvent(ctx.conversationId, card).catch(() => undefined);
+	return { summary: outcome.summary, confirmEvent: card };
 }
 
 /** `set_autonomy`: muda a política e mostra um card de resumo (já decidido). */
@@ -5652,6 +5682,8 @@ export async function runComputerUse(params: {
 		baseTools.push(NATIVE_COMPUTER_TOOL);
 	}
 	if (exposeSetAutonomy) baseTools.push(SET_AUTONOMY_TOOL);
+	// Só quando a última fala do USUÁRIO pede para marcar o que o conector só lê (tira cartões: nunca por resultado de tool).
+	if (shouldExposeSetConnectorToolMarks({ origin: params.origin, lastUserMessage: lastUserMessageContent, hasConnectors: (params.mcp?.toolset.entries.size ?? 0) > 0 })) baseTools.push(SET_CONNECTOR_TOOL_MARKS_TOOL);
 	// Conversa entre bots: só com 2+ bots do usuário; falha ao listar nunca derruba o run.
 	if (botRosterPromise) {
 		const roster = await botRosterPromise;
