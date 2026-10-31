@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
 import { ConfirmAlert } from "@workspace/ui/components/confirm-alert";
 import { ConnectorGuide } from "./connector-guide";
+import { ToolMarksSection } from "./tool-marks-section";
 import { ToolPermissionList } from "./tool-permission-list";
 import { DEFAULT_POLICY, hasRiskyAllow, toolPermission, withAllToolsPermission, withToolPermission, type ToolPermission } from "./tool-permissions";
 import { mcpToolGuide, ToolGuide } from "./tool-guide";
@@ -157,6 +158,7 @@ export function ConnectorDetail({
 					</>
 				)}
 			</section>
+			{connection.status === "connected" && connection.tools.length > 0 ? <ToolMarksSection connection={connection} onChanged={onChanged} /> : null}
 			{connection.status === "connected" ? <ConnectorGuide connectionId={connection.id} guide={connection.guide} kind="mcp" /> : null}
 			<ToolGuide guide={guideTool ? mcpToolGuide(guideTool, translator) : null} onClose={() => setGuideTool(null)} />
 			{confirmDelete ? (

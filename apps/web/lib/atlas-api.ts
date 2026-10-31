@@ -384,7 +384,7 @@ export async function createMcpConnection(
 
 export async function updateMcpConnection(
 	id: string,
-	patch: { disabledTools?: string[]; confirmWrites?: boolean; name?: string; accountLabel?: string | null },
+	patch: { disabledTools?: string[]; toolMarks?: Record<string, "read" | "write">; confirmWrites?: boolean; name?: string; accountLabel?: string | null },
 ): Promise<McpConnectionView> {
 	const body = await atlasFetch<{ connection: McpConnectionView }>(
 		`/v1/mcp/connections/${encodeURIComponent(id)}`,
