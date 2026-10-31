@@ -400,6 +400,7 @@ export {
 	detectExtraLoginStep,
 	detectEmailCodeStep,
 	type LoginWallInput,
+	isLoginConfirmationText,
 } from "./login-wall.js";
 export type {
 	RoutineListItemData,

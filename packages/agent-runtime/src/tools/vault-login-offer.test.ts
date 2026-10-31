@@ -14,8 +14,10 @@ beforeAll(async () => {
 });
 
 describe("oferta do Cofre", () => {
-	it("casa pelo domínio registrável (mesma regra do login_fill) e só em https", async () => {
-		expect(await findVaultLoginOffer(vault, "u", "https://auth.chatgpt.com/login")).toMatchObject({ name: "chatgpt", domain: "chatgpt.com", username: "ana@x.com" });
+	it("casa pelo host exato, com www ≡ apex (mesma regra do login_fill) e só em https", async () => {
+		expect(await findVaultLoginOffer(vault, "u", "https://www.chatgpt.com/login")).toMatchObject({ name: "chatgpt", domain: "chatgpt.com", username: "ana@x.com" });
+		expect(await findVaultLoginOffer(vault, "u", "https://chatgpt.com/login")).toMatchObject({ name: "chatgpt" });
+		expect(await findVaultLoginOffer(vault, "u", "https://auth.chatgpt.com/login")).toBeNull();
 		expect(await findVaultLoginOffer(vault, "u", "https://chatgpt.com.evil.example/login")).toBeNull();
 		expect(await findVaultLoginOffer(vault, "u", "http://chatgpt.com/login")).toBeNull();
 		expect(await findVaultLoginOffer(vault, "outro", "https://chatgpt.com/login")).toBeNull();
@@ -27,13 +29,12 @@ describe("oferta do Cofre", () => {
 		expect(vaultLoginsPromptLine([])).toBe("");
 	});
 
-	it("withVaultOffer: captcha, conector e rotina nunca recebem oferta; cofre indisponível cai no humano", async () => {
+	it("withVaultOffer: captcha e conector nunca recebem oferta; cofre indisponível cai no humano", async () => {
 		const base = { url: "https://chatgpt.com/login" };
 		const deps = { vault, userId: "u", loginAsked: new Set<string>() };
 		expect((await withVaultOffer(base, deps)).vault?.name).toBe("chatgpt");
 		expect((await withVaultOffer({ ...base, reason: "captcha" as const }, deps)).vault).toBeUndefined();
 		expect((await withVaultOffer({ ...base, composioToolkit: "linear" }, deps)).vault).toBeUndefined();
-		expect((await withVaultOffer(base, { ...deps, unattended: true })).vault).toBeUndefined();
 		const broken = { listMeta: async () => { throw new Error("sem chave"); } };
 		expect(await withVaultOffer(base, { ...deps, vault: broken })).toEqual(base);
 	});

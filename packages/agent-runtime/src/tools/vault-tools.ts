@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import type { ChatTool } from "@workspace/llm";
-import { hookPublicUrl, listUserRoutineWebhooks, saveSkillPendingIntent, persistConversationCardFromEvent } from "@workspace/db";
-import { domainMatches, hostOf, isValidSecretName, loginMarker, routineSecretMarker, secretMarker, VAULT_ENVIRONMENT_ID } from "@workspace/shared";
+import { getSkillPendingIntent, hookPublicUrl, listUserRoutineWebhooks, saveSkillPendingIntent, persistConversationCardFromEvent } from "@workspace/db";
+import { domainMatches, hostOf, isValidSecretName, loginMarker, nameMatchesSite, routineSecretMarker, secretMarker, VAULT_ENVIRONMENT_ID } from "@workspace/shared";
 import { getVaultService, routineSlug, VaultError, type VaultService } from "../secrets/vault-service.js";
 
 /**
@@ -56,16 +57,14 @@ export const LOGIN_FILL_TOOL: ChatTool = {
 	function: {
 		name: LOGIN_FILL_TOOL_NAME,
 		description:
-			"Fill a saved site login (username, password, optional 2FA code) into the CURRENT page of the VM browser without the values passing through you. It only works when the page domain matches the login's registered site (otherwise nothing is typed). The user approves the first use of each login in a conversation. Open the login page first (navigate), then call this; afterwards click the sign-in button or pass submit:true.",
+			"Fill a saved site login (username and password) into the CURRENT page of the VM browser without the values passing through you. It only works when the page domain matches the login's registered site (otherwise nothing is typed). It needs no approval for a login that already has its site saved, in chats and routines. A login saved without a site is never typed by name: the first time in a chat the user is asked once to confirm the host (a card), and in a routine it is refused. The 2FA code is never typed by you: if the site asks for it, the user does it. Open the login page first (navigate), then call this; afterwards click the sign-in button or pass submit:true.",
 		parameters: {
 			type: "object",
 			properties: {
 				login: { type: "string", description: "Login name from secret_list." },
-				fields: { type: "array", items: { type: "string", enum: ["username", "password", "totp"] }, description: "What to fill (default username and password). Use totp on the 2FA screen." },
+				fields: { type: "array", items: { type: "string", enum: ["username", "password"] }, description: "What to fill (default username and password); on a two-screen sign-in, username first and password on the next screen." },
 				submit: { type: "boolean", description: "Press Enter after the last field." },
-				username_selector: { type: "string", description: "Optional CSS selector when the default detection fails." },
-				password_selector: { type: "string" },
-				totp_selector: { type: "string" },
+				username_selector: { type: "string", description: "Optional CSS selector for the username field when the default detection fails. The password field is always found automatically." },
 			},
 			required: ["login"],
 		},
@@ -94,12 +93,14 @@ export type VaultToolContext = {
 	/** Navegador da VM (login_fill). */
 	browser?: {
 		currentUrl: () => Promise<string>;
-		type: (selector: string, text: string, submit: boolean) => Promise<void>;
+		type: (selector: string, text: string, submit: boolean, guard?: { kind: "password" | "username" | "code"; origin?: string }) => Promise<void>;
 		/** URL e título da página agora (lidos depois de enviar o login). */
 		readPage?: () => Promise<{ url: string; title?: string }>;
 	};
 	/** Injetáveis em testes. */
 	saveIntent?: typeof saveSkillPendingIntent;
+	/** Intenção pendente da conversa (o cartão de vínculo não sobrescreve outro ainda aberto). */
+	loadIntent?: (userId: string, conversationId: string) => Promise<{ payload: { action?: string; vaultUse?: { domain?: string; linkHost?: string } } } | null>;
 	persistCard?: (conversationId: string, card: VaultCard) => Promise<unknown>;
 	unattended?: boolean;
 };
@@ -205,6 +206,16 @@ const DEFAULT_SELECTORS = {
 	totp: 'input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="code" i], input[name*="token" i], input[id*="otp" i], input[id*="code" i], input[inputmode="numeric"]',
 } as const;
 
+/**
+ * Id do cartão de vínculo: `confirm-vault-<hash do item+host>-<runId>`. O último trecho TEM de ser o run que pediu
+ * (`askingRunId` em apps/api). O hash faz cada (item, host) ter o seu cartão: um segundo `login_fill` no mesmo run
+ * nunca reaproveita nem substitui o id do primeiro.
+ */
+export function vaultLinkConfirmId(runId: string | undefined, secretId: string, host: string): string {
+	const nonce = createHash("sha256").update(`${secretId}\n${host}`).digest("hex").slice(0, 10);
+	return `confirm-vault-${nonce}-${runId ?? "local"}`;
+}
+
 /** Seletor do campo de código (2FA/e-mail/SMS) usado também pelo runtime ao digitar o código do e-mail. */
 export const LOGIN_CODE_SELECTOR = DEFAULT_SELECTORS.totp;
 
@@ -219,56 +230,84 @@ export async function executeLoginFill(
 	const logins = (await vault.listMeta(userId)).filter((item) => item.kind === "login");
 	const meta = logins.find((item) => item.name === wanted) ?? logins.find((item) => item.name.toLowerCase() === wanted.toLowerCase() || item.label.toLowerCase() === wanted.toLowerCase());
 	if (!meta) throw new Error(`Login "${wanted.slice(0, 60)}" não encontrado no cofre. Logins: ${logins.map((item) => item.name).join(", ") || "(nenhum)"}. Peça ao usuário para cadastrar em Configurações → Cofre.`);
-	if (!meta.siteUrl) throw new Error(`O login "${meta.name}" não tem o endereço do site cadastrado; peça ao usuário para completar no cofre.`);
-
-	// Anti-phishing: o domínio da página atual precisa ser o do login cadastrado.
-	const pageUrl = await browser.currentUrl();
-	if (!domainMatches(pageUrl, meta.siteUrl)) {
-		const host = hostOf(pageUrl) ?? "desconhecido";
-		throw new Error(`Recusado: a página atual (${host}) não é do site deste login (${meta.domain}). Nada foi preenchido. Abra a página de entrada do site certo (https) e tente de novo.`);
+	if (args.password_selector !== undefined || args.totp_selector !== undefined) {
+		throw new Error("Recusado: o campo de senha é sempre localizado automaticamente (input de senha da página principal); não aceito seletor para ele. Nada foi preenchido.");
 	}
+	const requested = Array.isArray(args.fields) ? args.fields : ["username", "password"];
+	if (requested.includes("totp")) {
+		throw new Error("Recusado: o código 2FA não é digitado pelo bot. Peça ao usuário para informá-lo no site ou no cartão de código. Nada foi preenchido.");
+	}
+	const fields = requested.filter((f): f is "username" | "password" => f === "username" || f === "password");
+	if (fields.length === 0) throw new Error("Informe fields: username e/ou password.");
 
-	if (!(await vault.isLoginApproved(userId, meta, ctx.botId, ctx.conversationId))) {
-		if (ctx.unattended) throw new Error(`Usar o login de ${meta.domain} precisa de aprovação do usuário e rotinas não têm quem aprove.`);
+	// Casamento por nome NUNCA autoriza digitação. Item sem site: no chat o dono confirma o host uma vez (o "Sim" grava o
+	// site no item); em rotina não há quem confirme, então recusa e o run termina pedindo o vínculo.
+	const pageUrl = await browser.currentUrl();
+	const host = hostOf(pageUrl) ?? "desconhecido";
+	if (!meta.siteUrl) {
+		if (ctx.unattended) {
+			throw new Error(`O login "${meta.name}" não tem site cadastrado, então a rotina não o usa. Nada foi preenchido. Termine o run avisando o dono (em palavras simples) que precisa vincular o site desse login: ele abre a conversa e confirma uma vez, ou cadastra o site em Configurações > Cofre.`);
+		}
+		if (!/^https:\/\//i.test(pageUrl) || host === "desconhecido") throw new Error(`A página atual (${host}) não é https; não vinculo o login "${meta.name}" a ela. Nada foi preenchido.`);
 		const conversationId = need(ctx.conversationId, "login_fill só funciona dentro de uma conversa.");
-		const confirmId = `confirm-${ctx.runId ?? "local"}`;
-		const site = meta.label || meta.domain || meta.name;
+		// Só UM pedido de vínculo por vez: a intenção pendente é uma só por conversa e o "Sim" grava o host dela. Um segundo
+		// pedido (outro host, outro item) não pode trocar o host que o dono está vendo no cartão.
+		const open = await (ctx.loadIntent ?? getSkillPendingIntent)(userId, conversationId).catch(() => null);
+		if (open?.payload.action === "vault-use") {
+			throw new Error(`Já há um cartão do Cofre aguardando a resposta do dono${open.payload.vaultUse?.linkHost ? ` (para ${open.payload.vaultUse.linkHost})` : ""}. Nada foi preenchido. Espere a decisão dele antes de pedir outro login; não repita o pedido.`);
+		}
+		const confirmId = vaultLinkConfirmId(ctx.runId, meta.id, host);
+		const site = meta.label || meta.name;
 		await (ctx.saveIntent ?? saveSkillPendingIntent)({
 			userId,
 			conversationId,
-			payload: { kind: "confirm", action: "vault-use", confirmId, botId: ctx.botId, vaultUse: { secretId: meta.id, name: meta.name, label: site, domain: meta.domain ?? "" } },
+			payload: { kind: "confirm", action: "vault-use", confirmId, botId: ctx.botId, vaultUse: { secretId: meta.id, name: meta.name, label: site, domain: host, linkHost: host } },
 			ttlMs: 60 * 60_000,
 		});
 		const card: VaultCard = {
 			type: "confirm",
 			confirmId,
-			title: `Usar o login de ${site} agora?`,
-			description: `O bot vai preencher usuário e senha em ${meta.domain}. Ele não vê a senha.`,
-			confirmLabel: "Usar login",
+			title: `Usar o login do Cofre ${site} em ${host}?`,
+			description: [
+				// O nome do item não tem relação com o domínio da página: o dono precisa ver isso antes de clicar.
+				...(nameMatchesSite([meta.name, meta.label ?? ""], pageUrl) ? [] : [`Atenção: este site (${host}) não parece ser o de "${site}".`]),
+				`O bot vai preencher usuário e senha em ${host} e lembrar desse site para as próximas vezes, inclusive nas rotinas. Ele não vê a senha.`,
+			].join(" "),
+			confirmLabel: "Sim, usar",
 			cancelLabel: "Agora não",
-			alwaysLabel: "Sempre para este bot",
 		};
 		await persist(ctx, conversationId, card);
-		return { summary: `Card de aprovação enviado: "Usar o login de ${site} agora?". Nada foi preenchido; aguarde a decisão do usuário e chame login_fill de novo.`, confirmEvent: card };
+		return { summary: `Card enviado ao usuário: "Usar o login do Cofre ${site} em ${host}?". Nada foi preenchido; aguarde a decisão e chame login_fill de novo.`, confirmEvent: card };
 	}
 
-	const fields = (Array.isArray(args.fields) ? args.fields : ["username", "password"]).filter((f): f is "username" | "password" | "totp" => f === "username" || f === "password" || f === "totp");
-	if (fields.length === 0) throw new Error("Informe fields: username, password e/ou totp.");
+	// Anti-phishing: a senha só é digitada na página do site do item (host salvo ou subdomínio dele; Public Suffix List).
+	// O item é do próprio dono (a lista acima é escopada por `userId`); sem aprovação por uso, no chat e em rotina.
+	const siteDomain = meta.domain ?? hostOf(meta.siteUrl) ?? host;
+	if (!domainMatches(pageUrl, meta.siteUrl)) {
+		throw new Error(`Recusado: a página atual (${host}) não é do site deste login (${siteDomain}). Nada foi preenchido. Abra a página de entrada do site certo (https) e tente de novo.`);
+	}
+
 	const use = await vault.useLogin(userId, meta.id, fields, { actor: "bot", botId: ctx.botId, botName: ctx.botName, conversationId: ctx.conversationId });
 	const submit = args.submit === true;
 	const done: string[] = [];
 	for (const [index, field] of fields.entries()) {
 		const value = use[field];
-		if (!value) {
-			if (field === "totp") throw new Error("Este login não tem código 2FA cadastrado.");
-			continue;
+		if (!value) continue;
+		// Revalida a aba imediatamente antes de CADA digitação (inclusive entre usuário e senha): se mudou de site, aborta.
+		const current = await browser.currentUrl();
+		if (!domainMatches(current, meta.siteUrl)) {
+			throw new Error(`A página mudou de site (${hostOf(current) ?? "desconhecido"}) antes de digitar; interrompi sem digitar o resto. ${done.length ? `Já foi preenchido: ${done.join(", ")}.` : "Nada foi preenchido."}`);
 		}
-		const custom = typeof args[`${field}_selector`] === "string" ? String(args[`${field}_selector`]).slice(0, 300) : undefined;
+		const custom = field === "username" && typeof args.username_selector === "string" && args.username_selector.trim() ? String(args.username_selector).slice(0, 300) : undefined;
+		const origin = new URL(current).origin;
 		try {
-			await browser.type(custom ?? DEFAULT_SELECTORS[field], value, submit && index === fields.length - 1);
-			done.push(field === "username" ? "usuário" : field === "password" ? "senha" : "código 2FA");
-		} catch {
-			throw new Error(`Não consegui achar o campo de ${field} nesta página. Use browser_snapshot e passe ${field}_selector.`);
+			await browser.type(custom ?? DEFAULT_SELECTORS[field], value, submit && index === fields.length - 1, { kind: field, origin });
+			done.push(field === "username" ? "usuário" : "senha");
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "";
+			// Só recusa e troca de site relançam como estão. "Não achei o campo…" é campo ausente (login em duas telas).
+			if (/^Recusado|mudou de site/i.test(message)) throw new Error(message);
+			throw new Error(`Não consegui achar o campo de ${field} nesta página. Use browser_snapshot${field === "username" ? " e passe username_selector" : ""}.`);
 		}
 	}
 	// Depois de enviar, devolve onde a página foi parar: o modelo não deve afirmar "entrei" sem olhar a tela.
@@ -281,7 +320,7 @@ export async function executeLoginFill(
 			landed = " Não consegui ler a página depois de enviar; confira com browser_snapshot antes de dizer que entrou.";
 		}
 	}
-	return { summary: `Preenchi ${done.join(", ")} em ${meta.domain}${submit ? " e enviei" : ""} sem passar os valores por você. ${submit ? "Veja o resultado da página." : "Clique no botão de entrar (ou chame de novo com submit:true)."}${landed}` };
+	return { summary: `Preenchi ${done.join(", ")} em ${siteDomain}${submit ? " e enviei" : ""} sem passar os valores por você. ${submit ? "Veja o resultado da página." : "Clique no botão de entrar (ou chame de novo com submit:true)."}${landed}` };
 }
 
 export { VaultError };

@@ -6,6 +6,7 @@ import type { LoginVaultOffer } from "@workspace/shared";
 
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
+import { ChatCard, ChatCardLine } from "@workspace/ui/components/chat-card";
 import { RequestCard, REQUEST_PRIMARY_CLASS } from "@workspace/ui/components/request-card";
 import { useTranslations } from "@/lib/i18n/provider";
 
@@ -56,6 +57,19 @@ export function LoginCard({
   const [code, setCode] = useState("");
   const done = status === "done";
   const captcha = reason === "captcha";
+
+  // Login do Cofre usado pelo runtime (sem aprovação): só uma linha discreta, sem cartão.
+  if (vault && done && !captcha) {
+    return (
+      <ChatCard className="my-1 text-xs" data-testid="vault-login-used" variant="activity">
+        <ChatCardLine leading={<KeyRoundIcon aria-label={t("aiElements.login.vaultLabel")} />}>
+          <span className="text-muted-foreground">
+            {t("aiElements.login.vaultUsed", { site, item: vault.label || vault.name })}
+          </span>
+        </ChatCardLine>
+      </ChatCard>
+    );
+  }
 
   if (vault && !captcha && !manual) {
     const who = vault.username ? ` (${vault.username})` : "";

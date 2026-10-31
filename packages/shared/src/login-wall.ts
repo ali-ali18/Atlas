@@ -163,3 +163,26 @@ export function detectEmailCodeStep(input: { text?: string; lines?: readonly str
 export function detectExtraLoginStep(input: { text?: string; lines?: readonly string[]; title?: string }): boolean {
 	return EXTRA_STEP.test(`${input.title ?? ""}\n${input.text ?? ""}\n${(input.lines ?? []).join("\n")}`);
 }
+
+/**
+ * A mensagem do usuário é só a confirmação de "terminei o login"? Curta e sem mais nada (pt/en/es).
+ * Qualquer outra fala (pergunta, instrução, "o cofre está como X") é conversa e vai para o modelo.
+ */
+const LOGIN_CONFIRMATION = new Set([
+	"pronto", "prontinho", "terminei", "terminado", "feito", "loguei", "logado", "logada", "entrei", "ok", "okay", "blz", "beleza", "fiz", "ja fiz", "ja terminei", "ja loguei", "ja entrei", "ja esta", "concluido", "pode continuar", "pode seguir", "continue", "continua",
+	"done", "finished", "logged in", "i logged in", "im logged in", "i am logged in", "all set", "ready", "i did it", "i am done", "im done", "go ahead", "continue",
+	"listo", "lista", "hecho", "termine", "ya", "ya esta", "ya termine", "ya entre", "ya inicie sesion", "inicie sesion", "puedes continuar", "continua", "sigue",
+]);
+
+export function isLoginConfirmationText(text: string): boolean {
+	const clean = text
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase()
+		.replace(/['’`]/g, "")
+		.replace(/[^a-z0-9 ]+/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	if (!clean || clean.length > 40) return false;
+	return LOGIN_CONFIRMATION.has(clean);
+}

@@ -16,6 +16,7 @@ import {
 	controlScreen,
 	controlBrowserClick,
 	controlBrowserType,
+	type BrowserTypeGuard,
 	controlBrowserText,
 	controlBrowserFind,
 	controlBrowserRead,
@@ -478,7 +479,7 @@ export type SandboxManager = {
 	) => Promise<ControlBrowserClickResult>;
 	execBrowserType: (
 		sessionId: string,
-		params: { selector?: string; text: string; submit?: boolean },
+		params: { selector?: string; text: string; submit?: boolean; guard?: BrowserTypeGuard },
 	) => Promise<ControlActionResult>;
 	execBrowserText: (
 		sessionId: string,
