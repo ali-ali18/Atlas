@@ -1,6 +1,6 @@
 import type { McpAuthType } from "./mcp.js";
 
-export type McpCatalogCategory = "search" | "google" | "productivity" | "creative" | "custom";
+export type McpCatalogCategory = "search" | "google" | "productivity" | "creative" | "data" | "custom";
 
 export type McpApiKeyPlacement =
 	| { kind: "bearer" }
@@ -38,6 +38,12 @@ export type McpCatalogOAuth = {
 
 export type McpCatalogEntry = {
 	id: string;
+	/**
+	 * `data_source`: fonte de dados com chave (ex.: brapi, cotações da B3). Não é servidor MCP: não tem `url` nem
+	 * tools. Conectar só guarda a chave no cofre do dono (depois de testá-la); quem usa a chave é o servidor, nos
+	 * alertas de cotação. Ausente = conector MCP.
+	 */
+	kind?: "data_source";
 	name: string;
 	description: string;
 	longDescription: string;
@@ -335,6 +341,30 @@ export const MCP_CATALOG: readonly McpCatalogEntry[] = [
 			{ key: "brave-search-news", title: "Pesquisar notícias", description: "Use para localizar notícias recentes sobre um assunto." },
 		],
 	},
+	{
+		id: "brapi",
+		kind: "data_source",
+		name: "brapi",
+		description: "Cotações da B3 para os alertas: ações, FIIs, ETFs e BDRs.",
+		longDescription: "Conecte a brapi para o Atlas acompanhar cotações da B3 nos alertas (\"me avisa quando BBAS3 cair abaixo de R$ 15\"). A conferência roda no servidor, sem gastar IA, usando a sua chave. O plano gratuito tem 15 mil consultas por mês e a cotação chega com cerca de 30 minutos de atraso. Crie a chave grátis no painel da brapi e cole aqui.",
+		category: "data",
+		icon: "/connectors/brapi.svg",
+		developer: "brapi",
+		website: "brapi.dev",
+		sourceUrl: "https://brapi.dev/docs",
+		authType: "api_key",
+		apiKey: {
+			placement: { kind: "bearer" },
+			label: "Token da brapi",
+			helpUrl: "https://brapi.dev/dashboard",
+		},
+		availability: "available",
+		docsUrl: "https://brapi.dev/docs",
+		skills: [
+			{ key: "brapi-price-alert", title: "Alerta de preço", description: "Use para avisar quando uma ação, FII ou ETF passar de um valor." },
+			{ key: "brapi-variation-alert", title: "Alerta de variação", description: "Use para avisar quando um ativo subir ou cair mais que um percentual." },
+		],
+	},
 ];
 
 export function getMcpCatalogEntry(id: string): McpCatalogEntry | undefined {
@@ -348,6 +378,7 @@ export function isBuiltinMcpUrl(url: string): boolean {
 
 /** URL pública para guardar e exibir, sem a chave. */
 export function publicMcpUrl(entry: McpCatalogEntry): string {
+	if (entry.kind === "data_source") return `https://${entry.website}`;
 	const placement = entry.apiKey?.placement;
 	if (placement?.kind === "url") return placement.template.replace("{key}", "***");
 	return entry.url ?? "";
@@ -358,6 +389,7 @@ export function applyMcpApiKey(
 	entry: McpCatalogEntry,
 	key: string,
 ): { url: string; headers?: Record<string, string> } {
+	if (entry.kind === "data_source") return { url: "" };
 	const placement = entry.apiKey?.placement;
 	if (placement?.kind === "url") {
 		return { url: placement.template.replace("{key}", encodeURIComponent(key)) };

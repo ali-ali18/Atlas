@@ -397,7 +397,7 @@ import { executeInspectPresentation, INSPECT_PRESENTATION_TOOL } from "./tools/i
 import { RUN_CODE_TOOL, executeRunCode, type RunCodeDeps } from "./tools/run-code.js";
 import { ROUTINE_CONTROL_TOOL, ROUTINE_CONTROL_TOOL_NAME, executeRoutineControl } from "./tools/routine-control.js";
 import { REPORT_ALERT_TOOL, REPORT_ALERT_TOOL_NAME, alertRunNote, executeReportAlert, type AlertRunState } from "./tools/report-alert.js";
-import { ALERT_RULE_SCHEMA, alertRuleReadingNote, testAlertRule, type AlertRuleReader } from "./tools/alert-rule.js";
+import { ALERT_RULE_SCHEMA, alertRuleReadingNote, ownerAlertRuleReader, testAlertRule, type AlertRuleReader } from "./tools/alert-rule.js";
 import { upsertDailyBrief } from "./tools/daily-brief.js";
 import { listBriefSources } from "./tools/daily-brief-sources.js";
 import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME, dbPagesStore, executePageTool, isPageTool, type PageShareStore, type PagesStore } from "./tools/pages.js";
@@ -2737,8 +2737,8 @@ async function executeProposeRoutine(
 			alertInput = parsedAlert.alert;
 			if (alertInput.rule) {
 				// Só grava a regra se ela lê agora (falha com motivo e dica; nada é criado).
-				const tested = await testAlertRule(alertInput.rule, ruleLocale, ctx.alertRuleReader);
-				alertReading = { display: tested.display, note: alertRuleReadingNote(alertInput.rule, tested.display) };
+				const tested = await testAlertRule(alertInput.rule, ruleLocale, ctx.alertRuleReader ?? ownerAlertRuleReader(scope.userId));
+				alertReading = { display: tested.display, note: alertRuleReadingNote(alertInput.rule, tested.display, tested.note) };
 			}
 		}
 	}

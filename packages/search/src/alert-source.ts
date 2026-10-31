@@ -5,7 +5,7 @@
  * Segurança (a fonte é uma URL escolhida pelo agente a pedido do usuário, então é entrada não confiável):
  * - só http(s); bloqueia loopback, rede privada, link-local e metadados de nuvem, inclusive depois do DNS e
  *   em cada redirect (no máximo 3); o `connect` real também recusa IP privado (DNS rebinding);
- * - timeout total de 10 s e no máximo 2 MB por resposta (acima disso é erro, nunca leitura parcial);
+ * - timeout total de 10 s e no máximo 5 MB por resposta (acima disso é erro, nunca leitura parcial);
  * - o conteúdo lido é só dado: vira texto/valor, nunca instrução.
  *
  * Cache por ciclo: alertas que olham a mesma URL compartilham uma única busca (TTL curto, em memória). Não há
@@ -22,11 +22,13 @@ import {
 	type ExtractFetchFn,
 	type ExtractLookupFn,
 } from "./extract.js";
+import { readMarketSource, type MarketDeps, type MarketFailure } from "./market-data.js";
 import { regexWindow, runRegexWithBudget } from "./regex-budget.js";
 import {
 	ALERT_FEED_ITEMS_MAX,
 	ALERT_ITEM_TITLE_MAX,
 	alertSourceHost,
+	isMarketAlertSource,
 	unsafeRegexReason,
 	jsonValueText,
 	parseFeedItems,
@@ -38,26 +40,33 @@ import {
 
 export const ALERT_SOURCE_UA = "atlas-agent/0.1 (+https://github.com/ali-ali18/Atlas)";
 export const ALERT_SOURCE_TIMEOUT_MS = 10_000;
-export const ALERT_SOURCE_MAX_BYTES = 2_000_000;
+export const ALERT_SOURCE_MAX_BYTES = 5_000_000;
 export const ALERT_SOURCE_MAX_REDIRECTS = 3;
 export const ALERT_SOURCE_CACHE_TTL_MS = 60_000;
 const CACHE_MAX_ENTRIES = 200;
 const LIST_ITEMS_MAX = ALERT_FEED_ITEMS_MAX;
 
-export type AlertSourceFailure = "blocked" | "timeout" | "http" | "too_large" | "network" | "parse" | "empty";
+export type AlertSourceFailure = "blocked" | "timeout" | "http" | "too_large" | "network" | "parse" | "empty" | MarketFailure;
 
 export type AlertSourceResult =
 	| { ok: true; read: AlertRuleRead; host: string; ms: number }
 	| { ok: false; code: AlertSourceFailure; reason: string; host: string; ms: number };
 
 type FetchedDocument = { body: string; contentType: string };
-export type AlertSourceCache = Map<string, { expiresAt: number; promise: Promise<FetchedDocument> }>;
+/** `bytes` entra quando a busca termina (memória estimada do corpo guardado). */
+export type AlertSourceCache = Map<string, { expiresAt: number; promise: Promise<FetchedDocument>; bytes?: number }>;
+/** Teto de memória do cache de páginas: com páginas de até 5 MB, 200 entradas poderiam passar de 1 GB. */
+export const ALERT_SOURCE_CACHE_MAX_BYTES = 100_000_000;
 
 export type AlertSourceDeps = {
 	fetchFn?: ExtractFetchFn;
 	lookupFn?: ExtractLookupFn;
 	timeoutMs?: number;
 	maxBytes?: number;
+	/** Teto de memória do cache (bytes); padrão `ALERT_SOURCE_CACHE_MAX_BYTES`. */
+	cacheMaxBytes?: number;
+	/** Fontes de mercado (cotação, câmbio, cripto, clima): chaves do dono e injeções de teste. */
+	market?: MarketDeps;
 	/** Respeita o robots.txt do site (padrão: sim; o resultado fica em cache por origem). */
 	respectRobots?: boolean;
 	/** Busca única por URL entre alertas do mesmo ciclo. Ausente = sem cache (ex.: teste da regra na criação). */
@@ -191,7 +200,28 @@ function fetchShared(url: string, deps: AlertSourceDeps): Promise<FetchedDocumen
 		if (cache.size >= CACHE_MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
 	}
 	const promise = fetchDocument(url, deps);
-	cache.set(url, { expiresAt: now + ALERT_SOURCE_CACHE_TTL_MS, promise });
+	const entry: { expiresAt: number; promise: Promise<FetchedDocument>; bytes?: number } = { expiresAt: now + ALERT_SOURCE_CACHE_TTL_MS, promise };
+	cache.set(url, entry);
+	const limit = deps.cacheMaxBytes ?? ALERT_SOURCE_CACHE_MAX_BYTES;
+	// Falha não fica guardada; sucesso passa a contar bytes e, se estourar o teto, os mais antigos saem primeiro.
+	promise.then(
+		(doc) => {
+			// String em memória custa até 2 bytes por caractere.
+			entry.bytes = doc.body.length * 2;
+			let total = 0;
+			for (const item of cache.values()) total += item.bytes ?? 0;
+			for (const [key, item] of cache) {
+				if (total <= limit) break;
+				if (item === entry && cache.size === 1) break;
+				if (item.bytes === undefined) continue;
+				cache.delete(key);
+				total -= item.bytes;
+			}
+		},
+		() => {
+			if (cache.get(url) === entry) cache.delete(url);
+		},
+	);
 	return promise;
 }
 
@@ -253,6 +283,11 @@ export async function readAlertSource(source: AlertSource, deps: AlertSourceDeps
 	const clock = deps.now ?? Date.now;
 	const started = clock();
 	const host = alertSourceHost(source);
+	// Fontes de mercado (sem URL) são lidas pelos provedores de `market-data.ts`, não por este leitor de páginas.
+	if (isMarketAlertSource(source)) {
+		const result = await readMarketSource(source, { ...deps.market, ...(deps.now ? { now: deps.now } : {}) });
+		return result.ok ? { ok: true, read: result.read, host: result.host, ms: result.ms } : { ok: false, code: result.code, reason: result.reason, host: result.host, ms: result.ms };
+	}
 	try {
 		const doc = await fetchShared(source.url, deps);
 		const read = source.type === "feed" ? readFeed(doc) : await readPage(source, doc, wantList);

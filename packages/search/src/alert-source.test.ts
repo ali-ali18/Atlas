@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseAlertRule, type AlertRule, type AlertSource } from "@workspace/shared";
 import { clearExtractRobotsCache } from "./extract.js";
 import * as sourceModule from "./alert-source.js";
-import { createAlertSourceCache, ALERT_SOURCE_UA, type AlertSourceDeps } from "./alert-source.js";
+import { createAlertSourceCache, ALERT_SOURCE_UA, ALERT_SOURCE_MAX_BYTES, type AlertSourceDeps } from "./alert-source.js";
 
 // Os testes de segurança e leitura não dependem do robots.txt (ele tem os seus testes abaixo).
 const readAlertSource = (source: Parameters<typeof sourceModule.readAlertSource>[0], deps: AlertSourceDeps = {}, wantList?: boolean) => sourceModule.readAlertSource(source, { respectRobots: false, ...deps }, wantList);
@@ -89,8 +89,15 @@ describe("readAlertSource · segurança (SSRF)", () => {
 });
 
 describe("readAlertSource · limites", () => {
+	it("aceita página de 2,2 MB (limite de 5 MB) e mantém o teto", async () => {
+		expect(ALERT_SOURCE_MAX_BYTES).toBe(5_000_000);
+		const big = `<html><body><span class="p">R$ 21,34</span>${"x".repeat(2_220_000)}</body></html>`;
+		const ok = vi.fn(async () => res(big));
+		expect(await readAlertSource(css, { fetchFn: ok as never, lookupFn: lookupPublic })).toMatchObject({ ok: true });
+	});
+
 	it("recusa corpo acima do limite (declarado e em stream)", async () => {
-		const declared = vi.fn(async () => res("x", { headers: { "content-length": "5000000" } }));
+		const declared = vi.fn(async () => res("x", { headers: { "content-length": "5000001" } }));
 		expect(await readAlertSource(css, { fetchFn: declared as never, lookupFn: lookupPublic })).toMatchObject({ ok: false, code: "too_large" });
 		const streamed = vi.fn(async () => res("a".repeat(3000)));
 		expect(await readAlertSource(css, { fetchFn: streamed as never, lookupFn: lookupPublic, maxBytes: 1000 })).toMatchObject({ ok: false, code: "too_large" });
@@ -172,5 +179,43 @@ describe("robots.txt", () => {
 		expect(await sourceModule.readAlertSource(css, { fetchFn: robotsFor("", 404) as never, lookupFn: lookupPublic })).toMatchObject({ ok: true });
 		clearExtractRobotsCache();
 		expect(await sourceModule.readAlertSource(css, { fetchFn: robotsFor("User-agent: *\nDisallow: /admin") as never, lookupFn: lookupPublic })).toMatchObject({ ok: true });
+	});
+});
+
+describe("readAlertRule · fontes de mercado", () => {
+	it("câmbio passa pelo provedor de host fixo, sem tocar no guard de URL", async () => {
+		const fetchFn = vi.fn(async () => new Response(JSON.stringify({ USDBRL: { bid: "5.97", timestamp: "1793116800" } }), { status: 200 }));
+		const rule = { source: { type: "fx", pair: "USD-BRL" }, check: { kind: "value", parse: "money", op: "gt", value: 6, currency: "BRL" } } as AlertRule;
+		const result = await readAlertRule(rule, { market: { fetchFn: fetchFn as never } });
+		expect(result).toMatchObject({ ok: true, host: "economia.awesomeapi.com.br", read: { kind: "number", value: 5.97 } });
+		expect(fetchFn).toHaveBeenCalledTimes(1);
+	});
+	it("cotação sem chave do dono falha com a dica do Marketplace", async () => {
+		const rule = { source: { type: "quote", symbol: "BBAS3" }, check: { kind: "value", parse: "money", op: "lt", value: 15, currency: "BRL" } } as AlertRule;
+		expect(await readAlertRule(rule, { market: { getKeys: () => ({}) } })).toMatchObject({ ok: false, code: "needs_key" });
+	});
+});
+
+describe("readAlertRule · teto de memória do cache", () => {
+	it("passa de 100 MB (padrão) ou do teto dado: os mais antigos saem e o cache nunca estoura", async () => {
+		expect(sourceModule.ALERT_SOURCE_CACHE_MAX_BYTES).toBe(100_000_000);
+		const cache = createAlertSourceCache();
+		const fetchFn = vi.fn(async () => res(`<span class="p">R$ 1,00</span>${"x".repeat(400)}`));
+		const deps = { fetchFn: fetchFn as never, lookupFn: lookupPublic, cache, cacheMaxBytes: 2000 };
+		for (const id of [1, 2, 3, 4]) await readAlertSource({ type: "page", url: `https://loja.example.com/p${id}`, extract: { kind: "css", selector: "span.p" } }, deps);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const total = [...cache.values()].reduce((sum, entry) => sum + (entry.bytes ?? 0), 0);
+		expect(total).toBeLessThanOrEqual(2000);
+		expect(cache.size).toBeLessThan(4);
+		expect(cache.has("https://loja.example.com/p4")).toBe(true);
+		expect(cache.has("https://loja.example.com/p1")).toBe(false);
+	});
+
+	it("página que falha não fica no cache", async () => {
+		const cache = createAlertSourceCache();
+		const fetchFn = vi.fn(async () => res("", { status: 500 }));
+		await readAlertSource({ type: "page", url: "https://loja.example.com/x", extract: { kind: "css", selector: "span" } }, { fetchFn: fetchFn as never, lookupFn: lookupPublic, cache });
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(cache.size).toBe(0);
 	});
 });

@@ -293,6 +293,7 @@ export const marketplace = {
 	"marketplace.connector.category.google": "Google",
 	"marketplace.connector.category.productivity": "Produtividade",
 	"marketplace.connector.category.creative": "Criação",
+	"marketplace.connector.category.data": "Fontes de dados",
 	"marketplace.connector.category.custom": "Personalizado",
 	"marketplace.connector.status.connected": "Conectada",
 	"marketplace.connector.status.error": "Erro na conexão",

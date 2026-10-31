@@ -250,3 +250,4 @@ Verificar (modo básico: o link cai em `${ATLAS_URL}/v1/previews/<id>/p/`; compl
 - Dokploy, Environment: `ATLAS_IMAGE_TAG` (e as variáveis que já existem).
 - Volume `atlas-artifacts` montado em api **e** worker, com o mesmo `ATLAS_ARTIFACT_DIR` (ver seção 6).
 - Dokploy, Environment (opcional, só para a prévia completa; a básica não precisa de nada): `ATLAS_PREVIEW_BASE_DOMAIN` (ver §7); `ATLAS_PREVIEW_ALLOW_SAME_SITE` só se souber o que faz.
+- Alertas de cotação, câmbio, cripto e clima (etapa 2): **nenhuma variável nova**. A chave da brapi não é do operador: cada usuário conecta a própria no Marketplace ("Fontes de dados") e ela fica no cofre (`CONNECTOR_ENCRYPTION_KEY`, que api **e** worker já precisam ter, igual). Saída de rede do worker e do ambiente de teste da criação (api/agent): `brapi.dev`, `economia.awesomeapi.com.br`, `api.mercadobitcoin.net`, `data-api.binance.vision`, `api.open-meteo.com` e `geocoding-api.open-meteo.com` (https).
