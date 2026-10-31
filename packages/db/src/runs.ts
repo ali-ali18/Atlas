@@ -841,6 +841,9 @@ export async function requestResumeAgentRun(runId: string): Promise<AgentRun | n
 		data: {
 			status: "queued",
 			error: null,
+			// O motivo `paused_login` valia só enquanto parado; retomado, o run volta a não ter motivo até terminar.
+			stopReason: null,
+			stopDetail: null,
 			jobEnqueuedAt: null,
 			leaseOwner: null,
 			leaseUntil: null,

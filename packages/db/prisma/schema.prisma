@@ -460,7 +460,6 @@ model AgentRun {
   @@index([userId, createdAt])
   @@index([status, leaseUntil])
   @@index([parentRunId])
-  @@index([stopReason, createdAt])
   @@map("agent_runs")
 }
 

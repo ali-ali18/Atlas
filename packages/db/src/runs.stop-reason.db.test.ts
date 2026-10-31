@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { prisma } from "./client.js";
-import { completeAgentRunAtomically, failAgentRunAfterRetries, failStaleRunningRuns, finishAgentRun, requestCancelAgentRun } from "./runs.js";
+import { completeAgentRunAtomically, failAgentRunAfterRetries, failStaleRunningRuns, finishAgentRun, requestCancelAgentRun, requestResumeAgentRun } from "./runs.js";
 import { finishSubagentRun } from "./subagent-runs.js";
 import { createTestBot, createTestUser, dbSkip } from "./testing/test-db.js";
 
@@ -83,5 +83,11 @@ describe("stopReason/stopDetail (Postgres real)", { skip: dbSkip }, () => {
 		const run = await newRun({ status: "queued" });
 		await requestCancelAgentRun(run.id);
 		assert.deepEqual(await read(run.id), { status: "cancelled", stopReason: "cancelled", stopDetail: "before_start" });
+	});
+
+	test("retomar run pausado limpa o motivo paused_login", async () => {
+		const run = await newRun({ status: "paused", stopReason: "paused_login", stopDetail: "x" });
+		assert.ok(await requestResumeAgentRun(run.id));
+		assert.deepEqual(await read(run.id), { status: "queued", stopReason: null, stopDetail: null });
 	});
 });
