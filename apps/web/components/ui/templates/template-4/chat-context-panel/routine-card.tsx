@@ -50,7 +50,7 @@ import {
 	runOptimisticToggle,
 	runTest,
 } from "./routine-actions";
-import { routineAlertSentence, routinePrimaryTriggerKind, routineScheduleSummary } from "./routine-map";
+import { routineAlertDetail, routineAlertSentence, routinePrimaryTriggerKind, routineScheduleSummary } from "./routine-map";
 
 export type RoutineCardHandlers = {
 	onToggle?: (routine: Routine, enabled: boolean) => Promise<string | null>;
@@ -133,6 +133,8 @@ export function RoutineCard({
 
 	const active = optimistic ?? routine.active;
 	const alertSentence = routineAlertSentence(routine, translator);
+	const alertDetail = routineAlertDetail(routine, translator);
+	const alertTitle = alertSentence ? (alertDetail ? `${alertSentence} · ${alertDetail}` : alertSentence) : undefined;
 	const summary = alertSentence ?? routineScheduleSummary(routine, translator);
 	const switchKey = active ? "routines.card.pauseNamed" : "routines.card.resumeNamed";
 	const kind = routinePrimaryTriggerKind(routine);
@@ -185,7 +187,7 @@ export function RoutineCard({
 					{routine.name}
 				</span>
 				<span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-muted-foreground text-xs">
-					<span className={alertSentence ? "line-clamp-2 break-words" : "truncate"} data-routine-alert={alertSentence ? "" : undefined} title={alertSentence ?? undefined}>
+					<span className={alertSentence ? "line-clamp-2 break-words" : "truncate"} data-routine-alert={alertSentence ? "" : undefined} title={alertTitle}>
 						{persisted ? summary : t("routines.card.withDraft", { summary })}
 					</span>
 					{routine.createdBy === "bot" ? (

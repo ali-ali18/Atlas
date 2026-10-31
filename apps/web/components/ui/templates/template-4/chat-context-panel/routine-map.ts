@@ -16,6 +16,7 @@ import { formatDateTime } from "@/lib/format";
 import { DEFAULT_UI_LOCALE, type UiLocale } from "@/lib/i18n/locales";
 import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
 import {
+	alertDetailText,
 	alertSentenceText,
 	emailTriggerText,
 	githubTriggerClauses,
@@ -496,6 +497,11 @@ export function routineTriggerRows(routine: Routine, translator: Translator = de
 	const first = routine.triggers[0];
 	if (!first) return [];
 	return [{ kind: "cron", text: capitalizeFirst(routineTriggerText(first, translator)) }];
+}
+
+/** Frase do alerta da rotina no idioma da tela; `null` quando não é rotina de alerta. */
+export function routineAlertDetail(routine: Routine, translator: Translator = defaultTranslator): string | null {
+	return routine.alert ? alertDetailText(routine.alert, translator) : null;
 }
 
 /** Frase do alerta da rotina no idioma da tela; `null` quando não é rotina de alerta. */
