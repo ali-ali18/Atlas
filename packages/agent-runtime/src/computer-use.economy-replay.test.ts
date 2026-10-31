@@ -299,14 +299,9 @@ describe("planejar antes de executar tarefa longa", () => {
 		expect(upsertTaskListCard).toHaveBeenCalledWith(undefined, "run-economy", PLAN);
 	});
 
-	it.each(["Bom dia", "que horas são?"])("'%s' não gera lista e a regra proíbe planejar pedido simples", async (text) => {
-		const events: string[] = [];
-		const { system, prefixChars } = await replay({
-			messages: [{ role: "user", content: text }],
-			onEvent: (event) => events.push(event.type),
-		});
-		expect(events).not.toContain("task_list");
-		expect(upsertTaskListCard).not.toHaveBeenCalled();
+	// Prova só o texto do prompt e o teto do prefixo; "não planejar pedido simples" é decisão do modelo (coberta por eval, não por este mock).
+	it.each(["Bom dia", "que horas são?"])("'%s': o prompt traz a exceção para pedido simples e o prefixo respeita o teto", async (text) => {
+		const { system, prefixChars } = await replay({ messages: [{ role: "user", content: text }] });
 		expect(system(0)).toContain("Never for a simple question, a greeting or a single lookup");
 		expect(prefixChars()).toBeLessThan(40_500);
 	});

@@ -223,7 +223,7 @@ export const P_DELEGATION: string[] = [
 
 /** Planejar antes de executar tarefa longa: regra fixa do núcleo (a tool `update_task_list` só existe com humano acompanhando). */
 export const P_PLANNING: string[] = [
-	"Planning: for any request needing 3+ distinct steps (research and compare, several lookups or pages, creating several things, multi-turn work, a delegated diagnosis), call `update_task_list` FIRST with the plan, then keep it updated (one in_progress, mark completed as you go).",
+	"Planning: when `update_task_list` is available and the request needs 3+ distinct steps (research and compare, several lookups or pages, creating several things, multi-turn work, a delegated diagnosis), call `update_task_list` FIRST with the plan, then keep it updated (one in_progress, mark completed as you go).",
 	"Never for a simple question, a greeting or a single lookup. In a coding session use `todo_write` instead.",
 ];
 

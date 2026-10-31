@@ -198,6 +198,78 @@ describe("todo_write da sessão de código alimenta a mesma lista", () => {
 	});
 });
 
+function devSessionStub(updates: unknown[] = []) {
+	const session = { id: "sess-1", todos: [] as unknown[], status: "ready", tier: "small", containerId: "c1" };
+	return {
+		config: { enabled: true },
+		store: { findForConversation: async () => session, get: async () => session, update: async (_id: string, patch: unknown) => { updates.push(patch); } },
+		provider: {},
+		getGithubToken: async () => ({ ok: false }),
+	} as never;
+}
+
+describe("um dono só para a lista", () => {
+	async function toolsFor(origin: string, withDev: boolean) {
+		const seen: string[][] = [];
+		await runComputerUse({
+			manager: {} as SandboxManager, getSessionId: async () => "unused", sandboxEnabled: false, apiKey: "test", model: "m",
+			runId: "run-own", userId: "user-a", conversationId: "conv-own", origin,
+			messages: [{ role: "user", content: "corrige o teste que esta falhando no repo" }],
+			...(withDev ? { devSession: devSessionStub() } : { devSession: null }),
+			onEvent: () => undefined,
+			streamChat: async (params) => { seen.push(params.tools.map((t) => t.function.name)); return say("ok"); },
+		});
+		return seen[0]!;
+	}
+
+	it("chat com sessão de código: só todo_write; sem ela: só update_task_list", async () => {
+		const dev = await toolsFor("chat", true);
+		expect(dev).toContain("todo_write");
+		expect(dev).not.toContain("update_task_list");
+		const plain = await toolsFor("chat", false);
+		expect(plain).toContain("update_task_list");
+		expect(plain).not.toContain("todo_write");
+	});
+
+	it.each(["routine", "webhook"])("%s com sessão de código: todo_write não cria lista, cartão nem nota", async (origin) => {
+		vi.mocked(upsertTaskListCard).mockClear();
+		const events: Array<Record<string, unknown>> = [];
+		const systems: string[] = [];
+		const queue = [toolCall("todo_write", { items: [{ id: "1", content: "Ler", status: "in_progress" }, { id: "2", content: "Corrigir", status: "pending" }] }), say("fim")];
+		await runComputerUse({
+			manager: {} as SandboxManager, getSessionId: async () => "unused", sandboxEnabled: false, apiKey: "test", model: "m",
+			runId: "run-un", userId: "user-a", conversationId: "conv-un", origin,
+			messages: [{ role: "user", content: "corrige o teste que esta falhando no repo" }],
+			devSession: devSessionStub(),
+			onEvent: (event) => { events.push(event as never); },
+			streamChat: async (params) => {
+				systems.push(params.messages.filter((m) => m.role === "system").map((m) => String(m.content)).join("\n"));
+				return queue.shift() ?? say("fim");
+			},
+		});
+		expect(events.some((e) => e.type === "task_list")).toBe(false);
+		expect(upsertTaskListCard).not.toHaveBeenCalled();
+		expect(systems.some((t) => t.includes("Current task list"))).toBe(false);
+	});
+
+	it("chat com código: a lista espelhada não gera a nota 'Current task list' (a nota do código já a traz)", async () => {
+		const systems: string[] = [];
+		const queue = [toolCall("todo_write", { items: [{ id: "1", content: "Ler", status: "in_progress" }, { id: "2", content: "Corrigir", status: "pending" }] }), say("fim")];
+		await runComputerUse({
+			manager: {} as SandboxManager, getSessionId: async () => "unused", sandboxEnabled: false, apiKey: "test", model: "m",
+			runId: "run-dn", userId: "user-a", conversationId: "conv-dn", origin: "chat",
+			messages: [{ role: "user", content: "corrige o teste que esta falhando no repo" }],
+			devSession: devSessionStub(),
+			onEvent: () => undefined,
+			streamChat: async (params) => {
+				systems.push(params.messages.filter((m) => m.role === "system").map((m) => String(m.content)).join("\n"));
+				return queue.shift() ?? say("fim");
+			},
+		});
+		expect(systems.some((t) => t.includes("Current task list"))).toBe(false);
+	});
+});
+
 describe("todo_write dentro do run de chat", () => {
 	it("a lista do todo_write chega à doca (evento task_list + cartão) e fica no estado do run", async () => {
 		const updates: unknown[] = [];

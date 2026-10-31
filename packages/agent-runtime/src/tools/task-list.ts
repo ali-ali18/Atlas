@@ -41,8 +41,8 @@ export const UPDATE_TASK_LIST_TOOL: ChatTool = {
 
 /**
  * Quem recebe `update_task_list`: o agente principal em runs com humano acompanhando a conversa.
- * `chat` é o usuário falando; `bot` é um bot atendendo outro bot DENTRO da conversa própria dele
- * (o usuário vê a doca e o cartão ali). Rotina, webhook, proativo e subagente não têm onde mostrar.
+ * `chat` é o usuário falando; `bot` é um bot atendendo outro bot na conversa do próprio bot,
+ * visível ao dono (a doca e o cartão aparecem ali). Rotina, webhook, proativo e subagente não têm onde mostrar.
  */
 export function shouldExposeTaskList(input: { origin?: string; isSubagent: boolean }): boolean {
 	return !input.isSubagent && (input.origin === "chat" || input.origin === "bot");
