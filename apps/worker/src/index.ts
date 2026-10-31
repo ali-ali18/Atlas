@@ -415,6 +415,8 @@ async function handleAgentRunFailure(
 			const finalized = await failAgentRunAfterRetries(
 				job.data.runId,
 				err.message,
+				undefined,
+				{ reason: "error", detail: "unrecoverable" },
 			);
 			if (finalized) {
 				console.error(`[agent] Run ${job.data.runId} falhou (permanente): ${err.message}`);

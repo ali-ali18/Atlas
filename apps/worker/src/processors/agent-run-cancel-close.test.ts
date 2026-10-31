@@ -28,7 +28,7 @@ test("lease perdido com cancel pedido: emite cancelled, fecha o run, liquida a e
 	const { io, calls, events } = fakeIo();
 	await closeCancelledAfterLeaseLoss("r1", io);
 	assert.deepEqual(calls, ["emit", "flush", "finish", "settle", "chain"]);
-	assert.deepEqual(events, [{ type: "cancelled", reason: "Execução cancelada" }]);
+	assert.deepEqual(events, [{ type: "cancelled", reason: "Execução cancelada", stopReason: "cancelled" }]);
 });
 
 test("cancel direto usa o mesmo fechamento e propaga falha do fechamento do run", async () => {
