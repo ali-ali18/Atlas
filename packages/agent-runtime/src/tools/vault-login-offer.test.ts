@@ -14,8 +14,10 @@ beforeAll(async () => {
 });
 
 describe("oferta do Cofre", () => {
-	it("casa pelo domínio registrável (mesma regra do login_fill) e só em https", async () => {
-		expect(await findVaultLoginOffer(vault, "u", "https://auth.chatgpt.com/login")).toMatchObject({ name: "chatgpt", domain: "chatgpt.com", username: "ana@x.com" });
+	it("casa pelo host exato, com www ≡ apex (mesma regra do login_fill) e só em https", async () => {
+		expect(await findVaultLoginOffer(vault, "u", "https://www.chatgpt.com/login")).toMatchObject({ name: "chatgpt", domain: "chatgpt.com", username: "ana@x.com" });
+		expect(await findVaultLoginOffer(vault, "u", "https://chatgpt.com/login")).toMatchObject({ name: "chatgpt" });
+		expect(await findVaultLoginOffer(vault, "u", "https://auth.chatgpt.com/login")).toBeNull();
 		expect(await findVaultLoginOffer(vault, "u", "https://chatgpt.com.evil.example/login")).toBeNull();
 		expect(await findVaultLoginOffer(vault, "u", "http://chatgpt.com/login")).toBeNull();
 		expect(await findVaultLoginOffer(vault, "outro", "https://chatgpt.com/login")).toBeNull();

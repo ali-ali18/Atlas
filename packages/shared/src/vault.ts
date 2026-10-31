@@ -115,27 +115,31 @@ export function registrableDomain(host: string): string {
 	return psl(host).domain ?? host;
 }
 
-/** O host é de plataforma (sufixo privado: `*.vercel.app`, `*.github.io`…) ou é ele mesmo um sufixo? Aí só vale o host exato. */
-function exactOnly(host: string): boolean {
-	const parsed = psl(host);
-	return parsed.isIp === true || parsed.domain === null || parsed.isPrivate === true;
+/** Host sem ponto final e sem `www.` (`www.x.com` ≡ `x.com`). */
+function canonicalHost(host: string): string {
+	return host.toLowerCase().replace(/\.$/, "").replace(/^www\./, "");
+}
+
+function isLocalHost(host: string): boolean {
+	return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
 }
 
 /**
- * A página atual pertence ao site cadastrado? Mesmo host ou subdomínio dele (nunca um irmão: salvo
- * `panel.kodea.com.br`, `admin.kodea.com.br` não casa; salvo `kodea.com.br`, `panel.kodea.com.br` casa).
- * Em sufixo de plataforma (`*.vercel.app`, `*.github.io`…), IP e localhost: host exato. http só em localhost.
+ * A página atual é o site cadastrado? SÓ o host exato (`www.` e o domínio sem `www.` são o mesmo site). Qualquer outro
+ * subdomínio é outro site (salvo `google.com`, `sites.google.com` NÃO casa: lá qualquer pessoa publica página) e cai
+ * no cartão de vínculo. Em localhost e IP a porta também conta (`localhost:3000` ≠ `localhost:9999`). https sempre;
+ * http só em localhost.
  */
 export function domainMatches(pageUrl: string, siteUrl: string): boolean {
 	const page = parseUrl(pageUrl);
-	const site = hostOf(siteUrl);
+	const site = parseUrl(siteUrl);
 	if (!page || !site) return false;
 	const pageHost = page.hostname.toLowerCase().replace(/\.$/, "");
-	const local = pageHost === "localhost" || pageHost === "127.0.0.1";
+	const local = isLocalHost(pageHost);
 	if (page.protocol !== "https:" && !local) return false;
-	if (pageHost === site) return true;
-	if (exactOnly(site) || exactOnly(pageHost)) return false;
-	return pageHost.endsWith(`.${site}`);
+	if (canonicalHost(pageHost) !== canonicalHost(site.hostname)) return false;
+	const exactPort = local || psl(pageHost).isIp === true;
+	return !exactPort || page.port === site.port;
 }
 
 /** Nome sugerido a partir do domínio (`www.github.com` -> `github`). */
@@ -178,7 +182,7 @@ export type VaultLoginPick<T extends VaultLoginCandidate> =
 	| { kind: "none" };
 
 /**
- * Qual login do cofre serve a página atual? Primeiro pelo site salvo (mesmo domínio registrável); sem isso,
+ * Qual login do cofre serve a página atual? Primeiro pelo site salvo (host exato); sem isso,
  * pelo nome (itens sem URL). Mais de um candidato = ambíguo: o modelo pergunta qual item usar, o runtime não chuta.
  */
 export function pickVaultLoginForPage<T extends VaultLoginCandidate>(items: readonly T[], pageUrl: string): VaultLoginPick<T> {

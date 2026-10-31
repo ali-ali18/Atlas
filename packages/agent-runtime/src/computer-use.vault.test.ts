@@ -113,7 +113,7 @@ describe("cofre no loop do agente", () => {
 	it("login_fill: preenche sem o valor passar pelo modelo, após aprovação, só no domínio certo", async () => {
 		const typed: Array<{ selector?: string; text: string }> = [];
 		const manager = asManager({
-			execBrowserText: vi.fn(async () => ({ url: "https://accounts.github.com/login?x=1", title: "Sign in", text: `Entrar. valor digitado: ${PASSWORD}` })),
+			execBrowserText: vi.fn(async () => ({ url: "https://www.github.com/login?x=1", title: "Sign in", text: `Entrar. valor digitado: ${PASSWORD}` })),
 			execBrowserType: vi.fn(async (_s: string, params: { selector?: string; text: string }) => {
 				typed.push(params);
 				return { ok: true };

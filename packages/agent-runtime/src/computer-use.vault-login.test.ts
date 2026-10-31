@@ -351,16 +351,18 @@ describe("Cofre primeiro: login salvo do dono entra sozinho, antes do card", () 
 		expect(checkpoints.at(-1)?.pendingLogin?.vaultTried).toBeTruthy();
 	});
 
-	it("subdomínio do site salvo casa pelo domínio registrável (painel.chatgpt.com usa o login de chatgpt.com)", async () => {
+	it("www do site salvo é o mesmo site; outro subdomínio (painel.chatgpt.com) não usa o login de chatgpt.com", async () => {
 		await addChatgpt();
-		const { events, execBrowserType } = await run({
+		const www = await run({
 			queue: [step("browser_snapshot"), text("ok")],
-			url: "https://painel.chatgpt.com/entrar",
-			snapshotAfterTyping: () => ({ ...homeSnapshot(), url: "https://painel.chatgpt.com/" }),
-			pageAfter: { url: "https://painel.chatgpt.com/", title: "Painel", text: "Bem-vindo" },
+			url: "https://www.chatgpt.com/entrar",
+			snapshotAfterTyping: () => ({ ...homeSnapshot(), url: "https://www.chatgpt.com/" }),
+			pageAfter: { url: "https://www.chatgpt.com/", title: "Painel", text: "Bem-vindo" },
 		});
-		expect(execBrowserType).toHaveBeenCalled();
-		expect(events.filter((e) => e.type === "login" && e.status !== "done")).toHaveLength(0);
+		expect(www.execBrowserType).toHaveBeenCalled();
+		const other = await run({ queue: [step("browser_snapshot")], url: "https://painel.chatgpt.com/entrar" });
+		expect(other.execBrowserType).not.toHaveBeenCalled();
+		expect(other.events.find((e) => e.type === "login" && e.status === "pending")?.vault).toBeUndefined();
 	});
 
 	it("sem login salvo para o site: card comum 'faça você mesmo', nada digitado", async () => {

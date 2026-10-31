@@ -16,12 +16,27 @@ describe("refs", () => {
 });
 
 describe("domínio", () => {
-	it("casa subdomínios do mesmo site", () => {
-		expect(domainMatches("https://accounts.github.com/login", "https://github.com")).toBe(true);
-		expect(domainMatches("https://app.exemplo.com.br/x", "exemplo.com.br")).toBe(true);
-		expect(domainMatches("https://painel.exemplo.com/login", "exemplo.com")).toBe(true);
+	it("casa só o host exato; www e o domínio sem www são o mesmo site", () => {
 		expect(domainMatches("https://painel.exemplo.com/login", "https://painel.exemplo.com")).toBe(true);
+		expect(domainMatches("https://github.com/login", "github.com")).toBe(true);
+		expect(domainMatches("https://www.github.com/login", "https://github.com")).toBe(true);
+		expect(domainMatches("https://github.com/login", "https://www.github.com")).toBe(true);
 		expect(domainMatches("https://exemplo.com.evil.io/login", "exemplo.com")).toBe(false);
+	});
+	it("outro subdomínio é outro site (google.com não vale para sites.google.com)", () => {
+		expect(domainMatches("https://sites.google.com/view/x", "https://google.com")).toBe(false);
+		expect(domainMatches("https://accounts.github.com/login", "https://github.com")).toBe(false);
+		expect(domainMatches("https://app.exemplo.com.br/x", "exemplo.com.br")).toBe(false);
+		expect(domainMatches("https://x.painel.exemplo.com/login", "https://painel.exemplo.com")).toBe(false);
+		expect(domainMatches("https://painel.exemplo.com/login", "exemplo.com")).toBe(false);
+	});
+	it("localhost e IP comparam a porta; http só em localhost", () => {
+		expect(domainMatches("http://localhost:3000/login", "http://localhost:3000")).toBe(true);
+		expect(domainMatches("http://localhost:9999/login", "http://localhost:3000")).toBe(false);
+		expect(domainMatches("http://localhost/login", "http://localhost:3000")).toBe(false);
+		expect(domainMatches("https://203.0.113.5:8443/x", "https://203.0.113.5:8443")).toBe(true);
+		expect(domainMatches("https://203.0.113.5:9443/x", "https://203.0.113.5:8443")).toBe(false);
+		expect(domainMatches("http://203.0.113.5/x", "https://203.0.113.5")).toBe(false);
 	});
 	it("recusa phishing e http", () => {
 		expect(domainMatches("https://github.com.evil.io/login", "https://github.com")).toBe(false);
@@ -76,7 +91,8 @@ describe("casamento nome ↔ domínio", () => {
 		const noUrl = { kind: "login", name: "Painel - Kodea", label: "Painel - Kodea", siteUrl: null };
 		const other = { kind: "login", name: "kodea-admin", siteUrl: null };
 		expect(pickVaultLoginForPage([url, noUrl], "https://panel.kodea.com.br")).toMatchObject({ kind: "match", byName: true });
-		expect(pickVaultLoginForPage([url, noUrl], "https://gist.github.com")).toMatchObject({ kind: "match", byName: false });
+		expect(pickVaultLoginForPage([url, noUrl], "https://www.github.com")).toMatchObject({ kind: "match", byName: false });
+		expect(pickVaultLoginForPage([url, noUrl], "https://gist.github.com").kind).toBe("none");
 		expect(pickVaultLoginForPage([noUrl, other], "https://panel.kodea.com.br").kind).toBe("ambiguous");
 		expect(pickVaultLoginForPage([url, noUrl], "https://example.org").kind).toBe("none");
 	});
@@ -103,9 +119,9 @@ describe("Public Suffix List: sufixo de plataforma exige host exato", () => {
 		expect(registrableDomain("a.b.github.io")).toBe("b.github.io");
 		expect(registrableDomain("localhost")).toBe("localhost");
 	});
-	it("site salvo com subdomínio vale só para ele e seus filhos, nunca para irmãos nem para o domínio raiz", () => {
+	it("site salvo com subdomínio vale só para ele, nunca para filhos, irmãos nem para o domínio raiz", () => {
 		expect(domainMatches("https://panel.kodea.com.br/login", "https://panel.kodea.com.br")).toBe(true);
-		expect(domainMatches("https://x.panel.kodea.com.br/login", "https://panel.kodea.com.br")).toBe(true);
+		expect(domainMatches("https://x.panel.kodea.com.br/login", "https://panel.kodea.com.br")).toBe(false);
 		expect(domainMatches("https://admin.kodea.com.br/login", "https://panel.kodea.com.br")).toBe(false);
 		expect(domainMatches("https://kodea.com.br/login", "https://panel.kodea.com.br")).toBe(false);
 		expect(domainMatches("https://kodea.xyz/login", "https://panel.kodea.com.br")).toBe(false);
