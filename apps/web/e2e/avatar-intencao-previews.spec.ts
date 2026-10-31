@@ -86,7 +86,6 @@ for (const size of SIZES) {
           viewport: size.viewport,
           isMobile: size.mobile,
           hasTouch: size.mobile,
-          recordVideo: { dir: `${OUT}/video-${variant}-${size.name}`, size: size.viewport },
         })
         await context.addInitScript(() => localStorage.setItem("theme", "dark"))
         const page = await context.newPage()
@@ -121,8 +120,8 @@ for (const size of SIZES) {
           recording = false
           await loop
           writeFileSync(`${OUT}/frames-${variant}-${size.name}.json`, JSON.stringify(frames))
+          // Sem vídeo do Playwright (depende de um ffmpeg próprio): a sequência de capturas com horário vira vídeo no script de montagem.
           await context.close()
-          await page.video()?.saveAs(`${OUT}/avatar-${variant}-${size.name}.webm`).catch(() => undefined)
         } finally {
           server.close()
         }
