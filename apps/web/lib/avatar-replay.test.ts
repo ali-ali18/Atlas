@@ -97,3 +97,62 @@ test("runStatusOnProgress só promove 'queued'; retrying, waiting_*, paused e pa
 	// e eles ainda mandam no texto
 	assert.match(workingStatusLabel("Atlas", { phase: "thinking" }, { status: runStatusOnProgress("waiting_user") }), /esperando você|aguardando|espera/i);
 });
+
+// Etapa 2: o modelo demora gerando os argumentos de uma tool grande (arquivo, código). Sem o aviso `tool_intent`
+// o avatar fica em "pensando" até o `tool_call`; com ele, mostra a família da ferramenta desde que o nome chega.
+const GEN_TOOLS: Array<{ name: string; run: number; gen: number }> = [
+	{ name: "web_search", run: 1800, gen: 3500 },
+	{ name: "write_file", run: 200, gen: 14000 },
+	{ name: "edit_file", run: 200, gen: 6000 },
+	{ name: "run_code", run: 2500, gen: 10000 },
+	{ name: "read_file", run: 150, gen: 3500 },
+];
+/** Nome da tool chega ~1 s depois de o modelo começar a gerar (o resto é geração de argumentos). */
+const NAME_LATENCY_MS = 1000;
+
+function genTimeline(withIntent: boolean): { timeline: Array<[number, AgentActivity]>; end: number } {
+	const timeline: Array<[number, AgentActivity]> = [[0, { phase: "thinking" }]];
+	let t = 0;
+	GEN_TOOLS.forEach(({ name, run, gen }, step) => {
+		if (withIntent) timeline.push([t + Math.min(NAME_LATENCY_MS, gen), { phase: "tool", tool: name, arriving: true }]);
+		t += gen;
+		timeline.push([t, tool(name, step)]);
+		t += run;
+		timeline.push([t, { phase: "thinking" }]);
+	});
+	t += LLM_PAUSE_MS;
+	timeline.push([t, { phase: "writing" }]);
+	return { timeline, end: t + 3500 };
+}
+
+function replayGen(id: string, withIntent: boolean) {
+	const { timeline, end } = genTimeline(withIntent);
+	const base = 9_000_000;
+	const time = new Map<string, number>();
+	setBotWorking(id, true);
+	beginBotRun(id, base);
+	let index = 0;
+	let activity: AgentActivity = { phase: "idle" };
+	for (let t = 0; t < end; t += 50) {
+		while (index < timeline.length && (timeline[index] as [number, AgentActivity])[0] <= t) activity = (timeline[index++] as [number, AgentActivity])[1];
+		setBotActivity(id, activity, { status: "queued" }, base + t);
+		refreshBotAvatar(id, base + t);
+		const state = botAvatarSignal(id).state;
+		time.set(state, (time.get(state) ?? 0) + 50);
+	}
+	setBotWorking(id, false);
+	endBotRun(id, "ok", base + end);
+	const total = [...time.values()].reduce((a, b) => a + b, 0);
+	return { time, total, thinkingPct: Math.round(((time.get("thinking") ?? 0) / total) * 100) };
+}
+
+test("geração longa de argumentos: com tool_intent o avatar sai de 'pensando' pelo nome da tool", () => {
+	const before = replayGen("gen-before", false);
+	const after = replayGen("gen-after", true);
+	console.log(`pensando (geração de argumentos grandes): antes ${before.thinkingPct}% -> depois ${after.thinkingPct}%`);
+	console.log(`antes ${JSON.stringify([...before.time])}\ndepois ${JSON.stringify([...after.time])}`);
+	assert.ok(after.thinkingPct < before.thinkingPct - 20, `esperava queda grande: ${before.thinkingPct}% -> ${after.thinkingPct}%`);
+	assert.ok((after.time.get("coding") ?? 0) > (before.time.get("coding") ?? 0), "Programando aparece enquanto o arquivo é gerado");
+	assert.ok((after.time.get("running") ?? 0) > (before.time.get("running") ?? 0), "Rodando aparece enquanto o código é gerado");
+	assert.equal(after.time.get("waiting") ?? 0, 0);
+});

@@ -38,7 +38,7 @@ import {
 	decideStreamFailure,
 	runFollowBackoffMs,
 } from "@workspace/shared";
-import { activityForAssistantEvent, runStatusOnProgress, type AgentActivity } from "@/lib/working-status";
+import { activityForAssistantEvent, activityForToolIntent, runStatusOnProgress, type AgentActivity } from "@/lib/working-status";
 import { jevStatusText } from "@/lib/jev-status";
 import { applyPageEvent, dedupeCards, reconcilePersistedThread } from "@/lib/thread-merge";
 import { isMemoryUpdateResult, memoryChipId } from "@/lib/memory-chip";
@@ -655,6 +655,14 @@ export function createComputerHandlers(params: {
 		},
 		onSession: params.onSandboxSession,
 		onAgentPointer: params.onAgentPointer,
+		onToolIntent: (intent) => {
+			const activity = activityForToolIntent(intent.name);
+			if (!activity) return;
+			params.onRunStarted?.();
+			params.onActivity?.();
+			params.onStreamingMessage?.(null);
+			params.onAgentActivity?.(activity);
+		},
 		onToolCall: (call) => {
 			params.onRunStarted?.();
 			toolArgs.set(call.id, call.args);
