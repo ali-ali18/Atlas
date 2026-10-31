@@ -11,6 +11,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ### Corrigido
 - **search:** alerta de página não é mais recusado como "padrão de busca lento demais" à toa: o limite de 100 ms do regex contava também o tempo de subir a thread isolada (35–55 ms numa máquina ociosa, mais de 100 ms num servidor ocupado), então até um padrão simples estourava antes de rodar. Agora o limite só começa com a thread no ar (subida com teto próprio de 3 s); padrão patológico continua parando nos 100 ms
+
 ## [0.3.2-beta] - 2026-10-31
 
 ### Adicionado
