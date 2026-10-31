@@ -27,6 +27,13 @@ describe("runRegexWithBudget", () => {
 		expect(ticks).toBeGreaterThan(3);
 	});
 
+	it("o orçamento não conta a subida da thread (servidor ocupado não recusa regex simples)", async () => {
+		// Subir a worker leva dezenas de ms mesmo ociosa (em produção ocupada passa dos 100 ms); o regex em si leva ~1 ms.
+		// Com orçamento menor que a subida, antes dava "timeout" sem nem rodar o padrão.
+		const run = await runRegexWithBudget(`${"x ".repeat(30_000)} Cotação R$ 21,34`, "R\\$\\s*([\\d.,]+)", 10);
+		expect(run).toEqual({ status: "match", value: "21,34" });
+	});
+
 	it("padrão normal devolve o primeiro grupo, ausência e erro", async () => {
 		expect(await runRegexWithBudget("Preço: R$ 1.299,00 hoje", "R\\$\\s*([\\d.,]+)")).toEqual({ status: "match", value: "1.299,00" });
 		expect(await runRegexWithBudget("nada", "R\\$\\s*([\\d.,]+)")).toEqual({ status: "none" });

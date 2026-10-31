@@ -77,6 +77,7 @@ export {
   ALERT_SOURCE_TIMEOUT_MS,
   ALERT_SOURCE_UA,
   createAlertSourceCache,
+  fetchAlertPage,
   readAlertRule,
   readAlertSource,
 } from "./alert-source.js";
@@ -96,3 +97,5 @@ export {
   readMarketSource,
 } from "./market-data.js";
 export type { MarketCache, MarketDeps, MarketFailure, MarketHealth, MarketKeys, MarketResult } from "./market-data.js";
+export { PAGE_VALUE_MAX_CANDIDATES, findPageValue, locatePageValue } from "./page-value.js";
+export type { FindPageValueResult, LocatePageValueResult, PageValueCandidate, PageValueExtract } from "./page-value.js";

@@ -1,10 +1,9 @@
 "use client";
 
 import type { EffectiveAutonomy, McpConnectionView, McpToolInfo } from "@workspace/shared";
-import { isReadOnlyMcpTool } from "@workspace/shared";
 import { useTranslations } from "@/lib/i18n/provider";
 import { ToolPermissionControl } from "./tool-permission-control";
-import { connectionPermission, toolPermission, type ToolPermission } from "./tool-permissions";
+import { connectionPermission, toolIsRead, toolPermission, type ToolPermission } from "./tool-permissions";
 
 /** Linha: texto à esquerda (cresce), controle de largura fixa à direita, centralizado na vertical. */
 export const TOOL_ROW_CLASS = "flex items-center justify-between gap-3 p-3";
@@ -51,7 +50,7 @@ export function ToolPermissionList({
 							<div className="flex flex-wrap items-center gap-2">
 								<span className="break-words text-sm font-medium">{tool.title || tool.name}</span>
 								<span className="rounded-md bg-muted px-1.5 py-0.5 text-caption text-muted-foreground">
-									{isReadOnlyMcpTool(tool) ? t("marketplace.perm.read") : t("marketplace.perm.writes")}
+									{toolIsRead(connection, tool) ? t("marketplace.perm.read") : t("marketplace.perm.writes")}
 								</span>
 							</div>
 							{tool.description ? <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{tool.description}</p> : null}

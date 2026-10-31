@@ -19,6 +19,15 @@ describe("parseRoutineAlertInput", () => {
 		expect(result).toEqual({ ok: true, alert: { condition: "o estoque da canela cair abaixo de 10", hint: "produto: canela" } });
 	});
 
+	it("alert.rule.expect sai ao lado do alerta e não é gravado nele; expect inválido recusa", () => {
+		const rule = { source: { type: "page", url: "https://loja.example.com/p", extract: { kind: "css", selector: "span.price" } }, check: { kind: "value", parse: "money", op: "lt", value: 400 }, expect: "R$ 449,90" };
+		const result = parseRoutineAlertInput({ rule });
+		expect(result).toMatchObject({ ok: true, expect: "R$ 449,90" });
+		if (result.ok) expect(JSON.stringify(result.alert)).not.toContain("expect");
+		expect(parseRoutineAlertInput({ rule: { ...rule, expect: "" } })).toMatchObject({ ok: false, error: expect.stringContaining("rule.expect") });
+		expect("expect" in (parseRoutineAlertInput({ rule: { ...rule, expect: undefined } }) as object)).toBe(false);
+	});
+
 	it("rejeita vazio, curto demais, longo demais e tipos errados", () => {
 		expect(parseRoutineAlertInput(null).ok).toBe(false);
 		expect(parseRoutineAlertInput("estoque").ok).toBe(false);

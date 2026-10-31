@@ -25,6 +25,15 @@ export function isConversationUntrusted(untrustedAt: Date | null | undefined, no
 	return !!untrustedAt && now.getTime() - untrustedAt.getTime() < CONVERSATION_UNTRUSTED_TTL_MS;
 }
 
+/**
+ * Chave da concessão: a tool + o bot que pediu a tarefa. A conversa do bot-alvo é compartilhada entre quem pede
+ * (o dono no chat e cada outro bot), então sem o solicitante a aprovação dada a um valeria para todos. Pedido do
+ * próprio dono usa só o nome da tool (compatível com concessões antigas).
+ */
+export function mcpTaskGrantName(exposedName: string, requesterBotId?: string | null): string {
+	return requesterBotId ? `${exposedName}#from:${requesterBotId}` : exposedName;
+}
+
 export type McpTaskGrantState = { uses: number; maxUses: number; expiresAt: Date };
 
 /**

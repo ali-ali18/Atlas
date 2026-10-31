@@ -1,5 +1,5 @@
 import { readAlertRule } from "@workspace/search";
-import { evaluateAlertRule, type AlertRule, type AlertRuleRead, type BotLanguage } from "@workspace/shared";
+import { deriveAlertAnchor, evaluateAlertRule, pageValuesMatch, sanitizeAlertExternalText, type AlertRule, type AlertRuleRead, type BotLanguage } from "@workspace/shared";
 import { ownerMarketAccess } from "../market/keys.js";
 
 /**
@@ -16,11 +16,11 @@ export type AlertRuleReader = (rule: AlertRule) => Promise<
 export const ALERT_RULE_SCHEMA = {
 	type: "object",
 	description:
-		"Server-checked rule, no model cost per check. Use for an EXACT value or a NEW ITEM on a public page or feed (price, stock text, JSON field, RSS/Atom), or for a ready source with NO link: B3 quote, currency pair, crypto, weather forecast. Do not use when the check needs judgement, a connector, a login or a page that only renders with JavaScript: then use plain `condition`. The rule is read once when you create it; the tool fails if it cannot read the value, so never invent selectors.",
+		"Server-checked rule, no model cost per check. Use for an EXACT value or a NEW ITEM on a public page or feed (price, stock text, JSON field, RSS/Atom), or for a ready source with NO link: B3 quote, currency pair, crypto, weather forecast. For a value on a page, locate it first with find_page_value and use its css extract plus `expect`; regex is the last resort. B3 stock/FII/ETF/BDR prices are ALWAYS source quote, never a page (Investidor10, Status Invest, Google...). Do not use when the check needs judgement, a connector, a login or a page that only renders with JavaScript: then use plain `condition`. The rule is read once when you create it; the tool fails if it cannot read the value, so never invent selectors.",
 	properties: {
 		source: {
 			type: "object",
-			description: "Where to read. page: url + extract (css selector with optional attribute | jsonpath like $.data.price | regex whose first group is the value). feed: url of an RSS/Atom feed (only with check new_item). Ready sources take NO url (check kind value, parse money or number): quote = B3 stock/FII/ETF/BDR by symbol (needs the user's brapi key from the Marketplace); fx = currency pair; crypto = symbol + quote currency; weather = place (city) + metric + day.",
+			description: "Where to read. page: url + extract (css selector with optional attribute | jsonpath like $.data.price | regex whose first group is the value). feed: url of an RSS/Atom feed (only with check new_item). Ready sources take NO url (check kind value, parse money or number): quote = B3 stock/FII/ETF/BDR by symbol, ALWAYS used for B3 tickers (needs the user's brapi key from the Marketplace; if it is missing, call propose_connector app \"brapi\", never switch to a page); fx = currency pair; crypto = symbol + quote currency; weather = place (city) + metric + day.",
 			properties: {
 				type: { type: "string", enum: ["page", "feed", "quote", "fx", "crypto", "weather"] },
 				url: { type: "string", description: "page/feed only: public http(s) address." },
@@ -60,11 +60,13 @@ export const ALERT_RULE_SCHEMA = {
 		label: { type: "string", description: "What is watched, short, in the user's language (e.g. \"tênis Nike Pegasus\"). Shown in the sentence and the notification." },
 		message: { type: "string", description: "Optional notification text; only the {value} placeholder is replaced. Omit for the default sentence." },
 		intervalMinutes: { type: "number", description: "How often to check, chosen by you for how fast the data really changes (pages 60-240, feeds 30-120, quotes/fx 15-60, crypto 5-30, weather 360). The server only enforces a technical floor (page 30 min, feed 15, quote/fx 15, crypto 5, weather 180) and checks quotes only during the B3 session; it spaces checks out by itself when nothing changes." },
+		expect: { type: ["string", "number"], description: "Page value only: the value you saw on the page (e.g. \"16,47\" or \"R$ 3.299\"). The tool reads the rule once and fails if it does not read exactly this, so a wrong selector never gets saved. Always pass it for a page rule." },
 	},
 	required: ["source", "check"],
 } as const;
 
-const HINTS: Record<string, string> = {
+/** Dicas ao modelo por código de falha da leitura (também usadas pelo `find_page_value`). */
+export const ALERT_RULE_HINTS: Record<string, string> = {
 	blocked: "The address is not allowed (only public http(s) sites). Ask the user for the public page.",
 	timeout: "The site did not answer in time. Try again later or another source; tell the user plainly if you cannot watch it.",
 	http: "The site refused or failed (it may block automated access). Try another source, or fall back to a plain condition checked by the model.",
@@ -80,23 +82,50 @@ const HINTS: Record<string, string> = {
 };
 const NOT_FOUND_HINT = "Try another selector, jsonpath or regex for the value; if the page only shows the value after JavaScript runs or needs a login, use a plain `condition` (checked by the model) instead of a rule.";
 
+/** A regra só pode ter `expect` quando lê um valor de página (é o que a IA viu nela). */
+function expectedValueProblem(rule: AlertRule): string | null {
+	if (rule.source.type === "page" && rule.check.kind === "value") return null;
+	return "rule.expect only applies to a page rule that compares a value (it is the value you saw on the page). Remove it; quote, fx, crypto, weather and feed rules read their own source.";
+}
+
 /**
  * Lê a regra agora e avalia uma vez. Falha com o motivo e uma dica acionável (texto para o modelo); nunca
  * devolve sucesso falso. `display` é a leitura de agora, já formatada ("R$ 449,90"); para item novo, quantos itens há.
+ * Com `expected` (o que a IA viu na página), a leitura precisa bater com ele: seletor que lê outro número não é gravado.
  */
 export async function testAlertRule(
 	rule: AlertRule,
 	locale: BotLanguage,
 	reader: AlertRuleReader = (r) => readAlertRule(r),
-): Promise<{ display: string; host: string; note?: string }> {
+	expected?: string,
+): Promise<{ display: string; host: string; note?: string; anchor?: string }> {
+	if (expected !== undefined) {
+		const problem = expectedValueProblem(rule);
+		if (problem) throw new Error(`Rule test failed: ${problem}`);
+	} else if (rule.source.type === "page" && rule.check.kind === "value") {
+		// Sem o valor que a IA viu não há como saber se o seletor/regex lê o número certo: não grava.
+		throw new Error(
+			`Rule test failed: a page rule needs rule.expect, the value you saw on the page (e.g. "16,47"). Locate it first with find_page_value (read the page, pass the value as seen and \`near\` when it lists several options), use its css extract and pass expect = that value; this check catches a selector or regex that reads another number. Do not create the alert with this rule.`,
+		);
+	}
 	const result = await reader(rule).catch(() => null);
-	if (!result) throw new Error(`Rule test failed: could not read the source. ${HINTS.network}`);
-	if (!result.ok) throw new Error(`Rule test failed: ${result.reason}. ${HINTS[result.code] ?? HINTS.network} Do not create the alert with this rule.`);
+	if (!result) throw new Error(`Rule test failed: could not read the source. ${ALERT_RULE_HINTS.network}`);
+	if (!result.ok) throw new Error(`Rule test failed: ${result.reason}. ${ALERT_RULE_HINTS[result.code] ?? ALERT_RULE_HINTS.network} Do not create the alert with this rule.`);
+	if (expected !== undefined && result.read.kind === "text" && result.read.text?.trim() && !pageValuesMatch(result.read.text, expected)) {
+		throw new Error(
+			`Rule test failed: the rule read "${sanitizeAlertExternalText(result.read.text, 60)}" but you expected "${sanitizeAlertExternalText(expected, 60)}"; use find_page_value to get the right selector. Do not create the alert with this rule.`,
+		);
+	}
 	const evaluation = evaluateAlertRule({ rule, wasActive: false, read: result.read, now: new Date(), locale });
 	if (!evaluation.verdict || evaluation.display === undefined) {
 		throw new Error(`Rule test failed: ${evaluation.reason ?? "no value"}. ${NOT_FOUND_HINT} Do not create the alert with this rule.`);
 	}
-	return { display: evaluation.display, host: result.host, ...(evaluation.note ? { note: evaluation.note } : {}) };
+	// Página com seletor CSS: guarda o rótulo que está junto do valor agora, para o worker detectar se o seletor passar a ler outro lugar.
+	const anchor =
+		rule.source.type === "page" && rule.source.extract.kind === "css" && rule.check.kind === "value" && result.read.kind === "text" && result.read.context && result.read.text
+			? deriveAlertAnchor(result.read.context, result.read.text)
+			: undefined;
+	return { display: evaluation.display, host: result.host, ...(evaluation.note ? { note: evaluation.note } : {}), ...(anchor ? { anchor } : {}) };
 }
 
 /**

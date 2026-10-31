@@ -153,6 +153,19 @@ describe("createAnthropicStreamChat", () => {
 		expect(result.usage).toEqual({ promptTokens: 240, completionTokens: 42, totalTokens: 282, cachedTokens: 200, cacheWriteTokens: 30, costUnknown: true });
 	});
 
+	it("avisa o nome da tool (sem argumentos) assim que o bloco começa", async () => {
+		const fetchMock = vi.fn(async (..._args: unknown[]) => new Response(sse(happy), { status: 200 }));
+		const intents: unknown[] = [];
+		await make(fetchMock as unknown as typeof fetch)({ ...base, apiKey: "" }, { onToolIntent: (i) => intents.push(i) });
+		expect(intents).toEqual([{ index: 1, id: "toolu_9", name: "buscar" }]);
+	});
+
+	it("callback de aviso que lança não derruba o stream", async () => {
+		const fetchMock = vi.fn(async (..._args: unknown[]) => new Response(sse(happy), { status: 200 }));
+		const result = await make(fetchMock as unknown as typeof fetch)({ ...base, apiKey: "" }, { onToolIntent: () => { throw new Error("boom"); } });
+		expect(result.message.tool_calls).toHaveLength(1);
+	});
+
 	it("401 vira auth_failed sem eco da chave nem do corpo", async () => {
 		const fetchMock = vi.fn(async (..._args: unknown[]) => new Response(JSON.stringify({ error: { type: "authentication_error", message: `invalid ${KEY}` } }), { status: 401 }));
 		const error = await make(fetchMock as unknown as typeof fetch)(base).catch((e: unknown) => e);

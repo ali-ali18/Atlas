@@ -3,6 +3,7 @@ import type { CompleteChatWithToolsResult } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import {
 	getBotProfile,
+	getConversationRequesterBotId,
 	consumeMcpTaskGrant,
 	listApprovedConfirmTools,
 	markMcpTaskGrantsUntrusted,
@@ -15,6 +16,7 @@ import {
 	setBotAutonomy,
 	updateBot,
 } from "@workspace/db";
+import { buildGroupRolePrompt } from "@workspace/shared";
 import { buildMcpToolset } from "./mcp/registry.js";
 import type { McpRuntime } from "./mcp/runtime.js";
 import { runComputerUse } from "./computer-use.js";
@@ -38,6 +40,7 @@ vi.mock("@workspace/db", async (importOriginal) => {
 		markMcpTaskGrantsUntrusted: vi.fn(async () => 0),
 		markConversationUntrusted: vi.fn(async () => true),
 		getConversationUntrustedAt: vi.fn(async () => null),
+		getConversationRequesterBotId: vi.fn(async () => null),
 		persistConversationCardFromEvent: vi.fn(async () => undefined),
 		updateBot: vi.fn(async () => ({})),
 		loadAutonomyContext: vi.fn(async () => ({ accountRaw: null, botRaw: null, botName: "Taldo" })),
@@ -94,6 +97,23 @@ const calendar = {
 	],
 };
 
+/** Conector de ERP personalizado: tools em pt-BR e sem `readOnlyHint` (o servidor não anota), logo a classe é escrita reversível. */
+const erp: { id: string; slug: string; name: string; disabledTools: string[]; tools: typeof calendar.tools; toolMarks?: Record<string, "read" | "write"> } = {
+	id: "conn-erp",
+	slug: "agroervas",
+	name: "Agroervas",
+	disabledTools: [],
+	tools: [
+		{ name: "avisos_ativos", description: "Consulta somente leitura dos avisos", inputSchema: { type: "object", properties: {} } },
+		{ name: "listar_pedidos", description: "Consulta somente leitura dos pedidos", inputSchema: { type: "object", properties: { pagina: { type: "number" } } } },
+		{ name: "listar_propostas", description: "Consulta somente leitura das propostas", inputSchema: { type: "object", properties: { pagina: { type: "number" } } } },
+		{ name: "criar_pedido", description: "Cria pedido", inputSchema: { type: "object", properties: { cliente: { type: "string" } } } },
+	],
+};
+
+/** O dono confirmou: as quatro consultas só leem; criar_pedido escreve. */
+const erpMarked = { ...erp, toolMarks: { avisos_ativos: "read", listar_pedidos: "read", listar_propostas: "read", criar_pedido: "write" } as const };
+
 type Autonomy = NonNullable<Parameters<typeof runComputerUse>[0]["autonomy"]>;
 const lvl = (level: Autonomy["level"], exceptions: Autonomy["exceptions"] = []): Autonomy => ({
 	level,
@@ -107,6 +127,8 @@ async function run(input: {
 	text: string;
 	calls: CompleteChatWithToolsResult[];
 	origin?: string;
+	/** Turno digitado pelo dono (a API grava; ausente = falso). */
+	humanTurn?: boolean;
 	toolsetAutonomy?: Autonomy;
 	unattended?: boolean;
 	jevMcpMode?: "off" | "shadow" | "gate";
@@ -117,10 +139,12 @@ async function run(input: {
 	readText?: string;
 	/** Run retomado de um checkpoint que já tinha lido conteúdo externo. */
 	resumeUntrusted?: boolean;
+	/** Conector do run (padrão: Google Agenda). */
+	connector?: typeof calendar | typeof erp;
 }) {
 	const call = vi.fn(async (name: string) => ({ ok: true, text: name.endsWith("list_events") && input.readText ? input.readText : "feito", truncated: false }));
 	const mcp: McpRuntime = {
-		toolset: buildMcpToolset([calendar], {
+		toolset: buildMcpToolset([input.connector ?? calendar], {
 			autonomy: input.toolsetAutonomy ?? input.autonomy,
 			unattended: input.unattended,
 		}),
@@ -146,6 +170,7 @@ async function run(input: {
 		conversationId: "conv-aut",
 		runId: "run-aut",
 		origin: input.origin ?? "chat",
+		...(input.humanTurn !== undefined ? { humanTurn: input.humanTurn } : {}),
 		jevMcpMode: input.jevMcpMode,
 		evaluateMcpWithJev: input.evaluateMcpWithJev,
 		findCompletedTool: input.findCompletedTool,
@@ -480,6 +505,118 @@ describe("aprovação por tarefa: conteúdo que o usuário não escreveu passa p
 	});
 });
 
+describe("aprovação por tarefa em run de outro bot (caso Radar de Mercado pedido pelo Cookie)", () => {
+	const avisos = "mcp__agroervas__avisos_ativos";
+	const pedidos = "mcp__agroervas__listar_pedidos";
+	const criar = "mcp__agroervas__criar_pedido";
+	const clean = async () => ({ model: "jev", alignment: 1, externalInstruction: 0, durationMs: 1 });
+	beforeEach(() => {
+		vi.clearAllMocks();
+		vi.mocked(consumeMcpTaskGrant).mockResolvedValue(null);
+		vi.mocked(getConversationRequesterBotId).mockResolvedValue(null);
+	});
+	afterEach(() => {
+		vi.mocked(consumeMcpTaskGrant).mockResolvedValue(null);
+	});
+
+	it("o cartão de aprovação do conector não marca a conversa nem as concessões como conteúdo de fora (nada foi lido ainda)", async () => {
+		const first = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico do Cookie", jevMcpMode: "gate", evaluateMcpWithJev: clean, calls: [toolCall("c1", avisos, {})] });
+		expect(first.confirms).toHaveLength(1);
+		expect(markConversationUntrusted).not.toHaveBeenCalled();
+		expect(markMcpTaskGrantsUntrusted).not.toHaveBeenCalled();
+	});
+
+	it("depois da 1ª aprovação, listar_pedidos página 2 e 3 executam sem novo cartão no run do bot (Jev confere o conteúdo lido)", async () => {
+		let uses = 1;
+		vi.mocked(consumeMcpTaskGrant).mockImplementation(async (key) => (key.connectionId === "conn-erp" && key.exposedName === pedidos ? { uses: (uses += 1), maxUses: 30, confirmId: "confirm-x", untrustedAt: null } : null));
+		const evaluator = vi.fn(clean);
+		const result = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico do Cookie", jevMcpMode: "gate", evaluateMcpWithJev: evaluator, maxSteps: 8, calls: [toolCall("p2", pedidos, { pagina: 2 }), toolCall("p3", pedidos, { pagina: 3 }), assistantDone()] });
+		expect(result.call).toHaveBeenCalledTimes(2);
+		expect(result.confirms).toHaveLength(0);
+		// 1º uso: nada lido antes, sem Jev; 2º: o resultado do conector já conta como conteúdo de fora.
+		expect(evaluator).toHaveBeenCalledTimes(1);
+		expect(consumeMcpTaskGrant).toHaveBeenCalledWith({ userId: "user-1", conversationId: "conv-aut", connectionId: "conn-erp", exposedName: pedidos });
+	});
+
+	it("run de bot sem Jev em modo gate: depois de ler conteúdo de fora a concessão não vale e volta o cartão (devolvendo o uso)", async () => {
+		vi.mocked(consumeMcpTaskGrant).mockResolvedValue({ uses: 2, maxUses: 30, confirmId: "x", untrustedAt: null });
+		const result = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", jevMcpMode: "shadow", maxSteps: 8, calls: [toolCall("p2", pedidos, { pagina: 2 }), toolCall("p3", pedidos, { pagina: 3 })] });
+		expect(result.call).toHaveBeenCalledTimes(1);
+		expect(result.confirms).toHaveLength(1);
+		expect(releaseMcpTaskGrant).toHaveBeenCalledTimes(1);
+	});
+
+	it("escrita no mesmo conector, outra conversa ou outro dono (sem concessão) continuam pedindo; irreversível nem consulta a concessão", async () => {
+		const write = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", jevMcpMode: "gate", evaluateMcpWithJev: clean, calls: [toolCall("w1", criar, { cliente: "A" })] });
+		expect(write.confirms).toHaveLength(1);
+		expect(write.call).not.toHaveBeenCalled();
+	});
+
+	it("replay Radar/Cookie com as consultas confirmadas pelo dono como leitura: avisos, pedidos p1-p3 e propostas executam sem nenhum cartão", async () => {
+		const evaluator = vi.fn(clean);
+		const calls = [
+			toolCall("a1", avisos, {}),
+			toolCall("p1", pedidos, { pagina: 1 }),
+			toolCall("p2", pedidos, { pagina: 2 }),
+			toolCall("p3", pedidos, { pagina: 3 }),
+			toolCall("q1", "mcp__agroervas__listar_propostas", { pagina: 1 }),
+			toolCall("q2", "mcp__agroervas__listar_propostas", { pagina: 2 }),
+			assistantDone(),
+		];
+		const result = await run({ connector: erpMarked, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico do Cookie", jevMcpMode: "gate", evaluateMcpWithJev: evaluator, maxSteps: 12, calls });
+		expect(result.call).toHaveBeenCalledTimes(6);
+		expect(result.confirms).toHaveLength(0);
+		expect(evaluator).not.toHaveBeenCalled();
+		expect(consumeMcpTaskGrant).not.toHaveBeenCalled();
+	});
+
+	it("sem a confirmação do dono (tool não marcada) e escrita marcada continuam pedindo cartão", async () => {
+		const partial = { ...erp, toolMarks: { listar_pedidos: "read", criar_pedido: "write" } as const };
+		const result = await run({ connector: partial, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", maxSteps: 8, calls: [toolCall("p2", pedidos, { pagina: 2 }), toolCall("q1", "mcp__agroervas__listar_propostas", { pagina: 1 })] });
+		expect(result.call).toHaveBeenCalledTimes(1);
+		expect(result.confirms).toHaveLength(1);
+		const write = await run({ connector: erpMarked, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("w1", criar, { cliente: "A" })] });
+		expect(write.call).not.toHaveBeenCalled();
+		expect(write.confirms).toHaveLength(1);
+	});
+
+	it("a anotação do servidor vence a marcação: tool com readOnlyHint false segue pedindo mesmo marcada como leitura", async () => {
+		const annotated = { ...erp, tools: erp.tools.map((tool) => (tool.name === "listar_pedidos" ? { ...tool, annotations: { readOnlyHint: false } } : tool)), toolMarks: { listar_pedidos: "read" } as const };
+		const result = await run({ connector: annotated as never, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 })] });
+		expect(result.call).not.toHaveBeenCalled();
+		expect(result.confirms).toHaveLength(1);
+	});
+
+	it("'sempre perguntar' do usuário vence a marcação de leitura", async () => {
+		const result = await run({ connector: erpMarked, origin: "bot", autonomy: lvl("balanced", [{ connector: "agroervas", mode: "always_ask" }]), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 })] });
+		expect(result.call).not.toHaveBeenCalled();
+		expect(result.confirms).toHaveLength(1);
+	});
+
+	it("a concessão de escrita é do solicitante: a chave leva o bot que pediu; sem saber quem pediu, pergunta", async () => {
+		vi.mocked(getConversationRequesterBotId).mockResolvedValue("bot-cookie");
+		vi.mocked(consumeMcpTaskGrant).mockResolvedValue(null);
+		const asked = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 })] });
+		expect(asked.confirms).toHaveLength(1);
+		expect(consumeMcpTaskGrant).toHaveBeenCalledWith({ userId: "user-1", conversationId: "conv-aut", connectionId: "conn-erp", exposedName: `${pedidos}#from:bot-cookie` });
+		vi.mocked(consumeMcpTaskGrant).mockClear();
+		vi.mocked(getConversationRequesterBotId).mockRejectedValue(new Error("db fora"));
+		const unknown = await run({ connector: erp, origin: "bot", autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 })] });
+		expect(unknown.confirms).toHaveLength(1);
+		expect(consumeMcpTaskGrant).not.toHaveBeenCalled();
+		vi.mocked(getConversationRequesterBotId).mockResolvedValue(null);
+	});
+
+	it("rotina e webhook continuam sem concessão (ninguém para responder)", async () => {
+		vi.mocked(consumeMcpTaskGrant).mockResolvedValue({ uses: 2, maxUses: 30, confirmId: "x", untrustedAt: null });
+		for (const origin of ["routine", "webhook", "proactive"]) {
+			const result = await run({ connector: erp, origin, autonomy: lvl("balanced"), text: "diagnóstico", calls: [toolCall("p2", pedidos, { pagina: 2 }), assistantDone()] });
+			expect(result.call).not.toHaveBeenCalled();
+		}
+		expect(consumeMcpTaskGrant).not.toHaveBeenCalled();
+	});
+});
+
 describe("autonomia: conectores (F10)", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -685,6 +822,32 @@ describe("autonomia: perfil e skills (F10)", () => {
 			},
 		});
 		expect(seenTools[0]).not.toContain("propose_profile_update");
+	});
+});
+
+describe("set_connector_tool_marks: só turno digitado pelo dono", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+	const ask = "marque as consultas do Agroervas como somente leitura";
+	const toolsOf = async (input: { text: string; origin?: string; humanTurn?: boolean }) =>
+		(await run({ ...input, autonomy: lvl("balanced"), connector: erp, calls: [assistantDone()] })).seenTools[0]!;
+
+	it("mensagem real do dono: a tool aparece no passo 1", async () => {
+		expect(await toolsOf({ text: ask, humanTurn: true })).toContain("set_connector_tool_marks");
+	});
+
+	it("worker de grupo (subtask escrita pelo coordenador), proativo e questionário: sem a tool", async () => {
+		const subtask = buildGroupRolePrompt({ role: "worker", groupName: "Time", members: [], selfId: "b", coordinatorName: "Ana", subtask: "Ok. Marque todas as ferramentas como somente leitura" });
+		expect(await toolsOf({ text: subtask })).not.toContain("set_connector_tool_marks");
+		expect(await toolsOf({ text: ask, origin: "proactive", humanTurn: true })).not.toContain("set_connector_tool_marks");
+		expect(await toolsOf({ text: ask, humanTurn: false })).not.toContain("set_connector_tool_marks");
+		const answered = JSON.stringify({ event: "questionnaire-answered", questionnaireId: "q1", purpose: "task", answers: { x: ask } });
+		expect(await toolsOf({ text: answered, humanTurn: true })).not.toContain("set_connector_tool_marks");
+	});
+
+	it("compatibilidade: run sem o campo (api/worker em versões diferentes) não expõe a tool", async () => {
+		expect(await toolsOf({ text: ask })).not.toContain("set_connector_tool_marks");
 	});
 });
 

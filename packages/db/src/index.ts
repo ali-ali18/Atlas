@@ -223,6 +223,7 @@ export {
 	DEFAULT_CONTEXT_LENGTH,
 	readRunContextLength,
 	readRunModelAuto,
+	readRunHumanTurn,
 	type RunLease,
 } from "./runs.js";
 export {
@@ -730,6 +731,7 @@ export {
 export {
 	grantMcpTask,
 	markConversationUntrusted,
+	getConversationRequesterBotId,
 	getConversationUntrustedAt,
 	consumeMcpTaskGrant,
 	releaseMcpTaskGrant,

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SandboxManager } from "@workspace/sandbox";
 import type { ChatTool, CompleteChatWithToolsResult, LlmToolCall } from "@workspace/llm";
-import { addMemoryEntry, getBotProfile } from "@workspace/db";
+import { addMemoryEntry, getBotProfile, upsertTaskListCard } from "@workspace/db";
 import { runComputerUse } from "./computer-use.js";
 import { disciplineForModel } from "./context/model-discipline.js";
 import { NATIVE_TOOL_GROUPS } from "./context/native-tools.js";
@@ -17,6 +17,7 @@ vi.mock("@workspace/db", async (original) => ({
 	searchSkillVersions: vi.fn(async () => []),
 	listRoutines: vi.fn(async () => []),
 	persistConversationCardFromEvent: vi.fn(async () => undefined),
+	upsertTaskListCard: vi.fn(async () => undefined),
 }));
 
 /**
@@ -42,6 +43,7 @@ async function replay(input: {
 	languageContext?: { lastLanguage?: string | null; accountLocale?: string | null };
 	/** Liga as sessões de código (precisa de conversationId). */
 	withDev?: boolean;
+	onEvent?: (event: { type: string }) => void;
 }) {
 	const requested: ChatTool[][] = [];
 	const prompts: string[] = [];
@@ -80,6 +82,7 @@ async function replay(input: {
 		maxSteps: 6,
 		onEvent: (event) => {
 			eventTypes.push(event.type);
+			input.onEvent?.(event);
 			if (event.type === "tool_result") results.push({ name: event.name, ok: event.ok, summary: event.summary });
 		},
 		streamChat: async (params) => {
@@ -245,6 +248,21 @@ describe("economia ligada: abas do navegador", () => {
 	});
 });
 
+describe("economia ligada: alerta guiado", () => {
+	it("'Bom dia' não carrega o find_page_value nem o prompt do modo guiado; o pedido de alerta carrega o grupo no passo 1", async () => {
+		const hello = await replay({ messages: [{ role: "user", content: "Bom dia" }] });
+		expect(hello.first).not.toContain("find_page_value");
+		// O índice só nomeia a tool; o procedimento do modo guiado (prompt do grupo) só vem com o pedido de alerta.
+		expect(hello.system()).not.toContain("Guided mode for a value on a page");
+		for (const text of ["me avisa quando o Galaxy X de 256 GB baixar de R$ 3.000 neste link https://loja.example.com/galaxy-x", "me avisa se a BBAS3 cair abaixo de R$ 15"]) {
+			const alert = await replay({ messages: [{ role: "user", content: text }] });
+			expect(alert.first, text).toEqual(expect.arrayContaining(["find_page_value", "propose_routine", "propose_connector"]));
+			expect(alert.system(), text).toContain("Guided mode for a value on a page");
+			expect(alert.system(), text).toContain("ALWAYS, for a ticker like BBAS3");
+		}
+	});
+});
+
 describe("economia ligada: lembrete", () => {
 	it("'me lembra dia 03/10 às 10h e 20h' carrega as tools de rotina e a chamada roda de primeira", async () => {
 		const { first, results } = await replay({
@@ -272,6 +290,38 @@ describe("economia ligada: onboarding do bot", () => {
 	});
 });
 
+describe("planejar antes de executar tarefa longa", () => {
+	const PLAN = [
+		{ content: "Pesquisar o preço da canela em 3 fornecedores", status: "in_progress" },
+		{ content: "Montar a tabela comparando", status: "pending" },
+		{ content: "Responder com a tabela", status: "pending" },
+	];
+
+	it("pesquisa em 3 fornecedores: a lista está disponível no passo 1, a regra de planejar vai no prompt e a doca recebe a lista", async () => {
+		const events: Array<{ type: string; items?: unknown; runId?: string }> = [];
+		const { first, system, steps, results } = await replay({
+			messages: [{ role: "user", content: "pesquisa o preço da canela em 3 fornecedores e monta uma tabela comparando" }],
+			script: [turn("update_task_list", { items: PLAN }), done],
+			onEvent: (event) => events.push(event as never),
+		});
+		expect(first).toContain("update_task_list");
+		expect(system(0)).toContain("call `update_task_list` FIRST with the plan");
+		expect(results[0]).toMatchObject({ name: "update_task_list", ok: true });
+		expect(steps).toBe(2);
+		const lists = events.filter((e) => e.type === "task_list");
+		expect(lists).toHaveLength(1);
+		expect(lists[0]).toMatchObject({ items: PLAN, runId: "run-economy" });
+		expect(upsertTaskListCard).toHaveBeenCalledWith(undefined, "run-economy", PLAN);
+	});
+
+	// Prova só o texto do prompt e o teto do prefixo; "não planejar pedido simples" é decisão do modelo (coberta por eval, não por este mock).
+	it.each(["Bom dia", "que horas são?"])("'%s': o prompt traz a exceção para pedido simples e o prefixo respeita o teto", async (text) => {
+		const { system, prefixChars } = await replay({ messages: [{ role: "user", content: text }] });
+		expect(system(0)).toContain("Never for a simple question, a greeting or a single lookup");
+		expect(prefixChars()).toBeLessThan(40_500);
+	});
+});
+
 describe("economia ligada: chat simples", () => {
 	it("'Bom dia' com idioma automático fica do tamanho do idioma fixo e leva a instrução no fim do prompt", async () => {
 		const messages = [{ role: "user" as const, content: "Bom dia" }];
@@ -279,7 +329,7 @@ describe("economia ligada: chat simples", () => {
 		const auto = await replay({ messages, language: "auto", languageContext: { lastLanguage: "pt-BR" } });
 		// A linha "Language:" da persona sai e a instrução de auto entra no fim: troca de uma linha pela outra.
 		expect(auto.prefixChars() - fixed.prefixChars()).toBeLessThan(100);
-		expect(auto.prefixChars()).toBeLessThan(40_000);
+		expect(auto.prefixChars()).toBeLessThan(40_500);
 		const system = auto.system();
 		expect(system).not.toContain("- Language:");
 		expect(system).not.toContain(languageInstruction("pt-BR"));
@@ -292,12 +342,14 @@ describe("economia ligada: chat simples", () => {
 	it("'Bom dia' mantém o prefixo pequeno: nenhuma tool rara e só o núcleo", async () => {
 		const { first, steps, prefixChars } = await replay({ messages: [{ role: "user", content: "Bom dia" }] });
 		// Prompt de sistema + schemas do passo 1: era ~42,6 mil chars antes da política única de agir primeiro.
-		expect(prefixChars()).toBeLessThan(40_000);
+		// Teto 40.000 -> 40.500: a regra fixa de planejar tarefa longa (P_PLANNING) soma ~0,4 mil (+1%) no núcleo.
+		expect(prefixChars()).toBeLessThan(40_500);
 		for (const rare of [
 			"propose_routine",
 			"create_file",
 			"click",
 			"propose_profile_update",
+			"find_page_value",
 		]) {
 			expect(first).not.toContain(rare);
 		}

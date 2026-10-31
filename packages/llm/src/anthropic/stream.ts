@@ -204,6 +204,14 @@ export function createAnthropicStreamChat(options: AnthropicStreamOptions) {
 								} else if (event.type === "content_block_start" && event.index !== undefined) {
 									const block = event.content_block ?? {};
 									blocks.set(event.index, { kind: block.type ?? "", id: block.id ?? "", name: block.name ?? "", json: "" });
+									if (block.type === "tool_use" && block.name) {
+										// Aviso de UI: um callback que lança nunca derruba o stream do modelo.
+										try {
+											handlers.onToolIntent?.({ index: event.index, ...(block.id ? { id: block.id } : {}), name: block.name });
+										} catch {
+											// ignorado de propósito
+										}
+									}
 								} else if (event.type === "content_block_delta" && event.index !== undefined) {
 									const delta = event.delta ?? {};
 									if (delta.type === "text_delta" && delta.text) {

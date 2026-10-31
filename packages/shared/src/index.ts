@@ -488,6 +488,7 @@ export * from "./routine-proposal.js";
 export * from "./alert-rule.js";
 export * from "./alert-rule-eval.js";
 export * from "./alert-rule-extract.js";
+export * from "./page-value.js";
 export * from "./market-hours.js";
 export * from "./routine-alert.js";
 export * from "./routine-alert-schedule.js";
@@ -634,6 +635,7 @@ export {
 export {
 	HOST_TOOL_CLASSES,
 	classifyMcpTool,
+	hasIrreversibleToolName,
 	hostAutonomyMeta,
 	mcpAutonomyMeta,
 	toolNameTokens,
@@ -954,8 +956,29 @@ export {
 	CONVERSATION_UNTRUSTED_TTL_MS,
 	isConversationUntrusted,
 	canGrantMcpTask,
+	mcpTaskGrantName,
 	mcpTaskGrantExpiry,
 	isMcpTaskGrantUsable,
 	describeMcpTaskGrantUses,
 	type McpTaskGrantState,
 } from "./mcp-task-grant.js";
+export {
+	TOOL_MARKS_MAX,
+	hasServerToolAnnotation,
+	toolMarkRefusal,
+	isToolMark,
+	looksLikeToolMarkRequest,
+	mergeToolMarks,
+	buildStoredToolMarks,
+	parseStoredToolMarks,
+	resolveToolMarks,
+	toolDefinitionHash,
+	type StoredToolMark,
+	type StoredToolMarks,
+	parseToolMarks,
+	pendingToolMarkSuggestions,
+	suggestToolMark,
+	toolDisplayLabel,
+	type ToolMark,
+	type ToolMarks,
+} from "./tool-marks.js";

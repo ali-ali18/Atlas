@@ -22,6 +22,7 @@ import {
 	type ExtractFetchFn,
 	type ExtractLookupFn,
 } from "./extract.js";
+import { contextAround, tagOf } from "./page-context.js";
 import { readMarketSource, type MarketDeps, type MarketFailure } from "./market-data.js";
 import { regexWindow, runRegexWithBudget } from "./regex-budget.js";
 import {
@@ -259,7 +260,10 @@ async function readPage(source: Extract<AlertSource, { type: "page" }>, doc: Fet
 		const items = nodes.map((node) => ({ title: textOf(node).slice(0, ALERT_ITEM_TITLE_MAX), link: squeeze(node.querySelector("a")?.getAttribute("href") ?? node.getAttribute("href")) || undefined })).filter((item) => item.title);
 		return { kind: "items", items: items.map((item) => ({ title: item.title, ...(item.link ? { link: toAbsolute(item.link, source.url) } : {}) })) };
 	}
-	return { kind: "text", text: nodes[0] ? textOf(nodes[0]) || null : null };
+	const first = nodes[0];
+	const text = first ? textOf(first) || null : null;
+	// Contexto em volta do elemento (rótulo do card, nome da variante): a regra guarda o rótulo na criação e confere depois.
+	return { kind: "text", text, ...(first && text && tagOf(first) !== "meta" ? { context: contextAround(first, text) } : {}) };
 }
 
 function toAbsolute(href: string, base: string): string {
@@ -273,6 +277,23 @@ function toAbsolute(href: string, base: string): string {
 function readFeed(doc: FetchedDocument): AlertRuleRead {
 	if (!/<(rss|feed|rdf:RDF|channel)\b/i.test(doc.body.slice(0, 5000))) throw new SourceError("parse", "a fonte não parece um feed (RSS/Atom)");
 	return { kind: "items", items: parseFeedItems(doc.body) };
+}
+
+/**
+ * Busca uma página com o MESMO leitor seguro dos alertas (SSRF em cada salto, 5 MB, timeout, robots.txt). Nunca
+ * lança: falha vira `{ ok: false, code, reason }`. Usado pelo modo guiado (`find_page_value`) para achar o seletor.
+ */
+export async function fetchAlertPage(
+	url: string,
+	deps: AlertSourceDeps = {},
+): Promise<{ ok: true; body: string; contentType: string } | { ok: false; code: AlertSourceFailure; reason: string }> {
+	try {
+		const doc = await fetchShared(url, deps);
+		return { ok: true, body: doc.body, contentType: doc.contentType };
+	} catch (error) {
+		if (error instanceof SourceError) return { ok: false, code: error.code, reason: error.message };
+		return { ok: false, code: "network", reason: "não consegui acessar o site" };
+	}
 }
 
 /**

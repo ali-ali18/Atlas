@@ -86,6 +86,49 @@ test("fonte fora do ar: sem veredito, 'não consegui verificar' uma vez só, exe
 	assert.equal(again.calls.push.length, 0);
 });
 
+test("seletor que deixa de casar (layout mudou): 'não consegui verificar' uma vez, sem aviso de valor e sem mexer no último valor lido", async () => {
+	const before = { lastValue: 389.9, consecutive: 1, lastReadAt: "2026-10-30T10:00:00.000Z" };
+	const s = setup([{ kind: "text", text: null }], { alert: alertWith({ ruleState: before }) });
+	const outcome = await runRuleAlert(s.input, s.deps);
+	assert.equal(outcome.plan.decision.transition, "inconclusive");
+	assert.match(s.calls.post[0]!, /Não consegui verificar o alerta “Tênis”: não encontrei o valor na página/);
+	assert.doesNotMatch(s.calls.post.join("\n"), /R\$|está em/, "nenhum valor é anunciado");
+	assert.doesNotMatch(s.calls.push.join("\n"), /R\$|está em/, "o push também não anuncia valor");
+	assert.equal(s.calls.record[0]!.next.unverified, true);
+	assert.equal(s.calls.record[0]!.next.active, false, "não vira alerta ativo por causa de leitura vazia");
+	assert.deepEqual(s.calls.record[0]!.next.ruleState?.lastValue, 389.9, "o último valor bom continua o mesmo");
+	// ciclo seguinte ainda sem casar: não repete o aviso
+	const again = setup([{ kind: "text", text: null }], { alert: alertWith({ unverified: true, ruleState: before }) });
+	await runRuleAlert(again.input, again.deps);
+	assert.equal(again.calls.post.length + again.calls.push.length, 0);
+	// o seletor volta a casar com o mesmo valor: o alerta retoma normalmente
+	const back = setup([price("R$ 389,90")], { alert: alertWith({ unverified: true, ruleState: before }) });
+	const resumed = await runRuleAlert(back.input, back.deps);
+	assert.equal(resumed.plan.decision.transition, "triggered");
+});
+
+test("deriva depois da criação: o seletor passa a casar OUTRO card com outro número (mesmo dentro da faixa do salto): sem aviso de valor", async () => {
+	const anchored = { ...rule({ type: "page", url: "https://invest.example.com/acoes/x", extract: { kind: "css", selector: "div._card-body span.value" } }, { kind: "value", parse: "money", op: "lt", value: 15 }), anchor: "cotacao" } as AlertRule;
+	const before = { lastValue: 16.47, consecutive: 0, lastReadAt: "2026-10-30T10:00:00.000Z" };
+	// layout mudou: o mesmo seletor agora lê o card de Dividend Yield e dá 14,10 (abaixo de 15, dispararia com valor errado)
+	for (const read of [
+		{ kind: "text", text: "R$ 14,10", context: "Dividend Yield R$ 14,10 Margem" },
+		{ kind: "text", text: "R$ 4,14", context: "Dividend Yield R$ 4,14" },
+	] as AlertRuleRead[]) {
+		const s = setup([read, read], { alert: alertWith({ ruleState: { ...before, consecutive: 1 } }, anchored) });
+		const outcome = await runRuleAlert(s.input, s.deps);
+		assert.equal(outcome.plan.decision.transition, "inconclusive");
+		assert.match(s.calls.post[0]!, /Não consegui verificar o alerta “Tênis”: o valor lido não está mais junto de “cotacao”/);
+		assert.doesNotMatch(s.calls.post.concat(s.calls.push).join("\n"), /está em|14,10|4,14/, "nenhum valor errado é anunciado");
+		assert.equal(s.calls.record[0]!.next.active, false);
+		assert.equal(s.calls.record[0]!.next.ruleState?.lastValue, 16.47, "o último valor bom não é sobrescrito");
+	}
+	// com o rótulo certo no contexto, a leitura vale normalmente
+	const ok = setup([{ kind: "text", text: "R$ 14,10", context: "Cotação R$ 14,10 0,06%" }], { alert: alertWith({ ruleState: { ...before, consecutive: 1 } }, anchored) });
+	const result = await runRuleAlert(ok.input, ok.deps);
+	assert.equal(result.plan.decision.transition, "triggered");
+});
+
 test("item novo: avisa a cada item novo mesmo com o alerta anterior ativo, sem modelo", async () => {
 	const feed = rule({ type: "feed", url: "https://blog.example.com/rss" }, { kind: "new_item" });
 	const items = (...ids: string[]): AlertRuleRead => ({ kind: "items", items: ids.map((id) => ({ id, title: `Edital ${id}` })) });

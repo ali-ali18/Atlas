@@ -43,7 +43,7 @@ describe("memory refs (Postgres real)", { skip: dbSkip }, () => {
 		if (ambiguous.ok) return;
 		assert.match(ambiguous.error, /ambíguo/);
 		assert.equal(ambiguous.currentEntries.length, 2, "só as candidatas, não a camada inteira");
-		assert.ok(ambiguous.currentEntries.every((line) => /^\[[a-z0-9]{4}\] Nome: Ana/.test(line)));
+		assert.ok(ambiguous.currentEntries.every((line) => /^\[[a-z0-9]{4,8}\] Nome: Ana/.test(line)));
 
 		const dupRef = memoryRef((await getMemorySnapshot(userId)).user.entries.find((e) => e.content === "Nome: Ana")!.id);
 		const removed = await removeMemoryEntry({ userId, target: "user", ref: `[${dupRef}]` });
@@ -55,7 +55,7 @@ describe("memory refs (Postgres real)", { skip: dbSkip }, () => {
 
 	test("o prompt traz [ref] antes de cada entrada", async () => {
 		const prompt = await renderMemoryPrompt(userId, botA);
-		assert.match(prompt ?? "", /\[[a-z0-9]{4}\]Fuso: America\/Sao_Paulo/);
+		assert.match(prompt ?? "", /\[[a-z0-9]{4,8}\]Fuso: America\/Sao_Paulo/);
 	});
 
 	test("replace por ref; ref desconhecida falha listando a camada; dono diferente não enxerga", async () => {

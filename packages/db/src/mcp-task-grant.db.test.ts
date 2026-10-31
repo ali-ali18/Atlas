@@ -4,7 +4,8 @@ import { describe, test } from "node:test";
 import { prisma } from "./client.js";
 import { serializeConversationCard } from "@workspace/shared";
 import { listApprovedConfirmTools } from "./conversations.js";
-import { consumeMcpTaskGrant, deleteExpiredMcpTaskGrants, getConversationUntrustedAt, grantMcpTask, markConversationUntrusted, markMcpTaskGrantsUntrusted, releaseMcpTaskGrant } from "./mcp-task-grant.js";
+import { createMcpConnection, getMcpConnection, updateMcpConnection } from "./mcp-connections.js";
+import { consumeMcpTaskGrant, getConversationRequesterBotId, deleteExpiredMcpTaskGrants, getConversationUntrustedAt, grantMcpTask, markConversationUntrusted, markMcpTaskGrantsUntrusted, releaseMcpTaskGrant } from "./mcp-task-grant.js";
 import { createTestUser, dbSkip } from "./testing/test-db.js";
 
 async function conversation(userId: string) {
@@ -157,5 +158,89 @@ describe("aprovação por tarefa (Postgres real)", { skip: dbSkip }, () => {
 		assert.deepEqual(await listApprovedConfirmTools(a, conv.id, now), ["create_event", "create_event"]);
 		assert.deepEqual(await listApprovedConfirmTools(b, conv.id, now), [], "outro usuário não lê");
 		assert.deepEqual(await listApprovedConfirmTools(a, conv.id, new Date(now.getTime() + 31 * 60_000)), [], "fora da janela");
+	});
+});
+
+describe("solicitante da tarefa e marcação de ferramentas (Postgres real)", { skip: dbSkip }, () => {
+	test("solicitante: bot remetente da última fala que não é clique de cartão; só conversa do dono", async () => {
+		const a = (await createTestUser("req-a")).id;
+		const b = (await createTestUser("req-b")).id;
+		const conv = await conversation(a);
+		const at = (s: number) => new Date(Date.UTC(2026, 9, 31, 12, 0, s));
+		assert.equal(await getConversationRequesterBotId({ userId: a, conversationId: conv.id }), null, "conversa vazia: o dono");
+		await prisma.conversationMessage.create({ data: { conversationId: conv.id, role: "user", content: "oi", createdAt: at(1) } });
+		await prisma.conversationMessage.create({ data: { conversationId: conv.id, role: "user", content: "Faça o diagnóstico", origin: "bot", fromBotId: "bot-cookie", createdAt: at(2) } });
+		await prisma.conversationMessage.create({ data: { conversationId: conv.id, role: "user", content: "confirmado: Agroervas", createdAt: at(3) } });
+		assert.equal(await getConversationRequesterBotId({ userId: a, conversationId: conv.id }), "bot-cookie");
+		await prisma.conversationMessage.create({ data: { conversationId: conv.id, role: "user", content: "e os pedidos?", createdAt: at(4) } });
+		assert.equal(await getConversationRequesterBotId({ userId: a, conversationId: conv.id }), null, "o dono voltou a falar");
+		await assert.rejects(getConversationRequesterBotId({ userId: b, conversationId: conv.id }), "outro usuário não lê");
+	});
+
+	test("solicitante: fala de bot com texto de clique de cartão NÃO é pulada (não forja o solicitante anterior)", async () => {
+		const a = (await createTestUser("req-forge")).id;
+		const conv = await conversation(a);
+		const at = (s: number) => new Date(Date.UTC(2026, 9, 31, 12, 0, s));
+		await prisma.conversationMessage.create({ data: { conversationId: conv.id, role: "user", content: "Faça o diagnóstico", origin: "bot", fromBotId: "bot-cookie", createdAt: at(1) } });
+		await prisma.conversationMessage.create({ data: { conversationId: conv.id, role: "user", content: "confirmado: Agroervas", origin: "bot", fromBotId: "bot-radar", createdAt: at(2) } });
+		assert.equal(await getConversationRequesterBotId({ userId: a, conversationId: conv.id }), "bot-radar");
+		await prisma.conversationMessage.create({ data: { conversationId: conv.id, role: "user", content: "cancela isso", origin: "bot", fromBotId: "bot-radar", createdAt: at(3) } });
+		assert.equal(await getConversationRequesterBotId({ userId: a, conversationId: conv.id }), "bot-radar");
+		// Clique do dono (origin nulo) continua sendo ruído.
+		await prisma.conversationMessage.create({ data: { conversationId: conv.id, role: "user", content: "confirmado: Agroervas", createdAt: at(4) } });
+		assert.equal(await getConversationRequesterBotId({ userId: a, conversationId: conv.id }), "bot-radar");
+	});
+
+	test("concessão de um solicitante não é consumida por outro", async () => {
+		const a = (await createTestUser("req-grant")).id;
+		const conv = await conversation(a);
+		const base = { userId: a, conversationId: conv.id, connectionId: "conn-erp" };
+		const now = new Date("2026-10-31T12:00:00Z");
+		await grantMcpTask({ ...base, exposedName: "mcp__erp__listar#from:bot-cookie", now });
+		assert.ok(await consumeMcpTaskGrant({ ...base, exposedName: "mcp__erp__listar#from:bot-cookie", now }));
+		assert.equal(await consumeMcpTaskGrant({ ...base, exposedName: "mcp__erp__listar#from:bot-outro", now }), null);
+		assert.equal(await consumeMcpTaskGrant({ ...base, exposedName: "mcp__erp__listar", now }), null);
+	});
+
+	test("marcação por tool: grava só do dono (outro usuário recebe null), coluna nula = sem marcação", async () => {
+		const a = (await createTestUser("mark-a")).id;
+		const b = (await createTestUser("mark-b")).id;
+		const conn = await createMcpConnection({ userId: a, catalogId: null, slug: "erp", name: "ERP", url: "https://erp.example/mcp", authType: "none", status: "connected" });
+		assert.deepEqual(conn.toolMarks, {});
+		const tools = [{ name: "listar_pedidos", description: "Lista pedidos", inputSchema: { type: "object" } }];
+		await updateMcpConnection(conn.id, { tools }, a);
+		assert.equal(await updateMcpConnection(conn.id, { toolMarks: { listar_pedidos: "read" } }, b), null);
+		assert.deepEqual((await getMcpConnection(conn.id, a))?.toolMarks, {});
+		assert.equal(await getMcpConnection(conn.id, b), null);
+		assert.deepEqual((await updateMcpConnection(conn.id, { toolMarks: { listar_pedidos: "read" } }, a))?.toolMarks, { listar_pedidos: "read" });
+		await prisma.mcpConnection.update({ where: { id: conn.id }, data: { toolMarksJson: { a: "read", b: "lixo" } } });
+		assert.deepEqual((await getMcpConnection(conn.id, a))?.toolMarks, {}, "formato antigo (sem hash) e valor inválido não valem");
+	});
+
+	test("marca herdada: se o servidor muda descrição ou schema, a marca deixa de valer e volta a pendente; reconfirmar vale de novo", async () => {
+		const a = (await createTestUser("mark-hash")).id;
+		const conn = await createMcpConnection({ userId: a, catalogId: null, slug: "erp", name: "ERP", url: "https://erp.example/mcp", authType: "none", status: "connected" });
+		const v1 = [{ name: "listar_pedidos", description: "Lista pedidos", inputSchema: { type: "object" } }, { name: "ver_saldo", description: "Saldo", inputSchema: { type: "object" } }];
+		await updateMcpConnection(conn.id, { tools: v1 }, a);
+		await updateMcpConnection(conn.id, { toolMarks: { listar_pedidos: "read", ver_saldo: "read" } }, a);
+		assert.deepEqual((await getMcpConnection(conn.id, a))?.toolMarks, { listar_pedidos: "read", ver_saldo: "read" });
+		// Servidor passa a apagar pedidos na mesma tool: a marca antiga não vale mais.
+		const v2 = [{ ...v1[0]!, description: "Lista e apaga pedidos" }, v1[1]!];
+		await updateMcpConnection(conn.id, { tools: v2 }, a);
+		const after = await getMcpConnection(conn.id, a);
+		assert.deepEqual(after?.toolMarks, { ver_saldo: "read" });
+		assert.deepEqual(after?.staleToolMarks, ["listar_pedidos"]);
+		// Mexer em outra tool não apaga o aviso da obsoleta.
+		await updateMcpConnection(conn.id, { toolMarks: { ver_saldo: "write" } }, a);
+		assert.deepEqual((await getMcpConnection(conn.id, a))?.staleToolMarks, ["listar_pedidos"]);
+		// O dono confirma de novo: vale com o hash novo.
+		const again = await updateMcpConnection(conn.id, { toolMarks: { listar_pedidos: "read", ver_saldo: "write" } }, a);
+		assert.deepEqual(again?.toolMarks, { listar_pedidos: "read", ver_saldo: "write" });
+		assert.deepEqual(again?.staleToolMarks, []);
+		// Cache de ferramentas vazio (refresh falhou): nada é apagado e nada é gravado.
+		await updateMcpConnection(conn.id, { tools: [] }, a);
+		await updateMcpConnection(conn.id, { toolMarks: {} }, a);
+		await updateMcpConnection(conn.id, { tools: v2 }, a);
+		assert.deepEqual((await getMcpConnection(conn.id, a))?.toolMarks, { listar_pedidos: "read", ver_saldo: "write" });
 	});
 });
