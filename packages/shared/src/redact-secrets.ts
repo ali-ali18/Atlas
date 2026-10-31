@@ -12,6 +12,8 @@ const TOKEN_PATTERNS: RegExp[] = [
 	/\bxox[abpr]-[A-Za-z0-9-]{10,}/g,
 	// Corpo temperado: não atravessa outro "-----BEGIN/END", então a varredura é linear mesmo com muitos BEGIN sem END (e aceita cabeçalhos "Proc-Type" de PEM antigo).
 	/-----BEGIN [A-Z ]*PRIVATE KEY-----(?:[^-]|-(?!-{4}(?:BEGIN|END)))*-----END [A-Z ]*PRIVATE KEY-----/g,
+	// Bloco sem END (chave truncada ou seguida de outro BEGIN): redige o corpo em base64 até o próximo "-" (limitado, linear).
+	/-----BEGIN [A-Z ]*PRIVATE KEY-----[A-Za-z0-9+/=\s:,.]{1,8192}/g,
 ];
 
 export function redactSecrets(text: string, secrets: readonly string[] = []): string {

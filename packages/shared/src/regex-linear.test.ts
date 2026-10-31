@@ -35,6 +35,13 @@ describe("regex lineares (ReDoS)", () => {
 		expect(redactSecrets(two)).not.toContain("AAA");
 	});
 
+	it("redactSecrets: chave truncada seguida de outro BEGIN não vaza o corpo", () => {
+		const text = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----BEGIN RSA PRIVATE KEY-----\nAAAAsecretBODY\n-----END RSA PRIVATE KEY-----";
+		const out = redactSecrets(text);
+		expect(out).not.toContain("MIIEvQIBADANBgkqhkiG9w0BAQEFAASC");
+		expect(out).not.toContain("AAAAsecretBODY");
+	});
+
 	it("describeRoutineFailure: milhares de tabs no erro", () => {
 		const { ms } = timed(() => describeRoutineFailure(`${"\t".repeat(N)}x`));
 		expect(ms).toBeLessThan(LIMIT_MS);
