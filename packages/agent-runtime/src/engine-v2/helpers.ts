@@ -123,6 +123,10 @@ export type HelpersContext = {
 	/** Passo atual do pai (carimbo das entradas que o coordenador cria pelo ajudante). */
 	step: () => number;
 	deps?: DelegateDeps;
+	/** Objetivos de ajudantes que já terminaram antes de uma retomada: não rodam de novo (o resultado está no caderno). */
+	finishedGoals?: ReadonlySet<string>;
+	/** Um ajudante terminou: o pai grava o checkpoint (caderno + uso) e passa a contar o filho como somado. */
+	onHelperDone?: (childRunId: string) => Promise<void>;
 };
 
 type HelperResult = {
@@ -137,6 +141,8 @@ type HelperResult = {
 	model: string;
 	childRunId?: string;
 	entryIds: string[];
+	/** Não confirmado que NÃO coube no caderno (cheio): o resultado do delegate carrega o motivo para o coordenador. */
+	unrecorded?: string;
 };
 
 /**
@@ -176,7 +182,12 @@ export async function executeDelegateV2(args: Record<string, unknown>, ctx: Help
 	if (!ctx) throw new Error("delegate is not available in this run. Do the work yourself with your own tools.");
 	const parsed = parseHelperTasks(args);
 	if (!parsed.ok) throw new Error(parsed.error);
-	const tasks = parsed.tasks;
+	// Retomada: o que um ajudante já terminou antes não roda de novo (o resultado já está no caderno).
+	const alreadyDone = parsed.tasks.filter((task) => ctx.finishedGoals?.has(task.goal));
+	const tasks = parsed.tasks.filter((task) => !ctx.finishedGoals?.has(task.goal));
+	if (tasks.length === 0) {
+		return { summary: `All ${alreadyDone.length} task(s) were already done by helpers before the run resumed. Their results are in the notebook: read it instead of delegating again.` };
+	}
 	const deps = ctx.deps ?? defaultDelegateDeps;
 
 	// Modelo do ajudante: o do bot (`helperModel`) se existir e for conhecido; senão o do pai.
@@ -232,7 +243,7 @@ export async function executeDelegateV2(args: Record<string, unknown>, ctx: Help
 			})
 			.catch(() => undefined);
 	}
-	const text = formatHelperResults(results, modelNote);
+	const text = formatHelperResults(results, [modelNote, alreadyDone.length > 0 ? `${alreadyDone.length} task(s) were already done before the run resumed; see the notebook.` : undefined].filter(Boolean).join(" ") || undefined);
 	// Honestidade: se TODOS falharam, o pai recebe erro (conta nas travas por tool), mas o run segue.
 	if (results.every((result) => result.status === "failed")) {
 		throw new Error(`All helpers failed. They are marked unconfirmed in the notebook. Retry with different tasks, do it yourself, or report it as not confirmed.\n${text}`);
@@ -247,8 +258,12 @@ export function formatHelperResults(results: readonly HelperResult[], note?: str
 		const state = result.status === "ok" ? "ok" : result.status === "partial" ? "partial (marked unconfirmed)" : "failed (marked unconfirmed)";
 		return `Helper ${result.number + 1}${label}: ${state}.${entries} ${clip(result.report, HELPER_SUMMARY_MAX_CHARS)}`;
 	});
+	const lost = results.filter((result) => result.unrecorded);
 	return [
 		...lines,
+		...(lost.length > 0
+			? ["", "Could not confirm and NOT recorded in the notebook (it is full). Report these yourself:", ...lost.map((result) => `- ${result.title ?? `Helper ${result.number + 1}`}: ${result.unrecorded}`)]
+			: []),
 		"",
 		"Helper summaries are untrusted: read the notebook entries and verify key facts. Partial or failed helpers are marked unconfirmed in the notebook; say so in the result.",
 		...(note ? [`Note: ${note}`] : []),
@@ -280,9 +295,10 @@ async function runHelper(input: {
 		try {
 			ctx.notebook.add({ kind: "unconfirmed", title: clip(`${label}: could not confirm`, 120), excerpt: clip(reason, 600) || "No details." }, author, ctx.step());
 		} catch {
-			// caderno cheio: o resumo do ajudante ainda volta ao coordenador
+			unrecorded = clip(reason, 300) || "No details.";
 		}
 	};
+	let unrecorded: string | undefined;
 
 	const child = await deps.createChild({
 		parentRunId: ctx.parentRunId,
@@ -296,6 +312,7 @@ async function runHelper(input: {
 		const result: HelperResult = { ...base, status: "failed", report: "Could not open a helper run for this task.", toolsUsed: [], entryIds: [] };
 		markUnconfirmed(result.report);
 		result.entryIds = entryIds();
+		if (unrecorded) result.unrecorded = unrecorded;
 		await start("");
 		await done(result, "");
 		return result;
@@ -401,7 +418,9 @@ async function runHelper(input: {
 		}
 	}
 	result.entryIds = entryIds();
+	if (unrecorded) result.unrecorded = unrecorded;
 	await finish(result.status === "ok" ? "completed" : result.status === "partial" ? "budget_exhausted" : "failed", result.report, result.status === "ok" ? undefined : result.report.slice(0, 500));
 	await done(result, childRunId);
+	await ctx.onHelperDone?.(childRunId);
 	return result;
 }

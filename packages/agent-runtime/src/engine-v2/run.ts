@@ -48,6 +48,7 @@ import {
 	getConversationUntrustedAt,
 	markConversationUntrusted,
 	markMcpTaskGrantsUntrusted,
+	listSubagentRuns,
 	persistConversationCardFromEvent,
 	upsertTaskListCard,
 } from "@workspace/db";
@@ -114,7 +115,7 @@ import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
 import { appendUnconfirmed, createTaskListGate, droppedItems, openItems } from "./task-list.js";
 import { type DelegateDeps } from "../tools/delegate-task.js";
 import { HELPER_DELIVERY_INSTRUCTION, type HelperChildInput, type HelpersContext } from "./helpers.js";
-import { DOCUMENT_DELIVERY_NOTE, DOC_MAX_OUTPUT_TOKENS, needsDocumentDelivery, withNotebookAppendix } from "./delivery.js";
+import { DOCUMENT_DELIVERY_NOTE, DOC_MAX_OUTPUT_TOKENS, countWords, needsDocumentDelivery, withNotebookAppendix } from "./delivery.js";
 import { type NotebookToolContext } from "./notebook.js";
 
 export type EngineV2Options = {
@@ -123,7 +124,15 @@ export type EngineV2Options = {
 	longWorkBudgetUsd?: number;
 	longWorkMinutes?: number;
 	/** Coordenador em trabalho longo: ajudantes (`policyJson.helperModel` / `helperMaxParallel`; `deps` injeta a persistência em teste). */
-	helpers?: { model?: string | null; maxParallel?: number; deps?: DelegateDeps };
+	helpers?: {
+		model?: string | null;
+		maxParallel?: number;
+		deps?: DelegateDeps;
+		/** Filhos do run (retomada: custo e tarefas já feitas). Padrão: banco, escopado pelo dono. */
+		listChildren?: (parentRunId: string, userId: string) => Promise<Array<{ id: string; objective: string; status: string; usageJson: unknown; finishedAt: Date | null }>>;
+	};
+	/** Máximo de tokens de saída do modelo no catálogo (null = não sabe). Limita o teto do documento. */
+	modelMaxOutputTokens?: (modelId: string) => number | null | Promise<number | null>;
 	/**
 	 * Este run É um ajudante (filho do coordenador): orçamento próprio (fatia do pai), só tools de leitura
 	 * (`params.toolFilter` é obrigatório), escreve no caderno do pai e nunca pergunta ao usuário.
@@ -286,6 +295,12 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	/** Passo em que o portão do documento já agiu (no máximo uma vez por run) e se algum arquivo já saiu. */
 	let documentGateFired = false;
 	let fileDelivered = (parsed?.toolCallCounts?.create_file ?? 0) > 0;
+	/** Texto que o portão do documento retirou do chat: volta se o run terminar sem arquivo. */
+	let gatedText: string | undefined;
+	/** Arquivo em partes em andamento (nome -> conteúdo das partes anteriores): o apêndice confere o arquivo inteiro. */
+	const filePartsSoFar = new Map<string, string>();
+	/** Ajudantes cujo uso já está em `usageTotals` (checkpoint e retomada não contam duas vezes). */
+	const accountedHelpers = new Set<string>(parsed?.helperRuns ?? []);
 	const currentTaskItems = (): TaskListItem[] | undefined => taskTracker.taskList() ?? lastTaskItems;
 
 	// --- cofre, confiança e integrações ---
@@ -403,6 +418,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			pendingLogin,
 			taskState: taskTracker.persistable(),
 			notebook: notebook?.snapshot(),
+			helperRuns: [...accountedHelpers],
 			activeElapsedMs: activeElapsedMs(),
 			loadedTools: [...catalog.activeMcpTools(), ...tools.map((tool) => tool.function.name).filter((name) => !isMcpToolName(name))],
 			transcriptWatermark: parsed?.transcriptWatermark ?? params.transcriptWatermark,
@@ -442,7 +458,19 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	// Trabalho longo escreve o documento em `create_file`: o argumento conta como saída, então o teto de chat (4.096 no v1)
 	// não vale aqui. Nunca abaixo do que o run/bot já configurou.
 	const docOutputTokens = Number(process.env.ATLAS_V2_DOC_MAX_OUTPUT_TOKENS) > 0 ? Number(process.env.ATLAS_V2_DOC_MAX_OUTPUT_TOKENS) : DOC_MAX_OUTPUT_TOKENS;
-	const outputTokenCap = () => (longWorkCoordinator ? Math.max(configuredOutputTokens ?? 0, docOutputTokens) : configuredOutputTokens);
+	/** O coordenador vai escrever o documento: portão já agiu, arquivo em partes aberto ou lista toda concluída (passo de entrega). */
+	const writingDocument = () => {
+		const items = currentTaskItems();
+		return longWorkCoordinator && (documentGateFired || filePartsSoFar.size > 0 || (Boolean(items?.length) && openItems(items).length === 0));
+	};
+	let modelMaxOutput: number | null | undefined;
+	const outputTokenCap = async (): Promise<number | undefined> => {
+		if (!writingDocument()) return configuredOutputTokens;
+		modelMaxOutput ??= await Promise.resolve(options.modelMaxOutputTokens?.(model)).catch(() => null);
+		// Modelo sem teto conhecido no catálogo: fica o valor configurado.
+		if (!modelMaxOutput) return configuredOutputTokens ?? docOutputTokens;
+		return Math.min(modelMaxOutput, Math.max(configuredOutputTokens ?? 0, docOutputTokens));
+	};
 	const hygieneLastGroupChars = Math.max(STUB_LAST_GROUP_MAX_CHARS, (params.toolResultMaxChars ?? 0) + 4_000);
 	const modelStep = async (
 		history: LlmMessage[],
@@ -465,9 +493,13 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		conversation = hygiene.messages;
 		const taskNote = renderTaskListNote(taskTracker.taskList());
 		const nowNote = process.env.ATLAS_NOW_NOTE === "off" ? null : todayNote(new Date(), params.timeZone);
-		// Índice do caderno: camada fora do histórico, então a higiene/compactação de contexto nunca o descarta.
-		const layers = [taskNote, notebook?.index() ?? null, nowNote].filter((layer): layer is string => Boolean(layer));
-		const withLayers: LlmMessage[] = layers.length ? [...conversation, ...layers.map((content) => ({ role: "system" as const, content }))] : conversation;
+		const layers = [taskNote, nowNote].filter((layer): layer is string => Boolean(layer));
+		// Índice do caderno: camada fora do histórico (a higiene/compactação nunca o descarta). Títulos vêm de páginas,
+		// então vai como contexto automático de usuário e não como instrução de sistema.
+		const notebookIndex = notebook?.index();
+		const notebookLayer: LlmMessage[] = notebookIndex ? [{ role: "user", content: `${AUTO_CONTEXT} ${notebookIndex}` }] : [];
+		const withLayers: LlmMessage[] =
+			layers.length || notebookLayer.length ? [...conversation, ...layers.map((content) => ({ role: "system" as const, content })), ...notebookLayer] : conversation;
 		const transport = await resolveLlmMessagesForModel(withLayers, params.loadScreenshot, {
 			canSeeUserImages: params.canSeeUserImages,
 			canSeeScreenshots: canSeeImages,
@@ -476,6 +508,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			loadUserPdf: params.attachments?.loadPdfDataUrl,
 			memo: mediaMemo,
 		});
+		const outputCap = await outputTokenCap();
 		let collected = "";
 		let deltaTail = Promise.resolve();
 		const callStartedAt = performance.now();
@@ -492,10 +525,10 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				firstEventTimeoutMs: params.firstEventTimeoutMs,
 				idleTimeoutMs: params.idleTimeoutMs,
 				fallbackModels: params.fallbackModels,
-				maxOutputTokens: outputTokenCap(),
+				maxOutputTokens: outputCap,
 				reasoningMaxTokens: params.reasoningMaxTokens,
 				sessionId: !conversationId ? params.runId : `c${createHash("sha256").update(`${botId ?? ""}:${conversationId}`).digest("hex").slice(0, 31)}`,
-				...(layers.length > 0 ? { cacheStableIndex: conversation.length - 1 } : {}),
+				...(layers.length > 0 || notebookLayer.length > 0 ? { cacheStableIndex: conversation.length - 1 } : {}),
 			},
 			{
 				onDelta: (delta) => {
@@ -590,6 +623,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			},
 			{ profile: "chat", helper: { writer: child.writer, budget: child.budget, preactivateMcpTools: child.preactivateMcpTools } },
 		);
+	/** Tarefas que um ajudante já terminou antes de uma retomada (não rodam de novo). */
+	const finishedGoals = new Set<string>();
 	const helpersCtx: HelpersContext | undefined =
 		notebook && hasToolInRun("delegate")
 			? {
@@ -613,6 +648,12 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					runChild: runHelperChild,
 					step: () => step,
 					deps: options.helpers?.deps ?? params.delegateDeps,
+					finishedGoals,
+					// Uso e entradas do ajudante já estão no pai: grava o checkpoint agora (a retomada não perde nem recontaria).
+					onHelperDone: async (childRunId) => {
+						accountedHelpers.add(childRunId);
+						await persistCheckpoint(step).catch(() => undefined);
+					},
 				}
 			: undefined;
 
@@ -771,7 +812,14 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			const preTool = preTools.run(name, args, entry);
 			if (preTool.error) throw new Error(preTool.error);
 			// Documento de trabalho longo: as fontes e o que não foi confirmado vêm do caderno, não da memória do modelo.
-			const toolArgs = name === "create_file" && notebook ? withNotebookAppendix(args, notebook.snapshot(), language) : args;
+			let toolArgs = args;
+			if (name === "create_file" && typeof args.filename === "string") {
+				const key = args.filename;
+				const previous = filePartsSoFar.get(key) ?? "";
+				if (notebook) toolArgs = withNotebookAppendix(args, notebook.snapshot(), language, previous);
+				if (args.more === true && typeof args.content === "string") filePartsSoFar.set(key, `${previous}\n${args.content}`);
+				else filePartsSoFar.delete(key);
+			}
 			const outcome = await runSandboxOperation(executionContext, isSandboxTool(name) ? 180_000 : undefined, (signal) => executeTool(name, toolArgs, buildContext(call, signal, preTool.forceConfirm)));
 			if (isUntrustedContentTool(name) && !(isMcpToolName(name) && outcome.confirmEvent)) await markUntrusted();
 			summary = outcome.summary;
@@ -922,6 +970,14 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	};
 
 	const finishOk = async (text: string, stop: RunStop, messageId: string): Promise<RunComputerUseResult> => {
+		// O portão do documento retirou uma resposta do chat e nenhum arquivo saiu (create_file falhou, limite de arquivos,
+		// modelo respondeu curto): o usuário não pode ficar com menos do que já tinha, então o texto original volta.
+		if (gatedText && !fileDelivered && countWords(text) < countWords(gatedText)) {
+			if (text) await onEvent({ type: "assistant_discard", id: messageId, reason: "missing_file" });
+			messageId = `${messageId}-restored`;
+			text = gatedText;
+			await onEvent({ type: "assistant_delta", id: messageId, delta: text });
+		}
 		// Itens descartados e pendências vão na resposta; o delta mantém o balão ao vivo igual ao gravado.
 		const items = currentTaskItems();
 		const unresolved = stop.detail === "tasklist_open" ? openItems(items).map((item) => item.content) : [];
@@ -964,6 +1020,28 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			outputJson: { offeredTools: tools.map((tool) => tool.function.name), ...(catalog.deferral ? { deferredTools: catalog.deferral.pending() } : {}), engine: "v2", profile: options.profile },
 		}),
 	).catch(() => undefined);
+
+	// Retomada com ajudantes: soma o custo dos filhos que terminaram depois do último checkpoint (sem recontar os já somados)
+	// e lembra as tarefas que eles já fizeram.
+	if (parsed && helpersCtx) {
+		const list = options.helpers?.listChildren ?? ((parentRunId: string, ownerId: string) => listSubagentRuns(parentRunId, ownerId));
+		for (const child of await Promise.resolve(list(runId, userId)).catch(() => [])) {
+			if (!child.finishedAt) continue;
+			finishedGoals.add(child.objective);
+			if (accountedHelpers.has(child.id)) continue;
+			accountedHelpers.add(child.id);
+			const usage = child.usageJson as Partial<RunUsage> | null;
+			if (usage && typeof usage === "object") {
+				addChildUsage({
+					promptTokens: Number(usage.promptTokens) || 0,
+					completionTokens: Number(usage.completionTokens) || 0,
+					totalTokens: Number(usage.totalTokens) || 0,
+					...(typeof usage.costUsd === "number" ? { costUsd: usage.costUsd } : {}),
+					...(usage.costUnknownCalls ? { costUnknownCalls: Number(usage.costUnknownCalls) } : {}),
+				});
+			}
+		}
+	}
 
 	// Retomada no meio de um lote: as tool calls sem resultado rodam primeiro.
 	const lastAssistant = [...conversation].reverse().find((message) => message.role === "assistant");
@@ -1060,9 +1138,10 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					longWorkCoordinator &&
 					!documentGateFired &&
 					hasToolInRun("create_file") &&
-					needsDocumentDelivery({ text, request: lastUserMessage, hasFile: fileDelivered, notebookCount: notebook?.count() ?? 0 })
+					needsDocumentDelivery({ text, request: lastUserMessage, hasFile: fileDelivered })
 				) {
 					documentGateFired = true;
+					gatedText = text;
 					await onEvent({ type: "assistant_discard", id: stepId, reason: "missing_file" });
 					conversation.push({ role: "assistant", content: text });
 					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${DOCUMENT_DELIVERY_NOTE}` });

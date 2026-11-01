@@ -427,6 +427,7 @@ export function buildRuntimeCheckpoint(input: {
 	researchNotes?: AgentRunCheckpoint["researchNotes"];
 	/** Motor v2: caderno da tarefa (trabalho longo). */
 	notebook?: AgentRunCheckpoint["notebook"];
+	helperRuns?: string[];
 	pendingFollowUps?: string[];
 	capabilities?: AgentRunCheckpoint["capabilities"];
 	modelTier?: AgentRunCheckpoint["modelTier"];
@@ -473,6 +474,7 @@ export function buildRuntimeCheckpoint(input: {
 		...(input.pendingFollowUps?.length ? { pendingFollowUps: input.pendingFollowUps } : {}),
 		...(input.researchNotes?.length ? { researchNotes: input.researchNotes } : {}),
 		...(input.notebook?.length ? { notebook: input.notebook } : {}),
+		...(input.helperRuns?.length ? { helperRuns: input.helperRuns.slice(-200) } : {}),
 		...(input.capabilities ? { capabilities: input.capabilities } : {}),
 		...(input.modelTier ? { modelTier: input.modelTier } : {}),
 		...(input.modelEscalations?.length ? { modelEscalations: input.modelEscalations } : {}),
@@ -582,6 +584,7 @@ export function parseRuntimeCheckpoint(
 		pendingFollowUps: parsePendingFollowUps(value.pendingFollowUps),
 		researchNotes: parseResearchNotes(value.researchNotes).length ? parseResearchNotes(value.researchNotes) : undefined,
 		...(parseNotebookEntries(value.notebook).length ? { notebook: parseNotebookEntries(value.notebook) } : {}),
+		...(Array.isArray(value.helperRuns) ? { helperRuns: value.helperRuns.filter((id): id is string => typeof id === "string").slice(-200) } : {}),
 		capabilities: parseCapabilitySnapshot(value.capabilities),
 		...(isModelTier(value.modelTier) ? { modelTier: value.modelTier } : {}),
 		...(parseModelEscalations(value.modelEscalations).length ? { modelEscalations: parseModelEscalations(value.modelEscalations) } : {}),

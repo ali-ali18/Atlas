@@ -1,23 +1,31 @@
 import { describe, expect, it } from "vitest";
-import type { NotebookEntry } from "@workspace/shared";
-import { DOC_WORDS_THRESHOLD, asksForDocument, countWords, needsDocumentDelivery, withNotebookAppendix } from "./delivery.js";
+import { FILE_MAX_CONTENT_CHARS, type NotebookEntry } from "@workspace/shared";
+import { DOC_WORDS_THRESHOLD, asksForDocument, declinesDocument, countWords, needsDocumentDelivery, withNotebookAppendix } from "./delivery.js";
 
 const words = (n: number) => Array.from({ length: n }, (_, i) => `p${i}`).join(" ");
 const entry = (partial: Partial<NotebookEntry> & Pick<NotebookEntry, "id" | "title">): NotebookEntry => ({ kind: "finding", excerpt: "x", author: "coordinator", step: 0, ...partial });
 
 describe("entrega em documento", () => {
-	it("resposta acima de ~1.500 palavras vira documento; abaixo, só se o pedido for de relatório com trabalho feito", () => {
+	it("resposta acima de ~1.500 palavras vira documento; abaixo, só se o pedido for de relatório e o texto tiver tamanho razoável", () => {
 		expect(countWords(words(10))).toBe(10);
-		expect(needsDocumentDelivery({ text: words(DOC_WORDS_THRESHOLD + 1), request: "oi", hasFile: false, notebookCount: 0 })).toBe(true);
-		expect(needsDocumentDelivery({ text: words(DOC_WORDS_THRESHOLD), request: "oi", hasFile: false, notebookCount: 0 })).toBe(false);
-		expect(needsDocumentDelivery({ text: words(50), request: "Faça um relatório de preços", hasFile: false, notebookCount: 3 })).toBe(true);
-		expect(needsDocumentDelivery({ text: words(350), request: "Faça uma análise do mercado", hasFile: false, notebookCount: 0 })).toBe(true);
-		// "o relatório ficou pronto" (curto, sem caderno) não vira documento
-		expect(needsDocumentDelivery({ text: words(20), request: "Faça um relatório de preços", hasFile: false, notebookCount: 0 })).toBe(false);
+		expect(needsDocumentDelivery({ text: words(DOC_WORDS_THRESHOLD + 1), request: "oi", hasFile: false })).toBe(true);
+		expect(needsDocumentDelivery({ text: words(DOC_WORDS_THRESHOLD), request: "oi", hasFile: false })).toBe(false);
+		expect(needsDocumentDelivery({ text: words(350), request: "Faça uma análise do mercado", hasFile: false })).toBe(true);
+		// resposta curta nunca vira documento só porque há caderno ou o pedido cita relatório
+		expect(needsDocumentDelivery({ text: words(50), request: "Faça um relatório de preços", hasFile: false })).toBe(false);
+		expect(needsDocumentDelivery({ text: words(20), request: "Faça um relatório de preços", hasFile: false })).toBe(false);
+	});
+
+	it("pedido para responder no chat desliga o portão, mesmo com texto longo", () => {
+		for (const request of ["Faça um relatório, responde aqui no chat", "estudo de mercado, mas não precisa de arquivo", "análise sem PDF por favor", "write a report here in the chat", "no file please, an analysis", "não quero um documento, só a análise"]) {
+			expect(declinesDocument(request), request).toBe(true);
+			expect(needsDocumentDelivery({ text: words(2000), request, hasFile: false }), request).toBe(false);
+		}
+		expect(declinesDocument("Faça um relatório completo em PDF")).toBe(false);
 	});
 
 	it("com arquivo já entregue nunca dispara de novo", () => {
-		expect(needsDocumentDelivery({ text: words(3000), request: "relatório", hasFile: true, notebookCount: 5 })).toBe(false);
+		expect(needsDocumentDelivery({ text: words(3000), request: "relatório", hasFile: true })).toBe(false);
 	});
 
 	it("reconhece o pedido de relatório, estudo e análise em pt, en e es", () => {
@@ -50,5 +58,22 @@ describe("withNotebookAppendix", () => {
 		const complete = "https://a.com/p https://b.com/p Forn C: could not confirm";
 		expect(withNotebookAppendix({ filename: "r.md", content: complete }, entries, "pt-BR").content).toBe(complete);
 		expect(withNotebookAppendix({ filename: "r.md", content: "x" }, [], "pt-BR").content).toBe("x");
+	});
+
+	it("fonte já citada em parte anterior do arquivo não se repete (dedupe contra o conteúdo inteiro)", () => {
+		const out = withNotebookAppendix({ filename: "r.md", content: "fim", part: 2, more: false }, entries, "pt-BR", "parte 1 cita https://a.com/p e https://b.com/p");
+		expect(out.content as string).not.toContain("## Fontes");
+		expect(out.content as string).toContain("## Não deu para confirmar");
+	});
+
+	it("apêndice cabe no limite do arquivo: fontes que sobram viram '… e mais N fontes' e os não confirmados entram todos", () => {
+		const many = Array.from({ length: 4_000 }, (_, i) => entry({ id: `n${i + 1}`, title: `Fonte ${i}`, source: `https://exemplo${i}.com/${"p".repeat(80)}` }));
+		const lost = [entry({ id: "u1", title: "Forn X", kind: "unconfirmed", excerpt: "fora do ar" }), entry({ id: "u2", title: "Forn Y", kind: "unconfirmed", excerpt: "sem preço" })];
+		const content = "a".repeat(FILE_MAX_CONTENT_CHARS - 20_000);
+		const out = withNotebookAppendix({ filename: "r.md", content }, [...many, ...lost], "pt-BR").content as string;
+		expect(out.length).toBeLessThanOrEqual(FILE_MAX_CONTENT_CHARS);
+		expect(out).toMatch(/… e mais \d+ fontes/);
+		expect(out).toContain("- Forn X: fora do ar");
+		expect(out).toContain("- Forn Y: sem preço");
 	});
 });
