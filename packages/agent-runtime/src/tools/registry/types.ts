@@ -133,6 +133,8 @@ export type ToolContext = {
 	health?: ProviderHealth;
 	/** A tool existe neste run (carregada ou adiada)? Dicas só citam alternativas reais. */
 	hasTool?: (name: string) => boolean;
+	/** Trabalho longo do motor v2 (coordenador): a leitura bloqueada ou cortada ganha a orientação de recuperação. */
+	longWork?: boolean;
 	botId: string | undefined;
 	userId: string | undefined;
 	conversationId?: string;

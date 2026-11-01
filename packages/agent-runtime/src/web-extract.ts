@@ -498,7 +498,9 @@ export function addRecoveryGuidance(items: WebExtractItem[]): WebExtractItem[] {
 			const advice =
 				"Do not give up on the first block: try another source for the same fact (web_search the fact with different words, the official site, docs, a mirror or an archived copy)" +
 				`${rawFileAdvice(item.url)} Only mark it unconfirmed after a second route also failed.`;
-			return { ...item, error: { ...item.error, escalateHint: `${item.error.escalateHint}. ${advice}` } };
+			// Sem ponto duplo: a dica original pode já terminar em pontuação.
+			const hint = item.error.escalateHint.replace(/[\s.]+$/, "");
+			return { ...item, error: { ...item.error, escalateHint: `${hint}. ${advice}` } };
 		}
 		if (item.truncated) {
 			return {

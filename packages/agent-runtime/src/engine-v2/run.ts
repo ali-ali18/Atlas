@@ -730,6 +730,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		secrets: secretSession,
 		health: providerHealth,
 		hasTool: hasToolInRun,
+		longWork: longWorkCoordinator,
 		timeZone: params.timeZone,
 		manager: manager.withExecutionContext?.({ ...executionContext, signal }) ?? manager,
 		...(params.attachments?.present ? { attachments: { runtime: params.attachments, vmAvailable: sandboxEnabled } } : {}),

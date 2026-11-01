@@ -92,7 +92,9 @@ async function handleWebExtract(args: Record<string, unknown>, ctx: ToolContext)
 				// Fallback falhou — mantém os itens próprios.
 			}
 		}
-		items = addRecoveryGuidance(adaptEscalateHints(items, ctx.hasTool?.("navigate") ?? false));
+		items = adaptEscalateHints(items, ctx.hasTool?.("navigate") ?? false);
+		// Só o trabalho longo do v2 recebe a orientação extra; chat curto e v1 ficam como antes (economia de contexto).
+		if (ctx.longWork === true) items = addRecoveryGuidance(items);
 		return {
 			summary: JSON.stringify({
 				ok: true,
