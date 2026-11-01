@@ -10,6 +10,7 @@ import { executeDecideBotPending } from "../../bot-pending.js";
 import { executeProposeBot } from "../../bot-proposal.js";
 import { executeSendToBot, executeSetPrimaryBot } from "../../bot-messaging.js";
 import { executeSetAutonomy } from "../../set-autonomy.js";
+import { executeSetReasoningEffort } from "../../set-reasoning-effort.js";
 
 import type { ToolFamily } from "../registry.js";
 
@@ -51,6 +52,21 @@ async function handleSetAutonomy(args: Record<string, unknown>, ctx: ToolContext
 	return executeSetAutonomyTool(args, ctx);
 }
 
+async function handleSetReasoningEffort(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
+	const outcome = await executeSetReasoningEffort(args, {
+		userId: ctx.userId, botId: ctx.botId, origin: ctx.origin, userRequestText: ctx.userRequestText ?? "",
+	});
+	const card: ConfirmEvent = {
+		type: "confirm",
+		confirmId: `reasoning-${ctx.runId ?? "local"}-${Date.now().toString(36)}`,
+		title: outcome.card.title,
+		description: outcome.card.description,
+		status: "approved",
+	};
+	await persistConversationCardFromEvent(ctx.conversationId, card).catch(() => undefined);
+	return { summary: outcome.summary, confirmEvent: card };
+}
+
 async function handleDelegateTask(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
 	return executeDelegateTask(args, ctx.delegation);
 }
@@ -67,6 +83,7 @@ export const BOTS_TOOLS: ToolFamily = {
 	"decide_bot_pending": { group: "bots", handler: handleDecideBotPending },
 	"set_primary_bot": { group: "bots", handler: handleSetPrimaryBot },
 	"set_autonomy": { group: "bots", handler: handleSetAutonomy },
+	"set_reasoning_effort": { group: "bots", handler: handleSetReasoningEffort },
 	"delegate_task": { group: "bots", handler: handleDelegateTask },
 	"propose_questionnaire": { group: "bots", handler: handleProposeQuestionnaire },
 };

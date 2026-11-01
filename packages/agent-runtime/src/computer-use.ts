@@ -1,4 +1,5 @@
 import { modelUsage } from "./telemetry/model-usage.js";
+import { SET_REASONING_EFFORT_TOOL, shouldExposeSetReasoningEffort } from "./tools/set-reasoning-effort.js";
 import { createReasoningEffortPicker } from "./reasoning-effort.js";
 import type { ReasoningEffort } from "@workspace/shared";
 import { todayNote } from "./context/today-note.js";
@@ -2298,6 +2299,8 @@ async function runComputerUseCore(params: {
 		lastUserMessage: lastUserMessageContent,
 		jevAutonomy: jevIntents.autonomy,
 	});
+	// `set_reasoning_effort`: mesma trava (fala do usuário no chat; nunca rotina/webhook).
+	const exposeSetReasoningEffort = shouldExposeSetReasoningEffort({ origin: params.origin, lastUserMessage: lastUserMessageContent });
 	// `block` da política tira a tool do agente do run.
 	const hostToolBlocked = (toolName: string) =>
 		(toolName === "propose_profile_update" && decideAction(autonomyPolicy, hostAutonomyMeta(toolName)) === "block") ||
@@ -2409,6 +2412,7 @@ async function runComputerUseCore(params: {
 		baseTools.push(NATIVE_COMPUTER_TOOL);
 	}
 	if (exposeSetAutonomy) baseTools.push(SET_AUTONOMY_TOOL);
+	if (exposeSetReasoningEffort) baseTools.push(SET_REASONING_EFFORT_TOOL);
 	// Só quando a última fala do USUÁRIO pede para marcar o que o conector só lê (tira cartões: nunca por resultado de tool).
 	if (shouldExposeSetConnectorToolMarks({ origin: params.origin, humanTurn, lastUserMessage: lastUserMessageContent, hasConnectors: (params.mcp?.toolset.entries.size ?? 0) > 0 })) baseTools.push(SET_CONNECTOR_TOOL_MARKS_TOOL);
 	// Conversa entre bots: só com 2+ bots do usuário; falha ao listar nunca derruba o run.

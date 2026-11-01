@@ -125,6 +125,7 @@ export {
 	getBotProfile,
 	getBotModelForUser,
 	getBotModelChoiceForUser,
+	setBotReasoningEffort,
 	getBotPolicy,
 	listBots,
 	updateBot,

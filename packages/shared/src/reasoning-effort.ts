@@ -1,4 +1,6 @@
 import { getModelCapabilities, type ModelCatalogInfo } from "./model-capabilities.js";
+import { userAuthoredText } from "./autonomy-request.js";
+import { normalizedLower } from "./skill-extract.js";
 import { parseModelRef } from "./model-ref.js";
 
 /** Nível de raciocínio pedido ao modelo. `off` = sem raciocínio; ausente = padrão do modelo. */
@@ -113,4 +115,25 @@ export function readRunReasoningEffort(budgetJson: unknown): ReasoningEffort | u
 /** Resumo em palavras simples ("Raciocínio: Baixo"). */
 export function formatReasoningEffort(effort: ReasoningEffort | undefined): string {
 	return `Raciocínio: ${effort ? REASONING_EFFORT_LABELS[effort] : REASONING_DEFAULT_LABEL}`;
+}
+
+const REASONING_REQUEST_MAX_CHARS = 400;
+const REASONING_TERM = /\b(raciocinio|raciocinar|reasoning|thinking|pensamento|pensar|pense)\b/;
+const REASONING_LEVEL_OR_VERB =
+	/\b(baixo|medio|alto|desligad[oa]|desliga|desligue|padrao|default|low|medium|high|off|menos|mais|reduz\w*|aument\w*|diminu\w*|muda\w*|mude|troque|trocar|ajust\w*|configur\w*|defin\w*|coloc\w*|ative|ativa|capricha\w*|profundo|rapido)\b/;
+
+/** Pedido explícito, nas palavras do usuário, de mudar o nível de raciocínio do bot (a tool só existe nesse caso). */
+export function looksLikeReasoningEffortRequest(text: string): boolean {
+	const authored = userAuthoredText(text);
+	if (!authored || authored.length > REASONING_REQUEST_MAX_CHARS) return false;
+	const normalized = normalizedLower(authored);
+	return REASONING_TERM.test(normalized) && REASONING_LEVEL_OR_VERB.test(normalized);
+}
+
+/** Argumento da tool: os quatro níveis, ou "default" para voltar ao padrão do modelo. */
+export function parseReasoningEffortToolArg(value: unknown): ReasoningEffort | null {
+	if (value === "default") return null;
+	const parsed = parseReasoningEffort(value);
+	if (!parsed) throw new Error('effort inválido: use "off", "low", "medium", "high" ou "default" (padrão do modelo)');
+	return parsed;
 }
