@@ -73,6 +73,7 @@ export function mergePreservingSkills(
 			item.kind === "skill-proposal" ||
 			item.kind === "routine-proposal" ||
 			item.kind === "bot-proposal" ||
+			item.kind === "budget-continue" ||
 			item.kind === "bot-profile-confirm"
 			|| item.kind === "bot-link"
 			|| item.kind === "needs-user"

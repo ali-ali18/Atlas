@@ -64,6 +64,7 @@ import type {
 	UpdateSectionInput,
 	SkillProposalEvent,
 	BotProposalEvent,
+	BudgetContinueEvent,
 	RunInputMode,
 } from "@workspace/shared";
 import type { CompactConversationResponse, ReasoningEffort } from "@workspace/shared";
@@ -1220,6 +1221,7 @@ export type ComputerUseHandlers = {
 	onRunId?: (runId: string) => void;
 	onSkillProposal?: (event: SkillProposalEvent) => void;
 	onBotProposal?: (event: BotProposalEvent) => void;
+	onBudgetContinue?: (event: BudgetContinueEvent) => void;
 	onSkill?: (event: {
 		action: string;
 		skillId?: string;
@@ -1387,6 +1389,9 @@ export function dispatchComputerUseEvent(
 			break;
 		case "bot-proposal":
 			handlers.onBotProposal?.(event);
+			break;
+		case "budget-continue":
+			handlers.onBudgetContinue?.(event);
 			break;
 		case "routine":
 			handlers.onRoutine?.(event);
@@ -2312,6 +2317,18 @@ export async function resolveBotProposal(request: {
 	warnings?: string[];
 }> {
 	return atlasFetch("/v1/cards/bot-proposal/resolve", { method: "POST", body: JSON.stringify(request) });
+}
+
+/**
+ * "Continuar pesquisa (+US$ X)": aprova (cria o run de continuação com o valor gravado no card) ou dispensa (nada é gasto).
+ * Aprovar de novo devolve o mesmo resultado (`unchanged`), sem outro run.
+ */
+export async function resolveBudgetContinue(request: {
+	conversationId: string;
+	offerId: string;
+	decision: "approved" | "dismissed";
+}): Promise<{ ok: boolean; status: "approved" | "dismissed" | "pending"; unchanged: boolean; runId: string | null; enqueued?: boolean }> {
+	return atlasFetch("/v1/cards/budget-continue/resolve", { method: "POST", body: JSON.stringify(request) });
 }
 
 /** Texto do `.md` exportado (frontmatter + corpo). */

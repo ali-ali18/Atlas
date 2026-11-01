@@ -18,6 +18,7 @@ const CARD_FILES = [
 	"apps/web/components/ai-elements/email/email-key-request-card.tsx",
 	"apps/web/components/ai-elements/skills/skill-proposal-card.tsx",
 	"apps/web/components/ai-elements/bots/bot-proposal-card.tsx",
+	"apps/web/components/ai-elements/budget-continue/budget-continue-card.tsx",
 	"apps/web/components/ai-elements/login/api-connect-card.tsx",
 	"apps/web/components/ai-elements/login/connector-login-card.tsx",
 	"apps/web/components/ai-elements/login/login-card.tsx",

@@ -53,6 +53,7 @@ import {
 } from "@/lib/skill-proposal-message";
 import { subscribeSkillProposalResolved } from "@/lib/skill-draft-handoff";
 import { botProposalMessageFromEvent, setBotProposalState, type BotProposalChange } from "@/lib/bot-proposal-message";
+import { budgetContinueMessageFromEvent, setBudgetContinueState, type BudgetContinueChange } from "@/lib/budget-continue-message";
 import {
 	mergeExternalMessages,
 	mergeProposalStatuses,
@@ -169,6 +170,10 @@ function conversationCardToMessage(
 	if (card.kind === "bot-proposal") {
 		const { v: _v, kind: _kind, ...proposal } = card;
 		return { id, kind: "bot-proposal", proposal };
+	}
+	if (card.kind === "budget-continue") {
+		const { v: _v, kind: _kind, ...offer } = card;
+		return { id, kind: "budget-continue", offer };
 	}
 	if (card.kind === "images") return { id, kind: "images", source: card.origin, items: card.items };
 	if (card.kind === "code-run") {
@@ -429,6 +434,7 @@ export function buildSessionMessage(message: SessionMessage): Message | null {
 		(message.role as string) === "subagents"
 		|| (message.role as string) === "routine-proposal"
 		|| (message.role as string) === "bot-proposal"
+		|| (message.role as string) === "budget-continue"
 		|| (message.role as string) === "images"
 		|| (message.role as string) === "code-run"
 		|| (message.role as string) === "chart"
@@ -829,6 +835,15 @@ export function createComputerHandlers(params: {
 			const card = botProposalMessageFromEvent(event);
 			params.setMessages((previous) =>
 				previous.some((item) => item.kind === "bot-proposal" && item.proposal.proposalId === event.proposalId)
+					? previous
+					: dedupeCards(insertCardAfterCurrentTurn(previous, card)),
+			);
+		},
+		onBudgetContinue: (event) => {
+			params.onActivity?.();
+			const card = budgetContinueMessageFromEvent(event);
+			params.setMessages((previous) =>
+				previous.some((item) => item.kind === "budget-continue" && item.offer.offerId === event.offerId)
 					? previous
 					: dedupeCards(insertCardAfterCurrentTurn(previous, card)),
 			);
@@ -2089,6 +2104,10 @@ export function useAtlasChat({
 		[],
 	);
 
+	const applyBudgetContinueState = useCallback((offerId: string, change: BudgetContinueChange) => {
+		setMessages((previous) => setBudgetContinueState(previous, offerId, change));
+	}, []);
+
 	const applyRoutineProposalState = useCallback(
 		(id: string, change: RoutineProposalChange) => setMessages((previous) => setRoutineProposalState(previous, id, change)),
 		[setMessages],
@@ -2780,6 +2799,7 @@ export function useAtlasChat({
 		applySkillProposalState,
 		applyRoutineProposalState,
 		applyBotProposalState,
+		applyBudgetContinueState,
 		cancelRun,
 		cancelSeq,
 		pauseRun,
