@@ -2300,7 +2300,7 @@ async function runComputerUseCore(params: {
 		jevAutonomy: jevIntents.autonomy,
 	});
 	// `set_reasoning_effort`: mesma trava (fala do usuário no chat; nunca rotina/webhook).
-	const exposeSetReasoningEffort = shouldExposeSetReasoningEffort({ origin: params.origin, lastUserMessage: lastUserMessageContent });
+	const exposeSetReasoningEffort = shouldExposeSetReasoningEffort({ origin: params.origin, humanTurn, lastUserMessage: lastUserMessageContent });
 	// `block` da política tira a tool do agente do run.
 	const hostToolBlocked = (toolName: string) =>
 		(toolName === "propose_profile_update" && decideAction(autonomyPolicy, hostAutonomyMeta(toolName)) === "block") ||

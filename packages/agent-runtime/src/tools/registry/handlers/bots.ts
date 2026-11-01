@@ -54,7 +54,7 @@ async function handleSetAutonomy(args: Record<string, unknown>, ctx: ToolContext
 
 async function handleSetReasoningEffort(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
 	const outcome = await executeSetReasoningEffort(args, {
-		userId: ctx.userId, botId: ctx.botId, origin: ctx.origin, userRequestText: ctx.userRequestText ?? "",
+		userId: ctx.userId, botId: ctx.botId, origin: ctx.origin, humanTurn: ctx.humanTurn, userRequestText: ctx.userRequestText ?? "",
 	});
 	const card: ConfirmEvent = {
 		type: "confirm",

@@ -118,7 +118,8 @@ export function formatReasoningEffort(effort: ReasoningEffort | undefined): stri
 }
 
 const REASONING_REQUEST_MAX_CHARS = 400;
-const REASONING_TERM = /\b(raciocinio|raciocinar|reasoning|thinking|pensamento|pensar|pense)\b/;
+// Termo explícito: "pensar/pense" soltos são fala comum ("preciso pensar mais nisso") e não pedem nada ao bot.
+const REASONING_TERM = /\b(raciocinio|reasoning|thinking|pensamento estendido)\b/;
 const REASONING_LEVEL_OR_VERB =
 	/\b(baixo|medio|alto|desligad[oa]|desliga|desligue|padrao|default|low|medium|high|off|menos|mais|reduz\w*|aument\w*|diminu\w*|muda\w*|mude|troque|trocar|ajust\w*|configur\w*|defin\w*|coloc\w*|ative|ativa|capricha\w*|profundo|rapido)\b/;
 

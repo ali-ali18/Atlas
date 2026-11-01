@@ -30,8 +30,9 @@ export const SET_REASONING_EFFORT_TOOL: ChatTool = {
 };
 
 /** A tool só existe quando a última fala do usuário pede a mudança, num chat com humano. */
-export function shouldExposeSetReasoningEffort(input: { origin: string | undefined; lastUserMessage: string }): boolean {
-	if (isUnattendedOrigin(input.origin)) return false;
+export function shouldExposeSetReasoningEffort(input: { origin: string | undefined; humanTurn?: boolean; lastUserMessage: string }): boolean {
+	// Só o chat com a fala digitada pelo dono: nunca bot→bot, rotina, webhook, subagente nem proativo.
+	if (input.origin !== "chat" || input.humanTurn !== true || isUnattendedOrigin(input.origin)) return false;
 	return looksLikeReasoningEffortRequest(input.lastUserMessage);
 }
 
@@ -41,10 +42,10 @@ export type SetReasoningEffortDeps = {
 
 export async function executeSetReasoningEffort(
 	args: Record<string, unknown>,
-	ctx: { userId: string | undefined; botId: string | undefined; origin: string | undefined; userRequestText: string },
+	ctx: { userId: string | undefined; botId: string | undefined; origin: string | undefined; humanTurn?: boolean; userRequestText: string },
 	deps: SetReasoningEffortDeps = { save: setBotReasoningEffort },
 ): Promise<{ summary: string; card: { title: string; description: string } }> {
-	if (!shouldExposeSetReasoningEffort({ origin: ctx.origin, lastUserMessage: ctx.userRequestText })) {
+	if (!shouldExposeSetReasoningEffort({ origin: ctx.origin, humanTurn: ctx.humanTurn, lastUserMessage: ctx.userRequestText })) {
 		throw new Error("o raciocínio só muda quando o próprio usuário pede na conversa. Nada foi alterado.");
 	}
 	const effort = parseReasoningEffortToolArg(args.effort);
