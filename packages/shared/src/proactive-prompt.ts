@@ -6,6 +6,7 @@ import { formatFollowupDue, localParts, type ProactiveSettings } from "./proacti
 
 export const PROACTIVE_REFLECTION_MARKER = "[PROACTIVE REFLECTION]";
 export const PROACTIVE_FOLLOWUP_MARKER = "[SCHEDULED FOLLOW-UP]";
+const FOLLOWUP_CHECK_TASK_START = "This is a check.";
 
 /** Resposta de um follow-up de verificação (`check`) sem novidade: o servidor não posta nada na conversa. */
 export const PROACTIVE_NO_UPDATE_TOKEN = "[NO_UPDATE]";
@@ -122,6 +123,11 @@ export function buildReflectionPrompt(input: {
 	return lines.join("\n");
 }
 
+/** O objetivo do run é um lembrete `check` (conferência de follow-up), não um `reminder`. */
+export function isFollowupCheckObjective(origin: string | null | undefined, objective: string | null | undefined): boolean {
+	return origin === "proactive" && typeof objective === "string" && objective.startsWith(PROACTIVE_FOLLOWUP_MARKER) && objective.includes(FOLLOWUP_CHECK_TASK_START);
+}
+
 export function buildFollowupPrompt(input: {
 	note: string;
 	kind: "reminder" | "check";
@@ -133,7 +139,7 @@ export function buildFollowupPrompt(input: {
 	const { settings } = input;
 	const task =
 		input.kind === "check"
-			? `This is a check. Do what the note asks now, READ-ONLY (look things up with your read tools; never create, edit, send or delete anything). Message the user only if there is news or a meaningful status (it arrived, it changed, it is late, it is still pending past the expected date): then write one short message with the concrete fact. If nothing relevant changed, or you could not find anything useful, reply with exactly ${PROACTIVE_NO_UPDATE_TOKEN} and nothing else (nothing is posted).`
+			? `${FOLLOWUP_CHECK_TASK_START} Do what the note asks now, READ-ONLY (look things up with your read tools; never create, edit, send or delete anything). Message the user only if there is news or a meaningful status (it arrived, it changed, it is late, it is still pending past the expected date): then write one short message with the concrete fact. If nothing relevant changed, or you could not find anything useful, reply with exactly ${PROACTIVE_NO_UPDATE_TOKEN} and nothing else (nothing is posted).`
 			: "This is a reminder: tell the user the reminder clearly and briefly.";
 	return [
 		PROACTIVE_FOLLOWUP_MARKER,

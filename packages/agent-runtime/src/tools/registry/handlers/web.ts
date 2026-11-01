@@ -1,5 +1,5 @@
 import { WebSearchError, executeWebSearch, isWebSearchAvailable } from "../../../web-search.js";
-import { WebExtractError, adaptEscalateHints, executeWebExtract, isWebExtractAvailable } from "../../../web-extract.js";
+import { WebExtractError, adaptEscalateHints, addRecoveryGuidance, executeWebExtract, isWebExtractAvailable } from "../../../web-extract.js";
 import { nativeWebExtract, nativeWebSearch } from "../../../web-native.js";
 import type { ToolContext, ToolResult } from "../types.js";
 
@@ -93,6 +93,8 @@ async function handleWebExtract(args: Record<string, unknown>, ctx: ToolContext)
 			}
 		}
 		items = adaptEscalateHints(items, ctx.hasTool?.("navigate") ?? false);
+		// Só o trabalho longo do v2 recebe a orientação extra; chat curto e v1 ficam como antes (economia de contexto).
+		if (ctx.longWork === true) items = addRecoveryGuidance(items);
 		return {
 			summary: JSON.stringify({
 				ok: true,

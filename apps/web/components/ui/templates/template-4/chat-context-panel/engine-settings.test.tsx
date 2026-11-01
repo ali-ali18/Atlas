@@ -27,10 +27,10 @@ async function render(locale: UiLocale): Promise<string> {
 	);
 }
 
-test("a faixa aceita (0,05–20 US$, 1–120 min) aparece na descrição nas 3 línguas", async () => {
-	assert.match(await render("pt-BR"), /US\$ 0,05 a 20 e de 1 a 120 minutos/);
-	assert.match(await render("en-US"), /US\$ 0\.05 to 20 and 1 to 120 minutes/);
-	assert.match(await render("es-ES"), /US\$ 0,05 a 20 y de 1 a 120 minutos/);
+test("a descrição diz que o gasto é opcional (vazio = sem limite) e o tempo vai de 1 a 180 min, nas 3 línguas", async () => {
+	assert.match(await render("pt-BR"), /vazio = sem limite\) e tempo máximo \(de 1 a 180 minutos, padrão 60\)/);
+	assert.match(await render("en-US"), /empty = no limit\) and maximum time \(1 to 180 minutes, default 60\)/);
+	assert.match(await render("es-ES"), /vacío = sin límite\) y tiempo máximo \(de 1 a 180 minutos, 60 por defecto\)/);
 });
 
 test("mensagens de valor recusado existem nas 3 línguas", async () => {
@@ -50,13 +50,19 @@ async function renderWith(locale: UiLocale, policyJson: unknown): Promise<string
 }
 
 test("opção 'Usar também em rotinas e grupos' só aparece com o motor novo e reflete o escopo salvo", async () => {
-	assert.doesNotMatch(await renderWith("pt-BR", {}), /agent-engine-scope/);
-	const chatOnly = await renderWith("pt-BR", { engine: "v2" });
+	// Bot sem escolha mostra o padrão (motor novo, em rotinas e grupos também).
+	const byDefault = await renderWith("pt-BR", {});
+	assert.match(byDefault, /for="agent-engine-scope".*?role="switch"[^>]*aria-checked="true"/);
+	// Quem escolheu o motor novo sem escopo também vale em tudo (decisão do dono, 01/11): a opção vem ligada.
+	const chosen = await renderWith("pt-BR", { engine: "v2" });
+	assert.match(chosen, /for="agent-engine-scope".*?role="switch"[^>]*aria-checked="true"/);
+	const chatOnly = await renderWith("pt-BR", { engine: "v2", engineScope: "chat" });
 	assert.match(chatOnly, /Usar também em rotinas e grupos/);
 	assert.match(chatOnly, /for="agent-engine-scope".*?role="switch"[^>]*aria-checked="false"/);
 	const wide = await renderWith("pt-BR", { engine: "v2", engineScope: "all" });
 	assert.match(wide, /for="agent-engine-scope".*?role="switch"[^>]*aria-checked="true"/);
 	assert.doesNotMatch(await renderWith("pt-BR", { engine: "v1", engineScope: "all" }), /agent-engine-scope/);
+	assert.doesNotMatch(await renderWith("pt-BR", { engine: "v1" }), /agent-engine-scope/);
 });
 
 test("a opção do escopo existe nas 3 línguas, sem nomes internos", async () => {

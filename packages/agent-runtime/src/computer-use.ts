@@ -557,7 +557,7 @@ const AGENTIC_RESEARCH_PROMPT = [
 ].join("\n");
 
 /** Rotina "só importante": o resultado fica salvo no chat sem aviso; `notify_user` é o único jeito de apitar. */
-const USER_PUSH_ROUTINE_NOTE =
+export const USER_PUSH_ROUTINE_NOTE =
 	"This routine is set to notify only when something matters. Your final reply is saved in the chat silently, without a notification. Call notify_user (at most once) only if the result is something the user would want to know now; if nothing is new or noteworthy, just write the result and do not call it.";
 
 /**
@@ -2373,6 +2373,8 @@ async function runComputerUseCore(params: {
 		.filter((tool) => (tool.function.name !== "propose_connector" && tool.function.name !== "propose_custom_mcp") || params.origin === "chat")
 		// Sem humano para aprovar (rotina, webhook, subagente): skill só se lê.
 		.filter((tool) => !isUnattendedOrigin(params.origin) || !SKILL_WRITE_TOOL_NAMES.has(tool.function.name))
+		// Sem humano para responder (rotina, webhook): o questionário pararia o run esperando uma resposta que não vem.
+		.filter((tool) => tool.function.name !== "propose_questionnaire" || !isUnattendedOrigin(params.origin))
 		// Subagente: só leitura nativa (sem propose_*, delegate_task, cards,
 		// sandbox, memória de escrita, rotinas).
 		.filter(

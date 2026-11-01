@@ -30,7 +30,7 @@ function assertEventsInOrder(events: Array<{ seq: number; type: string; createdA
 describe("1-2. Bom dia", { skip: integrationSkip }, () => {
 	test("v1: completed/answered, 1 chamada ao modelo, custo e mensagem gravados", async () => {
 		const fake = script([{ content: "Bom dia! Como posso ajudar?", costUsd: 0.0012 }]);
-		const fx = await createFixture();
+		const fx = await createFixture({ engine: "v1" });
 		const { app, queue } = await createApi(fx.userId);
 		const sent = await sendChat(app, fx, "Bom dia");
 		assert.equal(sent.status, 202, JSON.stringify(sent.json));
@@ -52,6 +52,38 @@ describe("1-2. Bom dia", { skip: integrationSkip }, () => {
 		assert.equal(snap.events.at(-1)?.type, "done");
 		assert.ok(snap.steps.some((s) => s.type === "model"));
 		assert.equal(snap.run.leaseOwner, null, "o lease foi solto");
+	});
+
+	test("bot sem escolha e sem variável de ambiente: o run nasce no v2 pelo caminho real (padrão novo)", async () => {
+		delete process.env.ATLAS_ENGINE_V2_DEFAULT;
+		const fake = script([{ content: "Bom dia! Em que posso ajudar?", costUsd: 0.0012 }]);
+		const fx = await createFixture();
+		const { app } = await createApi(fx.userId);
+		const sent = await sendChat(app, fx, "Bom dia");
+		await processRun(sent.runId);
+		const snap = await snapshot(sent.runId);
+		assert.equal(snap.run.status, "completed");
+		assert.equal(snap.budget.engine, "v2", "sem escolha explícita o padrão é o motor novo");
+		assert.equal(snap.budget.engineProfile, "chat");
+		assert.equal(fake.requests.length, 1);
+		assert.deepEqual(assistantMessages(snap.messages).map((m) => m.content), ["Bom dia! Em que posso ajudar?"]);
+	});
+
+	test("ATLAS_ENGINE_V2_DEFAULT=off (emergência) devolve o bot sem escolha ao v1; v1 explícito segue no v1", async () => {
+		process.env.ATLAS_ENGINE_V2_DEFAULT = "off";
+		try {
+			for (const policy of [undefined, { engine: "v1" as const }]) {
+				script([{ content: "Bom dia!" }]);
+				const fx = await createFixture(policy ?? {});
+				const { app } = await createApi(fx.userId);
+				const sent = await sendChat(app, fx, "Bom dia");
+				await processRun(sent.runId);
+				assert.equal((await snapshot(sent.runId)).budget.engine, undefined, JSON.stringify(policy));
+				llm?.restore();
+			}
+		} finally {
+			delete process.env.ATLAS_ENGINE_V2_DEFAULT;
+		}
 	});
 
 	test("v2 (motor gravado no run): completed/answered, motor v2 em budgetJson, 1 chamada", async () => {
@@ -113,7 +145,7 @@ describe("3-4. v2: pesquisa longa e orçamento", { skip: integrationSkip }, () =
 	test("v1 com 30 leituras (caracterização): o teto de passos do v1 corta antes do fim", async () => {
 		const reads: ScriptEntry[] = Array.from({ length: 30 }, (_, i) => ({ tools: [{ name: "app_info", args: i % 9 === 8 ? {} : { topic: APP_TOPICS[i % 8] } }], costUsd: 0.001 }));
 		const fake = script([...reads, { content: "Resumo final.", costUsd: 0.001 }], { repeatLast: true });
-		const fx = await createFixture();
+		const fx = await createFixture({ engine: "v1" });
 		const { app } = await createApi(fx.userId);
 		const sent = await sendChat(app, fx, "Pesquise a fundo sobre os conectores e me entregue um relatório completo");
 		const outcome = await processRun(sent.runId).then((r) => r, (error: unknown) => error);
@@ -160,7 +192,7 @@ describe("5. confirmação de escrita (conector com cartão)", { skip: integrati
 				{ tools: [{ name: "mcp__erp__create_order", args: { customer: "Exemplo", total: 10 } }] },
 				{ content: "Preparei o pedido; confirme no cartão." },
 			], { repeatLast: true });
-			const fx = await createFixture(engine === "v2" ? { engine: "v2" } : {});
+			const fx = await createFixture({ engine });
 			await createFakeConnector(fx.userId);
 			const { app } = await createApi(fx.userId);
 			const sent = await sendChat(app, fx, "Crie um pedido de R$ 10 para o cliente Exemplo no ERP");
@@ -182,7 +214,7 @@ describe("5. confirmação de escrita (conector com cartão)", { skip: integrati
 describe("6. cancelamento no meio do run", { skip: integrationSkip }, () => {
 	for (const engine of ["v1", "v2"] as const) {
 		test(`${engine}: cancelado no meio termina cancelled, sem resposta duplicada`, async () => {
-			const fx = await createFixture(engine === "v2" ? { engine: "v2" } : {});
+			const fx = await createFixture({ engine });
 			const { app } = await createApi(fx.userId);
 			let wake: ((kind: string) => void) | undefined;
 			script([

@@ -31,6 +31,7 @@ import {
 	buildToolResultStatus,
 	classifyFinish,
 	decideAction,
+	formatOpenBotRequests,
 	isMcpToolName,
 	isUntrustedContentTool,
 	languageInstruction,
@@ -110,6 +111,7 @@ import { classifyToolFailure, withArgumentErrorHint } from "../tool-failure.js";
 import { buildEngineV2Catalog } from "./catalog.js";
 import { shouldExposeSetEngine } from "../tools/set-engine.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
+import { originSystemNotes } from "./origin-notes.js";
 import { MAX_STEPS_SAFETY, type SupervisorProfile, budgetForProfile, createSupervisor, deliveryInstruction } from "./supervisor.js";
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "./login.js";
@@ -117,14 +119,30 @@ import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
 import { appendUnconfirmed, createTaskListGate, droppedItems, openItems } from "./task-list.js";
 import { type DelegateDeps } from "../tools/delegate-task.js";
 import { HELPER_DELIVERY_INSTRUCTION, type HelperChildInput, type HelpersContext } from "./helpers.js";
-import { DOCUMENT_DELIVERY_NOTE, DOC_MAX_OUTPUT_TOKENS, countWords, needsDocumentDelivery, withNotebookAppendix } from "./delivery.js";
-import { type NotebookToolContext } from "./notebook.js";
+import {
+	DOCUMENT_BUDGET_NOTE,
+	DOCUMENT_CLOSING_TIMEOUT_MS,
+	DOCUMENT_DELIVERY_NOTE,
+	DOCUMENT_DONE_INSTRUCTION,
+	DOCUMENT_FALLBACK_STEPS,
+	DOC_MAX_OUTPUT_TOKENS,
+	asksForDocument,
+	countWords,
+	declinesDocument,
+	documentMissingNote,
+	isFinalDeliverableCall,
+	needsDocumentDelivery,
+	withNotebookAppendix,
+} from "./delivery.js";
+import { noveltyKey, type NotebookToolContext } from "./notebook.js";
 
 export type EngineV2Options = {
 	profile: SupervisorProfile;
 	/** Ajuste do bot para o trabalho longo (`policyJson.longWorkBudgetUsd` / `longWorkMinutes`). */
 	longWorkBudgetUsd?: number;
 	longWorkMinutes?: number;
+	/** Piso do orçamento (US$ e minutos) sem ligar o trabalho longo: brief "Seu dia" e lembrete `check`, que no v1 não têm teto de custo e rodam até 30 min. */
+	budgetFloor?: { costUsd: number; minutes: number };
 	/** Coordenador em trabalho longo: ajudantes (`policyJson.helperModel` / `helperMaxParallel`; `deps` injeta a persistência em teste). */
 	helpers?: {
 		model?: string | null;
@@ -156,6 +174,8 @@ type CallOutcome = {
 	args: Record<string, unknown>;
 	/** Bloqueada pelo Supervisor: não conta para travamento. */
 	blocked?: boolean;
+	/** Barrada pela fase da reserva de entrega (conta "strike": insistir leva à entrega). */
+	phaseBlocked?: boolean;
 	/** A chamada não rodou porque o run vai esperar o usuário. */
 	skipped?: boolean;
 };
@@ -187,6 +207,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		: budgetForProfile(options.profile, {
 				longWorkBudgetUsd: options.longWorkBudgetUsd,
 				longWorkMinutes: options.longWorkMinutes,
+				floor: options.budgetFloor,
 				accountCapUsd: params.budget?.maxCostUsd,
 				accountCapMs: runLimits.maxWallMs,
 			});
@@ -240,13 +261,28 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		isBotConfigEventObjective(params.objective ?? "") ||
 		isBotConfigEventObjective(lastUserMessage) ||
 		parseQuestionnaireAnsweredContent(lastUserMessage)?.purpose === "onboarding");
-	const replyLanguage = resolveReplyLanguage({ setting: params.language ?? "pt-BR", ...params.languageContext, hasUserMessage: origin === "chat" });
+	// Modo proativo, push avulso e alerta (os mesmos critérios do v1): o worker só liga cada um na origem certa.
+	const proactiveRun = !helperRole && params.proactive ? params.proactive : null;
+	const proactiveActions = { used: 0 };
+	const userPushRun = !helperRole && params.userPush && (origin === "routine" || origin === "chat") ? params.userPush : null;
+	const userPushSent = { used: 0 };
+	// Teto de find_page_value por run (como no v1): o contador é do run, não da chamada.
+	const pageValueUse = { calls: 0 };
+	const alertRun = !helperRole && origin === "routine" ? params.alertRun : undefined;
+	// Como no v1, chat com modo proativo ou alerta não segue o idioma da mensagem (vale o último detectado).
+	const replyLanguage = resolveReplyLanguage({ setting: params.language ?? "pt-BR", ...params.languageContext, hasUserMessage: origin === "chat" && !proactiveRun && !alertRun });
 	const language: BotLanguage = replyLanguage.language;
 	const languageAtEnd = params.language === "auto";
 	const canSeeImages = params.canSeeUserImages !== false;
 
 	let autonomyPolicy: EffectiveAutonomy = params.autonomy ?? { level: DEFAULT_AUTONOMY_LEVEL, exceptions: [] };
 	const autonomyHandle = { get: () => autonomyPolicy, set: (next: EffectiveAutonomy) => { autonomyPolicy = next; } };
+
+	// Conversa entre bots: mesma condição do v1 (2+ bots do dono; falha ao listar nunca derruba o run; grupo não injeta o roster).
+	const botCount =
+		params.listBotRoster && !helperRole && botId && userId !== "default" && (origin === "chat" || origin === "bot")
+			? (await params.listBotRoster(userId).catch(() => [])).length
+			: 0;
 
 	// --- catálogo de tools ---
 	const mcp = params.mcp ?? null;
@@ -272,7 +308,11 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		helper: Boolean(helperRole),
 		helpers: userId !== "default" && origin === "chat",
 		setEngine: !helperRole && shouldExposeSetEngine({ origin, humanTurn, lastUserMessage }),
+		botMessaging: { botCount, decideForOtherBots: params.decideForOtherBots === true },
 		...(origin === "routine" && params.routinePageId ? { routinePageId: params.routinePageId } : {}),
+		...(proactiveRun ? { proactive: { hasConversation: Boolean(conversationId) } } : {}),
+		...(userPushRun ? { userPush: userPushRun.mode } : {}),
+		...(alertRun ? { alertRun: true } : {}),
 	});
 	if (helperRole?.preactivateMcpTools?.length) catalog.activateMcpTools([...helperRole.preactivateMcpTools]);
 	const tools = catalog.tools;
@@ -302,6 +342,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	/** Passo em que o portão do documento já agiu (no máximo uma vez por run) e se algum arquivo já saiu. */
 	let documentGateFired = false;
 	let fileDelivered = (parsed?.toolCallCounts?.create_file ?? 0) > 0;
+	/** Passos de escrita do documento no estouro: o teto de saída do documento vale também aqui. */
+	let documentFallbackActive = false;
 	/** Texto que o portão do documento retirou do chat: volta se o run terminar sem arquivo. */
 	let gatedText: string | undefined;
 	/** Arquivo em partes em andamento (nome -> conteúdo das partes anteriores): o apêndice confere o arquivo inteiro. */
@@ -309,6 +351,15 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	/** Ajudantes cujo uso já está em `usageTotals` (checkpoint e retomada não contam duas vezes). */
 	const accountedHelpers = new Set<string>(parsed?.helperRuns ?? []);
 	const currentTaskItems = (): TaskListItem[] | undefined => taskTracker.taskList() ?? lastTaskItems;
+	/** Chaves de novidade já vistas no caderno (progresso do supervisor); só cresce. */
+	const novelKeys = new Set<string>();
+	const novelEntryCount = (entries: ReadonlyArray<{ title: string; excerpt: string }>) => {
+		for (const entry of entries) {
+			const key = noveltyKey(entry);
+			if (key) novelKeys.add(key);
+		}
+		return novelKeys.size;
+	};
 
 	// --- cofre, confiança e integrações ---
 	const secretSession: SecretSession | undefined = params.userId
@@ -386,12 +437,19 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			role: helperRole ? "helper" : undefined,
 			...(isUnattendedOrigin(origin) && !helperRole ? { unattended: true } : {}),
 			...(origin === "routine" && !helperRole ? { routine: true } : {}),
+			// Só se a caixa estiver ativa neste run: sem `email_reply` o prompt mandaria usar uma tool inexistente.
+			...(origin === "email" && !helperRole && hasToolInRun("email_reply") ? { emailRun: true } : {}),
 			languageInstruction: languageAtEnd ? replyLanguage.instruction : undefined,
 		});
 		conversation = [
 			{ role: "system", content: systemPrompt },
+			// Nota por origem (proativo no chat, "só importante", alerta, evento de config do bot): só nesses runs.
+			...(helperRole ? [] : originSystemNotes({ origin, messages: params.messages, proactive: proactiveRun, userPushMode: userPushRun?.mode, alertRun }).map((content) => ({ role: "system" as const, content }))),
 			...placeTranscript(params.messages.map((message) => ({ role: message.role, content: message.content }))),
 		];
+		// Pedidos a outros bots sem resposta (mesmo bloco do v1; vazio não custa nada): o modelo não os apresenta como prontos.
+		const openBotRequests = !helperRole ? formatOpenBotRequests(params.openBotRequests ?? [], new Date()) : null;
+		if (openBotRequests) conversation.push({ role: "system", content: openBotRequests });
 		const lastUser = [...conversation].reverse().find((message) => message.role === "user");
 		if (lastUser && imageIds.length > 0) {
 			lastUser.content = [
@@ -462,7 +520,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	}
 
 	// --- chamada ao modelo ---
-	const closingSignal = () => AbortSignal.any([...(params.abortSignal ? [params.abortSignal] : []), AbortSignal.timeout(CLOSING_CALL_TIMEOUT_MS)]);
+	const closingSignal = (ms = CLOSING_CALL_TIMEOUT_MS) => AbortSignal.any([...(params.abortSignal ? [params.abortSignal] : []), AbortSignal.timeout(ms)]);
 	const mediaMemo = createMediaMemo();
 	const configuredOutputTokens = params.maxOutputTokens ?? (process.env.LLM_MAX_OUTPUT_TOKENS ? Number(process.env.LLM_MAX_OUTPUT_TOKENS) : undefined);
 	// Trabalho longo escreve o documento em `create_file`: o argumento conta como saída, então o teto de chat (4.096 no v1)
@@ -471,7 +529,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	/** O coordenador vai escrever o documento: portão já agiu, arquivo em partes aberto ou lista toda concluída (passo de entrega). */
 	const writingDocument = () => {
 		const items = currentTaskItems();
-		return longWorkCoordinator && (documentGateFired || filePartsSoFar.size > 0 || (Boolean(items?.length) && openItems(items).length === 0));
+		return longWorkCoordinator && (documentFallbackActive || documentGateFired || filePartsSoFar.size > 0 || (Boolean(items?.length) && openItems(items).length === 0));
 	};
 	let modelMaxOutput: number | null | undefined;
 	const outputTokenCap = async (): Promise<number | undefined> => {
@@ -487,14 +545,20 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		toolChoice: "auto" | "none",
 		messageId: string,
 		closing = false,
+		toolsOverride?: typeof tools,
+		closingTimeoutMs = CLOSING_CALL_TIMEOUT_MS,
 	): Promise<{ content: string; toolCalls: LlmToolCall[]; providerItems?: LlmMessage["providerItems"]; usage: TokenUsage; result: CompleteChatWithToolsResult; telemetry: ReturnType<typeof modelStepTelemetry> }> => {
+		// Reserva da entrega: depois dos 75% as tools mudam de verdade (pesquisa e ajudantes saem), não é só aviso.
+		const allowedNow = toolsOverride ? undefined : supervisor.allowedTools();
+		const callTools = toolsOverride ?? (allowedNow ? tools.filter((tool) => allowedNow.has(tool.function.name)) : tools);
+		if (callTools.length === 0) toolChoice = "none";
 		await ensureContinue(closing ? params.abortSignal : undefined);
 		await ensureNotPaused();
 		const hygiene = applyPromptHygiene(history, {
 			language,
 			lastGroupMaxChars: hygieneLastGroupChars,
 			contextLength,
-			toolsJsonChars: toolsJsonCharsOf(tools),
+			toolsJsonChars: toolsJsonCharsOf(callTools),
 			model,
 			contextBudget: params.contextBudget ?? contextBudgetFor(params.contextMemory, contextLength),
 			objectiveText: params.objective ?? lastUserMessage,
@@ -529,10 +593,10 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				messages: transport,
 				model,
 				apiKey,
-				tools,
+				tools: callTools,
 				toolChoice,
-				signal: closing ? closingSignal() : params.abortSignal,
-				timeoutMs: closing ? CLOSING_CALL_TIMEOUT_MS : params.modelCallTimeoutMs,
+				signal: closing ? closingSignal(closingTimeoutMs) : params.abortSignal,
+				timeoutMs: closing ? closingTimeoutMs : params.modelCallTimeoutMs,
 				firstEventTimeoutMs: params.firstEventTimeoutMs,
 				idleTimeoutMs: params.idleTimeoutMs,
 				fallbackModels: params.fallbackModels,
@@ -656,7 +720,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 						return fromCatalog ?? (modelId === model ? (contextLength ?? null) : null);
 					},
 					emit: onEvent,
-					remaining: () => ({ costUsd: Math.max(0, budget.maxCostUsd - spentUsd()), activeMs: Math.max(0, budget.maxActiveMs - activeElapsedMs()) }),
+					remaining: () => supervisor.researchRemaining({ costUsd: spentUsd(), activeMs: activeElapsedMs(), step }),
 					runChild: runHelperChild,
 					step: () => step,
 					deps: options.helpers?.deps ?? params.delegateDeps,
@@ -674,6 +738,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		secrets: secretSession,
 		health: providerHealth,
 		hasTool: hasToolInRun,
+		longWork: longWorkCoordinator,
 		timeZone: params.timeZone,
 		manager: manager.withExecutionContext?.({ ...executionContext, signal }) ?? manager,
 		...(params.attachments?.present ? { attachments: { runtime: params.attachments, vmAvailable: sandboxEnabled } } : {}),
@@ -724,7 +789,28 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		onRoutineMutated: params.onRoutineMutated,
 		replyLanguage: language,
 		...(params.alertRuleReader ? { alertRuleReader: params.alertRuleReader } : {}),
-		...(params.pageValueFinder ? { pageValueFinder: params.pageValueFinder } : {}),
+		...(params.pageValueFinder ? { pageValueFinder: params.pageValueFinder, pageValueUse } : {}),
+		...(alertRun ? { alertRun } : {}),
+		...(userPushRun
+			? { userPush: { mode: userPushRun.mode, send: userPushRun.send, quiet: userPushRun.quiet, sent: userPushSent, log: (line: string) => console.log(`[push] ${line}`) } }
+			: {}),
+		...(proactiveRun
+			? {
+					proactive: {
+						userId,
+						botId,
+						runId,
+						origin,
+						conversationId,
+						settings: proactiveRun.settings,
+						reflection: origin === "proactive" && !conversationId,
+						actions: proactiveActions,
+						jev: params.jev,
+						onRoutineMutated: params.onRoutineMutated,
+						abortSignal: signal,
+					},
+				}
+			: {}),
 		getOperationalSnapshot: () => ({ step, model: lastModel, messages: conversation.length, consumedInputs: [...consumedInputIds] }),
 		taskListStore,
 		emitTaskList: emitTaskListEvent,
@@ -776,6 +862,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		}
 		const blockedMessage = supervisor.toolBlocked(name, step);
 		if (blockedMessage) return { ...(await emitSynthetic(call, name, blockedMessage, args)), blocked: true };
+		const phaseMessage = supervisor.phaseBlocked(name);
+		if (phaseMessage) return { ...(await emitSynthetic(call, name, phaseMessage, args)), blocked: true, phaseBlocked: true };
 
 		const entry = entryOf(name);
 		const idempotencyKey = toolIdempotencyKey({ runId, decisionIndex: step, toolCallId: call.id, toolName: name });
@@ -839,7 +927,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			image = outcome.image;
 			visionArtifactIds = outcome.visionArtifactIds ?? [];
 			fileEvent = outcome.fileEvent;
-			if (fileEvent) fileDelivered = true;
+			// Só o fim de um entregável conta: parte de arquivo em partes e arquivo auxiliar (csv, imagem...) não.
+			if (fileEvent && (name !== "create_file" || isFinalDeliverableCall(toolArgs))) fileDelivered = true;
 			loginEvent = outcome.loginEvent;
 			// Sem humano (rotina/webhook): nota no lugar do cartão. Com humano: um cartão por site e conversa.
 			if (loginEvent) {
@@ -919,7 +1008,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	};
 	const parallelSafe = (call: LlmToolCall): boolean => {
 		const name = call.function.name;
-		if (!tools.some((tool) => tool.function.name === name) || supervisor.toolBlocked(name, step)) return false;
+		if (!tools.some((tool) => tool.function.name === name) || supervisor.toolBlocked(name, step) || supervisor.phaseBlocked(name)) return false;
 		const entry = entryOf(name);
 		if (entry) return entry.readOnly && decideAction(autonomyPolicy, entry.autonomyMeta) === "allow";
 		return getToolRegistration(name)?.readOnly === true && !isSandboxTool(name) && name !== "update_task_list";
@@ -949,6 +1038,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	/** Escreve os resultados no histórico, aplica o Supervisor e devolve o motivo de aborto por repetição, se houver. */
 	const settleBatch = (outcomes: CallOutcome[]): RunStop | undefined => {
 		let abort: RunStop | undefined;
+		supervisor.recordBatchPhase(outcomes.length > 0 && outcomes.every((outcome) => outcome.phaseBlocked === true));
 		for (const outcome of outcomes) {
 			conversation.push({ role: "tool", tool_call_id: outcome.call.id, content: outcome.summary });
 			const media = pendingMedia.get(outcome.call.id);
@@ -1010,10 +1100,38 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 
 	/** Última chamada SEM tools: entrega o que há, nunca aborta sem resposta. */
 	const deliver = async (stop: RunStop, instruction: string): Promise<RunComputerUseResult> => {
-		conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${instruction}` });
 		const messageId = `${turnId}-final`;
+		// Trabalho longo que pediu documento: ao encerrar por tempo, passos, gasto máximo ou insistência em tool barrada, a única
+		// tool liberada é create_file e NÃO há teto em US$ nem corte de saída: o passo de escrita sempre roda (o arquivo sempre sai).
+		const documentFallback =
+			longWorkCoordinator &&
+			!fileDelivered &&
+			tools.some((tool) => tool.function.name === "create_file") &&
+			!declinesDocument(lastUserMessage) &&
+			(asksForDocument(lastUserMessage) || documentGateFired || filePartsSoFar.size > 0);
+		if (documentFallback) {
+			conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${DOCUMENT_BUDGET_NOTE}` });
+			const createFileOnly = tools.filter((tool) => tool.function.name === "create_file");
+			documentFallbackActive = true;
+			try {
+				for (let attempt = 0; attempt < DOCUMENT_FALLBACK_STEPS && !fileDelivered; attempt += 1) {
+					const out = await modelStep(conversation, "auto", `${messageId}-doc${attempt}`, true, createFileOnly, DOCUMENT_CLOSING_TIMEOUT_MS);
+					if (out.toolCalls.length === 0) break;
+					conversation.push({ role: "assistant", content: out.content || null, tool_calls: out.toolCalls, ...(out.providerItems ? { providerItems: out.providerItems } : {}) });
+					settleBatch(await runBatch(out.toolCalls));
+					step += 1;
+				}
+			} catch (error) {
+				if (params.abortSignal?.aborted) throw errorFromAbortSignal(params.abortSignal);
+				if (isControlFlowError(error)) throw error;
+			}
+			documentFallbackActive = false;
+			instruction = fileDelivered ? DOCUMENT_DONE_INSTRUCTION : instruction;
+		}
+		conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${instruction}` });
 		let text = "";
 		try {
+			// O fechamento sem tools é uma chamada curta e sempre acontece (nunca fica sem resposta).
 			const final = await modelStep(conversation, "none", messageId, true);
 			text = sanitizeAssistantText(final.content);
 		} catch (error) {
@@ -1024,6 +1142,12 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		if (!text) {
 			text = budgetStopFallbackText(stop.reason, language);
 			await onEvent({ type: "assistant_delta", id: messageId, delta: text });
+		}
+		if (documentFallback && !fileDelivered) {
+			// Nem assim saiu o arquivo: a pessoa fica sabendo, em palavras simples, o que faltou.
+			const note = `\n\n${documentMissingNote(language)}`;
+			text += note;
+			await onEvent({ type: "assistant_delta", id: messageId, delta: note });
 		}
 		return await finishOk(text, stop, messageId);
 	};
@@ -1096,7 +1220,17 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					await onEvent({ type: "input_consumed", inputId: input.id, mode: input.mode ?? "join", content: input.content });
 				}
 			}
-			const gate = supervisor.gate({ costUsd: spentUsd(), activeMs: activeElapsedMs(), step });
+			const taskItems = taskGate ? currentTaskItems() : undefined;
+			const gate = supervisor.gate(
+				{ costUsd: spentUsd(), activeMs: activeElapsedMs(), step },
+				{
+					gaps: notebook ? notebook.snapshot().filter((entry) => entry.kind === "unconfirmed").length : 0,
+					listDone: Boolean(taskItems?.length) && openItems(taskItems).length === 0,
+					// Só conteúdo novo (título + trecho diferentes de entradas anteriores, não vazio) conta como progresso.
+					notebookCount: notebook ? novelEntryCount(notebook.snapshot()) : 0,
+					completedCount: taskItems ? taskItems.filter((item) => item.status === "completed").length : 0,
+				},
+			);
 			if (gate.action === "deliver") return await deliver(gate.stop, helperRole ? HELPER_DELIVERY_INSTRUCTION : gate.instruction);
 			if (gate.note && !appendToLatestToolResult(conversation, gate.note)) conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${gate.note}` });
 

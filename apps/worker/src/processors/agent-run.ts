@@ -2,7 +2,7 @@ import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
 import { recordObserveChecks } from "../observe-checks.js";
 import { isNoUpdateReply, shouldReviewForSkill, type AlertVerdict, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
-import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode, readRunReasoningEffort } from "@workspace/shared";
+import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode, readRunReasoningEffort, isFollowupCheckObjective } from "@workspace/shared";
 import { resolveRunReasoningEffort } from "../reasoning-effort.js";
 import {
 	ATLAS_JOB_NAMES,
@@ -136,7 +136,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { engineDefaultFromEnv, mustStayOnV1, pickRunEngine, runSelectedEngine } from "../engine-choice.js";
+import { engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { briefToolFilter, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
@@ -1015,7 +1015,7 @@ async function executeLeasedRun(ctx: {
 		maxSteps: run.maxSteps,
 		policy: { ...accountBudgetPolicy(configSnapshot, run.maxSteps), ...botPolicy, ...requestBudget },
 	});
-	const effectiveCostCap = effectiveCostCapUsd(budget.maxCostUsd, configSnapshot);
+	let effectiveCostCap = effectiveCostCapUsd(budget.maxCostUsd, configSnapshot);
 	const runStartedAt = run.startedAt
 		? new Date(run.startedAt).getTime()
 		: Date.now();
@@ -1148,7 +1148,7 @@ async function executeLeasedRun(ctx: {
 			{ markReady: markDeliveryReady, cancel: cancelRunDelivery },
 		);
 	const apiConnector = await apiConnectorPromise;
-	// Motor do run (ADR 0002): v1 por padrão; v2 no chat direto de um bot que ligou `policyJson.engine = "v2"` e, com `engineScope = "all"`, em rotina, grupo e bot→bot.
+	// Motor do run (ADR 0002): v2 por padrão em todas as origens suportadas; v1 só com `policyJson.engine = "v1"` explícito ou com `ATLAS_ENGINE_V2_DEFAULT=off` (emergência).
 	// A escolha fica no budgetJson do run: a retomada continua no motor em que o run nasceu.
 	const engineChoice = await pickRunEngine({
 		run,
@@ -1156,20 +1156,26 @@ async function executeLeasedRun(ctx: {
 		isGroupRun: Boolean(groupRun),
 		// Todo run nasce com checkpointJson (createAgentRun); só conta como retomada se já há transcript do modelo.
 		hasCheckpoint: Boolean(checkpoint?.llmMessages?.length),
-		// Modo proativo do bot, alerta, evento de configuração (sem mensagem digitada), brief "Seu dia" e rotina
-		// "só importante" usam recursos que o v2 ainda não tem.
-		forceV1: mustStayOnV1({
-			origin: run.origin,
-			proactive: Boolean(proactiveForRun),
-			alert: Boolean(alertRun),
-			botConfigEvent: isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run),
-			detachedBrief: isDetachedBriefRun(run),
-			routinePush: Boolean(userPushForRun),
-		}),
+		// Alerta, brief "Seu dia", reflexão/lembrete proativo e evento de configuração do bot (sem mensagem digitada)
+		// são verificações curtas: o v2 cobre todos (tools e notas por origem), sempre no perfil `chat`.
+		shortRun: Boolean(alertRun) || isDetachedBriefRun(run) || run.origin === "proactive" || (isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run)),
+		// Brief e lembrete `check` pedem mais fôlego que o chat (no v1 não têm teto de custo): piso de orçamento, sem trabalho longo.
+		longerShortRun: isDetachedBriefRun(run) || isFollowupCheckObjective(run.origin, run.objective),
 		globalDefault: engineDefaultFromEnv(),
 		lastUserText: [...messages].reverse().find((message) => message.role === "user")?.content ?? "",
 		record: (choice) => recordRunEngine(runId, choice),
 	});
+	// Trabalho longo no v2 com orçamento gravado no bot: o dono do bot vale mais que o teto por execução da conta.
+	const runLimits = resolveRunLimits({
+		choice: engineChoice,
+		origin: run.origin,
+		humanTurn: readRunHumanTurn(run),
+		requestOrBotCap: budget.maxCostUsd,
+		snapshot: configSnapshot,
+		wallFixed: botPolicy.maxWallMs !== undefined || requestBudget.maxWallMs !== undefined,
+	});
+	effectiveCostCap = runLimits.costCapUsd;
+	const runtimeBudget = runLimits.wallMs !== undefined ? { ...budget, maxWallMs: runLimits.wallMs } : budget;
 	try {
 		const result = await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
 			messageTriageModel,
@@ -1287,7 +1293,7 @@ async function executeLeasedRun(ctx: {
 			// Retomada automática só no 1o fechamento por teto de passos de um run do usuário ou das retomadas anteriores.
 			autoContinue: { canSchedule: Boolean(deps.enqueueNextRun) && run.origin === "chat" && autoContinueAttempt < AUTO_CONTINUE_MAX },
 			// Teto de custo: o menor entre o do pedido/bot (nas retomadas, só o que sobrou dele) e o da conta.
-			budget: runtimeBudgetParams(budget, effectiveCostCap),
+			budget: runtimeBudgetParams(runtimeBudget, effectiveCostCap),
 			runStartedAt,
 			onEvent: emitWithSegments,
 			restoredCheckpoint: checkpoint,

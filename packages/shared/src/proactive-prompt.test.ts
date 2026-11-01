@@ -4,6 +4,7 @@ import {
 	PROACTIVE_FOLLOWUP_MARKER,
 	PROACTIVE_REFLECTION_MARKER,
 	buildFollowupPrompt,
+	isFollowupCheckObjective,
 	isNoUpdateReply,
 	PROACTIVE_NO_UPDATE_TOKEN,
 	buildProactiveChatPromptSection,
@@ -184,5 +185,18 @@ describe("describeRoutineProposalSchedule", () => {
 		expect(describeRoutineProposalSchedule({ everyMinutes: 60 })).toBe("a cada hora");
 		expect(describeRoutineProposalSchedule({ everyMinutes: 120 })).toBe("a cada 2 horas");
 		expect(describeRoutineProposalSchedule({ everyMinutes: 90 })).toBe("a cada 90 minutos");
+	});
+});
+
+describe("isFollowupCheckObjective", () => {
+	const base = { note: "ver se o boleto chegou", requestedFor: new Date("2026-10-30T12:00:00Z"), settings: DEFAULT_PROACTIVE_SETTINGS, now: new Date("2026-10-30T12:00:00Z"), recentMessages: [] };
+	it("só o lembrete check de origem proactive; reminder, outra origem e texto qualquer não", () => {
+		const check = buildFollowupPrompt({ ...base, kind: "check" });
+		const reminder = buildFollowupPrompt({ ...base, kind: "reminder" });
+		expect(isFollowupCheckObjective("proactive", check)).toBe(true);
+		expect(isFollowupCheckObjective("proactive", reminder)).toBe(false);
+		expect(isFollowupCheckObjective("chat", check)).toBe(false);
+		expect(isFollowupCheckObjective("proactive", "This is a check.")).toBe(false);
+		expect(isFollowupCheckObjective("proactive", null)).toBe(false);
 	});
 });

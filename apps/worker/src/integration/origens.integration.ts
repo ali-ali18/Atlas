@@ -1,6 +1,6 @@
 /**
- * Motor v2 por origem (escopo do bot e padrão global): rotina e grupo saem no v2 só com `engineScope: "all"`
- * (ou com o padrão global ligado); com o escopo `chat`, sem escolha ou com o padrão `off`, ficam no v1.
+ * Motor v2 por origem (escopo do bot e padrão do deploy): bot sem escolha roda rotina e grupo no v2 (padrão novo, `all`);
+ * com `engine: "v2"` e escopo `chat`, `engine: "v1"` explícito ou `ATLAS_ENGINE_V2_DEFAULT=off` (emergência) ficam no v1.
  * Postgres real, rotina e grupo pelos caminhos reais (processExecuteRoutineJob, despacho de grupos), modelo roteirizado.
  */
 import "./env.js";
@@ -31,7 +31,7 @@ async function runRoutine(fx: Awaited<ReturnType<typeof createFixture>>, prompt 
 	return { ...(await snapshot(queued[0]!)), routineId: routine.id };
 }
 
-describe("rotina: v2 só com o escopo ampliado", { skip: integrationSkip }, () => {
+describe("rotina: v2 por padrão; v1 só com escolha explícita, escopo chat ou off", { skip: integrationSkip }, () => {
 	test("engine v2 + scope all: a rotina sai no v2, termina, sem tools de gestão nem de escrita", async () => {
 		const fx = await createFixture({ policy: { engine: "v2", engineScope: "all" } });
 		llm = installFakeLlm([{ content: "Tudo em dia hoje." }]);
@@ -49,8 +49,8 @@ describe("rotina: v2 só com o escopo ampliado", { skip: integrationSkip }, () =
 		assert.equal(routineRun?.agentRunId, snap.run.id, "routineId + run ligados");
 	});
 
-	test("engine v2 com scope chat (ou ausente): a rotina continua no v1", async () => {
-		for (const policy of [{ engine: "v2" }, { engine: "v2", engineScope: "chat" }]) {
+	test("engineScope chat explícito ou v1 explícito: a rotina continua no v1; v2 sem escopo vale como all", async () => {
+		for (const policy of [{ engine: "v2", engineScope: "chat" }, { engine: "v1" }]) {
 			const fx = await createFixture({ policy });
 			llm = installFakeLlm([{ content: "Tudo em dia." }]);
 			const snap = await runRoutine(fx);
@@ -60,17 +60,29 @@ describe("rotina: v2 só com o escopo ampliado", { skip: integrationSkip }, () =
 		}
 	});
 
-	test("padrão global ausente/off não muda nada; chat só liga o chat; all liga a rotina; v1 explícito vence", async () => {
-		const bare = await createFixture({});
+	test("padrão do deploy: sem a variável (ou vazia/lixo) e all levam a rotina ao v2; chat não inclui rotina; off é a emergência; v1 explícito vence", async () => {
 		llm = installFakeLlm([{ content: "ok" }], { repeatLast: true });
-		assert.equal((await runRoutine(bare)).budget.engine, undefined, "sem a variável");
+		delete process.env.ATLAS_ENGINE_V2_DEFAULT;
+		assert.equal((await runRoutine(await createFixture({ policy: { engine: "v2" } }))).budget.engine, "v2", "engine v2 sem engineScope vale como all");
+		assert.equal((await runRoutine(await createFixture({}))).budget.engine, "v2", "sem a variável");
+		for (const raw of ["", "lixo"]) {
+			process.env.ATLAS_ENGINE_V2_DEFAULT = raw;
+			assert.equal((await runRoutine(await createFixture({}))).budget.engine, "v2", JSON.stringify(raw));
+		}
 		process.env.ATLAS_ENGINE_V2_DEFAULT = "off";
-		assert.equal((await runRoutine(await createFixture({}))).budget.engine, undefined, "off");
+		assert.equal((await runRoutine(await createFixture({}))).budget.engine, undefined, "off devolve ao v1");
 		process.env.ATLAS_ENGINE_V2_DEFAULT = "chat";
 		assert.equal((await runRoutine(await createFixture({}))).budget.engine, undefined, "chat não inclui rotina");
 		process.env.ATLAS_ENGINE_V2_DEFAULT = "all";
 		assert.equal((await runRoutine(await createFixture({}))).budget.engine, "v2", "all inclui rotina");
-		assert.equal((await runRoutine(await createFixture({ policy: { engine: "v1", engineScope: "all" } }))).budget.engine, undefined, "v1 explícito nunca vai ao v2");
+		process.env.ATLAS_ENGINE_V2_DEFAULT = "off";
+		for (const policy of [{ engine: "v2" }, { engine: "v2", engineScope: "all" }]) {
+			assert.equal((await runRoutine(await createFixture({ policy }))).budget.engine, undefined, `off desliga o motor novo para todos (${JSON.stringify(policy)})`);
+		}
+		for (const raw of ["all", "off"]) {
+			process.env.ATLAS_ENGINE_V2_DEFAULT = raw;
+			assert.equal((await runRoutine(await createFixture({ policy: { engine: "v1", engineScope: "all" } }))).budget.engine, undefined, `v1 explícito nunca vai ao v2 (${raw})`);
+		}
 	});
 
 	test("a rotina do v2 não perde o fluxo: leitura do conector não roda sem humano em escrita (sem cartão esperando)", async () => {
@@ -85,7 +97,7 @@ describe("rotina: v2 só com o escopo ampliado", { skip: integrationSkip }, () =
 	});
 });
 
-describe("grupo: v2 só com o escopo ampliado", { skip: integrationSkip }, () => {
+describe("grupo: v2 por padrão; v1 só com escolha explícita, escopo chat ou off", { skip: integrationSkip }, () => {
 	async function teamRuns(policy: Record<string, unknown> | undefined, text = "@Radar diga oi") {
 		const userId = await createUser("origens-grupo");
 		const cookie = await createFixture({ userId, name: "Cookie", isPrimary: true, ...(policy ? { policy } : {}) });
@@ -106,18 +118,20 @@ describe("grupo: v2 só com o escopo ampliado", { skip: integrationSkip }, () =>
 		assert.ok(runs.every((run) => run.status === "completed"), JSON.stringify(runs));
 	});
 
-	test("engine v2 com scope chat e bot sem escolha: grupo continua no v1", async () => {
-		for (const policy of [{ engine: "v2" }, undefined]) {
-			const runs = await teamRuns(policy);
-			assert.ok(runs.every((run) => run.engine === undefined), JSON.stringify(runs));
-			llm?.restore();
-		}
+	test("bot sem escolha e sem variável: o grupo roda no v2 (padrão novo)", async () => {
+		delete process.env.ATLAS_ENGINE_V2_DEFAULT;
+		const runs = await teamRuns(undefined);
+		assert.ok(runs.every((run) => run.engine === "v2"), JSON.stringify(runs));
 	});
 
-	test("padrão global all leva o grupo ao v2; v1 explícito não", async () => {
-		process.env.ATLAS_ENGINE_V2_DEFAULT = "all";
-		assert.ok((await teamRuns(undefined)).every((run) => run.engine === "v2"));
-		llm?.restore();
-		assert.ok((await teamRuns({ engine: "v1" })).every((run) => run.engine === undefined));
+	test("engineScope chat, v1 explícito ou off (emergência): grupo fica no v1", async () => {
+		for (const policy of [{ engine: "v2", engineScope: "chat" }, { engine: "v1" }]) {
+			const runs = await teamRuns(policy);
+			assert.ok(runs.every((run) => run.engine === undefined), JSON.stringify(policy) + JSON.stringify(runs));
+			llm?.restore();
+		}
+		process.env.ATLAS_ENGINE_V2_DEFAULT = "off";
+		const off = await teamRuns(undefined);
+		assert.ok(off.every((run) => run.engine === undefined), JSON.stringify(off));
 	});
 });

@@ -8,7 +8,7 @@ import { readEnginePolicy, readHelperPolicy, withEngineSettings, type EngineSett
 import { SettingRow } from "@/components/settings/setting-row";
 import { ModelPicker } from "@/components/model-picker";
 import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
-import { budgetBlurAction, formatBudgetUsd, parseBudgetMinutes, parseBudgetUsd } from "@/lib/engine-settings";
+import { budgetBlurAction, formatBudgetUsd, isNoBudgetText, parseBudgetMinutes, parseBudgetUsd } from "@/lib/engine-settings";
 import { useTranslations } from "@/lib/i18n/provider";
 import { SettingsPicker } from "../settings-picker";
 
@@ -20,6 +20,7 @@ export function BudgetField({
 	suffix,
 	invalid,
 	describedBy,
+	placeholder,
 	onCommit,
 }: {
 	id: string;
@@ -28,6 +29,7 @@ export function BudgetField({
 	suffix: string;
 	invalid?: boolean;
 	describedBy?: string;
+	placeholder?: string;
 	onCommit: (text: string) => boolean;
 }) {
 	const [draft, setDraft] = useState(value);
@@ -46,10 +48,11 @@ export function BudgetField({
 				aria-describedby={invalid ? describedBy : undefined}
 				aria-invalid={invalid ? true : undefined}
 				aria-label={label}
-				className="h-8 w-16 text-right text-body"
+				className="h-8 w-20 text-right text-body"
 				id={id}
 				inputMode="decimal"
 				onBlur={commit}
+				placeholder={placeholder}
 				onChange={(event) => setDraft(event.target.value)}
 				onKeyDown={(event) => {
 					if (event.key === "Enter") event.currentTarget.blur();
@@ -67,8 +70,8 @@ export function BudgetField({
 }
 
 /**
- * Linhas "Motor" da engrenagem do bot (piloto do motor novo). "Atual" é o padrão; "Novo (teste)" trabalha até o fim
- * dentro de um orçamento. Salva em `policyJson` mesclando só as chaves do motor (`withEngineSettings`).
+ * Linhas "Motor" da engrenagem do bot. "Novo" é o padrão (bot sem escolha aparece assim, igual ao worker via
+ * `ENGINE_DEFAULT_SCOPE`) e trabalha até o fim dentro de um orçamento; "Anterior" grava `engine: "v1"` explícito. Salva em `policyJson` mesclando só as chaves do motor (`withEngineSettings`).
  */
 export function EngineSettings({ policyJson, onChange }: { policyJson: unknown; onChange: (patch: { policyJson: unknown }) => void }) {
 	const { t } = useTranslations();
@@ -125,6 +128,12 @@ export function EngineSettings({ policyJson, onChange }: { policyJson: unknown; 
 							invalid={rejected === "usd"}
 							label={t("botSettings.engineBudgetUsd")}
 							onCommit={(text) => {
+								// Vazio ou 0 = sem limite de gasto (o padrão); só valor positivo vira teto duro.
+								if (isNoBudgetText(text)) {
+									setRejected(null);
+									save({ longWorkBudgetUsd: null });
+									return true;
+								}
 								const usd = parseBudgetUsd(text);
 								if (usd === null) {
 									setRejected("usd");
@@ -134,8 +143,9 @@ export function EngineSettings({ policyJson, onChange }: { policyJson: unknown; 
 								save({ longWorkBudgetUsd: usd });
 								return true;
 							}}
+							placeholder={t("botSettings.engineBudgetUsdPlaceholder")}
 							suffix="US$"
-							value={formatBudgetUsd(policy.longWorkBudgetUsd)}
+							value={policy.longWorkBudgetUsd === undefined ? "" : formatBudgetUsd(policy.longWorkBudgetUsd)}
 						/>
 						<BudgetField
 							describedBy="agent-engine-budget-error"

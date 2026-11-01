@@ -160,23 +160,38 @@ test("Planejar antes de tarefas grandes: ligado por padrão, so planMode:false d
 	assert.equal(state(render(bot({ policyJson: { planMode: false } }))), "false");
 });
 
-test("linha 'Motor': Atual por padrão, sem orçamento nem modelo dos ajudantes", () => {
+test("linha 'Motor': bot sem escolha aparece como Novo (padrão), com os limites e o modelo dos ajudantes", () => {
 	const html = render(bot());
 	assert.match(html, /for="agent-engine"[^>]*>Motor</);
-	assert.match(html, />Atual</);
-	assert.doesNotMatch(html, /Orçamento por tarefa longa/);
-	assert.doesNotMatch(html, /Modelo dos ajudantes/);
-	assert.doesNotMatch(html, /Novo \(teste\)</, "a opção só aparece no menu aberto");
+	assert.match(html, />Novo \(padrão\)</);
+	assert.match(html, />Limites da tarefa longa</);
+	assert.match(html, />Modelo dos ajudantes</);
+	assert.doesNotMatch(html, />Anterior</, "a opção só aparece no menu aberto");
 });
 
-test("'Novo (teste)' mostra o texto do orçamento, os campos (US$ e minutos) e o modelo dos ajudantes", () => {
+test("linha 'Motor': escolha 'Anterior' (v1 explícito) esconde limites e ajudantes e não diz v1", () => {
+	const html = render(bot({ policyJson: { engine: "v1" } }));
+	assert.match(html, />Anterior</);
+	assert.doesNotMatch(html, />Limites da tarefa longa</);
+	assert.doesNotMatch(html, /Modelo dos ajudantes/);
+	assert.doesNotMatch(html.replace(/<[^>]+>/g, " "), /\bv1\b|\bv2\b/i);
+});
+
+test("'Novo (padrão)' mostra o texto do orçamento, os campos (US$ e minutos) e o modelo dos ajudantes", () => {
 	const html = render(bot({ policyJson: { engine: "v2", longWorkBudgetUsd: 1, longWorkMinutes: 30 } }));
-	assert.match(html, />Novo \(teste\)</);
-	assert.match(html, /trabalha até o fim dentro do orçamento/);
-	assert.match(html, />Orçamento por tarefa longa</);
-	assert.match(html, /aria-label="Orçamento em dólares"[^>]*value="1,00"|value="1,00"[^>]*aria-label="Orçamento em dólares"/);
+	assert.match(html, />Novo \(padrão\)</);
+	assert.match(html, /trabalha até o fim, em vez de parar no meio e perguntar/);
+	assert.match(html, />Limites da tarefa longa</);
+	assert.match(html, /aria-label="Gasto máximo por tarefa longa"[^>]*value="1,00"|value="1,00"[^>]*aria-label="Gasto máximo por tarefa longa"/);
 	assert.match(html, /aria-label="Tempo em minutos"[^>]*value="30"|value="30"[^>]*aria-label="Tempo em minutos"/);
 	assert.match(html, />Modelo dos ajudantes</);
 	const visibleText = html.replace(/<[^>]+>/g, " ");
 	assert.doesNotMatch(visibleText, /\bv2\b|policyJson|helperModel|longWork/i, "nada de internals na tela");
+});
+
+test("'Novo (padrão)' sem gasto máximo: o campo de gasto vem vazio com 'sem limite' e o tempo é 60 min", () => {
+	const html = render(bot({ policyJson: { engine: "v2" } }));
+	assert.match(html, /placeholder="sem limite"/);
+	assert.match(html, /aria-label="Gasto máximo por tarefa longa"[^>]*value=""|value=""[^>]*aria-label="Gasto máximo por tarefa longa"/);
+	assert.match(html, /aria-label="Tempo em minutos"[^>]*value="60"|value="60"[^>]*aria-label="Tempo em minutos"/);
 });

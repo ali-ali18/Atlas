@@ -204,7 +204,9 @@ describe("motor v2: laço", () => {
 		expect(requests.length).toBeGreaterThan(24);
 		// Nenhuma chamada foi feita sem tools por trava, e nenhuma tool foi tirada no meio do trabalho.
 		expect(requests.every((request) => request.params.toolChoice !== "none")).toBe(true);
-		expect(requests.at(-1)!.toolNames).toContain("current_time");
+		// Durante toda a pesquisa a tool seguiu oferecida; só depois da lista concluída (gatilho de progresso) o passo é de escrita.
+		expect(requests.slice(2, 32).every((request) => request.toolNames.includes("current_time"))).toBe(true);
+		expect(requests.at(-1)!.toolNames).not.toContain("current_time");
 		expect(events.some((event) => event.type === "assistant_discard")).toBe(false);
 		expect(result.hitWall).toBe(false);
 	});
@@ -303,9 +305,9 @@ describe("motor v2: laço", () => {
 });
 
 describe("motor v2: Supervisor no laço", () => {
-	it("avisa UMA vez a 80% e, ao estourar, faz a última chamada SEM tools e entrega", async () => {
+	it("com gasto máximo, avisa uma vez a 75% (pesquisa termina) e, ao estourar, faz a última chamada SEM tools e entrega", async () => {
 		const { result, requests } = await runV2({
-			messages: [{ role: "user", content: "Monte um relatório" }],
+			messages: [{ role: "user", content: "Confira a hora em Tóquio e em Seul" }],
 			script: [
 				turn([call("m0", "mcp_tool_search", { query: "current_time" })], 0.045),
 				turn([call("m1", "current_time", { timezone: "Asia/Tokyo" })], 0.045),
@@ -315,7 +317,7 @@ describe("motor v2: Supervisor no laço", () => {
 			options: { profile: "long_work", longWorkBudgetUsd: 0.1 },
 		});
 		// Custo: 0.045 + 0.045 = 0.09 (90%) -> nota no 3º passo; +0.03 = 0.12 (>= 100%) -> entrega sem tools.
-		const noted = requests.map((request) => toolMessages(request).filter((text) => text.includes("Budget notice")).length);
+		const noted = requests.map((request) => toolMessages(request).filter((text) => text.includes("Research is over")).length);
 		expect(noted).toEqual([0, 0, 1, 1]);
 		expect(requests).toHaveLength(4);
 		expect(requests[3]!.params.toolChoice).toBe("none");

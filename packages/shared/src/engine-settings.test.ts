@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeEngineSettings, engineSettingsError, looksLikeEngineRequest, parseSetEngineArgs, withEngineSettings } from "./engine-settings.js";
+import { describeEngineSettings, engineSettingsError, looksLikeEngineRequest, normalizeEngineSettings, parseSetEngineArgs, withEngineSettings } from "./engine-settings.js";
 import { readEnginePolicy } from "./engine-policy.js";
 import { readHelperPolicy } from "./engine-helpers.js";
 
@@ -15,13 +15,25 @@ describe("withEngineSettings", () => {
 		expect(off).toEqual({ planMode: true, engine: "v1" });
 		expect(withEngineSettings(null, { engine: "v2" })).toEqual({ engine: "v2" });
 	});
-	it("scope all grava engineScope, chat remove; sem scope no patch não mexe nele", () => {
+	it("scope all e chat gravam engineScope (chat precisa ficar gravado: sem ele o motor novo vale em tudo); sem scope no patch não mexe nele", () => {
 		const wide = withEngineSettings({ engine: "v2" }, { scope: "all" });
 		expect(wide).toEqual({ engine: "v2", engineScope: "all" });
 		expect(readEnginePolicy(wide).scope).toBe("all");
 		expect(withEngineSettings(wide, { longWorkMinutes: 30 })).toEqual({ engine: "v2", engineScope: "all", longWorkMinutes: 30 });
-		expect(withEngineSettings(wide, { scope: "chat" })).toEqual({ engine: "v2" });
+		expect(withEngineSettings(wide, { scope: "chat" })).toEqual({ engine: "v2", engineScope: "chat" });
+		// Escolher o motor novo sem escopo vale como all.
+		expect(readEnginePolicy(withEngineSettings({ engine: "v1" }, { engine: "v2" }))).toMatchObject({ engine: "v2", scope: "all" });
 		expect(withEngineSettings(wide, { engine: "v1", scope: "all" })).toEqual({ engine: "v1", engineScope: "all" });
+	});
+	it("limitar ao chat num bot sem escolha grava o motor novo explícito com engineScope chat", () => {
+		expect(withEngineSettings({}, { scope: "chat" })).toEqual({ engine: "v2", engineScope: "chat" });
+		expect(withEngineSettings({ planMode: true }, { scope: "chat" })).toEqual({ planMode: true, engine: "v2", engineScope: "chat" });
+		// v1 explícito não é religado por isso.
+		expect(withEngineSettings({ engine: "v1" }, { scope: "chat" })).toEqual({ engine: "v1", engineScope: "chat" });
+		const chatOnly = withEngineSettings({}, { scope: "chat" });
+		expect(readEnginePolicy(chatOnly)).toMatchObject({ engine: "v2", explicit: "v2", scope: "chat" });
+		// Voltar ao escopo amplo num bot que já escolheu o motor novo.
+		expect(withEngineSettings(chatOnly, { scope: "all" })).toEqual({ engine: "v2", engineScope: "all" });
 	});
 	it("não muta a entrada", () => {
 		const input = { a: 1 };
@@ -39,7 +51,7 @@ describe("parseSetEngineArgs", () => {
 		expect(parseSetEngineArgs({ engine: "new", scope: "chat" })).toEqual({ ok: true, patch: { engine: "v2", scope: "chat" } });
 	});
 	it("falha com a lista do aceito: campo desconhecido, faixa, vazio, userId", () => {
-		for (const args of [{ userId: "x", engine: "new" }, { budget_usd: 0.01 }, { budget_usd: 21 }, { minutes: 0 }, { minutes: 121 }, { engine: "v3" }, { scope: "tudo" }, { scope: 1 }, { scope: "ALL" }, { helper_model: "a b" }, {}, null]) {
+		for (const args of [{ userId: "x", engine: "new" }, { budget_usd: 0.01 }, { budget_usd: 21 }, { minutes: 0 }, { minutes: 181 }, { engine: "v3" }, { scope: "tudo" }, { scope: 1 }, { scope: "ALL" }, { helper_model: "a b" }, {}, null]) {
 			const parsed = parseSetEngineArgs(args);
 			expect(parsed.ok, JSON.stringify(args)).toBe(false);
 			if (!parsed.ok) expect(parsed.error).toMatch(/Accepted fields/);
@@ -63,10 +75,15 @@ describe("looksLikeEngineRequest", () => {
 
 describe("describeEngineSettings", () => {
 	it("frase simples sem internals", () => {
-		expect(describeEngineSettings({})).toBe("Motor atual");
-		expect(describeEngineSettings({ engine: "v2" })).toBe("Motor novo (teste) · até US$ 0,50 e 20 min por tarefa longa");
-		expect(describeEngineSettings({ engine: "v2", engineScope: "all" })).toBe("Motor novo (teste) · também em rotinas e grupos · até US$ 0,50 e 20 min por tarefa longa");
-		expect(describeEngineSettings({ engine: "v2", longWorkBudgetUsd: 1, longWorkMinutes: 10, helperModel: "a/b" })).toContain("US$ 1,00 e 10 min");
+		// Bot sem escolha mostra o padrão (motor novo, em tudo); o `off` de emergência do worker não aparece aqui.
+		for (const raw of [{}, null, undefined]) expect(describeEngineSettings(raw)).toBe("Motor novo (padrão) · também em rotinas e grupos · sem limite de gasto, até 60 min por tarefa longa");
+		expect(describeEngineSettings({ engine: "v1" })).toBe("Motor anterior");
+		expect(describeEngineSettings({ engine: "v1", engineScope: "all" })).toBe("Motor anterior");
+		expect(describeEngineSettings({ engine: "v2" })).toBe("Motor novo · também em rotinas e grupos · sem limite de gasto, até 60 min por tarefa longa");
+		expect(describeEngineSettings({ engine: "v2", engineScope: "chat" })).toBe("Motor novo · sem limite de gasto, até 60 min por tarefa longa");
+		expect(describeEngineSettings({ engine: "v2", engineScope: "all" })).toBe("Motor novo · também em rotinas e grupos · sem limite de gasto, até 60 min por tarefa longa");
+		expect(describeEngineSettings({ engine: "v2", longWorkBudgetUsd: 2, longWorkMinutes: 90 })).toBe("Motor novo · também em rotinas e grupos · gasto máximo de US$ 2,00 e até 90 min por tarefa longa");
+		expect(describeEngineSettings({ engine: "v2", longWorkBudgetUsd: 1, longWorkMinutes: 10, helperModel: "a/b" })).toContain("US$ 1,00 e até 10 min");
 	});
 });
 
@@ -80,5 +97,30 @@ describe("engineSettingsError", () => {
 		for (const bad of [{ engine: "v3" }, { longWorkBudgetUsd: 0 }, { longWorkBudgetUsd: "1" }, { longWorkMinutes: 500 }, { helperModel: 5 }, { helperModel: "a b" }, { engineScope: "tudo" }, { engineScope: true }, { engineScope: "ALL" }]) {
 			expect(engineSettingsError(bad), JSON.stringify(bad)).toMatch(/^Invalid/);
 		}
+	});
+});
+
+describe("gasto máximo opcional", () => {
+	it("set_engine: 0, vazio ou null tiram o limite de gasto; valor válido vira teto; a política perde a chave", () => {
+		for (const empty of [0, "", null]) expect(parseSetEngineArgs({ budget_usd: empty })).toEqual({ ok: true, patch: { longWorkBudgetUsd: null } });
+		expect(parseSetEngineArgs({ budget_usd: 2 })).toEqual({ ok: true, patch: { longWorkBudgetUsd: 2 } });
+		expect(parseSetEngineArgs({ minutes: 180 })).toEqual({ ok: true, patch: { longWorkMinutes: 180 } });
+		expect(withEngineSettings({ engine: "v2", longWorkBudgetUsd: 1, other: 1 }, { longWorkBudgetUsd: null })).toEqual({ engine: "v2", other: 1 });
+		expect(engineSettingsError({ engine: "v2", longWorkBudgetUsd: null })).toBeNull();
+	});
+});
+
+describe("0 remove o teto de gasto (igual a vazio e null)", () => {
+	it("normalizeEngineSettings tira a chave com 0, null ou vazio e preserva o resto; valor positivo passa", () => {
+		for (const empty of [0, null, ""]) expect(normalizeEngineSettings({ engine: "v2", longWorkBudgetUsd: empty, planMode: true })).toEqual({ engine: "v2", planMode: true });
+		expect(normalizeEngineSettings({ engine: "v2", longWorkBudgetUsd: 2 })).toEqual({ engine: "v2", longWorkBudgetUsd: 2 });
+		expect(normalizeEngineSettings({ engine: "v2" })).toEqual({ engine: "v2" });
+		expect(normalizeEngineSettings(null)).toBeNull();
+		expect(engineSettingsError(normalizeEngineSettings({ engine: "v2", longWorkBudgetUsd: 0 }))).toBeNull();
+	});
+
+	it("readEnginePolicy trata 0 como sem limite", () => {
+		expect(readEnginePolicy({ engine: "v2", longWorkBudgetUsd: 0 }).longWorkBudgetUsd).toBeUndefined();
+		expect(readEnginePolicy({ engine: "v2", longWorkBudgetUsd: 0.05 }).longWorkBudgetUsd).toBe(0.05);
 	});
 });

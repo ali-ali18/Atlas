@@ -68,3 +68,43 @@ test("PATCH /v1/bots/:id valida as chaves do motor (piloto do motor v2) e escopa
 		client.$transaction = originals.tx;
 	}
 });
+
+test("PATCH com longWorkBudgetUsd 0, null ou vazio remove o teto de gasto (a chave sai e o resto fica)", async () => {
+	const { prisma } = await import("@workspace/db");
+	const row = (policyJson: unknown) => ({
+		id: "bot-1", ownerId: "user-a", name: "Radar", snippet: "", color: "#f44336", shape: "rond",
+		description: null, openRouterModel: null, language: "pt-BR", pinned: false, pinOrder: null,
+		sectionId: null, memberIds: [], conversationId: null, policyJson, autonomyJson: null,
+		createdAt: new Date(0), updatedAt: new Date(0),
+	});
+	const bot = prisma.bot as unknown as Record<string, unknown>;
+	const client = prisma as unknown as Record<string, unknown>;
+	const originals = { findUnique: bot.findUnique, findFirst: bot.findFirst, update: bot.update, tx: client.$transaction };
+	let saved: unknown;
+	client.$transaction = async (fn: (tx: unknown) => unknown) =>
+		fn({ $queryRaw: async () => [{ policyJson: null }], bot: { update: (args: unknown) => (bot.update as (a: unknown) => unknown)(args), updateMany: async () => ({ count: 0 }) } });
+	bot.findUnique = async () => row(null);
+	bot.findFirst = async () => ({ id: "bot-1" });
+	bot.update = async (args: { data: { policyJson?: unknown } }) => {
+		saved = args.data.policyJson;
+		return row(args.data.policyJson);
+	};
+	try {
+		const a = await appFor("user-a");
+		for (const empty of [0, null, ""]) {
+			saved = undefined;
+			assert.equal((await patch(a, { engine: "v2", longWorkBudgetUsd: empty, longWorkMinutes: 90 })).status, 200, JSON.stringify(empty));
+			assert.deepEqual(saved, { engine: "v2", longWorkMinutes: 90 });
+		}
+		// Valor positivo continua virando teto; negativo continua recusado.
+		saved = undefined;
+		assert.equal((await patch(a, { engine: "v2", longWorkBudgetUsd: 2 })).status, 200);
+		assert.deepEqual(saved, { engine: "v2", longWorkBudgetUsd: 2 });
+		assert.equal((await patch(a, { engine: "v2", longWorkBudgetUsd: -1 })).status, 400);
+	} finally {
+		bot.findUnique = originals.findUnique;
+		bot.findFirst = originals.findFirst;
+		bot.update = originals.update;
+		client.$transaction = originals.tx;
+	}
+});

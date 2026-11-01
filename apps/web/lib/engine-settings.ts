@@ -12,6 +12,12 @@ export function parseEngineNumber(text: string, min: number, max: number, { inte
 	return integer ? Math.round(value) : Math.round(value * 100) / 100;
 }
 
+/** Campo de gasto vazio ou "0" (também "0,00", "US$ 0") = sem limite: remove o teto. */
+export function isNoBudgetText(text: string): boolean {
+	const cleaned = text.replace(/US\$|\s/gi, "").replace(",", ".");
+	return cleaned === "" || /^0+(\.0*)?$/.test(cleaned);
+}
+
 export const parseBudgetUsd = (text: string) => parseEngineNumber(text, LONG_WORK_MIN_USD, LONG_WORK_MAX_USD);
 export const parseBudgetMinutes = (text: string) => parseEngineNumber(text, LONG_WORK_MIN_MINUTES, LONG_WORK_MAX_MINUTES, { integer: true });
 

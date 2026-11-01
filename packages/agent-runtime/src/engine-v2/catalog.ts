@@ -3,8 +3,10 @@
  * `mcp_tool_search` para carregar por nome ou necessidade (o mesmo mecanismo do v1). O roteador de intenção
  * (regex) vira só DICA de pré-carga: nunca decide o que existe, porque tudo é carregável a pedido do modelo.
  *
- * O v2 atende a conversa direta (origem `chat`) e, com o escopo ampliado do bot, rotina, grupo e bot→bot. Ficam de
- * fora as tools de subagente, alerta, proativo, envio entre bots e sessão de código (ver docs/features/motor-v2.md).
+ * O v2 atende a conversa direta (origem `chat`) e, com o escopo ampliado do bot, rotina (inclui alerta, brief e
+ * "só importante"), grupo, bot→bot, proativo, webhook e e-mail recebido, com as mesmas tools e condições do v1
+ * (`send_to_bot`, `decide_bot_pending`, `report_alert`, `notify_user`, follow-ups). Ficam de fora as tools de subagente
+ * do v1 (o v2 tem `delegate`), `set_primary_bot` e a sessão de código (ver docs/features/motor-v2.md).
  * As regras por origem espelham as do v1 (`computer-use.ts`): rotina não recebe gestão de rotinas, pesquisa web,
  * memória nem pedido de senha; sem humano (rotina/webhook) só entra conector que a autonomia libera sem perguntar.
  */
@@ -41,6 +43,10 @@ import { PREVIEW_SETUP_TOOL_NAME } from "../tools/preview-setup/tool.js";
 import { DELEGATE_V2_TOOL } from "./helpers.js";
 import { NOTEBOOK_READ_TOOL, NOTEBOOK_WRITE_TOOL } from "./notebook.js";
 import { SET_ENGINE_TOOL } from "../tools/set-engine.js";
+import { notifyUserPushTool, proactiveToolsFor, type UserPushMode } from "../tools/proactive.js";
+import { REPORT_ALERT_TOOL } from "../tools/report-alert.js";
+import { SEND_TO_BOT_TOOL, shouldExposeSendToBot } from "../tools/bot-messaging.js";
+import { DECIDE_BOT_PENDING_TOOL, shouldExposeDecideBotPending } from "../tools/bot-pending.js";
 
 const SKILL_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["propose_skill", "delete_skill"]);
 
@@ -94,6 +100,14 @@ export function buildEngineV2Catalog(input: {
 	setEngine?: boolean;
 	/** Rotina ligada a um painel: só ler e atualizar esse painel (o executor trava os outros). */
 	routinePageId?: string;
+	/** Modo proativo do bot neste run (`params.proactive`): follow-ups, ideias de rotina e, na reflexão, `notify_user`. */
+	proactive?: { hasConversation: boolean };
+	/** Push avulso (`params.userPush`): `notify_user` só-push na rotina "só importante" e no chat. */
+	userPush?: UserPushMode;
+	/** Rotina de alerta (`params.alertRun`): `report_alert` entra e é o fim da verificação. */
+	alertRun?: boolean;
+	/** Conversa entre bots (chat do dono e bot→bot): quantos bots o dono tem e se "decidir pelos outros bots" está ligado. */
+	botMessaging?: { botCount: number; decideForOtherBots: boolean };
 }): EngineV2Catalog {
 	const allow = (name: string) => input.toolFilter?.(name) ?? true;
 	const hostBlocked = (name: string) =>
@@ -114,6 +128,8 @@ export function buildEngineV2Catalog(input: {
 		if (NOT_IN_V2.has(name)) continue;
 		if (!input.sandboxEnabled && SANDBOX_TOOL_NAMES.has(name)) continue;
 		if (name === "propose_profile_update" && !input.allowProfileUpdate) continue;
+		// Sem humano (rotina, webhook): um questionário pararia o run em `awaiting_confirmation` sem ninguém para responder.
+		if (name === "propose_questionnaire" && isUnattendedOrigin(input.origin)) continue;
 		if (name === "login_fill" && !input.sandboxEnabled) continue;
 		// Rotina/webhook não desliga a VM que o dono pode estar usando; quem libera memória é o guarda.
 		if (name === SANDBOX_RELEASE_TOOL_NAME && (!input.sandboxEnabled || isUnattendedOrigin(input.origin))) continue;
@@ -153,6 +169,15 @@ export function buildEngineV2Catalog(input: {
 	for (const tool of emailToolsFor(input.email)) add(tool);
 	if (shouldExposeTaskList({ origin: input.origin, isSubagent: false })) add(UPDATE_TASK_LIST_TOOL);
 	if (input.setEngine && !input.helper) add(SET_ENGINE_TOOL);
+	// Proativo, push avulso e alerta: as mesmas tools e condições do v1 (núcleo, nunca adiadas), fora dos ajudantes.
+	if (!input.helper) {
+		if (input.proactive) for (const tool of proactiveToolsFor({ origin: input.origin, hasConversation: input.proactive.hasConversation })) add(tool);
+		if (input.userPush && (input.origin === "routine" || input.origin === "chat")) add(notifyUserPushTool(input.userPush));
+		if (input.alertRun && input.origin === "routine") add(REPORT_ALERT_TOOL);
+	}
+	const botCount = input.botMessaging?.botCount ?? 0;
+	if (!input.helper && shouldExposeSendToBot({ origin: input.origin, botCount })) add(SEND_TO_BOT_TOOL);
+	if (!input.helper && shouldExposeDecideBotPending({ origin: input.origin, botCount, enabled: input.botMessaging?.decideForOtherBots === true })) add(DECIDE_BOT_PENDING_TOOL);
 	if (input.helper) {
 		add(NOTEBOOK_WRITE_TOOL);
 	} else if (input.longWork) {
@@ -173,6 +198,8 @@ export function buildEngineV2Catalog(input: {
 	// Trabalho longo termina em documento: `create_file` já vai carregado (sem o passo extra de carga na entrega).
 	if (input.longWork && !input.helper && native.some((tool) => tool.function.name === "create_file")) preloaded.add("files");
 	if (!native.some((tool) => tool.function.name === "propose_bot")) preloaded.delete("bots");
+	// Run de e-mail recebido: o procedimento anti-manipulação do e-mail já vai no 1º passo (igual ao v1).
+	if (input.origin === "email") preloaded.add("email");
 	if (!native.some((tool) => tool.function.name.startsWith("email_"))) preloaded.delete("email");
 	for (const name of input.priorLoadedTools ?? []) {
 		const group = planNativeTools(native, new Set()).deferred.get(name)?.group;

@@ -44,6 +44,8 @@ export function createAutoContinueIo(enqueue: EnqueueWithDelay | undefined): Aut
 						),
 						consume: plan.consume,
 						defer: plan.defer,
+						// Continuação do mesmo trabalho: segue como turno do dono, no mesmo motor e perfil (sem cair no teto da conta).
+						inheritFromParent: true,
 					}),
 				enqueueNextRun: enqueue ? (nextRunId) => enqueue(nextRunId, { delayMs: decision.delayMs }) : undefined,
 				announce: async () => undefined,

@@ -191,7 +191,7 @@ describe("v2: tetos do custo, do tempo e dos passos", () => {
 		const unknown = () => calls([CREATE, { cliente: "A", pagamento: "pix" }], { promptTokens: 100_000, completionTokens: 10_000 });
 		const { result, requests } = await run({
 			script: [unknown, unknown, say("Entrega com o que deu.")],
-			options: { profile: "long_work" },
+			options: { profile: "long_work", longWorkBudgetUsd: 0.5 },
 		});
 		expect(requests.map((r) => r.toolChoice)).toEqual(["auto", "auto", "none"]);
 		expect(result.stop).toEqual({ reason: "budget_cost", detail: "delivered" });

@@ -20,9 +20,10 @@ const MIN_DELIVERY = " Fontes: levantamento interno de 2026, com preço e posici
 
 async function createTeam(options: { radarAutonomy?: unknown } = {}) {
 	const userId = await createUser("grupo");
-	const cookie = await createFixture({ userId, name: "Cookie", isPrimary: true });
-	const radar = await createFixture({ userId, name: "Radar" });
-	const inspetor = await createFixture({ userId, name: "Inspetor" });
+	// Coordenação e cobrança do grupo são do motor anterior (v1 explícito): o padrão novo (v2) em grupo é coberto em `origens.integration.ts`.
+	const cookie = await createFixture({ userId, name: "Cookie", isPrimary: true, engine: "v1" });
+	const radar = await createFixture({ userId, name: "Radar", engine: "v1" });
+	const inspetor = await createFixture({ userId, name: "Inspetor", engine: "v1" });
 	if (options.radarAutonomy) await prisma.bot.update({ where: { id: radar.botId }, data: { autonomyJson: options.radarAutonomy as never } });
 	const { createGroup, postGroupUserMessage } = await import("@workspace/db");
 	const group = await createGroup(userId, { name: "Time", memberIds: [cookie.botId, radar.botId, inspetor.botId] });

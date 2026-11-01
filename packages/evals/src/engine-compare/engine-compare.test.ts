@@ -82,7 +82,7 @@ describe("CLI motor-v1-vs-v2", () => {
 describe("motor-v1-vs-v2: orçamento no CLI", () => {
 	it("zero ou fora da faixa falha com erro claro (não vira o padrão em silêncio)", async () => {
 		await expect(main(["motor-v1-vs-v2", "--budget-usd", "0"])).rejects.toThrow(/--budget-usd deve ficar entre 0\.05 e 20/);
-		await expect(main(["motor-v1-vs-v2", "--minutes", "0"])).rejects.toThrow(/--minutes deve ficar entre 1 e 120/);
+		await expect(main(["motor-v1-vs-v2", "--minutes", "0"])).rejects.toThrow(/--minutes deve ficar entre 1 e 180/);
 		await expect(main(["motor-v1-vs-v2", "--minutes", "500"])).rejects.toThrow(/--minutes/);
 		await expect(main(["motor-v1-vs-v2", "--budget-usd", "abc"])).rejects.toThrow(/precisa de um número/);
 	});
