@@ -2373,6 +2373,8 @@ async function runComputerUseCore(params: {
 		.filter((tool) => (tool.function.name !== "propose_connector" && tool.function.name !== "propose_custom_mcp") || params.origin === "chat")
 		// Sem humano para aprovar (rotina, webhook, subagente): skill só se lê.
 		.filter((tool) => !isUnattendedOrigin(params.origin) || !SKILL_WRITE_TOOL_NAMES.has(tool.function.name))
+		// Sem humano para responder (rotina, webhook): o questionário pararia o run esperando uma resposta que não vem.
+		.filter((tool) => tool.function.name !== "propose_questionnaire" || !isUnattendedOrigin(params.origin))
 		// Subagente: só leitura nativa (sem propose_*, delegate_task, cards,
 		// sandbox, memória de escrita, rotinas).
 		.filter(

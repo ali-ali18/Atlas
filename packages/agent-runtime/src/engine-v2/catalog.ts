@@ -119,6 +119,8 @@ export function buildEngineV2Catalog(input: {
 		if (NOT_IN_V2.has(name)) continue;
 		if (!input.sandboxEnabled && SANDBOX_TOOL_NAMES.has(name)) continue;
 		if (name === "propose_profile_update" && !input.allowProfileUpdate) continue;
+		// Sem humano (rotina, webhook): um questionário pararia o run em `awaiting_confirmation` sem ninguém para responder.
+		if (name === "propose_questionnaire" && isUnattendedOrigin(input.origin)) continue;
 		if (name === "login_fill" && !input.sandboxEnabled) continue;
 		// Rotina/webhook não desliga a VM que o dono pode estar usando; quem libera memória é o guarda.
 		if (name === SANDBOX_RELEASE_TOOL_NAME && (!input.sandboxEnabled || isUnattendedOrigin(input.origin))) continue;

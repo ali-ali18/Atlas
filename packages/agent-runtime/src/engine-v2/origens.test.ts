@@ -222,7 +222,7 @@ const autonomous: EffectiveAutonomy = { level: "autonomous", exceptions: [] };
 describe("v2 em webhook: sem humano, mesmas regras do v1", () => {
 	const GONE = ["list_routines", "propose_routine", "update_task_list", "generate_image", "page_create", "propose_api_connection", "propose_profile_update", "propose_connector", "propose_skill", "delete_skill", "set_engine", "delegate", "sandbox_release"];
 
-	it("sem escrita que precisa de confirmação, sem tools só do chat; a gestão de rotinas e a pesquisa web seguem como no v1 (só a rotina as perde)", async () => {
+	it("sem escrita que precisa de confirmação, sem tools só do chat; no 1º passo (grupo adiado) some a gestão de rotinas; a pesquisa web e a memória seguem (só a rotina as perde)", async () => {
 		const { requests } = await runOrigin({ origin: "webhook", script: [say("ok")] });
 		const names = requests[0]!.toolNames;
 		expect(names).toContain(READ);
@@ -231,6 +231,21 @@ describe("v2 em webhook: sem humano, mesmas regras do v1", () => {
 		// v1: ROUTINE_EXCLUDED_TOOLS vale só para origem "routine"; o webhook mantém a pesquisa na web e a memória.
 		expect(names).toContain("web_search");
 		expect(names).toContain("memory");
+		// Sem humano para responder: o questionário não existe nem no 1º passo nem no grupo adiado.
+		expect(names).not.toContain("propose_questionnaire");
+	});
+
+	it("propose_questionnaire não é carregável em webhook nem rotina (nem pelo grupo adiado); o chat ainda o carrega", async () => {
+		for (const origin of ["webhook", "routine"]) {
+			const { requests, results } = await runOrigin({
+				origin,
+				script: [toolCall("q1", "propose_questionnaire", { title: "Tom", items: [{ name: "tom", prompt: "Qual tom?", choices: [{ value: "a" }, { value: "b" }] }] }), say("ok")],
+			});
+			expect(requests[0]!.toolNames, origin).not.toContain("propose_questionnaire");
+			expect(results[0], origin).toMatchObject({ name: "propose_questionnaire", ok: false });
+		}
+		const chat = await runOrigin({ origin: "chat", script: [say("ok")], text: "faça um questionário de múltipla escolha" });
+		expect(chat.requests[0]!.toolNames.join(",") + chat.requests[0]!.system).toContain("propose_questionnaire");
 	});
 
 	it("o prompt avisa que não há quem responda, sem o bloco de rotina; escrita insistida falha sem cartão nem espera", async () => {
