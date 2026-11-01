@@ -4,9 +4,9 @@
  * (regex) vira só DICA de pré-carga: nunca decide o que existe, porque tudo é carregável a pedido do modelo.
  *
  * O v2 atende a conversa direta (origem `chat`) e, com o escopo ampliado do bot, rotina (inclui alerta, brief e
- * "só importante"), grupo, bot→bot e proativo, com as mesmas tools e condições do v1 (`send_to_bot`,
- * `decide_bot_pending`, `report_alert`, `notify_user`, follow-ups). Ficam de fora as tools de subagente, `set_primary_bot`
- * e a sessão de código (ver docs/features/motor-v2.md).
+ * "só importante"), grupo, bot→bot, proativo, webhook e e-mail recebido, com as mesmas tools e condições do v1
+ * (`send_to_bot`, `decide_bot_pending`, `report_alert`, `notify_user`, follow-ups). Ficam de fora as tools de subagente
+ * do v1 (o v2 tem `delegate`), `set_primary_bot` e a sessão de código (ver docs/features/motor-v2.md).
  * As regras por origem espelham as do v1 (`computer-use.ts`): rotina não recebe gestão de rotinas, pesquisa web,
  * memória nem pedido de senha; sem humano (rotina/webhook) só entra conector que a autonomia libera sem perguntar.
  */
@@ -128,6 +128,8 @@ export function buildEngineV2Catalog(input: {
 		if (NOT_IN_V2.has(name)) continue;
 		if (!input.sandboxEnabled && SANDBOX_TOOL_NAMES.has(name)) continue;
 		if (name === "propose_profile_update" && !input.allowProfileUpdate) continue;
+		// Sem humano (rotina, webhook): um questionário pararia o run em `awaiting_confirmation` sem ninguém para responder.
+		if (name === "propose_questionnaire" && isUnattendedOrigin(input.origin)) continue;
 		if (name === "login_fill" && !input.sandboxEnabled) continue;
 		// Rotina/webhook não desliga a VM que o dono pode estar usando; quem libera memória é o guarda.
 		if (name === SANDBOX_RELEASE_TOOL_NAME && (!input.sandboxEnabled || isUnattendedOrigin(input.origin))) continue;
@@ -196,6 +198,8 @@ export function buildEngineV2Catalog(input: {
 	// Trabalho longo termina em documento: `create_file` já vai carregado (sem o passo extra de carga na entrega).
 	if (input.longWork && !input.helper && native.some((tool) => tool.function.name === "create_file")) preloaded.add("files");
 	if (!native.some((tool) => tool.function.name === "propose_bot")) preloaded.delete("bots");
+	// Run de e-mail recebido: o procedimento anti-manipulação do e-mail já vai no 1º passo (igual ao v1).
+	if (input.origin === "email") preloaded.add("email");
 	if (!native.some((tool) => tool.function.name.startsWith("email_"))) preloaded.delete("email");
 	for (const name of input.priorLoadedTools ?? []) {
 		const group = planNativeTools(native, new Set()).deferred.get(name)?.group;

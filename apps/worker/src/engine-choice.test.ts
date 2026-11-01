@@ -139,12 +139,14 @@ test("se a escolha não puder ser gravada, o run roda no v1 (a retomada não tro
 
 const wide = { engine: "v2", engineScope: "all" };
 
-test("escopo all: rotina, grupo, bot→bot e proativo saem no v2 e gravam a escolha; o chat também", async () => {
+test("escopo all: rotina, grupo, bot→bot, proativo, webhook e e-mail saem no v2 e gravam a escolha; o chat também", async () => {
 	for (const [name, over] of [
 		["rotina", { origin: "routine" }],
 		["grupo", { origin: "chat", isGroupRun: true }],
 		["bot→bot", { origin: "bot" }],
 		["proativo", { origin: "proactive" }],
+		["webhook", { origin: "webhook" }],
+		["e-mail", { origin: "email" }],
 		["chat", { origin: "chat" }],
 	] as const) {
 		const { choose, recorded } = setup({ policyJson: wide, ...over });
@@ -153,16 +155,24 @@ test("escopo all: rotina, grupo, bot→bot e proativo saem no v2 e gravam a esco
 	}
 });
 
-test("escopo all não leva subagente, webhook nem e-mail ao v2", async () => {
-	for (const origin of ["subagent", "webhook", "email"]) {
+test("escopo all não leva subagente ao v2", async () => {
+	for (const origin of ["subagent"]) {
 		const { choose, recorded } = setup({ policyJson: wide, origin });
 		assert.equal((await choose()).engine, "v1", origin);
 		assert.deepEqual(recorded, [], origin);
 	}
 });
 
-test("escopo chat explícito segura rotina, grupo e bot→bot no v1", async () => {
-	for (const over of [{ origin: "routine" }, { origin: "bot" }, { origin: "chat", isGroupRun: true }]) {
+test("e-mail recebido e webhook: o texto de fora não escolhe trabalho longo; o dono pode forçar", async () => {
+	const report = "Levante os pedidos em aberto e monte um relatório comparativo com preços";
+	assert.equal((await setup({ policyJson: wide, origin: "email", text: report }).choose()).profile, "chat");
+	assert.equal((await setup({ policyJson: wide, origin: "webhook", text: report }).choose()).profile, "chat");
+	assert.equal((await setup({ policyJson: { ...wide, workProfile: "long_work" }, origin: "webhook", text: "oi" }).choose()).profile, "long_work");
+	assert.equal((await setup({ policyJson: { ...wide, workProfile: "long_work" }, origin: "email", text: "oi" }).choose()).profile, "long_work");
+});
+
+test("escopo chat explícito segura rotina, grupo, bot→bot, webhook e e-mail no v1", async () => {
+	for (const over of [{ origin: "routine" }, { origin: "bot" }, { origin: "webhook" }, { origin: "email" }, { origin: "chat", isGroupRun: true }]) {
 		assert.equal((await setup({ policyJson: { engine: "v2", engineScope: "chat" }, ...over }).choose()).engine, "v1");
 	}
 });
@@ -193,7 +203,7 @@ test("padrão global off (ou ausente): bot sem escolha não muda em nenhuma orig
 test("padrão global chat/all vale para bot sem escolha explícita", async () => {
 	assert.equal((await setup({ globalDefault: "chat", origin: "chat" }).choose()).engine, "v2");
 	assert.equal((await setup({ globalDefault: "chat", origin: "routine" }).choose()).engine, "v1");
-	for (const over of [{ origin: "chat" }, { origin: "routine" }, { origin: "bot" }, { origin: "chat", isGroupRun: true }]) {
+	for (const over of [{ origin: "chat" }, { origin: "routine" }, { origin: "bot" }, { origin: "webhook" }, { origin: "email" }, { origin: "chat", isGroupRun: true }]) {
 		assert.equal((await setup({ policyJson: { planMode: true }, globalDefault: "all", ...over }).choose()).engine, "v2");
 	}
 	assert.equal((await setup({ globalDefault: "all", origin: "subagent" }).choose()).engine, "v1");

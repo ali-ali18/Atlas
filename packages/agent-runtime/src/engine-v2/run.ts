@@ -410,6 +410,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			role: helperRole ? "helper" : undefined,
 			...(isUnattendedOrigin(origin) && !helperRole ? { unattended: true } : {}),
 			...(origin === "routine" && !helperRole ? { routine: true } : {}),
+			// Só se a caixa estiver ativa neste run: sem `email_reply` o prompt mandaria usar uma tool inexistente.
+			...(origin === "email" && !helperRole && hasToolInRun("email_reply") ? { emailRun: true } : {}),
 			languageInstruction: languageAtEnd ? replyLanguage.instruction : undefined,
 		});
 		conversation = [
