@@ -81,7 +81,6 @@ import { createSkillDocRoutes } from "./routes/skill-docs.js";
 import { createCatalogRoutes } from "./routes/catalog.js";
 import { createSkillProposalRoutes } from "./routes/skill-proposals.js";
 import { createBotProposalRoutes } from "./routes/bot-proposals.js";
-import { createBudgetContinueRoutes } from "./routes/budget-continue.js";
 import { createProactiveRoutes } from "./routes/proactive.js";
 import { createReflectionRoutes } from "./routes/reflection.js";
 import { createUploadRoutes } from "./routes/uploads.js";
@@ -272,7 +271,6 @@ app.route("/", createSkillDocRoutes());
 app.route("/", createCatalogRoutes());
 app.route("/", createSkillProposalRoutes());
 app.route("/", createBotProposalRoutes());
-app.route("/", createBudgetContinueRoutes({ queue: agentRunQueue }));
 app.route("/", createUploadRoutes({
 	enqueueExtract: chatQueue
 		? ({ userId, artifactId }) => chatQueue!.add(ATLAS_JOB_NAMES.attachmentExtract, { userId, artifactId }, { attempts: 1, removeOnComplete: 50, removeOnFail: 50 })

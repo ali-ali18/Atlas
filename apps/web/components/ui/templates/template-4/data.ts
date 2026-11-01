@@ -1,5 +1,5 @@
 import { AVATAR_COLORS, eyeColorFor as engineEyeColorFor } from "@workspace/ui/lib/avatar/identity";
-import type { AlertRule, MessageSource, BotLanguageSetting, BotNeed, BotProposalData, BudgetContinueData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec } from "@workspace/shared";
+import type { AlertRule, MessageSource, BotLanguageSetting, BotNeed, BotProposalData, DevApprovalCardInfo, LoginConnector, LoginVaultOffer, RoutineProposalMode, RoutineProposalSpec, RoutineProposalStatus, SkillProposalData, SubagentTaskView, ChartSpec, PageSpec } from "@workspace/shared";
 import type { BotProfileProposal } from "@/components/ai-elements/confirm";
 
 export type BodyColor = {
@@ -504,14 +504,6 @@ type MessageVariant =
 			id: string;
 			kind: "skill-proposal";
 			proposal: SkillProposalData;
-			isApplying?: boolean;
-			error?: string | null;
-	  }
-	| {
-			/** "Continuar pesquisa (+US$ X)": trabalho longo parou por orçamento; o estado mora em `offer.status`. */
-			id: string;
-			kind: "budget-continue";
-			offer: BudgetContinueData;
 			isApplying?: boolean;
 			error?: string | null;
 	  }

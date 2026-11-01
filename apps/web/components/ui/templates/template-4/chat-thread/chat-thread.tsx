@@ -76,7 +76,6 @@ import {
 	resolveBotProfileProposal,
 	resolveRoutineProposal,
 	resolveBotProposal,
-	resolveBudgetContinue,
 	resolveSkillProposal,
 } from "@/lib/atlas-api";
 import { hasModelTiers, readBotModelTiers, readProactiveSettings } from "@workspace/shared";
@@ -272,7 +271,6 @@ export function ChatThread({
 		applySkillProposalState,
 		applyRoutineProposalState,
 		applyBotProposalState,
-		applyBudgetContinueState,
 		cancelRun,
 		cancelSeq,
 		resumeRun,
@@ -442,27 +440,6 @@ export function ChatThread({
 			const status = typeof cause === "object" && cause !== null && "status" in cause ? Number(cause.status) : 0;
 			applyBotProposalState(proposalId, {
 				error: status === 404 ? "Esta proposta não existe mais." : status === 409 ? "Esta proposta já foi recusada." : "Não consegui criar o agente. Tente de novo.",
-			});
-		}
-	}
-	// "Continuar pesquisa (+US$ X)": é dinheiro, então só o toque da pessoa gasta; "Agora não" dispensa sem gastar.
-	async function decideBudgetContinue(card: Extract<Message, { kind: "budget-continue" }>, decision: "approved" | "dismissed") {
-		const conversationId = agent?.conversationId;
-		const offerId = card.offer.offerId;
-		if (!conversationId || card.isApplying) return;
-		applyBudgetContinueState(offerId, "applying");
-		try {
-			const result = await resolveBudgetContinue({ conversationId, offerId, decision });
-			applyBudgetContinueState(offerId, { status: result.status === "pending" ? "pending" : result.status, continuationRunId: result.runId });
-		} catch (cause) {
-			const status = typeof cause === "object" && cause !== null && "status" in cause ? Number(cause.status) : 0;
-			// 410: a oferta passou (mais de 24h ou superada por outra); o servidor já a marcou como dispensada.
-			if (status === 410) {
-				applyBudgetContinueState(offerId, { status: "dismissed", error: translator.t("aiElements.budgetContinue.errorExpired") });
-				return;
-			}
-			applyBudgetContinueState(offerId, {
-				error: translator.t(status === 404 ? "aiElements.budgetContinue.errorGone" : status === 409 ? "aiElements.budgetContinue.errorBusy" : "aiElements.budgetContinue.error"),
 			});
 		}
 	}
@@ -1048,8 +1025,6 @@ export function ChatThread({
 		onBotProposalApprove: (card: Extract<Message, { kind: "bot-proposal" }>, edits?: { name?: string; description?: string }) =>
 			void decideBotProposal(card, "approved", edits),
 		onBotProposalReject: (card: Extract<Message, { kind: "bot-proposal" }>) => void decideBotProposal(card, "rejected"),
-		onBudgetContinueApprove: (card: Extract<Message, { kind: "budget-continue" }>) => void decideBudgetContinue(card, "approved"),
-		onBudgetContinueDismiss: (card: Extract<Message, { kind: "budget-continue" }>) => void decideBudgetContinue(card, "dismissed"),
 		onRoutineProposalAccept: (card: Extract<Message, { kind: "routine-proposal" }>) => void decideRoutineProposal(card, "accept"),
 		onRoutineProposalDecline: (card: Extract<Message, { kind: "routine-proposal" }>) => void decideRoutineProposal(card, "decline"),
 		onSkillProposalApprove: (card: Extract<Message, { kind: "skill-proposal" }>) => void decideSkillProposal(card, "approved"),
@@ -1514,8 +1489,6 @@ export function ChatThread({
 										skillBots={skillBots}
 										onBotProposalApprove={rowHandlers.onBotProposalApprove}
 										onBotProposalReject={rowHandlers.onBotProposalReject}
-										onBudgetContinueApprove={rowHandlers.onBudgetContinueApprove}
-										onBudgetContinueDismiss={rowHandlers.onBudgetContinueDismiss}
 										onRoutineProposalAccept={rowHandlers.onRoutineProposalAccept}
 										onRoutineProposalDecline={rowHandlers.onRoutineProposalDecline}
 										onSkillProposalApprove={rowHandlers.onSkillProposalApprove}

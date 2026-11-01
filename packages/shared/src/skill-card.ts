@@ -18,7 +18,6 @@ import { parseTaskList, type TaskListItem } from "./task-list.js";
 import { parsePlanInfo, type PlanInfo } from "./plan.js";
 import { COMPACT_CARD_SUMMARY_MAX_CHARS, COMPACT_FOCUS_MAX_CHARS, type PersistedCompactionCard } from "./compaction.js";
 import { parseBotProposalCard, type PersistedBotProposalCard } from "./bot-proposal.js";
-import { parseBudgetContinueCard, type PersistedBudgetContinueCard } from "./budget-continue.js";
 
 /** Papéis de card na timeline da conversa (não vão para o LLM). */
 export type ConversationCardRole =
@@ -36,7 +35,6 @@ export type ConversationCardRole =
 	| "subagents"
 	| "routine-proposal"
 	| "bot-proposal"
-	| "budget-continue"
 	| "images"
 	| "code-run"
 	| "chart"
@@ -352,7 +350,6 @@ export type PersistedConversationCard =
 	| PersistedRoutineCard
 	| PersistedRoutineProposalCard
 	| PersistedBotProposalCard
-	| PersistedBudgetContinueCard
 	| PersistedImagesCard
 	| PersistedRevisedDraftCard;
 
@@ -381,7 +378,6 @@ export function isConversationCardRole(role: string): role is ConversationCardRo
 		role === "subagents" ||
 		role === "routine-proposal" ||
 		role === "bot-proposal" ||
-		role === "budget-continue" ||
 		role === "images" ||
 		role === "task-list" ||
 		role === "compaction" ||
@@ -878,7 +874,6 @@ export function parseConversationCard(content: string): PersistedConversationCar
 	}
 	if (row.kind === "routine-proposal") return parseRoutineProposalCard(raw);
 	if (row.kind === "bot-proposal") return parseBotProposalCard(raw);
-	if (row.kind === "budget-continue") return parseBudgetContinueCard(raw);
 	return null;
 }
 
@@ -920,8 +915,7 @@ export function insertCardAfterCurrentTurn<T extends { kind: string }>(
 			messages[insertAt]?.kind === "provider-fallback" ||
 			messages[insertAt]?.kind === "subagents" ||
 			messages[insertAt]?.kind === "routine-proposal" ||
-			messages[insertAt]?.kind === "bot-proposal" ||
-			messages[insertAt]?.kind === "budget-continue")
+			messages[insertAt]?.kind === "bot-proposal")
 	) {
 		insertAt += 1;
 	}

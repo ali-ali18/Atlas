@@ -3,7 +3,6 @@ import type { Message } from "@/components/ui/templates/template-4/data";
 import { insertDevSessionCards } from "@/lib/dev-session/cards";
 import { collapseSkillProposalCards } from "@/lib/skill-proposal-message";
 import { collapseBotProposalCards } from "@/lib/bot-proposal-message";
-import { collapseBudgetContinueCards } from "@/lib/budget-continue-message";
 
 /** Cartão ao vivo que, quando o servidor já gravou o equivalente, vale o gravado. */
 function isDedupedLiveCard(message: Message): boolean {
@@ -56,7 +55,6 @@ function cardDedupeKey(message: Message): string | null {
 	if (message.kind === "skill-proposal") return `skill-proposal|${message.proposal.proposalId}`;
 	if (message.kind === "routine-proposal") return `routine-proposal|${message.proposalId}`;
 	if (message.kind === "bot-proposal") return `bot-proposal|${message.proposal.proposalId}`;
-	if (message.kind === "budget-continue") return `budget-continue|${message.offer.offerId}`;
 	if (message.kind === "bot-profile-confirm") {
 		return `bot-profile-confirm|${message.id}|${message.proposal.botId}|${message.proposal.fields.join(",")}`;
 	}
@@ -221,7 +219,7 @@ export function settleTurnCards(messages: Message[]): Message[] {
 
 /** Cards iguais consecutivos ou com o mesmo id aparecem uma vez; turnos diferentes ficam. */
 export function dedupeCards(input: Message[]): Message[] {
-	const messages = collapseContextSummaries(collapseRoutineCreatedCards(collapsePageCards(collapseBudgetContinueCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input)))))))));
+	const messages = collapseContextSummaries(collapseRoutineCreatedCards(collapsePageCards(collapseBotProposalCards(collapseSkillProposalCards(collapseConfirmCards(collapseSubagentGroups(collapseDevSessionCards(input))))))));
 	const seenIds = new Set<string>();
 	const result: Message[] = [];
 	// Aviso de fallback repetido no mesmo turno (run retomado) aparece uma vez, mesmo não consecutivo.
@@ -393,7 +391,6 @@ export function reconcilePersistedThread(persisted: Message[], live: Message[], 
 		message.kind !== "skill-proposal" &&
 		message.kind !== "routine-proposal" &&
 		message.kind !== "bot-proposal" &&
-		message.kind !== "budget-continue" &&
 		message.kind !== "bot-profile-confirm") {
 			continue;
 		}

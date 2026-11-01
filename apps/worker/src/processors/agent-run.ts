@@ -140,7 +140,7 @@ import { engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngin
 import { briefToolFilter, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
-import { readApprovedContinuation, resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
+import { resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
 import { stopOfBudgetError, stopOfFailure } from "../run-stop.js";
 import { runSystemLanguage } from "../system-language.js";
 import {
@@ -1170,7 +1170,6 @@ async function executeLeasedRun(ctx: {
 		choice: engineChoice,
 		origin: run.origin,
 		humanTurn: readRunHumanTurn(run),
-		approvedContinuation: readApprovedContinuation(run.budgetJson),
 		requestOrBotCap: budget.maxCostUsd,
 		snapshot: configSnapshot,
 		wallFixed: botPolicy.maxWallMs !== undefined || requestBudget.maxWallMs !== undefined,

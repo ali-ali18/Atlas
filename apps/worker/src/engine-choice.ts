@@ -101,23 +101,26 @@ export async function pickRunEngine(input: {
 	};
 }
 
+/** Piso de segurança (US$ por execução) do trabalho longo sem dono quando nem a conta nem o bot definem teto. */
+export const UNATTENDED_LONG_WORK_COST_FLOOR_USD = 0.5;
+
 /**
  * Trabalho longo no v2 não tem teto em US$ por padrão e o teto por execução da conta (`execution.maxRunCostUsd`, padrão 0,25)
- * NÃO se aplica a ele no chat com o dono digitando nem na continuação que o dono aprovou pelo card (marca `approvedContinuation`
- * do db): lá o árbitro é progresso e tempo (o preço varia demais entre modelos), e o tempo máximo é o do bot (padrão 60 min).
- * Rotina, bot→bot, webhook, e-mail e chat curto seguem com o teto da conta. O gasto máximo opcional do bot (`longWorkBudgetUsd`)
- * e o teto do pedido (continuação) continuam valendo como teto duro.
+ * NÃO se aplica a ele no chat do dono (turno humano: digitado por ele, ou herdado do run pai em continuação automática e em
+ * resposta de questionário/cartão): lá o árbitro é progresso e tempo (o preço varia demais entre modelos), e o tempo máximo é o
+ * do bot (padrão 60 min). Rotina, bot→bot, proativo, webhook, e-mail e chat curto seguem com o teto da conta. O gasto máximo
+ * opcional do bot (`longWorkBudgetUsd`) e o teto do pedido continuam valendo como teto duro.
  */
 export function longWorkOwnerLimits(
 	choice: Pick<EngineChoice, "engine" | "profile" | "longWorkMinutes">,
-	context: { origin: string; humanTurn: boolean; approvedContinuation?: boolean },
+	context: { origin: string; humanTurn: boolean },
 ): {
 	ignoreAccountCostCap: boolean;
 	/** Tempo máximo (ms) do bot, que substitui o da conta; `undefined` = segue o da conta. */
 	wallMs?: number;
 } {
 	const longWork = choice.engine === "v2" && choice.profile === "long_work";
-	const owner = longWork && context.origin === "chat" && (context.humanTurn || context.approvedContinuation === true);
+	const owner = longWork && context.origin === "chat" && context.humanTurn;
 	return {
 		ignoreAccountCostCap: owner,
 		...(owner && choice.longWorkMinutes ? { wallMs: Math.round(choice.longWorkMinutes * 60_000) } : {}),
@@ -147,17 +150,20 @@ export function resolveRunLimits(input: {
 	choice: EngineChoice;
 	origin: string;
 	humanTurn: boolean;
-	/** Continuação aprovada pelo card (`readApprovedContinuation(run.budgetJson)`). */
-	approvedContinuation?: boolean;
 	/** `budget.maxCostUsd` já resolvido (pedido > bot > conta do código). */
 	requestOrBotCap: number | undefined;
 	snapshot: Pick<RunConfigSnapshot, "maxRunCostUsd">;
 	/** O pedido ou a política do bot fixou o tempo: vale mais que o orçamento de minutos do bot. */
 	wallFixed: boolean;
 }): { costCapUsd: number | undefined; wallMs?: number } {
-	const owner = longWorkOwnerLimits(input.choice, { origin: input.origin, humanTurn: input.humanTurn, approvedContinuation: input.approvedContinuation });
+	const owner = longWorkOwnerLimits(input.choice, { origin: input.origin, humanTurn: input.humanTurn });
+	let costCapUsd = effectiveCostCapUsd(input.requestOrBotCap, input.snapshot, { ignoreAccountCap: owner.ignoreAccountCostCap });
+	// Origem sem dono (rotina, bot→bot, proativo, webhook, e-mail) em trabalho longo sem nenhum teto em US$ (conta "sem limite" e
+	// bot sem gasto máximo): piso de segurança por execução, porque ninguém está olhando.
+	const longWork = input.choice.engine === "v2" && input.choice.profile === "long_work";
+	if (longWork && !owner.ignoreAccountCostCap && costCapUsd === undefined && input.choice.longWorkBudgetUsd === undefined) costCapUsd = UNATTENDED_LONG_WORK_COST_FLOOR_USD;
 	return {
-		costCapUsd: effectiveCostCapUsd(input.requestOrBotCap, input.snapshot, { ignoreAccountCap: owner.ignoreAccountCostCap }),
+		costCapUsd,
 		...(owner.wallMs !== undefined && !input.wallFixed ? { wallMs: owner.wallMs } : {}),
 	};
 }

@@ -282,8 +282,6 @@ export function buildQueuedRunData(input: {
 	fileArtifactIds?: string[];
 	/** Mensagem digitada pelo dono (só o POST do chat passa). Ver `readRunHumanTurn`. */
 	humanTurn?: boolean;
-	/** Campos gravados no MESMO create (checkpoint e budgetJson): motor, perfil, caderno de uma continuação. */
-	seed?: { checkpoint?: Record<string, unknown>; budget?: Record<string, unknown> };
 }) {
 	const { request, model, userId, conversationId } = input;
 	const maxSteps =
@@ -300,9 +298,7 @@ export function buildQueuedRunData(input: {
 		nextStepIndex: 0,
 		consumedInputIds: [],
 		compact: request.compact === true,
-		...(input.seed?.checkpoint ?? {}),
 	};
-	const storedBudget = buildStoredBudget(request.budget, input.contextLength, input.modelAuto, input.humanTurn, parseReasoningEffort(request.reasoningEffort));
 	return {
 		userId,
 		botId: request.botId ?? null,
@@ -314,7 +310,7 @@ export function buildQueuedRunData(input: {
 		maxSteps,
 		sandboxSessionId: request.sandboxSessionId ?? null,
 		checkpointJson: checkpoint as unknown as Prisma.InputJsonValue,
-		budgetJson: input.seed?.budget ? ({ ...((storedBudget as Record<string, unknown> | undefined) ?? {}), ...input.seed.budget } as Prisma.InputJsonValue) : storedBudget,
+		budgetJson: buildStoredBudget(request.budget, input.contextLength, input.modelAuto, input.humanTurn, parseReasoningEffort(request.reasoningEffort)),
 	};
 }
 
@@ -333,11 +329,6 @@ export async function createAgentRun(input: {
 	 * O chamador acorda o worker (sinal de run); o db não conhece Redis.
 	 */
 	onMergedIntoActiveRun?: (runId: string) => void | Promise<void>;
-	/**
-	 * Run exclusivo (continuação aprovada): só vale se ESTA chamada criou o run. Se a conversa já tem run ativo, nada é
-	 * mesclado nem devolvido (`ExclusiveRunConflictError`); `seed` entra no mesmo create, sem segunda escrita.
-	 */
-	exclusive?: { checkpoint?: Record<string, unknown>; budget?: Record<string, unknown> };
 }): Promise<AgentRun> {
 	const { request, model } = input;
 	const userId = input.userId?.trim();
@@ -366,7 +357,6 @@ export async function createAgentRun(input: {
 				request: fileCards.length ? { ...request, attachments: await imageAttachmentsOf(request.attachments ?? [], userId) } : request,
 				model, userId, conversationId, contextLength: input.contextLength, modelAuto: input.modelAuto, humanTurn: input.humanTurn,
 				fileArtifactIds: fileCards.map((card) => card.artifactId),
-				...(input.exclusive ? { seed: input.exclusive } : {}),
 			}),
 		});
 		if (conversationId && origin !== "routine" && request.silent !== true) {
@@ -399,7 +389,6 @@ export async function createAgentRun(input: {
 			if (attempt < 1) continue;
 			throw error;
 		}
-		if (input.exclusive) throw new ExclusiveRunConflictError();
 		// Rotina e mensagem entre bots não "steeram" um run de chat — quem chama trata o ocupado à parte.
 		if (origin === "routine" || origin === "bot" || origin === "proactive") {
 			return mapRun(existing);
@@ -420,14 +409,6 @@ export async function createAgentRun(input: {
 		}
 		return mapRun(existing);
 	}
-	}
-}
-
-/** `createAgentRun({ exclusive })`: outro run ativo ocupou a conversa; nada foi criado nem alterado. */
-export class ExclusiveRunConflictError extends Error {
-	constructor() {
-		super("A conversa já tem uma tarefa em andamento.");
-		this.name = "ExclusiveRunConflictError";
 	}
 }
 

@@ -158,7 +158,6 @@ export {
 } from "./sections.js";
 export {
 	createAgentRun,
-	ExclusiveRunConflictError,
 	isActiveRunConflict,
 	createFollowUpRun,
 	type FollowUpResult,
@@ -489,7 +488,6 @@ export {
 } from "./skill-docs.js";
 export { applySkillProposal } from "./skill-proposal-apply.js";
 export { markLearnedSkillCardUndone, undoLearnedSkill, type UndoLearnedResult } from "./skill-learned.js";
-export { getBudgetContinueOffer, offerBudgetContinue, resolveBudgetContinue, type BudgetContinueDeps, type BudgetContinueResolution } from "./budget-continue.js";
 export { getPendingBotProposal, resolveBotProposal, type BotProposalDeps, type BotProposalResolution } from "./bot-proposals.js";
 export { upsertTaskListCard } from "./task-list-cards.js";
 export * from "./pages.js";

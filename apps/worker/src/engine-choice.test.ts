@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine, resolveRunLimits } from "./engine-choice.js";
+import { UNATTENDED_LONG_WORK_COST_FLOOR_USD, engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine, resolveRunLimits } from "./engine-choice.js";
 import type { EngineDefault } from "@workspace/shared";
 import { effectiveCostCapUsd } from "./run-config.js";
 
@@ -301,24 +301,18 @@ test("o gasto máximo opcional do bot (antigo longWorkBudgetUsd) vira teto duro;
 	assert.deepEqual(floor.budgetFloor, { costUsd: 0.5, minutes: 30 });
 });
 
-test("continuação aprovada pelo card roda sem o teto da conta (sem ser turno humano) com o tempo do bot", async () => {
-	const choice = await setup({ policyJson: { engine: "v2", workProfile: "long_work" } }).choose();
-	const base = { choice, origin: "chat", humanTurn: false, requestOrBotCap: 1, snapshot: { maxRunCostUsd: 0.25 }, wallFixed: false };
-	// Aprovada: teto do card (US$ 1), não o da conta (0,25).
-	assert.deepEqual(resolveRunLimits({ ...base, approvedContinuation: true }), { costCapUsd: 1, wallMs: 60 * 60_000 });
-	// Sem a marca (o mesmo run vindo de outro caminho): a conta limita.
-	assert.deepEqual(resolveRunLimits({ ...base }), { costCapUsd: 0.25 });
-	// A marca só vale no chat de trabalho longo no v2.
-	assert.equal(resolveRunLimits({ ...base, origin: "routine", approvedContinuation: true }).costCapUsd, 0.25);
-	const short = await setup({ policyJson: { engine: "v2", workProfile: "chat" } }).choose();
-	assert.equal(resolveRunLimits({ ...base, choice: short, approvedContinuation: true }).costCapUsd, 0.25);
-});
-
-test("a marca da continuação só vale com continuationOf", async () => {
-	const { readApprovedContinuation } = await import("@workspace/shared");
-	assert.equal(readApprovedContinuation({ approvedContinuation: true, continuationOf: "run-1" }), true);
-	assert.equal(readApprovedContinuation({ approvedContinuation: true }), false);
-	assert.equal(readApprovedContinuation({ continuationOf: "run-1" }), false);
-	assert.equal(readApprovedContinuation({ approvedContinuation: "true", continuationOf: "run-1" }), false);
-	assert.equal(readApprovedContinuation(null), false);
+test("origem sem dono em trabalho longo, com conta 'sem limite' e bot sem gasto máximo: piso de segurança de US$ 0,50", async () => {
+	const choice = await setup({ policyJson: { engine: "v2", workProfile: "long_work", engineScope: "all" } }).choose();
+	const unlimited = { maxRunCostUsd: undefined };
+	for (const [origin, human] of [["routine", false], ["bot", false], ["proactive", false], ["webhook", false], ["email", false], ["chat", false]] as const) {
+		assert.deepEqual(resolveRunLimits({ choice, origin, humanTurn: human, requestOrBotCap: undefined, snapshot: unlimited, wallFixed: false }), { costCapUsd: UNATTENDED_LONG_WORK_COST_FLOOR_USD }, origin);
+	}
+	// A conta com teto manda (0,25 < 0,50); o gasto máximo do bot também; o dono no chat continua sem teto.
+	assert.equal(resolveRunLimits({ choice, origin: "routine", humanTurn: false, requestOrBotCap: undefined, snapshot: { maxRunCostUsd: 0.25 }, wallFixed: false }).costCapUsd, 0.25);
+	const capped = await setup({ policyJson: { engine: "v2", workProfile: "long_work", engineScope: "all", longWorkBudgetUsd: 3 } }).choose();
+	assert.equal(resolveRunLimits({ choice: capped, origin: "routine", humanTurn: false, requestOrBotCap: undefined, snapshot: unlimited, wallFixed: false }).costCapUsd, undefined);
+	assert.equal(resolveRunLimits({ choice, origin: "chat", humanTurn: true, requestOrBotCap: undefined, snapshot: unlimited, wallFixed: false }).costCapUsd, undefined);
+	// Chat curto não é trabalho longo: sem piso.
+	const short = await setup({ policyJson: { engine: "v2", workProfile: "chat", engineScope: "all" } }).choose();
+	assert.equal(resolveRunLimits({ choice: short, origin: "routine", humanTurn: false, requestOrBotCap: undefined, snapshot: unlimited, wallFixed: false }).costCapUsd, undefined);
 });

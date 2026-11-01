@@ -23,7 +23,6 @@ import { CopyButton, ReactionBadges, ReactionTrigger, useMessageReactionControls
 import type { Message } from "../data";
 import { SkillActivityCard, SkillLearnedCard, SkillProposalCard, SkillsList } from "@/components/ai-elements/skills";
 import { BotProposalCard, type BotProposalEdits } from "@/components/ai-elements/bots";
-import { BudgetContinueCard } from "@/components/ai-elements/budget-continue";
 import {
 	RoutineActivityCard,
 	RoutineProposalCard,
@@ -100,8 +99,6 @@ export const MessageRow = memo(function MessageRow({
 	onRoutineProposalDecline,
 	onBotProposalApprove,
 	onBotProposalReject,
-	onBudgetContinueApprove,
-	onBudgetContinueDismiss,
 }: {
 	/** Grupo: membros para desenhar as menções (@Nome) como chips. */
 	mentionMembers?: readonly MentionMember[];
@@ -157,8 +154,6 @@ export const MessageRow = memo(function MessageRow({
 	/** Novo agente proposto pelo bot (propose_bot): criar (com nome/papel revisados) ou dispensar. */
 	onBotProposalApprove?: (message: Extract<Message, { kind: "bot-proposal" }>, edits?: BotProposalEdits) => void;
 	onBotProposalReject?: (message: Extract<Message, { kind: "bot-proposal" }>) => void;
-	onBudgetContinueApprove?: (message: Extract<Message, { kind: "budget-continue" }>) => void;
-	onBudgetContinueDismiss?: (message: Extract<Message, { kind: "budget-continue" }>) => void;
 }) {
 	const t = useT();
 	switch (message.kind) {
@@ -463,16 +458,6 @@ export const MessageRow = memo(function MessageRow({
 					onApprove={(edits) => onBotProposalApprove?.(message, edits)}
 					onReject={() => onBotProposalReject?.(message)}
 					proposal={message.proposal}
-				/>
-			);
-		case "budget-continue":
-			return (
-				<BudgetContinueCard
-					error={message.error ?? null}
-					isApplying={message.isApplying ?? false}
-					offer={message.offer}
-					onApprove={() => onBudgetContinueApprove?.(message)}
-					onDismiss={() => onBudgetContinueDismiss?.(message)}
 				/>
 			);
 		case "routine-proposal":
