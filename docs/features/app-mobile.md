@@ -1,6 +1,6 @@
 # App mobile (Android e iOS)
 
-- **Status:** em andamento (etapa 0 entregue)
+- **Status:** em andamento (etapa 0 entregue; login da etapa 1 entregue)
 - **Data:** 2026-11-01
 - **Issues/PRs:** #
 
@@ -20,7 +20,7 @@ Quem usa o bot no dia a dia (lembretes, rotinas, alertas) está no celular. Um a
 
 ## Etapas
 0. **Base (esta entrega):** projeto Expo no monorepo, tema e primitivos no mesmo molde do `packages/ui`, `@workspace/shared` rodando no Metro, telas só de interface com dado de mentira (conexão com o servidor, login "em breve", "Sincronizando…"), prévia web para screenshots. Sem login real e sem chat.
-1. **Conexão, login Google + e-mail, sincronização e chat ao vivo:** better-auth (Google e link mágico) com sessão guardada no `expo-secure-store`, lista de conversas, SSE do chat. Roda no Expo Go.
+1. **Conexão, login Google + e-mail, sincronização e chat ao vivo:** better-auth (Google e código por e-mail) com sessão guardada no `expo-secure-store`, lista de conversas, SSE do chat. Roda no Expo Go. **Login entregue (ver "Login (etapa 1)"); lista de conversas e chat ficam para a próxima.**
 2. **Development build (EAS) com push e compartilhar:** notificações push, "compartilhar com o Atlas", deep links. Sai do Expo Go.
 3. **Telas nativas:** biblioteca (painéis, rotinas), arquivos, configurações, cards do chat nativos.
 
@@ -33,6 +33,41 @@ Quem usa o bot no dia a dia (lembretes, rotinas, alertas) está no celular. Um a
 - **pnpm:** instalação isolada padrão, sem `node-linker=hoisted` (não foi necessário). Único ajuste: `react-native-css-interop` entra como dependência direta, porque o runtime JSX do NativeWind o importa e o pnpm não o expõe sem declaração.
 - **Conexão:** `lib/server-url.ts` (função pura, testada) valida e normaliza: só `https`; `http` apenas em desenvolvimento e para localhost, `127.x`, `10.x`, `172.16-31.x`, `192.168.x`, `*.local`; sem esquema assume `https` (ou `http` para host local em dev); tira barra final, query e fragmento; recusa usuário/senha no endereço. `lib/server-check.ts` chama `GET <url>/api/auth/providers` (timeout 8 s) e confere que a resposta tem `google` e `github` booleanos. O endereço fica no `expo-secure-store`.
 - **Scripts:** `typecheck` (tsc), `test` (vitest), `export:web` (`expo export --platform web`). O `turbo typecheck` passa a ter 16 tarefas (15 + mobile).
+
+## Login (etapa 1)
+
+### Fluxo de telas
+Sem servidor salvo: Conexão. Com servidor e sem sessão: Login. Com sessão: "Sincronizando…" (um `GET /v1/bots` só leitura, com a sessão; 401 encerra a sessão e volta ao Login, falha de rede segue) e a tela provisória "Conectado como <e-mail>" com "Sair". O controle é `AccessGate` em `app/_layout.tsx` sobre `lib/auth-flow.ts` (funções puras). "Sair" e "Trocar servidor" chamam `signOut` (mesmo sem rede o cliente apaga a sessão do aparelho). O avatar `mood="happy"` aparece uma vez (4,5 s) logo depois de um login feito naquela execução.
+
+### E-mail por código (caminho principal)
+Link por e-mail abre no navegador e não volta ao Expo Go sem deep link, então o app usa o plugin `emailOTP` do better-auth: "Enviar código" -> campo de 6 dígitos (entra sozinho ao completar; aceita colar) com "Reenviar" (espera de 30 s, o servidor limita 3 envios por minuto) e "Trocar e-mail". Estado e validação em `lib/login-flow.ts` (reducer puro com `now` injetado, `sanitizeCode`, `friendlyAuthError`). Textos em pt-BR, no tom de `pt-BR/login.ts` do web; erros do servidor viram frases simples, nunca o texto cru.
+
+Servidor (`apps/api/src/auth.ts`, `createAuth`):
+- código de 6 dígitos, validade de 300 s, 5 tentativas (`allowedAttempts`), `storeOTP: "hashed"`; o e-mail sai por `@workspace/mail`, o mesmo do magic link;
+- só o dono: um hook antes de `/email-otp/send-verification-otp` devolve `{ success: true }` para qualquer outro e-mail sem gravar código nem enviar e-mail (resposta igual, não revela quem é o dono), `sendVerificationOTP` repete a checagem e `databaseHooks.user.create.before` barra qualquer usuário novo que não seja o dono, por qualquer caminho;
+- rate limit: o do better-auth (3 envios e 3 entradas por minuto por IP, ligado em produção).
+
+### Sessão: plugin `@better-auth/expo` (não o `bearer`)
+Escolhido porque é o plugin oficial para Expo (versão 1.7.6, igual à do `better-auth` instalado): guarda o cookie da sessão no `expo-secure-store` (com cache da sessão para abrir offline), manda `expo-origin` (que o servidor vira em `Origin`) e devolve o cookie no retorno do login social, sem inventar um segundo formato de token. O `requireUser` não mudou: lê a sessão pelo cabeçalho `Cookie`, que é exatamente o que `lib/api-fetch.ts` manda (`getCookie()` do cliente). `apiFetch` só envia o cookie para a origem do servidor salvo (um endereço absoluto de outro host é recusado) e usa `credentials: "omit"`. O `authClient` é criado depois da Conexão, com `baseURL` igual ao endereço salvo (`lib/atlas-session.tsx`). Teste de ponta a ponta no servidor: entrar por código -> `requireUser` com o cookie -> `scopeFor` -> sair derruba a sessão.
+
+### Google
+`client.signIn.social({ provider: "google", callbackURL: "/" })`; o plugin troca `"/"` pelo deep link do app e abre o navegador do sistema (`expo-web-browser`, `openAuthSessionAsync`). O botão só aparece se `GET /api/auth/providers` diz `google: true`. Se o retorno não trouxer sessão (cancelou ou o servidor recusou), aparece "Não consegui entrar com o Google. Tente de novo ou use o código por e-mail."
+
+### Origens confiáveis e `ATLAS_TRUST_EXPO_GO`
+`trustedOrigins` = origem do web + `atlas://` (sempre) + `exp://` (só com `ATLAS_TRUST_EXPO_GO=1`). Função pura `buildTrustedOrigins`. No Expo Go o retorno chega como `exp://<ip>:<porta>/--/...`, e o esquema `exp://` é de todos os apps abertos no Expo Go: com a env ligada em produção, um app malicioso no mesmo aparelho poderia registrar o retorno do Google (que leva o cookie da sessão na URL) e roubar a sessão do dono. Por isso a env nasce desligada e deve ser ligada só durante o teste no Expo Go e desligada depois; no app instalado (EAS build) o `atlas://` basta. Documentada nos `.env.example` e no `docker-compose.yml`.
+
+### Segurança
+Nenhum token ou cookie em log; o código nunca é logado pelo app. O `MAIL_URL=log://` (padrão de desenvolvimento) imprime o e-mail inteiro, inclusive o código, no log do servidor: em produção use SMTP ou Resend. A checagem de origem do better-auth fica explícita (`disableOriginCheck: false`) porque em `NODE_ENV=test` ele a desliga sozinho.
+
+### Testes
+- api: `apps/api/src/auth.mobile.test.ts` (banco em memória, e-mail capturado): dono recebe código e entra; outro e-mail não recebe nem entra e a resposta é idêntica; código errado, expirado e reutilizado falham; limite de tentativas; código com hash; rate limit; `exp://` barrado sem a env e aceito com ela; `atlas://` aceito; origem de outro site barrada; magic link do web segue; `requireUser` com o cookie.
+- mobile: `lib/login-flow.test.ts`, `lib/auth-flow.test.ts`, `lib/api-fetch.test.ts` (vitest).
+
+### Riscos
+- **Expo Go e `exp://`:** o teste no Expo Go contra produção exige ligar `ATLAS_TRUST_EXPO_GO=1` (e redeploy); ver acima. Sem isso o envio do código no Expo Go falha com origem inválida.
+- **Retorno do Google no Expo Go:** o redirect URI do Google continua o do servidor (`/api/auth/callback/google`); o app só muda o destino final. Não foi testado em aparelho real nesta entrega (sem Google real aqui): validar no Expo Go do Android.
+- **Cancelar o Google** mostra a mesma mensagem de falha (o navegador não diz se foi cancelamento).
+- **Sessão offline:** o app abre com a sessão em cache; se o servidor a tiver revogado, o `GET /v1/bots` de "Sincronizando…" (401) encerra a sessão.
 
 ## Diferenças inevitáveis em relação ao `packages/ui`
 - `Text`: no web o texto é `<p>/<span>`; no RN todo texto precisa de `<Text>`. O `Button` passa a cor do rótulo por `TextClassContext` (como no reusables).
@@ -58,7 +93,7 @@ Quem usa o bot no dia a dia (lembretes, rotinas, alertas) está no celular. Um a
 - **`@workspace/shared` inteiro no bundle** (≈1,2 MB no web). Aceitável na base; avaliar subcaminhos de import (`@workspace/shared/...`) se pesar no app.
 - **Condição `react-native` também em `./avatar/*`:** necessária para o Avatar do mobile importar o motor (`@workspace/shared/avatar/...`) direto do `src`, sem `dist`. Só o Metro a usa.
 - **Condição `react-native` no shared:** quem resolver essa condição (outro bundler RN) passa a ler `src`. Web (Next), api e worker não usam; coberto por `turbo typecheck`.
-- **Sessão e segurança (etapa 1):** token só no cofre do aparelho, cookies do better-auth com o `origin` do servidor informado, nunca logar token; só `https` fora de desenvolvimento.
+- **Sessão e segurança (etapa 1):** feito, ver "Login (etapa 1)".
 - **API/servidor:** o app depende do contrato de `/api/auth/*` e do SSE; mudanças nesses contratos passam a ter mais um consumidor.
 
 ## Custo
