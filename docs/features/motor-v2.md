@@ -48,7 +48,7 @@ Arquivos em `packages/agent-runtime/src/engine-v2/`:
 - `catalog.ts`: núcleo sempre carregado, grupos raros adiados com índice curto no prompt e `mcp_tool_search` para carregar por nome ou necessidade. O roteador de intenção (regex) vira só dica de pré-carga, nunca portão.
 - `prompt.ts`: prompt curto (inglês) com persona, memória, conectores, skills e disciplina do modelo vindos dos builders do v1.
 
-O worker (`apps/worker/src/engine-choice.ts`) escolhe o motor no começo do run e grava `engine`/`engineProfile` em `agent_runs.budgetJson` (`recordRunEngine`, só quando é v2; um único `UPDATE` com merge jsonb e condição "ainda sem motor", sem ler-e-escrever). Se a gravação falhar ou outra execução já tiver gravado v1, o run roda no v1: a retomada nunca troca de motor. Bot com modo proativo ligado, alerta ou evento de configuração do bot (sem mensagem digitada) também fica no v1. A retomada lê o gravado: o motor do bot pode mudar no meio sem trocar um run em andamento. Run com checkpoint e sem motor gravado nasceu no v1.
+O worker (`apps/worker/src/engine-choice.ts`) escolhe o motor no começo do run e grava `engine`/`engineProfile` em `agent_runs.budgetJson` (`recordRunEngine`, só quando é v2; um único `UPDATE` com merge jsonb e condição "ainda sem motor", sem ler-e-escrever). Se a gravação falhar ou outra execução já tiver gravado v1, o run roda no v1: a retomada nunca troca de motor. Modo proativo, alerta, evento de configuração do bot, brief e "só importante" não forçam mais o v1 (ver "Origens além do chat"). A retomada lê o gravado: o motor do bot pode mudar no meio sem trocar um run em andamento. Run com checkpoint e sem motor gravado nasceu no v1.
 
 ### Perfis e orçamento
 | Perfil | Custo | Tempo ativo | Lista de tarefas |
@@ -115,12 +115,24 @@ Por padrão nada muda: o v2 roda só no chat direto de um bot com `engine: "v2"`
 
 Decisão pura em `shared` (`resolveBotEngineRouting`, `engineV2SupportsRun`, `chooseRunEngine`); o worker só lê o env (`engineDefaultFromEnv`) e passa. O motor gravado em `budgetJson.engine` continua vencendo (retomada).
 
-**Origens liberadas no escopo `all`:** `routine`, grupo (`chat` com `isGroupRun`) e `bot`.
+**Origens liberadas no escopo `all`:** `routine` (inclui alerta, brief "Seu dia" e rotina "só importante"), grupo (`chat` com `isGroupRun`), `bot` e `proactive` (reflexão e lembrete do bot). O evento de configuração do bot e o chat com modo proativo ligado são `chat`, então já valem no escopo `chat`.
 **Ficam no v1, sempre:**
 - subagente (o v2 tem os ajudantes do `delegate`, outro mecanismo), webhook e e-mail (sem humano e com tools de evento/e-mail que o v2 não cobre);
-- modo proativo, alerta, evento de configuração do bot sem mensagem digitada (tools de reflexão, `report_alert`, `schedule_followup`);
-- brief "Seu dia" (rotina sem conversa) e rotina com notificação "só importante" (usa `notify_user`, que o v2 não tem);
 - tools sensíveis (`set_engine`, perfil) seguem só no chat com o dono digitando.
+
+**Proativo, alerta, brief, "só importante" e evento de configuração no v2 (paridade com o v1).** O worker não força mais o v1 para nenhum deles (`mustStayOnV1` saiu). O catálogo do v2 expõe as mesmas tools, nas mesmas condições e com os mesmos executores do registro (`engine-v2/catalog.ts`, `run.ts`); o que o worker já passava (`proactive`, `userPush`, `alertRun`) agora chega ao contexto da tool:
+
+| Origem | Tools no v2 | Nota ao modelo (só nesse run) |
+|---|---|---|
+| Chat do bot principal com modo proativo ligado | `schedule_followup`, `list_followups`, `cancel_followup`, `reschedule_followup`, `suggest_routine` | seção "Proactive mode (on)" |
+| Lembrete (origem `proactive`, com conversa) | `schedule_followup`, `list_followups`, `cancel_followup`, `reschedule_followup` | nenhuma (o pedido do lembrete já traz tudo) |
+| Reflexão diária (origem `proactive`, sem conversa) | `schedule_followup`, `list_followups`, `suggest_routine`, `notify_user` (com Jev, silêncio e teto no servidor) | nenhuma |
+| Rotina "só importante" e chat (aviso no meio de tarefa longa) | `notify_user` só-push (uma vez por run, respeita o silêncio) | rotina: "notify only when something matters" |
+| Rotina de alerta | `report_alert`; o veredito fica no estado que o worker lê depois (debounce e aviso são do worker) | nota do alerta (condição e dica) |
+| Brief "Seu dia" | só o que o `briefToolFilter` libera (leitura); sem `notify_user`, arquivos nem rotinas | a instrução do brief já vem nas mensagens |
+| Evento de configuração do bot | `propose_questionnaire`, `propose_profile_update`, `memory` (a rede de segurança injeta a instrução do evento se o chamador não pôs) | instrução do evento |
+
+As notas ficam em `engine-v2/origin-notes.ts` e entram como mensagens de sistema extras, só no run que precisa: o prompt do chat comum (sem proativo, push ou alerta) não muda, e "Bom dia" continua com um prompt só. Alerta, brief, reflexão/lembrete e evento de configuração rodam sempre no perfil `chat` (`shortRun` no worker), mesmo que o pedido pareça relatório ou o bot force `long_work`, porque a tool de caderno/documento nem existe nessas origens. Provas: `engine-v2/proativo.test.ts` roda o MESMO roteiro e as mesmas expectativas no v1 e no v2 (tools por origem, prompts, execução real, tetos, silêncio, Jev, dedupe, veredito do alerta, brief só leitura); `apps/worker/src/integration/proativo.integration.ts` compara, com Postgres real, o que fica no banco (estado do alerta, mensagens na conversa, follow-ups, eventos proativos, pushes) nos dois motores.
 
 **Verificação por origem (v1 x v2) e lacunas fechadas** (`engine-v2/catalog.ts`, `prompt.ts`, `login.ts`, `run.ts`; testes em `engine-v2/origens.test.ts` e `apps/worker/src/integration/origens.integration.ts`):
 - Rotina: o v2 não filtrava nada por origem. Agora usa a mesma lista de exclusão do v1 (`tools/routine-excluded.ts`: gestão de rotinas, `web_search`/`web_extract`, `memory`, `secret_request`), sem `sandbox_release`, sem lista de tarefas, imagem, painéis e conector de API (só chat). Conector: só o que a autonomia libera sem perguntar (o filtro de `unattended` já vinha do carregamento no worker; o catálogo agora repete a regra). "MCP read-only" aqui significa isso: com autonomia total o dono liberou escrita, igual ao v1. Sem humano o prompt traz o modo execução de rotina e "Unattended run": não perguntar, não esperar aprovação nem login. Login sem humano vira nota ao modelo (sem cartão nem pausa); captcha e login de conector seguem pedindo à pessoa, como no v1. Painel da rotina: só `page_read`/`page_update` do painel dela, com `routinePageId` no contexto da tool (o v2 não o repassava: poderia atualizar outro painel do dono). Perfil de trabalho: o mesmo `resolveRunProfile` (`long_work` quando o pedido da rotina é relatório/levantamento, senão `chat`). Entrega, `routineId` + run e `stopReason` vêm do worker, igual ao v1.
@@ -130,13 +142,13 @@ Decisão pura em `shared` (`resolveBotEngineRouting`, `engineV2SupportsRun`, `ch
 **Riscos e custo.** Rotina em `long_work` tem caderno, documento e orçamento de US$ 0,50 / 20 min (ajustável), então uma rotina de relatório pode custar mais que no v1; rotina curta fica em `chat` (US$ 0,25 / 8 min). `ATLAS_ENGINE_V2_DEFAULT=all` muda TODOS os bots sem escolha: ligue primeiro `chat`, meça, depois `all`. A engrenagem mostra "Atual" para bot sem escolha mesmo com o padrão global ligado (a UI não conhece a variável); escolher "Novo" e voltar a "Atual" grava `engine: "v1"` explícito. Desligar: tire o escopo do bot, ponha `ATLAS_ENGINE_V2_DEFAULT=off` e reinicie o worker; run em andamento termina no motor em que começou.
 
 ## Limites desta fase (o que o v2 ainda não faz)
-- **Origens:** por padrão só o chat direto do dono com o bot. Rotina, grupo e bot→bot só com `engineScope: "all"` (ou o padrão global `all`), ver acima. Alerta, webhook, proativo, e-mail e subagente seguem no v1.
+- **Origens:** por padrão só o chat direto do dono com o bot. Rotina (inclui alerta, brief e "só importante"), grupo, bot→bot e proativo só com `engineScope: "all"` (ou o padrão global `all`), ver acima. Webhook, e-mail e subagente seguem no v1.
 - **Bot→bot no v2 só responde:** o catálogo do v2 não tem `send_to_bot` nem `decide_bot_pending` e não injeta os pedidos abertos de outros bots. O bot atendido não repassa a um terceiro nem decide pendência de outro bot (o v1 faz). Anti-loop intacto, porque só o `send_to_bot` envia.
 - **Padrão global invisível:** `describeEngineSettings`, a engrenagem e `set_engine` leem só o `policyJson`; com `ATLAS_ENGINE_V2_DEFAULT` ligado, bot sem escolha aparece como "motor atual" mas roda no v2. Bot que voltou ao v1 antes desta fase (chave removida, sem `engine: "v1"`) também é pego pelo padrão global: regrave "Atual" antes de ligar.
 - **Rotina em trabalho longo:** instrução de relatório vira `long_work` (orçamento e documento), sem lista de tarefas (a rotina não tem `update_task_list`; o prompt não a cita).
-- **Tools fora do catálogo do v2:** `delegate_task` (no v2 o equivalente é `delegate`, ver acima), `research_note` (no v2 vale o caderno), `track_items`, `propose_plan`, `read_cached_result`, sessão de código (`dev_*`), envio entre bots, `set_autonomy`, lições de conector, prévia completa, `notify_user`/proativo.
+- **Tools fora do catálogo do v2:** `delegate_task` (no v2 o equivalente é `delegate`, ver acima), `research_note` (no v2 vale o caderno), `track_items`, `propose_plan`, `read_cached_result`, sessão de código (`dev_*`), envio entre bots, `set_autonomy`, lições de conector, prévia completa.
 - **Login:** o card de login é sempre humano (sem preenchimento automático do Cofre nem retomada com item do Cofre); o `login_fill` por tool continua.
-- **Modo proativo e avisos:** bot com modo proativo ligado fica no v1 (o v2 não tem `schedule_followup` nem a reflexão); o `notify_user` (push no meio de tarefa longa) também não existe no v2.
+- **Modo proativo e avisos:** cobertos (ver acima). Diferenças conhecidas: o modo proativo e o `notify_user` ocupam o catálogo sempre carregado (como no v1, são núcleo, não grupo lazy); um chat com modo proativo ligado não segue o idioma da mensagem no modo "auto" (igual ao v1: vale o último idioma detectado).
 - **Estimativa de custo:** conservadora e única para todos os modelos; modelos baratos sem custo informado chegam ao teto antes do real.
 - **Cartões que param o run** (questionário, perfil): o v2 devolve texto vazio e `awaiting_confirmation`, sem o fechamento curto que o v1 escreve.
 - **Contexto:** mesma higiene de prompt do v1; sem armazenamento de resultado grande por referência, sem resumo de compactação e sem as 4 memórias da F3.
@@ -156,4 +168,5 @@ Sem custo de infra novo. Tokens: o prompt do v2 é menor que o do v1 no "Bom dia
 ## Como testar
 - `pnpm --filter @workspace/shared test` (`engine-policy.test.ts`, `notebook.test.ts`, `engine-helpers.test.ts`).
 - `pnpm --filter @workspace/agent-runtime test` (`engine-v2/supervisor.test.ts`, `task-list.test.ts`, `run.test.ts`: replay de pesquisa com 30 leituras sem corte, "Bom dia" barato, aviso a 80% e entrega sem tools, repetição, falhas, lista de tarefas, retomada); `engine-v2/long-work.test.ts` (caderno: índice compacto, limites, checkpoint e retomada; ajudantes: paralelo, orçamento repartido, falha que não mata o pai, só leitura, escopo, hooks; replay "pesquisa de mercado com 5 fornecedores" com documento), `delivery.test.ts`, `notebook.test.ts`.
-- Worker: `cd apps/worker && NODE_ENV=test ATLAS_HOOK_PEPPER=test-pepper pnpm exec tsx --test src/engine-choice.test.ts` (bot sem policy → v1; policy v2 → v2; retomada respeita o gravado).
+- Worker: `cd apps/worker && NODE_ENV=test ATLAS_HOOK_PEPPER=test-pepper pnpm exec tsx --test src/engine-choice.test.ts` (bot sem policy → v1; policy v2 → v2; retomada respeita o gravado; proativo no escopo `all`; `shortRun` fixa o perfil `chat`).
+- Paridade do proativo/alerta/brief: `engine-v2/proativo.test.ts` (agent-runtime) e `ATLAS_TEST_DB_URL=... pnpm --filter worker test:integration` (`proativo.integration.ts`).

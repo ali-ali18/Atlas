@@ -4,6 +4,12 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Adicionado
+- **agent, shared, worker:** motor v2 cobre com paridade o modo proativo do bot (follow-ups, reflexão diária, ideias de rotina), os alertas (`report_alert`), o evento de configuração do bot, o brief "Seu dia" e a rotina "só importante" (`notify_user`), que antes ficavam sempre no v1. O catálogo do v2 expõe as mesmas tools nas mesmas condições (origem, humano, autonomia) com os executores do registro, e as notas ao modelo de cada origem entram só no run que precisa (o prompt do chat comum não cresce; "Bom dia" segue com um prompt só). A origem `proactive` (reflexão e lembrete) passa a valer no escopo `all`; o worker não força mais o v1 (`mustStayOnV1` removido) e fixa o perfil `chat` nessas verificações curtas (`shortRun`). Quem decide continua sendo a chave do bot (`engine: "v2"` + `engineScope: "all"`) ou `ATLAS_ENGINE_V2_DEFAULT=all`: sem chave o padrão segue v1. Sem migration. Ver `docs/features/motor-v2.md`.
+
+### Testes
+- **agent, worker:** `engine-v2/proativo.test.ts` roda o mesmo roteiro e as mesmas expectativas no v1 e no v2 (tools por origem, prompt, execução real, tetos, silêncio, Jev, dedupe, veredito do alerta, brief só leitura, evento de configuração); `proativo.integration.ts` compara com Postgres real o estado do alerta, o brief entregue, os follow-ups, as mensagens da reflexão e os pushes nos dois motores.
+
 ## [0.3.5-beta] - 2026-11-01
 
 ### Adicionado
