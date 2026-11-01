@@ -1,6 +1,7 @@
-import type { Bot, Section } from "@workspace/shared";
+import type { Bot } from "@workspace/shared";
 import { describe, expect, it } from "vitest";
-import { NO_SECTION_KEY, buildHome, foldText, formatListDate, initialsOf, previewOf, stripMarkdownPreview } from "./home-list";
+import { NO_SECTION_KEY, PREVIEW_MAX_CHARS, buildHome as buildHomeOf, buildSearchIndex, foldText, formatListDate, initialsOf, previewOf, stripMarkdownPreview, toHomeBot } from "./home-list";
+import type { SectionRef } from "./home-types";
 
 function bot(id: string, extra: Partial<Bot> = {}): Bot {
 	return {
@@ -25,7 +26,8 @@ function bot(id: string, extra: Partial<Bot> = {}): Bot {
 		...extra,
 	} as Bot;
 }
-const section = (id: string, name: string, order: number): Section => ({ id, name, order, createdAt: "", updatedAt: "" });
+const section = (id: string, name: string, order: number): SectionRef => ({ id, name, order });
+const buildHome = (bots: Bot[], sections: SectionRef[], query = "") => buildHomeOf(bots.map(toHomeBot), sections, query);
 
 describe("buildHome", () => {
 	it("fixados por pinOrder e fora das seções, mesmo com sectionId antigo", () => {
@@ -60,6 +62,36 @@ describe("buildHome", () => {
 	it("estabilidade: pinOrder igual mantém a ordem do servidor", () => {
 		const home = buildHome([bot("a", { pinned: true }), bot("b", { pinned: true }), bot("c", { pinned: true })], []);
 		expect(home.pinned.map((item) => item.id)).toEqual(["a", "b", "c"]);
+	});
+});
+
+describe("toHomeBot e busca", () => {
+	it("copia só o que a home desenha", () => {
+		const full = bot("a", { description: "segredo", policyJson: { x: 1 }, openRouterModel: "m", pinned: true, pinOrder: 2, unreadCount: 3 });
+		const slim = toHomeBot(full);
+		expect(Object.keys(slim).sort()).toEqual(["color", "id", "isPrimary", "lastAt", "memberIds", "name", "pinOrder", "pinned", "preview", "previewSent", "sectionId", "shape", "unread"]);
+		expect(slim).toMatchObject({ pinned: true, pinOrder: 2, unread: true });
+	});
+	it("trunca a prévia", () => {
+		const long = "x".repeat(PREVIEW_MAX_CHARS * 3);
+		const slim = toHomeBot(bot("a", { lastMessage: { role: "assistant", content: long, createdAt: "2026-01-01T00:00:00Z" } }));
+		expect(slim.preview.length).toBe(PREVIEW_MAX_CHARS + 1);
+		expect(slim.preview.endsWith("…")).toBe(true);
+		expect(slim.lastAt).toBe("2026-01-01T00:00:00Z");
+	});
+	it("não lida por contagem ou marca manual", () => {
+		expect(toHomeBot(bot("a", { manualUnread: true })).unread).toBe(true);
+		expect(toHomeBot(bot("a", { unreadCount: 0 })).unread).toBe(false);
+	});
+	it("índice de busca: nome e prévia normalizados, um por bot", () => {
+		const index = buildSearchIndex([toHomeBot(bot("1", { name: "Sênior", lastMessage: { role: "assistant", content: "Fatura PAGA", createdAt: "" } }))]);
+		expect(index.get("1")).toBe("senior fatura paga");
+	});
+	it("buildHome usa o índice dado, sem recalcular", () => {
+		const bots = [toHomeBot(bot("1", { name: "Alfa" }))];
+		const fake = new Map([["1", "zzz"]]);
+		expect(buildHomeOf(bots, [], "zzz", fake).pinned.length + buildHomeOf(bots, [], "zzz", fake).sections.reduce((n, item) => n + item.bots.length, 0)).toBe(1);
+		expect(buildHomeOf(bots, [], "alfa", fake).sections).toEqual([]);
 	});
 });
 

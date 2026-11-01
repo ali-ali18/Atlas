@@ -1,7 +1,8 @@
 import * as React from "react";
 import { createApiFetch } from "@/lib/api-fetch";
 import { createAtlasAuthClient, type AtlasAuthClient } from "@/lib/auth-client";
-import { phaseOf, type AccessPhase } from "@/lib/auth-flow";
+import { canMarkSynced, phaseOf, type AccessPhase } from "@/lib/auth-flow";
+import { clearHomeCacheLogged } from "@/lib/home-storage";
 import { clearServerUrl, loadServerUrl, saveServerUrl } from "@/lib/server-store";
 
 export type AtlasSession = {
@@ -16,7 +17,10 @@ export type AtlasSession = {
 	justSignedIn: boolean;
 	/** O carregamento (Sincronizando) já rodou nesta sessão: a home pode abrir. */
 	synced: boolean;
-	markSynced: () => void;
+	/** Marca o carregamento como feito. Não faz nada se a sessão já caiu ou se há uma saída em andamento. */
+	markSynced: () => boolean;
+	/** Avisa quando o usuário pede para sair ou trocar de servidor (antes de o cache ser apagado). Devolve o cancelamento. */
+	onSignOut: (listener: () => void) => () => void;
 	markSignedIn: () => void;
 	consumeJustSignedIn: () => void;
 	connectServer: (url: string) => Promise<void>;
@@ -71,9 +75,21 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 	const pending = Boolean(client) && (reading ? reading.pending : true);
 	const hasSession = email !== null;
 
+	// Saída em andamento: segura qualquer `markSynced` de um carregamento antigo até a próxima sessão de pé.
+	const signingOut = React.useRef(false);
+	const signOutListeners = React.useRef(new Set<() => void>());
+	const onSignOut = React.useCallback((listener: () => void) => {
+		signOutListeners.current.add(listener);
+		return () => void signOutListeners.current.delete(listener);
+	}, []);
+
 	const signOut = React.useCallback(async () => {
+		signingOut.current = true;
 		setJustSignedIn(false);
 		setSynced(false);
+		for (const listener of signOutListeners.current) listener();
+		// O cache sai antes de o servidor ser avisado e sem depender do efeito de fase (que pode nem rodar).
+		await clearHomeCacheLogged();
 		try {
 			await client?.signOut();
 		} catch {
@@ -83,6 +99,7 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 
 	const changeServer = React.useCallback(async () => {
 		await signOut();
+		await clearHomeCacheLogged();
 		await clearServerUrl();
 		setServerUrl(null);
 	}, [signOut]);
@@ -97,13 +114,21 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 		[client, serverUrl],
 	);
 
-	const markSynced = React.useCallback(() => setSynced(true), []);
+	const phase = phaseOf({ loaded, serverUrl, sessionPending: pending, hasSession });
+	const phaseRef = React.useRef<AccessPhase>(phase);
+	phaseRef.current = phase;
+	// Sem dependências: um closure antigo (do carregamento que ficou lento) lê a fase e a saída de agora.
+	const markSynced = React.useCallback(() => {
+		if (!canMarkSynced({ phase: phaseRef.current, signingOut: signingOut.current })) return false;
+		setSynced(true);
+		return true;
+	}, []);
 	const markSignedIn = React.useCallback(() => setJustSignedIn(true), []);
 	const consumeJustSignedIn = React.useCallback(() => setJustSignedIn(false), []);
-	const phase = phaseOf({ loaded, serverUrl, sessionPending: pending, hasSession });
 	// Sessão que caiu por fora (expirou, revogada): o próximo login passa de novo pelo carregamento.
 	React.useEffect(() => {
 		if (phase === "signed-out" || phase === "no-server") setSynced(false);
+		if (phase === "signed-in") signingOut.current = false;
 	}, [phase]);
 
 	const value = React.useMemo<AtlasSession>(
@@ -111,6 +136,7 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 			phase,
 			synced,
 			markSynced,
+			onSignOut,
 			serverUrl,
 			client,
 			email,
@@ -124,7 +150,7 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 			changeServer,
 			apiFetch,
 		}),
-		[phase, synced, serverUrl, client, email, name, image, justSignedIn, markSynced, markSignedIn, consumeJustSignedIn, connectServer, signOut, changeServer, apiFetch],
+		[phase, synced, onSignOut, serverUrl, client, email, name, image, justSignedIn, markSynced, markSignedIn, consumeJustSignedIn, connectServer, signOut, changeServer, apiFetch],
 	);
 
 	return (

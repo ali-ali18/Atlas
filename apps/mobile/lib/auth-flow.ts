@@ -28,3 +28,11 @@ export function redirectFor(phase: AccessPhase, current: string, synced = false)
 			return current === "/connect" || current === "/login" || current === "/syncing" ? "/" : null;
 	}
 }
+
+/**
+ * O carregamento pode se dar por concluído (marcar `synced` e ir à home)? Só com a sessão de pé e sem uma saída
+ * em andamento: um carregamento lento que termina depois do "Sair" não pode religar a home de quem já saiu.
+ */
+export function canMarkSynced(input: { phase: AccessPhase; signingOut: boolean }): boolean {
+	return input.phase === "signed-in" && !input.signingOut;
+}

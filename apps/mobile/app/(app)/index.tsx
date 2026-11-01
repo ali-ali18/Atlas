@@ -1,4 +1,4 @@
-import type { Bot } from "@workspace/shared";
+import type { HomeBot, SectionRef } from "@/lib/home-types";
 import { useRouter } from "expo-router";
 import * as React from "react";
 import { KeyboardAvoidingView, RefreshControl, ScrollView, View } from "react-native";
@@ -12,9 +12,13 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { useHomeData } from "@/lib/home-data";
-import { buildHome } from "@/lib/home-list";
+import { staleNotice } from "@/lib/home-copy";
+import { buildHome, buildSearchIndex } from "@/lib/home-list";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
+
+const NO_BOTS: readonly HomeBot[] = [];
+const NO_SECTIONS: readonly SectionRef[] = [];
 
 type Soon = "novo" | "apps" | null;
 
@@ -34,12 +38,14 @@ export default function HomeScreen() {
 	// biome-ignore lint/correctness/useExhaustiveDependencies: snapshot renova o relógio de propósito
 	const now = React.useMemo(() => new Date(), [snapshot]);
 
-	const bots = snapshot?.bots ?? [];
-	const layout = React.useMemo(() => buildHome(bots, snapshot?.sections ?? [], query), [bots, snapshot, query]);
+	const bots = snapshot?.bots ?? NO_BOTS;
+	// O texto de busca de cada bot sai uma vez por retrato, não a cada tecla.
+	const searchIndex = React.useMemo(() => buildSearchIndex(bots), [bots]);
+	const layout = React.useMemo(() => buildHome(bots, snapshot?.sections ?? NO_SECTIONS, query, searchIndex), [bots, snapshot, query, searchIndex]);
 	const searching = query.trim().length > 0;
 
 	const open = React.useCallback(
-		(bot: Bot) => {
+		(bot: HomeBot) => {
 			router.push(`/chat/${encodeURIComponent(bot.id)}` as never);
 		},
 		[router],
@@ -67,13 +73,13 @@ export default function HomeScreen() {
 	} else if (bots.length === 0) {
 		body = (
 			<Text variant="muted" className="px-8 pt-24 text-center text-control">
-				Você ainda não tem bots. Crie o primeiro pelo botão +.
+				Nenhum bot ainda.
 			</Text>
 		);
 	} else {
 		body = (
 			<>
-				{error ? <Text className="px-5 pt-2 text-caption text-muted-foreground">Sem conexão. Mostrando a última lista salva.</Text> : null}
+				{error ? <Text className="px-5 pt-2 text-caption text-muted-foreground">{staleNotice(error)}</Text> : null}
 				<PinnedGrid pinned={layout.pinned} bots={bots} onOpen={open} />
 				{layout.sections.map((section) => (
 					<SectionBlock

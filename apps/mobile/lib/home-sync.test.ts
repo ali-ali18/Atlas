@@ -13,7 +13,7 @@ describe("fetchHome", () => {
 			return path === "/v1/bots" ? json(200, { bots: [goodBot] }) : json(200, { sections: [goodSection] });
 		});
 		expect(paths.sort()).toEqual(["/v1/bots", "/v1/sections"]);
-		expect(result).toEqual({ ok: true, snapshot: { bots: [goodBot], sections: [goodSection] } });
+		expect(result).toMatchObject({ ok: true, snapshot: { bots: [{ id: "b1", name: "Cookie", preview: "" }], sections: [goodSection] } });
 	});
 	it("401 em qualquer chamada = sessão recusada", async () => {
 		const result = await fetchHome(async (path) => (path === "/v1/bots" ? json(200, { bots: [] }) : json(401, {})));
@@ -37,8 +37,12 @@ describe("parseSnapshot", () => {
 		expect(snapshot?.bots).toHaveLength(1);
 		expect(snapshot?.sections).toHaveLength(1);
 	});
-	it("lastMessage ausente vira null", () => {
+	it("lastMessage ausente vira prévia vazia", () => {
 		const { lastMessage: _omit, ...semUltima } = goodBot;
-		expect(parseSnapshot({ bots: [semUltima] }, { sections: [] })?.bots[0]?.lastMessage).toBeNull();
+		expect(parseSnapshot({ bots: [semUltima] }, { sections: [] })?.bots[0]).toMatchObject({ preview: "", lastAt: null });
+	});
+	it("o que sai não carrega campos além dos da home", () => {
+		const snapshot = parseSnapshot({ bots: [{ ...goodBot, policyJson: { a: 1 }, description: "d" }] }, { sections: [{ ...goodSection, createdAt: "x" }] });
+		expect(JSON.stringify(snapshot)).not.toMatch(/policyJson|description|createdAt/);
 	});
 });

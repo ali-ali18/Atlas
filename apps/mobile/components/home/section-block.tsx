@@ -1,20 +1,19 @@
-import type { Bot } from "@workspace/shared";
+import type { HomeBot } from "@/lib/home-types";
 import * as React from "react";
 import { Pressable, View } from "react-native";
 import { ChevronDownIcon, SendIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
-import { formatListDate, previewOf, type HomeSection } from "@/lib/home-list";
+import { formatListDate, type HomeSection } from "@/lib/home-list";
 import { BotAvatar } from "./bot-avatar";
 
 const ROW_BODY = 48;
 
 /** Linha de uma conversa: avatar, título em negrito, data à direita e a prévia da última mensagem. */
-export function ConversationRow({ bot, bots, now, onOpen }: { bot: Bot; bots: readonly Bot[]; now: Date; onOpen: (bot: Bot) => void }) {
-	const preview = previewOf(bot);
-	const date = formatListDate(bot.lastMessage?.createdAt, now);
-	const unread = (bot.unreadCount ?? 0) > 0 || bot.manualUnread === true;
+export function ConversationRow({ bot, bots, now, onOpen }: { bot: HomeBot; bots: readonly HomeBot[]; now: Date; onOpen: (bot: HomeBot) => void }) {
+	const date = formatListDate(bot.lastAt, now);
+	const unread = bot.unread;
 	return (
-		<Pressable role="button" accessibilityLabel={`${bot.name}. ${preview.text}`} onPress={() => onOpen(bot)} className="min-h-[72px] flex-row items-center gap-3 px-5 py-2 active:bg-muted/60">
+		<Pressable role="button" accessibilityLabel={`${bot.name}. ${bot.preview}`} onPress={() => onOpen(bot)} className="min-h-[72px] flex-row items-center gap-3 px-5 py-2 active:bg-muted/60">
 			<BotAvatar bot={bot} bots={bots} body={ROW_BODY} />
 			<View className="min-w-0 flex-1 gap-0.5">
 				<View className="flex-row items-center gap-2">
@@ -24,9 +23,9 @@ export function ConversationRow({ bot, bots, now, onOpen }: { bot: Bot; bots: re
 					{date ? <Text className="text-body text-muted-foreground">{date}</Text> : null}
 				</View>
 				<View className="flex-row items-center gap-1.5">
-					{preview.sent ? <SendIcon size={16} /> : null}
+					{bot.previewSent ? <SendIcon size={16} /> : null}
 					<Text numberOfLines={1} ellipsizeMode="tail" className={`min-w-0 flex-1 text-control ${unread ? "text-foreground" : "text-muted-foreground"}`}>
-						{preview.text || "Sem mensagens ainda"}
+						{bot.preview || "Sem mensagens ainda"}
 					</Text>
 					{unread ? <View accessibilityLabel="Não lida" className="size-2.5 rounded-full bg-info" /> : null}
 				</View>
@@ -46,11 +45,11 @@ export function SectionBlock({
 	showEmpty,
 }: {
 	section: HomeSection;
-	bots: readonly Bot[];
+	bots: readonly HomeBot[];
 	now: Date;
 	open: boolean;
 	onToggle: () => void;
-	onOpen: (bot: Bot) => void;
+	onOpen: (bot: HomeBot) => void;
 	showEmpty: boolean;
 }) {
 	return (

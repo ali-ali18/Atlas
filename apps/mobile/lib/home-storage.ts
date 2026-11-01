@@ -1,0 +1,9 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { clearHomeCache, type CacheStorage } from "./home-cache";
+
+export const homeStorage: CacheStorage = AsyncStorage as unknown as CacheStorage;
+
+/** Apaga o cache da home e, se falhar, só registra que falhou (nada de nomes, e-mails nem mensagens no log). */
+export async function clearHomeCacheLogged(storage: CacheStorage = homeStorage): Promise<void> {
+	if (!(await clearHomeCache(storage))) console.warn("Não consegui apagar o cache da home deste aparelho.");
+}

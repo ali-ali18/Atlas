@@ -26,7 +26,8 @@ export default function SyncingScreen() {
 			const outcome = await prepare();
 			await minimum;
 			if (outcome === "signed-out") return;
-			markSynced();
+			// A sessão pode ter caído enquanto o mascote estava na tela: então não se dá por sincronizado nem se navega.
+			if (!markSynced()) return;
 			router.replace("/");
 		})();
 	}, [prepare, markSynced, router]);

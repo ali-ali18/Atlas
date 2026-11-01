@@ -2,13 +2,17 @@
 // home-list.test.ts), no mesmo molde da barra lateral do web (chat-sidebar/chat-sidebar.tsx e agent-list.tsx):
 // fixado fica só na zona de fixados (fixar e seção são exclusivos), seção some se vazia, e quem não tem seção
 // (ou aponta para uma que não existe) vai para "Sem sessão".
-import { parseBotLinkCard, sourcePreviewPrefix, type Bot, type Section } from "@workspace/shared";
+import { parseBotLinkCard, sourcePreviewPrefix, type Bot } from "@workspace/shared";
+import type { HomeBot, SectionRef } from "./home-types";
 
 export const NO_SECTION_KEY = "__sem-sessao";
 export const NO_SECTION_TITLE = "Sem sessão";
 
-export type HomeSection = { key: string; title: string; bots: Bot[] };
-export type HomeLayout = { pinned: Bot[]; sections: HomeSection[] };
+export type HomeSection = { key: string; title: string; bots: HomeBot[] };
+export type HomeLayout = { pinned: HomeBot[]; sections: HomeSection[] };
+
+/** A prévia guardada (e portanto o cache) nunca passa disto. */
+export const PREVIEW_MAX_CHARS = 140;
 
 /** Sem acento, sem caixa: "Sênior" casa com "senior". */
 export function foldText(text: string): string {
@@ -50,13 +54,29 @@ export function previewOf(bot: Pick<Bot, "lastMessage">): RowPreview {
 	return { text: prefix ? `${prefix} · ${body}` : body, sent: false };
 }
 
-export function isGroup(bot: Pick<Bot, "memberIds">): boolean {
-	return bot.memberIds.length > 0;
+/** Cópia enxuta do bot, só com o que a home desenha; a prévia sai pronta e truncada. */
+export function toHomeBot(bot: Bot): HomeBot {
+	const preview = previewOf(bot);
+	return {
+		id: bot.id,
+		name: bot.name,
+		color: bot.color,
+		shape: bot.shape,
+		pinned: bot.pinned === true,
+		pinOrder: typeof bot.pinOrder === "number" ? bot.pinOrder : null,
+		sectionId: bot.sectionId ?? null,
+		memberIds: bot.memberIds,
+		isPrimary: bot.isPrimary === true,
+		unread: (bot.unreadCount ?? 0) > 0 || bot.manualUnread === true,
+		lastAt: bot.lastMessage?.createdAt ?? null,
+		preview: preview.text.length > PREVIEW_MAX_CHARS ? `${preview.text.slice(0, PREVIEW_MAX_CHARS)}…` : preview.text,
+		previewSent: preview.sent,
+	};
 }
 
-function matches(bot: Bot, term: string): boolean {
-	if (!term) return true;
-	return foldText(bot.name).includes(term) || foldText(previewOf(bot).text).includes(term);
+/** Texto de busca de cada bot (nome e prévia, sem acento nem caixa), calculado uma vez por retrato. */
+export function buildSearchIndex(bots: readonly HomeBot[]): ReadonlyMap<string, string> {
+	return new Map(bots.map((bot) => [bot.id, foldText(`${bot.name} ${bot.preview}`)]));
 }
 
 /**
@@ -64,9 +84,10 @@ function matches(bot: Bot, term: string): boolean {
  * dentro de cada seção. A busca filtra por nome e prévia; durante ela as seções vazias somem, e sem busca uma
  * seção vazia continua à mostra (o web mostra "sem conversas").
  */
-export function buildHome(bots: readonly Bot[], sections: readonly Section[], query = ""): HomeLayout {
+export function buildHome(bots: readonly HomeBot[], sections: readonly SectionRef[], query = "", index?: ReadonlyMap<string, string>): HomeLayout {
 	const term = foldText(query);
-	const visible = bots.filter((bot) => matches(bot, term));
+	const texts = term ? (index ?? buildSearchIndex(bots)) : null;
+	const visible = texts ? bots.filter((bot) => texts.get(bot.id)?.includes(term)) : [...bots];
 	const pinned = visible
 		.filter((bot) => bot.pinned)
 		.map((bot, index) => ({ bot, index }))

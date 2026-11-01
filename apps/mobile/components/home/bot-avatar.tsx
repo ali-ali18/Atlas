@@ -1,17 +1,21 @@
 import { resolveColor, resolveShape } from "@workspace/shared/avatar/identity";
-import type { Bot } from "@workspace/shared";
+import type { HomeBot } from "@/lib/home-types";
 import * as React from "react";
 import { View } from "react-native";
 import { StarFilledIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
 
-/** Laranja do selo do bot principal (a estrelinha da referência). */
-export const PRIMARY_BADGE_COLOR = "#ff9f0a";
+/**
+ * Cor de marca do selo do bot principal: a mesma do web (`primary-bot-badge.tsx`, `bg-[#ff9800]` com estrela
+ * `#fcfcfc`). Não é um token do tema (`warning` é amarelo e muda no escuro); o selo tem a mesma cor nos dois temas.
+ */
+export const PRIMARY_BADGE_COLOR = "#ff9800";
+const PRIMARY_BADGE_STAR = "#fcfcfc";
 
 type BotAvatarProps = {
-	bot: Bot;
+	bot: HomeBot;
 	/** Bots do usuário, para achar os membros de um grupo. */
-	bots: readonly Bot[];
+	bots: readonly HomeBot[];
 	/** Lado do corpo em px (o SVG tem ~30% de margem). */
 	body: number;
 	animated?: boolean;
@@ -23,7 +27,7 @@ const BOX_RATIO = 1 / 0.705;
 /** Avatar de um bot com a forma e a cor reais dele (mesmo motor do web); grupo mostra até 3 membros. */
 export function BotAvatar({ bot, bots, body, animated = false }: BotAvatarProps) {
 	const box = Math.round(body * BOX_RATIO);
-	const members = bot.memberIds.length > 0 ? bot.memberIds.map((id) => bots.find((item) => item.id === id)).filter((item): item is Bot => Boolean(item)).slice(0, 3) : [];
+	const members = bot.memberIds.length > 0 ? bot.memberIds.map((id) => bots.find((item) => item.id === id)).filter((item): item is HomeBot => Boolean(item)).slice(0, 3) : [];
 	if (members.length === 0) {
 		return (
 			<View style={{ width: body, height: body, alignItems: "center", justifyContent: "center" }}>
@@ -52,7 +56,7 @@ export function PrimaryBadge({ size = 28 }: { size?: number }) {
 			accessibilityLabel="Bot principal"
 			style={{ position: "absolute", right: 0, bottom: 0, width: size, height: size, borderRadius: size / 2, backgroundColor: PRIMARY_BADGE_COLOR, alignItems: "center", justifyContent: "center" }}
 		>
-			<StarFilledIcon size={Math.round(size * 0.5)} />
+			<StarFilledIcon size={Math.round(size * 0.5)} color={PRIMARY_BADGE_STAR} />
 		</View>
 	);
 }

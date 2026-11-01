@@ -1,9 +1,11 @@
 // Busca da home: bots (com a última mensagem de cada conversa) e seções, sempre pela sessão (`apiFetch`).
 // Mesmos endpoints do web (`listBots` e `listSections` em apps/web/lib/atlas-api.ts). Não há lista de conversas
 // à parte: o servidor entrega a conversa de cada bot em `bot.lastMessage`/`bot.conversationId`.
-import type { Bot, Section } from "@workspace/shared";
+import type { Bot } from "@workspace/shared";
+import { toHomeBot } from "./home-list";
+import type { HomeSnapshot } from "./home-types";
 
-export type HomeSnapshot = { bots: Bot[]; sections: Section[] };
+export type { HomeSnapshot } from "./home-types";
 export type SyncFailure = "unauthorized" | "network" | "server";
 export type SyncResult = { ok: true; snapshot: HomeSnapshot } | { ok: false; reason: SyncFailure };
 export type ApiFetch = (path: string, init?: RequestInit) => Promise<Response>;
@@ -20,7 +22,7 @@ function validBot(value: unknown): value is Bot {
 	);
 }
 
-function validSection(value: unknown): value is Section {
+function validSection(value: unknown): value is { id: string; name: string; order: number } {
 	return isRecord(value) && typeof value.id === "string" && typeof value.name === "string" && typeof value.order === "number";
 }
 
@@ -29,7 +31,11 @@ export function parseSnapshot(botsBody: unknown, sectionsBody: unknown): HomeSna
 	const rawBots = isRecord(botsBody) ? botsBody.bots : null;
 	const rawSections = isRecord(sectionsBody) ? sectionsBody.sections : null;
 	if (!Array.isArray(rawBots) || !Array.isArray(rawSections)) return null;
-	return { bots: rawBots.filter(validBot).map((bot) => ({ ...bot, lastMessage: bot.lastMessage ?? null })), sections: rawSections.filter(validSection) };
+	// Só o que a home desenha sai daqui: o resto do bot (política, descrição, texto inteiro) nunca chega ao estado nem ao cache.
+	return {
+		bots: rawBots.filter(validBot).map((bot) => toHomeBot({ ...bot, lastMessage: bot.lastMessage ?? null })),
+		sections: rawSections.filter(validSection).map((section) => ({ id: section.id, name: section.name, order: section.order })),
+	};
 }
 
 async function readJson(response: Response): Promise<unknown> {

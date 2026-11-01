@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { phaseOf, redirectFor } from "./auth-flow";
+import { canMarkSynced, phaseOf, redirectFor } from "./auth-flow";
 
 describe("phaseOf", () => {
 	const base = { loaded: true, serverUrl: "https://a.test", sessionPending: false, hasSession: false };
@@ -42,5 +42,17 @@ describe("redirectFor", () => {
 		expect(redirectFor("signed-in", "/connect", true)).toBe("/");
 		expect(redirectFor("signed-in", "/", true)).toBeNull();
 		expect(redirectFor("signed-in", "/conversas", true)).toBeNull();
+	});
+});
+
+describe("canMarkSynced", () => {
+	it("só com a sessão de pé e sem saída em andamento", () => {
+		expect(canMarkSynced({ phase: "signed-in", signingOut: false })).toBe(true);
+		expect(canMarkSynced({ phase: "signed-in", signingOut: true })).toBe(false);
+	});
+	it("carregamento lento que termina depois de a sessão cair não religa a home", () => {
+		expect(canMarkSynced({ phase: "signed-out", signingOut: false })).toBe(false);
+		expect(canMarkSynced({ phase: "no-server", signingOut: false })).toBe(false);
+		expect(canMarkSynced({ phase: "loading", signingOut: false })).toBe(false);
 	});
 });
