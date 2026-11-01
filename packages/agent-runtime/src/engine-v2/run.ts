@@ -112,7 +112,7 @@ import { shouldExposeSetEngine } from "../tools/set-engine.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
 import { MAX_STEPS_SAFETY, type SupervisorProfile, budgetForProfile, createSupervisor, deliveryInstruction } from "./supervisor.js";
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
-import { dedupeLoginAsk } from "./login.js";
+import { dedupeLoginAsk, unattendedLoginOutcome } from "./login.js";
 import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
 import { appendUnconfirmed, createTaskListGate, droppedItems, openItems } from "./task-list.js";
 import { type DelegateDeps } from "../tools/delegate-task.js";
@@ -232,8 +232,10 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		!isBotConfigEventObjective(lastUserMessage) &&
 		!parseQuestionnaireAnsweredContent(lastUserMessage);
 	const botProfile = botId && !helperRole ? await (params.loadBotProfile ?? getBotProfile)(botId, params.userId).catch(() => null) : null;
+	// Perfil do bot só muda no chat (onboarding ou pedido explícito): rotina e bot→bot nunca expõem a tool.
 	const allowProfileUpdate =
 		!helperRole &&
+		origin === "chat" &&
 		(!botProfile?.description?.trim() ||
 		isBotConfigEventObjective(params.objective ?? "") ||
 		isBotConfigEventObjective(lastUserMessage) ||
@@ -270,6 +272,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		helper: Boolean(helperRole),
 		helpers: userId !== "default" && origin === "chat",
 		setEngine: !helperRole && shouldExposeSetEngine({ origin, humanTurn, lastUserMessage }),
+		...(origin === "routine" && params.routinePageId ? { routinePageId: params.routinePageId } : {}),
 	});
 	if (helperRole?.preactivateMcpTools?.length) catalog.activateMcpTools([...helperRole.preactivateMcpTools]);
 	const tools = catalog.tools;
@@ -380,6 +383,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			atlasUrl: process.env.ATLAS_URL,
 			helpers: hasToolInRun("delegate"),
 			role: helperRole ? "helper" : undefined,
+			...(isUnattendedOrigin(origin) && !helperRole ? { unattended: true } : {}),
+			...(origin === "routine" && !helperRole ? { routine: true } : {}),
 			languageInstruction: languageAtEnd ? replyLanguage.instruction : undefined,
 		});
 		conversation = [
@@ -700,6 +705,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		conversationId,
 		runId,
 		origin,
+		...(origin === "routine" && params.routinePageId ? { routinePageId: params.routinePageId } : {}),
 		autonomy: autonomyHandle,
 		skillStore: params.skillStore,
 		jevMcpMode: params.jevMcpMode,
@@ -834,6 +840,12 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			fileEvent = outcome.fileEvent;
 			if (fileEvent) fileDelivered = true;
 			loginEvent = outcome.loginEvent;
+			// Sem humano (rotina/webhook): nota no lugar do cartão. Com humano: um cartão por site e conversa.
+			if (loginEvent) {
+				const unattended = unattendedLoginOutcome({ event: loginEvent, summary, unattended: isUnattendedOrigin(origin) });
+				loginEvent = unattended.event;
+				summary = unattended.summary;
+			}
 			if (loginEvent) {
 				const deduped = dedupeLoginAsk({ event: loginEvent, summary, asked: (await loadRecentLoginAsks()).asked });
 				loginEvent = deduped.event;

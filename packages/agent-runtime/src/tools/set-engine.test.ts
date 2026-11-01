@@ -31,7 +31,7 @@ describe("set_engine: exposição", () => {
 
 	it("schema em inglês e sem userId/botId", () => {
 		const props = Object.keys((SET_ENGINE_TOOL.function.parameters as { properties: object }).properties);
-		expect(props).toEqual(["engine", "budget_usd", "minutes", "helper_model"]);
+		expect(props).toEqual(["engine", "scope", "budget_usd", "minutes", "helper_model"]);
 		expect(SET_ENGINE_TOOL.function.description).toMatch(/Use ONLY when the user's own latest message/);
 	});
 
@@ -68,11 +68,37 @@ describe("set_engine: execução", () => {
 		expect(out.summary).toMatch(/do not repeat it/);
 	});
 
-	it("desliga na hora: volta ao motor atual removendo só a chave", async () => {
+	it("scope: liga o escopo amplo, valida o valor e avisa quando o motor novo está desligado", async () => {
+		const { deps, policies } = fakeStore();
+		const on = await executeSetEngine({ engine: "new", scope: "all" }, ctx, deps);
+		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2", engineScope: "all" });
+		expect(on.card.description).toBe("Motor novo (teste) · também em rotinas e grupos · até US$ 0,50 e 20 min por tarefa longa");
+		expect(on.summary).not.toMatch(/only takes effect/);
+		await expect(executeSetEngine({ scope: "tudo" }, ctx, deps)).rejects.toThrow(/Invalid scope.*Accepted fields.*scope/);
+		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2", engineScope: "all" });
+		const narrow = await executeSetEngine({ scope: "chat" }, ctx, deps);
+		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2" });
+		expect(narrow.card.description).not.toMatch(/rotinas/);
+		await executeSetEngine({ engine: "current" }, ctx, deps);
+		const idle = await executeSetEngine({ scope: "all" }, ctx, deps);
+		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v1", engineScope: "all" });
+		expect(idle.card.description).toBe("Motor atual");
+		expect(idle.summary).toMatch(/only takes effect once the new engine is on/);
+	});
+
+	it("scope também só muda quando o próprio dono pede (rotina, bot→bot e turno sem humano nunca)", async () => {
+		const { deps, policies } = fakeStore();
+		for (const bad of [{ ...ctx, origin: "routine" }, { ...ctx, origin: "bot" }, { ...ctx, humanTurn: false }, { ...ctx, userRequestText: "Bom dia" }]) {
+			await expect(executeSetEngine({ scope: "all" }, bad, deps)).rejects.toThrow(/só muda quando o próprio usuário pede/);
+		}
+		expect(policies["bot-a"]).toEqual({ planMode: true });
+	});
+
+	it("desliga na hora: volta ao motor atual (explícito, o padrão global não o religa)", async () => {
 		const { deps, policies } = fakeStore();
 		await executeSetEngine({ engine: "new" }, ctx, deps);
 		const out = await executeSetEngine({ engine: "current" }, { ...ctx, userRequestText: "volta pro motor antigo" }, deps);
-		expect(policies["bot-a"]).toEqual({ planMode: true });
+		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v1" });
 		expect(out.card.description).toBe("Motor atual");
 	});
 

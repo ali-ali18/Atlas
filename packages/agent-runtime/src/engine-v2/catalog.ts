@@ -3,8 +3,10 @@
  * `mcp_tool_search` para carregar por nome ou necessidade (o mesmo mecanismo do v1). O roteador de intenção
  * (regex) vira só DICA de pré-carga: nunca decide o que existe, porque tudo é carregável a pedido do modelo.
  *
- * Nesta fase o v2 atende só a conversa direta (origem `chat`, agente principal): ficam de fora as tools de
- * subagente, rotina/alerta, proativo, envio entre bots e sessão de código (ver docs/features/motor-v2.md).
+ * O v2 atende a conversa direta (origem `chat`) e, com o escopo ampliado do bot, rotina, grupo e bot→bot. Ficam de
+ * fora as tools de subagente, alerta, proativo, envio entre bots e sessão de código (ver docs/features/motor-v2.md).
+ * As regras por origem espelham as do v1 (`computer-use.ts`): rotina não recebe gestão de rotinas, pesquisa web,
+ * memória nem pedido de senha; sem humano (rotina/webhook) só entra conector que a autonomia libera sem perguntar.
  */
 import type { ChatTool } from "@workspace/llm";
 import { decideAction, hostAutonomyMeta, type EffectiveAutonomy } from "@workspace/shared";
@@ -22,9 +24,11 @@ import { ATTACHMENT_LIST_TOOL, ATTACHMENT_READ_TOOL, ATTACHMENT_TO_COMPUTER_TOOL
 import { GENERATE_IMAGE_TOOL } from "../tools/generate-image.js";
 import { CREATE_FILE_TOOL } from "../tools/create-file.js";
 import { INSPECT_PRESENTATION_TOOL } from "../tools/inspect-presentation.js";
-import { PAGE_TOOLS } from "../tools/pages.js";
+import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME } from "../tools/pages.js";
 import { RUN_CODE_TOOL } from "../tools/run-code.js";
-import { UPDATE_TASK_LIST_TOOL } from "../tools/task-list.js";
+import { UPDATE_TASK_LIST_TOOL, shouldExposeTaskList } from "../tools/task-list.js";
+import { ROUTINE_EXCLUDED_TOOLS } from "../tools/routine-excluded.js";
+import { isUnattendedOrigin } from "../autonomy-gate.js";
 import { SANDBOX_TOOL_NAMES } from "../tools/registry/sandbox-tools.js";
 import { SANDBOX_SHELL_TOOL_NAMES, sandboxShellAllowedForOrigin, sandboxShellBlocked, type SandboxShellToolName } from "../tools/sandbox-shell.js";
 import { SANDBOX_RELEASE_TOOL_NAME } from "../tools/sandbox-release.js";
@@ -88,6 +92,8 @@ export function buildEngineV2Catalog(input: {
 	helpers?: boolean;
 	/** O dono (digitando) pediu para ligar/desligar/ajustar o motor: `set_engine` entra. */
 	setEngine?: boolean;
+	/** Rotina ligada a um painel: só ler e atualizar esse painel (o executor trava os outros). */
+	routinePageId?: string;
 }): EngineV2Catalog {
 	const allow = (name: string) => input.toolFilter?.(name) ?? true;
 	const hostBlocked = (name: string) =>
@@ -109,7 +115,10 @@ export function buildEngineV2Catalog(input: {
 		if (!input.sandboxEnabled && SANDBOX_TOOL_NAMES.has(name)) continue;
 		if (name === "propose_profile_update" && !input.allowProfileUpdate) continue;
 		if (name === "login_fill" && !input.sandboxEnabled) continue;
-		if (name === SANDBOX_RELEASE_TOOL_NAME && !input.sandboxEnabled) continue;
+		// Rotina/webhook não desliga a VM que o dono pode estar usando; quem libera memória é o guarda.
+		if (name === SANDBOX_RELEASE_TOOL_NAME && (!input.sandboxEnabled || isUnattendedOrigin(input.origin))) continue;
+		if (input.origin === "routine" && ROUTINE_EXCLUDED_TOOLS.has(name)) continue;
+		if ((name === "propose_connector" || name === "propose_custom_mcp") && input.origin !== "chat") continue;
 		if ((SANDBOX_SHELL_TOOL_NAMES as readonly string[]).includes(name)) {
 			const shell = name as SandboxShellToolName;
 			if (!sandboxShellAllowedForOrigin(shell, input.origin) || sandboxShellBlocked(input.autonomy, shell)) continue;
@@ -123,20 +132,26 @@ export function buildEngineV2Catalog(input: {
 		add(ATTACHMENT_LIST_TOOL);
 		if (input.sandboxEnabled) add(ATTACHMENT_TO_COMPUTER_TOOL);
 	}
-	if (decideAction(input.autonomy, { actionClass: "write", tool: "generate_image", host: false }) !== "block") add(GENERATE_IMAGE_TOOL);
+	if (input.origin === "chat" && decideAction(input.autonomy, { actionClass: "write", tool: "generate_image", host: false }) !== "block") add(GENERATE_IMAGE_TOOL);
 	add(CREATE_FILE_TOOL);
 	if (input.userId !== "default") {
 		add(INSPECT_PRESENTATION_TOOL);
-		for (const tool of PAGE_TOOLS) add(tool);
+		const routinePage = input.origin === "routine" && Boolean(input.routinePageId);
+		if (input.origin === "chat" || routinePage) {
+			for (const tool of PAGE_TOOLS) {
+				if (routinePage && tool.function.name !== PAGE_UPDATE_TOOL_NAME && tool.function.name !== PAGE_READ_TOOL_NAME) continue;
+				add(tool);
+			}
+		}
 		if (loadCodeRunnerConfig().enabled) add(RUN_CODE_TOOL);
-		add(PROPOSE_API_CONNECTION_TOOL);
+		if (input.origin === "chat") add(PROPOSE_API_CONNECTION_TOOL);
 	}
 	if (input.apiConnector) {
 		add(API_SEARCH_TOOL);
 		add(API_CALL_TOOL);
 	}
 	for (const tool of emailToolsFor(input.email)) add(tool);
-	add(UPDATE_TASK_LIST_TOOL);
+	if (shouldExposeTaskList({ origin: input.origin, isSubagent: false })) add(UPDATE_TASK_LIST_TOOL);
 	if (input.setEngine && !input.helper) add(SET_ENGINE_TOOL);
 	if (input.helper) {
 		add(NOTEBOOK_WRITE_TOOL);
@@ -154,6 +169,7 @@ export function buildEngineV2Catalog(input: {
 		profileAllowed: input.allowProfileUpdate,
 	});
 	if (input.allowProfileUpdate) preloaded.add("profile");
+	if (input.origin === "routine" && input.routinePageId) preloaded.add("pages");
 	// Trabalho longo termina em documento: `create_file` já vai carregado (sem o passo extra de carga na entrega).
 	if (input.longWork && !input.helper && native.some((tool) => tool.function.name === "create_file")) preloaded.add("files");
 	if (!native.some((tool) => tool.function.name === "propose_bot")) preloaded.delete("bots");
@@ -168,7 +184,10 @@ export function buildEngineV2Catalog(input: {
 	const mcpTools = (mcp?.toolset.tools ?? []).filter((tool) => {
 		const entry = mcp?.toolset.entries.get(tool.function.name);
 		if (!entry || !allow(tool.function.name)) return false;
-		return decideAction(input.autonomy, entry.autonomyMeta) !== "block";
+		const decision = decideAction(input.autonomy, entry.autonomyMeta);
+		if (decision === "block") return false;
+		// Sem humano para aprovar (rotina, webhook): só o que a autonomia libera sem perguntar.
+		return !isUnattendedOrigin(input.origin) || decision === "allow";
 	});
 	const wantsSearch = allow("mcp_tool_search") && (plan.deferred.size > 0 || Boolean(mcp?.toolset.deferred));
 	const tools = orderEconomyTools({ plan, searchTool: wantsSearch ? TOOL_SEARCH_WITH_BUILTINS : null, connectorTools: mcpTools });
