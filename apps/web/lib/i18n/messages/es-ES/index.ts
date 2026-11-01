@@ -18,6 +18,7 @@ import { libraryPanel } from "./libraryPanel";
 import { login } from "./login";
 import { marketplace } from "./marketplace";
 import { mobile } from "./mobile";
+import { reasoning } from "./reasoning";
 import { modelPicker } from "./modelPicker";
 import { providerCallback } from "./providerCallback";
 import { routines } from "./routines";
@@ -58,6 +59,7 @@ export const esES: MessageDictionary = {
 	...login,
 	...marketplace,
 	...mobile,
+	...reasoning,
 	...modelPicker,
 	...providerCallback,
 	...routines,

@@ -10,6 +10,7 @@ import {
 	type JevMode,
 	type LlmTimeoutPreset,
 } from "./account-config.js";
+import { parseReasoningEffort, type ReasoningEffort } from "./reasoning-effort.js";
 import { hasModelTiers, normalizeModelTiers, type ModelTiers } from "./model-tiers.js";
 import type { BotLanguageSetting } from "./bot-language.js";
 import { resolveMaintenanceModel } from "./provider-policy.js";
@@ -55,6 +56,8 @@ export type EffectiveAccountConfig = {
 		tiers: Resolved<ModelTiers>;
 		/** Classificar a dificuldade com o revisor: usuário > desligado (regras locais). */
 		classifyWithReviewer: Resolved<boolean>;
+		/** Nível de raciocínio padrão da conta: usuário > padrão do modelo (`undefined`). */
+		reasoningEffort: Resolved<ReasoningEffort | undefined>;
 	};
 	jev: { mcp: Resolved<JevMcpMode>; features: Record<JevFeature, Resolved<JevMode>> };
 	/** Grupos de bots: usuário > GROUPS_JEV_COORDINATION > desligada. */
@@ -239,6 +242,7 @@ export function resolveEffectiveConfig(input: {
 			})(),
 			classifyWithReviewer:
 				cfg.models?.classifyWithReviewer !== undefined ? user(cfg.models.classifyWithReviewer) : dflt(false),
+			reasoningEffort: cfg.models?.reasoningEffort ? user(cfg.models.reasoningEffort) : dflt(undefined),
 		},
 		jev: {
 			mcp: cfg.jev?.mcp ? user(cfg.jev.mcp) : mcpEnv ? env(mcpEnv) : dflt("off"),
@@ -300,6 +304,8 @@ export type RunConfigSnapshot = {
 	modelTiers?: ModelTiers;
 	/** Dificuldade classificada pelo revisor (Jev); ausente = regras locais. */
 	classifyWithReviewer?: boolean;
+	/** Nível de raciocínio padrão da conta; ausente = padrão do modelo. */
+	reasoningEffort?: ReasoningEffort;
 	jevMcpMode: JevMcpMode;
 	jevModes: Record<JevFeature, JevMode>;
 	executionDiscipline: boolean;
@@ -338,6 +344,7 @@ export function toRunConfigSnapshot(effective: EffectiveAccountConfig): RunConfi
 	if (effective.models.coding.value) snapshot.codingModel = effective.models.coding.value;
 	if (hasModelTiers(effective.models.tiers.value)) snapshot.modelTiers = effective.models.tiers.value;
 	if (effective.models.classifyWithReviewer.value) snapshot.classifyWithReviewer = true;
+	if (effective.models.reasoningEffort.value) snapshot.reasoningEffort = effective.models.reasoningEffort.value;
 	if (effective.execution.maxOutputTokens.value !== undefined)
 		snapshot.maxOutputTokens = effective.execution.maxOutputTokens.value;
 	if (effective.execution.toolResultMaxChars.value !== undefined)
@@ -385,6 +392,7 @@ export function parseRunConfigSnapshot(raw: unknown): RunConfigSnapshot | null {
 		!optional(raw.codingModel, nonEmptyString) ||
 		!optional(raw.modelTiers, isRecord) ||
 		!optional(raw.classifyWithReviewer, (v) => typeof v === "boolean") ||
+		!optional(raw.reasoningEffort, (v) => parseReasoningEffort(v) !== undefined) ||
 		!optional(raw.maxOutputTokens, positiveInt) ||
 		!optional(raw.toolResultMaxChars, positiveInt) ||
 		!optional(raw.maxSteps, positiveInt) ||

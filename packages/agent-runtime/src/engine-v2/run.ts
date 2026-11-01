@@ -9,6 +9,7 @@
  * As tools são as mesmas do v1: executam por `executeTool` (cofre, confirmações, cards) com um `ToolContext`
  * montado aqui. O que o v1 faz e o v2 ainda não: ver a seção "Limites desta fase" em docs/features/motor-v2.md.
  */
+import { createReasoningEffortPicker } from "../reasoning-effort.js";
 import { createHash } from "node:crypto";
 import {
 	type ChatTool,
@@ -168,6 +169,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	const origin = params.origin ?? "chat";
 	const apiKey = params.apiKey;
 	const streamChat = params.streamChat ?? streamChatWithTools;
+	const pickReasoningEffort = createReasoningEffortPicker({ effort: params.reasoningEffort, supportsReasoning: params.modelSupportsReasoning });
 	const parsed = parseRuntimeCheckpoint(params.restoredCheckpoint);
 	let model = params.model;
 	let lastModel = params.model;
@@ -515,6 +517,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		let deltaTail = Promise.resolve();
 		const callStartedAt = performance.now();
 		let firstDeltaMs: number | undefined;
+		const reasoningFor = await pickReasoningEffort(model);
 		const result = await streamChat(
 			{
 				messages: transport,
@@ -529,6 +532,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				fallbackModels: params.fallbackModels,
 				maxOutputTokens: outputCap,
 				reasoningMaxTokens: params.reasoningMaxTokens,
+				...(reasoningFor ? { reasoningEffort: reasoningFor } : {}),
 				sessionId: !conversationId ? params.runId : `c${createHash("sha256").update(`${botId ?? ""}:${conversationId}`).digest("hex").slice(0, 31)}`,
 				...(layers.length > 0 || notebookLayer.length > 0 ? { cacheStableIndex: conversation.length - 1 } : {}),
 			},

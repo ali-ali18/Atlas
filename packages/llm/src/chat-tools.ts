@@ -13,7 +13,7 @@ import {
 } from "./config.js";
 import { createCallTimer, type LlmCallTiming } from "./timing.js";
 import { canonicalMessage, demoteSystemNotes, remapStableIndex } from "./system-notes.js";
-import { normalizeFinishReason, type FinishReason } from "@workspace/shared";
+import { canDisableReasoning, normalizeFinishReason, parseModelRef, type FinishReason, type ReasoningEffort } from "@workspace/shared";
 import {
 	classifyProviderHttpError,
 	isRetryableProviderError,
@@ -36,6 +36,25 @@ function claudeCacheMessages(params: CompleteChatWithToolsParams, options: { cac
 		stableIndex: remapStableIndex(params.cacheStableIndex, demoted.positions),
 		ttl: (options.ttl === undefined ? configuredCacheTtl() : options.ttl) || undefined,
 	});
+}
+
+/**
+ * `reasoning` do OpenRouter para o nível escolhido. Quem chama já filtrou pelo suporte do modelo; aqui só o
+ * caminho do OpenRouter recebe (modelo `chatgpt/*`, Anthropic direto e OpenCode têm corpo próprio e ignoram).
+ */
+function reasoningEffortBody(params: CompleteChatWithToolsParams, fallbacks: readonly string[]): { effort: Exclude<ReasoningEffort, "off"> } | { enabled: false } | undefined {
+	const effort = params.reasoningEffort;
+	if (!effort) return undefined;
+	try {
+		if (parseModelRef(params.model).provider !== "openrouter") return undefined;
+	} catch {
+		return undefined;
+	}
+	if (effort !== "off") return { effort };
+	// Com reserva (`models: [...]`) o mesmo corpo vale para todos os modelos da lista. "Desligado" só segue se TODOS
+	// desligam de verdade; basta um que não desliga (ou que a curadoria não conhece) e rebaixamos para "low", o nível
+	// mais barato que qualquer modelo com raciocínio aceita. Omitir cairia no padrão do modelo, que costuma ser o mais caro.
+	return fallbacks.every((model) => canDisableReasoning(model)) ? { enabled: false } : { effort: "low" };
 }
 
 export function chatRequestBody(
@@ -77,11 +96,12 @@ export function chatRequestBody(
 				: maxTokens < 2
 					? undefined
 					: Math.min(requestedReasoningTokens, Math.floor(maxTokens / 2));
+	const reasoning: { effort: string } | { enabled: false } | { max_tokens: number } | undefined =
+		reasoningEffortBody(params, fallbacks) ?? (reasoningTokens !== undefined ? { max_tokens: reasoningTokens } : undefined);
 	return {
 		...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
-		...(reasoningTokens !== undefined
-			? { reasoning: { max_tokens: reasoningTokens } }
-			: {}),
+		// O nível pedido vence o teto de tokens: o OpenRouter não aceita `effort` e `max_tokens` juntos.
+		...(reasoning ? { reasoning } : {}),
 		parallel_tool_calls: true,
 		model: params.model,
 		...(fallbacks.length > 0 ? { models: [params.model, ...fallbacks] } : {}),
@@ -241,6 +261,8 @@ export type CompleteChatWithToolsParams = {
 	idleTimeoutMs?: number;
 	maxOutputTokens?: number;
 	reasoningMaxTokens?: number;
+	/** Nível de raciocínio (OpenRouter). Vence `reasoningMaxTokens`; o chamador só passa para modelo com suporte. */
+	reasoningEffort?: ReasoningEffort;
 	/** Modelos de reserva do OpenRouter. Omitido = `OPENROUTER_FALLBACK_MODELS`. */
 	fallbackModels?: string[];
 	/** Id estável do run: o OpenRouter roteia p/ o mesmo endpoint (cache quente). */

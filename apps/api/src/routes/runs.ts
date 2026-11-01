@@ -47,6 +47,7 @@ import {
 } from "@workspace/db";
 import { noteBrowserLanguage } from "@workspace/db";
 import { pickLanguageFromAcceptLanguage } from "@workspace/shared";
+import { parseReasoningEffort } from "@workspace/shared";
 import { demoteSteerInputToQueue, getOwnedConversation, markPendingLoginCode, markPendingLoginUseVault, promoteQueuedInputToSteer } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 import { isRunEventsSignalSubscribed, publishRunSignal as defaultPublishRunSignal, subscribeRunEventsSignal, type AgentRunQueue } from "@workspace/queue";
@@ -107,12 +108,15 @@ function parseCreateBody(
 	}
 
 	if (!validMaxSteps(body.maxSteps)) return { error: "maxSteps must be an integer from 1 to 100" };
+	if (body.reasoningEffort != null && parseReasoningEffort(body.reasoningEffort) === undefined) return { error: "reasoningEffort must be one of: off, low, medium, high" };
 	if (body.objective !== undefined && (typeof body.objective !== "string" || body.objective.length > API_INPUT_LIMITS.contentChars)) return { error: "Invalid objective" };
 	return {
 		messages,
 		...(attachments.length ? { attachments } : {}),
 		model: typeof body.model === "string" ? body.model : undefined,
 		...(body.modelAuto === true ? { modelAuto: true } : {}),
+		// Escolha deste chat; ausente/nula = herda o padrão do bot e da conta (resolvido no worker).
+		...(parseReasoningEffort(body.reasoningEffort) ? { reasoningEffort: parseReasoningEffort(body.reasoningEffort) } : {}),
 		conversationId:
 			typeof body.conversationId === "string" ? body.conversationId : undefined,
 		botId: typeof body.botId === "string" ? body.botId : undefined,
