@@ -273,7 +273,8 @@ export function resolveEffectiveConfig(input: {
 				}
 				const fromEnv = envCostUsd(e.ATLAS_MAX_RUN_COST_USD);
 				if (fromEnv !== undefined) return env(fromEnv);
-				return dflt(0.25);
+				// Sem limite de fábrica: só vale o que o dono configurar (ou o operador, pela env).
+				return dflt(undefined);
 			})(),
 		},
 		sandboxAutoStart:

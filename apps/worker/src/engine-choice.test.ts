@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { UNATTENDED_LONG_WORK_COST_FLOOR_USD, engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine, resolveRunLimits } from "./engine-choice.js";
+import { engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine, resolveRunLimits } from "./engine-choice.js";
 import type { EngineDefault } from "@workspace/shared";
 import { effectiveCostCapUsd } from "./run-config.js";
 
@@ -339,11 +339,11 @@ test("o gasto máximo opcional do bot (antigo longWorkBudgetUsd) vira teto duro;
 	assert.deepEqual(floor.budgetFloor, { costUsd: 0.5, minutes: 30 });
 });
 
-test("origem sem dono em trabalho longo, com conta 'sem limite' e bot sem gasto máximo: piso de segurança de US$ 0,50", async () => {
+test("origem sem dono em trabalho longo, com conta 'sem limite' e bot sem gasto máximo: sem teto em US$ de fábrica", async () => {
 	const choice = await setup({ policyJson: { engine: "v2", workProfile: "long_work", engineScope: "all" } }).choose();
 	const unlimited = { maxRunCostUsd: undefined };
 	for (const [origin, human] of [["routine", false], ["bot", false], ["proactive", false], ["webhook", false], ["email", false], ["chat", false]] as const) {
-		assert.deepEqual(resolveRunLimits({ choice, origin, humanTurn: human, requestOrBotCap: undefined, snapshot: unlimited, wallFixed: false }), { costCapUsd: UNATTENDED_LONG_WORK_COST_FLOOR_USD }, origin);
+		assert.deepEqual(resolveRunLimits({ choice, origin, humanTurn: human, requestOrBotCap: undefined, snapshot: unlimited, wallFixed: false }), { costCapUsd: undefined }, origin);
 	}
 	// A conta com teto manda (0,25 < 0,50); o gasto máximo do bot também; o dono no chat continua sem teto.
 	assert.equal(resolveRunLimits({ choice, origin: "routine", humanTurn: false, requestOrBotCap: undefined, snapshot: { maxRunCostUsd: 0.25 }, wallFixed: false }).costCapUsd, 0.25);

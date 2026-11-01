@@ -19,7 +19,8 @@ export type SupervisorBudget = {
 };
 
 /** Conversa: barata e curta (referência: o v1 fecha uma conversa comum bem abaixo disto). */
-export const CHAT_BUDGET: SupervisorBudget = { maxCostUsd: 0.25, maxActiveMs: 8 * 60_000 };
+// Sem teto em US$ de fábrica (decisão do dono, 01/11): só vale o limite que ele programar (conta ou bot).
+export const CHAT_BUDGET: SupervisorBudget = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 8 * 60_000 };
 /**
  * Trabalho longo: o árbitro é PROGRESSO e TEMPO, não dinheiro (o preço varia demais entre modelos). Sem teto em US$ por
  * padrão (`Infinity`) e 60 min de tempo máximo, ajustável por bot (até 180). O gasto máximo em US$ é opcional.
