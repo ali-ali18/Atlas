@@ -145,6 +145,8 @@ export type ToolContext = {
 	recentAssistantTexts?: string[];
 	/** Origem do AgentRun (chat | routine | …). */
 	origin?: string;
+	/** O id existe no catálogo de modelos? (mesma checagem da rota do bot; ausente = não dá para validar). */
+	isKnownModel?: (modelId: string) => boolean | Promise<boolean>;
 	/** A fala que abriu o run foi digitada pelo dono (ver `ComputerUseParams.humanTurn`). */
 	humanTurn?: boolean;
 	/** Propostas de novo agente neste run (teto de uma por turno). */

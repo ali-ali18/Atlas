@@ -4643,6 +4643,7 @@ async function runComputerUseCore(params: {
 							jevSubagentModelRequest: jevIntents.subagentModel,
 						},
 				userRequestText: lastUserMessageContent,
+				isKnownModel: params.isKnownModel,
 				humanTurn,
 				jevIntents,
 				jev: params.jev,

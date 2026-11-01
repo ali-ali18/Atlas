@@ -1,5 +1,5 @@
 import type { ChatTool } from "@workspace/llm";
-import { describeEngineSettings, looksLikeEngineRequest, parseSetEngineArgs, type EngineSettingsPatch } from "@workspace/shared";
+import { describeEngineSettings, looksLikeEngineRequest, parseModelRef, parseSetEngineArgs, type EngineSettingsPatch } from "@workspace/shared";
 import { setBotEngineSettings } from "@workspace/db";
 import { isUnattendedOrigin } from "../autonomy-gate.js";
 
@@ -38,22 +38,32 @@ export function shouldExposeSetEngine(input: { origin: string | undefined; human
 
 export type SetEngineDeps = {
 	save: (botId: string, userId: string, patch: EngineSettingsPatch) => Promise<Record<string, unknown> | null>;
+	/** Mesma checagem da rota do bot: o id existe no catálogo? Ausente = não dá para validar (aceita). */
+	isKnownModel?: (modelId: string) => boolean | Promise<boolean>;
 };
 
-const defaultDeps: SetEngineDeps = { save: setBotEngineSettings };
+export const defaultSetEngineDeps: SetEngineDeps = { save: setBotEngineSettings };
 
 export type SetEngineOutcome = { summary: string; card: { title: string; description: string } };
 
 export async function executeSetEngine(
 	args: Record<string, unknown>,
 	ctx: { userId: string | undefined; botId: string | undefined; origin: string | undefined; humanTurn?: boolean; userRequestText: string },
-	deps: SetEngineDeps = defaultDeps,
+	deps: SetEngineDeps = defaultSetEngineDeps,
 ): Promise<SetEngineOutcome> {
 	if (!shouldExposeSetEngine({ origin: ctx.origin, humanTurn: ctx.humanTurn, lastUserMessage: ctx.userRequestText })) {
 		throw new Error("o motor só muda quando o próprio usuário pede na conversa. Nada foi alterado.");
 	}
 	const parsed = parseSetEngineArgs(args);
 	if (!parsed.ok) throw new Error(`${parsed.error} Nothing was changed.`);
+	const helperModel = parsed.patch.helperModel;
+	// Como a rota PATCH do bot: só ids OpenRouter passam pelo catálogo (outros provedores têm validação própria).
+	if (helperModel && deps.isKnownModel && isOpenRouterModel(helperModel)) {
+		const known = await Promise.resolve(deps.isKnownModel(helperModel)).catch(() => false);
+		if (!known) {
+			throw new Error(`helper_model "${helperModel}" is not in the model catalog. Nothing was changed. Ask the user which model they want, or send helper_model '' to use the bot's own model.`);
+		}
+	}
 	const userId = ctx.userId;
 	if (!userId || userId === "default") throw new Error("sem usuário neste run: motor não alterado");
 	if (!ctx.botId) throw new Error("sem bot neste run: converse com o bot que deve mudar");
@@ -64,4 +74,12 @@ export async function executeSetEngine(
 		summary: `Engine updated: ${description}. Applies from the next message (a task already running keeps its engine). A summary card is already shown; do not repeat it.`,
 		card: { title: "Motor do bot atualizado", description },
 	};
+}
+
+function isOpenRouterModel(id: string): boolean {
+	try {
+		return parseModelRef(id).provider === "openrouter";
+	} catch {
+		return true;
+	}
 }

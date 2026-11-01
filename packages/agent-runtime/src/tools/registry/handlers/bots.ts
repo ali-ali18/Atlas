@@ -10,7 +10,7 @@ import { executeDecideBotPending } from "../../bot-pending.js";
 import { executeProposeBot } from "../../bot-proposal.js";
 import { executeSendToBot, executeSetPrimaryBot } from "../../bot-messaging.js";
 import { executeSetAutonomy } from "../../set-autonomy.js";
-import { SET_ENGINE_TOOL_NAME, executeSetEngine } from "../../set-engine.js";
+import { SET_ENGINE_TOOL_NAME, defaultSetEngineDeps, executeSetEngine } from "../../set-engine.js";
 import { executeSetReasoningEffort } from "../../set-reasoning-effort.js";
 
 import type { ToolFamily } from "../registry.js";
@@ -492,7 +492,7 @@ export async function executeSetEngineTool(
 		origin: ctx.origin,
 		humanTurn: ctx.humanTurn,
 		userRequestText: ctx.userRequestText ?? "",
-	});
+	}, ctx.isKnownModel ? { ...defaultSetEngineDeps, isKnownModel: ctx.isKnownModel } : undefined);
 	const card: ConfirmEvent = {
 		type: "confirm",
 		confirmId: `engine-${ctx.runId ?? "local"}-${Date.now().toString(36)}`,

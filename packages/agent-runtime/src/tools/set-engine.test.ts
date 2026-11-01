@@ -100,3 +100,18 @@ describe("set_engine: execução", () => {
 		await expect(executeSetEngine({ engine: "new" }, { ...ctx, botId: undefined }, deps)).rejects.toThrow(/sem bot/);
 	});
 });
+
+describe("set_engine: helper_model no catálogo", () => {
+	it("recusa modelo desconhecido sem salvar, aceita o conhecido e o vazio", async () => {
+		const { deps, policies } = fakeStore();
+		const isKnownModel = vi.fn(async (id: string) => id === "openai/gpt-4o-mini");
+		const withCatalog = { ...deps, isKnownModel };
+		await expect(executeSetEngine({ helper_model: "acme/nao-existe" }, ctx, withCatalog)).rejects.toThrow(/not in the model catalog/);
+		expect(deps.save).not.toHaveBeenCalled();
+		await executeSetEngine({ helper_model: "openai/gpt-4o-mini" }, ctx, withCatalog);
+		expect(policies["bot-a"]).toBeDefined();
+		expect(deps.save).toHaveBeenCalledTimes(1);
+		await executeSetEngine({ helper_model: "" }, ctx, withCatalog);
+		expect(isKnownModel).toHaveBeenCalledTimes(2);
+	});
+});
