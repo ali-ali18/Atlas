@@ -1,4 +1,4 @@
-import { readEnginePolicy, resolveRunProfile } from "@workspace/shared";
+import { LONG_WORK_MAX_MINUTES, LONG_WORK_MAX_USD, LONG_WORK_MIN_MINUTES, LONG_WORK_MIN_USD, readEnginePolicy, resolveRunProfile } from "@workspace/shared";
 import type { EngineV2Options } from "@workspace/agent-runtime";
 import { runScenario } from "../run-scenario.js";
 import type { StreamChat } from "../mock-model.js";
@@ -38,10 +38,18 @@ async function withFallbackPrices<T>(prices: Prices, fn: () => Promise<T>): Prom
 	}
 }
 
+/** Orçamento fora da faixa do produto falha alto (zero ou negativo nunca vira o padrão em silêncio). */
+export function assertBudgetInRange(name: string, value: number | undefined, min: number, max: number): void {
+	if (value === undefined) return;
+	if (!Number.isFinite(value) || value < min || value > max) throw new Error(`${name} deve ficar entre ${min} e ${max} (recebido: ${value}).`);
+}
+
 export async function runEngineComparison(options: CompareOptions = {}): Promise<CompareResult> {
+	assertBudgetInRange("--budget-usd", options.longWorkBudgetUsd, LONG_WORK_MIN_USD, LONG_WORK_MAX_USD);
+	assertBudgetInRange("--minutes", options.longWorkMinutes, LONG_WORK_MIN_MINUTES, LONG_WORK_MAX_MINUTES);
 	const prices = options.prices ?? DEFAULT_PRICES;
 	const tasks = engineTasks().filter((task) => !options.only || options.only.length === 0 || options.only.includes(task.id));
-	const policy = readEnginePolicy({ engine: "v2", ...(options.longWorkBudgetUsd ? { longWorkBudgetUsd: options.longWorkBudgetUsd } : {}), ...(options.longWorkMinutes ? { longWorkMinutes: options.longWorkMinutes } : {}) });
+	const policy = readEnginePolicy({ engine: "v2", ...(options.longWorkBudgetUsd !== undefined ? { longWorkBudgetUsd: options.longWorkBudgetUsd } : {}), ...(options.longWorkMinutes !== undefined ? { longWorkMinutes: options.longWorkMinutes } : {}) });
 	const runs: RunMetrics[] = [];
 	await withFallbackPrices(prices, async () => {
 		for (const task of tasks) {

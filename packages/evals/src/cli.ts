@@ -50,6 +50,13 @@ const number = (value: string | undefined, fallback: number): number => {
 	return value !== undefined && Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+/** Número obrigatório e válido: texto, vazio ou NaN é erro claro (a faixa é conferida em `runEngineComparison`). */
+const strictNumber = (name: string, value: string | undefined): number => {
+	const parsed = value === undefined || value.trim() === "" ? Number.NaN : Number(value);
+	if (!Number.isFinite(parsed)) throw new Error(`${name} precisa de um número (recebido: ${value ?? "nada"}).`);
+	return parsed;
+};
+
 const HELP = `Uso: pnpm --filter @workspace/evals run eval -- [comando] [opções]
 
 run (padrão)
@@ -76,7 +83,7 @@ motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas d
   --model ID            modelo que coordena (só --live)
   --helper-model ID     modelo dos ajudantes do v2 (só --live; sem banco o eval não delega, então só vale em produção)
   --only ids            só estas tarefas
-  --budget-usd N        orçamento do trabalho longo no v2 (padrão 0.50)   --minutes N  (padrão 20)
+  --budget-usd N        orçamento do trabalho longo no v2 (0.05 a 20; padrão 0.50)   --minutes N  (1 a 120; padrão 20)
   --price-in N          US$/Mtok de entrada para o custo estimado (padrão 1)   --price-out N (padrão 5)
   --out ARQ             grava o relatório markdown (ex.: docs/ops/motor-v1-vs-v2.md); sem isto imprime`;
 
@@ -174,8 +181,8 @@ async function commandEngineCompare(args: CliArgs): Promise<number> {
 	const { streamChatWithTools } = await import("@workspace/llm");
 	const result = await runEngineComparison({
 		prices: { promptUsdPerMTok: number(flag(args, "price-in"), DEFAULT_PRICES.promptUsdPerMTok), completionUsdPerMTok: number(flag(args, "price-out"), DEFAULT_PRICES.completionUsdPerMTok) },
-		...(flag(args, "budget-usd") ? { longWorkBudgetUsd: number(flag(args, "budget-usd"), 0.5) } : {}),
-		...(flag(args, "minutes") ? { longWorkMinutes: number(flag(args, "minutes"), 20) } : {}),
+		...(flag(args, "budget-usd") !== undefined ? { longWorkBudgetUsd: strictNumber("--budget-usd", flag(args, "budget-usd")) } : {}),
+		...(flag(args, "minutes") !== undefined ? { longWorkMinutes: strictNumber("--minutes", flag(args, "minutes")) } : {}),
 		only: list(flag(args, "only")),
 		...(live ? { live: { model: model!, apiKey, streamChat: (params, handlers) => streamChatWithTools(params, handlers ?? {}), ...(flag(args, "helper-model") ? { helperModel: flag(args, "helper-model")! } : {}) }, timeoutMs: number(flag(args, "timeout"), 300) * 1000 } : {}),
 	});
