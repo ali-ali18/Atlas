@@ -68,6 +68,18 @@ describe("isLocalHost", () => {
 		}
 	});
 
+	it("recusa nome que só começa como IP privado", () => {
+		for (const host of ["10.evil.com", "192.168.evil.com", "127.evil.com", "10.0.0.1.evil.com"]) {
+			expect(isLocalHost(host)).toBe(false);
+			expect(normalizeServerUrl(`http://${host}`, dev)).toEqual({ ok: false, error: SERVER_URL_ERRORS.insecure });
+		}
+	});
+
+	it("octeto fora de 0-255 ou IP incompleto não é IP privado", () => {
+		expect(isLocalHost("10.0.0.256")).toBe(false);
+		expect(isLocalHost("192.168.1")).toBe(false);
+	});
+
 	it("não confunde IP público nem faixa 172 fora da LAN", () => {
 		for (const host of ["8.8.8.8", "172.32.0.1", "172.15.0.1", "example.com", "192.169.0.1"]) {
 			expect(isLocalHost(host)).toBe(false);

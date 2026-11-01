@@ -13,14 +13,28 @@ export const SERVER_URL_ERRORS = {
 	credentials: "Tire o usuário e a senha do endereço.",
 } as const;
 
-const PRIVATE_IPV4 = [/^127\./, /^10\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./, /^169\.254\./];
+/** IPv4 completo (quatro octetos de 0 a 255), ou null. Evita que `192.168.evil.com` passe por IP. */
+function parseIPv4(host: string): [number, number, number, number] | null {
+	const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+	if (!match) return null;
+	const octets = match.slice(1).map(Number);
+	if (octets.some((n) => n > 255)) return null;
+	return octets as [number, number, number, number];
+}
+
+function isPrivateIPv4(host: string): boolean {
+	const ip = parseIPv4(host);
+	if (!ip) return false;
+	const [a, b] = ip;
+	return a === 127 || a === 10 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254);
+}
 
 /** `localhost`, `127.x`, IP privado de LAN ou `*.local`: lugares onde http é aceitável em dev. */
 export function isLocalHost(hostname: string): boolean {
 	const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
 	if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
 	if (host === "::1") return true;
-	return PRIVATE_IPV4.some((pattern) => pattern.test(host));
+	return isPrivateIPv4(host);
 }
 
 function hostOf(raw: string): string {
