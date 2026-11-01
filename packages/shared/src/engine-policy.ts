@@ -138,6 +138,20 @@ export function withRunEngine(budgetJson: unknown, choice: { engine: RunEngine; 
 	return { ...asRecord(budgetJson), engine: choice.engine, ...(choice.profile ? { engineProfile: choice.profile } : {}) };
 }
 
+/** Perfil de onde o run foi promovido a `long_work` no meio do trabalho (`budgetJson.promotedFrom`). */
+export function readRunPromotedFrom(budgetJson: unknown): RunProfile | undefined {
+	const from = asRecord(budgetJson).promotedFrom;
+	return from === "chat" || from === "long_work" ? from : undefined;
+}
+
+/**
+ * `budgetJson` do run depois da promoção automática chat → trabalho longo: grava o perfil novo (a retomada e a
+ * continuação herdam) e de onde veio. Preserva o resto.
+ */
+export function withRunPromotion(budgetJson: unknown): Record<string, unknown> {
+	return { ...asRecord(budgetJson), engineProfile: "long_work", promotedFrom: "chat" };
+}
+
 /**
  * Origens que o v2 atende. Escopo `chat`: só a conversa direta do dono com o bot. Escopo `all`: também rotina
  * (inclui alerta, brief "Seu dia" e "só importante"), grupo (run de membro na conversa do grupo), bot→bot, proativo
@@ -185,11 +199,23 @@ export function looksLikeLongTask(text: string): boolean {
 		.toLowerCase()
 		.trim();
 	if (plain.length < 25) return false;
-	const verb = /\b(pesquis\w+|levant\w+|analis\w+|compar\w+|mapea\w+|investig\w+|monte|montar|elabor\w+|prepar\w+|gere|gerar|crie|criar|escrev\w+|faca|fazer|researc\w+|analy[sz]e|compare|build|prepare|draft|write|create|generate|benchmark\w*)\b/;
+	const verb = /\b(pesquis\w+|levant\w+|analis\w+|compar\w+|mapea\w+|investig\w+|monte|montar|elabor\w+|prepar\w+|gere|gerar|crie|criar|escrev\w+|faca|fazer|assista|assistir|abra|abrir|pergunt\w+|resum\w+|researc\w+|analy[sz]e|compare|build|prepare|draft|write|create|generate|benchmark\w*|watch|summari[sz]e|open|ask)\b/;
 	const deliverable = /\b(relatorio|estudo|pesquisa de mercado|panorama|benchmark|dossie|planilha|apresentacao|painel|dashboard|analise|comparativo|levantamento|report|study|market research|spreadsheet|presentation|deep dive|overview)\b/;
 	if (verb.test(plain) && deliverable.test(plain)) return true;
+	// Pedido de várias etapas encadeadas ("abra..., faça perguntas..., compare... e monte"): 3+ verbos de ação diferentes.
+	if (distinctActionVerbs(plain) >= 3) return true;
 	// Pedido longo com verbo de trabalho (várias linhas de instrução) também é tarefa.
 	return plain.length >= 200 && verb.test(plain);
+}
+
+const ACTION_VERB_STEMS: ReadonlyArray<RegExp> = [
+	/\b(pesquis\w+|researc\w+)\b/, /\b(levant\w+)\b/, /\b(analis\w+|analy[sz]e)\b/, /\b(compar\w+|compare)\b/, /\b(mapea\w+)\b/, /\b(investig\w+)\b/,
+	/\b(monte|montar|build)\b/, /\b(elabor\w+|prepar\w+|prepare|draft)\b/, /\b(gere|gerar|generate)\b/, /\b(crie|criar|create)\b/, /\b(escrev\w+|write)\b/,
+	/\b(faca|fazer)\b/, /\b(assista|assistir|watch)\b/, /\b(abra|abrir|open)\b/, /\b(pergunt\w+|ask)\b/, /\b(resum\w+|summari[sz]e)\b/,
+];
+
+function distinctActionVerbs(plain: string): number {
+	return ACTION_VERB_STEMS.reduce((count, stem) => count + (stem.test(plain) ? 1 : 0), 0);
 }
 
 /**
