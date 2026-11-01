@@ -156,12 +156,12 @@ export function looksLikeLongTask(text: string): boolean {
 }
 
 /**
- * Perfil do run: forçado pela política do bot ou decidido pelo pedido (só importa no v2). E-mail recebido nunca
- * escolhe o perfil caro pelo texto: quem escreveu é de fora e o texto é dado não confiável; só o dono libera
+ * Perfil do run: forçado pela política do bot ou decidido pelo pedido (só importa no v2). E-mail recebido e webhook
+ * nunca escolhem o perfil caro pelo texto: quem escreveu o e-mail/payload é de fora e o texto é dado não confiável; só o dono libera
  * `long_work` (pela política do bot).
  */
 export function resolveRunProfile(input: { policy: EnginePolicy; text: string; origin?: string }): RunProfile {
 	if (input.policy.workProfile !== "auto") return input.policy.workProfile;
-	if (input.origin === "email") return "chat";
+	if (input.origin === "email" || input.origin === "webhook") return "chat";
 	return looksLikeLongTask(input.text) ? "long_work" : "chat";
 }

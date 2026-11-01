@@ -192,10 +192,11 @@ describe("perfil do run", () => {
 		expect(resolveRunProfile({ policy: readEnginePolicy({}), text: "Bom dia" })).toBe("chat");
 	});
 
-	it("e-mail recebido não escolhe o perfil caro pelo texto; o dono ainda pode forçá-lo", () => {
+	it("e-mail recebido e webhook não escolhem o perfil caro pelo texto; o dono ainda pode forçá-lo", () => {
 		const text = "Levante os concorrentes e monte um comparativo com preços";
 		expect(resolveRunProfile({ policy: readEnginePolicy({}), text, origin: "email" })).toBe("chat");
-		expect(resolveRunProfile({ policy: readEnginePolicy({}), text, origin: "webhook" })).toBe("long_work");
+		expect(resolveRunProfile({ policy: readEnginePolicy({}), text, origin: "webhook" })).toBe("chat");
+		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "long_work" }), text: "oi", origin: "webhook" })).toBe("long_work");
 		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "long_work" }), text: "oi", origin: "email" })).toBe("long_work");
 	});
 });

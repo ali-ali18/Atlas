@@ -126,10 +126,11 @@ test("escopo all não leva subagente nem proativo ao v2", async () => {
 	}
 });
 
-test("e-mail recebido: o texto de fora não escolhe trabalho longo; o webhook segue o pedido; o dono pode forçar", async () => {
+test("e-mail recebido e webhook: o texto de fora não escolhe trabalho longo; o dono pode forçar", async () => {
 	const report = "Levante os pedidos em aberto e monte um relatório comparativo com preços";
 	assert.equal((await setup({ policyJson: wide, origin: "email", text: report }).choose()).profile, "chat");
-	assert.equal((await setup({ policyJson: wide, origin: "webhook", text: report }).choose()).profile, "long_work");
+	assert.equal((await setup({ policyJson: wide, origin: "webhook", text: report }).choose()).profile, "chat");
+	assert.equal((await setup({ policyJson: { ...wide, workProfile: "long_work" }, origin: "webhook", text: "oi" }).choose()).profile, "long_work");
 	assert.equal((await setup({ policyJson: { ...wide, workProfile: "long_work" }, origin: "email", text: "oi" }).choose()).profile, "long_work");
 });
 
