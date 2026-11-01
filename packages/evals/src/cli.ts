@@ -9,6 +9,7 @@ import { redactSecrets } from "@workspace/shared";
  *   compare A B   delta de acerto entre dois resultados (ex.: dois commits rodados em worktrees)
  *   from-run      cenário a partir de um run de produção exportado (inspetor + eventos)
  *   list          cenários disponíveis
+ *   motor-v1-vs-v2  motor atual × motor novo nas mesmas tarefas (roteiro; `--live` gasta tokens)
  * A chave (`OPENROUTER_API_KEY`) vem do ambiente ou de `--env-file`; nunca é impressa nem gravada.
  */
 
@@ -16,7 +17,7 @@ const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export type CliArgs = { command: string; positional: string[]; flags: Record<string, string | true> };
 
-const BOOLEAN_FLAGS = new Set(["mock", "help"]);
+const BOOLEAN_FLAGS = new Set(["mock", "help", "live"]);
 
 export function parseCliArgs(argv: string[]): CliArgs {
 	const args = argv[0] === "--" ? argv.slice(1) : argv;
@@ -37,7 +38,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
 			index += 1;
 		}
 	}
-	const commands = new Set(["run", "compare", "from-run", "list"]);
+	const commands = new Set(["run", "compare", "from-run", "list", "motor-v1-vs-v2"]);
 	const command = positional[0] && commands.has(positional[0]) ? positional.shift()! : "run";
 	return { command, positional, flags };
 }
@@ -67,7 +68,17 @@ run (padrão)
 
 compare DIR_A DIR_B     delta de acerto de B sobre A (summary.json de cada um)
 from-run --inspect ARQ [--events ARQ] [--user TEXTO] [--id ID] [--language en-US|auto] --out ARQ
-list                    lista os cenários`;
+list                    lista os cenários
+
+motor-v1-vs-v2          compara o motor atual (v1) e o novo (v2) em 11 tarefas de pesquisa/análise
+  (padrão)              modelo roteirizado: sem rede, sem chave, números determinísticos
+  --live                modelo de verdade via OpenRouter (GASTA tokens; exige OPENROUTER_API_KEY e --model)
+  --model ID            modelo que coordena (só --live)
+  --helper-model ID     modelo dos ajudantes do v2 (só --live; sem banco o eval não delega, então só vale em produção)
+  --only ids            só estas tarefas
+  --budget-usd N        orçamento do trabalho longo no v2 (padrão 0.50)   --minutes N  (padrão 20)
+  --price-in N          US$/Mtok de entrada para o custo estimado (padrão 1)   --price-out N (padrão 5)
+  --out ARQ             grava o relatório markdown (ex.: docs/ops/motor-v1-vs-v2.md); sem isto imprime`;
 
 async function loadAll(args: CliArgs) {
 	const { loadScenarios, selectScenarios } = await import("./scenario.js");
@@ -152,6 +163,32 @@ async function commandList(args: CliArgs): Promise<number> {
 	return 0;
 }
 
+async function commandEngineCompare(args: CliArgs): Promise<number> {
+	const live = args.flags.live === true;
+	const apiKey = process.env.OPENROUTER_API_KEY?.trim() ?? "";
+	const model = flag(args, "model");
+	if (live && (!model || !apiKey)) {
+		throw new Error("--live gasta tokens de verdade: informe --model e exporte OPENROUTER_API_KEY (ou --env-file <.env>). Nada foi executado.");
+	}
+	const { runEngineComparison, formatComparisonReport, DEFAULT_PRICES } = await import("./engine-compare/index.js");
+	const { streamChatWithTools } = await import("@workspace/llm");
+	const result = await runEngineComparison({
+		prices: { promptUsdPerMTok: number(flag(args, "price-in"), DEFAULT_PRICES.promptUsdPerMTok), completionUsdPerMTok: number(flag(args, "price-out"), DEFAULT_PRICES.completionUsdPerMTok) },
+		...(flag(args, "budget-usd") ? { longWorkBudgetUsd: number(flag(args, "budget-usd"), 0.5) } : {}),
+		...(flag(args, "minutes") ? { longWorkMinutes: number(flag(args, "minutes"), 20) } : {}),
+		only: list(flag(args, "only")),
+		...(live ? { live: { model: model!, apiKey, streamChat: (params, handlers) => streamChatWithTools(params, handlers ?? {}), ...(flag(args, "helper-model") ? { helperModel: flag(args, "helper-model")! } : {}) }, timeoutMs: number(flag(args, "timeout"), 300) * 1000 } : {}),
+	});
+	const report = formatComparisonReport(result);
+	const out = flag(args, "out");
+	if (out) {
+		await mkdir(dirname(resolve(out)), { recursive: true });
+		await writeFile(resolve(out), report);
+		console.log(`relatório gravado em ${resolve(out)}`);
+	} else console.log(report);
+	return 0;
+}
+
 export async function main(argv: string[]): Promise<number> {
 	const args = parseCliArgs(argv);
 	if (args.flags.help) {
@@ -166,6 +203,7 @@ export async function main(argv: string[]): Promise<number> {
 	if (args.command === "compare") return commandCompare(args);
 	if (args.command === "from-run") return commandFromRun(args);
 	if (args.command === "list") return commandList(args);
+	if (args.command === "motor-v1-vs-v2") return commandEngineCompare(args);
 	return commandRun(args);
 }
 
