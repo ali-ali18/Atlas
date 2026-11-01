@@ -1,4 +1,4 @@
-import { briefToolFilter, runComputerUse } from "@workspace/agent-runtime";
+import { briefToolFilter, runComputerUse, runEngineV2, type EngineV2Options } from "@workspace/agent-runtime";
 import { applyComputerUseEventsToTranscript, TRANSCRIPT_SLOT, type ComputerUseEvent, type SerializedLlmMessage } from "@workspace/shared";
 import { buildEnvironment, EVAL_BOT_ID, EVAL_USER_ID } from "./environment.js";
 import type { StreamChat } from "./mock-model.js";
@@ -22,6 +22,8 @@ export type RunScenarioOptions = {
 	runtimeOverrides?: Partial<RunParams>;
 	repeat?: number;
 	timeoutMs?: number;
+	/** Motor novo (v2): roda `runEngineV2` com estas opções em vez do `runComputerUse`. Omitido = motor atual (v1). */
+	engineV2?: EngineV2Options;
 };
 
 const textOf = (content: unknown): string => (typeof content === "string" ? content : content === null || content === undefined ? "" : JSON.stringify(content));
@@ -56,6 +58,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 	const timeoutMs = options.timeoutMs ?? 180_000;
 	let timedOut = false;
 	let text = "";
+	let stop: Trajectory["stop"];
 	let error: string | undefined;
 
 	const recordingStream: StreamChat = async (params, handlers) => {
@@ -83,7 +86,8 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		}
 	};
 
-	const run = runComputerUse({
+	const runner = (options.engineV2 ? (params: RunParams) => runEngineV2(params, options.engineV2 as EngineV2Options) : runComputerUse) as typeof runComputerUse;
+	const run = runner({
 		manager: {} as RunParams["manager"],
 		getSessionId: async () => {
 			throw new Error("sem sandbox no eval");
@@ -128,7 +132,10 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 	try {
 		const outcome = await Promise.race([run, timeout]);
 		if (outcome === "timeout") error = `tempo esgotado (${Math.round(timeoutMs / 1000)}s)`;
-		else text = outcome.text;
+		else {
+			text = outcome.text;
+			stop = outcome.stop;
+		}
 	} catch (caught) {
 		error = caught instanceof Error ? caught.message.slice(0, 500) : "erro desconhecido";
 	} finally {
@@ -159,6 +166,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		startedAt: new Date(startedAt).toISOString(),
 		durationMs: Date.now() - startedAt,
 		text,
+		...(stop ? { stop } : {}),
 		...(error ? { error } : {}),
 		...(timedOut ? { timedOut } : {}),
 		modelCalls,

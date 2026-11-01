@@ -120,6 +120,23 @@ pnpm --filter @workspace/evals run eval -- --models ... --repeat 3 --out /tmp/ev
 pnpm --filter @workspace/evals run eval -- compare /tmp/evals-a /tmp/evals-b
 ```
 
+## Comparar o motor atual (v1) e o novo (v2)
+
+```bash
+# roteiro: sem rede e sem chave, números idênticos a cada execução (11 tarefas de pesquisa/análise)
+pnpm --filter @workspace/evals run eval -- motor-v1-vs-v2 --out ../../docs/ops/motor-v1-vs-v2.md
+
+# ao vivo (GASTA tokens; só com a chave e a decisão do dono): modelo de verdade, mesmo mundo falso
+export OPENROUTER_API_KEY=...        # ou: --env-file ../../.env
+pnpm --filter @workspace/evals run eval -- motor-v1-vs-v2 --live --model <id do modelo> --out /tmp/combo-A.md
+```
+
+Mede por tarefa e motor: concluiu?, motivo de término, perguntas ao usuário, chamadas ao modelo, custo estimado (tokens ×
+preço fixo, `--price-in/--price-out`), itens "não confirmados", documento gerado e cobertura do pedido. As tarefas e o
+mundo falso (fornecedores, lojas, SKUs fictícios) ficam em `src/engine-compare/`. O modo roteiro mede o **motor** (travas,
+entrega, custo) com o mesmo comportamento de pesquisa nos dois; só o `--live` mede o modelo. O eval não usa `delegate`
+(precisa do banco): "Sonnet coordena + Haiku nos ajudantes" só se mede em produção (`docs/ops/piloto-motor-v2.md`).
+
 ## Escrever um cenário
 
 Um JSON em `scenarios/` (o nome do arquivo só define a ordem):

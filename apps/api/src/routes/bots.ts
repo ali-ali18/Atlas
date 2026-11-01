@@ -9,6 +9,8 @@ import {
 	parseReasoningEffort,
 	readCodingModel,
 	readSubagentModel,
+	engineSettingsError,
+	readHelperPolicy,
 	DELEGATE_MODEL_MAX_CHARS,
 	parseModelRef,
 	isValidTimeZone,
@@ -325,6 +327,14 @@ export function createBotRoutes(
     patch.memberIds = await validateGroupMemberIds(userId, patch.memberIds, id);
    }
    if (patch.isPrimary === true && owned.memberIds.length > 0) return c.json({ error: "Um grupo não pode ser o Bot principal" }, 400);
+   const engineError = engineSettingsError(patch.policyJson);
+   if (engineError) return c.json({ error: engineError }, 400);
+   const helperModel = readHelperPolicy(patch.policyJson).helperModel;
+   if (helperModel && parseModelRef(helperModel).provider === "openrouter") {
+    const known = await isKnownModel(helperModel);
+    if (known === null) return c.json({ error: "Model list unavailable, try again" }, 503);
+    if (!known) return c.json({ error: "Invalid helperModel: unknown model" }, 400);
+   }
    const proactiveError = checkProactivePolicy(patch.policyJson, patch.isPrimary ?? owned.isPrimary);
    if (proactiveError) return c.json({ error: proactiveError }, 400);
    const effortError = checkReasoningEffortPolicy(patch.policyJson);

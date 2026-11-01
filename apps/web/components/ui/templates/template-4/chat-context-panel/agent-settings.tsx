@@ -41,6 +41,7 @@ import { AutonomySettings } from "../autonomy/autonomy-settings";
 import { SettingsPicker } from "../settings-picker";
 import { AboutSection } from "./about-section";
 import { AvatarEditor } from "./avatar-editor";
+import { EngineSettings } from "./engine-settings";
 import { ProactiveSettingsSection } from "./proactive-settings";
 
 /** Páginas da vista de configurações do bot: a principal e a subvista do modo proativo. */
@@ -347,6 +348,8 @@ export function AgentSettings({
 					</SettingRow>
 
 					<AutonomySettings botId={agent.id} scope="bot" variant="row" />
+
+					<EngineSettings onChange={onChange} policyJson={policyJson} />
 
 					<SettingRow
 						caption={<p>{t("botSettings.planModeHelp")}</p>}

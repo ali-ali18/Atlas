@@ -112,3 +112,132 @@ WHERE r."createdAt" >= now() - interval '7 days'
   AND r."stopReason" IS NULL
 GROUP BY 1, 2
 ORDER BY runs DESC;
+
+-- =====================================================================================================
+-- PILOTO DO MOTOR V2 (F4): comparar o motor atual (v1) e o novo (v2) no mesmo bot, depois de alguns dias.
+-- O motor do run fica em agent_runs."budgetJson"->>'engine' ('v2'; o v1 não grava, então NULL = v1) e o perfil em
+-- "budgetJson"->>'engineProfile' ('chat' | 'long_work'). Troque `<BOT>` pelo nome do bot (ex.: 'Radar de Mercado')
+-- e `interval '7 days'` pelo período. Só runs pai (parentRunId nulo) e terminados; somente leitura.
+-- Veja docs/ops/piloto-motor-v2.md para ler os números.
+-- =====================================================================================================
+
+-- 6) Taxa de conclusão por motor e perfil: "answered" (fim normal) contra cada trava. Tarefa longa = long_work no v2;
+--    no v1 não há perfil, então compare o v1 inteiro com o v2 em long_work e com o v2 em chat.
+SELECT
+  coalesce(r."budgetJson"->>'engine', 'v1')                                            AS motor,
+  coalesce(r."budgetJson"->>'engineProfile', '-')                                      AS perfil,
+  count(*)                                                                             AS runs,
+  count(*) FILTER (WHERE r."stopReason" = 'answered')                                  AS answered,
+  round(100.0 * count(*) FILTER (WHERE r."stopReason" = 'answered') / count(*), 1)     AS pct_answered,
+  count(*) FILTER (WHERE r."stopReason" LIKE 'budget\_%')                              AS parou_por_orcamento,
+  count(*) FILTER (WHERE r."stopReason" IN ('loop_repeat', 'loop_stall_guard', 'tool_failures', 'no_progress', 'budget_stalled')) AS travas_de_repeticao,
+  count(*) FILTER (WHERE r."stopReason" = 'awaiting_confirmation')                     AS esperando_usuario,
+  count(*) FILTER (WHERE r.status = 'failed')                                          AS falhou
+FROM agent_runs r
+JOIN bots b ON b.id = r."botId"
+WHERE b.name = '<BOT>'
+  AND r."createdAt" >= now() - interval '7 days'
+  AND r."finishedAt" IS NOT NULL
+  AND r."parentRunId" IS NULL
+  AND r.origin = 'chat'
+GROUP BY 1, 2
+ORDER BY 1, 2;
+
+-- 7) Custo e duração por tarefa: média, mediana e p90 (US$ e segundos) por motor e perfil.
+SELECT
+  coalesce(r."budgetJson"->>'engine', 'v1')                                                     AS motor,
+  coalesce(r."budgetJson"->>'engineProfile', '-')                                               AS perfil,
+  count(*)                                                                                       AS runs,
+  round(avg((r."usageJson"->>'costUsd')::numeric), 4)                                            AS custo_medio_usd,
+  round((percentile_cont(0.5) WITHIN GROUP (ORDER BY (r."usageJson"->>'costUsd')::numeric))::numeric, 4)  AS custo_mediana_usd,
+  round((percentile_cont(0.9) WITHIN GROUP (ORDER BY (r."usageJson"->>'costUsd')::numeric))::numeric, 4) AS custo_p90_usd,
+  round(sum((r."usageJson"->>'costUsd')::numeric), 2)                                            AS custo_total_usd,
+  round(avg(extract(epoch FROM (r."finishedAt" - r."startedAt")))::numeric, 1)                   AS duracao_media_s,
+  round((percentile_cont(0.9) WITHIN GROUP (ORDER BY extract(epoch FROM (r."finishedAt" - r."startedAt"))))::numeric, 1) AS duracao_p90_s
+FROM agent_runs r
+JOIN bots b ON b.id = r."botId"
+WHERE b.name = '<BOT>'
+  AND r."createdAt" >= now() - interval '7 days'
+  AND r."finishedAt" IS NOT NULL
+  AND r."startedAt" IS NOT NULL
+  AND r."parentRunId" IS NULL
+  AND r.origin = 'chat'
+  AND r."usageJson" ? 'costUsd'
+GROUP BY 1, 2
+ORDER BY 1, 2;
+
+-- 8) Custo dos ajudantes dentro das tarefas do v2 (runs filhos origin = 'subagent' do bot): quanto do gasto vai para eles.
+SELECT
+  coalesce(p."budgetJson"->>'engine', 'v1')                                          AS motor_do_pai,
+  count(DISTINCT p.id)                                                               AS tarefas_com_ajudantes,
+  count(*)                                                                           AS ajudantes,
+  round(avg((c."usageJson"->>'costUsd')::numeric), 4)                                AS custo_medio_por_ajudante_usd,
+  round(sum((c."usageJson"->>'costUsd')::numeric), 2)                                AS custo_total_ajudantes_usd
+FROM agent_runs c
+JOIN agent_runs p ON p.id = c."parentRunId"
+JOIN bots b ON b.id = p."botId"
+WHERE b.name = '<BOT>'
+  AND c.origin = 'subagent'
+  AND p."createdAt" >= now() - interval '7 days'
+GROUP BY 1
+ORDER BY 1;
+
+-- 9) Perguntas ao usuário: cartões de questionário gravados por run (mede "pergunta demais"), e quantos runs
+--    terminaram com uma pergunta no texto final. Menos é melhor, desde que a tarefa tenha sido entregue.
+SELECT
+  coalesce(r."budgetJson"->>'engine', 'v1')                                          AS motor,
+  count(*)                                                                           AS runs,
+  count(*) FILTER (WHERE q.n > 0)                                                    AS runs_com_questionario,
+  coalesce(sum(q.n), 0)                                                              AS questionarios,
+  count(*) FILTER (WHERE last_msg.content ~ '\?\s*[*_)"''»]*\s*$')                   AS runs_que_terminaram_perguntando,
+  round(100.0 * count(*) FILTER (WHERE last_msg.content ~ '\?\s*[*_)"''»]*\s*$') / count(*), 1) AS pct_terminaram_perguntando
+FROM agent_runs r
+JOIN bots b ON b.id = r."botId"
+LEFT JOIN LATERAL (
+  SELECT count(*) AS n FROM conversation_messages m WHERE m."runId" = r.id AND m.role = 'questionnaire'
+) q ON true
+LEFT JOIN LATERAL (
+  SELECT m.content FROM conversation_messages m WHERE m."runId" = r.id AND m.role = 'assistant' ORDER BY m."createdAt" DESC LIMIT 1
+) last_msg ON true
+WHERE b.name = '<BOT>'
+  AND r."createdAt" >= now() - interval '7 days'
+  AND r."finishedAt" IS NOT NULL
+  AND r."parentRunId" IS NULL
+  AND r.origin = 'chat'
+GROUP BY 1
+ORDER BY 1;
+
+-- 10) Documentos gerados: runs que terminaram com arquivo (artifacts kind = 'file'). O v2 entrega relatório longo em documento.
+SELECT
+  coalesce(r."budgetJson"->>'engine', 'v1')                                          AS motor,
+  count(*)                                                                           AS runs,
+  count(*) FILTER (WHERE EXISTS (SELECT 1 FROM artifacts a WHERE a."runId" = r.id AND a.kind = 'file')) AS runs_com_documento,
+  round(100.0 * count(*) FILTER (WHERE EXISTS (SELECT 1 FROM artifacts a WHERE a."runId" = r.id AND a.kind = 'file')) / count(*), 1) AS pct_com_documento
+FROM agent_runs r
+JOIN bots b ON b.id = r."botId"
+WHERE b.name = '<BOT>'
+  AND r."createdAt" >= now() - interval '7 days'
+  AND r."finishedAt" IS NOT NULL
+  AND r."parentRunId" IS NULL
+  AND r.origin = 'chat'
+  AND coalesce(r."budgetJson"->>'engineProfile', 'long_work') = 'long_work'  -- só tarefa longa (no v1 não há perfil: entra tudo)
+GROUP BY 1
+ORDER BY 1;
+
+-- 11) Como as tarefas do v2 terminam (motivo e detalhe): "budget_cost/delivered" = estourou o orçamento e entregou
+--     o que tinha; "answered/tasklist_open" = terminou com itens da lista descartados ("não deu para confirmar").
+SELECT
+  r."stopReason"                                                                      AS stop_reason,
+  coalesce(r."stopDetail", '-')                                                       AS detalhe,
+  count(*)                                                                            AS runs,
+  round(100.0 * count(*) / sum(count(*)) OVER (), 1)                                  AS pct,
+  round(avg((r."usageJson"->>'costUsd')::numeric), 4)                                 AS custo_medio_usd
+FROM agent_runs r
+JOIN bots b ON b.id = r."botId"
+WHERE b.name = '<BOT>'
+  AND r."budgetJson"->>'engine' = 'v2'
+  AND r."createdAt" >= now() - interval '7 days'
+  AND r."finishedAt" IS NOT NULL
+  AND r."parentRunId" IS NULL
+GROUP BY 1, 2
+ORDER BY runs DESC;

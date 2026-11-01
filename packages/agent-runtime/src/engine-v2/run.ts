@@ -108,6 +108,7 @@ import type { ToolContext } from "../tools/registry/types.js";
 import type { TaskListStore } from "../tools/task-list.js";
 import { classifyToolFailure, withArgumentErrorHint } from "../tool-failure.js";
 import { buildEngineV2Catalog } from "./catalog.js";
+import { shouldExposeSetEngine } from "../tools/set-engine.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
 import { MAX_STEPS_SAFETY, type SupervisorProfile, budgetForProfile, createSupervisor, deliveryInstruction } from "./supervisor.js";
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
@@ -268,6 +269,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		longWork: options.profile === "long_work" && !helperRole,
 		helper: Boolean(helperRole),
 		helpers: userId !== "default" && origin === "chat",
+		setEngine: !helperRole && shouldExposeSetEngine({ origin, humanTurn, lastUserMessage }),
 	});
 	if (helperRole?.preactivateMcpTools?.length) catalog.activateMcpTools([...helperRole.preactivateMcpTools]);
 	const tools = catalog.tools;

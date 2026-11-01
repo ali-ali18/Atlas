@@ -78,6 +78,11 @@ export type HelperPolicy = { helperModel: string | null; helperMaxParallel: numb
 
 const MODEL_ID_PATTERN = /^[A-Za-z0-9_.:/~+-]+$/;
 
+/** Id de modelo bem formado (tamanho e caracteres); não diz se o modelo existe no catálogo. */
+export function isWellFormedModelId(value: string): boolean {
+	return value.length > 0 && value.length <= DELEGATE_MODEL_MAX_CHARS && MODEL_ID_PATTERN.test(value);
+}
+
 /** `policyJson.helperModel` ("forte coordena, barato trabalha") e `helperMaxParallel`. Valor inválido cai no padrão. */
 export function readHelperPolicy(policyJson: unknown): HelperPolicy {
 	const policy = policyJson && typeof policyJson === "object" && !Array.isArray(policyJson) ? (policyJson as Record<string, unknown>) : {};

@@ -36,6 +36,7 @@ import { LESSON_FEEDBACK_TOOL_NAME } from "../tools/lesson-feedback.js";
 import { PREVIEW_SETUP_TOOL_NAME } from "../tools/preview-setup/tool.js";
 import { DELEGATE_V2_TOOL } from "./helpers.js";
 import { NOTEBOOK_READ_TOOL, NOTEBOOK_WRITE_TOOL } from "./notebook.js";
+import { SET_ENGINE_TOOL } from "../tools/set-engine.js";
 
 const SKILL_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["propose_skill", "delete_skill"]);
 
@@ -85,6 +86,8 @@ export function buildEngineV2Catalog(input: {
 	helper?: boolean;
 	/** O coordenador pode delegar (chat direto de usuário real, fora de ajudante). */
 	helpers?: boolean;
+	/** O dono (digitando) pediu para ligar/desligar/ajustar o motor: `set_engine` entra. */
+	setEngine?: boolean;
 }): EngineV2Catalog {
 	const allow = (name: string) => input.toolFilter?.(name) ?? true;
 	const hostBlocked = (name: string) =>
@@ -134,6 +137,7 @@ export function buildEngineV2Catalog(input: {
 	}
 	for (const tool of emailToolsFor(input.email)) add(tool);
 	add(UPDATE_TASK_LIST_TOOL);
+	if (input.setEngine && !input.helper) add(SET_ENGINE_TOOL);
 	if (input.helper) {
 		add(NOTEBOOK_WRITE_TOOL);
 	} else if (input.longWork) {

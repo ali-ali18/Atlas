@@ -361,6 +361,7 @@ import {
 	SET_AUTONOMY_TOOL,
 	shouldExposeSetAutonomy,
 } from "./tools/set-autonomy.js";
+import { SET_ENGINE_TOOL, shouldExposeSetEngine } from "./tools/set-engine.js";
 import {
 	SET_CONNECTOR_TOOL_MARKS_TOOL,
 	shouldExposeSetConnectorToolMarks,
@@ -2412,6 +2413,8 @@ async function runComputerUseCore(params: {
 		baseTools.push(NATIVE_COMPUTER_TOOL);
 	}
 	if (exposeSetAutonomy) baseTools.push(SET_AUTONOMY_TOOL);
+	// Piloto do motor v2: só quando o dono, digitando, pede para ligar/desligar/ajustar (nunca por resultado de tool).
+	if (shouldExposeSetEngine({ origin: params.origin, humanTurn, lastUserMessage: lastUserMessageContent })) baseTools.push(SET_ENGINE_TOOL);
 	if (exposeSetReasoningEffort) baseTools.push(SET_REASONING_EFFORT_TOOL);
 	// Só quando a última fala do USUÁRIO pede para marcar o que o conector só lê (tira cartões: nunca por resultado de tool).
 	if (shouldExposeSetConnectorToolMarks({ origin: params.origin, humanTurn, lastUserMessage: lastUserMessageContent, hasConnectors: (params.mcp?.toolset.entries.size ?? 0) > 0 })) baseTools.push(SET_CONNECTOR_TOOL_MARKS_TOOL);
@@ -4640,6 +4643,7 @@ async function runComputerUseCore(params: {
 							jevSubagentModelRequest: jevIntents.subagentModel,
 						},
 				userRequestText: lastUserMessageContent,
+				isKnownModel: params.isKnownModel,
 				humanTurn,
 				jevIntents,
 				jev: params.jev,
