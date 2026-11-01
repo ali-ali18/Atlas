@@ -19,7 +19,7 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { sanitizeStopDetail, readRunEngine, type RunEngine, type RunProfile } from "@workspace/shared";
+import { sanitizeStopDetail, readRunEngine, readRunProfile, withRunEngine, type RunEngine, type RunProfile } from "@workspace/shared";
 import type { RunStop } from "@workspace/shared";
 import { parseReasoningEffort, type ReasoningEffort } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
@@ -282,6 +282,8 @@ export function buildQueuedRunData(input: {
 	fileArtifactIds?: string[];
 	/** Mensagem digitada pelo dono (só o POST do chat passa). Ver `readRunHumanTurn`. */
 	humanTurn?: boolean;
+	/** Herdado do run pai (continuação automática, resposta de questionário ou de cartão): turno do dono, motor e perfil. */
+	inherited?: RunInheritance;
 }) {
 	const { request, model, userId, conversationId } = input;
 	const maxSteps =
@@ -310,8 +312,41 @@ export function buildQueuedRunData(input: {
 		maxSteps,
 		sandboxSessionId: request.sandboxSessionId ?? null,
 		checkpointJson: checkpoint as unknown as Prisma.InputJsonValue,
-		budgetJson: buildStoredBudget(request.budget, input.contextLength, input.modelAuto, input.humanTurn, parseReasoningEffort(request.reasoningEffort)),
+		budgetJson: withInheritedEngine(
+			buildStoredBudget(request.budget, input.contextLength, input.modelAuto, input.humanTurn || input.inherited?.humanTurn, parseReasoningEffort(request.reasoningEffort)),
+			input.inherited,
+		),
 	};
+}
+
+/**
+ * O que um run herda do run pai: se foi turno do dono, o motor e o perfil gravados. Assim a continuação de um trabalho longo
+ * do dono (falha transitória) e a resposta de questionário ou de cartão dentro dele seguem `long_work` e sem o teto da conta,
+ * em vez de virarem um run "sem dono" de chat curto.
+ */
+export type RunInheritance = { humanTurn: boolean; engine?: RunEngine; profile?: RunProfile };
+
+export function readRunInheritance(run: { budgetJson?: unknown } | null | undefined): RunInheritance {
+	if (!run) return { humanTurn: false };
+	const engine = readRunEngine(run.budgetJson);
+	const profile = readRunProfile(run.budgetJson);
+	return { humanTurn: readRunHumanTurn(run), ...(engine ? { engine } : {}), ...(profile ? { profile } : {}) };
+}
+
+function withInheritedEngine(budget: Prisma.InputJsonValue | undefined, inherited: RunInheritance | undefined): Prisma.InputJsonValue | undefined {
+	if (!inherited?.engine) return budget;
+	return withRunEngine(budget ?? null, { engine: inherited.engine, ...(inherited.profile ? { profile: inherited.profile } : {}) }) as Prisma.InputJsonValue;
+}
+
+/** Último run de chat da conversa do dono (o que perguntou ou pediu a aprovação), para a resposta humana herdar dele. */
+export async function getConversationInheritance(userId: string, conversationId: string | undefined | null): Promise<RunInheritance> {
+	if (!conversationId || !userId.trim() || userId === "default") return { humanTurn: false };
+	const last = await prisma.agentRun.findFirst({
+		where: { userId, conversationId, origin: "chat" },
+		orderBy: { createdAt: "desc" },
+		select: { budgetJson: true },
+	});
+	return readRunInheritance(last);
 }
 
 export async function createAgentRun(input: {
@@ -329,6 +364,8 @@ export async function createAgentRun(input: {
 	 * O chamador acorda o worker (sinal de run); o db não conhece Redis.
 	 */
 	onMergedIntoActiveRun?: (runId: string) => void | Promise<void>;
+	/** Resposta de questionário/cartão dentro de um trabalho do dono: herda turno humano, motor e perfil do último run de chat da conversa. */
+	inheritFromConversation?: boolean;
 }): Promise<AgentRun> {
 	const { request, model } = input;
 	const userId = input.userId?.trim();
@@ -357,6 +394,7 @@ export async function createAgentRun(input: {
 				request: fileCards.length ? { ...request, attachments: await imageAttachmentsOf(request.attachments ?? [], userId) } : request,
 				model, userId, conversationId, contextLength: input.contextLength, modelAuto: input.modelAuto, humanTurn: input.humanTurn,
 				fileArtifactIds: fileCards.map((card) => card.artifactId),
+				...(input.inheritFromConversation ? { inherited: await getConversationInheritance(userId, conversationId) } : {}),
 			}),
 		});
 		if (conversationId && origin !== "routine" && request.silent !== true) {
@@ -445,12 +483,14 @@ export async function createFollowUpRun(input: {
 	request: CreateAgentRunRequest;
 	consume: RunInputRecord[];
 	defer?: RunInputRecord[];
+	/** Continuação automática do MESMO trabalho: herda do pai turno do dono, motor e perfil (follow-up de mensagem nova não herda). */
+	inheritFromParent?: boolean;
 }): Promise<FollowUpResult> {
 	const userId = input.userId.trim();
 	if (!userId || userId === "default") throw new ResourceOwnershipError();
 	const parent = await prisma.agentRun.findFirst({
 		where: { id: input.parentRunId, userId },
-		select: { id: true },
+		select: { id: true, budgetJson: true },
 	});
 	if (!parent) throw new ResourceOwnershipError();
 	if (input.consume.length === 0) throw new Error("follow-up sem inputs");
@@ -480,6 +520,7 @@ export async function createFollowUpRun(input: {
 					userId,
 					conversationId,
 					contextLength: input.contextLength,
+					...(input.inheritFromParent ? { inherited: readRunInheritance(parent) } : {}),
 				}),
 			});
 			for (const [index, item] of defer.entries()) {

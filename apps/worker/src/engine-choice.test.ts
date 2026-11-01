@@ -316,3 +316,20 @@ test("origem sem dono em trabalho longo, com conta 'sem limite' e bot sem gasto 
 	const short = await setup({ policyJson: { engine: "v2", workProfile: "chat", engineScope: "all" } }).choose();
 	assert.equal(resolveRunLimits({ choice: short, origin: "routine", humanTurn: false, requestOrBotCap: undefined, snapshot: unlimited, wallFixed: false }).costCapUsd, undefined);
 });
+
+test("run encadeado por falha transitória (ou resposta de questionário) dentro de um trabalho longo do dono mantém long_work e a isenção do teto da conta", async () => {
+	const { readRunHumanTurn } = await import("@workspace/db");
+	// O que o db grava no run filho a partir do pai (humanTurn, motor e perfil herdados).
+	const budgetJson = { humanTurn: true, engine: "v2", engineProfile: "long_work" };
+	const policyJson = { engine: "v2" };
+	const { choose, recorded } = setup({ policyJson, budgetJson, hasCheckpoint: false, text: "Continue the previous task from where it stopped." });
+	const choice = await choose();
+	assert.equal(choice.engine, "v2");
+	assert.equal(choice.profile, "long_work");
+	assert.deepEqual(recorded, [], "motor e perfil já gravados: nada é escolhido de novo");
+	const limits = resolveRunLimits({ choice, origin: "chat", humanTurn: readRunHumanTurn({ budgetJson }), requestOrBotCap: undefined, snapshot: { maxRunCostUsd: 0.25 }, wallFixed: false });
+	assert.deepEqual(limits, { costCapUsd: undefined, wallMs: 60 * 60_000 });
+	// Sem a herança o mesmo texto cairia em chat curto com o teto da conta.
+	const lost = await setup({ policyJson, budgetJson: null, text: "Continue the previous task from where it stopped." }).choose();
+	assert.equal(lost.profile, "chat");
+});

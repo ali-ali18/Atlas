@@ -158,6 +158,9 @@ export {
 } from "./sections.js";
 export {
 	createAgentRun,
+	getConversationInheritance,
+	readRunInheritance,
+	type RunInheritance,
 	isActiveRunConflict,
 	createFollowUpRun,
 	type FollowUpResult,
