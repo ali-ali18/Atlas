@@ -37,3 +37,15 @@ it("modelo de outro provedor nunca recebe o parâmetro", () => {
 	expect(chatRequestBody({ ...base, model: "chatgpt/gpt-5", reasoningEffort: "low" }, true)).not.toHaveProperty("reasoning");
 	expect(chatRequestBody({ ...base, model: "opencode-go/glm-5", reasoningEffort: "low" }, true)).not.toHaveProperty("reasoning");
 });
+
+it("Desligado com reserva que não desliga (ou desconhecida) vira low; reserva que desliga mantém enabled:false", () => {
+	const off = { ...base, reasoningEffort: "off" as const };
+	expect(chatRequestBody({ ...off, fallbackModels: ["openai/gpt-5"] }, true).reasoning).toEqual({ effort: "low" });
+	expect(chatRequestBody({ ...off, fallbackModels: ["someone/unknown"] }, true).reasoning).toEqual({ effort: "low" });
+	expect(chatRequestBody({ ...off, fallbackModels: ["anthropic/claude-haiku-5"] }, true).reasoning).toEqual({ enabled: false });
+	expect(chatRequestBody({ ...off, fallbackModels: [] }, true).reasoning).toEqual({ enabled: false });
+});
+
+it("níveis low/medium/high não mudam por causa da reserva", () => {
+	expect(chatRequestBody({ ...base, reasoningEffort: "high", fallbackModels: ["openai/gpt-5"] }, true).reasoning).toEqual({ effort: "high" });
+});
