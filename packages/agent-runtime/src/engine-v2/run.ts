@@ -127,6 +127,8 @@ export type EngineV2Options = {
 	/** Ajuste do bot para o trabalho longo (`policyJson.longWorkBudgetUsd` / `longWorkMinutes`). */
 	longWorkBudgetUsd?: number;
 	longWorkMinutes?: number;
+	/** Piso do orçamento (US$ e minutos) sem ligar o trabalho longo: brief "Seu dia" e lembrete `check`, que no v1 não têm teto de custo e rodam até 30 min. */
+	budgetFloor?: { costUsd: number; minutes: number };
 	/** Coordenador em trabalho longo: ajudantes (`policyJson.helperModel` / `helperMaxParallel`; `deps` injeta a persistência em teste). */
 	helpers?: {
 		model?: string | null;
@@ -189,6 +191,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		: budgetForProfile(options.profile, {
 				longWorkBudgetUsd: options.longWorkBudgetUsd,
 				longWorkMinutes: options.longWorkMinutes,
+				floor: options.budgetFloor,
 				accountCapUsd: params.budget?.maxCostUsd,
 				accountCapMs: runLimits.maxWallMs,
 			});
@@ -247,11 +250,11 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	const proactiveActions = { used: 0 };
 	const userPushRun = !helperRole && params.userPush && (origin === "routine" || origin === "chat") ? params.userPush : null;
 	const userPushSent = { used: 0 };
+	// Teto de find_page_value por run (como no v1): o contador é do run, não da chamada.
+	const pageValueUse = { calls: 0 };
 	const alertRun = !helperRole && origin === "routine" ? params.alertRun : undefined;
 	// Como no v1, chat com modo proativo ou alerta não segue o idioma da mensagem (vale o último detectado).
 	const replyLanguage = resolveReplyLanguage({ setting: params.language ?? "pt-BR", ...params.languageContext, hasUserMessage: origin === "chat" && !proactiveRun && !alertRun });
-	// Teto de find_page_value por run (como no v1): o contador é do run, não da chamada.
-	const pageValueUse = { calls: 0 };
 	const language: BotLanguage = replyLanguage.language;
 	const languageAtEnd = params.language === "auto";
 	const canSeeImages = params.canSeeUserImages !== false;

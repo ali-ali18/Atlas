@@ -2,7 +2,7 @@ import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
 import { recordObserveChecks } from "../observe-checks.js";
 import { isNoUpdateReply, shouldReviewForSkill, type AlertVerdict, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
-import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode, readRunReasoningEffort } from "@workspace/shared";
+import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode, readRunReasoningEffort, isFollowupCheckObjective } from "@workspace/shared";
 import { resolveRunReasoningEffort } from "../reasoning-effort.js";
 import {
 	ATLAS_JOB_NAMES,
@@ -1159,6 +1159,8 @@ async function executeLeasedRun(ctx: {
 		// Alerta, brief "Seu dia", reflexão/lembrete proativo e evento de configuração do bot (sem mensagem digitada)
 		// são verificações curtas: o v2 cobre todos (tools e notas por origem), sempre no perfil `chat`.
 		shortRun: Boolean(alertRun) || isDetachedBriefRun(run) || run.origin === "proactive" || (isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run)),
+		// Brief e lembrete `check` pedem mais fôlego que o chat (no v1 não têm teto de custo): piso de orçamento, sem trabalho longo.
+		longerShortRun: isDetachedBriefRun(run) || isFollowupCheckObjective(run.origin, run.objective),
 		globalDefault: engineDefaultFromEnv(),
 		lastUserText: [...messages].reverse().find((message) => message.role === "user")?.content ?? "",
 		record: (choice) => recordRunEngine(runId, choice),

@@ -29,12 +29,22 @@ export type EngineChoice = {
 	profile: RunProfile;
 	longWorkBudgetUsd?: number;
 	longWorkMinutes?: number;
+	/** Piso de orçamento do brief e do lembrete `check` (perfil continua `chat`); ver `SHORT_RUN_LONGER_FLOOR`. */
+	budgetFloor?: { costUsd: number; minutes: number };
 	/** Ajudantes do trabalho longo: modelo barato opcional e quantos rodam juntos (`policyJson.helperModel` / `helperMaxParallel`). */
 	helperModel?: string | null;
 	helperMaxParallel?: number;
 	/** Máximo de saída do modelo no catálogo (limita o teto do documento no trabalho longo). */
 	modelMaxOutputTokens?: (modelId: string) => Promise<number | null>;
 };
+
+/**
+ * Piso do brief "Seu dia" e do lembrete `check`. No v1 essas execuções não têm teto de custo e correm até
+ * `BUDGET_WALL_DEFAULT_MS` (30 min); o v2 precisa de um número, então usa o `long_work` configurado do bot
+ * (padrão US$ 0,50) e 30 min, sem ligar lista de tarefas nem entrega em documento (o perfil segue `chat`).
+ * Os tetos de custo e tempo da conta/bot continuam valendo por cima.
+ */
+export const V1_SHORT_RUN_WALL_MINUTES = 30;
 
 export async function pickRunEngine(input: {
 	run: { origin: string; budgetJson?: unknown };
@@ -50,6 +60,8 @@ export async function pickRunEngine(input: {
 	 * configuração do bot): perfil `chat`, mesmo que o pedido pareça relatório ou o bot force `long_work`.
 	 */
 	shortRun?: boolean;
+	/** Brief "Seu dia" e lembrete `check`: perfil `chat`, mas com o piso de orçamento do v1 (`budgetFloor`). */
+	longerShortRun?: boolean;
 	/** Padrão global do deploy (`engineDefaultFromEnv()`); ausente = desligado. */
 	globalDefault?: EngineDefault;
 	/** Grava a escolha no run de forma atômica e devolve o motor que ficou valendo (o gravado agora ou o que já estava). */
@@ -69,7 +81,8 @@ export async function pickRunEngine(input: {
 		if (recorded !== "v2") return { engine: "v1", profile: "chat" };
 	}
 	const helpers = readHelperPolicy(input.policyJson);
-	return { engine, profile, longWorkBudgetUsd: policy.longWorkBudgetUsd, longWorkMinutes: policy.longWorkMinutes, helperModel: helpers.helperModel, helperMaxParallel: helpers.helperMaxParallel };
+	const budgetFloor = input.longerShortRun ? { costUsd: policy.longWorkBudgetUsd, minutes: Math.max(policy.longWorkMinutes, V1_SHORT_RUN_WALL_MINUTES) } : undefined;
+	return { engine, profile, ...(budgetFloor ? { budgetFloor } : {}), longWorkBudgetUsd: policy.longWorkBudgetUsd, longWorkMinutes: policy.longWorkMinutes, helperModel: helpers.helperModel, helperMaxParallel: helpers.helperMaxParallel };
 }
 
 /** Roda o motor escolhido: mesma entrada e mesma saída nos dois. */
@@ -79,6 +92,7 @@ export function runSelectedEngine(choice: EngineChoice, params: ComputerUseParam
 			profile: choice.profile,
 			longWorkBudgetUsd: choice.longWorkBudgetUsd,
 			longWorkMinutes: choice.longWorkMinutes,
+			budgetFloor: choice.budgetFloor,
 			helpers: { model: choice.helperModel, maxParallel: choice.helperMaxParallel },
 			modelMaxOutputTokens: choice.modelMaxOutputTokens,
 		});
