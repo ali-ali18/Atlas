@@ -5,7 +5,7 @@ import { useAppColorScheme } from "@/lib/use-theme";
 type IconProps = { size?: number };
 
 /** Portado de apps/web/components/icons/social.tsx (cores da marca, iguais ao web). */
-export function GoogleIcon({ size = 16 }: IconProps) {
+export function GoogleIcon({ size = 20 }: IconProps) {
 	return (
 		<Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
 			<Path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1Z" fill="#4285F4" />
@@ -23,7 +23,7 @@ function useStroke(tone: "muted-foreground" | "foreground") {
 }
 
 /** Lucide `AtSign` (o ícone do campo de e-mail no login do web). */
-export function AtSignIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+export function AtSignIcon({ size = 20, tone = "muted-foreground" }: LineIconProps) {
 	const stroke = useStroke(tone);
 	return (
 		<Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -34,7 +34,7 @@ export function AtSignIcon({ size = 16, tone = "muted-foreground" }: LineIconPro
 }
 
 /** Lucide `Link` (o campo do endereço do servidor usa no lugar do AtSign). */
-export function LinkIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+export function LinkIcon({ size = 20, tone = "muted-foreground" }: LineIconProps) {
 	const stroke = useStroke(tone);
 	return (
 		<Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">

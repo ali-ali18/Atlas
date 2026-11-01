@@ -6,7 +6,7 @@ import { TextClassContext } from "./text";
 
 // Mesmas variantes e tamanhos do Button de packages/ui. Sai o que é DOM (hover, focus-visible,
 // aria-invalid, svg); o texto é um <Text> filho que herda a cor por TextClassContext.
-const buttonVariants = cva("shrink-0 flex-row items-center justify-center rounded-4xl border border-transparent active:opacity-80", {
+const buttonVariants = cva("shrink-0 flex-row items-center justify-center rounded-full border border-transparent active:opacity-80", {
 	variants: {
 		variant: {
 			default: "bg-primary",
@@ -17,20 +17,20 @@ const buttonVariants = cva("shrink-0 flex-row items-center justify-center rounde
 			link: "",
 		},
 		size: {
-			default: "h-9 gap-1.5 px-3",
-			xs: "h-6 gap-1 px-2.5",
-			sm: "h-8 gap-1 px-3",
-			lg: "h-10 gap-1.5 px-4",
-			icon: "size-9",
-			"icon-xs": "size-6",
-			"icon-sm": "size-8",
-			"icon-lg": "size-10",
+			default: "h-14 gap-2 px-6",
+			xs: "h-9 gap-1 px-3",
+			sm: "h-11 gap-1.5 px-4",
+			lg: "h-14 gap-2 px-6",
+			icon: "size-14",
+			"icon-xs": "size-9",
+			"icon-sm": "size-11",
+			"icon-lg": "size-14",
 		},
 	},
 	defaultVariants: { variant: "default", size: "default" },
 });
 
-const buttonTextVariants = cva("font-medium", {
+const buttonTextVariants = cva("font-semibold", {
 	variants: {
 		variant: {
 			default: "text-primary-foreground",
@@ -41,14 +41,14 @@ const buttonTextVariants = cva("font-medium", {
 			link: "text-primary underline",
 		},
 		size: {
-			default: "text-sm",
-			xs: "text-xs",
-			sm: "text-sm",
-			lg: "text-sm",
-			icon: "text-sm",
-			"icon-xs": "text-xs",
-			"icon-sm": "text-sm",
-			"icon-lg": "text-sm",
+			default: "text-control",
+			xs: "text-sm",
+			sm: "text-base",
+			lg: "text-control",
+			icon: "text-control",
+			"icon-xs": "text-sm",
+			"icon-sm": "text-base",
+			"icon-lg": "text-control",
 		},
 	},
 	defaultVariants: { variant: "default", size: "default" },
@@ -56,8 +56,10 @@ const buttonTextVariants = cva("font-medium", {
 
 export type ButtonProps = React.ComponentProps<typeof Pressable> & VariantProps<typeof buttonVariants>;
 
-// Diferença inevitável: o web usa `touch-hit` (área de 44px por pseudo-elemento); no RN é `hitSlop`.
-const TOUCH_SLOP = { top: 6, bottom: 6, left: 6, right: 6 } as const;
+// Diferença do web (decisão do dono, no estilo do app do Grok): botões grandes e bem visíveis. `default`/`lg`
+// têm 56 de altura, pílula e texto 17 semibold; `sm` 44; `xs` 36 mais `hitSlop` até 44 (o web usa `touch-hit`).
+const SMALL_SIZES = new Set(["xs", "sm", "icon-xs", "icon-sm"]);
+const SMALL_SLOP = { top: 4, bottom: 4, left: 4, right: 4 } as const;
 
 export function Button({ className, variant = "default", size = "default", disabled, ...props }: ButtonProps) {
 	return (
@@ -66,7 +68,7 @@ export function Button({ className, variant = "default", size = "default", disab
 				role="button"
 				accessibilityState={{ disabled: Boolean(disabled) }}
 				disabled={disabled}
-				hitSlop={TOUCH_SLOP}
+				hitSlop={size && SMALL_SIZES.has(size) ? SMALL_SLOP : undefined}
 				className={cn(buttonVariants({ variant, size }), disabled && "opacity-50", className)}
 				{...props}
 			/>

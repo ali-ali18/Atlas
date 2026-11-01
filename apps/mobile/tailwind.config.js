@@ -29,7 +29,8 @@ module.exports = {
 				ring: token("ring"),
 			},
 			// Tokens semânticos do globals.css do web (text-body 13px, text-caption 11px, raios card/panel).
-			fontSize: { body: ["13px", { lineHeight: "18px" }], caption: ["11px", { lineHeight: "15px" }] },
+			// `control` (17px) é só do mobile: texto de botão e campo, no tamanho do app do celular.
+			fontSize: { body: ["13px", { lineHeight: "18px" }], caption: ["11px", { lineHeight: "15px" }], control: ["17px", { lineHeight: "22px" }] },
 			borderRadius: { card: "12px", panel: "20px", "4xl": "2rem" },
 			borderWidth: { hairline: hairlineWidth() },
 		},

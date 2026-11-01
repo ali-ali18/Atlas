@@ -51,11 +51,11 @@ export default function LoginScreen() {
 				{__DEV__ ? <SharedProof /> : null}
 				<View className="gap-1">
 					{__DEV__ ? (
-						<Button variant="ghost" onPress={() => router.push("/syncing")}>
+						<Button variant="ghost" size="sm" onPress={() => router.push("/syncing")}>
 							<Text>Ver prévia da sincronização</Text>
 						</Button>
 					) : null}
-					<Button variant="ghost" onPress={() => router.back()}>
+					<Button variant="ghost" size="sm" onPress={() => router.back()}>
 						<Text>Trocar servidor</Text>
 					</Button>
 				</View>
