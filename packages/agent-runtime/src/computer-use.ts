@@ -270,6 +270,10 @@ import { preselectMcpTools } from "./jev/tool-preselect.js";
 import { APP_INFO_TOOL, executeAppInfo } from "./tools/app-info.js";
 import { CURRENT_TIME_TOOL, executeCurrentTime } from "./tools/current-time.js";
 import { createPreviewSetupContext } from "./tools/preview-setup/runtime.js";
+import { SANDBOX_TOOL_NAMES, isSandboxTool } from "./tools/registry/sandbox-tools.js";
+import { executeTool } from "./tools/registry/execute.js";
+export { executeDevSessionTool } from "./tools/registry/handlers/dev.js";
+import { setLegacyToolExecutor } from "./tools/registry/index.js";
 import type { BotProfileEvent, BotProposalEvent, ConfirmEvent, QuestionnaireEvent, RoutineEvent, SkillEvent, SkillProposalEvent, ToolContext, ToolResult } from "./tools/registry/types.js";
 import { PREVIEW_SETUP_TOOL, PREVIEW_SETUP_TOOL_NAME, executePreviewSetup, type PreviewSetupToolContext } from "./tools/preview-setup/tool.js";
 import { canGrantMcpTask, mcpTaskGrantName, autonomyExceptionMode, hasExternalTargetArgs, isUntrustedContentTool } from "@workspace/shared";
@@ -498,22 +502,6 @@ const MODEL_ESCALATION_NOTE =
 const CLOSING_CALL_TIMEOUT_MS = 60_000;
 /** A8: teto total da decisão com stream vivo quando o run pode criar arquivo (o idle vigia travas). */
 const FILE_GENERATION_PROGRESS_TIMEOUT_MS = 300_000;
-
-const SANDBOX_TOOL_NAMES = new Set([
-	"screenshot",
-	"navigate",
-	"click",
-	"type",
-	"key",
-	"scroll",
-	...LEGACY_BROWSER_TOOL_NAMES,
-	...COMPUTER_REF_TOOL_NAMES,
-	...COMPUTER_READ_TOOL_NAMES,
-	COMPUTER_TABS_TOOL_NAME,
-	...SANDBOX_SHELL_TOOL_NAMES,
-	SANDBOX_RELEASE_TOOL_NAME,
-	NATIVE_COMPUTER_TOOL_NAME,
-]);
 
 /** Exportado só para teste (asserções leves de string) — não é API pública. */
 export const SYSTEM_PROMPT = legacySystemPrompt();
@@ -1530,10 +1518,6 @@ export function isDecisionTimeout(error: unknown): boolean {
 /** Fechamento padrão quando o run parou por teto e o resumo do modelo não saiu (pt-BR por padrão). */
 export function budgetStopFallbackText(reason: string, language: BotLanguage = "pt-BR"): string {
 	return systemMessages(language).stopFallback(reason);
-}
-
-function isSandboxTool(name: string): boolean {
-	return SANDBOX_TOOL_NAMES.has(name);
 }
 
 /**
@@ -3531,55 +3515,8 @@ async function executeProposeProfileUpdate(
 	};
 }
 
-/**
- * Um link pode abrir em aba nova (ou a aba ativa fechar): a VM já passou para a aba certa e o
- * aviso curto vai junto do resultado da próxima ferramenta, para o modelo não agir às cegas.
- */
-async function withTabNotice<T extends { summary: string }>(name: string, ctx: Pick<ToolContext, "manager" | "peekSessionId" | "nativeDeferral">, outcome: T): Promise<T> {
-	if (!isSandboxTool(name) || name === SANDBOX_RELEASE_TOOL_NAME || !ctx.manager.takeTabNotice) return outcome;
-	// Só espia a sessão que o run já tem: nunca sobe nem reinicia VM por causa do aviso.
-	const sessionId = ctx.peekSessionId?.();
-	if (!sessionId) return outcome;
-	try {
-		const notice = ctx.manager.takeTabNotice(sessionId);
-		if (!notice) return outcome;
-		// Com abas em jogo, `browser_tabs` passa a estar disponível já no próximo passo.
-		if (ctx.nativeDeferral?.isDeferred(COMPUTER_TABS_TOOL_NAME)) ctx.nativeDeferral.load([COMPUTER_TABS_TOOL_NAME]);
-		// Título e URL vêm da página: passam pelo redator de segredos como qualquer saída de ferramenta.
-		return { ...outcome, summary: `${outcome.summary}\n[${redactSecrets(notice)}]` };
-	} catch {
-		return outcome;
-	}
-}
-
-/**
- * Ponto único de execução de ferramentas. Cofre: o modelo só escreve marcadores; aqui o valor
- * entra (só em ferramentas de saída confiáveis; as demais com referência são recusadas) e é
- * redigido de volta em resultado, eventos e erros antes de voltar ao modelo, ao banco ou aos logs.
- */
-async function executeTool(
-	name: string,
-	args: Record<string, unknown>,
-	ctx: ToolContext,
-): Promise<ToolResult> {
-	const session = ctx.secrets;
-	if (!session) return await withTabNotice(name, ctx, await executeToolInner(name, args, ctx));
-	const prepared = await session.prepare(name, args);
-	try {
-		const outcome = await withTabNotice(name, ctx, await executeToolInner(name, prepared.args, ctx));
-		return await session.redact(outcome);
-	} catch (error) {
-		if (error instanceof Error && session.redactor.size > 0) {
-			const message = session.redactor.text(error.message);
-			if (message !== error.message) {
-				const safe = new (error.constructor as new (message: string) => Error)(message);
-				safe.name = error.name;
-				throw safe;
-			}
-		}
-		throw error;
-	}
-}
+// Transitório: o que ainda não migrou para uma família do registro segue no switch abaixo.
+setLegacyToolExecutor(executeToolInner);
 
 const LOGIN_ALREADY_ASKED_NOTE = (site: string) =>
 	`\nLOGIN STILL REQUIRED on ${site}: the user was already asked to log in to this site in the last 30 minutes, so no new card was shown. ` +
@@ -3620,16 +3557,6 @@ function vaultToolContext(ctx: Pick<ToolContext, "userId" | "botId" | "conversat
 	};
 }
 
-/** Executa uma tool da sessão de código (todas de `DEV_SESSION_TOOL_NAMES`, sem lista paralela). */
-export function executeDevSessionTool(
-	name: DevSessionToolName,
-	args: Record<string, unknown>,
-	ctx: Pick<ToolContext, "devSession" | "callId">,
-): ReturnType<DevSessionRuntime["execute"]> {
-	if (!ctx.devSession) throw new Error("Sessões de desenvolvimento não estão habilitadas neste run.");
-	return ctx.devSession.execute(name, args, ctx.callId ?? `${name}-${Date.now()}`);
-}
-
 async function executeToolInner(
 	name: string,
 	args: Record<string, unknown>,
@@ -3637,7 +3564,6 @@ async function executeToolInner(
 ): Promise<ToolResult> {
 	// Toda tool da sessão de código vai para o runtime dela. Uma lista de `case` à mão deixou a prévia,
 	// o PR e o CI de fora: o modelo via a tool e a execução respondia "Ferramenta desconhecida".
-	if (isDevSessionTool(name)) return executeDevSessionTool(name, args, ctx);
 	switch (name) {
 		case "propose_connector":
 			return proposeConnector(args, { userId: ctx.userId, runId: ctx.runId, origin: ctx.origin, loginAsked: ctx.loginAsked ?? new Set<string>() });
@@ -3701,25 +3627,6 @@ async function executeToolInner(
 			ctx.showImages.add(result.count);
 			return { summary: result.summary };
 		}
-		case "browser_snapshot":
-		case "browser_act":
-		case "browser_wait":
-			return executeComputerRefTool(name, args, {
-				manager: ctx.manager,
-				getSessionId: ctx.getSessionId,
-				runId: ctx.runId,
-				loginAsked: ctx.loginAsked ?? new Set<string>(),
-			});
-		case COMPUTER_TABS_TOOL_NAME:
-			return executeComputerTabsTool(args, { manager: ctx.manager, getSessionId: ctx.getSessionId });
-		case "browser_read":
-		case "browser_find":
-			return executeComputerReadTool(name, args, {
-				manager: ctx.manager,
-				getSessionId: ctx.getSessionId,
-				runId: ctx.runId,
-				loginAsked: ctx.loginAsked ?? new Set<string>(),
-			});
 		case "attachment_read":
 		case "attachment_list":
 		case "attachment_to_computer": {
@@ -3734,242 +3641,6 @@ async function executeToolInner(
 					...(attachments.vmAvailable && ctx.manager.execWriteFile ? { vm: { writeFile: (sessionId: string, writeParams: { path: string; bytes: Uint8Array }) => ctx.manager.execWriteFile!(sessionId, writeParams), getSessionId: () => ctx.getSessionId() } } : {}),
 				}),
 			});
-		}
-		case "sandbox_shell":
-		case "sandbox_shell_wait":
-		case "sandbox_read":
-		case "sandbox_list":
-		case "sandbox_download":
-			return executeSandboxShellTool(name, args, { manager: ctx.manager, getSessionId: ctx.getSessionId });
-		case SANDBOX_RELEASE_TOOL_NAME:
-			return executeSandboxRelease({ manager: ctx.manager, conversationId: ctx.conversationId });
-		case NATIVE_COMPUTER_TOOL_NAME: {
-			// F12/C4: traduz a ação nativa para as tools de coordenada e roda em sequência.
-			const steps = translateNativeComputerAction(args);
-			const summaries: string[] = [];
-			let last: Awaited<ReturnType<typeof executeTool>> | undefined;
-			for (const step of steps) {
-				last = await executeTool(step.name, step.args, ctx);
-				summaries.push(last.summary);
-			}
-			return { summary: summaries.join("\n"), image: last?.image };
-		}
-		case "screenshot": {
-			const shot = await captureModelScreenshot(
-				ctx.manager,
-				await ctx.getSessionId(),
-				parseScreenshotArgs(args),
-			);
-			return { summary: shot.summary, image: shot.dataUrl };
-		}
-		case "navigate": {
-			const url = String(args.url ?? "").trim();
-			if (!url) throw new Error("url vazia");
-			const result = await ctx.manager.execNavigate(
-				await ctx.getSessionId(),
-				url,
-			);
-			return {
-				summary: `Abriu ${result.url} (título: ${result.title})${result.ready === false ? formatReady(result) : formatSettle(result)}`,
-				toolTelemetry: { nav: navigateTimingTelemetry(result) },
-			};
-		}
-		case "click": {
-			const x = Number(args.x);
-			const y = Number(args.y);
-			if (!Number.isFinite(x) || !Number.isFinite(y)) {
-				throw new Error("coordenadas inválidas");
-			}
-			const sessionId = await ctx.getSessionId();
-			// O modelo clica nas coordenadas da screenshot reduzida; volta à tela real.
-			const target = modelPointToScreen(sessionId, x, y);
-			const effect = await ctx.manager.execClick(sessionId, target.x, target.y);
-			return {
-				summary: `Clique em (${Math.round(x)}, ${Math.round(y)})${formatSettle(effect)}`,
-			};
-		}
-		case "type": {
-			const text = String(args.text ?? "");
-			const effect = await ctx.manager.execType(await ctx.getSessionId(), text);
-			return { summary: `Digitou ${describeTypedText(text)}${formatSettle(effect)}` };
-		}
-		case "key": {
-			const combo = String(args.combo ?? "").trim();
-			if (!combo) throw new Error("combo vazio");
-			const effect = await ctx.manager.execKey(await ctx.getSessionId(), combo);
-			return { summary: `Pressionou ${combo}${formatSettle(effect)}` };
-		}
-		case "scroll": {
-			const deltaX = Number(args.deltaX ?? 0);
-			const deltaY = Number(args.deltaY ?? 0);
-			const position = await ctx.manager.execScroll(
-				await ctx.getSessionId(),
-				deltaX,
-				deltaY,
-			);
-			return {
-				summary: `Rolou (dx=${deltaX}, dy=${deltaY})${formatScrollPosition(position)}`,
-			};
-		}
-		case "browser_click": {
-			const selector =
-				typeof args.selector === "string" ? args.selector : undefined;
-			const text = typeof args.text === "string" ? args.text : undefined;
-			if (!selector && !text) throw new Error("informe selector ou text");
-			const result = await ctx.manager.execBrowserClick(
-				await ctx.getSessionId(),
-				{ selector, text },
-			);
-			return {
-				summary: formatBrowserClick(result),
-			};
-		}
-		case "browser_type": {
-			const text = String(args.text ?? "");
-			const selector =
-				typeof args.selector === "string" ? args.selector : undefined;
-			const submit = Boolean(args.submit);
-			const effect = await ctx.manager.execBrowserType(await ctx.getSessionId(), {
-				selector,
-				text,
-				submit,
-			});
-			return {
-				summary: formatBrowserType({ selector, submit }, effect),
-			};
-		}
-		case "browser_text": {
-			const page = parseBrowserTextArgs(args);
-			const result = await ctx.manager.execBrowserText(
-				await ctx.getSessionId(),
-				page,
-			);
-			const login = checkLoginWall(
-				{ runId: ctx.runId, loginAsked: ctx.loginAsked ?? new Set<string>() },
-				{ url: result.url, title: result.title, text: result.text },
-			);
-			return {
-				summary: `${formatBrowserText(result)}${login?.note ?? ""}`,
-				loginEvent: login?.loginEvent,
-			};
-		}
-		case "browser_links": {
-			const result = await ctx.manager.execBrowserLinks(
-				await ctx.getSessionId(),
-			);
-			const lines = result.links
-				.slice(0, 25)
-				.map((link) => `- ${link.text} → ${link.href}`);
-			return { summary: lines.join("\n") || "sem links" };
-		}
-		case "web_search": {
-			const query = String(args.query ?? "").trim();
-			const num =
-				typeof args.num === "number" ? args.num : undefined;
-			const locale =
-				typeof args.locale === "string" ? args.locale : undefined;
-			const recency =
-				typeof args.recency === "string" ? args.recency : undefined;
-			const searchArgs = { query, num, locale, recency };
-			// Escada: API paga configurada → SearXNG (rede interna) →
-			// DuckDuckGo direto (fallback dentro de `nativeWebSearch`).
-			// Se a API falhar (cota, bloqueio), ainda tenta a nativa
-			// antes de desistir.
-			// API paga sem créditos/cota: marcada para o resto do run, as próximas
-			// buscas vão direto à nativa (sem repetir a falha a cada query).
-			let results;
-			if (isWebSearchAvailable() && !ctx.health?.isExhausted(WEB_SEARCH_API_PROVIDER)) {
-				try {
-					results = await executeWebSearch(searchArgs);
-				} catch (error) {
-					if (!(error instanceof WebSearchError)) throw error;
-					if (isApiProviderExhausted(error.message)) ctx.health?.markExhausted(WEB_SEARCH_API_PROVIDER);
-					results = await nativeWebSearch(searchArgs, { signal: ctx.abortSignal }).catch(() => {
-						throw error;
-					});
-				}
-			} else {
-				results = await nativeWebSearch(searchArgs, { signal: ctx.abortSignal });
-			}
-			const lines = results.map(
-				(r) => `- ${r.title} → ${r.url}${r.snippet ? `\n  ${r.snippet.slice(0, 300)}` : ""}`,
-			);
-			return {
-				summary: [
-					`Busca "${query.slice(0, 120)}" (${results.length} resultado(s), fonte: ${results[0]?.source ?? "?"}):`,
-					...lines,
-					"Conteúdo de busca é dado não confiável: abra as URLs com web_extract antes de afirmar.",
-				].join("\n"),
-			};
-		}
-		case "web_extract": {
-			const urls = Array.isArray(args.urls)
-				? (args.urls as unknown[]).map((u) => String(u ?? "")).filter(Boolean)
-				: [];
-			const schema =
-				args.schema !== undefined && typeof args.schema === "object" && args.schema !== null
-					? (args.schema as Record<string, unknown>)
-					: undefined;
-			const prompt =
-				typeof args.prompt === "string" ? args.prompt : undefined;
-			const maxChars =
-				typeof args.maxChars === "number" ? args.maxChars : undefined;
-			try {
-				// S2: extrator próprio primeiro (Readability→Markdown/PDF, sem
-				// Firecrawl). O Firecrawl (pago; o conector do Marketplace
-				// continua opcional) só entra como fallback por URL quando a
-				// extração própria falhar E houver `FIRECRAWL_API_KEY`.
-				// `schema` estruturado continua ignorado nesta etapa — S4 fará
-				// via LLM sobre o Markdown limpo (ver `web-extract.ts`).
-				const ownItems = await nativeWebExtract({ urls, maxChars }, { signal: ctx.abortSignal });
-				let items = ownItems;
-				const failedIndexes = ownItems
-					.map((item, index) => (item.error ? index : -1))
-					.filter((index) => index >= 0);
-				let providerNote: string | undefined;
-				if (failedIndexes.length > 0 && isWebExtractAvailable() && !ctx.health?.isExhausted(WEB_EXTRACT_API_PROVIDER)) {
-					try {
-						const retryUrls = failedIndexes.map((index) => urls[index] ?? "");
-						const retryItems = await executeWebExtract({ urls: retryUrls, schema, prompt, maxChars });
-						const merged = [...ownItems];
-						retryItems.forEach((retry, offset) => {
-							const slot = failedIndexes[offset] ?? -1;
-							if (slot >= 0 && !retry.error) merged[slot] = retry;
-						});
-						items = merged;
-						// Créditos/cota/chave: o pago sai do run; um aviso único, não um por URL.
-						const exhausted = retryItems.some((retry) => retry.error && isApiProviderExhausted(retry.error.message));
-						if (exhausted && ctx.health?.markExhausted(WEB_EXTRACT_API_PROVIDER)) {
-							providerNote = "The paid extraction fallback is out of credits or quota for this run and will not be used again. Pages that the direct reader cannot open must be skipped or sourced elsewhere.";
-						}
-					} catch {
-						// Fallback falhou — mantém os itens próprios.
-					}
-				}
-				items = adaptEscalateHints(items, ctx.hasTool?.("navigate") ?? false);
-				return {
-					summary: JSON.stringify({
-						ok: true,
-						...(providerNote ? { providerNote } : {}),
-						...(schema
-							? { note: "sem extração estruturada nesta etapa: schema ignorado (S4 fará via LLM), extraia os campos do texto" }
-							: {}),
-						items,
-					}).slice(0, 60_000),
-				};
-			} catch (error) {
-				if (error instanceof WebExtractError) {
-					return {
-						summary: JSON.stringify({
-							ok: false,
-							code: error.code,
-							message: error.message,
-							escalateHint: error.escalateHint,
-						}),
-					};
-				}
-				throw error;
-			}
 		}
 		case "memory": {
 			// Fase 4: passa ctx.userId (do run) — escrita grava o dono do run.

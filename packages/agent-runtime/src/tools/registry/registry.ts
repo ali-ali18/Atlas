@@ -1,5 +1,5 @@
 import type { ChatTool } from "@workspace/llm";
-import type { ToolContext,ToolHandler,ToolRegistration,ToolResult } from "./types.js";
+import type { ToolContext, ToolHandler, ToolRegistration, ToolResult } from "./types.js";
 
 /**
  * Registro de tools reutilizável: o laço atual (`runComputerUse`) e qualquer outro laço executam as
@@ -65,6 +65,15 @@ export function hasRegisteredTool(name: string): boolean {
 }
 
 /**
+ * Transitório da migração (ADR 0002, F1): tools que ainda vivem no `switch` do computer-use.ts.
+ * Sai quando o último caso for movido para uma família.
+ */
+let legacyExecutor: ((name: string, args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>) | undefined;
+export function setLegacyToolExecutor(executor: typeof legacyExecutor): void {
+	legacyExecutor = executor;
+}
+
+/**
  * Executa uma tool pelo registro. Nome sem handler: erro honesto ("Ferramenta desconhecida"),
  * igual ao que o laço sempre devolveu ao modelo.
  */
@@ -80,5 +89,6 @@ export async function executeRegisteredTool(name: string, args: Record<string, u
 		const handler = resolve(name);
 		if (handler) return await handler(args, ctx);
 	}
+	if (legacyExecutor) return await legacyExecutor(name, args, ctx);
 	throw new Error(`Ferramenta desconhecida: ${name}`);
 }

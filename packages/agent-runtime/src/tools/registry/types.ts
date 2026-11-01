@@ -1,55 +1,35 @@
-import type {
-BotLanguage,ComputerUseEvent,RoutineRecord,
-StepTelemetry
-} from "@workspace/shared";
-import {
-type EffectiveAutonomy
-} from "@workspace/shared";
-import {
-type ChatTool
-} from "@workspace/llm";
+import type { BotLanguage, ComputerUseEvent, RoutineRecord, StepTelemetry } from "@workspace/shared";
+import { type EffectiveAutonomy } from "@workspace/shared";
+import { type ChatTool } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import { type ShowImageEvent } from "../../tools/show-image.js";
 import type { AttachmentRuntime } from "../../attachments/runtime.js";
 import type { McpRuntime } from "../../mcp/runtime.js";
-import { type JevMcpAudit,type JevMcpEvaluator,type JevMcpMode } from "../../mcp/jev-gate.js";
+import { type JevMcpAudit, type JevMcpEvaluator, type JevMcpMode } from "../../mcp/jev-gate.js";
 import { type JevIntents } from "../../jev/intent.js";
 import { type JevRuntime } from "../../jev/decide.js";
 import { type RereadGuard } from "../../execution/reread-guard.js";
 import { type PreviewSetupToolContext } from "../../tools/preview-setup/tool.js";
 import { type SecretSession } from "../../secrets/session.js";
-import {
-type SkillsStore
-} from "../../tools/skills.js";
+import { type SkillsStore } from "../../tools/skills.js";
 import type { ApiConnectorRuntime } from "../../api-connector/runtime.js";
 import { type EmailRunContext } from "../../email/tools.js";
 import { type NativeDeferral } from "../../context/native-deferral.js";
 
-import {
-type LoginEvent
-} from "../../tools/computer-refs.js";
-import {
-type DevSessionRuntime
-} from "../../tools/dev-session.js";
-import {
-type DelegateContext
-} from "../../tools/delegate-task.js";
-import { type CreateFileDeps,type FileEvent } from "../../tools/create-file.js";
+import { type LoginEvent } from "../../tools/computer-refs.js";
+import { type DevSessionRuntime } from "../../tools/dev-session.js";
+import { type DelegateContext } from "../../tools/delegate-task.js";
+import { type CreateFileDeps, type FileEvent } from "../../tools/create-file.js";
 import { type RunCodeDeps } from "../../tools/run-code.js";
 import { type AlertRunState } from "../../tools/report-alert.js";
 import { type AlertRuleReader } from "../../tools/alert-rule.js";
 import { type PageValueFinder } from "../../tools/find-page-value.js";
-import { type PageShareStore,type PagesStore } from "../../tools/pages.js";
-import {
-type ProviderHealth
-} from "../../tools/provider-health.js";
+import { type PageShareStore, type PagesStore } from "../../tools/pages.js";
+import { type ProviderHealth } from "../../tools/provider-health.js";
 import { type ResearchNotes } from "../../tools/research-note.js";
 import { type LedgerStore } from "../../tools/track-items.js";
 import { type TaskListStore } from "../../tools/task-list.js";
-import {
-type ProactiveToolContext,
-type UserPushContext
-} from "../../tools/proactive.js";
+import { type ProactiveToolContext, type UserPushContext } from "../../tools/proactive.js";
 import { type RunLessonsParam } from "../../lessons.js";
 
 export type ConfirmEvent = Extract<ComputerUseEvent, { type: "confirm" }>;
