@@ -18,8 +18,9 @@ export const LONG_WORK_MIN_MINUTES = 1;
 export const LONG_WORK_MAX_MINUTES = 120;
 
 /**
- * Onde o v2 roda num bot que o ligou: `chat` (padrão) = só a conversa direta com o dono; `all` = também rotinas,
- * grupo, bot→bot, webhook e e-mail recebido. Proativo, alerta e evento de configuração do bot seguem no v1 (o v2 não tem esses recursos).
+/**
+ * Onde o v2 roda num bot que o ligou: `chat` (padrão) = só a conversa direta com o dono; `all` = também rotinas
+ * (alerta e brief inclusos), grupo, bot→bot, proativo, webhook e e-mail recebido. Só o subagente segue no v1.
  */
 export type EngineScope = "chat" | "all";
 /** Padrão global do deploy (`ATLAS_ENGINE_V2_DEFAULT`) para bots que não escolheram o motor: `off` (padrão), `chat` ou `all`. */
@@ -112,9 +113,10 @@ export function withRunEngine(budgetJson: unknown, choice: { engine: RunEngine; 
 }
 
 /**
- * Origens que o v2 atende. Escopo `chat`: só a conversa direta do dono com o bot. Escopo `all`: também rotina,
- * grupo (run de membro na conversa do grupo), bot→bot, webhook e e-mail recebido. Proativo segue no v1 (recursos que
- * o v2 não tem; ver docs/features/motor-v2.md).
+/**
+ * Origens que o v2 atende. Escopo `chat`: só a conversa direta do dono com o bot. Escopo `all`: também rotina
+ * (inclui alerta, brief "Seu dia" e "só importante"), grupo (run de membro na conversa do grupo), bot→bot, proativo
+ * (reflexão e lembrete do bot), webhook e e-mail recebido (ver docs/features/motor-v2.md).
  *
  * Subagente nunca passa por aqui como run do worker: o filho do `delegate_task` roda dentro do pai e herda o motor
  * dele (o pai no v2 usa os ajudantes do `delegate`, com os mesmos eventos e cartões). O guarda abaixo só protege
@@ -123,7 +125,8 @@ export function withRunEngine(budgetJson: unknown, choice: { engine: RunEngine; 
 export function engineV2SupportsRun(input: { origin: string; isGroupRun: boolean; isSubagent?: boolean; scope?: EngineScope }): boolean {
 	if (input.isSubagent === true || input.origin === "subagent") return false;
 	if (input.origin === "chat") return input.scope === "all" || !input.isGroupRun;
-	const viaScopeAll = input.origin === "routine" || input.origin === "bot" || input.origin === "webhook" || input.origin === "email";
+	const viaScopeAll =
+		input.origin === "routine" || input.origin === "bot" || input.origin === "proactive" || input.origin === "webhook" || input.origin === "email";
 	return input.scope === "all" && viaScopeAll && !input.isGroupRun;
 }
 

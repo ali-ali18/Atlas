@@ -4,11 +4,11 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { engineDefaultFromEnv, longWorkOwnerLimits, mustStayOnV1, pickRunEngine } from "./engine-choice.js";
+import { engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine } from "./engine-choice.js";
 import type { EngineDefault } from "@workspace/shared";
 import { effectiveCostCapUsd } from "./run-config.js";
 
-function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: string; isGroupRun?: boolean; hasCheckpoint?: boolean; text?: string; forceV1?: boolean; globalDefault?: EngineDefault } = {}) {
+function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: string; isGroupRun?: boolean; hasCheckpoint?: boolean; text?: string; forceV1?: boolean; shortRun?: boolean; longerShortRun?: boolean; globalDefault?: EngineDefault } = {}) {
 	const recorded: Array<{ engine: string; profile: string }> = [];
 	const choose = () =>
 		pickRunEngine({
@@ -18,6 +18,8 @@ function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: stri
 			hasCheckpoint: over.hasCheckpoint ?? false,
 			lastUserText: over.text ?? "Bom dia",
 			forceV1: over.forceV1,
+			shortRun: over.shortRun,
+			longerShortRun: over.longerShortRun,
 			globalDefault: over.globalDefault,
 			record: async (choice) => {
 				recorded.push(choice);
@@ -76,12 +78,46 @@ test("escopo chat (padrão): rotina, webhook, proativo, subagente, bot→bot e g
 	assert.equal((await setup({ policyJson: { engine: "v2" }, isGroupRun: true }).choose()).engine, "v1");
 });
 
-test("modo proativo, alerta e evento de configuração do bot forçam o v1 (o v2 não tem essas tools)", async () => {
+test("gancho genérico forceV1: run novo fica no v1 e não grava; motor já gravado vence", async () => {
 	const { choose, recorded } = setup({ policyJson: { engine: "v2" }, forceV1: true });
 	assert.equal((await choose()).engine, "v1");
 	assert.deepEqual(recorded, []);
 	// Motor já gravado vence o força-v1 (retomada).
 	assert.equal((await setup({ policyJson: null, budgetJson: { engine: "v2" }, hasCheckpoint: true, forceV1: true }).choose()).engine, "v2");
+});
+
+// Mudança de comportamento aceita (CHANGELOG [Não lançado]): o worker não força mais o v1 no chat com modo proativo
+// ligado nem no evento de configuração do bot. Os dois chegam aqui como origem `chat` com `shortRun` (config) ou sem.
+test("chat com modo proativo ligado e evento de configuração do bot no escopo chat vão ao v2 quando o bot tem engine v2", async () => {
+	const chatProativo = setup({ policyJson: { engine: "v2", engineScope: "chat" }, origin: "chat", text: "semana que vem tenho prova" });
+	assert.equal((await chatProativo.choose()).engine, "v2");
+	assert.deepEqual(chatProativo.recorded, [{ engine: "v2", profile: "chat" }]);
+	const config = setup({ policyJson: { engine: "v2" }, origin: "chat", shortRun: true, text: "relatório completo de configuração" });
+	assert.deepEqual(await config.choose(), { engine: "v2", profile: "chat", longWorkBudgetUsd: 0.5, longWorkMinutes: 20, helperModel: null, helperMaxParallel: 4 });
+});
+
+test("o padrão global ATLAS_ENGINE_V2_DEFAULT=chat leva os mesmos runs ao v2; sem chave nenhuma continuam no v1", async () => {
+	for (const over of [{ origin: "chat" }, { origin: "chat", shortRun: true }]) {
+		assert.equal((await setup({ policyJson: null, globalDefault: "chat", ...over }).choose()).engine, "v2");
+		const off = setup({ policyJson: null, ...over });
+		assert.equal((await off.choose()).engine, "v1");
+		assert.deepEqual(off.recorded, []);
+	}
+	// engine v1 explícito vence o padrão global.
+	assert.equal((await setup({ policyJson: { engine: "v1" }, globalDefault: "all" }).choose()).engine, "v1");
+});
+
+test("brief e lembrete check: perfil chat, mas com piso de orçamento do v1 (long_work do bot ou US$ 0,50, no mínimo 30 min)", async () => {
+	const wide = { engine: "v2", engineScope: "all" };
+	const base = setup({ policyJson: wide, origin: "routine", longerShortRun: true, shortRun: true, text: "Levante os pedidos e monte um relatório completo" });
+	const choice = await base.choose();
+	assert.equal(choice.profile, "chat");
+	assert.deepEqual(choice.budgetFloor, { costUsd: 0.5, minutes: 30 });
+	const custom = await setup({ policyJson: { ...wide, longWorkBudgetUsd: 2, longWorkMinutes: 45 }, origin: "proactive", longerShortRun: true, shortRun: true }).choose();
+	assert.equal(custom.profile, "chat");
+	assert.deepEqual(custom.budgetFloor, { costUsd: 2, minutes: 45 });
+	// Alerta e evento de configuração (sem longerShortRun) seguem no teto do chat.
+	assert.equal((await setup({ policyJson: wide, origin: "routine", shortRun: true }).choose()).budgetFloor, undefined);
 });
 
 test("se a escolha não puder ser gravada, o run roda no v1 (a retomada não troca de motor)", async () => {
@@ -104,11 +140,12 @@ test("se a escolha não puder ser gravada, o run roda no v1 (a retomada não tro
 
 const wide = { engine: "v2", engineScope: "all" };
 
-test("escopo all: rotina, grupo, bot→bot, webhook e e-mail saem no v2 e gravam a escolha; o chat também", async () => {
+test("escopo all: rotina, grupo, bot→bot, proativo, webhook e e-mail saem no v2 e gravam a escolha; o chat também", async () => {
 	for (const [name, over] of [
 		["rotina", { origin: "routine" }],
 		["grupo", { origin: "chat", isGroupRun: true }],
 		["bot→bot", { origin: "bot" }],
+		["proativo", { origin: "proactive" }],
 		["webhook", { origin: "webhook" }],
 		["e-mail", { origin: "email" }],
 		["chat", { origin: "chat" }],
@@ -119,8 +156,8 @@ test("escopo all: rotina, grupo, bot→bot, webhook e e-mail saem no v2 e gravam
 	}
 });
 
-test("escopo all não leva subagente nem proativo ao v2", async () => {
-	for (const origin of ["subagent", "proactive"]) {
+test("escopo all não leva subagente ao v2", async () => {
+	for (const origin of ["subagent"]) {
 		const { choose, recorded } = setup({ policyJson: wide, origin });
 		assert.equal((await choose()).engine, "v1", origin);
 		assert.deepEqual(recorded, [], origin);
@@ -148,7 +185,7 @@ test("rotina no v2: relatório vira long_work, tarefa curta fica em chat", async
 	assert.equal((await simple.choose()).profile, "chat");
 });
 
-test("forceV1 (proativo, alerta, config, brief, rotina só importante) vence o escopo all e o padrão global", async () => {
+test("forceV1 (gancho para recurso do v1 que o v2 não cobre) vence o escopo all e o padrão global", async () => {
 	const { choose, recorded } = setup({ policyJson: wide, origin: "routine", forceV1: true, globalDefault: "all" });
 	assert.equal((await choose()).engine, "v1");
 	assert.deepEqual(recorded, []);
@@ -193,15 +230,31 @@ test("engineDefaultFromEnv lê ATLAS_ENGINE_V2_DEFAULT; ausente ou inválido é 
 	assert.equal(engineDefaultFromEnv({ ATLAS_ENGINE_V2_DEFAULT: "sim" }), "off");
 });
 
-test("mustStayOnV1: recursos que o v2 não tem", () => {
-	const base = { origin: "routine", proactive: false, alert: false, botConfigEvent: false, detachedBrief: false, routinePush: false };
-	assert.equal(mustStayOnV1(base), false);
-	assert.equal(mustStayOnV1({ ...base, origin: "chat" }), false);
-	for (const key of ["proactive", "alert", "botConfigEvent"] as const) assert.equal(mustStayOnV1({ ...base, [key]: true }), true, key);
-	assert.equal(mustStayOnV1({ ...base, detachedBrief: true }), true);
-	assert.equal(mustStayOnV1({ ...base, routinePush: true }), true);
-	// brief e push só importam em rotina.
-	assert.equal(mustStayOnV1({ ...base, origin: "chat", detachedBrief: true, routinePush: true }), false);
+test("alerta, brief, proativo e config do bot (shortRun) saem no v2 sempre no perfil chat, mesmo com pedido de relatório ou long_work forçado", async () => {
+	const report = "Levante os pedidos em aberto e monte um relatório comparativo com preços";
+	for (const [name, over] of [
+		["alerta/brief (rotina)", { origin: "routine" }],
+		["proativo", { origin: "proactive" }],
+		["config do bot (chat)", { origin: "chat" }],
+	] as const) {
+		const auto = setup({ policyJson: wide, text: report, shortRun: true, ...over });
+		assert.deepEqual(await auto.choose(), { engine: "v2", profile: "chat", longWorkBudgetUsd: 0.5, longWorkMinutes: 20, helperModel: null, helperMaxParallel: 4 }, name);
+		assert.deepEqual(auto.recorded, [{ engine: "v2", profile: "chat" }], name);
+		const forced = setup({ policyJson: { ...wide, workProfile: "long_work" }, text: report, shortRun: true, ...over });
+		assert.equal((await forced.choose()).profile, "chat", `${name} com long_work forçado`);
+	}
+	// Sem shortRun o pedido de relatório continua virando trabalho longo.
+	assert.equal((await setup({ policyJson: wide, origin: "routine", text: report }).choose()).profile, "long_work");
+});
+
+test("alerta, brief e proativo seguem no v1 sem o escopo all (padrão sem chave continua v1)", async () => {
+	for (const over of [{ origin: "routine" }, { origin: "proactive" }]) {
+		for (const policyJson of [null, { engine: "v2" }, { engine: "v2", engineScope: "chat" }]) {
+			const { choose, recorded } = setup({ policyJson, shortRun: true, ...over });
+			assert.equal((await choose()).engine, "v1");
+			assert.deepEqual(recorded, []);
+		}
+	}
 });
 
 test("orçamento de trabalho longo gravado no bot vale mais que o teto por execução da conta; sem valor no bot a conta limita; chat curto fica com a conta", async () => {

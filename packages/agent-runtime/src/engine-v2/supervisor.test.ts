@@ -39,6 +39,15 @@ describe("orçamento por perfil", () => {
 	});
 });
 
+describe("piso de orçamento (brief e lembrete check)", () => {
+	it("o piso sobe o chat, nunca baixa o trabalho longo maior, e os tetos do dono vencem", () => {
+		expect(budgetForProfile("chat", { floor: { costUsd: 0.5, minutes: 30 } })).toEqual({ maxCostUsd: 0.5, maxActiveMs: 30 * 60_000 });
+		expect(budgetForProfile("long_work", { longWorkBudgetUsd: 2, longWorkMinutes: 45, floor: { costUsd: 0.5, minutes: 30 } })).toEqual({ maxCostUsd: 2, maxActiveMs: 45 * 60_000 });
+		expect(budgetForProfile("chat", { floor: { costUsd: 0.5, minutes: 30 }, accountCapUsd: 0.1, accountCapMs: 5 * 60_000 })).toEqual({ maxCostUsd: 0.1, maxActiveMs: 5 * 60_000 });
+		expect(budgetForProfile("chat")).toEqual(CHAT_BUDGET);
+	});
+});
+
 describe("gate: aviso e entrega", () => {
 	it("abaixo de 80% segue sem nota", () => {
 		const supervisor = createSupervisor({ profile: "long_work", budget });

@@ -557,7 +557,7 @@ const AGENTIC_RESEARCH_PROMPT = [
 ].join("\n");
 
 /** Rotina "só importante": o resultado fica salvo no chat sem aviso; `notify_user` é o único jeito de apitar. */
-const USER_PUSH_ROUTINE_NOTE =
+export const USER_PUSH_ROUTINE_NOTE =
 	"This routine is set to notify only when something matters. Your final reply is saved in the chat silently, without a notification. Call notify_user (at most once) only if the result is something the user would want to know now; if nothing is new or noteworthy, just write the result and do not call it.";
 
 /**

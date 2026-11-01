@@ -2,7 +2,7 @@
  * Motor do run (ADR 0002, F2): escolhe entre o laço atual (v1) e o v2 no começo do run e congela a escolha em
  * `budgetJson.engine`, para a retomada continuar no mesmo motor. O v1 é o padrão. O v2 roda no chat direto de um
  * bot que ligou `policyJson.engine = "v2"` e, com `policyJson.engineScope = "all"`, também em rotina, grupo,
- * bot→bot, webhook e e-mail recebido. Proativo segue no v1; subagente herda o motor do pai. O padrão global `ATLAS_ENGINE_V2_DEFAULT`
+ * bot→bot, proativo (reflexão e lembrete), webhook e e-mail recebido. Subagente herda o motor do pai. O padrão global `ATLAS_ENGINE_V2_DEFAULT`
  * (`off` | `chat` | `all`, desligado) vale para bots que não escolheram o motor; `engine: "v1"` explícito nunca vai ao v2.
  */
 import { runComputerUse, runEngineV2, type ComputerUseParams, type RunComputerUseResult } from "@workspace/agent-runtime";
@@ -24,23 +24,6 @@ export function engineDefaultFromEnv(env: Record<string, string | undefined> = p
 	return readEngineDefault(env.ATLAS_ENGINE_V2_DEFAULT);
 }
 
-/**
- * O run usa recursos que o v2 ainda não tem e por isso fica no v1, qualquer que seja a política do bot:
- * modo proativo do bot, alerta (veredito estruturado), evento de configuração do bot sem mensagem digitada,
- * brief "Seu dia" (rotina sem conversa, só leitura entregue pelo worker) e rotina "só importante" (usa `notify_user`).
- */
-export function mustStayOnV1(input: {
-	origin: string;
-	proactive: boolean;
-	alert: boolean;
-	botConfigEvent: boolean;
-	detachedBrief: boolean;
-	routinePush: boolean;
-}): boolean {
-	if (input.proactive || input.alert || input.botConfigEvent) return true;
-	return input.origin === "routine" && (input.detachedBrief || input.routinePush);
-}
-
 export type EngineChoice = {
 	engine: RunEngine;
 	profile: RunProfile;
@@ -49,12 +32,22 @@ export type EngineChoice = {
 	/** O bot gravou o valor: no trabalho longo ele vale mais que o teto por execução da conta (ver `longWorkOwnerLimits`). */
 	longWorkBudgetExplicit?: boolean;
 	longWorkMinutesExplicit?: boolean;
+	/** Piso de orçamento do brief e do lembrete `check` (perfil continua `chat`); ver `SHORT_RUN_LONGER_FLOOR`. */
+	budgetFloor?: { costUsd: number; minutes: number };
 	/** Ajudantes do trabalho longo: modelo barato opcional e quantos rodam juntos (`policyJson.helperModel` / `helperMaxParallel`). */
 	helperModel?: string | null;
 	helperMaxParallel?: number;
 	/** Máximo de saída do modelo no catálogo (limita o teto do documento no trabalho longo). */
 	modelMaxOutputTokens?: (modelId: string) => Promise<number | null>;
 };
+
+/**
+ * Piso do brief "Seu dia" e do lembrete `check`. No v1 essas execuções não têm teto de custo e correm até
+ * `BUDGET_WALL_DEFAULT_MS` (30 min); o v2 precisa de um número, então usa o `long_work` configurado do bot
+ * (padrão US$ 0,50) e 30 min, sem ligar lista de tarefas nem entrega em documento (o perfil segue `chat`).
+ * Os tetos de custo e tempo da conta/bot continuam valendo por cima.
+ */
+export const V1_SHORT_RUN_WALL_MINUTES = 30;
 
 export async function pickRunEngine(input: {
 	run: { origin: string; budgetJson?: unknown };
@@ -63,11 +56,15 @@ export async function pickRunEngine(input: {
 	/** O run já tem checkpoint (retomada): sem motor gravado ele nasceu no v1, antes desta fase. */
 	hasCheckpoint: boolean;
 	lastUserText: string;
-	/**
-	 * O run usa recursos que o v2 ainda não tem (modo proativo do bot, alerta, evento de configuração do bot sem
-	 * mensagem digitada): fica no v1. Só vale para run novo; o motor já gravado vence.
-	 */
+	/** Gancho para um recurso novo do v1 que o v2 ainda não cobre: o run novo fica no v1 (hoje o worker não o usa). O motor já gravado vence. */
 	forceV1?: boolean;
+	/**
+	 * Verificação curta que nunca é trabalho longo (alerta, brief "Seu dia", reflexão/lembrete proativo, evento de
+	 * configuração do bot): perfil `chat`, mesmo que o pedido pareça relatório ou o bot force `long_work`.
+	 */
+	shortRun?: boolean;
+	/** Brief "Seu dia" e lembrete `check`: perfil `chat`, mas com o piso de orçamento do v1 (`budgetFloor`). */
+	longerShortRun?: boolean;
 	/** Padrão global do deploy (`engineDefaultFromEnv()`); ausente = desligado. */
 	globalDefault?: EngineDefault;
 	/** Grava a escolha no run de forma atômica e devolve o motor que ficou valendo (o gravado agora ou o que já estava). */
@@ -77,7 +74,8 @@ export async function pickRunEngine(input: {
 	const stored = readRunEngine(input.run.budgetJson) ?? (input.hasCheckpoint ? "v1" : undefined);
 	const engine = !stored && input.forceV1 ? "v1" : chooseRunEngine({ stored, policy, origin: input.run.origin, isGroupRun: input.isGroupRun, globalDefault: input.globalDefault });
 	if (engine === "v1") return { engine, profile: "chat" };
-	const profile = readRunProfile(input.run.budgetJson) ?? resolveRunProfile({ policy, text: input.lastUserText, origin: input.run.origin });
+	const profile =
+		readRunProfile(input.run.budgetJson) ?? (input.shortRun ? "chat" : resolveRunProfile({ policy, text: input.lastUserText, origin: input.run.origin }));
 	if (!readRunEngine(input.run.budgetJson)) {
 		// Sem a escolha gravada a retomada poderia trocar de motor: se não gravou, o run fica no v1.
 		const recorded = await input.record({ engine, profile }).catch((error) => {
@@ -87,9 +85,11 @@ export async function pickRunEngine(input: {
 		if (recorded !== "v2") return { engine: "v1", profile: "chat" };
 	}
 	const helpers = readHelperPolicy(input.policyJson);
+	const budgetFloor = input.longerShortRun ? { costUsd: policy.longWorkBudgetUsd, minutes: Math.max(policy.longWorkMinutes, V1_SHORT_RUN_WALL_MINUTES) } : undefined;
 	return {
 		engine,
 		profile,
+		...(budgetFloor ? { budgetFloor } : {}),
 		longWorkBudgetUsd: policy.longWorkBudgetUsd,
 		longWorkMinutes: policy.longWorkMinutes,
 		longWorkBudgetExplicit: policy.longWorkBudgetExplicit,
@@ -123,6 +123,7 @@ export function runSelectedEngine(choice: EngineChoice, params: ComputerUseParam
 			profile: choice.profile,
 			longWorkBudgetUsd: choice.longWorkBudgetUsd,
 			longWorkMinutes: choice.longWorkMinutes,
+			budgetFloor: choice.budgetFloor,
 			helpers: { model: choice.helperModel, maxParallel: choice.helperMaxParallel },
 			modelMaxOutputTokens: choice.modelMaxOutputTokens,
 		});
