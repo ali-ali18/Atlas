@@ -1,3 +1,4 @@
+import { REASONING_EFFORTS, type ReasoningEffort } from "./reasoning-effort.js";
 import { BOT_LANGUAGE_SETTINGS, type BotLanguageSetting } from "./bot-language.js";
 import { parseModelRef } from "./model-ref.js";
 import { isValidTimeZone } from "./proactive.js";
@@ -55,6 +56,8 @@ export type AccountConfigV1 = {
 		tiers?: Partial<Record<ModelTier, string[]>>;
 		/** Classificar a dificuldade com o revisor (Jev) em vez das regras locais. */
 		classifyWithReviewer?: boolean;
+		/** Nível de raciocínio padrão da conta (o do bot e o do chat vencem). Ausente = padrão do modelo. */
+		reasoningEffort?: ReasoningEffort;
 	};
 	jev?: {
 		mcp?: JevMcpMode;
@@ -197,6 +200,7 @@ const SPEC: Spec = {
 		stt: modelId(true, OPENROUTER_ONLY),
 		tiers: { easy: tierList, medium: tierList, hard: tierList },
 		classifyWithReviewer: bool("Use verdadeiro ou falso."),
+		reasoningEffort: oneOf(REASONING_EFFORTS, "Use off, low, medium ou high."),
 	},
 	jev: {
 		mcp: oneOf(JEV_MCP_MODES, "Use off, shadow ou gate."),

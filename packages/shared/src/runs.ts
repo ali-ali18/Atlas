@@ -3,6 +3,7 @@ import type { ChatMessage } from "./chat.js";
 import type { ComputerUseEvent, RunUsage } from "./computer.js";
 import type { RunConfigSnapshot } from "./effective-config.js";
 import type { LoginConnector } from "./login-connector.js";
+import type { ReasoningEffort } from "./reasoning-effort.js";
 import type { TaskListItem } from "./task-list.js";
 import type { ToolCacheState } from "./tool-cache.js";
 import type { LoginVaultOffer } from "./login-wall.js";
@@ -108,6 +109,8 @@ export type CreateAgentRunRequest = {
 	model?: string;
 	/** Modelo "Automático" do composer: o servidor ignora o modelo do bot e usa os níveis de dificuldade. */
 	modelAuto?: boolean;
+	/** Nível de raciocínio escolhido neste chat; vence o padrão do bot e da conta. Ausente = herda. */
+	reasoningEffort?: ReasoningEffort;
 	conversationId?: string;
 	botId?: string;
 	sandboxSessionId?: string;
