@@ -4,6 +4,8 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+## [0.3.6-beta] - 2026-11-01
+
 ### Corrigido
 - **worker, shared:** no trabalho longo do motor v2, o orçamento posto no bot (`longWorkBudgetUsd` / `longWorkMinutes`) passa a valer mais que o teto por execução da conta. Antes o US$ 1 do bot virava US$ 0,50 (o teto da conta entrava num `min`). Sem valor gravado no bot nada muda (a conta limita) e o chat curto segue com o teto da conta. Teste em `engine-choice.test.ts` e `engine-policy.test.ts`.
 
