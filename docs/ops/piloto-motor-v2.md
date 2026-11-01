@@ -90,6 +90,6 @@ O motor de cada tarefa fica gravado na própria tarefa: motor novo aparece como 
 
 ## Limites do piloto (honestidade)
 - Por padrão só a conversa direta com o bot usa o motor novo. Rotinas e alertas do Radar continuam no atual, salvo se você ligar a ampliação acima (alertas e rotinas "só importante" ficam no atual de qualquer forma).
-- O motor novo ainda não faz: planejar com aprovação, sessão de código e envio entre bots (ver `docs/features/motor-v2.md`). Se o Radar precisar disso, o bot segue no atual para aquele pedido.
+- O motor novo ainda não faz: planejar com aprovação e sessão de código (ver `docs/features/motor-v2.md`). Se o Radar precisar disso, o bot segue no atual para aquele pedido.
 - Custo é estimado quando o provedor não informa; modelos baratos podem parecer mais caros do que são.
 - Não há ainda um painel de custo por motor; use as consultas acima.

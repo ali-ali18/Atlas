@@ -194,7 +194,7 @@ describe("v2 em rotina: login sem humano", () => {
 });
 
 describe("v2 em bot→bot e grupo", () => {
-	it("bot→bot: sem envio entre bots (o v2 não encaminha, então o limite de cadeia do db não é contornado) e sem tools sensíveis", async () => {
+	it("bot→bot: sem tools sensíveis; sem roster (nenhum outro bot) também não há envio entre bots", async () => {
 		const { requests } = await runOrigin({ origin: "bot", script: [say("ok")] });
 		const names = requests[0]!.toolNames;
 		for (const gone of ["send_to_bot", "decide_bot_pending", "set_primary_bot", "propose_bot", "set_engine", "propose_profile_update", "delegate", "generate_image", "page_create"]) {

@@ -7,6 +7,11 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 ### Adicionado
 - **shared, agent, worker:** motor v2 também em webhook e e-mail recebido, com o escopo `engineScope: "all"` (ou o padrão global `all`); o padrão continua v1. Webhook é run sem humano como a rotina (não pergunta, conector só com o que a autonomia libera, shell só leitura). E-mail recebido carrega as tools de e-mail e o procedimento anti-manipulação já no 1º passo, mantém a autonomia limitada do v1 e o texto do e-mail nunca escolhe o perfil de trabalho longo (roda em `chat`, salvo `workProfile` forçado pelo dono). Subagente: sem mudança de roteamento, o pai no v2 atende o pedido com `delegate` (mesmos eventos e cartão "subagents" do `delegate_task`); decisão e limites em `docs/features/motor-v2.md`. Testes: catálogo/prompt/execução por origem (agent-runtime), tabela de roteamento (shared, worker) e integração com Postgres real (webhook, e-mail e subagente no v1 e no v2).
 
+- **agent, worker:** conversa entre bots no motor v2. O catálogo do v2 passa a ter `send_to_bot` e `decide_bot_pending` nas mesmas condições do v1 (2+ bots do dono; chat do dono e bot→bot; decisão só com "decidir pelos outros bots" ligado; nunca em grupo, rotina nem ajudante) e executa os mesmos handlers, então o bot atendido no v2 repassa a um terceiro e decide pendência de outro bot. Os pedidos abertos a outros bots entram no prompt como no v1, só quando existem ("Bom dia" não cresce). O anti-loop (`BOT_MESSAGE_MAX_DEPTH`, máximo de mensagens da cadeia, `BOT_RUN_MAX_SENDS`) é do db e vale igual. Sem migration. Fora do v2: `set_primary_bot`. Ver `docs/features/motor-v2.md`.
+
+### Testes
+- **agent, worker:** `engine-v2/bot-messaging.test.ts` (catálogo por origem, bloco de pedidos abertos, erro de limite) e `bot-bot.integration.ts` (Postgres real: A pede ao B no v2, B responde, cadeia para na profundidade 3, run para em 5 envios).
+
 ## [0.3.5-beta] - 2026-11-01
 
 ### Adicionado

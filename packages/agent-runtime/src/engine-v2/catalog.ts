@@ -42,6 +42,8 @@ import { PREVIEW_SETUP_TOOL_NAME } from "../tools/preview-setup/tool.js";
 import { DELEGATE_V2_TOOL } from "./helpers.js";
 import { NOTEBOOK_READ_TOOL, NOTEBOOK_WRITE_TOOL } from "./notebook.js";
 import { SET_ENGINE_TOOL } from "../tools/set-engine.js";
+import { SEND_TO_BOT_TOOL, shouldExposeSendToBot } from "../tools/bot-messaging.js";
+import { DECIDE_BOT_PENDING_TOOL, shouldExposeDecideBotPending } from "../tools/bot-pending.js";
 
 const SKILL_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["propose_skill", "delete_skill"]);
 
@@ -95,6 +97,8 @@ export function buildEngineV2Catalog(input: {
 	setEngine?: boolean;
 	/** Rotina ligada a um painel: só ler e atualizar esse painel (o executor trava os outros). */
 	routinePageId?: string;
+	/** Conversa entre bots (chat do dono e bot→bot): quantos bots o dono tem e se "decidir pelos outros bots" está ligado. */
+	botMessaging?: { botCount: number; decideForOtherBots: boolean };
 }): EngineV2Catalog {
 	const allow = (name: string) => input.toolFilter?.(name) ?? true;
 	const hostBlocked = (name: string) =>
@@ -154,6 +158,9 @@ export function buildEngineV2Catalog(input: {
 	for (const tool of emailToolsFor(input.email)) add(tool);
 	if (shouldExposeTaskList({ origin: input.origin, isSubagent: false })) add(UPDATE_TASK_LIST_TOOL);
 	if (input.setEngine && !input.helper) add(SET_ENGINE_TOOL);
+	const botCount = input.botMessaging?.botCount ?? 0;
+	if (!input.helper && shouldExposeSendToBot({ origin: input.origin, botCount })) add(SEND_TO_BOT_TOOL);
+	if (!input.helper && shouldExposeDecideBotPending({ origin: input.origin, botCount, enabled: input.botMessaging?.decideForOtherBots === true })) add(DECIDE_BOT_PENDING_TOOL);
 	if (input.helper) {
 		add(NOTEBOOK_WRITE_TOOL);
 	} else if (input.longWork) {
