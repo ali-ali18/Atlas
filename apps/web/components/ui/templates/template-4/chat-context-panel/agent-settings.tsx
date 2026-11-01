@@ -1,6 +1,6 @@
 "use client";
 
-import { BellIcon, BotIcon, ChevronRightIcon, CodeIcon, LanguagesIcon, LayersIcon, ListChecksIcon, PaletteIcon, SignalHighIcon, SparklesIcon, UserCheckIcon, WorkflowIcon } from "lucide-react";
+import { BellIcon, BotIcon, BrainIcon, ChevronRightIcon, CodeIcon, LanguagesIcon, LayersIcon, ListChecksIcon, PaletteIcon, SignalHighIcon, SparklesIcon, UserCheckIcon, WorkflowIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
@@ -14,10 +14,15 @@ import { botLanguageSettingOptions, DEFAULT_BOT_LANGUAGE } from "@/lib/bot-langu
 import { useTranslations } from "@/lib/i18n/provider";
 import { decideForOtherBotsHint, decideForOtherBotsLabel, modelTierLabel } from "@/lib/shared-labels";
 import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
+import { reasoningEffortLabel } from "@/lib/reasoning-effort";
 import { readProactiveSettings } from "@/lib/proactive-settings";
 import {
 	hasModelTiers,
 	readBotModelTiers,
+	readBotReasoningEffort,
+	withBotReasoningEffort,
+	REASONING_EFFORTS,
+	parseReasoningEffort,
 	withBotModelTiers,
 	modelDisplayName,
 	readCodingModel,
@@ -266,6 +271,23 @@ export function AgentSettings({
 							/>
 						</SettingRow>
 					) : null}
+
+					<SettingRow
+						description={t("reasoning.botDesc")}
+						htmlFor="agent-reasoning"
+						icon={BrainIcon}
+						label={t("reasoning.label")}
+					>
+						<SettingsPicker
+							id="agent-reasoning"
+							onChange={(value) => onChange({ policyJson: withBotReasoningEffort(policyJson, parseReasoningEffort(value) ?? null) })}
+							options={[
+								{ value: "__default__", label: t("reasoning.default") },
+								...REASONING_EFFORTS.map((effort) => ({ value: effort, label: reasoningEffortLabel(effort, translator) })),
+							]}
+							value={readBotReasoningEffort(policyJson) ?? "__default__"}
+						/>
+					</SettingRow>
 
 					<SettingRow
 						caption={<p>{t("botSettings.tiersCaption")}</p>}

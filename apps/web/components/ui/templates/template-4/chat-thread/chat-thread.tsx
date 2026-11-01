@@ -276,6 +276,8 @@ export function ChatThread({
 		resumeRun,
 		model,
 		setModel,
+		reasoningEffort,
+		setReasoningEffort,
 		runStatus,
 		servedModel,
 		activity,
@@ -1575,6 +1577,8 @@ export function ChatThread({
 					setModel(next);
 					onAgentModelChange?.(next);
 				}}
+				reasoningEffort={reasoningEffort}
+				onReasoningEffortChange={setReasoningEffort}
 				onSend={sendFollowing}
 				onCompact={isGroup ? undefined : (focus) => void compact(focus)}
 				onStop={() => void cancelRun()}

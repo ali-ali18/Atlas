@@ -34,6 +34,7 @@ import {
 	type SkillListItemData,
 	type RoutineListItemData,
 	SUPERSEDED_CARD_DETAIL,
+	type ReasoningEffort,
 	decideRunFollow,
 	decideStreamFailure,
 	runFollowBackoffMs,
@@ -125,6 +126,7 @@ import {
 	resolveAgentModel,
 	setStoredAgentModel,
 } from "@/lib/openrouter-models";
+import { getStoredReasoningEffort, setStoredReasoningEffort } from "@/lib/reasoning-effort";
 import { activeT } from "@/lib/i18n/active";
 
 function stampLocalTime(messages: Message[]): Message[] {
@@ -1288,6 +1290,8 @@ export function useAtlasChat({
 	const [model, setModelState] = useState(() =>
 		resolveAgentModel(agentId, agentModel),
 	);
+	// Nível de raciocínio deste chat (undefined = Padrão do modelo: vale o do bot, da conta ou do próprio modelo).
+	const [reasoningEffort, setReasoningEffortState] = useState<ReasoningEffort | undefined>(() => getStoredReasoningEffort(agentId));
 	const conversationIdRef = useRef<string | null>(conversationId ?? null);
 	const reconnectAbortRef = useRef<AbortController | null>(null);
 	const sendAbortRef = useRef<AbortController | null>(null);
@@ -1337,6 +1341,10 @@ export function useAtlasChat({
 	useEffect(() => {
 		setModelState(resolveAgentModel(agentId, agentModel));
 	}, [agentId, agentModel]);
+
+	useEffect(() => {
+		setReasoningEffortState(getStoredReasoningEffort(agentId));
+	}, [agentId]);
 
 	const loadConversationThread = useCallback(async (convId: string): Promise<Message[]> => {
 		const page = await fetchThreadPage(convId, { limit: 50 });
@@ -2098,6 +2106,14 @@ export function useAtlasChat({
 		[agentId],
 	);
 
+	const setReasoningEffort = useCallback(
+		(next: ReasoningEffort | undefined) => {
+			setReasoningEffortState(next);
+			setStoredReasoningEffort(agentId, next);
+		},
+		[agentId],
+	);
+
 	useDevSessionFixture(!loading, setMessages, conversationId);
 
 	const ensureConversation = useCallback(async (): Promise<string> => {
@@ -2487,6 +2503,8 @@ export function useAtlasChat({
 									conversationId,
 									botId: agentId,
 									...(model ? { model } : { modelAuto: true }),
+									// Só com modelo escolhido: no Automático o controle não aparece, então a escolha antiga não vale às escondidas.
+									...(model && reasoningEffort ? { reasoningEffort } : {}),
 									...(sandboxSessionId ? { sandboxSessionId } : {}),
 								}),
 							abort.signal,
@@ -2647,7 +2665,7 @@ export function useAtlasChat({
 				flushQueuedSends();
 			}
 		},
-		[agentId, groupId, ensureConversation, model, sandboxSessionId, streamLiveRun, clearRunRefs, loadConversationThread, flushQueuedSends],
+		[agentId, groupId, ensureConversation, model, reasoningEffort, sandboxSessionId, streamLiveRun, clearRunRefs, loadConversationThread, flushQueuedSends],
 	);
 	sendMessageRef.current = sendMessage;
 
@@ -2768,6 +2786,8 @@ export function useAtlasChat({
 		resumeRun,
 		model,
 		setModel,
+		reasoningEffort,
+		setReasoningEffort,
 		activeRunId,
 		liveBotId,
 		groupState,

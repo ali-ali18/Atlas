@@ -15,7 +15,7 @@ import {
 	type Ref,
 } from "react";
 
-import { activeTriggerQuery, modelDisplayName, servedModelNote, type ComposerTrigger } from "@workspace/shared";
+import { activeTriggerQuery, modelDisplayName, servedModelNote, type ComposerTrigger, type ReasoningEffort } from "@workspace/shared";
 import { composerCommandCandidates, resolveComposerCommand } from "@/lib/composer-commands";
 import { useDictation, type DictationState } from "@/hooks/use-dictation";
 import { mergeDictation, previewLabel } from "@/lib/dictation";
@@ -76,6 +76,8 @@ export function ChatComposer({
 	language,
 	model = DEFAULT_OPENROUTER_MODEL,
 	onModelChange,
+	reasoningEffort,
+	onReasoningEffortChange,
 	onSend,
 	onStop,
 	prefill,
@@ -109,6 +111,9 @@ export function ChatComposer({
 	language?: string | null;
 	model?: string;
 	onModelChange?: (model: string) => void;
+	/** Nível de raciocínio escolhido neste chat (`undefined` = Padrão do modelo); o controle fica no seletor de modelo. */
+	reasoningEffort?: ReasoningEffort;
+	onReasoningEffortChange?: (effort: ReasoningEffort | undefined) => void;
 	onSend: (text: string, attachments: OutgoingAttachment[]) => void;
 	/** Para o run agora (mesmo caminho do cancelar). */
 	onStop?: () => void;
@@ -447,6 +452,7 @@ export function ChatComposer({
 									loading={loading}
 									models={models}
 									onChange={(next) => onModelChange?.(next)}
+									reasoning={onReasoningEffortChange ? { effort: reasoningEffort, onChange: onReasoningEffortChange } : undefined}
 									suggestedHeading={t("composer.modelSuggested")}
 									suggestedIds={tierModelIds}
 									trigger={
