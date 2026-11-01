@@ -15,7 +15,7 @@ afterEach(() => {
 	llm = undefined;
 });
 
-const V1 = undefined;
+const V1 = { engine: "v1" };
 const V2 = { engine: "v2", engineScope: "all" };
 const systemText = (request: { messages: Array<Record<string, unknown>> }) =>
 	request.messages.filter((m) => m.role === "system").map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content))).join("\n");
@@ -152,7 +152,7 @@ describe("subagente: o pedido de subagentes do v1 é atendido pelo `delegate` do
 	}
 
 	for (const [name, policy, toolName, engine] of [
-		["v1 (delegate_task)", undefined, "delegate_task", undefined],
+		["v1 (delegate_task)", V1, "delegate_task", undefined],
 		["v2 (delegate)", { ...V2, workProfile: "long_work" }, "delegate", "v2"],
 	] as const) {
 		test(`${name}: dois filhos de origem subagent, cartão "subagents" persistido e eventos started/done`, async () => {

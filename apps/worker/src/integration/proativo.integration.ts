@@ -1,7 +1,7 @@
 /**
  * Motor v2 nas origens que antes ficavam só no v1: alerta (`report_alert`), brief "Seu dia" (rotina sem conversa),
  * modo proativo (chat, reflexão e lembrete) e rotina "só importante" (`notify_user`). O MESMO roteiro roda no v1
- * (bot sem chave) e no v2 (`engine: "v2"` + `engineScope: "all"`) e o que fica no Postgres tem de ser igual.
+ * (`engine: "v1"` explícito) e no v2 (`engine: "v2"` + `engineScope: "all"`) e o que fica no Postgres tem de ser igual.
  * Postgres real, rotina e run pelos caminhos reais, modelo roteirizado (sem rede).
  */
 import "./env.js";
@@ -18,7 +18,7 @@ afterEach(() => {
 
 type Which = "v1" | "v2";
 const WHICH: Which[] = ["v1", "v2"];
-const policyFor = (which: Which, extra: Record<string, unknown> = {}) => ({ ...(which === "v2" ? { engine: "v2", engineScope: "all" } : {}), ...extra });
+const policyFor = (which: Which, extra: Record<string, unknown> = {}) => ({ ...(which === "v2" ? { engine: "v2", engineScope: "all" } : { engine: "v1" }), ...extra });
 const proactiveOn = { proactive: { enabled: true, routineMode: "suggest", maxPerDay: 3, quietStart: "00:00", quietEnd: "00:00", timezone: "America/Sao_Paulo" } };
 
 /** Cria a rotina, dispara pelo processador real e processa o run que ela criou. */
@@ -89,7 +89,7 @@ describe("alerta: report_alert no v2 deixa o mesmo efeito no banco que no v1", {
 		assert.equal(v2.effects.active, false);
 	});
 
-	test("sem o escopo all o alerta continua no v1 (padrão sem chave)", async () => {
+	test("com v2/chat o alerta continua no v1 (só o escopo ampliado ou o padrão sem escolha o levam ao v2)", async () => {
 		const fx = await createFixture({ policy: { engine: "v2" } });
 		llm = installFakeLlm([{ tools: [{ name: "report_alert", args: { triggered: false, summary: "ok" } }] }, { content: "Ok." }]);
 		const snap = await runRoutine(fx, ALERT);
@@ -250,15 +250,15 @@ describe("modo proativo: chat, lembrete e reflexão no v2", { skip: integrationS
 		assert.ok(v2.effects.events.some((event) => event.startsWith("message")), JSON.stringify(v2.effects.events));
 	});
 
-	test("sem o escopo all (ou sem chave) a reflexão e o lembrete continuam no v1", async () => {
-		for (const policy of [{}, { engine: "v2" }, { engine: "v2", engineScope: "chat" }]) {
+	test("sem o escopo all (v2/chat ou v1 explícito) a reflexão e o lembrete continuam no v1; bot sem escolha roda no v2 (padrão)", async () => {
+		for (const policy of [{ engine: "v1" }, { engine: "v2" }, { engine: "v2", engineScope: "chat" }, {}]) {
 			const fx = await createFixture({ isPrimary: true, policy: { ...policy, ...proactiveOn } });
 			llm = installFakeLlm([{ content: "[NO_UPDATE]" }]);
 			const { createAgentRun } = await import("@workspace/db");
 			const objective = "check";
 			const run = await createAgentRun({ userId: fx.userId, model: "test/model", request: { botId: fx.botId, conversationId: fx.conversationId, origin: "proactive", objective, messages: [{ role: "user", content: objective }], silent: true } as never });
 			await processRun(run.id);
-			assert.equal((await snapshot(run.id)).budget.engine, undefined, JSON.stringify(policy));
+			assert.equal((await snapshot(run.id)).budget.engine, Object.keys(policy).length === 0 ? "v2" : undefined, JSON.stringify(policy));
 			llm.restore();
 		}
 	});
@@ -266,7 +266,7 @@ describe("modo proativo: chat, lembrete e reflexão no v2", { skip: integrationS
 
 describe("evento de configuração do bot no v2", { skip: integrationSkip }, () => {
 	async function configEvent(which: Which) {
-		const fx = await createFixture({ policy: which === "v2" ? { engine: "v2" } : {} });
+		const fx = await createFixture({ policy: { engine: which } });
 		llm = installFakeLlm([{ content: "Oi! Sou o seu novo assistente." }]);
 		const { app } = await createApi(fx.userId);
 		const sent = await sendChat(app, fx, '[bot-created] Bot "Cookie" recém-criado: faça o onboarding.');
