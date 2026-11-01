@@ -131,7 +131,9 @@ describe("padrão global (ATLAS_ENGINE_V2_DEFAULT)", () => {
 		expect(resolveBotEngineRouting(none, "chat")).toEqual({ engine: "v2", scope: "chat" });
 		expect(resolveBotEngineRouting(none, "all")).toEqual({ engine: "v2", scope: "all" });
 		expect(resolveBotEngineRouting(readEnginePolicy({ engine: "v1", engineScope: "all" }), "all")).toEqual({ engine: "v1", scope: "chat" });
-		expect(resolveBotEngineRouting(readEnginePolicy({ engine: "v2", engineScope: "all" }), "off")).toEqual({ engine: "v2", scope: "all" });
+		// `off` é a emergência: desliga o motor novo para todos, até para quem escolheu o v2.
+		expect(resolveBotEngineRouting(readEnginePolicy({ engine: "v2", engineScope: "all" }), "off")).toEqual({ engine: "v1", scope: "chat" });
+		expect(resolveBotEngineRouting(readEnginePolicy({ engine: "v2" }), "off")).toEqual({ engine: "v1", scope: "chat" });
 		expect(resolveBotEngineRouting(readEnginePolicy({ engine: "v2" }), "all")).toEqual({ engine: "v2", scope: "chat" });
 		// Sem escolha explícita mas com "usar também em rotinas e grupos" salvo: vale o maior escopo.
 		const scopeOnly = readEnginePolicy({ engineScope: "all" });
@@ -162,10 +164,10 @@ describe("tabela de decisão: origem × motor do bot × escopo × padrão global
 		["v1", "off", []],
 		["v1", "chat", []],
 		["v1", "all", []],
-		["v2/chat", "off", ["chat"]],
+		["v2/chat", "off", []],
 		["v2/chat", "chat", ["chat"]],
 		["v2/chat", "all", ["chat"]],
-		["v2/all", "off", ["chat", "grupo", "routine", "bot", "webhook", "email", "proactive"]],
+		["v2/all", "off", []],
 		["v2/all", "chat", ["chat", "grupo", "routine", "bot", "webhook", "email", "proactive"]],
 		["v2/all", "all", ["chat", "grupo", "routine", "bot", "webhook", "email", "proactive"]],
 	];
@@ -214,6 +216,10 @@ describe("tabela de decisão: origem × motor do bot × escopo × padrão global
 		const all = ["v2", "v2", "v2", "v2", "v2", "v1"];
 		for (const raw of [undefined, "", "lixo", "all"]) expect(engines(raw), String(raw)).toEqual(all);
 		expect(engines("off")).toEqual(["v1", "v1", "v1", "v1", "v1", "v1"]);
+		// off vale também para quem escolheu o v2 (todos os bots); o motor já gravado no run segue.
+		const chosen = readEnginePolicy({ engine: "v2", engineScope: "all" });
+		for (const w of where) expect(chooseRunEngine({ policy: chosen, globalDefault: "off", ...w }), w.origin).toBe("v1");
+		expect(chooseRunEngine({ stored: "v2", policy: chosen, globalDefault: "off", ...where[0]! })).toBe("v2");
 		expect(engines("chat")).toEqual(["v2", "v1", "v1", "v1", "v1", "v1"]);
 	});
 });

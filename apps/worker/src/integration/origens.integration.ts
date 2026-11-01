@@ -74,6 +74,10 @@ describe("rotina: v2 por padrão; v1 só com escolha explícita, escopo chat ou 
 		assert.equal((await runRoutine(await createFixture({}))).budget.engine, undefined, "chat não inclui rotina");
 		process.env.ATLAS_ENGINE_V2_DEFAULT = "all";
 		assert.equal((await runRoutine(await createFixture({}))).budget.engine, "v2", "all inclui rotina");
+		process.env.ATLAS_ENGINE_V2_DEFAULT = "off";
+		for (const policy of [{ engine: "v2" }, { engine: "v2", engineScope: "all" }]) {
+			assert.equal((await runRoutine(await createFixture({ policy }))).budget.engine, undefined, `off desliga o motor novo para todos (${JSON.stringify(policy)})`);
+		}
 		for (const raw of ["all", "off"]) {
 			process.env.ATLAS_ENGINE_V2_DEFAULT = raw;
 			assert.equal((await runRoutine(await createFixture({ policy: { engine: "v1", engineScope: "all" } }))).budget.engine, undefined, `v1 explícito nunca vai ao v2 (${raw})`);

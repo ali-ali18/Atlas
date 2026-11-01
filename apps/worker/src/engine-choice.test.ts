@@ -212,6 +212,15 @@ test("padrão global off (emergência): bot sem escolha volta ao v1 em nenhuma o
 	}
 });
 
+test("padrão global off (emergência) vale para todos os bots, inclusive engine v2 explícito; o motor gravado segue", async () => {
+	for (const policyJson of [{ engine: "v2" }, { engine: "v2", engineScope: "all" }, { engine: "v1" }, null]) {
+		const { choose, recorded } = setup({ policyJson, globalDefault: "off" });
+		assert.equal((await choose()).engine, "v1", JSON.stringify(policyJson));
+		assert.deepEqual(recorded, []);
+	}
+	assert.equal((await setup({ policyJson: { engine: "v2" }, globalDefault: "off", budgetJson: { engine: "v2", engineProfile: "chat" } }).choose()).engine, "v2");
+});
+
 test("padrão ausente (sem variável): bot sem escolha vai ao v2 em todas as origens suportadas, subagente herda do pai", async () => {
 	for (const over of [{ origin: "chat" }, { origin: "routine" }, { origin: "bot" }, { origin: "proactive" }, { origin: "webhook" }, { origin: "email" }, { origin: "chat", isGroupRun: true }]) {
 		const { choose, recorded } = setup({ policyJson: { planMode: true }, ...over });

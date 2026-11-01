@@ -28,7 +28,8 @@ export type EngineDefault = "off" | EngineScope;
  * Decisão do dono (01/11): o motor novo (v2) é o PADRÃO de todo bot que não escolheu o motor, em todas as origens
  * suportadas. Esta constante é a fonte única: a decisão do worker (`readEngineDefault`) e o que a UI e a descrição
  * mostram (`readEnginePolicy`) saem dela, para o dono ver o mesmo que roda. `ATLAS_ENGINE_V2_DEFAULT` virou botão de
- * emergência do deploy: `off` devolve ao motor anterior (v1) todo bot sem escolha explícita; `chat` limita ao chat.
+ * emergência do deploy: `off` desliga o motor novo para TODOS os bots (run novo vai ao v1, mesmo com `engine: "v2"`
+ * explícito; run já gravado segue); `chat` limita ao chat os bots sem escolha.
  * O `off` de emergência NÃO aparece na UI (ela mostra o padrão). `engine: "v1"` explícito sempre vence.
  */
 export const ENGINE_DEFAULT_SCOPE: EngineScope = "all";
@@ -109,11 +110,12 @@ export function readEngineDefault(raw: unknown): EngineDefault {
 	return value === "off" || value === "chat" || value === "all" ? value : ENGINE_DEFAULT_SCOPE;
 }
 
-/** Motor e escopo que valem para o bot: a escolha explícita vence; sem ela, vale o padrão global. */
+/** Motor e escopo que valem para o bot: `off` (emergência) vence tudo; depois a escolha explícita; sem ela, vale o padrão global. */
 export function resolveBotEngineRouting(policy: EnginePolicy, globalDefault: EngineDefault = ENGINE_DEFAULT_SCOPE): { engine: RunEngine; scope: EngineScope } {
+	// `off` é a emergência do deploy: desliga o motor novo para TODOS os bots (inclusive `engine: "v2"` explícito) em run novo.
+	if (globalDefault === "off") return { engine: "v1", scope: "chat" };
 	if (policy.explicit === "v1") return { engine: "v1", scope: "chat" };
 	if (policy.explicit === "v2") return { engine: "v2", scope: policy.scopeAll ? "all" : "chat" };
-	if (globalDefault === "off") return { engine: "v1", scope: "chat" };
 	// Sem escolha explícita, o escopo pedido no bot ("all") vale junto com o do padrão global: o maior dos dois.
 	return { engine: "v2", scope: policy.scopeAll ? "all" : globalDefault };
 }

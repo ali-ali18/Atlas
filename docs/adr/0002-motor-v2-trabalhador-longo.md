@@ -106,7 +106,7 @@ Um teto fixo em dólar (US$ 0,50, depois ideias de US$ 3) não funciona: o preç
 
 ## Nota de decisão (01/11): o motor novo é o padrão
 
-O dono decidiu que o v2 vale para todo bot sem escolha explícita, em todas as origens suportadas, sem variável de ambiente (`ENGINE_DEFAULT_SCOPE = "all"` em `shared`). `engine: "v1"` explícito continua no v1; `ATLAS_ENGINE_V2_DEFAULT` (`off` | `chat` | `all`; ausente, vazio ou desconhecido = `all`) virou botão de emergência do deploy, que a UI não mostra. Run em andamento segue no motor gravado em `budgetJson.engine`. Ver `docs/features/motor-v2.md` e `docs/ops/piloto-motor-v2.md`.
+O dono decidiu que o v2 vale para todo bot sem escolha explícita, em todas as origens suportadas, sem variável de ambiente (`ENGINE_DEFAULT_SCOPE = "all"` em `shared`). `engine: "v1"` explícito continua no v1; `ATLAS_ENGINE_V2_DEFAULT` (`off` | `chat` | `all`; ausente, vazio ou desconhecido = `all`) virou botão de emergência do deploy, que a UI não mostra: `off` desliga o motor novo para todos os bots (run novo no v1; o gravado segue). Run em andamento segue no motor gravado em `budgetJson.engine`. Ver `docs/features/motor-v2.md` e `docs/ops/piloto-motor-v2.md`.
 
 ## Consequências
 

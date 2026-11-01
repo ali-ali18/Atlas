@@ -5,8 +5,8 @@
  * Decisão do dono (01/11): o v2 é o PADRÃO. Bot sem `policyJson.engine` roda no v2 em todas as origens suportadas
  * (chat, rotina, grupo, bot→bot, proativo, webhook e e-mail recebido); subagente herda o motor do pai. `engine: "v1"`
  * explícito (escolha "Anterior" na engrenagem ou `set_engine`) nunca vai ao v2. `ATLAS_ENGINE_V2_DEFAULT` é o botão
- * de emergência do deploy: ausente, vazio ou desconhecido = `all`; `off` devolve ao v1 todo bot sem escolha explícita;
- * `chat` limita ao chat direto. O `off` não aparece na UI (ela mostra o padrão, `ENGINE_DEFAULT_SCOPE`).
+ * de emergência do deploy: ausente, vazio ou desconhecido = `all`; `off` desliga o motor novo para TODOS os bots
+ * (run novo no v1, até com `engine: "v2"` explícito; o run já gravado segue); `chat` limita ao chat os bots sem escolha. O `off` não aparece na UI (ela mostra o padrão, `ENGINE_DEFAULT_SCOPE`).
  */
 import { effectiveCostCapUsd } from "./run-config.js";
 import { runComputerUse, runEngineV2, type ComputerUseParams, type RunComputerUseResult } from "@workspace/agent-runtime";
