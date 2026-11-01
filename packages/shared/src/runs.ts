@@ -2,6 +2,7 @@ import type { ModelTier } from "./account-config.js";
 import type { ChatMessage } from "./chat.js";
 import type { ComputerUseEvent, RunUsage } from "./computer.js";
 import type { RunConfigSnapshot } from "./effective-config.js";
+import type { NotebookEntry } from "./notebook.js";
 import type { LoginConnector } from "./login-connector.js";
 import type { TaskListItem } from "./task-list.js";
 import type { ToolCacheState } from "./tool-cache.js";
@@ -413,6 +414,8 @@ export type AgentRunCheckpoint = {
 	triagedInputs?: TriagedInputBurst[];
 	/** Notas de pesquisa do run (F3): sobrevivem a higiene de contexto e a resume. */
 	researchNotes?: ResearchNote[];
+	/** Motor v2: caderno da tarefa (trabalho longo), com o que o coordenador e os ajudantes anotaram. */
+	notebook?: NotebookEntry[];
 	/** Capacidades efetivas do run (K1): tools executáveis, visão, restrições. */
 	capabilities?: CapabilitySnapshot;
 	/**
