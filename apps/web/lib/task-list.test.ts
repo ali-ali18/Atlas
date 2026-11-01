@@ -43,3 +43,23 @@ test("um run, uma lista: ao vivo e gravada colapsam em um cartão só", () => {
 	assert.equal(merged.filter((message) => message.kind === "task-list").length, 1);
 	assert.equal(dedupeCards([list("a"), list("b")]).length, 1);
 });
+
+test("pessoa manda outra fala no meio do run: com o run ativo a doca continua mostrando a lista dele", () => {
+	const thread = [user("u1"), list("tl", "run-1"), user("u2")];
+	assert.equal(dockedTaskList(thread, true, "run-1")?.id, "tl");
+	// Sem o id do run (compat), vale a regra antiga: só depois da última fala.
+	assert.equal(dockedTaskList(thread, true), null);
+});
+
+test("doca amarrada ao run: lista de outro run não aparece; cartão ainda sem run (local) só no turno atual", () => {
+	assert.equal(dockedTaskList([user("u1"), list("tl-old", "run-0"), user("u2")], true, "run-1"), null);
+	assert.equal(dockedTaskList([user("u1"), list("tl", "local")], true, "run-1")?.id, "tl");
+	assert.equal(dockedTaskList([user("u1"), list("tl", "local"), user("u2")], true, "run-1"), null);
+});
+
+test("run terminado: nada na doca, o cartão final fica no fio com tudo concluído", () => {
+	const done = ITEMS.map((item) => ({ ...item, status: "completed" as const }));
+	const thread = [user("u1"), list("tl", "run-1", done), user("u2")];
+	assert.equal(dockedTaskList(thread, false, "run-1"), null);
+	assert.equal(thread.some((message) => message.kind === "task-list" && taskListSettledLabel(message.items) === "Tarefas · 3/3 concluídas"), true);
+});

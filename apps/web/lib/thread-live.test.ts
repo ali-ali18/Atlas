@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ComputerUseEvent } from "@workspace/shared";
 import type { Message } from "@/components/ui/templates/template-4/data";
-import { applyLiveEvent, createLiveBubbleState, fromTranscript, hydrateRunEvents, mergePreservingSkills } from "./thread-live";
+import { applyLiveEvent, applyTaskListEvent, createLiveBubbleState, fromTranscript, hydrateRunEvents, mergePreservingSkills } from "./thread-live";
 
 const delta = (id: string, text: string): ComputerUseEvent => ({ type: "assistant_delta", id, delta: text });
 
@@ -105,4 +105,42 @@ test("merge é linear: milhares de itens não custam O(n²)", () => {
 	const merged = mergePreservingSkills(big, transcript);
 	assert.equal(merged.length, big.length + 1);
 	assert.ok(performance.now() - started < 1500);
+});
+
+const taskListEvent = (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>, runId?: string): ComputerUseEvent => ({ type: "task_list", items, ...(runId ? { runId } : {}) });
+const STEPS = [
+	{ content: "Ler", status: "completed" as const },
+	{ content: "Montar", status: "in_progress" as const },
+];
+
+test("reconexão: task_list no meio dos eventos do run mantém a última lista na tela", () => {
+	const events = [
+		taskListEvent([{ content: "Ler", status: "in_progress" }, { content: "Montar", status: "pending" }], "run-1"),
+		delta("s1", "Lendo o arquivo"),
+		taskListEvent(STEPS, "run-1"),
+		delta("s2", "Montando"),
+	];
+	const screen = hydrateRunEvents(baseThread(), events, createLiveBubbleState(), "run-1");
+	const cards = screen.filter((item) => item.kind === "task-list");
+	assert.equal(cards.length, 1);
+	assert.deepEqual(cards[0]?.kind === "task-list" ? cards[0].items : null, STEPS);
+	assert.equal(cards[0]?.id, "task-list-run-1");
+});
+
+test("reconexão: evento sem runId usa o run da reidratação; lista vazia não cria cartão", () => {
+	const screen = hydrateRunEvents(baseThread(), [taskListEvent(STEPS)], createLiveBubbleState(), "run-7");
+	assert.equal(screen.find((item) => item.kind === "task-list")?.kind === "task-list" && (screen.find((item) => item.kind === "task-list") as { runId: string }).runId, "run-7");
+	assert.equal(hydrateRunEvents(baseThread(), [taskListEvent([])], createLiveBubbleState(), "run-7").some((item) => item.kind === "task-list"), false);
+});
+
+test("dedupe ao vivo × gravado: a lista reidratada atualiza o cartão gravado do run no lugar, sem duplicar", () => {
+	const persisted: Message[] = [...baseThread(), { id: "db-tl", kind: "task-list", runId: "run-1", items: [{ content: "Ler", status: "pending" }] }];
+	const screen = hydrateRunEvents(persisted, [taskListEvent(STEPS, "run-1")], createLiveBubbleState(), "run-1");
+	const cards = screen.filter((item) => item.kind === "task-list");
+	assert.equal(cards.length, 1);
+	assert.equal(cards[0]?.id, "db-tl");
+	assert.deepEqual(cards[0]?.kind === "task-list" ? cards[0].items : null, STEPS);
+	// E um evento ao vivo seguinte continua no mesmo cartão.
+	const live = applyTaskListEvent(screen, { type: "task_list", items: [{ content: "Ler", status: "completed" }, { content: "Montar", status: "completed" }], runId: "run-1" });
+	assert.equal(live.filter((item) => item.kind === "task-list").length, 1);
 });

@@ -5,6 +5,7 @@ import {
 	type TranscriptBubble,
 } from "@workspace/shared";
 import type { Message } from "@/components/ui/templates/template-4/data";
+import { insertCardAfterCurrentTurn } from "@workspace/shared";
 import { dedupeCards } from "./thread-merge";
 
 /**
@@ -169,11 +170,32 @@ export function applyLiveEvent(previous: Message[], event: ComputerUseEvent, sta
  * Recarregou (F5, link de notificação, voltou do segundo plano) com o run ainda vivo: a thread veio do
  * servidor e os eventos do run (deltas) são reaplicados por cima para recuperar o balão em andamento.
  */
-export function hydrateRunEvents(thread: Message[], events: ComputerUseEvent[], state: LiveBubbleState = createLiveBubbleState()): Message[] {
-	return settle(dropLiveBubblesCoveredByPersisted(
+export function hydrateRunEvents(thread: Message[], events: ComputerUseEvent[], state: LiveBubbleState = createLiveBubbleState(), runId?: string): Message[] {
+	const hydrated = settle(dropLiveBubblesCoveredByPersisted(
 		mergePreservingSkills(thread, fromTranscript(applyComputerUseEventsToTranscript(asTranscript(thread), events), thread)),
 		state,
 	));
+	// `asTranscript` só conhece balões de texto: a lista de tarefas não sobrevive a ele. O stream retoma depois
+	// deste ponto e não reenvia a lista, então a última vista nos eventos do run volta aqui (lista cheia ou vazia).
+	let lastTaskList: Extract<ComputerUseEvent, { type: "task_list" }> | undefined;
+	for (const event of events) if (event.type === "task_list") lastTaskList = event;
+	return lastTaskList ? applyTaskListEvent(hydrated, lastTaskList, runId) : hydrated;
+}
+
+/**
+ * Evento `task_list` aplicado à thread: a lista mais recente do run substitui o cartão no lugar (nunca empilha);
+ * lista vazia remove. Identidade `task-list-<runId>`, a mesma do dedupe entre o cartão ao vivo e o gravado.
+ */
+export function applyTaskListEvent(previous: Message[], event: Extract<ComputerUseEvent, { type: "task_list" }>, fallbackRunId?: string): Message[] {
+	const runId = event.runId ?? fallbackRunId ?? "local";
+	const cardId = `task-list-${runId}`;
+	const index = previous.findIndex((m) => m.kind === "task-list" && (m.id === cardId || m.runId === runId));
+	if (event.items.length === 0) return index < 0 ? previous : previous.filter((_, i) => i !== index);
+	if (index >= 0) {
+		const current = previous[index]!;
+		return previous.map((m, i) => (i === index ? { id: current.id, kind: "task-list" as const, runId, items: event.items } : m));
+	}
+	return dedupeCards(insertCardAfterCurrentTurn(previous, { id: cardId, kind: "task-list", runId, items: event.items }));
 }
 
 function normalizeText(text: string): string {
