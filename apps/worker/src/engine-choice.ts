@@ -8,6 +8,7 @@ import { runComputerUse, runEngineV2, type ComputerUseParams, type RunComputerUs
 import {
 	chooseRunEngine,
 	readEnginePolicy,
+	readHelperPolicy,
 	readRunEngine,
 	readRunProfile,
 	resolveRunProfile,
@@ -20,6 +21,9 @@ export type EngineChoice = {
 	profile: RunProfile;
 	longWorkBudgetUsd?: number;
 	longWorkMinutes?: number;
+	/** Ajudantes do trabalho longo: modelo barato opcional e quantos rodam juntos (`policyJson.helperModel` / `helperMaxParallel`). */
+	helperModel?: string | null;
+	helperMaxParallel?: number;
 };
 
 export async function pickRunEngine(input: {
@@ -50,13 +54,19 @@ export async function pickRunEngine(input: {
 		});
 		if (recorded !== "v2") return { engine: "v1", profile: "chat" };
 	}
-	return { engine, profile, longWorkBudgetUsd: policy.longWorkBudgetUsd, longWorkMinutes: policy.longWorkMinutes };
+	const helpers = readHelperPolicy(input.policyJson);
+	return { engine, profile, longWorkBudgetUsd: policy.longWorkBudgetUsd, longWorkMinutes: policy.longWorkMinutes, helperModel: helpers.helperModel, helperMaxParallel: helpers.helperMaxParallel };
 }
 
 /** Roda o motor escolhido: mesma entrada e mesma saída nos dois. */
 export function runSelectedEngine(choice: EngineChoice, params: ComputerUseParams): Promise<RunComputerUseResult> {
 	if (choice.engine === "v2") {
-		return runEngineV2(params, { profile: choice.profile, longWorkBudgetUsd: choice.longWorkBudgetUsd, longWorkMinutes: choice.longWorkMinutes });
+		return runEngineV2(params, {
+			profile: choice.profile,
+			longWorkBudgetUsd: choice.longWorkBudgetUsd,
+			longWorkMinutes: choice.longWorkMinutes,
+			helpers: { model: choice.helperModel, maxParallel: choice.helperMaxParallel },
+		});
 	}
 	return runComputerUse(params);
 }
