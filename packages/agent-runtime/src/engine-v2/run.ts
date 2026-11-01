@@ -31,6 +31,7 @@ import {
 	buildToolResultStatus,
 	classifyFinish,
 	decideAction,
+	formatOpenBotRequests,
 	isMcpToolName,
 	isUntrustedContentTool,
 	languageInstruction,
@@ -256,6 +257,12 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	let autonomyPolicy: EffectiveAutonomy = params.autonomy ?? { level: DEFAULT_AUTONOMY_LEVEL, exceptions: [] };
 	const autonomyHandle = { get: () => autonomyPolicy, set: (next: EffectiveAutonomy) => { autonomyPolicy = next; } };
 
+	// Conversa entre bots: mesma condição do v1 (2+ bots do dono; falha ao listar nunca derruba o run; grupo não injeta o roster).
+	const botCount =
+		params.listBotRoster && !helperRole && botId && userId !== "default" && (origin === "chat" || origin === "bot")
+			? (await params.listBotRoster(userId).catch(() => [])).length
+			: 0;
+
 	// --- catálogo de tools ---
 	const mcp = params.mcp ?? null;
 	const imageIds = params.userImageArtifactIds ?? parsed?.userImageArtifactIds ?? [];
@@ -280,6 +287,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		helper: Boolean(helperRole),
 		helpers: userId !== "default" && origin === "chat",
 		setEngine: !helperRole && shouldExposeSetEngine({ origin, humanTurn, lastUserMessage }),
+		botMessaging: { botCount, decideForOtherBots: params.decideForOtherBots === true },
 		...(origin === "routine" && params.routinePageId ? { routinePageId: params.routinePageId } : {}),
 		...(proactiveRun ? { proactive: { hasConversation: Boolean(conversationId) } } : {}),
 		...(userPushRun ? { userPush: userPushRun.mode } : {}),
@@ -405,6 +413,9 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			...(helperRole ? [] : originSystemNotes({ origin, messages: params.messages, proactive: proactiveRun, userPushMode: userPushRun?.mode, alertRun }).map((content) => ({ role: "system" as const, content }))),
 			...placeTranscript(params.messages.map((message) => ({ role: message.role, content: message.content }))),
 		];
+		// Pedidos a outros bots sem resposta (mesmo bloco do v1; vazio não custa nada): o modelo não os apresenta como prontos.
+		const openBotRequests = !helperRole ? formatOpenBotRequests(params.openBotRequests ?? [], new Date()) : null;
+		if (openBotRequests) conversation.push({ role: "system", content: openBotRequests });
 		const lastUser = [...conversation].reverse().find((message) => message.role === "user");
 		if (lastUser && imageIds.length > 0) {
 			lastUser.content = [

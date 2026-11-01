@@ -43,6 +43,8 @@ import { NOTEBOOK_READ_TOOL, NOTEBOOK_WRITE_TOOL } from "./notebook.js";
 import { SET_ENGINE_TOOL } from "../tools/set-engine.js";
 import { notifyUserPushTool, proactiveToolsFor, type UserPushMode } from "../tools/proactive.js";
 import { REPORT_ALERT_TOOL } from "../tools/report-alert.js";
+import { SEND_TO_BOT_TOOL, shouldExposeSendToBot } from "../tools/bot-messaging.js";
+import { DECIDE_BOT_PENDING_TOOL, shouldExposeDecideBotPending } from "../tools/bot-pending.js";
 
 const SKILL_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["propose_skill", "delete_skill"]);
 
@@ -102,6 +104,8 @@ export function buildEngineV2Catalog(input: {
 	userPush?: UserPushMode;
 	/** Rotina de alerta (`params.alertRun`): `report_alert` entra e é o fim da verificação. */
 	alertRun?: boolean;
+	/** Conversa entre bots (chat do dono e bot→bot): quantos bots o dono tem e se "decidir pelos outros bots" está ligado. */
+	botMessaging?: { botCount: number; decideForOtherBots: boolean };
 }): EngineV2Catalog {
 	const allow = (name: string) => input.toolFilter?.(name) ?? true;
 	const hostBlocked = (name: string) =>
@@ -167,6 +171,9 @@ export function buildEngineV2Catalog(input: {
 		if (input.userPush && (input.origin === "routine" || input.origin === "chat")) add(notifyUserPushTool(input.userPush));
 		if (input.alertRun && input.origin === "routine") add(REPORT_ALERT_TOOL);
 	}
+	const botCount = input.botMessaging?.botCount ?? 0;
+	if (!input.helper && shouldExposeSendToBot({ origin: input.origin, botCount })) add(SEND_TO_BOT_TOOL);
+	if (!input.helper && shouldExposeDecideBotPending({ origin: input.origin, botCount, enabled: input.botMessaging?.decideForOtherBots === true })) add(DECIDE_BOT_PENDING_TOOL);
 	if (input.helper) {
 		add(NOTEBOOK_WRITE_TOOL);
 	} else if (input.longWork) {
