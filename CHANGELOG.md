@@ -4,6 +4,10 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Adicionado
+- **mobile:** base do app mobile (`apps/mobile`, Expo SDK 58 + expo-router + NativeWind) com tema claro/escuro portado do `packages/ui`, primitivos no mesmo molde do web (`Button`, `Input`, `Text`, `Card`, `Spinner`, `Badge`, `ChatCard*`) e três telas só de interface: conexão com o servidor (validação de https, checagem em `/api/auth/providers`, endereço no cofre do aparelho), login "em breve" e "Sincronizando…". `@workspace/shared` roda no Metro. Ver `docs/features/app-mobile.md`.
+- **shared:** condição de export `react-native` apontando para `src` (só o Metro do app mobile a usa; web, api e worker seguem pelo `dist`).
+
 ## [0.3.6-beta.1] - 2026-11-01
 
 ### Corrigido
