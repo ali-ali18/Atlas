@@ -44,7 +44,7 @@ export type RunErrorKind =
 
 export const SYSTEM_MESSAGES: Record<BotLanguage, SystemMessages> = {
 	"pt-BR": {
-		stopFallback: (reason) => `Parei porque ${reason}. O que já foi feito ficou salvo nesta conversa. Responda "continuar" que eu retomo de onde parei.`,
+		stopFallback: (reason) => `Parei porque ${reason}. O que já foi feito ficou salvo nesta conversa.`,
 		wallLimit: (duration) => `tempo máximo do run esgotado (${duration})`,
 		costCap: (usd) => `custo máximo da execução atingido (US$ ${usd})`,
 		tokenLimit: (tokens) => `limite de ${tokens} tokens do run esgotado`,
@@ -73,7 +73,7 @@ export const SYSTEM_MESSAGES: Record<BotLanguage, SystemMessages> = {
 		},
 	},
 	"en-US": {
-		stopFallback: (reason) => `I stopped because ${reason}. What was already done is saved in this conversation. Reply "continue" and I will pick up where I left off.`,
+		stopFallback: (reason) => `I stopped because ${reason}. What was already done is saved in this conversation.`,
 		wallLimit: (duration) => `the run's maximum time was reached (${duration})`,
 		costCap: (usd) => `the run's maximum cost was reached ($${usd})`,
 		tokenLimit: (tokens) => `the run's limit of ${tokens} tokens was reached`,
@@ -102,7 +102,7 @@ export const SYSTEM_MESSAGES: Record<BotLanguage, SystemMessages> = {
 		},
 	},
 	"es-ES": {
-		stopFallback: (reason) => `Me detuve porque ${reason}. Lo que ya se hizo quedó guardado en esta conversación. Responde "continuar" y retomo desde donde lo dejé.`,
+		stopFallback: (reason) => `Me detuve porque ${reason}. Lo que ya se hizo quedó guardado en esta conversación.`,
 		wallLimit: (duration) => `se alcanzó el tiempo máximo de la ejecución (${duration})`,
 		costCap: (usd) => `se alcanzó el coste máximo de la ejecución (US$ ${usd})`,
 		tokenLimit: (tokens) => `se alcanzó el límite de ${tokens} tokens de la ejecución`,

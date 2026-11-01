@@ -11,6 +11,7 @@
 import { effectiveCostCapUsd } from "./run-config.js";
 import { runComputerUse, runEngineV2, type ComputerUseParams, type RunComputerUseResult } from "@workspace/agent-runtime";
 import {
+	LONG_WORK_DEFAULT_MINUTES,
 	chooseRunEngine,
 	readEngineDefault,
 	readEnginePolicy,
@@ -36,8 +37,8 @@ export type EngineChoice = {
 	longWorkMinutes?: number;
 	/** Gasto máximo opcional por tarefa longa (vazio = sem limite em US$); tempo máximo da tarefa em minutos. */
 	longWorkMinutesExplicit?: boolean;
-	/** Piso de orçamento do brief e do lembrete `check` (perfil continua `chat`); ver `SHORT_RUN_LONGER_FLOOR`. */
-	budgetFloor?: { costUsd: number; minutes: number };
+	/** Piso de TEMPO do brief e do lembrete `check` (perfil continua `chat`; sem piso em US$, não há teto em dinheiro por padrão). */
+	budgetFloor?: { minutes: number };
 	/** Ajudantes do trabalho longo: modelo barato opcional e quantos rodam juntos (`policyJson.helperModel` / `helperMaxParallel`). */
 	helperModel?: string | null;
 	helperMaxParallel?: number;
@@ -46,14 +47,11 @@ export type EngineChoice = {
 };
 
 /**
- * Piso do brief "Seu dia" e do lembrete `check`. No v1 essas execuções não têm teto de custo e correm até
- * `BUDGET_WALL_DEFAULT_MS` (30 min); o v2 precisa de um número, então usa o `long_work` configurado do bot
- * (padrão US$ 0,50) e 30 min, sem ligar lista de tarefas nem entrega em documento (o perfil segue `chat`).
- * Os tetos de custo e tempo da conta/bot continuam valendo por cima.
+ * Piso de tempo do brief "Seu dia" e do lembrete `check`. No v1 essas execuções correm até `BUDGET_WALL_DEFAULT_MS`
+ * (30 min); o v2 usa o `long_work` configurado do bot e 30 min, sem ligar lista de tarefas nem entrega em documento
+ * (o perfil segue `chat`). Não há piso em US$: dinheiro só limita se o dono configurou (conta ou gasto máximo do bot).
  */
 export const V1_SHORT_RUN_WALL_MINUTES = 30;
-/** Piso de custo (US$) do brief e do `check` quando o bot não definiu gasto máximo (o trabalho longo não tem mais padrão em US$). */
-export const V1_SHORT_RUN_BUDGET_USD = 0.5;
 
 export async function pickRunEngine(input: {
 	run: { origin: string; budgetJson?: unknown };
@@ -91,7 +89,7 @@ export async function pickRunEngine(input: {
 		if (recorded !== "v2") return { engine: "v1", profile: "chat" };
 	}
 	const helpers = readHelperPolicy(input.policyJson);
-	const budgetFloor = input.longerShortRun ? { costUsd: policy.longWorkBudgetUsd ?? V1_SHORT_RUN_BUDGET_USD, minutes: policy.longWorkMinutesExplicit ? Math.max(policy.longWorkMinutes, V1_SHORT_RUN_WALL_MINUTES) : V1_SHORT_RUN_WALL_MINUTES } : undefined;
+	const budgetFloor = input.longerShortRun ? { minutes: policy.longWorkMinutesExplicit ? Math.max(policy.longWorkMinutes, V1_SHORT_RUN_WALL_MINUTES) : V1_SHORT_RUN_WALL_MINUTES } : undefined;
 	return {
 		engine,
 		profile,
@@ -104,36 +102,44 @@ export async function pickRunEngine(input: {
 	};
 }
 
-/** Piso de segurança (US$ por execução) do trabalho longo sem dono quando nem a conta nem o bot definem teto. */
-export const UNATTENDED_LONG_WORK_COST_FLOOR_USD = 0.5;
-
 /**
- * Trabalho longo no v2 não tem teto em US$ por padrão e o teto por execução da conta (`execution.maxRunCostUsd`, padrão 0,25)
- * NÃO se aplica a ele no chat do dono (turno humano: digitado por ele, ou herdado do run pai em continuação automática e em
- * resposta de questionário/cartão): lá o árbitro é progresso e tempo (o preço varia demais entre modelos), e o tempo máximo é o
- * do bot (padrão 60 min). Rotina, bot→bot, proativo, webhook, e-mail e chat curto seguem com o teto da conta. O gasto máximo
- * opcional do bot (`longWorkBudgetUsd`) e o teto do pedido continuam valendo como teto duro.
+ * Sem teto em US$ por padrão em nenhum perfil nem origem (decisão do dono, 01/11): só vale dinheiro que o dono configurou,
+ * que são o teto da conta (`execution.maxRunCostUsd`, vale para tudo, trabalho longo incluso), o gasto máximo do bot no
+ * trabalho longo (`longWorkBudgetUsd`) e o teto do pedido. Quem protege de erro é o comportamento: repetição, falhas
+ * seguidas, teto de passos e tempo máximo.
+ *
+ * No chat do dono (turno humano: digitado por ele, ou herdado do run pai em continuação automática e em resposta de
+ * questionário/cartão) o trabalho longo usa o tempo máximo do bot (padrão 60 min). O chat que ainda está no perfil `chat`
+ * pode virar trabalho longo no meio do run (`canPromote`) e leva o mesmo tempo.
  */
 export function longWorkOwnerLimits(
 	choice: Pick<EngineChoice, "engine" | "profile" | "longWorkMinutes">,
 	context: { origin: string; humanTurn: boolean },
 ): {
-	ignoreAccountCostCap: boolean;
 	/** Tempo máximo (ms) do bot, que substitui o da conta; `undefined` = segue o da conta. */
 	wallMs?: number;
+	/** Run de chat com humano no perfil `chat` do v2: promovível a trabalho longo no meio do run. */
+	canPromote: boolean;
 } {
-	const longWork = choice.engine === "v2" && choice.profile === "long_work";
-	const owner = longWork && context.origin === "chat" && context.humanTurn;
+	const v2Chat = choice.engine === "v2" && context.origin === "chat" && context.humanTurn;
+	const owner = v2Chat && choice.profile === "long_work";
+	const canPromote = v2Chat && choice.profile === "chat";
 	return {
-		ignoreAccountCostCap: owner,
-		...(owner && choice.longWorkMinutes ? { wallMs: Math.round(choice.longWorkMinutes * 60_000) } : {}),
+		canPromote,
+		...((owner || canPromote) ? { wallMs: Math.round((choice.longWorkMinutes ?? LONG_WORK_DEFAULT_MINUTES) * 60_000) } : {}),
 	};
 }
 
 /** Roda o motor escolhido: mesma entrada e mesma saída nos dois. */
-export function runSelectedEngine(choice: EngineChoice, params: ComputerUseParams): Promise<RunComputerUseResult> {
+export function runSelectedEngine(
+	choice: EngineChoice,
+	params: ComputerUseParams,
+	promotion: { canPromote: boolean; onPromoted?: () => void | Promise<void> } = { canPromote: false },
+): Promise<RunComputerUseResult> {
 	if (choice.engine === "v2") {
 		return runEngineV2(params, {
+			promotable: promotion.canPromote,
+			onPromoted: promotion.onPromoted,
 			profile: choice.profile,
 			longWorkBudgetUsd: choice.longWorkBudgetUsd,
 			longWorkMinutes: choice.longWorkMinutes,
@@ -153,20 +159,21 @@ export function resolveRunLimits(input: {
 	choice: EngineChoice;
 	origin: string;
 	humanTurn: boolean;
-	/** `budget.maxCostUsd` já resolvido (pedido > bot > conta do código). */
+	/** `budget.maxCostUsd` já resolvido (pedido > bot; vazio = sem teto). */
 	requestOrBotCap: number | undefined;
-	snapshot: Pick<RunConfigSnapshot, "maxRunCostUsd">;
-	/** O pedido ou a política do bot fixou o tempo: vale mais que o orçamento de minutos do bot. */
+	snapshot: Pick<RunConfigSnapshot, "maxRunCostUsd" | "maxWallMinutes">;
+	/**
+	 * O pedido ou a política do bot fixou o tempo: vale mais que o orçamento de minutos do bot. O "Tempo máximo" da conta,
+	 * se o dono programou, também é teto duro (chat e promoção nunca passam dele): ver `snapshot.maxWallMinutes`.
+	 */
 	wallFixed: boolean;
-}): { costCapUsd: number | undefined; wallMs?: number } {
+}): { costCapUsd: number | undefined; wallMs?: number; canPromote: boolean } {
 	const owner = longWorkOwnerLimits(input.choice, { origin: input.origin, humanTurn: input.humanTurn });
-	let costCapUsd = effectiveCostCapUsd(input.requestOrBotCap, input.snapshot, { ignoreAccountCap: owner.ignoreAccountCostCap });
-	// Origem sem dono (rotina, bot→bot, proativo, webhook, e-mail) em trabalho longo sem nenhum teto em US$ (conta "sem limite" e
-	// bot sem gasto máximo): piso de segurança por execução, porque ninguém está olhando.
-	const longWork = input.choice.engine === "v2" && input.choice.profile === "long_work";
-	if (longWork && !owner.ignoreAccountCostCap && costCapUsd === undefined && input.choice.longWorkBudgetUsd === undefined) costCapUsd = UNATTENDED_LONG_WORK_COST_FLOOR_USD;
+	// Só teto configurado: pedido/bot e conta (o menor). Sem nenhum, sem limite em US$.
+	const costCapUsd = effectiveCostCapUsd(input.requestOrBotCap, input.snapshot);
 	return {
 		costCapUsd,
-		...(owner.wallMs !== undefined && !input.wallFixed ? { wallMs: owner.wallMs } : {}),
+		canPromote: owner.canPromote,
+		...(owner.wallMs !== undefined && !input.wallFixed && input.snapshot.maxWallMinutes === undefined ? { wallMs: owner.wallMs } : {}),
 	};
 }

@@ -19,7 +19,7 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { sanitizeStopDetail, readRunEngine, readRunProfile, withRunEngine, type RunEngine, type RunProfile } from "@workspace/shared";
+import { sanitizeStopDetail, readRunEngine, readRunProfile, withRunEngine, withRunPromotion, type RunEngine, type RunProfile } from "@workspace/shared";
 import type { RunStop } from "@workspace/shared";
 import { parseReasoningEffort, type ReasoningEffort } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
@@ -225,6 +225,22 @@ export async function recordRunEngine(runId: string, choice: { engine: RunEngine
 	if (updated > 0) return choice.engine;
 	const row = await prisma.agentRun.findUnique({ where: { id: runId }, select: { budgetJson: true } });
 	return row ? (readRunEngine(row.budgetJson) ?? null) : null;
+}
+
+/**
+ * Promoção automática chat -> trabalho longo (motor v2): grava `engineProfile: "long_work"` e `promotedFrom: "chat"` no
+ * `budgetJson` para a retomada e a continuação herdarem o perfil. Atômico (merge jsonb) e só se o run está no v2 com perfil
+ * `chat`; escopado pelo dono do run. Devolve se gravou.
+ */
+export async function recordRunPromotion(runId: string, userId: string): Promise<boolean> {
+	const patch = JSON.stringify(withRunPromotion(null));
+	const updated = await prisma.$executeRaw`
+		UPDATE "agent_runs"
+		SET "budgetJson" = COALESCE("budgetJson", '{}'::jsonb) || ${patch}::jsonb
+		WHERE "id" = ${runId} AND "userId" = ${userId}
+		  AND COALESCE("budgetJson", '{}'::jsonb)->>'engine' = 'v2'
+		  AND COALESCE("budgetJson", '{}'::jsonb)->>'engineProfile' IS DISTINCT FROM 'long_work'`;
+	return updated > 0;
 }
 
 /** Lê a janela gravada na criação; fallback 128k (nunca explode). */

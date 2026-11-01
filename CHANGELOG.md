@@ -4,8 +4,20 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Adicionado
+- **agent, worker, db, shared:** no motor v2, o chat com humano que usa 80% dos 8 min do perfil com trabalho em andamento é promovido a trabalho longo no mesmo run, sem parar nem perguntar (tempo de 60 min ou o do bot, fases por progresso, lista, caderno, `delegate` e entrega em documento). A promoção vale uma vez e grava `engineProfile: "long_work"` e `promotedFrom: "chat"` no `budgetJson` (`recordRunPromotion`), então retomada e continuação herdam. Origem sem humano não promove. `looksLikeLongTask` passa a pegar pedidos de várias etapas ("abra… faça perguntas… compare… monte um relatório"; verbos assistir, abrir, perguntar, resumir; 3+ verbos de ação) e continua sendo só a primeira aposta. Só v2; o v1 não muda.
+
+### Alterado
+- **shared, agent, worker, web:** nenhum limite em dinheiro que o dono não programou, em todos os perfis e origens. O padrão da conta "Custo máximo por execução" é "Sem limite" (pt-BR, en-US, es-ES); o piso de US$ 0,50 do trabalho longo sem dono e o piso de custo do brief/`check` saíram (fica o de tempo); o teto explícito da conta passa a valer também no trabalho longo (antes era ignorado no chat do dono); `ATLAS_MAX_RUN_COST_USD` é só teto do operador e vale o menor com o da conta. Textos de parada deixam de citar orçamento em dinheiro quando não há teto configurado.
+
 ### Corrigido
 - **web, agent:** a lista de tarefas acompanha o trabalho ao vivo. Ao reconectar ou recarregar com o run ativo, a última lista volta à tela (antes os eventos de lista eram descartados e ela só reaparecia no fim); a doca fica amarrada ao run ativo e uma mensagem nova durante a tarefa não a esconde; no trabalho longo do motor v2 o prompt pede a lista como primeira chamada. Testes em `thread-live.test.ts`, `task-list.test.ts` e `prompt.long-work.test.ts`.
+- **agent, shared:** o bot nunca pede ao usuário que mande "continua"/"continuar". O prompt do v2 proíbe o convite, o fechamento padrão (`stopFallback` em três idiomas), o fechamento do v1 e a nota de documento ausente dizem em uma linha o que faltou e por quê, sem comando (teste de string). Depois que o trabalho começou, uma resposta final que é só pergunta curta e sem risco (irreversível, envio externo, dinheiro, dado sensível) volta ao modelo uma vez para decidir sozinho e registrar a suposição, no v2; no v1 o prompt do núcleo (0.3.4) segue como estava.
+
+## [0.3.6-beta.1] - 2026-11-01
+
+### Corrigido
+- **agent, shared, worker:** nenhum limite em dinheiro de fábrica. O perfil de conversa do motor v2 tinha US$ 0,25 por execução e a conta também nascia com US$ 0,25 ("Custo máximo por execução"), então pedidos de várias etapas paravam no meio com "limite de custo atingido", mesmo com a conta em "sem limite". Agora só vale o limite que o dono programar: o "Custo máximo por execução" da conta ou o "Gasto máximo por tarefa" do bot (ou `ATLAS_MAX_RUN_COST_USD` do operador). O piso de US$ 0,50 das execuções sem humano também saiu. A proteção contra erro segue por tempo, passos, repetição e falhas.
 
 ## [0.3.6-beta] - 2026-11-01
 
