@@ -3,10 +3,9 @@ import { projectFrame } from "@workspace/shared/avatar/render/project";
 import { stillFrame } from "@workspace/shared/avatar/render/still";
 import { AVATAR_VIEWBOX, groupTransform } from "@workspace/shared/avatar/render/svg";
 import * as React from "react";
-import { View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import Animated, {
 	Easing,
-	useAnimatedProps,
 	useAnimatedStyle,
 	useReducedMotion,
 	useSharedValue,
@@ -69,15 +68,14 @@ const BODY_RADIUS_RATIO = 0.3525; // raio do corpo / lado da caixa (o corpo ocup
 
 // Olhadas do motor do web (BEHAVIOR_TUNING e `glance()` em behavior.ts): a cada 3 a 8 s um ponto sorteado
 // (x de -0,9 a 0,9, y de -0,5 a 0,5) que fica 0,7 a 1,4 s. No web, quem vira é o corpo em 3D e os olhos só
-// têm resíduo de 1,2px; aqui o corpo fica parado e os olhos andam até LOOK_MAX_PX (decisão do dono).
+// têm resíduo de 1,2px; aqui o corpo fica parado e os olhos andam até LOOK_MAX_PX na horizontal e LOOK_MAX_Y_PX na vertical (decisão do dono).
 const LOOK_EVERY_S = [3, 8] as const;
 const LOOK_HOLD_S = [0.7, 1.4] as const;
 const LOOK_X = 0.9;
 const LOOK_Y = 0.5;
-const LOOK_MAX_PX = 4;
+const LOOK_MAX_PX = 9;
+const LOOK_MAX_Y_PX = 5;
 const between = (range: readonly [number, number]) => range[0] + Math.random() * (range[1] - range[0]);
-
-const AnimatedG = Animated.createAnimatedComponent(G);
 
 /** Toca `keys` (tempo absoluto do clipe) num valor compartilhado; sobe com ease-out e desce com ease-in. */
 function playTrack(target: SharedValue<number>, keys: readonly Key[], scale = 1) {
@@ -213,15 +211,18 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 		};
 	});
 
-	// Piscar = achatar os olhos na vertical em torno da linha dos olhos (o motor reduz o comprimento do olho).
-	const eyesProps = useAnimatedProps(() => ({
-		// Olhar em px da tela, convertido para unidades do viewBox (250).
+	// Os olhos ficam num Svg próprio, dentro de um Animated.View sobreposto ao corpo: animar o `transform` de um
+	// <G> via `useAnimatedProps` funciona no web mas não no react-native-svg nativo (o olhar e a piscada
+	// ficavam parados no Android). Estilo animado de View funciona nas duas plataformas, também no Expo Go.
+	// Piscar = achatar os olhos na vertical em torno da linha dos olhos (o motor reduz o comprimento do olho):
+	// a escala do RN é em torno do centro da caixa, então compensa com um translateY de (cy - centro) * (1 - lid).
+	const eyeCyPx = (eyeCy / 250) * size;
+	const eyesStyle = useAnimatedStyle(() => ({
 		transform: [
-			{ translateX: (gazeX.value / LOOK_X) * LOOK_MAX_PX * (250 / size) },
-			{ translateY: ((gazeY.value / LOOK_Y) * LOOK_MAX_PX * (250 / size)) },
-			{ translateY: eyeCy },
+			{ translateX: (gazeX.value / LOOK_X) * LOOK_MAX_PX },
+			{ translateY: (gazeY.value / LOOK_Y) * LOOK_MAX_Y_PX },
+			{ translateY: (eyeCyPx - size / 2) * (1 - lid.value) },
 			{ scaleY: lid.value },
-			{ translateY: -eyeCy },
 		],
 	}));
 
@@ -237,11 +238,15 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 				<Svg width={size} height={size} viewBox={AVATAR_VIEWBOX}>
 					<G transform={transform}>
 						<Path d={body} fill={bodyColor} />
-						<AnimatedG animatedProps={eyesProps}>
-							<Path d={eyes} fill={eyeColor} />
-						</AnimatedG>
 					</G>
 				</Svg>
+				<Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, eyesStyle]}>
+					<Svg width={size} height={size} viewBox={AVATAR_VIEWBOX}>
+						<G transform={transform}>
+							<Path d={eyes} fill={eyeColor} />
+						</G>
+					</Svg>
+				</Animated.View>
 			</Animated.View>
 		</View>
 	);
