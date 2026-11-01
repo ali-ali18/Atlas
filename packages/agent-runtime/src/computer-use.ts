@@ -1619,7 +1619,7 @@ export function recentUserPlainTexts(
 	return out;
 }
 
-const LOGIN_ALREADY_ASKED_NOTE = (site: string) =>
+export const LOGIN_ALREADY_ASKED_NOTE = (site: string) =>
 	`\nLOGIN STILL REQUIRED on ${site}: the user was already asked to log in to this site in the last 30 minutes, so no new card was shown. ` +
 	"Do NOT ask again, never type credentials. Tell the user plainly (in their language, no technical terms) that the site still shows the login screen " +
 	"and that they can open the computer, finish signing in and tell you when it is done.";

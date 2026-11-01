@@ -48,7 +48,7 @@ import {
 	upsertTaskListCard,
 } from "@workspace/db";
 import { loadSandboxConfig, runSandboxOperation, type SandboxExecutionContext } from "@workspace/sandbox";
-import { addUsage, emptyUsage, wallClockAnchors, type TokenUsage } from "../budget.js";
+import { addUsage, emptyUsage, resolveBudget, wallClockAnchors, type TokenUsage } from "../budget.js";
 import {
 	buildRuntimeCheckpoint,
 	completedToolCallIds,
@@ -103,7 +103,10 @@ import type { TaskListStore } from "../tools/task-list.js";
 import { classifyToolFailure, withArgumentErrorHint } from "../tool-failure.js";
 import { buildEngineV2Catalog } from "./catalog.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
-import { type SupervisorProfile, budgetForProfile, createSupervisor, deliveryInstruction } from "./supervisor.js";
+import { MAX_STEPS_SAFETY, type SupervisorProfile, budgetForProfile, createSupervisor, deliveryInstruction } from "./supervisor.js";
+import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
+import { dedupeLoginAsk } from "./login.js";
+import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
 import { appendUnconfirmed, createTaskListGate, droppedItems, openItems } from "./task-list.js";
 
 export type EngineV2Options = {
@@ -147,12 +150,15 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	const sandboxEnabled = (params.sandboxEnabled ?? true) && loadSandboxConfig().enabled;
 
 	// --- orçamento e relógio (só tempo ATIVO: pausa e fila não contam) ---
+	// Tetos do run/conta (custo, tempo e passos) valem sempre: o perfil nunca os ultrapassa.
+	const runLimits = resolveBudget({ maxSteps: params.maxSteps, policy: params.budget });
 	const budget = budgetForProfile(options.profile, {
 		longWorkBudgetUsd: options.longWorkBudgetUsd,
 		longWorkMinutes: options.longWorkMinutes,
 		accountCapUsd: params.budget?.maxCostUsd,
+		accountCapMs: runLimits.maxWallMs,
 	});
-	const supervisor = createSupervisor({ profile: options.profile, budget });
+	const supervisor = createSupervisor({ profile: options.profile, budget, maxSteps: Math.min(MAX_STEPS_SAFETY, runLimits.hardMaxSteps) });
 	const wall = wallClockAnchors({ maxWallMs: budget.maxActiveMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
 	const activeElapsedMs = () => wall.baseMs + (Date.now() - wall.executionStartMs);
 	// Folga de 25% sobre o orçamento de tempo só para as operações do computador não ficarem presas para sempre.
@@ -163,6 +169,11 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		runSandboxOperation(context, 180_000, (signal) => params.getSessionId({ ...context, signal }));
 
 	let usageTotals: TokenUsage = parsed?.usageTotals ? { ...emptyUsage(), ...parsed.usageTotals } : emptyUsage();
+	// Chamadas cujo custo o provedor não informou entram no orçamento por estimativa (ver `cost.ts`).
+	const fallbackPrices = fallbackPricesFromEnv();
+	let estimatedCostUsd =
+		usageTotals.costUsd === undefined && (usageTotals.costUnknownCalls ?? 0) > 0 ? estimateCostUsd(usageTotals, fallbackPrices) : 0;
+	const spentUsd = () => (usageTotals.costUsd ?? 0) + estimatedCostUsd;
 	const toolCallCounts = new Map<string, number>(Object.entries(parsed?.toolCallCounts ?? {}));
 	let step = parsed?.nextStepIndex ?? 0;
 	const consumedInputIds = new Set<string>(parsed?.consumedInputIds ?? []);
@@ -241,6 +252,26 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		? createSecretSession({ userId: params.userId, by: () => ({ actor: "bot", botId, conversationId }) })
 		: undefined;
 	const providerHealth = params.providerHealth ?? createProviderHealth();
+	// Hooks antes de cada tool: lições do usuário (confirm_always, required_args, require_prior_call) e plano pendente.
+	const preTools = createPreToolRunner({
+		lessons: params.lessons?.items,
+		preToolRules: params.preToolRules,
+		planPending: Boolean(params.planPending),
+		toolset: mcp?.toolset,
+		loadedToolNames: () => tools.map((tool) => tool.function.name),
+		onInspect: params.onInspect,
+		recordFeedback: params.lessons?.recordFeedback,
+	});
+	// "Já pedi login neste site" por conversa (30 min), lido só quando aparece uma tela de login.
+	const recentLoginAsks = { asked: new Set<string>(), loaded: false };
+	const loadRecentLoginAsks = async () => {
+		if (recentLoginAsks.loaded) return recentLoginAsks;
+		recentLoginAsks.loaded = true;
+		if (userId === "default" || !params.recentLoginAsks) return recentLoginAsks;
+		const recent = await params.recentLoginAsks().catch(() => null);
+		for (const site of recent?.asked ?? []) recentLoginAsks.asked.add(site);
+		return recentLoginAsks;
+	};
 	let conversationUntrustedRead: Promise<boolean> | undefined;
 	const conversationUntrusted = () =>
 		(conversationUntrustedRead ??= userId && conversationId
@@ -429,6 +460,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		lastModel = result.model;
 		const usage = modelUsage(result);
 		usageTotals = addUsage(usageTotals, usage);
+		const callCost = callCostUsd(usage, fallbackPrices);
+		if (callCost.estimated) estimatedCostUsd += callCost.costUsd;
 		return {
 			content: result.message.content ?? collected,
 			toolCalls: (result.message.tool_calls ?? []).map((call) => ({ ...call, id: namespaceToolCallId(call.id, runId) })),
@@ -601,13 +634,20 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		const startedAt = Date.now();
 		try {
 			await ensureContinue();
-			const outcome = await runSandboxOperation(executionContext, isSandboxTool(name) ? 180_000 : undefined, (signal) => executeTool(name, args, buildContext(call, signal)));
+			const preTool = preTools.run(name, args, entry);
+			if (preTool.error) throw new Error(preTool.error);
+			const outcome = await runSandboxOperation(executionContext, isSandboxTool(name) ? 180_000 : undefined, (signal) => executeTool(name, args, buildContext(call, signal, preTool.forceConfirm)));
 			if (isUntrustedContentTool(name) && !(isMcpToolName(name) && outcome.confirmEvent)) await markUntrusted();
 			summary = outcome.summary;
 			image = outcome.image;
 			visionArtifactIds = outcome.visionArtifactIds ?? [];
 			fileEvent = outcome.fileEvent;
 			loginEvent = outcome.loginEvent;
+			if (loginEvent) {
+				const deduped = dedupeLoginAsk({ event: loginEvent, summary, asked: (await loadRecentLoginAsks()).asked });
+				loginEvent = deduped.event;
+				summary = deduped.summary;
+			}
 			if (outcome.confirmEvent) {
 				cards.push(outcome.confirmEvent);
 				if ((outcome.confirmEvent.status ?? "pending") === "pending") { awaiting.kind = "confirm"; pendingCard = true; }
@@ -623,6 +663,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			}
 			if (outcome.botProposalEvent) { cards.push(outcome.botProposalEvent); awaiting.kind ??= "skill_card"; }
 			if (outcome.routineEvent) cards.push(outcome.routineEvent);
+			if (!pendingCard) preTools.noteSuccess(name, entry);
 			if (outcome.questionnaireEvent) { cards.push(outcome.questionnaireEvent); awaiting.kind ??= "questionnaire"; }
 			if (outcome.profileEvent) {
 				cards.push(outcome.profileEvent);
@@ -764,7 +805,9 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			const final = await modelStep(conversation, "none", messageId, true);
 			text = sanitizeAssistantText(final.content);
 		} catch (error) {
-			if (error instanceof AgentRunCancelledError || error instanceof AgentRunPausedError) throw error;
+			// Cancelamento, lease perdido, pausa e abort nunca viram 'entrega': sobem para o worker.
+			if (params.abortSignal?.aborted) throw errorFromAbortSignal(params.abortSignal);
+			if (isControlFlowError(error)) throw error;
 		}
 		if (!text) {
 			text = budgetStopFallbackText(stop.reason, language);
@@ -819,7 +862,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					await onEvent({ type: "input_consumed", inputId: input.id, mode: input.mode ?? "join", content: input.content });
 				}
 			}
-			const gate = supervisor.gate({ costUsd: usageTotals.costUsd ?? 0, activeMs: activeElapsedMs(), step });
+			const gate = supervisor.gate({ costUsd: spentUsd(), activeMs: activeElapsedMs(), step });
 			if (gate.action === "deliver") return await deliver(gate.stop, gate.instruction);
 			if (gate.note && !appendToLatestToolResult(conversation, gate.note)) conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${gate.note}` });
 
