@@ -217,12 +217,18 @@ describe("promoção automática chat -> trabalho longo (v2)", () => {
 });
 
 describe("perguntar só no começo (v2)", () => {
-	it("pergunta resolvível no meio do trabalho volta ao modelo uma vez, que segue sozinho", async () => {
+	const LONG = { profile: "long_work" as const, promotable: false };
+	const OPEN = () => turn([taskList([["Pesquisar", "in_progress"], ["Entregar", "pending"]])], 0.01);
+	const CLOSE = () => turn([taskList([["Pesquisar", "completed"], ["Entregar", "completed"]])], 0.01);
+	const discards = (run: Awaited<ReturnType<typeof runChat>>) => run.events.filter((event) => event.type === "assistant_discard").map((event) => (event as { reason?: string }).reason);
+
+	it("trabalho longo: resposta que é SÓ uma pergunta resolvível volta ao modelo uma vez, que segue sozinho", async () => {
 		const run = await runChat({
 			stepMs: 1_000,
+			options: LONG,
 			messages: [{ role: "user", content: "Pesquise o Grok Bot" }],
 			script: [
-				research(0.01),
+				OPEN(), research(0.01), CLOSE(),
 				say("Me diga se o Grok Bot é seu agente?"),
 				(seen) => {
 					expect(seen.lastUser).toContain("You were about to ask the user a question in the middle of the work");
@@ -232,27 +238,97 @@ describe("perguntar só no começo (v2)", () => {
 			],
 		});
 		expect(run.result.text).toContain("Assumi que o Grok Bot");
-		expect(run.events.filter((event) => event.type === "assistant_discard").map((event) => (event as { reason?: string }).reason)).toEqual(["unneeded_question"]);
+		expect(discards(run)).toEqual(["unneeded_question"]);
+	});
+
+	it("chat com lista de tarefas aberta também é barrado", async () => {
+		const run = await runChat({
+			stepMs: 1_000,
+			options: { promotable: false },
+			messages: [{ role: "user", content: "Pesquise o Grok Bot" }],
+			script: [OPEN(), say("Qual fonte você prefere?"), say("Usei a fonte oficial. Resultado: ...")],
+		});
+		expect(run.result.text).toContain("Usei a fonte oficial");
+		expect(discards(run)).toEqual(["unneeded_question"]);
+	});
+
+	it("chat curto: resposta com ? depois de uma tool NÃO é descartada (oferta que fecha a entrega passa)", async () => {
+		const run = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "Quanto está o dólar?" }], script: [research(0.01), say("Está R$ 5,10. Quer que eu monitore?")] });
+		expect(run.result.text).toBe("Está R$ 5,10. Quer que eu monitore?");
+		expect(discards(run)).toEqual([]);
+		// Nem mesmo só a pergunta curta, em chat sem lista aberta.
+		const only = await runChat({ stepMs: 1_000, options: { promotable: false }, messages: [{ role: "user", content: "Pesquise" }], script: [research(0.01), say("Qual fonte você prefere?")] });
+		expect(only.result.text).toBe("Qual fonte você prefere?");
+	});
+
+	it("depois de falha de tool a pergunta de sim/não passa", async () => {
+		const run = await runChat({ stepMs: 1_000, options: LONG, messages: [{ role: "user", content: "Pesquise" }], script: [OPEN(), CLOSE(), turn([call("ferramenta_que_nao_existe")], 0.01), say("Não consegui abrir a fonte. Uso a versão em cache?")] });
+		expect(run.result.text).toBe("Não consegui abrir a fonte. Uso a versão em cache?");
+		expect(discards(run)).toEqual([]);
 	});
 
 	it("o portão age uma vez só: a segunda pergunta passa", async () => {
-		const run = await runChat({ stepMs: 1_000, messages: [{ role: "user", content: "Pesquise" }], script: [research(0.01), say("Qual fonte você prefere?"), say("Ainda tenho uma dúvida: qual período?")] });
+		const run = await runChat({ stepMs: 1_000, options: LONG, messages: [{ role: "user", content: "Pesquise" }], script: [OPEN(), CLOSE(), say("Qual fonte você prefere?"), say("Ainda tenho uma dúvida: qual período?")] });
 		expect(run.result.text).toBe("Ainda tenho uma dúvida: qual período?");
 	});
 
 	it("pergunta de algo irreversível, externo ou dinheiro não é barrada; nem pergunta antes de qualquer trabalho", async () => {
-		const risky = await runChat({ stepMs: 1_000, messages: [{ role: "user", content: "Pesquise" }], script: [research(0.01), say("Posso enviar o e-mail para o fornecedor agora?")] });
+		const risky = await runChat({ stepMs: 1_000, options: LONG, messages: [{ role: "user", content: "Pesquise" }], script: [OPEN(), CLOSE(), say("Posso enviar o e-mail para o fornecedor agora?")] });
 		expect(risky.result.text).toBe("Posso enviar o e-mail para o fornecedor agora?");
 		const start = await runChat({ stepMs: 1_000, messages: [{ role: "user", content: "Faça um relatório" }], script: [say("Qual período você quer?")] });
 		expect(start.result.text).toBe("Qual período você quer?");
 	});
 
-	it("midWorkQuestion: curto, termina em ? e sem termo de risco", () => {
+	it("midWorkQuestion: só a pergunta, curta e sem termo de risco", () => {
 		expect(midWorkQuestion("Quer que eu detalhe mais algum ponto?")).toBe(true);
+		expect(midWorkQuestion("Qual fonte você prefere? Posso usar a oficial?")).toBe(true);
+		expect(midWorkQuestion("Está R$ 5,10. Quer que eu monitore?")).toBe(false);
 		expect(midWorkQuestion("Posso apagar o arquivo antigo?")).toBe(false);
 		expect(midWorkQuestion("Vou pagar o boleto agora, pode ser?")).toBe(false);
 		expect(midWorkQuestion("Resultado pronto.")).toBe(false);
-		expect(midWorkQuestion(`${words(200)} Quer mais?`)).toBe(false);
+		expect(midWorkQuestion(`${words(80)} Quer mais?`)).toBe(false);
+	});
+});
+
+describe("tempo da conta é teto duro; promoção sobrevive à falha de gravação", () => {
+	it("conta com 5 min: o chat respeita o menor valor e a promoção não passa de 5 min", async () => {
+		const run = await runChat({
+			extra: { budget: { maxWallMs: 5 * 60_000 } },
+			script: [research(0.01), research(0.01), say("Entrega parcial: o tempo máximo da conta acabou antes de comparar tudo.")],
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		expect(run.result.stop).toMatchObject({ reason: "budget_wall" });
+	});
+
+	it("falha ao gravar a promoção é registrada e o run segue; a retomada reaplica pelo checkpoint", async () => {
+		const failing = vi.fn(async () => {
+			throw new Error("db fora");
+		});
+		const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const checkpoints: Array<{ promoted?: boolean }> = [];
+		const first = await runChat({
+			options: { onPromoted: failing },
+			extra: { onCheckpoint: async (checkpoint) => void checkpoints.push(JSON.parse(JSON.stringify(checkpoint))) },
+			script: [research(1), research(1), research(1), turn([taskList([["Comparar", "in_progress"]])], 1), turn([taskList([["Comparar", "completed"]])], 1), say("Pronto.", 1)],
+		});
+		expect(failing).toHaveBeenCalledTimes(1);
+		expect(errors).toHaveBeenCalledWith("v2: could not record run promotion", "db fora");
+		expect(first.result.stop).toEqual({ reason: "answered" });
+		const mid = checkpoints.find((checkpoint) => checkpoint.promoted === true);
+		expect(mid).toBeTruthy();
+		// Retomada com o perfil ainda `chat` (a gravação falhou): reaplica a promoção, sem nota duplicada, e tenta gravar de novo.
+		const retried = vi.fn();
+		const resumed = await runChat({
+			options: { onPromoted: retried },
+			extra: { restoredCheckpoint: mid as never },
+			script: [(seen) => {
+				expect(seen.toolNames).toEqual(expect.arrayContaining(["notebook_write", "update_task_list"]));
+				return turn([taskList([["Comparar", "completed"]])], 1);
+			}, say("Pronto de novo.", 1)],
+		});
+		expect(retried).toHaveBeenCalledTimes(1);
+		expect(resumed.result.stop).toEqual({ reason: "answered" });
+		errors.mockRestore();
 	});
 });
 

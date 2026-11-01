@@ -58,13 +58,15 @@ export const UNASKED_MIDWORK_NOTE =
 const RISKY_QUESTION = /\b(apag\w+|delet\w+|exclu\w+|remov\w+|envi(?:ar|o|e|ei)\b|mand(?:ar|o|e|ei)\b|public\w+|post(?:ar|ei)?\b|pag(?:ar|o|ue|amento)\b|compr\w+|cobr\w+|transfer\w+|senha\w*|token|chave|cartao|cpf|cnpj|dados? (?:sensiv|pessoa|bancar)\w*|delete|remove|send|publish|pay|purchase|buy|charge|password|secret|credential\w*|card number|irrevers\w+|confirm\w*|autoriz\w+|authori[sz]e)\b/;
 
 /**
- * O texto final é uma pergunta solta no meio do trabalho (e não um resultado)? Curto, termina em "?" e não toca em algo
- * irreversível, externo, dinheiro ou dado sensível. Puro; o laço usa no máximo uma vez por run.
+ * A resposta final é SÓ uma pergunta (nenhuma frase de resultado ou entrega), curta e sem termo de risco? "Está R$ 5,10.
+ * Quer que eu monitore?" tem resultado e passa. Puro; o laço ainda exige trabalho longo/lista aberta, sem falha de tool, uma vez por run.
  */
 export function midWorkQuestion(text: string): boolean {
 	const plain = text.trim();
 	if (!plain || !plain.endsWith("?")) return false;
-	if ((plain.match(/\S+/g) ?? []).length > 150) return false;
+	if ((plain.match(/\S+/g) ?? []).length > 60) return false;
+	const sentences = plain.split(/(?<=[.!?…])\s+/).filter(Boolean);
+	if (!sentences.every((sentence) => sentence.trimEnd().endsWith("?"))) return false;
 	return !RISKY_QUESTION.test(plain.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase());
 }
 
