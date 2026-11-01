@@ -10,6 +10,7 @@ import { executeDecideBotPending } from "../../bot-pending.js";
 import { executeProposeBot } from "../../bot-proposal.js";
 import { executeSendToBot, executeSetPrimaryBot } from "../../bot-messaging.js";
 import { executeSetAutonomy } from "../../set-autonomy.js";
+import { SET_ENGINE_TOOL_NAME, executeSetEngine } from "../../set-engine.js";
 
 import type { ToolFamily } from "../registry.js";
 
@@ -51,6 +52,10 @@ async function handleSetAutonomy(args: Record<string, unknown>, ctx: ToolContext
 	return executeSetAutonomyTool(args, ctx);
 }
 
+async function handleSetEngine(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
+	return executeSetEngineTool(args, ctx);
+}
+
 async function handleDelegateTask(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
 	return executeDelegateTask(args, ctx.delegation);
 }
@@ -67,6 +72,7 @@ export const BOTS_TOOLS: ToolFamily = {
 	"decide_bot_pending": { group: "bots", handler: handleDecideBotPending },
 	"set_primary_bot": { group: "bots", handler: handleSetPrimaryBot },
 	"set_autonomy": { group: "bots", handler: handleSetAutonomy },
+	[SET_ENGINE_TOOL_NAME]: { group: "bots", handler: handleSetEngine },
 	"delegate_task": { group: "bots", handler: handleDelegateTask },
 	"propose_questionnaire": { group: "bots", handler: handleProposeQuestionnaire },
 };
@@ -450,6 +456,29 @@ export async function executeSetAutonomyTool(
 	const card: ConfirmEvent = {
 		type: "confirm",
 		confirmId: `autonomy-${ctx.runId ?? "local"}-${Date.now().toString(36)}`,
+		title: outcome.card.title,
+		description: outcome.card.description,
+		status: "approved",
+	};
+	await persistConversationCardFromEvent(ctx.conversationId, card).catch(() => undefined);
+	return { summary: outcome.summary, confirmEvent: card };
+}
+
+/** `set_engine`: liga/desliga o motor novo do bot e mostra um card de resumo (já decidido). */
+export async function executeSetEngineTool(
+	args: Record<string, unknown>,
+	ctx: ToolContext,
+): Promise<{ summary: string; confirmEvent: ConfirmEvent }> {
+	const outcome = await executeSetEngine(args, {
+		userId: ctx.userId,
+		botId: ctx.botId,
+		origin: ctx.origin,
+		humanTurn: ctx.humanTurn,
+		userRequestText: ctx.userRequestText ?? "",
+	});
+	const card: ConfirmEvent = {
+		type: "confirm",
+		confirmId: `engine-${ctx.runId ?? "local"}-${Date.now().toString(36)}`,
 		title: outcome.card.title,
 		description: outcome.card.description,
 		status: "approved",
