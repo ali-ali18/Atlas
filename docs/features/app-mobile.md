@@ -36,6 +36,8 @@ Quem usa o bot no dia a dia (lembretes, rotinas, alertas) está no celular. Um a
 
 ## Diferenças inevitáveis em relação ao `packages/ui`
 - `Text`: no web o texto é `<p>/<span>`; no RN todo texto precisa de `<Text>`. O `Button` passa a cor do rótulo por `TextClassContext` (como no reusables).
+- **Tamanho dos controles (decisão do dono, no estilo do app do Grok; vale só no mobile, `packages/ui` e web não mudam):** `Button` `default`/`lg` com 56 de altura, pílula (`rounded-full`) e texto 17 semibold (token `text-control`, só do app); `sm` 44; `xs` 36 mais `hitSlop` até 44. `Input`/`InputGroup` com 56, pílula, `px-5` e texto 17 (também evita o zoom do teclado). Ícones dentro de botões e campos têm 20. No web o padrão é `h-9` e `text-sm`.
+- `Avatar`: no web é o motor animado (loop de quadros, olhar que segue o ponteiro, estados do cérebro, clipes 3D de repouso). No mobile o desenho é o mesmo (`stillFrame` + `projectFrame`), com `react-native-reanimated`: respiração (escala, flutuação e balanço leve em ciclo de 3,6 s) e piscada com os tempos do motor (0,12 s até 10%, a cada 2 a 6 s, 18% de piscada dupla 0,28 s depois), respeitando "reduzir movimento"; `animated={false}` deixa estático. Sem corpo/borda de disco: o branco no tema escuro e `#09090b` no claro. `size` é a caixa do SVG (o corpo ocupa ~70%).
 - `Button`/`Input`/`Badge`: sem `hover`, `focus-visible`, `aria-invalid` e `svg`. `invalid` no `Input` faz o papel de `aria-invalid`. O `touch-hit` (44 px por pseudo-elemento) vira `hitSlop`.
 - `Spinner`: o tamanho é `size` do `ActivityIndicator` (`small`/`large`), não `className="size-4"`; a cor vem de `tone`.
 - `Badge`: o rótulo é uma string (a `Text` fica dentro do componente), por causa da cor do texto.
@@ -51,6 +53,7 @@ Quem usa o bot no dia a dia (lembretes, rotinas, alertas) está no celular. Um a
 - **NativeWind 4 + React 19.3/RN 0.88:** funciona no export web e no bundle Android (Hermes) da etapa 0; falta rodar no aparelho. Plano B: NativeWind 5 quando sair do rc.
 - **Duas fontes de token:** `lib/theme.ts` precisa acompanhar o `globals.css`. Mitigação futura: script que gera o tema a partir do CSS.
 - **`@workspace/shared` inteiro no bundle** (≈1,2 MB no web). Aceitável na base; avaliar subcaminhos de import (`@workspace/shared/...`) se pesar no app.
+- **Condição `react-native` também em `./avatar/*`:** necessária para o Avatar do mobile importar o motor (`@workspace/shared/avatar/...`) direto do `src`, sem `dist`. Só o Metro a usa.
 - **Condição `react-native` no shared:** quem resolver essa condição (outro bundler RN) passa a ler `src`. Web (Next), api e worker não usam; coberto por `turbo typecheck`.
 - **Sessão e segurança (etapa 1):** token só no cofre do aparelho, cookies do better-auth com o `origin` do servidor informado, nunca logar token; só `https` fora de desenvolvimento.
 - **API/servidor:** o app depende do contrato de `/api/auth/*` e do SSE; mudanças nesses contratos passam a ter mais um consumidor.
