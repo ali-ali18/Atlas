@@ -41,6 +41,8 @@ import { PREVIEW_SETUP_TOOL_NAME } from "../tools/preview-setup/tool.js";
 import { DELEGATE_V2_TOOL } from "./helpers.js";
 import { NOTEBOOK_READ_TOOL, NOTEBOOK_WRITE_TOOL } from "./notebook.js";
 import { SET_ENGINE_TOOL } from "../tools/set-engine.js";
+import { notifyUserPushTool, proactiveToolsFor, type UserPushMode } from "../tools/proactive.js";
+import { REPORT_ALERT_TOOL } from "../tools/report-alert.js";
 
 const SKILL_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["propose_skill", "delete_skill"]);
 
@@ -94,6 +96,12 @@ export function buildEngineV2Catalog(input: {
 	setEngine?: boolean;
 	/** Rotina ligada a um painel: só ler e atualizar esse painel (o executor trava os outros). */
 	routinePageId?: string;
+	/** Modo proativo do bot neste run (`params.proactive`): follow-ups, ideias de rotina e, na reflexão, `notify_user`. */
+	proactive?: { hasConversation: boolean };
+	/** Push avulso (`params.userPush`): `notify_user` só-push na rotina "só importante" e no chat. */
+	userPush?: UserPushMode;
+	/** Rotina de alerta (`params.alertRun`): `report_alert` entra e é o fim da verificação. */
+	alertRun?: boolean;
 }): EngineV2Catalog {
 	const allow = (name: string) => input.toolFilter?.(name) ?? true;
 	const hostBlocked = (name: string) =>
@@ -153,6 +161,12 @@ export function buildEngineV2Catalog(input: {
 	for (const tool of emailToolsFor(input.email)) add(tool);
 	if (shouldExposeTaskList({ origin: input.origin, isSubagent: false })) add(UPDATE_TASK_LIST_TOOL);
 	if (input.setEngine && !input.helper) add(SET_ENGINE_TOOL);
+	// Proativo, push avulso e alerta: as mesmas tools e condições do v1 (núcleo, nunca adiadas), fora dos ajudantes.
+	if (!input.helper) {
+		if (input.proactive) for (const tool of proactiveToolsFor({ origin: input.origin, hasConversation: input.proactive.hasConversation })) add(tool);
+		if (input.userPush && (input.origin === "routine" || input.origin === "chat")) add(notifyUserPushTool(input.userPush));
+		if (input.alertRun && input.origin === "routine") add(REPORT_ALERT_TOOL);
+	}
 	if (input.helper) {
 		add(NOTEBOOK_WRITE_TOOL);
 	} else if (input.longWork) {

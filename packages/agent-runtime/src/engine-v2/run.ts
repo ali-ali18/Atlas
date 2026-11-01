@@ -110,6 +110,7 @@ import { classifyToolFailure, withArgumentErrorHint } from "../tool-failure.js";
 import { buildEngineV2Catalog } from "./catalog.js";
 import { shouldExposeSetEngine } from "../tools/set-engine.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
+import { originSystemNotes } from "./origin-notes.js";
 import { MAX_STEPS_SAFETY, type SupervisorProfile, budgetForProfile, createSupervisor, deliveryInstruction } from "./supervisor.js";
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "./login.js";
@@ -240,7 +241,14 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		isBotConfigEventObjective(params.objective ?? "") ||
 		isBotConfigEventObjective(lastUserMessage) ||
 		parseQuestionnaireAnsweredContent(lastUserMessage)?.purpose === "onboarding");
-	const replyLanguage = resolveReplyLanguage({ setting: params.language ?? "pt-BR", ...params.languageContext, hasUserMessage: origin === "chat" });
+	// Modo proativo, push avulso e alerta (os mesmos critérios do v1): o worker só liga cada um na origem certa.
+	const proactiveRun = !helperRole && params.proactive ? params.proactive : null;
+	const proactiveActions = { used: 0 };
+	const userPushRun = !helperRole && params.userPush && (origin === "routine" || origin === "chat") ? params.userPush : null;
+	const userPushSent = { used: 0 };
+	const alertRun = !helperRole && origin === "routine" ? params.alertRun : undefined;
+	// Como no v1, chat com modo proativo ou alerta não segue o idioma da mensagem (vale o último detectado).
+	const replyLanguage = resolveReplyLanguage({ setting: params.language ?? "pt-BR", ...params.languageContext, hasUserMessage: origin === "chat" && !proactiveRun && !alertRun });
 	const language: BotLanguage = replyLanguage.language;
 	const languageAtEnd = params.language === "auto";
 	const canSeeImages = params.canSeeUserImages !== false;
@@ -273,6 +281,9 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		helpers: userId !== "default" && origin === "chat",
 		setEngine: !helperRole && shouldExposeSetEngine({ origin, humanTurn, lastUserMessage }),
 		...(origin === "routine" && params.routinePageId ? { routinePageId: params.routinePageId } : {}),
+		...(proactiveRun ? { proactive: { hasConversation: Boolean(conversationId) } } : {}),
+		...(userPushRun ? { userPush: userPushRun.mode } : {}),
+		...(alertRun ? { alertRun: true } : {}),
 	});
 	if (helperRole?.preactivateMcpTools?.length) catalog.activateMcpTools([...helperRole.preactivateMcpTools]);
 	const tools = catalog.tools;
@@ -390,6 +401,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		});
 		conversation = [
 			{ role: "system", content: systemPrompt },
+			// Nota por origem (proativo no chat, "só importante", alerta, evento de config do bot): só nesses runs.
+			...(helperRole ? [] : originSystemNotes({ origin, messages: params.messages, proactive: proactiveRun, userPushMode: userPushRun?.mode, alertRun }).map((content) => ({ role: "system" as const, content }))),
 			...placeTranscript(params.messages.map((message) => ({ role: message.role, content: message.content }))),
 		];
 		const lastUser = [...conversation].reverse().find((message) => message.role === "user");
@@ -725,6 +738,27 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		replyLanguage: language,
 		...(params.alertRuleReader ? { alertRuleReader: params.alertRuleReader } : {}),
 		...(params.pageValueFinder ? { pageValueFinder: params.pageValueFinder } : {}),
+		...(alertRun ? { alertRun } : {}),
+		...(userPushRun
+			? { userPush: { mode: userPushRun.mode, send: userPushRun.send, quiet: userPushRun.quiet, sent: userPushSent, log: (line: string) => console.log(`[push] ${line}`) } }
+			: {}),
+		...(proactiveRun
+			? {
+					proactive: {
+						userId,
+						botId,
+						runId,
+						origin,
+						conversationId,
+						settings: proactiveRun.settings,
+						reflection: origin === "proactive" && !conversationId,
+						actions: proactiveActions,
+						jev: params.jev,
+						onRoutineMutated: params.onRoutineMutated,
+						abortSignal: signal,
+					},
+				}
+			: {}),
 		getOperationalSnapshot: () => ({ step, model: lastModel, messages: conversation.length, consumedInputs: [...consumedInputIds] }),
 		taskListStore,
 		emitTaskList: emitTaskListEvent,
