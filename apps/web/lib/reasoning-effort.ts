@@ -2,6 +2,7 @@ import {
 	availableReasoningEfforts,
 	effortForModel,
 	parseReasoningEffort,
+	withBotReasoningEffort,
 	type ModelCatalogInfo,
 	type ReasoningEffort,
 } from "@workspace/shared";
@@ -48,3 +49,22 @@ export function shownReasoningEffort(effort: ReasoningEffort | undefined, modelI
 }
 
 export const reasoningEffortLabel = (effort: ReasoningEffort, { t }: Translator) => t(`reasoning.${effort}`);
+
+/**
+ * Política do bot com o padrão de raciocínio trocado, partindo da versão MAIS RECENTE do servidor: o bot pode ter
+ * mudado a própria política pelo chat (ou outra aba) desde que a tela abriu, e o PATCH de `policyJson` substitui o
+ * objeto inteiro. Se não der para buscar, usa a cópia local (melhor esforço, como antes).
+ */
+export async function policyWithReasoningEffort(
+	effort: ReasoningEffort | null,
+	localPolicy: unknown,
+	fetchLatestPolicy: () => Promise<unknown>,
+): Promise<Record<string, unknown>> {
+	let base = localPolicy;
+	try {
+		base = await fetchLatestPolicy();
+	} catch {
+		// Offline ou bot sumiu: segue com a cópia local.
+	}
+	return withBotReasoningEffort(base, effort);
+}

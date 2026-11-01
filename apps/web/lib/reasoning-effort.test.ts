@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { reasoningChoicesFor, shownReasoningEffort } from "./reasoning-effort";
+import { policyWithReasoningEffort, reasoningChoicesFor, shownReasoningEffort } from "./reasoning-effort";
 
 const withReasoning = { supportedParameters: ["tools", "reasoning"] };
 
@@ -68,4 +68,16 @@ test("a tela mostra o que o servidor vai usar", () => {
 	assert.equal(shownReasoningEffort("high", "openai/gpt-4o"), undefined);
 	assert.equal(shownReasoningEffort("high", ""), undefined);
 	assert.equal(shownReasoningEffort(undefined, "openai/gpt-5"), undefined);
+});
+
+test("padrão do bot parte da política mais recente, sem sobrescrever o que o chat mudou", async () => {
+	const local = { engine: "v2" };
+	const latest = { engine: "v2", subagentModel: "x/y", reasoningEffort: "high" };
+	assert.deepEqual(await policyWithReasoningEffort("low", local, async () => latest), { engine: "v2", subagentModel: "x/y", reasoningEffort: "low" });
+	assert.deepEqual(await policyWithReasoningEffort(null, local, async () => latest), { engine: "v2", subagentModel: "x/y" });
+});
+
+test("sem conseguir buscar, usa a cópia local", async () => {
+	const local = { engine: "v2" };
+	assert.deepEqual(await policyWithReasoningEffort("medium", local, async () => { throw new Error("offline"); }), { engine: "v2", reasoningEffort: "medium" });
 });

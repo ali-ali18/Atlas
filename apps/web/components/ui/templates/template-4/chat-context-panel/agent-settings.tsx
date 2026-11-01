@@ -14,13 +14,13 @@ import { botLanguageSettingOptions, DEFAULT_BOT_LANGUAGE } from "@/lib/bot-langu
 import { useTranslations } from "@/lib/i18n/provider";
 import { decideForOtherBotsHint, decideForOtherBotsLabel, modelTierLabel } from "@/lib/shared-labels";
 import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
-import { reasoningEffortLabel } from "@/lib/reasoning-effort";
+import { listBots } from "@/lib/atlas-api";
+import { policyWithReasoningEffort, reasoningEffortLabel } from "@/lib/reasoning-effort";
 import { readProactiveSettings } from "@/lib/proactive-settings";
 import {
 	hasModelTiers,
 	readBotModelTiers,
 	readBotReasoningEffort,
-	withBotReasoningEffort,
 	REASONING_EFFORTS,
 	parseReasoningEffort,
 	withBotModelTiers,
@@ -280,7 +280,13 @@ export function AgentSettings({
 					>
 						<SettingsPicker
 							id="agent-reasoning"
-							onChange={(value) => onChange({ policyJson: withBotReasoningEffort(policyJson, parseReasoningEffort(value) ?? null) })}
+							onChange={(value) =>
+								void policyWithReasoningEffort(parseReasoningEffort(value) ?? null, policyJson, async () => {
+									const latest = (await listBots()).find((bot) => bot.id === agent.id);
+									if (!latest) throw new Error("bot não encontrado");
+									return latest.policyJson;
+								}).then((next) => onChange({ policyJson: next }))
+							}
 							options={[
 								{ value: "__default__", label: t("reasoning.default") },
 								...REASONING_EFFORTS.map((effort) => ({ value: effort, label: reasoningEffortLabel(effort, translator) })),
