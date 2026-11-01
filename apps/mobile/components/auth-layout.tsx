@@ -11,7 +11,7 @@ import { Text } from "@/components/ui/text";
 export function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
 	return (
 		<View className="items-center gap-2">
-			<Avatar ariaLabel="Avatar do Atlas Agent" size={176} />
+			<Avatar ariaLabel="Avatar do Atlas Agent" size={126} />
 			<Text className="text-center text-xl font-semibold tracking-tight">{title}</Text>
 			<Text variant="muted" className="text-center text-sm">
 				{subtitle}
@@ -22,7 +22,7 @@ export function AuthHeader({ title, subtitle }: { title: string; subtitle: strin
 
 /** Coluna central `max-w-sm space-y-4` do login do web. */
 export function AuthColumn({ children }: { children: React.ReactNode }) {
-	return <View className="w-full max-w-sm gap-4 self-center">{children}</View>;
+	return <View className="w-full max-w-sm gap-3 self-center">{children}</View>;
 }
 
 /** Divisor "ou" do login do web (`AuthDivider`). */

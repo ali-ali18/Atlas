@@ -17,14 +17,14 @@ const buttonVariants = cva("shrink-0 flex-row items-center justify-center rounde
 			link: "",
 		},
 		size: {
-			default: "h-14 gap-2 px-6",
+			default: "h-13 gap-2 px-6",
 			xs: "h-9 gap-1 px-3",
-			sm: "h-11 gap-1.5 px-4",
-			lg: "h-14 gap-2 px-6",
-			icon: "size-14",
+			sm: "h-10 gap-1.5 px-4",
+			lg: "h-13 gap-2 px-6",
+			icon: "size-13",
 			"icon-xs": "size-9",
-			"icon-sm": "size-11",
-			"icon-lg": "size-14",
+			"icon-sm": "size-10",
+			"icon-lg": "size-13",
 		},
 	},
 	defaultVariants: { variant: "default", size: "default" },
@@ -41,14 +41,14 @@ const buttonTextVariants = cva("font-semibold", {
 			link: "text-primary underline",
 		},
 		size: {
-			default: "text-control",
+			default: "text-base",
 			xs: "text-sm",
 			sm: "text-base",
-			lg: "text-control",
-			icon: "text-control",
+			lg: "text-base",
+			icon: "text-base",
 			"icon-xs": "text-sm",
 			"icon-sm": "text-base",
-			"icon-lg": "text-control",
+			"icon-lg": "text-base",
 		},
 	},
 	defaultVariants: { variant: "default", size: "default" },
@@ -57,7 +57,7 @@ const buttonTextVariants = cva("font-semibold", {
 export type ButtonProps = React.ComponentProps<typeof Pressable> & VariantProps<typeof buttonVariants>;
 
 // Diferença do web (decisão do dono, no estilo do app do Grok): botões grandes e bem visíveis. `default`/`lg`
-// têm 56 de altura, pílula e texto 17 semibold; `sm` 44; `xs` 36 mais `hitSlop` até 44 (o web usa `touch-hit`).
+// têm 52 de altura, pílula e texto 16 semibold; `sm` 40 e `xs` 36, ambos com `hitSlop` até 44 (o web usa `touch-hit`).
 const SMALL_SIZES = new Set(["xs", "sm", "icon-xs", "icon-sm"]);
 const SMALL_SLOP = { top: 4, bottom: 4, left: 4, right: 4 } as const;
 
