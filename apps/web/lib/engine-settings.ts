@@ -17,3 +17,12 @@ export const parseBudgetMinutes = (text: string) => parseEngineNumber(text, LONG
 
 /** "0,50" para o campo (vírgula, duas casas). */
 export const formatBudgetUsd = (usd: number) => usd.toFixed(2).replace(".", ",");
+
+/**
+ * Blur do campo de orçamento: salva o rascunho, a não ser que o Esc tenha cancelado (o blur disparado pelo próprio
+ * Esc roda com o rascunho antigo do closure e salvaria o texto digitado) ou nada tenha mudado.
+ */
+export function budgetBlurAction(input: { draft: string; saved: string; cancelled: boolean }): "skip" | "commit" {
+	if (input.cancelled) return "skip";
+	return input.draft.trim() === input.saved ? "skip" : "commit";
+}

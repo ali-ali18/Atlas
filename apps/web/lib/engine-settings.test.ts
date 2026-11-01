@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatBudgetUsd, parseBudgetMinutes, parseBudgetUsd } from "./engine-settings";
+import { budgetBlurAction, formatBudgetUsd, parseBudgetMinutes, parseBudgetUsd } from "./engine-settings";
 
 test("orçamento em dólar: vírgula ou ponto, faixa de 0,05 a 20", () => {
 	assert.equal(parseBudgetUsd("1"), 1);
@@ -16,3 +16,9 @@ test("minutos: inteiro de 1 a 120", () => {
 });
 
 test("formata em pt-BR", () => assert.equal(formatBudgetUsd(0.5), "0,50"));
+
+test("blur do campo: Esc cancela, igual ao salvo não salva, texto novo salva", () => {
+	assert.equal(budgetBlurAction({ draft: "50", saved: "0,50", cancelled: true }), "skip");
+	assert.equal(budgetBlurAction({ draft: "0,50", saved: "0,50", cancelled: false }), "skip");
+	assert.equal(budgetBlurAction({ draft: "1", saved: "0,50", cancelled: false }), "commit");
+});
