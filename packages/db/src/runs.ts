@@ -19,7 +19,7 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { sanitizeStopDetail } from "@workspace/shared";
+import { sanitizeStopDetail, withRunEngine, type RunEngine, type RunProfile } from "@workspace/shared";
 import type { RunStop } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
 import type { ToolCacheState, ToolResultStatus } from "@workspace/shared";
@@ -204,6 +204,16 @@ export function readRunModelAuto(run: { budgetJson?: unknown }): boolean {
  */
 export function readRunHumanTurn(run: { budgetJson?: unknown }): boolean {
 	return (run.budgetJson as { humanTurn?: unknown } | null | undefined)?.humanTurn === true;
+}
+
+/**
+ * Motor v2 (ADR 0002): grava no `budgetJson` do run o motor e o perfil escolhidos no começo, para a retomada
+ * continuar no mesmo motor mesmo que a política do bot mude no meio. Só mexe nas chaves `engine`/`engineProfile`.
+ */
+export async function recordRunEngine(runId: string, choice: { engine: RunEngine; profile?: RunProfile }): Promise<void> {
+	const row = await prisma.agentRun.findUnique({ where: { id: runId }, select: { budgetJson: true } });
+	if (!row) return;
+	await prisma.agentRun.update({ where: { id: runId }, data: { budgetJson: withRunEngine(row.budgetJson, choice) as Prisma.InputJsonValue } });
 }
 
 /** Lê a janela gravada na criação; fallback 128k (nunca explode). */

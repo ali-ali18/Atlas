@@ -226,6 +226,7 @@ export {
 	readRunContextLength,
 	readRunModelAuto,
 	readRunHumanTurn,
+	recordRunEngine,
 	type RunLease,
 } from "./runs.js";
 export {
