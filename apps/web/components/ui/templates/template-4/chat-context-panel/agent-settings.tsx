@@ -1,6 +1,6 @@
 "use client";
 
-import { BellIcon, BotIcon, ChevronRightIcon, CodeIcon, LanguagesIcon, LayersIcon, ListChecksIcon, PaletteIcon, SignalHighIcon, SparklesIcon, UserCheckIcon, WorkflowIcon } from "lucide-react";
+import { BellIcon, BotIcon, BrainIcon, ChevronRightIcon, CodeIcon, LanguagesIcon, LayersIcon, ListChecksIcon, PaletteIcon, SignalHighIcon, SparklesIcon, UserCheckIcon, WorkflowIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
@@ -14,10 +14,15 @@ import { botLanguageSettingOptions, DEFAULT_BOT_LANGUAGE } from "@/lib/bot-langu
 import { useTranslations } from "@/lib/i18n/provider";
 import { decideForOtherBotsHint, decideForOtherBotsLabel, modelTierLabel } from "@/lib/shared-labels";
 import { defaultTranslator, type Translator } from "@/lib/i18n/translator";
+import { listBots } from "@/lib/atlas-api";
+import { policyWithReasoningEffort, reasoningEffortLabel } from "@/lib/reasoning-effort";
 import { readProactiveSettings } from "@/lib/proactive-settings";
 import {
 	hasModelTiers,
 	readBotModelTiers,
+	readBotReasoningEffort,
+	REASONING_EFFORTS,
+	parseReasoningEffort,
 	withBotModelTiers,
 	modelDisplayName,
 	readCodingModel,
@@ -36,6 +41,7 @@ import { AutonomySettings } from "../autonomy/autonomy-settings";
 import { SettingsPicker } from "../settings-picker";
 import { AboutSection } from "./about-section";
 import { AvatarEditor } from "./avatar-editor";
+import { EngineSettings } from "./engine-settings";
 import { ProactiveSettingsSection } from "./proactive-settings";
 
 /** Páginas da vista de configurações do bot: a principal e a subvista do modo proativo. */
@@ -268,6 +274,29 @@ export function AgentSettings({
 					) : null}
 
 					<SettingRow
+						description={t("reasoning.botDesc")}
+						htmlFor="agent-reasoning"
+						icon={BrainIcon}
+						label={t("reasoning.label")}
+					>
+						<SettingsPicker
+							id="agent-reasoning"
+							onChange={(value) =>
+								void policyWithReasoningEffort(parseReasoningEffort(value) ?? null, policyJson, async () => {
+									const latest = (await listBots()).find((bot) => bot.id === agent.id);
+									if (!latest) throw new Error("bot não encontrado");
+									return latest.policyJson;
+								}).then((next) => onChange({ policyJson: next }))
+							}
+							options={[
+								{ value: "__default__", label: t("reasoning.default") },
+								...REASONING_EFFORTS.map((effort) => ({ value: effort, label: reasoningEffortLabel(effort, translator) })),
+							]}
+							value={readBotReasoningEffort(policyJson) ?? "__default__"}
+						/>
+					</SettingRow>
+
+					<SettingRow
 						caption={<p>{t("botSettings.tiersCaption")}</p>}
 						control="inline"
 						description={t("botSettings.tiersDesc")}
@@ -319,6 +348,8 @@ export function AgentSettings({
 					</SettingRow>
 
 					<AutonomySettings botId={agent.id} scope="bot" variant="row" />
+
+					<EngineSettings onChange={onChange} policyJson={policyJson} />
 
 					<SettingRow
 						caption={<p>{t("botSettings.planModeHelp")}</p>}

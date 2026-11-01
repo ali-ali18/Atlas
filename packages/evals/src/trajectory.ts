@@ -28,6 +28,8 @@ export type Trajectory = {
 	startedAt: string;
 	durationMs: number;
 	text: string;
+	/** Por que o run terminou (motivo e detalhe do runtime), quando ele devolve. */
+	stop?: { reason: string; detail?: string };
 	error?: string;
 	timedOut?: boolean;
 	modelCalls: RecordedModelCall[];

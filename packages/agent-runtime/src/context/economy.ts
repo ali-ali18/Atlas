@@ -52,7 +52,7 @@ export function apiMentioned(connections: ReadonlyArray<{ name: string; slug: st
 }
 
 /** Tool de usos condicionais que fica no fim do array (não entra no prefixo estável). */
-const TAIL_TOOLS: ReadonlySet<string> = new Set(["set_autonomy", "set_connector_tool_marks", "set_primary_bot"]);
+const TAIL_TOOLS: ReadonlySet<string> = new Set(["set_autonomy", "set_engine", "set_connector_tool_marks", "set_primary_bot"]);
 
 export function planContextEconomy(input: {
 	/** Tools nativas já filtradas (origem, autonomia, toolFilter, perfil). */

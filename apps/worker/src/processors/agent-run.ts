@@ -2,7 +2,8 @@ import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
 import { recordObserveChecks } from "../observe-checks.js";
 import { isNoUpdateReply, shouldReviewForSkill, type AlertVerdict, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
-import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode } from "@workspace/shared";
+import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode, readRunReasoningEffort } from "@workspace/shared";
+import { resolveRunReasoningEffort } from "../reasoning-effort.js";
 import {
 	ATLAS_JOB_NAMES,
 	COMPACT_TAIL_KEEP,
@@ -55,6 +56,7 @@ import {
 	recordAwayNote,
 	finishAgentRun,
 	getAgentRun,
+	recordRunEngine,
 	failAgentRunAfterRetries,
 	getAgentRunCheckpoint,
 	getBotProfile,
@@ -132,10 +134,10 @@ import {
 	loadMcpRuntime,
 	parseBudgetPolicy,
 	resolveBudget,
-	runComputerUse,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { briefToolFilter, budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { engineDefaultFromEnv, mustStayOnV1, pickRunEngine, runSelectedEngine } from "../engine-choice.js";
+import { briefToolFilter, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
 import { resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
@@ -389,6 +391,7 @@ export async function chainRunFollowUp(
 						conversationId: run.conversationId ?? undefined,
 						botId: run.botId ?? undefined,
 						origin: run.origin as "chat" | "routine" | "webhook" | "bot" | "proactive",
+						reasoningEffort: readRunReasoningEffort(run.budgetJson),
 					},
 					plan,
 				),
@@ -1145,8 +1148,30 @@ async function executeLeasedRun(ctx: {
 			{ markReady: markDeliveryReady, cancel: cancelRunDelivery },
 		);
 	const apiConnector = await apiConnectorPromise;
+	// Motor do run (ADR 0002): v1 por padrão; v2 no chat direto de um bot que ligou `policyJson.engine = "v2"` e, com `engineScope = "all"`, em rotina, grupo e bot→bot.
+	// A escolha fica no budgetJson do run: a retomada continua no motor em que o run nasceu.
+	const engineChoice = await pickRunEngine({
+		run,
+		policyJson: rawBotPolicy,
+		isGroupRun: Boolean(groupRun),
+		// Todo run nasce com checkpointJson (createAgentRun); só conta como retomada se já há transcript do modelo.
+		hasCheckpoint: Boolean(checkpoint?.llmMessages?.length),
+		// Modo proativo do bot, alerta, evento de configuração (sem mensagem digitada), brief "Seu dia" e rotina
+		// "só importante" usam recursos que o v2 ainda não tem.
+		forceV1: mustStayOnV1({
+			origin: run.origin,
+			proactive: Boolean(proactiveForRun),
+			alert: Boolean(alertRun),
+			botConfigEvent: isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run),
+			detachedBrief: isDetachedBriefRun(run),
+			routinePush: Boolean(userPushForRun),
+		}),
+		globalDefault: engineDefaultFromEnv(),
+		lastUserText: [...messages].reverse().find((message) => message.role === "user")?.content ?? "",
+		record: (choice) => recordRunEngine(runId, choice),
+	});
 	try {
-		const result = await runComputerUse({
+		const result = await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
 			messageTriageModel,
 			onAwayNote: createAwayNoteHandler({
 				userId: runUserId,
@@ -1198,6 +1223,9 @@ async function executeLeasedRun(ctx: {
 			contextMemory: runtimeConfig.contextMemory,
 			timeZone: runTimeZoneFromConfig(await loadAccountConfig()),
 			maxOutputTokens: runtimeConfig.maxOutputTokens,
+			// Chat (budgetJson) > bot > conta; só chega a modelo com raciocínio controlável (por chamada).
+			reasoningEffort: resolveRunReasoningEffort({ run, botPolicy: rawBotPolicy, snapshot: configSnapshot }),
+			modelSupportsReasoning: async (modelId: string) => (await providers.capabilities(modelId)).reasoning,
 			toolResultMaxChars: runtimeConfig.toolResultMaxChars,
 			modelCallTimeoutMs: runtimeConfig.modelCallTimeoutMs,
 			firstEventTimeoutMs: runtimeConfig.firstEventTimeoutMs,

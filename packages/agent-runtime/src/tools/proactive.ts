@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { ChatTool } from "@workspace/llm";
 import {
 	INTERVAL_EVERY_MINUTES_MAX,
@@ -608,7 +609,7 @@ export async function executeSuggestRoutine(
 	}
 
 	const mode = ctx.settings.routineMode;
-	const proposalId = `proposal-${ctx.runId ?? "run"}-${Math.random().toString(36).slice(2, 8)}`;
+	const proposalId = `proposal-${ctx.runId ?? "run"}-${randomBytes(4).toString("hex")}`;
 	let card: PersistedRoutineProposalCard = { v: 1, kind: "routine-proposal", proposalId, mode, status: "pending", spec };
 
 	if (mode === "auto") {

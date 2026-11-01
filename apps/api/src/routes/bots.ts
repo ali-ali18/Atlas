@@ -6,8 +6,11 @@ import type {
 } from "@workspace/shared";
 import {
 	isBotLanguageSetting,
+	parseReasoningEffort,
 	readCodingModel,
 	readSubagentModel,
+	engineSettingsError,
+	readHelperPolicy,
 	DELEGATE_MODEL_MAX_CHARS,
 	parseModelRef,
 	isValidTimeZone,
@@ -198,6 +201,14 @@ export function checkProactivePolicy(policyJson: unknown, isPrimary: boolean): s
 	return null;
 }
 
+/** Nível de raciocínio padrão do bot (`policyJson.reasoningEffort`): um dos quatro níveis ou ausente. */
+export function checkReasoningEffortPolicy(policyJson: unknown): string | null {
+	if (!policyJson || typeof policyJson !== "object" || Array.isArray(policyJson)) return null;
+	const raw = (policyJson as Record<string, unknown>).reasoningEffort;
+	if (raw === undefined || raw === null) return null;
+	return parseReasoningEffort(raw) ? null : "reasoningEffort must be one of: off, low, medium, high";
+}
+
 /** Modelo dos subagentes (`policyJson.subagentModel`): string curta e id que existe no catálogo. */
 async function checkSubagentModel(
 	policyJson: unknown,
@@ -316,8 +327,18 @@ export function createBotRoutes(
     patch.memberIds = await validateGroupMemberIds(userId, patch.memberIds, id);
    }
    if (patch.isPrimary === true && owned.memberIds.length > 0) return c.json({ error: "Um grupo não pode ser o Bot principal" }, 400);
+   const engineError = engineSettingsError(patch.policyJson);
+   if (engineError) return c.json({ error: engineError }, 400);
+   const helperModel = readHelperPolicy(patch.policyJson).helperModel;
+   if (helperModel && parseModelRef(helperModel).provider === "openrouter") {
+    const known = await isKnownModel(helperModel);
+    if (known === null) return c.json({ error: "Model list unavailable, try again" }, 503);
+    if (!known) return c.json({ error: "Invalid helperModel: unknown model" }, 400);
+   }
    const proactiveError = checkProactivePolicy(patch.policyJson, patch.isPrimary ?? owned.isPrimary);
    if (proactiveError) return c.json({ error: proactiveError }, 400);
+   const effortError = checkReasoningEffortPolicy(patch.policyJson);
+   if (effortError) return c.json({ error: effortError }, 400);
    const validation = patch.openRouterModel ? await validateModel(userId, patch.openRouterModel) : {};
    if ("error" in validation) return c.json({ error: validation.error }, validation.status);
    const policy = patch.policyJson as Record<string, unknown> | null | undefined;

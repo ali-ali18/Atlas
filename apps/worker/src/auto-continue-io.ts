@@ -6,6 +6,7 @@ import {
 	listPendingSteerInputs,
 	readRunContextLength,
 } from "@workspace/db";
+import { readRunReasoningEffort } from "@workspace/shared";
 import { chainFollowUp, followUpRequest } from "./follow-up.js";
 import { continuationBudget, type AutoContinueIo } from "./auto-continue.js";
 
@@ -37,6 +38,7 @@ export function createAutoContinueIo(enqueue: EnqueueWithDelay | undefined): Aut
 								botId: run.botId ?? undefined,
 								origin: run.origin as "chat" | "routine" | "webhook" | "bot" | "proactive",
 								budget: continuationBudget(decision),
+								reasoningEffort: readRunReasoningEffort(run.budgetJson),
 							},
 							plan,
 						),

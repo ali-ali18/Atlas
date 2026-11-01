@@ -518,3 +518,6 @@ export { createPreviewSetupContext } from "./tools/preview-setup/runtime.js";
 export { routeContextGroups } from "./context/intent-router.js";
 export { setupConfirmId } from "./tools/preview-setup/runtime.js";
 export { MARKET_KEY_CATALOG_IDS, ownerMarketAccess, probeMarketKey, reportRejectedMarketKey, resolveMarketKeys, type MarketKeyDeps, type RejectedKeyDeps } from "./market/keys.js";
+export { runEngineV2, type EngineV2Options } from "./engine-v2/index.js";
+export { executeSetEngine, shouldExposeSetEngine, SET_ENGINE_TOOL, SET_ENGINE_TOOL_NAME } from "./tools/set-engine.js";
+export type { ComputerUseParams, RunComputerUseResult } from "./computer-use.js";

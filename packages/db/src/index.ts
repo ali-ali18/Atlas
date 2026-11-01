@@ -118,6 +118,7 @@ export {
 	queueAutoDecision,
 	type QueuedAutoDecision,
 } from "./bot-pending.js";
+export { setBotEngineSettings } from "./bot-engine.js";
 export {
 	createBot,
 	getBotIdentity,
@@ -125,6 +126,7 @@ export {
 	getBotProfile,
 	getBotModelForUser,
 	getBotModelChoiceForUser,
+	setBotReasoningEffort,
 	getBotPolicy,
 	listBots,
 	updateBot,
@@ -226,6 +228,7 @@ export {
 	readRunContextLength,
 	readRunModelAuto,
 	readRunHumanTurn,
+	recordRunEngine,
 	type RunLease,
 } from "./runs.js";
 export {

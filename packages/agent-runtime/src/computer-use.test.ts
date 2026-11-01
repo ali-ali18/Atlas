@@ -310,6 +310,19 @@ describe("runComputerUse resume", () => {
 		expect(sanitizeAssistantText("o que é DSML?")).toBe("o que é DSML?");
 	});
 
+	it("limpeza de DSML é linear com entrada hostil e não remonta tag", () => {
+		const hostile = ["<".repeat(20_000), "<DSML" + " ".repeat(20_000), "a" + " ".repeat(50_000) + "b", "<|DSML| x>".repeat(5_000)];
+		for (const raw of hostile) {
+			const started = performance.now();
+			sanitizeAssistantText(raw);
+			expect(performance.now() - started).toBeLessThan(500);
+		}
+		// Remover a tag do meio não pode deixar uma nova tag DSML montada.
+		expect(sanitizeAssistantText("ok <<|DSML| x>|DSML| y> fim")).not.toMatch(/<[^<>]*DSML[^<>]*>/i);
+		// Espaços no fim da linha somem; prosa fica.
+		expect(sanitizeAssistantText("linha um   \nlinha dois\t\n")).toBe("linha um\nlinha dois");
+	});
+
 	it("falha de sandbox vira mensagem acionável e avisa onSandboxError", async () => {
 		const manager = {
 			execNavigate: async () => {

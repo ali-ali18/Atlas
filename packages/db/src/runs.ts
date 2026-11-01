@@ -19,8 +19,9 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { sanitizeStopDetail } from "@workspace/shared";
+import { sanitizeStopDetail, readRunEngine, type RunEngine, type RunProfile } from "@workspace/shared";
 import type { RunStop } from "@workspace/shared";
+import { parseReasoningEffort, type ReasoningEffort } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
 import type { ToolCacheState, ToolResultStatus } from "@workspace/shared";
 import type { ComputerUseEvent, ConversationTaskContext, ResearchNote, TaskLedger, TaskListItem } from "@workspace/shared";
@@ -181,14 +182,17 @@ function buildStoredBudget(
 	contextLength: number | null | undefined,
 	modelAuto?: boolean,
 	humanTurn?: boolean,
+	reasoningEffort?: ReasoningEffort,
 ): Prisma.InputJsonValue | undefined {
 	const window = normalizeContextLength(contextLength);
-	if (budget === undefined && window === null && !modelAuto && !humanTurn) return undefined;
+	if (budget === undefined && window === null && !modelAuto && !humanTurn && !reasoningEffort) return undefined;
 	return {
 		...(budget as Record<string, unknown> | undefined),
 		...(window !== null ? { contextLength: window } : {}),
 		...(modelAuto ? { modelAuto: true } : {}),
 		...(humanTurn ? { humanTurn: true } : {}),
+		// Escolha do chat: fica no run para a retomada e os turnos encadeados manterem o nível.
+		...(reasoningEffort ? { reasoningEffort } : {}),
 	} as Prisma.InputJsonValue;
 }
 
@@ -204,6 +208,23 @@ export function readRunModelAuto(run: { budgetJson?: unknown }): boolean {
  */
 export function readRunHumanTurn(run: { budgetJson?: unknown }): boolean {
 	return (run.budgetJson as { humanTurn?: unknown } | null | undefined)?.humanTurn === true;
+}
+
+/**
+ * Motor v2 (ADR 0002): grava no `budgetJson` do run o motor e o perfil escolhidos no começo, para a retomada
+ * continuar no mesmo motor mesmo que a política do bot mude no meio. Atômico num único UPDATE (merge jsonb, sem
+ * ler-e-escrever) e só se o run ainda não tem motor gravado: duas execuções concorrentes não se sobrescrevem.
+ * Devolve o motor que ficou valendo no run (o gravado agora ou o que já estava), ou `null` se o run não existe.
+ */
+export async function recordRunEngine(runId: string, choice: { engine: RunEngine; profile?: RunProfile }): Promise<RunEngine | null> {
+	const patch = JSON.stringify({ engine: choice.engine, ...(choice.profile ? { engineProfile: choice.profile } : {}) });
+	const updated = await prisma.$executeRaw`
+		UPDATE "agent_runs"
+		SET "budgetJson" = COALESCE("budgetJson", '{}'::jsonb) || ${patch}::jsonb
+		WHERE "id" = ${runId} AND COALESCE("budgetJson", '{}'::jsonb)->>'engine' IS NULL`;
+	if (updated > 0) return choice.engine;
+	const row = await prisma.agentRun.findUnique({ where: { id: runId }, select: { budgetJson: true } });
+	return row ? (readRunEngine(row.budgetJson) ?? null) : null;
 }
 
 /** Lê a janela gravada na criação; fallback 128k (nunca explode). */
@@ -289,7 +310,7 @@ export function buildQueuedRunData(input: {
 		maxSteps,
 		sandboxSessionId: request.sandboxSessionId ?? null,
 		checkpointJson: checkpoint as unknown as Prisma.InputJsonValue,
-		budgetJson: buildStoredBudget(request.budget, input.contextLength, input.modelAuto, input.humanTurn),
+		budgetJson: buildStoredBudget(request.budget, input.contextLength, input.modelAuto, input.humanTurn, parseReasoningEffort(request.reasoningEffort)),
 	};
 }
 

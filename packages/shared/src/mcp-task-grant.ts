@@ -115,7 +115,7 @@ const CLEAN_INTERNAL_TOOLS = new Set([
 	"propose_routine", "propose_questionnaire", "propose_connector", "propose_api_connection", "propose_custom_mcp",
 	"propose_profile_update", "propose_bot", "propose_plan", "propose_skill", "propose_skill_change", "propose_skill_delete",
 	"suggest_routine", "update_task_list", "todo_write", "track_items",
-	"notify_user", "set_autonomy", "schedule_followup", "cancel_followup", "reschedule_followup",
+	"notify_user", "set_autonomy", "set_reasoning_effort", "schedule_followup", "cancel_followup", "reschedule_followup",
 	"request_secrets", "secret_request", "email_create_mailbox", "shell_kill", "app_info", "current_time",
 ]);
 
