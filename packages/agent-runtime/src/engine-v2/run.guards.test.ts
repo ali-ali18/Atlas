@@ -85,6 +85,8 @@ async function run(input: {
 			origin: "chat",
 			mcp,
 			autonomy: { level: "autonomous", exceptions: [] },
+			// Sem teto em US$ por padrão: os testes de entrega por orçamento usam um teto de conta explícito.
+			...(input.options?.longWorkBudgetUsd ? {} : { budget: { maxCostUsd: 0.25 } }),
 			...(input.lessons ? { lessons: { items: input.lessons } } : {}),
 			...(input.planPending ? { planPending: true } : {}),
 			onEvent: (event) => {

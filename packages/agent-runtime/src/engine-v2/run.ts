@@ -113,6 +113,7 @@ import { shouldExposeSetEngine } from "../tools/set-engine.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
 import { originSystemNotes } from "./origin-notes.js";
 import { MAX_STEPS_SAFETY, type SupervisorProfile, budgetForProfile, createSupervisor, deliveryInstruction } from "./supervisor.js";
+import { ENGINE_V2_PROMOTED_NOTE, UNASKED_MIDWORK_NOTE, midWorkQuestion } from "./prompt.js";
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "./login.js";
 import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
@@ -132,6 +133,7 @@ import {
 	documentMissingNote,
 	isFinalDeliverableCall,
 	needsDocumentDelivery,
+	stopReasonPhrase,
 	withNotebookAppendix,
 } from "./delivery.js";
 import { noveltyKey, type NotebookToolContext } from "./notebook.js";
@@ -141,8 +143,15 @@ export type EngineV2Options = {
 	/** Ajuste do bot para o trabalho longo (`policyJson.longWorkBudgetUsd` / `longWorkMinutes`). */
 	longWorkBudgetUsd?: number;
 	longWorkMinutes?: number;
-	/** Piso do orçamento (US$ e minutos) sem ligar o trabalho longo: brief "Seu dia" e lembrete `check`, que no v1 não têm teto de custo e rodam até 30 min. */
-	budgetFloor?: { costUsd: number; minutes: number };
+	/** Piso de TEMPO (minutos) sem ligar o trabalho longo: brief "Seu dia" e lembrete `check`, que no v1 rodam até 30 min. Não há piso em US$. */
+	budgetFloor?: { minutes: number };
+	/**
+	 * Chat de humano (origem chat, turno digitado) no perfil `chat`: ao chegar a 80% do tempo do perfil com o trabalho em
+	 * andamento, o run vira `long_work` no mesmo run, sem parar nem perguntar. Sem humano, o limite do perfil fica.
+	 */
+	promotable?: boolean;
+	/** Avisa o worker da promoção (grava `engineProfile: "long_work"` + `promotedFrom: "chat"` no budgetJson do run). */
+	onPromoted?: () => void | Promise<void>;
 	/** Coordenador em trabalho longo: ajudantes (`policyJson.helperModel` / `helperMaxParallel`; `deps` injeta a persistência em teste). */
 	helpers?: {
 		model?: string | null;
@@ -202,24 +211,29 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	const helperRole = options.helper;
 	if (helperRole && !params.toolFilter) throw new Error("engine v2 helper needs a toolFilter (read-only tools)");
 	// Ajudante: o orçamento é a fatia que o coordenador reservou (nunca o perfil do bot).
+	const profileOverrides = {
+		longWorkBudgetUsd: options.longWorkBudgetUsd,
+		longWorkMinutes: options.longWorkMinutes,
+		accountCapUsd: params.budget?.maxCostUsd,
+		accountCapMs: runLimits.maxWallMs,
+	};
+	const promotable = options.promotable === true && options.profile === "chat" && !helperRole;
 	const budget = helperRole
 		? { maxCostUsd: helperRole.budget.costUsd, maxActiveMs: helperRole.budget.activeMs }
-		: budgetForProfile(options.profile, {
-				longWorkBudgetUsd: options.longWorkBudgetUsd,
-				longWorkMinutes: options.longWorkMinutes,
-				floor: options.budgetFloor,
-				accountCapUsd: params.budget?.maxCostUsd,
-				accountCapMs: runLimits.maxWallMs,
-			});
+		: budgetForProfile(options.profile, { ...profileOverrides, floor: options.budgetFloor });
+	// Orçamento que o run passa a ter se for promovido (sem piso: o piso é do brief/check, que nunca promovem).
+	const promotedBudget = promotable ? budgetForProfile("long_work", profileOverrides) : undefined;
 	const supervisor = createSupervisor({
 		profile: options.profile,
 		budget,
+		promotable,
 		maxSteps: Math.min(MAX_STEPS_SAFETY, runLimits.hardMaxSteps, helperRole?.budget.maxSteps ?? MAX_STEPS_SAFETY),
 	});
 	const wall = wallClockAnchors({ maxWallMs: budget.maxActiveMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
 	const activeElapsedMs = () => wall.baseMs + (Date.now() - wall.executionStartMs);
 	// Folga de 25% sobre o orçamento de tempo só para as operações do computador não ficarem presas para sempre.
-	const deadlineAtMs = wall.executionStartMs + Math.round(Math.max(0, budget.maxActiveMs - wall.baseMs) * 1.25);
+	const deadlineBudgetMs = Math.max(budget.maxActiveMs, promotedBudget?.maxActiveMs ?? 0);
+	const deadlineAtMs = wall.executionStartMs + Math.round(Math.max(0, deadlineBudgetMs - wall.baseMs) * 1.25);
 	const executionContext = { signal: params.abortSignal, deadlineAtMs, ...(params.browserTabId ? { tabId: params.browserTabId } : {}) };
 	const manager = withAgentPointer(params.manager.withExecutionContext?.(executionContext) ?? params.manager, (event) => onEvent(event));
 	const getSessionId = (context: SandboxExecutionContext = executionContext) =>
@@ -305,6 +319,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		objective: params.objective,
 		priorLoadedTools: params.priorLoadedTools ?? parsed?.loadedTools,
 		longWork: options.profile === "long_work" && !helperRole,
+		promotable,
 		helper: Boolean(helperRole),
 		helpers: userId !== "default" && origin === "chat",
 		setEngine: !helperRole && shouldExposeSetEngine({ origin, humanTurn, lastUserMessage }),
@@ -329,11 +344,17 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		await upsertTaskListCard(conversationId, runId, items).catch(() => undefined);
 		await onEvent({ type: "task_list", items, ...(params.runId ? { runId: params.runId } : {}) });
 	};
-	const taskGate = createTaskListGate({ required: options.profile === "long_work" && !helperRole && hasToolInRun("update_task_list") });
+	// `required` é lido a cada verificação: depois da promoção a lista passa a ser obrigatória.
+	const taskGate = createTaskListGate({
+		get required() {
+			return longWorkCoordinator && hasToolInRun("update_task_list");
+		},
+	});
 
 	// --- caderno da tarefa (trabalho longo): só o coordenador o tem; o ajudante escreve no do pai ---
-	const longWorkCoordinator = options.profile === "long_work" && !helperRole;
-	const notebook = longWorkCoordinator && hasToolInRun("notebook_write") ? createNotebook(parsed?.notebook) : null;
+	let longWorkCoordinator = options.profile === "long_work" && !helperRole;
+	// Chat promovível já tem o caderno (vazio, sem custo de contexto); as tools dele só entram com a promoção.
+	const notebook = (longWorkCoordinator && hasToolInRun("notebook_write")) || catalog.promotionTools.includes("notebook_write") ? createNotebook(parsed?.notebook) : null;
 	const notebookTools: NotebookToolContext | undefined = notebook
 		? { writer: notebook.writer("coordinator"), reader: notebook }
 		: helperRole
@@ -702,7 +723,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	/** Tarefas que um ajudante já terminou antes de uma retomada (não rodam de novo). */
 	const finishedGoals = new Set<string>();
 	const helpersCtx: HelpersContext | undefined =
-		notebook && hasToolInRun("delegate")
+		notebook && (hasToolInRun("delegate") || catalog.promotionTools.includes("delegate"))
 			? {
 					parentRunId: runId,
 					groupId: () => `${runId}-h${toolCallCounts.get("delegate") ?? 1}`,
@@ -1140,7 +1161,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			if (isControlFlowError(error)) throw error;
 		}
 		if (!text) {
-			text = budgetStopFallbackText(stop.reason, language);
+			text = budgetStopFallbackText(stopReasonPhrase(stop.reason, language), language);
 			await onEvent({ type: "assistant_delta", id: messageId, delta: text });
 		}
 		if (documentFallback && !fileDelivered) {
@@ -1188,12 +1209,14 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 
 	// Retomada no meio de um lote: as tool calls sem resultado rodam primeiro.
 	const lastAssistant = [...conversation].reverse().find((message) => message.role === "assistant");
+	let lastStepHadTools = Boolean(lastAssistant?.tool_calls?.length);
 	let abortStop: RunStop | undefined;
 	if (lastAssistant?.tool_calls?.length) {
 		const answered = completedToolCallIds(conversation);
 		const pending = lastAssistant.tool_calls.filter((call) => !answered.has(call.id));
 		if (pending.length > 0) {
 			abortStop = settleBatch(await runBatch(pending));
+			lastStepHadTools = true;
 			step += 1;
 			await persistCheckpoint(step);
 			const waiting = await stopIfWaiting();
@@ -1203,6 +1226,20 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 
 	let finishRetries = 0;
 	let emptyRetries = 0;
+	// Promoção chat -> trabalho longo: o último passo teve tool (trabalho em andamento) e a pergunta solta volta no máximo uma vez.
+	let midWorkQuestionGated = false;
+	// Rodadas de tool deste run (mesmo as recusadas contam: o trabalho começou) mais as de execuções anteriores.
+	let toolRounds = 0;
+	const workStarted = () => toolRounds > 0 || [...toolCallCounts.values()].some((count) => count > 0);
+	const promoteRun = async (): Promise<boolean> => {
+		if (!promotedBudget || !supervisor.promote(promotedBudget)) return false;
+		longWorkCoordinator = true;
+		catalog.promoteToLongWork();
+		const note = `${AUTO_CONTEXT} ${ENGINE_V2_PROMOTED_NOTE}`;
+		if (!appendToLatestToolResult(conversation, ENGINE_V2_PROMOTED_NOTE)) conversation.push({ role: "user", content: note });
+		await Promise.resolve(options.onPromoted?.()).catch(() => undefined);
+		return true;
+	};
 	let truncatedReply: { id: string; text: string } | undefined;
 	try {
 		for (;;) {
@@ -1220,17 +1257,24 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					await onEvent({ type: "input_consumed", inputId: input.id, mode: input.mode ?? "join", content: input.content });
 				}
 			}
-			const taskItems = taskGate ? currentTaskItems() : undefined;
-			const gate = supervisor.gate(
-				{ costUsd: spentUsd(), activeMs: activeElapsedMs(), step },
-				{
-					gaps: notebook ? notebook.snapshot().filter((entry) => entry.kind === "unconfirmed").length : 0,
-					listDone: Boolean(taskItems?.length) && openItems(taskItems).length === 0,
-					// Só conteúdo novo (título + trecho diferentes de entradas anteriores, não vazio) conta como progresso.
-					notebookCount: notebook ? novelEntryCount(notebook.snapshot()) : 0,
-					completedCount: taskItems ? taskItems.filter((item) => item.status === "completed").length : 0,
-				},
-			);
+			const gateNow = () => {
+				const taskItems = taskGate ? currentTaskItems() : undefined;
+				return supervisor.gate(
+					{ costUsd: spentUsd(), activeMs: activeElapsedMs(), step },
+					{
+						gaps: notebook ? notebook.snapshot().filter((entry) => entry.kind === "unconfirmed").length : 0,
+						listDone: Boolean(taskItems?.length) && openItems(taskItems).length === 0,
+						// Só conteúdo novo (título + trecho diferentes de entradas anteriores, não vazio) conta como progresso.
+						notebookCount: notebook ? novelEntryCount(notebook.snapshot()) : 0,
+						completedCount: taskItems ? taskItems.filter((item) => item.status === "completed").length : 0,
+						lastStepHadTools,
+					},
+				);
+			};
+			let gate = gateNow();
+			if (gate.action === "promote") gate = (await promoteRun()) ? gateNow() : { action: "call" };
+			// `promote` só sai uma vez; a segunda chamada não promove de novo.
+			if (gate.action === "promote") gate = { action: "call" };
 			if (gate.action === "deliver") return await deliver(gate.stop, helperRole ? HELPER_DELIVERY_INSTRUCTION : gate.instruction);
 			if (gate.note && !appendToLatestToolResult(conversation, gate.note)) conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${gate.note}` });
 
@@ -1301,6 +1345,15 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					step += 1;
 					continue;
 				}
+				// Depois que o trabalho começou (houve tool), pergunta que a pesquisa ou um padrão resolve não vai ao usuário: uma vez por run.
+				if (!midWorkQuestionGated && !helperRole && workStarted() && midWorkQuestion(text)) {
+					midWorkQuestionGated = true;
+					await onEvent({ type: "assistant_discard", id: stepId, reason: "unneeded_question" });
+					conversation.push({ role: "assistant", content: text });
+					conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${UNASKED_MIDWORK_NOTE}` });
+					step += 1;
+					continue;
+				}
 				const stop: RunStop = verdict.kind === "release" ? { reason: "answered", detail: "tasklist_open" } : { reason: "answered" };
 				return await finishOk(text, stop, stepId);
 			}
@@ -1308,6 +1361,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			finishRetries = 0;
 			conversation.push({ role: "assistant", content: text.length > 0 ? text : null, tool_calls: toolCalls, ...(providerItems ? { providerItems } : {}) });
 			const outcomes = await runBatch(toolCalls);
+			lastStepHadTools = true;
+			toolRounds += 1;
 			abortStop = settleBatch(outcomes);
 			step += 1;
 			await persistCheckpoint(step);
