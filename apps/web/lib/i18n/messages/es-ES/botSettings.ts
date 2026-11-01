@@ -42,6 +42,8 @@ export const botSettings: NamespaceMessages<typeof ptBR> = {
 	"botSettings.engineBudgetMinutes": "Tiempo en minutos",
 	"botSettings.engineHelper": "Modelo de los ayudantes",
 	"botSettings.engineHelperDesc": "Modelo de los ayudantes que el bot llama para investigar en paralelo. Un modelo más barato reduce el costo.",
+	"botSettings.engineScope": "Usar también en rutinas y grupos",
+	"botSettings.engineScopeHelp": "El motor nuevo también ejecuta las rutinas, las conversaciones en grupo y los mensajes entre bots de este bot. Sin nadie que responda, no pregunta: entrega lo que consiga. Vale desde la próxima ejecución.",
 	"botSettings.planMode": "Planificar antes de tareas grandes",
 	"botSettings.planModeHelp": "En tareas de varios pasos que cambian datos o envían algo, el bot muestra el plan y espera tu visto bueno. Aprobar el plan no aprueba las acciones: cada cambio sigue pidiendo confirmación.",
 	"botSettings.bubble": "Burbuja con el color del bot",
