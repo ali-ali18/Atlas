@@ -159,3 +159,24 @@ test("Planejar antes de tarefas grandes: ligado por padrão, so planMode:false d
 	assert.equal(state(render(bot())), "true");
 	assert.equal(state(render(bot({ policyJson: { planMode: false } }))), "false");
 });
+
+test("linha 'Motor': Atual por padrão, sem orçamento nem modelo dos ajudantes", () => {
+	const html = render(bot());
+	assert.match(html, /for="agent-engine"[^>]*>Motor</);
+	assert.match(html, />Atual</);
+	assert.doesNotMatch(html, /Orçamento por tarefa longa/);
+	assert.doesNotMatch(html, /Modelo dos ajudantes/);
+	assert.doesNotMatch(html, /Novo \(teste\)</, "a opção só aparece no menu aberto");
+});
+
+test("'Novo (teste)' mostra o texto do orçamento, os campos (US$ e minutos) e o modelo dos ajudantes", () => {
+	const html = render(bot({ policyJson: { engine: "v2", longWorkBudgetUsd: 1, longWorkMinutes: 30 } }));
+	assert.match(html, />Novo \(teste\)</);
+	assert.match(html, /trabalha até o fim dentro do orçamento/);
+	assert.match(html, />Orçamento por tarefa longa</);
+	assert.match(html, /aria-label="Orçamento em dólares"[^>]*value="1,00"|value="1,00"[^>]*aria-label="Orçamento em dólares"/);
+	assert.match(html, /aria-label="Tempo em minutos"[^>]*value="30"|value="30"[^>]*aria-label="Tempo em minutos"/);
+	assert.match(html, />Modelo dos ajudantes</);
+	const visibleText = html.replace(/<[^>]+>/g, " ");
+	assert.doesNotMatch(visibleText, /\bv2\b|policyJson|helperModel|longWork/i, "nada de internals na tela");
+});
