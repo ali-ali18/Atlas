@@ -4,6 +4,15 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Adicionado
+- **agent, worker, db, shared:** no motor v2, o chat com humano que usa 80% dos 8 min do perfil com trabalho em andamento é promovido a trabalho longo no mesmo run, sem parar nem perguntar (tempo de 60 min ou o do bot, fases por progresso, lista, caderno, `delegate` e entrega em documento). A promoção vale uma vez e grava `engineProfile: "long_work"` e `promotedFrom: "chat"` no `budgetJson` (`recordRunPromotion`), então retomada e continuação herdam. Origem sem humano não promove. `looksLikeLongTask` passa a pegar pedidos de várias etapas ("abra… faça perguntas… compare… monte um relatório"; verbos assistir, abrir, perguntar, resumir; 3+ verbos de ação) e continua sendo só a primeira aposta. Só v2; o v1 não muda.
+
+### Alterado
+- **shared, agent, worker, web:** nenhum limite em dinheiro que o dono não programou, em todos os perfis e origens. O padrão da conta "Custo máximo por execução" é "Sem limite" (pt-BR, en-US, es-ES); o piso de US$ 0,50 do trabalho longo sem dono e o piso de custo do brief/`check` saíram (fica o de tempo); o teto explícito da conta passa a valer também no trabalho longo (antes era ignorado no chat do dono); `ATLAS_MAX_RUN_COST_USD` é só teto do operador e vale o menor com o da conta. Textos de parada deixam de citar orçamento em dinheiro quando não há teto configurado.
+
+### Corrigido
+- **agent, shared:** o bot nunca pede ao usuário que mande "continua"/"continuar". O prompt do v2 proíbe o convite, o fechamento padrão (`stopFallback` em três idiomas), o fechamento do v1 e a nota de documento ausente dizem em uma linha o que faltou e por quê, sem comando (teste de string). Depois que o trabalho começou, uma resposta final que é só pergunta curta e sem risco (irreversível, envio externo, dinheiro, dado sensível) volta ao modelo uma vez para decidir sozinho e registrar a suposição, no v2; no v1 o prompt do núcleo (0.3.4) segue como estava.
+
 ## [0.3.6-beta.1] - 2026-11-01
 
 ### Corrigido

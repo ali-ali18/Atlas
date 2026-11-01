@@ -116,3 +116,7 @@ O dono decidiu que o v2 vale para todo bot sem escolha explícita, em todas as o
 - **Dois motores convivendo** por algumas semanas: mais código para manter e testes dos dois. Mitigação: as tools são compartilhadas desde a F1.
 - **Checkpoint v1 × v2:** run em andamento continua no motor em que começou (o motor é gravado no `budgetJson` na criação).
 - **Decidido:** ver "Decisões do dono".
+
+## Nota (01/11): sem limite em dinheiro de fábrica e promoção automática
+
+Depois do caso real do Cookie (0.3.6), o dono decidiu que **nenhum limite em dinheiro existe se ele não o programou**: o perfil `chat` (antes US$ 0,25), o padrão da conta (`execution.maxRunCostUsd`) e os pisos de US$ 0,50 saíram; o teto da conta, quando preenchido, vale em tudo (inclusive no trabalho longo) e `ATLAS_MAX_RUN_COST_USD` é só teto do operador. A proteção é por comportamento (repetição, falhas seguidas, passos e tempo). Um chat com humano que usa 80% dos 8 min com trabalho em andamento é **promovido a `long_work` no mesmo run** (grava `promotedFrom: "chat"`). O bot nunca pede "continua" e, depois de começar, não pergunta o que a pesquisa resolve. Detalhes em `docs/features/motor-v2.md`.
