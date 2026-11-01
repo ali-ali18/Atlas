@@ -104,6 +104,10 @@ Cada fase é um PR (ou poucos) contra o ramo da versão, com auditoria independe
 
 Um teto fixo em dólar (US$ 0,50, depois ideias de US$ 3) não funciona: o preço varia demais entre modelos e um modelo caro estoura qualquer valor numa pesquisa; além disso o bot chegava perto do teto e ficava sem dinheiro para escrever o documento. Decisão do dono: em `long_work` o supervisor muda para as fases de lacunas e de escrita pelo **progresso da tarefa** (lista concluída, 4 passos seguidos sem progresso no caderno e na lista) ou pelo **tempo** (70% do tempo máximo, 60 min por padrão e até 180) e pelos **passos** (70% do teto de 200). A escrita nunca é bloqueada nem cortada por custo. **Dinheiro é opcional**: sem teto em US$ por padrão; o dono pode preencher um gasto máximo por tarefa longa (teto duro, com a escrita ainda garantida), e o teto por execução da conta (padrão US$ 0,25) não se aplica ao trabalho longo no chat com humano. Chat curto e v1 não mudam. Detalhes e constantes em `docs/features/motor-v2.md`.
 
+## Nota de decisão (01/11): o motor novo é o padrão
+
+O dono decidiu que o v2 vale para todo bot sem escolha explícita, em todas as origens suportadas, sem variável de ambiente (`ENGINE_DEFAULT_SCOPE = "all"` em `shared`). `engine: "v1"` explícito continua no v1; `ATLAS_ENGINE_V2_DEFAULT` (`off` | `chat` | `all`; ausente, vazio ou desconhecido = `all`) virou botão de emergência do deploy, que a UI não mostra. Run em andamento segue no motor gravado em `budgetJson.engine`. Ver `docs/features/motor-v2.md` e `docs/ops/piloto-motor-v2.md`.
+
 ## Consequências
 
 - **Custo por tarefa longa sobe**, porque o v2 trabalha até o fim. Em troca, ele fica **limitado por progresso e tempo** (e, se o dono quiser, por um gasto máximo opcional em US$); a decisão de 31/10 de um orçamento fixo em US$ foi substituída pela nota de 01/11 acima.

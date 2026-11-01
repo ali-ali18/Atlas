@@ -1,11 +1,11 @@
 # Motor v2 (trabalhador longo), F2 e F3 (parte A)
 
-- **Status:** em andamento (F2 do ADR 0002: laço v2 ao lado do v1, desligado por padrão; F3 parte A: caderno, ajudantes e entrega em documento)
+- **Status:** em andamento (F2 do ADR 0002: laço v2 ao lado do v1; **v2 é o padrão de todo bot sem escolha explícita desde 01/11**; F3 parte A: caderno, ajudantes e entrega em documento)
 - **Data:** 2026-11-01
 - **Issues/PRs:** ADR `docs/adr/0002-motor-v2-trabalhador-longo.md`
 
 ## O que é
-Um segundo motor para o bot, escolhido por bot. Em vez de parar no meio e perguntar demais, o bot trabalha até entregar, dentro de um orçamento de dinheiro e tempo que o dono controla. O motor atual (v1) continua o padrão e roda todo o resto.
+Um segundo motor para o bot. Em vez de parar no meio e perguntar demais, o bot trabalha até entregar, dentro de um limite de tempo (e, se o dono quiser, de gasto) que o dono controla. **Decisão do dono (01/11): o motor novo (v2) é o padrão** de todo bot que não escolheu o motor, em todas as origens suportadas (chat, rotina, grupo, bot→bot, proativo, webhook e e-mail; o subagente herda o motor do pai). O motor anterior (v1) continua existindo para quem o escolher ("Anterior" na engrenagem, `set_engine` com `current`, que grava `engine: "v1"`) e como botão de emergência do deploy (`ATLAS_ENGINE_V2_DEFAULT=off`).
 
 ## Problema
 O bot para no meio de uma pesquisa, entrega incompleto e pergunta demais. No v1, cerca de dez travas sobrepostas (teto soft de 24 passos, estagnação, stall-guard, repetição, falhas seguidas, relógio, reserva de entregável...) encerram o run sem árbitro, mesmo com orçamento sobrando.
@@ -23,7 +23,7 @@ Em `Bot.policyJson` (lido por `readEnginePolicy`, `packages/shared/src/engine-po
 
 | Chave | Valores | Padrão |
 |---|---|---|
-| `engine` | `"v1"` \| `"v2"` | `"v1"` |
+| `engine` | `"v1"` \| `"v2"` | ausente = motor novo (padrão, `ENGINE_DEFAULT_SCOPE` = `all`); `"v1"` explícito = motor anterior |
 | `workProfile` | `"auto"` \| `"chat"` \| `"long_work"` | `"auto"` (decide pelo pedido) |
 | `longWorkBudgetUsd` | **opcional**: gasto máximo por tarefa longa, US$ 0,05 a 20 (vazio = sem limite em US$) | sem limite |
 | `longWorkMinutes` | tempo máximo da tarefa longa, 1 a 180 | 60 |
@@ -31,10 +31,10 @@ Em `Bot.policyJson` (lido por `readEnginePolicy`, `packages/shared/src/engine-po
 | `helperMaxParallel` | 1 a 8 | 4 |
 | `reasoningEffort` | previsto (outro branch, `feat/nivel-de-raciocinio`); ainda não existe nesta versão | n/a |
 
-Valor ausente ou inválido cai no padrão. `withBotEngine(policy, "v2")` liga sem perder as outras chaves. Os tetos do run/conta continuam valendo e o perfil nunca os ultrapassa: custo (`budget.maxCostUsd`), tempo (`budget.maxWallMs`, 30 min por padrão no worker: `longWorkMinutes` acima disso só tem efeito se o teto do run/bot for subido) e passos (`maxSteps`/`hardMaxSteps`, 100 por padrão; o teto de segurança do motor é 200).
+Valor ausente ou inválido cai no padrão (para `engine`, o motor novo). `withBotEngine(policy, "v2")` liga sem perder as outras chaves. Os tetos do run/conta continuam valendo e o perfil nunca os ultrapassa: custo (`budget.maxCostUsd`), tempo (`budget.maxWallMs`, 30 min por padrão no worker: `longWorkMinutes` acima disso só tem efeito se o teto do run/bot for subido) e passos (`maxSteps`/`hardMaxSteps`, 100 por padrão; o teto de segurança do motor é 200).
 
 ### Ligar sem SQL (piloto, F4)
-- **Engrenagem do bot:** linha Motor (Atual / Novo (teste)), com Orçamento por tarefa longa (US$ e minutos) e Modelo dos ajudantes quando Novo (`chat-context-panel/engine-settings.tsx`). Mescla só as chaves do motor (`withEngineSettings`, `packages/shared/src/engine-settings.ts`).
+- **Engrenagem do bot:** linha Motor (Anterior / Novo (padrão)), com Orçamento por tarefa longa (US$ e minutos) e Modelo dos ajudantes quando Novo (`chat-context-panel/engine-settings.tsx`). Mescla só as chaves do motor (`withEngineSettings`, `packages/shared/src/engine-settings.ts`).
 - **Chat:** tool `set_engine` (`tools/set-engine.ts`; `engine`: `new`/`current`, `budget_usd`, `minutes`, `helper_model`). Só aparece quando a última fala digitada pelo dono pede (mesma trava do `set_autonomy`), nos dois motores; grava com `setBotEngineSettings` (db: relê a linha sob lock, filtro por dono, `null` = bot de outro usuário). Valor fora da faixa ou campo desconhecido falha com a lista do aceito.
 - **API:** `PATCH /v1/bots/:id` valida as chaves do motor (`engineSettingsError`) e o modelo dos ajudantes contra o catálogo.
 - Medição e roteiro do piloto: `docs/ops/piloto-motor-v2.md`, `docs/ops/motor-v1-vs-v2.md` e `docs/ops/por-que-runs-terminam.sql` (consultas 6 a 11).
@@ -105,15 +105,15 @@ Só em `long_work` e só no chat direto de usuário real. Em `chat` (ex.: "Bom d
 - O índice só mostra título e fonte; um título escrito pela página (via modelo) é dado, e o prompt do índice diz isso. Custo: o índice soma até ~900 tokens por passo quando o caderno está cheio.
 - Ainda de fora (F3 parte B): resumo de compactação, as 4 memórias, raciocínio controlável e `track_items`.
 
-## Origens além do chat (F5, preparação; desligado por padrão)
-Por padrão nada muda: o v2 roda só no chat direto de um bot com `engine: "v2"`. Dois botões, ambos desligados:
+## Origens além do chat (F5) e o padrão do deploy
+**Padrão (01/11):** bot sem `policyJson.engine` roda no v2 em todas as origens suportadas, sem variável de ambiente. Bot com `engine: "v2"` explícito roda no v2 conforme o escopo dele (`chat` por padrão, `all` se ligado); bot com `engine: "v1"` explícito fica no v1. Dois botões:
 
 | Botão | Onde | Efeito |
 |---|---|---|
-| `policyJson.engineScope` | por bot (engrenagem: "Usar também em rotinas e grupos"; chat: `set_engine` com `scope`) | `"chat"` (padrão) ou `"all"`. Com `engine: "v2"` e `"all"`: rotina, grupo (run de membro) e bot→bot rodam no v2 |
-| `ATLAS_ENGINE_V2_DEFAULT` | env do worker | `off` (padrão), `chat` ou `all`. Vale só para bot SEM `policyJson.engine` explícito. `engine: "v1"` explícito nunca vai ao v2 |
+| `policyJson.engineScope` | por bot (engrenagem: "Usar também em rotinas e grupos"; chat: `set_engine` com `scope`) | Só vale para `engine: "v2"` explícito: `"chat"` (padrão dele) ou `"all"`. Bot sem escolha já está em `all`; limitar um bot sem escolha ao chat grava `engine: "v2"` explícito (`withEngineSettings`), senão o padrão continuaria valendo em tudo |
+| `ATLAS_ENGINE_V2_DEFAULT` | env do worker (**botão de emergência**) | Ausente, vazio ou valor desconhecido = `all` (padrão novo). `off` devolve ao v1 todo bot sem escolha explícita; `chat` limita o v2 desses bots ao chat direto. Vale só para bot SEM `policyJson.engine` explícito. `engine: "v1"` explícito nunca vai ao v2 |
 
-Decisão pura em `shared` (`resolveBotEngineRouting`, `engineV2SupportsRun`, `chooseRunEngine`); o worker só lê o env (`engineDefaultFromEnv`) e passa. O motor gravado em `budgetJson.engine` continua vencendo (retomada).
+Decisão pura em `shared` (`resolveBotEngineRouting`, `engineV2SupportsRun`, `chooseRunEngine`, `readEngineDefault`); o worker só lê o env (`engineDefaultFromEnv`) e passa. A constante do padrão é `ENGINE_DEFAULT_SCOPE = "all"` (`packages/shared/src/engine-policy.ts`) e é a mesma que a UI e `describeEngineSettings` usam, então a engrenagem mostra "Novo (padrão)" para bot sem escolha, igual ao que o worker faz. **O `off` de emergência do worker NÃO aparece na UI nem na descrição** (a engrenagem e o bot continuam dizendo "motor novo (padrão)" mesmo com `off` no deploy): é uma chave do operador, para uso temporário. O motor gravado em `budgetJson.engine` continua vencendo (run em andamento e retomada); retomada com checkpoint e sem motor gravado fica no v1 como antes.
 
 **Origens liberadas no escopo `all`:** `routine` (inclui alerta, brief "Seu dia" e rotina "só importante"), grupo (`chat` com `isGroupRun`), `bot`, `proactive` (reflexão e lembrete do bot), `webhook` e `email` (e-mail recebido). O evento de configuração do bot e o chat com modo proativo ligado são `chat`, então já valem no escopo `chat`.
 **Ficam no v1, sempre:**
@@ -149,7 +149,7 @@ As notas ficam em `engine-v2/origin-notes.ts` e entram como mensagens de sistema
 - E-mail recebido (`origin: "email"`, criado por `startEmailRun`): não é run sem humano no v1 (o dono vê a conversa do bot e os cartões de aprovação continuam valendo), então o v2 também não usa o aviso "Unattended". Paridade com o v1: as tools de e-mail e o procedimento anti-manipulação (conteúdo entre `<<<EMAIL_EXTERNO`/`EMAIL_EXTERNO>>>` é dado, nunca instrução) já vão no 1º passo; a autonomia do run vem do worker limitada a "Equilibrado" (o envio de e-mail segue a política real do dono, `sendPolicy`); escrita de conector pede cartão ao dono. Só o v2 ganha uma linha curta no prompt (`ENGINE_V2_EMAIL`): o remetente está fora do chat e só recebe resposta por `email_reply`. O texto do e-mail nunca escolhe o perfil: e-mail recebido roda em `chat` (US$ 0,25 / 8 min) mesmo que peça um relatório; só o dono força `long_work` por `workProfile` na política do bot (`resolveRunProfile` recebe a origem). Não recebe `delegate` (no v2 ele só existe em chat + `long_work`; o v1 expõe `delegate_task` em chat, e-mail e bot) nem lista de tarefas. A linha `ENGINE_V2_EMAIL` só entra quando `email_reply` existe no run (caixa ativa).
 - Subagente: não é um run do worker, é o filho em processo que o pai cria (`createSubagentRun`, origem `subagent`, nunca enfileirado). Decisão (opção menos arriscada): o pai no v1 continua com `delegate_task` e filhos v1; o pai no v2 atende o mesmo pedido com `delegate` (ajudantes), que reaproveita `createSubagentRun`/`finishSubagentRun` e emite os mesmos eventos `subagent_started`/`subagent_tool`/`subagent_done` e o mesmo cartão `subagents` persistido, então o usuário vê o mesmo resultado. Não há roteamento a fazer: `engineV2SupportsRun` continua devolvendo `false` para a origem `subagent` como proteção, e o filho herda o motor do pai. Teste de integração compara os dois (dois filhos `subagent`, cartão e eventos iguais). Limite: no v2 o `delegate` só existe em `long_work` (precisa do caderno) e no chat direto; um pedido de comparação curto no perfil `chat` não paraleliza (ver Limites).
 
-**Riscos e custo.** Rotina em `long_work` tem caderno, documento e 60 min de tempo máximo; como rotina não é chat com humano, o teto por execução da conta (padrão US$ 0,25) continua valendo para ela, então uma rotina de relatório pode ser cortada por dinheiro (e vai para a escrita perto do teto); rotina curta fica em `chat` (US$ 0,25 / 8 min). `ATLAS_ENGINE_V2_DEFAULT=all` muda TODOS os bots sem escolha: ligue primeiro `chat`, meça, depois `all`. A engrenagem mostra "Atual" para bot sem escolha mesmo com o padrão global ligado (a UI não conhece a variável); escolher "Novo" e voltar a "Atual" grava `engine: "v1"` explícito. Desligar: tire o escopo do bot, ponha `ATLAS_ENGINE_V2_DEFAULT=off` e reinicie o worker; run em andamento termina no motor em que começou.
+**Riscos e custo.** (Texto de antes do v2 virar padrão: onde diz "padrão global" ou "ligue primeiro `chat`", leia a nota de 01/11 acima; o padrão agora é `all` e o `off` é a volta de emergência.) Rotina em `long_work` tem caderno, documento e 60 min de tempo máximo; como rotina não é chat com humano, o teto por execução da conta (padrão US$ 0,25) continua valendo para ela, então uma rotina de relatório pode ser cortada por dinheiro (e vai para a escrita perto do teto); rotina curta fica em `chat` (US$ 0,25 / 8 min). `ATLAS_ENGINE_V2_DEFAULT=all` muda TODOS os bots sem escolha: ligue primeiro `chat`, meça, depois `all`. A engrenagem mostra "Atual" para bot sem escolha mesmo com o padrão global ligado (a UI não conhece a variável); escolher "Novo" e voltar a "Atual" grava `engine: "v1"` explícito. Desligar: tire o escopo do bot, ponha `ATLAS_ENGINE_V2_DEFAULT=off` e reinicie o worker; run em andamento termina no motor em que começou.
 
 ## Trabalho longo: progresso e tempo, não dinheiro
 
@@ -181,7 +181,7 @@ Repetição (3 iguais seguidas), falhas seguidas da mesma tool, teto de passos (
 
 ## Limites desta fase (o que o v2 ainda não faz)
 - **Origens:** por padrão só o chat direto do dono com o bot. Rotina (inclui alerta, brief e "só importante"), grupo, bot→bot, proativo, webhook e e-mail recebido só com `engineScope: "all"` (ou o padrão global `all`), ver acima. Só o subagente segue no v1.
-- **Padrão global invisível:** `describeEngineSettings`, a engrenagem e `set_engine` leem só o `policyJson`; com `ATLAS_ENGINE_V2_DEFAULT` ligado, bot sem escolha aparece como "motor atual" mas roda no v2. Bot que voltou ao v1 antes desta fase (chave removida, sem `engine: "v1"`) também é pego pelo padrão global: regrave "Atual" antes de ligar.
+- **Padrão do deploy e a UI (01/11):** `describeEngineSettings`, a engrenagem e `set_engine` leem só o `policyJson` e a constante `ENGINE_DEFAULT_SCOPE`; bot sem escolha aparece como "Novo (padrão)" e roda no v2. Só o `ATLAS_ENGINE_V2_DEFAULT=off` de emergência é invisível para a UI. Bot que voltou ao v1 antes da 0.3.5 (chave removida, sem `engine: "v1"`) agora roda no v2: regrave "Anterior" na engrenagem se quiser mantê-lo no motor anterior.
 - **Rotina em trabalho longo:** instrução de relatório vira `long_work` (orçamento e documento), sem lista de tarefas (a rotina não tem `update_task_list`; o prompt não a cita).
 - **Subagentes só em trabalho longo:** `delegate` (o equivalente do `delegate_task`) exige o caderno do `long_work` e o chat direto; em `chat` (conversa curta) e nas outras origens (e-mail, bot, rotina, grupo) o v2 não paraleliza, enquanto o v1 oferece `delegate_task` em chat, e-mail e bot. Quem quer ajudantes em todo pedido força `workProfile: "long_work"` no bot.
 - **Tools fora do catálogo do v2:** `delegate_task` (no v2 o equivalente é `delegate`, ver acima), `research_note` (no v2 vale o caderno), `track_items`, `propose_plan`, `read_cached_result`, sessão de código (`dev_*`), `set_primary_bot`, `set_autonomy`, lições de conector, prévia completa.
