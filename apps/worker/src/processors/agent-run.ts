@@ -136,11 +136,10 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { offerContinueAfterBudgetStop } from "../budget-continue-offer.js";
 import { engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { briefToolFilter, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
-import { appendConversationMessage, offerBudgetContinue, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
+import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
 import { readApprovedContinuation, resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
 import { stopOfBudgetError, stopOfFailure } from "../run-stop.js";
 import { runSystemLanguage } from "../system-language.js";
@@ -1423,11 +1422,6 @@ async function executeLeasedRun(ctx: {
 		// Motivo de término (medição, ADR 0002 F0): o runtime diz se foi resposta normal, fechamento forçado, etc.
 		const completionStop = result.stop ?? stopOfCompletion(undefined, { hitWall: result.hitWall });
 		await sessionProbe;
-		// Trabalho longo que parou por orçamento: oferece "Continuar pesquisa (+US$ X)". Só oferece; gastar mais é decisão da pessoa.
-		await offerContinueAfterBudgetStop(
-			{ choice: engineChoice, run, userId: runUserId, stop: completionStop, effectiveCostCap },
-			{ offer: offerBudgetContinue, emit: (event) => emit(event) },
-		);
 		await completeAgentRunAtomically({
 			runId,
 			conversationId: resultConversationId,

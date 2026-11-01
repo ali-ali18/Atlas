@@ -4,8 +4,10 @@ import {
 	CHAT_BUDGET,
 	LONG_WORK_BUDGET,
 	MAX_STEPS_SAFETY,
+	GAP_ROUND_STEPS,
 	RESERVE_GAPS_NOTE,
 	RESERVE_WRITE_NOTE,
+	STAGNATION_STEPS,
 	WRAP_UP_NOTE,
 	budgetForProfile,
 	createSupervisor,
@@ -23,9 +25,9 @@ const record = (over: Partial<Parameters<ReturnType<typeof createSupervisor>["re
 });
 
 describe("orçamento por perfil", () => {
-	it("trabalho longo = US$ 0,50 e 20 min; chat é menor", () => {
+	it("trabalho longo: sem teto em US$ e 60 min por padrão (o árbitro é progresso e tempo); chat é menor e tem teto", () => {
 		expect(budgetForProfile("long_work")).toEqual(LONG_WORK_BUDGET);
-		expect(LONG_WORK_BUDGET).toEqual({ maxCostUsd: 0.5, maxActiveMs: 20 * 60_000 });
+		expect(LONG_WORK_BUDGET).toEqual({ maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 60 * 60_000 });
 		expect(budgetForProfile("chat")).toEqual(CHAT_BUDGET);
 		expect(CHAT_BUDGET.maxCostUsd).toBeLessThan(LONG_WORK_BUDGET.maxCostUsd);
 		expect(CHAT_BUDGET.maxActiveMs).toBeLessThan(LONG_WORK_BUDGET.maxActiveMs);
@@ -64,32 +66,80 @@ describe("gate: aviso e entrega", () => {
 		expect(byTime.gate(usage(0, 9 * 60_000))).toEqual({ action: "call" });
 	});
 
-	it("trabalho longo: a reserva (25%) aciona uma vez, manda parar de pesquisar e escrever", () => {
+	it("modelo caro: 40% do tempo e US$ 50 gastos não mudam nada; sem teto em US$ o dinheiro nunca é gatilho", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget: { ...budget, maxCostUsd: Number.POSITIVE_INFINITY } });
+		expect(supervisor.gate(usage(50, 4 * 60_000, 20))).toEqual({ action: "call" });
+		expect(supervisor.phase()).toBe("research");
+		expect(supervisor.researchRemaining(usage(50, 4 * 60_000)).costUsd).toBe(Number.POSITIVE_INFINITY);
+	});
+
+	it("gatilho (a): todos os itens da lista concluídos ou descartados encerram a pesquisa, uma vez", () => {
 		const supervisor = createSupervisor({ profile: "long_work", budget });
-		expect(supervisor.gate(usage(0.7))).toEqual({ action: "call" });
-		expect(supervisor.gate(usage(0.75))).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
-		expect(supervisor.gate(usage(0.9))).toEqual({ action: "call" });
+		expect(supervisor.gate(usage(0.1, 1000, 3), { listDone: false })).toEqual({ action: "call" });
+		expect(supervisor.gate(usage(0.1, 1000, 4), { listDone: true })).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
+		expect(supervisor.researchEnd()).toBe("list_done");
+		expect(supervisor.phase()).toBe("write");
+		expect(supervisor.gate(usage(0.1, 1000, 5), { listDone: true })).toEqual({ action: "call" });
+	});
+
+	it("gatilho (b): 4 passos seguidos sem caderno novo nem item concluído; progresso zera a contagem", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget });
+		const at = (step: number, notebookCount: number, completedCount: number) => supervisor.gate(usage(0.1, 1000, step), { notebookCount, completedCount });
+		// Antes do primeiro progresso a estagnação não conta (o modelo ainda está lendo).
+		for (let step = 0; step < 6; step += 1) expect(at(step, 0, 0)).toEqual({ action: "call" });
+		expect(at(6, 1, 0)).toEqual({ action: "call" });
+		// 3 sem progresso, depois progresso: zera.
+		for (let step = 7; step < 10; step += 1) expect(at(step, 1, 0)).toEqual({ action: "call" });
+		expect(at(10, 2, 0)).toEqual({ action: "call" });
+		for (let step = 11; step < STAGNATION_STEPS + 10; step += 1) expect(at(step, 2, 0)).toEqual({ action: "call" });
+		expect(at(STAGNATION_STEPS + 10, 2, 0)).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
+		expect(supervisor.researchEnd()).toBe("stagnation");
+		// Item concluído da lista também é progresso.
+		const other = createSupervisor({ profile: "long_work", budget });
+		other.gate(usage(0, 0, 0), { notebookCount: 1, completedCount: 0 });
+		for (let step = 1; step < STAGNATION_STEPS; step += 1) other.gate(usage(0, 0, step), { notebookCount: 1, completedCount: 0 });
+		expect(other.gate(usage(0, 0, 9), { notebookCount: 1, completedCount: 1 })).toEqual({ action: "call" });
+	});
+
+	it("gatilhos (c) e (d): 70% do tempo máximo ou 70% do teto de passos", () => {
 		const byTime = createSupervisor({ profile: "long_work", budget });
-		expect(byTime.gate(usage(0, 7.5 * 60_000))).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
+		expect(byTime.gate(usage(0, 6.9 * 60_000, 1))).toEqual({ action: "call" });
+		expect(byTime.gate(usage(0, 7 * 60_000, 2))).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
+		expect(byTime.researchEnd()).toBe("time");
+		const bySteps = createSupervisor({ profile: "long_work", budget, maxSteps: 100 });
+		expect(bySteps.gate(usage(0, 1000, 69))).toEqual({ action: "call" });
+		expect(bySteps.gate(usage(0, 1000, 70))).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
+		expect(bySteps.researchEnd()).toBe("steps");
 	});
 
-	it("trabalho longo com lacunas: 40% da reserva fecha lacunas, o resto é só da escrita", () => {
-		const supervisor = createSupervisor({ profile: "long_work", budget });
-		expect(supervisor.gate(usage(0.76), { gaps: 3 })).toEqual({ action: "call", note: RESERVE_GAPS_NOTE });
-		expect(supervisor.gate(usage(0.8), { gaps: 3 })).toEqual({ action: "call" });
-		expect(supervisor.gate(usage(0.85), { gaps: 3 })).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
-		expect(supervisor.gate(usage(0.9), { gaps: 3 })).toEqual({ action: "call" });
-		// Passo grande que pula a janela das lacunas: vai direto escrever.
-		const jump = createSupervisor({ profile: "long_work", budget });
-		expect(jump.gate(usage(0.6), { gaps: 3 })).toEqual({ action: "call" });
-		expect(jump.gate(usage(0.88), { gaps: 3 })).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
-		expect(RESERVE_GAPS_NOTE).toMatch(/replaces/);
+	it("gatilho (e): com gasto máximo preenchido, 75% do teto em US$ leva à escrita; sem ele o dinheiro não conta", () => {
+		const capped = createSupervisor({ profile: "long_work", budget });
+		expect(capped.gate(usage(0.74, 1000, 1))).toEqual({ action: "call" });
+		expect(capped.gate(usage(0.75, 1000, 2))).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
+		expect(capped.researchEnd()).toBe("cost");
+		// No teto de 100% do gasto máximo, entrega (a escrita tem fallback sem teto em US$).
+		const hard = createSupervisor({ profile: "long_work", budget }).gate(usage(1.01, 1000, 3));
+		expect(hard.action === "deliver" && hard.stop.reason).toBe("budget_cost");
 	});
 
-	it("pesquisa e ajudantes só gastam o orçamento menos a reserva", () => {
+	it("com lacunas a pesquisa termina numa rodada curta (até 4 passos) antes da escrita; sem lacunas vai direto escrever", () => {
 		const supervisor = createSupervisor({ profile: "long_work", budget });
-		expect(supervisor.researchRemaining(usage(0.25, 2 * 60_000))).toEqual({ costUsd: 0.5, activeMs: 5.5 * 60_000 });
-		expect(supervisor.researchRemaining(usage(0.8, 9 * 60_000))).toEqual({ costUsd: 0, activeMs: 0 });
+		expect(supervisor.gate(usage(0, 7 * 60_000, 1), { gaps: 2 })).toEqual({ action: "call", note: RESERVE_GAPS_NOTE });
+		expect(supervisor.phase()).toBe("gaps");
+		for (let step = 2; step <= GAP_ROUND_STEPS + 1; step += 1) expect(supervisor.gate(usage(0, 7 * 60_000, step), { gaps: 2 })).toEqual({ action: "call" });
+		expect(supervisor.gate(usage(0, 7 * 60_000, 9), { gaps: 2 })).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
+		expect(supervisor.phase()).toBe("write");
+		// Lacunas fechadas antes: escreve logo.
+		const closed = createSupervisor({ profile: "long_work", budget });
+		closed.gate(usage(0, 7 * 60_000, 1), { gaps: 1 });
+		expect(closed.gate(usage(0, 7 * 60_000, 2), { gaps: 0 })).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
+	});
+
+	it("pesquisa e ajudantes só gastam o tempo até 70% (e 75% do gasto máximo, se houver); depois da pesquisa, nada", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget });
+		expect(supervisor.researchRemaining(usage(0.25, 2 * 60_000))).toEqual({ costUsd: 0.5, activeMs: 5 * 60_000 });
+		supervisor.gate(usage(0, 7 * 60_000, 1));
+		expect(supervisor.researchRemaining(usage(0.8, 7 * 60_000))).toEqual({ costUsd: 0, activeMs: 0 });
 		expect(createSupervisor({ profile: "chat", budget }).researchRemaining(usage(0.25)).costUsd).toBe(0.75);
 	});
 
@@ -196,44 +246,41 @@ describe("falhas da mesma tool", () => {
 	});
 });
 
-describe("fases da reserva de entrega (as tools mudam de verdade)", () => {
+describe("fases da pesquisa (as tools mudam de verdade)", () => {
 	it("pesquisa -> lacunas -> escrita: a lista de tools liberadas encolhe e delegate/pesquisa saem", () => {
 		const supervisor = createSupervisor({ profile: "long_work", budget });
 		expect(supervisor.allowedTools()).toBeUndefined();
 		expect(supervisor.phaseBlocked("web_search")).toBeUndefined();
-		supervisor.gate(usage(0.76), { gaps: 2 });
+		supervisor.gate(usage(0, 7 * 60_000, 1), { gaps: 2 });
 		expect(supervisor.phase()).toBe("gaps");
 		expect(supervisor.allowedTools()?.has("web_extract")).toBe(true);
 		expect(supervisor.allowedTools()?.has("delegate")).toBe(false);
 		expect(supervisor.phaseBlocked("delegate")).toMatch(/not available now/);
-		supervisor.gate(usage(0.86), { gaps: 2 });
+		supervisor.gate(usage(0, 9 * 60_000, 9), { gaps: 2 });
 		expect(supervisor.phase()).toBe("write");
 		expect(supervisor.phaseBlocked("web_search")).toMatch(/only the delivery is left/);
 		expect(supervisor.phaseBlocked("create_file")).toBeUndefined();
 		expect(supervisor.phaseBlocked("notebook_write")).toBeUndefined();
 	});
 
-	it("sem lacunas a escrita começa já nos 75%; o chat curto nunca muda de fase", () => {
-		const supervisor = createSupervisor({ profile: "long_work", budget });
-		supervisor.gate(usage(0.75), { gaps: 0 });
-		expect(supervisor.phase()).toBe("write");
+	it("o chat curto nunca muda de fase", () => {
 		const chat = createSupervisor({ profile: "chat", budget });
-		chat.gate(usage(0.9));
+		chat.gate(usage(0.9, 0, 0), { listDone: true });
 		expect(chat.phase()).toBe("research");
 		expect(chat.allowedTools()).toBeUndefined();
 	});
 
 	it("insistir em tool barrada por 2 passos seguidos leva à entrega; um passo válido zera a contagem", () => {
 		const supervisor = createSupervisor({ profile: "long_work", budget });
-		supervisor.gate(usage(0.8));
+		supervisor.gate(usage(0, 8 * 60_000, 1));
 		supervisor.recordBatchPhase(true);
-		expect(supervisor.gate(usage(0.81)).action).toBe("call");
+		expect(supervisor.gate(usage(0, 8 * 60_000, 2)).action).toBe("call");
 		supervisor.recordBatchPhase(false);
 		supervisor.recordBatchPhase(true);
-		expect(supervisor.gate(usage(0.82)).action).toBe("call");
+		expect(supervisor.gate(usage(0, 8 * 60_000, 3)).action).toBe("call");
 		supervisor.recordBatchPhase(true);
-		const gate = supervisor.gate(usage(0.83));
+		const gate = supervisor.gate(usage(0, 8 * 60_000, 4));
 		expect(gate.action).toBe("deliver");
-		if (gate.action === "deliver") expect(gate.stop).toEqual({ reason: "budget_cost", detail: "delivered" });
+		if (gate.action === "deliver") expect(gate.stop).toEqual({ reason: "loop_repeat", detail: "phase_ignored" });
 	});
 });

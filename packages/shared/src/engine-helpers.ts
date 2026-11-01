@@ -62,8 +62,10 @@ export function planHelperBudgets(input: { taskCount: number; maxParallel: numbe
 	const count = Math.max(1, Math.floor(input.taskCount));
 	const parallel = Math.min(count, Math.max(1, Math.floor(input.maxParallel)));
 	const waves = Math.ceil(count / parallel);
-	const poolUsd = Math.max(0, input.remainingUsd) * HELPER_POOL_RATIO;
-	const costUsd = Math.min(HELPER_MAX_USD, poolUsd / count);
+	// Pai sem gasto máximo (o padrão do trabalho longo): o ajudante também não tem teto em US$; o tempo e os passos o limitam.
+	const unlimited = input.remainingUsd === Number.POSITIVE_INFINITY;
+	const poolUsd = unlimited ? Number.POSITIVE_INFINITY : Math.max(0, input.remainingUsd) * HELPER_POOL_RATIO;
+	const costUsd = unlimited ? Number.POSITIVE_INFINITY : Math.min(HELPER_MAX_USD, poolUsd / count);
 	if (costUsd < HELPER_MIN_USD) {
 		return { ok: false, reason: `not enough budget left in this run to delegate ${count} task(s) (US$ ${input.remainingUsd.toFixed(3)} left); do it yourself with what you have, or delegate fewer tasks.` };
 	}

@@ -15,9 +15,9 @@ import {
 } from "./engine-policy.js";
 
 describe("readEnginePolicy", () => {
-	it("bot sem política usa v1, perfil automático e o orçamento do dono (US$ 0,50 e 20 min)", () => {
+	it("bot sem política usa v1, perfil automático, sem limite de gasto e 60 min de tempo máximo", () => {
 		for (const raw of [null, undefined, {}, [], "x", 3]) {
-			expect(readEnginePolicy(raw)).toEqual({ engine: "v1", scope: "chat", workProfile: "auto", longWorkBudgetUsd: 0.5, longWorkMinutes: 20, longWorkBudgetExplicit: false, longWorkMinutesExplicit: false });
+			expect(readEnginePolicy(raw)).toEqual({ engine: "v1", scope: "chat", workProfile: "auto", longWorkBudgetUsd: undefined, longWorkMinutes: 60, longWorkMinutesExplicit: false });
 		}
 	});
 
@@ -29,22 +29,23 @@ describe("readEnginePolicy", () => {
 			workProfile: "long_work",
 			longWorkBudgetUsd: 1.25,
 			longWorkMinutes: 45,
-			longWorkBudgetExplicit: true,
 			longWorkMinutesExplicit: true,
 		});
 	});
 
-	it("marca como explícito só o valor que o bot gravou (valor inválido não conta)", () => {
-		expect(readEnginePolicy({ longWorkBudgetUsd: 1 })).toMatchObject({ longWorkBudgetExplicit: true, longWorkMinutesExplicit: false });
-		expect(readEnginePolicy({ longWorkMinutes: 30, longWorkBudgetUsd: "caro" })).toMatchObject({ longWorkBudgetExplicit: false, longWorkMinutesExplicit: true });
+	it("gasto máximo é opcional (vazio = sem limite); valor inválido não vira teto; tempo explícito é marcado", () => {
+		expect(readEnginePolicy({ longWorkBudgetUsd: 1 })).toMatchObject({ longWorkBudgetUsd: 1, longWorkMinutesExplicit: false });
+		expect(readEnginePolicy({ longWorkMinutes: 30, longWorkBudgetUsd: "caro" })).toMatchObject({ longWorkBudgetUsd: undefined, longWorkMinutesExplicit: true });
+		// Bot antigo com `longWorkBudgetUsd` gravado: vira o teto opcional.
+		expect(readEnginePolicy({ engine: "v2", longWorkBudgetUsd: 0.5 }).longWorkBudgetUsd).toBe(0.5);
 	});
 
 	it("valor inválido cai no padrão e número fora da faixa é limitado", () => {
 		const policy = readEnginePolicy({ engine: "v3", workProfile: "turbo", longWorkBudgetUsd: "caro", longWorkMinutes: 9999 });
 		expect(policy.engine).toBe("v1");
 		expect(policy.workProfile).toBe("auto");
-		expect(policy.longWorkBudgetUsd).toBe(0.5);
-		expect(policy.longWorkMinutes).toBe(120);
+		expect(policy.longWorkBudgetUsd).toBeUndefined();
+		expect(policy.longWorkMinutes).toBe(180);
 		expect(readEnginePolicy({ longWorkBudgetUsd: -3 }).longWorkBudgetUsd).toBe(0.05);
 	});
 

@@ -9,10 +9,11 @@ test("orçamento em dólar: vírgula ou ponto, faixa de 0,05 a 20", () => {
 	for (const bad of ["", "abc", "0", "0,01", "21", "-1", "1,2,3"]) assert.equal(parseBudgetUsd(bad), null, bad);
 });
 
-test("minutos: inteiro de 1 a 120", () => {
+test("minutos: inteiro de 1 a 180", () => {
 	assert.equal(parseBudgetMinutes("20"), 20);
 	assert.equal(parseBudgetMinutes("20 min"), 20);
-	for (const bad of ["0", "121", "", "x"]) assert.equal(parseBudgetMinutes(bad), null, bad);
+	assert.equal(parseBudgetMinutes("180"), 180);
+	for (const bad of ["0", "181", "", "x"]) assert.equal(parseBudgetMinutes(bad), null, bad);
 });
 
 test("formata em pt-BR", () => assert.equal(formatBudgetUsd(0.5), "0,50"));

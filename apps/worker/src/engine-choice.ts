@@ -31,8 +31,7 @@ export type EngineChoice = {
 	profile: RunProfile;
 	longWorkBudgetUsd?: number;
 	longWorkMinutes?: number;
-	/** O bot gravou o valor: no trabalho longo ele vale mais que o teto por execução da conta (ver `longWorkOwnerLimits`). */
-	longWorkBudgetExplicit?: boolean;
+	/** Gasto máximo opcional por tarefa longa (vazio = sem limite em US$); tempo máximo da tarefa em minutos. */
 	longWorkMinutesExplicit?: boolean;
 	/** Piso de orçamento do brief e do lembrete `check` (perfil continua `chat`); ver `SHORT_RUN_LONGER_FLOOR`. */
 	budgetFloor?: { costUsd: number; minutes: number };
@@ -50,6 +49,8 @@ export type EngineChoice = {
  * Os tetos de custo e tempo da conta/bot continuam valendo por cima.
  */
 export const V1_SHORT_RUN_WALL_MINUTES = 30;
+/** Piso de custo (US$) do brief e do `check` quando o bot não definiu gasto máximo (o trabalho longo não tem mais padrão em US$). */
+export const V1_SHORT_RUN_BUDGET_USD = 0.5;
 
 export async function pickRunEngine(input: {
 	run: { origin: string; budgetJson?: unknown };
@@ -87,14 +88,13 @@ export async function pickRunEngine(input: {
 		if (recorded !== "v2") return { engine: "v1", profile: "chat" };
 	}
 	const helpers = readHelperPolicy(input.policyJson);
-	const budgetFloor = input.longerShortRun ? { costUsd: policy.longWorkBudgetUsd, minutes: Math.max(policy.longWorkMinutes, V1_SHORT_RUN_WALL_MINUTES) } : undefined;
+	const budgetFloor = input.longerShortRun ? { costUsd: policy.longWorkBudgetUsd ?? V1_SHORT_RUN_BUDGET_USD, minutes: policy.longWorkMinutesExplicit ? Math.max(policy.longWorkMinutes, V1_SHORT_RUN_WALL_MINUTES) : V1_SHORT_RUN_WALL_MINUTES } : undefined;
 	return {
 		engine,
 		profile,
 		...(budgetFloor ? { budgetFloor } : {}),
 		longWorkBudgetUsd: policy.longWorkBudgetUsd,
 		longWorkMinutes: policy.longWorkMinutes,
-		longWorkBudgetExplicit: policy.longWorkBudgetExplicit,
 		longWorkMinutesExplicit: policy.longWorkMinutesExplicit,
 		helperModel: helpers.helperModel,
 		helperMaxParallel: helpers.helperMaxParallel,
@@ -102,30 +102,25 @@ export async function pickRunEngine(input: {
 }
 
 /**
- * Trabalho longo no v2: o orçamento (US$ e minutos) que o dono pôs NO BOT vale mais que o teto por execução da conta
- * (padrão 0,25; o `min` antigo transformava o US$ 1 do bot em 0,50). Sem valor gravado no bot, nada muda (a conta limita).
- * Chat curto sempre fica com o teto da conta. O teto do pedido (retomada com o que sobrou) continua valendo.
+ * Trabalho longo no v2 não tem teto em US$ por padrão e o teto por execução da conta (`execution.maxRunCostUsd`, padrão 0,25)
+ * NÃO se aplica a ele no chat com o dono digitando nem na continuação que o dono aprovou pelo card (marca `approvedContinuation`
+ * do db): lá o árbitro é progresso e tempo (o preço varia demais entre modelos), e o tempo máximo é o do bot (padrão 60 min).
+ * Rotina, bot→bot, webhook, e-mail e chat curto seguem com o teto da conta. O gasto máximo opcional do bot (`longWorkBudgetUsd`)
+ * e o teto do pedido (continuação) continuam valendo como teto duro.
  */
 export function longWorkOwnerLimits(
-	choice: Pick<EngineChoice, "engine" | "profile" | "longWorkBudgetExplicit" | "longWorkMinutesExplicit" | "longWorkMinutes">,
-	/**
-	 * Só o chat com o dono digitando vale: rotina, bot→bot, webhook e e-mail ficam com o teto da conta. A continuação que o
-	 * dono aprovou pelo card (`approvedContinuation`, marca do db) vale como o dono aprovando, sem ser turno humano
-	 * (que abriria `set_engine`, perfil e marcas de conector).
-	 */
+	choice: Pick<EngineChoice, "engine" | "profile" | "longWorkMinutes">,
 	context: { origin: string; humanTurn: boolean; approvedContinuation?: boolean },
 ): {
 	ignoreAccountCostCap: boolean;
-	/** Tempo ativo (ms) que o bot definiu e que substitui o da conta; `undefined` = segue o da conta. */
+	/** Tempo máximo (ms) do bot, que substitui o da conta; `undefined` = segue o da conta. */
 	wallMs?: number;
 } {
 	const longWork = choice.engine === "v2" && choice.profile === "long_work";
-	const approved = longWork && context.origin === "chat" && context.approvedContinuation === true;
-	const owner = longWork && context.origin === "chat" && context.humanTurn;
+	const owner = longWork && context.origin === "chat" && (context.humanTurn || context.approvedContinuation === true);
 	return {
-		// Aprovada pelo card: o valor do card (teto do pedido) é o que vale, mesmo sem orçamento gravado no bot.
-		ignoreAccountCostCap: approved || (owner && choice.longWorkBudgetExplicit === true),
-		...((approved || (owner && choice.longWorkMinutesExplicit === true)) && choice.longWorkMinutes ? { wallMs: Math.round(choice.longWorkMinutes * 60_000) } : {}),
+		ignoreAccountCostCap: owner,
+		...(owner && choice.longWorkMinutes ? { wallMs: Math.round(choice.longWorkMinutes * 60_000) } : {}),
 	};
 }
 

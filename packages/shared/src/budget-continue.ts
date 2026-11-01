@@ -1,9 +1,9 @@
 /**
- * "Continuar pesquisa (+US$ X)": quando um trabalho longo do motor v2 termina por orçamento de custo ou de tempo,
- * o bot oferece continuar com o MESMO orçamento. Dinheiro é sempre decisão da pessoa: sem aprovação nada é gasto.
+ * "Continuar pesquisa (+US$ X)": card legado. O trabalho longo do v2 não para mais por dinheiro (o árbitro é progresso e tempo),
+ * então o worker NÃO oferece mais este card; o código de resolução fica só para cards já gravados. Dinheiro continua sendo
+ * decisão da pessoa: sem aprovação nada é gasto.
  * Tipos e funções puras compartilhados por worker (oferece), db (persiste e resolve), API (aprova) e web (card).
  */
-import type { RunStop } from "./run-stop-reason.js";
 
 export type BudgetContinueStatus = "pending" | "approved" | "dismissed";
 
@@ -28,21 +28,6 @@ export type BudgetContinueEvent = { type: "budget-continue" } & Omit<BudgetConti
 export type PersistedBudgetContinueCard = { v: 1; kind: "budget-continue" } & BudgetContinueData;
 
 export const budgetContinueOfferId = (runId: string) => `continue-${runId}`;
-
-/**
- * Oferece continuar? Só trabalho longo do v2 no chat direto que parou por custo ou por tempo (o fechamento forçado
- * deixa o trabalho incompleto por definição). Passos, repetição e as demais paradas não custam "mais dinheiro".
- */
-export function shouldOfferBudgetContinue(input: {
-	engine: string;
-	profile: string;
-	origin: string;
-	hasConversation: boolean;
-	stop: RunStop | undefined;
-}): boolean {
-	if (input.engine !== "v2" || input.profile !== "long_work" || input.origin !== "chat" || !input.hasConversation) return false;
-	return input.stop?.reason === "budget_cost" || input.stop?.reason === "budget_wall";
-}
 
 /** Valor mostrado e gravado: arredondado a centavos, dentro da faixa; inválido = sem oferta. */
 export function normalizeBudgetContinueUsd(value: unknown): number | null {

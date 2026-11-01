@@ -10,12 +10,11 @@ export type RunProfile = "chat" | "long_work";
 export type WorkProfileSetting = "auto" | RunProfile;
 
 /** Decisão do dono (31/10): trabalho longo = até US$ 0,50 e 20 min por tarefa, ajustável por bot. */
-export const LONG_WORK_DEFAULT_BUDGET_USD = 0.5;
-export const LONG_WORK_DEFAULT_MINUTES = 20;
+export const LONG_WORK_DEFAULT_MINUTES = 60;
 export const LONG_WORK_MIN_USD = 0.05;
 export const LONG_WORK_MAX_USD = 20;
 export const LONG_WORK_MIN_MINUTES = 1;
-export const LONG_WORK_MAX_MINUTES = 120;
+export const LONG_WORK_MAX_MINUTES = 180;
 
 /**
 /**
@@ -32,10 +31,14 @@ export type EnginePolicy = {
 	explicit?: RunEngine;
 	scope: EngineScope;
 	workProfile: WorkProfileSetting;
-	longWorkBudgetUsd: number;
+	/**
+	 * Gasto máximo OPCIONAL por tarefa longa (`policyJson.longWorkBudgetUsd`, vazio por padrão = sem limite em US$). O árbitro
+	 * do trabalho longo é progresso e tempo, não dinheiro (o preço varia demais entre modelos); se o dono preencher, vira
+	 * teto duro e a escrita ainda tem a reserva garantida.
+	 */
+	longWorkBudgetUsd: number | undefined;
+	/** Tempo máximo da tarefa longa em minutos (padrão 60, até 180). */
 	longWorkMinutes: number;
-	/** O bot gravou o valor (`policyJson.longWorkBudgetUsd` / `longWorkMinutes`): decisão do dono que vale mais que o teto por execução da conta. */
-	longWorkBudgetExplicit: boolean;
 	longWorkMinutesExplicit: boolean;
 };
 
@@ -61,9 +64,8 @@ export function readEnginePolicy(policyJson: unknown): EnginePolicy {
 		explicit: policy.engine === "v1" || policy.engine === "v2" ? policy.engine : undefined,
 		scope: policy.engineScope === "all" ? "all" : "chat",
 		workProfile,
-		longWorkBudgetUsd: clampedNumber(policy.longWorkBudgetUsd, LONG_WORK_DEFAULT_BUDGET_USD, LONG_WORK_MIN_USD, LONG_WORK_MAX_USD),
+		longWorkBudgetUsd: isFiniteNumber(policy.longWorkBudgetUsd) ? clampedNumber(policy.longWorkBudgetUsd, LONG_WORK_MIN_USD, LONG_WORK_MIN_USD, LONG_WORK_MAX_USD) : undefined,
 		longWorkMinutes: clampedNumber(policy.longWorkMinutes, LONG_WORK_DEFAULT_MINUTES, LONG_WORK_MIN_MINUTES, LONG_WORK_MAX_MINUTES),
-		longWorkBudgetExplicit: isFiniteNumber(policy.longWorkBudgetUsd),
 		longWorkMinutesExplicit: isFiniteNumber(policy.longWorkMinutes),
 	};
 }

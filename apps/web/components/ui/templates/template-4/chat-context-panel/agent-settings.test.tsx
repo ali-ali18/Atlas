@@ -172,11 +172,18 @@ test("linha 'Motor': Atual por padrão, sem orçamento nem modelo dos ajudantes"
 test("'Novo (teste)' mostra o texto do orçamento, os campos (US$ e minutos) e o modelo dos ajudantes", () => {
 	const html = render(bot({ policyJson: { engine: "v2", longWorkBudgetUsd: 1, longWorkMinutes: 30 } }));
 	assert.match(html, />Novo \(teste\)</);
-	assert.match(html, /trabalha até o fim dentro do orçamento/);
-	assert.match(html, />Orçamento por tarefa longa</);
-	assert.match(html, /aria-label="Orçamento em dólares"[^>]*value="1,00"|value="1,00"[^>]*aria-label="Orçamento em dólares"/);
+	assert.match(html, /trabalha até o fim, em vez de parar no meio e perguntar/);
+	assert.match(html, />Limites da tarefa longa</);
+	assert.match(html, /aria-label="Gasto máximo por tarefa longa"[^>]*value="1,00"|value="1,00"[^>]*aria-label="Gasto máximo por tarefa longa"/);
 	assert.match(html, /aria-label="Tempo em minutos"[^>]*value="30"|value="30"[^>]*aria-label="Tempo em minutos"/);
 	assert.match(html, />Modelo dos ajudantes</);
 	const visibleText = html.replace(/<[^>]+>/g, " ");
 	assert.doesNotMatch(visibleText, /\bv2\b|policyJson|helperModel|longWork/i, "nada de internals na tela");
+});
+
+test("'Novo (teste)' sem gasto máximo: o campo de gasto vem vazio com 'sem limite' e o tempo é 60 min", () => {
+	const html = render(bot({ policyJson: { engine: "v2" } }));
+	assert.match(html, /placeholder="sem limite"/);
+	assert.match(html, /aria-label="Gasto máximo por tarefa longa"[^>]*value=""|value=""[^>]*aria-label="Gasto máximo por tarefa longa"/);
+	assert.match(html, /aria-label="Tempo em minutos"[^>]*value="60"|value="60"[^>]*aria-label="Tempo em minutos"/);
 });

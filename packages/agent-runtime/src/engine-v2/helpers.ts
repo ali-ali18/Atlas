@@ -306,7 +306,7 @@ async function runHelper(input: {
 		goal: task.goal,
 		model,
 		maxSteps: budget.maxSteps,
-		budgetJson: { engine: "v2", helper: true, maxCostUsd: budget.costUsd, maxActiveMs: budget.activeMs, ...(contextLength ? { contextLength } : {}) },
+		budgetJson: { engine: "v2", helper: true, ...(Number.isFinite(budget.costUsd) ? { maxCostUsd: budget.costUsd } : {}), maxActiveMs: budget.activeMs, ...(contextLength ? { contextLength } : {}) },
 	});
 	if (!child) {
 		const result: HelperResult = { ...base, status: "failed", report: "Could not open a helper run for this task.", toolsUsed: [], entryIds: [] };

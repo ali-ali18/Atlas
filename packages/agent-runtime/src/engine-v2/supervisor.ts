@@ -20,15 +20,24 @@ export type SupervisorBudget = {
 
 /** Conversa: barata e curta (referência: o v1 fecha uma conversa comum bem abaixo disto). */
 export const CHAT_BUDGET: SupervisorBudget = { maxCostUsd: 0.25, maxActiveMs: 8 * 60_000 };
-/** Decisão do dono (31/10): trabalho longo = US$ 0,50 e 20 min, ajustável por bot. */
-export const LONG_WORK_BUDGET: SupervisorBudget = { maxCostUsd: 0.5, maxActiveMs: 20 * 60_000 };
+/**
+ * Trabalho longo: o árbitro é PROGRESSO e TEMPO, não dinheiro (o preço varia demais entre modelos). Sem teto em US$ por
+ * padrão (`Infinity`) e 60 min de tempo máximo, ajustável por bot (até 180). O gasto máximo em US$ é opcional.
+ */
+export const LONG_WORK_BUDGET: SupervisorBudget = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 60 * 60_000 };
 
 /** A partir daqui o modelo é avisado (uma vez) para fechar e entregar; os 20% restantes são a reserva da entrega. */
 export const WRAP_UP_RATIO = 0.8;
-/** Trabalho longo: fatia do orçamento (US$ e tempo) só da entrega. Pesquisa e ajudantes gastam o resto. */
-export const DELIVERY_RESERVE_RATIO = 0.25;
-/** Da reserva, esta parte pode fechar lacunas ("não confirmado") antes de escrever; o resto é só da escrita. */
-export const GAP_SHARE_OF_RESERVE = 0.4;
+/** Trabalho longo: a pesquisa para ao usar esta fração do tempo máximo (o resto é da escrita) ou do teto de passos. */
+export const RESEARCH_TIME_RATIO = 0.7;
+export const RESEARCH_STEPS_RATIO = 0.7;
+/** Com gasto máximo preenchido: ao chegar a esta fração do teto em US$ vai para a escrita (o resto é da escrita). */
+export const RESEARCH_COST_RATIO = 0.75;
+/** Passos seguidos sem progresso (caderno sem entrada nova e lista sem item novo concluído) que encerram a pesquisa. */
+export const STAGNATION_STEPS = 4;
+/** A rodada de lacunas dura no máximo este número de passos, ou até a fração abaixo do tempo/passos/gasto. */
+export const GAP_ROUND_STEPS = 4;
+export const GAP_END_RATIO = 0.85;
 /** Só segurança: o orçamento em US$ e minutos é quem encerra o trabalho. */
 export const MAX_STEPS_SAFETY = 200;
 /** Mesma tool + mesmos args + mesmo resultado, esta vez seguidas, vira nota ao modelo. */
@@ -44,6 +53,7 @@ export function budgetForProfile(
 ): SupervisorBudget {
 	const base = profile === "long_work" ? LONG_WORK_BUDGET : CHAT_BUDGET;
 	// `floor`: execuções curtas que o v1 deixa correr mais (brief, check) nunca ficam abaixo dele; os tetos do dono abaixo ainda mandam.
+	// Trabalho longo não tem teto em US$ por padrão: só o gasto máximo opcional do bot (ou o da conta, quando vale) limita.
 	const profileCost = profile === "long_work" && overrides.longWorkBudgetUsd ? overrides.longWorkBudgetUsd : base.maxCostUsd;
 	const profileMinMs = profile === "long_work" && overrides.longWorkMinutes ? Math.round(overrides.longWorkMinutes * 60_000) : base.maxActiveMs;
 	const maxCostUsd = overrides.floor ? Math.max(profileCost, overrides.floor.costUsd) : profileCost;
@@ -80,16 +90,16 @@ export const WRAP_UP_NOTE =
 
 /** Trabalho longo, reserva acionada, sem lacunas abertas: parar de pesquisar e escrever. */
 export const RESERVE_WRITE_NOTE =
-	"Budget notice: the research budget is used up; what is left is reserved for the delivery. Do not start new research and do not delegate. Write the deliverable now with what is in the notebook (create_file when a document was asked), with sources and assumptions, and a short closing note of what you could not confirm.";
+	"Research is over: the task list is done, progress stalled, or time or steps are running low. Do not start new research and do not delegate. Write the deliverable now with what is in the notebook (create_file when a document was asked), with sources and assumptions, and a short closing note of what you could not confirm.";
 
 /** Trabalho longo, reserva acionada, com lacunas no caderno: uma rodada rápida para fechá-las antes de escrever. */
 export const RESERVE_GAPS_NOTE =
-	"Budget notice: the research budget is almost used. Before writing, make one quick pass over the notebook items marked unconfirmed: for each, try another source, another search, or read the file or repository directly (raw URL, read long pages in parts). When you close one, update its notebook entry with replaces. Do not start new lines of research and do not delegate. Then write the deliverable; only what is still unconfirmed goes in one short closing note at the end, not item by item in the body.";
+	"Research is almost over. Before writing, make one quick pass over the notebook items marked unconfirmed: for each, try another source, another search, or read the file or repository directly (raw URL, read long pages in parts). When you close one, update its notebook entry with replaces. Do not start new lines of research and do not delegate. Then write the deliverable; only what is still unconfirmed goes in one short closing note at the end, not item by item in the body.";
 
 export function deliveryInstruction(reason: "budget_cost" | "budget_wall" | "budget_steps" | "loop_repeat"): string {
 	const why =
 		reason === "budget_cost" || reason === "budget_wall"
-			? "The budget for this task is used up."
+			? "The limit for this task was reached."
 			: reason === "budget_steps"
 				? "The safety limit of steps for this task was reached."
 				: "You are repeating the same action without progress.";
@@ -113,9 +123,9 @@ export function blockedToolMessage(name: string, stepsLeft: number): string {
 }
 
 /**
- * Fases do trabalho longo depois que a reserva da entrega é acionada. Não é só aviso: as tools mudam de verdade.
- * - `research`: tudo liberado (antes dos 75%).
- * - `gaps`: janela curta (75% a 85%) só para fechar lacunas: leitura necessária + caderno + escrita; sem `delegate`.
+ * Fases do trabalho longo depois que a pesquisa termina (por progresso, tempo ou passos; ver `gate`). Não é só aviso: as tools mudam de verdade.
+ * - `research`: tudo liberado.
+ * - `gaps`: rodada curta (até 4 passos) só para fechar lacunas: leitura necessária + caderno + escrita; sem `delegate`.
  * - `write`: só escrever (arquivo, caderno, lista de tarefas). Pesquisa e ajudantes saem de verdade.
  */
 export type SupervisorPhase = "research" | "gaps" | "write";
@@ -125,20 +135,30 @@ const GAP_READ_TOOLS = ["web_search", "web_extract"] as const;
 export const PHASE_STRIKES_TO_DELIVER = 2;
 
 export type SupervisorGateContext = {
-	/** Entradas "unconfirmed" abertas no caderno (trabalho longo): decidem se a reserva abre uma rodada de lacunas. */
+	/** Entradas "unconfirmed" abertas no caderno (trabalho longo): decidem se a pesquisa termina com uma rodada de lacunas. */
 	gaps?: number;
+	/** A lista de tarefas existe e todos os itens estão concluídos ou descartados (gatilho a). */
+	listDone?: boolean;
+	/** Entradas do caderno e itens concluídos da lista: crescimento = progresso (gatilho b). */
+	notebookCount?: number;
+	completedCount?: number;
 };
 
 export function createSupervisor(config: { profile: SupervisorProfile; budget: SupervisorBudget; maxSteps?: number }) {
 	const { budget } = config;
 	const maxSteps = config.maxSteps ?? MAX_STEPS_SAFETY;
 	let wrapUpSent = false;
-	let writeNoteSent = false;
 	let phase: SupervisorPhase = "research";
 	let phaseStrikes = 0;
+	/** Por que a pesquisa terminou (telemetria e testes). */
+	let researchEndedBy: "list_done" | "stagnation" | "time" | "steps" | "cost" | undefined;
+	let lastNotebook: number | undefined;
+	let lastCompleted = 0;
+	let seenProgress = false;
+	let stagnantSteps = 0;
+	let gapSteps = 0;
 	const longWork = config.profile === "long_work";
-	const wrapAt = longWork ? 1 - DELIVERY_RESERVE_RATIO : WRAP_UP_RATIO;
-	const writeAt = 1 - DELIVERY_RESERVE_RATIO * (1 - GAP_SHARE_OF_RESERVE);
+	const wrapAt = WRAP_UP_RATIO;
 	let lastKey: string | undefined;
 	let streak = 0;
 	let notedKey: string | undefined;
@@ -172,19 +192,24 @@ export function createSupervisor(config: { profile: SupervisorProfile; budget: S
 			const allowed = this.allowedTools();
 			if (!allowed || allowed.has(name)) return undefined;
 			return phase === "write"
-				? `${name} is not available now: the research budget is used up and only the delivery is left. Write the deliverable with what is in the notebook (create_file).`
+				? `${name} is not available now: research is over and only the delivery is left. Write the deliverable with what is in the notebook (create_file).`
 				: `${name} is not available now: only closing the unconfirmed gaps (web_search, web_extract, notebook) and writing are left.`;
 		},
 		/** Depois de cada lote: todas as chamadas barradas pela fase contam um "strike". */
 		recordBatchPhase(allBlockedByPhase: boolean): void {
 			phaseStrikes = allBlockedByPhase ? phaseStrikes + 1 : 0;
 		},
-		/** O que pesquisa e ajudantes ainda podem gastar: no trabalho longo, o orçamento menos a reserva da entrega. */
+		/** Por que a pesquisa terminou (`undefined` = ainda pesquisando). */
+		researchEnd() {
+			return researchEndedBy;
+		},
+		/** O que pesquisa e ajudantes ainda podem gastar: o tempo até 70% do máximo e, se há gasto máximo, até 75% dele. */
 		researchRemaining(usage: SupervisorUsage): { costUsd: number; activeMs: number } {
-			const keep = longWork ? 1 - DELIVERY_RESERVE_RATIO : 1;
+			if (!longWork) return { costUsd: Math.max(0, budget.maxCostUsd - usage.costUsd), activeMs: Math.max(0, budget.maxActiveMs - usage.activeMs) };
+			if (phase !== "research") return { costUsd: 0, activeMs: 0 };
 			return {
-				costUsd: Math.max(0, budget.maxCostUsd * keep - usage.costUsd),
-				activeMs: Math.max(0, budget.maxActiveMs * keep - usage.activeMs),
+				costUsd: Number.isFinite(budget.maxCostUsd) ? Math.max(0, budget.maxCostUsd * RESEARCH_COST_RATIO - usage.costUsd) : Number.POSITIVE_INFINITY,
+				activeMs: Math.max(0, budget.maxActiveMs * RESEARCH_TIME_RATIO - usage.activeMs),
 			};
 		},
 		gate(usage: SupervisorUsage, context: SupervisorGateContext = {}): SupervisorGate {
@@ -197,28 +222,50 @@ export function createSupervisor(config: { profile: SupervisorProfile; budget: S
 				return { action: "deliver", stop: { reason, detail: "delivered" }, instruction: deliveryInstruction(reason) };
 			}
 			const used = Math.max(cost, time);
-			if (longWork && phase === "write" && phaseStrikes >= PHASE_STRIKES_TO_DELIVER) {
-				// O modelo ignora a fase e só pede tool barrada: entrega agora, antes de gastar mais.
-				const reason = cost >= time ? "budget_cost" : "budget_wall";
-				return { action: "deliver", stop: { reason, detail: "delivered" }, instruction: deliveryInstruction(reason) };
-			}
 			if (longWork) {
-				// Reserva da entrega: fecha lacunas (se houver) numa janela curta e deixa o resto garantido para escrever.
-				if (!writeNoteSent && used >= writeAt - 1e-9) {
-					wrapUpSent = true;
-					writeNoteSent = true;
-					phase = "write";
-					return { action: "call", note: RESERVE_WRITE_NOTE };
+				if (phase === "write" && phaseStrikes >= PHASE_STRIKES_TO_DELIVER) {
+					// O modelo ignora a fase e só pede tool barrada: entrega agora, antes de gastar mais.
+					return { action: "deliver", stop: { reason: "loop_repeat", detail: "phase_ignored" }, instruction: deliveryInstruction("loop_repeat") };
 				}
-				if (!wrapUpSent && used >= wrapAt - 1e-9) {
+				const stepFraction = maxSteps > 0 ? usage.step / maxSteps : 0;
+				// Progresso: o caderno ganhou entrada ou a lista concluiu um item. Só conta estagnação depois do primeiro progresso.
+				const notebookCount = context.notebookCount ?? 0;
+				const completedCount = context.completedCount ?? 0;
+				const progressed = lastNotebook !== undefined && (notebookCount > lastNotebook || completedCount > lastCompleted);
+				if (progressed) {
+					seenProgress = true;
+					stagnantSteps = 0;
+				} else if (lastNotebook !== undefined && seenProgress) stagnantSteps += 1;
+				if (lastNotebook === undefined && (notebookCount > 0 || completedCount > 0)) seenProgress = true;
+				lastNotebook = notebookCount;
+				lastCompleted = completedCount;
+				const enterWrite = () => {
+					phase = "write";
+					return { action: "call", note: RESERVE_WRITE_NOTE } as const;
+				};
+				if (phase === "research") {
+					// A pesquisa termina pelo PRIMEIRO destes: lista concluída, estagnação, 70% do tempo, 70% dos passos, 75% do gasto máximo.
+					const ended: typeof researchEndedBy =
+						context.listDone === true ? "list_done"
+						: stagnantSteps >= STAGNATION_STEPS ? "stagnation"
+						: time >= RESEARCH_TIME_RATIO - 1e-9 ? "time"
+						: stepFraction >= RESEARCH_STEPS_RATIO - 1e-9 ? "steps"
+						: Number.isFinite(budget.maxCostUsd) && cost >= RESEARCH_COST_RATIO - 1e-9 ? "cost"
+						: undefined;
+					if (!ended) return { action: "call" };
+					researchEndedBy = ended;
 					wrapUpSent = true;
 					if ((context.gaps ?? 0) > 0) {
 						phase = "gaps";
+						gapSteps = 0;
 						return { action: "call", note: RESERVE_GAPS_NOTE };
 					}
-					writeNoteSent = true;
-					phase = "write";
-					return { action: "call", note: RESERVE_WRITE_NOTE };
+					return enterWrite();
+				}
+				if (phase === "gaps") {
+					gapSteps += 1;
+					const late = time >= GAP_END_RATIO - 1e-9 || stepFraction >= GAP_END_RATIO - 1e-9 || (Number.isFinite(budget.maxCostUsd) && cost >= GAP_END_RATIO - 1e-9);
+					if ((context.gaps ?? 0) === 0 || gapSteps > GAP_ROUND_STEPS || late) return enterWrite();
 				}
 				return { action: "call" };
 			}

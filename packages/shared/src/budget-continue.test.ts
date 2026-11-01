@@ -5,30 +5,8 @@ import {
 	normalizeBudgetContinueUsd,
 	parseBudgetContinueCard,
 	readContinuationSource,
-	shouldOfferBudgetContinue,
 } from "./budget-continue.js";
 import { isConversationCardRole, parseConversationCard, serializeConversationCard } from "./skill-card.js";
-
-const base = { engine: "v2", profile: "long_work", origin: "chat", hasConversation: true } as const;
-
-describe("shouldOfferBudgetContinue", () => {
-	it("oferece só em trabalho longo do v2, no chat, parado por custo ou por tempo", () => {
-		expect(shouldOfferBudgetContinue({ ...base, stop: { reason: "budget_cost", detail: "delivered" } })).toBe(true);
-		expect(shouldOfferBudgetContinue({ ...base, stop: { reason: "budget_wall", detail: "delivered" } })).toBe(true);
-	});
-
-	it("não oferece em chat curto, v1, rotina, sem conversa, resposta normal ou parada por passos/repetição", () => {
-		const stop = { reason: "budget_cost" as const };
-		expect(shouldOfferBudgetContinue({ ...base, profile: "chat", stop })).toBe(false);
-		expect(shouldOfferBudgetContinue({ ...base, engine: "v1", stop })).toBe(false);
-		expect(shouldOfferBudgetContinue({ ...base, origin: "routine", stop })).toBe(false);
-		expect(shouldOfferBudgetContinue({ ...base, hasConversation: false, stop })).toBe(false);
-		expect(shouldOfferBudgetContinue({ ...base, stop: { reason: "answered" } })).toBe(false);
-		expect(shouldOfferBudgetContinue({ ...base, stop: { reason: "budget_steps" } })).toBe(false);
-		expect(shouldOfferBudgetContinue({ ...base, stop: { reason: "loop_repeat" } })).toBe(false);
-		expect(shouldOfferBudgetContinue({ ...base, stop: undefined })).toBe(false);
-	});
-});
 
 describe("card budget-continue", () => {
 	it("tem identidade estável por run, valor em centavos e vai e volta pela serialização", () => {

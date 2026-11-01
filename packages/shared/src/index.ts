@@ -354,7 +354,6 @@ export {
 	parseBudgetContinueCard,
 	readApprovedContinuation,
 	readContinuationSource,
-	shouldOfferBudgetContinue,
 	type BudgetContinueData,
 	type BudgetContinueEvent,
 	type BudgetContinueStatus,
