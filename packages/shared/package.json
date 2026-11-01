@@ -19,6 +19,7 @@
     },
     "./avatar/*": {
       "types": "./src/avatar/*.ts",
+      "react-native": "./src/avatar/*.ts",
       "import": "./dist/avatar/*.js",
       "default": "./dist/avatar/*.js"
     }
