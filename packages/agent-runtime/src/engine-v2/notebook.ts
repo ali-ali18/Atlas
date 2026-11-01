@@ -17,6 +17,23 @@ import {
 	type NotebookWriter,
 } from "@workspace/shared";
 
+/** Trecho mínimo (caracteres, normalizado) para uma entrada contar como progresso: entrada quase vazia não conta. */
+export const PROGRESS_MIN_EXCERPT_CHARS = 20;
+
+const normalizeForNovelty = (text: string) =>
+	text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+/**
+ * Chave de novidade de uma entrada: título + trecho normalizados (sem acento, caixa nem pontuação). `null` = quase vazia.
+ * Só entrada com chave nova conta como progresso para o supervisor: repetir a mesma entrada (ou uma que só muda pontuação)
+ * não impede a parada por estagnação.
+ */
+export function noveltyKey(entry: { title: string; excerpt: string }): string | null {
+	const excerpt = normalizeForNovelty(entry.excerpt);
+	if (excerpt.length < PROGRESS_MIN_EXCERPT_CHARS) return null;
+	return `${normalizeForNovelty(entry.title)}|${excerpt}`;
+}
+
 export const NOTEBOOK_WRITE_TOOL_NAME = "notebook_write";
 export const NOTEBOOK_READ_TOOL_NAME = "notebook_read";
 

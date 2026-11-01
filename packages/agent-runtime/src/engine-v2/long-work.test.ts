@@ -4,6 +4,7 @@ import type { ChatTool, CompleteChatWithToolsParams, CompleteChatWithToolsResult
 import type { AgentRunCheckpoint, ComputerUseEvent, LessonRule } from "@workspace/shared";
 import type { PersistUserArtifactInput } from "@workspace/db";
 import type { DelegateDeps } from "../tools/delegate-task.js";
+import { noveltyKey } from "./notebook.js";
 import { runEngineV2, type EngineV2Options } from "./run.js";
 
 vi.mock("@workspace/db", async (original) => ({
@@ -787,7 +788,7 @@ describe("motor v2: o árbitro é progresso e tempo, não dinheiro (replays)", (
 			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
 			coordinator: [
 				OPEN(),
-				turn([call("notebook_write", { title: "Alfa", excerpt: "R$ 40", source: "https://alfa.example.com/preco" })]),
+				turn([call("notebook_write", { title: "Alfa", excerpt: "Preço do fornecedor Alfa: R$ 40 à vista, sem frete", source: "https://alfa.example.com/preco" })]),
 				search(),
 				search(),
 				search(),
@@ -804,6 +805,36 @@ describe("motor v2: o árbitro é progresso e tempo, não dinheiro (replays)", (
 		for (const request of run.coordinatorRequests.slice(noted)) expect(request.toolNames.every((name) => WRITE_ONLY.has(name)), request.toolNames.join(",")).toBe(true);
 		expect(run.persisted).toHaveLength(1);
 		expect(run.result.stop).toMatchObject({ reason: "answered" });
+	});
+
+	it("estagnação: entrada repetida, só com pontuação diferente ou quase vazia NÃO conta como progresso e não impede a parada", async () => {
+		const note = (title: string, excerpt: string) => turn([call("notebook_write", { title, excerpt })]);
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [
+				OPEN(),
+				note("Alfa", "Preço do fornecedor Alfa: R$ 40 à vista, sem frete"),
+				// Os 4 passos seguintes só repetem (outra pontuação/caixa) ou escrevem entradas quase vazias.
+				note("ALFA", "preço do fornecedor alfa - R$ 40, à vista; sem frete!"),
+				note("Alfa", "R$ 40"),
+				note("Beta", "ok"),
+				note("Alfa", "Preço do fornecedor Alfa: R$ 40 à vista, sem frete"),
+				CLOSE(),
+				reportFile(),
+				say("Relatório pronto."),
+			],
+		});
+		const noted = run.coordinatorRequests.findIndex((request) => messagesOf(request).includes("Research is over"));
+		expect(noted).toBeGreaterThan(0);
+		// A nota veio antes do fim do roteiro de repetições e não por lista concluída (CLOSE ainda nem tinha sido chamado).
+		expect(run.coordinatorRequests[noted]!.toolNames.every((name) => WRITE_ONLY.has(name))).toBe(true);
+		expect(run.coordinatorRequests.slice(0, noted).some((request) => request.toolNames.includes("web_search"))).toBe(true);
+		const closeIndex = run.coordinatorRequests.findIndex((request) => messagesOf(request).includes("Task list saved: 2/2"));
+		expect(closeIndex === -1 || noted <= closeIndex).toBe(true);
+		// Entrada com conteúdo novo, ao contrário, zera a contagem (a chave de novidade distingue).
+		expect(noveltyKey({ title: "Alfa", excerpt: "Preço do fornecedor Alfa: R$ 40 à vista, sem frete" })).toBe(noveltyKey({ title: "ALFA", excerpt: "preço do fornecedor alfa - R$ 40, à vista; sem frete!" }));
+		expect(noveltyKey({ title: "Alfa", excerpt: "R$ 40" })).toBeNull();
+		expect(noveltyKey({ title: "Beta", excerpt: "Preço do fornecedor Beta: R$ 42 à vista, sem frete" })).not.toBe(noveltyKey({ title: "Alfa", excerpt: "Preço do fornecedor Alfa: R$ 40 à vista, sem frete" }));
 	});
 
 	it("o tempo máximo leva à escrita: 70% encerra a pesquisa e 100% entrega, sempre com o documento", async () => {

@@ -134,7 +134,7 @@ import {
 	needsDocumentDelivery,
 	withNotebookAppendix,
 } from "./delivery.js";
-import { type NotebookToolContext } from "./notebook.js";
+import { noveltyKey, type NotebookToolContext } from "./notebook.js";
 
 export type EngineV2Options = {
 	profile: SupervisorProfile;
@@ -351,6 +351,15 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	/** Ajudantes cujo uso já está em `usageTotals` (checkpoint e retomada não contam duas vezes). */
 	const accountedHelpers = new Set<string>(parsed?.helperRuns ?? []);
 	const currentTaskItems = (): TaskListItem[] | undefined => taskTracker.taskList() ?? lastTaskItems;
+	/** Chaves de novidade já vistas no caderno (progresso do supervisor); só cresce. */
+	const novelKeys = new Set<string>();
+	const novelEntryCount = (entries: ReadonlyArray<{ title: string; excerpt: string }>) => {
+		for (const entry of entries) {
+			const key = noveltyKey(entry);
+			if (key) novelKeys.add(key);
+		}
+		return novelKeys.size;
+	};
 
 	// --- cofre, confiança e integrações ---
 	const secretSession: SecretSession | undefined = params.userId
@@ -1217,7 +1226,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				{
 					gaps: notebook ? notebook.snapshot().filter((entry) => entry.kind === "unconfirmed").length : 0,
 					listDone: Boolean(taskItems?.length) && openItems(taskItems).length === 0,
-					notebookCount: notebook ? notebook.snapshot().length : 0,
+					// Só conteúdo novo (título + trecho diferentes de entradas anteriores, não vazio) conta como progresso.
+					notebookCount: notebook ? novelEntryCount(notebook.snapshot()) : 0,
 					completedCount: taskItems ? taskItems.filter((item) => item.status === "completed").length : 0,
 				},
 			);
