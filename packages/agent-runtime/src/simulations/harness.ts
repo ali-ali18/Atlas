@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { ChatTool, CompleteChatWithToolsParams, CompleteChatWithToolsResult, LlmMessage, LlmToolCall } from "@workspace/llm";
 import type { SandboxManager } from "@workspace/sandbox";
 import { applyComputerUseEventsToTranscript, type ComputerUseEvent } from "@workspace/shared";
@@ -15,7 +16,7 @@ export type Turn = CompleteChatWithToolsResult;
 export const say = (content: string): Turn => ({ model: "sim", message: { role: "assistant", content }, finishReason: "stop" });
 
 export function calls(...items: Array<[string, Record<string, unknown>]>): Turn {
-	const toolCalls: LlmToolCall[] = items.map(([name, args], index) => ({ id: `sim_${name}_${index}_${Math.random().toString(36).slice(2, 7)}`, type: "function", function: { name, arguments: JSON.stringify(args) } }));
+	const toolCalls: LlmToolCall[] = items.map(([name, args], index) => ({ id: `sim_${name}_${index}_${randomBytes(4).toString("hex")}`, type: "function", function: { name, arguments: JSON.stringify(args) } }));
 	return { model: "sim", message: { role: "assistant", content: null, tool_calls: toolCalls }, finishReason: "tool_calls" };
 }
 

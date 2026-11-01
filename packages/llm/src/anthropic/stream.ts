@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { normalizeFinishReason } from "@workspace/shared";
 import type {
 	CompleteChatWithToolsParams,
@@ -234,7 +235,7 @@ export function createAnthropicStreamChat(options: AnthropicStreamOptions) {
 							.map(([, block]) => block)
 							.filter((block) => block.kind === "tool_use" && block.name)
 							.map((block) => ({
-								id: block.id || `call_${Math.random().toString(36).slice(2)}`,
+								id: block.id || `call_${randomBytes(6).toString("hex")}`,
 								type: "function" as const,
 								function: { name: block.name, arguments: block.json || "{}" },
 							}));
