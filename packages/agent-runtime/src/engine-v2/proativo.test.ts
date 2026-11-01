@@ -476,4 +476,15 @@ describe("v2: o chat comum não paga nada do que é de outra origem", () => {
 		expect(proactive.systems[0]).toBe(bare.systems[0]);
 		expect(proactive.systems).toHaveLength(2);
 	});
+
+	it("caso real do worker: com o aviso de chat (userPush mode chat) 'Bom dia' só ganha o schema de notify_user", async () => {
+		const bare = await run("v2", { proactive: false, message: "Bom dia", calls: [done] });
+		const withPush = await run("v2", { proactive: false, message: "Bom dia", userPush: { mode: "chat", send: async () => undefined }, calls: [done] });
+		// Paridade com o v1 (aceita): a única diferença é a tool notify_user; o prompt de sistema é byte a byte o mesmo.
+		expect(withPush.seenTools[0]!.filter((name) => !bare.seenTools[0]!.includes(name))).toEqual(["notify_user"]);
+		expect(bare.seenTools[0]!.filter((name) => !withPush.seenTools[0]!.includes(name))).toEqual([]);
+		expect(withPush.systems).toEqual(bare.systems);
+		const v1 = await run("v1", { proactive: false, message: "Bom dia", userPush: { mode: "chat", send: async () => undefined }, calls: [done] });
+		expect(v1.seenTools[0]).toContain("notify_user");
+	});
 });
