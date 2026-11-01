@@ -305,7 +305,7 @@ describe("motor v2: laço", () => {
 describe("motor v2: Supervisor no laço", () => {
 	it("avisa UMA vez a 80% e, ao estourar, faz a última chamada SEM tools e entrega", async () => {
 		const { result, requests } = await runV2({
-			messages: [{ role: "user", content: "Monte um relatório" }],
+			messages: [{ role: "user", content: "Confira a hora em Tóquio e em Seul" }],
 			script: [
 				turn([call("m0", "mcp_tool_search", { query: "current_time" })], 0.045),
 				turn([call("m1", "current_time", { timezone: "Asia/Tokyo" })], 0.045),

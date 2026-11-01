@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FILE_MAX_CONTENT_CHARS, type NotebookEntry } from "@workspace/shared";
-import { DOC_WORDS_THRESHOLD, asksForDocument, declinesDocument, countWords, needsDocumentDelivery, withNotebookAppendix } from "./delivery.js";
+import { DOCUMENT_BUDGET_NOTE, DOCUMENT_DELIVERY_NOTE, DOC_WORDS_THRESHOLD, UNCONFIRMED_NOTE_MAX_LINES, asksForDocument, declinesDocument, countWords, needsDocumentDelivery, withNotebookAppendix } from "./delivery.js";
+import { deliveryInstruction } from "./supervisor.js";
 
 const words = (n: number) => Array.from({ length: n }, (_, i) => `p${i}`).join(" ");
 const entry = (partial: Partial<NotebookEntry> & Pick<NotebookEntry, "id" | "title">): NotebookEntry => ({ kind: "finding", excerpt: "x", author: "coordinator", step: 0, ...partial });
@@ -75,5 +76,21 @@ describe("withNotebookAppendix", () => {
 		expect(out).toMatch(/… e mais \d+ fontes/);
 		expect(out).toContain("- Forn X: fora do ar");
 		expect(out).toContain("- Forn Y: sem preço");
+	});
+
+	it("a nota de não confirmado no fim é curta: poucas linhas, cada uma enxuta, o resto vira '… e mais N'", () => {
+		const gaps = Array.from({ length: 10 }, (_, i) => entry({ id: `u${i}`, title: `Item ${i}`, kind: "unconfirmed", excerpt: "x".repeat(400) }));
+		const out = withNotebookAppendix({ filename: "r.md", content: "corpo" }, gaps, "pt-BR").content as string;
+		const note = out.split("## Não deu para confirmar")[1]!.trim().split("\n");
+		expect(note.length).toBeLessThanOrEqual(UNCONFIRMED_NOTE_MAX_LINES + 1);
+		expect(note.every((line) => line.length <= 170)).toBe(true);
+		expect(note.at(-1)).toBe("… e mais 4 itens não confirmados");
+	});
+
+	it("a instrução de entrega manda uma nota curta no fim, não 'não confirmado' item a item no corpo", () => {
+		expect(DOCUMENT_DELIVERY_NOTE).toMatch(/one short closing note at the end/);
+		expect(DOCUMENT_DELIVERY_NOTE).toMatch(/do not scatter/);
+		expect(DOCUMENT_BUDGET_NOTE).toMatch(/one short closing note at the end/);
+		expect(deliveryInstruction("budget_cost")).toMatch(/one short note at the end, not item by item/);
 	});
 });

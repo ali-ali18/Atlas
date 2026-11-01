@@ -648,3 +648,132 @@ describe("motor v2: retomada no meio do delegate", () => {
 		expect(delegateResult.summary).toMatch(/already done by helpers before the run resumed/);
 	});
 });
+
+describe("motor v2: reserva da entrega e rodada de lacunas (replay do caso real: ajudantes gastam muito)", () => {
+	const gamaId = (request: Request) => /(n\d+)[^\n]*Gama/.exec(request.notebookLayer)?.[1] ?? "n0";
+	const notesIn = (request: Request) => request.params.messages.map((m) => textOf(m.content)).join("\n");
+	const reportFile = () => turn([call("create_file", { filename: "relatorio.md", content: `# Relatório\n\n## Resumo\n${LONGO(320)}` })], 0.01);
+
+	it("a reserva é acionada, lacuna é retentada e resolvida, e o documento sai sem 'não confirmado' espalhado", async () => {
+		const { deps } = fakeDeps();
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [
+				OPEN(),
+				delegate5(),
+				// Gasta até ~78%: a reserva (25%) é acionada com a lacuna do fornecedor Gama aberta.
+				turn([call("memory_search", { query: "preço" })], 0.74),
+				// Rodada de lacunas: outra fonte e a entrada corrigida com `replaces`.
+				(request) => turn([call("memory_search", { query: "Gama preço" }), call("notebook_write", { title: "Forn Gama", excerpt: "Preço do fornecedor Gama: R$ 40", source: "https://gama.example.com/preco", replaces: gamaId(request) })], 0.1),
+				CLOSE(),
+				reportFile(),
+				say("Relatório pronto com os cinco fornecedores."),
+			],
+			helper: helperBehavior({ fail: (task) => task.includes("fornecedor Gama") }),
+			options: { longWorkBudgetUsd: 1, helpers: { deps } },
+		});
+		const sent = run.coordinatorRequests.map(notesIn);
+		expect(sent.some((text) => text.includes("quick pass over the notebook items marked unconfirmed"))).toBe(true);
+		// A nota entra uma vez só no histórico.
+		expect(sent.at(-1)!.match(/quick pass over the notebook items/g)).toHaveLength(1);
+		expect(sent.join("\n")).toContain("the research budget is used up");
+		// A lacuna foi resolvida: o documento traz a fonte do Gama e nenhuma nota de "não confirmado".
+		expect(run.persisted).toHaveLength(1);
+		const content = Buffer.from(run.persisted[0]!.bytes).toString("utf8");
+		expect(content).toContain("https://gama.example.com/preco");
+		expect(content).not.toContain("Não deu para confirmar");
+		expect(run.result.stop).toMatchObject({ reason: "answered" });
+	});
+
+	it("sem orçamento sobrando para lacunas, vai direto escrever (a escrita nunca fica sem reserva)", async () => {
+		const { deps } = fakeDeps();
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [
+				OPEN(),
+				delegate5(),
+				// Pula a janela das lacunas: de ~13% direto para ~90%.
+				turn([call("memory_search", { query: "preço" })], 0.86),
+				CLOSE(),
+				reportFile(),
+				say("Relatório pronto."),
+			],
+			helper: helperBehavior({ fail: (task) => task.includes("fornecedor Gama") }),
+			options: { longWorkBudgetUsd: 1, helpers: { deps } },
+		});
+		const all = run.coordinatorRequests.map(notesIn).join("\n");
+		expect(all).not.toContain("quick pass over the notebook items");
+		expect(all).toContain("the research budget is used up");
+		// Sem retentativa, o que continua não confirmado vai numa nota curta no fim do arquivo.
+		const content = Buffer.from(run.persisted[0]!.bytes).toString("utf8");
+		expect(content).toContain("## Não deu para confirmar");
+		expect(content.split("## Não deu para confirmar")[0]).not.toMatch(/não confirmado/i);
+	});
+
+	it("com a reserva acionada o delegate não gasta mais: ajudantes só usam o orçamento menos a reserva", async () => {
+		const { deps } = fakeDeps();
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO }],
+			coordinator: [OPEN(), turn([call("memory_search", { query: "x" })], 0.8), delegate5(), CLOSE(), say("Entreguei o que havia.")],
+			helper: helperBehavior(),
+			options: { longWorkBudgetUsd: 1, helpers: { deps } },
+		});
+		const delegated = run.toolResults.find((r) => r.name === "delegate")!;
+		expect(delegated.ok).toBe(false);
+		expect(run.helperRequests).toHaveLength(0);
+	});
+});
+
+describe("motor v2: estouro do orçamento ainda entrega o documento", () => {
+	const notebookTurn = () =>
+		turn([
+			call("notebook_write", { title: "Forn Alfa", excerpt: "Preço do fornecedor Alfa: R$ 40", source: "https://alfa.example.com/preco" }),
+			call("notebook_write", { title: "Gama", excerpt: "página bloqueada", kind: "unconfirmed" }),
+		]);
+
+	it("no estouro a etapa final libera só create_file; o arquivo sai com fontes e 'Não deu para confirmar'", async () => {
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [
+				OPEN(),
+				notebookTurn(),
+				// Estoura o orçamento de uma vez (US$ 0,1).
+				turn([call("memory_search", { query: "preço" })], 0.2),
+				// Etapa final: só create_file.
+				turn([call("create_file", { filename: "relatorio.md", content: `# Relatório\n\n${LONGO(320)}` })], 0.01),
+				say("Relatório entregue; o fornecedor Gama não deu para confirmar."),
+			],
+			options: { longWorkBudgetUsd: 0.1 },
+		});
+		const finalStep = run.coordinatorRequests.at(-2)!;
+		expect(finalStep.toolNames).toEqual(["create_file"]);
+		expect(run.coordinatorRequests.at(-1)!.params.toolChoice).toBe("none");
+		expect(run.persisted).toHaveLength(1);
+		const content = Buffer.from(run.persisted[0]!.bytes).toString("utf8");
+		expect(content).toContain("https://alfa.example.com/preco");
+		expect(content).toContain("## Não deu para confirmar");
+		expect(run.result.stop).toEqual({ reason: "budget_cost", detail: "delivered" });
+		expect(run.result.text).not.toMatch(/Não consegui gerar o documento/);
+	});
+
+	it("se nem assim sai o arquivo, a resposta diz em português simples o que faltou", async () => {
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [OPEN(), notebookTurn(), turn([call("memory_search", { query: "preço" })], 0.2), say("Segue o resumo."), say("Resumo curto do que apurei.")],
+			options: { longWorkBudgetUsd: 0.1 },
+		});
+		expect(run.persisted).toHaveLength(0);
+		expect(run.result.text).toContain("Não consegui gerar o documento dentro do orçamento");
+		expect(run.result.text).not.toMatch(/create_file|notebook/);
+	});
+
+	it("pedido sem documento no estouro segue o fechamento sem tools de sempre", async () => {
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO }],
+			coordinator: [OPEN(), turn([call("memory_search", { query: "preço" })], 0.2), say("Resumo do que deu.")],
+			options: { longWorkBudgetUsd: 0.1 },
+		});
+		expect(run.coordinatorRequests.at(-1)!.params.toolChoice).toBe("none");
+		expect(run.persisted).toHaveLength(0);
+	});
+});

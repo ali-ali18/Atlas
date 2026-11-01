@@ -4,6 +4,8 @@ import {
 	CHAT_BUDGET,
 	LONG_WORK_BUDGET,
 	MAX_STEPS_SAFETY,
+	RESERVE_GAPS_NOTE,
+	RESERVE_WRITE_NOTE,
 	WRAP_UP_NOTE,
 	budgetForProfile,
 	createSupervisor,
@@ -43,15 +45,43 @@ describe("gate: aviso e entrega", () => {
 		expect(supervisor.gate(usage(0.5, 60_000))).toEqual({ action: "call" });
 	});
 
-	it("avisa UMA vez a 80% (por custo ou por tempo) e depois só segue", () => {
-		const byCost = createSupervisor({ profile: "long_work", budget });
+	it("chat: avisa UMA vez a 80% (por custo ou por tempo) e depois só segue", () => {
+		const byCost = createSupervisor({ profile: "chat", budget });
 		expect(byCost.gate(usage(0.8))).toEqual({ action: "call", note: WRAP_UP_NOTE });
 		expect(byCost.gate(usage(0.9))).toEqual({ action: "call" });
-		expect(byCost.gate(usage(0.95))).toEqual({ action: "call" });
 
-		const byTime = createSupervisor({ profile: "long_work", budget });
+		const byTime = createSupervisor({ profile: "chat", budget });
 		expect(byTime.gate(usage(0, 8 * 60_000))).toEqual({ action: "call", note: WRAP_UP_NOTE });
 		expect(byTime.gate(usage(0, 9 * 60_000))).toEqual({ action: "call" });
+	});
+
+	it("trabalho longo: a reserva (25%) aciona uma vez, manda parar de pesquisar e escrever", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget });
+		expect(supervisor.gate(usage(0.7))).toEqual({ action: "call" });
+		expect(supervisor.gate(usage(0.75))).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
+		expect(supervisor.gate(usage(0.9))).toEqual({ action: "call" });
+		const byTime = createSupervisor({ profile: "long_work", budget });
+		expect(byTime.gate(usage(0, 7.5 * 60_000))).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
+	});
+
+	it("trabalho longo com lacunas: 40% da reserva fecha lacunas, o resto é só da escrita", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget });
+		expect(supervisor.gate(usage(0.76), { gaps: 3 })).toEqual({ action: "call", note: RESERVE_GAPS_NOTE });
+		expect(supervisor.gate(usage(0.8), { gaps: 3 })).toEqual({ action: "call" });
+		expect(supervisor.gate(usage(0.85), { gaps: 3 })).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
+		expect(supervisor.gate(usage(0.9), { gaps: 3 })).toEqual({ action: "call" });
+		// Passo grande que pula a janela das lacunas: vai direto escrever.
+		const jump = createSupervisor({ profile: "long_work", budget });
+		expect(jump.gate(usage(0.6), { gaps: 3 })).toEqual({ action: "call" });
+		expect(jump.gate(usage(0.88), { gaps: 3 })).toEqual({ action: "call", note: RESERVE_WRITE_NOTE });
+		expect(RESERVE_GAPS_NOTE).toMatch(/replaces/);
+	});
+
+	it("pesquisa e ajudantes só gastam o orçamento menos a reserva", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget });
+		expect(supervisor.researchRemaining(usage(0.25, 2 * 60_000))).toEqual({ costUsd: 0.5, activeMs: 5.5 * 60_000 });
+		expect(supervisor.researchRemaining(usage(0.8, 9 * 60_000))).toEqual({ costUsd: 0, activeMs: 0 });
+		expect(createSupervisor({ profile: "chat", budget }).researchRemaining(usage(0.25)).costUsd).toBe(0.75);
 	});
 
 	it("ao estourar o custo faz a última chamada sem tools (entrega), nunca aborta", () => {

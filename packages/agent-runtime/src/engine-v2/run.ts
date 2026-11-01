@@ -118,7 +118,19 @@ import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
 import { appendUnconfirmed, createTaskListGate, droppedItems, openItems } from "./task-list.js";
 import { type DelegateDeps } from "../tools/delegate-task.js";
 import { HELPER_DELIVERY_INSTRUCTION, type HelperChildInput, type HelpersContext } from "./helpers.js";
-import { DOCUMENT_DELIVERY_NOTE, DOC_MAX_OUTPUT_TOKENS, countWords, needsDocumentDelivery, withNotebookAppendix } from "./delivery.js";
+import {
+	DOCUMENT_BUDGET_NOTE,
+	DOCUMENT_DELIVERY_NOTE,
+	DOCUMENT_DONE_INSTRUCTION,
+	DOCUMENT_FALLBACK_STEPS,
+	DOC_MAX_OUTPUT_TOKENS,
+	asksForDocument,
+	countWords,
+	declinesDocument,
+	documentMissingNote,
+	needsDocumentDelivery,
+	withNotebookAppendix,
+} from "./delivery.js";
 import { type NotebookToolContext } from "./notebook.js";
 
 export type EngineV2Options = {
@@ -498,14 +510,16 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		toolChoice: "auto" | "none",
 		messageId: string,
 		closing = false,
+		toolsOverride?: typeof tools,
 	): Promise<{ content: string; toolCalls: LlmToolCall[]; providerItems?: LlmMessage["providerItems"]; usage: TokenUsage; result: CompleteChatWithToolsResult; telemetry: ReturnType<typeof modelStepTelemetry> }> => {
+		const callTools = toolsOverride ?? tools;
 		await ensureContinue(closing ? params.abortSignal : undefined);
 		await ensureNotPaused();
 		const hygiene = applyPromptHygiene(history, {
 			language,
 			lastGroupMaxChars: hygieneLastGroupChars,
 			contextLength,
-			toolsJsonChars: toolsJsonCharsOf(tools),
+			toolsJsonChars: toolsJsonCharsOf(callTools),
 			model,
 			contextBudget: params.contextBudget ?? contextBudgetFor(params.contextMemory, contextLength),
 			objectiveText: params.objective ?? lastUserMessage,
@@ -540,7 +554,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				messages: transport,
 				model,
 				apiKey,
-				tools,
+				tools: callTools,
 				toolChoice,
 				signal: closing ? closingSignal() : params.abortSignal,
 				timeoutMs: closing ? CLOSING_CALL_TIMEOUT_MS : params.modelCallTimeoutMs,
@@ -667,7 +681,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 						return fromCatalog ?? (modelId === model ? (contextLength ?? null) : null);
 					},
 					emit: onEvent,
-					remaining: () => ({ costUsd: Math.max(0, budget.maxCostUsd - spentUsd()), activeMs: Math.max(0, budget.maxActiveMs - activeElapsedMs()) }),
+					remaining: () => supervisor.researchRemaining({ costUsd: spentUsd(), activeMs: activeElapsedMs(), step }),
 					runChild: runHelperChild,
 					step: () => step,
 					deps: options.helpers?.deps ?? params.delegateDeps,
@@ -1021,8 +1035,33 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 
 	/** Última chamada SEM tools: entrega o que há, nunca aborta sem resposta. */
 	const deliver = async (stop: RunStop, instruction: string): Promise<RunComputerUseResult> => {
-		conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${instruction}` });
 		const messageId = `${turnId}-final`;
+		// Trabalho longo que pediu documento: no estouro a única tool liberada é create_file (o arquivo sempre sai).
+		const documentFallback =
+			longWorkCoordinator &&
+			(stop.reason === "budget_cost" || stop.reason === "budget_wall") &&
+			!fileDelivered &&
+			tools.some((tool) => tool.function.name === "create_file") &&
+			!declinesDocument(lastUserMessage) &&
+			(asksForDocument(lastUserMessage) || documentGateFired || filePartsSoFar.size > 0);
+		if (documentFallback) {
+			conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${DOCUMENT_BUDGET_NOTE}` });
+			const createFileOnly = tools.filter((tool) => tool.function.name === "create_file");
+			try {
+				for (let attempt = 0; attempt < DOCUMENT_FALLBACK_STEPS && !fileDelivered; attempt += 1) {
+					const out = await modelStep(conversation, "auto", `${messageId}-doc${attempt}`, true, createFileOnly);
+					if (out.toolCalls.length === 0) break;
+					conversation.push({ role: "assistant", content: out.content || null, tool_calls: out.toolCalls, ...(out.providerItems ? { providerItems: out.providerItems } : {}) });
+					settleBatch(await runBatch(out.toolCalls));
+					step += 1;
+				}
+			} catch (error) {
+				if (params.abortSignal?.aborted) throw errorFromAbortSignal(params.abortSignal);
+				if (isControlFlowError(error)) throw error;
+			}
+			instruction = fileDelivered ? DOCUMENT_DONE_INSTRUCTION : instruction;
+		}
+		conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${instruction}` });
 		let text = "";
 		try {
 			const final = await modelStep(conversation, "none", messageId, true);
@@ -1035,6 +1074,12 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		if (!text) {
 			text = budgetStopFallbackText(stop.reason, language);
 			await onEvent({ type: "assistant_delta", id: messageId, delta: text });
+		}
+		if (documentFallback && !fileDelivered) {
+			// Nem assim saiu o arquivo: a pessoa fica sabendo, em palavras simples, o que faltou.
+			const note = `\n\n${documentMissingNote(language)}`;
+			text += note;
+			await onEvent({ type: "assistant_delta", id: messageId, delta: note });
 		}
 		return await finishOk(text, stop, messageId);
 	};
@@ -1107,7 +1152,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					await onEvent({ type: "input_consumed", inputId: input.id, mode: input.mode ?? "join", content: input.content });
 				}
 			}
-			const gate = supervisor.gate({ costUsd: spentUsd(), activeMs: activeElapsedMs(), step });
+			const gate = supervisor.gate({ costUsd: spentUsd(), activeMs: activeElapsedMs(), step }, { gaps: notebook ? notebook.snapshot().filter((entry) => entry.kind === "unconfirmed").length : 0 });
 			if (gate.action === "deliver") return await deliver(gate.stop, helperRole ? HELPER_DELIVERY_INSTRUCTION : gate.instruction);
 			if (gate.note && !appendToLatestToolResult(conversation, gate.note)) conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${gate.note}` });
 
