@@ -18,6 +18,12 @@ export const NOTEBOOK_EXCERPT_MAX_CHARS = 2_000;
 export const NOTEBOOK_REF_MAX_CHARS = 200;
 /** Soma dos textos de todas as entradas (protege o checkpoint). */
 export const NOTEBOOK_TOTAL_MAX_CHARS = 120_000;
+/** Reserva só para `unconfirmed`: achado nunca ocupa isto, então "não deu para confirmar" não é engolido por um caderno cheio. */
+export const NOTEBOOK_UNCONFIRMED_RESERVE_ENTRIES = 20;
+export const NOTEBOOK_UNCONFIRMED_RESERVE_CHARS = 10_000;
+/** Cota de achados de UM ajudante (um ajudante verboso não enche o caderno dos outros). */
+export const NOTEBOOK_HELPER_MAX_ENTRIES = 30;
+export const NOTEBOOK_HELPER_MAX_CHARS = 20_000;
 /** Orçamento do índice que o coordenador vê a cada passo (caracteres). */
 export const NOTEBOOK_INDEX_MAX_CHARS = 3_500;
 /** Quantas entradas uma leitura devolve de uma vez (o resto exige filtrar). */
@@ -52,8 +58,17 @@ export type NotebookWrite = {
 	replaces?: string;
 };
 
+/**
+ * Texto de uma linha só: sem quebras nem caracteres de controle e sem tags HTML/XML (o título vem de páginas e entra
+ * no contexto do modelo, então não pode imitar marcação de sistema).
+ */
 function flat(value: unknown): string {
-	return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+	if (typeof value !== "string") return "";
+	return value
+		.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ")
+		.replace(/<\/?[a-zA-Z!][^>]*>/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
 }
 
 function optionalText(args: Record<string, unknown>, key: string, max: number): string | undefined {
@@ -138,6 +153,7 @@ function hostOf(source: string | undefined): string | undefined {
 export function renderIndexLine(entry: NotebookEntry): string {
 	const who = entry.author === COORDINATOR_AUTHOR ? "" : ` (${entry.author.replace("helper:", "helper ")})`;
 	const host = hostOf(entry.source);
+	entry = { ...entry, title: entry.title.replace(/[<>]/g, "") };
 	return `- ${entry.id}${entry.kind === "unconfirmed" ? " [unconfirmed]" : ""}${who} ${entry.title}${host ? ` — ${host}` : ""}${entry.artifactRef ? ` (ref ${entry.artifactRef})` : ""}`;
 }
 
@@ -174,13 +190,23 @@ export function createNotebook(initial?: unknown) {
 			current = entries.filter((entry) => entry.id !== input.replaces);
 			replaced = true;
 		}
-		if (current.length >= NOTEBOOK_MAX_ENTRIES) {
-			throw new Error(`The notebook is full (${NOTEBOOK_MAX_ENTRIES} entries). Merge related entries with "replaces", or deliver with what you have.`);
+		// Achado não pode usar a reserva dos "não confirmados": o espaço dela é só deles.
+		const finding = input.kind === "finding";
+		const maxEntries = finding ? NOTEBOOK_MAX_ENTRIES - NOTEBOOK_UNCONFIRMED_RESERVE_ENTRIES : NOTEBOOK_MAX_ENTRIES;
+		const maxChars = finding ? NOTEBOOK_TOTAL_MAX_CHARS - NOTEBOOK_UNCONFIRMED_RESERVE_CHARS : NOTEBOOK_TOTAL_MAX_CHARS;
+		if (current.length >= maxEntries) {
+			throw new Error(`The notebook is full (${maxEntries} ${finding ? "findings" : "entries"}). Merge related entries with "replaces", or deliver with what you have.`);
 		}
 		const candidate = { title: input.title, excerpt: input.excerpt, source: input.source, artifactRef: input.artifactRef };
 		const used = current.reduce((sum, entry) => sum + entryChars(entry), 0);
-		if (used + entryChars(candidate) > NOTEBOOK_TOTAL_MAX_CHARS) {
-			throw new Error(`The notebook is out of space (${NOTEBOOK_TOTAL_MAX_CHARS} characters in total). Keep large content as an artifact and store only its id in artifactRef.`);
+		if (used + entryChars(candidate) > maxChars) {
+			throw new Error(`The notebook is out of space (${maxChars} characters in total). Keep large content as an artifact and store only its id in artifactRef.`);
+		}
+		if (finding && author.startsWith("helper:")) {
+			const mine = current.filter((entry) => entry.author === author && entry.kind === "finding");
+			if (mine.length >= NOTEBOOK_HELPER_MAX_ENTRIES || mine.reduce((sum, entry) => sum + entryChars(entry), 0) + entryChars(candidate) > NOTEBOOK_HELPER_MAX_CHARS) {
+				throw new Error(`You reached your share of the notebook (${NOTEBOOK_HELPER_MAX_ENTRIES} entries or ${NOTEBOOK_HELPER_MAX_CHARS} characters). Stop recording and write your short summary.`);
+			}
 		}
 		seq += 1;
 		const entry: NotebookEntry = {

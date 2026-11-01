@@ -416,6 +416,8 @@ export type AgentRunCheckpoint = {
 	researchNotes?: ResearchNote[];
 	/** Motor v2: caderno da tarefa (trabalho longo), com o que o coordenador e os ajudantes anotaram. */
 	notebook?: NotebookEntry[];
+	/** Motor v2: ids dos runs de ajudantes cujo uso já está em `usageTotals` (a retomada não conta duas vezes). */
+	helperRuns?: string[];
 	/** Capacidades efetivas do run (K1): tools executáveis, visão, restrições. */
 	capabilities?: CapabilitySnapshot;
 	/**

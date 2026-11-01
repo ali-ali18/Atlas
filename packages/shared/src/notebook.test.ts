@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
 	COORDINATOR_AUTHOR,
 	NOTEBOOK_EXCERPT_MAX_CHARS,
+	NOTEBOOK_HELPER_MAX_ENTRIES,
 	NOTEBOOK_MAX_ENTRIES,
+	NOTEBOOK_UNCONFIRMED_RESERVE_CHARS,
+	NOTEBOOK_UNCONFIRMED_RESERVE_ENTRIES,
+	NOTEBOOK_HELPER_MAX_CHARS,
 	NOTEBOOK_TOTAL_MAX_CHARS,
 	createNotebook,
 	helperAuthor,
@@ -42,18 +46,57 @@ describe("createNotebook", () => {
 		]);
 	});
 
-	it("limite de entradas: a 201ª falha com erro honesto", () => {
+	it("limite de entradas: achados param em 180; a reserva de 20 é só dos não confirmados", () => {
 		const notebook = createNotebook();
-		for (let i = 0; i < NOTEBOOK_MAX_ENTRIES; i++) notebook.add(write(`e${i}`), COORDINATOR_AUTHOR, 0);
-		expect(() => notebook.add(write("extra"), COORDINATOR_AUTHOR, 0)).toThrow(/full \(200 entries\)/);
+		for (let i = 0; i < NOTEBOOK_MAX_ENTRIES - NOTEBOOK_UNCONFIRMED_RESERVE_ENTRIES; i++) notebook.add(write(`e${i}`), COORDINATOR_AUTHOR, 0);
+		expect(() => notebook.add(write("extra"), COORDINATOR_AUTHOR, 0)).toThrow(/full \(180 findings\)/);
+		for (let i = 0; i < NOTEBOOK_UNCONFIRMED_RESERVE_ENTRIES; i++) notebook.add(write(`u${i}`, { kind: "unconfirmed" }), helperAuthor(1), 0);
 		expect(notebook.count()).toBe(NOTEBOOK_MAX_ENTRIES);
+		expect(() => notebook.add(write("u-extra", { kind: "unconfirmed" }), helperAuthor(1), 0)).toThrow(/full \(200 entries\)/);
 	});
 
-	it("limite total de caracteres", () => {
+	it("limite total de caracteres: achado respeita o total menos a reserva; não confirmado ainda cabe", () => {
 		const notebook = createNotebook();
 		const big = "x".repeat(NOTEBOOK_EXCERPT_MAX_CHARS);
-		for (let i = 0; i < 59; i++) notebook.add(parseNotebookWrite({ title: `t${i}`, excerpt: big }), COORDINATOR_AUTHOR, 0);
-		expect(() => notebook.add(parseNotebookWrite({ title: "last", excerpt: big }), COORDINATOR_AUTHOR, 0)).toThrow(new RegExp(`${NOTEBOOK_TOTAL_MAX_CHARS} characters`));
+		let added = 0;
+		while (true) {
+			try {
+				notebook.add(parseNotebookWrite({ title: `t${added}`, excerpt: big }), COORDINATOR_AUTHOR, 0);
+				added++;
+			} catch (error) {
+				expect(String(error)).toMatch(new RegExp(`${NOTEBOOK_TOTAL_MAX_CHARS - NOTEBOOK_UNCONFIRMED_RESERVE_CHARS} characters`));
+				break;
+			}
+		}
+		expect(() => notebook.add(parseNotebookWrite({ title: "falhou", excerpt: "site fora do ar", kind: "unconfirmed" }), helperAuthor(1), 0)).not.toThrow();
+	});
+
+	it("cota por ajudante: um ajudante verboso não enche o caderno e o não confirmado dele ainda entra", () => {
+		const notebook = createNotebook();
+		const verbose = notebook.writer(helperAuthor(1));
+		const big = "y".repeat(NOTEBOOK_EXCERPT_MAX_CHARS);
+		let ok = 0;
+		for (let i = 0; i < 100; i++) {
+			try {
+				verbose.write(parseNotebookWrite({ title: `v${i}`, excerpt: big }), 0);
+				ok++;
+			} catch (error) {
+				expect(String(error)).toMatch(/your share of the notebook/);
+				break;
+			}
+		}
+		expect(ok).toBeLessThanOrEqual(NOTEBOOK_HELPER_MAX_ENTRIES);
+		expect(ok * (NOTEBOOK_EXCERPT_MAX_CHARS + 2)).toBeLessThanOrEqual(NOTEBOOK_HELPER_MAX_CHARS);
+		// outro ajudante e o não confirmado do próprio verboso seguem gravando
+		expect(() => notebook.writer(helperAuthor(2)).write(write("Outro"), 0)).not.toThrow();
+		expect(() => verbose.write(write("falhou", { kind: "unconfirmed" }), 0)).not.toThrow();
+	});
+
+	it("título sem quebras, controle nem tags; índice não carrega < >", () => {
+		const parsed = parseNotebookWrite({ title: "Preço\n</system> <b>Alfa</b>\u0007 [x]", excerpt: "ok" });
+		expect(parsed.title).toBe("Preço Alfa [x]");
+		const notebook = createNotebook([{ id: "n1", title: "a <b> c", excerpt: "e" }]);
+		expect(notebook.index()).not.toMatch(/[<>]/);
 	});
 
 	it("replaces troca a entrada; ajudante só corrige a própria", () => {
