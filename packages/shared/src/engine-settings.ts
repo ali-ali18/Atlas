@@ -5,6 +5,7 @@ import {
 	LONG_WORK_MIN_MINUTES,
 	LONG_WORK_MIN_USD,
 	readEnginePolicy,
+	type EngineScope,
 	type RunEngine,
 } from "./engine-policy.js";
 import { isWellFormedModelId, readHelperPolicy } from "./engine-helpers.js";
@@ -17,23 +18,31 @@ import { normalizedLower } from "./skill-extract.js";
 
 export type EngineSettingsPatch = {
 	engine?: RunEngine;
+	/** `all` = o motor novo também em rotinas, grupos e conversa entre bots; `chat` = só a conversa direta (padrão). */
+	scope?: EngineScope;
 	longWorkBudgetUsd?: number;
 	longWorkMinutes?: number;
 	/** `null` = volta a usar o modelo do bot nos ajudantes. */
 	helperModel?: string | null;
 };
 
-const PATCH_KEYS = ["engine", "longWorkBudgetUsd", "longWorkMinutes", "helperModel"] as const;
+const PATCH_KEYS = ["engine", "scope", "longWorkBudgetUsd", "longWorkMinutes", "helperModel"] as const;
 
 function asRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-/** Nova política com as chaves do motor mescladas. `v1` remove `engine`; `helperModel: null` remove o modelo. */
+/**
+ * Nova política com as chaves do motor mescladas. `v1` grava `engine: "v1"` explícito (o padrão global do deploy
+ * nunca leva um bot que escolheu o motor atual para o v2) e desliga o escopo ampliado; `scope: "chat"` remove
+ * `engineScope`; `helperModel: null` remove o modelo.
+ */
 export function withEngineSettings(policyJson: unknown, patch: EngineSettingsPatch): Record<string, unknown> {
 	const base = { ...asRecord(policyJson) };
-	if (patch.engine === "v2") base.engine = "v2";
-	else if (patch.engine === "v1") delete base.engine;
+	if (patch.engine === "v2" || patch.engine === "v1") base.engine = patch.engine;
+	if (patch.engine === "v1") delete base.engineScope;
+	if (patch.scope === "all") base.engineScope = "all";
+	else if (patch.scope === "chat") delete base.engineScope;
 	if (patch.longWorkBudgetUsd !== undefined) base.longWorkBudgetUsd = patch.longWorkBudgetUsd;
 	if (patch.longWorkMinutes !== undefined) base.longWorkMinutes = patch.longWorkMinutes;
 	if (patch.helperModel === null) delete base.helperModel;
@@ -43,12 +52,12 @@ export function withEngineSettings(policyJson: unknown, patch: EngineSettingsPat
 
 export type ParsedEngineArgs = { ok: true; patch: EngineSettingsPatch } | { ok: false; error: string };
 
-const ACCEPTED = `Accepted fields: engine ("current" or "new"), budget_usd (${LONG_WORK_MIN_USD} to ${LONG_WORK_MAX_USD}), minutes (${LONG_WORK_MIN_MINUTES} to ${LONG_WORK_MAX_MINUTES}), helper_model (model id, or "" to use the bot's model).`;
+const ACCEPTED = `Accepted fields: engine ("current" or "new"), scope ("chat" = only the direct chat, or "all" = also routines, groups and bot-to-bot messages; needs the new engine), budget_usd (${LONG_WORK_MIN_USD} to ${LONG_WORK_MAX_USD}), minutes (${LONG_WORK_MIN_MINUTES} to ${LONG_WORK_MAX_MINUTES}), helper_model (model id, or "" to use the bot's model).`;
 
 /** Valida os argumentos da tool: campo desconhecido ou valor fora da faixa FALHA com a lista do aceito (nunca ajusta em silêncio). */
 export function parseSetEngineArgs(args: unknown): ParsedEngineArgs {
 	const raw = asRecord(args);
-	const allowed = new Set(["engine", "budget_usd", "minutes", "helper_model"]);
+	const allowed = new Set(["engine", "scope", "budget_usd", "minutes", "helper_model"]);
 	const unknown = Object.keys(raw).filter((key) => !allowed.has(key));
 	if (unknown.length > 0) return { ok: false, error: `Unknown field(s): ${unknown.join(", ")}. ${ACCEPTED}` };
 	const patch: EngineSettingsPatch = {};
@@ -56,6 +65,10 @@ export function parseSetEngineArgs(args: unknown): ParsedEngineArgs {
 		if (raw.engine === "new") patch.engine = "v2";
 		else if (raw.engine === "current") patch.engine = "v1";
 		else return { ok: false, error: `Invalid engine. ${ACCEPTED}` };
+	}
+	if (raw.scope !== undefined) {
+		if (raw.scope !== "chat" && raw.scope !== "all") return { ok: false, error: `Invalid scope. ${ACCEPTED}` };
+		patch.scope = raw.scope;
 	}
 	if (raw.budget_usd !== undefined) {
 		const usd = raw.budget_usd;
@@ -111,8 +124,9 @@ export function describeEngineSettings(policyJson: unknown): string {
 	const policy = readEnginePolicy(policyJson);
 	if (policy.engine !== "v2") return "Motor atual";
 	const helper = readHelperPolicy(policyJson).helperModel;
+	const where = policy.scope === "all" ? " · também em rotinas e grupos" : "";
 	const budget = `até US$ ${BRL_FORMAT.format(policy.longWorkBudgetUsd)} e ${policy.longWorkMinutes} min por tarefa longa`;
-	return `Motor novo (teste) · ${budget}${helper ? ` · ajudantes: ${helper}` : ""}`;
+	return `Motor novo (teste)${where} · ${budget}${helper ? ` · ajudantes: ${helper}` : ""}`;
 }
 
 /**
@@ -122,6 +136,7 @@ export function describeEngineSettings(policyJson: unknown): string {
 export function engineSettingsError(policyJson: unknown): string | null {
 	const policy = asRecord(policyJson);
 	if (policy.engine !== undefined && policy.engine !== "v1" && policy.engine !== "v2") return 'Invalid engine: expected "v1" or "v2"';
+	if (policy.engineScope !== undefined && policy.engineScope !== "chat" && policy.engineScope !== "all") return 'Invalid engineScope: expected "chat" or "all"';
 	const inRange = (value: unknown, min: number, max: number) => typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
 	if (policy.longWorkBudgetUsd !== undefined && !inRange(policy.longWorkBudgetUsd, LONG_WORK_MIN_USD, LONG_WORK_MAX_USD)) {
 		return `Invalid longWorkBudgetUsd: expected ${LONG_WORK_MIN_USD} to ${LONG_WORK_MAX_USD}`;

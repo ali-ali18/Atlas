@@ -136,7 +136,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { pickRunEngine, runSelectedEngine } from "../engine-choice.js";
+import { engineDefaultFromEnv, mustStayOnV1, pickRunEngine, runSelectedEngine } from "../engine-choice.js";
 import { briefToolFilter, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
@@ -1148,7 +1148,7 @@ async function executeLeasedRun(ctx: {
 			{ markReady: markDeliveryReady, cancel: cancelRunDelivery },
 		);
 	const apiConnector = await apiConnectorPromise;
-	// Motor do run (ADR 0002): v1 por padrão; v2 só no chat direto de um bot que ligou `policyJson.engine = "v2"`.
+	// Motor do run (ADR 0002): v1 por padrão; v2 no chat direto de um bot que ligou `policyJson.engine = "v2"` e, com `engineScope = "all"`, em rotina, grupo e bot→bot.
 	// A escolha fica no budgetJson do run: a retomada continua no motor em que o run nasceu.
 	const engineChoice = await pickRunEngine({
 		run,
@@ -1156,8 +1156,17 @@ async function executeLeasedRun(ctx: {
 		isGroupRun: Boolean(groupRun),
 		// Todo run nasce com checkpointJson (createAgentRun); só conta como retomada se já há transcript do modelo.
 		hasCheckpoint: Boolean(checkpoint?.llmMessages?.length),
-		// Modo proativo do bot e evento de configuração (sem mensagem digitada) usam tools que o v2 ainda não tem.
-		forceV1: Boolean(proactiveForRun) || Boolean(alertRun) || (isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run)),
+		// Modo proativo do bot, alerta, evento de configuração (sem mensagem digitada), brief "Seu dia" e rotina
+		// "só importante" usam recursos que o v2 ainda não tem.
+		forceV1: mustStayOnV1({
+			origin: run.origin,
+			proactive: Boolean(proactiveForRun),
+			alert: Boolean(alertRun),
+			botConfigEvent: isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run),
+			detachedBrief: isDetachedBriefRun(run),
+			routinePush: Boolean(userPushForRun),
+		}),
+		globalDefault: engineDefaultFromEnv(),
 		lastUserText: [...messages].reverse().find((message) => message.role === "user")?.content ?? "",
 		record: (choice) => recordRunEngine(runId, choice),
 	});

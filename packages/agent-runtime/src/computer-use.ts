@@ -317,10 +317,11 @@ import { CREATE_FILE_TOOL, type CreateFileDeps, type FileEvent } from "./tools/c
 import { resolveDeckFileDeps } from "./tools/deck-file.js";
 import { INSPECT_PRESENTATION_TOOL } from "./tools/inspect-presentation.js";
 import { RUN_CODE_TOOL, type RunCodeDeps } from "./tools/run-code.js";
-import { ROUTINE_CONTROL_TOOL, ROUTINE_CONTROL_TOOL_NAME } from "./tools/routine-control.js";
+import { ROUTINE_CONTROL_TOOL } from "./tools/routine-control.js";
 import { REPORT_ALERT_TOOL, REPORT_ALERT_TOOL_NAME, alertRunNote, type AlertRunState } from "./tools/report-alert.js";
 import { ALERT_RULE_SCHEMA, type AlertRuleReader } from "./tools/alert-rule.js";
-import { FIND_PAGE_VALUE_TOOL, FIND_PAGE_VALUE_TOOL_NAME, type PageValueFinder } from "./tools/find-page-value.js";
+import { FIND_PAGE_VALUE_TOOL, type PageValueFinder } from "./tools/find-page-value.js";
+import { ROUTINE_EXCLUDED_TOOLS } from "./tools/routine-excluded.js";
 import { upsertDailyBrief } from "./tools/daily-brief.js";
 import { listBriefSources } from "./tools/daily-brief-sources.js";
 import { PAGE_READ_TOOL_NAME, PAGE_TOOLS, PAGE_UPDATE_TOOL_NAME, type PageShareStore, type PagesStore } from "./tools/pages.js";
@@ -1628,7 +1629,7 @@ export const LOGIN_ALREADY_ASKED_NOTE = (site: string) =>
 	"Do NOT ask again, never type credentials. Tell the user plainly (in their language, no technical terms) that the site still shows the login screen " +
 	"and that they can open the computer, finish signing in and tell you when it is done.";
 
-const UNATTENDED_LOGIN_NOTE = (site: string, tried?: string) =>
+export const UNATTENDED_LOGIN_NOTE = (site: string, tried?: string) =>
 	`\nLOGIN NOT POSSIBLE on ${site}: this is an unattended routine run, nobody can sign in by hand. Do NOT retry, do NOT call more browser tools, never type credentials. ` +
 	(tried
 		? "The saved vault login was used but the site still asks for an extra step only the person can do (code, captcha or confirmation). "
@@ -2177,24 +2178,7 @@ async function runComputerUseCore(params: {
 	};
 
 	const SKILL_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["propose_skill", "delete_skill"]);
-	const ROUTINE_MANAGE_TOOLS = new Set([
-		"list_routines",
-		"propose_routine",
-		"routine_group",
-		ROUTINE_CONTROL_TOOL_NAME,
-		FIND_PAGE_VALUE_TOOL_NAME,
-		"github_list_repos",
-	]);
-	// Fase 1: pesquisa web NÃO entra em rotina (execução só executa a instrução).
-	const ROUTINE_EXCLUDED_TOOLS = new Set([
-		...ROUTINE_MANAGE_TOOLS,
-		"web_search",
-		"web_extract",
-		// `memory` é núcleo no chat; rotina não escreve memória (a revisão pós-run decide o que guardar).
-		"memory",
-		// Pede uma pessoa (cartão de senha). `login_fill` fica: o login salvo do dono entra sem aprovação, também em rotina.
-		"secret_request",
-	]);
+	// Fase 1: pesquisa web NÃO entra em rotina (execução só executa a instrução). Lista compartilhada com o v2 (`tools/routine-excluded.ts`).
 	// Gate de `propose_profile_update` (bug original: toda resposta de
 	// questionário virava proposta de perfil). Só expõe a tool ao modelo
 	// quando: (a) onboarding ainda não terminou (bot sem description/briefing),

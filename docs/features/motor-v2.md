@@ -105,8 +105,35 @@ Só em `long_work` e só no chat direto de usuário real. Em `chat` (ex.: "Bom d
 - O índice só mostra título e fonte; um título escrito pela página (via modelo) é dado, e o prompt do índice diz isso. Custo: o índice soma até ~900 tokens por passo quando o caderno está cheio.
 - Ainda de fora (F3 parte B): resumo de compactação, as 4 memórias, raciocínio controlável e `track_items`.
 
+## Origens além do chat (F5, preparação; desligado por padrão)
+Por padrão nada muda: o v2 roda só no chat direto de um bot com `engine: "v2"`. Dois botões, ambos desligados:
+
+| Botão | Onde | Efeito |
+|---|---|---|
+| `policyJson.engineScope` | por bot (engrenagem: "Usar também em rotinas e grupos"; chat: `set_engine` com `scope`) | `"chat"` (padrão) ou `"all"`. Com `engine: "v2"` e `"all"`: rotina, grupo (run de membro) e bot→bot rodam no v2 |
+| `ATLAS_ENGINE_V2_DEFAULT` | env do worker | `off` (padrão), `chat` ou `all`. Vale só para bot SEM `policyJson.engine` explícito. `engine: "v1"` explícito nunca vai ao v2 |
+
+Decisão pura em `shared` (`resolveBotEngineRouting`, `engineV2SupportsRun`, `chooseRunEngine`); o worker só lê o env (`engineDefaultFromEnv`) e passa. O motor gravado em `budgetJson.engine` continua vencendo (retomada).
+
+**Origens liberadas no escopo `all`:** `routine`, grupo (`chat` com `isGroupRun`) e `bot`.
+**Ficam no v1, sempre:**
+- subagente (o v2 tem os ajudantes do `delegate`, outro mecanismo), webhook e e-mail (sem humano e com tools de evento/e-mail que o v2 não cobre);
+- modo proativo, alerta, evento de configuração do bot sem mensagem digitada (tools de reflexão, `report_alert`, `schedule_followup`);
+- brief "Seu dia" (rotina sem conversa) e rotina com notificação "só importante" (usa `notify_user`, que o v2 não tem);
+- tools sensíveis (`set_engine`, perfil) seguem só no chat com o dono digitando.
+
+**Verificação por origem (v1 x v2) e lacunas fechadas** (`engine-v2/catalog.ts`, `prompt.ts`, `login.ts`, `run.ts`; testes em `engine-v2/origens.test.ts` e `apps/worker/src/integration/origens.integration.ts`):
+- Rotina: o v2 não filtrava nada por origem. Agora usa a mesma lista de exclusão do v1 (`tools/routine-excluded.ts`: gestão de rotinas, `web_search`/`web_extract`, `memory`, `secret_request`), sem `sandbox_release`, sem lista de tarefas, imagem, painéis e conector de API (só chat). Conector: só o que a autonomia libera sem perguntar (o filtro de `unattended` já vinha do carregamento no worker; o catálogo agora repete a regra). "MCP read-only" aqui significa isso: com autonomia total o dono liberou escrita, igual ao v1. Sem humano o prompt traz o modo execução de rotina e "Unattended run": não perguntar, não esperar aprovação nem login. Login sem humano vira nota ao modelo (sem cartão nem pausa); captcha e login de conector seguem pedindo à pessoa, como no v1. Painel da rotina: só `page_read`/`page_update` do painel dela, com `routinePageId` no contexto da tool (o v2 não o repassava: poderia atualizar outro painel do dono). Perfil de trabalho: o mesmo `resolveRunProfile` (`long_work` quando o pedido da rotina é relatório/levantamento, senão `chat`). Entrega, `routineId` + run e `stopReason` vêm do worker, igual ao v1.
+- Grupo: o run de membro é `chat` com `isGroupRun`; cartões, aceite automático do principal (`autoDecideGroupPending`), cobrança única e resumo são do db/worker e valem para os dois motores (o v2 grava o mesmo cartão `confirm` e para em `awaiting_confirmation`). Menções e "quem fala" vêm das mensagens preparadas pelo worker. O bloco "últimas respostas do usuário" para não reperguntar também. `set_engine` e perfil não aparecem (turno do coordenador não é `humanTurn`). Teste de integração: membro responde no v2 e termina.
+- Bot→bot: limites anti-loop (`BOT_RUN_MAX_SENDS`, `BOT_MESSAGE_MAX_DEPTH`, cadeia) estão no db e no `send_to_bot`; o v2 não expõe `send_to_bot`, então um destino no v2 só responde (não encaminha). Lista de tarefas igual ao v1 (chat e bot).
+
+**Riscos e custo.** Rotina em `long_work` tem caderno, documento e orçamento de US$ 0,50 / 20 min (ajustável), então uma rotina de relatório pode custar mais que no v1; rotina curta fica em `chat` (US$ 0,25 / 8 min). `ATLAS_ENGINE_V2_DEFAULT=all` muda TODOS os bots sem escolha: ligue primeiro `chat`, meça, depois `all`. A engrenagem mostra "Atual" para bot sem escolha mesmo com o padrão global ligado (a UI não conhece a variável); escolher "Novo" e voltar a "Atual" grava `engine: "v1"` explícito. Desligar: tire o escopo do bot, ponha `ATLAS_ENGINE_V2_DEFAULT=off` e reinicie o worker; run em andamento termina no motor em que começou.
+
 ## Limites desta fase (o que o v2 ainda não faz)
-- **Origens:** só o chat direto do dono com o bot. Rotina, alerta, webhook, proativo, e-mail, bot→bot, subagente e grupo seguem no v1.
+- **Origens:** por padrão só o chat direto do dono com o bot. Rotina, grupo e bot→bot só com `engineScope: "all"` (ou o padrão global `all`), ver acima. Alerta, webhook, proativo, e-mail e subagente seguem no v1.
+- **Bot→bot no v2 só responde:** o catálogo do v2 não tem `send_to_bot` nem `decide_bot_pending` e não injeta os pedidos abertos de outros bots. O bot atendido não repassa a um terceiro nem decide pendência de outro bot (o v1 faz). Anti-loop intacto, porque só o `send_to_bot` envia.
+- **Padrão global invisível:** `describeEngineSettings`, a engrenagem e `set_engine` leem só o `policyJson`; com `ATLAS_ENGINE_V2_DEFAULT` ligado, bot sem escolha aparece como "motor atual" mas roda no v2. Bot que voltou ao v1 antes desta fase (chave removida, sem `engine: "v1"`) também é pego pelo padrão global: regrave "Atual" antes de ligar.
+- **Rotina em trabalho longo:** instrução de relatório vira `long_work` (orçamento e documento), sem lista de tarefas (a rotina não tem `update_task_list`; o prompt não a cita).
 - **Tools fora do catálogo do v2:** `delegate_task` (no v2 o equivalente é `delegate`, ver acima), `research_note` (no v2 vale o caderno), `track_items`, `propose_plan`, `read_cached_result`, sessão de código (`dev_*`), envio entre bots, `set_autonomy`, lições de conector, prévia completa, `notify_user`/proativo.
 - **Login:** o card de login é sempre humano (sem preenchimento automático do Cofre nem retomada com item do Cofre); o `login_fill` por tool continua.
 - **Modo proativo e avisos:** bot com modo proativo ligado fica no v1 (o v2 não tem `schedule_followup` nem a reflexão); o `notify_user` (push no meio de tarefa longa) também não existe no v2.

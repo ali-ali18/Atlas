@@ -17,8 +17,19 @@ export const LONG_WORK_MAX_USD = 20;
 export const LONG_WORK_MIN_MINUTES = 1;
 export const LONG_WORK_MAX_MINUTES = 120;
 
+/**
+ * Onde o v2 roda num bot que o ligou: `chat` (padrão) = só a conversa direta com o dono; `all` = também rotinas,
+ * grupo e bot→bot. Subagente, proativo, alerta e evento de configuração do bot seguem no v1 (o v2 não tem esses recursos).
+ */
+export type EngineScope = "chat" | "all";
+/** Padrão global do deploy (`ATLAS_ENGINE_V2_DEFAULT`) para bots que não escolheram o motor: `off` (padrão), `chat` ou `all`. */
+export type EngineDefault = "off" | EngineScope;
+
 export type EnginePolicy = {
 	engine: RunEngine;
+	/** Escolha explícita do bot (`policyJson.engine`): `v1` explícito nunca vai para o v2, nem pelo padrão global. */
+	explicit?: RunEngine;
+	scope: EngineScope;
 	workProfile: WorkProfileSetting;
 	longWorkBudgetUsd: number;
 	longWorkMinutes: number;
@@ -39,18 +50,39 @@ export function readEnginePolicy(policyJson: unknown): EnginePolicy {
 	const workProfile: WorkProfileSetting = policy.workProfile === "chat" || policy.workProfile === "long_work" ? policy.workProfile : "auto";
 	return {
 		engine: policy.engine === "v2" ? "v2" : "v1",
+		explicit: policy.engine === "v1" || policy.engine === "v2" ? policy.engine : undefined,
+		scope: policy.engineScope === "all" ? "all" : "chat",
 		workProfile,
 		longWorkBudgetUsd: clampedNumber(policy.longWorkBudgetUsd, LONG_WORK_DEFAULT_BUDGET_USD, LONG_WORK_MIN_USD, LONG_WORK_MAX_USD),
 		longWorkMinutes: clampedNumber(policy.longWorkMinutes, LONG_WORK_DEFAULT_MINUTES, LONG_WORK_MIN_MINUTES, LONG_WORK_MAX_MINUTES),
 	};
 }
 
-/** Nova política com o motor trocado, sem perder as outras chaves. `v1` remove a chave (padrão). */
+/**
+ * Nova política com o motor trocado, sem perder as outras chaves. `v1` grava `engine: "v1"` de forma explícita
+ * (e não remove a chave): com o padrão global ligado, só a escolha explícita segura o bot no motor atual.
+ * Voltar ao v1 também desliga o escopo ampliado.
+ */
 export function withBotEngine(policyJson: unknown, engine: RunEngine): Record<string, unknown> {
 	const base = { ...asRecord(policyJson) };
-	if (engine === "v2") base.engine = "v2";
-	else delete base.engine;
+	base.engine = engine;
+	if (engine === "v1") delete base.engineScope;
 	return base;
+}
+
+/** Padrão global do deploy. Qualquer valor desconhecido ou ausente = `off` (nada muda para ninguém). */
+export function readEngineDefault(raw: unknown): EngineDefault {
+	const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+	return value === "chat" || value === "all" ? value : "off";
+}
+
+/** Motor e escopo que valem para o bot: a escolha explícita vence; sem ela, vale o padrão global. */
+export function resolveBotEngineRouting(policy: EnginePolicy, globalDefault: EngineDefault = "off"): { engine: RunEngine; scope: EngineScope } {
+	if (policy.explicit === "v1") return { engine: "v1", scope: "chat" };
+	if (policy.explicit === "v2") return { engine: "v2", scope: policy.scope };
+	if (globalDefault === "off") return { engine: "v1", scope: "chat" };
+	// Sem escolha explícita, o escopo pedido no bot ("all") vale junto com o do padrão global: o maior dos dois.
+	return { engine: "v2", scope: policy.scope === "all" ? "all" : globalDefault };
 }
 
 /** Motor gravado no `budgetJson` do run (`undefined` = o run ainda não escolheu). */
@@ -71,18 +103,32 @@ export function withRunEngine(budgetJson: unknown, choice: { engine: RunEngine; 
 }
 
 /**
- * Origens que o v2 atende nesta fase: só a conversa direta do dono com o bot. Rotina, webhook, proativo,
- * e-mail, bot→bot, subagente e grupo continuam no v1 (ver docs/features/motor-v2.md).
+ * Origens que o v2 atende. Escopo `chat`: só a conversa direta do dono com o bot. Escopo `all`: também rotina,
+ * grupo (run de membro na conversa do grupo) e bot→bot. Webhook, e-mail, proativo e subagente seguem no v1
+ * (sem humano para o v2 perguntar e com recursos que ele não tem; ver docs/features/motor-v2.md).
  */
-export function engineV2SupportsRun(input: { origin: string; isGroupRun: boolean; isSubagent?: boolean }): boolean {
-	return input.origin === "chat" && !input.isGroupRun && input.isSubagent !== true;
+export function engineV2SupportsRun(input: { origin: string; isGroupRun: boolean; isSubagent?: boolean; scope?: EngineScope }): boolean {
+	if (input.isSubagent === true) return false;
+	if (input.origin === "chat") return input.scope === "all" || !input.isGroupRun;
+	return input.scope === "all" && (input.origin === "routine" || input.origin === "bot") && !input.isGroupRun;
 }
 
-/** Motor do run: o que já foi gravado vence (retomada); senão o do bot, se esta origem for suportada. */
-export function chooseRunEngine(input: { stored?: RunEngine; policy: EnginePolicy; origin: string; isGroupRun: boolean; isSubagent?: boolean }): RunEngine {
+/**
+ * Motor do run: o que já foi gravado vence (retomada); senão o do bot (ou o padrão global, se o bot não escolheu),
+ * se esta origem for suportada no escopo dele.
+ */
+export function chooseRunEngine(input: {
+	stored?: RunEngine;
+	policy: EnginePolicy;
+	origin: string;
+	isGroupRun: boolean;
+	isSubagent?: boolean;
+	globalDefault?: EngineDefault;
+}): RunEngine {
 	if (input.stored) return input.stored;
-	if (input.policy.engine !== "v2") return "v1";
-	return engineV2SupportsRun(input) ? "v2" : "v1";
+	const routing = resolveBotEngineRouting(input.policy, input.globalDefault);
+	if (routing.engine !== "v2") return "v1";
+	return engineV2SupportsRun({ ...input, scope: routing.scope }) ? "v2" : "v1";
 }
 
 /**

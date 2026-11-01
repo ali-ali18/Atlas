@@ -41,7 +41,7 @@ describe("piloto: ligar o motor novo pela engrenagem (PATCH do bot)", { skip: in
 
 		const off = await patchBot(fx.botId, { policyJson: withEngineSettings(await policyOf(fx.botId), { engine: "v1" }) });
 		assert.equal(off.status, 200);
-		assert.equal((await policyOf(fx.botId)).engine, undefined);
+		assert.equal((await policyOf(fx.botId)).engine, "v1", "voltar ao atual fica explícito (o padrão global não o religa)");
 		assert.equal((await policyOf(fx.botId)).planMode, true);
 		assert.equal(await nextRunEngine(fx), undefined, "desligar vale na hora para o próximo run");
 	});

@@ -40,6 +40,8 @@ export const botSettings = {
 	"botSettings.engineBudgetMinutes": "Tempo em minutos",
 	"botSettings.engineHelper": "Modelo dos ajudantes",
 	"botSettings.engineHelperDesc": "Modelo dos ajudantes que o bot chama para pesquisar em paralelo. Um modelo mais barato reduz o custo.",
+	"botSettings.engineScope": "Usar também em rotinas e grupos",
+	"botSettings.engineScopeHelp": "O motor novo também roda as rotinas, as conversas em grupo e as mensagens entre bots deste bot. Sem ninguém para responder, ele não pergunta: entrega o que conseguir. Vale a partir da próxima execução.",
 	"botSettings.planMode": "Planejar antes de tarefas grandes",
 	"botSettings.planModeHelp": "Em tarefas com vários passos que alteram dados ou enviam algo, o bot mostra o plano e espera o seu OK. Aprovar o plano não aprova as ações: cada alteração continua pedindo confirmação.",
 	"botSettings.bubble": "Balão na cor do bot",

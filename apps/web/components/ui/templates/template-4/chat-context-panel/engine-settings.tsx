@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CoinsIcon, CpuIcon, UsersIcon } from "lucide-react";
+import { CoinsIcon, CpuIcon, RepeatIcon, UsersIcon } from "lucide-react";
 import { Input } from "@workspace/ui/components/input";
+import { Switch } from "@workspace/ui/components/switch";
 import { readEnginePolicy, readHelperPolicy, withEngineSettings, type EngineSettingsPatch, type RunEngine } from "@workspace/shared";
 import { SettingRow } from "@/components/settings/setting-row";
 import { ModelPicker } from "@/components/model-picker";
@@ -101,6 +102,15 @@ export function EngineSettings({ policyJson, onChange }: { policyJson: unknown; 
 			</SettingRow>
 			{isNew ? (
 				<>
+					<SettingRow
+						caption={<p>{t("botSettings.engineScopeHelp")}</p>}
+						control="inline"
+						htmlFor="agent-engine-scope"
+						icon={RepeatIcon}
+						label={t("botSettings.engineScope")}
+					>
+						<Switch checked={policy.scope === "all"} id="agent-engine-scope" onCheckedChange={(checked) => save({ scope: checked ? "all" : "chat" })} />
+					</SettingRow>
 					<SettingRow
 						caption={rejectedText ? <p id="agent-engine-budget-error" role="alert">{rejectedText}</p> : undefined}
 						control="inline"

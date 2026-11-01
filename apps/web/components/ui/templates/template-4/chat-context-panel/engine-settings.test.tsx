@@ -40,3 +40,33 @@ test("mensagens de valor recusado existem nas 3 línguas", async () => {
 		assert.ok(messages["botSettings.engineBudgetMinutesInvalid"], locale);
 	}
 });
+
+async function renderWith(locale: UiLocale, policyJson: unknown): Promise<string> {
+	return renderToStaticMarkup(
+		<I18nProvider locale={locale} messages={await loadMessages(locale)}>
+			<EngineSettings onChange={() => {}} policyJson={policyJson} />
+		</I18nProvider>,
+	);
+}
+
+test("opção 'Usar também em rotinas e grupos' só aparece com o motor novo e reflete o escopo salvo", async () => {
+	assert.doesNotMatch(await renderWith("pt-BR", {}), /agent-engine-scope/);
+	const chatOnly = await renderWith("pt-BR", { engine: "v2" });
+	assert.match(chatOnly, /Usar também em rotinas e grupos/);
+	assert.match(chatOnly, /for="agent-engine-scope".*?role="switch"[^>]*aria-checked="false"/);
+	const wide = await renderWith("pt-BR", { engine: "v2", engineScope: "all" });
+	assert.match(wide, /for="agent-engine-scope".*?role="switch"[^>]*aria-checked="true"/);
+	assert.doesNotMatch(await renderWith("pt-BR", { engine: "v1", engineScope: "all" }), /agent-engine-scope/);
+});
+
+test("a opção do escopo existe nas 3 línguas, sem nomes internos", async () => {
+	assert.match(await renderWith("en-US", { engine: "v2" }), /Use also in routines and groups/);
+	assert.match(await renderWith("es-ES", { engine: "v2" }), /Usar también en rutinas y grupos/);
+	for (const locale of ["pt-BR", "en-US", "es-ES"] as const) {
+		const messages = await loadMessages(locale);
+		for (const key of ["botSettings.engineScope", "botSettings.engineScopeHelp"] as const) {
+			assert.ok(messages[key], `${locale} ${key}`);
+			assert.doesNotMatch(messages[key], /engineScope|policyJson|v2|cron|tool/i, `${locale} ${key}`);
+		}
+	}
+});

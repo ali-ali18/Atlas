@@ -42,7 +42,7 @@ test("PATCH /v1/bots/:id valida as chaves do motor (piloto do motor v2) e escopa
 	};
 	try {
 		const a = await appFor("user-a");
-		for (const bad of [{ engine: "v3" }, { longWorkBudgetUsd: 100 }, { longWorkMinutes: 0 }, { helperModel: 7 }, { helperModel: "foo/nao-existe" }]) {
+		for (const bad of [{ engine: "v3" }, { longWorkBudgetUsd: 100 }, { longWorkMinutes: 0 }, { helperModel: 7 }, { helperModel: "foo/nao-existe" }, { engine: "v2", engineScope: "tudo" }, { engineScope: true }, { engineScope: "ALL" }, { engineScope: 1 }]) {
 			assert.equal((await patch(a, bad)).status, 400, JSON.stringify(bad));
 		}
 		assert.equal(saved, undefined);
@@ -50,7 +50,16 @@ test("PATCH /v1/bots/:id valida as chaves do motor (piloto do motor v2) e escopa
 		assert.equal((await patch(a, ok)).status, 200);
 		assert.deepEqual(saved, ok);
 		saved = undefined;
+		// Escopo ampliado: "all" e "chat" passam e são gravados como vieram.
+		for (const scoped of [{ engine: "v2", engineScope: "all" }, { engine: "v2", engineScope: "chat" }]) {
+			assert.equal((await patch(a, scoped)).status, 200, JSON.stringify(scoped));
+			assert.deepEqual(saved, scoped);
+		}
+		saved = undefined;
+		// Outro dono: 404, nada gravado (também para o escopo novo).
 		assert.equal((await patch(await appFor("user-b"), ok)).status, 404);
+		assert.equal((await patch(await appFor("user-b"), { engine: "v2", engineScope: "all" })).status, 404);
+		assert.equal((await patch(await appFor("user-b"), { engine: "v2", engineScope: "tudo" })).status, 404);
 		assert.equal(saved, undefined);
 	} finally {
 		bot.findUnique = originals.findUnique;

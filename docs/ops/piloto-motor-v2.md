@@ -5,7 +5,7 @@ Guia para o dono ligar o motor novo (v2) no bot Radar de Mercado, testar três c
 ## O que é o motor novo, em uma frase
 O motor atual para no meio de uma pesquisa e pergunta demais. O motor novo trabalha até o fim dentro de um orçamento (dinheiro e minutos) que você define, e entrega um resumo, as fontes e uma lista do que não deu para confirmar. Relatório grande vira documento (PDF, Word ou texto).
 
-Ele só vale para a **conversa direta com o bot** (as rotinas, alertas, e-mails, grupos e conversa entre bots continuam no motor atual). Vale a partir da **próxima mensagem**; uma tarefa que já está rodando termina no motor em que começou.
+Por padrão ele só vale para a **conversa direta com o bot** (as rotinas, alertas, e-mails, grupos e conversa entre bots continuam no motor atual; para incluir rotinas, grupos e conversa entre bots, veja "Ampliar para rotinas e grupos" abaixo). Vale a partir da **próxima mensagem**; uma tarefa que já está rodando termina no motor em que começou.
 
 ## Como ligar
 
@@ -24,6 +24,16 @@ Escreva para o bot, por exemplo:
 - "volta pro motor atual"
 
 O bot mostra um cartão "Motor do bot atualizado" com o resumo ("Motor novo (teste) · até US$ 1,00 e 30 min por tarefa longa"). Se você pedir um valor fora da faixa, ele diz o que é aceito e não muda nada.
+
+## Ampliar para rotinas e grupos (opcional, desligado por padrão)
+Só depois de o chat estar bom no piloto.
+
+1. **Por bot:** engrenagem, com Motor em Novo (teste), ligue **Usar também em rotinas e grupos**. Pelo chat: "liga o motor novo também nas rotinas e grupos". Vale a partir da próxima execução. Entram rotinas, conversa em grupo e conversa entre bots. Continuam no motor atual: alertas, rotinas "só importante", brief "Seu dia", e-mail, webhook, modo proativo e ajudantes.
+2. **Para todos os bots que não escolheram o motor** (ação do operador, variável do worker): `ATLAS_ENGINE_V2_DEFAULT=chat` liga o motor novo no chat desses bots; `=all` também em rotinas, grupos e bot→bot. Reinicie o worker. Bot que escolheu **Atual** (grava `engine: "v1"`) nunca é afetado. Recomendado: `chat` por alguns dias, só depois `all`. A engrenagem continua mostrando "Atual" para bot sem escolha, mesmo com a variável ligada. O bot, se perguntado pelo chat, também diz "motor atual" nesse caso: a engrenagem e o bot não sabem da variável.
+   - **Antes de ligar a variável:** bot que voltou para "Atual" **antes da 0.3.5** não tem a escolha gravada e vai para o motor novo com a variável ligada. Abra a engrenagem desses bots e escolha "Atual" de novo (agora fica gravado).
+3. **O que muda em rotina no motor novo:** a rotina nunca pergunta (entrega o que conseguiu e diz o que faltou), não gerencia outras rotinas, não pesquisa na web nem escreve memória (igual ao motor atual), e relatório pode gerar documento. Custo: rotina de relatório pode gastar até o orçamento por tarefa longa.
+4. **Para desligar:** tire a opção na engrenagem (ou "volta pro motor atual"), ponha `ATLAS_ENGINE_V2_DEFAULT=off` (ou remova) e reinicie o worker. Vale no próximo run; o que já está rodando termina no motor em que começou.
+5. **Medir:** as consultas 6 a 11 de `docs/ops/por-que-runs-terminam.sql` separam por motor; filtre por `origin = 'routine'` para ver só rotinas.
 
 ## Como desligar na hora
 - Engrenagem: Motor → **Atual**.
@@ -79,7 +89,7 @@ O motor de cada tarefa fica gravado na própria tarefa: motor novo aparece como 
 `docs/ops/motor-v1-vs-v2.md` tem o comparativo com modelo roteirizado (sem internet, mesmo resultado sempre). Ele mostra o que **o motor** faz: o motor novo gera documento no relatório longo, lista o que não confirmou e é mais barato em conversa curta; em pesquisa muito longa ele gasta mais (o histórico cresce) e pode bater no orçamento. Ele **não** compara a qualidade de Haiku e Sonnet: isso só o piloto mostra. Para medir com modelo de verdade antes do piloto (gasta dinheiro, só com a sua decisão), há o modo `--live` descrito em `packages/evals/README.md`.
 
 ## Limites do piloto (honestidade)
-- Só a conversa direta com o bot usa o motor novo. Rotinas e alertas do Radar continuam no atual.
+- Por padrão só a conversa direta com o bot usa o motor novo. Rotinas e alertas do Radar continuam no atual, salvo se você ligar a ampliação acima (alertas e rotinas "só importante" ficam no atual de qualquer forma).
 - O motor novo ainda não faz: planejar com aprovação, sessão de código e envio entre bots (ver `docs/features/motor-v2.md`). Se o Radar precisar disso, o bot segue no atual para aquele pedido.
 - Custo é estimado quando o provedor não informa; modelos baratos podem parecer mais caros do que são.
 - Não há ainda um painel de custo por motor; use as consultas acima.
