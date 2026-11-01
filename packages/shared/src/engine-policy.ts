@@ -81,7 +81,8 @@ export function resolveBotEngineRouting(policy: EnginePolicy, globalDefault: Eng
 	if (policy.explicit === "v1") return { engine: "v1", scope: "chat" };
 	if (policy.explicit === "v2") return { engine: "v2", scope: policy.scope };
 	if (globalDefault === "off") return { engine: "v1", scope: "chat" };
-	return { engine: "v2", scope: globalDefault };
+	// Sem escolha explícita, o escopo pedido no bot ("all") vale junto com o do padrão global: o maior dos dois.
+	return { engine: "v2", scope: policy.scope === "all" ? "all" : globalDefault };
 }
 
 /** Motor gravado no `budgetJson` do run (`undefined` = o run ainda não escolheu). */

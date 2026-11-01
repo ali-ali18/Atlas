@@ -106,6 +106,10 @@ describe("padrão global (ATLAS_ENGINE_V2_DEFAULT)", () => {
 		expect(resolveBotEngineRouting(readEnginePolicy({ engine: "v1", engineScope: "all" }), "all")).toEqual({ engine: "v1", scope: "chat" });
 		expect(resolveBotEngineRouting(readEnginePolicy({ engine: "v2", engineScope: "all" }), "off")).toEqual({ engine: "v2", scope: "all" });
 		expect(resolveBotEngineRouting(readEnginePolicy({ engine: "v2" }), "all")).toEqual({ engine: "v2", scope: "chat" });
+		// Sem escolha explícita mas com "usar também em rotinas e grupos" salvo: vale o maior escopo.
+		const scopeOnly = readEnginePolicy({ engineScope: "all" });
+		expect(resolveBotEngineRouting(scopeOnly, "chat")).toEqual({ engine: "v2", scope: "all" });
+		expect(resolveBotEngineRouting(scopeOnly, "off")).toEqual({ engine: "v1", scope: "chat" });
 	});
 });
 
