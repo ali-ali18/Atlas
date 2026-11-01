@@ -36,3 +36,14 @@ test("usa tokens e primitivos do pacote ui (sem tamanho ou raio arbitrário)", (
   assert.match(html, /data-slot="button-group"/);
   assert.doesNotMatch(html, /text-\[\d+px\]|rounded-\[\d+px\]/);
 });
+
+test("o ativo tem realce forte (bg-primary) e os demais não", () => {
+  const html = render({ value: "low" });
+  const buttons = html.match(/<button[^>]*>/g) ?? [];
+  const active = buttons.filter((tag) => tag.includes('aria-pressed="true"'));
+  assert.equal(active.length, 1);
+  assert.match(active[0]!, /bg-primary/);
+  const inactive = buttons.filter((tag) => tag.includes('aria-pressed="false"'));
+  assert.ok(inactive.length >= 4);
+  assert.ok(inactive.every((tag) => !/\bbg-primary\b/.test(tag)));
+});

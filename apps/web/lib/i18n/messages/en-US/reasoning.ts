@@ -3,7 +3,7 @@ import type { NamespaceMessages } from "../../translator";
 
 export const reasoning: NamespaceMessages<typeof ptBR> = {
 	"reasoning.label": "Reasoning",
-	"reasoning.hint": "More reasoning answers better and costs more. Less is faster and cheaper.",
+	"reasoning.hint": "More reasoning answers better and costs more. Less is faster and cheaper. Applies to this bot on this device.",
 	"reasoning.default": "Model default",
 	"reasoning.defaultShort": "Default",
 	"reasoning.off": "Off",

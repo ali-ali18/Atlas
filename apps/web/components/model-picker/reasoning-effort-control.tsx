@@ -46,7 +46,8 @@ export function ReasoningEffortControl({
               size="sm"
               title={option.title}
               type="button"
-              variant={selected ? "secondary" : "outline"}
+              // "default" (bg-primary) é o realce forte do pacote ui, legível nos temas claro e escuro; "secondary" ficava sutil no escuro.
+              variant={selected ? "default" : "outline"}
             >
               {option.label}
             </Button>
