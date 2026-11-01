@@ -37,6 +37,13 @@ export type AvatarProps = {
 	 * entre os pulos ele respira e pisca. `neutral`: só respira e pisca.
 	 */
 	mood?: "neutral" | "happy";
+	/**
+	 * Repouso vivo: respira (escala, flutuação e balanço). Igual ao `breathe` do web, que vem desligado:
+	 * o avatar do painel de marca do login fica com o corpo parado e só pisca.
+	 */
+	breathe?: boolean;
+	/** Olhar: de tempos em tempos os olhos passeiam para um ponto e voltam (as olhadas do motor do web). */
+	look?: boolean;
 };
 
 // Tempos do motor do web (BEHAVIOR_TUNING e CHARACTER_TUNING em packages/shared/src/avatar/model):
@@ -59,6 +66,16 @@ const ROLL: readonly Key[] = [[0.08, 0], [0.59, 14.2], [1.14, -21.7], [1.97, -1.
 /** Duração do clipe (3,7 s) mais uma pausa antes do próximo, onde ele só respira e pisca. */
 const DANCE_EVERY_S = 4.6;
 const BODY_RADIUS_RATIO = 0.3525; // raio do corpo / lado da caixa (o corpo ocupa ~70,5% dela)
+
+// Olhadas do motor do web (BEHAVIOR_TUNING e `glance()` em behavior.ts): a cada 3 a 8 s um ponto sorteado
+// (x de -0,9 a 0,9, y de -0,5 a 0,5) que fica 0,7 a 1,4 s. No web, quem vira é o corpo em 3D e os olhos só
+// têm resíduo de 1,2px; aqui o corpo fica parado e os olhos andam até LOOK_MAX_PX (decisão do dono).
+const LOOK_EVERY_S = [3, 8] as const;
+const LOOK_HOLD_S = [0.7, 1.4] as const;
+const LOOK_X = 0.9;
+const LOOK_Y = 0.5;
+const LOOK_MAX_PX = 4;
+const between = (range: readonly [number, number]) => range[0] + Math.random() * (range[1] - range[0]);
 
 const AnimatedG = Animated.createAnimatedComponent(G);
 
@@ -85,7 +102,7 @@ function playTrack(target: SharedValue<number>, keys: readonly Key[], scale = 1)
  * respiração (escala, flutuação e leve balanço) e piscada. Ficam de fora o olhar que segue o toque, os
  * estados do cérebro e os clipes 3D de repouso (Idle_A/B/D), que dependem do loop de quadros do motor.
  */
-export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120, animated = true, mood = "neutral" }: AvatarProps) {
+export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120, animated = true, mood = "neutral", breathe = false, look = true }: AvatarProps) {
 	const scheme = useAppColorScheme();
 	const reducedMotion = useReducedMotion();
 	const live = animated && !reducedMotion;
@@ -110,15 +127,38 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 	const squashX = useSharedValue(1);
 	const squashY = useSharedValue(1);
 	const roll = useSharedValue(0);
+	const gazeX = useSharedValue(0);
+	const gazeY = useSharedValue(0);
 	const radius = size * BODY_RADIUS_RATIO;
 
 	React.useEffect(() => {
-		if (!live) {
-			breath.value = 0;
+		if (!live || !breathe) {
+			breath.value = 0.5; // ponto neutro: sem deslocamento, giro nem escala extra
 			return;
 		}
 		breath.value = withRepeat(withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.sin) }), -1, true);
-	}, [live, breath]);
+	}, [live, breathe, breath]);
+
+	// Olhar: vai devagar até o ponto, fica um pouco e volta ao centro.
+	React.useEffect(() => {
+		gazeX.value = 0;
+		gazeY.value = 0;
+		if (!live || !look) return;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const schedule = () => {
+			timer = setTimeout(() => {
+				gazeX.value = withTiming((Math.random() * 2 - 1) * LOOK_X, { duration: 380, easing: Easing.out(Easing.cubic) });
+				gazeY.value = withTiming((Math.random() * 2 - 1) * LOOK_Y, { duration: 380, easing: Easing.out(Easing.cubic) });
+				timer = setTimeout(() => {
+					gazeX.value = withTiming(0, { duration: 450, easing: Easing.inOut(Easing.cubic) });
+					gazeY.value = withTiming(0, { duration: 450, easing: Easing.inOut(Easing.cubic) });
+					schedule();
+				}, between(LOOK_HOLD_S) * 1000);
+			}, between(LOOK_EVERY_S) * 1000);
+		};
+		schedule();
+		return () => clearTimeout(timer);
+	}, [live, look, gazeX, gazeY]);
 
 	React.useEffect(() => {
 		lid.value = 1;
@@ -167,15 +207,22 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 			transform: [
 				{ translateY: hop.value + anchorShift + (breath.value - 0.5) * size * 0.03 },
 				{ rotate: `${(breath.value - 0.5) * 5 + roll.value}deg` },
-				{ scaleX: (1 + breath.value * 0.035) * squashX.value },
-				{ scaleY: (1 + breath.value * 0.035) * squashY.value },
+				{ scaleX: (1 + (breath.value - 0.5) * 0.035) * squashX.value },
+				{ scaleY: (1 + (breath.value - 0.5) * 0.035) * squashY.value },
 			],
 		};
 	});
 
 	// Piscar = achatar os olhos na vertical em torno da linha dos olhos (o motor reduz o comprimento do olho).
 	const eyesProps = useAnimatedProps(() => ({
-		transform: [{ translateY: eyeCy }, { scaleY: lid.value }, { translateY: -eyeCy }],
+		// Olhar em px da tela, convertido para unidades do viewBox (250).
+		transform: [
+			{ translateX: (gazeX.value / LOOK_X) * LOOK_MAX_PX * (250 / size) },
+			{ translateY: ((gazeY.value / LOOK_Y) * LOOK_MAX_PX * (250 / size)) },
+			{ translateY: eyeCy },
+			{ scaleY: lid.value },
+			{ translateY: -eyeCy },
+		],
 	}));
 
 	return (

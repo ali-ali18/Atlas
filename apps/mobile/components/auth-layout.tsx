@@ -14,7 +14,7 @@ export function AuthHeader({ title, subtitle }: { title: string; subtitle: strin
 	const keyboardOpen = useKeyboardVisible();
 	return (
 		<View className="items-center gap-2">
-			<Avatar ariaLabel="Avatar do Atlas Agent" size={keyboardOpen ? 64 : 102} mood="happy" />
+			<Avatar ariaLabel="Avatar do Atlas Agent" size={keyboardOpen ? 64 : 102} />
 			<Text className="text-center text-xl font-semibold tracking-tight">{title}</Text>
 			<Text variant="muted" className="text-center text-sm">
 				{subtitle}
