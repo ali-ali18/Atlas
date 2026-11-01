@@ -55,11 +55,6 @@ type Key = readonly [number, number];
 const HOP: readonly Key[] = [[0.22, 0], [0.41, 0.27], [0.77, 0], [0.99, 0.27], [1.25, 0], [1.43, 0.21], [1.62, 0], [1.69, 0.13], [1.84, 0], [1.87, 0.08], [1.95, 0]];
 const SQUASH_X: readonly Key[] = [[0.03, 1], [0.17, 1.095], [0.25, 1], [0.59, 1], [0.71, 1], [0.77, 1.095], [0.99, 1], [1.2, 1], [1.24, 1.02], [1.37, 1], [1.57, 1], [1.72, 1]];
 const SQUASH_Y: readonly Key[] = [[0.03, 1], [0.17, 0.95], [0.25, 1.1], [0.59, 1], [0.71, 1], [0.77, 0.95], [0.99, 1.05], [1.2, 1], [1.24, 0.95], [1.37, 1.05], [1.57, 1.05], [1.72, 1]];
-const ROLL_PEAK_DEG = 21.7;
-/** No web o balanço é 3D (pitch/yaw). Girar o corpo no plano deixa o avatar "de ladinho", então aqui o corpo
- * gira no máximo ±3° e o resto vira um deslocamento horizontal dos olhos (±2px), que lê como virar a cabeça. */
-const BODY_TILT_MAX_DEG = 3;
-const EYE_YAW_MAX_PX = 2;
 const ROLL: readonly Key[] = [[0.08, 0], [0.59, 14.2], [1.14, -21.7], [1.97, -1.1], [2.27, 0]];
 /** Duração do clipe (3,7 s) mais uma pausa antes do próximo, onde ele só respira e pisca. */
 const DANCE_EVERY_S = 4.6;
@@ -87,7 +82,7 @@ function playTrack(target: SharedValue<number>, keys: readonly Key[], scale = 1)
 /**
  * Avatar do Atlas. Mesmo nome e props do Avatar de packages/ui. O desenho vem do mesmo motor
  * (`stillFrame` + `projectFrame`, em @workspace/shared); o movimento é uma versão básica do motor do web:
- * respiração (escala, flutuação e leve balanço de 2°) e piscada. Ficam de fora o olhar que segue o toque, os
+ * respiração (escala, flutuação e leve balanço) e piscada. Ficam de fora o olhar que segue o toque, os
  * estados do cérebro e os clipes 3D de repouso (Idle_A/B/D), que dependem do loop de quadros do motor.
  */
 export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120, animated = true, mood = "neutral" }: AvatarProps) {
@@ -171,7 +166,7 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 		return {
 			transform: [
 				{ translateY: hop.value + anchorShift + (breath.value - 0.5) * size * 0.03 },
-				{ rotate: `${(breath.value - 0.5) * 2 + (roll.value / ROLL_PEAK_DEG) * BODY_TILT_MAX_DEG}deg` },
+				{ rotate: `${(breath.value - 0.5) * 5 + roll.value}deg` },
 				{ scaleX: (1 + breath.value * 0.035) * squashX.value },
 				{ scaleY: (1 + breath.value * 0.035) * squashY.value },
 			],
@@ -180,8 +175,7 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 
 	// Piscar = achatar os olhos na vertical em torno da linha dos olhos (o motor reduz o comprimento do olho).
 	const eyesProps = useAnimatedProps(() => ({
-		// Yaw simulado: o deslocamento é em px da tela, convertido para unidades do viewBox (250).
-		transform: [{ translateX: (roll.value / ROLL_PEAK_DEG) * EYE_YAW_MAX_PX * (250 / size) }, { translateY: eyeCy }, { scaleY: lid.value }, { translateY: -eyeCy }],
+		transform: [{ translateY: eyeCy }, { scaleY: lid.value }, { translateY: -eyeCy }],
 	}));
 
 	return (
