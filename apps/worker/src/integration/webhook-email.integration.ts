@@ -55,8 +55,8 @@ describe("webhook: v2 só com o escopo ampliado e com o mesmo efeito do v1", { s
 		});
 	}
 
-	test("sem o escopo ampliado (ou com v1 explícito) o webhook fica no v1", async () => {
-		for (const policy of [{ engine: "v2" }, { engine: "v2", engineScope: "chat" }, { engine: "v1", engineScope: "all" }]) {
+	test("com engineScope chat explícito (ou v1 explícito) o webhook fica no v1", async () => {
+		for (const policy of [{ engine: "v2", engineScope: "chat" }, { engine: "v1", engineScope: "all" }]) {
 			const { snap } = await runWebhook(policy, [{ content: "ok" }]);
 			assert.equal(snap.budget.engine, undefined, JSON.stringify(policy));
 			assert.equal(snap.run.status, "completed");
@@ -125,8 +125,8 @@ describe("e-mail recebido: v2 só com o escopo ampliado e com o mesmo efeito do 
 		assert.ok(!fake.requests[0]!.toolNames.includes("notebook_write"), "sem caderno de trabalho longo");
 	});
 
-	test("sem o escopo ampliado o e-mail continua no v1", async () => {
-		for (const policy of [{ engine: "v2" }, { engine: "v1", engineScope: "all" }]) {
+	test("com engineScope chat explícito (ou v1 explícito) o e-mail continua no v1", async () => {
+		for (const policy of [{ engine: "v2", engineScope: "chat" }, { engine: "v1", engineScope: "all" }]) {
 			const { snap } = await runEmail(policy, [{ content: "ok" }]);
 			assert.equal(snap.budget.engine, undefined, JSON.stringify(policy));
 			assert.equal(snap.run.status, "completed");

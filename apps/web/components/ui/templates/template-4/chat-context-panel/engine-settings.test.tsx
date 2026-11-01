@@ -53,7 +53,10 @@ test("opção 'Usar também em rotinas e grupos' só aparece com o motor novo e 
 	// Bot sem escolha mostra o padrão (motor novo, em rotinas e grupos também).
 	const byDefault = await renderWith("pt-BR", {});
 	assert.match(byDefault, /for="agent-engine-scope".*?role="switch"[^>]*aria-checked="true"/);
-	const chatOnly = await renderWith("pt-BR", { engine: "v2" });
+	// Quem escolheu o motor novo sem escopo também vale em tudo (decisão do dono, 01/11): a opção vem ligada.
+	const chosen = await renderWith("pt-BR", { engine: "v2" });
+	assert.match(chosen, /for="agent-engine-scope".*?role="switch"[^>]*aria-checked="true"/);
+	const chatOnly = await renderWith("pt-BR", { engine: "v2", engineScope: "chat" });
 	assert.match(chatOnly, /Usar também em rotinas e grupos/);
 	assert.match(chatOnly, /for="agent-engine-scope".*?role="switch"[^>]*aria-checked="false"/);
 	const wide = await renderWith("pt-BR", { engine: "v2", engineScope: "all" });

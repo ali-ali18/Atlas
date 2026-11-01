@@ -49,8 +49,8 @@ describe("rotina: v2 por padrão; v1 só com escolha explícita, escopo chat ou 
 		assert.equal(routineRun?.agentRunId, snap.run.id, "routineId + run ligados");
 	});
 
-	test("engine v2 com scope chat ou v1 explícito: a rotina continua no v1", async () => {
-		for (const policy of [{ engine: "v2" }, { engine: "v2", engineScope: "chat" }, { engine: "v1" }]) {
+	test("engineScope chat explícito ou v1 explícito: a rotina continua no v1; v2 sem escopo vale como all", async () => {
+		for (const policy of [{ engine: "v2", engineScope: "chat" }, { engine: "v1" }]) {
 			const fx = await createFixture({ policy });
 			llm = installFakeLlm([{ content: "Tudo em dia." }]);
 			const snap = await runRoutine(fx);
@@ -63,6 +63,7 @@ describe("rotina: v2 por padrão; v1 só com escolha explícita, escopo chat ou 
 	test("padrão do deploy: sem a variável (ou vazia/lixo) e all levam a rotina ao v2; chat não inclui rotina; off é a emergência; v1 explícito vence", async () => {
 		llm = installFakeLlm([{ content: "ok" }], { repeatLast: true });
 		delete process.env.ATLAS_ENGINE_V2_DEFAULT;
+		assert.equal((await runRoutine(await createFixture({ policy: { engine: "v2" } }))).budget.engine, "v2", "engine v2 sem engineScope vale como all");
 		assert.equal((await runRoutine(await createFixture({}))).budget.engine, "v2", "sem a variável");
 		for (const raw of ["", "lixo"]) {
 			process.env.ATLAS_ENGINE_V2_DEFAULT = raw;
@@ -123,8 +124,8 @@ describe("grupo: v2 por padrão; v1 só com escolha explícita, escopo chat ou o
 		assert.ok(runs.every((run) => run.engine === "v2"), JSON.stringify(runs));
 	});
 
-	test("engine v2 com scope chat, v1 explícito ou off (emergência): grupo fica no v1", async () => {
-		for (const policy of [{ engine: "v2" }, { engine: "v1" }]) {
+	test("engineScope chat, v1 explícito ou off (emergência): grupo fica no v1", async () => {
+		for (const policy of [{ engine: "v2", engineScope: "chat" }, { engine: "v1" }]) {
 			const runs = await teamRuns(policy);
 			assert.ok(runs.every((run) => run.engine === undefined), JSON.stringify(policy) + JSON.stringify(runs));
 			llm?.restore();

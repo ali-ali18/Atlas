@@ -90,7 +90,7 @@ describe("alerta: report_alert no v2 deixa o mesmo efeito no banco que no v1", {
 	});
 
 	test("com v2/chat o alerta continua no v1 (só o escopo ampliado ou o padrão sem escolha o levam ao v2)", async () => {
-		const fx = await createFixture({ policy: { engine: "v2" } });
+		const fx = await createFixture({ policy: { engine: "v2", engineScope: "chat" } });
 		llm = installFakeLlm([{ tools: [{ name: "report_alert", args: { triggered: false, summary: "ok" } }] }, { content: "Ok." }]);
 		const snap = await runRoutine(fx, ALERT);
 		assert.equal(snap.budget.engine, undefined);
@@ -250,15 +250,15 @@ describe("modo proativo: chat, lembrete e reflexão no v2", { skip: integrationS
 		assert.ok(v2.effects.events.some((event) => event.startsWith("message")), JSON.stringify(v2.effects.events));
 	});
 
-	test("sem o escopo all (v2/chat ou v1 explícito) a reflexão e o lembrete continuam no v1; bot sem escolha roda no v2 (padrão)", async () => {
-		for (const policy of [{ engine: "v1" }, { engine: "v2" }, { engine: "v2", engineScope: "chat" }, {}]) {
+	test("com engineScope chat ou v1 explícito a reflexão e o lembrete continuam no v1; v2 sem escopo e bot sem escolha rodam no v2", async () => {
+		for (const policy of [{ engine: "v1" }, { engine: "v2", engineScope: "chat" }, { engine: "v2" }, {}]) {
 			const fx = await createFixture({ isPrimary: true, policy: { ...policy, ...proactiveOn } });
 			llm = installFakeLlm([{ content: "[NO_UPDATE]" }]);
 			const { createAgentRun } = await import("@workspace/db");
 			const objective = "check";
 			const run = await createAgentRun({ userId: fx.userId, model: "test/model", request: { botId: fx.botId, conversationId: fx.conversationId, origin: "proactive", objective, messages: [{ role: "user", content: objective }], silent: true } as never });
 			await processRun(run.id);
-			assert.equal((await snapshot(run.id)).budget.engine, Object.keys(policy).length === 0 ? "v2" : undefined, JSON.stringify(policy));
+			assert.equal((await snapshot(run.id)).budget.engine, "engineScope" in policy || policy.engine === "v1" ? undefined : "v2", JSON.stringify(policy));
 			llm.restore();
 		}
 	});

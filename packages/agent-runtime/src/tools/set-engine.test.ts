@@ -64,7 +64,7 @@ describe("set_engine: execução", () => {
 		const out = await executeSetEngine({ engine: "new", budget_usd: 1, minutes: 30 }, ctx, deps);
 		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2", longWorkBudgetUsd: 1, longWorkMinutes: 30 });
 		expect(out.card.title).toBe("Motor do bot atualizado");
-		expect(out.card.description).toBe("Motor novo · gasto máximo de US$ 1,00 e até 30 min por tarefa longa");
+		expect(out.card.description).toBe("Motor novo · também em rotinas e grupos · gasto máximo de US$ 1,00 e até 30 min por tarefa longa");
 		expect(out.summary).toMatch(/do not repeat it/);
 	});
 
@@ -77,7 +77,7 @@ describe("set_engine: execução", () => {
 		await expect(executeSetEngine({ scope: "tudo" }, ctx, deps)).rejects.toThrow(/Invalid scope.*Accepted fields.*scope/);
 		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2", engineScope: "all" });
 		const narrow = await executeSetEngine({ scope: "chat" }, ctx, deps);
-		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2" });
+		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2", engineScope: "chat" });
 		expect(narrow.card.description).not.toMatch(/rotinas/);
 		await executeSetEngine({ engine: "current" }, ctx, deps);
 		const idle = await executeSetEngine({ scope: "all" }, ctx, deps);
@@ -94,6 +94,13 @@ describe("set_engine: execução", () => {
 		expect(policies["bot-a"]).toEqual({ planMode: true });
 	});
 
+	it("escolher o motor novo sem escopo vale em tudo (rotinas e grupos ligado)", async () => {
+		const { deps, policies } = fakeStore();
+		const out = await executeSetEngine({ engine: "new" }, ctx, deps);
+		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2" });
+		expect(out.card.description).toBe("Motor novo · também em rotinas e grupos · sem limite de gasto, até 60 min por tarefa longa");
+	});
+
 	it("desliga na hora: volta ao motor anterior (explícito, o padrão não o religa)", async () => {
 		const { deps, policies } = fakeStore();
 		await executeSetEngine({ engine: "new" }, ctx, deps);
@@ -102,10 +109,10 @@ describe("set_engine: execução", () => {
 		expect(out.card.description).toBe("Motor anterior");
 	});
 
-	it("bot sem escolha só no chat: grava o motor novo explícito (o padrão continuaria em tudo) e a frase deixa de dizer padrão", async () => {
+	it("bot sem escolha só no chat: grava o motor novo explícito com escopo chat gravado (sem ele o padrão seria em tudo) e a frase deixa de dizer padrão", async () => {
 		const { deps, policies } = fakeStore();
 		const out = await executeSetEngine({ scope: "chat" }, ctx, deps);
-		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2" });
+		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2", engineScope: "chat" });
 		expect(out.card.description).toBe("Motor novo · sem limite de gasto, até 60 min por tarefa longa");
 	});
 

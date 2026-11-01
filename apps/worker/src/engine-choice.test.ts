@@ -83,11 +83,14 @@ test("run com checkpoint e sem motor gravado nasceu no v1 e continua nele", asyn
 	assert.deepEqual(recorded, []);
 });
 
-test("escopo chat (padrão): rotina, webhook, proativo, subagente, bot→bot e grupo continuam no v1 mesmo com policy v2", async () => {
-	for (const origin of ["routine", "webhook", "proactive", "email", "bot", "subagent"]) {
-		assert.equal((await setup({ policyJson: { engine: "v2" }, origin }).choose()).engine, "v1", origin);
+test("engine v2 sem engineScope vale como all; só engineScope chat explícito segura rotina, webhook, proativo, bot→bot e grupo no v1", async () => {
+	for (const origin of ["routine", "webhook", "proactive", "email", "bot"]) {
+		assert.equal((await setup({ policyJson: { engine: "v2" }, origin }).choose()).engine, "v2", origin);
+		assert.equal((await setup({ policyJson: { engine: "v2", engineScope: "chat" }, origin }).choose()).engine, "v1", origin);
 	}
-	assert.equal((await setup({ policyJson: { engine: "v2" }, isGroupRun: true }).choose()).engine, "v1");
+	assert.equal((await setup({ policyJson: { engine: "v2" }, isGroupRun: true }).choose()).engine, "v2");
+	assert.equal((await setup({ policyJson: { engine: "v2", engineScope: "chat" }, isGroupRun: true }).choose()).engine, "v1");
+	assert.equal((await setup({ policyJson: { engine: "v2" }, origin: "subagent" }).choose()).engine, "v1");
 });
 
 test("gancho genérico forceV1: run novo fica no v1 e não grava; motor já gravado vence", async () => {
@@ -286,7 +289,7 @@ test("alerta, brief, proativo e config do bot (shortRun) saem no v2 sempre no pe
 
 test("alerta, brief e proativo seguem no v1 com v2/chat explícito ou v1 explícito", async () => {
 	for (const over of [{ origin: "routine" }, { origin: "proactive" }]) {
-		for (const policyJson of [{ engine: "v1" }, { engine: "v2" }, { engine: "v2", engineScope: "chat" }]) {
+		for (const policyJson of [{ engine: "v1" }, { engine: "v2", engineScope: "chat" }]) {
 			const { choose, recorded } = setup({ policyJson, shortRun: true, ...over });
 			assert.equal((await choose()).engine, "v1");
 			assert.deepEqual(recorded, []);

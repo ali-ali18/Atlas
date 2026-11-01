@@ -5,7 +5,7 @@ Guia para o dono acompanhar o motor novo (v2) no bot Radar de Mercado, testar tr
 ## O que é o motor novo, em uma frase
 O motor anterior para no meio de uma pesquisa e pergunta demais. O motor novo trabalha até o fim, decidindo quando já pesquisou o bastante pelo progresso da tarefa e pelo tempo (não pelo preço, que varia muito entre modelos), e entrega um resumo, as fontes e uma lista do que não deu para confirmar. Relatório grande vira documento (PDF, Word ou texto).
 
-Por padrão ele vale para **todas as origens** de um bot sem escolha: conversa direta, rotinas, alertas, e-mails, grupos, conversa entre bots, proativo e webhook (o subagente herda o motor do pai). Um bot que escolheu "Novo" na engrenagem sem ampliar fica só na conversa direta; um bot que escolheu "Anterior" não muda. Vale a partir da **próxima mensagem**; uma tarefa que já está rodando termina no motor em que começou.
+Por padrão ele vale para **todas as origens** de um bot sem escolha: conversa direta, rotinas, alertas, e-mails, grupos, conversa entre bots, proativo e webhook (o subagente herda o motor do pai). Um bot que escolheu "Novo" (engrenagem ou chat) também vale em tudo, a menos que a opção "rotinas e grupos" seja desligada; um bot que escolheu "Anterior" não muda. Vale a partir da **próxima mensagem**; uma tarefa que já está rodando termina no motor em que começou.
 
 ## Como ligar
 
