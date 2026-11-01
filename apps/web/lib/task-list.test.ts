@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import type { Message } from "@/components/ui/templates/template-4/data";
@@ -57,9 +58,16 @@ test("doca amarrada ao run: lista de outro run não aparece; cartão ainda sem r
 	assert.equal(dockedTaskList([user("u1"), list("tl", "local"), user("u2")], true, "run-1"), null);
 });
 
-test("run terminado: nada na doca, o cartão final fica no fio com tudo concluído", () => {
+test("run terminado: a mesma lista sai da doca e fica no fio com o resumo final", () => {
 	const done = ITEMS.map((item) => ({ ...item, status: "completed" as const }));
 	const thread = [user("u1"), list("tl", "run-1", done), user("u2")];
+	assert.equal(dockedTaskList(thread, true, "run-1")?.id, "tl");
 	assert.equal(dockedTaskList(thread, false, "run-1"), null);
-	assert.equal(thread.some((message) => message.kind === "task-list" && taskListSettledLabel(message.items) === "Tarefas · 3/3 concluídas"), true);
+	const card = thread.find((message) => message.kind === "task-list");
+	assert.equal(card?.kind === "task-list" ? taskListSettledLabel(card.items) : null, "Tarefas · 3/3 concluídas");
+});
+
+test("chat-thread passa o run ativo para a doca (a doca não depende da posição da última fala)", () => {
+	const source = readFileSync(new URL("../components/ui/templates/template-4/chat-thread/chat-thread.tsx", import.meta.url), "utf8");
+	assert.match(source, /dockedTaskList\(messages, [^)]*, activeRunId\)/);
 });

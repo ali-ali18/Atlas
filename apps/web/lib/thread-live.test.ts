@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ComputerUseEvent } from "@workspace/shared";
 import type { Message } from "@/components/ui/templates/template-4/data";
+import { createComputerHandlers } from "@/hooks/use-atlas-chat";
 import { applyLiveEvent, applyTaskListEvent, createLiveBubbleState, fromTranscript, hydrateRunEvents, mergePreservingSkills } from "./thread-live";
 
 const delta = (id: string, text: string): ComputerUseEvent => ({ type: "assistant_delta", id, delta: text });
@@ -143,4 +144,16 @@ test("dedupe ao vivo × gravado: a lista reidratada atualiza o cartão gravado d
 	// E um evento ao vivo seguinte continua no mesmo cartão.
 	const live = applyTaskListEvent(screen, { type: "task_list", items: [{ content: "Ler", status: "completed" }, { content: "Montar", status: "completed" }], runId: "run-1" });
 	assert.equal(live.filter((item) => item.kind === "task-list").length, 1);
+});
+
+test("onTaskList do handler real usa o runId do run quando o evento vem sem runId", () => {
+	let messages: Message[] = baseThread();
+	const handlers = createComputerHandlers({
+		runId: "run-9",
+		setMessages: (update: Message[] | ((previous: Message[]) => Message[])) => { messages = typeof update === "function" ? update(messages) : update; },
+	} as never);
+	handlers.onTaskList?.({ type: "task_list", items: STEPS });
+	const card = messages.find((item) => item.kind === "task-list");
+	assert.equal(card?.kind === "task-list" ? card.runId : null, "run-9");
+	assert.equal(card?.id, "task-list-run-9");
 });

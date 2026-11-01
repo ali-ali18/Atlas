@@ -2,10 +2,10 @@ import {
 	applyComputerUseEventToTranscript,
 	applyComputerUseEventsToTranscript,
 	type ComputerUseEvent,
+	insertCardAfterCurrentTurn,
 	type TranscriptBubble,
 } from "@workspace/shared";
 import type { Message } from "@/components/ui/templates/template-4/data";
-import { insertCardAfterCurrentTurn } from "@workspace/shared";
 import { dedupeCards } from "./thread-merge";
 
 /**
