@@ -64,7 +64,8 @@ export function readEnginePolicy(policyJson: unknown): EnginePolicy {
 		explicit: policy.engine === "v1" || policy.engine === "v2" ? policy.engine : undefined,
 		scope: policy.engineScope === "all" ? "all" : "chat",
 		workProfile,
-		longWorkBudgetUsd: isFiniteNumber(policy.longWorkBudgetUsd) ? clampedNumber(policy.longWorkBudgetUsd, LONG_WORK_MIN_USD, LONG_WORK_MIN_USD, LONG_WORK_MAX_USD) : undefined,
+		// 0 (ou negativo) = sem limite, igual a vazio e `null`; só valor positivo vira teto.
+		longWorkBudgetUsd: isFiniteNumber(policy.longWorkBudgetUsd) && (policy.longWorkBudgetUsd as number) > 0 ? clampedNumber(policy.longWorkBudgetUsd, LONG_WORK_MIN_USD, LONG_WORK_MIN_USD, LONG_WORK_MAX_USD) : undefined,
 		longWorkMinutes: clampedNumber(policy.longWorkMinutes, LONG_WORK_DEFAULT_MINUTES, LONG_WORK_MIN_MINUTES, LONG_WORK_MAX_MINUTES),
 		longWorkMinutesExplicit: isFiniteNumber(policy.longWorkMinutes),
 	};

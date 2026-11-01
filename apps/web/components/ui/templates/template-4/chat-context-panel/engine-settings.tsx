@@ -8,7 +8,7 @@ import { readEnginePolicy, readHelperPolicy, withEngineSettings, type EngineSett
 import { SettingRow } from "@/components/settings/setting-row";
 import { ModelPicker } from "@/components/model-picker";
 import { useOpenRouterModels } from "@/hooks/use-openrouter-models";
-import { budgetBlurAction, formatBudgetUsd, parseBudgetMinutes, parseBudgetUsd } from "@/lib/engine-settings";
+import { budgetBlurAction, formatBudgetUsd, isNoBudgetText, parseBudgetMinutes, parseBudgetUsd } from "@/lib/engine-settings";
 import { useTranslations } from "@/lib/i18n/provider";
 import { SettingsPicker } from "../settings-picker";
 
@@ -128,8 +128,8 @@ export function EngineSettings({ policyJson, onChange }: { policyJson: unknown; 
 							invalid={rejected === "usd"}
 							label={t("botSettings.engineBudgetUsd")}
 							onCommit={(text) => {
-								// Vazio = sem limite de gasto (o padrão); só preenchido vira teto duro.
-								if (text.trim() === "") {
+								// Vazio ou 0 = sem limite de gasto (o padrão); só valor positivo vira teto duro.
+								if (isNoBudgetText(text)) {
 									setRejected(null);
 									save({ longWorkBudgetUsd: null });
 									return true;

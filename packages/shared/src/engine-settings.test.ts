@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeEngineSettings, engineSettingsError, looksLikeEngineRequest, parseSetEngineArgs, withEngineSettings } from "./engine-settings.js";
+import { describeEngineSettings, engineSettingsError, looksLikeEngineRequest, normalizeEngineSettings, parseSetEngineArgs, withEngineSettings } from "./engine-settings.js";
 import { readEnginePolicy } from "./engine-policy.js";
 import { readHelperPolicy } from "./engine-helpers.js";
 
@@ -91,5 +91,20 @@ describe("gasto máximo opcional", () => {
 		expect(parseSetEngineArgs({ minutes: 180 })).toEqual({ ok: true, patch: { longWorkMinutes: 180 } });
 		expect(withEngineSettings({ engine: "v2", longWorkBudgetUsd: 1, other: 1 }, { longWorkBudgetUsd: null })).toEqual({ engine: "v2", other: 1 });
 		expect(engineSettingsError({ engine: "v2", longWorkBudgetUsd: null })).toBeNull();
+	});
+});
+
+describe("0 remove o teto de gasto (igual a vazio e null)", () => {
+	it("normalizeEngineSettings tira a chave com 0, null ou vazio e preserva o resto; valor positivo passa", () => {
+		for (const empty of [0, null, ""]) expect(normalizeEngineSettings({ engine: "v2", longWorkBudgetUsd: empty, planMode: true })).toEqual({ engine: "v2", planMode: true });
+		expect(normalizeEngineSettings({ engine: "v2", longWorkBudgetUsd: 2 })).toEqual({ engine: "v2", longWorkBudgetUsd: 2 });
+		expect(normalizeEngineSettings({ engine: "v2" })).toEqual({ engine: "v2" });
+		expect(normalizeEngineSettings(null)).toBeNull();
+		expect(engineSettingsError(normalizeEngineSettings({ engine: "v2", longWorkBudgetUsd: 0 }))).toBeNull();
+	});
+
+	it("readEnginePolicy trata 0 como sem limite", () => {
+		expect(readEnginePolicy({ engine: "v2", longWorkBudgetUsd: 0 }).longWorkBudgetUsd).toBeUndefined();
+		expect(readEnginePolicy({ engine: "v2", longWorkBudgetUsd: 0.05 }).longWorkBudgetUsd).toBe(0.05);
 	});
 });

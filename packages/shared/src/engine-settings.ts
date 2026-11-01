@@ -135,6 +135,19 @@ export function describeEngineSettings(policyJson: unknown): string {
 }
 
 /**
+ * `longWorkBudgetUsd` vazio, `null` ou `0` = sem limite de gasto: a chave sai do `policyJson` (nunca grava 0). Usado pelo PATCH
+ * antes de validar e gravar; o resto do `policyJson` passa intacto.
+ */
+export function normalizeEngineSettings(policyJson: unknown): unknown {
+	const policy = asRecord(policyJson);
+	if (!("longWorkBudgetUsd" in policy)) return policyJson;
+	const value = policy.longWorkBudgetUsd;
+	if (value !== null && value !== 0 && value !== "") return policyJson;
+	const { longWorkBudgetUsd: _removed, ...rest } = policy;
+	return rest;
+}
+
+/**
  * Valida as chaves do motor num `policyJson` vindo da UI (a rota PATCH grava o jsonb inteiro). Ausente = ok;
  * presente e fora da faixa = mensagem de erro (a rota responde 400), nunca ajuste silencioso.
  */

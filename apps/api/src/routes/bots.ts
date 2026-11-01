@@ -10,6 +10,7 @@ import {
 	readCodingModel,
 	readSubagentModel,
 	engineSettingsError,
+	normalizeEngineSettings,
 	readHelperPolicy,
 	DELEGATE_MODEL_MAX_CHARS,
 	parseModelRef,
@@ -327,6 +328,8 @@ export function createBotRoutes(
     patch.memberIds = await validateGroupMemberIds(userId, patch.memberIds, id);
    }
    if (patch.isPrimary === true && owned.memberIds.length > 0) return c.json({ error: "Um grupo não pode ser o Bot principal" }, 400);
+   // `longWorkBudgetUsd` vazio, null ou 0 = sem limite de gasto: a chave sai (nunca grava 0).
+   if (patch.policyJson !== undefined) patch.policyJson = normalizeEngineSettings(patch.policyJson) as typeof patch.policyJson;
    const engineError = engineSettingsError(patch.policyJson);
    if (engineError) return c.json({ error: engineError }, 400);
    const helperModel = readHelperPolicy(patch.policyJson).helperModel;

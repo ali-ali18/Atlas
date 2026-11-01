@@ -46,7 +46,8 @@ describe("readEnginePolicy", () => {
 		expect(policy.workProfile).toBe("auto");
 		expect(policy.longWorkBudgetUsd).toBeUndefined();
 		expect(policy.longWorkMinutes).toBe(180);
-		expect(readEnginePolicy({ longWorkBudgetUsd: -3 }).longWorkBudgetUsd).toBe(0.05);
+		expect(readEnginePolicy({ longWorkBudgetUsd: -3 }).longWorkBudgetUsd).toBeUndefined();
+		expect(readEnginePolicy({ longWorkBudgetUsd: 0.01 }).longWorkBudgetUsd).toBe(0.05);
 	});
 
 	it("lê o escopo e a escolha explícita; escopo inválido cai em chat", () => {

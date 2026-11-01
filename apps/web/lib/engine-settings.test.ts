@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { budgetBlurAction, formatBudgetUsd, parseBudgetMinutes, parseBudgetUsd } from "./engine-settings";
+import { budgetBlurAction, formatBudgetUsd, isNoBudgetText, parseBudgetMinutes, parseBudgetUsd } from "./engine-settings";
 
 test("orçamento em dólar: vírgula ou ponto, faixa de 0,05 a 20", () => {
 	assert.equal(parseBudgetUsd("1"), 1);
@@ -22,4 +22,9 @@ test("blur do campo: Esc cancela, igual ao salvo não salva, texto novo salva", 
 	assert.equal(budgetBlurAction({ draft: "50", saved: "0,50", cancelled: true }), "skip");
 	assert.equal(budgetBlurAction({ draft: "0,50", saved: "0,50", cancelled: false }), "skip");
 	assert.equal(budgetBlurAction({ draft: "1", saved: "0,50", cancelled: false }), "commit");
+});
+
+test("campo de gasto: vazio, 0, 0,00 e US$ 0 removem o teto; valor positivo não", () => {
+	for (const empty of ["", "  ", "0", "0,00", "0.0", "US$ 0", "00"]) assert.equal(isNoBudgetText(empty), true, JSON.stringify(empty));
+	for (const value of ["0,05", "1", "x", "0,5"]) assert.equal(isNoBudgetText(value), false, value);
 });
