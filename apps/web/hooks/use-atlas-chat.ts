@@ -64,7 +64,7 @@ import { subscribeAppResume } from "@/lib/resume-sync";
 import { createThreadSync, type ThreadSync } from "@/lib/thread-sync";
 import { createSendQueue } from "@/lib/send-queue";
 import { inboundEmailBodyOf, inboundEmailThreadMessage } from "@/lib/email-message";
-import { adoptLoadedThread, applyLiveEvent, createLiveBubbleState, hydrateRunEvents, mergePreservingSkills, trackSupersededBubbles, type LiveBubbleState } from "@/lib/thread-live";
+import { adoptLoadedThread, applyLiveEvent, applyTaskListEvent, createLiveBubbleState, hydrateRunEvents, mergePreservingSkills, trackSupersededBubbles, type LiveBubbleState } from "@/lib/thread-live";
 import { eventRunStatus, isActiveRunStatus, isParkedRunStatus, isTerminalRunStatus, type HubEvent } from "@/lib/event-hub";
 import { currentPollMode, getSharedEventHub, shouldPollTick } from "@/lib/event-hub-client";
 import { GROUP_SEND_BUSY_HINT_MS, GROUP_STATE_BUSY_MS, groupStatePollDue } from "@/lib/group-state-poll";
@@ -990,17 +990,7 @@ export function createComputerHandlers(params: {
 		},
 		onTaskList: (event) => {
 			params.onActivity?.();
-			const cardId = `task-list-${event.runId ?? "local"}`;
-			params.setMessages((previous) => {
-				// A lista mais recente do run substitui o cartão no lugar (nunca empilha); lista vazia remove.
-				const index = previous.findIndex((m) => m.kind === "task-list" && (m.id === cardId || (event.runId !== undefined && m.runId === event.runId)));
-				if (event.items.length === 0) return index < 0 ? previous : previous.filter((_, i) => i !== index);
-				if (index >= 0) {
-					const current = previous[index]!;
-					return previous.map((m, i) => (i === index ? { id: current.id, kind: "task-list" as const, runId: event.runId ?? "local", items: event.items } : m));
-				}
-				return dedupeCards(insertCardAfterCurrentTurn(previous, { id: cardId, kind: "task-list", runId: event.runId ?? "local", items: event.items }));
-			});
+			params.setMessages((previous) => applyTaskListEvent(previous, event, params.runId));
 		},
 		onChart: (event) => {
 			params.onActivity?.();
@@ -1516,7 +1506,7 @@ export function useAtlasChat({
 				if (live) {
 					try {
 						const { events, lastSeq } = await loadRunEventPayloads(runId);
-						thread = hydrateRunEvents(thread, events, liveState);
+						thread = hydrateRunEvents(thread, events, liveState, runId);
 						if (lastSeq > 0) setStoredSseCursor(runId, lastSeq);
 					} catch (error) {
 						console.warn("hydrate run events failed", error);
