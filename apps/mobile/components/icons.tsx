@@ -1,4 +1,5 @@
-import Svg, { Circle, Path } from "react-native-svg";
+import * as React from "react";
+import Svg, { Circle, Path, Rect } from "react-native-svg";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 
@@ -20,6 +21,15 @@ type LineIconProps = IconProps & { tone?: "muted-foreground" | "foreground" };
 
 function useStroke(tone: "muted-foreground" | "foreground") {
 	return themeColor(useAppColorScheme(), tone);
+}
+
+function Line({ size, tone, strokeWidth = 2, children }: LineIconProps & { strokeWidth?: number; children: React.ReactNode }) {
+	const stroke = useStroke(tone ?? "foreground");
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+			{children}
+		</Svg>
+	);
 }
 
 /** Lucide `AtSign` (o ícone do campo de e-mail no login do web). */
@@ -53,6 +63,76 @@ export function HashIcon({ size = 18, tone = "muted-foreground" }: LineIconProps
 			<Path d="M4 15h16" />
 			<Path d="M10 3 8 21" />
 			<Path d="m16 3-2 18" />
+		</Svg>
+	);
+}
+
+/** Lucide `Plus`. */
+export function PlusIcon({ size = 22, tone = "foreground" }: LineIconProps) {
+	return (
+		<Line size={size} tone={tone}>
+			<Path d="M5 12h14" />
+			<Path d="M12 5v14" />
+		</Line>
+	);
+}
+
+/** Lucide `Search`. */
+export function SearchIcon({ size = 20, tone = "muted-foreground" }: LineIconProps) {
+	return (
+		<Line size={size} tone={tone}>
+			<Circle cx={11} cy={11} r={8} />
+			<Path d="m21 21-4.3-4.3" />
+		</Line>
+	);
+}
+
+/** Lucide `ChevronDown`. */
+export function ChevronDownIcon({ size = 18, tone = "muted-foreground" }: LineIconProps) {
+	return (
+		<Line size={size} tone={tone}>
+			<Path d="m6 9 6 6 6-6" />
+		</Line>
+	);
+}
+
+/** Lucide `Send` (avião de papel): a prévia "Enviou mensagem para…". */
+export function SendIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return (
+		<Line size={size} tone={tone}>
+			<Path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+			<Path d="m21.854 2.147-10.94 10.939" />
+		</Line>
+	);
+}
+
+/** Lucide `LayoutGrid` com um "+" no lugar do quarto quadrado (o botão de apps do rodapé). */
+export function GridPlusIcon({ size = 22, tone = "foreground" }: LineIconProps) {
+	return (
+		<Line size={size} tone={tone}>
+			<Rect width={7} height={7} x={3} y={3} rx={1} />
+			<Rect width={7} height={7} x={14} y={3} rx={1} />
+			<Rect width={7} height={7} x={3} y={14} rx={1} />
+			<Path d="M14 17.5h7" />
+			<Path d="M17.5 14v7" />
+		</Line>
+	);
+}
+
+/** Lucide `ChevronLeft`. */
+export function ChevronLeftIcon({ size = 22, tone = "foreground" }: LineIconProps) {
+	return (
+		<Line size={size} tone={tone}>
+			<Path d="m15 18-6-6 6-6" />
+		</Line>
+	);
+}
+
+/** Lucide `Star` preenchida (selo do bot principal). */
+export function StarFilledIcon({ size = 14, color = "#ffffff" }: IconProps & { color?: string }) {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill={color} stroke={color} strokeWidth={2} strokeLinejoin="round">
+			<Path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" />
 		</Svg>
 	);
 }

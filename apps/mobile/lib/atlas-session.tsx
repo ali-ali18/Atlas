@@ -9,6 +9,9 @@ export type AtlasSession = {
 	serverUrl: string | null;
 	client: AtlasAuthClient | null;
 	email: string | null;
+	/** Nome e foto da conta (a foto vem do Google, quando há). */
+	name: string | null;
+	image: string | null;
 	/** Verdadeiro uma vez, logo depois de entrar nesta execução do app (para o avatar feliz). */
 	justSignedIn: boolean;
 	markSignedIn: () => void;
@@ -56,9 +59,11 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 
 	// O hook de sessão só existe para um cliente real. Um componente à parte o lê e avisa aqui, assim a árvore
 	// de telas (filhos) não remonta quando o servidor é conectado ou esquecido.
-	const [probe, setProbe] = React.useState<{ url: string; email: string | null; pending: boolean } | null>(null);
+	const [probe, setProbe] = React.useState<ProbeState | null>(null);
 	const reading = client && serverUrl && probe?.url === serverUrl ? probe : null;
 	const email = reading?.email ?? null;
+	const name = reading?.name ?? null;
+	const image = reading?.image ?? null;
 	const pending = Boolean(client) && (reading ? reading.pending : true);
 	const hasSession = email !== null;
 
@@ -93,6 +98,8 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 			serverUrl,
 			client,
 			email,
+			name,
+			image,
 			justSignedIn,
 			markSignedIn: () => setJustSignedIn(true),
 			consumeJustSignedIn: () => setJustSignedIn(false),
@@ -101,7 +108,7 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 			changeServer,
 			apiFetch,
 		}),
-		[loaded, serverUrl, pending, hasSession, client, email, justSignedIn, connectServer, signOut, changeServer, apiFetch],
+		[loaded, serverUrl, pending, hasSession, client, email, name, image, justSignedIn, connectServer, signOut, changeServer, apiFetch],
 	);
 
 	return (
@@ -112,17 +119,21 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 	);
 }
 
+type ProbeState = { url: string; email: string | null; name: string | null; image: string | null; pending: boolean };
+
 type ProbeProps = {
 	client: AtlasAuthClient;
 	url: string;
-	onChange: (state: { url: string; email: string | null; pending: boolean }) => void;
+	onChange: (state: ProbeState) => void;
 };
 
 function SessionProbe({ client, url, onChange }: ProbeProps) {
 	const { data, isPending } = client.useSession();
 	const email = data?.user?.email ?? null;
+	const name = data?.user?.name ?? null;
+	const image = data?.user?.image ?? null;
 	React.useEffect(() => {
-		onChange({ url, email, pending: isPending });
-	}, [url, email, isPending, onChange]);
+		onChange({ url, email, name, image, pending: isPending });
+	}, [url, email, name, image, isPending, onChange]);
 	return null;
 }

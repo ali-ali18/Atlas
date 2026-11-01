@@ -1,7 +1,7 @@
 // Qual tela cabe ao estado de acesso. Puro e testado em auth-flow.test.ts.
 
 export type AccessPhase = "loading" | "no-server" | "signed-out" | "signed-in";
-export type AppRoute = "/" | "/login" | "/syncing" | "/connected";
+export type AppRoute = "/" | "/login" | "/syncing";
 
 export function phaseOf(input: { loaded: boolean; serverUrl: string | null; sessionPending: boolean; hasSession: boolean }): AccessPhase {
 	if (!input.loaded) return "loading";
@@ -10,9 +10,14 @@ export function phaseOf(input: { loaded: boolean; serverUrl: string | null; sess
 	return input.hasSession ? "signed-in" : "signed-out";
 }
 
+/** Telas de quem já entrou: carregamento, home e chats. */
+function isAppPath(path: string): boolean {
+	return path === "/syncing" || path === "/home" || path === "/chat" || path.startsWith("/chat/");
+}
+
 /**
  * Rota para a qual levar o usuário, ou null se a atual já serve. Sem servidor: Conexão. Com servidor e sem sessão:
- * Login. Com sessão: Sincronizando e depois Conectado (as duas servem; a de sincronização leva à outra sozinha).
+ * Login. Com sessão: carregamento (`/syncing`, o mascote) e depois a home e os chats (o carregamento leva à home sozinho).
  */
 export function redirectFor(phase: AccessPhase, current: string): AppRoute | null {
 	switch (phase) {
@@ -23,6 +28,6 @@ export function redirectFor(phase: AccessPhase, current: string): AppRoute | nul
 		case "signed-out":
 			return current === "/login" ? null : "/login";
 		case "signed-in":
-			return current === "/syncing" || current === "/connected" ? null : "/syncing";
+			return isAppPath(current) ? null : "/syncing";
 	}
 }

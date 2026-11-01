@@ -16,17 +16,20 @@ describe("redirectFor", () => {
 	it("sem servidor, só a Conexão", () => {
 		expect(redirectFor("no-server", "/")).toBeNull();
 		expect(redirectFor("no-server", "/login")).toBe("/");
-		expect(redirectFor("no-server", "/connected")).toBe("/");
+		expect(redirectFor("no-server", "/home")).toBe("/");
 	});
 	it("sem sessão, só o Login (nem a tela de conectado)", () => {
 		expect(redirectFor("signed-out", "/login")).toBeNull();
 		expect(redirectFor("signed-out", "/")).toBe("/login");
-		expect(redirectFor("signed-out", "/connected")).toBe("/login");
+		expect(redirectFor("signed-out", "/home")).toBe("/login");
 		expect(redirectFor("signed-out", "/syncing")).toBe("/login");
 	});
 	it("com sessão, Sincronizando e Conectado", () => {
 		expect(redirectFor("signed-in", "/syncing")).toBeNull();
-		expect(redirectFor("signed-in", "/connected")).toBeNull();
+		expect(redirectFor("signed-in", "/home")).toBeNull();
+		expect(redirectFor("signed-in", "/chat/abc")).toBeNull();
+		expect(redirectFor("signed-in", "/chatter")).toBe("/syncing");
+		expect(redirectFor("signed-in", "/connected")).toBe("/syncing");
 		expect(redirectFor("signed-in", "/login")).toBe("/syncing");
 		expect(redirectFor("signed-in", "/")).toBe("/syncing");
 	});
