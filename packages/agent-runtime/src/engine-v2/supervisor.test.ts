@@ -25,11 +25,12 @@ const record = (over: Partial<Parameters<ReturnType<typeof createSupervisor>["re
 });
 
 describe("orçamento por perfil", () => {
-	it("trabalho longo: sem teto em US$ e 60 min por padrão (o árbitro é progresso e tempo); chat é menor e tem teto", () => {
+	it("sem teto em US$ de fábrica em nenhum perfil; chat é mais curto no tempo", () => {
 		expect(budgetForProfile("long_work")).toEqual(LONG_WORK_BUDGET);
 		expect(LONG_WORK_BUDGET).toEqual({ maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 60 * 60_000 });
 		expect(budgetForProfile("chat")).toEqual(CHAT_BUDGET);
-		expect(CHAT_BUDGET.maxCostUsd).toBeLessThan(LONG_WORK_BUDGET.maxCostUsd);
+		expect(CHAT_BUDGET.maxCostUsd).toBe(Number.POSITIVE_INFINITY);
+		expect(LONG_WORK_BUDGET.maxCostUsd).toBe(Number.POSITIVE_INFINITY);
 		expect(CHAT_BUDGET.maxActiveMs).toBeLessThan(LONG_WORK_BUDGET.maxActiveMs);
 	});
 
@@ -43,7 +44,8 @@ describe("orçamento por perfil", () => {
 
 describe("piso de orçamento (brief e lembrete check)", () => {
 	it("o piso sobe o chat, nunca baixa o trabalho longo maior, e os tetos do dono vencem", () => {
-		expect(budgetForProfile("chat", { floor: { costUsd: 0.5, minutes: 30 } })).toEqual({ maxCostUsd: 0.5, maxActiveMs: 30 * 60_000 });
+		// Sem teto de fábrica, o piso de custo não cria teto: só o tempo sobe.
+		expect(budgetForProfile("chat", { floor: { costUsd: 0.5, minutes: 30 } })).toEqual({ maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 30 * 60_000 });
 		expect(budgetForProfile("long_work", { longWorkBudgetUsd: 2, longWorkMinutes: 45, floor: { costUsd: 0.5, minutes: 30 } })).toEqual({ maxCostUsd: 2, maxActiveMs: 45 * 60_000 });
 		expect(budgetForProfile("chat", { floor: { costUsd: 0.5, minutes: 30 }, accountCapUsd: 0.1, accountCapMs: 5 * 60_000 })).toEqual({ maxCostUsd: 0.1, maxActiveMs: 5 * 60_000 });
 		expect(budgetForProfile("chat")).toEqual(CHAT_BUDGET);

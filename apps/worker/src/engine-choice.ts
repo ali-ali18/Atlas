@@ -104,11 +104,8 @@ export async function pickRunEngine(input: {
 	};
 }
 
-/** Piso de segurança (US$ por execução) do trabalho longo sem dono quando nem a conta nem o bot definem teto. */
-export const UNATTENDED_LONG_WORK_COST_FLOOR_USD = 0.5;
-
 /**
- * Trabalho longo no v2 não tem teto em US$ por padrão e o teto por execução da conta (`execution.maxRunCostUsd`, padrão 0,25)
+ * Trabalho longo no v2 não tem teto em US$ por padrão e o teto por execução da conta (`execution.maxRunCostUsd`, sem limite de fábrica)
  * NÃO se aplica a ele no chat do dono (turno humano: digitado por ele, ou herdado do run pai em continuação automática e em
  * resposta de questionário/cartão): lá o árbitro é progresso e tempo (o preço varia demais entre modelos), e o tempo máximo é o
  * do bot (padrão 60 min). Rotina, bot→bot, proativo, webhook, e-mail e chat curto seguem com o teto da conta. O gasto máximo
@@ -161,10 +158,7 @@ export function resolveRunLimits(input: {
 }): { costCapUsd: number | undefined; wallMs?: number } {
 	const owner = longWorkOwnerLimits(input.choice, { origin: input.origin, humanTurn: input.humanTurn });
 	let costCapUsd = effectiveCostCapUsd(input.requestOrBotCap, input.snapshot, { ignoreAccountCap: owner.ignoreAccountCostCap });
-	// Origem sem dono (rotina, bot→bot, proativo, webhook, e-mail) em trabalho longo sem nenhum teto em US$ (conta "sem limite" e
-	// bot sem gasto máximo): piso de segurança por execução, porque ninguém está olhando.
-	const longWork = input.choice.engine === "v2" && input.choice.profile === "long_work";
-	if (longWork && !owner.ignoreAccountCostCap && costCapUsd === undefined && input.choice.longWorkBudgetUsd === undefined) costCapUsd = UNATTENDED_LONG_WORK_COST_FLOOR_USD;
+	// Sem piso em US$ de fábrica (decisão do dono, 01/11): a proteção é por tempo e passos; só vale teto programado.
 	return {
 		costCapUsd,
 		...(owner.wallMs !== undefined && !input.wallFixed ? { wallMs: owner.wallMs } : {}),
