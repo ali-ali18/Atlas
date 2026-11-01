@@ -443,7 +443,7 @@ const MCP_TOOL_SEARCH_TOOL: ChatTool = {
  * Variante com as tools nativas adiadas (economia de contexto): o mesmo nome e os
  * mesmos argumentos, descrição em inglês curta.
  */
-const TOOL_SEARCH_WITH_BUILTINS: ChatTool = {
+export const TOOL_SEARCH_WITH_BUILTINS: ChatTool = {
 	type: "function",
 	function: {
 		name: MCP_TOOL_SEARCH_TOOL.function.name,
@@ -488,7 +488,7 @@ export function multiAccountLine(toolset: McpToolset): string[] {
 	return [`- More than one account of: ${services.join(", ")} (the connector name includes the account). Pick the account from the request, memory or earlier use and name it in your answer; for reads you can check each account. Ask which one only before a write when nothing points to an account.`];
 }
 
-function connectorsPrompt(toolset: McpToolset): string {
+export function connectorsPrompt(toolset: McpToolset): string {
 	if (!toolset.deferred) {
 		return [
 			`Conectores do usuário (tools \`mcp__<conector>__*\`): ${toolset.connectorNames.join(", ")}.`,
@@ -1402,7 +1402,7 @@ export function budgetStopFallbackText(reason: string, language: BotLanguage = "
  * F4 — JSON inválido do modelo não é mais engolido (`{}` → "title vazio"):
  * lança "argumentos inválidos (JSON)" com exemplo do schema.
  */
-function parseArgs(raw: string, schemaExample?: string): Record<string, unknown> {
+export function parseArgs(raw: string, schemaExample?: string): Record<string, unknown> {
 	try {
 		const parsed = JSON.parse(raw || "{}");
 		return typeof parsed === "object" && parsed !== null
@@ -1572,12 +1572,12 @@ export type RuntimeStepRecord = {
 	telemetry?: StepTelemetry;
 };
 
-function lastUserPlainText(conversation: LlmMessage[]): string {
+export function lastUserPlainText(conversation: LlmMessage[]): string {
 	return recentUserPlainTexts(conversation, 1)[0] ?? "";
 }
 
 /** Texto das falas do assistente nas últimas `window` mensagens (nunca resultados de tool). */
-function recentAssistantPlainTexts(conversation: LlmMessage[], window = 6): string[] {
+export function recentAssistantPlainTexts(conversation: LlmMessage[], window = 6): string[] {
 	const out: string[] = [];
 	for (const message of conversation.slice(-window)) {
 		if (message.role !== "assistant") continue;
@@ -1593,7 +1593,7 @@ function recentAssistantPlainTexts(conversation: LlmMessage[], window = 6): stri
 	return out;
 }
 
-function recentUserPlainTexts(
+export function recentUserPlainTexts(
 	conversation: LlmMessage[],
 	limit = 8,
 ): string[] {
@@ -1619,7 +1619,7 @@ function recentUserPlainTexts(
 	return out;
 }
 
-const LOGIN_ALREADY_ASKED_NOTE = (site: string) =>
+export const LOGIN_ALREADY_ASKED_NOTE = (site: string) =>
 	`\nLOGIN STILL REQUIRED on ${site}: the user was already asked to log in to this site in the last 30 minutes, so no new card was shown. ` +
 	"Do NOT ask again, never type credentials. Tell the user plainly (in their language, no technical terms) that the site still shows the login screen " +
 	"and that they can open the computer, finish signing in and tell you when it is done.";
@@ -1659,7 +1659,10 @@ export type RunComputerUseResult = {
  * Entrada pública. Só embrulha o laço: preenche o motivo de término a partir dos sinais que o laço
  * levanta (`signals`) sem mexer em nenhum dos pontos de retorno.
  */
-export async function runComputerUse(params: Parameters<typeof runComputerUseCore>[0]): Promise<RunComputerUseResult> {
+/** Parâmetros de entrada do laço (o mesmo contrato serve ao motor v2, ver `engine-v2/run.ts`). */
+export type ComputerUseParams = Parameters<typeof runComputerUseCore>[0];
+
+export async function runComputerUse(params: ComputerUseParams): Promise<RunComputerUseResult> {
 	const signals: RunEndSignals = {};
 	const result = await runComputerUseCore(params, signals);
 	return { ...result, stop: stopOfCompletion(signals, { hitWall: result.hitWall }) };

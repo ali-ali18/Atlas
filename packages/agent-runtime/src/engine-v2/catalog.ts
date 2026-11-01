@@ -1,0 +1,193 @@
+/**
+ * Motor v2: catálogo de tools. Núcleo sempre carregado, grupos raros adiados com um índice curto no prompt e
+ * `mcp_tool_search` para carregar por nome ou necessidade (o mesmo mecanismo do v1). O roteador de intenção
+ * (regex) vira só DICA de pré-carga: nunca decide o que existe, porque tudo é carregável a pedido do modelo.
+ *
+ * Nesta fase o v2 atende só a conversa direta (origem `chat`, agente principal): ficam de fora as tools de
+ * subagente, rotina/alerta, proativo, envio entre bots e sessão de código (ver docs/features/motor-v2.md).
+ */
+import type { ChatTool } from "@workspace/llm";
+import { decideAction, hostAutonomyMeta, type EffectiveAutonomy } from "@workspace/shared";
+import { loadCodeRunnerConfig } from "@workspace/sandbox";
+import { COMPUTER_USE_TOOLS, TOOL_SEARCH_WITH_BUILTINS } from "../computer-use.js";
+import { createNativeDeferral, type NativeDeferral } from "../context/native-deferral.js";
+import { deferredToolsIndex, planNativeTools } from "../context/native-tools.js";
+import { routeContextGroups } from "../context/intent-router.js";
+import { economyRouterText, orderEconomyTools } from "../context/economy.js";
+import type { ContextGroup } from "../context/prompt-blocks.js";
+import { API_CALL_TOOL, API_SEARCH_TOOL, PROPOSE_API_CONNECTION_TOOL } from "../api-connector/tools.js";
+import { emailToolsFor, type EmailRunContext } from "../email/tools.js";
+import { SHOW_IMAGE_TOOL } from "../tools/show-image.js";
+import { ATTACHMENT_LIST_TOOL, ATTACHMENT_READ_TOOL, ATTACHMENT_TO_COMPUTER_TOOL } from "../tools/attachment-tools.js";
+import { GENERATE_IMAGE_TOOL } from "../tools/generate-image.js";
+import { CREATE_FILE_TOOL } from "../tools/create-file.js";
+import { INSPECT_PRESENTATION_TOOL } from "../tools/inspect-presentation.js";
+import { PAGE_TOOLS } from "../tools/pages.js";
+import { RUN_CODE_TOOL } from "../tools/run-code.js";
+import { UPDATE_TASK_LIST_TOOL } from "../tools/task-list.js";
+import { SANDBOX_TOOL_NAMES } from "../tools/registry/sandbox-tools.js";
+import { SANDBOX_SHELL_TOOL_NAMES, sandboxShellAllowedForOrigin, sandboxShellBlocked, type SandboxShellToolName } from "../tools/sandbox-shell.js";
+import { SANDBOX_RELEASE_TOOL_NAME } from "../tools/sandbox-release.js";
+import { MCP_MAX_EXPOSED_TOOLS, MCP_MAX_TOOLS_JSON_CHARS } from "../mcp/registry.js";
+import { planMcpActivation } from "../mcp/activation.js";
+import type { McpRuntime } from "../mcp/runtime.js";
+import { skillDeleteBlocked, skillWriteBlocked } from "../tools/skills.js";
+import { LESSON_FEEDBACK_TOOL_NAME } from "../tools/lesson-feedback.js";
+import { PREVIEW_SETUP_TOOL_NAME } from "../tools/preview-setup/tool.js";
+
+const SKILL_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["propose_skill", "delete_skill"]);
+
+/** Tools de COMPUTER_USE_TOOLS que o v2 ainda não atende nesta fase (precisam de estado do laço do v1). */
+const NOT_IN_V2: ReadonlySet<string> = new Set([LESSON_FEEDBACK_TOOL_NAME, PREVIEW_SETUP_TOOL_NAME]);
+
+export type EngineV2Catalog = {
+	/** Array enviado ao modelo (mutado in place: carregar tool entra no FIM, sem reordenar o prefixo). */
+	tools: ChatTool[];
+	deferral: NativeDeferral | null;
+	/** Índice curto das famílias adiadas para o prompt ("" sem adiadas). */
+	index: string;
+	/** Grupos pré-carregados pela dica do roteador. */
+	preloaded: Set<ContextGroup>;
+	/** Procedimentos já presentes no prompt (mutável: `load` acrescenta). */
+	promptedGroups: Set<ContextGroup>;
+	/** Ativa tools de conector por nome (mesma regra de teto/LRU do v1). */
+	activateMcpTools: (names: string[]) => { activated: string[]; evicted: string[] };
+	/** Nomes das tools de conector ativas. */
+	activeMcpTools: () => string[];
+	/** Tool de conector chamada fica fixa no run (não sai no LRU). */
+	pinMcpTool: (name: string) => void;
+};
+
+export function buildEngineV2Catalog(input: {
+	origin: string;
+	userId: string;
+	sandboxEnabled: boolean;
+	autonomy: EffectiveAutonomy;
+	toolFilter?: (name: string) => boolean;
+	mcp: McpRuntime | null;
+	apiConnector: boolean;
+	email?: EmailRunContext | null;
+	attachments: { present: boolean };
+	planMode?: boolean;
+	/** Perfil do bot permite `propose_profile_update` (onboarding ou pedido explícito). */
+	allowProfileUpdate: boolean;
+	hasImageAttachments: boolean;
+	routerMessages: ReadonlyArray<{ role: string; content?: unknown }>;
+	lastUserMessage: string;
+	objective?: string;
+	/** Tools carregadas em turnos anteriores / retomada. */
+	priorLoadedTools?: readonly string[];
+}): EngineV2Catalog {
+	const allow = (name: string) => input.toolFilter?.(name) ?? true;
+	const hostBlocked = (name: string) =>
+		(name === "propose_profile_update" && decideAction(input.autonomy, hostAutonomyMeta(name)) === "block") ||
+		(name === "propose_skill" && skillWriteBlocked(input.autonomy)) ||
+		(name === "delete_skill" && skillDeleteBlocked(input.autonomy));
+
+	const native: ChatTool[] = [];
+	const seen = new Set<string>();
+	const add = (tool: ChatTool) => {
+		const name = tool.function.name;
+		if (seen.has(name) || !allow(name) || hostBlocked(name)) return;
+		seen.add(name);
+		native.push(tool);
+	};
+	for (const tool of COMPUTER_USE_TOOLS) {
+		const name = tool.function.name;
+		if (NOT_IN_V2.has(name)) continue;
+		if (!input.sandboxEnabled && SANDBOX_TOOL_NAMES.has(name)) continue;
+		if (name === "propose_profile_update" && !input.allowProfileUpdate) continue;
+		if (name === "login_fill" && !input.sandboxEnabled) continue;
+		if (name === SANDBOX_RELEASE_TOOL_NAME && !input.sandboxEnabled) continue;
+		if ((SANDBOX_SHELL_TOOL_NAMES as readonly string[]).includes(name)) {
+			const shell = name as SandboxShellToolName;
+			if (!sandboxShellAllowedForOrigin(shell, input.origin) || sandboxShellBlocked(input.autonomy, shell)) continue;
+		}
+		if (SKILL_WRITE_TOOL_NAMES.has(name) && input.origin !== "chat") continue;
+		add(tool);
+	}
+	add(SHOW_IMAGE_TOOL);
+	if (input.attachments.present) {
+		add(ATTACHMENT_READ_TOOL);
+		add(ATTACHMENT_LIST_TOOL);
+		if (input.sandboxEnabled) add(ATTACHMENT_TO_COMPUTER_TOOL);
+	}
+	if (decideAction(input.autonomy, { actionClass: "write", tool: "generate_image", host: false }) !== "block") add(GENERATE_IMAGE_TOOL);
+	add(CREATE_FILE_TOOL);
+	if (input.userId !== "default") {
+		add(INSPECT_PRESENTATION_TOOL);
+		for (const tool of PAGE_TOOLS) add(tool);
+		if (loadCodeRunnerConfig().enabled) add(RUN_CODE_TOOL);
+		add(PROPOSE_API_CONNECTION_TOOL);
+	}
+	if (input.apiConnector) {
+		add(API_SEARCH_TOOL);
+		add(API_CALL_TOOL);
+	}
+	for (const tool of emailToolsFor(input.email)) add(tool);
+	add(UPDATE_TASK_LIST_TOOL);
+
+	// Dica de pré-carga (nunca portão): grupos que o pedido sugere já vão carregados; o resto carrega por busca.
+	const routerText = economyRouterText({ origin: input.origin, objective: input.objective, messages: input.routerMessages, lastUserMessage: input.lastUserMessage });
+	const preloaded = routeContextGroups({
+		text: routerText,
+		hasImageAttachments: input.hasImageAttachments,
+		profileAllowed: input.allowProfileUpdate,
+	});
+	if (input.allowProfileUpdate) preloaded.add("profile");
+	if (!native.some((tool) => tool.function.name === "propose_bot")) preloaded.delete("bots");
+	if (!native.some((tool) => tool.function.name.startsWith("email_"))) preloaded.delete("email");
+	for (const name of input.priorLoadedTools ?? []) {
+		const group = planNativeTools(native, new Set()).deferred.get(name)?.group;
+		if (group) preloaded.add(group);
+	}
+	const plan = planNativeTools(native, preloaded);
+
+	const mcp = input.mcp;
+	const mcpTools = (mcp?.toolset.tools ?? []).filter((tool) => {
+		const entry = mcp?.toolset.entries.get(tool.function.name);
+		if (!entry || !allow(tool.function.name)) return false;
+		return decideAction(input.autonomy, entry.autonomyMeta) !== "block";
+	});
+	const wantsSearch = allow("mcp_tool_search") && (plan.deferred.size > 0 || Boolean(mcp?.toolset.deferred));
+	const tools = orderEconomyTools({ plan, searchTool: wantsSearch ? TOOL_SEARCH_WITH_BUILTINS : null, connectorTools: mcpTools });
+	const promptedGroups = new Set<ContextGroup>(preloaded);
+	const deferral = plan.deferred.size > 0 ? createNativeDeferral({ deferred: plan.deferred, tools, promptedGroups }) : null;
+
+	let mcpActiveOrder: string[] = mcpTools.map((tool) => tool.function.name);
+	const mcpUsed = new Set<string>();
+	const activateMcpTools = (names: string[]) => {
+		const allowed = names.filter(allow);
+		if (!mcp || allowed.length === 0) return { activated: [], evicted: [] };
+		const activation = planMcpActivation({
+			namesToActivate: allowed,
+			available: mcp.toolset.available,
+			activeOrder: mcpActiveOrder,
+			maxTools: MCP_MAX_EXPOSED_TOOLS,
+			maxJsonChars: MCP_MAX_TOOLS_JSON_CHARS,
+			pinned: [...mcpUsed],
+		});
+		for (const evicted of activation.evicted) {
+			const at = tools.findIndex((tool) => tool.function.name === evicted);
+			if (at !== -1) tools.splice(at, 1);
+		}
+		for (const name of activation.activated) {
+			const tool = mcp.toolset.available.get(name);
+			if (tool) tools.push(tool);
+		}
+		mcpActiveOrder = activation.finalOrder;
+		return { activated: activation.activated, evicted: activation.evicted };
+	};
+	return {
+		tools,
+		deferral,
+		index: wantsSearch ? deferredToolsIndex(native, preloaded) : "",
+		preloaded,
+		promptedGroups,
+		activateMcpTools,
+		activeMcpTools: () => [...mcpActiveOrder],
+		pinMcpTool: (name) => {
+			mcpUsed.add(name);
+		},
+	};
+}

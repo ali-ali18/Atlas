@@ -19,7 +19,7 @@ import type {
 	RunInputStatus,
 	RunUsage,
 } from "@workspace/shared";
-import { sanitizeStopDetail } from "@workspace/shared";
+import { sanitizeStopDetail, readRunEngine, type RunEngine, type RunProfile } from "@workspace/shared";
 import type { RunStop } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
 import type { ToolCacheState, ToolResultStatus } from "@workspace/shared";
@@ -204,6 +204,23 @@ export function readRunModelAuto(run: { budgetJson?: unknown }): boolean {
  */
 export function readRunHumanTurn(run: { budgetJson?: unknown }): boolean {
 	return (run.budgetJson as { humanTurn?: unknown } | null | undefined)?.humanTurn === true;
+}
+
+/**
+ * Motor v2 (ADR 0002): grava no `budgetJson` do run o motor e o perfil escolhidos no começo, para a retomada
+ * continuar no mesmo motor mesmo que a política do bot mude no meio. Atômico num único UPDATE (merge jsonb, sem
+ * ler-e-escrever) e só se o run ainda não tem motor gravado: duas execuções concorrentes não se sobrescrevem.
+ * Devolve o motor que ficou valendo no run (o gravado agora ou o que já estava), ou `null` se o run não existe.
+ */
+export async function recordRunEngine(runId: string, choice: { engine: RunEngine; profile?: RunProfile }): Promise<RunEngine | null> {
+	const patch = JSON.stringify({ engine: choice.engine, ...(choice.profile ? { engineProfile: choice.profile } : {}) });
+	const updated = await prisma.$executeRaw`
+		UPDATE "agent_runs"
+		SET "budgetJson" = COALESCE("budgetJson", '{}'::jsonb) || ${patch}::jsonb
+		WHERE "id" = ${runId} AND COALESCE("budgetJson", '{}'::jsonb)->>'engine' IS NULL`;
+	if (updated > 0) return choice.engine;
+	const row = await prisma.agentRun.findUnique({ where: { id: runId }, select: { budgetJson: true } });
+	return row ? (readRunEngine(row.budgetJson) ?? null) : null;
 }
 
 /** Lê a janela gravada na criação; fallback 128k (nunca explode). */
