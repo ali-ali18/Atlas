@@ -382,6 +382,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			preloadedGroups: catalog.preloaded,
 			atlasUrl: process.env.ATLAS_URL,
 			helpers: hasToolInRun("delegate"),
+			taskList: hasToolInRun("update_task_list"),
 			role: helperRole ? "helper" : undefined,
 			...(isUnattendedOrigin(origin) && !helperRole ? { unattended: true } : {}),
 			...(origin === "routine" && !helperRole ? { routine: true } : {}),

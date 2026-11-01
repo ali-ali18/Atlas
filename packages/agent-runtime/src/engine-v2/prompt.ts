@@ -33,6 +33,11 @@ export const ENGINE_V2_LONG_WORK: string[] = [
 	"Delivery: for a report, study, analysis or any answer longer than about 1500 words, build the document with create_file (summary, findings, a table when it fits, sources from the notebook, assumptions, and what you could not confirm) and reply in chat with a short summary only.",
 ];
 
+/** Trabalho longo sem a lista de tarefas (rotina): só caderno e entrega. */
+function longWorkLines(taskList: boolean): string[] {
+	return taskList ? ENGINE_V2_LONG_WORK : ENGINE_V2_LONG_WORK.slice(1);
+}
+
 /** Só com `delegate` no catálogo: quando delegar. */
 export const ENGINE_V2_DELEGATE: string[] = [
 	"Helpers: when the work splits into independent parts (the same research for several suppliers, stores or sources; a study with many sources), call delegate once with all the parts instead of doing them one by one. Do not delegate a single lookup or steps that depend on each other. Helpers only read; they write to the notebook and return short summaries. A helper that fails shows up as unconfirmed: report it, do not hide it.",
@@ -53,6 +58,11 @@ export function buildEngineV2SystemPrompt(input: {
 	atlasUrl?: string;
 	/** O catálogo tem `delegate`: o prompt ensina quando delegar. */
 	helpers?: boolean;
+	/**
+	 * O catálogo tem `update_task_list` (padrão: sim). Rotina e grupo não têm a lista: o trabalho longo ali não
+	 * manda o modelo chamar uma tool que não existe.
+	 */
+	taskList?: boolean;
 	/** Este run é um ajudante (prompt próprio, curto: só lê e anota). */
 	role?: "helper";
 	/** Instrução de idioma por run ("auto"): vai por último para o prefixo em cache não variar. */
@@ -70,7 +80,7 @@ export function buildEngineV2SystemPrompt(input: {
 					"",
 					...ENGINE_V2_CORE,
 					...(input.unattended ? ["", ...ENGINE_V2_UNATTENDED] : []),
-					...(input.profile === "long_work" ? ["", ...ENGINE_V2_LONG_WORK, ...(input.helpers ? ENGINE_V2_DELEGATE : [])] : []),
+					...(input.profile === "long_work" ? ["", ...longWorkLines(input.taskList !== false), ...(input.helpers ? ENGINE_V2_DELEGATE : [])] : []),
 					"",
 					...P_MEMORY,
 					"",
