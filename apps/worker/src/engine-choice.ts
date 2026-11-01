@@ -5,6 +5,7 @@
  * bot→bot, proativo (reflexão e lembrete), webhook e e-mail recebido. Subagente herda o motor do pai. O padrão global `ATLAS_ENGINE_V2_DEFAULT`
  * (`off` | `chat` | `all`, desligado) vale para bots que não escolheram o motor; `engine: "v1"` explícito nunca vai ao v2.
  */
+import { effectiveCostCapUsd } from "./run-config.js";
 import { runComputerUse, runEngineV2, type ComputerUseParams, type RunComputerUseResult } from "@workspace/agent-runtime";
 import {
 	chooseRunEngine,
@@ -16,6 +17,7 @@ import {
 	resolveRunProfile,
 	type EngineDefault,
 	type RunEngine,
+	type RunConfigSnapshot,
 	type RunProfile,
 } from "@workspace/shared";
 
@@ -104,12 +106,16 @@ export async function pickRunEngine(input: {
  * (padrão 0,25; o `min` antigo transformava o US$ 1 do bot em 0,50). Sem valor gravado no bot, nada muda (a conta limita).
  * Chat curto sempre fica com o teto da conta. O teto do pedido (retomada com o que sobrou) continua valendo.
  */
-export function longWorkOwnerLimits(choice: Pick<EngineChoice, "engine" | "profile" | "longWorkBudgetExplicit" | "longWorkMinutesExplicit" | "longWorkMinutes">): {
+export function longWorkOwnerLimits(
+	choice: Pick<EngineChoice, "engine" | "profile" | "longWorkBudgetExplicit" | "longWorkMinutesExplicit" | "longWorkMinutes">,
+	/** Só o chat com o dono digitando vale: rotina, bot→bot, webhook e e-mail ficam com o teto da conta. */
+	context: { origin: string; humanTurn: boolean },
+): {
 	ignoreAccountCostCap: boolean;
 	/** Tempo ativo (ms) que o bot definiu e que substitui o da conta; `undefined` = segue o da conta. */
 	wallMs?: number;
 } {
-	const longWork = choice.engine === "v2" && choice.profile === "long_work";
+	const longWork = choice.engine === "v2" && choice.profile === "long_work" && context.origin === "chat" && context.humanTurn;
 	return {
 		ignoreAccountCostCap: longWork && choice.longWorkBudgetExplicit === true,
 		...(longWork && choice.longWorkMinutesExplicit === true && choice.longWorkMinutes ? { wallMs: Math.round(choice.longWorkMinutes * 60_000) } : {}),
@@ -129,4 +135,25 @@ export function runSelectedEngine(choice: EngineChoice, params: ComputerUseParam
 		});
 	}
 	return runComputerUse(params);
+}
+
+/**
+ * Tetos finais do run: custo (US$) e tempo ativo (ms) que o runtime recebe. Junta o teto do pedido/bot, o da conta e o
+ * orçamento do bot no trabalho longo (ver `longWorkOwnerLimits`). Puro: o worker só repassa.
+ */
+export function resolveRunLimits(input: {
+	choice: EngineChoice;
+	origin: string;
+	humanTurn: boolean;
+	/** `budget.maxCostUsd` já resolvido (pedido > bot > conta do código). */
+	requestOrBotCap: number | undefined;
+	snapshot: Pick<RunConfigSnapshot, "maxRunCostUsd">;
+	/** O pedido ou a política do bot fixou o tempo: vale mais que o orçamento de minutos do bot. */
+	wallFixed: boolean;
+}): { costCapUsd: number | undefined; wallMs?: number } {
+	const owner = longWorkOwnerLimits(input.choice, { origin: input.origin, humanTurn: input.humanTurn });
+	return {
+		costCapUsd: effectiveCostCapUsd(input.requestOrBotCap, input.snapshot, { ignoreAccountCap: owner.ignoreAccountCostCap }),
+		...(owner.wallMs !== undefined && !input.wallFixed ? { wallMs: owner.wallMs } : {}),
+	};
 }

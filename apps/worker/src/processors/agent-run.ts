@@ -137,7 +137,7 @@ import {
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
 import { offerContinueAfterBudgetStop } from "../budget-continue-offer.js";
-import { engineDefaultFromEnv, longWorkOwnerLimits, pickRunEngine, runSelectedEngine } from "../engine-choice.js";
+import { engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { briefToolFilter, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, offerBudgetContinue, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
@@ -1167,10 +1167,16 @@ async function executeLeasedRun(ctx: {
 		record: (choice) => recordRunEngine(runId, choice),
 	});
 	// Trabalho longo no v2 com orçamento gravado no bot: o dono do bot vale mais que o teto por execução da conta.
-	const ownerLimits = longWorkOwnerLimits(engineChoice);
-	if (ownerLimits.ignoreAccountCostCap) effectiveCostCap = effectiveCostCapUsd(budget.maxCostUsd, configSnapshot, { ignoreAccountCap: true });
-	const wallOverridden = ownerLimits.wallMs !== undefined && botPolicy.maxWallMs === undefined && requestBudget.maxWallMs === undefined;
-	const runtimeBudget = wallOverridden ? { ...budget, maxWallMs: ownerLimits.wallMs! } : budget;
+	const runLimits = resolveRunLimits({
+		choice: engineChoice,
+		origin: run.origin,
+		humanTurn: readRunHumanTurn(run),
+		requestOrBotCap: budget.maxCostUsd,
+		snapshot: configSnapshot,
+		wallFixed: botPolicy.maxWallMs !== undefined || requestBudget.maxWallMs !== undefined,
+	});
+	effectiveCostCap = runLimits.costCapUsd;
+	const runtimeBudget = runLimits.wallMs !== undefined ? { ...budget, maxWallMs: runLimits.wallMs } : budget;
 	try {
 		const result = await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
 			messageTriageModel,
