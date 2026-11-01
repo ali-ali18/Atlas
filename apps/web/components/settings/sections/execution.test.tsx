@@ -153,7 +153,7 @@ test("Execução: a busca esconde o que não casou", () => {
 test("Execução: custo máximo por execução renderiza com label e descrição", () => {
 	const html = render();
 	assert.match(html, /Custo máximo por execução/);
-	assert.match(html, /Para a execução quando o custo chegar a este valor/);
+	assert.match(html, /Sem limite por padrão/);
 	assert.match(html, /id="settings-exec-maxRunCostUsd"/);
 });
 

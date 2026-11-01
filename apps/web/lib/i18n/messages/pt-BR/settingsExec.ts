@@ -41,7 +41,7 @@ export const settingsExec = {
 	"settings.exec.maxWallMinutes.label": "Limite de tempo",
 	"settings.exec.maxWallMinutes.description": "Quanto um run pode durar, quando o bot não define o seu.",
 	"settings.exec.maxRunCostUsd.label": "Custo máximo por execução",
-	"settings.exec.maxRunCostUsd.description": "Para a execução quando o custo chegar a este valor. Antes disso, o agente entrega o que tem.",
+	"settings.exec.maxRunCostUsd.description": "Sem limite por padrão. Se você escolher um valor, a execução para ao chegar nele e o agente entrega o que tem.",
 	"settings.exec.noLimit": "sem limite",
 	"settings.exec.noLimitCap": "Sem limite",
 	"settings.exec.fmtTokens": "{n}k tokens",

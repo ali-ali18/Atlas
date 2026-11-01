@@ -267,13 +267,14 @@ export function resolveEffectiveConfig(input: {
 			toolResultMaxChars: optionalInt(cfg.execution?.toolResultMaxChars, envInt(e.ATLAS_TOOL_RESULT_MAX_CHARS, 1_000, 1_000_000)),
 			maxSteps: optionalInt(cfg.execution?.maxSteps, undefined),
 			maxWallMinutes: optionalInt(cfg.execution?.maxWallMinutes, undefined),
+			// Sem teto em US$ por padrão (decisão do dono, 01/11): só vale limite que alguém configurou. O da conta
+			// (`user`) é escolha do dono; `ATLAS_MAX_RUN_COST_USD` é o teto do operador do servidor e, com os dois, vale o menor.
 			maxRunCostUsd: ((): Resolved<number | undefined> => {
-				if (cfg.execution?.maxRunCostUsd !== undefined && cfg.execution.maxRunCostUsd !== null) {
-					return user(cfg.execution.maxRunCostUsd);
-				}
+				const fromUser = cfg.execution?.maxRunCostUsd;
 				const fromEnv = envCostUsd(e.ATLAS_MAX_RUN_COST_USD);
+				if (typeof fromUser === "number") return fromEnv !== undefined && fromEnv < fromUser ? env(fromEnv) : user(fromUser);
 				if (fromEnv !== undefined) return env(fromEnv);
-				return dflt(0.25);
+				return dflt(undefined);
 			})(),
 		},
 		sandboxAutoStart:
@@ -319,7 +320,7 @@ export type RunConfigSnapshot = {
 	toolResultMaxChars?: number;
 	maxSteps?: number;
 	maxWallMinutes?: number;
-	/** Ausente em snapshot antigo: o runtime usa default 0.25. */
+	/** Ausente = sem limite em US$ (padrão). Só existe se a conta ou o operador configuraram. */
 	maxRunCostUsd?: number;
 	sandboxAutoStart: boolean;
 };

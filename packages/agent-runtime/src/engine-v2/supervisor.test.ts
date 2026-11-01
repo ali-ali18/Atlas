@@ -25,11 +25,11 @@ const record = (over: Partial<Parameters<ReturnType<typeof createSupervisor>["re
 });
 
 describe("orçamento por perfil", () => {
-	it("trabalho longo: sem teto em US$ e 60 min por padrão (o árbitro é progresso e tempo); chat é menor e tem teto", () => {
+	it("nenhum perfil tem teto em US$ por padrão; o chat é menor no tempo", () => {
 		expect(budgetForProfile("long_work")).toEqual(LONG_WORK_BUDGET);
 		expect(LONG_WORK_BUDGET).toEqual({ maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 60 * 60_000 });
 		expect(budgetForProfile("chat")).toEqual(CHAT_BUDGET);
-		expect(CHAT_BUDGET.maxCostUsd).toBeLessThan(LONG_WORK_BUDGET.maxCostUsd);
+		expect(CHAT_BUDGET.maxCostUsd).toBe(Number.POSITIVE_INFINITY);
 		expect(CHAT_BUDGET.maxActiveMs).toBeLessThan(LONG_WORK_BUDGET.maxActiveMs);
 	});
 
@@ -41,12 +41,62 @@ describe("orçamento por perfil", () => {
 	});
 });
 
-describe("piso de orçamento (brief e lembrete check)", () => {
-	it("o piso sobe o chat, nunca baixa o trabalho longo maior, e os tetos do dono vencem", () => {
-		expect(budgetForProfile("chat", { floor: { costUsd: 0.5, minutes: 30 } })).toEqual({ maxCostUsd: 0.5, maxActiveMs: 30 * 60_000 });
-		expect(budgetForProfile("long_work", { longWorkBudgetUsd: 2, longWorkMinutes: 45, floor: { costUsd: 0.5, minutes: 30 } })).toEqual({ maxCostUsd: 2, maxActiveMs: 45 * 60_000 });
-		expect(budgetForProfile("chat", { floor: { costUsd: 0.5, minutes: 30 }, accountCapUsd: 0.1, accountCapMs: 5 * 60_000 })).toEqual({ maxCostUsd: 0.1, maxActiveMs: 5 * 60_000 });
+describe("piso de tempo (brief e lembrete check)", () => {
+	it("o piso sobe o tempo do chat, nunca baixa o trabalho longo maior, e os tetos do dono vencem; sem piso em US$", () => {
+		expect(budgetForProfile("chat", { floor: { minutes: 30 } })).toEqual({ maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 30 * 60_000 });
+		expect(budgetForProfile("long_work", { longWorkBudgetUsd: 2, longWorkMinutes: 45, floor: { minutes: 30 } })).toEqual({ maxCostUsd: 2, maxActiveMs: 45 * 60_000 });
+		expect(budgetForProfile("chat", { floor: { minutes: 30 }, accountCapUsd: 0.1, accountCapMs: 5 * 60_000 })).toEqual({ maxCostUsd: 0.1, maxActiveMs: 5 * 60_000 });
 		expect(budgetForProfile("chat")).toEqual(CHAT_BUDGET);
+	});
+
+	it("teto de conta explícito vale também no trabalho longo (sem gasto máximo do bot)", () => {
+		expect(budgetForProfile("long_work", { accountCapUsd: 0.4 }).maxCostUsd).toBe(0.4);
+	});
+});
+
+describe("promoção chat -> trabalho longo", () => {
+	const LONG = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 60 * 60_000 };
+	const chat = (over: Partial<Parameters<typeof createSupervisor>[0]> = {}) => createSupervisor({ profile: "chat", budget: CHAT_BUDGET, promotable: true, ...over });
+
+	it("a 80% do tempo do chat com tool no último passo pede a promoção; sem tool ou sem humano, não", () => {
+		expect(chat().gate(usage(0, 4 * 60_000), { lastStepHadTools: true })).toEqual({ action: "call" });
+		expect(chat().gate(usage(0, 6.4 * 60_000), { lastStepHadTools: true })).toEqual({ action: "promote" });
+		expect(chat().gate(usage(0, 9 * 60_000), { lastStepHadTools: true })).toEqual({ action: "promote" });
+		expect(chat().gate(usage(0, 6.4 * 60_000), { lastStepHadTools: false })).toEqual({ action: "call", note: WRAP_UP_NOTE });
+		const unattended = createSupervisor({ profile: "chat", budget: CHAT_BUDGET });
+		expect(unattended.gate(usage(0, 6.4 * 60_000), { lastStepHadTools: true })).toEqual({ action: "call", note: WRAP_UP_NOTE });
+		expect(unattended.gate(usage(0, 8 * 60_000), { lastStepHadTools: true })).toMatchObject({ action: "deliver", stop: { reason: "budget_wall" } });
+		expect(unattended.promote(LONG)).toBe(false);
+	});
+
+	it("dinheiro nunca promove nem para: US$ 50 gastos no chat sem teto seguem", () => {
+		expect(chat().gate(usage(50, 60_000, 12), { lastStepHadTools: true })).toEqual({ action: "call" });
+	});
+
+	it("promove no máximo uma vez e passa a valer o orçamento e as fases do trabalho longo", () => {
+		const supervisor = chat();
+		expect(supervisor.promote(LONG)).toBe(true);
+		expect(supervisor.promote(LONG)).toBe(false);
+		expect(supervisor.profile).toBe("long_work");
+		expect(supervisor.budget).toEqual(LONG);
+		expect(supervisor.promoted).toBe(true);
+		// 8 min gastos já não entregam: o tempo do trabalho longo é 60 min.
+		expect(supervisor.gate(usage(3, 9 * 60_000, 20), { lastStepHadTools: true })).toEqual({ action: "call" });
+		// Na reserva (70% do tempo) a pesquisa fecha como no trabalho longo.
+		expect(supervisor.gate(usage(3, 43 * 60_000, 25), { lastStepHadTools: true })).toMatchObject({ action: "call", note: expect.stringContaining("Research is over") });
+		expect(supervisor.phase()).toBe("write");
+	});
+
+	it("teto de conta explícito menor que o tempo já gasto entrega com honestidade em vez de promover para sempre", () => {
+		const supervisor = chat();
+		supervisor.promote({ maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 5 * 60_000 });
+		expect(supervisor.gate(usage(0, 9 * 60_000, 12), { lastStepHadTools: true })).toMatchObject({ action: "deliver", stop: { reason: "budget_wall" } });
+	});
+
+	it("teto de custo explícito no chat segue valendo: avisa a 80% e entrega no limite", () => {
+		const capped = chat({ budget: { maxCostUsd: 1, maxActiveMs: 8 * 60_000 } });
+		expect(capped.gate(usage(0.8, 60_000), { lastStepHadTools: true })).toEqual({ action: "call", note: WRAP_UP_NOTE });
+		expect(capped.gate(usage(1, 60_000), { lastStepHadTools: true })).toMatchObject({ action: "deliver", stop: { reason: "budget_cost" } });
 	});
 });
 
@@ -56,7 +106,7 @@ describe("gate: aviso e entrega", () => {
 		expect(supervisor.gate(usage(0.5, 60_000))).toEqual({ action: "call" });
 	});
 
-	it("chat: avisa UMA vez a 80% (por custo ou por tempo) e depois só segue", () => {
+	it("chat com teto de custo explícito: avisa UMA vez a 80% (por custo ou por tempo) e depois só segue", () => {
 		const byCost = createSupervisor({ profile: "chat", budget });
 		expect(byCost.gate(usage(0.8))).toEqual({ action: "call", note: WRAP_UP_NOTE });
 		expect(byCost.gate(usage(0.9))).toEqual({ action: "call" });
