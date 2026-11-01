@@ -55,6 +55,7 @@ import {
 	recordAwayNote,
 	finishAgentRun,
 	getAgentRun,
+	recordRunEngine,
 	failAgentRunAfterRetries,
 	getAgentRunCheckpoint,
 	getBotProfile,
@@ -132,9 +133,9 @@ import {
 	loadMcpRuntime,
 	parseBudgetPolicy,
 	resolveBudget,
-	runComputerUse,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
+import { pickRunEngine, runSelectedEngine } from "../engine-choice.js";
 import { briefToolFilter, budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
@@ -1145,8 +1146,18 @@ async function executeLeasedRun(ctx: {
 			{ markReady: markDeliveryReady, cancel: cancelRunDelivery },
 		);
 	const apiConnector = await apiConnectorPromise;
+	// Motor do run (ADR 0002): v1 por padrão; v2 só no chat direto de um bot que ligou `policyJson.engine = "v2"`.
+	// A escolha fica no budgetJson do run: a retomada continua no motor em que o run nasceu.
+	const engineChoice = await pickRunEngine({
+		run,
+		policyJson: rawBotPolicy,
+		isGroupRun: Boolean(groupRun),
+		hasCheckpoint: Boolean(checkpoint),
+		lastUserText: [...messages].reverse().find((message) => message.role === "user")?.content ?? "",
+		record: (choice) => recordRunEngine(runId, choice),
+	});
 	try {
-		const result = await runComputerUse({
+		const result = await runSelectedEngine(engineChoice, {
 			messageTriageModel,
 			onAwayNote: createAwayNoteHandler({
 				userId: runUserId,

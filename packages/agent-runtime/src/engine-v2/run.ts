@@ -99,7 +99,7 @@ import { executeTool } from "../tools/registry/execute.js";
 import { getToolRegistration } from "../tools/registry/index.js";
 import { isSandboxTool } from "../tools/registry/sandbox-tools.js";
 import type { ToolContext } from "../tools/registry/types.js";
-import { executeUpdateTaskList, type TaskListStore } from "../tools/task-list.js";
+import type { TaskListStore } from "../tools/task-list.js";
 import { classifyToolFailure, withArgumentErrorHint } from "../tool-failure.js";
 import { buildEngineV2Catalog } from "./catalog.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
