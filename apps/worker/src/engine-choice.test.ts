@@ -4,8 +4,9 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { engineDefaultFromEnv, mustStayOnV1, pickRunEngine } from "./engine-choice.js";
+import { engineDefaultFromEnv, longWorkOwnerLimits, mustStayOnV1, pickRunEngine } from "./engine-choice.js";
 import type { EngineDefault } from "@workspace/shared";
+import { effectiveCostCapUsd } from "./run-config.js";
 
 function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: string; isGroupRun?: boolean; hasCheckpoint?: boolean; text?: string; forceV1?: boolean; globalDefault?: EngineDefault } = {}) {
 	const recorded: Array<{ engine: string; profile: string }> = [];
@@ -38,7 +39,7 @@ test("policy v2 roda no v2, escolhe o perfil pelo pedido e grava a escolha no ru
 	assert.deepEqual(chat.recorded, [{ engine: "v2", profile: "chat" }]);
 
 	const long = setup({ policyJson: { engine: "v2", longWorkBudgetUsd: 1, longWorkMinutes: 30 }, text: "Faça uma pesquisa de mercado completa e monte um relatório" });
-	assert.deepEqual(await long.choose(), { engine: "v2", profile: "long_work", longWorkBudgetUsd: 1, longWorkMinutes: 30, helperModel: null, helperMaxParallel: 4 });
+	assert.deepEqual(await long.choose(), { engine: "v2", profile: "long_work", longWorkBudgetUsd: 1, longWorkMinutes: 30, longWorkBudgetExplicit: true, longWorkMinutesExplicit: true, helperModel: null, helperMaxParallel: 4 });
 	assert.deepEqual(long.recorded, [{ engine: "v2", profile: "long_work" }]);
 });
 
@@ -57,7 +58,7 @@ test("a retomada respeita o motor e o perfil gravados, mesmo com a policy do bot
 	const resumeV1 = setup({ policyJson: { engine: "v2" }, budgetJson: { engine: "v1" }, hasCheckpoint: true });
 	assert.equal((await resumeV1.choose()).engine, "v1");
 	const resumeV2 = setup({ policyJson: null, budgetJson: { engine: "v2", engineProfile: "long_work" }, hasCheckpoint: true });
-	assert.deepEqual(await resumeV2.choose(), { engine: "v2", profile: "long_work", longWorkBudgetUsd: 0.5, longWorkMinutes: 20, helperModel: null, helperMaxParallel: 4 });
+	assert.deepEqual(await resumeV2.choose(), { engine: "v2", profile: "long_work", longWorkBudgetUsd: 0.5, longWorkMinutes: 20, longWorkBudgetExplicit: false, longWorkMinutesExplicit: false, helperModel: null, helperMaxParallel: 4 });
 	// Já gravado: não grava de novo.
 	assert.deepEqual(resumeV2.recorded, []);
 });
@@ -191,4 +192,21 @@ test("mustStayOnV1: recursos que o v2 não tem", () => {
 	assert.equal(mustStayOnV1({ ...base, routinePush: true }), true);
 	// brief e push só importam em rotina.
 	assert.equal(mustStayOnV1({ ...base, origin: "chat", detachedBrief: true, routinePush: true }), false);
+});
+
+test("orçamento de trabalho longo gravado no bot vale mais que o teto por execução da conta; sem valor no bot a conta limita; chat curto fica com a conta", async () => {
+	const withBot = await setup({ policyJson: { engine: "v2", longWorkBudgetUsd: 1, longWorkMinutes: 40 }, text: "Faça uma pesquisa de mercado completa e monte um relatório" }).choose();
+	assert.deepEqual(longWorkOwnerLimits(withBot), { ignoreAccountCostCap: true, wallMs: 40 * 60_000 });
+	// US$ 1 do bot com teto de conta de 0,50: o runtime recebe o do bot (a conta não entra no `min`).
+	assert.equal(effectiveCostCapUsd(undefined, { maxRunCostUsd: 0.5 }, { ignoreAccountCap: true }), undefined);
+	assert.equal(effectiveCostCapUsd(undefined, { maxRunCostUsd: 0.5 }), 0.5);
+	// Retomada com o que sobrou do pedido continua valendo.
+	assert.equal(effectiveCostCapUsd(0.3, { maxRunCostUsd: 0.5 }, { ignoreAccountCap: true }), 0.3);
+
+	const noValue = await setup({ policyJson: { engine: "v2" }, text: "Faça uma pesquisa de mercado completa e monte um relatório" }).choose();
+	assert.deepEqual(longWorkOwnerLimits(noValue), { ignoreAccountCostCap: false });
+
+	const chat = await setup({ policyJson: { engine: "v2", longWorkBudgetUsd: 1 }, text: "Bom dia" }).choose();
+	assert.deepEqual(longWorkOwnerLimits(chat), { ignoreAccountCostCap: false });
+	assert.deepEqual(longWorkOwnerLimits({ engine: "v1", profile: "chat" }), { ignoreAccountCostCap: false });
 });

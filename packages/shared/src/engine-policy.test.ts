@@ -17,7 +17,7 @@ import {
 describe("readEnginePolicy", () => {
 	it("bot sem política usa v1, perfil automático e o orçamento do dono (US$ 0,50 e 20 min)", () => {
 		for (const raw of [null, undefined, {}, [], "x", 3]) {
-			expect(readEnginePolicy(raw)).toEqual({ engine: "v1", scope: "chat", workProfile: "auto", longWorkBudgetUsd: 0.5, longWorkMinutes: 20 });
+			expect(readEnginePolicy(raw)).toEqual({ engine: "v1", scope: "chat", workProfile: "auto", longWorkBudgetUsd: 0.5, longWorkMinutes: 20, longWorkBudgetExplicit: false, longWorkMinutesExplicit: false });
 		}
 	});
 
@@ -29,7 +29,14 @@ describe("readEnginePolicy", () => {
 			workProfile: "long_work",
 			longWorkBudgetUsd: 1.25,
 			longWorkMinutes: 45,
+			longWorkBudgetExplicit: true,
+			longWorkMinutesExplicit: true,
 		});
+	});
+
+	it("marca como explícito só o valor que o bot gravou (valor inválido não conta)", () => {
+		expect(readEnginePolicy({ longWorkBudgetUsd: 1 })).toMatchObject({ longWorkBudgetExplicit: true, longWorkMinutesExplicit: false });
+		expect(readEnginePolicy({ longWorkMinutes: 30, longWorkBudgetUsd: "caro" })).toMatchObject({ longWorkBudgetExplicit: false, longWorkMinutesExplicit: true });
 	});
 
 	it("valor inválido cai no padrão e número fora da faixa é limitado", () => {

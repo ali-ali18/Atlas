@@ -46,6 +46,9 @@ export type EngineChoice = {
 	profile: RunProfile;
 	longWorkBudgetUsd?: number;
 	longWorkMinutes?: number;
+	/** O bot gravou o valor: no trabalho longo ele vale mais que o teto por execução da conta (ver `longWorkOwnerLimits`). */
+	longWorkBudgetExplicit?: boolean;
+	longWorkMinutesExplicit?: boolean;
 	/** Ajudantes do trabalho longo: modelo barato opcional e quantos rodam juntos (`policyJson.helperModel` / `helperMaxParallel`). */
 	helperModel?: string | null;
 	helperMaxParallel?: number;
@@ -84,7 +87,33 @@ export async function pickRunEngine(input: {
 		if (recorded !== "v2") return { engine: "v1", profile: "chat" };
 	}
 	const helpers = readHelperPolicy(input.policyJson);
-	return { engine, profile, longWorkBudgetUsd: policy.longWorkBudgetUsd, longWorkMinutes: policy.longWorkMinutes, helperModel: helpers.helperModel, helperMaxParallel: helpers.helperMaxParallel };
+	return {
+		engine,
+		profile,
+		longWorkBudgetUsd: policy.longWorkBudgetUsd,
+		longWorkMinutes: policy.longWorkMinutes,
+		longWorkBudgetExplicit: policy.longWorkBudgetExplicit,
+		longWorkMinutesExplicit: policy.longWorkMinutesExplicit,
+		helperModel: helpers.helperModel,
+		helperMaxParallel: helpers.helperMaxParallel,
+	};
+}
+
+/**
+ * Trabalho longo no v2: o orçamento (US$ e minutos) que o dono pôs NO BOT vale mais que o teto por execução da conta
+ * (padrão 0,25; o `min` antigo transformava o US$ 1 do bot em 0,50). Sem valor gravado no bot, nada muda (a conta limita).
+ * Chat curto sempre fica com o teto da conta. O teto do pedido (retomada com o que sobrou) continua valendo.
+ */
+export function longWorkOwnerLimits(choice: Pick<EngineChoice, "engine" | "profile" | "longWorkBudgetExplicit" | "longWorkMinutesExplicit" | "longWorkMinutes">): {
+	ignoreAccountCostCap: boolean;
+	/** Tempo ativo (ms) que o bot definiu e que substitui o da conta; `undefined` = segue o da conta. */
+	wallMs?: number;
+} {
+	const longWork = choice.engine === "v2" && choice.profile === "long_work";
+	return {
+		ignoreAccountCostCap: longWork && choice.longWorkBudgetExplicit === true,
+		...(longWork && choice.longWorkMinutesExplicit === true && choice.longWorkMinutes ? { wallMs: Math.round(choice.longWorkMinutes * 60_000) } : {}),
+	};
 }
 
 /** Roda o motor escolhido: mesma entrada e mesma saída nos dois. */

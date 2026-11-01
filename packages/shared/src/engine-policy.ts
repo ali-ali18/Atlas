@@ -33,10 +33,17 @@ export type EnginePolicy = {
 	workProfile: WorkProfileSetting;
 	longWorkBudgetUsd: number;
 	longWorkMinutes: number;
+	/** O bot gravou o valor (`policyJson.longWorkBudgetUsd` / `longWorkMinutes`): decisão do dono que vale mais que o teto por execução da conta. */
+	longWorkBudgetExplicit: boolean;
+	longWorkMinutesExplicit: boolean;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function isFiniteNumber(value: unknown): boolean {
+	return typeof value === "number" && Number.isFinite(value);
 }
 
 function clampedNumber(value: unknown, fallback: number, min: number, max: number): number {
@@ -55,6 +62,8 @@ export function readEnginePolicy(policyJson: unknown): EnginePolicy {
 		workProfile,
 		longWorkBudgetUsd: clampedNumber(policy.longWorkBudgetUsd, LONG_WORK_DEFAULT_BUDGET_USD, LONG_WORK_MIN_USD, LONG_WORK_MAX_USD),
 		longWorkMinutes: clampedNumber(policy.longWorkMinutes, LONG_WORK_DEFAULT_MINUTES, LONG_WORK_MIN_MINUTES, LONG_WORK_MAX_MINUTES),
+		longWorkBudgetExplicit: isFiniteNumber(policy.longWorkBudgetUsd),
+		longWorkMinutesExplicit: isFiniteNumber(policy.longWorkMinutes),
 	};
 }
 
