@@ -34,6 +34,8 @@ import type { McpRuntime } from "../mcp/runtime.js";
 import { skillDeleteBlocked, skillWriteBlocked } from "../tools/skills.js";
 import { LESSON_FEEDBACK_TOOL_NAME } from "../tools/lesson-feedback.js";
 import { PREVIEW_SETUP_TOOL_NAME } from "../tools/preview-setup/tool.js";
+import { DELEGATE_V2_TOOL } from "./helpers.js";
+import { NOTEBOOK_READ_TOOL, NOTEBOOK_WRITE_TOOL } from "./notebook.js";
 
 const SKILL_WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["propose_skill", "delete_skill"]);
 
@@ -77,6 +79,12 @@ export function buildEngineV2Catalog(input: {
 	objective?: string;
 	/** Tools carregadas em turnos anteriores / retomada. */
 	priorLoadedTools?: readonly string[];
+	/** Trabalho longo: ganha o caderno da tarefa (e `delegate` com `helpers`). Em conversa curta nada disto é carregado. */
+	longWork?: boolean;
+	/** Este run é um ajudante: só `notebook_write` além das tools de leitura que o filtro permite. */
+	helper?: boolean;
+	/** O coordenador pode delegar (chat direto de usuário real, fora de ajudante). */
+	helpers?: boolean;
 }): EngineV2Catalog {
 	const allow = (name: string) => input.toolFilter?.(name) ?? true;
 	const hostBlocked = (name: string) =>
@@ -126,6 +134,13 @@ export function buildEngineV2Catalog(input: {
 	}
 	for (const tool of emailToolsFor(input.email)) add(tool);
 	add(UPDATE_TASK_LIST_TOOL);
+	if (input.helper) {
+		add(NOTEBOOK_WRITE_TOOL);
+	} else if (input.longWork) {
+		add(NOTEBOOK_WRITE_TOOL);
+		add(NOTEBOOK_READ_TOOL);
+		if (input.helpers) add(DELEGATE_V2_TOOL);
+	}
 
 	// Dica de pré-carga (nunca portão): grupos que o pedido sugere já vão carregados; o resto carrega por busca.
 	const routerText = economyRouterText({ origin: input.origin, objective: input.objective, messages: input.routerMessages, lastUserMessage: input.lastUserMessage });
@@ -135,6 +150,8 @@ export function buildEngineV2Catalog(input: {
 		profileAllowed: input.allowProfileUpdate,
 	});
 	if (input.allowProfileUpdate) preloaded.add("profile");
+	// Trabalho longo termina em documento: `create_file` já vai carregado (sem o passo extra de carga na entrega).
+	if (input.longWork && !input.helper && native.some((tool) => tool.function.name === "create_file")) preloaded.add("files");
 	if (!native.some((tool) => tool.function.name === "propose_bot")) preloaded.delete("bots");
 	if (!native.some((tool) => tool.function.name.startsWith("email_"))) preloaded.delete("email");
 	for (const name of input.priorLoadedTools ?? []) {

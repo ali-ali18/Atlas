@@ -36,15 +36,26 @@ test("policy v2 roda no v2, escolhe o perfil pelo pedido e grava a escolha no ru
 	assert.deepEqual(chat.recorded, [{ engine: "v2", profile: "chat" }]);
 
 	const long = setup({ policyJson: { engine: "v2", longWorkBudgetUsd: 1, longWorkMinutes: 30 }, text: "Faça uma pesquisa de mercado completa e monte um relatório" });
-	assert.deepEqual(await long.choose(), { engine: "v2", profile: "long_work", longWorkBudgetUsd: 1, longWorkMinutes: 30 });
+	assert.deepEqual(await long.choose(), { engine: "v2", profile: "long_work", longWorkBudgetUsd: 1, longWorkMinutes: 30, helperModel: null, helperMaxParallel: 4 });
 	assert.deepEqual(long.recorded, [{ engine: "v2", profile: "long_work" }]);
+});
+
+test("ajudantes: modelo barato e paralelo vêm da policy do bot (padrão: mesmo modelo, 4 juntos)", async () => {
+	const custom = setup({ policyJson: { engine: "v2", helperModel: "google/barato", helperMaxParallel: 2 }, text: "Faça uma pesquisa de mercado completa e monte um relatório" });
+	const choice = await custom.choose();
+	assert.equal(choice.helperModel, "google/barato");
+	assert.equal(choice.helperMaxParallel, 2);
+	const bad = setup({ policyJson: { engine: "v2", helperModel: "modelo inválido!", helperMaxParallel: 99 } });
+	const fallback = await bad.choose();
+	assert.equal(fallback.helperModel, null);
+	assert.equal(fallback.helperMaxParallel, 8);
 });
 
 test("a retomada respeita o motor e o perfil gravados, mesmo com a policy do bot trocada", async () => {
 	const resumeV1 = setup({ policyJson: { engine: "v2" }, budgetJson: { engine: "v1" }, hasCheckpoint: true });
 	assert.equal((await resumeV1.choose()).engine, "v1");
 	const resumeV2 = setup({ policyJson: null, budgetJson: { engine: "v2", engineProfile: "long_work" }, hasCheckpoint: true });
-	assert.deepEqual(await resumeV2.choose(), { engine: "v2", profile: "long_work", longWorkBudgetUsd: 0.5, longWorkMinutes: 20 });
+	assert.deepEqual(await resumeV2.choose(), { engine: "v2", profile: "long_work", longWorkBudgetUsd: 0.5, longWorkMinutes: 20, helperModel: null, helperMaxParallel: 4 });
 	// Já gravado: não grava de novo.
 	assert.deepEqual(resumeV2.recorded, []);
 });

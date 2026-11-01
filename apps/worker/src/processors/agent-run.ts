@@ -1160,7 +1160,7 @@ async function executeLeasedRun(ctx: {
 		record: (choice) => recordRunEngine(runId, choice),
 	});
 	try {
-		const result = await runSelectedEngine(engineChoice, {
+		const result = await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
 			messageTriageModel,
 			onAwayNote: createAwayNoteHandler({
 				userId: runUserId,

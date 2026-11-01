@@ -1,6 +1,6 @@
-# Motor v2 (trabalhador longo), F2
+# Motor v2 (trabalhador longo), F2 e F3 (parte A)
 
-- **Status:** em andamento (F2 do ADR 0002: laço v2 ao lado do v1, desligado por padrão)
+- **Status:** em andamento (F2 do ADR 0002: laço v2 ao lado do v1, desligado por padrão; F3 parte A: caderno, ajudantes e entrega em documento)
 - **Data:** 2026-11-01
 - **Issues/PRs:** ADR `docs/adr/0002-motor-v2-trabalhador-longo.md`
 
@@ -27,6 +27,8 @@ Em `Bot.policyJson` (lido por `readEnginePolicy`, `packages/shared/src/engine-po
 | `workProfile` | `"auto"` \| `"chat"` \| `"long_work"` | `"auto"` (decide pelo pedido) |
 | `longWorkBudgetUsd` | US$ 0,05 a 20 | 0,50 |
 | `longWorkMinutes` | 1 a 120 | 20 |
+| `helperModel` | id do modelo (ex.: `google/gemini-flash`) | o do bot |
+| `helperMaxParallel` | 1 a 8 | 4 |
 
 Valor ausente ou inválido cai no padrão. `withBotEngine(policy, "v2")` liga sem perder as outras chaves. Os tetos do run/conta continuam valendo e o perfil nunca os ultrapassa: custo (`budget.maxCostUsd`), tempo (`budget.maxWallMs`, 30 min por padrão no worker: `longWorkMinutes` acima disso só tem efeito se o teto do run/bot for subido) e passos (`maxSteps`/`hardMaxSteps`, 100 por padrão; o teto de segurança do motor é 200).
 
@@ -69,9 +71,36 @@ Um card de login por site e conversa (30 min), como no v1 (`recentLoginAsks`, `L
 ### Eventos e persistência
 Mesmos eventos do contrato: `assistant_delta`, `tool_call`/`tool_result` (mesmo id, com prefixo do run), cards, `task_list`, `input_consumed`, `assistant_discard` (`items_open`). `done`/`error`/`cancelled` continuam sendo emitidos pelo worker com `stopReason`. Passos (`onStep`), `findCompletedTool`/`findStartedTool` (retomada sem repetir escrita) e checkpoint (`buildRuntimeCheckpoint`) seguem o contrato do v1; cancelamento, pausa e pausa por login funcionam igual.
 
+## Trabalho longo (F3 parte A): caderno, ajudantes e documento
+Só em `long_work` e só no chat direto de usuário real. Em `chat` (ex.: "Bom dia") nenhuma destas tools nem textos de prompt são carregados (teste em `engine-v2/long-work.test.ts`).
+
+### Caderno da tarefa (`notebook_write` / `notebook_read`)
+- Regra pura em `packages/shared/src/notebook.ts`; tools em `engine-v2/notebook.ts`. Entrada = título (120), fonte (500), trecho (2.000), referência de artefato (200), tipo (`finding` ou `unconfirmed`), autor (`coordinator` ou `helper:N`) e passo. Máximo de 200 entradas e 120 mil caracteres, dos quais 20 entradas e 10 mil caracteres são reservados só para `unconfirmed` (achado para em 180 entradas), e cada ajudante tem cota própria de achados (30 entradas ou 20 mil caracteres), então um ajudante verboso não engole o "não confirmado" dos outros. Título, trecho e fonte saem sem quebras de linha, caracteres de controle nem tags; passou do limite = erro com a dica ("guarde o grande como arquivo e passe o id em `artifactRef`"), nunca corte silencioso. `replaces` corrige em vez de duplicar (ajudante só corrige as suas).
+- Escopo do run: cada run cria o seu caderno (em memória, no checkpoint como `notebook`). O ajudante recebe só um escritor (`notebook.writer("helper:N")`) ligado ao caderno do PAI; não lê e não enxerga caderno de outro run ou usuário.
+- No contexto do coordenador entra só o ÍNDICE (id, autor, título, domínio da fonte, ref), até 3.500 caracteres, como camada efêmera a cada passo, enviada como mensagem de contexto automático de USUÁRIO (`[auto-context, not written by the user]`) e não de sistema, já que os títulos vêm de páginas (fora do histórico: a compactação e a higiene de contexto nunca a descartam). Se não couber, diz quantas entradas ficaram de fora. O detalhe vem sob demanda por `notebook_read` (até 8 entradas por chamada; por id, texto, tipo ou autor). Títulos e trechos são dado não confiável, nunca instrução.
+
+### Ajudantes (`delegate`)
+- `engine-v2/helpers.ts`. O coordenador envia 1 a 12 tarefas (`title`, `goal`, `context`); rodam até `helperMaxParallel` por vez (as outras esperam a vez). Campo desconhecido, inclusive `userId`/`botId`, falha com a lista do aceito.
+- Orçamento: `planHelperBudgets` (shared) divide em partes iguais 60% do que SOBRA ao pai (US$ e tempo ativo, considerando as levas do paralelo), no máximo US$ 1 e 10 min por ajudante. A soma nunca passa do pai; sem fatia mínima (US$ 0,01 e 30 s) o `delegate` falha com a dica. O custo dos ajudantes soma ao vivo no uso do pai (custo informado, ou estimado pelos tokens), então o Supervisor do pai enxerga o gasto real.
+- Cada ajudante é um run filho (`createSubagentRun`/`finishSubagentRun` do v1; dono e bot lidos do pai no banco, filho de filho não existe) que roda `runEngineV2` com `helper`: prompt próprio e curto, orçamento = a fatia, sem lista de tarefas, sem perguntas. Tools: web, extração, memória e conectores read-only (o mesmo filtro do v1, `buildChildToolFilter`) mais `notebook_write`; nunca delegate, arquivo, página, envio, navegador ou escrita. Herda a política de autonomia congelada, os hooks de lições e plano pendente (`pre-tool-runner`), o cancelamento e a pausa do pai. Cartões `subagents` e eventos `subagent_*` iguais aos do v1.
+- Resultado ao coordenador: uma linha por ajudante (status, ids no caderno, resumo curto). Ajudante que falha, estoura o orçamento sem achar nada ou só colecionou erro de tool vira entrada `unconfirmed` no caderno; se todos falham o `delegate` devolve erro ao modelo (conta nas travas) e o run segue. Ajudante que respondeu sem anotar tem o resumo gravado no caderno. Se até a reserva estiver cheia, o resultado do `delegate` lista ao coordenador o que não deu para confirmar e não coube no caderno. Cada ajudante que termina grava o checkpoint do pai (caderno, `usageTotals` e `helperRuns`, os ids já somados); na retomada o custo dos filhos que terminaram depois do último checkpoint entra uma vez (lido dos runs filhos, escopado pelo dono) e as tarefas que eles já fizeram não rodam de novo.
+- `helperModel`: se o bot define e o id é conhecido, os ajudantes usam esse modelo; desconhecido cai no do pai com um aviso no resultado.
+
+### Entrega em documento
+- `engine-v2/delivery.ts`. Ao final, se a resposta passa de 1.500 palavras, ou o pedido fala de relatório/estudo/análise e há caderno (ou texto de 300+ palavras), e nenhum arquivo saiu, o rascunho é retirado do chat (`assistant_discard`, motivo `missing_file`) e o modelo recebe a instrução de gerar o documento com `create_file` (PDF/DOCX/MD, em partes se grande). No máximo uma vez por run. O portão não age se o usuário pediu a resposta no chat ("aqui no chat", "sem PDF", "não precisa de arquivo") e resposta curta nunca vira documento só porque há caderno (mínimo de 300 palavras fora do caso das 1.500). O texto retirado fica guardado: se o run terminar sem arquivo (create_file falhou, limite de arquivos, modelo respondeu curto), o texto original volta ao chat no lugar.
+- O runtime acrescenta ao conteúdo do documento (pdf, docx, md, txt; só na última parte) as seções "Fontes" (URLs do caderno que o arquivo inteiro, partes anteriores incluídas, não cita) e "Não deu para confirmar" (todas as entradas `unconfirmed`), no idioma do bot. O apêndice cabe no limite do arquivo: o que não couber vira "… e mais N fontes". Resumo, achados, tabela e suposições são do modelo.
+- `create_file` já vem carregado em `long_work`. Teto de saída: 16.000 tokens (`ATLAS_V2_DOC_MAX_OUTPUT_TOKENS`) só nos passos em que o coordenador escreve o documento (portão já agiu, arquivo em partes aberto ou lista de tarefas toda concluída), limitado ao máximo de saída do modelo no catálogo quando ele é conhecido; sem catálogo, vale o valor configurado. Os demais passos e a conversa curta mantêm o configurado.
+
+### Riscos e limites desta parte
+- Retomada no meio de um `delegate`: só os ajudantes que não terminaram rodam de novo (os órfãos são fechados como falha); o trabalho dos que terminaram não se perde nem se refaz. O que um ajudante gastou antes de cair, sem terminar, não é recuperável do banco.
+- O ajudante é de leitura: não usa navegador nem login. Fonte que só abre logada vira "não confirmado".
+- Documento gerado só quando `create_file` está disponível; na entrega forçada por orçamento (última chamada sem tools) a resposta sai em texto.
+- O índice só mostra título e fonte; um título escrito pela página (via modelo) é dado, e o prompt do índice diz isso. Custo: o índice soma até ~900 tokens por passo quando o caderno está cheio.
+- Ainda de fora (F3 parte B): resumo de compactação, as 4 memórias, raciocínio controlável e `track_items`.
+
 ## Limites desta fase (o que o v2 ainda não faz)
 - **Origens:** só o chat direto do dono com o bot. Rotina, alerta, webhook, proativo, e-mail, bot→bot, subagente e grupo seguem no v1.
-- **Tools fora do catálogo do v2:** `delegate_task` (ajudantes e caderno da tarefa são a F3), `research_note`, `track_items`, `propose_plan`, `read_cached_result`, sessão de código (`dev_*`), envio entre bots, `set_autonomy`, lições de conector, prévia completa, `notify_user`/proativo.
+- **Tools fora do catálogo do v2:** `delegate_task` (no v2 o equivalente é `delegate`, ver acima), `research_note` (no v2 vale o caderno), `track_items`, `propose_plan`, `read_cached_result`, sessão de código (`dev_*`), envio entre bots, `set_autonomy`, lições de conector, prévia completa, `notify_user`/proativo.
 - **Login:** o card de login é sempre humano (sem preenchimento automático do Cofre nem retomada com item do Cofre); o `login_fill` por tool continua.
 - **Modo proativo e avisos:** bot com modo proativo ligado fica no v1 (o v2 não tem `schedule_followup` nem a reflexão); o `notify_user` (push no meio de tarefa longa) também não existe no v2.
 - **Estimativa de custo:** conservadora e única para todos os modelos; modelos baratos sem custo informado chegam ao teto antes do real.
@@ -91,6 +120,6 @@ Mesmos eventos do contrato: `assistant_delta`, `tool_call`/`tool_result` (mesmo 
 Sem custo de infra novo. Tokens: o prompt do v2 é menor que o do v1 no "Bom dia" (testado). Os números de custo real por tarefa vêm do piloto (F4).
 
 ## Como testar
-- `pnpm --filter @workspace/shared test` (`engine-policy.test.ts`).
-- `pnpm --filter @workspace/agent-runtime test` (`engine-v2/supervisor.test.ts`, `task-list.test.ts`, `run.test.ts`: replay de pesquisa com 30 leituras sem corte, "Bom dia" barato, aviso a 80% e entrega sem tools, repetição, falhas, lista de tarefas, retomada).
+- `pnpm --filter @workspace/shared test` (`engine-policy.test.ts`, `notebook.test.ts`, `engine-helpers.test.ts`).
+- `pnpm --filter @workspace/agent-runtime test` (`engine-v2/supervisor.test.ts`, `task-list.test.ts`, `run.test.ts`: replay de pesquisa com 30 leituras sem corte, "Bom dia" barato, aviso a 80% e entrega sem tools, repetição, falhas, lista de tarefas, retomada); `engine-v2/long-work.test.ts` (caderno: índice compacto, limites, checkpoint e retomada; ajudantes: paralelo, orçamento repartido, falha que não mata o pai, só leitura, escopo, hooks; replay "pesquisa de mercado com 5 fornecedores" com documento), `delivery.test.ts`, `notebook.test.ts`.
 - Worker: `cd apps/worker && NODE_ENV=test ATLAS_HOOK_PEPPER=test-pepper pnpm exec tsx --test src/engine-choice.test.ts` (bot sem policy → v1; policy v2 → v2; retomada respeita o gravado).

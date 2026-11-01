@@ -195,6 +195,9 @@ const defaultDeps: DelegateDeps = {
 	saveCard: appendConversationCard,
 };
 
+/** Persistência padrão dos filhos (o `delegate` do motor v2 reaproveita a mesma). */
+export const defaultDelegateDeps: DelegateDeps = defaultDeps;
+
 /** Dica ao pai (modelo): sub-agente não tem a sessão do navegador do sandbox. */
 export const BLIND_DELEGATION_HINT =
 	"Sub-agents cannot use your browser session; do this yourself with the page tools, one item at a time.";
