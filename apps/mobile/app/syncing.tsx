@@ -12,11 +12,11 @@ const PROBE_TIMEOUT_MS = 8000;
 /**
  * Entre o login e o app. Confere, com a sessão do aparelho, que o servidor aceita o acesso (GET /v1/bots, só leitura):
  * 401 quer dizer sessão que o servidor não reconhece, então sai e volta ao Login. Falha de rede não derruba a
- * sessão. A lista de conversas entra na próxima etapa.
+ * sessão. Depois vai para a home (`app/(app)/index.tsx`).
  */
 export default function SyncingScreen() {
 	const router = useRouter();
-	const { apiFetch, signOut } = useAtlasSession();
+	const { apiFetch, signOut, markSynced } = useAtlasSession();
 
 	React.useEffect(() => {
 		let cancelled = false;
@@ -34,14 +34,17 @@ export default function SyncingScreen() {
 			await minimum;
 			if (cancelled) return;
 			if (rejected) await signOut();
-			else router.replace("/connected");
+			else {
+				markSynced();
+				router.replace("/");
+			}
 		})();
 		return () => {
 			cancelled = true;
 			clearTimeout(timer);
 			controller.abort();
 		};
-	}, [apiFetch, signOut, router]);
+	}, [apiFetch, signOut, markSynced, router]);
 
 	return (
 		<Screen scroll={false}>

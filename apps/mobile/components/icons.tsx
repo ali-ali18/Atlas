@@ -43,16 +43,3 @@ export function LinkIcon({ size = 18, tone = "muted-foreground" }: LineIconProps
 		</Svg>
 	);
 }
-
-/** Lucide `Hash` (campo do código de 6 números). */
-export function HashIcon({ size = 18, tone = "muted-foreground" }: LineIconProps) {
-	const stroke = useStroke(tone);
-	return (
-		<Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-			<Path d="M4 9h16" />
-			<Path d="M4 15h16" />
-			<Path d="M10 3 8 21" />
-			<Path d="m16 3-2 18" />
-		</Svg>
-	);
-}

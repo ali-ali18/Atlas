@@ -11,6 +11,9 @@ export type AtlasSession = {
 	email: string | null;
 	/** Verdadeiro uma vez, logo depois de entrar nesta execução do app (para o avatar feliz). */
 	justSignedIn: boolean;
+	/** O carregamento (Sincronizando) já rodou nesta sessão: a home pode abrir. */
+	synced: boolean;
+	markSynced: () => void;
 	markSignedIn: () => void;
 	consumeJustSignedIn: () => void;
 	connectServer: (url: string) => Promise<void>;
@@ -34,6 +37,7 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 	const [loaded, setLoaded] = React.useState(false);
 	const [serverUrl, setServerUrl] = React.useState<string | null>(null);
 	const [justSignedIn, setJustSignedIn] = React.useState(false);
+	const [synced, setSynced] = React.useState(false);
 
 	React.useEffect(() => {
 		void loadServerUrl().then((saved) => {
@@ -64,6 +68,7 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 
 	const signOut = React.useCallback(async () => {
 		setJustSignedIn(false);
+		setSynced(false);
 		try {
 			await client?.signOut();
 		} catch {
@@ -87,21 +92,32 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 		[client, serverUrl],
 	);
 
+	const markSynced = React.useCallback(() => setSynced(true), []);
+	const markSignedIn = React.useCallback(() => setJustSignedIn(true), []);
+	const consumeJustSignedIn = React.useCallback(() => setJustSignedIn(false), []);
+	const phase = phaseOf({ loaded, serverUrl, sessionPending: pending, hasSession });
+	// Sessão que caiu por fora (expirou, revogada): o próximo login passa de novo pelo carregamento.
+	React.useEffect(() => {
+		if (phase === "signed-out" || phase === "no-server") setSynced(false);
+	}, [phase]);
+
 	const value = React.useMemo<AtlasSession>(
 		() => ({
-			phase: phaseOf({ loaded, serverUrl, sessionPending: pending, hasSession }),
+			phase,
+			synced,
+			markSynced,
 			serverUrl,
 			client,
 			email,
 			justSignedIn,
-			markSignedIn: () => setJustSignedIn(true),
-			consumeJustSignedIn: () => setJustSignedIn(false),
+			markSignedIn,
+			consumeJustSignedIn,
 			connectServer,
 			signOut,
 			changeServer,
 			apiFetch,
 		}),
-		[loaded, serverUrl, pending, hasSession, client, email, justSignedIn, connectServer, signOut, changeServer, apiFetch],
+		[phase, synced, serverUrl, client, email, justSignedIn, markSynced, markSignedIn, consumeJustSignedIn, connectServer, signOut, changeServer, apiFetch],
 	);
 
 	return (
