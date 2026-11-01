@@ -164,7 +164,8 @@ describe("3-4. v2: pesquisa longa e orçamento", { skip: integrationSkip }, () =
 				return { content: "Orçamento esgotado. Resultado parcial: o que consegui ler até aqui.", costUsd: 0.001 };
 			},
 		]);
-		const fx = await createFixture({ engine: "v2" });
+		// Sem teto em US$ de fábrica: o estouro só existe com um teto programado pelo dono (aqui, no bot).
+		const fx = await createFixture({ engine: "v2", policy: { maxCostUsd: 0.25 } });
 		const { app } = await createApi(fx.userId);
 		const sent = await sendChat(app, fx, "Pesquise a fundo sobre os conectores");
 		await pinEngine(sent.runId, "v2");
