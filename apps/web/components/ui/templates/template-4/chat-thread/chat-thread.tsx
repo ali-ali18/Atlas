@@ -456,8 +456,14 @@ export function ChatThread({
 			applyBudgetContinueState(offerId, { status: result.status === "pending" ? "pending" : result.status, continuationRunId: result.runId });
 		} catch (cause) {
 			const status = typeof cause === "object" && cause !== null && "status" in cause ? Number(cause.status) : 0;
+			// 410: a oferta passou (mais de 24h ou superada por outra); o servidor já a marcou como dispensada.
+			if (status === 410) {
+				applyBudgetContinueState(offerId, { status: "dismissed" });
+				applyBudgetContinueState(offerId, { error: translator.t("aiElements.budgetContinue.errorExpired") });
+				return;
+			}
 			applyBudgetContinueState(offerId, {
-				error: status === 404 ? "Este pedido não existe mais." : status === 409 ? "Já há uma tarefa em andamento. Espere terminar e tente de novo." : "Não consegui retomar agora. Tente de novo.",
+				error: translator.t(status === 404 ? "aiElements.budgetContinue.errorGone" : status === 409 ? "aiElements.budgetContinue.errorBusy" : "aiElements.budgetContinue.error"),
 			});
 		}
 	}
