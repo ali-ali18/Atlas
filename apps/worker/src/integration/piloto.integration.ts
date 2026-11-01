@@ -29,21 +29,20 @@ async function nextRunEngine(fx: Awaited<ReturnType<typeof createFixture>>): Pro
 }
 
 describe("piloto: ligar o motor novo pela engrenagem (PATCH do bot)", { skip: integrationSkip }, () => {
-	test("o dono liga o v2 e o próximo run sai no v2; desligar volta ao v1; as outras chaves ficam", async () => {
+	test("bot sem escolha já roda no motor novo; o dono volta ao anterior (v1 explícito) e liga o novo de novo; as outras chaves ficam", async () => {
 		const fx = await createFixture({ name: "Radar de Mercado", policy: { planMode: true } });
 		const { patchBot } = await createBotsApi(fx.userId);
-		assert.equal(await nextRunEngine(fx), undefined, "sem ligar, o bot roda no v1");
+		assert.equal(await nextRunEngine(fx), "v2", "sem escolha, o bot roda no motor novo (padrão)");
+
+		const off = await patchBot(fx.botId, { policyJson: withEngineSettings(await policyOf(fx.botId), { engine: "v1" }) });
+		assert.equal(off.status, 200, JSON.stringify(off.json));
+		assert.deepEqual(await policyOf(fx.botId), { planMode: true, engine: "v1" }, "voltar ao anterior fica explícito (o padrão não o religa)");
+		assert.equal(await nextRunEngine(fx), undefined, "voltar ao anterior vale na hora para o próximo run");
 
 		const on = await patchBot(fx.botId, { policyJson: withEngineSettings(await policyOf(fx.botId), { engine: "v2", longWorkBudgetUsd: 1, longWorkMinutes: 30 }) });
 		assert.equal(on.status, 200, JSON.stringify(on.json));
 		assert.deepEqual(await policyOf(fx.botId), { planMode: true, engine: "v2", longWorkBudgetUsd: 1, longWorkMinutes: 30 });
 		assert.equal(await nextRunEngine(fx), "v2", "o run seguinte sai no motor novo");
-
-		const off = await patchBot(fx.botId, { policyJson: withEngineSettings(await policyOf(fx.botId), { engine: "v1" }) });
-		assert.equal(off.status, 200);
-		assert.equal((await policyOf(fx.botId)).engine, "v1", "voltar ao atual fica explícito (o padrão global não o religa)");
-		assert.equal((await policyOf(fx.botId)).planMode, true);
-		assert.equal(await nextRunEngine(fx), undefined, "desligar vale na hora para o próximo run");
 	});
 
 	test("valor inválido é recusado (400) e nada muda; outro usuário não liga o motor do bot (404)", async () => {
@@ -62,7 +61,8 @@ describe("piloto: ligar o motor novo pela engrenagem (PATCH do bot)", { skip: in
 
 describe("piloto: ligar o motor novo conversando (set_engine)", { skip: integrationSkip }, () => {
 	test("'liga o motor novo, orçamento de 1 dólar' grava a política, mostra o cartão e o run seguinte sai no v2", async () => {
-		const fx = await createFixture({ name: "Radar de Mercado", policy: { planMode: true } });
+		// Parte do motor anterior escolhido (v1 explícito): é o único jeito de o bot não estar já no motor novo.
+		const fx = await createFixture({ name: "Radar de Mercado", policy: { planMode: true, engine: "v1" } });
 		const { app } = await createApi(fx.userId);
 		const fake = script([
 			{ tools: [{ name: "set_engine", args: { engine: "new", budget_usd: 1, minutes: 30 } }] },

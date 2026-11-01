@@ -31,10 +31,20 @@ function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: stri
 	return { recorded, choose };
 }
 
-test("bot sem policy roda no v1 e não grava nada", async () => {
+test("bot sem policy roda no v2 (padrão novo, sem variável de ambiente) e grava a escolha no run", async () => {
 	const { recorded, choose } = setup();
-	assert.deepEqual(await choose(), { engine: "v1", profile: "chat" });
-	assert.deepEqual(recorded, []);
+	const choice = await choose();
+	assert.equal(choice.engine, "v2");
+	assert.equal(choice.profile, "chat");
+	assert.deepEqual(recorded, [{ engine: "v2", profile: "chat" }]);
+});
+
+test("bot com engine v1 explícito roda no v1 e não grava nada, com ou sem variável", async () => {
+	for (const globalDefault of [undefined, "chat", "all", "off"] as const) {
+		const { recorded, choose } = setup({ policyJson: { engine: "v1" }, globalDefault });
+		assert.deepEqual(await choose(), { engine: "v1", profile: "chat" }, String(globalDefault));
+		assert.deepEqual(recorded, []);
+	}
 });
 
 test("policy v2 roda no v2, escolhe o perfil pelo pedido e grava a escolha no run", async () => {
@@ -73,11 +83,14 @@ test("run com checkpoint e sem motor gravado nasceu no v1 e continua nele", asyn
 	assert.deepEqual(recorded, []);
 });
 
-test("escopo chat (padrão): rotina, webhook, proativo, subagente, bot→bot e grupo continuam no v1 mesmo com policy v2", async () => {
-	for (const origin of ["routine", "webhook", "proactive", "email", "bot", "subagent"]) {
-		assert.equal((await setup({ policyJson: { engine: "v2" }, origin }).choose()).engine, "v1", origin);
+test("engine v2 sem engineScope vale como all; só engineScope chat explícito segura rotina, webhook, proativo, bot→bot e grupo no v1", async () => {
+	for (const origin of ["routine", "webhook", "proactive", "email", "bot"]) {
+		assert.equal((await setup({ policyJson: { engine: "v2" }, origin }).choose()).engine, "v2", origin);
+		assert.equal((await setup({ policyJson: { engine: "v2", engineScope: "chat" }, origin }).choose()).engine, "v1", origin);
 	}
-	assert.equal((await setup({ policyJson: { engine: "v2" }, isGroupRun: true }).choose()).engine, "v1");
+	assert.equal((await setup({ policyJson: { engine: "v2" }, isGroupRun: true }).choose()).engine, "v2");
+	assert.equal((await setup({ policyJson: { engine: "v2", engineScope: "chat" }, isGroupRun: true }).choose()).engine, "v1");
+	assert.equal((await setup({ policyJson: { engine: "v2" }, origin: "subagent" }).choose()).engine, "v1");
 });
 
 test("gancho genérico forceV1: run novo fica no v1 e não grava; motor já gravado vence", async () => {
@@ -98,10 +111,11 @@ test("chat com modo proativo ligado e evento de configuração do bot no escopo 
 	assert.deepEqual(await config.choose(), { engine: "v2", profile: "chat", longWorkBudgetUsd: undefined, longWorkMinutes: 60, longWorkMinutesExplicit: false, helperModel: null, helperMaxParallel: 4 });
 });
 
-test("o padrão global ATLAS_ENGINE_V2_DEFAULT=chat leva os mesmos runs ao v2; sem chave nenhuma continuam no v1", async () => {
+test("o padrão ATLAS_ENGINE_V2_DEFAULT=chat leva os mesmos runs ao v2; off (emergência) os devolve ao v1; sem chave é v2", async () => {
 	for (const over of [{ origin: "chat" }, { origin: "chat", shortRun: true }]) {
 		assert.equal((await setup({ policyJson: null, globalDefault: "chat", ...over }).choose()).engine, "v2");
-		const off = setup({ policyJson: null, ...over });
+		assert.equal((await setup({ policyJson: null, ...over }).choose()).engine, "v2");
+		const off = setup({ policyJson: null, globalDefault: "off", ...over });
 		assert.equal((await off.choose()).engine, "v1");
 		assert.deepEqual(off.recorded, []);
 	}
@@ -193,14 +207,36 @@ test("forceV1 (gancho para recurso do v1 que o v2 não cobre) vence o escopo all
 	assert.deepEqual(recorded, []);
 });
 
-test("padrão global off (ou ausente): bot sem escolha não muda em nenhuma origem", async () => {
-	for (const globalDefault of [undefined, "off"] as const) {
-		for (const over of [{ origin: "chat" }, { origin: "routine" }, { origin: "bot" }, { origin: "chat", isGroupRun: true }]) {
-			const { choose, recorded } = setup({ policyJson: { planMode: true }, globalDefault, ...over });
-			assert.equal((await choose()).engine, "v1");
-			assert.deepEqual(recorded, []);
-		}
+test("padrão global off (emergência): bot sem escolha volta ao v1 em nenhuma origem do v2", async () => {
+	for (const over of [{ origin: "chat" }, { origin: "routine" }, { origin: "bot" }, { origin: "chat", isGroupRun: true }]) {
+		const { choose, recorded } = setup({ policyJson: { planMode: true }, globalDefault: "off", ...over });
+		assert.equal((await choose()).engine, "v1");
+		assert.deepEqual(recorded, []);
 	}
+});
+
+test("padrão global off (emergência) vale para todos os bots, inclusive engine v2 explícito; o motor gravado segue", async () => {
+	for (const policyJson of [{ engine: "v2" }, { engine: "v2", engineScope: "all" }, { engine: "v1" }, null]) {
+		const { choose, recorded } = setup({ policyJson, globalDefault: "off" });
+		assert.equal((await choose()).engine, "v1", JSON.stringify(policyJson));
+		assert.deepEqual(recorded, []);
+	}
+	assert.equal((await setup({ policyJson: { engine: "v2" }, globalDefault: "off", budgetJson: { engine: "v2", engineProfile: "chat" } }).choose()).engine, "v2");
+});
+
+test("padrão ausente (sem variável): bot sem escolha vai ao v2 em todas as origens suportadas, subagente herda do pai", async () => {
+	for (const over of [{ origin: "chat" }, { origin: "routine" }, { origin: "bot" }, { origin: "proactive" }, { origin: "webhook" }, { origin: "email" }, { origin: "chat", isGroupRun: true }]) {
+		const { choose, recorded } = setup({ policyJson: { planMode: true }, ...over });
+		assert.equal((await choose()).engine, "v2", JSON.stringify(over));
+		assert.deepEqual(recorded, [{ engine: "v2", profile: "chat" }], JSON.stringify(over));
+	}
+	assert.equal((await setup({ origin: "subagent" }).choose()).engine, "v1");
+});
+
+test("run em andamento: o motor gravado vence o padrão; retomada com checkpoint e sem motor gravado fica no v1", async () => {
+	assert.equal((await setup({ budgetJson: { engine: "v1" }, hasCheckpoint: true }).choose()).engine, "v1");
+	assert.equal((await setup({ hasCheckpoint: true }).choose()).engine, "v1");
+	assert.equal((await setup({ budgetJson: { engine: "v2", engineProfile: "chat" }, hasCheckpoint: true, globalDefault: "off" }).choose()).engine, "v2");
 });
 
 test("padrão global chat/all vale para bot sem escolha explícita", async () => {
@@ -225,11 +261,13 @@ test("retomada: o motor gravado vence o padrão global nos dois sentidos", async
 	assert.equal((await setup({ globalDefault: "off", budgetJson: { engine: "v2", engineProfile: "chat" }, hasCheckpoint: true, origin: "routine" }).choose()).engine, "v2");
 });
 
-test("engineDefaultFromEnv lê ATLAS_ENGINE_V2_DEFAULT; ausente ou inválido é off", () => {
-	assert.equal(engineDefaultFromEnv({}), "off");
+test("engineDefaultFromEnv lê ATLAS_ENGINE_V2_DEFAULT; ausente, vazio ou inválido é o padrão novo (all)", () => {
+	assert.equal(engineDefaultFromEnv({}), "all");
+	assert.equal(engineDefaultFromEnv({ ATLAS_ENGINE_V2_DEFAULT: "" }), "all");
 	assert.equal(engineDefaultFromEnv({ ATLAS_ENGINE_V2_DEFAULT: "chat" }), "chat");
 	assert.equal(engineDefaultFromEnv({ ATLAS_ENGINE_V2_DEFAULT: "ALL" }), "all");
-	assert.equal(engineDefaultFromEnv({ ATLAS_ENGINE_V2_DEFAULT: "sim" }), "off");
+	assert.equal(engineDefaultFromEnv({ ATLAS_ENGINE_V2_DEFAULT: "off" }), "off");
+	assert.equal(engineDefaultFromEnv({ ATLAS_ENGINE_V2_DEFAULT: "sim" }), "all");
 });
 
 test("alerta, brief, proativo e config do bot (shortRun) saem no v2 sempre no perfil chat, mesmo com pedido de relatório ou long_work forçado", async () => {
@@ -249,9 +287,9 @@ test("alerta, brief, proativo e config do bot (shortRun) saem no v2 sempre no pe
 	assert.equal((await setup({ policyJson: wide, origin: "routine", text: report }).choose()).profile, "long_work");
 });
 
-test("alerta, brief e proativo seguem no v1 sem o escopo all (padrão sem chave continua v1)", async () => {
+test("alerta, brief e proativo seguem no v1 com v2/chat explícito ou v1 explícito", async () => {
 	for (const over of [{ origin: "routine" }, { origin: "proactive" }]) {
-		for (const policyJson of [null, { engine: "v2" }, { engine: "v2", engineScope: "chat" }]) {
+		for (const policyJson of [{ engine: "v1" }, { engine: "v2", engineScope: "chat" }]) {
 			const { choose, recorded } = setup({ policyJson, shortRun: true, ...over });
 			assert.equal((await choose()).engine, "v1");
 			assert.deepEqual(recorded, []);

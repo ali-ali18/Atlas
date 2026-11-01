@@ -1148,7 +1148,7 @@ async function executeLeasedRun(ctx: {
 			{ markReady: markDeliveryReady, cancel: cancelRunDelivery },
 		);
 	const apiConnector = await apiConnectorPromise;
-	// Motor do run (ADR 0002): v1 por padrão; v2 no chat direto de um bot que ligou `policyJson.engine = "v2"` e, com `engineScope = "all"`, em rotina, grupo e bot→bot.
+	// Motor do run (ADR 0002): v2 por padrão em todas as origens suportadas; v1 só com `policyJson.engine = "v1"` explícito ou com `ATLAS_ENGINE_V2_DEFAULT=off` (emergência).
 	// A escolha fica no budgetJson do run: a retomada continua no motor em que o run nasceu.
 	const engineChoice = await pickRunEngine({
 		run,

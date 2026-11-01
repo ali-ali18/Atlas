@@ -17,19 +17,34 @@ export const LONG_WORK_MIN_MINUTES = 1;
 export const LONG_WORK_MAX_MINUTES = 180;
 
 /**
-/**
- * Onde o v2 roda num bot que o ligou: `chat` (padrão) = só a conversa direta com o dono; `all` = também rotinas
- * (alerta e brief inclusos), grupo, bot→bot, proativo, webhook e e-mail recebido. Só o subagente segue no v1.
+ * Onde o v2 roda num bot que o ligou: `chat` = só a conversa direta com o dono; `all` = também rotinas
+ * (alerta e brief inclusos), grupo, bot→bot, proativo, webhook e e-mail recebido. O subagente herda o motor do pai.
  */
 export type EngineScope = "chat" | "all";
-/** Padrão global do deploy (`ATLAS_ENGINE_V2_DEFAULT`) para bots que não escolheram o motor: `off` (padrão), `chat` ou `all`. */
+/** Padrão global do deploy (`ATLAS_ENGINE_V2_DEFAULT`) para bots que não escolheram o motor: `off`, `chat` ou `all`. */
 export type EngineDefault = "off" | EngineScope;
+
+/**
+ * Decisão do dono (01/11): o motor novo (v2) é o PADRÃO de todo bot que não escolheu o motor, em todas as origens
+ * suportadas. Esta constante é a fonte única: a decisão do worker (`readEngineDefault`) e o que a UI e a descrição
+ * mostram (`readEnginePolicy`) saem dela, para o dono ver o mesmo que roda. `ATLAS_ENGINE_V2_DEFAULT` virou botão de
+ * emergência do deploy: `off` desliga o motor novo para TODOS os bots (run novo vai ao v1, mesmo com `engine: "v2"`
+ * explícito; run já gravado segue); `chat` limita ao chat os bots sem escolha.
+ * O `off` de emergência NÃO aparece na UI (ela mostra o padrão). `engine: "v1"` explícito sempre vence.
+ */
+export const ENGINE_DEFAULT_SCOPE: EngineScope = "all";
 
 export type EnginePolicy = {
 	engine: RunEngine;
 	/** Escolha explícita do bot (`policyJson.engine`): `v1` explícito nunca vai para o v2, nem pelo padrão global. */
 	explicit?: RunEngine;
+	/**
+	 * Escopo como o dono vê (UI e descrição): o do bot (`engineScope`); bot sem escolha explícita mostra o do padrão
+	 * (`ENGINE_DEFAULT_SCOPE`). O worker decide por `resolveBotEngineRouting`, que também considera o env de emergência.
+	 */
 	scope: EngineScope;
+	/** `policyJson.engineScope` cru (`undefined` = não definido ou inválido). Só `"chat"` explícito limita o motor novo ao chat. */
+	scopeRaw?: EngineScope;
 	workProfile: WorkProfileSetting;
 	/**
 	 * Gasto máximo OPCIONAL por tarefa longa (`policyJson.longWorkBudgetUsd`, vazio por padrão = sem limite em US$). O árbitro
@@ -55,14 +70,18 @@ function clampedNumber(value: unknown, fallback: number, min: number, max: numbe
 	return Math.min(max, Math.max(min, value));
 }
 
-/** Lê o que o bot configura para o motor. Valor ausente ou inválido cai no padrão (v1, auto, 0,50 / 20 min). */
+/** Lê o que o bot configura para o motor. Sem escolha explícita vale o padrão (v2 em `ENGINE_DEFAULT_SCOPE`); perfil auto, sem limite de gasto, 60 min. */
 export function readEnginePolicy(policyJson: unknown): EnginePolicy {
 	const policy = asRecord(policyJson);
 	const workProfile: WorkProfileSetting = policy.workProfile === "chat" || policy.workProfile === "long_work" ? policy.workProfile : "auto";
+	const explicit: RunEngine | undefined = policy.engine === "v1" || policy.engine === "v2" ? policy.engine : undefined;
+	const scopeRaw: EngineScope | undefined = policy.engineScope === "all" || policy.engineScope === "chat" ? policy.engineScope : undefined;
 	return {
-		engine: policy.engine === "v2" ? "v2" : "v1",
-		explicit: policy.engine === "v1" || policy.engine === "v2" ? policy.engine : undefined,
-		scope: policy.engineScope === "all" ? "all" : "chat",
+		engine: explicit ?? "v2",
+		explicit,
+		// Quem escolheu o motor novo sem `engineScope` vale como `all` (decisão do dono, 01/11); só `engineScope: "chat"` limita.
+		scope: explicit === "v1" ? "chat" : (scopeRaw ?? ENGINE_DEFAULT_SCOPE),
+		scopeRaw,
 		workProfile,
 		// 0 (ou negativo) = sem limite, igual a vazio e `null`; só valor positivo vira teto.
 		longWorkBudgetUsd: isFiniteNumber(policy.longWorkBudgetUsd) && (policy.longWorkBudgetUsd as number) > 0 ? clampedNumber(policy.longWorkBudgetUsd, LONG_WORK_MIN_USD, LONG_WORK_MIN_USD, LONG_WORK_MAX_USD) : undefined,
@@ -83,19 +102,23 @@ export function withBotEngine(policyJson: unknown, engine: RunEngine): Record<st
 	return base;
 }
 
-/** Padrão global do deploy. Qualquer valor desconhecido ou ausente = `off` (nada muda para ninguém). */
+/**
+ * Padrão global do deploy. Ausente, vazio ou desconhecido = padrão novo (`ENGINE_DEFAULT_SCOPE`, v2 em tudo): um erro de
+ * digitação no deploy não pode desligar o motor por engano. Só `off` (emergência) e `chat` mudam o padrão.
+ */
 export function readEngineDefault(raw: unknown): EngineDefault {
 	const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
-	return value === "chat" || value === "all" ? value : "off";
+	return value === "off" || value === "chat" || value === "all" ? value : ENGINE_DEFAULT_SCOPE;
 }
 
-/** Motor e escopo que valem para o bot: a escolha explícita vence; sem ela, vale o padrão global. */
-export function resolveBotEngineRouting(policy: EnginePolicy, globalDefault: EngineDefault = "off"): { engine: RunEngine; scope: EngineScope } {
-	if (policy.explicit === "v1") return { engine: "v1", scope: "chat" };
-	if (policy.explicit === "v2") return { engine: "v2", scope: policy.scope };
+/** Motor e escopo que valem para o bot: `off` (emergência) vence tudo; depois a escolha explícita; sem ela, vale o padrão global. */
+export function resolveBotEngineRouting(policy: EnginePolicy, globalDefault: EngineDefault = ENGINE_DEFAULT_SCOPE): { engine: RunEngine; scope: EngineScope } {
+	// `off` é a emergência do deploy: desliga o motor novo para TODOS os bots (inclusive `engine: "v2"` explícito) em run novo.
 	if (globalDefault === "off") return { engine: "v1", scope: "chat" };
-	// Sem escolha explícita, o escopo pedido no bot ("all") vale junto com o do padrão global: o maior dos dois.
-	return { engine: "v2", scope: policy.scope === "all" ? "all" : globalDefault };
+	if (policy.explicit === "v1") return { engine: "v1", scope: "chat" };
+	if (policy.explicit === "v2") return { engine: "v2", scope: policy.scopeRaw ?? ENGINE_DEFAULT_SCOPE };
+	// Sem escolha explícita: um `engineScope` salvo no bot vale; senão, o do padrão global (`chat` ou `all`).
+	return { engine: "v2", scope: policy.scopeRaw ?? globalDefault };
 }
 
 /** Motor gravado no `budgetJson` do run (`undefined` = o run ainda não escolheu). */
@@ -115,7 +138,6 @@ export function withRunEngine(budgetJson: unknown, choice: { engine: RunEngine; 
 	return { ...asRecord(budgetJson), engine: choice.engine, ...(choice.profile ? { engineProfile: choice.profile } : {}) };
 }
 
-/**
 /**
  * Origens que o v2 atende. Escopo `chat`: só a conversa direta do dono com o bot. Escopo `all`: também rotina
  * (inclui alerta, brief "Seu dia" e "só importante"), grupo (run de membro na conversa do grupo), bot→bot, proativo
