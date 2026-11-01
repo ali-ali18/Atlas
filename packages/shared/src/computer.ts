@@ -12,6 +12,7 @@ import type { ChatMessage } from "./chat.js";
 import type { QuestionnaireCardItem, PersistedImagesCard } from "./skill-card.js";
 import type { SkillProposalEvent } from "./skill-proposal.js";
 import type { BotProposalEvent } from "./bot-proposal.js";
+import type { BudgetContinueEvent } from "./budget-continue.js";
 import type { LoginConnector } from "./login-connector.js";
 import type { LoginVaultOffer } from "./login-wall.js";
 import type { AgentPointerEvent } from "./agent-pointer.js";
@@ -159,6 +160,7 @@ export type ComputerUseEvent =
 	  }
 	| SkillProposalEvent
 	| BotProposalEvent
+	| BudgetContinueEvent
 	| {
 			type: "routine";
 			action: "created" | "listed" | "updated";

@@ -344,6 +344,22 @@ export {
 	type PersistedBotProposalCard,
 } from "./bot-proposal.js";
 export {
+	BUDGET_CONTINUE_INSTRUCTION,
+	BUDGET_CONTINUE_MAX_USD,
+	BUDGET_CONTINUE_MIN_USD,
+	budgetContinueOfferId,
+	buildBudgetContinueCard,
+	normalizeBudgetContinueUsd,
+	parseBudgetContinue,
+	parseBudgetContinueCard,
+	readContinuationSource,
+	shouldOfferBudgetContinue,
+	type BudgetContinueData,
+	type BudgetContinueEvent,
+	type BudgetContinueStatus,
+	type PersistedBudgetContinueCard,
+} from "./budget-continue.js";
+export {
 	SUPERSEDED_CARD_DETAIL,
 	isConversationCardRole,
 	serializeConversationCard,
