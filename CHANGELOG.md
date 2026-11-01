@@ -4,10 +4,18 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Corrigido
+- **worker, shared:** no trabalho longo do motor v2, o orçamento posto no bot (`longWorkBudgetUsd` / `longWorkMinutes`) passa a valer mais que o teto por execução da conta. Antes o US$ 1 do bot virava US$ 0,50 (o teto da conta entrava num `min`). Sem valor gravado no bot nada muda (a conta limita) e o chat curto segue com o teto da conta. Teste em `engine-choice.test.ts` e `engine-policy.test.ts`.
+
 ### Adicionado
+- **agent:** reserva de entrega no trabalho longo do v2: 25% do orçamento (US$ e tempo) fica só para entregar. Pesquisa e ajudantes (`delegate`) gastam o resto; ao bater o limite o supervisor manda parar de pesquisar e escrever. Com itens "não confirmado" no caderno, 40% da reserva abre uma rodada curta para fechá-los (outra fonte, busca ou leitura direta do arquivo/repositório, atualizando o caderno com `replaces`) e os 60% finais são só da escrita. No estouro, quem pediu documento ainda tem `create_file` (só ele) liberado; se mesmo assim falhar, a resposta diz em português simples o que faltou. O que continua não confirmado vai numa nota curta no fim do documento, não item a item no corpo.
+- **agent:** `web_extract` que falha por bloqueio ou volta cortado devolve a alternativa concreta (outra fonte, versão bruta do repositório, uma URL com mais caracteres ou buscar o termo), para o modelo não desistir no primeiro bloqueio.
+- **shared, db, api, worker, web:** card "Continuar pesquisa (+US$ X)" quando um trabalho longo do v2 para por custo ou tempo (X = orçamento do bot). Só a aprovação do dono gasta mais: `POST /v1/cards/budget-continue/resolve` cria um run de continuação silencioso com teto de custo igual ao valor gravado no card, copia o caderno do run que parou e mantém motor/perfil, para retomar sem refazer. "Agora não" não gasta nada; toque duplo cria um run só; conversa, card ou run de outro dono = 404.
+
 - **agent, worker:** conversa entre bots no motor v2. O catálogo do v2 passa a ter `send_to_bot` e `decide_bot_pending` nas mesmas condições do v1 (2+ bots do dono; chat do dono e bot→bot; decisão só com "decidir pelos outros bots" ligado; nunca em grupo, rotina nem ajudante) e executa os mesmos handlers, então o bot atendido no v2 repassa a um terceiro e decide pendência de outro bot. Os pedidos abertos a outros bots entram no prompt como no v1, só quando existem ("Bom dia" não cresce). O anti-loop (`BOT_MESSAGE_MAX_DEPTH`, máximo de mensagens da cadeia, `BOT_RUN_MAX_SENDS`) é do db e vale igual. Sem migration. Fora do v2: `set_primary_bot`. Ver `docs/features/motor-v2.md`.
 
 ### Testes
+- **agent, db, api, worker, web:** replay do caso real (ajudantes gastam muito, reserva acionada, lacuna retentada e resolvida, `create_file` no estouro com fontes e "Não deu para confirmar"), `budget-continue` no db/api/worker/web (aprovar cria o run com o orçamento certo, outro dono = 404, card ao vivo e persistido colapsam).
 - **agent, worker:** `engine-v2/bot-messaging.test.ts` (catálogo por origem, bloco de pedidos abertos, erro de limite) e `bot-bot.integration.ts` (Postgres real: A pede ao B no v2, B responde, cadeia para na profundidade 3, run para em 5 envios).
 
 ## [0.3.5-beta] - 2026-11-01
