@@ -92,15 +92,12 @@ export function chatRequestBody(
 				: maxTokens < 2
 					? undefined
 					: Math.min(requestedReasoningTokens, Math.floor(maxTokens / 2));
-	const effortReasoning = reasoningEffortBody(params);
+	const reasoning: { effort: string } | { enabled: false } | { max_tokens: number } | undefined =
+		reasoningEffortBody(params) ?? (reasoningTokens !== undefined ? { max_tokens: reasoningTokens } : undefined);
 	return {
 		...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
 		// O nível pedido vence o teto de tokens: o OpenRouter não aceita `effort` e `max_tokens` juntos.
-		...(effortReasoning
-			? { reasoning: effortReasoning }
-			: reasoningTokens !== undefined
-				? { reasoning: { max_tokens: reasoningTokens } }
-				: {}),
+		...(reasoning ? { reasoning } : {}),
 		parallel_tool_calls: true,
 		model: params.model,
 		...(fallbacks.length > 0 ? { models: [params.model, ...fallbacks] } : {}),

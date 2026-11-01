@@ -105,6 +105,7 @@ async function runV2(input: {
 	restoredCheckpoint?: AgentRunCheckpoint | null;
 	budgetCap?: number;
 	runId?: string;
+	params?: Partial<Parameters<typeof runEngineV2>[0]>;
 }) {
 	const events: ComputerUseEvent[] = [];
 	const steps: RuntimeStepRecord[] = [];
@@ -125,6 +126,7 @@ async function runV2(input: {
 			origin: "chat",
 			messages: input.messages,
 			timeZone: "America/Sao_Paulo",
+			...input.params,
 			...(input.budgetCap ? { budget: { maxCostUsd: input.budgetCap } } : {}),
 			...(input.restoredCheckpoint ? { restoredCheckpoint: input.restoredCheckpoint } : {}),
 			onEvent: (event) => {
@@ -446,5 +448,19 @@ describe("motor v2: lista de tarefas em trabalho longo", () => {
 			options: { profile: "chat" },
 		});
 		expect(result.stop).toEqual({ reason: "answered" });
+	});
+});
+
+describe("motor v2: nível de raciocínio", () => {
+	const messages = [{ role: "user" as const, content: "oi" }];
+	it("repassa o nível ao modelo com suporte e não manda a modelo sem suporte", async () => {
+		const withSupport = await runV2({ messages, script: [say("oi")], params: { model: "anthropic/claude-sonnet-5.5", reasoningEffort: "low", modelSupportsReasoning: () => true } });
+		expect(withSupport.requests.every((request) => request.params.reasoningEffort === "low")).toBe(true);
+		const without = await runV2({ messages, script: [say("oi")], params: { model: "openai/gpt-4o", reasoningEffort: "low", modelSupportsReasoning: () => false } });
+		expect(without.requests.every((request) => !("reasoningEffort" in request.params))).toBe(true);
+	});
+	it("sem escolha, nada vai (padrão do modelo)", async () => {
+		const { requests } = await runV2({ messages, script: [say("oi")] });
+		expect(requests.every((request) => !("reasoningEffort" in request.params))).toBe(true);
 	});
 });

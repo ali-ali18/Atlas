@@ -38,26 +38,29 @@ function baseName(slug: string): string {
 	return (colon >= 0 ? last.slice(0, colon) : last).toLowerCase();
 }
 
+function openRouterSlug(modelRef: string): string | null {
+	try {
+		const ref = parseModelRef(modelRef);
+		return ref.provider === "openrouter" ? ref.slug : null;
+	} catch {
+		return null;
+	}
+}
+
 /**
  * O controle de nível só vale para modelos do OpenRouter com raciocínio (catálogo `supported_parameters` ou curadoria).
  * Anthropic direto, plano ChatGPT e OpenCode Go têm caminho próprio e não recebem o parâmetro.
+ * `reasoning` já resolvido (ex.: `ModelCapabilities.reasoning` do worker) dispensa o catálogo.
  */
-export function supportsReasoningEffort(modelRef: string, catalog?: ModelCatalogInfo): boolean {
-	let ref;
-	try {
-		ref = parseModelRef(modelRef);
-	} catch {
-		return false;
-	}
-	if (ref.provider !== "openrouter") return false;
-	return getModelCapabilities(modelRef, catalog).reasoning;
+export function supportsReasoningEffort(modelRef: string, catalog?: ModelCatalogInfo, reasoning?: boolean): boolean {
+	if (openRouterSlug(modelRef) === null) return false;
+	return reasoning ?? getModelCapabilities(modelRef, catalog).reasoning;
 }
 
 /** O modelo aceita "Desligado"? Só quando o raciocínio é controlável e o modelo está na lista curada. */
-export function canDisableReasoning(modelRef: string, catalog?: ModelCatalogInfo): boolean {
-	if (!supportsReasoningEffort(modelRef, catalog)) return false;
-	const { slug } = parseModelRef(modelRef);
-	const name = baseName(slug);
+export function canDisableReasoning(modelRef: string, catalog?: ModelCatalogInfo, reasoning?: boolean): boolean {
+	if (!supportsReasoningEffort(modelRef, catalog, reasoning)) return false;
+	const name = baseName(openRouterSlug(modelRef) ?? "");
 	return CAN_DISABLE.some((rule) => rule.test(name));
 }
 
@@ -71,9 +74,9 @@ export function availableReasoningEfforts(modelRef: string, catalog?: ModelCatal
  * Nível a enviar nesta chamada: `undefined` = não mandar nada (modelo sem suporte ou sem escolha).
  * "Desligado" salvo no bot vira "Baixo" quando o modelo da chamada não consegue desligar (ex.: troca de modelo no modo Automático).
  */
-export function effortForModel(effort: ReasoningEffort | undefined, modelRef: string, catalog?: ModelCatalogInfo): ReasoningEffort | undefined {
-	if (!effort || !supportsReasoningEffort(modelRef, catalog)) return undefined;
-	return effort === "off" && !canDisableReasoning(modelRef, catalog) ? "low" : effort;
+export function effortForModel(effort: ReasoningEffort | undefined, modelRef: string, catalog?: ModelCatalogInfo, reasoning?: boolean): ReasoningEffort | undefined {
+	if (!effort || !supportsReasoningEffort(modelRef, catalog, reasoning)) return undefined;
+	return effort === "off" && !canDisableReasoning(modelRef, catalog, reasoning) ? "low" : effort;
 }
 
 /** Precedência: pedido do chat > padrão do bot (`policyJson.reasoningEffort`) > conta > nada (padrão do modelo). */

@@ -1,4 +1,6 @@
 import { modelUsage } from "./telemetry/model-usage.js";
+import { createReasoningEffortPicker } from "./reasoning-effort.js";
+import type { ReasoningEffort } from "@workspace/shared";
 import { todayNote } from "./context/today-note.js";
 import { agentOutputBudget } from "./generation-budget.js";
 import { createReadCache, stableReadKey, scheduleIndependentReads, countEmptySearches, MAX_PARALLEL_READS, READ_CACHED_RESULT_TOOL, parallelBuiltinReadKey } from "./read-execution.js";
@@ -1824,6 +1826,10 @@ async function runComputerUseCore(params: {
 	/** Teto de caracteres do resultado de ferramenta de conector que vai inline ao modelo (conta). Omitido = 20 mil; o resto fica guardado para `artifact_read`. */
 	toolResultMaxChars?: number;
 	reasoningMaxTokens?: number;
+	/** Nível de raciocínio do run (chat > bot > conta, já resolvido pelo worker). Só vai a modelo com suporte. */
+	reasoningEffort?: ReasoningEffort;
+	/** O modelo tem raciocínio controlável? (catálogo do provedor; sem isso vale a curadoria do `shared`.) */
+	modelSupportsReasoning?: (modelId: string) => boolean | Promise<boolean>;
 	/**
 	 * Janela de contexto do modelo em tokens (para a higiene de prompt).
 	 * Resolvida na criação do run (API grava em budgetJson.contextLength);
@@ -2147,6 +2153,7 @@ async function runComputerUseCore(params: {
 	// F12/B5: login pedido neste passo → depois de gravar o resultado, pausa o run.
 	let stopForLogin: LoginEvent | undefined;
 	const streamChat = params.streamChat ?? streamChatWithTools;
+	const pickReasoningEffort = createReasoningEffortPicker({ effort: params.reasoningEffort, supportsReasoning: params.modelSupportsReasoning });
 	const parsedCheckpoint = parseRuntimeCheckpoint(params.restoredCheckpoint);
 
 	// `signal`: o resumo de encerramento ignora o prazo já estourado do run (só cancelamento vale).
@@ -3737,6 +3744,7 @@ async function runComputerUseCore(params: {
 		// Chave index+nome: numa nova tentativa do provedor o mesmo index pode trazer outra tool.
 		const intentSeen = new Set<string>();
 		const liveIntents = !isSubagent && !isUnattendedOrigin(params.origin);
+		const reasoningFor = await pickReasoningEffort(model);
 		const callModel = (signal: AbortSignal | undefined) => streamChat(
 			{
 				messages: transport,
@@ -3754,6 +3762,7 @@ async function runComputerUseCore(params: {
 				...(closing ? {} : { deadlineAtMs }),
 				maxOutputTokens: agentOutputBudget({ configured: params.maxOutputTokens ?? (process.env.LLM_MAX_OUTPUT_TOKENS ? Number(process.env.LLM_MAX_OUTPUT_TOKENS) : undefined), remaining: budget.maxTokens === undefined ? undefined : budget.maxTokens - usageTotals.totalTokens, canCreateFiles: canCreateFile() }),
 				reasoningMaxTokens: params.reasoningMaxTokens,
+				...(reasoningFor ? { reasoningEffort: reasoningFor } : {}),
 				// Id estável da conversa (hash, sem dado pessoal): o OpenRouter mantém o mesmo endpoint e a Responses usa como chave de cache entre os turnos.
 				sessionId: cacheSessionId,
 				// Fim do histórico estável: com camadas efêmeras coladas no fim, o breakpoint da última mensagem cairia nelas.
