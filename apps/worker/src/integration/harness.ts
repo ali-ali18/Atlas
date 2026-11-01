@@ -149,6 +149,29 @@ export async function createApi(userId: string): Promise<{ app: ApiHono; queue: 
 	return { app: app as ApiHono, queue, signals };
 }
 
+/**
+ * Rotas reais de bot da API (`createBotRoutes`: PATCH /v1/bots/:id) com sessão falsa do `userId`. Serve ao piloto do
+ * motor: o dono liga o motor novo pela engrenagem (PATCH de `policyJson`) e o próximo run lê a política do banco.
+ */
+export async function createBotsApi(userId: string): Promise<{ patchBot: (botId: string, body: unknown) => Promise<{ status: number; json: any }> }> {
+	const apiRoutes = resolve(import.meta.dirname, "../../../api/src/routes/bots.ts");
+	const { Hono } = await import(/* @vite-ignore */ pathToFileURL(resolve(import.meta.dirname, "../../../api/node_modules/hono/dist/index.js")).href) as { Hono: new () => { use: (...args: unknown[]) => void; route: (...args: unknown[]) => void; request: ApiHono["request"] } };
+	const { createBotRoutes } = await import(/* @vite-ignore */ pathToFileURL(apiRoutes).href) as { createBotRoutes: (deps?: unknown) => unknown };
+	const now = new Date();
+	const app = new Hono();
+	app.use("*", async (c: { set: (k: string, v: unknown) => void }, next: () => Promise<void>) => {
+		c.set("session", { user: { id: userId, name: "Teste", email: `${userId}@test.local`, emailVerified: true, createdAt: now, updatedAt: now }, session: { id: "s", token: "t", userId, expiresAt: now, createdAt: now, updatedAt: now, ipAddress: null, userAgent: null } });
+		await next();
+	});
+	app.route("/", createBotRoutes({ isKnownModel: async () => true, validateModel: async () => ({}) }));
+	return {
+		patchBot: async (botId, body) => {
+			const response = await app.request(`/v1/bots/${botId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+			return { status: response.status, json: await response.json().catch(() => null) };
+		},
+	};
+}
+
 export async function postJson(app: ApiHono, path: string, body: unknown): Promise<{ status: number; json: any }> {
 	const response = await app.request(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 	return { status: response.status, json: await response.json().catch(() => null) };

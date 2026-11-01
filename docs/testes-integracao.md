@@ -25,6 +25,7 @@ Os testes criam usuários com id único e não limpam o banco: dá para rodar v�
 | Arquivo | Cenários |
 |---|---|
 | `apps/worker/src/integration/motor.integration.ts` | 1 "Bom dia" v1; 2 "Bom dia" v2 (motor em `budgetJson.engine`); 3 pesquisa longa v2 (30 leituras passam do passo 24) e o v1 como caracterização; 4 estouro de orçamento v2 (`budget_cost`, entrega sem tools); 5 escrita de conector para no cartão `confirm` (v1 e v2); 6 cancelamento no meio (v1 e v2); 7 retomada do v2 após shutdown do worker; 8 escopo entre usuários (404) |
+| `apps/worker/src/integration/piloto.integration.ts` | 10 piloto: o dono liga/desliga o motor novo pela engrenagem (PATCH do bot, valida faixa e escopo por dono) e pelo chat (`set_engine`); o run seguinte sai no v2 e as outras chaves da política ficam |
 | `apps/worker/src/integration/grupo.integration.ts` | 9 grupo Cookie + 2 membros: cobrança única a quem responde "me envie o plano", resumo sem esperar; aceite automático do principal para cartão de leitura e não para escrita |
 
 Cada cenário confere o que ficou no banco: `status`, `stopReason`/`stopDetail`, mensagens (resposta e cartões), `run_events` em ordem, `agent_steps` e o custo em `usageJson`.
