@@ -40,12 +40,3 @@ export function AuthDivider({ children }: { children: string }) {
 		</View>
 	);
 }
-
-/** Rodapé `login.privateInstance`. */
-export function AuthFootnote({ children }: { children: string }) {
-	return (
-		<Text variant="muted" className="text-center text-xs">
-			{children}
-		</Text>
-	);
-}

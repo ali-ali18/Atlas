@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import * as React from "react";
 import { LinkIcon } from "@/components/icons";
-import { AuthColumn, AuthFootnote, AuthHeader } from "@/components/auth-layout";
+import { AuthColumn, AuthHeader } from "@/components/auth-layout";
 import { Screen } from "@/components/screen";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
@@ -86,7 +86,6 @@ export default function ConnectionScreen() {
 						{error}
 					</Text>
 				) : null}
-				<AuthFootnote>Informe o endereço do servidor do seu Atlas para começar.</AuthFootnote>
 			</AuthColumn>
 		</Screen>
 	);

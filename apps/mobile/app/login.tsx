@@ -1,25 +1,24 @@
 import { useRouter } from "expo-router";
-import * as React from "react";
 import { View } from "react-native";
 import { AtSignIcon, GoogleIcon } from "@/components/icons";
-import { AuthColumn, AuthDivider, AuthFootnote, AuthHeader } from "@/components/auth-layout";
+import { AuthColumn, AuthDivider, AuthHeader } from "@/components/auth-layout";
 import { Screen } from "@/components/screen";
 import { SharedProof } from "@/components/shared-proof";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Text } from "@/components/ui/text";
-import { loadServerUrl } from "@/lib/server-store";
+import { clearServerUrl } from "@/lib/server-store";
 
 // Textos de apps/web/lib/i18n/messages/pt-BR/login.ts (login.title, subtitle, google, or, emailLabel,
-// emailPlaceholder, sendLink, privateInstance). Etapa 0: tudo desabilitado, com selo "em breve".
+// emailPlaceholder, sendLink). Etapa 0: tudo desabilitado, com selo "em breve".
 export default function LoginScreen() {
 	const router = useRouter();
-	const [server, setServer] = React.useState<string | null>(null);
 
-	React.useEffect(() => {
-		void loadServerUrl().then(setServer);
-	}, []);
+	async function changeServer() {
+		await clearServerUrl();
+		router.replace("/");
+	}
 
 	return (
 		<Screen className="justify-center">
@@ -45,8 +44,9 @@ export default function LoginScreen() {
 						<Badge variant="secondary">em breve</Badge>
 					</Button>
 				</View>
-				<AuthFootnote>Instância privada — só o dono tem acesso.</AuthFootnote>
-				{server ? <AuthFootnote>{`Servidor: ${server}`}</AuthFootnote> : null}
+				<Button variant="ghost" size="sm" className="self-center" onPress={changeServer}>
+					<Text>Trocar servidor</Text>
+				</Button>
 				{/* Só em desenvolvimento: prova do shared e atalho da etapa 0, não são para o usuário. */}
 				{__DEV__ ? <SharedProof /> : null}
 				<View className="gap-1">
@@ -55,9 +55,6 @@ export default function LoginScreen() {
 							<Text>Ver prévia da sincronização</Text>
 						</Button>
 					) : null}
-					<Button variant="ghost" size="sm" onPress={() => router.back()}>
-						<Text>Trocar servidor</Text>
-					</Button>
 				</View>
 			</AuthColumn>
 		</Screen>

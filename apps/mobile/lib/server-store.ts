@@ -20,3 +20,16 @@ export async function saveServerUrl(url: string): Promise<void> {
 	}
 	await SecureStore.setItemAsync(KEY, url);
 }
+
+/** Esquece o servidor guardado (o botão de voltar do login volta para a conexão sem endereço). */
+export async function clearServerUrl(): Promise<void> {
+	try {
+		if (Platform.OS === "web") {
+			globalThis.localStorage?.removeItem(KEY);
+			return;
+		}
+		await SecureStore.deleteItemAsync(KEY);
+	} catch {
+		// sem o cofre não há o que limpar
+	}
+}
