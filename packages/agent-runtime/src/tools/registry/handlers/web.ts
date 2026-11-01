@@ -1,5 +1,5 @@
 import { WebSearchError, executeWebSearch, isWebSearchAvailable } from "../../../web-search.js";
-import { WebExtractError, adaptEscalateHints, executeWebExtract, isWebExtractAvailable } from "../../../web-extract.js";
+import { WebExtractError, adaptEscalateHints, addRecoveryGuidance, executeWebExtract, isWebExtractAvailable } from "../../../web-extract.js";
 import { nativeWebExtract, nativeWebSearch } from "../../../web-native.js";
 import type { ToolContext, ToolResult } from "../types.js";
 
@@ -92,7 +92,7 @@ async function handleWebExtract(args: Record<string, unknown>, ctx: ToolContext)
 				// Fallback falhou — mantém os itens próprios.
 			}
 		}
-		items = adaptEscalateHints(items, ctx.hasTool?.("navigate") ?? false);
+		items = addRecoveryGuidance(adaptEscalateHints(items, ctx.hasTool?.("navigate") ?? false));
 		return {
 			summary: JSON.stringify({
 				ok: true,

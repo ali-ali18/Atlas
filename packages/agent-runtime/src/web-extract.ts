@@ -55,6 +55,8 @@ export type WebExtractItem = {
 	/** Payload estruturado (só no modo `schema`). */
 	data?: unknown;
 	truncated: boolean;
+	/** O que fazer em seguida quando a página veio cortada (só aparece com `truncated`). */
+	nextStep?: string;
 	error?: WebExtractItemError;
 };
 
@@ -469,4 +471,43 @@ export function adaptEscalateHints(items: WebExtractItem[], hasBrowser: boolean)
 			? { ...item, error: { ...item.error, escalateHint: NO_BROWSER_EXTRACT_HINT } }
 			: item,
 	);
+}
+
+/** Repositório de código: o arquivo bruto costuma abrir onde a página renderizada falha ou vem cortada. */
+function rawFileAdvice(url: string): string {
+	let host = "";
+	try {
+		host = new URL(url).hostname.toLowerCase();
+	} catch {
+		return "";
+	}
+	if (host === "github.com" || host === "www.github.com") return " For a file in a GitHub repository open the raw version (https://raw.githubusercontent.com/<owner>/<repo>/<branch>/<path>), or the repository README/docs path directly.";
+	if (host.includes("gitlab")) return " For a file in a GitLab repository open its /-/raw/<branch>/<path> version.";
+	return "";
+}
+
+/**
+ * Não desistir no primeiro bloqueio (trabalho longo): página bloqueada, com erro de leitura ou cortada volta com a
+ * alternativa concreta, para o modelo tentar outra via antes de marcar "não confirmado". A tool não tem `offset`:
+ * "ler em partes" = uma URL por chamada com `maxChars` maior, ou buscar o trecho. Texto para o modelo (inglês).
+ */
+export function addRecoveryGuidance(items: WebExtractItem[]): WebExtractItem[] {
+	return items.map((item) => {
+		if (item.error) {
+			if (item.error.code === "empty") return item;
+			const advice =
+				"Do not give up on the first block: try another source for the same fact (web_search the fact with different words, the official site, docs, a mirror or an archived copy)" +
+				`${rawFileAdvice(item.url)} Only mark it unconfirmed after a second route also failed.`;
+			return { ...item, error: { ...item.error, escalateHint: `${item.error.escalateHint}. ${advice}` } };
+		}
+		if (item.truncated) {
+			return {
+				...item,
+				nextStep:
+					"The page came back cut. Read the rest: call web_extract again with this single URL and maxChars up to 20000 (the cap for one URL), or web_search the exact term you need to find the part that matters." +
+					rawFileAdvice(item.url),
+			};
+		}
+		return item;
+	});
 }
