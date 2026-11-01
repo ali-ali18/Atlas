@@ -5,7 +5,7 @@ import type { ReasoningEffort } from "@workspace/shared";
 import { todayNote } from "./context/today-note.js";
 import { agentOutputBudget } from "./generation-budget.js";
 import { createReadCache, stableReadKey, scheduleIndependentReads, countEmptySearches, MAX_PARALLEL_READS, READ_CACHED_RESULT_TOOL, parallelBuiltinReadKey } from "./read-execution.js";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { semanticReadKey } from "./execution/arg-key.js";
 import { browserSubagentsEnabled, executionDisciplineEnabled } from "./execution/flag.js";
 import { createExecutionLedger, identicalResultNotice, MIN_REFERENCE_CHARS, parseLedgerState } from "./execution/ledger.js";
@@ -3618,7 +3618,7 @@ async function runComputerUseCore(params: {
 	}
 	// Prefixo único por turno: garante que os ids não colidam entre respostas
 	// (senão a resposta nova seria anexada ao balão do turno anterior).
-	const turnId = `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+	const turnId = `t${Date.now().toString(36)}${randomBytes(4).toString("hex")}`;
 
 	// Streaming com tool calls: emite deltas. Cada passo vira UM balão (estilo WhatsApp), que cresce
 	// enquanto o passo é escrito; o próximo passo abre outro balão (id por passo).
