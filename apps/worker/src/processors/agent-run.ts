@@ -2,7 +2,7 @@ import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
 import { recordObserveChecks } from "../observe-checks.js";
 import { isNoUpdateReply, shouldReviewForSkill, type AlertVerdict, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
-import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode, readRunReasoningEffort } from "@workspace/shared";
+import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode, readRunReasoningEffort, isFollowupCheckObjective } from "@workspace/shared";
 import { resolveRunReasoningEffort } from "../reasoning-effort.js";
 import {
 	ATLAS_JOB_NAMES,
@@ -136,7 +136,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { engineDefaultFromEnv, mustStayOnV1, pickRunEngine, runSelectedEngine } from "../engine-choice.js";
+import { engineDefaultFromEnv, pickRunEngine, runSelectedEngine } from "../engine-choice.js";
 import { briefToolFilter, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
@@ -1156,16 +1156,11 @@ async function executeLeasedRun(ctx: {
 		isGroupRun: Boolean(groupRun),
 		// Todo run nasce com checkpointJson (createAgentRun); só conta como retomada se já há transcript do modelo.
 		hasCheckpoint: Boolean(checkpoint?.llmMessages?.length),
-		// Modo proativo do bot, alerta, evento de configuração (sem mensagem digitada), brief "Seu dia" e rotina
-		// "só importante" usam recursos que o v2 ainda não tem.
-		forceV1: mustStayOnV1({
-			origin: run.origin,
-			proactive: Boolean(proactiveForRun),
-			alert: Boolean(alertRun),
-			botConfigEvent: isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run),
-			detachedBrief: isDetachedBriefRun(run),
-			routinePush: Boolean(userPushForRun),
-		}),
+		// Alerta, brief "Seu dia", reflexão/lembrete proativo e evento de configuração do bot (sem mensagem digitada)
+		// são verificações curtas: o v2 cobre todos (tools e notas por origem), sempre no perfil `chat`.
+		shortRun: Boolean(alertRun) || isDetachedBriefRun(run) || run.origin === "proactive" || (isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run)),
+		// Brief e lembrete `check` pedem mais fôlego que o chat (no v1 não têm teto de custo): piso de orçamento, sem trabalho longo.
+		longerShortRun: isDetachedBriefRun(run) || isFollowupCheckObjective(run.origin, run.objective),
 		globalDefault: engineDefaultFromEnv(),
 		lastUserText: [...messages].reverse().find((message) => message.role === "user")?.content ?? "",
 		record: (choice) => recordRunEngine(runId, choice),

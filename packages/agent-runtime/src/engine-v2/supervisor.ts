@@ -36,11 +36,14 @@ export const BLOCK_STEPS = 3;
 
 export function budgetForProfile(
 	profile: SupervisorProfile,
-	overrides: { longWorkBudgetUsd?: number; longWorkMinutes?: number; accountCapUsd?: number; accountCapMs?: number } = {},
+	overrides: { longWorkBudgetUsd?: number; longWorkMinutes?: number; floor?: { costUsd: number; minutes: number }; accountCapUsd?: number; accountCapMs?: number } = {},
 ): SupervisorBudget {
 	const base = profile === "long_work" ? LONG_WORK_BUDGET : CHAT_BUDGET;
-	const maxCostUsd = profile === "long_work" && overrides.longWorkBudgetUsd ? overrides.longWorkBudgetUsd : base.maxCostUsd;
-	const profileMs = profile === "long_work" && overrides.longWorkMinutes ? Math.round(overrides.longWorkMinutes * 60_000) : base.maxActiveMs;
+	// `floor`: execuções curtas que o v1 deixa correr mais (brief, check) nunca ficam abaixo dele; os tetos do dono abaixo ainda mandam.
+	const profileCost = profile === "long_work" && overrides.longWorkBudgetUsd ? overrides.longWorkBudgetUsd : base.maxCostUsd;
+	const profileMinMs = profile === "long_work" && overrides.longWorkMinutes ? Math.round(overrides.longWorkMinutes * 60_000) : base.maxActiveMs;
+	const maxCostUsd = overrides.floor ? Math.max(profileCost, overrides.floor.costUsd) : profileCost;
+	const profileMs = overrides.floor ? Math.max(profileMinMs, Math.round(overrides.floor.minutes * 60_000)) : profileMinMs;
 	// O teto de tempo do run/conta (maxWallMs resolvido; 0 = sem teto) também é do dono: o perfil nunca o ultrapassa.
 	const maxActiveMs = overrides.accountCapMs && overrides.accountCapMs > 0 ? Math.min(profileMs, overrides.accountCapMs) : profileMs;
 	// O teto de custo da conta/bot é do dono: o perfil nunca o ultrapassa.
