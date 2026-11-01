@@ -60,6 +60,9 @@ jobs:
         run: pnpm --filter @workspace/db migrations:smoke
       - name: Testes do db (Postgres + pgvector, service container)
         run: pnpm --filter @workspace/db exec node ../../scripts/run-node-tests.mjs "src/**/*.test.ts"
+      - name: Integração do agente (Postgres real, modelo roteirizado, v1 e v2)
+        # Reaproveita o service Postgres e o ATLAS_TEST_DB_URL do job; os arquivos *.integration.ts ficam fora do `pnpm test`.
+        run: pnpm --filter worker test:integration
       - name: Testes dos scripts (changelog)
         run: node --test scripts/changelog.test.mjs
       - name: Árvore limpa (generated.ts determinístico)
