@@ -21,6 +21,7 @@ import type {
 } from "@workspace/shared";
 import { sanitizeStopDetail, readRunEngine, type RunEngine, type RunProfile } from "@workspace/shared";
 import type { RunStop } from "@workspace/shared";
+import { parseReasoningEffort, type ReasoningEffort } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
 import type { ToolCacheState, ToolResultStatus } from "@workspace/shared";
 import type { ComputerUseEvent, ConversationTaskContext, ResearchNote, TaskLedger, TaskListItem } from "@workspace/shared";
@@ -181,14 +182,17 @@ function buildStoredBudget(
 	contextLength: number | null | undefined,
 	modelAuto?: boolean,
 	humanTurn?: boolean,
+	reasoningEffort?: ReasoningEffort,
 ): Prisma.InputJsonValue | undefined {
 	const window = normalizeContextLength(contextLength);
-	if (budget === undefined && window === null && !modelAuto && !humanTurn) return undefined;
+	if (budget === undefined && window === null && !modelAuto && !humanTurn && !reasoningEffort) return undefined;
 	return {
 		...(budget as Record<string, unknown> | undefined),
 		...(window !== null ? { contextLength: window } : {}),
 		...(modelAuto ? { modelAuto: true } : {}),
 		...(humanTurn ? { humanTurn: true } : {}),
+		// Escolha do chat: fica no run para a retomada e os turnos encadeados manterem o nível.
+		...(reasoningEffort ? { reasoningEffort } : {}),
 	} as Prisma.InputJsonValue;
 }
 
@@ -306,7 +310,7 @@ export function buildQueuedRunData(input: {
 		maxSteps,
 		sandboxSessionId: request.sandboxSessionId ?? null,
 		checkpointJson: checkpoint as unknown as Prisma.InputJsonValue,
-		budgetJson: buildStoredBudget(request.budget, input.contextLength, input.modelAuto, input.humanTurn),
+		budgetJson: buildStoredBudget(request.budget, input.contextLength, input.modelAuto, input.humanTurn, parseReasoningEffort(request.reasoningEffort)),
 	};
 }
 

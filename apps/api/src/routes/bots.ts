@@ -6,6 +6,7 @@ import type {
 } from "@workspace/shared";
 import {
 	isBotLanguageSetting,
+	parseReasoningEffort,
 	readCodingModel,
 	readSubagentModel,
 	DELEGATE_MODEL_MAX_CHARS,
@@ -198,6 +199,14 @@ export function checkProactivePolicy(policyJson: unknown, isPrimary: boolean): s
 	return null;
 }
 
+/** Nível de raciocínio padrão do bot (`policyJson.reasoningEffort`): um dos quatro níveis ou ausente. */
+export function checkReasoningEffortPolicy(policyJson: unknown): string | null {
+	if (!policyJson || typeof policyJson !== "object" || Array.isArray(policyJson)) return null;
+	const raw = (policyJson as Record<string, unknown>).reasoningEffort;
+	if (raw === undefined || raw === null) return null;
+	return parseReasoningEffort(raw) ? null : "reasoningEffort must be one of: off, low, medium, high";
+}
+
 /** Modelo dos subagentes (`policyJson.subagentModel`): string curta e id que existe no catálogo. */
 async function checkSubagentModel(
 	policyJson: unknown,
@@ -318,6 +327,8 @@ export function createBotRoutes(
    if (patch.isPrimary === true && owned.memberIds.length > 0) return c.json({ error: "Um grupo não pode ser o Bot principal" }, 400);
    const proactiveError = checkProactivePolicy(patch.policyJson, patch.isPrimary ?? owned.isPrimary);
    if (proactiveError) return c.json({ error: proactiveError }, 400);
+   const effortError = checkReasoningEffortPolicy(patch.policyJson);
+   if (effortError) return c.json({ error: effortError }, 400);
    const validation = patch.openRouterModel ? await validateModel(userId, patch.openRouterModel) : {};
    if ("error" in validation) return c.json({ error: validation.error }, validation.status);
    const policy = patch.policyJson as Record<string, unknown> | null | undefined;

@@ -97,7 +97,7 @@ export async function chainFollowUp(deps: FollowUpDeps): Promise<FollowUpOutcome
 }
 
 export function followUpRequest(
-	base: Pick<CreateAgentRunRequest, "model" | "conversationId" | "botId" | "origin"> & Pick<CreateAgentRunRequest, "budget">,
+	base: Pick<CreateAgentRunRequest, "model" | "conversationId" | "botId" | "origin"> & Pick<CreateAgentRunRequest, "budget" | "reasoningEffort">,
 	plan: FollowUpPlan,
 ): CreateAgentRunRequest {
 	return {
@@ -109,6 +109,8 @@ export function followUpRequest(
 		objective: plan.objective,
 		...(plan.attachments.length ? { attachments: plan.attachments } : {}),
 		...(base.budget ? { budget: base.budget } : {}),
+		// O turno encadeado continua no nível de raciocínio do chat que o originou.
+		...(base.reasoningEffort ? { reasoningEffort: base.reasoningEffort } : {}),
 		silent: true,
 	};
 }
