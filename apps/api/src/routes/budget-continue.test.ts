@@ -123,3 +123,13 @@ test("corpo inválido recebe 400", async () => {
 		assert.equal((await post(app, bad)).status, 400);
 	}
 });
+
+test("oferta com mais de 24h responde 410 amigável, vira Dispensado e não cria nem enfileira nada", async () => {
+	messages.rows[0]!.createdAt = new Date(Date.now() - 25 * 60 * 60 * 1000);
+	const res = await post(appFor(USER_A), valid);
+	assert.equal(res.status, 410);
+	assert.match(((await res.json()) as { error: string }).error, /já passou/);
+	assert.equal(JSON.parse(String(messages.rows[0]!.content)).status, "dismissed");
+	assert.equal(created.length, 0);
+	assert.deepEqual(enqueued, []);
+});

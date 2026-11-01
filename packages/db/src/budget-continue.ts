@@ -11,7 +11,9 @@
 import {
 	BUDGET_CONTINUE_INSTRUCTION,
 	buildBudgetContinueCard,
+	isTaskListDone,
 	parseBudgetContinueCard,
+	parseTaskList,
 	serializeConversationCard,
 	withRunEngine,
 	type PersistedBudgetContinueCard,
@@ -19,7 +21,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { prisma } from "./client.js";
 import { getOwnedConversation } from "./conversations.js";
-import { ACTIVE_STATUSES, createAgentRun, readRunContextLength } from "./runs.js";
+import { ACTIVE_STATUSES, ExclusiveRunConflictError, createAgentRun, readRunContextLength } from "./runs.js";
 
 export type BudgetContinueDeps = {
 	createRun: typeof createAgentRun;
@@ -36,7 +38,7 @@ export type BudgetContinueResolution =
 			/** Run de continuação criado agora (a API o enfileira). */
 			runId?: string;
 	  }
-	| { ok: false; status: 404 | 409 | 503; error: string };
+	| { ok: false; status: 404 | 409 | 410 | 503; error: string };
 
 const NOT_FOUND = { ok: false, status: 404, error: "Pedido não encontrado." } as const;
 
@@ -93,8 +95,38 @@ function originalRequest(objective: string): string {
 	return objective.split(BUDGET_CONTINUE_INSTRUCTION).join("").trim().slice(0, 4_000);
 }
 
+/** Oferta velha não gasta: vale por 24h e só a mais recente da conversa. */
+export const BUDGET_CONTINUE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Lista de tarefas aberta do run que parou: a continuação a recebe pronta (como o caderno), sem depender da conversa. */
+function openTaskState(checkpoint: Record<string, unknown>, objective: string): Record<string, unknown> | undefined {
+	const list = parseTaskList((checkpoint.taskState as { taskList?: unknown } | undefined)?.taskList);
+	if (!list || isTaskListDone(list)) return undefined;
+	return {
+		v: 1,
+		objective: { text: objective.slice(0, 2_000), version: 1 },
+		criteria: [],
+		phase: "executing",
+		blockers: [],
+		artifacts: [],
+		taskList: list,
+	};
+}
+
+/** Run de continuação já criado para esta oferta (qualquer status): evita criar um segundo se algo falhou depois. */
+async function findContinuationRun(userId: string, conversationId: string, offerId: string): Promise<string | null> {
+	const rows = await prisma.agentRun.findMany({ where: { userId, conversationId, origin: "chat" }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, budgetJson: true, status: true } });
+	return rows.find((row) => row.status !== "cancelled" && (row.budgetJson as { continuationOffer?: unknown } | null)?.continuationOffer === offerId)?.id ?? null;
+}
+
+/** Falhou depois do create: o run órfão (ainda na fila) é cancelado para a próxima tentativa não ter dois. */
+async function cancelOrphanContinuation(userId: string, conversationId: string, offerId: string): Promise<void> {
+	const id = await findContinuationRun(userId, conversationId, offerId);
+	if (id) await prisma.agentRun.updateMany({ where: { id, userId, status: "queued" }, data: { status: "cancelled", finishedAt: new Date(), error: "cancelled" } });
+}
+
 export async function resolveBudgetContinue(
-	input: { userId: string; conversationId: string; offerId: string; decision: "approved" | "dismissed" },
+	input: { userId: string; conversationId: string; offerId: string; decision: "approved" | "dismissed"; now?: Date },
 	deps: BudgetContinueDeps = defaultDeps,
 ): Promise<BudgetContinueResolution> {
 	if (!input.userId.trim() || input.userId === "default") return NOT_FOUND;
@@ -114,12 +146,30 @@ export async function resolveBudgetContinue(
 		return { ok: true, card: next };
 	}
 
+	// Oferta velha ou superada por outra mais nova não gasta: o card vira "Dispensado" e a resposta é amigável.
+	const now = (input.now ?? new Date()).getTime();
+	const newest = (await prisma.conversationMessage.findMany({ where: { conversationId: input.conversationId, role: "budget-continue" }, orderBy: { createdAt: "desc" }, take: 1 }))[0];
+	const tooOld = now - new Date(row.createdAt as Date).getTime() > BUDGET_CONTINUE_MAX_AGE_MS;
+	if (tooOld || (newest && newest.id !== row.id)) {
+		await swapCard(row, { ...card, status: "dismissed" });
+		return { ok: false, status: 410, error: "Esse pedido já passou. Se quiser continuar a pesquisa, peça de novo." };
+	}
+
 	// O run que parou precisa ser do dono e desta conversa; senão 404 (não revela que existe).
 	const source = await prisma.agentRun.findFirst({
 		where: { id: card.runId, userId: input.userId, conversationId: input.conversationId },
 		select: { id: true, botId: true, model: true, objective: true, budgetJson: true, checkpointJson: true },
 	});
 	if (!source) return NOT_FOUND;
+
+	// Já existe a continuação desta oferta (o card não chegou a gravar): reaproveita, nunca cria outra.
+	const existingRun = await findContinuationRun(input.userId, input.conversationId, card.offerId);
+	if (existingRun) {
+		const done: PersistedBudgetContinueCard = { ...card, status: "approved", continuationRunId: existingRun };
+		await swapCard(row, done);
+		return { ok: true, card: done, unchanged: true };
+	}
+
 	// Um run por conversa: com outro em andamento a mensagem viraria entrada dele, não uma continuação.
 	const active = await prisma.agentRun.findFirst({ where: { conversationId: input.conversationId, userId: input.userId, status: { in: ACTIVE_STATUSES } }, select: { id: true } });
 	if (active) return { ok: false, status: 409, error: "Já há uma tarefa em andamento nesta conversa. Espere terminar e tente de novo." };
@@ -129,6 +179,9 @@ export async function resolveBudgetContinue(
 
 	try {
 		const objective = `${originalRequest(source.objective)}\n\n${BUDGET_CONTINUE_INSTRUCTION}`.trim();
+		const sourceCheckpoint = (source.checkpointJson ?? {}) as Record<string, unknown>;
+		const taskState = openTaskState(sourceCheckpoint, objective);
+		// Tudo no MESMO create: motor, perfil, origem, caderno e lista de tarefas (nada é sobrescrito depois).
 		const run = await deps.createRun({
 			request: {
 				messages: [{ role: "user", content: objective }],
@@ -144,24 +197,23 @@ export async function resolveBudgetContinue(
 			model: source.model,
 			userId: input.userId,
 			contextLength: readRunContextLength({ budgetJson: source.budgetJson }),
+			exclusive: {
+				checkpoint: {
+					...(Array.isArray(sourceCheckpoint.notebook) && sourceCheckpoint.notebook.length ? { notebook: sourceCheckpoint.notebook } : {}),
+					...(taskState ? { taskState } : {}),
+				},
+				budget: { ...withRunEngine(null, { engine: "v2", profile: "long_work" }), continuationOf: source.id, continuationOffer: card.offerId },
+			},
 		});
-		// Mesmo motor e perfil do run que parou (a retomada nunca troca) e o caderno dele, para não refazer a pesquisa.
-		const checkpoint = (source.checkpointJson ?? {}) as { notebook?: unknown };
-		const target = await prisma.agentRun.findFirst({ where: { id: run.id, userId: input.userId }, select: { checkpointJson: true, budgetJson: true } });
-		if (target) {
-			const nextCheckpoint = { ...((target.checkpointJson ?? {}) as Record<string, unknown>), ...(Array.isArray(checkpoint.notebook) && checkpoint.notebook.length ? { notebook: checkpoint.notebook } : {}) };
-			const nextBudget = { ...withRunEngine(target.budgetJson, { engine: "v2", profile: "long_work" }), continuationOf: source.id };
-			await prisma.agentRun.updateMany({
-				where: { id: run.id, userId: input.userId },
-				data: { checkpointJson: nextCheckpoint as Prisma.InputJsonValue, budgetJson: nextBudget as Prisma.InputJsonValue },
-			});
-		}
 		const done: PersistedBudgetContinueCard = { ...reserved, continuationRunId: run.id };
-		await prisma.conversationMessage.updateMany({ where: { id: row.id }, data: { content: serializeConversationCard(done) } });
+		// O run já existe: se só o card falhar em gravar, a próxima tentativa o reaproveita (findContinuationRun).
+		await prisma.conversationMessage.updateMany({ where: { id: row.id }, data: { content: serializeConversationCard(done) } }).catch(() => undefined);
 		return { ok: true, card: done, runId: run.id };
 	} catch (error) {
-		// Não saiu o run: o card volta a pendente para a pessoa tentar de novo (nada foi gasto).
+		// Não saiu a continuação: cancela o que ficou pelo caminho e o card volta a pendente (nada foi gasto).
+		await cancelOrphanContinuation(input.userId, input.conversationId, card.offerId).catch(() => undefined);
 		await prisma.conversationMessage.updateMany({ where: { id: row.id }, data: { content: serializeConversationCard(card) } }).catch(() => undefined);
+		if (error instanceof ExclusiveRunConflictError) return { ok: false, status: 409, error: "Já há uma tarefa em andamento nesta conversa. Espere terminar e tente de novo." };
 		console.error("budget continue run failed", error instanceof Error ? error.message : "erro desconhecido");
 		return { ok: false, status: 503, error: "Não consegui retomar agora. Tente de novo em instantes." };
 	}

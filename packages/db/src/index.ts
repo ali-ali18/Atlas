@@ -158,6 +158,7 @@ export {
 } from "./sections.js";
 export {
 	createAgentRun,
+	ExclusiveRunConflictError,
 	isActiveRunConflict,
 	createFollowUpRun,
 	type FollowUpResult,
