@@ -24,6 +24,8 @@ export type EngineChoice = {
 	/** Ajudantes do trabalho longo: modelo barato opcional e quantos rodam juntos (`policyJson.helperModel` / `helperMaxParallel`). */
 	helperModel?: string | null;
 	helperMaxParallel?: number;
+	/** Máximo de saída do modelo no catálogo (limita o teto do documento no trabalho longo). */
+	modelMaxOutputTokens?: (modelId: string) => Promise<number | null>;
 };
 
 export async function pickRunEngine(input: {
@@ -66,6 +68,7 @@ export function runSelectedEngine(choice: EngineChoice, params: ComputerUseParam
 			longWorkBudgetUsd: choice.longWorkBudgetUsd,
 			longWorkMinutes: choice.longWorkMinutes,
 			helpers: { model: choice.helperModel, maxParallel: choice.helperMaxParallel },
+			modelMaxOutputTokens: choice.modelMaxOutputTokens,
 		});
 	}
 	return runComputerUse(params);
