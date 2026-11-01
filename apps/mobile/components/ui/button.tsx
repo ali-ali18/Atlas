@@ -17,14 +17,14 @@ const buttonVariants = cva("shrink-0 flex-row items-center justify-center rounde
 			link: "",
 		},
 		size: {
-			default: "h-13 gap-2 px-6",
-			xs: "h-9 gap-1 px-3",
-			sm: "h-10 gap-1.5 px-4",
-			lg: "h-13 gap-2 px-6",
-			icon: "size-13",
-			"icon-xs": "size-9",
-			"icon-sm": "size-10",
-			"icon-lg": "size-13",
+			default: "h-11 gap-2 px-5",
+			xs: "h-8 gap-1 px-3",
+			sm: "h-9 gap-1.5 px-4",
+			lg: "h-11 gap-2 px-5",
+			icon: "size-11",
+			"icon-xs": "size-8",
+			"icon-sm": "size-9",
+			"icon-lg": "size-11",
 		},
 	},
 	defaultVariants: { variant: "default", size: "default" },
@@ -41,14 +41,14 @@ const buttonTextVariants = cva("font-semibold", {
 			link: "text-primary underline",
 		},
 		size: {
-			default: "text-base",
+			default: "text-control",
 			xs: "text-sm",
-			sm: "text-base",
-			lg: "text-base",
-			icon: "text-base",
+			sm: "text-control",
+			lg: "text-control",
+			icon: "text-control",
 			"icon-xs": "text-sm",
-			"icon-sm": "text-base",
-			"icon-lg": "text-base",
+			"icon-sm": "text-control",
+			"icon-lg": "text-control",
 		},
 	},
 	defaultVariants: { variant: "default", size: "default" },
@@ -56,10 +56,15 @@ const buttonTextVariants = cva("font-semibold", {
 
 export type ButtonProps = React.ComponentProps<typeof Pressable> & VariantProps<typeof buttonVariants>;
 
-// Diferença do web (decisão do dono, no estilo do app do Grok): botões grandes e bem visíveis. `default`/`lg`
-// têm 52 de altura, pílula e texto 16 semibold; `sm` 40 e `xs` 36, ambos com `hitSlop` até 44 (o web usa `touch-hit`).
-const SMALL_SIZES = new Set(["xs", "sm", "icon-xs", "icon-sm"]);
-const SMALL_SLOP = { top: 4, bottom: 4, left: 4, right: 4 } as const;
+// Diferença do web (decisão do dono, no estilo do app do Grok): um pouco maior que o web. `default`/`lg`
+// têm 44 de altura, pílula e texto 15 semibold (o web: 36/40 e 14); `sm` 36 e `xs` 32, ambos com `hitSlop` até 44.
+const SLOP_4 = { top: 4, bottom: 4, left: 4, right: 4 } as const; // 36 -> 44
+const SLOP_6 = { top: 6, bottom: 6, left: 6, right: 6 } as const; // 32 -> 44
+function hitSlopFor(size: ButtonProps["size"]) {
+	if (size === "xs" || size === "icon-xs") return SLOP_6;
+	if (size === "sm" || size === "icon-sm") return SLOP_4;
+	return undefined;
+}
 
 export function Button({ className, variant = "default", size = "default", disabled, ...props }: ButtonProps) {
 	return (
@@ -68,7 +73,7 @@ export function Button({ className, variant = "default", size = "default", disab
 				role="button"
 				accessibilityState={{ disabled: Boolean(disabled) }}
 				disabled={disabled}
-				hitSlop={size && SMALL_SIZES.has(size) ? SMALL_SLOP : undefined}
+				hitSlop={hitSlopFor(size)}
 				className={cn(buttonVariants({ variant, size }), disabled && "opacity-50", className)}
 				{...props}
 			/>

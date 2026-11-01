@@ -11,7 +11,7 @@ import { Text } from "@/components/ui/text";
 export function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
 	return (
 		<View className="items-center gap-2">
-			<Avatar ariaLabel="Avatar do Atlas Agent" size={126} />
+			<Avatar ariaLabel="Avatar do Atlas Agent" size={102} />
 			<Text className="text-center text-xl font-semibold tracking-tight">{title}</Text>
 			<Text variant="muted" className="text-center text-sm">
 				{subtitle}

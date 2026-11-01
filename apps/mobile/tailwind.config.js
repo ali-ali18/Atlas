@@ -29,9 +29,8 @@ module.exports = {
 				ring: token("ring"),
 			},
 			// Tokens semânticos do globals.css do web (text-body 13px, text-caption 11px, raios card/panel).
-			fontSize: { body: ["13px", { lineHeight: "18px" }], caption: ["11px", { lineHeight: "15px" }] },
-			// 52px: altura dos botões e campos do app (o Tailwind 3 não tem `h-13`).
-			spacing: { 13: "52px" },
+			// `control` (15px) é só do mobile: texto de botão e campo, 1px acima do `text-sm` do web.
+			fontSize: { body: ["13px", { lineHeight: "18px" }], caption: ["11px", { lineHeight: "15px" }], control: ["15px", { lineHeight: "20px" }] },
 			borderRadius: { card: "12px", panel: "20px", "4xl": "2rem" },
 			borderWidth: { hairline: hairlineWidth() },
 		},
