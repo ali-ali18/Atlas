@@ -50,13 +50,16 @@ async function renderWith(locale: UiLocale, policyJson: unknown): Promise<string
 }
 
 test("opção 'Usar também em rotinas e grupos' só aparece com o motor novo e reflete o escopo salvo", async () => {
-	assert.doesNotMatch(await renderWith("pt-BR", {}), /agent-engine-scope/);
+	// Bot sem escolha mostra o padrão (motor novo, em rotinas e grupos também).
+	const byDefault = await renderWith("pt-BR", {});
+	assert.match(byDefault, /for="agent-engine-scope".*?role="switch"[^>]*aria-checked="true"/);
 	const chatOnly = await renderWith("pt-BR", { engine: "v2" });
 	assert.match(chatOnly, /Usar também em rotinas e grupos/);
 	assert.match(chatOnly, /for="agent-engine-scope".*?role="switch"[^>]*aria-checked="false"/);
 	const wide = await renderWith("pt-BR", { engine: "v2", engineScope: "all" });
 	assert.match(wide, /for="agent-engine-scope".*?role="switch"[^>]*aria-checked="true"/);
 	assert.doesNotMatch(await renderWith("pt-BR", { engine: "v1", engineScope: "all" }), /agent-engine-scope/);
+	assert.doesNotMatch(await renderWith("pt-BR", { engine: "v1" }), /agent-engine-scope/);
 });
 
 test("a opção do escopo existe nas 3 línguas, sem nomes internos", async () => {

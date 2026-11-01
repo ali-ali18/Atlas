@@ -70,8 +70,8 @@ export function BudgetField({
 }
 
 /**
- * Linhas "Motor" da engrenagem do bot (piloto do motor novo). "Atual" é o padrão; "Novo (teste)" trabalha até o fim
- * dentro de um orçamento. Salva em `policyJson` mesclando só as chaves do motor (`withEngineSettings`).
+ * Linhas "Motor" da engrenagem do bot. "Novo" é o padrão (bot sem escolha aparece assim, igual ao worker via
+ * `ENGINE_DEFAULT_SCOPE`) e trabalha até o fim dentro de um orçamento; "Anterior" grava `engine: "v1"` explícito. Salva em `policyJson` mesclando só as chaves do motor (`withEngineSettings`).
  */
 export function EngineSettings({ policyJson, onChange }: { policyJson: unknown; onChange: (patch: { policyJson: unknown }) => void }) {
 	const { t } = useTranslations();
