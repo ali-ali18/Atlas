@@ -28,7 +28,7 @@ Em `Bot.policyJson` (lido por `readEnginePolicy`, `packages/shared/src/engine-po
 | `longWorkBudgetUsd` | US$ 0,05 a 20 | 0,50 |
 | `longWorkMinutes` | 1 a 120 | 20 |
 
-Valor ausente ou inválido cai no padrão. `withBotEngine(policy, "v2")` liga sem perder as outras chaves. O teto de custo da conta/bot (`budget.maxCostUsd`) continua valendo: o orçamento do perfil nunca o ultrapassa.
+Valor ausente ou inválido cai no padrão. `withBotEngine(policy, "v2")` liga sem perder as outras chaves. Os tetos do run/conta continuam valendo e o perfil nunca os ultrapassa: custo (`budget.maxCostUsd`), tempo (`budget.maxWallMs`, 30 min por padrão no worker: `longWorkMinutes` acima disso só tem efeito se o teto do run/bot for subido) e passos (`maxSteps`/`hardMaxSteps`, 100 por padrão; o teto de segurança do motor é 200).
 
 ## Como funciona
 Arquivos em `packages/agent-runtime/src/engine-v2/`:
@@ -39,7 +39,7 @@ Arquivos em `packages/agent-runtime/src/engine-v2/`:
 - `catalog.ts`: núcleo sempre carregado, grupos raros adiados com índice curto no prompt e `mcp_tool_search` para carregar por nome ou necessidade. O roteador de intenção (regex) vira só dica de pré-carga, nunca portão.
 - `prompt.ts`: prompt curto (inglês) com persona, memória, conectores, skills e disciplina do modelo vindos dos builders do v1.
 
-O worker (`apps/worker/src/engine-choice.ts`) escolhe o motor no começo do run e grava `engine`/`engineProfile` em `agent_runs.budgetJson` (`recordRunEngine`, só quando é v2). A retomada lê o gravado: o motor do bot pode mudar no meio sem trocar um run em andamento. Run com checkpoint e sem motor gravado nasceu no v1.
+O worker (`apps/worker/src/engine-choice.ts`) escolhe o motor no começo do run e grava `engine`/`engineProfile` em `agent_runs.budgetJson` (`recordRunEngine`, só quando é v2; um único `UPDATE` com merge jsonb e condição "ainda sem motor", sem ler-e-escrever). Se a gravação falhar ou outra execução já tiver gravado v1, o run roda no v1: a retomada nunca troca de motor. Bot com modo proativo ligado, alerta ou evento de configuração do bot (sem mensagem digitada) também fica no v1. A retomada lê o gravado: o motor do bot pode mudar no meio sem trocar um run em andamento. Run com checkpoint e sem motor gravado nasceu no v1.
 
 ### Perfis e orçamento
 | Perfil | Custo | Tempo ativo | Lista de tarefas |
@@ -51,13 +51,20 @@ O worker (`apps/worker/src/engine-choice.ts`) escolhe o motor no começo do run 
 
 ### Regras do Supervisor
 1. Antes de cada chamada ao modelo: a ~80% do custo ou do tempo avisa UMA vez ("wrap up and deliver"); a 100% faz a última chamada SEM tools para entregar (resultado, fontes, suposições, o que não deu para confirmar). Nunca aborta sem resposta. Stop: `budget_cost` ou `budget_wall`, detalhe `delivered`.
-2. Teto absoluto de 200 passos, só como segurança (`budget_steps`, também com entrega).
+2. Teto absoluto de 200 passos, só como segurança, e nunca acima do `maxSteps` do run (`budget_steps`, também com entrega).
+2b. Custo em US$: o informado pelo provedor; quando ele não informa (`costUnknownCalls`), estima pelos tokens com preço conservador (US$ 3/Mtok de entrada e US$ 15/Mtok de saída, `ATLAS_V2_FALLBACK_PROMPT_USD_PER_MTOK` e `ATLAS_V2_FALLBACK_COMPLETION_USD_PER_MTOK`; não há tabela de preços por modelo no repositório). Numa retomada, só entra a estimativa dos tokens já gastos se nenhum custo foi informado.
 3. Mesma tool + mesmos args + mesmo resultado 3 vezes seguidas: nota ao modelo. Se repetir de novo depois da nota, encerra o laço com a entrega final (`loop_repeat`, detalhe `after_note`).
 4. 3 falhas seguidas da mesma tool: nota e a tool fica bloqueada por 3 passos (devolve erro ao modelo sem executar). O run não morre.
 5. Não existe teto soft de passos, estagnação, "concluído" declarado pelo modelo, nem tool removida no meio do trabalho.
 
 ### Lista de tarefas (trabalho longo)
 Reaproveita `update_task_list`. Ao responder sem lista, ou com itens abertos, o modelo recebe uma nota (máx. 2) para concluir ou descartar cada item com motivo. Descartar = marcar `completed` com conteúdo `DROPPED: <motivo>`. Depois de 2 notas deixa sair, e o stop leva `answered` + `tasklist_open`. Itens descartados e pendências aparecem na resposta como "Não deu para confirmar: …" (pt-BR; en/es no idioma do bot).
+
+### Hooks antes da tool
+O v2 roda os mesmos hooks do v1 antes de cada tool (`hooks/pre-tool-runner.ts` sobre `runPreToolHooks`): lições do bot (`confirm_always` força o cartão, `required_args`, `require_prior_call`) e bloqueio de escritas com plano pendente (`planPending`), com erro honesto ao modelo e contagem de "ajudou" nas lições.
+
+### Login repetido
+Um card de login por site e conversa (30 min), como no v1 (`recentLoginAsks`, `LOGIN STILL REQUIRED`); captcha e login de conector sempre pedem à pessoa.
 
 ### Eventos e persistência
 Mesmos eventos do contrato: `assistant_delta`, `tool_call`/`tool_result` (mesmo id, com prefixo do run), cards, `task_list`, `input_consumed`, `assistant_discard` (`items_open`). `done`/`error`/`cancelled` continuam sendo emitidos pelo worker com `stopReason`. Passos (`onStep`), `findCompletedTool`/`findStartedTool` (retomada sem repetir escrita) e checkpoint (`buildRuntimeCheckpoint`) seguem o contrato do v1; cancelamento, pausa e pausa por login funcionam igual.
@@ -66,6 +73,8 @@ Mesmos eventos do contrato: `assistant_delta`, `tool_call`/`tool_result` (mesmo 
 - **Origens:** só o chat direto do dono com o bot. Rotina, alerta, webhook, proativo, e-mail, bot→bot, subagente e grupo seguem no v1.
 - **Tools fora do catálogo do v2:** `delegate_task` (ajudantes e caderno da tarefa são a F3), `research_note`, `track_items`, `propose_plan`, `read_cached_result`, sessão de código (`dev_*`), envio entre bots, `set_autonomy`, lições de conector, prévia completa, `notify_user`/proativo.
 - **Login:** o card de login é sempre humano (sem preenchimento automático do Cofre nem retomada com item do Cofre); o `login_fill` por tool continua.
+- **Modo proativo e avisos:** bot com modo proativo ligado fica no v1 (o v2 não tem `schedule_followup` nem a reflexão); o `notify_user` (push no meio de tarefa longa) também não existe no v2.
+- **Estimativa de custo:** conservadora e única para todos os modelos; modelos baratos sem custo informado chegam ao teto antes do real.
 - **Cartões que param o run** (questionário, perfil): o v2 devolve texto vazio e `awaiting_confirmation`, sem o fechamento curto que o v1 escreve.
 - **Contexto:** mesma higiene de prompt do v1; sem armazenamento de resultado grande por referência, sem resumo de compactação e sem as 4 memórias da F3.
 - **Mensagens durante o run:** entram como nota do usuário (`[User message during the task]`); sem triagem por modelo (`join`/`redirect`/`later`) nem interrupção da chamada em voo. `cancel` funciona.
