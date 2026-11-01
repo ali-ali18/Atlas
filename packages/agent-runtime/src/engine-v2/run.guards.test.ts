@@ -145,6 +145,8 @@ describe("v2: hooks antes da tool", () => {
 });
 
 describe("v2: erro de controle na entrega final", () => {
+	// Sem teto em US$ de fábrica: o teto vem do dono (conta), como em produção quando ele programa um.
+	const ownerCap = { budget: { maxCostUsd: 1 } };
 	const overBudget = () => calls([CREATE, { cliente: "A", pagamento: "pix" }], { promptTokens: 10, completionTokens: 1, costUsd: 5 });
 
 	it("lease perdido na chamada de entrega propaga e o run não conclui", async () => {
@@ -156,6 +158,7 @@ describe("v2: erro de controle na entrega final", () => {
 						throw new LeaseLostError();
 					},
 				],
+				extra: ownerCap,
 			}),
 		).rejects.toBeInstanceOf(LeaseLostError);
 	});
@@ -165,7 +168,7 @@ describe("v2: erro de controle na entrega final", () => {
 		await expect(
 			run({
 				script: [overBudget, say("entrega")],
-				extra: { shouldContinue: async () => allowed-- > 0 },
+				extra: { ...ownerCap, shouldContinue: async () => allowed-- > 0 },
 			}),
 		).rejects.toMatchObject({ name: expect.stringMatching(/Cancel/i) });
 	});
@@ -181,7 +184,7 @@ describe("v2: erro de controle na entrega final", () => {
 						throw new Error("abortado");
 					},
 				],
-				extra: { abortSignal: controller.signal },
+				extra: { ...ownerCap, abortSignal: controller.signal },
 			}),
 		).rejects.toBeInstanceOf(LeaseLostError);
 	});

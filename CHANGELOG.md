@@ -4,6 +4,11 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+## [0.3.6-beta.1] - 2026-11-01
+
+### Corrigido
+- **agent, shared, worker:** nenhum limite em dinheiro de fábrica. O perfil de conversa do motor v2 tinha US$ 0,25 por execução e a conta também nascia com US$ 0,25 ("Custo máximo por execução"), então pedidos de várias etapas paravam no meio com "limite de custo atingido", mesmo com a conta em "sem limite". Agora só vale o limite que o dono programar: o "Custo máximo por execução" da conta ou o "Gasto máximo por tarefa" do bot (ou `ATLAS_MAX_RUN_COST_USD` do operador). O piso de US$ 0,50 das execuções sem humano também saiu. A proteção contra erro segue por tempo, passos, repetição e falhas.
+
 ## [0.3.6-beta] - 2026-11-01
 
 ### Corrigido
