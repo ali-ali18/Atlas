@@ -14,6 +14,7 @@ process.env.ATLAS_HOOK_PEPPER ||= "test-pepper";
 const { FakeTable, installFakes } = await import("@workspace/db/testing");
 const { prisma, resolveBudgetContinue } = await import("@workspace/db");
 const { createBudgetContinueRoutes } = await import("./budget-continue.js");
+const { parseBudgetBody } = await import("./runs.js");
 
 const USER_A = "user-a-ficticio";
 const USER_B = "user-b-ficticio";
@@ -132,4 +133,10 @@ test("oferta com mais de 24h responde 410 amigável, vira Dispensado e não cria
 	assert.equal(JSON.parse(String(messages.rows[0]!.content)).status, "dismissed");
 	assert.equal(created.length, 0);
 	assert.deepEqual(enqueued, []);
+});
+
+test("POST /v1/runs: a marca da continuação aprovada não passa pelo corpo (só o db a grava)", () => {
+	const parsed = parseBudgetBody({ approvedContinuation: true, continuationOf: "run-x", continuationOffer: "o", engine: "v2", maxWallMs: 60_000, maxCostUsd: 99 });
+	assert.deepEqual(parsed, { maxWallMs: 60_000 });
+	assert.equal(parseBudgetBody({ approvedContinuation: true, continuationOf: "run-x" }), undefined);
 });

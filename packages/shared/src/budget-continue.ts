@@ -81,6 +81,16 @@ export function parseBudgetContinueCard(raw: unknown): PersistedBudgetContinueCa
 export const BUDGET_CONTINUE_INSTRUCTION =
 	"The user approved more budget to continue the previous long task. Continue from where it stopped: read the task notebook and the task list first, do not redo what is already done, close the open items and the ones marked unconfirmed, and deliver the complete result (the document when one was asked).";
 
+/**
+ * O run é uma continuação que o dono APROVOU pelo card? Marca `approvedContinuation` no `budgetJson`, gravada só pelo
+ * caminho de aprovação no db (a API nunca copia essa chave do corpo: `parseBudgetBody` só aceita campos conhecidos).
+ * Dono aprovando = o orçamento do card vence o teto da conta, em custo e em tempo.
+ */
+export function readApprovedContinuation(budgetJson: unknown): boolean {
+	const budget = budgetJson as { approvedContinuation?: unknown; continuationOf?: unknown } | null | undefined;
+	return budget?.approvedContinuation === true && typeof budget.continuationOf === "string" && budget.continuationOf.trim().length > 0;
+}
+
 /** Dica ao worker: a continuação nasce do run que parou; o caderno dele é copiado para o novo (mesmo dono). */
 export function readContinuationSource(budgetJson: unknown): string | undefined {
 	const value = (budgetJson as { continuationOf?: unknown } | null | undefined)?.continuationOf;

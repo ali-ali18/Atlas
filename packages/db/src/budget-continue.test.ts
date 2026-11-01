@@ -92,7 +92,7 @@ test("aprovar cria UM run de continuação com o orçamento do card, o caderno d
 	assert.ok(content.endsWith(BUDGET_CONTINUE_INSTRUCTION));
 	const newRun = runs.rows.find((row) => row.id === result.runId)!;
 	assert.deepEqual((newRun.checkpointJson as { notebook: unknown }).notebook, notebook);
-	assert.deepEqual(newRun.budgetJson, { contextLength: 1000, engine: "v2", engineProfile: "long_work", continuationOf: "run-1", continuationOffer: "continue-run-1" });
+	assert.deepEqual(newRun.budgetJson, { contextLength: 1000, engine: "v2", engineProfile: "long_work", continuationOf: "run-1", continuationOffer: "continue-run-1", approvedContinuation: true });
 	assert.equal(cardOf().status, "approved");
 	assert.equal(cardOf().continuationRunId, result.runId);
 });

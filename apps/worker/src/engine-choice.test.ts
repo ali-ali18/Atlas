@@ -290,3 +290,26 @@ test("o orçamento do bot só vence o da conta no chat com o dono digitando; rot
 	assert.equal(resolveRunLimits({ choice, origin: "chat", humanTurn: true, requestOrBotCap: 0.3, snapshot, wallFixed: true }).costCapUsd, 0.3);
 	assert.equal(resolveRunLimits({ choice, origin: "chat", humanTurn: true, requestOrBotCap: undefined, snapshot, wallFixed: true }).wallMs, undefined);
 });
+
+test("continuação aprovada pelo card roda com o valor do card mesmo com o teto da conta menor (sem ser turno humano)", async () => {
+	const choice = await setup({ policyJson: { engine: "v2", workProfile: "long_work" } }).choose();
+	const snapshot = { maxRunCostUsd: 0.25 };
+	const base = { choice, origin: "chat", humanTurn: false, requestOrBotCap: 1, snapshot, wallFixed: false };
+	// Aprovada: teto do card (US$ 1), não o da conta (0,25), e o tempo do bot/padrão.
+	assert.deepEqual(resolveRunLimits({ ...base, approvedContinuation: true }), { costCapUsd: 1, wallMs: 20 * 60_000 });
+	// Sem a marca (o mesmo run vindo de outro caminho): a conta limita.
+	assert.deepEqual(resolveRunLimits({ ...base }), { costCapUsd: 0.25 });
+	// A marca só vale no chat de trabalho longo no v2; outra origem ou chat curto ficam com a conta.
+	assert.equal(resolveRunLimits({ ...base, origin: "routine", approvedContinuation: true }).costCapUsd, 0.25);
+	const short = await setup({ policyJson: { engine: "v2", workProfile: "chat" } }).choose();
+	assert.equal(resolveRunLimits({ ...base, choice: short, approvedContinuation: true }).costCapUsd, 0.25);
+});
+
+test("a marca da continuação só vale com continuationOf e nunca vem de turno humano", async () => {
+	const { readApprovedContinuation } = await import("@workspace/shared");
+	assert.equal(readApprovedContinuation({ approvedContinuation: true, continuationOf: "run-1" }), true);
+	assert.equal(readApprovedContinuation({ approvedContinuation: true }), false);
+	assert.equal(readApprovedContinuation({ continuationOf: "run-1" }), false);
+	assert.equal(readApprovedContinuation({ approvedContinuation: "true", continuationOf: "run-1" }), false);
+	assert.equal(readApprovedContinuation(null), false);
+});

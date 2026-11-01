@@ -108,17 +108,24 @@ export async function pickRunEngine(input: {
  */
 export function longWorkOwnerLimits(
 	choice: Pick<EngineChoice, "engine" | "profile" | "longWorkBudgetExplicit" | "longWorkMinutesExplicit" | "longWorkMinutes">,
-	/** Só o chat com o dono digitando vale: rotina, bot→bot, webhook e e-mail ficam com o teto da conta. */
-	context: { origin: string; humanTurn: boolean },
+	/**
+	 * Só o chat com o dono digitando vale: rotina, bot→bot, webhook e e-mail ficam com o teto da conta. A continuação que o
+	 * dono aprovou pelo card (`approvedContinuation`, marca do db) vale como o dono aprovando, sem ser turno humano
+	 * (que abriria `set_engine`, perfil e marcas de conector).
+	 */
+	context: { origin: string; humanTurn: boolean; approvedContinuation?: boolean },
 ): {
 	ignoreAccountCostCap: boolean;
 	/** Tempo ativo (ms) que o bot definiu e que substitui o da conta; `undefined` = segue o da conta. */
 	wallMs?: number;
 } {
-	const longWork = choice.engine === "v2" && choice.profile === "long_work" && context.origin === "chat" && context.humanTurn;
+	const longWork = choice.engine === "v2" && choice.profile === "long_work";
+	const approved = longWork && context.origin === "chat" && context.approvedContinuation === true;
+	const owner = longWork && context.origin === "chat" && context.humanTurn;
 	return {
-		ignoreAccountCostCap: longWork && choice.longWorkBudgetExplicit === true,
-		...(longWork && choice.longWorkMinutesExplicit === true && choice.longWorkMinutes ? { wallMs: Math.round(choice.longWorkMinutes * 60_000) } : {}),
+		// Aprovada pelo card: o valor do card (teto do pedido) é o que vale, mesmo sem orçamento gravado no bot.
+		ignoreAccountCostCap: approved || (owner && choice.longWorkBudgetExplicit === true),
+		...((approved || (owner && choice.longWorkMinutesExplicit === true)) && choice.longWorkMinutes ? { wallMs: Math.round(choice.longWorkMinutes * 60_000) } : {}),
 	};
 }
 
@@ -145,13 +152,15 @@ export function resolveRunLimits(input: {
 	choice: EngineChoice;
 	origin: string;
 	humanTurn: boolean;
+	/** Continuação aprovada pelo card (`readApprovedContinuation(run.budgetJson)`). */
+	approvedContinuation?: boolean;
 	/** `budget.maxCostUsd` já resolvido (pedido > bot > conta do código). */
 	requestOrBotCap: number | undefined;
 	snapshot: Pick<RunConfigSnapshot, "maxRunCostUsd">;
 	/** O pedido ou a política do bot fixou o tempo: vale mais que o orçamento de minutos do bot. */
 	wallFixed: boolean;
 }): { costCapUsd: number | undefined; wallMs?: number } {
-	const owner = longWorkOwnerLimits(input.choice, { origin: input.origin, humanTurn: input.humanTurn });
+	const owner = longWorkOwnerLimits(input.choice, { origin: input.origin, humanTurn: input.humanTurn, approvedContinuation: input.approvedContinuation });
 	return {
 		costCapUsd: effectiveCostCapUsd(input.requestOrBotCap, input.snapshot, { ignoreAccountCap: owner.ignoreAccountCostCap }),
 		...(owner.wallMs !== undefined && !input.wallFixed ? { wallMs: owner.wallMs } : {}),

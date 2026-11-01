@@ -202,7 +202,7 @@ export async function resolveBudgetContinue(
 					...(Array.isArray(sourceCheckpoint.notebook) && sourceCheckpoint.notebook.length ? { notebook: sourceCheckpoint.notebook } : {}),
 					...(taskState ? { taskState } : {}),
 				},
-				budget: { ...withRunEngine(null, { engine: "v2", profile: "long_work" }), continuationOf: source.id, continuationOffer: card.offerId },
+				budget: { ...withRunEngine(null, { engine: "v2", profile: "long_work" }), continuationOf: source.id, continuationOffer: card.offerId, approvedContinuation: true },
 			},
 		});
 		const done: PersistedBudgetContinueCard = { ...reserved, continuationRunId: run.id };

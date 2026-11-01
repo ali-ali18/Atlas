@@ -165,7 +165,7 @@ function positiveBudgetNumber(value: unknown): number | undefined {
 }
 
 /** Orçamento opcional do run; lixo é ignorado campo a campo, nunca 400. */
-function parseBudgetBody(
+export function parseBudgetBody(
 	raw: unknown,
 ): CreateAgentRunRequest["budget"] | undefined {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;

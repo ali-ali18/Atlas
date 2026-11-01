@@ -352,6 +352,7 @@ export {
 	normalizeBudgetContinueUsd,
 	parseBudgetContinue,
 	parseBudgetContinueCard,
+	readApprovedContinuation,
 	readContinuationSource,
 	shouldOfferBudgetContinue,
 	type BudgetContinueData,
