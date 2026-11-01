@@ -4,6 +4,8 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+## [0.3.7-beta] - 2026-11-01
+
 ### Adicionado
 - **agent, worker, db, shared:** no motor v2, o chat com humano que usa 80% dos 8 min do perfil com trabalho em andamento é promovido a trabalho longo no mesmo run, sem parar nem perguntar (tempo de 60 min ou o do bot, fases por progresso, lista, caderno, `delegate` e entrega em documento). A promoção vale uma vez e grava `engineProfile: "long_work"` e `promotedFrom: "chat"` no `budgetJson` (`recordRunPromotion`), então retomada e continuação herdam. Origem sem humano não promove. `looksLikeLongTask` passa a pegar pedidos de várias etapas ("abra… faça perguntas… compare… monte um relatório"; verbos assistir, abrir, perguntar, resumir; 3+ verbos de ação) e continua sendo só a primeira aposta. Só v2; o v1 não muda.
 
