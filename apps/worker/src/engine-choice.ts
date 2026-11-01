@@ -1,9 +1,12 @@
 /**
  * Motor do run (ADR 0002, F2): escolhe entre o laço atual (v1) e o v2 no começo do run e congela a escolha em
- * `budgetJson.engine`, para a retomada continuar no mesmo motor. O v1 é o padrão. O v2 roda no chat direto de um
- * bot que ligou `policyJson.engine = "v2"` e, com `policyJson.engineScope = "all"`, também em rotina, grupo,
- * bot→bot, proativo (reflexão e lembrete), webhook e e-mail recebido. Subagente herda o motor do pai. O padrão global `ATLAS_ENGINE_V2_DEFAULT`
- * (`off` | `chat` | `all`, desligado) vale para bots que não escolheram o motor; `engine: "v1"` explícito nunca vai ao v2.
+ * `budgetJson.engine`, para a retomada continuar no mesmo motor.
+ *
+ * Decisão do dono (01/11): o v2 é o PADRÃO. Bot sem `policyJson.engine` roda no v2 em todas as origens suportadas
+ * (chat, rotina, grupo, bot→bot, proativo, webhook e e-mail recebido); subagente herda o motor do pai. `engine: "v1"`
+ * explícito (escolha "Anterior" na engrenagem ou `set_engine`) nunca vai ao v2. `ATLAS_ENGINE_V2_DEFAULT` é o botão
+ * de emergência do deploy: ausente, vazio ou desconhecido = `all`; `off` devolve ao v1 todo bot sem escolha explícita;
+ * `chat` limita ao chat direto. O `off` não aparece na UI (ela mostra o padrão, `ENGINE_DEFAULT_SCOPE`).
  */
 import { effectiveCostCapUsd } from "./run-config.js";
 import { runComputerUse, runEngineV2, type ComputerUseParams, type RunComputerUseResult } from "@workspace/agent-runtime";
@@ -21,7 +24,7 @@ import {
 	type RunProfile,
 } from "@workspace/shared";
 
-/** Padrão global do deploy. Única leitura do env: aqui, na borda do worker (a decisão é pura, em `shared`). */
+/** Padrão do deploy (`all` sem a variável). Única leitura do env: aqui, na borda do worker (a decisão é pura, em `shared`). */
 export function engineDefaultFromEnv(env: Record<string, string | undefined> = process.env): EngineDefault {
 	return readEngineDefault(env.ATLAS_ENGINE_V2_DEFAULT);
 }
@@ -68,7 +71,7 @@ export async function pickRunEngine(input: {
 	shortRun?: boolean;
 	/** Brief "Seu dia" e lembrete `check`: perfil `chat`, mas com o piso de orçamento do v1 (`budgetFloor`). */
 	longerShortRun?: boolean;
-	/** Padrão global do deploy (`engineDefaultFromEnv()`); ausente = desligado. */
+	/** Padrão do deploy (`engineDefaultFromEnv()`); ausente = o padrão novo (`all`). */
 	globalDefault?: EngineDefault;
 	/** Grava a escolha no run de forma atômica e devolve o motor que ficou valendo (o gravado agora ou o que já estava). */
 	record: (choice: { engine: RunEngine; profile: RunProfile }) => Promise<RunEngine | null>;

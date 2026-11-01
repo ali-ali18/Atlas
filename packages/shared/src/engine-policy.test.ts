@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	ENGINE_DEFAULT_SCOPE,
 	chooseRunEngine,
 	engineV2SupportsRun,
 	readEngineDefault,
@@ -15,9 +16,19 @@ import {
 } from "./engine-policy.js";
 
 describe("readEnginePolicy", () => {
-	it("bot sem política usa v1, perfil automático, sem limite de gasto e 60 min de tempo máximo", () => {
+	it("bot sem política usa o motor novo (padrão) em todas as origens, perfil automático, sem limite de gasto e 60 min de tempo máximo", () => {
+		expect(ENGINE_DEFAULT_SCOPE).toBe("all");
 		for (const raw of [null, undefined, {}, [], "x", 3]) {
-			expect(readEnginePolicy(raw)).toEqual({ engine: "v1", scope: "chat", workProfile: "auto", longWorkBudgetUsd: undefined, longWorkMinutes: 60, longWorkMinutesExplicit: false });
+			expect(readEnginePolicy(raw)).toEqual({
+				engine: "v2",
+				explicit: undefined,
+				scope: ENGINE_DEFAULT_SCOPE,
+				scopeAll: false,
+				workProfile: "auto",
+				longWorkBudgetUsd: undefined,
+				longWorkMinutes: 60,
+				longWorkMinutesExplicit: false,
+			});
 		}
 	});
 
@@ -26,6 +37,7 @@ describe("readEnginePolicy", () => {
 			engine: "v2",
 			explicit: "v2",
 			scope: "chat",
+			scopeAll: false,
 			workProfile: "long_work",
 			longWorkBudgetUsd: 1.25,
 			longWorkMinutes: 45,
@@ -42,7 +54,8 @@ describe("readEnginePolicy", () => {
 
 	it("valor inválido cai no padrão e número fora da faixa é limitado", () => {
 		const policy = readEnginePolicy({ engine: "v3", workProfile: "turbo", longWorkBudgetUsd: "caro", longWorkMinutes: 9999 });
-		expect(policy.engine).toBe("v1");
+		expect(policy.engine).toBe("v2");
+		expect(policy.explicit).toBeUndefined();
 		expect(policy.workProfile).toBe("auto");
 		expect(policy.longWorkBudgetUsd).toBeUndefined();
 		expect(policy.longWorkMinutes).toBe(180);
@@ -55,6 +68,9 @@ describe("readEnginePolicy", () => {
 		expect(readEnginePolicy({ engine: "v1" })).toMatchObject({ engine: "v1", explicit: "v1" });
 		expect(readEnginePolicy({}).explicit).toBeUndefined();
 		for (const bad of ["tudo", "ALL", 1, null, true]) expect(readEnginePolicy({ engine: "v2", engineScope: bad }).scope).toBe("chat");
+		// Sem escolha explícita a UI mostra o escopo do padrão; com v1 ou v2 explícitos, só o que o bot salvou.
+		expect(readEnginePolicy({}).scope).toBe(ENGINE_DEFAULT_SCOPE);
+		expect(readEnginePolicy({ engine: "v1" }).scope).toBe("chat");
 	});
 
 	it("withBotEngine liga e desliga sem perder as outras chaves; v1 fica explícito e desliga o escopo", () => {
@@ -80,14 +96,15 @@ describe("chooseRunEngine", () => {
 	const v2 = readEnginePolicy({ engine: "v2" });
 	const v1 = readEnginePolicy(null);
 
-	it("bot sem política roda no v1; política v2 roda no v2 no chat", () => {
-		expect(chooseRunEngine({ policy: v1, origin: "chat", isGroupRun: false })).toBe("v1");
+	it("bot sem política roda no v2 (padrão); v1 explícito fica no v1", () => {
+		expect(chooseRunEngine({ policy: v1, origin: "chat", isGroupRun: false })).toBe("v2");
+		expect(chooseRunEngine({ policy: readEnginePolicy({ engine: "v1" }), origin: "chat", isGroupRun: false })).toBe("v1");
 		expect(chooseRunEngine({ policy: v2, origin: "chat", isGroupRun: false })).toBe("v2");
 	});
 
 	it("a retomada respeita o motor gravado, mesmo que o bot tenha mudado", () => {
 		expect(chooseRunEngine({ stored: "v1", policy: v2, origin: "chat", isGroupRun: false })).toBe("v1");
-		expect(chooseRunEngine({ stored: "v2", policy: v1, origin: "chat", isGroupRun: false })).toBe("v2");
+		expect(chooseRunEngine({ stored: "v2", policy: readEnginePolicy({ engine: "v1" }), origin: "chat", isGroupRun: false })).toBe("v2");
 	});
 
 	it("escopo chat (padrão): rotina, webhook, proativo, e-mail, bot→bot, grupo e subagente continuam no v1", () => {
@@ -100,15 +117,16 @@ describe("chooseRunEngine", () => {
 });
 
 describe("padrão global (ATLAS_ENGINE_V2_DEFAULT)", () => {
-	it("lê off, chat e all; qualquer outra coisa é off", () => {
+	it("lê off, chat e all; ausente, vazio ou desconhecido é o padrão novo (all)", () => {
 		expect(readEngineDefault("chat")).toBe("chat");
 		expect(readEngineDefault(" ALL ")).toBe("all");
-		for (const raw of [undefined, null, "", "off", "v2", "true", 1]) expect(readEngineDefault(raw), String(raw)).toBe("off");
+		expect(readEngineDefault(" OFF ")).toBe("off");
+		for (const raw of [undefined, null, "", "  ", "v2", "true", "false", 1]) expect(readEngineDefault(raw), String(raw)).toBe(ENGINE_DEFAULT_SCOPE);
 	});
 
 	it("resolveBotEngineRouting: escolha explícita vence; sem ela vale o padrão", () => {
 		const none = readEnginePolicy({});
-		expect(resolveBotEngineRouting(none)).toEqual({ engine: "v1", scope: "chat" });
+		expect(resolveBotEngineRouting(none)).toEqual({ engine: "v2", scope: "all" });
 		expect(resolveBotEngineRouting(none, "off")).toEqual({ engine: "v1", scope: "chat" });
 		expect(resolveBotEngineRouting(none, "chat")).toEqual({ engine: "v2", scope: "chat" });
 		expect(resolveBotEngineRouting(none, "all")).toEqual({ engine: "v2", scope: "all" });
@@ -175,9 +193,28 @@ describe("tabela de decisão: origem × motor do bot × escopo × padrão global
 		}
 	});
 
-	it("sem padrão informado o comportamento é o de sempre (off)", () => {
-		expect(chooseRunEngine({ policy: readEnginePolicy({}), origin: "chat", isGroupRun: false })).toBe("v1");
+	it("sem padrão informado vale o padrão novo (all): bot sem escolha vai ao v2 em todas as origens; v2/chat e v1 explícito não mudam", () => {
+		expect(chooseRunEngine({ policy: readEnginePolicy({}), origin: "chat", isGroupRun: false })).toBe("v2");
+		expect(chooseRunEngine({ policy: readEnginePolicy({}), origin: "routine", isGroupRun: false })).toBe("v2");
 		expect(chooseRunEngine({ policy: readEnginePolicy({ engine: "v2" }), origin: "routine", isGroupRun: false })).toBe("v1");
+		expect(chooseRunEngine({ policy: readEnginePolicy({ engine: "v1" }), origin: "chat", isGroupRun: false })).toBe("v1");
+	});
+
+	it("env ausente, vazio ou lixo (via readEngineDefault) equivale a all; off é a emergência e chat limita ao chat", () => {
+		const where = [
+			{ origin: "chat", isGroupRun: false },
+			{ origin: "chat", isGroupRun: true },
+			{ origin: "routine", isGroupRun: false },
+			{ origin: "webhook", isGroupRun: false },
+			{ origin: "email", isGroupRun: false },
+			{ origin: "subagent", isGroupRun: false },
+		];
+		const policy = readEnginePolicy({});
+		const engines = (raw: unknown) => where.map((w) => chooseRunEngine({ policy, globalDefault: readEngineDefault(raw), ...w }));
+		const all = ["v2", "v2", "v2", "v2", "v2", "v1"];
+		for (const raw of [undefined, "", "lixo", "all"]) expect(engines(raw), String(raw)).toEqual(all);
+		expect(engines("off")).toEqual(["v1", "v1", "v1", "v1", "v1", "v1"]);
+		expect(engines("chat")).toEqual(["v2", "v1", "v1", "v1", "v1", "v1"]);
 	});
 });
 

@@ -34,8 +34,8 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 /**
- * Nova política com as chaves do motor mescladas. `v1` grava `engine: "v1"` explícito (o padrão global do deploy
- * nunca leva um bot que escolheu o motor atual para o v2) e desliga o escopo ampliado; `scope: "chat"` remove
+ * Nova política com as chaves do motor mescladas. `v1` grava `engine: "v1"` explícito (o padrão do deploy
+ * nunca leva um bot que escolheu o motor anterior para o v2) e desliga o escopo ampliado; `scope: "chat"` remove
  * `engineScope`; `helperModel: null` remove o modelo.
  */
 export function withEngineSettings(policyJson: unknown, patch: EngineSettingsPatch): Record<string, unknown> {
@@ -43,7 +43,11 @@ export function withEngineSettings(policyJson: unknown, patch: EngineSettingsPat
 	if (patch.engine === "v2" || patch.engine === "v1") base.engine = patch.engine;
 	if (patch.engine === "v1") delete base.engineScope;
 	if (patch.scope === "all") base.engineScope = "all";
-	else if (patch.scope === "chat") delete base.engineScope;
+	else if (patch.scope === "chat") {
+		delete base.engineScope;
+		// Bot sem escolha segue o padrão (v2 em tudo): limitar ao chat só vale com o motor novo escolhido de forma explícita.
+		if (base.engine !== "v1") base.engine = "v2";
+	}
 	if (patch.longWorkBudgetUsd === null) delete base.longWorkBudgetUsd;
 	else if (patch.longWorkBudgetUsd !== undefined) base.longWorkBudgetUsd = patch.longWorkBudgetUsd;
 	if (patch.longWorkMinutes !== undefined) base.longWorkMinutes = patch.longWorkMinutes;
@@ -54,7 +58,7 @@ export function withEngineSettings(policyJson: unknown, patch: EngineSettingsPat
 
 export type ParsedEngineArgs = { ok: true; patch: EngineSettingsPatch } | { ok: false; error: string };
 
-const ACCEPTED = `Accepted fields: engine ("current" or "new"), scope ("chat" = only the direct chat, or "all" = also routines, groups and bot-to-bot messages; needs the new engine), budget_usd (optional spending cap per long task, ${LONG_WORK_MIN_USD} to ${LONG_WORK_MAX_USD}; 0 or empty = no spending limit, the default), minutes (maximum time of a long task, ${LONG_WORK_MIN_MINUTES} to ${LONG_WORK_MAX_MINUTES}, default 60), helper_model (model id, or "" to use the bot's model).`;
+const ACCEPTED = `Accepted fields: engine ("current" = the previous engine, or "new"), scope ("chat" = only the direct chat, or "all" = also routines, groups and bot-to-bot messages; needs the new engine), budget_usd (optional spending cap per long task, ${LONG_WORK_MIN_USD} to ${LONG_WORK_MAX_USD}; 0 or empty = no spending limit, the default), minutes (maximum time of a long task, ${LONG_WORK_MIN_MINUTES} to ${LONG_WORK_MAX_MINUTES}, default 60), helper_model (model id, or "" to use the bot's model).`;
 
 /** Valida os argumentos da tool: campo desconhecido ou valor fora da faixa FALHA com a lista do aceito (nunca ajusta em silêncio). */
 export function parseSetEngineArgs(args: unknown): ParsedEngineArgs {
@@ -121,17 +125,20 @@ export function looksLikeEngineRequest(text: string): boolean {
 
 const BRL_FORMAT = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** Frase para o dono (pt-BR): "Motor novo (teste) · até US$ 0,50 e 20 min por tarefa longa". */
+/**
+ * Frase para o dono (pt-BR): "Motor novo (padrão) · sem limite de gasto, até 60 min por tarefa longa". Bot sem escolha
+ * mostra o padrão (o `off` de emergência do deploy não aparece aqui); escolha explícita mostra "Motor novo" ou "Motor anterior".
+ */
 export function describeEngineSettings(policyJson: unknown): string {
 	const policy = readEnginePolicy(policyJson);
-	if (policy.engine !== "v2") return "Motor atual";
+	if (policy.engine !== "v2") return "Motor anterior";
 	const helper = readHelperPolicy(policyJson).helperModel;
 	const where = policy.scope === "all" ? " · também em rotinas e grupos" : "";
 	const budget =
 		policy.longWorkBudgetUsd === undefined
 			? `sem limite de gasto, até ${policy.longWorkMinutes} min por tarefa longa`
 			: `gasto máximo de US$ ${BRL_FORMAT.format(policy.longWorkBudgetUsd)} e até ${policy.longWorkMinutes} min por tarefa longa`;
-	return `Motor novo (teste)${where} · ${budget}${helper ? ` · ajudantes: ${helper}` : ""}`;
+	return `${policy.explicit === undefined ? "Motor novo (padrão)" : "Motor novo"}${where} · ${budget}${helper ? ` · ajudantes: ${helper}` : ""}`;
 }
 
 /**
