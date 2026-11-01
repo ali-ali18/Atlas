@@ -1,3 +1,4 @@
+import { isReadOnlyToolName } from "../../execution/run-governor.js";
 import type { ChatTool } from "@workspace/llm";
 import type { ToolContext, ToolHandler, ToolRegistration, ToolResult } from "./types.js";
 
@@ -34,7 +35,7 @@ function registry(): RegistryState {
 	for (const load of families) {
 		for (const [name, registration] of Object.entries(load())) {
 			if (tools.has(name)) throw new Error(`Tool registrada duas vezes: ${name}`);
-			tools.set(name, registration);
+			tools.set(name, { ...registration, readOnly: registration.readOnly ?? isReadOnlyToolName(name, () => false), definition: registration.definition ?? definitions.get(name) });
 		}
 	}
 	state = { tools, before: (resolverFactories.before ?? []).map((factory) => factory()), after: (resolverFactories.after ?? []).map((factory) => factory()) };
@@ -50,11 +51,16 @@ export function listRegisteredToolNames(): string[] {
 	return [...registry().tools.keys()];
 }
 
-/** Anexa a definição (schema enviado ao modelo) às tools já registradas. */
-export function attachToolDefinitions(definitions: readonly ChatTool[]): void {
-	const { tools } = registry();
-	for (const definition of definitions) {
-		const registration = tools.get(definition.function.name);
+const definitions = new Map<string, ChatTool>();
+
+/**
+ * Registra as definições (schemas enviados ao modelo) por nome. As definições continuam onde
+ * nascem (`COMPUTER_USE_TOOLS` e os módulos de cada tool); aqui só ficam à mão de quem consulta o registro.
+ */
+export function attachToolDefinitions(list: readonly ChatTool[]): void {
+	for (const definition of list) {
+		definitions.set(definition.function.name, definition);
+		const registration = state?.tools.get(definition.function.name);
 		if (registration && !registration.definition) registration.definition = definition;
 	}
 }
@@ -62,15 +68,6 @@ export function attachToolDefinitions(definitions: readonly ChatTool[]): void {
 export function hasRegisteredTool(name: string): boolean {
 	const { tools, before, after } = registry();
 	return tools.has(name) || [...before, ...after].some((resolve) => resolve(name) !== undefined);
-}
-
-/**
- * Transitório da migração (ADR 0002, F1): tools que ainda vivem no `switch` do computer-use.ts.
- * Sai quando o último caso for movido para uma família.
- */
-let legacyExecutor: ((name: string, args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>) | undefined;
-export function setLegacyToolExecutor(executor: typeof legacyExecutor): void {
-	legacyExecutor = executor;
 }
 
 /**
@@ -89,6 +86,5 @@ export async function executeRegisteredTool(name: string, args: Record<string, u
 		const handler = resolve(name);
 		if (handler) return await handler(args, ctx);
 	}
-	if (legacyExecutor) return await legacyExecutor(name, args, ctx);
 	throw new Error(`Ferramenta desconhecida: ${name}`);
 }

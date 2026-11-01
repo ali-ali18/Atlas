@@ -1,12 +1,6 @@
 import { isUnattendedOrigin } from "../../../autonomy-gate.js";
 import type { ToolContext, ToolResult } from "../types.js";
-import {
-	executeLoginFill,
-	executeRoutineWebhookInfo,
-	executeSecretList,
-	executeSecretRequest,
-	type VaultToolContext,
-} from "../../vault-tools.js";
+import { executeLoginFill, executeRoutineWebhookInfo, executeSecretList, executeSecretRequest, type VaultToolContext } from "../../vault-tools.js";
 export { executeDevSessionTool } from "../../registry/handlers/dev.js";
 
 
