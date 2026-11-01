@@ -250,6 +250,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	const alertRun = !helperRole && origin === "routine" ? params.alertRun : undefined;
 	// Como no v1, chat com modo proativo ou alerta não segue o idioma da mensagem (vale o último detectado).
 	const replyLanguage = resolveReplyLanguage({ setting: params.language ?? "pt-BR", ...params.languageContext, hasUserMessage: origin === "chat" && !proactiveRun && !alertRun });
+	// Teto de find_page_value por run (como no v1): o contador é do run, não da chamada.
+	const pageValueUse = { calls: 0 };
 	const language: BotLanguage = replyLanguage.language;
 	const languageAtEnd = params.language === "auto";
 	const canSeeImages = params.canSeeUserImages !== false;
@@ -748,7 +750,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		onRoutineMutated: params.onRoutineMutated,
 		replyLanguage: language,
 		...(params.alertRuleReader ? { alertRuleReader: params.alertRuleReader } : {}),
-		...(params.pageValueFinder ? { pageValueFinder: params.pageValueFinder } : {}),
+		...(params.pageValueFinder ? { pageValueFinder: params.pageValueFinder, pageValueUse } : {}),
 		...(alertRun ? { alertRun } : {}),
 		...(userPushRun
 			? { userPush: { mode: userPushRun.mode, send: userPushRun.send, quiet: userPushRun.quiet, sent: userPushSent, log: (line: string) => console.log(`[push] ${line}`) } }
