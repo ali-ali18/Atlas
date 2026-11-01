@@ -131,6 +131,9 @@ Decisão pura em `shared` (`resolveBotEngineRouting`, `engineV2SupportsRun`, `ch
 
 ## Limites desta fase (o que o v2 ainda não faz)
 - **Origens:** por padrão só o chat direto do dono com o bot. Rotina, grupo e bot→bot só com `engineScope: "all"` (ou o padrão global `all`), ver acima. Alerta, webhook, proativo, e-mail e subagente seguem no v1.
+- **Bot→bot no v2 só responde:** o catálogo do v2 não tem `send_to_bot` nem `decide_bot_pending` e não injeta os pedidos abertos de outros bots. O bot atendido não repassa a um terceiro nem decide pendência de outro bot (o v1 faz). Anti-loop intacto, porque só o `send_to_bot` envia.
+- **Padrão global invisível:** `describeEngineSettings`, a engrenagem e `set_engine` leem só o `policyJson`; com `ATLAS_ENGINE_V2_DEFAULT` ligado, bot sem escolha aparece como "motor atual" mas roda no v2. Bot que voltou ao v1 antes desta fase (chave removida, sem `engine: "v1"`) também é pego pelo padrão global: regrave "Atual" antes de ligar.
+- **Rotina em trabalho longo:** instrução de relatório vira `long_work` (orçamento e documento), sem lista de tarefas (a rotina não tem `update_task_list`; o prompt não a cita).
 - **Tools fora do catálogo do v2:** `delegate_task` (no v2 o equivalente é `delegate`, ver acima), `research_note` (no v2 vale o caderno), `track_items`, `propose_plan`, `read_cached_result`, sessão de código (`dev_*`), envio entre bots, `set_autonomy`, lições de conector, prévia completa, `notify_user`/proativo.
 - **Login:** o card de login é sempre humano (sem preenchimento automático do Cofre nem retomada com item do Cofre); o `login_fill` por tool continua.
 - **Modo proativo e avisos:** bot com modo proativo ligado fica no v1 (o v2 não tem `schedule_followup` nem a reflexão); o `notify_user` (push no meio de tarefa longa) também não existe no v2.
