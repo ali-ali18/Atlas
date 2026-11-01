@@ -2,7 +2,8 @@ import { createRunProviderServices } from "../provider-services.js";
 import { createAssistantSegmentRecorder } from "../assistant-segments.js";
 import { recordObserveChecks } from "../observe-checks.js";
 import { isNoUpdateReply, shouldReviewForSkill, type AlertVerdict, type ConnectorLessonJobPayload, type InspectContextPayload, type InspectHooksPayload, type InspectLessonsPayload, type LessonFeedbackEntry, type LessonReviewJobPayload, type RoutineNotifyMode, type SkillReviewJobPayload } from "@workspace/shared";
-import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode } from "@workspace/shared";
+import { REVISED_DRAFT_MAX_CHARS, parseQuestionnaireAnsweredContent, isRecheckObjective, isRecheckToolAllowed, parseModelRef, readPlanMode, readRunReasoningEffort } from "@workspace/shared";
+import { resolveRunReasoningEffort } from "../reasoning-effort.js";
 import {
 	ATLAS_JOB_NAMES,
 	COMPACT_TAIL_KEEP,
@@ -390,6 +391,7 @@ export async function chainRunFollowUp(
 						conversationId: run.conversationId ?? undefined,
 						botId: run.botId ?? undefined,
 						origin: run.origin as "chat" | "routine" | "webhook" | "bot" | "proactive",
+						reasoningEffort: readRunReasoningEffort(run.budgetJson),
 					},
 					plan,
 				),
@@ -1212,6 +1214,9 @@ async function executeLeasedRun(ctx: {
 			contextMemory: runtimeConfig.contextMemory,
 			timeZone: runTimeZoneFromConfig(await loadAccountConfig()),
 			maxOutputTokens: runtimeConfig.maxOutputTokens,
+			// Chat (budgetJson) > bot > conta; só chega a modelo com raciocínio controlável (por chamada).
+			reasoningEffort: resolveRunReasoningEffort({ run, botPolicy: rawBotPolicy, snapshot: configSnapshot }),
+			modelSupportsReasoning: async (modelId: string) => (await providers.capabilities(modelId)).reasoning,
 			toolResultMaxChars: runtimeConfig.toolResultMaxChars,
 			modelCallTimeoutMs: runtimeConfig.modelCallTimeoutMs,
 			firstEventTimeoutMs: runtimeConfig.firstEventTimeoutMs,

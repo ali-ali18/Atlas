@@ -2,7 +2,7 @@
 import { Spinner } from "@workspace/ui/components/spinner";
 import { ChevronDownIcon } from "lucide-react"
 import { type ReactElement, useState } from "react"
-import { getModelCapabilities, modelDisplayName, type OpenRouterModel } from "@workspace/shared"
+import { getModelCapabilities, modelDisplayName, type OpenRouterModel, type ReasoningEffort } from "@workspace/shared"
 import { Button } from "@workspace/ui/components/button"
 import { cn } from "@workspace/ui/lib/utils"
 import {
@@ -19,6 +19,8 @@ import { useChatgptProvider } from "@/hooks/use-chatgpt-provider"
 import { useKeyProviderModels } from "@/hooks/use-provider-keys"
 import { normalizePickerModels, pickerLogoOf, pickerViaLabel } from "@/lib/provider-model-picker"
 import { ProviderPickerOptions } from "./model-picker/provider-picker-options"
+import { ReasoningEffortControl } from "./model-picker/reasoning-effort-control"
+import { reasoningChoicesFor, shownReasoningEffort } from "@/lib/reasoning-effort"
 
 export function ModelPicker({
   value,
@@ -36,6 +38,7 @@ export function ModelPicker({
   id,
   suggestedIds,
   suggestedHeading,
+  reasoning,
 }: {
   emptyLabel?: string
   value: string
@@ -56,6 +59,11 @@ export function ModelPicker({
   /** Modelos em destaque no topo da lista (ex.: os cadastrados nos níveis de dificuldade). */
   suggestedIds?: string[]
   suggestedHeading?: string
+  /**
+   * Nível de raciocínio do chat. Com ele, escolher um modelo que aceita níveis mantém o seletor aberto e mostra
+   * "Raciocínio" logo abaixo da lista; modelo sem suporte (e Automático) não mostra o controle.
+   */
+  reasoning?: { effort: ReasoningEffort | undefined; onChange: (effort: ReasoningEffort | undefined) => void }
 }) {
   const translator = useTranslations()
   const { t } = translator
@@ -92,8 +100,12 @@ export function ModelPicker({
       ? modelDisplayName(current.name, current.id)
       : value || t("modelPicker.choose")
   const via = isEmpty ? null : pickerViaLabel(current?.id ?? value, translator)
+  const catalogOf = (id: string) => available.find((model) => model.id === id)
+  const choices = reasoning ? reasoningChoicesFor(value, catalogOf(value)) : []
   const select = (id: string) => {
     onChange(id)
+    // O controle de raciocínio aparece para o modelo recém-escolhido: o seletor fica aberto para ajustá-lo.
+    if (reasoning && reasoningChoicesFor(id, catalogOf(id)).length > 0) return
     setOpen(false)
   }
   const connect = () => {
@@ -166,6 +178,18 @@ export function ModelPicker({
             onConnect={connect}
           />
         </ModelSelectorList>
+        {reasoning && choices.length > 0 ? (
+          <div className="flex flex-col gap-3 border-t p-3">
+            <ReasoningEffortControl
+              choices={choices}
+              onChange={reasoning.onChange}
+              value={shownReasoningEffort(reasoning.effort, value, catalogOf(value))}
+            />
+            <Button className="self-end" onClick={() => setOpen(false)} size="sm" type="button" variant="secondary">
+              {t("reasoning.done")}
+            </Button>
+          </div>
+        ) : null}
       </ModelSelectorContent>
     </ModelSelector>
   )

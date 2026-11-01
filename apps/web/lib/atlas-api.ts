@@ -66,7 +66,7 @@ import type {
 	BotProposalEvent,
 	RunInputMode,
 } from "@workspace/shared";
-import type { CompactConversationResponse } from "@workspace/shared";
+import type { CompactConversationResponse, ReasoningEffort } from "@workspace/shared";
 import type { RunInspection } from "@workspace/shared";
 import type {
 	CatalogBotEntry,
@@ -1514,6 +1514,8 @@ export type CreateAgentRunBody = {
 	model?: string;
 	/** Modo Automático: o servidor escolhe o modelo pela dificuldade do pedido. */
 	modelAuto?: boolean;
+	/** Nível de raciocínio escolhido neste chat; ausente = padrão do bot/conta/modelo. */
+	reasoningEffort?: ReasoningEffort;
 	conversationId?: string;
 	botId?: string;
 	sandboxSessionId?: string;
