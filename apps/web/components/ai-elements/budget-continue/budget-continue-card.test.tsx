@@ -44,3 +44,12 @@ test("aprovado e dispensado: só o selo e uma linha, sem botões", () => {
 test("erro aparece no card", () => {
 	assert.match(render({ error: "Não consegui retomar agora." }), /Não consegui retomar agora\./);
 });
+
+test("oferta que passou (410): o card dispensado mostra a explicação de que expirou, sem botões", () => {
+	const html = render({ offer: { ...offer, status: "dismissed" }, error: "Esse pedido já passou. Se quiser continuar a pesquisa, peça de novo." });
+	assert.match(html, /Pesquisa não continuada/);
+	assert.match(html, /Dispensado/);
+	assert.match(html, /Esse pedido já passou/);
+	assert.doesNotMatch(html, /Continuar pesquisa \(/);
+	assert.doesNotMatch(html, />Agora não</);
+});

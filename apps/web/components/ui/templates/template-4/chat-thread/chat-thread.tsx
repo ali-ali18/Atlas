@@ -458,8 +458,7 @@ export function ChatThread({
 			const status = typeof cause === "object" && cause !== null && "status" in cause ? Number(cause.status) : 0;
 			// 410: a oferta passou (mais de 24h ou superada por outra); o servidor já a marcou como dispensada.
 			if (status === 410) {
-				applyBudgetContinueState(offerId, { status: "dismissed" });
-				applyBudgetContinueState(offerId, { error: translator.t("aiElements.budgetContinue.errorExpired") });
+				applyBudgetContinueState(offerId, { status: "dismissed", error: translator.t("aiElements.budgetContinue.errorExpired") });
 				return;
 			}
 			applyBudgetContinueState(offerId, {

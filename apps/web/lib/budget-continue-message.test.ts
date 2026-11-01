@@ -44,3 +44,11 @@ test("dedupe da thread não mostra o card duas vezes", () => {
 	const persisted: Message = { id: "db-1", kind: "budget-continue", offer: live.offer };
 	assert.equal(dedupeCards([live, persisted]).filter((item) => item.kind === "budget-continue").length, 1);
 });
+
+test("dispensar com explicação (410) é uma mudança só: status dismissed e o erro juntos", () => {
+	const base: Message[] = [budgetContinueMessageFromEvent(event)];
+	const card = setBudgetContinueState(base, "continue-run-1", { status: "dismissed", error: "Esse pedido já passou." })[0] as Card;
+	assert.equal(card.offer.status, "dismissed");
+	assert.equal(card.error, "Esse pedido já passou.");
+	assert.equal(card.isApplying, false);
+});

@@ -14,18 +14,18 @@ export function budgetContinueMessageFromEvent(event: BudgetContinueEvent): Budg
 	return { id: `budget-continue-${event.offerId}`, kind: "budget-continue", offer: budgetContinueFromEvent(event) };
 }
 
-export type BudgetContinueChange = "applying" | { status: BudgetContinueStatus; continuationRunId?: string | null } | { error: string };
+export type BudgetContinueChange = "applying" | { status: BudgetContinueStatus; continuationRunId?: string | null; error?: string } | { error: string };
 
 /** Troca o estado de uma oferta (por `offerId`); o resto da thread fica igual. */
 export function setBudgetContinueState(messages: Message[], offerId: string, change: BudgetContinueChange): Message[] {
 	return messages.map((item) => {
 		if (item.kind !== "budget-continue" || item.offer.offerId !== offerId) return item;
 		if (change === "applying") return { ...item, isApplying: true, error: null };
-		if ("error" in change) return { ...item, isApplying: false, error: change.error };
+		if (!("status" in change)) return { ...item, isApplying: false, error: change.error };
 		return {
 			...item,
 			isApplying: false,
-			error: null,
+			error: change.error ?? null,
 			offer: { ...item.offer, status: change.status, ...(change.continuationRunId ? { continuationRunId: change.continuationRunId } : {}) },
 		};
 	});
