@@ -71,11 +71,11 @@ describe("createNotebook", () => {
 	it("índice compacto: títulos e refs, sem o trecho; vazio = null", () => {
 		const notebook = createNotebook();
 		expect(notebook.index()).toBeNull();
-		notebook.add(write("Preço A", { source: "https://www.forn-a.com/produto?id=1", artifactRef: "art_9" }), helperAuthor(0), 1);
-		notebook.add(write("Falhou B", { kind: "unconfirmed" }), helperAuthor(1), 1);
+		notebook.add(write("Preço A", { source: "https://www.forn-a.com/produto?id=1", artifactRef: "art_9" }), helperAuthor(1), 1);
+		notebook.add(write("Falhou B", { kind: "unconfirmed" }), helperAuthor(2), 1);
 		const index = notebook.index()!;
-		expect(index).toContain("n1 (helper 0) Preço A — forn-a.com (ref art_9)");
-		expect(index).toContain("n2 [unconfirmed] (helper 1) Falhou B");
+		expect(index).toContain("n1 (helper 1) Preço A — forn-a.com (ref art_9)");
+		expect(index).toContain("n2 [unconfirmed] (helper 2) Falhou B");
 		expect(index).not.toContain("valor de Preço A");
 	});
 
