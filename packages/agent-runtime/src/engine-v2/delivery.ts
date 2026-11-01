@@ -43,10 +43,32 @@ const UNCONFIRMED_LINE_MAX_CHARS = 160;
 
 /** Passos extras (só com create_file) quando o orçamento estoura antes de o documento existir. */
 export const DOCUMENT_FALLBACK_STEPS = 3;
+/**
+ * Teto duro do fallback de documento: o extra que o estouro pode gastar (passos com `create_file` e o fechamento no chat)
+ * é no máximo esta fração do orçamento aprovado X, ou seja, o custo final fica <= X * (1 + 0,10). Um único passo que
+ * já começou pode passar um pouco disso; nenhum passo novo começa depois do teto.
+ */
+export const DOCUMENT_OVERSHOOT_RATIO = 0.1;
+/** A chamada que escreve o documento no estouro precisa de mais que o fechamento comum de 60 s. */
+export const DOCUMENT_CLOSING_TIMEOUT_MS = 240_000;
+
+const DELIVERABLE_EXTENSIONS = new Set(["pdf", "docx", "md", "txt", "html", "pptx", "xlsx"]);
+
+/**
+ * Esta chamada de `create_file` fecha um entregável? Parte de arquivo em partes (`more: true`) e arquivo auxiliar
+ * (csv, json, imagem, código) não contam: o documento só está entregue quando a última parte de um entregável sai.
+ */
+export function isFinalDeliverableCall(args: Record<string, unknown>): boolean {
+	if (args.more === true) return false;
+	const filename = typeof args.filename === "string" ? args.filename : "";
+	const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+	const format = typeof args.format === "string" ? args.format.toLowerCase() : ext;
+	return DELIVERABLE_EXTENSIONS.has(ext) || DELIVERABLE_EXTENSIONS.has(format);
+}
 
 /** Orçamento acabou e o documento ainda não existe: a única tool liberada é create_file. */
 export const DOCUMENT_BUDGET_NOTE =
-	"Budget notice: the budget is used up and the document was not created yet. The only tool available now is create_file. Call it now with the deliverable from what is in the notebook and your findings (pdf or docx; in parts if large): short summary, findings, assumptions, sources. Keep what you could not confirm to one short closing note at the end, not item by item in the body.";
+	"Budget notice: the budget is used up and the document was not created yet. The only tool available now is create_file. Call it now with the deliverable from what is in the notebook and your findings (pdf or docx; in parts if large): short summary, findings, assumptions, sources. If the file is large, send it in parts with the same filename and the last part with more=false. Keep what you could not confirm to one short closing note at the end, not item by item in the body.";
 
 /** Depois que o arquivo saiu no estouro: fechamento curto no chat, sem tools. */
 export const DOCUMENT_DONE_INSTRUCTION =

@@ -112,6 +112,18 @@ export function blockedToolMessage(name: string, stepsLeft: number): string {
 	return `${name} is temporarily unavailable after repeated failures (about ${stepsLeft} more step${stepsLeft === 1 ? "" : "s"}). Use another tool or approach.`;
 }
 
+/**
+ * Fases do trabalho longo depois que a reserva da entrega é acionada. Não é só aviso: as tools mudam de verdade.
+ * - `research`: tudo liberado (antes dos 75%).
+ * - `gaps`: janela curta (75% a 85%) só para fechar lacunas: leitura necessária + caderno + escrita; sem `delegate`.
+ * - `write`: só escrever (arquivo, caderno, lista de tarefas). Pesquisa e ajudantes saem de verdade.
+ */
+export type SupervisorPhase = "research" | "gaps" | "write";
+const WRITE_TOOLS = ["create_file", "notebook_write", "notebook_read", "update_task_list"] as const;
+const GAP_READ_TOOLS = ["web_search", "web_extract"] as const;
+/** Passos seguidos em que o modelo só insiste em tool que a fase não libera: depois disso o supervisor entrega. */
+export const PHASE_STRIKES_TO_DELIVER = 2;
+
 export type SupervisorGateContext = {
 	/** Entradas "unconfirmed" abertas no caderno (trabalho longo): decidem se a reserva abre uma rodada de lacunas. */
 	gaps?: number;
@@ -122,6 +134,8 @@ export function createSupervisor(config: { profile: SupervisorProfile; budget: S
 	const maxSteps = config.maxSteps ?? MAX_STEPS_SAFETY;
 	let wrapUpSent = false;
 	let writeNoteSent = false;
+	let phase: SupervisorPhase = "research";
+	let phaseStrikes = 0;
 	const longWork = config.profile === "long_work";
 	const wrapAt = longWork ? 1 - DELIVERY_RESERVE_RATIO : WRAP_UP_RATIO;
 	const writeAt = 1 - DELIVERY_RESERVE_RATIO * (1 - GAP_SHARE_OF_RESERVE);
@@ -144,6 +158,27 @@ export function createSupervisor(config: { profile: SupervisorProfile; budget: S
 			const { cost, time } = fractions(usage);
 			return Math.max(cost, time);
 		},
+		phase(): SupervisorPhase {
+			return phase;
+		},
+		/** Tools liberadas na fase atual (`undefined` = todas). */
+		allowedTools(): ReadonlySet<string> | undefined {
+			if (phase === "write") return new Set<string>(WRITE_TOOLS);
+			if (phase === "gaps") return new Set<string>([...WRITE_TOOLS, ...GAP_READ_TOOLS]);
+			return undefined;
+		},
+		/** A tool não está liberada na fase atual? Devolve o erro (inglês) para o modelo; a tool não roda. */
+		phaseBlocked(name: string): string | undefined {
+			const allowed = this.allowedTools();
+			if (!allowed || allowed.has(name)) return undefined;
+			return phase === "write"
+				? `${name} is not available now: the research budget is used up and only the delivery is left. Write the deliverable with what is in the notebook (create_file).`
+				: `${name} is not available now: only closing the unconfirmed gaps (web_search, web_extract, notebook) and writing are left.`;
+		},
+		/** Depois de cada lote: todas as chamadas barradas pela fase contam um "strike". */
+		recordBatchPhase(allBlockedByPhase: boolean): void {
+			phaseStrikes = allBlockedByPhase ? phaseStrikes + 1 : 0;
+		},
 		/** O que pesquisa e ajudantes ainda podem gastar: no trabalho longo, o orçamento menos a reserva da entrega. */
 		researchRemaining(usage: SupervisorUsage): { costUsd: number; activeMs: number } {
 			const keep = longWork ? 1 - DELIVERY_RESERVE_RATIO : 1;
@@ -162,17 +197,27 @@ export function createSupervisor(config: { profile: SupervisorProfile; budget: S
 				return { action: "deliver", stop: { reason, detail: "delivered" }, instruction: deliveryInstruction(reason) };
 			}
 			const used = Math.max(cost, time);
+			if (longWork && phase === "write" && phaseStrikes >= PHASE_STRIKES_TO_DELIVER) {
+				// O modelo ignora a fase e só pede tool barrada: entrega agora, antes de gastar mais.
+				const reason = cost >= time ? "budget_cost" : "budget_wall";
+				return { action: "deliver", stop: { reason, detail: "delivered" }, instruction: deliveryInstruction(reason) };
+			}
 			if (longWork) {
 				// Reserva da entrega: fecha lacunas (se houver) numa janela curta e deixa o resto garantido para escrever.
 				if (!writeNoteSent && used >= writeAt - 1e-9) {
 					wrapUpSent = true;
 					writeNoteSent = true;
+					phase = "write";
 					return { action: "call", note: RESERVE_WRITE_NOTE };
 				}
 				if (!wrapUpSent && used >= wrapAt - 1e-9) {
 					wrapUpSent = true;
-					if ((context.gaps ?? 0) > 0) return { action: "call", note: RESERVE_GAPS_NOTE };
+					if ((context.gaps ?? 0) > 0) {
+						phase = "gaps";
+						return { action: "call", note: RESERVE_GAPS_NOTE };
+					}
 					writeNoteSent = true;
+					phase = "write";
 					return { action: "call", note: RESERVE_WRITE_NOTE };
 				}
 				return { action: "call" };

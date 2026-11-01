@@ -738,7 +738,7 @@ describe("motor v2: estouro do orçamento ainda entrega o documento", () => {
 				OPEN(),
 				notebookTurn(),
 				// Estoura o orçamento de uma vez (US$ 0,1).
-				turn([call("memory_search", { query: "preço" })], 0.2),
+				turn([call("memory_search", { query: "preço" })], 0.105),
 				// Etapa final: só create_file.
 				turn([call("create_file", { filename: "relatorio.md", content: `# Relatório\n\n${LONGO(320)}` })], 0.01),
 				say("Relatório entregue; o fornecedor Gama não deu para confirmar."),
@@ -759,7 +759,7 @@ describe("motor v2: estouro do orçamento ainda entrega o documento", () => {
 	it("se nem assim sai o arquivo, a resposta diz em português simples o que faltou", async () => {
 		const run = await runV2({
 			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
-			coordinator: [OPEN(), notebookTurn(), turn([call("memory_search", { query: "preço" })], 0.2), say("Segue o resumo."), say("Resumo curto do que apurei.")],
+			coordinator: [OPEN(), notebookTurn(), turn([call("memory_search", { query: "preço" })], 0.105), say("Segue o resumo."), say("Resumo curto do que apurei.")],
 			options: { longWorkBudgetUsd: 0.1 },
 		});
 		expect(run.persisted).toHaveLength(0);
@@ -775,5 +775,109 @@ describe("motor v2: estouro do orçamento ainda entrega o documento", () => {
 		});
 		expect(run.coordinatorRequests.at(-1)!.params.toolChoice).toBe("none");
 		expect(run.persisted).toHaveLength(0);
+	});
+});
+
+describe("motor v2: a reserva é real (tools por fase) e o extra do estouro tem teto duro", () => {
+	const WRITE_ONLY = new Set(["create_file", "notebook_write", "notebook_read", "update_task_list"]);
+	const search = (cost: number) => turn([call("memory_search", { query: "mais pesquisa" })], cost);
+
+	it("depois dos 75% pesquisa e delegate saem de verdade; o modelo ignora a nota, insiste e o custo final fica <= X * 1,10", async () => {
+		const { deps } = fakeDeps();
+		const X = 1;
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [
+				OPEN(),
+				search(0.76),
+				// Ignora a nota e continua pesquisando e delegando: as duas são barradas (a tool nem é oferecida).
+				turn([call("memory_search", { query: "ainda mais" }), call("delegate", { tasks: [{ goal: "Ache o preço no fornecedor Alfa" }] })], 0.03),
+				search(0.03),
+				// Dois passos seguidos só com tool barrada: o supervisor entrega; no documento só create_file.
+				turn([call("create_file", { filename: "relatorio.md", content: `# Relatório\n\n${LONGO(320)}` })], 0.01),
+				say("Relatório pronto."),
+			],
+			helper: helperBehavior(),
+			options: { longWorkBudgetUsd: X, helpers: { deps } },
+		});
+		const afterReserve = run.coordinatorRequests.slice(2);
+		expect(afterReserve.length).toBeGreaterThanOrEqual(3);
+		for (const request of afterReserve.slice(0, 3)) {
+			expect(request.toolNames.length).toBeGreaterThan(0);
+			expect(request.toolNames.every((name) => WRITE_ONLY.has(name)), request.toolNames.join(",")).toBe(true);
+			expect(request.toolNames).not.toContain("delegate");
+		}
+		const blocked = run.toolResults.filter((r) => r.name === "memory_search" || r.name === "delegate").slice(-3);
+		expect(blocked.every((r) => r.ok === false)).toBe(true);
+		expect(run.helperRequests).toHaveLength(0);
+		expect(run.result.stop).toEqual({ reason: "budget_cost", detail: "delivered" });
+		expect(run.persisted).toHaveLength(1);
+		expect(run.result.usage.costUsd ?? 0).toBeLessThanOrEqual(X * 1.1);
+	});
+
+	it("janela de lacunas (75% a 85%): só leitura necessária, caderno e escrita; sem delegate", async () => {
+		const { deps } = fakeDeps();
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [OPEN(), delegate5(), search(0.74), turn([call("notebook_read", {})], 0.01), CLOSE(), turn([call("create_file", { filename: "r.md", content: `# R\n\n${LONGO(320)}` })], 0.01), say("Pronto.")],
+			helper: helperBehavior({ fail: (task) => task.includes("fornecedor Gama") }),
+			options: { longWorkBudgetUsd: 1, helpers: { deps } },
+		});
+		const window = run.coordinatorRequests.find((request) => request.params.messages.some((m) => textOf(m.content).includes("quick pass over the notebook items")))!;
+		expect(window.toolNames).toEqual(expect.arrayContaining(["web_search", "web_extract", "notebook_write", "create_file"]));
+		expect(window.toolNames).not.toContain("delegate");
+		expect(window.toolNames).not.toContain("memory_search");
+	});
+
+	it("o fallback de documento para no teto: nenhum passo novo começa depois de X * 1,10", async () => {
+		const part = (cost: number) => turn([call("create_file", { filename: "relatorio.md", content: "parte", more: true })], cost);
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [OPEN(), search(0.1), part(0.006), part(0.006), say("Resumo.")],
+			options: { longWorkBudgetUsd: 0.1 },
+		});
+		// 0,100 (estouro) -> parte 1 (0,106 < 0,11, segue) -> parte 2 (0,112 >= 0,11): a 3ª nem começa.
+		const docSteps = run.coordinatorRequests.filter((request) => request.toolNames.length === 1 && request.toolNames[0] === "create_file");
+		expect(docSteps).toHaveLength(2);
+		// Só o passo que já tinha começado pode passar do teto, e por pouco.
+		expect(run.result.usage.costUsd ?? 0).toBeLessThanOrEqual(0.1 * 1.1 + 0.006 + 1e-9);
+		// Só partes saíram: o documento não está entregue e a resposta diz isso em português simples.
+		expect(run.result.text).toContain("Não consegui gerar o documento dentro do orçamento");
+	});
+
+	it("arquivo auxiliar (csv) e parte de arquivo não contam como documento entregue: o fallback ainda gera o documento", async () => {
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [
+				OPEN(),
+				turn([call("create_file", { filename: "dados.csv", content: "a,b\n1,2" })]),
+				search(0.105),
+				turn([call("create_file", { filename: "relatorio.md", content: `# Relatório\n\n${LONGO(320)}` })], 0.001),
+				say("Relatório entregue."),
+			],
+			options: { longWorkBudgetUsd: 0.1 },
+		});
+		expect(run.persisted.map((item) => (item.meta as { filename?: string } | undefined)?.filename ?? "")).toHaveLength(2);
+		expect(run.result.text).not.toContain("Não consegui gerar o documento");
+		const finalStep = run.coordinatorRequests.at(-2)!;
+		expect(finalStep.toolNames).toEqual(["create_file"]);
+	});
+
+	it("no fallback vale o teto de saída do documento e o timeout é maior que o do fechamento comum (60 s)", async () => {
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [OPEN(), search(0.105), turn([call("create_file", { filename: "r.md", content: `# R\n\n${LONGO(320)}` })], 0.001), say("Pronto.")],
+			options: { longWorkBudgetUsd: 0.1 },
+		});
+		const docStep = run.coordinatorRequests.at(-2)!;
+		expect(docStep.params.maxOutputTokens).toBe(16_000);
+		expect(docStep.params.timeoutMs).toBeGreaterThan(60_000);
+		// O fechamento comum sem documento segue com 60 s.
+		const plain = await runV2({
+			messages: [{ role: "user", content: PEDIDO }],
+			coordinator: [OPEN(), search(0.105), say("Resumo.")],
+			options: { longWorkBudgetUsd: 0.1 },
+		});
+		expect(plain.coordinatorRequests.at(-1)!.params.timeoutMs).toBe(60_000);
 	});
 });

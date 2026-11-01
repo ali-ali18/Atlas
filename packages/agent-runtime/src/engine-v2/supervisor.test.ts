@@ -195,3 +195,45 @@ describe("falhas da mesma tool", () => {
 		for (const name of ["a", "b", "c"]) expect(other.toolBlocked(name, 7)).toBeUndefined();
 	});
 });
+
+describe("fases da reserva de entrega (as tools mudam de verdade)", () => {
+	it("pesquisa -> lacunas -> escrita: a lista de tools liberadas encolhe e delegate/pesquisa saem", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget });
+		expect(supervisor.allowedTools()).toBeUndefined();
+		expect(supervisor.phaseBlocked("web_search")).toBeUndefined();
+		supervisor.gate(usage(0.76), { gaps: 2 });
+		expect(supervisor.phase()).toBe("gaps");
+		expect(supervisor.allowedTools()?.has("web_extract")).toBe(true);
+		expect(supervisor.allowedTools()?.has("delegate")).toBe(false);
+		expect(supervisor.phaseBlocked("delegate")).toMatch(/not available now/);
+		supervisor.gate(usage(0.86), { gaps: 2 });
+		expect(supervisor.phase()).toBe("write");
+		expect(supervisor.phaseBlocked("web_search")).toMatch(/only the delivery is left/);
+		expect(supervisor.phaseBlocked("create_file")).toBeUndefined();
+		expect(supervisor.phaseBlocked("notebook_write")).toBeUndefined();
+	});
+
+	it("sem lacunas a escrita começa já nos 75%; o chat curto nunca muda de fase", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget });
+		supervisor.gate(usage(0.75), { gaps: 0 });
+		expect(supervisor.phase()).toBe("write");
+		const chat = createSupervisor({ profile: "chat", budget });
+		chat.gate(usage(0.9));
+		expect(chat.phase()).toBe("research");
+		expect(chat.allowedTools()).toBeUndefined();
+	});
+
+	it("insistir em tool barrada por 2 passos seguidos leva à entrega; um passo válido zera a contagem", () => {
+		const supervisor = createSupervisor({ profile: "long_work", budget });
+		supervisor.gate(usage(0.8));
+		supervisor.recordBatchPhase(true);
+		expect(supervisor.gate(usage(0.81)).action).toBe("call");
+		supervisor.recordBatchPhase(false);
+		supervisor.recordBatchPhase(true);
+		expect(supervisor.gate(usage(0.82)).action).toBe("call");
+		supervisor.recordBatchPhase(true);
+		const gate = supervisor.gate(usage(0.83));
+		expect(gate.action).toBe("deliver");
+		if (gate.action === "deliver") expect(gate.stop).toEqual({ reason: "budget_cost", detail: "delivered" });
+	});
+});

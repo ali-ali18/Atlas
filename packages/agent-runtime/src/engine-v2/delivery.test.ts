@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FILE_MAX_CONTENT_CHARS, type NotebookEntry } from "@workspace/shared";
-import { DOCUMENT_BUDGET_NOTE, DOCUMENT_DELIVERY_NOTE, DOC_WORDS_THRESHOLD, UNCONFIRMED_NOTE_MAX_LINES, asksForDocument, declinesDocument, countWords, needsDocumentDelivery, withNotebookAppendix } from "./delivery.js";
+import { isFinalDeliverableCall, DOCUMENT_BUDGET_NOTE, DOCUMENT_DELIVERY_NOTE, DOC_WORDS_THRESHOLD, UNCONFIRMED_NOTE_MAX_LINES, asksForDocument, declinesDocument, countWords, needsDocumentDelivery, withNotebookAppendix } from "./delivery.js";
 import { deliveryInstruction } from "./supervisor.js";
 
 const words = (n: number) => Array.from({ length: n }, (_, i) => `p${i}`).join(" ");
@@ -92,5 +92,16 @@ describe("withNotebookAppendix", () => {
 		expect(DOCUMENT_DELIVERY_NOTE).toMatch(/do not scatter/);
 		expect(DOCUMENT_BUDGET_NOTE).toMatch(/one short closing note at the end/);
 		expect(deliveryInstruction("budget_cost")).toMatch(/one short note at the end, not item by item/);
+	});
+});
+
+describe("isFinalDeliverableCall", () => {
+	it("só a última parte de um entregável conta; parte e arquivo auxiliar não", () => {
+		expect(isFinalDeliverableCall({ filename: "r.pdf", content: "x" })).toBe(true);
+		expect(isFinalDeliverableCall({ filename: "r.md", content: "x", more: false })).toBe(true);
+		expect(isFinalDeliverableCall({ filename: "dados.xlsx" })).toBe(true);
+		expect(isFinalDeliverableCall({ filename: "r.pdf", content: "x", more: true })).toBe(false);
+		for (const aux of ["dados.csv", "grafico.png", "config.json", "script.py", ""]) expect(isFinalDeliverableCall({ filename: aux, content: "x" })).toBe(false);
+		expect(isFinalDeliverableCall({ filename: "sem-extensao", format: "docx", content: "x" })).toBe(true);
 	});
 });
