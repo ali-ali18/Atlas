@@ -33,11 +33,14 @@ export default function LoginScreen() {
 					<Badge variant="outline">em breve</Badge>
 				</Button>
 			</Card>
-			<SharedProof />
+			{/* Só em desenvolvimento: prova do shared e atalho da etapa 0, não são para o usuário. */}
+			{__DEV__ ? <SharedProof /> : null}
 			<View className="gap-1">
-				<Button variant="ghost" onPress={() => router.push("/syncing")}>
-					<Text>Ver prévia da sincronização</Text>
-				</Button>
+				{__DEV__ ? (
+					<Button variant="ghost" onPress={() => router.push("/syncing")}>
+						<Text>Ver prévia da sincronização</Text>
+					</Button>
+				) : null}
 				<Button variant="ghost" onPress={() => router.back()}>
 					<Text>Trocar servidor</Text>
 				</Button>
