@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { pickRunEngine } from "./engine-choice.js";
 
-function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: string; isGroupRun?: boolean; hasCheckpoint?: boolean; text?: string } = {}) {
+function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: string; isGroupRun?: boolean; hasCheckpoint?: boolean; text?: string; forceV1?: boolean } = {}) {
 	const recorded: Array<{ engine: string; profile: string }> = [];
 	const choose = () =>
 		pickRunEngine({
@@ -15,8 +15,10 @@ function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: stri
 			isGroupRun: over.isGroupRun ?? false,
 			hasCheckpoint: over.hasCheckpoint ?? false,
 			lastUserText: over.text ?? "Bom dia",
+			forceV1: over.forceV1,
 			record: async (choice) => {
 				recorded.push(choice);
+				return choice.engine;
 			},
 		});
 	return { recorded, choose };
@@ -60,16 +62,26 @@ test("rotina, webhook, proativo, subagente e grupo continuam no v1 mesmo com pol
 	assert.equal((await setup({ policyJson: { engine: "v2" }, isGroupRun: true }).choose()).engine, "v1");
 });
 
-test("falha ao gravar a escolha não derruba o run", async () => {
-	const choice = await pickRunEngine({
-		run: { origin: "chat", budgetJson: null },
-		policyJson: { engine: "v2" },
-		isGroupRun: false,
-		hasCheckpoint: false,
-		lastUserText: "oi",
+test("modo proativo, alerta e evento de configuração do bot forçam o v1 (o v2 não tem essas tools)", async () => {
+	const { choose, recorded } = setup({ policyJson: { engine: "v2" }, forceV1: true });
+	assert.equal((await choose()).engine, "v1");
+	assert.deepEqual(recorded, []);
+	// Motor já gravado vence o força-v1 (retomada).
+	assert.equal((await setup({ policyJson: null, budgetJson: { engine: "v2" }, hasCheckpoint: true, forceV1: true }).choose()).engine, "v2");
+});
+
+test("se a escolha não puder ser gravada, o run roda no v1 (a retomada não troca de motor)", async () => {
+	const base = { run: { origin: "chat", budgetJson: null }, policyJson: { engine: "v2" }, isGroupRun: false, hasCheckpoint: false, lastUserText: "oi" };
+	const failing = await pickRunEngine({
+		...base,
 		record: async () => {
 			throw new Error("db fora");
 		},
 	});
-	assert.equal(choice.engine, "v2");
+	assert.equal(failing.engine, "v1");
+	// Outra execução já tinha gravado v1 no mesmo run: vale o gravado.
+	const lost = await pickRunEngine({ ...base, record: async () => "v1" });
+	assert.equal(lost.engine, "v1");
+	const unknownRun = await pickRunEngine({ ...base, record: async () => null });
+	assert.equal(unknownRun.engine, "v1");
 });

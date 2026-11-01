@@ -136,7 +136,7 @@ import {
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
 import { pickRunEngine, runSelectedEngine } from "../engine-choice.js";
-import { briefToolFilter, budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
+import { briefToolFilter, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
 import { resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
@@ -1153,6 +1153,8 @@ async function executeLeasedRun(ctx: {
 		policyJson: rawBotPolicy,
 		isGroupRun: Boolean(groupRun),
 		hasCheckpoint: Boolean(checkpoint),
+		// Modo proativo do bot e evento de configuração (sem mensagem digitada) usam tools que o v2 ainda não tem.
+		forceV1: Boolean(proactiveForRun) || Boolean(alertRun) || (isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run)),
 		lastUserText: [...messages].reverse().find((message) => message.role === "user")?.content ?? "",
 		record: (choice) => recordRunEngine(runId, choice),
 	});
