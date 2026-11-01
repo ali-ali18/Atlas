@@ -10,7 +10,7 @@
  * montado aqui. O que o v1 faz e o v2 ainda não: ver a seção "Limites desta fase" em docs/features/motor-v2.md.
  */
 import { createReasoningEffortPicker } from "../reasoning-effort.js";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
 	type ChatTool,
 	type CompleteChatWithToolsResult,
@@ -358,7 +358,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	const maxGeneratedImages = Number.isInteger(configuredImageLimit) && configuredImageLimit > 0 ? Math.min(configuredImageLimit, 10) : 3;
 
 	// --- conversa inicial ---
-	const turnId = `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+	const turnId = `t${Date.now().toString(36)}${randomBytes(4).toString("hex")}`;
 	const priorHistory = params.priorTranscript?.length ? await hydrateLlmMessages(params.priorTranscript) : [];
 	const placeTranscript = <T extends { role: string; content: unknown }>(list: T[]): LlmMessage[] => {
 		const slot = list.findIndex((message) => message.role === "system" && message.content === TRANSCRIPT_SLOT);

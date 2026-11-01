@@ -66,7 +66,11 @@ function flat(value: unknown): string {
 	if (typeof value !== "string") return "";
 	return value
 		.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ")
-		.replace(/<\/?[a-zA-Z!][^>]*>/g, "")
+		// Tag bem formada some; `[^<>]` para no próximo `<`, então o custo é linear mesmo com milhares de "<!" (ReDoS).
+		.replace(/<\/?[a-zA-Z!][^<>]{0,500}>/g, "")
+		// O que sobrar de `<`/`>` (tag cortada, "<script" sem fechar) vira ‹ › e não forma marcação.
+		.replace(/</g, "‹")
+		.replace(/>/g, "›")
 		.replace(/\s+/g, " ")
 		.trim();
 }

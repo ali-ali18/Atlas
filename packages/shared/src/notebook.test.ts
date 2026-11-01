@@ -97,6 +97,16 @@ describe("createNotebook", () => {
 		expect(parsed.title).toBe("Preço Alfa [x]");
 		const notebook = createNotebook([{ id: "n1", title: "a <b> c", excerpt: "e" }]);
 		expect(notebook.index()).not.toMatch(/[<>]/);
+		// Tag sem fechar não sobrevive como marcação.
+		expect(parseNotebookWrite({ title: "x <script src=a", excerpt: "ok" }).title).not.toMatch(/</);
+		expect(parseNotebookWrite({ title: "<<script>script>", excerpt: "ok" }).title).not.toMatch(/<script/i);
+	});
+
+	it("título com milhares de '<!' é rápido (sem ReDoS)", () => {
+		const started = performance.now();
+		// Longo demais para título (erro honesto), mas a limpeza roda antes e tem de ser linear.
+		expect(() => parseNotebookWrite({ title: "<!".repeat(20_000), excerpt: "ok" })).toThrow(/maximum/);
+		expect(performance.now() - started).toBeLessThan(200);
 	});
 
 	it("replaces troca a entrada; ajudante só corrige a própria", () => {
