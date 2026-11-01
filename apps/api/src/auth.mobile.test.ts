@@ -140,8 +140,75 @@ test("rate limit do envio de código (por IP)", async () => {
 	const t = setup({ rateLimit: true });
 	const statuses: number[] = [];
 	for (let i = 0; i < 5; i++) statuses.push((await t.sendCode(OWNER)).status);
-	assert.equal(statuses[0], 200);
-	assert.ok(statuses.includes(429), statuses.join(","));
+	// o limite é 3 por minuto por IP: a 4ª chamada é a primeira recusada
+	assert.deepEqual(statuses.slice(0, 4), [200, 200, 200, 429], statuses.join(","));
+});
+
+test("a resposta do envio não espera o SMTP (tempo igual para o dono e para os outros)", async () => {
+	const sent: string[] = [];
+	const auth = createAuth({
+		database: memoryAdapter({ user: [], session: [], account: [], verification: [], rateLimit: [] }),
+		mail: (message) => new Promise((resolve) => setTimeout(() => (sent.push(message.to), resolve(undefined)), 600)),
+	});
+	const send = (email: string) =>
+		auth.handler(
+			new Request("http://localhost:3000/api/auth/email-otp/send-verification-otp", {
+				method: "POST",
+				headers: { "content-type": "application/json", origin: "atlas://" },
+				body: JSON.stringify({ email, type: "sign-in" }),
+			}),
+		);
+	const started = Date.now();
+	const response = await send(OWNER);
+	assert.equal(response.status, 200);
+	assert.ok(Date.now() - started < 400, `esperou o envio: ${Date.now() - started} ms`);
+	assert.deepEqual(sent, []);
+	await new Promise((resolve) => setTimeout(resolve, 800));
+	assert.deepEqual(sent, [OWNER]);
+});
+
+test("falha no envio não derruba a resposta nem vaza o código no log", async () => {
+	const logged: unknown[][] = [];
+	const realError = console.error;
+	console.error = (...args: unknown[]) => void logged.push(args);
+	try {
+		const auth = createAuth({
+			database: memoryAdapter({ user: [], session: [], account: [], verification: [], rateLimit: [] }),
+			mail: async () => {
+				throw new Error("SMTP caiu: 654321");
+			},
+		});
+		const response = await auth.handler(
+			new Request("http://localhost:3000/api/auth/email-otp/send-verification-otp", {
+				method: "POST",
+				headers: { "content-type": "application/json", origin: "atlas://" },
+				body: JSON.stringify({ email: OWNER, type: "sign-in" }),
+			}),
+		);
+		assert.equal(response.status, 200);
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		assert.ok(logged.some((args) => String(args[0]).includes("falha ao enviar")));
+		assert.ok(!JSON.stringify(logged).includes("654321"));
+	} finally {
+		console.error = realError;
+	}
+});
+
+test("teto por e-mail de destino: de IPs diferentes, o 6º pedido em 15 min recebe resposta neutra e nenhum código", async () => {
+	const t = setup();
+	for (let i = 0; i < 5; i++) assert.equal((await t.sendCode(OWNER, { "x-forwarded-for": `198.51.100.${i}` })).status, 200);
+	assert.equal(t.mails.length, 5);
+	const sixth = await t.sendCode(OWNER, { "x-forwarded-for": "198.51.100.99" });
+	assert.equal(sixth.status, 200);
+	assert.deepEqual(await sixth.json(), { success: true });
+	assert.equal(t.mails.length, 5);
+});
+
+test("expo-origin de outro site, sem Origin, é barrado", async () => {
+	const t = setup();
+	const response = await t.post("/email-otp/send-verification-otp", { email: OWNER, type: "sign-in" }, { origin: "", "expo-origin": "https://evil.test" });
+	assert.equal(response.status, 403);
+	assert.equal(t.mails.length, 0);
 });
 
 test("origem exp:// não é confiável sem ATLAS_TRUST_EXPO_GO", async () => {
