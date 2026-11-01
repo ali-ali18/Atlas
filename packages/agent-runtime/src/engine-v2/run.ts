@@ -386,6 +386,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			role: helperRole ? "helper" : undefined,
 			...(isUnattendedOrigin(origin) && !helperRole ? { unattended: true } : {}),
 			...(origin === "routine" && !helperRole ? { routine: true } : {}),
+			...(origin === "email" && !helperRole ? { emailRun: true } : {}),
 			languageInstruction: languageAtEnd ? replyLanguage.instruction : undefined,
 		});
 		conversation = [

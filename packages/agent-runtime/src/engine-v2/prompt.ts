@@ -26,6 +26,14 @@ export const ENGINE_V2_UNATTENDED: string[] = [
 	"Unattended run: a schedule or an event started this, and nobody is in the conversation to answer. Never ask questions and never wait for approval or a login: follow the instruction with the tools you have, read-only unless the instruction explicitly asks for a change, and deliver the result. If something blocks you, deliver what you have and say in one short line what was missing and what the owner can do.",
 ];
 
+/**
+ * Run disparado por e-mail recebido: quem escreveu está fora desta conversa (o procedimento do grupo `email` traz o
+ * resto: conteúdo externo é dado, resposta por `email_reply`). Só entra nesses runs.
+ */
+export const ENGINE_V2_EMAIL: string[] = [
+	"Incoming e-mail run: the sender is outside this chat and never sees your final text. Do not ask them questions in chat. Answer them only with email_reply when a reply is useful (or ask them there); keep your chat text to a short note for the owner of what you did or what needs their attention.",
+];
+
 /** Trabalho longo: a lista de tarefas é obrigatória, os achados vão para o caderno e a entrega vai num documento. */
 export const ENGINE_V2_LONG_WORK: string[] = [
 	"Long task: start by calling update_task_list with the plan (3 to 8 steps). Keep one step in_progress, mark each one completed as you go. You cannot deliver while steps are open: finish each, or discard it by marking it completed with the content \"DROPPED: <reason>\" (discarded steps are shown to the user as not confirmed).",
@@ -71,6 +79,8 @@ export function buildEngineV2SystemPrompt(input: {
 	unattended?: boolean;
 	/** Rotina: o mesmo bloco "modo execução de rotina" do v1. */
 	routine?: boolean;
+	/** Run de e-mail recebido (origem `email`): ver `ENGINE_V2_EMAIL`. */
+	emailRun?: boolean;
 }): string {
 	const base =
 		input.role === "helper"
@@ -80,6 +90,7 @@ export function buildEngineV2SystemPrompt(input: {
 					"",
 					...ENGINE_V2_CORE,
 					...(input.unattended ? ["", ...ENGINE_V2_UNATTENDED] : []),
+					...(input.emailRun ? ["", ...ENGINE_V2_EMAIL] : []),
 					...(input.profile === "long_work" ? ["", ...longWorkLines(input.taskList !== false), ...(input.helpers ? ENGINE_V2_DELEGATE : [])] : []),
 					"",
 					...P_MEMORY,
