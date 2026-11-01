@@ -26,5 +26,6 @@ describe("buildEngineV2SystemPrompt: trabalho longo e lista de tarefas", () => {
 	it("conversa curta não carrega o bloco de trabalho longo", () => {
 		const prompt = buildEngineV2SystemPrompt({ profile: "chat", model: base.model });
 		expect(prompt).not.toContain("Long task:");
+		expect(prompt).not.toContain("FIRST tool call");
 	});
 });
