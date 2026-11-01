@@ -6,14 +6,7 @@ import { NATIVE_COMPUTER_TOOL_NAME, translateNativeComputerAction } from "../../
 import { checkLoginWall, executeComputerRefTool } from "../../computer-refs.js";
 import { executeComputerReadTool } from "../../computer-read.js";
 import { COMPUTER_TABS_TOOL_NAME, executeComputerTabsTool } from "../../computer-tabs.js";
-import {
-	formatBrowserText,
-	formatScrollPosition,
-	describeTypedText,
-	formatReady,
-	formatSettle,
-	parseBrowserTextArgs,
-} from "../../computer.js";
+import { formatBrowserText, formatScrollPosition, describeTypedText, formatReady, formatSettle, parseBrowserTextArgs } from "../../computer.js";
 import { formatBrowserClick, formatBrowserType } from "../../computer-changes.js";
 
 import type { ToolFamily } from "../registry.js";
