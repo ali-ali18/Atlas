@@ -123,11 +123,11 @@ export function createSupervisor(config: { profile: SupervisorProfile; budget: S
 				return { action: "deliver", stop: { reason: "budget_steps", detail: "delivered" }, instruction: deliveryInstruction("budget_steps") };
 			}
 			const { cost, time } = fractions(usage);
-			if (cost >= 1 || time >= 1) {
+			if (cost >= 1 - 1e-9 || time >= 1 - 1e-9) {
 				const reason = cost >= time ? "budget_cost" : "budget_wall";
 				return { action: "deliver", stop: { reason, detail: "delivered" }, instruction: deliveryInstruction(reason) };
 			}
-			if (!wrapUpSent && Math.max(cost, time) >= WRAP_UP_RATIO) {
+			if (!wrapUpSent && Math.max(cost, time) >= WRAP_UP_RATIO - 1e-9) {
 				wrapUpSent = true;
 				return { action: "call", note: WRAP_UP_NOTE };
 			}
