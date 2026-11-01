@@ -7,6 +7,9 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 ### Segurança
 - **agent, shared:** 9 alertas do CodeQL "Polynomial regular expression used on uncontrolled data" (ReDoS) fechados. Texto vindo de fora (resultado de ferramenta, erro do sandbox, fala do usuário, erro de rotina) com dezenas de milhares de repetições (`\n`, `\t`, `!`, `(about:`, `-----BEGIN PRIVATE KEY-----`) travava o processo por segundos ou minutos (medido: 50 mil `\n` em 2,4 s; marcador de resultado repetido, mais de 100 s). Os regex agora são lineares e dão o mesmo resultado em entradas normais: `difficulty` (passos numerados), `result-store` (aviso de resultado guardado, tamanho limitado), `lessons` (cabeçalho de lições), `empty-hint` (rodapés `[..]`, laço no lugar do regex), `browser-claims` (URL entre parênteses; agora uma URL com `(` dentro não é lida entre parênteses), `sandbox-errors` ("Call log:"), `extractUrls` (pontuação final), `redactSecrets` (bloco de chave privada PEM continua sendo redigido, inclusive com `Proc-Type`) e `describeRoutineFailure` (primeira linha). Testes em `regex-linear.test.ts` de cada pacote. Sem migration.
 
+### Alterado
+- **agent:** a execução das tools sai do `computer-use.ts` e vai para um registro reutilizável (`packages/agent-runtime/src/tools/registry`: `ToolContext`, `ToolHandler`, mapa nome → handler por família e `executeRegisteredTool`), para que um segundo laço (motor v2, ADR 0002 F1) execute as mesmas tools. Refatoração interna sem mudança de comportamento: o `computer-use.ts` cai de 9.322 para cerca de 6.000 linhas e a suíte do agent-runtime segue igual.
+
 ## [0.3.4-beta] - 2026-10-31
 
 ### Documentação
