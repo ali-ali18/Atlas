@@ -1,8 +1,8 @@
 /**
  * Motor do run (ADR 0002, F2): escolhe entre o laço atual (v1) e o v2 no começo do run e congela a escolha em
  * `budgetJson.engine`, para a retomada continuar no mesmo motor. O v1 é o padrão. O v2 roda no chat direto de um
- * bot que ligou `policyJson.engine = "v2"` e, com `policyJson.engineScope = "all"`, também em rotina, grupo e
- * bot→bot. Subagente, webhook, e-mail e proativo seguem no v1. O padrão global `ATLAS_ENGINE_V2_DEFAULT`
+ * bot que ligou `policyJson.engine = "v2"` e, com `policyJson.engineScope = "all"`, também em rotina, grupo,
+ * bot→bot, webhook e e-mail recebido. Proativo segue no v1; subagente herda o motor do pai. O padrão global `ATLAS_ENGINE_V2_DEFAULT`
  * (`off` | `chat` | `all`, desligado) vale para bots que não escolheram o motor; `engine: "v1"` explícito nunca vai ao v2.
  */
 import { runComputerUse, runEngineV2, type ComputerUseParams, type RunComputerUseResult } from "@workspace/agent-runtime";
@@ -77,7 +77,7 @@ export async function pickRunEngine(input: {
 	const stored = readRunEngine(input.run.budgetJson) ?? (input.hasCheckpoint ? "v1" : undefined);
 	const engine = !stored && input.forceV1 ? "v1" : chooseRunEngine({ stored, policy, origin: input.run.origin, isGroupRun: input.isGroupRun, globalDefault: input.globalDefault });
 	if (engine === "v1") return { engine, profile: "chat" };
-	const profile = readRunProfile(input.run.budgetJson) ?? resolveRunProfile({ policy, text: input.lastUserText });
+	const profile = readRunProfile(input.run.budgetJson) ?? resolveRunProfile({ policy, text: input.lastUserText, origin: input.run.origin });
 	if (!readRunEngine(input.run.budgetJson)) {
 		// Sem a escolha gravada a retomada poderia trocar de motor: se não gravou, o run fica no v1.
 		const recorded = await input.record({ engine, profile }).catch((error) => {

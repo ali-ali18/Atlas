@@ -19,7 +19,7 @@ export const LONG_WORK_MAX_MINUTES = 120;
 
 /**
  * Onde o v2 roda num bot que o ligou: `chat` (padrão) = só a conversa direta com o dono; `all` = também rotinas,
- * grupo e bot→bot. Subagente, proativo, alerta e evento de configuração do bot seguem no v1 (o v2 não tem esses recursos).
+ * grupo, bot→bot, webhook e e-mail recebido. Proativo, alerta e evento de configuração do bot seguem no v1 (o v2 não tem esses recursos).
  */
 export type EngineScope = "chat" | "all";
 /** Padrão global do deploy (`ATLAS_ENGINE_V2_DEFAULT`) para bots que não escolheram o motor: `off` (padrão), `chat` ou `all`. */
@@ -113,13 +113,18 @@ export function withRunEngine(budgetJson: unknown, choice: { engine: RunEngine; 
 
 /**
  * Origens que o v2 atende. Escopo `chat`: só a conversa direta do dono com o bot. Escopo `all`: também rotina,
- * grupo (run de membro na conversa do grupo) e bot→bot. Webhook, e-mail, proativo e subagente seguem no v1
- * (sem humano para o v2 perguntar e com recursos que ele não tem; ver docs/features/motor-v2.md).
+ * grupo (run de membro na conversa do grupo), bot→bot, webhook e e-mail recebido. Proativo segue no v1 (recursos que
+ * o v2 não tem; ver docs/features/motor-v2.md).
+ *
+ * Subagente nunca passa por aqui como run do worker: o filho do `delegate_task` roda dentro do pai e herda o motor
+ * dele (o pai no v2 usa os ajudantes do `delegate`, com os mesmos eventos e cartões). O guarda abaixo só protege
+ * contra um run de origem `subagent` ser enfileirado e escolher motor sozinho.
  */
 export function engineV2SupportsRun(input: { origin: string; isGroupRun: boolean; isSubagent?: boolean; scope?: EngineScope }): boolean {
-	if (input.isSubagent === true) return false;
+	if (input.isSubagent === true || input.origin === "subagent") return false;
 	if (input.origin === "chat") return input.scope === "all" || !input.isGroupRun;
-	return input.scope === "all" && (input.origin === "routine" || input.origin === "bot") && !input.isGroupRun;
+	const viaScopeAll = input.origin === "routine" || input.origin === "bot" || input.origin === "webhook" || input.origin === "email";
+	return input.scope === "all" && viaScopeAll && !input.isGroupRun;
 }
 
 /**
@@ -159,8 +164,13 @@ export function looksLikeLongTask(text: string): boolean {
 	return plain.length >= 200 && verb.test(plain);
 }
 
-/** Perfil do run: forçado pela política do bot ou decidido pelo pedido (só importa no v2). */
-export function resolveRunProfile(input: { policy: EnginePolicy; text: string }): RunProfile {
+/**
+ * Perfil do run: forçado pela política do bot ou decidido pelo pedido (só importa no v2). E-mail recebido e webhook
+ * nunca escolhem o perfil caro pelo texto: quem escreveu o e-mail/payload é de fora e o texto é dado não confiável; só o dono libera
+ * `long_work` (pela política do bot).
+ */
+export function resolveRunProfile(input: { policy: EnginePolicy; text: string; origin?: string }): RunProfile {
 	if (input.policy.workProfile !== "auto") return input.policy.workProfile;
+	if (input.origin === "email" || input.origin === "webhook") return "chat";
 	return looksLikeLongTask(input.text) ? "long_work" : "chat";
 }
