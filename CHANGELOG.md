@@ -4,6 +4,9 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Corrigido
+- **web, agent:** a lista de tarefas acompanha o trabalho ao vivo. Ao reconectar ou recarregar com o run ativo, a última lista volta à tela (antes os eventos de lista eram descartados e ela só reaparecia no fim); a doca fica amarrada ao run ativo e uma mensagem nova durante a tarefa não a esconde; no trabalho longo do motor v2 o prompt pede a lista como primeira chamada. Testes em `thread-live.test.ts`, `task-list.test.ts` e `prompt.long-work.test.ts`.
+
 ## [0.3.6-beta] - 2026-11-01
 
 ### Corrigido
