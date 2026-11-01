@@ -68,6 +68,7 @@ async function finishActivityRun(input: { run: AgentRun; assistantText: string; 
 			model: input.run.model,
 		},
 		status: "completed",
+		stop: { reason: "answered", detail: "confirmed_action" },
 		...(input.costUsd !== undefined ? { usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: input.costUsd } } : {}),
 	});
 	return input.run;

@@ -137,13 +137,13 @@ export type ComputerUseEvent =
 			title?: string;
 			model?: string;
 	  }
-	| { type: "done"; message: ChatMessage; model: string; usage?: RunUsage }
+	| { type: "done"; message: ChatMessage; model: string; usage?: RunUsage; stopReason?: string }
 	| { type: "paused"; reason?: string }
-	| { type: "cancelled"; reason?: string }
+	| { type: "cancelled"; reason?: string; stopReason?: string }
 	| { type: "input_consumed"; inputId: string; mode: string; content: string }
 	| { type: "input_received"; inputId: string; mode: string; content: string }
-	| { type: "status"; status: string; detail?: string }
-	| { type: "error"; error: string }
+	| { type: "status"; status: string; detail?: string; stopReason?: string }
+	| { type: "error"; error: string; stopReason?: string }
 	| {
 			type: "skill";
 			action: "created" | "updated" | "deleted" | "shown" | "listed" | "cleaned";

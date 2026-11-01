@@ -38,7 +38,11 @@ const LOOKS_PORTUGUESE = /[áàâãéêíóôõúç]|\b(?:rotina|bot|página|pau
 const PASSTHROUGH_MAX = 120;
 
 function firstLine(text: string): string {
-	return (text.split("\n")[0] ?? "").trim().replace(/[.\s]+$/, "");
+	const line = (text.split("\n")[0] ?? "").trim();
+	// Laço em vez de /[.\s]+$/: a regex era quadrática em linhas com milhares de tabs/espaços.
+	let end = line.length;
+	while (end > 0 && /[.\s]/.test(line[end - 1]!)) end--;
+	return line.slice(0, end);
 }
 
 export function describeRoutineFailure(error: string | null | undefined): RoutineFailureDescription {

@@ -25,7 +25,8 @@ const LONG_REQUEST_CHARS = 700;
 const SHORT_REQUEST_CHARS = 280;
 const SEQUENCE_MARKERS =
 	/\b(depois|em seguida|logo apos|na sequencia|por fim|finalmente|passo a passo|etapas?|primeiro|segundo|terceiro|then|after that|next|finally|step by step|steps?)\b/g;
-const NUMBERED_STEPS = /(^|\n)\s*(\d+[.)]|[-*•])\s+\S/g;
+// Início de linha + espaços SEM quebra de linha: `\s*` depois de `\n` se sobrepunha ao `\n` e era quadrático em textos com muitas linhas vazias.
+const NUMBERED_STEPS = /^[^\S\n]*(\d+[.)]|[-*•])\s+\S/gm;
 
 export type DifficultyInput = {
 	/** Texto que o roteador de intenção lê (última fala + objetivo + fala anterior). */

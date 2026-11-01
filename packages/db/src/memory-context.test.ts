@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, mock, test } from "node:test";
 import { prisma } from "./client.js";
-import { assembleMemoryContext, buildBotIdentityMessage } from "./memory-context.js";
+import type { ChatMessage } from "@workspace/shared";
+import { assembleMemoryContext, buildBotIdentityMessage, withGroupAnswers } from "./memory-context.js";
 
 const base = {
 	identity: "IDENTIDADE",
@@ -133,4 +134,15 @@ test("bot pt-BR recebe português; com a persona no prompt do runtime sai só o 
 	const withoutPersona = (await buildBotIdentityMessage("bot-1", "user-a", group, { persona: false }))!;
 	assert.doesNotMatch(withoutPersona, /Persona:|You are "Ada"|Always reply/);
 	assert.match(withoutPersona, /Bia/);
+});
+
+test("grupo: as respostas do usuário entram depois do turno; fora de grupo nada é acrescentado", () => {
+	const turn: ChatMessage[] = [{ role: "user", content: "Usuário: vai" }];
+	const out = withGroupAnswers(turn, [{ role: "user", content: "Período: jan a mar" }, { role: "assistant", content: "ok", fromBotId: "bot-2" }]);
+	assert.equal(out.length, 2);
+	assert.equal(out[1]!.role, "system");
+	assert.match(out[1]!.content as string, /Answers the user already gave in this group/);
+	assert.match(out[1]!.content as string, /Período: jan a mar/);
+	assert.deepEqual(withGroupAnswers(turn, null), turn);
+	assert.deepEqual(withGroupAnswers(turn, [{ role: "assistant", content: "ok", fromBotId: "bot-2" }]), turn);
 });

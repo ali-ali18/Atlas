@@ -46,8 +46,9 @@ export function resultStoreLimits(env: Record<string, string | undefined> = proc
 	return { refChars, stubChars };
 }
 
-const REF_PATTERN = /\[Full result stored as artifact:([A-Za-z0-9_-]{1,64}) \((\d+) chars\)[^\]]*\]/;
-const CLIP_NOTICE_PATTERN = /\[Result truncated: showing[^\]]*\]/;
+// Os avisos que o runtime gera têm ~300 caracteres: o limite {0,800} evita varredura quadrática em texto sem `]`.
+const REF_PATTERN = /\[Full result stored as artifact:([A-Za-z0-9_-]{1,64}) \((\d+) chars\)[^\]]{0,800}\]/;
+const CLIP_NOTICE_PATTERN = /\[Result truncated: showing[^\]]{0,800}\]/;
 
 export type ResultRef = { id: string; chars: number; line: string };
 

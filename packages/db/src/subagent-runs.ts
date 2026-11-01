@@ -1,7 +1,7 @@
-import type { AgentRunStatus, RunUsage } from "@workspace/shared";
+import type { AgentRunStatus, RunStop, RunUsage } from "@workspace/shared";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./client.js";
-import { ACTIVE_STATUSES } from "./runs.js";
+import { ACTIVE_STATUSES, stopColumns } from "./runs.js";
 
 /**
  * Runs filhos de `delegate_task` (F5). O filho herda dono e bot do PAI lido no
@@ -71,10 +71,12 @@ export async function finishSubagentRun(input: {
 	resultText?: string;
 	error?: string;
 	usage?: RunUsage;
+	stop?: RunStop;
 }): Promise<boolean> {
 	const result = await prisma.agentRun.updateMany({
 		where: { id: input.runId, userId: input.userId, origin: SUBAGENT_ORIGIN },
 		data: {
+			...stopColumns(input.stop),
 			status: input.status,
 			resultText: input.resultText ?? undefined,
 			error: input.error ?? undefined,
@@ -127,6 +129,7 @@ export async function failOrphanSubagentRuns(
 		},
 		data: {
 			status: "failed",
+			...stopColumns({ reason: "other", detail: "parent_resumed" }),
 			error: "Interrompido: o run pai foi retomado.",
 			finishedAt: new Date(),
 		},

@@ -27,7 +27,7 @@ export type GroupMember = {
 	isPrimary?: boolean;
 };
 
-export type GroupReplyReason = "user_mention" | "named" | "router" | "primary" | "bot_mention" | "jev" | "coordinator" | "assigned" | "summary";
+export type GroupReplyReason = "user_mention" | "named" | "router" | "primary" | "bot_mention" | "jev" | "coordinator" | "assigned" | "summary" | "nudge";
 
 export type GroupMention = { botId: string; name: string; start: number; end: number };
 
@@ -363,6 +363,34 @@ export function groupTranscriptForBot(rows: readonly GroupTranscriptRow[], selfI
 	return out;
 }
 
+/** Limites do bloco "o que o usuário já respondeu no grupo": poucas falas e curtas, para não pesar no prompt. */
+export const GROUP_ANSWERS_MAX_MESSAGES = 8;
+export const GROUP_ANSWERS_MAX_CHARS = 1_500;
+
+/**
+ * Bloco (para o modelo) com as últimas falas do HUMANO no grupo, para o membro não repetir pergunta que o
+ * usuário já respondeu (o histórico do grupo é longo e cheio de falas de bots). Só `role: user` (falas de outros
+ * bots chegam como `assistant` com autor); a mais recente fica inteira, as antigas cortam primeiro quando
+ * passa do limite. Segredos conhecidos saem por `redact`. Sem fala do usuário devolve `null`.
+ */
+export function buildGroupAnswersNote(rows: readonly GroupTranscriptRow[], redact: (text: string) => string = (text) => text): string | null {
+	const said = rows
+		.filter((row) => row.role === "user")
+		.map((row) => redact(row.content).replace(/\s+/g, " ").trim())
+		.filter((text) => text.length > 0)
+		.slice(-GROUP_ANSWERS_MAX_MESSAGES);
+	if (said.length === 0) return null;
+	const header = "Answers the user already gave in this group (do not ask for these again; use them):";
+	let room = GROUP_ANSWERS_MAX_CHARS - header.length;
+	const kept: string[] = [];
+	for (let i = said.length - 1; i >= 0 && room > 12; i--) {
+		const line = `- ${said[i]!.length > room - 3 ? `${said[i]!.slice(0, Math.max(0, room - 6))}…` : said[i]}`;
+		kept.unshift(line);
+		room -= line.length + 1;
+	}
+	return `${header}\n${kept.join("\n")}`;
+}
+
 const oneLine = (value: string, max: number): string => value.replace(/\s+/g, " ").trim().slice(0, max);
 
 /** Bloco do prompt de um membro dentro do grupo (substitui o roster do `send_to_bot`). */
@@ -388,6 +416,10 @@ export function buildGroupSection(input: { groupName: string; selfId: string; me
 	return lines.join("\n");
 }
 
+/** Regra (para o modelo) contra "fico aguardando X": vale para coordenador e membros. */
+export const GROUP_NO_WAIT_RULE =
+	"Never end with 'waiting for X' or ask the user/another bot for things already in the conversation. If a dependency is missing, make the most reasonable assumption, deliver, and list assumptions.";
+
 /** Última mensagem do turno: diz ao membro por que é a vez dele. */
 export function buildGroupTurnPrompt(input: { groupName: string; reason: GroupReplyReason; fromName?: string | null }): string {
 	const group = `"${oneLine(input.groupName, 80)}"`;
@@ -397,7 +429,7 @@ export function buildGroupTurnPrompt(input: { groupName: string; reason: GroupRe
 		case "named":
 			return `[Grupo ${group}] O usuário se dirigiu a você pelo nome. Responda ao grupo.`;
 		case "bot_mention":
-			return `[Grupo ${group}] ${input.fromName ? oneLine(input.fromName, 60) : "Outro membro"} mencionou você. Responda ao grupo, ao que foi pedido a você.`;
+			return `[Grupo ${group}] ${input.fromName ? oneLine(input.fromName, 60) : "Outro membro"} mencionou você. Responda ao grupo, ao que foi pedido a você. ${GROUP_NO_WAIT_RULE}`;
 		default:
 			return `[Grupo ${group}] A mensagem do usuário foi encaminhada a você por ser da sua área. Responda ao grupo.`;
 	}

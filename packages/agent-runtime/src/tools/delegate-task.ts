@@ -1,6 +1,7 @@
 import { inheritedSubagentModel } from "@workspace/shared";
 import type { ChatTool } from "@workspace/llm";
-import type { RunUsage } from "@workspace/shared";
+import type { RunStop, RunUsage } from "@workspace/shared";
+import { stopReasonOfBudget, stopReasonOfLoop } from "@workspace/shared";
 import {
 	appendAgentStep,
 	appendConversationCard,
@@ -245,7 +246,7 @@ export type DelegateContext = {
 	remaining: () => { wallMs?: number; tokens?: number };
 	/** Soma o uso dos filhos no uso (e custo) do pai. */
 	addUsage: (usage: Usage) => void;
-	runChild: (input: ChildRunInput) => Promise<{ text: string }>;
+	runChild: (input: ChildRunInput) => Promise<{ text: string; stop?: RunStop }>;
 	deps?: DelegateDeps;
 	/** O pai já usou tools do navegador/sandbox neste run (a página vive na sessão dele). */
 	parentBrowserActive?: () => boolean;
@@ -522,6 +523,8 @@ async function runAttempt(input: TaskInput, browserTabId: string | undefined): P
 	// o resumo final não sai (ex.: estourou o teto de tokens).
 	const spoken = new Map<string, string>();
 	const tally: Usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+	// Por que o filho terminou (medição): a resposta traz o seu; erros de orçamento/loop são mapeados no catch.
+	let childStop: RunStop | undefined;
 	const finish = async (
 		status: SubagentStatus | "cancelled",
 		report: string,
@@ -535,6 +538,7 @@ async function runAttempt(input: TaskInput, browserTabId: string | undefined): P
 				resultText: report || undefined,
 				error,
 				usage: { ...tally },
+				stop: childStop ?? (status === "cancelled" ? { reason: "cancelled" } : status === "failed" ? { reason: "error" } : undefined),
 			})
 			.catch(() => undefined);
 	};
@@ -603,6 +607,7 @@ async function runAttempt(input: TaskInput, browserTabId: string | undefined): P
 				}
 			},
 		});
+		childStop = run.stop;
 		const redacted = redactSecrets(run.text).trim();
 		const report = browserMode ? clipBrowserReport(redacted) : redacted;
 		result = report
@@ -611,6 +616,7 @@ async function runAttempt(input: TaskInput, browserTabId: string | undefined): P
 	} catch (error) {
 		if (error instanceof BudgetExhaustedError || error instanceof AgentRunLoopDetectedError) {
 			// Estourou o orçamento: volta o relatório parcial (resumo final do filho).
+			childStop = error instanceof BudgetExhaustedError ? { reason: stopReasonOfBudget(error.kind) } : { reason: stopReasonOfLoop(error.kind) };
 			const partial = redactSecrets(
 				error.finalText ?? [...spoken.values()].join("\n"),
 			).trim();

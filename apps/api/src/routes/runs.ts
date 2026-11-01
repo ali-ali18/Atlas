@@ -275,6 +275,8 @@ export async function reconcileQueuedAgentRuns(
 			const finalized = await failAgentRunAfterRetries(
 				row.id,
 				"Job esgotou as tentativas sem finalizar o run.",
+				undefined,
+				{ reason: "retries_exhausted", detail: "poison_job" },
 			).catch(() => false);
 			if (finalized) recovered += 1;
 		}

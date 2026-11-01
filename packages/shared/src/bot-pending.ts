@@ -387,12 +387,15 @@ export type BotAutoDecisionCard = {
 	withJev: boolean;
 	need: BotNeed;
 	status: "queued" | "applied" | "failed";
+	/** Aceito pelo bot principal do grupo (regra determinística, sem Jev): `reason` é o rótulo curto ("leitura"). */
+	viaGroup?: boolean;
 	/** Recusa: comentário enviado ao destino. Questionário: respostas dadas. */
 	feedback?: string;
 	answers?: Record<string, string | string[]>;
 };
 
-export function autoDecisionNote(card: Pick<BotAutoDecisionCard, "decision" | "deciderName" | "subject" | "reason" | "withJev">): string {
+export function autoDecisionNote(card: Pick<BotAutoDecisionCard, "decision" | "deciderName" | "subject" | "reason" | "withJev"> & { viaGroup?: boolean }): string {
+	if (card.viaGroup) return `Aceito por ${card.deciderName}${card.reason ? ` (${card.reason})` : ""}: ${card.subject}`;
 	const who = card.withJev ? `${card.deciderName} + Jev` : card.deciderName;
 	const verb = card.decision === "approved" ? "Aprovado" : card.decision === "rejected" ? "Recusado" : "Respondido";
 	return `${verb} por ${who}: ${card.subject}${card.reason ? ` — ${card.reason}` : ""}`;

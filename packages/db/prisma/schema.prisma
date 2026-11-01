@@ -433,6 +433,10 @@ model AgentRun {
   sandboxSessionId String?
   checkpointJson   Json?
   error            String?
+  /// Por que o run terminou (RunStopReason de @workspace/shared). String livre, sem enum no banco: motivo novo não exige migration.
+  stopReason       String?
+  /// Rótulo curto e sem segredo que refina o motivo (ex.: tipo do cartão). Nunca texto de erro.
+  stopDetail       String?
   resultText       String?
   cancelRequested  Boolean   @default(false)
   jobEnqueuedAt    DateTime?

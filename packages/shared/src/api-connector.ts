@@ -427,11 +427,18 @@ export function slugifyApiName(name: string): string {
 	return slug || "api";
 }
 
+/** Tira a pontuação final (laço linear; a regex /[.,;:!?]+$/ era quadrática com milhares de "!"). */
+function trimTrailingPunctuation(url: string): string {
+	let end = url.length;
+	while (end > 0 && ".,;:!?".includes(url[end - 1]!)) end--;
+	return url.slice(0, end);
+}
+
 /** Extrai URLs http(s) de um texto (última fala do usuário), sem pontuação final. */
 export function extractUrls(text: string): string[] {
 	const urls: string[] = [];
 	for (const match of text.matchAll(/https?:\/\/[^\s<>"'`)\]]+/gi)) {
-		urls.push(match[0].replace(/[.,;:!?]+$/, ""));
+		urls.push(trimTrailingPunctuation(match[0]));
 	}
 	return urls;
 }

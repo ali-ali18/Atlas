@@ -1,5 +1,5 @@
 import { providerFailureKind, type ProviderApiError } from "@workspace/llm";
-import type { RunUsage } from "@workspace/shared";
+import type { LoopStopKind, RunUsage } from "@workspace/shared";
 
 export class AgentRunCancelledError extends Error {
 	readonly code = "cancelled" as const;
@@ -61,7 +61,7 @@ export class AgentRunLoopDetectedError extends Error {
 	/** Uso até a parada (inclui `computer`), para o worker gravar em `usageJson`. */
 	usage?: RunUsage;
 
-	constructor(message: string) {
+	constructor(message: string, readonly kind?: LoopStopKind) {
 		super(message);
 		this.name = "AgentRunLoopDetectedError";
 	}

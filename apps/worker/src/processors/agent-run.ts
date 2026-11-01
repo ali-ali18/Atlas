@@ -138,7 +138,8 @@ import {
 import { briefToolFilter, budgetStopFallbackText, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
-import { resolveReplyLanguage, systemMessages, type BotLanguage } from "@workspace/shared";
+import { resolveReplyLanguage, stopOfCompletion, systemMessages, type BotLanguage, type RunStop } from "@workspace/shared";
+import { stopOfBudgetError, stopOfFailure } from "../run-stop.js";
 import { runSystemLanguage } from "../system-language.js";
 import {
 	AUTO_CONTINUE_MAX,
@@ -418,7 +419,7 @@ export type CancelCloseIo = {
 
 /** Run parado: evento "cancelled", run cancelado, entrega liquidada e entradas não consumidas viram o próximo turno. */
 export async function closeCancelledRun(reason: string, io: CancelCloseIo): Promise<void> {
-	await io.emit({ type: "cancelled", reason });
+	await io.emit({ type: "cancelled", reason, stopReason: "cancelled" });
 	await io.flush();
 	await io.finish();
 	await io.settle();
@@ -462,6 +463,7 @@ export async function processAgentRunJob(
 		await finishAgentRun(runId, {
 			status: "failed",
 			error: "OPENROUTER_API_KEY is not configured on the worker",
+			stop: { reason: "error", detail: "missing_api_key" },
 		});
 		await appendRunEvent(runId, "error", {
 			type: "error",
@@ -481,6 +483,7 @@ export async function processAgentRunJob(
 		await finishAgentRun(runId, {
 			status: "failed",
 			error: message,
+			stop: { reason: "error", detail: "missing_user" },
 		});
 		await appendRunEvent(runId, "error", {
 			type: "error",
@@ -1366,6 +1369,7 @@ async function executeLeasedRun(ctx: {
 				type: "status",
 				status: "budget_exhausted",
 				detail: `Alcancei o limite de ${budget.hardMaxSteps} passos (${usageText(result.usage)}). A resposta acima é o melhor que apurei.`,
+				stopReason: "budget_steps",
 			});
 			await emitState.tail;
 		}
@@ -1380,6 +1384,8 @@ async function executeLeasedRun(ctx: {
 		const resultText = alertPlan ? alertPlan.text : result.text;
 		const resultConversationId = (alertPlan && !alertPlan.notify) || noUpdate ? null : run.conversationId;
 		const jevAtCompletion = jevTelemetry.snapshot();
+		// Motivo de término (medição, ADR 0002 F0): o runtime diz se foi resposta normal, fechamento forçado, etc.
+		const completionStop = result.stop ?? stopOfCompletion(undefined, { hitWall: result.hitWall });
 		await sessionProbe;
 		await completeAgentRunAtomically({
 			runId,
@@ -1388,6 +1394,7 @@ async function executeLeasedRun(ctx: {
 			sandboxSessionId: cachedSessionId,
 			lease,
 			status: result.hitWall ? "budget_exhausted" : "completed",
+			stop: completionStop,
 			// Telemetria só no usageJson persistido; o evento `done` (UI) não a leva.
 			usage: withRunTelemetry(result.usage, runTelemetry.meta(jevAtCompletion)),
 			donePayload: {
@@ -1395,6 +1402,7 @@ async function executeLeasedRun(ctx: {
 				message: { role: "assistant", content: resultText },
 				model: result.model,
 				usage: result.usage,
+				stopReason: completionStop.reason,
 			},
 		});
 		// Daqui em diante a conclusão é irrevogável (ver catch).
@@ -1656,6 +1664,7 @@ async function executeLeasedRun(ctx: {
 				await finishAgentRun(runId, {
 					status: "cancelled",
 					error: "cancelled",
+					stop: { reason: "cancelled" },
 					sandboxSessionId: cachedSessionId,
 					lease,
 				}).catch((finishError) => asLeaseError(finishError));
@@ -1684,12 +1693,14 @@ async function executeLeasedRun(ctx: {
 			// Fechamento adiado pelo runtime e a retomada não vai acontecer: volta ao fechamento padrão.
 			const closingText = error.finalText ?? (error.deferredClosing ? budgetStopFallbackText(error.message, systemLanguage) : error.message);
 			const resultText = autoPlan.schedule ? systemText.autoContinueStatus : closingText;
-			if (!autoPlan.schedule) await emit({ type: "error", error: error.message });
+			const budgetStop = stopOfBudgetError(error, autoPlan.schedule);
+			if (!autoPlan.schedule) await emit({ type: "error", error: error.message, stopReason: budgetStop.reason });
 			await coalescer.flush().catch(() => undefined);
 			await emitState.tail;
 			await finishAgentRun(runId, {
 				status: "budget_exhausted",
 				error: error.message,
+				stop: budgetStop,
 				// Resumo final do modelo (chamada sem tools), se houve; senão o erro.
 				resultText,
 				usage: error.usage,
@@ -1751,12 +1762,14 @@ async function executeLeasedRun(ctx: {
 		// vai pro chat; o detalhe fica no log e em `error` do run.
 		if (run.origin === "proactive") console.error(`proactive run failed run=${runId}`, error);
 		const displayMessage = proactiveFailureDisplay(run.origin, describeRunError(error, systemLanguage).message, systemLanguage);
-		await emit({ type: "error", error: displayMessage });
+		const failureStop = stopOfFailure(error, kind);
+		await emit({ type: "error", error: displayMessage, stopReason: failureStop.reason });
 		await coalescer.flush().catch(() => undefined);
 		await emitState.tail;
 		await finishAgentRun(runId, {
 			status: kind === "waiting_user" ? "waiting_user" : "failed",
 			error: message,
+			stop: failureStop,
 			resultText:
 				kind === "waiting_user"
 					? undefined
@@ -1796,7 +1809,7 @@ async function executeLeasedRun(ctx: {
  */
 export type ExhaustedRunIo = {
 	getRun: (runId: string) => Promise<AgentRun | null>;
-	failRun: (runId: string, error: string, display: { resultText: string }) => Promise<boolean>;
+	failRun: (runId: string, error: string, display: { resultText: string }, stop?: RunStop) => Promise<boolean>;
 	settle: (input: { userId: string; runId: string; end: RunEnd; resultText: string }) => Promise<void>;
 	chain: (run: AgentRun, userId: string, deps: AgentRunProcessorDeps) => Promise<void>;
 	/** Retomada automática de falha transitória (padrão: banco e fila reais quando há `enqueueNextRun`). */
@@ -1839,7 +1852,7 @@ export async function finalizeExhaustedAgentRun(
 			? await planAutoContinue(run, { cause: autoContinueCauseOfFailure(err) }, autoIo).catch((): AutoContinueDecision => ({ schedule: false, reason: "not_recoverable" }))
 			: { schedule: false, reason: "not_recoverable" };
 		const display = autoPlan.schedule ? systemMessages(language).autoContinueStatus : failureDisplay;
-		const finalized = await d.failRun(runId, technical, { resultText: display });
+		const finalized = await d.failRun(runId, technical, { resultText: display }, { reason: "retries_exhausted" });
 		if (!finalized || !run) return finalized;
 		if (autoPlan.schedule && autoIo && run.userId) {
 			const outcome = await scheduleAutoContinue(run, run.userId, autoPlan, autoIo);

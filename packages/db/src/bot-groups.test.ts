@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GROUP_MAX_DEPTH, GROUP_TURN_MAX_BOT_REPLIES } from "@workspace/shared";
+import { GROUP_MAX_DEPTH, GROUP_NO_WAIT_RULE, GROUP_NUDGE_RULE, GROUP_REPLY_NO_PROGRESS_MS, GROUP_SUMMARY_HOLD_MS, GROUP_SUMMARY_MISSING_RULE, GROUP_TURN_MAX_BOT_REPLIES } from "@workspace/shared";
 
 process.env.ATLAS_HOOK_PEPPER ||= "test-pepper";
 const { prisma } = await import("./client.js");
@@ -24,6 +24,7 @@ function matches(row: Row, where: Row | undefined): boolean {
 			if ("in" in c) return (c.in as unknown[]).includes(value);
 			if ("not" in c) return value !== c.not;
 			if ("lt" in c) return (value as Date) < (c.lt as Date);
+			if ("gt" in c) return (value as Date) > (c.gt as Date);
 			if ("has" in c) return (value as unknown[]).includes(c.has);
 			if ("isEmpty" in c) return ((value as unknown[]).length === 0) === c.isEmpty;
 			return false;
@@ -95,7 +96,8 @@ type World = {
 	turns: ReturnType<typeof table>;
 	replies: ReturnType<typeof table>;
 	messages: ReturnType<typeof table>;
-	runs: Map<string, { status: string; resultText: string | null; error: string | null }>;
+	runs: Map<string, { status: string; resultText: string | null; error: string | null; updatedAt?: Date; leaseUntil?: Date }>;
+	intents: ReturnType<typeof table>;
 	started: Array<{ botId: string; conversationId: string; objective: string; runId: string }>;
 	active: Set<string>;
 };
@@ -106,6 +108,7 @@ function install(botRows: Row[]): World {
 		turns: table([], () => ({ status: "routing" })),
 		replies: table([], () => ({ status: "pending", depth: 1, runId: null, triggerBotId: null, error: null, role: null, subtask: null, attempt: 1, jevScore: null })),
 		messages: table([]),
+		intents: table([]),
 		runs: new Map(),
 		started: [],
 		active: new Set(),
@@ -115,6 +118,7 @@ function install(botRows: Row[]): World {
 	set(prisma.groupTurn, world.turns);
 	set(prisma.groupReply, world.replies);
 	set(prisma.conversationMessage, { create: world.messages.create, findFirst: world.messages.findFirst });
+	set(prisma.skillPendingIntent, { findFirst: world.intents.findFirst });
 	set(prisma.conversation, { create: async () => ({ id: "conv-new" }) });
 	set(prisma.agentRun, { findUnique: async ({ where }: { where: { id: string } }) => world.runs.get(where.id) ?? null });
 	set(prisma, { $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma), $executeRaw: async () => 0 });
@@ -543,4 +547,230 @@ test("getGroupState expõe o coordenador do turno ativo e o papel de cada respos
 	const state = await getGroupState("u1", "team");
 	assert.equal(state?.coordinatorBotId, "ana");
 	assert.equal(state?.replies[0]?.role, "coordinator");
+});
+
+
+// ---- Ninguém fica preso esperando ----
+
+const research = () => [
+	bot("ana", "Cookie", { isPrimary: true, description: "Coordena" }),
+	bot("bia", "Radar", { description: "Pesquisa de mercado" }),
+	bot("caio", "Inspetor", { description: "Confere e inspeciona entregas" }),
+	bot("team", "Time", { memberIds: ["ana", "bia", "caio"], conversationId: "c-team" }),
+];
+
+const coordinate: JevAsk = async ({ questions }) => ("fulfilled" in questions ? { fulfilled: 0.95 } : routing({ multi_task: 0.95 }));
+const REPORT = ["Pesquisa de mercado:", "- Tamanho: R$ 4,2 bi", "- Crescimento: 11% a.a.", "- Players: A, B, C", "- Riscos: câmbio", "- Suposições: base IBGE 2025"].join("\n");
+
+/** Chega até os dois membros atribuídos (Radar = run-2, Inspetor = run-3 depois do Radar entregar). */
+async function startResearch(world: World, extra: Partial<Parameters<typeof processGroupTurns>[0]> = {}) {
+	const step = (now?: Date) => processGroupTurns(deps(world, { jev: { enabled: async () => true, ask: coordinate }, ...extra, ...(now ? { now: () => now } : {}) }));
+	await postGroupUserMessage({ userId: "u1", groupId: "team", content: "façam uma pesquisa de mercado de cafés especiais" });
+	await step();
+	finish(world, "run-1", "Divisão:\n- @Radar levante os dados do mercado\n- @Inspetor confira o plano e a pesquisa");
+	await step();
+	return step;
+}
+
+test("replay do caso real: Inspetor devolve 'me envie o plano' -> 1 cobrança; sem entregar, o resumo diz que não entregou e não manda esperar", async () => {
+	const world = install(research());
+	const step = await startResearch(world);
+	assert.equal(world.started[1]!.botId, "bia");
+	finish(world, "run-2", REPORT);
+	await step();
+	assert.equal(world.started[2]!.botId, "caio");
+	assert.match(world.started[2]!.objective, new RegExp(GROUP_NO_WAIT_RULE.slice(0, 30)));
+	assert.doesNotMatch(world.started[2]!.objective, /previous reply did not deliver/);
+
+	// Inspetor: "Se você me enviar o plano completo eu faço".
+	finish(world, "run-3", "Se você me enviar o plano completo eu faço");
+	await step();
+	const nudge = world.replies.rows.find((r) => r.reason === "nudge")!;
+	assert.deepEqual([nudge.botId, nudge.role, nudge.attempt], ["caio", "worker", 2]);
+	assert.equal(world.replies.rows.filter((r) => r.role === "summary").length, 0, "o resumo espera a cobrança");
+	assert.equal(world.started[3]!.botId, "caio");
+	assert.ok(world.started[3]!.objective.includes(GROUP_NUDGE_RULE));
+	assert.match(world.started[3]!.objective, /confira o plano e a pesquisa/);
+
+	// Continua sem entregar: sem 2ª cobrança; o resumo sai marcando a falta.
+	finish(world, "run-4", "Aguardando o plano do Radar para começar.");
+	await step();
+	assert.equal(world.replies.rows.filter((r) => r.reason === "nudge").length, 1, "máx. 1 cobrança por membro");
+	const summary = world.replies.rows.find((r) => r.role === "summary")!;
+	assert.equal(summary.botId, "ana");
+	const prompt = world.started[4]!.objective;
+	assert.equal(world.started[4]!.botId, "ana");
+	assert.match(prompt, /Inspetor did not deliver: replied with a question\/waiting|Inspetor did not deliver: replied that it is waiting for something instead of delivering/);
+	assert.doesNotMatch(prompt, /Radar did not deliver/);
+	assert.ok(prompt.includes(GROUP_SUMMARY_MISSING_RULE));
+	assert.doesNotMatch(prompt, /aguardar/i, "o resumo nunca é instruído a esperar");
+
+	finish(world, "run-5", "Resumo: Radar entregou; Inspetor não entregou.");
+	await step();
+	assert.equal(world.turns.rows[0]!.status, "done");
+	assert.equal(world.started.length, 5, "chamadas: coordenador + 2 membros + 1 cobrança + resumo");
+});
+
+test("membro que entrega (ou cobrança entregue) não gera cobrança extra nem marca falta", async () => {
+	const world = install(research());
+	const step = await startResearch(world);
+	finish(world, "run-2", REPORT);
+	await step();
+	finish(world, "run-3", "Confere?\n");
+	await step();
+	// Inspetor mandou só uma pergunta: cobrado uma vez e entrega na rodada seguinte.
+	finish(world, "run-4", REPORT.replace("Pesquisa", "Inspeção"));
+	await step();
+	assert.deepEqual(world.replies.rows.map((r) => [r.role, r.reason]), [
+		["coordinator", "coordinator"],
+		["worker", "assigned"],
+		["worker", "assigned"],
+		["worker", "nudge"],
+		["summary", "summary"],
+	]);
+	assert.doesNotMatch(world.started[4]!.objective, /Inspetor did not deliver|Radar did not deliver|Not delivered/);
+});
+
+test("fluxo normal: todos entregam, sem cobrança (mesmo número de chamadas de sempre)", async () => {
+	const world = install(research());
+	const step = await startResearch(world);
+	finish(world, "run-2", REPORT);
+	await step();
+	finish(world, "run-3", REPORT);
+	await step();
+	finish(world, "run-4", "Resumo final.");
+	await step();
+	assert.equal(world.started.length, 4);
+	assert.equal(world.replies.rows.filter((r) => r.reason === "nudge").length, 0);
+});
+
+test("resumo espera cartão pendente ou continuação ativa do membro; vence o prazo e segue marcando a falta", async () => {
+	const world = install(research());
+	const step = await startResearch(world);
+	finish(world, "run-2", REPORT);
+	await step();
+
+	// Inspetor termina, mas o cartão de aprovação dele segue decidível (aceite automático em andamento).
+	world.intents.rows.push({ id: "i1", userId: "u1", conversationId: "c-team", kind: "confirm", payload: { botId: "caio" }, expiresAt: new Date(Date.now() + 60 * 60_000) });
+	finish(world, "run-3", REPORT.replace("Pesquisa", "Inspeção"));
+	await step();
+	await step();
+	assert.equal(world.replies.rows.filter((r) => r.role === "summary").length, 0, "segurou o resumo");
+	assert.equal(world.turns.rows[0]!.status, "active", "o turno segue aberto");
+
+	// Intenção de OUTRO dono na mesma conversa não segura nada (e a do dono continua segurando).
+	world.intents.rows[0]!.userId = "u2";
+	await step();
+	assert.equal(world.replies.rows.filter((r) => r.role === "summary").length, 1, "pendência alheia não segura");
+});
+
+test("resumo espera a continuação ativa e, passado o prazo, segue sem o membro", async () => {
+	const world = install(research());
+	const continuation = { on: false };
+	const activeRuns = async (conversationId: string) => [
+		...(world.active.has(conversationId) ? [{ id: "active" } as never] : []),
+		...(continuation.on ? [{ id: "cont", botId: "caio" } as never] : []),
+	];
+	const step = await startResearch(world, { activeRuns });
+	finish(world, "run-2", REPORT);
+	await step();
+	finish(world, "run-3", REPORT.replace("Pesquisa", "Inspeção"));
+	continuation.on = true; // o aceite do cartão do Inspetor abriu uma continuação
+	await step();
+	assert.equal(world.replies.rows.filter((r) => r.role === "summary").length, 0, "segurou o resumo");
+	assert.equal(world.turns.rows[0]!.status, "active");
+
+	// Prazo vencido: o resumo entra sem o Inspetor, marcando a parte que faltou.
+	await step(new Date(Date.now() + GROUP_SUMMARY_HOLD_MS + 60_000));
+	assert.equal(world.replies.rows.filter((r) => r.role === "summary").length, 1);
+	continuation.on = false;
+	await step();
+	const prompt = world.started.at(-1)!.objective;
+	assert.equal(world.started.at(-1)!.botId, "ana");
+	// Ele entregou de verdade: continuar pendente não vira falta.
+	assert.doesNotMatch(prompt, /Inspetor did not deliver|Not delivered/);
+	assert.equal(world.replies.rows.find((r) => r.runId === "run-3")!.error, null);
+});
+
+test("prazo do resumo: cartão pendente e run ainda ativo têm motivos diferentes; erro específico não é sobrescrito", async () => {
+	const scenario = async (kind: "card" | "running" | "specific") => {
+		const world = install(research());
+		const continuation = { on: false };
+		const activeRuns = async (conversationId: string) => [
+			...(world.active.has(conversationId) ? [{ id: "active" } as never] : []),
+			...(continuation.on ? [{ id: "cont", botId: "caio" } as never] : []),
+		];
+		const step = await startResearch(world, { activeRuns });
+		finish(world, "run-2", REPORT);
+		await step();
+		if (kind === "card") world.intents.rows.push({ id: "i1", userId: "u1", conversationId: "c-team", kind: "confirm", payload: { botId: "caio" }, expiresAt: new Date(Date.now() + 6 * 3_600_000) });
+		else continuation.on = true;
+		// O Inspetor falhou (sem entrega).
+		finish(world, "run-3", "", "failed");
+		if (kind === "specific") world.replies.rows.find((r) => r.runId === "run-3")!.error = "undelivered:waiting";
+		await step();
+		await step(new Date(Date.now() + GROUP_SUMMARY_HOLD_MS + 60_000));
+		continuation.on = false;
+		world.intents.rows.length = 0;
+		await step();
+		return { world, prompt: world.started.at(-1)!.objective, error: world.replies.rows.find((r) => r.runId === "run-3")!.error };
+	};
+	const card = await scenario("card");
+	assert.match(card.prompt, /Inspetor did not deliver: its approval request was not answered in time/);
+	const running = await scenario("running");
+	assert.match(running.prompt, /Inspetor did not deliver: was still running when the deadline came/);
+	assert.equal(running.error, "undelivered:still_running");
+});
+
+test("run esperando aprovação (waiting_user) por mais que o prazo NÃO é cancelado; só sai do caminho do resumo", async () => {
+	const world = install(research());
+	const cancelled: string[] = [];
+	const step = await startResearch(world, { cancelRun: async (runId: string) => void cancelled.push(runId) });
+	finish(world, "run-2", REPORT);
+	await step();
+	const run = world.runs.get("run-3")!;
+	run.status = "waiting_user";
+	run.updatedAt = new Date(Date.now() - 20 * 60_000);
+	world.active.delete("c-team");
+	await step();
+	assert.deepEqual(cancelled, [], "o run segue vivo para quando o dono aprovar");
+	assert.equal(run.status, "waiting_user");
+	const reply = world.replies.rows.find((r) => r.runId === "run-3")!;
+	assert.deepEqual([reply.status, reply.error], ["failed", "undelivered:pending_approval"]);
+	assert.equal(world.replies.rows.filter((r) => r.role === "summary").length, 1);
+
+	// Lease no futuro conta como vivo mesmo sem updatedAt recente.
+	const other = install(research());
+	const cancelledB: string[] = [];
+	const stepB = await startResearch(other, { cancelRun: async (runId: string) => void cancelledB.push(runId) });
+	finish(other, "run-2", REPORT);
+	await stepB();
+	other.runs.get("run-3")!.updatedAt = new Date(Date.now() - 30 * 60_000);
+	(other.runs.get("run-3") as Record<string, unknown>).leaseUntil = new Date(Date.now() + 60_000);
+	await stepB();
+	assert.equal(other.replies.rows.find((r) => r.runId === "run-3")!.status, "running");
+	assert.deepEqual(cancelledB, []);
+});
+
+test("run parado sem progresso além do prazo vira 'sem entrega' e libera o resumo", async () => {
+	const world = install(research());
+	const cancelled: string[] = [];
+	const step = await startResearch(world, { cancelRun: async (runId: string) => void cancelled.push(runId) });
+	finish(world, "run-2", REPORT);
+	await step();
+	// Inspetor (run-3) segue "running": dentro do prazo nada muda.
+	world.runs.get("run-3")!.updatedAt = new Date();
+	await step();
+	assert.equal(world.replies.rows.find((r) => r.runId === "run-3")!.status, "running");
+	assert.deepEqual(cancelled, []);
+
+	// Sem sinal de vida há mais que o prazo: encerra, cancela o run e o resumo sai.
+	world.runs.get("run-3")!.updatedAt = new Date(Date.now() - GROUP_REPLY_NO_PROGRESS_MS - 60_000);
+	world.active.delete("c-team");
+	await step();
+	const stalled = world.replies.rows.find((r) => r.runId === "run-3")!;
+	assert.deepEqual([stalled.status, stalled.error], ["failed", "no_progress"]);
+	assert.deepEqual(cancelled, ["run-3"]);
+	assert.equal(world.replies.rows.filter((r) => r.role === "summary").length, 1);
+	assert.match(world.started.at(-1)!.objective, /Inspetor did not deliver: did not finish in time/);
 });

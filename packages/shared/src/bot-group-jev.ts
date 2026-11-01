@@ -1,4 +1,4 @@
-import { mentionedBotIds, parseGroupMentions, type GroupMember } from "./bot-group.js";
+import { GROUP_NO_WAIT_RULE, mentionedBotIds, parseGroupMentions, type GroupMember } from "./bot-group.js";
 
 /**
  * Grupos: coordenação inteligente (opt-in, decidida pelo Jev). Regras puras:
@@ -150,6 +150,13 @@ export function buildRetryNudge(subtask: string): string {
 
 const groupQuoted = (name: string): string => `"${oneLine(name, 80)}"`;
 
+/** Cobrança de uma rodada para o membro que devolveu pergunta/"aguardando" em vez de entregar. */
+export const GROUP_NUDGE_RULE =
+	"Do not wait; use the original request and what was already said in the group; assume the most reasonable option and deliver; list your assumptions.";
+/** Para o resumo: membro que não entregou entra em uma linha e o resumo sai com o que há. */
+export const GROUP_SUMMARY_MISSING_RULE =
+	"If a member did not deliver, say so in one line and deliver with what you have; never say the next step is to wait.";
+
 /** Última mensagem do turno por papel (coordenador, membro, retentativa e resumo). */
 export function buildGroupRolePrompt(input: {
 	role: GroupReplyRole;
@@ -160,6 +167,10 @@ export function buildGroupRolePrompt(input: {
 	subtask?: string | null;
 	attempt?: number;
 	workerNames?: readonly string[];
+	/** Cobrança: a resposta anterior do membro não entregou (pergunta ou "aguardando"). */
+	nudge?: boolean;
+	/** Resumo: membros que não entregaram, com o motivo curto (inglês). */
+	missing?: ReadonlyArray<{ name: string; reason: string }>;
 }): string {
 	const group = groupQuoted(input.groupName);
 	if (input.role === "coordinator") {
@@ -173,21 +184,27 @@ export function buildGroupRolePrompt(input: {
 			"Não faça a parte dos outros. Chame só quem de fato é necessário. Você não executa as partes deles; depois que todos responderem, você escreve o resumo final.",
 			"Membros disponíveis:",
 			list,
+			GROUP_NO_WAIT_RULE,
 		].join("\n");
 	}
 	if (input.role === "worker") {
 		const from = input.coordinatorName ? oneLine(input.coordinatorName, 60) : "O coordenador";
 		const lines = [`[Grupo ${group}] ${from} atribuiu esta subtarefa a você: ${oneLine(input.subtask ?? "", 400)}`];
-		if ((input.attempt ?? 1) > 1) {
+		if (input.nudge) {
+			lines.push(`Your previous reply did not deliver it. ${GROUP_NUDGE_RULE}`);
+		} else if ((input.attempt ?? 1) > 1) {
 			lines.push(`Sua resposta anterior não cumpriu a subtarefa. ${buildRetryNudge(input.subtask ?? "")}`);
 		}
-		lines.push("Faça só a sua parte, use suas ferramentas se precisar e poste o resultado no grupo. Não mencione outros membros nem delegue.");
+		lines.push("Faça só a sua parte, use suas ferramentas se precisar e poste o resultado no grupo. Não mencione outros membros nem delegue.", GROUP_NO_WAIT_RULE);
 		return lines.join("\n");
 	}
 	const names = (input.workerNames ?? []).map((name) => oneLine(name, 60)).join(", ");
+	const missing = (input.missing ?? []).map((item) => `${oneLine(item.name, 60)} did not deliver: ${oneLine(item.reason, 100)}`);
 	return [
 		`[Grupo ${group}] Os membros${names ? ` (${names})` : ""} terminaram as subtarefas que você atribuiu.`,
 		"Escreva agora o resumo final para o usuário: o que foi entregue por cada um, o que ficou pendente (se algo) e o próximo passo. Seja curto e consolidado.",
 		"Não use @menções e não peça mais nada a ninguém.",
+		...(missing.length > 0 ? [`Not delivered: ${missing.join("; ")}.`] : []),
+		GROUP_SUMMARY_MISSING_RULE,
 	].join("\n");
 }
