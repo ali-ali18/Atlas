@@ -112,7 +112,7 @@ import { buildEngineV2Catalog } from "./catalog.js";
 import { shouldExposeSetEngine } from "../tools/set-engine.js";
 import { buildEngineV2SystemPrompt } from "./prompt.js";
 import { originSystemNotes } from "./origin-notes.js";
-import { MAX_STEPS_SAFETY, type SupervisorProfile, budgetForProfile, createSupervisor, deliveryInstruction } from "./supervisor.js";
+import { LONG_WORK_BUDGET, MAX_STEPS_SAFETY, type SupervisorProfile, budgetForProfile, createSupervisor, deliveryInstruction } from "./supervisor.js";
 import { callCostUsd, estimateCostUsd, fallbackPricesFromEnv } from "./cost.js";
 import { dedupeLoginAsk, unattendedLoginOutcome } from "./login.js";
 import { createPreToolRunner } from "../hooks/pre-tool-runner.js";
@@ -130,7 +130,9 @@ import {
 	asksForDocument,
 	countWords,
 	declinesDocument,
+	documentCostCeilingUsd,
 	documentMissingNote,
+	documentOutputTokenLimit,
 	isFinalDeliverableCall,
 	needsDocumentDelivery,
 	withNotebookAppendix,
@@ -152,6 +154,8 @@ export type EngineV2Options = {
 		/** Filhos do run (retomada: custo e tarefas já feitas). Padrão: banco, escopado pelo dono. */
 		listChildren?: (parentRunId: string, userId: string) => Promise<Array<{ id: string; objective: string; status: string; usageJson: unknown; finishedAt: Date | null }>>;
 	};
+	/** Preço de saída do modelo (US$ por milhão de tokens; null = não sabe, vale o preço conservador padrão). Corta a saída do documento no estouro. */
+	modelOutputUsdPerMtok?: (modelId: string) => number | null | Promise<number | null>;
 	/** Máximo de tokens de saída do modelo no catálogo (null = não sabe). Limita o teto do documento. */
 	modelMaxOutputTokens?: (modelId: string) => number | null | Promise<number | null>;
 	/**
@@ -345,6 +349,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	let fileDelivered = (parsed?.toolCallCounts?.create_file ?? 0) > 0;
 	/** Passos de escrita do documento no estouro: o teto de saída do documento vale também aqui. */
 	let documentFallbackActive = false;
+	/** Tokens de saída que ainda cabem no teto X*1,10 neste passo do fallback (`undefined` fora dele). */
+	let documentOutputLimit: number | undefined;
 	/** Texto que o portão do documento retirou do chat: volta se o run terminar sem arquivo. */
 	let gatedText: string | undefined;
 	/** Arquivo em partes em andamento (nome -> conteúdo das partes anteriores): o apêndice confere o arquivo inteiro. */
@@ -525,6 +531,10 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	};
 	let modelMaxOutput: number | null | undefined;
 	const outputTokenCap = async (): Promise<number | undefined> => {
+		const base = await baseOutputTokenCap();
+		return documentOutputLimit === undefined ? base : Math.min(base ?? documentOutputLimit, documentOutputLimit);
+	};
+	const baseOutputTokenCap = async (): Promise<number | undefined> => {
 		if (!writingDocument()) return configuredOutputTokens;
 		modelMaxOutput ??= await Promise.resolve(options.modelMaxOutputTokens?.(model)).catch(() => null);
 		// Modelo sem teto conhecido no catálogo: fica o valor configurado.
@@ -1102,14 +1112,17 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			!declinesDocument(lastUserMessage) &&
 			(asksForDocument(lastUserMessage) || documentGateFired || filePartsSoFar.size > 0);
 		// Teto duro do extra no estouro: nenhum passo novo começa depois de X * (1 + DOCUMENT_OVERSHOOT_RATIO) em US$ ou tempo.
-		const overCeiling = () =>
-			spentUsd() >= budget.maxCostUsd * (1 + DOCUMENT_OVERSHOOT_RATIO) || activeElapsedMs() >= budget.maxActiveMs * (1 + DOCUMENT_OVERSHOOT_RATIO);
+		const costCeiling = documentCostCeilingUsd(budget.maxCostUsd, LONG_WORK_BUDGET.maxCostUsd);
+		const timeCeiling = (Number.isFinite(budget.maxActiveMs) && budget.maxActiveMs > 0 ? budget.maxActiveMs : LONG_WORK_BUDGET.maxActiveMs) * (1 + DOCUMENT_OVERSHOOT_RATIO);
+		const overCeiling = () => spentUsd() >= costCeiling || activeElapsedMs() >= timeCeiling;
 		if (documentFallback) {
 			conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${DOCUMENT_BUDGET_NOTE}` });
 			const createFileOnly = tools.filter((tool) => tool.function.name === "create_file");
 			documentFallbackActive = true;
 			try {
 				for (let attempt = 0; attempt < DOCUMENT_FALLBACK_STEPS && !fileDelivered && !overCeiling(); attempt += 1) {
+					// Rígido dentro do passo: a saída máxima é o que o saldo até X*1,10 paga (preço de saída conservador do v2).
+					documentOutputLimit = documentOutputTokenLimit({ remainingUsd: costCeiling - spentUsd(), usdPerMtokOut: (await Promise.resolve(options.modelOutputUsdPerMtok?.(model)).catch(() => null)) ?? fallbackPrices.completionUsdPerMTok, maxTokens: docOutputTokens });
 					const out = await modelStep(conversation, "auto", `${messageId}-doc${attempt}`, true, createFileOnly, DOCUMENT_CLOSING_TIMEOUT_MS);
 					if (out.toolCalls.length === 0) break;
 					conversation.push({ role: "assistant", content: out.content || null, tool_calls: out.toolCalls, ...(out.providerItems ? { providerItems: out.providerItems } : {}) });
@@ -1121,6 +1134,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 				if (isControlFlowError(error)) throw error;
 			}
 			documentFallbackActive = false;
+			documentOutputLimit = undefined;
 			instruction = fileDelivered ? DOCUMENT_DONE_INSTRUCTION : instruction;
 		}
 		conversation.push({ role: "user", content: `${AUTO_CONTEXT} ${instruction}` });

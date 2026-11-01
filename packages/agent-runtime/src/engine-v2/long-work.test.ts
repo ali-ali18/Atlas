@@ -863,15 +863,31 @@ describe("motor v2: a reserva é real (tools por fase) e o extra do estouro tem 
 		expect(finalStep.toolNames).toEqual(["create_file"]);
 	});
 
-	it("no fallback vale o teto de saída do documento e o timeout é maior que o do fechamento comum (60 s)", async () => {
-		const run = await runV2({
+	it("no fallback a saída do passo é cortada ao saldo até X * 1,10 (preço de saída conservador) e o timeout é maior que o do fechamento comum", async () => {
+		const doc = () => turn([call("create_file", { filename: "r.md", content: `# R\n\n${LONGO(320)}` })], 0.001);
+		// X = US$ 1 estourado em 1,00: sobram US$ 0,10 até 1,10, que a US$ 15/Mtok (padrão) são 6.666 tokens.
+		const cut = await runV2({
 			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
-			coordinator: [OPEN(), search(0.105), turn([call("create_file", { filename: "r.md", content: `# R\n\n${LONGO(320)}` })], 0.001), say("Pronto.")],
-			options: { longWorkBudgetUsd: 0.1 },
+			coordinator: [OPEN(), search(1), doc(), say("Pronto.")],
+			options: { longWorkBudgetUsd: 1 },
 		});
-		const docStep = run.coordinatorRequests.at(-2)!;
-		expect(docStep.params.maxOutputTokens).toBe(16_000);
+		const docStep = cut.coordinatorRequests.at(-2)!;
+		expect(docStep.params.maxOutputTokens).toBe(6_666);
 		expect(docStep.params.timeoutMs).toBeGreaterThan(60_000);
+		// Preço de saída conhecido e barato: vale o teto de saída do documento (16.000).
+		const known = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [OPEN(), search(1), doc(), say("Pronto.")],
+			options: { longWorkBudgetUsd: 1, modelOutputUsdPerMtok: () => 1 },
+		});
+		expect(known.coordinatorRequests.at(-2)!.params.maxOutputTokens).toBe(16_000);
+		// Quase sem saldo: nunca abaixo do mínimo útil.
+		const tight = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [OPEN(), search(1.09), doc(), say("Pronto.")],
+			options: { longWorkBudgetUsd: 1 },
+		});
+		expect(tight.coordinatorRequests.at(-2)!.params.maxOutputTokens).toBe(2_000);
 		// O fechamento comum sem documento segue com 60 s.
 		const plain = await runV2({
 			messages: [{ role: "user", content: PEDIDO }],

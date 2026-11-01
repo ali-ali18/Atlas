@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FILE_MAX_CONTENT_CHARS, type NotebookEntry } from "@workspace/shared";
-import { isFinalDeliverableCall, DOCUMENT_BUDGET_NOTE, DOCUMENT_DELIVERY_NOTE, DOC_WORDS_THRESHOLD, UNCONFIRMED_NOTE_MAX_LINES, asksForDocument, declinesDocument, countWords, needsDocumentDelivery, withNotebookAppendix } from "./delivery.js";
+import { DOCUMENT_MIN_OUTPUT_TOKENS, documentCostCeilingUsd, documentOutputTokenLimit, isFinalDeliverableCall, DOCUMENT_BUDGET_NOTE, DOCUMENT_DELIVERY_NOTE, DOC_WORDS_THRESHOLD, UNCONFIRMED_NOTE_MAX_LINES, asksForDocument, declinesDocument, countWords, needsDocumentDelivery, withNotebookAppendix } from "./delivery.js";
 import { deliveryInstruction } from "./supervisor.js";
 
 const words = (n: number) => Array.from({ length: n }, (_, i) => `p${i}`).join(" ");
@@ -103,5 +103,29 @@ describe("isFinalDeliverableCall", () => {
 		expect(isFinalDeliverableCall({ filename: "r.pdf", content: "x", more: true })).toBe(false);
 		for (const aux of ["dados.csv", "grafico.png", "config.json", "script.py", ""]) expect(isFinalDeliverableCall({ filename: aux, content: "x" })).toBe(false);
 		expect(isFinalDeliverableCall({ filename: "sem-extensao", format: "docx", content: "x" })).toBe(true);
+	});
+});
+
+describe("teto rígido do extra no estouro (tokens de saída e guarda contra NaN)", () => {
+	it("documentCostCeilingUsd: NaN, indefinido e <= 0 nunca desligam a guarda (usam o padrão explícito)", () => {
+		expect(documentCostCeilingUsd(1, 0.5)).toBeCloseTo(1.1, 10);
+		for (const bad of [Number.NaN, undefined, 0, -3, Number.POSITIVE_INFINITY]) {
+			const ceiling = documentCostCeilingUsd(bad as number | undefined, 0.5);
+			expect(Number.isFinite(ceiling)).toBe(true);
+			expect(ceiling).toBeCloseTo(0.55, 10);
+		}
+	});
+
+	it("documentOutputTokenLimit: o saldo vira tokens pelo preço de saída, com mínimo útil e teto do documento", () => {
+		// US$ 0,10 a US$ 15/Mtok = 6.666 tokens.
+		expect(documentOutputTokenLimit({ remainingUsd: 0.1, usdPerMtokOut: 15, maxTokens: 16_000 })).toBe(6_666);
+		// Modelo barato: o teto do documento limita.
+		expect(documentOutputTokenLimit({ remainingUsd: 0.1, usdPerMtokOut: 1, maxTokens: 16_000 })).toBe(16_000);
+		// Saldo mínimo ou negativo: nunca abaixo do mínimo útil (documentado).
+		expect(documentOutputTokenLimit({ remainingUsd: 0.001, usdPerMtokOut: 15, maxTokens: 16_000 })).toBe(DOCUMENT_MIN_OUTPUT_TOKENS);
+		expect(documentOutputTokenLimit({ remainingUsd: -1, usdPerMtokOut: 15, maxTokens: 16_000 })).toBe(DOCUMENT_MIN_OUTPUT_TOKENS);
+		// NaN em qualquer entrada não vira saída infinita.
+		expect(documentOutputTokenLimit({ remainingUsd: Number.NaN, usdPerMtokOut: 15, maxTokens: 16_000 })).toBe(DOCUMENT_MIN_OUTPUT_TOKENS);
+		expect(documentOutputTokenLimit({ remainingUsd: 0.1, usdPerMtokOut: Number.NaN, maxTokens: 16_000 })).toBe(DOCUMENT_MIN_OUTPUT_TOKENS);
 	});
 });

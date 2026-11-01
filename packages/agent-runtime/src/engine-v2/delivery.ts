@@ -49,6 +49,29 @@ export const DOCUMENT_FALLBACK_STEPS = 3;
  * já começou pode passar um pouco disso; nenhum passo novo começa depois do teto.
  */
 export const DOCUMENT_OVERSHOOT_RATIO = 0.1;
+/**
+ * Mínimo de tokens de saída de um passo de documento no estouro. Abaixo disso o arquivo sairia truncado a ponto de ficar
+ * inútil; é a única folga sobre o teto de X*1,10 (um passo curto, ~US$ 0,03 a US$ 15/Mtok de saída).
+ */
+export const DOCUMENT_MIN_OUTPUT_TOKENS = 2_000;
+
+/** Teto de custo (US$) do estouro: `maxCostUsd` indefinido, NaN ou <= 0 nunca desliga a guarda (cai no padrão explícito). */
+export function documentCostCeilingUsd(maxCostUsd: number | undefined, fallbackUsd: number): number {
+	const base = typeof maxCostUsd === "number" && Number.isFinite(maxCostUsd) && maxCostUsd > 0 ? maxCostUsd : fallbackUsd;
+	return base * (1 + DOCUMENT_OVERSHOOT_RATIO);
+}
+
+/**
+ * Tokens de saída que ainda cabem no teto do estouro: o saldo em US$ convertido pelo preço de saída (US$ por milhão de
+ * tokens) do modelo, ou o preço conservador padrão quando ele não é conhecido. Nunca abaixo do mínimo útil nem acima do
+ * teto de saída do documento.
+ */
+export function documentOutputTokenLimit(input: { remainingUsd: number; usdPerMtokOut: number; maxTokens: number }): number {
+	const price = Number.isFinite(input.usdPerMtokOut) && input.usdPerMtokOut > 0 ? input.usdPerMtokOut : Number.POSITIVE_INFINITY;
+	const affordable = Number.isFinite(input.remainingUsd) && input.remainingUsd > 0 && Number.isFinite(price) ? Math.floor((input.remainingUsd / price) * 1_000_000) : 0;
+	return Math.min(input.maxTokens, Math.max(DOCUMENT_MIN_OUTPUT_TOKENS, affordable));
+}
+
 /** A chamada que escreve o documento no estouro precisa de mais que o fechamento comum de 60 s. */
 export const DOCUMENT_CLOSING_TIMEOUT_MS = 240_000;
 
