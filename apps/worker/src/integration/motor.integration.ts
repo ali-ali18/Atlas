@@ -75,11 +75,8 @@ describe("1-2. Bom dia", { skip: integrationSkip }, () => {
 		assert.equal(snap.events.at(-1)?.type, "done");
 	});
 
-	// Defeito real: pickRunEngine recebe `hasCheckpoint: Boolean(checkpoint)` (agent-run.ts) e createAgentRun grava um
-	// checkpoint em TODO run (runs.ts, `checkpointJson`), então `stored = "v1"` e o v2 nunca é escolhido.
-	test("v2 escolhido pelo bot (policyJson.engine = v2) pelo caminho real, sem gravar o motor à mão", {
-		todo: "DEFEITO: hasCheckpoint = Boolean(checkpoint) em apps/worker/src/processors/agent-run.ts:1153 é sempre true (createAgentRun grava checkpointJson, packages/db/src/runs.ts:308) e engine-choice.ts:42 trata isso como retomada no v1: o v2 nunca roda. Deveria ser !!checkpoint?.llmMessages?.length.",
-	}, async () => {
+	// Regressão: createAgentRun grava checkpointJson em todo run; a escolha do motor só trata como retomada quando há transcript.
+	test("v2 escolhido pelo bot (policyJson.engine = v2) pelo caminho real, sem gravar o motor à mão", async () => {
 		script([{ content: "Bom dia!" }]);
 		const fx = await createFixture({ engine: "v2" });
 		const { app } = await createApi(fx.userId);
