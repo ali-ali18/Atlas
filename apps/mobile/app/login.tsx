@@ -1,14 +1,18 @@
 import { useRouter } from "expo-router";
 import * as React from "react";
 import { View } from "react-native";
+import { AtSignIcon, GoogleIcon } from "@/components/icons";
+import { AuthColumn, AuthDivider, AuthFootnote, AuthHeader } from "@/components/auth-layout";
 import { Screen } from "@/components/screen";
 import { SharedProof } from "@/components/shared-proof";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Text } from "@/components/ui/text";
 import { loadServerUrl } from "@/lib/server-store";
 
+// Textos de apps/web/lib/i18n/messages/pt-BR/login.ts (login.title, subtitle, google, or, emailLabel,
+// emailPlaceholder, sendLink, privateInstance). Etapa 0: tudo desabilitado, com selo "em breve".
 export default function LoginScreen() {
 	const router = useRouter();
 	const [server, setServer] = React.useState<string | null>(null);
@@ -19,32 +23,43 @@ export default function LoginScreen() {
 
 	return (
 		<Screen className="justify-center">
-			<View className="gap-2">
-				<Text variant="title">Entrar</Text>
-				<Text variant="muted">{server ? `Servidor: ${server}` : "Escolha como entrar na sua conta."}</Text>
-			</View>
-			<Card>
-				<Button size="lg" disabled accessibilityLabel="Entrar com Google, em breve">
-					<Text>Entrar com Google</Text>
-					<Badge variant="secondary">em breve</Badge>
-				</Button>
-				<Button size="lg" variant="secondary" disabled accessibilityLabel="Entrar com e-mail, em breve">
-					<Text>Entrar com e-mail</Text>
-					<Badge variant="outline">em breve</Badge>
-				</Button>
-			</Card>
-			{/* Só em desenvolvimento: prova do shared e atalho da etapa 0, não são para o usuário. */}
-			{__DEV__ ? <SharedProof /> : null}
-			<View className="gap-1">
-				{__DEV__ ? (
-					<Button variant="ghost" onPress={() => router.push("/syncing")}>
-						<Text>Ver prévia da sincronização</Text>
+			<AuthColumn>
+				<AuthHeader title="Entrar no Atlas" subtitle="Seu agente pessoal no seu servidor." />
+				<View className="gap-3">
+					<Button size="lg" variant="outline" className="w-full" disabled accessibilityLabel="Continuar com Google, em breve">
+						<GoogleIcon />
+						<Text>Continuar com Google</Text>
+						<Badge variant="secondary">em breve</Badge>
 					</Button>
-				) : null}
-				<Button variant="ghost" onPress={() => router.back()}>
-					<Text>Trocar servidor</Text>
-				</Button>
-			</View>
+				</View>
+				<AuthDivider>ou</AuthDivider>
+				<View className="gap-3">
+					<InputGroup>
+						<InputGroupAddon>
+							<AtSignIcon />
+						</InputGroupAddon>
+						<InputGroupInput accessibilityLabel="E-mail" placeholder="voce@exemplo.com" editable={false} />
+					</InputGroup>
+					<Button size="lg" className="w-full" disabled accessibilityLabel="Enviar link de acesso, em breve">
+						<Text>Enviar link de acesso</Text>
+						<Badge variant="secondary">em breve</Badge>
+					</Button>
+				</View>
+				<AuthFootnote>Instância privada — só o dono tem acesso.</AuthFootnote>
+				{server ? <AuthFootnote>{`Servidor: ${server}`}</AuthFootnote> : null}
+				{/* Só em desenvolvimento: prova do shared e atalho da etapa 0, não são para o usuário. */}
+				{__DEV__ ? <SharedProof /> : null}
+				<View className="gap-1">
+					{__DEV__ ? (
+						<Button variant="ghost" onPress={() => router.push("/syncing")}>
+							<Text>Ver prévia da sincronização</Text>
+						</Button>
+					) : null}
+					<Button variant="ghost" onPress={() => router.back()}>
+						<Text>Trocar servidor</Text>
+					</Button>
+				</View>
+			</AuthColumn>
 		</Screen>
 	);
 }

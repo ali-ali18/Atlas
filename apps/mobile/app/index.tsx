@@ -1,17 +1,18 @@
 import { useRouter } from "expo-router";
 import * as React from "react";
-import { View } from "react-native";
+import { LinkIcon } from "@/components/icons";
+import { AuthColumn, AuthFootnote, AuthHeader } from "@/components/auth-layout";
 import { Screen } from "@/components/screen";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { ChatCardError } from "@/components/ui/chat-card";
-import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { checkServer } from "@/lib/server-check";
-import { normalizeServerUrl } from "@/lib/server-url";
 import { loadServerUrl, saveServerUrl } from "@/lib/server-store";
+import { normalizeServerUrl } from "@/lib/server-url";
 
+// Mesma estrutura do login do web: cabeçalho, campo em InputGroup com ícone, botão `lg` de largura total,
+// erro centralizado em `text-destructive text-sm` e rodapé. O campo é o endereço do servidor, não o e-mail.
 export default function ConnectionScreen() {
 	const router = useRouter();
 	const [value, setValue] = React.useState("");
@@ -53,35 +54,40 @@ export default function ConnectionScreen() {
 
 	return (
 		<Screen className="justify-center">
-			<View className="gap-2">
-				<Text variant="title">Conectar ao Atlas</Text>
-				<Text variant="muted">Informe o endereço do servidor do seu Atlas para começar.</Text>
-			</View>
-			<Card>
-				<Text variant="caption">Endereço do servidor</Text>
-				<Input
-					value={value}
-					onChangeText={(text) => {
-						setValue(text);
-						if (error) setError(null);
-					}}
-					placeholder="https://atlas.suaempresa.com"
-					autoCapitalize="none"
-					autoCorrect={false}
-					keyboardType="url"
-					inputMode="url"
-					returnKeyType="go"
-					onSubmitEditing={connect}
-					editable={!busy}
-					invalid={Boolean(error)}
-					accessibilityLabel="Endereço do servidor"
-				/>
-				{error ? <ChatCardError>{error}</ChatCardError> : null}
-				<Button size="lg" onPress={connect} disabled={busy || !value.trim()}>
+			<AuthColumn>
+				<AuthHeader title="Conectar ao Atlas" subtitle="Seu agente pessoal no seu servidor." />
+				<InputGroup invalid={Boolean(error)}>
+					<InputGroupAddon>
+						<LinkIcon />
+					</InputGroupAddon>
+					<InputGroupInput
+						value={value}
+						onChangeText={(text) => {
+							setValue(text);
+							if (error) setError(null);
+						}}
+						placeholder="https://atlas.suaempresa.com"
+						autoCapitalize="none"
+						autoCorrect={false}
+						keyboardType="url"
+						inputMode="url"
+						returnKeyType="go"
+						onSubmitEditing={connect}
+						editable={!busy}
+						accessibilityLabel="Endereço do servidor"
+					/>
+				</InputGroup>
+				<Button size="lg" className="w-full" onPress={connect} disabled={busy || !value.trim()}>
 					{busy ? <Spinner tone="primary-foreground" /> : null}
 					<Text>{busy ? "Conectando…" : "Conectar"}</Text>
 				</Button>
-			</Card>
+				{error ? (
+					<Text accessibilityRole="alert" variant="error" className="text-center text-sm">
+						{error}
+					</Text>
+				) : null}
+				<AuthFootnote>Informe o endereço do servidor do seu Atlas para começar.</AuthFootnote>
+			</AuthColumn>
 		</Screen>
 	);
 }
