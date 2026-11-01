@@ -161,8 +161,11 @@ export function resolveRunLimits(input: {
 	humanTurn: boolean;
 	/** `budget.maxCostUsd` já resolvido (pedido > bot; vazio = sem teto). */
 	requestOrBotCap: number | undefined;
-	snapshot: Pick<RunConfigSnapshot, "maxRunCostUsd">;
-	/** O pedido ou a política do bot fixou o tempo: vale mais que o orçamento de minutos do bot. */
+	snapshot: Pick<RunConfigSnapshot, "maxRunCostUsd" | "maxWallMinutes">;
+	/**
+	 * O pedido ou a política do bot fixou o tempo: vale mais que o orçamento de minutos do bot. O "Tempo máximo" da conta,
+	 * se o dono programou, também é teto duro (chat e promoção nunca passam dele): ver `snapshot.maxWallMinutes`.
+	 */
 	wallFixed: boolean;
 }): { costCapUsd: number | undefined; wallMs?: number; canPromote: boolean } {
 	const owner = longWorkOwnerLimits(input.choice, { origin: input.origin, humanTurn: input.humanTurn });
@@ -171,6 +174,6 @@ export function resolveRunLimits(input: {
 	return {
 		costCapUsd,
 		canPromote: owner.canPromote,
-		...(owner.wallMs !== undefined && !input.wallFixed ? { wallMs: owner.wallMs } : {}),
+		...(owner.wallMs !== undefined && !input.wallFixed && input.snapshot.maxWallMinutes === undefined ? { wallMs: owner.wallMs } : {}),
 	};
 }

@@ -363,3 +363,14 @@ test("run encadeado por falha transitória (ou resposta de questionário) dentro
 	const lost = await setup({ policyJson, budgetJson: null, text: "Continue the previous task from where it stopped." }).choose();
 	assert.equal(lost.profile, "chat");
 });
+
+test("o tempo máximo programado na conta é teto duro: o chat e a promoção não recebem os 60 min do bot", async () => {
+	const chat = await setup({ policyJson: { engine: "v2" }, text: "Bom dia" }).choose();
+	const long = await setup({ policyJson: { engine: "v2" }, text: LONG_REQUEST }).choose();
+	for (const choice of [chat, long]) {
+		const withAccount = resolveRunLimits({ choice, origin: "chat", humanTurn: true, requestOrBotCap: undefined, snapshot: { maxRunCostUsd: undefined, maxWallMinutes: 5 }, wallFixed: false });
+		assert.equal(withAccount.wallMs, undefined, "sem wallMs: vale o tempo da conta (5 min) em budget.maxWallMs");
+		const without = resolveRunLimits({ choice, origin: "chat", humanTurn: true, requestOrBotCap: undefined, snapshot: { maxRunCostUsd: undefined }, wallFixed: false });
+		assert.equal(without.wallMs, 60 * 60_000);
+	}
+});
