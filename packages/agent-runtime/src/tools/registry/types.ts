@@ -19,6 +19,8 @@ import { type NativeDeferral } from "../../context/native-deferral.js";
 import { type LoginEvent } from "../../tools/computer-refs.js";
 import { type DevSessionRuntime } from "../../tools/dev-session.js";
 import { type DelegateContext } from "../../tools/delegate-task.js";
+import { type HelpersContext } from "../../engine-v2/helpers.js";
+import { type NotebookToolContext } from "../../engine-v2/notebook.js";
 import { type CreateFileDeps, type FileEvent } from "../../tools/create-file.js";
 import { type RunCodeDeps } from "../../tools/run-code.js";
 import { type AlertRunState } from "../../tools/report-alert.js";
@@ -164,6 +166,10 @@ export type ToolContext = {
 	jev?: JevRuntime;
 	/** Encanamento do `delegate_task` (F5); ausente em subagente. */
 	delegation?: DelegateContext;
+	/** Motor v2 (F3): caderno da tarefa do run (o ajudante só escreve, no caderno do pai). */
+	notebook?: NotebookToolContext;
+	/** Motor v2 (F3): ajudantes (`delegate`); ausente em ajudante e fora de trabalho longo. */
+	helpers?: HelpersContext;
 	/**
 	 * `AgentRun.objective` (pedido original que criou este run). Fonte da
 	 * ORIGINAL REQUEST guardada no card de questionário (`purpose: "task"`) e
