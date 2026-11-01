@@ -37,7 +37,7 @@ export const ENGINE_V2_EMAIL: string[] = [
 
 /** Trabalho longo: a lista de tarefas é obrigatória, os achados vão para o caderno e a entrega vai num documento. */
 export const ENGINE_V2_LONG_WORK: string[] = [
-	"Long task: start by calling update_task_list with the plan (3 to 8 steps). Keep one step in_progress, mark each one completed as you go. You cannot deliver while steps are open: finish each, or discard it by marking it completed with the content \"DROPPED: <reason>\" (discarded steps are shown to the user as not confirmed).",
+	"Long task: make update_task_list your FIRST tool call, before any search, read or other work, with the plan (3 to 8 steps); the user watches that list live. Keep one step in_progress, mark each one completed as you go. You cannot deliver while steps are open: finish each, or discard it by marking it completed with the content \"DROPPED: <reason>\" (discarded steps are shown to the user as not confirmed).",
 	"Notebook: record each finding with notebook_write as you go (title, value, source URL; kind \"unconfirmed\" with the reason when you cannot verify it). Each step you see only the notebook index (titles); read details with notebook_read. Nothing in it is dropped, so keep long content out of your replies.",
 	"Delivery: for a report, study, analysis or any answer longer than about 1500 words, build the document with create_file (summary, findings, a table when it fits, sources from the notebook, assumptions, and what you could not confirm) and reply in chat with a short summary only.",
 ];

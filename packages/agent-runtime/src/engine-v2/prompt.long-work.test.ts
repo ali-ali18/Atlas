@@ -11,6 +11,11 @@ describe("buildEngineV2SystemPrompt: trabalho longo e lista de tarefas", () => {
 		expect(prompt).toContain("notebook_write");
 	});
 
+	it("manda criar a lista como a primeira chamada, para ela acompanhar o trabalho ao vivo", () => {
+		const prompt = buildEngineV2SystemPrompt({ ...base, taskList: true });
+		expect(prompt).toContain("make update_task_list your FIRST tool call");
+	});
+
 	it("sem a lista (rotina), mantém caderno e entrega mas não cita update_task_list", () => {
 		const prompt = buildEngineV2SystemPrompt({ ...base, taskList: false, routine: true, unattended: true });
 		expect(prompt).not.toContain("update_task_list");
