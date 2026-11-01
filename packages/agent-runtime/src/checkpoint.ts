@@ -9,6 +9,7 @@ import {
 	MODEL_TIERS,
 	parseCapabilitySnapshot,
 	parseLoginConnector,
+	parseNotebookEntries,
 	parseLoginVaultOffer,
 	parseTaskList,
 	parseTaskState,
@@ -424,6 +425,8 @@ export function buildRuntimeCheckpoint(input: {
 	objectiveRevisions?: AgentRunCheckpoint["objectiveRevisions"];
 	triagedInputs?: AgentRunCheckpoint["triagedInputs"];
 	researchNotes?: AgentRunCheckpoint["researchNotes"];
+	/** Motor v2: caderno da tarefa (trabalho longo). */
+	notebook?: AgentRunCheckpoint["notebook"];
 	pendingFollowUps?: string[];
 	capabilities?: AgentRunCheckpoint["capabilities"];
 	modelTier?: AgentRunCheckpoint["modelTier"];
@@ -469,6 +472,7 @@ export function buildRuntimeCheckpoint(input: {
 		...(input.triagedInputs?.length ? { triagedInputs: input.triagedInputs } : {}),
 		...(input.pendingFollowUps?.length ? { pendingFollowUps: input.pendingFollowUps } : {}),
 		...(input.researchNotes?.length ? { researchNotes: input.researchNotes } : {}),
+		...(input.notebook?.length ? { notebook: input.notebook } : {}),
 		...(input.capabilities ? { capabilities: input.capabilities } : {}),
 		...(input.modelTier ? { modelTier: input.modelTier } : {}),
 		...(input.modelEscalations?.length ? { modelEscalations: input.modelEscalations } : {}),
@@ -577,6 +581,7 @@ export function parseRuntimeCheckpoint(
 		triagedInputs: parseTriagedInputs(value.triagedInputs),
 		pendingFollowUps: parsePendingFollowUps(value.pendingFollowUps),
 		researchNotes: parseResearchNotes(value.researchNotes).length ? parseResearchNotes(value.researchNotes) : undefined,
+		...(parseNotebookEntries(value.notebook).length ? { notebook: parseNotebookEntries(value.notebook) } : {}),
 		capabilities: parseCapabilitySnapshot(value.capabilities),
 		...(isModelTier(value.modelTier) ? { modelTier: value.modelTier } : {}),
 		...(parseModelEscalations(value.modelEscalations).length ? { modelEscalations: parseModelEscalations(value.modelEscalations) } : {}),
