@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { briefToolFilter, runComputerUse, runEngineV2, type EngineV2Options } from "@workspace/agent-runtime";
 import { applyComputerUseEventsToTranscript, TRANSCRIPT_SLOT, type ComputerUseEvent, type SerializedLlmMessage } from "@workspace/shared";
 import { buildEnvironment, EVAL_BOT_ID, EVAL_USER_ID } from "./environment.js";
@@ -95,7 +96,7 @@ export async function runScenario(scenario: Scenario, options: RunScenarioOption
 		sandboxEnabled: false,
 		apiKey: options.apiKey,
 		model: options.model,
-		runId: `eval-${scenario.id}-${options.repeat ?? 0}-${Math.random().toString(36).slice(2, 8)}`,
+		runId: `eval-${scenario.id}-${options.repeat ?? 0}-${randomBytes(4).toString("hex")}`,
 		userId: EVAL_USER_ID,
 		botId: EVAL_BOT_ID,
 		origin: scenario.run.origin,

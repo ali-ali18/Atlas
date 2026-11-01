@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { abortable, createDecisionBudget } from "./decision-budget.js";
 import { OpenRouterError, readOpenRouterSse } from "./sse-stream.js";
 import {
@@ -395,7 +396,7 @@ function toolCallsFromResponse(
 	for (const call of raw ?? []) {
 		if (!call.function?.name) continue;
 		toolCalls.push({
-			id: call.id ?? `call_${Math.random().toString(36).slice(2)}`,
+			id: call.id ?? `call_${randomBytes(6).toString("hex")}`,
 			type: "function",
 			function: {
 				name: call.function.name,
@@ -561,7 +562,7 @@ export async function streamChatWithTools(
 						.map(([, value]) => value)) {
 						if (!part.name) continue;
 						toolCalls.push({
-							id: part.id || `call_${Math.random().toString(36).slice(2)}`,
+							id: part.id || `call_${randomBytes(6).toString("hex")}`,
 							type: "function",
 							function: { name: part.name, arguments: part.args || "{}" },
 						});
