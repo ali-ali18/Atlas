@@ -256,13 +256,13 @@ describe("perfil do run", () => {
 		const cookie = "Abra o vídeo https://youtu.be/abc123, faça perguntas ao Gemini sobre ele, compare com Hermes, Dots e Grok Bot e monte um relatório";
 		expect(looksLikeLongTask(cookie)).toBe(true);
 		// Sem a palavra "relatório": 3+ verbos de ação diferentes encadeados bastam.
-		expect(looksLikeLongTask("Assista esse vídeo, resuma os pontos principais e compare com o que a gente já usa")).toBe(true);
-		expect(looksLikeLongTask("Watch the video, summarize it and compare it with Hermes and Dots")).toBe(true);
+		expect(looksLikeLongTask("Assista esse vídeo inteiro, resuma os pontos principais e compare com o que a gente já usa hoje no time")).toBe(true);
+		expect(looksLikeLongTask("Watch the whole video, summarize the main points and compare it with Hermes, Dots and Grok Bot today")).toBe(true);
 		expect(resolveRunProfile({ policy: readEnginePolicy({}), text: cookie })).toBe("long_work");
 	});
 
 	it("conversa e pergunta curta continuam chat", () => {
-		for (const text of ["Bom dia", "Abra o link que te mandei e me diga o que é", "Resuma esse texto em duas linhas, por favor", "qual a diferença entre React e Vue?", "me diga se o Grok Bot é seu agente"]) {
+		for (const text of ["Bom dia", "Abra o link que te mandei e me diga o que é", "Resuma esse texto em duas linhas, por favor", "qual a diferença entre React e Vue?", "me diga se o Grok Bot é seu agente", "Pode abrir o link que eu mandei, resumir o texto e comparar com o outro?", "abra, leia e resuma isso aqui"]) {
 			expect(looksLikeLongTask(text), text).toBe(false);
 		}
 	});

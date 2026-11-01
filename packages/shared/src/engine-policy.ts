@@ -202,8 +202,9 @@ export function looksLikeLongTask(text: string): boolean {
 	const verb = /\b(pesquis\w+|levant\w+|analis\w+|compar\w+|mapea\w+|investig\w+|monte|montar|elabor\w+|prepar\w+|gere|gerar|crie|criar|escrev\w+|faca|fazer|assista|assistir|abra|abrir|pergunt\w+|resum\w+|researc\w+|analy[sz]e|compare|build|prepare|draft|write|create|generate|benchmark\w*|watch|summari[sz]e|open|ask)\b/;
 	const deliverable = /\b(relatorio|estudo|pesquisa de mercado|panorama|benchmark|dossie|planilha|apresentacao|painel|dashboard|analise|comparativo|levantamento|report|study|market research|spreadsheet|presentation|deep dive|overview)\b/;
 	if (verb.test(plain) && deliverable.test(plain)) return true;
-	// Pedido de várias etapas encadeadas ("abra..., faça perguntas..., compare... e monte"): 3+ verbos de ação diferentes.
-	if (distinctActionVerbs(plain) >= 3) return true;
+	// Pedido de várias etapas encadeadas ("abra..., faça perguntas..., compare... e monte"): 3+ verbos de ação diferentes,
+	// em pedido de tamanho razoável e com conectores de sequência (vírgulas, "e", "depois"). Pedido casual curto fica em chat.
+	if (plain.length >= CHAINED_MIN_CHARS && distinctActionVerbs(plain) >= 3 && sequenceConnectors(plain) >= 2) return true;
 	// Pedido longo com verbo de trabalho (várias linhas de instrução) também é tarefa.
 	return plain.length >= 200 && verb.test(plain);
 }
@@ -213,6 +214,13 @@ const ACTION_VERB_STEMS: ReadonlyArray<RegExp> = [
 	/\b(monte|montar|build)\b/, /\b(elabor\w+|prepar\w+|prepare|draft)\b/, /\b(gere|gerar|generate)\b/, /\b(crie|criar|create)\b/, /\b(escrev\w+|write)\b/,
 	/\b(faca|fazer)\b/, /\b(assista|assistir|watch)\b/, /\b(abra|abrir|open)\b/, /\b(pergunt\w+|ask)\b/, /\b(resum\w+|summari[sz]e)\b/,
 ];
+
+/** Tamanho mínimo do pedido para 3+ verbos valerem como etapas encadeadas. */
+const CHAINED_MIN_CHARS = 90;
+
+function sequenceConnectors(plain: string): number {
+	return (plain.match(/,|;|\b(e|depois|entao|em seguida|and then|then|and)\b/g) ?? []).length;
+}
 
 function distinctActionVerbs(plain: string): number {
 	return ACTION_VERB_STEMS.reduce((count, stem) => count + (stem.test(plain) ? 1 : 0), 0);
