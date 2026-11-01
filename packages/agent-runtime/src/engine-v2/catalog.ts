@@ -3,8 +3,10 @@
  * `mcp_tool_search` para carregar por nome ou necessidade (o mesmo mecanismo do v1). O roteador de intenção
  * (regex) vira só DICA de pré-carga: nunca decide o que existe, porque tudo é carregável a pedido do modelo.
  *
- * O v2 atende a conversa direta (origem `chat`) e, com o escopo ampliado do bot, rotina, grupo e bot→bot. Ficam de
- * fora as tools de subagente, alerta, proativo, envio entre bots e sessão de código (ver docs/features/motor-v2.md).
+ * O v2 atende a conversa direta (origem `chat`) e, com o escopo ampliado do bot, rotina (inclui alerta, brief e
+ * "só importante"), grupo, bot→bot e proativo, com as mesmas tools e condições do v1 (`send_to_bot`,
+ * `decide_bot_pending`, `report_alert`, `notify_user`, follow-ups). Ficam de fora as tools de subagente, `set_primary_bot`
+ * e a sessão de código (ver docs/features/motor-v2.md).
  * As regras por origem espelham as do v1 (`computer-use.ts`): rotina não recebe gestão de rotinas, pesquisa web,
  * memória nem pedido de senha; sem humano (rotina/webhook) só entra conector que a autonomia libera sem perguntar.
  */
