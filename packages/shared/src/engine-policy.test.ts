@@ -131,16 +131,16 @@ describe("tabela de decisão: origem × motor do bot × escopo × padrão global
 	const expected: Array<[Bot, EngineDefault, Where[]]> = [
 		["sem escolha", "off", []],
 		["sem escolha", "chat", ["chat"]],
-		["sem escolha", "all", ["chat", "grupo", "routine", "bot"]],
+		["sem escolha", "all", ["chat", "grupo", "routine", "bot", "webhook", "email"]],
 		["v1", "off", []],
 		["v1", "chat", []],
 		["v1", "all", []],
 		["v2/chat", "off", ["chat"]],
 		["v2/chat", "chat", ["chat"]],
 		["v2/chat", "all", ["chat"]],
-		["v2/all", "off", ["chat", "grupo", "routine", "bot"]],
-		["v2/all", "chat", ["chat", "grupo", "routine", "bot"]],
-		["v2/all", "all", ["chat", "grupo", "routine", "bot"]],
+		["v2/all", "off", ["chat", "grupo", "routine", "bot", "webhook", "email"]],
+		["v2/all", "chat", ["chat", "grupo", "routine", "bot", "webhook", "email"]],
+		["v2/all", "all", ["chat", "grupo", "routine", "bot", "webhook", "email"]],
 	];
 	const everywhere: Where[] = ["chat", "grupo", "routine", "bot", "webhook", "email", "proactive", "subagent"];
 
@@ -190,5 +190,13 @@ describe("perfil do run", () => {
 		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "long_work" }), text: "oi" })).toBe("long_work");
 		expect(resolveRunProfile({ policy: readEnginePolicy({}), text })).toBe("long_work");
 		expect(resolveRunProfile({ policy: readEnginePolicy({}), text: "Bom dia" })).toBe("chat");
+	});
+
+	it("e-mail recebido e webhook não escolhem o perfil caro pelo texto; o dono ainda pode forçá-lo", () => {
+		const text = "Levante os concorrentes e monte um comparativo com preços";
+		expect(resolveRunProfile({ policy: readEnginePolicy({}), text, origin: "email" })).toBe("chat");
+		expect(resolveRunProfile({ policy: readEnginePolicy({}), text, origin: "webhook" })).toBe("chat");
+		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "long_work" }), text: "oi", origin: "webhook" })).toBe("long_work");
+		expect(resolveRunProfile({ policy: readEnginePolicy({ workProfile: "long_work" }), text: "oi", origin: "email" })).toBe("long_work");
 	});
 });

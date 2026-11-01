@@ -37,7 +37,7 @@ const turn = (name: string, args: Record<string, unknown>, id = "c1"): CompleteC
 async function replay(input: {
 	messages: Array<{ role: "user" | "assistant"; content: string }>;
 	script?: CompleteChatWithToolsResult[];
-	origin?: "chat" | "routine";
+	origin?: "chat" | "routine" | "webhook";
 	objective?: string;
 	language?: BotLanguageSetting;
 	languageContext?: { lastLanguage?: string | null; accountLocale?: string | null };
@@ -474,6 +474,19 @@ describe("política de agir primeiro: pedido óbvio não abre questionário", ()
 		expect(results[0]).toMatchObject({ name: "propose_questionnaire", ok: false });
 		expect(results[0]!.summary).toMatch(/not loaded/i);
 		expect(eventTypes).not.toContain("questionnaire");
+	});
+});
+
+describe("questionário sem humano (v1)", () => {
+	const ASK = "monte um questionário de múltipla escolha para o onboarding";
+
+	it("webhook e rotina não carregam propose_questionnaire (ninguém responderia); o chat carrega no passo 1", async () => {
+		for (const origin of ["webhook", "routine"] as const) {
+			const { first } = await replay({ origin, messages: [{ role: "user", content: ASK }] });
+			expect(first, origin).not.toContain("propose_questionnaire");
+		}
+		const chat = await replay({ messages: [{ role: "user", content: ASK }] });
+		expect(chat.first).toContain("propose_questionnaire");
 	});
 });
 
