@@ -24,6 +24,8 @@ export const DRAFT_REVISION_REASONS = [
 	"unverified_screen",
 	/** Run de código: o rascunho dava o trabalho por pronto com edição sem teste, typecheck, lint ou build depois. */
 	"unverified_work",
+	/** Pergunta no meio do trabalho que a pesquisa ou um padrão sensato resolvia: o run seguiu sozinho. */
+	"unneeded_question",
 ] as const;
 
 export type DraftRevisionReason = (typeof DRAFT_REVISION_REASONS)[number];
@@ -38,6 +40,7 @@ const LABELS: Record<DraftRevisionReason, string> = {
 	timeout: "o passo demorou demais e foi refeito",
 	unverified_screen: "eu ainda não tinha conferido a tela",
 	unverified_work: "eu ainda não tinha rodado os testes das mudanças",
+	unneeded_question: "eu ia perguntar algo que dava para resolver sozinho",
 };
 
 /** Motivo curto (pt-BR) mostrado no rascunho recolhido. Motivo desconhecido (evento antigo) → genérico. */

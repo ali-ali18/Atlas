@@ -18,8 +18,10 @@ export type SupervisorBudget = {
 	maxActiveMs: number;
 };
 
-/** Conversa: barata e curta (referência: o v1 fecha uma conversa comum bem abaixo disto). */
-// Sem teto em US$ de fábrica (decisão do dono, 01/11): só vale o limite que ele programar (conta ou bot).
+/**
+ * Conversa: curta no TEMPO (8 min). Sem teto em US$ (decisão do dono, 01/11): dinheiro só limita se o dono configurou
+ * (teto da conta ou gasto máximo do bot). Quem estoura o tempo com trabalho em andamento é promovido a `long_work`.
+ */
 export const CHAT_BUDGET: SupervisorBudget = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 8 * 60_000 };
 /**
  * Trabalho longo: o árbitro é PROGRESSO e TEMPO, não dinheiro (o preço varia demais entre modelos). Sem teto em US$ por
@@ -50,18 +52,18 @@ export const BLOCK_STEPS = 3;
 
 export function budgetForProfile(
 	profile: SupervisorProfile,
-	overrides: { longWorkBudgetUsd?: number; longWorkMinutes?: number; floor?: { costUsd: number; minutes: number }; accountCapUsd?: number; accountCapMs?: number } = {},
+	overrides: { longWorkBudgetUsd?: number; longWorkMinutes?: number; floor?: { minutes: number }; accountCapUsd?: number; accountCapMs?: number } = {},
 ): SupervisorBudget {
 	const base = profile === "long_work" ? LONG_WORK_BUDGET : CHAT_BUDGET;
-	// `floor`: execuções curtas que o v1 deixa correr mais (brief, check) nunca ficam abaixo dele; os tetos do dono abaixo ainda mandam.
-	// Trabalho longo não tem teto em US$ por padrão: só o gasto máximo opcional do bot (ou o da conta, quando vale) limita.
+	// `floor`: execuções curtas que o v1 deixa correr mais (brief, check) nunca ficam abaixo dele em TEMPO; os tetos do dono abaixo ainda mandam.
+	// Sem teto em US$ por padrão em nenhum perfil: só o gasto máximo do bot e o teto da conta (que o dono configurou) limitam.
 	const profileCost = profile === "long_work" && overrides.longWorkBudgetUsd ? overrides.longWorkBudgetUsd : base.maxCostUsd;
 	const profileMinMs = profile === "long_work" && overrides.longWorkMinutes ? Math.round(overrides.longWorkMinutes * 60_000) : base.maxActiveMs;
-	const maxCostUsd = overrides.floor ? Math.max(profileCost, overrides.floor.costUsd) : profileCost;
+	const maxCostUsd = profileCost;
 	const profileMs = overrides.floor ? Math.max(profileMinMs, Math.round(overrides.floor.minutes * 60_000)) : profileMinMs;
 	// O teto de tempo do run/conta (maxWallMs resolvido; 0 = sem teto) também é do dono: o perfil nunca o ultrapassa.
 	const maxActiveMs = overrides.accountCapMs && overrides.accountCapMs > 0 ? Math.min(profileMs, overrides.accountCapMs) : profileMs;
-	// O teto de custo da conta/bot é do dono: o perfil nunca o ultrapassa.
+	// O teto de custo da conta/bot é do dono (só existe se ele configurou): o perfil nunca o ultrapassa.
 	const capped = overrides.accountCapUsd && overrides.accountCapUsd > 0 ? Math.min(maxCostUsd, overrides.accountCapUsd) : maxCostUsd;
 	return { maxCostUsd: capped, maxActiveMs };
 }
@@ -70,6 +72,7 @@ export type SupervisorUsage = { costUsd: number; activeMs: number; step: number 
 
 export type SupervisorGate =
 	| { action: "call"; note?: string }
+	| { action: "promote" }
 	| { action: "deliver"; stop: RunStop; instruction: string };
 
 export type ToolRecord = {
@@ -143,10 +146,14 @@ export type SupervisorGateContext = {
 	/** Entradas do caderno e itens concluídos da lista: crescimento = progresso (gatilho b). */
 	notebookCount?: number;
 	completedCount?: number;
+	/** O último passo do modelo chamou tools (o trabalho está em andamento): condição para promover chat -> trabalho longo. */
+	lastStepHadTools?: boolean;
 };
 
-export function createSupervisor(config: { profile: SupervisorProfile; budget: SupervisorBudget; maxSteps?: number }) {
-	const { budget } = config;
+export function createSupervisor(config: { profile: SupervisorProfile; budget: SupervisorBudget; maxSteps?: number; promotable?: boolean }) {
+	let budget = config.budget;
+	let profile = config.profile;
+	let promoted = false;
 	const maxSteps = config.maxSteps ?? MAX_STEPS_SAFETY;
 	let wrapUpSent = false;
 	let phase: SupervisorPhase = "research";
@@ -158,7 +165,7 @@ export function createSupervisor(config: { profile: SupervisorProfile; budget: S
 	let seenProgress = false;
 	let stagnantSteps = 0;
 	let gapSteps = 0;
-	const longWork = config.profile === "long_work";
+	let longWork = profile === "long_work";
 	const wrapAt = WRAP_UP_RATIO;
 	let lastKey: string | undefined;
 	let streak = 0;
@@ -172,8 +179,28 @@ export function createSupervisor(config: { profile: SupervisorProfile; budget: S
 	});
 
 	return {
-		profile: config.profile,
-		budget,
+		get profile(): SupervisorProfile {
+			return profile;
+		},
+		get budget(): SupervisorBudget {
+			return budget;
+		},
+		get promoted(): boolean {
+			return promoted;
+		},
+		/**
+		 * Promoção automática chat -> trabalho longo, no mesmo run: troca o orçamento pelo do trabalho longo e liga as regras
+		 * dele (fases por progresso, lista, caderno, documento). No máximo uma vez; só vale para perfil `chat` promovível.
+		 */
+		promote(next: SupervisorBudget): boolean {
+			if (promoted || profile !== "chat" || config.promotable !== true) return false;
+			promoted = true;
+			profile = "long_work";
+			longWork = true;
+			budget = next;
+			wrapUpSent = false;
+			return true;
+		},
 		/** Maior fração gasta do orçamento (0..), para telemetria e testes. */
 		fraction(usage: SupervisorUsage): number {
 			const { cost, time } = fractions(usage);
@@ -218,6 +245,10 @@ export function createSupervisor(config: { profile: SupervisorProfile; budget: S
 				return { action: "deliver", stop: { reason: "budget_steps", detail: "delivered" }, instruction: deliveryInstruction("budget_steps") };
 			}
 			const { cost, time } = fractions(usage);
+			// Chat promovível que chega a 80% do tempo com trabalho em andamento: segue como trabalho longo, sem parar nem perguntar.
+			if (config.promotable === true && !promoted && profile === "chat" && context.lastStepHadTools === true && time >= WRAP_UP_RATIO - 1e-9) {
+				return { action: "promote" };
+			}
 			if (cost >= 1 - 1e-9 || time >= 1 - 1e-9) {
 				const reason = cost >= time ? "budget_cost" : "budget_wall";
 				return { action: "deliver", stop: { reason, detail: "delivered" }, instruction: deliveryInstruction(reason) };

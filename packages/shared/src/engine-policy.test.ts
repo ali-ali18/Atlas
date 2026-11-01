@@ -10,6 +10,8 @@ import {
 	readEnginePolicy,
 	readRunEngine,
 	readRunProfile,
+	readRunPromotedFrom,
+	withRunPromotion,
 	resolveRunProfile,
 	withBotEngine,
 	withRunEngine,
@@ -248,6 +250,31 @@ describe("perfil do run", () => {
 	it("pesquisa e relatório são trabalho longo", () => {
 		expect(looksLikeLongTask("Faça uma pesquisa de mercado sobre o setor de café especial no Brasil e monte um relatório")).toBe(true);
 		expect(looksLikeLongTask("Research the market for specialty coffee and prepare a report with sources")).toBe(true);
+	});
+
+	it("pedido de várias etapas encadeadas é trabalho longo (caso real do Cookie)", () => {
+		const cookie = "Abra o vídeo https://youtu.be/abc123, faça perguntas ao Gemini sobre ele, compare com Hermes, Dots e Grok Bot e monte um relatório";
+		expect(looksLikeLongTask(cookie)).toBe(true);
+		// Sem a palavra "relatório": 3+ verbos de ação diferentes encadeados bastam.
+		expect(looksLikeLongTask("Assista esse vídeo inteiro, resuma os pontos principais e compare com o que a gente já usa hoje no time")).toBe(true);
+		expect(looksLikeLongTask("Watch the whole video, summarize the main points and compare it with Hermes, Dots and Grok Bot today")).toBe(true);
+		expect(resolveRunProfile({ policy: readEnginePolicy({}), text: cookie })).toBe("long_work");
+	});
+
+	it("conversa e pergunta curta continuam chat", () => {
+		for (const text of ["Bom dia", "Abra o link que te mandei e me diga o que é", "Resuma esse texto em duas linhas, por favor", "qual a diferença entre React e Vue?", "me diga se o Grok Bot é seu agente", "Pode abrir o link que eu mandei, resumir o texto e comparar com o outro?", "abra, leia e resuma isso aqui"]) {
+			expect(looksLikeLongTask(text), text).toBe(false);
+		}
+	});
+
+	it("promoção automática grava long_work e a origem no budgetJson, preservando o resto", () => {
+		const base = { humanTurn: true, contextLength: 1000, engine: "v2", engineProfile: "chat" };
+		const promoted = withRunPromotion(base);
+		expect(promoted).toEqual({ humanTurn: true, contextLength: 1000, engine: "v2", engineProfile: "long_work", promotedFrom: "chat" });
+		expect(readRunProfile(promoted)).toBe("long_work");
+		expect(readRunPromotedFrom(promoted)).toBe("chat");
+		expect(readRunPromotedFrom(base)).toBeUndefined();
+		expect(readRunPromotedFrom(null)).toBeUndefined();
 	});
 
 	it("a política do bot força o perfil; auto decide pelo pedido", () => {

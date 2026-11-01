@@ -689,7 +689,7 @@ describe("motor v2: estouro do orçamento ainda entrega o documento", () => {
 			options: { longWorkBudgetUsd: 0.1 },
 		});
 		expect(run.persisted).toHaveLength(0);
-		expect(run.result.text).toContain("Não consegui gerar o documento dentro do orçamento");
+		expect(run.result.text).toContain("Não consegui gerar o documento antes de a tarefa acabar");
 		expect(run.result.text).not.toMatch(/create_file|notebook/);
 	});
 
@@ -925,7 +925,7 @@ describe("motor v2: o árbitro é progresso e tempo, não dinheiro (replays)", (
 			expect(step.params.timeoutMs).toBeGreaterThan(60_000);
 		}
 		// Só partes saíram: o documento não está entregue e a resposta diz isso em português simples.
-		expect(run.result.text).toContain("Não consegui gerar o documento dentro do orçamento");
+		expect(run.result.text).toContain("Não consegui gerar o documento antes de a tarefa acabar");
 		// O fechamento comum sem documento segue com 60 s.
 		const plain = await runV2({
 			messages: [{ role: "user", content: PEDIDO }],

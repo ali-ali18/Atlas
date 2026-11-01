@@ -43,7 +43,7 @@ export const settingsExec: NamespaceMessages<typeof ptBR> = {
 	"settings.exec.maxWallMinutes.label": "Time limit",
 	"settings.exec.maxWallMinutes.description": "How long a run can last, when the bot doesn't set its own.",
 	"settings.exec.maxRunCostUsd.label": "Maximum cost per run",
-	"settings.exec.maxRunCostUsd.description": "Stops the run when the cost reaches this value. Before that, the agent delivers what it has.",
+	"settings.exec.maxRunCostUsd.description": "No limit by default. If you pick a value, the run stops when it reaches it and the agent delivers what it has.",
 	"settings.exec.noLimit": "no limit",
 	"settings.exec.noLimitCap": "No limit",
 	"settings.exec.fmtTokens": "{n}k tokens",

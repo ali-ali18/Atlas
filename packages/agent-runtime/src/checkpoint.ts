@@ -434,6 +434,7 @@ export function buildRuntimeCheckpoint(input: {
 	modelEscalations?: AgentRunCheckpoint["modelEscalations"];
 	activeElapsedMs?: number;
 	loadedTools?: string[];
+	promoted?: boolean;
 	toolCache?: AgentRunCheckpoint["toolCache"];
 	transcriptWatermark?: AgentRunCheckpoint["transcriptWatermark"];
 	carriedNotes?: AgentRunCheckpoint["carriedNotes"];
@@ -479,6 +480,7 @@ export function buildRuntimeCheckpoint(input: {
 		...(input.modelTier ? { modelTier: input.modelTier } : {}),
 		...(input.modelEscalations?.length ? { modelEscalations: input.modelEscalations } : {}),
 		...(input.loadedTools?.length ? { loadedTools: input.loadedTools.slice(0, 200) } : {}),
+		...(input.promoted ? { promoted: true } : {}),
 		...(input.toolCache ? { toolCache: input.toolCache } : {}),
 		...(input.transcriptWatermark ? { transcriptWatermark: input.transcriptWatermark } : {}),
 		...(input.carriedNotes?.length ? { carriedNotes: input.carriedNotes } : {}),
@@ -588,6 +590,7 @@ export function parseRuntimeCheckpoint(
 		capabilities: parseCapabilitySnapshot(value.capabilities),
 		...(isModelTier(value.modelTier) ? { modelTier: value.modelTier } : {}),
 		...(parseModelEscalations(value.modelEscalations).length ? { modelEscalations: parseModelEscalations(value.modelEscalations) } : {}),
+		...(value.promoted === true ? { promoted: true } : {}),
 		...(Array.isArray(value.loadedTools) ? { loadedTools: value.loadedTools.filter((name): name is string => typeof name === "string").slice(0, 200) } : {}),
 		...(parseToolCacheState(value.toolCache) ? { toolCache: parseToolCacheState(value.toolCache)! } : {}),
 		...(parseCarriedNotes(value.carriedNotes).length ? { carriedNotes: parseCarriedNotes(value.carriedNotes) } : {}),

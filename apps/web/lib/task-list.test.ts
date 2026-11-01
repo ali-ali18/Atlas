@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import type { Message } from "@/components/ui/templates/template-4/data";
@@ -42,4 +43,31 @@ test("um run, uma lista: ao vivo e gravada colapsam em um cartão só", () => {
 	const merged = reconcilePersistedThread([user("db-u1"), list("db-tl")], [user("db-u1"), list("task-list-run-1")]);
 	assert.equal(merged.filter((message) => message.kind === "task-list").length, 1);
 	assert.equal(dedupeCards([list("a"), list("b")]).length, 1);
+});
+
+test("pessoa manda outra fala no meio do run: com o run ativo a doca continua mostrando a lista dele", () => {
+	const thread = [user("u1"), list("tl", "run-1"), user("u2")];
+	assert.equal(dockedTaskList(thread, true, "run-1")?.id, "tl");
+	// Sem o id do run (compat), vale a regra antiga: só depois da última fala.
+	assert.equal(dockedTaskList(thread, true), null);
+});
+
+test("doca amarrada ao run: lista de outro run não aparece; cartão ainda sem run (local) só no turno atual", () => {
+	assert.equal(dockedTaskList([user("u1"), list("tl-old", "run-0"), user("u2")], true, "run-1"), null);
+	assert.equal(dockedTaskList([user("u1"), list("tl", "local")], true, "run-1")?.id, "tl");
+	assert.equal(dockedTaskList([user("u1"), list("tl", "local"), user("u2")], true, "run-1"), null);
+});
+
+test("run terminado: a mesma lista sai da doca e fica no fio com o resumo final", () => {
+	const done = ITEMS.map((item) => ({ ...item, status: "completed" as const }));
+	const thread = [user("u1"), list("tl", "run-1", done), user("u2")];
+	assert.equal(dockedTaskList(thread, true, "run-1")?.id, "tl");
+	assert.equal(dockedTaskList(thread, false, "run-1"), null);
+	const card = thread.find((message) => message.kind === "task-list");
+	assert.equal(card?.kind === "task-list" ? taskListSettledLabel(card.items) : null, "Tarefas · 3/3 concluídas");
+});
+
+test("chat-thread passa o run ativo para a doca (a doca não depende da posição da última fala)", () => {
+	const source = readFileSync(new URL("../components/ui/templates/template-4/chat-thread/chat-thread.tsx", import.meta.url), "utf8");
+	assert.match(source, /dockedTaskList\(messages, [^)]*, activeRunId\)/);
 });
