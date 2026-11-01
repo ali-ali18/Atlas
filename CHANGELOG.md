@@ -4,6 +4,9 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Adicionado
+- **shared, agent, worker:** motor v2 também em webhook e e-mail recebido, com o escopo `engineScope: "all"` (ou o padrão global `all`); o padrão continua v1. Webhook é run sem humano como a rotina (não pergunta, conector só com o que a autonomia libera, shell só leitura). E-mail recebido carrega as tools de e-mail e o procedimento anti-manipulação já no 1º passo, mantém a autonomia limitada do v1 e o texto do e-mail nunca escolhe o perfil de trabalho longo (roda em `chat`, salvo `workProfile` forçado pelo dono). Subagente: sem mudança de roteamento, o pai no v2 atende o pedido com `delegate` (mesmos eventos e cartão "subagents" do `delegate_task`); decisão e limites em `docs/features/motor-v2.md`. Testes: catálogo/prompt/execução por origem (agent-runtime), tabela de roteamento (shared, worker) e integração com Postgres real (webhook, e-mail e subagente no v1 e no v2).
+
 ## [0.3.5-beta] - 2026-11-01
 
 ### Adicionado
