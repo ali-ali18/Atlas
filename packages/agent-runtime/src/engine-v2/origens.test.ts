@@ -312,6 +312,8 @@ describe("v2 em e-mail recebido", () => {
 		const { requests } = await runOrigin({ origin: "email", script: [say("ok")], text: framed });
 		expect(requests[0]!.toolNames.filter((name) => name.startsWith("email_"))).toEqual([]);
 		expect(requests[0]!.system).not.toMatch(/EMAIL_EXTERNO/);
+		expect(requests[0]!.system).not.toMatch(/Incoming e-mail run/);
+		expect(requests[0]!.system).not.toMatch(/email_reply/);
 	});
 
 	it("não é run sem humano (igual ao v1): sem o aviso de unattended; sem tools só do chat nem tools sensíveis", async () => {
