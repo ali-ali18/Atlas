@@ -2,6 +2,7 @@ import * as React from "react";
 import { View } from "react-native";
 import { Avatar } from "@/components/ui/avatar";
 import { Text } from "@/components/ui/text";
+import { useKeyboardVisible } from "@/lib/use-keyboard-visible";
 
 /**
  * Cabeçalho das telas de entrada, montado a partir de apps/web/app/login/page.tsx: mascote no topo
@@ -9,9 +10,11 @@ import { Text } from "@/components/ui/text";
  * do Atlas, o mesmo do painel, ocupa o lugar), título `text-xl` e subtítulo `text-sm` centralizados.
  */
 export function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
+	// Com o teclado aberto o espaço é curto: o mascote encolhe para o campo e o botão ficarem à vista.
+	const keyboardOpen = useKeyboardVisible();
 	return (
 		<View className="items-center gap-2">
-			<Avatar ariaLabel="Avatar do Atlas Agent" size={102} />
+			<Avatar ariaLabel="Avatar do Atlas Agent" size={keyboardOpen ? 64 : 102} mood="happy" />
 			<Text className="text-center text-xl font-semibold tracking-tight">{title}</Text>
 			<Text variant="muted" className="text-center text-sm">
 				{subtitle}
