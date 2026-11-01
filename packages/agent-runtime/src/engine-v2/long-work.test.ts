@@ -4,6 +4,7 @@ import type { ChatTool, CompleteChatWithToolsParams, CompleteChatWithToolsResult
 import type { AgentRunCheckpoint, ComputerUseEvent, LessonRule } from "@workspace/shared";
 import type { PersistUserArtifactInput } from "@workspace/db";
 import type { DelegateDeps } from "../tools/delegate-task.js";
+import { noveltyKey } from "./notebook.js";
 import { runEngineV2, type EngineV2Options } from "./run.js";
 
 vi.mock("@workspace/db", async (original) => ({
@@ -275,7 +276,7 @@ describe("motor v2: ajudantes", () => {
 			messages: [{ role: "user", content: PEDIDO }],
 			coordinator: [OPEN(), delegate5(), CLOSE(), say("Resumo.", 0.01)],
 			helper: helperBehavior({ inFlight }),
-			options: { helpers: { deps } },
+			options: { helpers: { deps }, longWorkBudgetUsd: 0.5 },
 		});
 		expect(inFlight.max).toBe(4);
 		expect(created).toHaveLength(5);
@@ -646,5 +647,302 @@ describe("motor v2: retomada no meio do delegate", () => {
 		expect(resumed.checkpoints.at(-1)!.helperRuns).toEqual(expect.arrayContaining(["child-1", "child-2"]));
 		const delegateResult = resumed.toolResults.find((r) => r.name === "delegate")!;
 		expect(delegateResult.summary).toMatch(/already done by helpers before the run resumed/);
+	});
+});
+
+describe("motor v2: estouro do orçamento ainda entrega o documento", () => {
+	const notebookTurn = () =>
+		turn([
+			call("notebook_write", { title: "Forn Alfa", excerpt: "Preço do fornecedor Alfa: R$ 40", source: "https://alfa.example.com/preco" }),
+			call("notebook_write", { title: "Gama", excerpt: "página bloqueada", kind: "unconfirmed" }),
+		]);
+
+	it("no estouro a etapa final libera só create_file; o arquivo sai com fontes e 'Não deu para confirmar'", async () => {
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [
+				OPEN(),
+				notebookTurn(),
+				// Estoura o orçamento de uma vez (US$ 0,1).
+				turn([call("memory_search", { query: "preço" })], 0.105),
+				// Etapa final: só create_file.
+				turn([call("create_file", { filename: "relatorio.md", content: `# Relatório\n\n${LONGO(320)}` })], 0.01),
+				say("Relatório entregue; o fornecedor Gama não deu para confirmar."),
+			],
+			options: { longWorkBudgetUsd: 0.1 },
+		});
+		const finalStep = run.coordinatorRequests.at(-2)!;
+		expect(finalStep.toolNames).toEqual(["create_file"]);
+		expect(run.coordinatorRequests.at(-1)!.params.toolChoice).toBe("none");
+		expect(run.persisted).toHaveLength(1);
+		const content = Buffer.from(run.persisted[0]!.bytes).toString("utf8");
+		expect(content).toContain("https://alfa.example.com/preco");
+		expect(content).toContain("## Não deu para confirmar");
+		expect(run.result.stop).toEqual({ reason: "budget_cost", detail: "delivered" });
+		expect(run.result.text).not.toMatch(/Não consegui gerar o documento/);
+	});
+
+	it("se nem assim sai o arquivo, a resposta diz em português simples o que faltou", async () => {
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [OPEN(), notebookTurn(), turn([call("memory_search", { query: "preço" })], 0.105), say("Segue o resumo."), say("Resumo curto do que apurei.")],
+			options: { longWorkBudgetUsd: 0.1 },
+		});
+		expect(run.persisted).toHaveLength(0);
+		expect(run.result.text).toContain("Não consegui gerar o documento dentro do orçamento");
+		expect(run.result.text).not.toMatch(/create_file|notebook/);
+	});
+
+	it("pedido sem documento no estouro segue o fechamento sem tools de sempre", async () => {
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO }],
+			coordinator: [OPEN(), turn([call("memory_search", { query: "preço" })], 0.2), say("Resumo do que deu.")],
+			options: { longWorkBudgetUsd: 0.1 },
+		});
+		expect(run.coordinatorRequests.at(-1)!.params.toolChoice).toBe("none");
+		expect(run.persisted).toHaveLength(0);
+	});
+});
+
+describe("motor v2: o árbitro é progresso e tempo, não dinheiro (replays)", () => {
+	const gamaId = (request: Request) => /(n\d+)[^\n]*Gama/.exec(request.notebookLayer)?.[1] ?? "n0";
+	const messagesOf = (request: Request) => request.params.messages.map((m) => textOf(m.content)).join("\n");
+	const reportFile = (cost?: number) => turn([call("create_file", { filename: "relatorio.md", content: `# Relatório\n\n## Resumo\n${LONGO(320)}` })], cost);
+	const search = (cost?: number) => turn([call("memory_search", { query: "mais pesquisa" })], cost);
+	const WRITE_ONLY = new Set(["create_file", "notebook_write", "notebook_read", "update_task_list"]);
+
+	it("modelo caro (US$ 5 por passo, sem teto em US$): termina a pesquisa, escreve o documento inteiro e nada é cortado", async () => {
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [
+				OPEN(),
+				turn([call("notebook_write", { title: "Alfa", excerpt: "R$ 40", source: "https://alfa.example.com/preco" })], 5),
+				search(5),
+				search(5),
+				search(5),
+				CLOSE(),
+				reportFile(5),
+				say("Relatório pronto.", 5),
+			],
+		});
+		// Mais de US$ 30 gastos: nenhum corte por dinheiro, nenhum fechamento forçado sem tools, e o documento saiu.
+		expect(run.result.usage.costUsd ?? 0).toBeGreaterThanOrEqual(30);
+		expect(run.coordinatorRequests.every((request) => request.params.toolChoice !== "none")).toBe(true);
+		expect(run.result.stop).toEqual({ reason: "answered" });
+		expect(run.persisted).toHaveLength(1);
+		expect(Buffer.from(run.persisted[0]!.bytes).toString("utf8")).toContain("https://alfa.example.com/preco");
+		// A escrita foi um passo normal (sem corte do teto de saída do documento).
+		expect(run.coordinatorRequests.at(-2)!.params.maxOutputTokens).toBe(16_000);
+	});
+
+	it("gatilho por lista concluída: lacuna é retentada e resolvida, e o documento sai sem 'não confirmado' espalhado", async () => {
+		const { deps } = fakeDeps();
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [
+				OPEN(),
+				delegate5(),
+				// Lista toda concluída: a pesquisa acaba e, como o Gama ficou em aberto, vem a rodada de lacunas.
+				CLOSE(),
+				(request) => turn([call("notebook_write", { title: "Forn Gama", excerpt: "Preço do fornecedor Gama: R$ 40", source: "https://gama.example.com/preco", replaces: gamaId(request) })]),
+				reportFile(),
+				say("Relatório pronto com os cinco fornecedores."),
+			],
+			helper: helperBehavior({ fail: (task) => task.includes("fornecedor Gama") }),
+			options: { helpers: { deps } },
+		});
+		const sent = run.coordinatorRequests.map(messagesOf);
+		const window = run.coordinatorRequests.find((request) => messagesOf(request).includes("quick pass over the notebook items"))!;
+		expect(window).toBeDefined();
+		expect(window.toolNames).toEqual(expect.arrayContaining(["web_search", "web_extract", "notebook_write", "create_file"]));
+		expect(window.toolNames).not.toContain("delegate");
+		expect(window.toolNames).not.toContain("memory_search");
+		expect(sent.at(-1)!.match(/quick pass over the notebook items/g)).toHaveLength(1);
+		expect(sent.join("\n")).toContain("Research is over");
+		expect(run.persisted).toHaveLength(1);
+		const content = Buffer.from(run.persisted[0]!.bytes).toString("utf8");
+		expect(content).toContain("https://gama.example.com/preco");
+		expect(content).not.toContain("Não deu para confirmar");
+		expect(run.result.stop).toMatchObject({ reason: "answered" });
+	});
+
+	it("sem lacunas vai direto para a escrita; o que continua não confirmado fica numa nota curta no fim", async () => {
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [
+				OPEN(),
+				turn([call("notebook_write", { title: "Gama", excerpt: "página bloqueada", kind: "unconfirmed" })]),
+				// Lista concluída com uma lacuna aberta: rodada de lacunas, que o modelo dispensa escrevendo direto.
+				CLOSE(),
+				reportFile(),
+				say("Pronto."),
+			],
+		});
+		const content = Buffer.from(run.persisted[0]!.bytes).toString("utf8");
+		expect(content).toContain("## Não deu para confirmar");
+		expect(content.split("## Não deu para confirmar")[0]).not.toMatch(/não confirmado/i);
+	});
+
+	it("gatilho por estagnação: 4 passos sem caderno novo nem item concluído mandam escrever; só write tools depois", async () => {
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [
+				OPEN(),
+				turn([call("notebook_write", { title: "Alfa", excerpt: "Preço do fornecedor Alfa: R$ 40 à vista, sem frete", source: "https://alfa.example.com/preco" })]),
+				search(),
+				search(),
+				search(),
+				search(),
+				CLOSE(),
+				reportFile(),
+				say("Relatório pronto."),
+			],
+		});
+		const noted = run.coordinatorRequests.findIndex((request) => messagesOf(request).includes("Research is over"));
+		expect(noted).toBeGreaterThan(0);
+		// Até a nota a pesquisa seguiu livre; depois, só escrita.
+		expect(run.coordinatorRequests[noted - 1]!.toolNames).toContain("memory_search");
+		for (const request of run.coordinatorRequests.slice(noted)) expect(request.toolNames.every((name) => WRITE_ONLY.has(name)), request.toolNames.join(",")).toBe(true);
+		expect(run.persisted).toHaveLength(1);
+		expect(run.result.stop).toMatchObject({ reason: "answered" });
+	});
+
+	it("estagnação: entrada repetida, só com pontuação diferente ou quase vazia NÃO conta como progresso e não impede a parada", async () => {
+		const note = (title: string, excerpt: string) => turn([call("notebook_write", { title, excerpt })]);
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [
+				OPEN(),
+				note("Alfa", "Preço do fornecedor Alfa: R$ 40 à vista, sem frete"),
+				// Os 4 passos seguintes só repetem (outra pontuação/caixa) ou escrevem entradas quase vazias.
+				note("ALFA", "preço do fornecedor alfa - R$ 40, à vista; sem frete!"),
+				note("Alfa", "R$ 40"),
+				note("Beta", "ok"),
+				note("Alfa", "Preço do fornecedor Alfa: R$ 40 à vista, sem frete"),
+				CLOSE(),
+				reportFile(),
+				say("Relatório pronto."),
+			],
+		});
+		const noted = run.coordinatorRequests.findIndex((request) => messagesOf(request).includes("Research is over"));
+		expect(noted).toBeGreaterThan(0);
+		// A nota veio antes do fim do roteiro de repetições e não por lista concluída (CLOSE ainda nem tinha sido chamado).
+		expect(run.coordinatorRequests[noted]!.toolNames.every((name) => WRITE_ONLY.has(name))).toBe(true);
+		expect(run.coordinatorRequests.slice(0, noted).some((request) => request.toolNames.includes("web_search"))).toBe(true);
+		const closeIndex = run.coordinatorRequests.findIndex((request) => messagesOf(request).includes("Task list saved: 2/2"));
+		expect(closeIndex === -1 || noted <= closeIndex).toBe(true);
+		// Entrada com conteúdo novo, ao contrário, zera a contagem (a chave de novidade distingue).
+		expect(noveltyKey({ title: "Alfa", excerpt: "Preço do fornecedor Alfa: R$ 40 à vista, sem frete" })).toBe(noveltyKey({ title: "ALFA", excerpt: "preço do fornecedor alfa - R$ 40, à vista; sem frete!" }));
+		expect(noveltyKey({ title: "Alfa", excerpt: "R$ 40" })).toBeNull();
+		expect(noveltyKey({ title: "Beta", excerpt: "Preço do fornecedor Beta: R$ 42 à vista, sem frete" })).not.toBe(noveltyKey({ title: "Alfa", excerpt: "Preço do fornecedor Alfa: R$ 40 à vista, sem frete" }));
+	});
+
+	it("o tempo máximo leva à escrita: 70% encerra a pesquisa e 100% entrega, sempre com o documento", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(new Date("2026-11-01T12:00:00Z"));
+			const later = (minutes: number) => () => {
+				vi.setSystemTime(Date.now() + minutes * 60_000);
+				return search();
+			};
+			// 10 min de tempo máximo: aos 7,2 min a pesquisa acaba (nota) e o documento sai pelo caminho normal.
+			const research = await runV2({
+				messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+				coordinator: [OPEN(), later(7.2), CLOSE(), reportFile(), say("Pronto.")],
+				options: { longWorkMinutes: 10 },
+			});
+			expect(research.coordinatorRequests.some((request) => messagesOf(request).includes("Research is over"))).toBe(true);
+			expect(research.result.stop).toMatchObject({ reason: "answered" });
+			expect(research.persisted).toHaveLength(1);
+			// Estourou o tempo máximo: entrega forçada, mas o documento ainda sai (fallback só com create_file).
+			vi.setSystemTime(new Date("2026-11-01T12:00:00Z"));
+			const hard = await runV2({
+				messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+				coordinator: [OPEN(), later(11), reportFile(), say("Entreguei dentro do limite de tempo.")],
+				options: { longWorkMinutes: 10 },
+			});
+			expect(hard.result.stop).toEqual({ reason: "budget_wall", detail: "delivered" });
+			expect(hard.persisted).toHaveLength(1);
+			expect(hard.coordinatorRequests.at(-2)!.toolNames).toEqual(["create_file"]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("com gasto máximo preenchido: respeita o teto (75% manda escrever, 100% entrega) e o documento ainda sai sem corte", async () => {
+		const normal = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [OPEN(), search(0.76), CLOSE(), reportFile(0.01), say("Pronto.")],
+			options: { longWorkBudgetUsd: 1 },
+		});
+		expect(normal.coordinatorRequests.some((request) => messagesOf(request).includes("Research is over"))).toBe(true);
+		expect(normal.result.stop).toMatchObject({ reason: "answered" });
+		expect(normal.persisted).toHaveLength(1);
+		// Estourou o teto de US$ 1: entrega, mas a escrita não é bloqueada nem cortada por dinheiro.
+		const over = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [OPEN(), search(1.4), reportFile(0.2), say("Pronto.")],
+			options: { longWorkBudgetUsd: 1 },
+		});
+		expect(over.result.stop).toEqual({ reason: "budget_cost", detail: "delivered" });
+		expect(over.persisted).toHaveLength(1);
+		expect(over.coordinatorRequests.at(-2)!.params.maxOutputTokens).toBe(16_000);
+	});
+
+	it("depois da pesquisa pesquisa e delegate saem de verdade; o modelo ignora a nota, insiste e o supervisor entrega com o documento", async () => {
+		const { deps } = fakeDeps();
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [
+				OPEN(),
+				search(0.8),
+				turn([call("memory_search", { query: "ainda mais" }), call("delegate", { tasks: [{ goal: "Ache o preço no fornecedor Alfa" }] })]),
+				search(),
+				reportFile(),
+				say("Relatório pronto."),
+			],
+			helper: helperBehavior(),
+			options: { longWorkBudgetUsd: 1, helpers: { deps } },
+		});
+		for (const request of run.coordinatorRequests.slice(2, 4)) expect(request.toolNames.every((name) => WRITE_ONLY.has(name)), request.toolNames.join(",")).toBe(true);
+		expect(run.toolResults.filter((r) => r.name === "memory_search" || r.name === "delegate").slice(-3).every((r) => r.ok === false)).toBe(true);
+		expect(run.helperRequests).toHaveLength(0);
+		expect(run.result.stop).toEqual({ reason: "loop_repeat", detail: "phase_ignored" });
+		expect(run.persisted).toHaveLength(1);
+	});
+
+	it("o fallback de documento roda até 3 passos mesmo caros (sem teto em US$), com saída de documento e timeout longo", async () => {
+		const part = (cost: number) => turn([call("create_file", { filename: "relatorio.md", content: "parte", more: true })], cost);
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [OPEN(), search(0.2), part(5), part(5), part(5), say("Resumo.")],
+			options: { longWorkBudgetUsd: 0.1 },
+		});
+		const docSteps = run.coordinatorRequests.filter((request) => request.toolNames.length === 1 && request.toolNames[0] === "create_file");
+		expect(docSteps).toHaveLength(3);
+		for (const step of docSteps) {
+			expect(step.params.maxOutputTokens).toBe(16_000);
+			expect(step.params.timeoutMs).toBeGreaterThan(60_000);
+		}
+		// Só partes saíram: o documento não está entregue e a resposta diz isso em português simples.
+		expect(run.result.text).toContain("Não consegui gerar o documento dentro do orçamento");
+		// O fechamento comum sem documento segue com 60 s.
+		const plain = await runV2({
+			messages: [{ role: "user", content: PEDIDO }],
+			coordinator: [OPEN(), search(0.2), say("Resumo.")],
+			options: { longWorkBudgetUsd: 0.1 },
+		});
+		expect(plain.coordinatorRequests.at(-1)!.params.timeoutMs).toBe(60_000);
+	});
+
+	it("arquivo auxiliar (csv) e parte de arquivo não contam como documento entregue: o fallback ainda gera o documento", async () => {
+		const run = await runV2({
+			messages: [{ role: "user", content: PEDIDO_RELATORIO }],
+			coordinator: [OPEN(), turn([call("create_file", { filename: "dados.csv", content: "a,b\n1,2" })]), search(0.2), reportFile(0.001), say("Relatório entregue.")],
+			options: { longWorkBudgetUsd: 0.1 },
+		});
+		expect(run.persisted).toHaveLength(2);
+		expect(run.result.text).not.toContain("Não consegui gerar o documento");
+		expect(run.coordinatorRequests.at(-2)!.toolNames).toEqual(["create_file"]);
 	});
 });

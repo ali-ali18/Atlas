@@ -278,3 +278,32 @@ describe("executeWebExtract", () => {
 		expect(items[0]?.content).toContain("Back to school");
 	});
 });
+
+describe("addRecoveryGuidance (não desistir no primeiro bloqueio)", () => {
+	const base = { fetchedAt: "2026-11-01T00:00:00Z", truncated: false };
+
+	it("página bloqueada volta com outra fonte, cópia e versão bruta do repositório", async () => {
+		const { addRecoveryGuidance } = await import("./web-extract.js");
+		const [blocked, repo] = addRecoveryGuidance([
+			{ ...base, url: "https://loja.example.com/produto", error: { code: "blocked", message: "403", escalateHint: "escale para o navegador" } },
+			{ ...base, url: "https://github.com/acme/tool/blob/main/INSTALL.md", error: { code: "blocked", message: "robots", escalateHint: "escale para o navegador" } },
+		]);
+		expect(blocked!.error!.escalateHint).toContain("escale para o navegador");
+		expect(blocked!.error!.escalateHint).toMatch(/Do not give up on the first block: try another source/);
+		expect(blocked!.error!.escalateHint).not.toMatch(/raw\.githubusercontent/);
+		expect(repo!.error!.escalateHint).toMatch(/raw\.githubusercontent\.com\/<owner>\/<repo>\/<branch>\/<path>/);
+	});
+
+	it("página cortada diz como ler o resto (uma URL, mais caracteres, buscar o termo) e o que está inteiro fica igual", async () => {
+		const { addRecoveryGuidance } = await import("./web-extract.js");
+		const [cut, whole, empty] = addRecoveryGuidance([
+			{ ...base, url: "https://docs.example.com/guia", content: "x", truncated: true },
+			{ ...base, url: "https://docs.example.com/ok", content: "x" },
+			{ ...base, url: "https://x.example.com", error: { code: "empty", message: "vazio", escalateHint: "tente web_search com outra query" } },
+		]);
+		expect(cut!.nextStep).toMatch(/single URL and maxChars up to 20000/);
+		expect(cut!.nextStep).toMatch(/web_search the exact term/);
+		expect(whole).toEqual({ ...base, url: "https://docs.example.com/ok", content: "x" });
+		expect(empty!.error!.escalateHint).toBe("tente web_search com outra query");
+	});
+});

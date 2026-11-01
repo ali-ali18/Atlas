@@ -136,7 +136,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { engineDefaultFromEnv, pickRunEngine, runSelectedEngine } from "../engine-choice.js";
+import { engineDefaultFromEnv, pickRunEngine, resolveRunLimits, runSelectedEngine } from "../engine-choice.js";
 import { briefToolFilter, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
@@ -1015,7 +1015,7 @@ async function executeLeasedRun(ctx: {
 		maxSteps: run.maxSteps,
 		policy: { ...accountBudgetPolicy(configSnapshot, run.maxSteps), ...botPolicy, ...requestBudget },
 	});
-	const effectiveCostCap = effectiveCostCapUsd(budget.maxCostUsd, configSnapshot);
+	let effectiveCostCap = effectiveCostCapUsd(budget.maxCostUsd, configSnapshot);
 	const runStartedAt = run.startedAt
 		? new Date(run.startedAt).getTime()
 		: Date.now();
@@ -1165,6 +1165,17 @@ async function executeLeasedRun(ctx: {
 		lastUserText: [...messages].reverse().find((message) => message.role === "user")?.content ?? "",
 		record: (choice) => recordRunEngine(runId, choice),
 	});
+	// Trabalho longo no v2 com orçamento gravado no bot: o dono do bot vale mais que o teto por execução da conta.
+	const runLimits = resolveRunLimits({
+		choice: engineChoice,
+		origin: run.origin,
+		humanTurn: readRunHumanTurn(run),
+		requestOrBotCap: budget.maxCostUsd,
+		snapshot: configSnapshot,
+		wallFixed: botPolicy.maxWallMs !== undefined || requestBudget.maxWallMs !== undefined,
+	});
+	effectiveCostCap = runLimits.costCapUsd;
+	const runtimeBudget = runLimits.wallMs !== undefined ? { ...budget, maxWallMs: runLimits.wallMs } : budget;
 	try {
 		const result = await runSelectedEngine({ ...engineChoice, modelMaxOutputTokens: (modelId) => providers.capabilities(modelId).then((caps) => caps.maxOutputTokens, () => null) }, {
 			messageTriageModel,
@@ -1282,7 +1293,7 @@ async function executeLeasedRun(ctx: {
 			// Retomada automática só no 1o fechamento por teto de passos de um run do usuário ou das retomadas anteriores.
 			autoContinue: { canSchedule: Boolean(deps.enqueueNextRun) && run.origin === "chat" && autoContinueAttempt < AUTO_CONTINUE_MAX },
 			// Teto de custo: o menor entre o do pedido/bot (nas retomadas, só o que sobrou dele) e o da conta.
-			budget: runtimeBudgetParams(budget, effectiveCostCap),
+			budget: runtimeBudgetParams(runtimeBudget, effectiveCostCap),
 			runStartedAt,
 			onEvent: emitWithSegments,
 			restoredCheckpoint: checkpoint,

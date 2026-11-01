@@ -32,7 +32,7 @@ Construir um **motor v2 ao lado do atual**, ligado **por bot**. O v1 continua ro
 
 ### Decisões do dono (31/10)
 
-- **Orçamento padrão de "trabalho longo":** US$ 0,50 e 20 min por tarefa, ajustável por bot.
+- **Orçamento padrão de "trabalho longo" (substituído em 01/11, ver nota abaixo):** US$ 0,50 e 20 min por tarefa, ajustável por bot.
 - **Bot piloto:** Radar de Mercado.
 - **Modelo do piloto: opção configurável, não fixa.** O padrão é o mais barato. O piloto mede o custo real de três combinações antes de escolher:
   - Haiku sozinho;
@@ -100,11 +100,15 @@ Cada fase é um PR (ou poucos) contra o ramo da versão, com auditoria independe
   - o ganho seria só o laço, que é a parte mais simples.
   - Fica para reavaliar na F2, se surgir um SDK multi-modelo que respeite o contrato acima.
 
+## Nota de decisão (01/11): o árbitro do trabalho longo deixou de ser US$ e passou a ser progresso e tempo
+
+Um teto fixo em dólar (US$ 0,50, depois ideias de US$ 3) não funciona: o preço varia demais entre modelos e um modelo caro estoura qualquer valor numa pesquisa; além disso o bot chegava perto do teto e ficava sem dinheiro para escrever o documento. Decisão do dono: em `long_work` o supervisor muda para as fases de lacunas e de escrita pelo **progresso da tarefa** (lista concluída, 4 passos seguidos sem progresso no caderno e na lista) ou pelo **tempo** (70% do tempo máximo, 60 min por padrão e até 180) e pelos **passos** (70% do teto de 200). A escrita nunca é bloqueada nem cortada por custo. **Dinheiro é opcional**: sem teto em US$ por padrão; o dono pode preencher um gasto máximo por tarefa longa (teto duro, com a escrita ainda garantida), e o teto por execução da conta (padrão US$ 0,25) não se aplica ao trabalho longo no chat com humano. Chat curto e v1 não mudam. Detalhes e constantes em `docs/features/motor-v2.md`.
+
 ## Consequências
 
-- **Custo por tarefa longa sobe**, porque o v2 trabalha até o fim. Em troca, ele fica **previsível e limitado** pelo orçamento em US$ do perfil.
+- **Custo por tarefa longa sobe**, porque o v2 trabalha até o fim. Em troca, ele fica **limitado por progresso e tempo** (e, se o dono quiser, por um gasto máximo opcional em US$); a decisão de 31/10 de um orçamento fixo em US$ foi substituída pela nota de 01/11 acima.
   - Conversa curta não deve ficar mais cara; o teste de economia ("Bom dia") continua valendo.
-  - O orçamento padrão de "trabalho longo" é decisão do dono (sugestão inicial: até US$ 0,50 e 20 min por tarefa, ajustável por bot).
+  - O padrão de "trabalho longo" agora é sem teto em US$ e 60 min de tempo máximo, ajustável por bot (sugestão inicial de 31/10, US$ 0,50 e 20 min, substituída em 01/11).
 - **Dois motores convivendo** por algumas semanas: mais código para manter e testes dos dois. Mitigação: as tools são compartilhadas desde a F1.
 - **Checkpoint v1 × v2:** run em andamento continua no motor em que começou (o motor é gravado no `budgetJson` na criação).
 - **Decidido:** ver "Decisões do dono".

@@ -64,7 +64,7 @@ describe("set_engine: execução", () => {
 		const out = await executeSetEngine({ engine: "new", budget_usd: 1, minutes: 30 }, ctx, deps);
 		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2", longWorkBudgetUsd: 1, longWorkMinutes: 30 });
 		expect(out.card.title).toBe("Motor do bot atualizado");
-		expect(out.card.description).toBe("Motor novo (teste) · até US$ 1,00 e 30 min por tarefa longa");
+		expect(out.card.description).toBe("Motor novo (teste) · gasto máximo de US$ 1,00 e até 30 min por tarefa longa");
 		expect(out.summary).toMatch(/do not repeat it/);
 	});
 
@@ -72,7 +72,7 @@ describe("set_engine: execução", () => {
 		const { deps, policies } = fakeStore();
 		const on = await executeSetEngine({ engine: "new", scope: "all" }, ctx, deps);
 		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2", engineScope: "all" });
-		expect(on.card.description).toBe("Motor novo (teste) · também em rotinas e grupos · até US$ 0,50 e 20 min por tarefa longa");
+		expect(on.card.description).toBe("Motor novo (teste) · também em rotinas e grupos · sem limite de gasto, até 60 min por tarefa longa");
 		expect(on.summary).not.toMatch(/only takes effect/);
 		await expect(executeSetEngine({ scope: "tudo" }, ctx, deps)).rejects.toThrow(/Invalid scope.*Accepted fields.*scope/);
 		expect(policies["bot-a"]).toEqual({ planMode: true, engine: "v2", engineScope: "all" });

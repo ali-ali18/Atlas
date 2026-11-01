@@ -165,7 +165,7 @@ function positiveBudgetNumber(value: unknown): number | undefined {
 }
 
 /** Orçamento opcional do run; lixo é ignorado campo a campo, nunca 400. */
-function parseBudgetBody(
+export function parseBudgetBody(
 	raw: unknown,
 ): CreateAgentRunRequest["budget"] | undefined {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
@@ -455,6 +455,8 @@ export function createRunRoutes(
 				modelAuto,
 				// Sinal explícito de "o dono digitou isto" (nunca vem do corpo): libera a marcação de ferramentas só aqui.
 				humanTurn: isHumanTypedTurn(request, followUpFromConfirm),
+				// Clique de cartão: é resposta humana dentro do trabalho do dono (herda turno humano, motor e perfil do último run).
+				inheritFromConversation: request.origin === "chat" && !isHumanTypedTurn(request, followUpFromConfirm),
 				contextLength: peekModelContextLength(model),
 				onMergedIntoActiveRun: (runId) => notifyRunSignal(publish, runId, "input"),
 			});
@@ -591,6 +593,8 @@ export function createRunRoutes(
 				model,
 				userId,
 				contextLength: peekModelContextLength(model),
+				// Resposta de questionário do dono: herda turno humano, motor e perfil do último run de chat (trabalho longo continua `long_work`).
+				inheritFromConversation: true,
 				onMergedIntoActiveRun: (runId) => notifyRunSignal(publish, runId, "input"),
 			});
 		} catch (error) {

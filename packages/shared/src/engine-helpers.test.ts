@@ -50,3 +50,14 @@ describe("readHelperPolicy", () => {
 		expect(readHelperPolicy({ helperModel: "bad model!", helperMaxParallel: 0 })).toEqual({ helperModel: null, helperMaxParallel: 1 });
 	});
 });
+
+describe("planHelperBudgets sem gasto máximo", () => {
+	it("pai sem teto em US$: o ajudante também não tem teto em US$; o tempo ainda o limita", () => {
+		const plan = planHelperBudgets({ taskCount: 5, maxParallel: 4, remainingUsd: Number.POSITIVE_INFINITY, remainingMs: 30 * 60_000 });
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(plan.perTask.costUsd).toBe(Number.POSITIVE_INFINITY);
+		expect(plan.perTask.activeMs).toBeGreaterThan(0);
+		expect(planHelperBudgets({ taskCount: 2, maxParallel: 2, remainingUsd: Number.POSITIVE_INFINITY, remainingMs: 1000 }).ok).toBe(false);
+	});
+});

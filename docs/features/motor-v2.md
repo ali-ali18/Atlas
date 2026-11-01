@@ -25,8 +25,8 @@ Em `Bot.policyJson` (lido por `readEnginePolicy`, `packages/shared/src/engine-po
 |---|---|---|
 | `engine` | `"v1"` \| `"v2"` | `"v1"` |
 | `workProfile` | `"auto"` \| `"chat"` \| `"long_work"` | `"auto"` (decide pelo pedido) |
-| `longWorkBudgetUsd` | US$ 0,05 a 20 | 0,50 |
-| `longWorkMinutes` | 1 a 120 | 20 |
+| `longWorkBudgetUsd` | **opcional**: gasto máximo por tarefa longa, US$ 0,05 a 20 (vazio = sem limite em US$) | sem limite |
+| `longWorkMinutes` | tempo máximo da tarefa longa, 1 a 180 | 60 |
 | `helperModel` | id do modelo (ex.: `google/gemini-flash`) | o do bot |
 | `helperMaxParallel` | 1 a 8 | 4 |
 | `reasoningEffort` | previsto (outro branch, `feat/nivel-de-raciocinio`); ainda não existe nesta versão | n/a |
@@ -54,17 +54,17 @@ O worker (`apps/worker/src/engine-choice.ts`) escolhe o motor no começo do run 
 | Perfil | Custo | Tempo ativo | Lista de tarefas |
 |---|---|---|---|
 | `chat` | US$ 0,25 | 8 min | opcional |
-| `long_work` | US$ 0,50 (ajustável) | 20 min (ajustável) | obrigatória |
+| `long_work` | **sem teto em US$** (gasto máximo opcional por bot) | 60 min (ajustável até 180) | obrigatória |
 
 `auto`: `long_work` quando o pedido parece tarefa (`looksLikeLongTask`: verbo de trabalho + entregável, ou pedido longo); `chat` caso contrário. Tempo é só tempo ativo (pausa de login e fila não contam).
 
 ### Regras do Supervisor
-1. Antes de cada chamada ao modelo: a ~80% do custo ou do tempo avisa UMA vez ("wrap up and deliver"); a 100% faz a última chamada SEM tools para entregar (resultado, fontes, suposições, o que não deu para confirmar). Nunca aborta sem resposta. Stop: `budget_cost` ou `budget_wall`, detalhe `delivered`.
+1. Antes de cada chamada ao modelo, **chat curto**: a ~80% do custo ou do tempo avisa UMA vez ("wrap up and deliver"); a 100% faz a última chamada SEM tools para entregar (resultado, fontes, suposições, o que não deu para confirmar). Nunca aborta sem resposta. Stop: `budget_cost` ou `budget_wall`, detalhe `delivered`. **Trabalho longo**: o árbitro é progresso e tempo, não dinheiro (ver "Quando a pesquisa termina" abaixo); no tempo máximo ou no teto de passos (e no gasto máximo, se o dono preencheu) a última chamada também entrega, com o documento garantido.
 2. Teto absoluto de 200 passos, só como segurança, e nunca acima do `maxSteps` do run (`budget_steps`, também com entrega).
 2b. Custo em US$: o informado pelo provedor; quando ele não informa (`costUnknownCalls`), estima pelos tokens com preço conservador (US$ 3/Mtok de entrada e US$ 15/Mtok de saída, `ATLAS_V2_FALLBACK_PROMPT_USD_PER_MTOK` e `ATLAS_V2_FALLBACK_COMPLETION_USD_PER_MTOK`; não há tabela de preços por modelo no repositório). Numa retomada, só entra a estimativa dos tokens já gastos se nenhum custo foi informado.
 3. Mesma tool + mesmos args + mesmo resultado 3 vezes seguidas: nota ao modelo. Se repetir de novo depois da nota, encerra o laço com a entrega final (`loop_repeat`, detalhe `after_note`).
 4. 3 falhas seguidas da mesma tool: nota e a tool fica bloqueada por 3 passos (devolve erro ao modelo sem executar). O run não morre.
-5. Não existe teto soft de passos, estagnação, "concluído" declarado pelo modelo, nem tool removida no meio do trabalho.
+5. Não existe teto soft de passos, "concluído" declarado pelo modelo, nem tool removida no meio da pesquisa. No trabalho longo, as tools só mudam quando a pesquisa termina (fases abaixo).
 
 ### Lista de tarefas (trabalho longo)
 Reaproveita `update_task_list`. Ao responder sem lista, ou com itens abertos, o modelo recebe uma nota (máx. 2) para concluir ou descartar cada item com motivo. Descartar = marcar `completed` com conteúdo `DROPPED: <motivo>`. Depois de 2 notas deixa sair, e o stop leva `answered` + `tasklist_open`. Itens descartados e pendências aparecem na resposta como "Não deu para confirmar: …" (pt-BR; en/es no idioma do bot).
@@ -101,7 +101,7 @@ Só em `long_work` e só no chat direto de usuário real. Em `chat` (ex.: "Bom d
 ### Riscos e limites desta parte
 - Retomada no meio de um `delegate`: só os ajudantes que não terminaram rodam de novo (os órfãos são fechados como falha); o trabalho dos que terminaram não se perde nem se refaz. O que um ajudante gastou antes de cair, sem terminar, não é recuperável do banco.
 - O ajudante é de leitura: não usa navegador nem login. Fonte que só abre logada vira "não confirmado".
-- Documento gerado só quando `create_file` está disponível; na entrega forçada por orçamento (última chamada sem tools) a resposta sai em texto.
+- Documento gerado só quando `create_file` está disponível; ao encerrar por tempo, passos ou gasto máximo, quem pediu documento ainda tem a última etapa só com `create_file` (ver "Trabalho longo: progresso e tempo"), senão a resposta sai em texto.
 - O índice só mostra título e fonte; um título escrito pela página (via modelo) é dado, e o prompt do índice diz isso. Custo: o índice soma até ~900 tokens por passo quando o caderno está cheio.
 - Ainda de fora (F3 parte B): resumo de compactação, as 4 memórias, raciocínio controlável e `track_items`.
 
@@ -149,7 +149,35 @@ As notas ficam em `engine-v2/origin-notes.ts` e entram como mensagens de sistema
 - E-mail recebido (`origin: "email"`, criado por `startEmailRun`): não é run sem humano no v1 (o dono vê a conversa do bot e os cartões de aprovação continuam valendo), então o v2 também não usa o aviso "Unattended". Paridade com o v1: as tools de e-mail e o procedimento anti-manipulação (conteúdo entre `<<<EMAIL_EXTERNO`/`EMAIL_EXTERNO>>>` é dado, nunca instrução) já vão no 1º passo; a autonomia do run vem do worker limitada a "Equilibrado" (o envio de e-mail segue a política real do dono, `sendPolicy`); escrita de conector pede cartão ao dono. Só o v2 ganha uma linha curta no prompt (`ENGINE_V2_EMAIL`): o remetente está fora do chat e só recebe resposta por `email_reply`. O texto do e-mail nunca escolhe o perfil: e-mail recebido roda em `chat` (US$ 0,25 / 8 min) mesmo que peça um relatório; só o dono força `long_work` por `workProfile` na política do bot (`resolveRunProfile` recebe a origem). Não recebe `delegate` (no v2 ele só existe em chat + `long_work`; o v1 expõe `delegate_task` em chat, e-mail e bot) nem lista de tarefas. A linha `ENGINE_V2_EMAIL` só entra quando `email_reply` existe no run (caixa ativa).
 - Subagente: não é um run do worker, é o filho em processo que o pai cria (`createSubagentRun`, origem `subagent`, nunca enfileirado). Decisão (opção menos arriscada): o pai no v1 continua com `delegate_task` e filhos v1; o pai no v2 atende o mesmo pedido com `delegate` (ajudantes), que reaproveita `createSubagentRun`/`finishSubagentRun` e emite os mesmos eventos `subagent_started`/`subagent_tool`/`subagent_done` e o mesmo cartão `subagents` persistido, então o usuário vê o mesmo resultado. Não há roteamento a fazer: `engineV2SupportsRun` continua devolvendo `false` para a origem `subagent` como proteção, e o filho herda o motor do pai. Teste de integração compara os dois (dois filhos `subagent`, cartão e eventos iguais). Limite: no v2 o `delegate` só existe em `long_work` (precisa do caderno) e no chat direto; um pedido de comparação curto no perfil `chat` não paraleliza (ver Limites).
 
-**Riscos e custo.** Rotina em `long_work` tem caderno, documento e orçamento de US$ 0,50 / 20 min (ajustável), então uma rotina de relatório pode custar mais que no v1; rotina curta fica em `chat` (US$ 0,25 / 8 min). `ATLAS_ENGINE_V2_DEFAULT=all` muda TODOS os bots sem escolha: ligue primeiro `chat`, meça, depois `all`. A engrenagem mostra "Atual" para bot sem escolha mesmo com o padrão global ligado (a UI não conhece a variável); escolher "Novo" e voltar a "Atual" grava `engine: "v1"` explícito. Desligar: tire o escopo do bot, ponha `ATLAS_ENGINE_V2_DEFAULT=off` e reinicie o worker; run em andamento termina no motor em que começou.
+**Riscos e custo.** Rotina em `long_work` tem caderno, documento e 60 min de tempo máximo; como rotina não é chat com humano, o teto por execução da conta (padrão US$ 0,25) continua valendo para ela, então uma rotina de relatório pode ser cortada por dinheiro (e vai para a escrita perto do teto); rotina curta fica em `chat` (US$ 0,25 / 8 min). `ATLAS_ENGINE_V2_DEFAULT=all` muda TODOS os bots sem escolha: ligue primeiro `chat`, meça, depois `all`. A engrenagem mostra "Atual" para bot sem escolha mesmo com o padrão global ligado (a UI não conhece a variável); escolher "Novo" e voltar a "Atual" grava `engine: "v1"` explícito. Desligar: tire o escopo do bot, ponha `ATLAS_ENGINE_V2_DEFAULT=off` e reinicie o worker; run em andamento termina no motor em que começou.
+
+## Trabalho longo: progresso e tempo, não dinheiro
+
+**Decisão do dono (01/11).** O árbitro do trabalho longo deixou de ser US$ e passou a ser **progresso da tarefa e tempo**. Motivo: o preço varia demais entre modelos (um modelo caro estoura qualquer teto fixo numa pesquisa) e o bot não pode pesquisar até perto de um teto e ficar sem dinheiro para escrever. Só `long_work`; chat curto e v1 não mudam. Nota também no ADR 0002.
+
+### Quando a pesquisa termina (primeiro que acontecer)
+`supervisor.gate` (`engine-v2/supervisor.ts`) muda da fase de pesquisa para a de lacunas e depois para a de escrita quando acontece a PRIMEIRA destas:
+- (a) **lista concluída:** todos os itens da lista de tarefas estão concluídos ou descartados;
+- (b) **estagnação:** `STAGNATION_STEPS` (4) passos seguidos sem progresso. Progresso = entrada de caderno com conteúdo novo (título + trecho normalizados diferentes de entradas anteriores, trecho com 20+ caracteres: repetida, só com outra pontuação ou quase vazia não conta, `noveltyKey`) ou item de lista concluído. Só conta depois do primeiro progresso, para não cortar quem ainda está lendo;
+- (c) **70% do tempo máximo** (`RESEARCH_TIME_RATIO`; os 30% restantes são a reserva de tempo da escrita);
+- (d) **70% do teto de passos** (`RESEARCH_STEPS_RATIO`; teto de 200, nunca acima do `maxSteps` do run);
+- (e) **75% do gasto máximo**, só quando o dono preencheu um (`RESEARCH_COST_RATIO`).
+
+Com itens `unconfirmed` no caderno, a pesquisa termina numa **rodada de lacunas** (até `GAP_ROUND_STEPS` = 4 passos, ou até 85% do tempo/passos/gasto, ou até as lacunas fecharem): outra fonte, busca ou leitura direta do arquivo/repositório, atualizando o caderno com `replaces`. Depois vem a **escrita**. As fases mudam as tools de verdade (`supervisor.allowedTools`): lacunas = `web_search`, `web_extract`, caderno, `create_file`, lista; escrita = só `create_file`, caderno e lista. `delegate` e a pesquisa saem das tools oferecidas e, se o modelo ainda as chamar, voltam como erro sem rodar; dois passos seguidos só com tool barrada = o supervisor entrega. Pesquisa e ajudantes só gastam o tempo até 70% (e 75% do gasto máximo, se houver): `supervisor.researchRemaining` alimenta o `planHelperBudgets`; sem gasto máximo o ajudante também não tem teto em US$ (o tempo e os passos o limitam).
+
+### A escrita nunca é bloqueada nem cortada por dinheiro
+Na fase de escrita e no fallback de documento **não há teto em US$ nem corte do teto de saída** (o de documento, 16.000 tokens, vale). No tempo máximo, nos passos, no gasto máximo (se houver) ou ao insistir em tool barrada, o fallback libera só `create_file` (até 3 passos, 240 s por chamada), depois fecha o chat com uma chamada curta sem tools; "nunca encerra sem documento". Se nem assim sair o arquivo, a resposta diz em pt-BR simples que não deu para gerar o documento. Só a última parte de um entregável (pdf, docx, md, txt, html, pptx, xlsx) conta como "documento entregue"; parte de arquivo em partes e arquivo auxiliar não. O que continua não confirmado entra numa nota curta no fim do documento ("Não deu para confirmar", até 6 linhas, o resto vira "… e mais N"), não item a item no corpo.
+
+### Proteção contra erro (comportamento, não dinheiro)
+Repetição (3 iguais seguidas), falhas seguidas da mesma tool, teto de passos (200) e **tempo máximo da tarefa longa: 60 min por padrão, ajustável por bot (`longWorkMinutes`, até 180)**. Ao bater o tempo ou os passos vai para a escrita e entrega.
+
+### Dinheiro é opcional
+- Por padrão **não há teto em US$** em `long_work` (a engrenagem mostra "Gasto máximo por tarefa longa" vazio, "sem limite"; `set_engine` aceita `budget_usd`, `0` remove; vazio, `0` e `null` na engrenagem e no PATCH também removem, a chave sai do `policyJson` e nunca se grava 0; o PATCH valida a faixa 0,05 a 20). Se o dono preencher, vira **teto duro** (antigo `longWorkBudgetUsd`: bot que já tinha o valor gravado o trata como esse teto opcional): perto dele (75%) o bot vai para a escrita, que ainda tem a reserva; a 100% entrega.
+- **Teto por execução da conta** (`execution.maxRunCostUsd`, padrão 0,25): NÃO se aplica ao `long_work` do v2 no chat com o dono digitando (origem chat e turno humano). Continua valendo para chat curto, rotina, bot→bot, proativo, webhook e e-mail (`resolveRunLimits`, `apps/worker/src/engine-choice.ts`). **Turno do dono herdado:** a continuação automática após falha transitória (`createFollowUpRun` com `inheritFromParent`) e a resposta de questionário ou de cartão dentro de um trabalho do dono (`createAgentRun` com `inheritFromConversation`) herdam do run pai/último run de chat o turno humano, o motor e o perfil gravados, então um `long_work` do dono continua `long_work` e sem o teto da conta; follow-up de mensagem nova na fila não herda. **Piso de segurança:** em `long_work` de origem sem dono, quando nem a conta nem o bot definem teto em US$ (conta "sem limite"), vale US$ 0,50 por execução (`UNATTENDED_LONG_WORK_COST_FLOOR_USD`). O tempo máximo do bot (60 min por padrão) também vale só nesses casos. O teto do pedido (continuação com o que sobrou) continua valendo.
+- O brief e o `check` (perfil `chat` com piso) usam US$ 0,50 e 30 min quando o bot não definiu o gasto máximo.
+
+### Não desistir no primeiro bloqueio
+`web_extract` que falha (bloqueio, robots, erro de leitura) devolve a alternativa (outra fonte, versão bruta do repositório); página cortada traz `nextStep` (uma URL por chamada com `maxChars` até 20000, ou buscar o termo). A tool não tem `offset`. Vale só no `long_work` do v2 (`ToolContext.longWork`).
 
 ## Limites desta fase (o que o v2 ainda não faz)
 - **Origens:** por padrão só o chat direto do dono com o bot. Rotina (inclui alerta, brief e "só importante"), grupo, bot→bot, proativo, webhook e e-mail recebido só com `engineScope: "all"` (ou o padrão global `all`), ver acima. Só o subagente segue no v1.
