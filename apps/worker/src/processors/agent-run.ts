@@ -1152,7 +1152,8 @@ async function executeLeasedRun(ctx: {
 		run,
 		policyJson: rawBotPolicy,
 		isGroupRun: Boolean(groupRun),
-		hasCheckpoint: Boolean(checkpoint),
+		// Todo run nasce com checkpointJson (createAgentRun); só conta como retomada se já há transcript do modelo.
+		hasCheckpoint: Boolean(checkpoint?.llmMessages?.length),
 		// Modo proativo do bot e evento de configuração (sem mensagem digitada) usam tools que o v2 ainda não tem.
 		forceV1: Boolean(proactiveForRun) || Boolean(alertRun) || (isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run)),
 		lastUserText: [...messages].reverse().find((message) => message.role === "user")?.content ?? "",
