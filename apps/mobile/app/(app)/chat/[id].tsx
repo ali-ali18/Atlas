@@ -15,7 +15,7 @@ export default function ChatScreen() {
 	return (
 		<SafeAreaView className="flex-1 bg-background">
 			<View className="flex-row items-center gap-2 px-3 pt-2">
-				<Pressable role="button" accessibilityLabel="Voltar" onPress={() => (router.canGoBack() ? router.back() : router.replace("/home"))} className="size-11 items-center justify-center rounded-full active:bg-muted/60">
+				<Pressable role="button" accessibilityLabel="Voltar" onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))} className="size-11 items-center justify-center rounded-full active:bg-muted/60">
 					<ChevronLeftIcon />
 				</Pressable>
 				<Text numberOfLines={1} className="min-w-0 flex-1 text-control font-semibold">

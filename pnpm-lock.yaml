@@ -47,7 +47,7 @@ importers:
   apps/api:
     dependencies:
       '@better-auth/expo':
-        specifier: 1.7.6
+        specifier: ^1.7.6
         version: 1.7.6(b56175d89ae6b425afb722d9eb3e9835)
       '@better-auth/prisma-adapter':
         specifier: ^1.7.6
@@ -95,7 +95,7 @@ importers:
         specifier: 0.35.5
         version: 0.35.5(@types/node@20.19.41)
       zod:
-        specifier: 4.6.5
+        specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
       '@types/node':
@@ -135,7 +135,7 @@ importers:
   apps/mobile:
     dependencies:
       '@better-auth/expo':
-        specifier: 1.7.6
+        specifier: ^1.7.6
         version: 1.7.6(f09b29e8c6ba03a17bcb890e1317dfb7)
       '@expo/metro-runtime':
         specifier: ~58.0.16
@@ -153,7 +153,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ui
       better-auth:
-        specifier: 1.7.6
+        specifier: ^1.7.6
         version: 1.7.6(@opentelemetry/api@1.9.1)(@prisma/client@6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3))(next@16.3.8(@babel/core@7.29.7)(@opentelemetry/api@1.9.1)(@playwright/test@1.64.1)(@types/node@26.6.3)(babel-plugin-react-compiler@1.0.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(pg@8.23.0)(prisma@6.19.3(typescript@5.9.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@4.1.12(@opentelemetry/api@1.9.1)(@types/node@26.6.3)(vite@7.3.7(@types/node@26.6.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.13)(yaml@2.6.0)))
       class-variance-authority:
         specifier: ^0.7.1

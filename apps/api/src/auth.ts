@@ -7,6 +7,7 @@ import { sendMail, type MailMessage } from "@workspace/mail";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { emailOTP, magicLink } from "better-auth/plugins";
+import { createEmailCodeLimiter, type EmailCodeLimiter } from "./auth-email-limit.js";
 
 const ownerEmail = process.env.ATLAS_OWNER_EMAIL?.trim().toLowerCase();
 if (!ownerEmail) throw new Error("ATLAS_OWNER_EMAIL is required");
@@ -72,10 +73,13 @@ export type AuthDeps = {
 	mail?: (message: MailMessage) => Promise<unknown>;
 	trustExpoGo?: boolean;
 	rateLimit?: BetterAuthOptions["rateLimit"];
+	/** Teto de códigos por e-mail de destino (injetável nos testes). */
+	emailLimiter?: EmailCodeLimiter;
 };
 
 export function createAuth(deps: AuthDeps = {}) {
 	const mail = deps.mail ?? sendMail;
+	const emailLimiter = deps.emailLimiter ?? createEmailCodeLimiter();
 	const trustExpoGo = deps.trustExpoGo ?? process.env.ATLAS_TRUST_EXPO_GO?.trim() === "1";
 	const authOptions = {
 		baseURL: baseURL.origin,
@@ -119,10 +123,11 @@ export function createAuth(deps: AuthDeps = {}) {
 						{
 							matcher: (context: { path?: string }) => context.path === "/email-otp/send-verification-otp",
 							// Resposta neutra: e-mail que não é do dono recebe o mesmo `{ success: true }`, sem código gravado
-							// nem e-mail enviado, então não dá para descobrir quem é o dono.
+							// nem e-mail enviado, então não dá para descobrir quem é o dono. Estourou o teto por e-mail:
+							// também neutra, sem código (quem pede demais não aprende nada e a caixa do dono não enche).
 							handler: createAuthMiddleware(async (ctx) => {
 								const email = typeof ctx.body?.email === "string" ? ctx.body.email : "";
-								if (!isOwnerEmail(email)) return ctx.json({ success: true });
+								if (!isOwnerEmail(email) || !emailLimiter.allow(email)) return ctx.json({ success: true });
 							}),
 						},
 					],
@@ -136,11 +141,15 @@ export function createAuth(deps: AuthDeps = {}) {
 				async sendVerificationOTP({ email, otp, type }) {
 					// Só o código de entrada; os outros tipos (senha, troca de e-mail) não existem no Atlas.
 					if (type !== "sign-in" || !isOwnerEmail(email)) return;
-					await mail({
+					// Sem `await`: a resposta não espera o SMTP, então o tempo é o mesmo para o dono e para os outros
+					// e-mails (que nem chegam aqui). Falha de envio vai ao log sem o código.
+					void mail({
 						to: email,
 						subject: "Seu código de acesso ao Atlas",
 						text: `Seu código para entrar no Atlas: ${otp}\n\nEle vale por 5 minutos. Se não foi você, ignore este e-mail.`,
 						html: `<p>Seu código para entrar no Atlas:</p><p style="font-size:24px;letter-spacing:4px"><strong>${otp}</strong></p><p>Ele vale por 5 minutos. Se não foi você, ignore este e-mail.</p>`,
+					}).catch((error: unknown) => {
+						console.error("[auth] falha ao enviar o código de acesso:", error instanceof Error ? error.name : "erro");
 					});
 				},
 			}),

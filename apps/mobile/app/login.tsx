@@ -1,11 +1,12 @@
 import * as React from "react";
 import { View } from "react-native";
-import { AtSignIcon, GoogleIcon, HashIcon } from "@/components/icons";
+import { AtSignIcon, GoogleIcon } from "@/components/icons";
 import { AuthColumn, AuthDivider, AuthHeader } from "@/components/auth-layout";
 import { Screen } from "@/components/screen";
 import { SharedProof } from "@/components/shared-proof";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from "@/components/ui/input-otp";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
@@ -126,25 +127,27 @@ export default function LoginScreen() {
 				/>
 				{inCode ? (
 					<View className="gap-3">
-						<InputGroup invalid={Boolean(state.error)}>
-							<InputGroupAddon>
-								<HashIcon />
-							</InputGroupAddon>
-							<InputGroupInput
-								value={state.code}
-								onChangeText={(value) => dispatch({ type: "codeChanged", value })}
-								placeholder="000000"
-								inputMode="numeric"
-								keyboardType="number-pad"
-								textContentType="oneTimeCode"
-								autoComplete="one-time-code"
-								maxLength={CODE_LENGTH + 4}
-								autoFocus
-								editable={!busy}
-								className="tracking-widest"
-								accessibilityLabel="Código de 6 números"
-							/>
-						</InputGroup>
+						<InputOTP
+							value={state.code}
+							onChange={(value) => dispatch({ type: "codeChanged", value })}
+							maxLength={CODE_LENGTH}
+							editable={!busy}
+							invalid={Boolean(state.error)}
+							autoFocus
+							accessibilityLabel="Código de 6 números"
+						>
+							<InputOTPGroup>
+								<InputOTPSlot index={0} />
+								<InputOTPSlot index={1} />
+								<InputOTPSlot index={2} />
+							</InputOTPGroup>
+							<InputOTPSeparator />
+							<InputOTPGroup>
+								<InputOTPSlot index={3} />
+								<InputOTPSlot index={4} />
+								<InputOTPSlot index={5} />
+							</InputOTPGroup>
+						</InputOTP>
 						<Button size="lg" className="w-full" onPress={() => void verify(state.email, state.code)} disabled={busy || !isCodeComplete(state.code)}>
 							{state.busy === "verify" ? <Spinner tone="primary-foreground" /> : null}
 							<Text>{state.busy === "verify" ? "Entrando…" : "Entrar"}</Text>
@@ -204,9 +207,12 @@ export default function LoginScreen() {
 						{state.error}
 					</Text>
 				) : null}
-				<Button variant="ghost" size="sm" className="self-center" onPress={() => void changeServer()} disabled={busy}>
-					<Text>Trocar servidor</Text>
-				</Button>
+				{/* Só no passo do e-mail: no passo do código ficam "Reenviar" e "Trocar e-mail". */}
+				{inCode ? null : (
+					<Button variant="ghost" size="sm" className="self-center" onPress={() => void changeServer()} disabled={busy}>
+						<Text>Trocar servidor</Text>
+					</Button>
+				)}
 				{/* Só em desenvolvimento: prova do shared da etapa 0, não é para o usuário. */}
 				{__DEV__ ? <SharedProof /> : null}
 			</AuthColumn>

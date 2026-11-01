@@ -14,23 +14,33 @@ describe("phaseOf", () => {
 describe("redirectFor", () => {
 	it("não mexe enquanto carrega", () => expect(redirectFor("loading", "/login")).toBeNull());
 	it("sem servidor, só a Conexão", () => {
-		expect(redirectFor("no-server", "/")).toBeNull();
-		expect(redirectFor("no-server", "/login")).toBe("/");
-		expect(redirectFor("no-server", "/home")).toBe("/");
+		expect(redirectFor("no-server", "/connect")).toBeNull();
+		expect(redirectFor("no-server", "/login")).toBe("/connect");
+		expect(redirectFor("no-server", "/")).toBe("/connect");
 	});
-	it("sem sessão, só o Login (nem a tela de conectado)", () => {
+	it("sem sessão, só o Login (nem a home)", () => {
 		expect(redirectFor("signed-out", "/login")).toBeNull();
+		expect(redirectFor("signed-out", "/connect")).toBe("/login");
 		expect(redirectFor("signed-out", "/")).toBe("/login");
-		expect(redirectFor("signed-out", "/home")).toBe("/login");
 		expect(redirectFor("signed-out", "/syncing")).toBe("/login");
 	});
-	it("com sessão, Sincronizando e Conectado", () => {
-		expect(redirectFor("signed-in", "/syncing")).toBeNull();
-		expect(redirectFor("signed-in", "/home")).toBeNull();
-		expect(redirectFor("signed-in", "/chat/abc")).toBeNull();
-		expect(redirectFor("signed-in", "/chatter")).toBe("/syncing");
-		expect(redirectFor("signed-in", "/connected")).toBe("/syncing");
-		expect(redirectFor("signed-in", "/login")).toBe("/syncing");
-		expect(redirectFor("signed-in", "/")).toBe("/syncing");
+	it("com sessão e carregado, o chat e a home ficam; as telas de entrada voltam à home", () => {
+		expect(redirectFor("signed-in", "/chat/abc", true)).toBeNull();
+		expect(redirectFor("signed-in", "/", true)).toBeNull();
+		expect(redirectFor("signed-in", "/login", true)).toBe("/");
+		expect(redirectFor("signed-in", "/chat/abc", false)).toBe("/syncing");
+	});
+	it("com sessão e sem carregar, vai ao carregamento (inclusive abrindo direto na home)", () => {
+		expect(redirectFor("signed-in", "/syncing", false)).toBeNull();
+		expect(redirectFor("signed-in", "/login", false)).toBe("/syncing");
+		expect(redirectFor("signed-in", "/", false)).toBe("/syncing");
+		expect(redirectFor("signed-in", "/connect")).toBe("/syncing");
+	});
+	it("carregado, vai para a home e não volta às telas de entrada", () => {
+		expect(redirectFor("signed-in", "/syncing", true)).toBe("/");
+		expect(redirectFor("signed-in", "/login", true)).toBe("/");
+		expect(redirectFor("signed-in", "/connect", true)).toBe("/");
+		expect(redirectFor("signed-in", "/", true)).toBeNull();
+		expect(redirectFor("signed-in", "/conversas", true)).toBeNull();
 	});
 });

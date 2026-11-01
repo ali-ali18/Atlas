@@ -1,18 +1,20 @@
 import { useRouter } from "expo-router";
 import * as React from "react";
 import { SplashView } from "@/components/splash-screen";
+import { useAtlasSession } from "@/lib/atlas-session";
 import { useHomeData } from "@/lib/home-data";
 
 const MIN_VISIBLE_MS = 900;
 
 /**
  * Carregamento inicial (o mascote, sem texto). Confere a sessão com o servidor, busca bots e conversas, grava
- * no cache do aparelho e segue para a home. Com cache, abre na hora e a atualização continua por trás.
- * Sessão recusada (401) sai e volta ao Login (feito dentro do `prepare`); falha de rede sem cache abre a home
- * vazia com o aviso e o "tentar de novo".
+ * no cache do aparelho e segue para a home (`app/(app)/index.tsx`). Com cache, abre na hora e a atualização
+ * continua por trás. Sessão recusada (401) sai e volta ao Login (feito dentro do `prepare`); falha de rede sem
+ * cache abre a home vazia com o aviso e o "Tentar de novo".
  */
 export default function SyncingScreen() {
 	const router = useRouter();
+	const { markSynced } = useAtlasSession();
 	const { prepare } = useHomeData();
 	const started = React.useRef(false);
 
@@ -23,9 +25,11 @@ export default function SyncingScreen() {
 		void (async () => {
 			const outcome = await prepare();
 			await minimum;
-			if (outcome !== "signed-out") router.replace("/home");
+			if (outcome === "signed-out") return;
+			markSynced();
+			router.replace("/");
 		})();
-	}, [prepare, router]);
+	}, [prepare, markSynced, router]);
 
 	return <SplashView />;
 }

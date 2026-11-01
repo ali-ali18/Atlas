@@ -37,10 +37,10 @@ Quem usa o bot no dia a dia (lembretes, rotinas, alertas) está no celular. Um a
 ## Login (etapa 1)
 
 ### Fluxo de telas
-Sem servidor salvo: Conexão. Com servidor e sem sessão: Login. Com sessão: "Sincronizando…" (um `GET /v1/bots` só leitura, com a sessão; 401 encerra a sessão e volta ao Login, falha de rede segue) e a tela provisória "Conectado como <e-mail>" com "Sair". O controle é `AccessGate` em `app/_layout.tsx` sobre `lib/auth-flow.ts` (funções puras). "Sair" e "Trocar servidor" chamam `signOut` (mesmo sem rede o cliente apaga a sessão do aparelho). O avatar `mood="happy"` aparece uma vez (4,5 s) logo depois de um login feito naquela execução.
+Sem servidor salvo: Conexão (`/connect`). Com servidor e sem sessão: Login (`/login`). Com sessão: o carregamento com o mascote ("Sincronizando…", `/syncing`) (busca bots e seções com a sessão; 401 encerra a sessão e volta ao Login, falha de rede segue; ver "Carregamento e home (etapa 1b)") e a home (`/`, grupo `app/(app)/index.tsx`, a lista de conversas; o "Sair" fica no menu do avatar do topo). O controle é `AccessGate` em `app/_layout.tsx` sobre `lib/auth-flow.ts` (funções puras). "Sair" e "Trocar servidor" chamam `signOut` (mesmo sem rede o cliente apaga a sessão do aparelho).
 
 ### E-mail por código (caminho principal)
-Link por e-mail abre no navegador e não volta ao Expo Go sem deep link, então o app usa o plugin `emailOTP` do better-auth: "Enviar código" -> campo de 6 dígitos (entra sozinho ao completar; aceita colar) com "Reenviar" (espera de 30 s, o servidor limita 3 envios por minuto) e "Trocar e-mail". Estado e validação em `lib/login-flow.ts` (reducer puro com `now` injetado, `sanitizeCode`, `friendlyAuthError`). Textos em pt-BR, no tom de `pt-BR/login.ts` do web; erros do servidor viram frases simples, nunca o texto cru.
+Link por e-mail abre no navegador e não volta ao Expo Go sem deep link, então o app usa o plugin `emailOTP` do better-auth: "Enviar código" -> campo `InputOTP` (6 casinhas em dois grupos de 3 com separador, `components/ui/input-otp.tsx`: mesmas partes do InputOTP do shadcn, `TextInput` invisível por baixo com teclado numérico e `oneTimeCode`; entra sozinho ao completar; aceita colar) com "Reenviar" (espera de 30 s, o servidor limita 3 envios por minuto) e "Trocar e-mail". Estado e validação em `lib/login-flow.ts` (reducer puro com `now` injetado, `sanitizeCode`, `friendlyAuthError`). Textos em pt-BR, no tom de `pt-BR/login.ts` do web; erros do servidor viram frases simples, nunca o texto cru.
 
 Servidor (`apps/api/src/auth.ts`, `createAuth`):
 - código de 6 dígitos, validade de 300 s, 5 tentativas (`allowedAttempts`), `storeOTP: "hashed"`; o e-mail sai por `@workspace/mail`, o mesmo do magic link;
@@ -57,6 +57,11 @@ Escolhido porque é o plugin oficial para Expo (versão 1.7.6, igual à do `bett
 `trustedOrigins` = origem do web + `atlas://` (sempre) + `exp://` (só com `ATLAS_TRUST_EXPO_GO=1`). Função pura `buildTrustedOrigins`. No Expo Go o retorno chega como `exp://<ip>:<porta>/--/...`, e o esquema `exp://` é de todos os apps abertos no Expo Go: com a env ligada em produção, um app malicioso no mesmo aparelho poderia registrar o retorno do Google (que leva o cookie da sessão na URL) e roubar a sessão do dono. Por isso a env nasce desligada e deve ser ligada só durante o teste no Expo Go e desligada depois; no app instalado (EAS build) o `atlas://` basta. Documentada nos `.env.example` e no `docker-compose.yml`.
 
 ### Segurança
+- **Deep link e o cookie:** no retorno do Google, o cookie da sessão volta ao app dentro da URL do deep link (`atlas://...?cookie=...`). No Android, outro app instalado pode registrar o mesmo esquema `atlas://` e interceptar o retorno. Antes de publicar na loja, avaliar App Links (Android) / Universal Links (iOS), que são verificados por domínio, ou um esquema menos óbvio. O código por e-mail não usa deep link e não tem esse risco.
+- **`NODE_ENV=development`:** nesse modo o próprio plugin `expo` do better-auth já aceita `exp://` como origem confiável, sem a env `ATLAS_TRUST_EXPO_GO`. Nunca rode produção com `NODE_ENV=development`.
+- **Proxy e IP:** o limite por IP do better-auth lê `X-Forwarded-For`. O proxy reverso na frente da api precisa **sobrescrever** esse cabeçalho (não repassar o que o cliente mandou); senão quem envia um `X-Forwarded-For` falso foge do limite. O teto por e-mail (5 códigos em 15 min, de qualquer IP) não depende disso, mas fica em memória do processo: com várias instâncias da api vale por instância e reiniciar zera a conta.
+- **Tempo de resposta:** o envio do código não é esperado (sem `await`), então a resposta tem o mesmo tempo para o dono e para qualquer outro e-mail; falha de envio vai ao log sem o código.
+
 Nenhum token ou cookie em log; o código nunca é logado pelo app. O `MAIL_URL=log://` (padrão de desenvolvimento) imprime o e-mail inteiro, inclusive o código, no log do servidor: em produção use SMTP ou Resend. A checagem de origem do better-auth fica explícita (`disableOriginCheck: false`) porque em `NODE_ENV=test` ele a desliga sozinho.
 
 ### Testes
@@ -72,7 +77,7 @@ Nenhum token ou cookie em log; o código nunca é logado pelo app. O `MAIL_URL=l
 ## Carregamento e home (etapa 1b)
 
 ### Fluxo
-Com sessão, `AccessGate` leva a `/syncing` (carregamento), que leva a `/home`; tocar num bot ou conversa abre `/chat/[id]` (placeholder "Chat em breve"). Enquanto o app confere o servidor salvo e a sessão do aparelho (`phase: "loading"`), o mascote cobre a tela, então nenhuma tela errada pisca. A tela provisória "Conectado como …" saiu.
+Com sessão, `AccessGate` leva a `/syncing` (carregamento), que leva à home (`/`, grupo `app/(app)`); tocar num bot ou conversa abre `/chat/[id]` (placeholder "Chat em breve"). Enquanto o app confere o servidor salvo e a sessão do aparelho (`phase: "loading"`), o mascote cobre a tela, então nenhuma tela errada pisca. A tela provisória "Conectado como …" saiu.
 
 ### Carregamento
 `components/splash-screen.tsx`: fundo `#09090b` (escuro nos dois temas, igual ao splash nativo) e o `Avatar` branco de 92 px no centro, animado e parado (só pisca e olha), sem texto. O splash nativo (`expo-splash-screen` em `app.json`) usa o mesmo fundo e `assets/splash-icon.png` (o mesmo corpo e olhos, gerados do motor `toSvg` do shared) com `imageWidth: 92`; `preventAutoHideAsync` segura o nativo até a primeira camada do app desenhar, para a troca não piscar. `/syncing` fica no mínimo 0,9 s e chama `prepare()` do `HomeDataProvider`: com cache abre na hora e a atualização segue por trás; sem cache espera a rede (10 s). 401 encerra a sessão (volta ao Login); falha de rede sem cache abre a home com o aviso e "Tentar de novo".
