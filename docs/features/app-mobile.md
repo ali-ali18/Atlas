@@ -1,6 +1,6 @@
 # App mobile (Android e iOS)
 
-- **Status:** em andamento (etapa 0 entregue; login da etapa 1 entregue)
+- **Status:** em andamento (etapa 0 entregue; login e home da etapa 1 entregues)
 - **Data:** 2026-11-01
 - **Issues/PRs:** #
 
@@ -20,7 +20,7 @@ Quem usa o bot no dia a dia (lembretes, rotinas, alertas) está no celular. Um a
 
 ## Etapas
 0. **Base (esta entrega):** projeto Expo no monorepo, tema e primitivos no mesmo molde do `packages/ui`, `@workspace/shared` rodando no Metro, telas só de interface com dado de mentira (conexão com o servidor, login "em breve", "Sincronizando…"), prévia web para screenshots. Sem login real e sem chat.
-1. **Conexão, login Google + e-mail, sincronização e chat ao vivo:** better-auth (Google e código por e-mail) com sessão guardada no `expo-secure-store`, lista de conversas, SSE do chat. Roda no Expo Go. **Login entregue (ver "Login (etapa 1)"); lista de conversas e chat ficam para a próxima.**
+1. **Conexão, login Google + e-mail, sincronização e chat ao vivo:** better-auth (Google e código por e-mail) com sessão guardada no `expo-secure-store`, lista de conversas, SSE do chat. Roda no Expo Go. **Login entregue (ver "Login (etapa 1)") e carregamento + home entregues (ver "Carregamento e home (etapa 1b)"); o chat ao vivo fica para a próxima.**
 2. **Development build (EAS) com push e compartilhar:** notificações push, "compartilhar com o Atlas", deep links. Sai do Expo Go.
 3. **Telas nativas:** biblioteca (painéis, rotinas), arquivos, configurações, cards do chat nativos.
 
@@ -68,6 +68,44 @@ Nenhum token ou cookie em log; o código nunca é logado pelo app. O `MAIL_URL=l
 - **Retorno do Google no Expo Go:** o redirect URI do Google continua o do servidor (`/api/auth/callback/google`); o app só muda o destino final. Não foi testado em aparelho real nesta entrega (sem Google real aqui): validar no Expo Go do Android.
 - **Cancelar o Google** mostra a mesma mensagem de falha (o navegador não diz se foi cancelamento).
 - **Sessão offline:** o app abre com a sessão em cache; se o servidor a tiver revogado, o `GET /v1/bots` de "Sincronizando…" (401) encerra a sessão.
+
+## Carregamento e home (etapa 1b)
+
+### Fluxo
+Com sessão, `AccessGate` leva a `/syncing` (carregamento), que leva a `/home`; tocar num bot ou conversa abre `/chat/[id]` (placeholder "Chat em breve"). Enquanto o app confere o servidor salvo e a sessão do aparelho (`phase: "loading"`), o mascote cobre a tela, então nenhuma tela errada pisca. A tela provisória "Conectado como …" saiu.
+
+### Carregamento
+`components/splash-screen.tsx`: fundo `#09090b` (escuro nos dois temas, igual ao splash nativo) e o `Avatar` branco de 92 px no centro, animado e parado (só pisca e olha), sem texto. O splash nativo (`expo-splash-screen` em `app.json`) usa o mesmo fundo e `assets/splash-icon.png` (o mesmo corpo e olhos, gerados do motor `toSvg` do shared) com `imageWidth: 92`; `preventAutoHideAsync` segura o nativo até a primeira camada do app desenhar, para a troca não piscar. `/syncing` fica no mínimo 0,9 s e chama `prepare()` do `HomeDataProvider`: com cache abre na hora e a atualização segue por trás; sem cache espera a rede (10 s). 401 encerra a sessão (volta ao Login); falha de rede sem cache abre a home com o aviso e "Tentar de novo".
+
+### Dados (mesmos endpoints do web)
+- `GET /v1/bots`: cada bot traz `pinned/pinOrder`, `sectionId`, `isPrimary`, `memberIds` (grupo), `unreadCount` e `lastMessage` (a conversa de cada bot; não existe lista de conversas à parte, `POST /v1/conversations` só cria).
+- `GET /v1/sections`: as seções (`order`, `name`).
+Tudo por `lib/api-fetch.ts`, com a sessão. Respostas malformadas são descartadas item a item (`lib/home-sync.ts`), nunca derrubam a lista.
+
+### Home
+- **Topo:** foto da conta (a do Google) ou iniciais, que abre um menu com "Sair" e "Trocar servidor"; "+" redondo (por enquanto uma gaveta "Em breve").
+- **Fixados:** grade de 3 colunas, avatar com a forma e a cor reais do bot (`resolveShape`/`resolveColor` + o `Avatar` do app, o mesmo motor do web), nome truncado com "…" e a estrelinha laranja no bot principal. A última linha fica centralizada, como na referência.
+- **Seções:** recolhíveis ("Codding ⌄"), na ordem de `order`; bots sem seção (ou com seção que não existe) ficam em "Sem sessão", no fim. Fixado nunca aparece numa seção (igual ao web). Linha: avatar, título em negrito, data à direita ("agora", "14:05", "Ontem", "Seg", "5 de out.", "5 de out. de 2025"), prévia limpa de markdown e ícone de envio em "Enviou mensagem para X: título" (o marcador `bot-link` lido por `parseBotLinkCard`). Bola azul + prévia mais forte quando há mensagem não lida.
+- **Rodapé:** botão de grade (placeholder "Em breve") e a barra "Buscar" em pílula, que filtra bots e conversas localmente (nome e prévia, sem acento nem caixa); durante a busca as seções ficam abertas e as vazias somem.
+- **Puxar para atualizar** (`RefreshControl`).
+
+### Cache
+`@react-native-async-storage/async-storage` 2.2.0 (a versão do SDK 58, funciona no Expo Go). Chave `atlas.home.v1:<servidor>|<e-mail>` (nunca mostra a lista de outra conta), validade de 30 dias, formato versionado. Cai no cache se estiver estranho/antigo e a rede segue. Ao sair ou trocar de servidor, o cache da home é apagado (`clearHomeCache`).
+
+### Lógica pura e onde mora
+Tudo em `apps/mobile/lib` com teste (vitest): `home-list.ts` (agrupamento, ordenação, busca, prévia, data, iniciais), `home-sync.ts` (busca e validação), `home-cache.ts` (cache com armazenamento injetado). Nada foi extraído para `packages/shared`: no web essa lógica está dentro de componentes e do i18n (`agent-list.tsx`, `chat-sidebar.tsx`, `list-time.ts` com `Intl`/fuso/idioma), e refatorar para dividir teria risco no web sem ganho agora. A data de lista do mobile é fixa em pt-BR (Hermes não garante `Intl` completo). Reaproveitado do shared: `Bot`, `Section`, `parseBotLinkCard`, `sourcePreviewPrefix`, `resolveShape`/`resolveColor`, o motor do avatar. Fica como sugestão extrair para o shared quando o web ganhar o mesmo teste.
+
+### Diferenças em relação à referência do dono
+- Fundo `#09090b` (o do tema do app), não o cinza `#121212` do print.
+- Os olhos do mascote ficam retos (o quadro de repouso do motor); no print o corpo está girado em 3D e os olhos aparecem inclinados.
+- O avatar do Grok Bot é o do motor (forma do bot), não o abóbora com caule do print, que vem de uma forma que o motor não tem hoje.
+- Sem barra de status e sem a pílula de gestos do Android (só existem no aparelho).
+- Splash nativo: o mesmo corpo e olhos em PNG; o Android 12+ mostra o ícone dentro da própria área de ícone, então o tamanho exato só se confirma num aparelho (Expo Go não usa esse splash).
+
+### Riscos
+- O splash nativo só é validado num development build ou no app instalado, não no Expo Go.
+- Foto da conta: vem de `user.image` do better-auth (Google); se a imagem não carrega, vira iniciais.
+- Cache com nomes e prévias de conversas fica no armazenamento do app (sem criptografia); sai ao encerrar a sessão.
 
 ## Diferenças inevitáveis em relação ao `packages/ui`
 - `Text`: no web o texto é `<p>/<span>`; no RN todo texto precisa de `<Text>`. O `Button` passa a cor do rótulo por `TextClassContext` (como no reusables).
