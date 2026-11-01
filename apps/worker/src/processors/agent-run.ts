@@ -57,6 +57,7 @@ import {
 	finishAgentRun,
 	getAgentRun,
 	recordRunEngine,
+	recordRunPromotion,
 	failAgentRunAfterRetries,
 	getAgentRunCheckpoint,
 	getBotProfile,
@@ -1393,7 +1394,7 @@ async function executeLeasedRun(ctx: {
 			decideForOtherBots: readDecideForOtherBots(rawBotPolicy),
 			// Checagens que só observam a resposta final não seguram a conclusão: o uso delas é somado depois (abaixo).
 			backgroundObserveChecks: true,
-		});
+		}, { canPromote: runLimits.canPromote, onPromoted: () => recordRunPromotion(runId, runUserId).then(() => undefined) });
 		runTelemetry.markRuntimeDone();
 		await coalescer.flush();
 		await emitState.tail;
