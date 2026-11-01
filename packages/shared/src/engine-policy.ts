@@ -18,8 +18,8 @@ export const LONG_WORK_MIN_MINUTES = 1;
 export const LONG_WORK_MAX_MINUTES = 120;
 
 /**
- * Onde o v2 roda num bot que o ligou: `chat` (padrão) = só a conversa direta com o dono; `all` = também rotinas,
- * grupo e bot→bot. Subagente, proativo, alerta e evento de configuração do bot seguem no v1 (o v2 não tem esses recursos).
+ * Onde o v2 roda num bot que o ligou: `chat` (padrão) = só a conversa direta com o dono; `all` = também rotinas
+ * (alerta e brief inclusos), grupo, bot→bot e proativo. Subagente, webhook e e-mail seguem no v1.
  */
 export type EngineScope = "chat" | "all";
 /** Padrão global do deploy (`ATLAS_ENGINE_V2_DEFAULT`) para bots que não escolheram o motor: `off` (padrão), `chat` ou `all`. */
@@ -103,14 +103,14 @@ export function withRunEngine(budgetJson: unknown, choice: { engine: RunEngine; 
 }
 
 /**
- * Origens que o v2 atende. Escopo `chat`: só a conversa direta do dono com o bot. Escopo `all`: também rotina,
- * grupo (run de membro na conversa do grupo) e bot→bot. Webhook, e-mail, proativo e subagente seguem no v1
- * (sem humano para o v2 perguntar e com recursos que ele não tem; ver docs/features/motor-v2.md).
+ * Origens que o v2 atende. Escopo `chat`: só a conversa direta do dono com o bot. Escopo `all`: também rotina
+ * (inclui alerta, brief "Seu dia" e "só importante"), grupo (run de membro na conversa do grupo), bot→bot e proativo
+ * (reflexão e lembrete do bot). Webhook, e-mail e subagente seguem no v1 (ver docs/features/motor-v2.md).
  */
 export function engineV2SupportsRun(input: { origin: string; isGroupRun: boolean; isSubagent?: boolean; scope?: EngineScope }): boolean {
 	if (input.isSubagent === true) return false;
 	if (input.origin === "chat") return input.scope === "all" || !input.isGroupRun;
-	return input.scope === "all" && (input.origin === "routine" || input.origin === "bot") && !input.isGroupRun;
+	return input.scope === "all" && (input.origin === "routine" || input.origin === "bot" || input.origin === "proactive") && !input.isGroupRun;
 }
 
 /**

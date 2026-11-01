@@ -4,10 +4,10 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { engineDefaultFromEnv, mustStayOnV1, pickRunEngine } from "./engine-choice.js";
+import { engineDefaultFromEnv, pickRunEngine } from "./engine-choice.js";
 import type { EngineDefault } from "@workspace/shared";
 
-function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: string; isGroupRun?: boolean; hasCheckpoint?: boolean; text?: string; forceV1?: boolean; globalDefault?: EngineDefault } = {}) {
+function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: string; isGroupRun?: boolean; hasCheckpoint?: boolean; text?: string; forceV1?: boolean; shortRun?: boolean; globalDefault?: EngineDefault } = {}) {
 	const recorded: Array<{ engine: string; profile: string }> = [];
 	const choose = () =>
 		pickRunEngine({
@@ -17,6 +17,7 @@ function setup(over: { policyJson?: unknown; budgetJson?: unknown; origin?: stri
 			hasCheckpoint: over.hasCheckpoint ?? false,
 			lastUserText: over.text ?? "Bom dia",
 			forceV1: over.forceV1,
+			shortRun: over.shortRun,
 			globalDefault: over.globalDefault,
 			record: async (choice) => {
 				recorded.push(choice);
@@ -103,11 +104,12 @@ test("se a escolha não puder ser gravada, o run roda no v1 (a retomada não tro
 
 const wide = { engine: "v2", engineScope: "all" };
 
-test("escopo all: rotina, grupo e bot→bot saem no v2 e gravam a escolha; o chat também", async () => {
+test("escopo all: rotina, grupo, bot→bot e proativo saem no v2 e gravam a escolha; o chat também", async () => {
 	for (const [name, over] of [
 		["rotina", { origin: "routine" }],
 		["grupo", { origin: "chat", isGroupRun: true }],
 		["bot→bot", { origin: "bot" }],
+		["proativo", { origin: "proactive" }],
 		["chat", { origin: "chat" }],
 	] as const) {
 		const { choose, recorded } = setup({ policyJson: wide, ...over });
@@ -116,8 +118,8 @@ test("escopo all: rotina, grupo e bot→bot saem no v2 e gravam a escolha; o cha
 	}
 });
 
-test("escopo all não leva subagente, webhook, e-mail nem proativo ao v2", async () => {
-	for (const origin of ["subagent", "webhook", "email", "proactive"]) {
+test("escopo all não leva subagente, webhook nem e-mail ao v2", async () => {
+	for (const origin of ["subagent", "webhook", "email"]) {
 		const { choose, recorded } = setup({ policyJson: wide, origin });
 		assert.equal((await choose()).engine, "v1", origin);
 		assert.deepEqual(recorded, [], origin);
@@ -137,7 +139,7 @@ test("rotina no v2: relatório vira long_work, tarefa curta fica em chat", async
 	assert.equal((await simple.choose()).profile, "chat");
 });
 
-test("forceV1 (proativo, alerta, config, brief, rotina só importante) vence o escopo all e o padrão global", async () => {
+test("forceV1 (gancho para recurso do v1 que o v2 não cobre) vence o escopo all e o padrão global", async () => {
 	const { choose, recorded } = setup({ policyJson: wide, origin: "routine", forceV1: true, globalDefault: "all" });
 	assert.equal((await choose()).engine, "v1");
 	assert.deepEqual(recorded, []);
@@ -182,13 +184,29 @@ test("engineDefaultFromEnv lê ATLAS_ENGINE_V2_DEFAULT; ausente ou inválido é 
 	assert.equal(engineDefaultFromEnv({ ATLAS_ENGINE_V2_DEFAULT: "sim" }), "off");
 });
 
-test("mustStayOnV1: recursos que o v2 não tem", () => {
-	const base = { origin: "routine", proactive: false, alert: false, botConfigEvent: false, detachedBrief: false, routinePush: false };
-	assert.equal(mustStayOnV1(base), false);
-	assert.equal(mustStayOnV1({ ...base, origin: "chat" }), false);
-	for (const key of ["proactive", "alert", "botConfigEvent"] as const) assert.equal(mustStayOnV1({ ...base, [key]: true }), true, key);
-	assert.equal(mustStayOnV1({ ...base, detachedBrief: true }), true);
-	assert.equal(mustStayOnV1({ ...base, routinePush: true }), true);
-	// brief e push só importam em rotina.
-	assert.equal(mustStayOnV1({ ...base, origin: "chat", detachedBrief: true, routinePush: true }), false);
+test("alerta, brief, proativo e config do bot (shortRun) saem no v2 sempre no perfil chat, mesmo com pedido de relatório ou long_work forçado", async () => {
+	const report = "Levante os pedidos em aberto e monte um relatório comparativo com preços";
+	for (const [name, over] of [
+		["alerta/brief (rotina)", { origin: "routine" }],
+		["proativo", { origin: "proactive" }],
+		["config do bot (chat)", { origin: "chat" }],
+	] as const) {
+		const auto = setup({ policyJson: wide, text: report, shortRun: true, ...over });
+		assert.deepEqual(await auto.choose(), { engine: "v2", profile: "chat", longWorkBudgetUsd: 0.5, longWorkMinutes: 20, helperModel: null, helperMaxParallel: 4 }, name);
+		assert.deepEqual(auto.recorded, [{ engine: "v2", profile: "chat" }], name);
+		const forced = setup({ policyJson: { ...wide, workProfile: "long_work" }, text: report, shortRun: true, ...over });
+		assert.equal((await forced.choose()).profile, "chat", `${name} com long_work forçado`);
+	}
+	// Sem shortRun o pedido de relatório continua virando trabalho longo.
+	assert.equal((await setup({ policyJson: wide, origin: "routine", text: report }).choose()).profile, "long_work");
+});
+
+test("alerta, brief e proativo seguem no v1 sem o escopo all (padrão sem chave continua v1)", async () => {
+	for (const over of [{ origin: "routine" }, { origin: "proactive" }]) {
+		for (const policyJson of [null, { engine: "v2" }, { engine: "v2", engineScope: "chat" }]) {
+			const { choose, recorded } = setup({ policyJson, shortRun: true, ...over });
+			assert.equal((await choose()).engine, "v1");
+			assert.deepEqual(recorded, []);
+		}
+	}
 });

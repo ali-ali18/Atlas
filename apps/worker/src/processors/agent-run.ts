@@ -136,7 +136,7 @@ import {
 	resolveBudget,
 	wallClockAnchors,
 } from "@workspace/agent-runtime";
-import { engineDefaultFromEnv, mustStayOnV1, pickRunEngine, runSelectedEngine } from "../engine-choice.js";
+import { engineDefaultFromEnv, pickRunEngine, runSelectedEngine } from "../engine-choice.js";
 import { briefToolFilter, budgetStopFallbackText, isBotConfigEventObjective, createReviewerClient, resolveMaintenanceCandidates } from "@workspace/agent-runtime";
 import { briefDeliveryDeps, deliverBriefFailure, deliverDailyBrief, findRoutineRunIdWithRetry, isDetachedBriefRun } from "../daily-brief.js";
 import { appendConversationMessage, getLanguageContext, listRecentLoginAsks } from "@workspace/db";
@@ -1156,16 +1156,9 @@ async function executeLeasedRun(ctx: {
 		isGroupRun: Boolean(groupRun),
 		// Todo run nasce com checkpointJson (createAgentRun); só conta como retomada se já há transcript do modelo.
 		hasCheckpoint: Boolean(checkpoint?.llmMessages?.length),
-		// Modo proativo do bot, alerta, evento de configuração (sem mensagem digitada), brief "Seu dia" e rotina
-		// "só importante" usam recursos que o v2 ainda não tem.
-		forceV1: mustStayOnV1({
-			origin: run.origin,
-			proactive: Boolean(proactiveForRun),
-			alert: Boolean(alertRun),
-			botConfigEvent: isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run),
-			detachedBrief: isDetachedBriefRun(run),
-			routinePush: Boolean(userPushForRun),
-		}),
+		// Alerta, brief "Seu dia", reflexão/lembrete proativo e evento de configuração do bot (sem mensagem digitada)
+		// são verificações curtas: o v2 cobre todos (tools e notas por origem), sempre no perfil `chat`.
+		shortRun: Boolean(alertRun) || isDetachedBriefRun(run) || run.origin === "proactive" || (isBotConfigEventObjective(run.objective ?? "") && !readRunHumanTurn(run)),
 		globalDefault: engineDefaultFromEnv(),
 		lastUserText: [...messages].reverse().find((message) => message.role === "user")?.content ?? "",
 		record: (choice) => recordRunEngine(runId, choice),

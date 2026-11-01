@@ -131,16 +131,16 @@ describe("tabela de decisão: origem × motor do bot × escopo × padrão global
 	const expected: Array<[Bot, EngineDefault, Where[]]> = [
 		["sem escolha", "off", []],
 		["sem escolha", "chat", ["chat"]],
-		["sem escolha", "all", ["chat", "grupo", "routine", "bot"]],
+		["sem escolha", "all", ["chat", "grupo", "routine", "bot", "proactive"]],
 		["v1", "off", []],
 		["v1", "chat", []],
 		["v1", "all", []],
 		["v2/chat", "off", ["chat"]],
 		["v2/chat", "chat", ["chat"]],
 		["v2/chat", "all", ["chat"]],
-		["v2/all", "off", ["chat", "grupo", "routine", "bot"]],
-		["v2/all", "chat", ["chat", "grupo", "routine", "bot"]],
-		["v2/all", "all", ["chat", "grupo", "routine", "bot"]],
+		["v2/all", "off", ["chat", "grupo", "routine", "bot", "proactive"]],
+		["v2/all", "chat", ["chat", "grupo", "routine", "bot", "proactive"]],
+		["v2/all", "all", ["chat", "grupo", "routine", "bot", "proactive"]],
 	];
 	const everywhere: Where[] = ["chat", "grupo", "routine", "bot", "webhook", "email", "proactive", "subagent"];
 
