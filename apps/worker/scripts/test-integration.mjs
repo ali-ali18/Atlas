@@ -13,7 +13,9 @@ if (!url) {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const result = spawnSync(
 	process.execPath,
-	[resolve(root, "scripts/run-node-tests.mjs"), "src/integration/*.integration.ts"],
+	// Um arquivo por vez: todos dividem o mesmo banco, e o despacho de grupo (`processGroupTurnsAndPending`) pega
+	// turnos abertos de qualquer dono; dois arquivos em paralelo roubam o trabalho um do outro.
+	[resolve(root, "scripts/run-node-tests.mjs"), "--test-concurrency=1", "src/integration/*.integration.ts"],
 	{ stdio: "inherit", env: { ...process.env, DATABASE_URL: url } },
 );
 process.exit(result.status ?? 1);

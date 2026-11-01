@@ -3,7 +3,10 @@
 // Uso (no diretório do pacote): node ../../scripts/run-node-tests.mjs "src/**/*.test.ts" [...]
 import { spawnSync } from "node:child_process";
 
-const patterns = process.argv.slice(2);
+// Flags do node:test (`--test-concurrency=1` etc.) passam adiante; o resto são globs.
+const args = process.argv.slice(2);
+const testFlags = args.filter((arg) => arg.startsWith("--test-"));
+const patterns = args.filter((arg) => !arg.startsWith("--test-"));
 if (patterns.length === 0) {
 	console.error("uso: run-node-tests.mjs <glob> [<glob>...]");
 	process.exit(2);
@@ -17,7 +20,7 @@ const env = {
 };
 const result = spawnSync(
 	process.execPath,
-	["--import", "tsx", "--test", ...patterns],
+	["--import", "tsx", "--test", ...testFlags, ...patterns],
 	{ stdio: "inherit", env },
 );
 process.exit(result.status ?? 1);
