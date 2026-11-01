@@ -102,7 +102,8 @@ Tudo em `apps/mobile/lib` com teste (vitest): `home-list.ts` (agrupamento, orden
 
 ### Diferenças em relação à referência do dono
 - Fundo `#09090b` (o do tema do app), não o cinza `#121212` do print.
-- Os olhos do mascote ficam retos (o quadro de repouso do motor); no print o corpo está girado em 3D e os olhos aparecem inclinados.
+- Mascote do carregamento: olhos retos (quadro de repouso do motor); no print do splash o corpo está girado em 3D.
+- Avatares da home: parados, de lado e olhando para cima e para a direita (`lib/avatar-pose.ts`, `LIST_POSE` yaw 26, pitch -18, roll 15 no `Frame.orientation` do motor, o mesmo campo que o web usa). O web não tem pose fixa de lista (parado ele é reto; o 3D vem do olhar, dos clipes de repouso e da cutucada, que chegam a yaw 40, pitch -34 e roll 25), então os valores foram ajustados contra o print e ficam dentro desses limites. Ficam estáticos, sem piscar nem olhar: o web também não anima a lista (só pisca por timer), e dezenas de avatares com valores compartilhados e timers pesariam no celular.
 - O avatar do Grok Bot é o do motor (forma do bot), não o abóbora com caule do print, que vem de uma forma que o motor não tem hoje.
 - Sem barra de status e sem a pílula de gestos do Android (só existem no aparelho).
 - Splash nativo: o mesmo corpo e olhos em PNG; o Android 12+ mostra o ícone dentro da própria área de ícone, então o tamanho exato só se confirma num aparelho (Expo Go não usa esse splash).
@@ -110,7 +111,7 @@ Tudo em `apps/mobile/lib` com teste (vitest): `home-list.ts` (agrupamento, orden
 ### Riscos
 - O splash nativo só é validado num development build ou no app instalado, não no Expo Go.
 - Foto da conta: vem de `user.image` do better-auth (Google); se a imagem não carrega, vira iniciais.
-- Cache com nomes e prévias de conversas fica no armazenamento do app (sem criptografia); sai ao encerrar a sessão.
+- O cache guarda só o que a home desenha (id, nome, cor, forma, fixado, seção, membros, principal, não lida, data e prévia de até 140 caracteres; formato v2, o v1 é descartado), sem criptografia; sai ao sair ou trocar de servidor (`signOut` e `changeServer` apagam com `await`). Atualização em voo é abortada ao sair ou trocar de conta e nunca grava depois (`lib/home-sync-controller.ts`).
 
 ## Diferenças inevitáveis em relação ao `packages/ui`
 - `Text`: no web o texto é `<p>/<span>`; no RN todo texto precisa de `<Text>`. O `Button` passa a cor do rótulo por `TextClassContext` (como no reusables).
