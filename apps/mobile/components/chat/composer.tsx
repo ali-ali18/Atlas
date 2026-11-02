@@ -38,8 +38,8 @@ export function Composer({ sections, botName, color, running, onSend, onStop, on
 	const [webHeight, setWebHeight] = React.useState(0);
 	// O campo cresce com o texto até 40% da tela e rola por dentro depois disso.
 	const maxFieldHeight = Math.round(useWindowDimensions().height * 0.4);
-	// Largura do grupo da direita: microfone + enviar (86) ou só o enviar (40).
-	const rightWidth = hasText ? 40 : 86;
+	// Largura do grupo da direita: microfone + botão da cor do bot (o microfone fica também com texto).
+	const rightWidth = 86;
 	const mode = hasText ? "send" : running ? "stop" : "voice";
 	const press = () => {
 		if (mode === "send") {
@@ -103,11 +103,9 @@ export function Composer({ sections, botName, color, running, onSend, onStop, on
 							<PlusIcon size={20} />
 						</Pressable>
 						<View className="flex-row items-center gap-1.5">
-							{hasText ? null : (
-								<Pressable role="button" accessibilityLabel="Microfone (em breve)" onPress={() => onSoon("voz")} className="size-10 items-center justify-center rounded-full bg-foreground/10 active:opacity-70">
-									<MicIcon size={20} />
-								</Pressable>
-							)}
+							<Pressable role="button" accessibilityLabel="Microfone (em breve)" onPress={() => onSoon("voz")} className="size-10 items-center justify-center rounded-full bg-foreground/10 active:opacity-70">
+								<MicIcon size={20} />
+							</Pressable>
 							<Pressable
 								role="button"
 								accessibilityLabel={mode === "send" ? "Enviar" : mode === "stop" ? "Parar" : "Voz (em breve)"}
