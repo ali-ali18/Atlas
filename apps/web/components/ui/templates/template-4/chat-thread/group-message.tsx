@@ -6,7 +6,7 @@ import { useT } from "@/lib/i18n/provider";
 import type { GroupBubbleLayout } from "@/lib/group-thread";
 
 import { AgentAvatar } from "../agent-avatar";
-import { botAccent } from "../chat-context-panel/bot-accent";
+import { botAccent } from "@workspace/shared";
 import type { Message } from "../data";
 import { AssistantMessage } from "./assistant-message";
 import { mentionMarkdownComponents, type MentionMember } from "./mention-text";
