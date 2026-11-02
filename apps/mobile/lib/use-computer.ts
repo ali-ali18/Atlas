@@ -7,10 +7,13 @@ import { ComputerApiError, computerErrorText, getComputerSession, getViewerSocke
 import { initialReconnect, msUntilRetry, reconnectStep, type ReconnectEvent, type ReconnectState } from "./computer-reconnect";
 import type { ApiFetch } from "./home-sync";
 import type { BridgeEvent } from "./viewer-bridge";
+import { withTimeout } from "./with-timeout";
 
 /** Computador ligando: confere de novo a cada 3 s, até ~1 min. */
 const STARTING_POLL_MS = 3_000;
 const STARTING_POLL_MAX = 20;
+/** O pedido do link da tela também tem prazo: com a rede travada a tela não pode ficar em "Conectando" para sempre. */
+const LINK_TIMEOUT_MS = 15_000;
 /** A página tem este tempo para conectar depois de receber o endereço; senão conta como queda. */
 const CONNECT_TIMEOUT_MS = 20_000;
 
@@ -96,7 +99,7 @@ export function useComputer({ apiFetch, serverUrl, conversationId }: { apiFetch:
 			const { apiFetch: api, serverUrl: base } = apiRef.current;
 			if (!id || !base) return apply({ t: "fatal" });
 			try {
-				const url = await getViewerSocket(api, base, id);
+				const url = await withTimeout(getViewerSocket(api, base, id), LINK_TIMEOUT_MS, () => new ComputerApiError("network"));
 				if (!alive) return;
 				setSocket({ url, key: ++keyCounter });
 				clearTimeout(connectTimer);
