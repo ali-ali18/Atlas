@@ -9,6 +9,7 @@ import {
 	RESERVE_WRITE_NOTE,
 	STAGNATION_STEPS,
 	WRAP_UP_NOTE,
+	PROMOTE_PLAN_STEPS,
 	budgetForProfile,
 	createSupervisor,
 } from "./supervisor.js";
@@ -332,5 +333,110 @@ describe("fases da pesquisa (as tools mudam de verdade)", () => {
 		const gate = supervisor.gate(usage(0, 8 * 60_000, 4));
 		expect(gate.action).toBe("deliver");
 		if (gate.action === "deliver") expect(gate.stop).toEqual({ reason: "loop_repeat", detail: "phase_ignored" });
+	});
+});
+
+describe("mensagem nova do usuário renova o tempo (onUserInput)", () => {
+	const chat = (over: Partial<Parameters<typeof createSupervisor>[0]> = {}) => createSupervisor({ profile: "chat", budget: CHAT_BUDGET, promotable: true, ...over });
+
+	it("a fração de tempo recomeça em 0 a partir da mensagem; o aviso de fechamento pode vir de novo", () => {
+		const supervisor = chat({ promotable: false });
+		expect(supervisor.gate(usage(0, 6.8 * 60_000), { lastStepHadTools: false })).toEqual({ action: "call", note: WRAP_UP_NOTE });
+		supervisor.onUserInput(usage(0, 6.8 * 60_000));
+		expect(supervisor.fraction(usage(0, 6.8 * 60_000))).toBe(0);
+		// Logo depois da mensagem: sem nota e sem entrega, mesmo com o passo anterior sem tool.
+		expect(supervisor.gate(usage(0, 7 * 60_000), { lastStepHadTools: false })).toEqual({ action: "call" });
+		// 80% do tempo NOVO (6,4 min depois da base) volta a avisar, uma vez.
+		expect(supervisor.gate(usage(0, (6.8 + 6.4) * 60_000), { lastStepHadTools: false })).toEqual({ action: "call", note: WRAP_UP_NOTE });
+		expect(supervisor.gate(usage(0, (6.8 + 6.5) * 60_000), { lastStepHadTools: false })).toEqual({ action: "call" });
+		expect(supervisor.gate(usage(0, (6.8 + 8) * 60_000), { lastStepHadTools: false })).toMatchObject({ action: "deliver", stop: { reason: "budget_wall" } });
+	});
+
+	it("mesmo com o chat já estourado (passou de 100%), a mensagem nova devolve o tempo cheio (sem promover por regex)", () => {
+		const supervisor = chat();
+		supervisor.onUserInput(usage(0, 9 * 60_000));
+		expect(supervisor.gate(usage(0, 9 * 60_000), { lastStepHadTools: false })).toEqual({ action: "call" });
+		expect(supervisor.promoted).toBe(false);
+	});
+
+	it("o gasto em US$ segue cumulativo: o teto de custo continua cortando depois da mensagem", () => {
+		const supervisor = chat({ budget: { maxCostUsd: 1, maxActiveMs: 8 * 60_000 } });
+		expect(supervisor.gate(usage(0.8, 60_000))).toEqual({ action: "call", note: WRAP_UP_NOTE });
+		supervisor.onUserInput(usage(0.8, 60_000));
+		// Custo 80% de novo: o aviso volta (a nota foi liberada), e 100% entrega.
+		expect(supervisor.gate(usage(0.85, 120_000))).toEqual({ action: "call", note: WRAP_UP_NOTE });
+		expect(supervisor.gate(usage(1, 130_000))).toMatchObject({ action: "deliver", stop: { reason: "budget_cost" } });
+	});
+
+	it("teto absoluto de tempo (conta/bot) não é esticado pela renovação", () => {
+		const supervisor = chat({ hardActiveMs: 10 * 60_000 });
+		supervisor.onUserInput(usage(0, 6.8 * 60_000));
+		expect(supervisor.gate(usage(0, 9 * 60_000))).toEqual({ action: "call" });
+		expect(supervisor.gate(usage(0, 10 * 60_000))).toMatchObject({ action: "deliver", stop: { reason: "budget_wall" } });
+	});
+
+	it("estado de retomada: a nota não é reenviada e a base de tempo sobrevive", () => {
+		const first = chat({ promotable: false });
+		first.gate(usage(0, 6.8 * 60_000));
+		first.onUserInput(usage(0, 7 * 60_000));
+		first.gate(usage(0, (7 + 6.4) * 60_000));
+		const saved = first.state();
+		expect(saved).toEqual({ wrapUpSent: true, timeBaseMs: 7 * 60_000 });
+		const resumed = chat({ promotable: false });
+		resumed.restore(JSON.parse(JSON.stringify(saved)));
+		expect(resumed.gate(usage(0, (7 + 6.6) * 60_000))).toEqual({ action: "call" });
+		expect(resumed.fraction(usage(0, 8 * 60_000))).toBeCloseTo(1 / 8, 5);
+		// Estado vazio ou de checkpoint antigo não muda nada.
+		const old = chat({ promotable: false });
+		old.restore(undefined);
+		old.restore({});
+		expect(old.state()).toEqual({});
+	});
+
+	it("depois da promoção a base também vale (fração do tempo do trabalho longo)", () => {
+		const supervisor = chat();
+		supervisor.promote({ maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 60 * 60_000 });
+		supervisor.onUserInput(usage(0, 30 * 60_000));
+		expect(supervisor.fraction(usage(0, 36 * 60_000))).toBeCloseTo(0.1, 5);
+	});
+});
+
+describe("promoção pela lista de tarefas do modelo", () => {
+	const LONG = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 60 * 60_000 };
+	const chat = (over: Partial<Parameters<typeof createSupervisor>[0]> = {}) => createSupervisor({ profile: "chat", budget: CHAT_BUDGET, promotable: true, ...over });
+
+	it("lista com 3+ passos promove o chat já no começo do tempo, mesmo sem tool no último passo", () => {
+		expect(PROMOTE_PLAN_STEPS).toBe(3);
+		expect(chat().gate(usage(0, 10_000), { plannedSteps: 3, lastStepHadTools: false })).toEqual({ action: "promote" });
+		expect(chat().gate(usage(0, 10_000), { plannedSteps: 8 })).toEqual({ action: "promote" });
+	});
+
+	it("com 2 passos (ou nenhum) não promove", () => {
+		expect(chat().gate(usage(0, 10_000), { plannedSteps: 2, lastStepHadTools: true })).toEqual({ action: "call" });
+		expect(chat().gate(usage(0, 10_000), { plannedSteps: 0 })).toEqual({ action: "call" });
+		expect(chat().gate(usage(0, 10_000))).toEqual({ action: "call" });
+	});
+
+	it("só uma vez: depois de promovido a lista não promove de novo", () => {
+		const supervisor = chat();
+		expect(supervisor.gate(usage(0, 10_000), { plannedSteps: 4 })).toEqual({ action: "promote" });
+		expect(supervisor.promote(LONG)).toBe(true);
+		expect(supervisor.gate(usage(0, 20_000), { plannedSteps: 4 })).toEqual({ action: "call" });
+		expect(supervisor.promote(LONG)).toBe(false);
+	});
+
+	it("sem permissão de promover (e-mail recebido, webhook, rotina) a lista nunca promove", () => {
+		const outsider = createSupervisor({ profile: "chat", budget: CHAT_BUDGET });
+		expect(outsider.gate(usage(0, 10_000), { plannedSteps: 5, lastStepHadTools: true })).toEqual({ action: "call" });
+		expect(outsider.promote(LONG)).toBe(false);
+		const explicit = chat({ promotable: false });
+		expect(explicit.gate(usage(0, 10_000), { plannedSteps: 5 })).toEqual({ action: "call" });
+	});
+
+	it("o teto de custo continua valendo depois de promover pela lista", () => {
+		const supervisor = chat();
+		expect(supervisor.gate(usage(0.1, 10_000), { plannedSteps: 3 })).toEqual({ action: "promote" });
+		supervisor.promote({ maxCostUsd: 1, maxActiveMs: 60 * 60_000 });
+		expect(supervisor.gate(usage(1, 20_000), { plannedSteps: 3 })).toMatchObject({ action: "deliver", stop: { reason: "budget_cost" } });
 	});
 });

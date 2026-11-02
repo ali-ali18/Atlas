@@ -358,3 +358,222 @@ describe("nunca pedir 'continua'", () => {
 		expect(stopReasonPhrase("budget_wall", "pt-BR")).not.toMatch(/custo|gasto|US\$/i);
 	});
 });
+
+describe("mensagem nova do usuário durante o run renova o tempo (v2)", () => {
+	const NEW_QUESTION = "e agora compare também o Grok Bot";
+	/** A mensagem entra pelo caminho `join` depois de o run já ter gasto `advanceMs` de relógio ativo. */
+	const joinAfter = (advanceMs: number, content = NEW_QUESTION) => {
+		let sent = false;
+		return async () => {
+			if (sent) return [];
+			sent = true;
+			vi.setSystemTime(Date.now() + advanceMs);
+			return [{ id: "in-join-1", content, mode: "join" }];
+		};
+	};
+	const wrapUps = (text: string) => text.split(WRAP_UP_NOTE).length - 1;
+
+	it("caso real: 85% do tempo gasto, mensagem entra, o bot NÃO recebe a nota de fechamento e pesquisa de novo", async () => {
+		const checkpoints: Array<{ budgetBaseMs?: number; wrapUpSent?: boolean; activeElapsedMs?: number }> = [];
+		const run = await runChat({
+			stepMs: 120_000,
+			messages: [{ role: "user", content: "pesquise o Hermes" }],
+			extra: { consumeSteerInputs: joinAfter(6.8 * 60_000), onCheckpoint: async (checkpoint) => void checkpoints.push(JSON.parse(JSON.stringify(checkpoint))) },
+			script: [
+				(seen) => {
+					expect(seen.transcript).toContain(`[User message during the task] ${NEW_QUESTION}`);
+					expect(seen.transcript).not.toContain(WRAP_UP_NOTE);
+					return research(0.1);
+				},
+				(seen) => {
+					expect(wrapUps(seen.transcript)).toBe(0);
+					return research(0.1);
+				},
+				say("Comparei o Grok Bot com o Hermes: preços e limites no resumo acima.", 0.1),
+			],
+		});
+		expect(run.result.stop).toEqual({ reason: "answered" });
+		expect(run.onPromoted).not.toHaveBeenCalled();
+		// Sem a renovação o run teria passado de 100% (6,8 + 3 x 2 min de 8 min) e entregado por tempo.
+		expect(run.events.some((event) => event.type === "input_consumed")).toBe(true);
+		const renewed = checkpoints.filter((checkpoint) => (checkpoint.budgetBaseMs ?? 0) > 0);
+		expect(renewed.length).toBeGreaterThan(0);
+		expect(renewed[0]!.budgetBaseMs).toBeLessThanOrEqual(renewed[0]!.activeElapsedMs ?? 0);
+		expect(checkpoints.every((checkpoint) => checkpoint.wrapUpSent !== true)).toBe(true);
+	});
+
+	it("retomada: a base de tempo renovada vem do checkpoint (não volta ao relógio do run antigo)", async () => {
+		const checkpoints: Array<{ budgetBaseMs?: number }> = [];
+		await runChat({
+			stepMs: 1_000,
+			extra: { consumeSteerInputs: joinAfter(6.8 * 60_000), onCheckpoint: async (checkpoint) => void checkpoints.push(JSON.parse(JSON.stringify(checkpoint))) },
+			script: [research(0.1), say("Primeira parte.", 0.1)],
+		});
+		const mid = checkpoints.find((checkpoint) => (checkpoint.budgetBaseMs ?? 0) > 0);
+		expect(mid).toBeTruthy();
+		const resumed = await runChat({
+			stepMs: 120_000,
+			extra: { restoredCheckpoint: mid as never },
+			script: [
+				research(0.1),
+				(seen) => {
+					expect(wrapUps(seen.transcript)).toBe(0);
+					return research(0.1);
+				},
+				say("Segunda parte pronta.", 0.1),
+			],
+		});
+		// 6,8 min do run antigo + 3 x 2 min passariam dos 8 min; com a base persistida são só 6 min novos.
+		expect(resumed.result.stop).toEqual({ reason: "answered" });
+	});
+
+	it("retomada: a nota de fechamento já enviada não é reenviada", async () => {
+		const checkpoints: Array<{ wrapUpSent?: boolean }> = [];
+		await runChat({
+			stepMs: 1_000,
+			options: { promotable: false, onPromoted: undefined },
+			extra: {
+				consumeSteerInputs: async () => {
+					vi.setSystemTime(Date.now() + 6.8 * 60_000);
+					return [];
+				},
+				onCheckpoint: async (checkpoint) => void checkpoints.push(JSON.parse(JSON.stringify(checkpoint))),
+			},
+			script: [(seen) => {
+				expect(wrapUps(seen.transcript)).toBe(1);
+				return research(0.1);
+			}, say("Entrega.", 0.1)],
+		});
+		const mid = checkpoints.find((checkpoint) => checkpoint.wrapUpSent === true);
+		expect(mid).toBeTruthy();
+		const resumed = await runChat({
+			stepMs: 1_000,
+			options: { promotable: false, onPromoted: undefined },
+			extra: { restoredCheckpoint: mid as never },
+			script: [(seen) => {
+				// Uma só (a do histórico restaurado); sem o estado no checkpoint seria reenviada: 2.
+				expect(wrapUps(seen.transcript)).toBe(1);
+				return say("Entrega de novo.", 0.1);
+			}],
+		});
+		expect(resumed.result.stop).toEqual({ reason: "answered" });
+	});
+});
+
+describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)", () => {
+	const three = () => turn([taskList([["Abrir o vídeo", "in_progress"], ["Comparar com o Hermes", "pending"], ["Montar o relatório", "pending"]])], 0.1);
+	const two = () => turn([taskList([["Abrir o vídeo", "in_progress"], ["Responder", "pending"]])], 0.1);
+	const done = () => turn([taskList([["Abrir o vídeo", "completed"], ["Comparar com o Hermes", "completed"], ["Montar o relatório", "completed"]])], 0.1);
+
+	it("o chat já tem update_task_list no passo 1; 3 passos logo no começo (poucos segundos de relógio) viram trabalho longo no gate seguinte", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "pesquise o Hermes e me diga" }],
+			script: [
+				(seen) => {
+					expect(seen.toolNames).toContain("update_task_list");
+					expect(seen.toolNames).not.toContain("notebook_write");
+					return three();
+				},
+				(seen) => {
+					expect(seen.toolNames).toEqual(expect.arrayContaining(["notebook_write", "notebook_read", "create_file"]));
+					expect(seen.transcript).toContain("This task turned into long work");
+					return research(0.1);
+				},
+				done,
+				say("Pronto, relatório do Hermes na conversa.", 0.1),
+			],
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		expect(run.result.stop).toEqual({ reason: "answered" });
+	});
+
+	it("2 passos não promovem", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			script: [two, (seen) => {
+				expect(seen.toolNames).not.toContain("notebook_write");
+				expect(seen.transcript).not.toContain("This task turned into long work");
+				return turn([taskList([["Abrir o vídeo", "completed"], ["Responder", "completed"]])], 0.1);
+			}, say("Pronto.", 0.1)],
+		});
+		expect(run.onPromoted).not.toHaveBeenCalled();
+		expect(run.result.stop).toEqual({ reason: "answered" });
+	});
+
+	it("lista de 3 passos que já chega toda concluída (fechando o trabalho, antes de responder) não promove", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			script: [
+				() => turn([taskList([["Abrir o vídeo", "completed"], ["Ler a página", "completed"], ["Responder", "completed"]])], 0.1),
+				(seen) => {
+					expect(seen.toolNames).not.toContain("notebook_write");
+					expect(seen.transcript).not.toContain("This task turned into long work");
+					return say("Pronto.", 0.1);
+				},
+			],
+		});
+		expect(run.onPromoted).not.toHaveBeenCalled();
+		expect(run.result.stop).toEqual({ reason: "answered" });
+	});
+
+	it("promove uma vez só: refazer a lista depois não promove de novo", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			script: [three, three, three, done, say("Pronto.", 0.1)],
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		expect(run.result.stop).toEqual({ reason: "answered" });
+	});
+
+	it("lista herdada de um run anterior (priorTaskList) não promove um chat novo", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "Bom dia" }],
+			extra: { priorTaskList: [{ content: "A", status: "completed" }, { content: "B", status: "completed" }, { content: "C", status: "pending" }] as never },
+			script: [say("Bom dia!")],
+		});
+		expect(run.onPromoted).not.toHaveBeenCalled();
+		expect(run.seen[0]!.toolNames).not.toContain("notebook_write");
+	});
+
+	it("sem permissão de promover (e-mail recebido, webhook) a lista de 3+ não promove: texto de fora é dado, não ordem", async () => {
+		for (const origin of ["email", "webhook"] as const) {
+			const run = await runChat({
+				stepMs: 5_000,
+				options: { promotable: false, onPromoted: undefined },
+				extra: { origin, humanTurn: false },
+				// O modelo monta uma lista de 3 passos (como se o texto de fora o tivesse convencido) e mesmo assim não promove.
+				script: [three, (seen) => {
+					expect(seen.toolNames, origin).not.toContain("notebook_write");
+					expect(seen.transcript, origin).not.toContain("This task turned into long work");
+					return say("Resumo para o dono.", 0.1);
+				}],
+			});
+			expect(run.result.stop, origin).toEqual({ reason: "answered" });
+		}
+	});
+
+	it("o prazo das operações do computador acompanha o teto duro da conta num chat que não promove (a renovação por mensagem estica o tempo)", async () => {
+		const deadlines: number[] = [];
+		const start = Date.now();
+		await runChat({
+			stepMs: 1_000,
+			options: { promotable: false, onPromoted: undefined },
+			extra: { manager: { withExecutionContext: (context: { deadlineAtMs: number }) => (deadlines.push(context.deadlineAtMs), {}) } as never },
+			script: [say("Oi.", 0.1)],
+		});
+		// Chat tem 8 min de orçamento (prazo de 10 min sem a correção); o teto duro padrão é de 30 min, e o prazo vai a 1,25x dele.
+		expect(deadlines[0]! - start).toBeGreaterThan(30 * 60_000);
+	});
+
+	it("o teto de custo do trabalho longo (gasto máximo do bot) continua valendo depois de promover pela lista", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			options: { longWorkBudgetUsd: 1 },
+			script: [three, research(0.5), research(0.5), say("Entrega parcial: o gasto máximo da tarefa acabou antes de fechar o relatório.")],
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		expect(run.result.stop).toMatchObject({ reason: "budget_cost" });
+	});
+});
