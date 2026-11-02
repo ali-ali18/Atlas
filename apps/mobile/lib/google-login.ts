@@ -1,3 +1,4 @@
+import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as Crypto from "expo-crypto";
 import * as Linking from "expo-linking";
 import * as SecureStore from "expo-secure-store";
@@ -8,6 +9,7 @@ import {
 	appReturnUrl,
 	bridgeExchangeUrl,
 	createGoogleBridge,
+	pickReturnUrl,
 	base64UrlFromBase64,
 	newBridgeState,
 	newCodeVerifier,
@@ -48,9 +50,24 @@ const pendingStore: PendingStore = {
 
 /** Liga o núcleo (lib/google-bridge.ts) ao navegador, ao cofre e ao cliente de autenticação do servidor. */
 export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
+	// Último recurso no Expo Go: o link da própria atualização carregada (`exp://u.expo.dev/update/<id>`), formato que o
+	// Expo Go abre sem query. O link do canal (`?channel-name=…`) não serve: o Expo Go corta tudo depois de `/--/` ao
+	// achar o projeto, perde o canal e falha ao baixar ("Something went wrong").
+	const updateId = Constants.manifest2?.id;
+	const updateLink = updateId && /^[0-9a-f-]{36}$/i.test(updateId) ? `exp://u.expo.dev/update/${updateId}` : null;
+	const expoGoLinks = [Constants.linkingUri, Constants.experienceUrl, updateLink];
+
+	/** Decidido na hora do toque (ver `pickReturnUrl`): `atlas:///` no app instalado, `exp://…` no Expo Go. */
+	async function resolveReturnUrl(): Promise<string> {
+		const appUrl = appReturnUrl(Linking.createURL);
+		const reportsExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient || Constants.appOwnership === "expo";
+		const appSchemeOpens = Platform.OS === "android" ? await Linking.canOpenURL(appUrl).catch(() => false) : true;
+		return pickReturnUrl(appUrl, { reportsExpoGo, platform: Platform.OS, appSchemeOpens }, expoGoLinks);
+	}
+
 	return createGoogleBridge({
 		serverUrl,
-		returnUrl: appReturnUrl(Linking.createURL),
+		resolveReturnUrl,
 		pending: pendingStore,
 		// `$fetch` do cliente passa pelo plugin do Expo, que guarda o cookie de sessão do Set-Cookie como no login por código.
 		exchange: async (token, verifier) => {

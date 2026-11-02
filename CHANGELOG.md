@@ -5,6 +5,7 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 ## [Não lançado]
 
 ### Corrigido
+- **mobile:** o login com Google no Expo Go parava na página "Pronto! Voltando para o app…" e o botão não fazia nada, porque o app pedia para voltar por `atlas:///`, que o Expo Go não abre. Agora, na hora do toque, o app pergunta ao sistema se alguém abre `atlas://`; se não (Expo Go), volta pelo link da própria atualização (`exp://u.expo.dev/update/<id>`). No app instalado nada muda. Ver `docs/features/app-mobile.md`.
 - **mobile:** composer com os botões centrados na pílula (no Android desciam) e afastados do canto quando o texto quebra em várias linhas.
 - **mobile:** listas nas respostas do bot apareciam no Android como um balão alto e vazio só com "1."; o texto do item volta a aparecer.
 - **mobile:** ícones vêm do `lucide-react-native`, o mesmo Lucide do web (desenho e traço iguais), em vez de cópias à mão. Dependência nova no mobile: `lucide-react-native` (ISC).
