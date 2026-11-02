@@ -13,15 +13,31 @@ export type LiveState = {
 	paused: boolean;
 	/** Texto simples para o usuário quando o run falhou ou foi cancelado. */
 	notice: string | null;
+	/** Ferramenta em andamento (só com `phase: "tool"`): o avatar e o texto "o que o bot faz" saem daqui. */
+	tool: LiveTool | null;
+	/**
+	 * Contadores de reação do avatar: sobem a cada ferramenta que falhou, a cada run que falhou e a cada run que
+	 * terminou bem. Contador (e não flag) porque quem desenha compara com o último visto e reage uma vez só.
+	 */
+	failures: number;
+	finishes: number;
+};
+
+export type LiveTool = {
+	name: string;
+	step?: number;
+	maxSteps?: number;
+	/** Só o nome chegou (`tool_intent`); o passo vem no `tool_call`. */
+	arriving?: true;
 };
 
 export function createLiveState(): LiveState {
-	return { items: [], runId: null, phase: "idle", ended: false, paused: false, notice: null };
+	return { items: [], runId: null, phase: "idle", ended: false, paused: false, notice: null, tool: null, failures: 0, finishes: 0 };
 }
 
 /** Início de um run novo: o que sobrou do anterior (cartões, falas) já foi reconciliado com o gravado. */
 export function startLiveRun(state: LiveState, runId: string | null): LiveState {
-	return { ...state, runId, phase: "thinking", ended: false, paused: false, notice: null };
+	return { ...state, runId, phase: "thinking", ended: false, paused: false, notice: null, tool: null };
 }
 
 function upsert(items: ChatItem[], item: ChatItem): ChatItem[] {
@@ -40,7 +56,7 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 			const id = `cu-${event.id}`;
 			const current = state.items.find((item) => item.id === id);
 			const text = (current && current.kind === "assistant" ? current.text : "") + event.delta;
-			return { ...state, phase: "writing", paused: false, items: upsert(state.items, { id, kind: "assistant", text, ...(state.runId ? { runId: state.runId } : {}) }) };
+			return { ...state, phase: "writing", paused: false, tool: null, items: upsert(state.items, { id, kind: "assistant", text, ...(state.runId ? { runId: state.runId } : {}) }) };
 		}
 		case "assistant_discard": {
 			// O servidor refez a resposta: o rascunho sai da tela (o app não mostra rascunho revisado, como o web).
@@ -52,8 +68,14 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 			return { ...state, items: state.items.filter((item) => item !== target) };
 		}
 		case "tool_intent":
+			// O aviso adianta a ação (sem passo); se o `tool_call` do mesmo passo já chegou, não o rebaixa.
+			if (state.tool?.name === event.name && !state.tool.arriving) return state;
+			return { ...state, phase: "tool", paused: false, tool: { name: event.name, arriving: true } };
 		case "tool_call":
-			return { ...state, phase: "tool", paused: false };
+			return { ...state, phase: "tool", paused: false, tool: { name: event.name, ...(event.step !== undefined ? { step: event.step } : {}), ...(event.maxSteps !== undefined ? { maxSteps: event.maxSteps } : {}) } };
+		case "tool_result":
+			// A ferramenta acabou: o modelo decide o próximo passo (o avatar volta a "pensando"); falha dá a reação de erro.
+			return { ...state, phase: "thinking", tool: null, failures: state.failures + (event.ok ? 0 : 1) };
 		case "task_list": {
 			const runId = event.runId ?? state.runId ?? "local";
 			const id = `task-list-${runId}`;
@@ -106,18 +128,18 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 		case "login":
 			return withWebCard(state, `login-${event.loginId}`, "login", `Entrar em ${event.site}`, `login:${event.loginId}`);
 		case "paused":
-			return { ...state, paused: true, phase: "idle" };
+			return { ...state, paused: true, phase: "idle", tool: null };
 		case "cancelled":
-			return { ...state, ended: true, paused: false, phase: "idle", notice: "Parei por aqui." };
+			return { ...state, ended: true, paused: false, phase: "idle", tool: null, notice: "Parei por aqui." };
 		case "error": {
 			const text = event.error.trim();
-			if (!text) return { ...state, ended: true, phase: "idle" };
-			return { ...state, ended: true, phase: "idle", paused: false, items: upsert(state.items, { id: "cu-run-error", kind: "assistant", text }) };
+			if (!text) return { ...state, ended: true, phase: "idle", tool: null, failures: state.failures + 1 };
+			return { ...state, ended: true, phase: "idle", tool: null, paused: false, failures: state.failures + 1, items: upsert(state.items, { id: "cu-run-error", kind: "assistant", text }) };
 		}
 		case "done":
-			return { ...state, ended: true, paused: false, phase: "idle" };
+			return { ...state, ended: true, paused: false, phase: "idle", tool: null, finishes: state.finishes + 1 };
 		case "status":
-			if (event.status === "budget_exhausted") return { ...state, ended: true, phase: "idle", notice: "Cheguei no limite desta tarefa. Posso continuar se você pedir." };
+			if (event.status === "budget_exhausted") return { ...state, ended: true, phase: "idle", tool: null, notice: "Cheguei no limite desta tarefa. Posso continuar se você pedir." };
 			return state;
 		default:
 			return state;
