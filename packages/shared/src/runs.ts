@@ -369,6 +369,10 @@ export type AgentRunCheckpoint = {
 	llmMessages?: SerializedLlmMessage[];
 	/** Motor v2: o run foi promovido de chat a trabalho longo (a retomada reaplica mesmo que a gravação no budgetJson tenha falhado). */
 	promoted?: boolean;
+	/** Motor v2: o aviso de fechamento (80% do orçamento) já foi enviado; a retomada não o reenvia. */
+	wrapUpSent?: boolean;
+	/** Motor v2: tempo ativo (ms) em que a fração de tempo do orçamento recomeçou (mensagem nova do usuário no run). */
+	budgetBaseMs?: number;
 	/** Tools de conector/adiadas expostas ao fim do run: o próximo turno da conversa já as tem carregadas. */
 	loadedTools?: string[];
 	/** Grupos e ordem das tools congelados na conversa (ver `ToolCacheState`). */

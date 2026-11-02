@@ -294,6 +294,17 @@ describe("addRecoveryGuidance (não desistir no primeiro bloqueio)", () => {
 		expect(repo!.error!.escalateHint).toMatch(/raw\.githubusercontent\.com\/<owner>\/<repo>\/<branch>\/<path>/);
 	});
 
+	it("errorsOnly (chat): falha ganha o plano B, página cortada com sucesso fica igual", async () => {
+		const { addRecoveryGuidance } = await import("./web-extract.js");
+		const cut = { ...base, url: "https://docs.example.com/guia", content: "x", truncated: true };
+		const [blocked, same] = addRecoveryGuidance(
+			[{ ...base, url: "https://a.example.com", error: { code: "blocked", message: "403", escalateHint: "tente outra fonte" } }, cut],
+			{ errorsOnly: true },
+		);
+		expect(blocked!.error!.escalateHint).toMatch(/^tente outra fonte\. Do not give up on the first block.*say in one line what could not be opened/);
+		expect(same).toEqual(cut);
+	});
+
 	it("página cortada diz como ler o resto (uma URL, mais caracteres, buscar o termo) e o que está inteiro fica igual", async () => {
 		const { addRecoveryGuidance } = await import("./web-extract.js");
 		const [cut, whole, empty] = addRecoveryGuidance([

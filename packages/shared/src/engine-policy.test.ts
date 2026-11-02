@@ -267,6 +267,19 @@ describe("perfil do run", () => {
 		}
 	});
 
+	it("conjunto de pedidos rotulados: mede acerto, falsos positivos e falsos negativos e falha se algum rótulo errar", async () => {
+		const { LONG_TASK_REQUESTS } = await import("./fixtures/long-task-requests.js");
+		const misses = LONG_TASK_REQUESTS.map((item) => ({ ...item, got: looksLikeLongTask(item.text) ? "long" : "short" })).filter((item) => item.got !== item.label);
+		const falsePositives = misses.filter((item) => item.got === "long");
+		const falseNegatives = misses.filter((item) => item.got === "short");
+		const total = LONG_TASK_REQUESTS.length;
+		console.info(`[looksLikeLongTask] acertos ${total - misses.length}/${total} · falsos positivos ${falsePositives.length} · falsos negativos ${falseNegatives.length}`);
+		for (const miss of misses) console.info(`  erro (${miss.label} -> ${miss.got}): ${miss.text}`);
+		expect(total).toBeGreaterThanOrEqual(60);
+		expect(falsePositives).toEqual([]);
+		expect(falseNegatives).toEqual([]);
+	});
+
 	it("promoção automática grava long_work e a origem no budgetJson, preservando o resto", () => {
 		const base = { humanTurn: true, contextLength: 1000, engine: "v2", engineProfile: "chat" };
 		const promoted = withRunPromotion(base);
