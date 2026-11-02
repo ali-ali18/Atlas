@@ -140,11 +140,17 @@ test("vt: token valido chama o proxy com o caminho certo e cabecalhos de seguran
 		assert.equal(csp, "sandbox allow-scripts; frame-ancestors 'none'");
 		assert.doesNotMatch(csp, /allow-same-origin/);
 		assert.equal(res.headers.get("set-cookie"), null);
+		assert.equal(res.headers.get("access-control-allow-origin"), "*");
+		assert.equal(res.headers.get("access-control-allow-credentials"), null);
 		assert.equal(res.headers.get("content-security-policy-report-only"), null);
 		assert.equal(res.headers.get("x-frame-options"), null);
 		const asset = await app.request(`/v1/sandbox/vt/${token}/app/ui.js`, { method: "HEAD" });
 		assert.equal(asset.status, 200);
 		assert.equal(seen[1]?.url, "/app/ui.js");
+		// A rota por cookie (/viewer/*) não ganha CORS.
+		const byId = await build({ userId: "user-a", port }).request("/v1/sandbox/sessions/session-a/viewer/vnc.html");
+		assert.equal(byId.status, 200);
+		assert.equal(byId.headers.get("access-control-allow-origin"), null);
 	} finally {
 		upstream.close();
 	}

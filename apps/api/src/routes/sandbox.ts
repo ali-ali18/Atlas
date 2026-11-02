@@ -297,6 +297,12 @@ export function createSandboxRoutes(sandboxConfig: SandboxRuntimeConfig, deps: {
 		// A VM é código do dono, servido na origem da API (que tem o cookie de login de quem abrir o link): CSP sandbox SEM
 		// allow-same-origin joga o documento numa origem opaca (sem cookie nem storage da API), como em routes/previews.ts.
 		response.headers.set("Content-Security-Policy", VIEWER_SANDBOX_CSP);
+		// Por causa da CSP sandbox a página roda em origem opaca (`Origin: null`) e os módulos ES do noVNC
+		// (`<script type="module" crossorigin>`) são buscados por CORS: sem isto os assets falham. `*` SEM credenciais (nunca
+		// `Allow-Credentials`) e só nesta rota (não na `/viewer/*` por cookie): a rota já é autorizada pelo token no caminho,
+		// sem cookie, então o `*` não dá acesso novo a quem não tem o link.
+		response.headers.set("Access-Control-Allow-Origin", "*");
+		response.headers.delete("Access-Control-Allow-Credentials");
 		return response;
 	});
 
