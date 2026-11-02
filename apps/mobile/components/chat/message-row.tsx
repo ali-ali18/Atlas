@@ -79,9 +79,7 @@ function BotBubble({ text, position, reactions, replyTo, onLongPress }: { text: 
 			{replyTo ? <ReplyPill quote={replyTo} align="start" spaced={position !== "single" && position !== "first"} /> : null}
 			{segments.map((segment, index) =>
 				segment.kind === "table" ? (
-					<Pressable key={`table-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem">
-						<TableCard block={segment.block} scheme={scheme} />
-					</Pressable>
+					<TableCard key={`table-${index}`} block={segment.block} scheme={scheme} onLongPress={onLongPress} />
 				) : (
 					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" style={{ backgroundColor: chatSurface(scheme, "bubble") }} className={`px-3.5 py-3.5 ${bubbleRadius("left", position)}`}>
 						<MarkdownBlocks blocks={segment.blocks} />

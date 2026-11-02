@@ -12,6 +12,37 @@ import { useAppColorScheme } from "@/lib/use-theme";
 
 const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "ui-monospace, SFMono-Regular, Menlo, monospace" });
 
+/**
+ * Toque longo SEM disputar o gesto: um `Pressable` em volta da tabela pegava o toque e a rolagem para o lado só pegava
+ * num ponto específico. Aqui só se observam os toques (nada de responder): passou de 500 ms parado, é toque longo;
+ * mexeu mais de 8 pt ou soltou antes, cancela. O ScrollView fica sozinho com o arraste.
+ */
+function useTouchLongPress(onLongPress: (() => void) | undefined) {
+	const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+	const origin = React.useRef({ x: 0, y: 0 });
+	const clear = React.useCallback(() => {
+		if (timer.current) clearTimeout(timer.current);
+		timer.current = null;
+	}, []);
+	React.useEffect(() => clear, [clear]);
+	if (!onLongPress) return {};
+	return {
+		onTouchStart: (event: { nativeEvent: { pageX: number; pageY: number } }) => {
+			clear();
+			origin.current = { x: event.nativeEvent.pageX, y: event.nativeEvent.pageY };
+			timer.current = setTimeout(() => {
+				timer.current = null;
+				onLongPress();
+			}, 500);
+		},
+		onTouchMove: (event: { nativeEvent: { pageX: number; pageY: number } }) => {
+			if (Math.abs(event.nativeEvent.pageX - origin.current.x) > 8 || Math.abs(event.nativeEvent.pageY - origin.current.y) > 8) clear();
+		},
+		onTouchEnd: clear,
+		onTouchCancel: clear,
+	};
+}
+
 /** Largura do trilho da barrinha de rolagem (dp), medida no app do Grok. */
 const TRACK_WIDTH = 29;
 
@@ -66,7 +97,8 @@ function Inlines({ nodes, scheme, plainCode = false }: { nodes: readonly Inline[
  * barrinha de rolagem no canto. Larguras explícitas por coluna (`tableColumnWidths`): no Android um ScrollView
  * horizontal sem tamanho definido esticava as linhas até a altura da tela (cartão gigante e vazio).
  */
-export function TableCard({ block, scheme }: { block: Extract<Block, { type: "table" }>; scheme: "light" | "dark" }) {
+export function TableCard({ block, scheme, onLongPress }: { block: Extract<Block, { type: "table" }>; scheme: "light" | "dark"; onLongPress?: () => void }) {
+	const press = useTouchLongPress(onLongPress);
 	const widths = tableColumnWidths(block.header, block.rows);
 	const total = widths.reduce((sum, width) => sum + width, 0);
 	const [viewport, setViewport] = React.useState(0);
@@ -82,7 +114,7 @@ export function TableCard({ block, scheme }: { block: Extract<Block, { type: "ta
 	const divider = scheme === "dark" ? "#2a2a2a" : themeColor(scheme, "border");
 	const overflow = viewport > 0 && total > viewport;
 	return (
-		<View className="self-stretch overflow-hidden" style={{ borderWidth: 1, borderColor: edge, backgroundColor: chatSurface(scheme, "card"), borderRadius: 21 }}>
+		<View className="self-stretch overflow-hidden" style={{ borderWidth: 1, borderColor: edge, backgroundColor: chatSurface(scheme, "card"), borderRadius: 21 }} {...press}>
 			<Animated.ScrollView
 				horizontal
 				nestedScrollEnabled
