@@ -18,7 +18,7 @@ import Svg, { G, Path } from "react-native-svg";
 import { PUSH_AVATAR_BACKGROUND } from "@workspace/shared";
 import type { MobileAvatarState } from "@/lib/avatar-activity";
 import { poseFrame, type Pose } from "@/lib/avatar-pose";
-import { SPIN_PERIOD_S, spinStep, stepYaw } from "@/lib/avatar-spin";
+import { SPIN_PERIOD_S, spinPoseAtStep, spinStep } from "@/lib/avatar-spin";
 import { cn } from "@/lib/cn";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -66,7 +66,8 @@ export type AvatarProps = {
 	/**
 	 * Giro contínuo no próprio eixo vertical (yaw de 360°, o `spin` do motor do web em laço), para a tela "Conectando".
 	 * Usa o motor de verdade: a cada passo de 7,5° pega o quadro do motor naquele yaw (`poseFrame` + `projectFrame`, em cache)
-	 * e redesenha; o centro fica fixo. Só gira com `animated` (e sem "reduzir movimento"); senão fica de frente.
+	 * e redesenha; o centro fica fixo. O corpo vem inclinado (`SPIN_BASE_POSE`: de lado, olhando para cima) e o giro é o yaw em torno
+	 * desse eixo. Só gira com `animated` (e sem "reduzir movimento"); senão fica parado nessa pose inclinada.
 	 */
 	spin?: boolean;
 	/** Segundos por volta do `spin`. */
@@ -165,6 +166,7 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 
 	// Giro: um laço de quadros troca o passo de yaw (no máximo 48 por volta); só redesenha quando o passo muda.
 	const spinning = spin && live;
+	// Com `spin` o corpo vem inclinado (de lado, olhando para cima); sem movimento fica parado nessa pose (passo 0).
 	const [step, setStep] = React.useState(0);
 	React.useEffect(() => {
 		if (!spinning) {
@@ -180,7 +182,7 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 		frameId = requestAnimationFrame(tick);
 		return () => cancelAnimationFrame(frameId);
 	}, [spinning, spinPeriodS]);
-	const pose = spinning ? { yaw: stepYaw(step), pitch: 0, roll: 0 } : poseProp;
+	const pose = spin ? spinPoseAtStep(spinning ? step : 0) : poseProp;
 	const poseYaw = pose?.yaw;
 	const posePitch = pose?.pitch;
 	const poseRoll = pose?.roll;

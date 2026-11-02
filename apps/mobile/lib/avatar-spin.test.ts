@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPIN_PERIOD_S, SPIN_STEPS, spinStep, spinYaw, stepYaw } from "./avatar-spin";
+import { SPIN_BASE_POSE, SPIN_PERIOD_S, SPIN_STEPS, spinPose, spinPoseAtStep, spinStep, spinYaw, stepYaw } from "./avatar-spin";
 
 describe("giro do avatar (yaw)", () => {
 	it("vai de 0° a 360° em uma volta (1,6 s) e fecha o laço", () => {
@@ -45,5 +45,34 @@ describe("giro do avatar (yaw)", () => {
 		expect(spinStep(SPIN_PERIOD_S)).toBe(0);
 		expect(stepYaw(24)).toBe(180);
 		expect(stepYaw(48)).toBe(0);
+	});
+});
+
+describe("pose do giro (base inclinada + giro)", () => {
+	it("a base é de lado e olhando para cima (yaw > 0, pitch < 0)", () => {
+		expect(SPIN_BASE_POSE.yaw).toBeGreaterThan(0);
+		expect(SPIN_BASE_POSE.pitch).toBeLessThan(0);
+	});
+	it("o passo 0 é exatamente a base (a pose parada com movimento reduzido)", () => {
+		expect(spinPoseAtStep(0)).toEqual(SPIN_BASE_POSE);
+		expect(spinPose(0)).toEqual(SPIN_BASE_POSE);
+	});
+	it("só o yaw gira: pitch e roll ficam os da base em todos os passos", () => {
+		for (let step = 0; step < SPIN_STEPS; step++) {
+			const pose = spinPoseAtStep(step);
+			expect(pose.pitch).toBe(SPIN_BASE_POSE.pitch);
+			expect(pose.roll).toBe(SPIN_BASE_POSE.roll);
+			expect(pose.yaw).toBeGreaterThanOrEqual(0);
+			expect(pose.yaw).toBeLessThan(360);
+		}
+	});
+	it("o yaw é a base mais o giro e fecha o laço na volta seguinte", () => {
+		expect(spinPoseAtStep(24).yaw).toBe((SPIN_BASE_POSE.yaw + 180) % 360);
+		expect(spinPose(SPIN_PERIOD_S / 2).yaw).toBe((SPIN_BASE_POSE.yaw + 180) % 360);
+		expect(spinPose(SPIN_PERIOD_S)).toEqual(SPIN_BASE_POSE);
+		expect(spinPoseAtStep(SPIN_STEPS)).toEqual(SPIN_BASE_POSE);
+	});
+	it("aceita outra base", () => {
+		expect(spinPoseAtStep(24, { yaw: 300, pitch: -5, roll: 0 })).toEqual({ yaw: 120, pitch: -5, roll: 0 });
 	});
 });
