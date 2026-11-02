@@ -1,6 +1,8 @@
 // Digitação ao vivo na VM: o teclado do aparelho escreve num campo invisível e cada mudança vira texto e teclas
-// na VM, em ordem e uma por vez. Tudo puro (a rede entra por injeção), para testar sem aparelho.
-import { VM_TEXT_MAX } from "./computer-text";
+// na VM, em ordem e uma por vez. Tudo puro (o envio entra por injeção), para testar sem aparelho.
+
+/** Tamanho máximo de um envio de texto (pedaços maiores são divididos). */
+const VM_TEXT_MAX = 2000;
 
 /** Parte da troca que a VM precisa receber: apagar `backspaces` caracteres e depois digitar `text`. */
 export type TypingDiff = { backspaces: number; text: string };

@@ -1,6 +1,6 @@
 import { resolveColor, resolveShape } from "@workspace/shared/avatar/identity";
 import * as React from "react";
-import { Image, KeyboardAvoidingView, Pressable, View } from "react-native";
+import { Image, KeyboardAvoidingView, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RoundButton, TOP_BAR_CONTROL, TOP_BAR_SIDE } from "@/components/chat/chat-top-bar";
 import { ChevronLeftIcon, ClipboardPasteIcon, DotsIcon, HelpIcon, KeyboardIcon, MonitorIcon } from "@/components/icons";
@@ -122,6 +122,8 @@ function Placeholder({ status, onRetry, onStart, errorText }: { status: Exclude<
 export function ComputerView({ bot, avatarState = "idle", status, source, children, aspectRatio = 16 / 9, controlling = false, trackpad = false, onBack, onHelp, onTakeControl, onToggleTrackpad, onPaste, onKeyboard, onRetry, onStart, errorText, controlExtra }: ComputerViewProps) {
 	const insets = useSafeAreaInsets();
 	const ready = status === "ready";
+	// Com a tela (`children`/`source`) montada o palco existe também enquanto conecta, coberto pela esfera.
+	const stage = ready || (status === "loading" && Boolean(children || source));
 	const [menuOpen, setMenuOpen] = React.useState(false);
 	// Saiu do controle: o menu não fica aberto.
 	React.useEffect(() => {
@@ -152,12 +154,20 @@ export function ComputerView({ bot, avatarState = "idle", status, source, childr
 			</View>
 			<ComputerMenu open={menuOpen} trackpad={trackpad} onClose={() => setMenuOpen(false)} onToggleTrackpad={onToggleTrackpad ?? (() => undefined)} />
 
-			{ready ? (
-				<Zoomable aspectRatio={aspectRatio} gestures={!controlling}>
-					{source ? <Image source={source} resizeMode="contain" accessibilityLabel={`Tela do computador de ${bot.name}`} style={{ width: "100%", height: "100%" }} /> : children}
-				</Zoomable>
+			{stage ? (
+				<View className="flex-1">
+					<Zoomable aspectRatio={aspectRatio} gestures={ready && !controlling}>
+						{source ? <Image source={source} resizeMode="contain" accessibilityLabel={`Tela do computador de ${bot.name}`} style={{ width: "100%", height: "100%" }} /> : children}
+					</Zoomable>
+					{/* Conectando: o palco (e a WebView dentro dele) já existe, mas fica coberto pela esfera até a primeira imagem. */}
+					{ready ? null : (
+						<View style={[StyleSheet.absoluteFill, { backgroundColor: SCREEN }]}>
+							<Placeholder status="loading" onRetry={onRetry} onStart={onStart} errorText={errorText} />
+						</View>
+					)}
+				</View>
 			) : (
-				<Placeholder status={status} onRetry={onRetry} onStart={onStart} errorText={errorText} />
+				<Placeholder status={status as Exclude<ComputerStatus, "ready">} onRetry={onRetry} onStart={onStart} errorText={errorText} />
 			)}
 
 			{ready ? (

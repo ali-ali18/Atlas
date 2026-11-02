@@ -1,14 +1,13 @@
 // Computador do bot (VM) pelo app: os mesmos endpoints do web (`apps/web/lib/atlas-api.ts`), sempre por `apiFetch`
 // (a sessão sai só para a origem do servidor salvo). Nada aqui loga nem guarda o link da tela: ele carrega um token
 // que dá controle da VM por alguns minutos.
-import { resolveApiUrl } from "./api-fetch";
-import { checkVmText, vmTextProblem } from "./computer-text";
 import type { ApiFetch } from "./home-sync";
+import { parseViewerSocketUrl } from "./viewer-link";
 
 export type ComputerSessionStatus = "starting" | "running" | "stopped" | "error";
 export type ComputerSession = { sessionId: string; status: ComputerSessionStatus };
 
-export type ComputerErrorKind = "unauthorized" | "not-found" | "viewer-unavailable" | "unavailable" | "bad-link" | "bad-input" | "network" | "send";
+export type ComputerErrorKind = "unauthorized" | "not-found" | "viewer-unavailable" | "unavailable" | "bad-link" | "network";
 
 /** Erro já classificado: o texto técnico do servidor nunca chega à tela (só `computerErrorText`). */
 export class ComputerApiError extends Error {
@@ -22,7 +21,6 @@ export class ComputerApiError extends Error {
 }
 
 const JSON_HEADERS = { accept: "application/json", "content-type": "application/json" };
-const VIEWER_PATH_PREFIX = "/v1/sandbox/vt/";
 const STATUSES: readonly string[] = ["starting", "running", "stopped", "error"];
 
 /** Frase simples em pt-BR para o erro. */
@@ -39,10 +37,6 @@ export function computerErrorText(error: unknown): string {
 				return "O computador não respondeu agora. Tente de novo.";
 			case "bad-link":
 				return "Não deu para abrir a tela do computador.";
-			case "bad-input":
-				return error.message;
-			case "send":
-				return "Não foi possível enviar para a VM.";
 			case "network":
 				return "Sem conexão com o seu servidor. Tente de novo.";
 		}
@@ -66,8 +60,6 @@ function statusError(status: number): ComputerApiError {
 	if (status === 404) return new ComputerApiError("not-found", status);
 	return new ComputerApiError("unavailable", status);
 }
-
-const sendError = (status: number): ComputerApiError => (status === 401 ? new ComputerApiError("unauthorized", status) : new ComputerApiError("send", status));
 
 async function json(response: Response): Promise<unknown> {
 	try {
@@ -100,31 +92,14 @@ export async function startComputer(apiFetch: ApiFetch, conversationId: string):
 }
 
 /**
- * `GET /v1/sandbox/sessions/:id/viewer-link`: o endereço ABSOLUTO da tela ao vivo (vale 10 min). Recusa o que não for
- * do servidor salvo ou não estiver sob `/v1/sandbox/vt/`: a WebView só carrega a origem do servidor.
+ * `GET /v1/sandbox/sessions/:id/viewer-link`: devolve o endereço `wss://` do WebSocket do viewer (com o token `ws`, que
+ * vale 10 min e só é conferido ao conectar). Usa só o `path=` da resposta; a rota HTTP `vt` e o token dela são descartados.
+ * Recusa o que não for o formato do servidor, de outra sessão ou de outra origem que não a do servidor salvo.
  */
-export async function getViewerLink(apiFetch: ApiFetch, baseUrl: string, sessionId: string): Promise<string> {
+export async function getViewerSocket(apiFetch: ApiFetch, baseUrl: string, sessionId: string): Promise<string> {
 	const response = await call(apiFetch, `/v1/sandbox/sessions/${encodeURIComponent(sessionId)}/viewer-link`, { headers: { accept: "application/json" } }, (status) => (status === 409 ? new ComputerApiError("viewer-unavailable", status) : statusError(status)));
 	const body = (await json(response)) as { url?: unknown } | null;
-	const path = typeof body?.url === "string" ? body.url : "";
-	// Só caminho absoluto sob o prefixo do viewer ("//host/…" e "\\host" virariam outra origem ao resolver).
-	if (!path.startsWith(VIEWER_PATH_PREFIX)) throw new ComputerApiError("bad-link", response.status);
-	const absolute = resolveApiUrl(baseUrl, path);
-	if (!absolute) throw new ComputerApiError("bad-link", response.status);
-	return absolute;
-}
-
-/** `POST …/type`: digita (ou cola) texto na VM. Valida vazio e o limite antes de chamar o servidor. `allowBlank`: aceita só espaços (digitação ao vivo). */
-export async function sendText(apiFetch: ApiFetch, sessionId: string, text: string, options: { allowBlank?: boolean } = {}): Promise<void> {
-	const checked = checkVmText(text, options);
-	if (!checked.ok) throw new ComputerApiError("bad-input", 0, vmTextProblem(checked.reason));
-	await call(apiFetch, `/v1/sandbox/sessions/${encodeURIComponent(sessionId)}/type`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ text: checked.text }) }, sendError);
-}
-
-/** Teclas que a barra do teclado manda (nomes do xdotool, como o web). */
-export type ComputerKey = "Return" | "BackSpace";
-
-/** `POST …/key`: aperta uma tecla na VM. */
-export async function sendKey(apiFetch: ApiFetch, sessionId: string, combo: ComputerKey): Promise<void> {
-	await call(apiFetch, `/v1/sandbox/sessions/${encodeURIComponent(sessionId)}/key`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ combo }) }, sendError);
+	const socket = parseViewerSocketUrl(baseUrl, sessionId, body?.url);
+	if (!socket) throw new ComputerApiError("bad-link", response.status);
+	return socket;
 }

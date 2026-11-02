@@ -4,12 +4,12 @@ import * as React from "react";
 import { View } from "react-native";
 import { ComputerView } from "@/components/computer/computer-view";
 import { TypingInput } from "@/components/computer/typing-input";
-import { ViewerWebView } from "@/components/computer/viewer-webview";
+import { ViewerWebView, type ViewerHandle } from "@/components/computer/viewer-webview";
 import { ActionSheet } from "@/components/ui/action-sheet";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
-import { computerErrorText, sendKey, sendText } from "@/lib/computer-api";
 import { createTypingController } from "@/lib/computer-typing";
+import { KEY_BACKSPACE, KEY_RETURN, clipPasteText, pasteTruncatedNotice, textToKeysyms } from "@/lib/vm-keys";
 import { useComputer } from "@/lib/use-computer";
 import { useHomeData } from "@/lib/home-data";
 
@@ -52,33 +52,37 @@ export default function ComputerScreen() {
 		setKeyboardOpen(false);
 		setNotice(null);
 	}
-	const sessionId = computer.sessionId;
-	// Cola o texto da área de transferência na VM (uma chamada; falha vira aviso amigável).
+	const viewer = React.useRef<ViewerHandle>(null);
+	const connected = computer.status === "ready";
+	const liveRef = React.useRef({ connected, showNotice });
+	liveRef.current = { connected, showNotice };
+	// Digita na VM pela página (noVNC): só no modo controle e com a conexão aberta; senão avisa em vez de perder a tecla.
+	const typeKeys = (keys: number[]) => {
+		if (!liveRef.current.connected || !viewer.current) throw new Error("sem conexão");
+		viewer.current.typeKeys(keys);
+	};
+	// Cola o texto da área de transferência na VM, tecla por tecla (até 2000 caracteres; o resto é cortado com aviso).
 	const paste = async () => {
-		if (!sessionId) return;
 		try {
-			await sendText(apiFetch, sessionId, await Clipboard.getStringAsync());
-			setNotice(null);
-		} catch (error) {
-			showNotice(computerErrorText(error));
+			const { text, truncated } = clipPasteText(await Clipboard.getStringAsync());
+			const keys = textToKeysyms(text);
+			if (keys.length === 0) return showNotice("Não há nada para colar.");
+			typeKeys(keys);
+			if (truncated) showNotice(pasteTruncatedNotice());
+			else setNotice(null);
+		} catch {
+			showNotice("Não foi possível enviar para a VM.");
 		}
 	};
 	// Digitação ao vivo: o teclado do aparelho escreve num campo invisível e cada mudança vai à VM, em ordem.
-	const live = React.useRef({ apiFetch, sessionId, showNotice });
-	live.current = { apiFetch, sessionId, showNotice };
 	const typing = React.useMemo(
 		() =>
 			createTypingController({
-				sendText: async (text) => {
-					const { apiFetch: api, sessionId: id } = live.current;
-					if (id) await sendText(api, id, text, { allowBlank: true });
-				},
-				sendKey: async (key) => {
-					const { apiFetch: api, sessionId: id } = live.current;
-					if (id) await sendKey(api, id, key);
-				},
-				onError: (error) => live.current.showNotice(computerErrorText(error)),
+				sendText: async (text) => typeKeys(textToKeysyms(text)),
+				sendKey: async (key) => typeKeys([key === "Return" ? KEY_RETURN : KEY_BACKSPACE]),
+				onError: () => liveRef.current.showNotice("Não foi possível enviar para a VM."),
 			}),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[],
 	);
 
@@ -116,9 +120,9 @@ export default function ComputerScreen() {
 				onRetry={computer.retry}
 				onStart={computer.start}
 			>
-				{computer.uri ? <ViewerWebView uri={computer.uri} reloadKey={computer.linkKey} controlling={controlling} onDrop={computer.reportDrop} /> : null}
+				{computer.mounted && serverUrl ? <ViewerWebView ref={viewer} serverUrl={serverUrl} socketUrl={computer.socketUrl} socketKey={computer.socketKey} controlling={controlling} onEvent={computer.onBridgeEvent} /> : null}
 			</ComputerView>
-			{controlling && sessionId ? <TypingInput active={keyboardOpen} controller={typing} onClose={() => setKeyboardOpen(false)} /> : null}
+			{controlling && connected ? <TypingInput active={keyboardOpen} controller={typing} onClose={() => setKeyboardOpen(false)} /> : null}
 			<ActionSheet
 				visible={helpOpen}
 				onClose={() => setHelpOpen(false)}

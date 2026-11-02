@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { MAX_BACKSPACES, TYPING_BUFFER, createSerialQueue, createTypingController, diffTyping, needsRefill } from "./computer-typing";
-import { checkVmText } from "./computer-text";
 
 describe("diffTyping", () => {
 	it("anexar manda só os caracteres novos", () => {
@@ -96,9 +95,6 @@ describe("controlador da digitação", () => {
 		controller.change(TYPING_BUFFER + " ");
 		await controller.idle();
 		expect(calls).toEqual(["text: "]);
-		expect(checkVmText(" ", { allowBlank: true }).ok).toBe(true);
-		expect(checkVmText(" ").ok).toBe(false);
-		expect(checkVmText("", { allowBlank: true }).ok).toBe(false);
 	});
 	it("Enter manda Return, em ordem com o texto", async () => {
 		const { controller, calls } = setup();
@@ -117,11 +113,11 @@ describe("controlador da digitação", () => {
 		expect(calls.filter((c) => c === "key:BackSpace")).toHaveLength(17);
 		expect(calls.at(-1)).toBe("text:a");
 	});
-	it("texto longo é dividido no limite de 5000 e Backspaces têm teto", async () => {
+	it("texto longo é dividido no limite de 2000 e Backspaces têm teto", async () => {
 		const { controller, calls } = setup();
-		controller.change(TYPING_BUFFER + "a".repeat(5001));
+		controller.change(TYPING_BUFFER + "a".repeat(2001));
 		await controller.idle();
-		expect(calls.map((c) => c.length)).toEqual(["text:".length + 5000, "text:".length + 1]);
+		expect(calls.map((c) => c.length)).toEqual(["text:".length + 2000, "text:".length + 1]);
 		const again = setup();
 		again.controller.change(TYPING_BUFFER + "b".repeat(300));
 		await again.controller.idle();
