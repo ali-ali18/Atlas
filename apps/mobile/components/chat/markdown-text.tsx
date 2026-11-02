@@ -86,8 +86,9 @@ function BlockView({ block, scheme }: { block: Block; scheme: "light" | "dark" }
 			);
 		case "code":
 			return (
-				<View className="overflow-hidden rounded-card bg-secondary">
-					<ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="p-3">
+				// Rola na horizontal dentro do balão (largura do balão, sem estourar nem cortar a linha).
+				<View className="self-stretch overflow-hidden rounded-card bg-secondary">
+					<ScrollView horizontal nestedScrollEnabled style={{ width: "100%" }} contentContainerStyle={{ padding: 12, minWidth: "100%" }}>
 						<RNText selectable style={{ fontFamily: MONO, fontSize: 13, lineHeight: 19, color: themeColor(scheme, "foreground") }}>
 							{block.text}
 						</RNText>

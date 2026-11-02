@@ -51,11 +51,11 @@ export default function ProfileScreen() {
 			</View>
 			{bot ? (
 				<ScrollView contentContainerClassName="items-center gap-5 px-4 pb-10 pt-4">
-					<View className="size-40 items-center justify-center">
-						<Avatar color={resolveColor(bot.color, bot.id)} shape={resolveShape(bot.shape, bot.id)} size={228} animated={false} pose={LIST_POSE} />
-						{bot.isPrimary ? <PrimaryBadge size={32} /> : null}
+					<View className="size-24 items-center justify-center">
+						<Avatar color={resolveColor(bot.color, bot.id)} shape={resolveShape(bot.shape, bot.id)} size={88} animated={false} pose={LIST_POSE} />
+						{bot.isPrimary ? <PrimaryBadge size={24} /> : null}
 					</View>
-					<Text className="text-center text-3xl font-semibold">{bot.name}</Text>
+					<Text className="text-center text-2xl font-semibold">{bot.name}</Text>
 					<Button variant="secondary" onPress={() => setSoon("Editar bot")}>
 						<Text>Editar</Text>
 					</Button>

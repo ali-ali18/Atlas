@@ -3,9 +3,11 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import * as React from "react";
 import { FlatList, KeyboardAvoidingView, Pressable, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { ChevronDownIcon } from "@/components/icons";
 import { SoonSheet } from "@/components/home/soon-sheet";
 import { ChatMenu, type ChatMenuAction } from "@/components/chat/chat-menu";
+import { Fade } from "@/components/chat/fade";
 import { ChatTopBar, TOP_BAR_HEIGHT } from "@/components/chat/chat-top-bar";
 import { Composer } from "@/components/chat/composer";
 import { MessageRow, type RowActions } from "@/components/chat/message-row";
@@ -19,24 +21,30 @@ import type { ChatItem } from "@/lib/chat-types";
 import { useChat } from "@/lib/use-chat";
 import { useHomeData } from "@/lib/home-data";
 
+/** Rolou para cima além disto (px do fim): aparece o botão de voltar ao fim. */
+const JUMP_THRESHOLD = 360;
+
 type Soon = "anexos" | "voz" | "buscar" | "compartilhar" | null;
 const SOON_TITLE: Record<NonNullable<Soon>, string> = { anexos: "Anexos", voz: "Voz", buscar: "Buscar no chat", compartilhar: "Compartilhar como modelo" };
 
 /** Chat com o bot: o fio (cache + servidor + run ao vivo), o topo flutuante, a doca de tarefas e o composer. */
 export default function ChatScreen() {
 	const router = useRouter();
+	const insets = useSafeAreaInsets();
 	const { id } = useLocalSearchParams<{ id: string }>();
 	const { snapshot } = useHomeData();
 	const { serverUrl } = useAtlasSession();
 	const bot = snapshot?.bots.find((item) => item.id === id);
 	const chat = useChat(bot);
+	const listRef = React.useRef<FlatList<ChatItem>>(null);
+	const [farFromEnd, setFarFromEnd] = React.useState(false);
 	const [menu, setMenu] = React.useState(false);
 	const [soon, setSoon] = React.useState<Soon>(null);
 	const goBack = React.useCallback(() => (router.canGoBack() ? router.back() : router.replace("/")), [router]);
 	const openProfile = React.useCallback(() => router.push(`/profile/${encodeURIComponent(id)}` as never), [router, id]);
 	const openWeb = React.useCallback(
-		(item: Extract<ChatItem, { kind: "web-card" }>) => {
-			const url = webChatUrl(serverUrl, id, item.key);
+		(_item: Extract<ChatItem, { kind: "web-card" }>) => {
+			const url = webChatUrl(serverUrl, id);
 			if (url) void WebBrowser.openBrowserAsync(url).catch(() => undefined);
 		},
 		[serverUrl, id],
@@ -71,6 +79,9 @@ export default function ChatScreen() {
 		<SafeAreaView edges={["bottom", "left", "right"]} className="flex-1 bg-background">
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<FlatList
+					ref={listRef}
+					onScroll={(event) => setFarFromEnd(event.nativeEvent.contentOffset.y > JUMP_THRESHOLD)}
+					scrollEventThrottle={100}
 					inverted
 					data={data}
 					keyExtractor={(item) => item.id}
@@ -113,9 +124,17 @@ export default function ChatScreen() {
 						) : undefined
 					}
 				/>
+				<Fade from="top" height={insets.top + TOP_BAR_HEIGHT + 24} className="absolute left-0 right-0 top-0" />
 				<ChatTopBar bot={bot} onBack={goBack} onMenu={() => setMenu(true)} onProfile={openProfile} />
-				{chat.dock ? <TaskDock items={chat.dock.items} /> : null}
-				<Composer botName={bot.name} color={color} running={chat.running} onSend={chat.send} onStop={chat.stop} onSoon={(what) => setSoon(what)} />
+				<View className="z-10">
+					{farFromEnd ? (
+						<Pressable role="button" accessibilityLabel="Ir para o fim da conversa" onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })} style={{ position: "absolute", right: 16, bottom: "100%", marginBottom: 12 }} className="size-11 items-center justify-center rounded-full border border-border bg-card active:opacity-70">
+							<ChevronDownIcon size={22} tone="foreground" />
+						</Pressable>
+					) : null}
+					<Fade from="bottom" height={24} />
+				</View>
+				<Composer sections={chat.dock ? <TaskDock items={chat.dock.items} /> : null} botName={bot.name} color={color} running={chat.running} onSend={chat.send} onStop={chat.stop} onSoon={(what) => setSoon(what)} />
 			</KeyboardAvoidingView>
 			<ChatMenu open={menu} onClose={() => setMenu(false)} onPick={onMenuPick} />
 			<SoonSheet open={soon !== null} title={soon ? SOON_TITLE[soon] : ""} onClose={() => setSoon(null)} />

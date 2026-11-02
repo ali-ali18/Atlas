@@ -26,15 +26,15 @@ export function TaskListItems({ items }: { items: readonly TaskItem[] }) {
 }
 
 /**
- * Doca de tarefas em cima do composer enquanto o run está ativo: uma linha com "2/5 · tarefa atual"; tocar abre os
- * passos. É uma seção do container único do composer (mesmo fundo, divisor embaixo), como a doca do web.
+ * Doca de tarefas: seção do container único do composer (sem fundo nem raio próprios, só o divisor `border-b`), como a
+ * doca do web. Enquanto o run está ativo: uma linha "2/5 · tarefa atual"; tocar abre os passos.
  */
 export function TaskDock({ items }: { items: readonly TaskItem[] }) {
 	const [open, setOpen] = React.useState(false);
 	const { total, allDone } = taskListProgress(items);
 	if (total === 0) return null;
 	return (
-		<View accessibilityLabel="Tarefas do bot" className="mx-4 mb-2 overflow-hidden rounded-3xl bg-muted/60">
+		<View accessibilityLabel="Tarefas do bot" className="border-b border-border/60">
 			<Pressable role="button" accessibilityLabel={open ? "Recolher a lista de tarefas" : "Abrir a lista de tarefas"} accessibilityState={{ expanded: open }} onPress={() => setOpen((value) => !value)} className="min-h-11 flex-row items-center gap-3 px-4 active:opacity-70">
 				<View className="size-5 items-center justify-center">{allDone ? <CheckCircleIcon size={18} tone="success" /> : <Spinner />}</View>
 				<Text numberOfLines={1} className="min-w-0 flex-1 text-control">

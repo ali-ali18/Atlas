@@ -6,8 +6,9 @@ describe("webChatUrl", () => {
 		expect(webChatUrl("https://atlas.exemplo.com", "b1")).toBe("https://atlas.exemplo.com/?bot=b1");
 		expect(webChatUrl("https://atlas.exemplo.com/", "b 1")).toBe("https://atlas.exemplo.com/?bot=b+1");
 	});
-	it("aponta o cartão quando há", () => {
-		expect(webChatUrl("https://a.test", "b1", "chart:9")).toBe("https://a.test/?bot=b1&card=chart%3A9");
+	it("preserva o prefixo de caminho do servidor e descarta query e fragmento dele", () => {
+		expect(webChatUrl("https://a.test/atlas", "b1")).toBe("https://a.test/atlas/?bot=b1");
+		expect(webChatUrl("https://a.test/atlas/?x=1#y", "b1")).toBe("https://a.test/atlas/?bot=b1");
 	});
 	it("sem servidor ou endereço inválido não abre nada", () => {
 		expect(webChatUrl(null, "b1")).toBeNull();
