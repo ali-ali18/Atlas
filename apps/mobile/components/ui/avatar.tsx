@@ -1,4 +1,3 @@
-import { eyeColorFor } from "@workspace/shared/avatar/identity";
 import { projectFrame } from "@workspace/shared/avatar/render/project";
 import { stillFrame } from "@workspace/shared/avatar/render/still";
 import { AVATAR_VIEWBOX, groupTransform } from "@workspace/shared/avatar/render/svg";
@@ -10,14 +9,17 @@ import Animated, {
 	useReducedMotion,
 	useSharedValue,
 	type SharedValue,
+	cancelAnimation,
 	withRepeat,
 	withSequence,
 	withTiming,
 } from "react-native-reanimated";
 import Svg, { G, Path } from "react-native-svg";
 import { PUSH_AVATAR_BACKGROUND } from "@workspace/shared";
+import type { MobileAvatarState } from "@/lib/avatar-activity";
 import { poseFrame, type Pose } from "@/lib/avatar-pose";
 import { cn } from "@/lib/cn";
+import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 
 export type AvatarProps = {
@@ -37,6 +39,17 @@ export type AvatarProps = {
 	 * entre os pulos ele respira e pisca. `neutral`: só respira e pisca.
 	 */
 	mood?: "neutral" | "happy";
+	/**
+	 * O que o bot está fazendo: cada estado tem uma expressão do motor e uma animação simples (sem o "cérebro" do web).
+	 * Sem `state`, vale `mood` (`happy` é atalho do estado `happy`; o resto é `idle`).
+	 */
+	state?: MobileAvatarState;
+	/**
+	 * Cor dos olhos. Os olhos são pintados por cima do corpo (um recorte com `<Mask>` não deixaria animá-los no Android),
+	 * então o padrão é a cor de fundo do tema, que dá a ilusão do recorte. Passe a cor da superfície quando o avatar
+	 * não estiver sobre o fundo da tela (cartão, fundo fixo do splash).
+	 */
+	eyeColor?: string;
 	/**
 	 * Repouso vivo: respira (escala, flutuação e balanço). Igual ao `breathe` do web, que vem desligado:
 	 * o avatar do painel de marca do login fica com o corpo parado e só pisca.
@@ -81,6 +94,20 @@ const LOOK_X = 0.9;
 const LOOK_Y = 0.5;
 const LOOK_MAX_PX = 9;
 const LOOK_MAX_Y_PX = 5;
+// Expressão de cada estado do app (as do motor, em packages/shared/src/avatar/model/expressions.ts).
+const STATE_EXPRESSION: Record<MobileAvatarState, string> = {
+	idle: "neutral",
+	thinking: "neutral",
+	searching: "neutral",
+	reading: "calm",
+	working: "squinted",
+	writing: "neutral",
+	waiting: "neutral",
+	happy: "happy",
+	failed: "sad",
+};
+/** Piscar mais seguido enquanto escreve. */
+const WRITING_BLINK_EVERY_S = [0.9, 2.2] as const;
 const between = (range: readonly [number, number]) => range[0] + Math.random() * (range[1] - range[0]);
 
 /** Toca `keys` (tempo absoluto do clipe) num valor compartilhado; sobe com ease-out e desce com ease-in. */
@@ -103,18 +130,20 @@ function playTrack(target: SharedValue<number>, keys: readonly Key[], scale = 1)
 /**
  * Avatar do Atlas. Mesmo nome e props do Avatar de packages/ui. O desenho vem do mesmo motor
  * (`stillFrame` + `projectFrame`, em @workspace/shared); o movimento é uma versão básica do motor do web:
- * respiração (escala, flutuação e leve balanço) e piscada. Ficam de fora o olhar que segue o toque, os
- * estados do cérebro e os clipes 3D de repouso (Idle_A/B/D), que dependem do loop de quadros do motor.
+ * respiração (escala, flutuação e leve balanço) e piscada, mais um gesto simples por estado (`state`). Ficam de
+ * fora o olhar que segue o toque, o cérebro (indicadores, morphs, anel) e os clipes 3D de repouso (Idle_A/B/D),
+ * que dependem do loop de quadros do motor.
  */
-export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120, animated = true, mood = "neutral", breathe = false, look = true, pose }: AvatarProps) {
+export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120, animated = true, mood = "neutral", state, eyeColor: eyeColorProp, breathe = false, look = true, pose }: AvatarProps) {
 	const scheme = useAppColorScheme();
 	const reducedMotion = useReducedMotion();
 	const live = animated && !reducedMotion;
 
 	const bodyColor = color ?? (scheme === "dark" ? "#ffffff" : PUSH_AVATAR_BACKGROUND);
-	const eyeColor = eyeColorFor(bodyColor);
+	const current: MobileAvatarState = state ?? (mood === "happy" ? "happy" : "idle");
+	const eyeColor = eyeColorProp ?? themeColor(scheme, "background");
 	const { transform, body, eyes, eyeCy } = React.useMemo(() => {
-		const expression = mood === "happy" ? "happy" : "neutral";
+		const expression = STATE_EXPRESSION[current];
 		const frame = pose ? poseFrame(shape, expression, pose) : stillFrame(shape, expression);
 		const projected = projectFrame(frame);
 		return {
@@ -123,7 +152,7 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 			eyes: projected.eyes,
 			eyeCy: (frame.eyes[0].cy + frame.eyes[1].cy) / 2,
 		};
-	}, [shape, mood, pose]);
+	}, [shape, current, pose]);
 
 	// Respiração: um ciclo de 3,6 s (vai e volta), fase única para escala, flutuação e balanço.
 	const breath = useSharedValue(0);
@@ -132,6 +161,8 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 	const squashX = useSharedValue(1);
 	const squashY = useSharedValue(1);
 	const roll = useSharedValue(0);
+	const tilt = useSharedValue(0);
+	const headY = useSharedValue(0);
 	const gazeX = useSharedValue(0);
 	const gazeY = useSharedValue(0);
 	const radius = size * BODY_RADIUS_RATIO;
@@ -144,26 +175,75 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 		breath.value = withRepeat(withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.sin) }), -1, true);
 	}, [live, breathe, breath]);
 
-	// Olhar: vai devagar até o ponto, fica um pouco e volta ao centro.
+	// Olhar e postura por estado. Em repouso os olhos passeiam de vez em quando (as olhadas do motor); nos demais
+	// estados o olhar e a cabeça têm um gesto próprio e simples. Tudo parado sem `live`.
 	React.useEffect(() => {
-		gazeX.value = 0;
-		gazeY.value = 0;
-		if (!live || !look) return;
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		const schedule = () => {
-			timer = setTimeout(() => {
-				gazeX.value = withTiming((Math.random() * 2 - 1) * LOOK_X, { duration: 380, easing: Easing.out(Easing.cubic) });
-				gazeY.value = withTiming((Math.random() * 2 - 1) * LOOK_Y, { duration: 380, easing: Easing.out(Easing.cubic) });
-				timer = setTimeout(() => {
-					gazeX.value = withTiming(0, { duration: 450, easing: Easing.inOut(Easing.cubic) });
-					gazeY.value = withTiming(0, { duration: 450, easing: Easing.inOut(Easing.cubic) });
-					schedule();
-				}, between(LOOK_HOLD_S) * 1000);
-			}, between(LOOK_EVERY_S) * 1000);
+		cancelAnimation(gazeX);
+		cancelAnimation(gazeY);
+		cancelAnimation(tilt);
+		cancelAnimation(headY);
+		const settle = { duration: 450, easing: Easing.inOut(Easing.cubic) };
+		const sweep = (from: number, to: number, ms: number) => {
+			gazeX.value = from;
+			gazeX.value = withRepeat(withTiming(to, { duration: ms, easing: Easing.inOut(Easing.sin) }), -1, true);
 		};
-		schedule();
-		return () => clearTimeout(timer);
-	}, [live, look, gazeX, gazeY]);
+		gazeX.value = withTiming(0, settle);
+		gazeY.value = withTiming(0, settle);
+		tilt.value = withTiming(0, settle);
+		headY.value = withTiming(0, settle);
+		if (!live) {
+			gazeX.value = 0;
+			gazeY.value = 0;
+			tilt.value = 0;
+			headY.value = 0;
+			return;
+		}
+		switch (current) {
+			case "thinking":
+				// Olha para cima e inclina a cabeça de leve, balançando devagar.
+				gazeX.value = withTiming(-LOOK_X * 0.6, settle);
+				gazeY.value = withTiming(-LOOK_Y, settle);
+				tilt.value = -3;
+				tilt.value = withRepeat(withTiming(-9, { duration: 1500, easing: Easing.inOut(Easing.sin) }), -1, true);
+				return;
+			case "searching":
+				sweep(-LOOK_X, LOOK_X, 650);
+				return;
+			case "reading":
+				// Cabeça um pouco baixa e o olhar correndo devagar, como numa linha de texto.
+				headY.value = withTiming(size * 0.035, settle);
+				gazeY.value = withTiming(LOOK_Y * 0.8, settle);
+				sweep(-LOOK_X * 0.7, LOOK_X * 0.7, 1700);
+				return;
+			case "working":
+				headY.value = withRepeat(withTiming(size * 0.02, { duration: 320, easing: Easing.inOut(Easing.quad) }), -1, true);
+				return;
+			case "failed":
+				headY.value = withTiming(size * 0.03, settle);
+				tilt.value = withTiming(-4, settle);
+				return;
+			case "idle": {
+				if (!look) return;
+				let timer: ReturnType<typeof setTimeout> | undefined;
+				const schedule = () => {
+					timer = setTimeout(() => {
+						gazeX.value = withTiming((Math.random() * 2 - 1) * LOOK_X, { duration: 380, easing: Easing.out(Easing.cubic) });
+						gazeY.value = withTiming((Math.random() * 2 - 1) * LOOK_Y, { duration: 380, easing: Easing.out(Easing.cubic) });
+						timer = setTimeout(() => {
+							gazeX.value = withTiming(0, settle);
+							gazeY.value = withTiming(0, settle);
+							schedule();
+						}, between(LOOK_HOLD_S) * 1000);
+					}, between(LOOK_EVERY_S) * 1000);
+				};
+				schedule();
+				return () => clearTimeout(timer);
+			}
+			default:
+				// writing, waiting e happy: olhando para frente.
+				return;
+		}
+	}, [live, look, current, size, gazeX, gazeY, tilt, headY]);
 
 	React.useEffect(() => {
 		lid.value = 1;
@@ -173,16 +253,17 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 		const blink = () => {
 			lid.value = withSequence(withTiming(BLINK_MIN, { duration: half }), withTiming(1, { duration: half }));
 		};
+		const every = current === "writing" ? WRITING_BLINK_EVERY_S : BLINK_EVERY_S;
 		const schedule = (seconds: number) => {
 			timer = setTimeout(() => {
 				blink();
 				const double = Math.random() < DOUBLE_BLINK_CHANCE;
-				schedule(double ? DOUBLE_BLINK_GAP_S : BLINK_EVERY_S[0] + Math.random() * (BLINK_EVERY_S[1] - BLINK_EVERY_S[0]));
+				schedule(double ? DOUBLE_BLINK_GAP_S : between(every));
 			}, seconds * 1000);
 		};
-		schedule(BLINK_EVERY_S[0] + Math.random() * (BLINK_EVERY_S[1] - BLINK_EVERY_S[0]));
+		schedule(between(every));
 		return () => clearTimeout(timer);
-	}, [live, lid]);
+	}, [live, lid, current]);
 
 	// Dança: o clipe Done_A repete a cada DANCE_EVERY_S enquanto o humor é feliz.
 	React.useEffect(() => {
@@ -190,7 +271,7 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 		squashX.value = 1;
 		squashY.value = 1;
 		roll.value = 0;
-		if (!live || mood !== "happy") return;
+		if (!live || current !== "happy") return;
 		const play = () => {
 			playTrack(hop, HOP, -radius);
 			playTrack(squashX, SQUASH_X);
@@ -203,15 +284,15 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 			clearTimeout(first);
 			clearInterval(loop);
 		};
-	}, [live, mood, radius, hop, squashX, squashY, roll]);
+	}, [live, current, radius, hop, squashX, squashY, roll]);
 
 	const bodyStyle = useAnimatedStyle(() => {
 		// Agachar/esticar ancorado na base do corpo (anchor -1 do clipe): a escala vertical cresce para cima.
 		const anchorShift = -radius * (squashY.value - 1);
 		return {
 			transform: [
-				{ translateY: hop.value + anchorShift + (breath.value - 0.5) * size * 0.03 },
-				{ rotate: `${(breath.value - 0.5) * 5 + roll.value}deg` },
+				{ translateY: hop.value + anchorShift + headY.value + (breath.value - 0.5) * size * 0.03 },
+				{ rotate: `${(breath.value - 0.5) * 5 + roll.value + tilt.value}deg` },
 				{ scaleX: (1 + (breath.value - 0.5) * 0.035) * squashX.value },
 				{ scaleY: (1 + (breath.value - 0.5) * 0.035) * squashY.value },
 			],

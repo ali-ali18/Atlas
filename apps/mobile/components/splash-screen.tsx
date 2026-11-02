@@ -14,7 +14,7 @@ const MASCOT_SIZE = 92;
 export function SplashView() {
 	return (
 		<View accessibilityLabel="Carregando" accessibilityRole="progressbar" style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: SPLASH_BACKGROUND }}>
-			<Avatar color="#ffffff" size={MASCOT_SIZE} />
+			<Avatar color="#ffffff" eyeColor={SPLASH_BACKGROUND} size={MASCOT_SIZE} breathe />
 		</View>
 	);
 }
