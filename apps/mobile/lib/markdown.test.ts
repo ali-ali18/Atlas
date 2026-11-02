@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSafeUrl, MARKDOWN_MAX_CHARS, parseInline, parseMarkdown } from "./markdown";
+import { inlineText, isSafeUrl, MARKDOWN_MAX_CHARS, parseInline, parseMarkdown, tableColumnWidths } from "./markdown";
 
 describe("parseInline", () => {
 	it("negrito, itálico e código", () => {
@@ -105,5 +105,24 @@ describe("tabelas", () => {
 	});
 	it("tabela no meio do texto separa os blocos", () => {
 		expect(parseMarkdown(`Antes\n\n${table}\n\nDepois`).map((block) => block.type)).toEqual(["paragraph", "table", "paragraph"]);
+	});
+});
+
+describe("largura das colunas da tabela", () => {
+	const widths = (source: string) => {
+		const [block] = parseMarkdown(source);
+		if (block?.type !== "table") throw new Error("não é tabela");
+		return tableColumnWidths(block.header, block.rows);
+	};
+	it("valor curto ocupa o que precisa; texto livre tem mínimo de 8 rem", () => {
+		const [item, preco] = widths("| Item | R$ |\n|---|---|\n| Erva doce | R$ 20,85 |");
+		expect(item).toBe(128);
+		expect(preco).toBeLessThan(80);
+	});
+	it("texto longo para em 22 rem", () => {
+		expect(widths(`| a |\n|---|\n| ${"palavra ".repeat(80)} |`)[0]).toBe(352);
+	});
+	it("tira as marcas inline ao medir", () => {
+		expect(inlineText(parseInline("**oi** _tu_"))).toBe("oi tu");
 	});
 });

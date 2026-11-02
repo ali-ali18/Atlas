@@ -4,14 +4,11 @@ import { Platform, ScrollView, Text as RNText, View } from "react-native";
 import { SendIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/cn";
-import { parseMarkdown, type Block, type Inline } from "@/lib/markdown";
+import { parseMarkdown, tableColumnWidths, type Block, type Inline } from "@/lib/markdown";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 
 const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "ui-monospace, SFMono-Regular, Menlo, monospace" });
-
-/** Largura de cada coluna da tabela (pt). */
-const TABLE_COLUMN_WIDTH = 132;
 
 function openLink(url: string) {
 	void WebBrowser.openBrowserAsync(url).catch(() => undefined);
@@ -111,27 +108,27 @@ function BlockView({ block, scheme }: { block: Block; scheme: "light" | "dark" }
 				</View>
 			);
 		case "table": {
-			// Larguras explícitas: no Android um ScrollView horizontal sem tamanho definido esticava as linhas até a altura da tela
-			// (balão gigante e vazio). A altura vem só do conteúdo; a largura é colunas × TABLE_COLUMN_WIDTH, e rola de lado.
-			const columns = block.header.length;
+			// Como o web: sem caixa em volta, cabeçalho com linha embaixo, linhas com divisor fraco, texto 14 e células px-2 py-1.
+			// Larguras explícitas por coluna (`tableColumnWidths`): no Android um ScrollView horizontal sem tamanho definido
+			// esticava as linhas até a altura da tela (balão gigante e vazio). A altura vem só do conteúdo.
+			const widths = tableColumnWidths(block.header, block.rows);
+			const total = widths.reduce((sum, width) => sum + width, 0);
 			return (
-				<View className="self-stretch overflow-hidden rounded-card border border-border">
-					<ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 0 }}>
-						<View style={{ width: columns * TABLE_COLUMN_WIDTH }}>
-							{[block.header, ...block.rows].map((row, rowIndex) => (
-								<View key={`row-${rowIndex}`} style={{ flexDirection: "row" }} className={cn(rowIndex > 0 && "border-t border-border", rowIndex === 0 && "bg-secondary")}>
-									{row.map((cell, column) => (
-										<View key={`cell-${column}`} style={{ width: TABLE_COLUMN_WIDTH }} className={cn("px-3 py-2", column > 0 && "border-l border-border")}>
-											<Text className={cn("text-body leading-snug", rowIndex === 0 && "font-semibold")}>
-												<Inlines nodes={cell} scheme={scheme} />
-											</Text>
-										</View>
-									))}
-								</View>
-							))}
-						</View>
-					</ScrollView>
-				</View>
+				<ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 0 }}>
+					<View style={{ width: total }}>
+						{[block.header, ...block.rows].map((row, rowIndex) => (
+							<View key={`row-${rowIndex}`} style={{ flexDirection: "row" }} className={rowIndex === 0 ? "border-b border-border" : "border-b border-border/50"}>
+								{row.map((cell, column) => (
+									<View key={`cell-${column}`} style={{ width: widths[column] }} className="px-2 py-1">
+										<Text className={cn("text-sm leading-snug", rowIndex === 0 && "font-medium")}>
+											<Inlines nodes={cell} scheme={scheme} />
+										</Text>
+									</View>
+								))}
+							</View>
+						))}
+					</View>
+				</ScrollView>
 			);
 		}
 		case "rule":

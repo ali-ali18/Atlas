@@ -225,3 +225,33 @@ export function parseMarkdown(source: string): Block[] {
 	flushParagraph();
 	return blocks;
 }
+
+/** Texto puro de um trecho inline (sem marcas), para medir a coluna. */
+export function inlineText(nodes: readonly Inline[]): string {
+	return nodes.map((node) => (node.type === "bold" || node.type === "italic" ? inlineText(node.children) : node.text)).join("");
+}
+
+/** Mesma regra do web (`cellWidthClass`): número, moeda, data ou % curto nunca quebra. */
+const COMPACT_VALUE = /^[\sR$US€£\d.,:%/+()\-–]+$/;
+const CHAR_WIDTH = 7.4;
+const CELL_PADDING = 16;
+/** 8 rem e 22 rem do web (16 pt por rem). */
+const TEXT_MIN = 128;
+const TEXT_MAX = 352;
+
+/**
+ * Largura (pt) de cada coluna da tabela, como o web faz com CSS: valor curto (número, moeda, data) ocupa o que
+ * precisa e não quebra; texto livre vai de 8 a 22 rem. O RN não mede por conteúdo, então estimamos por caractere.
+ */
+export function tableColumnWidths(header: Inline[][], rows: Inline[][][]): number[] {
+	return header.map((_, column) => {
+		let width = 0;
+		for (const row of [header, ...rows]) {
+			const text = inlineText(row[column] ?? []).trim();
+			const natural = text.length * CHAR_WIDTH + CELL_PADDING;
+			const compact = text.length > 0 && text.length <= 24 && COMPACT_VALUE.test(text);
+			width = Math.max(width, compact ? natural : Math.min(TEXT_MAX, Math.max(TEXT_MIN, natural)));
+		}
+		return Math.ceil(width);
+	});
+}
