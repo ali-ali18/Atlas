@@ -41,6 +41,9 @@ const base = {
 	onEvent: () => undefined,
 };
 
+/** Sem teto de relógio por padrão (decisão do dono, 02/11): estes testes cobrem o teto que o dono configurou (30 min). */
+const OWNER_WALL_30 = { maxWallMs: 30 * MIN };
+
 beforeEach(() => resetStagedFilesForTest());
 
 describe("A7: teto de tempo ainda entrega um resumo", () => {
@@ -48,6 +51,7 @@ describe("A7: teto de tempo ainda entrega um resumo", () => {
 		const calls: Array<{ toolChoice?: string; aborted: boolean; deadlineAtMs?: number; messages: LlmMessage[] }> = [];
 		const error = await runComputerUse({
 			...base,
+			budget: OWNER_WALL_30,
 			restoredCheckpoint: { version: 1, messages: [], nextStepIndex: 0, activeElapsedMs: 31 * MIN },
 			runStartedAt: Date.now() - 4 * 60 * MIN,
 			streamChat: (async (params: { toolChoice?: string; signal?: AbortSignal; deadlineAtMs?: number; messages: LlmMessage[] }) => {
@@ -89,6 +93,7 @@ describe("A7: teto de tempo ainda entrega um resumo", () => {
 	it("sem resumo do modelo ainda há texto pt-BR honesto, sem pedir para mandar \"continuar\"", async () => {
 		const error = await runComputerUse({
 			...base,
+			budget: OWNER_WALL_30,
 			restoredCheckpoint: { version: 1, messages: [], nextStepIndex: 0, activeElapsedMs: 31 * MIN },
 			streamChat: (async () => {
 				throw new Error("provider down");
@@ -197,6 +202,7 @@ describe("retomada automática: o runtime só adia o fechamento no teto de passo
 		const error = await runComputerUse({
 			...base,
 			autoContinue: { canSchedule: true },
+			budget: OWNER_WALL_30,
 			restoredCheckpoint: { version: 1, messages: [], nextStepIndex: 0, activeElapsedMs: 31 * MIN },
 			streamChat: (async () => text("Resumo: parei no tempo.")) as never,
 		}).catch((e: unknown) => e);

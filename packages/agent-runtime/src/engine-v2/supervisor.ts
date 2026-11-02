@@ -1,10 +1,12 @@
 /**
  * Motor v2: o Supervisor é o ÚNICO árbitro do run (ADR 0002). Puro e sem I/O.
  *
- * Unidade: dinheiro (US$) e tempo ativo. Não há teto "soft" de passos, estagnação nem tool removida no meio do
- * trabalho. O que ele decide, em ordem:
- *  1. `gate`: antes de cada chamada ao modelo, deixa seguir, avisa UMA vez a ~80% do orçamento ("entregue") ou
- *     manda fazer a última chamada SEM tools quando o orçamento acaba. Nunca aborta sem resposta.
+ * Unidade: dinheiro (US$) e tempo ativo, mas SÓ quando o dono configurou um teto (decisão do dono, 02/11: "remover esse
+ * orçamento"). Por padrão nenhum perfil tem tempo nem US$ máximo (`Infinity`): o run termina quando o modelo responde
+ * sem tool ou quando o usuário para. As redes de segurança contra laço continuam: `MAX_STEPS_SAFETY`, nota e aborto
+ * por repetição, bloqueio por falhas seguidas. O que ele decide, em ordem:
+ *  1. `gate`: antes de cada chamada ao modelo, deixa seguir, avisa UMA vez a ~80% de um teto do dono ("entregue") ou
+ *     manda fazer a última chamada SEM tools quando o teto acaba (ou os passos de segurança). Nunca aborta sem resposta.
  *  2. `recordTool`: depois de cada tool, vigia travamento real (mesma tool + mesmos args + mesmo resultado)
  *     e falhas seguidas da mesma tool. Primeiro vem uma nota ao modelo; só a reincidência encerra o laço.
  *  3. `toolBlocked`: a tool que falhou N vezes seguidas fica bloqueada por alguns passos (o run segue).
@@ -19,21 +21,21 @@ export type SupervisorBudget = {
 };
 
 /**
- * Conversa: curta no TEMPO (8 min). Sem teto em US$ (decisão do dono, 01/11): dinheiro só limita se o dono configurou
- * (teto da conta ou gasto máximo do bot). Quem estoura o tempo com trabalho em andamento é promovido a `long_work`.
+ * Conversa: sem teto de TEMPO nem de US$ por padrão (decisão do dono, 02/11; antes 8 min). Só vale o que o dono
+ * configurou: teto da conta (US$ ou tempo) e, no trabalho longo, o gasto/tempo máximo do bot.
  */
-export const CHAT_BUDGET: SupervisorBudget = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 8 * 60_000 };
+export const CHAT_BUDGET: SupervisorBudget = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: Number.POSITIVE_INFINITY };
 /**
- * Trabalho longo: o árbitro é PROGRESSO e TEMPO, não dinheiro (o preço varia demais entre modelos). Sem teto em US$ por
- * padrão (`Infinity`) e 60 min de tempo máximo, ajustável por bot (até 180). O gasto máximo em US$ é opcional.
+ * Trabalho longo: o árbitro é PROGRESSO (lista concluída, estagnação, passos), não relógio nem dinheiro. Sem teto de
+ * tempo nem de US$ por padrão (antes 60 min); `longWorkMinutes` / `longWorkBudgetUsd` do bot, se o dono preencheu, valem.
  */
-export const LONG_WORK_BUDGET: SupervisorBudget = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 60 * 60_000 };
+export const LONG_WORK_BUDGET: SupervisorBudget = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: Number.POSITIVE_INFINITY };
 
 /** A partir daqui o modelo é avisado (uma vez) para fechar e entregar; os 20% restantes são a reserva da entrega. */
 export const WRAP_UP_RATIO = 0.8;
-/** Chat promovível: a lista de tarefas que o modelo monta com este número de passos (ou mais) mostra que o pedido é trabalho longo. */
+/** Chat promovível: a lista de tarefas que o modelo monta com este número de passos (ou mais) mostra que o pedido é trabalho longo (único gatilho: tempo não promove mais). */
 export const PROMOTE_PLAN_STEPS = 3;
-/** Trabalho longo: a pesquisa para ao usar esta fração do tempo máximo (o resto é da escrita) ou do teto de passos. */
+/** Trabalho longo: a pesquisa para ao usar esta fração do tempo máximo DO DONO (se houver; o resto é da escrita) ou do teto de passos. */
 export const RESEARCH_TIME_RATIO = 0.7;
 export const RESEARCH_STEPS_RATIO = 0.7;
 /** Com gasto máximo preenchido: ao chegar a esta fração do teto em US$ vai para a escrita (o resto é da escrita). */
@@ -43,7 +45,7 @@ export const STAGNATION_STEPS = 4;
 /** A rodada de lacunas dura no máximo este número de passos, ou até a fração abaixo do tempo/passos/gasto. */
 export const GAP_ROUND_STEPS = 4;
 export const GAP_END_RATIO = 0.85;
-/** Só segurança: o orçamento em US$ e minutos é quem encerra o trabalho. */
+/** Rede de segurança contra laço (não é orçamento): sem teto de tempo, é ela que garante que o run acaba. */
 export const MAX_STEPS_SAFETY = 200;
 /** Mesma tool + mesmos args + mesmo resultado, esta vez seguidas, vira nota ao modelo. */
 export const REPEAT_NOTE_AT = 3;
@@ -148,7 +150,7 @@ export type SupervisorGateContext = {
 	/** Entradas do caderno e itens concluídos da lista: crescimento = progresso (gatilho b). */
 	notebookCount?: number;
 	completedCount?: number;
-	/** O último passo do modelo chamou tools (o trabalho está em andamento): condição para promover chat -> trabalho longo. */
+	/** O último passo do modelo chamou tools. Sem uso na decisão hoje (a promoção por tempo saiu); mantido por compatibilidade do contexto. */
 	lastStepHadTools?: boolean;
 	/** Passos da lista de tarefas que o MODELO montou neste run (lista herdada de run anterior não conta): 3+ promove o chat. */
 	plannedSteps?: number;
@@ -190,9 +192,10 @@ export function createSupervisor(config: {
 	const blockedUntil = new Map<string, number>();
 
 	const elapsedMs = (usage: SupervisorUsage) => Math.max(0, usage.activeMs - timeBaseMs);
+	// Teto infinito (o padrão) = fração 0: nunca avisa nem entrega por isso, e nunca vira NaN (Infinity / Infinity).
 	const fractions = (usage: SupervisorUsage) => ({
-		cost: budget.maxCostUsd > 0 ? usage.costUsd / budget.maxCostUsd : 0,
-		time: budget.maxActiveMs > 0 ? elapsedMs(usage) / budget.maxActiveMs : 0,
+		cost: Number.isFinite(budget.maxCostUsd) && budget.maxCostUsd > 0 ? usage.costUsd / budget.maxCostUsd : 0,
+		time: Number.isFinite(budget.maxActiveMs) && budget.maxActiveMs > 0 ? elapsedMs(usage) / budget.maxActiveMs : 0,
 	});
 
 	return {
@@ -273,7 +276,7 @@ export function createSupervisor(config: {
 			if (phase !== "research") return { costUsd: 0, activeMs: 0 };
 			return {
 				costUsd: Number.isFinite(budget.maxCostUsd) ? Math.max(0, budget.maxCostUsd * RESEARCH_COST_RATIO - usage.costUsd) : Number.POSITIVE_INFINITY,
-				activeMs: Math.max(0, budget.maxActiveMs * RESEARCH_TIME_RATIO - elapsedMs(usage)),
+				activeMs: Number.isFinite(budget.maxActiveMs) ? Math.max(0, budget.maxActiveMs * RESEARCH_TIME_RATIO - elapsedMs(usage)) : Number.POSITIVE_INFINITY,
 			};
 		},
 		gate(usage: SupervisorUsage, context: SupervisorGateContext = {}): SupervisorGate {
@@ -281,13 +284,9 @@ export function createSupervisor(config: {
 				return { action: "deliver", stop: { reason: "budget_steps", detail: "delivered" }, instruction: deliveryInstruction("budget_steps") };
 			}
 			const { cost, time } = fractions(usage);
-			// Chat promovível vira trabalho longo (uma vez, sem parar nem perguntar) por duas vias:
-			// (1) o modelo montou uma lista com 3+ passos: decisão dele, não de regex nem de tempo;
-			// (2) chegou a 80% do tempo com trabalho em andamento.
-			if (config.promotable === true && !promoted && profile === "chat") {
-				const planned = (context.plannedSteps ?? 0) >= PROMOTE_PLAN_STEPS;
-				if (planned || (context.lastStepHadTools === true && time >= WRAP_UP_RATIO - 1e-9)) return { action: "promote" };
-			}
+			// Chat promovível vira trabalho longo (uma vez, sem parar nem perguntar) quando o modelo monta uma lista com
+			// 3+ passos: decisão dele, não de regex nem de tempo (a promoção por 80% do tempo saiu junto com o orçamento de tempo).
+			if (config.promotable === true && !promoted && profile === "chat" && (context.plannedSteps ?? 0) >= PROMOTE_PLAN_STEPS) return { action: "promote" };
 			// Teto duro do dono: a renovação por mensagem nova não o estica (tempo total ativo do run).
 			if (config.hardActiveMs && config.hardActiveMs > 0 && usage.activeMs >= config.hardActiveMs) {
 				return { action: "deliver", stop: { reason: "budget_wall", detail: "delivered" }, instruction: deliveryInstruction("budget_wall") };

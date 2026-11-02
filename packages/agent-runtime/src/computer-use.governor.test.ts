@@ -199,6 +199,8 @@ describe("A3: continuação governada por progresso", () => {
 			message: "gera um pdf completo sobre o assunto",
 			jev: WANTS_FILE_JEV,
 			maxSteps: 80,
+			// Sem soft por padrão (02/11); o limite brando de 24 passos é o que o dono configura.
+			budget: { softMaxSteps: 24 },
 			driver: ({ index, offered, events: seen }) => {
 				if (fileEvents(seen).length > 0) return say("Pronto.");
 				if (onlyFileTools(offered)) return turn(fileCall(`f${index}`));

@@ -5,16 +5,33 @@ import {
 	emptyUsage,
 	parseBudgetPolicy,
 	resolveBudget,
+	wallClockAnchors,
 } from "./budget.js";
 
+describe("wallClockAnchors", () => {
+	it("sem teto (0) ou infinito não há prazo: undefined, nunca Infinity (um timer com Infinity dispara na hora)", () => {
+		for (const maxWallMs of [0, Number.POSITIVE_INFINITY]) {
+			expect(wallClockAnchors({ maxWallMs, now: 1_000 }).deadlineAtMs).toBeUndefined();
+		}
+		expect(wallClockAnchors({ maxWallMs: 60_000, now: 1_000 }).deadlineAtMs).toBe(61_000);
+	});
+});
+
 describe("resolveBudget", () => {
-	it("padrão: soft 24, hard 100, extensão 24", () => {
+	it("padrão (decisão do dono, 02/11): sem soft de 24 passos e sem teto de relógio; só o teto de passos de segurança", () => {
 		const budget = resolveBudget({});
 		expect(budget.hardMaxSteps).toBe(BUDGET_HARD_CAP);
-		expect(budget.softMaxSteps).toBe(24);
+		// Soft = hard: não há fase de avaliação brando como freio.
+		expect(budget.softMaxSteps).toBe(BUDGET_HARD_CAP);
 		expect(budget.extensionSteps).toBe(24);
-		expect(budget.maxWallMs).toBeGreaterThan(0);
+		expect(budget.maxWallMs).toBe(0);
 		expect(budget.maxTokens).toBeUndefined();
+	});
+
+	it("o que o dono configura continua valendo: soft, relógio e custo", () => {
+		const budget = resolveBudget({ policy: { softMaxSteps: 24, maxWallMs: 10 * 60_000, maxCostUsd: 2 } });
+		expect(budget).toMatchObject({ softMaxSteps: 24, maxWallMs: 10 * 60_000, maxCostUsd: 2 });
+		expect(resolveBudget({ policy: { maxWallMs: Number.NaN } }).maxWallMs).toBe(0);
 	});
 
 	it("precedência request < policy e teto 100", () => {

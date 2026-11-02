@@ -22,7 +22,8 @@ export type EngineSettingsPatch = {
 	scope?: EngineScope;
 	/** `null` = sem limite de gasto (o padrão); número = teto duro opcional em US$. */
 	longWorkBudgetUsd?: number | null;
-	longWorkMinutes?: number;
+	/** `null` = sem limite de tempo (o padrão, decisão do dono 02/11); número = teto de tempo opcional em minutos. */
+	longWorkMinutes?: number | null;
 	/** `null` = volta a usar o modelo do bot nos ajudantes. */
 	helperModel?: string | null;
 };
@@ -50,7 +51,8 @@ export function withEngineSettings(policyJson: unknown, patch: EngineSettingsPat
 	}
 	if (patch.longWorkBudgetUsd === null) delete base.longWorkBudgetUsd;
 	else if (patch.longWorkBudgetUsd !== undefined) base.longWorkBudgetUsd = patch.longWorkBudgetUsd;
-	if (patch.longWorkMinutes !== undefined) base.longWorkMinutes = patch.longWorkMinutes;
+	if (patch.longWorkMinutes === null) delete base.longWorkMinutes;
+	else if (patch.longWorkMinutes !== undefined) base.longWorkMinutes = patch.longWorkMinutes;
 	if (patch.helperModel === null) delete base.helperModel;
 	else if (patch.helperModel !== undefined) base.helperModel = patch.helperModel;
 	return base;
@@ -58,7 +60,7 @@ export function withEngineSettings(policyJson: unknown, patch: EngineSettingsPat
 
 export type ParsedEngineArgs = { ok: true; patch: EngineSettingsPatch } | { ok: false; error: string };
 
-const ACCEPTED = `Accepted fields: engine ("current" = the previous engine, or "new"), scope ("all" = also routines, groups and bot-to-bot messages, the default with the new engine; "chat" = only the direct chat; needs the new engine), budget_usd (optional spending cap per long task, ${LONG_WORK_MIN_USD} to ${LONG_WORK_MAX_USD}; 0 or empty = no spending limit, the default), minutes (maximum time of a long task, ${LONG_WORK_MIN_MINUTES} to ${LONG_WORK_MAX_MINUTES}, default 60), helper_model (model id, or "" to use the bot's model).`;
+const ACCEPTED = `Accepted fields: engine ("current" = the previous engine, or "new"), scope ("all" = also routines, groups and bot-to-bot messages, the default with the new engine; "chat" = only the direct chat; needs the new engine), budget_usd (optional spending cap per long task, ${LONG_WORK_MIN_USD} to ${LONG_WORK_MAX_USD}; 0 or empty = no spending limit, the default), minutes (optional time cap of a long task, ${LONG_WORK_MIN_MINUTES} to ${LONG_WORK_MAX_MINUTES}; 0 or empty = no time limit, the default), helper_model (model id, or "" to use the bot's model).`;
 
 /** Valida os argumentos da tool: campo desconhecido ou valor fora da faixa FALHA com a lista do aceito (nunca ajusta em silêncio). */
 export function parseSetEngineArgs(args: unknown): ParsedEngineArgs {
@@ -85,10 +87,11 @@ export function parseSetEngineArgs(args: unknown): ParsedEngineArgs {
 	}
 	if (raw.minutes !== undefined) {
 		const minutes = raw.minutes;
-		if (typeof minutes !== "number" || !Number.isFinite(minutes) || minutes < LONG_WORK_MIN_MINUTES || minutes > LONG_WORK_MAX_MINUTES) {
+		if (minutes === null || minutes === "" || minutes === 0) patch.longWorkMinutes = null;
+		else if (typeof minutes !== "number" || !Number.isFinite(minutes) || minutes < LONG_WORK_MIN_MINUTES || minutes > LONG_WORK_MAX_MINUTES) {
 			return { ok: false, error: `Invalid minutes. ${ACCEPTED}` };
 		}
-		patch.longWorkMinutes = Math.round(minutes);
+		else patch.longWorkMinutes = Math.round(minutes);
 	}
 	if (raw.helper_model !== undefined) {
 		if (typeof raw.helper_model !== "string") return { ok: false, error: `Invalid helper_model. ${ACCEPTED}` };
@@ -126,7 +129,7 @@ export function looksLikeEngineRequest(text: string): boolean {
 const BRL_FORMAT = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**
- * Frase para o dono (pt-BR): "Motor novo (padrão) · sem limite de gasto, até 60 min por tarefa longa". Bot sem escolha
+ * Frase para o dono (pt-BR): "Motor novo (padrão) · sem limite de gasto, sem limite de tempo". Bot sem escolha
  * mostra o padrão (o `off` de emergência do deploy não aparece aqui); escolha explícita mostra "Motor novo" ou "Motor anterior".
  */
 export function describeEngineSettings(policyJson: unknown): string {
@@ -134,10 +137,12 @@ export function describeEngineSettings(policyJson: unknown): string {
 	if (policy.engine !== "v2") return "Motor anterior";
 	const helper = readHelperPolicy(policyJson).helperModel;
 	const where = policy.scope === "all" ? " · também em rotinas e grupos" : "";
+	// Sem tempo configurado = sem limite de tempo (só o teto de passos de segurança e o botão de parar).
+	const minutes = policy.longWorkMinutesExplicit ? `até ${policy.longWorkMinutes} min por tarefa longa` : "sem limite de tempo";
 	const budget =
 		policy.longWorkBudgetUsd === undefined
-			? `sem limite de gasto, até ${policy.longWorkMinutes} min por tarefa longa`
-			: `gasto máximo de US$ ${BRL_FORMAT.format(policy.longWorkBudgetUsd)} e até ${policy.longWorkMinutes} min por tarefa longa`;
+			? `sem limite de gasto, ${minutes}`
+			: `gasto máximo de US$ ${BRL_FORMAT.format(policy.longWorkBudgetUsd)} e ${minutes}`;
 	return `${policy.explicit === undefined ? "Motor novo (padrão)" : "Motor novo"}${where} · ${budget}${helper ? ` · ajudantes: ${helper}` : ""}`;
 }
 
@@ -147,10 +152,11 @@ export function describeEngineSettings(policyJson: unknown): string {
  */
 export function normalizeEngineSettings(policyJson: unknown): unknown {
 	const policy = asRecord(policyJson);
-	if (!("longWorkBudgetUsd" in policy)) return policyJson;
-	const value = policy.longWorkBudgetUsd;
-	if (value !== null && value !== 0 && value !== "") return policyJson;
-	const { longWorkBudgetUsd: _removed, ...rest } = policy;
+	const isEmpty = (key: string) => key in policy && (policy[key] === null || policy[key] === 0 || policy[key] === "");
+	const empties = ["longWorkBudgetUsd", "longWorkMinutes"].filter(isEmpty);
+	if (!empties.length) return policyJson;
+	const rest = { ...policy };
+	for (const key of empties) delete rest[key];
 	return rest;
 }
 
@@ -166,7 +172,7 @@ export function engineSettingsError(policyJson: unknown): string | null {
 	if (policy.longWorkBudgetUsd !== undefined && policy.longWorkBudgetUsd !== null && !inRange(policy.longWorkBudgetUsd, LONG_WORK_MIN_USD, LONG_WORK_MAX_USD)) {
 		return `Invalid longWorkBudgetUsd: expected ${LONG_WORK_MIN_USD} to ${LONG_WORK_MAX_USD}`;
 	}
-	if (policy.longWorkMinutes !== undefined && !inRange(policy.longWorkMinutes, LONG_WORK_MIN_MINUTES, LONG_WORK_MAX_MINUTES)) {
+	if (policy.longWorkMinutes !== undefined && policy.longWorkMinutes !== null && !inRange(policy.longWorkMinutes, LONG_WORK_MIN_MINUTES, LONG_WORK_MAX_MINUTES)) {
 		return `Invalid longWorkMinutes: expected ${LONG_WORK_MIN_MINUTES} to ${LONG_WORK_MAX_MINUTES}`;
 	}
 	if (policy.helperModel !== undefined && policy.helperModel !== null && (typeof policy.helperModel !== "string" || !isWellFormedModelId(policy.helperModel.trim()))) {

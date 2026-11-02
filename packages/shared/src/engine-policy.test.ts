@@ -18,7 +18,7 @@ import {
 } from "./engine-policy.js";
 
 describe("readEnginePolicy", () => {
-	it("bot sem política usa o motor novo (padrão) em todas as origens, perfil automático, sem limite de gasto e 60 min de tempo máximo", () => {
+	it("bot sem política usa o motor novo (padrão) em todas as origens, perfil automático, sem limite de gasto e sem tempo máximo explícito (longWorkMinutes só vale se o dono preencheu)", () => {
 		expect(ENGINE_DEFAULT_SCOPE).toBe("all");
 		for (const raw of [null, undefined, {}, [], "x", 3]) {
 			expect(readEnginePolicy(raw)).toEqual({

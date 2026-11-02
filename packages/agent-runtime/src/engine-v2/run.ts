@@ -143,11 +143,11 @@ export type EngineV2Options = {
 	/** Ajuste do bot para o trabalho longo (`policyJson.longWorkBudgetUsd` / `longWorkMinutes`). */
 	longWorkBudgetUsd?: number;
 	longWorkMinutes?: number;
-	/** Piso de TEMPO (minutos) sem ligar o trabalho longo: brief "Seu dia" e lembrete `check`, que no v1 rodam até 30 min. Não há piso em US$. */
+	/** Piso de TEMPO (minutos) sem ligar o trabalho longo: brief "Seu dia" e lembrete `check`. Só tem efeito junto de um teto de tempo (o worker aplica 30 min nesses runs sem humano; chat humano não tem teto). Não há piso em US$. */
 	budgetFloor?: { minutes: number };
 	/**
-	 * Chat de humano (origem chat, turno digitado) no perfil `chat`: ao chegar a 80% do tempo do perfil com o trabalho em
-	 * andamento, o run vira `long_work` no mesmo run, sem parar nem perguntar. Sem humano, o limite do perfil fica.
+	 * Chat de humano (origem chat, turno digitado) no perfil `chat`: quando o modelo monta uma lista de 3+ passos, o run vira
+	 * `long_work` no mesmo run, sem parar nem perguntar (a promoção por tempo saiu com o orçamento de tempo). Sem humano, nunca promove.
 	 */
 	promotable?: boolean;
 	/** Avisa o worker da promoção (grava `engineProfile: "long_work"` + `promotedFrom: "chat"` no budgetJson do run). */
@@ -236,7 +236,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	// A renovação por mensagem do usuário estica o tempo do orçamento até o teto duro da conta (`runLimits.maxWallMs`), então
 	// o prazo das operações também considera esse teto; sem isso, num chat que não promove, a operação falharia no prazo antigo.
 	const deadlineBudgetMs = Math.max(budget.maxActiveMs, promotedBudget?.maxActiveMs ?? 0, helperRole ? 0 : runLimits.maxWallMs);
-	const deadlineAtMs = wall.executionStartMs + Math.round(Math.max(0, deadlineBudgetMs - wall.baseMs) * 1.25);
+	// Sem teto de tempo (o padrão) não há prazo: `undefined`, nunca `Infinity` (um timer com Infinity dispara na hora).
+	const deadlineAtMs = Number.isFinite(deadlineBudgetMs) ? wall.executionStartMs + Math.round(Math.max(0, deadlineBudgetMs - wall.baseMs) * 1.25) : undefined;
 	const executionContext = { signal: params.abortSignal, deadlineAtMs, ...(params.browserTabId ? { tabId: params.browserTabId } : {}) };
 	const manager = withAgentPointer(params.manager.withExecutionContext?.(executionContext) ?? params.manager, (event) => onEvent(event));
 	const getSessionId = (context: SandboxExecutionContext = executionContext) =>

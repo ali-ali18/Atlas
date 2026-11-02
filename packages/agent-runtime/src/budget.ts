@@ -24,7 +24,7 @@ export type AgentBudget = {
 	softMaxSteps: number;
 	/** Teto de decisões do modelo. */
 	hardMaxSteps: number;
-	/** Teto de relógio por run. 0 = sem limite. */
+	/** Teto de relógio por run. 0 = sem limite (o padrão). */
 	maxWallMs: number;
 	/** Teto de tokens (prompt+completion). undefined = só registra. */
 	maxTokens?: number;
@@ -37,8 +37,6 @@ export type AgentBudget = {
 };
 
 export const BUDGET_HARD_CAP = 300;
-export const BUDGET_SOFT_DEFAULT = 24;
-export const BUDGET_WALL_DEFAULT_MS = 30 * 60 * 1000;
 export const BUDGET_EXTENSION_DEFAULT = 24;
 /**
  * F4 — travas por tool, nunca globais. 3 falhas seguidas da mesma tool a
@@ -128,9 +126,11 @@ export function resolveBudget(input: {
 				BUDGET_HARD_CAP,
 		),
 	);
-	const softRaw = positiveInt(policy.softMaxSteps) ?? BUDGET_SOFT_DEFAULT;
+	// Sem soft por padrão (decisão do dono, 02/11): o teto de passos é o de segurança (`hard`). Soft só se o dono configurou.
+	const softRaw = positiveInt(policy.softMaxSteps) ?? hard;
 	const softMaxSteps = Math.max(1, Math.min(softRaw, hard));
-	const wall = positiveMs(policy.maxWallMs) ?? BUDGET_WALL_DEFAULT_MS;
+	// Sem teto de relógio por padrão (0 = sem limite): só o `maxWallMs` que o dono configurou (conta, bot ou pedido) vale.
+	const wall = positiveMs(policy.maxWallMs) ?? 0;
 	return {
 		softMaxSteps,
 		hardMaxSteps: hard,
@@ -169,7 +169,7 @@ export function wallClockAnchors(input: {
 		baseMs,
 		executionStartMs,
 		deadlineAtMs:
-			input.maxWallMs > 0
+			Number.isFinite(input.maxWallMs) && input.maxWallMs > 0
 				? executionStartMs + Math.max(0, input.maxWallMs - baseMs)
 				: undefined,
 	};
