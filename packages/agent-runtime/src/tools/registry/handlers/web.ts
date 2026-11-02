@@ -93,8 +93,9 @@ async function handleWebExtract(args: Record<string, unknown>, ctx: ToolContext)
 			}
 		}
 		items = adaptEscalateHints(items, ctx.hasTool?.("navigate") ?? false);
-		// Só o trabalho longo do v2 recebe a orientação extra; chat curto e v1 ficam como antes (economia de contexto).
-		if (ctx.longWork === true) items = addRecoveryGuidance(items);
+		// Página que não abre (403, bloqueio, ilegível) ganha o plano B em qualquer perfil: no chat o modelo desistia e
+		// ficava só com os trechos da busca. Sucesso e página cortada só recebem orientação no trabalho longo do v2.
+		items = addRecoveryGuidance(items, { errorsOnly: ctx.longWork !== true });
 		return {
 			summary: JSON.stringify({
 				ok: true,
