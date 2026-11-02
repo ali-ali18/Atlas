@@ -3,12 +3,13 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as React from "react";
 import { View } from "react-native";
 import { ComputerView } from "@/components/computer/computer-view";
-import { KeyboardBar } from "@/components/computer/keyboard-bar";
+import { TypingInput } from "@/components/computer/typing-input";
 import { ViewerWebView } from "@/components/computer/viewer-webview";
 import { ActionSheet } from "@/components/ui/action-sheet";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
-import { computerErrorText, sendKey, sendText, type ComputerKey } from "@/lib/computer-api";
+import { computerErrorText, sendKey, sendText } from "@/lib/computer-api";
+import { createTypingController } from "@/lib/computer-typing";
 import { useComputer } from "@/lib/use-computer";
 import { useHomeData } from "@/lib/home-data";
 
@@ -31,7 +32,6 @@ export default function ComputerScreen() {
 	// "Modo trackpad": só o estado e a marca no menu por enquanto (ver docs); o toque ainda vai direto no ponto tocado.
 	const [trackpad, setTrackpad] = React.useState(false);
 	const [helpOpen, setHelpOpen] = React.useState(false);
-	const [busy, setBusy] = React.useState(false);
 	const [notice, setNotice] = React.useState<string | null>(null);
 	const noticeTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	React.useEffect(() => () => clearTimeout(noticeTimer.current), []);
@@ -52,32 +52,35 @@ export default function ComputerScreen() {
 		setKeyboardOpen(false);
 		setNotice(null);
 	}
-	// Envia e devolve se deu certo (a barra só limpa o campo no sucesso).
-	const send = async (run: () => Promise<void>): Promise<boolean> => {
-		if (busy) return false;
-		setBusy(true);
-		setNotice(null);
-		try {
-			await run();
-			return true;
-		} catch (error) {
-			showNotice(computerErrorText(error));
-			return false;
-		} finally {
-			setBusy(false);
-		}
-	};
 	const sessionId = computer.sessionId;
+	// Cola o texto da área de transferência na VM (uma chamada; falha vira aviso amigável).
 	const paste = async () => {
 		if (!sessionId) return;
-		let text = "";
 		try {
-			text = await Clipboard.getStringAsync();
-		} catch {
-			return showNotice("Não foi possível enviar para a VM.");
+			await sendText(apiFetch, sessionId, await Clipboard.getStringAsync());
+			setNotice(null);
+		} catch (error) {
+			showNotice(computerErrorText(error));
 		}
-		await send(() => sendText(apiFetch, sessionId, text));
 	};
+	// Digitação ao vivo: o teclado do aparelho escreve num campo invisível e cada mudança vai à VM, em ordem.
+	const live = React.useRef({ apiFetch, sessionId, showNotice });
+	live.current = { apiFetch, sessionId, showNotice };
+	const typing = React.useMemo(
+		() =>
+			createTypingController({
+				sendText: async (text) => {
+					const { apiFetch: api, sessionId: id } = live.current;
+					if (id) await sendText(api, id, text, { allowBlank: true });
+				},
+				sendKey: async (key) => {
+					const { apiFetch: api, sessionId: id } = live.current;
+					if (id) await sendKey(api, id, key);
+				},
+				onError: (error) => live.current.showNotice(computerErrorText(error)),
+			}),
+		[],
+	);
 
 	if (!bot) {
 		return (
@@ -89,17 +92,11 @@ export default function ComputerScreen() {
 		);
 	}
 
-	const extra =
-		sessionId && (keyboardOpen || notice) ? (
-			<View className="gap-2">
-				{keyboardOpen ? <KeyboardBar busy={busy} error={notice} onSend={(text) => send(() => sendText(apiFetch, sessionId, text))} onKey={(key: ComputerKey) => void send(() => sendKey(apiFetch, sessionId, key))} /> : null}
-				{!keyboardOpen && notice ? (
-					<Text className="px-2 text-center text-caption" style={{ color: "#fca5a5" }} accessibilityLiveRegion="polite">
-						{notice}
-					</Text>
-				) : null}
-			</View>
-		) : null;
+	const extra = notice ? (
+		<Text className="px-2 text-center text-caption" style={{ color: "#fca5a5" }} accessibilityLiveRegion="polite">
+			{notice}
+		</Text>
+	) : null;
 
 	return (
 		<>
@@ -121,6 +118,7 @@ export default function ComputerScreen() {
 			>
 				{computer.uri ? <ViewerWebView uri={computer.uri} reloadKey={computer.linkKey} controlling={controlling} onDrop={computer.reportDrop} /> : null}
 			</ComputerView>
+			{controlling && sessionId ? <TypingInput active={keyboardOpen} controller={typing} onClose={() => setKeyboardOpen(false)} /> : null}
 			<ActionSheet
 				visible={helpOpen}
 				onClose={() => setHelpOpen(false)}
