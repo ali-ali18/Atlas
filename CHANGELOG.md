@@ -4,6 +4,9 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Corrigido
+- **mobile:** o login com Google no Expo Go parava na página "Pronto! Voltando para o app…" e o botão não fazia nada, porque o app pedia para voltar por `atlas:///`, que o Expo Go não abre. Agora, na hora do toque, o app pergunta ao sistema se alguém abre `atlas://`; se não (Expo Go), volta pelo link da própria atualização (`exp://u.expo.dev/update/<id>`). No app instalado nada muda. Ver `docs/features/app-mobile.md`.
+
 ## [0.4.1-beta] - 2026-11-02
 
 ### Adicionado

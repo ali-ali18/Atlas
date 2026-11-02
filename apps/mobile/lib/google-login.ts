@@ -16,8 +16,6 @@ import {
 	type PendingLogin,
 	type PendingStore,
 } from "@/lib/google-bridge";
-import { describeLink } from "@/lib/login-trace";
-import { loginTrace } from "@/lib/login-trace-store";
 
 const PENDING_KEY = "atlas.google-login";
 
@@ -68,9 +66,6 @@ export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
 		const appUrl = appReturnUrl(Linking.createURL);
 		const appSchemeOpens = await Linking.canOpenURL(appUrl).catch(() => false);
 		const expoGoUrl = expoGoReturnUrl(!appSchemeOpens, expoGoLinks);
-		loginTrace.add(
-			`ambiente: ${String(Constants.executionEnvironment)} · versão ${String(Constants.manifest2?.id ?? "?").slice(0, 8)} · ${describeLink(appUrl)} abre: ${appSchemeOpens ? "sim" : "não"} · links: ${expoGoLinks.map(describeLink).join(" | ")}`,
-		);
 		return expoGoUrl ?? appUrl;
 	}
 
@@ -80,14 +75,9 @@ export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
 		pending: pendingStore,
 		// `$fetch` do cliente passa pelo plugin do Expo, que guarda o cookie de sessão do Set-Cookie como no login por código.
 		exchange: async (token, verifier) => {
-			loginTrace.add("trocando o token no servidor");
 			const result = await client.$fetch(bridgeExchangeUrl(serverUrl), { method: "POST", body: { token, code_verifier: verifier } });
-			if (result.error) {
-				loginTrace.add(`troca recusada: ${result.error.status ?? "?"} ${String(result.error.message ?? "").slice(0, 60)}`);
-				return false;
-			}
+			if (result.error) return false;
 			const session = await client.getSession();
-			loginTrace.add(session.data?.user ? "sessão ok" : "troca ok, mas sem sessão no app");
 			return Boolean(session.data?.user);
 		},
 		openAuthSession: async (url, returnUrl) => {
@@ -100,15 +90,7 @@ export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
 			}
 			// createTask: false abre a aba na mesma tarefa do app; no padrão (nova tarefa) fechar a aba no Expo Go
 			// deixava o usuário na tela inicial do Expo Go em vez de no app.
-			loginTrace.add(`abrindo navegador, volta para ${describeLink(returnUrl)}`);
-			try {
-				const result = await WebBrowser.openAuthSessionAsync(url, returnUrl, { createTask: false });
-				loginTrace.add(`navegador fechou: ${result.type}${"url" in result && result.url ? ` ${describeLink(result.url)}` : ""}`);
-				return result;
-			} catch (error) {
-				loginTrace.add(`navegador falhou: ${error instanceof Error ? error.message.slice(0, 80) : "?"}`);
-				throw error;
-			}
+			return WebBrowser.openAuthSessionAsync(url, returnUrl, { createTask: false });
 		},
 		randomVerifier: () => newCodeVerifier(Crypto.getRandomBytes(32)),
 		challengeOf: async (verifier) =>
