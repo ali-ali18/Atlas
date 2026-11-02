@@ -1,12 +1,12 @@
 import { resolveColor, resolveShape } from "@workspace/shared/avatar/identity";
 import * as React from "react";
+import Animated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { Image, KeyboardAvoidingView, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RoundButton, TOP_BAR_CONTROL, TOP_BAR_SIDE } from "@/components/chat/chat-top-bar";
 import { ChevronLeftIcon, ClipboardPasteIcon, DotsIcon, HelpIcon, KeyboardIcon, MonitorIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { ComputerMenu } from "@/components/computer/computer-menu";
 import { Zoomable } from "@/components/computer/zoomable";
@@ -61,11 +61,36 @@ function RoundAction({ label, onPress, children }: { label: string; onPress?: ()
 	);
 }
 
-function Placeholder({ status, onRetry, onStart, errorText }: { status: Exclude<ComputerStatus, "ready">; onRetry?: () => void; onStart?: () => void; errorText?: string | null }) {
+/** Uma volta do avatar na tela de carregamento (linear, em laço). */
+const SPIN_MS = 1600;
+
+/** O avatar do bot girando no centro enquanto conecta. Com movimento reduzido fica parado, "pensando". */
+function SpinningAvatar({ bot }: { bot: Pick<HomeBot, "id" | "color" | "shape"> }) {
+	const reduced = useReducedMotion();
+	const turn = useSharedValue(0);
+	React.useEffect(() => {
+		if (reduced) {
+			cancelAnimation(turn);
+			turn.value = 0;
+			return;
+		}
+		turn.value = 0;
+		turn.value = withRepeat(withTiming(360, { duration: SPIN_MS, easing: Easing.linear }), -1, false);
+		return () => cancelAnimation(turn);
+	}, [reduced, turn]);
+	const style = useAnimatedStyle(() => ({ transform: [{ rotate: `${turn.value}deg` }] }));
+	return (
+		<Animated.View accessible accessibilityRole="progressbar" accessibilityLabel="Conectando ao computador" style={style}>
+			<Avatar color={resolveColor(bot.color, bot.id)} shape={resolveShape(bot.shape, bot.id)} size={72} animated look state="thinking" eyeColor={SCREEN} />
+		</Animated.View>
+	);
+}
+
+function Placeholder({ status, bot, onRetry, onStart, errorText }: { status: Exclude<ComputerStatus, "ready">; bot: Pick<HomeBot, "id" | "color" | "shape">; onRetry?: () => void; onStart?: () => void; errorText?: string | null }) {
 	if (status === "loading") {
 		return (
-			<View className="flex-1 items-center justify-center gap-3">
-				<Spinner size="large" label="Conectando ao computador" />
+			<View className="flex-1 items-center justify-center gap-4">
+				<SpinningAvatar bot={bot} />
 				<Text className="text-control" style={{ color: "#a1a1aa" }}>
 					Conectando ao computador…
 				</Text>
@@ -141,7 +166,7 @@ export function ComputerView({ bot, avatarState = "idle", status, source, childr
 					{source ? <Image source={source} resizeMode="contain" accessibilityLabel={`Tela do computador de ${bot.name}`} style={{ width: "100%", height: "100%" }} /> : children}
 				</Zoomable>
 			) : (
-				<Placeholder status={status} onRetry={onRetry} onStart={onStart} errorText={errorText} />
+				<Placeholder status={status} bot={bot} onRetry={onRetry} onStart={onStart} errorText={errorText} />
 			)}
 
 			{ready ? (
