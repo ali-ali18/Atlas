@@ -28,16 +28,16 @@ export type RowActions = {
 /** Balão do usuário, à direita, na cor do bot (como no Grok); sem a cor, o cinza do `Bubble variant="muted"` do web. */
 function UserBubble({ text, position, reactions, replyTo, accent, onLongPress }: { text: string; position: GroupPosition; reactions?: Reaction[]; replyTo?: ReplyQuote; accent?: RowActions["userBubble"]; onLongPress: () => void }) {
 	return (
-		<View className="max-w-[82%] self-end">
+		<View className="max-w-[87%] self-end">
 			{replyTo ? <ReplyPill quote={replyTo} align="end" spaced={position !== "single" && position !== "first"} /> : null}
 			{/* Sem `selectable`: o toque longo abre o menu (a seleção está em "Selecionar texto"). */}
 			<Pressable
 				onLongPress={onLongPress}
 				accessibilityHint="Segure para ver as ações da mensagem"
 				style={accent ? { backgroundColor: accent.background } : undefined}
-				className={`px-4 py-3 ${accent ? "" : "bg-muted"} ${bubbleRadius("right", position)}`}
+				className={`px-3.5 py-3.5 ${accent ? "" : "bg-muted"} ${bubbleRadius("right", position)}`}
 			>
-				<Text className="text-control leading-6" style={accent ? { color: accent.foreground } : undefined}>
+				<Text className="text-base leading-snug" style={accent ? { color: accent.foreground } : undefined}>
 					{text}
 				</Text>
 			</Pressable>
@@ -63,12 +63,15 @@ function Reactions({ reactions, align }: { reactions?: Reaction[]; align: "start
 	);
 }
 
-/** Balão do bot: escuro, arredondado, com markdown; ocupa quase toda a largura como na referência. */
+/**
+ * Balão do bot: escuro, arredondado, com markdown. Medidas do Grok (print do dono): 80% da tela de largura máxima
+ * (87% da lista), margem de 14 pt dos lados e de cima/baixo, texto de 16 pt com entrelinha de 22 pt.
+ */
 function BotBubble({ text, position, reactions, replyTo, onLongPress }: { text: string; position: GroupPosition; reactions?: Reaction[]; replyTo?: ReplyQuote; onLongPress: () => void }) {
 	return (
-		<View className="max-w-[94%] self-start">
+		<View className="max-w-[87%] self-start">
 			{replyTo ? <ReplyPill quote={replyTo} align="start" spaced={position !== "single" && position !== "first"} /> : null}
-			<Pressable onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" className={`bg-muted px-4 py-3.5 ${bubbleRadius("left", position)}`}>
+			<Pressable onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" className={`bg-muted px-3.5 py-3.5 ${bubbleRadius("left", position)}`}>
 				<MarkdownText source={text} />
 			</Pressable>
 			<Reactions reactions={reactions} align="start" />

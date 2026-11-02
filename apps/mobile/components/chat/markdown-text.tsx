@@ -59,13 +59,13 @@ function BlockView({ block, scheme }: { block: Block; scheme: "light" | "dark" }
 	switch (block.type) {
 		case "paragraph":
 			return (
-				<Text className="text-control leading-6">
+				<Text className="text-base leading-snug">
 					<Inlines nodes={block.inline} scheme={scheme} />
 				</Text>
 			);
 		case "heading":
 			return (
-				<Text className={cn("font-semibold leading-6", block.level === 1 ? "text-xl leading-7" : block.level === 2 ? "text-lg leading-7" : "text-control")}>
+				<Text className={cn("font-semibold leading-snug", block.level === 1 ? "text-xl leading-7" : block.level === 2 ? "text-lg leading-7" : "text-base")}>
 					<Inlines nodes={block.inline} scheme={scheme} />
 				</Text>
 			);
@@ -74,14 +74,14 @@ function BlockView({ block, scheme }: { block: Block; scheme: "light" | "dark" }
 				<View className="gap-1.5">
 					{block.items.map((item, index) => (
 						<View key={`${index}-${block.ordered}`} className="flex-row gap-2.5 pl-1">
-							<Text variant="muted" className="w-5 text-control leading-6">
+							<Text variant="muted" className="w-5 text-base leading-snug">
 								{block.ordered ? `${block.start + index}.` : "•"}
 							</Text>
 							{/*
 							  `shrink`, não `flex-1`: o balão do bot se ajusta ao conteúdo (self-start), e no Android um `flex-1`
 							  dentro dele mede largura 0. O texto da lista sumia e o balão virava uma coluna alta só com "1."
 							*/}
-							<Text className="min-w-0 shrink text-control leading-6">
+							<Text className="min-w-0 shrink text-base leading-snug">
 								<Inlines nodes={item} scheme={scheme} />
 							</Text>
 						</View>
@@ -102,7 +102,7 @@ function BlockView({ block, scheme }: { block: Block; scheme: "light" | "dark" }
 		case "quote":
 			return (
 				<View className="border-l-2 border-border pl-3">
-					<Text variant="muted" className="text-control leading-6">
+					<Text variant="muted" className="text-base leading-snug">
 						<Inlines nodes={block.inline} scheme={scheme} />
 					</Text>
 				</View>
