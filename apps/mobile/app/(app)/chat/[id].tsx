@@ -60,7 +60,7 @@ export default function ChatScreen() {
 	const router = useRouter();
 	const scheme = useAppColorScheme();
 	const insets = useSafeAreaInsets();
-	const { id } = useLocalSearchParams<{ id: string }>();
+	const { id, draft } = useLocalSearchParams<{ id: string; draft?: string }>();
 	const { snapshot } = useHomeData();
 	const { serverUrl } = useAtlasSession();
 	const bot = snapshot?.bots.find((item) => item.id === id);
@@ -191,7 +191,7 @@ export default function ChatScreen() {
 							<ChevronDownIcon size={22} tone="foreground" />
 						</Pressable>
 					) : null}
-					<Composer botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
+					<Composer initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
 							chat.send(text, replyTo ?? undefined);
 							setReplyTo(null);
 						}} onStop={chat.stop} onSoon={(what) => setSoon(what)} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />

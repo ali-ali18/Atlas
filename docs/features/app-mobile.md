@@ -247,3 +247,12 @@ Sem custo de infraestrutura nem tokens na etapa 0. EAS Update e Build (etapa 2) 
 ## Menu ao segurar uma conversa na home
 
 Segurar a linha (ou o bot fixado) abre a mesma gaveta (`ActionSheet`) do menu da mensagem: **Marcar como não lida** (só se estiver lida), **Fixar/Desafixar**, **Mover para** (subpágina com as seções e "Tirar da seção") e **Ver perfil**. Salva pelo mesmo `PATCH /v1/bots/:id` do web (`pinned`, `pinOrder`, `sectionId`); a lista muda na hora e volta atrás se o servidor recusar. Fora por enquanto: **Ocultar** (no web é só estado da tela, sem persistência) e **Compartilhar como modelo** (não existe no app).
+
+## Rotinas
+
+Perfil do bot → **Rotinas** abre a lista nativa (`routines/[id]`): rotinas soltas e grupos recolhíveis ("N de M ativas"), cada uma com a frase do gatilho (`lib/routine-summary.ts`: "Uma vez · 03/10 às 10:00", "A cada 50 min", "Nos dias úteis às 11:00", "GitHub · org/repo"; cron ilegível vira "Em um agendamento", nunca o cron cru) e o interruptor de pausar/retomar. Tocar abre os **detalhes** (Ativa, Instrução, Agendamento, Histórico de execuções, Editar rotina) e o **histórico** (até 20, "cron · concluída", falha com o motivo traduzido por `describeRoutineFailure`).
+
+- **Dados:** os mesmos endpoints do web (`GET /v1/bots/:botId/routines` e `/routine-groups`, `PATCH …/routines/:routineId` com `{ enabled }`, `GET …/routines/:routineId/runs`). O servidor filtra por dono (404 para outro); o app só manda os ids. Estado em `lib/routines-store.ts`, compartilhado entre lista e detalhes, sem cache em disco; pausar/retomar muda na hora e volta atrás se o servidor recusar, sem toque duplo.
+- **Criar e editar é conversando:** "Pedir uma rotina ao bot" e "Editar rotina" abrem o chat com o campo já preenchido ("Quero mudar a rotina …: "). O app não edita gatilho (cron, webhook, GitHub, e-mail) nem mostra segredo.
+- **Fora por enquanto:** "Próxima execução" (o servidor não calcula), Testar (executar agora), excluir e ações de grupo.
+- **Visual:** cores medidas no app do Grok (`routineSurface`: tela `#1e1e1e`, cartão `#2c2c2e`, contorno `#373739`); interruptor próprio (`components/ui/toggle-switch.tsx`, trilho 56x34 na cor do bot).

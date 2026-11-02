@@ -20,6 +20,8 @@ const PILL_RADIUS = 28;
 const STACKED_RADIUS = 24;
 
 type ComposerProps = {
+	/** Texto que o campo já abre preenchido (ex.: "Quero mudar a rotina …: " vindo da tela de Rotinas). */
+	initialText?: string;
 	botName: string;
 	/** Destaque do bot (`botAccent`): o botão redondo. */
 	color: string;
@@ -43,12 +45,12 @@ type ComposerProps = {
  * Estrutura e borda como no `chat-composer` do web: uma View só, com `border border-border` e `bg-input`, colada na
  * pílula (sem respiro nem wrapper), com o raio total direto nela, nos dois formatos (pílula e retângulo).
  */
-export function Composer({ botName, color, foreground, running, onSend, onStop, onSoon, replyTo, onCancelReply }: ComposerProps) {
+export function Composer({ initialText, botName, color, foreground, running, onSend, onStop, onSoon, replyTo, onCancelReply }: ComposerProps) {
 	// `color` é o destaque do bot (`botAccent`): o primeiro plano é o que vem dele, sempre branco.
 	const onColor = foreground;
 	const scheme = useAppColorScheme();
 	const chrome = chatChrome(scheme);
-	const [text, setText] = React.useState("");
+	const [text, setText] = React.useState(initialText ?? "");
 	const hasText = text.trim().length > 0;
 	const inputRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
 	const replyId = replyTo?.id;
