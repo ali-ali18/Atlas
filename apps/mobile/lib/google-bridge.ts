@@ -36,7 +36,8 @@ export function appReturnUrl(createURL: (path: string) => string): string {
 
 /** Normaliza um link do Expo Go para a raiz do deep link: `exp://host/caminho/--/` (+ query original). */
 function expoGoRoot(link: string | null | undefined): string | null {
-	if (!link || !/^exps?:\/\/[^/?#]+/i.test(link)) return null;
+	// Só `exp://`: é o único esquema do Expo Go que o servidor aceita no retorno (parseMobileReturn).
+	if (!link || !/^exp:\/\/[^/?#]+/i.test(link)) return null;
 	const [base = "", query] = (link.split("#")[0] ?? "").split("?");
 	const marker = base.indexOf("/--/");
 	const root = marker >= 0 ? base.slice(0, marker) : base.replace(/\/(--)?\/?$/, "");
@@ -55,6 +56,29 @@ export function expoGoReturnUrl(inExpoGo: boolean, candidates: ReadonlyArray<str
 		if (root) return root;
 	}
 	return null;
+}
+
+export type ExpoGoSignals = {
+	/** `Constants.executionEnvironment === "storeClient"` ou `appOwnership === "expo"`. */
+	reportsExpoGo: boolean;
+	platform: string;
+	/** `Linking.canOpenURL(<atlas:///>)`: alguém no aparelho abre o link do app. */
+	appSchemeOpens: boolean;
+};
+
+/**
+ * Decide se a volta do login vai pelo link do Expo Go. O ambiente informado basta quando diz Expo Go; no Android,
+ * uma atualização publicada no Expo Go do SDK 58 se apresenta como "bare", então ali conta também ninguém abrir
+ * `atlas://`. No iOS `canOpenURL` dá falso para esquema fora do `LSApplicationQueriesSchemes`, até no app instalado,
+ * por isso não é usado lá.
+ */
+export function isExpoGoRuntime({ reportsExpoGo, platform, appSchemeOpens }: ExpoGoSignals): boolean {
+	return reportsExpoGo || (platform === "android" && !appSchemeOpens);
+}
+
+/** Link de volta: o do Expo Go quando roda nele e há um link `exp://` válido; senão o do app (`atlas:///`). */
+export function pickReturnUrl(appUrl: string, signals: ExpoGoSignals, expoGoLinks: ReadonlyArray<string | null | undefined>): string {
+	return expoGoReturnUrl(isExpoGoRuntime(signals), expoGoLinks) ?? appUrl;
 }
 
 export function bridgeStartUrl(serverUrl: string, returnUrl: string, state: string, challenge: string): string {

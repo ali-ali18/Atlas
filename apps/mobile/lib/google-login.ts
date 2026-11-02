@@ -1,4 +1,4 @@
-import Constants from "expo-constants";
+import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as Crypto from "expo-crypto";
 import * as Linking from "expo-linking";
 import * as SecureStore from "expo-secure-store";
@@ -9,7 +9,7 @@ import {
 	appReturnUrl,
 	bridgeExchangeUrl,
 	createGoogleBridge,
-	expoGoReturnUrl,
+	pickReturnUrl,
 	base64UrlFromBase64,
 	newBridgeState,
 	newCodeVerifier,
@@ -57,16 +57,12 @@ export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
 	const updateLink = updateId && /^[0-9a-f-]{36}$/i.test(updateId) ? `exp://u.expo.dev/update/${updateId}` : null;
 	const expoGoLinks = [Constants.linkingUri, Constants.experienceUrl, updateLink];
 
-	/**
-	 * No Expo Go do SDK 58 uma atualização publicada se apresenta como "bare" e sem `linkingUri`, então não dá para
-	 * confiar no ambiente. Pergunta ao sistema se alguém abre o link do app (`atlas://`): no app instalado sim; no
-	 * Expo Go ninguém, e a volta vai pelo link `exp://`.
-	 */
+	/** Decidido na hora do toque (ver `pickReturnUrl`): `atlas:///` no app instalado, `exp://…` no Expo Go. */
 	async function resolveReturnUrl(): Promise<string> {
 		const appUrl = appReturnUrl(Linking.createURL);
-		const appSchemeOpens = await Linking.canOpenURL(appUrl).catch(() => false);
-		const expoGoUrl = expoGoReturnUrl(!appSchemeOpens, expoGoLinks);
-		return expoGoUrl ?? appUrl;
+		const reportsExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient || Constants.appOwnership === "expo";
+		const appSchemeOpens = Platform.OS === "android" ? await Linking.canOpenURL(appUrl).catch(() => false) : true;
+		return pickReturnUrl(appUrl, { reportsExpoGo, platform: Platform.OS, appSchemeOpens }, expoGoLinks);
 	}
 
 	return createGoogleBridge({

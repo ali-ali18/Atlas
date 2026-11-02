@@ -8,6 +8,8 @@ import {
 	bridgeStartUrl,
 	createGoogleBridge,
 	expoGoReturnUrl,
+	isExpoGoRuntime,
+	pickReturnUrl,
 	newBridgeState,
 	readBridgeLink,
 	type BridgeDeps,
@@ -42,6 +44,27 @@ describe("helpers puros", () => {
 		expect(expoGoReturnUrl(true, ["atlas://", undefined, "exp://u.expo.dev/abc/group/g1"])).toBe("exp://u.expo.dev/abc/group/g1/--/");
 		expect(expoGoReturnUrl(false, ["exp://u.expo.dev/abc/--/"])).toBeNull();
 		expect(expoGoReturnUrl(true, ["atlas:///", null, ""])).toBeNull();
+	});
+	it("expoGoReturnUrl: bordas do link e só exp://", () => {
+		expect(expoGoReturnUrl(true, ["exp://u.expo.dev"])).toBe("exp://u.expo.dev/--/");
+		expect(expoGoReturnUrl(true, ["exp://u.expo.dev/abc/--"])).toBe("exp://u.expo.dev/abc/--/");
+		expect(expoGoReturnUrl(true, ["exp://u.expo.dev/abc/--/x#frag"])).toBe("exp://u.expo.dev/abc/--/");
+		expect(expoGoReturnUrl(true, ["exps://u.expo.dev/abc"])).toBeNull();
+		expect(expoGoReturnUrl(true, ["exp:///sem-host"])).toBeNull();
+	});
+	it("isExpoGoRuntime: ambiente, Android sem atlas:// e iOS", () => {
+		expect(isExpoGoRuntime({ reportsExpoGo: true, platform: "ios", appSchemeOpens: true })).toBe(true);
+		expect(isExpoGoRuntime({ reportsExpoGo: false, platform: "android", appSchemeOpens: false })).toBe(true);
+		expect(isExpoGoRuntime({ reportsExpoGo: false, platform: "android", appSchemeOpens: true })).toBe(false);
+		// iOS instalado: canOpenURL não é confiável lá; sem o ambiente dizer Expo Go, fica no app.
+		expect(isExpoGoRuntime({ reportsExpoGo: false, platform: "ios", appSchemeOpens: false })).toBe(false);
+	});
+	it("pickReturnUrl: Expo Go usa o link da atualização; app instalado fica no atlas:///", () => {
+		const links = [undefined, "", "exp://u.expo.dev/update/0123"];
+		expect(pickReturnUrl("atlas:///", { reportsExpoGo: false, platform: "android", appSchemeOpens: false }, links)).toBe("exp://u.expo.dev/update/0123/--/");
+		expect(pickReturnUrl("atlas:///", { reportsExpoGo: false, platform: "android", appSchemeOpens: true }, links)).toBe("atlas:///");
+		expect(pickReturnUrl("atlas:///", { reportsExpoGo: false, platform: "ios", appSchemeOpens: false }, links)).toBe("atlas:///");
+		expect(pickReturnUrl("atlas:///", { reportsExpoGo: true, platform: "android", appSchemeOpens: false }, [null])).toBe("atlas:///");
 	});
 	it("bridgeStartUrl codifica o retorno e não duplica a barra", () => {
 		const url = bridgeStartUrl("https://agent.exemplo.com/", RETURN, STATE, CHALLENGE);
