@@ -108,27 +108,29 @@ function BlockView({ block, scheme }: { block: Block; scheme: "light" | "dark" }
 				</View>
 			);
 		case "table": {
-			// Como o web: sem caixa em volta, cabeçalho com linha embaixo, linhas com divisor fraco, texto 14 e células px-2 py-1.
-			// Larguras explícitas por coluna (`tableColumnWidths`): no Android um ScrollView horizontal sem tamanho definido
-			// esticava as linhas até a altura da tela (balão gigante e vazio). A altura vem só do conteúdo.
+			// Como no Grok: caixa arredondada com borda, divisor de ponta a ponta, texto do tamanho do balão, e rola para o
+			// lado para ver o resto. Larguras explícitas por coluna (`tableColumnWidths`): no Android um ScrollView
+			// horizontal sem tamanho definido esticava as linhas até a altura da tela (balão gigante e vazio).
 			const widths = tableColumnWidths(block.header, block.rows);
 			const total = widths.reduce((sum, width) => sum + width, 0);
 			return (
-				<ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 0 }}>
-					<View style={{ width: total }}>
-						{[block.header, ...block.rows].map((row, rowIndex) => (
-							<View key={`row-${rowIndex}`} style={{ flexDirection: "row" }} className={rowIndex === 0 ? "border-b border-border" : "border-b border-border/50"}>
-								{row.map((cell, column) => (
-									<View key={`cell-${column}`} style={{ width: widths[column] }} className="px-2 py-1">
-										<Text className={cn("text-sm leading-snug", rowIndex === 0 && "font-medium")}>
-											<Inlines nodes={cell} scheme={scheme} />
-										</Text>
-									</View>
-								))}
-							</View>
-						))}
-					</View>
-				</ScrollView>
+				<View className="self-stretch overflow-hidden rounded-2xl border border-border">
+					<ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 0 }}>
+						<View style={{ width: total }}>
+							{[block.header, ...block.rows].map((row, rowIndex) => (
+								<View key={`row-${rowIndex}`} style={{ flexDirection: "row" }} className={rowIndex > 0 ? "border-t border-border" : undefined}>
+									{row.map((cell, column) => (
+										<View key={`cell-${column}`} style={{ width: widths[column] }} className="px-4 py-3">
+											<Text className={cn("text-base leading-snug", rowIndex === 0 && "font-semibold")}>
+												<Inlines nodes={cell} scheme={scheme} />
+											</Text>
+										</View>
+									))}
+								</View>
+							))}
+						</View>
+					</ScrollView>
+				</View>
 			);
 		}
 		case "rule":

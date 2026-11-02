@@ -228,13 +228,14 @@ export function parseMarkdown(source: string): Block[] {
 
 /** Texto puro de um trecho inline (sem marcas), para medir a coluna. */
 export function inlineText(nodes: readonly Inline[]): string {
-	return nodes.map((node) => (node.type === "bold" || node.type === "italic" ? inlineText(node.children) : node.text)).join("");
+	// `código` é desenhado com um espaço de cada lado: entra na conta da largura.
+	return nodes.map((node) => (node.type === "bold" || node.type === "italic" ? inlineText(node.children) : node.type === "code" ? ` ${node.text} ` : node.text)).join("");
 }
 
 /** Mesma regra do web (`cellWidthClass`): número, moeda, data ou % curto nunca quebra. */
 const COMPACT_VALUE = /^[\sR$US€£\d.,:%/+()\-–]+$/;
-const CHAR_WIDTH = 7.4;
-const CELL_PADDING = 16;
+const CHAR_WIDTH = 8.6;
+const CELL_PADDING = 32;
 /** 8 rem e 22 rem do web (16 pt por rem). */
 const TEXT_MIN = 128;
 const TEXT_MAX = 352;
