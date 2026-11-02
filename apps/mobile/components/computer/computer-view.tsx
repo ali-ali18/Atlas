@@ -8,7 +8,8 @@ import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { ComputerMenu } from "@/components/computer/computer-menu";
-import { Zoomable } from "@/components/computer/zoomable";
+import { Zoomable, type ZoomableHandle } from "@/components/computer/zoomable";
+import { isZoomed } from "@/lib/pinch-zoom";
 import type { MobileAvatarState } from "@/lib/avatar-activity";
 import type { HomeBot } from "@/lib/home-types";
 import { themeVars } from "@/lib/theme";
@@ -77,6 +78,17 @@ function SpinningSphere() {
 	);
 }
 
+/** "1x": volta ao tamanho normal. Só aparece com a tela ampliada (no controle não há outro jeito de desfazer o zoom com um dedo). */
+function ResetZoomButton({ onPress }: { onPress: () => void }) {
+	return (
+		<RoundAction label="Voltar ao tamanho normal" onPress={onPress}>
+			<Text className="text-control font-semibold" style={{ color: "#ffffff" }}>
+				1x
+			</Text>
+		</RoundAction>
+	);
+}
+
 function Placeholder({ status, onRetry, onStart, errorText }: { status: Exclude<ComputerStatus, "ready">; onRetry?: () => void; onStart?: () => void; errorText?: string | null }) {
 	if (status === "loading") {
 		return (
@@ -125,6 +137,8 @@ export function ComputerView({ bot, avatarState = "idle", status, source, childr
 	// Com a tela (`children`/`source`) montada o palco existe também enquanto conecta, coberto pela esfera.
 	const stage = ready || (status === "loading" && Boolean(children || source));
 	const [menuOpen, setMenuOpen] = React.useState(false);
+	const zoomRef = React.useRef<ZoomableHandle>(null);
+	const [zoomed, setZoomed] = React.useState(false);
 	// Saiu do controle: o menu não fica aberto.
 	React.useEffect(() => {
 		if (!controlling) setMenuOpen(false);
@@ -156,7 +170,7 @@ export function ComputerView({ bot, avatarState = "idle", status, source, childr
 
 			{stage ? (
 				<View className="flex-1">
-					<Zoomable aspectRatio={aspectRatio} gestures={ready && !controlling}>
+					<Zoomable ref={zoomRef} aspectRatio={aspectRatio} mode={!ready ? "off" : controlling ? "control" : "view"} onZoomChange={(scale) => setZoomed(isZoomed(scale))}>
 						{source ? <Image source={source} resizeMode="contain" accessibilityLabel={`Tela do computador de ${bot.name}`} style={{ width: "100%", height: "100%" }} /> : children}
 					</Zoomable>
 					{/* Conectando: o palco (e a WebView dentro dele) já existe, mas fica coberto pela esfera até a primeira imagem. */}
@@ -178,12 +192,14 @@ export function ComputerView({ bot, avatarState = "idle", status, source, childr
 							<RoundAction label="Colar texto na VM" onPress={onPaste}>
 								<ClipboardPasteIcon />
 							</RoundAction>
+							{zoomed ? <ResetZoomButton onPress={() => zoomRef.current?.reset()} /> : null}
 							<RoundAction label="Abrir o teclado" onPress={onKeyboard}>
 								<KeyboardIcon />
 							</RoundAction>
 						</View>
 					) : (
-						<View className="items-end">
+						<View className="flex-row items-center justify-between">
+							{zoomed ? <ResetZoomButton onPress={() => zoomRef.current?.reset()} /> : <View />}
 							<Pressable role="button" accessibilityLabel="Assumir o controle" onPress={onTakeControl} style={{ height: 46, backgroundColor: PILL_FILL, borderColor: PILL_EDGE }} className="items-center justify-center rounded-full border px-5 active:opacity-70">
 								<Text className="text-control font-medium" style={{ color: "#ffffff" }}>
 									Assumir o controle

@@ -98,3 +98,22 @@ export function distanceBetween(a: Point, b: Point): number {
 export function midpoint(a: Point, b: Point): Point {
 	return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
+
+/**
+ * Quem recebe os dedos na tela do Computador. `off`: ninguém (ainda conectando). `view` (somente ver): o zoom captura tudo
+ * (um dedo arrasta o quadro, dois dão a pinça). `control`: o zoom captura SÓ gestos de dois dedos ou mais (pinça e arrastar
+ * o quadro com dois dedos); um dedo passa para a VM (toque, arrasto e toque longo viram mouse no noVNC).
+ */
+export type ZoomMode = "off" | "view" | "control";
+
+/** O zoom deve capturar este toque (`touchCount` = dedos na tela)? */
+export function zoomCapturesTouch(mode: ZoomMode, touchCount: number): boolean {
+	if (mode === "off") return false;
+	if (mode === "view") return touchCount >= 1;
+	return touchCount >= 2;
+}
+
+/** Ampliado o bastante para mostrar o botão "1x" (folga para o arredondamento da animação). */
+export function isZoomed(scale: number): boolean {
+	return scale > 1.01;
+}

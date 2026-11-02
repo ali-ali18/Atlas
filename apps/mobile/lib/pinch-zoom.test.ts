@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampScale, clampZoom, distanceBetween, doubleTapZoom, isDoubleTap, isTap, maxOffset, midpoint, panBy, pinchTransform, ZOOM_RESET, zoomAround } from "./pinch-zoom";
+import { clampScale, clampZoom, distanceBetween, doubleTapZoom, isDoubleTap, isTap, maxOffset, isZoomed, midpoint, panBy, pinchTransform, ZOOM_RESET, zoomAround, zoomCapturesTouch } from "./pinch-zoom";
 
 const viewport = { width: 400, height: 800 };
 const frame = { width: 400, height: 225 }; // 16:9 preenchendo a largura
@@ -93,5 +93,31 @@ describe("toques", () => {
 	it("distância e ponto médio", () => {
 		expect(distanceBetween({ x: 0, y: 0 }, { x: 3, y: 4 })).toBe(5);
 		expect(midpoint({ x: 0, y: 0 }, { x: 10, y: 20 })).toEqual({ x: 5, y: 10 });
+	});
+});
+
+describe("quem captura os dedos (zoomCapturesTouch)", () => {
+	it("somente ver: o zoom captura um dedo ou mais", () => {
+		expect(zoomCapturesTouch("view", 1)).toBe(true);
+		expect(zoomCapturesTouch("view", 2)).toBe(true);
+		expect(zoomCapturesTouch("view", 0)).toBe(false);
+	});
+	it("controle: um dedo passa para a VM, dois ou mais ficam com o zoom", () => {
+		expect(zoomCapturesTouch("control", 1)).toBe(false);
+		expect(zoomCapturesTouch("control", 2)).toBe(true);
+		expect(zoomCapturesTouch("control", 3)).toBe(true);
+		expect(zoomCapturesTouch("control", 0)).toBe(false);
+	});
+	it("conectando: ninguém captura", () => {
+		for (const n of [0, 1, 2, 5]) expect(zoomCapturesTouch("off", n)).toBe(false);
+	});
+});
+
+describe("isZoomed", () => {
+	it("só mostra o 1x quando de fato ampliado", () => {
+		expect(isZoomed(1)).toBe(false);
+		expect(isZoomed(1.005)).toBe(false);
+		expect(isZoomed(1.5)).toBe(true);
+		expect(isZoomed(4)).toBe(true);
 	});
 });

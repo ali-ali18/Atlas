@@ -9,7 +9,9 @@ import {
 	midpoint,
 	panBy,
 	pinchTransform,
+	zoomCapturesTouch,
 	ZOOM_RESET,
+	type ZoomMode,
 	type Point,
 	type Size,
 	type ZoomState,
@@ -28,10 +30,13 @@ const DOUBLE_TAP_ANIM_MS = 180;
  * Área com zoom por pinça (1x a 4x), arrastar para mover quando ampliado e duplo toque para alternar 1x/2x.
  * O conteúdo (imagem do computador remoto) tem a largura da tela e a proporção `aspectRatio`, centralizado na vertical.
  * Toda a conta está em `lib/pinch-zoom.ts` (testada); aqui só entram os dedos e a animação.
- * `gestures={false}` solta os dedos para o conteúdo (modo controle: o toque vai ao noVNC) e volta o zoom a 1x (sem gestos não
- * dá para desfazê-lo nem arrastar, e uma parte da tela ficaria inalcançável).
+ * `mode`: "view" captura todos os dedos; "control" captura SÓ dois dedos ou mais (pinça e arrastar o quadro com dois dedos) e
+ * deixa passar um dedo para a VM (toque, arrasto e toque longo viram mouse no noVNC); "off" não captura nada. Quem decide é
+ * `zoomCapturesTouch` (lib/pinch-zoom.ts). O zoom NÃO é resetado ao alternar entre ver e controlar.
  */
-export function Zoomable({ aspectRatio = 16 / 9, children, onZoomChange, gestures = true }: { aspectRatio?: number; children: React.ReactNode; onZoomChange?: (scale: number) => void; gestures?: boolean }) {
+export type ZoomableHandle = { /** Volta a 1x (animado). */ reset: () => void };
+
+export const Zoomable = React.forwardRef<ZoomableHandle, { aspectRatio?: number; children: React.ReactNode; onZoomChange?: (scale: number) => void; mode?: ZoomMode }>(function Zoomable({ aspectRatio = 16 / 9, children, onZoomChange, mode = "view" }, ref) {
 	const [viewport, setViewport] = React.useState<Size>({ width: 0, height: 0 });
 	const frame = React.useMemo<Size>(() => ({ width: viewport.width, height: viewport.width / aspectRatio }), [viewport.width, aspectRatio]);
 	const scale = useSharedValue(1);
@@ -63,10 +68,10 @@ export function Zoomable({ aspectRatio = 16 / 9, children, onZoomChange, gesture
 		[scale, x, y],
 	);
 
-	// Sem gestos (modo controle) não há como desfazer o zoom nem arrastar: volta a 1x para a tela inteira ficar à vista.
-	React.useEffect(() => {
-		if (!gestures) apply(ZOOM_RESET, true);
-	}, [gestures, apply]);
+	React.useImperativeHandle(ref, () => ({ reset: () => apply(ZOOM_RESET, true) }), [apply]);
+	// O modo atual, lido pelos handlers do PanResponder (criado uma vez).
+	const modeRef = React.useRef(mode);
+	modeRef.current = mode;
 
 	// Ao girar a tela o quadro muda: volta a 1x em vez de deixar o deslocamento fora do limite.
 	React.useEffect(() => {
@@ -86,8 +91,12 @@ export function Zoomable({ aspectRatio = 16 / 9, children, onZoomChange, gesture
 			lastTouches = points.length;
 		};
 		return PanResponder.create({
-			onStartShouldSetPanResponder: () => true,
-			onMoveShouldSetPanResponder: () => true,
+			// Em "controle" um dedo não é nosso: só a captura (com dois dedos ou mais) toma o gesto. Se o segundo dedo chega com o
+			// primeiro já na VM, a captura cancela o filho (o noVNC recebe `touchcancel`, encerra o gesto e solta o botão do mouse).
+			onStartShouldSetPanResponder: () => modeRef.current === "view",
+			onMoveShouldSetPanResponder: () => modeRef.current === "view",
+			onStartShouldSetPanResponderCapture: (event) => zoomCapturesTouch(modeRef.current, event.nativeEvent.touches.length),
+			onMoveShouldSetPanResponderCapture: (event) => zoomCapturesTouch(modeRef.current, event.nativeEvent.touches.length),
 			onPanResponderTerminationRequest: () => false,
 			onPanResponderGrant: (event) => {
 				rootRef.current?.measureInWindow((px, py) => {
@@ -150,8 +159,8 @@ export function Zoomable({ aspectRatio = 16 / 9, children, onZoomChange, gesture
 	};
 
 	return (
-		<View ref={rootRef} onLayout={onLayout} className="flex-1 items-center justify-center overflow-hidden" {...(gestures ? responder.panHandlers : {})}>
+		<View ref={rootRef} onLayout={onLayout} className="flex-1 items-center justify-center overflow-hidden" {...responder.panHandlers}>
 			<Animated.View style={[{ width: viewport.width, aspectRatio }, animatedStyle]}>{children}</Animated.View>
 		</View>
 	);
-}
+});
