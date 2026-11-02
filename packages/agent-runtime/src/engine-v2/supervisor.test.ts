@@ -532,3 +532,53 @@ describe("sem orçamento de tempo (decisão do dono, 02/11)", () => {
 		expect(supervisor.researchRemaining(usage(0, 5 * 60 * 60_000, 3)).activeMs).toBe(Number.POSITIVE_INFINITY);
 	});
 });
+
+describe("estagnação: resultado novo é progresso; fase de escrita mantém as tools de ação", () => {
+	const noCap = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: Number.POSITIVE_INFINITY };
+	const action = (step: number, result: string, over: Partial<ReturnType<typeof record>> = {}) => record({ step, name: "browser_act", argsKey: `ref=${step}`, resultKey: result, ...over });
+
+	it("STAGNATION_STEPS é 8 (ação de navegador legítima precisa de fôlego)", () => {
+		expect(STAGNATION_STEPS).toBe(8);
+	});
+
+	it("passos de ação com resultados distintos nunca estagnam; resultados repetidos ou falhas estagnam", () => {
+		const moving = createSupervisor({ profile: "long_work", budget: noCap });
+		moving.gate(usage(0, 0, 1), { notebookCount: 1 });
+		for (let step = 2; step < 40; step++) {
+			moving.recordTool(action(step, `pagina-${step}`));
+			expect(moving.gate(usage(0, 0, step), { notebookCount: 1 }).action).toBe("call");
+			expect(moving.phase()).toBe("research");
+		}
+		const stuck = createSupervisor({ profile: "long_work", budget: noCap });
+		stuck.gate(usage(0, 0, 1), { notebookCount: 1 });
+		// O 1º resultado ainda é novo (progresso); os 8 passos seguintes repetem a mesma página.
+		for (let step = 2; step < 3 + STAGNATION_STEPS; step++) {
+			stuck.recordTool(action(step, "mesma-pagina"));
+			stuck.gate(usage(0, 0, step), { notebookCount: 1 });
+		}
+		expect(stuck.researchEnd()).toBe("stagnation");
+		// Falha nunca é progresso, mesmo com mensagem diferente a cada vez.
+		const failing = createSupervisor({ profile: "long_work", budget: noCap });
+		failing.gate(usage(0, 0, 1), { notebookCount: 1 });
+		for (let step = 2; step < 2 + STAGNATION_STEPS; step++) {
+			failing.recordTool(action(step, `erro-${step}`, { ok: false, message: `falha ${step}` }));
+			failing.gate(usage(0, 0, step), { notebookCount: 1 });
+		}
+		expect(failing.researchEnd()).toBe("stagnation");
+	});
+
+	it("na escrita, pedido sem documento mantém browser e sandbox; com documento só escrita", () => {
+		const make = (keepActionTools: boolean) => {
+			const supervisor = createSupervisor({ profile: "long_work", budget: noCap, keepActionTools });
+			supervisor.gate(usage(0, 0, 1), { listDone: true });
+			expect(supervisor.phase()).toBe("write");
+			return supervisor;
+		};
+		const keep = make(true);
+		for (const name of ["browser_act", "browser_snapshot", "sandbox_shell", "create_file", "notebook_write"]) expect(keep.phaseBlocked(name), name).toBeUndefined();
+		for (const name of ["web_search", "delegate", "memory_search"]) expect(keep.phaseBlocked(name), name).toMatch(/not available/);
+		const document = make(false);
+		expect(document.phaseBlocked("browser_act")).toMatch(/not available/);
+		expect(document.phaseAllows("create_file")).toBe(true);
+	});
+});

@@ -40,8 +40,12 @@ export const RESEARCH_TIME_RATIO = 0.7;
 export const RESEARCH_STEPS_RATIO = 0.7;
 /** Com gasto máximo preenchido: ao chegar a esta fração do teto em US$ vai para a escrita (o resto é da escrita). */
 export const RESEARCH_COST_RATIO = 0.75;
-/** Passos seguidos sem progresso (caderno sem entrada nova e lista sem item novo concluído) que encerram a pesquisa. */
-export const STAGNATION_STEPS = 4;
+/**
+ * Passos seguidos sem progresso que encerram a pesquisa. Progresso = entrada nova no caderno, item concluído OU tool
+ * bem-sucedida com resultado ainda não visto (navegar, clicar e ler páginas diferentes é trabalho). Estagnação é repetição,
+ * falha ou leitura que não achou nada de novo; por isso o número é alto (8): ação de navegador legítima precisa de fôlego.
+ */
+export const STAGNATION_STEPS = 8;
 /** A rodada de lacunas dura no máximo este número de passos, ou até a fração abaixo do tempo/passos/gasto. */
 export const GAP_ROUND_STEPS = 4;
 export const GAP_END_RATIO = 0.85;
@@ -139,6 +143,8 @@ export function blockedToolMessage(name: string, stepsLeft: number): string {
 export type SupervisorPhase = "research" | "gaps" | "write";
 const WRITE_TOOLS = ["create_file", "notebook_write", "notebook_read", "update_task_list"] as const;
 const GAP_READ_TOOLS = ["web_search", "web_extract"] as const;
+/** Tools de ação (navegador e VM): ficam na fase de escrita quando o pedido não é um documento. */
+const ACTION_TOOL_PREFIX = /^(browser|sandbox)_/;
 /** Passos seguidos em que o modelo só insiste em tool que a fase não libera: depois disso o supervisor entrega. */
 export const PHASE_STRIKES_TO_DELIVER = 2;
 
@@ -166,6 +172,8 @@ export function createSupervisor(config: {
 	promotable?: boolean;
 	/** Teto absoluto de tempo ativo do run (conta/bot). A renovação por mensagem do usuário nunca o ultrapassa. 0/ausente = sem teto. */
 	hardActiveMs?: number;
+	/** Pedido que NÃO é de documento: a fase de escrita mantém browser e sandbox (o bot ainda precisa agir para cumprir o pedido). */
+	keepActionTools?: boolean;
 }) {
 	let budget = config.budget;
 	let profile = config.profile;
@@ -182,6 +190,10 @@ export function createSupervisor(config: {
 	let lastCompleted = 0;
 	let seenProgress = false;
 	let stagnantSteps = 0;
+	/** Resultados de tool bem-sucedidos já vistos: resultado novo = progresso (ver `STAGNATION_STEPS`). */
+	const seenResultKeys = new Set<string>();
+	let novelResults = 0;
+	let lastNovelResults: number | undefined;
 	let gapSteps = 0;
 	let longWork = profile === "long_work";
 	const wrapAt = WRAP_UP_RATIO;
@@ -254,10 +266,15 @@ export function createSupervisor(config: {
 			if (phase === "gaps") return new Set<string>([...WRITE_TOOLS, ...GAP_READ_TOOLS]);
 			return undefined;
 		},
+		/** A tool está liberada na fase atual? Na escrita, pedido sem documento mantém browser e sandbox (`keepActionTools`). */
+		phaseAllows(name: string): boolean {
+			const allowed = this.allowedTools();
+			if (!allowed || allowed.has(name)) return true;
+			return config.keepActionTools === true && ACTION_TOOL_PREFIX.test(name);
+		},
 		/** A tool não está liberada na fase atual? Devolve o erro (inglês) para o modelo; a tool não roda. */
 		phaseBlocked(name: string): string | undefined {
-			const allowed = this.allowedTools();
-			if (!allowed || allowed.has(name)) return undefined;
+			if (this.phaseAllows(name)) return undefined;
 			return phase === "write"
 				? `${name} is not available now: research is over and only the delivery is left. Write the deliverable with what is in the notebook (create_file).`
 				: `${name} is not available now: only closing the unconfirmed gaps (web_search, web_extract, notebook) and writing are left.`;
@@ -305,12 +322,13 @@ export function createSupervisor(config: {
 				// Progresso: o caderno ganhou entrada ou a lista concluiu um item. Só conta estagnação depois do primeiro progresso.
 				const notebookCount = context.notebookCount ?? 0;
 				const completedCount = context.completedCount ?? 0;
-				const progressed = lastNotebook !== undefined && (notebookCount > lastNotebook || completedCount > lastCompleted);
+				const progressed = lastNotebook !== undefined && (notebookCount > lastNotebook || completedCount > lastCompleted || novelResults > (lastNovelResults ?? 0));
 				if (progressed) {
 					seenProgress = true;
 					stagnantSteps = 0;
 				} else if (lastNotebook !== undefined && seenProgress) stagnantSteps += 1;
-				if (lastNotebook === undefined && (notebookCount > 0 || completedCount > 0)) seenProgress = true;
+				if (lastNotebook === undefined && (notebookCount > 0 || completedCount > 0 || novelResults > 0)) seenProgress = true;
+				lastNovelResults = novelResults;
 				lastNotebook = notebookCount;
 				lastCompleted = completedCount;
 				const enterWrite = () => {
@@ -362,6 +380,11 @@ export function createSupervisor(config: {
 		},
 		recordTool(record: ToolRecord): ToolVerdict {
 			const notes: string[] = [];
+			// Resultado novo de uma tool que deu certo = progresso (alimenta a estagnação).
+			if (record.ok && !seenResultKeys.has(`${record.name}|${record.resultKey}`)) {
+				seenResultKeys.add(`${record.name}|${record.resultKey}`);
+				novelResults += 1;
+			}
 			// Falhas seguidas da MESMA tool.
 			if (record.ok) failureStreak.delete(record.name);
 			else {

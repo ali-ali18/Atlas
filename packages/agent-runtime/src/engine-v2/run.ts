@@ -228,6 +228,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		budget,
 		promotable,
 		...(helperRole ? {} : { hardActiveMs: runLimits.maxWallMs }),
+		// Pedido que não é de documento: a fase de escrita mantém browser e sandbox (ex.: "abra o Gemini e peça um resumo").
+		keepActionTools: !asksForDocument([...params.messages].reverse().find((message) => message.role === "user")?.content ?? ""),
 		maxSteps: Math.min(MAX_STEPS_SAFETY, runLimits.hardMaxSteps, helperRole?.budget.maxSteps ?? MAX_STEPS_SAFETY),
 	});
 	const wall = wallClockAnchors({ maxWallMs: budget.maxActiveMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
@@ -584,7 +586,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	): Promise<{ content: string; toolCalls: LlmToolCall[]; providerItems?: LlmMessage["providerItems"]; usage: TokenUsage; result: CompleteChatWithToolsResult; telemetry: ReturnType<typeof modelStepTelemetry> }> => {
 		// Reserva da entrega: depois dos 75% as tools mudam de verdade (pesquisa e ajudantes saem), não é só aviso.
 		const allowedNow = toolsOverride ? undefined : supervisor.allowedTools();
-		const callTools = toolsOverride ?? (allowedNow ? tools.filter((tool) => allowedNow.has(tool.function.name)) : tools);
+		const callTools = toolsOverride ?? (allowedNow ? tools.filter((tool) => supervisor.phaseAllows(tool.function.name)) : tools);
 		if (callTools.length === 0) toolChoice = "none";
 		await ensureContinue(closing ? params.abortSignal : undefined);
 		await ensureNotPaused();
