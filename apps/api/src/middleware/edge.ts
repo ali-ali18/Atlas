@@ -48,6 +48,9 @@ export function registerEdgeMiddleware(app: Hono, options: { corsOrigins: string
 	app.use("/v1/previews/:id/p", basicResponseHeaders);
 	app.use("/v1/previews/:id/p/*", basicResponseHeaders);
 	app.use("/v1/previews/:id/p/*", rateLimitByIp(1200, 60_000));
+	// Viewer da VM por token no caminho (público, sem login): limite por IP, mesmo valor da prévia (o noVNC carrega dezenas de
+	// arquivos). Antes do `requireUser` para valer também para quem não tem sessão.
+	app.use("/v1/sandbox/vt/*", rateLimitByIp(1200, 60_000));
 	app.use("/v1/*", requireUser);
 	app.use("/v1/*", jsonBodyLimit);
 }

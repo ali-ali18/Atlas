@@ -17,7 +17,7 @@ import {
 	type SandboxManager,
 	type SandboxRuntimeConfig,
 } from "@workspace/sandbox";
-import { proxyViewerHttp, signViewerToken, withViewerToken } from "./sandbox-viewer.js";
+import { ownsSession, proxyViewerHttp, readViewerToken, safeViewerRest, signViewerToken, withViewerToken } from "./sandbox-viewer.js";
 
 function toErrorResult(
 	error: unknown,
@@ -93,6 +93,9 @@ function parseNavigateBody(body: unknown): SandboxNavigateBody | null {
 	return { url: url.trim() };
 }
 
+const VIEWER_TOKEN_PREFIX = "/v1/sandbox/vt/";
+const VIEWER_SANDBOX_CSP = "sandbox allow-scripts; frame-ancestors 'none'";
+
 type SandboxEnv = { Variables: AuthEnv["Variables"] & { sandboxManager: SandboxManager } };
 export function createSandboxRoutes(sandboxConfig: SandboxRuntimeConfig, deps: {
 	managerForUser?: (userId: string) => SandboxManager;
@@ -113,6 +116,8 @@ export function createSandboxRoutes(sandboxConfig: SandboxRuntimeConfig, deps: {
 	// (o app é montado em "/"), inclusive no webhook público do GitHub, que
 	// não tem sessão — `scopeFor(undefined)` estourava e o hook dava 500.
 	app.use("/v1/sandbox/*", async (c, next) => {
+		// `/v1/sandbox/vt/<token>/*` é pública (WebView sem cookie): a rota faz a própria autorização pelo token + posse.
+		if (c.req.path.startsWith(VIEWER_TOKEN_PREFIX)) return next();
 		const { userId } = scopeFor(c.get("session"));
 		const manager = deps.managerForUser?.(userId) ?? createSandboxManager(sandboxConfig, userId);
 		c.set("sandboxManager", manager);
@@ -228,6 +233,77 @@ export function createSandboxRoutes(sandboxConfig: SandboxRuntimeConfig, deps: {
 		if (!target) return c.json({ error: "Session not found" }, 404);
 		const search = new URL(c.req.url).search;
 		return proxyViewerHttp(c.req.raw, target, `/${rest || "vnc.html"}${search}`);
+	});
+
+	// Link do viewer para clientes sem cookie (app mobile em WebView). O token vai no CAMINHO (não na query) porque
+	// os assets do noVNC (JS, CSS, imagens) são URLs relativas à página: só o caminho chega a todos eles sem cookie.
+	// O `path=` do WebSocket segue o mesmo formato de `viewerUrl`, com `?t=` (o upgrade também aceita o token).
+	// A posse da sessão já foi checada pelo middleware (404 para outro dono).
+	app.get("/v1/sandbox/sessions/:id/viewer-link", (c) => {
+		const secret = deps.viewerSecret ?? process.env.BETTER_AUTH_SECRET ?? "";
+		if (sandboxConfig.viewerMode !== "proxy" || !secret) return c.json({ error: "Viewer link unavailable" }, 409);
+		const id = decodeURIComponent(c.req.param("id"));
+		const userId = scopeFor(c.get("session")).userId;
+		// Dois tokens com propósitos distintos: o do caminho (HTTP, vai para log de acesso) não abre o WebSocket.
+		const token = signViewerToken({ sessionId: id, userId, purpose: "vt" }, secret);
+		const wsToken = signViewerToken({ sessionId: id, userId, purpose: "ws" }, secret);
+		const params = new URLSearchParams({
+			autoconnect: "1",
+			reconnect: "true",
+			resize: "scale",
+			path: `v1/sandbox/sessions/${encodeURIComponent(id)}/viewer/websockify?t=${wsToken}`,
+		});
+		c.header("Cache-Control", "private, no-store");
+		c.header("Referrer-Policy", "no-referrer");
+		return c.json({ url: `${VIEWER_TOKEN_PREFIX}${token}/vnc.html?${params.toString()}` });
+	});
+
+	// Proxy HTTP do noVNC autorizado SÓ pelo token no caminho (sem cookie). A posse é conferida com o userId DO TOKEN,
+	// igual ao middleware de /v1/sandbox/*. Falha de posse = 404 igual para tudo; token inválido/expirado = 401 sem
+	// dizer qual. O token nunca vai para log nem para mensagem de erro. O token vale 10 min: depois disso o noVNC
+	// (reconnect) recebe 401 em loop e recarregar a WebView falha (no-store); o app deve pedir `viewer-link` novo antes
+	// de vencer ou quando a conexão cair. Nesses 10 min quem tem o link CONTROLA a VM.
+	app.on(["GET", "HEAD"], "/v1/sandbox/vt/:token/*", async (c) => {
+		const noReferrer = { "Referrer-Policy": "no-referrer", "Cache-Control": "private, no-store" };
+		const rawToken = c.req.param("token");
+		const secret = deps.viewerSecret ?? process.env.BETTER_AUTH_SECRET ?? "";
+		const claims = sandboxConfig.viewerMode === "proxy" ? readViewerToken(rawToken, secret) : null;
+		if (!claims) return c.json({ error: "Unauthorized" }, 401, noReferrer);
+		const prefix = `${VIEWER_TOKEN_PREFIX}${rawToken}/`;
+		const rest = c.req.path.startsWith(prefix) ? c.req.path.slice(prefix.length) : "";
+		if (safeViewerRest(rest) === null) return c.json({ error: "Not found" }, 404, noReferrer);
+		const { sessionId, userId } = claims;
+		const manager = deps.managerForUser?.(userId) ?? createSandboxManager(sandboxConfig, userId);
+		let target;
+		try {
+			const owned = await ownsSession({ managerForUser: () => manager, ownedConversation }, userId, sessionId);
+			if (!owned) return c.json({ error: "Session not found" }, 404, noReferrer);
+			target = await manager.resolveViewerTarget(sessionId);
+		} catch {
+			console.error("viewer token: falha ao resolver a sessão");
+			return c.json({ error: "Viewer unavailable" }, 502, noReferrer);
+		}
+		if (!target) return c.json({ error: "Session not found" }, 404, noReferrer);
+		const search = new URL(c.req.url).search;
+		let response: Response;
+		try {
+			// `c.req.path` já vem decodificado pelo Hono: recodifica para o upstream (e `safeViewerRest` já barrou o que não é ASCII).
+			response = await proxyViewerHttp(c.req.raw, target, `/${encodeURI(rest) || "vnc.html"}${search}`);
+		} catch {
+			// Sem logar nem repassar a mensagem: o caminho carrega o token.
+			return c.json({ error: "Viewer unavailable" }, 502, noReferrer);
+		}
+		response.headers.set("Referrer-Policy", "no-referrer");
+		// A VM é código do dono, servido na origem da API (que tem o cookie de login de quem abrir o link): CSP sandbox SEM
+		// allow-same-origin joga o documento numa origem opaca (sem cookie nem storage da API), como em routes/previews.ts.
+		response.headers.set("Content-Security-Policy", VIEWER_SANDBOX_CSP);
+		// Por causa da CSP sandbox a página roda em origem opaca (`Origin: null`) e os módulos ES do noVNC
+		// (`<script type="module" crossorigin>`) são buscados por CORS: sem isto os assets falham. `*` SEM credenciais (nunca
+		// `Allow-Credentials`) e só nesta rota (não na `/viewer/*` por cookie): a rota já é autorizada pelo token no caminho,
+		// sem cookie, então o `*` não dá acesso novo a quem não tem o link.
+		response.headers.set("Access-Control-Allow-Origin", "*");
+		response.headers.delete("Access-Control-Allow-Credentials");
+		return response;
 	});
 
 	// "Desligar computador": para a VM com graça (Chrome fecha direito) e mantém container,

@@ -236,6 +236,21 @@ test("WS: Origin de outro site e recusado", async () => {
 	}
 });
 
+test("WS: Origin null ou de outro host + token valido conecta; so com cookie e recusado (403)", async () => {
+	const h = await wsHarness({ cookieUser: "user-a" });
+	try {
+		const token = signViewerToken({ sessionId: "session-a", userId: "user-a" }, SECRET);
+		assert.equal((await h.connect(`${WS}?t=${token}`, { Origin: "null" })).status, 101);
+		assert.equal((await h.connect(`${WS}?t=${token}`, { Origin: "https://evil.example" })).status, 101);
+		assert.equal((await h.connect(WS, { Origin: "null", Cookie: "session=x" })).status, 403);
+		assert.equal((await h.connect(WS, { Origin: "https://evil.example", Cookie: "session=x" })).status, 403);
+		// Token inválido não libera a origem: cai no caminho do cookie, que confere a origem.
+		assert.equal((await h.connect(`${WS}?t=lixo`, { Origin: "null" })).status, 403);
+	} finally {
+		h.close();
+	}
+});
+
 test("WS: caminho fora do websockify e recusado", async () => {
 	const h = await wsHarness({ cookieUser: "user-a" });
 	try {

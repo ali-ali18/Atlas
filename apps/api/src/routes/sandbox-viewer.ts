@@ -25,13 +25,20 @@ function sign(payload: string, secret: string): string {
 	return createHmac("sha256", `atlas-sandbox-viewer:${secret}`).update(payload).digest("base64url");
 }
 
+/**
+ * Propósito do token: `vt` vale só no caminho HTTP (`/v1/sandbox/vt/<token>/`, que aparece em log de acesso de proxy
+ * reverso) e `ws` só no WebSocket (`?t=`). Assim um token vazado de log HTTP não abre o WebSocket (nem o contrário).
+ * Token sem `p` é recusado nos dois.
+ */
+export type ViewerTokenPurpose = "vt" | "ws";
+
 export function signViewerToken(
-	input: { sessionId: string; userId: string },
+	input: { sessionId: string; userId: string; purpose?: ViewerTokenPurpose },
 	secret: string,
 	now = Date.now(),
 	ttlMs = VIEWER_TOKEN_TTL_MS,
 ): string {
-	const payload = Buffer.from(JSON.stringify({ s: input.sessionId, u: input.userId, e: now + ttlMs })).toString("base64url");
+	const payload = Buffer.from(JSON.stringify({ s: input.sessionId, u: input.userId, p: input.purpose ?? "ws", e: now + ttlMs })).toString("base64url");
 	return `${payload}.${sign(payload, secret)}`;
 }
 
@@ -49,13 +56,57 @@ export function verifyViewerToken(
 	const given = Buffer.from(mac);
 	if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
 	try {
-		const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { s?: unknown; u?: unknown; e?: unknown };
+		const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { s?: unknown; u?: unknown; e?: unknown; p?: unknown };
 		if (typeof data.s !== "string" || typeof data.u !== "string" || typeof data.e !== "number") return null;
-		if (data.s !== sessionId || data.e <= now) return null;
+		if (data.p !== "ws" || data.s !== sessionId || data.e <= now) return null;
 		return data.u;
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * Lê um token do viewer SEM saber a sessão de antemão (rota pública `/v1/sandbox/vt/<token>/*`).
+ * Valida assinatura (tempo constante) e expiração e devolve o que foi assinado. Quem chama DEVE
+ * conferir a posse com o `userId` do token (ver `ownsSession`); o token sozinho não prova posse atual.
+ */
+export function readViewerToken(
+	token: string | null | undefined,
+	secret: string,
+	now = Date.now(),
+): { sessionId: string; userId: string } | null {
+	if (!token || !secret) return null;
+	const [payload, mac, extra] = token.split(".");
+	if (!payload || !mac || extra !== undefined) return null;
+	const expected = Buffer.from(sign(payload, secret));
+	const given = Buffer.from(mac);
+	if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+	try {
+		const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { s?: unknown; u?: unknown; e?: unknown; p?: unknown };
+		if (typeof data.s !== "string" || typeof data.u !== "string" || typeof data.e !== "number") return null;
+		if (data.p !== "vt" || !data.s || !data.u || data.e <= now) return null;
+		return { sessionId: data.s, userId: data.u };
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Valida o resto do caminho do proxy: sem `.`/`..` nem em forma codificada, sem separador escondido
+ * (`%2f`, `\\`) e sem byte de controle. Devolve o caminho normalizado (como veio) ou null.
+ */
+export function safeViewerRest(rest: string): string | null {
+	for (const part of rest.split("/")) {
+		let decoded: string;
+		try {
+			decoded = decodeURIComponent(part);
+		} catch {
+			return null;
+		}
+		// Só ASCII imprimível visível: espaço ou não-ASCII fariam `http.request` lançar ERR_UNESCAPED_CHARACTERS.
+		if (decoded === ".." || decoded === "." || /[\\/]/.test(decoded) || /[^\x21-\x7e]/.test(decoded)) return null;
+	}
+	return rest;
 }
 
 /** Acrescenta `?t=` ao `path=` (websockify) da URL do viewer em modo proxy. */
@@ -86,6 +137,11 @@ export async function ownsSession(deps: ViewerOwnershipDeps, userId: string, ses
 // ---- HTTP ----------------------------------------------------------------
 
 const HOP_BY_HOP = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "content-length"]);
+/**
+ * Cabeçalhos da resposta da VM que NUNCA passam: a VM é código do dono do bot, servido na origem da API. `set-cookie`
+ * gravaria cookie no navegador de quem abre o link; CSP/frame do upstream disputariam com a CSP sandbox da rota.
+ */
+const RESPONSE_STRIP = new Set(["set-cookie", "set-cookie2", "content-security-policy", "content-security-policy-report-only", "x-frame-options"]);
 const REQUEST_STRIP = new Set([...HOP_BY_HOP, "cookie", "authorization", "host", "origin", "referer", "accept-encoding"]);
 
 export type ViewerTarget = { host: string; port: number; tls: boolean };
@@ -102,7 +158,7 @@ export async function proxyViewerHttp(request: Request, target: ViewerTarget, up
 			(res) => {
 				const out = new Headers();
 				for (const [key, value] of Object.entries(res.headers)) {
-					if (HOP_BY_HOP.has(key) || value === undefined) continue;
+					if (HOP_BY_HOP.has(key) || RESPONSE_STRIP.has(key) || value === undefined) continue;
 					for (const v of Array.isArray(value) ? value : [value]) out.append(key, v);
 				}
 				out.set("X-Content-Type-Options", "nosniff");
@@ -154,11 +210,12 @@ export function createViewerUpgradeHandler(deps: ViewerUpgradeDeps) {
 			const match = WS_PATH_RE.exec(url.pathname);
 			if (!match) return reject(socket, 404, "Not Found", "caminho não é de viewer");
 			const sessionId = decodeURIComponent(match[1]!);
-			// Evita WebSocket entre sites autenticado só por cookie.
-			if (!sameOrigin(req)) return reject(socket, 403, "Forbidden", `origin ${String(req.headers.origin)} ≠ host ${String(req.headers.host)}`);
 
 			let userId = verifyViewerToken(url.searchParams.get("t"), sessionId, deps.secret, deps.now?.());
 			if (!userId) {
+				// Evita WebSocket entre sites autenticado só por cookie. Com token válido a origem não importa: o noVNC servido
+				// por `/v1/sandbox/vt/` roda em origem opaca (CSP sandbox) e conecta com `Origin: null`; o token já é a credencial.
+				if (!sameOrigin(req)) return reject(socket, 403, "Forbidden", `origin ${String(req.headers.origin)} ≠ host ${String(req.headers.host)}`);
 				const headers = new Headers();
 				for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string") headers.set(k, v);
 				userId = await deps.userFromRequest(headers);
