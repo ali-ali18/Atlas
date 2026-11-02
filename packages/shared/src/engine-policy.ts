@@ -204,8 +204,7 @@ export function looksLikeLongTask(text: string): boolean {
 	const verb = /\b(pesquis\w+|levant\w+|analis\w+|compar\w+|mapea\w+|investig\w+|monta|monte|montar|elabor\w+|prepar\w+|gere|gerar|crie|criar|escrev\w+|faca|fazer|assista|assistir|abra|abrir|pergunt\w+|resum\w+|researc\w+|analy[sz]e|compare|build|prepare|draft|write|create|generate|benchmark\w*|watch|summari[sz]e|open|ask)\b/;
 	const deliverable = /\b(relatorio|estudo|pesquisa de mercado|panorama|benchmark|dossie|planilha|apresentacao|painel|dashboard|analise|comparativo|levantamento|report|study|market research|spreadsheet|presentation|deep dive|overview)\b/;
 	if (verb.test(plain) && deliverable.test(plain)) return true;
-	if (SOURCE_VERB.test(plain) && MANY_SOURCES.test(plain)) return true;
-	if (plain.length >= WEB_SEARCH_MIN_CHARS && WEB_RESEARCH_VERB.test(plain) && ON_THE_WEB.test(plain)) return true;
+	if (RESEARCH_MANY_SOURCES.test(plain)) return true;
 	// Pedido de várias etapas encadeadas ("abra..., faça perguntas..., compare... e monte"): 3+ verbos de ação diferentes,
 	// em pedido de tamanho razoável e com conectores de sequência (vírgulas, "e", "depois"). Pedido casual curto fica em chat.
 	if (plain.length >= CHAINED_MIN_CHARS && distinctActionVerbs(plain) >= 3 && sequenceConnectors(plain) >= 2) return true;
@@ -214,14 +213,28 @@ export function looksLikeLongTask(text: string): boolean {
 }
 
 /** Verbo de procurar/pesquisar/levantar (pt e en), sem exigir substantivo de entregável. */
-const SOURCE_VERB = /\b(pesquis\w+|busc\w+|procur\w+|levant\w+|investig\w+|olhad\w+|confer\w+|researc\w+|search\w*|look through|look up|check)\b/;
-/** Plural de fontes: "em várias páginas", "diversos sites", "several sources" (até 2 palavras entre o quantificador e o substantivo). */
+/**
+ * Verbo de pesquisa no imperativo ou infinitivo. Fora: "já pesquisei"/"já procurei" (é relato, não pedido) e "check"
+ * (em inglês quase nunca é pesquisa: "check the many pages of this PDF").
+ */
+const SOURCE_VERB = "(?<!\\bja\\s)\\b(?:pesquis\\w+|busc\\w+|procur\\w+|levant\\w+|investig\\w+|olhad\\w+|confer\\w+|researc\\w+|search\\w*|look through|look up)\\b";
+/** Plural de fontes: "várias páginas", "diversos sites", "several sources" (até 2 palavras entre o quantificador e o substantivo). */
 const MANY_SOURCES =
-	/\b(vari[oa]s|diversas?|diversos?|muitas?|muitos?|multipl[oa]s?|several|multiple|many)\b(\s+\w+){0,2}\s+(paginas?|fontes?|sites?|websites?|links?|lojas?|portais|sources?|pages?)\b/;
-const WEB_RESEARCH_VERB = /\b(pesquis\w+|researc\w+|search\w*)\b/;
-const ON_THE_WEB = /\b(na internet|pela internet|na web|pela web|on the internet|on the web|online)\b/;
-/** "pesquisa na internet" solto e curto ("pesquisa na web isso") é conversa; com contexto suficiente é tarefa. */
-const WEB_SEARCH_MIN_CHARS = 60;
+	"\\b(?:vari[oa]s|diversas?|diversos?|muitas?|muitos?|multipl[oa]s?|several|multiple|many)\\b(?:\\s+\\w+){0,2}\\s+(?:paginas?|fontes?|sites?|websites?|links?|lojas?|portais|sources?|pages?)\\b(?!\\s+(?:of\\s+(?:this|the|that)|d[oae]s?\\s+(?:pdf|documento|arquivo|livro|ebook)))";
+/** Até 9 palavras sem pontuação entre o verbo e as fontes ("pesquisa pra mim os preços de 5 notebooks em várias lojas"). */
+const WORD_GAP = "(?:\\s+[^\\s,.;:!?]+){0,9}";
+/**
+ * Pedido de pesquisa em várias fontes (sem precisar de "relatório"/"estudo"): o verbo perto das fontes, sem vírgula ou
+ * ponto no meio, na ordem "pesquise ... em várias páginas" ou "em várias páginas, pesquise ...". "Procurar um presente,
+ * vi várias lojas e não decidi" e "já pesquisei em várias páginas e não achei" ficam de fora. Pesquisa de um fato só
+ * ("pesquisa na internet o dólar hoje") não é tarefa longa: se virar, quem promove é o modelo, pela lista de tarefas.
+ */
+/** "Confira/veja/check" colado nas fontes ("..., check multiple sources", "e ver vários sites") vale mesmo com vírgula antes. */
+const CHECK_MANY = "\\b(?:check|confira|confere|veja|ver|consulte|olhe)\\s+(?:\\w+\\s+)?" + MANY_SOURCES;
+/** Vírgula no meio vale quando as fontes vêm numa preposição ("compare com o Hermes, em várias fontes"). */
+const COMMA_GAP = "(?:\\s+[^\\s.;:!?]+){0,12}";
+const IN_MANY = "\\s+(?:em|nas?|nos?|pelas?|pelos?|entre|in|across|from|on)\\s+" + MANY_SOURCES;
+const RESEARCH_MANY_SOURCES = new RegExp(`${SOURCE_VERB}${WORD_GAP}\\s+${MANY_SOURCES}|${SOURCE_VERB}${COMMA_GAP}${IN_MANY}|${MANY_SOURCES}[,]?${WORD_GAP}\\s+${SOURCE_VERB}|${CHECK_MANY}`);
 
 const ACTION_VERB_STEMS: ReadonlyArray<RegExp> = [
 	/\b(pesquis\w+|researc\w+)\b/, /\b(levant\w+)\b/, /\b(analis\w+|analy[sz]e)\b/, /\b(compar\w+|compare)\b/, /\b(mapea\w+)\b/, /\b(investig\w+)\b/,

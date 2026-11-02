@@ -6,8 +6,9 @@
  * Regra dos ambíguos (decisão documentada): "pesquisa isso rapidinho" é `short` (o dono pediu rapidez e não
  * indicou várias fontes); "abre esse link e me diz o título" é `short` (uma etapa só); continuação curta de uma
  * conversa em andamento ("Quer tentar pegar o resumo dele?") é `short`: quem decide promover é o modelo, pela lista
- * de tarefas. Pedido de pesquisa genérico sem plural de fontes só é `long` quando traz contexto suficiente
- * (comprimento razoável); curto e solto é `short`.
+ * de tarefas. Pesquisa de um assunto só, sem plural de fontes ("pesquisa na internet o dólar hoje"), é `short`:
+ * a decisão de virar trabalho longo é do modelo (lista de 3+ passos), não do regex. Relato no passado ("já pesquisei
+ * em várias páginas e não achei") e "check" em inglês ("check the many pages of this PDF") também são `short`.
  */
 export type LongTaskLabel = "long" | "short";
 
@@ -26,6 +27,13 @@ export const LONG_TASK_REQUESTS: ReadonlyArray<{ text: string; label: LongTaskLa
 	{ text: "abre esse link e me diz o título", label: "short" },
 	{ text: "Monta um relatório de 5 páginas sobre X", label: "long" },
 
+	// --- falsos positivos achados na auditoria (todos `short`) ---
+	{ text: "Pesquisa na internet qual o dólar hoje, preciso saber pra fechar uma compra agora", label: "short" },
+	{ text: "Pesquise online se a farmácia da esquina abre domingo, por favor", label: "short" },
+	{ text: "Já pesquisei em várias páginas e não achei, o que você acha?", label: "short" },
+	{ text: "Me ajuda a procurar um presente, vi várias lojas e não decidi", label: "short" },
+	{ text: "Check the many pages of this PDF and tell me the total", label: "short" },
+
 	// --- pesquisa em várias fontes, sem substantivo de entregável (pt) ---
 	{ text: "Pesquisa em várias fontes sobre o novo iPhone", label: "long" },
 	{ text: "Pode pesquisar na internet sobre os melhores planos de saúde para PJ e ver vários sites?", label: "long" },
@@ -33,10 +41,10 @@ export const LONG_TASK_REQUESTS: ReadonlyArray<{ text: string; label: LongTaskLa
 	{ text: "Dá uma olhada em múltiplas fontes e me diz se esse produto é confiável", label: "long" },
 	{ text: "Pesquise muitas páginas e me conte o que as pessoas estão falando do novo Kindle", label: "long" },
 	{ text: "Procura em vários links qual é o melhor roteador para casa grande", label: "long" },
-	{ text: "Pesquisa na internet o que mudou na lei do MEI neste ano e como isso afeta quem fatura até 81 mil", label: "long" },
+	{ text: "Pesquisa na internet o que mudou na lei do MEI neste ano e como isso afeta quem fatura até 81 mil", label: "short" }, // um assunto só: se precisar de mais, o modelo promove pela lista de tarefas
 	{ text: "Levanta em diversas fontes o preço médio do aluguel em Pinheiros", label: "long" },
 	{ text: "Investiga em vários sites se esse fornecedor tem reclamações", label: "long" },
-	{ text: "pesquisa pela web sobre as regras de bagagem de mão das companhias aéreas brasileiras", label: "long" },
+	{ text: "pesquisa pela web sobre as regras de bagagem de mão das companhias aéreas brasileiras", label: "short" }, // sem plural de fontes: o modelo promove se a lista passar de 3 passos
 
 	// --- pesquisa em várias fontes (en) ---
 	{ text: "Research this topic across several sources and tell me what you find", label: "long" },
