@@ -4,13 +4,13 @@
 //
 //   pnpm --filter @workspace/mobile build:novnc
 //
-// O arquivo gerado grava a versão do noVNC, o hash das ENTRADAS (versão + este script) e o hash do conteúdo gerado; o
+// O arquivo gerado grava a versão do noVNC, o hash das ENTRADAS (versões do noVNC e do esbuild + este script) e o hash do conteúdo gerado; o
 // teste `lib/novnc-bundle.test.ts` falha se o pacote ou este script mudarem sem regerar.
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { build } from "esbuild";
+import { build, version as esbuildVersion } from "esbuild";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -20,8 +20,8 @@ const outFile = path.join(root, "lib", "novnc-bundle.generated.ts");
 const sha256 = (text) => createHash("sha256").update(text).digest("hex");
 const version = JSON.parse(readFileSync(path.join(novnc, "package.json"), "utf8")).version;
 const scriptText = readFileSync(fileURLToPath(import.meta.url), "utf8");
-/** Mesma conta que o teste refaz: versão do pacote + texto deste script. */
-const inputsHash = sha256(`${version}\n${scriptText}`);
+/** Mesma conta que o teste refaz: versão do noVNC + versão do esbuild (a saída depende dela) + texto deste script. */
+const inputsHash = sha256(`${version}\n${esbuildVersion}\n${scriptText}`);
 
 // O `exports` do pacote só libera `core/rfb.js`; o resto entra por caminho de arquivo.
 // O core 1.7 tem `await` no topo (`core/util/browser.js`, detecção de H.264), que o esbuild não aceita em IIFE: por isso o

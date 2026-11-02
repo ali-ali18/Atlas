@@ -14,9 +14,14 @@ describe("bundle do noVNC (arquivo gerado)", () => {
 	it(`está na versão do pacote instalado. ${HINT}`, () => {
 		expect(NOVNC_VERSION).toBe(installed);
 	});
-	it(`está em dia com o pacote e com o script de build. ${HINT}`, () => {
+	const esbuildVersion = (JSON.parse(readFileSync(path.join(root, "node_modules/esbuild/package.json"), "utf8")) as { version: string }).version;
+	it(`está em dia com o noVNC, o esbuild e o script de build. ${HINT}`, () => {
 		const script = readFileSync(path.join(root, "scripts/build-novnc-bundle.mjs"), "utf8");
-		expect(NOVNC_INPUTS_HASH).toBe(sha256(`${installed}\n${script}`));
+		expect(NOVNC_INPUTS_HASH).toBe(sha256(`${installed}\n${esbuildVersion}\n${script}`));
+	});
+	it("o esbuild está fixado em versão exata (a saída muda entre versões)", () => {
+		const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as { devDependencies: Record<string, string> };
+		expect(pkg.devDependencies.esbuild).toBe(esbuildVersion);
 	});
 	it("o conteúdo bate com o hash gravado (arquivo não foi editado à mão)", () => {
 		expect(NOVNC_BUNDLE_SHA256).toBe(sha256(NOVNC_BUNDLE));

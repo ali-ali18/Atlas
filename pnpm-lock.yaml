@@ -259,7 +259,7 @@ importers:
         specifier: ^27.2.0
         version: 27.2.0(@types/node@26.6.3)(typescript@5.9.3)
       esbuild:
-        specifier: ^0.28.2
+        specifier: 0.28.2
         version: 0.28.2
       expo-updates:
         specifier: ~58.0.20
