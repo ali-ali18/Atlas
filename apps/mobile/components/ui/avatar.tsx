@@ -92,8 +92,10 @@ const LOOK_EVERY_S = [3, 8] as const;
 const LOOK_HOLD_S = [0.7, 1.4] as const;
 const LOOK_X = 0.9;
 const LOOK_Y = 0.5;
-const LOOK_MAX_PX = 9;
-const LOOK_MAX_Y_PX = 5;
+// O deslocamento dos olhos é proporcional ao lado do avatar (9 px e 5 px num de 120): em px fixos, no avatar de 32 do topo
+// e da linha "Pensando…" os olhos saíam do corpo (corpo de ~22 px).
+const LOOK_MAX_RATIO = 9 / 120;
+const LOOK_MAX_Y_RATIO = 5 / 120;
 // Expressão de cada estado do app (as do motor, em packages/shared/src/avatar/model/expressions.ts).
 const STATE_EXPRESSION: Record<MobileAvatarState, string> = {
 	idle: "neutral",
@@ -307,8 +309,8 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 	const eyeCyPx = (eyeCy / 250) * size;
 	const eyesStyle = useAnimatedStyle(() => ({
 		transform: [
-			{ translateX: (gazeX.value / LOOK_X) * LOOK_MAX_PX },
-			{ translateY: (gazeY.value / LOOK_Y) * LOOK_MAX_Y_PX },
+			{ translateX: (gazeX.value / LOOK_X) * size * LOOK_MAX_RATIO },
+			{ translateY: (gazeY.value / LOOK_Y) * size * LOOK_MAX_Y_RATIO },
 			{ translateY: (eyeCyPx - size / 2) * (1 - lid.value) },
 			{ scaleY: lid.value },
 		],
