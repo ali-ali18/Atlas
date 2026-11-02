@@ -244,6 +244,8 @@ export function openTrustedDir(dirPath, { trustedUid = 0 } = {}) {
  * Garante `<home>/.atlas` de dono confiável (root em produção), modo 0755. O usuário `atlas` é
  * dono do próprio home e poderia pré-criar `.atlas` (ou um link simbólico) para enganar quem
  * escreve como root; o que não for confiável é movido de lado, nunca seguido nem reaproveitado.
+ * Isto protege a INTEGRIDADE do registro e da reinstalação (root não escreve onde o atlas mandou).
+ * Não protege contra o conteúdo de um .deb: instalar pacote é rodar código como root na VM.
  */
 export function ensureTrustedAtlasDir(home, { trustedUid = 0, trustedGid = trustedUid } = {}) {
 	const { dir } = atlasPaths(home);
@@ -261,12 +263,35 @@ export function ensureTrustedAtlasDir(home, { trustedUid = 0, trustedGid = trust
 	}
 	if (!stat) {
 		fs.mkdirSync(dir, { mode: 0o755 });
-		if (process.getuid?.() === 0) fs.chownSync(dir, trustedUid, trustedGid);
-		fs.chmodSync(dir, 0o755);
+		adoptNewDir(dir, { trustedUid, trustedGid });
 	}
 	const trusted = openTrustedDir(dir, { trustedUid });
 	if (!trusted.ok) throw new InstallError(`${dir} is not trustworthy (${trusted.reason}); try again`, EXIT.TEMP_FAIL);
 	return { trusted, quarantined };
+}
+
+/**
+ * Dono e modo do diretório recém-criado, pelo fd (nunca por caminho: o atlas poderia trocar o
+ * caminho por um link entre o mkdir e o chown). Só aceita um diretório criado por NÓS (mesmo
+ * dono do processo) e ainda vazio; qualquer troca vira erro e quem chamou tenta de novo.
+ */
+function adoptNewDir(dirPath, { trustedUid, trustedGid }) {
+	let fd;
+	try {
+		fd = fs.openSync(dirPath, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+	} catch {
+		throw new InstallError(`${dirPath} changed while it was being created; try again`, EXIT.TEMP_FAIL);
+	}
+	try {
+		const stat = fs.fstatSync(fd);
+		if (stat.uid !== process.getuid?.() || fs.readdirSync(`/proc/self/fd/${fd}`).length > 0) {
+			throw new InstallError(`${dirPath} changed while it was being created; try again`, EXIT.TEMP_FAIL);
+		}
+		if (process.getuid?.() === 0) fs.fchownSync(fd, trustedUid, trustedGid);
+		fs.fchmodSync(fd, 0o755);
+	} finally {
+		fs.closeSync(fd);
+	}
 }
 
 /** Abre `<dir>/debs` (criando) com a mesma regra de confiança, relativo ao diretório já aberto. */
@@ -274,7 +299,7 @@ export function ensureTrustedSubdir(parent, name, { trustedUid = 0, trustedGid =
 	const sub = `${parent.path}/${name}`;
 	try {
 		fs.mkdirSync(sub, { mode: 0o755 });
-		if (process.getuid?.() === 0) fs.chownSync(sub, trustedUid, trustedGid);
+		adoptNewDir(sub, { trustedUid, trustedGid });
 	} catch (error) {
 		if (error.code !== "EEXIST") throw error;
 	}
@@ -303,7 +328,8 @@ export function sanitizeManifest(raw) {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
 		return { manifest, dropped: ["manifest is not an object"] };
 	}
-	const seen = new Set();
+	const seenApt = new Set();
+	const seenDeb = new Set();
 	let total = 0;
 	const room = () => total < MAX_MANIFEST_ENTRIES;
 	if (raw.apt !== undefined && !Array.isArray(raw.apt)) dropped.push("apt is not a list");
@@ -314,12 +340,12 @@ export function sanitizeManifest(raw) {
 			dropped.push(`apt entry ${JSON.stringify(String(name).slice(0, 40))}: invalid name`);
 			continue;
 		}
-		if (seen.has(name)) continue;
+		if (seenApt.has(name)) continue;
 		if (!room()) {
 			dropped.push(`apt entry ${name}: over the ${MAX_MANIFEST_ENTRIES}-entry limit`);
 			continue;
 		}
-		seen.add(name);
+		seenApt.add(name);
 		total += 1;
 		manifest.apt.push({ name, installedAt: isoOrNow(entry.installedAt) });
 	}
@@ -335,14 +361,24 @@ export function sanitizeManifest(raw) {
 			dropped.push(`deb entry ${e.name}: file name does not match package and checksum`);
 			continue;
 		}
-		if (seen.has(e.name)) continue;
+		if (seenDeb.has(e.name)) continue;
 		if (!room()) {
 			dropped.push(`deb entry ${e.name}: over the ${MAX_MANIFEST_ENTRIES}-entry limit`);
 			continue;
 		}
-		seen.add(e.name);
+		seenDeb.add(e.name);
 		total += 1;
 		manifest.debs.push({ name: e.name, file: e.file, sha256: e.sha256, installedAt: isoOrNow(e.installedAt) });
+	}
+	// O mesmo pacote em apt e em deb: o último instalado vence (empate: o .deb, que é o arquivo explícito).
+	for (const entry of [...manifest.apt]) {
+		const deb = manifest.debs.find((d) => d.name === entry.name);
+		if (!deb) continue;
+		if (Date.parse(deb.installedAt) >= Date.parse(entry.installedAt)) {
+			manifest.apt = manifest.apt.filter((a) => a.name !== entry.name);
+		} else {
+			manifest.debs = manifest.debs.filter((d) => d.name !== entry.name);
+		}
 	}
 	return { manifest, dropped };
 }
@@ -376,7 +412,11 @@ export function writeManifest(trustedDir, manifest) {
 	fs.renameSync(tmp, `${trustedDir.path}/installed.json`);
 }
 
-/** Confere um .deb guardado antes de reinstalar: só em `debs/`, arquivo comum, dono confiável e hash igual. */
+/**
+ * Confere um .deb guardado antes de reinstalar: só em `debs/`, arquivo comum de root e hash igual ao do
+ * registro. Protege a INTEGRIDADE da reinstalação (o que volta é o que foi instalado, sem troca nem
+ * corrupção); não protege contra o próprio .deb, que roda código como root quando é instalado.
+ */
 export function verifyStoredDeb(debsDir, entry, { trustedUid = 0 } = {}) {
 	if (!DEB_FILE_RE.test(entry.file)) return "bad file name";
 	const file = `${debsDir.path}/${entry.file}`;

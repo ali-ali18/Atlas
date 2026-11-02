@@ -31,10 +31,15 @@ import {
 export const REINSTALL_BUDGET_MS = 15 * 60 * 1000;
 /** Teto de uma instalação pedida pelo agente (o passo de shell em primeiro plano já expira antes: use background). */
 const INSTALL_TIMEOUT_MS = 30 * 60 * 1000;
-const LOCK_FILE = "/run/atlas-install.lock";
-const STATE_DIR = "/var/lib/atlas-install";
-const UPDATE_STAMP = `${STATE_DIR}/apt-updated`;
-const APT_LISTS = "/var/lib/apt/lists";
+/** Quanto o `reinstall` espera um `sudo atlas-install` do agente terminar antes de desistir (não vira `failed` à toa). */
+export const REINSTALL_LOCK_WAIT_MS = 10 * 60 * 1000;
+const DEFAULTS = {
+	lockFile: "/run/atlas-install.lock",
+	stateDir: "/var/lib/atlas-install",
+	aptLists: "/var/lib/apt/lists",
+	trustedUid: 0,
+	trustedGid: 0,
+};
 const TOTAL_DEBS_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 const LOG_MAX_BYTES = 1024 * 1024;
 
@@ -62,8 +67,10 @@ const APT_INSTALL_FLAGS = [
 
 const out = (message) => process.stdout.write(`${message}\n`);
 const err = (message) => process.stderr.write(`${message}\n`);
+const baseOut = out;
+const baseErr = err;
 
-function run(command, args, { timeoutMs = INSTALL_TIMEOUT_MS, capture = false, logFd = null } = {}) {
+function defaultRun(command, args, { timeoutMs = INSTALL_TIMEOUT_MS, capture = false, logFd = null } = {}) {
 	const result = spawnSync(command, args, {
 		env: CLEAN_ENV,
 		encoding: "utf8",
@@ -80,9 +87,25 @@ function run(command, args, { timeoutMs = INSTALL_TIMEOUT_MS, capture = false, l
 	};
 }
 
-function sleep(ms) {
+function defaultSleep(ms) {
 	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
+
+/**
+ * Os comandos, com tudo que toca o sistema injetável (`run` = spawn de apt/dpkg, caminhos de trava e
+ * índice, dono confiável, `sleep`): os testes exercitam os comandos de verdade com um apt falso.
+ */
+export function createInstaller(overrides = {}) {
+const o = { run: defaultRun, sleep: defaultSleep, pid: process.pid, ...DEFAULTS, ...overrides };
+const { run, sleep } = o;
+const now = o.now ?? Date.now;
+const out = o.out ?? baseOut;
+const err = o.err ?? baseErr;
+const LOCK_FILE = o.lockFile;
+const STATE_DIR = o.stateDir;
+const UPDATE_STAMP = `${STATE_DIR}/apt-updated`;
+const APT_LISTS = o.aptLists;
+const trust = { trustedUid: o.trustedUid, trustedGid: o.trustedGid };
 
 function pidAlive(pid) {
 	try {
@@ -93,37 +116,53 @@ function pidAlive(pid) {
 	}
 }
 
-/** Uma instalação por vez (o manifesto é lido, alterado e gravado; o apt já tem a trava dele). */
+function readLockHolder() {
+	try {
+		return Number.parseInt(fs.readFileSync(LOCK_FILE, "utf8"), 10) || 0;
+	} catch {
+		return 0;
+	}
+}
+
+/** Cria a trava de forma atômica: o arquivo nasce já com o pid (link de um temporário), nunca vazio. */
+function tryCreateLock() {
+	const tmp = `${LOCK_FILE}.${o.pid}.tmp`;
+	fs.writeFileSync(tmp, String(o.pid), { mode: 0o600 });
+	try {
+		fs.linkSync(tmp, LOCK_FILE);
+		return true;
+	} catch (error) {
+		if (error.code === "EEXIST") return false;
+		throw error;
+	} finally {
+		fs.rmSync(tmp, { force: true });
+	}
+}
+
+/**
+ * Uma instalação por vez (o manifesto é lido, alterado e gravado; o apt já tem a trava dele).
+ * Dono morto: só remove se o arquivo AINDA tem o mesmo pid morto na hora de remover (quem chegou
+ * depois e criou a sua não é apagado); ao sair só remove a trava se ela continua sendo a nossa.
+ */
 function withLock(fn, { waitMs = 30_000 } = {}) {
-	const start = Date.now();
+	const start = now();
 	for (;;) {
-		try {
-			const fd = fs.openSync(LOCK_FILE, "wx", 0o600);
-			fs.writeSync(fd, String(process.pid));
-			fs.closeSync(fd);
-			break;
-		} catch (error) {
-			if (error.code !== "EEXIST") throw error;
-			let holder = 0;
-			try {
-				holder = Number.parseInt(fs.readFileSync(LOCK_FILE, "utf8"), 10);
-			} catch {
-				/* sumiu entre o open e o read: tenta de novo */
-			}
-			if (!holder || !pidAlive(holder)) {
-				fs.rmSync(LOCK_FILE, { force: true });
-				continue;
-			}
-			if (Date.now() - start > waitMs) {
-				throw new InstallError("another install is running (for example the automatic reinstall after the VM started). Check ~/.atlas/reinstall.status and try again in a minute", EXIT.TEMP_FAIL);
-			}
-			sleep(500);
+		if (tryCreateLock()) break;
+		const holder = readLockHolder();
+		if (holder === 0) continue; // sumiu entre o link e a leitura
+		if (holder !== o.pid && !pidAlive(holder)) {
+			if (readLockHolder() === holder) fs.rmSync(LOCK_FILE, { force: true });
+			continue;
 		}
+		if (now() - start > waitMs) {
+			throw new InstallError("another install is running (for example the automatic reinstall after the VM started). Check ~/.atlas/reinstall.status and try again in a minute", EXIT.TEMP_FAIL);
+		}
+		sleep(500);
 	}
 	try {
 		return fn();
 	} finally {
-		fs.rmSync(LOCK_FILE, { force: true });
+		if (readLockHolder() === o.pid) fs.rmSync(LOCK_FILE, { force: true });
 	}
 }
 
@@ -149,7 +188,7 @@ function aptUpdateIfNeeded({ timeoutMs, logFd = null }) {
 		/* sem carimbo */
 	}
 	const count = listsCount();
-	if (!needsAptUpdate({ listsCount: count, stampMtimeMs, now: Date.now() })) return;
+	if (!needsAptUpdate({ listsCount: count, stampMtimeMs, now: now() })) return;
 	out("Updating the package index (apt-get update)...");
 	const result = run("/usr/bin/apt-get", ["update"], { timeoutMs, logFd });
 	if (result.status !== 0) {
@@ -202,14 +241,19 @@ function readStatusState(trusted) {
 }
 
 function openState(paths) {
-	const { trusted } = ensureTrustedAtlasDir(paths.home);
-	const debs = ensureTrustedSubdir(trusted, "debs");
+	const { trusted } = ensureTrustedAtlasDir(paths.home, trust);
+	const debs = ensureTrustedSubdir(trusted, "debs", trust);
 	return { trusted, debs };
 }
 
 function closeState(state) {
 	state.debs.close();
 	state.trusted.close();
+}
+
+/** Caminho do .deb guardado pelo diretório já verificado (o apt é processo filho: /proc/<nosso pid>/fd/N). */
+function storedDebArg(debs, file) {
+	return `/proc/${o.pid}/fd/${debs.fd}/${file}`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -233,13 +277,16 @@ function cmdApt(cmd, paths) {
 				throw new InstallError(result.timedOut ? "install timed out; run it again in the background (background:true)" : `apt-get install failed (exit ${result.status}); see the output above. Nothing was registered`, EXIT.FAILED);
 			}
 			const installed = installedSet();
-			const { manifest } = readManifest(state.trusted);
+			const { manifest } = readManifest(state.trusted, trust);
 			const now = new Date().toISOString();
 			const done = [];
 			for (const name of cmd.packages) {
 				if (!installed.has(name)) continue;
 				done.push(name);
 				if (!manifest.apt.some((entry) => entry.name === name)) manifest.apt.push({ name, installedAt: now });
+				// O último instalado vence: o mesmo pacote não fica em apt e em deb ao mesmo tempo.
+				for (const stale of manifest.debs.filter((entry) => entry.name === name)) fs.rmSync(`${state.debs.path}/${stale.file}`, { force: true });
+				manifest.debs = manifest.debs.filter((entry) => entry.name !== name);
 			}
 			writeManifest(state.trusted, manifest);
 			out(`OK: installed ${done.join(", ")}. Registered in ${paths.manifest}; if the VM is recreated they are installed again automatically (see ~/.atlas/reinstall.status).`);
@@ -290,8 +337,8 @@ function cmdDeb(cmd, paths) {
 			run("/usr/bin/dpkg", ["--configure", "-a", "--force-confold"], { timeoutMs: 5 * 60 * 1000 });
 			out(`Installing ${fields.Package} from ${opened.real}`);
 			// Caminho absoluto: o apt só trata como arquivo o que começa com ./ ou /.
-			const result = run("/usr/bin/apt-get", ["install", ...APT_INSTALL_FLAGS, path.join(paths.debs, finalName)]);
-			const { manifest } = readManifest(state.trusted);
+			const result = run("/usr/bin/apt-get", ["install", ...APT_INSTALL_FLAGS, storedDebArg(state.debs, finalName)]);
+			const { manifest } = readManifest(state.trusted, trust);
 			if (result.status !== 0) {
 				if (!manifest.debs.some((entry) => entry.file === finalName)) fs.rmSync(`${state.debs.path}/${finalName}`, { force: true });
 				throw new InstallError(result.timedOut ? "install timed out; run it again in the background (background:true)" : `apt-get install failed (exit ${result.status}); see the output above. Nothing was registered`, EXIT.FAILED);
@@ -300,6 +347,8 @@ function cmdDeb(cmd, paths) {
 				fs.rmSync(`${state.debs.path}/${old.file}`, { force: true });
 			}
 			manifest.debs = manifest.debs.filter((entry) => entry.name !== fields.Package);
+			// O último instalado vence: a entrada apt do mesmo nome sai (senão a reinstalação trocaria o .deb pelo do repositório).
+			manifest.apt = manifest.apt.filter((entry) => entry.name !== fields.Package);
 			manifest.debs.push({ name: fields.Package, file: finalName, sha256, installedAt: new Date().toISOString() });
 			writeManifest(state.trusted, manifest);
 			out(`OK: installed ${fields.Package}. The .deb is kept in ${paths.debs} and is installed again automatically if the VM is recreated.`);
@@ -313,9 +362,9 @@ function cmdDeb(cmd, paths) {
 }
 
 function cmdList(paths) {
-	const { trusted } = ensureTrustedAtlasDir(paths.home);
+	const { trusted } = ensureTrustedAtlasDir(paths.home, trust);
 	try {
-		const { manifest, dropped } = readManifest(trusted);
+		const { manifest, dropped } = readManifest(trusted, trust);
 		const installed = installedSet();
 		const rows = [
 			...manifest.apt.map((entry) => ({ kind: "apt", name: entry.name, at: entry.installedAt })),
@@ -338,7 +387,7 @@ function cmdRemove(cmd, paths) {
 	return withLock(() => {
 		const state = openState(paths);
 		try {
-			const { manifest } = readManifest(state.trusted);
+			const { manifest } = readManifest(state.trusted, trust);
 			const aptEntry = manifest.apt.find((entry) => entry.name === cmd.package);
 			const debEntry = manifest.debs.find((entry) => entry.name === cmd.package);
 			if (!aptEntry && !debEntry) {
@@ -365,13 +414,14 @@ function cmdRemove(cmd, paths) {
 /** Entrypoint, antes de liberar o agente: deixa `.atlas` confiável e decide o status inicial. Rápido, sem rede. */
 function cmdPrepare(paths) {
 	fs.rmSync(LOCK_FILE, { force: true });
-	const { trusted, quarantined } = ensureTrustedAtlasDir(paths.home);
-	const debs = ensureTrustedSubdir(trusted, "debs");
+	const { trusted, quarantined } = ensureTrustedAtlasDir(paths.home, trust);
+	const debs = ensureTrustedSubdir(trusted, "debs", trust);
 	try {
-		const { manifest } = readManifest(trusted);
+		const { manifest } = readManifest(trusted, trust);
 		const pending = manifest.apt.length + manifest.debs.length;
 		if (quarantined) fs.writeFileSync(`${trusted.path}/install.log`, `[${new Date().toISOString()}] moved an untrustworthy .atlas to ${path.basename(quarantined)}; the registry was reset\n`, { mode: 0o644 });
-		setStatus(trusted, pending ? "running" : "done", pending ? `waiting to reinstall ${pending} package(s)` : "nothing to reinstall");
+		// `pending` (não `running`): quem muda para running é o reinstall, quando de fato começa.
+		setStatus(trusted, pending ? "pending" : "done", pending ? `will reinstall ${pending} package(s) in the background` : "nothing to reinstall");
 		out(`prepared ${paths.dir} (${pending} registered package(s))`);
 		return EXIT.OK;
 	} finally {
@@ -382,9 +432,9 @@ function cmdPrepare(paths) {
 
 /** Entrypoint, em segundo plano: reinstala o que o registro lista e o dpkg não tem. Nunca bloqueia a VM. */
 function cmdReinstall(paths) {
-	const deadline = Date.now() + REINSTALL_BUDGET_MS;
-	const left = () => Math.max(1000, deadline - Date.now());
-	const expired = () => Date.now() >= deadline;
+	let deadline = Infinity;
+	const left = () => Math.max(1000, deadline - now());
+	const expired = () => now() >= deadline;
 	let state;
 	try {
 		state = openState(paths);
@@ -394,10 +444,13 @@ function cmdReinstall(paths) {
 	}
 	const logFd = openLog(state.trusted);
 	try {
+		setStatus(state.trusted, "pending", "waiting for the package manager lock");
 		return withLock(
 			() => {
+				// O relógio de 15 min só começa depois da trava: esperar o agente terminar uma instalação não gasta o orçamento.
+				deadline = now() + REINSTALL_BUDGET_MS;
 				setStatus(state.trusted, "running", "checking what is missing");
-				const { manifest, dropped } = readManifest(state.trusted);
+				const { manifest, dropped } = readManifest(state.trusted, trust);
 				for (const note of dropped) logLine(logFd, `ignored: ${note}`);
 				const plan = planReinstall(manifest, installedSet());
 				const total = plan.apt.length + plan.debs.length;
@@ -446,12 +499,12 @@ function cmdReinstall(paths) {
 				install(aptNames.map((name) => ({ name, arg: name })), (n) => n.name);
 				const debItems = [];
 				for (const entry of plan.debs) {
-					const problem = verifyStoredDeb(state.debs, entry);
+					const problem = verifyStoredDeb(state.debs, entry, trust);
 					if (problem) {
 						failed.push(`${entry.name} (${problem})`);
 						continue;
 					}
-					debItems.push({ name: entry.name, arg: path.join(paths.debs, entry.file) });
+					debItems.push({ name: entry.name, arg: storedDebArg(state.debs, entry.file) });
 				}
 				install(debItems, (n) => n.name);
 				logLine(logFd, `reinstall: ok=[${okNames.join(", ")}] failed=[${failed.join(", ")}]`);
@@ -462,7 +515,7 @@ function cmdReinstall(paths) {
 				setStatus(state.trusted, "done", `reinstalled: ${okNames.join(", ")}`);
 				return EXIT.OK;
 			},
-			{ waitMs: 5000 },
+			{ waitMs: REINSTALL_LOCK_WAIT_MS },
 		);
 	} catch (error) {
 		try {
@@ -476,6 +529,9 @@ function cmdReinstall(paths) {
 		fs.closeSync(logFd);
 		closeState(state);
 	}
+}
+
+return { cmdApt, cmdDeb, cmdList, cmdRemove, cmdPrepare, cmdReinstall, withLock };
 }
 
 /** Valida e mostra o plano, sem tocar em nada. `ATLAS_INSTALL_HOME` só vale aqui, nunca em modo real. */
@@ -512,19 +568,20 @@ export function main(argv, { uid = process.getuid?.() ?? -1, env = process.env }
 		process.on("SIGHUP", () => {});
 		process.on("SIGPIPE", () => {});
 		const paths = atlasPaths("/home/atlas");
+		const installer = createInstaller();
 		switch (cmd.action) {
 			case "apt":
-				return cmdApt(cmd, paths);
+				return installer.cmdApt(cmd, paths);
 			case "deb":
-				return cmdDeb(cmd, paths);
+				return installer.cmdDeb(cmd, paths);
 			case "list":
-				return cmdList(paths);
+				return installer.cmdList(paths);
 			case "remove":
-				return cmdRemove(cmd, paths);
+				return installer.cmdRemove(cmd, paths);
 			case "prepare":
-				return cmdPrepare(paths);
+				return installer.cmdPrepare(paths);
 			case "reinstall":
-				return cmdReinstall(paths);
+				return installer.cmdReinstall(paths);
 			default:
 				throw new InstallError("unknown command", EXIT.USAGE);
 		}
