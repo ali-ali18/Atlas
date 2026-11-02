@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { resolveApiUrl } from "./api-fetch";
 import { parseViewerSocketUrl } from "./viewer-link";
+import { viewerCsp } from "./viewer-page";
 
 const BASE = "https://atlas.example.com";
 // Formato real do servidor (apps/api/src/routes/sandbox.ts): `path` sem barra inicial, com `?t=` do token `ws`.
@@ -46,5 +48,19 @@ describe("endereço do WebSocket a partir do viewer-link", () => {
 	it("recusa servidor salvo inválido", () => {
 		expect(parseViewerSocketUrl("nao-e-url", "s1", serverUrl("s1"))).toBeNull();
 		expect(parseViewerSocketUrl("ftp://atlas.example.com", "s1", serverUrl("s1"))).toBeNull();
+	});
+	// O app inteiro fala com a API pela raiz da origem: `resolveApiUrl` (base do `apiFetch`) troca o caminho do servidor salvo
+	// por `/v1/...` (`new URL("/v1/x", "https://h/atlas")` dá `https://h/v1/x`). O WebSocket segue a mesma regra, para
+	// nunca apontar para um lugar diferente do `viewer-link` que o app acabou de pedir. Servidor em subcaminho não é
+	// suportado em nenhuma chamada hoje; mudar só o WebSocket o deixaria incoerente com o resto.
+	it("usa a mesma base do apiFetch: servidor salvo com subcaminho cai na raiz da origem, como as chamadas HTTP", () => {
+		const base = "https://atlas.example.com/atlas";
+		const http = resolveApiUrl(base, "/v1/sandbox/sessions/s1/viewer-link");
+		expect(http).toBe("https://atlas.example.com/v1/sandbox/sessions/s1/viewer-link");
+		expect(parseViewerSocketUrl(base, "s1", serverUrl("s1"))).toBe("wss://atlas.example.com/v1/sandbox/sessions/s1/viewer/websockify?t=WS.TOKEN");
+		expect(parseViewerSocketUrl(base, "s1", serverUrl("s1"))).toBe(parseViewerSocketUrl("https://atlas.example.com", "s1", serverUrl("s1")));
+	});
+	it("a CSP segue só com o host, com ou sem subcaminho", () => {
+		expect(viewerCsp("https://atlas.example.com/atlas")).toBe(viewerCsp("https://atlas.example.com"));
 	});
 });
