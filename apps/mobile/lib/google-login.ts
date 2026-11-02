@@ -1,3 +1,4 @@
+import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
 import * as Linking from "expo-linking";
 import * as SecureStore from "expo-secure-store";
@@ -8,6 +9,7 @@ import {
 	appReturnUrl,
 	bridgeExchangeUrl,
 	createGoogleBridge,
+	expoGoReturnUrl,
 	base64UrlFromBase64,
 	newBridgeState,
 	newCodeVerifier,

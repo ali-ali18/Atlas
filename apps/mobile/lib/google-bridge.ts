@@ -34,6 +34,19 @@ export function appReturnUrl(createURL: (path: string) => string): string {
 	return home;
 }
 
+/**
+ * No Expo Go, uma atualização publicada não tem `hostUri`, e `createURL` cai no esquema do app (`atlas:///`), que o
+ * Expo Go não abre: o navegador fica parado na página de volta. Ali o retorno é o `linkingUri` do Expo Go
+ * (`exp://u.expo.dev/<projeto>/…/--/`), que reabre este mesmo app. Fora do Expo Go devolve null (vale `createURL`).
+ */
+export function expoGoReturnUrl(executionEnvironment: string | undefined, linkingUri: string | undefined): string | null {
+	if (executionEnvironment !== "storeClient" || !linkingUri || !/^exps?:\/\/[^/?#]+/i.test(linkingUri)) return null;
+	const [base = "", query] = linkingUri.split("#")[0]!.split("?");
+	const marker = base.indexOf("/--/");
+	const root = marker >= 0 ? base.slice(0, marker) : base.replace(/\/(--)?\/?$/, "");
+	return `${root}/--/${query ? `?${query}` : ""}`;
+}
+
 export function bridgeStartUrl(serverUrl: string, returnUrl: string, state: string, challenge: string): string {
 	return `${serverUrl.replace(/\/+$/, "")}${BRIDGE_START_PATH}?return=${encodeURIComponent(returnUrl)}&state=${encodeURIComponent(state)}&code_challenge=${encodeURIComponent(challenge)}`;
 }

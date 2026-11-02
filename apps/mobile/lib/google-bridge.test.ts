@@ -7,6 +7,7 @@ import {
 	newCodeVerifier,
 	bridgeStartUrl,
 	createGoogleBridge,
+	expoGoReturnUrl,
 	newBridgeState,
 	readBridgeLink,
 	type BridgeDeps,
@@ -32,6 +33,15 @@ describe("helpers puros", () => {
 		expect(appReturnUrl((p) => `exp://u.expo.dev/abc/--${p}`)).toBe("exp://u.expo.dev/abc/--/");
 		expect(appReturnUrl(() => "atlas:///")).toBe("atlas:///");
 		expect(() => appReturnUrl((p) => `https://agent.exemplo.com${p}`)).toThrow();
+	});
+	it("expoGoReturnUrl usa o link do Expo Go só dentro do Expo Go", () => {
+		expect(expoGoReturnUrl("storeClient", "exp://u.expo.dev/abc/group/g1/--/")).toBe("exp://u.expo.dev/abc/group/g1/--/");
+		expect(expoGoReturnUrl("storeClient", "exp://u.expo.dev/abc/group/g1")).toBe("exp://u.expo.dev/abc/group/g1/--/");
+		expect(expoGoReturnUrl("storeClient", "exp://u.expo.dev/abc/--/x?channel-name=preview")).toBe("exp://u.expo.dev/abc/--/?channel-name=preview");
+		expect(expoGoReturnUrl("storeClient", "exp://u.expo.dev/abc?channel-name=preview")).toBe("exp://u.expo.dev/abc/--/?channel-name=preview");
+		expect(expoGoReturnUrl("standalone", "exp://u.expo.dev/abc/--/")).toBeNull();
+		expect(expoGoReturnUrl("storeClient", "atlas:///")).toBeNull();
+		expect(expoGoReturnUrl("storeClient", undefined)).toBeNull();
 	});
 	it("bridgeStartUrl codifica o retorno e não duplica a barra", () => {
 		const url = bridgeStartUrl("https://agent.exemplo.com/", RETURN, STATE, CHALLENGE);
