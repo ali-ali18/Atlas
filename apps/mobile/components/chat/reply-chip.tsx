@@ -7,8 +7,8 @@ import type { ReplyQuote } from "@/lib/chat-types";
 /** Citação em andamento, dentro do container do campo de digitar (acima do input): o trecho em 1 linha e um X para cancelar. */
 export function ReplyChip({ quote, onCancel }: { quote: ReplyQuote; onCancel: () => void }) {
 	return (
-		<View className="px-2 pt-2">
-			<View className="flex-row items-center gap-2 rounded-full border border-border py-1 pl-3 pr-1">
+		<View className="px-3 pb-1 pt-3">
+			<View className="flex-row items-center gap-2 rounded-full border border-border py-1.5 pl-3.5 pr-1.5">
 				<ReplyIcon size={14} tone="muted-foreground" />
 				<Text numberOfLines={1} ellipsizeMode="tail" variant="caption" className="flex-1">
 					{quote.text}

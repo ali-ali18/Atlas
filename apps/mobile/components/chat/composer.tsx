@@ -73,7 +73,7 @@ export function Composer({ botName, color, foreground, running, onSend, onStop, 
 	};
 	return (
 		<View className="mx-4 mb-2 gap-2">
-			<View className="overflow-hidden border border-border bg-input" style={{ borderRadius: stacked ? STACKED_RADIUS : PILL_RADIUS }}>
+			<View className="overflow-hidden border border-border bg-input" style={{ borderRadius: stacked || replyTo ? STACKED_RADIUS : PILL_RADIUS }}>
 				{replyTo && onCancelReply ? <ReplyChip quote={replyTo} onCancel={onCancelReply} /> : null}
 				{/*
 				  Um só TextInput nos dois formatos (assim o foco e o teclado não se perdem na troca). Os botões ficam sempre
