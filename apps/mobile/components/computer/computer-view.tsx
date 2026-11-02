@@ -3,11 +3,12 @@ import * as React from "react";
 import { Image, KeyboardAvoidingView, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RoundButton, TOP_BAR_CONTROL, TOP_BAR_SIDE } from "@/components/chat/chat-top-bar";
-import { ChevronLeftIcon, ClipboardPasteIcon, CloseIcon, HelpIcon, KeyboardIcon, MonitorIcon } from "@/components/icons";
+import { ChevronLeftIcon, ClipboardPasteIcon, DotsIcon, HelpIcon, KeyboardIcon, MonitorIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
+import { ComputerMenu } from "@/components/computer/computer-menu";
 import { Zoomable } from "@/components/computer/zoomable";
 import type { MobileAvatarState } from "@/lib/avatar-activity";
 import type { HomeBot } from "@/lib/home-types";
@@ -30,12 +31,14 @@ export type ComputerViewProps = {
 	children?: React.ReactNode;
 	/** Proporção do quadro remoto (largura / altura). Padrão 16:9. */
 	aspectRatio?: number;
-	/** O usuário está no controle (o botão vira "Soltar o controle" e aparece a barra de ações). */
+	/** O usuário está no controle: o topo ganha o "…" (Modo trackpad) e o rodapé troca a pílula pelos botões redondos Colar e Teclado. Soltar = sair da tela. */
 	controlling?: boolean;
+	/** "Modo trackpad" ligado (marca no menu). */
+	trackpad?: boolean;
 	onBack: () => void;
 	onHelp?: () => void;
 	onTakeControl?: () => void;
-	onRelease?: () => void;
+	onToggleTrackpad?: () => void;
 	onPaste?: () => void;
 	onKeyboard?: () => void;
 	onRetry?: () => void;
@@ -47,17 +50,12 @@ export type ComputerViewProps = {
 	controlExtra?: React.ReactNode;
 };
 
-/** Botão redondo da barra de ações (Colar, Teclado, Soltar), com o rótulo embaixo. */
-function ActionButton({ label, hint, onPress, children }: { label: string; hint?: string; onPress?: () => void; children: React.ReactNode }) {
+/** Botão redondo do canto de baixo no controle (Colar à esquerda, Teclado à direita), sem rótulo na tela. */
+function RoundAction({ label, onPress, children }: { label: string; onPress?: () => void; children: React.ReactNode }) {
 	return (
-		<View className="items-center gap-1.5">
-			<Pressable role="button" accessibilityLabel={hint ?? label} onPress={onPress} style={{ width: 52, height: 52, backgroundColor: PILL_FILL, borderColor: PILL_EDGE }} className="items-center justify-center rounded-full border active:opacity-70">
-				{children}
-			</Pressable>
-			<Text className="text-caption" style={{ color: "#d4d4d8" }}>
-				{label}
-			</Text>
-		</View>
+		<Pressable role="button" accessibilityLabel={label} onPress={onPress} style={{ width: 48, height: 48, backgroundColor: PILL_FILL, borderColor: PILL_EDGE }} className="items-center justify-center rounded-full border active:opacity-70">
+			{children}
+		</Pressable>
 	);
 }
 
@@ -99,12 +97,18 @@ function Placeholder({ status, onRetry, onStart, errorText }: { status: Exclude<
 
 /**
  * Tela do Computador do bot (padrão do Grok, sempre escura): topo com voltar, avatar e nome do bot e "?"; a imagem do
- * desktop remoto no meio, com zoom por pinça; "Assumir o controle" embaixo à direita. No controle, o botão vira "Soltar
- * o controle" e aparece a barra Colar · Teclado · Soltar. Só apresentação: quem usa liga os callbacks (sem lógica de VM).
+ * desktop remoto no meio, com zoom por pinça; "Assumir o controle" embaixo à direita (só em "somente ver"). No controle
+ * o topo ganha o "…" (menu com "Modo trackpad") e o rodapé mostra só dois botões redondos: Colar (esquerda) e Teclado
+ * (direita). Soltar o controle é sair da tela. Só apresentação: quem usa liga os callbacks (sem lógica de VM).
  */
-export function ComputerView({ bot, avatarState = "idle", status, source, children, aspectRatio = 16 / 9, controlling = false, onBack, onHelp, onTakeControl, onRelease, onPaste, onKeyboard, onRetry, onStart, errorText, controlExtra }: ComputerViewProps) {
+export function ComputerView({ bot, avatarState = "idle", status, source, children, aspectRatio = 16 / 9, controlling = false, trackpad = false, onBack, onHelp, onTakeControl, onToggleTrackpad, onPaste, onKeyboard, onRetry, onStart, errorText, controlExtra }: ComputerViewProps) {
 	const insets = useSafeAreaInsets();
 	const ready = status === "ready";
+	const [menuOpen, setMenuOpen] = React.useState(false);
+	// Saiu do controle: o menu não fica aberto.
+	React.useEffect(() => {
+		if (!controlling) setMenuOpen(false);
+	}, [controlling]);
 	return (
 		<KeyboardAvoidingView behavior="padding" className="flex-1" style={{ backgroundColor: SCREEN }}>
 			<View style={{ paddingTop: insets.top + 6, paddingHorizontal: SIDE, height: insets.top + 6 + TOP_BAR_CONTROL }} className="flex-row items-center gap-3">
@@ -121,7 +125,13 @@ export function ComputerView({ bot, avatarState = "idle", status, source, childr
 				<RoundButton label="Ajuda" onPress={onHelp ?? (() => undefined)}>
 					<HelpIcon />
 				</RoundButton>
+				{ready && controlling ? (
+					<RoundButton label="Mais opções" onPress={() => setMenuOpen(true)}>
+						<DotsIcon />
+					</RoundButton>
+				) : null}
 			</View>
+			<ComputerMenu open={menuOpen} trackpad={trackpad} onClose={() => setMenuOpen(false)} onToggleTrackpad={onToggleTrackpad ?? (() => undefined)} />
 
 			{ready ? (
 				<Zoomable aspectRatio={aspectRatio} gestures={!controlling}>
@@ -132,34 +142,26 @@ export function ComputerView({ bot, avatarState = "idle", status, source, childr
 			)}
 
 			{ready ? (
-				<View style={{ paddingBottom: insets.bottom + 16, paddingHorizontal: SIDE }} className="gap-5">
-					<View className="items-end">
-						<Pressable
-							role="button"
-							accessibilityLabel={controlling ? "Soltar o controle" : "Assumir o controle"}
-							onPress={controlling ? onRelease : onTakeControl}
-							style={{ height: 46, backgroundColor: PILL_FILL, borderColor: PILL_EDGE }}
-							className="items-center justify-center rounded-full border px-5 active:opacity-70"
-						>
-							<Text className="text-control font-medium" style={{ color: "#ffffff" }}>
-								{controlling ? "Soltar o controle" : "Assumir o controle"}
-							</Text>
-						</Pressable>
-					</View>
+				<View style={{ paddingBottom: insets.bottom + 16, paddingHorizontal: SIDE }} className="gap-3">
 					{controlling && controlExtra ? controlExtra : null}
 					{controlling ? (
-						<View className="flex-row items-start justify-center gap-8">
-							<ActionButton label="Colar" hint="Colar texto na VM" onPress={onPaste}>
+						<View className="flex-row items-center justify-between">
+							<RoundAction label="Colar texto na VM" onPress={onPaste}>
 								<ClipboardPasteIcon />
-							</ActionButton>
-							<ActionButton label="Teclado" hint="Abrir o teclado" onPress={onKeyboard}>
+							</RoundAction>
+							<RoundAction label="Abrir o teclado" onPress={onKeyboard}>
 								<KeyboardIcon />
-							</ActionButton>
-							<ActionButton label="Soltar" onPress={onRelease}>
-								<CloseIcon size={22} tone="foreground" />
-							</ActionButton>
+							</RoundAction>
 						</View>
-					) : null}
+					) : (
+						<View className="items-end">
+							<Pressable role="button" accessibilityLabel="Assumir o controle" onPress={onTakeControl} style={{ height: 46, backgroundColor: PILL_FILL, borderColor: PILL_EDGE }} className="items-center justify-center rounded-full border px-5 active:opacity-70">
+								<Text className="text-control font-medium" style={{ color: "#ffffff" }}>
+									Assumir o controle
+								</Text>
+							</Pressable>
+						</View>
+					)}
 				</View>
 			) : (
 				<View style={{ height: insets.bottom + 16 }} />

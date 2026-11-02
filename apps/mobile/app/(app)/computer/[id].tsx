@@ -28,23 +28,30 @@ export default function ComputerScreen() {
 	const computer = useComputer({ apiFetch, serverUrl, conversationId: bot?.conversationId ?? null });
 	const [controlling, setControlling] = React.useState(false);
 	const [keyboardOpen, setKeyboardOpen] = React.useState(false);
+	// "Modo trackpad": só o estado e a marca no menu por enquanto (ver docs); o toque ainda vai direto no ponto tocado.
+	const [trackpad, setTrackpad] = React.useState(false);
 	const [helpOpen, setHelpOpen] = React.useState(false);
 	const [busy, setBusy] = React.useState(false);
 	const [notice, setNotice] = React.useState<string | null>(null);
 	const noticeTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	React.useEffect(() => () => clearTimeout(noticeTimer.current), []);
-	const goBack = () => (router.canGoBack() ? router.back() : router.replace("/"));
+	// Soltar o controle = sair da tela (voltar, gesto ou botão). Não pausa o bot.
+	const goBack = () => {
+		release();
+		if (router.canGoBack()) router.back();
+		else router.replace("/");
+	};
 
 	const showNotice = (text: string) => {
 		setNotice(text);
 		clearTimeout(noticeTimer.current);
 		noticeTimer.current = setTimeout(() => setNotice(null), NOTICE_MS);
 	};
-	const release = () => {
+	function release() {
 		setControlling(false);
 		setKeyboardOpen(false);
 		setNotice(null);
-	};
+	}
 	// Envia e devolve se deu certo (a barra só limpa o campo no sucesso).
 	const send = async (run: () => Promise<void>): Promise<boolean> => {
 		if (busy) return false;
@@ -105,7 +112,8 @@ export default function ComputerScreen() {
 				onBack={goBack}
 				onHelp={() => setHelpOpen(true)}
 				onTakeControl={() => setControlling(true)}
-				onRelease={release}
+				trackpad={trackpad}
+				onToggleTrackpad={() => setTrackpad((on) => !on)}
 				onPaste={() => void paste()}
 				onKeyboard={() => setKeyboardOpen((open) => !open)}
 				onRetry={computer.retry}

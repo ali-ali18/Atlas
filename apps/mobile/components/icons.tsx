@@ -23,6 +23,8 @@ import {
 	ListChecks as LucideListChecks,
 	Mic as LucideMic,
 	Monitor as LucideMonitor,
+	MousePointer2 as LucideMousePointer2,
+	Check as LucideCheck,
 	Pencil as LucidePencil,
 	Pin as LucidePin,
 	PinOff as LucidePinOff,
@@ -117,6 +119,16 @@ export function ChevronLeftIcon({ size = 22, tone = "foreground" }: LineIconProp
 /** Lucide `Ellipsis`. */
 export function DotsIcon({ size = 22, tone = "foreground" }: LineIconProps) {
 	return <LucideEllipsis size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `MousePointer2` (seta de cursor). Cor fixa: o menu do Computador é sempre escuro. */
+export function CursorIcon({ size = 22, color = "#a1a1aa" }: IconProps & { color?: string }) {
+	return <LucideMousePointer2 size={size} color={color} strokeWidth={2} />;
+}
+
+/** Lucide `Check`. Cor fixa, como `CursorIcon`. */
+export function CheckIcon({ size = 20, color = "#ffffff" }: IconProps & { color?: string }) {
+	return <LucideCheck size={size} color={color} strokeWidth={2} />;
 }
 
 /** Lucide `Mic`. */
