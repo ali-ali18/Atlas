@@ -14,9 +14,10 @@ import { useAppColorScheme } from "@/lib/use-theme";
 export function RoutineCard({ routine, accent, busy = false, onOpen, onToggle }: { routine: RoutineRecord; accent: string; busy?: boolean; onOpen: (routine: RoutineRecord) => void; onToggle: (routine: RoutineRecord, enabled: boolean) => void }) {
 	const surface = routineSurface(useAppColorScheme());
 	const summary = routineSummary(routine);
+	// O interruptor fica FORA do botão do cartão: dentro dele o VoiceOver do iOS esconde os filhos e o interruptor some.
 	return (
-		<Pressable role="button" accessibilityLabel={`${routine.name}. ${summary}`} onPress={() => onOpen(routine)} className="flex-row items-center gap-3 px-5 py-4 active:opacity-80" style={{ borderWidth: 1, borderColor: surface.edge, backgroundColor: surface.card, borderRadius: 21 }}>
-			<View className="min-w-0 flex-1 gap-0.5">
+		<View className="flex-row items-center gap-3 px-5 py-4" style={{ borderWidth: 1, borderColor: surface.edge, backgroundColor: surface.card, borderRadius: 21 }}>
+			<Pressable role="button" accessibilityLabel={`${routine.name}. ${summary}`} onPress={() => onOpen(routine)} className="min-w-0 flex-1 gap-0.5 active:opacity-80">
 				<Text numberOfLines={2} className={`text-base ${routine.enabled ? "" : "text-muted-foreground"}`}>
 					{routine.name}
 				</Text>
@@ -28,8 +29,8 @@ export function RoutineCard({ routine, accent, busy = false, onOpen, onToggle }:
 						Criada pelo bot
 					</Text>
 				) : null}
-			</View>
-			<ToggleSwitch accessibilityLabel={`${routine.enabled ? "Pausar" : "Retomar"} ${routine.name}, ${summary}`} value={routine.enabled} disabled={busy} onValueChange={(value) => onToggle(routine, value)} color={accent} offColor={surface.off} />
-		</Pressable>
+			</Pressable>
+			<ToggleSwitch accessibilityLabel={`Ativa: ${routine.name}`} value={routine.enabled} disabled={busy} onValueChange={(value) => onToggle(routine, value)} color={accent} offColor={surface.off} />
+		</View>
 	);
 }

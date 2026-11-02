@@ -15,6 +15,8 @@ export type RoutineDetailViewProps = {
 	/** Cor do bot (interruptor ligado). */
 	accent: string;
 	busy?: boolean;
+	/** Frase de erro já amigável (ex.: "Não foi possível pausar esta rotina."), ou null. */
+	error?: string | null;
 	onBack: () => void;
 	onToggle: (enabled: boolean) => void;
 	onOpenHistory: () => void;
@@ -26,7 +28,7 @@ export type RoutineDetailViewProps = {
  * Detalhes de uma rotina, como no Grok: Ativa (interruptor), Instrução, Agendamento (a frase do gatilho), Histórico de
  * execuções e Editar rotina. "Próxima execução" não aparece: o servidor ainda não calcula esse dado.
  */
-export function RoutineDetailView({ routine, accent, busy = false, onBack, onToggle, onOpenHistory, onEdit }: RoutineDetailViewProps) {
+export function RoutineDetailView({ routine, accent, busy = false, error = null, onBack, onToggle, onOpenHistory, onEdit }: RoutineDetailViewProps) {
 	const surface = routineSurface(useAppColorScheme());
 	const card = { borderWidth: 1, borderColor: surface.edge, backgroundColor: surface.card, borderRadius: 21 } as const;
 	return (
@@ -40,9 +42,14 @@ export function RoutineDetailView({ routine, accent, busy = false, onBack, onTog
 				</Text>
 			</View>
 			<ScrollView contentContainerClassName="gap-3 px-4 pb-10 pt-4">
+				{error ? (
+					<Text role="alert" className="px-2 text-body text-destructive">
+						{error}
+					</Text>
+				) : null}
 				<View className="flex-row items-center justify-between px-5 py-4" style={card}>
 					<Text className="text-lg">Ativa</Text>
-					<ToggleSwitch accessibilityLabel={routine.enabled ? "Pausar rotina" : "Retomar rotina"} value={routine.enabled} disabled={busy} onValueChange={onToggle} color={accent} offColor={surface.off} />
+					<ToggleSwitch accessibilityLabel="Ativa" value={routine.enabled} disabled={busy} onValueChange={onToggle} color={accent} offColor={surface.off} />
 				</View>
 				<Text variant="muted" className="mt-2 px-2 text-base">
 					Instrução

@@ -26,7 +26,7 @@ export function cronSentence(cron: string): string {
 	}
 }
 
-/** Resumo de quando a rotina roda ("Uma vez · 03/10 às 10:00", "A cada 50 min", "Webhook", "GitHub · org/repo"). */
+/** Resumo de quando a rotina roda ("Uma vez · 03/10 às 10:00", "A cada 50 min", "Por evento", "GitHub · org/repo"). */
 export function routineSummary(routine: RoutineRecord): string {
 	if (routine.triggerType === "once" && routine.once) return formatOnceSummary(routine.once.runAt, routine.timezone || undefined);
 	if (routine.triggerType === "interval" && routine.interval) return formatIntervalSummary(routine.interval.everyMinutes);
@@ -36,7 +36,7 @@ export function routineSummary(routine: RoutineRecord): string {
 			return repo ? `GitHub · ${repo}` : "GitHub";
 		}
 		if (routine.email) return "Quando chega e-mail";
-		return "Webhook";
+		return "Por evento";
 	}
 	if (routine.triggerType === "cron" && routine.schedule) return capitalize(cronSentence(routine.schedule));
 	return "Sem gatilho";

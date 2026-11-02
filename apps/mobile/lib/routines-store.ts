@@ -13,6 +13,10 @@ const EMPTY: RoutinesState = { routines: [], groups: [], loading: false, loaded:
 export class RoutinesStore {
 	private state = new Map<string, RoutinesState>();
 	private listeners = new Set<() => void>();
+	/** Contador por bot: só a resposta do `load` mais novo vale (a mais lenta não sobrescreve nem apaga o spinner do outro). */
+	private generation = new Map<string, number>();
+	/** Muda no `reset` (troca de conta/servidor): respostas de antes dele são ignoradas. */
+	private epoch = 0;
 
 	get = (botId: string): RoutinesState => this.state.get(botId) ?? EMPTY;
 	subscribe = (listener: () => void): (() => void) => {
@@ -25,11 +29,20 @@ export class RoutinesStore {
 	}
 
 	async load(apiFetch: ApiFetch, botId: string): Promise<void> {
+		const mine = (this.generation.get(botId) ?? 0) + 1;
+		this.generation.set(botId, mine);
+		const epoch = this.epoch;
+		const stale = () => epoch !== this.epoch || this.generation.get(botId) !== mine;
 		this.set(botId, { loading: true, error: null });
 		try {
 			const { routines, groups } = await listRoutines(apiFetch, botId);
-			this.set(botId, { routines, groups, loading: false, loaded: true });
+			if (stale()) return;
+			// Pausar/retomar em voo: o que a pessoa acabou de tocar vale mais que a resposta, que pode ser anterior ao PATCH.
+			const current = this.get(botId);
+			const merged = routines.map((routine) => (current.busy.has(routine.id) ? (current.routines.find((item) => item.id === routine.id) ?? routine) : routine));
+			this.set(botId, { routines: merged, groups, loading: false, loaded: true });
 		} catch (error) {
+			if (stale()) return;
 			this.set(botId, { loading: false, error: routinesErrorText(error, "load") });
 		}
 	}
@@ -39,16 +52,19 @@ export class RoutinesStore {
 		if (current.busy.has(routineId)) return;
 		const before = current.routines.find((routine) => routine.id === routineId);
 		if (!before) return;
+		const epoch = this.epoch;
 		const apply = (value: boolean) => this.get(botId).routines.map((routine) => (routine.id === routineId ? { ...routine, enabled: value } : routine));
 		this.set(botId, { routines: apply(enabled), busy: new Set(current.busy).add(routineId), error: null });
 		try {
 			await setRoutineEnabled(apiFetch, botId, routineId, enabled);
 		} catch (error) {
-			this.set(botId, { routines: apply(before.enabled), error: routinesErrorText(error, enabled ? "resume" : "pause") });
+			if (epoch === this.epoch) this.set(botId, { routines: apply(before.enabled), error: routinesErrorText(error, enabled ? "resume" : "pause") });
 		} finally {
-			const busy = new Set(this.get(botId).busy);
-			busy.delete(routineId);
-			this.set(botId, { busy });
+			if (epoch === this.epoch) {
+				const busy = new Set(this.get(botId).busy);
+				busy.delete(routineId);
+				this.set(botId, { busy });
+			}
 		}
 	}
 
@@ -58,6 +74,8 @@ export class RoutinesStore {
 
 	/** Troca de conta/servidor: nada do dono anterior fica. */
 	reset(): void {
+		this.epoch += 1;
+		this.generation.clear();
 		this.state.clear();
 		for (const listener of this.listeners) listener();
 	}
@@ -71,6 +89,8 @@ export function useRoutines(apiFetch: ApiFetch, botId: string): RoutinesState & 
 	React.useEffect(() => {
 		void routinesStore.load(apiFetch, botId);
 	}, [apiFetch, botId]);
+	// Sair da tela leva o aviso junto: o erro de pausar não reaparece "fora de contexto" na tela anterior.
+	React.useEffect(() => () => routinesStore.clearError(botId), [botId]);
 	return {
 		...state,
 		reload: () => void routinesStore.load(apiFetch, botId),

@@ -3,7 +3,8 @@ import { describeRoutineFailure, type RoutineRunRecord } from "@workspace/shared
 // Linhas do histórico de execuções da rotina, iguais às do web (`routineRunLabel`): "cron · concluída",
 // "manual · falhou · sem créditos no provedor do modelo". Lógica pura, só pt-BR.
 
-const VIA: Record<RoutineRunRecord["triggeredBy"], string> = { event: "webhook", manual: "manual", schedule: "cron" };
+// Origem em palavras do usuário (o web mostra "cron" e "webhook"; aqui nada de termo técnico).
+const VIA: Record<RoutineRunRecord["triggeredBy"], string> = { event: "por evento", manual: "manual", schedule: "agendada" };
 const STATUS: Record<RoutineRunRecord["status"], string> = { queued: "na fila", running: "executando", succeeded: "concluída", skipped: "pulada", failed: "falhou" };
 
 /** Motivo curto de uma falha ("sem créditos no provedor do modelo"), sem segredo; frase do próprio sistema vale como está. */
@@ -13,8 +14,8 @@ export function failureReason(error: string | null | undefined): string {
 }
 
 export function routineRunLabel(run: Pick<RoutineRunRecord, "status" | "error" | "triggeredBy">): string {
-	const base = `${VIA[run.triggeredBy] ?? "cron"} · ${STATUS[run.status] ?? STATUS.failed}`;
-	if (run.status === "skipped" && run.error) return `${base} · ${run.error}`;
+	const base = `${VIA[run.triggeredBy] ?? "agendada"} · ${STATUS[run.status] ?? STATUS.failed}`;
+	if (run.status === "skipped" && run.error) return `${base} · ${describeRoutineFailure(run.error).headline}`;
 	if (run.status === "failed" && run.error) return `${base} · ${failureReason(run.error)}`;
 	return base;
 }

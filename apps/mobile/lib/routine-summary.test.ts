@@ -19,7 +19,7 @@ describe("frase do gatilho", () => {
 		expect(routineSummary(routine({ triggerType: "interval", interval: { everyMinutes: 50 } }))).toBe("A cada 50 min");
 	});
 	it("eventos e sem gatilho", () => {
-		expect(routineSummary(routine({ triggerType: "event" }))).toBe("Webhook");
+		expect(routineSummary(routine({ triggerType: "event" }))).toBe("Por evento");
 		expect(routineSummary(routine({ triggerType: "event", github: { repo: "org/repo" } }))).toBe("GitHub · org/repo");
 		expect(routineSummary(routine({ triggerType: "cron", schedule: "" }))).toBe("Sem gatilho");
 	});

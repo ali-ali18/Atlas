@@ -31,7 +31,7 @@ describe("api de rotinas", () => {
 		expect(routinesErrorText(new ChatApiError("x", 404), "pause")).toContain("Não encontrei");
 		expect(routinesErrorText(new ChatApiError("x", 500), "pause")).toBe("Não foi possível pausar esta rotina.");
 		expect(routinesErrorText(new ChatApiError("x", 500), "resume")).toBe("Não foi possível retomar esta rotina.");
-		expect(routinesErrorText(new TypeError("Network request failed"), "load")).toBe("Não consegui carregar as rotinas agora.");
+		expect(routinesErrorText(new TypeError("Network request failed"), "load")).toBe("Sem conexão com o seu servidor. Tente de novo.");
 	});
 });
 
@@ -80,6 +80,64 @@ describe("estado das rotinas", () => {
 	it("reset apaga tudo (troca de conta)", async () => {
 		const { store } = await loaded(true);
 		store.reset();
+		expect(store.get("bot").routines).toEqual([]);
+	});
+});
+
+describe("estado: corridas", () => {
+	const gate = () => {
+		let open!: () => void;
+		const wait = new Promise<void>((resolve) => {
+			open = resolve;
+		});
+		return { wait, open };
+	};
+	it("a resposta do load antigo não sobrescreve o load novo", async () => {
+		const store = new RoutinesStore();
+		const slow = gate();
+		let calls = 0;
+		const apiFetch = async (path: string) => {
+			const mine = ++calls;
+			if (path.endsWith("/routines") && mine === 1) await slow.wait;
+			return path.endsWith("/routines") ? ok({ routines: [routine(mine === 1 ? "velha" : "nova")] }) : ok({ groups: [] });
+		};
+		const first = store.load(apiFetch, "bot");
+		const second = store.load(apiFetch, "bot");
+		await second;
+		slow.open();
+		await first;
+		expect(store.get("bot").routines.map((item) => item.id)).toEqual(["nova"]);
+		expect(store.get("bot").loading).toBe(false);
+	});
+	it("load que chega no meio de um pausar não desfaz o que a pessoa tocou", async () => {
+		const store = new RoutinesStore();
+		const patch = gate();
+		const apiFetch = async (path: string, init?: RequestInit) => {
+			if (init?.method === "PATCH") {
+				await patch.wait;
+				return new Response("", { status: 200 });
+			}
+			return path.endsWith("/routines") ? ok({ routines: [routine("a", true)] }) : ok({ groups: [] });
+		};
+		await store.load(apiFetch, "bot");
+		const toggling = store.toggle(apiFetch, "bot", "a", false);
+		await store.load(apiFetch, "bot");
+		expect(store.get("bot").routines[0]?.enabled).toBe(false);
+		patch.open();
+		await toggling;
+		expect(store.get("bot").routines[0]?.enabled).toBe(false);
+	});
+	it("resposta de antes da troca de conta é ignorada", async () => {
+		const store = new RoutinesStore();
+		const slow = gate();
+		const apiFetch = async (path: string) => {
+			await slow.wait;
+			return path.endsWith("/routines") ? ok({ routines: [routine("do-outro-dono")] }) : ok({ groups: [] });
+		};
+		const pending = store.load(apiFetch, "bot");
+		store.reset();
+		slow.open();
+		await pending;
 		expect(store.get("bot").routines).toEqual([]);
 	});
 });

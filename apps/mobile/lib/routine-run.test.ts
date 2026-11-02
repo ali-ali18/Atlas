@@ -3,16 +3,16 @@ import { formatRunTime, routineRunLabel } from "./routine-run";
 
 describe("linha do histórico", () => {
 	it("origem e estado", () => {
-		expect(routineRunLabel({ triggeredBy: "schedule", status: "succeeded", error: null })).toBe("cron · concluída");
+		expect(routineRunLabel({ triggeredBy: "schedule", status: "succeeded", error: null })).toBe("agendada · concluída");
 		expect(routineRunLabel({ triggeredBy: "manual", status: "running", error: null })).toBe("manual · executando");
-		expect(routineRunLabel({ triggeredBy: "event", status: "queued", error: null })).toBe("webhook · na fila");
+		expect(routineRunLabel({ triggeredBy: "event", status: "queued", error: null })).toBe("por evento · na fila");
 	});
 	it("pulada mostra o motivo guardado; falha traduz o erro técnico e não vaza o texto cru", () => {
-		expect(routineRunLabel({ triggeredBy: "schedule", status: "skipped", error: "Rotina pausada" })).toBe("cron · pulada · Rotina pausada");
+		expect(routineRunLabel({ triggeredBy: "schedule", status: "skipped", error: "Rotina pausada" })).toBe("agendada · pulada · Rotina pausada");
 		const failed = routineRunLabel({ triggeredBy: "schedule", status: "failed", error: "This request requires more credits, or fewer max_tokens" });
-		expect(failed.startsWith("cron · falhou · ")).toBe(true);
+		expect(failed.startsWith("agendada · falhou · ")).toBe(true);
 		expect(failed).not.toContain("max_tokens");
-		expect(routineRunLabel({ triggeredBy: "schedule", status: "failed", error: null })).toBe("cron · falhou");
+		expect(routineRunLabel({ triggeredBy: "schedule", status: "failed", error: null })).toBe("agendada · falhou");
 	});
 });
 

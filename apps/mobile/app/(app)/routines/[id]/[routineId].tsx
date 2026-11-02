@@ -24,6 +24,7 @@ export default function RoutineDetailScreen() {
 			routine={routine}
 			accent={accent}
 			busy={state.busy.has(routine.id)}
+			error={state.error}
 			onBack={goBack}
 			onToggle={(enabled) => state.toggle(routine.id, enabled)}
 			onOpenHistory={() => router.push(`/routines/${encodeURIComponent(id)}/history/${encodeURIComponent(routine.id)}` as never)}

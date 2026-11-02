@@ -18,6 +18,7 @@ export default function RoutineHistoryScreen() {
 	const [error, setError] = React.useState<string | null>(null);
 	React.useEffect(() => {
 		let cancelled = false;
+		setRuns([]);
 		setLoading(true);
 		setError(null);
 		listRoutineRuns(apiFetch, id, routineId)

@@ -39,7 +39,8 @@ export function routinesErrorText(error: unknown, action: "load" | "pause" | "re
 		if (error.status === 401) return "Sua sessão expirou. Entre de novo.";
 		if (error.status === 404) return "Não encontrei esta rotina. Ela pode ter sido apagada.";
 	}
-	if (error instanceof ChatApiError || (error instanceof Error && /network|fetch|conex/i.test(error.message)) || error instanceof TypeError) {
+	// Falha de rede no RN chega como TypeError: é "sem conexão", não erro do servidor.
+	if (error instanceof ChatApiError) {
 		return action === "load" ? "Não consegui carregar as rotinas agora." : action === "history" ? "Não foi possível carregar o histórico." : action === "pause" ? "Não foi possível pausar esta rotina." : "Não foi possível retomar esta rotina.";
 	}
 	return "Sem conexão com o seu servidor. Tente de novo.";
