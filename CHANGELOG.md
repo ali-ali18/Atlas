@@ -7,6 +7,12 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 ### Corrigido
 - **agent:** o bot desistia de pesquisas pela metade ("o limite desta tarefa está quase no fim", "só li os trechos", pedia "mande vai"). Causas: (1) uma mensagem nova do usuário durante o run entrava no mesmo run e herdava o relógio de 8 min do chat, então passando de 80% o supervisor mandava "entregue agora"; agora ela **renova o tempo** (custo, passos e o teto duro da conta continuam valendo) e o estado vai no checkpoint; (2) o `looksLikeLongTask` (regex) não reconhecia "pesquise em diversas páginas": reconhece pesquisa em várias fontes, sem falso positivo em relato no passado ("já pesquisei em várias páginas"), com 73 pedidos rotulados que medem acertos e falsos positivos; (3) o chat agora também **promove para trabalho longo quando o modelo monta uma lista de 3+ passos**; (4) página que dá 403/bloqueio no chat passa a receber a orientação de plano B (outra fonte, raw URL, cópia arquivada) antes de desistir.
 - **mobile:** o login com Google no Expo Go parava na página "Pronto! Voltando para o app…" e o botão não fazia nada, porque o app pedia para voltar por `atlas:///`, que o Expo Go não abre. Agora, na hora do toque, o app pergunta ao sistema se alguém abre `atlas://`; se não (Expo Go), volta pelo link da própria atualização (`exp://u.expo.dev/update/<id>`). No app instalado nada muda. Ver `docs/features/app-mobile.md`.
+- **mobile:** composer com os botões centrados na pílula (no Android desciam) e afastados do canto quando o texto quebra em várias linhas.
+- **mobile:** listas nas respostas do bot apareciam no Android como um balão alto e vazio só com "1."; o texto do item volta a aparecer.
+- **mobile:** ícones vêm do `lucide-react-native`, o mesmo Lucide do web (desenho e traço iguais), em vez de cópias à mão. Dependência nova no mobile: `lucide-react-native` (ISC).
+
+### Adicionado
+- **mobile:** mensagens que chegam com o chat aberto entram com um fade curto, como no web; o histórico e as mensagens antigas carregadas ao rolar aparecem direto. Respeita "reduzir movimento".
 
 ## [0.4.1-beta] - 2026-11-02
 

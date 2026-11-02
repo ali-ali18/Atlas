@@ -9,7 +9,12 @@ import { useAppColorScheme } from "@/lib/use-theme";
 const LINE_HEIGHT = 21;
 const MIN_HEIGHT = 44;
 const BUTTON = 32;
+/** Respiro dos botões na pílula (6 = a pílula de 44 fica com os botões de 32 centrados). */
 const INSET = 6;
+/** No retângulo (texto em várias linhas) os botões descolam da borda e do canto arredondado. */
+const STACKED_INSET = 10;
+const PILL_RADIUS = 28;
+const STACKED_RADIUS = 24;
 
 type ComposerProps = {
 	botName: string;
@@ -57,14 +62,14 @@ export function Composer({ botName, color, foreground, running, onSend, onStop, 
 	};
 	return (
 		<View className="mx-4 mb-2 gap-2">
-			<View className="overflow-hidden rounded-[28px] border border-border bg-input">
+			<View className="overflow-hidden border border-border bg-input" style={{ borderRadius: stacked ? STACKED_RADIUS : PILL_RADIUS }}>
 				{/*
 				  Um só TextInput nos dois formatos (assim o foco e o teclado não se perdem na troca). Os botões ficam sempre
 				  em posição absoluta na base: com uma linha o campo fica entre eles (pílula); quando o texto quebra, o campo
 				  ocupa a largura toda e reserva uma faixa embaixo para a linha de botões ("+" à esquerda, microfone e botão
 				  da cor do bot à direita), como nas referências do dono.
 				*/}
-				<View style={{ paddingBottom: stacked ? BUTTON + INSET * 2 : 0 }}>
+				<View style={{ paddingBottom: stacked ? BUTTON + STACKED_INSET * 2 : 0 }}>
 					<TextInput
 						accessibilityLabel={`Perguntar a ${botName}`}
 						placeholder={`Perguntar a ${botName}`}
@@ -94,15 +99,27 @@ export function Composer({ botName, color, foreground, running, onSend, onStop, 
 							lineHeight: LINE_HEIGHT,
 							paddingTop: (MIN_HEIGHT - LINE_HEIGHT) / 2,
 							paddingBottom: stacked ? 4 : (MIN_HEIGHT - LINE_HEIGHT) / 2,
-							paddingLeft: stacked ? 14 : INSET + BUTTON + 8,
-							paddingRight: stacked ? 14 : INSET + rightWidth + 8,
+							paddingLeft: stacked ? 16 : INSET + BUTTON + 8,
+							paddingRight: stacked ? 16 : INSET + rightWidth + 8,
 							minHeight: MIN_HEIGHT,
 							maxHeight: maxFieldHeight,
 							...(Platform.OS === "web" ? { height: Math.min(maxFieldHeight, Math.max(MIN_HEIGHT, webHeight)) } : {}),
 						}}
 						className="text-foreground outline-none"
 					/>
-					<View className="absolute bottom-1.5 left-1.5 right-1.5 flex-row items-center justify-between" pointerEvents="box-none">
+					{/*
+					  Pílula: a linha de botões ocupa a altura toda e centra na vertical (no Android o campo pode medir mais que
+					  44 e, presa só pela base, ela descia). Retângulo: fica na faixa de baixo, com respiro maior da borda.
+					*/}
+					<View
+						className="absolute flex-row items-center justify-between"
+						style={
+							stacked
+								? { left: STACKED_INSET, right: STACKED_INSET, bottom: STACKED_INSET, height: BUTTON }
+								: { left: INSET, right: INSET, top: 0, bottom: 0 }
+						}
+						pointerEvents="box-none"
+					>
 						<Pressable role="button" accessibilityLabel="Adicionar" onPress={() => onSoon("anexos")} className="size-8 items-center justify-center rounded-full bg-foreground/10 active:opacity-70">
 							<PlusIcon size={18} />
 						</Pressable>
@@ -117,7 +134,7 @@ export function Composer({ botName, color, foreground, running, onSend, onStop, 
 								style={{ backgroundColor: color }}
 								className="size-8 items-center justify-center rounded-full active:opacity-80"
 							>
-								{mode === "send" ? <ArrowUpIcon size={18} color={onColor} /> : mode === "stop" ? <StopIcon size={14} color={onColor} /> : <WaveformIcon size={18} color={onColor} />}
+								{mode === "send" ? <ArrowUpIcon size={18} color={onColor} /> : mode === "stop" ? <StopIcon size={16} color={onColor} /> : <WaveformIcon size={18} color={onColor} />}
 							</Pressable>
 						</View>
 					</View>
