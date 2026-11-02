@@ -1,5 +1,8 @@
 import * as React from "react";
+import { fetch as expoFetch } from "expo/fetch";
 import { createApiFetch } from "@/lib/api-fetch";
+import { createRunStreamOpener } from "@/lib/chat-open";
+import type { OpenStream } from "@/lib/chat-stream";
 import { createAtlasAuthClient, type AtlasAuthClient } from "@/lib/auth-client";
 import { canMarkSynced, phaseOf, type AccessPhase } from "@/lib/auth-flow";
 import { clearHomeCacheLogged } from "@/lib/home-storage";
@@ -29,6 +32,8 @@ export type AtlasSession = {
 	/** Encerra a sessão e esquece o servidor. */
 	changeServer: () => Promise<void>;
 	apiFetch: (path: string, init?: RequestInit) => Promise<Response>;
+	/** Abre o stream SSE de um run (`expo/fetch`, com XHR como plano B). */
+	openRunStream: (runId: string) => OpenStream;
 };
 
 const Context = React.createContext<AtlasSession | null>(null);
@@ -114,6 +119,14 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 		[client, serverUrl],
 	);
 
+	const openRunStream = React.useCallback(
+		(runId: string): OpenStream => {
+			if (!client || !serverUrl) return async () => Promise.reject(new Error("Nenhum servidor conectado."));
+			return createRunStreamOpener({ baseUrl: serverUrl, getCookie: () => client.getCookie(), streamFetch: expoFetch }, runId);
+		},
+		[client, serverUrl],
+	);
+
 	const phase = phaseOf({ loaded, serverUrl, sessionPending: pending, hasSession });
 	const phaseRef = React.useRef<AccessPhase>(phase);
 	phaseRef.current = phase;
@@ -149,8 +162,9 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 			signOut,
 			changeServer,
 			apiFetch,
+			openRunStream,
 		}),
-		[phase, synced, onSignOut, serverUrl, client, email, name, image, justSignedIn, markSynced, markSignedIn, consumeJustSignedIn, connectServer, signOut, changeServer, apiFetch],
+		[phase, synced, onSignOut, serverUrl, client, email, name, image, justSignedIn, markSynced, markSignedIn, consumeJustSignedIn, connectServer, signOut, changeServer, apiFetch, openRunStream],
 	);
 
 	return (
