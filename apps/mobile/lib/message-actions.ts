@@ -25,6 +25,13 @@ export function myReaction(reactions: readonly Reaction[] | undefined): string |
  * Reações depois de o usuário tocar em `emoji`: sem reação, adiciona; outra, troca; a mesma, remove. A do bot fica
  * como está. Sem nenhuma reação sobrando devolve `undefined` (o item não leva o campo).
  */
+/** Mesmas reações (ator + emoji, na mesma ordem)? `undefined` e lista vazia contam como iguais. */
+export function sameReactions(a: readonly Reaction[] | undefined, b: readonly Reaction[] | undefined): boolean {
+	const left = a ?? [];
+	const right = b ?? [];
+	return left.length === right.length && left.every((item, index) => item.actor === right[index]?.actor && item.emoji === right[index]?.emoji);
+}
+
 export function toggleUserReaction(reactions: readonly Reaction[] | undefined, emoji: string): Reaction[] | undefined {
 	const others = (reactions ?? []).filter((item) => item.actor !== "user");
 	const next = myReaction(reactions) === emoji ? others : [...others, { actor: "user" as const, emoji }];

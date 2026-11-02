@@ -425,6 +425,51 @@ describe("menu da mensagem: reações e não lida", () => {
 		expect(calls.reaction).toEqual([]);
 	});
 
+	it("toques rápidos na mesma fala saem em ordem para o servidor", async () => {
+		const gate = deferred<void>();
+		const calls: string[] = [];
+		const { controller } = setup({
+			api: {
+				setReaction: async (id, emoji) => {
+					calls.push(`PUT ${id} ${emoji}`);
+					if (calls.length === 1) await gate.promise; // o primeiro PUT demora
+				},
+				clearReaction: async (id) => void calls.push(`DELETE ${id}`),
+			},
+		});
+		await controller.open();
+		const first = controller.react("m2", "👍");
+		const second = controller.react("m2", "👍"); // mesma reação de novo: tira
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(calls).toEqual(["PUT m2 👍"]); // o DELETE espera o PUT terminar
+		gate.resolve();
+		await Promise.all([first, second]);
+		expect(calls).toEqual(["PUT m2 👍", "DELETE m2"]);
+		expect(reactionsOf(controller, "m2")).toBeUndefined();
+	});
+
+	it("a falha de um toque antigo não apaga a reação de um toque mais novo", async () => {
+		const gate = deferred<void>();
+		let puts = 0;
+		const { controller } = setup({
+			api: {
+				setReaction: async () => {
+					puts += 1;
+					if (puts === 1) {
+						await gate.promise;
+						throw new ChatApiError("fora do ar", 503);
+					}
+				},
+			},
+		});
+		await controller.open();
+		const first = controller.react("m2", "👍");
+		const second = controller.react("m2", "❤️");
+		gate.resolve();
+		await Promise.all([first, second]);
+		expect(reactionsOf(controller, "m2")).toEqual([{ actor: "user", emoji: "❤️" }]);
+	});
+
 	it("erro do servidor desfaz a reação, avisa em frase simples e não vaza o texto técnico", async () => {
 		const { controller } = setup({ api: { setReaction: async () => Promise.reject(new ChatApiError("prisma boom", 500)) } });
 		await controller.open();

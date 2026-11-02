@@ -9,7 +9,7 @@ import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
 import { initialSync, syncLine, syncReducer, type SyncAction, type SyncState } from "./chat-sync";
 import { dockedTaskList, mergeTail, oldestCursor, PAGE_SIZE, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, type MessagePage, type PageCursor } from "./chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "./chat-types";
-import { myReaction, toggleUserReaction } from "./message-actions";
+import { myReaction, sameReactions, toggleUserReaction } from "./message-actions";
 
 export type ChatApi = {
 	fetchPage: (conversationId: string, options: { limit?: number; before?: PageCursor | null }) => Promise<MessagePage>;
@@ -83,6 +83,8 @@ export class ChatController {
 	/** Muda a cada abertura e ao descartar: respostas de uma geração velha são ignoradas. */
 	private generation = 0;
 	private disposed = false;
+	/** Fila de chamadas de reação por fala (ver `react`). */
+	private reactionTurns = new Map<string, Promise<void>>();
 
 	// Run em curso. Escritos no momento do evento (não no render).
 	private runId: string | null = null;
@@ -540,15 +542,28 @@ export class ChatController {
 		if (!item || (item.kind !== "user" && item.kind !== "assistant") || this.disposed) return;
 		const previous = item.reactions;
 		const removing = myReaction(previous) === emoji;
-		this.patchReactions(messageId, toggleUserReaction(previous, emoji));
-		try {
-			if (removing) await this.deps.api.clearReaction(messageId);
-			else await this.deps.api.setReaction(messageId, emoji);
-		} catch (reason) {
-			this.patchReactions(messageId, previous);
-			this.fail(reason);
-			if (!this.disposed) this.set({ error: isUnauthorized(reason) ? sendErrorText(reason) : "Não consegui reagir agora. Tente de novo." });
-		}
+		const optimistic = toggleUserReaction(previous, emoji);
+		this.patchReactions(messageId, optimistic);
+		// Toques seguidos na mesma fala saem em ordem: sem isso um DELETE podia passar à frente do PUT que ele desfaz.
+		const turn = (this.reactionTurns.get(messageId) ?? Promise.resolve()).then(async () => {
+			try {
+				if (removing) await this.deps.api.clearReaction(messageId);
+				else await this.deps.api.setReaction(messageId, emoji);
+			} catch (reason) {
+				// Só desfaz se a tela ainda mostra o que ESTE toque pôs; um toque mais novo já mudou a reação.
+				if (sameReactions(this.currentReactions(messageId), optimistic)) this.patchReactions(messageId, previous);
+				this.fail(reason);
+				if (!this.disposed) this.set({ error: isUnauthorized(reason) ? sendErrorText(reason) : "Não consegui reagir agora. Tente de novo." });
+			}
+		});
+		this.reactionTurns.set(messageId, turn);
+		await turn;
+		if (this.reactionTurns.get(messageId) === turn) this.reactionTurns.delete(messageId);
+	}
+
+	private currentReactions(messageId: string): Reaction[] | undefined {
+		const item = this.state.persisted.find((candidate) => candidate.id === messageId);
+		return item && (item.kind === "user" || item.kind === "assistant") ? item.reactions : undefined;
 	}
 
 	/** "Marcar como não lida": a conversa inteira. `true` = deu certo (a tela volta para a lista). */
