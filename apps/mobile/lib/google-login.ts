@@ -8,7 +8,9 @@ import {
 	appReturnUrl,
 	bridgeExchangeUrl,
 	createGoogleBridge,
+	base64UrlFromBase64,
 	newBridgeState,
+	newCodeVerifier,
 	type PendingLogin,
 	type PendingStore,
 } from "@/lib/google-bridge";
@@ -27,7 +29,9 @@ const pendingStore: PendingStore = {
 			const raw = Platform.OS === "web" ? globalThis.localStorage?.getItem(PENDING_KEY) : await SecureStore.getItemAsync(PENDING_KEY);
 			if (!raw) return null;
 			const value = JSON.parse(raw) as Partial<PendingLogin>;
-			return typeof value.state === "string" && typeof value.at === "number" ? { state: value.state, at: value.at } : null;
+			return typeof value.state === "string" && typeof value.verifier === "string" && typeof value.at === "number"
+				? { state: value.state, verifier: value.verifier, at: value.at }
+				: null;
 		} catch {
 			return null;
 		}
@@ -49,8 +53,8 @@ export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
 		returnUrl: appReturnUrl(Linking.createURL),
 		pending: pendingStore,
 		// `$fetch` do cliente passa pelo plugin do Expo, que guarda o cookie de sessão do Set-Cookie como no login por código.
-		exchange: async (token) => {
-			const result = await client.$fetch(bridgeExchangeUrl(serverUrl), { method: "POST", body: { token } });
+		exchange: async (token, verifier) => {
+			const result = await client.$fetch(bridgeExchangeUrl(serverUrl), { method: "POST", body: { token, code_verifier: verifier } });
 			if (result.error) return false;
 			const session = await client.getSession();
 			return Boolean(session.data?.user);
@@ -67,6 +71,9 @@ export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
 			// deixava o usuário na tela inicial do Expo Go em vez de no app.
 			return WebBrowser.openAuthSessionAsync(url, returnUrl, { createTask: false });
 		},
+		randomVerifier: () => newCodeVerifier(Crypto.getRandomBytes(32)),
+		challengeOf: async (verifier) =>
+			base64UrlFromBase64(await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, verifier, { encoding: Crypto.CryptoEncoding.BASE64 })),
 		randomState: () => newBridgeState(Crypto.getRandomBytes(16)),
 		now: Date.now,
 		wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

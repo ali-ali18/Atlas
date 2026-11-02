@@ -3,6 +3,8 @@ import {
 	LISTENER_GRACE_MS,
 	PENDING_TTL_MS,
 	appReturnUrl,
+	base64UrlFromBase64,
+	newCodeVerifier,
 	bridgeStartUrl,
 	createGoogleBridge,
 	newBridgeState,
@@ -13,9 +15,15 @@ import {
 
 const STATE = "0123456789abcdef0123456789abcdef";
 const TOKEN = "tok_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const VERIFIER = "ab".repeat(32);
+const CHALLENGE = "challenge_challenge_challenge_challenge_123";
 const RETURN = "exp://u.expo.dev/abc/group/g1/--/";
 
 describe("helpers puros", () => {
+	it("PKCE: verifier de 64 hex e base64 → base64url sem preenchimento", () => {
+		expect(newCodeVerifier(new Uint8Array(32).fill(1))).toBe("01".repeat(32));
+		expect(base64UrlFromBase64("a+b/c==")).toBe("a-b_c");
+	});
 	it("newBridgeState dá 32 caracteres hexadecimais", () => {
 		expect(newBridgeState(new Uint8Array(16).fill(255))).toBe("ff".repeat(16));
 		expect(newBridgeState(Uint8Array.from([0, 1, 2]))).toBe("000102");
@@ -26,8 +34,8 @@ describe("helpers puros", () => {
 		expect(() => appReturnUrl((p) => `https://agent.exemplo.com${p}`)).toThrow();
 	});
 	it("bridgeStartUrl codifica o retorno e não duplica a barra", () => {
-		const url = bridgeStartUrl("https://agent.exemplo.com/", RETURN, STATE);
-		expect(url).toBe(`https://agent.exemplo.com/api/mobile/auth/start?return=${encodeURIComponent(RETURN)}&state=${STATE}`);
+		const url = bridgeStartUrl("https://agent.exemplo.com/", RETURN, STATE, CHALLENGE);
+		expect(url).toBe(`https://agent.exemplo.com/api/mobile/auth/start?return=${encodeURIComponent(RETURN)}&state=${STATE}&code_challenge=${CHALLENGE}`);
 	});
 	it("readBridgeLink: token só com o state desta tentativa", () => {
 		expect(readBridgeLink(`${RETURN}?token=${TOKEN}&state=${STATE}`, STATE)).toEqual({ kind: "token", token: TOKEN });
@@ -47,6 +55,7 @@ function setup(overrides: Partial<BridgeDeps> = {}) {
 	let pending: PendingLogin | null = null;
 	let clock = 1_000_000;
 	const exchanged: string[] = [];
+	const verifiers: string[] = [];
 	const opened: Array<{ url: string; returnUrl: string }> = [];
 	const deps: BridgeDeps = {
 		serverUrl: "https://agent.exemplo.com",
@@ -56,8 +65,9 @@ function setup(overrides: Partial<BridgeDeps> = {}) {
 			load: async () => pending,
 			clear: async () => void (pending = null),
 		},
-		exchange: async (token) => {
+		exchange: async (token, verifier) => {
 			exchanged.push(token);
+			verifiers.push(verifier);
 			return true;
 		},
 		openAuthSession: async (url, returnUrl) => {
@@ -65,19 +75,22 @@ function setup(overrides: Partial<BridgeDeps> = {}) {
 			return { type: "success", url: `${RETURN}?token=${TOKEN}&state=${STATE}` };
 		},
 		randomState: () => STATE,
+		randomVerifier: () => VERIFIER,
+		challengeOf: async () => CHALLENGE,
 		now: () => clock,
 		wait: async (ms) => void (clock += ms),
 		...overrides,
 	};
-	return { bridge: createGoogleBridge(deps), deps, exchanged, opened, getPending: () => pending, tick: (ms: number) => void (clock += ms) };
+	return { bridge: createGoogleBridge(deps), deps, exchanged, verifiers, opened, getPending: () => pending, tick: (ms: number) => void (clock += ms) };
 }
 
 describe("createGoogleBridge", () => {
 	it("abre o start com return e state, recebe o link, troca o token e esquece a tentativa", async () => {
 		const t = setup();
 		expect(await t.bridge.begin()).toBe("signed-in");
-		expect(t.opened).toEqual([{ url: bridgeStartUrl("https://agent.exemplo.com", RETURN, STATE), returnUrl: RETURN }]);
+		expect(t.opened).toEqual([{ url: bridgeStartUrl("https://agent.exemplo.com", RETURN, STATE, CHALLENGE), returnUrl: RETURN }]);
 		expect(t.exchanged).toEqual([TOKEN]);
+		expect(t.verifiers).toEqual([VERIFIER]);
 		expect(t.getPending()).toBeNull();
 	});
 
@@ -146,7 +159,7 @@ describe("createGoogleBridge", () => {
 
 	it("link que reabre o app (sem a tela viva): handleLink retoma pela tentativa guardada", async () => {
 		const t = setup({ openAuthSession: async () => ({ type: "dismiss" }), wait: async () => {} });
-		await t.deps.pending.save({ state: STATE, at: 1_000_000 });
+		await t.deps.pending.save({ state: STATE, verifier: VERIFIER, at: 1_000_000 });
 		expect(await t.bridge.handleLink(`${RETURN}?token=${TOKEN}&state=${STATE}`)).toBe("signed-in");
 		expect(await t.bridge.handleLink(`${RETURN}?token=${TOKEN}&state=${STATE}`)).toBe("ignored");
 		expect(t.exchanged).toEqual([TOKEN]);
@@ -155,7 +168,7 @@ describe("createGoogleBridge", () => {
 	it("link sem tentativa pendente, ou depois do prazo, é ignorado", async () => {
 		const t = setup();
 		expect(await t.bridge.handleLink(`${RETURN}?token=${TOKEN}&state=${STATE}`)).toBe("ignored");
-		await t.deps.pending.save({ state: STATE, at: 1_000_000 });
+		await t.deps.pending.save({ state: STATE, verifier: VERIFIER, at: 1_000_000 });
 		t.tick(PENDING_TTL_MS + 1);
 		expect(await t.bridge.handleLink(`${RETURN}?token=${TOKEN}&state=${STATE}`)).toBe("ignored");
 		expect(t.exchanged).toEqual([]);

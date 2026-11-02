@@ -17,6 +17,16 @@ export function newBridgeState(bytes: Uint8Array): string {
 	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/** `code_verifier` PKCE: 32 bytes aleatórios em hexadecimal (64 caracteres, 256 bits). */
+export function newCodeVerifier(bytes: Uint8Array): string {
+	return newBridgeState(bytes);
+}
+
+/** O digest do expo-crypto vem em base64; o servidor espera base64url sem preenchimento. */
+export function base64UrlFromBase64(base64: string): string {
+	return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 /** Retorno do login: sempre o deep link do app (atlas:// ou exp:// no Expo Go), nunca o site. */
 export function appReturnUrl(createURL: (path: string) => string): string {
 	const home = createURL("/");
@@ -24,8 +34,8 @@ export function appReturnUrl(createURL: (path: string) => string): string {
 	return home;
 }
 
-export function bridgeStartUrl(serverUrl: string, returnUrl: string, state: string): string {
-	return `${serverUrl.replace(/\/+$/, "")}${BRIDGE_START_PATH}?return=${encodeURIComponent(returnUrl)}&state=${encodeURIComponent(state)}`;
+export function bridgeStartUrl(serverUrl: string, returnUrl: string, state: string, challenge: string): string {
+	return `${serverUrl.replace(/\/+$/, "")}${BRIDGE_START_PATH}?return=${encodeURIComponent(returnUrl)}&state=${encodeURIComponent(state)}&code_challenge=${encodeURIComponent(challenge)}`;
 }
 
 export function bridgeExchangeUrl(serverUrl: string): string {
@@ -61,7 +71,7 @@ export function readBridgeLink(url: string, expectedState: string): BridgeLink {
 	return queryParam(url, "error") !== null ? { kind: "error" } : { kind: "other" };
 }
 
-export type PendingLogin = { state: string; at: number };
+export type PendingLogin = { state: string; verifier: string; at: number };
 
 export type PendingStore = {
 	save: (pending: PendingLogin) => Promise<void>;
@@ -76,9 +86,12 @@ export type BridgeDeps = {
 	returnUrl: string;
 	pending: PendingStore;
 	/** Troca o token por sessão no servidor e guarda o cookie. Verdadeiro se a sessão ficou de pé. */
-	exchange: (token: string) => Promise<boolean>;
+	exchange: (token: string, verifier: string) => Promise<boolean>;
 	openAuthSession: (url: string, returnUrl: string) => Promise<{ type: string; url?: string }>;
 	randomState: () => string;
+	randomVerifier: () => string;
+	/** `base64url(sha256(verifier))` (PKCE S256). */
+	challengeOf: (verifier: string) => Promise<string>;
 	now: () => number;
 	wait: (ms: number) => Promise<void>;
 };
@@ -96,7 +109,7 @@ export function createGoogleBridge(deps: BridgeDeps) {
 		await deps.pending.clear();
 		if (link.kind === "error") return "failed";
 		try {
-			return (await deps.exchange(link.token)) ? "signed-in" : "failed";
+			return (await deps.exchange(link.token, pending.verifier)) ? "signed-in" : "failed";
 		} catch {
 			return "failed";
 		}
@@ -104,10 +117,12 @@ export function createGoogleBridge(deps: BridgeDeps) {
 
 	async function begin(): Promise<BridgeOutcome> {
 		const state = deps.randomState();
-		await deps.pending.save({ state, at: deps.now() });
+		const verifier = deps.randomVerifier();
+		await deps.pending.save({ state, verifier, at: deps.now() });
 		let result: { type: string; url?: string };
 		try {
-			result = await deps.openAuthSession(bridgeStartUrl(deps.serverUrl, deps.returnUrl, state), deps.returnUrl);
+			const challenge = await deps.challengeOf(verifier);
+			result = await deps.openAuthSession(bridgeStartUrl(deps.serverUrl, deps.returnUrl, state, challenge), deps.returnUrl);
 		} catch {
 			await deps.pending.clear();
 			return "failed";
