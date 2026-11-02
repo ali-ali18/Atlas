@@ -134,7 +134,7 @@ export function Composer({ botName, color, foreground, running, onSend, onStop, 
 								style={{ backgroundColor: color }}
 								className="size-8 items-center justify-center rounded-full active:opacity-80"
 							>
-								{mode === "send" ? <ArrowUpIcon size={18} color={onColor} /> : mode === "stop" ? <StopIcon size={14} color={onColor} /> : <WaveformIcon size={18} color={onColor} />}
+								{mode === "send" ? <ArrowUpIcon size={18} color={onColor} /> : mode === "stop" ? <StopIcon size={16} color={onColor} /> : <WaveformIcon size={18} color={onColor} />}
 							</Pressable>
 						</View>
 					</View>

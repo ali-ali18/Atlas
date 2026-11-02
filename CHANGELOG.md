@@ -4,6 +4,14 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Corrigido
+- **mobile:** composer com os botões centrados na pílula (no Android desciam) e afastados do canto quando o texto quebra em várias linhas.
+- **mobile:** listas nas respostas do bot apareciam no Android como um balão alto e vazio só com "1."; o texto do item volta a aparecer.
+- **mobile:** ícones vêm do `lucide-react-native`, o mesmo Lucide do web (desenho e traço iguais), em vez de cópias à mão. Dependência nova no mobile: `lucide-react-native` (ISC).
+
+### Adicionado
+- **mobile:** mensagens que chegam com o chat aberto entram com um fade curto, como no web; o histórico e as mensagens antigas carregadas ao rolar aparecem direto. Respeita "reduzir movimento".
+
 ## [0.4.1-beta] - 2026-11-02
 
 ### Adicionado
