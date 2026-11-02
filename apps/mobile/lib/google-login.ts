@@ -20,8 +20,6 @@ import { describeLink } from "@/lib/login-trace";
 import { loginTrace } from "@/lib/login-trace-store";
 
 const PENDING_KEY = "atlas.google-login";
-/** Canal do EAS Update que o Expo Go abre nos testes (ver docs/features/app-mobile.md). */
-const EXPO_GO_CHANNEL = "preview";
 
 /** A tentativa em curso fica no cofre: se o Expo Go recarregar o app ao receber o link, a nova execução a retoma. */
 const pendingStore: PendingStore = {
@@ -54,12 +52,12 @@ const pendingStore: PendingStore = {
 
 /** Liga o núcleo (lib/google-bridge.ts) ao navegador, ao cofre e ao cliente de autenticação do servidor. */
 export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
-	// Último recurso no Expo Go: o link do canal de testes, no formato que o Expo Go abre (projeto + runtime + canal).
-	const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
-	const runtime = Constants.manifest2?.runtimeVersion;
-	const channelLink =
-		projectId && runtime ? `exp://u.expo.dev/${projectId}?runtime-version=${encodeURIComponent(runtime)}&channel-name=${EXPO_GO_CHANNEL}` : null;
-	const expoGoLinks = [Constants.linkingUri, Constants.experienceUrl, channelLink];
+	// Último recurso no Expo Go: o link da própria atualização carregada (`exp://u.expo.dev/update/<id>`), formato que o
+	// Expo Go abre sem query. O link do canal (`?channel-name=…`) não serve: o Expo Go corta tudo depois de `/--/` ao
+	// achar o projeto, perde o canal e falha ao baixar ("Something went wrong").
+	const updateId = Constants.manifest2?.id;
+	const updateLink = updateId && /^[0-9a-f-]{36}$/i.test(updateId) ? `exp://u.expo.dev/update/${updateId}` : null;
+	const expoGoLinks = [Constants.linkingUri, Constants.experienceUrl, updateLink];
 
 	/**
 	 * No Expo Go do SDK 58 uma atualização publicada se apresenta como "bare" e sem `linkingUri`, então não dá para
