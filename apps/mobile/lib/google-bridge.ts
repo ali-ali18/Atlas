@@ -106,7 +106,8 @@ export type BridgeOutcome = "signed-in" | "cancelled" | "failed" | "ignored";
 
 export type BridgeDeps = {
 	serverUrl: string;
-	returnUrl: string;
+	/** Link de volta ao app, decidido na hora do toque (pode perguntar ao sistema quem abre o esquema). */
+	resolveReturnUrl: () => Promise<string>;
 	pending: PendingStore;
 	/** Troca o token por sessão no servidor e guarda o cookie. Verdadeiro se a sessão ficou de pé. */
 	exchange: (token: string, verifier: string) => Promise<boolean>;
@@ -145,7 +146,8 @@ export function createGoogleBridge(deps: BridgeDeps) {
 		let result: { type: string; url?: string };
 		try {
 			const challenge = await deps.challengeOf(verifier);
-			result = await deps.openAuthSession(bridgeStartUrl(deps.serverUrl, deps.returnUrl, state, challenge), deps.returnUrl);
+			const returnUrl = await deps.resolveReturnUrl();
+			result = await deps.openAuthSession(bridgeStartUrl(deps.serverUrl, returnUrl, state, challenge), returnUrl);
 		} catch {
 			await deps.pending.clear();
 			return "failed";

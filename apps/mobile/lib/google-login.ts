@@ -54,19 +54,31 @@ const pendingStore: PendingStore = {
 
 /** Liga o núcleo (lib/google-bridge.ts) ao navegador, ao cofre e ao cliente de autenticação do servidor. */
 export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
-	const inExpoGo = Constants.executionEnvironment === "storeClient" || Constants.appOwnership === "expo";
-	// Último recurso: o link do canal de testes, no formato que o Expo Go abre (projeto + runtime + canal).
+	// Último recurso no Expo Go: o link do canal de testes, no formato que o Expo Go abre (projeto + runtime + canal).
 	const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
 	const runtime = Constants.manifest2?.runtimeVersion;
 	const channelLink =
 		projectId && runtime ? `exp://u.expo.dev/${projectId}?runtime-version=${encodeURIComponent(runtime)}&channel-name=${EXPO_GO_CHANNEL}` : null;
 	const expoGoLinks = [Constants.linkingUri, Constants.experienceUrl, channelLink];
-	const returnUrl = expoGoReturnUrl(inExpoGo, expoGoLinks) ?? appReturnUrl(Linking.createURL);
-	// O que decidiu o retorno, para o print do registro (só esquema/host/caminho, sem valores).
-	const origin = `ambiente: ${String(Constants.executionEnvironment)} · versão ${String(Constants.manifest2?.id ?? "?").slice(0, 8)} · links: ${expoGoLinks.map(describeLink).join(" | ")}`;
+
+	/**
+	 * No Expo Go do SDK 58 uma atualização publicada se apresenta como "bare" e sem `linkingUri`, então não dá para
+	 * confiar no ambiente. Pergunta ao sistema se alguém abre o link do app (`atlas://`): no app instalado sim; no
+	 * Expo Go ninguém, e a volta vai pelo link `exp://`.
+	 */
+	async function resolveReturnUrl(): Promise<string> {
+		const appUrl = appReturnUrl(Linking.createURL);
+		const appSchemeOpens = await Linking.canOpenURL(appUrl).catch(() => false);
+		const expoGoUrl = expoGoReturnUrl(!appSchemeOpens, expoGoLinks);
+		loginTrace.add(
+			`ambiente: ${String(Constants.executionEnvironment)} · versão ${String(Constants.manifest2?.id ?? "?").slice(0, 8)} · ${describeLink(appUrl)} abre: ${appSchemeOpens ? "sim" : "não"} · links: ${expoGoLinks.map(describeLink).join(" | ")}`,
+		);
+		return expoGoUrl ?? appUrl;
+	}
+
 	return createGoogleBridge({
 		serverUrl,
-		returnUrl,
+		resolveReturnUrl,
 		pending: pendingStore,
 		// `$fetch` do cliente passa pelo plugin do Expo, que guarda o cookie de sessão do Set-Cookie como no login por código.
 		exchange: async (token, verifier) => {
@@ -90,7 +102,6 @@ export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
 			}
 			// createTask: false abre a aba na mesma tarefa do app; no padrão (nova tarefa) fechar a aba no Expo Go
 			// deixava o usuário na tela inicial do Expo Go em vez de no app.
-			loginTrace.add(origin);
 			loginTrace.add(`abrindo navegador, volta para ${describeLink(returnUrl)}`);
 			try {
 				const result = await WebBrowser.openAuthSessionAsync(url, returnUrl, { createTask: false });

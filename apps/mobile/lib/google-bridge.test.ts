@@ -69,7 +69,7 @@ function setup(overrides: Partial<BridgeDeps> = {}) {
 	const opened: Array<{ url: string; returnUrl: string }> = [];
 	const deps: BridgeDeps = {
 		serverUrl: "https://agent.exemplo.com",
-		returnUrl: RETURN,
+		resolveReturnUrl: async () => RETURN,
 		pending: {
 			save: async (value) => void (pending = value),
 			load: async () => pending,
@@ -102,6 +102,16 @@ describe("createGoogleBridge", () => {
 		expect(t.exchanged).toEqual([TOKEN]);
 		expect(t.verifiers).toEqual([VERIFIER]);
 		expect(t.getPending()).toBeNull();
+	});
+
+	it("usa o link de volta decidido na hora e falha sem abrir nada se não houver link", async () => {
+		const ok = setup({ resolveReturnUrl: async () => "exp://u.expo.dev/p/--/?channel-name=preview" });
+		await ok.bridge.begin();
+		expect(ok.opened[0]?.returnUrl).toBe("exp://u.expo.dev/p/--/?channel-name=preview");
+		const broken = setup({ resolveReturnUrl: async () => Promise.reject(new Error("sem link")) });
+		expect(await broken.bridge.begin()).toBe("failed");
+		expect(broken.opened).toEqual([]);
+		expect(broken.getPending()).toBeNull();
 	});
 
 	it("state diferente no link: não troca o token (CSRF) e o login termina como cancelado", async () => {
