@@ -44,7 +44,7 @@ const base = {
 beforeEach(() => resetStagedFilesForTest());
 
 describe("A7: teto de tempo ainda entrega um resumo", () => {
-	it("prazo já esgotado: o resumo final sai com sinal próprio e a mensagem sugere continuar", async () => {
+	it("prazo já esgotado: o resumo final sai com sinal próprio e o convite para mandar \"continuar\" não existe", async () => {
 		const calls: Array<{ toolChoice?: string; aborted: boolean; deadlineAtMs?: number; messages: LlmMessage[] }> = [];
 		const error = await runComputerUse({
 			...base,
@@ -61,7 +61,8 @@ describe("A7: teto de tempo ainda entrega um resumo", () => {
 		expect(calls).toHaveLength(1);
 		expect(calls[0]).toMatchObject({ toolChoice: "none", aborted: false, deadlineAtMs: undefined });
 		const prompt = String(calls[0]!.messages.at(-1)?.content);
-		expect(prompt).toContain("continuar");
+		expect(prompt).toContain("Never ask the user to send");
+		expect(prompt).not.toMatch(/reply "continuar"/);
 	});
 
 	it("o run para de iniciar passos na janela de fechamento, antes do prazo", async () => {
@@ -85,7 +86,7 @@ describe("A7: teto de tempo ainda entrega um resumo", () => {
 		expect((error as BudgetExhaustedError).finalText).toContain("Resumo");
 	});
 
-	it("sem resumo do modelo ainda há texto pt-BR com o caminho de continuar", async () => {
+	it("sem resumo do modelo ainda há texto pt-BR honesto, sem pedir para mandar \"continuar\"", async () => {
 		const error = await runComputerUse({
 			...base,
 			restoredCheckpoint: { version: 1, messages: [], nextStepIndex: 0, activeElapsedMs: 31 * MIN },
@@ -96,7 +97,7 @@ describe("A7: teto de tempo ainda entrega um resumo", () => {
 		expect(error).toBeInstanceOf(BudgetExhaustedError);
 		const final = (error as BudgetExhaustedError).finalText!;
 		expect(final).toBe(budgetStopFallbackText((error as Error).message));
-		expect(final).toMatch(/continuar/);
+		expect(final).not.toMatch(/continuar/);
 		expect(final).toMatch(/tempo máximo do run esgotado/);
 	});
 });

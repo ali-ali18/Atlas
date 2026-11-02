@@ -25,10 +25,12 @@ export function taskListSettledLabel(items: readonly TaskItem[], translator: Tra
 }
 
 /**
- * Lista de tarefas do run em andamento: a última `task-list` depois da última mensagem da pessoa, só enquanto
- * o run está ativo. Essa lista vive na doca do composer e não aparece no fio; sem run ativo, volta ao fio como resumo.
+ * Lista de tarefas do run em andamento, só enquanto o run está ativo. Essa lista vive na doca do composer e não
+ * aparece no fio; sem run ativo, volta ao fio como resumo.
+ * Com o `activeRunId` conhecido, a doca é do run: a lista dele (ou a ainda sem run, "local") vale mesmo que a
+ * pessoa tenha mandado outra mensagem no meio da tarefa. Sem ele, vale a última lista depois da última fala da pessoa.
  */
-export function dockedTaskList(messages: readonly Message[], runActive: boolean): TaskListMessage | null {
+export function dockedTaskList(messages: readonly Message[], runActive: boolean, activeRunId?: string | null): TaskListMessage | null {
 	if (!runActive) return null;
 	let lastUser = -1;
 	for (let index = messages.length - 1; index >= 0; index--) {
@@ -37,9 +39,13 @@ export function dockedTaskList(messages: readonly Message[], runActive: boolean)
 			break;
 		}
 	}
-	for (let index = messages.length - 1; index > lastUser; index--) {
+	for (let index = messages.length - 1; index >= 0; index--) {
 		const message = messages[index]!;
-		if (message.kind === "task-list" && message.items.length > 0) return message;
+		if (message.kind !== "task-list" || message.items.length === 0) continue;
+		const afterUser = index > lastUser;
+		// "local": cartão criado ao vivo antes de o id do run chegar; só vale se for do turno atual.
+		if (activeRunId ? message.runId === activeRunId || (message.runId === "local" && afterUser) : afterUser) return message;
+		if (!activeRunId && !afterUser) break;
 	}
 	return null;
 }

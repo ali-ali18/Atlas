@@ -69,6 +69,13 @@ export type EngineV2Catalog = {
 	activeMcpTools: () => string[];
 	/** Tool de conector chamada fica fixa no run (não sai no LRU). */
 	pinMcpTool: (name: string) => void;
+	/** Nomes que a promoção chat -> trabalho longo acrescenta (vazio se o run não é promovível). */
+	promotionTools: readonly string[];
+	/**
+	 * Promoção automática: acrescenta caderno (e `delegate`, quando cabe) ao fim do array e carrega `create_file`
+	 * (a entrega em documento). Devolve os nomes acrescentados; segunda chamada não repete.
+	 */
+	promoteToLongWork: () => string[];
 };
 
 export function buildEngineV2Catalog(input: {
@@ -92,6 +99,8 @@ export function buildEngineV2Catalog(input: {
 	priorLoadedTools?: readonly string[];
 	/** Trabalho longo: ganha o caderno da tarefa (e `delegate` com `helpers`). Em conversa curta nada disto é carregado. */
 	longWork?: boolean;
+	/** Chat de humano que pode virar trabalho longo no meio do run: guarda o que a promoção acrescenta (nada entra antes). */
+	promotable?: boolean;
 	/** Este run é um ajudante: só `notebook_write` além das tools de leitura que o filtro permite. */
 	helper?: boolean;
 	/** O coordenador pode delegar (chat direto de usuário real, fora de ajudante). */
@@ -245,9 +254,27 @@ export function buildEngineV2Catalog(input: {
 		mcpActiveOrder = activation.finalOrder;
 		return { activated: activation.activated, evicted: activation.evicted };
 	};
+	const promotionExtras: ChatTool[] =
+		input.promotable && !input.longWork && !input.helper
+			? [NOTEBOOK_WRITE_TOOL, NOTEBOOK_READ_TOOL, ...(input.helpers ? [DELEGATE_V2_TOOL] : [])].filter((tool) => allow(tool.function.name))
+			: [];
+	let promotionDone = false;
 	return {
 		tools,
 		deferral,
+		promotionTools: promotionExtras.map((tool) => tool.function.name),
+		promoteToLongWork: () => {
+			if (promotionDone) return [];
+			promotionDone = true;
+			const added: string[] = [];
+			for (const tool of promotionExtras) {
+				if (tools.some((existing) => existing.function.name === tool.function.name)) continue;
+				tools.push(tool);
+				added.push(tool.function.name);
+			}
+			if (native.some((tool) => tool.function.name === "create_file")) deferral?.load(["create_file"]);
+			return added;
+		},
 		index: wantsSearch ? deferredToolsIndex(native, preloaded) : "",
 		preloaded,
 		promptedGroups,

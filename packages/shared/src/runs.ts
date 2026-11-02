@@ -367,6 +367,8 @@ export type AgentRunCheckpoint = {
 	generatedImageCount?: number;
 	shownImageCount?: number;
 	llmMessages?: SerializedLlmMessage[];
+	/** Motor v2: o run foi promovido de chat a trabalho longo (a retomada reaplica mesmo que a gravação no budgetJson tenha falhado). */
+	promoted?: boolean;
 	/** Tools de conector/adiadas expostas ao fim do run: o próximo turno da conversa já as tem carregadas. */
 	loadedTools?: string[];
 	/** Grupos e ordem das tools congelados na conversa (ver `ToolCacheState`). */

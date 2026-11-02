@@ -13,7 +13,7 @@ describe("mensagens de sistema por idioma", () => {
 
 	it("pt-BR mantém o texto de antes", () => {
 		const pt = systemMessages("pt-BR");
-		expect(pt.stopFallback("o tempo acabou")).toBe('Parei porque o tempo acabou. O que já foi feito ficou salvo nesta conversa. Responda "continuar" que eu retomo de onde parei.');
+		expect(pt.stopFallback("o tempo acabou")).toBe('Parei porque o tempo acabou. O que já foi feito ficou salvo nesta conversa.');
 		expect(pt.stepLimit(30)).toBe("limite de 30 passos esgotado");
 		expect(pt.tokenLimit(1000)).toBe("limite de 1000 tokens do run esgotado");
 		expect(pt.costCap(formatUsd("pt-BR", 0.5))).toBe("custo máximo da execução atingido (US$ 0,50)");

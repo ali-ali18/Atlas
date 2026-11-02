@@ -96,15 +96,13 @@ export function accountBudgetPolicy(snapshot: RunConfigSnapshot, requestMaxSteps
 
 /**
  * Teto de custo (USD) que o runtime impõe a este run: o menor entre o do pedido/bot (nas retomadas automáticas, o que
- * sobrou do teto) e o da conta. A conta é teto, nunca piso; sem nenhum dos dois, sem limite.
- * `ignoreAccountCap`: trabalho longo no v2 com orçamento explícito no bot (o dono do bot decidiu; ver `longWorkOwnerLimits`).
+ * sobrou do teto) e o da conta. A conta só tem teto se o dono configurou (ou o operador, com `ATLAS_MAX_RUN_COST_USD`); sem nenhum, sem limite em US$.
  */
 export function effectiveCostCapUsd(
 	requestOrBotCap: number | undefined,
 	snapshot: Pick<RunConfigSnapshot, "maxRunCostUsd">,
-	options: { ignoreAccountCap?: boolean } = {},
 ): number | undefined {
-	const caps = [requestOrBotCap, options.ignoreAccountCap ? undefined : snapshot.maxRunCostUsd].filter((cap): cap is number => typeof cap === "number" && Number.isFinite(cap) && cap > 0);
+	const caps = [requestOrBotCap, snapshot.maxRunCostUsd].filter((cap): cap is number => typeof cap === "number" && Number.isFinite(cap) && cap > 0);
 	return caps.length ? Math.min(...caps) : undefined;
 }
 

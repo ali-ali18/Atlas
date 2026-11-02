@@ -555,7 +555,7 @@ describe("runComputerUse resume", () => {
 		};
 		const en = await run("en-US");
 		expect(en.message).toBe("the limit of 2 steps was reached");
-		expect(budgetStopFallbackText(en.message, "en-US")).toBe('I stopped because the limit of 2 steps was reached. What was already done is saved in this conversation. Reply "continue" and I will pick up where I left off.');
+		expect(budgetStopFallbackText(en.message, "en-US")).toBe('I stopped because the limit of 2 steps was reached. What was already done is saved in this conversation.');
 		expect((await run("es-ES")).message).toBe("se alcanzó el límite de 2 pasos");
 	});
 
