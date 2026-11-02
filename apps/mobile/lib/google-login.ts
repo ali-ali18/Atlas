@@ -20,6 +20,8 @@ import { describeLink } from "@/lib/login-trace";
 import { loginTrace } from "@/lib/login-trace-store";
 
 const PENDING_KEY = "atlas.google-login";
+/** Canal do EAS Update que o Expo Go abre nos testes (ver docs/features/app-mobile.md). */
+const EXPO_GO_CHANNEL = "preview";
 
 /** A tentativa em curso fica no cofre: se o Expo Go recarregar o app ao receber o link, a nova execução a retoma. */
 const pendingStore: PendingStore = {
@@ -52,7 +54,16 @@ const pendingStore: PendingStore = {
 
 /** Liga o núcleo (lib/google-bridge.ts) ao navegador, ao cofre e ao cliente de autenticação do servidor. */
 export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
-	const returnUrl = expoGoReturnUrl(Constants.executionEnvironment, Constants.linkingUri) ?? appReturnUrl(Linking.createURL);
+	const inExpoGo = Constants.executionEnvironment === "storeClient" || Constants.appOwnership === "expo";
+	// Último recurso: o link do canal de testes, no formato que o Expo Go abre (projeto + runtime + canal).
+	const projectId = Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
+	const runtime = Constants.manifest2?.runtimeVersion;
+	const channelLink =
+		projectId && runtime ? `exp://u.expo.dev/${projectId}?runtime-version=${encodeURIComponent(runtime)}&channel-name=${EXPO_GO_CHANNEL}` : null;
+	const expoGoLinks = [Constants.linkingUri, Constants.experienceUrl, channelLink];
+	const returnUrl = expoGoReturnUrl(inExpoGo, expoGoLinks) ?? appReturnUrl(Linking.createURL);
+	// O que decidiu o retorno, para o print do registro (só esquema/host/caminho, sem valores).
+	const origin = `ambiente: ${String(Constants.executionEnvironment)} · versão ${String(Constants.manifest2?.id ?? "?").slice(0, 8)} · links: ${expoGoLinks.map(describeLink).join(" | ")}`;
 	return createGoogleBridge({
 		serverUrl,
 		returnUrl,
@@ -79,6 +90,7 @@ export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
 			}
 			// createTask: false abre a aba na mesma tarefa do app; no padrão (nova tarefa) fechar a aba no Expo Go
 			// deixava o usuário na tela inicial do Expo Go em vez de no app.
+			loginTrace.add(origin);
 			loginTrace.add(`abrindo navegador, volta para ${describeLink(returnUrl)}`);
 			try {
 				const result = await WebBrowser.openAuthSessionAsync(url, returnUrl, { createTask: false });

@@ -34,17 +34,27 @@ export function appReturnUrl(createURL: (path: string) => string): string {
 	return home;
 }
 
-/**
- * No Expo Go, uma atualização publicada não tem `hostUri`, e `createURL` cai no esquema do app (`atlas:///`), que o
- * Expo Go não abre: o navegador fica parado na página de volta. Ali o retorno é o `linkingUri` do Expo Go
- * (`exp://u.expo.dev/<projeto>/…/--/`), que reabre este mesmo app. Fora do Expo Go devolve null (vale `createURL`).
- */
-export function expoGoReturnUrl(executionEnvironment: string | undefined, linkingUri: string | undefined): string | null {
-	if (executionEnvironment !== "storeClient" || !linkingUri || !/^exps?:\/\/[^/?#]+/i.test(linkingUri)) return null;
-	const [base = "", query] = linkingUri.split("#")[0]!.split("?");
+/** Normaliza um link do Expo Go para a raiz do deep link: `exp://host/caminho/--/` (+ query original). */
+function expoGoRoot(link: string | null | undefined): string | null {
+	if (!link || !/^exps?:\/\/[^/?#]+/i.test(link)) return null;
+	const [base = "", query] = (link.split("#")[0] ?? "").split("?");
 	const marker = base.indexOf("/--/");
 	const root = marker >= 0 ? base.slice(0, marker) : base.replace(/\/(--)?\/?$/, "");
 	return `${root}/--/${query ? `?${query}` : ""}`;
+}
+
+/**
+ * No Expo Go, uma atualização publicada não tem `hostUri`, e `createURL` cai no esquema do app (`atlas:///`), que o
+ * Expo Go não abre: o navegador fica parado na página de volta. Ali o retorno é o primeiro link `exp://` entre os
+ * candidatos (`linkingUri`, `experienceUrl`), que reabre este mesmo app. Fora do Expo Go devolve null (vale `createURL`).
+ */
+export function expoGoReturnUrl(inExpoGo: boolean, candidates: ReadonlyArray<string | null | undefined>): string | null {
+	if (!inExpoGo) return null;
+	for (const candidate of candidates) {
+		const root = expoGoRoot(candidate);
+		if (root) return root;
+	}
+	return null;
 }
 
 export function bridgeStartUrl(serverUrl: string, returnUrl: string, state: string, challenge: string): string {
