@@ -62,7 +62,7 @@ describe("link da tela ao vivo", () => {
 		expect(computerErrorText(missing)).toBe("Não encontrei o computador deste bot.");
 	});
 	it("o link e o token nunca entram na mensagem de erro", async () => {
-		const error = await getViewerLink(async () => ok({ url: "https://evil.example/v1/sandbox/vt/SEGREDO/vnc.html" }), BASE, "s").catch((e) => e as Error);
+		const error = (await getViewerLink(async () => ok({ url: "https://evil.example/v1/sandbox/vt/SEGREDO/vnc.html" }), BASE, "s").catch((e: unknown) => e)) as Error;
 		expect(`${error.message} ${computerErrorText(error)}`).not.toContain("SEGREDO");
 	});
 });
