@@ -10,6 +10,9 @@ import { useAppColorScheme } from "@/lib/use-theme";
 
 const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "ui-monospace, SFMono-Regular, Menlo, monospace" });
 
+/** Largura de cada coluna da tabela (pt). */
+const TABLE_COLUMN_WIDTH = 132;
+
 function openLink(url: string) {
 	void WebBrowser.openBrowserAsync(url).catch(() => undefined);
 }
@@ -107,16 +110,18 @@ function BlockView({ block, scheme }: { block: Block; scheme: "light" | "dark" }
 					</Text>
 				</View>
 			);
-		case "table":
+		case "table": {
+			// Larguras explícitas: no Android um ScrollView horizontal sem tamanho definido esticava as linhas até a altura da tela
+			// (balão gigante e vazio). A altura vem só do conteúdo; a largura é colunas × TABLE_COLUMN_WIDTH, e rola de lado.
+			const columns = block.header.length;
 			return (
-				// Rola na horizontal dentro do balão; cada coluna tem largura mínima para o texto não esmagar.
 				<View className="self-stretch overflow-hidden rounded-card border border-border">
-					<ScrollView horizontal nestedScrollEnabled style={{ width: "100%" }}>
-						<View>
+					<ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 0 }}>
+						<View style={{ width: columns * TABLE_COLUMN_WIDTH }}>
 							{[block.header, ...block.rows].map((row, rowIndex) => (
-								<View key={`row-${rowIndex}`} className={cn("flex-row", rowIndex > 0 && "border-t border-border", rowIndex === 0 && "bg-secondary")}>
+								<View key={`row-${rowIndex}`} style={{ flexDirection: "row" }} className={cn(rowIndex > 0 && "border-t border-border", rowIndex === 0 && "bg-secondary")}>
 									{row.map((cell, column) => (
-										<View key={`cell-${column}`} className={cn("px-3 py-2", column > 0 && "border-l border-border")} style={{ width: 132 }}>
+										<View key={`cell-${column}`} style={{ width: TABLE_COLUMN_WIDTH }} className={cn("px-3 py-2", column > 0 && "border-l border-border")}>
 											<Text className={cn("text-body leading-snug", rowIndex === 0 && "font-semibold")}>
 												<Inlines nodes={cell} scheme={scheme} />
 											</Text>
@@ -128,6 +133,7 @@ function BlockView({ block, scheme }: { block: Block; scheme: "light" | "dark" }
 					</ScrollView>
 				</View>
 			);
+		}
 		case "rule":
 			return <View className="h-px bg-border" />;
 	}
