@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as Linking from "expo-linking";
-import { View } from "react-native";
+import { AppState, View } from "react-native";
 import { AtSignIcon, GoogleIcon } from "@/components/icons";
 import { AuthColumn, AuthDivider, AuthHeader } from "@/components/auth-layout";
 import { Screen } from "@/components/screen";
@@ -23,6 +23,8 @@ import {
 import { checkServer } from "@/lib/server-check";
 import type { BridgeOutcome } from "@/lib/google-bridge";
 import { createGoogleLogin } from "@/lib/google-login";
+import { describeLink } from "@/lib/login-trace";
+import { loginTrace, useLoginTrace } from "@/lib/login-trace-store";
 
 // Textos de apps/web/lib/i18n/messages/pt-BR/login.ts (login.title, subtitle, google, or, emailLabel,
 // emailPlaceholder). Aqui o e-mail recebe um código de 6 números em vez de um link, porque o link do e-mail
@@ -31,6 +33,7 @@ export default function LoginScreen() {
 	const { client, serverUrl, changeServer, markSignedIn } = useAtlasSession();
 	const [state, dispatch] = React.useReducer(loginReducer, initialLoginState);
 	const [googleAvailable, setGoogleAvailable] = React.useState(false);
+	const trace = useLoginTrace();
 	const [now, setNow] = React.useState(() => Date.now());
 	const busy = state.busy !== null;
 
@@ -126,23 +129,40 @@ export default function LoginScreen() {
 		if (!googleLogin) return;
 		let active = true;
 		const apply = (outcome: BridgeOutcome) => {
+			loginTrace.add(`resultado: ${outcome}`);
 			if (active) finishGoogle(outcome);
 		};
 		void Linking.getInitialURL()
-			.then((url) => (url ? googleLogin.handleLink(url) : "ignored"))
-			.then(apply, () => undefined);
-		const subscription = Linking.addEventListener("url", ({ url }) => void googleLogin.handleLink(url).then(apply, () => apply("failed")));
+			.then((url) => {
+				if (!url) return "ignored" as const;
+				loginTrace.add(`link inicial: ${describeLink(url)}`);
+				return googleLogin.handleLink(url);
+			})
+			.then((outcome) => (outcome === "ignored" ? undefined : apply(outcome)), () => undefined);
+		const subscription = Linking.addEventListener("url", ({ url }) => {
+			loginTrace.add(`link recebido: ${describeLink(url)}`);
+			void googleLogin.handleLink(url).then(apply, () => apply("failed"));
+		});
+		const appState = AppState.addEventListener("change", (next) => loginTrace.add(`app: ${next}`));
 		return () => {
 			active = false;
 			subscription.remove();
+			appState.remove();
 		};
 	}, [googleLogin, finishGoogle]);
 
 	async function google() {
 		if (busy) return;
 		dispatch({ type: "googleRequested" });
-		if (!googleLogin) return finishGoogle("failed");
-		finishGoogle(await googleLogin.begin().catch((): BridgeOutcome => "failed"));
+		loginTrace.clear();
+		loginTrace.add("toque em Continuar com Google");
+		if (!googleLogin) {
+			loginTrace.add("sem link de volta do app (createURL)");
+			return finishGoogle("failed");
+		}
+		const outcome = await googleLogin.begin().catch((): BridgeOutcome => "failed");
+		loginTrace.add(`fim da tentativa: ${outcome}`);
+		finishGoogle(outcome);
 	}
 
 	const resendLeft = resendSecondsLeft(state, now);
@@ -200,6 +220,14 @@ export default function LoginScreen() {
 										{state.busy === "google" ? <Spinner tone="foreground" /> : <GoogleIcon />}
 										<Text>Continuar com Google</Text>
 									</Button>
+									{trace.length ? (
+										// Diagnóstico temporário do retorno do Google: o dono manda print disto quando não volta ao app.
+										<View className="rounded-xl bg-muted/60 p-3" accessibilityLabel="Registro do login com Google">
+											<Text selectable className="text-xs leading-4 text-muted-foreground">
+												{trace.join("\n")}
+											</Text>
+										</View>
+									) : null}
 								</View>
 								<AuthDivider>ou</AuthDivider>
 							</>

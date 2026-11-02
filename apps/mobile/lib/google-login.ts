@@ -14,6 +14,8 @@ import {
 	type PendingLogin,
 	type PendingStore,
 } from "@/lib/google-bridge";
+import { describeLink } from "@/lib/login-trace";
+import { loginTrace } from "@/lib/login-trace-store";
 
 const PENDING_KEY = "atlas.google-login";
 
@@ -48,15 +50,21 @@ const pendingStore: PendingStore = {
 
 /** Liga o núcleo (lib/google-bridge.ts) ao navegador, ao cofre e ao cliente de autenticação do servidor. */
 export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
+	const returnUrl = appReturnUrl(Linking.createURL);
 	return createGoogleBridge({
 		serverUrl,
-		returnUrl: appReturnUrl(Linking.createURL),
+		returnUrl,
 		pending: pendingStore,
 		// `$fetch` do cliente passa pelo plugin do Expo, que guarda o cookie de sessão do Set-Cookie como no login por código.
 		exchange: async (token, verifier) => {
+			loginTrace.add("trocando o token no servidor");
 			const result = await client.$fetch(bridgeExchangeUrl(serverUrl), { method: "POST", body: { token, code_verifier: verifier } });
-			if (result.error) return false;
+			if (result.error) {
+				loginTrace.add(`troca recusada: ${result.error.status ?? "?"} ${String(result.error.message ?? "").slice(0, 60)}`);
+				return false;
+			}
 			const session = await client.getSession();
+			loginTrace.add(session.data?.user ? "sessão ok" : "troca ok, mas sem sessão no app");
 			return Boolean(session.data?.user);
 		},
 		openAuthSession: async (url, returnUrl) => {
@@ -69,7 +77,15 @@ export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
 			}
 			// createTask: false abre a aba na mesma tarefa do app; no padrão (nova tarefa) fechar a aba no Expo Go
 			// deixava o usuário na tela inicial do Expo Go em vez de no app.
-			return WebBrowser.openAuthSessionAsync(url, returnUrl, { createTask: false });
+			loginTrace.add(`abrindo navegador, volta para ${describeLink(returnUrl)}`);
+			try {
+				const result = await WebBrowser.openAuthSessionAsync(url, returnUrl, { createTask: false });
+				loginTrace.add(`navegador fechou: ${result.type}${"url" in result && result.url ? ` ${describeLink(result.url)}` : ""}`);
+				return result;
+			} catch (error) {
+				loginTrace.add(`navegador falhou: ${error instanceof Error ? error.message.slice(0, 80) : "?"}`);
+				throw error;
+			}
 		},
 		randomVerifier: () => newCodeVerifier(Crypto.getRandomBytes(32)),
 		challengeOf: async (verifier) =>
