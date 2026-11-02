@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
-import { avatarStateForActivity, stepProgress } from "./avatar-activity";
-import { toolKind, type AgentActivity } from "./working-status";
+import { avatarStateForActivity, stepProgress } from "./avatar-activity.js";
+import { splitMcpTool, toolKind, type AgentActivity } from "./agent-activity.js";
 
 const tool = (name: string, extra: Partial<Extract<AgentActivity, { phase: "tool" }>> = {}): AgentActivity => ({
 	phase: "tool",
@@ -109,4 +109,22 @@ test("ferramentas de leitura e de raciocínio ganham gesto próprio em vez de 't
 	assert.equal(state("generate_image"), "coding");
 	assert.equal(state("todo_write"), "thinking");
 	assert.equal(state("mcp__notion__create_page"), "working");
+});
+
+test("splitMcpTool separa servidor e operação sem regex (mesmas regras de antes)", () => {
+	assert.deepEqual(splitMcpTool("mcp__github__issue_read"), { server: "github", op: "issue_read" });
+	assert.deepEqual(splitMcpTool("mcp__a__b__c"), { server: "a", op: "b__c" });
+	assert.deepEqual(splitMcpTool("mcp_____x"), { server: "_", op: "x" });
+	assert.equal(splitMcpTool("mcp__github__"), null);
+	assert.equal(splitMcpTool("mcp____x"), null);
+	assert.equal(splitMcpTool("github__read"), null);
+	assert.equal(splitMcpTool("mcp__git\nhub__read"), null);
+});
+
+test("nome de ferramenta enorme vindo do conector é classificado em tempo linear", () => {
+	const hostile = `mcp__${"_a".repeat(50_000)}\n`;
+	const started = Date.now();
+	assert.equal(toolKind(hostile), "other");
+	assert.equal(toolKind(`mcp__x__${"a_".repeat(50_000)}read`), "read");
+	assert.ok(Date.now() - started < 500);
 });

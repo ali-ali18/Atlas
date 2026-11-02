@@ -69,7 +69,7 @@ export default function AvatarEditorScreen() {
 					<View className="flex-row flex-wrap justify-center gap-x-1 gap-y-2 px-2 pb-4 pt-5">
 						{AVATAR_SHAPES.map((item) => (
 							<Pressable key={item} role="radio" accessibilityLabel={`Forma ${item}`} accessibilityState={{ checked: item === shape }} onPress={() => setShape(item)} className={cn("size-16 items-center justify-center rounded-full border-2", item === shape ? "border-foreground/50" : "border-transparent")}>
-								<Avatar color={color} shape={item} size={56} animated={false} />
+								<Avatar color={color} shape={item} size={56} animated={false} eyeColor={themeColor(scheme, "card")} />
 							</Pressable>
 						))}
 					</View>

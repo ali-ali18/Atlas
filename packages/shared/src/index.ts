@@ -994,3 +994,6 @@ export * from "./engine-helpers.js";
 export * from "./engine-settings.js";
 export * from "./notebook.js";
 export { bubbleRadius, groupPositionAt, type GroupPosition } from "./bubble-radius.js";
+export * from "./agent-activity.js";
+export * from "./avatar-activity.js";
+export * from "./avatar-governor.js";

@@ -12,6 +12,8 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 - **mobile:** ícones vêm do `lucide-react-native`, o mesmo Lucide do web (desenho e traço iguais), em vez de cópias à mão. Dependência nova no mobile: `lucide-react-native` (ISC).
 
 ### Adicionado
+- **mobile:** o avatar do chat tem estados com expressão e animação simples (pensando, pesquisando, lendo, trabalhando, escrevendo, esperando, feliz, erro), sem o "cérebro" do web. A linha de atividade vira o avatar pequeno com o que o bot está fazendo ("Pesquisando na web (passo 2 de 5)") e o avatar do topo muda junto. Os olhos usam a cor de fundo do tema (a cor do cartão no topo e nas miniaturas do editor) e o olhar é proporcional ao tamanho, então o avatar pequeno não tira os olhos do corpo. Com o run pausado a linha mostra "Esperando você". A cara de erro fica só para o erro do run (não para uma ferramenta que falhou e foi tentada de novo), e reabrir o mesmo run não repete a reação de fim ou de erro. O avatar do splash volta a respirar. Ver `docs/features/app-mobile.md`.
+- **shared, web:** atividade do bot (`toolKind`, `AgentActivity`), estado do avatar por atividade e governador de permanência mínima movidos para `packages/shared`; o web reexporta, sem mudar comportamento.
 - **mobile:** mensagens que chegam com o chat aberto entram com um fade curto, como no web; o histórico e as mensagens antigas carregadas ao rolar aparecem direto. Respeita "reduzir movimento".
 
 ## [0.4.1-beta] - 2026-11-02

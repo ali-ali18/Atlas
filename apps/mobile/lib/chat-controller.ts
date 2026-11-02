@@ -2,7 +2,7 @@
 // para, responde cartões e pagina. Todo o estado vive aqui, lido e escrito de forma síncrona (nada de ref
 // defasada de render), e as dependências (API, stream, cache, relógio) entram por injeção para testar as corridas
 // (envio durante o fim do run, parar antes do `runId`, toque duplo em aprovação…). O hook só assina e desenha.
-import type { ComputerUseEvent } from "@workspace/shared";
+import type { AgentActivity, ComputerUseEvent } from "@workspace/shared";
 import { ChatApiError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult } from "./chat-api";
 import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./chat-live";
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
@@ -83,6 +83,8 @@ export class ChatController {
 	// Run em curso. Escritos no momento do evento (não no render).
 	private runId: string | null = null;
 	private followToken = 0;
+	/** Maior número de evento já aplicado por run: o replay (`after=0`) de um run já seguido não conta fim/erro de novo. */
+	private seenSeq = new Map<string, number>();
 	private abort: AbortController | null = null;
 	private stopRequested = false;
 	private queue: Queued[] = [];
@@ -284,14 +286,24 @@ export class ChatController {
 		// O replay recria falas e cartões do run: o que vinha dele sai, o balão do usuário fica.
 		this.set({ following: true, live: { ...startLiveRun(this.state.live, runId), items: this.state.live.items.filter((item) => item.kind === "user") } });
 		let terminal = false;
+		const highWater = this.seenSeq.get(runId) ?? 0;
+		let currentSeq = 0;
 		try {
 			const result = await (this.deps.follow ?? followRun)({
 				open: this.deps.openRunStream(runId),
 				after: 0,
 				signal: controller.signal,
+				onCursor: (seq: number) => {
+					currentSeq = seq;
+				},
 				onEvent: (event: ComputerUseEvent) => {
 					if (token !== this.followToken) return;
-					this.set({ live: applyRunEvent(this.state.live, event) }, event.type === "assistant_delta");
+					const before = this.state.live;
+					let next = applyRunEvent(before, event);
+					// Evento repetido do replay: refaz falas e cartões, mas não dispara de novo a reação de fim ou de erro.
+					if (currentSeq > 0 && currentSeq <= highWater) next = { ...next, failures: before.failures, finishes: before.finishes };
+					if (currentSeq > (this.seenSeq.get(runId) ?? 0)) this.seenSeq.set(runId, currentSeq);
+					this.set({ live: next }, event.type === "assistant_delta");
 				},
 				runStatus: () => this.deps.api.getRunStatus(runId),
 				...(this.deps.subscribeResume ? { subscribeResume: this.deps.subscribeResume } : {}),
@@ -318,12 +330,12 @@ export class ChatController {
 		if (token !== this.followToken || this.disposed) return;
 		const live = this.state.live;
 		if (!(live.ended || terminal)) {
-			this.set({ live: { ...live, phase: "idle" } });
+			this.set({ live: { ...live, phase: "idle", tool: null } });
 			return;
 		}
 		// O gravado assumiu: só o que ainda não foi gravado (balão do usuário, erro do run) fica ao vivo.
 		const keep = live.items.filter((item) => item.id === "cu-run-error" || (item.kind === "user" && item.id.startsWith("msg-")));
-		this.set({ live: { ...live, items: keep, runId: null, phase: "idle" } });
+		this.set({ live: { ...live, items: keep, runId: null, phase: "idle", tool: null } });
 	}
 
 	// ---- envio ------------------------------------------------------------------------------------------
@@ -375,7 +387,7 @@ export class ChatController {
 				this.stopRequested = false;
 				await this.syncTail(false);
 				const live = this.state.live;
-				this.set({ live: { ...live, phase: "idle" } });
+				this.set({ live: { ...live, phase: "idle", tool: null } });
 				await this.drainQueue(null);
 				return;
 			}
@@ -449,7 +461,7 @@ export class ChatController {
 			// Run parado esperando a pessoa não tem stream para trazer o "cancelado": encerra aqui.
 			if (!this.abort) {
 				this.runId = null;
-				this.set({ live: { ...this.state.live, paused: false, ended: true, phase: "idle" } });
+				this.set({ live: { ...this.state.live, paused: false, ended: true, phase: "idle", tool: null } });
 			}
 			return;
 		}
@@ -512,7 +524,32 @@ export type ChatView = {
 	lastTasks: Extract<ChatItem, { kind: "task-list" }> | null;
 	line: ReturnType<typeof syncLine>;
 	running: boolean;
+	/** O que o bot está fazendo agora (alimenta o avatar e o texto da linha de atividade). */
+	activity: AgentActivity;
+	/** Contadores de reação do avatar (ferramenta/run que falhou, run que terminou); ver `LiveState`. */
+	failures: number;
+	finishes: number;
 };
+
+/** Atividade do bot a partir do estado ao vivo. Rodando sem sinal ainda (criando o run, outro aparelho) conta como pensando. */
+export function liveActivity(live: LiveState, running: boolean): AgentActivity {
+	if (!running) return { phase: "idle" };
+	switch (live.phase) {
+		case "writing":
+			return { phase: "writing" };
+		case "tool":
+			if (!live.tool) return { phase: "thinking" };
+			return {
+				phase: "tool",
+				tool: live.tool.name,
+				...(live.tool.step !== undefined ? { step: live.tool.step } : {}),
+				...(live.tool.maxSteps !== undefined ? { maxSteps: live.tool.maxSteps } : {}),
+				...(live.tool.arriving ? { arriving: true as const } : {}),
+			};
+		default:
+			return { phase: "thinking" };
+	}
+}
 
 /** O toque no cartão vale na hora, antes de o servidor gravar o novo estado. */
 function withLocalDecisions(item: ChatItem, snapshot: ChatSnapshot): ChatItem {
@@ -531,5 +568,14 @@ export function deriveView(snapshot: ChatSnapshot): ChatView {
 	const running = snapshot.following || snapshot.live.paused || snapshot.creating;
 	const runTasks = dockedTaskList(merged, running, snapshot.live.runId);
 	const lastTasks = [...merged].reverse().find((item): item is Extract<ChatItem, { kind: "task-list" }> => item.kind === "task-list" && item.items.length > 0) ?? null;
-	return { items: withSourceMarkers(merged), runTasks, lastTasks, line: syncLine(snapshot.sync), running };
+	return {
+		items: withSourceMarkers(merged),
+		runTasks,
+		lastTasks,
+		line: syncLine(snapshot.sync),
+		running,
+		activity: liveActivity(snapshot.live, running),
+		failures: snapshot.live.failures,
+		finishes: snapshot.live.finishes,
+	};
 }

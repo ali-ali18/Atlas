@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
-import { avatarStateForActivity } from "./avatar-activity";
-import { GOVERNOR_TUNING, createAvatarGovernor } from "./avatar-governor";
-import type { AgentActivity } from "./working-status";
+import { avatarStateForActivity } from "./avatar-activity.js";
+import { GOVERNOR_TUNING, createAvatarGovernor } from "./avatar-governor.js";
+import type { AgentActivity } from "./agent-activity.js";
 
 const T = GOVERNOR_TUNING;
 const desired = (activity: AgentActivity) => avatarStateForActivity(activity);

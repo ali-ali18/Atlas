@@ -176,6 +176,28 @@ describe("indicador e só reação", () => {
 	});
 });
 
+describe("replay do run e reações do avatar", () => {
+	it("seguir de novo o mesmo run (replay after=0) não conta o fim de novo", async () => {
+		const ended: ComputerUseEvent = { type: "error", error: "falhou" };
+		let follows = 0;
+		const { controller } = setup({
+			follow: async (options) => {
+				follows += 1;
+				// o servidor reenvia tudo: evento 1 (erro) e, no segundo follow, nada novo
+				options.onCursor?.(1);
+				options.onEvent(ended);
+				return follows === 1 ? ("boundary" as const) : new Promise<never>(() => undefined);
+			},
+		});
+		await controller.open();
+		await controller.follow("r9");
+		expect(controller.getSnapshot().live.failures).toBe(1);
+		void controller.follow("r9");
+		await flush();
+		expect(controller.getSnapshot().live.failures).toBe(1);
+	});
+});
+
 describe("corridas de envio", () => {
 	it("envio durante o syncTail do fim do run anterior: o fim antigo não apaga o run novo", async () => {
 		const gate = deferred<void>();
