@@ -34,12 +34,14 @@ function pickBot(value: unknown): HomeBot | null {
 	// Cache gravado antes de existir `conversationId` continua valendo: o campo ausente é `null`.
 	const conversationId = value.conversationId === undefined ? null : value.conversationId;
 	if (!isNullable(conversationId, isString)) return null;
+	const language = value.language === undefined ? null : value.language;
+	if (!isNullable(language, isString)) return null;
 	if (!isString(id) || !isString(name) || !isString(color) || !isString(shape) || !isString(preview)) return null;
 	if (typeof pinned !== "boolean" || typeof isPrimary !== "boolean" || typeof unread !== "boolean" || typeof previewSent !== "boolean") return null;
 	if (!isNullable(pinOrder, isNumber) || !isNullable(sectionId, isString) || !isNullable(lastAt, isString)) return null;
 	if (!Array.isArray(memberIds) || !memberIds.every(isString)) return null;
 	// Reconstrói campo a campo: qualquer chave a mais que esteja no disco não passa.
-	return { id, name, color, shape, pinned, pinOrder, sectionId, memberIds: [...memberIds], isPrimary, conversationId, unread, lastAt, preview, previewSent };
+	return { id, name, color, shape, pinned, pinOrder, sectionId, memberIds: [...memberIds], isPrimary, conversationId, language, unread, lastAt, preview, previewSent };
 }
 
 function pickSection(value: unknown): SectionRef | null {

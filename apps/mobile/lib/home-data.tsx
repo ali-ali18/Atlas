@@ -2,6 +2,7 @@ import * as React from "react";
 import { cacheKey, loadHomeCache, saveHomeCache } from "@/lib/home-cache";
 import { homeStorage } from "@/lib/home-storage";
 import { HomeSyncController, type SyncDeps } from "@/lib/home-sync-controller";
+import type { HomeBot } from "@/lib/home-types";
 import { fetchHome, type HomeSnapshot, type SyncFailure } from "@/lib/home-sync";
 import { useAtlasSession } from "@/lib/atlas-session";
 
@@ -17,6 +18,8 @@ export type HomeData = {
 	 */
 	prepare: () => Promise<"ready" | "empty" | "signed-out">;
 	refresh: () => Promise<void>;
+	/** Aplica na lista (e no cache do aparelho) o que acabou de ser salvo no servidor, sem esperar a próxima atualização. */
+	applyBotUpdate: (botId: string, patch: Partial<Pick<HomeBot, "name" | "color" | "shape" | "language">>) => void;
 };
 
 const Context = React.createContext<HomeData | null>(null);
@@ -109,6 +112,18 @@ export function HomeDataProvider({ children }: { children: React.ReactNode }) {
 		return outcome === "ok" ? ("ready" as const) : ("empty" as const);
 	}, [key, refresh, controller]);
 
-	const value = React.useMemo<HomeData>(() => ({ snapshot, refreshing, error, prepare, refresh }), [snapshot, refreshing, error, prepare, refresh]);
+	const snapshotRef = React.useRef(snapshot);
+	snapshotRef.current = snapshot;
+	const applyBotUpdate = React.useCallback<HomeData["applyBotUpdate"]>((botId, patch) => {
+		const current = snapshotRef.current;
+		if (!current) return;
+		const next = { ...current, bots: current.bots.map((bot) => (bot.id === botId ? { ...bot, ...patch } : bot)) };
+		snapshotRef.current = next;
+		setSnapshot(next);
+		const cacheKeyNow = keyRef.current;
+		if (cacheKeyNow) void saveHomeCache(homeStorage, cacheKeyNow, next, Date.now());
+	}, []);
+
+	const value = React.useMemo<HomeData>(() => ({ snapshot, refreshing, error, prepare, refresh, applyBotUpdate }), [snapshot, refreshing, error, prepare, refresh, applyBotUpdate]);
 	return <Context.Provider value={value}>{children}</Context.Provider>;
 }

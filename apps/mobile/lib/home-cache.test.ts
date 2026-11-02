@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CACHE_MAX_AGE_MS, CACHE_VERSION, cacheKey, clearHomeCache, loadHomeCache, parseCache, saveHomeCache, serializeCache, type CacheStorage } from "./home-cache";
 import type { HomeBot, HomeSnapshot } from "./home-types";
 
-const bot: HomeBot = { id: "b1", name: "Cookie", color: "#0f0", shape: "blob", pinned: true, pinOrder: 0, sectionId: null, memberIds: [], isPrimary: false, conversationId: null, unread: false, lastAt: "2026-10-05T12:00:00Z", preview: "Oi", previewSent: false };
+const bot: HomeBot = { id: "b1", name: "Cookie", color: "#0f0", shape: "blob", pinned: true, pinOrder: 0, sectionId: null, memberIds: [], isPrimary: false, conversationId: null, language: null, unread: false, lastAt: "2026-10-05T12:00:00Z", preview: "Oi", previewSent: false };
 const snapshot: HomeSnapshot = { bots: [bot], sections: [{ id: "s1", name: "Codding", order: 0 }] };
 
 function memory(initial: Record<string, string> = {}, failing = false): CacheStorage & { data: Map<string, string> } {

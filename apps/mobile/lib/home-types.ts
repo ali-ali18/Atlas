@@ -13,6 +13,8 @@ export type HomeBot = {
 	isPrimary: boolean;
 	/** Conversa do bot (o fio do chat); `null` até a primeira mensagem. */
 	conversationId: string | null;
+	/** Idioma do bot ("auto" ou um idioma); `null` em cache antigo. */
+	language: string | null;
 	/** Há mensagem nova ou o usuário marcou como não lida. */
 	unread: boolean;
 	/** ISO da última mensagem (a data da linha). */

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { HomeSyncController, type SyncDeps } from "./home-sync-controller";
 import type { HomeSnapshot } from "./home-types";
 
-const snap = (name: string): HomeSnapshot => ({ bots: [{ id: name, name, color: "#fff", shape: "blob", pinned: false, pinOrder: null, sectionId: null, memberIds: [], isPrimary: false, conversationId: null, unread: false, lastAt: null, preview: "", previewSent: false }], sections: [] });
+const snap = (name: string): HomeSnapshot => ({ bots: [{ id: name, name, color: "#fff", shape: "blob", pinned: false, pinOrder: null, sectionId: null, memberIds: [], isPrimary: false, conversationId: null, language: null, unread: false, lastAt: null, preview: "", previewSent: false }], sections: [] });
 
 function setup() {
 	const calls = { saved: [] as string[], shown: [] as string[], errors: [] as string[], unauthorized: 0 };
