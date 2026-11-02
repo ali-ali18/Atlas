@@ -93,7 +93,8 @@ export default function ChatScreen() {
 	}
 
 	const { accent: color, foreground } = botColors(resolveColor(bot.color, bot.id), { accent: themeColor(scheme, "primary"), foreground: themeColor(scheme, "primary-foreground") });
-	const showThinking = chat.running && !chat.paused && (chat.phase === "thinking" || chat.phase === "tool");
+	// Pausado (esperando aprovação ou resposta) também mostra a linha: "Esperando você".
+	const showThinking = chat.running && (chat.paused || chat.phase === "thinking" || chat.phase === "tool");
 	const onMenuPick = (action: ChatMenuAction) => {
 		setMenu(false);
 		if (action === "profile") openProfile();

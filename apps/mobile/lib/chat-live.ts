@@ -74,8 +74,9 @@ export function applyRunEvent(state: LiveState, event: ComputerUseEvent): LiveSt
 		case "tool_call":
 			return { ...state, phase: "tool", paused: false, tool: { name: event.name, ...(event.step !== undefined ? { step: event.step } : {}), ...(event.maxSteps !== undefined ? { maxSteps: event.maxSteps } : {}) } };
 		case "tool_result":
-			// A ferramenta acabou: o modelo decide o próximo passo (o avatar volta a "pensando"); falha dá a reação de erro.
-			return { ...state, phase: "thinking", tool: null, failures: state.failures + (event.ok ? 0 : 1) };
+			// A ferramenta acabou: o modelo decide o próximo passo (o avatar volta a "pensando"). Falha de uma ferramenta
+			// não é falha do run (o bot costuma tentar de novo): a cara de erro fica só para o `error` do run.
+			return { ...state, phase: "thinking", tool: null };
 		case "task_list": {
 			const runId = event.runId ?? state.runId ?? "local";
 			const id = `task-list-${runId}`;

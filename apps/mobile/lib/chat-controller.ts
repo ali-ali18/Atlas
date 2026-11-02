@@ -83,6 +83,8 @@ export class ChatController {
 	// Run em curso. Escritos no momento do evento (não no render).
 	private runId: string | null = null;
 	private followToken = 0;
+	/** Maior número de evento já aplicado por run: o replay (`after=0`) de um run já seguido não conta fim/erro de novo. */
+	private seenSeq = new Map<string, number>();
 	private abort: AbortController | null = null;
 	private stopRequested = false;
 	private queue: Queued[] = [];
@@ -284,14 +286,24 @@ export class ChatController {
 		// O replay recria falas e cartões do run: o que vinha dele sai, o balão do usuário fica.
 		this.set({ following: true, live: { ...startLiveRun(this.state.live, runId), items: this.state.live.items.filter((item) => item.kind === "user") } });
 		let terminal = false;
+		const highWater = this.seenSeq.get(runId) ?? 0;
+		let currentSeq = 0;
 		try {
 			const result = await (this.deps.follow ?? followRun)({
 				open: this.deps.openRunStream(runId),
 				after: 0,
 				signal: controller.signal,
+				onCursor: (seq: number) => {
+					currentSeq = seq;
+				},
 				onEvent: (event: ComputerUseEvent) => {
 					if (token !== this.followToken) return;
-					this.set({ live: applyRunEvent(this.state.live, event) }, event.type === "assistant_delta");
+					const before = this.state.live;
+					let next = applyRunEvent(before, event);
+					// Evento repetido do replay: refaz falas e cartões, mas não dispara de novo a reação de fim ou de erro.
+					if (currentSeq > 0 && currentSeq <= highWater) next = { ...next, failures: before.failures, finishes: before.finishes };
+					if (currentSeq > (this.seenSeq.get(runId) ?? 0)) this.seenSeq.set(runId, currentSeq);
+					this.set({ live: next }, event.type === "assistant_delta");
 				},
 				runStatus: () => this.deps.api.getRunStatus(runId),
 				...(this.deps.subscribeResume ? { subscribeResume: this.deps.subscribeResume } : {}),

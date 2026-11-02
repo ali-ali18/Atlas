@@ -30,9 +30,9 @@ describe("applyRunEvent", () => {
 		expect(apply([delta("s1", "oi")], call)).toMatchObject({ phase: "writing", tool: null });
 		expect(apply([{ type: "done", message: { role: "assistant", content: "" }, model: "m" }], call).tool).toBeNull();
 	});
-	it("conta ferramenta que falhou, run que falhou e run que terminou", () => {
+	it("conta run que falhou e run que terminou; ferramenta que falhou não é falha do run", () => {
 		const failedTool = apply([{ type: "tool_result", id: "t", name: "x", ok: false, summary: "erro" }]);
-		expect(failedTool.failures).toBe(1);
+		expect(failedTool.failures).toBe(0);
 		expect(apply([{ type: "error", error: "falhou" }]).failures).toBe(1);
 		expect(apply([{ type: "done", message: { role: "assistant", content: "" }, model: "m" }]).finishes).toBe(1);
 		expect(apply([{ type: "cancelled" }])).toMatchObject({ failures: 0, finishes: 0 });
