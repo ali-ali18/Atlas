@@ -13,13 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { webChatUrl } from "@/lib/chat-links";
+import { runStatusLine, useBotRun } from "@/lib/run-store";
 import { useHomeData } from "@/lib/home-data";
 import { LIST_POSE } from "@/lib/avatar-pose";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 
 const ROWS = [
-	{ key: "dev", label: "Programação", icon: <CodeIcon /> },
+	{ key: "executions", label: "Execuções", icon: <CodeIcon /> },
 	{ key: "routines", label: "Rotinas", icon: <ClockIcon /> },
 	{ key: "library", label: "Biblioteca", icon: <LibraryIcon /> },
 	{ key: "computer", label: "Computador", icon: <MonitorIcon /> },
@@ -36,6 +37,7 @@ export default function ProfileScreen() {
 	const { snapshot } = useHomeData();
 	const { serverUrl } = useAtlasSession();
 	const bot = snapshot?.bots.find((item) => item.id === id);
+	const run = useBotRun(id);
 	const [soon, setSoon] = React.useState<string | null>(null);
 	const goBack = () => (router.canGoBack() ? router.back() : router.replace("/"));
 	const openWeb = () => {
@@ -61,9 +63,10 @@ export default function ProfileScreen() {
 					</Button>
 					<View className="w-full overflow-hidden rounded-panel bg-card">
 						{ROWS.map((row, index) => (
-							<Pressable key={row.key} role="button" accessibilityLabel={`${row.label}. Abrir no navegador`} onPress={openWeb} className="min-h-16 flex-row items-center gap-4 px-5 active:bg-muted/60">
+							<Pressable key={row.key} role="button" accessibilityLabel={row.key === "executions" ? `${row.label}. ${runStatusLine(run)}` : `${row.label}. Abrir no navegador`} onPress={row.key === "executions" ? () => router.push(`/executions/${encodeURIComponent(id)}` as never) : openWeb} className="min-h-16 flex-row items-center gap-4 px-5 active:bg-muted/60">
 								{row.icon}
-								<Text className="min-w-0 flex-1 text-lg">{row.label}</Text>
+								<Text className="text-lg">{row.label}</Text>
+								<View className="min-w-0 flex-1 items-end">{row.key === "executions" ? <Text numberOfLines={1} variant="muted" className="text-control">{runStatusLine(run)}</Text> : null}</View>
 								<ChevronRightIcon />
 								{index < ROWS.length - 1 ? <View className="absolute bottom-0 left-14 right-0 h-px bg-border" /> : null}
 							</Pressable>

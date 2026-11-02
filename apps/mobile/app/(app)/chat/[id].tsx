@@ -12,7 +12,6 @@ import { ChatTopBar, TOP_BAR_HEIGHT } from "@/components/chat/chat-top-bar";
 import { Composer } from "@/components/chat/composer";
 import { MessageRow, type RowActions } from "@/components/chat/message-row";
 import { SyncLine, ThinkingLine } from "@/components/chat/sync-line";
-import { TaskDock } from "@/components/chat/task-dock";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
@@ -134,7 +133,7 @@ export default function ChatScreen() {
 					) : null}
 					<Fade from="bottom" height={24} />
 				</View>
-				<Composer sections={chat.dock ? <TaskDock items={chat.dock.items} /> : null} botName={bot.name} color={color} running={chat.running} onSend={chat.send} onStop={chat.stop} onSoon={(what) => setSoon(what)} />
+				<Composer botName={bot.name} color={color} running={chat.running} onSend={chat.send} onStop={chat.stop} onSoon={(what) => setSoon(what)} />
 			</KeyboardAvoidingView>
 			<ChatMenu open={menu} onClose={() => setMenu(false)} onPick={onMenuPick} />
 			<SoonSheet open={soon !== null} title={soon ? SOON_TITLE[soon] : ""} onClose={() => setSoon(null)} />

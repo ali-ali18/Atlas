@@ -13,8 +13,6 @@ const BUTTON = 32;
 const INSET = 6;
 
 type ComposerProps = {
-	/** Seções de cima do container único (lista de tarefas, depois aprovação), cada uma com divisor `border-b` embaixo. */
-	sections?: React.ReactNode;
 	botName: string;
 	/** Cor do bot: o botão redondo. */
 	color: string;
@@ -30,12 +28,10 @@ type ComposerProps = {
  * base. O botão da cor do bot é "enviar" com texto, "parar" durante o run (sem texto) e, parado e vazio, as ondas de
  * voz. Microfone e voz ainda são "em breve".
  *
- * Estrutura do web: container único (mesmo fundo `input`, e as seções de tarefas e aprovação dentro, separadas por
- * `border-b`). A borda fina por fora com respiro de 1px é o "outline + offset" da referência: o RN não tem
- * `outline-offset`, então vira uma View externa com borda e `padding: 1` em volta da pílula, sem borda própria.
- * (O web hoje usa `border border-border` simples nesse container: a diferença é só visual.)
+ * Estrutura e borda como no `chat-composer` do web: uma View só, com `border border-border` e `bg-input`, colada na
+ * pílula (sem respiro nem wrapper), com o raio total direto nela, nos dois formatos (pílula e retângulo).
  */
-export function Composer({ sections, botName, color, running, onSend, onStop, onSoon }: ComposerProps) {
+export function Composer({ botName, color, running, onSend, onStop, onSoon }: ComposerProps) {
 	const onColor = iconColorOn(color);
 	const scheme = useAppColorScheme();
 	const [text, setText] = React.useState("");
@@ -59,10 +55,7 @@ export function Composer({ sections, botName, color, running, onSend, onStop, on
 	};
 	return (
 		<View className="mx-4 mb-2 gap-2">
-			{/* Tarefas e aprovação ficam num cartão próprio acima do campo (como no ChatGPT e no Claude), não dentro dele. */}
-			{sections ? <View className="overflow-hidden rounded-[20px] border border-foreground/10 bg-input/95">{sections}</View> : null}
-			<View className="rounded-[29px] border border-foreground/20 p-px">
-			<View className="overflow-hidden rounded-[28px] bg-input">
+			<View className="overflow-hidden rounded-[28px] border border-border bg-input">
 				{/*
 				  Um só TextInput nos dois formatos (assim o foco e o teclado não se perdem na troca). Os botões ficam sempre
 				  em posição absoluta na base: com uma linha o campo fica entre eles (pílula); quando o texto quebra, o campo
@@ -127,7 +120,6 @@ export function Composer({ sections, botName, color, running, onSend, onStop, on
 						</View>
 					</View>
 				</View>
-			</View>
 			</View>
 		</View>
 	);

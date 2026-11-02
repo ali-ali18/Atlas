@@ -501,7 +501,10 @@ export class ChatController {
 
 export type ChatView = {
 	items: ChatItem[];
-	dock: Extract<ChatItem, { kind: "task-list" }> | null;
+	/** Passos do run ativo (alimenta o perfil e a tela de Execuções; no chat a lista fica no fio como cartão). */
+	runTasks: Extract<ChatItem, { kind: "task-list" }> | null;
+	/** A última lista de tarefas da conversa (a execução anterior). */
+	lastTasks: Extract<ChatItem, { kind: "task-list" }> | null;
 	line: ReturnType<typeof syncLine>;
 	running: boolean;
 };
@@ -519,6 +522,7 @@ export function deriveView(snapshot: ChatSnapshot): ChatView {
 		snapshot.live.items.map((item) => withLocalDecisions(item, snapshot)),
 	);
 	const running = snapshot.following || snapshot.live.paused;
-	const dock = dockedTaskList(merged, running, snapshot.live.runId);
-	return { items: merged.filter((item) => item.id !== dock?.id), dock, line: syncLine(snapshot.sync), running };
+	const runTasks = dockedTaskList(merged, running, snapshot.live.runId);
+	const lastTasks = [...merged].reverse().find((item): item is Extract<ChatItem, { kind: "task-list" }> => item.kind === "task-list" && item.items.length > 0) ?? null;
+	return { items: merged, runTasks, lastTasks, line: syncLine(snapshot.sync), running };
 }

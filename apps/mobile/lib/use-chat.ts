@@ -6,6 +6,7 @@ import * as chatApi from "./chat-api";
 import { chatCacheKey, createChatCacheWriter, loadChatCache } from "./chat-cache";
 import { ChatController, deriveView, type ChatApi, type ChatDeps } from "./chat-controller";
 import type { ChatItem } from "./chat-types";
+import { clearBotRun, setBotRun } from "./run-store";
 import { useAtlasSession } from "./atlas-session";
 import { homeStorage } from "./home-storage";
 import type { HomeBot } from "./home-types";
@@ -102,6 +103,12 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 
 	const snapshot = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot);
 	const view = React.useMemo(() => deriveView(snapshot), [snapshot]);
+	const stop = React.useCallback(() => controller.stop(), [controller]);
+	// O perfil e a tela de Execuções leem o run ativo e os passos daqui; o chat segue montado por baixo, com o stream vivo.
+	React.useEffect(() => {
+		if (botId) setBotRun(botId, { running: view.running, tasks: view.runTasks?.items ?? null, last: view.lastTasks?.items ?? null, stop });
+	}, [botId, view.running, view.runTasks, view.lastTasks, stop]);
+	React.useEffect(() => () => (botId ? clearBotRun(botId) : undefined), [botId]);
 	return {
 		...view,
 		phase: snapshot.live.phase,
@@ -113,7 +120,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		ready: snapshot.ready,
 		loadOlder: () => void controller.loadOlder(),
 		send: (text) => controller.send(text),
-		stop: () => controller.stop(),
+		stop,
 		decide: (item, approve) => controller.decide(item, approve),
 		answer: (item, answers) => controller.answer(item, answers),
 		retry: () => void controller.retry(),
