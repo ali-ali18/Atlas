@@ -210,3 +210,27 @@ describe("checkpoint: bloqueio de tool com validade", () => {
 		expect(parsed?.blockedToolSteps).toBeUndefined();
 	});
 });
+
+describe("checkpoint: estado do supervisor v2 (renovação do tempo)", () => {
+	const base = { messages: [], conversation: [], nextStepIndex: 1, model: "m" };
+
+	it("grava e lê wrapUpSent e budgetBaseMs; checkpoint antigo (sem os campos) segue válido", () => {
+		const saved = buildRuntimeCheckpoint({ ...base, wrapUpSent: true, budgetBaseMs: 408_000.4 });
+		const back = parseRuntimeCheckpoint(JSON.parse(JSON.stringify(saved)));
+		expect(back?.wrapUpSent).toBe(true);
+		expect(back?.budgetBaseMs).toBe(408_000);
+		const old = buildRuntimeCheckpoint(base);
+		expect(old).not.toHaveProperty("wrapUpSent");
+		expect(old).not.toHaveProperty("budgetBaseMs");
+		const parsedOld = parseRuntimeCheckpoint({ messages: [] });
+		expect(parsedOld).not.toHaveProperty("wrapUpSent");
+		expect(parsedOld).not.toHaveProperty("budgetBaseMs");
+	});
+
+	it("valores inválidos são descartados", () => {
+		for (const budgetBaseMs of [-1, 0, "5", Number.NaN, Infinity]) {
+			expect(parseRuntimeCheckpoint({ messages: [], budgetBaseMs })).not.toHaveProperty("budgetBaseMs");
+		}
+		expect(parseRuntimeCheckpoint({ messages: [], wrapUpSent: "true" })).not.toHaveProperty("wrapUpSent");
+	});
+});
