@@ -12,6 +12,8 @@ import { ComputerMenu } from "@/components/computer/computer-menu";
 import { Zoomable } from "@/components/computer/zoomable";
 import type { MobileAvatarState } from "@/lib/avatar-activity";
 import type { HomeBot } from "@/lib/home-types";
+import { themeVars } from "@/lib/theme";
+import { ForcedColorScheme } from "@/lib/use-theme";
 
 /** Estado da tela: carregando a sessão, pronta (mostra o computador), computador desligado ou erro ao conectar. */
 export type ComputerStatus = "loading" | "ready" | "off" | "error";
@@ -110,7 +112,8 @@ export function ComputerView({ bot, avatarState = "idle", status, source, childr
 		if (!controlling) setMenuOpen(false);
 	}, [controlling]);
 	return (
-		<KeyboardAvoidingView behavior="padding" className="flex-1" style={{ backgroundColor: SCREEN }}>
+		<ForcedColorScheme value="dark">
+		<KeyboardAvoidingView behavior="padding" className="flex-1" style={[{ backgroundColor: SCREEN }, themeVars("dark")]}>
 			<View style={{ paddingTop: insets.top + 6, paddingHorizontal: SIDE, height: insets.top + 6 + TOP_BAR_CONTROL }} className="flex-row items-center gap-3">
 				<RoundButton label="Voltar" onPress={onBack}>
 					<ChevronLeftIcon />
@@ -167,5 +170,6 @@ export function ComputerView({ bot, avatarState = "idle", status, source, childr
 				<View style={{ height: insets.bottom + 16 }} />
 			)}
 		</KeyboardAvoidingView>
+		</ForcedColorScheme>
 	);
 }
