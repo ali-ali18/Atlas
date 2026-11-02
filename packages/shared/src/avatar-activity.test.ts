@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
-import { avatarStateForActivity, stepProgress } from "./avatar-activity";
-import { toolKind, type AgentActivity } from "./working-status";
+import { avatarStateForActivity, stepProgress } from "./avatar-activity.js";
+import { toolKind, type AgentActivity } from "./agent-activity.js";
 
 const tool = (name: string, extra: Partial<Extract<AgentActivity, { phase: "tool" }>> = {}): AgentActivity => ({
 	phase: "tool",
