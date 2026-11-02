@@ -7,6 +7,9 @@ import {
 	newCodeVerifier,
 	bridgeStartUrl,
 	createGoogleBridge,
+	expoGoReturnUrl,
+	isExpoGoRuntime,
+	pickReturnUrl,
 	newBridgeState,
 	readBridgeLink,
 	type BridgeDeps,
@@ -32,6 +35,36 @@ describe("helpers puros", () => {
 		expect(appReturnUrl((p) => `exp://u.expo.dev/abc/--${p}`)).toBe("exp://u.expo.dev/abc/--/");
 		expect(appReturnUrl(() => "atlas:///")).toBe("atlas:///");
 		expect(() => appReturnUrl((p) => `https://agent.exemplo.com${p}`)).toThrow();
+	});
+	it("expoGoReturnUrl usa o primeiro link exp:// só dentro do Expo Go", () => {
+		expect(expoGoReturnUrl(true, ["exp://u.expo.dev/abc/group/g1/--/"])).toBe("exp://u.expo.dev/abc/group/g1/--/");
+		expect(expoGoReturnUrl(true, ["exp://u.expo.dev/abc/group/g1"])).toBe("exp://u.expo.dev/abc/group/g1/--/");
+		expect(expoGoReturnUrl(true, ["exp://u.expo.dev/abc/--/x?channel-name=preview"])).toBe("exp://u.expo.dev/abc/--/?channel-name=preview");
+		expect(expoGoReturnUrl(true, ["exp://u.expo.dev/abc?channel-name=preview"])).toBe("exp://u.expo.dev/abc/--/?channel-name=preview");
+		expect(expoGoReturnUrl(true, ["atlas://", undefined, "exp://u.expo.dev/abc/group/g1"])).toBe("exp://u.expo.dev/abc/group/g1/--/");
+		expect(expoGoReturnUrl(false, ["exp://u.expo.dev/abc/--/"])).toBeNull();
+		expect(expoGoReturnUrl(true, ["atlas:///", null, ""])).toBeNull();
+	});
+	it("expoGoReturnUrl: bordas do link e só exp://", () => {
+		expect(expoGoReturnUrl(true, ["exp://u.expo.dev"])).toBe("exp://u.expo.dev/--/");
+		expect(expoGoReturnUrl(true, ["exp://u.expo.dev/abc/--"])).toBe("exp://u.expo.dev/abc/--/");
+		expect(expoGoReturnUrl(true, ["exp://u.expo.dev/abc/--/x#frag"])).toBe("exp://u.expo.dev/abc/--/");
+		expect(expoGoReturnUrl(true, ["exps://u.expo.dev/abc"])).toBeNull();
+		expect(expoGoReturnUrl(true, ["exp:///sem-host"])).toBeNull();
+	});
+	it("isExpoGoRuntime: ambiente, Android sem atlas:// e iOS", () => {
+		expect(isExpoGoRuntime({ reportsExpoGo: true, platform: "ios", appSchemeOpens: true })).toBe(true);
+		expect(isExpoGoRuntime({ reportsExpoGo: false, platform: "android", appSchemeOpens: false })).toBe(true);
+		expect(isExpoGoRuntime({ reportsExpoGo: false, platform: "android", appSchemeOpens: true })).toBe(false);
+		// iOS instalado: canOpenURL não é confiável lá; sem o ambiente dizer Expo Go, fica no app.
+		expect(isExpoGoRuntime({ reportsExpoGo: false, platform: "ios", appSchemeOpens: false })).toBe(false);
+	});
+	it("pickReturnUrl: Expo Go usa o link da atualização; app instalado fica no atlas:///", () => {
+		const links = [undefined, "", "exp://u.expo.dev/update/0123"];
+		expect(pickReturnUrl("atlas:///", { reportsExpoGo: false, platform: "android", appSchemeOpens: false }, links)).toBe("exp://u.expo.dev/update/0123/--/");
+		expect(pickReturnUrl("atlas:///", { reportsExpoGo: false, platform: "android", appSchemeOpens: true }, links)).toBe("atlas:///");
+		expect(pickReturnUrl("atlas:///", { reportsExpoGo: false, platform: "ios", appSchemeOpens: false }, links)).toBe("atlas:///");
+		expect(pickReturnUrl("atlas:///", { reportsExpoGo: true, platform: "android", appSchemeOpens: false }, [null])).toBe("atlas:///");
 	});
 	it("bridgeStartUrl codifica o retorno e não duplica a barra", () => {
 		const url = bridgeStartUrl("https://agent.exemplo.com/", RETURN, STATE, CHALLENGE);
@@ -59,7 +92,7 @@ function setup(overrides: Partial<BridgeDeps> = {}) {
 	const opened: Array<{ url: string; returnUrl: string }> = [];
 	const deps: BridgeDeps = {
 		serverUrl: "https://agent.exemplo.com",
-		returnUrl: RETURN,
+		resolveReturnUrl: async () => RETURN,
 		pending: {
 			save: async (value) => void (pending = value),
 			load: async () => pending,
@@ -92,6 +125,16 @@ describe("createGoogleBridge", () => {
 		expect(t.exchanged).toEqual([TOKEN]);
 		expect(t.verifiers).toEqual([VERIFIER]);
 		expect(t.getPending()).toBeNull();
+	});
+
+	it("usa o link de volta decidido na hora e falha sem abrir nada se não houver link", async () => {
+		const ok = setup({ resolveReturnUrl: async () => "exp://u.expo.dev/p/--/?channel-name=preview" });
+		await ok.bridge.begin();
+		expect(ok.opened[0]?.returnUrl).toBe("exp://u.expo.dev/p/--/?channel-name=preview");
+		const broken = setup({ resolveReturnUrl: async () => Promise.reject(new Error("sem link")) });
+		expect(await broken.bridge.begin()).toBe("failed");
+		expect(broken.opened).toEqual([]);
+		expect(broken.getPending()).toBeNull();
 	});
 
 	it("state diferente no link: não troca o token (CSRF) e o login termina como cancelado", async () => {
