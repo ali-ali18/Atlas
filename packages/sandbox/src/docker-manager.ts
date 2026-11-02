@@ -38,6 +38,7 @@ import {
 	listSandboxDir,
 	readSandboxFile,
 	runShell,
+	SANDBOX_HOME,
 	SANDBOX_WORK_DIR,
 	waitShell,
 	writeSandboxFile,
@@ -163,10 +164,23 @@ export function workVolumeName(conversationId: string, userId: string): string {
 	return `atlas-work-${key}`;
 }
 
-/** Mounts persistentes da conversa: perfil do Chrome + diretório de trabalho. */
+/** Volume do home do usuário `atlas` (/home/atlas): o que o agente instala fora de /usr
+ * (nvm, pip --user, ~/.local/bin, AppImage) e o registro dos programas instalados com
+ * `atlas-install` (~/.atlas) sobrevivem a stop/recriação da VM. Mesma chave dos outros dois. */
+export function homeVolumeName(conversationId: string, userId: string): string {
+	const key = createHash("sha256").update(JSON.stringify([userId, conversationId])).digest("hex");
+	return `atlas-home-${key}`;
+}
+
+/** Mounts persistentes da conversa: perfil do Chrome, home do `atlas` e diretório de trabalho.
+ * O work vem DEPOIS do home porque fica aninhado em /home/atlas/work (o Docker monta por
+ * profundidade de destino, então o work cobre a pasta dentro do home). Na primeira montagem
+ * de um volume nomeado vazio o Docker copia para ele o conteúdo da imagem naquele caminho
+ * (sem a opção `nocopy`), então o home nasce com o que a imagem já tinha, com os donos. */
 export function sandboxBinds(conversationId: string, userId: string): string[] {
 	return [
 		`${profileVolumeName(conversationId, userId)}:/tmp/chrome-data`,
+		`${homeVolumeName(conversationId, userId)}:${SANDBOX_HOME}`,
 		`${workVolumeName(conversationId, userId)}:${SANDBOX_WORK_DIR}`,
 	];
 }

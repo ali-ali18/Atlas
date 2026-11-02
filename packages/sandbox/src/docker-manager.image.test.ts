@@ -76,7 +76,7 @@ vi.mock("node:net", () => ({
 	},
 }));
 
-import { createSandboxManager, profileVolumeName, workVolumeName } from "./docker-manager.js";
+import { createSandboxManager, homeVolumeName, profileVolumeName, workVolumeName } from "./docker-manager.js";
 import { loadSandboxConfig } from "./config.js";
 import { deleteSession, listAllSessionsForCleanup as listSessions } from "./session-store.js";
 
@@ -149,6 +149,7 @@ describe("docker-manager: imagem desatualizada", () => {
 		expect(state.created[0]!.Image).toBe(config.image);
 		expect(state.created[0]!.HostConfig.Binds).toEqual([
 			`${profileVolumeName("conv-1", "user-image")}:/tmp/chrome-data`,
+			`${homeVolumeName("conv-1", "user-image")}:/home/atlas`,
 			`${workVolumeName("conv-1", "user-image")}:/home/atlas/work`,
 		]);
 		expect(state.calls).not.toContain("start:old");
