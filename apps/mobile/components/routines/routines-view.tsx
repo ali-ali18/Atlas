@@ -7,7 +7,9 @@ import { ChevronLeftIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
+import { routineSurface } from "@/lib/chat-surface";
 import { groupRoutines } from "@/lib/routine-summary";
+import { useAppColorScheme } from "@/lib/use-theme";
 import { RoutineCard } from "./routine-card";
 import { RoutineGroup } from "./routine-group";
 
@@ -22,6 +24,7 @@ export type RoutinesViewProps = {
 	/** Ids com o pedido em voo (interruptor desabilitado). */
 	busyIds?: ReadonlySet<string>;
 	onBack: () => void;
+	onOpen: (routine: RoutineRecord) => void;
 	onToggle: (routine: RoutineRecord, enabled: boolean) => void;
 	onRetry?: () => void;
 	/** "Pedir ao bot": criar e editar rotina é conversando (sem formulário no app). */
@@ -34,7 +37,8 @@ const NO_BUSY: ReadonlySet<string> = new Set();
  * Tela de Rotinas do bot: lista (soltas e grupos recolhíveis), cada rotina com a frase do gatilho e o interruptor de
  * pausar/retomar. Só desenho e estados (carregando, erro, vazio); os dados e as ações vêm de quem chama.
  */
-export function RoutinesView({ routines, groups, accent, loading = false, error = null, busyIds = NO_BUSY, onBack, onToggle, onRetry, onAskBot }: RoutinesViewProps) {
+export function RoutinesView({ routines, groups, accent, loading = false, error = null, busyIds = NO_BUSY, onBack, onOpen, onToggle, onRetry, onAskBot }: RoutinesViewProps) {
+	const surface = routineSurface(useAppColorScheme());
 	const entries = React.useMemo(() => groupRoutines(routines, groups), [routines, groups]);
 	let body: React.ReactNode;
 	if (loading && routines.length === 0) {
@@ -75,9 +79,9 @@ export function RoutinesView({ routines, groups, accent, loading = false, error 
 				{error ? <Text className="px-1 text-caption text-muted-foreground">{error}</Text> : null}
 				{entries.map((entry) =>
 					entry.kind === "group" ? (
-						<RoutineGroup key={`g-${entry.group.id}`} group={entry.group} routines={entry.routines} accent={accent} busyIds={busyIds} onToggle={onToggle} />
+						<RoutineGroup key={`g-${entry.group.id}`} group={entry.group} routines={entry.routines} accent={accent} busyIds={busyIds} onOpen={onOpen} onToggle={onToggle} />
 					) : (
-						<RoutineCard key={entry.routine.id} routine={entry.routine} accent={accent} busy={busyIds.has(entry.routine.id)} onToggle={onToggle} />
+						<RoutineCard key={entry.routine.id} routine={entry.routine} accent={accent} busy={busyIds.has(entry.routine.id)} onOpen={onOpen} onToggle={onToggle} />
 					),
 				)}
 				{onAskBot ? (
@@ -89,12 +93,14 @@ export function RoutinesView({ routines, groups, accent, loading = false, error 
 		);
 	}
 	return (
-		<SafeAreaView className="flex-1 bg-background">
-			<View className="flex-row items-center gap-3 px-4 pt-1.5">
-				<RoundButton label="Voltar" onPress={onBack}>
-					<ChevronLeftIcon />
-				</RoundButton>
-				<Text className="text-xl font-semibold">Rotinas</Text>
+		<SafeAreaView className="flex-1" style={{ backgroundColor: surface.screen }}>
+			<View className="items-center justify-center px-4 pt-1.5" style={{ minHeight: 47 + 6 }}>
+				<View className="absolute left-4 top-1.5">
+					<RoundButton label="Voltar" onPress={onBack}>
+						<ChevronLeftIcon />
+					</RoundButton>
+				</View>
+				<Text className="text-lg">Rotinas</Text>
 			</View>
 			<ScrollView contentContainerClassName="gap-3 px-4 pb-10 pt-6">{body}</ScrollView>
 		</SafeAreaView>

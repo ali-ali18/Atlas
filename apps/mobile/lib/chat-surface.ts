@@ -19,3 +19,13 @@ export function chatChrome(scheme: "light" | "dark"): { fill: string; edge: stri
 		? { fill: "#2c2c2e", edge: "#4b4b4d", control: "#3e3d42" }
 		: { fill: themeColor(scheme, "input"), edge: themeColor(scheme, "border"), control: themeColor(scheme, "muted") };
 }
+
+/**
+ * Cores das telas de Rotinas no escuro (medidas no app do Grok): fundo da tela #1e1e1e, cartões #2c2c2e com contorno
+ * #373739 e o azul da ação "Editar rotina" (#136cd0). No claro valem os tokens.
+ */
+export function routineSurface(scheme: "light" | "dark"): { screen: string; card: string; edge: string; link: string; off: string } {
+	return scheme === "dark"
+		? { screen: "#1e1e1e", card: "#2c2c2e", edge: "#373739", link: "#136cd0", off: "#3a3a3c" }
+		: { screen: themeColor(scheme, "background"), card: themeColor(scheme, "muted"), edge: themeColor(scheme, "border"), link: themeColor(scheme, "info"), off: themeColor(scheme, "input") };
+}

@@ -7,7 +7,7 @@ import { groupSummary } from "@/lib/routine-summary";
 import { RoutineCard } from "./routine-card";
 
 /** Grupo recolhível (aberto por padrão): nome, "N de M ativas" e as rotinas dentro, como no web. */
-export function RoutineGroup({ group, routines, accent, busyIds, onToggle }: { group: RoutineGroupRecord; routines: RoutineRecord[]; accent: string; busyIds: ReadonlySet<string>; onToggle: (routine: RoutineRecord, enabled: boolean) => void }) {
+export function RoutineGroup({ group, routines, accent, busyIds, onOpen, onToggle }: { group: RoutineGroupRecord; routines: RoutineRecord[]; accent: string; busyIds: ReadonlySet<string>; onOpen: (routine: RoutineRecord) => void; onToggle: (routine: RoutineRecord, enabled: boolean) => void }) {
 	const [open, setOpen] = React.useState(true);
 	const active = routines.filter((routine) => routine.enabled).length;
 	return (
@@ -25,7 +25,7 @@ export function RoutineGroup({ group, routines, accent, busyIds, onToggle }: { g
 			</Pressable>
 			{open
 				? routines.length > 0
-					? routines.map((routine) => <RoutineCard key={routine.id} routine={routine} accent={accent} busy={busyIds.has(routine.id)} onToggle={onToggle} />)
+					? routines.map((routine) => <RoutineCard key={routine.id} routine={routine} accent={accent} busy={busyIds.has(routine.id)} onOpen={onOpen} onToggle={onToggle} />)
 					: <Text variant="muted" className="px-1 text-body">Nenhuma rotina neste grupo.</Text>
 				: null}
 		</View>
