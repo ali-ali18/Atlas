@@ -501,6 +501,22 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 		expect(run.result.stop).toEqual({ reason: "answered" });
 	});
 
+	it("lista de 3 passos que já chega toda concluída (fechando o trabalho, antes de responder) não promove", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			script: [
+				() => turn([taskList([["Abrir o vídeo", "completed"], ["Ler a página", "completed"], ["Responder", "completed"]])], 0.1),
+				(seen) => {
+					expect(seen.toolNames).not.toContain("notebook_write");
+					expect(seen.transcript).not.toContain("This task turned into long work");
+					return say("Pronto.", 0.1);
+				},
+			],
+		});
+		expect(run.onPromoted).not.toHaveBeenCalled();
+		expect(run.result.stop).toEqual({ reason: "answered" });
+	});
+
 	it("promove uma vez só: refazer a lista depois não promove de novo", async () => {
 		const run = await runChat({
 			stepMs: 5_000,
@@ -527,7 +543,8 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 				stepMs: 5_000,
 				options: { promotable: false, onPromoted: undefined },
 				extra: { origin, humanTurn: false },
-				script: [research(0.1), (seen) => {
+				// O modelo monta uma lista de 3 passos (como se o texto de fora o tivesse convencido) e mesmo assim não promove.
+				script: [three, (seen) => {
 					expect(seen.toolNames, origin).not.toContain("notebook_write");
 					expect(seen.transcript, origin).not.toContain("This task turned into long work");
 					return say("Resumo para o dono.", 0.1);
@@ -535,6 +552,19 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 			});
 			expect(run.result.stop, origin).toEqual({ reason: "answered" });
 		}
+	});
+
+	it("o prazo das operações do computador acompanha o teto duro da conta num chat que não promove (a renovação por mensagem estica o tempo)", async () => {
+		const deadlines: number[] = [];
+		const start = Date.now();
+		await runChat({
+			stepMs: 1_000,
+			options: { promotable: false, onPromoted: undefined },
+			extra: { manager: { withExecutionContext: (context: { deadlineAtMs: number }) => (deadlines.push(context.deadlineAtMs), {}) } as never },
+			script: [say("Oi.", 0.1)],
+		});
+		// Chat tem 8 min de orçamento (prazo de 10 min sem a correção); o teto duro padrão é de 30 min, e o prazo vai a 1,25x dele.
+		expect(deadlines[0]! - start).toBeGreaterThan(30 * 60_000);
 	});
 
 	it("o teto de custo do trabalho longo (gasto máximo do bot) continua valendo depois de promover pela lista", async () => {

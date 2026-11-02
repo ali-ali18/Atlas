@@ -233,7 +233,9 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	const wall = wallClockAnchors({ maxWallMs: budget.maxActiveMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
 	const activeElapsedMs = () => wall.baseMs + (Date.now() - wall.executionStartMs);
 	// Folga de 25% sobre o orçamento de tempo só para as operações do computador não ficarem presas para sempre.
-	const deadlineBudgetMs = Math.max(budget.maxActiveMs, promotedBudget?.maxActiveMs ?? 0);
+	// A renovação por mensagem do usuário estica o tempo do orçamento até o teto duro da conta (`runLimits.maxWallMs`), então
+	// o prazo das operações também considera esse teto; sem isso, num chat que não promove, a operação falharia no prazo antigo.
+	const deadlineBudgetMs = Math.max(budget.maxActiveMs, promotedBudget?.maxActiveMs ?? 0, helperRole ? 0 : runLimits.maxWallMs);
 	const deadlineAtMs = wall.executionStartMs + Math.round(Math.max(0, deadlineBudgetMs - wall.baseMs) * 1.25);
 	const executionContext = { signal: params.abortSignal, deadlineAtMs, ...(params.browserTabId ? { tabId: params.browserTabId } : {}) };
 	const manager = withAgentPointer(params.manager.withExecutionContext?.(executionContext) ?? params.manager, (event) => onEvent(event));
@@ -343,7 +345,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	/** Maior lista que o MODELO montou neste run (só `update_task_list` chega aqui; lista herdada não conta): 3+ promove o chat. */
 	let modelPlannedSteps = 0;
 	const emitTaskListEvent = async (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>) => {
-		modelPlannedSteps = Math.max(modelPlannedSteps, items.length);
+		// Lista que o modelo já manda toda concluída (fechando o trabalho, logo antes de responder) não é plano: não promove.
+		if (items.some((item) => item.status !== "completed")) modelPlannedSteps = Math.max(modelPlannedSteps, items.length);
 		lastTaskItems = items.length > 0 ? items : undefined;
 		await upsertTaskListCard(conversationId, runId, items).catch(() => undefined);
 		await onEvent({ type: "task_list", items, ...(params.runId ? { runId: params.runId } : {}) });
