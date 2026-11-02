@@ -32,3 +32,16 @@ export function bubbleCorners(side: "left" | "right", position: GroupPosition): 
 	}
 	return corners;
 }
+
+/**
+ * Balão colado numa tabela (mesma fala): o cartão da tabela é todo arredondado, então a ponta do balão que encosta nele
+ * também fica em 21 (a ponta reta de "falas seguidas" só vale entre balões). `hasAbove`/`hasBelow`: há tabela em cima/embaixo.
+ */
+export function cornersNextToTable(base: BubbleCorners, side: "left" | "right", hasAbove: boolean, hasBelow: boolean): BubbleCorners {
+	const corners = { ...base };
+	const top = side === "left" ? "borderTopLeftRadius" : "borderTopRightRadius";
+	const bottom = side === "left" ? "borderBottomLeftRadius" : "borderBottomRightRadius";
+	if (hasAbove) corners[top] = BUBBLE_RADIUS;
+	if (hasBelow) corners[bottom] = BUBBLE_RADIUS;
+	return corners;
+}

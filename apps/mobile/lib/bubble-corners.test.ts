@@ -19,3 +19,18 @@ describe("cantos do balão (21 dp só no app)", () => {
 		expect(radii(bubbleCorners("right", "last"))).toEqual([21, 6, 21, 21]);
 	});
 });
+
+import { cornersNextToTable } from "./bubble-corners";
+
+describe("balão colado numa tabela", () => {
+	it("tabela embaixo: a ponta de baixo à esquerda vira 21, mesmo numa sequência", () => {
+		expect(radii(cornersNextToTable(bubbleCorners("left", "middle"), "left", false, true))).toEqual([6, 21, 21, 21]);
+	});
+	it("tabela em cima: a ponta de cima à esquerda vira 21", () => {
+		expect(radii(cornersNextToTable(bubbleCorners("left", "last"), "left", true, false))).toEqual([21, 21, 21, 21]);
+	});
+	it("sem tabela por perto nada muda", () => {
+		const base = bubbleCorners("left", "first");
+		expect(cornersNextToTable(base, "left", false, false)).toEqual(base);
+	});
+});

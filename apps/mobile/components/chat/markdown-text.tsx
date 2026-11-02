@@ -125,7 +125,7 @@ export function TableCard({ block, scheme, onLongPress }: { block: Extract<Block
 				style={{ flexGrow: 0 }}
 				contentContainerStyle={{ flexGrow: 0 }}
 			>
-				<View style={{ width: total }}>
+				<View style={{ width: Math.max(total, viewport) }}>
 					{[block.header, ...block.rows].map((row, rowIndex) => (
 						<View key={`row-${rowIndex}`} style={{ flexDirection: "row", borderTopWidth: rowIndex > 0 ? 1 : 0, borderTopColor: divider }}>
 							{row.map((cell, column) => (

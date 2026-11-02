@@ -2,7 +2,7 @@ import * as React from "react";
 import { Pressable, View } from "react-native";
 import Animated, { FadeIn, useReducedMotion } from "react-native-reanimated";
 import type { GroupPosition } from "@workspace/shared";
-import { bubbleCorners } from "@/lib/bubble-corners";
+import { bubbleCorners, cornersNextToTable } from "@/lib/bubble-corners";
 import { Text } from "@/components/ui/text";
 import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "@/lib/chat-types";
@@ -82,7 +82,7 @@ function BotBubble({ text, position, reactions, replyTo, onLongPress }: { text: 
 				segment.kind === "table" ? (
 					<TableCard key={`table-${index}`} block={segment.block} scheme={scheme} onLongPress={onLongPress} />
 				) : (
-					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" style={[{ backgroundColor: chatSurface(scheme, "bubble") }, bubbleCorners("left", position)]} className="px-3.5 py-3.5">
+					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" style={[{ backgroundColor: chatSurface(scheme, "bubble") }, cornersNextToTable(bubbleCorners("left", position), "left", index > 0, index < segments.length - 1)]} className="px-3.5 py-3.5">
 						<MarkdownBlocks blocks={segment.blocks} />
 					</Pressable>
 				),
