@@ -1,4 +1,5 @@
 import * as React from "react";
+import * as Linking from "expo-linking";
 import { View } from "react-native";
 import { AtSignIcon, GoogleIcon } from "@/components/icons";
 import { AuthColumn, AuthDivider, AuthHeader } from "@/components/auth-layout";
@@ -20,6 +21,7 @@ import {
 	resendSecondsLeft,
 } from "@/lib/login-flow";
 import { checkServer } from "@/lib/server-check";
+import { googleCallbackUrls } from "@/lib/google-callback";
 
 // Textos de apps/web/lib/i18n/messages/pt-BR/login.ts (login.title, subtitle, google, or, emailLabel,
 // emailPlaceholder). Aqui o e-mail recebe um código de 6 números em vez de um link, porque o link do e-mail
@@ -101,8 +103,10 @@ export default function LoginScreen() {
 		if (!client || busy) return;
 		dispatch({ type: "googleRequested" });
 		try {
-			// `callbackURL` "/" vira o deep link do app (atlas:// ou exp:// no Expo Go) dentro do plugin expo.
-			await client.signIn.social({ provider: "google", callbackURL: "/" });
+			// Deep link explícito (atlas:// no app instalado, exp:// no Expo Go): com "/" o servidor voltava para o site
+			// dentro do navegador, em vez de devolver a sessão ao app e fechar a aba (como no Grok).
+			const back = googleCallbackUrls(Linking.createURL);
+			await client.signIn.social({ provider: "google", ...back });
 			const session = await client.getSession();
 			if (session.data?.user) {
 				markSignedIn();
