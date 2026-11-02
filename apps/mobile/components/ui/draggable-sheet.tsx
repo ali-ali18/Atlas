@@ -10,6 +10,7 @@ const TOP_GAP = 16;
 /** A gaveta abre, no máximo, com 60% da tela. */
 const COLLAPSED_MAX = 0.6;
 const ANIMATION_MS = 220;
+const SLIDE_MS = 280;
 /** Deslocamento (pt) abaixo do qual o gesto na alça conta como toque. */
 const TAP_SLOP = 4;
 
@@ -43,6 +44,10 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 	const collapsedHeight = measured ? Math.min(zoneHeight + contentHeight, fallbackHeight) : fallbackHeight;
 	const [grace, setGrace] = React.useState(false);
 	const height = useSharedValue(0);
+	// 1 = gaveta toda fora da tela (embaixo), 0 = no lugar: a abertura sobe de baixo, não aparece no meio.
+	const slide = useSharedValue(1);
+	const placed = React.useRef(false);
+	const shown = measured || grace;
 
 	// O gesto roda fora do render: lê sempre os valores atuais por ref.
 	const live = React.useRef({ rest, collapsed: collapsedHeight, expanded: expandedHeight, onClose, reduced: reducedMotion });
@@ -59,10 +64,12 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 	React.useEffect(() => {
 		if (visible) return;
 		height.value = 0;
+		slide.value = 1;
+		placed.current = false;
 		setRest("collapsed");
 		setContentHeight(0);
 		setGrace(false);
-	}, [visible, height]);
+	}, [visible, height, slide]);
 
 	// Sem medida: mostra já na altura padrão e libera a opacidade depois de um instante, aconteça o que acontecer com o layout.
 	React.useEffect(() => {
@@ -75,8 +82,18 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 	// Abriu, o conteúdo mudou (submenu) ou a tela girou: acomoda na altura do estado atual.
 	React.useEffect(() => {
 		if (!visible || !measured) return;
-		animateTo(restHeight(rest, { collapsed: collapsedHeight, expanded: expandedHeight }));
-	}, [visible, measured, rest, collapsedHeight, expandedHeight, animateTo]);
+		const target = restHeight(rest, { collapsed: collapsedHeight, expanded: expandedHeight });
+		// Primeira medida: assenta direto na altura certa (sem encolher); a entrada é a subida de `slide`.
+		if (placed.current) animateTo(target);
+		else height.value = target;
+		placed.current = true;
+	}, [visible, measured, rest, collapsedHeight, expandedHeight, animateTo, height]);
+
+	// A gaveta sobe de baixo assim que está visível.
+	React.useEffect(() => {
+		if (!visible || !shown) return;
+		slide.value = live.current.reduced ? 0 : withTiming(0, { duration: SLIDE_MS, easing: Easing.out(Easing.cubic) });
+	}, [visible, shown, slide]);
 
 	const settle = React.useCallback(
 		(next: "closed" | SheetRest, target: number) => {
@@ -119,7 +136,7 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 		});
 	}, [height, settle]);
 
-	const sheetStyle = useAnimatedStyle(() => ({ height: height.value }));
+	const sheetStyle = useAnimatedStyle(() => ({ height: height.value, transform: [{ translateY: slide.value * height.value }] }));
 
 	const onAccessibilityAction = (event: AccessibilityActionEvent) => {
 		const heights = { collapsed: collapsedHeight, expanded: expandedHeight };
@@ -136,7 +153,7 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 			<ThemedModalRoot>
 				<Pressable accessibilityLabel="Fechar" onPress={onClose} className="absolute inset-0 bg-black/50" />
 				<View pointerEvents="box-none" className="flex-1 justify-end">
-					<Animated.View style={[{ opacity: measured || grace ? 1 : 0 }, sheetStyle]}>
+					<Animated.View style={[{ opacity: shown ? 1 : 0 }, sheetStyle]}>
 						<View className="flex-1 overflow-hidden rounded-t-panel bg-popover">
 							<View {...pan.panHandlers} onLayout={(event) => setZoneHeight(event.nativeEvent.layout.height)}>
 								<View
