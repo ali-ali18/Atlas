@@ -7,6 +7,7 @@ import { HomeHeader } from "@/components/home/home-header";
 import { PinnedGrid } from "@/components/home/pinned-grid";
 import { SearchFooter } from "@/components/home/search-footer";
 import { SectionBlock } from "@/components/home/section-block";
+import { HomeBotMenu } from "@/components/home/home-bot-menu";
 import { SoonSheet } from "@/components/home/soon-sheet";
 import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
@@ -34,6 +35,7 @@ export default function HomeScreen() {
 	const [query, setQuery] = React.useState("");
 	const [collapsed, setCollapsed] = React.useState<Record<string, boolean>>({});
 	const [soon, setSoon] = React.useState<Soon>(null);
+	const [menuBot, setMenuBot] = React.useState<HomeBot | null>(null);
 	// "agora" muda com cada atualização: a data da linha ("agora", "14:05") acompanha.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: snapshot renova o relógio de propósito
 	const now = React.useMemo(() => new Date(), [snapshot]);
@@ -80,7 +82,7 @@ export default function HomeScreen() {
 		body = (
 			<>
 				{error ? <Text className="px-5 pt-2 text-caption text-muted-foreground">{staleNotice(error)}</Text> : null}
-				<PinnedGrid pinned={layout.pinned} bots={bots} onOpen={open} />
+				<PinnedGrid pinned={layout.pinned} bots={bots} onOpen={open} onMenu={setMenuBot} />
 				{layout.sections.map((section) => (
 					<SectionBlock
 						key={section.key}
@@ -90,6 +92,7 @@ export default function HomeScreen() {
 						open={searching || !collapsed[section.key]}
 						onToggle={() => setCollapsed((previous) => ({ ...previous, [section.key]: !previous[section.key] }))}
 						onOpen={open}
+						onMenu={setMenuBot}
 						showEmpty={!searching}
 					/>
 				))}
@@ -112,6 +115,7 @@ export default function HomeScreen() {
 				</ScrollView>
 				<SearchFooter query={query} onChange={setQuery} onGrid={() => setSoon("apps")} />
 			</KeyboardAvoidingView>
+			<HomeBotMenu bot={menuBot} onClose={() => setMenuBot(null)} onChanged={() => void refresh()} />
 			<SoonSheet open={soon !== null} title={soon === "apps" ? "Apps" : "Novo chat"} onClose={() => setSoon(null)} />
 		</SafeAreaView>
 	);

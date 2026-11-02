@@ -9,11 +9,11 @@ import { BotAvatar } from "./bot-avatar";
 const ROW_BODY = 48;
 
 /** Linha de uma conversa: avatar, título em negrito, data à direita e a prévia da última mensagem. */
-export function ConversationRow({ bot, bots, now, onOpen }: { bot: HomeBot; bots: readonly HomeBot[]; now: Date; onOpen: (bot: HomeBot) => void }) {
+export function ConversationRow({ bot, bots, now, onOpen, onMenu }: { bot: HomeBot; bots: readonly HomeBot[]; now: Date; onOpen: (bot: HomeBot) => void; onMenu: (bot: HomeBot) => void }) {
 	const date = formatListDate(bot.lastAt, now);
 	const unread = bot.unread;
 	return (
-		<Pressable role="button" accessibilityLabel={`${bot.name}. ${bot.preview}`} onPress={() => onOpen(bot)} className="min-h-[72px] flex-row items-center gap-3 px-5 py-2 active:bg-muted/60">
+		<Pressable role="button" accessibilityLabel={`${bot.name}. ${bot.preview}`} onPress={() => onOpen(bot)} onLongPress={() => onMenu(bot)} accessibilityHint="Segure para ver as ações da conversa" className="min-h-[72px] flex-row items-center gap-3 px-5 py-2 active:bg-muted/60">
 			<BotAvatar bot={bot} bots={bots} body={ROW_BODY} />
 			<View className="min-w-0 flex-1 gap-0.5">
 				<View className="flex-row items-center gap-2">
@@ -42,6 +42,7 @@ export function SectionBlock({
 	open,
 	onToggle,
 	onOpen,
+	onMenu,
 	showEmpty,
 }: {
 	section: HomeSection;
@@ -50,6 +51,7 @@ export function SectionBlock({
 	open: boolean;
 	onToggle: () => void;
 	onOpen: (bot: HomeBot) => void;
+	onMenu: (bot: HomeBot) => void;
 	showEmpty: boolean;
 }) {
 	return (
@@ -64,7 +66,7 @@ export function SectionBlock({
 			</Pressable>
 			{open
 				? section.bots.length > 0
-					? section.bots.map((bot) => <ConversationRow key={bot.id} bot={bot} bots={bots} now={now} onOpen={onOpen} />)
+					? section.bots.map((bot) => <ConversationRow key={bot.id} bot={bot} bots={bots} now={now} onOpen={onOpen} onMenu={onMenu} />)
 					: showEmpty
 						? <Text className="px-5 pb-3 text-body text-muted-foreground">Nenhuma conversa aqui ainda.</Text>
 						: null
