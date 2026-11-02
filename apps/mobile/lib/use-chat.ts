@@ -3,6 +3,8 @@
 import * as React from "react";
 import { AppState } from "react-native";
 import * as chatApi from "./chat-api";
+import type { MobileAvatarState } from "./avatar-activity";
+import { useAvatarLive } from "./use-avatar-live";
 import { chatCacheKey, createChatCacheWriter, loadChatCache } from "./chat-cache";
 import { ChatController, deriveView, type ChatApi, type ChatDeps } from "./chat-controller";
 import type { ChatItem } from "./chat-types";
@@ -23,6 +25,8 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 	hasMore: boolean;
 	loadingOlder: boolean;
 	ready: boolean;
+	/** Estado do avatar já governado (permanência mínima) e o que o bot está fazendo, em pt-BR (`null` em repouso). */
+	avatar: { state: MobileAvatarState; label: string | null };
 	loadOlder: () => void;
 	send: (text: string) => void;
 	stop: () => void;
@@ -110,8 +114,10 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		if (botId) setBotRun(botId, { running: view.running, tasks: view.runTasks?.items ?? null, last: view.lastTasks?.items ?? null, stop }, owner);
 	}, [botId, view.running, view.runTasks, view.lastTasks, stop, owner]);
 	React.useEffect(() => () => (botId ? clearBotRun(botId, owner) : undefined), [botId, owner]);
+	const avatar = useAvatarLive({ activity: view.activity, running: view.running, paused: snapshot.live.paused, failures: view.failures, finishes: view.finishes });
 	return {
 		...view,
+		avatar,
 		phase: snapshot.live.phase,
 		paused: snapshot.live.paused,
 		notice: snapshot.live.notice,

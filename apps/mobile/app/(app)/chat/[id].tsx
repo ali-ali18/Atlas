@@ -121,7 +121,7 @@ export default function ChatScreen() {
 					// Cabeçalho de lista invertida = embaixo: a linha de sincronização fica logo abaixo da última mensagem.
 					ListHeaderComponent={
 						<View>
-							{showThinking ? <ThinkingLine color={color} working={chat.phase === "tool"} /> : null}
+							{showThinking ? <ThinkingLine bot={bot} avatar={chat.avatar} /> : null}
 							{chat.line ? <SyncLine line={chat.line} color={color} /> : null}
 							{chat.notice ? (
 								<Text variant="muted" className="px-1 py-2 text-control">
@@ -153,7 +153,7 @@ export default function ChatScreen() {
 					}
 				/>
 				<Fade from="top" height={insets.top + TOP_BAR_HEIGHT + 24} className="absolute left-0 right-0 top-0" />
-				<ChatTopBar bot={bot} onBack={goBack} onMenu={() => setMenu(true)} onProfile={openProfile} />
+				<ChatTopBar bot={bot} avatarState={chat.avatar.state} onBack={goBack} onMenu={() => setMenu(true)} onProfile={openProfile} />
 				<View className="z-10" onLayout={(event) => setComposerHeight(Math.round(event.nativeEvent.layout.height))}>
 					{farFromEnd ? (
 						<Pressable role="button" accessibilityLabel="Ir para o fim da conversa" onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })} style={{ position: "absolute", right: 16, bottom: "100%", marginBottom: 12 }} className="size-11 items-center justify-center rounded-full border border-border bg-card active:opacity-70">
