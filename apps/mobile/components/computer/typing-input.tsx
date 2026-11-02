@@ -13,6 +13,10 @@ type Controller = ReturnType<typeof createTypingController>;
 export function TypingInput({ active, controller, onClose }: { active: boolean; controller: Controller; onClose: () => void }) {
 	const ref = React.useRef<React.ComponentRef<typeof TextInput>>(null);
 	const [value, setValue] = React.useState(controller.initial);
+	// O campo nasce com o colchão novo: a base do controlador tem de ser a mesma (ele sobrevive à remontagem do campo).
+	React.useEffect(() => {
+		controller.reset();
+	}, [controller]);
 	React.useEffect(() => {
 		if (active) ref.current?.focus();
 		else ref.current?.blur();

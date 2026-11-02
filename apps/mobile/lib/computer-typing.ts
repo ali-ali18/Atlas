@@ -93,6 +93,14 @@ export function createTypingController(deps: TypingDeps) {
 		submit(): void {
 			void enqueue(() => deps.sendKey("Return"));
 		},
+		/**
+		 * O campo foi (re)montado com `initial`: a base da comparação volta a ser o colchão. Sem isto, depois de uma
+		 * remontagem (reconexão) o texto antigo ainda seria a base e a primeira tecla apagaria da VM o que já estava lá.
+		 */
+		reset(): string {
+			prev = TYPING_BUFFER;
+			return TYPING_BUFFER;
+		},
 		/** Resolve quando tudo o que foi pedido até agora terminou (útil nos testes). */
 		idle(): Promise<void> {
 			return enqueue(async () => undefined);

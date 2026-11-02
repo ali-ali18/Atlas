@@ -147,4 +147,24 @@ describe("controlador da digitação", () => {
 		expect(errors).toHaveLength(1);
 		expect(calls).toEqual(["b"]);
 	});
+	it("remontar o campo (reconexão) não apaga da VM o que já estava lá", async () => {
+		const { controller, calls } = setup();
+		controller.change(TYPING_BUFFER + "abc");
+		await controller.idle();
+		calls.length = 0;
+		// O campo é remontado com o colchão novo: reset() troca a base do controlador por ele.
+		expect(controller.reset()).toBe(controller.initial);
+		controller.change(controller.initial + "d");
+		await controller.idle();
+		expect(calls).toEqual(["text:d"]);
+	});
+	it("sem o reset a base ficaria velha (é o que o reset corrige)", async () => {
+		const { controller, calls } = setup();
+		controller.change(TYPING_BUFFER + "abc");
+		await controller.idle();
+		calls.length = 0;
+		controller.change(controller.initial + "d");
+		await controller.idle();
+		expect(calls.filter((c) => c === "key:BackSpace")).toHaveLength(3);
+	});
 });
