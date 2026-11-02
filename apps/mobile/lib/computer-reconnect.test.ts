@@ -117,4 +117,22 @@ describe("máquina de reconexão", () => {
 		expect(msUntilRetry({ phase: "waiting", attempts: 1, retryAt: 5000, connectedAt: null }, 9000)).toBe(0);
 		expect(msUntilRetry(initialReconnect, 0)).toBeNull();
 	});
+	it("parar (tela fora de foco) não dispara retry: ignora queda, conexão, relógio e 'tentar de novo' atrasados", () => {
+		const waiting: ReconnectState = { phase: "waiting", attempts: 2, retryAt: 5000, connectedAt: null };
+		const stopped = reconnectStep(waiting, { t: "stop" }, 1000);
+		expect(stopped).toEqual({ state: { phase: "stopped", attempts: 0, retryAt: null, connectedAt: null }, action: "none" });
+		expect(msUntilRetry(stopped.state, 1000)).toBeNull();
+		for (const event of [{ t: "tick" }, { t: "dropped" }, { t: "connected" }, { t: "fatal" }, { t: "retry" }] as ReconnectEvent[]) {
+			const out = reconnectStep(stopped.state, event, 1e9);
+			expect(out.state).toBe(stopped.state);
+			expect(out.action).toBe("none");
+		}
+	});
+	it("parar com a conexão aberta ou tentando também limpa tudo, e start recomeça do zero (esfera 'Conectando')", () => {
+		for (const state of [initialReconnect, { phase: "connected", attempts: 0, retryAt: null, connectedAt: 5 } as ReconnectState, { phase: "failed", attempts: 7, retryAt: null, connectedAt: null } as ReconnectState]) {
+			expect(reconnectStep(state, { t: "stop" }, 10).state.phase).toBe("stopped");
+		}
+		const stopped = reconnectStep(initialReconnect, { t: "stop" }, 0).state;
+		expect(reconnectStep(stopped, { t: "start" }, 20)).toEqual({ state: { phase: "connecting", attempts: 0, retryAt: null, connectedAt: null }, action: "connect" });
+	});
 });

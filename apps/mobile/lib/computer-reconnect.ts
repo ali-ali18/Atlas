@@ -2,7 +2,7 @@
 // WebSocket vale 10 min e só é conferido na hora de conectar, então cada (re)conexão pede um link novo. Máquina de
 // estados pura: o relógio entra por parâmetro (`now`) e o efeito (pedir link e conectar) é só um valor devolvido.
 
-export type ReconnectPhase = "connecting" | "connected" | "waiting" | "failed";
+export type ReconnectPhase = "connecting" | "connected" | "waiting" | "failed" | "stopped";
 export type ReconnectState = {
 	phase: ReconnectPhase;
 	/** Falhas seguidas (só zera depois de uma conexão ESTÁVEL, ver `STABLE_MS`). */
@@ -26,6 +26,7 @@ export const STABLE_MS = 10_000;
 
 export type ReconnectEvent =
 	| { t: "start" } // abrir a primeira conexão
+	| { t: "stop" } // a tela saiu de foco (ou o app foi para segundo plano): para tudo, sem tentar de novo
 	| { t: "connected" }
 	| { t: "dropped" } // caiu, ou o link novo falhou: tenta de novo com recuo
 	| { t: "fatal" } // erro que repetir não resolve (segurança, credencial, sessão sumiu)
@@ -44,7 +45,11 @@ export function backoffDelay(attempts: number): number {
 
 /** Um passo da máquina. `action: "connect"` manda pedir um link novo e conectar. */
 export function reconnectStep(state: ReconnectState, event: ReconnectEvent, now: number): { state: ReconnectState; action: ReconnectAction } {
+	// Parada: só `start` recomeça. Evento atrasado (queda, conexão, relógio, "tentar de novo") de antes da parada não faz nada.
+	if (state.phase === "stopped" && event.t !== "start") return { state, action: "none" };
 	switch (event.t) {
+		case "stop":
+			return { state: { phase: "stopped", attempts: 0, retryAt: null, connectedAt: null }, action: "none" };
 		case "start":
 			return { state: { phase: "connecting", attempts: 0, retryAt: null, connectedAt: null }, action: "connect" };
 		case "connected":

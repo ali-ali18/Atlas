@@ -1,5 +1,5 @@
 import * as Clipboard from "expo-clipboard";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import * as React from "react";
 import { View } from "react-native";
 import { ComputerView } from "@/components/computer/computer-view";
@@ -11,6 +11,8 @@ import { useAtlasSession } from "@/lib/atlas-session";
 import { createTypingController } from "@/lib/computer-typing";
 import { KEY_BACKSPACE, KEY_RETURN, clipPasteText, pasteTruncatedNotice, textToKeysyms } from "@/lib/vm-keys";
 import { useComputer } from "@/lib/use-computer";
+import { useAppState } from "@/lib/use-app-state";
+import { viewerActive } from "@/lib/viewer-active";
 import { useHomeData } from "@/lib/home-data";
 
 const HELP_TEXT = "Pinça com dois dedos para ampliar. Em Assumir o controle, toque e digite como no computador; o bot continua trabalhando enquanto isso.";
@@ -26,7 +28,11 @@ export default function ComputerScreen() {
 	const { snapshot } = useHomeData();
 	const { apiFetch, serverUrl } = useAtlasSession();
 	const bot = snapshot?.bots.find((item) => item.id === id);
-	const computer = useComputer({ apiFetch, serverUrl, conversationId: bot?.conversationId ?? null });
+	// O viewer só existe com a tela em foco e o app ativo (ver `lib/viewer-active.ts`).
+	const focused = useIsFocused();
+	const appState = useAppState();
+	const active = viewerActive(focused, appState);
+	const computer = useComputer({ apiFetch, serverUrl, conversationId: bot?.conversationId ?? null, active });
 	const [controlling, setControlling] = React.useState(false);
 	const [keyboardOpen, setKeyboardOpen] = React.useState(false);
 	// "Modo trackpad": só o estado e a marca no menu por enquanto (ver docs); o toque ainda vai direto no ponto tocado.
@@ -35,6 +41,14 @@ export default function ComputerScreen() {
 	const [notice, setNotice] = React.useState<string | null>(null);
 	const noticeTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 	React.useEffect(() => () => clearTimeout(noticeTimer.current), []);
+	// Perdeu o foco (outra tela por cima) ou foi para segundo plano: solta o controle e fecha o teclado.
+	React.useEffect(() => {
+		if (!active) {
+			setControlling(false);
+			setKeyboardOpen(false);
+			setNotice(null);
+		}
+	}, [active]);
 	// Soltar o controle = sair da tela (voltar, gesto ou botão). Não pausa o bot.
 	const goBack = () => {
 		release();

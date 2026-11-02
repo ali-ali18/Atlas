@@ -38,7 +38,11 @@ export type UseComputer = {
 
 const FATAL = new Set(["unauthorized", "not-found", "viewer-unavailable", "bad-link"]);
 
-export function useComputer({ apiFetch, serverUrl, conversationId }: { apiFetch: ApiFetch; serverUrl: string | null; conversationId: string | null }): UseComputer {
+/**
+ * `active` (ver `viewer-active.ts`): com a tela fora de foco ou o app em segundo plano o hook não faz NADA (sem sessão, sem
+ * link, sem timers nem reconexão) e a WebView desmonta; ao voltar recomeça do zero.
+ */
+export function useComputer({ apiFetch, serverUrl, conversationId, active }: { apiFetch: ApiFetch; serverUrl: string | null; conversationId: string | null; active: boolean }): UseComputer {
 	const [status, setStatus] = React.useState<ComputerStatus>("loading");
 	const [socket, setSocket] = React.useState<{ url: string; key: number } | null>(null);
 	const [sessionId, setSessionId] = React.useState<string | null>(null);
@@ -50,6 +54,14 @@ export function useComputer({ apiFetch, serverUrl, conversationId }: { apiFetch:
 	const handler = React.useRef<((event: BridgeEvent) => void) | null>(null);
 
 	React.useEffect(() => {
+		if (!active) {
+			// Fora de foco ou em segundo plano: tudo parado e a WebView some (sem sessão = sem WebView). Voltar recomeça do zero.
+			setSocket(null);
+			setSessionId(null);
+			setError(null);
+			setStatus("loading");
+			return;
+		}
 		let alive = true;
 		let retryTimer: ReturnType<typeof setTimeout> | undefined;
 		let connectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -163,7 +175,7 @@ export function useComputer({ apiFetch, serverUrl, conversationId }: { apiFetch:
 			clearTimeout(connectTimer);
 			handler.current = null;
 		};
-	}, [conversationId, round]);
+	}, [conversationId, round, active]);
 
 	const retry = React.useCallback(() => setRound((r) => ({ n: r.n + 1, start: false })), []);
 	const start = React.useCallback(() => setRound((r) => ({ n: r.n + 1, start: true })), []);
