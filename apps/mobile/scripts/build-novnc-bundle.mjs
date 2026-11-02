@@ -26,8 +26,12 @@ const inputsHash = sha256(`${version}\n${esbuildVersion}\n${scriptText}`);
 // O `exports` do pacote só libera `core/rfb.js`; o resto entra por caminho de arquivo.
 // O core 1.7 tem `await` no topo (`core/util/browser.js`, detecção de H.264), que o esbuild não aceita em IIFE: por isso o
 // bundle sai em ESM (`format: "esm"`, `target: es2022`) e a página o embute em `<script type="module">`. Sem alterar o noVNC.
+// O noVNC loga `connecting to <url>` (com o token do WebSocket) no nível Info: o log é desligado de forma explícita
+// (`initLogging("none")`) antes de qualquer conexão, em vez de depender do nível padrão.
 const entry = [
 	`import RFB from ${JSON.stringify(path.join(novnc, "core", "rfb.js"))};`,
+	`import * as Log from ${JSON.stringify(path.join(novnc, "core", "util", "logging.js"))};`,
+	'Log.initLogging("none");',
 	"window.NoVNC = { RFB };",
 	"if (window.__bridge) window.__bridge.ready();",
 ].join("\n");
