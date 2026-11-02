@@ -7,7 +7,8 @@ const token = (name) => `rgb(var(--${name}) / <alpha-value>)`;
 /** @type {import('tailwindcss').Config} */
 module.exports = {
 	darkMode: "class",
-	content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
+	// bubble-radius.ts devolve as classes de canto dos balões como texto; sem lê-lo aqui elas não são geradas.
+	content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}", "../../packages/shared/src/bubble-radius.ts"],
 	presets: [require("nativewind/preset")],
 	theme: {
 		extend: {

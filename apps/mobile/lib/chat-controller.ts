@@ -7,7 +7,7 @@ import { ChatApiError, isNetworkError, isUnauthorized, sendErrorText, type Creat
 import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./chat-live";
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
 import { initialSync, syncLine, syncReducer, type SyncAction, type SyncState } from "./chat-sync";
-import { dockedTaskList, mergeTail, oldestCursor, PAGE_SIZE, prependOlder, reconcile, sessionMessageToItem, type MessagePage, type PageCursor } from "./chat-thread";
+import { dockedTaskList, mergeTail, oldestCursor, PAGE_SIZE, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, type MessagePage, type PageCursor } from "./chat-thread";
 import type { ChatItem } from "./chat-types";
 
 export type ChatApi = {
@@ -363,11 +363,16 @@ export class ChatController {
 			}
 			this.set({ creating: true });
 			const created = await this.startRun(text);
-			if (generation !== this.generation) return;
+			if (generation !== this.generation) {
+				this.stopRequested = false;
+				return;
+			}
 			this.set({ creating: false });
 			const runId = created.runId;
 			if (!runId) {
-				// O bot só reagiu (ex.: "valeu!"): a mensagem foi gravada e não há run.
+				// O bot só reagiu (ex.: "valeu!"): a mensagem foi gravada e não há run. Um "parar" tocado nesse meio
+				// não vale para o próximo envio (senão o run seguinte seria cancelado assim que nascesse).
+				this.stopRequested = false;
 				await this.syncTail(false);
 				const live = this.state.live;
 				this.set({ live: { ...live, phase: "idle" } });
@@ -521,8 +526,10 @@ export function deriveView(snapshot: ChatSnapshot): ChatView {
 		snapshot.persisted.map((item) => withLocalDecisions(item, snapshot)),
 		snapshot.live.items.map((item) => withLocalDecisions(item, snapshot)),
 	);
-	const running = snapshot.following || snapshot.live.paused;
+	// `creating`: a fala já foi e o run ainda está sendo criado (pode levar segundos); conta como em andamento, senão
+	// o "Pensando…" some e o botão volta a ser o de voz nesse meio-tempo.
+	const running = snapshot.following || snapshot.live.paused || snapshot.creating;
 	const runTasks = dockedTaskList(merged, running, snapshot.live.runId);
 	const lastTasks = [...merged].reverse().find((item): item is Extract<ChatItem, { kind: "task-list" }> => item.kind === "task-list" && item.items.length > 0) ?? null;
-	return { items: merged, runTasks, lastTasks, line: syncLine(snapshot.sync), running };
+	return { items: withSourceMarkers(merged), runTasks, lastTasks, line: syncLine(snapshot.sync), running };
 }
