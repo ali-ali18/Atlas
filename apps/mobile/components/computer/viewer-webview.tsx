@@ -1,7 +1,10 @@
 import * as React from "react";
 import { View } from "react-native";
 import { WebView } from "react-native-webview";
-import { DROP_MESSAGE, HIDE_CHROME_JS, WATCH_DROP_JS, isAllowedNavigation, originOf } from "@/lib/computer-webview";
+import { DROP_MESSAGE, HIDE_CHROME_JS, STORAGE_SHIM_JS, WATCH_DROP_JS, isAllowedNavigation, originOf } from "@/lib/computer-webview";
+
+/** Antes do noVNC: o shim de storage primeiro (a página é um documento em sandbox), depois o visual. */
+const BEFORE_LOAD_JS = `${STORAGE_SHIM_JS}${HIDE_CHROME_JS}`;
 
 /**
  * A tela ao vivo da VM (noVNC) numa WebView. O `uri` leva um token que dá controle da VM por 10 min: ele só existe
@@ -43,7 +46,8 @@ export function ViewerWebView({ uri, reloadKey, controlling, onDrop }: { uri: st
 				showsHorizontalScrollIndicator={false}
 				showsVerticalScrollIndicator={false}
 				contentInsetAdjustmentBehavior="never"
-				injectedJavaScriptBeforeContentLoaded={HIDE_CHROME_JS}
+				injectedJavaScriptBeforeContentLoaded={BEFORE_LOAD_JS}
+				injectedJavaScriptBeforeContentLoadedForMainFrameOnly
 				injectedJavaScript={`${HIDE_CHROME_JS}${WATCH_DROP_JS}`}
 				onMessage={(event) => {
 					if (event.nativeEvent.data === DROP_MESSAGE) onDrop();
