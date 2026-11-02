@@ -67,6 +67,7 @@ export function toHomeBot(bot: Bot): HomeBot {
 		sectionId: bot.sectionId ?? null,
 		memberIds: bot.memberIds,
 		isPrimary: bot.isPrimary === true,
+		conversationId: bot.conversationId ?? null,
 		unread: (bot.unreadCount ?? 0) > 0 || bot.manualUnread === true,
 		lastAt: bot.lastMessage?.createdAt ?? null,
 		preview: preview.text.length > PREVIEW_MAX_CHARS ? `${preview.text.slice(0, PREVIEW_MAX_CHARS)}…` : preview.text,

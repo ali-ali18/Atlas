@@ -69,7 +69,7 @@ describe("toHomeBot e busca", () => {
 	it("copia só o que a home desenha", () => {
 		const full = bot("a", { description: "segredo", policyJson: { x: 1 }, openRouterModel: "m", pinned: true, pinOrder: 2, unreadCount: 3 });
 		const slim = toHomeBot(full);
-		expect(Object.keys(slim).sort()).toEqual(["color", "id", "isPrimary", "lastAt", "memberIds", "name", "pinOrder", "pinned", "preview", "previewSent", "sectionId", "shape", "unread"]);
+		expect(Object.keys(slim).sort()).toEqual(["color", "conversationId", "id", "isPrimary", "lastAt", "memberIds", "name", "pinOrder", "pinned", "preview", "previewSent", "sectionId", "shape", "unread"]);
 		expect(slim).toMatchObject({ pinned: true, pinOrder: 2, unread: true });
 	});
 	it("trunca a prévia", () => {

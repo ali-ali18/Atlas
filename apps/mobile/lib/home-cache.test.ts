@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CACHE_MAX_AGE_MS, CACHE_VERSION, cacheKey, clearHomeCache, loadHomeCache, parseCache, saveHomeCache, serializeCache, type CacheStorage } from "./home-cache";
 import type { HomeBot, HomeSnapshot } from "./home-types";
 
-const bot: HomeBot = { id: "b1", name: "Cookie", color: "#0f0", shape: "blob", pinned: true, pinOrder: 0, sectionId: null, memberIds: [], isPrimary: false, unread: false, lastAt: "2026-10-05T12:00:00Z", preview: "Oi", previewSent: false };
+const bot: HomeBot = { id: "b1", name: "Cookie", color: "#0f0", shape: "blob", pinned: true, pinOrder: 0, sectionId: null, memberIds: [], isPrimary: false, conversationId: null, unread: false, lastAt: "2026-10-05T12:00:00Z", preview: "Oi", previewSent: false };
 const snapshot: HomeSnapshot = { bots: [bot], sections: [{ id: "s1", name: "Codding", order: 0 }] };
 
 function memory(initial: Record<string, string> = {}, failing = false): CacheStorage & { data: Map<string, string> } {
@@ -66,5 +66,16 @@ describe("cache da home", () => {
 		await expect(saveHomeCache(storage, "k", snapshot, 1)).resolves.toBeUndefined();
 		expect(await loadHomeCache(storage, "k", 1)).toBeNull();
 		expect(await clearHomeCache(storage)).toBe(false);
+	});
+});
+
+describe("conversationId no cache da home", () => {
+	it("cache gravado antes do campo existir continua valendo (campo ausente vira null)", () => {
+		const old = JSON.stringify({ v: 2, savedAt: 1000, bots: [{ id: "a", name: "A", color: "#fff", shape: "blob", pinned: false, pinOrder: null, sectionId: null, memberIds: [], isPrimary: false, unread: false, lastAt: null, preview: "", previewSent: false }], sections: [] });
+		expect(parseCache(old, 2000)?.snapshot.bots[0]?.conversationId).toBeNull();
+	});
+	it("guarda a conversa do bot", () => {
+		const text = serializeCache({ bots: [{ ...bot, conversationId: "c-9" }], sections: [] }, 1000);
+		expect(parseCache(text, 2000)?.snapshot.bots[0]?.conversationId).toBe("c-9");
 	});
 });
