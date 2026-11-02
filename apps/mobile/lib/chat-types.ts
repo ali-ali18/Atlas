@@ -1,6 +1,9 @@
 // O que a tela do chat desenha. Menor que o `Message` do web (`template-4/data.ts`): só os tipos que o app
 // mostra por enquanto; o resto vira uma linha "Abrir no navegador" (`web-card`) ou some.
-import type { QuestionnaireCardItem } from "@workspace/shared";
+import type { MessageSource, QuestionnaireCardItem } from "@workspace/shared";
+
+/** Reação no balão (no máximo uma por ator): o bot reage à fala do usuário e vice-versa. */
+export type Reaction = { actor: "user" | "bot"; emoji: string };
 
 export type TaskItem = { content: string; status: "pending" | "in_progress" | "completed" };
 
@@ -10,8 +13,9 @@ export type QuestionnaireStatus = "pending" | "submitted" | "dismissed";
 type Base = { id: string; createdAt?: string };
 
 export type ChatItem =
-	| (Base & { kind: "user"; text: string })
-	| (Base & { kind: "assistant"; text: string; runId?: string })
+	| (Base & { kind: "user"; text: string; reactions?: Reaction[] })
+	/** `source`: rotina, lembrete ou evento que produziu a fala (vira o marcador acima do balão). */
+	| (Base & { kind: "assistant"; text: string; runId?: string; reactions?: Reaction[]; source?: MessageSource })
 	| (Base & { kind: "task-list"; runId: string; items: TaskItem[] })
 	| (Base & { kind: "confirm"; confirmId: string; title: string; description?: string; confirmLabel?: string; cancelLabel?: string; status: ConfirmStatus })
 	| (Base & { kind: "questionnaire"; questionnaireId: string; title: string; description?: string; items: QuestionnaireCardItem[]; status: QuestionnaireStatus; answers?: Record<string, string | string[]> })

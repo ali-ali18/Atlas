@@ -123,6 +123,39 @@ describe("parar", () => {
 	});
 });
 
+describe("indicador e só reação", () => {
+	it("enquanto o run é criado o chat conta como em andamento (Pensando e botão de parar)", async () => {
+		const gate = deferred<{ runId: string; status: string }>();
+		const { controller } = setup({ api: { createRun: () => gate.promise as never } });
+		await controller.open();
+		controller.send("bom dia");
+		await flush();
+		expect(view(controller).running).toBe(true);
+		expect(controller.getSnapshot().live.phase).toBe("thinking");
+		gate.resolve({ runId: "r1", status: "queued" });
+		await flush();
+		await flush();
+	});
+	it("o bot só reagiu (runId nulo): para o indicador e mostra a reação dele na fala", async () => {
+		let pages = 0;
+		const reacted = { ...row("m3", "user", "valeu!", 2), reactions: [{ actor: "bot", emoji: "❤️" }] } as SessionMessage;
+		const { controller } = setup({
+			api: {
+				createRun: async () => ({ runId: null, status: "reacted" }) as never,
+				fetchPage: async () => ((pages += 1), { messages: pages > 1 ? [row("m1", "user", "oi"), reacted] : [row("m1", "user", "oi")], hasMore: false }),
+			},
+		});
+		await controller.open();
+		controller.send("valeu!");
+		await flush();
+		await flush();
+		await flush();
+		const v = view(controller);
+		expect(v.running).toBe(false);
+		expect(v.items.find((item) => item.kind === "user" && item.text === "valeu!")).toMatchObject({ reactions: [{ actor: "bot", emoji: "❤️" }] });
+	});
+});
+
 describe("corridas de envio", () => {
 	it("envio durante o syncTail do fim do run anterior: o fim antigo não apaga o run novo", async () => {
 		const gate = deferred<void>();

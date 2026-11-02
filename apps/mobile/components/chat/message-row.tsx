@@ -4,7 +4,7 @@ import Animated, { FadeIn, useReducedMotion } from "react-native-reanimated";
 import { bubbleRadius, type GroupPosition } from "@workspace/shared";
 import { Text } from "@/components/ui/text";
 import { taskCardActive } from "@/lib/chat-thread";
-import type { ChatItem } from "@/lib/chat-types";
+import type { ChatItem, Reaction } from "@/lib/chat-types";
 import type { AnswerMap } from "@/lib/questionnaire";
 import { ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
 import { MarkdownText } from "./markdown-text";
@@ -21,21 +21,44 @@ export type RowActions = {
 };
 
 /** Balão do usuário: o do web (`Bubble variant="muted"`, à direita). */
-function UserBubble({ text, position }: { text: string; position: GroupPosition }) {
+function UserBubble({ text, position, reactions }: { text: string; position: GroupPosition; reactions?: Reaction[] }) {
 	return (
-		<View className={`max-w-[82%] self-end bg-muted px-4 py-3 ${bubbleRadius("right", position)}`}>
-			<Text selectable className="text-control leading-6">
-				{text}
-			</Text>
+		<View className="max-w-[82%] self-end">
+			<View className={`bg-muted px-4 py-3 ${bubbleRadius("right", position)}`}>
+				<Text selectable className="text-control leading-6">
+					{text}
+				</Text>
+			</View>
+			<Reactions reactions={reactions} align="end" />
+		</View>
+	);
+}
+
+/**
+ * Reações sob o balão, como os `ReactionBadges` do web: a do bot numa fala do usuário é a resposta dele quando só
+ * reage ("valeu!" → ❤️), então precisa aparecer, senão parece que o bot não respondeu.
+ */
+function Reactions({ reactions, align }: { reactions?: Reaction[]; align: "start" | "end" }) {
+	if (!reactions?.length) return null;
+	return (
+		<View className={`-mt-2 flex-row gap-1 px-2 ${align === "end" ? "self-end" : "self-start"}`} accessibilityLabel={`Reação: ${reactions.map((item) => item.emoji).join(" ")}`}>
+			{reactions.map((item) => (
+				<View key={item.actor} className="rounded-full border-2 border-background bg-muted px-1.5 py-0.5">
+					<Text className="text-sm">{item.emoji}</Text>
+				</View>
+			))}
 		</View>
 	);
 }
 
 /** Balão do bot: escuro, arredondado, com markdown; ocupa quase toda a largura como na referência. */
-function BotBubble({ text, position }: { text: string; position: GroupPosition }) {
+function BotBubble({ text, position, reactions }: { text: string; position: GroupPosition; reactions?: Reaction[] }) {
 	return (
-		<View className={`max-w-[94%] self-start bg-muted px-4 py-3.5 ${bubbleRadius("left", position)}`}>
-			<MarkdownText source={text} />
+		<View className="max-w-[94%] self-start">
+			<View className={`bg-muted px-4 py-3.5 ${bubbleRadius("left", position)}`}>
+				<MarkdownText source={text} />
+			</View>
+			<Reactions reactions={reactions} align="start" />
 		</View>
 	);
 }
@@ -70,9 +93,9 @@ export const MessageRow = React.memo(function MessageRow({
 function RowContent({ item, actions, position }: { item: ChatItem; actions: RowActions; position: GroupPosition }) {
 	switch (item.kind) {
 		case "user":
-			return <UserBubble text={item.text} position={position} />;
+			return <UserBubble text={item.text} position={position} reactions={item.reactions} />;
 		case "assistant":
-			return item.text.trim() ? <BotBubble text={item.text} position={position} /> : null;
+			return item.text.trim() ? <BotBubble text={item.text} position={position} reactions={item.reactions} /> : null;
 		case "task-list":
 			return <TaskSummary items={item.items} active={taskCardActive(item.runId, actions.activeRunId, actions.running)} />;
 		case "confirm":

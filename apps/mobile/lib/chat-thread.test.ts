@@ -1,11 +1,33 @@
 import { describe, expect, it } from "vitest";
 import type { ChatItem } from "./chat-types";
-import { taskCardActive, dedupeKeys, dockedTaskList, mergeTail, messagesPath, oldestCursor, parsePage, persistedAssistantCovers, prependOlder, reconcile, sessionMessageToItem, taskListDockLine, taskListProgress, taskListSettledLabel } from "./chat-thread";
+import { taskCardActive, dedupeKeys, dockedTaskList, mergeTail, messagesPath, oldestCursor, parsePage, persistedAssistantCovers, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, taskListDockLine, taskListProgress, taskListSettledLabel } from "./chat-thread";
 
 const row = (id: string, role: string, content: string, createdAt = "2026-11-01T10:00:00.000Z") => ({ id, conversationId: "c1", role, content, createdAt }) as never;
 const user = (id: string, text: string, createdAt?: string): ChatItem => ({ id, kind: "user", text, ...(createdAt ? { createdAt } : {}) });
 const bot = (id: string, text: string): ChatItem => ({ id, kind: "assistant", text });
 const tasks = (runId: string, ...statuses: Array<"pending" | "in_progress" | "completed">): ChatItem => ({ id: `task-list-${runId}`, kind: "task-list", runId, items: statuses.map((status, i) => ({ content: `passo ${i + 1}`, status })) });
+
+describe("reações e origem", () => {
+	it("lê as reações válidas (uma por ator) e a origem da fala do bot", () => {
+		const user = { ...(row("1", "user", "valeu") as object), reactions: [{ actor: "bot", emoji: "❤️" }, { actor: "bot", emoji: "👍" }, { actor: "x", emoji: "🙂" }] };
+		expect(sessionMessageToItem(user as never)).toMatchObject({ reactions: [{ actor: "bot", emoji: "❤️" }] });
+		expect(sessionMessageToItem(row("2", "user", "oi"))).not.toHaveProperty("reactions");
+		const source = { kind: "routine", label: "Resumo da agenda", at: "2026-11-02T10:00:00.000Z" };
+		expect(sessionMessageToItem({ ...(row("3", "assistant", "agenda") as object), source } as never)).toMatchObject({ source });
+	});
+	it("marcador de rotina acima da fala que abre o trecho; falas seguidas da mesma execução ficam sob um só", () => {
+		const source = { kind: "routine" as const, label: "Resumo da agenda", at: "2026-11-02T10:00:00.000Z" };
+		const items: ChatItem[] = [
+			{ id: "u", kind: "user", text: "oi" },
+			{ id: "a1", kind: "assistant", text: "1)", source },
+			{ id: "a2", kind: "assistant", text: "2)", source },
+			{ id: "a3", kind: "assistant", text: "normal" },
+		];
+		const out = withSourceMarkers(items, "America/Sao_Paulo");
+		expect(out.map((item) => item.id)).toEqual(["u", "source-a1", "a1", "a2", "a3"]);
+		expect(out[1]).toMatchObject({ kind: "marker", text: expect.stringContaining("Resumo da agenda") });
+	});
+});
 
 describe("sessionMessageToItem", () => {
 	it("usuário e assistente viram balões; vazio some", () => {

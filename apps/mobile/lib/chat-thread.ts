@@ -1,8 +1,8 @@
 // Fio da conversa: do que o servidor grava (`SessionMessage`) ao que a tela desenha, e a junção do gravado com o
 // que só existe ao vivo (balão do usuário ainda não gravado, fala em andamento, cartões do run). Porta enxuta do
 // `use-atlas-chat.ts` / `thread-merge.ts` / `thread-live.ts` do web: o gravado manda, o ao vivo preenche o resto.
-import { BOT_LINK_ROLE, isCardConfirmToken, parseBotLinkCard, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
-import type { ChatItem, TaskItem } from "./chat-types";
+import { BOT_LINK_ROLE, formatSourceMarker, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
+import type { ChatItem, Reaction, TaskItem } from "./chat-types";
 
 const CARD_ROLES = new Set([
 	"skill", "confirm", "login", "file", "routine", "tool-budget", "jev-status", "provider-fallback", "subagents", "routine-proposal", "bot-proposal",
@@ -69,6 +69,39 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 	}
 }
 
+/** Reações vindas do servidor (máximo uma por ator, emoji curto); nada válido = sem reações. */
+function validReactions(raw: SessionMessage["reactions"]): Reaction[] | null {
+	if (!Array.isArray(raw)) return null;
+	const out: Reaction[] = [];
+	for (const reaction of raw) {
+		if ((reaction.actor !== "user" && reaction.actor !== "bot") || typeof reaction.emoji !== "string") continue;
+		const emoji = reaction.emoji.trim();
+		if (!emoji || emoji.length > 16 || out.some((item) => item.actor === reaction.actor)) continue;
+		out.push({ actor: reaction.actor, emoji });
+	}
+	return out.length ? out : null;
+}
+
+const sourceKey = (source: MessageSource) => `${source.kind}|${source.label}|${source.at}`;
+
+/**
+ * Marcador "Rotina · Resumo da agenda · 07:00" acima da fala que abre um trecho da mesma origem (rotina, lembrete,
+ * evento), como o `SourceMarker` do web. Falas seguidas da mesma execução ficam sob um marcador só.
+ */
+export function withSourceMarkers(items: readonly ChatItem[], timeZone?: string): ChatItem[] {
+	const out: ChatItem[] = [];
+	let previous: string | null = null;
+	for (const item of items) {
+		if (item.kind === "assistant") {
+			const key = item.source ? sourceKey(item.source) : null;
+			if (item.source && key !== previous) out.push({ id: `source-${item.id}`, kind: "marker", text: formatSourceMarker(item.source, timeZone), ...(item.createdAt ? { createdAt: item.createdAt } : {}) });
+			previous = key;
+		} else if (item.kind === "user") previous = null;
+		out.push(item);
+	}
+	return out;
+}
+
 /** Uma linha gravada do servidor vira o que a tela desenha; `null` = não aparece (protocolo de cartão, vazia, só do web). */
 export function sessionMessageToItem(message: SessionMessage): ChatItem | null {
 	const createdAt = message.createdAt;
@@ -77,13 +110,22 @@ export function sessionMessageToItem(message: SessionMessage): ChatItem | null {
 		const link = parseBotLinkCard(message.content);
 		return link ? { id: message.id, kind: "marker", createdAt, text: `Enviou mensagem para ${link.botName}${link.title ? `: ${link.title}` : ""}` } : null;
 	}
+	const reactions = validReactions(message.reactions);
 	if (role === "user") {
 		if (isCardProtocolText(message.content)) return null;
-		return { id: message.id, kind: "user", text: message.content, createdAt };
+		return { id: message.id, kind: "user", text: message.content, createdAt, ...(reactions ? { reactions } : {}) };
 	}
 	if (role === "assistant") {
 		if (!message.content.trim()) return null;
-		return { id: message.id, kind: "assistant", text: message.content, createdAt, ...(message.runId ? { runId: message.runId } : {}) };
+		return {
+			id: message.id,
+			kind: "assistant",
+			text: message.content,
+			createdAt,
+			...(message.runId ? { runId: message.runId } : {}),
+			...(reactions ? { reactions } : {}),
+			...(message.source ? { source: message.source } : {}),
+		};
 	}
 	if (CARD_ROLES.has(role)) {
 		const card = parseConversationCard(message.content);
