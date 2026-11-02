@@ -199,9 +199,8 @@ export const STEPS_PRESETS: readonly number[] = [100, 200, 300, 500];
 /** Minutos: sem escolha, o run tem 30 min. */
 export const WALL_MINUTES_PRESETS: readonly number[] = [5, 10, 15, 30, 60, 120];
 export const CODE_DEFAULT_WALL_MINUTES = 30;
-/** Custo USD: sem escolha, o run tem limite de 0.25. */
+/** Custo USD: sem escolha, o run NÃO tem limite em dinheiro (só vale o que o dono escolher). */
 export const RUN_COST_PRESETS: readonly number[] = [0.05, 0.10, 0.25, 0.50, 1.00];
-export const CODE_DEFAULT_RUN_COST_USD = 0.25;
 
 export const formatOutputTokens = (tokens: number, { t }: Translator = defaultTranslator): string => t("settings.exec.fmtTokens", { n: tokens / 1024 });
 export const formatSteps = (steps: number, { t }: Translator = defaultTranslator): string => t("settings.exec.fmtSteps", { n: steps });
@@ -243,7 +242,6 @@ export const MAX_WALL_SPEC: NumberSettingSpec = {
 export const MAX_COST_SPEC: NumberSettingSpec = {
 	presets: RUN_COST_PRESETS,
 	format: formatCostUsd,
-	codeDefault: CODE_DEFAULT_RUN_COST_USD,
 };
 
 /** Opções "Herdar + presets"; o texto de "Herdar" mostra a origem e o valor herdado. */

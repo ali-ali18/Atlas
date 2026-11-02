@@ -195,11 +195,14 @@ describe("usuário > env > padrão", () => {
 		expect(resolve({ v: 1, execution: { contextEconomy: false } }, { ATLAS_CONTEXT_ECONOMY: "on" }).execution.contextEconomy).toEqual({ value: false, source: "user" });
 	});
 
-	it("custo máximo: usuário > env > sem limite de fábrica", () => {
+	it("custo máximo: sem limite por padrão; usuário e teto do operador (env) valem o menor", () => {
 		expect(resolve(undefined, {}).execution.maxRunCostUsd).toEqual({ value: undefined, source: "default" });
 		expect(resolve(undefined, { ATLAS_MAX_RUN_COST_USD: "0.50" }).execution.maxRunCostUsd).toEqual({ value: 0.50, source: "env" });
 		expect(resolve(undefined, { ATLAS_MAX_RUN_COST_USD: "banana" }).execution.maxRunCostUsd).toEqual({ value: undefined, source: "default" });
-		expect(resolve({ v: 1, execution: { maxRunCostUsd: 1.00 } }, { ATLAS_MAX_RUN_COST_USD: "0.25" }).execution.maxRunCostUsd).toEqual({ value: 1.00, source: "user" });
+		expect(resolve({ v: 1, execution: { maxRunCostUsd: 0.25 } }, {}).execution.maxRunCostUsd).toEqual({ value: 0.25, source: "user" });
+		expect(resolve({ v: 1, execution: { maxRunCostUsd: 1.00 } }, { ATLAS_MAX_RUN_COST_USD: "0.25" }).execution.maxRunCostUsd).toEqual({ value: 0.25, source: "env" });
+		expect(resolve({ v: 1, execution: { maxRunCostUsd: 0.10 } }, { ATLAS_MAX_RUN_COST_USD: "0.25" }).execution.maxRunCostUsd).toEqual({ value: 0.10, source: "user" });
+		expect(resolve({ v: 1, execution: { maxRunCostUsd: null } }, {}).execution.maxRunCostUsd).toEqual({ value: undefined, source: "default" });
 	});
 
 	it("sandboxAutoStart vem da coluna; ausente = padrão", () => {

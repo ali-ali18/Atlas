@@ -279,6 +279,7 @@ export function ChatThread({
 		reasoningEffort,
 		setReasoningEffort,
 		runStatus,
+		activeRunId,
 		servedModel,
 		activity,
 		streamingMessageId,
@@ -653,7 +654,7 @@ export function ChatThread({
 	const liveAuthorId = liveMember?.id;
 	const liveAuthorName = liveMember?.name;
 	// A lista de tarefas do run ativo vive na doca do composer; o fio só recebe o resumo quando o run termina.
-	const dockedTasks = useMemo(() => dockedTaskList(messages, sending || runStatus === "paused" || runStatus === "pausing"), [messages, sending, runStatus]);
+	const dockedTasks = useMemo(() => dockedTaskList(messages, sending || runStatus === "paused" || runStatus === "pausing", activeRunId), [messages, sending, runStatus, activeRunId]);
 	const visibleMessages = useMemo(
 		() =>
 			(isGroup

@@ -271,7 +271,7 @@ describe("F4 - run travado termina com resumo (chamada final sem tools)", () => 
 		expect(requests[requests.length - 1]?.toolChoice).toBe("none");
 	});
 
-	it("tempo esgotado: so a chamada final de resumo (sem tools); se ela falha, texto pt-BR com o caminho de continuar", async () => {
+	it("tempo esgotado: so a chamada final de resumo (sem tools); se ela falha, texto pt-BR honesto, sem pedir para mandar \"continuar\"", async () => {
 		const streamChat = vi.fn();
 		const error = await runComputerUse({
 			manager: {} as SandboxManager,
@@ -287,7 +287,7 @@ describe("F4 - run travado termina com resumo (chamada final sem tools)", () => 
 			streamChat,
 		}).catch((e: unknown) => e);
 		expect(error).toMatchObject({ name: "BudgetExhaustedError" });
-		expect((error as { finalText?: string }).finalText).toMatch(/continuar/);
+		expect((error as { finalText?: string }).finalText).not.toMatch(/continuar/);
 		expect(streamChat).toHaveBeenCalledTimes(1);
 		expect(streamChat.mock.calls[0]?.[0]).toMatchObject({ toolChoice: "none" });
 	});

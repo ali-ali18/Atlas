@@ -232,6 +232,7 @@ export {
 	readRunModelAuto,
 	readRunHumanTurn,
 	recordRunEngine,
+	recordRunPromotion,
 	type RunLease,
 } from "./runs.js";
 export {

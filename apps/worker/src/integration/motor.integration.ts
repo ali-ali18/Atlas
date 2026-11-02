@@ -156,7 +156,14 @@ describe("3-4. v2: pesquisa longa e orçamento", { skip: integrationSkip }, () =
 		assert.ok(snap.run.stopReason, "o run terminou com um motivo");
 	});
 
-	test("estouro de orçamento (custo alto): entrega final sem tools, budget_cost e resposta não vazia", async () => {
+	test("teto programado (operador, ATLAS_MAX_RUN_COST_USD): entrega final sem tools, budget_cost e resposta não vazia", async (t) => {
+		// Sem teto em US$ de fábrica: o limite aqui é o do operador do servidor.
+		const previous = process.env.ATLAS_MAX_RUN_COST_USD;
+		process.env.ATLAS_MAX_RUN_COST_USD = "0.25";
+		t.after(() => {
+			if (previous === undefined) delete process.env.ATLAS_MAX_RUN_COST_USD;
+			else process.env.ATLAS_MAX_RUN_COST_USD = previous;
+		});
 		const fake = script([
 			{ tools: [{ name: "app_info", args: { topic: "oauth" } }], costUsd: 0.3 },
 			(request) => {
