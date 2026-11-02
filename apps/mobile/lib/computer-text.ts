@@ -5,9 +5,12 @@ export const VM_TEXT_MAX = 5000;
 
 export type VmTextCheck = { ok: true; text: string } | { ok: false; reason: "empty" | "too-long" };
 
-/** Vazio (ou só espaços/quebras) não envia; acima do limite não envia nem corta em silêncio. O texto vai como foi digitado. */
-export function checkVmText(text: string): VmTextCheck {
-	if (text.trim().length === 0) return { ok: false, reason: "empty" };
+/**
+ * Vazio (ou só espaços/quebras) não envia; acima do limite não envia nem corta em silêncio. O texto vai como foi digitado.
+ * `allowBlank` (digitação ao vivo): um espaço sozinho é uma tecla válida; só o texto sem nenhum caractere é recusado.
+ */
+export function checkVmText(text: string, options: { allowBlank?: boolean } = {}): VmTextCheck {
+	if (options.allowBlank ? text.length === 0 : text.trim().length === 0) return { ok: false, reason: "empty" };
 	if (text.length > VM_TEXT_MAX) return { ok: false, reason: "too-long" };
 	return { ok: true, text };
 }

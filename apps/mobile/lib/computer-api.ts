@@ -114,9 +114,9 @@ export async function getViewerLink(apiFetch: ApiFetch, baseUrl: string, session
 	return absolute;
 }
 
-/** `POST …/type`: digita (ou cola) texto na VM. Valida vazio e o limite antes de chamar o servidor. */
-export async function sendText(apiFetch: ApiFetch, sessionId: string, text: string): Promise<void> {
-	const checked = checkVmText(text);
+/** `POST …/type`: digita (ou cola) texto na VM. Valida vazio e o limite antes de chamar o servidor. `allowBlank`: aceita só espaços (digitação ao vivo). */
+export async function sendText(apiFetch: ApiFetch, sessionId: string, text: string, options: { allowBlank?: boolean } = {}): Promise<void> {
+	const checked = checkVmText(text, options);
 	if (!checked.ok) throw new ComputerApiError("bad-input", 0, vmTextProblem(checked.reason));
 	await call(apiFetch, `/v1/sandbox/sessions/${encodeURIComponent(sessionId)}/type`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ text: checked.text }) }, sendError);
 }
