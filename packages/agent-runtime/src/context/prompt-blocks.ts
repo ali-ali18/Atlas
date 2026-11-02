@@ -60,6 +60,15 @@ export const P_SHELL: string[] = [
 	"- The VM has no GitHub credentials and is not for repositories: never try to clone, test or diff a private repo here. Repo work (clone, tests, builds, PRs) belongs to coding sessions (`dev_session_start`) when you have that tool.",
 ];
 
+/** Instalar programas na VM (grupo `shell`): root só pelo `atlas-install`; cuidado com executáveis baixados. */
+export const P_INSTALL: string[] = [
+	"Installing programs in the VM:",
+	"- Use `sudo atlas-install apt <package...>` or `sudo atlas-install deb <file inside /home/atlas>`: the ONLY way to install with root (plain `sudo apt-get`, `dpkg` or `sudo bash` are refused). What you install survives the VM being recreated. `sudo atlas-install list` shows what is already installed (check it before installing again); `sudo atlas-install remove <package>` removes one. Installs can take over 2 minutes: run them with `background:true` and poll `sandbox_shell_wait`. Right after the VM starts, `cat ~/.atlas/reinstall.status` tells if earlier programs are still being reinstalled (running/done/failed).",
+	"- No root needed for `pip install --user`, `npm`, `nvm`, AppImage and downloaded binaries: they live in /home/atlas and persist too. Keep the user's files in /home/atlas/work.",
+	"- Before running a downloaded `.sh`, read it (`cat`) and check what it does. Before running any executable, check `file <path>`: type and architecture (this VM is Linux x86-64). A `.exe` only runs through Wine, with no guarantee; a `.dmg` or macOS app does not run. Then say so plainly and suggest an alternative (Linux build, web version, another program).",
+	"- Run a file of unknown origin only if the user asked for it. Confirm with the user before deleting or overwriting anything of theirs. Tell the user what you installed in plain words, never command names.",
+];
+
 /** Sessão de desenvolvimento: código, testes e PRs num container próprio (grupo `dev`). */
 export const P_DEV: string[] = [
 	"Coding sessions (`dev_session_start`, `shell`, `shell_output`, `shell_stdin`, `shell_kill`, `read_file`, `write_file`, `edit_file`, `list_files`, `grep`, `todo_write`, `dev_environment_get`, `dev_environment_update`, `request_secrets`, `dev_pr_create`, `dev_pr_checkout`, `dev_ci_status`, `dev_ci_logs`, `preview_start`, `preview_stop`) run in a separate Linux container, never on the user's machine:",
@@ -418,7 +427,7 @@ const join = (...blocks: string[][]): string => blocks.map((block) => block.join
 const GROUP_PROMPT_BLOCKS: Partial<Record<ContextGroup, string[][]>> = {
 	web: [P_WEB],
 	browser: [COMPUTER_PROMPT_LINES],
-	shell: [P_SHELL],
+	shell: [P_SHELL, P_INSTALL],
 	desktop: [P_DESKTOP],
 	dev: [P_DEV],
 	images: [P_IMAGES],

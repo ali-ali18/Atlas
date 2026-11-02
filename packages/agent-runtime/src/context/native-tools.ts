@@ -57,8 +57,8 @@ export const NATIVE_TOOL_GROUPS: Record<NativeToolGroup, GroupSpec> = {
 	},
 	shell: {
 		tools: ["sandbox_shell", "sandbox_shell_wait", "sandbox_read", "sandbox_list", "sandbox_download"],
-		hint: "run shell commands and scripts inside the VM, download files (PDFs) and read files there; for bulk or repetitive extraction",
-		keywords: ["shell", "bash", "script", "terminal", "python", "download", "baixar", "pdf", "bulk", "lote", "scrape", "playwright", "curl", "arquivos"],
+		hint: "run shell commands and scripts in the VM, install programs, download and read files; for bulk or repetitive extraction",
+		keywords: ["shell", "bash", "script", "terminal", "python", "download", "baixar", "pdf", "bulk", "lote", "scrape", "playwright", "curl", "arquivos", "instalar", "instale", "install", "apt", "deb", "appimage", "wine", "dpkg", "nvm"],
 	},
 	dev: {
 		tools: ["dev_session_start", "shell", "shell_output", "shell_stdin", "shell_kill", "read_file", "write_file", "edit_file", "list_files", "grep", "todo_write", "dev_environment_get", "dev_environment_update", "request_secrets", "dev_pr_create", "dev_pr_checkout", "dev_ci_status", "dev_ci_logs", "preview_start", "preview_stop"],
