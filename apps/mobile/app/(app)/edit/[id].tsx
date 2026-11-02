@@ -9,12 +9,13 @@ import { OptionSheet } from "@/components/bot/option-sheet";
 import { SoonSheet } from "@/components/home/soon-sheet";
 import { ChevronLeftIcon, ChevronRightIcon, ChevronUpDownIcon, PencilIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
+import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
-import { patchBot, saveErrorText } from "@/lib/bot-api";
+import { patchBot } from "@/lib/bot-api";
+import { createSaveGuard, saveBot } from "@/lib/bot-save";
 import { clearDraft, initDraft, updateDraft, useDraft } from "@/lib/bot-draft";
 import { buildBotPatch, hasChanges, languageLabel, LANGUAGE_OPTIONS, validateBotName, type BotDraft } from "@/lib/bot-edit";
-import { isUnauthorized } from "@/lib/chat-api";
 import { useHomeData } from "@/lib/home-data";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -32,26 +33,42 @@ export default function EditBotScreen() {
 	const router = useRouter();
 	const scheme = useAppColorScheme();
 	const { id } = useLocalSearchParams<{ id: string }>();
-	const { snapshot, applyBotUpdate } = useHomeData();
+	const { snapshot, applyBotUpdate, refresh } = useHomeData();
 	const { apiFetch, signOut } = useAtlasSession();
 	const bot = snapshot?.bots.find((item) => item.id === id);
 	const original = React.useMemo<BotDraft | null>(() => (bot ? { name: bot.name, shape: resolveShape(bot.shape, bot.id), color: resolveColor(bot.color, bot.id), language: bot.language ?? "auto" } : null), [bot]);
+	// Bot que veio de um cache antigo (sem o idioma): atualiza antes de mostrar, para não exibir "Automático" sem saber.
+	const languageKnown = bot ? bot.language !== null : false;
 	const draft = useDraft(id);
 	const [saving, setSaving] = React.useState(false);
 	const [error, setError] = React.useState<string | null>(null);
 	const [soon, setSoon] = React.useState<string | null>(null);
 	const [languageOpen, setLanguageOpen] = React.useState(false);
-	const started = React.useRef(false);
+	const saveGuard = React.useRef(createSaveGuard()).current;
 
 	React.useEffect(() => {
-		if (original && !started.current) {
-			started.current = true;
-			initDraft(id, original);
-		}
-	}, [id, original]);
+		if (bot && !languageKnown) void refresh();
+	}, [bot?.id, languageKnown, refresh]);
+	// Idempotente: remontar (StrictMode) não zera o que já foi editado.
+	React.useEffect(() => {
+		if (original && languageKnown) initDraft(id, original);
+	}, [id, original, languageKnown]);
 	// Sair da tela sem concluir descarta o rascunho (voltar para o avatar não passa por aqui: a tela fica na pilha).
 	React.useEffect(() => () => clearDraft(id), [id]);
 
+	if (bot && !languageKnown) {
+		return (
+			<SafeAreaView className="flex-1 items-center justify-center gap-3 bg-background px-8">
+				<Spinner label="Carregando" />
+				<Text variant="muted" className="text-center text-control">
+					Carregando os dados do bot…
+				</Text>
+				<Pressable role="button" onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))} className="min-h-11 justify-center px-4">
+					<Text className="text-control text-info">Voltar</Text>
+				</Pressable>
+			</SafeAreaView>
+		);
+	}
 	if (!bot || !original || !draft) return <SafeAreaView className="flex-1 bg-background" />;
 
 	const nameCheck = validateBotName(draft.name);
@@ -59,18 +76,20 @@ export default function EditBotScreen() {
 	const canSave = nameCheck.ok && hasChanges(patch);
 	const goBack = () => (router.canGoBack() ? router.back() : router.replace("/"));
 	const save = async () => {
-		if (!patch || !canSave || saving) return;
-		setSaving(true);
+		if (!patch || !canSave) return;
 		setError(null);
-		try {
-			await patchBot(apiFetch, id, patch);
-			applyBotUpdate(id, patch);
+		const result = await saveGuard.run(() => {
+			setSaving(true);
+			return saveBot({ patchBot: (body) => patchBot(apiFetch, id, body), applyUpdate: (body) => applyBotUpdate(id, body) }, patch);
+		});
+		if (result.ok === "ignored") return;
+		if (result.ok) {
 			goBack();
-		} catch (reason) {
-			if (isUnauthorized(reason)) void signOut();
-			setError(saveErrorText(reason));
-			setSaving(false);
+			return;
 		}
+		if (result.unauthorized) void signOut();
+		setError(result.error);
+		setSaving(false);
 	};
 
 	return (

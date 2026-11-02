@@ -2,6 +2,7 @@ import * as React from "react";
 import { cacheKey, loadHomeCache, saveHomeCache } from "@/lib/home-cache";
 import { homeStorage } from "@/lib/home-storage";
 import { HomeSyncController, type SyncDeps } from "@/lib/home-sync-controller";
+import { PendingBotPatches } from "@/lib/home-patches";
 import type { HomeBot } from "@/lib/home-types";
 import { fetchHome, type HomeSnapshot, type SyncFailure } from "@/lib/home-sync";
 import { useAtlasSession } from "@/lib/atlas-session";
@@ -37,13 +38,19 @@ export function HomeDataProvider({ children }: { children: React.ReactNode }) {
 	const [refreshing, setRefreshing] = React.useState(false);
 	const [error, setError] = React.useState<SyncFailure | null>(null);
 	const key = serverUrl && email ? cacheKey(serverUrl, email) : null;
+	const pendingPatches = React.useRef(new PendingBotPatches());
 	const keyRef = React.useRef(key);
 	keyRef.current = key;
 
 	// O controlador é um só; as dependências mudam a cada render e ele lê sempre as de agora.
 	const depsRef = React.useRef<SyncDeps | null>(null);
 	depsRef.current = {
-		fetch: (signal) => fetchHome(apiFetch, signal),
+		fetch: async (signal) => {
+			// Edição salva durante a atualização não pode ser desfeita por ela: reaplica o que for mais novo que o início.
+			const marker = pendingPatches.current.mark();
+			const result = await fetchHome(apiFetch, signal);
+			return result.ok ? { ...result, snapshot: pendingPatches.current.applyOver(result.snapshot, marker) } : result;
+		},
 		save: async (cacheKeyOfRun, value) => saveHomeCache(homeStorage, cacheKeyOfRun, value, Date.now()),
 		onSnapshot: (value) => {
 			setSnapshot(value);
@@ -64,6 +71,7 @@ export function HomeDataProvider({ children }: { children: React.ReactNode }) {
 	// Outra conta ou outro servidor: o que estava em voo morre e nada dele chega à tela nem ao disco.
 	React.useEffect(() => {
 		controller.invalidate();
+		pendingPatches.current.clear();
 		setRefreshing(false);
 	}, [key, controller]);
 
@@ -117,6 +125,7 @@ export function HomeDataProvider({ children }: { children: React.ReactNode }) {
 	const applyBotUpdate = React.useCallback<HomeData["applyBotUpdate"]>((botId, patch) => {
 		const current = snapshotRef.current;
 		if (!current) return;
+		pendingPatches.current.add(botId, patch);
 		const next = { ...current, bots: current.bots.map((bot) => (bot.id === botId ? { ...bot, ...patch } : bot)) };
 		snapshotRef.current = next;
 		setSnapshot(next);

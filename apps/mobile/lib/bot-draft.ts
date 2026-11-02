@@ -9,7 +9,9 @@ const notify = () => {
 	for (const listener of listeners) listener();
 };
 
+/** Cria o rascunho só se ainda não existe (idempotente: remontar a tela não zera o que já foi editado). */
 export function initDraft(botId: string, draft: BotDraft): void {
+	if (drafts.has(botId)) return;
 	drafts.set(botId, draft);
 	notify();
 }

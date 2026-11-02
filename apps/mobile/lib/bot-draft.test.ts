@@ -17,4 +17,13 @@ describe("rascunho do Editar Bot", () => {
 		clearDraft("b");
 		expect(getDraft("b")).toBeNull();
 	});
+	it("iniciar de novo (StrictMode, remontagem) não zera o que já foi editado", () => {
+		initDraft("b", base);
+		updateDraft("b", { name: "Editado" });
+		initDraft("b", base);
+		expect(getDraft("b")?.name).toBe("Editado");
+		clearDraft("b"); // o cleanup do primeiro ciclo
+		initDraft("b", base); // e o segundo ciclo recria
+		expect(getDraft("b")).toEqual(base);
+	});
 });
