@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "Atlas",
+    "slug": "atlas",
+    "scheme": "atlas",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "platforms": [
+      "android",
+      "ios",
+      "web"
+    ],
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "app.atlas.mobile"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "0633915b-effc-4a73-9265-44a7813e2ce1"
+      }
+    },
+    "owner": "ali-ali18",
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/0633915b-effc-4a73-9265-44a7813e2ce1"
+    }
+  }
+}
