@@ -18,7 +18,8 @@ import {
 } from "@workspace/queue";
 import { loadConfig } from "./config.js";
 import { registerEdgeMiddleware } from "./middleware/edge.js";
-import { auth, authProviders, isOwnerEmail } from "./auth.js";
+import { atlasOrigin, auth, authProviders, authSecretValue, isOwnerEmail } from "./auth.js";
+import { createMobileAuthRoutes } from "./routes/mobile-auth.js";
 import { createViewerUpgradeHandler } from "./routes/sandbox-viewer.js";
 import { createPreviewBasicRoutes, createPreviewOpenRoutes, createPreviewService, createUpgradeDispatcher, loadPreviewConfig, previewBootLog } from "./routes/previews.js";
 import { createChatRoutes } from "./routes/chat.js";
@@ -56,6 +57,7 @@ import { createProviderRoutes } from "./routes/providers.js";
 import { createProviderKeyRoutes } from "./routes/provider-keys.js";
 import { createModelRoutes } from "./routes/models.js";
 import { createEventRoutes } from "./routes/events.js";
+import { rateLimitByIp } from "./middleware/rate-limit.js";
 import { createHealthRoutes } from "./health.js";
 import { endAllObserverStreams } from "./routes/run-observer.js";
 import { closeUserEventWaker } from "./user-event-wakeups.js";
@@ -191,6 +193,19 @@ app.route(
 	}),
 );
 app.get("/api/auth/providers", (c) => c.json(authProviders));
+// Login do app mobile pelo navegador (ponte). Fora de /v1: a autenticação é o fluxo do Google + token de uso único.
+// Atrás do proxy o IP é o dele: teto global folgado (não deixa um IP só travar o dono); o /start ainda tem limite por `state`.
+app.use("/api/mobile/auth/*", rateLimitByIp(300, 60_000));
+app.route(
+	"/",
+	createMobileAuthRoutes({
+		auth,
+		baseOrigin: atlasOrigin,
+		trustExpoGo: process.env.ATLAS_TRUST_EXPO_GO?.trim() === "1",
+		isOwnerEmail,
+		secret: authSecretValue,
+	}),
+);
 app.all("/api/auth/*", (c) => auth.handler(c.req.raw));
 
 app.route("/", createChatRoutes(config));

@@ -27,7 +27,7 @@ O `next build` grava valores `NEXT_PUBLIC_*` dentro do JavaScript do navegador, 
 | Variável | Para quê | Obrigatória? |
 |---|---|---|
 | `SENTRY_DSN` | DSN público do Sentry no navegador (`NEXT_PUBLIC_SENTRY_DSN`). Vazio = Sentry desligado no front | não |
-| `ATLAS_API_INTERNAL_URL` | destino do proxy `/v1` e `/api/auth` do web. Padrão `http://api:3001` (nome do serviço no compose) | não, só se mudar o nome do serviço |
+| `ATLAS_API_INTERNAL_URL` | destino do proxy `/v1`, `/api/auth` e `/api/mobile` (login do app) do web. Padrão `http://api:3001` (nome do serviço no compose) | não, só se mudar o nome do serviço |
 
 Observações:
 

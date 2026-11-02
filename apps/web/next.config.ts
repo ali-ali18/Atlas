@@ -75,6 +75,8 @@ const nextConfig: NextConfig = {
     return [
       { source: "/v1/:path*", destination: `${apiUrl}/v1/:path*` },
       { source: "/api/auth/:path*", destination: `${apiUrl}/api/auth/:path*` },
+      // Ponte do login do app mobile (start/done/exchange): servida pela API, na mesma origem do cookie de sessão.
+      { source: "/api/mobile/:path*", destination: `${apiUrl}/api/mobile/:path*` },
     ]
   },
 }

@@ -4,6 +4,14 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+## [0.4.1-beta] - 2026-11-02
+
+### Adicionado
+- **auth, mobile:** login com Google pela ponte do servidor. O app abre `/api/mobile/auth/start` no navegador; o servidor valida o retorno (`atlas://` sempre, `exp://` só com `ATLAS_TRUST_EXPO_GO=1`), faz o Google normal e cai numa página HTTPS própria (`/api/mobile/auth/done`) com "Voltar para o app" e um token de uso único (plugin `one-time-token`, 60 s, só hash no banco, só o dono), trocado por sessão em `/api/mobile/auth/exchange` com PKCE (o app manda `code_challenge` no início e prova o `code_verifier` na troca; token interceptado não serve). O `/start` tem limite por `state`. O app confere o `state`, aceita o link pelo navegador, pelo listener do Linking e ao reabrir, e abre a aba na mesma tarefa (`createTask: false`). O web ganha o rewrite de `/api/mobile` para a API. Dependência nova no mobile: `expo-crypto`. Exige deploy da api e do web. Ver `docs/features/app-mobile.md`.
+
+### Corrigido
+- **mobile:** o login com Google no Expo Go abria uma aba branca e, ao fechá-la, o Expo Go ia para a tela inicial. O fluxo antigo (proxy do plugin do Expo e 302 para `exp://`) foi trocado pela ponte acima.
+
 ## [0.4.0-beta] - 2026-11-02
 
 ### Adicionado

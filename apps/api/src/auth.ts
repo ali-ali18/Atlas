@@ -6,7 +6,7 @@ import { prisma } from "@workspace/db";
 import { sendMail, type MailMessage } from "@workspace/mail";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
-import { emailOTP, magicLink } from "better-auth/plugins";
+import { emailOTP, magicLink, oneTimeToken } from "better-auth/plugins";
 import { createEmailCodeLimiter, type EmailCodeLimiter } from "./auth-email-limit.js";
 
 const ownerEmail = process.env.ATLAS_OWNER_EMAIL?.trim().toLowerCase();
@@ -23,6 +23,10 @@ const baseURL = new URL(atlasUrl || "http://localhost:3000");
 if (!(["http:", "https:"].includes(baseURL.protocol)) || baseURL.pathname !== "/" || baseURL.search || baseURL.hash) {
 	throw new Error("ATLAS_URL must be an origin without path, query or fragment");
 }
+
+/** Origem pública do servidor (`ATLAS_URL`), usada nos retornos de login que o próprio servidor serve. */
+export const atlasOrigin = baseURL.origin;
+export const authSecretValue = authSecret;
 
 export const authProviders = {
 	github: Boolean(process.env.GITHUB_OAUTH_CLIENT_ID && process.env.GITHUB_OAUTH_CLIENT_SECRET),
@@ -66,6 +70,13 @@ export function buildTrustedOrigins(webOrigin: string, trustExpoGo: boolean): st
 export const EMAIL_OTP_LENGTH = 6;
 export const EMAIL_OTP_EXPIRES_IN_SECONDS = 300;
 export const EMAIL_OTP_ALLOWED_ATTEMPTS = 5;
+
+/**
+ * Troca do login do app pelo navegador (rotas/mobile-auth.ts): o token vale 60 s (`expiresIn` em minutos), é de uso
+ * único (consumido na troca) e fica só como hash no banco. `disableClientRequest` impede que um cliente o peça
+ * direto em /api/auth: só a página de retorno, com a sessão do dono, o gera.
+ */
+export const MOBILE_TOKEN_TTL_MINUTES = 1;
 
 export type AuthDeps = {
 	database?: BetterAuthOptions["database"];
@@ -153,6 +164,7 @@ export function createAuth(deps: AuthDeps = {}) {
 					});
 				},
 			}),
+			oneTimeToken({ expiresIn: MOBILE_TOKEN_TTL_MINUTES, storeToken: "hashed", disableClientRequest: true }),
 			magicLink({
 				async sendMagicLink({ email, url }) {
 					if (email.trim().toLowerCase() !== ownerEmail) {
