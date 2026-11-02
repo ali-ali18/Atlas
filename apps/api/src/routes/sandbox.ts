@@ -94,6 +94,7 @@ function parseNavigateBody(body: unknown): SandboxNavigateBody | null {
 }
 
 const VIEWER_TOKEN_PREFIX = "/v1/sandbox/vt/";
+const VIEWER_SANDBOX_CSP = "sandbox allow-scripts; frame-ancestors 'none'";
 
 type SandboxEnv = { Variables: AuthEnv["Variables"] & { sandboxManager: SandboxManager } };
 export function createSandboxRoutes(sandboxConfig: SandboxRuntimeConfig, deps: {
@@ -256,7 +257,9 @@ export function createSandboxRoutes(sandboxConfig: SandboxRuntimeConfig, deps: {
 
 	// Proxy HTTP do noVNC autorizado SÓ pelo token no caminho (sem cookie). A posse é conferida com o userId DO TOKEN,
 	// igual ao middleware de /v1/sandbox/*. Falha de posse = 404 igual para tudo; token inválido/expirado = 401 sem
-	// dizer qual. O token nunca vai para log nem para mensagem de erro.
+	// dizer qual. O token nunca vai para log nem para mensagem de erro. O token vale 10 min: depois disso o noVNC
+	// (reconnect) recebe 401 em loop e recarregar a WebView falha (no-store); o app deve pedir `viewer-link` novo antes
+	// de vencer ou quando a conexão cair. Nesses 10 min quem tem o link CONTROLA a VM.
 	app.on(["GET", "HEAD"], "/v1/sandbox/vt/:token/*", async (c) => {
 		const noReferrer = { "Referrer-Policy": "no-referrer", "Cache-Control": "private, no-store" };
 		const rawToken = c.req.param("token");
@@ -281,6 +284,9 @@ export function createSandboxRoutes(sandboxConfig: SandboxRuntimeConfig, deps: {
 		const search = new URL(c.req.url).search;
 		const response = await proxyViewerHttp(c.req.raw, target, `/${rest || "vnc.html"}${search}`);
 		response.headers.set("Referrer-Policy", "no-referrer");
+		// A VM é código do dono, servido na origem da API (que tem o cookie de login de quem abrir o link): CSP sandbox SEM
+		// allow-same-origin joga o documento numa origem opaca (sem cookie nem storage da API), como em routes/previews.ts.
+		response.headers.set("Content-Security-Policy", VIEWER_SANDBOX_CSP);
 		return response;
 	});
 

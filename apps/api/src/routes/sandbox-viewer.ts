@@ -129,6 +129,11 @@ export async function ownsSession(deps: ViewerOwnershipDeps, userId: string, ses
 // ---- HTTP ----------------------------------------------------------------
 
 const HOP_BY_HOP = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "content-length"]);
+/**
+ * Cabeçalhos da resposta da VM que NUNCA passam: a VM é código do dono do bot, servido na origem da API. `set-cookie`
+ * gravaria cookie no navegador de quem abre o link; CSP/frame do upstream disputariam com a CSP sandbox da rota.
+ */
+const RESPONSE_STRIP = new Set(["set-cookie", "set-cookie2", "content-security-policy", "content-security-policy-report-only", "x-frame-options"]);
 const REQUEST_STRIP = new Set([...HOP_BY_HOP, "cookie", "authorization", "host", "origin", "referer", "accept-encoding"]);
 
 export type ViewerTarget = { host: string; port: number; tls: boolean };
@@ -145,7 +150,7 @@ export async function proxyViewerHttp(request: Request, target: ViewerTarget, up
 			(res) => {
 				const out = new Headers();
 				for (const [key, value] of Object.entries(res.headers)) {
-					if (HOP_BY_HOP.has(key) || value === undefined) continue;
+					if (HOP_BY_HOP.has(key) || RESPONSE_STRIP.has(key) || value === undefined) continue;
 					for (const v of Array.isArray(value) ? value : [value]) out.append(key, v);
 				}
 				out.set("X-Content-Type-Options", "nosniff");
@@ -197,11 +202,12 @@ export function createViewerUpgradeHandler(deps: ViewerUpgradeDeps) {
 			const match = WS_PATH_RE.exec(url.pathname);
 			if (!match) return reject(socket, 404, "Not Found", "caminho não é de viewer");
 			const sessionId = decodeURIComponent(match[1]!);
-			// Evita WebSocket entre sites autenticado só por cookie.
-			if (!sameOrigin(req)) return reject(socket, 403, "Forbidden", `origin ${String(req.headers.origin)} ≠ host ${String(req.headers.host)}`);
 
 			let userId = verifyViewerToken(url.searchParams.get("t"), sessionId, deps.secret, deps.now?.());
 			if (!userId) {
+				// Evita WebSocket entre sites autenticado só por cookie. Com token válido a origem não importa: o noVNC servido
+				// por `/v1/sandbox/vt/` roda em origem opaca (CSP sandbox) e conecta com `Origin: null`; o token já é a credencial.
+				if (!sameOrigin(req)) return reject(socket, 403, "Forbidden", `origin ${String(req.headers.origin)} ≠ host ${String(req.headers.host)}`);
 				const headers = new Headers();
 				for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string") headers.set(k, v);
 				userId = await deps.userFromRequest(headers);

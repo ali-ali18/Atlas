@@ -111,6 +111,10 @@ test("vt: token valido chama o proxy com o caminho certo e cabecalhos de seguran
 	const upstream = http.createServer((req, res) => {
 		seen.push({ url: req.url, cookie: req.headers.cookie, auth: req.headers.authorization });
 		res.setHeader("Content-Type", "text/html");
+		res.setHeader("Set-Cookie", "evil=1; Path=/");
+		res.setHeader("Content-Security-Policy", "sandbox allow-same-origin allow-scripts");
+		res.setHeader("Content-Security-Policy-Report-Only", "default-src *");
+		res.setHeader("X-Frame-Options", "ALLOWALL");
 		res.end("<html>novnc</html>");
 	});
 	const port = await listen(upstream);
@@ -124,6 +128,12 @@ test("vt: token valido chama o proxy com o caminho certo e cabecalhos de seguran
 		assert.equal(res.headers.get("x-content-type-options"), "nosniff");
 		assert.equal(res.headers.get("cache-control"), "private, no-store");
 		assert.equal(res.headers.get("referrer-policy"), "no-referrer");
+		const csp = res.headers.get("content-security-policy") ?? "";
+		assert.equal(csp, "sandbox allow-scripts; frame-ancestors 'none'");
+		assert.doesNotMatch(csp, /allow-same-origin/);
+		assert.equal(res.headers.get("set-cookie"), null);
+		assert.equal(res.headers.get("content-security-policy-report-only"), null);
+		assert.equal(res.headers.get("x-frame-options"), null);
 		const asset = await app.request(`/v1/sandbox/vt/${token}/app/ui.js`, { method: "HEAD" });
 		assert.equal(asset.status, 200);
 		assert.equal(seen[1]?.url, "/app/ui.js");
