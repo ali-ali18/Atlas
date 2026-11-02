@@ -1,3 +1,4 @@
+import { bubbleColors } from "@workspace/shared";
 import { resolveColor } from "@workspace/shared/avatar/identity";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -80,9 +81,24 @@ export default function ChatScreen() {
 	const [replyTo, setReplyTo] = React.useState<ReplyQuote | null>(null);
 	const startReply = React.useCallback((item: ChatItem) => setReplyTo(replyQuoteFor(item)), []);
 	const messageMenu = useMessageMenu({ chat, goBack, composerHeight, onReply: startReply });
+	// Cor do bot para o botão do composer (destaque e o que fica por cima dele).
+	const palette = React.useMemo(
+		() => botColors(resolveColor(bot?.color, id), { accent: themeColor(scheme, "primary"), foreground: themeColor(scheme, "primary-foreground") }),
+		[bot?.color, id, scheme],
+	);
+	// Balão do usuário na cor do bot, como no web (`bubbleColors`: texto branco ou escuro pelo contraste APCA); sem cor válida, cinza.
+	const userBubble = React.useMemo(() => bubbleColors(bot?.color) ?? undefined, [bot?.color]);
 	const actions = React.useMemo<RowActions>(
-		() => ({ onDecide: chat.decide, onAnswer: chat.answer, onOpenWeb: openWeb, onOpenMenu: messageMenu.open, activeRunId: chat.runTasks?.runId ?? null, running: chat.running }),
-		[chat.decide, chat.answer, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId],
+		() => ({
+			onDecide: chat.decide,
+			onAnswer: chat.answer,
+			onOpenWeb: openWeb,
+			onOpenMenu: messageMenu.open,
+			activeRunId: chat.runTasks?.runId ?? null,
+			running: chat.running,
+			userBubble: userBubble,
+		}),
+		[chat.decide, chat.answer, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
 	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.
@@ -103,7 +119,7 @@ export default function ChatScreen() {
 		);
 	}
 
-	const { accent: color, foreground } = botColors(resolveColor(bot.color, bot.id), { accent: themeColor(scheme, "primary"), foreground: themeColor(scheme, "primary-foreground") });
+	const { accent: color, foreground } = palette;
 	// Pausado (esperando aprovação ou resposta) também mostra a linha: "Esperando você".
 	const showThinking = chat.running && (chat.paused || chat.phase === "thinking" || chat.phase === "tool");
 	const onMenuPick = (action: ChatMenuAction) => {

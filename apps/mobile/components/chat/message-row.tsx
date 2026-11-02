@@ -21,16 +21,25 @@ export type RowActions = {
 	onOpenWeb: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
 	/** Toque longo no balão: abre o menu da mensagem (só abre para fala já gravada; ver `messageMenuFor`). */
 	onOpenMenu: (item: ChatItem) => void;
+	/** Cor do bot para o balão do usuário (fundo e texto por cima dele). Sem ela, o balão usa o cinza neutro. */
+	userBubble?: { background: string; foreground: string };
 };
 
-/** Balão do usuário: o do web (`Bubble variant="muted"`, à direita). */
-function UserBubble({ text, position, reactions, replyTo, onLongPress }: { text: string; position: GroupPosition; reactions?: Reaction[]; replyTo?: ReplyQuote; onLongPress: () => void }) {
+/** Balão do usuário, à direita, na cor do bot (como no Grok); sem a cor, o cinza do `Bubble variant="muted"` do web. */
+function UserBubble({ text, position, reactions, replyTo, accent, onLongPress }: { text: string; position: GroupPosition; reactions?: Reaction[]; replyTo?: ReplyQuote; accent?: RowActions["userBubble"]; onLongPress: () => void }) {
 	return (
 		<View className="max-w-[82%] self-end">
 			{replyTo ? <ReplyPill quote={replyTo} align="end" spaced={position !== "single" && position !== "first"} /> : null}
 			{/* Sem `selectable`: o toque longo abre o menu (a seleção está em "Selecionar texto"). */}
-			<Pressable onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" className={`bg-muted px-4 py-3 ${bubbleRadius("right", position)}`}>
-				<Text className="text-control leading-6">{text}</Text>
+			<Pressable
+				onLongPress={onLongPress}
+				accessibilityHint="Segure para ver as ações da mensagem"
+				style={accent ? { backgroundColor: accent.background } : undefined}
+				className={`px-4 py-3 ${accent ? "" : "bg-muted"} ${bubbleRadius("right", position)}`}
+			>
+				<Text className="text-control leading-6" style={accent ? { color: accent.foreground } : undefined}>
+					{text}
+				</Text>
 			</Pressable>
 			<Reactions reactions={reactions} align="end" />
 		</View>
@@ -108,7 +117,7 @@ export const MessageRow = React.memo(function MessageRow({
 function RowContent({ item, actions, position }: { item: ChatItem; actions: RowActions; position: GroupPosition }) {
 	switch (item.kind) {
 		case "user":
-			return <UserBubble text={item.text} position={position} reactions={item.reactions} replyTo={item.replyTo} onLongPress={() => actions.onOpenMenu(item)} />;
+			return <UserBubble text={item.text} position={position} reactions={item.reactions} replyTo={item.replyTo} accent={actions.userBubble} onLongPress={() => actions.onOpenMenu(item)} />;
 		case "assistant":
 			return item.text.trim() ? <BotBubble text={item.text} position={position} reactions={item.reactions} replyTo={item.replyTo} onLongPress={() => actions.onOpenMenu(item)} /> : null;
 		case "task-list":
