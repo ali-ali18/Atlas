@@ -13,7 +13,7 @@
     "test:all": "pnpm -r --if-present --workspace-concurrency=1 --filter \"!@workspace/db\" test",
     "test:db": "pnpm --filter @workspace/db test:db",
     "e2e": "pnpm --filter web e2e",
-    "test:scripts": "node --test scripts/changelog.test.mjs scripts/resolve-git-commit.test.mjs"
+    "test:scripts": "node --test scripts/changelog.test.mjs scripts/resolve-git-commit.test.mjs docker/agent-sandbox/install/atlas-install.test.mjs docker/agent-sandbox/install/image.test.mjs"
   },
   "devDependencies": {
     "@workspace/eslint-config": "workspace:*",

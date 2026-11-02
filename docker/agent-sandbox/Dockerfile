@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	ca-certificates \
 	curl \
 	dbus-x11 \
+	file \
 	fonts-dejavu \
 	git \
 	gnupg \
@@ -23,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	procps \
 	python3 \
 	scrot \
+	sudo \
 	thunar \
 	unzip \
 	websockify \
@@ -82,6 +84,23 @@ RUN chmod -R a+rX /app/control
 RUN useradd --create-home --uid 1001 --shell /bin/bash atlas \
 	&& mkdir -p /home/atlas/work \
 	&& chown -R atlas:atlas /home/atlas
+
+# Instalar programas: o atlas vira root para UMA coisa, o atlas-install (wrapper + validação em Node,
+# de dono root e sem escrita para o atlas). O sudoers libera só esse arquivo: nada de apt-get/dpkg/shell
+# com sudo (o apt-get aceita `-o APT::Update::Pre-Invoke=...`, que seria root livre). `visudo -c` quebra
+# o build se o arquivo estiver errado. O que foi instalado fica registrado em /home/atlas/.atlas (volume)
+# e o entrypoint reinstala quando a VM é recriada.
+COPY install/atlas-install /usr/local/bin/atlas-install
+COPY install/atlas-install.mjs install/atlas-install-lib.mjs /usr/local/lib/atlas-install/
+COPY install/sudoers-atlas-install /etc/sudoers.d/atlas-install
+RUN sed -i 's/\r$//' /usr/local/bin/atlas-install /usr/local/lib/atlas-install/*.mjs /etc/sudoers.d/atlas-install \
+	&& chown -R root:root /usr/local/bin/atlas-install /usr/local/lib/atlas-install /etc/sudoers.d/atlas-install \
+	&& chmod 0755 /usr/local/bin/atlas-install /usr/local/lib/atlas-install \
+	&& chmod 0644 /usr/local/lib/atlas-install/*.mjs \
+	&& chmod 0440 /etc/sudoers.d/atlas-install \
+	&& mkdir -p /var/lib/atlas-install \
+	&& visudo -c -f /etc/sudoers.d/atlas-install \
+	&& visudo -c
 
 COPY entrypoint.sh /entrypoint.sh
 # Strip CRLF (checkouts no Windows com core.autocrlf quebram o shebang).

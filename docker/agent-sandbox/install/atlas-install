@@ -1,0 +1,5 @@
+#!/bin/sh
+# Wrapper de root (o sudoers libera só este arquivo). Ambiente limpo e caminhos absolutos:
+# nada do usuário (NODE_OPTIONS, NODE_PATH, LD_PRELOAD, BASH_ENV...) chega ao Node.
+# SUDO_USER segue só para o Node recusar `prepare`/`reinstall` (internos) quando vierem do sudo.
+exec /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin SUDO_USER="${SUDO_USER:-}" /usr/local/bin/node /usr/local/lib/atlas-install/atlas-install.mjs "$@"
