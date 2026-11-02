@@ -1,4 +1,4 @@
-import { bubbleColors } from "@workspace/shared";
+
 import { resolveColor } from "@workspace/shared/avatar/identity";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -13,6 +13,7 @@ import { ChatTopBar, TOP_BAR_HEIGHT } from "@/components/chat/chat-top-bar";
 import { Composer } from "@/components/chat/composer";
 import { MessageRow, type RowActions } from "@/components/chat/message-row";
 import { useMessageMenu } from "@/components/chat/use-message-menu";
+import { grokBubbleColors } from "@/lib/bubble-tone";
 import { createNewItemTracker } from "@/lib/chat-appear";
 import { groupPositionAt, type GroupPosition } from "@workspace/shared";
 import { SyncLine, ThinkingLine } from "@/components/chat/sync-line";
@@ -86,8 +87,8 @@ export default function ChatScreen() {
 		() => botColors(resolveColor(bot?.color, id), { accent: themeColor(scheme, "primary"), foreground: themeColor(scheme, "primary-foreground") }),
 		[bot?.color, id, scheme],
 	);
-	// Balão do usuário na cor do bot, como no web (`bubbleColors`: texto branco ou escuro pelo contraste APCA); sem cor válida, cinza.
-	const userBubble = React.useMemo(() => bubbleColors(bot?.color) ?? undefined, [bot?.color]);
+	// Balão do usuário na cor do bot, como no web (`grokBubbleColors`: o tom do Grok; texto branco, ou escuro em cor clara); sem cor válida, cinza.
+	const userBubble = React.useMemo(() => grokBubbleColors(bot?.color) ?? undefined, [bot?.color]);
 	const actions = React.useMemo<RowActions>(
 		() => ({
 			onDecide: chat.decide,

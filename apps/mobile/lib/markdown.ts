@@ -234,8 +234,8 @@ export function inlineText(nodes: readonly Inline[]): string {
 
 /** Mesma regra do web (`cellWidthClass`): número, moeda, data ou % curto nunca quebra. */
 const COMPACT_VALUE = /^[\sR$US€£\d.,:%/+()\-–]+$/;
-const CHAR_WIDTH = 8.6;
-const CELL_PADDING = 32;
+const CHAR_WIDTH = 9;
+const CELL_PADDING = 40;
 /** 8 rem e 22 rem do web (16 pt por rem). */
 const TEXT_MIN = 128;
 const TEXT_MAX = 352;
@@ -255,4 +255,22 @@ export function tableColumnWidths(header: Inline[][], rows: Inline[][][]): numbe
 		}
 		return Math.ceil(width);
 	});
+}
+
+/** Pedaço de uma fala do bot: texto corrido (um balão) ou uma tabela (cartão próprio, como no Grok). */
+export type Segment = { kind: "bubble"; blocks: Block[] } | { kind: "table"; block: Extract<Block, { type: "table" }> };
+
+/** Separa a fala nos pontos das tabelas: o que vem antes e depois vira balão, cada tabela vira um cartão. */
+export function splitSegments(blocks: readonly Block[]): Segment[] {
+	const segments: Segment[] = [];
+	let current: Block[] = [];
+	for (const block of blocks) {
+		if (block.type === "table") {
+			if (current.length) segments.push({ kind: "bubble", blocks: current });
+			current = [];
+			segments.push({ kind: "table", block });
+		} else current.push(block);
+	}
+	if (current.length) segments.push({ kind: "bubble", blocks: current });
+	return segments;
 }

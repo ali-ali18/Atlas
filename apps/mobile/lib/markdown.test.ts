@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inlineText, isSafeUrl, MARKDOWN_MAX_CHARS, parseInline, parseMarkdown, tableColumnWidths } from "./markdown";
+import { inlineText, isSafeUrl, MARKDOWN_MAX_CHARS, parseInline, parseMarkdown, splitSegments, tableColumnWidths } from "./markdown";
 
 describe("parseInline", () => {
 	it("negrito, itálico e código", () => {
@@ -124,5 +124,22 @@ describe("largura das colunas da tabela", () => {
 	});
 	it("tira as marcas inline ao medir", () => {
 		expect(inlineText(parseInline("**oi** _tu_"))).toBe("oi tu");
+	});
+});
+
+describe("fala com tabela", () => {
+	const table = "| a | b |\n|---|---|\n| 1 | 2 |";
+	it("a tabela vira cartão e o texto em volta vira balão", () => {
+		const segments = splitSegments(parseMarkdown(`Antes\n\n${table}\n\nDepois`));
+		expect(segments.map((segment) => segment.kind)).toEqual(["bubble", "table", "bubble"]);
+	});
+	it("só tabela: um cartão, nenhum balão vazio", () => {
+		expect(splitSegments(parseMarkdown(table)).map((segment) => segment.kind)).toEqual(["table"]);
+	});
+	it("sem tabela: um balão só", () => {
+		expect(splitSegments(parseMarkdown("oi\n\n- a\n- b")).map((segment) => segment.kind)).toEqual(["bubble"]);
+	});
+	it("duas tabelas seguidas: dois cartões", () => {
+		expect(splitSegments(parseMarkdown(`${table}\n\n${table}`)).map((segment) => segment.kind)).toEqual(["table", "table"]);
 	});
 });

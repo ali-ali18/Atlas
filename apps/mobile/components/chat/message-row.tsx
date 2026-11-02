@@ -7,7 +7,9 @@ import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "@/lib/chat-types";
 import type { AnswerMap } from "@/lib/questionnaire";
 import { ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
-import { MarkdownText } from "./markdown-text";
+import { MarkdownBlocks, TableCard } from "./markdown-text";
+import { useAppColorScheme } from "@/lib/use-theme";
+import { parseMarkdown, splitSegments } from "@/lib/markdown";
 import { ReplyPill } from "./reply-pill";
 import { TaskSummary } from "./task-dock";
 
@@ -68,12 +70,23 @@ function Reactions({ reactions, align }: { reactions?: Reaction[]; align: "start
  * (87% da lista), margem de 14 pt dos lados e de cima/baixo, texto de 16 pt com entrelinha de 22 pt.
  */
 function BotBubble({ text, position, reactions, replyTo, onLongPress }: { text: string; position: GroupPosition; reactions?: Reaction[]; replyTo?: ReplyQuote; onLongPress: () => void }) {
+	const scheme = useAppColorScheme();
+	// Tabela não vai dentro do balão: é um cartão só (como no Grok); o texto em volta vira balões.
+	const segments = React.useMemo(() => splitSegments(parseMarkdown(text)), [text]);
 	return (
-		<View className="max-w-[87%] self-start">
+		<View className="max-w-[87%] gap-1.5 self-start">
 			{replyTo ? <ReplyPill quote={replyTo} align="start" spaced={position !== "single" && position !== "first"} /> : null}
-			<Pressable onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" className={`bg-muted px-3.5 py-3.5 ${bubbleRadius("left", position)}`}>
-				<MarkdownText source={text} />
-			</Pressable>
+			{segments.map((segment, index) =>
+				segment.kind === "table" ? (
+					<Pressable key={`table-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem">
+						<TableCard block={segment.block} scheme={scheme} />
+					</Pressable>
+				) : (
+					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" className={`bg-muted px-3.5 py-3.5 ${bubbleRadius("left", position)}`}>
+						<MarkdownBlocks blocks={segment.blocks} />
+					</Pressable>
+				),
+			)}
 			<Reactions reactions={reactions} align="start" />
 		</View>
 	);

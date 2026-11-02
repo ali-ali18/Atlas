@@ -55,6 +55,35 @@ function Inlines({ nodes, scheme }: { nodes: readonly Inline[]; scheme: "light" 
 	);
 }
 
+/**
+ * Tabela como no Grok: um cartão único (a tabela inteira é o balão, sem balão por fora), rola para o lado com a
+ * barrinha de rolagem no canto. Larguras explícitas por coluna (`tableColumnWidths`): no Android um ScrollView
+ * horizontal sem tamanho definido esticava as linhas até a altura da tela (cartão gigante e vazio).
+ */
+export function TableCard({ block, scheme }: { block: Extract<Block, { type: "table" }>; scheme: "light" | "dark" }) {
+	const widths = tableColumnWidths(block.header, block.rows);
+	const total = widths.reduce((sum, width) => sum + width, 0);
+	return (
+		<View className="self-stretch overflow-hidden rounded-3xl border border-border bg-muted">
+			<ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 0 }}>
+				<View style={{ width: total }}>
+					{[block.header, ...block.rows].map((row, rowIndex) => (
+						<View key={`row-${rowIndex}`} style={{ flexDirection: "row" }} className={rowIndex > 0 ? "border-t border-border" : undefined}>
+							{row.map((cell, column) => (
+								<View key={`cell-${column}`} style={{ width: widths[column] }} className="px-5 py-3">
+									<Text className={cn("text-base leading-snug", rowIndex === 0 && "font-semibold")}>
+										<Inlines nodes={cell} scheme={scheme} />
+									</Text>
+								</View>
+							))}
+						</View>
+					))}
+				</View>
+			</ScrollView>
+		</View>
+	);
+}
+
 function BlockView({ block, scheme }: { block: Block; scheme: "light" | "dark" }) {
 	switch (block.type) {
 		case "paragraph":
@@ -107,35 +136,23 @@ function BlockView({ block, scheme }: { block: Block; scheme: "light" | "dark" }
 					</Text>
 				</View>
 			);
-		case "table": {
-			// Como no Grok: caixa arredondada com borda, divisor de ponta a ponta, texto do tamanho do balão, e rola para o
-			// lado para ver o resto. Larguras explícitas por coluna (`tableColumnWidths`): no Android um ScrollView
-			// horizontal sem tamanho definido esticava as linhas até a altura da tela (balão gigante e vazio).
-			const widths = tableColumnWidths(block.header, block.rows);
-			const total = widths.reduce((sum, width) => sum + width, 0);
-			return (
-				<View className="self-stretch overflow-hidden rounded-2xl border border-border">
-					<ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 0 }}>
-						<View style={{ width: total }}>
-							{[block.header, ...block.rows].map((row, rowIndex) => (
-								<View key={`row-${rowIndex}`} style={{ flexDirection: "row" }} className={rowIndex > 0 ? "border-t border-border" : undefined}>
-									{row.map((cell, column) => (
-										<View key={`cell-${column}`} style={{ width: widths[column] }} className="px-4 py-3">
-											<Text className={cn("text-base leading-snug", rowIndex === 0 && "font-semibold")}>
-												<Inlines nodes={cell} scheme={scheme} />
-											</Text>
-										</View>
-									))}
-								</View>
-							))}
-						</View>
-					</ScrollView>
-				</View>
-			);
-		}
+		case "table":
+			return <TableCard block={block} scheme={scheme} />;
 		case "rule":
 			return <View className="h-px bg-border" />;
 	}
+}
+
+/** Blocos já separados (parágrafos, listas, código…) um sobre o outro, para o balão. */
+export function MarkdownBlocks({ blocks }: { blocks: readonly Block[] }) {
+	const scheme = useAppColorScheme();
+	return (
+		<View className="gap-3">
+			{blocks.map((block, index) => (
+				<BlockView key={`${index}-${block.type}`} block={block} scheme={scheme} />
+			))}
+		</View>
+	);
 }
 
 /** Fala do bot em markdown: negrito, listas, `código` inline, bloco de código, citação e links. */
