@@ -4,6 +4,8 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+## [0.4.0-beta] - 2026-11-02
+
 ### Adicionado
 - **shared, mobile, web:** `botAccent` e `relativeLuminance` (a cor de destaque do bot, que escurece cor muito clara e usa primeiro plano branco) passam para `@workspace/shared`, com testes; o web importa de lá. O app usa `botAccent` no botão do composer, nas bolinhas de "Verificando…" e "Pensando…" e na chave de notificações, em vez da cor crua do avatar.
 - **mobile:** editar bot. O "Editar" do perfil abre "Editar Bot" (nome, avatar, idioma; voz e velocidade em breve) e o editor de Avatar (formas e cores do web, "Restaurar o padrão"); "Concluído" salva por `PATCH /v1/bots/:id` e atualiza a lista e o cache da home. Ver `docs/features/app-mobile.md`.
