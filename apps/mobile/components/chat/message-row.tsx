@@ -67,8 +67,11 @@ function BotBubble({ text, position, reactions, replyTo, onLongPress }: { text: 
 	);
 }
 
-/** Respiro extra quando muda quem fala (o gap da lista, de 6 px, fica só entre balões do mesmo autor). */
-const AUTHOR_GAP = 12;
+/**
+ * Respiro extra quando muda quem fala: 6 + o gap da lista (6) = 12 pt entre autores, como no Grok (medido no print de
+ * referência do dono: 12,3 pt). Dentro do mesmo autor o vão fica só nos 6 do gap da lista.
+ */
+const AUTHOR_GAP = 6;
 
 /** Primeira fala de um grupo do mesmo autor (ou fala sozinha): é onde a conversa troca de voz. */
 function startsAuthorGroup(item: ChatItem, position: GroupPosition): boolean {
