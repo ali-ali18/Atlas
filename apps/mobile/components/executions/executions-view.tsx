@@ -23,7 +23,7 @@ function StepIcon({ status }: { status: TaskItem["status"] }) {
 
 /**
  * Execução do bot, no padrão do Grok: título centralizado no topo e um cartão único com uma linha por passo (ícone de
- * estado, título e o estado embaixo, em cinza), divisor que começa depois do ícone. "Parar" fica abaixo enquanto roda.
+ * estado, título e o estado embaixo, em cinza), divisor de ponta a ponta. "Parar" fica abaixo enquanto roda.
  * Os passos vêm do run vivo (ou o último do fio); o servidor não guarda um histórico de passos para listar mais.
  */
 export function ExecutionsView({ steps, active, onBack, onStop }: { steps: readonly TaskItem[]; active: boolean; onBack: () => void; onStop?: (() => void) | null }) {
@@ -35,11 +35,11 @@ export function ExecutionsView({ steps, active, onBack, onStop }: { steps: reado
 				{steps.length > 0 ? (
 					<View style={{ borderWidth: 1, borderColor: surface.edge, backgroundColor: surface.card, borderRadius: 21, overflow: "hidden" }}>
 						{steps.map((step, index) => (
-							<View key={`${index}-${step.content}`} className="flex-row items-center gap-4 pl-5">
+							<View key={`${index}-${step.content}`} className="flex-row items-center gap-4 px-5 py-4" style={index > 0 ? { borderTopWidth: 1, borderTopColor: surface.edge } : undefined}>
 								<View className="size-8 items-center justify-center">
 									<StepIcon status={step.status} />
 								</View>
-								<View className="min-w-0 flex-1 py-4 pr-5" style={index > 0 ? { borderTopWidth: 1, borderTopColor: surface.edge } : undefined}>
+								<View className="min-w-0 flex-1">
 									<Text numberOfLines={2} className={`text-lg ${step.status === "pending" ? "text-muted-foreground" : ""}`}>
 										{step.content}
 									</Text>
