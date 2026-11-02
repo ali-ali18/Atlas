@@ -227,12 +227,15 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		profile: options.profile,
 		budget,
 		promotable,
+		...(helperRole ? {} : { hardActiveMs: runLimits.maxWallMs }),
 		maxSteps: Math.min(MAX_STEPS_SAFETY, runLimits.hardMaxSteps, helperRole?.budget.maxSteps ?? MAX_STEPS_SAFETY),
 	});
 	const wall = wallClockAnchors({ maxWallMs: budget.maxActiveMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
 	const activeElapsedMs = () => wall.baseMs + (Date.now() - wall.executionStartMs);
 	// Folga de 25% sobre o orçamento de tempo só para as operações do computador não ficarem presas para sempre.
-	const deadlineBudgetMs = Math.max(budget.maxActiveMs, promotedBudget?.maxActiveMs ?? 0);
+	// A renovação por mensagem do usuário estica o tempo do orçamento até o teto duro da conta (`runLimits.maxWallMs`), então
+	// o prazo das operações também considera esse teto; sem isso, num chat que não promove, a operação falharia no prazo antigo.
+	const deadlineBudgetMs = Math.max(budget.maxActiveMs, promotedBudget?.maxActiveMs ?? 0, helperRole ? 0 : runLimits.maxWallMs);
 	const deadlineAtMs = wall.executionStartMs + Math.round(Math.max(0, deadlineBudgetMs - wall.baseMs) * 1.25);
 	const executionContext = { signal: params.abortSignal, deadlineAtMs, ...(params.browserTabId ? { tabId: params.browserTabId } : {}) };
 	const manager = withAgentPointer(params.manager.withExecutionContext?.(executionContext) ?? params.manager, (event) => onEvent(event));
@@ -339,7 +342,11 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	const taskListStore: TaskListStore = { get: () => taskTracker.taskList(), set: (next) => taskTracker.setTaskList(next) };
 	/** Última lista que o modelo enviou (a do tracker some quando tudo conclui; o portão e os descartados precisam dela). */
 	let lastTaskItems: TaskListItem[] | undefined = taskTracker.taskList();
+	/** Maior lista que o MODELO montou neste run (só `update_task_list` chega aqui; lista herdada não conta): 3+ promove o chat. */
+	let modelPlannedSteps = 0;
 	const emitTaskListEvent = async (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>) => {
+		// Lista que o modelo já manda toda concluída (fechando o trabalho, logo antes de responder) não é plano: não promove.
+		if (items.some((item) => item.status !== "completed")) modelPlannedSteps = Math.max(modelPlannedSteps, items.length);
 		lastTaskItems = items.length > 0 ? items : undefined;
 		await upsertTaskListCard(conversationId, runId, items).catch(() => undefined);
 		await onEvent({ type: "task_list", items, ...(params.runId ? { runId: params.runId } : {}) });
@@ -510,6 +517,10 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			helperRuns: [...accountedHelpers],
 			activeElapsedMs: activeElapsedMs(),
 			promoted: supervisor.promoted,
+			...(() => {
+				const state = supervisor.state();
+				return { wrapUpSent: state.wrapUpSent, budgetBaseMs: state.timeBaseMs };
+			})(),
 			loadedTools: [...catalog.activeMcpTools(), ...tools.map((tool) => tool.function.name).filter((name) => !isMcpToolName(name))],
 			transcriptWatermark: parsed?.transcriptWatermark ?? params.transcriptWatermark,
 			carriedNotes: parsed?.carriedNotes ?? params.carriedNotes,
@@ -1224,6 +1235,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		return true;
 	};
 	if (parsed?.promoted === true) await promoteRun(true);
+	// Depois da promoção (que zera o aviso): a retomada não reenvia a nota de fechamento nem perde a renovação do tempo.
+	supervisor.restore({ wrapUpSent: parsed?.wrapUpSent, timeBaseMs: parsed?.budgetBaseMs });
 
 	// Retomada no meio de um lote: as tool calls sem resultado rodam primeiro.
 	const lastAssistant = [...conversation].reverse().find((message) => message.role === "assistant");
@@ -1268,6 +1281,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					consumedInputIds.add(input.id);
 					conversation.push({ role: "user", content: `[User message during the task] ${input.content}` });
 					await onEvent({ type: "input_consumed", inputId: input.id, mode: input.mode ?? "join", content: input.content });
+					// Pergunta nova nasce com o tempo cheio: o relógio do orçamento recomeça agora (US$ e passos seguem cumulativos).
+					supervisor.onUserInput({ costUsd: spentUsd(), activeMs: activeElapsedMs(), step });
 				}
 			}
 			const gateNow = () => {
@@ -1281,6 +1296,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 						notebookCount: notebook ? novelEntryCount(notebook.snapshot()) : 0,
 						completedCount: taskItems ? taskItems.filter((item) => item.status === "completed").length : 0,
 						lastStepHadTools,
+						plannedSteps: modelPlannedSteps,
 					},
 				);
 			};
