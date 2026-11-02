@@ -31,37 +31,51 @@ export default function ExecutionsScreen() {
 				</RoundButton>
 				<Text className="text-xl font-semibold">Execuções</Text>
 			</View>
-			<ScrollView contentContainerClassName="gap-4 px-4 pb-10 pt-6">
-				{active ? (
-					<ChatCard className="gap-3 self-stretch">
-						<Text className="text-control font-semibold">Em andamento</Text>
-						<Text variant="muted" className="text-control">
-							{runStatusLine(run)}
-						</Text>
-						{steps && steps.length > 0 ? <TaskListItems items={steps} /> : null}
-						{run.stop ? (
-							<View className="flex-row">
-								<Button size="sm" variant="secondary" accessibilityLabel="Parar" onPress={run.stop}>
-									<Text>Parar</Text>
-								</Button>
-							</View>
+			<ScrollView contentContainerClassName="gap-3 px-4 pb-10 pt-6">
+				{/* Cabeçalho da seção e a linha de estado ficam fora do cartão; o cartão leva só os passos; "Parar" fica embaixo. */}
+				{steps && steps.length > 0 ? (
+					<>
+						<View className="gap-1 px-1">
+							<Text variant="caption" className="text-body uppercase tracking-wide">
+								{active ? "Em andamento" : "Última execução"}
+							</Text>
+							<Text className="text-control">{active ? runStatusLine(run) : lastRunLabel(steps)}</Text>
+						</View>
+						<ChatCard className="self-stretch">
+							<TaskListItems items={steps} />
+						</ChatCard>
+						{active && run.stop ? (
+							<Button variant="secondary" accessibilityLabel="Parar" className="w-full" onPress={run.stop}>
+								<Text>Parar</Text>
+							</Button>
 						) : null}
-					</ChatCard>
-				) : steps && steps.length > 0 ? (
-					<ChatCard className="gap-3 self-stretch">
-						<Text className="text-control font-semibold">Última execução</Text>
-						<Text variant="muted" className="text-control">
-							{lastRunLabel(steps)}
-						</Text>
-						<TaskListItems items={steps} />
-					</ChatCard>
+					</>
+				) : active ? (
+					<>
+						<View className="gap-1 px-1">
+							<Text variant="caption" className="text-body uppercase tracking-wide">
+								Em andamento
+							</Text>
+							<Text className="text-control">{runStatusLine(run)}</Text>
+						</View>
+						{run.stop ? (
+							<Button variant="secondary" accessibilityLabel="Parar" className="w-full" onPress={run.stop}>
+								<Text>Parar</Text>
+							</Button>
+						) : null}
+					</>
 				) : (
-					<View className="items-center gap-2 px-6 py-16">
-						<Text className="text-center text-control font-medium">Nenhuma em andamento</Text>
-						<Text variant="muted" className="text-center text-control">
+					<>
+						<View className="gap-1 px-1">
+							<Text variant="caption" className="text-body uppercase tracking-wide">
+								Em andamento
+							</Text>
+							<Text className="text-control">Nenhuma em andamento</Text>
+						</View>
+						<Text variant="muted" className="px-1 text-control">
 							Quando o bot trabalhar em algo de vários passos, você acompanha por aqui.
 						</Text>
-					</View>
+					</>
 				)}
 			</ScrollView>
 		</SafeAreaView>

@@ -68,7 +68,7 @@ export default function ProfileScreen() {
 								<Text className="text-lg">{row.label}</Text>
 								<View className="min-w-0 flex-1 items-end">{row.key === "executions" ? <Text numberOfLines={1} variant="muted" className="text-control">{runStatusLine(run)}</Text> : null}</View>
 								<ChevronRightIcon />
-								{index < ROWS.length - 1 ? <View className="absolute bottom-0 left-14 right-0 h-px bg-border" /> : null}
+								{index < ROWS.length - 1 ? <View className="absolute bottom-0 left-0 right-0 h-px bg-border" /> : null}
 							</Pressable>
 						))}
 					</View>

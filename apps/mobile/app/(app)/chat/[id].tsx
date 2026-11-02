@@ -48,7 +48,7 @@ export default function ChatScreen() {
 		},
 		[serverUrl, id],
 	);
-	const actions = React.useMemo<RowActions>(() => ({ onDecide: chat.decide, onAnswer: chat.answer, onOpenWeb: openWeb }), [chat.decide, chat.answer, openWeb]);
+	const actions = React.useMemo<RowActions>(() => ({ onDecide: chat.decide, onAnswer: chat.answer, onOpenWeb: openWeb, activeRunId: chat.running ? (chat.runTasks?.runId ?? null) : null }), [chat.decide, chat.answer, openWeb, chat.running, chat.runTasks?.runId]);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.
 	const data = React.useMemo(() => [...chat.items].reverse(), [chat.items]);

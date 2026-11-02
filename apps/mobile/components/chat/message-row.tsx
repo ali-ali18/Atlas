@@ -10,6 +10,8 @@ import { TaskSummary } from "./task-dock";
 export type RowActions = {
 	onDecide: (item: Extract<ChatItem, { kind: "confirm" }>, approve: boolean) => void;
 	onAnswer: (item: Extract<ChatItem, { kind: "questionnaire" }>, answers: AnswerMap) => void;
+	/** Run ativo (id): o cartão de tarefas desse run mostra a tarefa em execução. */
+	activeRunId: string | null;
 	onOpenWeb: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
 };
 
@@ -41,7 +43,7 @@ export const MessageRow = React.memo(function MessageRow({ item, actions }: { it
 		case "assistant":
 			return item.text.trim() ? <BotBubble text={item.text} /> : null;
 		case "task-list":
-			return <TaskSummary items={item.items} />;
+			return <TaskSummary items={item.items} active={actions.activeRunId !== null && (item.runId === actions.activeRunId || item.runId === "local")} />;
 		case "confirm":
 			return <ConfirmCard item={item} onDecide={actions.onDecide} />;
 		case "questionnaire":
