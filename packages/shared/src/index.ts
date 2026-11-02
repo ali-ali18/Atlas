@@ -283,6 +283,7 @@ export {
 } from "./tokens.js";
 export { parseSseBlock } from "./sse.js";
 export { createSseReplayGuard } from "./sse-replay.js";
+export { botAccent, relativeLuminance, type BotAccent } from "./bot-accent.js";
 export * from "./read-state.js";
 export * from "./files.js";
 export * from "./deck.js";

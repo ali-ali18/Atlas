@@ -10,7 +10,7 @@ import { ChevronLeftIcon } from "@/components/icons";
 import { Avatar } from "@/components/ui/avatar";
 import { Text } from "@/components/ui/text";
 import { getDraft, updateDraft } from "@/lib/bot-draft";
-import { AVATAR_PALETTE, AVATAR_SHAPES, defaultAvatar, usesPalette } from "@/lib/bot-edit";
+import { AVATAR_PALETTE, AVATAR_SHAPES, defaultAvatar } from "@/lib/bot-edit";
 import { cn } from "@/lib/cn";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -36,7 +36,6 @@ export default function AvatarEditorScreen() {
 	const [soon, setSoon] = React.useState<string | null>(null);
 	const goBack = () => (router.canGoBack() ? router.back() : router.replace("/"));
 	const changed = shape !== start?.shape || color.toLowerCase() !== start?.color.toLowerCase();
-	const palette = usesPalette(shape);
 	const apply = () => {
 		updateDraft(id, { shape, color });
 		goBack();
@@ -74,8 +73,7 @@ export default function AvatarEditorScreen() {
 							</Pressable>
 						))}
 					</View>
-					{palette ? (
-						<View className="flex-row flex-wrap justify-center gap-x-3 gap-y-3 px-4 pb-5 pt-1">
+					<View className="flex-row flex-wrap justify-center gap-x-3 gap-y-3 px-4 pb-5 pt-1">
 							{AVATAR_PALETTE.map((item) => {
 								const selected = item.value.toLowerCase() === color.toLowerCase();
 								return (
@@ -84,8 +82,7 @@ export default function AvatarEditorScreen() {
 									</Pressable>
 								);
 							})}
-						</View>
-					) : null}
+					</View>
 					<View className="border-t border-border">
 						<Pressable role="button" accessibilityLabel="Restaurar o padrão" onPress={restore} className="min-h-14 justify-center px-5 active:bg-muted/60">
 							<Text className="text-lg text-info">Restaurar o padrão</Text>

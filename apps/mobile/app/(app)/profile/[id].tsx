@@ -14,6 +14,7 @@ import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
 import { webChatUrl } from "@/lib/chat-links";
 import { runStatusLine, useBotRun } from "@/lib/run-store";
+import { botColors } from "@/lib/bot-color";
 import { useHomeData } from "@/lib/home-data";
 import { LIST_POSE } from "@/lib/avatar-pose";
 import { themeColor } from "@/lib/theme";
@@ -77,7 +78,7 @@ export default function ProfileScreen() {
 							<Text className="text-lg">Notificações</Text>
 							<Pressable accessibilityLabel="Notificações (em breve)" onPress={() => setSoon("Notificações")}>
 								<View pointerEvents="none">
-									<Switch value={false} disabled trackColor={{ false: themeColor(scheme, "input"), true: resolveColor(bot.color, bot.id) }} />
+									<Switch value={false} disabled trackColor={{ false: themeColor(scheme, "input"), true: botColors(resolveColor(bot.color, bot.id), { accent: themeColor(scheme, "primary"), foreground: themeColor(scheme, "primary-foreground") }).accent }} />
 								</View>
 							</Pressable>
 						</View>

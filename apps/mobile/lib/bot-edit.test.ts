@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SHAPE_IDS } from "@workspace/shared/avatar/geometry/shapes";
 import { AVATAR_COLORS } from "@workspace/shared/avatar/identity";
 import { botPatchBody, patchBot, saveErrorText } from "./bot-api";
-import { AVATAR_PALETTE, AVATAR_SHAPES, BOT_NAME_MAX, buildBotPatch, defaultAvatar, hasChanges, isValidColor, isValidShape, languageLabel, LANGUAGE_OPTIONS, OWN_COLOR_SHAPES, usesPalette, validateBotName } from "./bot-edit";
+import { AVATAR_PALETTE, AVATAR_SHAPES, BOT_NAME_MAX, buildBotPatch, defaultAvatar, hasChanges, isValidColor, isValidShape, languageLabel, LANGUAGE_OPTIONS, validateBotName } from "./bot-edit";
 import { ChatApiError } from "./chat-api";
 
 const original = { name: "Grok Bot", shape: "pebble", color: "#FF6700", language: "auto" };
@@ -35,14 +35,6 @@ describe("avatar", () => {
 		expect(isValidColor("orange")).toBe(false);
 		expect(isValidColor("#fff")).toBe(false);
 		expect(isValidColor("")).toBe(false);
-	});
-	it("a paleta só some em forma com cor própria (hoje nenhuma)", () => {
-		expect(usesPalette("blob")).toBe(true);
-		expect(usesPalette(null)).toBe(true);
-		expect(OWN_COLOR_SHAPES.size).toBe(0);
-		const special = new Set(["abobora"]);
-		expect(usesPalette("abobora", special)).toBe(false); // forma com cor própria esconde a paleta
-		expect(usesPalette("blob", special)).toBe(true);
 	});
 	it("restaurar o padrão dá a forma e a cor sorteadas pelo id, sempre as mesmas", () => {
 		const a = defaultAvatar("bot-1");

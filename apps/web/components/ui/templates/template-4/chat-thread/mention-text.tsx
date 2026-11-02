@@ -5,11 +5,10 @@ import type { Components } from "react-markdown";
 
 import { SparklesIcon } from "lucide-react";
 
-import { parseSlashSkills, splitGroupMentions } from "@workspace/shared";
+import { botAccent, parseSlashSkills, splitGroupMentions } from "@workspace/shared";
 
 import { AppLogo } from "@/components/ai-elements/connectors/app-logo";
 import { AgentAvatar } from "../agent-avatar";
-import { botAccent } from "../chat-context-panel/bot-accent";
 import { markdownComponents } from "./assistant-message";
 
 /** Membro do grupo para desenhar a menção. */

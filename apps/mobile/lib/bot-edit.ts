@@ -21,13 +21,6 @@ export const AVATAR_SHAPES: readonly string[] = SHAPE_IDS;
 /** A paleta do web (`AVATAR_COLORS`). */
 export const AVATAR_PALETTE = AVATAR_COLORS;
 
-/**
- * Formas que trazem a cor própria no desenho (como a abóbora da referência): a paleta some quando uma delas está
- * escolhida. O motor de avatar atual não tem nenhuma, então a lista está vazia; entra aqui quando existir.
- */
-export const OWN_COLOR_SHAPES: ReadonlySet<string> = new Set<string>();
-export const usesPalette = (shape: string | null | undefined, own: ReadonlySet<string> = OWN_COLOR_SHAPES): boolean => !(shape && own.has(shape));
-
 const HEX = /^#[0-9a-f]{6}$/i;
 
 export const isValidShape = (shape: unknown): shape is string => typeof shape === "string" && normalizeShape(shape) !== undefined;

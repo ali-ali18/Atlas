@@ -4,6 +4,14 @@
 - **Data:** 2026-11-01
 - **Issues/PRs:** #
 
+## Princípios
+O app usa a **base do web**: componentes, tokens, regras de cor (`botAccent`, ver abaixo), endpoints e comportamento. Mas **não copia a tela do desktop**, que tem muita coisa e fica confusa no celular.
+- Cada tela mostra **só o essencial**.
+- O secundário vai para o **perfil do bot** ou para **menus**. Exemplo: as tarefas saíram do composer e foram para "Execuções" no perfil.
+- O resto **abre no navegador** até ganhar tela própria.
+- Na dúvida entre copiar o web ou simplificar, **simplifique e anote a diferença** (nas seções "Diferenças" deste documento).
+- **Cor do bot:** botões, bolinhas e chave usam `botAccent(bot.color)` de `@workspace/shared` (o mesmo do web: escurece cor muito clara, primeiro plano sempre branco; sem cor válida, o `primary` do tema), nunca a cor crua do avatar. O avatar em si desenha com a cor crua.
+
 ## O que é
 Um aplicativo do Atlas para o celular, feito com Expo (React Native), que conversa com o mesmo servidor do web: o usuário informa o endereço do seu Atlas, entra com Google ou e-mail, vê as conversas sincronizadas e conversa com o bot ao vivo. Vive em `apps/mobile` (`@workspace/mobile`).
 
@@ -155,11 +163,11 @@ A lógica de estado saiu do hook: `lib/chat-controller.ts` é um controlador sem
 Pílula de uma linha ("+", "Perguntar a <bot>" a 17, microfone cinza e botão na cor do bot com as ondas de voz) que vira, quando o texto quebra, um retângulo de duas faixas (texto em cima, "+" e microfone/enviar embaixo); o campo cresce até 40% da tela e rola por dentro; esvaziar volta à pílula. O botão vira seta de enviar com texto e quadrado de parar durante o run. Container único como o do web (fundo `input`), sem doca de tarefas (as tarefas ficam no perfil); a borda é a do web, colada na pílula: uma View só com `border border-border`, `bg-input` e o raio total, nos dois formatos (sem wrapper nem respiro de 1px). O estado "expandido" da segunda referência não tem gatilho claro: só o crescimento automático foi feito. O botão de rolar para o fim aparece quando se rolou mais de 360 px para cima. O topo flutuante tem um degradê do fundo para transparente por baixo (sem faixa sólida), igual ao degradê em cima do composer.
 
 ### Editar bot e avatar
-O botão "Editar" do perfil abre `app/(app)/edit/[id].tsx`: topo com voltar, "Editar Bot" e "Concluído" (desabilitado até haver mudança válida), avatar com lápis (abre o editor), **Nome**, **Aparência > Avatar** e **Chamadas de voz**. O editor de Avatar (`app/(app)/avatar/[id].tsx`) tem as abas Forma (pronta), Gerar e Enviar (em breve), prévia grande, a grade das 25 formas do motor (`SHAPE_IDS`, mesma lista e ordem do seletor do web), a paleta do web (`AVATAR_COLORS`, 11 cores) e "Restaurar o padrão" em azul (volta à forma e cor sorteadas pelo id, como no web). "Concluído" do avatar aplica no rascunho (`lib/bot-draft.ts`) e volta ao Editar Bot; "Concluído" do Editar Bot manda `PATCH /v1/bots/:id` só com o que mudou (`name`, `shape`, `color`, `language`; `lib/bot-edit.ts` e `lib/bot-api.ts`, testados) e atualiza a lista da home e o cache (`applyBotUpdate`).
+O botão "Editar" do perfil abre `app/(app)/edit/[id].tsx`: topo com voltar, "Editar Bot" e "Concluído" (desabilitado até haver mudança válida), avatar com lápis (abre o editor), **Nome**, **Aparência > Avatar** e **Chamadas de voz**. O editor de Avatar (`app/(app)/avatar/[id].tsx`) tem as abas Forma (pronta), Gerar e Enviar (em breve), prévia grande, a grade das 25 formas do motor (`SHAPE_IDS`, mesma lista e ordem do seletor do web), a paleta do web (`AVATAR_COLORS`, 11 cores, sempre visível) e "Restaurar o padrão" em azul (volta à forma e cor sorteadas pelo id, como no web). "Concluído" do avatar aplica no rascunho (`lib/bot-draft.ts`) e volta ao Editar Bot; "Concluído" do Editar Bot manda `PATCH /v1/bots/:id` só com o que mudou (`name`, `shape`, `color`, `language`; `lib/bot-edit.ts` e `lib/bot-api.ts`, testados) e atualiza a lista da home e o cache (`applyBotUpdate`).
 - **Validação:** nome de 1 a 80 letras (o servidor só recusa vazio; o limite de 80 é o dos campos de nome do web e vale só no app); forma da lista (ou antiga que o servidor traduz); cor `#rrggbb`; idioma `auto` ou um suportado.
 - **Servidor:** o PATCH é escopado pelo dono (`findFirst` por `ownerId` e `update` com `ownerId`; bot de outro dá 404). Ponto de atenção, sem mexer: o `PATCH` não limita o tamanho do nome.
 - **Chamadas de voz:** o servidor não tem campos de voz nem velocidade no bot, então "Voz" e "Velocidade" ficam "em breve". "Idioma" usa o campo real `language` do bot (idioma das respostas do bot, "Automático" ou um idioma), o único campo de idioma que existe.
-- **Formas com cor própria** (como a abóbora da referência): o motor atual não tem nenhuma. `OWN_COLOR_SHAPES` (vazio) esconde a paleta quando uma delas estiver escolhida; entra com a forma.
+- **Forma com cor própria:** o app não tem esse conceito (a abóbora da referência é uma opção única de outro app, que não controlamos); a paleta aparece sempre, igual ao web.
 
 ### Diferenças em relação à referência
 - Avatar do topo: o do motor (forma do bot), não o abóbora com caule da referência.

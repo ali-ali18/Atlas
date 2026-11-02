@@ -1,7 +1,6 @@
 import * as React from "react";
 import { Platform, Pressable, TextInput, useWindowDimensions, View } from "react-native";
 
-import { iconColorOn } from "@/lib/icon-color";
 import { ArrowUpIcon, MicIcon, PlusIcon, StopIcon, WaveformIcon } from "@/components/icons";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -14,8 +13,10 @@ const INSET = 6;
 
 type ComposerProps = {
 	botName: string;
-	/** Cor do bot: o botão redondo. */
+	/** Destaque do bot (`botAccent`): o botão redondo. */
 	color: string;
+	/** Primeiro plano sobre o destaque (ícones do botão). */
+	foreground: string;
 	running: boolean;
 	onSend: (text: string) => void;
 	onStop: () => void;
@@ -31,8 +32,9 @@ type ComposerProps = {
  * Estrutura e borda como no `chat-composer` do web: uma View só, com `border border-border` e `bg-input`, colada na
  * pílula (sem respiro nem wrapper), com o raio total direto nela, nos dois formatos (pílula e retângulo).
  */
-export function Composer({ botName, color, running, onSend, onStop, onSoon }: ComposerProps) {
-	const onColor = iconColorOn(color);
+export function Composer({ botName, color, foreground, running, onSend, onStop, onSoon }: ComposerProps) {
+	// `color` é o destaque do bot (`botAccent`): o primeiro plano é o que vem dele, sempre branco.
+	const onColor = foreground;
 	const scheme = useAppColorScheme();
 	const [text, setText] = React.useState("");
 	const hasText = text.trim().length > 0;

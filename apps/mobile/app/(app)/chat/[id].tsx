@@ -15,6 +15,9 @@ import { SyncLine, ThinkingLine } from "@/components/chat/sync-line";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { useAtlasSession } from "@/lib/atlas-session";
+import { botColors } from "@/lib/bot-color";
+import { themeColor } from "@/lib/theme";
+import { useAppColorScheme } from "@/lib/use-theme";
 import { webChatUrl } from "@/lib/chat-links";
 import type { ChatItem } from "@/lib/chat-types";
 import { useChat } from "@/lib/use-chat";
@@ -29,6 +32,7 @@ const SOON_TITLE: Record<NonNullable<Soon>, string> = { anexos: "Anexos", voz: "
 /** Chat com o bot: o fio (cache + servidor + run ao vivo), o topo flutuante, a doca de tarefas e o composer. */
 export default function ChatScreen() {
 	const router = useRouter();
+	const scheme = useAppColorScheme();
 	const insets = useSafeAreaInsets();
 	const { id } = useLocalSearchParams<{ id: string }>();
 	const { snapshot } = useHomeData();
@@ -66,7 +70,7 @@ export default function ChatScreen() {
 		);
 	}
 
-	const color = resolveColor(bot.color, bot.id);
+	const { accent: color, foreground } = botColors(resolveColor(bot.color, bot.id), { accent: themeColor(scheme, "primary"), foreground: themeColor(scheme, "primary-foreground") });
 	const showThinking = chat.running && !chat.paused && (chat.phase === "thinking" || chat.phase === "tool");
 	const onMenuPick = (action: ChatMenuAction) => {
 		setMenu(false);
@@ -133,7 +137,7 @@ export default function ChatScreen() {
 					) : null}
 					<Fade from="bottom" height={24} />
 				</View>
-				<Composer botName={bot.name} color={color} running={chat.running} onSend={chat.send} onStop={chat.stop} onSoon={(what) => setSoon(what)} />
+				<Composer botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={chat.send} onStop={chat.stop} onSoon={(what) => setSoon(what)} />
 			</KeyboardAvoidingView>
 			<ChatMenu open={menu} onClose={() => setMenu(false)} onPick={onMenuPick} />
 			<SoonSheet open={soon !== null} title={soon ? SOON_TITLE[soon] : ""} onClose={() => setSoon(null)} />
