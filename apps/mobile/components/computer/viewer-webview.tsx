@@ -35,6 +35,8 @@ export const ViewerWebView = React.forwardRef<ViewerHandle, Props>(function View
 	const html = React.useMemo(() => buildViewerHtml(serverUrl), [serverUrl]);
 	const webRef = React.useRef<React.ComponentRef<typeof WebView>>(null);
 	const [ready, setReady] = React.useState(false);
+	// Muda quando o processo da WebView morre: a `key` remonta a WebView, que recarrega a página e volta a avisar `ready`.
+	const [instance, setInstance] = React.useState(0);
 	const controllingRef = React.useRef(controlling);
 	controllingRef.current = controlling;
 	const emit = React.useRef(onEvent);
@@ -52,13 +54,19 @@ export const ViewerWebView = React.forwardRef<ViewerHandle, Props>(function View
 	}, [ready, controlling, run]);
 
 	if (!html) return null;
-	const lost = () => {
+	// Erro de rede da página: só avisa (a reconexão pede um endereço novo). Não remonta, para não girar em laço.
+	const failed = () => emit.current({ t: "error" });
+	// O processo da WebView morreu (memória, crash): sem remontar nenhum `connect` chegaria a uma página morta e cada
+	// tentativa esperaria o tempo limite inteiro. Remonta e avisa a queda.
+	const gone = () => {
 		setReady(false);
+		setInstance((n) => n + 1);
 		emit.current({ t: "error" });
 	};
 	return (
 		<View pointerEvents={controlling ? "auto" : "none"} style={{ flex: 1, backgroundColor: "#000000" }}>
 			<WebView
+				key={instance}
 				ref={webRef}
 				source={{ html }}
 				originWhitelist={["about:blank"]}
@@ -88,10 +96,10 @@ export const ViewerWebView = React.forwardRef<ViewerHandle, Props>(function View
 					if (message.t === "ready") setReady(true);
 					emit.current(message);
 				}}
-				onError={lost}
-				onHttpError={lost}
-				onContentProcessDidTerminate={lost}
-				onRenderProcessGone={lost}
+				onError={failed}
+				onHttpError={failed}
+				onContentProcessDidTerminate={gone}
+				onRenderProcessGone={gone}
 				style={{ flex: 1, backgroundColor: "#000000" }}
 				containerStyle={{ backgroundColor: "#000000" }}
 				accessibilityLabel="Tela do computador do bot"
