@@ -103,7 +103,8 @@ export function safeViewerRest(rest: string): string | null {
 		} catch {
 			return null;
 		}
-		if (decoded === ".." || decoded === "." || /[\\/\u0000-\u001f]/.test(decoded)) return null;
+		// Só ASCII imprimível visível: espaço ou não-ASCII fariam `http.request` lançar ERR_UNESCAPED_CHARACTERS.
+		if (decoded === ".." || decoded === "." || /[\\/]/.test(decoded) || /[^\x21-\x7e]/.test(decoded)) return null;
 	}
 	return rest;
 }

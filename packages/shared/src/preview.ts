@@ -122,9 +122,14 @@ export function redactPreviewUrls(text: string): string {
 	return text.replace(PREVIEW_CAP_IN_TEXT, "$1:cap");
 }
 
-/** Tira o `cap` do caminho para log/telemetria (`/p/<cap>/x` → `/p/:cap/x`). */
+/**
+ * Tira a credencial do caminho para log/telemetria: o `cap` da prévia (`/p/<cap>/x` → `/p/:cap/x`) e o token do viewer da
+ * VM (`/v1/sandbox/vt/<token>/x` → `/v1/sandbox/vt/:token/x`).
+ */
 export function redactPreviewPath(path: string): string {
-	return path.replace(/^(\/v1\/previews\/[a-z0-9]{20,40}\/p\/)[^/]+/, "$1:cap");
+	return path
+		.replace(/^(\/v1\/previews\/[a-z0-9]{20,40}\/p\/)[^/]+/, "$1:cap")
+		.replace(/^(\/v1\/sandbox\/vt\/)[^/]+/, "$1:token");
 }
 
 /** Sufixos de dois níveis comuns (heurística simples; não é a lista pública de sufixos completa). */

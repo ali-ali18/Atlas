@@ -285,7 +285,14 @@ export function createSandboxRoutes(sandboxConfig: SandboxRuntimeConfig, deps: {
 		}
 		if (!target) return c.json({ error: "Session not found" }, 404, noReferrer);
 		const search = new URL(c.req.url).search;
-		const response = await proxyViewerHttp(c.req.raw, target, `/${rest || "vnc.html"}${search}`);
+		let response: Response;
+		try {
+			// `c.req.path` já vem decodificado pelo Hono: recodifica para o upstream (e `safeViewerRest` já barrou o que não é ASCII).
+			response = await proxyViewerHttp(c.req.raw, target, `/${encodeURI(rest) || "vnc.html"}${search}`);
+		} catch {
+			// Sem logar nem repassar a mensagem: o caminho carrega o token.
+			return c.json({ error: "Viewer unavailable" }, 502, noReferrer);
+		}
 		response.headers.set("Referrer-Policy", "no-referrer");
 		// A VM é código do dono, servido na origem da API (que tem o cookie de login de quem abrir o link): CSP sandbox SEM
 		// allow-same-origin joga o documento numa origem opaca (sem cookie nem storage da API), como em routes/previews.ts.

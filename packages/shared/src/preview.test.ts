@@ -118,6 +118,9 @@ describe("modo básico: caminho da prévia na origem do Atlas", () => {
 	it("redactPreviewPath esconde o cap em log e telemetria", () => {
 		expect(redactPreviewPath(`/v1/previews/${ID}/p/${CAP}/assets/a.js`)).toBe(`/v1/previews/${ID}/p/:cap/assets/a.js`);
 		expect(redactPreviewPath(`/v1/previews/${ID}/open`)).toBe(`/v1/previews/${ID}/open`);
+		expect(redactPreviewPath("/v1/sandbox/vt/abc.def/app/x y.js")).toBe("/v1/sandbox/vt/:token/app/x y.js");
+		expect(redactPreviewPath("/v1/sandbox/vt/abc.def")).toBe("/v1/sandbox/vt/:token");
+		expect(redactPreviewPath("/v1/sandbox/sessions/s1/viewer/vnc.html")).toBe("/v1/sandbox/sessions/s1/viewer/vnc.html");
 		expect(redactPreviewPath("/v1/bots")).toBe("/v1/bots");
 	});
 });

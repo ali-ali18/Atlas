@@ -206,7 +206,7 @@ test("vt: caminho com .. (cru ou codificado) -> 404", async () => {
 	try {
 		const app = build({ port });
 		const token = signViewerToken({ sessionId: "session-a", userId: "user-a", purpose: "vt" }, SECRET);
-		for (const p of ["a%2fb", "a%5Cb", "a%00b", "a%zz"]) {
+		for (const p of ["a%2fb", "a%5Cb", "a%00b", "a%zz", "x%20y", "caf%C3%A9", "a%7Fb"]) {
 			const res = await app.request(`/v1/sandbox/vt/${token}/${p}`);
 			assert.equal(res.status, 404, p);
 		}
@@ -282,6 +282,8 @@ test("o token do caminho nunca aparece em console.*", async () => {
 		await app.request(`/v1/sandbox/vt/${token}/vnc.html`);
 		await app.request(`/v1/sandbox/vt/${token}/boom`);
 		await app.request(`/v1/sandbox/vt/${token}/../x`);
+		const spaced = await app.request(`/v1/sandbox/vt/${token}/x%20y`);
+		assert.equal(spaced.status, 404);
 		await app.request(`/v1/sandbox/vt/${bad}/vnc.html`);
 		await build({ userId: "user-a", port }).request("/v1/sandbox/sessions/session-a/viewer-link");
 		const failing = new Hono<AuthEnv>();
