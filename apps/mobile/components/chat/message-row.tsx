@@ -9,6 +9,7 @@ import type { AnswerMap } from "@/lib/questionnaire";
 import { ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
 import { MarkdownBlocks, TableCard } from "./markdown-text";
 import { useAppColorScheme } from "@/lib/use-theme";
+import { chatSurface } from "@/lib/chat-surface";
 import { parseMarkdown, splitSegments } from "@/lib/markdown";
 import { ReplyPill } from "./reply-pill";
 import { TaskSummary } from "./task-dock";
@@ -82,7 +83,7 @@ function BotBubble({ text, position, reactions, replyTo, onLongPress }: { text: 
 						<TableCard block={segment.block} scheme={scheme} />
 					</Pressable>
 				) : (
-					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" className={`bg-muted px-3.5 py-3.5 ${bubbleRadius("left", position)}`}>
+					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" style={{ backgroundColor: chatSurface(scheme, "bubble") }} className={`px-3.5 py-3.5 ${bubbleRadius("left", position)}`}>
 						<MarkdownBlocks blocks={segment.blocks} />
 					</Pressable>
 				),

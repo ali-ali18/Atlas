@@ -3,6 +3,7 @@ import * as React from "react";
 import { Platform, ScrollView, Text as RNText, View } from "react-native";
 import { SendIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
+import { chatSurface } from "@/lib/chat-surface";
 import { cn } from "@/lib/cn";
 import { parseMarkdown, tableColumnWidths, type Block, type Inline } from "@/lib/markdown";
 import { themeColor } from "@/lib/theme";
@@ -10,11 +11,15 @@ import { useAppColorScheme } from "@/lib/use-theme";
 
 const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "ui-monospace, SFMono-Regular, Menlo, monospace" });
 
+/** Largura do trilho da barrinha de rolagem (dp), medida no app do Grok. */
+const TRACK_WIDTH = 29;
+
 function openLink(url: string) {
 	void WebBrowser.openBrowserAsync(url).catch(() => undefined);
 }
 
-function Inlines({ nodes, scheme }: { nodes: readonly Inline[]; scheme: "light" | "dark" }) {
+/** `plainCode`: código sem fundo nem espaços ao redor (dentro da tabela do Grok o código é só mono, 15 pt). */
+function Inlines({ nodes, scheme, plainCode = false }: { nodes: readonly Inline[]; scheme: "light" | "dark"; plainCode?: boolean }) {
 	const info = themeColor(scheme, "info");
 	return (
 		<>
@@ -26,19 +31,19 @@ function Inlines({ nodes, scheme }: { nodes: readonly Inline[]; scheme: "light" 
 					case "bold":
 						return (
 							<RNText key={key} style={{ fontWeight: "700" }}>
-								<Inlines nodes={node.children} scheme={scheme} />
+								<Inlines nodes={node.children} scheme={scheme} plainCode={plainCode} />
 							</RNText>
 						);
 					case "italic":
 						return (
 							<RNText key={key} style={{ fontStyle: "italic" }}>
-								<Inlines nodes={node.children} scheme={scheme} />
+								<Inlines nodes={node.children} scheme={scheme} plainCode={plainCode} />
 							</RNText>
 						);
 					case "code":
 						return (
-							<RNText key={key} style={{ fontFamily: MONO, fontSize: 14, backgroundColor: themeColor(scheme, "secondary") }}>
-								{` ${node.text} `}
+							<RNText key={key} style={plainCode ? { fontFamily: MONO, fontSize: 15 } : { fontFamily: MONO, fontSize: 14, backgroundColor: themeColor(scheme, "secondary") }}>
+								{plainCode ? node.text : ` ${node.text} `}
 							</RNText>
 						);
 					case "link":
@@ -63,21 +68,32 @@ function Inlines({ nodes, scheme }: { nodes: readonly Inline[]; scheme: "light" 
 export function TableCard({ block, scheme }: { block: Extract<Block, { type: "table" }>; scheme: "light" | "dark" }) {
 	const widths = tableColumnWidths(block.header, block.rows);
 	const total = widths.reduce((sum, width) => sum + width, 0);
+	const [viewport, setViewport] = React.useState(0);
+	const [offset, setOffset] = React.useState(0);
 	// Cores medidas no app do Grok (tema escuro): borda do cartão #313131 e divisor das linhas #2a2a2a, mais claros que o
 	// token `border` (#222223, quase invisível sobre o cartão). No claro vale o token.
 	const edge = scheme === "dark" ? "#313131" : themeColor(scheme, "border");
 	const divider = scheme === "dark" ? "#2a2a2a" : themeColor(scheme, "border");
+	const overflow = viewport > 0 && total > viewport;
 	return (
-		<View className="self-stretch overflow-hidden rounded-3xl bg-muted" style={{ borderWidth: 1, borderColor: edge }}>
-			{/* `persistentScrollbar`: no Android a barrinha de rolagem fica sempre visível no canto, como no Grok (o padrão some sozinha). */}
-			<ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator persistentScrollbar style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 0 }}>
+		<View className="self-stretch overflow-hidden" style={{ borderWidth: 1, borderColor: edge, backgroundColor: chatSurface(scheme, "card"), borderRadius: 21 }}>
+			<ScrollView
+				horizontal
+				nestedScrollEnabled
+				showsHorizontalScrollIndicator={false}
+				scrollEventThrottle={16}
+				onLayout={(event) => setViewport(event.nativeEvent.layout.width)}
+				onScroll={(event) => setOffset(event.nativeEvent.contentOffset.x)}
+				style={{ flexGrow: 0 }}
+				contentContainerStyle={{ flexGrow: 0 }}
+			>
 				<View style={{ width: total }}>
 					{[block.header, ...block.rows].map((row, rowIndex) => (
 						<View key={`row-${rowIndex}`} style={{ flexDirection: "row", borderTopWidth: rowIndex > 0 ? 1 : 0, borderTopColor: divider }}>
 							{row.map((cell, column) => (
-								<View key={`cell-${column}`} style={{ width: widths[column] }} className="px-5 py-3">
+								<View key={`cell-${column}`} style={{ width: widths[column], paddingHorizontal: 18.5, paddingVertical: 11.5 }}>
 									<Text className={cn("text-base leading-snug", rowIndex === 0 && "font-semibold")}>
-										<Inlines nodes={cell} scheme={scheme} />
+										<Inlines nodes={cell} scheme={scheme} plainCode />
 									</Text>
 								</View>
 							))}
@@ -85,6 +101,19 @@ export function TableCard({ block, scheme }: { block: Extract<Block, { type: "ta
 					))}
 				</View>
 			</ScrollView>
+			{overflow ? <ScrollThumb viewport={viewport} content={total} offset={offset} /> : null}
+		</View>
+	);
+}
+
+/** Barrinha de rolagem do cartão: trilho 29x4 dp no canto de baixo à direita (16 da borda, 3 do fundo), polegar na posição da rolagem. */
+function ScrollThumb({ viewport, content, offset }: { viewport: number; content: number; offset: number }) {
+	const thumb = Math.max(12, Math.round(TRACK_WIDTH * (viewport / content)));
+	const range = content - viewport;
+	const left = range > 0 ? Math.round((TRACK_WIDTH - thumb) * Math.min(1, Math.max(0, offset / range))) : 0;
+	return (
+		<View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ position: "absolute", right: 16, bottom: 3, width: TRACK_WIDTH, height: 4, borderRadius: 2, backgroundColor: "#343436" }}>
+			<View style={{ position: "absolute", left, width: thumb, height: 4, borderRadius: 2, backgroundColor: "#4a494e" }} />
 		</View>
 	);
 }

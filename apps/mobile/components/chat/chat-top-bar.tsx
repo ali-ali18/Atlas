@@ -7,16 +7,20 @@ import { Avatar } from "@/components/ui/avatar";
 import { Text } from "@/components/ui/text";
 import type { MobileAvatarState } from "@/lib/avatar-activity";
 import type { HomeBot } from "@/lib/home-types";
-import { themeColor } from "@/lib/theme";
+import { chatChrome } from "@/lib/chat-surface";
 import { useAppColorScheme } from "@/lib/use-theme";
 
 /** Altura do topo flutuante (sem a área segura): a lista deixa esse espaço para as mensagens passarem por baixo. */
-export const TOP_BAR_HEIGHT = 44 + 12;
+export const TOP_BAR_HEIGHT = 47 + 12;
+/** Altura dos botões e da pílula do topo (47 dp, medido no print do Grok) e margem lateral (19,5). */
+const CONTROL = 47;
+const SIDE = 19.5;
 
 /** Botão redondo do topo (voltar, menu): fundo do cartão e borda, como na referência. */
 export function RoundButton({ label, onPress, children }: { label: string; onPress: () => void; children: React.ReactNode }) {
+	const chrome = chatChrome(useAppColorScheme());
 	return (
-		<Pressable role="button" accessibilityLabel={label} onPress={onPress} className="size-11 items-center justify-center rounded-full border border-border bg-card/95 active:opacity-70">
+		<Pressable role="button" accessibilityLabel={label} onPress={onPress} style={{ width: CONTROL, height: CONTROL, borderColor: chrome.edge, backgroundColor: chrome.fill }} className="items-center justify-center rounded-full border active:opacity-70">
 			{children}
 		</Pressable>
 	);
@@ -28,14 +32,14 @@ export function RoundButton({ label, onPress, children }: { label: string; onPre
  */
 export function ChatTopBar({ bot, avatarState = "idle", onBack, onMenu, onProfile }: { bot: HomeBot; avatarState?: MobileAvatarState; onBack: () => void; onMenu: () => void; onProfile: () => void }) {
 	const insets = useSafeAreaInsets();
-	const scheme = useAppColorScheme();
+	const chrome = chatChrome(useAppColorScheme());
 	return (
-		<View pointerEvents="box-none" style={{ position: "absolute", top: insets.top + 6, left: 16, right: 16 }} className="flex-row items-center gap-2">
+		<View pointerEvents="box-none" style={{ position: "absolute", top: insets.top + 6, left: SIDE, right: SIDE }} className="flex-row items-center gap-2">
 			<RoundButton label="Voltar" onPress={onBack}>
 				<ChevronLeftIcon />
 			</RoundButton>
-			<Pressable role="button" accessibilityLabel={`Ver perfil de ${bot.name}`} onPress={onProfile} className="h-11 min-w-0 shrink flex-row items-center gap-2 rounded-full border border-border bg-card/95 pl-2.5 pr-4 active:opacity-80">
-				<Avatar color={resolveColor(bot.color, bot.id)} shape={resolveShape(bot.shape, bot.id)} size={32} animated look state={avatarState} eyeColor={themeColor(scheme, "card")} />
+			<Pressable role="button" accessibilityLabel={`Ver perfil de ${bot.name}`} onPress={onProfile} style={{ height: CONTROL, borderColor: chrome.edge, backgroundColor: chrome.fill }} className="min-w-0 shrink flex-row items-center gap-2 rounded-full border pl-2.5 pr-4 active:opacity-80">
+				<Avatar color={resolveColor(bot.color, bot.id)} shape={resolveShape(bot.shape, bot.id)} size={32} animated look state={avatarState} eyeColor={chrome.fill} />
 				<Text numberOfLines={1} className="min-w-0 shrink text-control font-semibold">
 					{bot.name}
 				</Text>

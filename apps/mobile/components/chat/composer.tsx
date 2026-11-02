@@ -4,15 +4,16 @@ import { Platform, Pressable, TextInput, useWindowDimensions, View } from "react
 import type { ReplyQuote } from "@/lib/chat-types";
 import { ReplyChip } from "./reply-chip";
 import { ArrowUpIcon, MicIcon, PlusIcon, StopIcon, WaveformIcon } from "@/components/icons";
+import { chatChrome } from "@/lib/chat-surface";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 
-/** Composer magro como o do Grok: 44 de altura, botões de 32. */
+/** Composer magro como o do Grok (medido no print): 47 de altura externa (45 + borda), botões de 30, margem de 19,5. */
 const LINE_HEIGHT = 21;
-const MIN_HEIGHT = 44;
-const BUTTON = 32;
-/** Respiro dos botões na pílula (6 = a pílula de 44 fica com os botões de 32 centrados). */
-const INSET = 6;
+const MIN_HEIGHT = 45;
+const BUTTON = 30;
+/** Respiro dos botões na pílula (7,5 = a pílula de 45 fica com os botões de 30 centrados). */
+const INSET = 7.5;
 /** No retângulo (texto em várias linhas) os botões descolam da borda e do canto arredondado. */
 const STACKED_INSET = 10;
 const PILL_RADIUS = 28;
@@ -46,6 +47,7 @@ export function Composer({ botName, color, foreground, running, onSend, onStop, 
 	// `color` é o destaque do bot (`botAccent`): o primeiro plano é o que vem dele, sempre branco.
 	const onColor = foreground;
 	const scheme = useAppColorScheme();
+	const chrome = chatChrome(scheme);
 	const [text, setText] = React.useState("");
 	const hasText = text.trim().length > 0;
 	const inputRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
@@ -60,7 +62,7 @@ export function Composer({ botName, color, foreground, running, onSend, onStop, 
 	// O campo cresce com o texto até 40% da tela e rola por dentro depois disso.
 	const maxFieldHeight = Math.round(useWindowDimensions().height * 0.4);
 	// Largura do grupo da direita: microfone + botão da cor do bot (o microfone fica também com texto).
-	const rightWidth = BUTTON * 2 + 6;
+	const rightWidth = BUTTON * 2 + 8;
 	const mode = hasText ? "send" : running ? "stop" : "voice";
 	const press = () => {
 		if (mode === "send") {
@@ -72,8 +74,8 @@ export function Composer({ botName, color, foreground, running, onSend, onStop, 
 		else onSoon("voz");
 	};
 	return (
-		<View className="mx-4 mb-2 gap-2">
-			<View className="overflow-hidden border border-border bg-input" style={{ borderRadius: stacked || replyTo ? STACKED_RADIUS : PILL_RADIUS }}>
+		<View className="mb-2 gap-2" style={{ marginHorizontal: 19.5 }}>
+			<View className="overflow-hidden border" style={{ borderRadius: stacked || replyTo ? STACKED_RADIUS : PILL_RADIUS, borderColor: chrome.edge, backgroundColor: chrome.fill }}>
 				{replyTo && onCancelReply ? <ReplyChip quote={replyTo} onCancel={onCancelReply} /> : null}
 				{/*
 				  Um só TextInput nos dois formatos (assim o foco e o teclado não se perdem na troca). Os botões ficam sempre
@@ -133,19 +135,19 @@ export function Composer({ botName, color, foreground, running, onSend, onStop, 
 						}
 						pointerEvents="box-none"
 					>
-						<Pressable role="button" accessibilityLabel="Adicionar" onPress={() => onSoon("anexos")} className="size-8 items-center justify-center rounded-full bg-foreground/10 active:opacity-70">
+						<Pressable role="button" accessibilityLabel="Adicionar" onPress={() => onSoon("anexos")} style={{ width: BUTTON, height: BUTTON, backgroundColor: chrome.control }} className="items-center justify-center rounded-full active:opacity-70">
 							<PlusIcon size={18} />
 						</Pressable>
-						<View className="flex-row items-center gap-1.5">
-							<Pressable role="button" accessibilityLabel="Microfone (em breve)" onPress={() => onSoon("voz")} className="size-8 items-center justify-center rounded-full bg-foreground/10 active:opacity-70">
+						<View className="flex-row items-center gap-2">
+							<Pressable role="button" accessibilityLabel="Microfone (em breve)" onPress={() => onSoon("voz")} style={{ width: BUTTON, height: BUTTON, backgroundColor: chrome.control }} className="items-center justify-center rounded-full active:opacity-70">
 								<MicIcon size={18} />
 							</Pressable>
 							<Pressable
 								role="button"
 								accessibilityLabel={mode === "send" ? "Enviar" : mode === "stop" ? "Parar" : "Voz (em breve)"}
 								onPress={press}
-								style={{ backgroundColor: color }}
-								className="size-8 items-center justify-center rounded-full active:opacity-80"
+								style={{ backgroundColor: color, width: BUTTON, height: BUTTON }}
+								className="items-center justify-center rounded-full active:opacity-80"
 							>
 								{mode === "send" ? <ArrowUpIcon size={18} color={onColor} /> : mode === "stop" ? <StopIcon size={16} color={onColor} /> : <WaveformIcon size={18} color={onColor} />}
 							</Pressable>

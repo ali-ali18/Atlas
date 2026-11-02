@@ -234,8 +234,8 @@ export function inlineText(nodes: readonly Inline[]): string {
 
 /** Mesma regra do web (`cellWidthClass`): número, moeda, data ou % curto nunca quebra. */
 const COMPACT_VALUE = /^[\sR$US€£\d.,:%/+()\-–]+$/;
-const CHAR_WIDTH = 9;
-const CELL_PADDING = 40;
+const CHAR_WIDTH = 9.7;
+const CELL_PADDING = 37;
 /** 8 rem e 22 rem do web (16 pt por rem). */
 const TEXT_MIN = 128;
 const TEXT_MAX = 352;

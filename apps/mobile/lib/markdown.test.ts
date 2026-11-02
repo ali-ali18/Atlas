@@ -117,7 +117,7 @@ describe("largura das colunas da tabela", () => {
 	it("valor curto ocupa o que precisa; texto livre tem mínimo de 8 rem", () => {
 		const [item, preco] = widths("| Item | R$ |\n|---|---|\n| Erva doce | R$ 20,85 |");
 		expect(item).toBe(128);
-		expect(preco).toBeLessThan(115);
+		expect(preco).toBeLessThan(120);
 	});
 	it("texto longo para em 22 rem", () => {
 		expect(widths(`| a |\n|---|\n| ${"palavra ".repeat(80)} |`)[0]).toBe(352);
