@@ -52,7 +52,7 @@ const pendingStore: PendingStore = {
 
 /** Liga o núcleo (lib/google-bridge.ts) ao navegador, ao cofre e ao cliente de autenticação do servidor. */
 export function createGoogleLogin(client: AtlasAuthClient, serverUrl: string) {
-	const returnUrl = appReturnUrl(Linking.createURL);
+	const returnUrl = expoGoReturnUrl(Constants.executionEnvironment, Constants.linkingUri) ?? appReturnUrl(Linking.createURL);
 	return createGoogleBridge({
 		serverUrl,
 		returnUrl,
