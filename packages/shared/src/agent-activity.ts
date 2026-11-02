@@ -41,6 +41,20 @@ export type ToolKind =
 	| "think"
 	| "other";
 
+/**
+ * `mcp__<servidor>__<operação>` → partes. Sem regex de propósito: o nome vem do conector (entrada externa) e um
+ * `/^mcp__(.+?)__(.+)$/` retrocede em tempo quadrático com nomes longos (alerta do CodeQL). Mesmas regras da regex:
+ * servidor com pelo menos 1 caractere até o primeiro `__`, operação não vazia, sem quebra de linha.
+ */
+export function splitMcpTool(tool: string): { server: string; op: string } | null {
+	if (!tool.startsWith("mcp__") || /[\r\n]/.test(tool)) return null;
+	const rest = tool.slice(5);
+	const at = rest.indexOf("__", 1);
+	if (at < 1) return null;
+	const op = rest.slice(at + 2);
+	return op ? { server: rest.slice(0, at), op } : null;
+}
+
 export function toolKind(tool: string): ToolKind {
 	switch (tool) {
 		case "screenshot":
@@ -133,11 +147,11 @@ export function toolKind(tool: string): ToolKind {
 		default:
 			break;
 	}
-	const mcp = /^mcp__(.+?)__(.+)$/.exec(tool);
+	const mcp = splitMcpTool(tool);
 	if (mcp) {
 		// Pelo verbo da operação do conector, no começo ou no fim do nome (search_files, issue_read, actions_list):
 		// ler/listar → read, buscar → web, o resto (escrever…) → other.
-		const [server = "", op = ""] = [mcp[1], mcp[2]];
+		const { server, op } = mcp;
 		if (server === "firecrawl" && /^(firecrawl_)?(scrape|crawl|extract|map|search)/.test(op)) return "web";
 		const words = op.split("_");
 		const has = (re: RegExp) => re.test(words[0] ?? "") || re.test(words[words.length - 1] ?? "");
