@@ -145,6 +145,17 @@ describe("reconcile (gravado × ao vivo)", () => {
 	});
 });
 
+describe("cartão de painel gravado", () => {
+	const pageRow = (extra: Record<string, unknown> = {}) => row("m1", "page", JSON.stringify({ v: 1, kind: "page", pageId: "p1", revision: 3, title: "Vendas", action: "created", sourceCount: 2, ...extra }));
+	it("guarda pageId, revisão e fontes (sem o spec) para abrir a tela nativa", () => {
+		expect(sessionMessageToItem(pageRow())).toEqual({ id: "m1", kind: "web-card", card: "page", title: "Vendas", key: "page:p1", pageId: "p1", revision: 3, sourceCount: 2, createdAt: "2026-11-01T10:00:00.000Z" });
+	});
+	it("mensagem de painel sem identidade válida é descartada, não vira cartão quebrado", () => {
+		expect(sessionMessageToItem(pageRow({ pageId: "" }))).toBeNull();
+		expect(sessionMessageToItem(pageRow({ revision: 0 }))).toBeNull();
+	});
+});
+
 describe("lista de tarefas", () => {
 	it("progresso, linha da doca e rótulo do fio", () => {
 		const items = tasks("r", "completed", "in_progress", "pending", "pending", "pending");

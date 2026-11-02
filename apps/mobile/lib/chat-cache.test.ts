@@ -106,3 +106,20 @@ describe("escritor do cache (época)", () => {
 		expect(CHAT_CACHE_MAX_TEXT).toBe(4_000);
 	});
 });
+
+describe("cache do chat: cartão de painel", () => {
+	const page = (extra: Record<string, unknown> = {}) => ({ id: "p", kind: "web-card", card: "page", title: "Vendas", key: "page:p1", ...extra });
+	it("guarda pageId, revisão e fontes", () => {
+		const item: ChatItem = { id: "p", kind: "web-card", card: "page", title: "Vendas", key: "page:p1", pageId: "p1", revision: 3, sourceCount: 2 };
+		expect(parseChat(serializeChat([item], NOW), NOW)?.items).toEqual([item]);
+	});
+	it("cache antigo sem pageId continua válido e abre no navegador", () => {
+		const parsed = parseChat(JSON.stringify({ v: 1, savedAt: NOW, items: [page()] }), NOW);
+		expect(parsed?.items).toEqual([page()]);
+		expect(parsed?.items[0]).not.toHaveProperty("pageId");
+	});
+	it("descarta pageId inválido ou longo e campos de painel em outro tipo de cartão", () => {
+		const bad = parseChat(JSON.stringify({ v: 1, savedAt: NOW, items: [page({ pageId: 5, revision: "x", sourceCount: null }), page({ pageId: "x".repeat(200) }), { ...page({ pageId: "p1" }), card: "chart" }] }), NOW);
+		expect(bad?.items.map((item) => ("pageId" in item ? item.pageId : undefined))).toEqual([undefined, undefined, undefined]);
+	});
+});

@@ -15,6 +15,11 @@ export function isCardProtocolText(text: string): boolean {
 	return isCardConfirmToken(text) || /^cancela isso$/i.test(text.trim());
 }
 
+/** Identidade do painel no cartão (abre a tela nativa): só o que cabe no fio, sem o spec (a tela busca no servidor). */
+export function pageRef(pageId: string, revision: number, sourceCount: number): { pageId: string; revision: number; sourceCount: number } {
+	return { pageId, revision, sourceCount };
+}
+
 export function cardToItem(id: string, card: PersistedConversationCard, createdAt?: string): ChatItem | null {
 	const base = { id, ...(createdAt ? { createdAt } : {}) };
 	switch (card.kind) {
@@ -51,7 +56,7 @@ export function cardToItem(id: string, card: PersistedConversationCard, createdA
 		case "chart":
 			return { ...base, kind: "web-card", card: "chart", title: "Gráfico", key: `chart:${card.chartId}` };
 		case "page":
-			return { ...base, kind: "web-card", card: "page", title: card.title, key: `page:${card.pageId}` };
+			return { ...base, kind: "web-card", card: "page", title: card.title, key: `page:${card.pageId}`, ...pageRef(card.pageId, card.revision, card.sourceCount) };
 		case "file":
 			return { ...base, kind: "web-card", card: "file", title: card.filename, key: `file:${card.artifactId}` };
 		case "routine":

@@ -63,6 +63,15 @@ describe("applyRunEvent", () => {
 		expect(state.paused).toBe(true);
 		expect(state.items.map((item) => item.kind)).toEqual(["confirm", "questionnaire", "web-card", "web-card"]);
 	});
+	it("evento de painel guarda pageId, revisão e fontes no cartão (sem o spec)", () => {
+		const spec = { v: 2, title: "Vendas", root: { id: "r", type: "stack", props: {} } } as never;
+		const state = apply([
+			{ type: "page", action: "created", pageId: "p1", revision: 1, title: "Vendas", spec, sourceCount: 2 },
+			{ type: "page", action: "updated", pageId: "p1", revision: 2, title: "Vendas", spec, sourceCount: 2 },
+		]);
+		expect(state.items).toHaveLength(1);
+		expect(state.items[0]).toEqual({ id: "page-live-p1", kind: "web-card", card: "page", title: "Vendas", key: "page:p1", pageId: "p1", revision: 1, sourceCount: 2 });
+	});
 	it("aprovação de comando (dev) vira linha para o navegador", () => {
 		const state = apply([{ type: "confirm", confirmId: "k", title: "Rodar?", devApproval: {} as never }]);
 		expect(state.items[0]).toMatchObject({ kind: "web-card", card: "approval" });
