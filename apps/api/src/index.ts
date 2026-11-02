@@ -194,7 +194,8 @@ app.route(
 );
 app.get("/api/auth/providers", (c) => c.json(authProviders));
 // Login do app mobile pelo navegador (ponte). Fora de /v1: a autenticação é o fluxo do Google + token de uso único.
-app.use("/api/mobile/auth/*", rateLimitByIp(60, 60_000));
+// Atrás do proxy o IP é o dele: teto global folgado (não deixa um IP só travar o dono); o /start ainda tem limite por `state`.
+app.use("/api/mobile/auth/*", rateLimitByIp(300, 60_000));
 app.route(
 	"/",
 	createMobileAuthRoutes({

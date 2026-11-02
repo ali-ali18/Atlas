@@ -3,9 +3,53 @@
  * Funções puras, sem I/O: as rotas ficam em routes/mobile-auth.ts.
  */
 
+import { createHash, timingSafeEqual } from "node:crypto";
+
 const MAX_RETURN_LENGTH = 2048;
 /** O `state` é um nonce do app (CSRF). Só estes caracteres, para poder ir ao link e ao HTML sem escape. */
 const STATE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
+/** `code_challenge` PKCE (S256): base64url de 32 bytes = 43 caracteres. */
+const CHALLENGE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const VERIFIER_PATTERN = /^[A-Za-z0-9_-]{43,128}$/;
+
+export function parseCodeChallenge(raw: unknown): string | null {
+	return typeof raw === "string" && CHALLENGE_PATTERN.test(raw) ? raw : null;
+}
+
+export function parseCodeVerifier(raw: unknown): string | null {
+	return typeof raw === "string" && VERIFIER_PATTERN.test(raw) ? raw : null;
+}
+
+export function challengeOf(verifier: string): string {
+	return createHash("sha256").update(verifier).digest("base64url");
+}
+
+/** Compara em tempo constante o verifier recebido com o challenge guardado. */
+export function verifierMatches(verifier: string, challenge: string): boolean {
+	const a = Buffer.from(challengeOf(verifier));
+	const b = Buffer.from(challenge);
+	return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** Limite em memória por chave (aqui, o `state` do app), janela fixa. Não cresce sem teto. */
+export function createKeyLimiter(max: number, windowMs: number, now: () => number = Date.now) {
+	const buckets = new Map<string, { count: number; resetAt: number }>();
+	return {
+		allow(key: string): boolean {
+			const t = now();
+			if (buckets.size > 10_000) for (const [k, b] of buckets) if (b.resetAt <= t) buckets.delete(k);
+			let bucket = buckets.get(key);
+			if (!bucket || bucket.resetAt <= t) {
+				if (!bucket && buckets.size > 10_000) return false;
+				bucket = { count: 0, resetAt: t + windowMs };
+				buckets.set(key, bucket);
+			}
+			bucket.count += 1;
+			return bucket.count <= max;
+		},
+	};
+}
+
 /** Controle, espaço, barra invertida, aspas e `<>`: nada disso é legítimo num deep link e abre brecha em HTML/JS. */
 const FORBIDDEN_RETURN_CHARS = /[\u0000-\u0020\u007f\\<>"'`]/;
 
@@ -41,20 +85,21 @@ export function appendReturnParams(returnUrl: string, params: Record<string, str
 	return `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}${query}`;
 }
 
-export type BridgeCookiePayload = { r: string; s: string; exp: number };
+export type BridgeCookiePayload = { r: string; s: string; c: string; exp: number };
 
 export function encodeBridgeCookie(payload: BridgeCookiePayload): string {
 	return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
 }
 
 /** Lê o conteúdo do cookie já com a assinatura conferida; revalida tudo (retorno, state e validade). */
-export function decodeBridgeCookie(raw: string, options: { trustExpoGo: boolean; now: number }): { returnUrl: string; state: string } | null {
+export function decodeBridgeCookie(raw: string, options: { trustExpoGo: boolean; now: number }): { returnUrl: string; state: string; challenge: string } | null {
 	try {
 		const value = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as Partial<BridgeCookiePayload> | null;
 		if (!value || typeof value.exp !== "number" || value.exp <= options.now) return null;
 		const returnUrl = parseMobileReturn(value.r, options);
 		const state = parseMobileState(value.s);
-		return returnUrl && state ? { returnUrl, state } : null;
+		const challenge = parseCodeChallenge(value.c);
+		return returnUrl && state && challenge ? { returnUrl, state, challenge } : null;
 	} catch {
 		return null;
 	}

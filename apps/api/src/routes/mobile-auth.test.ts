@@ -15,16 +15,18 @@ process.env.GOOGLE_OAUTH_CLIENT_SECRET = "test-google-secret";
 
 const { createAuth, isOwnerEmail } = await import("../auth.js");
 const { createMobileAuthRoutes } = await import("./mobile-auth.js");
-const { parseMobileReturn, parseMobileState, appendReturnParams } = await import("../mobile-auth.js");
+const { parseMobileReturn, parseMobileState, appendReturnParams, challengeOf, createKeyLimiter } = await import("../mobile-auth.js");
 
 const ORIGIN = "http://localhost:3000";
 const STATE = "nonce_nonce_nonce_1234";
+const VERIFIER = "verifier_verifier_verifier_verifier_1234567890";
+const CHALLENGE = challengeOf(VERIFIER);
 const ATLAS_RETURN = "atlas:///";
 const EXPO_RETURN = "exp://u.expo.dev/0633915b-effc-4a73-9265-44a7813e2ce1/group/g1/--/";
 
 type Row = Record<string, unknown>;
 
-function setup(options: { trustExpoGo?: boolean; owner?: (email: string) => boolean; now?: () => number } = {}) {
+function setup(options: { maxStartsPerState?: number; trustExpoGo?: boolean; owner?: (email: string) => boolean; now?: () => number } = {}) {
 	const mails: { text: string }[] = [];
 	const db: Record<string, Row[]> = { user: [], session: [], account: [], verification: [], rateLimit: [] };
 	const trustExpoGo = options.trustExpoGo ?? false;
@@ -36,6 +38,7 @@ function setup(options: { trustExpoGo?: boolean; owner?: (email: string) => bool
 		isOwnerEmail: options.owner ?? isOwnerEmail,
 		secret: process.env.BETTER_AUTH_SECRET as string,
 		now: options.now,
+		maxStartsPerState: options.maxStartsPerState,
 	});
 	const call = (path: string, init: RequestInit & { cookie?: string } = {}) => {
 		const { cookie, ...rest } = init;
@@ -52,7 +55,7 @@ function setup(options: { trustExpoGo?: boolean; owner?: (email: string) => bool
 		assert.equal(res.status, 200);
 		return jar(res.headers.getSetCookie());
 	};
-	const start = (ret = ATLAS_RETURN, state = STATE) => call(`/api/mobile/auth/start?return=${encodeURIComponent(ret)}&state=${state}`);
+	const start = (ret = ATLAS_RETURN, state = STATE, challenge = CHALLENGE) => call(`/api/mobile/auth/start?return=${encodeURIComponent(ret)}&state=${state}&code_challenge=${challenge}`);
 	return { auth, db, call, start, ownerSessionCookie };
 }
 
@@ -167,9 +170,10 @@ test("fluxo completo: Google → página de retorno com o token → troca por se
 	const stored = t.db.verification?.filter((v) => String(v.identifier).startsWith("one-time-token:")) ?? [];
 	assert.equal(stored.length, 1);
 	assert.ok(!JSON.stringify(stored).includes(token));
-	assert.ok((stored[0]?.expiresAt as Date).getTime() - Date.now() <= 61_000, "vale ~60 s");
+	const ttl = (stored[0]?.expiresAt as Date).getTime() - Date.now();
+	assert.ok(ttl > 55_000 && ttl <= 61_000, `vale 60 s (deu ${ttl} ms)`);
 
-	const exchange = await t.call("/api/mobile/auth/exchange", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
+	const exchange = await t.call("/api/mobile/auth/exchange", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, code_verifier: VERIFIER }) });
 	assert.equal(exchange.status, 200);
 	assert.deepEqual(await exchange.json(), { ok: true });
 	const newCookie = jar(exchange.headers.getSetCookie());
@@ -183,7 +187,7 @@ test("exchange: reutilizar o token falha", async () => {
 	const bridgeCookie = jar((await t.start()).headers.getSetCookie().filter((c) => c.startsWith("atlas_mobile_auth=")));
 	const html = await (await t.call("/api/mobile/auth/done", { cookie: `${bridgeCookie}; ${await t.ownerSessionCookie()}` })).text();
 	const token = linkFrom(html).searchParams.get("token") as string;
-	const exchange = () => t.call("/api/mobile/auth/exchange", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
+	const exchange = () => t.call("/api/mobile/auth/exchange", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, code_verifier: VERIFIER }) });
 	assert.equal((await exchange()).status, 200);
 	const second = await exchange();
 	assert.equal(second.status, 401);
@@ -197,10 +201,10 @@ test("exchange: token vencido, inventado ou malformado não vira sessão", async
 	const token = linkFrom(html).searchParams.get("token") as string;
 	for (const row of t.db.verification ?? []) if (String(row.identifier).startsWith("one-time-token:")) row.expiresAt = new Date(Date.now() - 1000);
 	const post = (body: unknown) => t.call("/api/mobile/auth/exchange", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-	const expired = await post({ token });
+	const expired = await post({ token, code_verifier: VERIFIER });
 	assert.equal(expired.status, 401);
 	assert.deepEqual(expired.headers.getSetCookie(), []);
-	assert.equal((await post({ token: "x".repeat(43) })).status, 401);
+	assert.equal((await post({ token: "x".repeat(43), code_verifier: VERIFIER })).status, 401);
 	assert.equal((await post({ token: "curto" })).status, 400);
 	assert.equal((await post({})).status, 400);
 	assert.equal((await post({ token: { $ne: 1 } })).status, 400);
@@ -223,7 +227,7 @@ test("outro usuário: sessão que não é do dono não gera nem troca token", as
 	const cookie = jar((await t.start()).headers.getSetCookie().filter((c) => c.startsWith("atlas_mobile_auth=")));
 	const token = linkFrom(await (await t.call("/api/mobile/auth/done", { cookie: `${cookie}; ${await t.ownerSessionCookie()}` })).text()).searchParams.get("token") as string;
 	const notOwner = createMobileAuthRoutes({ auth: t.auth, baseOrigin: ORIGIN, trustExpoGo: false, isOwnerEmail: () => false, secret: process.env.BETTER_AUTH_SECRET as string });
-	const res = await notOwner.request(`${ORIGIN}/api/mobile/auth/exchange`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) });
+	const res = await notOwner.request(`${ORIGIN}/api/mobile/auth/exchange`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, code_verifier: VERIFIER }) });
 	assert.equal(res.status, 401);
 	assert.deepEqual(res.headers.getSetCookie(), []);
 });
@@ -269,4 +273,84 @@ test("a página escapa o link: state e retorno não abrem HTML nem JS", async ()
 	const html = await (await t.call("/api/mobile/auth/done", { cookie: `${bridgeCookie}; ${await t.ownerSessionCookie()}` })).text();
 	assert.ok(html.includes("atlas://x?a=1&amp;b=2&amp;token="), "href escapado");
 	assert.ok(!/<script(?![^>]*nonce=)/.test(html), "todo script leva nonce");
+});
+
+async function mintToken(t: ReturnType<typeof setup>) {
+	const cookie = jar((await t.start()).headers.getSetCookie().filter((c) => c.startsWith("atlas_mobile_auth=")));
+	const html = await (await t.call("/api/mobile/auth/done", { cookie: `${cookie}; ${await t.ownerSessionCookie()}` })).text();
+	const link = linkFrom(html);
+	return { token: link.searchParams.get("token") as string, state: link.searchParams.get("state") };
+}
+const exchangeWith = (t: ReturnType<typeof setup>, body: unknown) =>
+	t.call("/api/mobile/auth/exchange", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+test("PKCE: token e state interceptados, mas verifier errado ou ausente → 401, e o app legítimo ainda troca", async () => {
+	const t = setup();
+	const { token } = await mintToken(t);
+	for (const body of [{ token }, { token, code_verifier: "outro_verifier_outro_verifier_outro_verifier_1" }, { token, code_verifier: "curto" }, { token, code_verifier: 5 }]) {
+		const res = await exchangeWith(t, body);
+		assert.equal(res.status, 401, JSON.stringify(body));
+		assert.deepEqual(res.headers.getSetCookie(), []);
+	}
+	const ok = await exchangeWith(t, { token, code_verifier: VERIFIER });
+	assert.equal(ok.status, 200);
+	assert.match(jar(ok.headers.getSetCookie()), /better-auth\.session_token=/);
+});
+
+test("PKCE: o verifier de uma tentativa não troca o token de outra", async () => {
+	const t = setup();
+	const other = "segundo_verifier_segundo_verifier_segundo_1";
+	const cookie = jar((await t.start(ATLAS_RETURN, STATE, challengeOf(other))).headers.getSetCookie().filter((c) => c.startsWith("atlas_mobile_auth=")));
+	const html = await (await t.call("/api/mobile/auth/done", { cookie: `${cookie}; ${await t.ownerSessionCookie()}` })).text();
+	const token = linkFrom(html).searchParams.get("token") as string;
+	assert.equal((await exchangeWith(t, { token, code_verifier: VERIFIER })).status, 401);
+	assert.equal((await exchangeWith(t, { token, code_verifier: other })).status, 200);
+});
+
+test("start sem code_challenge válido é recusado", async () => {
+	const t = setup();
+	for (const challenge of ["", "curto", "!".repeat(43)]) assert.equal((await t.start(ATLAS_RETURN, STATE, challenge)).status, 400);
+});
+
+test("duas trocas simultâneas do mesmo token: só uma vence", async () => {
+	const t = setup();
+	const { token } = await mintToken(t);
+	const results = await Promise.all(Array.from({ length: 4 }, () => exchangeWith(t, { token, code_verifier: VERIFIER })));
+	assert.equal(results.filter((r) => r.status === 200).length, 1);
+	assert.equal(results.filter((r) => r.status === 401).length, 3);
+});
+
+test("EXP:// com caixa variada: recusado sem a env, aceito com ela", () => {
+	for (const raw of ["EXP://u.expo.dev/x/--/", "Exp://192.168.0.5:8081/--/"]) {
+		assert.equal(parseMobileReturn(raw, { trustExpoGo: false }), null, raw);
+		assert.equal(parseMobileReturn(raw, { trustExpoGo: true }), raw, raw);
+	}
+	assert.equal(parseMobileReturn("ATLAS://x", { trustExpoGo: false }), "ATLAS://x");
+	assert.equal(parseMobileReturn("HTTPS://evil.example", { trustExpoGo: true }), null);
+});
+
+test("limite por state no /start: o excesso responde 429 e outro state segue livre", async () => {
+	const t = setup({ maxStartsPerState: 2 });
+	assert.equal((await t.start()).status, 302);
+	assert.equal((await t.start()).status, 302);
+	assert.equal((await t.start()).status, 429);
+	assert.equal((await t.start(ATLAS_RETURN, "outro_nonce_outro_nonce_1")).status, 302);
+	let clock = 0;
+	const limiter = createKeyLimiter(1, 1000, () => clock);
+	assert.equal(limiter.allow("a"), true);
+	assert.equal(limiter.allow("a"), false);
+	clock = 1001;
+	assert.equal(limiter.allow("a"), true);
+});
+
+test("start: URL inválida vinda do provedor mostra a página de erro, não 500", async () => {
+	const fake = {
+		api: { signInSocial: async () => new Response(JSON.stringify({ url: "isto não é url" }), { headers: { "content-type": "application/json" } }) },
+		$context: Promise.resolve({}),
+	} as unknown as Parameters<typeof createMobileAuthRoutes>[0]["auth"];
+	const app = createMobileAuthRoutes({ auth: fake, baseOrigin: ORIGIN, trustExpoGo: false, isOwnerEmail, secret: process.env.BETTER_AUTH_SECRET as string });
+	const res = await app.request(`${ORIGIN}/api/mobile/auth/start?return=${encodeURIComponent(ATLAS_RETURN)}&state=${STATE}&code_challenge=${CHALLENGE}`);
+	assert.equal(res.status, 400);
+	const html = await res.text();
+	assert.equal(new URL(linkFrom(html)).searchParams.get("error"), "unavailable");
 });

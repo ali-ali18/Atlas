@@ -7,17 +7,21 @@
  *   GET  /api/mobile/auth/done                                    → HTML "Voltar para o app" com token de uso único
  *   POST /api/mobile/auth/exchange {token}                        → troca o token pela sessão (Set-Cookie)
  */
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { Hono, type Context } from "hono";
 import { deleteCookie, getSignedCookie, setSignedCookie } from "hono/cookie";
 import type { createAuth } from "../auth.js";
 import {
 	appendReturnParams,
+	createKeyLimiter,
 	decodeBridgeCookie,
 	donePageCsp,
 	encodeBridgeCookie,
+	parseCodeChallenge,
+	parseCodeVerifier,
 	parseMobileReturn,
 	parseMobileState,
+	verifierMatches,
 	renderDonePage,
 } from "../mobile-auth.js";
 
@@ -25,10 +29,14 @@ export const MOBILE_AUTH_PATH = "/api/mobile/auth";
 const BRIDGE_COOKIE = "atlas_mobile_auth";
 /** O Google pode pedir consentimento: 10 min cobrem o login mais lento sem deixar o cookie vivo à toa. */
 const BRIDGE_COOKIE_TTL_SECONDS = 600;
+/** Liga o token de uso único ao `code_challenge` do app (PKCE): só quem tem o verifier troca o token. */
+const PKCE_IDENTIFIER = "atlas-mobile-pkce:";
+const sha256Hex = (value: string) => createHash("sha256").update(value).digest("hex");
+const MOBILE_TOKEN_TTL_MS = 60_000;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
 export type MobileAuthDeps = {
-	auth: Pick<ReturnType<typeof createAuth>, "api">;
+	auth: Pick<ReturnType<typeof createAuth>, "api" | "$context">;
 	/** Origem pública do servidor (`ATLAS_URL`), sem caminho. */
 	baseOrigin: string;
 	trustExpoGo: boolean;
@@ -36,6 +44,8 @@ export type MobileAuthDeps = {
 	/** Segredo do servidor (`BETTER_AUTH_SECRET`); a chave do cookie é derivada dele. */
 	secret: string;
 	now?: () => number;
+	/** Quantos `/start` por `state` na janela (padrão 5 por 10 min). */
+	maxStartsPerState?: number;
 };
 
 const NO_STORE = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" } as const;
@@ -47,6 +57,7 @@ export function createMobileAuthRoutes(deps: MobileAuthDeps) {
 	// Chave própria do cookie: não reaproveita o segredo cru do better-auth para assinar outra coisa.
 	const cookieKey = createHmac("sha256", deps.secret).update("atlas-mobile-auth-cookie-v1").digest("hex");
 	const options = { trustExpoGo: deps.trustExpoGo };
+	const startLimiter = createKeyLimiter(deps.maxStartsPerState ?? 5, BRIDGE_COOKIE_TTL_SECONDS * 1000, now);
 
 	const page = (c: Context, input: { link: string | null; ok: boolean }, status: 200 | 400 = 200) => {
 		const nonce = randomBytes(16).toString("base64url");
@@ -59,7 +70,9 @@ export function createMobileAuthRoutes(deps: MobileAuthDeps) {
 	app.get(`${MOBILE_AUTH_PATH}/start`, async (c) => {
 		const returnUrl = parseMobileReturn(c.req.query("return"), options);
 		const state = parseMobileState(c.req.query("state"));
-		if (!returnUrl || !state) return page(c, { link: null, ok: false }, 400);
+		const challenge = parseCodeChallenge(c.req.query("code_challenge"));
+		if (!returnUrl || !state || !challenge) return page(c, { link: null, ok: false }, 400);
+		if (!startLimiter.allow(state)) return c.json({ error: "rate_limit_exceeded" }, 429);
 
 		const google = await deps.auth.api
 			.signInSocial({
@@ -74,11 +87,18 @@ export function createMobileAuthRoutes(deps: MobileAuthDeps) {
 			.catch(() => null);
 		if (!google?.ok) return page(c, { link: appendReturnParams(returnUrl, { error: "unavailable", state }), ok: false }, 400);
 		const { url } = (await google.json().catch(() => ({}))) as { url?: string };
-		if (!url || new URL(url).protocol !== "https:") return page(c, { link: appendReturnParams(returnUrl, { error: "unavailable", state }), ok: false }, 400);
+		const unavailable = () => page(c, { link: appendReturnParams(returnUrl, { error: "unavailable", state }), ok: false }, 400);
+		let googleUrl: URL;
+		try {
+			googleUrl = new URL(url ?? "");
+		} catch {
+			return unavailable();
+		}
+		if (googleUrl.protocol !== "https:") return unavailable();
 
 		// Cookies do estado do OAuth (state assinado) que o better-auth precisa no retorno do Google.
 		for (const cookie of google.headers.getSetCookie()) c.header("Set-Cookie", cookie, { append: true });
-		await setSignedCookie(c, BRIDGE_COOKIE, encodeBridgeCookie({ r: returnUrl, s: state, exp: now() + BRIDGE_COOKIE_TTL_SECONDS * 1000 }), cookieKey, {
+		await setSignedCookie(c, BRIDGE_COOKIE, encodeBridgeCookie({ r: returnUrl, s: state, c: challenge, exp: now() + BRIDGE_COOKIE_TTL_SECONDS * 1000 }), cookieKey, {
 			path: MOBILE_AUTH_PATH,
 			httpOnly: true,
 			secure,
@@ -86,7 +106,7 @@ export function createMobileAuthRoutes(deps: MobileAuthDeps) {
 			maxAge: BRIDGE_COOKIE_TTL_SECONDS,
 		});
 		for (const [name, value] of Object.entries(NO_STORE)) c.header(name, value);
-		return c.redirect(url, 302);
+		return c.redirect(googleUrl.toString(), 302);
 	});
 
 	app.get(`${MOBILE_AUTH_PATH}/done`, async (c) => {
@@ -107,6 +127,12 @@ export function createMobileAuthRoutes(deps: MobileAuthDeps) {
 		}
 		const minted = await deps.auth.api.generateOneTimeToken({ headers: c.req.raw.headers }).catch(() => null);
 		if (!minted?.token) return fail();
+		const ctx = await deps.auth.$context;
+		await ctx.internalAdapter.createVerificationValue({
+			identifier: `${PKCE_IDENTIFIER}${sha256Hex(minted.token)}`,
+			value: bridge.challenge,
+			expiresAt: new Date(now() + MOBILE_TOKEN_TTL_MS),
+		});
 		// Uso único também aqui: recarregar a página não gera outro token sem passar pelo Google de novo.
 		deleteCookie(c, BRIDGE_COOKIE, { path: MOBILE_AUTH_PATH });
 		return page(c, { link: appendReturnParams(bridge.returnUrl, { token: minted.token, state: bridge.state }), ok: true });
@@ -114,9 +140,20 @@ export function createMobileAuthRoutes(deps: MobileAuthDeps) {
 
 	app.post(`${MOBILE_AUTH_PATH}/exchange`, async (c) => {
 		for (const [name, value] of Object.entries(NO_STORE)) c.header(name, value);
-		const body = (await c.req.json().catch(() => null)) as { token?: unknown } | null;
+		const body = (await c.req.json().catch(() => null)) as { token?: unknown; code_verifier?: unknown } | null;
 		const token = body?.token;
 		if (typeof token !== "string" || !TOKEN_PATTERN.test(token)) return c.json({ error: "invalid_token" }, 400);
+		const verifier = parseCodeVerifier(body?.code_verifier);
+		if (!verifier) return c.json({ error: "invalid_token" }, 401);
+
+		// PKCE antes de gastar o token: verifier errado não queima o token do app legítimo. A linha do challenge é
+		// consumida de forma atômica, então duas trocas simultâneas do mesmo token não passam as duas.
+		const ctx = await deps.auth.$context;
+		const identifier = `${PKCE_IDENTIFIER}${sha256Hex(token)}`;
+		const bound = await ctx.internalAdapter.findVerificationValue(identifier).catch(() => null);
+		if (!bound || bound.expiresAt.getTime() <= now() || !verifierMatches(verifier, bound.value)) return c.json({ error: "invalid_token" }, 401);
+		const claimed = await ctx.internalAdapter.consumeVerificationValue(identifier).catch(() => null);
+		if (!claimed) return c.json({ error: "invalid_token" }, 401);
 
 		const verified = await deps.auth.api.verifyOneTimeToken({ body: { token }, asResponse: true }).catch(() => null);
 		if (!verified?.ok) return c.json({ error: "invalid_token" }, 401);
