@@ -305,3 +305,23 @@ export function MonitorIcon({ size = 22, tone = "muted-foreground" }: LineIconPr
 		</Line>
 	);
 }
+
+/** Lucide `Pencil`. */
+export function PencilIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return (
+		<Line size={size} tone={tone}>
+			<Path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+			<Path d="m15 5 4 4" />
+		</Line>
+	);
+}
+
+/** Lucide `ChevronsUpDown` (seletor). */
+export function ChevronUpDownIcon({ size = 18, tone = "muted-foreground" }: LineIconProps) {
+	return (
+		<Line size={size} tone={tone}>
+			<Path d="m7 15 5 5 5-5" />
+			<Path d="m7 9 5-5 5 5" />
+		</Line>
+	);
+}

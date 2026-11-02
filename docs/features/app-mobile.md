@@ -117,7 +117,7 @@ Tudo em `apps/mobile/lib` com teste (vitest): `home-list.ts` (agrupamento, orden
 
 ### Telas
 - `app/(app)/chat/[id].tsx`: o chat do bot (o `id` da rota é o id do bot; a conversa vem de `bot.conversationId`, guardado agora no cache da home).
-- `app/(app)/profile/[id].tsx`: perfil simples (avatar grande com a estrela do principal, nome, "Editar" em breve, Execuções (estado do run e passos, ver abaixo) / Rotinas / Biblioteca / Computador abrindo o web, Notificações em breve).
+- `app/(app)/profile/[id].tsx`: perfil simples (avatar grande com a estrela do principal, nome, "Editar" (ver "Editar bot e avatar"), Execuções (estado do run e passos, ver abaixo) / Rotinas / Biblioteca / Computador abrindo o web, Notificações em breve).
 - Topo flutuante sobre as mensagens (voltar, pílula com o avatar vivo e o nome, "…"), balão escuro do bot com markdown, balão do usuário igual ao do web (`muted`, à direita), composer em pílula ("+", "Perguntar a <bot>", microfone, botão na cor do bot que vira enviar com texto e parar durante o run), menu "…" (Ver perfil; Buscar no chat e Compartilhar como modelo em breve). Controles de 44 e texto 15. Os avatares do resto da tela ficam estáticos.
 
 ### Endpoints (todos por `lib/api-fetch.ts`, os mesmos do web)
@@ -153,6 +153,13 @@ A lógica de estado saiu do hook: `lib/chat-controller.ts` é um controlador sem
 
 ### Composer (referências do dono)
 Pílula de uma linha ("+", "Perguntar a <bot>" a 17, microfone cinza e botão na cor do bot com as ondas de voz) que vira, quando o texto quebra, um retângulo de duas faixas (texto em cima, "+" e microfone/enviar embaixo); o campo cresce até 40% da tela e rola por dentro; esvaziar volta à pílula. O botão vira seta de enviar com texto e quadrado de parar durante o run. Container único como o do web (fundo `input`), sem doca de tarefas (as tarefas ficam no perfil); a borda é a do web, colada na pílula: uma View só com `border border-border`, `bg-input` e o raio total, nos dois formatos (sem wrapper nem respiro de 1px). O estado "expandido" da segunda referência não tem gatilho claro: só o crescimento automático foi feito. O botão de rolar para o fim aparece quando se rolou mais de 360 px para cima. O topo flutuante tem um degradê do fundo para transparente por baixo (sem faixa sólida), igual ao degradê em cima do composer.
+
+### Editar bot e avatar
+O botão "Editar" do perfil abre `app/(app)/edit/[id].tsx`: topo com voltar, "Editar Bot" e "Concluído" (desabilitado até haver mudança válida), avatar com lápis (abre o editor), **Nome**, **Aparência > Avatar** e **Chamadas de voz**. O editor de Avatar (`app/(app)/avatar/[id].tsx`) tem as abas Forma (pronta), Gerar e Enviar (em breve), prévia grande, a grade das 25 formas do motor (`SHAPE_IDS`, mesma lista e ordem do seletor do web), a paleta do web (`AVATAR_COLORS`, 11 cores) e "Restaurar o padrão" em azul (volta à forma e cor sorteadas pelo id, como no web). "Concluído" do avatar aplica no rascunho (`lib/bot-draft.ts`) e volta ao Editar Bot; "Concluído" do Editar Bot manda `PATCH /v1/bots/:id` só com o que mudou (`name`, `shape`, `color`, `language`; `lib/bot-edit.ts` e `lib/bot-api.ts`, testados) e atualiza a lista da home e o cache (`applyBotUpdate`).
+- **Validação:** nome de 1 a 80 letras (o servidor só recusa vazio; o limite de 80 é o dos campos de nome do web e vale só no app); forma da lista (ou antiga que o servidor traduz); cor `#rrggbb`; idioma `auto` ou um suportado.
+- **Servidor:** o PATCH é escopado pelo dono (`findFirst` por `ownerId` e `update` com `ownerId`; bot de outro dá 404). Ponto de atenção, sem mexer: o `PATCH` não limita o tamanho do nome.
+- **Chamadas de voz:** o servidor não tem campos de voz nem velocidade no bot, então "Voz" e "Velocidade" ficam "em breve". "Idioma" usa o campo real `language` do bot (idioma das respostas do bot, "Automático" ou um idioma), o único campo de idioma que existe.
+- **Formas com cor própria** (como a abóbora da referência): o motor atual não tem nenhuma. `OWN_COLOR_SHAPES` (vazio) esconde a paleta quando uma delas estiver escolhida; entra com a forma.
 
 ### Diferenças em relação à referência
 - Avatar do topo: o do motor (forma do bot), não o abóbora com caule da referência.

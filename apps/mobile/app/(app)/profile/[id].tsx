@@ -58,7 +58,7 @@ export default function ProfileScreen() {
 						{bot.isPrimary ? <PrimaryBadge size={24} /> : null}
 					</View>
 					<Text className="text-center text-2xl font-semibold">{bot.name}</Text>
-					<Button variant="secondary" onPress={() => setSoon("Editar bot")}>
+					<Button variant="secondary" onPress={() => router.push(`/edit/${encodeURIComponent(id)}` as never)}>
 						<Text>Editar</Text>
 					</Button>
 					<View className="w-full overflow-hidden rounded-panel bg-card">
