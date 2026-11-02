@@ -8,7 +8,8 @@ import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
 import { initialSync, syncLine, syncReducer, type SyncAction, type SyncState } from "./chat-sync";
 import { dockedTaskList, mergeTail, oldestCursor, PAGE_SIZE, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, type MessagePage, type PageCursor } from "./chat-thread";
-import type { ChatItem } from "./chat-types";
+import type { ChatItem, Reaction } from "./chat-types";
+import { myReaction, toggleUserReaction } from "./message-actions";
 
 export type ChatApi = {
 	fetchPage: (conversationId: string, options: { limit?: number; before?: PageCursor | null }) => Promise<MessagePage>;
@@ -19,6 +20,9 @@ export type ChatApi = {
 	getRunStatus: (runId: string) => Promise<string | null>;
 	listActiveRuns: (conversationId: string) => Promise<{ id: string; status: string }[]>;
 	submitQuestionnaire: (input: { conversationId: string; questionnaireId: string; botId: string; answers: Record<string, string | string[]> }) => Promise<{ runId: string | null }>;
+	setReaction: (messageId: string, emoji: string) => Promise<void>;
+	clearReaction: (messageId: string) => Promise<void>;
+	markConversationUnread: (conversationId: string) => Promise<void>;
 };
 
 export type ChatCache = { load: () => Promise<ChatItem[] | null>; save: (items: readonly ChatItem[]) => Promise<void> };
@@ -507,6 +511,57 @@ export class ChatController {
 				if (!this.disposed) this.set({ error: sendErrorText(reason) });
 			}
 		})();
+	}
+
+	// ---- menu da mensagem ---------------------------------------------------------------------------------
+
+	/** Põe (ou tira) as reações de uma fala gravada, na tela e no cache. `false` = a fala não está na lista. */
+	private patchReactions(messageId: string, reactions: Reaction[] | undefined): boolean {
+		let found = false;
+		const persisted = this.state.persisted.map((item) => {
+			if (item.id !== messageId || (item.kind !== "user" && item.kind !== "assistant")) return item;
+			found = true;
+			const { reactions: _old, ...rest } = item;
+			return (reactions ? { ...rest, reactions } : rest) as ChatItem;
+		});
+		if (!found) return false;
+		this.set({ persisted });
+		this.persist(persisted, this.generation);
+		return true;
+	}
+
+	/**
+	 * Toque numa reação do menu: aparece na hora e o servidor confirma (PUT troca, DELETE tira quando é a mesma). Se
+	 * falhar, volta ao que era e avisa.
+	 */
+	async react(messageId: string, emoji: string): Promise<void> {
+		const item = this.state.persisted.find((candidate) => candidate.id === messageId);
+		if (!item || (item.kind !== "user" && item.kind !== "assistant") || this.disposed) return;
+		const previous = item.reactions;
+		const removing = myReaction(previous) === emoji;
+		this.patchReactions(messageId, toggleUserReaction(previous, emoji));
+		try {
+			if (removing) await this.deps.api.clearReaction(messageId);
+			else await this.deps.api.setReaction(messageId, emoji);
+		} catch (reason) {
+			this.patchReactions(messageId, previous);
+			this.fail(reason);
+			if (!this.disposed) this.set({ error: isUnauthorized(reason) ? sendErrorText(reason) : "Não consegui reagir agora. Tente de novo." });
+		}
+	}
+
+	/** "Marcar como não lida": a conversa inteira. `true` = deu certo (a tela volta para a lista). */
+	async markUnread(): Promise<boolean> {
+		const convId = this.conversationId;
+		if (!convId || this.disposed) return false;
+		try {
+			await this.deps.api.markConversationUnread(convId);
+			return true;
+		} catch (reason) {
+			this.fail(reason);
+			if (!this.disposed) this.set({ error: isUnauthorized(reason) ? sendErrorText(reason) : "Não consegui marcar como não lida agora. Tente de novo." });
+			return false;
+		}
 	}
 
 	dismissError(): void {

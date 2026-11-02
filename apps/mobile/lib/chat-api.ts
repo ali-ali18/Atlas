@@ -96,6 +96,21 @@ export async function submitQuestionnaire(apiFetch: ApiFetch, input: { conversat
 	return { runId: typeof result.runId === "string" ? result.runId : null };
 }
 
+/** `PUT /v1/messages/:id/reaction`: troca a reação do usuário (uma por mensagem). */
+export async function setReaction(apiFetch: ApiFetch, messageId: string, emoji: string): Promise<void> {
+	await json(apiFetch, `/v1/messages/${encodeURIComponent(messageId)}/reaction`, { method: "PUT", body: JSON.stringify({ emoji }) });
+}
+
+/** `DELETE /v1/messages/:id/reaction`: tira a reação do usuário. */
+export async function clearReaction(apiFetch: ApiFetch, messageId: string): Promise<void> {
+	await json(apiFetch, `/v1/messages/${encodeURIComponent(messageId)}/reaction`, { method: "DELETE" });
+}
+
+/** `POST /v1/conversations/:id/unread`: marca a conversa inteira como não lida (vale em todos os aparelhos). */
+export async function markConversationUnread(apiFetch: ApiFetch, conversationId: string): Promise<void> {
+	await json(apiFetch, `/v1/conversations/${encodeURIComponent(conversationId)}/unread`, { method: "POST" });
+}
+
 /** Aviso amigável para um erro ao enviar (sem expor o texto técnico). */
 export function sendErrorText(error: unknown): string {
 	if (error instanceof ChatApiError) {

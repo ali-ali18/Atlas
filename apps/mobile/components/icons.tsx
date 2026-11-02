@@ -13,20 +13,26 @@ import {
 	CircleUserRound as LucideCircleUserRound,
 	Clock as LucideClock,
 	CodeXml as LucideCodeXml,
+	Copy as LucideCopy,
 	Ellipsis as LucideEllipsis,
 	ExternalLink as LucideExternalLink,
+	Hash as LucideHash,
 	LibraryBig as LucideLibraryBig,
 	Link as LucideLink,
+	MailOpen as LucideMailOpen,
 	ListChecks as LucideListChecks,
 	Mic as LucideMic,
 	Monitor as LucideMonitor,
 	Pencil as LucidePencil,
 	Plus as LucidePlus,
+	Reply as LucideReply,
 	Search as LucideSearch,
 	Send as LucideSend,
 	Share as LucideShare,
 	Square as LucideSquare,
 	Star as LucideStar,
+	TextCursorInput as LucideTextCursorInput,
+	X as LucideX,
 } from "lucide-react-native";
 import Svg, { Path, Rect } from "react-native-svg";
 import { themeColor, type ColorToken } from "@/lib/theme";
@@ -212,4 +218,34 @@ export function StopIcon({ size = 16, color = "#ffffff" }: IconProps & { color?:
 /** Lucide `AudioLines` (voz, o botão colorido do composer). */
 export function WaveformIcon({ size = 20, color = "#ffffff" }: IconProps & { color?: string }) {
 	return <LucideAudioLines size={size} color={color} strokeWidth={2} />;
+}
+
+/** Lucide `Copy` (menu da mensagem: Copiar). */
+export function CopyIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideCopy size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `TextCursorInput` (menu da mensagem: Selecionar texto). */
+export function TextSelectIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideTextCursorInput size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Hash` (menu da mensagem: Copiar ID da solicitação). */
+export function HashIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideHash size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `MailOpen` (menu da mensagem: Marcar como não lida). */
+export function MailOpenIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideMailOpen size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Reply` (menu da mensagem: Responder). */
+export function ReplyIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideReply size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `X`. */
+export function CloseIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideX size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

@@ -23,7 +23,7 @@ type Script = (options: FollowOptions, runId: string) => Promise<FollowResult>;
 
 function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversationId?: string | null; cache?: ChatDeps["cacheFor"] } = {}) {
 	let runCount = 0;
-	const calls = { createRun: [] as unknown[], createRunInput: [] as Array<[string, string]>, cancelRun: [] as string[], submit: [] as unknown[], fetchPage: [] as string[], createConversation: 0, unauthorized: 0 };
+	const calls = { createRun: [] as unknown[], createRunInput: [] as Array<[string, string]>, cancelRun: [] as string[], submit: [] as unknown[], reaction: [] as string[], unread: [] as string[], fetchPage: [] as string[], createConversation: 0, unauthorized: 0 };
 	const api: ChatApi = {
 		fetchPage: async (conversationId) => (calls.fetchPage.push(conversationId), { messages: [row("m1", "user", "oi"), row("m2", "assistant", "olá, tudo bem por aí?", 1)], hasMore: false }),
 		createConversation: async () => (calls.createConversation++, "c-new"),
@@ -33,6 +33,9 @@ function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversatio
 		getRunStatus: async () => "running",
 		listActiveRuns: async () => [],
 		submitQuestionnaire: async (input) => (calls.submit.push(input), { runId: `r${++runCount}` }),
+		setReaction: async (messageId, emoji) => void calls.reaction.push(`PUT ${messageId} ${emoji}`),
+		clearReaction: async (messageId) => void calls.reaction.push(`DELETE ${messageId}`),
+		markConversationUnread: async (conversationId) => void calls.unread.push(conversationId),
 		...overrides.api,
 	};
 	let seq = 0;
@@ -388,5 +391,88 @@ describe("sessão e erros", () => {
 		await flush();
 		const bubble = controller.getSnapshot().live.items.find((item) => item.kind === "assistant");
 		expect(bubble && "text" in bubble ? bubble.text : "").toBe("Olá, tudo bem?");
+	});
+});
+
+describe("menu da mensagem: reações e não lida", () => {
+	const reactionsOf = (controller: ChatController, id: string) => {
+		const item = controller.getSnapshot().persisted.find((candidate) => candidate.id === id);
+		return item && (item.kind === "user" || item.kind === "assistant") ? item.reactions : undefined;
+	};
+
+	it("reagir aparece na hora e manda PUT; trocar manda PUT de novo; a mesma tira com DELETE", async () => {
+		const gate = deferred<void>();
+		const puts: string[] = [];
+		const { controller, calls } = setup({
+			api: {
+				setReaction: async (id, emoji) => {
+					puts.push(`PUT ${id} ${emoji}`);
+					if (puts.length === 1) await gate.promise; // só a primeira espera
+				},
+				clearReaction: async (id) => void puts.push(`DELETE ${id}`),
+			},
+		});
+		await controller.open();
+		const pending = controller.react("m2", "🔥");
+		expect(reactionsOf(controller, "m2")).toEqual([{ actor: "user", emoji: "🔥" }]); // antes do servidor responder
+		gate.resolve();
+		await pending;
+		await controller.react("m2", "👍");
+		expect(reactionsOf(controller, "m2")).toEqual([{ actor: "user", emoji: "👍" }]);
+		await controller.react("m2", "👍");
+		expect(reactionsOf(controller, "m2")).toBeUndefined();
+		expect(puts).toEqual(["PUT m2 🔥", "PUT m2 👍", "DELETE m2"]);
+		expect(calls.reaction).toEqual([]);
+	});
+
+	it("erro do servidor desfaz a reação, avisa em frase simples e não vaza o texto técnico", async () => {
+		const { controller } = setup({ api: { setReaction: async () => Promise.reject(new ChatApiError("prisma boom", 500)) } });
+		await controller.open();
+		await controller.react("m2", "🔥");
+		expect(reactionsOf(controller, "m2")).toBeUndefined();
+		expect(controller.getSnapshot().error).toBe("Não consegui reagir agora. Tente de novo.");
+	});
+
+	it("erro ao tirar a reação a devolve; a do bot não é tocada", async () => {
+		const fetchPage: ChatApi["fetchPage"] = async () => ({
+			messages: [{ ...row("m1", "user", "valeu"), reactions: [{ actor: "bot", emoji: "❤️" }, { actor: "user", emoji: "👍" }] } as SessionMessage],
+			hasMore: false,
+		});
+		const { controller } = setup({ api: { fetchPage, clearReaction: async () => Promise.reject(new ChatApiError("x", 503)) } });
+		await controller.open();
+		await controller.react("m1", "👍");
+		expect(reactionsOf(controller, "m1")).toEqual([{ actor: "bot", emoji: "❤️" }, { actor: "user", emoji: "👍" }]);
+	});
+
+	it("sessão expirada ao reagir chama o logout", async () => {
+		const { controller, calls } = setup({ api: { setReaction: async () => Promise.reject(new ChatApiError("no", 401)) } });
+		await controller.open();
+		await controller.react("m2", "🔥");
+		expect(calls.unauthorized).toBe(1);
+	});
+
+	it("mensagem que não está na lista (ou ao vivo) não chama o servidor", async () => {
+		const { controller, calls } = setup();
+		await controller.open();
+		await controller.react("msg-1-abc", "🔥");
+		expect(calls.reaction).toEqual([]);
+	});
+
+	it("marcar como não lida chama a conversa e devolve true; erro devolve false com aviso", async () => {
+		const ok = setup();
+		await ok.controller.open();
+		expect(await ok.controller.markUnread()).toBe(true);
+		expect(ok.calls.unread).toEqual(["c1"]);
+		const bad = setup({ api: { markConversationUnread: async () => Promise.reject(new ChatApiError("x", 500)) } });
+		await bad.controller.open();
+		expect(await bad.controller.markUnread()).toBe(false);
+		expect(bad.controller.getSnapshot().error).toBe("Não consegui marcar como não lida agora. Tente de novo.");
+	});
+
+	it("sem conversa ainda não há o que marcar", async () => {
+		const { controller, calls } = setup({ conversationId: null });
+		await controller.open();
+		expect(await controller.markUnread()).toBe(false);
+		expect(calls.unread).toEqual([]);
 	});
 });

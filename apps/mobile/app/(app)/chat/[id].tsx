@@ -11,6 +11,7 @@ import { Fade } from "@/components/chat/fade";
 import { ChatTopBar, TOP_BAR_HEIGHT } from "@/components/chat/chat-top-bar";
 import { Composer } from "@/components/chat/composer";
 import { MessageRow, type RowActions } from "@/components/chat/message-row";
+import { useMessageMenu } from "@/components/chat/use-message-menu";
 import { createNewItemTracker } from "@/lib/chat-appear";
 import { groupPositionAt, type GroupPosition } from "@workspace/shared";
 import { SyncLine, ThinkingLine } from "@/components/chat/sync-line";
@@ -72,7 +73,11 @@ export default function ChatScreen() {
 		},
 		[serverUrl, id],
 	);
-	const actions = React.useMemo<RowActions>(() => ({ onDecide: chat.decide, onAnswer: chat.answer, onOpenWeb: openWeb, activeRunId: chat.runTasks?.runId ?? null, running: chat.running }), [chat.decide, chat.answer, openWeb, chat.running, chat.runTasks?.runId]);
+	const messageMenu = useMessageMenu({ chat, goBack, composerHeight });
+	const actions = React.useMemo<RowActions>(
+		() => ({ onDecide: chat.decide, onAnswer: chat.answer, onOpenWeb: openWeb, onOpenMenu: messageMenu.open, activeRunId: chat.runTasks?.runId ?? null, running: chat.running }),
+		[chat.decide, chat.answer, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId],
+	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.
 	const data = React.useMemo(() => [...chat.items].reverse(), [chat.items]);
@@ -165,6 +170,7 @@ export default function ChatScreen() {
 				</View>
 			</KeyboardAvoidingView>
 			<ChatMenu open={menu} onClose={() => setMenu(false)} onPick={onMenuPick} />
+			{messageMenu.node}
 			<SoonSheet open={soon !== null} title={soon ? SOON_TITLE[soon] : ""} onClose={() => setSoon(null)} />
 		</SafeAreaView>
 	);

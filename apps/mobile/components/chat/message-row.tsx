@@ -1,5 +1,5 @@
 import * as React from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import Animated, { FadeIn, useReducedMotion } from "react-native-reanimated";
 import { bubbleRadius, type GroupPosition } from "@workspace/shared";
 import { Text } from "@/components/ui/text";
@@ -18,17 +18,18 @@ export type RowActions = {
 	/** Há um run em andamento (o cartão só é "ativo" durante um run). */
 	running: boolean;
 	onOpenWeb: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
+	/** Toque longo no balão: abre o menu da mensagem (só abre para fala já gravada; ver `messageMenuFor`). */
+	onOpenMenu: (item: ChatItem) => void;
 };
 
 /** Balão do usuário: o do web (`Bubble variant="muted"`, à direita). */
-function UserBubble({ text, position, reactions }: { text: string; position: GroupPosition; reactions?: Reaction[] }) {
+function UserBubble({ text, position, reactions, onLongPress }: { text: string; position: GroupPosition; reactions?: Reaction[]; onLongPress: () => void }) {
 	return (
 		<View className="max-w-[82%] self-end">
-			<View className={`bg-muted px-4 py-3 ${bubbleRadius("right", position)}`}>
-				<Text selectable className="text-control leading-6">
-					{text}
-				</Text>
-			</View>
+			{/* Sem `selectable`: o toque longo abre o menu (a seleção está em "Selecionar texto"). */}
+			<Pressable onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" className={`bg-muted px-4 py-3 ${bubbleRadius("right", position)}`}>
+				<Text className="text-control leading-6">{text}</Text>
+			</Pressable>
 			<Reactions reactions={reactions} align="end" />
 		</View>
 	);
@@ -52,12 +53,12 @@ function Reactions({ reactions, align }: { reactions?: Reaction[]; align: "start
 }
 
 /** Balão do bot: escuro, arredondado, com markdown; ocupa quase toda a largura como na referência. */
-function BotBubble({ text, position, reactions }: { text: string; position: GroupPosition; reactions?: Reaction[] }) {
+function BotBubble({ text, position, reactions, onLongPress }: { text: string; position: GroupPosition; reactions?: Reaction[]; onLongPress: () => void }) {
 	return (
 		<View className="max-w-[94%] self-start">
-			<View className={`bg-muted px-4 py-3.5 ${bubbleRadius("left", position)}`}>
+			<Pressable onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" className={`bg-muted px-4 py-3.5 ${bubbleRadius("left", position)}`}>
 				<MarkdownText source={text} />
-			</View>
+			</Pressable>
 			<Reactions reactions={reactions} align="start" />
 		</View>
 	);
@@ -93,9 +94,9 @@ export const MessageRow = React.memo(function MessageRow({
 function RowContent({ item, actions, position }: { item: ChatItem; actions: RowActions; position: GroupPosition }) {
 	switch (item.kind) {
 		case "user":
-			return <UserBubble text={item.text} position={position} reactions={item.reactions} />;
+			return <UserBubble text={item.text} position={position} reactions={item.reactions} onLongPress={() => actions.onOpenMenu(item)} />;
 		case "assistant":
-			return item.text.trim() ? <BotBubble text={item.text} position={position} reactions={item.reactions} /> : null;
+			return item.text.trim() ? <BotBubble text={item.text} position={position} reactions={item.reactions} onLongPress={() => actions.onOpenMenu(item)} /> : null;
 		case "task-list":
 			return <TaskSummary items={item.items} active={taskCardActive(item.runId, actions.activeRunId, actions.running)} />;
 		case "confirm":
