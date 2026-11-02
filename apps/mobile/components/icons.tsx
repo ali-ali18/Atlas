@@ -24,6 +24,10 @@ import {
 	Mic as LucideMic,
 	Monitor as LucideMonitor,
 	Pencil as LucidePencil,
+	Pin as LucidePin,
+	PinOff as LucidePinOff,
+	FolderInput as LucideFolderInput,
+	FolderOutput as LucideFolderOutput,
 	Plus as LucidePlus,
 	Reply as LucideReply,
 	Search as LucideSearch,
@@ -248,4 +252,24 @@ export function ReplyIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 /** Lucide `X`. */
 export function CloseIcon({ size = 16, tone = "muted-foreground" }: LineIconProps) {
 	return <LucideX size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Pin` (menu da conversa: Fixar). */
+export function PinIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucidePin size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `PinOff` (menu da conversa: Desafixar). */
+export function PinOffIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucidePinOff size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `FolderInput` (menu da conversa: Mover para). */
+export function FolderInputIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideFolderInput size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `FolderOutput` (menu da conversa: Tirar da seção). */
+export function FolderOutputIcon({ size = 20, tone = "foreground" }: LineIconProps) {
+	return <LucideFolderOutput size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

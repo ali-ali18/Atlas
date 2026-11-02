@@ -3,7 +3,7 @@
 // atualização marca o número no início e, ao terminar, reaplica só os patches mais novos que a marca.
 import type { HomeBot, HomeSnapshot } from "./home-types";
 
-export type BotFields = Partial<Pick<HomeBot, "name" | "color" | "shape" | "language">>;
+export type BotFields = Partial<Pick<HomeBot, "name" | "color" | "shape" | "language" | "pinned" | "pinOrder" | "sectionId">>;
 
 export class PendingBotPatches {
 	private seq = 0;

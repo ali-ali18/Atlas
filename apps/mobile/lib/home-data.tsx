@@ -20,7 +20,7 @@ export type HomeData = {
 	prepare: () => Promise<"ready" | "empty" | "signed-out">;
 	refresh: () => Promise<void>;
 	/** Aplica na lista (e no cache do aparelho) o que acabou de ser salvo no servidor, sem esperar a próxima atualização. */
-	applyBotUpdate: (botId: string, patch: Partial<Pick<HomeBot, "name" | "color" | "shape" | "language">>) => void;
+	applyBotUpdate: (botId: string, patch: Partial<Pick<HomeBot, "name" | "color" | "shape" | "language" | "pinned" | "pinOrder" | "sectionId">>) => void;
 };
 
 const Context = React.createContext<HomeData | null>(null);

@@ -115,7 +115,7 @@ export default function HomeScreen() {
 				</ScrollView>
 				<SearchFooter query={query} onChange={setQuery} onGrid={() => setSoon("apps")} />
 			</KeyboardAvoidingView>
-			<HomeBotMenu bot={menuBot} onClose={() => setMenuBot(null)} onChanged={() => void refresh()} />
+			<HomeBotMenu bot={menuBot} onClose={() => setMenuBot(null)} />
 			<SoonSheet open={soon !== null} title={soon === "apps" ? "Apps" : "Novo chat"} onClose={() => setSoon(null)} />
 		</SafeAreaView>
 	);
