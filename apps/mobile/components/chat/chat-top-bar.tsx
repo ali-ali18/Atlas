@@ -13,8 +13,10 @@ import { useAppColorScheme } from "@/lib/use-theme";
 /** Altura do topo flutuante (sem a área segura): a lista deixa esse espaço para as mensagens passarem por baixo. */
 export const TOP_BAR_HEIGHT = 47 + 12;
 /** Altura dos botões e da pílula do topo (47 dp, medido no print do Grok) e margem lateral (19,5). */
-const CONTROL = 47;
-const SIDE = 19.5;
+export const TOP_BAR_CONTROL = 47;
+export const TOP_BAR_SIDE = 19.5;
+const CONTROL = TOP_BAR_CONTROL;
+const SIDE = TOP_BAR_SIDE;
 
 /** Botão redondo do topo (voltar, menu): fundo do cartão e borda, como na referência. */
 export function RoundButton({ label, onPress, children }: { label: string; onPress: () => void; children: React.ReactNode }) {
