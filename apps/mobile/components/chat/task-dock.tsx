@@ -34,10 +34,10 @@ export function TaskDock({ items }: { items: readonly TaskItem[] }) {
 	const { total, allDone } = taskListProgress(items);
 	if (total === 0) return null;
 	return (
-		<View accessibilityLabel="Tarefas do bot" className="border-b border-border/60">
-			<Pressable role="button" accessibilityLabel={open ? "Recolher a lista de tarefas" : "Abrir a lista de tarefas"} accessibilityState={{ expanded: open }} onPress={() => setOpen((value) => !value)} className="min-h-11 flex-row items-center gap-3 px-4 active:opacity-70">
+		<View accessibilityLabel="Tarefas do bot">
+			<Pressable role="button" accessibilityLabel={open ? "Recolher a lista de tarefas" : "Abrir a lista de tarefas"} accessibilityState={{ expanded: open }} onPress={() => setOpen((value) => !value)} className="min-h-11 flex-row items-center gap-2.5 pl-4 pr-3 active:opacity-70">
 				<View className="size-5 items-center justify-center">{allDone ? <CheckCircleIcon size={18} tone="success" /> : <Spinner />}</View>
-				<Text numberOfLines={1} className="min-w-0 flex-1 text-control">
+				<Text numberOfLines={1} className="min-w-0 flex-1 text-sm text-muted-foreground">
 					{taskListDockLine(items)}
 				</Text>
 				<View style={{ transform: [{ rotate: open ? "180deg" : "0deg" }] }}>

@@ -148,12 +148,12 @@ export function MicIcon({ size = 20, tone = "muted-foreground" }: LineIconProps)
 }
 
 /** Lucide `ArrowUp` (enviar). */
-export function ArrowUpIcon({ size = 20, tone = "primary-foreground" }: LineIconProps) {
+export function ArrowUpIcon({ size = 20, color = "#ffffff" }: IconProps & { color?: string }) {
 	return (
-		<Line size={size} tone={tone} strokeWidth={2.5}>
+		<Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
 			<Path d="m5 12 7-7 7 7" />
 			<Path d="M12 19V5" />
-		</Line>
+		</Svg>
 	);
 }
 

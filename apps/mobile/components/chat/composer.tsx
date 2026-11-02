@@ -1,10 +1,16 @@
 import * as React from "react";
 import { Platform, Pressable, TextInput, useWindowDimensions, View } from "react-native";
 
-const LINE_HEIGHT = 22;
+import { iconColorOn } from "@/lib/icon-color";
 import { ArrowUpIcon, MicIcon, PlusIcon, StopIcon, WaveformIcon } from "@/components/icons";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
+
+/** Composer magro como o do Grok: 44 de altura, botões de 32. */
+const LINE_HEIGHT = 21;
+const MIN_HEIGHT = 44;
+const BUTTON = 32;
+const INSET = 6;
 
 type ComposerProps = {
 	/** Seções de cima do container único (lista de tarefas, depois aprovação), cada uma com divisor `border-b` embaixo. */
@@ -30,6 +36,7 @@ type ComposerProps = {
  * (O web hoje usa `border border-border` simples nesse container: a diferença é só visual.)
  */
 export function Composer({ sections, botName, color, running, onSend, onStop, onSoon }: ComposerProps) {
+	const onColor = iconColorOn(color);
 	const scheme = useAppColorScheme();
 	const [text, setText] = React.useState("");
 	const hasText = text.trim().length > 0;
@@ -39,7 +46,7 @@ export function Composer({ sections, botName, color, running, onSend, onStop, on
 	// O campo cresce com o texto até 40% da tela e rola por dentro depois disso.
 	const maxFieldHeight = Math.round(useWindowDimensions().height * 0.4);
 	// Largura do grupo da direita: microfone + botão da cor do bot (o microfone fica também com texto).
-	const rightWidth = 86;
+	const rightWidth = BUTTON * 2 + 6;
 	const mode = hasText ? "send" : running ? "stop" : "voice";
 	const press = () => {
 		if (mode === "send") {
@@ -51,16 +58,18 @@ export function Composer({ sections, botName, color, running, onSend, onStop, on
 		else onSoon("voz");
 	};
 	return (
-		<View className="mx-4 mb-2 rounded-[29px] border border-foreground/20 p-px">
+		<View className="mx-4 mb-2 gap-2">
+			{/* Tarefas e aprovação ficam num cartão próprio acima do campo (como no ChatGPT e no Claude), não dentro dele. */}
+			{sections ? <View className="overflow-hidden rounded-[20px] border border-foreground/10 bg-input/95">{sections}</View> : null}
+			<View className="rounded-[29px] border border-foreground/20 p-px">
 			<View className="overflow-hidden rounded-[28px] bg-input">
-				{sections}
 				{/*
 				  Um só TextInput nos dois formatos (assim o foco e o teclado não se perdem na troca). Os botões ficam sempre
 				  em posição absoluta na base: com uma linha o campo fica entre eles (pílula); quando o texto quebra, o campo
 				  ocupa a largura toda e reserva uma faixa embaixo para a linha de botões ("+" à esquerda, microfone e botão
 				  da cor do bot à direita), como nas referências do dono.
 				*/}
-				<View style={{ paddingBottom: stacked ? 48 : 0 }}>
+				<View style={{ paddingBottom: stacked ? BUTTON + INSET * 2 : 0 }}>
 					<TextInput
 						accessibilityLabel={`Perguntar a ${botName}`}
 						placeholder={`Perguntar a ${botName}`}
@@ -86,38 +95,39 @@ export function Composer({ sections, botName, color, running, onSend, onStop, on
 						maxLength={20_000}
 						textAlignVertical={stacked ? "top" : "center"}
 						style={{
-							fontSize: 17,
+							fontSize: 16,
 							lineHeight: LINE_HEIGHT,
-							paddingTop: 9 + 8,
-							paddingBottom: stacked ? 4 : 9 + 8,
-							paddingLeft: stacked ? 16 : 8 + 40 + 8,
-							paddingRight: stacked ? 16 : rightWidth + 8 + 8,
-							minHeight: 56,
+							paddingTop: (MIN_HEIGHT - LINE_HEIGHT) / 2,
+							paddingBottom: stacked ? 4 : (MIN_HEIGHT - LINE_HEIGHT) / 2,
+							paddingLeft: stacked ? 14 : INSET + BUTTON + 8,
+							paddingRight: stacked ? 14 : INSET + rightWidth + 8,
+							minHeight: MIN_HEIGHT,
 							maxHeight: maxFieldHeight,
-							...(Platform.OS === "web" ? { height: Math.min(maxFieldHeight, Math.max(56, webHeight)) } : {}),
+							...(Platform.OS === "web" ? { height: Math.min(maxFieldHeight, Math.max(MIN_HEIGHT, webHeight)) } : {}),
 						}}
 						className="text-foreground outline-none"
 					/>
-					<View className="absolute bottom-2 left-2 right-2 flex-row items-center justify-between" pointerEvents="box-none">
-						<Pressable role="button" accessibilityLabel="Adicionar" onPress={() => onSoon("anexos")} className="size-10 items-center justify-center rounded-full bg-foreground/10 active:opacity-70">
-							<PlusIcon size={20} />
+					<View className="absolute bottom-1.5 left-1.5 right-1.5 flex-row items-center justify-between" pointerEvents="box-none">
+						<Pressable role="button" accessibilityLabel="Adicionar" onPress={() => onSoon("anexos")} className="size-8 items-center justify-center rounded-full bg-foreground/10 active:opacity-70">
+							<PlusIcon size={18} />
 						</Pressable>
 						<View className="flex-row items-center gap-1.5">
-							<Pressable role="button" accessibilityLabel="Microfone (em breve)" onPress={() => onSoon("voz")} className="size-10 items-center justify-center rounded-full bg-foreground/10 active:opacity-70">
-								<MicIcon size={20} />
+							<Pressable role="button" accessibilityLabel="Microfone (em breve)" onPress={() => onSoon("voz")} className="size-8 items-center justify-center rounded-full bg-foreground/10 active:opacity-70">
+								<MicIcon size={18} />
 							</Pressable>
 							<Pressable
 								role="button"
 								accessibilityLabel={mode === "send" ? "Enviar" : mode === "stop" ? "Parar" : "Voz (em breve)"}
 								onPress={press}
 								style={{ backgroundColor: color }}
-								className="size-10 items-center justify-center rounded-full active:opacity-80"
+								className="size-8 items-center justify-center rounded-full active:opacity-80"
 							>
-								{mode === "send" ? <ArrowUpIcon size={20} tone="primary-foreground" /> : mode === "stop" ? <StopIcon size={16} /> : <WaveformIcon size={20} />}
+								{mode === "send" ? <ArrowUpIcon size={18} color={onColor} /> : mode === "stop" ? <StopIcon size={14} color={onColor} /> : <WaveformIcon size={18} color={onColor} />}
 							</Pressable>
 						</View>
 					</View>
 				</View>
+			</View>
 			</View>
 		</View>
 	);
