@@ -7,7 +7,7 @@ import { ScreenHeader } from "@/components/ui/screen-header";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { routineSurface } from "@/lib/chat-surface";
-import type { RunLogStep, StepIcon } from "@/lib/run-log";
+import { activityTitle, type RunLogStep, type StepIcon } from "@/lib/run-log";
 import { formatRunTime } from "@/lib/routine-run";
 import { useAppColorScheme } from "@/lib/use-theme";
 
@@ -45,18 +45,23 @@ export type RunLogViewProps = {
 };
 
 /**
- * Registro de uma execução: a linha do tempo dos passos (ícone, o que foi feito, a hora e se deu certo), num cartão único.
+ * Registro de uma execução (título do topo = o que o bot mais fez, como o "Programando" do Grok): a linha do tempo dos passos (ícone, o que foi feito, a hora e se deu certo), num cartão único.
  * Nunca mostra comando, argumento, saída nem caminho: só a frase do passo, a hora e ok ou erro.
  */
 export function RunLogView({ title, steps, loading = false, error = null, expired = false, onBack, onRetry }: RunLogViewProps) {
 	const surface = routineSurface(useAppColorScheme());
 	return (
 		<SafeAreaView className="flex-1" style={{ backgroundColor: surface.screen }}>
-			<ScreenHeader title="Registro" onBack={onBack} />
+			<ScreenHeader title={activityTitle(steps)} onBack={onBack} />
 			<ScrollView contentContainerClassName="gap-3 px-4 pb-10 pt-4">
-				<Text variant="muted" numberOfLines={2} className="px-2 text-base">
-					{title}
-				</Text>
+				<View className="gap-0.5 px-2">
+					<Text numberOfLines={2} className="text-lg">
+						{title}
+					</Text>
+					<Text variant="muted" className="text-base">
+						Registro
+					</Text>
+				</View>
 				{loading && steps.length === 0 ? (
 					<View className="items-center pt-16">
 						<Spinner label="Carregando o registro" />

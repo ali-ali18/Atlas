@@ -80,3 +80,27 @@ export function buildRunLog(events: readonly RunEventLike[]): RunLogStep[] {
 	}
 	return steps;
 }
+
+/**
+ * Título da tela de uma execução, como o "Programando" do Grok: o que o bot mais fez nela, em uma palavra (sem a palavra
+ * "execução", que fica estranha de título). Empate vai para a ordem code, run, web, read.
+ */
+export function activityTitle(steps: readonly Pick<RunLogStep, "icon">[]): string {
+	const count: Record<StepIcon, number> = { web: 0, read: 0, run: 0, code: 0, other: 0 };
+	for (const step of steps) count[step.icon] += 1;
+	const order: StepIcon[] = ["code", "run", "web", "read"];
+	let best: StepIcon | null = null;
+	for (const icon of order) if (count[icon] > 0 && (best === null || count[icon] > count[best])) best = icon;
+	switch (best) {
+		case "code":
+			return "Programando";
+		case "run":
+			return "Executando comandos";
+		case "web":
+			return "Pesquisando";
+		case "read":
+			return "Lendo";
+		default:
+			return "Trabalhando";
+	}
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRunLog, stepLabel, type RunEventLike } from "./run-log";
+import { activityTitle, buildRunLog, stepLabel, type RunEventLike } from "./run-log";
 
 const ev = (seq: number, type: string, payload: unknown): RunEventLike => ({ seq, type, payload, createdAt: `2026-11-02T10:0${seq}:00.000Z` });
 
@@ -33,5 +33,20 @@ describe("registro da execução", () => {
 	it("chamada sem resultado fica em andamento; raciocínio e lixo são ignorados", () => {
 		const log = buildRunLog([ev(1, "tool_call", { id: "1", name: "web_search" }), ev(2, "tool_call", { id: "t", name: "update_task_list" }), ev(3, "assistant_delta", { text: "oi" }), ev(4, "tool_call", null), ev(5, "tool_call", { id: "1", name: "web_search" })]);
 		expect(log.map((step) => [step.label, step.ok])).toEqual([["Pesquisou na web", null]]);
+	});
+});
+
+describe("título da execução", () => {
+	const steps = (...icons: Array<"web" | "read" | "run" | "code" | "other">) => icons.map((icon) => ({ icon }));
+	it("o que o bot mais fez, em uma palavra", () => {
+		expect(activityTitle(steps("code", "code", "web"))).toBe("Programando");
+		expect(activityTitle(steps("web", "web", "read"))).toBe("Pesquisando");
+		expect(activityTitle(steps("run", "run", "code"))).toBe("Executando comandos");
+		expect(activityTitle(steps("read", "read"))).toBe("Lendo");
+	});
+	it("empate segue a ordem; sem passos ou só ações genéricas, Trabalhando", () => {
+		expect(activityTitle(steps("web", "code"))).toBe("Programando");
+		expect(activityTitle([])).toBe("Trabalhando");
+		expect(activityTitle(steps("other", "other"))).toBe("Trabalhando");
 	});
 });
