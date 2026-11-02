@@ -122,7 +122,7 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 	const openRunStream = React.useCallback(
 		(runId: string): OpenStream => {
 			if (!client || !serverUrl) return async () => Promise.reject(new Error("Nenhum servidor conectado."));
-			return createRunStreamOpener({ baseUrl: serverUrl, getCookie: () => client.getCookie(), streamFetch: expoFetch }, runId);
+			return createRunStreamOpener({ baseUrl: serverUrl, getCookie: () => client.getCookie(), streamFetch: (url, init) => expoFetch(url, init) }, runId);
 		},
 		[client, serverUrl],
 	);
