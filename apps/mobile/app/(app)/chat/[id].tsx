@@ -12,6 +12,7 @@ import { ChatTopBar, TOP_BAR_HEIGHT } from "@/components/chat/chat-top-bar";
 import { Composer } from "@/components/chat/composer";
 import { MessageRow, type RowActions } from "@/components/chat/message-row";
 import { createNewItemTracker } from "@/lib/chat-appear";
+import { groupPositionAt, type GroupPosition } from "@workspace/shared";
 import { SyncLine, ThinkingLine } from "@/components/chat/sync-line";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
@@ -32,6 +33,14 @@ const SOON_TITLE: Record<NonNullable<Soon>, string> = { anexos: "Anexos", voz: "
 
 const NO_IDS: ReadonlySet<string> = new Set();
 
+/** Posição de cada fala no grupo do mesmo autor, em ordem de conversa (a lista mostra invertida). */
+function bubblePositions(items: readonly ChatItem[]): ReadonlyMap<string, GroupPosition> {
+	// Resposta vazia (ainda sem texto) não aparece e não conta para o grupo.
+	const shown = items.filter((item) => item.kind !== "assistant" || item.text.trim());
+	const kinds = shown.map((item) => item.kind);
+	return new Map(shown.map((item, index) => [item.id, groupPositionAt(kinds, index, (kind) => kind === "user" || kind === "assistant")]));
+}
+
 /** Ids que acabaram de chegar (ver `createNewItemTracker`); vazio até a conversa ficar pronta. */
 function useNewItemIds(items: readonly ChatItem[], ready: boolean): ReadonlySet<string> {
 	const tracker = React.useRef(createNewItemTracker());
@@ -51,6 +60,8 @@ export default function ChatScreen() {
 	const listRef = React.useRef<FlatList<ChatItem>>(null);
 	const [farFromEnd, setFarFromEnd] = React.useState(false);
 	const [menu, setMenu] = React.useState(false);
+	// Altura do composer (cresce com o texto): a lista passa por baixo dele e reserva esse espaço no fim.
+	const [composerHeight, setComposerHeight] = React.useState(64);
 	const [soon, setSoon] = React.useState<Soon>(null);
 	const goBack = React.useCallback(() => (router.canGoBack() ? router.back() : router.replace("/")), [router]);
 	const openProfile = React.useCallback(() => router.push(`/profile/${encodeURIComponent(id)}` as never), [router, id]);
@@ -66,6 +77,7 @@ export default function ChatScreen() {
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.
 	const data = React.useMemo(() => [...chat.items].reverse(), [chat.items]);
 	const animateIds = useNewItemIds(chat.items, chat.ready);
+	const positions = React.useMemo(() => bubblePositions(chat.items), [chat.items]);
 
 	if (!bot) {
 		return (
@@ -93,17 +105,19 @@ export default function ChatScreen() {
 			<KeyboardAvoidingView behavior="padding" className="flex-1">
 				<FlatList
 					ref={listRef}
+					// A lista vai até o fundo e passa por trás do composer (ele flutua sobre as mensagens, sem faixa preta).
+					style={{ marginBottom: -composerHeight }}
 					onScroll={(event) => setFarFromEnd(event.nativeEvent.contentOffset.y > JUMP_THRESHOLD)}
 					scrollEventThrottle={100}
 					inverted
 					data={data}
 					keyExtractor={(item) => item.id}
-					renderItem={({ item }) => <MessageRow item={item} actions={actions} animate={animateIds.has(item.id)} />}
+					renderItem={({ item }) => <MessageRow item={item} actions={actions} animate={animateIds.has(item.id)} position={positions.get(item.id)} />}
 					keyboardShouldPersistTaps="handled"
 					keyboardDismissMode="on-drag"
 					onEndReached={chat.hasMore ? chat.loadOlder : undefined}
 					onEndReachedThreshold={0.6}
-					contentContainerClassName="gap-3 px-4"
+					contentContainerClassName="gap-1.5 px-4"
 					// Cabeçalho de lista invertida = embaixo: a linha de sincronização fica logo abaixo da última mensagem.
 					ListHeaderComponent={
 						<View>
@@ -119,6 +133,7 @@ export default function ChatScreen() {
 									<Text className="text-control text-destructive">{chat.error}</Text>
 								</Pressable>
 							) : null}
+							<View style={{ height: composerHeight }} />
 						</View>
 					}
 					// Rodapé = em cima: o espaço do topo flutuante e o carregando mais antigas.
@@ -139,15 +154,14 @@ export default function ChatScreen() {
 				/>
 				<Fade from="top" height={insets.top + TOP_BAR_HEIGHT + 24} className="absolute left-0 right-0 top-0" />
 				<ChatTopBar bot={bot} onBack={goBack} onMenu={() => setMenu(true)} onProfile={openProfile} />
-				<View className="z-10">
+				<View className="z-10" onLayout={(event) => setComposerHeight(Math.round(event.nativeEvent.layout.height))}>
 					{farFromEnd ? (
 						<Pressable role="button" accessibilityLabel="Ir para o fim da conversa" onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })} style={{ position: "absolute", right: 16, bottom: "100%", marginBottom: 12 }} className="size-11 items-center justify-center rounded-full border border-border bg-card active:opacity-70">
 							<ChevronDownIcon size={22} tone="foreground" />
 						</Pressable>
 					) : null}
-					<Fade from="bottom" height={24} />
+					<Composer botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={chat.send} onStop={chat.stop} onSoon={(what) => setSoon(what)} />
 				</View>
-				<Composer botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={chat.send} onStop={chat.stop} onSoon={(what) => setSoon(what)} />
 			</KeyboardAvoidingView>
 			<ChatMenu open={menu} onClose={() => setMenu(false)} onPick={onMenuPick} />
 			<SoonSheet open={soon !== null} title={soon ? SOON_TITLE[soon] : ""} onClose={() => setSoon(null)} />

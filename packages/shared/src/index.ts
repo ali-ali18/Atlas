@@ -993,3 +993,4 @@ export * from "./reasoning-effort.js";
 export * from "./engine-helpers.js";
 export * from "./engine-settings.js";
 export * from "./notebook.js";
+export { bubbleRadius, groupPositionAt, type GroupPosition } from "./bubble-radius.js";
