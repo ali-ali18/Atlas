@@ -1,6 +1,6 @@
 import { resolveColor, resolveShape } from "@workspace/shared/avatar/identity";
 import * as React from "react";
-import { Image, Pressable, View } from "react-native";
+import { Image, KeyboardAvoidingView, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RoundButton, TOP_BAR_CONTROL, TOP_BAR_SIDE } from "@/components/chat/chat-top-bar";
 import { ChevronLeftIcon, ClipboardPasteIcon, CloseIcon, HelpIcon, KeyboardIcon, MonitorIcon } from "@/components/icons";
@@ -39,13 +39,19 @@ export type ComputerViewProps = {
 	onPaste?: () => void;
 	onKeyboard?: () => void;
 	onRetry?: () => void;
+	/** Liga o computador desligado (status "off"). Sem isto o estado "desligado" fica só com o texto. */
+	onStart?: () => void;
+	/** Frase do erro (status "error"); sem ela vale o texto padrão. */
+	errorText?: string | null;
+	/** Extras do controle acima das ações (barra do teclado, aviso de erro ao colar); só aparecem enquanto o usuário controla. */
+	controlExtra?: React.ReactNode;
 };
 
 /** Botão redondo da barra de ações (Colar, Teclado, Soltar), com o rótulo embaixo. */
-function ActionButton({ label, onPress, children }: { label: string; onPress?: () => void; children: React.ReactNode }) {
+function ActionButton({ label, hint, onPress, children }: { label: string; hint?: string; onPress?: () => void; children: React.ReactNode }) {
 	return (
 		<View className="items-center gap-1.5">
-			<Pressable role="button" accessibilityLabel={label} onPress={onPress} style={{ width: 52, height: 52, backgroundColor: PILL_FILL, borderColor: PILL_EDGE }} className="items-center justify-center rounded-full border active:opacity-70">
+			<Pressable role="button" accessibilityLabel={hint ?? label} onPress={onPress} style={{ width: 52, height: 52, backgroundColor: PILL_FILL, borderColor: PILL_EDGE }} className="items-center justify-center rounded-full border active:opacity-70">
 				{children}
 			</Pressable>
 			<Text className="text-caption" style={{ color: "#d4d4d8" }}>
@@ -55,7 +61,7 @@ function ActionButton({ label, onPress, children }: { label: string; onPress?: (
 	);
 }
 
-function Placeholder({ status, onRetry }: { status: Exclude<ComputerStatus, "ready">; onRetry?: () => void }) {
+function Placeholder({ status, onRetry, onStart, errorText }: { status: Exclude<ComputerStatus, "ready">; onRetry?: () => void; onStart?: () => void; errorText?: string | null }) {
 	if (status === "loading") {
 		return (
 			<View className="flex-1 items-center justify-center gap-3">
@@ -74,9 +80,15 @@ function Placeholder({ status, onRetry }: { status: Exclude<ComputerStatus, "rea
 				{off ? "O computador do bot está desligado." : "Não deu para conectar ao computador."}
 			</Text>
 			<Text className="text-center text-control" style={{ color: "#a1a1aa" }}>
-				{off ? "Peça ao bot uma tarefa que use o computador e ele liga sozinho." : "Confira sua conexão e tente de novo."}
+				{off ? "Peça ao bot uma tarefa que use o computador e ele liga sozinho." : (errorText ?? "Confira sua conexão e tente de novo.")}
 			</Text>
-			{off ? null : (
+			{off ? (
+				onStart ? (
+					<Button variant="secondary" className="mt-4 rounded-full px-6" onPress={onStart}>
+						<Text>Ligar o computador</Text>
+					</Button>
+				) : null
+			) : (
 				<Button variant="secondary" className="mt-4 rounded-full px-6" onPress={onRetry}>
 					<Text>Tentar de novo</Text>
 				</Button>
@@ -90,11 +102,11 @@ function Placeholder({ status, onRetry }: { status: Exclude<ComputerStatus, "rea
  * desktop remoto no meio, com zoom por pinça; "Assumir o controle" embaixo à direita. No controle, o botão vira "Soltar
  * o controle" e aparece a barra Colar · Teclado · Soltar. Só apresentação: quem usa liga os callbacks (sem lógica de VM).
  */
-export function ComputerView({ bot, avatarState = "idle", status, source, children, aspectRatio = 16 / 9, controlling = false, onBack, onHelp, onTakeControl, onRelease, onPaste, onKeyboard, onRetry }: ComputerViewProps) {
+export function ComputerView({ bot, avatarState = "idle", status, source, children, aspectRatio = 16 / 9, controlling = false, onBack, onHelp, onTakeControl, onRelease, onPaste, onKeyboard, onRetry, onStart, errorText, controlExtra }: ComputerViewProps) {
 	const insets = useSafeAreaInsets();
 	const ready = status === "ready";
 	return (
-		<View className="flex-1" style={{ backgroundColor: SCREEN }}>
+		<KeyboardAvoidingView behavior="padding" className="flex-1" style={{ backgroundColor: SCREEN }}>
 			<View style={{ paddingTop: insets.top + 6, paddingHorizontal: SIDE, height: insets.top + 6 + TOP_BAR_CONTROL }} className="flex-row items-center gap-3">
 				<RoundButton label="Voltar" onPress={onBack}>
 					<ChevronLeftIcon />
@@ -112,11 +124,11 @@ export function ComputerView({ bot, avatarState = "idle", status, source, childr
 			</View>
 
 			{ready ? (
-				<Zoomable aspectRatio={aspectRatio}>
+				<Zoomable aspectRatio={aspectRatio} gestures={!controlling}>
 					{source ? <Image source={source} resizeMode="contain" accessibilityLabel={`Tela do computador de ${bot.name}`} style={{ width: "100%", height: "100%" }} /> : children}
 				</Zoomable>
 			) : (
-				<Placeholder status={status} onRetry={onRetry} />
+				<Placeholder status={status} onRetry={onRetry} onStart={onStart} errorText={errorText} />
 			)}
 
 			{ready ? (
@@ -134,12 +146,13 @@ export function ComputerView({ bot, avatarState = "idle", status, source, childr
 							</Text>
 						</Pressable>
 					</View>
+					{controlling && controlExtra ? controlExtra : null}
 					{controlling ? (
 						<View className="flex-row items-start justify-center gap-8">
-							<ActionButton label="Colar" onPress={onPaste}>
+							<ActionButton label="Colar" hint="Colar texto na VM" onPress={onPaste}>
 								<ClipboardPasteIcon />
 							</ActionButton>
-							<ActionButton label="Teclado" onPress={onKeyboard}>
+							<ActionButton label="Teclado" hint="Abrir o teclado" onPress={onKeyboard}>
 								<KeyboardIcon />
 							</ActionButton>
 							<ActionButton label="Soltar" onPress={onRelease}>
@@ -151,6 +164,6 @@ export function ComputerView({ bot, avatarState = "idle", status, source, childr
 			) : (
 				<View style={{ height: insets.bottom + 16 }} />
 			)}
-		</View>
+		</KeyboardAvoidingView>
 	);
 }

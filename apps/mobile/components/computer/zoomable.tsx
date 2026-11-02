@@ -28,8 +28,9 @@ const DOUBLE_TAP_ANIM_MS = 180;
  * Área com zoom por pinça (1x a 4x), arrastar para mover quando ampliado e duplo toque para alternar 1x/2x.
  * O conteúdo (imagem do computador remoto) tem a largura da tela e a proporção `aspectRatio`, centralizado na vertical.
  * Toda a conta está em `lib/pinch-zoom.ts` (testada); aqui só entram os dedos e a animação.
+ * `gestures={false}` solta os dedos para o conteúdo (modo controle: o toque vai ao noVNC); o zoom atual fica como está.
  */
-export function Zoomable({ aspectRatio = 16 / 9, children, onZoomChange }: { aspectRatio?: number; children: React.ReactNode; onZoomChange?: (scale: number) => void }) {
+export function Zoomable({ aspectRatio = 16 / 9, children, onZoomChange, gestures = true }: { aspectRatio?: number; children: React.ReactNode; onZoomChange?: (scale: number) => void; gestures?: boolean }) {
 	const [viewport, setViewport] = React.useState<Size>({ width: 0, height: 0 });
 	const frame = React.useMemo<Size>(() => ({ width: viewport.width, height: viewport.width / aspectRatio }), [viewport.width, aspectRatio]);
 	const scale = useSharedValue(1);
@@ -143,7 +144,7 @@ export function Zoomable({ aspectRatio = 16 / 9, children, onZoomChange }: { asp
 	};
 
 	return (
-		<View ref={rootRef} onLayout={onLayout} className="flex-1 items-center justify-center overflow-hidden" {...responder.panHandlers}>
+		<View ref={rootRef} onLayout={onLayout} className="flex-1 items-center justify-center overflow-hidden" {...(gestures ? responder.panHandlers : {})}>
 			<Animated.View style={[{ width: viewport.width, aspectRatio }, animatedStyle]}>{children}</Animated.View>
 		</View>
 	);
