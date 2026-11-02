@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
@@ -8,7 +9,7 @@ process.env.BETTER_AUTH_SECRET ||= "test-secret-long-enough-for-better-auth-midd
 const { Hono } = await import("hono");
 const { createSandboxManager, loadSandboxConfig } = await import("@workspace/sandbox");
 const { createSandboxRoutes } = await import("./sandbox.js");
-const { readViewerToken, signViewerToken, safeViewerRest } = await import("./sandbox-viewer.js");
+const { readViewerToken, signViewerToken, safeViewerRest, verifyViewerToken } = await import("./sandbox-viewer.js");
 const { isPublicV1Request, requireUser } = await import("../middleware/auth.js");
 const { auth } = await import("../auth.js");
 import type { AuthEnv } from "../middleware/auth.js";
@@ -80,7 +81,14 @@ test("viewer-link: dono recebe url relativa com token no caminho e no path do we
 	assert.equal(parsed.searchParams.get("autoconnect"), "1");
 	assert.equal(parsed.searchParams.get("reconnect"), "true");
 	assert.equal(parsed.searchParams.get("resize"), "scale");
-	assert.equal(parsed.searchParams.get("path"), `v1/sandbox/sessions/session-a/viewer/websockify?t=${m![1]}`);
+	const wsPath = parsed.searchParams.get("path")!;
+	const wsMatch = /^v1\/sandbox\/sessions\/session-a\/viewer\/websockify\?t=(.+)$/.exec(wsPath);
+	assert.ok(wsMatch, wsPath);
+	assert.notEqual(wsMatch![1], m![1]);
+	// Cada token só serve ao seu propósito.
+	assert.equal(verifyViewerToken(wsMatch![1], "session-a", SECRET), "user-a");
+	assert.equal(verifyViewerToken(m![1], "session-a", SECRET), null);
+	assert.equal(readViewerToken(wsMatch![1], SECRET), null);
 });
 
 test("viewer-link: usuario B recebe 404 na sessao do A", async () => {
@@ -120,7 +128,7 @@ test("vt: token valido chama o proxy com o caminho certo e cabecalhos de seguran
 	const port = await listen(upstream);
 	try {
 		const app = build({ port });
-		const token = signViewerToken({ sessionId: "session-a", userId: "user-a" }, SECRET);
+		const token = signViewerToken({ sessionId: "session-a", userId: "user-a", purpose: "vt" }, SECRET);
 		const res = await app.request(`/v1/sandbox/vt/${token}/vnc.html?autoconnect=1`, { headers: { cookie: "x=y", authorization: "Bearer z" } });
 		assert.equal(res.status, 200);
 		assert.equal(await res.text(), "<html>novnc</html>");
@@ -148,9 +156,9 @@ test("vt: token adulterado, expirado ou de outro formato -> 401 sem tocar o upst
 	const port = await listen(upstream);
 	try {
 		const app = build({ port });
-		const ok = signViewerToken({ sessionId: "session-a", userId: "user-a" }, SECRET);
-		const expired = signViewerToken({ sessionId: "session-a", userId: "user-a" }, SECRET, Date.now() - 11 * 60_000);
-		const wrongSecret = signViewerToken({ sessionId: "session-a", userId: "user-a" }, "outro");
+		const ok = signViewerToken({ sessionId: "session-a", userId: "user-a", purpose: "vt" }, SECRET);
+		const expired = signViewerToken({ sessionId: "session-a", userId: "user-a", purpose: "vt" }, SECRET, Date.now() - 11 * 60_000);
+		const wrongSecret = signViewerToken({ sessionId: "session-a", userId: "user-a", purpose: "vt" }, "outro");
 		const [, mac] = ok.split(".");
 		const forged = `${Buffer.from(JSON.stringify({ s: "session-a", u: "user-b", e: Date.now() + 1e9 })).toString("base64url")}.${mac}`;
 		for (const t of [expired, wrongSecret, forged, "lixo", "a.b.c", `${ok}x`, "%00.%00"]) {
@@ -169,7 +177,7 @@ test("vt: posse revalidada com o userId do token (troca de dono, conversa de out
 	const upstream = http.createServer((_req, res) => { hits++; res.end("x"); });
 	const port = await listen(upstream);
 	try {
-		const tokenA = signViewerToken({ sessionId: "session-a", userId: "user-a" }, SECRET);
+		const tokenA = signViewerToken({ sessionId: "session-a", userId: "user-a", purpose: "vt" }, SECRET);
 		let owner = "user-a";
 		const swapped = build({ port, ownerOf: () => owner });
 		assert.equal((await swapped.request(`/v1/sandbox/vt/${tokenA}/vnc.html`)).status, 200);
@@ -182,7 +190,7 @@ test("vt: posse revalidada com o userId do token (troca de dono, conversa de out
 		assert.equal((await convApp.request(`/v1/sandbox/vt/${tokenA}/vnc.html`)).status, 404);
 
 		// Token legítimo de B apontando para o id do A: a posse com userId de B falha.
-		const tokenB = signViewerToken({ sessionId: "session-a", userId: "user-b" }, SECRET);
+		const tokenB = signViewerToken({ sessionId: "session-a", userId: "user-b", purpose: "vt" }, SECRET);
 		const res = await build({ port }).request(`/v1/sandbox/vt/${tokenB}/vnc.html`);
 		assert.equal(res.status, 404);
 		assert.equal(hits, 1);
@@ -197,7 +205,7 @@ test("vt: caminho com .. (cru ou codificado) -> 404", async () => {
 	const port = await listen(upstream);
 	try {
 		const app = build({ port });
-		const token = signViewerToken({ sessionId: "session-a", userId: "user-a" }, SECRET);
+		const token = signViewerToken({ sessionId: "session-a", userId: "user-a", purpose: "vt" }, SECRET);
 		for (const p of ["a%2fb", "a%5Cb", "a%00b", "a%zz"]) {
 			const res = await app.request(`/v1/sandbox/vt/${token}/${p}`);
 			assert.equal(res.status, 404, p);
@@ -215,7 +223,7 @@ test("vt: caminho com .. (cru ou codificado) -> 404", async () => {
 });
 
 test("vt: modo direct nao serve (401), mesmo com token valido", async () => {
-	const token = signViewerToken({ sessionId: "session-a", userId: "user-a" }, SECRET);
+	const token = signViewerToken({ sessionId: "session-a", userId: "user-a", purpose: "vt" }, SECRET);
 	const res = await build({ port: 1, config: directConfig }).request(`/v1/sandbox/vt/${token}/vnc.html`);
 	assert.equal(res.status, 401);
 });
@@ -227,7 +235,7 @@ test("vt: com requireUser real, so o caminho do token passa sem sessao; o viewer
 	auth.api.getSession = (async () => null) as unknown as typeof auth.api.getSession;
 	try {
 		const app = build({ port, withAuth: true });
-		const token = signViewerToken({ sessionId: "session-a", userId: "user-a" }, SECRET);
+		const token = signViewerToken({ sessionId: "session-a", userId: "user-a", purpose: "vt" }, SECRET);
 		assert.equal((await app.request(`/v1/sandbox/vt/${token}/vnc.html`)).status, 200);
 		assert.equal((await app.request("/v1/sandbox/sessions/session-a/viewer/vnc.html")).status, 401);
 		assert.equal((await app.request("/v1/sandbox/sessions/session-a/viewer-link")).status, 401);
@@ -264,8 +272,8 @@ test("isPublicV1Request: so GET/HEAD no padrao /v1/sandbox/vt/<b64>.<b64>/", () 
 test("o token do caminho nunca aparece em console.*", async () => {
 	const upstream = http.createServer((req, res) => { if (req.url?.includes("boom")) req.destroy(); else res.end("ok"); });
 	const port = await listen(upstream);
-	const token = signViewerToken({ sessionId: "session-a", userId: "user-a" }, SECRET);
-	const bad = signViewerToken({ sessionId: "session-a", userId: "user-a" }, "outro");
+	const token = signViewerToken({ sessionId: "session-a", userId: "user-a", purpose: "vt" }, SECRET);
+	const bad = signViewerToken({ sessionId: "session-a", userId: "user-a", purpose: "vt" }, "outro");
 	const cap = captureConsole();
 	let failStatus = 0;
 	let failBody = "";
@@ -295,4 +303,20 @@ test("o token do caminho nunca aparece em console.*", async () => {
 		assert.ok(!line.includes(token.split(".")[0]!) && !line.includes(token.split(".")[1]!), line);
 		assert.ok(!line.includes(bad.split(".")[1]!), line);
 	}
+});
+
+test("proposito do token: ws nao abre vt, vt nao abre ws e token sem p e recusado", async () => {
+	const ws = signViewerToken({ sessionId: "session-a", userId: "user-a", purpose: "ws" }, SECRET);
+	const vt = signViewerToken({ sessionId: "session-a", userId: "user-a", purpose: "vt" }, SECRET);
+	const legacy = (() => {
+		const payload = Buffer.from(JSON.stringify({ s: "session-a", u: "user-a", e: Date.now() + 60_000 })).toString("base64url");
+		return `${payload}.${createHmac("sha256", `atlas-sandbox-viewer:${SECRET}`).update(payload).digest("base64url")}`;
+	})();
+	assert.equal(readViewerToken(ws, SECRET), null);
+	assert.equal(verifyViewerToken(vt, "session-a", SECRET), null);
+	assert.equal(readViewerToken(legacy, SECRET), null);
+	assert.equal(verifyViewerToken(legacy, "session-a", SECRET), null);
+	assert.notEqual(readViewerToken(vt, SECRET), null);
+	const res = await build({ port: 1 }).request(`/v1/sandbox/vt/${ws}/vnc.html`);
+	assert.equal(res.status, 401);
 });

@@ -25,13 +25,20 @@ function sign(payload: string, secret: string): string {
 	return createHmac("sha256", `atlas-sandbox-viewer:${secret}`).update(payload).digest("base64url");
 }
 
+/**
+ * Propósito do token: `vt` vale só no caminho HTTP (`/v1/sandbox/vt/<token>/`, que aparece em log de acesso de proxy
+ * reverso) e `ws` só no WebSocket (`?t=`). Assim um token vazado de log HTTP não abre o WebSocket (nem o contrário).
+ * Token sem `p` é recusado nos dois.
+ */
+export type ViewerTokenPurpose = "vt" | "ws";
+
 export function signViewerToken(
-	input: { sessionId: string; userId: string },
+	input: { sessionId: string; userId: string; purpose?: ViewerTokenPurpose },
 	secret: string,
 	now = Date.now(),
 	ttlMs = VIEWER_TOKEN_TTL_MS,
 ): string {
-	const payload = Buffer.from(JSON.stringify({ s: input.sessionId, u: input.userId, e: now + ttlMs })).toString("base64url");
+	const payload = Buffer.from(JSON.stringify({ s: input.sessionId, u: input.userId, p: input.purpose ?? "ws", e: now + ttlMs })).toString("base64url");
 	return `${payload}.${sign(payload, secret)}`;
 }
 
@@ -49,9 +56,9 @@ export function verifyViewerToken(
 	const given = Buffer.from(mac);
 	if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
 	try {
-		const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { s?: unknown; u?: unknown; e?: unknown };
+		const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { s?: unknown; u?: unknown; e?: unknown; p?: unknown };
 		if (typeof data.s !== "string" || typeof data.u !== "string" || typeof data.e !== "number") return null;
-		if (data.s !== sessionId || data.e <= now) return null;
+		if (data.p !== "ws" || data.s !== sessionId || data.e <= now) return null;
 		return data.u;
 	} catch {
 		return null;
@@ -75,9 +82,9 @@ export function readViewerToken(
 	const given = Buffer.from(mac);
 	if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
 	try {
-		const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { s?: unknown; u?: unknown; e?: unknown };
+		const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { s?: unknown; u?: unknown; e?: unknown; p?: unknown };
 		if (typeof data.s !== "string" || typeof data.u !== "string" || typeof data.e !== "number") return null;
-		if (!data.s || !data.u || data.e <= now) return null;
+		if (data.p !== "vt" || !data.s || !data.u || data.e <= now) return null;
 		return { sessionId: data.s, userId: data.u };
 	} catch {
 		return null;

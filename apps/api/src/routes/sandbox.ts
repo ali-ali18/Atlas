@@ -243,12 +243,15 @@ export function createSandboxRoutes(sandboxConfig: SandboxRuntimeConfig, deps: {
 		const secret = deps.viewerSecret ?? process.env.BETTER_AUTH_SECRET ?? "";
 		if (sandboxConfig.viewerMode !== "proxy" || !secret) return c.json({ error: "Viewer link unavailable" }, 409);
 		const id = decodeURIComponent(c.req.param("id"));
-		const token = signViewerToken({ sessionId: id, userId: scopeFor(c.get("session")).userId }, secret);
+		const userId = scopeFor(c.get("session")).userId;
+		// Dois tokens com propósitos distintos: o do caminho (HTTP, vai para log de acesso) não abre o WebSocket.
+		const token = signViewerToken({ sessionId: id, userId, purpose: "vt" }, secret);
+		const wsToken = signViewerToken({ sessionId: id, userId, purpose: "ws" }, secret);
 		const params = new URLSearchParams({
 			autoconnect: "1",
 			reconnect: "true",
 			resize: "scale",
-			path: `v1/sandbox/sessions/${encodeURIComponent(id)}/viewer/websockify?t=${token}`,
+			path: `v1/sandbox/sessions/${encodeURIComponent(id)}/viewer/websockify?t=${wsToken}`,
 		});
 		c.header("Cache-Control", "private, no-store");
 		c.header("Referrer-Policy", "no-referrer");
