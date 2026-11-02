@@ -1,6 +1,6 @@
 # App mobile (Android e iOS)
 
-- **Status:** em andamento (etapa 0 entregue; login e home da etapa 1 entregues)
+- **Status:** em andamento (etapa 0 entregue; login, home e chat ao vivo da etapa 1 entregues)
 - **Data:** 2026-11-01
 - **Issues/PRs:** #
 
@@ -20,7 +20,7 @@ Quem usa o bot no dia a dia (lembretes, rotinas, alertas) está no celular. Um a
 
 ## Etapas
 0. **Base (esta entrega):** projeto Expo no monorepo, tema e primitivos no mesmo molde do `packages/ui`, `@workspace/shared` rodando no Metro, telas só de interface com dado de mentira (conexão com o servidor, login "em breve", "Sincronizando…"), prévia web para screenshots. Sem login real e sem chat.
-1. **Conexão, login Google + e-mail, sincronização e chat ao vivo:** better-auth (Google e código por e-mail) com sessão guardada no `expo-secure-store`, lista de conversas, SSE do chat. Roda no Expo Go. **Login entregue (ver "Login (etapa 1)") e carregamento + home entregues (ver "Carregamento e home (etapa 1b)"); o chat ao vivo fica para a próxima.**
+1. **Conexão, login Google + e-mail, sincronização e chat ao vivo:** better-auth (Google e código por e-mail) com sessão guardada no `expo-secure-store`, lista de conversas, SSE do chat. Roda no Expo Go. **Login entregue (ver "Login (etapa 1)"), carregamento + home entregues (ver "Carregamento e home (etapa 1b)") e chat ao vivo entregue (ver "Chat ao vivo (etapa 1c)").**
 2. **Development build (EAS) com push e compartilhar:** notificações push, "compartilhar com o Atlas", deep links. Sai do Expo Go.
 3. **Telas nativas:** biblioteca (painéis, rotinas), arquivos, configurações, cards do chat nativos.
 
@@ -77,7 +77,7 @@ Nenhum token ou cookie em log; o código nunca é logado pelo app. O `MAIL_URL=l
 ## Carregamento e home (etapa 1b)
 
 ### Fluxo
-Com sessão, `AccessGate` leva a `/syncing` (carregamento), que leva à home (`/`, grupo `app/(app)`); tocar num bot ou conversa abre `/chat/[id]` (placeholder "Chat em breve"). Enquanto o app confere o servidor salvo e a sessão do aparelho (`phase: "loading"`), o mascote cobre a tela, então nenhuma tela errada pisca. A tela provisória "Conectado como …" saiu.
+Com sessão, `AccessGate` leva a `/syncing` (carregamento), que leva à home (`/`, grupo `app/(app)`); tocar num bot ou conversa abre `/chat/[id]` (ver "Chat ao vivo (etapa 1c)"). Enquanto o app confere o servidor salvo e a sessão do aparelho (`phase: "loading"`), o mascote cobre a tela, então nenhuma tela errada pisca. A tela provisória "Conectado como …" saiu.
 
 ### Carregamento
 `components/splash-screen.tsx`: fundo `#09090b` (escuro nos dois temas, igual ao splash nativo) e o `Avatar` branco de 92 px no centro, animado e parado (só pisca e olha), sem texto. O splash nativo (`expo-splash-screen` em `app.json`) usa o mesmo fundo e `assets/splash-icon.png` (o mesmo corpo e olhos, gerados do motor `toSvg` do shared) com `imageWidth: 92`; `preventAutoHideAsync` segura o nativo até a primeira camada do app desenhar, para a troca não piscar. `/syncing` fica no mínimo 0,9 s e chama `prepare()` do `HomeDataProvider`: com cache abre na hora e a atualização segue por trás; sem cache espera a rede (10 s). 401 encerra a sessão (volta ao Login); falha de rede sem cache abre a home com o aviso e "Tentar de novo".
@@ -112,6 +112,54 @@ Tudo em `apps/mobile/lib` com teste (vitest): `home-list.ts` (agrupamento, orden
 - O splash nativo só é validado num development build ou no app instalado, não no Expo Go.
 - Foto da conta: vem de `user.image` do better-auth (Google); se a imagem não carrega, vira iniciais.
 - O cache guarda só o que a home desenha (id, nome, cor, forma, fixado, seção, membros, principal, não lida, data e prévia de até 140 caracteres; formato v2, o v1 é descartado), sem criptografia; sai ao sair ou trocar de servidor (`signOut` e `changeServer` apagam com `await`). Atualização em voo é abortada ao sair ou trocar de conta e nunca grava depois (`lib/home-sync-controller.ts`).
+
+## Chat ao vivo (etapa 1c)
+
+### Telas
+- `app/(app)/chat/[id].tsx`: o chat do bot (o `id` da rota é o id do bot; a conversa vem de `bot.conversationId`, guardado agora no cache da home).
+- `app/(app)/profile/[id].tsx`: perfil simples (avatar grande com a estrela do principal, nome, "Editar" em breve, Programação / Rotinas / Biblioteca / Computador abrindo o web, Notificações em breve).
+- Topo flutuante sobre as mensagens (voltar, pílula com o avatar vivo e o nome, "…"), balão escuro do bot com markdown, balão do usuário igual ao do web (`muted`, à direita), composer em pílula ("+", "Perguntar a <bot>", microfone, botão na cor do bot que vira enviar com texto e parar durante o run), menu "…" (Ver perfil; Buscar no chat e Compartilhar como modelo em breve). Controles de 44 e texto 15. Os avatares do resto da tela ficam estáticos.
+
+### Endpoints (todos por `lib/api-fetch.ts`, os mesmos do web)
+| Uso | Chamada |
+|---|---|
+| Carregar e paginar | `GET /v1/conversations/:id/messages?limit=30[&beforeCreatedAt=&beforeId=]` (o web usa `beforeCreatedAt`+`beforeId`, não `before`; lista do mais antigo para o mais novo, `hasMore`) |
+| Conversa nova | `POST /v1/conversations` (bot sem conversa; o web faz igual) |
+| Enviar | `POST /v1/runs` (`messages`, `conversationId`, `botId`, `modelAuto: true`, `clientKey`; 409 "já tem uma tarefa" tenta de novo 3x como o web) |
+| Falar com run ativo | `POST /v1/runs/:id/inputs` (`mode: "join"`) |
+| Ao vivo | `GET /v1/runs/:id/stream?after=<cursor>` (SSE, `Last-Event-ID`) |
+| Parar | `POST /v1/runs/:id/cancel` |
+| Estado do run / run ativo | `GET /v1/runs/:id`, `GET /v1/conversations/:id/runs?active=1` |
+| Aprovar ou dispensar | `POST /v1/runs` com `decisionConfirmId` e o texto de protocolo ("confirmado: …" / "cancela isso"), que não aparece como fala (igual ao web; não vira input do run) |
+| Questionário | `POST /v1/questionnaire/submit` |
+
+### Streaming: `expo/fetch`, com XHR de plano B
+Plano A: `fetch` do `expo/fetch` (SDK 52+), cujo `response.body` é um `ReadableStream`; o app lê com `getReader()` + `TextDecoder` (`lib/chat-open.ts`, `lib/chat-stream.ts`). Plano B: se a resposta vier sem corpo, `XMLHttpRequest` com `onprogress` (o RN entrega o texto que já chegou; o app lê a fatia nova de `responseText`), e as conexões seguintes já abrem por ele. **Sem aparelho nesta entrega:** o plano A está de pé porque o `expo/fetch` foi feito exatamente para streaming no Expo Go (módulo nativo já embutido no cliente, sem build próprio), ele aceita `signal`, cabeçalhos e devolve o corpo em pedaços; a prévia web (fetch do navegador) e o bundle Hermes do Android foram exportados, e o laço de leitura é testado com fontes de mentira. O que só um aparelho confirma: que o Expo Go da loja entrega os pedaços sem esperar o fim da resposta (se não entregar, o plano B assume sozinho quando `response.body` vier nulo; se o corpo vier mas só no fim, a troca é uma linha em `createRunStreamOpener`).
+
+Retomada (`followRun`): o servidor numera os eventos; o `createSseReplayGuard` (agora no shared) descarta repetidos. Conexão que cai reconecta de `?after=<cursor>` + `Last-Event-ID` com recuo de 0,4 a 8 s; silêncio de 40 s (o servidor manda keepalive a cada 15 s) derruba e reconecta; voltar ao app (`AppState` "active") derruba a conexão e reconecta já, e o chat reconfere o servidor (com a linha "Verificando…") e procura run em andamento. Ao abrir um run que já estava correndo (outro aparelho, rotina, ou o app reaberto) o stream começa do cursor 0: o servidor reenvia os eventos e o app refaz a fala, a lista de tarefas e os cartões do run (é assim que a doca "reidrata ao reconectar").
+
+### Lista de tarefas (a de 0.3.7 do web)
+Durante o run vive numa doca acima do composer ("2/5 · tarefa atual", abre os passos) e não aparece no fio; ao terminar o fio fica com "Tarefas · 5/5 concluídas" (`TaskSummary`). A doca é amarrada ao run ativo: só vale a lista depois da última fala do usuário e do run seguido (`dockedTaskList`), então lista de run antigo nunca fica presa. A lista ao vivo do mesmo `runId` troca os passos da gravada (nunca duas).
+
+### Cache do chat e linha "Verificando novas mensagens…"
+`lib/chat-cache.ts` (AsyncStorage): chave `atlas.chat.v1:<servidor>|<e-mail>|<conversa>`, só as últimas 40 mensagens, texto cortado, até ~400 KB, validade de 30 dias, formato versionado; só o que a tela desenha (nada de balão otimista, fala em andamento nem cartão que espera resposta). `clearHomeCacheLogged` (sair / trocar de servidor) apaga também o cache dos chats. `lib/chat-sync.ts` é o estado puro da conferência (várias em voo, falha de rede = "Sem conexão" discreto, falha do servidor some sem alarde; as mensagens já carregadas ficam). As bolinhas (`bot-dots.tsx`) usam a cor do bot, a do meio é maior e pulsam em sequência; `useReducedMotion` as deixa paradas.
+
+### Lógica pura: extraído × portado
+- **Extraído para `packages/shared`:** `createSseReplayGuard` (só mudou de lugar; o web reexporta; teste novo). Já estavam no shared e foram reaproveitados: `parseSseBlock`, `ComputerUseEvent`, `parseConversationCard`, `parseBotLinkCard`, `isCardConfirmToken`, `SessionMessage`.
+- **Portado para `apps/mobile/lib` (com teste):** `chat-thread.ts` (mapeamento `SessionMessage` → fio, paginação, junção do gravado com o ao vivo de `thread-merge`/`thread-live`, doca de tarefas de `task-list.ts`), `chat-live.ts` (eventos do run), `chat-stream.ts` (laço SSE, vigia de silêncio, `isStreamIdle`), `questionnaire.ts` (mapa de respostas do web), `markdown.ts` (subconjunto de markdown sem dependência nova). A junção e a doca do web dependem do tipo `Message` do web (dezenas de variantes de cartão) e de i18n; mover isso para o shared teria risco no web sem ganho agora, então o app tem uma versão enxuta com os tipos que ele desenha. Fica como sugestão unificar quando o web tiver o tipo no shared.
+
+### Diferenças em relação à referência
+- Avatar do topo: o do motor (forma do bot), não o abóbora com caule da referência.
+- Links e referências a documento: ícone de envio azul antes do texto; no celular é uma view em linha dentro do texto, na prévia web um glifo (o `<svg>` quebraria a linha).
+- Perfil: sem os valores à direita ("0 em andamento", "Ocioso"): o app ainda não busca esses números (cada linha abre o web); sem o botão de compartilhar do topo.
+- Notificações no perfil: chave desligada e travada ("em breve").
+- Sem barra de status e sem a pílula de gestos (só existem no aparelho).
+
+### Riscos
+- Streaming no Expo Go não validado em aparelho (ver acima).
+- A junção do gravado com o ao vivo é uma versão enxuta da do web: casos raros (reordenação de fala entre vários cartões do mesmo turno, cartões de sessão de código) não têm o mesmo tratamento; o que o app não desenha vira "Abrir no navegador" ou some.
+- Cartões de aprovação de comando/segredos/chave de e-mail/GitHub não têm tela no app: a linha "Abrir no navegador" leva ao web, onde se decide.
+- O cache do chat guarda texto de mensagens sem criptografia (como o da home guarda prévias); sai ao sair da conta.
 
 ## Diferenças inevitáveis em relação ao `packages/ui`
 - `Text`: no web o texto é `<p>/<span>`; no RN todo texto precisa de `<Text>`. O `Button` passa a cor do rótulo por `TextClassContext` (como no reusables).
