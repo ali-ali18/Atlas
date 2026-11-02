@@ -27,7 +27,7 @@ export type RowActions = {
 function UserBubble({ text, position, reactions, replyTo, onLongPress }: { text: string; position: GroupPosition; reactions?: Reaction[]; replyTo?: ReplyQuote; onLongPress: () => void }) {
 	return (
 		<View className="max-w-[82%] self-end">
-			{replyTo ? <ReplyPill quote={replyTo} align="end" /> : null}
+			{replyTo ? <ReplyPill quote={replyTo} align="end" spaced={position !== "single" && position !== "first"} /> : null}
 			{/* Sem `selectable`: o toque longo abre o menu (a seleção está em "Selecionar texto"). */}
 			<Pressable onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" className={`bg-muted px-4 py-3 ${bubbleRadius("right", position)}`}>
 				<Text className="text-control leading-6">{text}</Text>
@@ -58,13 +58,21 @@ function Reactions({ reactions, align }: { reactions?: Reaction[]; align: "start
 function BotBubble({ text, position, reactions, replyTo, onLongPress }: { text: string; position: GroupPosition; reactions?: Reaction[]; replyTo?: ReplyQuote; onLongPress: () => void }) {
 	return (
 		<View className="max-w-[94%] self-start">
-			{replyTo ? <ReplyPill quote={replyTo} align="start" /> : null}
+			{replyTo ? <ReplyPill quote={replyTo} align="start" spaced={position !== "single" && position !== "first"} /> : null}
 			<Pressable onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" className={`bg-muted px-4 py-3.5 ${bubbleRadius("left", position)}`}>
 				<MarkdownText source={text} />
 			</Pressable>
 			<Reactions reactions={reactions} align="start" />
 		</View>
 	);
+}
+
+/** Respiro extra quando muda quem fala (o gap da lista, de 6 px, fica só entre balões do mesmo autor). */
+const AUTHOR_GAP = 12;
+
+/** Primeira fala de um grupo do mesmo autor (ou fala sozinha): é onde a conversa troca de voz. */
+function startsAuthorGroup(item: ChatItem, position: GroupPosition): boolean {
+	return (item.kind === "user" || item.kind === "assistant") && (position === "single" || position === "first");
 }
 
 /**
@@ -87,7 +95,7 @@ export const MessageRow = React.memo(function MessageRow({
 	// O invólucro existe sempre (só o `entering` muda): trocar de estrutura remontaria o cartão e perderia o estado
 	// dele (respostas do questionário, por exemplo). `entering` só vale na montagem.
 	return (
-		<Animated.View entering={animate && !reduced ? FadeIn.duration(220) : undefined}>
+		<Animated.View entering={animate && !reduced ? FadeIn.duration(220) : undefined} style={startsAuthorGroup(item, position) ? { marginTop: AUTHOR_GAP } : undefined}>
 			<RowContent item={item} actions={actions} position={position} />
 		</Animated.View>
 	);
