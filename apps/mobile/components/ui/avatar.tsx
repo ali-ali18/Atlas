@@ -81,6 +81,16 @@ const HOP: readonly Key[] = [[0.22, 0], [0.41, 0.27], [0.77, 0], [0.99, 0.27], [
 const SQUASH_X: readonly Key[] = [[0.03, 1], [0.17, 1.095], [0.25, 1], [0.59, 1], [0.71, 1], [0.77, 1.095], [0.99, 1], [1.2, 1], [1.24, 1.02], [1.37, 1], [1.57, 1], [1.72, 1]];
 const SQUASH_Y: readonly Key[] = [[0.03, 1], [0.17, 0.95], [0.25, 1.1], [0.59, 1], [0.71, 1], [0.77, 0.95], [0.99, 1.05], [1.2, 1], [1.24, 0.95], [1.37, 1.05], [1.57, 1.05], [1.72, 1]];
 const ROLL: readonly Key[] = [[0.08, 0], [0.59, 14.2], [1.14, -21.7], [1.97, -1.1], [2.27, 0]];
+// Tremida de gelatina (só do app, o web tem o corpo 3D): depois de cada aterrissagem do pulo (0,77 s, 1,25 s, 1,62 s e
+// 1,84 s) o corpo balança em oscilações que vão morrendo (+1, -0,8, +0,6...), esticando e achatando de leve e girando
+// um pouco, para não parecer uma pedra caindo. Usa o mesmo tempo absoluto do clipe.
+const JIGGLE: readonly Key[] = [
+	[0.77, 0], [0.83, 1], [0.89, -0.8], [0.95, 0.6], [1.01, -0.4], [1.07, 0.25], [1.13, 0],
+	[1.25, 0], [1.3, 1], [1.36, -0.8], [1.42, 0.5], [1.48, -0.3], [1.54, 0.15], [1.6, 0],
+	[1.62, 0], [1.67, 1], [1.73, -0.8], [1.79, 0.5], [1.85, -0.3], [1.91, 0.2], [1.97, -0.1], [2.05, 0],
+];
+const JIGGLE_SCALE = 0.06; // 6% de esticada/achatada no pico
+const JIGGLE_DEG = 5;
 /** Duração do clipe (3,7 s) mais uma pausa antes do próximo, onde ele só respira e pisca. */
 const DANCE_EVERY_S = 4.6;
 const BODY_RADIUS_RATIO = 0.3525; // raio do corpo / lado da caixa (o corpo ocupa ~70,5% dela)
@@ -163,6 +173,7 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 	const squashX = useSharedValue(1);
 	const squashY = useSharedValue(1);
 	const roll = useSharedValue(0);
+	const jiggle = useSharedValue(0);
 	const tilt = useSharedValue(0);
 	const headY = useSharedValue(0);
 	const gazeX = useSharedValue(0);
@@ -273,12 +284,14 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 		squashX.value = 1;
 		squashY.value = 1;
 		roll.value = 0;
+		jiggle.value = 0;
 		if (!live || current !== "happy") return;
 		const play = () => {
 			playTrack(hop, HOP, -radius);
 			playTrack(squashX, SQUASH_X);
 			playTrack(squashY, SQUASH_Y);
 			playTrack(roll, ROLL);
+			playTrack(jiggle, JIGGLE);
 		};
 		const first = setTimeout(play, 400);
 		const loop = setInterval(play, DANCE_EVERY_S * 1000);
@@ -286,7 +299,7 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 			clearTimeout(first);
 			clearInterval(loop);
 		};
-	}, [live, current, radius, hop, squashX, squashY, roll]);
+	}, [live, current, radius, hop, squashX, squashY, roll, jiggle]);
 
 	const bodyStyle = useAnimatedStyle(() => {
 		// Agachar/esticar ancorado na base do corpo (anchor -1 do clipe): a escala vertical cresce para cima.
@@ -294,9 +307,9 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 		return {
 			transform: [
 				{ translateY: hop.value + anchorShift + headY.value + (breath.value - 0.5) * size * 0.03 },
-				{ rotate: `${(breath.value - 0.5) * 5 + roll.value + tilt.value}deg` },
-				{ scaleX: (1 + (breath.value - 0.5) * 0.035) * squashX.value },
-				{ scaleY: (1 + (breath.value - 0.5) * 0.035) * squashY.value },
+				{ rotate: `${(breath.value - 0.5) * 5 + roll.value + tilt.value + jiggle.value * JIGGLE_DEG}deg` },
+				{ scaleX: (1 + (breath.value - 0.5) * 0.035) * squashX.value * (1 + jiggle.value * JIGGLE_SCALE) },
+				{ scaleY: (1 + (breath.value - 0.5) * 0.035) * squashY.value * (1 - jiggle.value * JIGGLE_SCALE) },
 			],
 		};
 	});
