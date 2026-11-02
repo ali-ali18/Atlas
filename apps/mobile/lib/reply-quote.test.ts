@@ -10,6 +10,11 @@ describe("quoteSnippet", () => {
 		expect(quoteSnippet("")).toBe("");
 		expect(quoteSnippet(" \n\t ")).toBe("");
 	});
+	it("tira o markdown (negrito, título, link, bloco de código) como o servidor", () => {
+		expect(quoteSnippet("**1) Agenda de hoje:** só o feriado de Finados")).toBe("1) Agenda de hoje: só o feriado de Finados");
+		expect(quoteSnippet("# Título\nveja [o site](https://x.com) e `isto`")).toBe("Título veja o site e isto");
+		expect(quoteSnippet("antes\n```js\nconst a = 1\n```\ndepois")).toBe("antes depois");
+	});
 	it("corta em 160 caracteres, nem mais nem menos", () => {
 		expect(quoteSnippet("a".repeat(160))).toHaveLength(160);
 		expect(quoteSnippet("a".repeat(161))).toBe("a".repeat(160));
