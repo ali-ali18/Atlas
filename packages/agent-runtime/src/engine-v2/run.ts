@@ -227,6 +227,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		profile: options.profile,
 		budget,
 		promotable,
+		...(helperRole ? {} : { hardActiveMs: runLimits.maxWallMs }),
 		maxSteps: Math.min(MAX_STEPS_SAFETY, runLimits.hardMaxSteps, helperRole?.budget.maxSteps ?? MAX_STEPS_SAFETY),
 	});
 	const wall = wallClockAnchors({ maxWallMs: budget.maxActiveMs, now: Date.now(), runStartedAt: params.runStartedAt, restored: parsed });
@@ -510,6 +511,10 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			helperRuns: [...accountedHelpers],
 			activeElapsedMs: activeElapsedMs(),
 			promoted: supervisor.promoted,
+			...(() => {
+				const state = supervisor.state();
+				return { wrapUpSent: state.wrapUpSent, budgetBaseMs: state.timeBaseMs };
+			})(),
 			loadedTools: [...catalog.activeMcpTools(), ...tools.map((tool) => tool.function.name).filter((name) => !isMcpToolName(name))],
 			transcriptWatermark: parsed?.transcriptWatermark ?? params.transcriptWatermark,
 			carriedNotes: parsed?.carriedNotes ?? params.carriedNotes,
@@ -1224,6 +1229,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		return true;
 	};
 	if (parsed?.promoted === true) await promoteRun(true);
+	// Depois da promoção (que zera o aviso): a retomada não reenvia a nota de fechamento nem perde a renovação do tempo.
+	supervisor.restore({ wrapUpSent: parsed?.wrapUpSent, timeBaseMs: parsed?.budgetBaseMs });
 
 	// Retomada no meio de um lote: as tool calls sem resultado rodam primeiro.
 	const lastAssistant = [...conversation].reverse().find((message) => message.role === "assistant");
@@ -1268,6 +1275,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 					consumedInputIds.add(input.id);
 					conversation.push({ role: "user", content: `[User message during the task] ${input.content}` });
 					await onEvent({ type: "input_consumed", inputId: input.id, mode: input.mode ?? "join", content: input.content });
+					// Pergunta nova nasce com o tempo cheio: o relógio do orçamento recomeça agora (US$ e passos seguem cumulativos).
+					supervisor.onUserInput({ costUsd: spentUsd(), activeMs: activeElapsedMs(), step });
 				}
 			}
 			const gateNow = () => {

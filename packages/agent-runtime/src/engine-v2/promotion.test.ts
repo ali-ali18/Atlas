@@ -358,3 +358,104 @@ describe("nunca pedir 'continua'", () => {
 		expect(stopReasonPhrase("budget_wall", "pt-BR")).not.toMatch(/custo|gasto|US\$/i);
 	});
 });
+
+describe("mensagem nova do usuário durante o run renova o tempo (v2)", () => {
+	const NEW_QUESTION = "e agora compare também o Grok Bot";
+	/** A mensagem entra pelo caminho `join` depois de o run já ter gasto `advanceMs` de relógio ativo. */
+	const joinAfter = (advanceMs: number, content = NEW_QUESTION) => {
+		let sent = false;
+		return async () => {
+			if (sent) return [];
+			sent = true;
+			vi.setSystemTime(Date.now() + advanceMs);
+			return [{ id: "in-join-1", content, mode: "join" }];
+		};
+	};
+	const wrapUps = (text: string) => text.split(WRAP_UP_NOTE).length - 1;
+
+	it("caso real: 85% do tempo gasto, mensagem entra, o bot NÃO recebe a nota de fechamento e pesquisa de novo", async () => {
+		const checkpoints: Array<{ budgetBaseMs?: number; wrapUpSent?: boolean; activeElapsedMs?: number }> = [];
+		const run = await runChat({
+			stepMs: 120_000,
+			messages: [{ role: "user", content: "pesquise o Hermes" }],
+			extra: { consumeSteerInputs: joinAfter(6.8 * 60_000), onCheckpoint: async (checkpoint) => void checkpoints.push(JSON.parse(JSON.stringify(checkpoint))) },
+			script: [
+				(seen) => {
+					expect(seen.transcript).toContain(`[User message during the task] ${NEW_QUESTION}`);
+					expect(seen.transcript).not.toContain(WRAP_UP_NOTE);
+					return research(0.1);
+				},
+				(seen) => {
+					expect(wrapUps(seen.transcript)).toBe(0);
+					return research(0.1);
+				},
+				say("Comparei o Grok Bot com o Hermes: preços e limites no resumo acima.", 0.1),
+			],
+		});
+		expect(run.result.stop).toEqual({ reason: "answered" });
+		expect(run.onPromoted).not.toHaveBeenCalled();
+		// Sem a renovação o run teria passado de 100% (6,8 + 3 x 2 min de 8 min) e entregado por tempo.
+		expect(run.events.some((event) => event.type === "input_consumed")).toBe(true);
+		const renewed = checkpoints.filter((checkpoint) => (checkpoint.budgetBaseMs ?? 0) > 0);
+		expect(renewed.length).toBeGreaterThan(0);
+		expect(renewed[0]!.budgetBaseMs).toBeLessThanOrEqual(renewed[0]!.activeElapsedMs ?? 0);
+		expect(checkpoints.every((checkpoint) => checkpoint.wrapUpSent !== true)).toBe(true);
+	});
+
+	it("retomada: a base de tempo renovada vem do checkpoint (não volta ao relógio do run antigo)", async () => {
+		const checkpoints: Array<{ budgetBaseMs?: number }> = [];
+		await runChat({
+			stepMs: 1_000,
+			extra: { consumeSteerInputs: joinAfter(6.8 * 60_000), onCheckpoint: async (checkpoint) => void checkpoints.push(JSON.parse(JSON.stringify(checkpoint))) },
+			script: [research(0.1), say("Primeira parte.", 0.1)],
+		});
+		const mid = checkpoints.find((checkpoint) => (checkpoint.budgetBaseMs ?? 0) > 0);
+		expect(mid).toBeTruthy();
+		const resumed = await runChat({
+			stepMs: 120_000,
+			extra: { restoredCheckpoint: mid as never },
+			script: [
+				research(0.1),
+				(seen) => {
+					expect(wrapUps(seen.transcript)).toBe(0);
+					return research(0.1);
+				},
+				say("Segunda parte pronta.", 0.1),
+			],
+		});
+		// 6,8 min do run antigo + 3 x 2 min passariam dos 8 min; com a base persistida são só 6 min novos.
+		expect(resumed.result.stop).toEqual({ reason: "answered" });
+	});
+
+	it("retomada: a nota de fechamento já enviada não é reenviada", async () => {
+		const checkpoints: Array<{ wrapUpSent?: boolean }> = [];
+		await runChat({
+			stepMs: 1_000,
+			options: { promotable: false, onPromoted: undefined },
+			extra: {
+				consumeSteerInputs: async () => {
+					vi.setSystemTime(Date.now() + 6.8 * 60_000);
+					return [];
+				},
+				onCheckpoint: async (checkpoint) => void checkpoints.push(JSON.parse(JSON.stringify(checkpoint))),
+			},
+			script: [(seen) => {
+				expect(wrapUps(seen.transcript)).toBe(1);
+				return research(0.1);
+			}, say("Entrega.", 0.1)],
+		});
+		const mid = checkpoints.find((checkpoint) => checkpoint.wrapUpSent === true);
+		expect(mid).toBeTruthy();
+		const resumed = await runChat({
+			stepMs: 1_000,
+			options: { promotable: false, onPromoted: undefined },
+			extra: { restoredCheckpoint: mid as never },
+			script: [(seen) => {
+				// Uma só (a do histórico restaurado); sem o estado no checkpoint seria reenviada: 2.
+				expect(wrapUps(seen.transcript)).toBe(1);
+				return say("Entrega de novo.", 0.1);
+			}],
+		});
+		expect(resumed.result.stop).toEqual({ reason: "answered" });
+	});
+});

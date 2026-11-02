@@ -150,12 +150,24 @@ export type SupervisorGateContext = {
 	lastStepHadTools?: boolean;
 };
 
-export function createSupervisor(config: { profile: SupervisorProfile; budget: SupervisorBudget; maxSteps?: number; promotable?: boolean }) {
+/** O que o supervisor guarda no checkpoint para a retomada não reenviar a nota nem perder a renovação do tempo. */
+export type SupervisorState = { wrapUpSent?: boolean; timeBaseMs?: number };
+
+export function createSupervisor(config: {
+	profile: SupervisorProfile;
+	budget: SupervisorBudget;
+	maxSteps?: number;
+	promotable?: boolean;
+	/** Teto absoluto de tempo ativo do run (conta/bot). A renovação por mensagem do usuário nunca o ultrapassa. 0/ausente = sem teto. */
+	hardActiveMs?: number;
+}) {
 	let budget = config.budget;
 	let profile = config.profile;
 	let promoted = false;
 	const maxSteps = config.maxSteps ?? MAX_STEPS_SAFETY;
 	let wrapUpSent = false;
+	/** Base do tempo: a fração de tempo conta a partir daqui (mensagem nova do usuário a reinicia; o gasto em US$ não). */
+	let timeBaseMs = 0;
 	let phase: SupervisorPhase = "research";
 	let phaseStrikes = 0;
 	/** Por que a pesquisa terminou (telemetria e testes). */
@@ -173,9 +185,10 @@ export function createSupervisor(config: { profile: SupervisorProfile; budget: S
 	const failureStreak = new Map<string, number>();
 	const blockedUntil = new Map<string, number>();
 
+	const elapsedMs = (usage: SupervisorUsage) => Math.max(0, usage.activeMs - timeBaseMs);
 	const fractions = (usage: SupervisorUsage) => ({
 		cost: budget.maxCostUsd > 0 ? usage.costUsd / budget.maxCostUsd : 0,
-		time: budget.maxActiveMs > 0 ? usage.activeMs / budget.maxActiveMs : 0,
+		time: budget.maxActiveMs > 0 ? elapsedMs(usage) / budget.maxActiveMs : 0,
 	});
 
 	return {
@@ -187,6 +200,25 @@ export function createSupervisor(config: { profile: SupervisorProfile; budget: S
 		},
 		get promoted(): boolean {
 			return promoted;
+		},
+		/**
+		 * Chegou mensagem nova do usuário durante o run: o pedido novo nasce com o tempo cheio. Reinicia a base do tempo
+		 * (a fração de tempo recomeça em 0 a partir de agora) e libera um novo aviso de fechamento. O gasto em US$, o teto de
+		 * custo e o de passos continuam cumulativos (limite duro). A fase do trabalho longo não volta atrás.
+		 */
+		onUserInput(usage: SupervisorUsage): void {
+			timeBaseMs = Math.max(timeBaseMs, usage.activeMs);
+			wrapUpSent = false;
+		},
+		/** Estado que a retomada precisa (vai no checkpoint). */
+		state(): SupervisorState {
+			return { ...(wrapUpSent ? { wrapUpSent: true } : {}), ...(timeBaseMs > 0 ? { timeBaseMs } : {}) };
+		},
+		/** Reaplica o estado do checkpoint (depois de `promote`, que zera o aviso). */
+		restore(saved: SupervisorState | undefined): void {
+			if (!saved) return;
+			if (typeof saved.timeBaseMs === "number" && Number.isFinite(saved.timeBaseMs) && saved.timeBaseMs >= 0) timeBaseMs = saved.timeBaseMs;
+			if (saved.wrapUpSent === true) wrapUpSent = true;
 		},
 		/**
 		 * Promoção automática chat -> trabalho longo, no mesmo run: troca o orçamento pelo do trabalho longo e liga as regras
@@ -233,11 +265,11 @@ export function createSupervisor(config: { profile: SupervisorProfile; budget: S
 		},
 		/** O que pesquisa e ajudantes ainda podem gastar: o tempo até 70% do máximo e, se há gasto máximo, até 75% dele. */
 		researchRemaining(usage: SupervisorUsage): { costUsd: number; activeMs: number } {
-			if (!longWork) return { costUsd: Math.max(0, budget.maxCostUsd - usage.costUsd), activeMs: Math.max(0, budget.maxActiveMs - usage.activeMs) };
+			if (!longWork) return { costUsd: Math.max(0, budget.maxCostUsd - usage.costUsd), activeMs: Math.max(0, budget.maxActiveMs - elapsedMs(usage)) };
 			if (phase !== "research") return { costUsd: 0, activeMs: 0 };
 			return {
 				costUsd: Number.isFinite(budget.maxCostUsd) ? Math.max(0, budget.maxCostUsd * RESEARCH_COST_RATIO - usage.costUsd) : Number.POSITIVE_INFINITY,
-				activeMs: Math.max(0, budget.maxActiveMs * RESEARCH_TIME_RATIO - usage.activeMs),
+				activeMs: Math.max(0, budget.maxActiveMs * RESEARCH_TIME_RATIO - elapsedMs(usage)),
 			};
 		},
 		gate(usage: SupervisorUsage, context: SupervisorGateContext = {}): SupervisorGate {
@@ -248,6 +280,10 @@ export function createSupervisor(config: { profile: SupervisorProfile; budget: S
 			// Chat promovível que chega a 80% do tempo com trabalho em andamento: segue como trabalho longo, sem parar nem perguntar.
 			if (config.promotable === true && !promoted && profile === "chat" && context.lastStepHadTools === true && time >= WRAP_UP_RATIO - 1e-9) {
 				return { action: "promote" };
+			}
+			// Teto duro do dono: a renovação por mensagem nova não o estica (tempo total ativo do run).
+			if (config.hardActiveMs && config.hardActiveMs > 0 && usage.activeMs >= config.hardActiveMs) {
+				return { action: "deliver", stop: { reason: "budget_wall", detail: "delivered" }, instruction: deliveryInstruction("budget_wall") };
 			}
 			if (cost >= 1 - 1e-9 || time >= 1 - 1e-9) {
 				const reason = cost >= time ? "budget_cost" : "budget_wall";
