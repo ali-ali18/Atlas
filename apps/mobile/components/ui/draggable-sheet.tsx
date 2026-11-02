@@ -38,7 +38,10 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 	const [contentHeight, setContentHeight] = React.useState(0);
 	const [rest, setRest] = React.useState<SheetRest>("collapsed");
 	const measured = zoneHeight > 0 && contentHeight > 0;
-	const collapsedHeight = Math.min(zoneHeight + contentHeight, Math.round(screenHeight * COLLAPSED_MAX));
+	// Antes de medir (ou se o Android nunca medir) a gaveta já aparece com esta altura: nunca fica invisível esperando `onLayout`.
+	const fallbackHeight = Math.round(screenHeight * COLLAPSED_MAX);
+	const collapsedHeight = measured ? Math.min(zoneHeight + contentHeight, fallbackHeight) : fallbackHeight;
+	const [grace, setGrace] = React.useState(false);
 	const height = useSharedValue(0);
 
 	// O gesto roda fora do render: lê sempre os valores atuais por ref.
@@ -58,7 +61,16 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 		height.value = 0;
 		setRest("collapsed");
 		setContentHeight(0);
+		setGrace(false);
 	}, [visible, height]);
+
+	// Sem medida: mostra já na altura padrão e libera a opacidade depois de um instante, aconteça o que acontecer com o layout.
+	React.useEffect(() => {
+		if (!visible || measured) return;
+		height.value = fallbackHeight;
+		const timer = setTimeout(() => setGrace(true), 250);
+		return () => clearTimeout(timer);
+	}, [visible, measured, fallbackHeight, height]);
 
 	// Abriu, o conteúdo mudou (submenu) ou a tela girou: acomoda na altura do estado atual.
 	React.useEffect(() => {
@@ -124,7 +136,7 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 			<ThemedModalRoot>
 				<Pressable accessibilityLabel="Fechar" onPress={onClose} className="absolute inset-0 bg-black/50" />
 				<View pointerEvents="box-none" className="flex-1 justify-end">
-					<Animated.View style={[{ opacity: measured ? 1 : 0 }, sheetStyle]}>
+					<Animated.View style={[{ opacity: measured || grace ? 1 : 0 }, sheetStyle]}>
 						<View className="flex-1 overflow-hidden rounded-t-panel bg-popover">
 							<View {...pan.panHandlers} onLayout={(event) => setZoneHeight(event.nativeEvent.layout.height)}>
 								<View
