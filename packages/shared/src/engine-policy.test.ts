@@ -276,10 +276,8 @@ describe("perfil do run", () => {
 		console.info(`[looksLikeLongTask] acertos ${total - misses.length}/${total} · falsos positivos ${falsePositives.length} · falsos negativos ${falseNegatives.length}`);
 		for (const miss of misses) console.info(`  erro (${miss.label} -> ${miss.got}): ${miss.text}`);
 		expect(total).toBeGreaterThanOrEqual(60);
-		// Linha de base ANTES do ajuste da regex: 19 falsos negativos (pesquisa em várias fontes sem entregável) e 0 falsos
-		// positivos. O próximo commit zera isto.
 		expect(falsePositives).toEqual([]);
-		expect(falseNegatives).toHaveLength(19);
+		expect(falseNegatives).toEqual([]);
 	});
 
 	it("promoção automática grava long_work e a origem no budgetJson, preservando o resto", () => {

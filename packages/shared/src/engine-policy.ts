@@ -188,9 +188,11 @@ export function chooseRunEngine(input: {
 }
 
 /**
- * O pedido parece uma tarefa (pesquisa, relatório, levantamento) e não conversa curta? Heurística barata e
- * deliberadamente conservadora: "Bom dia" e perguntas de uma linha ficam em `chat`. Quem quer outra coisa força
- * `workProfile` na política do bot.
+ * O pedido parece uma tarefa (pesquisa, relatório, levantamento) e não conversa curta? Atalho barato e
+ * deliberadamente conservador, não o juiz final: "Bom dia" e perguntas de uma linha ficam em `chat`, e o que a regra
+ * não pega o modelo ainda promove no meio do run (lista de tarefas). Quem quer outra coisa força `workProfile` na
+ * política do bot. Regras, em ordem: verbo + entregável; pesquisa em várias fontes ("pesquise em várias páginas");
+ * pesquisa "na internet/web" de tamanho razoável; 3+ verbos encadeados; pedido longo com verbo de trabalho.
  */
 export function looksLikeLongTask(text: string): boolean {
 	const plain = (text ?? "")
@@ -199,15 +201,27 @@ export function looksLikeLongTask(text: string): boolean {
 		.toLowerCase()
 		.trim();
 	if (plain.length < 25) return false;
-	const verb = /\b(pesquis\w+|levant\w+|analis\w+|compar\w+|mapea\w+|investig\w+|monte|montar|elabor\w+|prepar\w+|gere|gerar|crie|criar|escrev\w+|faca|fazer|assista|assistir|abra|abrir|pergunt\w+|resum\w+|researc\w+|analy[sz]e|compare|build|prepare|draft|write|create|generate|benchmark\w*|watch|summari[sz]e|open|ask)\b/;
+	const verb = /\b(pesquis\w+|levant\w+|analis\w+|compar\w+|mapea\w+|investig\w+|monta|monte|montar|elabor\w+|prepar\w+|gere|gerar|crie|criar|escrev\w+|faca|fazer|assista|assistir|abra|abrir|pergunt\w+|resum\w+|researc\w+|analy[sz]e|compare|build|prepare|draft|write|create|generate|benchmark\w*|watch|summari[sz]e|open|ask)\b/;
 	const deliverable = /\b(relatorio|estudo|pesquisa de mercado|panorama|benchmark|dossie|planilha|apresentacao|painel|dashboard|analise|comparativo|levantamento|report|study|market research|spreadsheet|presentation|deep dive|overview)\b/;
 	if (verb.test(plain) && deliverable.test(plain)) return true;
+	if (SOURCE_VERB.test(plain) && MANY_SOURCES.test(plain)) return true;
+	if (plain.length >= WEB_SEARCH_MIN_CHARS && WEB_RESEARCH_VERB.test(plain) && ON_THE_WEB.test(plain)) return true;
 	// Pedido de várias etapas encadeadas ("abra..., faça perguntas..., compare... e monte"): 3+ verbos de ação diferentes,
 	// em pedido de tamanho razoável e com conectores de sequência (vírgulas, "e", "depois"). Pedido casual curto fica em chat.
 	if (plain.length >= CHAINED_MIN_CHARS && distinctActionVerbs(plain) >= 3 && sequenceConnectors(plain) >= 2) return true;
 	// Pedido longo com verbo de trabalho (várias linhas de instrução) também é tarefa.
 	return plain.length >= 200 && verb.test(plain);
 }
+
+/** Verbo de procurar/pesquisar/levantar (pt e en), sem exigir substantivo de entregável. */
+const SOURCE_VERB = /\b(pesquis\w+|busc\w+|procur\w+|levant\w+|investig\w+|olhad\w+|confer\w+|researc\w+|search\w*|look through|look up|check)\b/;
+/** Plural de fontes: "em várias páginas", "diversos sites", "several sources" (até 2 palavras entre o quantificador e o substantivo). */
+const MANY_SOURCES =
+	/\b(vari[oa]s|diversas?|diversos?|muitas?|muitos?|multipl[oa]s?|several|multiple|many)\b(\s+\w+){0,2}\s+(paginas?|fontes?|sites?|websites?|links?|lojas?|portais|sources?|pages?)\b/;
+const WEB_RESEARCH_VERB = /\b(pesquis\w+|researc\w+|search\w*)\b/;
+const ON_THE_WEB = /\b(na internet|pela internet|na web|pela web|on the internet|on the web|online)\b/;
+/** "pesquisa na internet" solto e curto ("pesquisa na web isso") é conversa; com contexto suficiente é tarefa. */
+const WEB_SEARCH_MIN_CHARS = 60;
 
 const ACTION_VERB_STEMS: ReadonlyArray<RegExp> = [
 	/\b(pesquis\w+|researc\w+)\b/, /\b(levant\w+)\b/, /\b(analis\w+|analy[sz]e)\b/, /\b(compar\w+|compare)\b/, /\b(mapea\w+)\b/, /\b(investig\w+)\b/,

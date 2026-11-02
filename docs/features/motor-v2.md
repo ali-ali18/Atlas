@@ -56,7 +56,7 @@ O worker (`apps/worker/src/engine-choice.ts`) escolhe o motor no começo do run 
 | `chat` | **sem teto em US$** | 8 min (depois promove, ver abaixo) | opcional |
 | `long_work` | **sem teto em US$** (gasto máximo opcional por bot) | 60 min (ajustável até 180) | obrigatória |
 
-`auto`: `long_work` quando o pedido parece tarefa (`looksLikeLongTask`: verbo de trabalho + entregável, 3+ verbos de ação encadeados como "abra… faça perguntas… compare… monte", ou pedido longo; reconhece assistir, abrir, perguntar e resumir); `chat` caso contrário. Tempo é só tempo ativo (pausa de login e fila não contam).
+`auto`: `long_work` quando o pedido parece tarefa (`looksLikeLongTask`, só um atalho por regex (o modelo ainda promove no meio do run): verbo de trabalho + entregável, pesquisa em várias fontes ("pesquise em diversas páginas") ou "pesquise na internet" com contexto, 3+ verbos de ação encadeados como "abra… faça perguntas… compare… monte", ou pedido longo; reconhece assistir, abrir, perguntar e resumir); `chat` caso contrário. Tempo é só tempo ativo (pausa de login e fila não contam).
 
 ### Regras do Supervisor
 1. Antes de cada chamada ao modelo, **chat curto**: a ~80% do custo ou do tempo avisa UMA vez ("wrap up and deliver"); a 100% faz a última chamada SEM tools para entregar (resultado, fontes, suposições, o que não deu para confirmar). Nunca aborta sem resposta. Stop: `budget_cost` ou `budget_wall`, detalhe `delivered`. **Trabalho longo**: o árbitro é progresso e tempo, não dinheiro (ver "Quando a pesquisa termina" abaixo); no tempo máximo ou no teto de passos (e no gasto máximo, se o dono preencheu) a última chamada também entrega, com o documento garantido.
