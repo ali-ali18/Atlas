@@ -244,6 +244,15 @@ Sem custo de infraestrutura nem tokens na etapa 0. EAS Update e Build (etapa 2) 
 - `pnpm --filter @workspace/mobile export:web` e abrir `apps/mobile/dist` (prévias em 390x844, tema escuro e claro).
 - No aparelho: `pnpm --filter @workspace/mobile start` e abrir no Expo Go (celular e computador na mesma rede).
 
+## Link do viewer da VM para a WebView (API)
+
+A WebView do app não compartilha cookie com o navegador, e o proxy HTTP do noVNC (`/v1/sandbox/sessions/:id/viewer/*`) só aceita sessão por cookie. Para o app ver a VM em tempo real:
+
+- `GET /v1/sandbox/sessions/:id/viewer-link` (com login, posse pelo middleware de `/v1/sandbox/*`, 404 para outro dono) devolve `{ url }` relativa: `/v1/sandbox/vt/<token>/vnc.html?autoconnect=1&reconnect=true&resize=scale&path=...websockify?t=<token>`. Só com `SANDBOX_VIEWER_MODE=proxy` e segredo (`BETTER_AUTH_SECRET`); senão 409 `{ error: "Viewer link unavailable" }`.
+- `GET|HEAD /v1/sandbox/vt/<token>/*` é a única rota pública nova (`isPublicV1Request`): o **token vai no caminho**, não na query, porque os assets do noVNC (JS, CSS, imagens) são URLs relativas à página e só o caminho chega a todos eles sem cookie. O token é o mesmo HMAC curto do WebSocket (TTL 10 min, `readViewerToken`); a rota confere assinatura e validade (401 sem dizer qual) e **revalida a posse com o `userId` do token** (sessão e conversa; 404 igual para qualquer falha). Reaproveita `resolveViewerTarget` e `proxyViewerHttp` (cabeçalhos removidos, `nosniff`, `Cache-Control: private, no-store`) e soma `Referrer-Policy: no-referrer`. `.`/`..` e separadores escondidos (`%2f`, `\`) dão 404. O token nunca vai para log.
+- O WebSocket continua em `/v1/sandbox/sessions/:id/viewer/websockify?t=<token>`; o iframe do web não muda.
+- Riscos: quem tem a URL (10 min) vê e controla a VM naquele intervalo, como já valia para o WebSocket; a URL não deve ser logada nem compartilhada. Troca de dono ou conversa apagada derruba o acesso na hora (posse revalidada a cada pedido).
+
 ## Menu ao segurar uma conversa na home
 
 Segurar a linha (ou o bot fixado) abre a mesma gaveta (`ActionSheet`) do menu da mensagem: **Marcar como não lida** (só se estiver lida), **Fixar/Desafixar**, **Mover para** (subpágina com as seções e "Tirar da seção") e **Ver perfil**. Salva pelo mesmo `PATCH /v1/bots/:id` do web (`pinned`, `pinOrder`, `sectionId`); a lista muda na hora e volta atrás se o servidor recusar. Fora por enquanto: **Ocultar** (no web é só estado da tela, sem persistência) e **Compartilhar como modelo** (não existe no app).

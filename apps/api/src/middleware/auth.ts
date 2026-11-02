@@ -28,6 +28,10 @@ export function isPublicV1Request(method: string, path: string): boolean {
 	// autenticação é o cookie próprio da prévia (HttpOnly, só deste caminho, assinado por id+dono+validade), conferido em
 	// rotas/previews.ts. Só o prefixo exato com id de sessão (a-z0-9, 20-40); `/open` e o resto de /v1/previews seguem com login.
 	if (/^\/v1\/previews\/[a-z0-9]{20,40}\/p(?:\/.*)?$/.test(path)) return true;
+	// noVNC da VM para a WebView do app (sem cookie): o token HMAC curto vai no caminho (`base64url.base64url`) porque os
+	// assets são relativos. Só GET/HEAD; a rota (routes/sandbox.ts) valida assinatura, validade e posse. Nenhuma outra
+	// rota de sandbox fica pública.
+	if ((method === "GET" || method === "HEAD") && /^\/v1\/sandbox\/vt\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\//.test(path)) return true;
 	if (method === "POST" && /^\/v1\/hooks\/[^/]+(?:\/[^/]+)?$/.test(path)) return true;
 	// GET só responde a dica "use POST" (405), igual para qualquer hookKey.
 	if (method === "GET" && /^\/v1\/hooks\/[^/]+$/.test(path)) return true;

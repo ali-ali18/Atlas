@@ -58,6 +58,49 @@ export function verifyViewerToken(
 	}
 }
 
+/**
+ * Lê um token do viewer SEM saber a sessão de antemão (rota pública `/v1/sandbox/vt/<token>/*`).
+ * Valida assinatura (tempo constante) e expiração e devolve o que foi assinado. Quem chama DEVE
+ * conferir a posse com o `userId` do token (ver `ownsSession`); o token sozinho não prova posse atual.
+ */
+export function readViewerToken(
+	token: string | null | undefined,
+	secret: string,
+	now = Date.now(),
+): { sessionId: string; userId: string } | null {
+	if (!token || !secret) return null;
+	const [payload, mac, extra] = token.split(".");
+	if (!payload || !mac || extra !== undefined) return null;
+	const expected = Buffer.from(sign(payload, secret));
+	const given = Buffer.from(mac);
+	if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+	try {
+		const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { s?: unknown; u?: unknown; e?: unknown };
+		if (typeof data.s !== "string" || typeof data.u !== "string" || typeof data.e !== "number") return null;
+		if (!data.s || !data.u || data.e <= now) return null;
+		return { sessionId: data.s, userId: data.u };
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Valida o resto do caminho do proxy: sem `.`/`..` nem em forma codificada, sem separador escondido
+ * (`%2f`, `\\`) e sem byte de controle. Devolve o caminho normalizado (como veio) ou null.
+ */
+export function safeViewerRest(rest: string): string | null {
+	for (const part of rest.split("/")) {
+		let decoded: string;
+		try {
+			decoded = decodeURIComponent(part);
+		} catch {
+			return null;
+		}
+		if (decoded === ".." || decoded === "." || /[\\/\u0000-\u001f]/.test(decoded)) return null;
+	}
+	return rest;
+}
+
 /** Acrescenta `?t=` ao `path=` (websockify) da URL do viewer em modo proxy. */
 export function withViewerToken(viewerUrl: string, token: string): string {
 	if (!viewerUrl.startsWith("/v1/sandbox/")) return viewerUrl;
