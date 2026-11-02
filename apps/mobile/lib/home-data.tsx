@@ -2,6 +2,7 @@ import * as React from "react";
 import { cacheKey, loadHomeCache, saveHomeCache } from "@/lib/home-cache";
 import { homeStorage } from "@/lib/home-storage";
 import { HomeSyncController, type SyncDeps } from "@/lib/home-sync-controller";
+import { routinesStore } from "@/lib/routines-store";
 import { PendingBotPatches } from "@/lib/home-patches";
 import type { HomeBot } from "@/lib/home-types";
 import { fetchHome, type HomeSnapshot, type SyncFailure } from "@/lib/home-sync";
@@ -20,7 +21,7 @@ export type HomeData = {
 	prepare: () => Promise<"ready" | "empty" | "signed-out">;
 	refresh: () => Promise<void>;
 	/** Aplica na lista (e no cache do aparelho) o que acabou de ser salvo no servidor, sem esperar a próxima atualização. */
-	applyBotUpdate: (botId: string, patch: Partial<Pick<HomeBot, "name" | "color" | "shape" | "language">>) => void;
+	applyBotUpdate: (botId: string, patch: Partial<Pick<HomeBot, "name" | "color" | "shape" | "language" | "pinned" | "pinOrder" | "sectionId">>) => void;
 };
 
 const Context = React.createContext<HomeData | null>(null);
@@ -72,6 +73,7 @@ export function HomeDataProvider({ children }: { children: React.ReactNode }) {
 	React.useEffect(() => {
 		controller.invalidate();
 		pendingPatches.current.clear();
+		routinesStore.reset();
 		setRefreshing(false);
 	}, [key, controller]);
 

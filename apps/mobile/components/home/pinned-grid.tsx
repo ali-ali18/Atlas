@@ -10,7 +10,7 @@ const BODY = 86;
  * Bots fixados em grade de 3 colunas. A última linha fica centralizada (como na referência do dono):
  * um bot sozinho cai no meio. O toque abre o chat do bot.
  */
-export function PinnedGrid({ pinned, bots, onOpen }: { pinned: readonly HomeBot[]; bots: readonly HomeBot[]; onOpen: (bot: HomeBot) => void }) {
+export function PinnedGrid({ pinned, bots, onOpen, onMenu }: { pinned: readonly HomeBot[]; bots: readonly HomeBot[]; onOpen: (bot: HomeBot) => void; onMenu: (bot: HomeBot) => void }) {
 	if (pinned.length === 0) return null;
 	return (
 		<View className="flex-row flex-wrap justify-center px-3 pb-2 pt-4">
@@ -20,6 +20,7 @@ export function PinnedGrid({ pinned, bots, onOpen }: { pinned: readonly HomeBot[
 					role="button"
 					accessibilityLabel={bot.isPrimary ? `${bot.name}, bot principal` : bot.name}
 					onPress={() => onOpen(bot)}
+					onLongPress={() => onMenu(bot)}
 					className="items-center px-1 pb-5 active:opacity-70"
 					style={{ width: "33.3333%" }}
 				>

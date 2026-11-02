@@ -49,7 +49,7 @@ export async function createConversation(apiFetch: ApiFetch): Promise<string> {
 	return body.id;
 }
 
-export type CreateRunInput = { content: string; conversationId: string; botId: string; decisionConfirmId?: string; clientKey?: string };
+export type CreateRunInput = { content: string; conversationId: string; botId: string; decisionConfirmId?: string; clientKey?: string; replyToMessageId?: string };
 export type CreateRunResult = { runId: string | null; status: string };
 
 /** `POST /v1/runs`, igual ao do web (`createAgentRun`): o servidor escolhe o modelo (`modelAuto`). */
@@ -61,6 +61,7 @@ export async function createRun(apiFetch: ApiFetch, input: CreateRunInput): Prom
 		modelAuto: true,
 		...(input.decisionConfirmId ? { decisionConfirmId: input.decisionConfirmId } : {}),
 		...(input.clientKey ? { clientKey: input.clientKey } : {}),
+		...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
 	};
 	const result = await json<{ runId?: unknown; status?: unknown }>(apiFetch, "/v1/runs", {
 		method: "POST",
@@ -71,8 +72,9 @@ export async function createRun(apiFetch: ApiFetch, input: CreateRunInput): Prom
 }
 
 /** Fala enviada com o run em andamento: entra nele (`mode: "join"`), como no web. */
-export async function createRunInput(apiFetch: ApiFetch, runId: string, content: string, clientKey: string): Promise<void> {
-	await json(apiFetch, `/v1/runs/${encodeURIComponent(runId)}/inputs`, { method: "POST", body: JSON.stringify({ content, mode: "join", clientKey }) });
+export async function createRunInput(apiFetch: ApiFetch, runId: string, content: string, clientKey: string, replyToMessageId?: string): Promise<void> {
+	const body = { content, mode: "join", clientKey, ...(replyToMessageId ? { replyToMessageId } : {}) };
+	await json(apiFetch, `/v1/runs/${encodeURIComponent(runId)}/inputs`, { method: "POST", body: JSON.stringify(body) });
 }
 
 export async function cancelRun(apiFetch: ApiFetch, runId: string): Promise<void> {
@@ -94,6 +96,21 @@ export async function listActiveRuns(apiFetch: ApiFetch, conversationId: string)
 export async function submitQuestionnaire(apiFetch: ApiFetch, input: { conversationId: string; questionnaireId: string; botId: string; answers: Record<string, string | string[]> }): Promise<{ runId: string | null }> {
 	const result = await json<{ runId?: unknown }>(apiFetch, "/v1/questionnaire/submit", { method: "POST", body: JSON.stringify(input) });
 	return { runId: typeof result.runId === "string" ? result.runId : null };
+}
+
+/** `PUT /v1/messages/:id/reaction`: troca a reação do usuário (uma por mensagem). */
+export async function setReaction(apiFetch: ApiFetch, messageId: string, emoji: string): Promise<void> {
+	await json(apiFetch, `/v1/messages/${encodeURIComponent(messageId)}/reaction`, { method: "PUT", body: JSON.stringify({ emoji }) });
+}
+
+/** `DELETE /v1/messages/:id/reaction`: tira a reação do usuário. */
+export async function clearReaction(apiFetch: ApiFetch, messageId: string): Promise<void> {
+	await json(apiFetch, `/v1/messages/${encodeURIComponent(messageId)}/reaction`, { method: "DELETE" });
+}
+
+/** `POST /v1/conversations/:id/unread`: marca a conversa inteira como não lida (vale em todos os aparelhos). */
+export async function markConversationUnread(apiFetch: ApiFetch, conversationId: string): Promise<void> {
+	await json(apiFetch, `/v1/conversations/${encodeURIComponent(conversationId)}/unread`, { method: "POST" });
 }
 
 /** Aviso amigável para um erro ao enviar (sem expor o texto técnico). */

@@ -1,3 +1,4 @@
+
 import { resolveColor } from "@workspace/shared/avatar/identity";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -11,6 +12,8 @@ import { Fade } from "@/components/chat/fade";
 import { ChatTopBar, TOP_BAR_HEIGHT } from "@/components/chat/chat-top-bar";
 import { Composer } from "@/components/chat/composer";
 import { MessageRow, type RowActions } from "@/components/chat/message-row";
+import { useMessageMenu } from "@/components/chat/use-message-menu";
+import { grokBubbleColors } from "@/lib/bubble-tone";
 import { createNewItemTracker } from "@/lib/chat-appear";
 import { groupPositionAt, type GroupPosition } from "@workspace/shared";
 import { SyncLine, ThinkingLine } from "@/components/chat/sync-line";
@@ -21,12 +24,16 @@ import { botColors } from "@/lib/bot-color";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 import { webChatUrl } from "@/lib/chat-links";
-import type { ChatItem } from "@/lib/chat-types";
+import type { ChatItem, ReplyQuote } from "@/lib/chat-types";
+import { containsTable } from "@/lib/markdown";
+import { replyQuoteFor } from "@/lib/reply-quote";
 import { useChat } from "@/lib/use-chat";
 import { useHomeData } from "@/lib/home-data";
 
 /** Rolou para cima além disto (px do fim): aparece o botão de voltar ao fim. */
 const JUMP_THRESHOLD = 360;
+/** Respiro entre a última mensagem (ou a linha "Pensando…") e o composer que flutua sobre a lista. */
+const LAST_MESSAGE_GAP = 16;
 
 type Soon = "anexos" | "voz" | "buscar" | "compartilhar" | null;
 const SOON_TITLE: Record<NonNullable<Soon>, string> = { anexos: "Anexos", voz: "Voz", buscar: "Buscar no chat", compartilhar: "Compartilhar como modelo" };
@@ -37,7 +44,8 @@ const NO_IDS: ReadonlySet<string> = new Set();
 function bubblePositions(items: readonly ChatItem[]): ReadonlyMap<string, GroupPosition> {
 	// Resposta vazia (ainda sem texto) não aparece e não conta para o grupo.
 	const shown = items.filter((item) => item.kind !== "assistant" || item.text.trim());
-	const kinds = shown.map((item) => item.kind);
+	// Fala com tabela vira um cartão e não agrupa: os balões vizinhos ficam com a ponta arredondada junto dela, em vez da reta de falas seguidas.
+	const kinds = shown.map((item) => (item.kind === "assistant" && containsTable(item.text) ? "assistant-table" : item.kind));
 	return new Map(shown.map((item, index) => [item.id, groupPositionAt(kinds, index, (kind) => kind === "user" || kind === "assistant")]));
 }
 
@@ -52,7 +60,7 @@ export default function ChatScreen() {
 	const router = useRouter();
 	const scheme = useAppColorScheme();
 	const insets = useSafeAreaInsets();
-	const { id } = useLocalSearchParams<{ id: string }>();
+	const { id, draft } = useLocalSearchParams<{ id: string; draft?: string }>();
 	const { snapshot } = useHomeData();
 	const { serverUrl } = useAtlasSession();
 	const bot = snapshot?.bots.find((item) => item.id === id);
@@ -72,7 +80,29 @@ export default function ChatScreen() {
 		},
 		[serverUrl, id],
 	);
-	const actions = React.useMemo<RowActions>(() => ({ onDecide: chat.decide, onAnswer: chat.answer, onOpenWeb: openWeb, activeRunId: chat.runTasks?.runId ?? null, running: chat.running }), [chat.decide, chat.answer, openWeb, chat.running, chat.runTasks?.runId]);
+	// "Responder": a mensagem citada fica no chip do composer até enviar ou cancelar.
+	const [replyTo, setReplyTo] = React.useState<ReplyQuote | null>(null);
+	const startReply = React.useCallback((item: ChatItem) => setReplyTo(replyQuoteFor(item)), []);
+	const messageMenu = useMessageMenu({ chat, goBack, composerHeight, onReply: startReply });
+	// Cor do bot para o botão do composer (destaque e o que fica por cima dele).
+	const palette = React.useMemo(
+		() => botColors(resolveColor(bot?.color, id), { accent: themeColor(scheme, "primary"), foreground: themeColor(scheme, "primary-foreground") }),
+		[bot?.color, id, scheme],
+	);
+	// Balão do usuário na cor do bot, como no web (`grokBubbleColors`: o tom do Grok; texto branco, ou escuro em cor clara); sem cor válida, cinza.
+	const userBubble = React.useMemo(() => grokBubbleColors(bot?.color) ?? undefined, [bot?.color]);
+	const actions = React.useMemo<RowActions>(
+		() => ({
+			onDecide: chat.decide,
+			onAnswer: chat.answer,
+			onOpenWeb: openWeb,
+			onOpenMenu: messageMenu.open,
+			activeRunId: chat.runTasks?.runId ?? null,
+			running: chat.running,
+			userBubble: userBubble,
+		}),
+		[chat.decide, chat.answer, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId, userBubble],
+	);
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.
 	const data = React.useMemo(() => [...chat.items].reverse(), [chat.items]);
@@ -92,7 +122,7 @@ export default function ChatScreen() {
 		);
 	}
 
-	const { accent: color, foreground } = botColors(resolveColor(bot.color, bot.id), { accent: themeColor(scheme, "primary"), foreground: themeColor(scheme, "primary-foreground") });
+	const { accent: color, foreground } = palette;
 	// Pausado (esperando aprovação ou resposta) também mostra a linha: "Esperando você".
 	const showThinking = chat.running && (chat.paused || chat.phase === "thinking" || chat.phase === "tool");
 	const onMenuPick = (action: ChatMenuAction) => {
@@ -134,7 +164,7 @@ export default function ChatScreen() {
 									<Text className="text-control text-destructive">{chat.error}</Text>
 								</Pressable>
 							) : null}
-							<View style={{ height: composerHeight }} />
+							<View style={{ height: composerHeight + LAST_MESSAGE_GAP }} />
 						</View>
 					}
 					// Rodapé = em cima: o espaço do topo flutuante e o carregando mais antigas.
@@ -161,10 +191,14 @@ export default function ChatScreen() {
 							<ChevronDownIcon size={22} tone="foreground" />
 						</Pressable>
 					) : null}
-					<Composer botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={chat.send} onStop={chat.stop} onSoon={(what) => setSoon(what)} />
+					<Composer initialText={typeof draft === "string" ? draft : undefined} botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
+							chat.send(text, replyTo ?? undefined);
+							setReplyTo(null);
+						}} onStop={chat.stop} onSoon={(what) => setSoon(what)} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
 				</View>
 			</KeyboardAvoidingView>
 			<ChatMenu open={menu} onClose={() => setMenu(false)} onPick={onMenuPick} />
+			{messageMenu.node}
 			<SoonSheet open={soon !== null} title={soon ? SOON_TITLE[soon] : ""} onClose={() => setSoon(null)} />
 		</SafeAreaView>
 	);

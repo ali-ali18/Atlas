@@ -47,7 +47,7 @@ import {
 } from "@workspace/db";
 import { noteBrowserLanguage } from "@workspace/db";
 import { pickLanguageFromAcceptLanguage } from "@workspace/shared";
-import { parseReasoningEffort } from "@workspace/shared";
+import { parseReasoningEffort, parseReplyToMessageId } from "@workspace/shared";
 import { demoteSteerInputToQueue, getOwnedConversation, markPendingLoginCode, markPendingLoginUseVault, promoteQueuedInputToSteer } from "@workspace/db";
 import { scopeFor, type AuthEnv } from "../middleware/auth.js";
 import { isRunEventsSignalSubscribed, publishRunSignal as defaultPublishRunSignal, subscribeRunEventsSignal, type AgentRunQueue } from "@workspace/queue";
@@ -110,6 +110,8 @@ function parseCreateBody(
 	if (!validMaxSteps(body.maxSteps)) return { error: "maxSteps must be an integer from 1 to 100" };
 	if (body.reasoningEffort != null && parseReasoningEffort(body.reasoningEffort) === undefined) return { error: "reasoningEffort must be one of: off, low, medium, high" };
 	if (body.objective !== undefined && (typeof body.objective !== "string" || body.objective.length > API_INPUT_LIMITS.contentChars)) return { error: "Invalid objective" };
+	const replyToMessageId = parseReplyToMessageId(body.replyToMessageId);
+	if (replyToMessageId === null) return { error: "Invalid replyToMessageId" };
 	return {
 		messages,
 		...(attachments.length ? { attachments } : {}),
@@ -146,6 +148,7 @@ function parseCreateBody(
 					: undefined,
 		silent: body.silent === true,
 		compact: body.compact === true,
+		...(replyToMessageId ? { replyToMessageId } : {}),
 	};
 }
 
@@ -786,7 +789,10 @@ export function createRunRoutes(
 		const mode = parseRunInputMode(body.mode);
 		if (!mode) return c.json({ error: "Invalid input mode" }, 400);
 		const headerKey = c.req.header("Idempotency-Key");
+		const replyToMessageId = parseReplyToMessageId(body.replyToMessageId);
+		if (replyToMessageId === null) return c.json({ error: "Invalid replyToMessageId" }, 400);
 		const request: CreateRunInputRequest = {
+			...(replyToMessageId ? { replyToMessageId } : {}),
 			content: body.content,
 			...(attachments.length ? { attachments } : {}),
 			mode,
@@ -816,7 +822,8 @@ export function createRunRoutes(
 				type: "input_received",
 				inputId: input.id,
 				mode: input.mode,
-				content: input.content,
+				// Resposta a uma mensagem: o evento (visível na UI) mostra o texto digitado, sem a linha de contexto do modelo.
+				content: replyToMessageId ? request.content.trim() : input.content,
 			}).catch((error) => console.error("input_received event failed", error));
 			return c.json({ input }, 201);
 		} catch (error) {

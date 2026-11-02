@@ -7,7 +7,7 @@ import type { MobileAvatarState } from "./avatar-activity";
 import { useAvatarLive } from "./use-avatar-live";
 import { chatCacheKey, createChatCacheWriter, loadChatCache } from "./chat-cache";
 import { ChatController, deriveView, type ChatApi, type ChatDeps } from "./chat-controller";
-import type { ChatItem } from "./chat-types";
+import type { ChatItem, ReplyQuote } from "./chat-types";
 import { clearBotRun, setBotRun } from "./run-store";
 import { useAtlasSession } from "./atlas-session";
 import { homeStorage } from "./home-storage";
@@ -28,10 +28,12 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 	/** Estado do avatar já governado (permanência mínima) e o que o bot está fazendo, em pt-BR (`null` em repouso). */
 	avatar: { state: MobileAvatarState; label: string | null };
 	loadOlder: () => void;
-	send: (text: string) => void;
+	send: (text: string, replyTo?: ReplyQuote) => void;
 	stop: () => void;
 	decide: (item: Extract<ChatItem, { kind: "confirm" }>, approve: boolean) => void;
 	answer: ChatController["answer"];
+	react: (messageId: string, emoji: string) => void;
+	markUnread: () => Promise<boolean>;
 	retry: () => void;
 	dismissError: () => void;
 };
@@ -47,11 +49,14 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 			fetchPage: (conversationId, options) => chatApi.fetchMessagePage(latest.current.apiFetch, conversationId, options),
 			createConversation: () => chatApi.createConversation(latest.current.apiFetch),
 			createRun: (input) => chatApi.createRun(latest.current.apiFetch, input),
-			createRunInput: (runId, content, key) => chatApi.createRunInput(latest.current.apiFetch, runId, content, key),
+			createRunInput: (runId, content, key, replyToMessageId) => chatApi.createRunInput(latest.current.apiFetch, runId, content, key, replyToMessageId),
 			cancelRun: (runId) => chatApi.cancelRun(latest.current.apiFetch, runId),
 			getRunStatus: (runId) => chatApi.getRunStatus(latest.current.apiFetch, runId),
 			listActiveRuns: (conversationId) => chatApi.listActiveRuns(latest.current.apiFetch, conversationId),
 			submitQuestionnaire: (input) => chatApi.submitQuestionnaire(latest.current.apiFetch, input),
+			setReaction: (messageId, emoji) => chatApi.setReaction(latest.current.apiFetch, messageId, emoji),
+			clearReaction: (messageId) => chatApi.clearReaction(latest.current.apiFetch, messageId),
+			markConversationUnread: (conversationId) => chatApi.markConversationUnread(latest.current.apiFetch, conversationId),
 		};
 		const deps: ChatDeps = {
 			api,
@@ -126,10 +131,12 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		loadingOlder: snapshot.loadingOlder,
 		ready: snapshot.ready,
 		loadOlder: () => void controller.loadOlder(),
-		send: (text) => controller.send(text),
+		send: (text, replyTo) => controller.send(text, replyTo),
 		stop,
 		decide: (item, approve) => controller.decide(item, approve),
 		answer: (item, answers) => controller.answer(item, answers),
+		react: (messageId, emoji) => void controller.react(messageId, emoji),
+		markUnread: () => controller.markUnread(),
 		retry: () => void controller.retry(),
 		dismissError: () => controller.dismissError(),
 	};

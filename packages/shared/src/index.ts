@@ -484,6 +484,8 @@ export * from "./proactive.js";
 export * from "./reflection.js";
 export * from "./work-hours.js";
 export * from "./reaction-only.js";
+export * from "./reply-quote.js";
+export * from "./bubble-color.js";
 export * from "./memory-limits.js";
 export * from "./memory-scope.js";
 export * from "./memory-cleanup.js";

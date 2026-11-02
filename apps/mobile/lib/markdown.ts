@@ -15,6 +15,7 @@ export type Block =
 	| { type: "list"; ordered: boolean; start: number; items: Inline[][] }
 	| { type: "code"; text: string; lang: string }
 	| { type: "quote"; inline: Inline[] }
+	| { type: "table"; header: Inline[][]; rows: Inline[][][] }
 	| { type: "rule" };
 
 const SAFE_URL = /^https?:\/\/[^\s<>]+$/i;
@@ -122,6 +123,18 @@ export function parseInline(source: string): Inline[] {
 	return out;
 }
 
+/** Divide uma linha de tabela `| a | b |` em células (a barra escapada `\\|` fica no texto). */
+export function splitTableRow(line: string): string[] {
+	let text = line.trim();
+	if (text.startsWith("|")) text = text.slice(1);
+	if (text.endsWith("|") && !text.endsWith("\\|")) text = text.slice(0, -1);
+	return text.split(/(?<!\\)\|/).map((cell) => cell.replace(/\\\|/g, "|").trim());
+}
+
+const TABLE_SEPARATOR = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
+/** Linha de separação (`|---|:--:|`) com pelo menos uma barra, para não confundir com a régua `---`. */
+export const isTableSeparator = (line: string): boolean => line.includes("|") && TABLE_SEPARATOR.test(line);
+
 const BULLET = /^\s*[-*•+]\s+(.*)$/;
 const ORDERED = /^\s*(\d{1,3})[.)]\s+(.*)$/;
 
@@ -160,7 +173,20 @@ export function parseMarkdown(source: string): Block[] {
 			continue;
 		}
 		let match: RegExpExecArray | null;
-		if ((match = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line))) {
+		if (line.includes("|") && index + 1 < lines.length && isTableSeparator(lines[index + 1]!)) {
+			flushParagraph();
+			const header = splitTableRow(line);
+			const rows: Inline[][][] = [];
+			index += 2;
+			while (index < lines.length && lines[index]!.trim() && lines[index]!.includes("|")) {
+				const cells = splitTableRow(lines[index]!);
+				// Linha curta ganha células vazias; longa perde o excedente (o cabeçalho manda nas colunas).
+				rows.push(header.map((_, column) => parseInline(cells[column] ?? "")));
+				index += 1;
+			}
+			index -= 1;
+			blocks.push({ type: "table", header: header.map((cell) => parseInline(cell)), rows });
+		} else if ((match = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line))) {
 			flushParagraph();
 			blocks.push({ type: "heading", level: Math.min(3, match[1]!.length) as 1 | 2 | 3, inline: parseInline(match[2]!) });
 		} else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
@@ -198,4 +224,59 @@ export function parseMarkdown(source: string): Block[] {
 	}
 	flushParagraph();
 	return blocks;
+}
+
+/** Texto puro de um trecho inline (sem marcas), para medir a coluna. */
+export function inlineText(nodes: readonly Inline[]): string {
+	// `código` é desenhado com um espaço de cada lado: entra na conta da largura.
+	return nodes.map((node) => (node.type === "bold" || node.type === "italic" ? inlineText(node.children) : node.type === "code" ? ` ${node.text} ` : node.text)).join("");
+}
+
+/** Mesma regra do web (`cellWidthClass`): número, moeda, data ou % curto nunca quebra. */
+const COMPACT_VALUE = /^[\sR$US€£\d.,:%/+()\-–]+$/;
+const CHAR_WIDTH = 9.7;
+const CELL_PADDING = 37;
+/** 8 rem e 22 rem do web (16 pt por rem). */
+const TEXT_MIN = 128;
+const TEXT_MAX = 352;
+
+/**
+ * Largura (pt) de cada coluna da tabela, como o web faz com CSS: valor curto (número, moeda, data) ocupa o que
+ * precisa e não quebra; texto livre vai de 8 a 22 rem. O RN não mede por conteúdo, então estimamos por caractere.
+ */
+export function tableColumnWidths(header: Inline[][], rows: Inline[][][]): number[] {
+	return header.map((_, column) => {
+		let width = 0;
+		for (const row of [header, ...rows]) {
+			const text = inlineText(row[column] ?? []).trim();
+			const natural = text.length * CHAR_WIDTH + CELL_PADDING;
+			const compact = text.length > 0 && text.length <= 24 && COMPACT_VALUE.test(text);
+			width = Math.max(width, compact ? natural : Math.min(TEXT_MAX, Math.max(TEXT_MIN, natural)));
+		}
+		return Math.ceil(width);
+	});
+}
+
+/** Pedaço de uma fala do bot: texto corrido (um balão) ou uma tabela (cartão próprio, como no Grok). */
+export type Segment = { kind: "bubble"; blocks: Block[] } | { kind: "table"; block: Extract<Block, { type: "table" }> };
+
+/** Separa a fala nos pontos das tabelas: o que vem antes e depois vira balão, cada tabela vira um cartão. */
+export function splitSegments(blocks: readonly Block[]): Segment[] {
+	const segments: Segment[] = [];
+	let current: Block[] = [];
+	for (const block of blocks) {
+		if (block.type === "table") {
+			if (current.length) segments.push({ kind: "bubble", blocks: current });
+			current = [];
+			segments.push({ kind: "table", block });
+		} else current.push(block);
+	}
+	if (current.length) segments.push({ kind: "bubble", blocks: current });
+	return segments;
+}
+
+/** A fala tem tabela? Checagem barata antes de interpretar (a maioria das falas não tem `|`). */
+export function containsTable(text: string): boolean {
+	if (!text.includes("|")) return false;
+	return parseMarkdown(text).some((block) => block.type === "table");
 }

@@ -144,10 +144,16 @@ model ConversationMessage {
   sourceAt       DateTime?
   /// Run que gravou a mensagem (fala do assistente, cartões); null = usuário, sistema ou mensagem anterior a esta coluna.
   runId          String?
+  /// Mensagem da mesma conversa que esta responde (citação); null = não é resposta ou a citada foi apagada.
+  replyToMessageId String?
+  replyTo        ConversationMessage?  @relation("MessageReply", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies        ConversationMessage[] @relation("MessageReply")
   createdAt      DateTime     @default(now())
   reactions      MessageReaction[]
 
   @@index([conversationId, createdAt])
+  /// Apagar mensagem (ou conversa inteira, em cascata) procura as respostas dela: sem índice vira varredura por linha apagada.
+  @@index([replyToMessageId])
   /// Varredura de resumo por inatividade: só conversas com mensagem recente (BRIN: minúsculo, a tabela cresce em ordem de createdAt).
   @@index([createdAt], type: Brin)
   @@map("conversation_messages")

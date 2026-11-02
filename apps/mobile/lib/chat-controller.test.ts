@@ -23,16 +23,19 @@ type Script = (options: FollowOptions, runId: string) => Promise<FollowResult>;
 
 function setup(overrides: { api?: Partial<ChatApi>; follow?: Script; conversationId?: string | null; cache?: ChatDeps["cacheFor"] } = {}) {
 	let runCount = 0;
-	const calls = { createRun: [] as unknown[], createRunInput: [] as Array<[string, string]>, cancelRun: [] as string[], submit: [] as unknown[], fetchPage: [] as string[], createConversation: 0, unauthorized: 0 };
+	const calls = { createRun: [] as unknown[], createRunInput: [] as Array<[string, string]>, cancelRun: [] as string[], submit: [] as unknown[], reaction: [] as string[], unread: [] as string[], inputReplies: [] as Array<string | undefined>, fetchPage: [] as string[], createConversation: 0, unauthorized: 0 };
 	const api: ChatApi = {
 		fetchPage: async (conversationId) => (calls.fetchPage.push(conversationId), { messages: [row("m1", "user", "oi"), row("m2", "assistant", "olá, tudo bem por aí?", 1)], hasMore: false }),
 		createConversation: async () => (calls.createConversation++, "c-new"),
 		createRun: async (input) => (calls.createRun.push(input), { runId: `r${++runCount}`, status: "queued" }),
-		createRunInput: async (runId, content) => void calls.createRunInput.push([runId, content]),
+		createRunInput: async (runId, content, _key, replyToMessageId) => void (calls.createRunInput.push([runId, content]), calls.inputReplies.push(replyToMessageId)),
 		cancelRun: async (runId) => void calls.cancelRun.push(runId),
 		getRunStatus: async () => "running",
 		listActiveRuns: async () => [],
 		submitQuestionnaire: async (input) => (calls.submit.push(input), { runId: `r${++runCount}` }),
+		setReaction: async (messageId, emoji) => void calls.reaction.push(`PUT ${messageId} ${emoji}`),
+		clearReaction: async (messageId) => void calls.reaction.push(`DELETE ${messageId}`),
+		markConversationUnread: async (conversationId) => void calls.unread.push(conversationId),
 		...overrides.api,
 	};
 	let seq = 0;
@@ -388,5 +391,253 @@ describe("sessão e erros", () => {
 		await flush();
 		const bubble = controller.getSnapshot().live.items.find((item) => item.kind === "assistant");
 		expect(bubble && "text" in bubble ? bubble.text : "").toBe("Olá, tudo bem?");
+	});
+});
+
+describe("menu da mensagem: reações e não lida", () => {
+	const reactionsOf = (controller: ChatController, id: string) => {
+		const item = controller.getSnapshot().persisted.find((candidate) => candidate.id === id);
+		return item && (item.kind === "user" || item.kind === "assistant") ? item.reactions : undefined;
+	};
+
+	it("reagir aparece na hora e manda PUT; trocar manda PUT de novo; a mesma tira com DELETE", async () => {
+		const gate = deferred<void>();
+		const puts: string[] = [];
+		const { controller, calls } = setup({
+			api: {
+				setReaction: async (id, emoji) => {
+					puts.push(`PUT ${id} ${emoji}`);
+					if (puts.length === 1) await gate.promise; // só a primeira espera
+				},
+				clearReaction: async (id) => void puts.push(`DELETE ${id}`),
+			},
+		});
+		await controller.open();
+		const pending = controller.react("m2", "🔥");
+		expect(reactionsOf(controller, "m2")).toEqual([{ actor: "user", emoji: "🔥" }]); // antes do servidor responder
+		gate.resolve();
+		await pending;
+		await controller.react("m2", "👍");
+		expect(reactionsOf(controller, "m2")).toEqual([{ actor: "user", emoji: "👍" }]);
+		await controller.react("m2", "👍");
+		expect(reactionsOf(controller, "m2")).toBeUndefined();
+		expect(puts).toEqual(["PUT m2 🔥", "PUT m2 👍", "DELETE m2"]);
+		expect(calls.reaction).toEqual([]);
+	});
+
+	it("toques rápidos na mesma fala saem em ordem para o servidor", async () => {
+		const gate = deferred<void>();
+		const calls: string[] = [];
+		const { controller } = setup({
+			api: {
+				setReaction: async (id, emoji) => {
+					calls.push(`PUT ${id} ${emoji}`);
+					if (calls.length === 1) await gate.promise; // o primeiro PUT demora
+				},
+				clearReaction: async (id) => void calls.push(`DELETE ${id}`),
+			},
+		});
+		await controller.open();
+		const first = controller.react("m2", "👍");
+		const second = controller.react("m2", "👍"); // mesma reação de novo: tira
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(calls).toEqual(["PUT m2 👍"]); // o DELETE espera o PUT terminar
+		gate.resolve();
+		await Promise.all([first, second]);
+		expect(calls).toEqual(["PUT m2 👍", "DELETE m2"]);
+		expect(reactionsOf(controller, "m2")).toBeUndefined();
+	});
+
+	it("a falha de um toque antigo não apaga a reação de um toque mais novo", async () => {
+		const gate = deferred<void>();
+		let puts = 0;
+		const { controller } = setup({
+			api: {
+				setReaction: async () => {
+					puts += 1;
+					if (puts === 1) {
+						await gate.promise;
+						throw new ChatApiError("fora do ar", 503);
+					}
+				},
+			},
+		});
+		await controller.open();
+		const first = controller.react("m2", "👍");
+		const second = controller.react("m2", "❤️");
+		gate.resolve();
+		await Promise.all([first, second]);
+		expect(reactionsOf(controller, "m2")).toEqual([{ actor: "user", emoji: "❤️" }]);
+	});
+
+	it("erro do servidor desfaz a reação, avisa em frase simples e não vaza o texto técnico", async () => {
+		const { controller } = setup({ api: { setReaction: async () => Promise.reject(new ChatApiError("prisma boom", 500)) } });
+		await controller.open();
+		await controller.react("m2", "🔥");
+		expect(reactionsOf(controller, "m2")).toBeUndefined();
+		expect(controller.getSnapshot().error).toBe("Não consegui reagir agora. Tente de novo.");
+	});
+
+	it("erro ao tirar a reação a devolve; a do bot não é tocada", async () => {
+		const fetchPage: ChatApi["fetchPage"] = async () => ({
+			messages: [{ ...row("m1", "user", "valeu"), reactions: [{ actor: "bot", emoji: "❤️" }, { actor: "user", emoji: "👍" }] } as SessionMessage],
+			hasMore: false,
+		});
+		const { controller } = setup({ api: { fetchPage, clearReaction: async () => Promise.reject(new ChatApiError("x", 503)) } });
+		await controller.open();
+		await controller.react("m1", "👍");
+		expect(reactionsOf(controller, "m1")).toEqual([{ actor: "bot", emoji: "❤️" }, { actor: "user", emoji: "👍" }]);
+	});
+
+	it("sessão expirada ao reagir chama o logout", async () => {
+		const { controller, calls } = setup({ api: { setReaction: async () => Promise.reject(new ChatApiError("no", 401)) } });
+		await controller.open();
+		await controller.react("m2", "🔥");
+		expect(calls.unauthorized).toBe(1);
+	});
+
+	it("mensagem que não está na lista (ou ao vivo) não chama o servidor", async () => {
+		const { controller, calls } = setup();
+		await controller.open();
+		await controller.react("msg-1-abc", "🔥");
+		expect(calls.reaction).toEqual([]);
+	});
+
+	it("marcar como não lida chama a conversa e devolve true; erro devolve false com aviso", async () => {
+		const ok = setup();
+		await ok.controller.open();
+		expect(await ok.controller.markUnread()).toBe(true);
+		expect(ok.calls.unread).toEqual(["c1"]);
+		const bad = setup({ api: { markConversationUnread: async () => Promise.reject(new ChatApiError("x", 500)) } });
+		await bad.controller.open();
+		expect(await bad.controller.markUnread()).toBe(false);
+		expect(bad.controller.getSnapshot().error).toBe("Não consegui marcar como não lida agora. Tente de novo.");
+	});
+
+	it("sem conversa ainda não há o que marcar", async () => {
+		const { controller, calls } = setup({ conversationId: null });
+		await controller.open();
+		expect(await controller.markUnread()).toBe(false);
+		expect(calls.unread).toEqual([]);
+	});
+});
+
+describe("responder (replyTo)", () => {
+	const quote = { id: "m2", role: "assistant" as const, text: "olá, tudo bem por aí?" };
+	const hang = async () => new Promise<FollowResult>(() => undefined);
+	const bubbles = (controller: ChatController) => controller.getSnapshot().live.items.filter((item) => item.kind === "user");
+
+	it("run novo: o createRun leva o id da mensagem e o balão otimista já mostra a citação", async () => {
+		const { controller, calls } = setup({ follow: hang });
+		await controller.open();
+		controller.send("valeu", quote);
+		expect(bubbles(controller)[0]).toMatchObject({ text: "valeu", replyTo: quote });
+		await flush();
+		expect(calls.createRun[0]).toMatchObject({ content: "valeu", replyToMessageId: "m2" });
+	});
+
+	it("sem citação o corpo do run fica idêntico ao de hoje (nem a chave aparece)", async () => {
+		const { controller, calls } = setup({ follow: hang });
+		await controller.open();
+		controller.send("oi");
+		await flush();
+		expect(Object.keys(calls.createRun[0] as object)).not.toContain("replyToMessageId");
+		expect(bubbles(controller)[0]).not.toHaveProperty("replyTo");
+	});
+
+	it("run vivo: entra nele (join) com o id da mensagem", async () => {
+		const { controller, calls } = setup({ follow: hang });
+		await controller.open();
+		controller.send("primeiro");
+		await flush();
+		await flush();
+		controller.send("e sobre isso?", quote);
+		await flush();
+		expect(calls.createRunInput).toEqual([["r1", "e sobre isso?"]]);
+		expect(calls.inputReplies).toEqual(["m2"]);
+	});
+
+	it("o run terminou entre o toque e o envio (409 do join): cai no run novo e guarda a citação", async () => {
+		const { controller, calls } = setup({ api: { createRunInput: async () => Promise.reject(new ChatApiError("run terminou", 409)) }, follow: hang });
+		await controller.open();
+		controller.send("primeiro");
+		await flush();
+		await flush();
+		controller.send("segundo", quote);
+		await flush();
+		await flush();
+		expect(calls.createRun).toHaveLength(2);
+		expect(calls.createRun[1]).toMatchObject({ content: "segundo", replyToMessageId: "m2" });
+		expect(Object.keys(calls.createRun[0] as object)).not.toContain("replyToMessageId");
+	});
+
+	it("conversa ocupada (409 ao criar): as tentativas repetem a citação", async () => {
+		let attempt = 0;
+		const seen: unknown[] = [];
+		const { controller } = setup({
+			api: {
+				createRun: async (input) => {
+					attempt += 1;
+					seen.push(input);
+					if (attempt < 3) throw new ChatApiError("A conversa já tem uma tarefa em andamento. Espere.", 409);
+					return { runId: "r1", status: "queued" };
+				},
+			},
+			follow: hang,
+		});
+		await controller.open();
+		controller.send("oi", quote);
+		await flush();
+		await flush();
+		expect(seen).toHaveLength(3);
+		for (const input of seen) expect(input).toMatchObject({ replyToMessageId: "m2" });
+	});
+
+	it("fila: cada fala enfileirada mantém a própria citação (e a sem citação segue sem)", async () => {
+		const gate = deferred<{ runId: string | null; status: string }>();
+		const { controller, calls } = setup({ api: { createRun: () => gate.promise }, follow: hang });
+		await controller.open();
+		controller.send("um");
+		await flush();
+		controller.send("dois", quote);
+		controller.send("três");
+		controller.send("quatro", { id: "m1", role: "user", text: "oi" });
+		gate.resolve({ runId: "r9", status: "queued" });
+		await flush();
+		await flush();
+		expect(calls.createRunInput).toEqual([["r9", "dois"], ["r9", "três"], ["r9", "quatro"]]);
+		expect(calls.inputReplies).toEqual(["m2", undefined, "m1"]);
+	});
+
+	it("fila sem run (o bot só reagiu): a primeira da fila vira envio normal com a citação", async () => {
+		const gate = deferred<{ runId: string | null; status: string }>();
+		let created = 0;
+		const { controller, calls } = setup({
+			api: {
+				createRun: async (input) => {
+					created += 1;
+					calls.createRun.push(input);
+					return created === 1 ? gate.promise : { runId: null, status: "done" };
+				},
+			},
+			follow: hang,
+		});
+		await controller.open();
+		controller.send("um");
+		await flush();
+		controller.send("dois", quote);
+		gate.resolve({ runId: null, status: "done" });
+		await flush();
+		await flush();
+		expect(calls.createRun[1]).toMatchObject({ content: "dois", replyToMessageId: "m2" });
+	});
+
+	it("falha no envio tira o balão com a citação da tela", async () => {
+		const { controller } = setup({ api: { createRun: async () => Promise.reject(new ChatApiError("x", 500)) } });
+		await controller.open();
+		controller.send("oi", quote);
+		await flush();
+		await flush();
+		expect(bubbles(controller)).toEqual([]);
 	});
 });

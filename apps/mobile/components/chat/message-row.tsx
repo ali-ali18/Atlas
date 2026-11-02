@@ -1,13 +1,18 @@
 import * as React from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import Animated, { FadeIn, useReducedMotion } from "react-native-reanimated";
-import { bubbleRadius, type GroupPosition } from "@workspace/shared";
+import type { GroupPosition } from "@workspace/shared";
+import { bubbleCorners, cornersNextToTable } from "@/lib/bubble-corners";
 import { Text } from "@/components/ui/text";
 import { taskCardActive } from "@/lib/chat-thread";
-import type { ChatItem, Reaction } from "@/lib/chat-types";
+import type { ChatItem, Reaction, ReplyQuote } from "@/lib/chat-types";
 import type { AnswerMap } from "@/lib/questionnaire";
 import { ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
-import { MarkdownText } from "./markdown-text";
+import { MarkdownBlocks, TableCard } from "./markdown-text";
+import { useAppColorScheme } from "@/lib/use-theme";
+import { chatSurface } from "@/lib/chat-surface";
+import { parseMarkdown, splitSegments } from "@/lib/markdown";
+import { ReplyPill } from "./reply-pill";
 import { TaskSummary } from "./task-dock";
 
 export type RowActions = {
@@ -18,17 +23,28 @@ export type RowActions = {
 	/** Há um run em andamento (o cartão só é "ativo" durante um run). */
 	running: boolean;
 	onOpenWeb: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
+	/** Toque longo no balão: abre o menu da mensagem (só abre para fala já gravada; ver `messageMenuFor`). */
+	onOpenMenu: (item: ChatItem) => void;
+	/** Cor do bot para o balão do usuário (fundo e texto por cima dele). Sem ela, o balão usa o cinza neutro. */
+	userBubble?: { background: string; foreground: string };
 };
 
-/** Balão do usuário: o do web (`Bubble variant="muted"`, à direita). */
-function UserBubble({ text, position, reactions }: { text: string; position: GroupPosition; reactions?: Reaction[] }) {
+/** Balão do usuário, à direita, na cor do bot (como no Grok); sem a cor, o cinza do `Bubble variant="muted"` do web. */
+function UserBubble({ text, position, reactions, replyTo, accent, onLongPress }: { text: string; position: GroupPosition; reactions?: Reaction[]; replyTo?: ReplyQuote; accent?: RowActions["userBubble"]; onLongPress: () => void }) {
 	return (
-		<View className="max-w-[82%] self-end">
-			<View className={`bg-muted px-4 py-3 ${bubbleRadius("right", position)}`}>
-				<Text selectable className="text-control leading-6">
+		<View className="max-w-[87%] self-end">
+			{replyTo ? <ReplyPill quote={replyTo} align="end" spaced={position !== "single" && position !== "first"} /> : null}
+			{/* Sem `selectable`: o toque longo abre o menu (a seleção está em "Selecionar texto"). */}
+			<Pressable
+				onLongPress={onLongPress}
+				accessibilityHint="Segure para ver as ações da mensagem"
+				style={[accent ? { backgroundColor: accent.background } : undefined, bubbleCorners("right", position)]}
+				className={`px-3.5 py-3.5 ${accent ? "" : "bg-muted"}`}
+			>
+				<Text className="text-base leading-snug" style={accent ? { color: accent.foreground } : undefined}>
 					{text}
 				</Text>
-			</View>
+			</Pressable>
 			<Reactions reactions={reactions} align="end" />
 		</View>
 	);
@@ -51,16 +67,40 @@ function Reactions({ reactions, align }: { reactions?: Reaction[]; align: "start
 	);
 }
 
-/** Balão do bot: escuro, arredondado, com markdown; ocupa quase toda a largura como na referência. */
-function BotBubble({ text, position, reactions }: { text: string; position: GroupPosition; reactions?: Reaction[] }) {
+/**
+ * Balão do bot: escuro, arredondado, com markdown. Medidas do Grok (print do dono): 80% da tela de largura máxima
+ * (87% da lista), margem de 14 pt dos lados e de cima/baixo, texto de 16 pt com entrelinha de 22 pt.
+ */
+function BotBubble({ text, position, reactions, replyTo, onLongPress }: { text: string; position: GroupPosition; reactions?: Reaction[]; replyTo?: ReplyQuote; onLongPress: () => void }) {
+	const scheme = useAppColorScheme();
+	// Tabela não vai dentro do balão: é um cartão só (como no Grok); o texto em volta vira balões.
+	const segments = React.useMemo(() => splitSegments(parseMarkdown(text)), [text]);
 	return (
-		<View className="max-w-[94%] self-start">
-			<View className={`bg-muted px-4 py-3.5 ${bubbleRadius("left", position)}`}>
-				<MarkdownText source={text} />
-			</View>
+		<View className="max-w-[87%] gap-1.5 self-start">
+			{replyTo ? <ReplyPill quote={replyTo} align="start" spaced={position !== "single" && position !== "first"} /> : null}
+			{segments.map((segment, index) =>
+				segment.kind === "table" ? (
+					<TableCard key={`table-${index}`} block={segment.block} scheme={scheme} onLongPress={onLongPress} />
+				) : (
+					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" style={[{ backgroundColor: chatSurface(scheme, "bubble") }, cornersNextToTable(bubbleCorners("left", position), "left", index > 0, index < segments.length - 1)]} className="px-3.5 py-3.5">
+						<MarkdownBlocks blocks={segment.blocks} />
+					</Pressable>
+				),
+			)}
 			<Reactions reactions={reactions} align="start" />
 		</View>
 	);
+}
+
+/**
+ * Respiro extra quando muda quem fala: 6 + o gap da lista (6) = 12 pt entre autores, como no Grok (medido no print de
+ * referência do dono: 12,3 pt). Dentro do mesmo autor o vão fica só nos 6 do gap da lista.
+ */
+const AUTHOR_GAP = 6;
+
+/** Primeira fala de um grupo do mesmo autor (ou fala sozinha): é onde a conversa troca de voz. */
+function startsAuthorGroup(item: ChatItem, position: GroupPosition): boolean {
+	return (item.kind === "user" || item.kind === "assistant") && (position === "single" || position === "first");
 }
 
 /**
@@ -83,7 +123,7 @@ export const MessageRow = React.memo(function MessageRow({
 	// O invólucro existe sempre (só o `entering` muda): trocar de estrutura remontaria o cartão e perderia o estado
 	// dele (respostas do questionário, por exemplo). `entering` só vale na montagem.
 	return (
-		<Animated.View entering={animate && !reduced ? FadeIn.duration(220) : undefined}>
+		<Animated.View entering={animate && !reduced ? FadeIn.duration(220) : undefined} style={startsAuthorGroup(item, position) ? { marginTop: AUTHOR_GAP } : undefined}>
 			<RowContent item={item} actions={actions} position={position} />
 		</Animated.View>
 	);
@@ -93,9 +133,9 @@ export const MessageRow = React.memo(function MessageRow({
 function RowContent({ item, actions, position }: { item: ChatItem; actions: RowActions; position: GroupPosition }) {
 	switch (item.kind) {
 		case "user":
-			return <UserBubble text={item.text} position={position} reactions={item.reactions} />;
+			return <UserBubble text={item.text} position={position} reactions={item.reactions} replyTo={item.replyTo} accent={actions.userBubble} onLongPress={() => actions.onOpenMenu(item)} />;
 		case "assistant":
-			return item.text.trim() ? <BotBubble text={item.text} position={position} reactions={item.reactions} /> : null;
+			return item.text.trim() ? <BotBubble text={item.text} position={position} reactions={item.reactions} replyTo={item.replyTo} onLongPress={() => actions.onOpenMenu(item)} /> : null;
 		case "task-list":
 			return <TaskSummary items={item.items} active={taskCardActive(item.runId, actions.activeRunId, actions.running)} />;
 		case "confirm":

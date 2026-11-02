@@ -100,6 +100,8 @@ export type SessionMessage = {
 	source?: { kind: "routine" | "reminder" | "github" | "webhook" | "reflection" | "email"; label: string; at: string } | null;
 	/** Reações (no máximo uma por ator: o usuário e o bot). */
 	reactions?: Array<{ actor: "user" | "bot"; emoji: string }>;
+	/** Mensagem a que esta responde (citação): trecho de até 160 caracteres, sem markdown pesado. Ausente/null = não é resposta. */
+	replyTo?: { id: string; role: "user" | "assistant"; text: string } | null;
 	createdAt: string;
 };
 
@@ -110,6 +112,8 @@ export type CreateConversationResponse = {
 export type AppendMessageInput = {
 	role: ChatRole;
 	content: string;
+	/** Mensagem da MESMA conversa que esta responde (outra conversa ou dono = 404). */
+	replyToMessageId?: string;
 };
 
 /** Quem fez a mudança: o bot numa conversa, a reflexão diária ou o próprio usuário (aba Memória). */

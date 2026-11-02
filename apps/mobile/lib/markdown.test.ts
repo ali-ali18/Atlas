@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSafeUrl, MARKDOWN_MAX_CHARS, parseInline, parseMarkdown } from "./markdown";
+import { inlineText, isSafeUrl, MARKDOWN_MAX_CHARS, parseInline, parseMarkdown, splitSegments, tableColumnWidths } from "./markdown";
 
 describe("parseInline", () => {
 	it("negrito, itálico e código", () => {
@@ -76,5 +76,80 @@ describe("entrada grande ou hostil", () => {
 	it("negrito, itálico e link continuam certos depois do reescrito", () => {
 		expect(parseInline("a **b _c_** d")).toEqual([{ type: "text", text: "a " }, { type: "bold", children: [{ type: "text", text: "b " }, { type: "italic", children: [{ type: "text", text: "c" }] }] }, { type: "text", text: " d" }]);
 		expect(parseInline("** a**")).toEqual([{ type: "text", text: "** a**" }]);
+	});
+});
+
+describe("tabelas", () => {
+	const table = "| Item | 1 kg | Faixa maior |\n|---|---|---|\n| Erva doce | R$ 20,85 | 25 kg: R$ 15,50 |\n| Boldo | R$ 38,50 | 25 kg: R$ 28,70 |";
+	it("vira um bloco com cabeçalho e linhas", () => {
+		const [block] = parseMarkdown(table);
+		expect(block?.type).toBe("table");
+		if (block?.type !== "table") return;
+		expect(block.header).toHaveLength(3);
+		expect(block.rows).toHaveLength(2);
+		expect(block.rows[1]?.[1]).toEqual([{ type: "text", text: "R$ 38,50" }]);
+	});
+	it("linha curta ganha células vazias e a longa perde o excedente", () => {
+		const [block] = parseMarkdown("| a | b |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |");
+		if (block?.type !== "table") throw new Error("não é tabela");
+		expect(block.rows[0]).toHaveLength(2);
+		expect(block.rows[1]).toHaveLength(2);
+	});
+	it("separador com alinhamento e sem barras nas pontas", () => {
+		const [block] = parseMarkdown("a | b\n:--|--:\n1 | 2");
+		expect(block?.type).toBe("table");
+	});
+	it("texto com barra solta não vira tabela, e a régua continua régua", () => {
+		expect(parseMarkdown("use a | b para escolher")[0]?.type).toBe("paragraph");
+		expect(parseMarkdown("---")[0]?.type).toBe("rule");
+	});
+	it("tabela no meio do texto separa os blocos", () => {
+		expect(parseMarkdown(`Antes\n\n${table}\n\nDepois`).map((block) => block.type)).toEqual(["paragraph", "table", "paragraph"]);
+	});
+});
+
+describe("largura das colunas da tabela", () => {
+	const widths = (source: string) => {
+		const [block] = parseMarkdown(source);
+		if (block?.type !== "table") throw new Error("não é tabela");
+		return tableColumnWidths(block.header, block.rows);
+	};
+	it("valor curto ocupa o que precisa; texto livre tem mínimo de 8 rem", () => {
+		const [item, preco] = widths("| Item | R$ |\n|---|---|\n| Erva doce | R$ 20,85 |");
+		expect(item).toBe(128);
+		expect(preco).toBeLessThan(120);
+	});
+	it("texto longo para em 22 rem", () => {
+		expect(widths(`| a |\n|---|\n| ${"palavra ".repeat(80)} |`)[0]).toBe(352);
+	});
+	it("tira as marcas inline ao medir", () => {
+		expect(inlineText(parseInline("**oi** _tu_"))).toBe("oi tu");
+	});
+});
+
+describe("fala com tabela", () => {
+	const table = "| a | b |\n|---|---|\n| 1 | 2 |";
+	it("a tabela vira cartão e o texto em volta vira balão", () => {
+		const segments = splitSegments(parseMarkdown(`Antes\n\n${table}\n\nDepois`));
+		expect(segments.map((segment) => segment.kind)).toEqual(["bubble", "table", "bubble"]);
+	});
+	it("só tabela: um cartão, nenhum balão vazio", () => {
+		expect(splitSegments(parseMarkdown(table)).map((segment) => segment.kind)).toEqual(["table"]);
+	});
+	it("sem tabela: um balão só", () => {
+		expect(splitSegments(parseMarkdown("oi\n\n- a\n- b")).map((segment) => segment.kind)).toEqual(["bubble"]);
+	});
+	it("duas tabelas seguidas: dois cartões", () => {
+		expect(splitSegments(parseMarkdown(`${table}\n\n${table}`)).map((segment) => segment.kind)).toEqual(["table", "table"]);
+	});
+});
+
+import { containsTable } from "./markdown";
+
+describe("containsTable", () => {
+	it("acha a tabela e ignora texto com barra solta", () => {
+		expect(containsTable("Antes\n\n| a | b |\n|---|---|\n| 1 | 2 |")).toBe(true);
+		expect(containsTable("use a | b para escolher")).toBe(false);
+		expect(containsTable("sem barra nenhuma")).toBe(false);
 	});
 });

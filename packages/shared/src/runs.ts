@@ -141,6 +141,8 @@ export type CreateAgentRunRequest = {
 	 * o retry cai em steer com novo seq (aceitável).
 	 */
 	clientKey?: string;
+	/** Mensagem da mesma conversa que a fala do usuário responde (citação). Inexistente, de outra conversa ou de outro dono = 404. */
+	replyToMessageId?: string;
 	/**
 	 * Run silencioso: não grava o objective como mensagem `user` na conversa
 	 * (nem via steer em colisão P2002). Para eventos proativos do sistema
@@ -279,6 +281,8 @@ export type CreateRunInputRequest = {
 	mode?: RunInputMode;
 	author?: string;
 	clientKey?: string;
+	/** Mensagem da mesma conversa que a fala do usuário responde (citação). */
+	replyToMessageId?: string;
 	/** Não espelha em ConversationMessage (steer silencioso de evento). */
 	silent?: boolean;
 };

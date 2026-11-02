@@ -4,11 +4,13 @@ import type {
 	CreateConversationResponse,
 	SessionMessage,
 } from "@workspace/shared";
+import { parseReplyToMessageId } from "@workspace/shared";
 import {
 	appendConversationMessage,
 	appendConversationCard,
 	createConversation,
 	getOwnedConversation,
+	ResourceOwnershipError,
 	listConversationMessages,
 	markConversationResultsSeen,
 	markConversationRead,
@@ -43,7 +45,9 @@ function parseAppendMessage(body: unknown): (AppendMessageInput & { attachments:
 		return null;
 	}
 	if (attachments.length && role !== "user") return null;
-	return { role: role as AppendMessageInput["role"], content, attachments };
+	const replyToMessageId = parseReplyToMessageId((body as { replyToMessageId?: unknown }).replyToMessageId);
+	if (replyToMessageId === null) return null;
+	return { role: role as AppendMessageInput["role"], content, attachments, ...(replyToMessageId ? { replyToMessageId } : {}) };
 }
 
 export function createConversationRoutes(options: { compact?: typeof compactConversation } = {}) {
@@ -241,6 +245,9 @@ export function createConversationRoutes(options: { compact?: typeof compactConv
 				id,
 				input.role,
 				input.content,
+				undefined,
+				undefined,
+				input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : undefined,
 			);
 			if (imagesCard) await appendConversationCard(id, imagesCard);
 			return c.json({ message }, 201);
@@ -251,6 +258,8 @@ export function createConversationRoutes(options: { compact?: typeof compactConv
 			) {
 				return c.json({ error: "Conversation not found" }, 404);
 			}
+			// Citação de mensagem de outra conversa/dono, cartão ou inexistente: 404 sem dizer qual.
+			if (error instanceof ResourceOwnershipError) return c.json({ error: "Message not found" }, 404);
 			console.error("append message failed", error);
 			return c.json({ error: "Failed to append message" }, 503);
 		}
