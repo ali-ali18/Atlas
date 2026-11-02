@@ -29,6 +29,8 @@ import { useHomeData } from "@/lib/home-data";
 
 /** Rolou para cima além disto (px do fim): aparece o botão de voltar ao fim. */
 const JUMP_THRESHOLD = 360;
+/** Respiro entre a última mensagem (ou a linha "Pensando…") e o composer que flutua sobre a lista. */
+const LAST_MESSAGE_GAP = 16;
 
 type Soon = "anexos" | "voz" | "buscar" | "compartilhar" | null;
 const SOON_TITLE: Record<NonNullable<Soon>, string> = { anexos: "Anexos", voz: "Voz", buscar: "Buscar no chat", compartilhar: "Compartilhar como modelo" };
@@ -143,7 +145,7 @@ export default function ChatScreen() {
 									<Text className="text-control text-destructive">{chat.error}</Text>
 								</Pressable>
 							) : null}
-							<View style={{ height: composerHeight }} />
+							<View style={{ height: composerHeight + LAST_MESSAGE_GAP }} />
 						</View>
 					}
 					// Rodapé = em cima: o espaço do topo flutuante e o carregando mais antigas.
