@@ -2,9 +2,8 @@ import type { RoutineGroupRecord, RoutineRecord } from "@workspace/shared";
 import * as React from "react";
 import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { RoundButton } from "@/components/chat/chat-top-bar";
-import { ChevronLeftIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { ScreenHeader } from "@/components/ui/screen-header";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { routineSurface } from "@/lib/chat-surface";
@@ -94,14 +93,7 @@ export function RoutinesView({ routines, groups, accent, loading = false, error 
 	}
 	return (
 		<SafeAreaView className="flex-1" style={{ backgroundColor: surface.screen }}>
-			<View className="items-center justify-center px-4 pt-1.5" style={{ minHeight: 47 + 6 }}>
-				<View className="absolute left-4 top-1.5">
-					<RoundButton label="Voltar" onPress={onBack}>
-						<ChevronLeftIcon />
-					</RoundButton>
-				</View>
-				<Text className="text-lg">Rotinas</Text>
-			</View>
+			<ScreenHeader title="Rotinas" onBack={onBack} />
 			<ScrollView contentContainerClassName="gap-3 px-4 pb-10 pt-6">{body}</ScrollView>
 		</SafeAreaView>
 	);

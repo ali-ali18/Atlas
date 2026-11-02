@@ -2,8 +2,8 @@ import type { RoutineRecord } from "@workspace/shared";
 import * as React from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { RoundButton } from "@/components/chat/chat-top-bar";
-import { ChevronLeftIcon, ChevronRightIcon } from "@/components/icons";
+import { ChevronRightIcon } from "@/components/icons";
+import { ScreenHeader } from "@/components/ui/screen-header";
 import { Text } from "@/components/ui/text";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { routineSurface } from "@/lib/chat-surface";
@@ -33,14 +33,7 @@ export function RoutineDetailView({ routine, accent, busy = false, error = null,
 	const card = { borderWidth: 1, borderColor: surface.edge, backgroundColor: surface.card, borderRadius: 21 } as const;
 	return (
 		<SafeAreaView className="flex-1" style={{ backgroundColor: surface.screen }}>
-			<View className="flex-row items-center gap-3 px-4 pt-1.5" style={{ minHeight: 47 + 6 }}>
-				<RoundButton label="Voltar" onPress={onBack}>
-					<ChevronLeftIcon />
-				</RoundButton>
-				<Text numberOfLines={1} className="min-w-0 flex-1 text-lg">
-					{routine.name}
-				</Text>
-			</View>
+			<ScreenHeader title={routine.name} onBack={onBack} />
 			<ScrollView contentContainerClassName="gap-3 px-4 pb-10 pt-4">
 				{error ? (
 					<Text role="alert" className="px-2 text-body text-destructive">
