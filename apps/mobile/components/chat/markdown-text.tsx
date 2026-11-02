@@ -1,6 +1,7 @@
 import * as WebBrowser from "expo-web-browser";
 import * as React from "react";
 import { Platform, ScrollView, Text as RNText, View } from "react-native";
+import Animated, { useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { SendIcon } from "@/components/icons";
 import { Text } from "@/components/ui/text";
 import { chatSurface } from "@/lib/chat-surface";
@@ -69,7 +70,12 @@ export function TableCard({ block, scheme }: { block: Extract<Block, { type: "ta
 	const widths = tableColumnWidths(block.header, block.rows);
 	const total = widths.reduce((sum, width) => sum + width, 0);
 	const [viewport, setViewport] = React.useState(0);
-	const [offset, setOffset] = React.useState(0);
+	// A posição da rolagem vive num valor compartilhado (thread de UI): atualizar a barrinha não re-renderiza a tabela,
+	// que travava ao puxar quando cada evento de rolagem refazia o cartão inteiro.
+	const offset = useSharedValue(0);
+	const onScroll = useAnimatedScrollHandler((event) => {
+		offset.value = event.contentOffset.x;
+	});
 	// Cores medidas no app do Grok (tema escuro): borda do cartão #313131 e divisor das linhas #2a2a2a, mais claros que o
 	// token `border` (#222223, quase invisível sobre o cartão). No claro vale o token.
 	const edge = scheme === "dark" ? "#313131" : themeColor(scheme, "border");
@@ -77,13 +83,13 @@ export function TableCard({ block, scheme }: { block: Extract<Block, { type: "ta
 	const overflow = viewport > 0 && total > viewport;
 	return (
 		<View className="self-stretch overflow-hidden" style={{ borderWidth: 1, borderColor: edge, backgroundColor: chatSurface(scheme, "card"), borderRadius: 21 }}>
-			<ScrollView
+			<Animated.ScrollView
 				horizontal
 				nestedScrollEnabled
 				showsHorizontalScrollIndicator={false}
 				scrollEventThrottle={16}
 				onLayout={(event) => setViewport(event.nativeEvent.layout.width)}
-				onScroll={(event) => setOffset(event.nativeEvent.contentOffset.x)}
+				onScroll={onScroll}
 				style={{ flexGrow: 0 }}
 				contentContainerStyle={{ flexGrow: 0 }}
 			>
@@ -100,20 +106,20 @@ export function TableCard({ block, scheme }: { block: Extract<Block, { type: "ta
 						</View>
 					))}
 				</View>
-			</ScrollView>
+			</Animated.ScrollView>
 			{overflow ? <ScrollThumb viewport={viewport} content={total} offset={offset} /> : null}
 		</View>
 	);
 }
 
 /** Barrinha de rolagem do cartão: trilho 29x4 dp no canto de baixo à direita (16 da borda, 3 do fundo), polegar na posição da rolagem. */
-function ScrollThumb({ viewport, content, offset }: { viewport: number; content: number; offset: number }) {
+function ScrollThumb({ viewport, content, offset }: { viewport: number; content: number; offset: { value: number } }) {
 	const thumb = Math.max(12, Math.round(TRACK_WIDTH * (viewport / content)));
-	const range = content - viewport;
-	const left = range > 0 ? Math.round((TRACK_WIDTH - thumb) * Math.min(1, Math.max(0, offset / range))) : 0;
+	const range = Math.max(1, content - viewport);
+	const thumbStyle = useAnimatedStyle(() => ({ transform: [{ translateX: (TRACK_WIDTH - thumb) * Math.min(1, Math.max(0, offset.value / range)) }] }));
 	return (
 		<View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ position: "absolute", right: 16, bottom: 3, width: TRACK_WIDTH, height: 4, borderRadius: 2, backgroundColor: "#343436" }}>
-			<View style={{ position: "absolute", left, width: thumb, height: 4, borderRadius: 2, backgroundColor: "#4a494e" }} />
+			<Animated.View style={[{ position: "absolute", left: 0, width: thumb, height: 4, borderRadius: 2, backgroundColor: "#4a494e" }, thumbStyle]} />
 		</View>
 	);
 }
