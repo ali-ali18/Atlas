@@ -1,6 +1,5 @@
 import { resolveColor, resolveShape } from "@workspace/shared/avatar/identity";
 import * as React from "react";
-import Animated, { cancelAnimation, Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { Image, KeyboardAvoidingView, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RoundButton, TOP_BAR_CONTROL, TOP_BAR_SIDE } from "@/components/chat/chat-top-bar";
@@ -61,36 +60,28 @@ function RoundAction({ label, onPress, children }: { label: string; onPress?: ()
 	);
 }
 
-/** Uma volta do avatar na tela de carregamento (linear, em laço). */
-const SPIN_MS = 1600;
+/** Cor da esfera da tela "Conectando": cinza claro, que combina com o fundo preto e com os olhos escuros. */
+const SPHERE = "#e4e4e7";
+/** Uma volta da esfera na tela de carregamento. */
+const SPIN_S = 1.6;
 
-/** O avatar do bot girando no centro enquanto conecta. Com movimento reduzido fica parado, "pensando". */
-function SpinningAvatar({ bot }: { bot: Pick<HomeBot, "id" | "color" | "shape"> }) {
-	const reduced = useReducedMotion();
-	const turn = useSharedValue(0);
-	React.useEffect(() => {
-		if (reduced) {
-			cancelAnimation(turn);
-			turn.value = 0;
-			return;
-		}
-		turn.value = 0;
-		turn.value = withRepeat(withTiming(360, { duration: SPIN_MS, easing: Easing.linear }), -1, false);
-		return () => cancelAnimation(turn);
-	}, [reduced, turn]);
-	const style = useAnimatedStyle(() => ({ transform: [{ rotate: `${turn.value}deg` }] }));
+/**
+ * Esfera (a forma `blob` do motor) girando 360° no próprio eixo vertical enquanto conecta, com os olhos escuros que
+ * somem atrás. O giro é o `spin` do `Avatar`; com "reduzir movimento" ele fica parado de frente, "pensando".
+ */
+function SpinningSphere() {
 	return (
-		<Animated.View accessible accessibilityRole="progressbar" accessibilityLabel="Conectando ao computador" style={style}>
-			<Avatar color={resolveColor(bot.color, bot.id)} shape={resolveShape(bot.shape, bot.id)} size={72} animated look state="thinking" eyeColor={SCREEN} />
-		</Animated.View>
+		<View accessible accessibilityRole="progressbar" accessibilityLabel="Conectando ao computador">
+			<Avatar color={SPHERE} shape="blob" size={72} animated look={false} spin spinPeriodS={SPIN_S} state="idle" eyeColor={SCREEN} />
+		</View>
 	);
 }
 
-function Placeholder({ status, bot, onRetry, onStart, errorText }: { status: Exclude<ComputerStatus, "ready">; bot: Pick<HomeBot, "id" | "color" | "shape">; onRetry?: () => void; onStart?: () => void; errorText?: string | null }) {
+function Placeholder({ status, onRetry, onStart, errorText }: { status: Exclude<ComputerStatus, "ready">; onRetry?: () => void; onStart?: () => void; errorText?: string | null }) {
 	if (status === "loading") {
 		return (
 			<View className="flex-1 items-center justify-center gap-4">
-				<SpinningAvatar bot={bot} />
+				<SpinningSphere />
 				<Text className="text-control" style={{ color: "#a1a1aa" }}>
 					Conectando ao computador…
 				</Text>
@@ -166,7 +157,7 @@ export function ComputerView({ bot, avatarState = "idle", status, source, childr
 					{source ? <Image source={source} resizeMode="contain" accessibilityLabel={`Tela do computador de ${bot.name}`} style={{ width: "100%", height: "100%" }} /> : children}
 				</Zoomable>
 			) : (
-				<Placeholder status={status} bot={bot} onRetry={onRetry} onStart={onStart} errorText={errorText} />
+				<Placeholder status={status} onRetry={onRetry} onStart={onStart} errorText={errorText} />
 			)}
 
 			{ready ? (
