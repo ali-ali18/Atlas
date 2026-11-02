@@ -15,6 +15,7 @@ export type Block =
 	| { type: "list"; ordered: boolean; start: number; items: Inline[][] }
 	| { type: "code"; text: string; lang: string }
 	| { type: "quote"; inline: Inline[] }
+	| { type: "table"; header: Inline[][]; rows: Inline[][][] }
 	| { type: "rule" };
 
 const SAFE_URL = /^https?:\/\/[^\s<>]+$/i;
@@ -122,6 +123,18 @@ export function parseInline(source: string): Inline[] {
 	return out;
 }
 
+/** Divide uma linha de tabela `| a | b |` em células (a barra escapada `\\|` fica no texto). */
+export function splitTableRow(line: string): string[] {
+	let text = line.trim();
+	if (text.startsWith("|")) text = text.slice(1);
+	if (text.endsWith("|") && !text.endsWith("\\|")) text = text.slice(0, -1);
+	return text.split(/(?<!\\)\|/).map((cell) => cell.replace(/\\\|/g, "|").trim());
+}
+
+const TABLE_SEPARATOR = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
+/** Linha de separação (`|---|:--:|`) com pelo menos uma barra, para não confundir com a régua `---`. */
+export const isTableSeparator = (line: string): boolean => line.includes("|") && TABLE_SEPARATOR.test(line);
+
 const BULLET = /^\s*[-*•+]\s+(.*)$/;
 const ORDERED = /^\s*(\d{1,3})[.)]\s+(.*)$/;
 
@@ -160,7 +173,20 @@ export function parseMarkdown(source: string): Block[] {
 			continue;
 		}
 		let match: RegExpExecArray | null;
-		if ((match = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line))) {
+		if (line.includes("|") && index + 1 < lines.length && isTableSeparator(lines[index + 1]!)) {
+			flushParagraph();
+			const header = splitTableRow(line);
+			const rows: Inline[][][] = [];
+			index += 2;
+			while (index < lines.length && lines[index]!.trim() && lines[index]!.includes("|")) {
+				const cells = splitTableRow(lines[index]!);
+				// Linha curta ganha células vazias; longa perde o excedente (o cabeçalho manda nas colunas).
+				rows.push(header.map((_, column) => parseInline(cells[column] ?? "")));
+				index += 1;
+			}
+			index -= 1;
+			blocks.push({ type: "table", header: header.map((cell) => parseInline(cell)), rows });
+		} else if ((match = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line))) {
 			flushParagraph();
 			blocks.push({ type: "heading", level: Math.min(3, match[1]!.length) as 1 | 2 | 3, inline: parseInline(match[2]!) });
 		} else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {

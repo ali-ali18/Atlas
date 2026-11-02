@@ -107,6 +107,27 @@ function BlockView({ block, scheme }: { block: Block; scheme: "light" | "dark" }
 					</Text>
 				</View>
 			);
+		case "table":
+			return (
+				// Rola na horizontal dentro do balão; cada coluna tem largura mínima para o texto não esmagar.
+				<View className="self-stretch overflow-hidden rounded-card border border-border">
+					<ScrollView horizontal nestedScrollEnabled style={{ width: "100%" }}>
+						<View>
+							{[block.header, ...block.rows].map((row, rowIndex) => (
+								<View key={`row-${rowIndex}`} className={cn("flex-row", rowIndex > 0 && "border-t border-border", rowIndex === 0 && "bg-secondary")}>
+									{row.map((cell, column) => (
+										<View key={`cell-${column}`} className={cn("px-3 py-2", column > 0 && "border-l border-border")} style={{ width: 132 }}>
+											<Text className={cn("text-body leading-snug", rowIndex === 0 && "font-semibold")}>
+												<Inlines nodes={cell} scheme={scheme} />
+											</Text>
+										</View>
+									))}
+								</View>
+							))}
+						</View>
+					</ScrollView>
+				</View>
+			);
 		case "rule":
 			return <View className="h-px bg-border" />;
 	}

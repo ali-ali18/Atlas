@@ -78,3 +78,32 @@ describe("entrada grande ou hostil", () => {
 		expect(parseInline("** a**")).toEqual([{ type: "text", text: "** a**" }]);
 	});
 });
+
+describe("tabelas", () => {
+	const table = "| Item | 1 kg | Faixa maior |\n|---|---|---|\n| Erva doce | R$ 20,85 | 25 kg: R$ 15,50 |\n| Boldo | R$ 38,50 | 25 kg: R$ 28,70 |";
+	it("vira um bloco com cabeçalho e linhas", () => {
+		const [block] = parseMarkdown(table);
+		expect(block?.type).toBe("table");
+		if (block?.type !== "table") return;
+		expect(block.header).toHaveLength(3);
+		expect(block.rows).toHaveLength(2);
+		expect(block.rows[1]?.[1]).toEqual([{ type: "text", text: "R$ 38,50" }]);
+	});
+	it("linha curta ganha células vazias e a longa perde o excedente", () => {
+		const [block] = parseMarkdown("| a | b |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |");
+		if (block?.type !== "table") throw new Error("não é tabela");
+		expect(block.rows[0]).toHaveLength(2);
+		expect(block.rows[1]).toHaveLength(2);
+	});
+	it("separador com alinhamento e sem barras nas pontas", () => {
+		const [block] = parseMarkdown("a | b\n:--|--:\n1 | 2");
+		expect(block?.type).toBe("table");
+	});
+	it("texto com barra solta não vira tabela, e a régua continua régua", () => {
+		expect(parseMarkdown("use a | b para escolher")[0]?.type).toBe("paragraph");
+		expect(parseMarkdown("---")[0]?.type).toBe("rule");
+	});
+	it("tabela no meio do texto separa os blocos", () => {
+		expect(parseMarkdown(`Antes\n\n${table}\n\nDepois`).map((block) => block.type)).toEqual(["paragraph", "table", "paragraph"]);
+	});
+});
