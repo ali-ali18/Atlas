@@ -14,6 +14,7 @@ import {
 	isMessageSourceKind,
 	isLlmChatRole,
 	LLM_CHAT_ROLES,
+	buildReplyQuote,
 	parseConversationCard,
 	parseDevApprovalInfo,
 	parseSecretsRequestInfo,
@@ -31,6 +32,7 @@ import {
 	type PersistedSkillCard,
 	type PersistedPageCard,
 	type QuestionnaireCardItem,
+	type ReplyQuote,
 } from "@workspace/shared";
 import { prisma } from "./client.js";
 import { currentMessageRunId } from "./message-run-context.js";
@@ -78,6 +80,36 @@ function toSessionMessage(row: {
 			: {}),
 		createdAt: row.createdAt.toISOString(),
 	};
+}
+
+/**
+ * Mensagem citada por uma resposta: precisa ser uma fala (usuário/assistente) da MESMA conversa. Quem chama já
+ * confirmou o dono da conversa, então "mesma conversa" cobre também "mesmo dono". Qualquer outra coisa (inexistente,
+ * de outra conversa, cartão) lança `ResourceOwnershipError` (a rota responde 404, sem revelar qual).
+ */
+export async function findReplyQuote(conversationId: string, replyToMessageId: string): Promise<ReplyQuote> {
+	const row = await prisma.conversationMessage.findFirst({
+		where: { id: replyToMessageId, conversationId },
+		select: { id: true, role: true, content: true },
+	});
+	const quote = row ? buildReplyQuote(row) : null;
+	if (!quote) throw new ResourceOwnershipError();
+	return quote;
+}
+
+/** Citações das respostas de uma página de mensagens (só ids que ainda existem na conversa e são citáveis). */
+async function loadReplyQuotes(conversationId: string, ids: readonly string[]): Promise<Map<string, ReplyQuote>> {
+	const quotes = new Map<string, ReplyQuote>();
+	if (ids.length === 0) return quotes;
+	const rows = await prisma.conversationMessage.findMany({
+		where: { id: { in: [...ids] }, conversationId },
+		select: { id: true, role: true, content: true },
+	});
+	for (const row of rows) {
+		const quote = buildReplyQuote(row);
+		if (quote) quotes.set(row.id, quote);
+	}
+	return quotes;
 }
 
 export async function createConversation(userId?: string): Promise<{ id: string }> {
@@ -145,10 +177,14 @@ export async function listConversationMessages(
 	await expireOrphanedConfirmRows(conversationId, ordered).catch(() => undefined);
 	// Reações das falas (cartões não têm). Falha aqui não derruba a conversa: some só o emoji.
 	const reactions = await loadReactionsByMessage(ordered.filter((row) => row.role === "user" || row.role === "assistant").map((row) => row.id)).catch(() => new Map());
+	// Citações das respostas. Falha aqui também não derruba a conversa: some só o trecho.
+	const replyIds = [...new Set(ordered.flatMap((row) => (row.replyToMessageId ? [row.replyToMessageId] : [])))];
+	const quotes = await loadReplyQuotes(conversationId, replyIds).catch(() => new Map<string, ReplyQuote>());
 	return ordered.map((row) => {
 		const message = toSessionMessage(row);
 		const own = reactions.get(row.id);
-		return own?.length ? { ...message, reactions: own } : message;
+		const replyTo = row.replyToMessageId ? quotes.get(row.replyToMessageId) : undefined;
+		return { ...message, ...(own?.length ? { reactions: own } : {}), ...(replyTo ? { replyTo } : {}) };
 	});
 }
 
@@ -193,8 +229,11 @@ export async function appendConversationMessage(
 	origin?: string | null,
 	/** Mensagem entre bots: remetente e vínculo com a cadeia. */
 	bot?: { fromBotId?: string | null; fromBotName?: string | null; botMessageId?: string | null },
-	/** `id` explícito torna a gravação idempotente (id repetido = erro de chave única P2002 para quem chamou tratar). */
-	options?: { id?: string },
+	/**
+	 * `id` explícito torna a gravação idempotente (id repetido = erro de chave única P2002 para quem chamou tratar).
+	 * `replyToMessageId`: fala da MESMA conversa que esta responde; inválida lança `ResourceOwnershipError`.
+	 */
+	options?: { id?: string; replyToMessageId?: string },
 ): Promise<SessionMessage> {
 	if (!CHAT_ROLES.includes(role)) {
 		throw new Error(`Invalid message role: ${role}`);
@@ -208,12 +247,15 @@ export async function appendConversationMessage(
 		throw new Error("Conversation not found");
 	}
 
+	const replyTo = options?.replyToMessageId ? await findReplyQuote(conversationId, options.replyToMessageId) : null;
+
 	const row = await prisma.conversationMessage.create({
 		data: {
 			...(options?.id ? { id: options.id } : {}),
 			conversationId,
 			role,
 			content,
+			...(replyTo ? { replyToMessageId: replyTo.id } : {}),
 			...(isPersistedMessageOrigin(origin) ? { origin } : {}),
 			...(bot?.fromBotId ? { fromBotId: bot.fromBotId } : {}),
 			...(bot?.fromBotName ? { fromBotName: bot.fromBotName } : {}),
@@ -222,7 +264,7 @@ export async function appendConversationMessage(
 		},
 	});
 
-	return toSessionMessage(row);
+	return replyTo ? { ...toSessionMessage(row), replyTo } : toSessionMessage(row);
 }
 
 /**

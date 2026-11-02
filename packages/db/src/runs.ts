@@ -1,5 +1,5 @@
 import { prisma } from "./client.js";
-import { appendConversationCard, appendConversationMessage, getOwnedConversation, ResourceOwnershipError } from "./conversations.js";
+import { appendConversationCard, appendConversationMessage, findReplyQuote, getOwnedConversation, ResourceOwnershipError } from "./conversations.js";
 import { withMessageRunId } from "./message-run-context.js";
 import { resolveUserFileCards } from "./file-attachments.js";
 import { imageAttachmentsOf, resolveUserImagesCard } from "./image-attachments.js";
@@ -21,7 +21,7 @@ import type {
 } from "@workspace/shared";
 import { sanitizeStopDetail, readRunEngine, readRunProfile, withRunEngine, withRunPromotion, type RunEngine, type RunProfile } from "@workspace/shared";
 import type { RunStop } from "@workspace/shared";
-import { parseReasoningEffort, type ReasoningEffort } from "@workspace/shared";
+import { parseReasoningEffort, withReplyContext, type ReasoningEffort, type ReplyQuote } from "@workspace/shared";
 import { AGENT_RUNTIME_CHECKPOINT_VERSION, RUN_MAX_RECOVERIES, RUN_RECOVERY_LIMIT_MESSAGE, nextRunRecoveryState, buildMessageSource, LIVE_RUN_INPUT_MODES, isCardConfirmToken, isPersistedMessageOrigin, isTaskListDone, parseTaskList, normalizeRunInputMode, openItems, parseTaskLedger, parseToolCacheState, parseToolResultStatus, redactSecrets, splitReplySegments } from "@workspace/shared";
 import type { ToolCacheState, ToolResultStatus } from "@workspace/shared";
 import type { ComputerUseEvent, ConversationTaskContext, ResearchNote, TaskLedger, TaskListItem } from "@workspace/shared";
@@ -152,6 +152,29 @@ function lastUserObjective(messages: CreateAgentRunRequest["messages"]): string 
 		}
 	}
 	return "Objetivo não informado";
+}
+
+/**
+ * Resposta a uma mensagem: a linha com o trecho citado vai só ao modelo (último turno do usuário do checkpoint). O
+ * `objective` e a mensagem gravada na conversa continuam com o texto que o usuário digitou. Sem citação, o pedido
+ * volta idêntico.
+ */
+export function withReplyContextOnRequest(request: CreateAgentRunRequest, replyTo: ReplyQuote | null): CreateAgentRunRequest {
+	if (!replyTo) return request;
+	let index = -1;
+	for (let i = request.messages.length - 1; i >= 0; i -= 1) {
+		const message = request.messages[i];
+		if (message?.role === "user" && message.content.trim().length > 0) {
+			index = i;
+			break;
+		}
+	}
+	if (index < 0) return request;
+	return {
+		...request,
+		objective: request.objective?.trim() || lastUserObjective(request.messages),
+		messages: request.messages.map((message, i) => (i === index ? { ...message, content: withReplyContext(message.content, replyTo) } : message)),
+	};
 }
 
 function isUniqueActiveRunConflict(error: unknown): boolean {
@@ -393,6 +416,12 @@ export async function createAgentRun(input: {
 	const origin = request.origin ?? "chat";
 	const imagesCard = await resolveUserImagesCard(request.attachments ?? [], userId);
 	const fileCards = await resolveUserFileCards(request.attachments ?? [], userId);
+	// Resposta a uma mensagem: valida ANTES de criar o run (citação inválida = 404, nada gravado). Só vale para fala
+	// do usuário gravada na conversa (rotina e run silencioso não gravam, então não citam).
+	if (request.replyToMessageId && !conversationId) throw new ResourceOwnershipError();
+	const replyTo = request.replyToMessageId && conversationId && origin !== "routine" && request.silent !== true
+		? await findReplyQuote(conversationId, request.replyToMessageId)
+		: null;
 	// A conversa de um grupo nunca vira a conversa própria de um membro.
 	if (request.botId && conversationId && !(await isGroupConversation(conversationId))) {
 		await prisma.bot.updateMany({
@@ -407,7 +436,7 @@ export async function createAgentRun(input: {
 	try {
 		const row = await prisma.agentRun.create({
 			data: buildQueuedRunData({
-				request: fileCards.length ? { ...request, attachments: await imageAttachmentsOf(request.attachments ?? [], userId) } : request,
+				request: withReplyContextOnRequest(fileCards.length ? { ...request, attachments: await imageAttachmentsOf(request.attachments ?? [], userId) } : request, replyTo),
 				model, userId, conversationId, contextLength: input.contextLength, modelAuto: input.modelAuto, humanTurn: input.humanTurn,
 				fileArtifactIds: fileCards.map((card) => card.artifactId),
 				...(input.inheritFromConversation ? { inherited: await getConversationInheritance(userId, conversationId) } : {}),
@@ -417,7 +446,7 @@ export async function createAgentRun(input: {
 			const objective =
 				request.objective?.trim() || lastUserObjective(request.messages);
 			if (objective && objective !== "Objetivo não informado") {
-				await appendConversationMessage(conversationId, "user", objective, origin);
+				await appendConversationMessage(conversationId, "user", objective, origin, undefined, replyTo ? { replyToMessageId: replyTo.id } : undefined);
 				// Só o que o usuário digitou (chat não silencioso); prompt de sistema e rotina nunca entram.
 				if (origin === "chat") await recordUserLanguage({ userId, conversationId, text: objective });
 			}
@@ -458,6 +487,7 @@ export async function createAgentRun(input: {
 				...(request.attachments?.length ? { attachments: request.attachments } : {}),
 				...(request.clientKey ? { clientKey: request.clientKey } : {}),
 				...(request.silent === true ? { silent: true as const } : {}),
+				...(request.replyToMessageId ? { replyToMessageId: request.replyToMessageId } : {}),
 			}, userId);
 			await input.onMergedIntoActiveRun?.(existing.id);
 		}
@@ -1860,11 +1890,18 @@ export async function createRunInput(
 	const mode = normalizeRunInputMode(request.mode);
 	const content = request.content.trim();
 	if (!content && !request.attachments?.length) throw new Error("content vazio");
+	// Resposta a uma mensagem: citação inválida (ou sem conversa para conferir) = 404, nada gravado.
+	if (request.replyToMessageId && !conversationOk) throw new ResourceOwnershipError();
+	const replyTo = request.replyToMessageId && conversationOk && run.conversationId && request.silent !== true
+		? await findReplyQuote(run.conversationId, request.replyToMessageId)
+		: null;
 	const imagesCard = await resolveUserImagesCard(request.attachments ?? [], run.userId);
 	const fileCards = await resolveUserFileCards(request.attachments ?? [], run.userId);
 	// Arquivo anexado no meio do run: o modelo recebe só a lista (lê com attachment_read); a conversa mostra o texto original.
 	const imageAttachments = fileCards.length ? await imageAttachmentsOf(request.attachments ?? [], run.userId) : request.attachments ?? [];
-	const inputContent = fileCards.length ? `${content}${content ? "\n\n" : ""}[The user attached ${fileCards.length === 1 ? "a file" : `${fileCards.length} files`}: ${fileCards.map((card) => `"${card.filename}" (attachment id ${card.artifactId}, ${card.size} bytes)`).join("; ")}. Read with attachment_read.]` : content;
+	const withFiles = fileCards.length ? `${content}${content ? "\n\n" : ""}[The user attached ${fileCards.length === 1 ? "a file" : `${fileCards.length} files`}: ${fileCards.map((card) => `"${card.filename}" (attachment id ${card.artifactId}, ${card.size} bytes)`).join("; ")}. Read with attachment_read.]` : content;
+	// A linha da citação vai só ao modelo (input); a mensagem da conversa guarda o que o usuário digitou.
+	const inputContent = withReplyContext(withFiles, replyTo);
 	const clientKey =
 		typeof request.clientKey === "string" && request.clientKey.trim().length > 0
 			? request.clientKey.trim().slice(0, 128)
@@ -1906,7 +1943,7 @@ export async function createRunInput(
 		});
 		if (conversationOk && run.conversationId && mode !== "cancel" && request.silent !== true) {
 			await tx.conversationMessage.create({
-				data: { conversationId: run.conversationId, role: "user", content },
+				data: { conversationId: run.conversationId, role: "user", content, ...(replyTo ? { replyToMessageId: replyTo.id } : {}) },
 			});
 			if (imagesCard) await tx.conversationMessage.create({ data: { conversationId: run.conversationId, role: "images", content: JSON.stringify(imagesCard) } });
 			for (const card of fileCards) await tx.conversationMessage.create({ data: { conversationId: run.conversationId, role: "file", content: JSON.stringify(card) } });
