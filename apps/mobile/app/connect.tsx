@@ -1,4 +1,3 @@
-import { useRouter } from "expo-router";
 import * as React from "react";
 import { LinkIcon } from "@/components/icons";
 import { AuthColumn, AuthHeader } from "@/components/auth-layout";
@@ -8,13 +7,14 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { checkServer } from "@/lib/server-check";
-import { loadServerUrl, saveServerUrl } from "@/lib/server-store";
+import { useAtlasSession } from "@/lib/atlas-session";
+import { loadServerUrl } from "@/lib/server-store";
 import { normalizeServerUrl } from "@/lib/server-url";
 
 // Mesma estrutura do login do web: cabeçalho, campo em InputGroup com ícone, botão `lg` de largura total,
 // erro centralizado em `text-destructive text-sm` e rodapé. O campo é o endereço do servidor, não o e-mail.
 export default function ConnectionScreen() {
-	const router = useRouter();
+	const { connectServer } = useAtlasSession();
 	const [value, setValue] = React.useState("");
 	const [error, setError] = React.useState<string | null>(null);
 	const [busy, setBusy] = React.useState(false);
@@ -41,7 +41,7 @@ export default function ConnectionScreen() {
 			return;
 		}
 		try {
-			await saveServerUrl(normalized.url);
+			await connectServer(normalized.url);
 		} catch {
 			setBusy(false);
 			setError("Não consegui guardar o endereço neste aparelho. Tente de novo.");
@@ -49,7 +49,7 @@ export default function ConnectionScreen() {
 		}
 		setValue(normalized.url);
 		setBusy(false);
-		router.push("/login");
+		// A navegação para o Login vem do controle de acesso (app/_layout.tsx) assim que o servidor é guardado.
 	}
 
 	return (

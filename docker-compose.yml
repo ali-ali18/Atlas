@@ -20,6 +20,7 @@ x-api-environment: &api-environment
   # Prévia privada de projetos web (domínio SEPARADO do Atlas; vazio = recurso desligado). Ver docs/deploy-dokploy.md §6.
   ATLAS_PREVIEW_BASE_DOMAIN: ${ATLAS_PREVIEW_BASE_DOMAIN:-}
   ATLAS_OWNER_EMAIL: ${ATLAS_OWNER_EMAIL:-}
+  ATLAS_TRUST_EXPO_GO: ${ATLAS_TRUST_EXPO_GO:-}
   BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
   MAIL_URL: ${MAIL_URL:-log://}
   MAIL_FROM: ${MAIL_FROM:-Atlas <no-reply@localhost>}

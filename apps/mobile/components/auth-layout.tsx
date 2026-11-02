@@ -9,12 +9,12 @@ import { useKeyboardVisible } from "@/lib/use-keyboard-visible";
  * (no web é o ícone num quadrado `bg-primary`; no celular o painel de marca não existe e o avatar branco
  * do Atlas, o mesmo do painel, ocupa o lugar), título `text-xl` e subtítulo `text-sm` centralizados.
  */
-export function AuthHeader({ title, subtitle }: { title: string; subtitle: string }) {
+export function AuthHeader({ title, subtitle, mood = "neutral" }: { title: string; subtitle: string; mood?: "neutral" | "happy" }) {
 	// Com o teclado aberto o espaço é curto: o mascote encolhe para o campo e o botão ficarem à vista.
 	const keyboardOpen = useKeyboardVisible();
 	return (
 		<View className="items-center gap-2">
-			<Avatar ariaLabel="Avatar do Atlas Agent" size={keyboardOpen ? 64 : 102} />
+			<Avatar ariaLabel="Avatar do Atlas Agent" size={keyboardOpen ? 64 : 102} mood={mood} />
 			<Text className="text-center text-xl font-semibold tracking-tight">{title}</Text>
 			<Text variant="muted" className="text-center text-sm">
 				{subtitle}

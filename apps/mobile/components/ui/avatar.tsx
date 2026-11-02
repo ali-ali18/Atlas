@@ -16,6 +16,7 @@ import Animated, {
 } from "react-native-reanimated";
 import Svg, { G, Path } from "react-native-svg";
 import { PUSH_AVATAR_BACKGROUND } from "@workspace/shared";
+import { poseFrame, type Pose } from "@/lib/avatar-pose";
 import { cn } from "@/lib/cn";
 import { useAppColorScheme } from "@/lib/use-theme";
 
@@ -43,6 +44,11 @@ export type AvatarProps = {
 	breathe?: boolean;
 	/** Olhar: de tempos em tempos os olhos passeiam para um ponto e voltam (as olhadas do motor do web). */
 	look?: boolean;
+	/**
+	 * Pose 3D parada (yaw/pitch/roll do motor), para as listas, que no web também ficam paradas. Use com `animated={false}`:
+	 * a respiração e a piscada do app não combinam com o corpo girado.
+	 */
+	pose?: Pose;
 };
 
 // Tempos do motor do web (BEHAVIOR_TUNING e CHARACTER_TUNING em packages/shared/src/avatar/model):
@@ -100,7 +106,7 @@ function playTrack(target: SharedValue<number>, keys: readonly Key[], scale = 1)
  * respiração (escala, flutuação e leve balanço) e piscada. Ficam de fora o olhar que segue o toque, os
  * estados do cérebro e os clipes 3D de repouso (Idle_A/B/D), que dependem do loop de quadros do motor.
  */
-export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120, animated = true, mood = "neutral", breathe = false, look = true }: AvatarProps) {
+export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120, animated = true, mood = "neutral", breathe = false, look = true, pose }: AvatarProps) {
 	const scheme = useAppColorScheme();
 	const reducedMotion = useReducedMotion();
 	const live = animated && !reducedMotion;
@@ -108,7 +114,8 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 	const bodyColor = color ?? (scheme === "dark" ? "#ffffff" : PUSH_AVATAR_BACKGROUND);
 	const eyeColor = eyeColorFor(bodyColor);
 	const { transform, body, eyes, eyeCy } = React.useMemo(() => {
-		const frame = stillFrame(shape, mood === "happy" ? "happy" : "neutral");
+		const expression = mood === "happy" ? "happy" : "neutral";
+		const frame = pose ? poseFrame(shape, expression, pose) : stillFrame(shape, expression);
 		const projected = projectFrame(frame);
 		return {
 			transform: groupTransform(frame),
@@ -116,7 +123,7 @@ export function Avatar({ ariaLabel, className, color, shape = "blob", size = 120
 			eyes: projected.eyes,
 			eyeCy: (frame.eyes[0].cy + frame.eyes[1].cy) / 2,
 		};
-	}, [shape, mood]);
+	}, [shape, mood, pose]);
 
 	// Respiração: um ciclo de 3,6 s (vai e volta), fase única para escala, flutuação e balanço.
 	const breath = useSharedValue(0);

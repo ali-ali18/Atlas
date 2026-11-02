@@ -58,25 +58,30 @@ a{display:inline-block;padding:.65rem 1.25rem;border-radius:.75rem;background:va
 <p>Este link só abre para quem está com a conta do Atlas conectada. Depois de entrar, volte a este link.</p>
 <a href="/login">Entrar no Atlas</a></main></body></html>`;
 
-export const requireUser = createMiddleware<AuthEnv>(async (c, next) => {
-	if (isPublicV1Request(c.req.method, c.req.path)) {
-		await next();
-		return;
-	}
-
-	const session = await auth.api.getSession({ headers: c.req.raw.headers });
-	if (!session || !isOwnerEmail(session.user.email)) {
-		if (isPreviewOpenNavigation(c.req.method, c.req.path, c.req.header("accept"))) {
-			return c.html(PREVIEW_LOGIN_PAGE, 401, {
-				"Cache-Control": "no-store",
-				"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-				"Referrer-Policy": "no-referrer",
-				"X-Content-Type-Options": "nosniff",
-			});
+/** `authLike` é injetável para o teste usar um servidor de autenticação com banco em memória. */
+export function createRequireUser(authLike: Pick<typeof auth, "api">) {
+	return createMiddleware<AuthEnv>(async (c, next) => {
+		if (isPublicV1Request(c.req.method, c.req.path)) {
+			await next();
+			return;
 		}
-		return c.json({ error: "Unauthorized" }, 401);
-	}
-	c.set("session", session);
-	c.set("user", session.user);
-	await next();
-});
+
+		const session = await authLike.api.getSession({ headers: c.req.raw.headers });
+		if (!session || !isOwnerEmail(session.user.email)) {
+			if (isPreviewOpenNavigation(c.req.method, c.req.path, c.req.header("accept"))) {
+				return c.html(PREVIEW_LOGIN_PAGE, 401, {
+					"Cache-Control": "no-store",
+					"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+					"Referrer-Policy": "no-referrer",
+					"X-Content-Type-Options": "nosniff",
+				});
+			}
+			return c.json({ error: "Unauthorized" }, 401);
+		}
+		c.set("session", session);
+		c.set("user", session.user);
+		await next();
+	});
+}
+
+export const requireUser = createRequireUser(auth);
