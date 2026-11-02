@@ -1,7 +1,8 @@
 import * as React from "react";
 import { Pressable, View } from "react-native";
 import Animated, { FadeIn, useReducedMotion } from "react-native-reanimated";
-import { bubbleRadius, type GroupPosition } from "@workspace/shared";
+import type { GroupPosition } from "@workspace/shared";
+import { bubbleCorners } from "@/lib/bubble-corners";
 import { Text } from "@/components/ui/text";
 import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem, Reaction, ReplyQuote } from "@/lib/chat-types";
@@ -37,8 +38,8 @@ function UserBubble({ text, position, reactions, replyTo, accent, onLongPress }:
 			<Pressable
 				onLongPress={onLongPress}
 				accessibilityHint="Segure para ver as ações da mensagem"
-				style={accent ? { backgroundColor: accent.background } : undefined}
-				className={`px-3.5 py-3.5 ${accent ? "" : "bg-muted"} ${bubbleRadius("right", position)}`}
+				style={[accent ? { backgroundColor: accent.background } : undefined, bubbleCorners("right", position)]}
+				className={`px-3.5 py-3.5 ${accent ? "" : "bg-muted"}`}
 			>
 				<Text className="text-base leading-snug" style={accent ? { color: accent.foreground } : undefined}>
 					{text}
@@ -81,7 +82,7 @@ function BotBubble({ text, position, reactions, replyTo, onLongPress }: { text: 
 				segment.kind === "table" ? (
 					<TableCard key={`table-${index}`} block={segment.block} scheme={scheme} onLongPress={onLongPress} />
 				) : (
-					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" style={{ backgroundColor: chatSurface(scheme, "bubble") }} className={`px-3.5 py-3.5 ${bubbleRadius("left", position)}`}>
+					<Pressable key={`bubble-${index}`} onLongPress={onLongPress} accessibilityHint="Segure para ver as ações da mensagem" style={[{ backgroundColor: chatSurface(scheme, "bubble") }, bubbleCorners("left", position)]} className="px-3.5 py-3.5">
 						<MarkdownBlocks blocks={segment.blocks} />
 					</Pressable>
 				),
