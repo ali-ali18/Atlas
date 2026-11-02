@@ -274,3 +274,9 @@ export function splitSegments(blocks: readonly Block[]): Segment[] {
 	if (current.length) segments.push({ kind: "bubble", blocks: current });
 	return segments;
 }
+
+/** A fala tem tabela? Checagem barata antes de interpretar (a maioria das falas não tem `|`). */
+export function containsTable(text: string): boolean {
+	if (!text.includes("|")) return false;
+	return parseMarkdown(text).some((block) => block.type === "table");
+}

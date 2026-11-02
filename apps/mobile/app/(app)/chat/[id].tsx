@@ -25,6 +25,7 @@ import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 import { webChatUrl } from "@/lib/chat-links";
 import type { ChatItem, ReplyQuote } from "@/lib/chat-types";
+import { containsTable } from "@/lib/markdown";
 import { replyQuoteFor } from "@/lib/reply-quote";
 import { useChat } from "@/lib/use-chat";
 import { useHomeData } from "@/lib/home-data";
@@ -43,7 +44,8 @@ const NO_IDS: ReadonlySet<string> = new Set();
 function bubblePositions(items: readonly ChatItem[]): ReadonlyMap<string, GroupPosition> {
 	// Resposta vazia (ainda sem texto) não aparece e não conta para o grupo.
 	const shown = items.filter((item) => item.kind !== "assistant" || item.text.trim());
-	const kinds = shown.map((item) => item.kind);
+	// Fala com tabela vira um cartão e não agrupa: os balões vizinhos ficam com a ponta arredondada junto dela, em vez da reta de falas seguidas.
+	const kinds = shown.map((item) => (item.kind === "assistant" && containsTable(item.text) ? "assistant-table" : item.kind));
 	return new Map(shown.map((item, index) => [item.id, groupPositionAt(kinds, index, (kind) => kind === "user" || kind === "assistant")]));
 }
 

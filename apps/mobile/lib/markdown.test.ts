@@ -143,3 +143,13 @@ describe("fala com tabela", () => {
 		expect(splitSegments(parseMarkdown(`${table}\n\n${table}`)).map((segment) => segment.kind)).toEqual(["table", "table"]);
 	});
 });
+
+import { containsTable } from "./markdown";
+
+describe("containsTable", () => {
+	it("acha a tabela e ignora texto com barra solta", () => {
+		expect(containsTable("Antes\n\n| a | b |\n|---|---|\n| 1 | 2 |")).toBe(true);
+		expect(containsTable("use a | b para escolher")).toBe(false);
+		expect(containsTable("sem barra nenhuma")).toBe(false);
+	});
+});
