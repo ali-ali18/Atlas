@@ -136,6 +136,26 @@ describe("indicador e só reação", () => {
 		await flush();
 		await flush();
 	});
+	it("parar tocado antes de o bot só reagir não cancela o run do envio seguinte", async () => {
+		const first = deferred<{ runId: string | null; status: string }>();
+		let runs = 0;
+		const { controller, calls } = setup({
+			api: { createRun: async () => (++runs === 1 ? (first.promise as never) : ({ runId: "r2", status: "queued" } as never)) },
+			follow: async () => new Promise<never>(() => undefined),
+		});
+		await controller.open();
+		controller.send("valeu!");
+		await flush();
+		controller.stop();
+		first.resolve({ runId: null, status: "reacted" });
+		await flush();
+		await flush();
+		await flush();
+		controller.send("e a agenda de hoje?");
+		await flush();
+		await flush();
+		expect(calls.cancelRun).toEqual([]);
+	});
 	it("o bot só reagiu (runId nulo): para o indicador e mostra a reação dele na fala", async () => {
 		let pages = 0;
 		const reacted = { ...row("m3", "user", "valeu!", 2), reactions: [{ actor: "bot", emoji: "❤️" }] } as SessionMessage;

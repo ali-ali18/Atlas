@@ -363,11 +363,16 @@ export class ChatController {
 			}
 			this.set({ creating: true });
 			const created = await this.startRun(text);
-			if (generation !== this.generation) return;
+			if (generation !== this.generation) {
+				this.stopRequested = false;
+				return;
+			}
 			this.set({ creating: false });
 			const runId = created.runId;
 			if (!runId) {
-				// O bot só reagiu (ex.: "valeu!"): a mensagem foi gravada e não há run.
+				// O bot só reagiu (ex.: "valeu!"): a mensagem foi gravada e não há run. Um "parar" tocado nesse meio
+				// não vale para o próximo envio (senão o run seguinte seria cancelado assim que nascesse).
+				this.stopRequested = false;
 				await this.syncTail(false);
 				const live = this.state.live;
 				this.set({ live: { ...live, phase: "idle" } });

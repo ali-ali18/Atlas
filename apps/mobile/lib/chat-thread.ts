@@ -92,11 +92,12 @@ export function withSourceMarkers(items: readonly ChatItem[], timeZone?: string)
 	const out: ChatItem[] = [];
 	let previous: string | null = null;
 	for (const item of items) {
-		if (item.kind === "assistant") {
-			const key = item.source ? sourceKey(item.source) : null;
-			if (item.source && key !== previous) out.push({ id: `source-${item.id}`, kind: "marker", text: formatSourceMarker(item.source, timeZone), ...(item.createdAt ? { createdAt: item.createdAt } : {}) });
-			previous = key;
-		} else if (item.kind === "user") previous = null;
+		// Qualquer item sem origem (fala do usuário, cartão, lista de tarefas) fecha o trecho, como o `sourceMarkerIds` do web.
+		const key = item.kind === "assistant" && item.source ? sourceKey(item.source) : null;
+		if (item.kind === "assistant" && item.source && key !== previous) {
+			out.push({ id: `source-${item.id}`, kind: "marker", text: formatSourceMarker(item.source, timeZone), ...(item.createdAt ? { createdAt: item.createdAt } : {}) });
+		}
+		previous = key;
 		out.push(item);
 	}
 	return out;

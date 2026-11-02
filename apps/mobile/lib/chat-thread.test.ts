@@ -27,6 +27,15 @@ describe("reações e origem", () => {
 		expect(out.map((item) => item.id)).toEqual(["u", "source-a1", "a1", "a2", "a3"]);
 		expect(out[1]).toMatchObject({ kind: "marker", text: expect.stringContaining("Resumo da agenda") });
 	});
+	it("cartão no meio do trecho fecha o trecho (novo marcador), como no web", () => {
+		const source = { kind: "routine" as const, label: "Resumo", at: "2026-11-02T10:00:00.000Z" };
+		const items: ChatItem[] = [
+			{ id: "a1", kind: "assistant", text: "1", source },
+			{ id: "m", kind: "marker", text: "Conversa compactada" },
+			{ id: "a2", kind: "assistant", text: "2", source },
+		];
+		expect(withSourceMarkers(items).map((item) => item.id)).toEqual(["source-a1", "a1", "m", "source-a2", "a2"]);
+	});
 });
 
 describe("sessionMessageToItem", () => {
