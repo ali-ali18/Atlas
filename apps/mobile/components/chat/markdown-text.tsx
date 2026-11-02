@@ -77,7 +77,11 @@ function BlockView({ block, scheme }: { block: Block; scheme: "light" | "dark" }
 							<Text variant="muted" className="w-5 text-control leading-6">
 								{block.ordered ? `${block.start + index}.` : "•"}
 							</Text>
-							<Text className="min-w-0 flex-1 text-control leading-6">
+							{/*
+							  `shrink`, não `flex-1`: o balão do bot se ajusta ao conteúdo (self-start), e no Android um `flex-1`
+							  dentro dele mede largura 0. O texto da lista sumia e o balão virava uma coluna alta só com "1."
+							*/}
+							<Text className="min-w-0 shrink text-control leading-6">
 								<Inlines nodes={item} scheme={scheme} />
 							</Text>
 						</View>
