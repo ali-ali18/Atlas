@@ -28,7 +28,8 @@ const DOUBLE_TAP_ANIM_MS = 180;
  * Área com zoom por pinça (1x a 4x), arrastar para mover quando ampliado e duplo toque para alternar 1x/2x.
  * O conteúdo (imagem do computador remoto) tem a largura da tela e a proporção `aspectRatio`, centralizado na vertical.
  * Toda a conta está em `lib/pinch-zoom.ts` (testada); aqui só entram os dedos e a animação.
- * `gestures={false}` solta os dedos para o conteúdo (modo controle: o toque vai ao noVNC); o zoom atual fica como está.
+ * `gestures={false}` solta os dedos para o conteúdo (modo controle: o toque vai ao noVNC) e volta o zoom a 1x (sem gestos não
+ * dá para desfazê-lo nem arrastar, e uma parte da tela ficaria inalcançável).
  */
 export function Zoomable({ aspectRatio = 16 / 9, children, onZoomChange, gestures = true }: { aspectRatio?: number; children: React.ReactNode; onZoomChange?: (scale: number) => void; gestures?: boolean }) {
 	const [viewport, setViewport] = React.useState<Size>({ width: 0, height: 0 });
@@ -61,6 +62,11 @@ export function Zoomable({ aspectRatio = 16 / 9, children, onZoomChange, gesture
 		},
 		[scale, x, y],
 	);
+
+	// Sem gestos (modo controle) não há como desfazer o zoom nem arrastar: volta a 1x para a tela inteira ficar à vista.
+	React.useEffect(() => {
+		if (!gestures) apply(ZOOM_RESET, true);
+	}, [gestures, apply]);
 
 	// Ao girar a tela o quadro muda: volta a 1x em vez de deixar o deslocamento fora do limite.
 	React.useEffect(() => {
