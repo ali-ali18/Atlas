@@ -11,6 +11,7 @@ import { Fade } from "@/components/chat/fade";
 import { ChatTopBar, TOP_BAR_HEIGHT } from "@/components/chat/chat-top-bar";
 import { Composer } from "@/components/chat/composer";
 import { MessageRow, type RowActions } from "@/components/chat/message-row";
+import { createNewItemTracker } from "@/lib/chat-appear";
 import { SyncLine, ThinkingLine } from "@/components/chat/sync-line";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
@@ -28,6 +29,14 @@ const JUMP_THRESHOLD = 360;
 
 type Soon = "anexos" | "voz" | "buscar" | "compartilhar" | null;
 const SOON_TITLE: Record<NonNullable<Soon>, string> = { anexos: "Anexos", voz: "Voz", buscar: "Buscar no chat", compartilhar: "Compartilhar como modelo" };
+
+const NO_IDS: ReadonlySet<string> = new Set();
+
+/** Ids que acabaram de chegar (ver `createNewItemTracker`); vazio até a conversa ficar pronta. */
+function useNewItemIds(items: readonly ChatItem[], ready: boolean): ReadonlySet<string> {
+	const tracker = React.useRef(createNewItemTracker());
+	return React.useMemo(() => (ready ? tracker.current.next(items) : NO_IDS), [items, ready]);
+}
 
 /** Chat com o bot: o fio (cache + servidor + run ao vivo), o topo flutuante, a doca de tarefas e o composer. */
 export default function ChatScreen() {
@@ -56,6 +65,7 @@ export default function ChatScreen() {
 
 	// A lista é invertida (o fim da conversa fica embaixo e o teclado não a desloca): mais novo primeiro.
 	const data = React.useMemo(() => [...chat.items].reverse(), [chat.items]);
+	const animateIds = useNewItemIds(chat.items, chat.ready);
 
 	if (!bot) {
 		return (
@@ -88,7 +98,7 @@ export default function ChatScreen() {
 					inverted
 					data={data}
 					keyExtractor={(item) => item.id}
-					renderItem={({ item }) => <MessageRow item={item} actions={actions} />}
+					renderItem={({ item }) => <MessageRow item={item} actions={actions} animate={animateIds.has(item.id)} />}
 					keyboardShouldPersistTaps="handled"
 					keyboardDismissMode="on-drag"
 					onEndReached={chat.hasMore ? chat.loadOlder : undefined}

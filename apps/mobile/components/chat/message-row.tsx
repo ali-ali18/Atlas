@@ -1,5 +1,6 @@
 import * as React from "react";
 import { View } from "react-native";
+import Animated, { FadeIn, useReducedMotion } from "react-native-reanimated";
 import { Text } from "@/components/ui/text";
 import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem } from "@/lib/chat-types";
@@ -38,8 +39,23 @@ function BotBubble({ text }: { text: string }) {
 	);
 }
 
+/**
+ * Mensagem que chegou com a tela aberta entra com um fade curto, como no web; as que já estavam (cache, histórico)
+ * aparecem direto. Só opacidade: a lista é invertida, e deslocar na vertical sairia ao contrário.
+ */
+export const MessageRow = React.memo(function MessageRow({ item, actions, animate = false }: { item: ChatItem; actions: RowActions; animate?: boolean }) {
+	const reduced = useReducedMotion();
+	// O invólucro existe sempre (só o `entering` muda): trocar de estrutura remontaria o cartão e perderia o estado
+	// dele (respostas do questionário, por exemplo). `entering` só vale na montagem.
+	return (
+		<Animated.View entering={animate && !reduced ? FadeIn.duration(220) : undefined}>
+			<RowContent item={item} actions={actions} />
+		</Animated.View>
+	);
+});
+
 /** Escolhe o desenho pelo tipo, como o `message-row` do web. */
-export const MessageRow = React.memo(function MessageRow({ item, actions }: { item: ChatItem; actions: RowActions }) {
+function RowContent({ item, actions }: { item: ChatItem; actions: RowActions }) {
 	switch (item.kind) {
 		case "user":
 			return <UserBubble text={item.text} />;
@@ -56,4 +72,4 @@ export const MessageRow = React.memo(function MessageRow({ item, actions }: { it
 		case "marker":
 			return <MarkerRow text={item.text} />;
 	}
-});
+}
