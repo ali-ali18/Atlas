@@ -146,7 +146,8 @@ export function DraggableSheet({ visible, onClose, onRequestClose, header, child
 	};
 
 	const bodyRoom = restHeight(rest, { collapsed: collapsedHeight, expanded: expandedHeight }) - zoneHeight;
-	const scrolls = measured && contentHeight > bodyRoom;
+	// Sem medida (Android que nunca avisa o tamanho) o corpo rola, para o texto longo não ficar preso.
+	const scrolls = !measured || contentHeight > bodyRoom;
 
 	return (
 		<Modal visible={visible} transparent animationType="fade" onRequestClose={onRequestClose ?? onClose} statusBarTranslucent>

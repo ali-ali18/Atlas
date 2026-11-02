@@ -24,7 +24,9 @@ export function HomeBotMenu({ bot, onClose }: { bot: HomeBot | null; onClose: ()
 	const place = React.useCallback(
 		(target: HomeBot, patch: Partial<Placement>) => {
 			onClose();
-			const before: Partial<Placement> = { pinned: target.pinned, pinOrder: target.pinOrder, sectionId: target.sectionId };
+			// Volta só o que este patch mexeu (o resto pode ter mudado por outra ação).
+			const original: Placement = { pinned: target.pinned, pinOrder: target.pinOrder, sectionId: target.sectionId };
+			const before = Object.fromEntries(Object.keys(patch).map((key) => [key, original[key as keyof Placement]])) as Partial<Placement>;
 			applyBotUpdate(target.id, patch);
 			// Recusa do servidor: devolve o que estava e sincroniza com ele.
 			void patchPlacement(apiFetch, target.id, patch).catch(() => {
