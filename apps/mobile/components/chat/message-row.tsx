@@ -1,6 +1,7 @@
 import * as React from "react";
 import { View } from "react-native";
 import { Text } from "@/components/ui/text";
+import { taskCardActive } from "@/lib/chat-thread";
 import type { ChatItem } from "@/lib/chat-types";
 import type { AnswerMap } from "@/lib/questionnaire";
 import { ConfirmCard, MarkerRow, QuestionnaireCard, WebCardRow } from "./cards";
@@ -12,6 +13,8 @@ export type RowActions = {
 	onAnswer: (item: Extract<ChatItem, { kind: "questionnaire" }>, answers: AnswerMap) => void;
 	/** Run ativo (id): o cartão de tarefas desse run mostra a tarefa em execução. */
 	activeRunId: string | null;
+	/** Há um run em andamento (o cartão só é "ativo" durante um run). */
+	running: boolean;
 	onOpenWeb: (item: Extract<ChatItem, { kind: "web-card" }>) => void;
 };
 
@@ -43,7 +46,7 @@ export const MessageRow = React.memo(function MessageRow({ item, actions }: { it
 		case "assistant":
 			return item.text.trim() ? <BotBubble text={item.text} /> : null;
 		case "task-list":
-			return <TaskSummary items={item.items} active={actions.activeRunId !== null && (item.runId === actions.activeRunId || item.runId === "local")} />;
+			return <TaskSummary items={item.items} active={taskCardActive(item.runId, actions.activeRunId, actions.running)} />;
 		case "confirm":
 			return <ConfirmCard item={item} onDecide={actions.onDecide} />;
 		case "questionnaire":

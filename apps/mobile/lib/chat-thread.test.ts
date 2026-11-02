@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatItem } from "./chat-types";
-import { dedupeKeys, dockedTaskList, mergeTail, messagesPath, oldestCursor, parsePage, persistedAssistantCovers, prependOlder, reconcile, sessionMessageToItem, taskListDockLine, taskListProgress, taskListSettledLabel } from "./chat-thread";
+import { taskCardActive, dedupeKeys, dockedTaskList, mergeTail, messagesPath, oldestCursor, parsePage, persistedAssistantCovers, prependOlder, reconcile, sessionMessageToItem, taskListDockLine, taskListProgress, taskListSettledLabel } from "./chat-thread";
 
 const row = (id: string, role: string, content: string, createdAt = "2026-11-01T10:00:00.000Z") => ({ id, conversationId: "c1", role, content, createdAt }) as never;
 const user = (id: string, text: string, createdAt?: string): ChatItem => ({ id, kind: "user", text, ...(createdAt ? { createdAt } : {}) });
@@ -143,5 +143,18 @@ describe("lista de tarefas", () => {
 	});
 	it("lista vazia não vira doca", () => {
 		expect(dockedTaskList([user("u", "x"), { id: "t", kind: "task-list", runId: "r", items: [] }], true)).toBeNull();
+	});
+});
+
+describe("cartão de tarefas ativo", () => {
+	it("só durante um run e só o cartão do run ativo", () => {
+		expect(taskCardActive("r1", "r1", true)).toBe(true);
+		expect(taskCardActive("r1", "r1", false)).toBe(false); // sem run: resumo
+		expect(taskCardActive("r0", "r1", true)).toBe(false); // cartão de outro run
+		expect(taskCardActive("r1", null, true)).toBe(false); // correndo sem lista de tarefas
+	});
+	it("o runId 'local' de uma execução antiga não fica ativo durante outro run", () => {
+		expect(taskCardActive("local", "r2", true)).toBe(false);
+		expect(taskCardActive("local", null, true)).toBe(false);
 	});
 });

@@ -18,24 +18,34 @@ export type BotRunInfo = {
 
 export const EMPTY_RUN: BotRunInfo = { running: false, tasks: null, last: null, stop: null };
 
-const runs = new Map<string, BotRunInfo>();
+const runs = new Map<string, { owner: string; info: BotRunInfo }>();
 const listeners = new Set<() => void>();
 
 const sameTasks = (a: readonly TaskItem[] | null, b: readonly TaskItem[] | null) => a === b || (a !== null && b !== null && a.length === b.length && a.every((item, index) => item.content === b[index]!.content && item.status === b[index]!.status));
 
-export function setBotRun(botId: string, info: BotRunInfo): void {
-	const current = runs.get(botId) ?? EMPTY_RUN;
-	if (current.running === info.running && current.stop === info.stop && sameTasks(current.tasks, info.tasks) && sameTasks(current.last, info.last)) return;
-	runs.set(botId, info);
+/** `owner` identifica a instância do chat que escreve: duas telas do mesmo bot não apagam o run uma da outra. */
+export function setBotRun(botId: string, info: BotRunInfo, owner = "default"): void {
+	const current = runs.get(botId)?.info ?? EMPTY_RUN;
+	if (runs.get(botId)?.owner === owner && current.running === info.running && current.stop === info.stop && sameTasks(current.tasks, info.tasks) && sameTasks(current.last, info.last)) return;
+	runs.set(botId, { owner, info });
 	for (const listener of listeners) listener();
 }
 
-export function clearBotRun(botId: string): void {
-	if (!runs.delete(botId)) return;
+/** Só quem escreveu por último (o dono atual) limpa: o cleanup de uma instância velha não apaga o run da nova. */
+export function clearBotRun(botId: string, owner = "default"): void {
+	if (runs.get(botId)?.owner !== owner) return;
+	runs.delete(botId);
 	for (const listener of listeners) listener();
 }
 
-export const getBotRun = (botId: string | undefined): BotRunInfo => (botId ? (runs.get(botId) ?? EMPTY_RUN) : EMPTY_RUN);
+/** Sair da conta ou trocar de servidor: nada do run de uma conta fica para a próxima. */
+export function clearAllBotRuns(): void {
+	if (runs.size === 0) return;
+	runs.clear();
+	for (const listener of listeners) listener();
+}
+
+export const getBotRun = (botId: string | undefined): BotRunInfo => (botId ? (runs.get(botId)?.info ?? EMPTY_RUN) : EMPTY_RUN);
 
 export function subscribeBotRuns(listener: () => void): () => void {
 	listeners.add(listener);

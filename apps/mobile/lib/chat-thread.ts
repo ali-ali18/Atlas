@@ -303,3 +303,11 @@ export function dockedTaskList(items: readonly ChatItem[], runActive: boolean, a
 	}
 	return null;
 }
+
+/**
+ * O cartão de tarefas mostra a tarefa em execução só durante um run, e só o do run ativo. Um cartão de outro run (ou o
+ * "local" de uma execução antiga) fica como resumo, mesmo com outro run correndo.
+ */
+export function taskCardActive(cardRunId: string, activeRunId: string | null, running: boolean): boolean {
+	return running && activeRunId !== null && cardRunId === activeRunId;
+}

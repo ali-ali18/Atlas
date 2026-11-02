@@ -104,11 +104,12 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 	const snapshot = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot);
 	const view = React.useMemo(() => deriveView(snapshot), [snapshot]);
 	const stop = React.useCallback(() => controller.stop(), [controller]);
+	const owner = React.useRef(`chat-${Math.random().toString(36).slice(2)}`).current;
 	// O perfil e a tela de Execuções leem o run ativo e os passos daqui; o chat segue montado por baixo, com o stream vivo.
 	React.useEffect(() => {
-		if (botId) setBotRun(botId, { running: view.running, tasks: view.runTasks?.items ?? null, last: view.lastTasks?.items ?? null, stop });
-	}, [botId, view.running, view.runTasks, view.lastTasks, stop]);
-	React.useEffect(() => () => (botId ? clearBotRun(botId) : undefined), [botId]);
+		if (botId) setBotRun(botId, { running: view.running, tasks: view.runTasks?.items ?? null, last: view.lastTasks?.items ?? null, stop }, owner);
+	}, [botId, view.running, view.runTasks, view.lastTasks, stop, owner]);
+	React.useEffect(() => () => (botId ? clearBotRun(botId, owner) : undefined), [botId, owner]);
 	return {
 		...view,
 		phase: snapshot.live.phase,

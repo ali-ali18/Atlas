@@ -6,6 +6,7 @@ import type { OpenStream } from "@/lib/chat-stream";
 import { createAtlasAuthClient, type AtlasAuthClient } from "@/lib/auth-client";
 import { canMarkSynced, phaseOf, type AccessPhase } from "@/lib/auth-flow";
 import { clearHomeCacheLogged } from "@/lib/home-storage";
+import { clearAllBotRuns } from "@/lib/run-store";
 import { clearServerUrl, loadServerUrl, saveServerUrl } from "@/lib/server-store";
 
 export type AtlasSession = {
@@ -93,6 +94,7 @@ export function AtlasSessionProvider({ children }: { children: React.ReactNode }
 		setJustSignedIn(false);
 		setSynced(false);
 		for (const listener of signOutListeners.current) listener();
+		clearAllBotRuns();
 		// O cache sai antes de o servidor ser avisado e sem depender do efeito de fase (que pode nem rodar).
 		await clearHomeCacheLogged();
 		try {

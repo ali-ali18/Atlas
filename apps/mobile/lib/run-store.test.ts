@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { clearBotRun, EMPTY_RUN, getBotRun, lastRunLabel, resetBotRuns, runStatusLine, setBotRun, subscribeBotRuns } from "./run-store";
+import { clearAllBotRuns, clearBotRun, EMPTY_RUN, getBotRun, lastRunLabel, resetBotRuns, runStatusLine, setBotRun, subscribeBotRuns } from "./run-store";
 
 const tasks = (...statuses: Array<"pending" | "in_progress" | "completed">) => statuses.map((status, i) => ({ content: `passo ${i + 1}`, status }));
 
@@ -39,5 +39,23 @@ describe("estado do run por bot", () => {
 	it("rótulo da última execução", () => {
 		expect(lastRunLabel(tasks("completed", "completed"))).toBe("Tarefas · 2/2 concluídas");
 		expect(lastRunLabel(tasks("completed", "pending"))).toBe("Tarefas · 1/2");
+	});
+	it("o cleanup de uma instância velha não apaga o run da instância nova do mesmo bot", () => {
+		const info = { running: true, tasks: null, last: null, stop: null };
+		setBotRun("a", info, "tela-1");
+		setBotRun("a", { ...info, running: false }, "tela-2"); // a tela nova assumiu
+		clearBotRun("a", "tela-1"); // o cleanup da velha chega depois
+		expect(getBotRun("a").running).toBe(false);
+		expect(getBotRun("a")).not.toBe(EMPTY_RUN);
+		clearBotRun("a", "tela-2");
+		expect(getBotRun("a")).toBe(EMPTY_RUN);
+	});
+	it("sair da conta limpa todos os bots", () => {
+		const info = { running: true, tasks: null, last: null, stop: null };
+		setBotRun("a", info);
+		setBotRun("b", info);
+		clearAllBotRuns();
+		expect(getBotRun("a")).toBe(EMPTY_RUN);
+		expect(getBotRun("b")).toBe(EMPTY_RUN);
 	});
 });
