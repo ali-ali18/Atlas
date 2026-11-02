@@ -21,7 +21,8 @@ import {
 	resendSecondsLeft,
 } from "@/lib/login-flow";
 import { checkServer } from "@/lib/server-check";
-import { googleCallbackUrls } from "@/lib/google-callback";
+import type { BridgeOutcome } from "@/lib/google-bridge";
+import { createGoogleLogin } from "@/lib/google-login";
 
 // Textos de apps/web/lib/i18n/messages/pt-BR/login.ts (login.title, subtitle, google, or, emailLabel,
 // emailPlaceholder). Aqui o e-mail recebe um código de 6 números em vez de um link, porque o link do e-mail
@@ -99,24 +100,49 @@ export default function LoginScreen() {
 		if (state.step === "code" && state.busy === null && isCodeComplete(state.code)) void verify(state.email, state.code);
 	}, [state.step, state.busy, state.code, state.email, verify]);
 
-	async function google() {
-		if (!client || busy) return;
-		dispatch({ type: "googleRequested" });
+	// Login com Google pela ponte do servidor (lib/google-bridge.ts). Null quando o retorno não é um deep link do app
+	// (prévia no navegador): o botão avisa em vez de abrir um login que não volta.
+	const googleLogin = React.useMemo(() => {
+		if (!client || !serverUrl) return null;
 		try {
-			// Deep link explícito (atlas:// no app instalado, exp:// no Expo Go): com "/" o servidor voltava para o site
-			// dentro do navegador, em vez de devolver a sessão ao app e fechar a aba (como no Grok).
-			const back = googleCallbackUrls(Linking.createURL);
-			await client.signIn.social({ provider: "google", ...back });
-			const session = await client.getSession();
-			if (session.data?.user) {
-				markSignedIn();
-				dispatch({ type: "googleFinished", message: null });
-			} else {
-				dispatch({ type: "googleFinished", message: friendlyAuthError(null, "google") });
-			}
+			return createGoogleLogin(client, serverUrl);
 		} catch {
-			dispatch({ type: "googleFinished", message: friendlyAuthError(null, "google") });
+			return null;
 		}
+	}, [client, serverUrl]);
+
+	const finishGoogle = React.useCallback(
+		(outcome: BridgeOutcome) => {
+			if (outcome === "ignored") return;
+			if (outcome === "signed-in") markSignedIn();
+			dispatch({ type: "googleFinished", message: outcome === "failed" ? friendlyAuthError(null, "google") : null });
+		},
+		[markSignedIn],
+	);
+
+	// O link de volta chega pelo resultado do navegador e, no Expo Go, às vezes só pelo listener (ou reabrindo o app):
+	// os três caminhos passam por `handleLink`, que usa cada tentativa uma vez só.
+	React.useEffect(() => {
+		if (!googleLogin) return;
+		let active = true;
+		const apply = (outcome: BridgeOutcome) => {
+			if (active) finishGoogle(outcome);
+		};
+		void Linking.getInitialURL()
+			.then((url) => (url ? googleLogin.handleLink(url) : "ignored"))
+			.then(apply, () => undefined);
+		const subscription = Linking.addEventListener("url", ({ url }) => void googleLogin.handleLink(url).then(apply, () => apply("failed")));
+		return () => {
+			active = false;
+			subscription.remove();
+		};
+	}, [googleLogin, finishGoogle]);
+
+	async function google() {
+		if (busy) return;
+		dispatch({ type: "googleRequested" });
+		if (!googleLogin) return finishGoogle("failed");
+		finishGoogle(await googleLogin.begin().catch((): BridgeOutcome => "failed"));
 	}
 
 	const resendLeft = resendSecondsLeft(state, now);

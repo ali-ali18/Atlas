@@ -26,6 +26,7 @@
     "clsx": "^2.1.1",
     "expo": "~58.0.22",
     "expo-constants": "~58.0.14",
+    "expo-crypto": "~58.0.7",
     "expo-linking": "~58.0.15",
     "expo-network": "~58.0.4",
     "expo-router": "~58.0.29",
