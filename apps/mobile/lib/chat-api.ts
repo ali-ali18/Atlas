@@ -1,5 +1,6 @@
 // Chamadas do chat ao servidor: os mesmos endpoints do web (`apps/web/lib/atlas-api.ts`), sempre por `apiFetch`
 // (a sessão sai só para a origem do servidor salvo).
+import { StreamHttpError } from "./chat-stream";
 import { messagesPath, PAGE_SIZE, parsePage, type MessagePage, type PageCursor } from "./chat-thread";
 import type { ApiFetch } from "./home-sync";
 
@@ -13,7 +14,7 @@ export class ChatApiError extends Error {
 }
 
 /** O servidor recusou a sessão: quem chamou encerra a sessão como na home. */
-export const isUnauthorized = (error: unknown): boolean => error instanceof ChatApiError && error.status === 401;
+export const isUnauthorized = (error: unknown): boolean => (error instanceof ChatApiError || error instanceof StreamHttpError) && error.status === 401;
 
 /** Sem resposta do servidor (rede, DNS, tempo): o app segue com o que tem. */
 export const isNetworkError = (error: unknown): boolean => !(error instanceof ChatApiError);

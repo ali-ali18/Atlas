@@ -12,7 +12,9 @@ export const CHAT_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const CHAT_CACHE_MAX_ITEMS = 40;
 /** O AsyncStorage do Android lê cada valor por uma janela de ~2 MB: o cache fica bem abaixo disso. */
 export const CHAT_CACHE_MAX_BYTES = 400_000;
-const MAX_TEXT = 12_000;
+/** Texto de cada mensagem no disco: o suficiente para abrir na hora (o resto vem do servidor). */
+export const CHAT_CACHE_MAX_TEXT = 4_000;
+const MAX_TEXT = CHAT_CACHE_MAX_TEXT;
 
 export const chatCacheKey = (serverUrl: string, email: string, conversationId: string) => `${PREFIX}${serverUrl}|${email.toLowerCase()}|${conversationId}`;
 
@@ -125,4 +127,22 @@ export async function clearChatCache(storage: CacheStorage): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * Escritor do cache com "época": `invalidate()` (sair, trocar de conta) faz qualquer gravação que ainda estava em voo
+ * se desfazer ao terminar (a mesma ideia da guarda de geração da home), então nada de uma conta velha sobra no disco.
+ */
+export function createChatCacheWriter(storage: CacheStorage) {
+	let epoch = 0;
+	return {
+		invalidate(): void {
+			epoch += 1;
+		},
+		async write(key: string, items: readonly ChatItem[], now: number): Promise<void> {
+			const started = epoch;
+			await saveChatCache(storage, key, items, now);
+			if (epoch !== started) await storage.removeItem(key).catch(() => undefined);
+		},
+	};
 }

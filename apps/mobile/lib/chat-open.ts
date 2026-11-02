@@ -10,7 +10,7 @@ export type StreamResponse = {
 	status: number;
 	body: { getReader: () => { read: () => Promise<{ done: boolean; value?: Uint8Array }>; cancel: () => Promise<void> } } | null;
 };
-export type StreamFetch = (url: string, init: { headers: Record<string, string>; signal: AbortSignal }) => Promise<StreamResponse>;
+export type StreamFetch = (url: string, init: { headers: Record<string, string>; signal: AbortSignal; credentials: "omit" }) => Promise<StreamResponse>;
 
 export type StreamOpenerDeps = {
 	baseUrl: string;
@@ -36,7 +36,7 @@ export function createRunStreamOpener(deps: StreamOpenerDeps, runId: string): Op
 			...(cursor > 0 ? { "Last-Event-ID": String(cursor) } : {}),
 		};
 		if (!useXhr) {
-			const response = await deps.streamFetch(url, { headers, signal });
+			const response = await deps.streamFetch(url, { headers, signal, credentials: "omit" });
 			if (!response.ok) throw new StreamHttpError(response.status);
 			if (response.body) return sourceFromReader(response.body.getReader());
 			useXhr = true;
@@ -49,6 +49,7 @@ function openWithXhr(url: string, headers: Record<string, string>, signal: Abort
 	return new Promise((resolve, reject) => {
 		const xhr = new XMLHttpRequest();
 		xhr.open("GET", url);
+		xhr.withCredentials = false;
 		for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
 		const abort = () => xhr.abort();
 		signal.addEventListener("abort", abort, { once: true });

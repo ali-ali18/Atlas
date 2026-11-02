@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHAT_CACHE_MAX_AGE_MS, CHAT_CACHE_MAX_BYTES, CHAT_CACHE_MAX_ITEMS, chatCacheKey, clearChatCache, loadChatCache, parseChat, saveChatCache, serializeChat } from "./chat-cache";
+import { CHAT_CACHE_MAX_AGE_MS, CHAT_CACHE_MAX_BYTES, CHAT_CACHE_MAX_TEXT, createChatCacheWriter, CHAT_CACHE_MAX_ITEMS, chatCacheKey, clearChatCache, loadChatCache, parseChat, saveChatCache, serializeChat } from "./chat-cache";
 import type { ChatItem } from "./chat-types";
 import type { CacheStorage } from "./home-cache";
 
@@ -78,5 +78,31 @@ describe("cache do chat", () => {
 		const storage = memoryStorage({ "atlas.chat.v1:s|a|c1": "1", "atlas.chat.v0:s|b|c2": "2", "atlas.home.v2:s|a": "3", outro: "4" });
 		expect(await clearChatCache(storage)).toBe(true);
 		expect([...storage.data.keys()].sort()).toEqual(["atlas.home.v2:s|a", "outro"]);
+	});
+});
+
+describe("escritor do cache (época)", () => {
+	it("gravação em voo quando a conta sai se desfaz ao terminar", async () => {
+		const storage = memoryStorage();
+		let finish!: () => void;
+		const gate = new Promise<void>((resolve) => (finish = resolve));
+		const slow: CacheStorage = { ...storage, setItem: async (key, value) => (await gate, storage.setItem(key, value)) };
+		const writer = createChatCacheWriter(slow);
+		const pending = writer.write("k", msgs, NOW);
+		writer.invalidate(); // sair / trocar de conta
+		finish();
+		await pending;
+		expect(storage.data.has("k")).toBe(false);
+	});
+	it("gravação normal fica", async () => {
+		const storage = memoryStorage();
+		await createChatCacheWriter(storage).write("k", msgs, NOW);
+		expect(storage.data.has("k")).toBe(true);
+	});
+	it("cada mensagem vai ao disco com no máximo ~4 mil caracteres", () => {
+		const parsed = parseChat(serializeChat([{ id: "1", kind: "assistant", text: "x".repeat(50_000) }], NOW), NOW);
+		expect(parsed?.items[0]).toMatchObject({ kind: "assistant" });
+		expect((parsed?.items[0] as { text: string }).text).toHaveLength(CHAT_CACHE_MAX_TEXT);
+		expect(CHAT_CACHE_MAX_TEXT).toBe(4_000);
 	});
 });

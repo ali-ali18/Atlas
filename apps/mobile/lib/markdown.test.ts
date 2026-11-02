@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSafeUrl, parseInline, parseMarkdown } from "./markdown";
+import { isSafeUrl, MARKDOWN_MAX_CHARS, parseInline, parseMarkdown } from "./markdown";
 
 describe("parseInline", () => {
 	it("negrito, itálico e código", () => {
@@ -45,5 +45,36 @@ describe("parseMarkdown", () => {
 	it("texto vazio não gera blocos", () => {
 		expect(parseMarkdown("")).toEqual([]);
 		expect(parseMarkdown("\n\n")).toEqual([]);
+	});
+});
+
+describe("entrada grande ou hostil", () => {
+	const hostile: Array<[string, string]> = [
+		["negritos sem fechar", "**a ".repeat(40_000)],
+		["colchetes soltos", "[".repeat(160_000)],
+		["links quase fechados", "[a](".repeat(40_000)],
+		["itálicos sem par", "_a ".repeat(50_000)],
+		["asteriscos soltos", "* ".repeat(80_000)],
+		["crases soltas", "`a".repeat(80_000)],
+		["texto longo comum", "palavra ".repeat(20_000)],
+	];
+	for (const [name, source] of hostile) {
+		it(`${name} (160 KB) termina em menos de 1 s`, () => {
+			const start = performance.now();
+			parseMarkdown(source);
+			expect(performance.now() - start).toBeLessThan(1_000);
+		});
+	}
+	it("passa do teto: o começo tem formatação e o resto vira texto puro", () => {
+		const blocks = parseMarkdown(`**início**\n\n${"x".repeat(MARKDOWN_MAX_CHARS)}\n\n**fim**`);
+		expect(blocks[0]).toMatchObject({ type: "paragraph", inline: [{ type: "bold" }] });
+		const last = blocks.at(-1);
+		expect(last).toMatchObject({ type: "paragraph" });
+		expect(JSON.stringify(last)).toContain("**fim**");
+		expect(JSON.stringify(last)).not.toContain('"bold"');
+	});
+	it("negrito, itálico e link continuam certos depois do reescrito", () => {
+		expect(parseInline("a **b _c_** d")).toEqual([{ type: "text", text: "a " }, { type: "bold", children: [{ type: "text", text: "b " }, { type: "italic", children: [{ type: "text", text: "c" }] }] }, { type: "text", text: " d" }]);
+		expect(parseInline("** a**")).toEqual([{ type: "text", text: "** a**" }]);
 	});
 });

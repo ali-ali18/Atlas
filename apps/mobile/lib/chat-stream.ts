@@ -98,9 +98,11 @@ export async function followRun(options: FollowOptions): Promise<FollowResult> {
 				signal.removeEventListener("abort", relay);
 				if (signal.aborted) return "aborted";
 				if (conn.signal.aborted) continue; // vigia ou volta ao app: tenta já
-				if (error instanceof StreamHttpError && error.status === 404) return "gone";
-				if (error instanceof StreamHttpError) throw error;
-				// rede caiu antes de abrir: espera e tenta de novo (o fim, se houve, é confirmado pelo estado do run)
+				if (error instanceof StreamHttpError && !isRetryableStatus(error.status)) {
+					if (error.status === 404) return "gone"; // run que não existe mais
+					throw error; // 401 (sessão) e outros 4xx: quem chamou decide
+				}
+				// 5xx, 429 ou rede caída antes de abrir: recuo e nova tentativa (o fim, se houve, é confirmado pelo estado do run)
 				attempt += 1;
 				const status = await options.runStatus().catch(() => null);
 				if (status && TERMINAL_RUN_STATUSES.has(status)) return "terminal";
@@ -155,7 +157,10 @@ export async function followRun(options: FollowOptions): Promise<FollowResult> {
 	}
 }
 
-/** 400 ms, 800, 1,6 s, 3,2 s, 6,4 s e daí 8 s (o mesmo recuo do web). */
+/** Erros do servidor e limite de ritmo passam; o resto do 4xx é resposta definitiva. */
+export const isRetryableStatus = (status: number): boolean => status >= 500 || status === 429;
+
+/** 0,8 s, 1,6 s, 3,2 s e 6,4 s: o teto é 6,4 s (o mesmo recuo do web, cuja constante de 8 s nunca é alcançada). */
 export function backoff(attempt: number): number {
 	return Math.min(8_000, 400 * 2 ** Math.min(attempt, 4));
 }

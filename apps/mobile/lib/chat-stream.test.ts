@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ChatApiError, isUnauthorized } from "./chat-api";
 import { backoff, followRun, isStreamIdle, SseBuffer, sourceFromReader, sourceFromXhr, StreamHttpError, type TextSource } from "./chat-stream";
 
 const block = (id: number, event: object) => `id: ${id}\ndata: ${JSON.stringify(event)}\n\n`;
@@ -87,10 +88,39 @@ describe("followRun", () => {
 		expect(result).toBe("terminal");
 		expect(open).toHaveBeenCalledTimes(1);
 	});
-	it("404 é run que não existe mais; outro erro HTTP sobe", async () => {
+	it("404 é run que não existe mais; 401 e outros 4xx sobem como erro", async () => {
 		const base = { after: 0, signal: new AbortController().signal, onEvent: () => undefined, runStatus: async () => null, sleep: noSleep };
 		expect(await followRun({ ...base, open: async () => Promise.reject(new StreamHttpError(404)) })).toBe("gone");
 		await expect(followRun({ ...base, open: async () => Promise.reject(new StreamHttpError(401)) })).rejects.toMatchObject({ status: 401 });
+		await expect(followRun({ ...base, open: async () => Promise.reject(new StreamHttpError(403)) })).rejects.toMatchObject({ status: 403 });
+	});
+	it("5xx e 429 seguem o recuo e reconectam do cursor; run já terminado para sem reconectar", async () => {
+		for (const status of [500, 502, 503, 429]) {
+			let calls = 0;
+			const sleeps: number[] = [];
+			const result = await followRun({
+				open: async () => {
+					calls += 1;
+					if (calls < 3) throw new StreamHttpError(status);
+					return fakeSource([block(1, { type: "done", message: { role: "assistant", content: "" }, model: "m" })]);
+				},
+				after: 0,
+				signal: new AbortController().signal,
+				onEvent: () => undefined,
+				runStatus: async () => "running",
+				sleep: async (ms) => void sleeps.push(ms),
+			});
+			expect(result).toBe("boundary");
+			expect(sleeps).toEqual([backoff(1), backoff(2)]);
+		}
+		const done = await followRun({ open: async () => Promise.reject(new StreamHttpError(503)), after: 0, signal: new AbortController().signal, onEvent: () => undefined, runStatus: async () => "completed", sleep: noSleep });
+		expect(done).toBe("terminal");
+	});
+	it("isUnauthorized reconhece o 401 do stream e o da API", () => {
+		expect(isUnauthorized(new StreamHttpError(401))).toBe(true);
+		expect(isUnauthorized(new ChatApiError("x", 401))).toBe(true);
+		expect(isUnauthorized(new StreamHttpError(503))).toBe(false);
+		expect(isUnauthorized(new Error("x"))).toBe(false);
 	});
 	it("falha de rede ao abrir: espera e tenta de novo", async () => {
 		let calls = 0;
@@ -179,6 +209,7 @@ describe("fontes de texto", () => {
 	it("isStreamIdle e backoff", () => {
 		expect(isStreamIdle(0, 39_999)).toBe(false);
 		expect(isStreamIdle(0, 40_000)).toBe(true);
+		// teto de 6,4 s (a doc e o comentário dizem o mesmo)
 		expect([1, 2, 3, 4, 5, 9].map(backoff)).toEqual([800, 1600, 3200, 6400, 6400, 6400]);
 	});
 	it("sourceFromReader decodifica UTF-8 partido entre pedaços", async () => {

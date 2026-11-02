@@ -26,6 +26,41 @@ function trimUrlTail(url: string): { url: string; tail: string } {
 	return match ? { url: url.slice(0, match.index), tail: match[0] } : { url, tail: "" };
 }
 
+/** Janela olhada à frente em cada marcador: negrito, itálico, código e link maiores que isto ficam como texto. */
+const WINDOW = 1_500;
+/** Acima disto o resto vira texto puro: o parser e a tela não podem travar com uma resposta enorme (ou hostil). */
+export const MARKDOWN_MAX_CHARS = 20_000;
+
+/** Próximo caractere que pode abrir formatação; o texto comum entre eles é copiado de uma vez (custo linear). */
+const SPECIAL = /[`*_[]|https?:\/\//g;
+
+/** Fecha `**x**`/`__x__`: acha o par com `indexOf` dentro da janela (sem regex preguiçosa, que era quadrática). */
+function matchDouble(source: string, i: number, mark: "**" | "__"): { end: number; inner: string } | null {
+	if (!source.startsWith(mark, i)) return null;
+	const first = source[i + 2];
+	if (first === undefined || /\s/.test(first)) return null;
+	const limit = Math.min(source.length, i + WINDOW);
+	for (let close = source.indexOf(mark, i + 3); close !== -1 && close < limit; close = source.indexOf(mark, close + 1)) {
+		if (!/\s/.test(source[close - 1]!)) return { end: close + 2, inner: source.slice(i + 2, close) };
+	}
+	return null;
+}
+
+function matchSingle(source: string, i: number, mark: "*" | "_"): { end: number; inner: string } | null {
+	const first = source[i + 1];
+	if (first === undefined || /[\s*_]/.test(first) || source[i + 1] === mark) return null;
+	const limit = Math.min(source.length, i + WINDOW);
+	for (let close = source.indexOf(mark, i + 2); close !== -1 && close < limit; close = source.indexOf(mark, close + 1)) {
+		const between = source.slice(i + 1, close);
+		if (between.includes("\n")) return null;
+		const before = source[close - 1]!;
+		if (/[\s*_]/.test(before) || source[close + 1] === mark) continue;
+		if (mark === "_" && /\w/.test(source[close + 1] ?? "")) continue;
+		return { end: close + 1, inner: between };
+	}
+	return null;
+}
+
 export function parseInline(source: string): Inline[] {
 	const out: Inline[] = [];
 	let text = "";
@@ -35,40 +70,51 @@ export function parseInline(source: string): Inline[] {
 	};
 	let i = 0;
 	while (i < source.length) {
-		const rest = source.slice(i);
+		SPECIAL.lastIndex = i;
+		const found = SPECIAL.exec(source);
+		const next = found ? found.index : source.length;
+		if (next > i) {
+			text += source.slice(i, next);
+			i = next;
+			continue;
+		}
+		const char = source[i]!;
+		const window = source.slice(i, i + WINDOW);
 		let match: RegExpExecArray | null;
-		if ((match = /^`([^`\n]+)`/.exec(rest))) {
+		let double: { end: number; inner: string } | null;
+		if (char === "`" && (match = /^`([^`\n]+)`/.exec(window))) {
 			flush();
 			out.push({ type: "code", text: match[1]! });
 			i += match[0].length;
-		} else if ((match = /^\*\*(?=\S)([\s\S]+?)(?<=\S)\*\*/.exec(rest)) ?? (match = /^__(?=\S)([\s\S]+?)(?<=\S)__/.exec(rest))) {
+		} else if ((char === "*" && (double = matchDouble(source, i, "**"))) || (char === "_" && (double = matchDouble(source, i, "__")))) {
 			flush();
-			out.push({ type: "bold", children: parseInline(match[1]!) });
-			i += match[0].length;
-		} else if ((match = /^\*(?=[^\s*])([^*\n]+?)(?<=[^\s*])\*(?!\*)/.exec(rest)) ?? (match = /^_(?=[^\s_])([^_\n]+?)(?<=[^\s_])_(?![\w_])/.exec(rest))) {
+			out.push({ type: "bold", children: parseInline(double.inner) });
+			i = double.end;
+		} else if (char === "*" || char === "_") {
 			// `_` dentro de palavra (snake_case) não é itálico: só vale na borda da palavra.
-			if (match[0].startsWith("_") && i > 0 && /\w/.test(source[i - 1]!)) {
-				text += source[i];
+			const single = char === "_" && i > 0 && /\w/.test(source[i - 1]!) ? null : matchSingle(source, i, char);
+			if (single) {
+				flush();
+				out.push({ type: "italic", children: parseInline(single.inner) });
+				i = single.end;
+			} else {
+				text += char;
 				i += 1;
-				continue;
 			}
-			flush();
-			out.push({ type: "italic", children: parseInline(match[1]!) });
-			i += match[0].length;
-		} else if ((match = /^\[([^\]\n]+)\]\(([^)\s]+)\)/.exec(rest))) {
+		} else if (char === "[" && (match = /^\[([^\]\n]{1,300})\]\(([^)\s]{1,1000})\)/.exec(window))) {
 			if (isSafeUrl(match[2]!)) {
 				flush();
 				out.push({ type: "link", text: match[1]!, url: match[2]! });
 			} else text += match[1]!;
 			i += match[0].length;
-		} else if ((match = /^https?:\/\/[^\s<>]+/i.exec(rest)) && (i === 0 || !/\w/.test(source[i - 1]!))) {
+		} else if (char === "h" && (match = /^https?:\/\/[^\s<>]+/i.exec(window)) && (i === 0 || !/\w/.test(source[i - 1]!))) {
 			const { url, tail } = trimUrlTail(match[0]);
 			flush();
 			out.push({ type: "link", text: url, url });
 			text += tail;
 			i += match[0].length;
 		} else {
-			text += source[i];
+			text += char;
 			i += 1;
 		}
 	}
@@ -80,6 +126,14 @@ const BULLET = /^\s*[-*•+]\s+(.*)$/;
 const ORDERED = /^\s*(\d{1,3})[.)]\s+(.*)$/;
 
 export function parseMarkdown(source: string): Block[] {
+	if (source.length > MARKDOWN_MAX_CHARS) {
+		// Os primeiros ~20 mil caracteres com formatação (cortando numa quebra de linha); o resto, como texto puro.
+		const cut = source.lastIndexOf("\n", MARKDOWN_MAX_CHARS);
+		const at = cut > MARKDOWN_MAX_CHARS / 2 ? cut : MARKDOWN_MAX_CHARS;
+		const head = parseMarkdown(source.slice(0, at));
+		const tail = source.slice(at).trim();
+		return tail ? [...head, { type: "paragraph", inline: [{ type: "text", text: tail }] }] : head;
+	}
 	const lines = source.replace(/\r\n/g, "\n").split("\n");
 	const blocks: Block[] = [];
 	let paragraph: string[] = [];
