@@ -23,6 +23,14 @@ import {
 	ListChecks as LucideListChecks,
 	Mic as LucideMic,
 	Monitor as LucideMonitor,
+	CircleAlert as LucideCircleAlert,
+	CirclePause as LucideCirclePause,
+	CircleStop as LucideCircleStop,
+	CircleX as LucideCircleX,
+	Globe as LucideGlobe,
+	FileText as LucideFileText,
+	SquareTerminal as LucideSquareTerminal,
+	Wrench as LucideWrench,
 	Pencil as LucidePencil,
 	Pin as LucidePin,
 	PinOff as LucidePinOff,
@@ -272,4 +280,39 @@ export function FolderInputIcon({ size = 20, tone = "foreground" }: LineIconProp
 /** Lucide `FolderOutput` (menu da conversa: Tirar da seção). */
 export function FolderOutputIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucideFolderOutput size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `CircleX` (execução com erro). */
+export function CircleXIcon({ size = 20, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideCircleX size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `CircleStop` (execução parada). */
+export function CircleStopIcon({ size = 20, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideCircleStop size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `CirclePause` (execução esperando você). */
+export function CirclePauseIcon({ size = 20, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideCirclePause size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Globe` (passo: pesquisa na web). */
+export function GlobeIcon({ size = 20, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideGlobe size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `FileText` (passo: leitura). */
+export function FileTextIcon({ size = 20, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideFileText size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `SquareTerminal` (passo: comando). */
+export function TerminalIcon({ size = 20, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideSquareTerminal size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Wrench` (passo: outra ação). */
+export function WrenchIcon({ size = 20, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideWrench size={size} color={useStroke(tone)} strokeWidth={2} />;
 }

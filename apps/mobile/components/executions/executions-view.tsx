@@ -2,7 +2,6 @@ import * as React from "react";
 import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CheckCircleIcon, CircleIcon } from "@/components/icons";
-import { Button } from "@/components/ui/button";
 import { ScreenHeader } from "@/components/ui/screen-header";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
@@ -23,10 +22,10 @@ function StepIcon({ status }: { status: TaskItem["status"] }) {
 
 /**
  * Execução do bot, no padrão do Grok: título centralizado no topo e um cartão único com uma linha por passo (ícone de
- * estado, título e o estado embaixo, em cinza), divisor de ponta a ponta. "Parar" fica abaixo enquanto roda.
+ * estado, título e o estado embaixo, em cinza), divisor de ponta a ponta.
  * Os passos vêm do run vivo (ou o último do fio); o servidor não guarda um histórico de passos para listar mais.
  */
-export function ExecutionsView({ steps, active, onBack, onStop }: { steps: readonly TaskItem[]; active: boolean; onBack: () => void; onStop?: (() => void) | null }) {
+export function ExecutionsView({ steps, active, onBack }: { steps: readonly TaskItem[]; active: boolean; onBack: () => void }) {
 	const surface = routineSurface(useAppColorScheme());
 	return (
 		<SafeAreaView className="flex-1" style={{ backgroundColor: surface.screen }}>
@@ -55,11 +54,6 @@ export function ExecutionsView({ steps, active, onBack, onStop }: { steps: reado
 						{active ? "O bot está começando…" : "Quando o bot trabalhar em algo de vários passos, você acompanha por aqui."}
 					</Text>
 				)}
-				{active && onStop ? (
-					<Button variant="secondary" accessibilityLabel="Parar" className="w-full" onPress={onStop}>
-						<Text>Parar</Text>
-					</Button>
-				) : null}
 			</ScrollView>
 		</SafeAreaView>
 	);
