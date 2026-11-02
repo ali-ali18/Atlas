@@ -340,7 +340,10 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 	const taskListStore: TaskListStore = { get: () => taskTracker.taskList(), set: (next) => taskTracker.setTaskList(next) };
 	/** Última lista que o modelo enviou (a do tracker some quando tudo conclui; o portão e os descartados precisam dela). */
 	let lastTaskItems: TaskListItem[] | undefined = taskTracker.taskList();
+	/** Maior lista que o MODELO montou neste run (só `update_task_list` chega aqui; lista herdada não conta): 3+ promove o chat. */
+	let modelPlannedSteps = 0;
 	const emitTaskListEvent = async (items: Array<{ content: string; status: "pending" | "in_progress" | "completed" }>) => {
+		modelPlannedSteps = Math.max(modelPlannedSteps, items.length);
 		lastTaskItems = items.length > 0 ? items : undefined;
 		await upsertTaskListCard(conversationId, runId, items).catch(() => undefined);
 		await onEvent({ type: "task_list", items, ...(params.runId ? { runId: params.runId } : {}) });
@@ -1290,6 +1293,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 						notebookCount: notebook ? novelEntryCount(notebook.snapshot()) : 0,
 						completedCount: taskItems ? taskItems.filter((item) => item.status === "completed").length : 0,
 						lastStepHadTools,
+						plannedSteps: modelPlannedSteps,
 					},
 				);
 			};

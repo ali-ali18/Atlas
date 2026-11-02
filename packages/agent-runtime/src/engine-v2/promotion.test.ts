@@ -459,3 +459,91 @@ describe("mensagem nova do usuário durante o run renova o tempo (v2)", () => {
 		expect(resumed.result.stop).toEqual({ reason: "answered" });
 	});
 });
+
+describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)", () => {
+	const three = () => turn([taskList([["Abrir o vídeo", "in_progress"], ["Comparar com o Hermes", "pending"], ["Montar o relatório", "pending"]])], 0.1);
+	const two = () => turn([taskList([["Abrir o vídeo", "in_progress"], ["Responder", "pending"]])], 0.1);
+	const done = () => turn([taskList([["Abrir o vídeo", "completed"], ["Comparar com o Hermes", "completed"], ["Montar o relatório", "completed"]])], 0.1);
+
+	it("o chat já tem update_task_list no passo 1; 3 passos logo no começo (poucos segundos de relógio) viram trabalho longo no gate seguinte", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "pesquise o Hermes e me diga" }],
+			script: [
+				(seen) => {
+					expect(seen.toolNames).toContain("update_task_list");
+					expect(seen.toolNames).not.toContain("notebook_write");
+					return three();
+				},
+				(seen) => {
+					expect(seen.toolNames).toEqual(expect.arrayContaining(["notebook_write", "notebook_read", "create_file"]));
+					expect(seen.transcript).toContain("This task turned into long work");
+					return research(0.1);
+				},
+				done,
+				say("Pronto, relatório do Hermes na conversa.", 0.1),
+			],
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		expect(run.result.stop).toEqual({ reason: "answered" });
+	});
+
+	it("2 passos não promovem", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			script: [two, (seen) => {
+				expect(seen.toolNames).not.toContain("notebook_write");
+				expect(seen.transcript).not.toContain("This task turned into long work");
+				return turn([taskList([["Abrir o vídeo", "completed"], ["Responder", "completed"]])], 0.1);
+			}, say("Pronto.", 0.1)],
+		});
+		expect(run.onPromoted).not.toHaveBeenCalled();
+		expect(run.result.stop).toEqual({ reason: "answered" });
+	});
+
+	it("promove uma vez só: refazer a lista depois não promove de novo", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			script: [three, three, three, done, say("Pronto.", 0.1)],
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		expect(run.result.stop).toEqual({ reason: "answered" });
+	});
+
+	it("lista herdada de um run anterior (priorTaskList) não promove um chat novo", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "Bom dia" }],
+			extra: { priorTaskList: [{ content: "A", status: "completed" }, { content: "B", status: "completed" }, { content: "C", status: "pending" }] as never },
+			script: [say("Bom dia!")],
+		});
+		expect(run.onPromoted).not.toHaveBeenCalled();
+		expect(run.seen[0]!.toolNames).not.toContain("notebook_write");
+	});
+
+	it("sem permissão de promover (e-mail recebido, webhook) a lista de 3+ não promove: texto de fora é dado, não ordem", async () => {
+		for (const origin of ["email", "webhook"] as const) {
+			const run = await runChat({
+				stepMs: 5_000,
+				options: { promotable: false, onPromoted: undefined },
+				extra: { origin, humanTurn: false },
+				script: [research(0.1), (seen) => {
+					expect(seen.toolNames, origin).not.toContain("notebook_write");
+					expect(seen.transcript, origin).not.toContain("This task turned into long work");
+					return say("Resumo para o dono.", 0.1);
+				}],
+			});
+			expect(run.result.stop, origin).toEqual({ reason: "answered" });
+		}
+	});
+
+	it("o teto de custo do trabalho longo (gasto máximo do bot) continua valendo depois de promover pela lista", async () => {
+		const run = await runChat({
+			stepMs: 5_000,
+			options: { longWorkBudgetUsd: 1 },
+			script: [three, research(0.5), research(0.5), say("Entrega parcial: o gasto máximo da tarefa acabou antes de fechar o relatório.")],
+		});
+		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		expect(run.result.stop).toMatchObject({ reason: "budget_cost" });
+	});
+});

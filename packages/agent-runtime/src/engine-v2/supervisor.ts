@@ -31,6 +31,8 @@ export const LONG_WORK_BUDGET: SupervisorBudget = { maxCostUsd: Number.POSITIVE_
 
 /** A partir daqui o modelo é avisado (uma vez) para fechar e entregar; os 20% restantes são a reserva da entrega. */
 export const WRAP_UP_RATIO = 0.8;
+/** Chat promovível: a lista de tarefas que o modelo monta com este número de passos (ou mais) mostra que o pedido é trabalho longo. */
+export const PROMOTE_PLAN_STEPS = 3;
 /** Trabalho longo: a pesquisa para ao usar esta fração do tempo máximo (o resto é da escrita) ou do teto de passos. */
 export const RESEARCH_TIME_RATIO = 0.7;
 export const RESEARCH_STEPS_RATIO = 0.7;
@@ -148,6 +150,8 @@ export type SupervisorGateContext = {
 	completedCount?: number;
 	/** O último passo do modelo chamou tools (o trabalho está em andamento): condição para promover chat -> trabalho longo. */
 	lastStepHadTools?: boolean;
+	/** Passos da lista de tarefas que o MODELO montou neste run (lista herdada de run anterior não conta): 3+ promove o chat. */
+	plannedSteps?: number;
 };
 
 /** O que o supervisor guarda no checkpoint para a retomada não reenviar a nota nem perder a renovação do tempo. */
@@ -277,9 +281,12 @@ export function createSupervisor(config: {
 				return { action: "deliver", stop: { reason: "budget_steps", detail: "delivered" }, instruction: deliveryInstruction("budget_steps") };
 			}
 			const { cost, time } = fractions(usage);
-			// Chat promovível que chega a 80% do tempo com trabalho em andamento: segue como trabalho longo, sem parar nem perguntar.
-			if (config.promotable === true && !promoted && profile === "chat" && context.lastStepHadTools === true && time >= WRAP_UP_RATIO - 1e-9) {
-				return { action: "promote" };
+			// Chat promovível vira trabalho longo (uma vez, sem parar nem perguntar) por duas vias:
+			// (1) o modelo montou uma lista com 3+ passos: decisão dele, não de regex nem de tempo;
+			// (2) chegou a 80% do tempo com trabalho em andamento.
+			if (config.promotable === true && !promoted && profile === "chat") {
+				const planned = (context.plannedSteps ?? 0) >= PROMOTE_PLAN_STEPS;
+				if (planned || (context.lastStepHadTools === true && time >= WRAP_UP_RATIO - 1e-9)) return { action: "promote" };
 			}
 			// Teto duro do dono: a renovação por mensagem nova não o estica (tempo total ativo do run).
 			if (config.hardActiveMs && config.hardActiveMs > 0 && usage.activeMs >= config.hardActiveMs) {

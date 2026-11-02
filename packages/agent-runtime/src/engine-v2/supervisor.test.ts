@@ -9,6 +9,7 @@ import {
 	RESERVE_WRITE_NOTE,
 	STAGNATION_STEPS,
 	WRAP_UP_NOTE,
+	PROMOTE_PLAN_STEPS,
 	budgetForProfile,
 	createSupervisor,
 } from "./supervisor.js";
@@ -397,5 +398,45 @@ describe("mensagem nova do usuário renova o tempo (onUserInput)", () => {
 		supervisor.promote({ maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 60 * 60_000 });
 		supervisor.onUserInput(usage(0, 30 * 60_000));
 		expect(supervisor.fraction(usage(0, 36 * 60_000))).toBeCloseTo(0.1, 5);
+	});
+});
+
+describe("promoção pela lista de tarefas do modelo", () => {
+	const LONG = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: 60 * 60_000 };
+	const chat = (over: Partial<Parameters<typeof createSupervisor>[0]> = {}) => createSupervisor({ profile: "chat", budget: CHAT_BUDGET, promotable: true, ...over });
+
+	it("lista com 3+ passos promove o chat já no começo do tempo, mesmo sem tool no último passo", () => {
+		expect(PROMOTE_PLAN_STEPS).toBe(3);
+		expect(chat().gate(usage(0, 10_000), { plannedSteps: 3, lastStepHadTools: false })).toEqual({ action: "promote" });
+		expect(chat().gate(usage(0, 10_000), { plannedSteps: 8 })).toEqual({ action: "promote" });
+	});
+
+	it("com 2 passos (ou nenhum) não promove", () => {
+		expect(chat().gate(usage(0, 10_000), { plannedSteps: 2, lastStepHadTools: true })).toEqual({ action: "call" });
+		expect(chat().gate(usage(0, 10_000), { plannedSteps: 0 })).toEqual({ action: "call" });
+		expect(chat().gate(usage(0, 10_000))).toEqual({ action: "call" });
+	});
+
+	it("só uma vez: depois de promovido a lista não promove de novo", () => {
+		const supervisor = chat();
+		expect(supervisor.gate(usage(0, 10_000), { plannedSteps: 4 })).toEqual({ action: "promote" });
+		expect(supervisor.promote(LONG)).toBe(true);
+		expect(supervisor.gate(usage(0, 20_000), { plannedSteps: 4 })).toEqual({ action: "call" });
+		expect(supervisor.promote(LONG)).toBe(false);
+	});
+
+	it("sem permissão de promover (e-mail recebido, webhook, rotina) a lista nunca promove", () => {
+		const outsider = createSupervisor({ profile: "chat", budget: CHAT_BUDGET });
+		expect(outsider.gate(usage(0, 10_000), { plannedSteps: 5, lastStepHadTools: true })).toEqual({ action: "call" });
+		expect(outsider.promote(LONG)).toBe(false);
+		const explicit = chat({ promotable: false });
+		expect(explicit.gate(usage(0, 10_000), { plannedSteps: 5 })).toEqual({ action: "call" });
+	});
+
+	it("o teto de custo continua valendo depois de promover pela lista", () => {
+		const supervisor = chat();
+		expect(supervisor.gate(usage(0.1, 10_000), { plannedSteps: 3 })).toEqual({ action: "promote" });
+		supervisor.promote({ maxCostUsd: 1, maxActiveMs: 60 * 60_000 });
+		expect(supervisor.gate(usage(1, 20_000), { plannedSteps: 3 })).toMatchObject({ action: "deliver", stop: { reason: "budget_cost" } });
 	});
 });
