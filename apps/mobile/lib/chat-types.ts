@@ -5,6 +5,9 @@ import type { MessageSource, QuestionnaireCardItem } from "@workspace/shared";
 /** Reação no balão (no máximo uma por ator): o bot reage à fala do usuário e vice-versa. */
 export type Reaction = { actor: "user" | "bot"; emoji: string };
 
+/** Trecho citado por uma resposta ("Responder"): a fala de origem e o começo do texto dela (até 160 caracteres). */
+export type ReplyQuote = { id: string; role: "user" | "assistant"; text: string };
+
 export type TaskItem = { content: string; status: "pending" | "in_progress" | "completed" };
 
 export type ConfirmStatus = "pending" | "approved" | "rejected" | "failed";
@@ -13,9 +16,9 @@ export type QuestionnaireStatus = "pending" | "submitted" | "dismissed";
 type Base = { id: string; createdAt?: string };
 
 export type ChatItem =
-	| (Base & { kind: "user"; text: string; reactions?: Reaction[] })
+	| (Base & { kind: "user"; text: string; reactions?: Reaction[]; replyTo?: ReplyQuote })
 	/** `source`: rotina, lembrete ou evento que produziu a fala (vira o marcador acima do balão). */
-	| (Base & { kind: "assistant"; text: string; runId?: string; reactions?: Reaction[]; source?: MessageSource })
+	| (Base & { kind: "assistant"; text: string; runId?: string; reactions?: Reaction[]; source?: MessageSource; replyTo?: ReplyQuote })
 	| (Base & { kind: "task-list"; runId: string; items: TaskItem[] })
 	| (Base & { kind: "confirm"; confirmId: string; title: string; description?: string; confirmLabel?: string; cancelLabel?: string; status: ConfirmStatus })
 	| (Base & { kind: "questionnaire"; questionnaireId: string; title: string; description?: string; items: QuestionnaireCardItem[]; status: QuestionnaireStatus; answers?: Record<string, string | string[]> })

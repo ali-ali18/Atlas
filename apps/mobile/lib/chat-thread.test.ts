@@ -189,3 +189,31 @@ describe("cartão de tarefas ativo", () => {
 		expect(taskCardActive("local", null, true)).toBe(false);
 	});
 });
+
+describe("citação (replyTo)", () => {
+	const quote = { id: "a1", role: "assistant" as const, text: "Pronto, enviei." };
+	it("lê replyTo do servidor no balão do usuário e do bot", () => {
+		expect(sessionMessageToItem({ ...(row("u1", "user", "valeu") as object), replyTo: quote } as never)).toMatchObject({ kind: "user", replyTo: quote });
+		expect(sessionMessageToItem({ ...(row("a2", "assistant", "de nada") as object), replyTo: { id: "u1", role: "user", text: "valeu" } } as never)).toMatchObject({ kind: "assistant", replyTo: { id: "u1", role: "user", text: "valeu" } });
+	});
+	it("sem replyTo, com null ou fora do contrato: o item não leva o campo", () => {
+		expect(sessionMessageToItem(row("u1", "user", "oi"))).not.toHaveProperty("replyTo");
+		expect(sessionMessageToItem({ ...(row("u2", "user", "oi") as object), replyTo: null } as never)).not.toHaveProperty("replyTo");
+		expect(sessionMessageToItem({ ...(row("u3", "user", "oi") as object), replyTo: { id: "a1", role: "system", text: "x" } } as never)).not.toHaveProperty("replyTo");
+	});
+	it("o balão otimista com citação vira o gravado: vale a do servidor", () => {
+		const sentAt = Date.parse("2026-11-01T10:00:00.000Z");
+		const optimistic: ChatItem = { ...user(`msg-${sentAt}-abc`, "valeu"), replyTo: quote } as ChatItem;
+		const persisted: ChatItem[] = [{ ...user("db1", "valeu", "2026-11-01T10:00:01.000Z"), replyTo: { ...quote, text: "Texto do servidor" } } as ChatItem];
+		expect(reconcile(persisted, [optimistic])).toEqual(persisted);
+	});
+	it("servidor ainda sem replyTo: a pílula local passa para a linha gravada (sem piscar)", () => {
+		const sentAt = Date.parse("2026-11-01T10:00:00.000Z");
+		const optimistic: ChatItem = { ...user(`msg-${sentAt}-abc`, "valeu"), replyTo: quote } as ChatItem;
+		const persisted = [user("db1", "valeu", "2026-11-01T10:00:01.000Z")];
+		const out = reconcile(persisted, [optimistic]);
+		expect(out.map((item) => item.id)).toEqual(["db1"]);
+		expect(out[0]).toMatchObject({ replyTo: quote });
+		expect(persisted[0]).not.toHaveProperty("replyTo"); // não muda a lista recebida
+	});
+});

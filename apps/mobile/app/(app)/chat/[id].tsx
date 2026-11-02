@@ -22,7 +22,8 @@ import { botColors } from "@/lib/bot-color";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
 import { webChatUrl } from "@/lib/chat-links";
-import type { ChatItem } from "@/lib/chat-types";
+import type { ChatItem, ReplyQuote } from "@/lib/chat-types";
+import { replyQuoteFor } from "@/lib/reply-quote";
 import { useChat } from "@/lib/use-chat";
 import { useHomeData } from "@/lib/home-data";
 
@@ -73,7 +74,10 @@ export default function ChatScreen() {
 		},
 		[serverUrl, id],
 	);
-	const messageMenu = useMessageMenu({ chat, goBack, composerHeight });
+	// "Responder": a mensagem citada fica no chip do composer até enviar ou cancelar.
+	const [replyTo, setReplyTo] = React.useState<ReplyQuote | null>(null);
+	const startReply = React.useCallback((item: ChatItem) => setReplyTo(replyQuoteFor(item)), []);
+	const messageMenu = useMessageMenu({ chat, goBack, composerHeight, onReply: startReply });
 	const actions = React.useMemo<RowActions>(
 		() => ({ onDecide: chat.decide, onAnswer: chat.answer, onOpenWeb: openWeb, onOpenMenu: messageMenu.open, activeRunId: chat.runTasks?.runId ?? null, running: chat.running }),
 		[chat.decide, chat.answer, openWeb, messageMenu.open, chat.running, chat.runTasks?.runId],
@@ -166,7 +170,10 @@ export default function ChatScreen() {
 							<ChevronDownIcon size={22} tone="foreground" />
 						</Pressable>
 					) : null}
-					<Composer botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={chat.send} onStop={chat.stop} onSoon={(what) => setSoon(what)} />
+					<Composer botName={bot.name} color={color} foreground={foreground} running={chat.running} onSend={(text) => {
+							chat.send(text, replyTo ?? undefined);
+							setReplyTo(null);
+						}} onStop={chat.stop} onSoon={(what) => setSoon(what)} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
 				</View>
 			</KeyboardAvoidingView>
 			<ChatMenu open={menu} onClose={() => setMenu(false)} onPick={onMenuPick} />

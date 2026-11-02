@@ -49,7 +49,7 @@ export async function createConversation(apiFetch: ApiFetch): Promise<string> {
 	return body.id;
 }
 
-export type CreateRunInput = { content: string; conversationId: string; botId: string; decisionConfirmId?: string; clientKey?: string };
+export type CreateRunInput = { content: string; conversationId: string; botId: string; decisionConfirmId?: string; clientKey?: string; replyToMessageId?: string };
 export type CreateRunResult = { runId: string | null; status: string };
 
 /** `POST /v1/runs`, igual ao do web (`createAgentRun`): o servidor escolhe o modelo (`modelAuto`). */
@@ -61,6 +61,7 @@ export async function createRun(apiFetch: ApiFetch, input: CreateRunInput): Prom
 		modelAuto: true,
 		...(input.decisionConfirmId ? { decisionConfirmId: input.decisionConfirmId } : {}),
 		...(input.clientKey ? { clientKey: input.clientKey } : {}),
+		...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}),
 	};
 	const result = await json<{ runId?: unknown; status?: unknown }>(apiFetch, "/v1/runs", {
 		method: "POST",
@@ -71,8 +72,9 @@ export async function createRun(apiFetch: ApiFetch, input: CreateRunInput): Prom
 }
 
 /** Fala enviada com o run em andamento: entra nele (`mode: "join"`), como no web. */
-export async function createRunInput(apiFetch: ApiFetch, runId: string, content: string, clientKey: string): Promise<void> {
-	await json(apiFetch, `/v1/runs/${encodeURIComponent(runId)}/inputs`, { method: "POST", body: JSON.stringify({ content, mode: "join", clientKey }) });
+export async function createRunInput(apiFetch: ApiFetch, runId: string, content: string, clientKey: string, replyToMessageId?: string): Promise<void> {
+	const body = { content, mode: "join", clientKey, ...(replyToMessageId ? { replyToMessageId } : {}) };
+	await json(apiFetch, `/v1/runs/${encodeURIComponent(runId)}/inputs`, { method: "POST", body: JSON.stringify(body) });
 }
 
 export async function cancelRun(apiFetch: ApiFetch, runId: string): Promise<void> {

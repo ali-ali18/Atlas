@@ -8,14 +8,14 @@ import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
 import { initialSync, syncLine, syncReducer, type SyncAction, type SyncState } from "./chat-sync";
 import { dockedTaskList, mergeTail, oldestCursor, PAGE_SIZE, prependOlder, reconcile, sessionMessageToItem, withSourceMarkers, type MessagePage, type PageCursor } from "./chat-thread";
-import type { ChatItem, Reaction } from "./chat-types";
+import type { ChatItem, Reaction, ReplyQuote } from "./chat-types";
 import { myReaction, toggleUserReaction } from "./message-actions";
 
 export type ChatApi = {
 	fetchPage: (conversationId: string, options: { limit?: number; before?: PageCursor | null }) => Promise<MessagePage>;
 	createConversation: () => Promise<string>;
 	createRun: (input: CreateRunInput) => Promise<CreateRunResult>;
-	createRunInput: (runId: string, content: string, clientKey: string) => Promise<void>;
+	createRunInput: (runId: string, content: string, clientKey: string, replyToMessageId?: string) => Promise<void>;
 	cancelRun: (runId: string) => Promise<void>;
 	getRunStatus: (runId: string) => Promise<string | null>;
 	listActiveRuns: (conversationId: string) => Promise<{ id: string; status: string }[]>;
@@ -63,7 +63,7 @@ export type ChatSnapshot = {
 const ACTIVE_CONFLICT = "A conversa já tem uma tarefa em andamento";
 const DEFAULT_RETRY = [400, 1_000, 2_000] as const;
 
-type Queued = { text: string; optimisticId: string };
+type Queued = { text: string; optimisticId: string; replyToMessageId?: string };
 
 function initial(): ChatSnapshot {
 	return { persisted: [], live: createLiveState(), hasMore: false, loadingOlder: false, following: false, creating: false, ready: false, sync: initialSync, error: null, decisions: {}, answered: {} };
@@ -344,19 +344,20 @@ export class ChatController {
 
 	// ---- envio ------------------------------------------------------------------------------------------
 
-	send(text: string): void {
+	/** `replyTo`: a mensagem que esta responde; o balão otimista já mostra a citação e o servidor recebe só o id. */
+	send(text: string, replyTo?: ReplyQuote): void {
 		const trimmed = text.trim();
 		if (!trimmed || this.disposed) return;
 		this.set({ error: null });
-		const optimistic: ChatItem = { id: `msg-${this.now}-${Math.random().toString(36).slice(2, 7)}`, kind: "user", text: trimmed, createdAt: new Date(this.now).toISOString() };
+		const optimistic: ChatItem = { id: `msg-${this.now}-${Math.random().toString(36).slice(2, 7)}`, kind: "user", text: trimmed, createdAt: new Date(this.now).toISOString(), ...(replyTo ? { replyTo } : {}) };
 		const live = this.state.live;
 		this.set({ live: { ...live, items: [...live.items, optimistic], phase: live.phase === "idle" ? "thinking" : live.phase } });
 		// Um envio ainda criando o run: a fala entra na fila (nada se perde) e segue como input do run assim que ele existir.
 		if (this.state.creating) {
-			this.queue.push({ text: trimmed, optimisticId: optimistic.id });
+			this.queue.push({ text: trimmed, optimisticId: optimistic.id, ...(replyTo ? { replyToMessageId: replyTo.id } : {}) });
 			return;
 		}
-		void this.dispatch(trimmed, optimistic.id);
+		void this.dispatch(trimmed, optimistic.id, replyTo?.id);
 	}
 
 	private dropOptimistic(id: string): void {
@@ -364,13 +365,13 @@ export class ChatController {
 		this.set({ live: { ...live, items: live.items.filter((item) => item.id !== id), phase: this.abort ? live.phase : "idle" } });
 	}
 
-	private async dispatch(text: string, optimisticId: string): Promise<void> {
+	private async dispatch(text: string, optimisticId: string, replyToMessageId?: string): Promise<void> {
 		const generation = this.generation;
 		try {
 			const liveRun = this.abort ? this.runId : null;
 			if (liveRun) {
 				try {
-					await this.deps.api.createRunInput(liveRun, text, this.newKey());
+					await this.deps.api.createRunInput(liveRun, text, this.newKey(), replyToMessageId);
 					return;
 				} catch (reason) {
 					// O run terminou entre o toque e o envio: cai no fluxo de run novo.
@@ -378,7 +379,7 @@ export class ChatController {
 				}
 			}
 			this.set({ creating: true });
-			const created = await this.startRun(text);
+			const created = await this.startRun(text, undefined, replyToMessageId);
 			if (generation !== this.generation) {
 				this.stopRequested = false;
 				return;
@@ -420,12 +421,12 @@ export class ChatController {
 			const [first, ...rest] = queued;
 			if (!first) return;
 			this.queue.push(...rest);
-			await this.dispatch(first.text, first.optimisticId);
+			await this.dispatch(first.text, first.optimisticId, first.replyToMessageId);
 			return;
 		}
 		for (const item of queued) {
 			try {
-				await this.deps.api.createRunInput(runId, item.text, this.newKey());
+				await this.deps.api.createRunInput(runId, item.text, this.newKey(), item.replyToMessageId);
 			} catch (reason) {
 				this.dropOptimistic(item.optimisticId);
 				this.fail(reason);
@@ -435,7 +436,7 @@ export class ChatController {
 	}
 
 	/** Cria o run; com a conversa ainda ocupada (409), espera um pouco e tenta de novo, como o web. */
-	private async startRun(content: string, decisionConfirmId?: string): Promise<CreateRunResult> {
+	private async startRun(content: string, decisionConfirmId?: string, replyToMessageId?: string): Promise<CreateRunResult> {
 		const botId = this.botId;
 		if (!botId) throw new ChatApiError("Bot não encontrado.", 404);
 		if (!this.conversationId) {
@@ -446,7 +447,7 @@ export class ChatController {
 		const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 		for (let attempt = 0; ; attempt += 1) {
 			try {
-				return await this.deps.api.createRun({ content, conversationId: this.conversationId, botId, ...(decisionConfirmId ? { decisionConfirmId } : {}), clientKey: this.newKey() });
+				return await this.deps.api.createRun({ content, conversationId: this.conversationId, botId, ...(decisionConfirmId ? { decisionConfirmId } : {}), ...(replyToMessageId ? { replyToMessageId } : {}), clientKey: this.newKey() });
 			} catch (reason) {
 				const delay = delays[attempt];
 				const conflict = reason instanceof ChatApiError && reason.status === 409 && reason.message.startsWith(ACTIVE_CONFLICT);

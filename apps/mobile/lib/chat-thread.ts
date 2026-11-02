@@ -3,6 +3,7 @@
 // `use-atlas-chat.ts` / `thread-merge.ts` / `thread-live.ts` do web: o gravado manda, o ao vivo preenche o resto.
 import { BOT_LINK_ROLE, formatSourceMarker, isCardConfirmToken, type MessageSource, parseBotLinkCard, parseConversationCard, type PersistedConversationCard, type SessionMessage } from "@workspace/shared";
 import type { ChatItem, Reaction, TaskItem } from "./chat-types";
+import { parseReplyTo } from "./reply-quote";
 
 const CARD_ROLES = new Set([
 	"skill", "confirm", "login", "file", "routine", "tool-budget", "jev-status", "provider-fallback", "subagents", "routine-proposal", "bot-proposal",
@@ -112,9 +113,11 @@ export function sessionMessageToItem(message: SessionMessage): ChatItem | null {
 		return link ? { id: message.id, kind: "marker", createdAt, text: `Enviou mensagem para ${link.botName}${link.title ? `: ${link.title}` : ""}` } : null;
 	}
 	const reactions = validReactions(message.reactions);
+	// `replyTo` é do contrato novo do servidor (pode faltar em servidor antigo): lido sem confiar no formato.
+	const replyTo = parseReplyTo((message as { replyTo?: unknown }).replyTo);
 	if (role === "user") {
 		if (isCardProtocolText(message.content)) return null;
-		return { id: message.id, kind: "user", text: message.content, createdAt, ...(reactions ? { reactions } : {}) };
+		return { id: message.id, kind: "user", text: message.content, createdAt, ...(reactions ? { reactions } : {}), ...(replyTo ? { replyTo } : {}) };
 	}
 	if (role === "assistant") {
 		if (!message.content.trim()) return null;
@@ -126,6 +129,7 @@ export function sessionMessageToItem(message: SessionMessage): ChatItem | null {
 			...(message.runId ? { runId: message.runId } : {}),
 			...(reactions ? { reactions } : {}),
 			...(message.source ? { source: message.source } : {}),
+			...(replyTo ? { replyTo } : {}),
 		};
 	}
 	if (CARD_ROLES.has(role)) {
@@ -262,6 +266,8 @@ export function reconcile(persisted: readonly ChatItem[], live: readonly ChatIte
 			const match = persisted.find((row) => row.kind === "user" && !consumed.has(row.id) && normalize(row.text) === key && !isOlderThan(row, item));
 			if (match) {
 				consumed.add(match.id);
+				// O servidor ainda não devolveu a citação (ou é uma versão antiga): a pílula não some no meio da troca.
+				if (item.replyTo && match.kind === "user" && !match.replyTo) result[persisted.indexOf(match)] = { ...match, replyTo: item.replyTo };
 				continue;
 			}
 		} else if (item.kind === "assistant") {

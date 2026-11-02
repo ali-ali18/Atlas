@@ -1,6 +1,8 @@
 import * as React from "react";
 import { Platform, Pressable, TextInput, useWindowDimensions, View } from "react-native";
 
+import type { ReplyQuote } from "@/lib/chat-types";
+import { ReplyChip } from "./reply-chip";
 import { ArrowUpIcon, MicIcon, PlusIcon, StopIcon, WaveformIcon } from "@/components/icons";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -26,6 +28,9 @@ type ComposerProps = {
 	onSend: (text: string) => void;
 	onStop: () => void;
 	onSoon: (what: "anexos" | "voz") => void;
+	/** Mensagem que a próxima fala responde: vira o chip dentro do campo, com X para cancelar. */
+	replyTo?: ReplyQuote | null;
+	onCancelReply?: () => void;
 };
 
 /**
@@ -37,12 +42,18 @@ type ComposerProps = {
  * Estrutura e borda como no `chat-composer` do web: uma View só, com `border border-border` e `bg-input`, colada na
  * pílula (sem respiro nem wrapper), com o raio total direto nela, nos dois formatos (pílula e retângulo).
  */
-export function Composer({ botName, color, foreground, running, onSend, onStop, onSoon }: ComposerProps) {
+export function Composer({ botName, color, foreground, running, onSend, onStop, onSoon, replyTo, onCancelReply }: ComposerProps) {
 	// `color` é o destaque do bot (`botAccent`): o primeiro plano é o que vem dele, sempre branco.
 	const onColor = foreground;
 	const scheme = useAppColorScheme();
 	const [text, setText] = React.useState("");
 	const hasText = text.trim().length > 0;
+	const inputRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
+	const replyId = replyTo?.id;
+	// Tocou em "Responder": o teclado abre no campo, pronto para digitar.
+	React.useEffect(() => {
+		if (replyId) inputRef.current?.focus();
+	}, [replyId]);
 	const [stacked, setStacked] = React.useState(false);
 	const baseline = React.useRef<number | null>(null);
 	const [webHeight, setWebHeight] = React.useState(0);
@@ -63,6 +74,7 @@ export function Composer({ botName, color, foreground, running, onSend, onStop, 
 	return (
 		<View className="mx-4 mb-2 gap-2">
 			<View className="overflow-hidden border border-border bg-input" style={{ borderRadius: stacked ? STACKED_RADIUS : PILL_RADIUS }}>
+				{replyTo && onCancelReply ? <ReplyChip quote={replyTo} onCancel={onCancelReply} /> : null}
 				{/*
 				  Um só TextInput nos dois formatos (assim o foco e o teclado não se perdem na troca). Os botões ficam sempre
 				  em posição absoluta na base: com uma linha o campo fica entre eles (pílula); quando o texto quebra, o campo
@@ -71,6 +83,7 @@ export function Composer({ botName, color, foreground, running, onSend, onStop, 
 				*/}
 				<View style={{ paddingBottom: stacked ? BUTTON + STACKED_INSET * 2 : 0 }}>
 					<TextInput
+						ref={inputRef}
 						accessibilityLabel={`Perguntar a ${botName}`}
 						placeholder={`Perguntar a ${botName}`}
 						placeholderTextColor={themeColor(scheme, "muted-foreground")}
