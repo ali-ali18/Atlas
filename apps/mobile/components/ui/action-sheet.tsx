@@ -1,8 +1,7 @@
 import * as React from "react";
-import { Modal, Pressable, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ThemedModalRoot } from "@/components/home/themed-modal";
+import { Pressable, View } from "react-native";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/components/icons";
+import { DraggableSheet } from "@/components/ui/draggable-sheet";
 import { Text } from "@/components/ui/text";
 import { canGoBack, currentPage, goBack, openSubmenu, submenuPage, type SheetPage, type SheetStack } from "@/lib/action-sheet-nav";
 
@@ -48,10 +47,9 @@ function ActionCard({ actions, onOpen }: { actions: SheetGroup; onOpen: (action:
  * Gaveta de ações que sobe de baixo: o padrão do app para qualquer menu de segurar (mensagem, conversa, bot).
  * Alça cinza, um `header` opcional (as reações, no caso da mensagem) e grupos de ações em cartões. Ação com `submenu`
  * troca a página da própria gaveta, com um "voltar" no topo. Não fecha sozinha ao tocar numa ação: quem chama decide.
- * `Modal` transparente, com o fundo que fecha ao tocar fora.
+ * É um `DraggableSheet`: abre na altura do conteúdo e o dono pode puxar até o topo; toque no fundo fecha.
  */
 export function ActionSheet({ visible, onClose, groups, header }: { visible: boolean; onClose: () => void; groups: SheetGroup[]; header?: React.ReactNode }) {
-	const insets = useSafeAreaInsets();
 	const [stack, setStack] = React.useState<SheetStack<SheetAction>>([]);
 	// Fechou: a próxima abertura volta à raiz.
 	React.useEffect(() => {
@@ -60,25 +58,23 @@ export function ActionSheet({ visible, onClose, groups, header }: { visible: boo
 	const page = currentPage<SheetAction>({ groups }, stack);
 	const nested = canGoBack(stack);
 	return (
-		<Modal visible={visible} transparent animationType="slide" onRequestClose={nested ? () => setStack(goBack) : onClose} statusBarTranslucent>
-			<ThemedModalRoot>
-				<Pressable accessibilityLabel="Fechar" onPress={onClose} className="flex-1 justify-end bg-black/50">
-					<Pressable accessible={false} className="gap-4 rounded-t-panel bg-popover px-4 pt-3" style={{ paddingBottom: insets.bottom + 16 }}>
-						<View className="h-1 w-10 self-center rounded-full bg-muted-foreground/40" />
-						{nested ? (
-							<Pressable role="button" accessibilityLabel="Voltar" onPress={() => setStack(goBack)} className="min-h-11 flex-row items-center gap-2 self-start pr-4 active:opacity-70">
-								<ChevronLeftIcon size={20} />
-								<Text className="text-control font-semibold">{page.title}</Text>
-							</Pressable>
-						) : (
-							header
-						)}
-						{page.groups.map((group, index) => (
-							<ActionCard key={index} actions={group} onOpen={(action) => action.submenu && setStack((current) => openSubmenu(current, submenuPage(action.label, action.submenu as SheetPage<SheetAction>)))} />
-						))}
+		<DraggableSheet
+			visible={visible}
+			onClose={onClose}
+			onRequestClose={nested ? () => setStack(goBack) : onClose}
+			header={
+				nested ? (
+					<Pressable role="button" accessibilityLabel="Voltar" onPress={() => setStack(goBack)} className="min-h-11 flex-row items-center gap-2 self-start pr-4 active:opacity-70">
+						<ChevronLeftIcon size={20} />
+						<Text className="text-control font-semibold">{page.title}</Text>
 					</Pressable>
-				</Pressable>
-			</ThemedModalRoot>
-		</Modal>
+				) : null
+			}
+		>
+			{nested ? null : header}
+			{page.groups.map((group, index) => (
+				<ActionCard key={index} actions={group} onOpen={(action) => action.submenu && setStack((current) => openSubmenu(current, submenuPage(action.label, action.submenu as SheetPage<SheetAction>)))} />
+			))}
+		</DraggableSheet>
 	);
 }
