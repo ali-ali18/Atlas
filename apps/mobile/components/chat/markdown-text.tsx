@@ -63,12 +63,17 @@ function Inlines({ nodes, scheme }: { nodes: readonly Inline[]; scheme: "light" 
 export function TableCard({ block, scheme }: { block: Extract<Block, { type: "table" }>; scheme: "light" | "dark" }) {
 	const widths = tableColumnWidths(block.header, block.rows);
 	const total = widths.reduce((sum, width) => sum + width, 0);
+	// Cores medidas no app do Grok (tema escuro): borda do cartão #313131 e divisor das linhas #2a2a2a, mais claros que o
+	// token `border` (#222223, quase invisível sobre o cartão). No claro vale o token.
+	const edge = scheme === "dark" ? "#313131" : themeColor(scheme, "border");
+	const divider = scheme === "dark" ? "#2a2a2a" : themeColor(scheme, "border");
 	return (
-		<View className="self-stretch overflow-hidden rounded-3xl border border-border bg-muted">
-			<ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 0 }}>
+		<View className="self-stretch overflow-hidden rounded-3xl bg-muted" style={{ borderWidth: 1, borderColor: edge }}>
+			{/* `persistentScrollbar`: no Android a barrinha de rolagem fica sempre visível no canto, como no Grok (o padrão some sozinha). */}
+			<ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator persistentScrollbar style={{ flexGrow: 0 }} contentContainerStyle={{ flexGrow: 0 }}>
 				<View style={{ width: total }}>
 					{[block.header, ...block.rows].map((row, rowIndex) => (
-						<View key={`row-${rowIndex}`} style={{ flexDirection: "row" }} className={rowIndex > 0 ? "border-t border-border" : undefined}>
+						<View key={`row-${rowIndex}`} style={{ flexDirection: "row", borderTopWidth: rowIndex > 0 ? 1 : 0, borderTopColor: divider }}>
 							{row.map((cell, column) => (
 								<View key={`cell-${column}`} style={{ width: widths[column] }} className="px-5 py-3">
 									<Text className={cn("text-base leading-snug", rowIndex === 0 && "font-semibold")}>
