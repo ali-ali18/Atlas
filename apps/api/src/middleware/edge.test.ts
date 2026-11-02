@@ -95,3 +95,17 @@ test("borda real: POST JSON na previa chega ao projeto com os cabecalhos da prev
 		close();
 	}
 });
+
+test("borda real: /v1/sandbox/vt/* tem limite por IP (1200/min) e passa do limite com 429", async () => {
+	const app = new Hono();
+	registerEdgeMiddleware(app, { corsOrigins: ["http://localhost:3000"] });
+	app.get("/v1/sandbox/vt/:token/*", (c) => c.json({ ok: true }));
+	const hit = () => app.request("https://atlas.test/v1/sandbox/vt/aaa.bbb/vnc.html", {}, env);
+	for (let i = 0; i < 1200; i++) assert.equal((await hit()).status, 200);
+	const over = await hit();
+	assert.equal(over.status, 429);
+	assert.ok(over.headers.get("retry-after"));
+	// Outro IP tem a própria janela.
+	const other = await app.request("https://atlas.test/v1/sandbox/vt/aaa.bbb/vnc.html", {}, { incoming: { socket: { remoteAddress: "10.0.0.2" } } });
+	assert.equal(other.status, 200);
+});
