@@ -25,7 +25,8 @@ export type ChatItem =
 	/** Cartão que ainda não tem tela nativa (gráfico, painel, arquivo, rotina…): uma linha com "Abrir no navegador". */
 	| (Base & { kind: "web-card"; card: WebCardKind; title: string; key: string })
 	/** Marcador de uma linha no fio (conversa compactada, mensagem enviada a outro bot). */
-	| (Base & { kind: "marker"; text: string });
+	/** `link`: marcador "Enviou mensagem para [bot]" (o texto fica como reserva; o avatar vem do bot pelo id ou nome). */
+	| (Base & { kind: "marker"; text: string; link?: { botId: string; botName: string; title: string } });
 
 export type WebCardKind = "chart" | "page" | "file" | "routine" | "login" | "images" | "proposal" | "approval";
 

@@ -5,8 +5,10 @@ import { ExternalLinkIcon, ListChecksIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { ChatCard, ChatCardActions, ChatCardHeader, ChatCardLine } from "@/components/ui/chat-card";
 import { Text } from "@/components/ui/text";
+import { InlineAvatar } from "./mention-text";
 import { cn } from "@/lib/cn";
 import type { ChatItem } from "@/lib/chat-types";
+import { findLinkedBot, type MentionBotRef } from "@/lib/message-text";
 import { buildAnswers, missingRequired, toggleChoice, type AnswerMap } from "@/lib/questionnaire";
 import { themeColor } from "@/lib/theme";
 import { useAppColorScheme } from "@/lib/use-theme";
@@ -160,6 +162,27 @@ export function MarkerRow({ text }: { text: string }) {
 		<View className="items-center py-2.5">
 			<Text variant="caption" className="text-body">
 				{text}
+			</Text>
+		</View>
+	);
+}
+
+/**
+ * "Enviou mensagem para [avatar] Bobinho: prévia", como o `BotLinkMarker` do web: centralizado no fio (igual aos outros
+ * marcadores), com o avatar do bot antes do nome. A prévia vem logo depois e o texto todo quebra centralizado. Sem achar
+ * o bot (apagado), fica só o nome, sem avatar.
+ */
+export function BotLinkMarkerRow({ link, fallback, bots }: { link: { botId: string; botName: string; title: string }; fallback: string; bots?: readonly MentionBotRef[] }) {
+	const bot = bots ? findLinkedBot(bots, link) : undefined;
+	if (!link.botName.trim()) return <MarkerRow text={fallback} />;
+	return (
+		<View className="items-center px-4 py-2.5">
+			<Text variant="caption" numberOfLines={2} className="text-center text-body">
+				{"Enviou mensagem para "}
+				{bot ? <InlineAvatar bot={bot} /> : null}
+				{bot ? " " : null}
+				<Text className="text-body font-medium text-foreground">{link.botName.trim()}</Text>
+				{link.title.trim() ? `: ${link.title.trim()}` : ""}
 			</Text>
 		</View>
 	);

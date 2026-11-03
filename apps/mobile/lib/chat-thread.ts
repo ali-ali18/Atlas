@@ -110,7 +110,7 @@ export function sessionMessageToItem(message: SessionMessage): ChatItem | null {
 	const role = message.role as string;
 	if (role === BOT_LINK_ROLE) {
 		const link = parseBotLinkCard(message.content);
-		return link ? { id: message.id, kind: "marker", createdAt, text: `Enviou mensagem para ${link.botName}${link.title ? `: ${link.title}` : ""}` } : null;
+		return link ? { id: message.id, kind: "marker", createdAt, text: `Enviou mensagem para ${link.botName}${link.title ? `: ${link.title}` : ""}`, link: { botId: link.botId, botName: link.botName, title: link.title } } : null;
 	}
 	const reactions = validReactions(message.reactions);
 	// `replyTo` é do contrato novo do servidor (pode faltar em servidor antigo): lido sem confiar no formato.
