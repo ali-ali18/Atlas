@@ -4,6 +4,9 @@ Todas as mudanças relevantes do Atlas. Formato [Keep a Changelog](https://keepa
 
 ## [Não lançado]
 
+### Adicionado
+- **mobile:** menu ao segurar o título de uma seção na home (Renomear, Mover para cima/baixo, Excluir), com a mesma gaveta (`ActionSheet`) do menu da conversa; toque curto continua recolhendo/expandindo. Usa `PATCH`/`DELETE /v1/sections/:id`; ao excluir, os bots voltam para "Sem sessão". Ver `docs/features/app-mobile.md`.
+
 ### Alterado
 - **agent:** o bot não tem mais orçamento de **tempo** por padrão (decisão do dono, 02/11; ADR 0003). Chat e trabalho longo antes tinham 8 e 60 min com aviso a 80% e entrega forçada; o motor anterior tinha 30 min de parede e soft de 24 passos. Agora o run termina quando o modelo responde sem tool ou quando você para. Só valem os tetos que o dono configura (US$ da conta ou do bot, tempo da conta, gasto e minutos do bot, agora opcionais na engrenagem e no `set_engine`: vazio ou 0 = sem limite) e as redes contra laço (200 passos, repetição, falhas seguidas, estagnação, botão de parar). Rotina, alerta, proativo, brief e bot→bot mantêm o limite de antes. A promoção do chat a trabalho longo por tempo saiu (fica a pela lista de 3+ passos).
 - **worker, agent:** o teto de passos do DONO não é mais chamado de "limite de segurança". A origem (pedido, bot ou conta) fica em `budgetJson.caps` (`steps`, `stepsSource`); com origem do dono, a instrução ao modelo e o "Motivo da parada" dizem "o limite de passos que você configurou (N, em <origem>)". O limite de segurança de 200 passos do v2 mantém o texto de segurança e mostra o valor. Se o dono configurou mais de 200, o teto efetivo é 200 e as configurações mostram isso ("Herdar (200 passos)"; presets 300 e 500 aparecem como "vale 200").
