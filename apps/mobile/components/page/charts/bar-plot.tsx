@@ -21,7 +21,7 @@ export function BarPlot({ spec, theme, width }: ChartPlotProps) {
 	const entrance = useEntrance();
 	const { state } = useChartPressState(PRESS_INIT);
 	const tap = usePressTap(state);
-	const layout = React.useMemo(() => barLayout({ labels: model.labels, seriesCount: spec.series.length, orientation: spec.orientation, plotWidth: width - 90 }), [model.labels, spec.series.length, spec.orientation, width]);
+	const layout = React.useMemo(() => barLayout({ labels: model.labels, seriesCount: spec.series.length, orientation: spec.orientation, plotWidth: width - 90, axisWidth: width - 56 }), [model.labels, spec.series.length, spec.orientation, width]);
 	const horizontal = layout.horizontal;
 	const stacked = spec.stacked === true && spec.series.length > 1;
 	const keys = SERIES_KEYS.slice(0, spec.series.length);

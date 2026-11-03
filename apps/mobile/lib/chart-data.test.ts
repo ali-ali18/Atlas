@@ -338,6 +338,11 @@ describe("layout das barras", () => {
 		expect(sixty.height).toBe(BAR_MAX_HEIGHT);
 		expect(sixty.rowLabels).toBe(Math.floor((BAR_MAX_HEIGHT - 34) / 22));
 	});
+	it("na vertical os rótulos usam a largura do eixo (4 regiões cabem em 289 pt, não só 3)", () => {
+		const regions = ["Sul", "Sudeste", "Norte", "Nordeste"];
+		expect(barLayout({ labels: regions, seriesCount: 1, plotWidth: 255, axisWidth: 289 }).rowLabels).toBe(4);
+		expect(barLayout({ labels: regions, seriesCount: 1, plotWidth: 255 }).rowLabels).toBe(3);
+	});
 	it("poucas categorias seguem como antes (altura pelo número de linhas, mínimo 200)", () => {
 		expect(barLayout({ labels: labels(4), seriesCount: 1, orientation: "horizontal", plotWidth: 300 })).toMatchObject({ horizontal: true, height: 200 });
 		expect(barLayout({ labels: labels(10), seriesCount: 2, orientation: "horizontal", plotWidth: 300 }).height).toBe(10 * 42 + 36);

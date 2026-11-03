@@ -286,11 +286,11 @@ export const BAR_MAX_HORIZONTAL_ROWS = 60;
  * Orientação, altura e quantos rótulos de categoria cabem no gráfico de barras. Deitada só até 60 categorias (mesmo com
  * `orientation: "horizontal"` no spec), com a altura limitada a 1200 pt; a vertical tem 240 pt e rótulos afinados.
  */
-export function barLayout(input: { labels: readonly string[]; seriesCount: number; orientation?: "vertical" | "horizontal"; plotWidth: number }): { horizontal: boolean; height: number; rowLabels: number } {
+export function barLayout(input: { labels: readonly string[]; seriesCount: number; orientation?: "vertical" | "horizontal"; plotWidth: number; /** Largura útil do eixo X na vertical (padrão: `plotWidth`). */ axisWidth?: number }): { horizontal: boolean; height: number; rowLabels: number } {
 	const rows = input.labels.length;
 	const wanted = input.orientation === "horizontal" || (input.orientation === undefined && shouldUseHorizontalBars(input.labels, input.plotWidth));
 	const horizontal = wanted && rows <= BAR_MAX_HORIZONTAL_ROWS;
-	if (!horizontal) return { horizontal, height: 240, rowLabels: Math.max(2, Math.min(12, Math.floor(input.plotWidth / Math.max(1, xLabelSlot(input.labels))))) };
+	if (!horizontal) return { horizontal, height: 240, rowLabels: Math.max(2, Math.min(12, Math.floor((input.axisWidth ?? input.plotWidth) / Math.max(1, xLabelSlot(input.labels))))) };
 	const perGroup = input.seriesCount > 1 ? 14 * input.seriesCount + 14 : 34;
 	const height = Math.min(BAR_MAX_HEIGHT, Math.max(200, rows * perGroup + 36));
 	return { horizontal, height, rowLabels: Math.max(2, Math.floor((height - 34) / 22)) };
