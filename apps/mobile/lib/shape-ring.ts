@@ -10,12 +10,20 @@ export const ENGINE_BOX = 250;
 export const RING_PAD_UNITS = 30;
 
 /**
- * Larguras de traço, em unidades do motor, para um avatar de `size` pt. O traço é centrado no caminho, então metade
- * dele fica fora da silhueta: `outer` vai até a borda de fora do contorno, `gap` só até o fim do respiro.
+ * Larguras de traço, em unidades do motor, para uma forma de `size` pt desenhada com a escala `scale` do quadro (o
+ * traço também é escalado por ela). O traço é centrado no caminho, então metade dele fica fora da silhueta: `outer` vai
+ * até a borda de fora do contorno, `gap` só até o fim do respiro.
  */
-export function ringStrokes(size: number): { outer: number; gap: number } {
-	const unitsPerPt = ENGINE_BOX / size;
+export function ringStrokes(size: number, scale = 1): { outer: number; gap: number } {
+	const unitsPerPt = ENGINE_BOX / size / scale;
 	return { outer: 2 * (RING_GAP_PT + RING_STROKE_PT) * unitsPerPt, gap: 2 * RING_GAP_PT * unitsPerPt };
+}
+
+/** `viewBox` de uma célula de `cell` pt em que a caixa do motor (250) ocupa `size` pt, bem no centro. */
+export function cellViewBox(cell: number, size: number): string {
+	const pad = ((cell - size) / 2) * (ENGINE_BOX / size);
+	const side = ENGINE_BOX + 2 * pad;
+	return `${-pad} ${-pad} ${side} ${side}`;
 }
 
 /** Lado, em pt, da caixa onde o contorno é desenhado para um avatar de `size` pt: o contorno inteiro cabe, sem recorte. */

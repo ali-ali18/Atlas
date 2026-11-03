@@ -3,7 +3,7 @@ import { projectFrame } from "@workspace/shared/avatar/render/project";
 import { stillFrame } from "@workspace/shared/avatar/render/still";
 import { describe, expect, it } from "vitest";
 import { AVATAR_SHAPES } from "./bot-edit";
-import { chunkRows, COLLAPSED_SHAPES, EDITOR_SHAPE_CELL, EDITOR_SHAPE_SIZE, ENGINE_BOX, GRID_SHAPE_CELL, GRID_SHAPE_SIZE, minCellFor, needsExpanded, RING_GAP_PT, RING_PAD_UNITS, RING_STROKE_PT, ringBoxSize, ringStrokes, SHAPES_PER_ROW, visibleShapes } from "./shape-ring";
+import { chunkRows, COLLAPSED_SHAPES, EDITOR_SHAPE_CELL, EDITOR_SHAPE_SIZE, ENGINE_BOX, GRID_SHAPE_CELL, GRID_SHAPE_SIZE, minCellFor, needsExpanded, RING_GAP_PT, RING_PAD_UNITS, RING_STROKE_PT, ringBoxSize, ringStrokes, cellViewBox, SHAPES_PER_ROW, visibleShapes } from "./shape-ring";
 
 describe("a célula comporta o contorno inteiro", () => {
 	it("a célula é maior que a forma mais o contorno dos dois lados, com folga", () => {
@@ -31,6 +31,16 @@ describe("a célula comporta o contorno inteiro", () => {
 			expect(pt(gap / 2)).toBeCloseTo(2);
 			expect(pt((outer - gap) / 2)).toBeCloseTo(2);
 		}
+	});
+	it("a forma fica no centro exato da célula (mesma folga dos quatro lados)", () => {
+		const [x = 0, y = 0, w = 0, h = 0] = cellViewBox(57, 44).split(" ").map(Number);
+		expect(x).toBeCloseTo(y);
+		expect(w).toBeCloseTo(h);
+		expect(x + w / 2).toBeCloseTo(ENGINE_BOX / 2);
+		expect((w * 44) / ENGINE_BOX).toBeCloseTo(57);
+	});
+	it("o traço desconta a escala do quadro", () => {
+		expect(ringStrokes(44, 0.5).outer).toBeCloseTo(ringStrokes(44).outer * 2);
 	});
 	it("5 por linha cabem na menor tela (320 pt)", () => {
 		expect(SHAPES_PER_ROW * GRID_SHAPE_CELL).toBeLessThanOrEqual(320 - 32);
