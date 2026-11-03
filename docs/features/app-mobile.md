@@ -269,4 +269,23 @@ Perfil do bot → **Rotinas** abre a lista nativa (`routines/[id]`): rotinas sol
 - **Dados:** os mesmos endpoints do web (`GET /v1/bots/:botId/routines` e `/routine-groups`, `PATCH …/routines/:routineId` com `{ enabled }`, `GET …/routines/:routineId/runs`). O servidor filtra por dono (404 para outro); o app só manda os ids. Estado em `lib/routines-store.ts`, compartilhado entre lista e detalhes, sem cache em disco; pausar/retomar muda na hora e volta atrás se o servidor recusar, sem toque duplo.
 - **Criar e editar é conversando:** "Pedir uma rotina ao bot" e "Editar rotina" abrem o chat com o campo já preenchido ("Quero mudar a rotina …: "). O app não edita gatilho (cron, webhook, GitHub, e-mail) nem mostra segredo.
 - **Fora por enquanto:** "Próxima execução" (o servidor não calcula), Testar (executar agora), excluir e ações de grupo.
-- **Visual:** cores medidas no app do Grok (`routineSurface`: tela `#1e1e1e`, cartão `#2c2c2e`, contorno `#373739`); interruptor próprio (`components/ui/toggle-switch.tsx`, trilho 56x34 na cor do bot).
+- **Visual:** a pele padrão do app (ver "Pele e peças" abaixo): mesmo fundo de tela, `SurfaceCard` e `ToggleSwitch` (trilho 56x34 na cor do bot) de todas as telas.
+
+## Pele e peças (consistência visual)
+
+Antes cada tela escolhia a sua cor (chat `#09090b`, Rotinas `#1e1e1e`, Perfil `bg-card`), a sua borda e até o seu interruptor (o `Switch` do RN no Perfil). Agora há um padrão só, em `lib/surfaces.ts` (`surfaceColors(scheme)` / `useSurfaces()`), com par claro/escuro:
+
+| Token | Escuro | Uso |
+|---|---|---|
+| `screen` | `#09090b` | fundo de TODAS as telas (o do chat; no claro, `background`) |
+| `surface` / `surfaceEdge` | `#2c2c2e` / `#373739` | cartão e grupo de linhas |
+| `divider` | `#373739` | divisor entre linhas, de ponta a ponta |
+| `chromeFill` / `chromeEdge` / `chromeControl` | `#2c2c2e` / `#4b4b4d` / `#3e3d42` | botões redondos, pílulas, campos, composer, menus |
+| `sheet` | `#1c1c1e` | fundo das folhas |
+| `bubble`, `link`, `switchOff`, `switchThumb` | `#202020`, `#136cd0`, `#3a3a3c`, `#ffffff` | balão do bot, azul de ação, interruptor |
+
+Peças em `components/ui/`: `ScreenFrame`, `ScreenHeader`, `SurfaceCard`/`SurfaceGroup`/`SurfaceRow`/`SurfaceDivider`, `ChromeButton`, `ChromePill`, `ChromeInput` (+ `InputGroup`, `Input`, `InputOTP`), `ToggleSwitch`, `ChatCard`. `lib/chat-surface.ts` só reexporta os nomes antigos (`chatSurface`, `chatChrome`, `routineSurface`). `lib/color-tokens.ts` guarda os tokens do tema (antes em `theme.ts`, que ficou com as variáveis do NativeWind).
+
+- **Mudou para quem usa:** Rotinas, Execuções e Perfil passam ao fundo do chat; cartões ganham a mesma cor e contorno em todas as telas (inclusive a tabela do chat e o `ChatCard`); voltar, fechar, pílula do bot, busca e nome têm o mesmo contorno do topo do chat; o interruptor de Notificações é o mesmo das Rotinas.
+- **Regra e guarda:** seção "App mobile (apps/mobile): pele e peças" em `.agents/rules/35-componentes.md`; `lib/visual-base-guard.test.ts` falha com hex novo fora dos tokens e com `Switch` do RN importado.
+- **Risco:** o `ToggleSwitch` perdeu a prop `offColor` e `RoundButton` virou alias do `ChromeButton`; branches em andamento que passam `offColor` ajustam na hora do merge.
