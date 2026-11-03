@@ -274,3 +274,8 @@ Perfil do bot → **Rotinas** abre a lista nativa (`routines/[id]`): rotinas sol
 ## Conectar conector OAuth pelo navegador do celular
 
 A sessão do app fica dentro dele; o callback do OAuth exige cookie do dono. Por isso os POSTs de conexão (`/v1/mcp/connections`, `/v1/mcp/connections/:id/reauth`, `/v1/composio/connect`) aceitam `client: "mobile"` e devolvem `handoffUrl`. O app abre essa URL no navegador do sistema: o servidor consome o código (uso único, 60 s, só o hash no banco), cria uma sessão curta (10 min) do mesmo dono, grava o cookie e vai (302) para a URL de autorização que ele mesmo gerou. A sessão curta é revogada ao fim do callback. Código ruim mostra "Link expirado. Volte ao app e tente de novo." O app detecta a conclusão por polling. Código em `apps/api/src/mobile-oauth-handoff.ts`.
+
+Notas do handoff:
+- A sessão curta nunca é estendida: um hook do better-auth (`databaseHooks.session.update.before` em `auth.ts`) preserva o `expiresAt` das sessões marcadas, então passados os 10 min ela morre no servidor mesmo que o navegador renove o cookie.
+- O limite de 30/min por IP usa o endereço do par (sem confiar em `X-Forwarded-For`): atrás de proxy todos dividem o mesmo balde, como nas outras rotas públicas.
+- O `Set-Cookie` do handoff sobrescreve uma sessão web que o navegador do celular já tivesse para o Atlas (mesmo nome de cookie); é aceito, a pessoa entra de novo se precisar.

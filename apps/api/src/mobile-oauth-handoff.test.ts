@@ -265,3 +265,31 @@ test("a sessão curta é revogada ao fim do callback do OAuth (e a do app não �
 	assert.equal(await auth.api.getSession({ headers: new Headers({ cookie }) }), null);
 	assert.ok(await ctx.internalAdapter.findSession(app.token), "sessão do app continua");
 });
+
+test("a sessão curta não é estendida pelo refresh do better-auth; a sessão do app continua renovando", async () => {
+	const { handoff, addUser, open, auth, db } = await setup();
+	const app = await addUser("user-a", OWNER);
+	const res = await open(pathOf(await handoff.mint({ userId: "user-a", sessionId: app.id, next: NEXT })));
+	const cookie = sessionCookie(res);
+	const short = db.session!.find((row) => row.userAgent === OAUTH_HANDOFF_USER_AGENT) as Row;
+	const before = (short.expiresAt as Date).getTime();
+	// Vários getSession (o navegador usando o Atlas sem concluir o OAuth): nenhum estende.
+	for (let i = 0; i < 3; i += 1) {
+		const session = await auth.api.getSession({ headers: new Headers({ cookie }) });
+		assert.equal(session?.user.id, "user-a");
+	}
+	assert.equal((short.expiresAt as Date).getTime(), before);
+	assert.ok(before - Date.now() <= 10 * 60_000);
+	// Sessão normal do app, já "devida" para refresh (2 dias de vida), é renovada.
+	const row = db.session!.find((r) => r.id === app.id) as Row;
+	row.expiresAt = new Date(Date.now() + 2 * 86_400_000);
+	const appCookie = `better-auth.session_token=${encodeURIComponent(`${app.token}.${await signValue(app.token)}`)}`;
+	const renewed = await auth.api.getSession({ headers: new Headers({ cookie: appCookie }) });
+	assert.equal(renewed?.session.id, app.id);
+	assert.ok((row.expiresAt as Date).getTime() - Date.now() > 6 * 86_400_000, "app renovou");
+});
+
+async function signValue(value: string): Promise<string> {
+	const { createHmac } = await import("node:crypto");
+	return createHmac("sha256", process.env.BETTER_AUTH_SECRET as string).update(value).digest("base64");
+}
