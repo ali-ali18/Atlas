@@ -282,7 +282,7 @@ const handleControlRequest = async (req, res) => {
 				const result = await withMarks(
 					{
 						withPageRetry,
-						ensureRefs: () => browserSnapshot({ area: "viewport", limit: 80 }),
+						ensureRefs: () => browserSnapshot({ area: "viewport", limit: 80, engine: "dom" }), // as marcas desenham data-atlas-ref (v1)
 					},
 					() => captureScreen(options),
 				).catch(() => null);
