@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ChatApiError } from "./chat-api";
-import { listRoutineRuns, listRoutines, routinesErrorText, setRoutineEnabled } from "./routines-api";
+import { createRoutine, listRoutineRuns, listRoutines, routinesErrorText, setRoutineEnabled } from "./routines-api";
 import { RoutinesStore } from "./routines-store";
 
 const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
@@ -22,6 +22,12 @@ describe("api de rotinas", () => {
 		const apiFetch = vi.fn(async () => ok({}));
 		await setRoutineEnabled(apiFetch, "b", "r 1", false);
 		expect(apiFetch).toHaveBeenCalledWith("/v1/bots/b/routines/r%201", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ enabled: false }) }));
+	});
+	it("criar rotina manda só nome, instrução, agenda e enabled (o corpo do web ao instalar do catálogo)", async () => {
+		const apiFetch = vi.fn(async () => ok({ routine: {} }));
+		await createRoutine(apiFetch, "bot 1", { name: "Diário", prompt: "Resuma", schedule: "0 9 * * *" });
+		expect(apiFetch).toHaveBeenCalledWith("/v1/bots/bot%201/routines", expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Diário", prompt: "Resuma", schedule: "0 9 * * *", enabled: true }) }));
+		await expect(createRoutine(async () => new Response("", { status: 400 }), "b", { name: "x", prompt: "y", schedule: "z" })).rejects.toBeInstanceOf(ChatApiError);
 	});
 	it("histórico", async () => {
 		expect(await listRoutineRuns(async () => ok({ runs: [{ id: "x" }] }), "b", "r")).toHaveLength(1);
