@@ -1295,7 +1295,7 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			await ensureContinue();
 			await ensureNotPaused();
 			// Laço encerrado com itens abertos: o detalhe diz isso, e o worker agenda a continuação automática (sem pedir "continua").
-			if (abortStop) return await deliver(helperRole || openItems(currentTaskItems()).length === 0 ? abortStop : { ...abortStop, detail: `${abortStop.detail ?? "after_note"}:items_open` }, helperRole ? HELPER_DELIVERY_INSTRUCTION : deliveryInstruction("loop_repeat"));
+			if (abortStop) return await deliver(helperRole || openItems(currentTaskItems()).length === 0 ? abortStop : { ...abortStop, detail: `${abortStop.detail ?? "after_note"}:items_open` }, helperRole ? HELPER_DELIVERY_INSTRUCTION : deliveryInstruction(abortStop.reason === "tool_failures" ? "tool_failures" : "loop_repeat"));
 			// Mensagens do usuário durante o run: viram nota; "cancelar" para o run.
 			if (params.consumeSteerInputs) {
 				for (const input of await params.consumeSteerInputs()) {
@@ -1428,7 +1428,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			conversation.push({ role: "assistant", content: text.length > 0 ? text : null, tool_calls: toolCalls, ...(providerItems ? { providerItems } : {}) });
 			const outcomes = await runBatch(toolCalls);
 			lastStepHadTools = true;
-			if (toolCalls.some((toolCall) => /^(browser|sandbox)_/.test(toolCall.function.name))) actionToolUsed = true;
+			// Só navegador e desktop promovem; uma conta no shell da VM (sandbox_*) é trabalho curto e não promove.
+			if (toolCalls.some((toolCall) => /^(browser_|navigate$|screenshot$|computer|desktop)/.test(toolCall.function.name))) actionToolUsed = true;
 			lastBatchFailed = outcomes.some((outcome) => !outcome.ok && !outcome.skipped);
 			toolRounds += 1;
 			abortStop = settleBatch(outcomes);

@@ -61,6 +61,12 @@ export const WAIT_REPEAT_LIMIT = 30;
 const WAIT_TOOLS = /^(sandbox_shell_wait|browser_wait|shell_output|wait_for\w*|sandbox_wait\w*)$/;
 /** Falhas seguidas da MESMA tool que a bloqueiam por um tempo. */
 export const FAILURE_BLOCK_AFTER = 3;
+/**
+ * Rede global: falhas seguidas de QUALQUER tool (alvos diferentes inclusive) viram nota nesta contagem e, se continuarem
+ * por mais `GLOBAL_FAILURE_ABORT_EXTRA`, a entrega honesta. A trava por tool+alvo não pega "tudo falha, cada vez em um lugar".
+ */
+export const GLOBAL_FAILURE_NOTE_AT = 8;
+export const GLOBAL_FAILURE_ABORT_EXTRA = 3;
 /** Quantos passos a tool bloqueada fica indisponível. */
 export const BLOCK_STEPS = 3;
 
@@ -116,13 +122,19 @@ export const RESERVE_WRITE_NOTE =
 export const RESERVE_GAPS_NOTE =
 	"Research is almost over. Before writing, make one quick pass over the notebook items marked unconfirmed: for each, try another source, another search, or read the file or repository directly (raw URL, read long pages in parts). When you close one, update its notebook entry with replaces. Do not start new lines of research and do not delegate. Then write the deliverable; only what is still unconfirmed goes in one short closing note at the end, not item by item in the body.";
 
-export function deliveryInstruction(reason: "budget_cost" | "budget_wall" | "budget_steps" | "loop_repeat"): string {
+export function globalFailureNote(count: number): string {
+	return `Tool notice: the last ${count} tool calls in a row all failed. Stop and rethink: use a different route to the goal, a different tool, or tell the user what is blocking you and deliver what you have.`;
+}
+
+export function deliveryInstruction(reason: "budget_cost" | "budget_wall" | "budget_steps" | "loop_repeat" | "tool_failures"): string {
 	const why =
 		reason === "budget_cost" || reason === "budget_wall"
 			? "The limit for this task was reached."
 			: reason === "budget_steps"
 				? "The safety limit of steps for this task was reached."
-				: "You are repeating the same action without progress.";
+				: reason === "tool_failures"
+					? "Your tools keep failing."
+					: "You are repeating the same action without progress.";
 	return (
 		`${why} Do not call any tools. Write the final answer for the user now with what you have: the result so far, ` +
 		"the sources you used and the assumptions you made. Put what you could not confirm or finish, and why, in one short note at the end, not item by item through the text. " +
@@ -174,7 +186,7 @@ export type SupervisorGateContext = {
 	lastStepHadTools?: boolean;
 	/** Passos da lista de tarefas que o MODELO montou neste run (lista herdada de run anterior não conta): 3+ promove o chat. */
 	plannedSteps?: number;
-	/** O run já chamou uma tool de navegador ou VM (agir em site/app não é conversa curta): promove o chat. */
+	/** O run já chamou uma tool de navegador ou desktop (agir em site/app não é conversa curta; shell da VM não conta): promove o chat. */
 	actionToolUsed?: boolean;
 };
 
@@ -217,6 +229,7 @@ export function createSupervisor(config: {
 	let streak = 0;
 	let notedKey: string | undefined;
 	const failureStreak = new Map<string, { count: number; target: string }>();
+	let consecutiveFailures = 0;
 	let waitStreak = 0;
 	let waitKey: string | undefined;
 	const blockedUntil = new Map<string, number>();
@@ -404,6 +417,10 @@ export function createSupervisor(config: {
 				seenResultKeys.add(`${record.name}|${record.resultKey}`);
 				novelResults += 1;
 			}
+			// Falhas seguidas de qualquer tool: nota e, se não mudar, entrega honesta (ver `GLOBAL_FAILURE_NOTE_AT`).
+			consecutiveFailures = record.ok ? 0 : consecutiveFailures + 1;
+			if (consecutiveFailures === GLOBAL_FAILURE_NOTE_AT) notes.push(globalFailureNote(consecutiveFailures));
+			if (consecutiveFailures >= GLOBAL_FAILURE_NOTE_AT + GLOBAL_FAILURE_ABORT_EXTRA) return { notes, abort: { reason: "tool_failures", detail: "consecutive" } };
 			// Falhas seguidas da MESMA tool.
 			if (record.ok) failureStreak.delete(record.name);
 			else {

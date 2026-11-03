@@ -528,6 +528,13 @@ describe("promoção decidida pelo modelo: lista de tarefas com 3+ passos (v2)",
 			extra: { manager: { snapshot: async () => ({}) } as never },
 		});
 		expect(run.onPromoted).toHaveBeenCalledTimes(1);
+		// Uma conta no shell da VM (sandbox_*) não é agir em site: não promove.
+		const shell = await runChat({
+			stepMs: 5_000,
+			messages: [{ role: "user", content: "quanto é 17 vezes 23?" }],
+			script: [turn([call("sandbox_release")], 0.1), say("391.", 0.1)],
+		});
+		expect(shell.onPromoted).not.toHaveBeenCalled();
 		// Sem navegador no run (ex.: pergunta curta) nada promove.
 		const quiet = await runChat({ stepMs: 5_000, messages: [{ role: "user", content: "Bom dia" }], script: [say("Bom dia!")] });
 		expect(quiet.onPromoted).not.toHaveBeenCalled();

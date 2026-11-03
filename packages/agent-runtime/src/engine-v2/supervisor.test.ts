@@ -9,6 +9,9 @@ import {
 	RESERVE_WRITE_NOTE,
 	STAGNATION_STEPS,
 	WAIT_REPEAT_LIMIT,
+	GLOBAL_FAILURE_ABORT_EXTRA,
+	GLOBAL_FAILURE_NOTE_AT,
+	deliveryInstruction,
 	WRAP_UP_NOTE,
 	PROMOTE_PLAN_STEPS,
 	budgetForProfile,
@@ -633,5 +636,32 @@ describe("estagnação: resultado novo é progresso; fase de escrita mantém as 
 		const document = make(false);
 		expect(document.phaseBlocked("browser_act")).toMatch(/not available/);
 		expect(document.phaseAllows("create_file")).toBe(true);
+	});
+});
+
+describe("rede global de falhas seguidas", () => {
+	const noCap = { maxCostUsd: Number.POSITIVE_INFINITY, maxActiveMs: Number.POSITIVE_INFINITY };
+	const fail = (step: number) => record({ step, name: `tool_${step % 5}`, argsKey: `a${step}`, resultKey: `e${step}`, ok: false, target: `alvo-${step}`, message: `falhou ${step}` });
+
+	it("8 falhas seguidas de tools e alvos diferentes trazem uma nota; mais 3 encerram com a entrega honesta (tool_failures)", () => {
+		const supervisor = createSupervisor({ profile: "chat", budget: noCap });
+		for (let step = 1; step < GLOBAL_FAILURE_NOTE_AT; step++) expect(supervisor.recordTool(fail(step)).notes.some((note) => note.includes("in a row all failed"))).toBe(false);
+		const eighth = supervisor.recordTool(fail(GLOBAL_FAILURE_NOTE_AT));
+		expect(eighth.notes.some((note) => note.includes("in a row all failed"))).toBe(true);
+		expect(eighth.abort).toBeUndefined();
+		let verdict = eighth;
+		for (let step = GLOBAL_FAILURE_NOTE_AT + 1; step <= GLOBAL_FAILURE_NOTE_AT + GLOBAL_FAILURE_ABORT_EXTRA; step++) verdict = supervisor.recordTool(fail(step));
+		expect(verdict.abort).toEqual({ reason: "tool_failures", detail: "consecutive" });
+		expect(deliveryInstruction("tool_failures")).toMatch(/tools keep failing/);
+	});
+
+	it("um sucesso no meio zera a contagem", () => {
+		const supervisor = createSupervisor({ profile: "chat", budget: noCap });
+		for (let step = 1; step <= 7; step++) supervisor.recordTool(fail(step));
+		supervisor.recordTool(record({ step: 8, name: "web_search", argsKey: "ok", resultKey: "ok" }));
+		for (let step = 9; step <= 20; step++) {
+			const verdict = supervisor.recordTool(step % 6 === 0 ? record({ step, name: "web_search", argsKey: `ok${step}`, resultKey: `ok${step}` }) : fail(step));
+			expect(verdict.abort).toBeUndefined();
+		}
 	});
 });
