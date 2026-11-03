@@ -4,7 +4,7 @@
 import type { CacheStorage } from "./home-cache";
 import type { BotTag, ChatItem, ConfirmStatus, QuestionnaireStatus, TaskItem } from "./chat-types";
 
-export const CHAT_CACHE_VERSION = 1;
+export const CHAT_CACHE_VERSION = 2;
 const ALL_VERSIONS_PREFIX = "atlas.chat.";
 const PREFIX = `${ALL_VERSIONS_PREFIX}v${CHAT_CACHE_VERSION}:`;
 export const CHAT_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -27,7 +27,7 @@ const CONFIRM: readonly ConfirmStatus[] = ["pending", "approved", "rejected", "f
 const QUESTIONNAIRE: readonly QuestionnaireStatus[] = ["pending", "submitted", "dismissed"];
 const TASK: readonly TaskItem["status"][] = ["pending", "in_progress", "completed"];
 const BOT_KINDS: readonly BotTag["kind"][] = ["request", "reply", "answer"];
-const WEB_CARDS =["chart", "page", "file", "routine", "login", "images", "proposal", "approval"] as const;
+const WEB_CARDS = ["chart", "page", "file", "routine", "login", "images", "proposal", "approval"] as const;
 
 function pickTasks(value: unknown): TaskItem[] | null {
 	if (!Array.isArray(value)) return null;

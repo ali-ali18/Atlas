@@ -3,7 +3,7 @@
 // defasada de render), e as dependências (API, stream, cache, relógio) entram por injeção para testar as corridas
 // (envio durante o fim do run, parar antes do `runId`, toque duplo em aprovação…). O hook só assina e desenha.
 import type { AgentActivity, ComputerUseEvent } from "@workspace/shared";
-import { groupBotItems, withLegacyBotTag } from "./bot-thread";
+import { groupBotItems } from "./bot-thread";
 import { ChatApiError, isNetworkError, isUnauthorized, sendErrorText, type CreateRunInput, type CreateRunResult } from "./chat-api";
 import { applyRunEvent, createLiveState, startLiveRun, type LiveState } from "./chat-live";
 import { followRun, type FollowOptions, type OpenStream } from "./chat-stream";
@@ -641,8 +641,8 @@ export function deriveView(snapshot: ChatSnapshot): ChatView {
 	const runTasks = dockedTaskList(merged, running, snapshot.live.runId);
 	const lastTasks = [...merged].reverse().find((item): item is Extract<ChatItem, { kind: "task-list" }> => item.kind === "task-list" && item.items.length > 0) ?? null;
 	return {
-		// Fala entre bots não é balão do usuário: vira a linha "N mensagens com X" (cache antigo sem `bot` incluído).
-		items: withSourceMarkers(groupBotItems(merged.map(withLegacyBotTag))),
+		// Fala entre bots não é balão do usuário: vira a linha "N mensagens com X".
+		items: withSourceMarkers(groupBotItems(merged)),
 		runTasks,
 		lastTasks,
 		line: syncLine(snapshot.sync),

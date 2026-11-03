@@ -1,6 +1,7 @@
 import type { BotExchangeItem } from "@workspace/shared";
 import { describe, expect, it, vi } from "vitest";
-import { ExchangeError, fetchBotExchange, flattenBotExchange, mergeExchangeItems, parseExchangePage, stampBreaks } from "./bot-exchange";
+import { ChatApiError, isUnauthorized } from "./chat-api";
+import { fetchBotExchange, flattenBotExchange, hasFocus, mergeExchangeItems, parseExchangePage, stampBreaks } from "./bot-exchange";
 
 const item = (id: string, over: Partial<BotExchangeItem> = {}): BotExchangeItem => ({
 	id,
@@ -29,6 +30,23 @@ describe("flattenBotExchange", () => {
 	it("ordena por horário entre trocas", () => {
 		const entries = flattenBotExchange([item("m2", { createdAt: "2026-11-03T11:00:00.000Z", repliedAt: "2026-11-03T11:02:00.000Z" }), item("m1")], "bob");
 		expect(entries.map((entry) => entry.key)).toEqual(["m1:req", "m1:reply", "m2:req", "m2:reply"]);
+	});
+});
+
+describe("hasFocus", () => {
+	it("acha a troca da fala pelo id; sem foco, nada a buscar", () => {
+		expect(hasFocus([item("m1"), item("m2")], "m2:req")).toBe(true);
+		expect(hasFocus([item("m1")], "m9:reply")).toBe(false);
+		expect(hasFocus([], null)).toBe(true);
+	});
+});
+
+describe("401", () => {
+	it("sessão recusada vira erro que o app trata como saída (isUnauthorized)", async () => {
+		const apiFetch = vi.fn(async (_path: string, _init?: RequestInit) => new Response("{}", { status: 401 }));
+		const error = await fetchBotExchange(apiFetch, "a", "b").catch((reason: unknown) => reason);
+		expect(error).toBeInstanceOf(ChatApiError);
+		expect(isUnauthorized(error)).toBe(true);
 	});
 });
 
@@ -63,6 +81,6 @@ describe("fetchBotExchange", () => {
 	it("404 (bot de outro dono) vira erro amigável", async () => {
 		const apiFetch = vi.fn(async (_path: string, _init?: RequestInit) => new Response("{}", { status: 404 }));
 		await expect(fetchBotExchange(apiFetch, "a", "b")).rejects.toMatchObject({ status: 404, message: "Conversa não encontrada." });
-		await expect(fetchBotExchange(apiFetch, "a", "b")).rejects.toBeInstanceOf(ExchangeError);
+		await expect(fetchBotExchange(apiFetch, "a", "b")).rejects.toBeInstanceOf(ChatApiError);
 	});
 });

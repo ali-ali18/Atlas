@@ -8,20 +8,6 @@ import { formatRunTime } from "./routine-run";
 type BotSpeech = Extract<ChatItem, { kind: "user" | "assistant" }> & { bot: BotTag };
 type ExchangeItem = Extract<ChatItem, { kind: "bot-exchange" }>;
 
-/** Moldura que o servidor grava no pedido/resposta entre bots ("Mensagem do bot X:\n…"); só para cache antigo, sem `bot`. */
-const FRAME_RE = /^(Mensagem|Resposta) do bot ([^\n]*?):\n/;
-
-/**
- * Cache gravado antes de existir o `bot` no item: o pedido ainda traz a moldura no texto, e dá para reconhecê-lo e
- * limpá-lo. A fala do bot ao atender não tem pista no texto: aparece como balão até a rede atualizar por cima.
- */
-export function withLegacyBotTag(item: ChatItem): ChatItem {
-	if (item.kind !== "user" || item.bot) return item;
-	const match = FRAME_RE.exec(item.text);
-	if (!match) return item;
-	return { ...item, text: item.text.slice(match[0].length), bot: { kind: match[1] === "Mensagem" ? "request" : "reply", fromBotName: match[2]!.trim() } };
-}
-
 export function isBotSpeech(item: ChatItem): item is BotSpeech {
 	return (item.kind === "user" || item.kind === "assistant") && Boolean(item.bot);
 }
@@ -76,11 +62,19 @@ export function groupBotItems(items: readonly ChatItem[]): ChatItem[] {
 		}
 		run = [];
 	};
+	// Um marcador por PARCEIRO: o app abre uma tela por par de bots, então trocar de parceiro fecha o trecho. A fala do
+	// bot ao atender (`answer`, sem nome) pertence ao parceiro do pedido anterior.
+	let runKey: string | null = null;
 	for (const item of items) {
 		if (isBotSpeech(item)) {
+			const partner = partnerOf(item);
+			const key = partner ? (partner.id ?? partner.name) : null;
+			if (key && runKey && key !== runKey) flush();
+			if (key) runKey = key;
 			run.push(item);
 			continue;
 		}
+		runKey = null;
 		flush();
 		out.push(item);
 	}

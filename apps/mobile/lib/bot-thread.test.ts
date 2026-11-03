@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { botExchangeLabel, exchangePeerId, exchangeStamp, groupBotItems, isBotSpeech, withLegacyBotTag } from "./bot-thread";
+import { botExchangeLabel, exchangePeerId, exchangeStamp, groupBotItems, isBotSpeech } from "./bot-thread";
 import { parseChat, serializeChat } from "./chat-cache";
 import { sessionMessageToItem } from "./chat-thread";
 import type { ChatItem } from "./chat-types";
@@ -55,13 +55,24 @@ describe("agrupamento no marcador", () => {
 		expect(botExchangeLabel(out[0] as never)).toBe("Mensagem de Grok Bot");
 		expect(out[0]).toMatchObject({ direction: "received", focus: "bm-r:reply" });
 	});
-	it("dois parceiros listam os dois nomes; sem nome, 'outro bot' e sem abrir", () => {
-		const other: ChatItem = { id: "r3", kind: "user", text: "ei", bot: { kind: "request", fromBotId: "b-ana", fromBotName: "Ana" } };
-		const two = groupBotItems([request("r1"), other])[0] as never;
-		expect(botExchangeLabel(two)).toBe("2 mensagens com Grok Bot e Ana");
+	it("trecho com bots misturados vira um marcador por parceiro; a fala do bot fica com o parceiro do pedido anterior", () => {
+		const ana: ChatItem = { id: "r3", kind: "user", text: "ei", bot: { kind: "request", fromBotId: "b-ana", fromBotName: "Ana", botMessageId: "bm-3" } };
+		const out = groupBotItems([request("r1"), answer("a1"), ana, answer("a3", "bm-3")]);
+		expect(out.map((item) => item.kind)).toEqual(["bot-exchange", "bot-exchange"]);
+		expect(botExchangeLabel(out[0] as never)).toBe("2 mensagens com Grok Bot");
+		expect(botExchangeLabel(out[1] as never)).toBe("2 mensagens com Ana");
+		expect(exchangePeerId(out[1] as never)).toBe("b-ana");
+		expect(out[1]).toMatchObject({ id: "bot-exchange:r3", focus: "bm-3:req" });
+	});
+	it("fala sem nome, sozinha, é 'outro bot' e não abre", () => {
 		const anon = groupBotItems([answer("a1")])[0] as never;
 		expect(botExchangeLabel(anon)).toBe("1 mensagem com outro bot");
 		expect(exchangePeerId(anon)).toBeNull();
+	});
+	it("o usuário digitar 'Mensagem do bot Ana:' não vira marcador: o balão aparece normal", () => {
+		const typed = user("u1", "Mensagem do bot Ana:\nvalor 10");
+		expect(groupBotItems([typed])).toEqual([typed]);
+		expect(isBotSpeech(typed)).toBe(false);
 	});
 	it("a identidade é a da primeira fala: a mesma ao vivo e restaurada, mesmo com mais falas depois", () => {
 		const first = groupBotItems([request("r1"), answer("a1")])[0]!;
@@ -90,22 +101,14 @@ describe("cache", () => {
 		const items = [user("u1"), request("r1"), answer("a1")];
 		const restored = parseChat(serializeChat(items, NOW), NOW)!.items;
 		expect(restored[1]).toMatchObject({ bot: { kind: "request", fromBotId: "b-grok", botMessageId: "bm-r1" } });
-		expect(groupBotItems(restored.map(withLegacyBotTag))).toEqual(groupBotItems(items));
+		expect(groupBotItems(restored)).toEqual(groupBotItems(items));
 	});
-	it("cache antigo (sem `bot`, texto com moldura) ainda sai do balão do usuário e vira marcador", () => {
-		const raw = JSON.stringify({ v: 1, savedAt: NOW, items: [{ id: "u1", kind: "user", text: "oi" }, { id: "r1", kind: "user", text: "Mensagem do bot Bobinho:\nOlá, Cookie" }, { id: "b1", kind: "assistant", text: "Oi, Bobinho!" }] });
-		const out = groupBotItems(parseChat(raw, NOW)!.items.map(withLegacyBotTag));
-		expect(out.map((item) => item.kind)).toEqual(["user", "bot-exchange", "assistant"]);
-		expect(botExchangeLabel(out[1] as never)).toBe("1 mensagem com Bobinho");
-		expect(exchangePeerId(out[1] as never)).toBeNull();
+	it("cache da versão anterior (sem `bot`) é descartado, em vez de adivinhar pelo texto", () => {
+		const raw = JSON.stringify({ v: 1, savedAt: NOW, items: [{ id: "r1", kind: "user", text: "Mensagem do bot Bobinho:\nOlá" }] });
+		expect(parseChat(raw, NOW)).toBeNull();
 	});
 	it("marca de bot inválida no disco é ignorada, sem quebrar a fala", () => {
-		const raw = JSON.stringify({ v: 1, savedAt: NOW, items: [{ id: "u1", kind: "user", text: "oi", bot: { kind: "x" } }] });
+		const raw = JSON.stringify({ v: 2, savedAt: NOW, items: [{ id: "u1", kind: "user", text: "oi", bot: { kind: "x" } }] });
 		expect(parseChat(raw, NOW)!.items).toEqual([{ id: "u1", kind: "user", text: "oi" }]);
-	});
-	it("withLegacyBotTag não mexe em fala comum nem em quem já tem marca", () => {
-		expect(withLegacyBotTag(user("u1", "Mensagem do bot não-moldura"))).toEqual(user("u1", "Mensagem do bot não-moldura"));
-		const tagged = request("r1");
-		expect(withLegacyBotTag(tagged)).toBe(tagged);
 	});
 });

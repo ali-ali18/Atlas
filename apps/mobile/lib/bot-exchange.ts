@@ -1,6 +1,7 @@
 // Conversa entre dois bots, somente leitura (puro): cada troca do servidor (pedido + resposta) vira até duas falas,
 // em ordem cronológica. Porta do `apps/web/lib/bot-exchange.ts`; os dados vêm do mesmo endpoint escopado ao dono.
 import type { BotExchangeItem, BotExchangeResponse } from "@workspace/shared";
+import { ChatApiError } from "./chat-api";
 import type { ApiFetch } from "./home-sync";
 
 export type ExchangeEntry = {
@@ -69,6 +70,16 @@ export function stampBreaks(entries: readonly ExchangeEntry[], gapMs: number = S
 	return keys;
 }
 
+/** Quantas páginas antigas se busca atrás de uma fala fora da primeira página, antes de abrir no fim. */
+export const MAX_FOCUS_PAGES = 5;
+
+/** A fala a destacar (`<id da troca>:req|reply`) já está entre as trocas carregadas? */
+export function hasFocus(items: readonly BotExchangeItem[], focus: string | null | undefined): boolean {
+	if (!focus) return true;
+	const id = focus.slice(0, focus.lastIndexOf(":"));
+	return items.some((item) => item.id === id);
+}
+
 /** Junta páginas (as mais antigas antes), sem repetir trocas. */
 export function mergeExchangeItems(older: readonly BotExchangeItem[], current: readonly BotExchangeItem[]): BotExchangeItem[] {
 	const seen = new Set(current.map((item) => item.id));
@@ -88,15 +99,6 @@ export function parseExchangePage(body: unknown): BotExchangeResponse | null {
 	return { messages: rows, nextCursor: isText(nextCursor) ? nextCursor : null };
 }
 
-export class ExchangeError extends Error {
-	constructor(
-		message: string,
-		readonly status: number,
-	) {
-		super(message);
-	}
-}
-
 /**
  * `GET /v1/bots/:botId/exchanges/:peerBotId` (o mesmo do web): com a sessão do dono, o servidor só responde se os dois
  * bots são dele (outro dono recebe 404). `cursor` busca trocas mais antigas.
@@ -107,8 +109,8 @@ export async function fetchBotExchange(apiFetch: ApiFetch, botId: string, peerBo
 	if (options.cursor) params.push(`cursor=${encodeURIComponent(options.cursor)}`);
 	const path = `/v1/bots/${encodeURIComponent(botId)}/exchanges/${encodeURIComponent(peerBotId)}${params.length ? `?${params.join("&")}` : ""}`;
 	const response = await apiFetch(path, { headers: { accept: "application/json" }, signal: options.signal });
-	if (!response.ok) throw new ExchangeError(response.status === 404 ? "Conversa não encontrada." : "Não consegui carregar a conversa.", response.status);
+	if (!response.ok) throw new ChatApiError(response.status === 404 ? "Conversa não encontrada." : "Não consegui carregar a conversa.", response.status);
 	const page = parseExchangePage(await response.json());
-	if (!page) throw new ExchangeError("Resposta inesperada do servidor.", 502);
+	if (!page) throw new ChatApiError("Resposta inesperada do servidor.", 502);
 	return page;
 }

@@ -26,6 +26,7 @@ import {
 	Pencil as LucidePencil,
 	Pin as LucidePin,
 	PinOff as LucidePinOff,
+	Lock as LucideLock,
 	FolderInput as LucideFolderInput,
 	FolderOutput as LucideFolderOutput,
 	Plus as LucidePlus,
@@ -272,4 +273,9 @@ export function FolderInputIcon({ size = 20, tone = "foreground" }: LineIconProp
 /** Lucide `FolderOutput` (menu da conversa: Tirar da seção). */
 export function FolderOutputIcon({ size = 20, tone = "foreground" }: LineIconProps) {
 	return <LucideFolderOutput size={size} color={useStroke(tone)} strokeWidth={2} />;
+}
+
+/** Lucide `Lock` (pílula "Somente leitura"). */
+export function LockIcon({ size = 14, tone = "muted-foreground" }: LineIconProps) {
+	return <LucideLock size={size} color={useStroke(tone)} strokeWidth={2} />;
 }
