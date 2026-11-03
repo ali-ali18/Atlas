@@ -10,6 +10,8 @@ import type { AgentRunCheckpoint, ComputerUseEvent } from "@workspace/shared";
 import { runEngineV2, type EngineV2Options } from "./run.js";
 import { estimateMessagesTokens } from "../hygiene.js";
 import { CONTEXT_WINDOW_NOTE } from "./context-keep.js";
+import { FakeTable, installFakes } from "@workspace/db/testing";
+import { dbSkillsStore, resetSkillRunGuardForTests } from "../tools/skills.js";
 
 vi.mock("@workspace/db", async (original) => ({
 	...(await original<typeof import("@workspace/db")>()),
@@ -403,5 +405,28 @@ describe("integração E2/E3: navegador completo, login só estrutural, cartão 
 		expect(outcome).toMatchObject({ name: "AgentRunPausedError" });
 		expect(events.filter((event) => event.type === "login")).toMatchObject([{ site: "gemini.google.com", status: "pending" }]);
 		expect(onLoginRequired).toHaveBeenCalledTimes(1);
+	});
+
+	it("depois de um cartão de skill só informativo (criada sem desfazer) o run continua e termina com a resposta", async () => {
+		resetSkillRunGuardForTests();
+		const docs = new FakeTable([], () => ({ createdAt: new Date(), updatedAt: new Date(), revision: 1, enabled: true, status: "active", createdBy: "user", tools: [], botId: null }));
+		const fakes = installFakes({ skillDoc: docs, skillRevision: new FakeTable(), bot: new FakeTable([{ id: "bot-a", ownerId: "user-a" }]) });
+		// Sem id/revisão não há o que desfazer: o cartão sai como "criada", sem `learned` (antes, isso parava o run).
+		const apply = vi.spyOn(dbSkillsStore, "apply").mockResolvedValue({} as Awaited<ReturnType<typeof dbSkillsStore.apply>>);
+		try {
+			const run = await runBrowser({
+				messages: [{ role: "user", content: "crie uma skill que resume minhas reuniões em tópicos com decisões e próximos passos" }],
+				script: [turn([call("propose_skill", { action: "create", name: "resumo-reunioes", description: "Resume reuniões em tópicos", body: "1. Ler\n2. Resumir" })]), say("Skill criada: resumo-reunioes.")],
+				extra: { autonomy: { level: "autonomous", exceptions: [] } },
+			});
+			const card = run.events.find((event) => event.type === "skill");
+			expect(card).toMatchObject({ type: "skill", action: "created" });
+			expect((card as { learned?: boolean }).learned).not.toBe(true);
+			expect(run.result.stop).toEqual({ reason: "answered" });
+			expect(run.result.text).toContain("Skill criada");
+		} finally {
+			apply.mockRestore();
+			fakes.restore();
+		}
 	});
 });

@@ -1069,14 +1069,17 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			}
 			if (outcome.skillEvent) {
 				cards.push(outcome.skillEvent);
-				// Cartão só informativo (lista, "aprendi", detalhe): o run para, mas não espera decisão.
-				if (outcome.skillEvent.learned !== true && ["listed", "created", "updated", "cleaned", "deleted", "shown"].includes(outcome.skillEvent.action)) awaiting.kind ??= "skill_card";
+				// Cartão só informativo (lista, "aprendi", detalhe, criada/atualizada/apagada): mostra e o run segue.
+				// Só cartão que pede decisão define `awaiting` (confirmação pendente, proposta pendente, questionário, perfil).
 			}
 			if (outcome.skillProposalEvent) {
 				cards.push(outcome.skillProposalEvent);
 				if ((outcome.skillProposalEvent.status ?? "pending") === "pending") awaiting.kind ??= "skill_card";
 			}
-			if (outcome.botProposalEvent) { cards.push(outcome.botProposalEvent); awaiting.kind ??= "skill_card"; }
+			if (outcome.botProposalEvent) {
+				cards.push(outcome.botProposalEvent);
+				if ((outcome.botProposalEvent.status ?? "pending") === "pending") awaiting.kind ??= "skill_card";
+			}
 			if (outcome.routineEvent) cards.push(outcome.routineEvent);
 			if (!pendingCard) preTools.noteSuccess(name, entry);
 			if (outcome.questionnaireEvent) { cards.push(outcome.questionnaireEvent); awaiting.kind ??= "questionnaire"; }
