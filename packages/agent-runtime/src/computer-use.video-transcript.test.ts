@@ -62,6 +62,29 @@ describe("video_transcript: args", () => {
 		expect(() => parseVideoTranscriptArgs({ url: "https://a.test/v", lang: "pt; rm -rf /" })).toThrow("lang");
 		expect(() => parseVideoTranscriptArgs({ url: "https://a.test/v", offset: -1 })).toThrow("offset");
 	});
+	it("rejeita host interno: localhost, loopback, rede privada, link-local e metadata", () => {
+		for (const url of [
+			"http://localhost/v",
+			"http://app.localhost/v",
+			"http://127.0.0.1/v",
+			"http://10.0.0.5/v",
+			"http://192.168.1.1/v",
+			"http://172.16.0.1/v",
+			"http://169.254.169.254/latest/meta-data",
+			"http://[::1]/v",
+			"http://[fe80::1]/v",
+			"http://metadata.google.internal/v",
+		]) {
+			expect(() => parseVideoTranscriptArgs({ url }), url).toThrow("internal address");
+		}
+		expect(parseVideoTranscriptArgs({ url: "https://8.8.8.8/v" }).url).toBe("https://8.8.8.8/v");
+	});
+	it("lang precisa começar por letra (hífen no início viraria exclusão no --sub-langs)", () => {
+		expect(() => parseVideoTranscriptArgs({ url: "https://a.test/v", lang: "-en" })).toThrow("lang");
+		expect(() => parseVideoTranscriptArgs({ url: "https://a.test/v", lang: "_en" })).toThrow("lang");
+		expect(() => parseVideoTranscriptArgs({ url: "https://a.test/v", lang: "1en" })).toThrow("lang");
+		expect(parseVideoTranscriptArgs({ url: "https://a.test/v", lang: "pt-BR" }).lang).toBe("pt-BR");
+	});
 	it("idiomas: o pedido vem primeiro, depois o original e en/pt/es; escolhe o arquivo pela ordem", () => {
 		expect(captionLanguages("pt-BR").slice(0, 4)).toEqual(["pt-BR", "pt-BR-orig", "pt", "pt-orig"]);
 		expect(captionLanguages(undefined)[0]).toBe("en");
@@ -98,15 +121,35 @@ describe("video_transcript: executor", () => {
 		await expect(executeVideoTranscript({ url: "https://youtu.be/xyz", offset: 500 }, ctx({ execShell, execReadFile }))).rejects.toThrow("past the end");
 	});
 
-	it("VTT grande é lido em várias páginas da VM", async () => {
-		const execShell = vi.fn(async () => sh({ stdout: "sub.pt.vtt\n" }));
-		const execReadFile = vi
+	it("VTT grande: fatia uma vez na VM em linhas inteiras e lê cada pedaço uma só vez, sem texto duplicado ou cortado", async () => {
+		// A 1ª leitura (paginada) devolve a última linha cortada no meio ("segun") com nextOffset nela: era isso que duplicava texto.
+		const execShell = vi
 			.fn()
-			.mockResolvedValueOnce(read("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nprimeira", 5))
-			.mockResolvedValueOnce(read("\n\n00:00:01.000 --> 00:00:02.000\nsegunda", null));
+			.mockResolvedValueOnce(sh({ stdout: "sub.pt.vtt\n" }))
+			.mockResolvedValueOnce(sh({ stdout: "/home/atlas/work/.transcripts/k/sub.pt.vtt.chunk.001\n/home/atlas/work/.transcripts/k/sub.pt.vtt.chunk.000\n" }));
+		const execReadFile = vi.fn(async (_s: string, p: { path: string; offset?: number }) => {
+			if (p.path.endsWith("sub.pt.vtt")) return read("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nprimeira\n\n00:00:01.000 --> 00:00:02.000\nsegun", 5);
+			if (p.path.endsWith("chunk.000")) return read("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nprimeira\n");
+			return read("\n00:00:01.000 --> 00:00:02.000\nsegunda\n");
+		});
 		const out = await executeVideoTranscript({ url: "https://youtu.be/xyz", lang: "pt" }, ctx({ execShell, execReadFile }));
-		expect(execReadFile).toHaveBeenCalledTimes(2);
+		const split = (execShell.mock.calls[1] as unknown as [string, { command: string }])[1].command;
+		expect(split).toContain("split -C 38000");
+		expect(execReadFile).toHaveBeenCalledTimes(3);
 		expect(out.summary).toContain("primeira segunda");
+		expect(out.summary).not.toContain("segun segunda");
+		expect(out.summary).not.toContain("truncated");
+	});
+
+	it("VTT com mais pedaços que o teto: avisa que o fim do vídeo ficou de fora", async () => {
+		const chunks = Array.from({ length: 41 }, (_, i) => `/d/c.${String(i).padStart(3, "0")}`).join("\n");
+		const execShell = vi.fn().mockResolvedValueOnce(sh({ stdout: "sub.en.vtt\n" })).mockResolvedValueOnce(sh({ stdout: `${chunks}\n` }));
+		const execReadFile = vi.fn(async (_s: string, p: { path: string }) =>
+			p.path.endsWith(".vtt") ? read("WEBVTT\n", 5) : read("00:00:00.000 --> 00:00:01.000\nfala\n"),
+		);
+		const out = await executeVideoTranscript({ url: "https://youtu.be/xyz" }, ctx({ execShell, execReadFile }));
+		expect(out.summary).toContain("end of the video is missing");
+		expect(execReadFile).toHaveBeenCalledTimes(1 + 40);
 	});
 
 	it("yt-dlp sem legenda no YouTube: cai para captionTracks da página", async () => {

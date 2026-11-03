@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 import type { ChatTool } from "@workspace/llm";
 import { SandboxShellError, type SandboxManager } from "@workspace/sandbox";
 import { decideAction, parseVtt, type AutonomyToolMeta, type EffectiveAutonomy } from "@workspace/shared";
 import { redactSecrets } from "../mcp/sanitize.js";
+import { isPrivateAddress } from "../web-native.js";
 import { UNTRUSTED_PAGE_NOTE } from "./computer-changes.js";
 
 /**
@@ -16,7 +18,7 @@ const DEFAULT_LIMIT = 12_000;
 const MAX_LIMIT = 30_000;
 const MAX_URL_CHARS = 2048;
 const MAX_LANG_CHARS = 12;
-/** Teto do VTT lido da VM (40k caracteres por leitura): vídeos de várias horas viram texto cortado, com aviso. */
+/** Teto de pedaços do VTT lidos da VM (~38 KB cada): vídeos de várias horas viram texto cortado, com aviso. */
 const MAX_READ_PAGES = 40;
 const READ_PAGE_LINES = 2000;
 const SUBTITLE_DIR = "/home/atlas/work/.transcripts";
@@ -56,6 +58,10 @@ export function videoTranscriptBlocked(policy: EffectiveAutonomy): boolean {
 
 export type VideoTranscriptArgs = { url: string; lang?: string; offset: number; limit: number };
 
+function isAsciiLetter(ch: string | undefined): boolean {
+	return ch !== undefined && ((ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z"));
+}
+
 function isLangChar(ch: string): boolean {
 	return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || (ch >= "0" && ch <= "9") || ch === "-" || ch === "_";
 }
@@ -80,10 +86,15 @@ export function parseVideoTranscriptArgs(args: Record<string, unknown>): VideoTr
 		throw new Error("url is not a valid link. Pass the full http(s) address of the video.");
 	}
 	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("url must start with http:// or https://.");
+	// O link é aberto de DENTRO da VM: loopback, rede privada, link-local e metadata de nuvem ficam de fora.
+	const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+	if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal") || (isIP(host) !== 0 && isPrivateAddress(host))) {
+		throw new Error("url points to an internal address. Pass a public video link.");
+	}
 	let lang: string | undefined;
 	if (typeof args.lang === "string" && args.lang.trim()) {
 		lang = args.lang.trim();
-		if (lang.length > MAX_LANG_CHARS || ![...lang].every(isLangChar)) throw new Error("lang must be a short language code such as pt, pt-BR or en.");
+		if (lang.length > MAX_LANG_CHARS || !isAsciiLetter(lang[0]) || ![...lang].every(isLangChar)) throw new Error("lang must be a short language code such as pt, pt-BR or en.");
 	}
 	return {
 		url: parsed.toString(),
@@ -221,16 +232,38 @@ function tail(text: string, max = 300): string {
 	return redactSecrets(t.length > max ? `…${t.slice(t.length - max)}` : t);
 }
 
+const CHUNK_BYTES = 38_000;
+
+/**
+ * Lê o VTT da VM. Arquivo que cabe numa leitura (caso comum) = 1 chamada. Maior que isso: a leitura
+ * por `offset` relia o arquivo inteiro a cada página e cortava a última linha no meio (o próximo
+ * `offset` apontava para ela), então o arquivo é fatiado UMA vez na VM em pedaços de linhas inteiras
+ * (`split -C`, abaixo do teto de caracteres da leitura) e cada pedaço é lido uma única vez.
+ */
 async function readVtt(manager: SandboxManager, sessionId: string, path: string): Promise<{ vtt: string; truncated: boolean }> {
+	const first = await manager.execReadFile(sessionId, { path, offset: 0, limit: READ_PAGE_LINES });
+	if (first.nextOffset === null || first.nextOffset === undefined) return { vtt: first.content, truncated: false };
+
+	const prefix = `${path}.chunk.`;
+	const run = await manager.execShell(sessionId, {
+		command: [
+			`rm -f ${shq(prefix)}*`,
+			`split -C ${CHUNK_BYTES} -d -a 3 -- ${shq(path)} ${shq(prefix)} || exit 2`,
+			`ls -1 ${shq(prefix)}* | head -n ${MAX_READ_PAGES + 1}`,
+		].join("\n"),
+		timeoutS: 60,
+		background: false,
+	});
+	const chunks = run.stdout.split("\n").map((l) => l.trim()).filter(Boolean).sort();
+	if (chunks.length === 0) throw new Error(`Could not split the caption file for reading (${tail(run.stderr) || `exit ${run.exitCode}`}).`);
+	let truncated = chunks.length > MAX_READ_PAGES;
 	let vtt = "";
-	let offset = 0;
-	for (let page = 0; page < MAX_READ_PAGES; page++) {
-		const part = await manager.execReadFile(sessionId, { path, offset, limit: READ_PAGE_LINES });
+	for (const chunk of chunks.slice(0, MAX_READ_PAGES)) {
+		const part = await manager.execReadFile(sessionId, { path: chunk, offset: 0, limit: 10_000 });
 		vtt += `${part.content}\n`;
-		if (part.nextOffset === null || part.nextOffset === undefined) return { vtt, truncated: false };
-		offset = part.nextOffset;
+		if (part.nextOffset !== null && part.nextOffset !== undefined) truncated = true;
 	}
-	return { vtt, truncated: true };
+	return { vtt, truncated };
 }
 
 /**
