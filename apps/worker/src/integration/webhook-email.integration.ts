@@ -96,7 +96,7 @@ describe("e-mail recebido: v2 só com o escopo ampliado e com o mesmo efeito do 
 	}
 
 	for (const [name, policy, engine] of [["v1", V1, undefined], ["v2", V2, "v2"]] as const) {
-		test(`${name}: o e-mail hostil só gera cartão de aprovação para o dono (nada executa)`, async () => {
+		test(`${name}: o e-mail hostil não executa nem pede escrita no conector (e-mail só lê)`, async () => {
 			const { snap, llm: fake } = await runEmail(policy, [
 				{ tools: [{ name: "mcp__erp__create_order", args: { customer: "X" } }] },
 				{ content: "Pedi aprovação ao dono para criar o pedido." },
@@ -110,9 +110,11 @@ describe("e-mail recebido: v2 só com o escopo ampliado e com o mesmo efeito do 
 			const first = fake.requests[0]!;
 			for (const tool of ["email_reply", "email_send", "email_read", "email_list"]) assert.ok(first.toolNames.includes(tool), `${tool} no 1º passo (${name})`);
 			assert.match(systemText(first), /EMAIL_EXTERNO/);
-			// A escrita do conector pede aprovação do dono (e-mail não ganha autonomia): cartão, nada executado.
+			// E-mail recebido só lê (decisão do dono, 03/11): a escrita do conector nem é oferecida ao modelo,
+			// então a ordem hostil não vira cartão nem execução.
+			assert.ok(!first.toolNames.includes("mcp__erp__create_order"), `escrita do conector fora do catálogo (${name})`);
 			const confirms = snap.messages.filter((m) => m.role === "confirm");
-			assert.equal(confirms.length, 1, `um cartão de aprovação (${name})`);
+			assert.equal(confirms.length, 0, `nenhum cartão de aprovação (${name})`);
 		});
 	}
 
