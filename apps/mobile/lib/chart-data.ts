@@ -518,3 +518,12 @@ export function chartA11yLabel(spec: ChartSpec): string {
 
 /** Desenhos que têm leitura própria por item (rosca, funil e medidor): o contêiner não pode agrupar e esconder os filhos. */
 export const CHART_OWN_A11Y: ReadonlySet<ChartDrawing> = new Set<ChartDrawing>(["pie", "funnel", "gauge"]);
+
+/** Tamanho de um desenho quadrado (radar, medidor): o desejado, sem passar da largura do cartão (nem ficar menor que 120 pt). */
+export function fitSize(width: number, desired: number): number {
+	return Math.max(120, Math.min(desired, Math.floor(width)));
+}
+
+/** Largura do rótulo lateral do radar e a folga que o desenho reserva para ele (rótulo + 10 pt de distância do eixo + margem). */
+export const RADAR_LABEL_WIDTH = 60;
+export const RADAR_LABEL_ROOM = RADAR_LABEL_WIDTH + 12;

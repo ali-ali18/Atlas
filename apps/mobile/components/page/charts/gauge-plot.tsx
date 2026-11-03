@@ -2,17 +2,18 @@ import { Canvas, Group, Path, Skia } from "@shopify/react-native-skia";
 import * as React from "react";
 import { View } from "react-native";
 import { Text } from "@/components/ui/text";
-import { gaugeNotches, gaugeRatio, gaugeText } from "@/lib/chart-data";
+import { fitSize, gaugeNotches, gaugeRatio, gaugeText } from "@/lib/chart-data";
 import { hexAlpha } from "@/lib/color-math";
 import { useEntrance } from "./chart-env";
 import type { ChartPlotProps } from "./chart-types";
 
-const SIZE = 240;
-const OUTER = 112;
-const LENGTH = 22;
+const DESIRED = 240;
 
 /** Medidor em arco de 270° com 40 entalhes (como o do web): os preenchidos na cor da série, o resto a 40%; o valor no centro. */
-export function GaugePlot({ spec, theme }: ChartPlotProps) {
+export function GaugePlot({ spec, theme, width }: ChartPlotProps) {
+	const SIZE = fitSize(width, DESIRED);
+	const OUTER = SIZE * 0.467;
+	const LENGTH = SIZE * 0.092;
 	const entrance = useEntrance();
 	const ratio = gaugeRatio(spec);
 	const color = theme.colors.series[0];
@@ -26,7 +27,7 @@ export function GaugePlot({ spec, theme }: ChartPlotProps) {
 			path.lineTo(SIZE / 2 + Math.cos(radians) * OUTER, SIZE / 2 + Math.sin(radians) * OUTER);
 		}
 		return { active: on.detach(), inactive: off.detach() };
-	}, [ratio]);
+	}, [ratio, SIZE, OUTER, LENGTH]);
 	const item = spec.series[0]!;
 	return (
 		<View className="items-center py-2">

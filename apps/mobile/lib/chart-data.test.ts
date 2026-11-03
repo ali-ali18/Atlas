@@ -13,6 +13,7 @@ import {
 	chartValueFormatter,
 	chartXLabels,
 	describeReference,
+	fitSize,
 	funnelGeometry,
 	gaugeNotches,
 	gaugeRatio,
@@ -27,6 +28,8 @@ import {
 	pieShowsPercent,
 	pieSlices,
 	pressRows,
+	RADAR_LABEL_ROOM,
+	RADAR_LABEL_WIDTH,
 	radarGeometry,
 	shouldUseHorizontalBars,
 	sliceColor,
@@ -354,5 +357,17 @@ describe("descrição para leitor de tela", () => {
 	});
 	it("só rosca, funil e medidor têm leitura por item", () => {
 		expect([...CHART_OWN_A11Y].sort()).toEqual(["funnel", "gauge", "pie"]);
+	});
+});
+
+describe("tamanho dos desenhos quadrados", () => {
+	it("nunca passa da largura do cartão (coluna estreita cortava o medidor de 240 pt)", () => {
+		expect(fitSize(200, 240)).toBe(200);
+		expect(fitSize(411, 240)).toBe(240);
+		expect(fitSize(60, 240)).toBe(120);
+		expect(fitSize(300.7, 340)).toBe(300);
+	});
+	it("o rótulo lateral do radar cabe na folga reservada (antes 84 de rótulo para 64 de folga)", () => {
+		expect(RADAR_LABEL_ROOM).toBeGreaterThanOrEqual(RADAR_LABEL_WIDTH + 10);
 	});
 });

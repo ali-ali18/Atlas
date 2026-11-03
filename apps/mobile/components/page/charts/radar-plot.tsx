@@ -2,13 +2,11 @@ import { Canvas, Group, Path, Skia, type SkPath } from "@shopify/react-native-sk
 import * as React from "react";
 import { View } from "react-native";
 import { Text } from "@/components/ui/text";
-import { chartValueFormatter, radarGeometry } from "@/lib/chart-data";
+import { chartValueFormatter, fitSize, RADAR_LABEL_ROOM, RADAR_LABEL_WIDTH, radarGeometry } from "@/lib/chart-data";
 import { seriesColor } from "@/lib/chart-palette";
 import { hexAlpha } from "@/lib/color-math";
 import { useEntrance } from "./chart-env";
 import type { ChartPlotProps } from "./chart-types";
-
-const LABEL_ROOM = 64;
 
 function polygon(points: ReadonlyArray<{ x: number; y: number }>): SkPath {
 	const path = Skia.PathBuilder.Make();
@@ -19,9 +17,9 @@ function polygon(points: ReadonlyArray<{ x: number; y: number }>): SkPath {
 
 /** Radar: eixos = linhas do spec, uma área por série, escala relativa ao maior valor (a legenda informa qual). */
 export function RadarPlot({ spec, theme, width }: ChartPlotProps) {
-	const size = Math.min(Math.max(240, width), 340);
+	const size = fitSize(width, 340);
 	const entrance = useEntrance();
-	const geometry = React.useMemo(() => radarGeometry(spec, size, LABEL_ROOM), [spec, size]);
+	const geometry = React.useMemo(() => radarGeometry(spec, size, RADAR_LABEL_ROOM), [spec, size]);
 	const grid = React.useMemo(() => geometry.grid.map(polygon), [geometry]);
 	const areas = React.useMemo(() => geometry.areas.map(polygon), [geometry]);
 	const axes = React.useMemo(() => {
@@ -55,8 +53,8 @@ export function RadarPlot({ spec, theme, width }: ChartPlotProps) {
 						key={`${label.text}-${index}`}
 						pointerEvents="none"
 						className="absolute text-body"
-						numberOfLines={2}
-						style={{ width: 84, color: theme.label, textAlign: label.align, left: label.align === "left" ? label.x : label.align === "right" ? label.x - 84 : label.x - 42, top: label.y - 9 }}
+						numberOfLines={3}
+						style={{ width: RADAR_LABEL_WIDTH, color: theme.label, textAlign: label.align, left: label.align === "left" ? label.x : label.align === "right" ? label.x - RADAR_LABEL_WIDTH : label.x - RADAR_LABEL_WIDTH / 2, top: label.y - 9 }}
 					>
 						{label.text}
 					</Text>
