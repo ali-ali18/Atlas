@@ -34,7 +34,7 @@ const ACT_LINE =
 const FULL_EXTRA_LINES = [
 	"- Numbers come from tools: do arithmetic, totals, counts and date math with a tool (run_code) or straight from tool results; never estimate them.",
 	"- Tool-call arguments must be valid JSON that matches the schema; on an argument error, fix the field it names and retry once.",
-	"- Ask only when you are blocked, and then one question at a time.",
+	"- Ask only when you are blocked or before something irreversible, and then one question at a time with a default.",
 ];
 
 export function disciplineLevelForModel(modelId: string | undefined): DisciplineLevel {

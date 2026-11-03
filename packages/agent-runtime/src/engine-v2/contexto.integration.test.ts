@@ -407,6 +407,32 @@ describe("integração E2/E3: navegador completo, login só estrutural, cartão 
 		expect(onLoginRequired).toHaveBeenCalledTimes(1);
 	});
 
+	it("browser_read em /acesso: a checagem estrutural acha o campo de senha e pausa; /docs/login sem formulário só vira nota", async () => {
+		const readPage = (url: string, lines: string[]) => ({
+			execNavigate: async (_s: string, target: string) => ({ url: target, title: "Página", ready: true }),
+			execBrowserRead: async () => readResult(url, "Página", "Entre na sua conta"),
+			execBrowserSnapshot: geminiSnapshot(lines),
+		});
+		const events: ComputerUseEvent[] = [];
+		const paused = await runBrowser({
+			messages: [{ role: "user", content: "abra o ERP e leia a página" }],
+			manager: readPage("https://erp.test/acesso", ['[e1] textbox "Senha" (campo de senha: nunca preencha)']),
+			script: [turn([call("browser_read", {})]), say("não deve chegar aqui")],
+			extra: { onEvent: (event: ComputerUseEvent) => void events.push(event) },
+		}).then(() => undefined, (error: unknown) => error);
+		expect(paused).toMatchObject({ name: "AgentRunPausedError" });
+		expect(events.filter((event) => event.type === "login")).toMatchObject([{ site: "erp.test", status: "pending" }]);
+
+		const docs = await runBrowser({
+			messages: [{ role: "user", content: "abra a documentação e leia" }],
+			manager: readPage("https://app.test/docs/login", ['[e1] link "Índice"']),
+			script: [turn([call("browser_read", {})]), say("Li a documentação.")],
+		});
+		expect(docs.result.stop).toEqual({ reason: "answered" });
+		expect(docs.events.some((event) => event.type === "login")).toBe(false);
+		expect(toolResults(docs.events)[0]?.summary).toContain("may need a login");
+	});
+
 	it("depois de um cartão de skill só informativo (criada sem desfazer) o run continua e termina com a resposta", async () => {
 		resetSkillRunGuardForTests();
 		const docs = new FakeTable([], () => ({ createdAt: new Date(), updatedAt: new Date(), revision: 1, enabled: true, status: "active", createdBy: "user", tools: [], botId: null }));

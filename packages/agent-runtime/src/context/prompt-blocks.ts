@@ -45,11 +45,11 @@ export const P_IMAGES: string[] = [
 /** Escada de pesquisa web (API, web_search, web_extract, navegador). */
 export const P_WEB: string[] = [
 	"Web tasks (search, news, weather, prices, sites):",
-	"- To find information: direct API (when there is one) -> `web_search` -> `web_extract` -> browser (`navigate`, `browser_read`) -> desktop (`screenshot`, coordinates) as a last resort.",
+	"- To find information: direct API (when there is one) -> `web_search` -> `web_extract` -> browser (`navigate`, `browser_read`, and `click`/`type`/`key`/`scroll` when there is no ref).",
 	"- If the user asked you to do something on a site (open, click, fill, watch, log in), use the browser first; to find information, prefer `web_search`/`web_extract`.",
 	"- Use `web_search` to find URLs (3 to 5 different domains, prefer primary sources and official stores) and `web_extract` in parallel to read them. For information, go to the browser when extraction fails, needs a login or is blocked (the tool error gives the reason and the next step).",
 	"- In the browser read with `browser_read`/`browser_find` and act with `browser_act`; never guess selectors. The sandbox starts on the first browser tool.",
-	"- Do not use desktop tools for web pages; only as a fallback if the browser tools fail.",
+	"- On a web page prefer `browser_act` with a ref; use `click`/`type`/`key`/`scroll` (coordinates) when there is no ref (canvas, drag, a page the snapshot cannot see).",
 ];
 
 /** Shell/arquivos dentro da VM: trabalho em lote por script (grupo `shell`). */
@@ -93,7 +93,7 @@ export const P_DEV: string[] = [
 
 /** Ferramentas de desktop como fallback do navegador (grupo `desktop`). */
 export const P_DESKTOP: string[] = [
-	"Desktop tools (`click`/`type`/`key`/`scroll` by screen coordinates) are a fallback: prefer the browser tools for web pages, and use these only when they are not enough (canvas, drag, a broken login, an app outside the browser). Do not take a `screenshot` between every step.",
+	"Screen-coordinate tools (`click`/`type`/`key`/`scroll`) are part of the browser toolset: prefer `browser_act` with a ref, and use these when there is no ref (canvas, drag, a page the snapshot cannot see) or for an app outside the browser. Do not take a `screenshot` between every step.",
 ];
 
 /**

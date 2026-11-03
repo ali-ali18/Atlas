@@ -692,6 +692,13 @@ describe("anunciar sem fazer (v2): sinal estrutural, sem regex e sem apagar text
 		// Sem tom agressivo nem "pergunte uma vez só no início" (contradiz a persistência).
 		expect(core).not.toMatch(/\b(MUST|CRITICAL|IMPORTANT)\b/);
 		expect(core).not.toMatch(/at most once, at the start/);
+		// Anunciar em vez de fazer: uma linha só, sem contradizer a persistência.
+		expect(core).toContain("Do not announce an action instead of doing it: call the tool in the same step.");
+		// Credenciais: regra geral no núcleo (vale para toda página, não só quando o detector acerta).
+		expect(core).toContain("Never type passwords, one-time codes or other credentials the user did not give you for this; on a sign-in or verification form, use the vault (login_fill) if available, otherwise tell the user what you need.");
+		// Perguntas: uma regra só ("uma pergunta por vez"), sem o "ONE yes/no question" do bloqueio.
+		expect(core).not.toMatch(/ONE yes\/no/);
+		expect(core.match(/one question at a time/g)).toHaveLength(1);
 		expect(openItemsNote(["x"])).toMatch(/calling the tool in this step/);
 	});
 });

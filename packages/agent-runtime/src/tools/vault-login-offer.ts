@@ -1,4 +1,4 @@
-import { detectEmailCodeStep, detectExtraLoginStep, detectLoginWall, domainMatches, pickVaultLoginForPage, type LoginVaultOffer } from "@workspace/shared";
+import { detectEmailCodeStep, detectExtraLoginStep, detectLoginHint, detectLoginWall, domainMatches, pickVaultLoginForPage, type LoginVaultOffer } from "@workspace/shared";
 import { fetchLoginEmailCode, type EmailSource } from "./email-code.js";
 import type { VaultService } from "../secrets/vault-service.js";
 import { executeLoginFill, LOGIN_CODE_SELECTOR, type VaultToolContext } from "./vault-tools.js";
@@ -100,7 +100,8 @@ const NEEDS_CODE_NOTE = "O site pediu o código enviado ao seu e-mail. Digite o 
 type ReadPage = { url: string; title?: string; text?: string; lines?: readonly string[] };
 
 function pageNeedsPerson(page: ReadPage): boolean {
-	return detectExtraLoginStep(page) || Boolean(detectLoginWall({ url: page.url, title: page.title, text: page.text, lines: page.lines ?? page.text?.split("\n") }));
+	const wallInput = { url: page.url, title: page.title, text: page.text, lines: page.lines ?? page.text?.split("\n") };
+	return detectExtraLoginStep(page) || Boolean(detectLoginWall(wallInput) || detectLoginHint(wallInput));
 }
 
 /**
