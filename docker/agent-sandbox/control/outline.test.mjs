@@ -168,3 +168,12 @@ test("findEntries: regex com quantificador aninhado (ReDoS) é recusada com orie
 	assert.doesNotThrow(() => findEntries([], { query: "pre(ço|co)s?\\d+", regex: true }));
 	assert.doesNotThrow(() => findEntries([], { query: "(foo|bar)", regex: true }));
 });
+
+test("findEntries: heurística de ReDoS aceita regex comuns e recusa as ambíguas", () => {
+	for (const ok of ["(\\d+\\.)+\\d+", "(\\d+,)*", "(\\w+\\s)+", "(?:foo|bar)+"]) {
+		assert.doesNotThrow(() => findEntries([], { query: ok, regex: true }), ok);
+	}
+	for (const bad of ["(a|a)+", "(a|ab)*", "(x+x+)+", "(\\w+\\w)+", "(a+b?)+", "(a*)*"]) {
+		assert.throws(() => findEntries([], { query: bad, regex: true }), /regex arriscada/, bad);
+	}
+});
