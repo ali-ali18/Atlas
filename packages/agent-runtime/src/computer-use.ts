@@ -735,7 +735,7 @@ export const COMPUTER_USE_TOOLS: ChatTool[] = [
 		function: {
 			name: "screenshot",
 			description:
-				"Capture the screen as an image. USE for visual checks only: canvas, charts, layout, or an app outside the browser. Do NOT use it to read text or find elements (browser_read, browser_find). `region` zooms into a rectangle of the last image; `marks` draws each element's ref number on it (12 = e12).",
+				"Capture the screen as an image. USE for visual checks (canvas, charts, layout, an app outside the browser) and when a read does not contain what you just triggered or expect on screen (a side panel, chat answer, overlay): take a screenshot and read it before asking the user. Prefer browser_read or browser_find for ordinary page text. `region` zooms into a rectangle of the last image; `marks` draws each element's ref number on it (12 = e12), so you can click by ref.",
 			parameters: {
 				type: "object",
 				properties: {

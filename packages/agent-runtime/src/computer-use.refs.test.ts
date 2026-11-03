@@ -133,7 +133,15 @@ describe("F12/B - snapshot e ação por ref (replay do caso Bling)", () => {
 
 	it("prompt: formulários e navegação por snapshot/act, screenshot só para verificar", () => {
 		expect(SYSTEM_PROMPT).toContain("`browser_wait` only for slow loads.");
-		expect(SYSTEM_PROMPT).toContain("Use `screenshot` only for visual checks (canvas, charts); only the 2 latest stay in context.");
+		expect(SYSTEM_PROMPT).toContain(
+			"If a read does not contain what you just triggered or expect on screen (a side panel, chat answer, overlay), take a screenshot and read it before asking the user",
+		);
+		expect(SYSTEM_PROMPT).not.toContain("only for visual checks");
+		expect(SYSTEM_PROMPT).toContain("After asking a chat or AI panel, wait for text_stable before reading");
+		const shot = COMPUTER_USE_TOOLS.find((t) => t.function.name === "screenshot");
+		expect(shot?.function.description).toContain("take a screenshot and read it before asking the user");
+		expect(shot?.function.description).not.toContain("Do NOT use it to read text");
+		expect(shot?.function.description).toContain("click by ref");
 	});
 
 	it("não oferece as tools sem sandbox", async () => {

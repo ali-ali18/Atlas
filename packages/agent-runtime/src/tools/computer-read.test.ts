@@ -137,3 +137,11 @@ describe("descrições das tools de leitura", () => {
 		expect(findTool!.function.description).toContain("browser_read");
 	});
 });
+
+describe("formatRead: leitura cortada", () => {
+	it("a nota de capped manda tirar screenshot, não usar browser_find", () => {
+		const out = formatRead(read({ capped: true }), parseReadToolArgs({}));
+		expect(out).toContain("take a screenshot and read it before asking the user");
+		expect(out).not.toContain("browser_find");
+	});
+});

@@ -121,7 +121,7 @@ export function formatRead(result: ControlReadResult, requested: ReadArgs = {}):
 	if (!result.expanded && offset === 0 && !result.truncated && result.totalLength <= SPARSE_READ_MAX_CHARS) {
 		notes.push("Very little text. If the page is still loading, call browser_wait (for:\"stable\") and read again before concluding it is empty.");
 	}
-	if (result.capped) notes.push("The page was cut at the reading cap; use browser_find or scope your question to what you need.");
+	if (result.capped) notes.push("The page was cut at the reading cap and the text may not include what you triggered or expect on screen (a side panel, chat answer, overlay): take a screenshot and read it before asking the user.");
 	if (notes.length > 0) lines.push(notes.join("\n"));
 	return lines.join("\n");
 }
