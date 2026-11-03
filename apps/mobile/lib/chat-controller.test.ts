@@ -715,6 +715,17 @@ describe("/compact", () => {
 		await controller.compact();
 		expect(controller.getSnapshot().persisted.filter((item) => item.id === "cmp-1")).toHaveLength(1);
 	});
+	it("enquanto o servidor compacta, o estado diz `compacting` (a tela mostra \"Compactando a conversa…\"); ao terminar, volta", async () => {
+		let finish: (value: typeof compacted) => void = () => undefined;
+		const { controller } = setup({ api: { compactConversation: () => new Promise((resolve) => (finish = resolve)) } });
+		await controller.open();
+		expect(controller.getSnapshot().compacting).toBe(false);
+		const running = controller.compact();
+		expect(controller.getSnapshot().compacting).toBe(true);
+		finish(compacted);
+		await running;
+		expect(controller.getSnapshot().compacting).toBe(false);
+	});
 	it("conversa curta: aviso do servidor, sem marcador", async () => {
 		const { controller } = setup();
 		await controller.open();

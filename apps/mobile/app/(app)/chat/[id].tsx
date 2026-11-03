@@ -173,6 +173,7 @@ export default function ChatScreen() {
 					ListHeaderComponent={
 						<View>
 							{showThinking ? <ThinkingLine bot={bot} avatar={chat.avatar} /> : null}
+							{chat.compacting && !showThinking ? <ThinkingLine bot={bot} avatar={{ state: "working", label: "Compactando a conversa…" }} /> : null}
 							{chat.line ? <SyncLine line={chat.line} color={color} /> : null}
 							{chat.notice ? (
 								<Text variant="muted" className="px-1 py-2 text-control">

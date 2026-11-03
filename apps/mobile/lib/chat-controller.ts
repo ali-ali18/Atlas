@@ -64,6 +64,8 @@ export type ChatSnapshot = {
 	ready: boolean;
 	sync: SyncState;
 	error: string | null;
+	/** Um `/compact` rodando no servidor: a tela mostra "Compactando a conversa…" e segura novos envios. */
+	compacting: boolean;
 	decisions: Record<string, "approved" | "rejected">;
 	answered: Record<string, true>;
 };
@@ -74,7 +76,7 @@ const DEFAULT_RETRY = [400, 1_000, 2_000] as const;
 type Queued = { text: string; optimisticId: string; replyToMessageId?: string };
 
 function initial(): ChatSnapshot {
-	return { persisted: [], live: createLiveState(), hasMore: false, loadingOlder: false, following: false, creating: false, ready: false, sync: initialSync, error: null, decisions: {}, answered: {} };
+	return { persisted: [], live: createLiveState(), hasMore: false, loadingOlder: false, following: false, creating: false, ready: false, sync: initialSync, error: null, compacting: false, decisions: {}, answered: {} };
 }
 
 export class ChatController {
@@ -609,7 +611,7 @@ export class ChatController {
 			return false;
 		}
 		this.compacting = true;
-		this.set({ error: null });
+		this.set({ error: null, compacting: true });
 		try {
 			const result = await this.deps.api.compactConversation(convId, focus);
 			if (this.disposed || this.conversationId !== convId) return false;
@@ -626,6 +628,7 @@ export class ChatController {
 			return false;
 		} finally {
 			this.compacting = false;
+			if (!this.disposed) this.set({ compacting: false });
 		}
 	}
 

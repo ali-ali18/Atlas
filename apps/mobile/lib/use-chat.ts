@@ -23,6 +23,8 @@ export type ChatHook = ReturnType<typeof deriveView> & {
 	paused: boolean;
 	notice: string | null;
 	error: string | null;
+	/** Um `/compact` rodando: a tela mostra "Compactando a conversa…". */
+	compacting: boolean;
 	hasMore: boolean;
 	loadingOlder: boolean;
 	ready: boolean;
@@ -140,6 +142,7 @@ export function useChat(bot: HomeBot | undefined): ChatHook {
 		paused: snapshot.live.paused,
 		notice: snapshot.live.notice,
 		error: snapshot.error,
+		compacting: snapshot.compacting,
 		hasMore: snapshot.hasMore,
 		loadingOlder: snapshot.loadingOlder,
 		ready: snapshot.ready,
