@@ -485,6 +485,16 @@ model AgentStep {
   costUsd        Float?
   durationMs     Int?
   idempotencyKey String?
+  /// Span (tracing, PR3c): `model` | `tool`. Nulo em passo sem span (checkpoint, runs antigos).
+  kind           String?
+  provider       String?
+  model          String?
+  cachedTokens   Int?
+  outputTokens   Int?
+  ttftMs         Int?
+  finishReason   String?
+  /// Decisão da política antes da tool: `allow` | `confirm` | `blocked`.
+  policyDecision String?
   createdAt      DateTime @default(now())
 
   @@unique([runId, decisionIndex, subIndex])

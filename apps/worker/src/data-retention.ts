@@ -24,6 +24,6 @@ export async function scheduleDataRetention(queue: SchedulerQueue): Promise<void
 /** Processador do job: limpa e registra só contagens. */
 export async function processDataRetention(run: (now: Date) => Promise<RetentionResult> = runDataRetention, now = new Date()): Promise<RetentionResult> {
 	const result = await run(now);
-	console.log(`[retention] run_events apagados=${result.runEvents} routine_runs apagadas=${result.routineRuns}`);
+	console.log(`[retention] run_events apagados=${result.runEvents} agent_steps apagados=${result.agentSteps} routine_runs apagadas=${result.routineRuns}`);
 	return result;
 }

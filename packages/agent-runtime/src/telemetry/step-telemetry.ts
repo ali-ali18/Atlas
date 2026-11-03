@@ -58,7 +58,7 @@ export function modelStepTelemetry(input: {
 export function toolStepTelemetry(
 	toolName: string,
 	toolMs: number,
-	extra?: Pick<StepTelemetry, "nav" | "rung">,
+	extra?: Pick<StepTelemetry, "nav" | "rung" | "policyDecision">,
 ): StepTelemetry {
 	return {
 		v: 1,
@@ -66,6 +66,7 @@ export function toolStepTelemetry(
 		toolMs: round(toolMs),
 		...(extra?.nav ? { nav: extra.nav } : {}),
 		...(extra?.rung ? { rung: extra.rung } : {}),
+		...(extra?.policyDecision ? { policyDecision: extra.policyDecision } : {}),
 	};
 }
 

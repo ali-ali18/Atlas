@@ -24,8 +24,8 @@ test("o job roda a retenção com o horário de agora e devolve as contagens", a
 	const log = console.log;
 	console.log = () => undefined;
 	try {
-		const result = await processDataRetention(async (at) => ((seen = at), { runEvents: 12, routineRuns: 3 }), now);
-		assert.deepEqual(result, { runEvents: 12, routineRuns: 3 });
+		const result = await processDataRetention(async (at) => ((seen = at), { runEvents: 12, agentSteps: 7, routineRuns: 3 }), now);
+		assert.deepEqual(result, { runEvents: 12, agentSteps: 7, routineRuns: 3 });
 		assert.equal(seen, now);
 	} finally {
 		console.log = log;

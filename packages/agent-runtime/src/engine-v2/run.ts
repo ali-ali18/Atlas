@@ -91,7 +91,7 @@ import { compactWithSummary, createStreamSummarizer } from "../context/summary-c
 import { buildRunStateBlock, type RunStateLastTool } from "./run-state.js";
 import { CONTEXT_WARN_RATIO, CONTEXT_SOFT_RATIO, CONTEXT_HARD_RATIO, CONTEXT_WINDOW_NOTE, contextKeepEnabled } from "./context-keep.js";
 import { toolsJsonCharsOf } from "../tools-json-size.js";
-import { modelStepTelemetry } from "../telemetry/step-telemetry.js";
+import { modelStepTelemetry, toolStepTelemetry } from "../telemetry/step-telemetry.js";
 import { isUnattendedOrigin } from "../autonomy-gate.js";
 import {
 	AgentRunCancelledError,
@@ -1045,10 +1045,15 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 		let fileEvent: Extract<ComputerUseEvent, { type: "file" }> | undefined;
 		const cards: ComputerUseEvent[] = [];
 		const startedAt = Date.now();
+		let policyDecision: "allow" | "confirm" | "blocked" = "allow";
 		try {
 			await ensureContinue();
 			const preTool = preTools.run(name, args, entry);
-			if (preTool.error) throw new Error(preTool.error);
+			if (preTool.error) {
+				policyDecision = "blocked";
+				throw new Error(preTool.error);
+			}
+			if (preTool.forceConfirm) policyDecision = "confirm";
 			// Documento de trabalho longo: as fontes e o que não foi confirmado vêm do caderno, não da memória do modelo.
 			let toolArgs = args;
 			if (name === "create_file" && typeof args.filename === "string") {
@@ -1121,6 +1126,8 @@ export async function runEngineV2(params: ComputerUseParams, options: EngineV2Op
 			status: ok ? "completed" : "failed",
 			idempotencyKey,
 			durationMs,
+			// Span da tool (tracing): nome, tempo do executor e decisão da política; nunca args nem resultado.
+			telemetry: toolStepTelemetry(name, durationMs, { policyDecision }),
 			outputJson: {
 				summary,
 				ok,

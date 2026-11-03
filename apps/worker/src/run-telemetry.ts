@@ -1,3 +1,4 @@
+import type { SpanInput } from "@workspace/db";
 import type { RuntimeStepRecord } from "@workspace/agent-runtime";
 import type { JevTelemetry, RunTelemetryMeta, RunUsage } from "@workspace/shared";
 
@@ -28,6 +29,32 @@ export function stepTelemetryFields(step: RuntimeStepRecord): {
 		...(step.durationMs !== undefined ? { durationMs: step.durationMs } : {}),
 		...(step.costUsd !== undefined ? { costUsd: step.costUsd } : {}),
 	};
+}
+
+/**
+ * Span (tracing, PR3c) de um passo do runtime: um por chamada de modelo e um por tool terminada. Passo sem
+ * telemetria útil (checkpoint, `tool` em andamento) não gera span. Só metadados, como o resto deste arquivo.
+ */
+export function spanFromStep(step: RuntimeStepRecord): Omit<SpanInput, "userId" | "runId"> | null {
+	const telemetry = step.telemetry;
+	if (step.type === "model") {
+		const output = step.outputJson && typeof step.outputJson === "object" && !Array.isArray(step.outputJson) ? (step.outputJson as { finishReason?: unknown }) : undefined;
+		return {
+			decisionIndex: step.decisionIndex,
+			subIndex: step.subIndex,
+			kind: "model",
+			provider: telemetry?.provider,
+			model: telemetry?.servedModel ?? telemetry?.requestedModel,
+			cachedTokens: telemetry?.cachedTokens,
+			outputTokens: telemetry?.completionTokens,
+			ttftMs: telemetry?.ttftMs,
+			finishReason: typeof output?.finishReason === "string" ? output.finishReason : undefined,
+		};
+	}
+	if (step.type === "tool_result" && telemetry?.toolName) {
+		return { decisionIndex: step.decisionIndex, subIndex: step.subIndex, kind: "tool", policyDecision: telemetry.policyDecision };
+	}
+	return null;
 }
 
 /** Setup (lease → 1a chamada ao modelo) e pós-conclusão (fim do runtime → gravação final). */
