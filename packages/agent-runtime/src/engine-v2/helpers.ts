@@ -32,7 +32,7 @@ import {
 	type RunUsage,
 	type SubagentStatus,
 } from "@workspace/shared";
-import type { RuntimeStepRecord } from "../computer-use.js";
+import type { RuntimeStepRecord } from "../run-types.js";
 import { isControlFlowError } from "../errors.js";
 import { redactSecrets, sanitizeErrorMessage } from "../mcp/sanitize.js";
 import type { McpRuntime } from "../mcp/runtime.js";
